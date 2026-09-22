@@ -65,6 +65,16 @@ target_compile_definitions(quantapdf_test_composer_barcode PRIVATE
 add_test(NAME quantapdf.composer_barcode COMMAND quantapdf_test_composer_barcode)
 set_tests_properties(quantapdf.composer_barcode PROPERTIES TIMEOUT 30)
 
+add_executable(quantapdf_test_composer_navigation
+  test_composer_navigation.c)
+target_link_libraries(quantapdf_test_composer_navigation PRIVATE
+  QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_composer_navigation PRIVATE
+  COMPOSER_NAVIGATION_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composer-navigation-output.pdf")
+add_test(NAME quantapdf.composer_navigation
+  COMMAND quantapdf_test_composer_navigation)
+set_tests_properties(quantapdf.composer_navigation PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_test_jpeg_validator
   test_jpeg_validator.c
   composer_test_helpers.cpp
