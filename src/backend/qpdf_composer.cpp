@@ -394,6 +394,188 @@ void append_path_content(
     content += " Q\n";
 }
 
+
+QPDFObjectHandle navigation_destination(
+    std::vector<QPDFObjectHandle> const& pages,
+    quantapdf_composer const* composer,
+    size_t page_index,
+    quantapdf_point target)
+{
+    auto destination = QPDFObjectHandle::newArray();
+    double const pdf_y =
+        composer->pages[page_index].height_points - target.y;
+    destination.appendItem(pages[page_index]);
+    destination.appendItem(QPDFObjectHandle::newName("/XYZ"));
+    destination.appendItem(QPDFObjectHandle::newReal(
+        target.x, decimal_precision(target.x)));
+    destination.appendItem(QPDFObjectHandle::newReal(
+        pdf_y, decimal_precision(pdf_y)));
+    destination.appendItem(QPDFObjectHandle::newNull());
+    return destination;
+}
+
+QPDFObjectHandle navigation_rectangle(
+    quantapdf_composer_page_state const& page,
+    quantapdf_rect const& rect)
+{
+    auto result = QPDFObjectHandle::newArray();
+    double const bottom = page.height_points - rect.y1;
+    double const top = page.height_points - rect.y0;
+    result.appendItem(QPDFObjectHandle::newReal(
+        rect.x0, decimal_precision(rect.x0)));
+    result.appendItem(QPDFObjectHandle::newReal(
+        bottom, decimal_precision(bottom)));
+    result.appendItem(QPDFObjectHandle::newReal(
+        rect.x1, decimal_precision(rect.x1)));
+    result.appendItem(QPDFObjectHandle::newReal(
+        top, decimal_precision(top)));
+    return result;
+}
+
+void apply_composer_links(
+    QPDF& pdf,
+    quantapdf_composer const* composer,
+    std::vector<QPDFObjectHandle> const& pages)
+{
+    for (size_t i = 0u; i < composer->link_count; ++i) {
+        auto const& link = composer->links[i];
+        auto annotation = QPDFObjectHandle::newDictionary();
+        auto border = QPDFObjectHandle::newArray();
+        border.appendItem(QPDFObjectHandle::newInteger(0));
+        border.appendItem(QPDFObjectHandle::newInteger(0));
+        border.appendItem(QPDFObjectHandle::newInteger(0));
+
+        annotation.replaceKey("/Type", QPDFObjectHandle::newName("/Annot"));
+        annotation.replaceKey("/Subtype", QPDFObjectHandle::newName("/Link"));
+        annotation.replaceKey(
+            "/Rect",
+            navigation_rectangle(
+                composer->pages[link.page_index], link.hotspot));
+        annotation.replaceKey("/Border", border);
+
+        if (link.kind == QUANTAPDF_COMPOSER_LINK_URI_INTERNAL) {
+            auto action = QPDFObjectHandle::newDictionary();
+            action.replaceKey("/S", QPDFObjectHandle::newName("/URI"));
+            action.replaceKey(
+                "/URI", QPDFObjectHandle::newUnicodeString(link.uri_utf8));
+            annotation.replaceKey("/A", action);
+        } else {
+            annotation.replaceKey(
+                "/Dest",
+                navigation_destination(
+                    pages, composer, link.target_page_index, link.target));
+        }
+
+        auto annots = pages[link.page_index].getKey("/Annots");
+        if (annots.isNull()) {
+            annots = QPDFObjectHandle::newArray();
+            pages[link.page_index].replaceKey("/Annots", annots);
+        }
+        if (!annots.isArray())
+            throw std::logic_error("composer page Annots is not an array");
+        annots.appendItem(pdf.makeIndirectObject(annotation));
+    }
+}
+
+void link_outline_children(
+    QPDFObjectHandle parent,
+    std::vector<size_t> const& children,
+    std::vector<QPDFObjectHandle> const& nodes)
+{
+    if (children.empty())
+        return;
+    parent.replaceKey("/First", nodes[children.front()]);
+    parent.replaceKey("/Last", nodes[children.back()]);
+    for (size_t position = 0u; position < children.size(); ++position) {
+        auto node = nodes[children[position]];
+        if (position != 0u)
+            node.replaceKey("/Prev", nodes[children[position - 1u]]);
+        if (position + 1u < children.size())
+            node.replaceKey("/Next", nodes[children[position + 1u]]);
+    }
+}
+
+void apply_composer_outlines(
+    QPDF& pdf,
+    quantapdf_composer const* composer,
+    std::vector<QPDFObjectHandle> const& pages)
+{
+    if (composer->outline_count == 0u)
+        return;
+
+    auto outline_root =
+        pdf.makeIndirectObject(QPDFObjectHandle::newDictionary());
+    outline_root.replaceKey("/Type", QPDFObjectHandle::newName("/Outlines"));
+
+    std::vector<QPDFObjectHandle> nodes;
+    nodes.reserve(composer->outline_count);
+    for (size_t i = 0u; i < composer->outline_count; ++i) {
+        auto const& source = composer->outlines[i];
+        auto node = QPDFObjectHandle::newDictionary();
+        node.replaceKey("/Type", QPDFObjectHandle::newName("/Outline"));
+        node.replaceKey(
+            "/Title", QPDFObjectHandle::newUnicodeString(source.title_utf8));
+        node.replaceKey(
+            "/Dest",
+            navigation_destination(
+                pages, composer, source.target_page_index, source.target));
+        nodes.push_back(pdf.makeIndirectObject(node));
+    }
+
+    std::vector<std::vector<size_t>> children(composer->outline_count + 1u);
+    for (size_t i = 0u; i < composer->outline_count; ++i) {
+        auto const parent_id = composer->outlines[i].parent_id;
+        children[static_cast<size_t>(parent_id)].push_back(i);
+        nodes[i].replaceKey(
+            "/Parent",
+            parent_id == 0u
+                ? outline_root
+                : nodes[static_cast<size_t>(parent_id) - 1u]);
+    }
+
+    link_outline_children(outline_root, children[0], nodes);
+    for (size_t i = 0u; i < composer->outline_count; ++i)
+        link_outline_children(nodes[i], children[i + 1u], nodes);
+
+    std::vector<size_t> descendants(composer->outline_count, 0u);
+    for (size_t i = composer->outline_count; i-- > 0u;) {
+        auto const parent_id = composer->outlines[i].parent_id;
+        if (parent_id != 0u) {
+            size_t& parent_descendants =
+                descendants[static_cast<size_t>(parent_id) - 1u];
+            if (parent_descendants >
+                std::numeric_limits<size_t>::max() - descendants[i] - 1u)
+                throw std::overflow_error("outline descendant count overflow");
+            parent_descendants += descendants[i] + 1u;
+        }
+    }
+    for (size_t i = 0u; i < composer->outline_count; ++i) {
+        if (descendants[i] == 0u)
+            continue;
+        auto const value = static_cast<long long>(descendants[i]);
+        nodes[i].replaceKey(
+            "/Count",
+            QPDFObjectHandle::newInteger(
+                composer->outlines[i].is_open ? value : -value));
+    }
+    outline_root.replaceKey(
+        "/Count",
+        QPDFObjectHandle::newInteger(
+            static_cast<long long>(composer->outline_count)));
+    pdf.getRoot().replaceKey("/Outlines", outline_root);
+}
+
+void apply_composer_navigation(
+    QPDF& pdf,
+    quantapdf_composer const* composer)
+{
+    auto pages = pdf.getAllPages();
+    if (pages.size() != composer->page_count)
+        throw std::logic_error("composer page count mismatch");
+    apply_composer_links(pdf, composer, pages);
+    apply_composer_outlines(pdf, composer, pages);
+}
+
 std::string page_content(
     quantapdf_composer const* composer,
     std::size_t page_index)
@@ -730,6 +912,7 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                 "/Contents", pdf.newStream(page_content(composer, page_index)));
             pdf.addPage(pdf.makeIndirectObject(page), false);
         }
+        apply_composer_navigation(pdf, composer);
 
         QPDFWriter writer(pdf);
         writer.setOutputMemory();
