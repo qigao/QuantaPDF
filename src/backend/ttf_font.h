@@ -15,7 +15,8 @@ namespace quantapdf::detail {
 
 enum class sfnt_outline_kind {
     true_type,
-    cff
+    cff,
+    cff2
 };
 
 struct ttf_font_face {
