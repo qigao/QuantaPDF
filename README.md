@@ -68,9 +68,10 @@ The current supported surface includes:
 - explicit AES-256 encrypt, authenticated decrypt, and re-encrypt transforms
 - immutable CropBox crop, MediaBox trim, poster-split, interactive-content
   flattening, lossless rewrite/GC, and selective image recompression transforms
-- deterministic PDF composition from formatted base-14 text, JPEG/PNG images,
-  opaque stroked/filled vector paths, vector Code 128B/Code 39/EAN-13/
-  UPC-A/EAN-8/UPC-E/QR barcodes, URI/internal links, and hierarchical outlines
+- deterministic PDF composition from Base-14 or embedded TrueType-outline text,
+  JPEG/PNG images, opaque stroked/filled vector paths, vector Code 128B/Code 39/
+  EAN-13/UPC-A/EAN-8/UPC-E/QR barcodes, URI/internal links, and hierarchical
+  outlines
 - stable status strings and one allocator-matched `quantapdf_free()` entry point
 
 ## API contract
@@ -197,11 +198,20 @@ as a PDF soft mask. JPEG supports baseline 8-bit gray and RGB images;
 progressive JPEG is rejected before decode to preserve the configured memory
 bound.
 
-V1 text accepts UTF-8 input that is representable by WinAnsi and the 12
-Helvetica/Times/Courier base-14 variants. Invalid UTF-8 or unrepresentable
-code points fail explicitly. Complex-script shaping and embedded TTF/OTF fonts
-are intentionally reserved for an additive future API; V1 never substitutes
-missing glyphs silently.
+The original `quantapdf_composer_draw_text()` contract remains Base-14 +
+WinAnsi and is unchanged. For embedded fonts, register caller-owned SFNT bytes
+with `quantapdf_composer_add_font()`, then draw UTF-8 through
+`quantapdf_composer_draw_embedded_text()` using the returned nonzero
+`font_id`. QuantaPDF copies and owns the font bytes; registering identical
+bytes again reuses the existing ID.
+
+The 2.10 embedded-font path accepts TrueType outlines (`glyf`/`loca`) in
+TTF or OpenType-TT containers, supports Unicode cmap format 4 and 12, embeds
+the complete font as `FontFile2`, and emits `ToUnicode` for extraction.
+CFF/CFF2-only OTF is rejected as unsupported. Text is mapped directly from
+Unicode code points to glyph IDs; GSUB/GPOS shaping, bidi reordering, ligature
+formation, and script-specific shaping are not claimed. Missing glyphs fail
+explicitly instead of being substituted silently.
 
 The default capacity is 1,024 pages, 1,000,000 draw operations, and 256 MiB for
 owned text/image resources and bounded image-decoder working memory. Supply
