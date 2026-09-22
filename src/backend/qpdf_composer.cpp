@@ -536,11 +536,24 @@ QPDFObjectHandle make_embedded_font(
     embedded_font_usage const& usage,
     size_t font_index)
 {
+    std::vector<unsigned char> subset;
+    unsigned char const* embedded_data = state.data;
+    size_t embedded_size = state.size;
+    quantapdf_status const subset_status =
+        quantapdf::detail::subset_true_type_font(
+            face, usage.glyph_to_unicode, &subset);
+    if (subset_status == QUANTAPDF_OK &&
+        !subset.empty() && subset.size() < state.size) {
+        embedded_data = subset.data();
+        embedded_size = subset.size();
+    }
+
     auto font_file = pdf.newStream(std::string(
-        reinterpret_cast<char const*>(state.data), state.size));
+        reinterpret_cast<char const*>(embedded_data), embedded_size));
     font_file.getDict().replaceKey(
         "/Length1",
-        QPDFObjectHandle::newInteger(static_cast<long long>(state.size)));
+        QPDFObjectHandle::newInteger(
+            static_cast<long long>(embedded_size)));
 
     auto descriptor = QPDFObjectHandle::newDictionary();
     descriptor.replaceKey("/Type", QPDFObjectHandle::newName("/FontDescriptor"));
