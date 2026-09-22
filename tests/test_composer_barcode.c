@@ -157,6 +157,12 @@ static int test_validation(void)
               composer, 0u, QUANTAPDF_BARCODE_EAN_8,
               "95012340", &bounds, &options) == QUANTAPDF_ERROR_FORMAT);
     CHECK(quantapdf_composer_draw_barcode(
+              composer, 0u, QUANTAPDF_BARCODE_UPC_E,
+              "01234550", &bounds, &options) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_composer_draw_barcode(
+              composer, 0u, QUANTAPDF_BARCODE_UPC_E,
+              "21234558", &bounds, &options) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_composer_draw_barcode(
               composer, 0u, QUANTAPDF_BARCODE_QR,
               bad_utf8, &bounds, &options) == QUANTAPDF_ERROR_FORMAT);
     CHECK(quantapdf_composer_draw_barcode(
@@ -193,10 +199,11 @@ static int test_generation(void)
     const quantapdf_rect ean13_bounds = {10.0f, 50.0f, 123.0f, 90.0f};
     const quantapdf_rect upca_bounds = {10.0f, 50.0f, 123.0f, 90.0f};
     const quantapdf_rect ean8_bounds = {10.0f, 50.0f, 91.0f, 90.0f};
+    const quantapdf_rect upce_bounds = {10.0f, 50.0f, 77.0f, 90.0f};
     const quantapdf_rect qr_bounds = {100.0f, 100.0f, 129.0f, 129.0f};
 
     CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
-    for (page = 0u; page < 6u; ++page)
+    for (page = 0u; page < 7u; ++page)
         CHECK(add_page(composer, page));
 
     CHECK(quantapdf_composer_draw_barcode(
@@ -215,7 +222,10 @@ static int test_generation(void)
               composer, 4u, QUANTAPDF_BARCODE_EAN_8,
               "95012346", &ean8_bounds, &options) == QUANTAPDF_OK);
     CHECK(quantapdf_composer_draw_barcode(
-              composer, 5u, QUANTAPDF_BARCODE_QR,
+              composer, 5u, QUANTAPDF_BARCODE_UPC_E,
+              "01234558", &upce_bounds, &options) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_draw_barcode(
+              composer, 6u, QUANTAPDF_BARCODE_QR,
               "A", &qr_bounds, &options) == QUANTAPDF_OK);
 
     CHECK(quantapdf_composer_finish(composer, &first) == QUANTAPDF_OK);
@@ -235,6 +245,9 @@ static int test_generation(void)
         "21 150 m 22 150 l 22 110 l 21 110 l h"));
     CHECK(quantapdf_test_pdf_content_contains(
         first_data, first_size, 5u,
+        "19 150 m 20 150 l 20 110 l 19 110 l h"));
+    CHECK(quantapdf_test_pdf_content_contains(
+        first_data, first_size, 6u,
         "104 96 m 111 96 l 111 95 l 104 95 l h"));
 
     CHECK(quantapdf_output_save_file(first, COMPOSER_BARCODE_OUTPUT_PDF) ==
@@ -242,7 +255,7 @@ static int test_generation(void)
     CHECK(quantapdf_open(COMPOSER_BARCODE_OUTPUT_PDF, NULL, &document) ==
           QUANTAPDF_OK);
     CHECK(quantapdf_page_count(document, &page_count) == QUANTAPDF_OK);
-    CHECK(page_count == 6);
+    CHECK(page_count == 7);
 
     CHECK(render_page(document, 0, &bitmap, &pixels, &stride));
     CHECK(pixel_is_white(pixels, stride, 15, 20));
@@ -250,7 +263,7 @@ static int test_generation(void)
     quantapdf_drop_bitmap(bitmap);
     bitmap = NULL;
 
-    CHECK(render_page(document, 5, &bitmap, &pixels, &stride));
+    CHECK(render_page(document, 6, &bitmap, &pixels, &stride));
     CHECK(pixel_is_white(pixels, stride, 101, 101));
     CHECK(pixel_is_black(pixels, stride, 105, 104));
 
