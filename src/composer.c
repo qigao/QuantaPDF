@@ -28,16 +28,17 @@ static int quantapdf_composer_path_options_valid(
         (options->stroke != 0 && options->stroke != 1) ||
         (options->fill != 0 && options->fill != 1) ||
         (!options->stroke && !options->fill) ||
-        !isfinite(options->stroke_width) || options->stroke_width < 0.0f ||
         options->fill_rule < QUANTAPDF_COMPOSER_FILL_NONZERO ||
-        options->fill_rule > QUANTAPDF_COMPOSER_FILL_EVEN_ODD ||
-        options->line_cap < QUANTAPDF_COMPOSER_LINE_CAP_BUTT ||
-        options->line_cap > QUANTAPDF_COMPOSER_LINE_CAP_SQUARE ||
-        options->line_join < QUANTAPDF_COMPOSER_LINE_JOIN_MITER ||
-        options->line_join > QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL ||
-        !isfinite(options->miter_limit) || options->miter_limit < 1.0f)
+        options->fill_rule > QUANTAPDF_COMPOSER_FILL_EVEN_ODD)
         return 0;
-    if (options->stroke && (options->stroke_argb >> 24u) != 0xffu)
+    if (options->stroke &&
+        (!isfinite(options->stroke_width) || options->stroke_width < 0.0f ||
+         options->line_cap < QUANTAPDF_COMPOSER_LINE_CAP_BUTT ||
+         options->line_cap > QUANTAPDF_COMPOSER_LINE_CAP_SQUARE ||
+         options->line_join < QUANTAPDF_COMPOSER_LINE_JOIN_MITER ||
+         options->line_join > QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL ||
+         !isfinite(options->miter_limit) || options->miter_limit < 1.0f ||
+         (options->stroke_argb >> 24u) != 0xffu))
         return 0;
     if (options->fill && (options->fill_argb >> 24u) != 0xffu)
         return 0;
