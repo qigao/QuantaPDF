@@ -219,6 +219,8 @@ quantapdf_status quantapdf_composer_create(
     size_t max_operations = QUANTAPDF_COMPOSER_DEFAULT_MAX_OPERATIONS;
     size_t max_resource_bytes =
         QUANTAPDF_COMPOSER_DEFAULT_MAX_RESOURCE_BYTES;
+    size_t max_navigation_items =
+        QUANTAPDF_COMPOSER_DEFAULT_MAX_NAVIGATION_ITEMS;
 
     if (out_composer == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -233,6 +235,10 @@ quantapdf_status quantapdf_composer_create(
             options->max_operations, max_operations);
         max_resource_bytes = quantapdf_composer_limit_or_default(
             options->max_resource_bytes, max_resource_bytes);
+        if (options->struct_size >= QUANTAPDF_COMPOSER_OPTIONS_V2_MIN_SIZE) {
+            max_navigation_items = quantapdf_composer_limit_or_default(
+                options->max_navigation_items, max_navigation_items);
+        }
     }
 
     if (max_pages > SIZE_MAX / sizeof(quantapdf_composer_page_state))
@@ -244,6 +250,7 @@ quantapdf_status quantapdf_composer_create(
     composer->max_pages = max_pages;
     composer->max_operations = max_operations;
     composer->max_resource_bytes = max_resource_bytes;
+    composer->max_navigation_items = max_navigation_items;
     *out_composer = composer;
     return QUANTAPDF_OK;
 }
@@ -533,6 +540,12 @@ void quantapdf_drop_composer(quantapdf_composer *composer)
         free(composer->images[i].alpha_data);
     for (i = 0u; i < composer->image_count; ++i)
         free(composer->images[i].data);
+    for (i = 0u; i < composer->link_count; ++i)
+        free(composer->links[i].uri_utf8);
+    for (i = 0u; i < composer->outline_count; ++i)
+        free(composer->outlines[i].title_utf8);
+    free(composer->outlines);
+    free(composer->links);
     free(composer->images);
     free(composer->operations);
     free(composer->pages);

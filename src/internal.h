@@ -129,10 +129,34 @@ typedef struct quantapdf_composer_operation {
     } value;
 } quantapdf_composer_operation;
 
+
+typedef enum quantapdf_composer_link_kind_internal {
+    QUANTAPDF_COMPOSER_LINK_URI_INTERNAL = 1,
+    QUANTAPDF_COMPOSER_LINK_PAGE_INTERNAL = 2
+} quantapdf_composer_link_kind_internal;
+
+typedef struct quantapdf_composer_link_state {
+    size_t page_index;
+    quantapdf_rect hotspot;
+    quantapdf_composer_link_kind_internal kind;
+    char *uri_utf8;
+    size_t target_page_index;
+    quantapdf_point target;
+} quantapdf_composer_link_state;
+
+typedef struct quantapdf_composer_outline_state {
+    char *title_utf8;
+    quantapdf_composer_outline_id parent_id;
+    size_t target_page_index;
+    quantapdf_point target;
+    int is_open;
+} quantapdf_composer_outline_state;
+
 struct quantapdf_composer {
     size_t max_pages;
     size_t max_operations;
     size_t max_resource_bytes;
+    size_t max_navigation_items;
     quantapdf_composer_page_state *pages;
     size_t page_count;
     size_t page_capacity;
@@ -142,6 +166,12 @@ struct quantapdf_composer {
     quantapdf_composer_image_state *images;
     size_t image_count;
     size_t image_capacity;
+    quantapdf_composer_link_state *links;
+    size_t link_count;
+    size_t link_capacity;
+    quantapdf_composer_outline_state *outlines;
+    size_t outline_count;
+    size_t outline_capacity;
     size_t resource_bytes;
 };
 
