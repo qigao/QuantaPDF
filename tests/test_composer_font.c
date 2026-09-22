@@ -250,6 +250,7 @@ static int test_embedded_text(
           QUANTAPDF_OK);
     CHECK(first_size == second_size);
     CHECK(memcmp(first_data, second_data, first_size) == 0);
+    CHECK(first_size < font_size);
 
     CHECK(quantapdf_output_save_file(first, COMPOSER_FONT_OUTPUT_PDF) ==
           QUANTAPDF_OK);
