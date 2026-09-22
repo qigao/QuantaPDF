@@ -538,6 +538,11 @@ void quantapdf_drop_composer(quantapdf_composer *composer)
         else if (composer->operations[i].kind ==
                  QUANTAPDF_COMPOSER_OPERATION_EMBEDDED_TEXT)
             free(composer->operations[i].value.embedded_text.text_utf8);
+        else if (composer->operations[i].kind ==
+                 QUANTAPDF_COMPOSER_OPERATION_GLYPH_RUN) {
+            free(composer->operations[i].value.glyph_run.glyphs);
+            free(composer->operations[i].value.glyph_run.unicode_utf8);
+        }
     }
     for (i = 0u; i < composer->image_count; ++i)
         free(composer->images[i].alpha_data);
