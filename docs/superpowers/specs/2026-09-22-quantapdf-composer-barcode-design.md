@@ -29,15 +29,16 @@ qpdf backend
 - EAN-13: exactly 13 digits with a valid check digit
 - UPC-A: exactly 12 digits with a valid check digit
 - EAN-8: exactly 8 digits with a valid check digit
+- UPC-E: exactly 8 digits using number system 0 or 1, with a valid check digit
 - QR: UTF-8 bytes in byte mode, error-correction level L, versions 1–5
 
 PDFGen calls its printable-ASCII Code 128 implementation "Code-128A" while
 using start symbol 104 (Code Set B). QuantaPDF exposes the correct Code 128B
 name instead.
 
-UPC-E is intentionally deferred inside #70 until its public input contract is
-defined cleanly. PDFGen accepts an expanded 12-digit UPC-A representation,
-which is not an appropriate public convention to copy accidentally.
+UPC-E uses the conventional compact 8-digit representation. Validation expands
+it internally to the equivalent UPC-A value for checksum verification; the
+expanded form is never exposed as the public input contract.
 
 ## Geometry and quiet zones
 
@@ -51,6 +52,7 @@ quiet zones:
 - EAN-13: 11 left, 7 right
 - UPC-A: 9 left, 9 right
 - EAN-8: 7 left, 7 right
+- UPC-E: 9 left, 7 right
 
 QR uses four quiet modules on every side. The largest square fitting inside the
 requested bounds is centered before module placement.
