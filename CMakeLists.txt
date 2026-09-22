@@ -38,6 +38,7 @@ endif()
 add_library(quantapdf_backend STATIC
   src/backend/qpdf_document.cpp
   src/backend/qpdf_composer.cpp
+  src/backend/truetype.c
   src/backend/secure_random.cpp
   src/backend/jpeg_validator.c
   src/backend/jpeg_encoder.cpp
