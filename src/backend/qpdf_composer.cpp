@@ -2,6 +2,7 @@
 
 #include "../internal.h"
 #include "base14_metrics.h"
+#include "ttf_font.h"
 
 #include <qpdf/Buffer.hh>
 #include <qpdf/QPDF.hh>
@@ -17,6 +18,7 @@
 #include <iomanip>
 #include <limits>
 #include <locale>
+#include <map>
 #include <memory>
 #include <optional>
 #include <sstream>
