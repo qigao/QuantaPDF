@@ -619,6 +619,104 @@ static quantapdf_status quantapdf_encode_ean8(
     return quantapdf_module_append(builder, 0, 7u);
 }
 
+
+static const uint8_t quantapdf_upce_parity[2][10] = {
+    {0x38u, 0x34u, 0x32u, 0x31u, 0x2cu,
+     0x26u, 0x23u, 0x2au, 0x29u, 0x25u},
+    {0x07u, 0x0bu, 0x0du, 0x0eu, 0x13u,
+     0x19u, 0x1cu, 0x15u, 0x16u, 0x1au}
+};
+
+static void quantapdf_expand_upce_to_upca(
+    const char *payload,
+    char expanded[13])
+{
+    const char *digits = payload + 1;
+    char last = digits[5];
+    size_t pos = 0u;
+
+    expanded[pos++] = payload[0];
+    if (last == '0' || last == '1' || last == '2') {
+        expanded[pos++] = digits[0];
+        expanded[pos++] = digits[1];
+        expanded[pos++] = last;
+        memcpy(expanded + pos, "0000", 4u);
+        pos += 4u;
+        expanded[pos++] = digits[2];
+        expanded[pos++] = digits[3];
+        expanded[pos++] = digits[4];
+    } else if (last == '3') {
+        expanded[pos++] = digits[0];
+        expanded[pos++] = digits[1];
+        expanded[pos++] = digits[2];
+        memcpy(expanded + pos, "00000", 5u);
+        pos += 5u;
+        expanded[pos++] = digits[3];
+        expanded[pos++] = digits[4];
+    } else if (last == '4') {
+        expanded[pos++] = digits[0];
+        expanded[pos++] = digits[1];
+        expanded[pos++] = digits[2];
+        expanded[pos++] = digits[3];
+        memcpy(expanded + pos, "00000", 5u);
+        pos += 5u;
+        expanded[pos++] = digits[4];
+    } else {
+        expanded[pos++] = digits[0];
+        expanded[pos++] = digits[1];
+        expanded[pos++] = digits[2];
+        expanded[pos++] = digits[3];
+        expanded[pos++] = digits[4];
+        memcpy(expanded + pos, "0000", 4u);
+        pos += 4u;
+        expanded[pos++] = last;
+    }
+    expanded[pos++] = payload[7];
+    expanded[pos] = '\0';
+}
+
+static quantapdf_status quantapdf_encode_upce(
+    quantapdf_module_builder *builder,
+    const char *payload,
+    size_t length)
+{
+    char expanded[13];
+    unsigned int number_system;
+    unsigned int check_digit;
+    uint8_t parity;
+    quantapdf_status status;
+    size_t i;
+
+    if (length != 8u || !quantapdf_digits_valid(payload, length))
+        return QUANTAPDF_ERROR_FORMAT;
+    number_system = (unsigned int)(payload[0] - '0');
+    if (number_system > 1u)
+        return QUANTAPDF_ERROR_FORMAT;
+    quantapdf_expand_upce_to_upca(payload, expanded);
+    if (!quantapdf_check_digit_valid(expanded, 12u))
+        return QUANTAPDF_ERROR_FORMAT;
+
+    check_digit = (unsigned int)(payload[7] - '0');
+    parity = quantapdf_upce_parity[number_system][check_digit];
+
+    status = quantapdf_module_append(builder, 0, 9u);
+    if (status != QUANTAPDF_OK)
+        return status;
+    status = quantapdf_module_append_ascii_bits(builder, "101");
+    if (status != QUANTAPDF_OK)
+        return status;
+    for (i = 0u; i < 6u; ++i) {
+        char set = (parity & (uint8_t)(1u << (5u - i))) != 0u ? 'G' : 'L';
+        status = quantapdf_append_ean_digit(builder, payload[i + 1u], set);
+        if (status != QUANTAPDF_OK)
+            return status;
+    }
+    status = quantapdf_module_append_ascii_bits(builder, "010101");
+    if (status != QUANTAPDF_OK)
+        return status;
+    return quantapdf_module_append(builder, 0, 7u);
+}
+
 static const uint8_t quantapdf_qr_ndata[] = {19u, 34u, 55u, 80u, 108u};
 static const uint8_t quantapdf_qr_necc[] = {7u, 10u, 15u, 20u, 26u};
 
@@ -874,6 +972,9 @@ quantapdf_status quantapdf_composer_draw_barcode(
         break;
     case QUANTAPDF_BARCODE_EAN_8:
         status = quantapdf_encode_ean8(&modules, payload_utf8, length);
+        break;
+    case QUANTAPDF_BARCODE_UPC_E:
+        status = quantapdf_encode_upce(&modules, payload_utf8, length);
         break;
     default:
         status = QUANTAPDF_ERROR_ARGUMENT;
