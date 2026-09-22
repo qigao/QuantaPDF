@@ -278,6 +278,624 @@ uint16_t glyph_format12(
     return 0u;
 }
 
+
+void put16(std::vector<unsigned char>& bytes, size_t at, uint16_t value)
+{
+    bytes[at] = static_cast<unsigned char>(value >> 8u);
+    bytes[at + 1u] = static_cast<unsigned char>(value & 0xffu);
+}
+
+void put32(std::vector<unsigned char>& bytes, size_t at, uint32_t value)
+{
+    bytes[at] = static_cast<unsigned char>(value >> 24u);
+    bytes[at + 1u] = static_cast<unsigned char>((value >> 16u) & 0xffu);
+    bytes[at + 2u] = static_cast<unsigned char>((value >> 8u) & 0xffu);
+    bytes[at + 3u] = static_cast<unsigned char>(value & 0xffu);
+}
+
+void append16(std::vector<unsigned char>& bytes, uint16_t value)
+{
+    bytes.push_back(static_cast<unsigned char>(value >> 8u));
+    bytes.push_back(static_cast<unsigned char>(value & 0xffu));
+}
+
+void append32(std::vector<unsigned char>& bytes, uint32_t value)
+{
+    bytes.push_back(static_cast<unsigned char>(value >> 24u));
+    bytes.push_back(static_cast<unsigned char>((value >> 16u) & 0xffu));
+    bytes.push_back(static_cast<unsigned char>((value >> 8u) & 0xffu));
+    bytes.push_back(static_cast<unsigned char>(value & 0xffu));
+}
+
+void pad4(std::vector<unsigned char>& bytes)
+{
+    while ((bytes.size() & 3u) != 0u)
+        bytes.push_back(0u);
+}
+
+uint32_t checksum_bytes(std::vector<unsigned char> const& bytes)
+{
+    uint32_t sum = 0u;
+    for (size_t at = 0u; at < bytes.size(); at += 4u) {
+        uint32_t word = 0u;
+        for (size_t j = 0u; j < 4u; ++j) {
+            word <<= 8u;
+            if (at + j < bytes.size())
+                word |= bytes[at + j];
+        }
+        sum += word;
+    }
+    return sum;
+}
+
+bool read_table_directory(
+    unsigned char const* data,
+    size_t size,
+    std::map<std::string, table_view>* out)
+{
+    if (data == nullptr || out == nullptr || size < 12u)
+        return false;
+    out->clear();
+    uint16_t const count = be16(data + 4u);
+    if (count == 0u || count > (size - 12u) / 16u)
+        return false;
+    for (uint16_t i = 0u; i < count; ++i) {
+        size_t const at = 12u + static_cast<size_t>(i) * 16u;
+        std::string tag(
+            reinterpret_cast<char const*>(data + at), 4u);
+        size_t const offset = be32(data + at + 8u);
+        size_t const length = be32(data + at + 12u);
+        if (offset > size || length > size - offset ||
+            out->find(tag) != out->end())
+            return false;
+        (*out)[tag] = {offset, length, true};
+    }
+    return true;
+}
+
+bool read_loca_offsets(
+    ttf_font_face const& face,
+    std::map<std::string, table_view> const& tables,
+    std::vector<uint32_t>* out)
+{
+    auto const head_it = tables.find("head");
+    auto const loca_it = tables.find("loca");
+    auto const glyf_it = tables.find("glyf");
+    if (head_it == tables.end() || loca_it == tables.end() ||
+        glyf_it == tables.end() || head_it->second.size < 54u)
+        return false;
+    int16_t const format =
+        bes16(face.data + head_it->second.offset + 50u);
+    size_t const count = static_cast<size_t>(face.num_glyphs) + 1u;
+    out->assign(count, 0u);
+    if (format == 0) {
+        if (loca_it->second.size < count * 2u)
+            return false;
+        for (size_t i = 0u; i < count; ++i)
+            (*out)[i] =
+                static_cast<uint32_t>(
+                    be16(face.data + loca_it->second.offset + i * 2u)) *
+                2u;
+    } else if (format == 1) {
+        if (loca_it->second.size < count * 4u)
+            return false;
+        for (size_t i = 0u; i < count; ++i)
+            (*out)[i] =
+                be32(face.data + loca_it->second.offset + i * 4u);
+    } else {
+        return false;
+    }
+    uint32_t previous = 0u;
+    for (uint32_t offset: *out) {
+        if (offset < previous ||
+            offset > glyf_it->second.size)
+            return false;
+        previous = offset;
+    }
+    return true;
+}
+
+quantapdf_status collect_subset_glyph(
+    ttf_font_face const& face,
+    table_view glyf,
+    std::vector<uint32_t> const& loca,
+    uint16_t glyph,
+    size_t depth,
+    std::vector<unsigned char>* state,
+    std::vector<unsigned char>* included)
+{
+    if (glyph >= face.num_glyphs || depth > 64u)
+        return QUANTAPDF_ERROR_FORMAT;
+    if ((*state)[glyph] == 1u)
+        return QUANTAPDF_ERROR_FORMAT;
+    if ((*state)[glyph] == 2u) {
+        (*included)[glyph] = 1u;
+        return QUANTAPDF_OK;
+    }
+
+    (*state)[glyph] = 1u;
+    (*included)[glyph] = 1u;
+    uint32_t const start = loca[glyph];
+    uint32_t const end = loca[static_cast<size_t>(glyph) + 1u];
+    if (end < start || end > glyf.size) {
+        (*state)[glyph] = 0u;
+        return QUANTAPDF_ERROR_FORMAT;
+    }
+    size_t const length = static_cast<size_t>(end - start);
+    if (length == 0u) {
+        (*state)[glyph] = 2u;
+        return QUANTAPDF_OK;
+    }
+    if (length < 10u) {
+        (*state)[glyph] = 0u;
+        return QUANTAPDF_ERROR_FORMAT;
+    }
+
+    auto const* bytes = face.data + glyf.offset + start;
+    int16_t const contours = bes16(bytes);
+    if (contours < 0) {
+        constexpr uint16_t arg_words = 0x0001u;
+        constexpr uint16_t have_scale = 0x0008u;
+        constexpr uint16_t more_components = 0x0020u;
+        constexpr uint16_t have_xy_scale = 0x0040u;
+        constexpr uint16_t have_two_by_two = 0x0080u;
+        constexpr uint16_t have_instructions = 0x0100u;
+        size_t at = 10u;
+        uint16_t flags = 0u;
+        do {
+            if (at > length || length - at < 4u) {
+                (*state)[glyph] = 0u;
+                return QUANTAPDF_ERROR_FORMAT;
+            }
+            flags = be16(bytes + at);
+            uint16_t const component = be16(bytes + at + 2u);
+            at += 4u;
+            quantapdf_status const status = collect_subset_glyph(
+                face,
+                glyf,
+                loca,
+                component,
+                depth + 1u,
+                state,
+                included);
+            if (status != QUANTAPDF_OK) {
+                (*state)[glyph] = 0u;
+                return status;
+            }
+            size_t extra = (flags & arg_words) != 0u ? 4u : 2u;
+            if ((flags & have_scale) != 0u)
+                extra += 2u;
+            else if ((flags & have_xy_scale) != 0u)
+                extra += 4u;
+            else if ((flags & have_two_by_two) != 0u)
+                extra += 8u;
+            if (extra > length - at) {
+                (*state)[glyph] = 0u;
+                return QUANTAPDF_ERROR_FORMAT;
+            }
+            at += extra;
+        } while ((flags & more_components) != 0u);
+
+        if ((flags & have_instructions) != 0u) {
+            if (at > length || length - at < 2u) {
+                (*state)[glyph] = 0u;
+                return QUANTAPDF_ERROR_FORMAT;
+            }
+            uint16_t const instruction_length = be16(bytes + at);
+            at += 2u;
+            if (instruction_length > length - at) {
+                (*state)[glyph] = 0u;
+                return QUANTAPDF_ERROR_FORMAT;
+            }
+        }
+    }
+
+    (*state)[glyph] = 2u;
+    return QUANTAPDF_OK;
+}
+
+uint16_t source_advance(
+    ttf_font_face const& face,
+    uint16_t glyph)
+{
+    uint16_t const metric = glyph < face.num_h_metrics
+        ? glyph
+        : static_cast<uint16_t>(face.num_h_metrics - 1u);
+    return be16(
+        face.data + face.hmtx_offset +
+        static_cast<size_t>(metric) * 4u);
+}
+
+int16_t source_lsb(
+    ttf_font_face const& face,
+    uint16_t glyph)
+{
+    size_t at;
+    if (glyph < face.num_h_metrics) {
+        at = face.hmtx_offset + static_cast<size_t>(glyph) * 4u + 2u;
+    } else {
+        at = face.hmtx_offset +
+            static_cast<size_t>(face.num_h_metrics) * 4u +
+            static_cast<size_t>(glyph - face.num_h_metrics) * 2u;
+    }
+    return bes16(face.data + at);
+}
+
+std::vector<unsigned char> build_subset_cmap(
+    std::map<uint16_t, uint32_t> const& used_glyphs,
+    uint16_t glyph_count)
+{
+    std::map<uint32_t, uint16_t> by_codepoint;
+    for (auto const& entry: used_glyphs) {
+        if (entry.first < glyph_count && entry.second <= 0x10ffffu)
+            by_codepoint.emplace(entry.second, entry.first);
+    }
+
+    std::vector<std::pair<uint16_t, uint16_t>> bmp;
+    for (auto const& entry: by_codepoint) {
+        if (entry.first <= 0xfffeu)
+            bmp.emplace_back(
+                static_cast<uint16_t>(entry.first), entry.second);
+    }
+
+    std::vector<unsigned char> format4;
+    size_t const seg_count = bmp.size() + 1u;
+    bool const can_format4 =
+        seg_count <= 0x7fffu &&
+        16u + seg_count * 8u <= 0xffffu;
+    if (can_format4) {
+        size_t const length = 16u + seg_count * 8u;
+        format4.assign(length, 0u);
+        put16(format4, 0u, 4u);
+        put16(format4, 2u, static_cast<uint16_t>(length));
+        put16(format4, 4u, 0u);
+        put16(
+            format4, 6u,
+            static_cast<uint16_t>(seg_count * 2u));
+        size_t power = 1u;
+        uint16_t selector = 0u;
+        while (power * 2u <= seg_count) {
+            power *= 2u;
+            ++selector;
+        }
+        put16(
+            format4, 8u,
+            static_cast<uint16_t>(power * 2u));
+        put16(format4, 10u, selector);
+        put16(
+            format4, 12u,
+            static_cast<uint16_t>(seg_count * 2u - power * 2u));
+
+        size_t const end_at = 14u;
+        size_t const start_at = end_at + seg_count * 2u + 2u;
+        size_t const delta_at = start_at + seg_count * 2u;
+        size_t const range_at = delta_at + seg_count * 2u;
+        for (size_t i = 0u; i < bmp.size(); ++i) {
+            put16(format4, end_at + i * 2u, bmp[i].first);
+            put16(format4, start_at + i * 2u, bmp[i].first);
+            put16(
+                format4,
+                delta_at + i * 2u,
+                static_cast<uint16_t>(
+                    bmp[i].second - bmp[i].first));
+        }
+        size_t const sentinel = bmp.size();
+        put16(format4, end_at + sentinel * 2u, 0xffffu);
+        put16(format4, start_at + sentinel * 2u, 0xffffu);
+        put16(format4, delta_at + sentinel * 2u, 1u);
+        for (size_t i = 0u; i < seg_count; ++i)
+            put16(format4, range_at + i * 2u, 0u);
+    }
+
+    struct group {
+        uint32_t first;
+        uint32_t last;
+        uint32_t glyph;
+    };
+    std::vector<group> groups;
+    for (auto const& entry: by_codepoint) {
+        if (!groups.empty()) {
+            group& last = groups.back();
+            uint64_t const expected_glyph =
+                static_cast<uint64_t>(last.glyph) +
+                static_cast<uint64_t>(entry.first - last.first);
+            if (entry.first == last.last + 1u &&
+                expected_glyph == entry.second) {
+                last.last = entry.first;
+                continue;
+            }
+        }
+        groups.push_back(
+            {entry.first, entry.first, entry.second});
+    }
+
+    std::vector<unsigned char> format12;
+    format12.reserve(16u + groups.size() * 12u);
+    append16(format12, 12u);
+    append16(format12, 0u);
+    append32(
+        format12,
+        static_cast<uint32_t>(16u + groups.size() * 12u));
+    append32(format12, 0u);
+    append32(format12, static_cast<uint32_t>(groups.size()));
+    for (auto const& item: groups) {
+        append32(format12, item.first);
+        append32(format12, item.last);
+        append32(format12, item.glyph);
+    }
+
+    uint16_t const record_count =
+        static_cast<uint16_t>(can_format4 ? 2u : 1u);
+    size_t const header_size = 4u + static_cast<size_t>(record_count) * 8u;
+    std::vector<unsigned char> cmap(header_size, 0u);
+    put16(cmap, 0u, 0u);
+    put16(cmap, 2u, record_count);
+    size_t offset = header_size;
+    size_t record = 0u;
+    if (can_format4) {
+        put16(cmap, 4u + record * 8u, 3u);
+        put16(cmap, 6u + record * 8u, 1u);
+        put32(
+            cmap, 8u + record * 8u,
+            static_cast<uint32_t>(offset));
+        cmap.insert(cmap.end(), format4.begin(), format4.end());
+        offset += format4.size();
+        ++record;
+    }
+    while ((offset & 3u) != 0u) {
+        cmap.push_back(0u);
+        ++offset;
+    }
+    put16(cmap, 4u + record * 8u, 3u);
+    put16(cmap, 6u + record * 8u, 10u);
+    put32(
+        cmap, 8u + record * 8u,
+        static_cast<uint32_t>(offset));
+    cmap.insert(cmap.end(), format12.begin(), format12.end());
+    return cmap;
+}
+
+bool copy_subset_safe_table(std::string const& tag)
+{
+    return tag == "OS/2" || tag == "name" || tag == "cvt " ||
+        tag == "fpgm" || tag == "prep" || tag == "gasp";
+}
+
+quantapdf_status build_subset_sfnt(
+    ttf_font_face const& face,
+    std::map<uint16_t, uint32_t> const& used_glyphs,
+    std::vector<unsigned char>* out)
+{
+    std::map<std::string, table_view> source_tables;
+    if (!read_table_directory(
+            face.data, face.size, &source_tables))
+        return QUANTAPDF_ERROR_FORMAT;
+
+    auto const head_it = source_tables.find("head");
+    auto const hhea_it = source_tables.find("hhea");
+    auto const hmtx_it = source_tables.find("hmtx");
+    auto const maxp_it = source_tables.find("maxp");
+    auto const loca_it = source_tables.find("loca");
+    auto const glyf_it = source_tables.find("glyf");
+    if (head_it == source_tables.end() ||
+        hhea_it == source_tables.end() ||
+        hmtx_it == source_tables.end() ||
+        maxp_it == source_tables.end() ||
+        loca_it == source_tables.end() ||
+        glyf_it == source_tables.end())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    std::vector<uint32_t> source_loca;
+    if (!read_loca_offsets(face, source_tables, &source_loca))
+        return QUANTAPDF_ERROR_FORMAT;
+
+    std::vector<unsigned char> state(face.num_glyphs, 0u);
+    std::vector<unsigned char> included(face.num_glyphs, 0u);
+    quantapdf_status status = collect_subset_glyph(
+        face,
+        glyf_it->second,
+        source_loca,
+        0u,
+        0u,
+        &state,
+        &included);
+    if (status != QUANTAPDF_OK)
+        return status;
+    for (auto const& entry: used_glyphs) {
+        if (entry.first >= face.num_glyphs)
+            return QUANTAPDF_ERROR_FORMAT;
+        status = collect_subset_glyph(
+            face,
+            glyf_it->second,
+            source_loca,
+            entry.first,
+            0u,
+            &state,
+            &included);
+        if (status != QUANTAPDF_OK)
+            return status;
+    }
+
+    uint16_t max_glyph = 0u;
+    for (uint32_t glyph = 0u; glyph < face.num_glyphs; ++glyph) {
+        if (included[glyph] != 0u)
+            max_glyph = static_cast<uint16_t>(glyph);
+    }
+    uint16_t const glyph_count =
+        static_cast<uint16_t>(max_glyph + 1u);
+    if (glyph_count == 0u)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    std::vector<unsigned char> glyf;
+    std::vector<uint32_t> loca(
+        static_cast<size_t>(glyph_count) + 1u, 0u);
+    for (uint32_t glyph = 0u; glyph < glyph_count; ++glyph) {
+        loca[glyph] = static_cast<uint32_t>(glyf.size());
+        if (included[glyph] == 0u)
+            continue;
+        uint32_t const start = source_loca[glyph];
+        uint32_t const end = source_loca[glyph + 1u];
+        if (end < start || end > glyf_it->second.size)
+            return QUANTAPDF_ERROR_FORMAT;
+        auto const* begin =
+            face.data + glyf_it->second.offset + start;
+        glyf.insert(glyf.end(), begin, begin + (end - start));
+        pad4(glyf);
+        if (glyf.size() > std::numeric_limits<uint32_t>::max())
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    loca[glyph_count] = static_cast<uint32_t>(glyf.size());
+
+    std::vector<unsigned char> loca_table;
+    loca_table.reserve(loca.size() * 4u);
+    for (uint32_t offset: loca)
+        append32(loca_table, offset);
+
+    std::vector<unsigned char> hmtx;
+    hmtx.reserve(static_cast<size_t>(glyph_count) * 4u);
+    for (uint32_t glyph = 0u; glyph < glyph_count; ++glyph) {
+        append16(
+            hmtx,
+            source_advance(face, static_cast<uint16_t>(glyph)));
+        append16(
+            hmtx,
+            static_cast<uint16_t>(
+                source_lsb(face, static_cast<uint16_t>(glyph))));
+    }
+
+    std::map<std::string, std::vector<unsigned char>> tables;
+    for (auto const& entry: source_tables) {
+        if (!copy_subset_safe_table(entry.first))
+            continue;
+        auto const* begin = face.data + entry.second.offset;
+        tables[entry.first] = std::vector<unsigned char>(
+            begin, begin + entry.second.size);
+    }
+
+    tables["glyf"] = std::move(glyf);
+    tables["loca"] = std::move(loca_table);
+    tables["hmtx"] = std::move(hmtx);
+    tables["cmap"] = build_subset_cmap(used_glyphs, glyph_count);
+
+    {
+        auto const& source = head_it->second;
+        auto const* begin = face.data + source.offset;
+        std::vector<unsigned char> head(
+            begin, begin + source.size);
+        if (head.size() < 54u)
+            return QUANTAPDF_ERROR_FORMAT;
+        put32(head, 8u, 0u);
+        put16(head, 50u, 1u);
+        tables["head"] = std::move(head);
+    }
+    {
+        auto const& source = hhea_it->second;
+        auto const* begin = face.data + source.offset;
+        std::vector<unsigned char> hhea(
+            begin, begin + source.size);
+        if (hhea.size() < 36u)
+            return QUANTAPDF_ERROR_FORMAT;
+        put16(hhea, 34u, glyph_count);
+        tables["hhea"] = std::move(hhea);
+    }
+    {
+        auto const& source = maxp_it->second;
+        auto const* begin = face.data + source.offset;
+        std::vector<unsigned char> maxp(
+            begin, begin + source.size);
+        if (maxp.size() < 6u)
+            return QUANTAPDF_ERROR_FORMAT;
+        put16(maxp, 4u, glyph_count);
+        tables["maxp"] = std::move(maxp);
+    }
+    {
+        std::vector<unsigned char> post(32u, 0u);
+        auto const post_it = source_tables.find("post");
+        if (post_it != source_tables.end()) {
+            size_t const copy =
+                std::min<size_t>(32u, post_it->second.size);
+            std::memcpy(
+                post.data(),
+                face.data + post_it->second.offset,
+                copy);
+        }
+        put32(post, 0u, 0x00030000u);
+        tables["post"] = std::move(post);
+    }
+
+    if (tables.size() > std::numeric_limits<uint16_t>::max())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    uint16_t const table_count =
+        static_cast<uint16_t>(tables.size());
+    if (table_count == 0u)
+        return QUANTAPDF_ERROR_FORMAT;
+
+    size_t power = 1u;
+    uint16_t selector = 0u;
+    while (power * 2u <= table_count) {
+        power *= 2u;
+        ++selector;
+    }
+    size_t const directory_size =
+        12u + static_cast<size_t>(table_count) * 16u;
+    out->assign(directory_size, 0u);
+    put32(*out, 0u, be32(face.data));
+    put16(*out, 4u, table_count);
+    put16(
+        *out, 6u,
+        static_cast<uint16_t>(power * 16u));
+    put16(*out, 8u, selector);
+    put16(
+        *out, 10u,
+        static_cast<uint16_t>(
+            static_cast<size_t>(table_count) * 16u -
+            power * 16u));
+
+    size_t record_index = 0u;
+    size_t head_output_offset = 0u;
+    for (auto const& entry: tables) {
+        pad4(*out);
+        if (out->size() >
+            std::numeric_limits<uint32_t>::max())
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        uint32_t const offset =
+            static_cast<uint32_t>(out->size());
+        uint32_t const length =
+            static_cast<uint32_t>(entry.second.size());
+        uint32_t const checksum =
+            checksum_bytes(entry.second);
+
+        size_t const record_at =
+            12u + record_index * 16u;
+        std::memcpy(
+            out->data() + record_at,
+            entry.first.data(),
+            4u);
+        put32(*out, record_at + 4u, checksum);
+        put32(*out, record_at + 8u, offset);
+        put32(*out, record_at + 12u, length);
+        out->insert(
+            out->end(),
+            entry.second.begin(),
+            entry.second.end());
+        if (entry.first == "head")
+            head_output_offset = offset;
+        ++record_index;
+    }
+    pad4(*out);
+    if (head_output_offset == 0u ||
+        head_output_offset > out->size() ||
+        out->size() - head_output_offset < 12u)
+        return QUANTAPDF_ERROR_FORMAT;
+
+    uint32_t const sum = checksum_bytes(*out);
+    uint32_t const adjustment = 0xb1b0afbau - sum;
+    put32(*out, head_output_offset + 8u, adjustment);
+    if (checksum_bytes(*out) != 0xb1b0afbAu)
+        return QUANTAPDF_ERROR_BACKEND;
+    return QUANTAPDF_OK;
+}
+
 } // namespace
 
 quantapdf_status ttf_font_face::parse(
