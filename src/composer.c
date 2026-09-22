@@ -149,7 +149,7 @@ static int quantapdf_composer_utf8_is_winansi(const char *text)
     return 1;
 }
 
-static quantapdf_status quantapdf_composer_reserve_operation(
+quantapdf_status quantapdf_composer_reserve_operation_internal(
     quantapdf_composer *composer)
 {
     quantapdf_composer_operation *grown;
@@ -402,7 +402,7 @@ quantapdf_status quantapdf_composer_draw_text(
     if (operation.value.text.text_utf8 == NULL)
         return QUANTAPDF_ERROR_NOMEM;
     memcpy(operation.value.text.text_utf8, text_utf8, text_size);
-    status = quantapdf_composer_reserve_operation(composer);
+    status = quantapdf_composer_reserve_operation_internal(composer);
     if (status != QUANTAPDF_OK) {
         free(operation.value.text.text_utf8);
         return status;
@@ -434,7 +434,7 @@ quantapdf_status quantapdf_composer_draw_image(
         options->fit < QUANTAPDF_COMPOSER_IMAGE_FIT_CONTAIN ||
         options->fit > QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH)
         return QUANTAPDF_ERROR_ARGUMENT;
-    status = quantapdf_composer_reserve_operation(composer);
+    status = quantapdf_composer_reserve_operation_internal(composer);
     if (status != QUANTAPDF_OK)
         return status;
     memset(&operation, 0, sizeof(operation));
@@ -478,7 +478,7 @@ quantapdf_status quantapdf_composer_draw_path(
     if (copied == NULL)
         return QUANTAPDF_ERROR_NOMEM;
     memcpy(copied, commands, path_bytes);
-    status = quantapdf_composer_reserve_operation(composer);
+    status = quantapdf_composer_reserve_operation_internal(composer);
     if (status != QUANTAPDF_OK) {
         free(copied);
         return status;
@@ -535,6 +535,9 @@ void quantapdf_drop_composer(quantapdf_composer *composer)
         else if (composer->operations[i].kind ==
                  QUANTAPDF_COMPOSER_OPERATION_PATH)
             free(composer->operations[i].value.path.commands);
+        else if (composer->operations[i].kind ==
+                 QUANTAPDF_COMPOSER_OPERATION_EMBEDDED_TEXT)
+            free(composer->operations[i].value.embedded_text.text_utf8);
     }
     for (i = 0u; i < composer->image_count; ++i)
         free(composer->images[i].alpha_data);
@@ -544,6 +547,9 @@ void quantapdf_drop_composer(quantapdf_composer *composer)
         free(composer->links[i].uri_utf8);
     for (i = 0u; i < composer->outline_count; ++i)
         free(composer->outlines[i].title_utf8);
+    for (i = 0u; i < composer->font_count; ++i)
+        free(composer->fonts[i].data);
+    free(composer->fonts);
     free(composer->outlines);
     free(composer->links);
     free(composer->images);
