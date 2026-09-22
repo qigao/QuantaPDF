@@ -68,7 +68,8 @@ The current supported surface includes:
 - explicit AES-256 encrypt, authenticated decrypt, and re-encrypt transforms
 - immutable CropBox crop, MediaBox trim, poster-split, interactive-content
   flattening, lossless rewrite/GC, and selective image recompression transforms
-- deterministic PDF composition from formatted base-14 text and JPEG/PNG images
+- deterministic PDF composition from formatted base-14 text, JPEG/PNG images,
+  and opaque stroked/filled vector paths
 - stable status strings and one allocator-matched `quantapdf_free()` entry point
 
 ## API contract
