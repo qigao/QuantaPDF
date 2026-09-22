@@ -640,6 +640,388 @@ QPDFObjectHandle make_embedded_font(
     return pdf.makeIndirectObject(type0);
 }
 
+
+struct glyph_run_font_entry {
+    uint16_t cid = 0u;
+    uint16_t glyph = 0u;
+    std::string unicode_utf8;
+};
+
+struct glyph_run_font_usage {
+    bool referenced = false;
+    std::map<std::pair<uint16_t, std::string>, uint16_t> key_to_cid;
+    std::vector<glyph_run_font_entry> entries;
+    std::map<uint16_t, uint32_t> subset_glyphs;
+};
+
+uint32_t first_utf8_scalar(std::string const& value, uint16_t glyph)
+{
+    if (value.empty())
+        return 0xf0000u + glyph;
+
+    auto const* data =
+        reinterpret_cast<unsigned char const*>(value.data());
+    size_t const size = value.size();
+    unsigned char const first = data[0];
+    uint32_t codepoint;
+    size_t count;
+    if (first < 0x80u) {
+        codepoint = first;
+        count = 1u;
+    } else if (first >= 0xc2u && first <= 0xdfu) {
+        codepoint = first & 0x1fu;
+        count = 2u;
+    } else if (first >= 0xe0u && first <= 0xefu) {
+        codepoint = first & 0x0fu;
+        count = 3u;
+    } else if (first >= 0xf0u && first <= 0xf4u) {
+        codepoint = first & 0x07u;
+        count = 4u;
+    } else {
+        throw std::invalid_argument("invalid glyph-run unicode");
+    }
+    if (count > size)
+        throw std::invalid_argument("truncated glyph-run unicode");
+    for (size_t i = 1u; i < count; ++i) {
+        if ((data[i] & 0xc0u) != 0x80u)
+            throw std::invalid_argument("invalid glyph-run unicode");
+        codepoint =
+            (codepoint << 6u) | static_cast<uint32_t>(data[i] & 0x3fu);
+    }
+    return codepoint;
+}
+
+std::string utf8_sequence_hex(std::string const& value)
+{
+    std::ostringstream out;
+    out.imbue(std::locale::classic());
+    out << std::uppercase << std::hex << std::setfill('0');
+
+    auto const* data =
+        reinterpret_cast<unsigned char const*>(value.data());
+    size_t offset = 0u;
+    while (offset < value.size()) {
+        unsigned char const first = data[offset];
+        uint32_t codepoint;
+        size_t count;
+        if (first < 0x80u) {
+            codepoint = first;
+            count = 1u;
+        } else if (first >= 0xc2u && first <= 0xdfu) {
+            codepoint = first & 0x1fu;
+            count = 2u;
+        } else if (first >= 0xe0u && first <= 0xefu) {
+            codepoint = first & 0x0fu;
+            count = 3u;
+        } else if (first >= 0xf0u && first <= 0xf4u) {
+            codepoint = first & 0x07u;
+            count = 4u;
+        } else {
+            throw std::invalid_argument("invalid glyph-run unicode");
+        }
+        if (count > value.size() - offset)
+            throw std::invalid_argument("truncated glyph-run unicode");
+        for (size_t i = 1u; i < count; ++i) {
+            unsigned char const byte = data[offset + i];
+            if ((byte & 0xc0u) != 0x80u)
+                throw std::invalid_argument("invalid glyph-run unicode");
+            codepoint =
+                (codepoint << 6u) |
+                static_cast<uint32_t>(byte & 0x3fu);
+        }
+        if (codepoint <= 0xffffu) {
+            out << std::setw(4) << codepoint;
+        } else {
+            uint32_t const adjusted = codepoint - 0x10000u;
+            uint16_t const high =
+                static_cast<uint16_t>(0xd800u + (adjusted >> 10u));
+            uint16_t const low =
+                static_cast<uint16_t>(0xdc00u + (adjusted & 0x3ffu));
+            out << std::setw(4) << high << std::setw(4) << low;
+        }
+        offset += count;
+    }
+    return out.str();
+}
+
+void collect_glyph_run_font_usage(
+    quantapdf_composer const* composer,
+    std::vector<quantapdf::detail::ttf_font_face> const& faces,
+    std::vector<glyph_run_font_usage>* usages)
+{
+    for (size_t op_index = 0u; op_index < composer->operation_count;
+         ++op_index) {
+        auto const& operation = composer->operations[op_index];
+        if (operation.kind != QUANTAPDF_COMPOSER_OPERATION_GLYPH_RUN)
+            continue;
+
+        auto const& run = operation.value.glyph_run;
+        size_t const font_index = run.options.font_id - 1u;
+        if (font_index >= usages->size())
+            throw std::logic_error("glyph-run font id out of range");
+        auto& usage = (*usages)[font_index];
+        usage.referenced = true;
+
+        for (size_t i = 0u; i < run.glyph_count; ++i) {
+            auto const& glyph = run.glyphs[i];
+            if (glyph.glyph_id >= faces[font_index].num_glyphs)
+                throw std::invalid_argument("glyph-run glyph id out of range");
+            std::string cluster;
+            if (glyph.unicode_length != 0u) {
+                cluster.assign(
+                    run.unicode_utf8 + glyph.unicode_offset,
+                    glyph.unicode_length);
+            }
+            auto key = std::make_pair(
+                static_cast<uint16_t>(glyph.glyph_id),
+                cluster);
+            auto found = usage.key_to_cid.find(key);
+            if (found == usage.key_to_cid.end()) {
+                if (usage.entries.size() >= 65535u)
+                    throw std::length_error("too many glyph-run CIDs");
+                uint16_t const cid =
+                    static_cast<uint16_t>(usage.entries.size() + 1u);
+                usage.key_to_cid.emplace(key, cid);
+                usage.entries.push_back({
+                    cid,
+                    static_cast<uint16_t>(glyph.glyph_id),
+                    cluster});
+            }
+            usage.subset_glyphs.emplace(
+                static_cast<uint16_t>(glyph.glyph_id),
+                first_utf8_scalar(
+                    cluster,
+                    static_cast<uint16_t>(glyph.glyph_id)));
+        }
+    }
+}
+
+std::string make_glyph_run_to_unicode_cmap(
+    size_t font_index,
+    glyph_run_font_usage const& usage)
+{
+    std::ostringstream out;
+    out.imbue(std::locale::classic());
+    out << "/CIDInit /ProcSet findresource begin\n"
+        << "12 dict begin\n"
+        << "begincmap\n"
+        << "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) "
+           "/Supplement 0 >> def\n"
+        << "/CMapName /QuantaPDF-GR" << (font_index + 1u)
+        << "-UCS def\n"
+        << "/CMapType 2 def\n"
+        << "1 begincodespacerange\n"
+        << "<0000> <FFFF>\n"
+        << "endcodespacerange\n";
+
+    size_t position = 0u;
+    while (position < usage.entries.size()) {
+        size_t count = 0u;
+        size_t cursor = position;
+        while (cursor < usage.entries.size() && count < 100u) {
+            if (!usage.entries[cursor].unicode_utf8.empty())
+                ++count;
+            ++cursor;
+        }
+        if (count == 0u) {
+            position = cursor;
+            continue;
+        }
+        out << count << " beginbfchar\n";
+        for (; position < cursor; ++position) {
+            auto const& entry = usage.entries[position];
+            if (entry.unicode_utf8.empty())
+                continue;
+            out << '<' << std::uppercase << std::hex << std::setfill('0')
+                << std::setw(4) << static_cast<unsigned int>(entry.cid)
+                << "> <" << utf8_sequence_hex(entry.unicode_utf8) << ">\n";
+        }
+        out << "endbfchar\n";
+    }
+
+    out << "endcmap\n"
+        << "CMapName currentdict /CMap defineresource pop\n"
+        << "end\n"
+        << "end\n";
+    return out.str();
+}
+
+QPDFObjectHandle make_glyph_run_font(
+    QPDF& pdf,
+    quantapdf_composer_font_state const& state,
+    quantapdf::detail::ttf_font_face const& face,
+    glyph_run_font_usage const& usage,
+    size_t font_index)
+{
+    std::vector<unsigned char> subset;
+    unsigned char const* embedded_data = state.data;
+    size_t embedded_size = state.size;
+    quantapdf_status const subset_status =
+        quantapdf::detail::subset_true_type_font(
+            face, usage.subset_glyphs, &subset);
+    if (subset_status == QUANTAPDF_OK &&
+        !subset.empty() && subset.size() < state.size) {
+        embedded_data = subset.data();
+        embedded_size = subset.size();
+    }
+
+    auto font_file = pdf.newStream(std::string(
+        reinterpret_cast<char const*>(embedded_data), embedded_size));
+    font_file.getDict().replaceKey(
+        "/Length1",
+        QPDFObjectHandle::newInteger(
+            static_cast<long long>(embedded_size)));
+
+    auto descriptor = QPDFObjectHandle::newDictionary();
+    descriptor.replaceKey("/Type", QPDFObjectHandle::newName("/FontDescriptor"));
+    descriptor.replaceKey(
+        "/FontName", QPDFObjectHandle::newName("/" + face.postscript_name));
+    descriptor.replaceKey("/Flags", QPDFObjectHandle::newInteger(face.flags));
+
+    auto bbox = QPDFObjectHandle::newArray();
+    for (int i = 0; i < 4; ++i) {
+        double const value =
+            static_cast<double>(face.bbox[i]) * 1000.0 / face.units_per_em;
+        bbox.appendItem(
+            QPDFObjectHandle::newReal(value, decimal_precision(value)));
+    }
+    descriptor.replaceKey("/FontBBox", bbox);
+    descriptor.replaceKey(
+        "/ItalicAngle",
+        QPDFObjectHandle::newReal(
+            face.italic_angle, decimal_precision(face.italic_angle)));
+    descriptor.replaceKey(
+        "/Ascent",
+        QPDFObjectHandle::newReal(
+            face.ascent, decimal_precision(face.ascent)));
+    descriptor.replaceKey(
+        "/Descent",
+        QPDFObjectHandle::newReal(
+            face.descent, decimal_precision(face.descent)));
+    descriptor.replaceKey(
+        "/CapHeight",
+        QPDFObjectHandle::newReal(
+            face.cap_height, decimal_precision(face.cap_height)));
+    descriptor.replaceKey(
+        "/StemV",
+        QPDFObjectHandle::newReal(
+            face.stem_v, decimal_precision(face.stem_v)));
+    descriptor.replaceKey("/FontFile2", font_file);
+    auto descriptor_ref = pdf.makeIndirectObject(descriptor);
+
+    auto system_info = QPDFObjectHandle::newDictionary();
+    system_info.replaceKey("/Registry", QPDFObjectHandle::newString("Adobe"));
+    system_info.replaceKey("/Ordering", QPDFObjectHandle::newString("Identity"));
+    system_info.replaceKey("/Supplement", QPDFObjectHandle::newInteger(0));
+
+    auto widths = QPDFObjectHandle::newArray();
+    for (auto const& entry: usage.entries) {
+        auto one_width = QPDFObjectHandle::newArray();
+        one_width.appendItem(
+            QPDFObjectHandle::newInteger(face.width_for(entry.glyph)));
+        widths.appendItem(QPDFObjectHandle::newInteger(entry.cid));
+        widths.appendItem(one_width);
+    }
+
+    std::string cid_to_gid_bytes(
+        (usage.entries.size() + 1u) * 2u, '\0');
+    for (auto const& entry: usage.entries) {
+        size_t const at = static_cast<size_t>(entry.cid) * 2u;
+        cid_to_gid_bytes[at] =
+            static_cast<char>(entry.glyph >> 8u);
+        cid_to_gid_bytes[at + 1u] =
+            static_cast<char>(entry.glyph & 0xffu);
+    }
+    auto cid_to_gid = pdf.newStream(cid_to_gid_bytes);
+
+    auto descendant = QPDFObjectHandle::newDictionary();
+    descendant.replaceKey("/Type", QPDFObjectHandle::newName("/Font"));
+    descendant.replaceKey(
+        "/Subtype", QPDFObjectHandle::newName("/CIDFontType2"));
+    descendant.replaceKey(
+        "/BaseFont", QPDFObjectHandle::newName("/" + face.postscript_name));
+    descendant.replaceKey("/CIDSystemInfo", system_info);
+    descendant.replaceKey(
+        "/DW", QPDFObjectHandle::newInteger(std::max(1, face.width_for(0u))));
+    if (widths.getArrayNItems() != 0)
+        descendant.replaceKey("/W", widths);
+    descendant.replaceKey("/FontDescriptor", descriptor_ref);
+    descendant.replaceKey("/CIDToGIDMap", cid_to_gid);
+    auto descendant_ref = pdf.makeIndirectObject(descendant);
+
+    auto descendants = QPDFObjectHandle::newArray();
+    descendants.appendItem(descendant_ref);
+
+    auto to_unicode = pdf.newStream(
+        make_glyph_run_to_unicode_cmap(font_index, usage));
+
+    auto type0 = QPDFObjectHandle::newDictionary();
+    type0.replaceKey("/Type", QPDFObjectHandle::newName("/Font"));
+    type0.replaceKey("/Subtype", QPDFObjectHandle::newName("/Type0"));
+    type0.replaceKey(
+        "/BaseFont", QPDFObjectHandle::newName("/" + face.postscript_name));
+    type0.replaceKey("/Encoding", QPDFObjectHandle::newName("/Identity-H"));
+    type0.replaceKey("/DescendantFonts", descendants);
+    type0.replaceKey("/ToUnicode", to_unicode);
+    return pdf.makeIndirectObject(type0);
+}
+
+std::string glyph_run_cid_hex(uint16_t cid)
+{
+    std::ostringstream out;
+    out.imbue(std::locale::classic());
+    out << '<' << std::uppercase << std::hex << std::setfill('0')
+        << std::setw(4) << static_cast<unsigned int>(cid) << '>';
+    return out.str();
+}
+
+void append_glyph_run_content(
+    std::string& content,
+    quantapdf_composer_page_state const& page,
+    quantapdf_composer_operation const& operation,
+    glyph_run_font_usage const& usage)
+{
+    auto const& run = operation.value.glyph_run;
+    auto const& options = run.options;
+    double const scale = options.font_size / 1000.0;
+    double pen_x = run.origin.x;
+    double pen_y = run.origin.y;
+    double const red = ((options.argb >> 16u) & 0xffu) / 255.0;
+    double const green = ((options.argb >> 8u) & 0xffu) / 255.0;
+    double const blue = (options.argb & 0xffu) / 255.0;
+
+    content +=
+        "BT /GR" + std::to_string(options.font_id) + " " +
+        number(options.font_size) + " Tf " +
+        number(red) + " " + number(green) + " " + number(blue) + " rg ";
+
+    for (size_t i = 0u; i < run.glyph_count; ++i) {
+        auto const& glyph = run.glyphs[i];
+        std::string cluster;
+        if (glyph.unicode_length != 0u) {
+            cluster.assign(
+                run.unicode_utf8 + glyph.unicode_offset,
+                glyph.unicode_length);
+        }
+        auto const found = usage.key_to_cid.find(std::make_pair(
+            static_cast<uint16_t>(glyph.glyph_id), cluster));
+        if (found == usage.key_to_cid.end())
+            throw std::logic_error("glyph-run CID assignment missing");
+
+        double const x =
+            pen_x + static_cast<double>(glyph.x_offset) * scale;
+        double const display_y =
+            pen_y + static_cast<double>(glyph.y_offset) * scale;
+        double const pdf_y = page.height_points - display_y;
+        content +=
+            "1 0 0 1 " + number(x) + " " + number(pdf_y) +
+            " Tm " + glyph_run_cid_hex(found->second) + " Tj ";
+        pen_x += static_cast<double>(glyph.x_advance) * scale;
+        pen_y += static_cast<double>(glyph.y_advance) * scale;
+    }
+    content += "ET\n";
+}
+
 void append_image_content(
     std::string& content,
     quantapdf_composer const* composer,
