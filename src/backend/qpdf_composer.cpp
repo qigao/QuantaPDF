@@ -1317,7 +1317,8 @@ void apply_composer_navigation(
 std::string page_content(
     quantapdf_composer const* composer,
     std::size_t page_index,
-    std::vector<quantapdf::detail::ttf_font_face> const& embedded_faces)
+    std::vector<quantapdf::detail::ttf_font_face> const& embedded_faces,
+    std::vector<glyph_run_font_usage> const& glyph_run_usages)
 {
     auto const& page = composer->pages[page_index];
     std::string content;
@@ -1342,6 +1343,18 @@ std::string page_content(
                  QUANTAPDF_COMPOSER_OPERATION_EMBEDDED_TEXT)
             append_embedded_text_content(
                 content, page, operation, embedded_faces);
+        else if (operation.kind ==
+                 QUANTAPDF_COMPOSER_OPERATION_GLYPH_RUN) {
+            size_t const font_index =
+                operation.value.glyph_run.options.font_id - 1u;
+            if (font_index >= glyph_run_usages.size())
+                throw std::logic_error("glyph-run usage missing");
+            append_glyph_run_content(
+                content,
+                page,
+                operation,
+                glyph_run_usages[font_index]);
+        }
     }
     return content;
 }
@@ -1636,6 +1649,23 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             }
         }
 
+        std::vector<glyph_run_font_usage> glyph_run_usage(
+            composer->font_count);
+        collect_glyph_run_font_usage(
+            composer, embedded_faces, &glyph_run_usage);
+        std::vector<std::optional<QPDFObjectHandle>> glyph_run_font_objects(
+            composer->font_count);
+        for (size_t i = 0u; i < composer->font_count; ++i) {
+            if (glyph_run_usage[i].referenced) {
+                glyph_run_font_objects[i] = make_glyph_run_font(
+                    pdf,
+                    composer->fonts[i],
+                    embedded_faces[i],
+                    glyph_run_usage[i],
+                    i);
+            }
+        }
+
         for (std::size_t page_index = 0; page_index < composer->page_count;
              ++page_index) {
             auto page = QPDFObjectHandle::newDictionary();
@@ -1672,6 +1702,20 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                     "/EF" + std::to_string(id),
                     *embedded_font_objects[id - 1u]);
             }
+            for (std::size_t i = 0; i < composer->operation_count; ++i) {
+                auto const& operation = composer->operations[i];
+                if (operation.page_index != page_index ||
+                    operation.kind != QUANTAPDF_COMPOSER_OPERATION_GLYPH_RUN)
+                    continue;
+                auto const id = operation.value.glyph_run.options.font_id;
+                if (id == 0u ||
+                    static_cast<size_t>(id) > glyph_run_font_objects.size() ||
+                    !glyph_run_font_objects[id - 1u].has_value())
+                    throw std::logic_error("glyph-run font resource missing");
+                fonts.replaceKey(
+                    "/GR" + std::to_string(id),
+                    *glyph_run_font_objects[id - 1u]);
+            }
             resources.replaceKey("/Font", fonts);
             for (std::size_t i = 0; i < composer->operation_count; ++i) {
                 auto const& operation = composer->operations[i];
@@ -1697,7 +1741,10 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             page.replaceKey(
                 "/Contents",
                 pdf.newStream(page_content(
-                    composer, page_index, embedded_faces)));
+                    composer,
+                    page_index,
+                    embedded_faces,
+                    glyph_run_usage)));
             pdf.addPage(pdf.makeIndirectObject(page), false);
         }
         apply_composer_navigation(pdf, composer);
