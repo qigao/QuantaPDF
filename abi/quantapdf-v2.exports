@@ -4,6 +4,7 @@ quantapdf_annotation_get_info
 quantapdf_bitmap_data
 quantapdf_bitmap_dimensions
 quantapdf_close
+quantapdf_composer_add_font
 quantapdf_composer_add_image
 quantapdf_composer_add_outline
 quantapdf_composer_add_page
@@ -14,6 +15,7 @@ quantapdf_composer_draw_barcode
 quantapdf_composer_draw_image
 quantapdf_composer_draw_path
 quantapdf_composer_draw_text
+quantapdf_composer_draw_text_run
 quantapdf_composer_finish
 quantapdf_crop_pages
 quantapdf_document_form
