@@ -921,7 +921,8 @@ void apply_composer_navigation(
 
 std::string page_content(
     quantapdf_composer const* composer,
-    std::size_t page_index)
+    std::size_t page_index,
+    std::vector<quantapdf::detail::ttf_font_face> const& embedded_faces)
 {
     auto const& page = composer->pages[page_index];
     std::string content;
@@ -942,6 +943,10 @@ std::string page_content(
             append_image_content(content, composer, page, operation);
         else if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_PATH)
             append_path_content(content, page, operation);
+        else if (operation.kind ==
+                 QUANTAPDF_COMPOSER_OPERATION_EMBEDDED_TEXT)
+            append_embedded_text_content(
+                content, page, operation, embedded_faces);
     }
     return content;
 }
@@ -1208,6 +1213,34 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             }
             image_objects.push_back(stream);
         }
+
+        std::vector<quantapdf::detail::ttf_font_face> embedded_faces;
+        embedded_faces.reserve(composer->font_count);
+        for (size_t i = 0u; i < composer->font_count; ++i) {
+            quantapdf::detail::ttf_font_face face;
+            if (quantapdf::detail::ttf_font_face::parse(
+                    composer->fonts[i].data,
+                    composer->fonts[i].size,
+                    &face) != QUANTAPDF_OK)
+                throw std::invalid_argument("registered font no longer parses");
+            embedded_faces.push_back(std::move(face));
+        }
+        std::vector<embedded_font_usage> embedded_usage(composer->font_count);
+        collect_embedded_font_usage(
+            composer, embedded_faces, &embedded_usage);
+        std::vector<std::optional<QPDFObjectHandle>> embedded_font_objects(
+            composer->font_count);
+        for (size_t i = 0u; i < composer->font_count; ++i) {
+            if (embedded_usage[i].referenced) {
+                embedded_font_objects[i] = make_embedded_font(
+                    pdf,
+                    composer->fonts[i],
+                    embedded_faces[i],
+                    embedded_usage[i],
+                    i);
+            }
+        }
+
         for (std::size_t page_index = 0; page_index < composer->page_count;
              ++page_index) {
             auto page = QPDFObjectHandle::newDictionary();
@@ -1228,6 +1261,21 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                     fonts.replaceKey(
                         "/F" + std::to_string(font),
                         make_font(static_cast<quantapdf_composer_font>(font)));
+            }
+            for (std::size_t i = 0; i < composer->operation_count; ++i) {
+                auto const& operation = composer->operations[i];
+                if (operation.page_index != page_index ||
+                    operation.kind !=
+                        QUANTAPDF_COMPOSER_OPERATION_EMBEDDED_TEXT)
+                    continue;
+                auto const id = operation.value.embedded_text.options.font_id;
+                if (id == 0u ||
+                    static_cast<size_t>(id) > embedded_font_objects.size() ||
+                    !embedded_font_objects[id - 1u].has_value())
+                    throw std::logic_error("embedded font resource missing");
+                fonts.replaceKey(
+                    "/EF" + std::to_string(id),
+                    *embedded_font_objects[id - 1u]);
             }
             resources.replaceKey("/Font", fonts);
             for (std::size_t i = 0; i < composer->operation_count; ++i) {
@@ -1252,7 +1300,9 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             page.replaceKey("/MediaBox", media_box);
             page.replaceKey("/Resources", resources);
             page.replaceKey(
-                "/Contents", pdf.newStream(page_content(composer, page_index)));
+                "/Contents",
+                pdf.newStream(page_content(
+                    composer, page_index, embedded_faces)));
             pdf.addPage(pdf.makeIndirectObject(page), false);
         }
         apply_composer_navigation(pdf, composer);
