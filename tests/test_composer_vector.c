@@ -151,6 +151,7 @@ static int test_path_content_render_and_determinism(void)
     quantapdf_composer_path_options options = path_options();
     quantapdf_composer_path_command rect[5] = {0};
     quantapdf_composer_path_command curve[2] = {0};
+    quantapdf_composer_path_command triangle[4] = {0};
     const unsigned char *first_data = NULL;
     const unsigned char *second_data = NULL;
     const unsigned char *pixels = NULL;
@@ -194,6 +195,21 @@ static int test_path_content_render_and_determinism(void)
     CHECK(quantapdf_composer_draw_path(
               composer, 0u, curve, 2u, &options) == QUANTAPDF_OK);
 
+    triangle[0].kind = QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+    triangle[0].point1 = (quantapdf_point){120.0f, 120.0f};
+    triangle[1].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    triangle[1].point1 = (quantapdf_point){180.0f, 120.0f};
+    triangle[2].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    triangle[2].point1 = (quantapdf_point){150.0f, 180.0f};
+    triangle[3].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
+    options = (quantapdf_composer_path_options){0};
+    options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
+    options.fill = 1;
+    options.fill_argb = UINT32_C(0xff00ff00);
+    options.fill_rule = QUANTAPDF_COMPOSER_FILL_EVEN_ODD;
+    CHECK(quantapdf_composer_draw_path(
+              composer, 0u, triangle, 4u, &options) == QUANTAPDF_OK);
+
     CHECK(quantapdf_composer_finish(composer, &first) == QUANTAPDF_OK);
     CHECK(quantapdf_composer_finish(composer, &second) == QUANTAPDF_OK);
     CHECK(quantapdf_output_data(first, &first_data, &first_size) ==
@@ -208,6 +224,12 @@ static int test_path_content_render_and_determinism(void)
     CHECK(quantapdf_test_pdf_content_contains(
         first_data, first_size, 0u,
         "120 180 m 180 180 180 100 120 100 c S"));
+    CHECK(quantapdf_test_pdf_content_contains(
+        first_data, first_size, 0u,
+        "120 80 m 180 80 l 150 20 l h f*"));
+    CHECK(quantapdf_test_pdf_content_contains(
+        first_data, first_size, 0u,
+        "2 w 1 J 2 j 10 M 1 0 0 rg"));
 
     CHECK(quantapdf_output_save_file(first, COMPOSER_VECTOR_OUTPUT_PDF) ==
           QUANTAPDF_OK);
