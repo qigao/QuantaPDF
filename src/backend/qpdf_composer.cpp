@@ -537,24 +537,33 @@ QPDFObjectHandle make_embedded_font(
     embedded_font_usage const& usage,
     size_t font_index)
 {
+    bool const true_type =
+        face.outline_kind == quantapdf::detail::sfnt_outline_kind::true_type;
     std::vector<unsigned char> subset;
     unsigned char const* embedded_data = state.data;
     size_t embedded_size = state.size;
-    quantapdf_status const subset_status =
-        quantapdf::detail::subset_true_type_font(
-            face, usage.glyph_to_unicode, &subset);
-    if (subset_status == QUANTAPDF_OK &&
-        !subset.empty() && subset.size() < state.size) {
-        embedded_data = subset.data();
-        embedded_size = subset.size();
+    if (true_type) {
+        quantapdf_status const subset_status =
+            quantapdf::detail::subset_true_type_font(
+                face, usage.glyph_to_unicode, &subset);
+        if (subset_status == QUANTAPDF_OK &&
+            !subset.empty() && subset.size() < state.size) {
+            embedded_data = subset.data();
+            embedded_size = subset.size();
+        }
     }
 
     auto font_file = pdf.newStream(std::string(
         reinterpret_cast<char const*>(embedded_data), embedded_size));
-    font_file.getDict().replaceKey(
-        "/Length1",
-        QPDFObjectHandle::newInteger(
-            static_cast<long long>(embedded_size)));
+    if (true_type) {
+        font_file.getDict().replaceKey(
+            "/Length1",
+            QPDFObjectHandle::newInteger(
+                static_cast<long long>(embedded_size)));
+    } else {
+        font_file.getDict().replaceKey(
+            "/Subtype", QPDFObjectHandle::newName("/OpenType"));
+    }
 
     auto descriptor = QPDFObjectHandle::newDictionary();
     descriptor.replaceKey("/Type", QPDFObjectHandle::newName("/FontDescriptor"));
@@ -590,7 +599,8 @@ QPDFObjectHandle make_embedded_font(
         "/StemV",
         QPDFObjectHandle::newReal(
             face.stem_v, decimal_precision(face.stem_v)));
-    descriptor.replaceKey("/FontFile2", font_file);
+    descriptor.replaceKey(
+        true_type ? "/FontFile2" : "/FontFile3", font_file);
     auto descriptor_ref = pdf.makeIndirectObject(descriptor);
 
     auto system_info = QPDFObjectHandle::newDictionary();
@@ -610,7 +620,9 @@ QPDFObjectHandle make_embedded_font(
     auto descendant = QPDFObjectHandle::newDictionary();
     descendant.replaceKey("/Type", QPDFObjectHandle::newName("/Font"));
     descendant.replaceKey(
-        "/Subtype", QPDFObjectHandle::newName("/CIDFontType2"));
+        "/Subtype",
+        QPDFObjectHandle::newName(
+            true_type ? "/CIDFontType2" : "/CIDFontType0"));
     descendant.replaceKey(
         "/BaseFont", QPDFObjectHandle::newName("/" + face.postscript_name));
     descendant.replaceKey("/CIDSystemInfo", system_info);
@@ -620,8 +632,10 @@ QPDFObjectHandle make_embedded_font(
     if (widths.getArrayNItems() != 0)
         descendant.replaceKey("/W", widths);
     descendant.replaceKey("/FontDescriptor", descriptor_ref);
-    descendant.replaceKey(
-        "/CIDToGIDMap", QPDFObjectHandle::newName("/Identity"));
+    if (true_type) {
+        descendant.replaceKey(
+            "/CIDToGIDMap", QPDFObjectHandle::newName("/Identity"));
+    }
     auto descendant_ref = pdf.makeIndirectObject(descendant);
 
     auto descendants = QPDFObjectHandle::newArray();
