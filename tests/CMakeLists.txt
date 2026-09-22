@@ -75,6 +75,16 @@ add_test(NAME quantapdf.composer_navigation
   COMMAND quantapdf_test_composer_navigation)
 set_tests_properties(quantapdf.composer_navigation PROPERTIES TIMEOUT 30)
 
+add_executable(quantapdf_test_composer_font
+  test_composer_font.c)
+target_link_libraries(quantapdf_test_composer_font PRIVATE
+  QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_composer_font PRIVATE
+  COMPOSER_FONT_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composer-font-output.pdf"
+  ROBOTO_TTF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/fonts/Roboto-Regular.ttf")
+add_test(NAME quantapdf.composer_font COMMAND quantapdf_test_composer_font)
+set_tests_properties(quantapdf.composer_font PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_test_jpeg_validator
   test_jpeg_validator.c
   composer_test_helpers.cpp
