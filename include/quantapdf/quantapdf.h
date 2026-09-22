@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 7
+#define QUANTAPDF_VERSION_MINOR 8
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -184,6 +184,25 @@ typedef struct quantapdf_composer_path_options {
     (offsetof(quantapdf_composer_path_options, miter_limit) + sizeof(float))
 #define QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE \
     (sizeof(quantapdf_composer_path_options))
+
+typedef enum quantapdf_barcode_kind {
+    QUANTAPDF_BARCODE_CODE_128B = 1,
+    QUANTAPDF_BARCODE_CODE_39 = 2,
+    QUANTAPDF_BARCODE_EAN_13 = 3,
+    QUANTAPDF_BARCODE_UPC_A = 4,
+    QUANTAPDF_BARCODE_EAN_8 = 5,
+    QUANTAPDF_BARCODE_QR = 6
+} quantapdf_barcode_kind;
+
+typedef struct quantapdf_barcode_options {
+    size_t struct_size;
+    uint32_t argb;
+} quantapdf_barcode_options;
+
+#define QUANTAPDF_BARCODE_OPTIONS_V1_MIN_SIZE \
+    (offsetof(quantapdf_barcode_options, argb) + sizeof(uint32_t))
+#define QUANTAPDF_BARCODE_OPTIONS_V1_SIZE \
+    (sizeof(quantapdf_barcode_options))
 
 typedef struct quantapdf_page_crop {
     size_t struct_size;
@@ -596,6 +615,14 @@ QUANTAPDF_API quantapdf_status quantapdf_composer_draw_path(
     const quantapdf_composer_path_command *commands,
     size_t command_count,
     const quantapdf_composer_path_options *options);
+
+QUANTAPDF_API quantapdf_status quantapdf_composer_draw_barcode(
+    quantapdf_composer *composer,
+    size_t page_index,
+    quantapdf_barcode_kind kind,
+    const char *payload_utf8,
+    const quantapdf_rect *bounds,
+    const quantapdf_barcode_options *options);
 
 QUANTAPDF_API quantapdf_status quantapdf_composer_finish(
     const quantapdf_composer *composer,
