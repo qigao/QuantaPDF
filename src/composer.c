@@ -456,7 +456,7 @@ quantapdf_status quantapdf_composer_draw_path(
 
     if (composer == NULL || page_index >= composer->page_count ||
         !quantapdf_composer_path_options_valid(options) ||
-        !quantapdf_composer_path_commands_valid(commands, command_count))
+        commands == NULL || command_count == 0u)
         return QUANTAPDF_ERROR_ARGUMENT;
     if (command_count > SIZE_MAX / sizeof(*copied))
         return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -464,6 +464,8 @@ quantapdf_status quantapdf_composer_draw_path(
     if (composer->resource_bytes > composer->max_resource_bytes ||
         path_bytes > composer->max_resource_bytes - composer->resource_bytes)
         return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (!quantapdf_composer_path_commands_valid(commands, command_count))
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     copied = (quantapdf_composer_path_command *)malloc(path_bytes);
     if (copied == NULL)
