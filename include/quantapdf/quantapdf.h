@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 9
+#define QUANTAPDF_VERSION_MINOR 10
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -122,6 +122,32 @@ typedef struct quantapdf_composer_text_options {
     (offsetof(quantapdf_composer_text_options, wrap) + sizeof(int))
 #define QUANTAPDF_COMPOSER_TEXT_OPTIONS_V1_SIZE \
     (sizeof(quantapdf_composer_text_options))
+
+typedef uint32_t quantapdf_composer_font_id;
+
+typedef struct quantapdf_composer_font_options {
+    size_t struct_size;
+} quantapdf_composer_font_options;
+
+#define QUANTAPDF_COMPOSER_FONT_OPTIONS_V1_MIN_SIZE \
+    (sizeof(size_t))
+#define QUANTAPDF_COMPOSER_FONT_OPTIONS_V1_SIZE \
+    (sizeof(quantapdf_composer_font_options))
+
+typedef struct quantapdf_composer_embedded_text_options {
+    size_t struct_size;
+    quantapdf_composer_font_id font_id;
+    float font_size;
+    uint32_t argb;
+    float line_height_multiplier;
+    quantapdf_composer_text_alignment alignment;
+    int wrap;
+} quantapdf_composer_embedded_text_options;
+
+#define QUANTAPDF_COMPOSER_EMBEDDED_TEXT_OPTIONS_V1_MIN_SIZE \
+    (offsetof(quantapdf_composer_embedded_text_options, wrap) + sizeof(int))
+#define QUANTAPDF_COMPOSER_EMBEDDED_TEXT_OPTIONS_V1_SIZE \
+    (sizeof(quantapdf_composer_embedded_text_options))
 
 typedef uint32_t quantapdf_composer_image_id;
 
@@ -611,6 +637,13 @@ QUANTAPDF_API quantapdf_status quantapdf_composer_add_page(
     const quantapdf_composer_page_options *options,
     size_t *out_page_index);
 
+QUANTAPDF_API quantapdf_status quantapdf_composer_add_font(
+    quantapdf_composer *composer,
+    const unsigned char *font_data,
+    size_t font_size,
+    const quantapdf_composer_font_options *options,
+    quantapdf_composer_font_id *out_font_id);
+
 QUANTAPDF_API quantapdf_status quantapdf_composer_add_image(
     quantapdf_composer *composer,
     const unsigned char *data,
@@ -623,6 +656,13 @@ QUANTAPDF_API quantapdf_status quantapdf_composer_draw_text(
     const char *text_utf8,
     const quantapdf_rect *bounds,
     const quantapdf_composer_text_options *options);
+
+QUANTAPDF_API quantapdf_status quantapdf_composer_draw_embedded_text(
+    quantapdf_composer *composer,
+    size_t page_index,
+    const char *text_utf8,
+    const quantapdf_rect *bounds,
+    const quantapdf_composer_embedded_text_options *options);
 
 QUANTAPDF_API quantapdf_status quantapdf_composer_draw_image(
     quantapdf_composer *composer,
