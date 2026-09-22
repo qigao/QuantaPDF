@@ -191,6 +191,9 @@ struct quantapdf_composer {
     size_t resource_bytes;
 };
 
+quantapdf_status quantapdf_composer_reserve_operation(
+    quantapdf_composer *composer);
+
 quantapdf_status quantapdf_document_page_user_unit(
     quantapdf_document *document,
     int page_index,
