@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 10
+#define QUANTAPDF_VERSION_MINOR 11
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -148,6 +148,31 @@ typedef struct quantapdf_composer_embedded_text_options {
     (offsetof(quantapdf_composer_embedded_text_options, wrap) + sizeof(int))
 #define QUANTAPDF_COMPOSER_EMBEDDED_TEXT_OPTIONS_V1_SIZE \
     (sizeof(quantapdf_composer_embedded_text_options))
+
+typedef struct quantapdf_composer_glyph {
+    uint32_t glyph_id;
+    float x_advance;
+    float y_advance;
+    float x_offset;
+    float y_offset;
+    uint32_t unicode_offset;
+    uint32_t unicode_length;
+} quantapdf_composer_glyph;
+
+#define QUANTAPDF_COMPOSER_GLYPH_V1_SIZE \
+    (sizeof(quantapdf_composer_glyph))
+
+typedef struct quantapdf_composer_glyph_run_options {
+    size_t struct_size;
+    quantapdf_composer_font_id font_id;
+    float font_size;
+    uint32_t argb;
+} quantapdf_composer_glyph_run_options;
+
+#define QUANTAPDF_COMPOSER_GLYPH_RUN_OPTIONS_V1_MIN_SIZE \
+    (offsetof(quantapdf_composer_glyph_run_options, argb) + sizeof(uint32_t))
+#define QUANTAPDF_COMPOSER_GLYPH_RUN_OPTIONS_V1_SIZE \
+    (sizeof(quantapdf_composer_glyph_run_options))
 
 typedef uint32_t quantapdf_composer_image_id;
 
@@ -663,6 +688,16 @@ QUANTAPDF_API quantapdf_status quantapdf_composer_draw_embedded_text(
     const char *text_utf8,
     const quantapdf_rect *bounds,
     const quantapdf_composer_embedded_text_options *options);
+
+QUANTAPDF_API quantapdf_status quantapdf_composer_draw_glyph_run(
+    quantapdf_composer *composer,
+    size_t page_index,
+    quantapdf_point origin,
+    const quantapdf_composer_glyph *glyphs,
+    size_t glyph_count,
+    const char *unicode_utf8,
+    size_t unicode_size,
+    const quantapdf_composer_glyph_run_options *options);
 
 QUANTAPDF_API quantapdf_status quantapdf_composer_draw_image(
     quantapdf_composer *composer,

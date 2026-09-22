@@ -71,6 +71,8 @@ int main(int argc, char **argv)
     quantapdf_composer_page_options page = {0};
     quantapdf_composer_font_options font_options = {0};
     quantapdf_composer_embedded_text_options text = {0};
+    quantapdf_composer_glyph_run_options glyph_run = {0};
+    quantapdf_composer_glyph shaped_glyph = {0};
     quantapdf_composer_path_options path = {0};
     quantapdf_barcode_options barcode = {0};
     quantapdf_composer_outline_options outline = {0};
@@ -117,6 +119,22 @@ int main(int argc, char **argv)
         "Installed Caf\xC3\xA9 \xCE\xA9",
         &text_box,
         &text));
+
+    glyph_run.struct_size = QUANTAPDF_COMPOSER_GLYPH_RUN_OPTIONS_V1_SIZE;
+    glyph_run.font_id = font_id;
+    glyph_run.font_size = 18.0f;
+    glyph_run.argb = UINT32_C(0xff404040);
+    shaped_glyph.glyph_id = 0u;
+    shaped_glyph.x_advance = 500.0f;
+    CHECK(quantapdf_composer_draw_glyph_run(
+        composer,
+        page1,
+        (quantapdf_point){24.0f, 60.0f},
+        &shaped_glyph,
+        1u,
+        NULL,
+        0u,
+        &glyph_run));
 
     rectangle[0].kind = QUANTAPDF_COMPOSER_PATH_MOVE_TO;
     rectangle[0].point1 = (quantapdf_point){20.0f, 20.0f};

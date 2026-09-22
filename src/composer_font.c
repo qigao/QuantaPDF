@@ -14,6 +14,68 @@ static int quantapdf_embedded_text_rect_valid(const quantapdf_rect *rect)
         rect->x1 > rect->x0 && rect->y1 > rect->y0;
 }
 
+
+static int quantapdf_glyph_run_utf8_valid(
+    const unsigned char *data,
+    size_t size)
+{
+    size_t offset = 0u;
+
+    if (size != 0u && data == NULL)
+        return 0;
+    while (offset < size) {
+        uint32_t codepoint;
+        size_t count;
+        size_t i;
+        unsigned char first = data[offset];
+
+        if (first < 0x80u) {
+            codepoint = first;
+            count = 1u;
+        } else if (first >= 0xc2u && first <= 0xdfu) {
+            codepoint = (uint32_t)(first & 0x1fu);
+            count = 2u;
+        } else if (first >= 0xe0u && first <= 0xefu) {
+            codepoint = (uint32_t)(first & 0x0fu);
+            count = 3u;
+        } else if (first >= 0xf0u && first <= 0xf4u) {
+            codepoint = (uint32_t)(first & 0x07u);
+            count = 4u;
+        } else {
+            return 0;
+        }
+        if (count > size - offset)
+            return 0;
+        for (i = 1u; i < count; ++i) {
+            if ((data[offset + i] & 0xc0u) != 0x80u)
+                return 0;
+            codepoint =
+                (codepoint << 6u) |
+                (uint32_t)(data[offset + i] & 0x3fu);
+        }
+        if ((count == 2u && codepoint < 0x80u) ||
+            (count == 3u && codepoint < 0x800u) ||
+            (count == 4u && codepoint < 0x10000u) ||
+            (codepoint >= 0xd800u && codepoint <= 0xdfffu) ||
+            codepoint > 0x10ffffu)
+            return 0;
+        offset += count;
+    }
+    return 1;
+}
+
+static int quantapdf_glyph_run_utf8_boundary(
+    const unsigned char *data,
+    size_t size,
+    size_t offset)
+{
+    if (offset == 0u || offset == size)
+        return 1;
+    if (data == NULL || offset > size)
+        return 0;
+    return (data[offset] & 0xc0u) != 0x80u;
+}
+
 static quantapdf_status quantapdf_composer_reserve_font(
     quantapdf_composer *composer)
 {
@@ -147,5 +209,116 @@ quantapdf_status quantapdf_composer_draw_embedded_text(
     operation.value.embedded_text.options = *options;
     composer->operations[composer->operation_count++] = operation;
     composer->resource_bytes += text_size;
+    return QUANTAPDF_OK;
+}
+
+quantapdf_status quantapdf_composer_draw_glyph_run(
+    quantapdf_composer *composer,
+    size_t page_index,
+    quantapdf_point origin,
+    const quantapdf_composer_glyph *glyphs,
+    size_t glyph_count,
+    const char *unicode_utf8,
+    size_t unicode_size,
+    const quantapdf_composer_glyph_run_options *options)
+{
+    quantapdf_composer_operation operation;
+    quantapdf_composer_glyph *glyph_copy = NULL;
+    char *unicode_copy = NULL;
+    const quantapdf_composer_font_state *font;
+    const unsigned char *unicode_bytes =
+        (const unsigned char *)unicode_utf8;
+    quantapdf_status status;
+    uint32_t font_glyph_count = 0u;
+    size_t glyph_bytes;
+    size_t resource_bytes;
+    size_t i;
+
+    if (composer == NULL || options == NULL ||
+        options->struct_size <
+            QUANTAPDF_COMPOSER_GLYPH_RUN_OPTIONS_V1_MIN_SIZE ||
+        page_index >= composer->page_count ||
+        options->font_id == 0u ||
+        (size_t)options->font_id > composer->font_count ||
+        !isfinite(origin.x) || !isfinite(origin.y) ||
+        !isfinite(options->font_size) || options->font_size <= 0.0f ||
+        (options->argb >> 24u) != 0xffu ||
+        glyphs == NULL || glyph_count == 0u ||
+        (unicode_size != 0u && unicode_utf8 == NULL))
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if (unicode_size > (size_t)UINT32_MAX ||
+        glyph_count > SIZE_MAX / sizeof(*glyphs))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (!quantapdf_glyph_run_utf8_valid(unicode_bytes, unicode_size))
+        return QUANTAPDF_ERROR_FORMAT;
+
+    font = &composer->fonts[options->font_id - 1u];
+    status = quantapdf_ttf_glyph_count(
+        font->data, font->size, &font_glyph_count);
+    if (status != QUANTAPDF_OK)
+        return status;
+
+    for (i = 0u; i < glyph_count; ++i) {
+        size_t cluster_offset = glyphs[i].unicode_offset;
+        size_t cluster_length = glyphs[i].unicode_length;
+
+        if (glyphs[i].glyph_id >= font_glyph_count ||
+            !isfinite(glyphs[i].x_advance) ||
+            !isfinite(glyphs[i].y_advance) ||
+            !isfinite(glyphs[i].x_offset) ||
+            !isfinite(glyphs[i].y_offset))
+            return QUANTAPDF_ERROR_ARGUMENT;
+        if (cluster_offset > unicode_size ||
+            cluster_length > unicode_size - cluster_offset ||
+            !quantapdf_glyph_run_utf8_boundary(
+                unicode_bytes, unicode_size, cluster_offset) ||
+            !quantapdf_glyph_run_utf8_boundary(
+                unicode_bytes,
+                unicode_size,
+                cluster_offset + cluster_length))
+            return QUANTAPDF_ERROR_ARGUMENT;
+    }
+
+    glyph_bytes = glyph_count * sizeof(*glyphs);
+    if (unicode_size > SIZE_MAX - glyph_bytes)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    resource_bytes = glyph_bytes + unicode_size;
+    if (composer->resource_bytes > composer->max_resource_bytes ||
+        resource_bytes >
+            composer->max_resource_bytes - composer->resource_bytes)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    glyph_copy = (quantapdf_composer_glyph *)malloc(glyph_bytes);
+    if (glyph_copy == NULL)
+        return QUANTAPDF_ERROR_NOMEM;
+    memcpy(glyph_copy, glyphs, glyph_bytes);
+
+    if (unicode_size != 0u) {
+        unicode_copy = (char *)malloc(unicode_size);
+        if (unicode_copy == NULL) {
+            free(glyph_copy);
+            return QUANTAPDF_ERROR_NOMEM;
+        }
+        memcpy(unicode_copy, unicode_utf8, unicode_size);
+    }
+
+    status = quantapdf_composer_reserve_operation_internal(composer);
+    if (status != QUANTAPDF_OK) {
+        free(unicode_copy);
+        free(glyph_copy);
+        return status;
+    }
+
+    memset(&operation, 0, sizeof(operation));
+    operation.kind = QUANTAPDF_COMPOSER_OPERATION_GLYPH_RUN;
+    operation.page_index = page_index;
+    operation.value.glyph_run.glyphs = glyph_copy;
+    operation.value.glyph_run.glyph_count = glyph_count;
+    operation.value.glyph_run.unicode_utf8 = unicode_copy;
+    operation.value.glyph_run.unicode_size = unicode_size;
+    operation.value.glyph_run.origin = origin;
+    operation.value.glyph_run.options = *options;
+    composer->operations[composer->operation_count++] = operation;
+    composer->resource_bytes += resource_bytes;
     return QUANTAPDF_OK;
 }

@@ -85,6 +85,24 @@ target_compile_definitions(quantapdf_test_composer_font PRIVATE
 add_test(NAME quantapdf.composer_font COMMAND quantapdf_test_composer_font)
 set_tests_properties(quantapdf.composer_font PROPERTIES TIMEOUT 30)
 
+add_executable(quantapdf_test_composer_glyph_run
+  test_composer_glyph_run.cpp
+  composer_test_helpers.cpp)
+target_include_directories(quantapdf_test_composer_glyph_run PRIVATE
+  "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_composer_glyph_run PRIVATE
+  QuantaPDF::QuantaPDF
+  quantapdf_backend
+  qpdf::libqpdf
+  ZLIB::ZLIB)
+target_compile_features(quantapdf_test_composer_glyph_run PRIVATE cxx_std_20)
+target_compile_definitions(quantapdf_test_composer_glyph_run PRIVATE
+  COMPOSER_GLYPH_RUN_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composer-glyph-run-output.pdf"
+  ROBOTO_TTF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/fonts/Roboto-Regular.ttf")
+add_test(NAME quantapdf.composer_glyph_run
+  COMMAND quantapdf_test_composer_glyph_run)
+set_tests_properties(quantapdf.composer_glyph_run PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_test_jpeg_validator
   test_jpeg_validator.c
   composer_test_helpers.cpp
