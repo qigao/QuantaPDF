@@ -325,6 +325,75 @@ void append_image_content(
         std::to_string(operation.value.image.image_id) + " Do Q\n";
 }
 
+
+void append_path_content(
+    std::string& content,
+    quantapdf_composer_page_state const& page,
+    quantapdf_composer_operation const& operation)
+{
+    auto const& path = operation.value.path;
+    auto const& options = path.options;
+    auto append_color = [&](uint32_t argb, char const* op) {
+        double const red = ((argb >> 16u) & 0xffu) / 255.0;
+        double const green = ((argb >> 8u) & 0xffu) / 255.0;
+        double const blue = (argb & 0xffu) / 255.0;
+        content += number(red) + " " + number(green) + " " +
+            number(blue) + " " + op + " ";
+    };
+    auto append_point = [&](quantapdf_point const& point) {
+        content += number(point.x) + " " +
+            number(page.height_points - point.y);
+    };
+
+    content += "q ";
+    if (options.stroke) {
+        append_color(options.stroke_argb, "RG");
+        content += number(options.stroke_width) + " w " +
+            std::to_string(static_cast<int>(options.line_cap)) + " J " +
+            std::to_string(static_cast<int>(options.line_join)) + " j " +
+            number(options.miter_limit) + " M ";
+    }
+    if (options.fill)
+        append_color(options.fill_argb, "rg");
+
+    for (size_t i = 0u; i < path.command_count; ++i) {
+        auto const& command = path.commands[i];
+        switch (command.kind) {
+        case QUANTAPDF_COMPOSER_PATH_MOVE_TO:
+            append_point(command.point1);
+            content += " m ";
+            break;
+        case QUANTAPDF_COMPOSER_PATH_LINE_TO:
+            append_point(command.point1);
+            content += " l ";
+            break;
+        case QUANTAPDF_COMPOSER_PATH_CUBIC_TO:
+            append_point(command.point1);
+            content += " ";
+            append_point(command.point2);
+            content += " ";
+            append_point(command.point3);
+            content += " c ";
+            break;
+        case QUANTAPDF_COMPOSER_PATH_CLOSE:
+            content += "h ";
+            break;
+        }
+    }
+
+    if (options.stroke && options.fill)
+        content += options.fill_rule == QUANTAPDF_COMPOSER_FILL_EVEN_ODD
+            ? "B*"
+            : "B";
+    else if (options.fill)
+        content += options.fill_rule == QUANTAPDF_COMPOSER_FILL_EVEN_ODD
+            ? "f*"
+            : "f";
+    else
+        content += "S";
+    content += " Q\n";
+}
+
 std::string page_content(
     quantapdf_composer const* composer,
     std::size_t page_index)
@@ -344,8 +413,10 @@ std::string page_content(
             continue;
         if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_TEXT)
             append_text_content(content, page, operation);
-        else
+        else if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_IMAGE)
             append_image_content(content, composer, page, operation);
+        else if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_PATH)
+            append_path_content(content, page, operation);
     }
     return content;
 }
