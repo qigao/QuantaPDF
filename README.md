@@ -68,10 +68,10 @@ The current supported surface includes:
 - explicit AES-256 encrypt, authenticated decrypt, and re-encrypt transforms
 - immutable CropBox crop, MediaBox trim, poster-split, interactive-content
   flattening, lossless rewrite/GC, and selective image recompression transforms
-- deterministic PDF composition from Base-14 or embedded TrueType-outline text,
-  JPEG/PNG images, opaque stroked/filled vector paths, vector Code 128B/Code 39/
-  EAN-13/UPC-A/EAN-8/UPC-E/QR barcodes, URI/internal links, and hierarchical
-  outlines
+- deterministic PDF composition from Base-14 text, direct-cmap embedded
+  TrueType text, caller-shaped positioned glyph runs, JPEG/PNG images, opaque
+  stroked/filled vector paths, vector Code 128B/Code 39/EAN-13/UPC-A/EAN-8/
+  UPC-E/QR barcodes, URI/internal links, and hierarchical outlines
 - stable status strings and one allocator-matched `quantapdf_free()` entry point
 
 ## API contract
@@ -205,13 +205,26 @@ with `quantapdf_composer_add_font()`, then draw UTF-8 through
 `font_id`. QuantaPDF copies and owns the font bytes; registering identical
 bytes again reuses the existing ID.
 
-The 2.10 embedded-font path accepts TrueType outlines (`glyf`/`loca`) in
-TTF or OpenType-TT containers, supports Unicode cmap format 4 and 12, embeds
-the complete font as `FontFile2`, and emits `ToUnicode` for extraction.
-CFF/CFF2-only OTF is rejected as unsupported. Text is mapped directly from
-Unicode code points to glyph IDs; GSUB/GPOS shaping, bidi reordering, ligature
-formation, and script-specific shaping are not claimed. Missing glyphs fail
-explicitly instead of being substituted silently.
+The embedded-font path accepts TrueType outlines (`glyf`/`loca`) in TTF
+or OpenType-TT containers, supports Unicode cmap format 4 and 12, embeds a
+deterministic TrueType subset as `FontFile2`, and emits `ToUnicode` for
+extraction. CFF/CFF2-only OTF is rejected as unsupported.
+
+`quantapdf_composer_draw_embedded_text()` remains the simple direct-cmap path:
+it maps Unicode code points to glyph IDs and does not claim GSUB/GPOS shaping,
+bidi reordering, ligature formation, or script-specific shaping. Missing glyphs
+fail explicitly.
+
+For text shaped by another engine, 2.11 adds
+`quantapdf_composer_draw_glyph_run()`. Each fixed-layout glyph record carries
+a font glyph ID, x/y advance and offset in 1000/em units, and an optional byte
+range into a caller-provided UTF-8 cluster buffer. The run origin is an explicit
+displayed-page-space baseline point. A glyph may map to multiple Unicode
+scalars for ligatures/alternates, while a secondary combining glyph may use
+`unicode_length = 0` to avoid duplicate extraction. QuantaPDF assigns PDF CIDs
+independently of glyph IDs and emits a private `CIDToGIDMap` plus `ToUnicode`.
+QuantaPDF still does not perform shaping itself; HarfBuzz/FreeType/etc. remain
+optional caller-side producers of glyph runs.
 
 The default capacity is 1,024 pages, 1,000,000 draw operations, and 256 MiB for
 owned text/image resources and bounded image-decoder working memory. Supply
