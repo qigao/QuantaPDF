@@ -33,6 +33,22 @@ target_compile_definitions(quantapdf_test_composer PRIVATE
 add_test(NAME quantapdf.composer COMMAND quantapdf_test_composer)
 set_tests_properties(quantapdf.composer PROPERTIES TIMEOUT 30)
 
+add_executable(quantapdf_test_composer_vector
+  test_composer_vector.c
+  composer_test_helpers.cpp)
+target_include_directories(quantapdf_test_composer_vector PRIVATE
+  "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_composer_vector PRIVATE
+  QuantaPDF::QuantaPDF
+  quantapdf_backend
+  qpdf::libqpdf
+  ZLIB::ZLIB)
+target_compile_features(quantapdf_test_composer_vector PRIVATE cxx_std_20)
+target_compile_definitions(quantapdf_test_composer_vector PRIVATE
+  COMPOSER_VECTOR_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composer-vector-output.pdf")
+add_test(NAME quantapdf.composer_vector COMMAND quantapdf_test_composer_vector)
+set_tests_properties(quantapdf.composer_vector PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_test_jpeg_validator
   test_jpeg_validator.c
   composer_test_helpers.cpp

@@ -8,6 +8,7 @@ quantapdf_composer_add_image
 quantapdf_composer_add_page
 quantapdf_composer_create
 quantapdf_composer_draw_image
+quantapdf_composer_draw_path
 quantapdf_composer_draw_text
 quantapdf_composer_finish
 quantapdf_crop_pages
