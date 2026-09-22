@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 6
+#define QUANTAPDF_VERSION_MINOR 7
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -135,6 +135,55 @@ typedef struct quantapdf_composer_image_options {
      sizeof(quantapdf_composer_image_fit))
 #define QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE \
     (sizeof(quantapdf_composer_image_options))
+
+typedef enum quantapdf_composer_path_command_kind {
+    QUANTAPDF_COMPOSER_PATH_MOVE_TO = 1,
+    QUANTAPDF_COMPOSER_PATH_LINE_TO = 2,
+    QUANTAPDF_COMPOSER_PATH_CUBIC_TO = 3,
+    QUANTAPDF_COMPOSER_PATH_CLOSE = 4
+} quantapdf_composer_path_command_kind;
+
+typedef struct quantapdf_composer_path_command {
+    quantapdf_composer_path_command_kind kind;
+    quantapdf_point point1;
+    quantapdf_point point2;
+    quantapdf_point point3;
+} quantapdf_composer_path_command;
+
+typedef enum quantapdf_composer_fill_rule {
+    QUANTAPDF_COMPOSER_FILL_NONZERO = 0,
+    QUANTAPDF_COMPOSER_FILL_EVEN_ODD = 1
+} quantapdf_composer_fill_rule;
+
+typedef enum quantapdf_composer_line_cap {
+    QUANTAPDF_COMPOSER_LINE_CAP_BUTT = 0,
+    QUANTAPDF_COMPOSER_LINE_CAP_ROUND = 1,
+    QUANTAPDF_COMPOSER_LINE_CAP_SQUARE = 2
+} quantapdf_composer_line_cap;
+
+typedef enum quantapdf_composer_line_join {
+    QUANTAPDF_COMPOSER_LINE_JOIN_MITER = 0,
+    QUANTAPDF_COMPOSER_LINE_JOIN_ROUND = 1,
+    QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL = 2
+} quantapdf_composer_line_join;
+
+typedef struct quantapdf_composer_path_options {
+    size_t struct_size;
+    int stroke;
+    int fill;
+    uint32_t stroke_argb;
+    uint32_t fill_argb;
+    float stroke_width;
+    quantapdf_composer_fill_rule fill_rule;
+    quantapdf_composer_line_cap line_cap;
+    quantapdf_composer_line_join line_join;
+    float miter_limit;
+} quantapdf_composer_path_options;
+
+#define QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE \
+    (offsetof(quantapdf_composer_path_options, miter_limit) + sizeof(float))
+#define QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE \
+    (sizeof(quantapdf_composer_path_options))
 
 typedef struct quantapdf_page_crop {
     size_t struct_size;
@@ -540,6 +589,13 @@ QUANTAPDF_API quantapdf_status quantapdf_composer_draw_image(
     quantapdf_composer_image_id image_id,
     const quantapdf_rect *bounds,
     const quantapdf_composer_image_options *options);
+
+QUANTAPDF_API quantapdf_status quantapdf_composer_draw_path(
+    quantapdf_composer *composer,
+    size_t page_index,
+    const quantapdf_composer_path_command *commands,
+    size_t command_count,
+    const quantapdf_composer_path_options *options);
 
 QUANTAPDF_API quantapdf_status quantapdf_composer_finish(
     const quantapdf_composer *composer,
