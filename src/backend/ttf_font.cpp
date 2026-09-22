@@ -1038,6 +1038,26 @@ int ttf_font_face::width_for(uint16_t glyph) const
         units_per_em);
 }
 
+
+quantapdf_status subset_true_type_font(
+    ttf_font_face const& face,
+    std::map<uint16_t, uint32_t> const& used_glyphs,
+    std::vector<unsigned char>* out_font)
+{
+    if (out_font == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    out_font->clear();
+    try {
+        return build_subset_sfnt(face, used_glyphs, out_font);
+    } catch (std::bad_alloc const&) {
+        out_font->clear();
+        return QUANTAPDF_ERROR_NOMEM;
+    } catch (...) {
+        out_font->clear();
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+}
+
 quantapdf_status decode_utf8_codepoints(
     char const* text,
     std::vector<uint32_t>* out)
