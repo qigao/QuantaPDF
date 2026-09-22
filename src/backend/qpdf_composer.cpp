@@ -435,7 +435,7 @@ QPDFObjectHandle navigation_rectangle(
 void apply_composer_links(
     QPDF& pdf,
     quantapdf_composer const* composer,
-    std::vector<QPDFObjectHandle> const& pages)
+    std::vector<QPDFObjectHandle>& pages)
 {
     for (size_t i = 0u; i < composer->link_count; ++i) {
         auto const& link = composer->links[i];
