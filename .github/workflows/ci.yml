@@ -301,3 +301,22 @@ jobs:
       - name: Test
         shell: cmd
         run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && ctest --preset win-release-user
+
+      - name: Install Release package
+        shell: cmd
+        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && cmake --build --preset install-win-release-user
+
+      - name: Compile installed Composer consumer
+        shell: cmd
+        run: |
+          call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul
+          set "QP_PREFIX=%RUNNER_TEMP%\external\pkgs\quantapdf\release"
+          cl /nologo /W4 /WX /std:c11 /TC tests\installed_composer_consumer.c /I"%QP_PREFIX%\include" /Fe:"%RUNNER_TEMP%\quantapdf-installed-consumer.exe" /link /LIBPATH:"%QP_PREFIX%\lib" quantapdf.lib
+
+      - name: Run installed Composer consumer
+        shell: cmd
+        run: |
+          set "QP_PREFIX=%RUNNER_TEMP%\external\pkgs\quantapdf\release"
+          set "PATH=%QP_PREFIX%\bin;%PATH%"
+          "%RUNNER_TEMP%\quantapdf-installed-consumer.exe" "tests\fixtures\fonts\Roboto-Regular.ttf" "%RUNNER_TEMP%\installed-composer-smoke.pdf"
+          if not exist "%RUNNER_TEMP%\installed-composer-smoke.pdf" exit /b 1
