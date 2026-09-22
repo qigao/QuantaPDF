@@ -149,7 +149,7 @@ static int quantapdf_composer_utf8_is_winansi(const char *text)
     return 1;
 }
 
-static quantapdf_status quantapdf_composer_reserve_operation(
+quantapdf_status quantapdf_composer_reserve_operation(
     quantapdf_composer *composer)
 {
     quantapdf_composer_operation *grown;
@@ -535,7 +535,12 @@ void quantapdf_drop_composer(quantapdf_composer *composer)
         else if (composer->operations[i].kind ==
                  QUANTAPDF_COMPOSER_OPERATION_PATH)
             free(composer->operations[i].value.path.commands);
+        else if (composer->operations[i].kind ==
+                 QUANTAPDF_COMPOSER_OPERATION_EMBEDDED_TEXT)
+            free(composer->operations[i].value.embedded_text.text_utf8);
     }
+    for (i = 0u; i < composer->font_count; ++i)
+        free(composer->fonts[i].data);
     for (i = 0u; i < composer->image_count; ++i)
         free(composer->images[i].alpha_data);
     for (i = 0u; i < composer->image_count; ++i)
@@ -546,6 +551,7 @@ void quantapdf_drop_composer(quantapdf_composer *composer)
         free(composer->outlines[i].title_utf8);
     free(composer->outlines);
     free(composer->links);
+    free(composer->fonts);
     free(composer->images);
     free(composer->operations);
     free(composer->pages);
