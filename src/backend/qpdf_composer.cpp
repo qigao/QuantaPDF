@@ -665,6 +665,7 @@ struct glyph_run_font_entry {
 struct glyph_run_font_usage {
     bool referenced = false;
     std::map<std::pair<uint16_t, std::string>, uint16_t> key_to_cid;
+    std::map<uint16_t, std::string> cff_gid_unicode;
     std::vector<glyph_run_font_entry> entries;
     std::map<uint16_t, uint32_t> subset_glyphs;
 };
@@ -792,10 +793,27 @@ void collect_glyph_run_font_usage(
                 cluster);
             auto found = usage.key_to_cid.find(key);
             if (found == usage.key_to_cid.end()) {
-                if (usage.entries.size() >= 65535u)
-                    throw std::length_error("too many glyph-run CIDs");
-                uint16_t const cid =
-                    static_cast<uint16_t>(usage.entries.size() + 1u);
+                uint16_t cid = 0u;
+                bool const true_type =
+                    faces[font_index].outline_kind ==
+                    quantapdf::detail::sfnt_outline_kind::true_type;
+                if (true_type) {
+                    if (usage.entries.size() >= 65535u)
+                        throw std::length_error("too many glyph-run CIDs");
+                    cid = static_cast<uint16_t>(
+                        usage.entries.size() + 1u);
+                } else {
+                    uint16_t const gid =
+                        static_cast<uint16_t>(glyph.glyph_id);
+                    auto const existing =
+                        usage.cff_gid_unicode.find(gid);
+                    if (existing != usage.cff_gid_unicode.end() &&
+                        existing->second != cluster)
+                        throw std::length_error(
+                            "CFF glyph cannot map to multiple clusters");
+                    usage.cff_gid_unicode.emplace(gid, cluster);
+                    cid = gid;
+                }
                 usage.key_to_cid.emplace(key, cid);
                 usage.entries.push_back({
                     cid,
