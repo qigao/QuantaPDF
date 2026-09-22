@@ -13,8 +13,14 @@
 
 namespace quantapdf::detail {
 
+enum class sfnt_outline_kind {
+    true_type,
+    cff
+};
+
 struct ttf_font_face {
     unsigned char const* data = nullptr;
+    sfnt_outline_kind outline_kind = sfnt_outline_kind::true_type;
     size_t size = 0u;
     uint16_t units_per_em = 0u;
     uint16_t num_glyphs = 0u;
