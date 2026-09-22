@@ -129,8 +129,11 @@ The installed header publishes `QUANTAPDF_VERSION_MAJOR`,
 - Structures traversed as C array elements have fixed V1 layouts because an
   array has no independent element-stride metadata. These currently include
   `quantapdf_page_crop`, `quantapdf_page_trim`,
-  `quantapdf_page_poster_split`, `quantapdf_search_result`, and
-  `quantapdf_form_value_input`. Their accepted `struct_size` range is the
+  `quantapdf_page_poster_split`, `quantapdf_search_result`,
+  `quantapdf_form_value_input`, and the fixed-layout
+  `quantapdf_composer_glyph` array element. Sized array records keep their
+  documented V1 `struct_size` range; `quantapdf_composer_glyph` publishes
+  `QUANTAPDF_COMPOSER_GLYPH_V1_SIZE`. Their accepted layout is
   matching `QUANTAPDF_*_V1_MIN_SIZE` through `QUANTAPDF_*_V1_SIZE`; values
   larger than the fixed V1 layout are rejected. Future extensions require a
   new type/API or an API carrying an explicit element stride.
