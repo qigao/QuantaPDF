@@ -69,7 +69,8 @@ The current supported surface includes:
 - immutable CropBox crop, MediaBox trim, poster-split, interactive-content
   flattening, lossless rewrite/GC, and selective image recompression transforms
 - deterministic PDF composition from formatted base-14 text, JPEG/PNG images,
-  and opaque stroked/filled vector paths
+  opaque stroked/filled vector paths, and vector Code 128B/Code 39/EAN-13/
+  UPC-A/EAN-8/UPC-E/QR barcodes
 - stable status strings and one allocator-matched `quantapdf_free()` entry point
 
 ## API contract
