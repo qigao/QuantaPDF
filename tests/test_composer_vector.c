@@ -75,6 +75,9 @@ static int test_path_validation(void)
     CHECK(quantapdf_composer_draw_path(
               composer, 0u, commands, 0u, &options) ==
           QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_composer_draw_path(
+              composer, 0u, commands, SIZE_MAX, &options) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
 
     options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE - 1u;
     CHECK(quantapdf_composer_draw_path(
