@@ -68,6 +68,11 @@ quantapdf_status quantapdf_ttf_validate_text(
     size_t size,
     const char *text_utf8);
 
+quantapdf_status quantapdf_ttf_glyph_count(
+    const unsigned char *data,
+    size_t size,
+    uint32_t *out_glyph_count);
+
 #ifdef __cplusplus
 }
 #endif
