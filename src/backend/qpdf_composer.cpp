@@ -2,6 +2,7 @@
 
 #include "../internal.h"
 #include "base14_metrics.h"
+#include "ttf_font.h"
 
 #include <qpdf/Buffer.hh>
 #include <qpdf/QPDF.hh>
@@ -17,6 +18,7 @@
 #include <iomanip>
 #include <limits>
 #include <locale>
+#include <map>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -282,6 +284,347 @@ void append_text_content(
             " " + number(y) + " Tm " + pdf_string(line) + " Tj ET\n";
         y -= line_height;
     }
+}
+
+
+struct embedded_glyph_item {
+    uint32_t codepoint = 0u;
+    uint16_t glyph = 0u;
+    int width = 0;
+};
+
+struct embedded_text_line {
+    std::vector<embedded_glyph_item> glyphs;
+    double width_points = 0.0;
+};
+
+struct embedded_font_usage {
+    bool referenced = false;
+    std::map<uint16_t, uint32_t> glyph_to_unicode;
+};
+
+double embedded_line_width(
+    std::vector<embedded_glyph_item> const& glyphs,
+    double font_size)
+{
+    double units = 0.0;
+    for (auto const& glyph: glyphs)
+        units += glyph.width;
+    return units * font_size / 1000.0;
+}
+
+std::vector<embedded_text_line> layout_embedded_lines(
+    char const* text,
+    quantapdf_composer_embedded_text_options const& options,
+    quantapdf::detail::ttf_font_face const& face,
+    double max_width)
+{
+    std::vector<uint32_t> codepoints;
+    if (quantapdf::detail::decode_utf8_codepoints(text, &codepoints) !=
+        QUANTAPDF_OK)
+        throw std::invalid_argument("invalid embedded text utf8");
+
+    std::vector<embedded_text_line> lines;
+    std::vector<embedded_glyph_item> line;
+    size_t last_space = std::string::npos;
+
+    auto recompute_space = [&]() {
+        last_space = std::string::npos;
+        for (size_t i = 0u; i < line.size(); ++i) {
+            if (line[i].codepoint == 0x20u)
+                last_space = i;
+        }
+    };
+    auto publish = [&]() {
+        while (!line.empty() && line.back().codepoint == 0x20u)
+            line.pop_back();
+        embedded_text_line published;
+        published.glyphs = line;
+        published.width_points =
+            embedded_line_width(published.glyphs, options.font_size);
+        lines.push_back(std::move(published));
+        line.clear();
+        last_space = std::string::npos;
+    };
+
+    for (uint32_t cp: codepoints) {
+        if (cp == '\r')
+            continue;
+        if (cp == '\n') {
+            publish();
+            continue;
+        }
+        if (cp == '\t')
+            cp = 0x20u;
+        uint16_t const glyph = face.glyph_for(cp);
+        if (glyph == 0u)
+            throw std::invalid_argument("embedded font missing glyph");
+        line.push_back({cp, glyph, face.width_for(glyph)});
+        if (cp == 0x20u)
+            last_space = line.size() - 1u;
+
+        if (options.wrap && line.size() > 1u &&
+            embedded_line_width(line, options.font_size) > max_width) {
+            if (last_space != std::string::npos) {
+                std::vector<embedded_glyph_item> remainder(
+                    line.begin() + static_cast<std::ptrdiff_t>(last_space + 1u),
+                    line.end());
+                line.resize(last_space);
+                publish();
+                line = std::move(remainder);
+                recompute_space();
+            } else {
+                auto overflow = line.back();
+                line.pop_back();
+                publish();
+                line.push_back(overflow);
+                recompute_space();
+            }
+        }
+    }
+    if (!line.empty() || codepoints.empty() ||
+        (!codepoints.empty() && codepoints.back() == '\n'))
+        publish();
+    return lines;
+}
+
+std::string glyph_hex(std::vector<embedded_glyph_item> const& glyphs)
+{
+    std::ostringstream out;
+    out.imbue(std::locale::classic());
+    out << '<' << std::uppercase << std::hex << std::setfill('0');
+    for (auto const& glyph: glyphs)
+        out << std::setw(4) << static_cast<unsigned int>(glyph.glyph);
+    out << '>';
+    return out.str();
+}
+
+void append_embedded_text_content(
+    std::string& content,
+    quantapdf_composer_page_state const& page,
+    quantapdf_composer_operation const& operation,
+    std::vector<quantapdf::detail::ttf_font_face> const& faces)
+{
+    auto const& options = operation.value.embedded_text.options;
+    auto const& face = faces[options.font_id - 1u];
+    auto lines = layout_embedded_lines(
+        operation.value.embedded_text.text_utf8,
+        options,
+        face,
+        operation.bounds.x1 - operation.bounds.x0);
+    double const line_height =
+        options.font_size * options.line_height_multiplier;
+    double y = page.height_points - operation.bounds.y0 - options.font_size;
+    double const red = ((options.argb >> 16u) & 0xffu) / 255.0;
+    double const green = ((options.argb >> 8u) & 0xffu) / 255.0;
+    double const blue = (options.argb & 0xffu) / 255.0;
+
+    for (auto const& line: lines) {
+        double x = operation.bounds.x0;
+        if (options.alignment == QUANTAPDF_COMPOSER_TEXT_ALIGN_CENTER)
+            x += (operation.bounds.x1 - operation.bounds.x0 -
+                  line.width_points) /
+                2.0;
+        else if (options.alignment == QUANTAPDF_COMPOSER_TEXT_ALIGN_RIGHT)
+            x = operation.bounds.x1 - line.width_points;
+        if (y < page.height_points - operation.bounds.y1)
+            break;
+        content +=
+            "BT /EF" + std::to_string(options.font_id) + " " +
+            number(options.font_size) + " Tf " +
+            number(red) + " " + number(green) + " " + number(blue) +
+            " rg 1 0 0 1 " + number(x) + " " + number(y) +
+            " Tm " + glyph_hex(line.glyphs) + " Tj ET\n";
+        y -= line_height;
+    }
+}
+
+std::string unicode_hex(uint32_t codepoint)
+{
+    std::ostringstream out;
+    out.imbue(std::locale::classic());
+    out << std::uppercase << std::hex << std::setfill('0');
+    if (codepoint <= 0xffffu) {
+        out << std::setw(4) << codepoint;
+    } else {
+        uint32_t const value = codepoint - 0x10000u;
+        uint16_t const high =
+            static_cast<uint16_t>(0xd800u + (value >> 10u));
+        uint16_t const low =
+            static_cast<uint16_t>(0xdc00u + (value & 0x3ffu));
+        out << std::setw(4) << high << std::setw(4) << low;
+    }
+    return out.str();
+}
+
+std::string make_to_unicode_cmap(
+    size_t font_index,
+    embedded_font_usage const& usage)
+{
+    std::ostringstream out;
+    out.imbue(std::locale::classic());
+    out << "/CIDInit /ProcSet findresource begin\n"
+        << "12 dict begin\n"
+        << "begincmap\n"
+        << "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) "
+           "/Supplement 0 >> def\n"
+        << "/CMapName /QuantaPDF-EF" << (font_index + 1u)
+        << "-UCS def\n"
+        << "/CMapType 2 def\n"
+        << "1 begincodespacerange\n"
+        << "<0000> <FFFF>\n"
+        << "endcodespacerange\n";
+
+    auto it = usage.glyph_to_unicode.begin();
+    while (it != usage.glyph_to_unicode.end()) {
+        size_t count = 0u;
+        auto block_end = it;
+        while (block_end != usage.glyph_to_unicode.end() && count < 100u) {
+            ++block_end;
+            ++count;
+        }
+        out << count << " beginbfchar\n";
+        for (; it != block_end; ++it) {
+            out << '<' << std::uppercase << std::hex << std::setfill('0')
+                << std::setw(4) << static_cast<unsigned int>(it->first)
+                << "> <" << unicode_hex(it->second) << ">\n";
+        }
+        out << "endbfchar\n";
+    }
+    out << "endcmap\n"
+        << "CMapName currentdict /CMap defineresource pop\n"
+        << "end\n"
+        << "end\n";
+    return out.str();
+}
+
+void collect_embedded_font_usage(
+    quantapdf_composer const* composer,
+    std::vector<quantapdf::detail::ttf_font_face> const& faces,
+    std::vector<embedded_font_usage>* usages)
+{
+    for (size_t i = 0u; i < composer->operation_count; ++i) {
+        auto const& operation = composer->operations[i];
+        if (operation.kind != QUANTAPDF_COMPOSER_OPERATION_EMBEDDED_TEXT)
+            continue;
+        auto const& options = operation.value.embedded_text.options;
+        size_t const index = options.font_id - 1u;
+        auto& usage = (*usages)[index];
+        usage.referenced = true;
+        std::vector<uint32_t> codepoints;
+        if (quantapdf::detail::decode_utf8_codepoints(
+                operation.value.embedded_text.text_utf8, &codepoints) !=
+            QUANTAPDF_OK)
+            throw std::invalid_argument("invalid embedded text utf8");
+        for (uint32_t cp: codepoints) {
+            if (cp == '\n' || cp == '\r')
+                continue;
+            if (cp == '\t')
+                cp = 0x20u;
+            uint16_t const glyph = faces[index].glyph_for(cp);
+            if (glyph == 0u)
+                throw std::invalid_argument("embedded font missing glyph");
+            usage.glyph_to_unicode.emplace(glyph, cp);
+        }
+    }
+}
+
+QPDFObjectHandle make_embedded_font(
+    QPDF& pdf,
+    quantapdf_composer_font_state const& state,
+    quantapdf::detail::ttf_font_face const& face,
+    embedded_font_usage const& usage,
+    size_t font_index)
+{
+    auto font_file = pdf.newStream(std::string(
+        reinterpret_cast<char const*>(state.data), state.size));
+    font_file.getDict().replaceKey(
+        "/Length1",
+        QPDFObjectHandle::newInteger(static_cast<long long>(state.size)));
+
+    auto descriptor = QPDFObjectHandle::newDictionary();
+    descriptor.replaceKey("/Type", QPDFObjectHandle::newName("/FontDescriptor"));
+    descriptor.replaceKey(
+        "/FontName", QPDFObjectHandle::newName("/" + face.postscript_name));
+    descriptor.replaceKey("/Flags", QPDFObjectHandle::newInteger(face.flags));
+
+    auto bbox = QPDFObjectHandle::newArray();
+    for (int i = 0; i < 4; ++i) {
+        double const value =
+            static_cast<double>(face.bbox[i]) * 1000.0 / face.units_per_em;
+        bbox.appendItem(
+            QPDFObjectHandle::newReal(value, decimal_precision(value)));
+    }
+    descriptor.replaceKey("/FontBBox", bbox);
+    descriptor.replaceKey(
+        "/ItalicAngle",
+        QPDFObjectHandle::newReal(
+            face.italic_angle, decimal_precision(face.italic_angle)));
+    descriptor.replaceKey(
+        "/Ascent",
+        QPDFObjectHandle::newReal(
+            face.ascent, decimal_precision(face.ascent)));
+    descriptor.replaceKey(
+        "/Descent",
+        QPDFObjectHandle::newReal(
+            face.descent, decimal_precision(face.descent)));
+    descriptor.replaceKey(
+        "/CapHeight",
+        QPDFObjectHandle::newReal(
+            face.cap_height, decimal_precision(face.cap_height)));
+    descriptor.replaceKey(
+        "/StemV",
+        QPDFObjectHandle::newReal(
+            face.stem_v, decimal_precision(face.stem_v)));
+    descriptor.replaceKey("/FontFile2", font_file);
+    auto descriptor_ref = pdf.makeIndirectObject(descriptor);
+
+    auto system_info = QPDFObjectHandle::newDictionary();
+    system_info.replaceKey("/Registry", QPDFObjectHandle::newString("Adobe"));
+    system_info.replaceKey("/Ordering", QPDFObjectHandle::newString("Identity"));
+    system_info.replaceKey("/Supplement", QPDFObjectHandle::newInteger(0));
+
+    auto widths = QPDFObjectHandle::newArray();
+    for (auto const& entry: usage.glyph_to_unicode) {
+        auto one_width = QPDFObjectHandle::newArray();
+        one_width.appendItem(
+            QPDFObjectHandle::newInteger(face.width_for(entry.first)));
+        widths.appendItem(QPDFObjectHandle::newInteger(entry.first));
+        widths.appendItem(one_width);
+    }
+
+    auto descendant = QPDFObjectHandle::newDictionary();
+    descendant.replaceKey("/Type", QPDFObjectHandle::newName("/Font"));
+    descendant.replaceKey(
+        "/Subtype", QPDFObjectHandle::newName("/CIDFontType2"));
+    descendant.replaceKey(
+        "/BaseFont", QPDFObjectHandle::newName("/" + face.postscript_name));
+    descendant.replaceKey("/CIDSystemInfo", system_info);
+    int const default_width = std::max(1, face.width_for(0u));
+    descendant.replaceKey(
+        "/DW", QPDFObjectHandle::newInteger(default_width));
+    if (widths.getArrayNItems() != 0)
+        descendant.replaceKey("/W", widths);
+    descendant.replaceKey("/FontDescriptor", descriptor_ref);
+    descendant.replaceKey(
+        "/CIDToGIDMap", QPDFObjectHandle::newName("/Identity"));
+    auto descendant_ref = pdf.makeIndirectObject(descendant);
+
+    auto descendants = QPDFObjectHandle::newArray();
+    descendants.appendItem(descendant_ref);
+
+    auto to_unicode = pdf.newStream(
+        make_to_unicode_cmap(font_index, usage));
+
+    auto type0 = QPDFObjectHandle::newDictionary();
+    type0.replaceKey("/Type", QPDFObjectHandle::newName("/Font"));
+    type0.replaceKey("/Subtype", QPDFObjectHandle::newName("/Type0"));
+    type0.replaceKey(
+        "/BaseFont", QPDFObjectHandle::newName("/" + face.postscript_name));
+    type0.replaceKey("/Encoding", QPDFObjectHandle::newName("/Identity-H"));
+    type0.replaceKey("/DescendantFonts", descendants);
+    type0.replaceKey("/ToUnicode", to_unicode);
+    return pdf.makeIndirectObject(type0);
 }
 
 void append_image_content(
@@ -578,7 +921,8 @@ void apply_composer_navigation(
 
 std::string page_content(
     quantapdf_composer const* composer,
-    std::size_t page_index)
+    std::size_t page_index,
+    std::vector<quantapdf::detail::ttf_font_face> const& embedded_faces)
 {
     auto const& page = composer->pages[page_index];
     std::string content;
@@ -599,6 +943,10 @@ std::string page_content(
             append_image_content(content, composer, page, operation);
         else if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_PATH)
             append_path_content(content, page, operation);
+        else if (operation.kind ==
+                 QUANTAPDF_COMPOSER_OPERATION_EMBEDDED_TEXT)
+            append_embedded_text_content(
+                content, page, operation, embedded_faces);
     }
     return content;
 }
@@ -865,6 +1213,34 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             }
             image_objects.push_back(stream);
         }
+
+        std::vector<quantapdf::detail::ttf_font_face> embedded_faces;
+        embedded_faces.reserve(composer->font_count);
+        for (size_t i = 0u; i < composer->font_count; ++i) {
+            quantapdf::detail::ttf_font_face face;
+            if (quantapdf::detail::ttf_font_face::parse(
+                    composer->fonts[i].data,
+                    composer->fonts[i].size,
+                    &face) != QUANTAPDF_OK)
+                throw std::invalid_argument("registered font no longer parses");
+            embedded_faces.push_back(std::move(face));
+        }
+        std::vector<embedded_font_usage> embedded_usage(composer->font_count);
+        collect_embedded_font_usage(
+            composer, embedded_faces, &embedded_usage);
+        std::vector<std::optional<QPDFObjectHandle>> embedded_font_objects(
+            composer->font_count);
+        for (size_t i = 0u; i < composer->font_count; ++i) {
+            if (embedded_usage[i].referenced) {
+                embedded_font_objects[i] = make_embedded_font(
+                    pdf,
+                    composer->fonts[i],
+                    embedded_faces[i],
+                    embedded_usage[i],
+                    i);
+            }
+        }
+
         for (std::size_t page_index = 0; page_index < composer->page_count;
              ++page_index) {
             auto page = QPDFObjectHandle::newDictionary();
@@ -885,6 +1261,21 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                     fonts.replaceKey(
                         "/F" + std::to_string(font),
                         make_font(static_cast<quantapdf_composer_font>(font)));
+            }
+            for (std::size_t i = 0; i < composer->operation_count; ++i) {
+                auto const& operation = composer->operations[i];
+                if (operation.page_index != page_index ||
+                    operation.kind !=
+                        QUANTAPDF_COMPOSER_OPERATION_EMBEDDED_TEXT)
+                    continue;
+                auto const id = operation.value.embedded_text.options.font_id;
+                if (id == 0u ||
+                    static_cast<size_t>(id) > embedded_font_objects.size() ||
+                    !embedded_font_objects[id - 1u].has_value())
+                    throw std::logic_error("embedded font resource missing");
+                fonts.replaceKey(
+                    "/EF" + std::to_string(id),
+                    *embedded_font_objects[id - 1u]);
             }
             resources.replaceKey("/Font", fonts);
             for (std::size_t i = 0; i < composer->operation_count; ++i) {
@@ -909,7 +1300,9 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             page.replaceKey("/MediaBox", media_box);
             page.replaceKey("/Resources", resources);
             page.replaceKey(
-                "/Contents", pdf.newStream(page_content(composer, page_index)));
+                "/Contents",
+                pdf.newStream(page_content(
+                    composer, page_index, embedded_faces)));
             pdf.addPage(pdf.makeIndirectObject(page), false);
         }
         apply_composer_navigation(pdf, composer);

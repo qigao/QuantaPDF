@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(QuantaPDF VERSION 2.9.0 LANGUAGES C CXX)
+project(QuantaPDF VERSION 2.10.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 
@@ -38,6 +38,7 @@ endif()
 add_library(quantapdf_backend STATIC
   src/backend/qpdf_document.cpp
   src/backend/qpdf_composer.cpp
+  src/backend/ttf_font.cpp
   src/backend/secure_random.cpp
   src/backend/jpeg_validator.c
   src/backend/jpeg_encoder.cpp
@@ -63,6 +64,7 @@ set_target_properties(quantapdf_backend PROPERTIES
 add_library(quantapdf
   src/status.c
   src/composer.c
+  src/composer_font.c
   src/composer_navigation.c
   src/barcode.c
   src/input_file.c
