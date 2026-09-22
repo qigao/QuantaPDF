@@ -191,7 +191,8 @@ typedef enum quantapdf_barcode_kind {
     QUANTAPDF_BARCODE_EAN_13 = 3,
     QUANTAPDF_BARCODE_UPC_A = 4,
     QUANTAPDF_BARCODE_EAN_8 = 5,
-    QUANTAPDF_BARCODE_QR = 6
+    QUANTAPDF_BARCODE_UPC_E = 6,
+    QUANTAPDF_BARCODE_QR = 7
 } quantapdf_barcode_kind;
 
 typedef struct quantapdf_barcode_options {
