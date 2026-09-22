@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 8
+#define QUANTAPDF_VERSION_MINOR 9
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -55,17 +55,23 @@ typedef struct quantapdf_rect {
 #define QUANTAPDF_COMPOSER_DEFAULT_MAX_OPERATIONS ((size_t)1000000u)
 #define QUANTAPDF_COMPOSER_DEFAULT_MAX_RESOURCE_BYTES \
     ((size_t)256u * (size_t)1024u * (size_t)1024u)
+#define QUANTAPDF_COMPOSER_DEFAULT_MAX_NAVIGATION_ITEMS ((size_t)1000000u)
 
 typedef struct quantapdf_composer_options {
     size_t struct_size;
     size_t max_pages;
     size_t max_operations;
     size_t max_resource_bytes;
+    size_t max_navigation_items;
 } quantapdf_composer_options;
 
 #define QUANTAPDF_COMPOSER_OPTIONS_V1_MIN_SIZE \
     (offsetof(quantapdf_composer_options, max_resource_bytes) + sizeof(size_t))
 #define QUANTAPDF_COMPOSER_OPTIONS_V1_SIZE \
+    (offsetof(quantapdf_composer_options, max_resource_bytes) + sizeof(size_t))
+#define QUANTAPDF_COMPOSER_OPTIONS_V2_MIN_SIZE \
+    (offsetof(quantapdf_composer_options, max_navigation_items) + sizeof(size_t))
+#define QUANTAPDF_COMPOSER_OPTIONS_V2_SIZE \
     (sizeof(quantapdf_composer_options))
 
 typedef struct quantapdf_composer_page_options {
@@ -204,6 +210,21 @@ typedef struct quantapdf_barcode_options {
     (offsetof(quantapdf_barcode_options, argb) + sizeof(uint32_t))
 #define QUANTAPDF_BARCODE_OPTIONS_V1_SIZE \
     (sizeof(quantapdf_barcode_options))
+
+typedef uint32_t quantapdf_composer_outline_id;
+
+typedef struct quantapdf_composer_outline_options {
+    size_t struct_size;
+    quantapdf_composer_outline_id parent_id;
+    size_t target_page_index;
+    quantapdf_point target;
+    int is_open;
+} quantapdf_composer_outline_options;
+
+#define QUANTAPDF_COMPOSER_OUTLINE_OPTIONS_V1_MIN_SIZE \
+    (offsetof(quantapdf_composer_outline_options, is_open) + sizeof(int))
+#define QUANTAPDF_COMPOSER_OUTLINE_OPTIONS_V1_SIZE \
+    (sizeof(quantapdf_composer_outline_options))
 
 typedef struct quantapdf_page_crop {
     size_t struct_size;
@@ -624,6 +645,25 @@ QUANTAPDF_API quantapdf_status quantapdf_composer_draw_barcode(
     const char *payload_utf8,
     const quantapdf_rect *bounds,
     const quantapdf_barcode_options *options);
+
+QUANTAPDF_API quantapdf_status quantapdf_composer_add_uri_link(
+    quantapdf_composer *composer,
+    size_t page_index,
+    const quantapdf_rect *hotspot,
+    const char *uri_utf8);
+
+QUANTAPDF_API quantapdf_status quantapdf_composer_add_page_link(
+    quantapdf_composer *composer,
+    size_t page_index,
+    const quantapdf_rect *hotspot,
+    size_t target_page_index,
+    quantapdf_point target);
+
+QUANTAPDF_API quantapdf_status quantapdf_composer_add_outline(
+    quantapdf_composer *composer,
+    const char *title_utf8,
+    const quantapdf_composer_outline_options *options,
+    quantapdf_composer_outline_id *out_outline_id);
 
 QUANTAPDF_API quantapdf_status quantapdf_composer_finish(
     const quantapdf_composer *composer,
