@@ -1767,6 +1767,8 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
         return QUANTAPDF_OK;
     } catch (std::invalid_argument const&) {
         return QUANTAPDF_ERROR_FORMAT;
+    } catch (std::length_error const&) {
+        return QUANTAPDF_ERROR_UNSUPPORTED;
     } catch (std::bad_alloc const&) {
         return QUANTAPDF_ERROR_NOMEM;
     } catch (...) {
