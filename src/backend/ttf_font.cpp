@@ -137,7 +137,7 @@ bool select_cmap(
     return true;
 }
 
-std::string postscript_name(
+std::string extract_postscript_name(
     unsigned char const* data,
     table_view name)
 {
@@ -387,7 +387,7 @@ quantapdf_status ttf_font_face::parse(
         result.italic_angle != 0.0)
         result.flags |= 64;
     result.stem_v = weight_class >= 700u ? 120.0 : 80.0;
-    result.postscript_name = postscript_name(bytes, name);
+    result.postscript_name = extract_postscript_name(bytes, name);
 
     *out = std::move(result);
     return QUANTAPDF_OK;
