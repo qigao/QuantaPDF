@@ -906,7 +906,10 @@ quantapdf_status ttf_font_face::parse(
     if (bytes == nullptr || out == nullptr || byte_count < 12u)
         return QUANTAPDF_ERROR_FORMAT;
     uint32_t const sfnt = be32(bytes);
-    if (sfnt != 0x00010000u && sfnt != 0x74727565u)
+    bool const true_type_sfnt =
+        sfnt == 0x00010000u || sfnt == 0x74727565u;
+    bool const open_type_sfnt = sfnt == 0x4f54544fu;
+    if (!true_type_sfnt && !open_type_sfnt)
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
     table_view head;
@@ -919,6 +922,8 @@ quantapdf_status ttf_font_face::parse(
     table_view post;
     table_view glyf;
     table_view loca;
+    table_view cff;
+    table_view cff2;
     if (!find_table(bytes, byte_count, "head", &head) ||
         !find_table(bytes, byte_count, "hhea", &hhea) ||
         !find_table(bytes, byte_count, "hmtx", &hmtx) ||
@@ -928,17 +933,51 @@ quantapdf_status ttf_font_face::parse(
         !find_table(bytes, byte_count, "OS/2", &os2) ||
         !find_table(bytes, byte_count, "post", &post) ||
         !find_table(bytes, byte_count, "glyf", &glyf) ||
-        !find_table(bytes, byte_count, "loca", &loca))
+        !find_table(bytes, byte_count, "loca", &loca) ||
+        !find_table(bytes, byte_count, "CFF ", &cff) ||
+        !find_table(bytes, byte_count, "CFF2", &cff2))
         return QUANTAPDF_ERROR_FORMAT;
     if (!head.found || head.size < 54u ||
         !hhea.found || hhea.size < 36u ||
         !hmtx.found || !cmap.found ||
-        !maxp.found || maxp.size < 6u ||
-        !glyf.found || !loca.found)
+        !maxp.found || maxp.size < 6u)
         return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    sfnt_outline_kind outline_kind;
+    if (true_type_sfnt) {
+        if (!glyf.found || !loca.found || cff.found || cff2.found)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        outline_kind = sfnt_outline_kind::true_type;
+    } else {
+        if (glyf.found || loca.found || cff.found == cff2.found)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        if (cff.found) {
+            if (cff.size < 4u ||
+                bytes[cff.offset] != 1u ||
+                bytes[cff.offset + 2u] < 4u ||
+                bytes[cff.offset + 2u] > cff.size ||
+                bytes[cff.offset + 3u] < 1u ||
+                bytes[cff.offset + 3u] > 4u)
+                return QUANTAPDF_ERROR_FORMAT;
+            outline_kind = sfnt_outline_kind::cff;
+        } else {
+            if (cff2.size < 5u ||
+                bytes[cff2.offset] != 2u ||
+                bytes[cff2.offset + 2u] < 5u ||
+                bytes[cff2.offset + 2u] > cff2.size)
+                return QUANTAPDF_ERROR_FORMAT;
+            size_t const top_dict_length =
+                be16(bytes + cff2.offset + 3u);
+            if (top_dict_length >
+                cff2.size - bytes[cff2.offset + 2u])
+                return QUANTAPDF_ERROR_FORMAT;
+            outline_kind = sfnt_outline_kind::cff2;
+        }
+    }
 
     ttf_font_face result;
     result.data = bytes;
+    result.outline_kind = outline_kind;
     result.size = byte_count;
     result.units_per_em = be16(bytes + head.offset + 18u);
     result.num_glyphs = be16(bytes + maxp.offset + 4u);
@@ -1046,6 +1085,8 @@ quantapdf_status subset_true_type_font(
 {
     if (out_font == nullptr)
         return QUANTAPDF_ERROR_ARGUMENT;
+    if (face.outline_kind != sfnt_outline_kind::true_type)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
     out_font->clear();
     try {
         return build_subset_sfnt(face, used_glyphs, out_font);
