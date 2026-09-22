@@ -1155,3 +1155,27 @@ extern "C" quantapdf_status quantapdf_ttf_validate_text(
         return QUANTAPDF_ERROR_BACKEND;
     }
 }
+
+
+extern "C" quantapdf_status quantapdf_ttf_glyph_count(
+    unsigned char const* data,
+    size_t size,
+    uint32_t* out_glyph_count)
+{
+    if (out_glyph_count == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_glyph_count = 0u;
+    try {
+        quantapdf::detail::ttf_font_face face;
+        quantapdf_status const status =
+            quantapdf::detail::ttf_font_face::parse(data, size, &face);
+        if (status != QUANTAPDF_OK)
+            return status;
+        *out_glyph_count = face.num_glyphs;
+        return QUANTAPDF_OK;
+    } catch (std::bad_alloc const&) {
+        return QUANTAPDF_ERROR_NOMEM;
+    } catch (...) {
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+}
