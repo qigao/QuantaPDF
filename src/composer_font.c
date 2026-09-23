@@ -153,6 +153,56 @@ quantapdf_status quantapdf_composer_add_font(
     return QUANTAPDF_OK;
 }
 
+
+quantapdf_status quantapdf_composer_measure_embedded_text(
+    const quantapdf_composer *composer,
+    const char *text_utf8,
+    float max_width_points,
+    const quantapdf_composer_embedded_text_options *options,
+    quantapdf_composer_text_measurement *out_measurement)
+{
+    const quantapdf_composer_font_state *font;
+    quantapdf_status status;
+
+    if (out_measurement == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if (out_measurement->struct_size <
+        QUANTAPDF_COMPOSER_TEXT_MEASUREMENT_V1_MIN_SIZE)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    out_measurement->width_points = 0.0f;
+    out_measurement->height_points = 0.0f;
+    out_measurement->line_count = 0u;
+
+    if (composer == NULL || text_utf8 == NULL || options == NULL ||
+        options->struct_size <
+            QUANTAPDF_COMPOSER_EMBEDDED_TEXT_OPTIONS_V1_MIN_SIZE ||
+        options->font_id == 0u ||
+        (size_t)options->font_id > composer->font_count ||
+        !isfinite(max_width_points) || max_width_points <= 0.0f ||
+        !isfinite(options->font_size) || options->font_size <= 0.0f ||
+        (options->argb >> 24u) != 0xffu ||
+        !isfinite(options->line_height_multiplier) ||
+        options->line_height_multiplier <= 0.0f ||
+        options->alignment < QUANTAPDF_COMPOSER_TEXT_ALIGN_LEFT ||
+        options->alignment > QUANTAPDF_COMPOSER_TEXT_ALIGN_RIGHT ||
+        (options->wrap != 0 && options->wrap != 1))
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    font = &composer->fonts[options->font_id - 1u];
+    status = quantapdf_ttf_validate_text(
+        font->data, font->size, text_utf8);
+    if (status != QUANTAPDF_OK)
+        return status;
+
+    return quantapdf_qpdf_measure_embedded_text(
+        font->data,
+        font->size,
+        text_utf8,
+        max_width_points,
+        options,
+        out_measurement);
+}
+
 quantapdf_status quantapdf_composer_draw_embedded_text(
     quantapdf_composer *composer,
     size_t page_index,
