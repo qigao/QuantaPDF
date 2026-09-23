@@ -1408,7 +1408,110 @@ std::string page_content(
     return content;
 }
 
+
+void store_text_measurement(
+    double width,
+    double height,
+    size_t line_count,
+    quantapdf_composer_text_measurement* out_measurement)
+{
+    if (!std::isfinite(width) || !std::isfinite(height) ||
+        width < 0.0 || height < 0.0 ||
+        width > std::numeric_limits<float>::max() ||
+        height > std::numeric_limits<float>::max())
+        throw std::overflow_error("text measurement overflow");
+    out_measurement->width_points = static_cast<float>(width);
+    out_measurement->height_points = static_cast<float>(height);
+    out_measurement->line_count = line_count;
+}
+
 } // namespace
+
+extern "C" quantapdf_status quantapdf_qpdf_measure_base14_text(
+    char const* text_utf8,
+    float max_width_points,
+    quantapdf_composer_text_options const* options,
+    quantapdf_composer_text_measurement* out_measurement)
+{
+    if (text_utf8 == nullptr || options == nullptr ||
+        out_measurement == nullptr ||
+        out_measurement->struct_size <
+            QUANTAPDF_COMPOSER_TEXT_MEASUREMENT_V1_MIN_SIZE)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    try {
+        auto const text = to_winansi(text_utf8);
+        auto const lines =
+            layout_lines(text, *options, max_width_points);
+        double max_width = 0.0;
+        for (auto const& line: lines) {
+            max_width = std::max(
+                max_width,
+                text_width(line, options->font, options->font_size));
+        }
+        double const height = lines.empty()
+            ? 0.0
+            : options->font_size +
+                static_cast<double>(lines.size() - 1u) *
+                    options->font_size *
+                    options->line_height_multiplier;
+        store_text_measurement(
+            max_width, height, lines.size(), out_measurement);
+        return QUANTAPDF_OK;
+    } catch (std::invalid_argument const&) {
+        return QUANTAPDF_ERROR_FORMAT;
+    } catch (std::bad_alloc const&) {
+        return QUANTAPDF_ERROR_NOMEM;
+    } catch (...) {
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+}
+
+extern "C" quantapdf_status quantapdf_qpdf_measure_embedded_text(
+    unsigned char const* font_data,
+    size_t font_size,
+    char const* text_utf8,
+    float max_width_points,
+    quantapdf_composer_embedded_text_options const* options,
+    quantapdf_composer_text_measurement* out_measurement)
+{
+    if (font_data == nullptr || font_size == 0u ||
+        text_utf8 == nullptr || options == nullptr ||
+        out_measurement == nullptr ||
+        out_measurement->struct_size <
+            QUANTAPDF_COMPOSER_TEXT_MEASUREMENT_V1_MIN_SIZE)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    try {
+        quantapdf::detail::ttf_font_face face;
+        quantapdf_status const parse_status =
+            quantapdf::detail::ttf_font_face::parse(
+                font_data, font_size, &face);
+        if (parse_status != QUANTAPDF_OK)
+            return parse_status;
+
+        auto const lines = layout_embedded_lines(
+            text_utf8, *options, face, max_width_points);
+        double max_width = 0.0;
+        for (auto const& line: lines)
+            max_width = std::max(max_width, line.width_points);
+        double const height = lines.empty()
+            ? 0.0
+            : options->font_size +
+                static_cast<double>(lines.size() - 1u) *
+                    options->font_size *
+                    options->line_height_multiplier;
+        store_text_measurement(
+            max_width, height, lines.size(), out_measurement);
+        return QUANTAPDF_OK;
+    } catch (std::invalid_argument const&) {
+        return QUANTAPDF_ERROR_FORMAT;
+    } catch (std::bad_alloc const&) {
+        return QUANTAPDF_ERROR_NOMEM;
+    } catch (...) {
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+}
 
 extern "C" quantapdf_status quantapdf_png_decode(
     unsigned char const* data,
