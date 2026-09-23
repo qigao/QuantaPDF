@@ -103,6 +103,25 @@ add_test(NAME quantapdf.composer_glyph_run
   COMMAND quantapdf_test_composer_glyph_run)
 set_tests_properties(quantapdf.composer_glyph_run PROPERTIES TIMEOUT 30)
 
+add_executable(quantapdf_test_composer_cff
+  test_composer_cff.cpp
+  composer_test_helpers.cpp)
+target_include_directories(quantapdf_test_composer_cff PRIVATE
+  "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_composer_cff PRIVATE
+  QuantaPDF::QuantaPDF
+  quantapdf_backend
+  qpdf::libqpdf
+  ZLIB::ZLIB)
+target_compile_features(quantapdf_test_composer_cff PRIVATE cxx_std_20)
+target_compile_definitions(quantapdf_test_composer_cff PRIVATE
+  CFF_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composer-cff-output.pdf"
+  CFF2_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composer-cff2-output.pdf"
+  SOURCE_SANS_CFF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/fonts/SourceSans3-Regular.otf"
+  SOURCE_SANS_CFF2="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/fonts/SourceSans3VF-Upright.otf")
+add_test(NAME quantapdf.composer_cff COMMAND quantapdf_test_composer_cff)
+set_tests_properties(quantapdf.composer_cff PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_test_jpeg_validator
   test_jpeg_validator.c
   composer_test_helpers.cpp
