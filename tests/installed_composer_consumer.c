@@ -71,6 +71,7 @@ int main(int argc, char **argv)
     quantapdf_composer_page_options page = {0};
     quantapdf_composer_font_options font_options = {0};
     quantapdf_composer_embedded_text_options text = {0};
+    quantapdf_composer_text_measurement measurement = {0};
     quantapdf_composer_glyph_run_options glyph_run = {0};
     quantapdf_composer_glyph shaped_glyph = {0};
     quantapdf_composer_path_options path = {0};
@@ -110,6 +111,27 @@ int main(int argc, char **argv)
     CHECK(quantapdf_composer_add_page(composer, &page, &page0));
     CHECK(quantapdf_composer_add_page(composer, &page, &page1));
 
+    {
+        quantapdf_composer_text_options base_text = {0};
+        quantapdf_composer_text_measurement base_measure = {0};
+        base_text.struct_size = QUANTAPDF_COMPOSER_TEXT_OPTIONS_V1_SIZE;
+        base_text.font = QUANTAPDF_COMPOSER_FONT_HELVETICA;
+        base_text.font_size = 12.0f;
+        base_text.argb = UINT32_C(0xff000000);
+        base_text.line_height_multiplier = 1.2f;
+        base_text.alignment = QUANTAPDF_COMPOSER_TEXT_ALIGN_LEFT;
+        base_text.wrap = 1;
+        base_measure.struct_size =
+            QUANTAPDF_COMPOSER_TEXT_MEASUREMENT_V1_SIZE;
+        CHECK(quantapdf_composer_measure_text(
+            "Installed measurement", 120.0f, &base_text, &base_measure));
+        if (base_measure.line_count == 0u ||
+            base_measure.width_points <= 0.0f) {
+            fprintf(stderr, "base measurement was empty\n");
+            goto fail;
+        }
+    }
+
     font_options.struct_size = QUANTAPDF_COMPOSER_FONT_OPTIONS_V1_SIZE;
     CHECK(quantapdf_composer_add_font(
         composer, font_data, font_size, &font_options, &font_id));
@@ -121,6 +143,19 @@ int main(int argc, char **argv)
     text.line_height_multiplier = 1.2f;
     text.alignment = QUANTAPDF_COMPOSER_TEXT_ALIGN_LEFT;
     text.wrap = 1;
+    measurement.struct_size = QUANTAPDF_COMPOSER_TEXT_MEASUREMENT_V1_SIZE;
+    CHECK(quantapdf_composer_measure_embedded_text(
+        composer,
+        "Installed Caf\xC3\xA9 \xCE\xA9",
+        text_box.x1 - text_box.x0,
+        &text,
+        &measurement));
+    if (measurement.line_count == 0u ||
+        measurement.width_points <= 0.0f ||
+        measurement.height_points <= 0.0f) {
+        fprintf(stderr, "embedded measurement was empty\n");
+        goto fail;
+    }
     CHECK(quantapdf_composer_draw_embedded_text(
         composer,
         page0,
