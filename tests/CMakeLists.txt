@@ -138,6 +138,23 @@ target_compile_definitions(quantapdf_test_composer_svg PRIVATE
 add_test(NAME quantapdf.composer_svg COMMAND quantapdf_test_composer_svg)
 set_tests_properties(quantapdf.composer_svg PROPERTIES TIMEOUT 30)
 
+add_executable(quantapdf_test_composer_measure
+  test_composer_measure.cpp
+  composer_test_helpers.cpp)
+target_include_directories(quantapdf_test_composer_measure PRIVATE
+  "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_composer_measure PRIVATE
+  QuantaPDF::QuantaPDF
+  quantapdf_backend
+  qpdf::libqpdf
+  ZLIB::ZLIB)
+target_compile_features(quantapdf_test_composer_measure PRIVATE cxx_std_20)
+target_compile_definitions(quantapdf_test_composer_measure PRIVATE
+  ROBOTO_TTF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/fonts/Roboto-Regular.ttf"
+  SOURCE_SANS_CFF2="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/fonts/SourceSans3VF-Upright.otf")
+add_test(NAME quantapdf.composer_measure COMMAND quantapdf_test_composer_measure)
+set_tests_properties(quantapdf.composer_measure PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_test_jpeg_validator
   test_jpeg_validator.c
   composer_test_helpers.cpp
