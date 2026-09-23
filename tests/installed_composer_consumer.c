@@ -74,6 +74,7 @@ int main(int argc, char **argv)
     quantapdf_composer_glyph_run_options glyph_run = {0};
     quantapdf_composer_glyph shaped_glyph = {0};
     quantapdf_composer_path_options path = {0};
+    quantapdf_composer_svg_options svg_options = {0};
     quantapdf_barcode_options barcode = {0};
     quantapdf_composer_outline_options outline = {0};
 
@@ -82,7 +83,14 @@ int main(int argc, char **argv)
     quantapdf_rect barcode_box = {24.0f, 90.0f, 180.0f, 130.0f};
     quantapdf_rect uri_box = {24.0f, 140.0f, 120.0f, 160.0f};
     quantapdf_rect page_link_box = {140.0f, 140.0f, 260.0f, 160.0f};
+    quantapdf_rect svg_box = {180.0f, 80.0f, 280.0f, 160.0f};
     quantapdf_point target = {24.0f, 24.0f};
+    static const unsigned char svg_data[] =
+        "<svg viewBox=\"0 0 10 8\">"
+        "<g fill=\"#00a0ff\" stroke=\"#202020\" stroke-width=\"0.5\">"
+        "<rect x=\"1\" y=\"1\" width=\"8\" height=\"6\"/>"
+        "<path d=\"M2 6 Q5 1 8 6\" fill=\"none\"/>"
+        "</g></svg>";
 
     if (argc != 3) {
         fprintf(stderr, "usage: %s <font.ttf> <output.pdf>\\n", argv[0]);
@@ -155,6 +163,15 @@ int main(int argc, char **argv)
     path.miter_limit = 10.0f;
     CHECK(quantapdf_composer_draw_path(
         composer, page0, rectangle, 5u, &path));
+
+    svg_options.struct_size = QUANTAPDF_COMPOSER_SVG_OPTIONS_V1_SIZE;
+    CHECK(quantapdf_composer_draw_svg(
+        composer,
+        page1,
+        svg_data,
+        sizeof(svg_data) - 1u,
+        &svg_box,
+        &svg_options));
 
     barcode.struct_size = QUANTAPDF_BARCODE_OPTIONS_V1_SIZE;
     barcode.argb = UINT32_C(0xff000000);
