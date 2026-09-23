@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(QuantaPDF VERSION 2.12.0 LANGUAGES C CXX)
+project(QuantaPDF VERSION 2.13.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 
@@ -66,6 +66,7 @@ add_library(quantapdf
   src/composer.c
   src/composer_font.c
   src/composer_navigation.c
+  src/svg.cpp
   src/barcode.c
   src/input_file.c
   src/document.c
@@ -97,7 +98,9 @@ add_library(quantapdf
   src/pdf_security.c
   src/pdf_security_rewrite.c)
 add_library(QuantaPDF::QuantaPDF ALIAS quantapdf)
-target_compile_features(quantapdf PUBLIC c_std_11)
+target_compile_features(quantapdf
+  PUBLIC c_std_11
+  PRIVATE cxx_std_20)
 target_include_directories(quantapdf PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
