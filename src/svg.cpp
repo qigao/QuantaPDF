@@ -836,6 +836,10 @@ void stage_path(
     staged.options.fill_rule = style.fill_rule;
     staged.options.line_cap = style.line_cap;
     staged.options.line_join = style.line_join;
+    if (!finite(style.miter_limit) ||
+        style.miter_limit < 1.0 ||
+        style.miter_limit > std::numeric_limits<float>::max())
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
     staged.options.miter_limit = static_cast<float>(style.miter_limit);
 
     if (style.stroke) {
