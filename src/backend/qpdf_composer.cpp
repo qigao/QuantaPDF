@@ -1704,6 +1704,7 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             composer, embedded_faces, &glyph_run_usage);
         std::vector<std::optional<QPDFObjectHandle>> glyph_run_font_objects(
             composer->font_count);
+        bool requires_pdf_16 = false;
         for (size_t i = 0u; i < composer->font_count; ++i) {
             if (glyph_run_usage[i].referenced) {
                 glyph_run_font_objects[i] = make_glyph_run_font(
@@ -1713,6 +1714,11 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                     glyph_run_usage[i],
                     i);
             }
+            if ((embedded_usage[i].referenced ||
+                 glyph_run_usage[i].referenced) &&
+                embedded_faces[i].outline_kind !=
+                    quantapdf::detail::sfnt_outline_kind::true_type)
+                requires_pdf_16 = true;
         }
 
         for (std::size_t page_index = 0; page_index < composer->page_count;
@@ -1802,7 +1808,8 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
         writer.setOutputMemory();
         writer.setStaticID(true);
         writer.setObjectStreamMode(qpdf_o_disable);
-        writer.setMinimumPDFVersion("1.4");
+        writer.setMinimumPDFVersion(
+            requires_pdf_16 ? "1.6" : "1.4");
         writer.write();
         std::unique_ptr<Buffer> buffer(writer.getBuffer());
         if (buffer->getSize() == 0u)
