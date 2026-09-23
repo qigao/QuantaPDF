@@ -16,6 +16,7 @@ quantapdf_composer_draw_embedded_text
 quantapdf_composer_draw_glyph_run
 quantapdf_composer_draw_image
 quantapdf_composer_draw_path
+quantapdf_composer_draw_svg
 quantapdf_composer_draw_text
 quantapdf_composer_finish
 quantapdf_crop_pages
