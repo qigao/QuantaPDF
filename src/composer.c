@@ -149,23 +149,40 @@ static int quantapdf_composer_utf8_is_winansi(const char *text)
     return 1;
 }
 
-quantapdf_status quantapdf_composer_reserve_operation_internal(
-    quantapdf_composer *composer)
+quantapdf_status quantapdf_composer_reserve_operations_internal(
+    quantapdf_composer *composer,
+    size_t extra_operations)
 {
     quantapdf_composer_operation *grown;
+    size_t needed;
     size_t new_capacity;
 
-    if (composer->operation_count >= composer->max_operations)
+    if (composer == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if (extra_operations >
+        composer->max_operations - composer->operation_count)
         return QUANTAPDF_ERROR_UNSUPPORTED;
-    if (composer->operation_count < composer->operation_capacity)
+    needed = composer->operation_count + extra_operations;
+    if (needed <= composer->operation_capacity)
         return QUANTAPDF_OK;
 
     new_capacity = composer->operation_capacity == 0u
         ? (composer->max_operations < 16u ? composer->max_operations : 16u)
-        : composer->operation_capacity * 2u;
-    if (new_capacity < composer->operation_capacity ||
-        new_capacity > composer->max_operations)
-        new_capacity = composer->max_operations;
+        : composer->operation_capacity;
+    while (new_capacity < needed) {
+        size_t doubled;
+        if (new_capacity > SIZE_MAX / 2u)
+            doubled = composer->max_operations;
+        else
+            doubled = new_capacity * 2u;
+        if (doubled <= new_capacity ||
+            doubled > composer->max_operations)
+            doubled = composer->max_operations;
+        new_capacity = doubled;
+        if (new_capacity < needed &&
+            new_capacity == composer->max_operations)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
     if (new_capacity > SIZE_MAX / sizeof(*grown))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     grown = (quantapdf_composer_operation *)realloc(
@@ -175,6 +192,12 @@ quantapdf_status quantapdf_composer_reserve_operation_internal(
     composer->operations = grown;
     composer->operation_capacity = new_capacity;
     return QUANTAPDF_OK;
+}
+
+quantapdf_status quantapdf_composer_reserve_operation_internal(
+    quantapdf_composer *composer)
+{
+    return quantapdf_composer_reserve_operations_internal(composer, 1u);
 }
 
 static quantapdf_status quantapdf_composer_reserve_image(
