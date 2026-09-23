@@ -318,5 +318,9 @@ jobs:
         run: |
           set "QP_PREFIX=%RUNNER_TEMP%\external\pkgs\quantapdf\release"
           set "PATH=%QP_PREFIX%\bin;%PATH%"
-          "%RUNNER_TEMP%\quantapdf-installed-consumer.exe" "tests\fixtures\fonts\Roboto-Regular.ttf" "%RUNNER_TEMP%\installed-composer-smoke.pdf"
-          if not exist "%RUNNER_TEMP%\installed-composer-smoke.pdf" exit /b 1
+          "%RUNNER_TEMP%\quantapdf-installed-consumer.exe" "tests\fixtures\fonts\Roboto-Regular.ttf" "%RUNNER_TEMP%\installed-composer-smoke-ttf.pdf"
+          if not exist "%RUNNER_TEMP%\installed-composer-smoke-ttf.pdf" exit /b 1
+          "%RUNNER_TEMP%\quantapdf-installed-consumer.exe" "tests\fixtures\fonts\SourceSans3-Regular.otf" "%RUNNER_TEMP%\installed-composer-smoke-cff.pdf"
+          if not exist "%RUNNER_TEMP%\installed-composer-smoke-cff.pdf" exit /b 1
+          "%RUNNER_TEMP%\quantapdf-installed-consumer.exe" "tests\fixtures\fonts\SourceSans3VF-Upright.otf" "%RUNNER_TEMP%\installed-composer-smoke-cff2.pdf"
+          if not exist "%RUNNER_TEMP%\installed-composer-smoke-cff2.pdf" exit /b 1
