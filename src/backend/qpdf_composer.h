@@ -16,6 +16,20 @@ quantapdf_status quantapdf_qpdf_compose(
     unsigned char **out_data,
     size_t *out_size);
 
+quantapdf_status quantapdf_qpdf_measure_base14_text(
+    const char *text_utf8,
+    float max_width_points,
+    const quantapdf_composer_text_options *options,
+    quantapdf_composer_text_measurement *out_measurement);
+
+quantapdf_status quantapdf_qpdf_measure_embedded_text(
+    const unsigned char *font_data,
+    size_t font_size,
+    const char *text_utf8,
+    float max_width_points,
+    const quantapdf_composer_embedded_text_options *options,
+    quantapdf_composer_text_measurement *out_measurement);
+
 quantapdf_status quantapdf_png_decode(
     const unsigned char *data,
     size_t size,
