@@ -102,13 +102,49 @@ This is preferable to emitting a structurally invalid CIDFontType0.
 
 ## CFF2 qualification
 
-CFF2 is newer than the CFF language described by older PDF references.
-QuantaPDF does not claim CFF2 based only on parser acceptance.
+CFF2 is newer than the CFF language explicitly described by the PDF font
+embedding tables.
 
-2.12 qualification requires the real Source Sans 3 CFF2 variable-font fixture
-to pass the same finish → reopen → PDFium extraction/rendering tests as CFF1.
-If that gate fails on any supported platform, the release boundary is narrowed
-to CFF1 and CFF2 remains tracked separately.
+ISO 32000-2 describes `FontFile3 /Subtype /OpenType` and selects
+`CIDFontType0` when the embedded OpenType program uses CFF glyph technology,
+but the published standard text does not separately name the OpenType
+`CFF2` table. OpenType itself defines `CFF ` and `CFF2` as the two CFF
+outline-table forms.
+
+QuantaPDF therefore distinguishes two claims:
+
+1. **PDF structure:** CFF-family OpenType resources use the standard
+   `FontFile3 /OpenType → CIDFontType0 → Type0 / Identity-H` organization.
+2. **CFF2 interoperability:** support for CFF2 is qualified by independent
+   reader evidence rather than represented as an ISO clause that explicitly
+   names CFF2.
+
+The qualification fixture is `SourceSans3VF-Upright.otf`, an OpenType
+variable font containing a `CFF2` table.
+
+QuantaPDF 2.12 does not expose variation coordinates or named-instance
+selection. It embeds the complete CFF2 SFNT unchanged and uses the font's
+default variation instance. Base horizontal metrics and cmap mappings are read
+from the SFNT at that default instance. Non-default variable instances are not
+claimed.
+
+Qualification requires all of the following:
+
+- PDFium finish → reopen → text extraction and rendering;
+- Linux ASan/UBSan coverage;
+- macOS and Windows reader coverage on the same exact head;
+- installed-package generation through the public C ABI;
+- an independent Poppler pass using both `pdffonts` and `pdftotext`.
+
+The Poppler gate must recognize the embedded Source Sans font and recover text
+from both the direct-cmap and positioned glyph-run content.
+
+References:
+
+- ISO 32000-2 public Adobe copy:
+  https://developer.adobe.com/document-services/docs/assets/5b15559b96303194340b99820d3a70fa/PDF_ISO_32000-2.pdf
+- OpenType font file specification:
+  https://learn.microsoft.com/en-us/typography/opentype/spec/otff
 
 ## Fixtures
 
@@ -131,4 +167,6 @@ Focused coverage requires:
 - PDFium reopen/render/extract on real font programs;
 - Linux sanitizer coverage;
 - Windows/macOS full CI before merge;
-- installed-package smoke using at least CFF1.
+- installed-package smoke using TTF, CFF1, and CFF2;
+- Poppler `pdffonts` and `pdftotext` qualification for the generated CFF2
+  PDF.

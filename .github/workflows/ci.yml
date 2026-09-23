@@ -96,6 +96,22 @@ jobs:
       - name: Test static build
         run: ctest --preset linux-release-user
 
+      - name: Qualify CFF2 with Poppler
+        shell: bash
+        run: |
+          if ! command -v pdftotext >/dev/null 2>&1 || ! command -v pdffonts >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y poppler-utils
+          fi
+          pdf="$(find build/linux-gcc-release -name composer-cff2-output.pdf -print -quit)"
+          test -n "$pdf"
+          test -s "$pdf"
+          pdffonts "$pdf" | tee "$RUNNER_TEMP/cff2-pdffonts.txt"
+          grep -Fq "SourceSans" "$RUNNER_TEMP/cff2-pdffonts.txt"
+          pdftotext "$pdf" "$RUNNER_TEMP/cff2-poppler.txt"
+          grep -Fq "CFF Caf" "$RUNNER_TEMP/cff2-poppler.txt"
+          grep -Fq "AV" "$RUNNER_TEMP/cff2-poppler.txt"
+
       - name: Configure sanitizer build
         shell: bash
         run: cmake --fresh --preset linux-dev-user
