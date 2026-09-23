@@ -390,6 +390,41 @@ quantapdf_status quantapdf_composer_add_image(
     return QUANTAPDF_OK;
 }
 
+
+quantapdf_status quantapdf_composer_measure_text(
+    const char *text_utf8,
+    float max_width_points,
+    const quantapdf_composer_text_options *options,
+    quantapdf_composer_text_measurement *out_measurement)
+{
+    if (out_measurement == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if (out_measurement->struct_size <
+        QUANTAPDF_COMPOSER_TEXT_MEASUREMENT_V1_MIN_SIZE)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    out_measurement->width_points = 0.0f;
+    out_measurement->height_points = 0.0f;
+    out_measurement->line_count = 0u;
+
+    if (text_utf8 == NULL || options == NULL ||
+        options->struct_size < QUANTAPDF_COMPOSER_TEXT_OPTIONS_V1_MIN_SIZE ||
+        !isfinite(max_width_points) || max_width_points <= 0.0f ||
+        options->font < QUANTAPDF_COMPOSER_FONT_HELVETICA ||
+        options->font > QUANTAPDF_COMPOSER_FONT_COURIER_BOLD_OBLIQUE ||
+        !isfinite(options->font_size) || options->font_size <= 0.0f ||
+        !isfinite(options->line_height_multiplier) ||
+        options->line_height_multiplier <= 0.0f ||
+        options->alignment < QUANTAPDF_COMPOSER_TEXT_ALIGN_LEFT ||
+        options->alignment > QUANTAPDF_COMPOSER_TEXT_ALIGN_RIGHT ||
+        (options->argb >> 24u) != 0xffu)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if (!quantapdf_composer_utf8_is_winansi(text_utf8))
+        return QUANTAPDF_ERROR_FORMAT;
+
+    return quantapdf_qpdf_measure_base14_text(
+        text_utf8, max_width_points, options, out_measurement);
+}
+
 quantapdf_status quantapdf_composer_draw_text(
     quantapdf_composer *composer,
     size_t page_index,
