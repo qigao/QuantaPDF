@@ -122,6 +122,22 @@ target_compile_definitions(quantapdf_test_composer_cff PRIVATE
 add_test(NAME quantapdf.composer_cff COMMAND quantapdf_test_composer_cff)
 set_tests_properties(quantapdf.composer_cff PROPERTIES TIMEOUT 30)
 
+add_executable(quantapdf_test_composer_svg
+  test_composer_svg.cpp
+  composer_test_helpers.cpp)
+target_include_directories(quantapdf_test_composer_svg PRIVATE
+  "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_composer_svg PRIVATE
+  QuantaPDF::QuantaPDF
+  quantapdf_backend
+  qpdf::libqpdf
+  ZLIB::ZLIB)
+target_compile_features(quantapdf_test_composer_svg PRIVATE cxx_std_20)
+target_compile_definitions(quantapdf_test_composer_svg PRIVATE
+  COMPOSER_SVG_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composer-svg-output.pdf")
+add_test(NAME quantapdf.composer_svg COMMAND quantapdf_test_composer_svg)
+set_tests_properties(quantapdf.composer_svg PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_test_jpeg_validator
   test_jpeg_validator.c
   composer_test_helpers.cpp
