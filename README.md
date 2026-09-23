@@ -69,9 +69,10 @@ The current supported surface includes:
 - immutable CropBox crop, MediaBox trim, poster-split, interactive-content
   flattening, lossless rewrite/GC, and selective image recompression transforms
 - deterministic PDF composition from Base-14 text, direct-cmap embedded
-  TrueType text, caller-shaped positioned glyph runs, JPEG/PNG images, opaque
-  stroked/filled vector paths, vector Code 128B/Code 39/EAN-13/UPC-A/EAN-8/
-  UPC-E/QR barcodes, URI/internal links, and hierarchical outlines
+  fonts, caller-shaped positioned glyph runs, JPEG/PNG images, opaque
+  stroked/filled vector paths, a bounded static SVG subset, vector
+  Code 128B/Code 39/EAN-13/UPC-A/EAN-8/UPC-E/QR barcodes, URI/internal links,
+  and hierarchical outlines
 - stable status strings and one allocator-matched `quantapdf_free()` entry point
 
 ## API contract
@@ -236,6 +237,28 @@ one font GID is not required to represent multiple distinct Unicode clusters in
 the same Composer; that ambiguous case fails explicitly as unsupported.
 QuantaPDF still does not perform shaping itself; HarfBuzz/FreeType/etc. remain
 optional caller-side producers of glyph runs.
+
+
+2.13 adds `quantapdf_composer_draw_svg()` as a convenience ingestion layer
+over the existing generic path IR. The caller supplies bounded SVG bytes plus a
+destination rectangle; QuantaPDF performs no file or network access. V1
+requires a `viewBox` and supports `svg`, `g`, `path`, `rect`, `line`,
+`polyline`, `polygon`, `circle`, and `ellipse`. Path commands
+M/L/H/V/C/S/Q/T/Z are supported; quadratic segments are normalized to cubic
+Béziers before publication. Fill/stroke inheritance, fill rule, stroke
+width/cap/join/miter, inline presentation style, and nested
+matrix/translate/scale/rotate/skew transforms are supported within the
+documented subset.
+
+SVG ingestion is deliberately non-browser-like and fail-closed. It rejects
+DOCTYPE/entity processing, scripts, text, `use`, images, external references,
+arc commands, unsupported CSS/presentation properties, and malformed markup.
+All geometry is parsed and staged before any Composer operation is published.
+Because the current path IR stores a scalar stroke width rather than a full
+graphics-state transform, arbitrary affine transforms are exact for fill-only
+geometry while stroked paths require a conformal transform (translation,
+rotation/reflection, and uniform scale). Non-uniform/skewed stroke transforms
+return `QUANTAPDF_ERROR_UNSUPPORTED` rather than approximating the stroke.
 
 The default capacity is 1,024 pages, 1,000,000 draw operations, and 256 MiB for
 owned text/image resources and bounded image-decoder working memory. Supply
