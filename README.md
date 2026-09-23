@@ -208,10 +208,14 @@ with `quantapdf_composer_add_font()`, then draw UTF-8 through
 `font_id`. QuantaPDF copies and owns the font bytes; registering identical
 bytes again reuses the existing ID.
 
-The embedded-font path accepts TrueType outlines (`glyf`/`loca`) in TTF
-or OpenType-TT containers, supports Unicode cmap format 4 and 12, embeds a
-deterministic TrueType subset as `FontFile2`, and emits `ToUnicode` for
-extraction. CFF/CFF2-only OTF is rejected as unsupported.
+The embedded-font path accepts both TrueType and OpenType CFF-family
+outlines. TrueType (`glyf`/`loca`) fonts continue to use deterministic
+subsetting, `FontFile2`, and `CIDFontType2`. OpenType fonts carrying
+`CFF ` or `CFF2` use the shared SFNT metrics/cmap parser and are embedded as
+complete `FontFile3 /Subtype /OpenType` programs under `CIDFontType0`.
+Generated PDFs are raised to PDF 1.6 only when such a CFF resource is actually
+used. Unicode cmap format 4 and 12 remain supported and `ToUnicode` is emitted
+for extraction.
 
 `quantapdf_composer_draw_embedded_text()` remains the simple direct-cmap path:
 it maps Unicode code points to glyph IDs and does not claim GSUB/GPOS shaping,
@@ -224,8 +228,12 @@ a font glyph ID, x/y advance and offset in 1000/em units, and an optional byte
 range into a caller-provided UTF-8 cluster buffer. The run origin is an explicit
 displayed-page-space baseline point. A glyph may map to multiple Unicode
 scalars for ligatures/alternates, while a secondary combining glyph may use
-`unicode_length = 0` to avoid duplicate extraction. QuantaPDF assigns PDF CIDs
-independently of glyph IDs and emits a private `CIDToGIDMap` plus `ToUnicode`.
+`unicode_length = 0` to avoid duplicate extraction. For TrueType glyph runs, QuantaPDF assigns PDF CIDs independently of glyph IDs
+and emits a private `CIDToGIDMap` plus `ToUnicode`. PDF only defines
+`CIDToGIDMap` for Type2 CIDFonts, so CFF/CFF2 runs instead require
+`CID == GID`. They support positioned glyphs and cluster extraction as long as
+one font GID is not required to represent multiple distinct Unicode clusters in
+the same Composer; that ambiguous case fails explicitly as unsupported.
 QuantaPDF still does not perform shaping itself; HarfBuzz/FreeType/etc. remain
 optional caller-side producers of glyph runs.
 
