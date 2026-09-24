@@ -2118,6 +2118,23 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
 
         for (size_t i = 0u; i < composer->operation_count; ++i) {
             auto const& operation = composer->operations[i];
+            if (operation.graphics_state_id != 0u) {
+                auto const gs_id = operation.graphics_state_id;
+                if (gs_id > composer->graphics_state_count)
+                    throw std::logic_error("graphics state resource missing");
+                auto const& gs = composer->graphics_states[gs_id - 1u];
+                if (gs.soft_mask_id != 0u) {
+                    if (gs.soft_mask_id > composer->soft_mask_count)
+                        throw std::logic_error("soft mask resource missing");
+                    auto const& mask =
+                        composer->soft_masks[gs.soft_mask_id - 1u];
+                    if (mask.form_id == 0u ||
+                        mask.form_id > composer->form_count)
+                        throw std::logic_error("soft mask Form missing");
+                    if (composer->forms[mask.form_id - 1u].requires_pdf_16)
+                        requires_pdf_16 = true;
+                }
+            }
             if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_FORM) {
                 auto const id = operation.value.form.form_id;
                 if (id == 0u || id > composer->form_count)
@@ -2191,6 +2208,11 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             auto patterns = QPDFObjectHandle::newDictionary();
             std::vector<std::optional<QPDFObjectHandle>>
                 page_patterns(composer->paint_count);
+            std::vector<std::optional<QPDFObjectHandle>>
+                page_masked_graphics_state_objects(
+                    composer->graphics_state_count);
+            std::vector<std::optional<QPDFObjectHandle>>
+                page_soft_mask_groups(composer->soft_mask_count);
             bool used_fonts[12] = {};
             bool used_ext_gstate = false;
             bool used_pattern = false;
@@ -2254,6 +2276,33 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                 }
             }
             resources.replaceKey("/XObject", xobjects);
+
+            auto ensure_soft_mask_group =
+                [&](quantapdf_composer_soft_mask_id mask_id)
+                    -> QPDFObjectHandle {
+                if (mask_id == 0u || mask_id > composer->soft_mask_count)
+                    throw std::logic_error("soft mask resource missing");
+                auto& slot = page_soft_mask_groups[mask_id - 1u];
+                if (!slot.has_value()) {
+                    auto const& mask = composer->soft_masks[mask_id - 1u];
+                    if (mask.form_id == 0u ||
+                        mask.form_id > composer->form_count)
+                        throw std::logic_error("soft mask Form missing");
+                    auto const& form = composer->forms[mask.form_id - 1u];
+                    if ((form.flags &
+                         QUANTAPDF_COMPOSER_FORM_FLAG_TRANSPARENCY_GROUP) == 0u)
+                        throw std::logic_error(
+                            "soft mask Form is not a transparency group");
+                    slot = make_soft_mask_group(
+                        pdf,
+                        ensure_form_object(mask.form_id),
+                        form,
+                        mask,
+                        composer->pages[page_index]);
+                }
+                return *slot;
+            };
+
             for (std::size_t i = 0; i < composer->operation_count; ++i) {
                 auto const& operation = composer->operations[i];
                 if (operation.page_index != page_index ||
@@ -2263,10 +2312,28 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                 if (static_cast<size_t>(id) >
                     graphics_state_objects.size())
                     throw std::logic_error("graphics state resource missing");
-                auto& object = graphics_state_objects[id - 1u];
+                auto const& state =
+                    composer->graphics_states[id - 1u];
+                auto& object =
+                    state.soft_mask_id == 0u
+                    ? graphics_state_objects[id - 1u]
+                    : page_masked_graphics_state_objects[id - 1u];
                 if (!object.has_value()) {
-                    object = make_graphics_state(
-                        pdf, composer->graphics_states[id - 1u]);
+                    object = make_graphics_state(pdf, state);
+                    if (state.soft_mask_id != 0u) {
+                        auto const& mask =
+                            composer->soft_masks[state.soft_mask_id - 1u];
+                        auto soft_mask = QPDFObjectHandle::newDictionary();
+                        soft_mask.replaceKey(
+                            "/S",
+                            QPDFObjectHandle::newName(
+                                mask.mode == QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA
+                                ? "/Alpha"
+                                : "/Luminosity"));
+                        soft_mask.replaceKey(
+                            "/G", ensure_soft_mask_group(state.soft_mask_id));
+                        object->replaceKey("/SMask", soft_mask);
+                    }
                 }
                 ext_gstates.replaceKey(
                     "/GS" + std::to_string(id), *object);
