@@ -1223,6 +1223,445 @@ static int test_v3a_rollback_and_unsupported_pattern_units()
     return 0;
 }
 
+static int test_v3b_object_bbox_gradient_clip_and_cubic_bounds()
+{
+    static char const svg_bbox[] =
+        "<svg viewBox=\"0 0 100 100\">"
+        "<defs>"
+        "<linearGradient id=\"g\">"
+        "<stop offset=\"0\" stop-color=\"#ff0000\"/>"
+        "<stop offset=\"1\" stop-color=\"#0000ff\"/>"
+        "</linearGradient>"
+        "<clipPath id=\"c\" clipPathUnits=\"objectBoundingBox\">"
+        "<rect x=\"0.25\" y=\"0\" width=\"0.5\" height=\"1\"/>"
+        "</clipPath>"
+        "</defs>"
+        "<rect x=\"10\" y=\"20\" width=\"40\" height=\"20\" "
+        "fill=\"url(#g)\" clip-path=\"url(#c)\"/>"
+        "</svg>";
+    static char const svg_cubic[] =
+        "<svg viewBox=\"0 0 100 100\">"
+        "<defs>"
+        "<linearGradient id=\"g\">"
+        "<stop offset=\"0\" stop-color=\"#ff0000\"/>"
+        "<stop offset=\"1\" stop-color=\"#0000ff\"/>"
+        "</linearGradient>"
+        "</defs>"
+        "<path d=\"M0 0 C0 100 100 100 100 0 L100 10 L0 10 Z\" "
+        "fill=\"url(#g)\"/>"
+        "</svg>";
+
+    {
+        quantapdf_composer* composer = nullptr;
+        quantapdf_output* output = nullptr;
+        quantapdf_document* document = nullptr;
+        quantapdf_page* page = nullptr;
+        quantapdf_bitmap* bitmap = nullptr;
+        quantapdf_render_options render = {};
+        unsigned char const* data = nullptr;
+        unsigned char const* pixels = nullptr;
+        size_t size = 0u;
+        size_t pixel_size = 0u;
+        int width = 0;
+        int height = 0;
+        int stride = 0;
+        int components = 0;
+        int shading_type = 0;
+        int function_type = 0;
+        double matrix[6] = {};
+        quantapdf_rect bounds = {20.0f, 20.0f, 120.0f, 120.0f};
+
+        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(add_page(composer));
+        CHECK(draw(composer, svg_bbox, bounds) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
+        CHECK(quantapdf_output_data(output, &data, &size) == QUANTAPDF_OK);
+
+        CHECK(quantapdf_test_pdf_pattern_info(
+            data, size, 0u, 1u,
+            &shading_type, &function_type, matrix));
+        CHECK(shading_type == 2 && function_type == 2);
+        CHECK(std::fabs(matrix[0] - 40.0) < 0.001);
+        CHECK(std::fabs(matrix[1]) < 0.001);
+        CHECK(std::fabs(matrix[2]) < 0.001);
+        CHECK(std::fabs(matrix[3] + 20.0) < 0.001);
+        CHECK(std::fabs(matrix[4] - 30.0) < 0.001);
+        CHECK(std::fabs(matrix[5] - 200.0) < 0.001);
+
+        CHECK(quantapdf_test_pdf_content_contains(
+            data, size, 0u,
+            "40 200 m 60 200 l 60 180 l 40 180 l h W n"));
+
+        CHECK(quantapdf_output_save_file(
+                  output, COMPOSER_SVG_OUTPUT_PDF) == QUANTAPDF_OK);
+        CHECK(quantapdf_open(
+                  COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
+              QUANTAPDF_OK);
+        CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
+        render.struct_size = sizeof(render);
+        render.dpi = 72.0f;
+        CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
+              QUANTAPDF_OK);
+        CHECK(quantapdf_bitmap_dimensions(
+                  bitmap, &width, &height, &stride, &components) ==
+              QUANTAPDF_OK);
+        CHECK(quantapdf_bitmap_data(bitmap, &pixels, &pixel_size) ==
+              QUANTAPDF_OK);
+        CHECK(pixel_near(pixels, stride, 35, 50, 255, 255, 255, 20));
+        CHECK(pixel_near(pixels, stride, 45, 50, 159, 0, 96, 45));
+        CHECK(pixel_near(pixels, stride, 55, 50, 96, 0, 159, 45));
+        CHECK(pixel_near(pixels, stride, 65, 50, 255, 255, 255, 20));
+
+        quantapdf_drop_bitmap(bitmap);
+        quantapdf_drop_page(page);
+        quantapdf_close(document);
+        quantapdf_drop_output(output);
+        quantapdf_drop_composer(composer);
+    }
+
+    {
+        quantapdf_composer* composer = nullptr;
+        quantapdf_output* output = nullptr;
+        unsigned char const* data = nullptr;
+        size_t size = 0u;
+        int shading_type = 0;
+        int function_type = 0;
+        double matrix[6] = {};
+        quantapdf_rect bounds = {0.0f, 0.0f, 100.0f, 100.0f};
+
+        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(add_page(composer));
+        CHECK(draw(composer, svg_cubic, bounds) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
+        CHECK(quantapdf_output_data(output, &data, &size) == QUANTAPDF_OK);
+
+        CHECK(quantapdf_test_pdf_pattern_info(
+            data, size, 0u, 1u,
+            &shading_type, &function_type, matrix));
+        CHECK(shading_type == 2 && function_type == 2);
+        CHECK(std::fabs(matrix[0] - 100.0) < 0.001);
+        CHECK(std::fabs(matrix[3] + 75.0) < 0.001);
+        CHECK(std::fabs(matrix[4]) < 0.001);
+        CHECK(std::fabs(matrix[5] - 240.0) < 0.001);
+
+        quantapdf_drop_output(output);
+        quantapdf_drop_composer(composer);
+    }
+
+    return 0;
+}
+
+static int test_v3b_templates_and_pattern_unit_combinations()
+{
+    static char const svg_templates[] =
+        "<svg viewBox=\"0 0 200 200\">"
+        "<defs>"
+        "<linearGradient id=\"base\" gradientUnits=\"userSpaceOnUse\" "
+        "x1=\"0\" y1=\"0\" x2=\"100\" y2=\"0\">"
+        "<stop offset=\"0\" stop-color=\"#ff0000\"/>"
+        "<stop offset=\"1\" stop-color=\"#0000ff\"/>"
+        "</linearGradient>"
+        "<linearGradient id=\"derived\" href=\"#base\" x2=\"50\" "
+        "gradientTransform=\"translate(10 0)\"/>"
+        "<pattern id=\"pbase\" patternUnits=\"objectBoundingBox\" "
+        "patternContentUnits=\"objectBoundingBox\" "
+        "x=\"0\" y=\"0\" width=\"50%\" height=\"50%\">"
+        "<rect x=\"0\" y=\"0\" width=\"0.25\" height=\"0.5\" "
+        "fill=\"#ff0000\"/>"
+        "</pattern>"
+        "<pattern id=\"p\" href=\"#pbase\" "
+        "patternTransform=\"translate(0.1 0)\"/>"
+        "</defs>"
+        "<rect x=\"20\" y=\"20\" width=\"100\" height=\"100\" "
+        "fill=\"url(#p)\" stroke=\"url(#derived)\" stroke-width=\"2\"/>"
+        "</svg>";
+    static char const svg_bbox_user_content[] =
+        "<svg viewBox=\"0 0 200 200\">"
+        "<defs>"
+        "<pattern id=\"p\" patternUnits=\"objectBoundingBox\" "
+        "patternContentUnits=\"userSpaceOnUse\" "
+        "x=\"0\" y=\"0\" width=\"0.5\" height=\"0.5\">"
+        "<rect x=\"20\" y=\"20\" width=\"25\" height=\"50\" fill=\"red\"/>"
+        "</pattern>"
+        "</defs>"
+        "<rect x=\"20\" y=\"20\" width=\"100\" height=\"100\" "
+        "fill=\"url(#p)\"/>"
+        "</svg>";
+    static char const svg_user_bbox_content[] =
+        "<svg viewBox=\"0 0 200 200\">"
+        "<defs>"
+        "<pattern id=\"p\" patternUnits=\"userSpaceOnUse\" "
+        "patternContentUnits=\"objectBoundingBox\" "
+        "x=\"20\" y=\"20\" width=\"20\" height=\"20\">"
+        "<rect x=\"0\" y=\"0\" width=\"0.1\" height=\"0.2\" fill=\"red\"/>"
+        "</pattern>"
+        "</defs>"
+        "<rect x=\"20\" y=\"20\" width=\"100\" height=\"100\" "
+        "fill=\"url(#p)\"/>"
+        "</svg>";
+
+    {
+        quantapdf_composer* composer = nullptr;
+        quantapdf_output* output = nullptr;
+        quantapdf_document* document = nullptr;
+        quantapdf_page* page = nullptr;
+        quantapdf_bitmap* bitmap = nullptr;
+        quantapdf_render_options render = {};
+        unsigned char const* data = nullptr;
+        unsigned char const* pixels = nullptr;
+        size_t size = 0u;
+        size_t pixel_size = 0u;
+        int width = 0;
+        int height = 0;
+        int stride = 0;
+        int components = 0;
+        double bbox[4] = {};
+        double x_step = 0.0;
+        double y_step = 0.0;
+        double pattern_matrix[6] = {};
+        int has_tile_form = 0;
+        int shading_type = 0;
+        int function_type = 0;
+        double gradient_matrix[6] = {};
+        quantapdf_rect bounds = {0.0f, 0.0f, 200.0f, 200.0f};
+
+        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(add_page(composer));
+        CHECK(draw(composer, svg_templates, bounds) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
+        CHECK(quantapdf_output_data(output, &data, &size) == QUANTAPDF_OK);
+
+        CHECK(quantapdf_test_pdf_tiling_pattern_info(
+            data, size, 0u, 1u,
+            bbox, &x_step, &y_step, pattern_matrix, &has_tile_form));
+        CHECK(std::fabs(bbox[2] - 0.5) < 0.001);
+        CHECK(std::fabs(bbox[3] - 0.5) < 0.001);
+        CHECK(std::fabs(x_step - 0.5) < 0.001);
+        CHECK(std::fabs(y_step + 0.5) < 0.001);
+        CHECK(std::fabs(pattern_matrix[0] - 100.0) < 0.001);
+        CHECK(std::fabs(pattern_matrix[3] - 100.0) < 0.001);
+        CHECK(std::fabs(pattern_matrix[4] - 30.0) < 0.001);
+        CHECK(std::fabs(pattern_matrix[5] - 170.0) < 0.001);
+        CHECK(has_tile_form == 1);
+
+        CHECK(quantapdf_test_pdf_pattern_info(
+            data, size, 0u, 2u,
+            &shading_type, &function_type, gradient_matrix));
+        CHECK(shading_type == 2 && function_type == 2);
+        CHECK(std::fabs(gradient_matrix[0] - 1.0) < 0.001);
+        CHECK(std::fabs(gradient_matrix[3] + 1.0) < 0.001);
+        CHECK(std::fabs(gradient_matrix[4] - 10.0) < 0.001);
+        CHECK(std::fabs(gradient_matrix[5] - 240.0) < 0.001);
+
+        CHECK(quantapdf_output_save_file(
+                  output, COMPOSER_SVG_OUTPUT_PDF) == QUANTAPDF_OK);
+        CHECK(quantapdf_open(
+                  COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
+              QUANTAPDF_OK);
+        CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
+        render.struct_size = sizeof(render);
+        render.dpi = 72.0f;
+        CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
+              QUANTAPDF_OK);
+        CHECK(quantapdf_bitmap_dimensions(
+                  bitmap, &width, &height, &stride, &components) ==
+              QUANTAPDF_OK);
+        CHECK(quantapdf_bitmap_data(bitmap, &pixels, &pixel_size) ==
+              QUANTAPDF_OK);
+        CHECK(pixel_near(pixels, stride, 40, 40, 255, 0, 0, 40));
+        CHECK(pixel_near(pixels, stride, 65, 40, 255, 255, 255, 35));
+
+        quantapdf_drop_bitmap(bitmap);
+        quantapdf_drop_page(page);
+        quantapdf_close(document);
+        quantapdf_drop_output(output);
+        quantapdf_drop_composer(composer);
+    }
+
+    auto check_mixed_pattern = [](char const* svg,
+                                  double expected_width,
+                                  double expected_height,
+                                  double expected_a,
+                                  double expected_d,
+                                  double expected_e,
+                                  double expected_f,
+                                  int red_x,
+                                  int white_x) -> int {
+        quantapdf_composer* composer = nullptr;
+        quantapdf_output* output = nullptr;
+        quantapdf_document* document = nullptr;
+        quantapdf_page* page = nullptr;
+        quantapdf_bitmap* bitmap = nullptr;
+        quantapdf_render_options render = {};
+        unsigned char const* data = nullptr;
+        unsigned char const* pixels = nullptr;
+        size_t size = 0u;
+        size_t pixel_size = 0u;
+        int width = 0;
+        int height = 0;
+        int stride = 0;
+        int components = 0;
+        double bbox[4] = {};
+        double x_step = 0.0;
+        double y_step = 0.0;
+        double matrix[6] = {};
+        int has_tile_form = 0;
+        quantapdf_rect bounds = {0.0f, 0.0f, 200.0f, 200.0f};
+
+        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(add_page(composer));
+        CHECK(draw(composer, svg, bounds) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
+        CHECK(quantapdf_output_data(output, &data, &size) == QUANTAPDF_OK);
+        CHECK(quantapdf_test_pdf_tiling_pattern_info(
+            data, size, 0u, 1u,
+            bbox, &x_step, &y_step, matrix, &has_tile_form));
+        CHECK(std::fabs(bbox[2] - expected_width) < 0.001);
+        CHECK(std::fabs(bbox[3] - expected_height) < 0.001);
+        CHECK(std::fabs(matrix[0] - expected_a) < 0.001);
+        CHECK(std::fabs(matrix[3] - expected_d) < 0.001);
+        CHECK(std::fabs(matrix[4] - expected_e) < 0.001);
+        CHECK(std::fabs(matrix[5] - expected_f) < 0.001);
+
+        CHECK(quantapdf_output_save_file(
+                  output, COMPOSER_SVG_OUTPUT_PDF) == QUANTAPDF_OK);
+        CHECK(quantapdf_open(
+                  COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
+              QUANTAPDF_OK);
+        CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
+        render.struct_size = sizeof(render);
+        render.dpi = 72.0f;
+        CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
+              QUANTAPDF_OK);
+        CHECK(quantapdf_bitmap_dimensions(
+                  bitmap, &width, &height, &stride, &components) ==
+              QUANTAPDF_OK);
+        CHECK(quantapdf_bitmap_data(bitmap, &pixels, &pixel_size) ==
+              QUANTAPDF_OK);
+        CHECK(pixel_near(pixels, stride, red_x, 30, 255, 0, 0, 35));
+        CHECK(pixel_near(
+            pixels, stride, white_x, 30, 255, 255, 255, 35));
+
+        quantapdf_drop_bitmap(bitmap);
+        quantapdf_drop_page(page);
+        quantapdf_close(document);
+        quantapdf_drop_output(output);
+        quantapdf_drop_composer(composer);
+        return 0;
+    };
+
+    CHECK(check_mixed_pattern(
+              svg_bbox_user_content,
+              0.5,
+              0.5,
+              100.0,
+              100.0,
+              20.0,
+              170.0,
+              30,
+              60) == 0);
+    CHECK(check_mixed_pattern(
+              svg_user_bbox_content,
+              20.0,
+              20.0,
+              1.0,
+              1.0,
+              20.0,
+              200.0,
+              25,
+              37) == 0);
+
+    return 0;
+}
+
+static int test_v3b_template_failures_zero_bbox_and_rollback()
+{
+    static char const* unsupported[] = {
+        "<svg viewBox=\"0 0 10 10\"><defs>"
+        "<linearGradient id=\"a\" href=\"#b\"/>"
+        "<linearGradient id=\"b\" href=\"#a\"/>"
+        "</defs><rect width=\"10\" height=\"10\" fill=\"url(#a)\"/></svg>",
+        "<svg viewBox=\"0 0 10 10\"><defs>"
+        "<pattern id=\"a\" href=\"#b\"/>"
+        "<pattern id=\"b\" href=\"#a\"/>"
+        "</defs><rect width=\"10\" height=\"10\" fill=\"url(#a)\"/></svg>",
+        "<svg viewBox=\"0 0 10 10\"><defs>"
+        "<pattern id=\"p\" width=\"0.5\" height=\"0.5\">"
+        "<rect width=\"0.5\" height=\"0.5\" fill=\"red\"/></pattern>"
+        "<linearGradient id=\"g\" href=\"#p\"/>"
+        "</defs><rect width=\"10\" height=\"10\" fill=\"url(#g)\"/></svg>",
+        "<svg viewBox=\"0 0 10 10\"><defs>"
+        "<linearGradient id=\"g\"><stop offset=\"0\" stop-color=\"red\"/>"
+        "<stop offset=\"1\" stop-color=\"blue\"/></linearGradient>"
+        "<pattern id=\"p\" href=\"#g\"/>"
+        "</defs><rect width=\"10\" height=\"10\" fill=\"url(#p)\"/></svg>",
+        "<svg viewBox=\"0 0 10 10\"><defs>"
+        "<linearGradient id=\"g\" href=\"#missing\"/>"
+        "</defs><rect width=\"10\" height=\"10\" fill=\"url(#g)\"/></svg>",
+        "<svg viewBox=\"0 0 10 10\"><defs>"
+        "<pattern id=\"p\" href=\"#missing\"/>"
+        "</defs><rect width=\"10\" height=\"10\" fill=\"url(#p)\"/></svg>"
+    };
+
+    quantapdf_rect bounds = {0.0f, 0.0f, 100.0f, 100.0f};
+    for (char const* svg: unsupported) {
+        quantapdf_composer* composer = nullptr;
+        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(add_page(composer));
+        CHECK(draw(composer, svg, bounds) == QUANTAPDF_ERROR_UNSUPPORTED);
+        quantapdf_drop_composer(composer);
+    }
+
+    static char const zero_bbox[] =
+        "<svg viewBox=\"0 0 10 10\"><defs>"
+        "<linearGradient id=\"g\">"
+        "<stop offset=\"0\" stop-color=\"red\"/>"
+        "<stop offset=\"1\" stop-color=\"blue\"/>"
+        "</linearGradient></defs>"
+        "<line x1=\"0\" y1=\"5\" x2=\"10\" y2=\"5\" "
+        "stroke=\"url(#g)\" stroke-width=\"1\"/></svg>";
+    static char const solid_svg[] =
+        "<svg viewBox=\"0 0 10 10\">"
+        "<rect width=\"10\" height=\"10\" fill=\"red\"/></svg>";
+
+    quantapdf_composer* rejected = nullptr;
+    quantapdf_composer* clean = nullptr;
+    quantapdf_output* rejected_output = nullptr;
+    quantapdf_output* clean_output = nullptr;
+    unsigned char const* rejected_data = nullptr;
+    unsigned char const* clean_data = nullptr;
+    size_t rejected_size = 0u;
+    size_t clean_size = 0u;
+
+    CHECK(quantapdf_composer_create(nullptr, &rejected) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(nullptr, &clean) == QUANTAPDF_OK);
+    CHECK(add_page(rejected));
+    CHECK(add_page(clean));
+
+    CHECK(draw(rejected, zero_bbox, bounds) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(draw(rejected, solid_svg, bounds) == QUANTAPDF_OK);
+    CHECK(draw(clean, solid_svg, bounds) == QUANTAPDF_OK);
+
+    CHECK(quantapdf_composer_finish(rejected, &rejected_output) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_composer_finish(clean, &clean_output) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_output_data(
+              rejected_output, &rejected_data, &rejected_size) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_output_data(
+              clean_output, &clean_data, &clean_size) == QUANTAPDF_OK);
+    CHECK(rejected_size == clean_size);
+    CHECK(std::memcmp(rejected_data, clean_data, clean_size) == 0);
+
+    quantapdf_drop_output(clean_output);
+    quantapdf_drop_output(rejected_output);
+    quantapdf_drop_composer(clean);
+    quantapdf_drop_composer(rejected);
+    return 0;
+}
+
 static int test_security_and_unsupported_features()
 {
     static char const* cases[] = {
@@ -1340,6 +1779,9 @@ int main()
     CHECK(test_v3a_nonconformal_path_and_pattern() == 0);
     CHECK(test_v3a_group_opacity_and_dom_order() == 0);
     CHECK(test_v3a_rollback_and_unsupported_pattern_units() == 0);
+    CHECK(test_v3b_object_bbox_gradient_clip_and_cubic_bounds() == 0);
+    CHECK(test_v3b_templates_and_pattern_unit_combinations() == 0);
+    CHECK(test_v3b_template_failures_zero_bbox_and_rollback() == 0);
     CHECK(test_security_and_unsupported_features() == 0);
     CHECK(test_malformed_inputs() == 0);
     CHECK(test_atomic_capacity_failure() == 0);
