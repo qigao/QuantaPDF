@@ -1072,6 +1072,151 @@ void transform_commands(
     }
 }
 
+void include_bound_point(
+    geometry_bounds* bounds,
+    double x,
+    double y)
+{
+    if (!finite(x) || !finite(y))
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    if (!bounds->valid) {
+        bounds->x0 = bounds->x1 = x;
+        bounds->y0 = bounds->y1 = y;
+        bounds->valid = true;
+        return;
+    }
+    bounds->x0 = std::min(bounds->x0, x);
+    bounds->y0 = std::min(bounds->y0, y);
+    bounds->x1 = std::max(bounds->x1, x);
+    bounds->y1 = std::max(bounds->y1, y);
+}
+
+double cubic_coordinate(
+    double p0,
+    double p1,
+    double p2,
+    double p3,
+    double t)
+{
+    double const mt = 1.0 - t;
+    return mt * mt * mt * p0 +
+        3.0 * mt * mt * t * p1 +
+        3.0 * mt * t * t * p2 +
+        t * t * t * p3;
+}
+
+void include_cubic_extrema(
+    geometry_bounds* bounds,
+    double x0,
+    double y0,
+    quantapdf_point const& p1,
+    quantapdf_point const& p2,
+    quantapdf_point const& p3)
+{
+    include_bound_point(bounds, x0, y0);
+    include_bound_point(bounds, p3.x, p3.y);
+
+    auto roots = [](double p0, double p1, double p2, double p3) {
+        std::vector<double> result;
+        double const a = -p0 + 3.0 * p1 - 3.0 * p2 + p3;
+        double const b = 2.0 * (p0 - 2.0 * p1 + p2);
+        double const d = p1 - p0;
+        if (a == 0.0) {
+            if (b != 0.0) {
+                double const t = -d / b;
+                if (t > 0.0 && t < 1.0)
+                    result.push_back(t);
+            }
+            return result;
+        }
+        double const discriminant = b * b - 4.0 * a * d;
+        if (discriminant < 0.0)
+            return result;
+        double const root = std::sqrt(std::max(0.0, discriminant));
+        double const t1 = (-b + root) / (2.0 * a);
+        double const t2 = (-b - root) / (2.0 * a);
+        if (t1 > 0.0 && t1 < 1.0)
+            result.push_back(t1);
+        if (t2 > 0.0 && t2 < 1.0 && t2 != t1)
+            result.push_back(t2);
+        return result;
+    };
+
+    auto const x_roots = roots(x0, p1.x, p2.x, p3.x);
+    auto const y_roots = roots(y0, p1.y, p2.y, p3.y);
+    for (double t: x_roots) {
+        include_bound_point(
+            bounds,
+            cubic_coordinate(x0, p1.x, p2.x, p3.x, t),
+            cubic_coordinate(y0, p1.y, p2.y, p3.y, t));
+    }
+    for (double t: y_roots) {
+        include_bound_point(
+            bounds,
+            cubic_coordinate(x0, p1.x, p2.x, p3.x, t),
+            cubic_coordinate(y0, p1.y, p2.y, p3.y, t));
+    }
+}
+
+geometry_bounds command_bounds(
+    std::vector<quantapdf_composer_path_command> const& commands)
+{
+    geometry_bounds bounds;
+    double x = 0.0;
+    double y = 0.0;
+    double subpath_x = 0.0;
+    double subpath_y = 0.0;
+    bool have_current = false;
+    bool have_subpath = false;
+
+    for (auto const& command: commands) {
+        switch (command.kind) {
+        case QUANTAPDF_COMPOSER_PATH_MOVE_TO:
+            x = command.point1.x;
+            y = command.point1.y;
+            subpath_x = x;
+            subpath_y = y;
+            have_current = true;
+            have_subpath = true;
+            include_bound_point(&bounds, x, y);
+            break;
+        case QUANTAPDF_COMPOSER_PATH_LINE_TO:
+            if (!have_current)
+                fail(QUANTAPDF_ERROR_BACKEND);
+            include_bound_point(&bounds, x, y);
+            include_bound_point(
+                &bounds, command.point1.x, command.point1.y);
+            x = command.point1.x;
+            y = command.point1.y;
+            break;
+        case QUANTAPDF_COMPOSER_PATH_CUBIC_TO:
+            if (!have_current)
+                fail(QUANTAPDF_ERROR_BACKEND);
+            include_cubic_extrema(
+                &bounds,
+                x,
+                y,
+                command.point1,
+                command.point2,
+                command.point3);
+            x = command.point3.x;
+            y = command.point3.y;
+            break;
+        case QUANTAPDF_COMPOSER_PATH_CLOSE:
+            if (!have_current || !have_subpath)
+                fail(QUANTAPDF_ERROR_BACKEND);
+            include_bound_point(&bounds, x, y);
+            include_bound_point(&bounds, subpath_x, subpath_y);
+            x = subpath_x;
+            y = subpath_y;
+            break;
+        default:
+            fail(QUANTAPDF_ERROR_BACKEND);
+        }
+    }
+    return bounds;
+}
+
 void stage_path(
     std::vector<staged_path>* paths,
     std::vector<quantapdf_composer_path_command> commands,
@@ -1090,6 +1235,7 @@ void stage_path(
     staged_path staged;
     staged.order = order;
     staged.commands = std::move(commands);
+    staged.local_bounds = command_bounds(staged.commands);
     staged.fill_ref = style.fill ? style.fill_ref : std::string{};
     staged.stroke_ref = style.stroke ? style.stroke_ref : std::string{};
     staged.clip_ref = style.clip_ref;
