@@ -33,6 +33,23 @@ target_compile_definitions(quantapdf_test_composer PRIVATE
 add_test(NAME quantapdf.composer COMMAND quantapdf_test_composer)
 set_tests_properties(quantapdf.composer PROPERTIES TIMEOUT 30)
 
+add_executable(quantapdf_test_composer_measurement
+  test_composer_measurement.c
+  composer_test_helpers.cpp)
+target_include_directories(quantapdf_test_composer_measurement PRIVATE
+  "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_composer_measurement PRIVATE
+  QuantaPDF::QuantaPDF
+  quantapdf_backend
+  qpdf::libqpdf
+  ZLIB::ZLIB)
+target_compile_features(quantapdf_test_composer_measurement PRIVATE cxx_std_20)
+target_compile_definitions(quantapdf_test_composer_measurement PRIVATE
+  ROBOTO_TTF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/fonts/Roboto-Regular.ttf")
+add_test(NAME quantapdf.composer_measurement
+  COMMAND quantapdf_test_composer_measurement)
+set_tests_properties(quantapdf.composer_measurement PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_test_composer_vector
   test_composer_vector.c
   composer_test_helpers.cpp)
