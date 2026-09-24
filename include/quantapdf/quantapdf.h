@@ -60,7 +60,13 @@ typedef struct quantapdf_affine_transform {
     float f;
 } quantapdf_affine_transform;
 
-typedef uint32_t quantapdf_composer_graphics_state_id;
+/*
+ * size_t is intentional: its alignment matches the pre-existing size-tagged
+ * option records' maximum alignment, so this V2 tail begins at the legacy V1
+ * sizeof boundary on both 32-bit and 64-bit ABIs rather than occupying old
+ * tail padding.
+ */
+typedef size_t quantapdf_composer_graphics_state_id;
 
 typedef enum quantapdf_composer_blend_mode {
     QUANTAPDF_COMPOSER_BLEND_NORMAL = 0,
