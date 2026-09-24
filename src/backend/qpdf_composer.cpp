@@ -106,6 +106,47 @@ double canonical_zero(double value)
     return value == 0.0 ? 0.0 : value;
 }
 
+char const* blend_mode_name(
+    quantapdf_composer_blend_mode blend_mode)
+{
+    switch (blend_mode) {
+    case QUANTAPDF_COMPOSER_BLEND_NORMAL:
+        return "/Normal";
+    case QUANTAPDF_COMPOSER_BLEND_MULTIPLY:
+        return "/Multiply";
+    case QUANTAPDF_COMPOSER_BLEND_SCREEN:
+        return "/Screen";
+    case QUANTAPDF_COMPOSER_BLEND_OVERLAY:
+        return "/Overlay";
+    case QUANTAPDF_COMPOSER_BLEND_DARKEN:
+        return "/Darken";
+    case QUANTAPDF_COMPOSER_BLEND_LIGHTEN:
+        return "/Lighten";
+    }
+    throw std::logic_error("invalid Composer blend mode");
+}
+
+QPDFObjectHandle make_graphics_state(
+    QPDF& pdf,
+    quantapdf_composer_graphics_state const& state)
+{
+    auto dictionary = QPDFObjectHandle::newDictionary();
+    dictionary.replaceKey(
+        "/Type", QPDFObjectHandle::newName("/ExtGState"));
+    dictionary.replaceKey(
+        "/ca",
+        QPDFObjectHandle::newReal(
+            state.fill_alpha, decimal_precision(state.fill_alpha)));
+    dictionary.replaceKey(
+        "/CA",
+        QPDFObjectHandle::newReal(
+            state.stroke_alpha, decimal_precision(state.stroke_alpha)));
+    dictionary.replaceKey(
+        "/BM",
+        QPDFObjectHandle::newName(blend_mode_name(state.blend_mode)));
+    return pdf.makeIndirectObject(dictionary);
+}
+
 void append_text_matrix(
     std::string& content,
     quantapdf_composer_page_state const& page,
@@ -1239,6 +1280,16 @@ std::string page_content(
         auto const& operation = composer->operations[i];
         if (operation.page_index != page_index)
             continue;
+
+        bool const scoped_state = operation.graphics_state_id != 0u;
+        if (scoped_state) {
+            if (static_cast<size_t>(operation.graphics_state_id) >
+                composer->graphics_state_count)
+                throw std::logic_error("graphics state resource missing");
+            content += "q /GS" +
+                std::to_string(operation.graphics_state_id) + " gs\n";
+        }
+
         if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_TEXT)
             append_text_content(content, page, operation);
         else if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_IMAGE)
@@ -1261,6 +1312,9 @@ std::string page_content(
                 operation,
                 glyph_run_usages[font_index]);
         }
+
+        if (scoped_state)
+            content += "Q\n";
     }
     return content;
 }
@@ -1578,6 +1632,9 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                 requires_pdf_16 = true;
         }
 
+        std::vector<std::optional<QPDFObjectHandle>>
+            graphics_state_objects(composer->graphics_state_count);
+
         for (std::size_t page_index = 0; page_index < composer->page_count;
              ++page_index) {
             auto page = QPDFObjectHandle::newDictionary();
@@ -1585,7 +1642,9 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             auto resources = QPDFObjectHandle::newDictionary();
             auto fonts = QPDFObjectHandle::newDictionary();
             auto xobjects = QPDFObjectHandle::newDictionary();
+            auto ext_gstates = QPDFObjectHandle::newDictionary();
             bool used_fonts[12] = {};
+            bool used_ext_gstate = false;
 
             for (std::size_t i = 0; i < composer->operation_count; ++i) {
                 auto const& operation = composer->operations[i];
@@ -1639,6 +1698,26 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                 }
             }
             resources.replaceKey("/XObject", xobjects);
+            for (std::size_t i = 0; i < composer->operation_count; ++i) {
+                auto const& operation = composer->operations[i];
+                if (operation.page_index != page_index ||
+                    operation.graphics_state_id == 0u)
+                    continue;
+                auto const id = operation.graphics_state_id;
+                if (static_cast<size_t>(id) >
+                    graphics_state_objects.size())
+                    throw std::logic_error("graphics state resource missing");
+                auto& object = graphics_state_objects[id - 1u];
+                if (!object.has_value()) {
+                    object = make_graphics_state(
+                        pdf, composer->graphics_states[id - 1u]);
+                }
+                ext_gstates.replaceKey(
+                    "/GS" + std::to_string(id), *object);
+                used_ext_gstate = true;
+            }
+            if (used_ext_gstate)
+                resources.replaceKey("/ExtGState", ext_gstates);
             media_box.appendItem(QPDFObjectHandle::newInteger(0));
             media_box.appendItem(QPDFObjectHandle::newInteger(0));
             media_box.appendItem(QPDFObjectHandle::newReal(
