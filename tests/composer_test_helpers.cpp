@@ -669,6 +669,85 @@ extern "C" int quantapdf_test_pdf_form_group_info(
     }
 }
 
+extern "C" int quantapdf_test_pdf_tiling_pattern_info(
+    unsigned char const* data,
+    size_t size,
+    size_t page_index,
+    size_t paint_id,
+    double out_bbox[4],
+    double* out_x_step,
+    double* out_y_step,
+    double out_matrix[6],
+    int* out_has_tile_form)
+{
+    if (out_bbox == nullptr || out_x_step == nullptr ||
+        out_y_step == nullptr || out_matrix == nullptr ||
+        out_has_tile_form == nullptr)
+        return 0;
+    for (size_t i = 0u; i < 4u; ++i)
+        out_bbox[i] = 0.0;
+    for (size_t i = 0u; i < 6u; ++i)
+        out_matrix[i] = 0.0;
+    *out_x_step = 0.0;
+    *out_y_step = 0.0;
+    *out_has_tile_form = 0;
+    try {
+        QPDF pdf;
+        pdf.processMemoryFile(
+            "composer-tiling-pattern-info.pdf",
+            reinterpret_cast<char const*>(data),
+            size);
+        auto pages = pdf.getAllPages();
+        if (page_index >= pages.size() || paint_id == 0u)
+            return 0;
+        auto resources = pages[page_index].getKey("/Resources");
+        auto patterns = resources.getKey("/Pattern");
+        if (!patterns.isDictionary())
+            return 0;
+        auto pattern = patterns.getKey("/P" + std::to_string(paint_id));
+        if (!pattern.isStream())
+            return 0;
+        auto dictionary = pattern.getDict();
+        auto pattern_type = dictionary.getKey("/PatternType");
+        auto paint_type = dictionary.getKey("/PaintType");
+        auto bbox = dictionary.getKey("/BBox");
+        auto x_step = dictionary.getKey("/XStep");
+        auto y_step = dictionary.getKey("/YStep");
+        auto matrix = dictionary.getKey("/Matrix");
+        auto pattern_resources = dictionary.getKey("/Resources");
+        if (!pattern_type.isInteger() || pattern_type.getIntValue() != 1 ||
+            !paint_type.isInteger() || paint_type.getIntValue() != 1 ||
+            !bbox.isArray() || bbox.getArrayNItems() != 4u ||
+            !x_step.isNumber() || !y_step.isNumber() ||
+            !matrix.isArray() || matrix.getArrayNItems() != 6u ||
+            !pattern_resources.isDictionary())
+            return 0;
+        for (size_t i = 0u; i < 4u; ++i) {
+            auto item = bbox.getArrayItem(static_cast<int>(i));
+            if (!item.isNumber())
+                return 0;
+            out_bbox[i] = item.getNumericValue();
+        }
+        for (size_t i = 0u; i < 6u; ++i) {
+            auto item = matrix.getArrayItem(static_cast<int>(i));
+            if (!item.isNumber())
+                return 0;
+            out_matrix[i] = item.getNumericValue();
+        }
+        *out_x_step = x_step.getNumericValue();
+        *out_y_step = y_step.getNumericValue();
+        auto tile = pattern_resources.getKey("/XObject").getKey("/Tile");
+        if (tile.isStream()) {
+            auto subtype = tile.getDict().getKey("/Subtype");
+            if (subtype.isName() && subtype.getName() == "/Form")
+                *out_has_tile_form = 1;
+        }
+        return 1;
+    } catch (...) {
+        return 0;
+    }
+}
+
 extern "C" void quantapdf_test_use_comma_locale(int enabled)
 {
     std::locale::global(enabled
