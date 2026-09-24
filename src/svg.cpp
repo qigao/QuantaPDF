@@ -1028,6 +1028,16 @@ struct staged_path {
     matrix resource_transform;
 };
 
+struct staged_use {
+    std::string symbol_ref;
+    double x = 0.0;
+    double y = 0.0;
+    double width = 0.0;
+    double height = 0.0;
+    matrix user_transform;
+};
+
+
 void transform_commands(
     std::vector<quantapdf_composer_path_command>* commands,
     matrix const& transform)
@@ -2617,6 +2627,32 @@ quantapdf_status register_clip_resource(
         out_clip_id);
 }
 
+staged_use parse_use(
+    element const& item,
+    matrix const& parent_transform,
+    definition_table const& definitions)
+{
+    validate_use_attributes(item);
+    auto const* href = find_attribute(item, "href");
+    if (href == nullptr)
+        fail(QUANTAPDF_ERROR_FORMAT);
+    std::string const symbol_ref = local_fragment_href(*href);
+    if (definitions.symbols.find(symbol_ref) == definitions.symbols.end())
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+
+    staged_use result;
+    result.symbol_ref = symbol_ref;
+    result.x = optional_number(item, "x", 0.0);
+    result.y = optional_number(item, "y", 0.0);
+    result.width = required_number(item, "width");
+    result.height = required_number(item, "height");
+    if (result.width <= 0.0 || result.height <= 0.0)
+        fail(QUANTAPDF_ERROR_FORMAT);
+    result.user_transform =
+        derive_transform(parent_transform, item);
+    return result;
+}
+
 class svg_parser {
   public:
     svg_parser(
@@ -2707,6 +2743,20 @@ class svg_parser {
                     skipped.name = tag;
                     skipped.skip = true;
                     stack_.push_back(std::move(skipped));
+                }
+                continue;
+            }
+            if (tag == "use") {
+                if (paths_.size() + uses_.size() >= max_paths_)
+                    fail(QUANTAPDF_ERROR_UNSUPPORTED);
+                staged_use use =
+                    parse_use(item, parent.transform, definitions_);
+                uses_.push_back(std::move(use));
+                if (!item.self_closing) {
+                    context leaf;
+                    leaf.name = tag;
+                    leaf.leaf = true;
+                    stack_.push_back(std::move(leaf));
                 }
                 continue;
             }
@@ -2815,6 +2865,11 @@ class svg_parser {
         return clip_to_bounds_;
     }
 
+    std::vector<staged_use> take_uses()
+    {
+        return std::move(uses_);
+    }
+
   private:
     xml_scanner scanner_;
     quantapdf_rect bounds_;
@@ -2823,6 +2878,7 @@ class svg_parser {
     definition_table const& definitions_;
     std::vector<context> stack_;
     std::vector<staged_path> paths_;
+    std::vector<staged_use> uses_;
 };
 
 quantapdf_status publish_paths(
