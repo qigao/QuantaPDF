@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 19
+#define QUANTAPDF_VERSION_MINOR 20
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -68,6 +68,7 @@ typedef struct quantapdf_affine_transform {
  */
 typedef size_t quantapdf_composer_graphics_state_id;
 typedef size_t quantapdf_composer_paint_id;
+typedef size_t quantapdf_composer_clip_id;
 
 typedef enum quantapdf_composer_blend_mode {
     QUANTAPDF_COMPOSER_BLEND_NORMAL = 0,
@@ -83,12 +84,18 @@ typedef struct quantapdf_composer_graphics_state_options {
     float fill_alpha;
     float stroke_alpha;
     quantapdf_composer_blend_mode blend_mode;
+    quantapdf_composer_clip_id clip_id;
 } quantapdf_composer_graphics_state_options;
 
 #define QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_MIN_SIZE \
     (offsetof(quantapdf_composer_graphics_state_options, blend_mode) + \
      sizeof(quantapdf_composer_blend_mode))
 #define QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE \
+    (offsetof(quantapdf_composer_graphics_state_options, clip_id))
+#define QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_MIN_SIZE \
+    (offsetof(quantapdf_composer_graphics_state_options, clip_id) + \
+     sizeof(quantapdf_composer_clip_id))
+#define QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE \
     (sizeof(quantapdf_composer_graphics_state_options))
 
 #define QUANTAPDF_COMPOSER_DEFAULT_MAX_PAGES ((size_t)1024u)
@@ -308,6 +315,18 @@ typedef enum quantapdf_composer_fill_rule {
     QUANTAPDF_COMPOSER_FILL_NONZERO = 0,
     QUANTAPDF_COMPOSER_FILL_EVEN_ODD = 1
 } quantapdf_composer_fill_rule;
+
+typedef struct quantapdf_composer_clip_options {
+    size_t struct_size;
+    quantapdf_composer_fill_rule fill_rule;
+    quantapdf_affine_transform transform;
+} quantapdf_composer_clip_options;
+
+#define QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_MIN_SIZE \
+    (offsetof(quantapdf_composer_clip_options, transform) + \
+     sizeof(quantapdf_affine_transform))
+#define QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE \
+    (sizeof(quantapdf_composer_clip_options))
 
 typedef enum quantapdf_composer_line_cap {
     QUANTAPDF_COMPOSER_LINE_CAP_BUTT = 0,
@@ -859,6 +878,13 @@ QUANTAPDF_API quantapdf_status quantapdf_composer_add_graphics_state(
     quantapdf_composer *composer,
     const quantapdf_composer_graphics_state_options *options,
     quantapdf_composer_graphics_state_id *out_graphics_state_id);
+
+QUANTAPDF_API quantapdf_status quantapdf_composer_add_clip_path(
+    quantapdf_composer *composer,
+    const quantapdf_composer_path_command *commands,
+    size_t command_count,
+    const quantapdf_composer_clip_options *options,
+    quantapdf_composer_clip_id *out_clip_id);
 
 QUANTAPDF_API quantapdf_status quantapdf_composer_add_linear_gradient(
     quantapdf_composer *composer,
