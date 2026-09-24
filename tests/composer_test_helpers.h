@@ -73,6 +73,16 @@ int quantapdf_test_pdf_pattern_info(
     int *out_shading_type,
     int *out_function_type,
     double out_matrix[6]);
+int quantapdf_test_pdf_tiling_pattern_info(
+    const unsigned char *data,
+    size_t size,
+    size_t page_index,
+    size_t paint_id,
+    double out_bbox[4],
+    double *out_x_step,
+    double *out_y_step,
+    double out_matrix[6],
+    int *out_has_tile_form);
 int quantapdf_test_pdf_form_xobject_info(
     const unsigned char *data,
     size_t size,
