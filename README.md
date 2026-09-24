@@ -223,6 +223,16 @@ it maps Unicode code points to glyph IDs and does not claim GSUB/GPOS shaping,
 bidi reordering, ligature formation, or script-specific shaping. Missing glyphs
 fail explicitly.
 
+2.14 adds deterministic preflight layout queries for both text paths.
+`quantapdf_composer_measure_text()` and
+`quantapdf_composer_measure_embedded_text()` accept the same text options plus
+a positive maximum layout width and return tight laid-out width, baseline-model
+height, and line count without adding a Composer operation. Measurement and
+drawing share one private layout implementation, so wrapping, tabs, trailing
+whitespace, Base-14 metrics, embedded-font advances, invalid UTF-8, and missing
+glyphs cannot drift between two algorithms. Horizontal alignment does not
+change the measured extent.
+
 For text shaped by another engine, 2.11 adds
 `quantapdf_composer_draw_glyph_run()`. Each fixed-layout glyph record carries
 a font glyph ID, x/y advance and offset in 1000/em units, and an optional byte
