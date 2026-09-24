@@ -65,6 +65,15 @@ int quantapdf_test_pdf_extgstate_info(
     double *out_stroke_alpha,
     char *out_blend_mode,
     size_t blend_mode_capacity);
+int quantapdf_test_pdf_soft_mask_info(
+    const unsigned char *data,
+    size_t size,
+    size_t page_index,
+    size_t graphics_state_id,
+    int *out_mode,
+    double out_bbox[4],
+    int *out_isolated,
+    int *out_has_source_form);
 int quantapdf_test_pdf_pattern_info(
     const unsigned char *data,
     size_t size,
