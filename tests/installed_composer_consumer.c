@@ -142,21 +142,24 @@ int main(int argc, char **argv)
     quantapdf_point target = {24.0f, 24.0f};
     static const unsigned char svg_data[] =
         "<svg viewBox=\"0 0 10 8\" preserveAspectRatio=\"xMidYMid meet\">"
-        "<rect x=\"1\" y=\"1\" width=\"8\" height=\"6\" "
-        "fill=\"url(#installedGradient)\" clip-path=\"url(#installedClip)\"/>"
+        "<use href=\"#installedSymbol\" x=\"0\" y=\"0\" width=\"5\" height=\"4\"/>"
         "<defs>"
         "<linearGradient id=\"installedGradient\" gradientUnits=\"userSpaceOnUse\" "
-        "x1=\"1\" y1=\"1\" x2=\"9\" y2=\"1\">"
+        "x1=\"0\" y1=\"0\" x2=\"5\" y2=\"0\">"
         "<stop offset=\"0\" stop-color=\"#00a0ff\"/>"
         "<stop offset=\"1\" stop-color=\"#0000ff\"/>"
         "</linearGradient>"
         "<clipPath id=\"installedClip\" clipPathUnits=\"userSpaceOnUse\">"
-        "<rect x=\"1\" y=\"1\" width=\"6\" height=\"6\"/>"
+        "<rect x=\"0\" y=\"0\" width=\"5\" height=\"4\"/>"
         "</clipPath>"
+        "<symbol id=\"installedSymbol\" viewBox=\"0 0 5 4\" preserveAspectRatio=\"none\">"
+        "<rect x=\"0\" y=\"0\" width=\"5\" height=\"4\" "
+        "fill=\"url(#installedGradient)\" clip-path=\"url(#installedClip)\"/>"
+        "<path d=\"M0.5 3 A1.5 1.5 0 0 1 4.5 3\" fill=\"none\" stroke=\"#202020\" "
+        "stroke-width=\"0.4\" stroke-dasharray=\"1 0.5\" opacity=\"0.8\"/>"
+        "</symbol>"
         "</defs>"
-        "<path d=\"M2 6 A3 3 0 0 1 8 6\" fill=\"none\" stroke=\"#202020\" "
-        "stroke-width=\"0.5\" stroke-dasharray=\"1 0.5\" "
-        "stroke-dashoffset=\"-0.5\" opacity=\"0.8\"/>"
+        "<use href=\"#installedSymbol\" x=\"5\" y=\"4\" width=\"5\" height=\"4\"/>"
         "</svg>";
 
     if (argc != 3) {
