@@ -349,6 +349,19 @@ emits each leaf path followed by its own `W`/`W*` + `n` inside the same
 balanced operation `q/Q` scope; PDF clipping is cumulative, so the result is
 the exact geometric intersection without boolean path approximation.
 
+2.31 adds reusable Form-backed soft masks. A nonzero
+`quantapdf_composer_soft_mask_id` references an existing transparency-group
+Form plus Alpha/Luminosity mode and a displayed-space affine transform.
+Graphics-state options attach the mask only through an additive V3 tail, so V1
+and V2 callers retain byte-compatible output. The qpdf backend lowers the mask
+to an ExtGState `/SMask` dictionary whose `/G` is a page-sized isolated
+transparency Form that places the source Form with the requested transform.
+Because page height participates in displayed-space conversion, masked
+ExtGState objects are materialized per page even when the same soft-mask and
+graphics-state IDs are reused. A source Form used only by a mask is imported
+privately through that wrapper and does not need a page-level `/XObject`
+entry.
+
 The original `quantapdf_composer_draw_text()` contract remains Base-14 +
 WinAnsi and is unchanged. For embedded fonts, register caller-owned SFNT bytes
 with `quantapdf_composer_add_font()`, then draw UTF-8 through
