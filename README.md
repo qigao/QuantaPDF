@@ -306,6 +306,16 @@ spacing/phase, cap/join semantics, and gradient/pattern paint remain native PDF
 operands, so non-uniform scale and skew transform strokes exactly instead of
 through numeric geometry pre-scaling.
 
+2.27 adds reusable colored tiling-pattern paint without changing PATH again.
+`quantapdf_composer_add_tiling_pattern()` invokes a synchronous builder on a
+temporary transparent one-page child Composer, stores only the deterministic
+snapshot bytes, and returns the existing generic `paint_id`. PATH V3/V4 fill
+or stroke paint IDs consume the pattern unchanged. The qpdf backend imports the
+tile snapshot as a Form XObject and wraps it in a colored PatternType 1 stream.
+Public positive `y_step` means downward repetition; the PDF pattern therefore
+uses negative `YStep`. Tile transforms use the same displayed-space affine
+contract as other Composer resources.
+
 The original `quantapdf_composer_draw_text()` contract remains Base-14 +
 WinAnsi and is unchanged. For embedded fonts, register caller-owned SFNT bytes
 with `quantapdf_composer_add_font()`, then draw UTF-8 through
