@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 20
+#define QUANTAPDF_VERSION_MINOR 21
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -69,6 +69,7 @@ typedef struct quantapdf_affine_transform {
 typedef size_t quantapdf_composer_graphics_state_id;
 typedef size_t quantapdf_composer_paint_id;
 typedef size_t quantapdf_composer_clip_id;
+typedef size_t quantapdf_composer_content_id;
 
 typedef enum quantapdf_composer_blend_mode {
     QUANTAPDF_COMPOSER_BLEND_NORMAL = 0,
@@ -327,6 +328,18 @@ typedef struct quantapdf_composer_clip_options {
      sizeof(quantapdf_affine_transform))
 #define QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE \
     (sizeof(quantapdf_composer_clip_options))
+
+typedef struct quantapdf_composer_content_options {
+    size_t struct_size;
+    quantapdf_affine_transform transform;
+    quantapdf_composer_graphics_state_id graphics_state_id;
+} quantapdf_composer_content_options;
+
+#define QUANTAPDF_COMPOSER_CONTENT_OPTIONS_V1_MIN_SIZE \
+    (offsetof(quantapdf_composer_content_options, graphics_state_id) + \
+     sizeof(quantapdf_composer_graphics_state_id))
+#define QUANTAPDF_COMPOSER_CONTENT_OPTIONS_V1_SIZE \
+    (sizeof(quantapdf_composer_content_options))
 
 typedef enum quantapdf_composer_line_cap {
     QUANTAPDF_COMPOSER_LINE_CAP_BUTT = 0,
@@ -886,6 +899,11 @@ QUANTAPDF_API quantapdf_status quantapdf_composer_add_clip_path(
     const quantapdf_composer_clip_options *options,
     quantapdf_composer_clip_id *out_clip_id);
 
+QUANTAPDF_API quantapdf_status quantapdf_composer_add_content(
+    quantapdf_composer *composer,
+    const quantapdf_composer *fragment,
+    quantapdf_composer_content_id *out_content_id);
+
 QUANTAPDF_API quantapdf_status quantapdf_composer_add_linear_gradient(
     quantapdf_composer *composer,
     const quantapdf_composer_linear_gradient_options *options,
@@ -969,6 +987,12 @@ QUANTAPDF_API quantapdf_status quantapdf_composer_draw_image(
     quantapdf_composer_image_id image_id,
     const quantapdf_rect *bounds,
     const quantapdf_composer_image_options *options);
+
+QUANTAPDF_API quantapdf_status quantapdf_composer_draw_content(
+    quantapdf_composer *composer,
+    size_t page_index,
+    quantapdf_composer_content_id content_id,
+    const quantapdf_composer_content_options *options);
 
 QUANTAPDF_API quantapdf_status quantapdf_composer_draw_path(
     quantapdf_composer *composer,
