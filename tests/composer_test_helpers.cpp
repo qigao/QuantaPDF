@@ -669,6 +669,91 @@ extern "C" int quantapdf_test_pdf_form_group_info(
     }
 }
 
+extern "C" int quantapdf_test_pdf_soft_mask_info(
+    unsigned char const* data,
+    size_t size,
+    size_t page_index,
+    size_t graphics_state_id,
+    int* out_mode,
+    double out_bbox[4],
+    int* out_isolated,
+    int* out_has_source_form)
+{
+    if (out_mode == nullptr || out_bbox == nullptr ||
+        out_isolated == nullptr || out_has_source_form == nullptr)
+        return 0;
+    *out_mode = 0;
+    *out_isolated = 0;
+    *out_has_source_form = 0;
+    for (size_t i = 0u; i < 4u; ++i)
+        out_bbox[i] = 0.0;
+    try {
+        QPDF pdf;
+        pdf.processMemoryFile(
+            "composer-soft-mask-info.pdf",
+            reinterpret_cast<char const*>(data),
+            size);
+        auto pages = pdf.getAllPages();
+        if (page_index >= pages.size() || graphics_state_id == 0u)
+            return 0;
+        auto states =
+            pages[page_index].getKey("/Resources").getKey("/ExtGState");
+        if (!states.isDictionary())
+            return 0;
+        auto state =
+            states.getKey("/GS" + std::to_string(graphics_state_id));
+        if (!state.isDictionary())
+            return 0;
+        auto smask = state.getKey("/SMask");
+        if (!smask.isDictionary())
+            return 0;
+        auto mode = smask.getKey("/S");
+        auto group_form = smask.getKey("/G");
+        if (!mode.isName() || !group_form.isStream())
+            return 0;
+        if (mode.getName() == "/Alpha")
+            *out_mode = 1;
+        else if (mode.getName() == "/Luminosity")
+            *out_mode = 2;
+        else
+            return 0;
+
+        auto dictionary = group_form.getDict();
+        auto bbox = dictionary.getKey("/BBox");
+        auto group = dictionary.getKey("/Group");
+        auto resources = dictionary.getKey("/Resources");
+        if (!bbox.isArray() || bbox.getArrayNItems() != 4u ||
+            !group.isDictionary() || !resources.isDictionary())
+            return 0;
+        for (size_t i = 0u; i < 4u; ++i) {
+            auto item = bbox.getArrayItem(static_cast<int>(i));
+            if (!item.isNumber())
+                return 0;
+            out_bbox[i] = item.getNumericValue();
+        }
+        auto subtype = group.getKey("/S");
+        auto isolated = group.getKey("/I");
+        if (!subtype.isName() || subtype.getName() != "/Transparency" ||
+            !isolated.isBool())
+            return 0;
+        *out_isolated = isolated.getBoolValue() ? 1 : 0;
+        auto source =
+            resources.getKey("/XObject").getKey("/MaskSource");
+        if (source.isStream()) {
+            auto source_subtype = source.getDict().getKey("/Subtype");
+            if (source_subtype.isName() &&
+                source_subtype.getName() == "/Form")
+                *out_has_source_form = 1;
+        }
+        return 1;
+    } catch (...) {
+        *out_mode = 0;
+        *out_isolated = 0;
+        *out_has_source_form = 0;
+        return 0;
+    }
+}
+
 extern "C" int quantapdf_test_pdf_tiling_pattern_info(
     unsigned char const* data,
     size_t size,

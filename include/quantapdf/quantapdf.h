@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 30
+#define QUANTAPDF_VERSION_MINOR 31
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -70,6 +70,7 @@ typedef size_t quantapdf_composer_graphics_state_id;
 typedef size_t quantapdf_composer_paint_id;
 typedef size_t quantapdf_composer_clip_id;
 typedef size_t quantapdf_composer_form_id;
+typedef size_t quantapdf_composer_soft_mask_id;
 
 typedef enum quantapdf_composer_blend_mode {
     QUANTAPDF_COMPOSER_BLEND_NORMAL = 0,
@@ -86,6 +87,7 @@ typedef struct quantapdf_composer_graphics_state_options {
     float stroke_alpha;
     quantapdf_composer_blend_mode blend_mode;
     quantapdf_composer_clip_id clip_id;
+    quantapdf_composer_soft_mask_id soft_mask_id;
 } quantapdf_composer_graphics_state_options;
 
 #define QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_MIN_SIZE \
@@ -97,7 +99,29 @@ typedef struct quantapdf_composer_graphics_state_options {
     (offsetof(quantapdf_composer_graphics_state_options, clip_id) + \
      sizeof(quantapdf_composer_clip_id))
 #define QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE \
+    (offsetof(quantapdf_composer_graphics_state_options, soft_mask_id))
+#define QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V3_MIN_SIZE \
+    (offsetof(quantapdf_composer_graphics_state_options, soft_mask_id) + \
+     sizeof(quantapdf_composer_soft_mask_id))
+#define QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V3_SIZE \
     (sizeof(quantapdf_composer_graphics_state_options))
+
+typedef enum quantapdf_composer_soft_mask_mode {
+    QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA = 0,
+    QUANTAPDF_COMPOSER_SOFT_MASK_LUMINOSITY = 1
+} quantapdf_composer_soft_mask_mode;
+
+typedef struct quantapdf_composer_soft_mask_options {
+    size_t struct_size;
+    quantapdf_composer_soft_mask_mode mode;
+    quantapdf_affine_transform transform;
+} quantapdf_composer_soft_mask_options;
+
+#define QUANTAPDF_COMPOSER_SOFT_MASK_OPTIONS_V1_MIN_SIZE \
+    (offsetof(quantapdf_composer_soft_mask_options, transform) + \
+     sizeof(quantapdf_affine_transform))
+#define QUANTAPDF_COMPOSER_SOFT_MASK_OPTIONS_V1_SIZE \
+    (sizeof(quantapdf_composer_soft_mask_options))
 
 #define QUANTAPDF_COMPOSER_DEFAULT_MAX_PAGES ((size_t)1024u)
 #define QUANTAPDF_COMPOSER_DEFAULT_MAX_OPERATIONS ((size_t)1000000u)
@@ -950,6 +974,12 @@ QUANTAPDF_API quantapdf_status quantapdf_composer_add_graphics_state(
     quantapdf_composer *composer,
     const quantapdf_composer_graphics_state_options *options,
     quantapdf_composer_graphics_state_id *out_graphics_state_id);
+
+QUANTAPDF_API quantapdf_status quantapdf_composer_add_soft_mask(
+    quantapdf_composer *composer,
+    quantapdf_composer_form_id form_id,
+    const quantapdf_composer_soft_mask_options *options,
+    quantapdf_composer_soft_mask_id *out_soft_mask_id);
 
 QUANTAPDF_API quantapdf_status quantapdf_composer_add_clip_path(
     quantapdf_composer *composer,

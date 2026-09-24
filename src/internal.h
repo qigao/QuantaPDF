@@ -159,7 +159,14 @@ typedef struct quantapdf_composer_graphics_state {
     float stroke_alpha;
     quantapdf_composer_blend_mode blend_mode;
     quantapdf_composer_clip_id clip_id;
+    quantapdf_composer_soft_mask_id soft_mask_id;
 } quantapdf_composer_graphics_state;
+
+typedef struct quantapdf_composer_soft_mask_state {
+    quantapdf_composer_form_id form_id;
+    quantapdf_composer_soft_mask_mode mode;
+    quantapdf_affine_transform transform;
+} quantapdf_composer_soft_mask_state;
 
 typedef enum quantapdf_composer_clip_kind_internal {
     QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL = 1,
@@ -267,6 +274,9 @@ struct quantapdf_composer {
     quantapdf_composer_graphics_state *graphics_states;
     size_t graphics_state_count;
     size_t graphics_state_capacity;
+    quantapdf_composer_soft_mask_state *soft_masks;
+    size_t soft_mask_count;
+    size_t soft_mask_capacity;
     quantapdf_composer_clip_state *clips;
     size_t clip_count;
     size_t clip_capacity;
