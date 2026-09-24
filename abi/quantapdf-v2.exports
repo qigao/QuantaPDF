@@ -5,6 +5,7 @@ quantapdf_bitmap_data
 quantapdf_bitmap_dimensions
 quantapdf_close
 quantapdf_composer_add_font
+quantapdf_composer_add_graphics_state
 quantapdf_composer_add_image
 quantapdf_composer_add_raster
 quantapdf_composer_add_outline

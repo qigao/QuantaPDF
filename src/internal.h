@@ -146,10 +146,17 @@ typedef struct quantapdf_composer_font_state {
     size_t size;
 } quantapdf_composer_font_state;
 
+typedef struct quantapdf_composer_graphics_state {
+    float fill_alpha;
+    float stroke_alpha;
+    quantapdf_composer_blend_mode blend_mode;
+} quantapdf_composer_graphics_state;
+
 typedef struct quantapdf_composer_operation {
     quantapdf_composer_operation_kind kind;
     size_t page_index;
     quantapdf_rect bounds;
+    quantapdf_composer_graphics_state_id graphics_state_id;
     union {
         quantapdf_composer_text_operation text;
         quantapdf_composer_image_operation image;
@@ -199,6 +206,9 @@ struct quantapdf_composer {
     quantapdf_composer_font_state *fonts;
     size_t font_count;
     size_t font_capacity;
+    quantapdf_composer_graphics_state *graphics_states;
+    size_t graphics_state_count;
+    size_t graphics_state_capacity;
     quantapdf_composer_link_state *links;
     size_t link_count;
     size_t link_capacity;
@@ -223,6 +233,10 @@ int quantapdf_affine_transform_valid_internal(
     const quantapdf_affine_transform *transform);
 
 quantapdf_affine_transform quantapdf_affine_identity_internal(void);
+
+int quantapdf_graphics_state_id_valid_internal(
+    const quantapdf_composer *composer,
+    quantapdf_composer_graphics_state_id graphics_state_id);
 
 quantapdf_status quantapdf_document_page_user_unit(
     quantapdf_document *document,

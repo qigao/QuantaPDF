@@ -30,6 +30,60 @@ static int quantapdf_embedded_measurement_prepare(
 }
 
 
+static quantapdf_composer_graphics_state_id
+quantapdf_embedded_graphics_state_id(
+    const quantapdf_composer_embedded_text_options *options)
+{
+    if (options != NULL &&
+        options->struct_size >=
+            QUANTAPDF_COMPOSER_EMBEDDED_TEXT_OPTIONS_V2_MIN_SIZE)
+        return options->graphics_state_id;
+    return 0u;
+}
+
+static quantapdf_composer_graphics_state_id
+quantapdf_glyph_graphics_state_id(
+    const quantapdf_composer_glyph_run_options *options)
+{
+    if (options != NULL &&
+        options->struct_size >=
+            QUANTAPDF_COMPOSER_GLYPH_RUN_OPTIONS_V2_MIN_SIZE)
+        return options->graphics_state_id;
+    return 0u;
+}
+
+static void quantapdf_copy_embedded_options(
+    quantapdf_composer_embedded_text_options *destination,
+    const quantapdf_composer_embedded_text_options *source)
+{
+    memset(destination, 0, sizeof(*destination));
+    destination->struct_size =
+        QUANTAPDF_COMPOSER_EMBEDDED_TEXT_OPTIONS_V2_SIZE;
+    destination->font_id = source->font_id;
+    destination->font_size = source->font_size;
+    destination->argb = source->argb;
+    destination->line_height_multiplier = source->line_height_multiplier;
+    destination->alignment = source->alignment;
+    destination->wrap = source->wrap;
+    destination->graphics_state_id =
+        quantapdf_embedded_graphics_state_id(source);
+}
+
+static void quantapdf_copy_glyph_options(
+    quantapdf_composer_glyph_run_options *destination,
+    const quantapdf_composer_glyph_run_options *source)
+{
+    memset(destination, 0, sizeof(*destination));
+    destination->struct_size =
+        QUANTAPDF_COMPOSER_GLYPH_RUN_OPTIONS_V2_SIZE;
+    destination->font_id = source->font_id;
+    destination->font_size = source->font_size;
+    destination->argb = source->argb;
+    destination->graphics_state_id =
+        quantapdf_glyph_graphics_state_id(source);
+}
+
+
 static int quantapdf_glyph_run_utf8_valid(
     const unsigned char *data,
     size_t size)
@@ -237,7 +291,9 @@ static quantapdf_status quantapdf_composer_draw_embedded_text_internal(
         options->line_height_multiplier <= 0.0f ||
         options->alignment < QUANTAPDF_COMPOSER_TEXT_ALIGN_LEFT ||
         options->alignment > QUANTAPDF_COMPOSER_TEXT_ALIGN_RIGHT ||
-        (options->wrap != 0 && options->wrap != 1))
+        (options->wrap != 0 && options->wrap != 1) ||
+        !quantapdf_graphics_state_id_valid_internal(
+            composer, quantapdf_embedded_graphics_state_id(options)))
         return QUANTAPDF_ERROR_ARGUMENT;
 
     font = &composer->fonts[options->font_id - 1u];
@@ -265,7 +321,10 @@ static quantapdf_status quantapdf_composer_draw_embedded_text_internal(
     operation.kind = QUANTAPDF_COMPOSER_OPERATION_EMBEDDED_TEXT;
     operation.page_index = page_index;
     operation.bounds = *bounds;
-    operation.value.embedded_text.options = *options;
+    operation.graphics_state_id =
+        quantapdf_embedded_graphics_state_id(options);
+    quantapdf_copy_embedded_options(
+        &operation.value.embedded_text.options, options);
     operation.value.embedded_text.transform = *transform;
     composer->operations[composer->operation_count++] = operation;
     composer->resource_bytes += text_size;
@@ -330,6 +389,8 @@ static quantapdf_status quantapdf_composer_draw_glyph_run_internal(
         !quantapdf_affine_transform_valid_internal(transform) ||
         !isfinite(options->font_size) || options->font_size <= 0.0f ||
         (options->argb >> 24u) != 0xffu ||
+        !quantapdf_graphics_state_id_valid_internal(
+            composer, quantapdf_glyph_graphics_state_id(options)) ||
         glyphs == NULL || glyph_count == 0u ||
         (unicode_size != 0u && unicode_utf8 == NULL))
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -404,7 +465,10 @@ static quantapdf_status quantapdf_composer_draw_glyph_run_internal(
     operation.value.glyph_run.unicode_utf8 = unicode_copy;
     operation.value.glyph_run.unicode_size = unicode_size;
     operation.value.glyph_run.origin = origin;
-    operation.value.glyph_run.options = *options;
+    operation.graphics_state_id =
+        quantapdf_glyph_graphics_state_id(options);
+    quantapdf_copy_glyph_options(
+        &operation.value.glyph_run.options, options);
     operation.value.glyph_run.transform = *transform;
     composer->operations[composer->operation_count++] = operation;
     composer->resource_bytes += resource_bytes;

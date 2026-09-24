@@ -443,6 +443,60 @@ extern "C" int quantapdf_test_pdf_image_xobject_info(
     }
 }
 
+extern "C" int quantapdf_test_pdf_extgstate_info(
+    unsigned char const* data,
+    size_t size,
+    size_t page_index,
+    size_t graphics_state_id,
+    double* out_fill_alpha,
+    double* out_stroke_alpha,
+    char* out_blend_mode,
+    size_t blend_mode_capacity)
+{
+    if (out_fill_alpha == nullptr || out_stroke_alpha == nullptr ||
+        out_blend_mode == nullptr || blend_mode_capacity == 0u)
+        return 0;
+    *out_fill_alpha = 0.0;
+    *out_stroke_alpha = 0.0;
+    out_blend_mode[0] = '\0';
+    try {
+        QPDF pdf;
+        pdf.processMemoryFile(
+            "composer-extgstate-info.pdf",
+            reinterpret_cast<char const*>(data),
+            size);
+        auto pages = pdf.getAllPages();
+        if (page_index >= pages.size() || graphics_state_id == 0u)
+            return 0;
+        auto resources = pages[page_index].getKey("/Resources");
+        auto states = resources.getKey("/ExtGState");
+        if (!states.isDictionary())
+            return 0;
+        auto state = states.getKey(
+            "/GS" + std::to_string(graphics_state_id));
+        if (!state.isDictionary())
+            return 0;
+        auto ca = state.getKey("/ca");
+        auto CA = state.getKey("/CA");
+        auto bm = state.getKey("/BM");
+        if (!ca.isNumber() || !CA.isNumber() || !bm.isName())
+            return 0;
+        std::string const name = bm.getName();
+        if (name.size() + 1u > blend_mode_capacity)
+            return 0;
+        *out_fill_alpha = ca.getNumericValue();
+        *out_stroke_alpha = CA.getNumericValue();
+        std::memcpy(
+            out_blend_mode, name.c_str(), name.size() + 1u);
+        return 1;
+    } catch (...) {
+        *out_fill_alpha = 0.0;
+        *out_stroke_alpha = 0.0;
+        out_blend_mode[0] = '\0';
+        return 0;
+    }
+}
+
 extern "C" void quantapdf_test_use_comma_locale(int enabled)
 {
     std::locale::global(enabled

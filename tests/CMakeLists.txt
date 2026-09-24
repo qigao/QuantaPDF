@@ -115,6 +115,24 @@ target_compile_definitions(quantapdf_test_composer_raster PRIVATE
 add_test(NAME quantapdf.composer_raster COMMAND quantapdf_test_composer_raster)
 set_tests_properties(quantapdf.composer_raster PROPERTIES TIMEOUT 30)
 
+add_executable(quantapdf_test_composer_graphics_state
+  test_composer_graphics_state.c
+  composer_test_helpers.cpp)
+target_include_directories(quantapdf_test_composer_graphics_state PRIVATE
+  "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_composer_graphics_state PRIVATE
+  QuantaPDF::QuantaPDF
+  quantapdf_backend
+  qpdf::libqpdf
+  ZLIB::ZLIB)
+target_compile_features(quantapdf_test_composer_graphics_state PRIVATE cxx_std_20)
+target_compile_definitions(quantapdf_test_composer_graphics_state PRIVATE
+  COMPOSER_GRAPHICS_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composer-graphics-state-output.pdf"
+  ROBOTO_TTF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/fonts/Roboto-Regular.ttf")
+add_test(NAME quantapdf.composer_graphics_state
+  COMMAND quantapdf_test_composer_graphics_state)
+set_tests_properties(quantapdf.composer_graphics_state PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_test_composer_barcode
   test_composer_barcode.c
   composer_test_helpers.cpp)
