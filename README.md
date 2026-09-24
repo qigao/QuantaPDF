@@ -253,6 +253,19 @@ graphics-state ID. The qpdf backend converts the stored child page through
 `getFormXObjectForPage()`, preserving isolated fonts, images, patterns,
 ExtGState resources, nested forms, and text extraction metadata.
 
+2.22 extends bounded static SVG lowering without adding an SVG-specific backend.
+A/a elliptical arcs are normalized to cubic Béziers using SVG endpoint-arc
+rules, inherited `fill-opacity` / `stroke-opacity` lower through Composer
+graphics-state resources, and `stroke-dasharray` / `stroke-dashoffset` lower
+through the existing owned dash state. Odd dash lists are repeated to even
+length and negative offsets are normalized by the repeated pattern length.
+Explicit `preserveAspectRatio` supports `none` and aligned meet/slice modes;
+slice uses a Composer clip-path resource for the destination viewport. For
+backward compatibility, SVG without an explicit `preserveAspectRatio` keeps
+the original 2.13 stretch mapping. General SVG `opacity` remains deferred
+because exact group opacity requires Form-XObject isolation rather than
+multiplying fill/stroke alpha.
+
 The original `quantapdf_composer_draw_text()` contract remains Base-14 +
 WinAnsi and is unchanged. For embedded fonts, register caller-owned SFNT bytes
 with `quantapdf_composer_add_font()`, then draw UTF-8 through
