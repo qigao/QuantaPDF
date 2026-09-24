@@ -82,6 +82,8 @@ int main(int argc, char **argv)
     quantapdf_composer_glyph_run_options glyph_run = {0};
     quantapdf_composer_glyph shaped_glyph = {0};
     quantapdf_composer_path_options path = {0};
+    quantapdf_composer_dash_pattern dash = {0};
+    float dash_lengths[2] = {6.0f, 3.0f};
     quantapdf_composer_svg_options svg_options = {0};
     quantapdf_barcode_options barcode = {0};
     quantapdf_composer_outline_options outline = {0};
@@ -215,8 +217,12 @@ int main(int argc, char **argv)
     path.line_cap = QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
     path.line_join = QUANTAPDF_COMPOSER_LINE_JOIN_MITER;
     path.miter_limit = 10.0f;
-    CHECK(quantapdf_composer_draw_path(
-        composer, page0, rectangle, 5u, &path));
+    dash.struct_size = QUANTAPDF_COMPOSER_DASH_PATTERN_V1_SIZE;
+    dash.lengths = dash_lengths;
+    dash.length_count = 2u;
+    dash.phase = 1.0f;
+    CHECK(quantapdf_composer_draw_path_dashed(
+        composer, page0, rectangle, 5u, &path, &dash));
 
     svg_options.struct_size = QUANTAPDF_COMPOSER_SVG_OPTIONS_V1_SIZE;
     CHECK(quantapdf_composer_draw_svg(

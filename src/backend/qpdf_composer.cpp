@@ -987,6 +987,15 @@ void append_path_content(
             std::to_string(static_cast<int>(options.line_cap)) + " J " +
             std::to_string(static_cast<int>(options.line_join)) + " j " +
             number(options.miter_limit) + " M ";
+        if (path.dash_count != 0u) {
+            content += "[";
+            for (size_t i = 0u; i < path.dash_count; ++i) {
+                if (i != 0u)
+                    content += " ";
+                content += number(path.dash_lengths[i]);
+            }
+            content += "] " + number(path.dash_phase) + " d ";
+        }
     }
     if (options.fill)
         append_color(options.fill_argb, "rg");
