@@ -4550,6 +4550,254 @@ class svg_parser {
     }
 };
 
+struct mask_region {
+    double x = 0.0;
+    double y = 0.0;
+    double width = 0.0;
+    double height = 0.0;
+    double view_x = 0.0;
+    double view_y = 0.0;
+    double view_width = 0.0;
+    double view_height = 0.0;
+    matrix units;
+};
+
+double mask_region_component(
+    std::string const& text,
+    resource_units units,
+    geometry_bounds const& local_bounds,
+    bool horizontal,
+    bool position,
+    double default_fraction)
+{
+    double const minimum =
+        horizontal ? local_bounds.x0 : local_bounds.y0;
+    double const maximum =
+        horizontal ? local_bounds.x1 : local_bounds.y1;
+    double const extent = maximum - minimum;
+
+    if (text.empty()) {
+        if (units == resource_units::object_bbox)
+            return default_fraction;
+        if (!local_bounds.valid || !finite(extent) || extent <= 0.0)
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        return position
+            ? minimum + default_fraction * extent
+            : default_fraction * extent;
+    }
+
+    std::string value = trim(text);
+    bool percentage = false;
+    if (!value.empty() && value.back() == '%') {
+        percentage = true;
+        value.pop_back();
+    }
+    if (value.empty())
+        fail(QUANTAPDF_ERROR_FORMAT);
+
+    if (percentage || units == resource_units::object_bbox) {
+        number_scanner scanner(value);
+        double result = scanner.number();
+        if (!scanner.done())
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        if (percentage)
+            result /= 100.0;
+        if (!finite(result))
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        if (units == resource_units::object_bbox)
+            return result;
+        if (!local_bounds.valid || !finite(extent) || extent <= 0.0)
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        return position ? minimum + result * extent : result * extent;
+    }
+
+    return scalar(value);
+}
+
+mask_region resolve_mask_region(
+    mask_definition const& mask,
+    geometry_bounds const& local_bounds)
+{
+    mask_region result;
+    result.x = mask_region_component(
+        mask.x_text,
+        mask.units,
+        local_bounds,
+        true,
+        true,
+        -0.1);
+    result.y = mask_region_component(
+        mask.y_text,
+        mask.units,
+        local_bounds,
+        false,
+        true,
+        -0.1);
+    result.width = mask_region_component(
+        mask.width_text,
+        mask.units,
+        local_bounds,
+        true,
+        false,
+        1.2);
+    result.height = mask_region_component(
+        mask.height_text,
+        mask.units,
+        local_bounds,
+        false,
+        false,
+        1.2);
+    if (!finite(result.x) || !finite(result.y) ||
+        !finite(result.width) || !finite(result.height) ||
+        result.width <= 0.0 || result.height <= 0.0)
+        fail(QUANTAPDF_ERROR_FORMAT);
+
+    result.units = resource_units_matrix(mask.units, local_bounds);
+    result.view_x = result.x;
+    result.view_y = result.y;
+    result.view_width = result.width;
+    result.view_height = result.height;
+
+    if (mask.content_units != mask.units) {
+        if (!local_bounds.valid)
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        double const bbox_width =
+            local_bounds.x1 - local_bounds.x0;
+        double const bbox_height =
+            local_bounds.y1 - local_bounds.y0;
+        if (!finite(bbox_width) || !finite(bbox_height) ||
+            bbox_width <= 0.0 || bbox_height <= 0.0)
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+
+        if (mask.units == resource_units::object_bbox &&
+            mask.content_units == resource_units::user_space) {
+            result.view_x =
+                local_bounds.x0 + result.x * bbox_width;
+            result.view_y =
+                local_bounds.y0 + result.y * bbox_height;
+            result.view_width = result.width * bbox_width;
+            result.view_height = result.height * bbox_height;
+        } else if (
+            mask.units == resource_units::user_space &&
+            mask.content_units == resource_units::object_bbox) {
+            result.view_x =
+                (result.x - local_bounds.x0) / bbox_width;
+            result.view_y =
+                (result.y - local_bounds.y0) / bbox_height;
+            result.view_width = result.width / bbox_width;
+            result.view_height = result.height / bbox_height;
+        } else {
+            fail(QUANTAPDF_ERROR_BACKEND);
+        }
+    }
+
+    return result;
+}
+
+std::string build_mask_svg(
+    definition_table const& definitions,
+    mask_definition const& mask,
+    mask_region const& region)
+{
+    std::string result;
+    result += "<svg viewBox=\"";
+    result += svg_number(region.view_x);
+    result += " ";
+    result += svg_number(region.view_y);
+    result += " ";
+    result += svg_number(region.view_width);
+    result += " ";
+    result += svg_number(region.view_height);
+    result += "\" preserveAspectRatio=\"none\"><defs>";
+    result += serialize_tokens(definitions.defs_tokens, false);
+    result += "</defs>";
+    result += serialize_tokens(mask.tokens, true);
+    result += "</svg>";
+    if (result.size() > k_svg_max_input_bytes)
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    return result;
+}
+
+quantapdf_status materialize_mask(
+    quantapdf_composer* composer,
+    definition_table const& definitions,
+    std::string const& mask_id,
+    matrix const& user_transform,
+    geometry_bounds const& local_bounds,
+    quantapdf_composer_soft_mask_id* out_mask_id)
+{
+    if (out_mask_id == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_mask_id = 0u;
+
+    auto found = definitions.masks.find(mask_id);
+    if (found == definitions.masks.end())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    auto const& mask = found->second;
+
+    mask_region region;
+    std::string synthetic_svg;
+    matrix placement;
+    try {
+        region = resolve_mask_region(mask, local_bounds);
+        synthetic_svg = build_mask_svg(
+            definitions, mask, region);
+        placement = multiply(
+            user_transform,
+            multiply(
+                region.units,
+                translate_matrix(region.x, region.y)));
+    } catch (svg_error const& error) {
+        return error.status;
+    }
+
+    symbol_form_builder_context context;
+    context.svg = &synthetic_svg;
+    context.width = static_cast<float>(region.width);
+    context.height = static_cast<float>(region.height);
+    if (!finite(context.width) || !finite(context.height) ||
+        context.width <= 0.0f || context.height <= 0.0f)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    quantapdf_composer_form_options form_options{};
+    form_options.struct_size =
+        QUANTAPDF_COMPOSER_FORM_OPTIONS_V2_SIZE;
+    form_options.width_points = context.width;
+    form_options.height_points = context.height;
+    form_options.flags =
+        QUANTAPDF_COMPOSER_FORM_FLAG_TRANSPARENCY_GROUP |
+        QUANTAPDF_COMPOSER_FORM_FLAG_ISOLATED;
+
+    quantapdf_composer_form_id form_id = 0u;
+    quantapdf_status status = quantapdf_composer_add_form(
+        composer,
+        &form_options,
+        symbol_form_builder,
+        &context,
+        &form_id);
+    if (status != QUANTAPDF_OK)
+        return status;
+
+    quantapdf_composer_soft_mask_options options{};
+    options.struct_size =
+        QUANTAPDF_COMPOSER_SOFT_MASK_OPTIONS_V1_SIZE;
+    options.mode =
+        mask.mode == svg_mask_mode::alpha
+        ? QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA
+        : QUANTAPDF_COMPOSER_SOFT_MASK_LUMINOSITY;
+    try {
+        options.transform = resource_affine(placement);
+    } catch (svg_error const& error) {
+        return error.status;
+    }
+
+    return quantapdf_composer_add_soft_mask(
+        composer,
+        form_id,
+        &options,
+        out_mask_id);
+}
+
 matrix use_viewport_matrix(
     staged_use const& use,
     symbol_definition const& symbol)
