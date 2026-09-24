@@ -57,6 +57,26 @@ static int read_file(
     return 1;
 }
 
+static quantapdf_status installed_form_builder(
+    quantapdf_composer *composer,
+    size_t page_index,
+    void *user_data)
+{
+    quantapdf_composer_text_options text = {0};
+    quantapdf_rect bounds = {4.0f, 4.0f, 76.0f, 28.0f};
+
+    (void)user_data;
+    text.struct_size = QUANTAPDF_COMPOSER_TEXT_OPTIONS_V1_SIZE;
+    text.font = QUANTAPDF_COMPOSER_FONT_HELVETICA_BOLD;
+    text.font_size = 12.0f;
+    text.argb = UINT32_C(0xff202020);
+    text.line_height_multiplier = 1.2f;
+    text.alignment = QUANTAPDF_COMPOSER_TEXT_ALIGN_LEFT;
+    text.wrap = 0;
+    return quantapdf_composer_draw_text(
+        composer, page_index, "Installed Form", &bounds, &text);
+}
+
 int main(int argc, char **argv)
 {
     quantapdf_composer *composer = NULL;
@@ -69,6 +89,9 @@ int main(int argc, char **argv)
     quantapdf_composer_outline_id outline_id = 0u;
 
     quantapdf_composer_page_options page = {0};
+    quantapdf_composer_form_options form_options = {0};
+    quantapdf_composer_form_draw_options form_draw = {0};
+    quantapdf_composer_form_id form_id = 0u;
     quantapdf_composer_font_options font_options = {0};
     quantapdf_composer_graphics_state_options graphics_state = {0};
     quantapdf_composer_graphics_state_id graphics_state_id = 0u;
@@ -141,6 +164,33 @@ int main(int argc, char **argv)
     page.background_argb = UINT32_C(0xffffffff);
     CHECK(quantapdf_composer_add_page(composer, &page, &page0));
     CHECK(quantapdf_composer_add_page(composer, &page, &page1));
+
+    form_options.struct_size = QUANTAPDF_COMPOSER_FORM_OPTIONS_V1_SIZE;
+    form_options.width_points = 80.0f;
+    form_options.height_points = 32.0f;
+    CHECK(quantapdf_composer_add_form(
+        composer,
+        &form_options,
+        installed_form_builder,
+        NULL,
+        &form_id));
+    if (form_id == 0u) {
+        fprintf(stderr, "form ID was not published\n");
+        goto fail;
+    }
+    form_draw.struct_size =
+        QUANTAPDF_COMPOSER_FORM_DRAW_OPTIONS_V1_SIZE;
+    {
+        quantapdf_affine_transform form_transform = {
+            1.0f, 0.0f, 0.0f, 1.0f, 200.0f, 135.0f
+        };
+        CHECK(quantapdf_composer_draw_form(
+            composer,
+            page1,
+            form_id,
+            &form_transform,
+            &form_draw));
+    }
 
     clip_rectangle[0].kind = QUANTAPDF_COMPOSER_PATH_MOVE_TO;
     clip_rectangle[0].point1 = (quantapdf_point){0.0f, 0.0f};
