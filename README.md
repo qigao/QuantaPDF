@@ -249,6 +249,16 @@ baseline/glyph placement. Existing draw APIs are unchanged and are exactly the
 identity-transform form of the new implementation. Rotation, scale, reflection,
 and skew require no qpdf types or shaping dependency in the public ABI.
 
+2.16 adds copied dash patterns for generic Composer paths.
+`quantapdf_composer_draw_path_dashed()` reuses the existing
+`quantapdf_composer_path_options` paint contract and accepts a separate
+`quantapdf_composer_dash_pattern`. Dash lengths are finite and nonnegative,
+with at least one positive element; zero-length elements are permitted, phase
+is finite and nonnegative, and the count is bounded to 64. The Composer copies
+the caller array and charges command plus dash storage atomically to the
+resource budget. Existing `quantapdf_composer_draw_path()` remains solid and
+unchanged.
+
 For text shaped by another engine, 2.11 adds
 `quantapdf_composer_draw_glyph_run()`. Each fixed-layout glyph record carries
 a font glyph ID, x/y advance and offset in 1000/em units, and an optional byte
