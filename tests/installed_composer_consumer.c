@@ -72,6 +72,14 @@ int main(int argc, char **argv)
     quantapdf_composer_font_options font_options = {0};
     quantapdf_composer_graphics_state_options graphics_state = {0};
     quantapdf_composer_graphics_state_id graphics_state_id = 0u;
+    quantapdf_composer_linear_gradient_options linear_gradient = {0};
+    quantapdf_composer_radial_gradient_options radial_gradient = {0};
+    quantapdf_composer_gradient_stop gradient_stops[2] = {
+        {0.0f, UINT32_C(0xffff0000)},
+        {1.0f, UINT32_C(0xff0000ff)}
+    };
+    quantapdf_composer_paint_id linear_paint_id = 0u;
+    quantapdf_composer_paint_id radial_paint_id = 0u;
     quantapdf_composer_raster raster = {0};
     quantapdf_composer_image_options raster_draw = {0};
     quantapdf_composer_image_id raster_id = 0u;
@@ -140,6 +148,34 @@ int main(int argc, char **argv)
         composer, &graphics_state, &graphics_state_id));
     if (graphics_state_id == 0u) {
         fprintf(stderr, "graphics-state ID was not published\n");
+        goto fail;
+    }
+
+    linear_gradient.struct_size =
+        QUANTAPDF_COMPOSER_LINEAR_GRADIENT_OPTIONS_V1_SIZE;
+    linear_gradient.start = (quantapdf_point){20.0f, 20.0f};
+    linear_gradient.end = (quantapdf_point){280.0f, 20.0f};
+    linear_gradient.stops = gradient_stops;
+    linear_gradient.stop_count = 2u;
+    CHECK(quantapdf_composer_add_linear_gradient(
+        composer, &linear_gradient, &linear_paint_id));
+    if (linear_paint_id == 0u) {
+        fprintf(stderr, "linear paint ID was not published\n");
+        goto fail;
+    }
+
+    radial_gradient.struct_size =
+        QUANTAPDF_COMPOSER_RADIAL_GRADIENT_OPTIONS_V1_SIZE;
+    radial_gradient.start_center = (quantapdf_point){150.0f, 90.0f};
+    radial_gradient.start_radius = 0.0f;
+    radial_gradient.end_center = (quantapdf_point){150.0f, 90.0f};
+    radial_gradient.end_radius = 40.0f;
+    radial_gradient.stops = gradient_stops;
+    radial_gradient.stop_count = 2u;
+    CHECK(quantapdf_composer_add_radial_gradient(
+        composer, &radial_gradient, &radial_paint_id));
+    if (radial_paint_id == 0u) {
+        fprintf(stderr, "radial paint ID was not published\n");
         goto fail;
     }
 
@@ -246,8 +282,11 @@ int main(int argc, char **argv)
     rectangle[3].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
     rectangle[3].point1 = (quantapdf_point){20.0f, 170.0f};
     rectangle[4].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
-    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
+    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE;
     path.stroke = 1;
+    path.fill = 1;
+    path.fill_argb = UINT32_C(0xff000000);
+    path.fill_paint_id = linear_paint_id;
     path.stroke_argb = UINT32_C(0xff004080);
     path.stroke_width = 1.0f;
     path.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
