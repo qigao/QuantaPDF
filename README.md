@@ -362,6 +362,19 @@ graphics-state IDs are reused. A source Form used only by a mask is imported
 privately through that wrapper and does not need a page-level `/XObject`
 entry.
 
+
+2.32 extends SVG lowering to exact compound clip intersections. Root, group,
+nested inherited, leaf, symbol/use viewport, and preserveAspectRatio=slice clips
+are accumulated independently and materialized through
+`quantapdf_composer_add_clip_intersection()`; PDF cumulative clipping performs
+the exact intersection with no path boolean geometry. Group-opacity Forms keep
+their outer clip chain, and symbol slice clips compose with inherited/local
+clips instead of forcing a fail-closed branch. A clipPath may also reference one
+acyclic local userSpaceOnUse clipPath; such chains lower recursively to compound
+clips. Nested objectBoundingBox clipPath-reference chains remain fail-closed
+until their reference-box semantics are modeled explicitly.
+
+
 The original `quantapdf_composer_draw_text()` contract remains Base-14 +
 WinAnsi and is unchanged. For embedded fonts, register caller-owned SFNT bytes
 with `quantapdf_composer_add_font()`, then draw UTF-8 through

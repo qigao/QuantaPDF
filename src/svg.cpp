@@ -1012,6 +1012,12 @@ struct geometry_bounds {
     bool valid = false;
 };
 
+struct clip_component {
+    std::string ref;
+    matrix transform;
+    geometry_bounds local_bounds;
+};
+
 struct staged_path {
     size_t order = 0u;
     std::vector<quantapdf_composer_path_command> commands;
@@ -1022,9 +1028,9 @@ struct staged_path {
     float stroke_alpha = 1.0f;
     std::string fill_ref;
     std::string stroke_ref;
-    std::string clip_ref;
     matrix resource_transform;
     geometry_bounds local_bounds;
+    std::vector<clip_component> clip_components;
 };
 
 struct staged_use {
@@ -1035,12 +1041,14 @@ struct staged_use {
     double width = 0.0;
     double height = 0.0;
     matrix user_transform;
+    std::vector<clip_component> clip_components;
 };
 
 struct staged_group {
     size_t order = 0u;
     std::string svg;
     float opacity = 1.0f;
+    std::vector<clip_component> clip_components;
 };
 
 quantapdf_affine_transform resource_affine(matrix const& value);
@@ -1243,7 +1251,6 @@ void stage_path(
     staged.local_bounds = command_bounds(staged.commands);
     staged.fill_ref = style.fill ? style.fill_ref : std::string{};
     staged.stroke_ref = style.stroke ? style.stroke_ref : std::string{};
-    staged.clip_ref = style.clip_ref;
     // Clip resources are established outside the PATH q/cm scope, so they
     // still need the full referencing-element transform.
     staged.resource_transform = transform;
@@ -1897,6 +1904,7 @@ struct clip_definition {
     quantapdf_composer_fill_rule fill_rule =
         QUANTAPDF_COMPOSER_FILL_NONZERO;
     resource_units units = resource_units::user_space;
+    std::string nested_ref;
 };
 
 struct symbol_definition {
@@ -1958,7 +1966,7 @@ void validate_use_attributes(element const& item)
         if (attr.name != "id" && attr.name != "href" &&
             attr.name != "x" && attr.name != "y" &&
             attr.name != "width" && attr.name != "height" &&
-            attr.name != "transform")
+            attr.name != "transform" && attr.name != "clip-path")
             fail(QUANTAPDF_ERROR_UNSUPPORTED);
     }
     auto const* href = find_attribute(item, "href");
@@ -2800,6 +2808,43 @@ void validate_pattern_dependencies(definition_table const& definitions)
         visit(item.first);
 }
 
+void validate_clip_dependencies(definition_table const& definitions)
+{
+    enum class visit_state {
+        unseen,
+        visiting,
+        done
+    };
+    std::map<std::string, visit_state> states;
+
+    std::function<void(std::string const&)> visit =
+        [&](std::string const& id) {
+            auto clip = definitions.clips.find(id);
+            if (clip == definitions.clips.end())
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            auto& state = states[id];
+            if (state == visit_state::done)
+                return;
+            if (state == visit_state::visiting)
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            state = visit_state::visiting;
+            if (!clip->second.nested_ref.empty()) {
+                auto nested =
+                    definitions.clips.find(clip->second.nested_ref);
+                if (nested == definitions.clips.end())
+                    fail(QUANTAPDF_ERROR_UNSUPPORTED);
+                if (clip->second.units != resource_units::user_space ||
+                    nested->second.units != resource_units::user_space)
+                    fail(QUANTAPDF_ERROR_UNSUPPORTED);
+                visit(clip->second.nested_ref);
+            }
+            state = visit_state::done;
+        };
+
+    for (auto const& item: definitions.clips)
+        visit(item.first);
+}
+
 definition_table parse_definitions(
     unsigned char const* data,
     size_t size)
@@ -2938,6 +2983,7 @@ definition_table parse_definitions(
                         attr.name != "clipPathUnits" &&
                         attr.name != "transform" &&
                         attr.name != "clip-rule" &&
+                        attr.name != "clip-path" &&
                         attr.name != "style")
                         fail(QUANTAPDF_ERROR_UNSUPPORTED);
                 }
@@ -2949,6 +2995,16 @@ definition_table parse_definitions(
                     clip.units = parse_resource_units(*units);
                 clip.fill_rule = clip_rule_from_element(
                     item, QUANTAPDF_COMPOSER_FILL_NONZERO);
+                if (auto const* nested =
+                        find_attribute(item, "clip-path")) {
+                    std::string const parsed = trim(*nested);
+                    if (parsed != "none") {
+                        clip.nested_ref =
+                            local_paint_reference(parsed);
+                        if (clip.nested_ref.empty())
+                            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+                    }
+                }
                 auto inserted =
                     definitions.clips.emplace(id, std::move(clip));
                 if (!inserted.second)
@@ -3172,6 +3228,7 @@ definition_table parse_definitions(
     normalize_resource_definitions(&definitions);
     validate_symbol_dependencies(definitions);
     validate_pattern_dependencies(definitions);
+    validate_clip_dependencies(definitions);
     return definitions;
 }
 
@@ -3199,6 +3256,7 @@ struct context {
     std::string name;
     paint_style style;
     matrix transform;
+    std::vector<clip_component> active_clips;
     bool leaf = false;
     bool skip = false;
 };
@@ -3852,15 +3910,22 @@ class svg_parser {
                 root.name = tag;
                 root.style = derive_style(paint_style{}, item);
                 validate_style_references(root.style, definitions_);
-                if (!root.style.clip_ref.empty())
-                    fail(QUANTAPDF_ERROR_UNSUPPORTED);
                 root.transform = derive_transform(viewport, item);
+                if (!root.style.clip_ref.empty()) {
+                    root.active_clips.push_back(make_clip_component(
+                        root.style.clip_ref,
+                        root.transform,
+                        geometry_bounds{},
+                        false));
+                    root.style.clip_ref.clear();
+                }
                 if (root.style.opacity != 1.0) {
                     if (!item.self_closing) {
                         auto tokens = capture_children(tag, true);
                         stage_opacity_group(
                             root.style,
                             root.transform,
+                            root.active_clips,
                             std::move(tokens));
                     }
                 } else if (!item.self_closing) {
@@ -3905,6 +3970,22 @@ class svg_parser {
                         parent.transform,
                         definitions_);
                 use.order = next_order_++;
+                use.clip_components = parent.active_clips;
+                if (auto const* clip_value =
+                        find_attribute(item, "clip-path")) {
+                    std::string const parsed = trim(*clip_value);
+                    if (parsed != "none") {
+                        std::string const clip_ref =
+                            local_paint_reference(parsed);
+                        if (clip_ref.empty())
+                            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+                        use.clip_components.push_back(make_clip_component(
+                            clip_ref,
+                            use.user_transform,
+                            geometry_bounds{},
+                            false));
+                    }
+                }
                 uses_.push_back(std::move(use));
                 if (!item.self_closing) {
                     context leaf;
@@ -3920,16 +4001,24 @@ class svg_parser {
                 group.name = tag;
                 group.style = derive_style(parent.style, item);
                 validate_style_references(group.style, definitions_);
-                if (!group.style.clip_ref.empty())
-                    fail(QUANTAPDF_ERROR_UNSUPPORTED);
                 group.transform =
                     derive_transform(parent.transform, item);
+                group.active_clips = parent.active_clips;
+                if (!group.style.clip_ref.empty()) {
+                    group.active_clips.push_back(make_clip_component(
+                        group.style.clip_ref,
+                        group.transform,
+                        geometry_bounds{},
+                        false));
+                    group.style.clip_ref.clear();
+                }
                 if (group.style.opacity != 1.0) {
                     if (!item.self_closing) {
                         auto tokens = capture_children(tag, false);
                         stage_opacity_group(
                             group.style,
                             group.transform,
+                            group.active_clips,
                             std::move(tokens));
                     }
                 } else if (!item.self_closing) {
@@ -3972,6 +4061,7 @@ class svg_parser {
                         optional_number(item, "y2", 0.0))};
                 paint_style line_style = style;
                 line_style.fill = false;
+                size_t const previous_count = paths_.size();
                 stage_path(
                     &paths_,
                     std::move(commands),
@@ -3979,9 +4069,18 @@ class svg_parser {
                     transform,
                     next_order_++,
                     max_paths_);
+                if (paths_.size() != previous_count)
+                    attach_path_clips(
+                        &paths_.back(),
+                        parent.active_clips,
+                        line_style.clip_ref,
+                        transform);
                 if (!item.self_closing) {
-                    context leaf{
-                        tag, line_style, transform, true};
+                    context leaf;
+                    leaf.name = tag;
+                    leaf.style = line_style;
+                    leaf.transform = transform;
+                    leaf.leaf = true;
                     stack_.push_back(std::move(leaf));
                 }
                 continue;
@@ -4005,6 +4104,7 @@ class svg_parser {
                     required_number(item, "ry"));
             }
 
+            size_t const previous_count = paths_.size();
             stage_path(
                 &paths_,
                 std::move(commands),
@@ -4012,8 +4112,18 @@ class svg_parser {
                 transform,
                 next_order_++,
                 max_paths_);
+            if (paths_.size() != previous_count)
+                attach_path_clips(
+                    &paths_.back(),
+                    parent.active_clips,
+                    style.clip_ref,
+                    transform);
             if (!item.self_closing) {
-                context leaf{tag, style, transform, true};
+                context leaf;
+                leaf.name = tag;
+                leaf.style = style;
+                leaf.transform = transform;
+                leaf.leaf = true;
                 stack_.push_back(std::move(leaf));
             }
         }
@@ -4050,6 +4160,44 @@ class svg_parser {
     std::vector<staged_path> paths_;
     std::vector<staged_use> uses_;
     std::vector<staged_group> groups_;
+
+    clip_component make_clip_component(
+        std::string const& ref,
+        matrix const& transform,
+        geometry_bounds const& local_bounds,
+        bool allow_object_bbox) const
+    {
+        auto found = definitions_.clips.find(ref);
+        if (found == definitions_.clips.end())
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        if (found->second.units == resource_units::object_bbox &&
+            !allow_object_bbox)
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+
+        clip_component component;
+        component.ref = ref;
+        component.transform = transform;
+        component.local_bounds = local_bounds;
+        return component;
+    }
+
+    void attach_path_clips(
+        staged_path* path,
+        std::vector<clip_component> const& inherited,
+        std::string const& local_ref,
+        matrix const& transform) const
+    {
+        if (path == nullptr)
+            fail(QUANTAPDF_ERROR_BACKEND);
+        path->clip_components = inherited;
+        if (!local_ref.empty()) {
+            path->clip_components.push_back(make_clip_component(
+                local_ref,
+                transform,
+                path->local_bounds,
+                true));
+        }
+    }
 
     std::vector<element> capture_children(
         std::string const& root_tag,
@@ -4099,6 +4247,7 @@ class svg_parser {
     void stage_opacity_group(
         paint_style style,
         matrix const& transform,
+        std::vector<clip_component> const& active_clips,
         std::vector<element> tokens)
     {
         if (paths_.size() + uses_.size() + groups_.size() >=
@@ -4111,7 +4260,9 @@ class svg_parser {
         staged_group group;
         group.order = next_order_++;
         group.opacity = static_cast<float>(style.opacity);
+        group.clip_components = active_clips;
         style.opacity = 1.0;
+        style.clip_ref.clear();
         group.svg = build_opacity_group_svg(
             definitions_,
             bounds_,
@@ -4190,6 +4341,135 @@ quantapdf_status register_bounds_clip(
         out_clip_id);
 }
 
+quantapdf_status materialize_clip_reference(
+    quantapdf_composer* composer,
+    definition_table const& definitions,
+    std::string const& ref,
+    matrix const& transform,
+    geometry_bounds const& local_bounds,
+    std::set<std::string>* visiting,
+    quantapdf_composer_clip_id* out_clip_id)
+{
+    auto found = definitions.clips.find(ref);
+    if (found == definitions.clips.end())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (!visiting->insert(ref).second)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    quantapdf_composer_clip_id base_id = 0u;
+    quantapdf_status status;
+    try {
+        status = register_clip_resource(
+            composer,
+            found->second,
+            transform,
+            local_bounds,
+            &base_id);
+    } catch (svg_error const& error) {
+        visiting->erase(ref);
+        return error.status;
+    }
+    if (status != QUANTAPDF_OK) {
+        visiting->erase(ref);
+        return status;
+    }
+
+    if (found->second.nested_ref.empty()) {
+        visiting->erase(ref);
+        *out_clip_id = base_id;
+        return QUANTAPDF_OK;
+    }
+    if (found->second.units != resource_units::user_space) {
+        visiting->erase(ref);
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+
+    quantapdf_composer_clip_id nested_id = 0u;
+    status = materialize_clip_reference(
+        composer,
+        definitions,
+        found->second.nested_ref,
+        transform,
+        local_bounds,
+        visiting,
+        &nested_id);
+    if (status != QUANTAPDF_OK) {
+        visiting->erase(ref);
+        return status;
+    }
+    quantapdf_composer_clip_id members[2] = {base_id, nested_id};
+    status = quantapdf_composer_add_clip_intersection(
+        composer, members, 2u, out_clip_id);
+    visiting->erase(ref);
+    return status;
+}
+
+quantapdf_status register_clip_component(
+    quantapdf_composer* composer,
+    definition_table const& definitions,
+    clip_component const& component,
+    quantapdf_composer_clip_id* out_clip_id)
+{
+    std::set<std::string> visiting;
+    return materialize_clip_reference(
+        composer,
+        definitions,
+        component.ref,
+        component.transform,
+        component.local_bounds,
+        &visiting,
+        out_clip_id);
+}
+
+quantapdf_status combine_clip_ids(
+    quantapdf_composer* composer,
+    std::vector<quantapdf_composer_clip_id> const& input,
+    quantapdf_composer_clip_id* out_clip_id)
+{
+    if (out_clip_id == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_clip_id = 0u;
+
+    std::vector<quantapdf_composer_clip_id> ids;
+    ids.reserve(input.size());
+    for (auto id: input) {
+        if (id != 0u)
+            ids.push_back(id);
+    }
+    if (ids.empty())
+        return QUANTAPDF_OK;
+    if (ids.size() == 1u) {
+        *out_clip_id = ids[0];
+        return QUANTAPDF_OK;
+    }
+    return quantapdf_composer_add_clip_intersection(
+        composer,
+        ids.data(),
+        ids.size(),
+        out_clip_id);
+}
+
+quantapdf_status materialize_clip_components(
+    quantapdf_composer* composer,
+    definition_table const& definitions,
+    std::vector<clip_component> const& components,
+    std::vector<quantapdf_composer_clip_id> const& base_ids,
+    quantapdf_composer_clip_id* out_clip_id)
+{
+    std::vector<quantapdf_composer_clip_id> ids = base_ids;
+    ids.reserve(base_ids.size() + components.size());
+    for (auto const& component: components) {
+        quantapdf_composer_clip_id id = 0u;
+        quantapdf_status const status =
+            register_clip_component(
+                composer, definitions, component, &id);
+        if (status != QUANTAPDF_OK)
+            return status;
+        ids.push_back(id);
+    }
+    return combine_clip_ids(composer, ids, out_clip_id);
+}
+
 quantapdf_status publish_uses(
     quantapdf_composer* composer,
     size_t page_index,
@@ -4224,9 +4504,6 @@ quantapdf_status publish_uses(
             return QUANTAPDF_ERROR_UNSUPPORTED;
         auto const& symbol = found->second;
 
-        if (clip_to_bounds && symbol.preserve.slice)
-            return QUANTAPDF_ERROR_UNSUPPORTED;
-
         quantapdf_composer_form_id form_id = 0u;
         quantapdf_status status = materialize_symbol(
             composer,
@@ -4237,14 +4514,27 @@ quantapdf_status publish_uses(
         if (status != QUANTAPDF_OK)
             return status;
 
-        quantapdf_composer_clip_id effective_clip_id =
-            viewport_clip_id;
+        std::vector<quantapdf_composer_clip_id> base_clip_ids;
+        if (viewport_clip_id != 0u)
+            base_clip_ids.push_back(viewport_clip_id);
         if (symbol.preserve.slice) {
+            quantapdf_composer_clip_id use_clip_id = 0u;
             status = register_use_clip(
-                composer, use, &effective_clip_id);
+                composer, use, &use_clip_id);
             if (status != QUANTAPDF_OK)
                 return status;
+            base_clip_ids.push_back(use_clip_id);
         }
+
+        quantapdf_composer_clip_id effective_clip_id = 0u;
+        status = materialize_clip_components(
+            composer,
+            definitions,
+            use.clip_components,
+            base_clip_ids,
+            &effective_clip_id);
+        if (status != QUANTAPDF_OK)
+            return status;
 
         quantapdf_composer_graphics_state_id state_id = 0u;
         if (effective_clip_id != 0u) {
@@ -4297,7 +4587,9 @@ quantapdf_status publish_groups(
     quantapdf_composer* composer,
     size_t page_index,
     std::vector<staged_group> const& groups,
-    quantapdf_rect const& bounds)
+    quantapdf_rect const& bounds,
+    bool clip_to_bounds,
+    definition_table const& definitions)
 {
     if (groups.empty())
         return QUANTAPDF_OK;
@@ -4313,6 +4605,15 @@ quantapdf_status publish_groups(
     if (!std::isfinite(width) || !std::isfinite(height) ||
         width <= 0.0f || height <= 0.0f)
         return QUANTAPDF_ERROR_ARGUMENT;
+
+    quantapdf_composer_clip_id viewport_clip_id = 0u;
+    if (clip_to_bounds) {
+        quantapdf_status const status =
+            register_bounds_clip(
+                composer, bounds, &viewport_clip_id);
+        if (status != QUANTAPDF_OK)
+            return status;
+    }
 
     for (auto const& group: groups) {
         symbol_form_builder_context context;
@@ -4339,12 +4640,28 @@ quantapdf_status publish_groups(
         if (status != QUANTAPDF_OK)
             return status;
 
+        std::vector<quantapdf_composer_clip_id> base_clip_ids;
+        if (viewport_clip_id != 0u)
+            base_clip_ids.push_back(viewport_clip_id);
+        quantapdf_composer_clip_id effective_clip_id = 0u;
+        status = materialize_clip_components(
+            composer,
+            definitions,
+            group.clip_components,
+            base_clip_ids,
+            &effective_clip_id);
+        if (status != QUANTAPDF_OK)
+            return status;
+
         quantapdf_composer_graphics_state_options state{};
         state.struct_size =
-            QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE;
+            effective_clip_id == 0u
+            ? QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE
+            : QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE;
         state.fill_alpha = group.opacity;
         state.stroke_alpha = group.opacity;
         state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
+        state.clip_id = effective_clip_id;
 
         quantapdf_composer_graphics_state_id state_id = 0u;
         status = quantapdf_composer_add_graphics_state(
@@ -4412,8 +4729,10 @@ void rollback_svg_publish(
     }
     for (size_t i = snapshot.clip_count;
          i < composer->clip_count;
-         ++i)
+         ++i) {
         std::free(composer->clips[i].commands);
+        std::free(composer->clips[i].members);
+    }
     for (size_t i = snapshot.form_count;
          i < composer->form_count;
          ++i)
@@ -4437,13 +4756,6 @@ quantapdf_status publish_paths(
 {
     if (paths.empty())
         return QUANTAPDF_OK;
-
-    if (clip_to_bounds) {
-        for (auto const& path: paths) {
-            if (!path.clip_ref.empty())
-                return QUANTAPDF_ERROR_UNSUPPORTED;
-        }
-    }
 
     size_t total_bytes = 0u;
     for (auto const& path: paths) {
@@ -4490,8 +4802,10 @@ quantapdf_status publish_paths(
             std::free(composer->paints[i].stops);
             std::free(composer->paints[i].pdf_data);
         }
-        for (size_t i = clip_snapshot; i < composer->clip_count; ++i)
+        for (size_t i = clip_snapshot; i < composer->clip_count; ++i) {
             std::free(composer->clips[i].commands);
+            std::free(composer->clips[i].members);
+        }
         composer->paint_count = paint_snapshot;
         composer->clip_count = clip_snapshot;
         composer->graphics_state_count = state_snapshot;
@@ -4562,26 +4876,22 @@ quantapdf_status publish_paths(
             return status;
         }
 
-        quantapdf_composer_clip_id effective_clip_id = viewport_clip_id;
-        if (!paths[i].clip_ref.empty()) {
-            auto found = definitions.clips.find(paths[i].clip_ref);
-            if (found == definitions.clips.end()) {
-                rollback_resources();
-                return QUANTAPDF_ERROR_UNSUPPORTED;
-            }
-            quantapdf_status const clip_resource_status =
-                register_clip_resource(
-                    composer,
-                    found->second,
-                    paths[i].resource_transform,
-                    paths[i].local_bounds,
-                    &clip_ids[i]);
-            if (clip_resource_status != QUANTAPDF_OK) {
-                rollback_resources();
-                return clip_resource_status;
-            }
-            effective_clip_id = clip_ids[i];
+        std::vector<quantapdf_composer_clip_id> base_clip_ids;
+        if (viewport_clip_id != 0u)
+            base_clip_ids.push_back(viewport_clip_id);
+        quantapdf_status const clip_resource_status =
+            materialize_clip_components(
+                composer,
+                definitions,
+                paths[i].clip_components,
+                base_clip_ids,
+                &clip_ids[i]);
+        if (clip_resource_status != QUANTAPDF_OK) {
+            rollback_resources();
+            return clip_resource_status;
         }
+        quantapdf_composer_clip_id const effective_clip_id =
+            clip_ids[i];
 
         if (paths[i].fill_alpha != 1.0f ||
             paths[i].stroke_alpha != 1.0f ||
@@ -4728,7 +5038,9 @@ quantapdf_status publish_svg_document(
             composer,
             page_index,
             groups,
-            bounds);
+            bounds,
+            clip_to_bounds,
+            definitions);
         if (status != QUANTAPDF_OK) {
             rollback_svg_publish(composer, snapshot);
             return status;
