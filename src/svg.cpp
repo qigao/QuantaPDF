@@ -3054,6 +3054,7 @@ definition_table parse_definitions(
             bool const in_defs = stack_contains_defs(stack);
             std::string const symbol_id = active_symbol_id(stack);
             std::string const pattern_id = active_pattern_id(stack);
+            std::string const mask_id = active_mask_id(stack);
             if (in_defs &&
                 stack.back().type != definition_frame::kind::defs)
                 definitions.defs_tokens.push_back(item);
@@ -3070,6 +3071,13 @@ definition_table parse_definitions(
                 if (pattern == definitions.patterns.end())
                     fail(QUANTAPDF_ERROR_BACKEND);
                 pattern->second.tokens.push_back(item);
+            }
+            if (!mask_id.empty() &&
+                stack.back().type != definition_frame::kind::mask) {
+                auto mask = definitions.masks.find(mask_id);
+                if (mask == definitions.masks.end())
+                    fail(QUANTAPDF_ERROR_BACKEND);
+                mask->second.tokens.push_back(item);
             }
 
             definition_frame frame = std::move(stack.back());
@@ -3107,6 +3115,7 @@ definition_table parse_definitions(
         bool const in_defs = stack_contains_defs(stack);
         std::string const symbol_id = active_symbol_id(stack);
         std::string const pattern_id = active_pattern_id(stack);
+        std::string const mask_id = active_mask_id(stack);
         if (in_defs)
             definitions.defs_tokens.push_back(item);
         if (!symbol_id.empty()) {
@@ -3120,6 +3129,12 @@ definition_table parse_definitions(
             if (pattern == definitions.patterns.end())
                 fail(QUANTAPDF_ERROR_BACKEND);
             pattern->second.tokens.push_back(item);
+        }
+        if (!mask_id.empty()) {
+            auto mask = definitions.masks.find(mask_id);
+            if (mask == definitions.masks.end())
+                fail(QUANTAPDF_ERROR_BACKEND);
+            mask->second.tokens.push_back(item);
         }
 
         definition_frame const& parent = stack.back();
@@ -3256,6 +3271,25 @@ definition_table parse_definitions(
                 continue;
             }
 
+            if (tag == "mask") {
+                std::string const id = required_id(item);
+                mask_definition mask =
+                    start_mask_definition(item);
+                auto inserted =
+                    definitions.masks.emplace(id, std::move(mask));
+                if (!inserted.second)
+                    fail(QUANTAPDF_ERROR_FORMAT);
+                if (item.self_closing)
+                    fail(QUANTAPDF_ERROR_FORMAT);
+
+                definition_frame frame;
+                frame.name = tag;
+                frame.type = definition_frame::kind::mask;
+                frame.id = id;
+                stack.push_back(std::move(frame));
+                continue;
+            }
+
             fail(QUANTAPDF_ERROR_UNSUPPORTED);
         }
 
@@ -3283,6 +3317,37 @@ definition_table parse_definitions(
             frame.name = tag;
             frame.type = definition_frame::kind::pattern_child;
             frame.id = current_pattern;
+            push_if_needed(std::move(frame), item.self_closing);
+            continue;
+        }
+
+        if (parent.type == definition_frame::kind::mask ||
+            parent.type == definition_frame::kind::mask_child) {
+            std::string const current_mask = active_mask_id(stack);
+            if (current_mask.empty())
+                fail(QUANTAPDF_ERROR_BACKEND);
+            auto mask = definitions.masks.find(current_mask);
+            if (mask == definitions.masks.end())
+                fail(QUANTAPDF_ERROR_BACKEND);
+
+            if (tag == "use") {
+                validate_use_attributes(item);
+            } else if (tag == "g") {
+                validate_attributes(item, tag, false);
+            } else if (drawable_tag(tag)) {
+                validate_attributes(item, tag, false);
+            } else {
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            }
+
+            std::string const nested = mask_reference_from_element(item);
+            if (!nested.empty())
+                mask->second.mask_dependencies.insert(nested);
+
+            definition_frame frame;
+            frame.name = tag;
+            frame.type = definition_frame::kind::mask_child;
+            frame.id = current_mask;
             push_if_needed(std::move(frame), item.self_closing);
             continue;
         }
@@ -3414,6 +3479,7 @@ definition_table parse_definitions(
     validate_symbol_dependencies(definitions);
     validate_pattern_dependencies(definitions);
     validate_clip_dependencies(definitions);
+    validate_mask_dependencies(definitions);
     return definitions;
 }
 
