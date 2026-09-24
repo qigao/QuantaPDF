@@ -1732,10 +1732,21 @@ struct symbol_definition {
     std::set<std::string> dependencies;
 };
 
+struct pattern_definition {
+    double x = 0.0;
+    double y = 0.0;
+    double width = 0.0;
+    double height = 0.0;
+    matrix transform;
+    std::vector<element> tokens;
+    std::set<std::string> pattern_dependencies;
+};
+
 struct definition_table {
     std::map<std::string, gradient_definition> gradients;
     std::map<std::string, clip_definition> clips;
     std::map<std::string, symbol_definition> symbols;
+    std::map<std::string, pattern_definition> patterns;
     std::vector<element> defs_tokens;
     std::set<std::string> ids;
 };
@@ -1776,6 +1787,81 @@ void validate_symbol_attributes(element const& item)
         if (attr.name != "id" && attr.name != "viewBox" &&
             attr.name != "preserveAspectRatio")
             fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+}
+
+void validate_pattern_attributes(element const& item)
+{
+    for (auto const& attr: item.attributes) {
+        if (attr.name != "id" && attr.name != "patternUnits" &&
+            attr.name != "patternContentUnits" &&
+            attr.name != "patternTransform" &&
+            attr.name != "x" && attr.name != "y" &&
+            attr.name != "width" && attr.name != "height")
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+    auto const* units = find_attribute(item, "patternUnits");
+    if (units == nullptr || trim(*units) != "userSpaceOnUse")
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    if (auto const* content_units =
+            find_attribute(item, "patternContentUnits")) {
+        if (trim(*content_units) != "userSpaceOnUse")
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+}
+
+std::string local_paint_reference(std::string const& value)
+{
+    std::string const parsed = lower_ascii(trim(value));
+    if (parsed.size() < 6u ||
+        parsed.substr(0u, 5u) != "url(#" ||
+        parsed.back() != ')')
+        return {};
+    std::string const id =
+        trim(parsed.substr(5u, parsed.size() - 6u));
+    if (id.empty())
+        fail(QUANTAPDF_ERROR_FORMAT);
+    for (char ch: id) {
+        if (!name_char(ch))
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+    return id;
+}
+
+void collect_pattern_paint_dependencies(
+    pattern_definition* pattern,
+    element const& item)
+{
+    auto inspect = [&](std::string const& value) {
+        std::string const id = local_paint_reference(value);
+        if (!id.empty())
+            pattern->pattern_dependencies.insert(id);
+    };
+    if (auto const* fill = find_attribute(item, "fill"))
+        inspect(*fill);
+    if (auto const* stroke = find_attribute(item, "stroke"))
+        inspect(*stroke);
+    if (auto const* style = find_attribute(item, "style")) {
+        size_t position = 0u;
+        while (position < style->size()) {
+            size_t const semi = style->find(';', position);
+            size_t const end =
+                semi == std::string::npos ? style->size() : semi;
+            std::string const entry = trim(
+                std::string_view(*style).substr(position, end - position));
+            if (!entry.empty()) {
+                size_t const colon = entry.find(':');
+                if (colon == std::string::npos)
+                    fail(QUANTAPDF_ERROR_FORMAT);
+                std::string const name =
+                    lower_ascii(trim(entry.substr(0u, colon)));
+                if (name == "fill" || name == "stroke")
+                    inspect(trim(entry.substr(colon + 1u)));
+            }
+            if (semi == std::string::npos)
+                break;
+            position = semi + 1u;
+        }
     }
 }
 
