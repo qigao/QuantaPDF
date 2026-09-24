@@ -3483,17 +3483,21 @@ quantapdf_status materialize_symbol(
 
 std::string build_pattern_svg(
     definition_table const& definitions,
-    pattern_definition const& pattern)
+    pattern_definition const& pattern,
+    double view_x,
+    double view_y,
+    double view_width,
+    double view_height)
 {
     std::string result;
     result += "<svg viewBox=\"";
-    result += svg_number(pattern.x);
+    result += svg_number(view_x);
     result += " ";
-    result += svg_number(pattern.y);
+    result += svg_number(view_y);
     result += " ";
-    result += svg_number(pattern.width);
+    result += svg_number(view_width);
     result += " ";
-    result += svg_number(pattern.height);
+    result += svg_number(view_height);
     result += "\" preserveAspectRatio=\"none\"><defs>";
     result += serialize_tokens(definitions.defs_tokens, false);
     result += "</defs>";
@@ -3537,6 +3541,7 @@ quantapdf_status materialize_pattern(
     definition_table const& definitions,
     std::string const& pattern_id,
     matrix const& user_transform,
+    geometry_bounds const& local_bounds,
     quantapdf_composer_paint_id* out_paint_id)
 {
     auto found = definitions.patterns.find(pattern_id);
@@ -3544,8 +3549,62 @@ quantapdf_status materialize_pattern(
         return QUANTAPDF_ERROR_UNSUPPORTED;
     auto const& pattern = found->second;
 
-    std::string synthetic_svg =
-        build_pattern_svg(definitions, pattern);
+    double view_x = pattern.x;
+    double view_y = pattern.y;
+    double view_width = pattern.width;
+    double view_height = pattern.height;
+    matrix units;
+
+    try {
+        units = resource_units_matrix(pattern.units, local_bounds);
+        if (pattern.content_units != pattern.units) {
+            if (!local_bounds.valid)
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            double const bbox_width =
+                local_bounds.x1 - local_bounds.x0;
+            double const bbox_height =
+                local_bounds.y1 - local_bounds.y0;
+            if (bbox_width <= 0.0 || bbox_height <= 0.0)
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+
+            if (pattern.units == resource_units::object_bbox &&
+                pattern.content_units == resource_units::user_space) {
+                view_x =
+                    local_bounds.x0 + pattern.x * bbox_width;
+                view_y =
+                    local_bounds.y0 + pattern.y * bbox_height;
+                view_width = pattern.width * bbox_width;
+                view_height = pattern.height * bbox_height;
+            } else if (
+                pattern.units == resource_units::user_space &&
+                pattern.content_units == resource_units::object_bbox) {
+                view_x =
+                    (pattern.x - local_bounds.x0) / bbox_width;
+                view_y =
+                    (pattern.y - local_bounds.y0) / bbox_height;
+                view_width = pattern.width / bbox_width;
+                view_height = pattern.height / bbox_height;
+            } else {
+                fail(QUANTAPDF_ERROR_BACKEND);
+            }
+        }
+    } catch (svg_error const& error) {
+        return error.status;
+    }
+
+    std::string synthetic_svg;
+    try {
+        synthetic_svg = build_pattern_svg(
+            definitions,
+            pattern,
+            view_x,
+            view_y,
+            view_width,
+            view_height);
+    } catch (svg_error const& error) {
+        return error.status;
+    }
+
     pattern_builder_context context;
     context.svg = &synthetic_svg;
     context.width = static_cast<float>(pattern.width);
@@ -3558,8 +3617,10 @@ quantapdf_status materialize_pattern(
         multiply(
             user_transform,
             multiply(
-                pattern.transform,
-                translate_matrix(pattern.x, pattern.y)));
+                units,
+                multiply(
+                    pattern.transform,
+                    translate_matrix(pattern.x, pattern.y))));
 
     quantapdf_composer_tiling_pattern_options options{};
     options.struct_size =
