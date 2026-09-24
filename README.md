@@ -316,6 +316,18 @@ Public positive `y_step` means downward repetition; the PDF pattern therefore
 uses negative `YStep`. Tile transforms use the same displayed-space affine
 contract as other Composer resources.
 
+2.28 extends SVG lowering to the Phase 5 Composer primitives without adding
+an SVG-specific backend. Explicit `patternUnits="userSpaceOnUse"` patterns
+with user-space tile content lower to reusable Composer tiling-pattern paint.
+Stroked shapes retain local path geometry, scalar stroke width and dash values,
+and attach the complete SVG transform through PATH V4, so non-uniform scaling
+and skew use native PDF CTM semantics. Non-1 root/group opacity is captured as
+a transparent isolated Form and painted once under an outer alpha graphics
+state; nested groups recurse through the same mechanism. PATH, symbol/use Form,
+and opacity-group Form operations are reordered after transactional publication
+to preserve SVG document painting order. objectBoundingBox resource units and
+paint-template inheritance remain reserved for SVG V3B.
+
 The original `quantapdf_composer_draw_text()` contract remains Base-14 +
 WinAnsi and is unchanged. For embedded fonts, register caller-owned SFNT bytes
 with `quantapdf_composer_add_font()`, then draw UTF-8 through
