@@ -242,6 +242,17 @@ mapped into page PDF coordinates and emitted as `W`/`W*` + `n` inside the
 operation's balanced `q/Q` scope; the clip transform never changes the
 subsequent operation coordinate system.
 
+2.21 adds reusable Composer Form XObjects without a parallel drawing API.
+`quantapdf_composer_add_form()` invokes a synchronous builder callback with a
+temporary transparent one-page child Composer; the callback uses the existing
+text/path/image/paint/graphics-state/clip/form APIs. Successful content is
+deterministically serialized, deduplicated by exact snapshot bytes, and stored
+as an immutable parent resource. `quantapdf_composer_draw_form()` places the
+resource with a displayed-space affine transform and optional existing
+graphics-state ID. The qpdf backend converts the stored child page through
+`getFormXObjectForPage()`, preserving isolated fonts, images, patterns,
+ExtGState resources, nested forms, and text extraction metadata.
+
 The original `quantapdf_composer_draw_text()` contract remains Base-14 +
 WinAnsi and is unchanged. For embedded fonts, register caller-owned SFNT bytes
 with `quantapdf_composer_add_font()`, then draw UTF-8 through

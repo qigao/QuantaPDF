@@ -119,6 +119,14 @@ static int quantapdf_paint_id_valid(
         (paint_id == 0u || paint_id <= composer->paint_count);
 }
 
+static int quantapdf_form_id_valid(
+    const quantapdf_composer *composer,
+    quantapdf_composer_form_id form_id)
+{
+    return composer != NULL &&
+        form_id != 0u && form_id <= composer->form_count;
+}
+
 static int quantapdf_clip_id_valid(
     const quantapdf_composer *composer,
     quantapdf_composer_clip_id clip_id)
@@ -552,6 +560,31 @@ static quantapdf_status quantapdf_composer_reserve_paint(
     return QUANTAPDF_OK;
 }
 
+static quantapdf_status quantapdf_composer_reserve_form(
+    quantapdf_composer *composer)
+{
+    quantapdf_composer_form_state *grown;
+    size_t new_capacity;
+
+    if (composer->form_count == SIZE_MAX)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (composer->form_count < composer->form_capacity)
+        return QUANTAPDF_OK;
+    new_capacity = composer->form_capacity == 0u
+        ? 4u
+        : composer->form_capacity * 2u;
+    if (new_capacity < composer->form_capacity ||
+        new_capacity > SIZE_MAX / sizeof(*grown))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    grown = (quantapdf_composer_form_state *)realloc(
+        composer->forms, new_capacity * sizeof(*grown));
+    if (grown == NULL)
+        return QUANTAPDF_ERROR_NOMEM;
+    composer->forms = grown;
+    composer->form_capacity = new_capacity;
+    return QUANTAPDF_OK;
+}
+
 static int quantapdf_paint_state_equal(
     const quantapdf_composer_paint_state *left,
     const quantapdf_composer_paint_state *right)
@@ -726,8 +759,125 @@ quantapdf_status quantapdf_composer_add_page(
         options->height_points;
     composer->pages[composer->page_count].background_argb =
         options->background_argb;
+    composer->pages[composer->page_count].suppress_background = 0;
     *out_page_index = composer->page_count;
     ++composer->page_count;
+    return QUANTAPDF_OK;
+}
+
+quantapdf_status quantapdf_composer_add_form(
+    quantapdf_composer *composer,
+    const quantapdf_composer_form_options *options,
+    quantapdf_composer_form_builder_fn builder,
+    void *user_data,
+    quantapdf_composer_form_id *out_form_id)
+{
+    quantapdf_composer *child = NULL;
+    quantapdf_composer_options child_options;
+    quantapdf_composer_page_options page_options;
+    unsigned char *pdf_data = NULL;
+    size_t pdf_size = 0u;
+    size_t page_index = SIZE_MAX;
+    size_t remaining;
+    size_t i;
+    quantapdf_status status;
+
+    if (out_form_id != NULL)
+        *out_form_id = 0u;
+    if (composer == NULL || options == NULL || builder == NULL ||
+        out_form_id == NULL ||
+        options->struct_size < QUANTAPDF_COMPOSER_FORM_OPTIONS_V1_MIN_SIZE ||
+        !isfinite(options->width_points) || options->width_points <= 0.0f ||
+        !isfinite(options->height_points) || options->height_points <= 0.0f)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if (composer->resource_bytes > composer->max_resource_bytes)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    remaining = composer->max_resource_bytes - composer->resource_bytes;
+    if (remaining == 0u)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    memset(&child_options, 0, sizeof(child_options));
+    child_options.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V2_SIZE;
+    child_options.max_pages = 1u;
+    child_options.max_operations = composer->max_operations;
+    child_options.max_resource_bytes = remaining;
+    child_options.max_navigation_items = 1u;
+    status = quantapdf_composer_create(&child_options, &child);
+    if (status != QUANTAPDF_OK)
+        return status;
+    child->max_navigation_items = 0u;
+
+    memset(&page_options, 0, sizeof(page_options));
+    page_options.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
+    page_options.width_points = options->width_points;
+    page_options.height_points = options->height_points;
+    page_options.background_argb = UINT32_C(0xffffffff);
+    status = quantapdf_composer_add_page(
+        child, &page_options, &page_index);
+    if (status != QUANTAPDF_OK) {
+        quantapdf_drop_composer(child);
+        return status;
+    }
+    child->pages[0].suppress_background = 1;
+
+    status = builder(child, 0u, user_data);
+    if (status != QUANTAPDF_OK) {
+        quantapdf_drop_composer(child);
+        return status;
+    }
+    if (child->page_count != 1u ||
+        child->link_count != 0u ||
+        child->outline_count != 0u) {
+        quantapdf_drop_composer(child);
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+
+    status = quantapdf_qpdf_compose(child, &pdf_data, &pdf_size);
+    quantapdf_drop_composer(child);
+    child = NULL;
+    if (status != QUANTAPDF_OK)
+        return status;
+    if (pdf_data == NULL || pdf_size == 0u) {
+        free(pdf_data);
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+
+    for (i = 0u; i < composer->form_count; ++i) {
+        const quantapdf_composer_form_state *existing =
+            &composer->forms[i];
+        if (existing->width_points == options->width_points &&
+            existing->height_points == options->height_points &&
+            existing->pdf_size == pdf_size &&
+            memcmp(existing->pdf_data, pdf_data, pdf_size) == 0) {
+            free(pdf_data);
+            *out_form_id = i + 1u;
+            return QUANTAPDF_OK;
+        }
+    }
+
+    if (pdf_size > remaining) {
+        free(pdf_data);
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    status = quantapdf_composer_reserve_form(composer);
+    if (status != QUANTAPDF_OK) {
+        free(pdf_data);
+        return status;
+    }
+
+    composer->forms[composer->form_count].pdf_data = pdf_data;
+    composer->forms[composer->form_count].pdf_size = pdf_size;
+    composer->forms[composer->form_count].width_points =
+        options->width_points;
+    composer->forms[composer->form_count].height_points =
+        options->height_points;
+    composer->forms[composer->form_count].requires_pdf_16 =
+        pdf_size >= 8u &&
+        memcmp(pdf_data, "%PDF-1.", 7u) == 0 &&
+        pdf_data[7] >= '6';
+    ++composer->form_count;
+    composer->resource_bytes += pdf_size;
+    *out_form_id = composer->form_count;
     return QUANTAPDF_OK;
 }
 
@@ -1297,6 +1447,44 @@ static quantapdf_status quantapdf_composer_draw_text_internal(
     return QUANTAPDF_OK;
 }
 
+quantapdf_status quantapdf_composer_draw_form(
+    quantapdf_composer *composer,
+    size_t page_index,
+    quantapdf_composer_form_id form_id,
+    const quantapdf_affine_transform *transform,
+    const quantapdf_composer_form_draw_options *options)
+{
+    quantapdf_affine_transform normalized;
+    quantapdf_composer_operation operation;
+    quantapdf_status status;
+
+    if (composer == NULL || page_index >= composer->page_count ||
+        !quantapdf_form_id_valid(composer, form_id) ||
+        options == NULL ||
+        options->struct_size <
+            QUANTAPDF_COMPOSER_FORM_DRAW_OPTIONS_V1_MIN_SIZE ||
+        !quantapdf_graphics_state_id_valid_internal(
+            composer, options->graphics_state_id) ||
+        transform == NULL ||
+        !quantapdf_composer_resource_transform_normalize(
+            transform, &normalized))
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    status = quantapdf_composer_reserve_operation_internal(composer);
+    if (status != QUANTAPDF_OK)
+        return status;
+
+    memset(&operation, 0, sizeof(operation));
+    operation.kind = QUANTAPDF_COMPOSER_OPERATION_FORM;
+    operation.page_index = page_index;
+    operation.graphics_state_id = options->graphics_state_id;
+    operation.value.form.form_id = form_id;
+    operation.value.form.transform = normalized;
+    operation.value.form.options = *options;
+    composer->operations[composer->operation_count++] = operation;
+    return QUANTAPDF_OK;
+}
+
 quantapdf_status quantapdf_composer_draw_text(
     quantapdf_composer *composer,
     size_t page_index,
@@ -1540,9 +1728,12 @@ void quantapdf_drop_composer(quantapdf_composer *composer)
         free(composer->fonts[i].data);
     for (i = 0u; i < composer->paint_count; ++i)
         free(composer->paints[i].stops);
+    for (i = 0u; i < composer->form_count; ++i)
+        free(composer->forms[i].pdf_data);
     for (i = 0u; i < composer->clip_count; ++i)
         free(composer->clips[i].commands);
     free(composer->clips);
+    free(composer->forms);
     free(composer->paints);
     free(composer->graphics_states);
     free(composer->fonts);

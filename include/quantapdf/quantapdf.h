@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 20
+#define QUANTAPDF_VERSION_MINOR 21
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -69,6 +69,7 @@ typedef struct quantapdf_affine_transform {
 typedef size_t quantapdf_composer_graphics_state_id;
 typedef size_t quantapdf_composer_paint_id;
 typedef size_t quantapdf_composer_clip_id;
+typedef size_t quantapdf_composer_form_id;
 
 typedef enum quantapdf_composer_blend_mode {
     QUANTAPDF_COMPOSER_BLEND_NORMAL = 0,
@@ -133,6 +134,28 @@ typedef struct quantapdf_composer_page_options {
      sizeof(uint32_t))
 #define QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE \
     (sizeof(quantapdf_composer_page_options))
+
+typedef struct quantapdf_composer_form_options {
+    size_t struct_size;
+    float width_points;
+    float height_points;
+} quantapdf_composer_form_options;
+
+#define QUANTAPDF_COMPOSER_FORM_OPTIONS_V1_MIN_SIZE \
+    (offsetof(quantapdf_composer_form_options, height_points) + sizeof(float))
+#define QUANTAPDF_COMPOSER_FORM_OPTIONS_V1_SIZE \
+    (sizeof(quantapdf_composer_form_options))
+
+typedef struct quantapdf_composer_form_draw_options {
+    size_t struct_size;
+    quantapdf_composer_graphics_state_id graphics_state_id;
+} quantapdf_composer_form_draw_options;
+
+#define QUANTAPDF_COMPOSER_FORM_DRAW_OPTIONS_V1_MIN_SIZE \
+    (offsetof(quantapdf_composer_form_draw_options, graphics_state_id) + \
+     sizeof(quantapdf_composer_graphics_state_id))
+#define QUANTAPDF_COMPOSER_FORM_DRAW_OPTIONS_V1_SIZE \
+    (sizeof(quantapdf_composer_form_draw_options))
 
 typedef enum quantapdf_composer_font {
     QUANTAPDF_COMPOSER_FONT_HELVETICA = 0,
@@ -847,6 +870,11 @@ typedef enum quantapdf_status {
     QUANTAPDF_ERROR_STATE = 8
 } quantapdf_status;
 
+typedef quantapdf_status (*quantapdf_composer_form_builder_fn)(
+    quantapdf_composer *form_composer,
+    size_t page_index,
+    void *user_data);
+
 QUANTAPDF_API quantapdf_status quantapdf_composer_create(
     const quantapdf_composer_options *options,
     quantapdf_composer **out_composer);
@@ -855,6 +883,13 @@ QUANTAPDF_API quantapdf_status quantapdf_composer_add_page(
     quantapdf_composer *composer,
     const quantapdf_composer_page_options *options,
     size_t *out_page_index);
+
+QUANTAPDF_API quantapdf_status quantapdf_composer_add_form(
+    quantapdf_composer *composer,
+    const quantapdf_composer_form_options *options,
+    quantapdf_composer_form_builder_fn builder,
+    void *user_data,
+    quantapdf_composer_form_id *out_form_id);
 
 QUANTAPDF_API quantapdf_status quantapdf_composer_add_font(
     quantapdf_composer *composer,
@@ -909,6 +944,13 @@ QUANTAPDF_API quantapdf_status quantapdf_composer_measure_embedded_text(
     float max_width,
     const quantapdf_composer_embedded_text_options *options,
     quantapdf_composer_text_measurement *out_measurement);
+
+QUANTAPDF_API quantapdf_status quantapdf_composer_draw_form(
+    quantapdf_composer *composer,
+    size_t page_index,
+    quantapdf_composer_form_id form_id,
+    const quantapdf_affine_transform *transform,
+    const quantapdf_composer_form_draw_options *options);
 
 QUANTAPDF_API quantapdf_status quantapdf_composer_draw_text(
     quantapdf_composer *composer,

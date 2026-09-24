@@ -73,6 +73,13 @@ int quantapdf_test_pdf_pattern_info(
     int *out_shading_type,
     int *out_function_type,
     double out_matrix[6]);
+int quantapdf_test_pdf_form_xobject_info(
+    const unsigned char *data,
+    size_t size,
+    size_t page_index,
+    size_t form_id,
+    double out_bbox[4],
+    int *out_has_resources);
 void quantapdf_test_use_comma_locale(int enabled);
 
 #ifdef __cplusplus
