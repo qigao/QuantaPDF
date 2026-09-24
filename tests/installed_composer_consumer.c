@@ -121,6 +121,8 @@ int main(int argc, char **argv)
     quantapdf_composer_font_options font_options = {0};
     quantapdf_composer_graphics_state_options graphics_state = {0};
     quantapdf_composer_graphics_state_id graphics_state_id = 0u;
+    quantapdf_composer_soft_mask_options soft_mask = {0};
+    quantapdf_composer_soft_mask_id soft_mask_id = 0u;
     quantapdf_composer_clip_options clip_options = {0};
     quantapdf_composer_clip_id clip_id = 0u;
     quantapdf_composer_clip_id clip_id2 = 0u;
@@ -222,6 +224,18 @@ int main(int argc, char **argv)
         fprintf(stderr, "form ID was not published\n");
         goto fail;
     }
+    soft_mask.struct_size =
+        QUANTAPDF_COMPOSER_SOFT_MASK_OPTIONS_V1_SIZE;
+    soft_mask.mode = QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA;
+    soft_mask.transform = (quantapdf_affine_transform){
+        1.0f, 0.0f, 0.0f, 1.0f, 180.0f, 30.0f
+    };
+    CHECK(quantapdf_composer_add_soft_mask(
+        composer, form_id, &soft_mask, &soft_mask_id));
+    if (soft_mask_id == 0u) {
+        fprintf(stderr, "soft-mask ID was not published\n");
+        goto fail;
+    }
     form_draw.struct_size =
         QUANTAPDF_COMPOSER_FORM_DRAW_OPTIONS_V1_SIZE;
     {
@@ -280,11 +294,12 @@ int main(int argc, char **argv)
     }
 
     graphics_state.struct_size =
-        QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE;
+        QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V3_SIZE;
     graphics_state.fill_alpha = 0.75f;
     graphics_state.stroke_alpha = 0.75f;
     graphics_state.blend_mode = QUANTAPDF_COMPOSER_BLEND_MULTIPLY;
     graphics_state.clip_id = compound_clip_id;
+    graphics_state.soft_mask_id = soft_mask_id;
     CHECK(quantapdf_composer_add_graphics_state(
         composer, &graphics_state, &graphics_state_id));
     if (graphics_state_id == 0u) {
