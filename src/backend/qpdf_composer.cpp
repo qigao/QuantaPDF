@@ -1417,6 +1417,53 @@ void apply_composer_navigation(
     apply_composer_outlines(pdf, composer, pages);
 }
 
+void append_clip_content(
+    std::string& content,
+    quantapdf_composer_page_state const& page,
+    quantapdf_composer_clip_state const& clip)
+{
+    auto append_point = [&](quantapdf_point const& point) {
+        double const x =
+            static_cast<double>(clip.transform.a) * point.x +
+            static_cast<double>(clip.transform.c) * point.y +
+            static_cast<double>(clip.transform.e);
+        double const y =
+            static_cast<double>(clip.transform.b) * point.x +
+            static_cast<double>(clip.transform.d) * point.y +
+            static_cast<double>(clip.transform.f);
+        content += number(canonical_zero(x)) + " " +
+            number(canonical_zero(page.height_points - y));
+    };
+
+    for (size_t i = 0u; i < clip.command_count; ++i) {
+        auto const& command = clip.commands[i];
+        switch (command.kind) {
+        case QUANTAPDF_COMPOSER_PATH_MOVE_TO:
+            append_point(command.point1);
+            content += " m ";
+            break;
+        case QUANTAPDF_COMPOSER_PATH_LINE_TO:
+            append_point(command.point1);
+            content += " l ";
+            break;
+        case QUANTAPDF_COMPOSER_PATH_CUBIC_TO:
+            append_point(command.point1);
+            content += " ";
+            append_point(command.point2);
+            content += " ";
+            append_point(command.point3);
+            content += " c ";
+            break;
+        case QUANTAPDF_COMPOSER_PATH_CLOSE:
+            content += "h ";
+            break;
+        }
+    }
+    content += clip.fill_rule == QUANTAPDF_COMPOSER_FILL_EVEN_ODD
+        ? "W* n\n"
+        : "W n\n";
+}
+
 std::string page_content(
     quantapdf_composer const* composer,
     std::size_t page_index,
@@ -1442,8 +1489,22 @@ std::string page_content(
             if (static_cast<size_t>(operation.graphics_state_id) >
                 composer->graphics_state_count)
                 throw std::logic_error("graphics state resource missing");
-            content += "q /GS" +
-                std::to_string(operation.graphics_state_id) + " gs\n";
+            auto const& state =
+                composer->graphics_states[operation.graphics_state_id - 1u];
+            if (state.clip_id != 0u) {
+                if (state.clip_id > composer->clip_count)
+                    throw std::logic_error("clip resource missing");
+                content += "q\n";
+                append_clip_content(
+                    content,
+                    page,
+                    composer->clips[state.clip_id - 1u]);
+                content += "/GS" +
+                    std::to_string(operation.graphics_state_id) + " gs\n";
+            } else {
+                content += "q /GS" +
+                    std::to_string(operation.graphics_state_id) + " gs\n";
+            }
         }
 
         if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_TEXT)
