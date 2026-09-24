@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <map>
 #include <new>
@@ -2119,6 +2120,8 @@ struct definition_frame {
         gradient,
         clip,
         clip_group,
+        symbol,
+        symbol_child,
         leaf
     };
 
@@ -2129,6 +2132,60 @@ struct definition_frame {
     quantapdf_composer_fill_rule fill_rule =
         QUANTAPDF_COMPOSER_FILL_NONZERO;
 };
+
+bool stack_contains_defs(std::vector<definition_frame> const& stack)
+{
+    return std::any_of(
+        stack.begin(),
+        stack.end(),
+        [](definition_frame const& frame) {
+            return frame.type == definition_frame::kind::defs;
+        });
+}
+
+std::string active_symbol_id(
+    std::vector<definition_frame> const& stack)
+{
+    for (auto it = stack.rbegin(); it != stack.rend(); ++it) {
+        if (it->type == definition_frame::kind::symbol ||
+            it->type == definition_frame::kind::symbol_child)
+            return it->id;
+    }
+    return {};
+}
+
+void validate_symbol_dependencies(definition_table const& definitions)
+{
+    enum class visit_state {
+        unseen,
+        visiting,
+        done
+    };
+    std::map<std::string, visit_state> states;
+
+    std::function<void(std::string const&)> visit =
+        [&](std::string const& id) {
+            auto symbol = definitions.symbols.find(id);
+            if (symbol == definitions.symbols.end())
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            auto& state = states[id];
+            if (state == visit_state::done)
+                return;
+            if (state == visit_state::visiting)
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            state = visit_state::visiting;
+            for (auto const& dependency: symbol->second.dependencies) {
+                if (definitions.symbols.find(dependency) ==
+                    definitions.symbols.end())
+                    fail(QUANTAPDF_ERROR_UNSUPPORTED);
+                visit(dependency);
+            }
+            state = visit_state::done;
+        };
+
+    for (auto const& item: definitions.symbols)
+        visit(item.first);
+}
 
 definition_table parse_definitions(
     unsigned char const* data,
