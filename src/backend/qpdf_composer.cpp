@@ -1468,16 +1468,19 @@ std::string page_content(
     quantapdf_composer const* composer,
     std::size_t page_index,
     std::vector<quantapdf::detail::ttf_font_face> const& embedded_faces,
-    std::vector<glyph_run_font_usage> const& glyph_run_usages)
+    std::vector<glyph_run_font_usage> const& glyph_run_usages,
+    bool include_page_background)
 {
     auto const& page = composer->pages[page_index];
     std::string content;
-    double const red = ((page.background_argb >> 16u) & 0xffu) / 255.0;
-    double const green = ((page.background_argb >> 8u) & 0xffu) / 255.0;
-    double const blue = (page.background_argb & 0xffu) / 255.0;
-    content += "q " + number(red) + " " + number(green) + " " +
-        number(blue) + " rg 0 0 " + number(page.width_points) + " " +
-        number(page.height_points) + " re f Q\n";
+    if (include_page_background) {
+        double const red = ((page.background_argb >> 16u) & 0xffu) / 255.0;
+        double const green = ((page.background_argb >> 8u) & 0xffu) / 255.0;
+        double const blue = (page.background_argb & 0xffu) / 255.0;
+        content += "q " + number(red) + " " + number(green) + " " +
+            number(blue) + " rg 0 0 " + number(page.width_points) + " " +
+            number(page.height_points) + " re f Q\n";
+    }
 
     for (std::size_t i = 0; i < composer->operation_count; ++i) {
         auto const& operation = composer->operations[i];
@@ -1740,8 +1743,9 @@ extern "C" quantapdf_status quantapdf_png_decode(
     }
 }
 
-extern "C" quantapdf_status quantapdf_qpdf_compose(
+static quantapdf_status quantapdf_qpdf_compose_impl(
     quantapdf_composer const* composer,
+    bool include_page_background,
     unsigned char** out_data,
     size_t* out_size)
 {
@@ -1992,7 +1996,8 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                     composer,
                     page_index,
                     embedded_faces,
-                    glyph_run_usage)));
+                    glyph_run_usage,
+                    include_page_background)));
             pdf.addPage(pdf.makeIndirectObject(page), false);
         }
         apply_composer_navigation(pdf, composer);
@@ -2023,4 +2028,22 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
     } catch (...) {
         return QUANTAPDF_ERROR_BACKEND;
     }
+}
+
+extern "C" quantapdf_status quantapdf_qpdf_compose(
+    quantapdf_composer const* composer,
+    unsigned char** out_data,
+    size_t* out_size)
+{
+    return quantapdf_qpdf_compose_impl(
+        composer, true, out_data, out_size);
+}
+
+extern "C" quantapdf_status quantapdf_qpdf_compose_fragment(
+    quantapdf_composer const* composer,
+    unsigned char** out_data,
+    size_t* out_size)
+{
+    return quantapdf_qpdf_compose_impl(
+        composer, false, out_data, out_size);
 }
