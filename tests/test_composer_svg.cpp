@@ -446,10 +446,17 @@ static int test_v2b1_gradient_and_clip_references()
         &function_type,
         matrix));
     CHECK(shading_type == 2 && function_type == 2);
-    CHECK(std::fabs(matrix[0] - 2.0) < 0.001);
-    CHECK(std::fabs(matrix[3] + 2.0) < 0.001);
-    CHECK(std::fabs(matrix[4] - 40.0) < 0.001);
-    CHECK(std::fabs(matrix[5] - 220.0) < 0.001);
+    CHECK(std::fabs(matrix[0] - 1.0) < 0.001);
+    CHECK(std::fabs(matrix[1]) < 0.001);
+    CHECK(std::fabs(matrix[2]) < 0.001);
+    CHECK(std::fabs(matrix[3] + 1.0) < 0.001);
+    CHECK(std::fabs(matrix[4] - 10.0) < 0.001);
+    CHECK(std::fabs(matrix[5] - 240.0) < 0.001);
+    CHECK(quantapdf_test_pdf_content_contains(
+        first_data,
+        first_size,
+        0u,
+        "2 0 0 2 20 -260 cm"));
 
     CHECK(quantapdf_test_pdf_pattern_info(
         first_data,
