@@ -145,21 +145,6 @@ quantapdf_point apply(matrix const& transform, double x, double y)
         static_cast<float>(ty)};
 }
 
-double conformal_scale(matrix const& transform)
-{
-    double const sx = std::hypot(transform.a, transform.b);
-    double const sy = std::hypot(transform.c, transform.d);
-    double const dot =
-        transform.a * transform.c + transform.b * transform.d;
-    double const magnitude = std::max({1.0, sx, sy});
-    double const epsilon = 1e-8 * magnitude;
-    if (sx <= 0.0 || sy <= 0.0 ||
-        std::fabs(sx - sy) > epsilon ||
-        std::fabs(dot) > 1e-8 * sx * sy)
-        fail(QUANTAPDF_ERROR_UNSUPPORTED);
-    return (sx + sy) / 2.0;
-}
-
 class number_scanner {
   public:
     explicit number_scanner(std::string const& text):
