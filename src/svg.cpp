@@ -449,7 +449,13 @@ uint32_t parse_color(std::string value, bool* enabled)
 
 double opacity_value(std::string const& value)
 {
-    double parsed = scalar(value);
+    std::string const text = trim(value);
+    if (text.empty())
+        fail(QUANTAPDF_ERROR_FORMAT);
+    number_scanner scanner(text);
+    double const parsed = scanner.number();
+    if (!scanner.done())
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
     if (parsed < 0.0)
         return 0.0;
     if (parsed > 1.0)
@@ -1779,6 +1785,10 @@ quantapdf_status publish_paths(
     if (reserve != QUANTAPDF_OK)
         return reserve;
 
+    std::vector<quantapdf_composer_graphics_state_id>
+        state_ids(paths.size(), 0u);
+    std::vector<quantapdf_composer_operation> staged(paths.size());
+
     size_t const state_snapshot = composer->graphics_state_count;
     size_t const clip_snapshot = composer->clip_count;
     size_t const resource_snapshot = composer->resource_bytes;
@@ -1821,8 +1831,6 @@ quantapdf_status publish_paths(
         return QUANTAPDF_ERROR_UNSUPPORTED;
     }
 
-    std::vector<quantapdf_composer_graphics_state_id>
-        state_ids(paths.size(), 0u);
     for (size_t i = 0u; i < paths.size(); ++i) {
         if (paths[i].fill_alpha == 1.0f &&
             paths[i].stroke_alpha == 1.0f &&
@@ -1846,7 +1854,6 @@ quantapdf_status publish_paths(
         }
     }
 
-    std::vector<quantapdf_composer_operation> staged(paths.size());
     size_t allocated = 0u;
     for (size_t i = 0u; i < paths.size(); ++i) {
         size_t const command_bytes =
