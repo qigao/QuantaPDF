@@ -246,9 +246,12 @@ static int quantapdf_composer_path_options_valid(
          options->line_join < QUANTAPDF_COMPOSER_LINE_JOIN_MITER ||
          options->line_join > QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL ||
          !isfinite(options->miter_limit) || options->miter_limit < 1.0f ||
-         (options->stroke_argb >> 24u) != 0xffu))
+         (quantapdf_path_stroke_paint_id(options) == 0u &&
+          (options->stroke_argb >> 24u) != 0xffu)))
         return 0;
-    if (options->fill && (options->fill_argb >> 24u) != 0xffu)
+    if (options->fill &&
+        quantapdf_path_fill_paint_id(options) == 0u &&
+        (options->fill_argb >> 24u) != 0xffu)
         return 0;
     return 1;
 }
