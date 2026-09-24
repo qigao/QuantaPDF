@@ -263,6 +263,18 @@ not equivalent to multiplying child alpha. Reference-bearing gradients,
 clipPath, and reusable definitions are handled separately by the SVG V2B
 definition-graph workstream.
 
+2.23 adds the first safe local SVG definition graph. A side-effect-free pre-pass
+collects unique IDs plus `linearGradient`, `radialGradient`, and `clipPath`
+definitions under root `defs`; the render pass then resolves forward/backward
+fragment-local `url(#id)` references. V1 paint servers require
+`gradientUnits="userSpaceOnUse"`, PAD spread, opaque stops, and no template
+href. Clip paths require absent/`userSpaceOnUse` units and lower through the
+Composer clip primitive. External URLs, wrong-kind/unresolved refs, duplicate
+IDs, objectBoundingBox semantics, nested clip refs, and group/root clip-path
+remain fail-closed. Gradient/clip/state resources are registered only during
+transactional publish and are rolled back on failure. Reusable `symbol/use`
+definitions remain the separate SVG V2B2 workstream.
+
 The original `quantapdf_composer_draw_text()` contract remains Base-14 +
 WinAnsi and is unchanged. For embedded fonts, register caller-owned SFNT bytes
 with `quantapdf_composer_add_font()`, then draw UTF-8 through
