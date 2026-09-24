@@ -1976,6 +1976,10 @@ void validate_symbol_attributes(element const& item)
     }
 }
 
+resource_units parse_resource_units(std::string const& value);
+std::string local_template_reference(element const& item);
+std::string attribute_text(element const& item, char const* name);
+
 void validate_pattern_attributes(element const& item)
 {
     for (auto const& attr: item.attributes) {
