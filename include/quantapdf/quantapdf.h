@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 13
+#define QUANTAPDF_VERSION_MINOR 14
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -148,6 +148,18 @@ typedef struct quantapdf_composer_embedded_text_options {
     (offsetof(quantapdf_composer_embedded_text_options, wrap) + sizeof(int))
 #define QUANTAPDF_COMPOSER_EMBEDDED_TEXT_OPTIONS_V1_SIZE \
     (sizeof(quantapdf_composer_embedded_text_options))
+
+typedef struct quantapdf_composer_text_measurement {
+    size_t struct_size;
+    float width;
+    float height;
+    size_t line_count;
+} quantapdf_composer_text_measurement;
+
+#define QUANTAPDF_COMPOSER_TEXT_MEASUREMENT_V1_MIN_SIZE \
+    (offsetof(quantapdf_composer_text_measurement, line_count) + sizeof(size_t))
+#define QUANTAPDF_COMPOSER_TEXT_MEASUREMENT_V1_SIZE \
+    (sizeof(quantapdf_composer_text_measurement))
 
 typedef struct quantapdf_composer_glyph {
     uint32_t glyph_id;
@@ -683,6 +695,20 @@ QUANTAPDF_API quantapdf_status quantapdf_composer_add_image(
     const unsigned char *data,
     size_t size,
     quantapdf_composer_image_id *out_image_id);
+
+QUANTAPDF_API quantapdf_status quantapdf_composer_measure_text(
+    const quantapdf_composer *composer,
+    const char *text_utf8,
+    float max_width,
+    const quantapdf_composer_text_options *options,
+    quantapdf_composer_text_measurement *out_measurement);
+
+QUANTAPDF_API quantapdf_status quantapdf_composer_measure_embedded_text(
+    const quantapdf_composer *composer,
+    const char *text_utf8,
+    float max_width,
+    const quantapdf_composer_embedded_text_options *options,
+    quantapdf_composer_text_measurement *out_measurement);
 
 QUANTAPDF_API quantapdf_status quantapdf_composer_draw_text(
     quantapdf_composer *composer,
