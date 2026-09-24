@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 24
+#define QUANTAPDF_VERSION_MINOR 25
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -135,15 +135,24 @@ typedef struct quantapdf_composer_page_options {
 #define QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE \
     (sizeof(quantapdf_composer_page_options))
 
+#define QUANTAPDF_COMPOSER_FORM_FLAG_TRANSPARENCY_GROUP UINT32_C(0x00000001)
+#define QUANTAPDF_COMPOSER_FORM_FLAG_ISOLATED UINT32_C(0x00000002)
+#define QUANTAPDF_COMPOSER_FORM_FLAG_KNOCKOUT UINT32_C(0x00000004)
+
 typedef struct quantapdf_composer_form_options {
     size_t struct_size;
     float width_points;
     float height_points;
+    uint32_t flags;
 } quantapdf_composer_form_options;
 
 #define QUANTAPDF_COMPOSER_FORM_OPTIONS_V1_MIN_SIZE \
     (offsetof(quantapdf_composer_form_options, height_points) + sizeof(float))
 #define QUANTAPDF_COMPOSER_FORM_OPTIONS_V1_SIZE \
+    (offsetof(quantapdf_composer_form_options, flags))
+#define QUANTAPDF_COMPOSER_FORM_OPTIONS_V2_MIN_SIZE \
+    (offsetof(quantapdf_composer_form_options, flags) + sizeof(uint32_t))
+#define QUANTAPDF_COMPOSER_FORM_OPTIONS_V2_SIZE \
     (sizeof(quantapdf_composer_form_options))
 
 typedef struct quantapdf_composer_form_draw_options {

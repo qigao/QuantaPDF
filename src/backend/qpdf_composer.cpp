@@ -1862,6 +1862,25 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                 QPDFObjectHandle foreign_form =
                     foreign_pages[0].getFormXObjectForPage();
                 slot = pdf.copyForeignObject(foreign_form);
+                if ((form.flags &
+                     QUANTAPDF_COMPOSER_FORM_FLAG_TRANSPARENCY_GROUP) != 0u) {
+                    auto group = QPDFObjectHandle::newDictionary();
+                    group.replaceKey(
+                        "/S", QPDFObjectHandle::newName("/Transparency"));
+                    group.replaceKey(
+                        "/CS", QPDFObjectHandle::newName("/DeviceRGB"));
+                    group.replaceKey(
+                        "/I",
+                        QPDFObjectHandle::newBool(
+                            (form.flags &
+                             QUANTAPDF_COMPOSER_FORM_FLAG_ISOLATED) != 0u));
+                    group.replaceKey(
+                        "/K",
+                        QPDFObjectHandle::newBool(
+                            (form.flags &
+                             QUANTAPDF_COMPOSER_FORM_FLAG_KNOCKOUT) != 0u));
+                    slot->getDict().replaceKey("/Group", group);
+                }
                 /*
                  * getFormXObjectForPage may lazily read source page content
                  * while the destination writer serializes the copied object.

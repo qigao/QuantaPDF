@@ -189,6 +189,7 @@ typedef struct quantapdf_composer_form_state {
     size_t pdf_size;
     float width_points;
     float height_points;
+    uint32_t flags;
     int requires_pdf_16;
 } quantapdf_composer_form_state;
 

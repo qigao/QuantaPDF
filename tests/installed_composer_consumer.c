@@ -180,9 +180,12 @@ int main(int argc, char **argv)
     CHECK(quantapdf_composer_add_page(composer, &page, &page0));
     CHECK(quantapdf_composer_add_page(composer, &page, &page1));
 
-    form_options.struct_size = QUANTAPDF_COMPOSER_FORM_OPTIONS_V1_SIZE;
+    form_options.struct_size = QUANTAPDF_COMPOSER_FORM_OPTIONS_V2_SIZE;
     form_options.width_points = 80.0f;
     form_options.height_points = 32.0f;
+    form_options.flags =
+        QUANTAPDF_COMPOSER_FORM_FLAG_TRANSPARENCY_GROUP |
+        QUANTAPDF_COMPOSER_FORM_FLAG_ISOLATED;
     CHECK(quantapdf_composer_add_form(
         composer,
         &form_options,

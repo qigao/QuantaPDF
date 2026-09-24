@@ -289,6 +289,15 @@ gradient/clip resources and nested acyclic symbols. Presentation overrides on
 `use` remain fail-closed in V1 so one symbol maps to one immutable Form cache
 entry.
 
+2.25 extends reusable Forms with optional PDF transparency-group semantics.
+A V2 `flags` tail on `quantapdf_composer_form_options` can mark a Form as a
+transparency group and optionally isolated and/or knockout. V1 Forms remain
+ordinary Form XObjects and retain byte-compatible output. Group flags participate
+in Form deduplication. The qpdf backend adds `/Group << /S /Transparency
+/CS /DeviceRGB /I ... /K ... >>` only for flagged Forms, so an external
+graphics-state alpha/blend can composite the completed Form as one group rather
+than multiplying alpha independently into overlapping children.
+
 The original `quantapdf_composer_draw_text()` contract remains Base-14 +
 WinAnsi and is unchanged. For embedded fonts, register caller-owned SFNT bytes
 with `quantapdf_composer_add_font()`, then draw UTF-8 through
