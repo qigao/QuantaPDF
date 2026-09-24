@@ -396,6 +396,53 @@ extern "C" int quantapdf_test_pdf_page_size_positive(
     }
 }
 
+extern "C" int quantapdf_test_pdf_image_xobject_info(
+    unsigned char const* data,
+    size_t size,
+    size_t page_index,
+    size_t image_id,
+    int* out_components,
+    int* out_has_smask)
+{
+    if (out_components == nullptr || out_has_smask == nullptr)
+        return 0;
+    *out_components = 0;
+    *out_has_smask = 0;
+    try {
+        QPDF pdf;
+        pdf.processMemoryFile(
+            "composer-image-info.pdf",
+            reinterpret_cast<char const*>(data),
+            size);
+        auto pages = pdf.getAllPages();
+        if (page_index >= pages.size() || image_id == 0u)
+            return 0;
+        auto resources = pages[page_index].getKey("/Resources");
+        auto xobjects = resources.getKey("/XObject");
+        if (!xobjects.isDictionary())
+            return 0;
+        auto image = xobjects.getKey("/Im" + std::to_string(image_id));
+        if (!image.isStream())
+            return 0;
+        auto color_space = image.getDict().getKey("/ColorSpace");
+        if (!color_space.isName())
+            return 0;
+        std::string const name = color_space.getName();
+        if (name == "/DeviceGray")
+            *out_components = 1;
+        else if (name == "/DeviceRGB")
+            *out_components = 3;
+        else
+            return 0;
+        *out_has_smask = !image.getDict().getKey("/SMask").isNull();
+        return 1;
+    } catch (...) {
+        *out_components = 0;
+        *out_has_smask = 0;
+        return 0;
+    }
+}
+
 extern "C" void quantapdf_test_use_comma_locale(int enabled)
 {
     std::locale::global(enabled
