@@ -298,6 +298,14 @@ in Form deduplication. The qpdf backend adds `/Group << /S /Transparency
 graphics-state alpha/blend can composite the completed Form as one group rather
 than multiplying alpha independently into overlapping children.
 
+2.26 adds PATH V4 displayed-space affine CTM placement. V1–V3 paths and
+V4 identity transforms retain the existing byte shape and emit no extra `cm`.
+A non-identity V4 transform is conjugated through the page y-down/y-up mapping
+and emitted inside the existing PATH `q/Q` scope. Stroke width, dash
+spacing/phase, cap/join semantics, and gradient/pattern paint remain native PDF
+operands, so non-uniform scale and skew transform strokes exactly instead of
+through numeric geometry pre-scaling.
+
 The original `quantapdf_composer_draw_text()` contract remains Base-14 +
 WinAnsi and is unchanged. For embedded fonts, register caller-owned SFNT bytes
 with `quantapdf_composer_add_font()`, then draw UTF-8 through
