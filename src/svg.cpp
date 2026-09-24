@@ -1904,6 +1904,7 @@ struct clip_definition {
     quantapdf_composer_fill_rule fill_rule =
         QUANTAPDF_COMPOSER_FILL_NONZERO;
     resource_units units = resource_units::user_space;
+    std::string nested_ref;
 };
 
 struct symbol_definition {
@@ -2807,6 +2808,43 @@ void validate_pattern_dependencies(definition_table const& definitions)
         visit(item.first);
 }
 
+void validate_clip_dependencies(definition_table const& definitions)
+{
+    enum class visit_state {
+        unseen,
+        visiting,
+        done
+    };
+    std::map<std::string, visit_state> states;
+
+    std::function<void(std::string const&)> visit =
+        [&](std::string const& id) {
+            auto clip = definitions.clips.find(id);
+            if (clip == definitions.clips.end())
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            auto& state = states[id];
+            if (state == visit_state::done)
+                return;
+            if (state == visit_state::visiting)
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            state = visit_state::visiting;
+            if (!clip->second.nested_ref.empty()) {
+                auto nested =
+                    definitions.clips.find(clip->second.nested_ref);
+                if (nested == definitions.clips.end())
+                    fail(QUANTAPDF_ERROR_UNSUPPORTED);
+                if (clip->second.units != resource_units::user_space ||
+                    nested->second.units != resource_units::user_space)
+                    fail(QUANTAPDF_ERROR_UNSUPPORTED);
+                visit(clip->second.nested_ref);
+            }
+            state = visit_state::done;
+        };
+
+    for (auto const& item: definitions.clips)
+        visit(item.first);
+}
+
 definition_table parse_definitions(
     unsigned char const* data,
     size_t size)
@@ -2945,6 +2983,7 @@ definition_table parse_definitions(
                         attr.name != "clipPathUnits" &&
                         attr.name != "transform" &&
                         attr.name != "clip-rule" &&
+                        attr.name != "clip-path" &&
                         attr.name != "style")
                         fail(QUANTAPDF_ERROR_UNSUPPORTED);
                 }
@@ -2956,6 +2995,16 @@ definition_table parse_definitions(
                     clip.units = parse_resource_units(*units);
                 clip.fill_rule = clip_rule_from_element(
                     item, QUANTAPDF_COMPOSER_FILL_NONZERO);
+                if (auto const* nested =
+                        find_attribute(item, "clip-path")) {
+                    std::string const parsed = trim(*nested);
+                    if (parsed != "none") {
+                        clip.nested_ref =
+                            local_paint_reference(parsed);
+                        if (clip.nested_ref.empty())
+                            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+                    }
+                }
                 auto inserted =
                     definitions.clips.emplace(id, std::move(clip));
                 if (!inserted.second)
@@ -3179,6 +3228,7 @@ definition_table parse_definitions(
     normalize_resource_definitions(&definitions);
     validate_symbol_dependencies(definitions);
     validate_pattern_dependencies(definitions);
+    validate_clip_dependencies(definitions);
     return definitions;
 }
 
@@ -4291,25 +4341,84 @@ quantapdf_status register_bounds_clip(
         out_clip_id);
 }
 
+quantapdf_status materialize_clip_reference(
+    quantapdf_composer* composer,
+    definition_table const& definitions,
+    std::string const& ref,
+    matrix const& transform,
+    geometry_bounds const& local_bounds,
+    std::set<std::string>* visiting,
+    quantapdf_composer_clip_id* out_clip_id)
+{
+    auto found = definitions.clips.find(ref);
+    if (found == definitions.clips.end())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (!visiting->insert(ref).second)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    quantapdf_composer_clip_id base_id = 0u;
+    quantapdf_status status;
+    try {
+        status = register_clip_resource(
+            composer,
+            found->second,
+            transform,
+            local_bounds,
+            &base_id);
+    } catch (svg_error const& error) {
+        visiting->erase(ref);
+        return error.status;
+    }
+    if (status != QUANTAPDF_OK) {
+        visiting->erase(ref);
+        return status;
+    }
+
+    if (found->second.nested_ref.empty()) {
+        visiting->erase(ref);
+        *out_clip_id = base_id;
+        return QUANTAPDF_OK;
+    }
+    if (found->second.units != resource_units::user_space) {
+        visiting->erase(ref);
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+
+    quantapdf_composer_clip_id nested_id = 0u;
+    status = materialize_clip_reference(
+        composer,
+        definitions,
+        found->second.nested_ref,
+        transform,
+        local_bounds,
+        visiting,
+        &nested_id);
+    if (status != QUANTAPDF_OK) {
+        visiting->erase(ref);
+        return status;
+    }
+    quantapdf_composer_clip_id members[2] = {base_id, nested_id};
+    status = quantapdf_composer_add_clip_intersection(
+        composer, members, 2u, out_clip_id);
+    visiting->erase(ref);
+    return status;
+}
+
 quantapdf_status register_clip_component(
     quantapdf_composer* composer,
     definition_table const& definitions,
     clip_component const& component,
     quantapdf_composer_clip_id* out_clip_id)
 {
-    auto found = definitions.clips.find(component.ref);
-    if (found == definitions.clips.end())
-        return QUANTAPDF_ERROR_UNSUPPORTED;
-    try {
-        return register_clip_resource(
-            composer,
-            found->second,
-            component.transform,
-            component.local_bounds,
-            out_clip_id);
-    } catch (svg_error const& error) {
-        return error.status;
-    }
+    std::set<std::string> visiting;
+    return materialize_clip_reference(
+        composer,
+        definitions,
+        component.ref,
+        component.transform,
+        component.local_bounds,
+        &visiting,
+        out_clip_id);
 }
 
 quantapdf_status combine_clip_ids(
