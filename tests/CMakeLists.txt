@@ -165,6 +165,23 @@ target_compile_definitions(quantapdf_test_composer_clip PRIVATE
 add_test(NAME quantapdf.composer_clip COMMAND quantapdf_test_composer_clip)
 set_tests_properties(quantapdf.composer_clip PROPERTIES TIMEOUT 30)
 
+add_executable(quantapdf_test_composer_clip_intersection
+  test_composer_clip_intersection.c
+  composer_test_helpers.cpp)
+target_include_directories(quantapdf_test_composer_clip_intersection PRIVATE
+  "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_composer_clip_intersection PRIVATE
+  QuantaPDF::QuantaPDF
+  quantapdf_backend
+  qpdf::libqpdf
+  ZLIB::ZLIB)
+target_compile_features(quantapdf_test_composer_clip_intersection PRIVATE cxx_std_20)
+target_compile_definitions(quantapdf_test_composer_clip_intersection PRIVATE
+  COMPOSER_COMPOUND_CLIP_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composer-compound-clip-output.pdf")
+add_test(NAME quantapdf.composer_clip_intersection
+  COMMAND quantapdf_test_composer_clip_intersection)
+set_tests_properties(quantapdf.composer_clip_intersection PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_test_composer_form_xobject
   test_composer_form_xobject.c
   composer_test_helpers.cpp)
