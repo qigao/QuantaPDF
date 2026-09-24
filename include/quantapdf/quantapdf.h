@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 26
+#define QUANTAPDF_VERSION_MINOR 27
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -450,6 +450,21 @@ typedef struct quantapdf_composer_radial_gradient_options {
      sizeof(size_t))
 #define QUANTAPDF_COMPOSER_RADIAL_GRADIENT_OPTIONS_V1_SIZE \
     (sizeof(quantapdf_composer_radial_gradient_options))
+
+typedef struct quantapdf_composer_tiling_pattern_options {
+    size_t struct_size;
+    float width_points;
+    float height_points;
+    float x_step;
+    float y_step;
+    quantapdf_affine_transform transform;
+} quantapdf_composer_tiling_pattern_options;
+
+#define QUANTAPDF_COMPOSER_TILING_PATTERN_OPTIONS_V1_MIN_SIZE \
+    (offsetof(quantapdf_composer_tiling_pattern_options, transform) + \
+     sizeof(quantapdf_affine_transform))
+#define QUANTAPDF_COMPOSER_TILING_PATTERN_OPTIONS_V1_SIZE \
+    (sizeof(quantapdf_composer_tiling_pattern_options))
 
 #define QUANTAPDF_COMPOSER_MAX_DASH_COUNT ((size_t)64u)
 
@@ -890,6 +905,11 @@ typedef quantapdf_status (*quantapdf_composer_form_builder_fn)(
     size_t page_index,
     void *user_data);
 
+typedef quantapdf_status (*quantapdf_composer_pattern_builder_fn)(
+    quantapdf_composer *tile_composer,
+    size_t page_index,
+    void *user_data);
+
 QUANTAPDF_API quantapdf_status quantapdf_composer_create(
     const quantapdf_composer_options *options,
     quantapdf_composer **out_composer);
@@ -944,6 +964,13 @@ QUANTAPDF_API quantapdf_status quantapdf_composer_add_linear_gradient(
 QUANTAPDF_API quantapdf_status quantapdf_composer_add_radial_gradient(
     quantapdf_composer *composer,
     const quantapdf_composer_radial_gradient_options *options,
+    quantapdf_composer_paint_id *out_paint_id);
+
+QUANTAPDF_API quantapdf_status quantapdf_composer_add_tiling_pattern(
+    quantapdf_composer *composer,
+    const quantapdf_composer_tiling_pattern_options *options,
+    quantapdf_composer_pattern_builder_fn builder,
+    void *user_data,
     quantapdf_composer_paint_id *out_paint_id);
 
 QUANTAPDF_API quantapdf_status quantapdf_composer_measure_text(
