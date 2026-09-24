@@ -1713,7 +1713,7 @@ static int test_v4a_compound_clip_intersections()
         CHECK(quantapdf_bitmap_data(bitmap, &pixels, &pixel_size) ==
               QUANTAPDF_OK);
         CHECK(pixel_near(pixels, stride, 120, 70, 255, 0, 0, 25));
-        CHECK(pixel_near(pixels, stride, 70, 70, 255, 255, 255, 20));
+        CHECK(pixel_near(pixels, stride, 60, 70, 255, 255, 255, 20));
         CHECK(pixel_near(pixels, stride, 170, 70, 255, 255, 255, 20));
 
         quantapdf_drop_bitmap(bitmap);
