@@ -161,11 +161,19 @@ typedef struct quantapdf_composer_graphics_state {
     quantapdf_composer_clip_id clip_id;
 } quantapdf_composer_graphics_state;
 
+typedef enum quantapdf_composer_clip_kind_internal {
+    QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL = 1,
+    QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL = 2
+} quantapdf_composer_clip_kind_internal;
+
 typedef struct quantapdf_composer_clip_state {
+    quantapdf_composer_clip_kind_internal kind;
     quantapdf_composer_path_command *commands;
     size_t command_count;
     quantapdf_composer_fill_rule fill_rule;
     quantapdf_affine_transform transform;
+    quantapdf_composer_clip_id *members;
+    size_t member_count;
 } quantapdf_composer_clip_state;
 
 typedef enum quantapdf_composer_paint_kind_internal {
