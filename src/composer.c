@@ -371,7 +371,7 @@ static quantapdf_status quantapdf_composer_reserve_graphics_state(
     quantapdf_composer_graphics_state *grown;
     size_t new_capacity;
 
-    if (composer->graphics_state_count >= (size_t)UINT32_MAX)
+    if (composer->graphics_state_count == SIZE_MAX)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     if (composer->graphics_state_count < composer->graphics_state_capacity)
         return QUANTAPDF_OK;
@@ -379,7 +379,6 @@ static quantapdf_status quantapdf_composer_reserve_graphics_state(
         ? 8u
         : composer->graphics_state_capacity * 2u;
     if (new_capacity < composer->graphics_state_capacity ||
-        new_capacity > (size_t)UINT32_MAX ||
         new_capacity > SIZE_MAX / sizeof(*grown))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     grown = (quantapdf_composer_graphics_state *)realloc(
