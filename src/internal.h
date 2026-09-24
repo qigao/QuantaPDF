@@ -170,7 +170,8 @@ typedef struct quantapdf_composer_clip_state {
 
 typedef enum quantapdf_composer_paint_kind_internal {
     QUANTAPDF_COMPOSER_PAINT_LINEAR_GRADIENT_INTERNAL = 1,
-    QUANTAPDF_COMPOSER_PAINT_RADIAL_GRADIENT_INTERNAL = 2
+    QUANTAPDF_COMPOSER_PAINT_RADIAL_GRADIENT_INTERNAL = 2,
+    QUANTAPDF_COMPOSER_PAINT_TILING_PATTERN_INTERNAL = 3
 } quantapdf_composer_paint_kind_internal;
 
 typedef struct quantapdf_composer_paint_state {
@@ -182,6 +183,13 @@ typedef struct quantapdf_composer_paint_state {
     quantapdf_affine_transform transform;
     quantapdf_composer_gradient_stop *stops;
     size_t stop_count;
+    unsigned char *pdf_data;
+    size_t pdf_size;
+    float tile_width;
+    float tile_height;
+    float x_step;
+    float y_step;
+    int requires_pdf_16;
 } quantapdf_composer_paint_state;
 
 typedef struct quantapdf_composer_form_state {
