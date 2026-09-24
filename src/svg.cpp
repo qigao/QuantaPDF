@@ -5062,15 +5062,31 @@ quantapdf_status publish_uses(
         if (status != QUANTAPDF_OK)
             return status;
 
+        quantapdf_composer_soft_mask_id soft_mask_id = 0u;
+        if (!use.mask_ref.empty()) {
+            status = materialize_mask(
+                composer,
+                definitions,
+                use.mask_ref,
+                use.user_transform,
+                geometry_bounds{},
+                &soft_mask_id);
+            if (status != QUANTAPDF_OK)
+                return status;
+        }
+
         quantapdf_composer_graphics_state_id state_id = 0u;
-        if (effective_clip_id != 0u) {
+        if (effective_clip_id != 0u || soft_mask_id != 0u) {
             quantapdf_composer_graphics_state_options state{};
             state.struct_size =
-                QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE;
+                soft_mask_id != 0u
+                ? QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V3_SIZE
+                : QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE;
             state.fill_alpha = 1.0f;
             state.stroke_alpha = 1.0f;
             state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
             state.clip_id = effective_clip_id;
+            state.soft_mask_id = soft_mask_id;
             status = quantapdf_composer_add_graphics_state(
                 composer, &state, &state_id);
             if (status != QUANTAPDF_OK)
@@ -5179,15 +5195,31 @@ quantapdf_status publish_groups(
         if (status != QUANTAPDF_OK)
             return status;
 
+        quantapdf_composer_soft_mask_id soft_mask_id = 0u;
+        if (!group.mask_ref.empty()) {
+            status = materialize_mask(
+                composer,
+                definitions,
+                group.mask_ref,
+                group.mask_transform,
+                geometry_bounds{},
+                &soft_mask_id);
+            if (status != QUANTAPDF_OK)
+                return status;
+        }
+
         quantapdf_composer_graphics_state_options state{};
         state.struct_size =
-            effective_clip_id == 0u
-            ? QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE
-            : QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE;
+            soft_mask_id != 0u
+            ? QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V3_SIZE
+            : (effective_clip_id != 0u
+                ? QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE
+                : QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE);
         state.fill_alpha = group.opacity;
         state.stroke_alpha = group.opacity;
         state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
         state.clip_id = effective_clip_id;
+        state.soft_mask_id = soft_mask_id;
 
         quantapdf_composer_graphics_state_id state_id = 0u;
         status = quantapdf_composer_add_graphics_state(
