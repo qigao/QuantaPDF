@@ -4109,8 +4109,14 @@ quantapdf_status publish_paths(
             paths[i].commands.size();
         operation.value.path.options = paths[i].options;
         if (fill_paint_ids[i] != 0u || stroke_paint_ids[i] != 0u) {
-            operation.value.path.options.struct_size =
-                QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE;
+            /*
+             * Do not downgrade a V4 PATH to the V3 paint boundary.
+             * V4 owns the affine CTM; paint IDs are an earlier tail.
+             */
+            if (operation.value.path.options.struct_size <
+                QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_MIN_SIZE)
+                operation.value.path.options.struct_size =
+                    QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE;
             operation.value.path.options.fill_paint_id =
                 fill_paint_ids[i];
             operation.value.path.options.stroke_paint_id =
