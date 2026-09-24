@@ -3752,6 +3752,91 @@ quantapdf_status publish_uses(
     return QUANTAPDF_OK;
 }
 
+quantapdf_status group_form_builder(
+    quantapdf_composer* composer,
+    size_t page_index,
+    void* user_data)
+{
+    return symbol_form_builder(composer, page_index, user_data);
+}
+
+quantapdf_status publish_groups(
+    quantapdf_composer* composer,
+    size_t page_index,
+    std::vector<staged_group> const& groups,
+    quantapdf_rect const& bounds)
+{
+    if (groups.empty())
+        return QUANTAPDF_OK;
+
+    quantapdf_status const reserve =
+        quantapdf_composer_reserve_operations_internal(
+            composer, groups.size());
+    if (reserve != QUANTAPDF_OK)
+        return reserve;
+
+    float const width = bounds.x1 - bounds.x0;
+    float const height = bounds.y1 - bounds.y0;
+    if (!std::isfinite(width) || !std::isfinite(height) ||
+        width <= 0.0f || height <= 0.0f)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    for (auto const& group: groups) {
+        symbol_form_builder_context context;
+        context.svg = &group.svg;
+        context.width = width;
+        context.height = height;
+
+        quantapdf_composer_form_options form_options{};
+        form_options.struct_size =
+            QUANTAPDF_COMPOSER_FORM_OPTIONS_V2_SIZE;
+        form_options.width_points = width;
+        form_options.height_points = height;
+        form_options.flags =
+            QUANTAPDF_COMPOSER_FORM_FLAG_TRANSPARENCY_GROUP |
+            QUANTAPDF_COMPOSER_FORM_FLAG_ISOLATED;
+
+        quantapdf_composer_form_id form_id = 0u;
+        quantapdf_status status = quantapdf_composer_add_form(
+            composer,
+            &form_options,
+            group_form_builder,
+            &context,
+            &form_id);
+        if (status != QUANTAPDF_OK)
+            return status;
+
+        quantapdf_composer_graphics_state_options state{};
+        state.struct_size =
+            QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE;
+        state.fill_alpha = group.opacity;
+        state.stroke_alpha = group.opacity;
+        state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
+
+        quantapdf_composer_graphics_state_id state_id = 0u;
+        status = quantapdf_composer_add_graphics_state(
+            composer, &state, &state_id);
+        if (status != QUANTAPDF_OK)
+            return status;
+
+        quantapdf_affine_transform placement = {
+            1.0f, 0.0f, 0.0f, 1.0f, bounds.x0, bounds.y0};
+        quantapdf_composer_form_draw_options draw_options{};
+        draw_options.struct_size =
+            QUANTAPDF_COMPOSER_FORM_DRAW_OPTIONS_V1_SIZE;
+        draw_options.graphics_state_id = state_id;
+        status = quantapdf_composer_draw_form(
+            composer,
+            page_index,
+            form_id,
+            &placement,
+            &draw_options);
+        if (status != QUANTAPDF_OK)
+            return status;
+    }
+    return QUANTAPDF_OK;
+}
+
 struct svg_publish_snapshot {
     size_t operation_count = 0u;
     size_t paint_count = 0u;
@@ -3869,8 +3954,10 @@ quantapdf_status publish_paths(
     size_t const resource_snapshot = composer->resource_bytes;
 
     auto rollback_resources = [&]() {
-        for (size_t i = paint_snapshot; i < composer->paint_count; ++i)
+        for (size_t i = paint_snapshot; i < composer->paint_count; ++i) {
             std::free(composer->paints[i].stops);
+            std::free(composer->paints[i].pdf_data);
+        }
         for (size_t i = clip_snapshot; i < composer->clip_count; ++i)
             std::free(composer->clips[i].commands);
         composer->paint_count = paint_snapshot;
@@ -4063,6 +4150,7 @@ quantapdf_status publish_svg_document(
     size_t page_index,
     std::vector<staged_path> const& paths,
     std::vector<staged_use> const& uses,
+    std::vector<staged_group> const& groups,
     quantapdf_rect const& bounds,
     bool clip_to_bounds,
     definition_table const& definitions)
@@ -4092,6 +4180,51 @@ quantapdf_status publish_svg_document(
         if (status != QUANTAPDF_OK) {
             rollback_svg_publish(composer, snapshot);
             return status;
+        }
+
+        status = publish_groups(
+            composer,
+            page_index,
+            groups,
+            bounds);
+        if (status != QUANTAPDF_OK) {
+            rollback_svg_publish(composer, snapshot);
+            return status;
+        }
+
+        size_t const expected =
+            paths.size() + uses.size() + groups.size();
+        if (composer->operation_count - snapshot.operation_count !=
+            expected) {
+            rollback_svg_publish(composer, snapshot);
+            return QUANTAPDF_ERROR_BACKEND;
+        }
+
+        std::vector<std::pair<size_t, quantapdf_composer_operation>>
+            ordered;
+        ordered.reserve(expected);
+        size_t cursor = snapshot.operation_count;
+        for (auto const& path: paths)
+            ordered.emplace_back(path.order, composer->operations[cursor++]);
+        for (auto const& use: uses)
+            ordered.emplace_back(use.order, composer->operations[cursor++]);
+        for (auto const& group: groups)
+            ordered.emplace_back(group.order, composer->operations[cursor++]);
+        std::sort(
+            ordered.begin(),
+            ordered.end(),
+            [](auto const& left, auto const& right) {
+                return left.first < right.first;
+            });
+        for (size_t i = 1u; i < ordered.size(); ++i) {
+            if (ordered[i - 1u].first == ordered[i].first) {
+                rollback_svg_publish(composer, snapshot);
+                return QUANTAPDF_ERROR_BACKEND;
+            }
+        }
+        for (size_t i = 0u; i < ordered.size(); ++i) {
+            composer->operations[snapshot.operation_count + i] =
+                ordered[i].second;
         }
         return QUANTAPDF_OK;
     } catch (...) {
@@ -4141,14 +4274,18 @@ extern "C" quantapdf_status quantapdf_composer_draw_svg(
             definitions);
         auto paths = parser.parse();
         auto uses = parser.take_uses();
+        auto groups = parser.take_groups();
         if (paths.size() > available ||
-            uses.size() > available - paths.size())
+            uses.size() > available - paths.size() ||
+            groups.size() >
+                available - paths.size() - uses.size())
             return QUANTAPDF_ERROR_UNSUPPORTED;
         return publish_svg_document(
             composer,
             page_index,
             paths,
             uses,
+            groups,
             *bounds,
             parser.clip_to_bounds(),
             definitions);
