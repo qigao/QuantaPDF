@@ -35,6 +35,23 @@ static int quantapdf_composer_point_valid(const quantapdf_point *point)
     return point != NULL && isfinite(point->x) && isfinite(point->y);
 }
 
+int quantapdf_affine_transform_valid_internal(
+    const quantapdf_affine_transform *transform)
+{
+    return transform != NULL &&
+        isfinite(transform->a) && isfinite(transform->b) &&
+        isfinite(transform->c) && isfinite(transform->d) &&
+        isfinite(transform->e) && isfinite(transform->f);
+}
+
+quantapdf_affine_transform quantapdf_affine_identity_internal(void)
+{
+    quantapdf_affine_transform transform = {
+        1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f
+    };
+    return transform;
+}
+
 static int quantapdf_composer_path_options_valid(
     const quantapdf_composer_path_options *options)
 {
@@ -433,11 +450,12 @@ quantapdf_status quantapdf_composer_measure_text(
         text_utf8, max_width, options, out_measurement);
 }
 
-quantapdf_status quantapdf_composer_draw_text(
+static quantapdf_status quantapdf_composer_draw_text_internal(
     quantapdf_composer *composer,
     size_t page_index,
     const char *text_utf8,
     const quantapdf_rect *bounds,
+    const quantapdf_affine_transform *transform,
     const quantapdf_composer_text_options *options)
 {
     quantapdf_composer_operation operation;
@@ -448,6 +466,7 @@ quantapdf_status quantapdf_composer_draw_text(
         options->struct_size < QUANTAPDF_COMPOSER_TEXT_OPTIONS_V1_MIN_SIZE ||
         page_index >= composer->page_count ||
         !quantapdf_composer_rect_valid(bounds) ||
+        !quantapdf_affine_transform_valid_internal(transform) ||
         options->font < QUANTAPDF_COMPOSER_FONT_HELVETICA ||
         options->font > QUANTAPDF_COMPOSER_FONT_COURIER_BOLD_OBLIQUE ||
         !isfinite(options->font_size) || options->font_size <= 0.0f ||
@@ -477,10 +496,36 @@ quantapdf_status quantapdf_composer_draw_text(
     operation.page_index = page_index;
     operation.bounds = *bounds;
     operation.value.text.options = *options;
+    operation.value.text.transform = *transform;
     composer->operations[composer->operation_count] = operation;
     ++composer->operation_count;
     composer->resource_bytes += text_size;
     return QUANTAPDF_OK;
+}
+
+quantapdf_status quantapdf_composer_draw_text(
+    quantapdf_composer *composer,
+    size_t page_index,
+    const char *text_utf8,
+    const quantapdf_rect *bounds,
+    const quantapdf_composer_text_options *options)
+{
+    quantapdf_affine_transform const transform =
+        quantapdf_affine_identity_internal();
+    return quantapdf_composer_draw_text_internal(
+        composer, page_index, text_utf8, bounds, &transform, options);
+}
+
+quantapdf_status quantapdf_composer_draw_text_transformed(
+    quantapdf_composer *composer,
+    size_t page_index,
+    const char *text_utf8,
+    const quantapdf_rect *bounds,
+    const quantapdf_affine_transform *transform,
+    const quantapdf_composer_text_options *options)
+{
+    return quantapdf_composer_draw_text_internal(
+        composer, page_index, text_utf8, bounds, transform, options);
 }
 
 quantapdf_status quantapdf_composer_draw_image(
