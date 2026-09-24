@@ -4524,6 +4524,7 @@ quantapdf_status publish_paths(
                     composer,
                     gradient->second,
                     paths[i].resource_transform,
+                    paths[i].local_bounds,
                     out_id);
             }
             auto pattern = definitions.patterns.find(reference);
@@ -4533,6 +4534,7 @@ quantapdf_status publish_paths(
                     definitions,
                     reference,
                     paths[i].resource_transform,
+                    paths[i].local_bounds,
                     out_id);
             }
             return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -4563,6 +4565,7 @@ quantapdf_status publish_paths(
                     composer,
                     found->second,
                     paths[i].resource_transform,
+                    paths[i].local_bounds,
                     &clip_ids[i]);
             if (clip_resource_status != QUANTAPDF_OK) {
                 rollback_resources();
