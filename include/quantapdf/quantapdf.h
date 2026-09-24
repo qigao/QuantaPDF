@@ -386,6 +386,7 @@ typedef struct quantapdf_composer_path_options {
     quantapdf_composer_graphics_state_id graphics_state_id;
     quantapdf_composer_paint_id fill_paint_id;
     quantapdf_composer_paint_id stroke_paint_id;
+    quantapdf_affine_transform transform;
 } quantapdf_composer_path_options;
 
 #define QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE \
@@ -401,6 +402,11 @@ typedef struct quantapdf_composer_path_options {
     (offsetof(quantapdf_composer_path_options, stroke_paint_id) + \
      sizeof(quantapdf_composer_paint_id))
 #define QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE \
+    (offsetof(quantapdf_composer_path_options, transform))
+#define QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_MIN_SIZE \
+    (offsetof(quantapdf_composer_path_options, transform) + \
+     sizeof(quantapdf_affine_transform))
+#define QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE \
     (sizeof(quantapdf_composer_path_options))
 
 #define QUANTAPDF_COMPOSER_MAX_GRADIENT_STOPS ((size_t)64u)
