@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 15
+#define QUANTAPDF_VERSION_MINOR 16
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -262,6 +262,20 @@ typedef struct quantapdf_composer_path_options {
     (offsetof(quantapdf_composer_path_options, miter_limit) + sizeof(float))
 #define QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE \
     (sizeof(quantapdf_composer_path_options))
+
+#define QUANTAPDF_COMPOSER_MAX_DASH_COUNT ((size_t)64u)
+
+typedef struct quantapdf_composer_dash_pattern {
+    size_t struct_size;
+    const float *lengths;
+    size_t length_count;
+    float phase;
+} quantapdf_composer_dash_pattern;
+
+#define QUANTAPDF_COMPOSER_DASH_PATTERN_V1_MIN_SIZE \
+    (offsetof(quantapdf_composer_dash_pattern, phase) + sizeof(float))
+#define QUANTAPDF_COMPOSER_DASH_PATTERN_V1_SIZE \
+    (sizeof(quantapdf_composer_dash_pattern))
 
 typedef struct quantapdf_composer_svg_options {
     size_t struct_size;
@@ -785,6 +799,14 @@ QUANTAPDF_API quantapdf_status quantapdf_composer_draw_path(
     const quantapdf_composer_path_command *commands,
     size_t command_count,
     const quantapdf_composer_path_options *options);
+
+QUANTAPDF_API quantapdf_status quantapdf_composer_draw_path_dashed(
+    quantapdf_composer *composer,
+    size_t page_index,
+    const quantapdf_composer_path_command *commands,
+    size_t command_count,
+    const quantapdf_composer_path_options *options,
+    const quantapdf_composer_dash_pattern *dash_pattern);
 
 QUANTAPDF_API quantapdf_status quantapdf_composer_draw_svg(
     quantapdf_composer *composer,
