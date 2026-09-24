@@ -1,5 +1,6 @@
 #include "internal.h"
 #include "backend/qpdf_composer.h"
+#include "backend/composer_text_layout.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -12,6 +13,20 @@ static int quantapdf_composer_rect_valid(const quantapdf_rect *rect)
         isfinite(rect->x0) && isfinite(rect->y0) &&
         isfinite(rect->x1) && isfinite(rect->y1) &&
         rect->x1 > rect->x0 && rect->y1 > rect->y0;
+}
+
+
+static int quantapdf_composer_measurement_prepare(
+    quantapdf_composer_text_measurement *out_measurement)
+{
+    if (out_measurement == NULL ||
+        out_measurement->struct_size <
+            QUANTAPDF_COMPOSER_TEXT_MEASUREMENT_V1_MIN_SIZE)
+        return 0;
+    out_measurement->width = 0.0f;
+    out_measurement->height = 0.0f;
+    out_measurement->line_count = 0u;
+    return 1;
 }
 
 
@@ -388,6 +403,34 @@ quantapdf_status quantapdf_composer_add_image(
     composer->resource_bytes += image.size + image.alpha_size;
     *out_image_id = (quantapdf_composer_image_id)composer->image_count;
     return QUANTAPDF_OK;
+}
+
+quantapdf_status quantapdf_composer_measure_text(
+    const quantapdf_composer *composer,
+    const char *text_utf8,
+    float max_width,
+    const quantapdf_composer_text_options *options,
+    quantapdf_composer_text_measurement *out_measurement)
+{
+    if (!quantapdf_composer_measurement_prepare(out_measurement))
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if (composer == NULL || text_utf8 == NULL || options == NULL ||
+        options->struct_size < QUANTAPDF_COMPOSER_TEXT_OPTIONS_V1_MIN_SIZE ||
+        !isfinite(max_width) || max_width <= 0.0f ||
+        options->font < QUANTAPDF_COMPOSER_FONT_HELVETICA ||
+        options->font > QUANTAPDF_COMPOSER_FONT_COURIER_BOLD_OBLIQUE ||
+        !isfinite(options->font_size) || options->font_size <= 0.0f ||
+        !isfinite(options->line_height_multiplier) ||
+        options->line_height_multiplier <= 0.0f ||
+        options->alignment < QUANTAPDF_COMPOSER_TEXT_ALIGN_LEFT ||
+        options->alignment > QUANTAPDF_COMPOSER_TEXT_ALIGN_RIGHT ||
+        (options->argb >> 24u) != 0xffu)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if (!quantapdf_composer_utf8_is_winansi(text_utf8))
+        return QUANTAPDF_ERROR_FORMAT;
+
+    return quantapdf_measure_base14_text_internal(
+        text_utf8, max_width, options, out_measurement);
 }
 
 quantapdf_status quantapdf_composer_draw_text(
