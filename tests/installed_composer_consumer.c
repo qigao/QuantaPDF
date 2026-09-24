@@ -77,6 +77,32 @@ static quantapdf_status installed_form_builder(
         composer, page_index, "Installed Form", &bounds, &text);
 }
 
+static quantapdf_status installed_pattern_builder(
+    quantapdf_composer *composer,
+    size_t page_index,
+    void *user_data)
+{
+    quantapdf_composer_path_command rect[5] = {{0}};
+    quantapdf_composer_path_options path = {0};
+
+    (void)user_data;
+    rect[0].kind = QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+    rect[0].point1 = (quantapdf_point){0.0f, 0.0f};
+    rect[1].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    rect[1].point1 = (quantapdf_point){4.0f, 0.0f};
+    rect[2].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    rect[2].point1 = (quantapdf_point){4.0f, 8.0f};
+    rect[3].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    rect[3].point1 = (quantapdf_point){0.0f, 8.0f};
+    rect[4].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
+    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
+    path.fill = 1;
+    path.fill_argb = UINT32_C(0xff008040);
+    path.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
+    return quantapdf_composer_draw_path(
+        composer, page_index, rect, 5u, &path);
+}
+
 int main(int argc, char **argv)
 {
     quantapdf_composer *composer = NULL;
@@ -106,6 +132,8 @@ int main(int argc, char **argv)
     };
     quantapdf_composer_paint_id linear_paint_id = 0u;
     quantapdf_composer_paint_id radial_paint_id = 0u;
+    quantapdf_composer_tiling_pattern_options tiling_pattern = {0};
+    quantapdf_composer_paint_id tiling_paint_id = 0u;
     quantapdf_composer_raster raster = {0};
     quantapdf_composer_image_options raster_draw = {0};
     quantapdf_composer_image_id raster_id = 0u;
@@ -269,6 +297,23 @@ int main(int argc, char **argv)
         goto fail;
     }
 
+    tiling_pattern.struct_size =
+        QUANTAPDF_COMPOSER_TILING_PATTERN_OPTIONS_V1_SIZE;
+    tiling_pattern.width_points = 8.0f;
+    tiling_pattern.height_points = 8.0f;
+    tiling_pattern.x_step = 8.0f;
+    tiling_pattern.y_step = 8.0f;
+    CHECK(quantapdf_composer_add_tiling_pattern(
+        composer,
+        &tiling_pattern,
+        installed_pattern_builder,
+        NULL,
+        &tiling_paint_id));
+    if (tiling_paint_id == 0u) {
+        fprintf(stderr, "tiling paint ID was not published\n");
+        goto fail;
+    }
+
     font_options.struct_size = QUANTAPDF_COMPOSER_FONT_OPTIONS_V1_SIZE;
     CHECK(quantapdf_composer_add_font(
         composer, font_data, font_size, &font_options, &font_id));
@@ -377,7 +422,8 @@ int main(int argc, char **argv)
     path.fill = 1;
     path.fill_argb = UINT32_C(0xff000000);
     path.fill_paint_id = linear_paint_id;
-    path.stroke_argb = UINT32_C(0xff004080);
+    path.stroke_argb = 0u;
+    path.stroke_paint_id = tiling_paint_id;
     path.stroke_width = 1.0f;
     path.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
     path.line_cap = QUANTAPDF_COMPOSER_LINE_CAP_BUTT;

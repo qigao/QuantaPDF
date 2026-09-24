@@ -294,6 +294,74 @@ QPDFObjectHandle make_gradient_pattern(
     return pdf.makeIndirectObject(pattern);
 }
 
+QPDFObjectHandle make_tiling_pattern(
+    QPDF& pdf,
+    QPDFObjectHandle tile_form,
+    quantapdf_composer_paint_state const& paint,
+    double page_height)
+{
+    auto pattern = pdf.newStream("q /Tile Do Q\n");
+    auto dictionary = pattern.getDict();
+    auto bbox = QPDFObjectHandle::newArray();
+    auto resources = QPDFObjectHandle::newDictionary();
+    auto xobjects = QPDFObjectHandle::newDictionary();
+    auto matrix = QPDFObjectHandle::newArray();
+
+    dictionary.replaceKey("/Type", QPDFObjectHandle::newName("/Pattern"));
+    dictionary.replaceKey("/PatternType", QPDFObjectHandle::newInteger(1));
+    dictionary.replaceKey("/PaintType", QPDFObjectHandle::newInteger(1));
+    dictionary.replaceKey("/TilingType", QPDFObjectHandle::newInteger(1));
+
+    bbox.appendItem(QPDFObjectHandle::newInteger(0));
+    bbox.appendItem(QPDFObjectHandle::newInteger(0));
+    bbox.appendItem(QPDFObjectHandle::newReal(
+        paint.tile_width, decimal_precision(paint.tile_width)));
+    bbox.appendItem(QPDFObjectHandle::newReal(
+        paint.tile_height, decimal_precision(paint.tile_height)));
+    dictionary.replaceKey("/BBox", bbox);
+    dictionary.replaceKey(
+        "/XStep",
+        QPDFObjectHandle::newReal(
+            paint.x_step, decimal_precision(paint.x_step)));
+    dictionary.replaceKey(
+        "/YStep",
+        QPDFObjectHandle::newReal(
+            -static_cast<double>(paint.y_step),
+            decimal_precision(paint.y_step)));
+
+    xobjects.replaceKey("/Tile", tile_form);
+    resources.replaceKey("/XObject", xobjects);
+    dictionary.replaceKey("/Resources", resources);
+
+    double const a = canonical_zero(paint.transform.a);
+    double const b =
+        canonical_zero(-static_cast<double>(paint.transform.b));
+    double const c_value =
+        canonical_zero(-static_cast<double>(paint.transform.c));
+    double const d = canonical_zero(paint.transform.d);
+    double const e =
+        static_cast<double>(paint.transform.c) * paint.tile_height +
+        static_cast<double>(paint.transform.e);
+    double const f =
+        page_height -
+        static_cast<double>(paint.transform.d) * paint.tile_height -
+        static_cast<double>(paint.transform.f);
+    matrix.appendItem(QPDFObjectHandle::newReal(
+        a, decimal_precision(a)));
+    matrix.appendItem(QPDFObjectHandle::newReal(
+        b, decimal_precision(b)));
+    matrix.appendItem(QPDFObjectHandle::newReal(
+        c_value, decimal_precision(c_value)));
+    matrix.appendItem(QPDFObjectHandle::newReal(
+        d, decimal_precision(d)));
+    matrix.appendItem(QPDFObjectHandle::newReal(
+        canonical_zero(e), decimal_precision(e)));
+    matrix.appendItem(QPDFObjectHandle::newReal(
+        canonical_zero(f), decimal_precision(f)));
+    dictionary.replaceKey("/Matrix", matrix);
+    return pattern;
+}
+
 void append_text_matrix(
     std::string& content,
     quantapdf_composer_page_state const& page,
@@ -1974,6 +2042,21 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                     throw std::logic_error("form resource missing");
                 if (composer->forms[id - 1u].requires_pdf_16)
                     requires_pdf_16 = true;
+            } else if (
+                operation.kind == QUANTAPDF_COMPOSER_OPERATION_PATH) {
+                auto check_paint = [&](quantapdf_composer_paint_id id) {
+                    if (id == 0u)
+                        return;
+                    if (id > composer->paint_count)
+                        throw std::logic_error("paint resource missing");
+                    auto const& paint = composer->paints[id - 1u];
+                    if (paint.kind ==
+                            QUANTAPDF_COMPOSER_PAINT_TILING_PATTERN_INTERNAL &&
+                        paint.requires_pdf_16)
+                        requires_pdf_16 = true;
+                };
+                check_paint(operation.value.path.options.fill_paint_id);
+                check_paint(operation.value.path.options.stroke_paint_id);
             }
         }
 
@@ -1982,6 +2065,38 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
 
         std::vector<std::optional<QPDFObjectHandle>>
             paint_shading_objects(composer->paint_count);
+        std::vector<std::optional<QPDFObjectHandle>>
+            paint_tile_form_objects(composer->paint_count);
+        std::vector<std::unique_ptr<QPDF>>
+            paint_source_pdfs(composer->paint_count);
+        auto ensure_tile_form = [&](quantapdf_composer_paint_id id)
+            -> QPDFObjectHandle {
+            if (id == 0u || id > composer->paint_count)
+                throw std::logic_error("tiling paint resource missing");
+            auto const& paint = composer->paints[id - 1u];
+            if (paint.kind != QUANTAPDF_COMPOSER_PAINT_TILING_PATTERN_INTERNAL)
+                throw std::logic_error("paint is not a tiling pattern");
+            auto& slot = paint_tile_form_objects[id - 1u];
+            if (!slot.has_value()) {
+                auto source = std::make_unique<QPDF>();
+                std::string const description =
+                    "quantapdf-pattern-" + std::to_string(id);
+                source->processMemoryFile(
+                    description.c_str(),
+                    reinterpret_cast<char const*>(paint.pdf_data),
+                    paint.pdf_size);
+                auto foreign_pages =
+                    QPDFPageDocumentHelper::get(*source).getAllPages();
+                if (foreign_pages.size() != 1u)
+                    throw std::logic_error(
+                        "tiling snapshot page count mismatch");
+                QPDFObjectHandle foreign_form =
+                    foreign_pages[0].getFormXObjectForPage();
+                slot = pdf.copyForeignObject(foreign_form);
+                paint_source_pdfs[id - 1u] = std::move(source);
+            }
+            return *slot;
+        };
 
         for (std::size_t page_index = 0; page_index < composer->page_count;
              ++page_index) {
@@ -2090,16 +2205,25 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                         throw std::logic_error("paint resource missing");
                     auto& page_pattern = page_patterns[id - 1u];
                     if (!page_pattern.has_value()) {
-                        auto& shading = paint_shading_objects[id - 1u];
-                        if (!shading.has_value()) {
-                            shading = make_gradient_shading(
-                                pdf, composer->paints[id - 1u]);
+                        auto const& paint = composer->paints[id - 1u];
+                        if (paint.kind ==
+                            QUANTAPDF_COMPOSER_PAINT_TILING_PATTERN_INTERNAL) {
+                            page_pattern = make_tiling_pattern(
+                                pdf,
+                                ensure_tile_form(id),
+                                paint,
+                                composer->pages[page_index].height_points);
+                        } else {
+                            auto& shading = paint_shading_objects[id - 1u];
+                            if (!shading.has_value()) {
+                                shading = make_gradient_shading(pdf, paint);
+                            }
+                            page_pattern = make_gradient_pattern(
+                                pdf,
+                                *shading,
+                                paint,
+                                composer->pages[page_index].height_points);
                         }
-                        page_pattern = make_gradient_pattern(
-                            pdf,
-                            *shading,
-                            composer->paints[id - 1u],
-                            composer->pages[page_index].height_points);
                     }
                     patterns.replaceKey(
                         "/P" + std::to_string(id), *page_pattern);

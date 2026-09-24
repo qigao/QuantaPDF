@@ -216,6 +216,23 @@ add_test(NAME quantapdf.composer_path_affine
   COMMAND quantapdf_test_composer_path_affine)
 set_tests_properties(quantapdf.composer_path_affine PROPERTIES TIMEOUT 30)
 
+add_executable(quantapdf_test_composer_tiling_pattern
+  test_composer_tiling_pattern.c
+  composer_test_helpers.cpp)
+target_include_directories(quantapdf_test_composer_tiling_pattern PRIVATE
+  "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_composer_tiling_pattern PRIVATE
+  QuantaPDF::QuantaPDF
+  quantapdf_backend
+  qpdf::libqpdf
+  ZLIB::ZLIB)
+target_compile_features(quantapdf_test_composer_tiling_pattern PRIVATE cxx_std_20)
+target_compile_definitions(quantapdf_test_composer_tiling_pattern PRIVATE
+  COMPOSER_TILING_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composer-tiling-output.pdf")
+add_test(NAME quantapdf.composer_tiling_pattern
+  COMMAND quantapdf_test_composer_tiling_pattern)
+set_tests_properties(quantapdf.composer_tiling_pattern PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_test_composer_barcode
   test_composer_barcode.c
   composer_test_helpers.cpp)
