@@ -362,6 +362,105 @@ matrix parse_transform(std::string const& value)
     return result;
 }
 
+struct viewport_mapping {
+    matrix transform;
+    bool clip = false;
+};
+
+std::vector<std::string> whitespace_tokens(std::string const& value)
+{
+    std::vector<std::string> result;
+    size_t position = 0u;
+    while (position < value.size()) {
+        while (position < value.size() && ascii_space(value[position]))
+            ++position;
+        if (position == value.size())
+            break;
+        size_t const begin = position;
+        while (position < value.size() && !ascii_space(value[position]))
+            ++position;
+        result.push_back(value.substr(begin, position - begin));
+    }
+    return result;
+}
+
+viewport_mapping map_view_box(
+    std::vector<double> const& values,
+    quantapdf_rect const& bounds,
+    std::string const* preserve_aspect_ratio)
+{
+    double const viewport_width = bounds.x1 - bounds.x0;
+    double const viewport_height = bounds.y1 - bounds.y0;
+    double const sx = viewport_width / values[2];
+    double const sy = viewport_height / values[3];
+
+    if (preserve_aspect_ratio == nullptr) {
+        return {
+            multiply(
+                translate_matrix(bounds.x0, bounds.y0),
+                multiply(
+                    scale_matrix(sx, sy),
+                    translate_matrix(-values[0], -values[1]))),
+            false};
+    }
+
+    auto const tokens = whitespace_tokens(trim(*preserve_aspect_ratio));
+    if (tokens.empty() || tokens.size() > 2u)
+        fail(QUANTAPDF_ERROR_FORMAT);
+    std::string const& align = tokens[0];
+    std::string mode = tokens.size() == 2u ? tokens[1] : "meet";
+
+    if (align == "none") {
+        if (tokens.size() == 2u && mode != "meet" && mode != "slice")
+            fail(QUANTAPDF_ERROR_FORMAT);
+        return {
+            multiply(
+                translate_matrix(bounds.x0, bounds.y0),
+                multiply(
+                    scale_matrix(sx, sy),
+                    translate_matrix(-values[0], -values[1]))),
+            false};
+    }
+    if (mode != "meet" && mode != "slice")
+        fail(QUANTAPDF_ERROR_FORMAT);
+
+    double x_align = 0.0;
+    double y_align = 0.0;
+    if (align.rfind("xMin", 0u) == 0u)
+        x_align = 0.0;
+    else if (align.rfind("xMid", 0u) == 0u)
+        x_align = 0.5;
+    else if (align.rfind("xMax", 0u) == 0u)
+        x_align = 1.0;
+    else
+        fail(QUANTAPDF_ERROR_FORMAT);
+
+    if (align.size() < 8u)
+        fail(QUANTAPDF_ERROR_FORMAT);
+    std::string const y_part = align.substr(4u);
+    if (y_part == "YMin")
+        y_align = 0.0;
+    else if (y_part == "YMid")
+        y_align = 0.5;
+    else if (y_part == "YMax")
+        y_align = 1.0;
+    else
+        fail(QUANTAPDF_ERROR_FORMAT);
+
+    double const scale =
+        mode == "meet" ? std::min(sx, sy) : std::max(sx, sy);
+    double const extra_x = viewport_width - values[2] * scale;
+    double const extra_y = viewport_height - values[3] * scale;
+    matrix const transform = multiply(
+        translate_matrix(
+            bounds.x0 + extra_x * x_align,
+            bounds.y0 + extra_y * y_align),
+        multiply(
+            scale_matrix(scale, scale),
+            translate_matrix(-values[0], -values[1])));
+    return {transform, mode == "slice"};
+}
+
 struct paint_style {
     bool fill = true;
     bool stroke = false;
@@ -1323,15 +1422,12 @@ class svg_parser {
                     values[2] <= 0.0 || values[3] <= 0.0)
                     fail(QUANTAPDF_ERROR_FORMAT);
 
-                double const sx =
-                    (bounds_.x1 - bounds_.x0) / values[2];
-                double const sy =
-                    (bounds_.y1 - bounds_.y0) / values[3];
-                matrix viewport = multiply(
-                    translate_matrix(bounds_.x0, bounds_.y0),
-                    multiply(
-                        scale_matrix(sx, sy),
-                        translate_matrix(-values[0], -values[1])));
+                auto const mapping = map_view_box(
+                    values,
+                    bounds_,
+                    find_attribute(item, "preserveAspectRatio"));
+                matrix viewport = mapping.transform;
+                clip_to_bounds_ = mapping.clip;
 
                 context root;
                 root.name = tag;
@@ -1440,10 +1536,16 @@ class svg_parser {
         return std::move(paths_);
     }
 
+    bool clip_to_bounds() const
+    {
+        return clip_to_bounds_;
+    }
+
   private:
     xml_scanner scanner_;
     quantapdf_rect bounds_;
     size_t max_paths_;
+    bool clip_to_bounds_ = false;
     std::vector<context> stack_;
     std::vector<staged_path> paths_;
 };
@@ -1655,7 +1757,11 @@ extern "C" quantapdf_status quantapdf_composer_draw_svg(
             composer->max_operations - composer->operation_count;
         svg_parser parser(svg_data, svg_size, *bounds, available);
         auto paths = parser.parse();
-        return publish_paths(composer, page_index, paths);
+        return publish_paths(
+            composer,
+            page_index,
+            paths,
+            parser.clip_to_bounds() ? bounds : nullptr);
     } catch (svg_error const& error) {
         return error.status;
     } catch (std::bad_alloc const&) {
