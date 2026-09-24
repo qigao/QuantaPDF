@@ -1171,9 +1171,10 @@ void append_path_content(
     content += "q ";
     auto const& transform = options.transform;
     bool const identity_transform =
-        transform.a == 1.0f && transform.b == 0.0f &&
-        transform.c == 0.0f && transform.d == 1.0f &&
-        transform.e == 0.0f && transform.f == 0.0f;
+        options.struct_size < QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_MIN_SIZE ||
+        (transform.a == 1.0f && transform.b == 0.0f &&
+         transform.c == 0.0f && transform.d == 1.0f &&
+         transform.e == 0.0f && transform.f == 0.0f);
     if (!identity_transform) {
         double const a = canonical_zero(transform.a);
         double const b =
