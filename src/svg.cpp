@@ -1019,6 +1019,7 @@ matrix viewport_matrix(
 }
 
 struct staged_path {
+    size_t order = 0u;
     std::vector<quantapdf_composer_path_command> commands;
     quantapdf_composer_path_options options{};
     std::vector<float> dash_lengths;
@@ -1032,12 +1033,19 @@ struct staged_path {
 };
 
 struct staged_use {
+    size_t order = 0u;
     std::string symbol_ref;
     double x = 0.0;
     double y = 0.0;
     double width = 0.0;
     double height = 0.0;
     matrix user_transform;
+};
+
+struct staged_group {
+    size_t order = 0u;
+    std::string svg;
+    float opacity = 1.0f;
 };
 
 quantapdf_affine_transform resource_affine(matrix const& value);
@@ -1074,6 +1082,7 @@ void stage_path(
     std::vector<quantapdf_composer_path_command> commands,
     paint_style const& style,
     matrix const& transform,
+    size_t order,
     size_t max_paths)
 {
     if (!style.fill && !style.stroke)
@@ -1084,6 +1093,7 @@ void stage_path(
         fail(QUANTAPDF_ERROR_UNSUPPORTED);
 
     staged_path staged;
+    staged.order = order;
     staged.commands = std::move(commands);
     staged.fill_ref = style.fill ? style.fill_ref : std::string{};
     staged.stroke_ref = style.stroke ? style.stroke_ref : std::string{};
