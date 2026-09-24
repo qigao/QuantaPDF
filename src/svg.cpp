@@ -1624,6 +1624,68 @@ std::vector<quantapdf_composer_path_command> points_path(
     return result;
 }
 
+std::vector<quantapdf_composer_path_command> shape_commands(
+    element const& item,
+    std::string const& tag,
+    bool* out_force_no_fill)
+{
+    *out_force_no_fill = false;
+    if (tag == "path") {
+        auto const* data = find_attribute(item, "d");
+        if (data == nullptr)
+            fail(QUANTAPDF_ERROR_FORMAT);
+        return parse_path_data(*data);
+    }
+    if (tag == "rect") {
+        return rectangle(
+            optional_number(item, "x", 0.0),
+            optional_number(item, "y", 0.0),
+            required_number(item, "width"),
+            required_number(item, "height"));
+    }
+    if (tag == "line") {
+        *out_force_no_fill = true;
+        return {
+            move_to(
+                optional_number(item, "x1", 0.0),
+                optional_number(item, "y1", 0.0)),
+            line_to(
+                optional_number(item, "x2", 0.0),
+                optional_number(item, "y2", 0.0))};
+    }
+    if (tag == "polyline" || tag == "polygon") {
+        auto const* points = find_attribute(item, "points");
+        if (points == nullptr)
+            fail(QUANTAPDF_ERROR_FORMAT);
+        if (tag == "polyline")
+            *out_force_no_fill = true;
+        return points_path(*points, tag == "polygon");
+    }
+    if (tag == "circle") {
+        double const radius = required_number(item, "r");
+        return ellipse(
+            optional_number(item, "cx", 0.0),
+            optional_number(item, "cy", 0.0),
+            radius,
+            radius);
+    }
+    if (tag == "ellipse") {
+        return ellipse(
+            optional_number(item, "cx", 0.0),
+            optional_number(item, "cy", 0.0),
+            required_number(item, "rx"),
+            required_number(item, "ry"));
+    }
+    fail(QUANTAPDF_ERROR_UNSUPPORTED);
+}
+
+bool drawable_tag(std::string const& tag)
+{
+    return tag == "path" || tag == "rect" || tag == "line" ||
+        tag == "polyline" || tag == "polygon" ||
+        tag == "circle" || tag == "ellipse";
+}
+
 struct context {
     std::string name;
     paint_style style;
