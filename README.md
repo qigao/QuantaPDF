@@ -273,7 +273,21 @@ Composer clip primitive. External URLs, wrong-kind/unresolved refs, duplicate
 IDs, objectBoundingBox semantics, nested clip refs, and group/root clip-path
 remain fail-closed. Gradient/clip/state resources are registered only during
 transactional publish and are rolled back on failure. Reusable `symbol/use`
-definitions remain the separate SVG V2B2 workstream.
+definitions were completed by the SVG V2B2 workstream.
+
+2.24 adds bounded local `symbol/use` reuse through Composer Form XObjects.
+Symbols are defined only under root `defs`, require a viewBox, own their styles,
+and may contain the existing drawable/group/use subset. A side-effect-free
+dependency graph rejects unresolved, wrong-kind, external, or cyclic symbol
+references before publication. On first use, the copied symbol token subtree is
+replayed as a synthetic bounded SVG inside a temporary transparent child
+Composer; the result is stored as an immutable Form snapshot. Repeated uses
+place the same Form with affine transforms rather than expanding PATH geometry.
+Symbol preserveAspectRatio supports none/meet/slice, with slice implemented by
+the existing Composer clip state. Symbol content may continue to use B1
+gradient/clip resources and nested acyclic symbols. Presentation overrides on
+`use` remain fail-closed in V1 so one symbol maps to one immutable Form cache
+entry.
 
 The original `quantapdf_composer_draw_text()` contract remains Base-14 +
 WinAnsi and is unchanged. For embedded fonts, register caller-owned SFNT bytes
