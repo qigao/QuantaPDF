@@ -1708,11 +1708,105 @@ struct clip_definition {
         QUANTAPDF_COMPOSER_FILL_NONZERO;
 };
 
+struct symbol_definition {
+    double min_x = 0.0;
+    double min_y = 0.0;
+    double width = 0.0;
+    double height = 0.0;
+    preserve_aspect preserve;
+    std::vector<element> tokens;
+    std::set<std::string> dependencies;
+};
+
 struct definition_table {
     std::map<std::string, gradient_definition> gradients;
     std::map<std::string, clip_definition> clips;
+    std::map<std::string, symbol_definition> symbols;
+    std::vector<element> defs_tokens;
     std::set<std::string> ids;
 };
+
+std::string local_fragment_href(std::string const& value)
+{
+    std::string const text = trim(value);
+    if (text.size() < 2u || text[0] != '#')
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    std::string const id = text.substr(1u);
+    if (id.empty())
+        fail(QUANTAPDF_ERROR_FORMAT);
+    for (char ch: id) {
+        if (!name_char(ch))
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+    return id;
+}
+
+void validate_use_attributes(element const& item)
+{
+    for (auto const& attr: item.attributes) {
+        if (attr.name != "id" && attr.name != "href" &&
+            attr.name != "x" && attr.name != "y" &&
+            attr.name != "width" && attr.name != "height" &&
+            attr.name != "transform")
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+    auto const* href = find_attribute(item, "href");
+    if (href == nullptr)
+        fail(QUANTAPDF_ERROR_FORMAT);
+    (void)local_fragment_href(*href);
+}
+
+void validate_symbol_attributes(element const& item)
+{
+    for (auto const& attr: item.attributes) {
+        if (attr.name != "id" && attr.name != "viewBox" &&
+            attr.name != "preserveAspectRatio")
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+}
+
+std::string serialize_element(
+    element const& item,
+    bool strip_id)
+{
+    std::string result;
+    if (item.closing)
+        return "</" + item.name + ">";
+
+    result += "<";
+    result += item.name;
+    for (auto const& attr: item.attributes) {
+        if (strip_id && attr.name == "id")
+            continue;
+        if (attr.value.find('&') != std::string::npos ||
+            attr.value.find('<') != std::string::npos)
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        char quote = '"';
+        if (attr.value.find('"') != std::string::npos) {
+            if (attr.value.find('\'') != std::string::npos)
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            quote = '\'';
+        }
+        result += " ";
+        result += attr.name;
+        result += "=";
+        result.push_back(quote);
+        result += attr.value;
+        result.push_back(quote);
+    }
+    result += item.self_closing ? "/>" : ">";
+    return result;
+}
+
+std::string serialize_tokens(
+    std::vector<element> const& tokens,
+    bool strip_id)
+{
+    std::string result;
+    for (auto const& token: tokens)
+        result += serialize_element(token, strip_id);
+    return result;
+}
 
 std::string required_id(element const& item)
 {
