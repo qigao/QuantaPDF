@@ -4571,20 +4571,19 @@ double mask_region_component(
     bool position,
     double default_fraction)
 {
-    double const minimum =
-        horizontal ? local_bounds.x0 : local_bounds.y0;
-    double const maximum =
-        horizontal ? local_bounds.x1 : local_bounds.y1;
-    double const extent = maximum - minimum;
+    (void)local_bounds;
+    (void)horizontal;
+    (void)position;
 
     if (text.empty()) {
         if (units == resource_units::object_bbox)
             return default_fraction;
-        if (!local_bounds.valid || !finite(extent) || extent <= 0.0)
-            fail(QUANTAPDF_ERROR_UNSUPPORTED);
-        return position
-            ? minimum + default_fraction * extent
-            : default_fraction * extent;
+        /*
+         * SVG percentage/default mask-region values in userSpaceOnUse depend
+         * on the active viewport percentage context. V4B does not substitute
+         * the target geometry bbox for that viewport.
+         */
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
     }
 
     std::string value = trim(text);
@@ -4596,7 +4595,7 @@ double mask_region_component(
     if (value.empty())
         fail(QUANTAPDF_ERROR_FORMAT);
 
-    if (percentage || units == resource_units::object_bbox) {
+    if (units == resource_units::object_bbox) {
         number_scanner scanner(value);
         double result = scanner.number();
         if (!scanner.done())
@@ -4605,13 +4604,11 @@ double mask_region_component(
             result /= 100.0;
         if (!finite(result))
             fail(QUANTAPDF_ERROR_UNSUPPORTED);
-        if (units == resource_units::object_bbox)
-            return result;
-        if (!local_bounds.valid || !finite(extent) || extent <= 0.0)
-            fail(QUANTAPDF_ERROR_UNSUPPORTED);
-        return position ? minimum + result * extent : result * extent;
+        return result;
     }
 
+    if (percentage)
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
     return scalar(value);
 }
 
