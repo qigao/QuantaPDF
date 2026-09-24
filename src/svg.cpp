@@ -368,6 +368,7 @@ struct paint_style {
     std::string fill_ref;
     std::string stroke_ref;
     std::string clip_ref;
+    std::string mask_ref;
     quantapdf_composer_fill_rule fill_rule =
         QUANTAPDF_COMPOSER_FILL_NONZERO;
     quantapdf_composer_line_cap line_cap =
@@ -587,6 +588,16 @@ void apply_style_property(
                 fail(QUANTAPDF_ERROR_UNSUPPORTED);
             style->clip_ref = std::move(reference);
         }
+    } else if (name == "mask") {
+        std::string const parsed = lower_ascii(trim(value));
+        if (parsed == "none") {
+            style->mask_ref.clear();
+        } else {
+            std::string reference;
+            if (!local_fragment_url(value, &reference))
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            style->mask_ref = std::move(reference);
+        }
     } else {
         fail(QUANTAPDF_ERROR_UNSUPPORTED);
     }
@@ -793,7 +804,8 @@ bool common_attribute(std::string const& name)
         name == "stroke-linejoin" || name == "stroke-miterlimit" ||
         name == "fill-opacity" || name == "stroke-opacity" ||
         name == "opacity" || name == "stroke-dasharray" ||
-        name == "stroke-dashoffset" || name == "clip-path";
+        name == "stroke-dashoffset" || name == "clip-path" ||
+        name == "mask";
 }
 
 bool tag_attribute_allowed(
@@ -844,9 +856,10 @@ paint_style derive_style(
     element const& item)
 {
     paint_style result = parent;
-    // SVG opacity and clip-path are not inherited presentation properties.
+    // SVG opacity, clip-path, and mask are not inherited presentation properties.
     result.opacity = 1.0;
     result.clip_ref.clear();
+    result.mask_ref.clear();
     for (auto const& attr: item.attributes) {
         if (attr.name == "fill" || attr.name == "stroke" ||
             attr.name == "fill-rule" || attr.name == "stroke-width" ||
@@ -858,7 +871,8 @@ paint_style derive_style(
             attr.name == "opacity" ||
             attr.name == "stroke-dasharray" ||
             attr.name == "stroke-dashoffset" ||
-            attr.name == "clip-path")
+            attr.name == "clip-path" ||
+            attr.name == "mask")
             apply_style_property(&result, attr.name, attr.value);
     }
     if (auto const* style = find_attribute(item, "style"))
@@ -1907,6 +1921,23 @@ struct clip_definition {
     std::string nested_ref;
 };
 
+enum class svg_mask_mode {
+    luminosity,
+    alpha
+};
+
+struct mask_definition {
+    resource_units units = resource_units::object_bbox;
+    resource_units content_units = resource_units::user_space;
+    std::string x_text;
+    std::string y_text;
+    std::string width_text;
+    std::string height_text;
+    svg_mask_mode mode = svg_mask_mode::luminosity;
+    std::vector<element> tokens;
+    std::set<std::string> mask_dependencies;
+};
+
 struct symbol_definition {
     double min_x = 0.0;
     double min_y = 0.0;
@@ -1939,6 +1970,7 @@ struct pattern_definition {
 struct definition_table {
     std::map<std::string, gradient_definition> gradients;
     std::map<std::string, clip_definition> clips;
+    std::map<std::string, mask_definition> masks;
     std::map<std::string, symbol_definition> symbols;
     std::map<std::string, pattern_definition> patterns;
     std::vector<element> defs_tokens;
