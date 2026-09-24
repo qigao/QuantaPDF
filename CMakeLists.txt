@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(QuantaPDF VERSION 2.26.0 LANGUAGES C CXX)
+project(QuantaPDF VERSION 2.27.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 
