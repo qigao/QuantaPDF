@@ -3664,6 +3664,7 @@ bool style_is_default_for_use(paint_style const& style)
         style.fill_ref.empty() &&
         style.stroke_ref.empty() &&
         style.clip_ref.empty() &&
+        style.mask_ref.empty() &&
         style.fill_rule == defaults.fill_rule &&
         style.line_cap == defaults.line_cap &&
         style.line_join == defaults.line_join &&
@@ -5323,6 +5324,8 @@ quantapdf_status publish_paths(
     size_t const paint_snapshot = composer->paint_count;
     size_t const state_snapshot = composer->graphics_state_count;
     size_t const clip_snapshot = composer->clip_count;
+    size_t const soft_mask_snapshot = composer->soft_mask_count;
+    size_t const form_snapshot = composer->form_count;
     size_t const resource_snapshot = composer->resource_bytes;
 
     auto rollback_resources = [&]() {
@@ -5334,9 +5337,13 @@ quantapdf_status publish_paths(
             std::free(composer->clips[i].commands);
             std::free(composer->clips[i].members);
         }
+        for (size_t i = form_snapshot; i < composer->form_count; ++i)
+            std::free(composer->forms[i].pdf_data);
         composer->paint_count = paint_snapshot;
         composer->clip_count = clip_snapshot;
         composer->graphics_state_count = state_snapshot;
+        composer->soft_mask_count = soft_mask_snapshot;
+        composer->form_count = form_snapshot;
         composer->resource_bytes = resource_snapshot;
     };
 
@@ -5421,18 +5428,38 @@ quantapdf_status publish_paths(
         quantapdf_composer_clip_id const effective_clip_id =
             clip_ids[i];
 
+        quantapdf_composer_soft_mask_id soft_mask_id = 0u;
+        if (!paths[i].mask_ref.empty()) {
+            quantapdf_status const mask_status =
+                materialize_mask(
+                    composer,
+                    definitions,
+                    paths[i].mask_ref,
+                    paths[i].resource_transform,
+                    paths[i].local_bounds,
+                    &soft_mask_id);
+            if (mask_status != QUANTAPDF_OK) {
+                rollback_resources();
+                return mask_status;
+            }
+        }
+
         if (paths[i].fill_alpha != 1.0f ||
             paths[i].stroke_alpha != 1.0f ||
-            effective_clip_id != 0u) {
+            effective_clip_id != 0u ||
+            soft_mask_id != 0u) {
             quantapdf_composer_graphics_state_options state{};
             state.struct_size =
-                effective_clip_id == 0u
-                ? QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE
-                : QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE;
+                soft_mask_id != 0u
+                ? QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V3_SIZE
+                : (effective_clip_id != 0u
+                    ? QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE
+                    : QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE);
             state.fill_alpha = paths[i].fill_alpha;
             state.stroke_alpha = paths[i].stroke_alpha;
             state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
             state.clip_id = effective_clip_id;
+            state.soft_mask_id = soft_mask_id;
             quantapdf_status const state_status =
                 quantapdf_composer_add_graphics_state(
                     composer, &state, &state_ids[i]);
