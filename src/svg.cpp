@@ -3619,6 +3619,7 @@ quantapdf_status publish_paths(
     std::vector<quantapdf_composer_graphics_state_id>
         state_ids(paths.size(), 0u);
     std::vector<quantapdf_composer_operation> staged(paths.size());
+    std::map<std::string, quantapdf_composer_paint_id> pattern_cache;
 
     size_t const paint_snapshot = composer->paint_count;
     size_t const state_snapshot = composer->graphics_state_count;
@@ -3660,38 +3661,42 @@ quantapdf_status publish_paths(
     }
 
     for (size_t i = 0u; i < paths.size(); ++i) {
-        if (!paths[i].fill_ref.empty()) {
-            auto found = definitions.gradients.find(paths[i].fill_ref);
-            if (found == definitions.gradients.end()) {
-                rollback_resources();
-                return QUANTAPDF_ERROR_UNSUPPORTED;
+        auto resolve_paint = [&](std::string const& reference,
+                                 quantapdf_composer_paint_id* out_id)
+            -> quantapdf_status {
+            if (reference.empty())
+                return QUANTAPDF_OK;
+            auto gradient = definitions.gradients.find(reference);
+            if (gradient != definitions.gradients.end()) {
+                return register_gradient_paint(
+                    composer,
+                    gradient->second,
+                    paths[i].resource_transform,
+                    out_id);
             }
-            quantapdf_status const status = register_gradient_paint(
-                composer,
-                found->second,
-                paths[i].resource_transform,
-                &fill_paint_ids[i]);
-            if (status != QUANTAPDF_OK) {
-                rollback_resources();
-                return status;
+            auto pattern = definitions.patterns.find(reference);
+            if (pattern != definitions.patterns.end()) {
+                return materialize_pattern(
+                    composer,
+                    definitions,
+                    reference,
+                    &pattern_cache,
+                    out_id);
             }
-        }
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        };
 
-        if (!paths[i].stroke_ref.empty()) {
-            auto found = definitions.gradients.find(paths[i].stroke_ref);
-            if (found == definitions.gradients.end()) {
-                rollback_resources();
-                return QUANTAPDF_ERROR_UNSUPPORTED;
-            }
-            quantapdf_status const status = register_gradient_paint(
-                composer,
-                found->second,
-                paths[i].resource_transform,
-                &stroke_paint_ids[i]);
-            if (status != QUANTAPDF_OK) {
-                rollback_resources();
-                return status;
-            }
+        quantapdf_status status =
+            resolve_paint(paths[i].fill_ref, &fill_paint_ids[i]);
+        if (status != QUANTAPDF_OK) {
+            rollback_resources();
+            return status;
+        }
+        status = resolve_paint(
+            paths[i].stroke_ref, &stroke_paint_ids[i]);
+        if (status != QUANTAPDF_OK) {
+            rollback_resources();
+            return status;
         }
 
         quantapdf_composer_clip_id effective_clip_id = viewport_clip_id;
