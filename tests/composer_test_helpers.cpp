@@ -497,6 +497,70 @@ extern "C" int quantapdf_test_pdf_extgstate_info(
     }
 }
 
+extern "C" int quantapdf_test_pdf_pattern_info(
+    unsigned char const* data,
+    size_t size,
+    size_t page_index,
+    size_t paint_id,
+    int* out_shading_type,
+    int* out_function_type,
+    double out_matrix[6])
+{
+    if (out_shading_type == nullptr || out_function_type == nullptr ||
+        out_matrix == nullptr)
+        return 0;
+    *out_shading_type = 0;
+    *out_function_type = 0;
+    for (size_t i = 0u; i < 6u; ++i)
+        out_matrix[i] = 0.0;
+    try {
+        QPDF pdf;
+        pdf.processMemoryFile(
+            "composer-pattern-info.pdf",
+            reinterpret_cast<char const*>(data),
+            size);
+        auto pages = pdf.getAllPages();
+        if (page_index >= pages.size() || paint_id == 0u)
+            return 0;
+        auto resources = pages[page_index].getKey("/Resources");
+        auto patterns = resources.getKey("/Pattern");
+        if (!patterns.isDictionary())
+            return 0;
+        auto pattern = patterns.getKey("/P" + std::to_string(paint_id));
+        if (!pattern.isDictionary())
+            return 0;
+        auto shading = pattern.getKey("/Shading");
+        auto matrix = pattern.getKey("/Matrix");
+        if (!shading.isDictionary() ||
+            !matrix.isArray() || matrix.getArrayNItems() != 6u)
+            return 0;
+        auto shading_type = shading.getKey("/ShadingType");
+        auto function = shading.getKey("/Function");
+        if (!shading_type.isInteger() || !function.isDictionary())
+            return 0;
+        auto function_type = function.getKey("/FunctionType");
+        if (!function_type.isInteger())
+            return 0;
+        *out_shading_type =
+            static_cast<int>(shading_type.getIntValue());
+        *out_function_type =
+            static_cast<int>(function_type.getIntValue());
+        for (size_t i = 0u; i < 6u; ++i) {
+            auto item = matrix.getArrayItem(static_cast<int>(i));
+            if (!item.isNumber())
+                return 0;
+            out_matrix[i] = item.getNumericValue();
+        }
+        return 1;
+    } catch (...) {
+        *out_shading_type = 0;
+        *out_function_type = 0;
+        for (size_t i = 0u; i < 6u; ++i)
+            out_matrix[i] = 0.0;
+        return 0;
+    }
+}
+
 extern "C" void quantapdf_test_use_comma_locale(int enabled)
 {
     std::locale::global(enabled

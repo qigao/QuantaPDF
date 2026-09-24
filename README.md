@@ -222,6 +222,17 @@ byte-compatible output. The backend lowers referenced states to PDF ExtGState
 resources and scopes each `gs` application with balanced `q/Q` so state does
 not leak between operations.
 
+2.19 adds reusable Composer paint resources for linear and radial gradients.
+`quantapdf_composer_add_linear_gradient()` and
+`quantapdf_composer_add_radial_gradient()` copy 2–64 strictly ordered opaque
+sRGB stops and return a generic `quantapdf_composer_paint_id`. Path options
+attach fill/stroke paint IDs only through an additive V3 tail; paint ID 0 keeps
+the existing solid ARGB contract. Linear/radial geometry is expressed in local
+displayed-page coordinates, with an optional finite non-singular affine
+transform. V1 gradient spread is PAD only. The qpdf backend lowers paints to
+axial/radial shadings and Pattern resources; no second vector backend is
+introduced.
+
 The original `quantapdf_composer_draw_text()` contract remains Base-14 +
 WinAnsi and is unchanged. For embedded fonts, register caller-owned SFNT bytes
 with `quantapdf_composer_add_font()`, then draw UTF-8 through

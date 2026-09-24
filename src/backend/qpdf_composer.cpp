@@ -147,6 +147,151 @@ QPDFObjectHandle make_graphics_state(
     return pdf.makeIndirectObject(dictionary);
 }
 
+QPDFObjectHandle rgb_array(uint32_t argb)
+{
+    auto result = QPDFObjectHandle::newArray();
+    result.appendItem(QPDFObjectHandle::newReal(
+        ((argb >> 16u) & 0xffu) / 255.0, 6));
+    result.appendItem(QPDFObjectHandle::newReal(
+        ((argb >> 8u) & 0xffu) / 255.0, 6));
+    result.appendItem(QPDFObjectHandle::newReal(
+        (argb & 0xffu) / 255.0, 6));
+    return result;
+}
+
+QPDFObjectHandle make_gradient_segment_function(
+    QPDF& pdf,
+    uint32_t start_argb,
+    uint32_t end_argb)
+{
+    auto function = QPDFObjectHandle::newDictionary();
+    auto domain = QPDFObjectHandle::newArray();
+    domain.appendItem(QPDFObjectHandle::newInteger(0));
+    domain.appendItem(QPDFObjectHandle::newInteger(1));
+    function.replaceKey("/FunctionType", QPDFObjectHandle::newInteger(2));
+    function.replaceKey("/Domain", domain);
+    function.replaceKey("/C0", rgb_array(start_argb));
+    function.replaceKey("/C1", rgb_array(end_argb));
+    function.replaceKey("/N", QPDFObjectHandle::newInteger(1));
+    return pdf.makeIndirectObject(function);
+}
+
+QPDFObjectHandle make_gradient_function(
+    QPDF& pdf,
+    quantapdf_composer_paint_state const& paint)
+{
+    if (paint.stop_count == 2u) {
+        return make_gradient_segment_function(
+            pdf, paint.stops[0].argb, paint.stops[1].argb);
+    }
+
+    auto function = QPDFObjectHandle::newDictionary();
+    auto domain = QPDFObjectHandle::newArray();
+    auto functions = QPDFObjectHandle::newArray();
+    auto bounds = QPDFObjectHandle::newArray();
+    auto encode = QPDFObjectHandle::newArray();
+
+    domain.appendItem(QPDFObjectHandle::newInteger(0));
+    domain.appendItem(QPDFObjectHandle::newInteger(1));
+    for (size_t i = 0u; i + 1u < paint.stop_count; ++i) {
+        functions.appendItem(make_gradient_segment_function(
+            pdf, paint.stops[i].argb, paint.stops[i + 1u].argb));
+        encode.appendItem(QPDFObjectHandle::newInteger(0));
+        encode.appendItem(QPDFObjectHandle::newInteger(1));
+        if (i + 1u < paint.stop_count - 1u) {
+            bounds.appendItem(QPDFObjectHandle::newReal(
+                paint.stops[i + 1u].offset,
+                decimal_precision(paint.stops[i + 1u].offset)));
+        }
+    }
+
+    function.replaceKey("/FunctionType", QPDFObjectHandle::newInteger(3));
+    function.replaceKey("/Domain", domain);
+    function.replaceKey("/Functions", functions);
+    function.replaceKey("/Bounds", bounds);
+    function.replaceKey("/Encode", encode);
+    return pdf.makeIndirectObject(function);
+}
+
+QPDFObjectHandle make_gradient_shading(
+    QPDF& pdf,
+    quantapdf_composer_paint_state const& paint)
+{
+    auto shading = QPDFObjectHandle::newDictionary();
+    auto coords = QPDFObjectHandle::newArray();
+    auto extend = QPDFObjectHandle::newArray();
+
+    shading.replaceKey(
+        "/ShadingType",
+        QPDFObjectHandle::newInteger(
+            paint.kind == QUANTAPDF_COMPOSER_PAINT_LINEAR_GRADIENT_INTERNAL
+                ? 2
+                : 3));
+    shading.replaceKey(
+        "/ColorSpace", QPDFObjectHandle::newName("/DeviceRGB"));
+
+    coords.appendItem(QPDFObjectHandle::newReal(
+        paint.start.x, decimal_precision(paint.start.x)));
+    coords.appendItem(QPDFObjectHandle::newReal(
+        paint.start.y, decimal_precision(paint.start.y)));
+    if (paint.kind ==
+        QUANTAPDF_COMPOSER_PAINT_RADIAL_GRADIENT_INTERNAL) {
+        coords.appendItem(QPDFObjectHandle::newReal(
+            paint.start_radius, decimal_precision(paint.start_radius)));
+    }
+    coords.appendItem(QPDFObjectHandle::newReal(
+        paint.end.x, decimal_precision(paint.end.x)));
+    coords.appendItem(QPDFObjectHandle::newReal(
+        paint.end.y, decimal_precision(paint.end.y)));
+    if (paint.kind ==
+        QUANTAPDF_COMPOSER_PAINT_RADIAL_GRADIENT_INTERNAL) {
+        coords.appendItem(QPDFObjectHandle::newReal(
+            paint.end_radius, decimal_precision(paint.end_radius)));
+    }
+    shading.replaceKey("/Coords", coords);
+    shading.replaceKey("/Function", make_gradient_function(pdf, paint));
+    extend.appendItem(QPDFObjectHandle::newBool(true));
+    extend.appendItem(QPDFObjectHandle::newBool(true));
+    shading.replaceKey("/Extend", extend);
+    return pdf.makeIndirectObject(shading);
+}
+
+QPDFObjectHandle make_gradient_pattern(
+    QPDF& pdf,
+    QPDFObjectHandle shading,
+    quantapdf_composer_paint_state const& paint,
+    double page_height)
+{
+    auto pattern = QPDFObjectHandle::newDictionary();
+    auto matrix = QPDFObjectHandle::newArray();
+
+    pattern.replaceKey("/Type", QPDFObjectHandle::newName("/Pattern"));
+    pattern.replaceKey("/PatternType", QPDFObjectHandle::newInteger(2));
+    pattern.replaceKey("/Shading", shading);
+
+    matrix.appendItem(QPDFObjectHandle::newReal(
+        canonical_zero(paint.transform.a),
+        decimal_precision(paint.transform.a)));
+    matrix.appendItem(QPDFObjectHandle::newReal(
+        canonical_zero(-static_cast<double>(paint.transform.b)),
+        decimal_precision(paint.transform.b)));
+    matrix.appendItem(QPDFObjectHandle::newReal(
+        canonical_zero(paint.transform.c),
+        decimal_precision(paint.transform.c)));
+    matrix.appendItem(QPDFObjectHandle::newReal(
+        canonical_zero(-static_cast<double>(paint.transform.d)),
+        decimal_precision(paint.transform.d)));
+    matrix.appendItem(QPDFObjectHandle::newReal(
+        canonical_zero(paint.transform.e),
+        decimal_precision(paint.transform.e)));
+    double const pdf_f =
+        page_height - static_cast<double>(paint.transform.f);
+    matrix.appendItem(QPDFObjectHandle::newReal(
+        canonical_zero(pdf_f), decimal_precision(pdf_f)));
+    pattern.replaceKey("/Matrix", matrix);
+    return pdf.makeIndirectObject(pattern);
+}
+
 void append_text_matrix(
     std::string& content,
     quantapdf_composer_page_state const& page,
@@ -1023,7 +1168,12 @@ void append_path_content(
 
     content += "q ";
     if (options.stroke) {
-        append_color(options.stroke_argb, "RG");
+        if (options.stroke_paint_id != 0u) {
+            content += "/Pattern CS /P" +
+                std::to_string(options.stroke_paint_id) + " SCN ";
+        } else {
+            append_color(options.stroke_argb, "RG");
+        }
         content += number(options.stroke_width) + " w " +
             std::to_string(static_cast<int>(options.line_cap)) + " J " +
             std::to_string(static_cast<int>(options.line_join)) + " j " +
@@ -1038,8 +1188,14 @@ void append_path_content(
             content += "] " + number(path.dash_phase) + " d ";
         }
     }
-    if (options.fill)
-        append_color(options.fill_argb, "rg");
+    if (options.fill) {
+        if (options.fill_paint_id != 0u) {
+            content += "/Pattern cs /P" +
+                std::to_string(options.fill_paint_id) + " scn ";
+        } else {
+            append_color(options.fill_argb, "rg");
+        }
+    }
 
     for (size_t i = 0u; i < path.command_count; ++i) {
         auto const& command = path.commands[i];
@@ -1635,6 +1791,9 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
         std::vector<std::optional<QPDFObjectHandle>>
             graphics_state_objects(composer->graphics_state_count);
 
+        std::vector<std::optional<QPDFObjectHandle>>
+            paint_shading_objects(composer->paint_count);
+
         for (std::size_t page_index = 0; page_index < composer->page_count;
              ++page_index) {
             auto page = QPDFObjectHandle::newDictionary();
@@ -1643,8 +1802,12 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             auto fonts = QPDFObjectHandle::newDictionary();
             auto xobjects = QPDFObjectHandle::newDictionary();
             auto ext_gstates = QPDFObjectHandle::newDictionary();
+            auto patterns = QPDFObjectHandle::newDictionary();
+            std::vector<std::optional<QPDFObjectHandle>>
+                page_patterns(composer->paint_count);
             bool used_fonts[12] = {};
             bool used_ext_gstate = false;
+            bool used_pattern = false;
 
             for (std::size_t i = 0; i < composer->operation_count; ++i) {
                 auto const& operation = composer->operations[i];
@@ -1718,6 +1881,39 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             }
             if (used_ext_gstate)
                 resources.replaceKey("/ExtGState", ext_gstates);
+
+            for (std::size_t i = 0; i < composer->operation_count; ++i) {
+                auto const& operation = composer->operations[i];
+                if (operation.page_index != page_index ||
+                    operation.kind != QUANTAPDF_COMPOSER_OPERATION_PATH)
+                    continue;
+                auto add_paint = [&](quantapdf_composer_paint_id id) {
+                    if (id == 0u)
+                        return;
+                    if (id > composer->paint_count)
+                        throw std::logic_error("paint resource missing");
+                    auto& page_pattern = page_patterns[id - 1u];
+                    if (!page_pattern.has_value()) {
+                        auto& shading = paint_shading_objects[id - 1u];
+                        if (!shading.has_value()) {
+                            shading = make_gradient_shading(
+                                pdf, composer->paints[id - 1u]);
+                        }
+                        page_pattern = make_gradient_pattern(
+                            pdf,
+                            *shading,
+                            composer->paints[id - 1u],
+                            composer->pages[page_index].height_points);
+                    }
+                    patterns.replaceKey(
+                        "/P" + std::to_string(id), *page_pattern);
+                    used_pattern = true;
+                };
+                add_paint(operation.value.path.options.fill_paint_id);
+                add_paint(operation.value.path.options.stroke_paint_id);
+            }
+            if (used_pattern)
+                resources.replaceKey("/Pattern", patterns);
             media_box.appendItem(QPDFObjectHandle::newInteger(0));
             media_box.appendItem(QPDFObjectHandle::newInteger(0));
             media_box.appendItem(QPDFObjectHandle::newReal(

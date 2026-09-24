@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 18
+#define QUANTAPDF_VERSION_MINOR 19
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -67,6 +67,7 @@ typedef struct quantapdf_affine_transform {
  * tail padding.
  */
 typedef size_t quantapdf_composer_graphics_state_id;
+typedef size_t quantapdf_composer_paint_id;
 
 typedef enum quantapdf_composer_blend_mode {
     QUANTAPDF_COMPOSER_BLEND_NORMAL = 0,
@@ -332,6 +333,8 @@ typedef struct quantapdf_composer_path_options {
     quantapdf_composer_line_join line_join;
     float miter_limit;
     quantapdf_composer_graphics_state_id graphics_state_id;
+    quantapdf_composer_paint_id fill_paint_id;
+    quantapdf_composer_paint_id stroke_paint_id;
 } quantapdf_composer_path_options;
 
 #define QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE \
@@ -342,7 +345,54 @@ typedef struct quantapdf_composer_path_options {
     (offsetof(quantapdf_composer_path_options, graphics_state_id) + \
      sizeof(quantapdf_composer_graphics_state_id))
 #define QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_SIZE \
+    (offsetof(quantapdf_composer_path_options, fill_paint_id))
+#define QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_MIN_SIZE \
+    (offsetof(quantapdf_composer_path_options, stroke_paint_id) + \
+     sizeof(quantapdf_composer_paint_id))
+#define QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE \
     (sizeof(quantapdf_composer_path_options))
+
+#define QUANTAPDF_COMPOSER_MAX_GRADIENT_STOPS ((size_t)64u)
+
+typedef struct quantapdf_composer_gradient_stop {
+    float offset;
+    uint32_t argb;
+} quantapdf_composer_gradient_stop;
+
+#define QUANTAPDF_COMPOSER_GRADIENT_STOP_V1_SIZE \
+    (sizeof(quantapdf_composer_gradient_stop))
+
+typedef struct quantapdf_composer_linear_gradient_options {
+    size_t struct_size;
+    quantapdf_point start;
+    quantapdf_point end;
+    quantapdf_affine_transform transform;
+    const quantapdf_composer_gradient_stop *stops;
+    size_t stop_count;
+} quantapdf_composer_linear_gradient_options;
+
+#define QUANTAPDF_COMPOSER_LINEAR_GRADIENT_OPTIONS_V1_MIN_SIZE \
+    (offsetof(quantapdf_composer_linear_gradient_options, stop_count) + \
+     sizeof(size_t))
+#define QUANTAPDF_COMPOSER_LINEAR_GRADIENT_OPTIONS_V1_SIZE \
+    (sizeof(quantapdf_composer_linear_gradient_options))
+
+typedef struct quantapdf_composer_radial_gradient_options {
+    size_t struct_size;
+    quantapdf_point start_center;
+    float start_radius;
+    quantapdf_point end_center;
+    float end_radius;
+    quantapdf_affine_transform transform;
+    const quantapdf_composer_gradient_stop *stops;
+    size_t stop_count;
+} quantapdf_composer_radial_gradient_options;
+
+#define QUANTAPDF_COMPOSER_RADIAL_GRADIENT_OPTIONS_V1_MIN_SIZE \
+    (offsetof(quantapdf_composer_radial_gradient_options, stop_count) + \
+     sizeof(size_t))
+#define QUANTAPDF_COMPOSER_RADIAL_GRADIENT_OPTIONS_V1_SIZE \
+    (sizeof(quantapdf_composer_radial_gradient_options))
 
 #define QUANTAPDF_COMPOSER_MAX_DASH_COUNT ((size_t)64u)
 
@@ -809,6 +859,16 @@ QUANTAPDF_API quantapdf_status quantapdf_composer_add_graphics_state(
     quantapdf_composer *composer,
     const quantapdf_composer_graphics_state_options *options,
     quantapdf_composer_graphics_state_id *out_graphics_state_id);
+
+QUANTAPDF_API quantapdf_status quantapdf_composer_add_linear_gradient(
+    quantapdf_composer *composer,
+    const quantapdf_composer_linear_gradient_options *options,
+    quantapdf_composer_paint_id *out_paint_id);
+
+QUANTAPDF_API quantapdf_status quantapdf_composer_add_radial_gradient(
+    quantapdf_composer *composer,
+    const quantapdf_composer_radial_gradient_options *options,
+    quantapdf_composer_paint_id *out_paint_id);
 
 QUANTAPDF_API quantapdf_status quantapdf_composer_measure_text(
     const quantapdf_composer *composer,

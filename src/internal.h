@@ -152,6 +152,22 @@ typedef struct quantapdf_composer_graphics_state {
     quantapdf_composer_blend_mode blend_mode;
 } quantapdf_composer_graphics_state;
 
+typedef enum quantapdf_composer_paint_kind_internal {
+    QUANTAPDF_COMPOSER_PAINT_LINEAR_GRADIENT_INTERNAL = 1,
+    QUANTAPDF_COMPOSER_PAINT_RADIAL_GRADIENT_INTERNAL = 2
+} quantapdf_composer_paint_kind_internal;
+
+typedef struct quantapdf_composer_paint_state {
+    quantapdf_composer_paint_kind_internal kind;
+    quantapdf_point start;
+    quantapdf_point end;
+    float start_radius;
+    float end_radius;
+    quantapdf_affine_transform transform;
+    quantapdf_composer_gradient_stop *stops;
+    size_t stop_count;
+} quantapdf_composer_paint_state;
+
 typedef struct quantapdf_composer_operation {
     quantapdf_composer_operation_kind kind;
     size_t page_index;
@@ -209,6 +225,9 @@ struct quantapdf_composer {
     quantapdf_composer_graphics_state *graphics_states;
     size_t graphics_state_count;
     size_t graphics_state_capacity;
+    quantapdf_composer_paint_state *paints;
+    size_t paint_count;
+    size_t paint_capacity;
     quantapdf_composer_link_state *links;
     size_t link_count;
     size_t link_capacity;
