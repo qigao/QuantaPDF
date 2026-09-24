@@ -1744,11 +1744,17 @@ quantapdf_status publish_paths(
     size_t total_bytes = 0u;
     for (auto const& path: paths) {
         if (path.commands.size() >
-            SIZE_MAX / sizeof(quantapdf_composer_path_command))
+            SIZE_MAX / sizeof(quantapdf_composer_path_command) ||
+            path.dash_lengths.size() > SIZE_MAX / sizeof(float))
             return QUANTAPDF_ERROR_UNSUPPORTED;
-        size_t const bytes =
+        size_t const command_bytes =
             path.commands.size() *
             sizeof(quantapdf_composer_path_command);
+        size_t const dash_bytes =
+            path.dash_lengths.size() * sizeof(float);
+        if (command_bytes > SIZE_MAX - dash_bytes)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        size_t const bytes = command_bytes + dash_bytes;
         if (bytes > SIZE_MAX - total_bytes)
             return QUANTAPDF_ERROR_UNSUPPORTED;
         total_bytes += bytes;
@@ -1764,28 +1770,80 @@ quantapdf_status publish_paths(
     if (reserve != QUANTAPDF_OK)
         return reserve;
 
+    size_t const state_snapshot = composer->graphics_state_count;
+    std::vector<quantapdf_composer_graphics_state_id>
+        state_ids(paths.size(), 0u);
+    for (size_t i = 0u; i < paths.size(); ++i) {
+        if (paths[i].fill_alpha == 1.0f &&
+            paths[i].stroke_alpha == 1.0f)
+            continue;
+        quantapdf_composer_graphics_state_options state{};
+        state.struct_size =
+            QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE;
+        state.fill_alpha = paths[i].fill_alpha;
+        state.stroke_alpha = paths[i].stroke_alpha;
+        state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
+        quantapdf_status const status =
+            quantapdf_composer_add_graphics_state(
+                composer, &state, &state_ids[i]);
+        if (status != QUANTAPDF_OK) {
+            composer->graphics_state_count = state_snapshot;
+            return status;
+        }
+    }
+
     std::vector<quantapdf_composer_operation> staged(paths.size());
     size_t allocated = 0u;
     for (size_t i = 0u; i < paths.size(); ++i) {
-        size_t const bytes =
+        size_t const command_bytes =
             paths[i].commands.size() *
             sizeof(quantapdf_composer_path_command);
-        auto* copy =
+        auto* command_copy =
             static_cast<quantapdf_composer_path_command*>(
-                std::malloc(bytes));
-        if (copy == nullptr) {
-            for (size_t j = 0u; j < allocated; ++j)
+                std::malloc(command_bytes));
+        if (command_copy == nullptr) {
+            for (size_t j = 0u; j < allocated; ++j) {
+                std::free(staged[j].value.path.dash_lengths);
                 std::free(staged[j].value.path.commands);
+            }
+            composer->graphics_state_count = state_snapshot;
             return QUANTAPDF_ERROR_NOMEM;
         }
-        std::memcpy(copy, paths[i].commands.data(), bytes);
+        std::memcpy(
+            command_copy, paths[i].commands.data(), command_bytes);
+
+        float* dash_copy = nullptr;
+        if (!paths[i].dash_lengths.empty()) {
+            size_t const dash_bytes =
+                paths[i].dash_lengths.size() * sizeof(float);
+            dash_copy =
+                static_cast<float*>(std::malloc(dash_bytes));
+            if (dash_copy == nullptr) {
+                std::free(command_copy);
+                for (size_t j = 0u; j < allocated; ++j) {
+                    std::free(staged[j].value.path.dash_lengths);
+                    std::free(staged[j].value.path.commands);
+                }
+                composer->graphics_state_count = state_snapshot;
+                return QUANTAPDF_ERROR_NOMEM;
+            }
+            std::memcpy(
+                dash_copy, paths[i].dash_lengths.data(), dash_bytes);
+        }
+
         quantapdf_composer_operation operation{};
         operation.kind = QUANTAPDF_COMPOSER_OPERATION_PATH;
         operation.page_index = page_index;
-        operation.value.path.commands = copy;
+        operation.graphics_state_id = state_ids[i];
+        operation.value.path.commands = command_copy;
         operation.value.path.command_count =
             paths[i].commands.size();
         operation.value.path.options = paths[i].options;
+        operation.value.path.dash_lengths = dash_copy;
+        operation.value.path.dash_count =
+            paths[i].dash_lengths.size();
+        operation.value.path.dash_phase =
+            paths[i].dash_phase;
         staged[i] = operation;
         ++allocated;
     }
