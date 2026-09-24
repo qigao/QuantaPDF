@@ -212,15 +212,15 @@ DeviceRGB plus an 8-bit soft mask. Only canonical visible bytes are charged to
 the Composer resource budget; the returned image ID is placed with the existing
 `quantapdf_composer_draw_image()` API.
 
-2.17 adds direct decoded-pixel registration through
-`quantapdf_composer_add_raster()`. Gray8, RGB24, and straight-alpha RGBA32
-accept explicit width, height, source stride, pixel pointer, and byte size.
-Visible rows are copied into tightly packed Composer-owned storage, so caller
-padding and lifetime do not cross the API boundary. RGBA32 is split into
-DeviceRGB plus an 8-bit soft mask. Only canonical visible output bytes count
-against the Composer resource budget; source padding is neither retained nor
-charged. The returned image ID is drawn with the existing
-`quantapdf_composer_draw_image()` path.
+2.18 adds reusable Composer graphics-state resources for opacity and blend
+modes. `quantapdf_composer_add_graphics_state()` registers immutable fill
+alpha, stroke alpha, and a typed blend mode (Normal, Multiply, Screen, Overlay,
+Darken, or Lighten). Existing text, embedded-text, glyph-run, image, and path
+option records expose the state ID only through an additive V2 tail; V1 sizes
+remain the legacy layouts and therefore retain opaque Normal rendering and
+byte-compatible output. The backend lowers referenced states to PDF ExtGState
+resources and scopes each `gs` application with balanced `q/Q` so state does
+not leak between operations.
 
 The original `quantapdf_composer_draw_text()` contract remains Base-14 +
 WinAnsi and is unchanged. For embedded fonts, register caller-owned SFNT bytes
