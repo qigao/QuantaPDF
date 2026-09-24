@@ -7,6 +7,8 @@
 #include <qpdf/Buffer.hh>
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFObjectHandle.hh>
+#include <qpdf/QPDFPageDocumentHelper.hh>
+#include <qpdf/QPDFPageObjectHelper.hh>
 #include <qpdf/QPDFWriter.hh>
 #include <zlib.h>
 
@@ -1235,6 +1237,37 @@ void append_path_content(
     content += " Q\n";
 }
 
+void append_form_content(
+    std::string& content,
+    quantapdf_composer const* composer,
+    quantapdf_composer_page_state const& page,
+    quantapdf_composer_operation const& operation)
+{
+    auto const form_id = operation.value.form.form_id;
+    if (form_id == 0u || form_id > composer->form_count)
+        throw std::logic_error("form resource missing");
+    auto const& form = composer->forms[form_id - 1u];
+    auto const& transform = operation.value.form.transform;
+    double const a = canonical_zero(transform.a);
+    double const b = canonical_zero(-static_cast<double>(transform.b));
+    double const c_value = canonical_zero(-static_cast<double>(transform.c));
+    double const d = canonical_zero(transform.d);
+    double const e =
+        static_cast<double>(transform.c) * form.height_points +
+        static_cast<double>(transform.e);
+    double const f =
+        page.height_points -
+        static_cast<double>(transform.d) * form.height_points -
+        static_cast<double>(transform.f);
+
+    content += "q " +
+        number(a) + " " + number(b) + " " +
+        number(c_value) + " " + number(d) + " " +
+        number(canonical_zero(e)) + " " +
+        number(canonical_zero(f)) + " cm /Fm" +
+        std::to_string(form_id) + " Do Q\n";
+}
+
 
 QPDFObjectHandle navigation_destination(
     std::vector<QPDFObjectHandle> const& pages,
@@ -1475,9 +1508,11 @@ std::string page_content(
     double const red = ((page.background_argb >> 16u) & 0xffu) / 255.0;
     double const green = ((page.background_argb >> 8u) & 0xffu) / 255.0;
     double const blue = (page.background_argb & 0xffu) / 255.0;
-    content += "q " + number(red) + " " + number(green) + " " +
-        number(blue) + " rg 0 0 " + number(page.width_points) + " " +
-        number(page.height_points) + " re f Q\n";
+    if (!page.suppress_background) {
+        content += "q " + number(red) + " " + number(green) + " " +
+            number(blue) + " rg 0 0 " + number(page.width_points) + " " +
+            number(page.height_points) + " re f Q\n";
+    }
 
     for (std::size_t i = 0; i < composer->operation_count; ++i) {
         auto const& operation = composer->operations[i];
@@ -1528,6 +1563,8 @@ std::string page_content(
                 page,
                 operation,
                 glyph_run_usages[font_index]);
+        } else if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_FORM) {
+            append_form_content(content, composer, page, operation);
         }
 
         if (scoped_state)
@@ -1799,6 +1836,24 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             image_objects.push_back(stream);
         }
 
+        std::vector<QPDFObjectHandle> form_objects;
+        form_objects.reserve(composer->form_count);
+        for (size_t i = 0u; i < composer->form_count; ++i) {
+            auto const& form = composer->forms[i];
+            QPDF foreign_pdf;
+            foreign_pdf.processMemoryFile(
+                "quantapdf-form-" + std::to_string(i + 1u),
+                reinterpret_cast<char const*>(form.pdf_data),
+                form.pdf_size);
+            auto foreign_pages =
+                QPDFPageDocumentHelper::get(foreign_pdf).getAllPages();
+            if (foreign_pages.size() != 1u)
+                throw std::logic_error("form snapshot page count mismatch");
+            QPDFObjectHandle foreign_form =
+                foreign_pages[0].getFormXObjectForPage();
+            form_objects.push_back(pdf.copyForeignObject(foreign_form));
+        }
+
         std::vector<quantapdf::detail::ttf_font_face> embedded_faces;
         embedded_faces.reserve(composer->font_count);
         for (size_t i = 0u; i < composer->font_count; ++i) {
@@ -1846,6 +1901,11 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                  glyph_run_usage[i].referenced) &&
                 embedded_faces[i].outline_kind !=
                     quantapdf::detail::sfnt_outline_kind::true_type)
+                requires_pdf_16 = true;
+        }
+
+        for (size_t i = 0u; i < composer->form_count; ++i) {
+            if (composer->forms[i].requires_pdf_16)
                 requires_pdf_16 = true;
         }
 
@@ -1914,11 +1974,19 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             resources.replaceKey("/Font", fonts);
             for (std::size_t i = 0; i < composer->operation_count; ++i) {
                 auto const& operation = composer->operations[i];
-                if (operation.page_index == page_index &&
-                    operation.kind == QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
+                if (operation.page_index != page_index)
+                    continue;
+                if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
                     auto id = operation.value.image.image_id;
                     xobjects.replaceKey(
                         "/Im" + std::to_string(id), image_objects[id - 1u]);
+                } else if (
+                    operation.kind == QUANTAPDF_COMPOSER_OPERATION_FORM) {
+                    auto id = operation.value.form.form_id;
+                    if (id == 0u || id > form_objects.size())
+                        throw std::logic_error("form XObject missing");
+                    xobjects.replaceKey(
+                        "/Fm" + std::to_string(id), form_objects[id - 1u]);
                 }
             }
             resources.replaceKey("/XObject", xobjects);
