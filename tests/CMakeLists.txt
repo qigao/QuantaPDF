@@ -199,6 +199,23 @@ add_test(NAME quantapdf.composer_form_xobject
   COMMAND quantapdf_test_composer_form_xobject)
 set_tests_properties(quantapdf.composer_form_xobject PROPERTIES TIMEOUT 30)
 
+add_executable(quantapdf_test_composer_soft_mask
+  test_composer_soft_mask.c
+  composer_test_helpers.cpp)
+target_include_directories(quantapdf_test_composer_soft_mask PRIVATE
+  "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_composer_soft_mask PRIVATE
+  QuantaPDF::QuantaPDF
+  quantapdf_backend
+  qpdf::libqpdf
+  ZLIB::ZLIB)
+target_compile_features(quantapdf_test_composer_soft_mask PRIVATE cxx_std_20)
+target_compile_definitions(quantapdf_test_composer_soft_mask PRIVATE
+  COMPOSER_SOFT_MASK_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composer-soft-mask-output.pdf")
+add_test(NAME quantapdf.composer_soft_mask
+  COMMAND quantapdf_test_composer_soft_mask)
+set_tests_properties(quantapdf.composer_soft_mask PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_test_composer_form_group
   test_composer_form_group.c
   composer_test_helpers.cpp)
