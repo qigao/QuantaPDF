@@ -2262,11 +2262,30 @@ definition_table parse_definitions(
     return definitions;
 }
 
+void validate_style_references(
+    paint_style const& style,
+    definition_table const& definitions)
+{
+    if (!style.fill_ref.empty() &&
+        definitions.gradients.find(style.fill_ref) ==
+            definitions.gradients.end())
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    if (!style.stroke_ref.empty() &&
+        definitions.gradients.find(style.stroke_ref) ==
+            definitions.gradients.end())
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    if (!style.clip_ref.empty() &&
+        definitions.clips.find(style.clip_ref) ==
+            definitions.clips.end())
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+}
+
 struct context {
     std::string name;
     paint_style style;
     matrix transform;
     bool leaf = false;
+    bool skip = false;
 };
 
 class svg_parser {
@@ -2275,10 +2294,12 @@ class svg_parser {
         unsigned char const* data,
         size_t size,
         quantapdf_rect const& bounds,
-        size_t max_paths):
+        size_t max_paths,
+        definition_table const& definitions):
         scanner_(data, size),
         bounds_(bounds),
-        max_paths_(max_paths)
+        max_paths_(max_paths),
+        definitions_(definitions)
     {
     }
 
@@ -2334,13 +2355,36 @@ class svg_parser {
             }
 
             context const& parent = stack_.back();
+
+            if (parent.skip) {
+                if (!item.self_closing) {
+                    context skipped;
+                    skipped.name = tag;
+                    skipped.skip = true;
+                    stack_.push_back(std::move(skipped));
+                }
+                continue;
+            }
+
             if (tag == "svg")
                 fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            if (tag == "defs") {
+                if (parent.name != "svg")
+                    fail(QUANTAPDF_ERROR_UNSUPPORTED);
+                if (!item.self_closing) {
+                    context skipped;
+                    skipped.name = tag;
+                    skipped.skip = true;
+                    stack_.push_back(std::move(skipped));
+                }
+                continue;
+            }
             if (tag == "g") {
                 validate_attributes(item, tag, false);
                 context group;
                 group.name = tag;
                 group.style = derive_style(parent.style, item);
+                validate_style_references(group.style, definitions_);
                 if (group.style.opacity != 1.0)
                     fail(QUANTAPDF_ERROR_UNSUPPORTED);
                 group.transform =
@@ -2358,6 +2402,7 @@ class svg_parser {
             validate_attributes(item, tag, false);
             paint_style const style =
                 derive_style(parent.style, item);
+            validate_style_references(style, definitions_);
             matrix const transform =
                 derive_transform(parent.transform, item);
             std::vector<quantapdf_composer_path_command> commands;
@@ -2443,6 +2488,7 @@ class svg_parser {
     quantapdf_rect bounds_;
     size_t max_paths_;
     bool clip_to_bounds_ = false;
+    definition_table const& definitions_;
     std::vector<context> stack_;
     std::vector<staged_path> paths_;
 };
