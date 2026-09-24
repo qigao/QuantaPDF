@@ -8,6 +8,7 @@
 #include <limits>
 #include <new>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -320,6 +321,8 @@ extern "C" quantapdf_status quantapdf_measure_base14_text_internal(
             options->font_size,
             options->line_height_multiplier,
             out_measurement);
+    } catch (std::length_error const&) {
+        return QUANTAPDF_ERROR_UNSUPPORTED;
     } catch (std::bad_alloc const&) {
         return QUANTAPDF_ERROR_NOMEM;
     } catch (...) {
@@ -357,6 +360,8 @@ extern "C" quantapdf_status quantapdf_measure_embedded_text_internal(
             options->font_size,
             options->line_height_multiplier,
             out_measurement);
+    } catch (std::length_error const&) {
+        return QUANTAPDF_ERROR_UNSUPPORTED;
     } catch (std::bad_alloc const&) {
         return QUANTAPDF_ERROR_NOMEM;
     } catch (...) {
