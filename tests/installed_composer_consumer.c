@@ -183,7 +183,9 @@ int main(int argc, char **argv)
         "</defs>"
         "<rect x=\"1\" y=\"1\" width=\"8\" height=\"6\" "
         "fill=\"url(#derived)\" clip-path=\"url(#clip)\"/>"
-        "</svg>"    if (argc != 3) {
+        "</svg>";
+
+    if (argc != 3) {
         fprintf(stderr, "usage: %s <font.ttf> <output.pdf>\\n", argv[0]);
         return EXIT_FAILURE;
     }
