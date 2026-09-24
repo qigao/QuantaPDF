@@ -374,6 +374,23 @@ acyclic local userSpaceOnUse clipPath; such chains lower recursively to compound
 clips. Nested objectBoundingBox clipPath-reference chains remain fail-closed
 until their reference-box semantics are modeled explicitly.
 
+2.33 adds bounded local SVG mask lowering through the existing Form-backed
+Composer soft-mask primitive. Root `defs` may define `mask` resources with
+local fragment references, `maskUnits` and `maskContentUnits` in
+userSpaceOnUse or objectBoundingBox, and `mask-type` alpha/luminance.
+Drawable leaf geometry uses its exact staged local bbox for objectBoundingBox
+mapping. Root/group masks are captured outside the existing isolated group Form,
+so opacity, compound clips, and masks compose through one graphics-state V3
+record. Mask content reuses the existing SVG lowering recursively, including
+supported groups, `use`, paints, clips, and nested acyclic local masks. No
+raster flattening or SVG-specific PDF backend is introduced.
+
+For root/group/use targets whose exact geometry bbox is not available at the
+outer staging layer, V1 requires explicit userSpaceOnUse mask geometry/content;
+objectBoundingBox or percentage regions that would require guessing that bbox
+remain fail-closed. External URLs, unresolved/wrong-kind/cyclic mask refs,
+filters, and browser CSS remain unsupported.
+
 
 The original `quantapdf_composer_draw_text()` contract remains Base-14 +
 WinAnsi and is unchanged. For embedded fonts, register caller-owned SFNT bytes
