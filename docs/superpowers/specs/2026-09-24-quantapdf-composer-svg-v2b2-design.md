@@ -91,7 +91,11 @@ The symbol's local Form dimensions are the viewBox width/height. The builder
 renders the symbol subtree into a temporary child Composer using the existing
 SVG staging/lowering helpers and B1 definitions.
 
-The builder must not call a new SVG/qpdf backend. It publishes through the
+The builder must not call a new SVG/qpdf backend. The implementation serializes
+the already parsed/copied root defs tokens plus the symbol body tokens into a
+bounded synthetic SVG with the symbol viewBox mapped to a local none-preserved
+viewport, then calls the existing `quantapdf_composer_draw_svg()` on the
+temporary child Composer. This recursive re-entry publishes through the
 existing Composer primitives:
 
 - PATH / dash;
