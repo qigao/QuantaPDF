@@ -77,6 +77,7 @@ typedef struct quantapdf_composer_page_state {
     float width_points;
     float height_points;
     uint32_t background_argb;
+    int suppress_background;
 } quantapdf_composer_page_state;
 
 typedef enum quantapdf_composer_operation_kind {
@@ -84,7 +85,8 @@ typedef enum quantapdf_composer_operation_kind {
     QUANTAPDF_COMPOSER_OPERATION_IMAGE = 2,
     QUANTAPDF_COMPOSER_OPERATION_PATH = 3,
     QUANTAPDF_COMPOSER_OPERATION_EMBEDDED_TEXT = 4,
-    QUANTAPDF_COMPOSER_OPERATION_GLYPH_RUN = 5
+    QUANTAPDF_COMPOSER_OPERATION_GLYPH_RUN = 5,
+    QUANTAPDF_COMPOSER_OPERATION_FORM = 6
 } quantapdf_composer_operation_kind;
 
 typedef struct quantapdf_composer_text_operation {
@@ -141,6 +143,12 @@ typedef struct quantapdf_composer_glyph_run_operation {
     quantapdf_affine_transform transform;
 } quantapdf_composer_glyph_run_operation;
 
+typedef struct quantapdf_composer_form_operation {
+    quantapdf_composer_form_id form_id;
+    quantapdf_affine_transform transform;
+    quantapdf_composer_form_draw_options options;
+} quantapdf_composer_form_operation;
+
 typedef struct quantapdf_composer_font_state {
     unsigned char *data;
     size_t size;
@@ -176,6 +184,13 @@ typedef struct quantapdf_composer_paint_state {
     size_t stop_count;
 } quantapdf_composer_paint_state;
 
+typedef struct quantapdf_composer_form_state {
+    unsigned char *pdf_data;
+    size_t pdf_size;
+    float width_points;
+    float height_points;
+} quantapdf_composer_form_state;
+
 typedef struct quantapdf_composer_operation {
     quantapdf_composer_operation_kind kind;
     size_t page_index;
@@ -187,6 +202,7 @@ typedef struct quantapdf_composer_operation {
         quantapdf_composer_path_operation path;
         quantapdf_composer_embedded_text_operation embedded_text;
         quantapdf_composer_glyph_run_operation glyph_run;
+        quantapdf_composer_form_operation form;
     } value;
 } quantapdf_composer_operation;
 
@@ -239,6 +255,9 @@ struct quantapdf_composer {
     quantapdf_composer_paint_state *paints;
     size_t paint_count;
     size_t paint_capacity;
+    quantapdf_composer_form_state *forms;
+    size_t form_count;
+    size_t form_capacity;
     quantapdf_composer_link_state *links;
     size_t link_count;
     size_t link_capacity;
