@@ -2,6 +2,7 @@
 
 #include "composer_test_helpers.h"
 
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
