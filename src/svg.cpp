@@ -7,7 +7,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <map>
 #include <new>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -373,6 +375,9 @@ struct paint_style {
     double opacity = 1.0;
     std::vector<double> dash_array;
     double dash_offset = 0.0;
+    std::string fill_ref;
+    std::string stroke_ref;
+    std::string clip_ref;
     quantapdf_composer_fill_rule fill_rule =
         QUANTAPDF_COMPOSER_FILL_NONZERO;
     quantapdf_composer_line_cap line_cap =
@@ -447,6 +452,26 @@ uint32_t parse_color(std::string value, bool* enabled)
     fail(QUANTAPDF_ERROR_UNSUPPORTED);
 }
 
+bool local_fragment_url(
+    std::string const& value,
+    std::string* out_id)
+{
+    std::string const text = trim(value);
+    if (text.rfind("url(", 0u) != 0u)
+        return false;
+    if (text.size() < 7u || text.back() != ')' || text[4] != '#')
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    std::string const id = text.substr(5u, text.size() - 6u);
+    if (id.empty())
+        fail(QUANTAPDF_ERROR_FORMAT);
+    for (char ch: id) {
+        if (!name_char(ch))
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+    *out_id = id;
+    return true;
+}
+
 double opacity_value(std::string const& value)
 {
     std::string const text = trim(value);
@@ -499,9 +524,23 @@ void apply_style_property(
 {
     name = lower_ascii(trim(name));
     if (name == "fill") {
-        style->fill_argb = parse_color(value, &style->fill);
+        std::string reference;
+        if (local_fragment_url(value, &reference)) {
+            style->fill = true;
+            style->fill_ref = std::move(reference);
+        } else {
+            style->fill_ref.clear();
+            style->fill_argb = parse_color(value, &style->fill);
+        }
     } else if (name == "stroke") {
-        style->stroke_argb = parse_color(value, &style->stroke);
+        std::string reference;
+        if (local_fragment_url(value, &reference)) {
+            style->stroke = true;
+            style->stroke_ref = std::move(reference);
+        } else {
+            style->stroke_ref.clear();
+            style->stroke_argb = parse_color(value, &style->stroke);
+        }
     } else if (name == "fill-rule") {
         std::string const parsed = lower_ascii(trim(value));
         if (parsed == "nonzero")
@@ -548,6 +587,16 @@ void apply_style_property(
         style->dash_array = dash_array_value(value);
     } else if (name == "stroke-dashoffset") {
         style->dash_offset = scalar(value);
+    } else if (name == "clip-path") {
+        std::string const parsed = lower_ascii(trim(value));
+        if (parsed == "none") {
+            style->clip_ref.clear();
+        } else {
+            std::string reference;
+            if (!local_fragment_url(value, &reference))
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            style->clip_ref = std::move(reference);
+        }
     } else {
         fail(QUANTAPDF_ERROR_UNSUPPORTED);
     }
@@ -754,7 +803,7 @@ bool common_attribute(std::string const& name)
         name == "stroke-linejoin" || name == "stroke-miterlimit" ||
         name == "fill-opacity" || name == "stroke-opacity" ||
         name == "opacity" || name == "stroke-dasharray" ||
-        name == "stroke-dashoffset";
+        name == "stroke-dashoffset" || name == "clip-path";
 }
 
 bool tag_attribute_allowed(
@@ -805,8 +854,9 @@ paint_style derive_style(
     element const& item)
 {
     paint_style result = parent;
-    // SVG opacity is not inherited. Fill/stroke opacity and dash properties are.
+    // SVG opacity and clip-path are not inherited presentation properties.
     result.opacity = 1.0;
+    result.clip_ref.clear();
     for (auto const& attr: item.attributes) {
         if (attr.name == "fill" || attr.name == "stroke" ||
             attr.name == "fill-rule" || attr.name == "stroke-width" ||
@@ -817,7 +867,8 @@ paint_style derive_style(
             attr.name == "stroke-opacity" ||
             attr.name == "opacity" ||
             attr.name == "stroke-dasharray" ||
-            attr.name == "stroke-dashoffset")
+            attr.name == "stroke-dashoffset" ||
+            attr.name == "clip-path")
             apply_style_property(&result, attr.name, attr.value);
     }
     if (auto const* style = find_attribute(item, "style"))
@@ -970,6 +1021,10 @@ struct staged_path {
     float dash_phase = 0.0f;
     float fill_alpha = 1.0f;
     float stroke_alpha = 1.0f;
+    std::string fill_ref;
+    std::string stroke_ref;
+    std::string clip_ref;
+    matrix resource_transform;
 };
 
 void transform_commands(
@@ -1017,6 +1072,10 @@ void stage_path(
 
     staged_path staged;
     staged.commands = std::move(commands);
+    staged.fill_ref = style.fill_ref;
+    staged.stroke_ref = style.stroke_ref;
+    staged.clip_ref = style.clip_ref;
+    staged.resource_transform = transform;
     staged.options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
     staged.options.fill = style.fill ? 1 : 0;
     staged.options.stroke = style.stroke ? 1 : 0;
