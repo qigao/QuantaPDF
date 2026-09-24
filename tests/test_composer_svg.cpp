@@ -362,6 +362,255 @@ static int test_v2a_dash_opacity_arcs_and_aspect()
     return 0;
 }
 
+static int test_v2b1_gradient_and_clip_references()
+{
+    static char const svg[] =
+        "<svg viewBox=\"0 0 100 100\">"
+        "<rect x=\"0\" y=\"0\" width=\"100\" height=\"100\" "
+        "fill=\"url(#linear)\" clip-path=\"url(#clip)\"/>"
+        "<defs>"
+        "<linearGradient id=\"linear\" gradientUnits=\"userSpaceOnUse\" "
+        "x1=\"0\" y1=\"0\" x2=\"100\" y2=\"0\" "
+        "gradientTransform=\"translate(10 0)\">"
+        "<stop offset=\"0\" stop-color=\"#ff0000\"/>"
+        "<stop offset=\"1\" stop-color=\"#0000ff\"/>"
+        "</linearGradient>"
+        "<radialGradient id=\"radial\" gradientUnits=\"userSpaceOnUse\" "
+        "cx=\"75\" cy=\"75\" r=\"20\" fx=\"75\" fy=\"75\" fr=\"0\">"
+        "<stop offset=\"0%\" style=\"stop-color:#ffffff;stop-opacity:1\"/>"
+        "<stop offset=\"100%\" stop-color=\"#000000\"/>"
+        "</radialGradient>"
+        "<clipPath id=\"clip\" clipPathUnits=\"userSpaceOnUse\" "
+        "transform=\"translate(10 0)\">"
+        "<rect x=\"0\" y=\"0\" width=\"50\" height=\"100\"/>"
+        "</clipPath>"
+        "</defs>"
+        "<circle cx=\"75\" cy=\"75\" r=\"20\" fill=\"url(#radial)\"/>"
+        "<path d=\"M10 90 L90 90\" fill=\"none\" stroke=\"url(#linear)\" "
+        "stroke-width=\"2\"/>"
+        "</svg>";
+
+    quantapdf_composer* composer = nullptr;
+    quantapdf_output* first = nullptr;
+    quantapdf_output* second = nullptr;
+    quantapdf_document* document = nullptr;
+    quantapdf_page* page = nullptr;
+    quantapdf_bitmap* bitmap = nullptr;
+    quantapdf_render_options render = {};
+    quantapdf_rect bounds = {20.0f, 20.0f, 220.0f, 220.0f};
+    unsigned char const* first_data = nullptr;
+    unsigned char const* second_data = nullptr;
+    unsigned char const* pixels = nullptr;
+    size_t first_size = 0u;
+    size_t second_size = 0u;
+    size_t pixel_size = 0u;
+    int width = 0;
+    int height = 0;
+    int stride = 0;
+    int components = 0;
+    int shading_type = 0;
+    int function_type = 0;
+    double matrix[6] = {};
+
+    CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+    CHECK(add_page(composer));
+    CHECK(draw(composer, svg, bounds) == QUANTAPDF_OK);
+
+    CHECK(quantapdf_composer_finish(composer, &first) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_finish(composer, &second) == QUANTAPDF_OK);
+    CHECK(quantapdf_output_data(first, &first_data, &first_size) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_output_data(second, &second_data, &second_size) ==
+          QUANTAPDF_OK);
+    CHECK(first_size == second_size);
+    CHECK(std::memcmp(first_data, second_data, first_size) == 0);
+
+    CHECK(quantapdf_test_pdf_pattern_info(
+        first_data,
+        first_size,
+        0u,
+        1u,
+        &shading_type,
+        &function_type,
+        matrix));
+    CHECK(shading_type == 2 && function_type == 2);
+    CHECK(std::fabs(matrix[0] - 2.0) < 0.001);
+    CHECK(std::fabs(matrix[3] + 2.0) < 0.001);
+    CHECK(std::fabs(matrix[4] - 40.0) < 0.001);
+    CHECK(std::fabs(matrix[5] - 220.0) < 0.001);
+
+    CHECK(quantapdf_test_pdf_pattern_info(
+        first_data,
+        first_size,
+        0u,
+        2u,
+        &shading_type,
+        &function_type,
+        matrix));
+    CHECK(shading_type == 3 && function_type == 2);
+
+    CHECK(quantapdf_test_pdf_content_contains(
+        first_data,
+        first_size,
+        0u,
+        "40 220 m 140 220 l 140 20 l 40 20 l h W n"));
+    CHECK(quantapdf_test_pdf_content_contains(
+        first_data, first_size, 0u, "/Pattern cs /P1 scn"));
+    CHECK(quantapdf_test_pdf_content_contains(
+        first_data, first_size, 0u, "/Pattern CS /P1 SCN"));
+
+    CHECK(quantapdf_output_save_file(
+              first, COMPOSER_SVG_OUTPUT_PDF) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(
+              COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
+    render.struct_size = sizeof(render);
+    render.dpi = 72.0f;
+    CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_bitmap_dimensions(
+              bitmap, &width, &height, &stride, &components) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_bitmap_data(bitmap, &pixels, &pixel_size) ==
+          QUANTAPDF_OK);
+
+    CHECK(pixel_near(pixels, stride, 30, 80, 255, 255, 255, 20));
+    CHECK(pixel_near(pixels, stride, 55, 80, 235, 0, 20, 45));
+    CHECK(pixel_near(pixels, stride, 130, 80, 140, 0, 115, 55));
+    CHECK(pixel_near(pixels, stride, 170, 170, 255, 255, 255, 35));
+    CHECK(pixel_near(pixels, stride, 205, 170, 20, 20, 20, 55));
+
+    quantapdf_drop_bitmap(bitmap);
+    quantapdf_drop_page(page);
+    quantapdf_close(document);
+    quantapdf_drop_output(second);
+    quantapdf_drop_output(first);
+    quantapdf_drop_composer(composer);
+    return 0;
+}
+
+static int test_v2b1_reference_failures_and_rollback()
+{
+    static char const* unsupported[] = {
+        "<svg viewBox=\"0 0 10 10\"><rect width=\"5\" height=\"5\" "
+        "fill=\"url(#missing)\"/></svg>",
+        "<svg viewBox=\"0 0 10 10\"><defs>"
+        "<clipPath id=\"c\" clipPathUnits=\"userSpaceOnUse\">"
+        "<rect width=\"5\" height=\"5\"/></clipPath></defs>"
+        "<rect width=\"5\" height=\"5\" fill=\"url(#c)\"/></svg>",
+        "<svg viewBox=\"0 0 10 10\"><rect width=\"5\" height=\"5\" "
+        "fill=\"url(https://example.com/g)\"/></svg>",
+        "<svg viewBox=\"0 0 10 10\"><defs>"
+        "<linearGradient id=\"g\" x1=\"0\" y1=\"0\" x2=\"10\" y2=\"0\">"
+        "<stop offset=\"0\" stop-color=\"red\"/>"
+        "<stop offset=\"1\" stop-color=\"blue\"/>"
+        "</linearGradient></defs><rect width=\"10\" height=\"10\" "
+        "fill=\"url(#g)\"/></svg>",
+        "<svg viewBox=\"0 0 10 10\"><defs>"
+        "<linearGradient id=\"g\" gradientUnits=\"userSpaceOnUse\" "
+        "x1=\"0\" y1=\"0\" x2=\"10\" y2=\"0\">"
+        "<stop offset=\"0\" stop-color=\"red\" stop-opacity=\"0.5\"/>"
+        "<stop offset=\"1\" stop-color=\"blue\"/>"
+        "</linearGradient></defs><rect width=\"10\" height=\"10\" "
+        "fill=\"url(#g)\"/></svg>",
+        "<svg viewBox=\"0 0 10 10\"><defs>"
+        "<linearGradient id=\"g\" gradientUnits=\"userSpaceOnUse\" "
+        "x1=\"0\" y1=\"0\" x2=\"10\" y2=\"0\">"
+        "<stop offset=\"0.5\" stop-color=\"red\"/>"
+        "<stop offset=\"0.5\" stop-color=\"blue\"/>"
+        "</linearGradient></defs><rect width=\"10\" height=\"10\" "
+        "fill=\"url(#g)\"/></svg>",
+        "<svg viewBox=\"0 0 10 10\"><defs>"
+        "<clipPath id=\"c\" clipPathUnits=\"objectBoundingBox\">"
+        "<rect width=\"1\" height=\"1\"/></clipPath></defs>"
+        "<rect width=\"10\" height=\"10\" clip-path=\"url(#c)\"/></svg>",
+        "<svg viewBox=\"0 0 10 10\" preserveAspectRatio=\"xMidYMid slice\">"
+        "<defs><clipPath id=\"c\" clipPathUnits=\"userSpaceOnUse\">"
+        "<rect width=\"5\" height=\"10\"/></clipPath></defs>"
+        "<rect width=\"10\" height=\"10\" clip-path=\"url(#c)\"/></svg>",
+        "<svg viewBox=\"0 0 10 10\"><defs>"
+        "<clipPath id=\"c\" clipPathUnits=\"userSpaceOnUse\">"
+        "<rect width=\"5\" height=\"10\"/></clipPath></defs>"
+        "<g clip-path=\"url(#c)\"><rect width=\"10\" height=\"10\"/></g></svg>"
+    };
+    static char const duplicate_id[] =
+        "<svg viewBox=\"0 0 10 10\">"
+        "<g id=\"same\"/><g id=\"same\"/></svg>";
+
+    quantapdf_rect bounds = {0.0f, 0.0f, 100.0f, 100.0f};
+    for (char const* svg: unsupported) {
+        quantapdf_composer* composer = nullptr;
+        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(add_page(composer));
+        CHECK(draw(composer, svg, bounds) == QUANTAPDF_ERROR_UNSUPPORTED);
+        quantapdf_drop_composer(composer);
+    }
+    {
+        quantapdf_composer* composer = nullptr;
+        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(add_page(composer));
+        CHECK(draw(composer, duplicate_id, bounds) == QUANTAPDF_ERROR_FORMAT);
+        quantapdf_drop_composer(composer);
+    }
+
+    static char const gradient_svg[] =
+        "<svg viewBox=\"0 0 10 10\"><defs>"
+        "<linearGradient id=\"g\" gradientUnits=\"userSpaceOnUse\" "
+        "x1=\"0\" y1=\"0\" x2=\"10\" y2=\"0\">"
+        "<stop offset=\"0\" stop-color=\"red\"/>"
+        "<stop offset=\"1\" stop-color=\"blue\"/>"
+        "</linearGradient></defs>"
+        "<rect width=\"10\" height=\"10\" fill=\"url(#g)\"/></svg>";
+    static char const solid_svg[] =
+        "<svg viewBox=\"0 0 10 10\">"
+        "<rect width=\"10\" height=\"10\" fill=\"red\"/></svg>";
+
+    quantapdf_composer_options composer_options = {};
+    composer_options.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V1_SIZE;
+    composer_options.max_resource_bytes =
+        5u * sizeof(quantapdf_composer_path_command);
+
+    quantapdf_composer* rejected = nullptr;
+    quantapdf_composer* clean = nullptr;
+    quantapdf_output* rejected_output = nullptr;
+    quantapdf_output* clean_output = nullptr;
+    unsigned char const* rejected_data = nullptr;
+    unsigned char const* clean_data = nullptr;
+    size_t rejected_size = 0u;
+    size_t clean_size = 0u;
+
+    CHECK(quantapdf_composer_create(&composer_options, &rejected) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(&composer_options, &clean) ==
+          QUANTAPDF_OK);
+    CHECK(add_page(rejected));
+    CHECK(add_page(clean));
+
+    CHECK(draw(rejected, gradient_svg, bounds) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(draw(rejected, solid_svg, bounds) == QUANTAPDF_OK);
+    CHECK(draw(clean, solid_svg, bounds) == QUANTAPDF_OK);
+
+    CHECK(quantapdf_composer_finish(rejected, &rejected_output) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_composer_finish(clean, &clean_output) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_output_data(
+              rejected_output, &rejected_data, &rejected_size) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_output_data(
+              clean_output, &clean_data, &clean_size) ==
+          QUANTAPDF_OK);
+    CHECK(rejected_size == clean_size);
+    CHECK(std::memcmp(rejected_data, clean_data, clean_size) == 0);
+
+    quantapdf_drop_output(clean_output);
+    quantapdf_drop_output(rejected_output);
+    quantapdf_drop_composer(clean);
+    quantapdf_drop_composer(rejected);
+    return 0;
+}
+
 static int test_security_and_unsupported_features()
 {
     static char const* cases[] = {
@@ -475,6 +724,8 @@ int main()
     CHECK(test_argument_contract() == 0);
     CHECK(test_render_geometry_and_determinism() == 0);
     CHECK(test_v2a_dash_opacity_arcs_and_aspect() == 0);
+    CHECK(test_v2b1_gradient_and_clip_references() == 0);
+    CHECK(test_v2b1_reference_failures_and_rollback() == 0);
     CHECK(test_security_and_unsupported_features() == 0);
     CHECK(test_malformed_inputs() == 0);
     CHECK(test_atomic_capacity_failure() == 0);
