@@ -123,7 +123,10 @@ int main(int argc, char **argv)
     quantapdf_composer_graphics_state_id graphics_state_id = 0u;
     quantapdf_composer_clip_options clip_options = {0};
     quantapdf_composer_clip_id clip_id = 0u;
+    quantapdf_composer_clip_id clip_id2 = 0u;
+    quantapdf_composer_clip_id compound_clip_id = 0u;
     quantapdf_composer_path_command clip_rectangle[5] = {{0}};
+    quantapdf_composer_path_command clip_rectangle2[5] = {{0}};
     quantapdf_composer_linear_gradient_options linear_gradient = {0};
     quantapdf_composer_radial_gradient_options radial_gradient = {0};
     quantapdf_composer_gradient_stop gradient_stops[2] = {
@@ -251,12 +254,37 @@ int main(int argc, char **argv)
         goto fail;
     }
 
+    clip_rectangle2[0].kind = QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+    clip_rectangle2[0].point1 = (quantapdf_point){-10.0f, -10.0f};
+    clip_rectangle2[1].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    clip_rectangle2[1].point1 = (quantapdf_point){310.0f, -10.0f};
+    clip_rectangle2[2].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    clip_rectangle2[2].point1 = (quantapdf_point){310.0f, 190.0f};
+    clip_rectangle2[3].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    clip_rectangle2[3].point1 = (quantapdf_point){-10.0f, 190.0f};
+    clip_rectangle2[4].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
+    CHECK(quantapdf_composer_add_clip_path(
+        composer, clip_rectangle2, 5u, &clip_options, &clip_id2));
+    if (clip_id2 == 0u) {
+        fprintf(stderr, "second clip ID was not published\n");
+        goto fail;
+    }
+    {
+        quantapdf_composer_clip_id members[2] = {clip_id, clip_id2};
+        CHECK(quantapdf_composer_add_clip_intersection(
+            composer, members, 2u, &compound_clip_id));
+    }
+    if (compound_clip_id == 0u) {
+        fprintf(stderr, "compound clip ID was not published\n");
+        goto fail;
+    }
+
     graphics_state.struct_size =
         QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE;
     graphics_state.fill_alpha = 0.75f;
     graphics_state.stroke_alpha = 0.75f;
     graphics_state.blend_mode = QUANTAPDF_COMPOSER_BLEND_MULTIPLY;
-    graphics_state.clip_id = clip_id;
+    graphics_state.clip_id = compound_clip_id;
     CHECK(quantapdf_composer_add_graphics_state(
         composer, &graphics_state, &graphics_state_id));
     if (graphics_state_id == 0u) {
