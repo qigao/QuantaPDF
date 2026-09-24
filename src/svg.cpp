@@ -2207,6 +2207,20 @@ definition_table parse_definitions(
         if (item.closing) {
             if (stack.empty() || stack.back().name != tag)
                 fail(QUANTAPDF_ERROR_FORMAT);
+
+            bool const in_defs = stack_contains_defs(stack);
+            std::string const symbol_id = active_symbol_id(stack);
+            if (in_defs &&
+                stack.back().type != definition_frame::kind::defs)
+                definitions.defs_tokens.push_back(item);
+            if (!symbol_id.empty() &&
+                stack.back().type != definition_frame::kind::symbol) {
+                auto symbol = definitions.symbols.find(symbol_id);
+                if (symbol == definitions.symbols.end())
+                    fail(QUANTAPDF_ERROR_BACKEND);
+                symbol->second.tokens.push_back(item);
+            }
+
             definition_frame frame = std::move(stack.back());
             stack.pop_back();
             if (frame.type == definition_frame::kind::gradient) {
@@ -2238,6 +2252,17 @@ definition_table parse_definitions(
             root.type = definition_frame::kind::normal;
             push_if_needed(std::move(root), item.self_closing);
             continue;
+        }
+
+        bool const in_defs = stack_contains_defs(stack);
+        std::string const symbol_id = active_symbol_id(stack);
+        if (in_defs)
+            definitions.defs_tokens.push_back(item);
+        if (!symbol_id.empty()) {
+            auto symbol = definitions.symbols.find(symbol_id);
+            if (symbol == definitions.symbols.end())
+                fail(QUANTAPDF_ERROR_BACKEND);
+            symbol->second.tokens.push_back(item);
         }
 
         definition_frame const& parent = stack.back();
@@ -2282,6 +2307,7 @@ definition_table parse_definitions(
                 }
                 continue;
             }
+
             if (tag == "clipPath") {
                 for (auto const& attr: item.attributes) {
                     if (attr.name != "id" &&
@@ -2317,8 +2343,71 @@ definition_table parse_definitions(
                 stack.push_back(std::move(frame));
                 continue;
             }
-            // Reusable definitions are implemented by SVG V2B2.
+
+            if (tag == "symbol") {
+                validate_symbol_attributes(item);
+                std::string const id = required_id(item);
+                auto const* view_box_text = find_attribute(item, "viewBox");
+                if (view_box_text == nullptr)
+                    fail(QUANTAPDF_ERROR_UNSUPPORTED);
+                auto const view_box = number_list(*view_box_text);
+                if (view_box.size() != 4u ||
+                    view_box[2] <= 0.0 || view_box[3] <= 0.0)
+                    fail(QUANTAPDF_ERROR_FORMAT);
+
+                symbol_definition symbol;
+                symbol.min_x = view_box[0];
+                symbol.min_y = view_box[1];
+                symbol.width = view_box[2];
+                symbol.height = view_box[3];
+                symbol.preserve = parse_preserve_aspect(
+                    find_attribute(item, "preserveAspectRatio"));
+                auto inserted =
+                    definitions.symbols.emplace(id, std::move(symbol));
+                if (!inserted.second)
+                    fail(QUANTAPDF_ERROR_FORMAT);
+
+                definition_frame frame;
+                frame.name = tag;
+                frame.type = definition_frame::kind::symbol;
+                frame.id = id;
+                push_if_needed(std::move(frame), item.self_closing);
+                continue;
+            }
+
             fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        }
+
+        if (parent.type == definition_frame::kind::symbol ||
+            parent.type == definition_frame::kind::symbol_child) {
+            std::string const current_symbol = active_symbol_id(stack);
+            if (current_symbol.empty())
+                fail(QUANTAPDF_ERROR_BACKEND);
+            auto symbol = definitions.symbols.find(current_symbol);
+            if (symbol == definitions.symbols.end())
+                fail(QUANTAPDF_ERROR_BACKEND);
+
+            if (tag == "use") {
+                validate_use_attributes(item);
+                auto const* href = find_attribute(item, "href");
+                if (href == nullptr)
+                    fail(QUANTAPDF_ERROR_FORMAT);
+                symbol->second.dependencies.insert(
+                    local_fragment_href(*href));
+            } else if (tag == "g") {
+                validate_attributes(item, tag, false);
+            } else if (drawable_tag(tag)) {
+                validate_attributes(item, tag, false);
+            } else {
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            }
+
+            definition_frame frame;
+            frame.name = tag;
+            frame.type = definition_frame::kind::symbol_child;
+            frame.id = current_symbol;
+            push_if_needed(std::move(frame), item.self_closing);
+            continue;
         }
 
         if (parent.type == definition_frame::kind::gradient) {
@@ -2412,6 +2501,7 @@ definition_table parse_definitions(
     scanner.finish();
     if (!root_seen || !stack.empty())
         fail(QUANTAPDF_ERROR_FORMAT);
+    validate_symbol_dependencies(definitions);
     return definitions;
 }
 
