@@ -7,10 +7,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <iomanip>
 #include <limits>
+#include <locale>
 #include <map>
 #include <new>
 #include <set>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -2651,6 +2654,116 @@ staged_use parse_use(
     result.user_transform =
         derive_transform(parent_transform, item);
     return result;
+}
+
+std::string svg_number(double value)
+{
+    if (!finite(value))
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    std::ostringstream stream;
+    stream.imbue(std::locale::classic());
+    stream << std::setprecision(17) << value;
+    return stream.str();
+}
+
+std::string build_symbol_svg(
+    definition_table const& definitions,
+    symbol_definition const& symbol)
+{
+    std::string result;
+    result += "<svg viewBox=\"";
+    result += svg_number(symbol.min_x);
+    result += " ";
+    result += svg_number(symbol.min_y);
+    result += " ";
+    result += svg_number(symbol.width);
+    result += " ";
+    result += svg_number(symbol.height);
+    result += "\" preserveAspectRatio=\"none\"><defs>";
+    result += serialize_tokens(definitions.defs_tokens, false);
+    result += "</defs>";
+    result += serialize_tokens(symbol.tokens, true);
+    result += "</svg>";
+    if (result.size() > k_svg_max_input_bytes)
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    return result;
+}
+
+struct symbol_form_builder_context {
+    std::string const* svg = nullptr;
+    float width = 0.0f;
+    float height = 0.0f;
+};
+
+quantapdf_status symbol_form_builder(
+    quantapdf_composer* composer,
+    size_t page_index,
+    void* user_data)
+{
+    auto const* context =
+        static_cast<symbol_form_builder_context const*>(user_data);
+    if (context == nullptr || context->svg == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    quantapdf_composer_svg_options options{};
+    options.struct_size = QUANTAPDF_COMPOSER_SVG_OPTIONS_V1_SIZE;
+    quantapdf_rect bounds = {
+        0.0f,
+        0.0f,
+        context->width,
+        context->height};
+    return quantapdf_composer_draw_svg(
+        composer,
+        page_index,
+        reinterpret_cast<unsigned char const*>(context->svg->data()),
+        context->svg->size(),
+        &bounds,
+        &options);
+}
+
+quantapdf_status materialize_symbol(
+    quantapdf_composer* composer,
+    definition_table const& definitions,
+    std::string const& symbol_id,
+    std::map<std::string, quantapdf_composer_form_id>* cache,
+    quantapdf_composer_form_id* out_form_id)
+{
+    auto cached = cache->find(symbol_id);
+    if (cached != cache->end()) {
+        *out_form_id = cached->second;
+        return QUANTAPDF_OK;
+    }
+
+    auto found = definitions.symbols.find(symbol_id);
+    if (found == definitions.symbols.end())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    auto const& symbol = found->second;
+
+    std::string synthetic_svg = build_symbol_svg(definitions, symbol);
+    symbol_form_builder_context context;
+    context.svg = &synthetic_svg;
+    context.width = static_cast<float>(symbol.width);
+    context.height = static_cast<float>(symbol.height);
+    if (!finite(context.width) || !finite(context.height) ||
+        context.width <= 0.0f || context.height <= 0.0f)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    quantapdf_composer_form_options form_options{};
+    form_options.struct_size = QUANTAPDF_COMPOSER_FORM_OPTIONS_V1_SIZE;
+    form_options.width_points = context.width;
+    form_options.height_points = context.height;
+
+    quantapdf_composer_form_id form_id = 0u;
+    quantapdf_status const status = quantapdf_composer_add_form(
+        composer,
+        &form_options,
+        symbol_form_builder,
+        &context,
+        &form_id);
+    if (status != QUANTAPDF_OK)
+        return status;
+    cache->emplace(symbol_id, form_id);
+    *out_form_id = form_id;
+    return QUANTAPDF_OK;
 }
 
 class svg_parser {
