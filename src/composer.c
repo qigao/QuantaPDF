@@ -180,6 +180,20 @@ static int quantapdf_composer_resource_transform_normalize(
     return 1;
 }
 
+static int quantapdf_path_transform_normalize(
+    const quantapdf_composer_path_options *options,
+    quantapdf_affine_transform *destination)
+{
+    if (destination == NULL || options == NULL)
+        return 0;
+    if (options->struct_size < QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_MIN_SIZE) {
+        *destination = quantapdf_affine_identity_internal();
+        return 1;
+    }
+    return quantapdf_composer_resource_transform_normalize(
+        &options->transform, destination);
+}
+
 static int quantapdf_gradient_stops_valid(
     const quantapdf_composer_gradient_stop *stops,
     size_t stop_count)
@@ -236,7 +250,7 @@ static void quantapdf_copy_path_options(
     const quantapdf_composer_path_options *source)
 {
     memset(destination, 0, sizeof(*destination));
-    destination->struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE;
+    destination->struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     destination->stroke = source->stroke;
     destination->fill = source->fill;
     destination->stroke_argb = source->stroke_argb;
@@ -252,6 +266,8 @@ static void quantapdf_copy_path_options(
         quantapdf_path_fill_paint_id(source);
     destination->stroke_paint_id =
         quantapdf_path_stroke_paint_id(source);
+    (void)quantapdf_path_transform_normalize(
+        source, &destination->transform);
 }
 
 static int quantapdf_composer_path_options_valid(
@@ -279,6 +295,11 @@ static int quantapdf_composer_path_options_valid(
         quantapdf_path_fill_paint_id(options) == 0u &&
         (options->fill_argb >> 24u) != 0xffu)
         return 0;
+    {
+        quantapdf_affine_transform transform;
+        if (!quantapdf_path_transform_normalize(options, &transform))
+            return 0;
+    }
     return 1;
 }
 
