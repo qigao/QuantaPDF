@@ -1877,7 +1877,11 @@ static int test_v4a_nested_clip_references_and_rollback()
         quantapdf_drop_composer(composer);
     }
 
-    for (char const* svg: {svg_cycle, svg_bbox_nested}) {
+    char const* invalid_nested[] = {
+        svg_cycle,
+        svg_bbox_nested
+    };
+    for (char const* svg: invalid_nested) {
         quantapdf_composer* composer = nullptr;
         CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
