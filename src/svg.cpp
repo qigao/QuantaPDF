@@ -1072,8 +1072,8 @@ void stage_path(
 
     staged_path staged;
     staged.commands = std::move(commands);
-    staged.fill_ref = style.fill_ref;
-    staged.stroke_ref = style.stroke_ref;
+    staged.fill_ref = style.fill ? style.fill_ref : std::string{};
+    staged.stroke_ref = style.stroke ? style.stroke_ref : std::string{};
     staged.clip_ref = style.clip_ref;
     staged.resource_transform = transform;
     staged.options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
@@ -1822,6 +1822,8 @@ gradient_definition start_gradient_definition(
         result.fr = optional_number(item, "fr", 0.0);
         if (result.fr < 0.0)
             fail(QUANTAPDF_ERROR_FORMAT);
+        if (result.fr > result.radius)
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
         if (result.fr == result.radius &&
             result.fx == result.cx && result.fy == result.cy)
             fail(QUANTAPDF_ERROR_UNSUPPORTED);
@@ -2432,7 +2434,9 @@ class svg_parser {
                 context root;
                 root.name = tag;
                 root.style = derive_style(paint_style{}, item);
-                if (root.style.opacity != 1.0)
+                validate_style_references(root.style, definitions_);
+                if (root.style.opacity != 1.0 ||
+                    !root.style.clip_ref.empty())
                     fail(QUANTAPDF_ERROR_UNSUPPORTED);
                 root.transform = derive_transform(viewport, item);
                 if (!item.self_closing)
@@ -2471,7 +2475,8 @@ class svg_parser {
                 group.name = tag;
                 group.style = derive_style(parent.style, item);
                 validate_style_references(group.style, definitions_);
-                if (group.style.opacity != 1.0)
+                if (group.style.opacity != 1.0 ||
+                    !group.style.clip_ref.empty())
                     fail(QUANTAPDF_ERROR_UNSUPPORTED);
                 group.transform =
                     derive_transform(parent.transform, item);
