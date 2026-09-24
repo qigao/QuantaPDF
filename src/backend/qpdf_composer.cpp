@@ -1169,6 +1169,30 @@ void append_path_content(
     };
 
     content += "q ";
+    auto const& transform = options.transform;
+    bool const identity_transform =
+        transform.a == 1.0f && transform.b == 0.0f &&
+        transform.c == 0.0f && transform.d == 1.0f &&
+        transform.e == 0.0f && transform.f == 0.0f;
+    if (!identity_transform) {
+        double const a = canonical_zero(transform.a);
+        double const b =
+            canonical_zero(-static_cast<double>(transform.b));
+        double const c_value =
+            canonical_zero(-static_cast<double>(transform.c));
+        double const d = canonical_zero(transform.d);
+        double const e =
+            static_cast<double>(transform.c) * page.height_points +
+            static_cast<double>(transform.e);
+        double const f =
+            page.height_points *
+                (1.0 - static_cast<double>(transform.d)) -
+            static_cast<double>(transform.f);
+        content += number(a) + " " + number(b) + " " +
+            number(c_value) + " " + number(d) + " " +
+            number(canonical_zero(e)) + " " +
+            number(canonical_zero(f)) + " cm ";
+    }
     if (options.stroke) {
         if (options.stroke_paint_id != 0u) {
             content += "/Pattern CS /P" +
