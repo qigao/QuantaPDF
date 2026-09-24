@@ -4291,6 +4291,55 @@ quantapdf_status register_bounds_clip(
         out_clip_id);
 }
 
+quantapdf_status register_clip_component(
+    quantapdf_composer* composer,
+    definition_table const& definitions,
+    clip_component const& component,
+    quantapdf_composer_clip_id* out_clip_id)
+{
+    auto found = definitions.clips.find(component.ref);
+    if (found == definitions.clips.end())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    try {
+        return register_clip_resource(
+            composer,
+            found->second,
+            component.transform,
+            component.local_bounds,
+            out_clip_id);
+    } catch (svg_error const& error) {
+        return error.status;
+    }
+}
+
+quantapdf_status combine_clip_ids(
+    quantapdf_composer* composer,
+    std::vector<quantapdf_composer_clip_id> const& input,
+    quantapdf_composer_clip_id* out_clip_id)
+{
+    if (out_clip_id == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_clip_id = 0u;
+
+    std::vector<quantapdf_composer_clip_id> ids;
+    ids.reserve(input.size());
+    for (auto id: input) {
+        if (id != 0u)
+            ids.push_back(id);
+    }
+    if (ids.empty())
+        return QUANTAPDF_OK;
+    if (ids.size() == 1u) {
+        *out_clip_id = ids[0];
+        return QUANTAPDF_OK;
+    }
+    return quantapdf_composer_add_clip_intersection(
+        composer,
+        ids.data(),
+        ids.size(),
+        out_clip_id);
+}
+
 quantapdf_status publish_uses(
     quantapdf_composer* composer,
     size_t page_index,
@@ -4513,8 +4562,10 @@ void rollback_svg_publish(
     }
     for (size_t i = snapshot.clip_count;
          i < composer->clip_count;
-         ++i)
+         ++i) {
         std::free(composer->clips[i].commands);
+        std::free(composer->clips[i].members);
+    }
     for (size_t i = snapshot.form_count;
          i < composer->form_count;
          ++i)
@@ -4591,8 +4642,10 @@ quantapdf_status publish_paths(
             std::free(composer->paints[i].stops);
             std::free(composer->paints[i].pdf_data);
         }
-        for (size_t i = clip_snapshot; i < composer->clip_count; ++i)
+        for (size_t i = clip_snapshot; i < composer->clip_count; ++i) {
             std::free(composer->clips[i].commands);
+            std::free(composer->clips[i].members);
+        }
         composer->paint_count = paint_snapshot;
         composer->clip_count = clip_snapshot;
         composer->graphics_state_count = state_snapshot;
