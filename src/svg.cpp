@@ -2731,13 +2731,15 @@ void validate_style_references(
     paint_style const& style,
     definition_table const& definitions)
 {
-    if (!style.fill_ref.empty() &&
-        definitions.gradients.find(style.fill_ref) ==
-            definitions.gradients.end())
+    auto paint_exists = [&](std::string const& id) {
+        return definitions.gradients.find(id) !=
+                definitions.gradients.end() ||
+            definitions.patterns.find(id) !=
+                definitions.patterns.end();
+    };
+    if (!style.fill_ref.empty() && !paint_exists(style.fill_ref))
         fail(QUANTAPDF_ERROR_UNSUPPORTED);
-    if (!style.stroke_ref.empty() &&
-        definitions.gradients.find(style.stroke_ref) ==
-            definitions.gradients.end())
+    if (!style.stroke_ref.empty() && !paint_exists(style.stroke_ref))
         fail(QUANTAPDF_ERROR_UNSUPPORTED);
     if (!style.clip_ref.empty() &&
         definitions.clips.find(style.clip_ref) ==
@@ -2998,6 +3000,118 @@ quantapdf_status materialize_symbol(
         return status;
     cache->emplace(symbol_id, form_id);
     *out_form_id = form_id;
+    return QUANTAPDF_OK;
+}
+
+std::string build_pattern_svg(
+    definition_table const& definitions,
+    pattern_definition const& pattern)
+{
+    std::string result;
+    result += "<svg viewBox=\"";
+    result += svg_number(pattern.x);
+    result += " ";
+    result += svg_number(pattern.y);
+    result += " ";
+    result += svg_number(pattern.width);
+    result += " ";
+    result += svg_number(pattern.height);
+    result += "\" preserveAspectRatio=\"none\"><defs>";
+    result += serialize_tokens(definitions.defs_tokens, false);
+    result += "</defs>";
+    result += serialize_tokens(pattern.tokens, true);
+    result += "</svg>";
+    if (result.size() > k_svg_max_input_bytes)
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    return result;
+}
+
+struct pattern_builder_context {
+    std::string const* svg = nullptr;
+    float width = 0.0f;
+    float height = 0.0f;
+};
+
+quantapdf_status pattern_builder(
+    quantapdf_composer* composer,
+    size_t page_index,
+    void* user_data)
+{
+    auto const* context =
+        static_cast<pattern_builder_context const*>(user_data);
+    if (context == nullptr || context->svg == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    quantapdf_composer_svg_options options{};
+    options.struct_size = QUANTAPDF_COMPOSER_SVG_OPTIONS_V1_SIZE;
+    quantapdf_rect bounds = {
+        0.0f, 0.0f, context->width, context->height};
+    return quantapdf_composer_draw_svg(
+        composer,
+        page_index,
+        reinterpret_cast<unsigned char const*>(context->svg->data()),
+        context->svg->size(),
+        &bounds,
+        &options);
+}
+
+quantapdf_status materialize_pattern(
+    quantapdf_composer* composer,
+    definition_table const& definitions,
+    std::string const& pattern_id,
+    std::map<std::string, quantapdf_composer_paint_id>* cache,
+    quantapdf_composer_paint_id* out_paint_id)
+{
+    auto cached = cache->find(pattern_id);
+    if (cached != cache->end()) {
+        *out_paint_id = cached->second;
+        return QUANTAPDF_OK;
+    }
+
+    auto found = definitions.patterns.find(pattern_id);
+    if (found == definitions.patterns.end())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    auto const& pattern = found->second;
+
+    std::string synthetic_svg =
+        build_pattern_svg(definitions, pattern);
+    pattern_builder_context context;
+    context.svg = &synthetic_svg;
+    context.width = static_cast<float>(pattern.width);
+    context.height = static_cast<float>(pattern.height);
+    if (!finite(context.width) || !finite(context.height) ||
+        context.width <= 0.0f || context.height <= 0.0f)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    matrix const placement =
+        multiply(
+            pattern.transform,
+            translate_matrix(pattern.x, pattern.y));
+
+    quantapdf_composer_tiling_pattern_options options{};
+    options.struct_size =
+        QUANTAPDF_COMPOSER_TILING_PATTERN_OPTIONS_V1_SIZE;
+    options.width_points = context.width;
+    options.height_points = context.height;
+    options.x_step = context.width;
+    options.y_step = context.height;
+    try {
+        options.transform = resource_affine(placement);
+    } catch (svg_error const& error) {
+        return error.status;
+    }
+
+    quantapdf_composer_paint_id paint_id = 0u;
+    quantapdf_status const status =
+        quantapdf_composer_add_tiling_pattern(
+            composer,
+            &options,
+            pattern_builder,
+            &context,
+            &paint_id);
+    if (status != QUANTAPDF_OK)
+        return status;
+    cache->emplace(pattern_id, paint_id);
+    *out_paint_id = paint_id;
     return QUANTAPDF_OK;
 }
 
@@ -3432,8 +3546,10 @@ void rollback_svg_publish(
     }
     for (size_t i = snapshot.paint_count;
          i < composer->paint_count;
-         ++i)
+         ++i) {
         std::free(composer->paints[i].stops);
+        std::free(composer->paints[i].pdf_data);
+    }
     for (size_t i = snapshot.clip_count;
          i < composer->clip_count;
          ++i)
