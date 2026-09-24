@@ -1846,8 +1846,10 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             if (!slot.has_value()) {
                 auto const& form = composer->forms[id - 1u];
                 QPDF foreign_pdf;
+                std::string const description =
+                    "quantapdf-form-" + std::to_string(id);
                 foreign_pdf.processMemoryFile(
-                    "quantapdf-form-" + std::to_string(id),
+                    description.c_str(),
                     reinterpret_cast<char const*>(form.pdf_data),
                     form.pdf_size);
                 auto foreign_pages =
