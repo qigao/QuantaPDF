@@ -56,6 +56,15 @@ int quantapdf_test_pdf_image_xobject_info(
     size_t image_id,
     int *out_components,
     int *out_has_smask);
+int quantapdf_test_pdf_extgstate_info(
+    const unsigned char *data,
+    size_t size,
+    size_t page_index,
+    size_t graphics_state_id,
+    double *out_fill_alpha,
+    double *out_stroke_alpha,
+    char *out_blend_mode,
+    size_t blend_mode_capacity);
 void quantapdf_test_use_comma_locale(int enabled);
 
 #ifdef __cplusplus
