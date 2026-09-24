@@ -850,6 +850,10 @@ double required_number(element const& item, char const* name)
 struct staged_path {
     std::vector<quantapdf_composer_path_command> commands;
     quantapdf_composer_path_options options{};
+    std::vector<float> dash_lengths;
+    float dash_phase = 0.0f;
+    float fill_alpha = 1.0f;
+    float stroke_alpha = 1.0f;
 };
 
 void transform_commands(
@@ -911,13 +915,46 @@ void stage_path(
         fail(QUANTAPDF_ERROR_UNSUPPORTED);
     staged.options.miter_limit = static_cast<float>(style.miter_limit);
 
+    staged.fill_alpha = static_cast<float>(style.fill_opacity);
+    staged.stroke_alpha = static_cast<float>(style.stroke_opacity);
+
     if (style.stroke) {
-        double const width =
-            style.stroke_width * conformal_scale(transform);
+        double const scale = conformal_scale(transform);
+        double const width = style.stroke_width * scale;
         if (!finite(width) || width < 0.0 ||
             width > std::numeric_limits<float>::max())
             fail(QUANTAPDF_ERROR_UNSUPPORTED);
         staged.options.stroke_width = static_cast<float>(width);
+
+        if (!style.dash_array.empty()) {
+            double sum = 0.0;
+            staged.dash_lengths.reserve(style.dash_array.size());
+            for (double value: style.dash_array) {
+                double const scaled = value * scale;
+                if (!finite(scaled) || scaled < 0.0 ||
+                    scaled > std::numeric_limits<float>::max())
+                    fail(QUANTAPDF_ERROR_UNSUPPORTED);
+                staged.dash_lengths.push_back(static_cast<float>(scaled));
+                sum += scaled;
+            }
+            if (!finite(sum) || sum <= 0.0)
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+
+            double offset = style.dash_offset * scale;
+            if (!finite(offset))
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            if (offset < 0.0) {
+                double const remainder = std::fmod(std::fabs(offset), sum);
+                offset = remainder == 0.0 ? 0.0 : sum - remainder;
+            } else {
+                offset = std::fmod(offset, sum);
+            }
+            if (offset == 0.0)
+                offset = 0.0;
+            if (offset > std::numeric_limits<float>::max())
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            staged.dash_phase = static_cast<float>(offset);
+        }
     }
     paths->push_back(std::move(staged));
 }
@@ -1414,7 +1451,8 @@ class svg_parser {
 quantapdf_status publish_paths(
     quantapdf_composer* composer,
     size_t page_index,
-    std::vector<staged_path> const& paths)
+    std::vector<staged_path> const& paths,
+    quantapdf_rect const* viewport_clip)
 {
     if (paths.empty())
         return QUANTAPDF_OK;
@@ -1424,12 +1462,17 @@ quantapdf_status publish_paths(
         if (path.commands.size() >
             SIZE_MAX / sizeof(quantapdf_composer_path_command))
             return QUANTAPDF_ERROR_UNSUPPORTED;
-        size_t const bytes =
+        size_t const command_bytes =
             path.commands.size() *
             sizeof(quantapdf_composer_path_command);
-        if (bytes > SIZE_MAX - total_bytes)
+        if (path.dash_lengths.size() > SIZE_MAX / sizeof(float))
             return QUANTAPDF_ERROR_UNSUPPORTED;
-        total_bytes += bytes;
+        size_t const dash_bytes =
+            path.dash_lengths.size() * sizeof(float);
+        if (command_bytes > SIZE_MAX - dash_bytes ||
+            command_bytes + dash_bytes > SIZE_MAX - total_bytes)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        total_bytes += command_bytes + dash_bytes;
     }
     if (composer->resource_bytes > composer->max_resource_bytes ||
         total_bytes >
@@ -1443,29 +1486,134 @@ quantapdf_status publish_paths(
         return reserve;
 
     std::vector<quantapdf_composer_operation> staged(paths.size());
-    size_t allocated = 0u;
+    auto release_staged = [&]() {
+        for (auto& operation: staged) {
+            std::free(operation.value.path.dash_lengths);
+            std::free(operation.value.path.commands);
+            operation.value.path.dash_lengths = nullptr;
+            operation.value.path.commands = nullptr;
+        }
+    };
+
     for (size_t i = 0u; i < paths.size(); ++i) {
-        size_t const bytes =
+        size_t const command_bytes =
             paths[i].commands.size() *
             sizeof(quantapdf_composer_path_command);
-        auto* copy =
+        auto* command_copy =
             static_cast<quantapdf_composer_path_command*>(
-                std::malloc(bytes));
-        if (copy == nullptr) {
-            for (size_t j = 0u; j < allocated; ++j)
-                std::free(staged[j].value.path.commands);
+                std::malloc(command_bytes));
+        if (command_copy == nullptr) {
+            release_staged();
             return QUANTAPDF_ERROR_NOMEM;
         }
-        std::memcpy(copy, paths[i].commands.data(), bytes);
+        std::memcpy(
+            command_copy, paths[i].commands.data(), command_bytes);
+
+        float* dash_copy = nullptr;
+        if (!paths[i].dash_lengths.empty()) {
+            size_t const dash_bytes =
+                paths[i].dash_lengths.size() * sizeof(float);
+            dash_copy = static_cast<float*>(std::malloc(dash_bytes));
+            if (dash_copy == nullptr) {
+                std::free(command_copy);
+                release_staged();
+                return QUANTAPDF_ERROR_NOMEM;
+            }
+            std::memcpy(
+                dash_copy, paths[i].dash_lengths.data(), dash_bytes);
+        }
+
         quantapdf_composer_operation operation{};
         operation.kind = QUANTAPDF_COMPOSER_OPERATION_PATH;
         operation.page_index = page_index;
-        operation.value.path.commands = copy;
+        operation.value.path.commands = command_copy;
         operation.value.path.command_count =
             paths[i].commands.size();
         operation.value.path.options = paths[i].options;
+        operation.value.path.dash_lengths = dash_copy;
+        operation.value.path.dash_count =
+            paths[i].dash_lengths.size();
+        operation.value.path.dash_phase = paths[i].dash_phase;
         staged[i] = operation;
-        ++allocated;
+    }
+
+    size_t const original_graphics_state_count =
+        composer->graphics_state_count;
+    size_t const original_clip_count = composer->clip_count;
+    size_t const original_resource_bytes = composer->resource_bytes;
+    quantapdf_composer_clip_id clip_id = 0u;
+
+    auto rollback_resources = [&]() {
+        for (size_t i = original_clip_count; i < composer->clip_count; ++i) {
+            std::free(composer->clips[i].commands);
+            composer->clips[i].commands = nullptr;
+        }
+        composer->clip_count = original_clip_count;
+        composer->graphics_state_count = original_graphics_state_count;
+        composer->resource_bytes = original_resource_bytes;
+    };
+
+    if (viewport_clip != nullptr) {
+        quantapdf_composer_path_command clip_commands[5] = {};
+        clip_commands[0].kind = QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+        clip_commands[0].point1 =
+            {viewport_clip->x0, viewport_clip->y0};
+        clip_commands[1].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
+        clip_commands[1].point1 =
+            {viewport_clip->x1, viewport_clip->y0};
+        clip_commands[2].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
+        clip_commands[2].point1 =
+            {viewport_clip->x1, viewport_clip->y1};
+        clip_commands[3].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
+        clip_commands[3].point1 =
+            {viewport_clip->x0, viewport_clip->y1};
+        clip_commands[4].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
+        quantapdf_composer_clip_options clip_options{};
+        clip_options.struct_size = QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE;
+        clip_options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
+        quantapdf_status const clip_status =
+            quantapdf_composer_add_clip_path(
+                composer,
+                clip_commands,
+                5u,
+                &clip_options,
+                &clip_id);
+        if (clip_status != QUANTAPDF_OK) {
+            release_staged();
+            rollback_resources();
+            return clip_status;
+        }
+    }
+
+    for (size_t i = 0u; i < paths.size(); ++i) {
+        bool const needs_state =
+            clip_id != 0u ||
+            paths[i].fill_alpha != 1.0f ||
+            paths[i].stroke_alpha != 1.0f;
+        if (!needs_state)
+            continue;
+
+        quantapdf_composer_graphics_state_options state{};
+        state.struct_size = clip_id == 0u
+            ? QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE
+            : QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE;
+        state.fill_alpha = paths[i].fill_alpha;
+        state.stroke_alpha = paths[i].stroke_alpha;
+        state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
+        state.clip_id = clip_id;
+        quantapdf_composer_graphics_state_id state_id = 0u;
+        quantapdf_status const state_status =
+            quantapdf_composer_add_graphics_state(
+                composer, &state, &state_id);
+        if (state_status != QUANTAPDF_OK) {
+            release_staged();
+            rollback_resources();
+            return state_status;
+        }
+        staged[i].graphics_state_id = state_id;
+        staged[i].value.path.options.struct_size =
+            QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_SIZE;
+        staged[i].value.path.options.graphics_state_id = state_id;
     }
 
     for (auto const& operation: staged)
