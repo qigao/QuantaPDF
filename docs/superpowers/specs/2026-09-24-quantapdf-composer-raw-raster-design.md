@@ -86,6 +86,14 @@ Validation/resource failures occur before allocation/publication. Allocation or
 image-table growth failure releases all temporary canonical buffers. Output
 image IDs reset to zero on failure.
 
+## Direct PDF qualification
+
+The focused test inspects generated image XObjects directly with qpdf in
+addition to PDFium rendering. It requires Gray8 to publish `/DeviceGray`,
+RGB24 to publish `/DeviceRGB`, and RGBA32 to publish `/DeviceRGB` with an
+`/SMask`. This keeps backend qualification independent of reader-side decoded
+component normalization.
+
 ## Qualification
 
 - Gray8, RGB24, RGBA32;
