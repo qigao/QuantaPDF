@@ -4019,14 +4019,15 @@ quantapdf_status publish_paths(
                 rollback_resources();
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             }
-            quantapdf_status const status = register_clip_resource(
-                composer,
-                found->second,
-                paths[i].resource_transform,
-                &clip_ids[i]);
-            if (status != QUANTAPDF_OK) {
+            quantapdf_status const clip_resource_status =
+                register_clip_resource(
+                    composer,
+                    found->second,
+                    paths[i].resource_transform,
+                    &clip_ids[i]);
+            if (clip_resource_status != QUANTAPDF_OK) {
                 rollback_resources();
-                return status;
+                return clip_resource_status;
             }
             effective_clip_id = clip_ids[i];
         }
@@ -4043,12 +4044,12 @@ quantapdf_status publish_paths(
             state.stroke_alpha = paths[i].stroke_alpha;
             state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
             state.clip_id = effective_clip_id;
-            quantapdf_status const status =
+            quantapdf_status const state_status =
                 quantapdf_composer_add_graphics_state(
                     composer, &state, &state_ids[i]);
-            if (status != QUANTAPDF_OK) {
+            if (state_status != QUANTAPDF_OK) {
                 rollback_resources();
-                return status;
+                return state_status;
             }
         }
     }
