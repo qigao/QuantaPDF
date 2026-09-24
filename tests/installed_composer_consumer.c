@@ -169,21 +169,22 @@ int main(int argc, char **argv)
     quantapdf_rect svg_box = {180.0f, 80.0f, 280.0f, 160.0f};
     quantapdf_point target = {24.0f, 24.0f};
     static const unsigned char svg_data[] =
-        "<svg viewBox=\"0 0 10 8\" preserveAspectRatio=\"xMidYMid meet\">"
+        "<svg viewBox=\"0 0 10 8\">"
         "<defs>"
-        "<pattern id=\"installedPattern\" patternUnits=\"userSpaceOnUse\" "
-        "patternContentUnits=\"userSpaceOnUse\" x=\"0\" y=\"0\" "
-        "width=\"2\" height=\"2\">"
-        "<rect x=\"0\" y=\"0\" width=\"1\" height=\"2\" fill=\"#00a0ff\"/>"
-        "</pattern>"
+        "<linearGradient id=\"base\">"
+        "<stop offset=\"0\" stop-color=\"#00a0ff\"/>"
+        "<stop offset=\"1\" stop-color=\"#0000ff\"/>"
+        "</linearGradient>"
+        "<linearGradient id=\"derived\" href=\"#base\" "
+        "gradientTransform=\"translate(0.1 0)\"/>"
+        "<clipPath id=\"clip\" clipPathUnits=\"objectBoundingBox\">"
+        "<rect x=\"0.1\" y=\"0.1\" width=\"0.8\" height=\"0.8\"/>"
+        "</clipPath>"
         "</defs>"
-        "<g opacity=\"0.75\">"
         "<rect x=\"1\" y=\"1\" width=\"8\" height=\"6\" "
-        "fill=\"url(#installedPattern)\"/>"
-        "<path d=\"M2 6 L8 6\" fill=\"none\" stroke=\"#202020\" "
-        "stroke-width=\"0.5\" stroke-dasharray=\"1 0.5\" "
-        "transform=\"scale(1.2 0.8)\"/>"
-        "</g></svg>";
+        "fill=\"url(#derived)\" clip-path=\"url(#clip)\"/>"
+        "</svg>";
+
     if (argc != 3) {
         fprintf(stderr, "usage: %s <font.ttf> <output.pdf>\\n", argv[0]);
         return EXIT_FAILURE;

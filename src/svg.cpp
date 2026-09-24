@@ -1004,6 +1004,14 @@ matrix viewport_matrix(
             translate_matrix(-view_box[0], -view_box[1])));
 }
 
+struct geometry_bounds {
+    double x0 = 0.0;
+    double y0 = 0.0;
+    double x1 = 0.0;
+    double y1 = 0.0;
+    bool valid = false;
+};
+
 struct staged_path {
     size_t order = 0u;
     std::vector<quantapdf_composer_path_command> commands;
@@ -1016,6 +1024,7 @@ struct staged_path {
     std::string stroke_ref;
     std::string clip_ref;
     matrix resource_transform;
+    geometry_bounds local_bounds;
 };
 
 struct staged_use {
@@ -1063,6 +1072,156 @@ void transform_commands(
     }
 }
 
+void include_bound_point(
+    geometry_bounds* bounds,
+    double x,
+    double y)
+{
+    if (!finite(x) || !finite(y))
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    if (!bounds->valid) {
+        bounds->x0 = bounds->x1 = x;
+        bounds->y0 = bounds->y1 = y;
+        bounds->valid = true;
+        return;
+    }
+    bounds->x0 = std::min(bounds->x0, x);
+    bounds->y0 = std::min(bounds->y0, y);
+    bounds->x1 = std::max(bounds->x1, x);
+    bounds->y1 = std::max(bounds->y1, y);
+}
+
+double cubic_coordinate(
+    double p0,
+    double p1,
+    double p2,
+    double p3,
+    double t)
+{
+    double const mt = 1.0 - t;
+    return mt * mt * mt * p0 +
+        3.0 * mt * mt * t * p1 +
+        3.0 * mt * t * t * p2 +
+        t * t * t * p3;
+}
+
+void include_cubic_extrema(
+    geometry_bounds* bounds,
+    double x0,
+    double y0,
+    quantapdf_point const& p1,
+    quantapdf_point const& p2,
+    quantapdf_point const& p3)
+{
+    include_bound_point(bounds, x0, y0);
+    include_bound_point(bounds, p3.x, p3.y);
+
+    auto roots = [](double p0, double p1, double p2, double p3) {
+        std::vector<double> result;
+        double const a = -p0 + 3.0 * p1 - 3.0 * p2 + p3;
+        double const b = 2.0 * (p0 - 2.0 * p1 + p2);
+        double const d = p1 - p0;
+        if (a == 0.0) {
+            if (b != 0.0) {
+                double const t = -d / b;
+                if (t > 0.0 && t < 1.0)
+                    result.push_back(t);
+            }
+            return result;
+        }
+        double const discriminant = b * b - 4.0 * a * d;
+        if (discriminant < 0.0)
+            return result;
+        double const root = std::sqrt(std::max(0.0, discriminant));
+        double const t1 = (-b + root) / (2.0 * a);
+        double const t2 = (-b - root) / (2.0 * a);
+        if (t1 > 0.0 && t1 < 1.0)
+            result.push_back(t1);
+        if (t2 > 0.0 && t2 < 1.0 && t2 != t1)
+            result.push_back(t2);
+        return result;
+    };
+
+    auto const x_roots = roots(x0, p1.x, p2.x, p3.x);
+    auto const y_roots = roots(y0, p1.y, p2.y, p3.y);
+    for (double t: x_roots) {
+        include_bound_point(
+            bounds,
+            cubic_coordinate(x0, p1.x, p2.x, p3.x, t),
+            cubic_coordinate(y0, p1.y, p2.y, p3.y, t));
+    }
+    for (double t: y_roots) {
+        include_bound_point(
+            bounds,
+            cubic_coordinate(x0, p1.x, p2.x, p3.x, t),
+            cubic_coordinate(y0, p1.y, p2.y, p3.y, t));
+    }
+}
+
+geometry_bounds command_bounds(
+    std::vector<quantapdf_composer_path_command> const& commands)
+{
+    geometry_bounds bounds;
+    double x = 0.0;
+    double y = 0.0;
+    double subpath_x = 0.0;
+    double subpath_y = 0.0;
+    bool have_current = false;
+    bool have_subpath = false;
+    bool subpath_has_draw = false;
+
+    for (auto const& command: commands) {
+        switch (command.kind) {
+        case QUANTAPDF_COMPOSER_PATH_MOVE_TO:
+            x = command.point1.x;
+            y = command.point1.y;
+            subpath_x = x;
+            subpath_y = y;
+            have_current = true;
+            have_subpath = true;
+            subpath_has_draw = false;
+            break;
+        case QUANTAPDF_COMPOSER_PATH_LINE_TO:
+            if (!have_current)
+                fail(QUANTAPDF_ERROR_BACKEND);
+            include_bound_point(&bounds, x, y);
+            include_bound_point(
+                &bounds, command.point1.x, command.point1.y);
+            x = command.point1.x;
+            y = command.point1.y;
+            subpath_has_draw = true;
+            break;
+        case QUANTAPDF_COMPOSER_PATH_CUBIC_TO:
+            if (!have_current)
+                fail(QUANTAPDF_ERROR_BACKEND);
+            include_cubic_extrema(
+                &bounds,
+                x,
+                y,
+                command.point1,
+                command.point2,
+                command.point3);
+            x = command.point3.x;
+            y = command.point3.y;
+            subpath_has_draw = true;
+            break;
+        case QUANTAPDF_COMPOSER_PATH_CLOSE:
+            if (!have_current || !have_subpath)
+                fail(QUANTAPDF_ERROR_BACKEND);
+            if (subpath_has_draw) {
+                include_bound_point(&bounds, x, y);
+                include_bound_point(&bounds, subpath_x, subpath_y);
+            }
+            x = subpath_x;
+            y = subpath_y;
+            break;
+        default:
+            fail(QUANTAPDF_ERROR_BACKEND);
+        }
+    }
+    return bounds;
+}
+
 void stage_path(
     std::vector<staged_path>* paths,
     std::vector<quantapdf_composer_path_command> commands,
@@ -1081,6 +1240,7 @@ void stage_path(
     staged_path staged;
     staged.order = order;
     staged.commands = std::move(commands);
+    staged.local_bounds = command_bounds(staged.commands);
     staged.fill_ref = style.fill ? style.fill_ref : std::string{};
     staged.stroke_ref = style.stroke ? style.stroke_ref : std::string{};
     staged.clip_ref = style.clip_ref;
@@ -1696,8 +1856,28 @@ bool drawable_tag(std::string const& tag)
         tag == "circle" || tag == "ellipse";
 }
 
+enum class resource_units {
+    unspecified,
+    user_space,
+    object_bbox
+};
+
 struct gradient_definition {
     bool radial = false;
+    resource_units units = resource_units::unspecified;
+    bool transform_specified = false;
+    matrix transform;
+    std::string template_ref;
+    std::string x1_text;
+    std::string y1_text;
+    std::string x2_text;
+    std::string y2_text;
+    std::string cx_text;
+    std::string cy_text;
+    std::string radius_text;
+    std::string fx_text;
+    std::string fy_text;
+    std::string fr_text;
     double x1 = 0.0;
     double y1 = 0.0;
     double x2 = 0.0;
@@ -1708,7 +1888,7 @@ struct gradient_definition {
     double fx = 0.0;
     double fy = 0.0;
     double fr = 0.0;
-    matrix transform;
+    bool normalized = false;
     std::vector<quantapdf_composer_gradient_stop> stops;
 };
 
@@ -1716,6 +1896,7 @@ struct clip_definition {
     std::vector<quantapdf_composer_path_command> commands;
     quantapdf_composer_fill_rule fill_rule =
         QUANTAPDF_COMPOSER_FILL_NONZERO;
+    resource_units units = resource_units::user_space;
 };
 
 struct symbol_definition {
@@ -1729,11 +1910,20 @@ struct symbol_definition {
 };
 
 struct pattern_definition {
+    resource_units units = resource_units::unspecified;
+    resource_units content_units = resource_units::unspecified;
+    bool transform_specified = false;
+    matrix transform;
+    std::string template_ref;
+    std::string x_text;
+    std::string y_text;
+    std::string width_text;
+    std::string height_text;
     double x = 0.0;
     double y = 0.0;
     double width = 0.0;
     double height = 0.0;
-    matrix transform;
+    bool normalized = false;
     std::vector<element> tokens;
     std::set<std::string> pattern_dependencies;
 };
@@ -1786,24 +1976,42 @@ void validate_symbol_attributes(element const& item)
     }
 }
 
+resource_units parse_resource_units(std::string const& value);
+std::string local_template_reference(element const& item);
+std::string attribute_text(element const& item, char const* name);
+
 void validate_pattern_attributes(element const& item)
 {
     for (auto const& attr: item.attributes) {
-        if (attr.name != "id" && attr.name != "patternUnits" &&
+        if (attr.name != "id" && attr.name != "href" &&
+            attr.name != "xlink:href" &&
+            attr.name != "patternUnits" &&
             attr.name != "patternContentUnits" &&
             attr.name != "patternTransform" &&
             attr.name != "x" && attr.name != "y" &&
             attr.name != "width" && attr.name != "height")
             fail(QUANTAPDF_ERROR_UNSUPPORTED);
     }
-    auto const* units = find_attribute(item, "patternUnits");
-    if (units == nullptr || trim(*units) != "userSpaceOnUse")
-        fail(QUANTAPDF_ERROR_UNSUPPORTED);
-    if (auto const* content_units =
-            find_attribute(item, "patternContentUnits")) {
-        if (trim(*content_units) != "userSpaceOnUse")
-            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+}
+
+pattern_definition start_pattern_definition(element const& item)
+{
+    validate_pattern_attributes(item);
+    pattern_definition result;
+    result.template_ref = local_template_reference(item);
+    if (auto const* units = find_attribute(item, "patternUnits"))
+        result.units = parse_resource_units(*units);
+    if (auto const* units = find_attribute(item, "patternContentUnits"))
+        result.content_units = parse_resource_units(*units);
+    if (auto const* transform = find_attribute(item, "patternTransform")) {
+        result.transform = parse_transform(*transform);
+        result.transform_specified = true;
     }
+    result.x_text = attribute_text(item, "x");
+    result.y_text = attribute_text(item, "y");
+    result.width_text = attribute_text(item, "width");
+    result.height_text = attribute_text(item, "height");
+    return result;
 }
 
 std::string local_paint_reference(std::string const& value)
@@ -1954,6 +2162,38 @@ double stop_offset_value(std::string const& value)
     return result;
 }
 
+resource_units parse_resource_units(
+    std::string const& value)
+{
+    std::string const parsed = trim(value);
+    if (parsed == "userSpaceOnUse")
+        return resource_units::user_space;
+    if (parsed == "objectBoundingBox")
+        return resource_units::object_bbox;
+    fail(QUANTAPDF_ERROR_UNSUPPORTED);
+}
+
+std::string local_template_reference(element const& item)
+{
+    auto const* href = find_attribute(item, "href");
+    auto const* xlink = find_attribute(item, "xlink:href");
+    if (href != nullptr && xlink != nullptr)
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    if (href != nullptr)
+        return local_fragment_href(*href);
+    if (xlink != nullptr)
+        return local_fragment_href(*xlink);
+    return {};
+}
+
+std::string attribute_text(
+    element const& item,
+    char const* name)
+{
+    auto const* value = find_attribute(item, name);
+    return value == nullptr ? std::string{} : trim(*value);
+}
+
 void validate_gradient_attributes(
     element const& item,
     bool radial)
@@ -1961,6 +2201,8 @@ void validate_gradient_attributes(
     for (auto const& attr: item.attributes) {
         bool allowed =
             attr.name == "id" ||
+            attr.name == "href" ||
+            attr.name == "xlink:href" ||
             attr.name == "gradientUnits" ||
             attr.name == "gradientTransform" ||
             attr.name == "spreadMethod";
@@ -1975,9 +2217,6 @@ void validate_gradient_attributes(
         if (!allowed)
             fail(QUANTAPDF_ERROR_UNSUPPORTED);
     }
-    auto const* units = find_attribute(item, "gradientUnits");
-    if (units == nullptr || trim(*units) != "userSpaceOnUse")
-        fail(QUANTAPDF_ERROR_UNSUPPORTED);
     if (auto const* spread = find_attribute(item, "spreadMethod")) {
         if (trim(*spread) != "pad")
             fail(QUANTAPDF_ERROR_UNSUPPORTED);
@@ -1991,32 +2230,26 @@ gradient_definition start_gradient_definition(
     validate_gradient_attributes(item, radial);
     gradient_definition result;
     result.radial = radial;
-    if (auto const* transform = find_attribute(item, "gradientTransform"))
+    result.template_ref = local_template_reference(item);
+    if (auto const* units = find_attribute(item, "gradientUnits"))
+        result.units = parse_resource_units(*units);
+    if (auto const* transform = find_attribute(item, "gradientTransform")) {
         result.transform = parse_transform(*transform);
+        result.transform_specified = true;
+    }
 
     if (!radial) {
-        result.x1 = required_number(item, "x1");
-        result.y1 = required_number(item, "y1");
-        result.x2 = required_number(item, "x2");
-        result.y2 = required_number(item, "y2");
-        if (result.x1 == result.x2 && result.y1 == result.y2)
-            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        result.x1_text = attribute_text(item, "x1");
+        result.y1_text = attribute_text(item, "y1");
+        result.x2_text = attribute_text(item, "x2");
+        result.y2_text = attribute_text(item, "y2");
     } else {
-        result.cx = required_number(item, "cx");
-        result.cy = required_number(item, "cy");
-        result.radius = required_number(item, "r");
-        if (result.radius <= 0.0)
-            fail(QUANTAPDF_ERROR_FORMAT);
-        result.fx = optional_number(item, "fx", result.cx);
-        result.fy = optional_number(item, "fy", result.cy);
-        result.fr = optional_number(item, "fr", 0.0);
-        if (result.fr < 0.0)
-            fail(QUANTAPDF_ERROR_FORMAT);
-        if (result.fr > result.radius)
-            fail(QUANTAPDF_ERROR_UNSUPPORTED);
-        if (result.fr == result.radius &&
-            result.fx == result.cx && result.fy == result.cy)
-            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        result.cx_text = attribute_text(item, "cx");
+        result.cy_text = attribute_text(item, "cy");
+        result.radius_text = attribute_text(item, "r");
+        result.fx_text = attribute_text(item, "fx");
+        result.fy_text = attribute_text(item, "fy");
+        result.fr_text = attribute_text(item, "fr");
     }
     return result;
 }
@@ -2117,6 +2350,238 @@ void finalize_gradient(gradient_definition* gradient)
         gradient->stops.push_back(
             {1.0f, gradient->stops.back().argb});
     }
+}
+
+double resource_length(
+    std::string const& text,
+    resource_units units,
+    double default_value,
+    bool required_user_space)
+{
+    if (text.empty()) {
+        if (units == resource_units::user_space && required_user_space)
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        return default_value;
+    }
+
+    std::string value = trim(text);
+    if (units == resource_units::object_bbox) {
+        bool percentage = false;
+        if (!value.empty() && value.back() == '%') {
+            percentage = true;
+            value.pop_back();
+        }
+        if (value.empty())
+            fail(QUANTAPDF_ERROR_FORMAT);
+        number_scanner scanner(value);
+        double result = scanner.number();
+        if (!scanner.done())
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        if (percentage)
+            result /= 100.0;
+        if (!finite(result))
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        return result;
+    }
+
+    if (!value.empty() && value.back() == '%')
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    return scalar(value);
+}
+
+void normalize_gradient_definition(
+    definition_table* definitions,
+    std::string const& id,
+    std::set<std::string>* visiting)
+{
+    auto found = definitions->gradients.find(id);
+    if (found == definitions->gradients.end())
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    if (found->second.normalized)
+        return;
+    if (!visiting->insert(id).second)
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+
+    gradient_definition local = found->second;
+    gradient_definition merged;
+    merged.radial = local.radial;
+
+    if (!local.template_ref.empty()) {
+        auto base = definitions->gradients.find(local.template_ref);
+        if (base == definitions->gradients.end() ||
+            base->second.radial != local.radial)
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        normalize_gradient_definition(
+            definitions, local.template_ref, visiting);
+        merged = definitions->gradients.at(local.template_ref);
+        merged.radial = local.radial;
+        merged.normalized = false;
+        merged.template_ref.clear();
+    }
+
+    if (local.units != resource_units::unspecified)
+        merged.units = local.units;
+    if (merged.units == resource_units::unspecified)
+        merged.units = resource_units::object_bbox;
+
+    if (local.transform_specified) {
+        merged.transform = local.transform;
+        merged.transform_specified = true;
+    }
+
+    auto override_text = [](std::string& target, std::string const& source) {
+        if (!source.empty())
+            target = source;
+    };
+    override_text(merged.x1_text, local.x1_text);
+    override_text(merged.y1_text, local.y1_text);
+    override_text(merged.x2_text, local.x2_text);
+    override_text(merged.y2_text, local.y2_text);
+    override_text(merged.cx_text, local.cx_text);
+    override_text(merged.cy_text, local.cy_text);
+    override_text(merged.radius_text, local.radius_text);
+    override_text(merged.fx_text, local.fx_text);
+    override_text(merged.fy_text, local.fy_text);
+    override_text(merged.fr_text, local.fr_text);
+
+    if (!local.stops.empty())
+        merged.stops = local.stops;
+    if (merged.stops.empty())
+        fail(QUANTAPDF_ERROR_FORMAT);
+
+    if (!merged.radial) {
+        merged.x1 = resource_length(
+            merged.x1_text, merged.units, 0.0, true);
+        merged.y1 = resource_length(
+            merged.y1_text, merged.units, 0.0, true);
+        merged.x2 = resource_length(
+            merged.x2_text, merged.units, 1.0, true);
+        merged.y2 = resource_length(
+            merged.y2_text, merged.units, 0.0, true);
+        if (merged.x1 == merged.x2 && merged.y1 == merged.y2)
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    } else {
+        merged.cx = resource_length(
+            merged.cx_text, merged.units, 0.5, true);
+        merged.cy = resource_length(
+            merged.cy_text, merged.units, 0.5, true);
+        merged.radius = resource_length(
+            merged.radius_text, merged.units, 0.5, true);
+        merged.fx = resource_length(
+            merged.fx_text, merged.units, merged.cx, false);
+        merged.fy = resource_length(
+            merged.fy_text, merged.units, merged.cy, false);
+        merged.fr = resource_length(
+            merged.fr_text, merged.units, 0.0, false);
+        if (merged.radius <= 0.0 || merged.fr < 0.0)
+            fail(QUANTAPDF_ERROR_FORMAT);
+        if (merged.fr > merged.radius)
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        if (merged.fr == merged.radius &&
+            merged.fx == merged.cx && merged.fy == merged.cy)
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+
+    finalize_gradient(&merged);
+    merged.template_ref.clear();
+    merged.normalized = true;
+    found->second = std::move(merged);
+    visiting->erase(id);
+}
+
+void normalize_pattern_definition(
+    definition_table* definitions,
+    std::string const& id,
+    std::set<std::string>* visiting)
+{
+    auto found = definitions->patterns.find(id);
+    if (found == definitions->patterns.end())
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    if (found->second.normalized)
+        return;
+    if (!visiting->insert(id).second)
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+
+    pattern_definition local = found->second;
+    pattern_definition merged;
+
+    if (!local.template_ref.empty()) {
+        auto base = definitions->patterns.find(local.template_ref);
+        if (base == definitions->patterns.end())
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        normalize_pattern_definition(
+            definitions, local.template_ref, visiting);
+        merged = definitions->patterns.at(local.template_ref);
+        merged.normalized = false;
+        merged.template_ref.clear();
+    }
+
+    if (local.units != resource_units::unspecified)
+        merged.units = local.units;
+    if (merged.units == resource_units::unspecified)
+        merged.units = resource_units::object_bbox;
+
+    if (local.content_units != resource_units::unspecified)
+        merged.content_units = local.content_units;
+    if (merged.content_units == resource_units::unspecified)
+        merged.content_units = resource_units::user_space;
+
+    if (local.transform_specified) {
+        merged.transform = local.transform;
+        merged.transform_specified = true;
+    }
+
+    auto override_text = [](std::string& target, std::string const& source) {
+        if (!source.empty())
+            target = source;
+    };
+    override_text(merged.x_text, local.x_text);
+    override_text(merged.y_text, local.y_text);
+    override_text(merged.width_text, local.width_text);
+    override_text(merged.height_text, local.height_text);
+
+    if (!local.tokens.empty()) {
+        merged.tokens = local.tokens;
+        merged.pattern_dependencies = local.pattern_dependencies;
+    }
+
+    merged.x = resource_length(
+        merged.x_text, merged.units, 0.0, false);
+    merged.y = resource_length(
+        merged.y_text, merged.units, 0.0, false);
+    merged.width = resource_length(
+        merged.width_text, merged.units, 0.0, false);
+    merged.height = resource_length(
+        merged.height_text, merged.units, 0.0, false);
+    if (merged.width <= 0.0 || merged.height <= 0.0)
+        fail(QUANTAPDF_ERROR_FORMAT);
+    if (merged.tokens.empty())
+        fail(QUANTAPDF_ERROR_FORMAT);
+
+    merged.template_ref.clear();
+    merged.normalized = true;
+    found->second = std::move(merged);
+    visiting->erase(id);
+}
+
+void normalize_resource_definitions(definition_table* definitions)
+{
+    std::set<std::string> visiting;
+    std::vector<std::string> gradient_ids;
+    std::vector<std::string> pattern_ids;
+    gradient_ids.reserve(definitions->gradients.size());
+    pattern_ids.reserve(definitions->patterns.size());
+
+    for (auto const& entry: definitions->gradients)
+        gradient_ids.push_back(entry.first);
+    for (auto const& entry: definitions->patterns)
+        pattern_ids.push_back(entry.first);
+
+    for (auto const& id: gradient_ids)
+        normalize_gradient_definition(definitions, id, &visiting);
+    visiting.clear();
+    for (auto const& id: pattern_ids)
+        normalize_pattern_definition(definitions, id, &visiting);
 }
 
 quantapdf_composer_fill_rule clip_rule_value(
@@ -2383,7 +2848,6 @@ definition_table parse_definitions(
                 auto found = definitions.gradients.find(frame.id);
                 if (found == definitions.gradients.end())
                     fail(QUANTAPDF_ERROR_BACKEND);
-                finalize_gradient(&found->second);
             } else if (frame.type == definition_frame::kind::clip) {
                 auto found = definitions.clips.find(frame.id);
                 if (found == definitions.clips.end())
@@ -2463,11 +2927,8 @@ definition_table parse_definitions(
                 frame.name = tag;
                 frame.type = definition_frame::kind::gradient;
                 frame.id = id;
-                if (item.self_closing) {
-                    finalize_gradient(&inserted.first->second);
-                } else {
+                if (!item.self_closing)
                     stack.push_back(std::move(frame));
-                }
                 continue;
             }
 
@@ -2482,11 +2943,10 @@ definition_table parse_definitions(
                 }
                 auto const* units =
                     find_attribute(item, "clipPathUnits");
-                if (units != nullptr &&
-                    trim(*units) != "userSpaceOnUse")
-                    fail(QUANTAPDF_ERROR_UNSUPPORTED);
                 std::string const id = required_id(item);
                 clip_definition clip;
+                if (units != nullptr)
+                    clip.units = parse_resource_units(*units);
                 clip.fill_rule = clip_rule_from_element(
                     item, QUANTAPDF_COMPOSER_FILL_NONZERO);
                 auto inserted =
@@ -2539,18 +2999,9 @@ definition_table parse_definitions(
             }
 
             if (tag == "pattern") {
-                validate_pattern_attributes(item);
                 std::string const id = required_id(item);
-                pattern_definition pattern;
-                pattern.x = optional_number(item, "x", 0.0);
-                pattern.y = optional_number(item, "y", 0.0);
-                pattern.width = required_number(item, "width");
-                pattern.height = required_number(item, "height");
-                if (pattern.width <= 0.0 || pattern.height <= 0.0)
-                    fail(QUANTAPDF_ERROR_FORMAT);
-                if (auto const* transform =
-                        find_attribute(item, "patternTransform"))
-                    pattern.transform = parse_transform(*transform);
+                pattern_definition pattern =
+                    start_pattern_definition(item);
                 auto inserted =
                     definitions.patterns.emplace(id, std::move(pattern));
                 if (!inserted.second)
@@ -2718,6 +3169,7 @@ definition_table parse_definitions(
     scanner.finish();
     if (!root_seen || !stack.empty())
         fail(QUANTAPDF_ERROR_FORMAT);
+    normalize_resource_definitions(&definitions);
     validate_symbol_dependencies(definitions);
     validate_pattern_dependencies(definitions);
     return definitions;
@@ -2779,19 +3231,50 @@ quantapdf_affine_transform resource_affine(matrix const& value)
         component(value.f)};
 }
 
+matrix object_bbox_matrix(geometry_bounds const& bounds)
+{
+    if (!bounds.valid)
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    double const width = bounds.x1 - bounds.x0;
+    double const height = bounds.y1 - bounds.y0;
+    if (!finite(width) || !finite(height) ||
+        width <= 0.0 || height <= 0.0)
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    return multiply(
+        translate_matrix(bounds.x0, bounds.y0),
+        scale_matrix(width, height));
+}
+
+matrix resource_units_matrix(
+    resource_units units,
+    geometry_bounds const& bounds)
+{
+    if (units == resource_units::user_space)
+        return matrix{};
+    if (units == resource_units::object_bbox)
+        return object_bbox_matrix(bounds);
+    fail(QUANTAPDF_ERROR_BACKEND);
+}
+
+
 quantapdf_status register_gradient_paint(
     quantapdf_composer* composer,
     gradient_definition const& gradient,
     matrix const& user_transform,
+    geometry_bounds const& local_bounds,
     quantapdf_composer_paint_id* out_paint_id)
 {
     /*
-     * PDF Pattern matrices map to the parent content stream's default space.
-     * A PATH-local cm does not move the Pattern with the path, so the
-     * referencing SVG transform must remain part of the paint matrix.
+     * PATH V4 keeps geometry local. Paint matrices therefore carry the full
+     * referencing element transform. objectBoundingBox adds its local bbox
+     * coordinate system before gradientTransform.
      */
+    matrix const units =
+        resource_units_matrix(gradient.units, local_bounds);
     matrix const composed =
-        multiply(user_transform, gradient.transform);
+        multiply(
+            user_transform,
+            multiply(units, gradient.transform));
     quantapdf_affine_transform const transform =
         resource_affine(composed);
 
@@ -2828,12 +3311,16 @@ quantapdf_status register_clip_resource(
     quantapdf_composer* composer,
     clip_definition const& clip,
     matrix const& user_transform,
+    geometry_bounds const& local_bounds,
     quantapdf_composer_clip_id* out_clip_id)
 {
     quantapdf_composer_clip_options options{};
     options.struct_size = QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE;
     options.fill_rule = clip.fill_rule;
-    options.transform = resource_affine(user_transform);
+    matrix const units =
+        resource_units_matrix(clip.units, local_bounds);
+    options.transform = resource_affine(
+        multiply(user_transform, units));
     return quantapdf_composer_add_clip_path(
         composer,
         clip.commands.data(),
@@ -3005,17 +3492,21 @@ quantapdf_status materialize_symbol(
 
 std::string build_pattern_svg(
     definition_table const& definitions,
-    pattern_definition const& pattern)
+    pattern_definition const& pattern,
+    double view_x,
+    double view_y,
+    double view_width,
+    double view_height)
 {
     std::string result;
     result += "<svg viewBox=\"";
-    result += svg_number(pattern.x);
+    result += svg_number(view_x);
     result += " ";
-    result += svg_number(pattern.y);
+    result += svg_number(view_y);
     result += " ";
-    result += svg_number(pattern.width);
+    result += svg_number(view_width);
     result += " ";
-    result += svg_number(pattern.height);
+    result += svg_number(view_height);
     result += "\" preserveAspectRatio=\"none\"><defs>";
     result += serialize_tokens(definitions.defs_tokens, false);
     result += "</defs>";
@@ -3059,6 +3550,7 @@ quantapdf_status materialize_pattern(
     definition_table const& definitions,
     std::string const& pattern_id,
     matrix const& user_transform,
+    geometry_bounds const& local_bounds,
     quantapdf_composer_paint_id* out_paint_id)
 {
     auto found = definitions.patterns.find(pattern_id);
@@ -3066,8 +3558,62 @@ quantapdf_status materialize_pattern(
         return QUANTAPDF_ERROR_UNSUPPORTED;
     auto const& pattern = found->second;
 
-    std::string synthetic_svg =
-        build_pattern_svg(definitions, pattern);
+    double view_x = pattern.x;
+    double view_y = pattern.y;
+    double view_width = pattern.width;
+    double view_height = pattern.height;
+    matrix units;
+
+    try {
+        units = resource_units_matrix(pattern.units, local_bounds);
+        if (pattern.content_units != pattern.units) {
+            if (!local_bounds.valid)
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            double const bbox_width =
+                local_bounds.x1 - local_bounds.x0;
+            double const bbox_height =
+                local_bounds.y1 - local_bounds.y0;
+            if (bbox_width <= 0.0 || bbox_height <= 0.0)
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+
+            if (pattern.units == resource_units::object_bbox &&
+                pattern.content_units == resource_units::user_space) {
+                view_x =
+                    local_bounds.x0 + pattern.x * bbox_width;
+                view_y =
+                    local_bounds.y0 + pattern.y * bbox_height;
+                view_width = pattern.width * bbox_width;
+                view_height = pattern.height * bbox_height;
+            } else if (
+                pattern.units == resource_units::user_space &&
+                pattern.content_units == resource_units::object_bbox) {
+                view_x =
+                    (pattern.x - local_bounds.x0) / bbox_width;
+                view_y =
+                    (pattern.y - local_bounds.y0) / bbox_height;
+                view_width = pattern.width / bbox_width;
+                view_height = pattern.height / bbox_height;
+            } else {
+                fail(QUANTAPDF_ERROR_BACKEND);
+            }
+        }
+    } catch (svg_error const& error) {
+        return error.status;
+    }
+
+    std::string synthetic_svg;
+    try {
+        synthetic_svg = build_pattern_svg(
+            definitions,
+            pattern,
+            view_x,
+            view_y,
+            view_width,
+            view_height);
+    } catch (svg_error const& error) {
+        return error.status;
+    }
+
     pattern_builder_context context;
     context.svg = &synthetic_svg;
     context.width = static_cast<float>(pattern.width);
@@ -3080,8 +3626,10 @@ quantapdf_status materialize_pattern(
         multiply(
             user_transform,
             multiply(
-                pattern.transform,
-                translate_matrix(pattern.x, pattern.y)));
+                units,
+                multiply(
+                    pattern.transform,
+                    translate_matrix(pattern.x, pattern.y))));
 
     quantapdf_composer_tiling_pattern_options options{};
     options.struct_size =
@@ -3985,6 +4533,7 @@ quantapdf_status publish_paths(
                     composer,
                     gradient->second,
                     paths[i].resource_transform,
+                    paths[i].local_bounds,
                     out_id);
             }
             auto pattern = definitions.patterns.find(reference);
@@ -3994,6 +4543,7 @@ quantapdf_status publish_paths(
                     definitions,
                     reference,
                     paths[i].resource_transform,
+                    paths[i].local_bounds,
                     out_id);
             }
             return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -4024,6 +4574,7 @@ quantapdf_status publish_paths(
                     composer,
                     found->second,
                     paths[i].resource_transform,
+                    paths[i].local_bounds,
                     &clip_ids[i]);
             if (clip_resource_status != QUANTAPDF_OK) {
                 rollback_resources();
