@@ -421,6 +421,7 @@ static int test_render_resources_ownership_and_determinism(void)
 
     path = fill_options();
     path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE;
+    path.fill_argb = 0u;
     path.fill_paint_id = linear_id;
     rectangle_commands(rect, 20.0f, 20.0f, 120.0f, 80.0f);
     CHECK(quantapdf_composer_draw_path(
@@ -443,6 +444,7 @@ static int test_render_resources_ownership_and_determinism(void)
 
     path = stroke_options();
     path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE;
+    path.stroke_argb = 0u;
     path.stroke_paint_id = linear_id;
     line[0].kind = QUANTAPDF_COMPOSER_PATH_MOVE_TO;
     line[0].point1 = (quantapdf_point){20.0f, 220.0f};
