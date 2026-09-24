@@ -142,12 +142,22 @@ int main(int argc, char **argv)
     quantapdf_point target = {24.0f, 24.0f};
     static const unsigned char svg_data[] =
         "<svg viewBox=\"0 0 10 8\" preserveAspectRatio=\"xMidYMid meet\">"
-        "<g fill=\"#00a0ff\" stroke=\"#202020\" stroke-width=\"0.5\" "
-        "fill-opacity=\"0.8\" stroke-opacity=\"0.6\" "
-        "stroke-dasharray=\"1 0.5\" stroke-dashoffset=\"-0.5\">"
-        "<rect x=\"1\" y=\"1\" width=\"8\" height=\"6\"/>"
-        "<path d=\"M2 6 A3 3 0 0 1 8 6\" fill=\"none\" opacity=\"0.8\"/>"
-        "</g></svg>";
+        "<rect x=\"1\" y=\"1\" width=\"8\" height=\"6\" "
+        "fill=\"url(#installedGradient)\" clip-path=\"url(#installedClip)\"/>"
+        "<defs>"
+        "<linearGradient id=\"installedGradient\" gradientUnits=\"userSpaceOnUse\" "
+        "x1=\"1\" y1=\"1\" x2=\"9\" y2=\"1\">"
+        "<stop offset=\"0\" stop-color=\"#00a0ff\"/>"
+        "<stop offset=\"1\" stop-color=\"#0000ff\"/>"
+        "</linearGradient>"
+        "<clipPath id=\"installedClip\" clipPathUnits=\"userSpaceOnUse\">"
+        "<rect x=\"1\" y=\"1\" width=\"6\" height=\"6\"/>"
+        "</clipPath>"
+        "</defs>"
+        "<path d=\"M2 6 A3 3 0 0 1 8 6\" fill=\"none\" stroke=\"#202020\" "
+        "stroke-width=\"0.5\" stroke-dasharray=\"1 0.5\" "
+        "stroke-dashoffset=\"-0.5\" opacity=\"0.8\"/>"
+        "</svg>";
 
     if (argc != 3) {
         fprintf(stderr, "usage: %s <font.ttf> <output.pdf>\\n", argv[0]);
