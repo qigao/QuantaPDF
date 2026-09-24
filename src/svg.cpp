@@ -906,14 +906,55 @@ void stage_path(
         fail(QUANTAPDF_ERROR_UNSUPPORTED);
     staged.options.miter_limit = static_cast<float>(style.miter_limit);
 
+    double stroke_scale = 1.0;
     if (style.stroke) {
-        double const width =
-            style.stroke_width * conformal_scale(transform);
+        stroke_scale = conformal_scale(transform);
+        double const width = style.stroke_width * stroke_scale;
         if (!finite(width) || width < 0.0 ||
             width > std::numeric_limits<float>::max())
             fail(QUANTAPDF_ERROR_UNSUPPORTED);
         staged.options.stroke_width = static_cast<float>(width);
     }
+
+    double const fill_alpha =
+        style.fill ? style.opacity * style.fill_opacity : 1.0;
+    double const stroke_alpha =
+        style.stroke ? style.opacity * style.stroke_opacity : 1.0;
+    if (!finite(fill_alpha) || !finite(stroke_alpha) ||
+        fill_alpha < 0.0 || fill_alpha > 1.0 ||
+        stroke_alpha < 0.0 || stroke_alpha > 1.0)
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    staged.fill_alpha = static_cast<float>(fill_alpha);
+    staged.stroke_alpha = static_cast<float>(stroke_alpha);
+
+    if (style.stroke && !style.dash_array.empty()) {
+        double pattern_length = 0.0;
+        staged.dash_lengths.reserve(style.dash_array.size());
+        for (double item: style.dash_array) {
+            double const scaled = item * stroke_scale;
+            if (!finite(scaled) || scaled < 0.0 ||
+                scaled > std::numeric_limits<float>::max())
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            pattern_length += scaled;
+            if (!finite(pattern_length))
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            staged.dash_lengths.push_back(static_cast<float>(scaled));
+        }
+        if (pattern_length <= 0.0)
+            staged.dash_lengths.clear();
+        else {
+            double phase = style.dash_offset * stroke_scale;
+            if (!finite(phase))
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            phase = std::fmod(phase, pattern_length);
+            if (phase < 0.0)
+                phase += pattern_length;
+            if (phase > std::numeric_limits<float>::max())
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            staged.dash_phase = static_cast<float>(phase);
+        }
+    }
+
     paths->push_back(std::move(staged));
 }
 
