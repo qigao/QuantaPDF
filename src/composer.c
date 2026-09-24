@@ -444,6 +444,141 @@ quantapdf_status quantapdf_composer_add_image(
     return QUANTAPDF_OK;
 }
 
+quantapdf_status quantapdf_composer_add_raster(
+    quantapdf_composer *composer,
+    const quantapdf_composer_raster *raster,
+    quantapdf_composer_image_id *out_image_id)
+{
+    quantapdf_composer_image_state image;
+    quantapdf_status status;
+    size_t source_components;
+    size_t output_components;
+    size_t source_row_bytes;
+    size_t output_row_bytes;
+    size_t pixel_count;
+    size_t required_source_size;
+    size_t main_size;
+    size_t alpha_size = 0u;
+    size_t total_size;
+    size_t y;
+
+    if (out_image_id != NULL)
+        *out_image_id = 0u;
+    if (composer == NULL || raster == NULL || out_image_id == NULL ||
+        raster->struct_size < QUANTAPDF_COMPOSER_RASTER_V1_MIN_SIZE ||
+        raster->pixels == NULL || raster->width == 0u ||
+        raster->height == 0u)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    switch (raster->format) {
+    case QUANTAPDF_COMPOSER_RASTER_GRAY8:
+        source_components = 1u;
+        output_components = 1u;
+        break;
+    case QUANTAPDF_COMPOSER_RASTER_RGB24:
+        source_components = 3u;
+        output_components = 3u;
+        break;
+    case QUANTAPDF_COMPOSER_RASTER_RGBA32:
+        source_components = 4u;
+        output_components = 3u;
+        break;
+    default:
+        return QUANTAPDF_ERROR_ARGUMENT;
+    }
+
+    if ((size_t)raster->width > SIZE_MAX / source_components)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    source_row_bytes = (size_t)raster->width * source_components;
+    if (raster->stride < source_row_bytes)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    required_source_size = source_row_bytes;
+    if (raster->height > 1u) {
+        size_t rows_before_last = (size_t)raster->height - 1u;
+        if (rows_before_last >
+            (SIZE_MAX - source_row_bytes) / raster->stride)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        required_source_size =
+            rows_before_last * raster->stride + source_row_bytes;
+    }
+    if (raster->size < required_source_size)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    if ((size_t)raster->height > SIZE_MAX / (size_t)raster->width)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    pixel_count = (size_t)raster->width * (size_t)raster->height;
+
+    if ((size_t)raster->width > SIZE_MAX / output_components)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    output_row_bytes = (size_t)raster->width * output_components;
+    if ((size_t)raster->height > SIZE_MAX / output_row_bytes)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    main_size = (size_t)raster->height * output_row_bytes;
+    if (raster->format == QUANTAPDF_COMPOSER_RASTER_RGBA32)
+        alpha_size = pixel_count;
+    if (alpha_size > SIZE_MAX - main_size)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    total_size = main_size + alpha_size;
+
+    if (composer->resource_bytes > composer->max_resource_bytes ||
+        total_size > composer->max_resource_bytes - composer->resource_bytes)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    memset(&image, 0, sizeof(image));
+    image.data = (unsigned char *)malloc(main_size);
+    if (image.data == NULL)
+        return QUANTAPDF_ERROR_NOMEM;
+    if (alpha_size != 0u) {
+        image.alpha_data = (unsigned char *)malloc(alpha_size);
+        if (image.alpha_data == NULL) {
+            free(image.data);
+            return QUANTAPDF_ERROR_NOMEM;
+        }
+    }
+
+    for (y = 0u; y < (size_t)raster->height; ++y) {
+        const unsigned char *source =
+            raster->pixels + y * raster->stride;
+        unsigned char *destination =
+            image.data + y * output_row_bytes;
+        if (raster->format == QUANTAPDF_COMPOSER_RASTER_RGBA32) {
+            size_t x;
+            unsigned char *alpha =
+                image.alpha_data + y * (size_t)raster->width;
+            for (x = 0u; x < (size_t)raster->width; ++x) {
+                destination[x * 3u] = source[x * 4u];
+                destination[x * 3u + 1u] = source[x * 4u + 1u];
+                destination[x * 3u + 2u] = source[x * 4u + 2u];
+                alpha[x] = source[x * 4u + 3u];
+            }
+        } else {
+            memcpy(destination, source, output_row_bytes);
+        }
+    }
+
+    image.size = main_size;
+    image.alpha_size = alpha_size;
+    image.width = raster->width;
+    image.height = raster->height;
+    image.components = (int)output_components;
+    image.has_alpha = alpha_size != 0u;
+    image.format = QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW;
+
+    status = quantapdf_composer_reserve_image(composer);
+    if (status != QUANTAPDF_OK) {
+        free(image.alpha_data);
+        free(image.data);
+        return status;
+    }
+
+    composer->images[composer->image_count] = image;
+    ++composer->image_count;
+    composer->resource_bytes += total_size;
+    *out_image_id = (quantapdf_composer_image_id)composer->image_count;
+    return QUANTAPDF_OK;
+}
+
 quantapdf_status quantapdf_composer_measure_text(
     const quantapdf_composer *composer,
     const char *text_utf8,

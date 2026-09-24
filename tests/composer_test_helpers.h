@@ -49,6 +49,13 @@ int quantapdf_test_pdf_page_size_positive(
     const unsigned char *data,
     size_t size,
     size_t page_index);
+int quantapdf_test_pdf_image_xobject_info(
+    const unsigned char *data,
+    size_t size,
+    size_t page_index,
+    size_t image_id,
+    int *out_components,
+    int *out_has_smask);
 void quantapdf_test_use_comma_locale(int enabled);
 
 #ifdef __cplusplus
