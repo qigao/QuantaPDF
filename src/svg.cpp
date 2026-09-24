@@ -920,7 +920,7 @@ preserve_aspect parse_preserve_aspect(std::string const* value)
 matrix viewport_matrix(
     quantapdf_rect const& bounds,
     std::vector<double> const& view_box,
-    std::string const* preserve_value)
+    preserve_aspect const& preserve)
 {
     double const viewport_width = bounds.x1 - bounds.x0;
     double const viewport_height = bounds.y1 - bounds.y0;
@@ -929,8 +929,6 @@ matrix viewport_matrix(
     if (!finite(sx) || !finite(sy) || sx <= 0.0 || sy <= 0.0)
         fail(QUANTAPDF_ERROR_UNSUPPORTED);
 
-    preserve_aspect const preserve =
-        parse_preserve_aspect(preserve_value);
     if (preserve.none) {
         return multiply(
             translate_matrix(bounds.x0, bounds.y0),
@@ -1609,10 +1607,12 @@ class svg_parser {
                     values[2] <= 0.0 || values[3] <= 0.0)
                     fail(QUANTAPDF_ERROR_FORMAT);
 
+                preserve_aspect const preserve =
+                    parse_preserve_aspect(
+                        find_attribute(item, "preserveAspectRatio"));
+                clip_to_bounds_ = preserve.slice;
                 matrix const viewport = viewport_matrix(
-                    bounds_,
-                    values,
-                    find_attribute(item, "preserveAspectRatio"));
+                    bounds_, values, preserve);
 
                 context root;
                 root.name = tag;
@@ -1725,10 +1725,16 @@ class svg_parser {
         return std::move(paths_);
     }
 
+    bool clip_to_bounds() const
+    {
+        return clip_to_bounds_;
+    }
+
   private:
     xml_scanner scanner_;
     quantapdf_rect bounds_;
     size_t max_paths_;
+    bool clip_to_bounds_ = false;
     std::vector<context> stack_;
     std::vector<staged_path> paths_;
 };
