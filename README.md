@@ -233,6 +233,15 @@ transform. V1 gradient spread is PAD only. The qpdf backend lowers paints to
 axial/radial shadings and Pattern resources; no second vector backend is
 introduced.
 
+2.20 adds immutable clip-path resources. `quantapdf_composer_add_clip_path()`
+copies generic path commands plus nonzero/even-odd clip rule and an optional
+displayed-space affine transform. Graphics-state options attach the clip only
+through an additive V2 tail, so text, embedded text, glyph runs, images, and
+paths all reuse the existing `graphics_state_id`. Clip geometry is numerically
+mapped into page PDF coordinates and emitted as `W`/`W*` + `n` inside the
+operation's balanced `q/Q` scope; the clip transform never changes the
+subsequent operation coordinate system.
+
 The original `quantapdf_composer_draw_text()` contract remains Base-14 +
 WinAnsi and is unchanged. For embedded fonts, register caller-owned SFNT bytes
 with `quantapdf_composer_add_font()`, then draw UTF-8 through
