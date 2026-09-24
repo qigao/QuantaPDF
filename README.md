@@ -253,6 +253,16 @@ graphics-state ID. The qpdf backend converts the stored child page through
 `getFormXObjectForPage()`, preserving isolated fonts, images, patterns,
 ExtGState resources, nested forms, and text extraction metadata.
 
+2.22 extends the bounded static SVG lowering path without adding an SVG-specific
+backend. V2A adds numeric stroke dash arrays/offsets, inherited fill/stroke
+opacity plus leaf opacity, elliptical A/a path arcs normalized to cubic Béziers,
+and root preserveAspectRatio mapping including meet, none, and slice. Slice uses
+a transactional Composer clip resource for the destination viewport. Group
+opacity other than 1 remains fail-closed because correct group compositing is
+not equivalent to multiplying child alpha. Reference-bearing gradients,
+clipPath, and reusable definitions are handled separately by the SVG V2B
+definition-graph workstream.
+
 The original `quantapdf_composer_draw_text()` contract remains Base-14 +
 WinAnsi and is unchanged. For embedded fonts, register caller-owned SFNT bytes
 with `quantapdf_composer_add_font()`, then draw UTF-8 through
