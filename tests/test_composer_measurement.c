@@ -85,7 +85,12 @@ static int test_base14_measurement(void)
     quantapdf_composer_text_measurement centered = {0};
     quantapdf_composer_text_measurement trimmed = {0};
     quantapdf_composer_text_measurement plain = {0};
+    quantapdf_composer_text_measurement tabbed = {0};
+    quantapdf_composer_text_measurement spaced = {0};
+    quantapdf_composer_text_measurement no_wrap = {0};
+    quantapdf_composer_text_measurement right = {0};
     quantapdf_rect bounds = {20.0f, 20.0f, 60.0f, 360.0f};
+    quantapdf_output *measured_only = NULL;
     quantapdf_output *output = NULL;
     const unsigned char *data = NULL;
     size_t size = 0u;
@@ -127,6 +132,14 @@ static int test_base14_measurement(void)
     CHECK(close_float(centered.width, wrapped.width));
     CHECK(close_float(centered.height, wrapped.height));
 
+    options.alignment = QUANTAPDF_COMPOSER_TEXT_ALIGN_RIGHT;
+    right.struct_size = QUANTAPDF_COMPOSER_TEXT_MEASUREMENT_V1_SIZE;
+    CHECK(quantapdf_composer_measure_text(
+              composer, text, 40.0f, &options, &right) == QUANTAPDF_OK);
+    CHECK(right.line_count == wrapped.line_count);
+    CHECK(close_float(right.width, wrapped.width));
+    CHECK(close_float(right.height, wrapped.height));
+
     options.alignment = QUANTAPDF_COMPOSER_TEXT_ALIGN_LEFT;
     plain.struct_size = QUANTAPDF_COMPOSER_TEXT_MEASUREMENT_V1_SIZE;
     trimmed.struct_size = QUANTAPDF_COMPOSER_TEXT_MEASUREMENT_V1_SIZE;
@@ -136,6 +149,31 @@ static int test_base14_measurement(void)
               composer, "word   ", 100.0f, &options, &trimmed) ==
           QUANTAPDF_OK);
     CHECK(close_float(plain.width, trimmed.width));
+
+    tabbed.struct_size = QUANTAPDF_COMPOSER_TEXT_MEASUREMENT_V1_SIZE;
+    spaced.struct_size = QUANTAPDF_COMPOSER_TEXT_MEASUREMENT_V1_SIZE;
+    CHECK(quantapdf_composer_measure_text(
+              composer, "a\tb", 100.0f, &options, &tabbed) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_measure_text(
+              composer, "a b", 100.0f, &options, &spaced) == QUANTAPDF_OK);
+    CHECK(tabbed.line_count == spaced.line_count);
+    CHECK(close_float(tabbed.width, spaced.width));
+    CHECK(close_float(tabbed.height, spaced.height));
+
+    options.wrap = 0;
+    no_wrap.struct_size = QUANTAPDF_COMPOSER_TEXT_MEASUREMENT_V1_SIZE;
+    CHECK(quantapdf_composer_measure_text(
+              composer, text, 40.0f, &options, &no_wrap) == QUANTAPDF_OK);
+    CHECK(no_wrap.line_count == 1u);
+    CHECK(no_wrap.width > 40.0f);
+    options.wrap = 1;
+
+    CHECK(quantapdf_composer_finish(composer, &measured_only) == QUANTAPDF_OK);
+    CHECK(quantapdf_output_data(measured_only, &data, &size) == QUANTAPDF_OK);
+    CHECK(quantapdf_test_pdf_content_count(
+              data, size, 0u, " Tj ET") == 0u);
+    quantapdf_drop_output(measured_only);
+    measured_only = NULL;
 
     wrapped.width = 123.0f;
     wrapped.height = 456.0f;
@@ -168,6 +206,7 @@ static int test_base14_measurement(void)
     CHECK(quantapdf_test_pdf_content_count(
               data, size, 0u, " Tj ET") == wrapped.line_count);
 
+    quantapdf_drop_output(measured_only);
     quantapdf_drop_output(output);
     quantapdf_drop_composer(composer);
     return 0;
