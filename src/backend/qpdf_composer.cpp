@@ -7,6 +7,8 @@
 #include <qpdf/Buffer.hh>
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFObjectHandle.hh>
+#include <qpdf/QPDFPageDocumentHelper.hh>
+#include <qpdf/QPDFPageObjectHelper.hh>
 #include <qpdf/QPDFWriter.hh>
 #include <zlib.h>
 
@@ -1464,6 +1466,37 @@ void append_clip_content(
         : "W n\n";
 }
 
+void append_content_xobject(
+    std::string& content,
+    quantapdf_composer const* composer,
+    quantapdf_composer_page_state const& page,
+    quantapdf_composer_operation const& operation)
+{
+    auto const id = operation.value.content.content_id;
+    if (id == 0u || id > composer->content_count)
+        throw std::logic_error("content resource missing");
+    auto const& resource = composer->contents[id - 1u];
+    auto const& transform = operation.value.content.transform;
+    double const child_height = resource.height_points;
+
+    double const a = canonical_zero(transform.a);
+    double const b = canonical_zero(-static_cast<double>(transform.b));
+    double const cc = canonical_zero(-static_cast<double>(transform.c));
+    double const d = canonical_zero(transform.d);
+    double const e = canonical_zero(
+        static_cast<double>(transform.c) * child_height +
+        static_cast<double>(transform.e));
+    double const ff = canonical_zero(
+        page.height_points -
+        static_cast<double>(transform.d) * child_height -
+        static_cast<double>(transform.f));
+
+    content += "q " + number(a) + " " + number(b) + " " +
+        number(cc) + " " + number(d) + " " +
+        number(e) + " " + number(ff) + " cm /C" +
+        std::to_string(id) + " Do Q\n";
+}
+
 std::string page_content(
     quantapdf_composer const* composer,
     std::size_t page_index,
@@ -1531,6 +1564,8 @@ std::string page_content(
                 page,
                 operation,
                 glyph_run_usages[font_index]);
+        } else if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_CONTENT) {
+            append_content_xobject(content, composer, page, operation);
         }
 
         if (scoped_state)
@@ -1803,6 +1838,25 @@ static quantapdf_status quantapdf_qpdf_compose_impl(
             image_objects.push_back(stream);
         }
 
+        std::vector<std::unique_ptr<QPDF>> content_sources;
+        std::vector<QPDFObjectHandle> content_objects;
+        content_sources.reserve(composer->content_count);
+        content_objects.reserve(composer->content_count);
+        for (size_t i = 0u; i < composer->content_count; ++i) {
+            auto source = std::make_unique<QPDF>();
+            auto const& content = composer->contents[i];
+            source->processMemoryFile(
+                "quantapdf-content-" + std::to_string(i + 1u) + ".pdf",
+                reinterpret_cast<char const*>(content.pdf_data),
+                content.pdf_size);
+            auto pages = QPDFPageDocumentHelper::get(*source).getAllPages();
+            if (pages.size() != 1u)
+                throw std::logic_error("content snapshot page count mismatch");
+            auto foreign_form = pages.at(0).getFormXObjectForPage();
+            content_objects.push_back(pdf.copyForeignObject(foreign_form));
+            content_sources.push_back(std::move(source));
+        }
+
         std::vector<quantapdf::detail::ttf_font_face> embedded_faces;
         embedded_faces.reserve(composer->font_count);
         for (size_t i = 0u; i < composer->font_count; ++i) {
@@ -1923,6 +1977,14 @@ static quantapdf_status quantapdf_qpdf_compose_impl(
                     auto id = operation.value.image.image_id;
                     xobjects.replaceKey(
                         "/Im" + std::to_string(id), image_objects[id - 1u]);
+                } else if (
+                    operation.page_index == page_index &&
+                    operation.kind == QUANTAPDF_COMPOSER_OPERATION_CONTENT) {
+                    auto id = operation.value.content.content_id;
+                    if (id == 0u || id > content_objects.size())
+                        throw std::logic_error("content XObject missing");
+                    xobjects.replaceKey(
+                        "/C" + std::to_string(id), content_objects[id - 1u]);
                 }
             }
             resources.replaceKey("/XObject", xobjects);
