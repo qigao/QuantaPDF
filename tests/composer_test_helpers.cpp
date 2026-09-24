@@ -613,6 +613,62 @@ extern "C" int quantapdf_test_pdf_form_xobject_info(
     }
 }
 
+extern "C" int quantapdf_test_pdf_form_group_info(
+    unsigned char const* data,
+    size_t size,
+    size_t page_index,
+    size_t form_id,
+    int* out_has_group,
+    int* out_isolated,
+    int* out_knockout)
+{
+    if (out_has_group == nullptr || out_isolated == nullptr ||
+        out_knockout == nullptr)
+        return 0;
+    *out_has_group = 0;
+    *out_isolated = 0;
+    *out_knockout = 0;
+    try {
+        QPDF pdf;
+        pdf.processMemoryFile(
+            "composer-form-group-info.pdf",
+            reinterpret_cast<char const*>(data),
+            size);
+        auto pages = pdf.getAllPages();
+        if (page_index >= pages.size() || form_id == 0u)
+            return 0;
+        auto xobjects =
+            pages[page_index].getKey("/Resources").getKey("/XObject");
+        if (!xobjects.isDictionary())
+            return 0;
+        auto form = xobjects.getKey("/Fm" + std::to_string(form_id));
+        if (!form.isStream())
+            return 0;
+        auto group = form.getDict().getKey("/Group");
+        if (group.isNull())
+            return 1;
+        if (!group.isDictionary())
+            return 0;
+        auto subtype = group.getKey("/S");
+        auto color_space = group.getKey("/CS");
+        auto isolated = group.getKey("/I");
+        auto knockout = group.getKey("/K");
+        if (!subtype.isName() || subtype.getName() != "/Transparency" ||
+            !color_space.isName() || color_space.getName() != "/DeviceRGB" ||
+            !isolated.isBool() || !knockout.isBool())
+            return 0;
+        *out_has_group = 1;
+        *out_isolated = isolated.getBoolValue() ? 1 : 0;
+        *out_knockout = knockout.getBoolValue() ? 1 : 0;
+        return 1;
+    } catch (...) {
+        *out_has_group = 0;
+        *out_isolated = 0;
+        *out_knockout = 0;
+        return 0;
+    }
+}
+
 extern "C" void quantapdf_test_use_comma_locale(int enabled)
 {
     std::locale::global(enabled
