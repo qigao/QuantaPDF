@@ -1004,6 +1004,14 @@ matrix viewport_matrix(
             translate_matrix(-view_box[0], -view_box[1])));
 }
 
+struct geometry_bounds {
+    double x0 = 0.0;
+    double y0 = 0.0;
+    double x1 = 0.0;
+    double y1 = 0.0;
+    bool valid = false;
+};
+
 struct staged_path {
     size_t order = 0u;
     std::vector<quantapdf_composer_path_command> commands;
@@ -1016,6 +1024,7 @@ struct staged_path {
     std::string stroke_ref;
     std::string clip_ref;
     matrix resource_transform;
+    geometry_bounds local_bounds;
 };
 
 struct staged_use {
@@ -1696,8 +1705,28 @@ bool drawable_tag(std::string const& tag)
         tag == "circle" || tag == "ellipse";
 }
 
+enum class resource_units {
+    unspecified,
+    user_space,
+    object_bbox
+};
+
 struct gradient_definition {
     bool radial = false;
+    resource_units units = resource_units::unspecified;
+    bool transform_specified = false;
+    matrix transform;
+    std::string template_ref;
+    std::string x1_text;
+    std::string y1_text;
+    std::string x2_text;
+    std::string y2_text;
+    std::string cx_text;
+    std::string cy_text;
+    std::string radius_text;
+    std::string fx_text;
+    std::string fy_text;
+    std::string fr_text;
     double x1 = 0.0;
     double y1 = 0.0;
     double x2 = 0.0;
@@ -1708,7 +1737,7 @@ struct gradient_definition {
     double fx = 0.0;
     double fy = 0.0;
     double fr = 0.0;
-    matrix transform;
+    bool normalized = false;
     std::vector<quantapdf_composer_gradient_stop> stops;
 };
 
@@ -1716,6 +1745,7 @@ struct clip_definition {
     std::vector<quantapdf_composer_path_command> commands;
     quantapdf_composer_fill_rule fill_rule =
         QUANTAPDF_COMPOSER_FILL_NONZERO;
+    resource_units units = resource_units::user_space;
 };
 
 struct symbol_definition {
@@ -1729,11 +1759,20 @@ struct symbol_definition {
 };
 
 struct pattern_definition {
+    resource_units units = resource_units::unspecified;
+    resource_units content_units = resource_units::unspecified;
+    bool transform_specified = false;
+    matrix transform;
+    std::string template_ref;
+    std::string x_text;
+    std::string y_text;
+    std::string width_text;
+    std::string height_text;
     double x = 0.0;
     double y = 0.0;
     double width = 0.0;
     double height = 0.0;
-    matrix transform;
+    bool normalized = false;
     std::vector<element> tokens;
     std::set<std::string> pattern_dependencies;
 };
