@@ -11,7 +11,11 @@ V1 callers.
 ## Public resource
 
 ```c
-typedef uint32_t quantapdf_composer_graphics_state_id;
+/*
+ * size_t alignment keeps the appended ID after the legacy V1 sizeof boundary
+ * even when the old record ended with tail padding.
+ */
+typedef size_t quantapdf_composer_graphics_state_id;
 
 typedef enum quantapdf_composer_blend_mode {
     QUANTAPDF_COMPOSER_BLEND_NORMAL = 0,
@@ -52,8 +56,11 @@ for:
 - image options;
 - path options.
 
-All V1 SIZE macros remain the size of the pre-2.18 layout. V2 MIN/SIZE macros
-cover the new tail. A caller supplying only V1 bytes gets state ID 0.
+All V1 SIZE macros remain the size of the pre-2.18 layout. The ID deliberately
+uses `size_t` alignment because every affected option record already contains a
+`size_t struct_size`; this forces the new field to begin at the old rounded
+`sizeof` boundary on both 32-bit and 64-bit ABIs rather than reusing legacy
+tail padding. V2 MIN/SIZE macros cover the new tail. A caller supplying only V1 bytes gets state ID 0.
 
 State ID 0 is the implicit legacy state:
 
