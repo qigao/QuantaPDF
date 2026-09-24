@@ -199,6 +199,23 @@ add_test(NAME quantapdf.composer_form_group
   COMMAND quantapdf_test_composer_form_group)
 set_tests_properties(quantapdf.composer_form_group PROPERTIES TIMEOUT 30)
 
+add_executable(quantapdf_test_composer_path_affine
+  test_composer_path_affine.c
+  composer_test_helpers.cpp)
+target_include_directories(quantapdf_test_composer_path_affine PRIVATE
+  "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_composer_path_affine PRIVATE
+  QuantaPDF::QuantaPDF
+  quantapdf_backend
+  qpdf::libqpdf
+  ZLIB::ZLIB)
+target_compile_features(quantapdf_test_composer_path_affine PRIVATE cxx_std_20)
+target_compile_definitions(quantapdf_test_composer_path_affine PRIVATE
+  COMPOSER_PATH_AFFINE_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composer-path-affine-output.pdf")
+add_test(NAME quantapdf.composer_path_affine
+  COMMAND quantapdf_test_composer_path_affine)
+set_tests_properties(quantapdf.composer_path_affine PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_test_composer_barcode
   test_composer_barcode.c
   composer_test_helpers.cpp)
