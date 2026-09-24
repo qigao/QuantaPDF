@@ -1040,6 +1040,7 @@ struct staged_use {
     matrix user_transform;
 };
 
+quantapdf_affine_transform resource_affine(matrix const& value);
 
 void transform_commands(
     std::vector<quantapdf_composer_path_command>* commands,
@@ -1082,15 +1083,15 @@ void stage_path(
     if (paths->size() >= max_paths)
         fail(QUANTAPDF_ERROR_UNSUPPORTED);
 
-    transform_commands(&commands, transform);
-
     staged_path staged;
     staged.commands = std::move(commands);
     staged.fill_ref = style.fill ? style.fill_ref : std::string{};
     staged.stroke_ref = style.stroke ? style.stroke_ref : std::string{};
     staged.clip_ref = style.clip_ref;
+    // Clip resources are established outside the PATH q/cm scope, so they
+    // still need the full referencing-element transform.
     staged.resource_transform = transform;
-    staged.options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
+    staged.options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     staged.options.fill = style.fill ? 1 : 0;
     staged.options.stroke = style.stroke ? 1 : 0;
     staged.options.fill_argb = style.fill_argb;
@@ -1098,20 +1099,20 @@ void stage_path(
     staged.options.fill_rule = style.fill_rule;
     staged.options.line_cap = style.line_cap;
     staged.options.line_join = style.line_join;
+    staged.options.transform = resource_affine(transform);
+
     if (!finite(style.miter_limit) ||
         style.miter_limit < 1.0 ||
         style.miter_limit > std::numeric_limits<float>::max())
         fail(QUANTAPDF_ERROR_UNSUPPORTED);
     staged.options.miter_limit = static_cast<float>(style.miter_limit);
 
-    double stroke_scale = 1.0;
     if (style.stroke) {
-        stroke_scale = conformal_scale(transform);
-        double const width = style.stroke_width * stroke_scale;
-        if (!finite(width) || width < 0.0 ||
-            width > std::numeric_limits<float>::max())
+        if (!finite(style.stroke_width) || style.stroke_width < 0.0 ||
+            style.stroke_width > std::numeric_limits<float>::max())
             fail(QUANTAPDF_ERROR_UNSUPPORTED);
-        staged.options.stroke_width = static_cast<float>(width);
+        staged.options.stroke_width =
+            static_cast<float>(style.stroke_width);
     }
 
     double const fill_alpha =
@@ -1129,19 +1130,18 @@ void stage_path(
         double pattern_length = 0.0;
         staged.dash_lengths.reserve(style.dash_array.size());
         for (double item: style.dash_array) {
-            double const scaled = item * stroke_scale;
-            if (!finite(scaled) || scaled < 0.0 ||
-                scaled > std::numeric_limits<float>::max())
+            if (!finite(item) || item < 0.0 ||
+                item > std::numeric_limits<float>::max())
                 fail(QUANTAPDF_ERROR_UNSUPPORTED);
-            pattern_length += scaled;
+            pattern_length += item;
             if (!finite(pattern_length))
                 fail(QUANTAPDF_ERROR_UNSUPPORTED);
-            staged.dash_lengths.push_back(static_cast<float>(scaled));
+            staged.dash_lengths.push_back(static_cast<float>(item));
         }
-        if (pattern_length <= 0.0)
+        if (pattern_length <= 0.0) {
             staged.dash_lengths.clear();
-        else {
-            double phase = style.dash_offset * stroke_scale;
+        } else {
+            double phase = style.dash_offset;
             if (!finite(phase))
                 fail(QUANTAPDF_ERROR_UNSUPPORTED);
             phase = std::fmod(phase, pattern_length);
