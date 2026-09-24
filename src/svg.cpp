@@ -368,6 +368,11 @@ struct paint_style {
     uint32_t fill_argb = UINT32_C(0xff000000);
     uint32_t stroke_argb = UINT32_C(0xff000000);
     double stroke_width = 1.0;
+    double fill_opacity = 1.0;
+    double stroke_opacity = 1.0;
+    double opacity = 1.0;
+    std::vector<double> dash_array;
+    double dash_offset = 0.0;
     quantapdf_composer_fill_rule fill_rule =
         QUANTAPDF_COMPOSER_FILL_NONZERO;
     quantapdf_composer_line_cap line_cap =
@@ -442,6 +447,45 @@ uint32_t parse_color(std::string value, bool* enabled)
     fail(QUANTAPDF_ERROR_UNSUPPORTED);
 }
 
+double opacity_value(std::string const& value)
+{
+    double parsed = scalar(value);
+    if (parsed < 0.0)
+        return 0.0;
+    if (parsed > 1.0)
+        return 1.0;
+    return parsed;
+}
+
+std::vector<double> dash_array_value(std::string const& value)
+{
+    std::string const parsed = lower_ascii(trim(value));
+    if (parsed == "none")
+        return {};
+    auto values = number_list(parsed);
+    if (values.empty())
+        fail(QUANTAPDF_ERROR_FORMAT);
+    double sum = 0.0;
+    for (double item: values) {
+        if (!finite(item) || item < 0.0)
+            fail(QUANTAPDF_ERROR_FORMAT);
+        sum += item;
+        if (!finite(sum))
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+    if (sum == 0.0)
+        return {};
+    if ((values.size() & 1u) != 0u) {
+        if (values.size() > QUANTAPDF_COMPOSER_MAX_DASH_COUNT / 2u)
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        auto duplicate = values;
+        values.insert(values.end(), duplicate.begin(), duplicate.end());
+    }
+    if (values.size() > QUANTAPDF_COMPOSER_MAX_DASH_COUNT)
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    return values;
+}
+
 void apply_style_property(
     paint_style* style,
     std::string name,
@@ -488,6 +532,16 @@ void apply_style_property(
         style->miter_limit = scalar(value);
         if (style->miter_limit < 1.0)
             fail(QUANTAPDF_ERROR_FORMAT);
+    } else if (name == "fill-opacity") {
+        style->fill_opacity = opacity_value(value);
+    } else if (name == "stroke-opacity") {
+        style->stroke_opacity = opacity_value(value);
+    } else if (name == "opacity") {
+        style->opacity = opacity_value(value);
+    } else if (name == "stroke-dasharray") {
+        style->dash_array = dash_array_value(value);
+    } else if (name == "stroke-dashoffset") {
+        style->dash_offset = scalar(value);
     } else {
         fail(QUANTAPDF_ERROR_UNSUPPORTED);
     }
@@ -691,7 +745,10 @@ bool common_attribute(std::string const& name)
     return name == "id" || name == "transform" || name == "style" ||
         name == "fill" || name == "stroke" || name == "fill-rule" ||
         name == "stroke-width" || name == "stroke-linecap" ||
-        name == "stroke-linejoin" || name == "stroke-miterlimit";
+        name == "stroke-linejoin" || name == "stroke-miterlimit" ||
+        name == "fill-opacity" || name == "stroke-opacity" ||
+        name == "opacity" || name == "stroke-dasharray" ||
+        name == "stroke-dashoffset";
 }
 
 bool tag_attribute_allowed(
@@ -703,6 +760,7 @@ bool tag_attribute_allowed(
         return true;
     if (root) {
         if (name == "viewBox" || name == "width" || name == "height" ||
+            name == "preserveAspectRatio" ||
             name == "version" || name == "xmlns" ||
             name.rfind("xmlns:", 0u) == 0u)
             return true;
@@ -741,6 +799,8 @@ paint_style derive_style(
     element const& item)
 {
     paint_style result = parent;
+    // SVG opacity is not inherited. Fill/stroke opacity and dash properties are.
+    result.opacity = 1.0;
     for (auto const& attr: item.attributes) {
         if (attr.name == "fill" || attr.name == "stroke" ||
             attr.name == "fill-rule" || attr.name == "stroke-width" ||
@@ -781,6 +841,10 @@ double required_number(element const& item, char const* name)
 struct staged_path {
     std::vector<quantapdf_composer_path_command> commands;
     quantapdf_composer_path_options options{};
+    std::vector<float> dash_lengths;
+    float dash_phase = 0.0f;
+    float fill_alpha = 1.0f;
+    float stroke_alpha = 1.0f;
 };
 
 void transform_commands(
