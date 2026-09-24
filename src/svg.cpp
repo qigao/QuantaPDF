@@ -2221,6 +2221,8 @@ struct definition_frame {
         clip_group,
         symbol,
         symbol_child,
+        pattern,
+        pattern_child,
         leaf
     };
 
@@ -2248,6 +2250,17 @@ std::string active_symbol_id(
     for (auto it = stack.rbegin(); it != stack.rend(); ++it) {
         if (it->type == definition_frame::kind::symbol ||
             it->type == definition_frame::kind::symbol_child)
+            return it->id;
+    }
+    return {};
+}
+
+std::string active_pattern_id(
+    std::vector<definition_frame> const& stack)
+{
+    for (auto it = stack.rbegin(); it != stack.rend(); ++it) {
+        if (it->type == definition_frame::kind::pattern ||
+            it->type == definition_frame::kind::pattern_child)
             return it->id;
     }
     return {};
@@ -2286,6 +2299,46 @@ void validate_symbol_dependencies(definition_table const& definitions)
         visit(item.first);
 }
 
+void validate_pattern_dependencies(definition_table const& definitions)
+{
+    enum class visit_state {
+        unseen,
+        visiting,
+        done
+    };
+    std::map<std::string, visit_state> states;
+
+    std::function<void(std::string const&)> visit =
+        [&](std::string const& id) {
+            auto pattern = definitions.patterns.find(id);
+            if (pattern == definitions.patterns.end())
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            auto& state = states[id];
+            if (state == visit_state::done)
+                return;
+            if (state == visit_state::visiting)
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            state = visit_state::visiting;
+            for (auto const& dependency:
+                 pattern->second.pattern_dependencies) {
+                auto nested = definitions.patterns.find(dependency);
+                if (nested != definitions.patterns.end()) {
+                    visit(dependency);
+                    continue;
+                }
+                if (definitions.gradients.find(dependency) !=
+                    definitions.gradients.end())
+                    continue;
+                // fill/stroke URLs may only reference a paint resource.
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            }
+            state = visit_state::done;
+        };
+
+    for (auto const& item: definitions.patterns)
+        visit(item.first);
+}
+
 definition_table parse_definitions(
     unsigned char const* data,
     size_t size)
@@ -2309,6 +2362,7 @@ definition_table parse_definitions(
 
             bool const in_defs = stack_contains_defs(stack);
             std::string const symbol_id = active_symbol_id(stack);
+            std::string const pattern_id = active_pattern_id(stack);
             if (in_defs &&
                 stack.back().type != definition_frame::kind::defs)
                 definitions.defs_tokens.push_back(item);
@@ -2318,6 +2372,13 @@ definition_table parse_definitions(
                 if (symbol == definitions.symbols.end())
                     fail(QUANTAPDF_ERROR_BACKEND);
                 symbol->second.tokens.push_back(item);
+            }
+            if (!pattern_id.empty() &&
+                stack.back().type != definition_frame::kind::pattern) {
+                auto pattern = definitions.patterns.find(pattern_id);
+                if (pattern == definitions.patterns.end())
+                    fail(QUANTAPDF_ERROR_BACKEND);
+                pattern->second.tokens.push_back(item);
             }
 
             definition_frame frame = std::move(stack.back());
@@ -2355,6 +2416,7 @@ definition_table parse_definitions(
 
         bool const in_defs = stack_contains_defs(stack);
         std::string const symbol_id = active_symbol_id(stack);
+        std::string const pattern_id = active_pattern_id(stack);
         if (in_defs)
             definitions.defs_tokens.push_back(item);
         if (!symbol_id.empty()) {
@@ -2362,6 +2424,12 @@ definition_table parse_definitions(
             if (symbol == definitions.symbols.end())
                 fail(QUANTAPDF_ERROR_BACKEND);
             symbol->second.tokens.push_back(item);
+        }
+        if (!pattern_id.empty()) {
+            auto pattern = definitions.patterns.find(pattern_id);
+            if (pattern == definitions.patterns.end())
+                fail(QUANTAPDF_ERROR_BACKEND);
+            pattern->second.tokens.push_back(item);
         }
 
         definition_frame const& parent = stack.back();
@@ -2474,7 +2542,61 @@ definition_table parse_definitions(
                 continue;
             }
 
+            if (tag == "pattern") {
+                validate_pattern_attributes(item);
+                std::string const id = required_id(item);
+                pattern_definition pattern;
+                pattern.x = optional_number(item, "x", 0.0);
+                pattern.y = optional_number(item, "y", 0.0);
+                pattern.width = required_number(item, "width");
+                pattern.height = required_number(item, "height");
+                if (pattern.width <= 0.0 || pattern.height <= 0.0)
+                    fail(QUANTAPDF_ERROR_FORMAT);
+                if (auto const* transform =
+                        find_attribute(item, "patternTransform"))
+                    pattern.transform = parse_transform(*transform);
+                auto inserted =
+                    definitions.patterns.emplace(id, std::move(pattern));
+                if (!inserted.second)
+                    fail(QUANTAPDF_ERROR_FORMAT);
+
+                definition_frame frame;
+                frame.name = tag;
+                frame.type = definition_frame::kind::pattern;
+                frame.id = id;
+                push_if_needed(std::move(frame), item.self_closing);
+                continue;
+            }
+
             fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        }
+
+        if (parent.type == definition_frame::kind::pattern ||
+            parent.type == definition_frame::kind::pattern_child) {
+            std::string const current_pattern = active_pattern_id(stack);
+            if (current_pattern.empty())
+                fail(QUANTAPDF_ERROR_BACKEND);
+            auto pattern = definitions.patterns.find(current_pattern);
+            if (pattern == definitions.patterns.end())
+                fail(QUANTAPDF_ERROR_BACKEND);
+
+            if (tag == "g") {
+                validate_attributes(item, tag, false);
+            } else if (drawable_tag(tag)) {
+                validate_attributes(item, tag, false);
+            } else {
+                // V3A deliberately excludes use/symbol recursion inside tiles.
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            }
+            collect_pattern_paint_dependencies(
+                &pattern->second, item);
+
+            definition_frame frame;
+            frame.name = tag;
+            frame.type = definition_frame::kind::pattern_child;
+            frame.id = current_pattern;
+            push_if_needed(std::move(frame), item.self_closing);
+            continue;
         }
 
         if (parent.type == definition_frame::kind::symbol ||
@@ -2601,6 +2723,7 @@ definition_table parse_definitions(
     if (!root_seen || !stack.empty())
         fail(QUANTAPDF_ERROR_FORMAT);
     validate_symbol_dependencies(definitions);
+    validate_pattern_dependencies(definitions);
     return definitions;
 }
 
