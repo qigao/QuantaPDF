@@ -2216,7 +2216,18 @@ static int test_v4b_mask_failures_and_rollback()
         "maskContentUnits=\"objectBoundingBox\" x=\"0\" y=\"0\" width=\"1\" height=\"1\">"
         "<rect width=\"1\" height=\"1\" fill=\"white\"/></mask>"
         "</defs><line x1=\"0\" y1=\"5\" x2=\"10\" y2=\"5\" "
-        "stroke=\"black\" mask=\"url(#m)\"/></svg>"
+        "stroke=\"black\" mask=\"url(#m)\"/></svg>",
+        "<svg viewBox=\"0 0 10 10\"><defs>"
+        "<mask id=\"m\" maskUnits=\"userSpaceOnUse\" "
+        "maskContentUnits=\"userSpaceOnUse\" "
+        "x=\"0%\" y=\"0\" width=\"100%\" height=\"10\">"
+        "<rect width=\"10\" height=\"10\" fill=\"white\"/></mask>"
+        "</defs><rect width=\"10\" height=\"10\" mask=\"url(#m)\"/></svg>",
+        "<svg viewBox=\"0 0 10 10\"><defs>"
+        "<mask id=\"m\" maskUnits=\"userSpaceOnUse\" "
+        "maskContentUnits=\"userSpaceOnUse\">"
+        "<rect width=\"10\" height=\"10\" fill=\"white\"/></mask>"
+        "</defs><rect width=\"10\" height=\"10\" mask=\"url(#m)\"/></svg>"
     };
     quantapdf_rect bounds = {0.0f, 0.0f, 100.0f, 100.0f};
 
