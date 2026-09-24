@@ -560,6 +560,15 @@ static quantapdf_status quantapdf_composer_reserve_paint(
     return QUANTAPDF_OK;
 }
 
+static uint32_t quantapdf_composer_form_flags(
+    const quantapdf_composer_form_options *options)
+{
+    if (options != NULL &&
+        options->struct_size >= QUANTAPDF_COMPOSER_FORM_OPTIONS_V2_MIN_SIZE)
+        return options->flags;
+    return 0u;
+}
+
 static quantapdf_status quantapdf_composer_reserve_form(
     quantapdf_composer *composer)
 {
@@ -780,6 +789,7 @@ quantapdf_status quantapdf_composer_add_form(
     size_t page_index = SIZE_MAX;
     size_t remaining;
     size_t i;
+    uint32_t flags;
     quantapdf_status status;
 
     if (out_form_id != NULL)
@@ -789,6 +799,16 @@ quantapdf_status quantapdf_composer_add_form(
         options->struct_size < QUANTAPDF_COMPOSER_FORM_OPTIONS_V1_MIN_SIZE ||
         !isfinite(options->width_points) || options->width_points <= 0.0f ||
         !isfinite(options->height_points) || options->height_points <= 0.0f)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    flags = quantapdf_composer_form_flags(options);
+    if ((flags & ~(QUANTAPDF_COMPOSER_FORM_FLAG_TRANSPARENCY_GROUP |
+                   QUANTAPDF_COMPOSER_FORM_FLAG_ISOLATED |
+                   QUANTAPDF_COMPOSER_FORM_FLAG_KNOCKOUT)) != 0u)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if ((flags & (QUANTAPDF_COMPOSER_FORM_FLAG_ISOLATED |
+                  QUANTAPDF_COMPOSER_FORM_FLAG_KNOCKOUT)) != 0u &&
+        (flags & QUANTAPDF_COMPOSER_FORM_FLAG_TRANSPARENCY_GROUP) == 0u)
         return QUANTAPDF_ERROR_ARGUMENT;
     if (composer->resource_bytes > composer->max_resource_bytes)
         return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -847,6 +867,7 @@ quantapdf_status quantapdf_composer_add_form(
             &composer->forms[i];
         if (existing->width_points == options->width_points &&
             existing->height_points == options->height_points &&
+            existing->flags == flags &&
             existing->pdf_size == pdf_size &&
             memcmp(existing->pdf_data, pdf_data, pdf_size) == 0) {
             free(pdf_data);
@@ -871,6 +892,7 @@ quantapdf_status quantapdf_composer_add_form(
         options->width_points;
     composer->forms[composer->form_count].height_points =
         options->height_points;
+    composer->forms[composer->form_count].flags = flags;
     composer->forms[composer->form_count].requires_pdf_16 =
         pdf_size >= 8u &&
         memcmp(pdf_data, "%PDF-1.", 7u) == 0 &&
