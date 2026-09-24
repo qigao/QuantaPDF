@@ -150,7 +150,15 @@ typedef struct quantapdf_composer_graphics_state {
     float fill_alpha;
     float stroke_alpha;
     quantapdf_composer_blend_mode blend_mode;
+    quantapdf_composer_clip_id clip_id;
 } quantapdf_composer_graphics_state;
+
+typedef struct quantapdf_composer_clip_state {
+    quantapdf_composer_path_command *commands;
+    size_t command_count;
+    quantapdf_composer_fill_rule fill_rule;
+    quantapdf_affine_transform transform;
+} quantapdf_composer_clip_state;
 
 typedef enum quantapdf_composer_paint_kind_internal {
     QUANTAPDF_COMPOSER_PAINT_LINEAR_GRADIENT_INTERNAL = 1,
@@ -225,6 +233,9 @@ struct quantapdf_composer {
     quantapdf_composer_graphics_state *graphics_states;
     size_t graphics_state_count;
     size_t graphics_state_capacity;
+    quantapdf_composer_clip_state *clips;
+    size_t clip_count;
+    size_t clip_capacity;
     quantapdf_composer_paint_state *paints;
     size_t paint_count;
     size_t paint_capacity;
