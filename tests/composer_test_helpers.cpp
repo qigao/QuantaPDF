@@ -561,6 +561,58 @@ extern "C" int quantapdf_test_pdf_pattern_info(
     }
 }
 
+extern "C" int quantapdf_test_pdf_form_xobject_info(
+    unsigned char const* data,
+    size_t size,
+    size_t page_index,
+    size_t form_id,
+    double out_bbox[4],
+    int* out_has_resources)
+{
+    if (out_bbox == nullptr || out_has_resources == nullptr)
+        return 0;
+    for (size_t i = 0u; i < 4u; ++i)
+        out_bbox[i] = 0.0;
+    *out_has_resources = 0;
+    try {
+        QPDF pdf;
+        pdf.processMemoryFile(
+            "composer-form-info.pdf",
+            reinterpret_cast<char const*>(data),
+            size);
+        auto pages = pdf.getAllPages();
+        if (page_index >= pages.size() || form_id == 0u)
+            return 0;
+        auto resources = pages[page_index].getKey("/Resources");
+        auto xobjects = resources.getKey("/XObject");
+        if (!xobjects.isDictionary())
+            return 0;
+        auto form = xobjects.getKey("/Fm" + std::to_string(form_id));
+        if (!form.isStream())
+            return 0;
+        auto dictionary = form.getDict();
+        auto subtype = dictionary.getKey("/Subtype");
+        auto bbox = dictionary.getKey("/BBox");
+        if (!subtype.isName() || subtype.getName() != "/Form" ||
+            !bbox.isArray() || bbox.getArrayNItems() != 4u)
+            return 0;
+        for (size_t i = 0u; i < 4u; ++i) {
+            auto item = bbox.getArrayItem(static_cast<int>(i));
+            if (!item.isNumber())
+                return 0;
+            out_bbox[i] = item.getNumericValue();
+        }
+        *out_has_resources =
+            dictionary.getKey("/Resources").isDictionary() ? 1 : 0;
+        return 1;
+    } catch (...) {
+        for (size_t i = 0u; i < 4u; ++i)
+            out_bbox[i] = 0.0;
+        *out_has_resources = 0;
+        return 0;
+    }
+}
+
 extern "C" void quantapdf_test_use_comma_locale(int enabled)
 {
     std::locale::global(enabled
