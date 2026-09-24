@@ -3125,6 +3125,141 @@ quantapdf_status materialize_pattern(
     return QUANTAPDF_OK;
 }
 
+std::string svg_color(uint32_t argb)
+{
+    char buffer[8];
+    std::snprintf(
+        buffer,
+        sizeof(buffer),
+        "#%02x%02x%02x",
+        static_cast<unsigned int>((argb >> 16u) & 0xffu),
+        static_cast<unsigned int>((argb >> 8u) & 0xffu),
+        static_cast<unsigned int>(argb & 0xffu));
+    return buffer;
+}
+
+char const* svg_line_cap(quantapdf_composer_line_cap value)
+{
+    switch (value) {
+    case QUANTAPDF_COMPOSER_LINE_CAP_BUTT:
+        return "butt";
+    case QUANTAPDF_COMPOSER_LINE_CAP_ROUND:
+        return "round";
+    case QUANTAPDF_COMPOSER_LINE_CAP_SQUARE:
+        return "square";
+    }
+    fail(QUANTAPDF_ERROR_BACKEND);
+}
+
+char const* svg_line_join(quantapdf_composer_line_join value)
+{
+    switch (value) {
+    case QUANTAPDF_COMPOSER_LINE_JOIN_MITER:
+        return "miter";
+    case QUANTAPDF_COMPOSER_LINE_JOIN_ROUND:
+        return "round";
+    case QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL:
+        return "bevel";
+    }
+    fail(QUANTAPDF_ERROR_BACKEND);
+}
+
+std::string resolved_style_attributes(paint_style const& style)
+{
+    std::string result;
+    result += " fill=\"";
+    if (!style.fill)
+        result += "none";
+    else if (!style.fill_ref.empty())
+        result += "url(#" + style.fill_ref + ")";
+    else
+        result += svg_color(style.fill_argb);
+    result += "\" stroke=\"";
+    if (!style.stroke)
+        result += "none";
+    else if (!style.stroke_ref.empty())
+        result += "url(#" + style.stroke_ref + ")";
+    else
+        result += svg_color(style.stroke_argb);
+    result += "\" fill-rule=\"";
+    result += style.fill_rule == QUANTAPDF_COMPOSER_FILL_EVEN_ODD
+        ? "evenodd"
+        : "nonzero";
+    result += "\" fill-opacity=\"";
+    result += svg_number(style.fill_opacity);
+    result += "\" stroke-opacity=\"";
+    result += svg_number(style.stroke_opacity);
+    result += "\" stroke-width=\"";
+    result += svg_number(style.stroke_width);
+    result += "\" stroke-linecap=\"";
+    result += svg_line_cap(style.line_cap);
+    result += "\" stroke-linejoin=\"";
+    result += svg_line_join(style.line_join);
+    result += "\" stroke-miterlimit=\"";
+    result += svg_number(style.miter_limit);
+    result += "\"";
+    if (!style.dash_array.empty()) {
+        result += " stroke-dasharray=\"";
+        for (size_t i = 0u; i < style.dash_array.size(); ++i) {
+            if (i != 0u)
+                result += " ";
+            result += svg_number(style.dash_array[i]);
+        }
+        result += "\" stroke-dashoffset=\"";
+        result += svg_number(style.dash_offset);
+        result += "\"";
+    }
+    return result;
+}
+
+std::string svg_matrix_attribute(matrix const& transform)
+{
+    std::string result = "matrix(";
+    result += svg_number(transform.a);
+    result += " ";
+    result += svg_number(transform.b);
+    result += " ";
+    result += svg_number(transform.c);
+    result += " ";
+    result += svg_number(transform.d);
+    result += " ";
+    result += svg_number(transform.e);
+    result += " ";
+    result += svg_number(transform.f);
+    result += ")";
+    return result;
+}
+
+std::string build_opacity_group_svg(
+    definition_table const& definitions,
+    quantapdf_rect const& bounds,
+    paint_style const& style,
+    matrix const& transform,
+    std::vector<element> const& tokens)
+{
+    std::string result;
+    result += "<svg viewBox=\"";
+    result += svg_number(bounds.x0);
+    result += " ";
+    result += svg_number(bounds.y0);
+    result += " ";
+    result += svg_number(bounds.x1 - bounds.x0);
+    result += " ";
+    result += svg_number(bounds.y1 - bounds.y0);
+    result += "\" preserveAspectRatio=\"none\"><defs>";
+    result += serialize_tokens(definitions.defs_tokens, false);
+    result += "</defs><g";
+    result += resolved_style_attributes(style);
+    result += " transform=\"";
+    result += svg_matrix_attribute(transform);
+    result += "\">";
+    result += serialize_tokens(tokens, false);
+    result += "</g></svg>";
+    if (result.size() > k_svg_max_input_bytes)
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    return result;
+}
+
 class svg_parser {
   public:
     svg_parser(
