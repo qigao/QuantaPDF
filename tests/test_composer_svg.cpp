@@ -268,7 +268,9 @@ static int test_v2a_dash_opacity_arcs_and_aspect()
         CHECK(quantapdf_output_data(output, &data, &size) == QUANTAPDF_OK);
 
         CHECK(quantapdf_test_pdf_content_contains(
-            data, size, 0u, "80 170 m"));
+            data, size, 0u, "1 0 0 1 70 -20 cm"));
+        CHECK(quantapdf_test_pdf_content_contains(
+            data, size, 0u, "10 190 m"));
         CHECK(quantapdf_test_pdf_content_contains(
             data, size, 0u, "[5 3 2 5 3 2] 17 d"));
         CHECK(quantapdf_test_pdf_content_count(
@@ -307,7 +309,12 @@ static int test_v2a_dash_opacity_arcs_and_aspect()
             data,
             size,
             0u,
-            "40 210 m 60 210 l 60 200 l 40 200 l h f"));
+            "2 0 0 1 20 -20 cm"));
+        CHECK(quantapdf_test_pdf_content_contains(
+            data,
+            size,
+            0u,
+            "10 230 m 20 230 l 20 220 l 10 220 l h f"));
         quantapdf_drop_output(output);
         quantapdf_drop_composer(composer);
     }
