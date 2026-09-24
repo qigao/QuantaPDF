@@ -3319,12 +3319,20 @@ class svg_parser {
                 root.name = tag;
                 root.style = derive_style(paint_style{}, item);
                 validate_style_references(root.style, definitions_);
-                if (root.style.opacity != 1.0 ||
-                    !root.style.clip_ref.empty())
+                if (!root.style.clip_ref.empty())
                     fail(QUANTAPDF_ERROR_UNSUPPORTED);
                 root.transform = derive_transform(viewport, item);
-                if (!item.self_closing)
+                if (root.style.opacity != 1.0) {
+                    if (!item.self_closing) {
+                        auto tokens = capture_children(tag, true);
+                        stage_opacity_group(
+                            root.style,
+                            root.transform,
+                            std::move(tokens));
+                    }
+                } else if (!item.self_closing) {
                     stack_.push_back(std::move(root));
+                }
                 continue;
             }
 
@@ -3354,7 +3362,8 @@ class svg_parser {
                 continue;
             }
             if (tag == "use") {
-                if (paths_.size() + uses_.size() >= max_paths_)
+                if (paths_.size() + uses_.size() + groups_.size() >=
+                    max_paths_)
                     fail(QUANTAPDF_ERROR_UNSUPPORTED);
                 staged_use use =
                     parse_use(
@@ -3362,6 +3371,7 @@ class svg_parser {
                         parent.style,
                         parent.transform,
                         definitions_);
+                use.order = next_order_++;
                 uses_.push_back(std::move(use));
                 if (!item.self_closing) {
                     context leaf;
@@ -3377,13 +3387,21 @@ class svg_parser {
                 group.name = tag;
                 group.style = derive_style(parent.style, item);
                 validate_style_references(group.style, definitions_);
-                if (group.style.opacity != 1.0 ||
-                    !group.style.clip_ref.empty())
+                if (!group.style.clip_ref.empty())
                     fail(QUANTAPDF_ERROR_UNSUPPORTED);
                 group.transform =
                     derive_transform(parent.transform, item);
-                if (!item.self_closing)
+                if (group.style.opacity != 1.0) {
+                    if (!item.self_closing) {
+                        auto tokens = capture_children(tag, false);
+                        stage_opacity_group(
+                            group.style,
+                            group.transform,
+                            std::move(tokens));
+                    }
+                } else if (!item.self_closing) {
                     stack_.push_back(std::move(group));
+                }
                 continue;
             }
 
@@ -3426,6 +3444,7 @@ class svg_parser {
                     std::move(commands),
                     line_style,
                     transform,
+                    next_order_++,
                     max_paths_);
                 if (!item.self_closing) {
                     context leaf{
@@ -3458,6 +3477,7 @@ class svg_parser {
                 std::move(commands),
                 style,
                 transform,
+                next_order_++,
                 max_paths_);
             if (!item.self_closing) {
                 context leaf{tag, style, transform, true};
@@ -3481,15 +3501,92 @@ class svg_parser {
         return std::move(uses_);
     }
 
+    std::vector<staged_group> take_groups()
+    {
+        return std::move(groups_);
+    }
+
   private:
     xml_scanner scanner_;
     quantapdf_rect bounds_;
     size_t max_paths_;
     bool clip_to_bounds_ = false;
     definition_table const& definitions_;
+    size_t next_order_ = 0u;
     std::vector<context> stack_;
     std::vector<staged_path> paths_;
     std::vector<staged_use> uses_;
+    std::vector<staged_group> groups_;
+
+    std::vector<element> capture_children(
+        std::string const& root_tag,
+        bool skip_root_defs)
+    {
+        std::vector<std::string> open_tags{root_tag};
+        std::vector<element> tokens;
+        size_t skip_depth = 0u;
+        element item;
+
+        while (scanner_.next(&item)) {
+            std::string const tag = local_name(item.name);
+            if (item.closing) {
+                if (open_tags.empty() || open_tags.back() != tag)
+                    fail(QUANTAPDF_ERROR_FORMAT);
+                bool const skipping = skip_depth != 0u;
+                open_tags.pop_back();
+                if (skip_depth != 0u)
+                    --skip_depth;
+                if (open_tags.empty())
+                    return tokens;
+                if (!skipping)
+                    tokens.push_back(std::move(item));
+                continue;
+            }
+
+            if (open_tags.size() >= k_svg_max_depth)
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            bool const start_defs_skip =
+                skip_root_defs &&
+                skip_depth == 0u &&
+                open_tags.size() == 1u &&
+                tag == "defs";
+            bool const skipping =
+                skip_depth != 0u || start_defs_skip;
+            if (!skipping)
+                tokens.push_back(item);
+            if (!item.self_closing) {
+                open_tags.push_back(tag);
+                if (skipping)
+                    ++skip_depth;
+            }
+        }
+        fail(QUANTAPDF_ERROR_FORMAT);
+    }
+
+    void stage_opacity_group(
+        paint_style style,
+        matrix const& transform,
+        std::vector<element> tokens)
+    {
+        if (paths_.size() + uses_.size() + groups_.size() >=
+            max_paths_)
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        if (style.opacity < 0.0 || style.opacity > 1.0 ||
+            !finite(style.opacity))
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+
+        staged_group group;
+        group.order = next_order_++;
+        group.opacity = static_cast<float>(style.opacity);
+        style.opacity = 1.0;
+        group.svg = build_opacity_group_svg(
+            definitions_,
+            bounds_,
+            style,
+            transform,
+            tokens);
+        groups_.push_back(std::move(group));
+    }
 };
 
 matrix use_viewport_matrix(
