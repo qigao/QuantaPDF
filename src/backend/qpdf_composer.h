@@ -16,6 +16,11 @@ quantapdf_status quantapdf_qpdf_compose(
     unsigned char **out_data,
     size_t *out_size);
 
+quantapdf_status quantapdf_qpdf_compose_fragment(
+    const quantapdf_composer *composer,
+    unsigned char **out_data,
+    size_t *out_size);
+
 quantapdf_status quantapdf_png_decode(
     const unsigned char *data,
     size_t size,
