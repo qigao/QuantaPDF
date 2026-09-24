@@ -84,7 +84,8 @@ typedef enum quantapdf_composer_operation_kind {
     QUANTAPDF_COMPOSER_OPERATION_IMAGE = 2,
     QUANTAPDF_COMPOSER_OPERATION_PATH = 3,
     QUANTAPDF_COMPOSER_OPERATION_EMBEDDED_TEXT = 4,
-    QUANTAPDF_COMPOSER_OPERATION_GLYPH_RUN = 5
+    QUANTAPDF_COMPOSER_OPERATION_GLYPH_RUN = 5,
+    QUANTAPDF_COMPOSER_OPERATION_CONTENT = 6
 } quantapdf_composer_operation_kind;
 
 typedef struct quantapdf_composer_text_operation {
@@ -141,6 +142,18 @@ typedef struct quantapdf_composer_glyph_run_operation {
     quantapdf_affine_transform transform;
 } quantapdf_composer_glyph_run_operation;
 
+typedef struct quantapdf_composer_content_operation {
+    quantapdf_composer_content_id content_id;
+    quantapdf_affine_transform transform;
+} quantapdf_composer_content_operation;
+
+typedef struct quantapdf_composer_content_state {
+    unsigned char *pdf_data;
+    size_t pdf_size;
+    float width_points;
+    float height_points;
+} quantapdf_composer_content_state;
+
 typedef struct quantapdf_composer_font_state {
     unsigned char *data;
     size_t size;
@@ -187,6 +200,7 @@ typedef struct quantapdf_composer_operation {
         quantapdf_composer_path_operation path;
         quantapdf_composer_embedded_text_operation embedded_text;
         quantapdf_composer_glyph_run_operation glyph_run;
+        quantapdf_composer_content_operation content;
     } value;
 } quantapdf_composer_operation;
 
@@ -239,6 +253,9 @@ struct quantapdf_composer {
     quantapdf_composer_paint_state *paints;
     size_t paint_count;
     size_t paint_capacity;
+    quantapdf_composer_content_state *contents;
+    size_t content_count;
+    size_t content_capacity;
     quantapdf_composer_link_state *links;
     size_t link_count;
     size_t link_capacity;
