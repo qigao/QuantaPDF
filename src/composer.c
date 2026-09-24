@@ -682,6 +682,8 @@ quantapdf_status quantapdf_composer_draw_path_dashed(
     const quantapdf_composer_path_options *options,
     const quantapdf_composer_dash_pattern *dash_pattern)
 {
+    if (dash_pattern == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
     return quantapdf_composer_draw_path_internal(
         composer,
         page_index,
