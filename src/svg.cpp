@@ -4692,6 +4692,7 @@ struct svg_publish_snapshot {
     size_t paint_count = 0u;
     size_t clip_count = 0u;
     size_t graphics_state_count = 0u;
+    size_t soft_mask_count = 0u;
     size_t form_count = 0u;
     size_t resource_bytes = 0u;
 };
@@ -4704,6 +4705,7 @@ svg_publish_snapshot capture_svg_snapshot(
         composer->paint_count,
         composer->clip_count,
         composer->graphics_state_count,
+        composer->soft_mask_count,
         composer->form_count,
         composer->resource_bytes};
 }
@@ -4742,6 +4744,7 @@ void rollback_svg_publish(
     composer->paint_count = snapshot.paint_count;
     composer->clip_count = snapshot.clip_count;
     composer->graphics_state_count = snapshot.graphics_state_count;
+    composer->soft_mask_count = snapshot.soft_mask_count;
     composer->form_count = snapshot.form_count;
     composer->resource_bytes = snapshot.resource_bytes;
 }
