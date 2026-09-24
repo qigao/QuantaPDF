@@ -4111,6 +4111,44 @@ class svg_parser {
     std::vector<staged_use> uses_;
     std::vector<staged_group> groups_;
 
+    clip_component make_clip_component(
+        std::string const& ref,
+        matrix const& transform,
+        geometry_bounds const& local_bounds,
+        bool allow_object_bbox) const
+    {
+        auto found = definitions_.clips.find(ref);
+        if (found == definitions_.clips.end())
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        if (found->second.units == resource_units::object_bbox &&
+            !allow_object_bbox)
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+
+        clip_component component;
+        component.ref = ref;
+        component.transform = transform;
+        component.local_bounds = local_bounds;
+        return component;
+    }
+
+    void attach_path_clips(
+        staged_path* path,
+        std::vector<clip_component> const& inherited,
+        std::string const& local_ref,
+        matrix const& transform) const
+    {
+        if (path == nullptr)
+            fail(QUANTAPDF_ERROR_BACKEND);
+        path->clip_components = inherited;
+        if (!local_ref.empty()) {
+            path->clip_components.push_back(make_clip_component(
+                local_ref,
+                transform,
+                path->local_bounds,
+                true));
+        }
+    }
+
     std::vector<element> capture_children(
         std::string const& root_tag,
         bool skip_root_defs)
