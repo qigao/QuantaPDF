@@ -1742,7 +1742,9 @@ class svg_parser {
 quantapdf_status publish_paths(
     quantapdf_composer* composer,
     size_t page_index,
-    std::vector<staged_path> const& paths)
+    std::vector<staged_path> const& paths,
+    quantapdf_rect const& bounds,
+    bool clip_to_bounds)
 {
     if (paths.empty())
         return QUANTAPDF_OK;
@@ -1765,10 +1767,6 @@ quantapdf_status publish_paths(
             return QUANTAPDF_ERROR_UNSUPPORTED;
         total_bytes += bytes;
     }
-    if (composer->resource_bytes > composer->max_resource_bytes ||
-        total_bytes >
-            composer->max_resource_bytes - composer->resource_bytes)
-        return QUANTAPDF_ERROR_UNSUPPORTED;
 
     quantapdf_status const reserve =
         quantapdf_composer_reserve_operations_internal(
@@ -1777,23 +1775,68 @@ quantapdf_status publish_paths(
         return reserve;
 
     size_t const state_snapshot = composer->graphics_state_count;
+    size_t const clip_snapshot = composer->clip_count;
+    size_t const resource_snapshot = composer->resource_bytes;
+
+    auto rollback_resources = [&]() {
+        for (size_t i = clip_snapshot; i < composer->clip_count; ++i)
+            std::free(composer->clips[i].commands);
+        composer->clip_count = clip_snapshot;
+        composer->graphics_state_count = state_snapshot;
+        composer->resource_bytes = resource_snapshot;
+    };
+
+    quantapdf_composer_clip_id viewport_clip_id = 0u;
+    if (clip_to_bounds) {
+        auto clip_commands = rectangle(
+            bounds.x0,
+            bounds.y0,
+            bounds.x1 - bounds.x0,
+            bounds.y1 - bounds.y0);
+        quantapdf_composer_clip_options clip_options{};
+        clip_options.struct_size = QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE;
+        clip_options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
+        quantapdf_status const clip_status =
+            quantapdf_composer_add_clip_path(
+                composer,
+                clip_commands.data(),
+                clip_commands.size(),
+                &clip_options,
+                &viewport_clip_id);
+        if (clip_status != QUANTAPDF_OK) {
+            rollback_resources();
+            return clip_status;
+        }
+    }
+
+    if (composer->resource_bytes > composer->max_resource_bytes ||
+        total_bytes >
+            composer->max_resource_bytes - composer->resource_bytes) {
+        rollback_resources();
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+
     std::vector<quantapdf_composer_graphics_state_id>
         state_ids(paths.size(), 0u);
     for (size_t i = 0u; i < paths.size(); ++i) {
         if (paths[i].fill_alpha == 1.0f &&
-            paths[i].stroke_alpha == 1.0f)
+            paths[i].stroke_alpha == 1.0f &&
+            viewport_clip_id == 0u)
             continue;
         quantapdf_composer_graphics_state_options state{};
         state.struct_size =
-            QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE;
+            viewport_clip_id == 0u
+            ? QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE
+            : QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE;
         state.fill_alpha = paths[i].fill_alpha;
         state.stroke_alpha = paths[i].stroke_alpha;
         state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
+        state.clip_id = viewport_clip_id;
         quantapdf_status const status =
             quantapdf_composer_add_graphics_state(
                 composer, &state, &state_ids[i]);
         if (status != QUANTAPDF_OK) {
-            composer->graphics_state_count = state_snapshot;
+            rollback_resources();
             return status;
         }
     }
@@ -1812,7 +1855,7 @@ quantapdf_status publish_paths(
                 std::free(staged[j].value.path.dash_lengths);
                 std::free(staged[j].value.path.commands);
             }
-            composer->graphics_state_count = state_snapshot;
+            rollback_resources();
             return QUANTAPDF_ERROR_NOMEM;
         }
         std::memcpy(
@@ -1830,7 +1873,7 @@ quantapdf_status publish_paths(
                     std::free(staged[j].value.path.dash_lengths);
                     std::free(staged[j].value.path.commands);
                 }
-                composer->graphics_state_count = state_snapshot;
+                rollback_resources();
                 return QUANTAPDF_ERROR_NOMEM;
             }
             std::memcpy(
@@ -1893,7 +1936,12 @@ extern "C" quantapdf_status quantapdf_composer_draw_svg(
             composer->max_operations - composer->operation_count;
         svg_parser parser(svg_data, svg_size, *bounds, available);
         auto paths = parser.parse();
-        return publish_paths(composer, page_index, paths);
+        return publish_paths(
+            composer,
+            page_index,
+            paths,
+            *bounds,
+            parser.clip_to_bounds());
     } catch (svg_error const& error) {
         return error.status;
     } catch (std::bad_alloc const&) {
