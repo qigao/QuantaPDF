@@ -1101,6 +1101,126 @@ quantapdf_composer_path_command cubic_to(
     return command;
 }
 
+void append_arc(
+    std::vector<quantapdf_composer_path_command>* result,
+    double x1,
+    double y1,
+    double rx,
+    double ry,
+    double rotation_degrees,
+    bool large_arc,
+    bool sweep,
+    double x2,
+    double y2)
+{
+    if (x1 == x2 && y1 == y2)
+        return;
+
+    rx = std::fabs(rx);
+    ry = std::fabs(ry);
+    if (rx == 0.0 || ry == 0.0) {
+        result->push_back(line_to(x2, y2));
+        return;
+    }
+
+    double const phi =
+        std::fmod(rotation_degrees, 360.0) * k_pi / 180.0;
+    double const cos_phi = std::cos(phi);
+    double const sin_phi = std::sin(phi);
+    double const dx = (x1 - x2) / 2.0;
+    double const dy = (y1 - y2) / 2.0;
+    double const x1p = cos_phi * dx + sin_phi * dy;
+    double const y1p = -sin_phi * dx + cos_phi * dy;
+
+    double lambda =
+        (x1p * x1p) / (rx * rx) +
+        (y1p * y1p) / (ry * ry);
+    if (!finite(lambda))
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    if (lambda > 1.0) {
+        double const scale = std::sqrt(lambda);
+        rx *= scale;
+        ry *= scale;
+        if (!finite(rx) || !finite(ry))
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+
+    double const rx2 = rx * rx;
+    double const ry2 = ry * ry;
+    double const x1p2 = x1p * x1p;
+    double const y1p2 = y1p * y1p;
+    double const denominator =
+        rx2 * y1p2 + ry2 * x1p2;
+    if (!finite(denominator) || denominator <= 0.0)
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    double numerator =
+        rx2 * ry2 - rx2 * y1p2 - ry2 * x1p2;
+    if (!finite(numerator))
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    numerator = std::max(0.0, numerator);
+
+    double coefficient = std::sqrt(numerator / denominator);
+    if (large_arc == sweep)
+        coefficient = -coefficient;
+    double const cxp = coefficient * (rx * y1p / ry);
+    double const cyp = coefficient * (-ry * x1p / rx);
+    double const cx =
+        cos_phi * cxp - sin_phi * cyp + (x1 + x2) / 2.0;
+    double const cy =
+        sin_phi * cxp + cos_phi * cyp + (y1 + y2) / 2.0;
+    if (!finite(cx) || !finite(cy))
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+
+    double const ux = (x1p - cxp) / rx;
+    double const uy = (y1p - cyp) / ry;
+    double const vx = (-x1p - cxp) / rx;
+    double const vy = (-y1p - cyp) / ry;
+    double theta = std::atan2(uy, ux);
+    double delta = std::atan2(ux * vy - uy * vx, ux * vx + uy * vy);
+    if (!sweep && delta > 0.0)
+        delta -= 2.0 * k_pi;
+    else if (sweep && delta < 0.0)
+        delta += 2.0 * k_pi;
+
+    size_t const segments = static_cast<size_t>(
+        std::max(1.0, std::ceil(std::fabs(delta) / (k_pi / 2.0))));
+    double const step = delta / static_cast<double>(segments);
+
+    auto ellipse_point = [&](double angle) {
+        double const cosine = std::cos(angle);
+        double const sine = std::sin(angle);
+        return std::pair<double, double>{
+            cx + rx * cosine * cos_phi - ry * sine * sin_phi,
+            cy + rx * cosine * sin_phi + ry * sine * cos_phi};
+    };
+    auto ellipse_derivative = [&](double angle) {
+        double const cosine = std::cos(angle);
+        double const sine = std::sin(angle);
+        return std::pair<double, double>{
+            -rx * sine * cos_phi - ry * cosine * sin_phi,
+            -rx * sine * sin_phi + ry * cosine * cos_phi};
+    };
+
+    for (size_t segment = 0u; segment < segments; ++segment) {
+        double const next = theta + step;
+        auto const p0 = ellipse_point(theta);
+        auto p1 = ellipse_point(next);
+        auto const d0 = ellipse_derivative(theta);
+        auto const d1 = ellipse_derivative(next);
+        double const alpha = (4.0 / 3.0) * std::tan(step / 4.0);
+        if (segment + 1u == segments)
+            p1 = {x2, y2};
+        result->push_back(cubic_to(
+            p0.first + alpha * d0.first,
+            p0.second + alpha * d0.second,
+            p1.first - alpha * d1.first,
+            p1.second - alpha * d1.second,
+            p1.first,
+            p1.second));
+        theta = next;
+    }
+}
+
 quantapdf_composer_path_command close_path()
 {
     quantapdf_composer_path_command command{};
@@ -1133,8 +1253,6 @@ std::vector<quantapdf_composer_path_command> parse_path_data(
     while (!scanner.done()) {
         if (scanner.next_is_alpha()) {
             command = scanner.take_alpha();
-            if (command == 'A' || command == 'a')
-                fail(QUANTAPDF_ERROR_UNSUPPORTED);
         } else if (command == 0) {
             fail(QUANTAPDF_ERROR_FORMAT);
         }
@@ -1283,6 +1401,36 @@ std::vector<quantapdf_composer_path_command> parse_path_data(
                 quad_y = qy;
                 previous_quad = true;
                 previous_cubic = false;
+            } else if (upper == 'A') {
+                if (!have_current)
+                    fail(QUANTAPDF_ERROR_FORMAT);
+                double const rx = scanner.number();
+                double const ry = scanner.number();
+                double const rotation = scanner.number();
+                double const large_value = scanner.number();
+                double const sweep_value = scanner.number();
+                if ((large_value != 0.0 && large_value != 1.0) ||
+                    (sweep_value != 0.0 && sweep_value != 1.0))
+                    fail(QUANTAPDF_ERROR_FORMAT);
+                double const nx =
+                    absolute(scanner.number(), x, relative);
+                double const ny =
+                    absolute(scanner.number(), y, relative);
+                append_arc(
+                    &result,
+                    x,
+                    y,
+                    rx,
+                    ry,
+                    rotation,
+                    large_value == 1.0,
+                    sweep_value == 1.0,
+                    nx,
+                    ny);
+                x = nx;
+                y = ny;
+                previous_cubic = false;
+                previous_quad = false;
             } else {
                 fail(QUANTAPDF_ERROR_UNSUPPORTED);
             }
