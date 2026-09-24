@@ -367,7 +367,11 @@ struct paint_style {
     bool stroke = false;
     uint32_t fill_argb = UINT32_C(0xff000000);
     uint32_t stroke_argb = UINT32_C(0xff000000);
+    double fill_opacity = 1.0;
+    double stroke_opacity = 1.0;
     double stroke_width = 1.0;
+    std::vector<double> dash_array;
+    double dash_offset = 0.0;
     quantapdf_composer_fill_rule fill_rule =
         QUANTAPDF_COMPOSER_FILL_NONZERO;
     quantapdf_composer_line_cap line_cap =
@@ -442,6 +446,54 @@ uint32_t parse_color(std::string value, bool* enabled)
     fail(QUANTAPDF_ERROR_UNSUPPORTED);
 }
 
+double unit_interval(std::string const& value)
+{
+    std::string text = trim(value);
+    number_scanner scanner(text);
+    double result = scanner.number();
+    if (!scanner.done())
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    if (result < 0.0)
+        return 0.0;
+    if (result > 1.0)
+        return 1.0;
+    return result;
+}
+
+std::vector<double> dash_array(std::string const& value)
+{
+    std::string const text = lower_ascii(trim(value));
+    if (text == "none")
+        return {};
+
+    auto values = number_list(text);
+    if (values.empty())
+        fail(QUANTAPDF_ERROR_FORMAT);
+    for (double item: values) {
+        if (!finite(item) || item < 0.0)
+            fail(QUANTAPDF_ERROR_FORMAT);
+    }
+    if ((values.size() & 1u) != 0u) {
+        if (values.size() > QUANTAPDF_COMPOSER_MAX_DASH_COUNT / 2u)
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        size_t const original = values.size();
+        values.reserve(original * 2u);
+        for (size_t i = 0u; i < original; ++i)
+            values.push_back(values[i]);
+    }
+    if (values.size() > QUANTAPDF_COMPOSER_MAX_DASH_COUNT)
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+
+    bool have_positive = false;
+    for (double item: values) {
+        if (item > 0.0) {
+            have_positive = true;
+            break;
+        }
+    }
+    return have_positive ? values : std::vector<double>{};
+}
+
 void apply_style_property(
     paint_style* style,
     std::string name,
@@ -487,6 +539,16 @@ void apply_style_property(
     } else if (name == "stroke-miterlimit") {
         style->miter_limit = scalar(value);
         if (style->miter_limit < 1.0)
+            fail(QUANTAPDF_ERROR_FORMAT);
+    } else if (name == "fill-opacity") {
+        style->fill_opacity = unit_interval(value);
+    } else if (name == "stroke-opacity") {
+        style->stroke_opacity = unit_interval(value);
+    } else if (name == "stroke-dasharray") {
+        style->dash_array = dash_array(value);
+    } else if (name == "stroke-dashoffset") {
+        style->dash_offset = scalar(value);
+        if (!finite(style->dash_offset))
             fail(QUANTAPDF_ERROR_FORMAT);
     } else {
         fail(QUANTAPDF_ERROR_UNSUPPORTED);
@@ -691,7 +753,9 @@ bool common_attribute(std::string const& name)
     return name == "id" || name == "transform" || name == "style" ||
         name == "fill" || name == "stroke" || name == "fill-rule" ||
         name == "stroke-width" || name == "stroke-linecap" ||
-        name == "stroke-linejoin" || name == "stroke-miterlimit";
+        name == "stroke-linejoin" || name == "stroke-miterlimit" ||
+        name == "fill-opacity" || name == "stroke-opacity" ||
+        name == "stroke-dasharray" || name == "stroke-dashoffset";
 }
 
 bool tag_attribute_allowed(
@@ -702,7 +766,8 @@ bool tag_attribute_allowed(
     if (common_attribute(name))
         return true;
     if (root) {
-        if (name == "viewBox" || name == "width" || name == "height" ||
+        if (name == "viewBox" || name == "preserveAspectRatio" ||
+            name == "width" || name == "height" ||
             name == "version" || name == "xmlns" ||
             name.rfind("xmlns:", 0u) == 0u)
             return true;
@@ -746,7 +811,11 @@ paint_style derive_style(
             attr.name == "fill-rule" || attr.name == "stroke-width" ||
             attr.name == "stroke-linecap" ||
             attr.name == "stroke-linejoin" ||
-            attr.name == "stroke-miterlimit")
+            attr.name == "stroke-miterlimit" ||
+            attr.name == "fill-opacity" ||
+            attr.name == "stroke-opacity" ||
+            attr.name == "stroke-dasharray" ||
+            attr.name == "stroke-dashoffset")
             apply_style_property(&result, attr.name, attr.value);
     }
     if (auto const* style = find_attribute(item, "style"))
