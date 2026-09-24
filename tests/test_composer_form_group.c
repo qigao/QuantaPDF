@@ -385,7 +385,7 @@ static int test_group_dictionary_render_and_nested(void)
     CHECK(pixel_near(pixels, stride, 60, 40, 128, 64, 191, 35));
     CHECK(pixel_near(pixels, stride, 150, 40, 255, 128, 128, 25));
     CHECK(pixel_near(pixels, stride, 180, 40, 128, 128, 255, 30));
-    CHECK(pixel_near(pixels, stride, 275, 75, 255, 128, 128, 35));
+    CHECK(pixel_near(pixels, stride, 275, 75, 128, 128, 255, 35));
 
     quantapdf_drop_bitmap(bitmap);
     quantapdf_drop_page(page);
