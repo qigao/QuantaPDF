@@ -141,10 +141,13 @@ int main(int argc, char **argv)
     quantapdf_rect svg_box = {180.0f, 80.0f, 280.0f, 160.0f};
     quantapdf_point target = {24.0f, 24.0f};
     static const unsigned char svg_data[] =
-        "<svg viewBox=\"0 0 10 8\">"
-        "<g fill=\"#00a0ff\" stroke=\"#202020\" stroke-width=\"0.5\">"
+        "<svg viewBox=\"0 0 10 8\" preserveAspectRatio=\"xMidYMid meet\">"
+        "<g fill=\"#00a0ff\" fill-opacity=\"0.8\" "
+        "stroke=\"#202020\" stroke-width=\"0.5\" "
+        "stroke-opacity=\"0.6\" stroke-dasharray=\"1 0.5 0.25\" "
+        "stroke-dashoffset=\"-0.5\">"
         "<rect x=\"1\" y=\"1\" width=\"8\" height=\"6\"/>"
-        "<path d=\"M2 6 Q5 1 8 6\" fill=\"none\"/>"
+        "<path d=\"M2 6 A3 2 20 0 1 8 6\" fill=\"none\"/>"
         "</g></svg>";
 
     if (argc != 3) {
