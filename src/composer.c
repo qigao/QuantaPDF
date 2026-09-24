@@ -77,6 +77,28 @@ static int quantapdf_composer_path_options_valid(
     return 1;
 }
 
+static int quantapdf_composer_dash_pattern_valid(
+    const quantapdf_composer_dash_pattern *pattern)
+{
+    size_t i;
+    int have_positive = 0;
+
+    if (pattern == NULL ||
+        pattern->struct_size < QUANTAPDF_COMPOSER_DASH_PATTERN_V1_MIN_SIZE ||
+        pattern->lengths == NULL ||
+        pattern->length_count == 0u ||
+        pattern->length_count > QUANTAPDF_COMPOSER_MAX_DASH_COUNT ||
+        !isfinite(pattern->phase) || pattern->phase < 0.0f)
+        return 0;
+    for (i = 0u; i < pattern->length_count; ++i) {
+        if (!isfinite(pattern->lengths[i]) || pattern->lengths[i] < 0.0f)
+            return 0;
+        if (pattern->lengths[i] > 0.0f)
+            have_positive = 1;
+    }
+    return have_positive;
+}
+
 static int quantapdf_composer_path_commands_valid(
     const quantapdf_composer_path_command *commands,
     size_t command_count)
@@ -560,6 +582,87 @@ quantapdf_status quantapdf_composer_draw_image(
 }
 
 
+static quantapdf_status quantapdf_composer_draw_path_internal(
+    quantapdf_composer *composer,
+    size_t page_index,
+    const quantapdf_composer_path_command *commands,
+    size_t command_count,
+    const quantapdf_composer_path_options *options,
+    const quantapdf_composer_dash_pattern *dash_pattern)
+{
+    quantapdf_composer_operation operation;
+    quantapdf_composer_path_command *copied_commands = NULL;
+    float *copied_dash = NULL;
+    quantapdf_status status;
+    size_t path_bytes;
+    size_t dash_bytes = 0u;
+    size_t resource_bytes;
+
+    if (composer == NULL || page_index >= composer->page_count ||
+        !quantapdf_composer_path_options_valid(options) ||
+        commands == NULL || command_count == 0u)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if (dash_pattern != NULL &&
+        (!options->stroke ||
+         !quantapdf_composer_dash_pattern_valid(dash_pattern)))
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if (command_count > SIZE_MAX / sizeof(*copied_commands))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    path_bytes = command_count * sizeof(*copied_commands);
+    if (dash_pattern != NULL) {
+        if (dash_pattern->length_count > SIZE_MAX / sizeof(*copied_dash))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        dash_bytes = dash_pattern->length_count * sizeof(*copied_dash);
+    }
+    if (dash_bytes > SIZE_MAX - path_bytes)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    resource_bytes = path_bytes + dash_bytes;
+    if (composer->resource_bytes > composer->max_resource_bytes ||
+        resource_bytes >
+            composer->max_resource_bytes - composer->resource_bytes)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (!quantapdf_composer_path_commands_valid(commands, command_count))
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    copied_commands =
+        (quantapdf_composer_path_command *)malloc(path_bytes);
+    if (copied_commands == NULL)
+        return QUANTAPDF_ERROR_NOMEM;
+    memcpy(copied_commands, commands, path_bytes);
+
+    if (dash_pattern != NULL) {
+        copied_dash = (float *)malloc(dash_bytes);
+        if (copied_dash == NULL) {
+            free(copied_commands);
+            return QUANTAPDF_ERROR_NOMEM;
+        }
+        memcpy(copied_dash, dash_pattern->lengths, dash_bytes);
+    }
+
+    status = quantapdf_composer_reserve_operation_internal(composer);
+    if (status != QUANTAPDF_OK) {
+        free(copied_dash);
+        free(copied_commands);
+        return status;
+    }
+
+    memset(&operation, 0, sizeof(operation));
+    operation.kind = QUANTAPDF_COMPOSER_OPERATION_PATH;
+    operation.page_index = page_index;
+    operation.value.path.commands = copied_commands;
+    operation.value.path.command_count = command_count;
+    operation.value.path.options = *options;
+    operation.value.path.dash_lengths = copied_dash;
+    operation.value.path.dash_count =
+        dash_pattern == NULL ? 0u : dash_pattern->length_count;
+    operation.value.path.dash_phase =
+        dash_pattern == NULL ? 0.0f : dash_pattern->phase;
+    composer->operations[composer->operation_count] = operation;
+    ++composer->operation_count;
+    composer->resource_bytes += resource_bytes;
+    return QUANTAPDF_OK;
+}
+
 quantapdf_status quantapdf_composer_draw_path(
     quantapdf_composer *composer,
     size_t page_index,
@@ -567,43 +670,25 @@ quantapdf_status quantapdf_composer_draw_path(
     size_t command_count,
     const quantapdf_composer_path_options *options)
 {
-    quantapdf_composer_operation operation;
-    quantapdf_composer_path_command *copied;
-    quantapdf_status status;
-    size_t path_bytes;
+    return quantapdf_composer_draw_path_internal(
+        composer, page_index, commands, command_count, options, NULL);
+}
 
-    if (composer == NULL || page_index >= composer->page_count ||
-        !quantapdf_composer_path_options_valid(options) ||
-        commands == NULL || command_count == 0u)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    if (command_count > SIZE_MAX / sizeof(*copied))
-        return QUANTAPDF_ERROR_UNSUPPORTED;
-    path_bytes = command_count * sizeof(*copied);
-    if (composer->resource_bytes > composer->max_resource_bytes ||
-        path_bytes > composer->max_resource_bytes - composer->resource_bytes)
-        return QUANTAPDF_ERROR_UNSUPPORTED;
-    if (!quantapdf_composer_path_commands_valid(commands, command_count))
-        return QUANTAPDF_ERROR_ARGUMENT;
-
-    copied = (quantapdf_composer_path_command *)malloc(path_bytes);
-    if (copied == NULL)
-        return QUANTAPDF_ERROR_NOMEM;
-    memcpy(copied, commands, path_bytes);
-    status = quantapdf_composer_reserve_operation_internal(composer);
-    if (status != QUANTAPDF_OK) {
-        free(copied);
-        return status;
-    }
-    memset(&operation, 0, sizeof(operation));
-    operation.kind = QUANTAPDF_COMPOSER_OPERATION_PATH;
-    operation.page_index = page_index;
-    operation.value.path.commands = copied;
-    operation.value.path.command_count = command_count;
-    operation.value.path.options = *options;
-    composer->operations[composer->operation_count] = operation;
-    ++composer->operation_count;
-    composer->resource_bytes += path_bytes;
-    return QUANTAPDF_OK;
+quantapdf_status quantapdf_composer_draw_path_dashed(
+    quantapdf_composer *composer,
+    size_t page_index,
+    const quantapdf_composer_path_command *commands,
+    size_t command_count,
+    const quantapdf_composer_path_options *options,
+    const quantapdf_composer_dash_pattern *dash_pattern)
+{
+    return quantapdf_composer_draw_path_internal(
+        composer,
+        page_index,
+        commands,
+        command_count,
+        options,
+        dash_pattern);
 }
 
 quantapdf_status quantapdf_composer_finish(
@@ -644,8 +729,10 @@ void quantapdf_drop_composer(quantapdf_composer *composer)
         if (composer->operations[i].kind == QUANTAPDF_COMPOSER_OPERATION_TEXT)
             free(composer->operations[i].value.text.text_utf8);
         else if (composer->operations[i].kind ==
-                 QUANTAPDF_COMPOSER_OPERATION_PATH)
+                 QUANTAPDF_COMPOSER_OPERATION_PATH) {
+            free(composer->operations[i].value.path.dash_lengths);
             free(composer->operations[i].value.path.commands);
+        }
         else if (composer->operations[i].kind ==
                  QUANTAPDF_COMPOSER_OPERATION_EMBEDDED_TEXT)
             free(composer->operations[i].value.embedded_text.text_utf8);
