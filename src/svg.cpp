@@ -1168,6 +1168,7 @@ geometry_bounds command_bounds(
     double subpath_y = 0.0;
     bool have_current = false;
     bool have_subpath = false;
+    bool subpath_has_draw = false;
 
     for (auto const& command: commands) {
         switch (command.kind) {
@@ -1178,7 +1179,7 @@ geometry_bounds command_bounds(
             subpath_y = y;
             have_current = true;
             have_subpath = true;
-            include_bound_point(&bounds, x, y);
+            subpath_has_draw = false;
             break;
         case QUANTAPDF_COMPOSER_PATH_LINE_TO:
             if (!have_current)
@@ -1188,6 +1189,7 @@ geometry_bounds command_bounds(
                 &bounds, command.point1.x, command.point1.y);
             x = command.point1.x;
             y = command.point1.y;
+            subpath_has_draw = true;
             break;
         case QUANTAPDF_COMPOSER_PATH_CUBIC_TO:
             if (!have_current)
@@ -1201,12 +1203,15 @@ geometry_bounds command_bounds(
                 command.point3);
             x = command.point3.x;
             y = command.point3.y;
+            subpath_has_draw = true;
             break;
         case QUANTAPDF_COMPOSER_PATH_CLOSE:
             if (!have_current || !have_subpath)
                 fail(QUANTAPDF_ERROR_BACKEND);
-            include_bound_point(&bounds, x, y);
-            include_bound_point(&bounds, subpath_x, subpath_y);
+            if (subpath_has_draw) {
+                include_bound_point(&bounds, x, y);
+                include_bound_point(&bounds, subpath_x, subpath_y);
+            }
             x = subpath_x;
             y = subpath_y;
             break;
