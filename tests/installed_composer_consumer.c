@@ -70,6 +70,13 @@ int main(int argc, char **argv)
 
     quantapdf_composer_page_options page = {0};
     quantapdf_composer_font_options font_options = {0};
+    quantapdf_composer_raster raster = {0};
+    quantapdf_composer_image_options raster_draw = {0};
+    quantapdf_composer_image_id raster_id = 0u;
+    unsigned char raster_pixels[6] = {
+        255u, 0u, 0u,
+        0u, 0u, 255u
+    };
     quantapdf_composer_text_options base_text = {0};
     quantapdf_composer_embedded_text_options text = {0};
     quantapdf_composer_text_measurement measurement = {0};
@@ -90,6 +97,7 @@ int main(int argc, char **argv)
 
     quantapdf_composer_path_command rectangle[5] = {{0}};
     quantapdf_rect text_box = {24.0f, 24.0f, 280.0f, 70.0f};
+    quantapdf_rect raster_box = {180.0f, 30.0f, 280.0f, 65.0f};
     quantapdf_rect transformed_text_box = {0.0f, 0.0f, 90.0f, 30.0f};
     quantapdf_rect barcode_box = {24.0f, 90.0f, 180.0f, 130.0f};
     quantapdf_rect uri_box = {24.0f, 140.0f, 120.0f, 160.0f};
@@ -124,6 +132,20 @@ int main(int argc, char **argv)
     font_options.struct_size = QUANTAPDF_COMPOSER_FONT_OPTIONS_V1_SIZE;
     CHECK(quantapdf_composer_add_font(
         composer, font_data, font_size, &font_options, &font_id));
+
+    raster.struct_size = QUANTAPDF_COMPOSER_RASTER_V1_SIZE;
+    raster.format = QUANTAPDF_COMPOSER_RASTER_RGB24;
+    raster.width = 2u;
+    raster.height = 1u;
+    raster.stride = 6u;
+    raster.pixels = raster_pixels;
+    raster.size = sizeof(raster_pixels);
+    CHECK(quantapdf_composer_add_raster(
+        composer, &raster, &raster_id));
+    raster_draw.struct_size = QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE;
+    raster_draw.fit = QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
+    CHECK(quantapdf_composer_draw_image(
+        composer, page1, raster_id, &raster_box, &raster_draw));
 
     base_text.struct_size = QUANTAPDF_COMPOSER_TEXT_OPTIONS_V1_SIZE;
     base_text.font = QUANTAPDF_COMPOSER_FONT_HELVETICA;
