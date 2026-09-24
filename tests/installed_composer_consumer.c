@@ -192,10 +192,16 @@ int main(int argc, char **argv)
         "<clipPath id=\"leafClip\" clipPathUnits=\"objectBoundingBox\">"
         "<rect x=\"0.1\" y=\"0.1\" width=\"0.8\" height=\"0.8\"/>"
         "</clipPath>"
+        "<mask id=\"installedMask\" maskUnits=\"objectBoundingBox\" "
+        "maskContentUnits=\"objectBoundingBox\" "
+        "x=\"0\" y=\"0\" width=\"1\" height=\"1\" mask-type=\"alpha\">"
+        "<rect x=\"0\" y=\"0\" width=\"0.75\" height=\"1\" fill=\"white\"/>"
+        "</mask>"
         "</defs>"
         "<g clip-path=\"url(#groupClip)\">"
         "<rect x=\"1\" y=\"1\" width=\"8\" height=\"6\" "
-        "fill=\"url(#derived)\" clip-path=\"url(#leafClip)\"/>"
+        "fill=\"url(#derived)\" clip-path=\"url(#leafClip)\" "
+        "mask=\"url(#installedMask)\"/>"
         "</g>"
         "</svg>";
 
