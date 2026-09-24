@@ -202,6 +202,16 @@ as a PDF soft mask. JPEG supports baseline 8-bit gray and RGB images;
 progressive JPEG is rejected before decode to preserve the configured memory
 bound.
 
+2.17 also accepts already-decoded caller rasters through
+`quantapdf_composer_add_raster()`. V1 supports Gray8, RGB24, and straight-alpha
+RGBA32 with explicit dimensions, source stride, and source byte size. Visible
+rows are copied into tightly packed Composer-owned storage, so source padding is
+ignored and the caller may modify or free its buffer immediately after a
+successful call. Gray8 lowers to DeviceGray, RGB24 to DeviceRGB, and RGBA32 to
+DeviceRGB plus an 8-bit soft mask. Only canonical visible bytes are charged to
+the Composer resource budget; the returned image ID is placed with the existing
+`quantapdf_composer_draw_image()` API.
+
 2.17 adds direct decoded-pixel registration through
 `quantapdf_composer_add_raster()`. Gray8, RGB24, and straight-alpha RGBA32
 accept explicit width, height, source stride, pixel pointer, and byte size.
