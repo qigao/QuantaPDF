@@ -119,6 +119,9 @@ typedef struct quantapdf_composer_path_operation {
     quantapdf_composer_path_command *commands;
     size_t command_count;
     quantapdf_composer_path_options options;
+    float *dash_lengths;
+    size_t dash_count;
+    float dash_phase;
 } quantapdf_composer_path_operation;
 
 typedef struct quantapdf_composer_embedded_text_operation {
