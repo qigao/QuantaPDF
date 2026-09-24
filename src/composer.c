@@ -119,12 +119,30 @@ static int quantapdf_paint_id_valid(
         (paint_id == 0u || paint_id <= composer->paint_count);
 }
 
+static int quantapdf_clip_id_valid(
+    const quantapdf_composer *composer,
+    quantapdf_composer_clip_id clip_id)
+{
+    return composer != NULL &&
+        (clip_id == 0u || clip_id <= composer->clip_count);
+}
+
+static quantapdf_composer_clip_id quantapdf_graphics_state_clip_id(
+    const quantapdf_composer_graphics_state_options *options)
+{
+    if (options != NULL &&
+        options->struct_size >=
+            QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_MIN_SIZE)
+        return options->clip_id;
+    return 0u;
+}
+
 static float quantapdf_canonical_float(float value)
 {
     return value == 0.0f ? 0.0f : value;
 }
 
-static int quantapdf_gradient_transform_normalize(
+static int quantapdf_composer_resource_transform_normalize(
     const quantapdf_affine_transform *source,
     quantapdf_affine_transform *destination)
 {
@@ -484,6 +502,31 @@ static quantapdf_status quantapdf_composer_reserve_graphics_state(
     return QUANTAPDF_OK;
 }
 
+static quantapdf_status quantapdf_composer_reserve_clip(
+    quantapdf_composer *composer)
+{
+    quantapdf_composer_clip_state *grown;
+    size_t new_capacity;
+
+    if (composer->clip_count == SIZE_MAX)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (composer->clip_count < composer->clip_capacity)
+        return QUANTAPDF_OK;
+    new_capacity = composer->clip_capacity == 0u
+        ? 8u
+        : composer->clip_capacity * 2u;
+    if (new_capacity < composer->clip_capacity ||
+        new_capacity > SIZE_MAX / sizeof(*grown))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    grown = (quantapdf_composer_clip_state *)realloc(
+        composer->clips, new_capacity * sizeof(*grown));
+    if (grown == NULL)
+        return QUANTAPDF_ERROR_NOMEM;
+    composer->clips = grown;
+    composer->clip_capacity = new_capacity;
+    return QUANTAPDF_OK;
+}
+
 static quantapdf_status quantapdf_composer_reserve_paint(
     quantapdf_composer *composer)
 {
@@ -688,6 +731,152 @@ quantapdf_status quantapdf_composer_add_page(
     return QUANTAPDF_OK;
 }
 
+static quantapdf_point quantapdf_canonical_point(quantapdf_point point)
+{
+    point.x = quantapdf_canonical_float(point.x);
+    point.y = quantapdf_canonical_float(point.y);
+    return point;
+}
+
+static int quantapdf_clip_command_equal(
+    const quantapdf_composer_path_command *left,
+    const quantapdf_composer_path_command *right)
+{
+    if (left->kind != right->kind)
+        return 0;
+    switch (left->kind) {
+    case QUANTAPDF_COMPOSER_PATH_MOVE_TO:
+    case QUANTAPDF_COMPOSER_PATH_LINE_TO:
+        return left->point1.x == quantapdf_canonical_float(right->point1.x) &&
+            left->point1.y == quantapdf_canonical_float(right->point1.y);
+    case QUANTAPDF_COMPOSER_PATH_CUBIC_TO:
+        return left->point1.x == quantapdf_canonical_float(right->point1.x) &&
+            left->point1.y == quantapdf_canonical_float(right->point1.y) &&
+            left->point2.x == quantapdf_canonical_float(right->point2.x) &&
+            left->point2.y == quantapdf_canonical_float(right->point2.y) &&
+            left->point3.x == quantapdf_canonical_float(right->point3.x) &&
+            left->point3.y == quantapdf_canonical_float(right->point3.y);
+    case QUANTAPDF_COMPOSER_PATH_CLOSE:
+        return 1;
+    }
+    return 0;
+}
+
+static int quantapdf_clip_state_equal(
+    const quantapdf_composer_clip_state *existing,
+    const quantapdf_composer_path_command *commands,
+    size_t command_count,
+    quantapdf_composer_fill_rule fill_rule,
+    const quantapdf_affine_transform *transform)
+{
+    size_t i;
+
+    if (existing->command_count != command_count ||
+        existing->fill_rule != fill_rule ||
+        existing->transform.a != transform->a ||
+        existing->transform.b != transform->b ||
+        existing->transform.c != transform->c ||
+        existing->transform.d != transform->d ||
+        existing->transform.e != transform->e ||
+        existing->transform.f != transform->f)
+        return 0;
+    for (i = 0u; i < command_count; ++i) {
+        if (!quantapdf_clip_command_equal(
+                &existing->commands[i], &commands[i]))
+            return 0;
+    }
+    return 1;
+}
+
+quantapdf_status quantapdf_composer_add_clip_path(
+    quantapdf_composer *composer,
+    const quantapdf_composer_path_command *commands,
+    size_t command_count,
+    const quantapdf_composer_clip_options *options,
+    quantapdf_composer_clip_id *out_clip_id)
+{
+    quantapdf_affine_transform transform;
+    quantapdf_composer_path_command *copied = NULL;
+    quantapdf_composer_clip_state state;
+    quantapdf_status status;
+    size_t command_bytes;
+    size_t i;
+
+    if (out_clip_id != NULL)
+        *out_clip_id = 0u;
+    if (composer == NULL || commands == NULL || command_count == 0u ||
+        options == NULL || out_clip_id == NULL ||
+        options->struct_size < QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_MIN_SIZE ||
+        options->fill_rule < QUANTAPDF_COMPOSER_FILL_NONZERO ||
+        options->fill_rule > QUANTAPDF_COMPOSER_FILL_EVEN_ODD ||
+        !quantapdf_composer_path_commands_valid(commands, command_count) ||
+        !quantapdf_composer_resource_transform_normalize(
+            &options->transform, &transform))
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if (command_count > SIZE_MAX / sizeof(*copied))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    command_bytes = command_count * sizeof(*copied);
+
+    for (i = 0u; i < composer->clip_count; ++i) {
+        if (quantapdf_clip_state_equal(
+                &composer->clips[i],
+                commands,
+                command_count,
+                options->fill_rule,
+                &transform)) {
+            *out_clip_id = i + 1u;
+            return QUANTAPDF_OK;
+        }
+    }
+
+    if (composer->resource_bytes > composer->max_resource_bytes ||
+        command_bytes >
+            composer->max_resource_bytes - composer->resource_bytes)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    copied = (quantapdf_composer_path_command *)calloc(
+        command_count, sizeof(*copied));
+    if (copied == NULL)
+        return QUANTAPDF_ERROR_NOMEM;
+    for (i = 0u; i < command_count; ++i) {
+        copied[i].kind = commands[i].kind;
+        switch (commands[i].kind) {
+        case QUANTAPDF_COMPOSER_PATH_MOVE_TO:
+        case QUANTAPDF_COMPOSER_PATH_LINE_TO:
+            copied[i].point1 =
+                quantapdf_canonical_point(commands[i].point1);
+            break;
+        case QUANTAPDF_COMPOSER_PATH_CUBIC_TO:
+            copied[i].point1 =
+                quantapdf_canonical_point(commands[i].point1);
+            copied[i].point2 =
+                quantapdf_canonical_point(commands[i].point2);
+            copied[i].point3 =
+                quantapdf_canonical_point(commands[i].point3);
+            break;
+        case QUANTAPDF_COMPOSER_PATH_CLOSE:
+            break;
+        }
+    }
+
+    status = quantapdf_composer_reserve_clip(composer);
+    if (status != QUANTAPDF_OK) {
+        free(copied);
+        return status;
+    }
+
+    memset(&state, 0, sizeof(state));
+    state.commands = copied;
+    state.command_count = command_count;
+    state.fill_rule = options->fill_rule;
+    state.transform = transform;
+    composer->clips[composer->clip_count] = state;
+    ++composer->clip_count;
+    composer->resource_bytes += command_bytes;
+    *out_clip_id = composer->clip_count;
+    return QUANTAPDF_OK;
+}
+
 quantapdf_status quantapdf_composer_add_graphics_state(
     quantapdf_composer *composer,
     const quantapdf_composer_graphics_state_options *options,
@@ -708,7 +897,9 @@ quantapdf_status quantapdf_composer_add_graphics_state(
         !isfinite(options->stroke_alpha) ||
         options->stroke_alpha < 0.0f || options->stroke_alpha > 1.0f ||
         options->blend_mode < QUANTAPDF_COMPOSER_BLEND_NORMAL ||
-        options->blend_mode > QUANTAPDF_COMPOSER_BLEND_LIGHTEN)
+        options->blend_mode > QUANTAPDF_COMPOSER_BLEND_LIGHTEN ||
+        !quantapdf_clip_id_valid(
+            composer, quantapdf_graphics_state_clip_id(options)))
         return QUANTAPDF_ERROR_ARGUMENT;
 
     state.fill_alpha =
@@ -716,13 +907,15 @@ quantapdf_status quantapdf_composer_add_graphics_state(
     state.stroke_alpha =
         options->stroke_alpha == 0.0f ? 0.0f : options->stroke_alpha;
     state.blend_mode = options->blend_mode;
+    state.clip_id = quantapdf_graphics_state_clip_id(options);
 
     for (i = 0u; i < composer->graphics_state_count; ++i) {
         const quantapdf_composer_graphics_state *existing =
             &composer->graphics_states[i];
         if (existing->fill_alpha == state.fill_alpha &&
             existing->stroke_alpha == state.stroke_alpha &&
-            existing->blend_mode == state.blend_mode) {
+            existing->blend_mode == state.blend_mode &&
+            existing->clip_id == state.clip_id) {
             *out_graphics_state_id =
                 (quantapdf_composer_graphics_state_id)(i + 1u);
             return QUANTAPDF_OK;
@@ -765,7 +958,7 @@ quantapdf_status quantapdf_composer_add_linear_gradient(
     state.start.y = quantapdf_canonical_float(options->start.y);
     state.end.x = quantapdf_canonical_float(options->end.x);
     state.end.y = quantapdf_canonical_float(options->end.y);
-    if (!quantapdf_gradient_transform_normalize(
+    if (!quantapdf_composer_resource_transform_normalize(
             &options->transform, &state.transform))
         return QUANTAPDF_ERROR_ARGUMENT;
     state.stop_count = options->stop_count;
@@ -809,7 +1002,7 @@ quantapdf_status quantapdf_composer_add_radial_gradient(
         quantapdf_canonical_float(options->start_radius);
     state.end_radius =
         quantapdf_canonical_float(options->end_radius);
-    if (!quantapdf_gradient_transform_normalize(
+    if (!quantapdf_composer_resource_transform_normalize(
             &options->transform, &state.transform))
         return QUANTAPDF_ERROR_ARGUMENT;
     state.stop_count = options->stop_count;
@@ -1347,6 +1540,9 @@ void quantapdf_drop_composer(quantapdf_composer *composer)
         free(composer->fonts[i].data);
     for (i = 0u; i < composer->paint_count; ++i)
         free(composer->paints[i].stops);
+    for (i = 0u; i < composer->clip_count; ++i)
+        free(composer->clips[i].commands);
+    free(composer->clips);
     free(composer->paints);
     free(composer->graphics_states);
     free(composer->fonts);
