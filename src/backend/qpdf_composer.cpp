@@ -1543,11 +1543,14 @@ void apply_composer_navigation(
     apply_composer_outlines(pdf, composer, pages);
 }
 
-void append_clip_content(
+void append_path_clip_content(
     std::string& content,
     quantapdf_composer_page_state const& page,
     quantapdf_composer_clip_state const& clip)
 {
+    if (clip.kind != QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL)
+        throw std::logic_error("path clip expected");
+
     auto append_point = [&](quantapdf_point const& point) {
         double const x =
             static_cast<double>(clip.transform.a) * point.x +
@@ -1590,6 +1593,30 @@ void append_clip_content(
         : "W n\n";
 }
 
+void append_clip_content(
+    std::string& content,
+    quantapdf_composer const* composer,
+    quantapdf_composer_page_state const& page,
+    quantapdf_composer_clip_state const& clip)
+{
+    if (clip.kind == QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL) {
+        append_path_clip_content(content, page, clip);
+        return;
+    }
+    if (clip.kind != QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL)
+        throw std::logic_error("unknown clip resource kind");
+
+    for (size_t i = 0u; i < clip.member_count; ++i) {
+        auto const id = clip.members[i];
+        if (id == 0u || id > composer->clip_count)
+            throw std::logic_error("compound clip member missing");
+        auto const& member = composer->clips[id - 1u];
+        if (member.kind != QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL)
+            throw std::logic_error("compound clip member is not a leaf");
+        append_path_clip_content(content, page, member);
+    }
+}
+
 std::string page_content(
     quantapdf_composer const* composer,
     std::size_t page_index,
@@ -1625,6 +1652,7 @@ std::string page_content(
                 content += "q\n";
                 append_clip_content(
                     content,
+                    composer,
                     page,
                     composer->clips[state.clip_id - 1u]);
                 content += "/GS" +
