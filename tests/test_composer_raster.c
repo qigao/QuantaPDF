@@ -1,5 +1,7 @@
 #include <quantapdf/quantapdf.h>
 
+#include "composer_test_helpers.h"
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -221,6 +223,8 @@ static int test_formats_stride_alpha_and_determinism(void)
     int height = 0;
     int stride = 0;
     int components = 0;
+    int xobject_components = 0;
+    int has_smask = 0;
 
     CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer, UINT32_C(0xffffffff), 0u));
@@ -278,6 +282,19 @@ static int test_formats_stride_alpha_and_determinism(void)
           QUANTAPDF_OK);
     CHECK(first_size == second_size);
     CHECK(memcmp(first_data, second_data, first_size) == 0);
+
+    CHECK(quantapdf_test_pdf_image_xobject_info(
+              first_data, first_size, 0u, gray_id,
+              &xobject_components, &has_smask));
+    CHECK(xobject_components == 1 && has_smask == 0);
+    CHECK(quantapdf_test_pdf_image_xobject_info(
+              first_data, first_size, 0u, rgb_id,
+              &xobject_components, &has_smask));
+    CHECK(xobject_components == 3 && has_smask == 0);
+    CHECK(quantapdf_test_pdf_image_xobject_info(
+              first_data, first_size, 0u, rgba_id,
+              &xobject_components, &has_smask));
+    CHECK(xobject_components == 3 && has_smask == 1);
 
     CHECK(quantapdf_output_save_file(first, COMPOSER_RASTER_OUTPUT_PDF) ==
           QUANTAPDF_OK);
