@@ -372,7 +372,7 @@ int main(int argc, char **argv)
     rectangle[3].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
     rectangle[3].point1 = (quantapdf_point){20.0f, 170.0f};
     rectangle[4].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
-    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE;
+    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     path.stroke = 1;
     path.fill = 1;
     path.fill_argb = UINT32_C(0xff000000);
@@ -383,6 +383,9 @@ int main(int argc, char **argv)
     path.line_cap = QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
     path.line_join = QUANTAPDF_COMPOSER_LINE_JOIN_MITER;
     path.miter_limit = 10.0f;
+    path.transform = (quantapdf_affine_transform){
+        1.0f, 0.0f, 0.0f, 1.0f, 2.0f, 0.0f
+    };
     dash.struct_size = QUANTAPDF_COMPOSER_DASH_PATTERN_V1_SIZE;
     dash.lengths = dash_lengths;
     dash.length_count = 2u;
