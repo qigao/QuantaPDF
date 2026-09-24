@@ -6,6 +6,7 @@ quantapdf_bitmap_dimensions
 quantapdf_close
 quantapdf_composer_add_font
 quantapdf_composer_add_image
+quantapdf_composer_add_raster
 quantapdf_composer_add_outline
 quantapdf_composer_add_page
 quantapdf_composer_add_page_link
