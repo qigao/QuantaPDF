@@ -70,6 +70,8 @@ int main(int argc, char **argv)
 
     quantapdf_composer_page_options page = {0};
     quantapdf_composer_font_options font_options = {0};
+    quantapdf_composer_graphics_state_options graphics_state = {0};
+    quantapdf_composer_graphics_state_id graphics_state_id = 0u;
     quantapdf_composer_raster raster = {0};
     quantapdf_composer_image_options raster_draw = {0};
     quantapdf_composer_image_id raster_id = 0u;
@@ -129,6 +131,18 @@ int main(int argc, char **argv)
     CHECK(quantapdf_composer_add_page(composer, &page, &page0));
     CHECK(quantapdf_composer_add_page(composer, &page, &page1));
 
+    graphics_state.struct_size =
+        QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE;
+    graphics_state.fill_alpha = 0.75f;
+    graphics_state.stroke_alpha = 0.75f;
+    graphics_state.blend_mode = QUANTAPDF_COMPOSER_BLEND_MULTIPLY;
+    CHECK(quantapdf_composer_add_graphics_state(
+        composer, &graphics_state, &graphics_state_id));
+    if (graphics_state_id == 0u) {
+        fprintf(stderr, "graphics-state ID was not published\n");
+        goto fail;
+    }
+
     font_options.struct_size = QUANTAPDF_COMPOSER_FONT_OPTIONS_V1_SIZE;
     CHECK(quantapdf_composer_add_font(
         composer, font_data, font_size, &font_options, &font_id));
@@ -142,8 +156,9 @@ int main(int argc, char **argv)
     raster.size = sizeof(raster_pixels);
     CHECK(quantapdf_composer_add_raster(
         composer, &raster, &raster_id));
-    raster_draw.struct_size = QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE;
+    raster_draw.struct_size = QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
     raster_draw.fit = QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
+    raster_draw.graphics_state_id = graphics_state_id;
     CHECK(quantapdf_composer_draw_image(
         composer, page1, raster_id, &raster_box, &raster_draw));
 
