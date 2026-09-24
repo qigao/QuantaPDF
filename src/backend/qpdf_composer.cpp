@@ -101,6 +101,38 @@ std::string number(double value)
     return result;
 }
 
+double canonical_zero(double value)
+{
+    return value == 0.0 ? 0.0 : value;
+}
+
+void append_text_matrix(
+    std::string& content,
+    quantapdf_composer_page_state const& page,
+    quantapdf_affine_transform const& transform,
+    double local_x,
+    double local_y)
+{
+    double const display_x =
+        static_cast<double>(transform.a) * local_x +
+        static_cast<double>(transform.c) * local_y +
+        static_cast<double>(transform.e);
+    double const display_y =
+        static_cast<double>(transform.b) * local_x +
+        static_cast<double>(transform.d) * local_y +
+        static_cast<double>(transform.f);
+    double const pdf_a = canonical_zero(transform.a);
+    double const pdf_b = canonical_zero(-static_cast<double>(transform.b));
+    double const pdf_c = canonical_zero(-static_cast<double>(transform.c));
+    double const pdf_d = canonical_zero(transform.d);
+    double const pdf_x = canonical_zero(display_x);
+    double const pdf_y = canonical_zero(page.height_points - display_y);
+
+    content += number(pdf_a) + " " + number(pdf_b) + " " +
+        number(pdf_c) + " " + number(pdf_d) + " " +
+        number(pdf_x) + " " + number(pdf_y) + " Tm ";
+}
+
 char const* base_font_name(quantapdf_composer_font font)
 {
     static char const* const names[] = {
@@ -148,6 +180,7 @@ void append_text_content(
     quantapdf_composer_operation const& operation)
 {
     auto const& options = operation.value.text.options;
+    auto const& transform = operation.value.text.transform;
     std::vector<quantapdf::detail::base14_text_line> lines;
     quantapdf_status const layout_status =
         quantapdf::detail::layout_base14_text(
@@ -164,7 +197,7 @@ void append_text_content(
 
     double const line_height =
         options.font_size * options.line_height_multiplier;
-    double y = page.height_points - operation.bounds.y0 - options.font_size;
+    double baseline_y = operation.bounds.y0 + options.font_size;
     double const red = ((options.argb >> 16u) & 0xffu) / 255.0;
     double const green = ((options.argb >> 8u) & 0xffu) / 255.0;
     double const blue = (options.argb & 0xffu) / 255.0;
@@ -176,13 +209,14 @@ void append_text_content(
                 2.0;
         else if (options.alignment == QUANTAPDF_COMPOSER_TEXT_ALIGN_RIGHT)
             x = operation.bounds.x1 - line.width_points;
-        if (y < page.height_points - operation.bounds.y1)
+        if (baseline_y > operation.bounds.y1)
             break;
         content += "BT /F" + std::to_string(static_cast<int>(options.font)) +
             " " + number(options.font_size) + " Tf " + number(red) + " " +
-            number(green) + " " + number(blue) + " rg 1 0 0 1 " + number(x) +
-            " " + number(y) + " Tm " + pdf_string(line.text) + " Tj ET\n";
-        y -= line_height;
+            number(green) + " " + number(blue) + " rg ";
+        append_text_matrix(content, page, transform, x, baseline_y);
+        content += pdf_string(line.text) + " Tj ET\n";
+        baseline_y += line_height;
     }
 }
 
@@ -211,6 +245,7 @@ void append_embedded_text_content(
     std::vector<quantapdf::detail::ttf_font_face> const& faces)
 {
     auto const& options = operation.value.embedded_text.options;
+    auto const& transform = operation.value.embedded_text.transform;
     auto const& face = faces[options.font_id - 1u];
     std::vector<quantapdf::detail::embedded_text_line> lines;
     quantapdf_status const layout_status =
@@ -229,7 +264,7 @@ void append_embedded_text_content(
 
     double const line_height =
         options.font_size * options.line_height_multiplier;
-    double y = page.height_points - operation.bounds.y0 - options.font_size;
+    double baseline_y = operation.bounds.y0 + options.font_size;
     double const red = ((options.argb >> 16u) & 0xffu) / 255.0;
     double const green = ((options.argb >> 8u) & 0xffu) / 255.0;
     double const blue = (options.argb & 0xffu) / 255.0;
@@ -242,15 +277,15 @@ void append_embedded_text_content(
                 2.0;
         else if (options.alignment == QUANTAPDF_COMPOSER_TEXT_ALIGN_RIGHT)
             x = operation.bounds.x1 - line.width_points;
-        if (y < page.height_points - operation.bounds.y1)
+        if (baseline_y > operation.bounds.y1)
             break;
         content +=
             "BT /EF" + std::to_string(options.font_id) + " " +
             number(options.font_size) + " Tf " +
-            number(red) + " " + number(green) + " " + number(blue) +
-            " rg 1 0 0 1 " + number(x) + " " + number(y) +
-            " Tm " + glyph_hex(line.glyphs) + " Tj ET\n";
-        y -= line_height;
+            number(red) + " " + number(green) + " " + number(blue) + " rg ";
+        append_text_matrix(content, page, transform, x, baseline_y);
+        content += glyph_hex(line.glyphs) + " Tj ET\n";
+        baseline_y += line_height;
     }
 }
 
@@ -846,6 +881,7 @@ void append_glyph_run_content(
 {
     auto const& run = operation.value.glyph_run;
     auto const& options = run.options;
+    auto const& transform = run.transform;
     double const scale = options.font_size / 1000.0;
     double pen_x = run.origin.x;
     double pen_y = run.origin.y;
@@ -873,12 +909,10 @@ void append_glyph_run_content(
 
         double const x =
             pen_x + static_cast<double>(glyph.x_offset) * scale;
-        double const display_y =
+        double const y =
             pen_y + static_cast<double>(glyph.y_offset) * scale;
-        double const pdf_y = page.height_points - display_y;
-        content +=
-            "1 0 0 1 " + number(x) + " " + number(pdf_y) +
-            " Tm " + glyph_run_cid_hex(found->second) + " Tj ";
+        append_text_matrix(content, page, transform, x, y);
+        content += glyph_run_cid_hex(found->second) + " Tj ";
         pen_x += static_cast<double>(glyph.x_advance) * scale;
         pen_y += static_cast<double>(glyph.y_advance) * scale;
     }

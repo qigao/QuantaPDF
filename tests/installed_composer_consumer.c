@@ -73,6 +73,12 @@ int main(int argc, char **argv)
     quantapdf_composer_text_options base_text = {0};
     quantapdf_composer_embedded_text_options text = {0};
     quantapdf_composer_text_measurement measurement = {0};
+    quantapdf_affine_transform identity = {
+        1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f
+    };
+    quantapdf_affine_transform rotate90 = {
+        0.0f, 1.0f, -1.0f, 0.0f, 290.0f, 70.0f
+    };
     quantapdf_composer_glyph_run_options glyph_run = {0};
     quantapdf_composer_glyph shaped_glyph = {0};
     quantapdf_composer_path_options path = {0};
@@ -82,6 +88,7 @@ int main(int argc, char **argv)
 
     quantapdf_composer_path_command rectangle[5] = {{0}};
     quantapdf_rect text_box = {24.0f, 24.0f, 280.0f, 70.0f};
+    quantapdf_rect transformed_text_box = {0.0f, 0.0f, 90.0f, 30.0f};
     quantapdf_rect barcode_box = {24.0f, 90.0f, 180.0f, 130.0f};
     quantapdf_rect uri_box = {24.0f, 140.0f, 120.0f, 160.0f};
     quantapdf_rect page_link_box = {140.0f, 140.0f, 260.0f, 160.0f};
@@ -137,6 +144,14 @@ int main(int argc, char **argv)
         goto fail;
     }
 
+    CHECK(quantapdf_composer_draw_text_transformed(
+        composer,
+        page1,
+        "Affine",
+        &transformed_text_box,
+        &rotate90,
+        &base_text));
+
     text.struct_size = QUANTAPDF_COMPOSER_EMBEDDED_TEXT_OPTIONS_V1_SIZE;
     text.font_id = font_id;
     text.font_size = 22.0f;
@@ -158,11 +173,12 @@ int main(int argc, char **argv)
         goto fail;
     }
 
-    CHECK(quantapdf_composer_draw_embedded_text(
+    CHECK(quantapdf_composer_draw_embedded_text_transformed(
         composer,
         page0,
         "Installed Caf\xC3\xA9 \xCE\xA9",
         &text_box,
+        &identity,
         &text));
 
     glyph_run.struct_size = QUANTAPDF_COMPOSER_GLYPH_RUN_OPTIONS_V1_SIZE;
@@ -171,7 +187,7 @@ int main(int argc, char **argv)
     glyph_run.argb = UINT32_C(0xff404040);
     shaped_glyph.glyph_id = 0u;
     shaped_glyph.x_advance = 500.0f;
-    CHECK(quantapdf_composer_draw_glyph_run(
+    CHECK(quantapdf_composer_draw_glyph_run_transformed(
         composer,
         page1,
         (quantapdf_point){24.0f, 60.0f},
@@ -179,6 +195,7 @@ int main(int argc, char **argv)
         1u,
         NULL,
         0u,
+        &identity,
         &glyph_run));
 
     rectangle[0].kind = QUANTAPDF_COMPOSER_PATH_MOVE_TO;

@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 14
+#define QUANTAPDF_VERSION_MINOR 15
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -50,6 +50,15 @@ typedef struct quantapdf_rect {
     float x1;
     float y1;
 } quantapdf_rect;
+
+typedef struct quantapdf_affine_transform {
+    float a;
+    float b;
+    float c;
+    float d;
+    float e;
+    float f;
+} quantapdf_affine_transform;
 
 #define QUANTAPDF_COMPOSER_DEFAULT_MAX_PAGES ((size_t)1024u)
 #define QUANTAPDF_COMPOSER_DEFAULT_MAX_OPERATIONS ((size_t)1000000u)
@@ -717,11 +726,28 @@ QUANTAPDF_API quantapdf_status quantapdf_composer_draw_text(
     const quantapdf_rect *bounds,
     const quantapdf_composer_text_options *options);
 
+QUANTAPDF_API quantapdf_status quantapdf_composer_draw_text_transformed(
+    quantapdf_composer *composer,
+    size_t page_index,
+    const char *text_utf8,
+    const quantapdf_rect *bounds,
+    const quantapdf_affine_transform *transform,
+    const quantapdf_composer_text_options *options);
+
 QUANTAPDF_API quantapdf_status quantapdf_composer_draw_embedded_text(
     quantapdf_composer *composer,
     size_t page_index,
     const char *text_utf8,
     const quantapdf_rect *bounds,
+    const quantapdf_composer_embedded_text_options *options);
+
+QUANTAPDF_API quantapdf_status
+quantapdf_composer_draw_embedded_text_transformed(
+    quantapdf_composer *composer,
+    size_t page_index,
+    const char *text_utf8,
+    const quantapdf_rect *bounds,
+    const quantapdf_affine_transform *transform,
     const quantapdf_composer_embedded_text_options *options);
 
 QUANTAPDF_API quantapdf_status quantapdf_composer_draw_glyph_run(
@@ -732,6 +758,18 @@ QUANTAPDF_API quantapdf_status quantapdf_composer_draw_glyph_run(
     size_t glyph_count,
     const char *unicode_utf8,
     size_t unicode_size,
+    const quantapdf_composer_glyph_run_options *options);
+
+QUANTAPDF_API quantapdf_status
+quantapdf_composer_draw_glyph_run_transformed(
+    quantapdf_composer *composer,
+    size_t page_index,
+    quantapdf_point origin,
+    const quantapdf_composer_glyph *glyphs,
+    size_t glyph_count,
+    const char *unicode_utf8,
+    size_t unicode_size,
+    const quantapdf_affine_transform *transform,
     const quantapdf_composer_glyph_run_options *options);
 
 QUANTAPDF_API quantapdf_status quantapdf_composer_draw_image(

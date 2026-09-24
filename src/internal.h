@@ -90,6 +90,7 @@ typedef enum quantapdf_composer_operation_kind {
 typedef struct quantapdf_composer_text_operation {
     char *text_utf8;
     quantapdf_composer_text_options options;
+    quantapdf_affine_transform transform;
 } quantapdf_composer_text_operation;
 
 typedef enum quantapdf_composer_image_format_internal {
@@ -123,6 +124,7 @@ typedef struct quantapdf_composer_path_operation {
 typedef struct quantapdf_composer_embedded_text_operation {
     char *text_utf8;
     quantapdf_composer_embedded_text_options options;
+    quantapdf_affine_transform transform;
 } quantapdf_composer_embedded_text_operation;
 
 typedef struct quantapdf_composer_glyph_run_operation {
@@ -132,6 +134,7 @@ typedef struct quantapdf_composer_glyph_run_operation {
     size_t unicode_size;
     quantapdf_point origin;
     quantapdf_composer_glyph_run_options options;
+    quantapdf_affine_transform transform;
 } quantapdf_composer_glyph_run_operation;
 
 typedef struct quantapdf_composer_font_state {
@@ -211,6 +214,11 @@ quantapdf_status quantapdf_composer_reserve_operation_internal(
 quantapdf_status quantapdf_composer_reserve_operations_internal(
     quantapdf_composer *composer,
     size_t extra_operations);
+
+int quantapdf_affine_transform_valid_internal(
+    const quantapdf_affine_transform *transform);
+
+quantapdf_affine_transform quantapdf_affine_identity_internal(void);
 
 quantapdf_status quantapdf_document_page_user_unit(
     quantapdf_document *document,
