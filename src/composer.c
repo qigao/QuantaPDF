@@ -622,18 +622,30 @@ static int quantapdf_paint_state_equal(
     size_t i;
 
     if (left->kind != right->kind ||
-        left->start.x != right->start.x ||
-        left->start.y != right->start.y ||
-        left->end.x != right->end.x ||
-        left->end.y != right->end.y ||
-        left->start_radius != right->start_radius ||
-        left->end_radius != right->end_radius ||
         left->transform.a != right->transform.a ||
         left->transform.b != right->transform.b ||
         left->transform.c != right->transform.c ||
         left->transform.d != right->transform.d ||
         left->transform.e != right->transform.e ||
-        left->transform.f != right->transform.f ||
+        left->transform.f != right->transform.f)
+        return 0;
+
+    if (left->kind == QUANTAPDF_COMPOSER_PAINT_TILING_PATTERN_INTERNAL) {
+        return left->tile_width == right->tile_width &&
+            left->tile_height == right->tile_height &&
+            left->x_step == right->x_step &&
+            left->y_step == right->y_step &&
+            left->pdf_size == right->pdf_size &&
+            left->pdf_data != NULL && right->pdf_data != NULL &&
+            memcmp(left->pdf_data, right->pdf_data, left->pdf_size) == 0;
+    }
+
+    if (left->start.x != right->start.x ||
+        left->start.y != right->start.y ||
+        left->end.x != right->end.x ||
+        left->end.y != right->end.y ||
+        left->start_radius != right->start_radius ||
+        left->end_radius != right->end_radius ||
         left->stop_count != right->stop_count)
         return 0;
     for (i = 0u; i < left->stop_count; ++i) {
@@ -1204,6 +1216,129 @@ quantapdf_status quantapdf_composer_add_radial_gradient(
         composer, &state, options->stops, out_paint_id);
 }
 
+quantapdf_status quantapdf_composer_add_tiling_pattern(
+    quantapdf_composer *composer,
+    const quantapdf_composer_tiling_pattern_options *options,
+    quantapdf_composer_pattern_builder_fn builder,
+    void *user_data,
+    quantapdf_composer_paint_id *out_paint_id)
+{
+    quantapdf_composer *child = NULL;
+    quantapdf_composer_options child_options;
+    quantapdf_composer_page_options page_options;
+    quantapdf_composer_paint_state state;
+    quantapdf_affine_transform transform;
+    unsigned char *pdf_data = NULL;
+    size_t pdf_size = 0u;
+    size_t page_index = SIZE_MAX;
+    size_t remaining;
+    size_t i;
+    quantapdf_status status;
+
+    if (out_paint_id != NULL)
+        *out_paint_id = 0u;
+    if (composer == NULL || options == NULL || builder == NULL ||
+        out_paint_id == NULL ||
+        options->struct_size <
+            QUANTAPDF_COMPOSER_TILING_PATTERN_OPTIONS_V1_MIN_SIZE ||
+        !isfinite(options->width_points) || options->width_points <= 0.0f ||
+        !isfinite(options->height_points) || options->height_points <= 0.0f ||
+        !isfinite(options->x_step) || options->x_step == 0.0f ||
+        !isfinite(options->y_step) || options->y_step == 0.0f ||
+        !quantapdf_composer_resource_transform_normalize(
+            &options->transform, &transform))
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if (composer->resource_bytes > composer->max_resource_bytes)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    remaining = composer->max_resource_bytes - composer->resource_bytes;
+    if (remaining == 0u)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    memset(&child_options, 0, sizeof(child_options));
+    child_options.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V2_SIZE;
+    child_options.max_pages = 1u;
+    child_options.max_operations = composer->max_operations;
+    child_options.max_resource_bytes = remaining;
+    child_options.max_navigation_items = 1u;
+    status = quantapdf_composer_create(&child_options, &child);
+    if (status != QUANTAPDF_OK)
+        return status;
+    child->max_navigation_items = 0u;
+
+    memset(&page_options, 0, sizeof(page_options));
+    page_options.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
+    page_options.width_points = options->width_points;
+    page_options.height_points = options->height_points;
+    page_options.background_argb = UINT32_C(0xffffffff);
+    status = quantapdf_composer_add_page(
+        child, &page_options, &page_index);
+    if (status != QUANTAPDF_OK) {
+        quantapdf_drop_composer(child);
+        return status;
+    }
+    child->pages[0].suppress_background = 1;
+
+    status = builder(child, 0u, user_data);
+    if (status != QUANTAPDF_OK) {
+        quantapdf_drop_composer(child);
+        return status;
+    }
+    if (child->page_count != 1u ||
+        child->link_count != 0u ||
+        child->outline_count != 0u) {
+        quantapdf_drop_composer(child);
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+
+    status = quantapdf_qpdf_compose(child, &pdf_data, &pdf_size);
+    quantapdf_drop_composer(child);
+    child = NULL;
+    if (status != QUANTAPDF_OK)
+        return status;
+    if (pdf_data == NULL || pdf_size == 0u) {
+        free(pdf_data);
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+
+    memset(&state, 0, sizeof(state));
+    state.kind = QUANTAPDF_COMPOSER_PAINT_TILING_PATTERN_INTERNAL;
+    state.transform = transform;
+    state.pdf_data = pdf_data;
+    state.pdf_size = pdf_size;
+    state.tile_width = quantapdf_canonical_float(options->width_points);
+    state.tile_height = quantapdf_canonical_float(options->height_points);
+    state.x_step = quantapdf_canonical_float(options->x_step);
+    state.y_step = quantapdf_canonical_float(options->y_step);
+    state.requires_pdf_16 =
+        pdf_size >= 8u &&
+        memcmp(pdf_data, "%PDF-1.", 7u) == 0 &&
+        pdf_data[7] >= '6';
+
+    for (i = 0u; i < composer->paint_count; ++i) {
+        if (quantapdf_paint_state_equal(&composer->paints[i], &state)) {
+            free(pdf_data);
+            *out_paint_id = i + 1u;
+            return QUANTAPDF_OK;
+        }
+    }
+
+    if (pdf_size > remaining) {
+        free(pdf_data);
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    status = quantapdf_composer_reserve_paint(composer);
+    if (status != QUANTAPDF_OK) {
+        free(pdf_data);
+        return status;
+    }
+
+    composer->paints[composer->paint_count] = state;
+    ++composer->paint_count;
+    composer->resource_bytes += pdf_size;
+    *out_paint_id = composer->paint_count;
+    return QUANTAPDF_OK;
+}
+
 quantapdf_status quantapdf_composer_add_image(
     quantapdf_composer *composer,
     const unsigned char *data,
@@ -1769,8 +1904,10 @@ void quantapdf_drop_composer(quantapdf_composer *composer)
         free(composer->outlines[i].title_utf8);
     for (i = 0u; i < composer->font_count; ++i)
         free(composer->fonts[i].data);
-    for (i = 0u; i < composer->paint_count; ++i)
+    for (i = 0u; i < composer->paint_count; ++i) {
         free(composer->paints[i].stops);
+        free(composer->paints[i].pdf_data);
+    }
     for (i = 0u; i < composer->form_count; ++i)
         free(composer->forms[i].pdf_data);
     for (i = 0u; i < composer->clip_count; ++i)
