@@ -918,7 +918,7 @@ static int test_v3a_nonconformal_path_and_pattern()
         CHECK(quantapdf_test_pdf_content_contains(
             data, size, 0u, "4 w"));
         CHECK(quantapdf_test_pdf_content_contains(
-            data, size, 0u, "10 80 m 40 80 l S"));
+            data, size, 0u, "10 220 m 40 220 l S"));
 
         quantapdf_drop_output(output);
         quantapdf_drop_composer(composer);
@@ -981,7 +981,7 @@ static int test_v3a_nonconformal_path_and_pattern()
         CHECK(std::fabs(matrix[0] - 1.0) < 0.001);
         CHECK(std::fabs(matrix[3] - 1.0) < 0.001);
         CHECK(std::fabs(matrix[4] - 2.0) < 0.001);
-        CHECK(std::fabs(matrix[5] - 87.0) < 0.001);
+        CHECK(std::fabs(matrix[5] - 227.0) < 0.001);
         CHECK(has_tile_form == 1);
 
         CHECK(quantapdf_test_pdf_content_contains(
