@@ -806,7 +806,12 @@ paint_style derive_style(
             attr.name == "fill-rule" || attr.name == "stroke-width" ||
             attr.name == "stroke-linecap" ||
             attr.name == "stroke-linejoin" ||
-            attr.name == "stroke-miterlimit")
+            attr.name == "stroke-miterlimit" ||
+            attr.name == "fill-opacity" ||
+            attr.name == "stroke-opacity" ||
+            attr.name == "opacity" ||
+            attr.name == "stroke-dasharray" ||
+            attr.name == "stroke-dashoffset")
             apply_style_property(&result, attr.name, attr.value);
     }
     if (auto const* style = find_attribute(item, "style"))
