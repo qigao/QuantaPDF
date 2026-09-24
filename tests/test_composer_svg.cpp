@@ -189,7 +189,12 @@ static int test_render_geometry_and_determinism()
         first_data,
         first_size,
         0u,
-        "30 210 m 70 210 l 70 180 l 30 180 l h f"));
+        "2 0 0 2 20 -260 cm"));
+    CHECK(quantapdf_test_pdf_content_contains(
+        first_data,
+        first_size,
+        0u,
+        "5 235 m 25 235 l 25 220 l 5 220 l h f"));
     CHECK(quantapdf_test_pdf_content_contains(
         first_data, first_size, 0u, "1 0 0 rg"));
     CHECK(quantapdf_test_pdf_content_count(
