@@ -233,6 +233,22 @@ whitespace, Base-14 metrics, embedded-font advances, invalid UTF-8, and missing
 glyphs cannot drift between two algorithms. Horizontal alignment does not
 change the measured extent.
 
+2.15 adds explicit affine placement for Base-14 text, embedded direct-cmap
+text, and caller-shaped glyph runs. `quantapdf_affine_transform` uses the
+same displayed page space as the rest of the public API:
+
+```text
+X = a*x + c*y + e
+Y = b*x + d*y + f
+```
+
+The transformed entry points keep their text bounds and glyph-run origins in
+local displayed coordinates. Layout, wrapping, alignment, and vertical
+line-admission happen first; the affine transform is then applied to each
+baseline/glyph placement. Existing draw APIs are unchanged and are exactly the
+identity-transform form of the new implementation. Rotation, scale, reflection,
+and skew require no qpdf types or shaping dependency in the public ABI.
+
 For text shaped by another engine, 2.11 adds
 `quantapdf_composer_draw_glyph_run()`. Each fixed-layout glyph record carries
 a font glyph ID, x/y advance and offset in 1000/em units, and an optional byte
