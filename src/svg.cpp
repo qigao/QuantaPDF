@@ -2343,6 +2343,238 @@ void finalize_gradient(gradient_definition* gradient)
     }
 }
 
+double resource_length(
+    std::string const& text,
+    resource_units units,
+    double default_value,
+    bool required_user_space)
+{
+    if (text.empty()) {
+        if (units == resource_units::user_space && required_user_space)
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        return default_value;
+    }
+
+    std::string value = trim(text);
+    if (units == resource_units::object_bbox) {
+        bool percentage = false;
+        if (!value.empty() && value.back() == '%') {
+            percentage = true;
+            value.pop_back();
+        }
+        if (value.empty())
+            fail(QUANTAPDF_ERROR_FORMAT);
+        number_scanner scanner(value);
+        double result = scanner.number();
+        if (!scanner.done())
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        if (percentage)
+            result /= 100.0;
+        if (!finite(result))
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        return result;
+    }
+
+    if (!value.empty() && value.back() == '%')
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    return scalar(value);
+}
+
+void normalize_gradient_definition(
+    definition_table* definitions,
+    std::string const& id,
+    std::set<std::string>* visiting)
+{
+    auto found = definitions->gradients.find(id);
+    if (found == definitions->gradients.end())
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    if (found->second.normalized)
+        return;
+    if (!visiting->insert(id).second)
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+
+    gradient_definition local = found->second;
+    gradient_definition merged;
+    merged.radial = local.radial;
+
+    if (!local.template_ref.empty()) {
+        auto base = definitions->gradients.find(local.template_ref);
+        if (base == definitions->gradients.end() ||
+            base->second.radial != local.radial)
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        normalize_gradient_definition(
+            definitions, local.template_ref, visiting);
+        merged = definitions->gradients.at(local.template_ref);
+        merged.radial = local.radial;
+        merged.normalized = false;
+        merged.template_ref.clear();
+    }
+
+    if (local.units != resource_units::unspecified)
+        merged.units = local.units;
+    if (merged.units == resource_units::unspecified)
+        merged.units = resource_units::object_bbox;
+
+    if (local.transform_specified) {
+        merged.transform = local.transform;
+        merged.transform_specified = true;
+    }
+
+    auto override_text = [](std::string& target, std::string const& source) {
+        if (!source.empty())
+            target = source;
+    };
+    override_text(merged.x1_text, local.x1_text);
+    override_text(merged.y1_text, local.y1_text);
+    override_text(merged.x2_text, local.x2_text);
+    override_text(merged.y2_text, local.y2_text);
+    override_text(merged.cx_text, local.cx_text);
+    override_text(merged.cy_text, local.cy_text);
+    override_text(merged.radius_text, local.radius_text);
+    override_text(merged.fx_text, local.fx_text);
+    override_text(merged.fy_text, local.fy_text);
+    override_text(merged.fr_text, local.fr_text);
+
+    if (!local.stops.empty())
+        merged.stops = local.stops;
+    if (merged.stops.empty())
+        fail(QUANTAPDF_ERROR_FORMAT);
+
+    if (!merged.radial) {
+        merged.x1 = resource_length(
+            merged.x1_text, merged.units, 0.0, true);
+        merged.y1 = resource_length(
+            merged.y1_text, merged.units, 0.0, true);
+        merged.x2 = resource_length(
+            merged.x2_text, merged.units, 1.0, true);
+        merged.y2 = resource_length(
+            merged.y2_text, merged.units, 0.0, true);
+        if (merged.x1 == merged.x2 && merged.y1 == merged.y2)
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    } else {
+        merged.cx = resource_length(
+            merged.cx_text, merged.units, 0.5, true);
+        merged.cy = resource_length(
+            merged.cy_text, merged.units, 0.5, true);
+        merged.radius = resource_length(
+            merged.radius_text, merged.units, 0.5, true);
+        merged.fx = resource_length(
+            merged.fx_text, merged.units, merged.cx, false);
+        merged.fy = resource_length(
+            merged.fy_text, merged.units, merged.cy, false);
+        merged.fr = resource_length(
+            merged.fr_text, merged.units, 0.0, false);
+        if (merged.radius <= 0.0 || merged.fr < 0.0)
+            fail(QUANTAPDF_ERROR_FORMAT);
+        if (merged.fr > merged.radius)
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        if (merged.fr == merged.radius &&
+            merged.fx == merged.cx && merged.fy == merged.cy)
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+
+    finalize_gradient(&merged);
+    merged.template_ref.clear();
+    merged.normalized = true;
+    found->second = std::move(merged);
+    visiting->erase(id);
+}
+
+void normalize_pattern_definition(
+    definition_table* definitions,
+    std::string const& id,
+    std::set<std::string>* visiting)
+{
+    auto found = definitions->patterns.find(id);
+    if (found == definitions->patterns.end())
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    if (found->second.normalized)
+        return;
+    if (!visiting->insert(id).second)
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+
+    pattern_definition local = found->second;
+    pattern_definition merged;
+
+    if (!local.template_ref.empty()) {
+        auto base = definitions->patterns.find(local.template_ref);
+        if (base == definitions->patterns.end())
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        normalize_pattern_definition(
+            definitions, local.template_ref, visiting);
+        merged = definitions->patterns.at(local.template_ref);
+        merged.normalized = false;
+        merged.template_ref.clear();
+    }
+
+    if (local.units != resource_units::unspecified)
+        merged.units = local.units;
+    if (merged.units == resource_units::unspecified)
+        merged.units = resource_units::object_bbox;
+
+    if (local.content_units != resource_units::unspecified)
+        merged.content_units = local.content_units;
+    if (merged.content_units == resource_units::unspecified)
+        merged.content_units = resource_units::user_space;
+
+    if (local.transform_specified) {
+        merged.transform = local.transform;
+        merged.transform_specified = true;
+    }
+
+    auto override_text = [](std::string& target, std::string const& source) {
+        if (!source.empty())
+            target = source;
+    };
+    override_text(merged.x_text, local.x_text);
+    override_text(merged.y_text, local.y_text);
+    override_text(merged.width_text, local.width_text);
+    override_text(merged.height_text, local.height_text);
+
+    if (!local.tokens.empty()) {
+        merged.tokens = local.tokens;
+        merged.pattern_dependencies = local.pattern_dependencies;
+    }
+
+    merged.x = resource_length(
+        merged.x_text, merged.units, 0.0, false);
+    merged.y = resource_length(
+        merged.y_text, merged.units, 0.0, false);
+    merged.width = resource_length(
+        merged.width_text, merged.units, 0.0, false);
+    merged.height = resource_length(
+        merged.height_text, merged.units, 0.0, false);
+    if (merged.width <= 0.0 || merged.height <= 0.0)
+        fail(QUANTAPDF_ERROR_FORMAT);
+    if (merged.tokens.empty())
+        fail(QUANTAPDF_ERROR_FORMAT);
+
+    merged.template_ref.clear();
+    merged.normalized = true;
+    found->second = std::move(merged);
+    visiting->erase(id);
+}
+
+void normalize_resource_definitions(definition_table* definitions)
+{
+    std::set<std::string> visiting;
+    std::vector<std::string> gradient_ids;
+    std::vector<std::string> pattern_ids;
+    gradient_ids.reserve(definitions->gradients.size());
+    pattern_ids.reserve(definitions->patterns.size());
+
+    for (auto const& entry: definitions->gradients)
+        gradient_ids.push_back(entry.first);
+    for (auto const& entry: definitions->patterns)
+        pattern_ids.push_back(entry.first);
+
+    for (auto const& id: gradient_ids)
+        normalize_gradient_definition(definitions, id, &visiting);
+    visiting.clear();
+    for (auto const& id: pattern_ids)
+        normalize_pattern_definition(definitions, id, &visiting);
+}
+
 quantapdf_composer_fill_rule clip_rule_value(
     std::string const* value,
     quantapdf_composer_fill_rule fallback)
@@ -2928,6 +3160,7 @@ definition_table parse_definitions(
     scanner.finish();
     if (!root_seen || !stack.empty())
         fail(QUANTAPDF_ERROR_FORMAT);
+    normalize_resource_definitions(&definitions);
     validate_symbol_dependencies(definitions);
     validate_pattern_dependencies(definitions);
     return definitions;
