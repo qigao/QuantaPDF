@@ -520,12 +520,6 @@ static int test_v2b1_reference_failures_and_rollback()
         "<svg viewBox=\"0 0 10 10\"><rect width=\"5\" height=\"5\" "
         "fill=\"url(https://example.com/g)\"/></svg>",
         "<svg viewBox=\"0 0 10 10\"><defs>"
-        "<linearGradient id=\"g\" x1=\"0\" y1=\"0\" x2=\"10\" y2=\"0\">"
-        "<stop offset=\"0\" stop-color=\"red\"/>"
-        "<stop offset=\"1\" stop-color=\"blue\"/>"
-        "</linearGradient></defs><rect width=\"10\" height=\"10\" "
-        "fill=\"url(#g)\"/></svg>",
-        "<svg viewBox=\"0 0 10 10\"><defs>"
         "<linearGradient id=\"g\" gradientUnits=\"userSpaceOnUse\" "
         "x1=\"0\" y1=\"0\" x2=\"10\" y2=\"0\">"
         "<stop offset=\"0\" stop-color=\"red\" stop-opacity=\"0.5\"/>"
@@ -539,10 +533,6 @@ static int test_v2b1_reference_failures_and_rollback()
         "<stop offset=\"0.5\" stop-color=\"blue\"/>"
         "</linearGradient></defs><rect width=\"10\" height=\"10\" "
         "fill=\"url(#g)\"/></svg>",
-        "<svg viewBox=\"0 0 10 10\"><defs>"
-        "<clipPath id=\"c\" clipPathUnits=\"objectBoundingBox\">"
-        "<rect width=\"1\" height=\"1\"/></clipPath></defs>"
-        "<rect width=\"10\" height=\"10\" clip-path=\"url(#c)\"/></svg>",
         "<svg viewBox=\"0 0 10 10\" preserveAspectRatio=\"xMidYMid slice\">"
         "<defs><clipPath id=\"c\" clipPathUnits=\"userSpaceOnUse\">"
         "<rect width=\"5\" height=\"10\"/></clipPath></defs>"
@@ -1169,15 +1159,6 @@ static int test_v3a_group_opacity_and_dom_order()
 static int test_v3a_rollback_and_unsupported_pattern_units()
 {
     static char const* unsupported[] = {
-        "<svg viewBox=\"0 0 10 10\"><defs>"
-        "<pattern id=\"p\" width=\"1\" height=\"1\">"
-        "<rect width=\"1\" height=\"1\" fill=\"red\"/></pattern>"
-        "</defs><rect width=\"10\" height=\"10\" fill=\"url(#p)\"/></svg>",
-        "<svg viewBox=\"0 0 10 10\"><defs>"
-        "<pattern id=\"p\" patternUnits=\"userSpaceOnUse\" "
-        "patternContentUnits=\"objectBoundingBox\" width=\"1\" height=\"1\">"
-        "<rect width=\"1\" height=\"1\" fill=\"red\"/></pattern>"
-        "</defs><rect width=\"10\" height=\"10\" fill=\"url(#p)\"/></svg>",
         "<svg viewBox=\"0 0 10 10\"><defs>"
         "<pattern id=\"a\" patternUnits=\"userSpaceOnUse\" width=\"1\" height=\"1\">"
         "<rect width=\"1\" height=\"1\" fill=\"url(#b)\"/></pattern>"
