@@ -339,6 +339,16 @@ render/publish; attributes inherit, local gradient stops or pattern child
 content override inherited content, and unresolved/wrong-kind/cyclic templates
 fail closed. External references and browser/CSS semantics remain unsupported.
 
+2.30 adds immutable compound clip intersections without changing any draw API.
+`quantapdf_composer_add_clip_intersection()` accepts 2–64 existing nonzero
+clip IDs, recursively flattens existing intersections to leaf path clips, sorts
+and deduplicates those leaf IDs, and returns one canonical `clip_id`. A
+duplicate-only intersection collapses to the original leaf clip. Compound
+membership bytes participate in the Composer resource budget. The qpdf backend
+emits each leaf path followed by its own `W`/`W*` + `n` inside the same
+balanced operation `q/Q` scope; PDF clipping is cumulative, so the result is
+the exact geometric intersection without boolean path approximation.
+
 The original `quantapdf_composer_draw_text()` contract remains Base-14 +
 WinAnsi and is unchanged. For embedded fonts, register caller-owned SFNT bytes
 with `quantapdf_composer_add_font()`, then draw UTF-8 through

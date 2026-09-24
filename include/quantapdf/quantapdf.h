@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 29
+#define QUANTAPDF_VERSION_MINOR 30
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -359,6 +359,8 @@ typedef struct quantapdf_composer_clip_options {
      sizeof(quantapdf_affine_transform))
 #define QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE \
     (sizeof(quantapdf_composer_clip_options))
+
+#define QUANTAPDF_COMPOSER_MAX_CLIP_COMPONENTS ((size_t)64u)
 
 typedef enum quantapdf_composer_line_cap {
     QUANTAPDF_COMPOSER_LINE_CAP_BUTT = 0,
@@ -954,6 +956,12 @@ QUANTAPDF_API quantapdf_status quantapdf_composer_add_clip_path(
     const quantapdf_composer_path_command *commands,
     size_t command_count,
     const quantapdf_composer_clip_options *options,
+    quantapdf_composer_clip_id *out_clip_id);
+
+QUANTAPDF_API quantapdf_status quantapdf_composer_add_clip_intersection(
+    quantapdf_composer *composer,
+    const quantapdf_composer_clip_id *clip_ids,
+    size_t clip_count,
     quantapdf_composer_clip_id *out_clip_id);
 
 QUANTAPDF_API quantapdf_status quantapdf_composer_add_linear_gradient(

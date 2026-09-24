@@ -976,7 +976,8 @@ static int quantapdf_clip_state_equal(
 {
     size_t i;
 
-    if (existing->command_count != command_count ||
+    if (existing->kind != QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL ||
+        existing->command_count != command_count ||
         existing->fill_rule != fill_rule ||
         existing->transform.a != transform->a ||
         existing->transform.b != transform->b ||
@@ -1071,6 +1072,7 @@ quantapdf_status quantapdf_composer_add_clip_path(
     }
 
     memset(&state, 0, sizeof(state));
+    state.kind = QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;
     state.commands = copied;
     state.command_count = command_count;
     state.fill_rule = options->fill_rule;
@@ -1078,6 +1080,149 @@ quantapdf_status quantapdf_composer_add_clip_path(
     composer->clips[composer->clip_count] = state;
     ++composer->clip_count;
     composer->resource_bytes += command_bytes;
+    *out_clip_id = composer->clip_count;
+    return QUANTAPDF_OK;
+}
+
+static int quantapdf_clip_id_compare(
+    const void *left,
+    const void *right)
+{
+    quantapdf_composer_clip_id const a =
+        *(const quantapdf_composer_clip_id *)left;
+    quantapdf_composer_clip_id const b =
+        *(const quantapdf_composer_clip_id *)right;
+    return a < b ? -1 : (a > b ? 1 : 0);
+}
+
+static quantapdf_status quantapdf_collect_clip_leaves(
+    const quantapdf_composer *composer,
+    quantapdf_composer_clip_id clip_id,
+    quantapdf_composer_clip_id *leaves,
+    size_t *leaf_count)
+{
+    const quantapdf_composer_clip_state *clip;
+    size_t i;
+
+    if (composer == NULL || leaves == NULL || leaf_count == NULL ||
+        clip_id == 0u || clip_id > composer->clip_count)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    clip = &composer->clips[clip_id - 1u];
+    if (clip->kind == QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL) {
+        if (*leaf_count >= QUANTAPDF_COMPOSER_MAX_CLIP_COMPONENTS)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        leaves[(*leaf_count)++] = clip_id;
+        return QUANTAPDF_OK;
+    }
+    if (clip->kind != QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL)
+        return QUANTAPDF_ERROR_BACKEND;
+
+    if (clip->member_count >
+        QUANTAPDF_COMPOSER_MAX_CLIP_COMPONENTS - *leaf_count)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    for (i = 0u; i < clip->member_count; ++i) {
+        quantapdf_composer_clip_id const member = clip->members[i];
+        if (member == 0u || member > composer->clip_count ||
+            composer->clips[member - 1u].kind !=
+                QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL)
+            return QUANTAPDF_ERROR_BACKEND;
+        leaves[(*leaf_count)++] = member;
+    }
+    return QUANTAPDF_OK;
+}
+
+quantapdf_status quantapdf_composer_add_clip_intersection(
+    quantapdf_composer *composer,
+    const quantapdf_composer_clip_id *clip_ids,
+    size_t clip_count,
+    quantapdf_composer_clip_id *out_clip_id)
+{
+    quantapdf_composer_clip_id
+        leaves[QUANTAPDF_COMPOSER_MAX_CLIP_COMPONENTS];
+    quantapdf_composer_clip_id *copied = NULL;
+    quantapdf_composer_clip_state state;
+    quantapdf_status status;
+    size_t leaf_count = 0u;
+    size_t unique_count = 0u;
+    size_t member_bytes;
+    size_t i;
+
+    if (out_clip_id != NULL)
+        *out_clip_id = 0u;
+    if (composer == NULL || clip_ids == NULL || out_clip_id == NULL ||
+        clip_count < 2u ||
+        clip_count > QUANTAPDF_COMPOSER_MAX_CLIP_COMPONENTS)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    for (i = 0u; i < clip_count; ++i) {
+        if (clip_ids[i] == 0u || clip_ids[i] > composer->clip_count)
+            return QUANTAPDF_ERROR_ARGUMENT;
+        status = quantapdf_collect_clip_leaves(
+            composer, clip_ids[i], leaves, &leaf_count);
+        if (status != QUANTAPDF_OK)
+            return status;
+    }
+
+    qsort(
+        leaves,
+        leaf_count,
+        sizeof(leaves[0]),
+        quantapdf_clip_id_compare);
+    for (i = 0u; i < leaf_count; ++i) {
+        if (unique_count == 0u ||
+            leaves[i] != leaves[unique_count - 1u])
+            leaves[unique_count++] = leaves[i];
+    }
+
+    if (unique_count == 0u)
+        return QUANTAPDF_ERROR_BACKEND;
+    if (unique_count == 1u) {
+        *out_clip_id = leaves[0];
+        return QUANTAPDF_OK;
+    }
+
+    for (i = 0u; i < composer->clip_count; ++i) {
+        const quantapdf_composer_clip_state *existing =
+            &composer->clips[i];
+        if (existing->kind ==
+                QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL &&
+            existing->member_count == unique_count &&
+            memcmp(
+                existing->members,
+                leaves,
+                unique_count * sizeof(leaves[0])) == 0) {
+            *out_clip_id = i + 1u;
+            return QUANTAPDF_OK;
+        }
+    }
+
+    if (unique_count > SIZE_MAX / sizeof(*copied))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    member_bytes = unique_count * sizeof(*copied);
+    if (composer->resource_bytes > composer->max_resource_bytes ||
+        member_bytes >
+            composer->max_resource_bytes - composer->resource_bytes)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    copied = (quantapdf_composer_clip_id *)malloc(member_bytes);
+    if (copied == NULL)
+        return QUANTAPDF_ERROR_NOMEM;
+    memcpy(copied, leaves, member_bytes);
+
+    status = quantapdf_composer_reserve_clip(composer);
+    if (status != QUANTAPDF_OK) {
+        free(copied);
+        return status;
+    }
+
+    memset(&state, 0, sizeof(state));
+    state.kind = QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL;
+    state.members = copied;
+    state.member_count = unique_count;
+    composer->clips[composer->clip_count] = state;
+    ++composer->clip_count;
+    composer->resource_bytes += member_bytes;
     *out_clip_id = composer->clip_count;
     return QUANTAPDF_OK;
 }
@@ -1910,8 +2055,10 @@ void quantapdf_drop_composer(quantapdf_composer *composer)
     }
     for (i = 0u; i < composer->form_count; ++i)
         free(composer->forms[i].pdf_data);
-    for (i = 0u; i < composer->clip_count; ++i)
+    for (i = 0u; i < composer->clip_count; ++i) {
         free(composer->clips[i].commands);
+        free(composer->clips[i].members);
+    }
     free(composer->clips);
     free(composer->forms);
     free(composer->paints);
