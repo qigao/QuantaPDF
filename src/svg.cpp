@@ -1251,7 +1251,6 @@ void stage_path(
     staged.local_bounds = command_bounds(staged.commands);
     staged.fill_ref = style.fill ? style.fill_ref : std::string{};
     staged.stroke_ref = style.stroke ? style.stroke_ref : std::string{};
-    staged.clip_ref = style.clip_ref;
     // Clip resources are established outside the PATH q/cm scope, so they
     // still need the full referencing-element transform.
     staged.resource_transform = transform;
@@ -1966,7 +1965,7 @@ void validate_use_attributes(element const& item)
         if (attr.name != "id" && attr.name != "href" &&
             attr.name != "x" && attr.name != "y" &&
             attr.name != "width" && attr.name != "height" &&
-            attr.name != "transform")
+            attr.name != "transform" && attr.name != "clip-path")
             fail(QUANTAPDF_ERROR_UNSUPPORTED);
     }
     auto const* href = find_attribute(item, "href");
@@ -3861,15 +3860,22 @@ class svg_parser {
                 root.name = tag;
                 root.style = derive_style(paint_style{}, item);
                 validate_style_references(root.style, definitions_);
-                if (!root.style.clip_ref.empty())
-                    fail(QUANTAPDF_ERROR_UNSUPPORTED);
                 root.transform = derive_transform(viewport, item);
+                if (!root.style.clip_ref.empty()) {
+                    root.active_clips.push_back(make_clip_component(
+                        root.style.clip_ref,
+                        root.transform,
+                        geometry_bounds{},
+                        false));
+                    root.style.clip_ref.clear();
+                }
                 if (root.style.opacity != 1.0) {
                     if (!item.self_closing) {
                         auto tokens = capture_children(tag, true);
                         stage_opacity_group(
                             root.style,
                             root.transform,
+                            root.active_clips,
                             std::move(tokens));
                     }
                 } else if (!item.self_closing) {
@@ -3914,6 +3920,22 @@ class svg_parser {
                         parent.transform,
                         definitions_);
                 use.order = next_order_++;
+                use.clip_components = parent.active_clips;
+                if (auto const* clip_value =
+                        find_attribute(item, "clip-path")) {
+                    std::string const parsed = trim(*clip_value);
+                    if (parsed != "none") {
+                        std::string const clip_ref =
+                            local_paint_reference(parsed);
+                        if (clip_ref.empty())
+                            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+                        use.clip_components.push_back(make_clip_component(
+                            clip_ref,
+                            use.user_transform,
+                            geometry_bounds{},
+                            false));
+                    }
+                }
                 uses_.push_back(std::move(use));
                 if (!item.self_closing) {
                     context leaf;
@@ -3929,16 +3951,24 @@ class svg_parser {
                 group.name = tag;
                 group.style = derive_style(parent.style, item);
                 validate_style_references(group.style, definitions_);
-                if (!group.style.clip_ref.empty())
-                    fail(QUANTAPDF_ERROR_UNSUPPORTED);
                 group.transform =
                     derive_transform(parent.transform, item);
+                group.active_clips = parent.active_clips;
+                if (!group.style.clip_ref.empty()) {
+                    group.active_clips.push_back(make_clip_component(
+                        group.style.clip_ref,
+                        group.transform,
+                        geometry_bounds{},
+                        false));
+                    group.style.clip_ref.clear();
+                }
                 if (group.style.opacity != 1.0) {
                     if (!item.self_closing) {
                         auto tokens = capture_children(tag, false);
                         stage_opacity_group(
                             group.style,
                             group.transform,
+                            group.active_clips,
                             std::move(tokens));
                     }
                 } else if (!item.self_closing) {
@@ -3981,6 +4011,7 @@ class svg_parser {
                         optional_number(item, "y2", 0.0))};
                 paint_style line_style = style;
                 line_style.fill = false;
+                size_t const previous_count = paths_.size();
                 stage_path(
                     &paths_,
                     std::move(commands),
@@ -3988,9 +4019,18 @@ class svg_parser {
                     transform,
                     next_order_++,
                     max_paths_);
+                if (paths_.size() != previous_count)
+                    attach_path_clips(
+                        &paths_.back(),
+                        parent.active_clips,
+                        line_style.clip_ref,
+                        transform);
                 if (!item.self_closing) {
-                    context leaf{
-                        tag, line_style, transform, true};
+                    context leaf;
+                    leaf.name = tag;
+                    leaf.style = line_style;
+                    leaf.transform = transform;
+                    leaf.leaf = true;
                     stack_.push_back(std::move(leaf));
                 }
                 continue;
@@ -4014,6 +4054,7 @@ class svg_parser {
                     required_number(item, "ry"));
             }
 
+            size_t const previous_count = paths_.size();
             stage_path(
                 &paths_,
                 std::move(commands),
@@ -4021,8 +4062,18 @@ class svg_parser {
                 transform,
                 next_order_++,
                 max_paths_);
+            if (paths_.size() != previous_count)
+                attach_path_clips(
+                    &paths_.back(),
+                    parent.active_clips,
+                    style.clip_ref,
+                    transform);
             if (!item.self_closing) {
-                context leaf{tag, style, transform, true};
+                context leaf;
+                leaf.name = tag;
+                leaf.style = style;
+                leaf.transform = transform;
+                leaf.leaf = true;
                 stack_.push_back(std::move(leaf));
             }
         }
@@ -4108,6 +4159,7 @@ class svg_parser {
     void stage_opacity_group(
         paint_style style,
         matrix const& transform,
+        std::vector<clip_component> const& active_clips,
         std::vector<element> tokens)
     {
         if (paths_.size() + uses_.size() + groups_.size() >=
@@ -4120,7 +4172,9 @@ class svg_parser {
         staged_group group;
         group.order = next_order_++;
         group.opacity = static_cast<float>(style.opacity);
+        group.clip_components = active_clips;
         style.opacity = 1.0;
+        style.clip_ref.clear();
         group.svg = build_opacity_group_svg(
             definitions_,
             bounds_,
