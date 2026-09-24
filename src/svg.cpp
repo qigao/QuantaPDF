@@ -1012,6 +1012,12 @@ struct geometry_bounds {
     bool valid = false;
 };
 
+struct clip_component {
+    std::string ref;
+    matrix transform;
+    geometry_bounds local_bounds;
+};
+
 struct staged_path {
     size_t order = 0u;
     std::vector<quantapdf_composer_path_command> commands;
@@ -1022,9 +1028,9 @@ struct staged_path {
     float stroke_alpha = 1.0f;
     std::string fill_ref;
     std::string stroke_ref;
-    std::string clip_ref;
     matrix resource_transform;
     geometry_bounds local_bounds;
+    std::vector<clip_component> clip_components;
 };
 
 struct staged_use {
@@ -1035,12 +1041,14 @@ struct staged_use {
     double width = 0.0;
     double height = 0.0;
     matrix user_transform;
+    std::vector<clip_component> clip_components;
 };
 
 struct staged_group {
     size_t order = 0u;
     std::string svg;
     float opacity = 1.0f;
+    std::vector<clip_component> clip_components;
 };
 
 quantapdf_affine_transform resource_affine(matrix const& value);
@@ -3199,6 +3207,7 @@ struct context {
     std::string name;
     paint_style style;
     matrix transform;
+    std::vector<clip_component> active_clips;
     bool leaf = false;
     bool skip = false;
 };
