@@ -1836,23 +1836,31 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             image_objects.push_back(stream);
         }
 
-        std::vector<QPDFObjectHandle> form_objects;
-        form_objects.reserve(composer->form_count);
-        for (size_t i = 0u; i < composer->form_count; ++i) {
-            auto const& form = composer->forms[i];
-            QPDF foreign_pdf;
-            foreign_pdf.processMemoryFile(
-                "quantapdf-form-" + std::to_string(i + 1u),
-                reinterpret_cast<char const*>(form.pdf_data),
-                form.pdf_size);
-            auto foreign_pages =
-                QPDFPageDocumentHelper::get(foreign_pdf).getAllPages();
-            if (foreign_pages.size() != 1u)
-                throw std::logic_error("form snapshot page count mismatch");
-            QPDFObjectHandle foreign_form =
-                foreign_pages[0].getFormXObjectForPage();
-            form_objects.push_back(pdf.copyForeignObject(foreign_form));
-        }
+        std::vector<std::optional<QPDFObjectHandle>>
+            form_objects(composer->form_count);
+        auto ensure_form_object = [&](quantapdf_composer_form_id id)
+            -> QPDFObjectHandle {
+            if (id == 0u || id > composer->form_count)
+                throw std::logic_error("form resource missing");
+            auto& slot = form_objects[id - 1u];
+            if (!slot.has_value()) {
+                auto const& form = composer->forms[id - 1u];
+                QPDF foreign_pdf;
+                foreign_pdf.processMemoryFile(
+                    "quantapdf-form-" + std::to_string(id),
+                    reinterpret_cast<char const*>(form.pdf_data),
+                    form.pdf_size);
+                auto foreign_pages =
+                    QPDFPageDocumentHelper::get(foreign_pdf).getAllPages();
+                if (foreign_pages.size() != 1u)
+                    throw std::logic_error(
+                        "form snapshot page count mismatch");
+                QPDFObjectHandle foreign_form =
+                    foreign_pages[0].getFormXObjectForPage();
+                slot = pdf.copyForeignObject(foreign_form);
+            }
+            return *slot;
+        };
 
         std::vector<quantapdf::detail::ttf_font_face> embedded_faces;
         embedded_faces.reserve(composer->font_count);
@@ -1904,9 +1912,15 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                 requires_pdf_16 = true;
         }
 
-        for (size_t i = 0u; i < composer->form_count; ++i) {
-            if (composer->forms[i].requires_pdf_16)
-                requires_pdf_16 = true;
+        for (size_t i = 0u; i < composer->operation_count; ++i) {
+            auto const& operation = composer->operations[i];
+            if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_FORM) {
+                auto const id = operation.value.form.form_id;
+                if (id == 0u || id > composer->form_count)
+                    throw std::logic_error("form resource missing");
+                if (composer->forms[id - 1u].requires_pdf_16)
+                    requires_pdf_16 = true;
+            }
         }
 
         std::vector<std::optional<QPDFObjectHandle>>
@@ -1983,10 +1997,9 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                 } else if (
                     operation.kind == QUANTAPDF_COMPOSER_OPERATION_FORM) {
                     auto id = operation.value.form.form_id;
-                    if (id == 0u || id > form_objects.size())
-                        throw std::logic_error("form XObject missing");
                     xobjects.replaceKey(
-                        "/Fm" + std::to_string(id), form_objects[id - 1u]);
+                        "/Fm" + std::to_string(id),
+                        ensure_form_object(id));
                 }
             }
             resources.replaceKey("/XObject", xobjects);
