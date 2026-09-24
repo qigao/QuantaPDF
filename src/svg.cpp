@@ -2152,6 +2152,112 @@ std::string serialize_tokens(
     return result;
 }
 
+svg_mask_mode parse_mask_mode(std::string const& value)
+{
+    std::string const parsed = lower_ascii(trim(value));
+    if (parsed == "luminance")
+        return svg_mask_mode::luminosity;
+    if (parsed == "alpha")
+        return svg_mask_mode::alpha;
+    fail(QUANTAPDF_ERROR_UNSUPPORTED);
+}
+
+svg_mask_mode mask_mode_from_element(element const& item)
+{
+    svg_mask_mode result = svg_mask_mode::luminosity;
+    if (auto const* value = find_attribute(item, "mask-type"))
+        result = parse_mask_mode(*value);
+    if (auto const* style = find_attribute(item, "style")) {
+        size_t position = 0u;
+        while (position < style->size()) {
+            size_t const semi = style->find(';', position);
+            size_t const end =
+                semi == std::string::npos ? style->size() : semi;
+            std::string const entry = trim(
+                std::string_view(*style).substr(position, end - position));
+            if (!entry.empty()) {
+                size_t const colon = entry.find(':');
+                if (colon == std::string::npos)
+                    fail(QUANTAPDF_ERROR_FORMAT);
+                std::string const name =
+                    lower_ascii(trim(entry.substr(0u, colon)));
+                if (name != "mask-type")
+                    fail(QUANTAPDF_ERROR_UNSUPPORTED);
+                result = parse_mask_mode(
+                    trim(entry.substr(colon + 1u)));
+            }
+            if (semi == std::string::npos)
+                break;
+            position = semi + 1u;
+        }
+    }
+    return result;
+}
+
+void validate_mask_attributes(element const& item)
+{
+    for (auto const& attr: item.attributes) {
+        if (attr.name != "id" &&
+            attr.name != "maskUnits" &&
+            attr.name != "maskContentUnits" &&
+            attr.name != "x" && attr.name != "y" &&
+            attr.name != "width" && attr.name != "height" &&
+            attr.name != "mask-type" &&
+            attr.name != "style")
+            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+}
+
+mask_definition start_mask_definition(element const& item)
+{
+    validate_mask_attributes(item);
+    mask_definition result;
+    if (auto const* units = find_attribute(item, "maskUnits"))
+        result.units = parse_resource_units(*units);
+    if (auto const* units = find_attribute(item, "maskContentUnits"))
+        result.content_units = parse_resource_units(*units);
+    result.x_text = attribute_text(item, "x");
+    result.y_text = attribute_text(item, "y");
+    result.width_text = attribute_text(item, "width");
+    result.height_text = attribute_text(item, "height");
+    result.mode = mask_mode_from_element(item);
+    return result;
+}
+
+std::string mask_reference_from_element(element const& item)
+{
+    paint_style style;
+    if (auto const* value = find_attribute(item, "mask"))
+        apply_style_property(&style, "mask", *value);
+    if (auto const* inline_style = find_attribute(item, "style")) {
+        size_t position = 0u;
+        while (position < inline_style->size()) {
+            size_t const semi = inline_style->find(';', position);
+            size_t const end =
+                semi == std::string::npos ? inline_style->size() : semi;
+            std::string const entry = trim(
+                std::string_view(*inline_style).substr(
+                    position, end - position));
+            if (!entry.empty()) {
+                size_t const colon = entry.find(':');
+                if (colon == std::string::npos)
+                    fail(QUANTAPDF_ERROR_FORMAT);
+                std::string const name =
+                    lower_ascii(trim(entry.substr(0u, colon)));
+                if (name == "mask")
+                    apply_style_property(
+                        &style,
+                        "mask",
+                        trim(entry.substr(colon + 1u)));
+            }
+            if (semi == std::string::npos)
+                break;
+            position = semi + 1u;
+        }
+    }
+    return style.mask_ref;
+}
+
 std::string required_id(element const& item)
 {
     auto const* id = find_attribute(item, "id");
@@ -2724,6 +2830,8 @@ struct definition_frame {
         symbol_child,
         pattern,
         pattern_child,
+        mask,
+        mask_child,
         leaf
     };
 
@@ -2762,6 +2870,17 @@ std::string active_pattern_id(
     for (auto it = stack.rbegin(); it != stack.rend(); ++it) {
         if (it->type == definition_frame::kind::pattern ||
             it->type == definition_frame::kind::pattern_child)
+            return it->id;
+    }
+    return {};
+}
+
+std::string active_mask_id(
+    std::vector<definition_frame> const& stack)
+{
+    for (auto it = stack.rbegin(); it != stack.rend(); ++it) {
+        if (it->type == definition_frame::kind::mask ||
+            it->type == definition_frame::kind::mask_child)
             return it->id;
     }
     return {};
@@ -2874,6 +2993,40 @@ void validate_clip_dependencies(definition_table const& definitions)
         };
 
     for (auto const& item: definitions.clips)
+        visit(item.first);
+}
+
+void validate_mask_dependencies(definition_table const& definitions)
+{
+    enum class visit_state {
+        unseen,
+        visiting,
+        done
+    };
+    std::map<std::string, visit_state> states;
+
+    std::function<void(std::string const&)> visit =
+        [&](std::string const& id) {
+            auto mask = definitions.masks.find(id);
+            if (mask == definitions.masks.end())
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            auto& state = states[id];
+            if (state == visit_state::done)
+                return;
+            if (state == visit_state::visiting)
+                fail(QUANTAPDF_ERROR_UNSUPPORTED);
+            state = visit_state::visiting;
+            for (auto const& dependency:
+                 mask->second.mask_dependencies) {
+                if (definitions.masks.find(dependency) ==
+                    definitions.masks.end())
+                    fail(QUANTAPDF_ERROR_UNSUPPORTED);
+                visit(dependency);
+            }
+            state = visit_state::done;
+        };
+
+    for (auto const& item: definitions.masks)
         visit(item.first);
 }
 
