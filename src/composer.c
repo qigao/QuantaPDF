@@ -135,6 +135,15 @@ static int quantapdf_clip_id_valid(
         (clip_id == 0u || clip_id <= composer->clip_count);
 }
 
+static int quantapdf_soft_mask_id_valid(
+    const quantapdf_composer *composer,
+    quantapdf_composer_soft_mask_id soft_mask_id)
+{
+    return composer != NULL &&
+        (soft_mask_id == 0u ||
+         soft_mask_id <= composer->soft_mask_count);
+}
+
 static quantapdf_composer_clip_id quantapdf_graphics_state_clip_id(
     const quantapdf_composer_graphics_state_options *options)
 {
@@ -142,6 +151,17 @@ static quantapdf_composer_clip_id quantapdf_graphics_state_clip_id(
         options->struct_size >=
             QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_MIN_SIZE)
         return options->clip_id;
+    return 0u;
+}
+
+static quantapdf_composer_soft_mask_id
+quantapdf_graphics_state_soft_mask_id(
+    const quantapdf_composer_graphics_state_options *options)
+{
+    if (options != NULL &&
+        options->struct_size >=
+            QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V3_MIN_SIZE)
+        return options->soft_mask_id;
     return 0u;
 }
 
@@ -528,6 +548,31 @@ static quantapdf_status quantapdf_composer_reserve_graphics_state(
         return QUANTAPDF_ERROR_NOMEM;
     composer->graphics_states = grown;
     composer->graphics_state_capacity = new_capacity;
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_composer_reserve_soft_mask(
+    quantapdf_composer *composer)
+{
+    quantapdf_composer_soft_mask_state *grown;
+    size_t new_capacity;
+
+    if (composer->soft_mask_count == SIZE_MAX)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (composer->soft_mask_count < composer->soft_mask_capacity)
+        return QUANTAPDF_OK;
+    new_capacity = composer->soft_mask_capacity == 0u
+        ? 8u
+        : composer->soft_mask_capacity * 2u;
+    if (new_capacity < composer->soft_mask_capacity ||
+        new_capacity > SIZE_MAX / sizeof(*grown))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    grown = (quantapdf_composer_soft_mask_state *)realloc(
+        composer->soft_masks, new_capacity * sizeof(*grown));
+    if (grown == NULL)
+        return QUANTAPDF_ERROR_NOMEM;
+    composer->soft_masks = grown;
+    composer->soft_mask_capacity = new_capacity;
     return QUANTAPDF_OK;
 }
 
@@ -1227,6 +1272,66 @@ quantapdf_status quantapdf_composer_add_clip_intersection(
     return QUANTAPDF_OK;
 }
 
+quantapdf_status quantapdf_composer_add_soft_mask(
+    quantapdf_composer *composer,
+    quantapdf_composer_form_id form_id,
+    const quantapdf_composer_soft_mask_options *options,
+    quantapdf_composer_soft_mask_id *out_soft_mask_id)
+{
+    quantapdf_affine_transform transform;
+    quantapdf_composer_soft_mask_state state;
+    quantapdf_status status;
+    size_t i;
+
+    if (out_soft_mask_id != NULL)
+        *out_soft_mask_id = 0u;
+    if (composer == NULL || options == NULL ||
+        out_soft_mask_id == NULL ||
+        !quantapdf_form_id_valid(composer, form_id) ||
+        options->struct_size <
+            QUANTAPDF_COMPOSER_SOFT_MASK_OPTIONS_V1_MIN_SIZE ||
+        options->mode < QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA ||
+        options->mode > QUANTAPDF_COMPOSER_SOFT_MASK_LUMINOSITY ||
+        !quantapdf_composer_resource_transform_normalize(
+            &options->transform, &transform))
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    if ((composer->forms[form_id - 1u].flags &
+         QUANTAPDF_COMPOSER_FORM_FLAG_TRANSPARENCY_GROUP) == 0u)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    memset(&state, 0, sizeof(state));
+    state.form_id = form_id;
+    state.mode = options->mode;
+    state.transform = transform;
+
+    for (i = 0u; i < composer->soft_mask_count; ++i) {
+        const quantapdf_composer_soft_mask_state *existing =
+            &composer->soft_masks[i];
+        if (existing->form_id == state.form_id &&
+            existing->mode == state.mode &&
+            existing->transform.a == state.transform.a &&
+            existing->transform.b == state.transform.b &&
+            existing->transform.c == state.transform.c &&
+            existing->transform.d == state.transform.d &&
+            existing->transform.e == state.transform.e &&
+            existing->transform.f == state.transform.f) {
+            *out_soft_mask_id =
+                (quantapdf_composer_soft_mask_id)(i + 1u);
+            return QUANTAPDF_OK;
+        }
+    }
+
+    status = quantapdf_composer_reserve_soft_mask(composer);
+    if (status != QUANTAPDF_OK)
+        return status;
+    composer->soft_masks[composer->soft_mask_count] = state;
+    ++composer->soft_mask_count;
+    *out_soft_mask_id =
+        (quantapdf_composer_soft_mask_id)composer->soft_mask_count;
+    return QUANTAPDF_OK;
+}
+
 quantapdf_status quantapdf_composer_add_graphics_state(
     quantapdf_composer *composer,
     const quantapdf_composer_graphics_state_options *options,
@@ -1249,7 +1354,9 @@ quantapdf_status quantapdf_composer_add_graphics_state(
         options->blend_mode < QUANTAPDF_COMPOSER_BLEND_NORMAL ||
         options->blend_mode > QUANTAPDF_COMPOSER_BLEND_LIGHTEN ||
         !quantapdf_clip_id_valid(
-            composer, quantapdf_graphics_state_clip_id(options)))
+            composer, quantapdf_graphics_state_clip_id(options)) ||
+        !quantapdf_soft_mask_id_valid(
+            composer, quantapdf_graphics_state_soft_mask_id(options)))
         return QUANTAPDF_ERROR_ARGUMENT;
 
     state.fill_alpha =
@@ -1258,6 +1365,8 @@ quantapdf_status quantapdf_composer_add_graphics_state(
         options->stroke_alpha == 0.0f ? 0.0f : options->stroke_alpha;
     state.blend_mode = options->blend_mode;
     state.clip_id = quantapdf_graphics_state_clip_id(options);
+    state.soft_mask_id =
+        quantapdf_graphics_state_soft_mask_id(options);
 
     for (i = 0u; i < composer->graphics_state_count; ++i) {
         const quantapdf_composer_graphics_state *existing =
@@ -1265,7 +1374,8 @@ quantapdf_status quantapdf_composer_add_graphics_state(
         if (existing->fill_alpha == state.fill_alpha &&
             existing->stroke_alpha == state.stroke_alpha &&
             existing->blend_mode == state.blend_mode &&
-            existing->clip_id == state.clip_id) {
+            existing->clip_id == state.clip_id &&
+            existing->soft_mask_id == state.soft_mask_id) {
             *out_graphics_state_id =
                 (quantapdf_composer_graphics_state_id)(i + 1u);
             return QUANTAPDF_OK;
@@ -2062,6 +2172,7 @@ void quantapdf_drop_composer(quantapdf_composer *composer)
     free(composer->clips);
     free(composer->forms);
     free(composer->paints);
+    free(composer->soft_masks);
     free(composer->graphics_states);
     free(composer->fonts);
     free(composer->outlines);
