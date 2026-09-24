@@ -2578,10 +2578,11 @@ quantapdf_status register_gradient_paint(
     matrix const& user_transform,
     quantapdf_composer_paint_id* out_paint_id)
 {
-    matrix const composed =
-        multiply(user_transform, gradient.transform);
+    // PATH V4 carries the referencing element's SVG CTM. Paint coordinates
+    // stay in that local user space and retain only the definition transform.
+    (void)user_transform;
     quantapdf_affine_transform const transform =
-        resource_affine(composed);
+        resource_affine(gradient.transform);
 
     if (gradient.radial) {
         quantapdf_composer_radial_gradient_options options{};
