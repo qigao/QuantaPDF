@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 16
+#define QUANTAPDF_VERSION_MINOR 17
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -213,6 +213,27 @@ typedef struct quantapdf_composer_image_options {
      sizeof(quantapdf_composer_image_fit))
 #define QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE \
     (sizeof(quantapdf_composer_image_options))
+
+typedef enum quantapdf_composer_raster_format {
+    QUANTAPDF_COMPOSER_RASTER_GRAY8 = 1,
+    QUANTAPDF_COMPOSER_RASTER_RGB24 = 2,
+    QUANTAPDF_COMPOSER_RASTER_RGBA32 = 3
+} quantapdf_composer_raster_format;
+
+typedef struct quantapdf_composer_raster {
+    size_t struct_size;
+    quantapdf_composer_raster_format format;
+    uint32_t width;
+    uint32_t height;
+    size_t stride;
+    const unsigned char *pixels;
+    size_t size;
+} quantapdf_composer_raster;
+
+#define QUANTAPDF_COMPOSER_RASTER_V1_MIN_SIZE \
+    (offsetof(quantapdf_composer_raster, size) + sizeof(size_t))
+#define QUANTAPDF_COMPOSER_RASTER_V1_SIZE \
+    (sizeof(quantapdf_composer_raster))
 
 typedef enum quantapdf_composer_path_command_kind {
     QUANTAPDF_COMPOSER_PATH_MOVE_TO = 1,
@@ -717,6 +738,11 @@ QUANTAPDF_API quantapdf_status quantapdf_composer_add_image(
     quantapdf_composer *composer,
     const unsigned char *data,
     size_t size,
+    quantapdf_composer_image_id *out_image_id);
+
+QUANTAPDF_API quantapdf_status quantapdf_composer_add_raster(
+    quantapdf_composer *composer,
+    const quantapdf_composer_raster *raster,
     quantapdf_composer_image_id *out_image_id);
 
 QUANTAPDF_API quantapdf_status quantapdf_composer_measure_text(
