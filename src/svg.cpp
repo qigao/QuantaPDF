@@ -2630,11 +2630,36 @@ quantapdf_status register_clip_resource(
         out_clip_id);
 }
 
+bool style_is_default_for_use(paint_style const& style)
+{
+    paint_style const defaults;
+    return style.fill == defaults.fill &&
+        style.stroke == defaults.stroke &&
+        style.fill_argb == defaults.fill_argb &&
+        style.stroke_argb == defaults.stroke_argb &&
+        style.stroke_width == defaults.stroke_width &&
+        style.fill_opacity == defaults.fill_opacity &&
+        style.stroke_opacity == defaults.stroke_opacity &&
+        style.opacity == defaults.opacity &&
+        style.dash_array.empty() &&
+        style.dash_offset == defaults.dash_offset &&
+        style.fill_ref.empty() &&
+        style.stroke_ref.empty() &&
+        style.clip_ref.empty() &&
+        style.fill_rule == defaults.fill_rule &&
+        style.line_cap == defaults.line_cap &&
+        style.line_join == defaults.line_join &&
+        style.miter_limit == defaults.miter_limit;
+}
+
 staged_use parse_use(
     element const& item,
+    paint_style const& parent_style,
     matrix const& parent_transform,
     definition_table const& definitions)
 {
+    if (!style_is_default_for_use(parent_style))
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
     validate_use_attributes(item);
     auto const* href = find_attribute(item, "href");
     if (href == nullptr)
@@ -2863,7 +2888,11 @@ class svg_parser {
                 if (paths_.size() + uses_.size() >= max_paths_)
                     fail(QUANTAPDF_ERROR_UNSUPPORTED);
                 staged_use use =
-                    parse_use(item, parent.transform, definitions_);
+                    parse_use(
+                        item,
+                        parent.style,
+                        parent.transform,
+                        definitions_);
                 uses_.push_back(std::move(use));
                 if (!item.self_closing) {
                     context leaf;
