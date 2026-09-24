@@ -3222,19 +3222,50 @@ quantapdf_affine_transform resource_affine(matrix const& value)
         component(value.f)};
 }
 
+matrix object_bbox_matrix(geometry_bounds const& bounds)
+{
+    if (!bounds.valid)
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    double const width = bounds.x1 - bounds.x0;
+    double const height = bounds.y1 - bounds.y0;
+    if (!finite(width) || !finite(height) ||
+        width <= 0.0 || height <= 0.0)
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    return multiply(
+        translate_matrix(bounds.x0, bounds.y0),
+        scale_matrix(width, height));
+}
+
+matrix resource_units_matrix(
+    resource_units units,
+    geometry_bounds const& bounds)
+{
+    if (units == resource_units::user_space)
+        return matrix{};
+    if (units == resource_units::object_bbox)
+        return object_bbox_matrix(bounds);
+    fail(QUANTAPDF_ERROR_BACKEND);
+}
+
+
 quantapdf_status register_gradient_paint(
     quantapdf_composer* composer,
     gradient_definition const& gradient,
     matrix const& user_transform,
+    geometry_bounds const& local_bounds,
     quantapdf_composer_paint_id* out_paint_id)
 {
     /*
-     * PDF Pattern matrices map to the parent content stream's default space.
-     * A PATH-local cm does not move the Pattern with the path, so the
-     * referencing SVG transform must remain part of the paint matrix.
+     * PATH V4 keeps geometry local. Paint matrices therefore carry the full
+     * referencing element transform. objectBoundingBox adds its local bbox
+     * coordinate system before gradientTransform.
      */
+    matrix const units =
+        resource_units_matrix(gradient.units, local_bounds);
     matrix const composed =
-        multiply(user_transform, gradient.transform);
+        multiply(
+            user_transform,
+            multiply(units, gradient.transform));
     quantapdf_affine_transform const transform =
         resource_affine(composed);
 
@@ -3271,12 +3302,16 @@ quantapdf_status register_clip_resource(
     quantapdf_composer* composer,
     clip_definition const& clip,
     matrix const& user_transform,
+    geometry_bounds const& local_bounds,
     quantapdf_composer_clip_id* out_clip_id)
 {
     quantapdf_composer_clip_options options{};
     options.struct_size = QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE;
     options.fill_rule = clip.fill_rule;
-    options.transform = resource_affine(user_transform);
+    matrix const units =
+        resource_units_matrix(clip.units, local_bounds);
+    options.transform = resource_affine(
+        multiply(user_transform, units));
     return quantapdf_composer_add_clip_path(
         composer,
         clip.commands.data(),
