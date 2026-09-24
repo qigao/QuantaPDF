@@ -99,12 +99,13 @@ B = translate(x0,y0) * scale(width,height)
 
 objectBoundingBox region numbers are fractions. Percentages divide by 100.
 
-userSpaceOnUse numeric/px values remain ordinary user-space coordinates.
-Percentages and default region fractions require an exact target bbox and are
-resolved relative to that bbox.
+userSpaceOnUse accepts explicit numeric/px region values. Percentage
+region values and omitted default region values depend on the active SVG
+viewport percentage context; V4B does not substitute the target geometry bbox,
+so those cases remain fail-closed.
 
-A zero-area or unavailable bbox fails closed whenever required by the chosen
-units/region syntax.
+A zero-area or unavailable bbox fails closed whenever required by
+objectBoundingBox units or content conversion.
 
 ### Content coordinate conversion
 
