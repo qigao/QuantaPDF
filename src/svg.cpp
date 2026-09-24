@@ -1974,21 +1974,35 @@ void validate_symbol_attributes(element const& item)
 void validate_pattern_attributes(element const& item)
 {
     for (auto const& attr: item.attributes) {
-        if (attr.name != "id" && attr.name != "patternUnits" &&
+        if (attr.name != "id" && attr.name != "href" &&
+            attr.name != "xlink:href" &&
+            attr.name != "patternUnits" &&
             attr.name != "patternContentUnits" &&
             attr.name != "patternTransform" &&
             attr.name != "x" && attr.name != "y" &&
             attr.name != "width" && attr.name != "height")
             fail(QUANTAPDF_ERROR_UNSUPPORTED);
     }
-    auto const* units = find_attribute(item, "patternUnits");
-    if (units == nullptr || trim(*units) != "userSpaceOnUse")
-        fail(QUANTAPDF_ERROR_UNSUPPORTED);
-    if (auto const* content_units =
-            find_attribute(item, "patternContentUnits")) {
-        if (trim(*content_units) != "userSpaceOnUse")
-            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+}
+
+pattern_definition start_pattern_definition(element const& item)
+{
+    validate_pattern_attributes(item);
+    pattern_definition result;
+    result.template_ref = local_template_reference(item);
+    if (auto const* units = find_attribute(item, "patternUnits"))
+        result.units = parse_resource_units(*units);
+    if (auto const* units = find_attribute(item, "patternContentUnits"))
+        result.content_units = parse_resource_units(*units);
+    if (auto const* transform = find_attribute(item, "patternTransform")) {
+        result.transform = parse_transform(*transform);
+        result.transform_specified = true;
     }
+    result.x_text = attribute_text(item, "x");
+    result.y_text = attribute_text(item, "y");
+    result.width_text = attribute_text(item, "width");
+    result.height_text = attribute_text(item, "height");
+    return result;
 }
 
 std::string local_paint_reference(std::string const& value)
@@ -2139,6 +2153,38 @@ double stop_offset_value(std::string const& value)
     return result;
 }
 
+resource_units parse_resource_units(
+    std::string const& value)
+{
+    std::string const parsed = trim(value);
+    if (parsed == "userSpaceOnUse")
+        return resource_units::user_space;
+    if (parsed == "objectBoundingBox")
+        return resource_units::object_bbox;
+    fail(QUANTAPDF_ERROR_UNSUPPORTED);
+}
+
+std::string local_template_reference(element const& item)
+{
+    auto const* href = find_attribute(item, "href");
+    auto const* xlink = find_attribute(item, "xlink:href");
+    if (href != nullptr && xlink != nullptr)
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    if (href != nullptr)
+        return local_fragment_href(*href);
+    if (xlink != nullptr)
+        return local_fragment_href(*xlink);
+    return {};
+}
+
+std::string attribute_text(
+    element const& item,
+    char const* name)
+{
+    auto const* value = find_attribute(item, name);
+    return value == nullptr ? std::string{} : trim(*value);
+}
+
 void validate_gradient_attributes(
     element const& item,
     bool radial)
@@ -2146,6 +2192,8 @@ void validate_gradient_attributes(
     for (auto const& attr: item.attributes) {
         bool allowed =
             attr.name == "id" ||
+            attr.name == "href" ||
+            attr.name == "xlink:href" ||
             attr.name == "gradientUnits" ||
             attr.name == "gradientTransform" ||
             attr.name == "spreadMethod";
@@ -2160,9 +2208,6 @@ void validate_gradient_attributes(
         if (!allowed)
             fail(QUANTAPDF_ERROR_UNSUPPORTED);
     }
-    auto const* units = find_attribute(item, "gradientUnits");
-    if (units == nullptr || trim(*units) != "userSpaceOnUse")
-        fail(QUANTAPDF_ERROR_UNSUPPORTED);
     if (auto const* spread = find_attribute(item, "spreadMethod")) {
         if (trim(*spread) != "pad")
             fail(QUANTAPDF_ERROR_UNSUPPORTED);
@@ -2176,32 +2221,26 @@ gradient_definition start_gradient_definition(
     validate_gradient_attributes(item, radial);
     gradient_definition result;
     result.radial = radial;
-    if (auto const* transform = find_attribute(item, "gradientTransform"))
+    result.template_ref = local_template_reference(item);
+    if (auto const* units = find_attribute(item, "gradientUnits"))
+        result.units = parse_resource_units(*units);
+    if (auto const* transform = find_attribute(item, "gradientTransform")) {
         result.transform = parse_transform(*transform);
+        result.transform_specified = true;
+    }
 
     if (!radial) {
-        result.x1 = required_number(item, "x1");
-        result.y1 = required_number(item, "y1");
-        result.x2 = required_number(item, "x2");
-        result.y2 = required_number(item, "y2");
-        if (result.x1 == result.x2 && result.y1 == result.y2)
-            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        result.x1_text = attribute_text(item, "x1");
+        result.y1_text = attribute_text(item, "y1");
+        result.x2_text = attribute_text(item, "x2");
+        result.y2_text = attribute_text(item, "y2");
     } else {
-        result.cx = required_number(item, "cx");
-        result.cy = required_number(item, "cy");
-        result.radius = required_number(item, "r");
-        if (result.radius <= 0.0)
-            fail(QUANTAPDF_ERROR_FORMAT);
-        result.fx = optional_number(item, "fx", result.cx);
-        result.fy = optional_number(item, "fy", result.cy);
-        result.fr = optional_number(item, "fr", 0.0);
-        if (result.fr < 0.0)
-            fail(QUANTAPDF_ERROR_FORMAT);
-        if (result.fr > result.radius)
-            fail(QUANTAPDF_ERROR_UNSUPPORTED);
-        if (result.fr == result.radius &&
-            result.fx == result.cx && result.fy == result.cy)
-            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+        result.cx_text = attribute_text(item, "cx");
+        result.cy_text = attribute_text(item, "cy");
+        result.radius_text = attribute_text(item, "r");
+        result.fx_text = attribute_text(item, "fx");
+        result.fy_text = attribute_text(item, "fy");
+        result.fr_text = attribute_text(item, "fr");
     }
     return result;
 }
