@@ -99,6 +99,15 @@ target_compile_definitions(quantapdf_test_composer_dash PRIVATE
 add_test(NAME quantapdf.composer_dash COMMAND quantapdf_test_composer_dash)
 set_tests_properties(quantapdf.composer_dash PROPERTIES TIMEOUT 30)
 
+add_executable(quantapdf_test_composer_raster
+  test_composer_raster.c)
+target_link_libraries(quantapdf_test_composer_raster PRIVATE
+  QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_composer_raster PRIVATE
+  COMPOSER_RASTER_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composer-raster-output.pdf")
+add_test(NAME quantapdf.composer_raster COMMAND quantapdf_test_composer_raster)
+set_tests_properties(quantapdf.composer_raster PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_test_composer_barcode
   test_composer_barcode.c
   composer_test_helpers.cpp)
