@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 17
+#define QUANTAPDF_VERSION_MINOR 18
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -59,6 +59,30 @@ typedef struct quantapdf_affine_transform {
     float e;
     float f;
 } quantapdf_affine_transform;
+
+typedef uint32_t quantapdf_composer_graphics_state_id;
+
+typedef enum quantapdf_composer_blend_mode {
+    QUANTAPDF_COMPOSER_BLEND_NORMAL = 0,
+    QUANTAPDF_COMPOSER_BLEND_MULTIPLY = 1,
+    QUANTAPDF_COMPOSER_BLEND_SCREEN = 2,
+    QUANTAPDF_COMPOSER_BLEND_OVERLAY = 3,
+    QUANTAPDF_COMPOSER_BLEND_DARKEN = 4,
+    QUANTAPDF_COMPOSER_BLEND_LIGHTEN = 5
+} quantapdf_composer_blend_mode;
+
+typedef struct quantapdf_composer_graphics_state_options {
+    size_t struct_size;
+    float fill_alpha;
+    float stroke_alpha;
+    quantapdf_composer_blend_mode blend_mode;
+} quantapdf_composer_graphics_state_options;
+
+#define QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_MIN_SIZE \
+    (offsetof(quantapdf_composer_graphics_state_options, blend_mode) + \
+     sizeof(quantapdf_composer_blend_mode))
+#define QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE \
+    (sizeof(quantapdf_composer_graphics_state_options))
 
 #define QUANTAPDF_COMPOSER_DEFAULT_MAX_PAGES ((size_t)1024u)
 #define QUANTAPDF_COMPOSER_DEFAULT_MAX_OPERATIONS ((size_t)1000000u)
@@ -125,11 +149,17 @@ typedef struct quantapdf_composer_text_options {
     float line_height_multiplier;
     quantapdf_composer_text_alignment alignment;
     int wrap;
+    quantapdf_composer_graphics_state_id graphics_state_id;
 } quantapdf_composer_text_options;
 
 #define QUANTAPDF_COMPOSER_TEXT_OPTIONS_V1_MIN_SIZE \
     (offsetof(quantapdf_composer_text_options, wrap) + sizeof(int))
 #define QUANTAPDF_COMPOSER_TEXT_OPTIONS_V1_SIZE \
+    (offsetof(quantapdf_composer_text_options, graphics_state_id))
+#define QUANTAPDF_COMPOSER_TEXT_OPTIONS_V2_MIN_SIZE \
+    (offsetof(quantapdf_composer_text_options, graphics_state_id) + \
+     sizeof(quantapdf_composer_graphics_state_id))
+#define QUANTAPDF_COMPOSER_TEXT_OPTIONS_V2_SIZE \
     (sizeof(quantapdf_composer_text_options))
 
 typedef uint32_t quantapdf_composer_font_id;
@@ -151,11 +181,17 @@ typedef struct quantapdf_composer_embedded_text_options {
     float line_height_multiplier;
     quantapdf_composer_text_alignment alignment;
     int wrap;
+    quantapdf_composer_graphics_state_id graphics_state_id;
 } quantapdf_composer_embedded_text_options;
 
 #define QUANTAPDF_COMPOSER_EMBEDDED_TEXT_OPTIONS_V1_MIN_SIZE \
     (offsetof(quantapdf_composer_embedded_text_options, wrap) + sizeof(int))
 #define QUANTAPDF_COMPOSER_EMBEDDED_TEXT_OPTIONS_V1_SIZE \
+    (offsetof(quantapdf_composer_embedded_text_options, graphics_state_id))
+#define QUANTAPDF_COMPOSER_EMBEDDED_TEXT_OPTIONS_V2_MIN_SIZE \
+    (offsetof(quantapdf_composer_embedded_text_options, graphics_state_id) + \
+     sizeof(quantapdf_composer_graphics_state_id))
+#define QUANTAPDF_COMPOSER_EMBEDDED_TEXT_OPTIONS_V2_SIZE \
     (sizeof(quantapdf_composer_embedded_text_options))
 
 typedef struct quantapdf_composer_text_measurement {
@@ -188,11 +224,17 @@ typedef struct quantapdf_composer_glyph_run_options {
     quantapdf_composer_font_id font_id;
     float font_size;
     uint32_t argb;
+    quantapdf_composer_graphics_state_id graphics_state_id;
 } quantapdf_composer_glyph_run_options;
 
 #define QUANTAPDF_COMPOSER_GLYPH_RUN_OPTIONS_V1_MIN_SIZE \
     (offsetof(quantapdf_composer_glyph_run_options, argb) + sizeof(uint32_t))
 #define QUANTAPDF_COMPOSER_GLYPH_RUN_OPTIONS_V1_SIZE \
+    (offsetof(quantapdf_composer_glyph_run_options, graphics_state_id))
+#define QUANTAPDF_COMPOSER_GLYPH_RUN_OPTIONS_V2_MIN_SIZE \
+    (offsetof(quantapdf_composer_glyph_run_options, graphics_state_id) + \
+     sizeof(quantapdf_composer_graphics_state_id))
+#define QUANTAPDF_COMPOSER_GLYPH_RUN_OPTIONS_V2_SIZE \
     (sizeof(quantapdf_composer_glyph_run_options))
 
 typedef uint32_t quantapdf_composer_image_id;
@@ -206,12 +248,18 @@ typedef enum quantapdf_composer_image_fit {
 typedef struct quantapdf_composer_image_options {
     size_t struct_size;
     quantapdf_composer_image_fit fit;
+    quantapdf_composer_graphics_state_id graphics_state_id;
 } quantapdf_composer_image_options;
 
 #define QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_MIN_SIZE \
     (offsetof(quantapdf_composer_image_options, fit) + \
      sizeof(quantapdf_composer_image_fit))
 #define QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE \
+    (offsetof(quantapdf_composer_image_options, graphics_state_id))
+#define QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_MIN_SIZE \
+    (offsetof(quantapdf_composer_image_options, graphics_state_id) + \
+     sizeof(quantapdf_composer_graphics_state_id))
+#define QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE \
     (sizeof(quantapdf_composer_image_options))
 
 typedef enum quantapdf_composer_raster_format {
@@ -277,11 +325,17 @@ typedef struct quantapdf_composer_path_options {
     quantapdf_composer_line_cap line_cap;
     quantapdf_composer_line_join line_join;
     float miter_limit;
+    quantapdf_composer_graphics_state_id graphics_state_id;
 } quantapdf_composer_path_options;
 
 #define QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE \
     (offsetof(quantapdf_composer_path_options, miter_limit) + sizeof(float))
 #define QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE \
+    (offsetof(quantapdf_composer_path_options, graphics_state_id))
+#define QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE \
+    (offsetof(quantapdf_composer_path_options, graphics_state_id) + \
+     sizeof(quantapdf_composer_graphics_state_id))
+#define QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_SIZE \
     (sizeof(quantapdf_composer_path_options))
 
 #define QUANTAPDF_COMPOSER_MAX_DASH_COUNT ((size_t)64u)
@@ -744,6 +798,11 @@ QUANTAPDF_API quantapdf_status quantapdf_composer_add_raster(
     quantapdf_composer *composer,
     const quantapdf_composer_raster *raster,
     quantapdf_composer_image_id *out_image_id);
+
+QUANTAPDF_API quantapdf_status quantapdf_composer_add_graphics_state(
+    quantapdf_composer *composer,
+    const quantapdf_composer_graphics_state_options *options,
+    quantapdf_composer_graphics_state_id *out_graphics_state_id);
 
 QUANTAPDF_API quantapdf_status quantapdf_composer_measure_text(
     const quantapdf_composer *composer,
