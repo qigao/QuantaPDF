@@ -1861,6 +1861,16 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                         "form snapshot page count mismatch");
                 QPDFObjectHandle foreign_form =
                     foreign_pages[0].getFormXObjectForPage();
+                /*
+                 * qpdf's page->Form helper installs a lazy stream provider
+                 * backed by the source page. Materialize it before the
+                 * temporary source QPDF leaves scope.
+                 */
+                auto content_data = foreign_form.getRawStreamData();
+                foreign_form.replaceStreamData(
+                    content_data,
+                    QPDFObjectHandle(),
+                    QPDFObjectHandle());
                 slot = pdf.copyForeignObject(foreign_form);
                 /*
                  * getFormXObjectForPage may lazily read source page content
