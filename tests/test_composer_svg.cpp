@@ -2,6 +2,7 @@
 
 #include "composer_test_helpers.h"
 
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -65,6 +66,30 @@ static size_t count_nonwhite(
         }
     }
     return count;
+}
+
+static int pixel_near(
+    unsigned char const* pixels,
+    int stride,
+    int x,
+    int y,
+    int r,
+    int g,
+    int b,
+    int tolerance)
+{
+    auto const* p =
+        pixels + static_cast<size_t>(y) * static_cast<size_t>(stride) +
+        static_cast<size_t>(x) * 3u;
+    auto near_channel = [=](unsigned char actual, int expected) {
+        int delta = static_cast<int>(actual) - expected;
+        if (delta < 0)
+            delta = -delta;
+        return delta <= tolerance;
+    };
+    return near_channel(p[0], r) &&
+        near_channel(p[1], g) &&
+        near_channel(p[2], b);
 }
 
 static int test_argument_contract()
@@ -200,6 +225,143 @@ static int test_render_geometry_and_determinism()
     return 0;
 }
 
+static int test_v2a_dash_opacity_arcs_and_aspect()
+{
+    static char const svg_meet[] =
+        "<svg viewBox=\"0 0 100 100\">"
+        "<g fill-opacity=\"0.5\" stroke-opacity=\"0.5\" "
+        "stroke-dasharray=\"5 3 2\" stroke-dashoffset=\"-3\">"
+        "<path d=\"M10 50 A40 30 0 0 1 90 50\" "
+        "fill=\"#ff0000\" stroke=\"#000000\" stroke-width=\"2\" "
+        "opacity=\"0.5\"/>"
+        "</g></svg>";
+    static char const svg_none[] =
+        "<svg viewBox=\"0 0 100 100\" preserveAspectRatio=\"none\">"
+        "<rect x=\"10\" y=\"10\" width=\"10\" height=\"10\" "
+        "fill=\"#ff0000\"/></svg>";
+    static char const svg_slice[] =
+        "<svg viewBox=\"0 0 100 100\" "
+        "preserveAspectRatio=\"xMaxYMax slice\">"
+        "<rect x=\"0\" y=\"0\" width=\"100\" height=\"100\" "
+        "fill=\"#00ff00\"/></svg>";
+
+    quantapdf_rect bounds = {20.0f, 20.0f, 220.0f, 120.0f};
+
+    {
+        quantapdf_composer* composer = nullptr;
+        quantapdf_output* output = nullptr;
+        unsigned char const* data = nullptr;
+        size_t size = 0u;
+        double fill_alpha = 0.0;
+        double stroke_alpha = 0.0;
+        char blend[32] = {};
+
+        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(add_page(composer));
+        CHECK(draw(composer, svg_meet, bounds) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
+        CHECK(quantapdf_output_data(output, &data, &size) == QUANTAPDF_OK);
+
+        CHECK(quantapdf_test_pdf_content_contains(
+            data, size, 0u, "80 170 m"));
+        CHECK(quantapdf_test_pdf_content_contains(
+            data, size, 0u, "[5 3 2 5 3 2] 17 d"));
+        CHECK(quantapdf_test_pdf_content_count(
+            data, size, 0u, " c ") >= 2u);
+        CHECK(quantapdf_test_pdf_content_count(
+            data, size, 0u, "/GS1 gs") == 1u);
+        CHECK(quantapdf_test_pdf_extgstate_info(
+            data,
+            size,
+            0u,
+            1u,
+            &fill_alpha,
+            &stroke_alpha,
+            blend,
+            sizeof(blend)));
+        CHECK(std::fabs(fill_alpha - 0.25) < 0.001);
+        CHECK(std::fabs(stroke_alpha - 0.25) < 0.001);
+        CHECK(std::strcmp(blend, "/Normal") == 0);
+
+        quantapdf_drop_output(output);
+        quantapdf_drop_composer(composer);
+    }
+
+    {
+        quantapdf_composer* composer = nullptr;
+        quantapdf_output* output = nullptr;
+        unsigned char const* data = nullptr;
+        size_t size = 0u;
+
+        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(add_page(composer));
+        CHECK(draw(composer, svg_none, bounds) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
+        CHECK(quantapdf_output_data(output, &data, &size) == QUANTAPDF_OK);
+        CHECK(quantapdf_test_pdf_content_contains(
+            data,
+            size,
+            0u,
+            "40 210 m 60 210 l 60 200 l 40 200 l h f"));
+        quantapdf_drop_output(output);
+        quantapdf_drop_composer(composer);
+    }
+
+    {
+        quantapdf_composer* composer = nullptr;
+        quantapdf_output* output = nullptr;
+        quantapdf_document* document = nullptr;
+        quantapdf_page* page = nullptr;
+        quantapdf_bitmap* bitmap = nullptr;
+        quantapdf_render_options render = {};
+        unsigned char const* data = nullptr;
+        unsigned char const* pixels = nullptr;
+        size_t size = 0u;
+        size_t pixel_size = 0u;
+        int width = 0;
+        int height = 0;
+        int stride = 0;
+        int components = 0;
+
+        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(add_page(composer));
+        CHECK(draw(composer, svg_slice, bounds) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
+        CHECK(quantapdf_output_data(output, &data, &size) == QUANTAPDF_OK);
+        CHECK(quantapdf_test_pdf_content_contains(
+            data,
+            size,
+            0u,
+            "20 220 m 220 220 l 220 120 l 20 120 l h W n"));
+
+        CHECK(quantapdf_output_save_file(
+                  output, COMPOSER_SVG_OUTPUT_PDF) == QUANTAPDF_OK);
+        CHECK(quantapdf_open(
+                  COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
+              QUANTAPDF_OK);
+        CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
+        render.struct_size = sizeof(render);
+        render.dpi = 72.0f;
+        CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
+              QUANTAPDF_OK);
+        CHECK(quantapdf_bitmap_dimensions(
+                  bitmap, &width, &height, &stride, &components) ==
+              QUANTAPDF_OK);
+        CHECK(quantapdf_bitmap_data(bitmap, &pixels, &pixel_size) ==
+              QUANTAPDF_OK);
+        CHECK(pixel_near(pixels, stride, 30, 30, 0, 255, 0, 20));
+        CHECK(pixel_near(pixels, stride, 30, 10, 255, 255, 255, 15));
+
+        quantapdf_drop_bitmap(bitmap);
+        quantapdf_drop_page(page);
+        quantapdf_close(document);
+        quantapdf_drop_output(output);
+        quantapdf_drop_composer(composer);
+    }
+
+    return 0;
+}
+
 static int test_security_and_unsupported_features()
 {
     static char const* cases[] = {
@@ -209,8 +371,7 @@ static int test_security_and_unsupported_features()
         "<svg viewBox=\"0 0 10 10\"><image href=\"https://example.com/a.png\"/></svg>",
         "<svg viewBox=\"0 0 10 10\"><use href=\"#shape\"/></svg>",
         "<svg viewBox=\"0 0 10 10\"><text>hello</text></svg>",
-        "<svg viewBox=\"0 0 10 10\"><path d=\"M1 1 A2 2 0 0 0 5 5\"/></svg>",
-        "<svg viewBox=\"0 0 10 10\"><rect x=\"1\" y=\"1\" width=\"4\" height=\"4\" opacity=\"0.5\"/></svg>",
+        "<svg viewBox=\"0 0 10 10\"><g opacity=\"0.5\"><rect x=\"1\" y=\"1\" width=\"4\" height=\"4\"/></g></svg>",
         "<svg viewBox=\"0 0 10 10\"><path d=\"M0 0 L9 9\" "
         "stroke=\"black\" fill=\"none\" transform=\"scale(2 1)\"/></svg>",
         "<svg><rect width=\"2\" height=\"2\"/></svg>"
@@ -237,7 +398,8 @@ static int test_malformed_inputs()
         "<svg viewBox=\"0 0 10 10\"><rect width=\"-1\" height=\"2\"/></svg>",
         "<svg viewBox=\"0 0 10 10\"><g><rect width=\"2\" height=\"2\"/></svg>",
         "<svg viewBox=\"0 0 10 10\"><rect width=\"2\" width=\"3\" height=\"2\"/></svg>",
-        "<svg viewBox=\"0 0 10 10\"><rect width=\"2 height=\"2\"/></svg>"
+        "<svg viewBox=\"0 0 10 10\"><rect width=\"2 height=\"2\"/></svg>",
+        "<svg viewBox=\"0 0 10 10\"><path d=\"M1 1 A2 2 0 2 0 5 5\"/></svg>"
     };
     quantapdf_rect bounds = {0.0f, 0.0f, 100.0f, 100.0f};
 
@@ -312,6 +474,7 @@ int main()
 {
     CHECK(test_argument_contract() == 0);
     CHECK(test_render_geometry_and_determinism() == 0);
+    CHECK(test_v2a_dash_opacity_arcs_and_aspect() == 0);
     CHECK(test_security_and_unsupported_features() == 0);
     CHECK(test_malformed_inputs() == 0);
     CHECK(test_atomic_capacity_failure() == 0);
