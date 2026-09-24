@@ -198,6 +198,10 @@ static int test_base14_measurement(void)
           QUANTAPDF_ERROR_FORMAT);
 
     CHECK(quantapdf_composer_measure_text(
+              composer, "\xC3\x28", 40.0f, &options, &wrapped) ==
+          QUANTAPDF_ERROR_FORMAT);
+
+    CHECK(quantapdf_composer_measure_text(
               composer, text, 40.0f, &options, &wrapped) == QUANTAPDF_OK);
     CHECK(quantapdf_composer_draw_text(
               composer, 0u, text, &bounds, &options) == QUANTAPDF_OK);
@@ -256,6 +260,10 @@ static int test_embedded_measurement(
 
     CHECK(quantapdf_composer_measure_embedded_text(
               composer, "\xF0\x9F\x98\x80", 70.0f, &options, &measured) ==
+          QUANTAPDF_ERROR_FORMAT);
+
+    CHECK(quantapdf_composer_measure_embedded_text(
+              composer, "\xC3\x28", 70.0f, &options, &measured) ==
           QUANTAPDF_ERROR_FORMAT);
 
     CHECK(quantapdf_composer_measure_embedded_text(
