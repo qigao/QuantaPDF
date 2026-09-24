@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
@@ -1822,9 +1823,9 @@ void validate_pattern_attributes(element const& item)
 
 std::string local_paint_reference(std::string const& value)
 {
-    std::string const parsed = lower_ascii(trim(value));
+    std::string const parsed = trim(value);
     if (parsed.size() < 6u ||
-        parsed.substr(0u, 5u) != "url(#" ||
+        lower_ascii(parsed.substr(0u, 5u)) != "url(#" ||
         parsed.back() != ')')
         return {};
     std::string const id =
