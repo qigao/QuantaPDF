@@ -1838,6 +1838,8 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
 
         std::vector<std::optional<QPDFObjectHandle>>
             form_objects(composer->form_count);
+        std::vector<std::unique_ptr<QPDF>>
+            form_source_pdfs(composer->form_count);
         auto ensure_form_object = [&](quantapdf_composer_form_id id)
             -> QPDFObjectHandle {
             if (id == 0u || id > composer->form_count)
@@ -1845,21 +1847,27 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             auto& slot = form_objects[id - 1u];
             if (!slot.has_value()) {
                 auto const& form = composer->forms[id - 1u];
-                QPDF foreign_pdf;
+                auto source = std::make_unique<QPDF>();
                 std::string const description =
                     "quantapdf-form-" + std::to_string(id);
-                foreign_pdf.processMemoryFile(
+                source->processMemoryFile(
                     description.c_str(),
                     reinterpret_cast<char const*>(form.pdf_data),
                     form.pdf_size);
                 auto foreign_pages =
-                    QPDFPageDocumentHelper::get(foreign_pdf).getAllPages();
+                    QPDFPageDocumentHelper::get(*source).getAllPages();
                 if (foreign_pages.size() != 1u)
                     throw std::logic_error(
                         "form snapshot page count mismatch");
                 QPDFObjectHandle foreign_form =
                     foreign_pages[0].getFormXObjectForPage();
                 slot = pdf.copyForeignObject(foreign_form);
+                /*
+                 * getFormXObjectForPage may lazily read source page content
+                 * while the destination writer serializes the copied object.
+                 * Keep the source QPDF alive until this compose call returns.
+                 */
+                form_source_pdfs[id - 1u] = std::move(source);
             }
             return *slot;
         };
