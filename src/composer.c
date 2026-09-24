@@ -510,24 +510,30 @@ static int quantapdf_paint_state_equal(
     const quantapdf_composer_paint_state *left,
     const quantapdf_composer_paint_state *right)
 {
-    return left->kind == right->kind &&
-        left->start.x == right->start.x &&
-        left->start.y == right->start.y &&
-        left->end.x == right->end.x &&
-        left->end.y == right->end.y &&
-        left->start_radius == right->start_radius &&
-        left->end_radius == right->end_radius &&
-        left->transform.a == right->transform.a &&
-        left->transform.b == right->transform.b &&
-        left->transform.c == right->transform.c &&
-        left->transform.d == right->transform.d &&
-        left->transform.e == right->transform.e &&
-        left->transform.f == right->transform.f &&
-        left->stop_count == right->stop_count &&
-        memcmp(
-            left->stops,
-            right->stops,
-            left->stop_count * sizeof(*left->stops)) == 0;
+    size_t i;
+
+    if (left->kind != right->kind ||
+        left->start.x != right->start.x ||
+        left->start.y != right->start.y ||
+        left->end.x != right->end.x ||
+        left->end.y != right->end.y ||
+        left->start_radius != right->start_radius ||
+        left->end_radius != right->end_radius ||
+        left->transform.a != right->transform.a ||
+        left->transform.b != right->transform.b ||
+        left->transform.c != right->transform.c ||
+        left->transform.d != right->transform.d ||
+        left->transform.e != right->transform.e ||
+        left->transform.f != right->transform.f ||
+        left->stop_count != right->stop_count)
+        return 0;
+    for (i = 0u; i < left->stop_count; ++i) {
+        if (left->stops[i].offset !=
+                quantapdf_canonical_float(right->stops[i].offset) ||
+            left->stops[i].argb != right->stops[i].argb)
+            return 0;
+    }
+    return 1;
 }
 
 static quantapdf_status quantapdf_composer_publish_paint(
