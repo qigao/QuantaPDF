@@ -871,6 +871,10 @@ quantapdf_status quantapdf_composer_add_form(
         options->width_points;
     composer->forms[composer->form_count].height_points =
         options->height_points;
+    composer->forms[composer->form_count].requires_pdf_16 =
+        pdf_size >= 8u &&
+        memcmp(pdf_data, "%PDF-1.", 7u) == 0 &&
+        pdf_data[7] >= '6';
     ++composer->form_count;
     composer->resource_bytes += pdf_size;
     *out_form_id = composer->form_count;
