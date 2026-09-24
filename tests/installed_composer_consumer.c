@@ -174,7 +174,8 @@ int main(int argc, char **argv)
     quantapdf_rect svg_box = {180.0f, 80.0f, 280.0f, 160.0f};
     quantapdf_point target = {24.0f, 24.0f};
     static const unsigned char svg_data[] =
-        "<svg viewBox=\"0 0 10 8\">"
+        "<svg viewBox=\"0 0 10 8\" preserveAspectRatio=\"xMidYMid slice\" "
+        "clip-path=\"url(#rootClip)\">"
         "<defs>"
         "<linearGradient id=\"base\">"
         "<stop offset=\"0\" stop-color=\"#00a0ff\"/>"
@@ -182,12 +183,20 @@ int main(int argc, char **argv)
         "</linearGradient>"
         "<linearGradient id=\"derived\" href=\"#base\" "
         "gradientTransform=\"translate(0.1 0)\"/>"
-        "<clipPath id=\"clip\" clipPathUnits=\"objectBoundingBox\">"
+        "<clipPath id=\"rootClip\" clipPathUnits=\"userSpaceOnUse\">"
+        "<rect x=\"1\" y=\"1\" width=\"8\" height=\"6\"/>"
+        "</clipPath>"
+        "<clipPath id=\"groupClip\" clipPathUnits=\"userSpaceOnUse\">"
+        "<rect x=\"2\" y=\"1\" width=\"6\" height=\"6\"/>"
+        "</clipPath>"
+        "<clipPath id=\"leafClip\" clipPathUnits=\"objectBoundingBox\">"
         "<rect x=\"0.1\" y=\"0.1\" width=\"0.8\" height=\"0.8\"/>"
         "</clipPath>"
         "</defs>"
+        "<g clip-path=\"url(#groupClip)\">"
         "<rect x=\"1\" y=\"1\" width=\"8\" height=\"6\" "
-        "fill=\"url(#derived)\" clip-path=\"url(#clip)\"/>"
+        "fill=\"url(#derived)\" clip-path=\"url(#leafClip)\"/>"
+        "</g>"
         "</svg>";
 
     if (argc != 3) {
