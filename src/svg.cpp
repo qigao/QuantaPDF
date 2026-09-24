@@ -2607,7 +2607,6 @@ definition_table parse_definitions(
                 auto found = definitions.gradients.find(frame.id);
                 if (found == definitions.gradients.end())
                     fail(QUANTAPDF_ERROR_BACKEND);
-                finalize_gradient(&found->second);
             } else if (frame.type == definition_frame::kind::clip) {
                 auto found = definitions.clips.find(frame.id);
                 if (found == definitions.clips.end())
@@ -2687,11 +2686,8 @@ definition_table parse_definitions(
                 frame.name = tag;
                 frame.type = definition_frame::kind::gradient;
                 frame.id = id;
-                if (item.self_closing) {
-                    finalize_gradient(&inserted.first->second);
-                } else {
+                if (!item.self_closing)
                     stack.push_back(std::move(frame));
-                }
                 continue;
             }
 
@@ -2706,11 +2702,10 @@ definition_table parse_definitions(
                 }
                 auto const* units =
                     find_attribute(item, "clipPathUnits");
-                if (units != nullptr &&
-                    trim(*units) != "userSpaceOnUse")
-                    fail(QUANTAPDF_ERROR_UNSUPPORTED);
                 std::string const id = required_id(item);
                 clip_definition clip;
+                if (units != nullptr)
+                    clip.units = parse_resource_units(*units);
                 clip.fill_rule = clip_rule_from_element(
                     item, QUANTAPDF_COMPOSER_FILL_NONZERO);
                 auto inserted =
@@ -2763,18 +2758,9 @@ definition_table parse_definitions(
             }
 
             if (tag == "pattern") {
-                validate_pattern_attributes(item);
                 std::string const id = required_id(item);
-                pattern_definition pattern;
-                pattern.x = optional_number(item, "x", 0.0);
-                pattern.y = optional_number(item, "y", 0.0);
-                pattern.width = required_number(item, "width");
-                pattern.height = required_number(item, "height");
-                if (pattern.width <= 0.0 || pattern.height <= 0.0)
-                    fail(QUANTAPDF_ERROR_FORMAT);
-                if (auto const* transform =
-                        find_attribute(item, "patternTransform"))
-                    pattern.transform = parse_transform(*transform);
+                pattern_definition pattern =
+                    start_pattern_definition(item);
                 auto inserted =
                     definitions.patterns.emplace(id, std::move(pattern));
                 if (!inserted.second)
