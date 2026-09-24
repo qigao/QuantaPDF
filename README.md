@@ -328,6 +328,17 @@ and opacity-group Form operations are reordered after transactional publication
 to preserve SVG document painting order. objectBoundingBox resource units and
 paint-template inheritance remain reserved for SVG V3B.
 
+2.29 completes the SVG V3B geometry-dependent resource layer. Staged local PATH
+geometry now carries an exact fill geometry bbox (including cubic Bézier
+extrema) before PATH V4 CTM. `gradientUnits`, `clipPathUnits`,
+`patternUnits`, and `patternContentUnits` can use objectBoundingBox where
+the geometry bbox is non-degenerate. The bbox mapping is composed in local user
+space and the element CTM is still applied exactly once. Local same-kind
+gradient and pattern `href` templates are normalized deterministically before
+render/publish; attributes inherit, local gradient stops or pattern child
+content override inherited content, and unresolved/wrong-kind/cyclic templates
+fail closed. External references and browser/CSS semantics remain unsupported.
+
 The original `quantapdf_composer_draw_text()` contract remains Base-14 +
 WinAnsi and is unchanged. For embedded fonts, register caller-owned SFNT bytes
 with `quantapdf_composer_add_font()`, then draw UTF-8 through
