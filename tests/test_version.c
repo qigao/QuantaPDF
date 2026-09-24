@@ -3,7 +3,7 @@
 #if QUANTAPDF_VERSION_MAJOR != 2
 #error unexpected major version
 #endif
-#if QUANTAPDF_VERSION_MINOR != 27
+#if QUANTAPDF_VERSION_MINOR != 28
 #error unexpected minor version
 #endif
 #if QUANTAPDF_VERSION_PATCH != 0
