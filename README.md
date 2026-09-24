@@ -202,6 +202,16 @@ as a PDF soft mask. JPEG supports baseline 8-bit gray and RGB images;
 progressive JPEG is rejected before decode to preserve the configured memory
 bound.
 
+2.17 adds direct decoded-pixel registration through
+`quantapdf_composer_add_raster()`. Gray8, RGB24, and straight-alpha RGBA32
+accept explicit width, height, source stride, pixel pointer, and byte size.
+Visible rows are copied into tightly packed Composer-owned storage, so caller
+padding and lifetime do not cross the API boundary. RGBA32 is split into
+DeviceRGB plus an 8-bit soft mask. Only canonical visible output bytes count
+against the Composer resource budget; source padding is neither retained nor
+charged. The returned image ID is drawn with the existing
+`quantapdf_composer_draw_image()` path.
+
 The original `quantapdf_composer_draw_text()` contract remains Base-14 +
 WinAnsi and is unchanged. For embedded fonts, register caller-owned SFNT bytes
 with `quantapdf_composer_add_font()`, then draw UTF-8 through
