@@ -170,26 +170,20 @@ int main(int argc, char **argv)
     quantapdf_point target = {24.0f, 24.0f};
     static const unsigned char svg_data[] =
         "<svg viewBox=\"0 0 10 8\" preserveAspectRatio=\"xMidYMid meet\">"
-        "<use href=\"#installedSymbol\" x=\"0\" y=\"0\" width=\"5\" height=\"4\"/>"
         "<defs>"
-        "<linearGradient id=\"installedGradient\" gradientUnits=\"userSpaceOnUse\" "
-        "x1=\"0\" y1=\"0\" x2=\"5\" y2=\"0\">"
-        "<stop offset=\"0\" stop-color=\"#00a0ff\"/>"
-        "<stop offset=\"1\" stop-color=\"#0000ff\"/>"
-        "</linearGradient>"
-        "<clipPath id=\"installedClip\" clipPathUnits=\"userSpaceOnUse\">"
-        "<rect x=\"0\" y=\"0\" width=\"5\" height=\"4\"/>"
-        "</clipPath>"
-        "<symbol id=\"installedSymbol\" viewBox=\"0 0 5 4\" preserveAspectRatio=\"none\">"
-        "<rect x=\"0\" y=\"0\" width=\"5\" height=\"4\" "
-        "fill=\"url(#installedGradient)\" clip-path=\"url(#installedClip)\"/>"
-        "<path d=\"M0.5 3 A1.5 1.5 0 0 1 4.5 3\" fill=\"none\" stroke=\"#202020\" "
-        "stroke-width=\"0.4\" stroke-dasharray=\"1 0.5\" opacity=\"0.8\"/>"
-        "</symbol>"
+        "<pattern id=\"installedPattern\" patternUnits=\"userSpaceOnUse\" "
+        "patternContentUnits=\"userSpaceOnUse\" x=\"0\" y=\"0\" "
+        "width=\"2\" height=\"2\">"
+        "<rect x=\"0\" y=\"0\" width=\"1\" height=\"2\" fill=\"#00a0ff\"/>"
+        "</pattern>"
         "</defs>"
-        "<use href=\"#installedSymbol\" x=\"5\" y=\"4\" width=\"5\" height=\"4\"/>"
-        "</svg>";
-
+        "<g opacity=\"0.75\">"
+        "<rect x=\"1\" y=\"1\" width=\"8\" height=\"6\" "
+        "fill=\"url(#installedPattern)\"/>"
+        "<path d=\"M2 6 L8 6\" fill=\"none\" stroke=\"#202020\" "
+        "stroke-width=\"0.5\" stroke-dasharray=\"1 0.5\" "
+        "transform=\"scale(1.2 0.8)\"/>"
+        "</g></svg>";
     if (argc != 3) {
         fprintf(stderr, "usage: %s <font.ttf> <output.pdf>\\n", argv[0]);
         return EXIT_FAILURE;
