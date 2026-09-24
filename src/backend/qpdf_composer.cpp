@@ -1,7 +1,7 @@
 #include "qpdf_composer.h"
 
 #include "../internal.h"
-#include "base14_metrics.h"
+#include "composer_text_layout.h"
 #include "ttf_font.h"
 
 #include <qpdf/Buffer.hh>
@@ -111,119 +111,6 @@ char const* base_font_name(quantapdf_composer_font font)
     return names[static_cast<int>(font)];
 }
 
-std::optional<unsigned char> winansi_byte(unsigned int codepoint)
-{
-    struct mapping {
-        unsigned int unicode;
-        unsigned char byte;
-    };
-    static mapping const special[] = {
-        {0x20ac, 0x80}, {0x201a, 0x82}, {0x0192, 0x83}, {0x201e, 0x84},
-        {0x2026, 0x85}, {0x2020, 0x86}, {0x2021, 0x87}, {0x02c6, 0x88},
-        {0x2030, 0x89}, {0x0160, 0x8a}, {0x2039, 0x8b}, {0x0152, 0x8c},
-        {0x017d, 0x8e}, {0x2018, 0x91}, {0x2019, 0x92}, {0x201c, 0x93},
-        {0x201d, 0x94}, {0x2022, 0x95}, {0x2013, 0x96}, {0x2014, 0x97},
-        {0x02dc, 0x98}, {0x2122, 0x99}, {0x0161, 0x9a}, {0x203a, 0x9b},
-        {0x0153, 0x9c}, {0x017e, 0x9e}, {0x0178, 0x9f}};
-    if (codepoint <= 0x7f || (codepoint >= 0xa0 && codepoint <= 0xff))
-        return static_cast<unsigned char>(codepoint);
-    for (auto const& item: special) {
-        if (item.unicode == codepoint)
-            return item.byte;
-    }
-    return std::nullopt;
-}
-
-std::string to_winansi(char const* utf8)
-{
-    std::string result;
-    auto cursor = reinterpret_cast<unsigned char const*>(utf8);
-    while (*cursor != 0) {
-        unsigned int codepoint;
-        unsigned int count;
-        if (*cursor < 0x80) {
-            codepoint = *cursor;
-            count = 1;
-        } else if (*cursor < 0xe0) {
-            codepoint = *cursor & 0x1f;
-            count = 2;
-        } else {
-            codepoint = *cursor & 0x0f;
-            count = 3;
-        }
-        for (unsigned int i = 1; i < count; ++i)
-            codepoint = (codepoint << 6) | (cursor[i] & 0x3f);
-        auto const mapped = winansi_byte(codepoint);
-        if (!mapped.has_value())
-            throw std::invalid_argument("text is not representable in WinAnsi");
-        result.push_back(static_cast<char>(*mapped));
-        cursor += count;
-    }
-    return result;
-}
-
-double glyph_width(unsigned char glyph, quantapdf_composer_font font)
-{
-    return quantapdf::detail::base14_glyph_width(glyph, font);
-}
-
-double text_width(
-    std::string const& text,
-    quantapdf_composer_font font,
-    double font_size)
-{
-    double units = 0.0;
-    for (unsigned char glyph: text)
-        units += glyph_width(glyph, font);
-    return units * font_size / 1000.0;
-}
-
-std::vector<std::string> layout_lines(
-    std::string const& text,
-    quantapdf_composer_text_options const& options,
-    double width)
-{
-    std::vector<std::string> lines;
-    std::string line;
-    std::size_t last_space = std::string::npos;
-
-    auto publish = [&]() {
-        while (!line.empty() && line.back() == ' ')
-            line.pop_back();
-        lines.push_back(line);
-        line.clear();
-        last_space = std::string::npos;
-    };
-    for (char value: text) {
-        if (value == '\r')
-            continue;
-        if (value == '\n') {
-            publish();
-            continue;
-        }
-        line.push_back(value == '\t' ? ' ' : value);
-        if (value == ' ' || value == '\t')
-            last_space = line.size() - 1u;
-        if (options.wrap && line.size() > 1u &&
-            text_width(line, options.font, options.font_size) > width) {
-            if (last_space != std::string::npos) {
-                std::string remainder = line.substr(last_space + 1u);
-                line.resize(last_space);
-                publish();
-                line = remainder;
-            } else {
-                char overflow = line.back();
-                line.pop_back();
-                publish();
-                line.push_back(overflow);
-            }
-        }
-    }
-    if (!line.empty() || text.empty() || text.back() == '\n')
-        publish();
-    return lines;
-}
-
 std::string pdf_string(std::string const& value)
 {
     std::string result = "(";
@@ -261,9 +148,20 @@ void append_text_content(
     quantapdf_composer_operation const& operation)
 {
     auto const& options = operation.value.text.options;
-    auto text = to_winansi(operation.value.text.text_utf8);
-    auto lines = layout_lines(
-        text, options, operation.bounds.x1 - operation.bounds.x0);
+    std::vector<quantapdf::detail::base14_text_line> lines;
+    quantapdf_status const layout_status =
+        quantapdf::detail::layout_base14_text(
+            operation.value.text.text_utf8,
+            options,
+            operation.bounds.x1 - operation.bounds.x0,
+            &lines);
+    if (layout_status == QUANTAPDF_ERROR_NOMEM)
+        throw std::bad_alloc();
+    if (layout_status == QUANTAPDF_ERROR_FORMAT)
+        throw std::invalid_argument("validated Base-14 text layout failed");
+    if (layout_status != QUANTAPDF_OK)
+        throw std::logic_error("Base-14 text layout failed");
+
     double const line_height =
         options.font_size * options.line_height_multiplier;
     double y = page.height_points - operation.bounds.y0 - options.font_size;
@@ -271,125 +169,31 @@ void append_text_content(
     double const green = ((options.argb >> 8u) & 0xffu) / 255.0;
     double const blue = (options.argb & 0xffu) / 255.0;
     for (auto const& line: lines) {
-        double const width = text_width(line, options.font, options.font_size);
         double x = operation.bounds.x0;
         if (options.alignment == QUANTAPDF_COMPOSER_TEXT_ALIGN_CENTER)
-            x += (operation.bounds.x1 - operation.bounds.x0 - width) / 2.0;
+            x += (operation.bounds.x1 - operation.bounds.x0 -
+                  line.width_points) /
+                2.0;
         else if (options.alignment == QUANTAPDF_COMPOSER_TEXT_ALIGN_RIGHT)
-            x = operation.bounds.x1 - width;
+            x = operation.bounds.x1 - line.width_points;
         if (y < page.height_points - operation.bounds.y1)
             break;
         content += "BT /F" + std::to_string(static_cast<int>(options.font)) +
             " " + number(options.font_size) + " Tf " + number(red) + " " +
             number(green) + " " + number(blue) + " rg 1 0 0 1 " + number(x) +
-            " " + number(y) + " Tm " + pdf_string(line) + " Tj ET\n";
+            " " + number(y) + " Tm " + pdf_string(line.text) + " Tj ET\n";
         y -= line_height;
     }
 }
 
-
-struct embedded_glyph_item {
-    uint32_t codepoint = 0u;
-    uint16_t glyph = 0u;
-    int width = 0;
-};
-
-struct embedded_text_line {
-    std::vector<embedded_glyph_item> glyphs;
-    double width_points = 0.0;
-};
 
 struct embedded_font_usage {
     bool referenced = false;
     std::map<uint16_t, uint32_t> glyph_to_unicode;
 };
 
-double embedded_line_width(
-    std::vector<embedded_glyph_item> const& glyphs,
-    double font_size)
-{
-    double units = 0.0;
-    for (auto const& glyph: glyphs)
-        units += glyph.width;
-    return units * font_size / 1000.0;
-}
-
-std::vector<embedded_text_line> layout_embedded_lines(
-    char const* text,
-    quantapdf_composer_embedded_text_options const& options,
-    quantapdf::detail::ttf_font_face const& face,
-    double max_width)
-{
-    std::vector<uint32_t> codepoints;
-    if (quantapdf::detail::decode_utf8_codepoints(text, &codepoints) !=
-        QUANTAPDF_OK)
-        throw std::invalid_argument("invalid embedded text utf8");
-
-    std::vector<embedded_text_line> lines;
-    std::vector<embedded_glyph_item> line;
-    size_t last_space = std::string::npos;
-
-    auto recompute_space = [&]() {
-        last_space = std::string::npos;
-        for (size_t i = 0u; i < line.size(); ++i) {
-            if (line[i].codepoint == 0x20u)
-                last_space = i;
-        }
-    };
-    auto publish = [&]() {
-        while (!line.empty() && line.back().codepoint == 0x20u)
-            line.pop_back();
-        embedded_text_line published;
-        published.glyphs = line;
-        published.width_points =
-            embedded_line_width(published.glyphs, options.font_size);
-        lines.push_back(std::move(published));
-        line.clear();
-        last_space = std::string::npos;
-    };
-
-    for (uint32_t cp: codepoints) {
-        if (cp == '\r')
-            continue;
-        if (cp == '\n') {
-            publish();
-            continue;
-        }
-        if (cp == '\t')
-            cp = 0x20u;
-        uint16_t const glyph = face.glyph_for(cp);
-        if (glyph == 0u)
-            throw std::invalid_argument("embedded font missing glyph");
-        line.push_back({cp, glyph, face.width_for(glyph)});
-        if (cp == 0x20u)
-            last_space = line.size() - 1u;
-
-        if (options.wrap && line.size() > 1u &&
-            embedded_line_width(line, options.font_size) > max_width) {
-            if (last_space != std::string::npos) {
-                std::vector<embedded_glyph_item> remainder(
-                    line.begin() + static_cast<std::ptrdiff_t>(last_space + 1u),
-                    line.end());
-                line.resize(last_space);
-                publish();
-                line = std::move(remainder);
-                recompute_space();
-            } else {
-                auto overflow = line.back();
-                line.pop_back();
-                publish();
-                line.push_back(overflow);
-                recompute_space();
-            }
-        }
-    }
-    if (!line.empty() || codepoints.empty() ||
-        (!codepoints.empty() && codepoints.back() == '\n'))
-        publish();
-    return lines;
-}
-
-std::string glyph_hex(std::vector<embedded_glyph_item> const& glyphs)
+std::string glyph_hex(
+    std::vector<quantapdf::detail::embedded_glyph_item> const& glyphs)
 {
     std::ostringstream out;
     out.imbue(std::locale::classic());
@@ -408,11 +212,21 @@ void append_embedded_text_content(
 {
     auto const& options = operation.value.embedded_text.options;
     auto const& face = faces[options.font_id - 1u];
-    auto lines = layout_embedded_lines(
-        operation.value.embedded_text.text_utf8,
-        options,
-        face,
-        operation.bounds.x1 - operation.bounds.x0);
+    std::vector<quantapdf::detail::embedded_text_line> lines;
+    quantapdf_status const layout_status =
+        quantapdf::detail::layout_embedded_text(
+            operation.value.embedded_text.text_utf8,
+            options,
+            face,
+            operation.bounds.x1 - operation.bounds.x0,
+            &lines);
+    if (layout_status == QUANTAPDF_ERROR_NOMEM)
+        throw std::bad_alloc();
+    if (layout_status == QUANTAPDF_ERROR_FORMAT)
+        throw std::invalid_argument("validated embedded text layout failed");
+    if (layout_status != QUANTAPDF_OK)
+        throw std::logic_error("embedded text layout failed");
+
     double const line_height =
         options.font_size * options.line_height_multiplier;
     double y = page.height_points - operation.bounds.y0 - options.font_size;
