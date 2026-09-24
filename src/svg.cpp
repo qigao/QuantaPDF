@@ -2785,11 +2785,15 @@ quantapdf_status register_gradient_paint(
     matrix const& user_transform,
     quantapdf_composer_paint_id* out_paint_id)
 {
-    // PATH V4 carries the referencing element's SVG CTM. Paint coordinates
-    // stay in that local user space and retain only the definition transform.
-    (void)user_transform;
+    /*
+     * PDF Pattern matrices map to the parent content stream's default space.
+     * A PATH-local cm does not move the Pattern with the path, so the
+     * referencing SVG transform must remain part of the paint matrix.
+     */
+    matrix const composed =
+        multiply(user_transform, gradient.transform);
     quantapdf_affine_transform const transform =
-        resource_affine(gradient.transform);
+        resource_affine(composed);
 
     if (gradient.radial) {
         quantapdf_composer_radial_gradient_options options{};
@@ -3054,15 +3058,9 @@ quantapdf_status materialize_pattern(
     quantapdf_composer* composer,
     definition_table const& definitions,
     std::string const& pattern_id,
-    std::map<std::string, quantapdf_composer_paint_id>* cache,
+    matrix const& user_transform,
     quantapdf_composer_paint_id* out_paint_id)
 {
-    auto cached = cache->find(pattern_id);
-    if (cached != cache->end()) {
-        *out_paint_id = cached->second;
-        return QUANTAPDF_OK;
-    }
-
     auto found = definitions.patterns.find(pattern_id);
     if (found == definitions.patterns.end())
         return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -3080,8 +3078,10 @@ quantapdf_status materialize_pattern(
 
     matrix const placement =
         multiply(
-            pattern.transform,
-            translate_matrix(pattern.x, pattern.y));
+            user_transform,
+            multiply(
+                pattern.transform,
+                translate_matrix(pattern.x, pattern.y)));
 
     quantapdf_composer_tiling_pattern_options options{};
     options.struct_size =
@@ -3106,7 +3106,6 @@ quantapdf_status materialize_pattern(
             &paint_id);
     if (status != QUANTAPDF_OK)
         return status;
-    cache->emplace(pattern_id, paint_id);
     *out_paint_id = paint_id;
     return QUANTAPDF_OK;
 }
@@ -3932,7 +3931,6 @@ quantapdf_status publish_paths(
     std::vector<quantapdf_composer_graphics_state_id>
         state_ids(paths.size(), 0u);
     std::vector<quantapdf_composer_operation> staged(paths.size());
-    std::map<std::string, quantapdf_composer_paint_id> pattern_cache;
 
     size_t const paint_snapshot = composer->paint_count;
     size_t const state_snapshot = composer->graphics_state_count;
@@ -3995,7 +3993,7 @@ quantapdf_status publish_paths(
                     composer,
                     definitions,
                     reference,
-                    &pattern_cache,
+                    paths[i].resource_transform,
                     out_id);
             }
             return QUANTAPDF_ERROR_UNSUPPORTED;
