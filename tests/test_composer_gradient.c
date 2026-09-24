@@ -153,6 +153,10 @@ static int test_validation_budget_and_v3_identity(void)
         {1.0f, UINT32_C(0xff0000ff)}
     };
     quantapdf_composer_gradient_stop bad[3];
+    quantapdf_composer_gradient_stop budget_stops[2] = {
+        {0.0f, UINT32_C(0xffff0000)},
+        {1.0f, UINT32_C(0xff0000ff)}
+    };
     quantapdf_composer_paint_id id = 99u;
     quantapdf_composer_paint_id duplicate = 0u;
     quantapdf_composer_path_options path = fill_options();
@@ -271,7 +275,7 @@ static int test_validation_budget_and_v3_identity(void)
     CHECK(quantapdf_composer_add_radial_gradient(
               composer, &radial, &id) == QUANTAPDF_ERROR_ARGUMENT);
 
-    CHECK(add_page(composer, 100.0f, 100.0f) == 0);
+    CHECK(add_page(composer, 100.0f, 100.0f));
     quantapdf_drop_composer(composer);
     composer = NULL;
 
@@ -279,7 +283,7 @@ static int test_validation_budget_and_v3_identity(void)
     limits.max_resource_bytes =
         2u * sizeof(quantapdf_composer_gradient_stop) - 1u;
     CHECK(quantapdf_composer_create(&limits, &composer) == QUANTAPDF_OK);
-    linear.stops = stops;
+    linear.stops = budget_stops;
     linear.stop_count = 2u;
     linear.end = (quantapdf_point){100.0f, 0.0f};
     memset(&linear.transform, 0, sizeof(linear.transform));
