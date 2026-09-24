@@ -1042,6 +1042,7 @@ struct staged_path {
     float stroke_alpha = 1.0f;
     std::string fill_ref;
     std::string stroke_ref;
+    std::string mask_ref;
     matrix resource_transform;
     geometry_bounds local_bounds;
     std::vector<clip_component> clip_components;
@@ -1055,6 +1056,7 @@ struct staged_use {
     double width = 0.0;
     double height = 0.0;
     matrix user_transform;
+    std::string mask_ref;
     std::vector<clip_component> clip_components;
 };
 
@@ -1062,6 +1064,8 @@ struct staged_group {
     size_t order = 0u;
     std::string svg;
     float opacity = 1.0f;
+    std::string mask_ref;
+    matrix mask_transform;
     std::vector<clip_component> clip_components;
 };
 
@@ -1265,6 +1269,7 @@ void stage_path(
     staged.local_bounds = command_bounds(staged.commands);
     staged.fill_ref = style.fill ? style.fill_ref : std::string{};
     staged.stroke_ref = style.stroke ? style.stroke_ref : std::string{};
+    staged.mask_ref = style.mask_ref;
     // Clip resources are established outside the PATH q/cm scope, so they
     // still need the full referencing-element transform.
     staged.resource_transform = transform;
@@ -1998,7 +2003,8 @@ void validate_use_attributes(element const& item)
         if (attr.name != "id" && attr.name != "href" &&
             attr.name != "x" && attr.name != "y" &&
             attr.name != "width" && attr.name != "height" &&
-            attr.name != "transform" && attr.name != "clip-path")
+            attr.name != "transform" && attr.name != "clip-path" &&
+            attr.name != "mask")
             fail(QUANTAPDF_ERROR_UNSUPPORTED);
     }
     auto const* href = find_attribute(item, "href");
@@ -3501,6 +3507,10 @@ void validate_style_references(
         definitions.clips.find(style.clip_ref) ==
             definitions.clips.end())
         fail(QUANTAPDF_ERROR_UNSUPPORTED);
+    if (!style.mask_ref.empty() &&
+        definitions.masks.find(style.mask_ref) ==
+            definitions.masks.end())
+        fail(QUANTAPDF_ERROR_UNSUPPORTED);
 }
 
 struct context {
@@ -4170,7 +4180,8 @@ class svg_parser {
                         false));
                     root.style.clip_ref.clear();
                 }
-                if (root.style.opacity != 1.0) {
+                if (root.style.opacity != 1.0 ||
+                    !root.style.mask_ref.empty()) {
                     if (!item.self_closing) {
                         auto tokens = capture_children(tag, true);
                         stage_opacity_group(
@@ -4222,6 +4233,17 @@ class svg_parser {
                         definitions_);
                 use.order = next_order_++;
                 use.clip_components = parent.active_clips;
+                if (auto const* mask_value =
+                        find_attribute(item, "mask")) {
+                    std::string const parsed = trim(*mask_value);
+                    if (parsed != "none") {
+                        if (!local_fragment_url(parsed, &use.mask_ref))
+                            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+                        if (definitions_.masks.find(use.mask_ref) ==
+                            definitions_.masks.end())
+                            fail(QUANTAPDF_ERROR_UNSUPPORTED);
+                    }
+                }
                 if (auto const* clip_value =
                         find_attribute(item, "clip-path")) {
                     std::string const parsed = trim(*clip_value);
@@ -4263,7 +4285,8 @@ class svg_parser {
                         false));
                     group.style.clip_ref.clear();
                 }
-                if (group.style.opacity != 1.0) {
+                if (group.style.opacity != 1.0 ||
+                    !group.style.mask_ref.empty()) {
                     if (!item.self_closing) {
                         auto tokens = capture_children(tag, false);
                         stage_opacity_group(
@@ -4511,9 +4534,12 @@ class svg_parser {
         staged_group group;
         group.order = next_order_++;
         group.opacity = static_cast<float>(style.opacity);
+        group.mask_ref = style.mask_ref;
+        group.mask_transform = transform;
         group.clip_components = active_clips;
         style.opacity = 1.0;
         style.clip_ref.clear();
+        style.mask_ref.clear();
         group.svg = build_opacity_group_svg(
             definitions_,
             bounds_,
