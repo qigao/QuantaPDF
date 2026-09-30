@@ -5,16 +5,15 @@ function(quantapdf_import_pdfium)
     return()
   endif()
 
-  set(_version "154.0.8021.0")
-  set(_base_url
-      "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/8021")
+  set(_release_api
+      "https://api.github.com/repos/bblanchon/pdfium-binaries/releases/latest")
   set(_target_processor "${CMAKE_SYSTEM_PROCESSOR}")
 
   if(APPLE AND CMAKE_OSX_ARCHITECTURES)
     list(LENGTH CMAKE_OSX_ARCHITECTURES _architecture_count)
     if(NOT _architecture_count EQUAL 1)
       message(FATAL_ERROR
-        "QuantaPDF requires a single-architecture macOS build for pinned PDFium artifacts")
+        "QuantaPDF requires a single-architecture macOS build for PDFium artifacts")
     endif()
     list(GET CMAKE_OSX_ARCHITECTURES 0 _target_processor)
   elseif(WIN32 AND CMAKE_GENERATOR_PLATFORM)
@@ -25,34 +24,78 @@ function(quantapdf_import_pdfium)
      AND CMAKE_SIZEOF_VOID_P EQUAL 8
      AND _target_processor MATCHES "^(x64|x86_64|amd64|AMD64)$")
     set(_platform "win-x64")
-    set(_sha256
-      "adac8ce034015427b5daa81f8eeddfcc8e84bc2a9f036f007890ff18bd4388c4")
   elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux"
          AND _target_processor MATCHES "^(x86_64|amd64|AMD64)$")
     set(_platform "linux-x64")
-    set(_sha256
-      "685f7930cd184ea22cd77afe707c1cf53b173d18118b6e16cb213c9277d7cdc3")
   elseif(APPLE AND _target_processor MATCHES "^(x86_64|amd64|AMD64)$")
     set(_platform "mac-x64")
-    set(_sha256
-      "0e770fda56c6726a08fab84c6306ad91eceb10589020ce3a407fad3ebcbe7bb2")
   elseif(APPLE AND _target_processor MATCHES "^(arm64|aarch64)$")
     set(_platform "mac-arm64")
-    set(_sha256
-      "994600fa28974ce09a1c51c35039e808a6bc8ea3839050322c101ab229ad5c96")
   else()
     message(FATAL_ERROR
-      "PDFium ${_version} has no pinned artifact for "
+      "Latest PDFium release has no supported artifact mapping for "
       "${CMAKE_SYSTEM_NAME}/${_target_processor}")
   endif()
 
-  set(_url "${_base_url}/pdfium-${_platform}.tgz")
   set(_download_directory "${CMAKE_BINARY_DIR}/_deps/downloads")
-  set(_archive "${_download_directory}/pdfium-${_platform}.tgz")
-  set(_root "${CMAKE_BINARY_DIR}/_deps/pdfium-${_version}-${_platform}")
+  file(MAKE_DIRECTORY "${_download_directory}")
+  set(_release_metadata "${_download_directory}/pdfium-latest-release.json")
+  file(DOWNLOAD "${_release_api}" "${_release_metadata}"
+    TLS_VERIFY ON
+    HTTPHEADER
+      "Accept: application/vnd.github+json"
+      "X-GitHub-Api-Version: 2022-11-28"
+      "User-Agent: QuantaPDF-CMake"
+    STATUS _metadata_status)
+  list(GET _metadata_status 0 _metadata_code)
+  list(GET _metadata_status 1 _metadata_message)
+  if(NOT _metadata_code EQUAL 0)
+    file(REMOVE "${_release_metadata}")
+    message(FATAL_ERROR "PDFium latest-release metadata download failed: ${_metadata_message}")
+  endif()
+
+  file(READ "${_release_metadata}" _release_json)
+  string(JSON _release_tag GET "${_release_json}" tag_name)
+  string(JSON _release_name GET "${_release_json}" name)
+  string(JSON _asset_count LENGTH "${_release_json}" assets)
+  if(_release_tag STREQUAL "" OR _release_name STREQUAL "" OR _asset_count EQUAL 0)
+    message(FATAL_ERROR "PDFium latest-release metadata is incomplete")
+  endif()
+
+  string(REGEX REPLACE "^PDFium[ ]+" "" _expected_version "${_release_name}")
+  if(_expected_version STREQUAL _release_name)
+    message(FATAL_ERROR
+      "PDFium latest release name does not expose a version: ${_release_name}")
+  endif()
+
+  set(_asset_name "pdfium-${_platform}.tgz")
+  set(_url "")
+  set(_asset_digest "")
+  math(EXPR _asset_last "${_asset_count} - 1")
+  foreach(_asset_index RANGE 0 ${_asset_last})
+    string(JSON _candidate_name GET "${_release_json}" assets ${_asset_index} name)
+    if(_candidate_name STREQUAL _asset_name)
+      string(JSON _url GET "${_release_json}" assets ${_asset_index} browser_download_url)
+      string(JSON _asset_digest GET "${_release_json}" assets ${_asset_index} digest)
+      break()
+    endif()
+  endforeach()
+
+  if(_url STREQUAL "")
+    message(FATAL_ERROR
+      "PDFium latest release ${_release_tag} does not provide ${_asset_name}")
+  endif()
+  if(NOT _asset_digest MATCHES "^sha256:[0-9A-Fa-f]{64}$")
+    message(FATAL_ERROR
+      "PDFium latest release ${_release_tag} does not provide a SHA-256 digest for ${_asset_name}")
+  endif()
+  string(REGEX REPLACE "^sha256:" "" _sha256 "${_asset_digest}")
+
+  string(REGEX REPLACE "[^A-Za-z0-9._-]" "-" _release_key "${_release_tag}")
+  set(_archive "${_download_directory}/pdfium-${_release_key}-${_platform}.tgz")
+  set(_root "${CMAKE_BINARY_DIR}/_deps/pdfium-${_release_key}-${_platform}")
 
   if(NOT EXISTS "${_archive}")
-    file(MAKE_DIRECTORY "${_download_directory}")
     file(DOWNLOAD "${_url}" "${_archive}"
       EXPECTED_HASH "SHA256=${_sha256}"
       TLS_VERIFY ON
@@ -86,7 +129,7 @@ function(quantapdf_import_pdfium)
       "VERSION")
     if(NOT EXISTS "${_root}/${_required_path}")
       message(FATAL_ERROR
-        "Pinned PDFium artifact is missing ${_required_path}: ${_root}")
+        "Latest PDFium artifact is missing ${_required_path}: ${_root}")
     endif()
   endforeach()
 
@@ -98,22 +141,26 @@ function(quantapdf_import_pdfium)
     string(FIND "${_build_arguments}" "${_disabled_feature}" _feature_position)
     if(_feature_position EQUAL -1)
       message(FATAL_ERROR
-        "Pinned PDFium artifact does not prove '${_disabled_feature}'")
+        "Latest PDFium artifact does not prove '${_disabled_feature}'")
     endif()
   endforeach()
 
   file(READ "${_root}/VERSION" _artifact_version)
-  foreach(_version_line IN ITEMS
-      "MAJOR=154"
-      "MINOR=0"
-      "BUILD=8021"
-      "PATCH=0")
-    string(FIND "${_artifact_version}" "${_version_line}" _version_position)
-    if(_version_position EQUAL -1)
+  foreach(_component IN ITEMS MAJOR MINOR BUILD PATCH)
+    string(REGEX MATCH "${_component}=([0-9]+)" _component_match "${_artifact_version}")
+    if(_component_match STREQUAL "")
       message(FATAL_ERROR
-        "Pinned PDFium artifact has an unexpected VERSION file: ${_root}/VERSION")
+        "Latest PDFium artifact has an invalid VERSION file: ${_root}/VERSION")
     endif()
+    set(_artifact_${_component} "${CMAKE_MATCH_1}")
   endforeach()
+  set(_artifact_version_string
+      "${_artifact_MAJOR}.${_artifact_MINOR}.${_artifact_BUILD}.${_artifact_PATCH}")
+  if(NOT _artifact_version_string STREQUAL _expected_version)
+    message(FATAL_ERROR
+      "PDFium latest release metadata/version mismatch: release=${_expected_version}, "
+      "artifact=${_artifact_version_string}")
+  endif()
 
   if(WIN32)
     set(_runtime "${_root}/bin/pdfium.dll")
@@ -128,10 +175,10 @@ function(quantapdf_import_pdfium)
   endif()
 
   if(NOT EXISTS "${_runtime}")
-    message(FATAL_ERROR "Pinned PDFium runtime is missing: ${_runtime}")
+    message(FATAL_ERROR "Latest PDFium runtime is missing: ${_runtime}")
   endif()
   if(WIN32 AND NOT EXISTS "${_import_library}")
-    message(FATAL_ERROR "Pinned PDFium import library is missing: ${_import_library}")
+    message(FATAL_ERROR "Latest PDFium import library is missing: ${_import_library}")
   endif()
 
   add_library(quantapdf_pdfium SHARED IMPORTED GLOBAL)
@@ -147,4 +194,6 @@ function(quantapdf_import_pdfium)
   set(QUANTAPDF_PDFIUM_ROOT "${_root}" PARENT_SCOPE)
   set(QUANTAPDF_PDFIUM_RUNTIME_DIR "${_runtime_directory}" PARENT_SCOPE)
   set(QUANTAPDF_PDFIUM_LICENSE_DIR "${_root}/licenses" PARENT_SCOPE)
+  set(QUANTAPDF_PDFIUM_VERSION "${_artifact_version_string}" PARENT_SCOPE)
+  set(QUANTAPDF_PDFIUM_RELEASE "${_release_tag}" PARENT_SCOPE)
 endfunction()
