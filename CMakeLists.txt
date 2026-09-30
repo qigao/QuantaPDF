@@ -10,7 +10,7 @@ include(QuantaPDFExports)
 include(QuantaPDFPdfium)
 quantapdf_import_pdfium()
 
-find_package(qpdf 12.4.0 EXACT CONFIG REQUIRED)
+find_package(qpdf CONFIG REQUIRED)
 if(NOT TARGET qpdf::libqpdf)
   message(FATAL_ERROR "qpdf did not provide qpdf::libqpdf")
 endif()
