@@ -33,11 +33,6 @@ static int quantapdf_composer_measurement_prepare(
 }
 
 
-static int quantapdf_composer_point_valid(const quantapdf_point *point)
-{
-    return point != NULL && isfinite(point->x) && isfinite(point->y);
-}
-
 int quantapdf_affine_transform_valid_internal(
     const quantapdf_affine_transform *transform)
 {
