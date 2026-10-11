@@ -404,7 +404,7 @@ static void test_page_semantics_arrays(void)
     quantapdf_graph_limits budget = limits();
     quantapdf_graph_stream_limits decode = {4096, 128, 100000};
     quantapdf_pdf_content_limits parse = {4096, 32, 8}, small;
-    quantapdf_graph_snapshot *base = NULL, *next = NULL;
+    quantapdf_graph_snapshot *base = NULL, *next = NULL, *empty = NULL;
     quantapdf_context *context = NULL;
     quantapdf_document *document = NULL;
     const quantapdf_graph_model *model;
@@ -458,6 +458,24 @@ static void test_page_semantics_arrays(void)
     change.additions = additions;
     change.addition_count = 2;
     OK(quantapdf_graph_snapshot_commit(base, &change, &budget, &next, &report));
+
+    /* Two empty decoded streams require exactly one delimiter byte. */
+    additions[0].data = NULL; additions[0].data_size = 0;
+    additions[1].data = NULL; additions[1].data_size = 0;
+    OK(quantapdf_graph_snapshot_commit(base, &change, &budget, &empty, &report));
+    small = parse; small.max_input_bytes = 1;
+    OK(quantapdf_graph_snapshot_page_semantics(empty, 0, &decode, &small, 2,
+        &semantics));
+    CHECK(semantics->content->count == 0 && semantics->graphics->path_count == 0);
+    quantapdf_pdf_page_semantics_dispose(semantics); semantics = NULL;
+    {
+        quantapdf_graph_stream_limits invalid_decode = decode;
+        invalid_decode.max_direct_depth = QUANTAPDF_GRAPH_MAX_DIRECT_DEPTH + 1;
+        CHECK(quantapdf_graph_snapshot_page_semantics(empty, 0, &invalid_decode,
+            &parse, 2, &semantics) == QUANTAPDF_ERROR_ARGUMENT);
+        CHECK(semantics == NULL);
+    }
+    quantapdf_graph_snapshot_drop(empty);
     quantapdf_graph_snapshot_drop(base);
     CHECK(finalized == 0);
 

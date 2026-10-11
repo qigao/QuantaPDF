@@ -63,6 +63,7 @@ quantapdf_status quantapdf_graph_snapshot_page_semantics(
         parse_limits == NULL || max_streams == 0 ||
         decode_limits->max_decoded_bytes == 0 ||
         decode_limits->max_direct_depth == 0 ||
+        decode_limits->max_direct_depth > QUANTAPDF_GRAPH_MAX_DIRECT_DEPTH ||
         decode_limits->max_direct_visits == 0 ||
         parse_limits->max_input_bytes == 0 ||
         parse_limits->max_operators == 0 ||
@@ -107,8 +108,10 @@ quantapdf_status quantapdf_graph_snapshot_page_semantics(
             if (status != QUANTAPDF_OK) goto fail;
         }
         remaining = parse_limits->max_input_bytes - joined.size;
-        if (remaining == 0) { status = QUANTAPDF_ERROR_UNSUPPORTED; goto fail; }
-        if (local_limits.max_decoded_bytes > remaining)
+        /* An exact aggregate budget can leave room only for empty streams.
+         * Keep the decoder's limit nonzero; append rejects any real output. */
+        if (remaining == 0) local_limits.max_decoded_bytes = 1;
+        else if (local_limits.max_decoded_bytes > remaining)
             local_limits.max_decoded_bytes = remaining;
         status = quantapdf_graph_reference_at(snapshot->graph, id, &reference);
         if (status != QUANTAPDF_OK) goto fail;
