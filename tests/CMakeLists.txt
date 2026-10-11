@@ -1,3 +1,14 @@
+# Pure render planning has no SDK/provider dependency.
+add_executable(quantapdf_test_render_plan test_render_plan.c ../src/render/render_plan.c)
+target_include_directories(quantapdf_test_render_plan PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_render_plan PRIVATE c_std_11)
+if(UNIX)
+  target_link_libraries(quantapdf_test_render_plan PRIVATE m)
+endif()
+add_test(NAME quantapdf.render_plan COMMAND quantapdf_test_render_plan)
+set_tests_properties(quantapdf.render_plan PROPERTIES TIMEOUT 30)
+
 # Pure model/validator tests do not link the SDK or any parser.
 add_executable(quantapdf_test_graph test_graph.c
   ../src/graph/graph.c ../src/graph/identity.c ../src/validation/graph_validation.c)
@@ -699,6 +710,10 @@ add_executable(quantapdf_test_render test_render.c)
 target_link_libraries(quantapdf_test_render PRIVATE QuantaPDF::QuantaPDF)
 target_compile_definitions(quantapdf_test_render PRIVATE
   ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
+  RENDER_PATTERN_PDF="${CMAKE_CURRENT_BINARY_DIR}/render-pattern.pdf"
+  RENDER_CROPPED_PATTERN_PDF="${CMAKE_CURRENT_BINARY_DIR}/render-cropped-pattern.pdf"
+  RENDER_INTRINSIC_ROTATION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/poster-rotate-90.pdf"
+  RENDER_USERUNIT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/poster-userunit.pdf"
   PAGE_BOXES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-boxes.pdf")
 add_test(NAME quantapdf.render COMMAND quantapdf_test_render)
 set_tests_properties(quantapdf.render PROPERTIES TIMEOUT 30)
