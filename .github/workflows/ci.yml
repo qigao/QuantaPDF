@@ -96,6 +96,9 @@ jobs:
       - name: Test static build
         run: ctest --preset linux-release-user
 
+      - name: Install static SDK
+        run: cmake --build --preset install-linux-release-user --parallel 2
+
       - name: Qualify CFF2 with Poppler
         shell: bash
         run: |
@@ -218,6 +221,9 @@ jobs:
 
       - name: Test
         run: ctest --preset "$CMAKE_PRESET"
+
+      - name: Install SDK
+        run: cmake --build --preset "install-$CMAKE_PRESET" --parallel 2
 
       - name: Upload failed poster output
         if: failure()

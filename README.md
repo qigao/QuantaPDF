@@ -75,6 +75,16 @@ The current supported surface includes:
   and hierarchical outlines
 - stable status strings and one allocator-matched `quantapdf_free()` entry point
 
+## Native SDK package
+
+The installed SDK provides `find_package(QuantaPDF CONFIG)` and the
+`QuantaPDF::QuantaPDF` target for C/C++ consumers. Shared packages keep backend
+build dependencies private; static packages record their required link inputs.
+Use the existing `install-<profile>` user preset to install a matching profile.
+The [native SDK contract](docs/native-sdk.md) defines package layout, handle
+ownership, foreign type mapping, errors and ABI evolution for C, C++, Rust,
+Go and C# callers. Language-specific binding packages remain separate work.
+
 ## API contract
 
 - The public header contains no PDFium or qpdf types.
