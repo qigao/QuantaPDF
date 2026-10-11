@@ -335,6 +335,39 @@ static void test_editor_snapshot_and_refs(void)
     quantapdf_drop_form(second);
 }
 
+static void test_snapshot_borrows_survive_source_mutation(void)
+{
+    quantapdf_pdf_edit *edit = open_edit(FORM_MUTATION_BASIC_PDF);
+    quantapdf_form_field_ref ref = field_ref_by_name(edit, "zero");
+    quantapdf_form_value_input value;
+    quantapdf_form_value_update update;
+    quantapdf_form *first = NULL, *second = NULL;
+    const char *borrowed = NULL, *again = NULL;
+    size_t size = 0, again_size = 0, field_index;
+
+    make_text_update(&value, &update, "alpha", 5);
+    CHECK(quantapdf_pdf_edit_form_set_values(edit, &ref, &update) == QUANTAPDF_OK);
+    CHECK(quantapdf_pdf_edit_form_snapshot(edit, &first) == QUANTAPDF_OK);
+    field_index = form_field_index_by_name(first, "zero");
+    CHECK(quantapdf_form_field_value_utf8(first, field_index, 0,
+        &borrowed, &size) == QUANTAPDF_OK);
+    CHECK(size == 5 && memcmp(borrowed, "alpha", size) == 0);
+
+    make_text_update(&value, &update, "beta", 4);
+    CHECK(quantapdf_pdf_edit_form_set_values(edit, &ref, &update) == QUANTAPDF_OK);
+    CHECK(quantapdf_pdf_edit_form_snapshot(edit, &second) == QUANTAPDF_OK);
+    quantapdf_drop_pdf_edit(edit);
+    expect_text_field(first, "zero", QUANTAPDF_FORM_VALUE_PRESENT, "alpha");
+    expect_text_field(second, "zero", QUANTAPDF_FORM_VALUE_PRESENT, "beta");
+    quantapdf_drop_form(second);
+
+    CHECK(quantapdf_form_field_value_utf8(first, field_index, 0,
+        &again, &again_size) == QUANTAPDF_OK);
+    CHECK(again == borrowed && again_size == size);
+    CHECK(memcmp(borrowed, "alpha", size) == 0);
+    quantapdf_drop_form(first);
+}
+
 static void test_need_appearances_observation_is_byte_preserving(void)
 {
     quantapdf_output *plain = snapshot_source(FORM_MUTATION_NEED_APPEARANCES_PDF, 0);
@@ -799,6 +832,7 @@ int main(void)
     compile_surface();
     test_api_reset();
     test_editor_snapshot_and_refs();
+    test_snapshot_borrows_survive_source_mutation();
     test_need_appearances_observation_is_byte_preserving();
     test_widget_prepare_is_byte_preserving();
     test_zero_widget_text_roundtrip();

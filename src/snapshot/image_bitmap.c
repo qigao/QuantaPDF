@@ -21,20 +21,20 @@ quantapdf_status quantapdf_image_render(
         return QUANTAPDF_ERROR_ARGUMENT;
 
     occurrence = &images->items[index];
-    status = quantapdf_context_retain_internal(images->context);
+    status = quantapdf_context_retain_internal(images->snapshot.context);
     if (status != QUANTAPDF_OK)
         return status;
     bitmap = (quantapdf_bitmap *)quantapdf_context_allocate_internal(
-        images->context, sizeof(*bitmap));
+        images->snapshot.context, sizeof(*bitmap));
     if (bitmap == NULL) {
-        quantapdf_drop_context(images->context);
+        quantapdf_drop_context(images->snapshot.context);
         return QUANTAPDF_ERROR_NOMEM;
     }
-    bitmap->context = images->context;
+    bitmap->context = images->snapshot.context;
     bitmap->data = (unsigned char *)malloc(occurrence->pixel_size);
     if (bitmap->data == NULL) {
         free(bitmap);
-        quantapdf_drop_context(images->context);
+        quantapdf_drop_context(images->snapshot.context);
         return QUANTAPDF_ERROR_NOMEM;
     }
     memcpy(bitmap->data, occurrence->pixels, occurrence->pixel_size);

@@ -3,7 +3,7 @@
 
 #include <stddef.h>
 
-#include <quantapdf/quantapdf.h>
+#include "snapshot_owner.h"
 
 typedef struct quantapdf_outline_node_internal {
     size_t parent_index;
@@ -21,7 +21,7 @@ typedef struct quantapdf_outline_node_internal {
 } quantapdf_outline_node_internal;
 
 struct quantapdf_outline {
-    quantapdf_context *context;
+    quantapdf_snapshot snapshot;
     quantapdf_outline_node_internal *nodes;
     char *strings;
     size_t count;

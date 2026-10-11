@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <quantapdf/quantapdf.h>
+#include "snapshot_owner.h"
 
 typedef struct quantapdf_pdf_form_string {
     size_t offset;
@@ -63,10 +63,12 @@ typedef struct quantapdf_pdf_form_model {
 } quantapdf_pdf_form_model;
 
 struct quantapdf_form {
-    quantapdf_context *context;
+    quantapdf_snapshot snapshot;
     quantapdf_pdf_form_model *model;
 };
 
 void quantapdf_pdf_form_drop_model(quantapdf_pdf_form_model *model);
+/* Finalizer shared by document and edit snapshot construction. */
+void quantapdf_form_dispose_internal(quantapdf_snapshot *snapshot);
 
 #endif

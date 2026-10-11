@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <quantapdf/quantapdf.h>
+#include "snapshot_owner.h"
 
 typedef struct quantapdf_annotation_internal {
     quantapdf_annotation_type type;
@@ -16,7 +16,7 @@ typedef struct quantapdf_annotation_internal {
 } quantapdf_annotation_internal;
 
 struct quantapdf_annotation_page {
-    quantapdf_context *context;
+    quantapdf_snapshot snapshot;
     quantapdf_annotation_internal *items;
     char *strings;
     size_t count;
