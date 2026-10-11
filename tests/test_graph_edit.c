@@ -64,6 +64,7 @@ static void equal_models(const quantapdf_graph *a, const quantapdf_graph *b)
     CHECK(x->trailer == y->trailer && x->catalog == y->catalog);
     CHECK(x->page_offset == y->page_offset && x->page_count == y->page_count);
     CHECK(memcmp(x->bytes, y->bytes, x->byte_count) == 0);
+    CHECK(memcmp(x->source.pdf_version, y->source.pdf_version, 4) == 0 && x->source.encrypted == y->source.encrypted);
     for (i = 0; i < x->node_count; ++i) {
         CHECK(x->nodes[i].kind == y->nodes[i].kind && x->nodes[i].indirect == y->nodes[i].indirect);
         CHECK(x->nodes[i].integer == y->nodes[i].integer);

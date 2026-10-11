@@ -3,6 +3,7 @@
 
 #include "snapshot_owner.h"
 #include "graph/graph_edit.h"
+#include "graph/graph_write.h"
 
 typedef struct quantapdf_graph_snapshot {
     quantapdf_snapshot owner;
@@ -27,6 +28,10 @@ quantapdf_status quantapdf_graph_snapshot_commit(
     const quantapdf_graph_limits *limits, quantapdf_graph_snapshot **out_snapshot,
     quantapdf_validation_report *report);
 void quantapdf_graph_snapshot_drop(quantapdf_graph_snapshot *snapshot);
+/* Private serialization; output retains the context and outlives this snapshot.
+ * No partial output is published. See graph writer design for admission policy. */
+quantapdf_status quantapdf_graph_snapshot_write(const quantapdf_graph_snapshot *snapshot,
+    const quantapdf_graph_write_limits *limits, quantapdf_output **out_output);
 #ifdef __cplusplus
 }
 #endif

@@ -5,8 +5,9 @@ Architecture decision for [#146](https://github.com/qigao/QuantaPDF/issues/146),
 [#153](https://github.com/qigao/QuantaPDF/issues/153), following the validation
 foundation in #186. The findings below describe that baseline. Runtime
 references, bounded graph import and private immutable graph commits are now
-implemented in the sections below. Feature-authority migration, graph writing
-and graph-to-IR conversion remain outstanding.
+implemented in the sections below. A private, policy-restricted graph writer now
+supports detached snapshot output. Feature-authority migration, encrypted/signed
+graph output policy and graph-to-IR conversion remain outstanding.
 
 ## Evidence and problem
 
@@ -275,9 +276,10 @@ integers, exact real tokens, canonical names/keys, and binary strings. Streams
 use the success-reporting `pipeStreamData` overload with no decoding/encoding,
 and a bounded sink writes directly into graph-owned storage. These are encoded
 bytes after provider decryption, not original encrypted file bytes. Filters and
-stream dictionaries are preserved for inspection. A later writer must handle
-encryption/filter normalization explicitly; this increment is not a graph-to-PDF
-writer or a lossless serializer. Warnings, unsupported values, traversal limits
+stream dictionaries are preserved for inspection. The private
+[graph writer](2026-10-11-quantapdf-graph-writer-design.md) rejects encrypted
+provenance, Crypt filters and external stream files until their policies exist.
+Capture itself is not a lossless serializer. Warnings, unsupported values, traversal limits
 and stream read failures abort capture rather than publish an incomplete graph.
 The adapter uses the operation's success result, not its filtering-attempted
 flag: [QPDF 12.4 sets that flag for empty streams too](https://github.com/qpdf/qpdf/blob/v12.4.0/libqpdf/QPDF_Stream.cc#L560-L588).
@@ -295,9 +297,9 @@ Validation checks storage partitions, all references, kinds, scalar and byte
 shapes, dictionary order, roots and page node types with the #149 deterministic
 first-failure report. It does not certify PDF/A/UA or interpret content streams.
 The facade capture and formal parser-independent snapshot tests are the first
-consumers. Migrating existing feature reads and public editing, graph writing
-and QP IR lowering remain separate steps; their requirements are not closed by
-capture or the private commits below.
+consumers. Migrating existing feature reads and public editing, completing graph
+writer policies and QP IR lowering remain separate steps; their requirements are
+not closed by capture or the private commits below.
 
 ## Graph identity across immutable commits
 
@@ -326,8 +328,10 @@ Snapshot integration tests import real metadata, commit copied binary values,
 drop the parser/base/context reference and inspect the surviving version. Pure
 tests cover sibling rejection, inherited references, stale batches, cycles,
 root/page changes, mismatched indexes, repeated tree nodes, page-tree depth,
-bounded failure and deterministic model equality. Graph-to-IR
-identity mapping and equivalent PDF output remain unverified future work.
+bounded failure and deterministic model equality. Private graph-writer tests now
+verify deterministic output, reordered page content/shared resources, binary
+metadata, cycles and encoded streams after reopening. Graph-to-IR identity
+mapping and broader output policies remain future work.
 
 ## Acceptance evidence
 

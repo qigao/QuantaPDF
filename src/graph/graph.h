@@ -30,6 +30,11 @@ typedef struct quantapdf_graph_edge {
     size_t key_offset, key_size;
 } quantapdf_graph_edge;
 
+typedef struct quantapdf_graph_source {
+    char pdf_version[4]; /* Canonical header M.m, or all zero when unknown. */
+    int encrypted;       /* Immutable provenance; no credentials or key material. */
+} quantapdf_graph_source;
+
 /* Owned by graph; all reachable data is const to consumers. Names/keys include
  * '/'; strings are binary. Stream bytes are encoded, after provider decryption.
  * Node and byte/edge partitions follow ID order. Zero IDs are invalid. */
@@ -42,6 +47,7 @@ typedef struct quantapdf_graph_model {
     size_t byte_count;
     quantapdf_local_id trailer, catalog;
     size_t page_offset, page_count;
+    quantapdf_graph_source source;
 } quantapdf_graph_model;
 
 typedef struct quantapdf_graph_limits {
@@ -68,6 +74,9 @@ extern "C" {
 quantapdf_status quantapdf_graph_create(
     const quantapdf_graph_limits *limits, quantapdf_graph **out_graph);
 void quantapdf_graph_drop(quantapdf_graph *graph);
+/* Builder-only source facts; copied into every committed version. */
+quantapdf_status quantapdf_graph_set_source(
+    quantapdf_graph *graph, const quantapdf_graph_source *source);
 
 /* Unpublished builder operations. Limits: UNSUPPORTED; allocation: NOMEM;
  * invalid arguments: ARGUMENT; invalid phase/redefinition: STATE. Reservations

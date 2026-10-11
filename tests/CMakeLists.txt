@@ -17,7 +17,7 @@ set_tests_properties(quantapdf.graph_edit PROPERTIES TIMEOUT 30)
 
 # Compile the actual private facade/lifetime helpers without adding SDK exports.
 add_executable(quantapdf_test_graph_snapshot test_graph_snapshot.c
-  ../src/document/document_graph.c ../src/core/context_lifetime.c ../src/snapshot/snapshot_owner.c)
+  ../src/document/document_graph.c ../src/core/context_lifetime.c ../src/core/output_lifetime.c ../src/snapshot/snapshot_owner.c)
 target_include_directories(quantapdf_test_graph_snapshot PRIVATE "${PROJECT_SOURCE_DIR}/src")
 target_link_libraries(quantapdf_test_graph_snapshot PRIVATE
   QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium)
@@ -39,6 +39,17 @@ target_link_libraries(quantapdf_test_graph_import PRIVATE
 target_compile_features(quantapdf_test_graph_import PRIVATE cxx_std_20)
 add_test(NAME quantapdf.graph_import COMMAND quantapdf_test_graph_import)
 set_tests_properties(quantapdf.graph_import PROPERTIES TIMEOUT 30)
+
+add_executable(quantapdf_test_graph_write test_graph_write.cpp)
+target_include_directories(quantapdf_test_graph_write PRIVATE "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_graph_write PRIVATE
+  QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium qpdf::libqpdf)
+target_compile_definitions(quantapdf_test_graph_write PRIVATE
+  GRAPH_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-three-page.pdf"
+  GRAPH_ENCRYPTED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/encrypted-one-page.pdf")
+target_compile_features(quantapdf_test_graph_write PRIVATE cxx_std_20)
+add_test(NAME quantapdf.graph_write COMMAND quantapdf_test_graph_write)
+set_tests_properties(quantapdf.graph_write PROPERTIES TIMEOUT 30)
 
 # Compile the identity contract without any backend or SDK library dependency.
 add_executable(quantapdf_test_identity
