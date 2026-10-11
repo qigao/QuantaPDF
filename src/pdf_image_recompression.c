@@ -1,7 +1,5 @@
 #include "internal.h"
 
-#include "backend/qpdf_document.h"
-
 #include <stdlib.h>
 
 quantapdf_status quantapdf_recompress_images(
@@ -18,13 +16,13 @@ quantapdf_status quantapdf_recompress_images(
         QUANTAPDF_IMAGE_RECOMPRESSION_DEFAULT_MAX_DECODED_BYTES;
     quantapdf_output *output;
     quantapdf_status status;
-    quantapdf_qpdf_image_recompression_test_stats test_stats = {0};
+    quantapdf_backend_image_recompression_test_stats test_stats = {0};
     int test_fault = 0;
 
     if (out_output == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_output = NULL;
-    if (document == NULL || document->qpdf_document == NULL ||
+    if (document == NULL || document->backend == NULL ||
         options == NULL ||
         options->struct_size <
             QUANTAPDF_IMAGE_RECOMPRESSION_OPTIONS_V1_MIN_SIZE ||
@@ -47,8 +45,8 @@ quantapdf_status quantapdf_recompress_images(
     document->test_image_decoded_preflight_bytes = 0;
     document->test_image_every_provider_once = 0;
 #endif
-    status = quantapdf_qpdf_recompress_images(
-        document->qpdf_document,
+    status = document->ops->recompress_images(
+        document->backend,
         options->jpeg_quality,
         max_decoded_bytes_per_image,
         test_fault,

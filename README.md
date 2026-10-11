@@ -79,6 +79,9 @@ The current supported surface includes:
 
 - The public header contains no PDFium or qpdf types.
 - Backend handles and C++ exceptions remain private to the library.
+- Document, page, extraction, transform, and edit calls use a
+  [private backend operation boundary](docs/superpowers/specs/2026-10-11-quantapdf-backend-abstraction-design.md)
+  with the existing built-in PDFium/qpdf composition.
 - `quantapdf_page` and `quantapdf_bitmap` borrow their parent document. The document must outlive all derived page and bitmap handles.
 - A bitmap does not borrow its source page after rendering, so the page may be dropped before the bitmap, provided the document remains alive.
 - PDFium process state is private, initialized once, and serialized by the

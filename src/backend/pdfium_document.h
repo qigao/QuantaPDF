@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include <quantapdf/quantapdf.h>
+#include "document_backend.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -15,14 +16,7 @@ typedef struct quantapdf_text_page quantapdf_text_page;
 typedef struct quantapdf_image_page quantapdf_image_page;
 typedef struct quantapdf_link_page quantapdf_link_page;
 
-typedef struct quantapdf_pdfium_bitmap {
-    unsigned char *data;
-    size_t size;
-    int width;
-    int height;
-    int stride;
-    int components;
-} quantapdf_pdfium_bitmap;
+typedef quantapdf_backend_bitmap quantapdf_pdfium_bitmap;
 
 quantapdf_status quantapdf_pdfium_open_memory(
     const unsigned char *data,

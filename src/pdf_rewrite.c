@@ -1,5 +1,4 @@
 #include "internal.h"
-#include "backend/qpdf_document.h"
 
 #include <stdlib.h>
 
@@ -14,15 +13,15 @@ quantapdf_status quantapdf_rewrite_lossless(
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_output = NULL;
 
-    if (document == NULL || document->qpdf_document == NULL)
+    if (document == NULL || document->backend == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
 
     output = (quantapdf_output *)calloc(1, sizeof(*output));
     if (output == NULL)
         return QUANTAPDF_ERROR_NOMEM;
 
-    status = quantapdf_qpdf_rewrite_lossless(
-        document->qpdf_document,
+    status = document->ops->rewrite_lossless(
+        document->backend,
         &output->data,
         &output->size);
     if (status != QUANTAPDF_OK) {

@@ -1,5 +1,4 @@
 #include "internal.h"
-#include "backend/qpdf_document.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -23,7 +22,7 @@ quantapdf_status quantapdf_document_outline(
     *out_outline = NULL;
     if (document == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return quantapdf_qpdf_outline(document->qpdf_document, out_outline);
+    return document->ops->outline(document->backend, out_outline);
 }
 
 quantapdf_status quantapdf_outline_count(

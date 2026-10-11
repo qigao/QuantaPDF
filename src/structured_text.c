@@ -1,5 +1,4 @@
 #include "internal.h"
-#include "backend/pdfium_document.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -29,8 +28,8 @@ quantapdf_status quantapdf_extract_structured_text(
 
     if (page == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return quantapdf_pdfium_extract_structured_text(
-        page->pdfium_page, out_text);
+    return page->document->ops->extract_structured_text(
+        page->backend, out_text);
 }
 
 quantapdf_status quantapdf_text_block_count(

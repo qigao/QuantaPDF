@@ -1,7 +1,5 @@
 #include "internal.h"
 
-#include "backend/pdfium_document.h"
-#include "backend/qpdf_document.h"
 #include "input_file.h"
 
 #include <stdint.h>
@@ -13,8 +11,8 @@ static void quantapdf_dispose_document(quantapdf_document *document)
     if (document == NULL)
         return;
 
-    quantapdf_pdfium_close(document->pdfium_document);
-    quantapdf_qpdf_close(document->qpdf_document);
+    if (document->backend != NULL)
+        document->ops->close(document->backend);
     free(document->source_data);
     if (document->password != NULL) {
         volatile unsigned char *cursor =
@@ -65,6 +63,7 @@ quantapdf_status quantapdf_open(
     document = (quantapdf_document *)calloc(1, sizeof(*document));
     if (document == NULL)
         return QUANTAPDF_ERROR_NOMEM;
+    document->ops = quantapdf_builtin_backend_ops();
 
     status = quantapdf_copy_password(
         password, &document->password, &document->password_size);
@@ -79,20 +78,11 @@ quantapdf_status quantapdf_open(
         quantapdf_dispose_document(document);
         return status;
     }
-    status = quantapdf_pdfium_open_memory(
+    status = document->ops->open_memory(
         document->source_data,
         document->source_size,
-        password,
-        &document->pdfium_document);
-    if (status != QUANTAPDF_OK) {
-        quantapdf_dispose_document(document);
-        return status;
-    }
-    status = quantapdf_qpdf_open_memory(
-        document->source_data,
-        document->source_size,
-        document->password,
-        &document->qpdf_document);
+        password == NULL ? NULL : document->password,
+        &document->backend);
     if (status != QUANTAPDF_OK) {
         quantapdf_dispose_document(document);
         return status;
@@ -108,8 +98,7 @@ quantapdf_status quantapdf_page_count(
 {
     if (document == NULL || out_page_count == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return quantapdf_pdfium_page_count(
-        document->pdfium_document, out_page_count);
+    return document->ops->page_count(document->backend, out_page_count);
 }
 
 quantapdf_status quantapdf_document_page_user_unit(
@@ -119,8 +108,8 @@ quantapdf_status quantapdf_document_page_user_unit(
 {
     if (document == NULL || out_user_unit == NULL || page_index < 0)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return quantapdf_qpdf_page_user_unit(
-        document->qpdf_document, page_index, out_user_unit);
+    return document->ops->page_user_unit(
+        document->backend, page_index, out_user_unit);
 }
 
 void quantapdf_close(quantapdf_document *document)

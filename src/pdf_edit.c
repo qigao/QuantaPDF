@@ -12,13 +12,13 @@ quantapdf_status quantapdf_pdf_edit_begin(
     if (out_edit == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_edit = NULL;
-    if (source == NULL || source->qpdf_document == NULL)
+    if (source == NULL || source->backend == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     edit = (quantapdf_pdf_edit *)calloc(1, sizeof(*edit));
     if (edit == NULL)
         return QUANTAPDF_ERROR_NOMEM;
-    status = quantapdf_qpdf_edit_begin(
-        source->qpdf_document, &edit->backend);
+    edit->ops = source->ops->edit_ops;
+    status = source->ops->edit_begin(source->backend, &edit->backend);
     if (status != QUANTAPDF_OK) {
         free(edit);
         return status;
@@ -41,7 +41,7 @@ quantapdf_status quantapdf_pdf_edit_snapshot(
     *out_output = NULL;
     if (edit == NULL || edit->backend == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    status = quantapdf_qpdf_edit_snapshot(
+    status = edit->ops->snapshot(
         edit->backend,
 #if defined(QUANTAPDF_TESTING)
         &edit->test_fault,
@@ -66,6 +66,6 @@ void quantapdf_drop_pdf_edit(quantapdf_pdf_edit *edit)
 {
     if (edit == NULL)
         return;
-    quantapdf_qpdf_edit_drop(edit->backend);
+    edit->ops->drop(edit->backend);
     free(edit);
 }

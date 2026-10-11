@@ -21,7 +21,7 @@ quantapdf_status quantapdf_pdf_edit_form_snapshot(
     *out_form = NULL;
     if (edit == NULL || edit->backend == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    status = quantapdf_qpdf_edit_form_snapshot(edit->backend, &model);
+    status = edit->ops->form_snapshot(edit->backend, &model);
     if (status != QUANTAPDF_OK)
         return status;
     form = (quantapdf_form *)calloc(1, sizeof(*form));
@@ -43,7 +43,7 @@ quantapdf_status quantapdf_pdf_edit_form_field_ref_at(
         memset(out_ref, 0, sizeof(*out_ref));
     if (edit == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return quantapdf_qpdf_edit_form_ref_at(
+    return edit->ops->form_ref_at(
         edit->backend, field_index, out_ref);
 }
 
@@ -54,7 +54,7 @@ quantapdf_status quantapdf_pdf_edit_form_set_values(
 {
     if (edit == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return quantapdf_qpdf_edit_form_set_values(
+    return edit->ops->form_set_values(
         edit->backend, ref, update,
 #if defined(QUANTAPDF_TESTING)
         &edit->test_fault

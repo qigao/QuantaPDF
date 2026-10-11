@@ -1,5 +1,4 @@
 #include "internal.h"
-#include "backend/qpdf_document.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -70,12 +69,12 @@ static quantapdf_status quantapdf_security_rewrite(
     quantapdf_output *output;
     quantapdf_status status;
     int test_fault = 0;
-    quantapdf_qpdf_security_test_stats test_stats = {0};
+    quantapdf_backend_security_test_stats test_stats = {0};
 
     if (out_output == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_output = NULL;
-    if (document == NULL || document->qpdf_document == NULL)
+    if (document == NULL || document->backend == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     if (operation != QUANTAPDF_SECURITY_DECRYPT_INTERNAL) {
         status = quantapdf_validate_encryption_options(options);
@@ -98,15 +97,15 @@ static quantapdf_status quantapdf_security_rewrite(
     if (output == NULL)
         return QUANTAPDF_ERROR_NOMEM;
     if (operation == QUANTAPDF_SECURITY_ENCRYPT_INTERNAL) {
-        status = quantapdf_qpdf_encrypt_pdf(
-            document->qpdf_document, options, test_fault, &test_stats,
+        status = document->ops->encrypt_pdf(
+            document->backend, options, test_fault, &test_stats,
             &output->data, &output->size);
     } else if (operation == QUANTAPDF_SECURITY_DECRYPT_INTERNAL) {
-        status = quantapdf_qpdf_decrypt_pdf(
-            document->qpdf_document, &output->data, &output->size);
+        status = document->ops->decrypt_pdf(
+            document->backend, &output->data, &output->size);
     } else {
-        status = quantapdf_qpdf_reencrypt_pdf(
-            document->qpdf_document, options, test_fault, &test_stats,
+        status = document->ops->reencrypt_pdf(
+            document->backend, options, test_fault, &test_stats,
             &output->data, &output->size);
     }
 #if defined(QUANTAPDF_TESTING)

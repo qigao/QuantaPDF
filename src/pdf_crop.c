@@ -1,7 +1,5 @@
 #include "internal.h"
 
-#include "backend/qpdf_document.h"
-
 #include <stdlib.h>
 
 quantapdf_status quantapdf_crop_pages(
@@ -17,7 +15,7 @@ quantapdf_status quantapdf_crop_pages(
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_output = NULL;
 
-    if (document == NULL || document->qpdf_document == NULL ||
+    if (document == NULL || document->backend == NULL ||
         crops == NULL || crop_count == 0)
         return QUANTAPDF_ERROR_ARGUMENT;
 
@@ -25,8 +23,8 @@ quantapdf_status quantapdf_crop_pages(
     if (output == NULL)
         return QUANTAPDF_ERROR_NOMEM;
 
-    status = quantapdf_qpdf_crop_pages(
-        document->qpdf_document,
+    status = document->ops->crop_pages(
+        document->backend,
         crops,
         crop_count,
         &output->data,

@@ -1,5 +1,6 @@
 #include "backend/pdfium_document.h"
 #include "backend/qpdf_document.h"
+#include "backend/document_backend.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,6 +14,8 @@ static void check_impl(int condition, const char *expression, int line)
 }
 
 #define CHECK(expression) check_impl((expression), #expression, __LINE__)
+
+void quantapdf_test_backend_dispatch(void);
 
 static unsigned char *read_fixture(const char *path, size_t *out_size)
 {
@@ -73,8 +76,27 @@ int main(void)
     size_t rewritten_size = 0;
     int iteration;
 
+    quantapdf_test_backend_dispatch();
     data = read_fixture(ONE_PAGE_PDF, &size);
     CHECK(data != NULL);
+
+    {
+        const quantapdf_backend_ops *ops = quantapdf_builtin_backend_ops();
+        void *backend = &sentinel;
+        void *backend_page = NULL;
+        CHECK(ops->open_memory(NULL, size, NULL, &backend) == QUANTAPDF_ERROR_ARGUMENT);
+        CHECK(backend == NULL);
+        CHECK(ops->open_memory(data, size, NULL, NULL) == QUANTAPDF_ERROR_ARGUMENT);
+        CHECK(ops->open_memory(data, size, NULL, &backend) == QUANTAPDF_OK);
+        CHECK(ops->page_count(backend, &pdfium_page_count) == QUANTAPDF_OK);
+        CHECK(pdfium_page_count == 1);
+        CHECK(ops->load_page(backend, 0, &backend_page) == QUANTAPDF_OK);
+        CHECK(ops->page_bounds(backend_page, &bounds) == QUANTAPDF_OK);
+        CHECK(bounds.x1 == 72.0f && bounds.y1 == 72.0f);
+        ops->drop_page(backend_page);
+        ops->close(backend);
+        ops->close(NULL);
+    }
 
     CHECK(quantapdf_pdfium_open_memory(
         data, size, NULL, &pdfium_document) == QUANTAPDF_OK);

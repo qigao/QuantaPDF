@@ -1,5 +1,4 @@
 #include "internal.h"
-#include "backend/qpdf_document.h"
 
 #include <limits.h>
 #include <stdlib.h>
@@ -23,8 +22,8 @@ quantapdf_status quantapdf_export_pages(
     output = (quantapdf_output *)calloc(1, sizeof(*output));
     if (output == NULL)
         return QUANTAPDF_ERROR_NOMEM;
-    status = quantapdf_qpdf_export_pages(
-        document->qpdf_document,
+    status = document->ops->export_pages(
+        document->backend,
         page_indices,
         page_count,
         &output->data,

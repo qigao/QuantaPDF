@@ -1,11 +1,15 @@
-add_executable(quantapdf_test_backend_foundation test_backend_foundation.c)
+add_executable(quantapdf_test_backend_foundation
+  test_backend_foundation.c
+  backend_dispatch_test.c)
 target_include_directories(quantapdf_test_backend_foundation PRIVATE
   "${CMAKE_SOURCE_DIR}/include"
   "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(quantapdf_test_backend_foundation PRIVATE
+  QuantaPDF::QuantaPDF
   quantapdf_backend
   QuantaPDF::PDFium)
 target_compile_definitions(quantapdf_test_backend_foundation PRIVATE
+  QUANTAPDF_TESTING=1
   ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
   POSTER_BASIC_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/poster-basic.pdf")
 add_test(NAME quantapdf.backend_foundation

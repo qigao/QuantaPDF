@@ -1,5 +1,4 @@
 #include "internal.h"
-#include "backend/pdfium_document.h"
 
 #include <stdlib.h>
 
@@ -15,8 +14,8 @@ quantapdf_status quantapdf_extract_text(
 
     if (page == NULL || out_utf8 == NULL || out_size == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return quantapdf_pdfium_extract_text(
-        page->pdfium_page, out_utf8, out_size);
+    return page->document->ops->extract_text(
+        page->backend, out_utf8, out_size);
 }
 
 void quantapdf_free(void *memory)

@@ -1,6 +1,5 @@
 #include "form_snapshot.h"
 #include "internal.h"
-#include "backend/qpdf_document.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -53,9 +52,9 @@ quantapdf_status quantapdf_document_form(
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_form = NULL;
 
-    if (document == NULL || document->qpdf_document == NULL)
+    if (document == NULL || document->backend == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    status = quantapdf_qpdf_extract_form(document->qpdf_document, &model);
+    status = document->ops->extract_form(document->backend, &model);
     if (status != QUANTAPDF_OK) {
         quantapdf_pdf_form_drop_model(model);
         return status;

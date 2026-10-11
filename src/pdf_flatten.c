@@ -1,5 +1,4 @@
 #include "internal.h"
-#include "backend/qpdf_document.h"
 
 #include <stdlib.h>
 
@@ -17,7 +16,7 @@ quantapdf_status quantapdf_flatten_interactive(
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_output = NULL;
 
-    if (document == NULL || document->qpdf_document == NULL ||
+    if (document == NULL || document->backend == NULL ||
         flags == 0 || (flags & ~known) != 0)
         return QUANTAPDF_ERROR_ARGUMENT;
 
@@ -25,8 +24,8 @@ quantapdf_status quantapdf_flatten_interactive(
     if (output == NULL)
         return QUANTAPDF_ERROR_NOMEM;
 
-    status = quantapdf_qpdf_flatten_interactive(
-        document->qpdf_document,
+    status = document->ops->flatten_interactive(
+        document->backend,
         flags,
         &output->data,
         &output->size);

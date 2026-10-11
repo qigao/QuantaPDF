@@ -1,5 +1,4 @@
 #include "internal.h"
-#include "backend/pdfium_document.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -43,7 +42,7 @@ quantapdf_status quantapdf_extract_links(
 
     if (page == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    status = quantapdf_pdfium_extract_links(page->pdfium_page, &links);
+    status = page->document->ops->extract_links(page->backend, &links);
     if (status != QUANTAPDF_OK)
         return status;
     status = quantapdf_document_page_user_unit(
