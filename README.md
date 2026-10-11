@@ -248,6 +248,12 @@ quantapdf_drop_composer(composer);
 
 Register JPEG or PNG bytes once with `quantapdf_composer_add_image()`, then
 place the returned nonzero image ID with `quantapdf_composer_draw_image()`.
+The internal IR resource registry reuses the first ID for successfully normalized
+identical images, without charging their retained payload bytes again. Identity
+includes the stored format, dimensions, components, alpha and normalized bytes;
+different stored formats are not treated as equivalent. Codec/raster preparation
+still requires the existing remaining resource allowance, so a full budget can reject a repeated image before
+lookup. Register once and reuse its ID to avoid repeated normalization.
 The fit policy can contain, cover (with clipping), or stretch the image.
 Opaque 8-bit RGB PNG and 8-bit RGBA PNG are supported; PNG alpha is preserved
 as a PDF soft mask. JPEG supports baseline 8-bit gray and RGB images;

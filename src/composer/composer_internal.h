@@ -12,13 +12,6 @@ struct quantapdf_composer {
     quantapdf_ir ir;
     size_t page_capacity;
     size_t operation_capacity;
-    size_t image_capacity;
-    size_t font_capacity;
-    size_t graphics_state_capacity;
-    size_t soft_mask_capacity;
-    size_t clip_capacity;
-    size_t paint_capacity;
-    size_t form_capacity;
     size_t link_capacity;
     size_t outline_capacity;
     size_t resource_bytes;

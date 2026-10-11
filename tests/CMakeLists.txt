@@ -1,5 +1,14 @@
+add_executable(quantapdf_test_resource_registry
+  test_resource_registry.c ../src/resource/resource_registry.c)
+target_include_directories(quantapdf_test_resource_registry PRIVATE
+  "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_resource_registry PRIVATE QuantaPDF::QuantaPDF)
+add_test(NAME quantapdf.resource_registry COMMAND quantapdf_test_resource_registry)
+set_tests_properties(quantapdf.resource_registry PROPERTIES TIMEOUT 30)
+
 # Compile the private owner into this boundary test without exporting it in the SDK.
-add_executable(quantapdf_test_ir test_ir.c ../src/ir/ir.c)
+add_executable(quantapdf_test_ir test_ir.c ../src/ir/ir.c
+  ../src/resource/resource_registry.c)
 target_include_directories(quantapdf_test_ir PRIVATE "${PROJECT_SOURCE_DIR}/src")
 target_link_libraries(quantapdf_test_ir PRIVATE
   QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium)

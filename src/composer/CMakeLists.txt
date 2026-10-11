@@ -5,5 +5,4 @@ target_sources(quantapdf PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/composer_internal.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/composer_navigation.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/svg.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../resource/composer_resources.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/../ir/ir.h")

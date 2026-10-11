@@ -1182,7 +1182,7 @@ void append_image_content(
     quantapdf_composer_operation const& operation)
 {
     auto const& image =
-        ir->images[operation.value.image.image_id - 1u];
+        ir->resources.images[operation.value.image.image_id - 1u];
     double const box_width = operation.bounds.x1 - operation.bounds.x0;
     double const box_height = operation.bounds.y1 - operation.bounds.y0;
     double draw_width = box_width;
@@ -1363,9 +1363,9 @@ void append_form_content(
     quantapdf_composer_operation const& operation)
 {
     auto const form_id = operation.value.form.form_id;
-    if (form_id == 0u || form_id > ir->form_count)
+    if (form_id == 0u || form_id > ir->resources.form_count)
         throw std::logic_error("form resource missing");
-    auto const& form = ir->forms[form_id - 1u];
+    auto const& form = ir->resources.forms[form_id - 1u];
     content += form_placement_content(
         "/Fm" + std::to_string(form_id),
         form.height_points,
@@ -1662,9 +1662,9 @@ void append_clip_content(
 
     for (size_t i = 0u; i < clip.member_count; ++i) {
         auto const id = clip.members[i];
-        if (id == 0u || id > ir->clip_count)
+        if (id == 0u || id > ir->resources.clip_count)
             throw std::logic_error("compound clip member missing");
-        auto const& member = ir->clips[id - 1u];
+        auto const& member = ir->resources.clips[id - 1u];
         if (member.kind != QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL)
             throw std::logic_error("compound clip member is not a leaf");
         append_path_clip_content(content, page, member);
@@ -1696,19 +1696,19 @@ std::string page_content(
         bool const scoped_state = operation.graphics_state_id != 0u;
         if (scoped_state) {
             if (static_cast<size_t>(operation.graphics_state_id) >
-                ir->graphics_state_count)
+                ir->resources.graphics_state_count)
                 throw std::logic_error("graphics state resource missing");
             auto const& state =
-                ir->graphics_states[operation.graphics_state_id - 1u];
+                ir->resources.graphics_states[operation.graphics_state_id - 1u];
             if (state.clip_id != 0u) {
-                if (state.clip_id > ir->clip_count)
+                if (state.clip_id > ir->resources.clip_count)
                     throw std::logic_error("clip resource missing");
                 content += "q\n";
                 append_clip_content(
                     content,
                     ir,
                     page,
-                    ir->clips[state.clip_id - 1u]);
+                    ir->resources.clips[state.clip_id - 1u]);
                 content += "/GS" +
                     std::to_string(operation.graphics_state_id) + " gs\n";
             } else {
@@ -1968,9 +1968,9 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
         QPDF pdf;
         pdf.emptyPDF();
         std::vector<QPDFObjectHandle> image_objects;
-        image_objects.reserve(ir->image_count);
-        for (std::size_t i = 0; i < ir->image_count; ++i) {
-            auto const& image = ir->images[i];
+        image_objects.reserve(ir->resources.image_count);
+        for (std::size_t i = 0; i < ir->resources.image_count; ++i) {
+            auto const& image = ir->resources.images[i];
             auto stream = pdf.newStream(std::string(
                 reinterpret_cast<char const*>(image.data), image.size));
             auto dictionary = stream.getDict();
@@ -2012,16 +2012,16 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
         }
 
         std::vector<std::optional<QPDFObjectHandle>>
-            form_objects(ir->form_count);
+            form_objects(ir->resources.form_count);
         std::vector<std::unique_ptr<QPDF>>
-            form_source_pdfs(ir->form_count);
+            form_source_pdfs(ir->resources.form_count);
         auto ensure_form_object = [&](quantapdf_composer_form_id id)
             -> QPDFObjectHandle {
-            if (id == 0u || id > ir->form_count)
+            if (id == 0u || id > ir->resources.form_count)
                 throw std::logic_error("form resource missing");
             auto& slot = form_objects[id - 1u];
             if (!slot.has_value()) {
-                auto const& form = ir->forms[id - 1u];
+                auto const& form = ir->resources.forms[id - 1u];
                 auto source = std::make_unique<QPDF>();
                 std::string const description =
                     "quantapdf-form-" + std::to_string(id);
@@ -2067,26 +2067,26 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
         };
 
         std::vector<quantapdf::detail::ttf_font_face> embedded_faces;
-        embedded_faces.reserve(ir->font_count);
-        for (size_t i = 0u; i < ir->font_count; ++i) {
+        embedded_faces.reserve(ir->resources.font_count);
+        for (size_t i = 0u; i < ir->resources.font_count; ++i) {
             quantapdf::detail::ttf_font_face face;
             if (quantapdf::detail::ttf_font_face::parse(
-                    ir->fonts[i].data,
-                    ir->fonts[i].size,
+                    ir->resources.fonts[i].data,
+                    ir->resources.fonts[i].size,
                     &face) != QUANTAPDF_OK)
                 throw std::invalid_argument("registered font no longer parses");
             embedded_faces.push_back(std::move(face));
         }
-        std::vector<embedded_font_usage> embedded_usage(ir->font_count);
+        std::vector<embedded_font_usage> embedded_usage(ir->resources.font_count);
         collect_embedded_font_usage(
             ir, embedded_faces, &embedded_usage);
         std::vector<std::optional<QPDFObjectHandle>> embedded_font_objects(
-            ir->font_count);
-        for (size_t i = 0u; i < ir->font_count; ++i) {
+            ir->resources.font_count);
+        for (size_t i = 0u; i < ir->resources.font_count; ++i) {
             if (embedded_usage[i].referenced) {
                 embedded_font_objects[i] = make_embedded_font(
                     pdf,
-                    ir->fonts[i],
+                    ir->resources.fonts[i],
                     embedded_faces[i],
                     embedded_usage[i],
                     i);
@@ -2094,17 +2094,17 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
         }
 
         std::vector<glyph_run_font_usage> glyph_run_usage(
-            ir->font_count);
+            ir->resources.font_count);
         collect_glyph_run_font_usage(
             ir, embedded_faces, &glyph_run_usage);
         std::vector<std::optional<QPDFObjectHandle>> glyph_run_font_objects(
-            ir->font_count);
+            ir->resources.font_count);
         bool requires_pdf_16 = false;
-        for (size_t i = 0u; i < ir->font_count; ++i) {
+        for (size_t i = 0u; i < ir->resources.font_count; ++i) {
             if (glyph_run_usage[i].referenced) {
                 glyph_run_font_objects[i] = make_glyph_run_font(
                     pdf,
-                    ir->fonts[i],
+                    ir->resources.fonts[i],
                     embedded_faces[i],
                     glyph_run_usage[i],
                     i);
@@ -2120,35 +2120,35 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             auto const& operation = ir->operations[i];
             if (operation.graphics_state_id != 0u) {
                 auto const gs_id = operation.graphics_state_id;
-                if (gs_id > ir->graphics_state_count)
+                if (gs_id > ir->resources.graphics_state_count)
                     throw std::logic_error("graphics state resource missing");
-                auto const& gs = ir->graphics_states[gs_id - 1u];
+                auto const& gs = ir->resources.graphics_states[gs_id - 1u];
                 if (gs.soft_mask_id != 0u) {
-                    if (gs.soft_mask_id > ir->soft_mask_count)
+                    if (gs.soft_mask_id > ir->resources.soft_mask_count)
                         throw std::logic_error("soft mask resource missing");
                     auto const& mask =
-                        ir->soft_masks[gs.soft_mask_id - 1u];
+                        ir->resources.soft_masks[gs.soft_mask_id - 1u];
                     if (mask.form_id == 0u ||
-                        mask.form_id > ir->form_count)
+                        mask.form_id > ir->resources.form_count)
                         throw std::logic_error("soft mask Form missing");
-                    if (ir->forms[mask.form_id - 1u].requires_pdf_16)
+                    if (ir->resources.forms[mask.form_id - 1u].requires_pdf_16)
                         requires_pdf_16 = true;
                 }
             }
             if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_FORM) {
                 auto const id = operation.value.form.form_id;
-                if (id == 0u || id > ir->form_count)
+                if (id == 0u || id > ir->resources.form_count)
                     throw std::logic_error("form resource missing");
-                if (ir->forms[id - 1u].requires_pdf_16)
+                if (ir->resources.forms[id - 1u].requires_pdf_16)
                     requires_pdf_16 = true;
             } else if (
                 operation.kind == QUANTAPDF_COMPOSER_OPERATION_PATH) {
                 auto check_paint = [&](quantapdf_composer_paint_id id) {
                     if (id == 0u)
                         return;
-                    if (id > ir->paint_count)
+                    if (id > ir->resources.paint_count)
                         throw std::logic_error("paint resource missing");
-                    auto const& paint = ir->paints[id - 1u];
+                    auto const& paint = ir->resources.paints[id - 1u];
                     if (paint.kind ==
                             QUANTAPDF_COMPOSER_PAINT_TILING_PATTERN_INTERNAL &&
                         paint.requires_pdf_16)
@@ -2160,19 +2160,19 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
         }
 
         std::vector<std::optional<QPDFObjectHandle>>
-            graphics_state_objects(ir->graphics_state_count);
+            graphics_state_objects(ir->resources.graphics_state_count);
 
         std::vector<std::optional<QPDFObjectHandle>>
-            paint_shading_objects(ir->paint_count);
+            paint_shading_objects(ir->resources.paint_count);
         std::vector<std::optional<QPDFObjectHandle>>
-            paint_tile_form_objects(ir->paint_count);
+            paint_tile_form_objects(ir->resources.paint_count);
         std::vector<std::unique_ptr<QPDF>>
-            paint_source_pdfs(ir->paint_count);
+            paint_source_pdfs(ir->resources.paint_count);
         auto ensure_tile_form = [&](quantapdf_composer_paint_id id)
             -> QPDFObjectHandle {
-            if (id == 0u || id > ir->paint_count)
+            if (id == 0u || id > ir->resources.paint_count)
                 throw std::logic_error("tiling paint resource missing");
-            auto const& paint = ir->paints[id - 1u];
+            auto const& paint = ir->resources.paints[id - 1u];
             if (paint.kind != QUANTAPDF_COMPOSER_PAINT_TILING_PATTERN_INTERNAL)
                 throw std::logic_error("paint is not a tiling pattern");
             auto& slot = paint_tile_form_objects[id - 1u];
@@ -2207,12 +2207,12 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             auto ext_gstates = QPDFObjectHandle::newDictionary();
             auto patterns = QPDFObjectHandle::newDictionary();
             std::vector<std::optional<QPDFObjectHandle>>
-                page_patterns(ir->paint_count);
+                page_patterns(ir->resources.paint_count);
             std::vector<std::optional<QPDFObjectHandle>>
                 page_masked_graphics_state_objects(
-                    ir->graphics_state_count);
+                    ir->resources.graphics_state_count);
             std::vector<std::optional<QPDFObjectHandle>>
-                page_soft_mask_groups(ir->soft_mask_count);
+                page_soft_mask_groups(ir->resources.soft_mask_count);
             bool used_fonts[12] = {};
             bool used_ext_gstate = false;
             bool used_pattern = false;
@@ -2280,15 +2280,15 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             auto ensure_soft_mask_group =
                 [&](quantapdf_composer_soft_mask_id mask_id)
                     -> QPDFObjectHandle {
-                if (mask_id == 0u || mask_id > ir->soft_mask_count)
+                if (mask_id == 0u || mask_id > ir->resources.soft_mask_count)
                     throw std::logic_error("soft mask resource missing");
                 auto& slot = page_soft_mask_groups[mask_id - 1u];
                 if (!slot.has_value()) {
-                    auto const& mask = ir->soft_masks[mask_id - 1u];
+                    auto const& mask = ir->resources.soft_masks[mask_id - 1u];
                     if (mask.form_id == 0u ||
-                        mask.form_id > ir->form_count)
+                        mask.form_id > ir->resources.form_count)
                         throw std::logic_error("soft mask Form missing");
-                    auto const& form = ir->forms[mask.form_id - 1u];
+                    auto const& form = ir->resources.forms[mask.form_id - 1u];
                     if ((form.flags &
                          QUANTAPDF_COMPOSER_FORM_FLAG_TRANSPARENCY_GROUP) == 0u)
                         throw std::logic_error(
@@ -2313,7 +2313,7 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                     graphics_state_objects.size())
                     throw std::logic_error("graphics state resource missing");
                 auto const& state =
-                    ir->graphics_states[id - 1u];
+                    ir->resources.graphics_states[id - 1u];
                 auto& object =
                     state.soft_mask_id == 0u
                     ? graphics_state_objects[id - 1u]
@@ -2322,7 +2322,7 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                     object = make_graphics_state(pdf, state);
                     if (state.soft_mask_id != 0u) {
                         auto const& mask =
-                            ir->soft_masks[state.soft_mask_id - 1u];
+                            ir->resources.soft_masks[state.soft_mask_id - 1u];
                         auto soft_mask = QPDFObjectHandle::newDictionary();
                         soft_mask.replaceKey(
                             "/S",
@@ -2350,11 +2350,11 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                 auto add_paint = [&](quantapdf_composer_paint_id id) {
                     if (id == 0u)
                         return;
-                    if (id > ir->paint_count)
+                    if (id > ir->resources.paint_count)
                         throw std::logic_error("paint resource missing");
                     auto& page_pattern = page_patterns[id - 1u];
                     if (!page_pattern.has_value()) {
-                        auto const& paint = ir->paints[id - 1u];
+                        auto const& paint = ir->resources.paints[id - 1u];
                         if (paint.kind ==
                             QUANTAPDF_COMPOSER_PAINT_TILING_PATTERN_INTERNAL) {
                             page_pattern = make_tiling_pattern(

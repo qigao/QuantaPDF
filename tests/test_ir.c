@@ -72,6 +72,12 @@ static int test_model_outlives_builder(void)
     raster.pixels = source_pixel;
     CHECK(quantapdf_composer_add_raster(composer, &raster, &image_id) ==
           QUANTAPDF_OK);
+    {
+        quantapdf_composer_image_id reused = 0;
+        CHECK(quantapdf_composer_add_raster(composer, &raster, &reused) ==
+              QUANTAPDF_OK);
+        CHECK(reused == image_id);
+    }
     image_options.struct_size = QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE;
     image_options.fit = QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     CHECK(quantapdf_composer_draw_image(composer, 0, image_id, &image_bounds,
@@ -92,15 +98,15 @@ static int test_model_outlives_builder(void)
     memset(&composer->ir, 0, sizeof(composer->ir));
     quantapdf_drop_composer(composer);
     CHECK(finalizations == 1);
-    CHECK(ir.page_count == 1 && ir.operation_count == 2 && ir.image_count == 1);
+    CHECK(ir.page_count == 1 && ir.operation_count == 2 && ir.resources.image_count == 1);
     CHECK(quantapdf_qpdf_compose(&ir, &first, &first_size) == QUANTAPDF_OK);
     CHECK(quantapdf_qpdf_compose(&ir, &second, &second_size) == QUANTAPDF_OK);
     CHECK(first_size == expected_size && second_size == first_size);
     CHECK(memcmp(first, expected, first_size) == 0);
     CHECK(memcmp(first, second, first_size) == 0);
     quantapdf_ir_dispose(&ir);
-    CHECK(ir.pages == NULL && ir.operations == NULL && ir.images == NULL);
-    CHECK(ir.page_count == 0 && ir.operation_count == 0 && ir.image_count == 0);
+    CHECK(ir.pages == NULL && ir.operations == NULL && ir.resources.images == NULL);
+    CHECK(ir.page_count == 0 && ir.operation_count == 0 && ir.resources.image_count == 0);
     quantapdf_ir_dispose(&ir);
     quantapdf_ir_dispose(NULL);
     free(expected);

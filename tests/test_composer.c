@@ -494,6 +494,32 @@ static int test_limits_state_and_output_isolation(void)
     return 0;
 }
 
+static int test_encoded_image_reuse(void)
+{
+    quantapdf_composer *composer = NULL;
+    quantapdf_composer_image_id jpeg_id = 0, png_id = 0, repeated_id = 0;
+    unsigned char *jpeg = NULL, *png = NULL;
+    size_t jpeg_size = 0, png_size = 0;
+
+    CHECK(quantapdf_test_make_jpeg(&jpeg, &jpeg_size));
+    CHECK(quantapdf_test_make_png(1, &png, &png_size));
+    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_add_image(composer, jpeg, jpeg_size, &jpeg_id) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_composer_add_image(composer, jpeg, jpeg_size, &repeated_id) ==
+          QUANTAPDF_OK);
+    CHECK(jpeg_id != 0 && repeated_id == jpeg_id);
+    CHECK(quantapdf_composer_add_image(composer, png, png_size, &png_id) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_composer_add_image(composer, png, png_size, &repeated_id) ==
+          QUANTAPDF_OK);
+    CHECK(png_id != 0 && png_id != jpeg_id && repeated_id == png_id);
+    free(png);
+    free(jpeg);
+    quantapdf_drop_composer(composer);
+    return 0;
+}
+
 static int test_decoder_resource_and_format_guards(void)
 {
     quantapdf_composer_options limits = {0};
@@ -724,6 +750,7 @@ int main(void)
     CHECK(test_jpeg_resource_and_placement() == 0);
     CHECK(test_png_and_alpha() == 0);
     CHECK(test_limits_state_and_output_isolation() == 0);
+    CHECK(test_encoded_image_reuse() == 0);
     CHECK(test_decoder_resource_and_format_guards() == 0);
     CHECK(test_layout_order_fit_and_locale() == 0);
     return 0;

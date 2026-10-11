@@ -5244,63 +5244,29 @@ quantapdf_status publish_groups(
 
 struct svg_publish_snapshot {
     size_t operation_count = 0u;
-    size_t paint_count = 0u;
-    size_t clip_count = 0u;
-    size_t graphics_state_count = 0u;
-    size_t soft_mask_count = 0u;
-    size_t form_count = 0u;
+    quantapdf_resource_mark resources{};
     size_t resource_bytes = 0u;
 };
 
-svg_publish_snapshot capture_svg_snapshot(
-    quantapdf_composer const* composer)
+svg_publish_snapshot capture_svg_snapshot(quantapdf_composer const* composer)
 {
-    return {
-        composer->ir.operation_count,
-        composer->ir.paint_count,
-        composer->ir.clip_count,
-        composer->ir.graphics_state_count,
-        composer->ir.soft_mask_count,
-        composer->ir.form_count,
+    return {composer->ir.operation_count,
+        quantapdf_resource_checkpoint(&composer->ir.resources),
         composer->resource_bytes};
 }
 
 void rollback_svg_publish(
-    quantapdf_composer* composer,
-    svg_publish_snapshot const& snapshot)
+    quantapdf_composer* composer, svg_publish_snapshot const& snapshot)
 {
-    for (size_t i = snapshot.operation_count;
-         i < composer->ir.operation_count;
-         ++i) {
+    for (size_t i = snapshot.operation_count; i < composer->ir.operation_count; ++i) {
         auto& operation = composer->ir.operations[i];
         if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_PATH) {
             std::free(operation.value.path.dash_lengths);
             std::free(operation.value.path.commands);
         }
     }
-    for (size_t i = snapshot.paint_count;
-         i < composer->ir.paint_count;
-         ++i) {
-        std::free(composer->ir.paints[i].stops);
-        std::free(composer->ir.paints[i].pdf_data);
-    }
-    for (size_t i = snapshot.clip_count;
-         i < composer->ir.clip_count;
-         ++i) {
-        std::free(composer->ir.clips[i].commands);
-        std::free(composer->ir.clips[i].members);
-    }
-    for (size_t i = snapshot.form_count;
-         i < composer->ir.form_count;
-         ++i)
-        std::free(composer->ir.forms[i].pdf_data);
-
     composer->ir.operation_count = snapshot.operation_count;
-    composer->ir.paint_count = snapshot.paint_count;
-    composer->ir.clip_count = snapshot.clip_count;
-    composer->ir.graphics_state_count = snapshot.graphics_state_count;
-    composer->ir.soft_mask_count = snapshot.soft_mask_count;
-    composer->ir.form_count = snapshot.form_count;
+    quantapdf_resource_rewind(&composer->ir.resources, snapshot.resources);
     composer->resource_bytes = snapshot.resource_bytes;
 }
 
@@ -5350,29 +5316,10 @@ quantapdf_status publish_paths(
         state_ids(paths.size(), 0u);
     std::vector<quantapdf_composer_operation> staged(paths.size());
 
-    size_t const paint_snapshot = composer->ir.paint_count;
-    size_t const state_snapshot = composer->ir.graphics_state_count;
-    size_t const clip_snapshot = composer->ir.clip_count;
-    size_t const soft_mask_snapshot = composer->ir.soft_mask_count;
-    size_t const form_snapshot = composer->ir.form_count;
+    auto const resource_mark = quantapdf_resource_checkpoint(&composer->ir.resources);
     size_t const resource_snapshot = composer->resource_bytes;
-
     auto rollback_resources = [&]() {
-        for (size_t i = paint_snapshot; i < composer->ir.paint_count; ++i) {
-            std::free(composer->ir.paints[i].stops);
-            std::free(composer->ir.paints[i].pdf_data);
-        }
-        for (size_t i = clip_snapshot; i < composer->ir.clip_count; ++i) {
-            std::free(composer->ir.clips[i].commands);
-            std::free(composer->ir.clips[i].members);
-        }
-        for (size_t i = form_snapshot; i < composer->ir.form_count; ++i)
-            std::free(composer->ir.forms[i].pdf_data);
-        composer->ir.paint_count = paint_snapshot;
-        composer->ir.clip_count = clip_snapshot;
-        composer->ir.graphics_state_count = state_snapshot;
-        composer->ir.soft_mask_count = soft_mask_snapshot;
-        composer->ir.form_count = form_snapshot;
+        quantapdf_resource_rewind(&composer->ir.resources, resource_mark);
         composer->resource_bytes = resource_snapshot;
     };
 

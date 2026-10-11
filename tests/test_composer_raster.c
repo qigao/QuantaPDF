@@ -65,6 +65,36 @@ static int pixel_near(
     return dr <= tolerance && dg <= tolerance && db <= tolerance;
 }
 
+static int test_resource_reuse_and_normalization_budget(void)
+{
+    quantapdf_composer *composer = NULL;
+    quantapdf_composer_options limits = {0};
+    quantapdf_composer_raster raster = {0};
+    quantapdf_composer_image_id first = 0, repeated = 0, changed = 0;
+    unsigned char pixel[] = {0, 0, 255, 255};
+    limits.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V1_SIZE;
+    limits.max_resource_bytes = 8;
+    CHECK(quantapdf_composer_create(&limits, &composer) == QUANTAPDF_OK);
+    raster.struct_size = QUANTAPDF_COMPOSER_RASTER_V1_SIZE;
+    raster.format = QUANTAPDF_COMPOSER_RASTER_RGBA32;
+    raster.width = raster.height = 1;
+    raster.stride = raster.size = sizeof(pixel);
+    raster.pixels = pixel;
+    CHECK(quantapdf_composer_add_raster(composer, &raster, &first) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_add_raster(composer, &raster, &repeated) == QUANTAPDF_OK);
+    CHECK(first != 0 && repeated == first);
+    pixel[3] = 128;
+    /* A changed alpha plane has distinct identity and uses the remaining bytes. */
+    CHECK(quantapdf_composer_add_raster(composer, &raster, &changed) == QUANTAPDF_OK);
+    CHECK(changed != first);
+    repeated = UINT32_MAX;
+    CHECK(quantapdf_composer_add_raster(composer, &raster, &repeated) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(repeated == 0);
+    quantapdf_drop_composer(composer);
+    return 0;
+}
+
 static int test_validation_and_budget(void)
 {
     unsigned char pixels[32] = {0};
@@ -344,6 +374,7 @@ static int test_formats_stride_alpha_and_determinism(void)
 
 int main(void)
 {
+    CHECK(test_resource_reuse_and_normalization_budget() == 0);
     CHECK(test_validation_and_budget() == 0);
     CHECK(test_formats_stride_alpha_and_determinism() == 0);
     return 0;
