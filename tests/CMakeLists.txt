@@ -1,3 +1,12 @@
+# Compile the identity contract without any backend or SDK library dependency.
+add_executable(quantapdf_test_identity
+  test_identity.c ../src/graph/identity.c)
+target_include_directories(quantapdf_test_identity PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_identity PRIVATE c_std_11)
+add_test(NAME quantapdf.identity COMMAND quantapdf_test_identity)
+set_tests_properties(quantapdf.identity PROPERTIES TIMEOUT 30)
+
 # Compile and link rules without any backend or SDK library dependency.
 add_executable(quantapdf_test_validation
   test_validation.c ../src/validation/validation.c)

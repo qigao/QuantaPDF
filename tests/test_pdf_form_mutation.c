@@ -335,6 +335,58 @@ static void test_editor_snapshot_and_refs(void)
     quantapdf_drop_form(second);
 }
 
+static void test_reference_domains_and_editor_recreation(void)
+{
+    quantapdf_pdf_edit *first = open_edit(FORM_MUTATION_BASIC_PDF);
+    quantapdf_pdf_edit *second = open_edit(FORM_MUTATION_BASIC_PDF);
+    quantapdf_form_field_ref first_ref = field_ref_by_name(first, "zero");
+    quantapdf_form_field_ref second_ref = field_ref_by_name(second, "zero");
+    quantapdf_form_field_ref wrong_form;
+    quantapdf_annotation_ref annotation, second_annotation, wrong_annotation;
+    quantapdf_annotation_create_options options = {0};
+    quantapdf_annotation_info info = {0};
+    quantapdf_form_value_input value;
+    quantapdf_form_value_update update;
+    unsigned char *before = NULL, *after = NULL;
+    size_t before_size = 0, after_size = 0;
+    size_t i;
+
+    CHECK(memcmp(&first_ref, &second_ref, sizeof(first_ref)) != 0);
+    options.struct_size = sizeof(options);
+    options.type = QUANTAPDF_ANNOTATION_TEXT;
+    options.bounds = (quantapdf_rect){10, 10, 20, 20};
+    CHECK(quantapdf_pdf_edit_annotation_create(first, 0, &options, &annotation) == QUANTAPDF_OK);
+    CHECK(quantapdf_pdf_edit_annotation_create(second, 0, &options, &second_annotation) == QUANTAPDF_OK);
+    CHECK(memcmp(&annotation, &second_annotation, sizeof(annotation)) != 0);
+    memcpy(wrong_form.opaque, annotation.opaque, sizeof(wrong_form.opaque));
+    memcpy(wrong_annotation.opaque, first_ref.opaque, sizeof(wrong_annotation.opaque));
+    info.struct_size = sizeof(info);
+    CHECK(quantapdf_pdf_edit_annotation_get_info(first, &wrong_annotation, &info) == QUANTAPDF_ERROR_ARGUMENT);
+    make_text_update(&value, &update, "changed", 7);
+    copy_editor_output(first, &before, &before_size);
+    CHECK(quantapdf_pdf_edit_form_set_values(first, &wrong_form, &update) == QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_pdf_edit_form_set_values(first, &second_ref, &update) == QUANTAPDF_ERROR_ARGUMENT);
+    copy_editor_output(first, &after, &after_size);
+    CHECK(before_size == after_size && memcmp(before, after, before_size) == 0);
+    free(after); after = NULL;
+    /* Scope creation and reference discovery never enter deterministic PDF output. */
+    copy_editor_output(second, &after, &after_size);
+    CHECK(before_size == after_size && memcmp(before, after, before_size) == 0);
+    free(before); free(after);
+    quantapdf_drop_pdf_edit(first);
+    quantapdf_drop_pdf_edit(second);
+
+    for (i = 0; i < 8; ++i) {
+        quantapdf_pdf_edit *replacement = open_edit(FORM_MUTATION_BASIC_PDF);
+        quantapdf_form_field_ref replacement_ref = field_ref_by_name(replacement, "zero");
+        CHECK(memcmp(&replacement_ref, &first_ref, sizeof(first_ref)) != 0);
+        CHECK(quantapdf_pdf_edit_form_set_values(replacement, &first_ref, &update) == QUANTAPDF_ERROR_ARGUMENT);
+        CHECK(quantapdf_pdf_edit_annotation_get_info(replacement, &annotation, &info) == QUANTAPDF_ERROR_ARGUMENT);
+        CHECK(quantapdf_pdf_edit_form_set_values(replacement, &replacement_ref, &update) == QUANTAPDF_OK);
+        quantapdf_drop_pdf_edit(replacement);
+    }
+}
+
 static void test_snapshot_borrows_survive_source_mutation(void)
 {
     quantapdf_pdf_edit *edit = open_edit(FORM_MUTATION_BASIC_PDF);
@@ -832,6 +884,7 @@ int main(void)
     compile_surface();
     test_api_reset();
     test_editor_snapshot_and_refs();
+    test_reference_domains_and_editor_recreation();
     test_snapshot_borrows_survive_source_mutation();
     test_need_appearances_observation_is_byte_preserving();
     test_widget_prepare_is_byte_preserving();

@@ -712,6 +712,14 @@ static void test_update_delete(void)
               edit, 0, &after_count) == QUANTAPDF_OK);
     CHECK(after_count == before_count);
 
+    CHECK(quantapdf_pdf_edit_annotation_create(
+              edit, 0, &options, &new_ref) == QUANTAPDF_OK);
+    CHECK(memcmp(&new_ref, &text_ref, sizeof(new_ref)) != 0);
+    CHECK(quantapdf_pdf_edit_annotation_get_info(
+              edit, &text_ref, &before) == QUANTAPDF_ERROR_STATE);
+    expect_live_contents(edit, &new_ref, 1, "rollback-create",
+        sizeof("rollback-create") - 1);
+
     quantapdf_drop_pdf_edit(edit);
     quantapdf_drop_pdf_edit(other);
 }
