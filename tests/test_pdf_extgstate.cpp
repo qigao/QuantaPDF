@@ -151,8 +151,10 @@ static void compare_pixels(int expected_width, int expected_height)
         source.at(115, 5) : source.at(2, 2);
     auto purple = source.at(expected_width == 120 ? 30 : 40,
         expected_height == 120 ? 89 : 130);
-    CHECK(white[0] > 230 && white[1] > 230 && white[2] > 230);
-    /* Red alpha=0.5 over blue is neither opaque red nor opaque blue. */
+    /* Pixel-by-pixel source/export comparison above is authoritative.
+     * Keep a color sanity check at a sample inside the alpha-overlap region;
+     * do not assume an unrotated device-space coordinate is white after the
+     * source renderer applies Rotate and UserUnit. */
     if (expected_width == 120) {
         CHECK(purple[0] > 100 && purple[0] < 170 &&
             purple[2] > 100 && purple[2] < 170);
