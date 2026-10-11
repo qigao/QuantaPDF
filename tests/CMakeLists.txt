@@ -1,3 +1,14 @@
+# Provider-independent pure C11 parser; no PDFium or QPDF in this test.
+add_executable(quantapdf_test_pdf_content_ir test_pdf_content_ir.c ../src/ir/pdf_content_ir.c)
+target_include_directories(quantapdf_test_pdf_content_ir PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_pdf_content_ir PRIVATE c_std_11)
+if(UNIX)
+  target_link_libraries(quantapdf_test_pdf_content_ir PRIVATE m)
+endif()
+add_test(NAME quantapdf.pdf_content_ir COMMAND quantapdf_test_pdf_content_ir)
+set_tests_properties(quantapdf.pdf_content_ir PROPERTIES TIMEOUT 30)
+
 # Pure render planning has no SDK/provider dependency.
 add_executable(quantapdf_test_render_plan test_render_plan.c ../src/render/render_plan.c)
 target_include_directories(quantapdf_test_render_plan PRIVATE
