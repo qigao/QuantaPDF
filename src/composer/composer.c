@@ -1,3 +1,4 @@
+#include "validation/validation.h"
 #include "core/output_internal.h"
 #include "core/context_internal.h"
 #include "composer/composer_internal.h"
@@ -345,49 +346,6 @@ static int quantapdf_composer_dash_pattern_valid(
             have_positive = 1;
     }
     return have_positive;
-}
-
-static int quantapdf_composer_path_commands_valid(
-    const quantapdf_composer_path_command *commands,
-    size_t command_count)
-{
-    size_t i;
-    int have_current = 0;
-    int have_segment = 0;
-
-    if (commands == NULL || command_count == 0u)
-        return 0;
-    for (i = 0u; i < command_count; ++i) {
-        const quantapdf_composer_path_command *command = &commands[i];
-        switch (command->kind) {
-        case QUANTAPDF_COMPOSER_PATH_MOVE_TO:
-            if (!quantapdf_composer_point_valid(&command->point1))
-                return 0;
-            have_current = 1;
-            break;
-        case QUANTAPDF_COMPOSER_PATH_LINE_TO:
-            if (!have_current ||
-                !quantapdf_composer_point_valid(&command->point1))
-                return 0;
-            have_segment = 1;
-            break;
-        case QUANTAPDF_COMPOSER_PATH_CUBIC_TO:
-            if (!have_current ||
-                !quantapdf_composer_point_valid(&command->point1) ||
-                !quantapdf_composer_point_valid(&command->point2) ||
-                !quantapdf_composer_point_valid(&command->point3))
-                return 0;
-            have_segment = 1;
-            break;
-        case QUANTAPDF_COMPOSER_PATH_CLOSE:
-            if (!have_current)
-                return 0;
-            break;
-        default:
-            return 0;
-        }
-    }
-    return have_segment;
 }
 
 static int quantapdf_composer_codepoint_is_winansi(uint32_t codepoint)
@@ -816,7 +774,7 @@ quantapdf_status quantapdf_composer_add_clip_path(
         options->struct_size < QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_MIN_SIZE ||
         options->fill_rule < QUANTAPDF_COMPOSER_FILL_NONZERO ||
         options->fill_rule > QUANTAPDF_COMPOSER_FILL_EVEN_ODD ||
-        !quantapdf_composer_path_commands_valid(commands, command_count) ||
+        !quantapdf_validation_path_valid(commands, command_count) ||
         !quantapdf_composer_resource_transform_normalize(
             &options->transform, &transform))
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -1701,7 +1659,7 @@ static quantapdf_status quantapdf_composer_draw_path_internal(
         resource_bytes >
             composer->max_resource_bytes - composer->resource_bytes)
         return QUANTAPDF_ERROR_UNSUPPORTED;
-    if (!quantapdf_composer_path_commands_valid(commands, command_count))
+    if (!quantapdf_validation_path_valid(commands, command_count))
         return QUANTAPDF_ERROR_ARGUMENT;
 
     copied_commands =

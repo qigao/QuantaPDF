@@ -1,5 +1,6 @@
 #include "core/output_internal.h"
 #include "document/document_internal.h"
+#include "validation/validation.h"
 
 #include <stdlib.h>
 
@@ -7,6 +8,9 @@ quantapdf_status quantapdf_document_audit(
     quantapdf_document *document,
     quantapdf_audit_result *out_result)
 {
+    quantapdf_validation_report report;
+    quantapdf_status status;
+    uint32_t findings = 0;
     if (out_result == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     if (out_result->struct_size >= QUANTAPDF_AUDIT_RESULT_V1_MIN_SIZE)
@@ -14,8 +18,13 @@ quantapdf_status quantapdf_document_audit(
     if (document == NULL ||
         out_result->struct_size < QUANTAPDF_AUDIT_RESULT_V1_MIN_SIZE)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return document->ops->document_audit(
-        document->backend, &out_result->findings);
+    status = document->ops->document_audit(document->backend, &findings);
+    if (status != QUANTAPDF_OK)
+        return status;
+    status = quantapdf_validate_security(findings, 0, &report);
+    if (status == QUANTAPDF_OK)
+        out_result->findings = findings;
+    return status;
 }
 
 quantapdf_status quantapdf_sanitize(

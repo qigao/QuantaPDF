@@ -32,6 +32,8 @@ typedef struct dispatch_probe {
     quantapdf_status export_result;
     quantapdf_status edit_result;
     quantapdf_status structured_result;
+    quantapdf_status audit_result;
+    uint32_t audit_findings;
 } dispatch_probe;
 
 typedef struct probe_page {
@@ -41,6 +43,13 @@ typedef struct probe_page {
 typedef struct probe_edit {
     dispatch_probe *probe;
 } probe_edit;
+
+static quantapdf_status probe_audit(void *document, uint32_t *out_findings)
+{
+    dispatch_probe *probe = document;
+    *out_findings = probe->audit_findings;
+    return probe->audit_result;
+}
 
 static quantapdf_status probe_page_count(void *document, int *out_count)
 {
@@ -232,6 +241,7 @@ static const quantapdf_backend_ops probe_ops = {
     .export_pages = probe_export_pages,
     .edit_begin = probe_edit_begin,
     .edit_ops = &probe_edit_ops,
+    .document_audit = probe_audit,
 };
 
 void quantapdf_test_backend_dispatch(void)
@@ -257,6 +267,23 @@ void quantapdf_test_backend_dispatch(void)
     document->context->test_finalizations = &probe.finalizations;
     document->ops = &probe_ops;
     document->backend = &probe;
+    {
+        quantapdf_audit_result audit = {sizeof(audit), UINT32_MAX};
+        probe.audit_findings = QUANTAPDF_AUDIT_SIGNATURE | QUANTAPDF_AUDIT_ENCRYPTION;
+        CHECK(quantapdf_document_audit(document, &audit) == QUANTAPDF_OK);
+        CHECK(audit.findings == probe.audit_findings);
+        probe.audit_findings = UINT32_C(1) << 31;
+        CHECK(quantapdf_document_audit(document, &audit) == QUANTAPDF_ERROR_BACKEND);
+        CHECK(audit.findings == 0);
+        probe.audit_findings = QUANTAPDF_AUDIT_SIGNATURE;
+        probe.audit_result = QUANTAPDF_ERROR_NOMEM;
+        CHECK(quantapdf_document_audit(document, &audit) == QUANTAPDF_ERROR_NOMEM);
+        CHECK(audit.findings == 0);
+        probe.audit_findings = 0;
+        probe.audit_result = QUANTAPDF_OK;
+        CHECK(quantapdf_document_audit(document, &audit) == QUANTAPDF_OK);
+        CHECK(audit.findings == 0);
+    }
     CHECK(quantapdf_page_count(document, &page_count) == QUANTAPDF_OK);
     CHECK(page_count == 1);
     CHECK(quantapdf_load_page(document, -1, &page) == QUANTAPDF_ERROR_ARGUMENT);
