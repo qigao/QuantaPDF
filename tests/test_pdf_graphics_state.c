@@ -103,12 +103,12 @@ static void test_stroke_style_graphics_state(void)
         "q 2 J 1 j 8 M [3 1 0 2] 1.25 d "
         "0 0 m 60 0 l S Q "
         "0 0 m 30 0 l S";
-    quantapdf_pdf_content_limits limits = budget();
+    quantapdf_pdf_content_limits budget = limits();
     quantapdf_pdf_content_ir *tape = NULL;
     quantapdf_pdf_graphics_ir *ir = NULL;
-    OK(quantapdf_pdf_content_parse((const unsigned char *)source,
-        strlen(source), &limits, &tape));
-    OK(quantapdf_pdf_graphics_evaluate(tape, &limits, &ir));
+    CHECK(quantapdf_pdf_content_parse((const unsigned char *)source,
+        strlen(source), &budget, &tape) == QUANTAPDF_OK);
+    CHECK(quantapdf_pdf_graphics_evaluate(tape, &budget, &ir) == QUANTAPDF_OK);
     CHECK(ir->path_count == 2 && ir->paths[0].graphics.line_cap == 2);
     CHECK(ir->paths[0].graphics.line_join == 1 &&
         ir->paths[0].graphics.miter_limit == 8.0);
