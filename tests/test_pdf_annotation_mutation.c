@@ -1011,6 +1011,171 @@ static int selected(int argc, char **argv, const char *name)
     return argc == 1 || (argc == 2 && strcmp(argv[1], name) == 0);
 }
 
+static void expect_same_output(
+    const quantapdf_output *expected,
+    quantapdf_pdf_edit *edit)
+{
+    quantapdf_output *actual = NULL;
+    const unsigned char *expected_data = NULL;
+    const unsigned char *actual_data = NULL;
+    size_t expected_size = 0;
+    size_t actual_size = 0;
+
+    CHECK(quantapdf_pdf_edit_snapshot(edit, &actual) == QUANTAPDF_OK);
+    CHECK(quantapdf_output_data(expected, &expected_data, &expected_size) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_output_data(actual, &actual_data, &actual_size) == QUANTAPDF_OK);
+    CHECK(expected_size == actual_size);
+    CHECK(memcmp(expected_data, actual_data, expected_size) == 0);
+    quantapdf_drop_output(actual);
+}
+
+static void test_exception_rollback(void)
+{
+    quantapdf_pdf_edit *edit = begin_edit_path(MUTATION_PDF, NULL);
+    quantapdf_pdf_edit *clean = begin_edit_path(MUTATION_PDF, NULL);
+    quantapdf_annotation_ref ref = get_ref(edit, 0, 1);
+    quantapdf_annotation_ref clean_ref = get_ref(clean, 0, 1);
+    quantapdf_annotation_update update = {0};
+    quantapdf_output *before = NULL;
+    quantapdf_output *after = NULL;
+
+    CHECK(quantapdf_pdf_edit_snapshot(edit, &before) == QUANTAPDF_OK);
+    update.struct_size = sizeof(update);
+    update.fields = QUANTAPDF_ANNOTATION_UPDATE_BOUNDS |
+                    QUANTAPDF_ANNOTATION_UPDATE_FLAGS |
+                    QUANTAPDF_ANNOTATION_UPDATE_CONTENTS;
+    update.bounds = (quantapdf_rect){20, 20, 90, 90};
+    update.flags = 32;
+    update.contents_utf8 = "committed";
+    update.contents_size = sizeof("committed") - 1;
+    quantapdf_test_pdf_edit_set_fault(edit, QUANTAPDF_TEST_PDF_EDIT_FAULT_UPDATE_NOMEM);
+    CHECK(quantapdf_pdf_edit_annotation_update(edit, &ref, &update) ==
+          QUANTAPDF_ERROR_NOMEM);
+    expect_same_output(before, edit);
+    expect_live_info(edit, &ref, QUANTAPDF_ANNOTATION_SQUARE,
+        (quantapdf_rect){40, 120, 70, 150}, 4);
+    expect_live_contents(edit, &ref, 1, "square-b", 8);
+
+    CHECK(quantapdf_pdf_edit_annotation_update(edit, &ref, &update) == QUANTAPDF_OK);
+    CHECK(quantapdf_pdf_edit_annotation_update(clean, &clean_ref, &update) == QUANTAPDF_OK);
+    CHECK(quantapdf_pdf_edit_snapshot(clean, &after) == QUANTAPDF_OK);
+    expect_same_output(after, edit);
+    quantapdf_drop_output(after);
+    quantapdf_drop_output(before);
+    quantapdf_drop_pdf_edit(clean);
+    quantapdf_drop_pdf_edit(edit);
+}
+
+static void test_create_rollback(void)
+{
+    const char *paths[] = {MUTATION_PDF, NO_ANNOTS_PDF, NONARRAY_ANNOTS_PDF};
+    const quantapdf_test_pdf_edit_fault faults[] = {
+        QUANTAPDF_TEST_PDF_EDIT_FAULT_AFTER_CREATE_MUTATION,
+        QUANTAPDF_TEST_PDF_EDIT_FAULT_CREATE_NOMEM
+    };
+    size_t path_index;
+    size_t fault_index;
+
+    for (path_index = 0; path_index < sizeof(paths) / sizeof(paths[0]); ++path_index) {
+        for (fault_index = 0; fault_index < sizeof(faults) / sizeof(faults[0]); ++fault_index) {
+            quantapdf_pdf_edit *edit = begin_edit_path(paths[path_index], NULL);
+            quantapdf_pdf_edit *clean = begin_edit_path(paths[path_index], NULL);
+            quantapdf_output *before = NULL;
+            quantapdf_output *after = NULL;
+            quantapdf_annotation_create_options options = {0};
+            quantapdf_annotation_ref ref = {{UINT64_MAX, UINT64_MAX}};
+            quantapdf_annotation_ref clean_ref = {{0, 0}};
+            size_t before_count = 0;
+            size_t after_count = SIZE_MAX;
+            quantapdf_status expected = faults[fault_index] ==
+                QUANTAPDF_TEST_PDF_EDIT_FAULT_CREATE_NOMEM ?
+                QUANTAPDF_ERROR_NOMEM : QUANTAPDF_ERROR_BACKEND;
+
+            CHECK(quantapdf_pdf_edit_annotation_count(edit, 0, &before_count) == QUANTAPDF_OK);
+            CHECK(quantapdf_pdf_edit_snapshot(edit, &before) == QUANTAPDF_OK);
+            options.struct_size = sizeof(options);
+            options.type = QUANTAPDF_ANNOTATION_TEXT;
+            options.bounds = (quantapdf_rect){20, 20, 30, 30};
+            options.contents_utf8 = "retry";
+            options.contents_size = 5;
+            quantapdf_test_pdf_edit_set_fault(edit, faults[fault_index]);
+            CHECK(quantapdf_pdf_edit_annotation_create(edit, 0, &options, &ref) == expected);
+            CHECK(ref_is_zero(&ref));
+            CHECK(quantapdf_pdf_edit_annotation_count(edit, 0, &after_count) == QUANTAPDF_OK);
+            CHECK(after_count == before_count);
+            expect_same_output(before, edit);
+            CHECK(quantapdf_pdf_edit_annotation_create(edit, 0, &options, &ref) == QUANTAPDF_OK);
+            CHECK(quantapdf_pdf_edit_annotation_create(clean, 0, &options, &clean_ref) == QUANTAPDF_OK);
+            expect_live_contents(edit, &ref, 1, "retry", 5);
+            CHECK(quantapdf_pdf_edit_snapshot(clean, &after) == QUANTAPDF_OK);
+            expect_same_output(after, edit);
+            quantapdf_drop_output(after);
+            quantapdf_drop_output(before);
+            quantapdf_drop_pdf_edit(clean);
+            quantapdf_drop_pdf_edit(edit);
+        }
+    }
+}
+
+static void test_failed_rollback_closes_session(void)
+{
+    quantapdf_pdf_edit *edit = begin_edit_path(MUTATION_PDF, NULL);
+    quantapdf_pdf_edit *clean = begin_edit_path(MUTATION_PDF, NULL);
+    quantapdf_annotation_ref ref = get_ref(edit, 0, 1);
+    quantapdf_annotation_ref failed_ref = {{UINT64_MAX, UINT64_MAX}};
+    quantapdf_annotation_update update = {0};
+    quantapdf_annotation_create_options create = {0};
+    quantapdf_annotation_info info = {0};
+    quantapdf_form_value_update form_update = {0};
+    quantapdf_form_field_ref form_ref = {{UINT64_MAX, UINT64_MAX}};
+    quantapdf_form *form = (quantapdf_form *)(uintptr_t)1;
+    quantapdf_output *before = NULL;
+    quantapdf_output *failed_output = (quantapdf_output *)(uintptr_t)1;
+    char *contents = (char *)(uintptr_t)1;
+    size_t contents_size = SIZE_MAX;
+    size_t count = SIZE_MAX;
+
+    CHECK(quantapdf_pdf_edit_snapshot(edit, &before) == QUANTAPDF_OK);
+    update.struct_size = sizeof(update);
+    update.fields = QUANTAPDF_ANNOTATION_UPDATE_CONTENTS;
+    update.contents_utf8 = "unpublished";
+    update.contents_size = sizeof("unpublished") - 1;
+    quantapdf_test_pdf_edit_set_fault(edit, QUANTAPDF_TEST_PDF_EDIT_FAULT_ROLLBACK);
+    CHECK(quantapdf_pdf_edit_annotation_update(edit, &ref, &update) == QUANTAPDF_ERROR_BACKEND);
+    CHECK(quantapdf_pdf_edit_annotation_update(edit, &ref, &update) == QUANTAPDF_ERROR_STATE);
+    CHECK(quantapdf_pdf_edit_annotation_delete(edit, &ref) == QUANTAPDF_ERROR_STATE);
+    CHECK(quantapdf_pdf_edit_annotation_count(edit, 0, &count) == QUANTAPDF_ERROR_STATE);
+    CHECK(count == 0);
+    CHECK(quantapdf_pdf_edit_annotation_ref_at(edit, 0, 0, &failed_ref) == QUANTAPDF_ERROR_STATE);
+    CHECK(ref_is_zero(&failed_ref));
+    info.struct_size = sizeof(info);
+    info.flags = UINT32_MAX;
+    CHECK(quantapdf_pdf_edit_annotation_get_info(edit, &ref, &info) == QUANTAPDF_ERROR_STATE);
+    CHECK(info.flags == 0 && info.type == QUANTAPDF_ANNOTATION_UNKNOWN);
+    CHECK(quantapdf_pdf_edit_annotation_contents(edit, &ref, &contents, &contents_size) ==
+          QUANTAPDF_ERROR_STATE);
+    CHECK(contents == NULL && contents_size == 0);
+    create.struct_size = sizeof(create);
+    create.type = QUANTAPDF_ANNOTATION_TEXT;
+    create.bounds = (quantapdf_rect){20, 20, 30, 30};
+    CHECK(quantapdf_pdf_edit_annotation_create(edit, 0, &create, &failed_ref) == QUANTAPDF_ERROR_STATE);
+    CHECK(ref_is_zero(&failed_ref));
+    CHECK(quantapdf_pdf_edit_snapshot(edit, &failed_output) == QUANTAPDF_ERROR_STATE);
+    CHECK(failed_output == NULL);
+    CHECK(quantapdf_pdf_edit_form_snapshot(edit, &form) == QUANTAPDF_ERROR_STATE);
+    CHECK(form == NULL);
+    CHECK(quantapdf_pdf_edit_form_field_ref_at(edit, 0, &form_ref) == QUANTAPDF_ERROR_STATE);
+    CHECK(form_ref.opaque[0] == 0 && form_ref.opaque[1] == 0);
+    form_update.struct_size = sizeof(form_update);
+    form_update.presence = QUANTAPDF_FORM_VALUE_MISSING;
+    CHECK(quantapdf_pdf_edit_form_set_values(edit, &form_ref, &form_update) == QUANTAPDF_ERROR_STATE);
+    quantapdf_drop_pdf_edit(edit);
+    expect_same_output(before, clean);
+    quantapdf_drop_output(before);
+    quantapdf_drop_pdf_edit(clean);
+}
+
 int main(int argc, char **argv)
 {
     CHECK(argc <= 2);
@@ -1033,6 +1198,11 @@ int main(int argc, char **argv)
         test_snapshot_isolation();
     if (selected(argc, argv, "javascript"))
         test_javascript_disabled();
+    if (selected(argc, argv, "transaction")) {
+        test_exception_rollback();
+        test_create_rollback();
+        test_failed_rollback_closes_session();
+    }
 
     return EXIT_SUCCESS;
 }

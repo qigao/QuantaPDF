@@ -824,6 +824,8 @@ target_link_libraries(quantapdf_test_pdf_annotation_mutation PRIVATE QuantaPDF::
 target_compile_definitions(quantapdf_test_pdf_annotation_mutation PRIVATE
   QUANTAPDF_TESTING=1
   MUTATION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation.pdf"
+  NO_ANNOTS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
+  NONARRAY_ANNOTS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotations-nonarray.pdf"
   SIGNED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation-signed.pdf"
   UNSIGNED_SIGNATURE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation-unsigned-signature.pdf"
   JS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation-js.pdf"

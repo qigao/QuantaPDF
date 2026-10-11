@@ -2,17 +2,7 @@
 #define QUANTAPDF_PDF_EDIT_TEST_API_H
 
 #include <quantapdf/quantapdf.h>
-
-typedef enum quantapdf_test_pdf_edit_fault {
-    QUANTAPDF_TEST_PDF_EDIT_FAULT_NONE = 0,
-    QUANTAPDF_TEST_PDF_EDIT_FAULT_AFTER_FIRST_UPDATE_FIELD = 1,
-    QUANTAPDF_TEST_PDF_EDIT_FAULT_AFTER_CREATE_MUTATION = 2,
-    QUANTAPDF_TEST_PDF_EDIT_FAULT_SNAPSHOT_BEFORE_PUBLISH = 3,
-    QUANTAPDF_TEST_PDF_EDIT_FAULT_FORM_AFTER_WIDGET_PREPARE = 4,
-    QUANTAPDF_TEST_PDF_EDIT_FAULT_FORM_AFTER_SEMANTIC_WRITE = 5,
-    QUANTAPDF_TEST_PDF_EDIT_FAULT_FORM_AFTER_FIRST_WIDGET_STATE = 6,
-    QUANTAPDF_TEST_PDF_EDIT_FAULT_FORM_AFTER_FIRST_AP_REFRESH = 7
-} quantapdf_test_pdf_edit_fault;
+#include "../src/backend/edit_fault.h"
 
 void quantapdf_test_pdf_edit_set_fault(
     quantapdf_pdf_edit *edit,
