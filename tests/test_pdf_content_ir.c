@@ -70,7 +70,7 @@ static void test_fail_closed(void)
     fails("BT /F1 12 Tf (hi) Tj ET", limits, QUANTAPDF_ERROR_UNSUPPORTED);
     fails("/Im1 Do", limits, QUANTAPDF_ERROR_UNSUPPORTED);
     fails("BI /W 1 /H 1 ID x EI", limits, QUANTAPDF_ERROR_UNSUPPORTED);
-    fails("[1 2] 0 d", limits, QUANTAPDF_ERROR_UNSUPPORTED);
+    fails("[1 2]", limits, QUANTAPDF_ERROR_FORMAT);
     fails("0 0 m 10 l", limits, QUANTAPDF_ERROR_FORMAT);
     fails("1 2 l", limits, QUANTAPDF_ERROR_FORMAT);
     fails("Q", limits, QUANTAPDF_ERROR_FORMAT);
@@ -103,8 +103,55 @@ static void test_empty_detached(void)
     CHECK(ir == NULL);
 }
 
+
+static void test_stroke_dash_lexing(void)
+{
+    const unsigned char source[] =
+        "q 2 J 1 j 8 M [3 % newline comment\n 1 0 2] 1.25 d "
+        "0 0 m 40 0 l S Q [] 12 d 0 0 4 4 re f";
+    quantapdf_pdf_content_limits limits = budget();
+    quantapdf_pdf_content_ir *ir = NULL;
+    OK(quantapdf_pdf_content_parse(source, sizeof(source) - 1, &limits, &ir));
+    CHECK(ir->count == 12 && ir->dash_value_count == 4);
+    CHECK(ir->ops[1].opcode == QUANTAPDF_PDF_OP_LINE_CAP &&
+        ir->ops[1].arguments[0] == 2);
+    CHECK(ir->ops[2].opcode == QUANTAPDF_PDF_OP_LINE_JOIN &&
+        ir->ops[2].arguments[0] == 1);
+    CHECK(ir->ops[3].opcode == QUANTAPDF_PDF_OP_MITER_LIMIT);
+    CHECK(ir->ops[4].opcode == QUANTAPDF_PDF_OP_DASH &&
+        ir->ops[4].dash_count == 4 &&
+        ir->ops[4].arguments[0] == 1.25);
+    CHECK(ir->dash_values[0] == 3 && ir->dash_values[1] == 1 &&
+        ir->dash_values[2] == 0 && ir->dash_values[3] == 2);
+    CHECK(ir->ops[9].opcode == QUANTAPDF_PDF_OP_DASH &&
+        ir->ops[9].dash_count == 0);
+    quantapdf_pdf_content_dispose(ir);
+    fails("1 d", limits, QUANTAPDF_ERROR_FORMAT);
+    fails("[] d", limits, QUANTAPDF_ERROR_FORMAT);
+    fails("[1 2] 0 w", limits, QUANTAPDF_ERROR_FORMAT);
+    fails("[-1 3] 0 d", limits, QUANTAPDF_ERROR_FORMAT);
+    fails("[0 0] 0 d", limits, QUANTAPDF_ERROR_FORMAT);
+    fails("[0] 0 d", limits, QUANTAPDF_ERROR_FORMAT);
+    fails("[1 3] -1 d", limits, QUANTAPDF_ERROR_FORMAT);
+    fails("[1 3] 0 1 d", limits, QUANTAPDF_ERROR_FORMAT);
+    fails("[1 /Name] 0 d", limits, QUANTAPDF_ERROR_UNSUPPORTED);
+    fails("[[1]] 0 d", limits, QUANTAPDF_ERROR_UNSUPPORTED);
+    fails("[1 2", limits, QUANTAPDF_ERROR_FORMAT);
+    fails("3 J", limits, QUANTAPDF_ERROR_FORMAT);
+    fails("1.5 j", limits, QUANTAPDF_ERROR_FORMAT);
+    fails("0.9 M", limits, QUANTAPDF_ERROR_FORMAT);
+    {
+        char buffer[512] = "[";
+        for (size_t i = 0; i < QUANTAPDF_PDF_MAX_DASH_ITEMS + 1; ++i)
+            strcat(buffer, "1 ");
+        strcat(buffer, "] 0 d");
+        fails(buffer, limits, QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+}
+
 int main(void)
 {
+    test_stroke_dash_lexing();
     test_path_tape();
     test_extended_paths();
     test_fail_closed();

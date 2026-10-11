@@ -190,8 +190,55 @@ static void test_pdf_export_and_render(void)
     CHECK(remove(PATH_LOWER_OUTPUT_PDF) == 0);
 }
 
+
+static void test_stroke_style_lowering(void)
+{
+    quantapdf_pdf_page_semantics page;
+    quantapdf_ir ir = {0};
+    quantapdf_pdf_path_lower_limits limits = lower_limits();
+    parse_page("q 2 J 1 j 8 M [3 1 0 2] 1.25 d "
+               "1 0 0 RG 5 w 0 0 m 80 0 l S Q "
+               "0 0 m 80 0 l S", &page);
+    OK(quantapdf_pdf_path_lower_to_composer(&page, 200, 120, &limits, &ir));
+    CHECK(ir.operation_count == 2);
+    const quantapdf_composer_path_operation *first = &ir.operations[0].value.path;
+    CHECK(first->options.line_cap == QUANTAPDF_COMPOSER_LINE_CAP_SQUARE &&
+        first->options.line_join == QUANTAPDF_COMPOSER_LINE_JOIN_ROUND &&
+        first->options.miter_limit == 8.0f &&
+        first->options.stroke_width == 5.0f);
+    CHECK(first->dash_count == 4 && first->dash_phase == 1.25f);
+    CHECK(first->dash_lengths[0] == 3.0f && first->dash_lengths[1] == 1.0f &&
+        first->dash_lengths[2] == 0.0f && first->dash_lengths[3] == 2.0f);
+    const quantapdf_composer_path_operation *second = &ir.operations[1].value.path;
+    CHECK(second->options.line_cap == QUANTAPDF_COMPOSER_LINE_CAP_BUTT &&
+        second->options.line_join == QUANTAPDF_COMPOSER_LINE_JOIN_MITER &&
+        second->options.miter_limit == 10.0f &&
+        second->dash_count == 0 && second->dash_lengths == NULL);
+    dispose_page(&page);
+    CHECK(ir.operations[0].value.path.dash_lengths[3] == 2.0f);
+    quantapdf_ir_dispose(&ir);
+
+    parse_page("[1.23456 2] 0 d 0 0 m 80 0 l S", &page);
+    CHECK(quantapdf_pdf_path_lower_to_composer(&page, 200, 120,
+        &limits, &ir) == QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(ir.pages == NULL && ir.operations == NULL &&
+        ir.resources.clip_count == 0);
+    dispose_page(&page);
+    parse_page("1.23456 M 0 0 m 80 0 l S", &page);
+    CHECK(quantapdf_pdf_path_lower_to_composer(&page, 200, 120,
+        &limits, &ir) == QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(ir.pages == NULL && ir.operations == NULL);
+    dispose_page(&page);
+    parse_page("[2 1] 0.12345 d 0 0 m 80 0 l S", &page);
+    CHECK(quantapdf_pdf_path_lower_to_composer(&page, 200, 120,
+        &limits, &ir) == QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(ir.pages == NULL && ir.operations == NULL);
+    dispose_page(&page);
+}
+
 int main(void)
 {
+    test_stroke_style_lowering();
     test_paths_and_curves();
     test_close_and_color();
     test_fail_closed();

@@ -211,8 +211,42 @@ static void test_clip_definition_ctm_and_page_map(void)
     CHECK(std::remove(CLIP_LOWERED_PDF) == 0);
 }
 
+
+static void test_stroke_styles_with_clip_and_scope(void)
+{
+    // Mix clipped round/square caps, bevel joins, miter limit and dash
+    // phase. The outer Q restores the preclip graphics state for black.
+    static const char *content =
+        "q 10 10 100 100 re W n "
+        "q 2 J 1 j 6 M [12 6] 2 d "
+        "1 0 0 RG 8 w 25 40 m 95 40 l S Q "
+        "q 1 J 2 j 3 M [6 4] 1 d "
+        "0 0 1 RG 6 w 25 60 m 60 95 l 95 60 l S Q "
+        "[] 0 d 0 1 0 RG 4 w 25 105 m 95 105 l S "
+        "Q 0 0 0 RG 3 w 15 115 m 105 115 l S";
+    static const expected samples[] = {
+        {30, 40, 'R'}, {5, 40, 'W'}, {40, 115, 'K'}, {5, 115, 'W'}
+    };
+    run(content, samples, sizeof(samples) / sizeof(samples[0]));
+}
+
+static void test_stroke_style_on_rotated_scaled_page(void)
+{
+    const char *content =
+        "q 15 15 80 80 re W n "
+        "2 J 0 j 10 M [10 7] 2 d 0 0 1 RG 4 w "
+        "20 30 m 50 75 l 90 30 l S Q";
+    pdf_source(content, 90, 2);
+    pdf_lower();
+    compare(NULL, 0, 200, 200);
+    CHECK(std::remove(CLIP_SOURCE_PDF) == 0);
+    CHECK(std::remove(CLIP_LOWERED_PDF) == 0);
+}
+
 int main()
 {
+    test_stroke_styles_with_clip_and_scope();
+    test_stroke_style_on_rotated_scaled_page();
     test_nested_q_q_and_evenodd();
     test_delayed_clip_stroke();
     test_clip_definition_ctm_and_page_map();
