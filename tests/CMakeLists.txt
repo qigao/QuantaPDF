@@ -39,7 +39,8 @@ set_tests_properties(quantapdf.graph_edit PROPERTIES TIMEOUT 30)
 
 # Compile the actual private facade/lifetime helpers without adding SDK exports.
 add_executable(quantapdf_test_graph_snapshot test_graph_snapshot.c
-  ../src/document/document_graph.c ../src/core/context_lifetime.c ../src/core/output_lifetime.c ../src/snapshot/snapshot_owner.c)
+  ../src/document/document_graph.c ../src/ir/pdf_content_ir.c
+  ../src/core/context_lifetime.c ../src/core/output_lifetime.c ../src/snapshot/snapshot_owner.c)
 target_include_directories(quantapdf_test_graph_snapshot PRIVATE "${PROJECT_SOURCE_DIR}/src")
 target_link_libraries(quantapdf_test_graph_snapshot PRIVATE
   QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium)
