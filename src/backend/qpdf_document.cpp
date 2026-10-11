@@ -4,6 +4,8 @@
 #include "qpdf_edit.h"
 #include "edit_fault.h"
 #include "qpdf_graph.h"
+#include "qpdf_text.h"
+#include "graph/graph_query.h"
 #include "jpeg_encoder.h"
 #include "secure_random.h"
 #include "snapshot/annotation_snapshot.h"
@@ -3261,18 +3263,8 @@ extern "C" quantapdf_status quantapdf_qpdf_metadata(
         out_utf8 == nullptr || out_size == nullptr)
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    char const *key;
-    switch (field) {
-    case QUANTAPDF_METADATA_TITLE: key = "/Title"; break;
-    case QUANTAPDF_METADATA_AUTHOR: key = "/Author"; break;
-    case QUANTAPDF_METADATA_SUBJECT: key = "/Subject"; break;
-    case QUANTAPDF_METADATA_KEYWORDS: key = "/Keywords"; break;
-    case QUANTAPDF_METADATA_CREATOR: key = "/Creator"; break;
-    case QUANTAPDF_METADATA_PRODUCER: key = "/Producer"; break;
-    case QUANTAPDF_METADATA_CREATION_DATE: key = "/CreationDate"; break;
-    case QUANTAPDF_METADATA_MODIFICATION_DATE: key = "/ModDate"; break;
-    default: return QUANTAPDF_ERROR_ARGUMENT;
-    }
+    char const *key = quantapdf_metadata_key(field);
+    if (key == nullptr) return QUANTAPDF_ERROR_ARGUMENT;
 
     try {
         QPDFObjectHandle info = document->pdf->getTrailer().getKey("/Info");
@@ -3285,16 +3277,7 @@ extern "C" quantapdf_status quantapdf_qpdf_metadata(
             return QUANTAPDF_OK;
         if (!value.isString())
             return QUANTAPDF_ERROR_FORMAT;
-        std::string const text = value.getUTF8Value();
-        auto *copy = static_cast<char *>(std::malloc(text.size() + 1u));
-        if (copy == nullptr)
-            return QUANTAPDF_ERROR_NOMEM;
-        if (!text.empty())
-            std::memcpy(copy, text.data(), text.size());
-        copy[text.size()] = '\0';
-        *out_utf8 = copy;
-        *out_size = text.size();
-        return QUANTAPDF_OK;
+        return quantapdf_qpdf_copy_text(value, out_utf8, out_size);
     } catch (QPDFExc const& error) {
         return quantapdf_status_from_qpdf(error);
     } catch (std::bad_alloc const&) {

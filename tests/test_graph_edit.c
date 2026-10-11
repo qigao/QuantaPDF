@@ -1,4 +1,5 @@
 #include "graph/graph_edit.h"
+#include "graph/graph_query.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -359,6 +360,54 @@ static void test_stream_values_and_noop_history(void)
     quantapdf_graph_drop(result);
 }
 
+static void test_metadata_queries(void)
+{
+    quantapdf_graph *base = base_graph(), *version = NULL, *empty = NULL;
+    quantapdf_graph_limits budget = limits();
+    quantapdf_graph_change_set changes = selection(base);
+    quantapdf_validation_report report;
+    quantapdf_graph_text_view view;
+    quantapdf_graph_edge_input trailer[] = {{10, "/Info", 5}, {2, "/Root", 5}};
+    quantapdf_graph_edge_input info[] = {{11, "/Title", 6}};
+    quantapdf_graph_replacement replacement = {1,
+        {QUANTAPDF_GRAPH_DICTIONARY, 1, 0, NULL, 0, trailer, 2}};
+    unsigned char bytes[] = {0xfe, 0xff, 0, 'A', 0, 0};
+    quantapdf_graph_node_input additions[] = {
+        {QUANTAPDF_GRAPH_DICTIONARY, 1, 0, NULL, 0, info, 1},
+        {QUANTAPDF_GRAPH_STRING, 0, 0, bytes, sizeof(bytes), NULL, 0}
+    };
+    int scenario;
+    OK(quantapdf_graph_query_metadata(base, QUANTAPDF_METADATA_TITLE, &view));
+    CHECK(!view.present && view.data == NULL && view.size == 0);
+    OK(quantapdf_graph_create(&budget, &empty));
+    CHECK(quantapdf_graph_query_metadata(empty, QUANTAPDF_METADATA_TITLE, &view) == QUANTAPDF_ERROR_STATE);
+    quantapdf_graph_drop(empty);
+    changes.replacements = &replacement; changes.replacement_count = 1;
+    changes.additions = additions; changes.addition_count = 2;
+    for (scenario = 0; scenario < 6; ++scenario) {
+        if (scenario == 1) { additions[1].data_size = 0; additions[1].data = NULL; }
+        if (scenario == 2) additions[1].kind = QUANTAPDF_GRAPH_NULL;
+        if (scenario == 3) additions[1].kind = QUANTAPDF_GRAPH_INTEGER;
+        if (scenario == 4) { additions[0].kind = QUANTAPDF_GRAPH_NULL; additions[0].edge_count = 0; }
+        if (scenario == 5) additions[0].kind = QUANTAPDF_GRAPH_INTEGER;
+        OK(quantapdf_graph_commit(base, &changes, &budget, &version, &report));
+        memset(&view, 0xa5, sizeof(view));
+        if (scenario == 3 || scenario == 5) {
+            CHECK(quantapdf_graph_query_metadata(version, QUANTAPDF_METADATA_TITLE, &view) == QUANTAPDF_ERROR_FORMAT);
+            CHECK(!view.present && view.data == NULL && view.size == 0);
+        } else {
+            OK(quantapdf_graph_query_metadata(version, QUANTAPDF_METADATA_TITLE, &view));
+            CHECK(view.present == (scenario < 2));
+            if (scenario == 0) CHECK(view.size == sizeof(bytes) && memcmp(view.data, bytes, sizeof(bytes)) == 0);
+            else CHECK(view.data == NULL && view.size == 0);
+        }
+        CHECK(quantapdf_graph_query_metadata(version, (quantapdf_metadata_field)99, &view) == QUANTAPDF_ERROR_ARGUMENT);
+        CHECK(!view.present && view.data == NULL && view.size == 0);
+        quantapdf_graph_drop(version);
+    }
+    quantapdf_graph_drop(base);
+}
+
 int main(void)
 {
     test_branches_and_owned_data();
@@ -366,5 +415,6 @@ int main(void)
     test_root_page_batch();
     test_page_tree_admission();
     test_stream_values_and_noop_history();
+    test_metadata_queries();
     return EXIT_SUCCESS;
 }

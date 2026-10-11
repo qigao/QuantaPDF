@@ -159,6 +159,8 @@ static void test_commit_detached_metadata(void)
     quantapdf_graph_write_limits write_limits = {262144, 128, 100000};
     const unsigned char *written, *repeated;
     size_t written_size, repeated_size;
+    char *decoded = NULL;
+    size_t decoded_size = 0;
     quantapdf_graph_limits budget = limits(), small;
     quantapdf_graph_change_set changes = {0};
     quantapdf_graph_replacement replacement = {0};
@@ -204,6 +206,9 @@ static void test_commit_detached_metadata(void)
     CHECK(quantapdf_graph_snapshot_commit(a, &changes, &budget, &failed, &report) == QUANTAPDF_ERROR_STATE);
     CHECK(failed == NULL && context->references == references + 2);
     payload[0] = 'X';
+    OK(quantapdf_graph_snapshot_metadata(base, QUANTAPDF_METADATA_TITLE, &decoded, &decoded_size));
+    CHECK(decoded_size == 13 && memcmp(decoded, "Phase 5 Caf\xc3\xa9", 13) == 0);
+    quantapdf_free(decoded);
     quantapdf_graph_snapshot_drop(base); CHECK(finalized == 0);
     quantapdf_graph_snapshot_drop(a); CHECK(finalized == 0);
     OK(quantapdf_graph_resolve(b->graph, &title_ref, &resolved)); CHECK(resolved == title_id);
@@ -212,6 +217,8 @@ static void test_commit_detached_metadata(void)
     CHECK(title->data_size == sizeof(payload));
     CHECK(model->bytes[title->data_offset] == 'N' && model->bytes[title->data_offset + 1] == 0);
     CHECK(model->bytes[title->data_offset + 2] == 0xff);
+    OK(quantapdf_graph_snapshot_metadata(b, QUANTAPDF_METADATA_TITLE, &decoded, &decoded_size));
+    CHECK(decoded_size == 5 && memcmp(decoded, "N\0\xc3\xbfW", 5) == 0 && decoded[5] == 0);
     OK(quantapdf_validate_graph(model, &report));
     context->test_fail_allocation = 1;
     CHECK(quantapdf_graph_snapshot_write(b, &write_limits, &output) == QUANTAPDF_ERROR_NOMEM);
@@ -227,6 +234,7 @@ static void test_commit_detached_metadata(void)
     CHECK(written_size == repeated_size && memcmp(written, repeated, written_size) == 0);
     quantapdf_drop_output(second);
     quantapdf_graph_snapshot_drop(b); CHECK(finalized == 0);
+    CHECK(memcmp(decoded, "N\0\xc3\xbfW", 5) == 0); quantapdf_free(decoded);
     OK(quantapdf_output_save_file(output, "graph-writer-output.pdf"));
     OK(quantapdf_open("graph-writer-output.pdf", NULL, &reopened));
     OK(quantapdf_document_capture_graph(reopened, &budget, &roundtrip));
@@ -239,9 +247,39 @@ static void test_commit_detached_metadata(void)
     quantapdf_drop_output(output); CHECK(finalized == 1);
 }
 
+static void test_metadata_compatibility(void)
+{
+    quantapdf_document *document = NULL;
+    quantapdf_graph_snapshot *snapshot = NULL;
+    quantapdf_graph_limits budget = limits();
+    int field;
+    char *retained = NULL;
+    size_t retained_size = 0;
+    OK(quantapdf_open(GRAPH_METADATA_PDF, NULL, &document));
+    OK(quantapdf_document_capture_graph(document, &budget, &snapshot));
+    for (field = 0; field <= 9; ++field) {
+        char *legacy = (char *)(uintptr_t)1, *graph = (char *)(uintptr_t)1;
+        size_t legacy_size = 99, graph_size = 99;
+        quantapdf_status a = quantapdf_document_metadata(document, (quantapdf_metadata_field)field, &legacy, &legacy_size);
+        quantapdf_status b = quantapdf_graph_snapshot_metadata(snapshot, (quantapdf_metadata_field)field, &graph, &graph_size);
+        CHECK(a == b && legacy_size == graph_size && (legacy == NULL) == (graph == NULL));
+        if (legacy != NULL) CHECK(memcmp(legacy, graph, legacy_size + 1) == 0);
+        quantapdf_free(legacy); quantapdf_free(graph);
+    }
+    quantapdf_close(document);
+    OK(quantapdf_graph_snapshot_metadata(snapshot, QUANTAPDF_METADATA_TITLE, &retained, &retained_size));
+    quantapdf_graph_snapshot_drop(snapshot);
+    CHECK(retained_size == 13 && memcmp(retained, "Phase 5 Caf\xc3\xa9", 13) == 0);
+    quantapdf_free(retained);
+    retained = (char *)(uintptr_t)1; retained_size = 99;
+    CHECK(quantapdf_graph_snapshot_metadata(NULL, QUANTAPDF_METADATA_TITLE, &retained, &retained_size) == QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(retained == NULL && retained_size == 0);
+}
+
 int main(void)
 {
     test_capture(); test_document_families(); test_provider_failure();
     test_commit_detached_metadata();
+    test_metadata_compatibility();
     return EXIT_SUCCESS;
 }

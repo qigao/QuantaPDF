@@ -1,6 +1,7 @@
 #include "document_internal.h"
 #include "snapshot/graph_snapshot.h"
 #include "core/output_internal.h"
+#include "graph/graph_query.h"
 
 #include <stdlib.h>
 
@@ -97,4 +98,18 @@ quantapdf_status quantapdf_graph_snapshot_write(const quantapdf_graph_snapshot *
     if (status != QUANTAPDF_OK) { quantapdf_drop_output(output); return status; }
     *out_output = output;
     return QUANTAPDF_OK;
+}
+
+quantapdf_status quantapdf_graph_snapshot_metadata(const quantapdf_graph_snapshot *snapshot,
+    quantapdf_metadata_field field, char **out_utf8, size_t *out_size)
+{
+    quantapdf_graph_text_view text;
+    quantapdf_status status;
+    if (out_utf8 != NULL) *out_utf8 = NULL;
+    if (out_size != NULL) *out_size = 0;
+    if (snapshot == NULL || out_utf8 == NULL || out_size == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    status = quantapdf_graph_query_metadata(snapshot->graph, field, &text);
+    if (status != QUANTAPDF_OK || !text.present) return status;
+    return snapshot->owner.context->ops->decode_pdf_text(text.data, text.size, out_utf8, out_size);
 }
