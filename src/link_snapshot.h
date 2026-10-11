@@ -15,6 +15,7 @@ typedef struct quantapdf_link_internal {
 } quantapdf_link_internal;
 
 struct quantapdf_link_page {
+    quantapdf_context *context;
     quantapdf_link_internal *items;
     size_t count;
 };

@@ -21,6 +21,7 @@ typedef struct quantapdf_outline_node_internal {
 } quantapdf_outline_node_internal;
 
 struct quantapdf_outline {
+    quantapdf_context *context;
     quantapdf_outline_node_internal *nodes;
     char *strings;
     size_t count;

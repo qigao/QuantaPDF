@@ -16,6 +16,7 @@ typedef struct quantapdf_annotation_internal {
 } quantapdf_annotation_internal;
 
 struct quantapdf_annotation_page {
+    quantapdf_context *context;
     quantapdf_annotation_internal *items;
     char *strings;
     size_t count;

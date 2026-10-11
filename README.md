@@ -114,9 +114,44 @@ Snapshot/output ownership is explicit:
   call. Every successful `quantapdf_composer_finish()` returns an independent
   `quantapdf_output`; finish does not consume or freeze the composer.
 
-The [context runtime ownership proposal](docs/superpowers/specs/2026-10-11-quantapdf-context-runtime-owner-design.md)
-describes planned additive context APIs, retained runtime lifetimes, and their
-compatibility with these existing handle contracts.
+### Runtime contexts (2.34)
+
+`quantapdf_context_create()` creates a caller-owned runtime domain using the
+built-in provider and default C allocator. Documents, pages, bitmaps, snapshots,
+edits, Composers and outputs retain that domain. Dropping the caller's context
+reference leaves those handles usable; the final handle drop releases the domain.
+Use `quantapdf_open_with_context()`, `quantapdf_composer_create_with_context()`
+and `quantapdf_merge_outputs_with_context()` to group roots explicitly. A NULL
+explicit context returns `QUANTAPDF_ERROR_ARGUMENT`; the legacy factories each
+create an independent implicit domain. Failed factories reset output handles to
+NULL. Reference exhaustion returns `QUANTAPDF_ERROR_UNSUPPORTED`; allocation
+failure returns `QUANTAPDF_ERROR_NOMEM`.
+
+```c
+quantapdf_context *context = NULL;
+quantapdf_document *document = NULL;
+if (quantapdf_context_create(&context) == QUANTAPDF_OK) {
+    quantapdf_status status = quantapdf_open_with_context(
+        context, "file.pdf", NULL, &document);
+    quantapdf_drop_context(context);
+    context = NULL; /* this caller reference has been consumed */
+    if (status == QUANTAPDF_OK) {
+        int count = 0;
+        status = quantapdf_page_count(document, &count);
+        /* Consume count only when status == QUANTAPDF_OK. */
+        quantapdf_close(document);
+    }
+}
+```
+
+Context retention preserves the existing document-borrowing rules for pages,
+bitmaps and image snapshots. Raw `char **` results still use `quantapdf_free()`.
+Cross-context output merge borrows serialized inputs and owns its result in the
+chosen destination domain. All calls, including those on distinct contexts,
+remain externally serialized. The private PDFium process runtime is initialized
+once; releasing a context never destroys it. See the
+[context ownership design](docs/superpowers/specs/2026-10-11-quantapdf-context-runtime-owner-design.md)
+for publication, rollback and future allocator/runtime boundaries.
 
 ## ABI-sized structures
 

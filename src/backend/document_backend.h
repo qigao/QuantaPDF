@@ -9,6 +9,10 @@ extern "C" {
 
 typedef struct quantapdf_pdf_form_model quantapdf_pdf_form_model;
 
+/* Snapshot handles returned by providers have a NULL context. The facade
+ * holds the construction guard and transfers it before public publication.
+ * On failure providers release partial payloads and leave outputs empty. */
+
 /* Successful rendering transfers malloc-owned samples to the C facade.
  * Failure leaves an empty bitmap; the provider cleans any partial allocation. */
 typedef struct quantapdf_backend_bitmap {

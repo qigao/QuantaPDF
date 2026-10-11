@@ -15,6 +15,8 @@ static void check_impl(int condition, const char *expression, int line)
 #define CHECK(expression) check_impl((expression), #expression, __LINE__)
 
 typedef struct dispatch_probe {
+    quantapdf_context *context;
+    size_t finalizations;
     int loads;
     int drops;
     int closes;
@@ -28,6 +30,7 @@ typedef struct dispatch_probe {
     quantapdf_status render_result;
     quantapdf_status export_result;
     quantapdf_status edit_result;
+    quantapdf_status structured_result;
 } dispatch_probe;
 
 typedef struct probe_page {
@@ -72,6 +75,7 @@ static void probe_drop_page(void *backend_page)
 static void probe_close(void *document)
 {
     dispatch_probe *probe = document;
+    CHECK(probe->context->references != 0 && probe->finalizations == 0);
     ++probe->closes;
 }
 
@@ -142,7 +146,11 @@ static quantapdf_status probe_extract_text(
 static quantapdf_status probe_extract_structured_text(
     void *backend_page, quantapdf_text_page **out_text)
 {
+    probe_page *page = backend_page;
     CHECK(backend_page != NULL);
+    *out_text = NULL;
+    if (page->probe->structured_result != QUANTAPDF_OK)
+        return page->probe->structured_result;
     *out_text = (quantapdf_text_page *)calloc(1, sizeof(**out_text));
     CHECK(*out_text != NULL);
     return QUANTAPDF_OK;
@@ -243,6 +251,9 @@ void quantapdf_test_backend_dispatch(void)
     int index = 0;
 
     CHECK(document != NULL);
+    CHECK(quantapdf_context_create(&document->context) == QUANTAPDF_OK);
+    probe.context = document->context;
+    document->context->test_finalizations = &probe.finalizations;
     document->ops = &probe_ops;
     document->backend = &probe;
     CHECK(quantapdf_page_count(document, &page_count) == QUANTAPDF_OK);
@@ -250,10 +261,18 @@ void quantapdf_test_backend_dispatch(void)
     CHECK(quantapdf_load_page(document, -1, &page) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(page == NULL);
     CHECK(probe.loads == 0);
+    document->context->references = SIZE_MAX;
+    CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(page == NULL && probe.loads == 0);
+    document->context->references = 1;
+    document->context->test_fail_allocation = 1;
+    CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_ERROR_NOMEM);
+    CHECK(page == NULL && probe.loads == 0 && document->context->references == 1);
     probe.load_result = QUANTAPDF_ERROR_STATE;
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_ERROR_STATE);
     CHECK(page == NULL);
     CHECK(probe.loads == 1 && probe.drops == 0);
+    CHECK(document->context->references == 1);
     probe.load_result = QUANTAPDF_OK;
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     CHECK(probe.loads == 2);
@@ -276,6 +295,10 @@ void quantapdf_test_backend_dispatch(void)
     CHECK(probe.text_extractions == 1);
     CHECK(size == 4 && strcmp(text, "text") == 0);
     quantapdf_free(text);
+    probe.structured_result = QUANTAPDF_ERROR_NOMEM;
+    CHECK(quantapdf_extract_structured_text(page, &snapshot) == QUANTAPDF_ERROR_NOMEM);
+    CHECK(snapshot == NULL && document->context->references == 2);
+    probe.structured_result = QUANTAPDF_OK;
     CHECK(quantapdf_extract_structured_text(page, &snapshot) == QUANTAPDF_OK);
 
     probe.export_result = QUANTAPDF_ERROR_FORMAT;
@@ -310,4 +333,5 @@ void quantapdf_test_backend_dispatch(void)
     quantapdf_drop_output(output);
     quantapdf_drop_pdf_edit(edit);
     CHECK(probe.edit_drops == 1);
+    CHECK(probe.finalizations == 1);
 }

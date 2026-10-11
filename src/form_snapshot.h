@@ -62,6 +62,11 @@ typedef struct quantapdf_pdf_form_model {
     size_t string_capacity;
 } quantapdf_pdf_form_model;
 
+struct quantapdf_form {
+    quantapdf_context *context;
+    quantapdf_pdf_form_model *model;
+};
+
 void quantapdf_pdf_form_drop_model(quantapdf_pdf_form_model *model);
 
 #endif

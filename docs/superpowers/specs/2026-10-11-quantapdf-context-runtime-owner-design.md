@@ -1,8 +1,8 @@
 # Context runtime ownership
 
-Design proposal for [#144](https://github.com/qigao/QuantaPDF/issues/144).
-This document defines a future implementation; it adds no installed API or
-runtime behavior. It builds on the private backend boundary in
+Implemented in 2.34 for [#144](https://github.com/qigao/QuantaPDF/issues/144).
+The installed API and runtime implement the retained-domain contract below.
+It builds on the private backend boundary in
 [#143 / PR #178](https://github.com/qigao/QuantaPDF/pull/178). The implementation
 baseline for the observations below is commit `d294388`.
 
@@ -27,7 +27,7 @@ that observation does not extend the supported lifetime of these handles.
 
 ## Decision and scope
 
-Introduce a private reference-counted runtime domain, later exposed through an
+Use a private reference-counted runtime domain exposed through an
 opaque `quantapdf_context`. It is the owner of immutable runtime policy and any
 context-local runtime resources. Each document, edit, Composer, snapshot,
 bitmap, and output still owns and releases its own payload through its existing
@@ -177,7 +177,7 @@ allocator policy, or cleanup state.
 The first domain has fixed-size storage and retains no growing list of child
 objects. Reference arithmetic is checked against `SIZE_MAX`. Existing source,
 render, transform, and Composer allocation/size limits remain with their
-current owners. This proposal adds no aggregate resident-memory limit and
+current owners. This implementation adds no aggregate resident-memory limit and
 does not claim that the context measures every byte allocated by qpdf, PDFium,
 the C++ runtime, or the caller.
 
@@ -222,7 +222,7 @@ not make providers, handles, payload mutation, or borrowed pointers safe for
 concurrent use.
 
 There is no cancellation, blocking close, reset, forced recursive destruction,
-or independent context stop operation in this proposal. Dropping a context is
+or independent context stop operation in this implementation. Dropping a context is
 a reference release; the caller uses the existing object drops to end object
 lifetimes. Cleanup executes on the thread making the last release, within the
 existing serialization contract. The synchronous runtime has no queue to
@@ -233,10 +233,9 @@ add operation references and an explicit stop/drain owner without changing
 what an existing context drop means. Thread-affine provider teardown, if ever
 required, needs a separately specified scheduling and shutdown contract.
 
-## Proposed additive API and legacy entry points
+## Additive API and legacy entry points
 
-The following names and behavior are a proposed API surface, not declarations
-available in the current installed header:
+The installed header exposes the following additive API surface:
 
 ```c
 typedef struct quantapdf_context quantapdf_context;
@@ -255,7 +254,7 @@ quantapdf_status quantapdf_merge_outputs_with_context(
     size_t input_count, quantapdf_output **out_output);
 ```
 
-| Proposed entry point | Contract |
+| Entry point | Contract |
 | --- | --- |
 | `quantapdf_context_create(out_context)` | A NULL `out_context` returns `ARGUMENT`; a valid slot is reset to NULL before allocation. Success returns `OK` and one caller-owned opaque context reference with immutable built-in/default allocation policy; allocation failure returns `NOMEM`. No user callback or PDFium initialization runs here. |
 | `quantapdf_drop_context(context)` | NULL-safe; consumes the caller's one owned reference. Existing owned handles continue under their own references and original source-lifetime rules. There is no public retain/clone operation in this first surface. |
@@ -276,11 +275,11 @@ creates an unpublished private domain, transfers its initial reference into
 the successful root result, and otherwise destroys it during rollback. This
 avoids an immortal global default domain. Derived objects inherit the source
 domain through private constructors, including temporary Composer children.
-Legacy call validation, errors, and NULL-output behavior remain in their
-existing order; the additional domain allocation can fail with the existing
+Legacy factories preserve their argument and NULL-output contracts; the
+additional domain allocation can fail with the existing
 `NOMEM` status.
 
-Proposed usage, after the additive APIs are implemented:
+Usage:
 
 ```text
 create context C                     -> caller owns C
@@ -294,8 +293,8 @@ drop E and S                         -> O remains usable
 drop O                               -> final domain cleanup, if no other handles
 ```
 
-The public C11 header and export baseline change only in the later API
-implementation phase. The opaque object layouts may grow privately. Existing
+The public C11 header and export baseline add these five entry points in 2.34.
+Opaque object layouts grow privately. Existing
 symbols, enum values, option/info layouts, and caller ownership obligations
 remain compatible with ABI v2. The context object is never a raw PDFium/qpdf
 handle, and adding these entry points does not require those types in the
@@ -328,7 +327,7 @@ memory reduction is claimed without measurement.
    and allocation-failure cases to formal test targets. This stage adds no
    public symbols. Reverting its private fields/helpers and propagation
    restores the former implementation with no data migration.
-3. Add the proposed explicit-context factories as one complete ABI extension,
+3. Add the explicit-context factories as one complete ABI extension,
    with installed-header contracts, version/export updates, usage examples,
    and the same failure/lifetime tests exercised through explicit factories.
    Test both static and shared builds. Keep legacy entry points as wrappers.
@@ -345,9 +344,12 @@ to public source-lifetime or drop semantics requires separate ABI review under
 
 ## Verification requirements
 
-This document has been checked against source, existing tests, and related
-issue requirements. The following are requirements for the implementation,
-not tests already provided by this document:
+The implementation is exercised by `quantapdf.context` and the existing
+backend, extraction, transform, edit and Composer CTest targets. The private
+per-context test controls inject facade allocation failure and observe final
+domain release without adding a process-global test allocator or public ABI.
+They do not inject every allocation inside the third-party engines.
+The verification contract is:
 
 - Explicit create/drop, NULL drop, factory argument errors, output reset,
   retained-reference overflow, and allocation failure at every construction

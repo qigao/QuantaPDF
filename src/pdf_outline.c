@@ -6,23 +6,36 @@
 
 static void quantapdf_dispose_outline(quantapdf_outline *outline)
 {
+    quantapdf_context *context;
     if (outline == NULL)
         return;
+    context = outline->context;
     free(outline->nodes);
     free(outline->strings);
     free(outline);
+    quantapdf_drop_context(context);
 }
 
 quantapdf_status quantapdf_document_outline(
     quantapdf_document *document,
     quantapdf_outline **out_outline)
 {
+    quantapdf_status status;
     if (out_outline == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_outline = NULL;
     if (document == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return document->ops->outline(document->backend, out_outline);
+    status = quantapdf_context_retain_internal(document->context);
+    if (status != QUANTAPDF_OK)
+        return status;
+    status = document->ops->outline(document->backend, out_outline);
+    if (status != QUANTAPDF_OK) {
+        quantapdf_drop_context(document->context);
+        return status;
+    }
+    (*out_outline)->context = document->context;
+    return QUANTAPDF_OK;
 }
 
 quantapdf_status quantapdf_outline_count(

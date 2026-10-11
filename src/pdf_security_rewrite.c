@@ -93,9 +93,9 @@ static quantapdf_status quantapdf_security_rewrite(
         return QUANTAPDF_ERROR_NOMEM;
 #endif
 
-    output = (quantapdf_output *)calloc(1, sizeof(*output));
-    if (output == NULL)
-        return QUANTAPDF_ERROR_NOMEM;
+    status = quantapdf_output_create_internal(document->context, &output);
+    if (status != QUANTAPDF_OK)
+        return status;
     if (operation == QUANTAPDF_SECURITY_ENCRYPT_INTERNAL) {
         status = document->ops->encrypt_pdf(
             document->backend, options, test_fault, &test_stats,
@@ -115,14 +115,12 @@ static quantapdf_status quantapdf_security_rewrite(
     document->test_security_context_exits = test_stats.context_exits;
 #endif
     if (status != QUANTAPDF_OK) {
-        free(output->data);
-        free(output);
+        quantapdf_drop_output(output);
         return status;
     }
 #if defined(QUANTAPDF_TESTING)
     if (test_fault == QUANTAPDF_TEST_SECURITY_FAULT_BEFORE_PUBLICATION) {
-        free(output->data);
-        free(output);
+        quantapdf_drop_output(output);
         return QUANTAPDF_ERROR_BACKEND;
     }
 #endif

@@ -3,6 +3,7 @@
 
 #include <quantapdf/quantapdf.h>
 #include "backend/document_backend.h"
+#include "context_internal.h"
 
 #include "text_snapshot.h"
 #include "image_snapshot.h"
@@ -28,6 +29,7 @@ typedef enum quantapdf_test_security_fault_internal {
 #endif
 
 struct quantapdf_document {
+    quantapdf_context *context;
     unsigned char *source_data;
     size_t source_size;
     const quantapdf_backend_ops *ops;
@@ -51,12 +53,14 @@ struct quantapdf_document {
 };
 
 struct quantapdf_page {
+    quantapdf_context *context;
     quantapdf_document *document;
     void *backend;
     int page_index;
 };
 
 struct quantapdf_bitmap {
+    quantapdf_context *context;
     unsigned char *data;
     size_t size;
     int width;
@@ -66,6 +70,7 @@ struct quantapdf_bitmap {
 };
 
 struct quantapdf_output {
+    quantapdf_context *context;
     unsigned char *data;
     size_t size;
 };
@@ -252,6 +257,7 @@ typedef struct quantapdf_composer_outline_state {
 } quantapdf_composer_outline_state;
 
 struct quantapdf_composer {
+    quantapdf_context *context;
     size_t max_pages;
     size_t max_operations;
     size_t max_resource_bytes;

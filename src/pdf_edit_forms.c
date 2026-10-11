@@ -4,15 +4,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-struct quantapdf_form {
-    quantapdf_pdf_form_model *model;
-};
-
 quantapdf_status quantapdf_pdf_edit_form_snapshot(
     quantapdf_pdf_edit *edit,
     quantapdf_form **out_form)
 {
-    quantapdf_pdf_form_model *model = NULL;
     quantapdf_form *form;
     quantapdf_status status;
 
@@ -21,15 +16,21 @@ quantapdf_status quantapdf_pdf_edit_form_snapshot(
     *out_form = NULL;
     if (edit == NULL || edit->backend == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    status = edit->ops->form_snapshot(edit->backend, &model);
+    status = quantapdf_context_retain_internal(edit->context);
     if (status != QUANTAPDF_OK)
         return status;
-    form = (quantapdf_form *)calloc(1, sizeof(*form));
+    form = (quantapdf_form *)quantapdf_context_allocate_internal(
+        edit->context, sizeof(*form));
     if (form == NULL) {
-        quantapdf_pdf_form_drop_model(model);
+        quantapdf_drop_context(edit->context);
         return QUANTAPDF_ERROR_NOMEM;
     }
-    form->model = model;
+    form->context = edit->context;
+    status = edit->ops->form_snapshot(edit->backend, &form->model);
+    if (status != QUANTAPDF_OK) {
+        quantapdf_drop_form(form);
+        return status;
+    }
     *out_form = form;
     return QUANTAPDF_OK;
 }

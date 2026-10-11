@@ -1,3 +1,14 @@
+add_executable(quantapdf_test_context test_context.c)
+target_include_directories(quantapdf_test_context PRIVATE "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_context PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_context PRIVATE
+  QUANTAPDF_TESTING=1
+  TEXT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/text-one-page.pdf"
+  IMAGES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-images.pdf"
+  NON_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-non-pdf.txt")
+add_test(NAME quantapdf.context COMMAND quantapdf_test_context)
+set_tests_properties(quantapdf.context PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_test_backend_foundation
   test_backend_foundation.c
   backend_dispatch_test.c)

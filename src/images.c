@@ -5,26 +5,39 @@
 
 static void quantapdf_dispose_image_page(quantapdf_image_page *images)
 {
+    quantapdf_context *context;
     size_t index;
 
     if (images == NULL)
         return;
+    context = images->context;
     for (index = 0; index < images->count; ++index)
         free(images->items[index].pixels);
     free(images->items);
     free(images);
+    quantapdf_drop_context(context);
 }
 
 quantapdf_status quantapdf_extract_images(
     quantapdf_page *page,
     quantapdf_image_page **out_images)
 {
+    quantapdf_status status;
     if (out_images == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_images = NULL;
     if (page == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return page->document->ops->extract_images(page->backend, out_images);
+    status = quantapdf_context_retain_internal(page->context);
+    if (status != QUANTAPDF_OK)
+        return status;
+    status = page->document->ops->extract_images(page->backend, out_images);
+    if (status != QUANTAPDF_OK) {
+        quantapdf_drop_context(page->context);
+        return status;
+    }
+    (*out_images)->context = page->context;
+    return QUANTAPDF_OK;
 }
 
 quantapdf_status quantapdf_image_count(

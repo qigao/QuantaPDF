@@ -765,7 +765,27 @@ quantapdf_status quantapdf_composer_create(
     const quantapdf_composer_options *options,
     quantapdf_composer **out_composer)
 {
+    quantapdf_context *context;
+    quantapdf_status status;
+    if (out_composer == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_composer = NULL;
+    status = quantapdf_context_create(&context);
+    if (status != QUANTAPDF_OK)
+        return status;
+    status = quantapdf_composer_create_with_context(
+        context, options, out_composer);
+    quantapdf_drop_context(context);
+    return status;
+}
+
+quantapdf_status quantapdf_composer_create_with_context(
+    quantapdf_context *context,
+    const quantapdf_composer_options *options,
+    quantapdf_composer **out_composer)
+{
     quantapdf_composer *composer;
+    quantapdf_status status;
     size_t max_pages = QUANTAPDF_COMPOSER_DEFAULT_MAX_PAGES;
     size_t max_operations = QUANTAPDF_COMPOSER_DEFAULT_MAX_OPERATIONS;
     size_t max_resource_bytes =
@@ -776,6 +796,8 @@ quantapdf_status quantapdf_composer_create(
     if (out_composer == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_composer = NULL;
+    if (context == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     if (options != NULL) {
         if (options->struct_size < QUANTAPDF_COMPOSER_OPTIONS_V1_MIN_SIZE)
@@ -795,9 +817,16 @@ quantapdf_status quantapdf_composer_create(
     if (max_pages > SIZE_MAX / sizeof(quantapdf_composer_page_state))
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
-    composer = (quantapdf_composer *)calloc(1u, sizeof(*composer));
-    if (composer == NULL)
+    status = quantapdf_context_retain_internal(context);
+    if (status != QUANTAPDF_OK)
+        return status;
+    composer = (quantapdf_composer *)quantapdf_context_allocate_internal(
+        context, sizeof(*composer));
+    if (composer == NULL) {
+        quantapdf_drop_context(context);
         return QUANTAPDF_ERROR_NOMEM;
+    }
+    composer->context = context;
     composer->max_pages = max_pages;
     composer->max_operations = max_operations;
     composer->max_resource_bytes = max_resource_bytes;
@@ -900,7 +929,8 @@ quantapdf_status quantapdf_composer_add_form(
     child_options.max_operations = composer->max_operations;
     child_options.max_resource_bytes = remaining;
     child_options.max_navigation_items = 1u;
-    status = quantapdf_composer_create(&child_options, &child);
+    status = quantapdf_composer_create_with_context(
+        composer->context, &child_options, &child);
     if (status != QUANTAPDF_OK)
         return status;
     child->max_navigation_items = 0u;
@@ -1515,7 +1545,8 @@ quantapdf_status quantapdf_composer_add_tiling_pattern(
     child_options.max_operations = composer->max_operations;
     child_options.max_resource_bytes = remaining;
     child_options.max_navigation_items = 1u;
-    status = quantapdf_composer_create(&child_options, &child);
+    status = quantapdf_composer_create_with_context(
+        composer->context, &child_options, &child);
     if (status != QUANTAPDF_OK)
         return status;
     child->max_navigation_items = 0u;
@@ -2113,13 +2144,13 @@ quantapdf_status quantapdf_composer_finish(
     if (composer->page_count == 0u)
         return QUANTAPDF_ERROR_STATE;
 
-    output = (quantapdf_output *)calloc(1u, sizeof(*output));
-    if (output == NULL)
-        return QUANTAPDF_ERROR_NOMEM;
+    status = quantapdf_output_create_internal(composer->context, &output);
+    if (status != QUANTAPDF_OK)
+        return status;
     status = quantapdf_qpdf_compose(
         composer, &output->data, &output->size);
     if (status != QUANTAPDF_OK) {
-        free(output);
+        quantapdf_drop_output(output);
         return status;
     }
     *out_output = output;
@@ -2128,10 +2159,12 @@ quantapdf_status quantapdf_composer_finish(
 
 void quantapdf_drop_composer(quantapdf_composer *composer)
 {
+    quantapdf_context *context;
     size_t i;
 
     if (composer == NULL)
         return;
+    context = composer->context;
     for (i = 0u; i < composer->operation_count; ++i) {
         if (composer->operations[i].kind == QUANTAPDF_COMPOSER_OPERATION_TEXT)
             free(composer->operations[i].value.text.text_utf8);
@@ -2181,4 +2214,5 @@ void quantapdf_drop_composer(quantapdf_composer *composer)
     free(composer->operations);
     free(composer->pages);
     free(composer);
+    quantapdf_drop_context(context);
 }
