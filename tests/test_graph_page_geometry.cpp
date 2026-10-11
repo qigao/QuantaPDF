@@ -222,8 +222,10 @@ static void test_snapshot_to_composer()
     write_to_file(*f.pdf, GEOMETRY_SOURCE_PDF);
     quantapdf_document *document = nullptr;
     quantapdf_graph_snapshot *snapshot = nullptr, *descendant = nullptr;
-    auto gb = graph_budget(), db = decode_budget();
-    auto cb = content_budget(), lb = lower_budget();
+    auto gb = graph_budget();
+    auto db = decode_budget();
+    auto cb = content_budget();
+    auto lb = lower_budget();
     OK(quantapdf_open(GEOMETRY_SOURCE_PDF, nullptr, &document));
     OK(quantapdf_document_capture_graph(document, &gb, &snapshot));
     quantapdf_close(document);
