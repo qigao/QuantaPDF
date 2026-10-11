@@ -5,6 +5,7 @@
 
 #include <quantapdf/quantapdf.h>
 #include "document_backend.h"
+#include "graph/graph.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -14,6 +15,10 @@ typedef struct quantapdf_qpdf_document quantapdf_qpdf_document;
 typedef struct quantapdf_annotation_page quantapdf_annotation_page;
 typedef struct quantapdf_pdf_form_model quantapdf_pdf_form_model;
 typedef struct quantapdf_outline quantapdf_outline;
+
+quantapdf_status quantapdf_qpdf_capture_graph(
+    quantapdf_qpdf_document *document, const quantapdf_graph_limits *limits,
+    quantapdf_graph **out_graph);
 
 static inline quantapdf_status quantapdf_qpdf_compute_work_budget_limit(
     size_t source_size,

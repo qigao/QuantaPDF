@@ -2,6 +2,7 @@
 #include "graph/identity.h"
 #include "qpdf_document.h"
 #include "qpdf_edit.h"
+#include "qpdf_graph.h"
 #include "jpeg_encoder.h"
 #include "secure_random.h"
 #include "snapshot/annotation_snapshot.h"
@@ -7750,4 +7751,23 @@ extern "C" quantapdf_status quantapdf_qpdf_reencrypt_pdf(
     return quantapdf_qpdf_security_rewrite(
         document, quantapdf_qpdf_security_operation::reencrypt,
         options, test_fault, test_stats, out_data, out_size);
+}
+
+extern "C" quantapdf_status quantapdf_qpdf_capture_graph(
+    quantapdf_qpdf_document *document, const quantapdf_graph_limits *limits,
+    quantapdf_graph **out_graph)
+{
+    if (out_graph == nullptr) return QUANTAPDF_ERROR_ARGUMENT;
+    *out_graph = nullptr;
+    if (document == nullptr || limits == nullptr) return QUANTAPDF_ERROR_ARGUMENT;
+    try {
+        auto pdf = quantapdf_qpdf_fresh_document(*document, "quantapdf graph snapshot");
+        return quantapdf_qpdf_import_graph(*pdf, limits, out_graph);
+    } catch (QPDFExc const& error) {
+        return quantapdf_status_from_qpdf(error);
+    } catch (std::bad_alloc const&) {
+        return QUANTAPDF_ERROR_NOMEM;
+    } catch (...) {
+        return QUANTAPDF_ERROR_BACKEND;
+    }
 }

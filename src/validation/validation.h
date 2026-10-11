@@ -4,6 +4,7 @@
 #include <quantapdf/quantapdf.h>
 
 struct quantapdf_ir;
+struct quantapdf_graph_model;
 
 typedef enum quantapdf_validation_rule {
     QUANTAPDF_VALIDATION_OK = 0,
@@ -28,7 +29,10 @@ typedef enum quantapdf_validation_subject {
     QUANTAPDF_VALIDATION_OPERATION,
     QUANTAPDF_VALIDATION_LINK,
     QUANTAPDF_VALIDATION_OUTLINE,
-    QUANTAPDF_VALIDATION_SECURITY
+    QUANTAPDF_VALIDATION_SECURITY,
+    QUANTAPDF_VALIDATION_GRAPH_NODE,
+    QUANTAPDF_VALIDATION_GRAPH_EDGE,
+    QUANTAPDF_VALIDATION_GRAPH_ROOT
 } quantapdf_validation_subject;
 
 /* Caller-owned, first-failure report. index is zero-based; detail is a related
@@ -48,6 +52,11 @@ extern "C" {
  * Invalid model: BACKEND. NULL arguments: ARGUMENT. Success resets report. */
 quantapdf_status quantapdf_validate_ir(
     const struct quantapdf_ir *ir, quantapdf_validation_report *report);
+
+/* Addressable owned graph storage, including cycles/shared references. Checks
+ * partitions, typed values, references and roots; no parsing or allocation. */
+quantapdf_status quantapdf_validate_graph(
+    const struct quantapdf_graph_model *model, quantapdf_validation_report *report);
 
 /* Shared public-input and published-path geometry rule; no resource lookup. */
 int quantapdf_validation_path_valid(

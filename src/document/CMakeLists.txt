@@ -1,5 +1,6 @@
 target_sources(quantapdf PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/document.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/document_graph.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/document_internal.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/page.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/pdf_crop.c"

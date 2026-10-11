@@ -1,3 +1,37 @@
+# Pure model/validator tests do not link the SDK or any parser.
+add_executable(quantapdf_test_graph test_graph.c
+  ../src/graph/graph.c ../src/graph/identity.c ../src/validation/graph_validation.c)
+target_include_directories(quantapdf_test_graph PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_graph PRIVATE c_std_11)
+add_test(NAME quantapdf.graph COMMAND quantapdf_test_graph)
+set_tests_properties(quantapdf.graph PROPERTIES TIMEOUT 30)
+
+# Compile the actual private facade/lifetime helpers without adding SDK exports.
+add_executable(quantapdf_test_graph_snapshot test_graph_snapshot.c
+  ../src/document/document_graph.c ../src/core/context_lifetime.c ../src/snapshot/snapshot_owner.c)
+target_include_directories(quantapdf_test_graph_snapshot PRIVATE "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_graph_snapshot PRIVATE
+  QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium)
+target_compile_definitions(quantapdf_test_graph_snapshot PRIVATE
+  QUANTAPDF_TESTING=1
+  GRAPH_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-three-page.pdf"
+  GRAPH_METADATA_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/metadata-info.pdf"
+  GRAPH_FORM_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-main.pdf"
+  GRAPH_OUTLINE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/outline-tree.pdf"
+  GRAPH_ENCRYPTED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/encrypted-one-page.pdf"
+  GRAPH_IMAGES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-images.pdf")
+add_test(NAME quantapdf.graph_snapshot COMMAND quantapdf_test_graph_snapshot)
+set_tests_properties(quantapdf.graph_snapshot PROPERTIES TIMEOUT 30)
+
+add_executable(quantapdf_test_graph_import test_graph_import.cpp)
+target_include_directories(quantapdf_test_graph_import PRIVATE "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_graph_import PRIVATE
+  QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium qpdf::libqpdf)
+target_compile_features(quantapdf_test_graph_import PRIVATE cxx_std_20)
+add_test(NAME quantapdf.graph_import COMMAND quantapdf_test_graph_import)
+set_tests_properties(quantapdf.graph_import PROPERTIES TIMEOUT 30)
+
 # Compile the identity contract without any backend or SDK library dependency.
 add_executable(quantapdf_test_identity
   test_identity.c ../src/graph/identity.c)

@@ -452,6 +452,13 @@ static const quantapdf_backend_edit_ops builtin_edit_ops = {
     .drop = builtin_edit_drop,
 };
 
+static quantapdf_status builtin_capture_graph(void *document,
+    const quantapdf_graph_limits *limits, quantapdf_graph **out_graph)
+{
+    quantapdf_builtin_document *state = document;
+    return quantapdf_qpdf_capture_graph(state->writer, limits, out_graph);
+}
+
 static const quantapdf_backend_ops builtin_ops = {
     .open_memory = builtin_open_memory,
     .close = builtin_close,
@@ -485,6 +492,7 @@ static const quantapdf_backend_ops builtin_ops = {
     .flatten_interactive = builtin_qpdf_flatten_interactive,
     .edit_begin = builtin_edit_begin,
     .edit_ops = &builtin_edit_ops,
+    .capture_graph = builtin_capture_graph,
 };
 
 const quantapdf_backend_ops *quantapdf_builtin_backend_ops(void)
