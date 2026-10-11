@@ -111,6 +111,12 @@ Snapshot/output ownership is explicit:
   call. Every successful `quantapdf_composer_finish()` returns an independent
   `quantapdf_output`; finish does not consume or freeze the composer.
 
+The [document intelligence extension design](docs/superpowers/specs/2026-10-11-quantapdf-document-intelligence-extension-design.md)
+defines how an external host can derive layout, semantic metadata, and
+embeddings from copied observations. It preserves the SDK ownership and
+serialization contracts above. This is a boundary design; the SDK does not
+currently implement an intelligence-provider runtime.
+
 ## ABI-sized structures
 
 The installed header publishes `QUANTAPDF_VERSION_MAJOR`,
