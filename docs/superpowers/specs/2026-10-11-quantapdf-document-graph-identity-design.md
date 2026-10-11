@@ -316,3 +316,9 @@ document itself requires source/contract and link review, not an unrelated build
 The development presets instrument both first-party C and C++ sources, including
 the importer. Prebuilt QPDF/PDFium and other third-party dependencies are outside
 that instrumentation scope.
+The Windows vcpkg QPDF archive has no MSVC STL sanitizer annotations. The Windows
+development preset therefore disables the vector/string/optional annotations
+consistently in first-party C++ objects while retaining AddressSanitizer's memory
+instrumentation. This follows the [MSVC annotation compatibility contract](https://learn.microsoft.com/en-us/cpp/sanitizers/error-container-overflow).
+Container logical-bound/lifetime annotation checks require rebuilding the full
+C++ dependency closure with matching settings; this profile does not claim them.
