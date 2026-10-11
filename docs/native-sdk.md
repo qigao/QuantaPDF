@@ -217,3 +217,6 @@ language binding has been tested. No generated Rust/Go/C# bindings, dynamic
 capability API, concurrency guarantee or aggregate allocator quota is shipped
 by this contract. Platform CI and sanitizer results must be reported for the
 actual commit rather than inferred from this design.
+The [runtime regression model](superpowers/specs/2026-10-11-quantapdf-validation-runtime-design.md#runtime-regression-model)
+maps those contracts to the registered suites and defines deterministic
+comparison boundaries, sanitizer failure policy, and remaining coverage limits.

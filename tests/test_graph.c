@@ -87,6 +87,40 @@ static void test_model(void)
     quantapdf_graph_drop(g);
 }
 
+static void test_report_storage_independence(void)
+{
+    quantapdf_graph *graphs[2] = {build(), build()};
+    quantapdf_graph_model models[2];
+    quantapdf_graph_edge edges[2][9];
+    quantapdf_validation_report report;
+    quantapdf_local_id page = 6;
+    size_t i;
+    for (i = 0; i < 2; ++i) {
+        OK(quantapdf_graph_finish(graphs[i], 1, 2, &page, 1, &report));
+        models[i] = *quantapdf_graph_view(graphs[i]);
+        memcpy(edges[i], models[i].edges, sizeof(edges[i]));
+        models[i].edges = edges[i];
+        edges[i][1].target = 99;
+        models[i].catalog = 0;
+    }
+    CHECK(models[0].nodes != models[1].nodes && models[0].bytes != models[1].bytes);
+    for (i = 0; i < 2; ++i) {
+        memset(&report, i == 0 ? 0xa5 : 0x5a, sizeof(report));
+        CHECK(quantapdf_validate_graph(&models[i], &report) == QUANTAPDF_ERROR_BACKEND);
+        CHECK(report.rule == QUANTAPDF_VALIDATION_REFERENCE && report.subject == QUANTAPDF_VALIDATION_GRAPH_EDGE);
+        CHECK(report.index == 1 && report.detail == 99);
+        edges[i][1] = quantapdf_graph_view(graphs[i])->edges[1];
+        CHECK(quantapdf_validate_graph(&models[i], &report) == QUANTAPDF_ERROR_BACKEND);
+        CHECK(report.rule == QUANTAPDF_VALIDATION_REFERENCE && report.subject == QUANTAPDF_VALIDATION_GRAPH_ROOT);
+        CHECK(report.index == 1 && report.detail == 0);
+        models[i].catalog = 2;
+        OK(quantapdf_validate_graph(&models[i], &report));
+        CHECK(report.rule == QUANTAPDF_VALIDATION_OK && report.subject == QUANTAPDF_VALIDATION_MODEL);
+        CHECK(report.index == 0 && report.detail == 0);
+    }
+    quantapdf_graph_drop(graphs[0]); quantapdf_graph_drop(graphs[1]);
+}
+
 static void test_limits(void)
 {
     quantapdf_graph_limits budget = limits();
@@ -198,4 +232,4 @@ static void test_dictionary_order(void)
     }
 }
 
-int main(void) { test_model(); test_limits(); test_scalars(); test_dictionary_order(); return EXIT_SUCCESS; }
+int main(void) { test_model(); test_report_storage_independence(); test_limits(); test_scalars(); test_dictionary_order(); return EXIT_SUCCESS; }
