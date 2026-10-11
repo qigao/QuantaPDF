@@ -65,9 +65,9 @@ static int quantapdf_navigation_utf8_valid(const char *text)
 static quantapdf_status quantapdf_navigation_check_capacity(
     const quantapdf_composer *composer)
 {
-    if (composer->link_count > SIZE_MAX - composer->outline_count)
+    if (composer->ir.link_count > SIZE_MAX - composer->ir.outline_count)
         return QUANTAPDF_ERROR_UNSUPPORTED;
-    if (composer->link_count + composer->outline_count >=
+    if (composer->ir.link_count + composer->ir.outline_count >=
         composer->max_navigation_items)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     return QUANTAPDF_OK;
@@ -83,7 +83,7 @@ static quantapdf_status quantapdf_navigation_reserve_link(
     status = quantapdf_navigation_check_capacity(composer);
     if (status != QUANTAPDF_OK)
         return status;
-    if (composer->link_count < composer->link_capacity)
+    if (composer->ir.link_count < composer->link_capacity)
         return QUANTAPDF_OK;
 
     capacity = composer->link_capacity == 0u
@@ -95,10 +95,10 @@ static quantapdf_status quantapdf_navigation_reserve_link(
     if (capacity == 0u || capacity > SIZE_MAX / sizeof(*grown))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     grown = (quantapdf_composer_link_state *)realloc(
-        composer->links, capacity * sizeof(*grown));
+        composer->ir.links, capacity * sizeof(*grown));
     if (grown == NULL)
         return QUANTAPDF_ERROR_NOMEM;
-    composer->links = grown;
+    composer->ir.links = grown;
     composer->link_capacity = capacity;
     return QUANTAPDF_OK;
 }
@@ -113,9 +113,9 @@ static quantapdf_status quantapdf_navigation_reserve_outline(
     status = quantapdf_navigation_check_capacity(composer);
     if (status != QUANTAPDF_OK)
         return status;
-    if (composer->outline_count >= (size_t)UINT32_MAX)
+    if (composer->ir.outline_count >= (size_t)UINT32_MAX)
         return QUANTAPDF_ERROR_UNSUPPORTED;
-    if (composer->outline_count < composer->outline_capacity)
+    if (composer->ir.outline_count < composer->outline_capacity)
         return QUANTAPDF_OK;
 
     capacity = composer->outline_capacity == 0u
@@ -130,10 +130,10 @@ static quantapdf_status quantapdf_navigation_reserve_outline(
     if (capacity == 0u || capacity > SIZE_MAX / sizeof(*grown))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     grown = (quantapdf_composer_outline_state *)realloc(
-        composer->outlines, capacity * sizeof(*grown));
+        composer->ir.outlines, capacity * sizeof(*grown));
     if (grown == NULL)
         return QUANTAPDF_ERROR_NOMEM;
-    composer->outlines = grown;
+    composer->ir.outlines = grown;
     composer->outline_capacity = capacity;
     return QUANTAPDF_OK;
 }
@@ -174,7 +174,7 @@ quantapdf_status quantapdf_composer_add_uri_link(
     quantapdf_status status;
     size_t string_size = 0u;
 
-    if (composer == NULL || page_index >= composer->page_count ||
+    if (composer == NULL || page_index >= composer->ir.page_count ||
         !quantapdf_navigation_rect_valid(hotspot) || uri_utf8 == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
 
@@ -192,7 +192,7 @@ quantapdf_status quantapdf_composer_add_uri_link(
     link.page_index = page_index;
     link.hotspot = *hotspot;
     link.kind = QUANTAPDF_COMPOSER_LINK_URI_INTERNAL;
-    composer->links[composer->link_count++] = link;
+    composer->ir.links[composer->ir.link_count++] = link;
     composer->resource_bytes += string_size;
     return QUANTAPDF_OK;
 }
@@ -207,8 +207,8 @@ quantapdf_status quantapdf_composer_add_page_link(
     quantapdf_composer_link_state link;
     quantapdf_status status;
 
-    if (composer == NULL || page_index >= composer->page_count ||
-        target_page_index >= composer->page_count ||
+    if (composer == NULL || page_index >= composer->ir.page_count ||
+        target_page_index >= composer->ir.page_count ||
         !quantapdf_navigation_rect_valid(hotspot) ||
         !quantapdf_navigation_point_valid(target))
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -222,7 +222,7 @@ quantapdf_status quantapdf_composer_add_page_link(
     link.kind = QUANTAPDF_COMPOSER_LINK_PAGE_INTERNAL;
     link.target_page_index = target_page_index;
     link.target = target;
-    composer->links[composer->link_count++] = link;
+    composer->ir.links[composer->ir.link_count++] = link;
     return QUANTAPDF_OK;
 }
 
@@ -242,11 +242,11 @@ quantapdf_status quantapdf_composer_add_outline(
         out_outline_id == NULL ||
         options->struct_size <
             QUANTAPDF_COMPOSER_OUTLINE_OPTIONS_V1_MIN_SIZE ||
-        options->target_page_index >= composer->page_count ||
+        options->target_page_index >= composer->ir.page_count ||
         !quantapdf_navigation_point_valid(options->target) ||
         (options->is_open != 0 && options->is_open != 1) ||
         (options->parent_id != 0u &&
-         (size_t)options->parent_id > composer->outline_count))
+         (size_t)options->parent_id > composer->ir.outline_count))
         return QUANTAPDF_ERROR_ARGUMENT;
 
     memset(&outline, 0, sizeof(outline));
@@ -264,10 +264,10 @@ quantapdf_status quantapdf_composer_add_outline(
     outline.target_page_index = options->target_page_index;
     outline.target = options->target;
     outline.is_open = options->is_open;
-    composer->outlines[composer->outline_count] = outline;
-    ++composer->outline_count;
+    composer->ir.outlines[composer->ir.outline_count] = outline;
+    ++composer->ir.outline_count;
     composer->resource_bytes += string_size;
     *out_outline_id =
-        (quantapdf_composer_outline_id)composer->outline_count;
+        (quantapdf_composer_outline_id)composer->ir.outline_count;
     return QUANTAPDF_OK;
 }

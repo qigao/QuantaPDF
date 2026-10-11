@@ -1,3 +1,14 @@
+# Compile the private owner into this boundary test without exporting it in the SDK.
+add_executable(quantapdf_test_ir test_ir.c ../src/ir/ir.c)
+target_include_directories(quantapdf_test_ir PRIVATE "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_ir PRIVATE
+  QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium)
+target_compile_definitions(quantapdf_test_ir PRIVATE
+  QUANTAPDF_TESTING=1
+  IR_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/ir-detached.pdf")
+add_test(NAME quantapdf.ir COMMAND quantapdf_test_ir)
+set_tests_properties(quantapdf.ir PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_test_context test_context.c)
 target_include_directories(quantapdf_test_context PRIVATE "${PROJECT_SOURCE_DIR}/src")
 target_link_libraries(quantapdf_test_context PRIVATE QuantaPDF::QuantaPDF)

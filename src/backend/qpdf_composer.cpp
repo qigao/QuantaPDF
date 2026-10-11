@@ -1,6 +1,6 @@
 #include "qpdf_composer.h"
 
-#include "composer/composer_internal.h"
+#include "ir/ir.h"
 #include "composer_text_layout.h"
 #include "ttf_font.h"
 
@@ -605,12 +605,12 @@ std::string make_to_unicode_cmap(
 }
 
 void collect_embedded_font_usage(
-    quantapdf_composer const* composer,
+    quantapdf_ir const* ir,
     std::vector<quantapdf::detail::ttf_font_face> const& faces,
     std::vector<embedded_font_usage>* usages)
 {
-    for (size_t i = 0u; i < composer->operation_count; ++i) {
-        auto const& operation = composer->operations[i];
+    for (size_t i = 0u; i < ir->operation_count; ++i) {
+        auto const& operation = ir->operations[i];
         if (operation.kind != QUANTAPDF_COMPOSER_OPERATION_EMBEDDED_TEXT)
             continue;
         auto const& options = operation.value.embedded_text.options;
@@ -866,13 +866,13 @@ std::string utf8_sequence_hex(std::string const& value)
 }
 
 void collect_glyph_run_font_usage(
-    quantapdf_composer const* composer,
+    quantapdf_ir const* ir,
     std::vector<quantapdf::detail::ttf_font_face> const& faces,
     std::vector<glyph_run_font_usage>* usages)
 {
-    for (size_t op_index = 0u; op_index < composer->operation_count;
+    for (size_t op_index = 0u; op_index < ir->operation_count;
          ++op_index) {
-        auto const& operation = composer->operations[op_index];
+        auto const& operation = ir->operations[op_index];
         if (operation.kind != QUANTAPDF_COMPOSER_OPERATION_GLYPH_RUN)
             continue;
 
@@ -1177,12 +1177,12 @@ void append_glyph_run_content(
 
 void append_image_content(
     std::string& content,
-    quantapdf_composer const* composer,
+    quantapdf_ir const* ir,
     quantapdf_composer_page_state const& page,
     quantapdf_composer_operation const& operation)
 {
     auto const& image =
-        composer->images[operation.value.image.image_id - 1u];
+        ir->images[operation.value.image.image_id - 1u];
     double const box_width = operation.bounds.x1 - operation.bounds.x0;
     double const box_height = operation.bounds.y1 - operation.bounds.y0;
     double draw_width = box_width;
@@ -1358,14 +1358,14 @@ std::string form_placement_content(
 
 void append_form_content(
     std::string& content,
-    quantapdf_composer const* composer,
+    quantapdf_ir const* ir,
     quantapdf_composer_page_state const& page,
     quantapdf_composer_operation const& operation)
 {
     auto const form_id = operation.value.form.form_id;
-    if (form_id == 0u || form_id > composer->form_count)
+    if (form_id == 0u || form_id > ir->form_count)
         throw std::logic_error("form resource missing");
-    auto const& form = composer->forms[form_id - 1u];
+    auto const& form = ir->forms[form_id - 1u];
     content += form_placement_content(
         "/Fm" + std::to_string(form_id),
         form.height_points,
@@ -1418,13 +1418,13 @@ QPDFObjectHandle make_soft_mask_group(
 
 QPDFObjectHandle navigation_destination(
     std::vector<QPDFObjectHandle> const& pages,
-    quantapdf_composer const* composer,
+    quantapdf_ir const* ir,
     size_t page_index,
     quantapdf_point target)
 {
     auto destination = QPDFObjectHandle::newArray();
     double const pdf_y =
-        composer->pages[page_index].height_points - target.y;
+        ir->pages[page_index].height_points - target.y;
     destination.appendItem(pages[page_index]);
     destination.appendItem(QPDFObjectHandle::newName("/XYZ"));
     destination.appendItem(QPDFObjectHandle::newReal(
@@ -1455,11 +1455,11 @@ QPDFObjectHandle navigation_rectangle(
 
 void apply_composer_links(
     QPDF& pdf,
-    quantapdf_composer const* composer,
+    quantapdf_ir const* ir,
     std::vector<QPDFObjectHandle>& pages)
 {
-    for (size_t i = 0u; i < composer->link_count; ++i) {
-        auto const& link = composer->links[i];
+    for (size_t i = 0u; i < ir->link_count; ++i) {
+        auto const& link = ir->links[i];
         auto annotation = QPDFObjectHandle::newDictionary();
         auto border = QPDFObjectHandle::newArray();
         border.appendItem(QPDFObjectHandle::newInteger(0));
@@ -1471,7 +1471,7 @@ void apply_composer_links(
         annotation.replaceKey(
             "/Rect",
             navigation_rectangle(
-                composer->pages[link.page_index], link.hotspot));
+                ir->pages[link.page_index], link.hotspot));
         annotation.replaceKey("/Border", border);
 
         if (link.kind == QUANTAPDF_COMPOSER_LINK_URI_INTERNAL) {
@@ -1484,7 +1484,7 @@ void apply_composer_links(
             annotation.replaceKey(
                 "/Dest",
                 navigation_destination(
-                    pages, composer, link.target_page_index, link.target));
+                    pages, ir, link.target_page_index, link.target));
         }
 
         auto annots = pages[link.page_index].getKey("/Annots");
@@ -1493,7 +1493,7 @@ void apply_composer_links(
             pages[link.page_index].replaceKey("/Annots", annots);
         }
         if (!annots.isArray())
-            throw std::logic_error("composer page Annots is not an array");
+            throw std::logic_error("ir page Annots is not an array");
         annots.appendItem(pdf.makeIndirectObject(annotation));
     }
 }
@@ -1518,10 +1518,10 @@ void link_outline_children(
 
 void apply_composer_outlines(
     QPDF& pdf,
-    quantapdf_composer const* composer,
+    quantapdf_ir const* ir,
     std::vector<QPDFObjectHandle> const& pages)
 {
-    if (composer->outline_count == 0u)
+    if (ir->outline_count == 0u)
         return;
 
     auto outline_root =
@@ -1529,9 +1529,9 @@ void apply_composer_outlines(
     outline_root.replaceKey("/Type", QPDFObjectHandle::newName("/Outlines"));
 
     std::vector<QPDFObjectHandle> nodes;
-    nodes.reserve(composer->outline_count);
-    for (size_t i = 0u; i < composer->outline_count; ++i) {
-        auto const& source = composer->outlines[i];
+    nodes.reserve(ir->outline_count);
+    for (size_t i = 0u; i < ir->outline_count; ++i) {
+        auto const& source = ir->outlines[i];
         auto node = QPDFObjectHandle::newDictionary();
         node.replaceKey("/Type", QPDFObjectHandle::newName("/Outline"));
         node.replaceKey(
@@ -1539,13 +1539,13 @@ void apply_composer_outlines(
         node.replaceKey(
             "/Dest",
             navigation_destination(
-                pages, composer, source.target_page_index, source.target));
+                pages, ir, source.target_page_index, source.target));
         nodes.push_back(pdf.makeIndirectObject(node));
     }
 
-    std::vector<std::vector<size_t>> children(composer->outline_count + 1u);
-    for (size_t i = 0u; i < composer->outline_count; ++i) {
-        auto const parent_id = composer->outlines[i].parent_id;
+    std::vector<std::vector<size_t>> children(ir->outline_count + 1u);
+    for (size_t i = 0u; i < ir->outline_count; ++i) {
+        auto const parent_id = ir->outlines[i].parent_id;
         children[static_cast<size_t>(parent_id)].push_back(i);
         nodes[i].replaceKey(
             "/Parent",
@@ -1555,12 +1555,12 @@ void apply_composer_outlines(
     }
 
     link_outline_children(outline_root, children[0], nodes);
-    for (size_t i = 0u; i < composer->outline_count; ++i)
+    for (size_t i = 0u; i < ir->outline_count; ++i)
         link_outline_children(nodes[i], children[i + 1u], nodes);
 
-    std::vector<size_t> descendants(composer->outline_count, 0u);
-    for (size_t i = composer->outline_count; i-- > 0u;) {
-        auto const parent_id = composer->outlines[i].parent_id;
+    std::vector<size_t> descendants(ir->outline_count, 0u);
+    for (size_t i = ir->outline_count; i-- > 0u;) {
+        auto const parent_id = ir->outlines[i].parent_id;
         if (parent_id != 0u) {
             size_t& parent_descendants =
                 descendants[static_cast<size_t>(parent_id) - 1u];
@@ -1570,31 +1570,31 @@ void apply_composer_outlines(
             parent_descendants += descendants[i] + 1u;
         }
     }
-    for (size_t i = 0u; i < composer->outline_count; ++i) {
+    for (size_t i = 0u; i < ir->outline_count; ++i) {
         if (descendants[i] == 0u)
             continue;
         auto const value = static_cast<long long>(descendants[i]);
         nodes[i].replaceKey(
             "/Count",
             QPDFObjectHandle::newInteger(
-                composer->outlines[i].is_open ? value : -value));
+                ir->outlines[i].is_open ? value : -value));
     }
     outline_root.replaceKey(
         "/Count",
         QPDFObjectHandle::newInteger(
-            static_cast<long long>(composer->outline_count)));
+            static_cast<long long>(ir->outline_count)));
     pdf.getRoot().replaceKey("/Outlines", outline_root);
 }
 
 void apply_composer_navigation(
     QPDF& pdf,
-    quantapdf_composer const* composer)
+    quantapdf_ir const* ir)
 {
     auto pages = pdf.getAllPages();
-    if (pages.size() != composer->page_count)
-        throw std::logic_error("composer page count mismatch");
-    apply_composer_links(pdf, composer, pages);
-    apply_composer_outlines(pdf, composer, pages);
+    if (pages.size() != ir->page_count)
+        throw std::logic_error("ir page count mismatch");
+    apply_composer_links(pdf, ir, pages);
+    apply_composer_outlines(pdf, ir, pages);
 }
 
 void append_path_clip_content(
@@ -1649,7 +1649,7 @@ void append_path_clip_content(
 
 void append_clip_content(
     std::string& content,
-    quantapdf_composer const* composer,
+    quantapdf_ir const* ir,
     quantapdf_composer_page_state const& page,
     quantapdf_composer_clip_state const& clip)
 {
@@ -1662,9 +1662,9 @@ void append_clip_content(
 
     for (size_t i = 0u; i < clip.member_count; ++i) {
         auto const id = clip.members[i];
-        if (id == 0u || id > composer->clip_count)
+        if (id == 0u || id > ir->clip_count)
             throw std::logic_error("compound clip member missing");
-        auto const& member = composer->clips[id - 1u];
+        auto const& member = ir->clips[id - 1u];
         if (member.kind != QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL)
             throw std::logic_error("compound clip member is not a leaf");
         append_path_clip_content(content, page, member);
@@ -1672,12 +1672,12 @@ void append_clip_content(
 }
 
 std::string page_content(
-    quantapdf_composer const* composer,
+    quantapdf_ir const* ir,
     std::size_t page_index,
     std::vector<quantapdf::detail::ttf_font_face> const& embedded_faces,
     std::vector<glyph_run_font_usage> const& glyph_run_usages)
 {
-    auto const& page = composer->pages[page_index];
+    auto const& page = ir->pages[page_index];
     std::string content;
     double const red = ((page.background_argb >> 16u) & 0xffu) / 255.0;
     double const green = ((page.background_argb >> 8u) & 0xffu) / 255.0;
@@ -1688,27 +1688,27 @@ std::string page_content(
             number(page.height_points) + " re f Q\n";
     }
 
-    for (std::size_t i = 0; i < composer->operation_count; ++i) {
-        auto const& operation = composer->operations[i];
+    for (std::size_t i = 0; i < ir->operation_count; ++i) {
+        auto const& operation = ir->operations[i];
         if (operation.page_index != page_index)
             continue;
 
         bool const scoped_state = operation.graphics_state_id != 0u;
         if (scoped_state) {
             if (static_cast<size_t>(operation.graphics_state_id) >
-                composer->graphics_state_count)
+                ir->graphics_state_count)
                 throw std::logic_error("graphics state resource missing");
             auto const& state =
-                composer->graphics_states[operation.graphics_state_id - 1u];
+                ir->graphics_states[operation.graphics_state_id - 1u];
             if (state.clip_id != 0u) {
-                if (state.clip_id > composer->clip_count)
+                if (state.clip_id > ir->clip_count)
                     throw std::logic_error("clip resource missing");
                 content += "q\n";
                 append_clip_content(
                     content,
-                    composer,
+                    ir,
                     page,
-                    composer->clips[state.clip_id - 1u]);
+                    ir->clips[state.clip_id - 1u]);
                 content += "/GS" +
                     std::to_string(operation.graphics_state_id) + " gs\n";
             } else {
@@ -1720,7 +1720,7 @@ std::string page_content(
         if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_TEXT)
             append_text_content(content, page, operation);
         else if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_IMAGE)
-            append_image_content(content, composer, page, operation);
+            append_image_content(content, ir, page, operation);
         else if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_PATH)
             append_path_content(content, page, operation);
         else if (operation.kind ==
@@ -1739,7 +1739,7 @@ std::string page_content(
                 operation,
                 glyph_run_usages[font_index]);
         } else if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_FORM) {
-            append_form_content(content, composer, page, operation);
+            append_form_content(content, ir, page, operation);
         }
 
         if (scoped_state)
@@ -1953,7 +1953,7 @@ extern "C" quantapdf_status quantapdf_png_decode(
 }
 
 extern "C" quantapdf_status quantapdf_qpdf_compose(
-    quantapdf_composer const* composer,
+    quantapdf_ir const* ir,
     unsigned char** out_data,
     size_t* out_size)
 {
@@ -1961,16 +1961,16 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_data = nullptr;
     *out_size = 0u;
-    if (composer == nullptr)
+    if (ir == nullptr)
         return QUANTAPDF_ERROR_ARGUMENT;
 
     try {
         QPDF pdf;
         pdf.emptyPDF();
         std::vector<QPDFObjectHandle> image_objects;
-        image_objects.reserve(composer->image_count);
-        for (std::size_t i = 0; i < composer->image_count; ++i) {
-            auto const& image = composer->images[i];
+        image_objects.reserve(ir->image_count);
+        for (std::size_t i = 0; i < ir->image_count; ++i) {
+            auto const& image = ir->images[i];
             auto stream = pdf.newStream(std::string(
                 reinterpret_cast<char const*>(image.data), image.size));
             auto dictionary = stream.getDict();
@@ -2012,16 +2012,16 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
         }
 
         std::vector<std::optional<QPDFObjectHandle>>
-            form_objects(composer->form_count);
+            form_objects(ir->form_count);
         std::vector<std::unique_ptr<QPDF>>
-            form_source_pdfs(composer->form_count);
+            form_source_pdfs(ir->form_count);
         auto ensure_form_object = [&](quantapdf_composer_form_id id)
             -> QPDFObjectHandle {
-            if (id == 0u || id > composer->form_count)
+            if (id == 0u || id > ir->form_count)
                 throw std::logic_error("form resource missing");
             auto& slot = form_objects[id - 1u];
             if (!slot.has_value()) {
-                auto const& form = composer->forms[id - 1u];
+                auto const& form = ir->forms[id - 1u];
                 auto source = std::make_unique<QPDF>();
                 std::string const description =
                     "quantapdf-form-" + std::to_string(id);
@@ -2067,26 +2067,26 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
         };
 
         std::vector<quantapdf::detail::ttf_font_face> embedded_faces;
-        embedded_faces.reserve(composer->font_count);
-        for (size_t i = 0u; i < composer->font_count; ++i) {
+        embedded_faces.reserve(ir->font_count);
+        for (size_t i = 0u; i < ir->font_count; ++i) {
             quantapdf::detail::ttf_font_face face;
             if (quantapdf::detail::ttf_font_face::parse(
-                    composer->fonts[i].data,
-                    composer->fonts[i].size,
+                    ir->fonts[i].data,
+                    ir->fonts[i].size,
                     &face) != QUANTAPDF_OK)
                 throw std::invalid_argument("registered font no longer parses");
             embedded_faces.push_back(std::move(face));
         }
-        std::vector<embedded_font_usage> embedded_usage(composer->font_count);
+        std::vector<embedded_font_usage> embedded_usage(ir->font_count);
         collect_embedded_font_usage(
-            composer, embedded_faces, &embedded_usage);
+            ir, embedded_faces, &embedded_usage);
         std::vector<std::optional<QPDFObjectHandle>> embedded_font_objects(
-            composer->font_count);
-        for (size_t i = 0u; i < composer->font_count; ++i) {
+            ir->font_count);
+        for (size_t i = 0u; i < ir->font_count; ++i) {
             if (embedded_usage[i].referenced) {
                 embedded_font_objects[i] = make_embedded_font(
                     pdf,
-                    composer->fonts[i],
+                    ir->fonts[i],
                     embedded_faces[i],
                     embedded_usage[i],
                     i);
@@ -2094,17 +2094,17 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
         }
 
         std::vector<glyph_run_font_usage> glyph_run_usage(
-            composer->font_count);
+            ir->font_count);
         collect_glyph_run_font_usage(
-            composer, embedded_faces, &glyph_run_usage);
+            ir, embedded_faces, &glyph_run_usage);
         std::vector<std::optional<QPDFObjectHandle>> glyph_run_font_objects(
-            composer->font_count);
+            ir->font_count);
         bool requires_pdf_16 = false;
-        for (size_t i = 0u; i < composer->font_count; ++i) {
+        for (size_t i = 0u; i < ir->font_count; ++i) {
             if (glyph_run_usage[i].referenced) {
                 glyph_run_font_objects[i] = make_glyph_run_font(
                     pdf,
-                    composer->fonts[i],
+                    ir->fonts[i],
                     embedded_faces[i],
                     glyph_run_usage[i],
                     i);
@@ -2116,39 +2116,39 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                 requires_pdf_16 = true;
         }
 
-        for (size_t i = 0u; i < composer->operation_count; ++i) {
-            auto const& operation = composer->operations[i];
+        for (size_t i = 0u; i < ir->operation_count; ++i) {
+            auto const& operation = ir->operations[i];
             if (operation.graphics_state_id != 0u) {
                 auto const gs_id = operation.graphics_state_id;
-                if (gs_id > composer->graphics_state_count)
+                if (gs_id > ir->graphics_state_count)
                     throw std::logic_error("graphics state resource missing");
-                auto const& gs = composer->graphics_states[gs_id - 1u];
+                auto const& gs = ir->graphics_states[gs_id - 1u];
                 if (gs.soft_mask_id != 0u) {
-                    if (gs.soft_mask_id > composer->soft_mask_count)
+                    if (gs.soft_mask_id > ir->soft_mask_count)
                         throw std::logic_error("soft mask resource missing");
                     auto const& mask =
-                        composer->soft_masks[gs.soft_mask_id - 1u];
+                        ir->soft_masks[gs.soft_mask_id - 1u];
                     if (mask.form_id == 0u ||
-                        mask.form_id > composer->form_count)
+                        mask.form_id > ir->form_count)
                         throw std::logic_error("soft mask Form missing");
-                    if (composer->forms[mask.form_id - 1u].requires_pdf_16)
+                    if (ir->forms[mask.form_id - 1u].requires_pdf_16)
                         requires_pdf_16 = true;
                 }
             }
             if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_FORM) {
                 auto const id = operation.value.form.form_id;
-                if (id == 0u || id > composer->form_count)
+                if (id == 0u || id > ir->form_count)
                     throw std::logic_error("form resource missing");
-                if (composer->forms[id - 1u].requires_pdf_16)
+                if (ir->forms[id - 1u].requires_pdf_16)
                     requires_pdf_16 = true;
             } else if (
                 operation.kind == QUANTAPDF_COMPOSER_OPERATION_PATH) {
                 auto check_paint = [&](quantapdf_composer_paint_id id) {
                     if (id == 0u)
                         return;
-                    if (id > composer->paint_count)
+                    if (id > ir->paint_count)
                         throw std::logic_error("paint resource missing");
-                    auto const& paint = composer->paints[id - 1u];
+                    auto const& paint = ir->paints[id - 1u];
                     if (paint.kind ==
                             QUANTAPDF_COMPOSER_PAINT_TILING_PATTERN_INTERNAL &&
                         paint.requires_pdf_16)
@@ -2160,19 +2160,19 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
         }
 
         std::vector<std::optional<QPDFObjectHandle>>
-            graphics_state_objects(composer->graphics_state_count);
+            graphics_state_objects(ir->graphics_state_count);
 
         std::vector<std::optional<QPDFObjectHandle>>
-            paint_shading_objects(composer->paint_count);
+            paint_shading_objects(ir->paint_count);
         std::vector<std::optional<QPDFObjectHandle>>
-            paint_tile_form_objects(composer->paint_count);
+            paint_tile_form_objects(ir->paint_count);
         std::vector<std::unique_ptr<QPDF>>
-            paint_source_pdfs(composer->paint_count);
+            paint_source_pdfs(ir->paint_count);
         auto ensure_tile_form = [&](quantapdf_composer_paint_id id)
             -> QPDFObjectHandle {
-            if (id == 0u || id > composer->paint_count)
+            if (id == 0u || id > ir->paint_count)
                 throw std::logic_error("tiling paint resource missing");
-            auto const& paint = composer->paints[id - 1u];
+            auto const& paint = ir->paints[id - 1u];
             if (paint.kind != QUANTAPDF_COMPOSER_PAINT_TILING_PATTERN_INTERNAL)
                 throw std::logic_error("paint is not a tiling pattern");
             auto& slot = paint_tile_form_objects[id - 1u];
@@ -2197,7 +2197,7 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             return *slot;
         };
 
-        for (std::size_t page_index = 0; page_index < composer->page_count;
+        for (std::size_t page_index = 0; page_index < ir->page_count;
              ++page_index) {
             auto page = QPDFObjectHandle::newDictionary();
             auto media_box = QPDFObjectHandle::newArray();
@@ -2207,18 +2207,18 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             auto ext_gstates = QPDFObjectHandle::newDictionary();
             auto patterns = QPDFObjectHandle::newDictionary();
             std::vector<std::optional<QPDFObjectHandle>>
-                page_patterns(composer->paint_count);
+                page_patterns(ir->paint_count);
             std::vector<std::optional<QPDFObjectHandle>>
                 page_masked_graphics_state_objects(
-                    composer->graphics_state_count);
+                    ir->graphics_state_count);
             std::vector<std::optional<QPDFObjectHandle>>
-                page_soft_mask_groups(composer->soft_mask_count);
+                page_soft_mask_groups(ir->soft_mask_count);
             bool used_fonts[12] = {};
             bool used_ext_gstate = false;
             bool used_pattern = false;
 
-            for (std::size_t i = 0; i < composer->operation_count; ++i) {
-                auto const& operation = composer->operations[i];
+            for (std::size_t i = 0; i < ir->operation_count; ++i) {
+                auto const& operation = ir->operations[i];
                 if (operation.page_index == page_index &&
                     operation.kind == QUANTAPDF_COMPOSER_OPERATION_TEXT)
                     used_fonts[static_cast<int>(operation.value.text.options.font)] = true;
@@ -2229,8 +2229,8 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                         "/F" + std::to_string(font),
                         make_font(static_cast<quantapdf_composer_font>(font)));
             }
-            for (std::size_t i = 0; i < composer->operation_count; ++i) {
-                auto const& operation = composer->operations[i];
+            for (std::size_t i = 0; i < ir->operation_count; ++i) {
+                auto const& operation = ir->operations[i];
                 if (operation.page_index != page_index ||
                     operation.kind !=
                         QUANTAPDF_COMPOSER_OPERATION_EMBEDDED_TEXT)
@@ -2244,8 +2244,8 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                     "/EF" + std::to_string(id),
                     *embedded_font_objects[id - 1u]);
             }
-            for (std::size_t i = 0; i < composer->operation_count; ++i) {
-                auto const& operation = composer->operations[i];
+            for (std::size_t i = 0; i < ir->operation_count; ++i) {
+                auto const& operation = ir->operations[i];
                 if (operation.page_index != page_index ||
                     operation.kind != QUANTAPDF_COMPOSER_OPERATION_GLYPH_RUN)
                     continue;
@@ -2259,8 +2259,8 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                     *glyph_run_font_objects[id - 1u]);
             }
             resources.replaceKey("/Font", fonts);
-            for (std::size_t i = 0; i < composer->operation_count; ++i) {
-                auto const& operation = composer->operations[i];
+            for (std::size_t i = 0; i < ir->operation_count; ++i) {
+                auto const& operation = ir->operations[i];
                 if (operation.page_index != page_index)
                     continue;
                 if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
@@ -2280,15 +2280,15 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             auto ensure_soft_mask_group =
                 [&](quantapdf_composer_soft_mask_id mask_id)
                     -> QPDFObjectHandle {
-                if (mask_id == 0u || mask_id > composer->soft_mask_count)
+                if (mask_id == 0u || mask_id > ir->soft_mask_count)
                     throw std::logic_error("soft mask resource missing");
                 auto& slot = page_soft_mask_groups[mask_id - 1u];
                 if (!slot.has_value()) {
-                    auto const& mask = composer->soft_masks[mask_id - 1u];
+                    auto const& mask = ir->soft_masks[mask_id - 1u];
                     if (mask.form_id == 0u ||
-                        mask.form_id > composer->form_count)
+                        mask.form_id > ir->form_count)
                         throw std::logic_error("soft mask Form missing");
-                    auto const& form = composer->forms[mask.form_id - 1u];
+                    auto const& form = ir->forms[mask.form_id - 1u];
                     if ((form.flags &
                          QUANTAPDF_COMPOSER_FORM_FLAG_TRANSPARENCY_GROUP) == 0u)
                         throw std::logic_error(
@@ -2298,13 +2298,13 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                         ensure_form_object(mask.form_id),
                         form,
                         mask,
-                        composer->pages[page_index]);
+                        ir->pages[page_index]);
                 }
                 return *slot;
             };
 
-            for (std::size_t i = 0; i < composer->operation_count; ++i) {
-                auto const& operation = composer->operations[i];
+            for (std::size_t i = 0; i < ir->operation_count; ++i) {
+                auto const& operation = ir->operations[i];
                 if (operation.page_index != page_index ||
                     operation.graphics_state_id == 0u)
                     continue;
@@ -2313,7 +2313,7 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                     graphics_state_objects.size())
                     throw std::logic_error("graphics state resource missing");
                 auto const& state =
-                    composer->graphics_states[id - 1u];
+                    ir->graphics_states[id - 1u];
                 auto& object =
                     state.soft_mask_id == 0u
                     ? graphics_state_objects[id - 1u]
@@ -2322,7 +2322,7 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                     object = make_graphics_state(pdf, state);
                     if (state.soft_mask_id != 0u) {
                         auto const& mask =
-                            composer->soft_masks[state.soft_mask_id - 1u];
+                            ir->soft_masks[state.soft_mask_id - 1u];
                         auto soft_mask = QPDFObjectHandle::newDictionary();
                         soft_mask.replaceKey(
                             "/S",
@@ -2342,26 +2342,26 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             if (used_ext_gstate)
                 resources.replaceKey("/ExtGState", ext_gstates);
 
-            for (std::size_t i = 0; i < composer->operation_count; ++i) {
-                auto const& operation = composer->operations[i];
+            for (std::size_t i = 0; i < ir->operation_count; ++i) {
+                auto const& operation = ir->operations[i];
                 if (operation.page_index != page_index ||
                     operation.kind != QUANTAPDF_COMPOSER_OPERATION_PATH)
                     continue;
                 auto add_paint = [&](quantapdf_composer_paint_id id) {
                     if (id == 0u)
                         return;
-                    if (id > composer->paint_count)
+                    if (id > ir->paint_count)
                         throw std::logic_error("paint resource missing");
                     auto& page_pattern = page_patterns[id - 1u];
                     if (!page_pattern.has_value()) {
-                        auto const& paint = composer->paints[id - 1u];
+                        auto const& paint = ir->paints[id - 1u];
                         if (paint.kind ==
                             QUANTAPDF_COMPOSER_PAINT_TILING_PATTERN_INTERNAL) {
                             page_pattern = make_tiling_pattern(
                                 pdf,
                                 ensure_tile_form(id),
                                 paint,
-                                composer->pages[page_index].height_points);
+                                ir->pages[page_index].height_points);
                         } else {
                             auto& shading = paint_shading_objects[id - 1u];
                             if (!shading.has_value()) {
@@ -2371,7 +2371,7 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                                 pdf,
                                 *shading,
                                 paint,
-                                composer->pages[page_index].height_points);
+                                ir->pages[page_index].height_points);
                         }
                     }
                     patterns.replaceKey(
@@ -2386,24 +2386,24 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             media_box.appendItem(QPDFObjectHandle::newInteger(0));
             media_box.appendItem(QPDFObjectHandle::newInteger(0));
             media_box.appendItem(QPDFObjectHandle::newReal(
-                composer->pages[page_index].width_points,
-                decimal_precision(composer->pages[page_index].width_points)));
+                ir->pages[page_index].width_points,
+                decimal_precision(ir->pages[page_index].width_points)));
             media_box.appendItem(QPDFObjectHandle::newReal(
-                composer->pages[page_index].height_points,
-                decimal_precision(composer->pages[page_index].height_points)));
+                ir->pages[page_index].height_points,
+                decimal_precision(ir->pages[page_index].height_points)));
             page.replaceKey("/Type", QPDFObjectHandle::newName("/Page"));
             page.replaceKey("/MediaBox", media_box);
             page.replaceKey("/Resources", resources);
             page.replaceKey(
                 "/Contents",
                 pdf.newStream(page_content(
-                    composer,
+                    ir,
                     page_index,
                     embedded_faces,
                     glyph_run_usage)));
             pdf.addPage(pdf.makeIndirectObject(page), false);
         }
-        apply_composer_navigation(pdf, composer);
+        apply_composer_navigation(pdf, ir);
 
         QPDFWriter writer(pdf);
         writer.setOutputMemory();
