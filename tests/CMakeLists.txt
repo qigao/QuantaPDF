@@ -1,3 +1,15 @@
+# Pure C11 PDF graphics semantics; no provider, PDFium, or QPDF.
+add_executable(quantapdf_test_pdf_graphics_state test_pdf_graphics_state.c
+  ../src/ir/pdf_content_ir.c ../src/ir/pdf_graphics_state.c)
+target_include_directories(quantapdf_test_pdf_graphics_state PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_pdf_graphics_state PRIVATE c_std_11)
+if(UNIX)
+  target_link_libraries(quantapdf_test_pdf_graphics_state PRIVATE m)
+endif()
+add_test(NAME quantapdf.pdf_graphics_state COMMAND quantapdf_test_pdf_graphics_state)
+set_tests_properties(quantapdf.pdf_graphics_state PROPERTIES TIMEOUT 30)
+
 # Provider-independent pure C11 parser; no PDFium or QPDF in this test.
 add_executable(quantapdf_test_pdf_content_ir test_pdf_content_ir.c ../src/ir/pdf_content_ir.c)
 target_include_directories(quantapdf_test_pdf_content_ir PRIVATE
@@ -39,7 +51,8 @@ set_tests_properties(quantapdf.graph_edit PROPERTIES TIMEOUT 30)
 
 # Compile the actual private facade/lifetime helpers without adding SDK exports.
 add_executable(quantapdf_test_graph_snapshot test_graph_snapshot.c
-  ../src/document/document_graph.c ../src/ir/pdf_content_ir.c
+  ../src/document/document_graph.c ../src/document/page_content_ir.c
+  ../src/ir/pdf_content_ir.c ../src/ir/pdf_graphics_state.c
   ../src/core/context_lifetime.c ../src/core/output_lifetime.c ../src/snapshot/snapshot_owner.c)
 target_include_directories(quantapdf_test_graph_snapshot PRIVATE "${PROJECT_SOURCE_DIR}/src")
 target_link_libraries(quantapdf_test_graph_snapshot PRIVATE
