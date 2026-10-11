@@ -2,9 +2,9 @@
 
 #include "pdfium_runtime.h"
 #include "qpdf_document.h"
-#include "../text_snapshot.h"
-#include "../image_snapshot.h"
-#include "../link_snapshot.h"
+#include "snapshot/text_snapshot.h"
+#include "snapshot/image_snapshot.h"
+#include "snapshot/link_snapshot.h"
 
 #if defined(_WIN32) && !defined(NOMINMAX)
 #define NOMINMAX

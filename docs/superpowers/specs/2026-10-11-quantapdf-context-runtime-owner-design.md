@@ -4,7 +4,8 @@ Implemented in 2.34 for [#144](https://github.com/qigao/QuantaPDF/issues/144).
 The installed API and runtime implement the retained-domain contract below.
 It builds on the private backend boundary in
 [#143 / PR #178](https://github.com/qigao/QuantaPDF/pull/178). The implementation
-baseline for the observations below is commit `d294388`.
+baseline for the observations below is commit `d294388`; source links follow
+the module split in #150.
 
 ## Findings and compatibility constraints
 
@@ -14,10 +15,10 @@ implementation violates its contract.
 | Severity | Evidence | Trigger and effect | Design constraint |
 | --- | --- | --- | --- |
 | HIGH | Fact: [structured-text lifetime test](../../../tests/test_structured_text.c), [form lifetime test](../../../tests/test_pdf_form.c), and [edit lifetime test](../../../tests/test_pdf_annotation_mutation.c) access objects after closing their source document. | A document-owned context or bulk context reset could invalidate surviving snapshots, edit graphs, or outputs. | Every owned handle retains its runtime domain independently of the source handle. Context release never recursively drops children. |
-| HIGH | Fact: [text.c](../../../src/text.c) implements `quantapdf_free()` with `free()`. [render.c](../../../src/render.c) and [pdf_export.c](../../../src/pdf_export.c) also release C-allocated result storage. | Routing these allocations through an arbitrary context allocator would introduce mismatched frees or require an ABI change. | Keep allocator provenance explicit and retain the existing C allocator contract. Custom allocators require separate complete design under #157. |
+| HIGH | Fact: [memory.c](../../../src/core/memory.c) implements `quantapdf_free()` with `free()`. [bitmap.c](../../../src/core/bitmap.c) and [output.c](../../../src/core/output.c) also release C-allocated result storage. | Routing these allocations through an arbitrary context allocator would introduce mismatched frees or require an ABI change. | Keep allocator provenance explicit and retain the existing C allocator contract. Custom allocators require separate complete design under #157. |
 | HIGH | Fact: [pdfium_runtime.cpp](../../../src/backend/pdfium_runtime.cpp) owns a process-wide once flag and recursive mutex. | Initializing or destroying PDFium per context could conflict with another live context; per-context locks would not serialize the engine. | Preserve the existing private process runtime and global engine lock. A context release does not destroy PDFium. |
 | HIGH | Fact: the [API contract](../../../README.md#api-contract) requires serialization across unrelated handles as well as related ones. | Advertising concurrent contexts would permit calls outside the current runtime contract. | Context grouping does not grant concurrency. Changes to scheduling and synchronization belong to #161. |
-| MED | Fact: [internal.h](../../../src/internal.h) has separate document and Composer storage; snapshot structures and [pdf_edit_internal.h](../../../src/pdf_edit_internal.h) have independent cleanup paths. | Adding context ownership only to documents would miss Composer outputs, edit-derived snapshots, image-rendered bitmaps, and failure cleanup. | Migrate every handle-producing path as one internal ownership change before exposing explicit-context factories. |
+| MED | Fact: [document_internal.h](../../../src/document/document_internal.h) and [composer_internal.h](../../../src/composer/composer_internal.h) define separate document and Composer storage; snapshot structures and [pdf_edit_internal.h](../../../src/document/pdf_edit_internal.h) have independent cleanup paths. | Adding context ownership only to documents would miss Composer outputs, edit-derived snapshots, image-rendered bitmaps, and failure cleanup. | Migrate every handle-producing path as one internal ownership change before exposing explicit-context factories. |
 
 The [API contract](../../../README.md#api-contract) also requires documents to
 outlive pages and rendered bitmaps. The image-occurrence lifetime test in

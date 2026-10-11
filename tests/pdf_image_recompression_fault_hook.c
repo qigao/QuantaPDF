@@ -1,4 +1,4 @@
-#include "../src/internal.h"
+#include "../src/document/document_internal.h"
 #include "pdf_image_recompression_test_api.h"
 
 #include <string.h>

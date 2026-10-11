@@ -1,6 +1,6 @@
 #include "pdf_security_rewrite_test_api.h"
 
-#include "internal.h"
+#include "document/document_internal.h"
 
 void quantapdf_security_test_set_fault(
     quantapdf_document *document,

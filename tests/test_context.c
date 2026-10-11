@@ -1,6 +1,14 @@
-#include "internal.h"
-#include "pdf_edit_internal.h"
-#include "form_snapshot.h"
+#include "document/document_internal.h"
+#include "core/bitmap_internal.h"
+#include "core/output_internal.h"
+#include "composer/composer_internal.h"
+#include "snapshot/text_snapshot.h"
+#include "snapshot/image_snapshot.h"
+#include "snapshot/link_snapshot.h"
+#include "snapshot/annotation_snapshot.h"
+#include "snapshot/outline_snapshot.h"
+#include "document/pdf_edit_internal.h"
+#include "snapshot/form_snapshot.h"
 
 #include <stdio.h>
 #include <stdlib.h>
