@@ -116,7 +116,7 @@ static void test_close_and_color(void)
 
 static void test_fail_closed(void)
 {
-    rejects("0 0 10 10 re W n 0 0 10 10 re f", QUANTAPDF_ERROR_UNSUPPORTED);
+    rejects("0 0 m W n 0 0 10 10 re f", QUANTAPDF_ERROR_UNSUPPORTED);
     rejects("0 0 m 10 10 l n", QUANTAPDF_ERROR_UNSUPPORTED);
     rejects("0 0 m f", QUANTAPDF_ERROR_UNSUPPORTED);
     rejects("0.5 g 0 0 10 10 re f", QUANTAPDF_ERROR_UNSUPPORTED);
