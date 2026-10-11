@@ -236,8 +236,57 @@ static void test_stroke_style_lowering(void)
     dispose_page(&page);
 }
 
+
+static void test_extgstate_to_composer_resources(void)
+{
+    const char *source =
+        "/Half gs 0 0 10 10 re f "
+        "q /Multi gs 10 0 10 10 re B Q "
+        "0 10 10 10 re f";
+    quantapdf_pdf_content_limits limit = parse_limits();
+    quantapdf_pdf_page_semantics page = {0};
+    quantapdf_pdf_extgstate_delta *deltas;
+    quantapdf_ir ir = {0};
+    quantapdf_pdf_path_lower_limits budget = lower_limits();
+    OK(quantapdf_pdf_content_parse((const unsigned char *)source,
+        strlen(source), &limit, &page.content));
+    deltas = (quantapdf_pdf_extgstate_delta *)calloc(
+        page.content->count, sizeof(*deltas));
+    CHECK(deltas != NULL);
+    deltas[0].resolved = 1;
+    deltas[0].presence = QUANTAPDF_PDF_GS_FILL_ALPHA;
+    deltas[0].fill_alpha = 0.5;
+    deltas[4].resolved = 1;
+    deltas[4].presence = QUANTAPDF_PDF_GS_BLEND_MODE;
+    deltas[4].blend_mode = QUANTAPDF_COMPOSER_BLEND_SCREEN;
+    OK(quantapdf_pdf_graphics_evaluate_resolved(page.content, &limit,
+        deltas, page.content->count, &page.graphics));
+    OK(quantapdf_pdf_path_lower_to_composer(&page, 100, 100, &budget, &ir));
+    CHECK(ir.operation_count == 3 && ir.resources.graphics_state_count == 2);
+    CHECK(ir.operations[0].graphics_state_id != 0 &&
+          ir.operations[0].graphics_state_id == ir.operations[2].graphics_state_id);
+    CHECK(ir.operations[1].graphics_state_id != 0 &&
+          ir.operations[1].graphics_state_id != ir.operations[0].graphics_state_id);
+    CHECK(ir.resources.graphics_states[ir.operations[0].graphics_state_id - 1].fill_alpha == 0.5f);
+    CHECK(ir.resources.graphics_states[ir.operations[1].graphics_state_id - 1].blend_mode ==
+        QUANTAPDF_COMPOSER_BLEND_SCREEN);
+    quantapdf_ir_dispose(&ir);
+    quantapdf_pdf_graphics_dispose(page.graphics); page.graphics = NULL;
+    page.content->ops[0].operator_byte_offset = 0; /* retain API ownership */
+    quantapdf_pdf_content_dispose(page.content); page.content = NULL;
+    free(deltas);
+    /* Precision loss is not silently hidden for path-only alpha. */
+    parse_page("0 0 10 10 re f", &page);
+    page.graphics->paths[0].graphics.fill_alpha = 0.12345;
+    CHECK(quantapdf_pdf_path_lower_to_composer(&page, 100, 100,
+        &budget, &ir) == QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(ir.operations == NULL && ir.resources.graphics_states == NULL);
+    dispose_page(&page);
+}
+
 int main(void)
 {
+    test_extgstate_to_composer_resources();
     test_stroke_style_lowering();
     test_paths_and_curves();
     test_close_and_color();

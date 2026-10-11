@@ -149,8 +149,33 @@ static void test_stroke_dash_lexing(void)
     }
 }
 
+
+static void test_extgstate_name_operand(void)
+{
+    const char *source = "q /GS_Half gs 0 0 10 10 re f Q";
+    quantapdf_pdf_content_limits limits = budget();
+    quantapdf_pdf_content_ir *ir = NULL;
+    OK(quantapdf_pdf_content_parse((const unsigned char *)source,
+        strlen(source), &limits, &ir));
+    CHECK(ir->count == 5 && ir->ops[1].opcode == QUANTAPDF_PDF_OP_EXT_GSTATE);
+    CHECK(ir->ops[1].name_size == 8 && ir->name_byte_count == 8);
+    CHECK(memcmp(ir->name_bytes + ir->ops[1].name_offset,
+        "/GS_Half", 8) == 0);
+    CHECK(ir->ops[2].opcode == QUANTAPDF_PDF_OP_RECT);
+    quantapdf_pdf_content_dispose(ir);
+    fails("gs", limits, QUANTAPDF_ERROR_FORMAT);
+    fails("/Half", limits, QUANTAPDF_ERROR_FORMAT);
+    fails("/A 1 w", limits, QUANTAPDF_ERROR_FORMAT);
+    fails("/A 1 gs", limits, QUANTAPDF_ERROR_FORMAT);
+    fails("/A /B gs", limits, QUANTAPDF_ERROR_FORMAT);
+    fails("/A#20B gs", limits, QUANTAPDF_ERROR_UNSUPPORTED);
+    fails("/ gs", limits, QUANTAPDF_ERROR_FORMAT);
+    fails("[1 2] /GS1 gs", limits, QUANTAPDF_ERROR_FORMAT);
+}
+
 int main(void)
 {
+    test_extgstate_name_operand();
     test_stroke_dash_lexing();
     test_path_tape();
     test_extended_paths();
