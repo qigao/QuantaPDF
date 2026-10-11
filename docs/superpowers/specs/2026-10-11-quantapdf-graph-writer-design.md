@@ -19,8 +19,9 @@ explicit Crypt filters, external-file streams, and signature dictionaries/fields
 It must not silently decrypt output, preserve stale signatures, or dereference
 external stream files. Supporting these requires explicit encryption/signature
 policies before public migration. This is not a byte-preserving or incremental
-writer: xref offsets, stream lengths, document IDs and object numbers are writer
-owned. Trailer xref bookkeeping is omitted; ordinary catalog and trailer values
+writer: xref offsets, stream lengths, instance IDs and object numbers are writer
+owned. Existing permanent document IDs are retained through the trailer; QPDF
+updates the second ID deterministically. Trailer xref bookkeeping is omitted; ordinary catalog and trailer values
 are copied. Encoded stream bytes and ordinary filter dictionaries are preserved.
 
 ## Ownership and bounded work

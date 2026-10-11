@@ -67,6 +67,7 @@ static quantapdf_local_id field(quantapdf_graph_model const *m, quantapdf_local_
 static void test_values_and_limits()
 {
     auto pdf = QPDF::create(); pdf->emptyPDF();
+    pdf->getTrailer().replaceKey("/ID", QPDFObjectHandle::parse("[<0123456789abcdef> <fedcba9876543210>]"));
     auto root = pdf->getRoot();
     root.replaceKey("/Version", QPDFObjectHandle::newName("/2.0"));
     root.replaceKey("/Extensions", QPDFObjectHandle::parse("<< /ADBE << /BaseVersion /1.7 /ExtensionLevel 8 >> >>"));
@@ -98,6 +99,7 @@ static void test_values_and_limits()
     auto reopened = QPDF::create();
     reopened->processMemoryFile("graph output", reinterpret_cast<char const *>(first.data()), first.size());
     CHECK(!reopened->anyWarnings());
+    CHECK(reopened->getTrailer().getKey("/ID").getArrayItem(0).getStringValue() == std::string("\x01\x23\x45\x67\x89\xab\xcd\xef", 8));
     root = reopened->getRoot();
     CHECK(root.getKey("/Version").getName() == "/2.0");
     CHECK(root.getKey("/Extensions").getKey("/ADBE").getKey("/ExtensionLevel").getIntValue() == 8);

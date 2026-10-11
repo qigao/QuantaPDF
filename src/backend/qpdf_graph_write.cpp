@@ -145,7 +145,7 @@ std::string bytes(quantapdf_graph_model const& m, size_t offset, size_t count)
 
 bool trailer_bookkeeping(std::string const& key)
 {
-    return key == "/Size" || key == "/Prev" || key == "/XRefStm" || key == "/ID" ||
+    return key == "/Size" || key == "/Prev" || key == "/XRefStm" ||
         key == "/Type" || key == "/W" || key == "/Index" || key == "/Length" ||
         key == "/Filter" || key == "/DecodeParms";
 }
