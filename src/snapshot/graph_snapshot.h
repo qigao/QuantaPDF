@@ -4,6 +4,7 @@
 #include "snapshot_owner.h"
 #include "graph/graph_edit.h"
 #include "graph/graph_write.h"
+#include "graph/graph_stream.h"
 
 typedef struct quantapdf_graph_snapshot {
     quantapdf_snapshot owner;
@@ -38,6 +39,12 @@ quantapdf_status quantapdf_graph_snapshot_write(const quantapdf_graph_snapshot *
  * public document metadata operation; no XMP merge or date interpretation. */
 quantapdf_status quantapdf_graph_snapshot_metadata(const quantapdf_graph_snapshot *snapshot,
     quantapdf_metadata_field field, char **out_utf8, size_t *out_size);
+/* Detached non-lossy decoded stream from this immutable version. The input
+ * reference does not retain a graph. On success free data with quantapdf_free;
+ * empty streams return NULL/0. Failure resets outputs. See graph_stream limits. */
+quantapdf_status quantapdf_graph_snapshot_stream(const quantapdf_graph_snapshot *snapshot,
+    const quantapdf_graph_reference *reference, const quantapdf_graph_stream_limits *limits,
+    unsigned char **out_data, size_t *out_size);
 #ifdef __cplusplus
 }
 #endif

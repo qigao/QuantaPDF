@@ -11,6 +11,8 @@ typedef struct quantapdf_pdf_form_model quantapdf_pdf_form_model;
 typedef struct quantapdf_graph quantapdf_graph;
 typedef struct quantapdf_graph_limits quantapdf_graph_limits;
 typedef struct quantapdf_graph_write_limits quantapdf_graph_write_limits;
+typedef struct quantapdf_graph_stream_limits quantapdf_graph_stream_limits;
+typedef struct quantapdf_graph_reference quantapdf_graph_reference;
 
 /* Snapshot handles returned by providers have a zeroed, unbound snapshot owner.
  * The facade holds the context guard and binds the finalizer before publication.
@@ -255,6 +257,10 @@ typedef struct quantapdf_backend_ops {
     /* Input is borrowed PDF text bytes; output is detached malloc-owned UTF-8. */
     quantapdf_status (*decode_pdf_text)(const unsigned char *data, size_t size,
         char **out_utf8, size_t *out_size);
+    /* Selected immutable stream -> detached non-lossy decoded bytes. */
+    quantapdf_status (*read_graph_stream)(const quantapdf_graph *graph,
+        const quantapdf_graph_reference *reference, const quantapdf_graph_stream_limits *limits,
+        unsigned char **out_data, size_t *out_size);
 } quantapdf_backend_ops;
 
 /* Explicit built-in PDFium/qpdf composition; no mutable provider registry. */

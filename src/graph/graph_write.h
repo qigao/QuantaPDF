@@ -3,7 +3,7 @@
 
 #include "graph.h"
 
-enum { QUANTAPDF_GRAPH_WRITE_MAX_DIRECT_DEPTH = 128 };
+enum { QUANTAPDF_GRAPH_WRITE_MAX_DIRECT_DEPTH = QUANTAPDF_GRAPH_MAX_DIRECT_DEPTH };
 
 /* Explicit private writer budgets. Depth must be in [1, 128]. Expanded visits
  * conservatively sum every node's inline expansion, including repeated children.

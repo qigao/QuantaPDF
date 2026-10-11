@@ -66,6 +66,14 @@ target_compile_features(quantapdf_test_graph_write PRIVATE cxx_std_20)
 add_test(NAME quantapdf.graph_write COMMAND quantapdf_test_graph_write)
 set_tests_properties(quantapdf.graph_write PROPERTIES TIMEOUT 30)
 
+add_executable(quantapdf_test_graph_stream test_graph_stream.cpp)
+target_include_directories(quantapdf_test_graph_stream PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_graph_stream PRIVATE quantapdf_backend qpdf::libqpdf ZLIB::ZLIB)
+target_compile_features(quantapdf_test_graph_stream PRIVATE cxx_std_20)
+add_test(NAME quantapdf.graph_stream COMMAND quantapdf_test_graph_stream)
+set_tests_properties(quantapdf.graph_stream PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_test_pdf_text test_pdf_text.cpp)
 target_include_directories(quantapdf_test_pdf_text PRIVATE
   "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")

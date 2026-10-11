@@ -2,6 +2,7 @@
 #include "pdfium_document.h"
 #include "qpdf_document.h"
 #include "qpdf_graph_write.h"
+#include "qpdf_graph_stream.h"
 #include "qpdf_text.h"
 #include "qpdf_edit.h"
 
@@ -497,6 +498,7 @@ static const quantapdf_backend_ops builtin_ops = {
     .capture_graph = builtin_capture_graph,
     .write_graph = quantapdf_qpdf_write_graph,
     .decode_pdf_text = quantapdf_qpdf_decode_text,
+    .read_graph_stream = quantapdf_qpdf_graph_stream,
 };
 
 const quantapdf_backend_ops *quantapdf_builtin_backend_ops(void)

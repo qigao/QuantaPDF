@@ -58,6 +58,8 @@ typedef struct quantapdf_graph_limits {
 
 typedef struct quantapdf_graph quantapdf_graph;
 
+enum { QUANTAPDF_GRAPH_MAX_DIRECT_DEPTH = 128 };
+
 /* Runtime-only identity. References borrow no storage and confer no liveness
  * beyond their resolved graph. Origin is the version that created this slot. */
 typedef struct quantapdf_graph_reference {
