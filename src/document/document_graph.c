@@ -10,6 +10,25 @@ static void dispose_graph(quantapdf_snapshot *owner)
     free(snapshot);
 }
 
+static quantapdf_status reserve_snapshot(quantapdf_context *context,
+    quantapdf_graph_snapshot **out_snapshot)
+{
+    quantapdf_graph_snapshot *snapshot;
+    quantapdf_status status;
+    *out_snapshot = NULL;
+    status = quantapdf_context_retain_internal(context);
+    if (status != QUANTAPDF_OK) return status;
+    snapshot = (quantapdf_graph_snapshot *)quantapdf_context_allocate_internal(
+        context, sizeof(*snapshot));
+    if (snapshot == NULL) {
+        quantapdf_drop_context(context);
+        return QUANTAPDF_ERROR_NOMEM;
+    }
+    quantapdf_snapshot_bind(&snapshot->owner, context, dispose_graph);
+    *out_snapshot = snapshot;
+    return QUANTAPDF_OK;
+}
+
 quantapdf_status quantapdf_document_capture_graph(
     quantapdf_document *document, const quantapdf_graph_limits *limits,
     quantapdf_graph_snapshot **out_snapshot)
@@ -19,15 +38,8 @@ quantapdf_status quantapdf_document_capture_graph(
     if (out_snapshot == NULL) return QUANTAPDF_ERROR_ARGUMENT;
     *out_snapshot = NULL;
     if (document == NULL || limits == NULL) return QUANTAPDF_ERROR_ARGUMENT;
-    status = quantapdf_context_retain_internal(document->context);
+    status = reserve_snapshot(document->context, &snapshot);
     if (status != QUANTAPDF_OK) return status;
-    snapshot = (quantapdf_graph_snapshot *)quantapdf_context_allocate_internal(
-        document->context, sizeof(*snapshot));
-    if (snapshot == NULL) {
-        quantapdf_drop_context(document->context);
-        return QUANTAPDF_ERROR_NOMEM;
-    }
-    quantapdf_snapshot_bind(&snapshot->owner, document->context, dispose_graph);
     status = document->ops->capture_graph(document->backend, limits, &snapshot->graph);
     if (status != QUANTAPDF_OK) {
         quantapdf_graph_snapshot_drop(snapshot);
@@ -36,6 +48,29 @@ quantapdf_status quantapdf_document_capture_graph(
     if (quantapdf_graph_view(snapshot->graph) == NULL) {
         quantapdf_graph_snapshot_drop(snapshot);
         return QUANTAPDF_ERROR_BACKEND;
+    }
+    *out_snapshot = snapshot;
+    return QUANTAPDF_OK;
+}
+
+quantapdf_status quantapdf_graph_snapshot_commit(
+    const quantapdf_graph_snapshot *base, const quantapdf_graph_change_set *changes,
+    const quantapdf_graph_limits *limits, quantapdf_graph_snapshot **out_snapshot,
+    quantapdf_validation_report *report)
+{
+    quantapdf_graph_snapshot *snapshot;
+    quantapdf_status status;
+    if (report != NULL) *report = (quantapdf_validation_report){0};
+    if (out_snapshot == NULL) return QUANTAPDF_ERROR_ARGUMENT;
+    *out_snapshot = NULL;
+    if (base == NULL || changes == NULL || limits == NULL || report == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    status = reserve_snapshot(base->owner.context, &snapshot);
+    if (status != QUANTAPDF_OK) return status;
+    status = quantapdf_graph_commit(base->graph, changes, limits, &snapshot->graph, report);
+    if (status != QUANTAPDF_OK) {
+        quantapdf_graph_snapshot_drop(snapshot);
+        return status;
     }
     *out_snapshot = snapshot;
     return QUANTAPDF_OK;

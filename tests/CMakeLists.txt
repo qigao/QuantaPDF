@@ -7,6 +7,14 @@ target_compile_features(quantapdf_test_graph PRIVATE c_std_11)
 add_test(NAME quantapdf.graph COMMAND quantapdf_test_graph)
 set_tests_properties(quantapdf.graph PROPERTIES TIMEOUT 30)
 
+add_executable(quantapdf_test_graph_edit test_graph_edit.c
+  ../src/graph/graph.c ../src/graph/identity.c ../src/validation/graph_validation.c)
+target_include_directories(quantapdf_test_graph_edit PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_graph_edit PRIVATE c_std_11)
+add_test(NAME quantapdf.graph_edit COMMAND quantapdf_test_graph_edit)
+set_tests_properties(quantapdf.graph_edit PROPERTIES TIMEOUT 30)
+
 # Compile the actual private facade/lifetime helpers without adding SDK exports.
 add_executable(quantapdf_test_graph_snapshot test_graph_snapshot.c
   ../src/document/document_graph.c ../src/core/context_lifetime.c ../src/snapshot/snapshot_owner.c)

@@ -58,6 +58,22 @@ quantapdf_status quantapdf_validate_ir(
 quantapdf_status quantapdf_validate_graph(
     const struct quantapdf_graph_model *model, quantapdf_validation_report *report);
 
+typedef struct quantapdf_validation_page_frame {
+    uint32_t id;
+    size_t next;
+} quantapdf_validation_page_frame;
+
+/* Requires a model already admitted by validate_graph. Verifies ordered page
+ * index agreement with /Pages and rejects non-indirect tree nodes, wrong types,
+ * repeated nodes and cycles. Does not check /Parent, /Count or page geometry.
+ * Caller-owned scratch is overwritten: seen_count >= node_count, and a nonzero
+ * stack_count bounds tree depth. No allocation. Bad scratch: ARGUMENT; depth
+ * limit: UNSUPPORTED; inconsistency: BACKEND with a deterministic report. */
+quantapdf_status quantapdf_validate_graph_pages(
+    const struct quantapdf_graph_model *model, unsigned char *seen, size_t seen_count,
+    quantapdf_validation_page_frame *stack, size_t stack_count,
+    quantapdf_validation_report *report);
+
 /* Shared public-input and published-path geometry rule; no resource lookup. */
 int quantapdf_validation_path_valid(
     const quantapdf_composer_path_command *commands, size_t count);

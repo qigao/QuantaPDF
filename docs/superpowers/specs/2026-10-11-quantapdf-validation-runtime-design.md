@@ -91,7 +91,11 @@ failure order is storage admission, nodes in local-ID order with their edges,
 partition completion, trailer/catalog roots, then ordered page entries. It
 checks scalar shapes, sorted dictionary keys and references, while allowing
 shared/cyclic graph references. Page-tree extraction admission remains with
-the adapter. Broader PDF structural/compliance rules and feature migration
+the adapter. Immutable commits additionally call the pure-C page validator after
+structural admission: ordered tree leaves must exactly match the index, and
+tree nodes must be indirect typed dictionaries with no repetition or cycles.
+The caller supplies bounded scratch; depth exhaustion returns UNSUPPORTED.
+Parent/count consistency and broader PDF structural/compliance rules and feature migration
 remain required follow-up for #149/#146. Future CMeta descriptors can name these
 typed subjects and rules, but cannot replace input ownership or parser admission.
 No persisted format or public ABI migration is needed.
@@ -121,6 +125,7 @@ test-only document representation.
 | Backend dispatch and failures | `quantapdf.backend_foundation`, `quantapdf.graph_snapshot`, public document/transform tests | Real facade dispatch, status propagation, absent output after failure, and complete snapshot admission. |
 | Snapshot and editor isolation | `quantapdf.pdf_annotation_mutation`, `quantapdf.pdf_form_mutation`, `quantapdf.graph_snapshot` | Source bytes and prior snapshot borrows remain unchanged; independent editors reject each other's references. |
 | Edit operation rollback | `quantapdf.pdf_annotation_mutation`, `quantapdf.pdf_form_mutation` | Return and exception exits restore covered mutations; retry agrees with a clean session; restoration failure blocks subsequent session observation and publication. See [transaction boundaries](2026-10-11-quantapdf-edit-transactions-design.md) for scope. |
+| Immutable graph commits | `quantapdf.graph_edit`, `quantapdf.graph_snapshot` | Exact-base admission, independent branch origins, inherited identity, bounded copy/validation failure, deterministic models and detached snapshot lifetime; no claim of graph-to-PDF output or IR mapping. |
 | Resource reuse | `quantapdf.resource_registry`, `quantapdf.ir`, public Composer resource tests | Equal owned resources reuse local IDs; rejected admissions and nested rewind preserve the owning registry. |
 | Deterministic logical reports | `quantapdf.validation`, `quantapdf.graph`, `quantapdf.identity` | Value-only rule/subject/index/detail, explicit first-failure precedence, reset on success, independent model storage, and checked ID exhaustion. |
 | Deterministic output and capture | `quantapdf.composer`, `quantapdf.ir`, edit mutation tests, `quantapdf.graph_snapshot` | Equivalent operations in the same qualified build produce equal bytes where promised; repeated capture produces equal logical node/edge/value data. |

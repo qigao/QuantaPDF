@@ -118,3 +118,66 @@ quantapdf_status quantapdf_validate_graph(const quantapdf_graph_model *m, quanta
 #undef VALUE
 #undef STORAGE
 #undef REQUIRE
+
+static quantapdf_status page_failure(quantapdf_validation_report *report,
+    quantapdf_validation_rule rule, quantapdf_validation_subject subject,
+    size_t index, size_t detail)
+{
+    report->rule = rule; report->subject = subject;
+    report->index = index; report->detail = detail;
+    return QUANTAPDF_ERROR_BACKEND;
+}
+
+quantapdf_status quantapdf_validate_graph_pages(const quantapdf_graph_model *model,
+    unsigned char *seen, size_t seen_count, quantapdf_validation_page_frame *stack,
+    size_t stack_count, quantapdf_validation_report *report)
+{
+    const quantapdf_graph_edge *root;
+    size_t depth = 1, page = 0;
+    if (report != NULL) memset(report, 0, sizeof(*report));
+    if (model == NULL || report == NULL || seen == NULL || seen_count < model->node_count ||
+        stack == NULL || stack_count == 0 || stack_count > SIZE_MAX / sizeof(*stack))
+        return QUANTAPDF_ERROR_ARGUMENT;
+    root = quantapdf_graph_find(model, model->catalog, "/Pages", 6);
+    if (root == NULL || !named_type(model, root->target, "/Pages"))
+        return page_failure(report, QUANTAPDF_VALIDATION_VALUE,
+            QUANTAPDF_VALIDATION_GRAPH_ROOT, 1, root == NULL ? 0 : root->target);
+    memset(seen, 0, model->node_count);
+    stack[0].id = root->target; stack[0].next = 0;
+    seen[root->target - 1] = 1;
+    while (depth != 0) {
+        quantapdf_validation_page_frame *frame = &stack[depth - 1];
+        const quantapdf_graph_node *node = &model->nodes[frame->id - 1];
+        const quantapdf_graph_edge *kids;
+        const quantapdf_graph_node *children;
+        quantapdf_local_id child;
+        if (node->kind != QUANTAPDF_GRAPH_DICTIONARY || !node->indirect)
+            return page_failure(report, QUANTAPDF_VALIDATION_VALUE,
+                QUANTAPDF_VALIDATION_GRAPH_NODE, frame->id - 1, 0);
+        if (named_type(model, frame->id, "/Page")) {
+            if (page == model->page_count || model->edges[model->page_offset + page].target != frame->id)
+                return page_failure(report, QUANTAPDF_VALIDATION_REFERENCE,
+                    QUANTAPDF_VALIDATION_PAGE, page, frame->id);
+            ++page; --depth;
+            continue;
+        }
+        kids = quantapdf_graph_find(model, frame->id, "/Kids", 5);
+        children = kids != NULL ? &model->nodes[kids->target - 1] : NULL;
+        if (!named_type(model, frame->id, "/Pages") ||
+            children == NULL || children->kind != QUANTAPDF_GRAPH_ARRAY)
+            return page_failure(report, QUANTAPDF_VALIDATION_VALUE,
+                QUANTAPDF_VALIDATION_GRAPH_NODE, frame->id - 1, 0);
+        if (frame->next == children->edge_count) { --depth; continue; }
+        child = model->edges[children->edge_offset + frame->next++].target;
+        if (seen[child - 1])
+            return page_failure(report, QUANTAPDF_VALIDATION_REFERENCE,
+                QUANTAPDF_VALIDATION_GRAPH_NODE, child - 1, child);
+        if (depth == stack_count) return QUANTAPDF_ERROR_UNSUPPORTED;
+        seen[child - 1] = 1;
+        stack[depth].id = child; stack[depth].next = 0; ++depth;
+    }
+    if (page != model->page_count)
+        return page_failure(report, QUANTAPDF_VALIDATION_REFERENCE,
+            QUANTAPDF_VALIDATION_PAGE, page, 0);
+    return QUANTAPDF_OK;
+}
