@@ -1,3 +1,27 @@
+# Private page display affine map, exact Composer lowering, and source-vs-output pixels.
+add_executable(quantapdf_test_pdf_page_display test_pdf_page_display.cpp
+  ../src/graph/graph_page_geometry.c
+  ../src/document/page_composer_ir.c ../src/document/page_content_ir.c
+  ../src/document/document_graph.c
+  ../src/ir/pdf_path_lowering.c ../src/ir/pdf_graphics_state.c
+  ../src/ir/pdf_content_ir.c ../src/ir/ir.c
+  ../src/resource/resource_registry.c
+  ../src/core/context_lifetime.c ../src/core/output_lifetime.c
+  ../src/snapshot/snapshot_owner.c)
+target_include_directories(quantapdf_test_pdf_page_display PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_pdf_page_display PRIVATE
+  QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium qpdf::libqpdf)
+target_compile_features(quantapdf_test_pdf_page_display PRIVATE c_std_11 cxx_std_20)
+target_compile_definitions(quantapdf_test_pdf_page_display PRIVATE
+  DISPLAY_SOURCE_PDF="${CMAKE_CURRENT_BINARY_DIR}/display-source.pdf"
+  DISPLAY_RESULT_PDF="${CMAKE_CURRENT_BINARY_DIR}/display-result.pdf")
+if(MSVC)
+  target_compile_options(quantapdf_test_pdf_page_display PRIVATE /utf-8)
+endif()
+add_test(NAME quantapdf.pdf_page_display COMMAND quantapdf_test_pdf_page_display)
+set_tests_properties(quantapdf.pdf_page_display PROPERTIES TIMEOUT 30)
+
 # Versioned graph page-geometry and Snapshot->Composer IR admission regression.
 add_executable(quantapdf_test_graph_page_geometry test_graph_page_geometry.cpp
   ../src/graph/graph_page_geometry.c
