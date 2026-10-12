@@ -239,6 +239,21 @@ static int test_clipped_one_pixel_stroke(void)
     quantapdf_ir_raster_image_dispose(&result);
     quantapdf_ir_raster_image_dispose(&repeated);
 
+    /* An unsupported miter join cannot be silently exposed by enlarging
+     * the Clip, nor can the triangle stroke be drawn without a Clip. */
+    rectangle(f.paths[0],0,0,100,50);
+    CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&result)==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(result.pixels==NULL && result.size==0u);
+    rectangle(f.paths[0],10,15,40,35);
+    f.states[0].clip_id=0u;
+    f.ir.resources.clip_count=0u;
+    CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&result)==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(result.pixels==NULL && result.size==0u);
+    f.ir.resources.clip_count=1u;
+    f.states[0].clip_id=1u;
+
     f.ops[0].value.path.options.stroke_width=2.0f;
     CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&result)==
           QUANTAPDF_ERROR_UNSUPPORTED);
