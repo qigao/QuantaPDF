@@ -557,27 +557,24 @@ void test_selected_page_multistream()
 }
 
 
-/* PDF allows clipping the empty current path. The current constrained Graph
- * evaluator cannot encode it and rejects it as FORMAT. Pin that behavior as
- * an explicit fail-closed contract until an owned empty-clip representation
- * is implemented; this is NOT a positive PDF compatibility claim. */
-void test_zero_segment_clip_fail_closed()
+/* Zero-segment W/W* must clip everything and restore on Q. */
+void test_zero_segment_clip_native_restore()
 {
     const char *cases[]={
-        "q W n 1 0 0 rg 0 0 120 120 re f Q",
-        "q W* n 1 0 0 rg 0 0 120 120 re f Q"
+        "q W n 1 0 0 rg 0 0 120 120 re f Q "
+        "0 0 1 rg 20 20 40 40 re f "
+        "0 1 0 rg 100 100 15 15 re f",
+        "q W* n 1 0 0 rg 0 0 120 120 re f Q "
+        "0 0 1 rg 20 20 40 40 re f "
+        "0 1 0 rg 100 100 15 15 re f"
     };
-    for(const char *content:cases){
-        quantapdf_ir rejected{};
-        make_source(content);
-        CHECK(snapshot_lower(&rejected)==QUANTAPDF_ERROR_FORMAT);
-        CHECK(rejected.pages==nullptr && rejected.operations==nullptr &&
-              rejected.operation_count==0u &&
-              rejected.resources.clip_count==0u &&
-              rejected.resources.graphics_state_count==0u);
-        quantapdf_ir_dispose(&rejected);
-        CHECK(std::remove(SOURCE_QQ_PDF)==0);
-    }
+    const probe points[]={
+        {30,30,0,0,255}, {50,50,0,0,255},
+        {105,105,0,255,0}, {5,5,255,255,255},
+        {80,80,255,255,255}
+    };
+    for(const char *content:cases)
+        compare(content,points,sizeof(points)/sizeof(points[0]),1u);
 }
 
 void test_unsupported_operator_fails_closed()
@@ -601,7 +598,7 @@ int main()
     test_clip_definition_ctm();
     test_page_geometry_matrix();
     test_selected_page_multistream();
-    test_zero_segment_clip_fail_closed();
+    test_zero_segment_clip_native_restore();
     test_unsupported_operator_fails_closed();
     std::fprintf(stderr,"[quantapdf.native_source_qq_oracle] complete\n");
     return EXIT_SUCCESS;
