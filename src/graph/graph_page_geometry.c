@@ -311,3 +311,87 @@ quantapdf_status quantapdf_graph_page_display_map(
     *out_display = value;
     return QUANTAPDF_OK;
 }
+
+
+/* Native Path/Clip supports no transparency compositing model. A narrowly
+ * isolated, non-knockout DeviceRGB page Group is pixel-equivalent while the
+ * downstream native renderer admits only opaque Normal paints. Never drop
+ * unknown group keys or silently accept non-isolated/knockout groups. */
+static int group_name_is(const quantapdf_graph_model *model,
+    quantapdf_local_id id, const char *value)
+{
+    const quantapdf_graph_node *node = quantapdf_graph_node_at(model, id);
+    size_t size = strlen(value);
+    return node != NULL && node->kind == QUANTAPDF_GRAPH_NAME &&
+        node->data_size == size &&
+        memcmp(model->bytes + node->data_offset, value, size) == 0;
+}
+
+quantapdf_status quantapdf_graph_admit_native_page_group(
+    const quantapdf_graph *graph, size_t page_index)
+{
+    const quantapdf_graph_model *model;
+    const quantapdf_graph_edge *group_edge;
+    const quantapdf_graph_node *page, *group;
+    quantapdf_local_id leaf;
+    int have_subtype = 0, have_isolated = 0, have_space = 0;
+    if (graph == NULL) return QUANTAPDF_ERROR_ARGUMENT;
+    model = quantapdf_graph_view(graph);
+    if (model == NULL) return QUANTAPDF_ERROR_STATE;
+    if (page_index >= model->page_count) return QUANTAPDF_ERROR_ARGUMENT;
+    leaf = model->edges[model->page_offset + page_index].target;
+    page = quantapdf_graph_node_at(model, leaf);
+    if (page == NULL || page->kind != QUANTAPDF_GRAPH_DICTIONARY ||
+        !is_type(model, leaf, "/Page"))
+        return QUANTAPDF_ERROR_FORMAT;
+    /* /Group is a PAGE property, not inherited from /Pages ancestors. */
+    group_edge = quantapdf_graph_find(model, leaf, "/Group", 6);
+    if (group_edge == NULL) return QUANTAPDF_OK;
+    group = quantapdf_graph_node_at(model, group_edge->target);
+    if (group == NULL || group->kind != QUANTAPDF_GRAPH_DICTIONARY)
+        return QUANTAPDF_ERROR_FORMAT;
+    /* A group with no explicitly known isolation/space is not admitted,
+     * even when its rendered contents happen to look opaque. */
+    if (group->edge_count > 5u) return QUANTAPDF_ERROR_UNSUPPORTED;
+    for (size_t i = 0u; i < group->edge_count; ++i) {
+        const quantapdf_graph_edge *entry =
+            &model->edges[group->edge_offset + i];
+        const unsigned char *key = model->bytes + entry->key_offset;
+        const quantapdf_graph_node *value =
+            quantapdf_graph_node_at(model, entry->target);
+        if (value == NULL) return QUANTAPDF_ERROR_BACKEND;
+        if (entry->key_size == 5u && memcmp(key, "/Type", 5u) == 0) {
+            if (!group_name_is(model, entry->target, "/Group"))
+                return QUANTAPDF_ERROR_FORMAT;
+        } else if (entry->key_size == 2u && memcmp(key, "/S", 2u) == 0) {
+            if (value->kind != QUANTAPDF_GRAPH_NAME)
+                return QUANTAPDF_ERROR_FORMAT;
+            if (!group_name_is(model, entry->target, "/Transparency"))
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+            have_subtype = 1;
+        } else if (entry->key_size == 2u && memcmp(key, "/I", 2u) == 0) {
+            if (value->kind != QUANTAPDF_GRAPH_BOOL)
+                return QUANTAPDF_ERROR_FORMAT;
+            if (value->integer != 1)
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+            have_isolated = 1;
+        } else if (entry->key_size == 2u && memcmp(key, "/K", 2u) == 0) {
+            if (value->kind != QUANTAPDF_GRAPH_BOOL)
+                return QUANTAPDF_ERROR_FORMAT;
+            if (value->integer != 0)
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+        } else if (entry->key_size == 3u && memcmp(key, "/CS", 3u) == 0) {
+            if (value->kind != QUANTAPDF_GRAPH_NAME)
+                return QUANTAPDF_ERROR_FORMAT;
+            if (!group_name_is(model, entry->target, "/DeviceRGB"))
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+            have_space = 1;
+        } else {
+            /* Nonstandard backdrop, color space, transfer or compositing
+             * keys require actual group support, not an implicit ignore. */
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        }
+    }
+    return have_subtype && have_isolated && have_space ?
+        QUANTAPDF_OK : QUANTAPDF_ERROR_UNSUPPORTED;
+}
