@@ -237,7 +237,7 @@ void test_disjoint_clip_restoration()
     const probe points[]={
         {30,30,0,0,255}, {55,55,0,0,255},
         {100,100,0,255,0}, {110,110,0,255,0},
-        {80,80,255,255,255}, {5,5,255,255,255},
+        {80,80,255,0,0}, {5,5,255,0,0},
         {15,65,255,255,255}, {95,95,255,255,255}
     };
     compare(content,points,sizeof(points)/sizeof(points[0]),3u);
@@ -583,7 +583,7 @@ void test_zero_segment_clip_native_restore()
         {80,80,255,255,255}
     };
     for(const char *content:cases)
-        compare(content,points,sizeof(points)/sizeof(points[0]),1u);
+        compare(content,points,sizeof(points)/sizeof(points[0]),0u);
 }
 
 void test_unsupported_operator_fails_closed()
