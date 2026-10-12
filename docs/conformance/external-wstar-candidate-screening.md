@@ -94,7 +94,10 @@ streams using direct /Length or uniquely resolved simple bounded integer
 and 16 levels, sorted deterministically, never follows symlinks, and
 rejects duplicate basenames. It is offline and never downloads files. A PDF header is accepted at
 offset 0..1023 (bounded leading printer bytes are ignored during scanning),
-and the JSON records `pdf_header_offset`; this is not full PDF page parsing.
+and the JSON records `pdf_header_offset`. Candidate object-header lookup
+never crosses into the leading non-PDF preface; a spoofed preamble
+indirect object cannot authorize a stream in the PDF body. This is not
+full PDF page parsing.
 On a validation failure, an existing report remains untouched; output paths
 that hardlink an original input are rejected before any write.
 The scanner distinguishes `W*` from
@@ -121,7 +124,7 @@ result is **not** a native-support claim: verify the complete selected
 page, source/license, immutable revision, independent PDFium pixels and
 cross-platform CI separately. The JSON explicitly fixes the W* native
 positive count to zero and marks license/page attribution unreviewed.
-54 synthetic + 3 pinned original-PDF scanner regression cases run as part of the existing
+55 synthetic + 3 pinned original-PDF scanner regression cases run as part of the existing
 Linux, macOS and Windows workflows; no new CI workflow is introduced.
 
 The exact, previously reviewed unchanged PDFium `clip_path.pdf` and

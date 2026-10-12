@@ -138,6 +138,18 @@ class ExternalWStarScreening(unittest.TestCase):
         self.assertEqual(report["operator_counts"]["w"], 1)
         self.assertEqual(report["stream_count"], 1)
 
+    def test_preface_object_cannot_authorize_stream_in_pdf_body(self):
+        original = pdf(b"0 0 5 5 re W* n 0 0 6 6 re f")
+        # The source bytes after %PDF- have no valid object header. The
+        # unrelated wrapper header must not authenticate their stream.
+        damaged = original.replace(b"1 0 obj", b"1 0 invalid", 1)
+        prefix = b"50 0 obj << /Length 34 >>\n"
+        report = screen_pdf_bytes(prefix + damaged)
+        self.assertEqual(report["status"], "inconclusive")
+        self.assertIn("unresolved_stream_object", report["stream_issues"])
+        self.assertEqual(report["operator_counts"]["wstar"], 0)
+        self.assertEqual(report["native_wstar_clip_supported_count"], 0)
+
     def test_header_at_byte_1023_is_within_bound(self):
         source = b"#" * 1023 + pdf(b"q 0 0 5 5 re W* n 0 0 5 5 re f")
         report = screen_pdf_bytes(source)

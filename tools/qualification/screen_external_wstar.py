@@ -165,10 +165,10 @@ def _simple_length_object_index(blob):
     return result
 
 
-def _stream_header(blob, marker_start, length_objects):
+def _stream_header(blob, marker_start, length_objects, pdf_header_offset):
     # The last << may be a nested /DecodeParms dictionary and may follow
     # /Filter /FlateDecode. Limit to the actual indirect object's header.
-    prefix = blob[max(0, marker_start - 4096):marker_start]
+    prefix = blob[max(pdf_header_offset, marker_start - 4096):marker_start]
     objects = list(OBJECT_HEADER.finditer(prefix))
     if not objects:
         return None, "unresolved_stream_object"
@@ -280,7 +280,8 @@ def screen_pdf_bytes(blob):
         if stream_count > MAX_STREAMS:
             stream_issues.append("too_many_streams")
             break
-        spec, failure = _stream_header(blob, match.start(), length_objects)
+        spec, failure = _stream_header(
+            blob, match.start(), length_objects, pdf_header_offset)
         if failure is not None:
             stream_issues.append(failure)
             break
