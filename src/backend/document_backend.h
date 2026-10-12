@@ -252,6 +252,9 @@ typedef struct quantapdf_backend_ops {
     quantapdf_status (*write_graph)(const quantapdf_graph *graph,
         const quantapdf_graph_write_limits *limits, unsigned char **out_data,
         size_t *out_size);
+    /* Input is borrowed PDF text bytes; output is detached malloc-owned UTF-8. */
+    quantapdf_status (*decode_pdf_text)(const unsigned char *data, size_t size,
+        char **out_utf8, size_t *out_size);
 } quantapdf_backend_ops;
 
 /* Explicit built-in PDFium/qpdf composition; no mutable provider registry. */

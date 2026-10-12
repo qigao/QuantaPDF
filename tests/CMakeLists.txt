@@ -8,7 +8,7 @@ add_test(NAME quantapdf.graph COMMAND quantapdf_test_graph)
 set_tests_properties(quantapdf.graph PROPERTIES TIMEOUT 30)
 
 add_executable(quantapdf_test_graph_edit test_graph_edit.c
-  ../src/graph/graph.c ../src/graph/identity.c ../src/validation/graph_validation.c)
+  ../src/graph/graph.c ../src/graph/graph_query.c ../src/graph/identity.c ../src/validation/graph_validation.c)
 target_include_directories(quantapdf_test_graph_edit PRIVATE
   "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
 target_compile_features(quantapdf_test_graph_edit PRIVATE c_std_11)
@@ -50,6 +50,14 @@ target_compile_definitions(quantapdf_test_graph_write PRIVATE
 target_compile_features(quantapdf_test_graph_write PRIVATE cxx_std_20)
 add_test(NAME quantapdf.graph_write COMMAND quantapdf_test_graph_write)
 set_tests_properties(quantapdf.graph_write PROPERTIES TIMEOUT 30)
+
+add_executable(quantapdf_test_pdf_text test_pdf_text.cpp)
+target_include_directories(quantapdf_test_pdf_text PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_pdf_text PRIVATE quantapdf_backend qpdf::libqpdf)
+target_compile_features(quantapdf_test_pdf_text PRIVATE cxx_std_20)
+add_test(NAME quantapdf.pdf_text COMMAND quantapdf_test_pdf_text)
+set_tests_properties(quantapdf.pdf_text PROPERTIES TIMEOUT 30)
 
 # Compile the identity contract without any backend or SDK library dependency.
 add_executable(quantapdf_test_identity

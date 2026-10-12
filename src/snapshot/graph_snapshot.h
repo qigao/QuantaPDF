@@ -32,6 +32,12 @@ void quantapdf_graph_snapshot_drop(quantapdf_graph_snapshot *snapshot);
  * No partial output is published. See graph writer design for admission policy. */
 quantapdf_status quantapdf_graph_snapshot_write(const quantapdf_graph_snapshot *snapshot,
     const quantapdf_graph_write_limits *limits, quantapdf_output **out_output);
+/* Private metadata query on this version. Missing/null fields return NULL/0;
+ * empty strings return owned ""/0. UTF-8 results outlive the snapshot and must
+ * be released with quantapdf_free. Same field/type/decoding semantics as the
+ * public document metadata operation; no XMP merge or date interpretation. */
+quantapdf_status quantapdf_graph_snapshot_metadata(const quantapdf_graph_snapshot *snapshot,
+    quantapdf_metadata_field field, char **out_utf8, size_t *out_size);
 #ifdef __cplusplus
 }
 #endif

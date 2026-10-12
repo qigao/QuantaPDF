@@ -335,6 +335,35 @@ mapping and broader output policies remain future work.
 
 ## Acceptance evidence
 
+### Metadata read consumer
+
+The private graph-snapshot metadata operation selects `/Info` and one field from
+the sealed version through a pure-C query. Its borrowed byte view lives only as
+long as that graph; the operation immediately converts it into independently
+owned, NUL-terminated UTF-8 using the context's backend text decoder. Missing or
+explicit-null entries return NULL/zero; an empty string returns allocated
+empty/zero. Wrong Info/value types return FORMAT, unknown fields ARGUMENT, and
+an unsealed graph STATE. Querying never mutates or retains a graph, and failure
+resets the output. Calls remain synchronous and externally serialized.
+
+The existing public document metadata implementation uses the same canonical
+field mapping and decoder. QPDF remains responsible for PDFDocEncoding and UTF-16
+conversion, including its established malformed-text behavior; a second Unicode
+converter would risk changing that behavior. The graph query knows only graph
+types and copied bytes. XMP precedence and date parsing are intentionally outside
+the existing Info-field contract. Decoded output uses the existing malloc/free
+ownership contract, so neither parser nor snapshot/context needs to remain live.
+
+This is a read consumer for immutable graph versions, not a switch of public
+document storage authority. Public metadata calls still read the source provider
+without importing unrelated streams or applying new whole-document budgets.
+All eight fields, missing/empty/error cases, committed versions, binary text and
+detached lifetimes are compared against the existing public metadata operation.
+Subsequent feature migration can consume the graph query without reintroducing
+field maps or text converters. No public declaration, export or dependency changes.
+
+### Remaining acceptance scope
+
 Use backend-free tests for identity bounds, runtime scope exhaustion, deleted-ID
 non-reuse, deterministic local ordering, graph ownership, capacity accounting,
 publication failure and retained-version behavior. Backend integration tests must
