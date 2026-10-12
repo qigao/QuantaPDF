@@ -212,6 +212,28 @@ void test_nested_restore()
     compare(content,points,sizeof(points)/sizeof(points[0]),3u);
 }
 
+
+/* Real PDF with two nonoverlapping clips: the nested intersection is empty.
+ * Neither the red full-page fill nor an earlier clip may leak through.
+ * Popping the inner state restores the outer clip for blue; popping that
+ * state restores the unclipped page for green. */
+void test_disjoint_clip_restoration()
+{
+    const char *content =
+        "q 10 10 60 60 re W n "
+        "q 90 90 20 20 re W n "
+        "1 0 0 rg 0 0 120 120 re f "
+        "Q 0 0 1 rg 20 20 40 40 re f "
+        "Q 0 1 0 rg 100 100 15 15 re f";
+    const probe points[]={
+        {30,30,0,0,255}, {55,55,0,0,255},
+        {100,100,0,255,0}, {110,110,0,255,0},
+        {80,80,255,255,255}, {5,5,255,255,255},
+        {15,65,255,255,255}, {95,95,255,255,255}
+    };
+    compare(content,points,sizeof(points)/sizeof(points[0]),3u);
+}
+
 void test_evenodd_restore()
 {
     /* W* hole under inner scope, then a blue paint restored to outer W.
@@ -528,6 +550,7 @@ void test_unsupported_operator_fails_closed()
 int main()
 {
     test_nested_restore();
+    test_disjoint_clip_restoration();
     test_evenodd_restore();
     test_clip_definition_ctm();
     test_page_geometry_matrix();
