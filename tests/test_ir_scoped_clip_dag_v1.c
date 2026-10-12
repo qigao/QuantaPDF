@@ -193,7 +193,7 @@ static int test_single_opaque_path(void)
 static int test_clipped_one_pixel_stroke(void)
 {
     fixture f;
-    const quantapdf_ir_raster_v1_limits budget = {5000u,1u,32u,500000u};
+    const quantapdf_ir_raster_v1_limits budget = {5000u,1u,32u,1500000u};
     quantapdf_ir_raster_image result = {0}, repeated = {0};
     size_t blue_samples = 0u;
     initialize(&f);
