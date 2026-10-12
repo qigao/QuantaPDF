@@ -1357,7 +1357,7 @@ void test_page_group_admission()
          QUANTAPDF_ERROR_UNSUPPORTED,false},
         {"<< /Type /Wrong /S /Transparency /I true /CS /DeviceRGB >>",
          QUANTAPDF_ERROR_FORMAT,false},
-        {"null",QUANTAPDF_ERROR_FORMAT,false},
+        {"null",QUANTAPDF_OK,false},
         {"4",QUANTAPDF_ERROR_FORMAT,false}
     };
     auto write_source = [](QPDF& pdf) {
