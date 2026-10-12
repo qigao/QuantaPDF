@@ -48,3 +48,9 @@ target_sources(quantapdf PRIVATE
 target_sources(quantapdf PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_clip_dag_v3.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_clip_dag_v3.h")
+
+
+# Scoped native operation rendering with reusable bounded nested Clip DAGs.
+target_sources(quantapdf PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/ir_scoped_operations_v1.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ir_scoped_operations_v1.h")
