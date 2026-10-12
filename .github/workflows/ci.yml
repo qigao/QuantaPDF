@@ -140,6 +140,23 @@ jobs:
       - name: Product conformance (Linux ASan/UBSan)
         run: ctest --preset linux-dev-user -L conformance --output-on-failure
 
+      - name: Qualify external PDF corpus admission (Linux)
+        shell: bash
+        run: |
+          python3 -m unittest discover -s tests -p test_external_pdf_corpus.py
+          python3 tools/qualification/external_pdf_corpus.py \
+            --manifest tests/external_source_corpus/manifest.json \
+            --assets tests/external_source_corpus/documents \
+            --report "${{ runner.temp }}/external-pdf-corpus.json"
+
+      - name: Upload external PDF corpus admission (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-corpus-admission-linux
+          path: ${{ runner.temp }}/external-pdf-corpus.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload source-PDF corpus reports (Linux)
         uses: actions/upload-artifact@v4
         with:
@@ -243,6 +260,23 @@ jobs:
 
       - name: Install SDK
         run: cmake --build --preset "install-$CMAKE_PRESET" --parallel 2
+
+      - name: Qualify external PDF corpus admission (macOS)
+        shell: bash
+        run: |
+          python3 -m unittest discover -s tests -p test_external_pdf_corpus.py
+          python3 tools/qualification/external_pdf_corpus.py \
+            --manifest tests/external_source_corpus/manifest.json \
+            --assets tests/external_source_corpus/documents \
+            --report "${{ runner.temp }}/external-pdf-corpus.json"
+
+      - name: Upload external PDF corpus admission (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-corpus-admission-macos
+          path: ${{ runner.temp }}/external-pdf-corpus.json
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Upload source-PDF corpus report (macOS)
         uses: actions/upload-artifact@v4
@@ -377,6 +411,20 @@ jobs:
           if not exist "%RUNNER_TEMP%\installed-composer-smoke-cff.pdf" exit /b 1
           "%RUNNER_TEMP%\quantapdf-installed-consumer.exe" "tests\fixtures\fonts\SourceSans3VF-Upright.otf" "%RUNNER_TEMP%\installed-composer-smoke-cff2.pdf"
           if not exist "%RUNNER_TEMP%\installed-composer-smoke-cff2.pdf" exit /b 1
+
+      - name: Qualify external PDF corpus admission (Windows)
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p test_external_pdf_corpus.py
+          python tools/qualification/external_pdf_corpus.py --manifest tests/external_source_corpus/manifest.json --assets tests/external_source_corpus/documents --report "$env:RUNNER_TEMP/external-pdf-corpus.json"
+
+      - name: Upload external PDF corpus admission (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-corpus-admission-windows
+          path: ${{ runner.temp }}/external-pdf-corpus.json
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Upload source-PDF corpus report (Windows)
         uses: actions/upload-artifact@v4
