@@ -229,3 +229,33 @@ one independently rendered blank page, and **zero** external native painted
 Path/Clip matches. This reconciled evidence is the denominator and baseline
 for #254; it does not replace future true painted Path/Clip acceptance and
 original-source PDFium pixel parity.
+
+## Selected page transparency Group admission (#258)
+
+The restricted native source-PDF lowering explicitly checks the selected
+leaf /Page's /Group property before parsing content or publishing Composer
+IR. An absent group is accepted. A present dictionary must specify
+/S /Transparency, /I true, /CS /DeviceRGB; /K false and /Type /Group
+are optional. This narrowly bounded, isolated non-knockout DeviceRGB
+configuration is permitted only with the C11 raster's existing opaque
+Normal-alpha/resource preflight, not a general transparency compositor.
+
+Different group subtypes, non-isolated /I false, knockout /K true, non-RGB
+spaces, omitted required fields and unrecognized group keys return
+UNSUPPORTED. Invalid value types return FORMAT. Both reject before any
+detached Composer IR is published, with no PDFium production fallback.
+/Group is a leaf page property, not an inheritable /Pages attribute; an
+unsupported sibling group does not contaminate the selected page.
+
+The existing original black.pdf remains qualified only for the exact
+isolated DeviceRGB opaque scenario, using independent original-source
+PDFium whole-page pixel comparison. The separate
+quantapdf.native_page_group_admission CTest generates real positive and
+negative PDF fixtures, verifies direct/indirect group resources,
+deterministic native repeat output, successful pixel oracle, fail-closed
+empty IR and page isolation. They do not add to the 14/36 generated
+corpus baseline or the independently sourced external PDF ledger.
+
+General transparent compositing, knockout, non-isolated, soft-mask,
+backdrop and arbitrary color-space semantics remain unimplemented.
+The installed public SDK remains PDFium-backed.
