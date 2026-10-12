@@ -29,6 +29,19 @@ quantapdf_status quantapdf_pdf_path_lower_to_composer(
     const quantapdf_pdf_path_lower_limits *limits,
     quantapdf_ir *out_ir);
 
+
+/* Private source-page mapping version. The page_transform is a row-vector
+ * affine matrix applied AFTER the PDF content's own graphics CTM. This
+ * preserves nonzero source origins, crop translation, right-angle rotation,
+ * and /UserUnit scaling for values that Composer can represent. It does not
+ * change the existing strict numeric/clip admission or input ownership. */
+quantapdf_status quantapdf_pdf_path_lower_to_composer_mapped(
+    const quantapdf_pdf_page_semantics *page,
+    double canvas_width, double canvas_height,
+    const double page_transform[6],
+    const quantapdf_pdf_path_lower_limits *limits,
+    quantapdf_ir *out_ir);
+
 #ifdef __cplusplus
 }
 #endif

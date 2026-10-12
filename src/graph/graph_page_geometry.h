@@ -33,6 +33,27 @@ quantapdf_status quantapdf_graph_canonical_page_dimensions(
     const quantapdf_graph_page_geometry *geometry,
     double *out_width, double *out_height);
 
+
+/* Source default user space -> visible unrotated Composer PDF canvas.
+ * The original /CropBox (when present) defines the visible region; a page
+ * /Rotate applies clockwise viewing rotation, and /UserUnit scales points.
+ * The row-vector matrix maps [x y 1] to output PDF user coordinates.
+ * Unlike canonical_page_dimensions this supports translated, cropped,
+ * right-angle-rotated, nonunit page geometry. Non-cropped MediaBox pixels
+ * are not transferred. A CropBox extending beyond MediaBox is UNSUPPORTED
+ * until its intersection semantics are independently qualified.
+ * No PDF parser or rendering provider is called. */
+typedef struct quantapdf_graph_page_display {
+    double width_points, height_points;
+    double from_source[6]; /* [a b c d e f] row-vector affine */
+} quantapdf_graph_page_display;
+
+/* Malformed values: ARGUMENT. Valid but unrepresentable/overflow dimensions
+ * or CropBox beyond MediaBox: UNSUPPORTED. Always clear the output first. */
+quantapdf_status quantapdf_graph_page_display_map(
+    const quantapdf_graph_page_geometry *geometry,
+    quantapdf_graph_page_display *out_display);
+
 #ifdef __cplusplus
 }
 #endif

@@ -87,10 +87,23 @@ static quantapdf_status transform(const double pdf[6], float height,
 
 static quantapdf_status paint_options(
     const quantapdf_pdf_path_record *path, float height,
+    const double page_transform[6],
     quantapdf_composer_path_options *options)
 {
     quantapdf_pdf_content_opcode opcode = path->paint_opcode;
     quantapdf_status status;
+    double mapped[6];
+    const double *source = path->graphics.ctm;
+    const double *page = page_transform;
+    /* Row-vector composition: final path = operand * content_CTM * page_map.
+     * The page rotation/scale is applied after graphics operators, including
+     * CTM translations, and not to the source path operands twice. */
+    mapped[0] = source[0] * page[0] + source[1] * page[2];
+    mapped[1] = source[0] * page[1] + source[1] * page[3];
+    mapped[2] = source[2] * page[0] + source[3] * page[2];
+    mapped[3] = source[2] * page[1] + source[3] * page[3];
+    mapped[4] = source[4] * page[0] + source[5] * page[2] + page[4];
+    mapped[5] = source[4] * page[1] + source[5] * page[3] + page[5];
     memset(options, 0, sizeof(*options));
     options->struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     options->fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -115,7 +128,7 @@ static quantapdf_status paint_options(
         opcode == QUANTAPDF_PDF_OP_FILL_STROKE_EVEN_ODD ||
         opcode == QUANTAPDF_PDF_OP_CLOSE_FILL_STROKE_EVEN_ODD)
         options->fill_rule = QUANTAPDF_COMPOSER_FILL_EVEN_ODD;
-    status = transform(path->graphics.ctm, height, &options->transform);
+    status = transform(mapped, height, &options->transform);
     if (status != QUANTAPDF_OK) return status;
     if (options->stroke) {
         double width = path->graphics.line_width;
@@ -268,9 +281,10 @@ static quantapdf_status commands_from_path(
     return count == expected ? QUANTAPDF_OK : QUANTAPDF_ERROR_BACKEND;
 }
 
-quantapdf_status quantapdf_pdf_path_lower_to_composer(
+quantapdf_status quantapdf_pdf_path_lower_to_composer_mapped(
     const quantapdf_pdf_page_semantics *page,
     double canvas_width, double canvas_height,
+    const double page_transform[6],
     const quantapdf_pdf_path_lower_limits *limits, quantapdf_ir *out_ir)
 {
     quantapdf_ir temporary = {0};
@@ -280,11 +294,13 @@ quantapdf_status quantapdf_pdf_path_lower_to_composer(
     size_t command_total = 0;
     if (out_ir != NULL) memset(out_ir, 0, sizeof(*out_ir));
     if (out_ir == NULL || page == NULL || page->content == NULL ||
-        page->graphics == NULL || limits == NULL ||
+        page->graphics == NULL || page_transform == NULL || limits == NULL ||
         limits->max_painted_paths == 0 || limits->max_path_commands == 0 ||
         !isfinite(canvas_width) || !isfinite(canvas_height) ||
         canvas_width <= 0.0 || canvas_height <= 0.0)
         return QUANTAPDF_ERROR_ARGUMENT;
+    for (size_t component = 0; component < 6; ++component)
+        if (!isfinite(page_transform[component])) return QUANTAPDF_ERROR_ARGUMENT;
     if (!decimal4(canvas_width, (double)(float)canvas_width) ||
         !decimal4(canvas_height, (double)(float)canvas_height))
         return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -323,7 +339,8 @@ quantapdf_status quantapdf_pdf_path_lower_to_composer(
         op->kind = QUANTAPDF_COMPOSER_OPERATION_PATH;
         op->page_index = 0;
         op->bounds = (quantapdf_rect){0, 0, (float)canvas_width, (float)canvas_height};
-        status = paint_options(path, (float)canvas_height, &op->value.path.options);
+        status = paint_options(path, (float)canvas_height,
+            page_transform, &op->value.path.options);
         if (status != QUANTAPDF_OK) goto fail;
         op->value.path.commands = (quantapdf_composer_path_command *)calloc(
             commands, sizeof(*op->value.path.commands));
@@ -340,4 +357,15 @@ quantapdf_status quantapdf_pdf_path_lower_to_composer(
 fail:
     quantapdf_ir_dispose(&temporary);
     return status;
+}
+
+
+quantapdf_status quantapdf_pdf_path_lower_to_composer(
+    const quantapdf_pdf_page_semantics *page,
+    double canvas_width, double canvas_height,
+    const quantapdf_pdf_path_lower_limits *limits, quantapdf_ir *out_ir)
+{
+    static const double identity[6] = {1.0, 0.0, 0.0, 1.0, 0.0, 0.0};
+    return quantapdf_pdf_path_lower_to_composer_mapped(page,
+        canvas_width, canvas_height, identity, limits, out_ir);
 }

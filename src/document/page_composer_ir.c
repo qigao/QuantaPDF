@@ -17,7 +17,7 @@ quantapdf_status quantapdf_graph_snapshot_page_composer_ir(
     quantapdf_graph_page_geometry geometry;
     quantapdf_pdf_page_semantics *semantics = NULL;
     quantapdf_status status;
-    double width = 0.0, height = 0.0;
+    quantapdf_graph_page_display display = {0};
 
     if (out_ir != NULL) memset(out_ir, 0, sizeof(*out_ir));
     if (out_ir == NULL || snapshot == NULL || decode_limits == NULL ||
@@ -28,14 +28,15 @@ quantapdf_status quantapdf_graph_snapshot_page_composer_ir(
     status = quantapdf_graph_query_page_geometry(snapshot->graph,
         page_index, max_parent_steps, &geometry);
     if (status != QUANTAPDF_OK) return status;
-    status = quantapdf_graph_canonical_page_dimensions(&geometry, &width, &height);
+    status = quantapdf_graph_page_display_map(&geometry, &display);
     if (status != QUANTAPDF_OK) return status;
 
     status = quantapdf_graph_snapshot_page_semantics(snapshot, page_index,
         decode_limits, content_limits, max_streams, &semantics);
     if (status != QUANTAPDF_OK) return status;
-    status = quantapdf_pdf_path_lower_to_composer(semantics,
-        width, height, lower_limits, out_ir);
+    status = quantapdf_pdf_path_lower_to_composer_mapped(semantics,
+        display.width_points, display.height_points, display.from_source,
+        lower_limits, out_ir);
     quantapdf_pdf_page_semantics_dispose(semantics);
     return status;
 }
