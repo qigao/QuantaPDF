@@ -128,6 +128,16 @@ quantapdf_status quantapdf_pdf_graphics_evaluate_resolved(
         if (is_terminator(op->opcode)) {
             quantapdf_pdf_path_record *record;
             if (!in_path) { status = QUANTAPDF_ERROR_FORMAT; goto fail; }
+            /* Source-PDF compatibility: PDFium leaves the current clipping
+             * region unchanged for W/W* on a path with no constructors.
+             * Consume the empty W n pair without publishing a Clip node. */
+            if (pending_clip && path_begin == clip_operator) {
+                if (op->opcode != QUANTAPDF_PDF_OP_END_PATH) {
+                    status = QUANTAPDF_ERROR_UNSUPPORTED; goto fail;
+                }
+                in_path = pending_clip = 0;
+                continue;
+            }
             status = grow((void **)&ir->paths, &path_capacity, ir->path_count,
                 limits->max_operators, sizeof(*ir->paths));
             if (status != QUANTAPDF_OK) goto fail;
