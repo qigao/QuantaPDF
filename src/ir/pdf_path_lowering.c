@@ -355,7 +355,7 @@ static quantapdf_status lower_commands(
         return QUANTAPDF_ERROR_FORMAT;
     if (clip != NULL) {
         if (clip->clip_operator >= content->count ||
-            clip->clip_operator <= path->path_first_operator ||
+            clip->clip_operator < path->path_first_operator ||
             clip->clip_operator >= path->terminal_operator ||
             clip->clip_operator + 1 != path->terminal_operator)
             return QUANTAPDF_ERROR_FORMAT;
@@ -365,6 +365,24 @@ static quantapdf_status lower_commands(
             geometry.paint_opcode != QUANTAPDF_PDF_OP_CLIP_EVEN_ODD)
             return QUANTAPDF_ERROR_FORMAT;
     } else if (for_clip) return QUANTAPDF_ERROR_ARGUMENT;
+    /* A source 'W n' / 'W* n' with no path constructors defines an empty
+     * clipping region. Represent its zero-area geometry with an explicitly
+     * degenerate closed rectangle: bounded, provider-neutral and never a
+     * visible paint operation. Keep the original source PDF for the oracle. */
+    if (clip != NULL && for_clip &&
+        clip->clip_operator == path->path_first_operator) {
+        if (available < 5u) return QUANTAPDF_ERROR_UNSUPPORTED;
+        commands = (quantapdf_composer_path_command *)calloc(5u, sizeof(*commands));
+        if (commands == NULL) return QUANTAPDF_ERROR_NOMEM;
+        commands[0].kind = QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+        commands[1].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
+        commands[2].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
+        commands[3].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
+        commands[4].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
+        *out_commands = commands;
+        *out_count = 5u;
+        return QUANTAPDF_OK;
+    }
     status = count_commands(content, &geometry, available, &base_count);
     if (status != QUANTAPDF_OK) return status;
     if (clip != NULL && !for_clip && closing_paint(path->paint_opcode) &&
