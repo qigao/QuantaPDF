@@ -191,6 +191,37 @@ static int test_rejection_and_atomicity(void)
           QUANTAPDF_ERROR_UNSUPPORTED);
     f.inner[1] = 2u;
 
+    /* Invalid child, duplicate child and out-of-budget DAG shape must
+     * reject before publishing any pixels; restore the same fixture each
+     * time so the other regression cases remain independent. */
+    f.inner[0] = 0u;
+    image.pixels = (unsigned char *)(uintptr_t)1u;
+    image.size = SIZE_MAX;
+    CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&image) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(image.pixels == NULL && image.size == 0u);
+    f.inner[0] = 1u;
+
+    f.inner[1] = 1u; /* duplicate intersection member */
+    image.pixels = (unsigned char *)(uintptr_t)1u;
+    image.size = SIZE_MAX;
+    CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&image) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(image.pixels == NULL && image.size == 0u);
+    f.inner[1] = 2u;
+
+    f.inner[1] = 6u; /* child ID exceeds registered resource count */
+    CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&image) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(image.pixels == NULL && image.size == 0u);
+    f.inner[1] = 2u;
+
+    budget.max_pixels = 63u; /* 8x8 page exceeds budget */
+    CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&image) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(image.pixels == NULL && image.size == 0u);
+    budget.max_pixels = 64u;
+
     f.states[1].clip_id = 6u; /* bad state -> Clip reference */
     CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&image) ==
           QUANTAPDF_ERROR_UNSUPPORTED);
