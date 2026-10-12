@@ -1,4 +1,5 @@
 #include "validation/validation.h"
+#include "graph/identity.h"
 #include "qpdf_document.h"
 #include "qpdf_edit.h"
 #include "jpeg_encoder.h"
@@ -21,7 +22,6 @@
 #include <array>
 #include <climits>
 #include <algorithm>
-#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -47,24 +47,21 @@ struct quantapdf_qpdf_document {
 struct quantapdf_qpdf_edit_annotation_entry {
     QPDFObjectHandle object = QPDFObjectHandle::newNull();
     int page_index = -1;
-    uint32_t tag = 0;
     bool live = false;
 };
 
 struct quantapdf_qpdf_edit_form_entry {
     QPDFObjectHandle object = QPDFObjectHandle::newNull();
-    uint32_t tag = 0;
 };
 
 struct quantapdf_qpdf_edit {
     std::shared_ptr<QPDF> pdf;
     std::vector<unsigned char> source_bytes;
-    uint64_t cookie = 0;
+    uint64_t annotation_scope = 0;
+    uint64_t form_scope = 0;
     std::vector<quantapdf_qpdf_edit_annotation_entry> annotations;
     std::vector<quantapdf_qpdf_edit_form_entry> forms;
 };
-
-static std::atomic<uint64_t> quantapdf_qpdf_edit_cookie{1u};
 
 static std::shared_ptr<QPDF> quantapdf_qpdf_fresh_document(
     quantapdf_qpdf_document const& document,
@@ -6317,27 +6314,16 @@ static quantapdf_status quantapdf_qpdf_edit_scan_annotations(
     return QUANTAPDF_OK;
 }
 
-static uint32_t quantapdf_qpdf_edit_tag(uint64_t cookie, size_t slot) noexcept
-{
-    uint64_t value = cookie ^ (static_cast<uint64_t>(slot) + 1u);
-    value ^= value >> 30;
-    value *= UINT64_C(0xbf58476d1ce4e5b9);
-    value ^= value >> 27;
-    value *= UINT64_C(0x94d049bb133111eb);
-    value ^= value >> 31;
-    uint32_t const tag = static_cast<uint32_t>(value ^ (value >> 32));
-    return tag == 0u ? 1u : tag;
-}
-
-static void quantapdf_qpdf_edit_make_annotation_ref(
+static quantapdf_status quantapdf_qpdf_edit_make_annotation_ref(
     quantapdf_qpdf_edit const& edit,
     size_t slot,
     quantapdf_annotation_ref *out_ref) noexcept
 {
-    auto const& entry = edit.annotations[slot];
-    out_ref->opaque[0] = edit.cookie;
-    out_ref->opaque[1] =
-        (static_cast<uint64_t>(entry.tag) << 32) | (slot + 1u);
+    quantapdf_local_id id = 0;
+    quantapdf_status status = quantapdf_local_id_from_index(slot, &id);
+    if (status != QUANTAPDF_OK)
+        return status;
+    return quantapdf_reference_make(edit.annotation_scope, id, out_ref->opaque);
 }
 
 static quantapdf_status quantapdf_qpdf_edit_resolve_annotation(
@@ -6345,16 +6331,13 @@ static quantapdf_status quantapdf_qpdf_edit_resolve_annotation(
     quantapdf_annotation_ref const *ref,
     quantapdf_qpdf_edit_annotation_entry **out_entry)
 {
-    if (edit == nullptr || ref == nullptr || ref->opaque[0] != edit->cookie)
+    if (edit == nullptr || ref == nullptr)
         return QUANTAPDF_ERROR_ARGUMENT;
-    uint32_t const slot_plus_one = static_cast<uint32_t>(ref->opaque[1]);
-    uint32_t const tag = static_cast<uint32_t>(ref->opaque[1] >> 32);
-    if (slot_plus_one == 0u || tag == 0u)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    size_t const slot = static_cast<size_t>(slot_plus_one - 1u);
-    if (slot >= edit->annotations.size() ||
-        edit->annotations[slot].tag != tag)
-        return QUANTAPDF_ERROR_ARGUMENT;
+    size_t slot = SIZE_MAX;
+    quantapdf_status status = quantapdf_reference_resolve(
+        edit->annotation_scope, edit->annotations.size(), ref->opaque, &slot);
+    if (status != QUANTAPDF_OK)
+        return status;
     if (!edit->annotations[slot].live)
         return QUANTAPDF_ERROR_STATE;
     *out_entry = &edit->annotations[slot];
@@ -6381,11 +6364,11 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_begin(
             edit->source_bytes.size(), source->password);
         if (quantapdf_qpdf_rewrite_forbidden(*edit->pdf))
             return QUANTAPDF_ERROR_UNSUPPORTED;
-        uint64_t const sequence = quantapdf_qpdf_edit_cookie.fetch_add(1u);
-        edit->cookie = sequence ^
-            static_cast<uint64_t>(reinterpret_cast<uintptr_t>(edit.get()));
-        if (edit->cookie == 0u)
-            edit->cookie = UINT64_C(0x9e3779b97f4a7c15);
+        quantapdf_status status = quantapdf_reference_scope_create(&edit->annotation_scope);
+        if (status == QUANTAPDF_OK)
+            status = quantapdf_reference_scope_create(&edit->form_scope);
+        if (status != QUANTAPDF_OK)
+            return status;
         *out_edit = edit.release();
         return QUANTAPDF_OK;
     } catch (QPDFExc const& error) {
@@ -6526,17 +6509,16 @@ static quantapdf_status quantapdf_qpdf_edit_collect_live_form_fields(
     return QUANTAPDF_OK;
 }
 
-static constexpr uint64_t quantapdf_qpdf_form_ref_domain =
-    UINT64_C(0x464f524d5f524546);
-
-static void quantapdf_qpdf_edit_make_form_ref(
+static quantapdf_status quantapdf_qpdf_edit_make_form_ref(
     quantapdf_qpdf_edit const& edit,
     size_t slot,
     quantapdf_form_field_ref *out_ref) noexcept
 {
-    out_ref->opaque[0] = edit.cookie ^ quantapdf_qpdf_form_ref_domain;
-    out_ref->opaque[1] =
-        (static_cast<uint64_t>(edit.forms[slot].tag) << 32) | (slot + 1u);
+    quantapdf_local_id id = 0;
+    quantapdf_status status = quantapdf_local_id_from_index(slot, &id);
+    if (status != QUANTAPDF_OK)
+        return status;
+    return quantapdf_reference_make(edit.form_scope, id, out_ref->opaque);
 }
 
 static quantapdf_status quantapdf_qpdf_edit_resolve_form_ref(
@@ -6544,16 +6526,13 @@ static quantapdf_status quantapdf_qpdf_edit_resolve_form_ref(
     quantapdf_form_field_ref const *ref,
     quantapdf_qpdf_edit_form_entry **out_entry)
 {
-    if (edit == nullptr || ref == nullptr ||
-        ref->opaque[0] != (edit->cookie ^ quantapdf_qpdf_form_ref_domain))
+    if (edit == nullptr || ref == nullptr)
         return QUANTAPDF_ERROR_ARGUMENT;
-    uint32_t const slot_plus_one = static_cast<uint32_t>(ref->opaque[1]);
-    uint32_t const tag = static_cast<uint32_t>(ref->opaque[1] >> 32);
-    if (slot_plus_one == 0u || tag == 0u)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    size_t const slot = static_cast<size_t>(slot_plus_one - 1u);
-    if (slot >= edit->forms.size() || edit->forms[slot].tag != tag)
-        return QUANTAPDF_ERROR_ARGUMENT;
+    size_t slot = SIZE_MAX;
+    quantapdf_status status = quantapdf_reference_resolve(
+        edit->form_scope, edit->forms.size(), ref->opaque, &slot);
+    if (status != QUANTAPDF_OK)
+        return status;
     *out_entry = &edit->forms[slot];
     return QUANTAPDF_OK;
 }
@@ -6759,18 +6738,14 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_form_ref_at(
         QPDFObjectHandle object = fields[field_index].head;
         for (size_t slot = 0; slot < edit->forms.size(); ++slot) {
             if (quantapdf_qpdf_same_object(edit->forms[slot].object, object)) {
-                quantapdf_qpdf_edit_make_form_ref(*edit, slot, out_ref);
-                return QUANTAPDF_OK;
+                return quantapdf_qpdf_edit_make_form_ref(*edit, slot, out_ref);
             }
         }
         if (edit->forms.size() >= UINT32_MAX - 1u)
             return QUANTAPDF_ERROR_NOMEM;
         size_t const slot = edit->forms.size();
-        edit->forms.push_back(
-            {object, quantapdf_qpdf_edit_tag(edit->cookie ^
-                quantapdf_qpdf_form_ref_domain, slot)});
-        quantapdf_qpdf_edit_make_form_ref(*edit, slot, out_ref);
-        return QUANTAPDF_OK;
+        edit->forms.push_back({object});
+        return quantapdf_qpdf_edit_make_form_ref(*edit, slot, out_ref);
     } catch (QPDFExc const& error) {
         return quantapdf_status_from_qpdf(error);
     } catch (std::bad_alloc const&) {
@@ -7080,17 +7055,15 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_annotation_ref_at(
         for (size_t slot = 0; slot < edit->annotations.size(); ++slot) {
             auto const& entry = edit->annotations[slot];
             if (entry.live && quantapdf_qpdf_same_object(entry.object, object)) {
-                quantapdf_qpdf_edit_make_annotation_ref(*edit, slot, out_ref);
-                return QUANTAPDF_OK;
+                return quantapdf_qpdf_edit_make_annotation_ref(*edit, slot, out_ref);
             }
         }
         if (!object.isIndirect() || edit->annotations.size() >= UINT32_MAX - 1u)
             return QUANTAPDF_ERROR_NOMEM;
         size_t const slot = edit->annotations.size();
         edit->annotations.push_back({
-            object, page_index, quantapdf_qpdf_edit_tag(edit->cookie, slot), true});
-        quantapdf_qpdf_edit_make_annotation_ref(*edit, slot, out_ref);
-        return QUANTAPDF_OK;
+            object, page_index, true});
+        return quantapdf_qpdf_edit_make_annotation_ref(*edit, slot, out_ref);
     } catch (QPDFExc const& error) {
         return quantapdf_status_from_qpdf(error);
     } catch (std::bad_alloc const&) {
@@ -7228,7 +7201,14 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_annotation_create(
         auto const& pages = edit->pdf->getAllPages();
         if (static_cast<size_t>(page_index) >= pages.size())
             return QUANTAPDF_ERROR_ARGUMENT;
-        quantapdf_status status;
+        size_t const slot = edit->annotations.size();
+        if (slot >= UINT32_MAX - 1u)
+            return QUANTAPDF_ERROR_NOMEM;
+        quantapdf_annotation_ref reference{};
+        quantapdf_status status = quantapdf_qpdf_edit_make_annotation_ref(
+            *edit, slot, &reference);
+        if (status != QUANTAPDF_OK)
+            return status;
         QPDFObjectHandle object = edit->pdf->makeIndirectObject(
             QPDFObjectHandle::newDictionary());
         object.replaceKey("/Type", QPDFObjectHandle::newName("/Annot"));
@@ -7259,10 +7239,9 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_annotation_create(
             annots.eraseItem(annots.getArrayNItems() - 1);
             return QUANTAPDF_ERROR_BACKEND;
         }
-        size_t const slot = edit->annotations.size();
         edit->annotations.push_back({
-            object, page_index, quantapdf_qpdf_edit_tag(edit->cookie, slot), true});
-        quantapdf_qpdf_edit_make_annotation_ref(*edit, slot, out_ref);
+            object, page_index, true});
+        *out_ref = reference;
         return QUANTAPDF_OK;
     } catch (QPDFExc const& error) {
         return quantapdf_status_from_qpdf(error);

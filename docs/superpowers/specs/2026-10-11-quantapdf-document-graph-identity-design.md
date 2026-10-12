@@ -194,6 +194,43 @@ Reverting an individual step restores its previous private path; outputs already
 published retain their established PDF semantics. Future persisted graph IDs or
 incremental PDF writing require a separate versioned design and migration plan.
 
+## First implementation: runtime references
+
+The first #156 increment puts append-only local IDs, checked scope sequencing and
+reference encoding/resolution in `src/graph/identity.h` and `identity.c`. It does
+not yet implement graph nodes, graph versions or origin-qualified graph IDs.
+The local ID is a nonzero 32-bit ordinal; zero denotes absence. Checked index
+conversion accepts the last representable ordinal without wrapping.
+
+Each editor obtains two distinct scopes from one non-recycling sequence, one for
+annotations and one for forms. Scope creation is externally serialized under
+the existing process-wide ABI v2 call contract; the C module does not introduce
+a concurrent API. A scope is unique within the loaded runtime instance and is
+not portable across runtime copies, processes or unload/reload. Exhausting the
+64-bit sequence leaves it exhausted and returns NOMEM. Failed construction may
+consume scopes; it never returns them for reuse.
+
+Public references retain two opaque 64-bit words. The first is the scope and the
+second contains a local ID and a derived check tag. Preserve the existing tag
+mixing rule, but derive it in the common resolver instead of storing duplicate
+tags in provider tables. No provider address contributes to identity. The public
+opaque representation is not a persistence format or an authenticity guarantee.
+
+The QPDF adapter still maps append-only slots to handles and checks annotation
+tombstones after scope/tag/range admission. Existing discovery capacity limits
+remain unchanged; annotation creation now checks the same ID limit and prepares
+its reference before PDF mutation. Local IDs are independent of scope creation;
+PDF output never contains runtime scopes or tags. This separation is ready for
+the graph importer and transaction lineage integration described above, which
+remain outstanding requirements of #156.
+
+The module allocates nothing and owns no payload. It is compiled into the
+existing private archive, preserving static SDK link closure. Tests compile the
+same C source without provider libraries, exercise sequence/ID exhaustion and
+reference failures, and use public edit APIs to verify lifetime, domain,
+tombstone and output behavior. Reverting this increment restores private
+reference bookkeeping with no persisted-data or public ABI migration.
+
 ## Acceptance evidence
 
 Use backend-free tests for identity bounds, runtime scope exhaustion, deleted-ID
