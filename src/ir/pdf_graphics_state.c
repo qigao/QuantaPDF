@@ -119,7 +119,8 @@ quantapdf_status quantapdf_pdf_graphics_evaluate_resolved(
         }
         if (op->opcode == QUANTAPDF_PDF_OP_CLIP ||
             op->opcode == QUANTAPDF_PDF_OP_CLIP_EVEN_ODD) {
-            if (!in_path || pending_clip) { status = QUANTAPDF_ERROR_FORMAT; goto fail; }
+            if (pending_clip) { status = QUANTAPDF_ERROR_FORMAT; goto fail; }
+            if (!in_path) { in_path = 1; path_begin = i; }
             pending_clip = op->opcode == QUANTAPDF_PDF_OP_CLIP ? 1 : 2;
             clip_operator = i;
             continue;
