@@ -1,3 +1,21 @@
+# Private PDF path->Composer IR gate with real QPDF export/PDFium render.
+add_executable(quantapdf_test_pdf_path_lowering test_pdf_path_lowering.c
+  ../src/ir/pdf_content_ir.c ../src/ir/pdf_graphics_state.c
+  ../src/ir/pdf_path_lowering.c ../src/ir/ir.c
+  ../src/resource/resource_registry.c)
+target_include_directories(quantapdf_test_pdf_path_lowering PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_pdf_path_lowering PRIVATE
+  QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium)
+target_compile_features(quantapdf_test_pdf_path_lowering PRIVATE c_std_11)
+if(UNIX)
+  target_link_libraries(quantapdf_test_pdf_path_lowering PRIVATE m)
+endif()
+target_compile_definitions(quantapdf_test_pdf_path_lowering PRIVATE
+  PATH_LOWER_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/pdf-path-lowered.pdf")
+add_test(NAME quantapdf.pdf_path_lowering COMMAND quantapdf_test_pdf_path_lowering)
+set_tests_properties(quantapdf.pdf_path_lowering PROPERTIES TIMEOUT 30)
+
 # Pure C11 PDF graphics semantics; no provider, PDFium, or QPDF.
 add_executable(quantapdf_test_pdf_graphics_state test_pdf_graphics_state.c
   ../src/ir/pdf_content_ir.c ../src/ir/pdf_graphics_state.c)
