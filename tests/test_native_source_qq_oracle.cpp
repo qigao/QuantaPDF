@@ -173,6 +173,15 @@ void compare(const char *content, const probe *goldens,
         std::fprintf(stderr,
             "source PDF q/Q native/PDFium mismatch mean=%.3f gross=%zu\n",
             mean,gross);
+        for(const auto& p: {probe{5,5,0,0,0}, probe{30,30,0,0,0},
+                            probe{80,80,0,0,0}, probe{105,105,0,0,0}}) {
+            size_t y=PAGE-1u-(size_t)p.y_pdf;
+            const unsigned char *n=native.pixels+y*native.stride+4u*(size_t)p.x;
+            const unsigned char *o=reference.at((size_t)p.x,y);
+            std::fprintf(stderr,"zero-clip probe x=%d y=%d native=%u,%u,%u pdfium=%u,%u,%u\n",
+                p.x,p.y_pdf,on_white(n,0),on_white(n,1),on_white(n,2),
+                (unsigned)o[0],(unsigned)o[1],(unsigned)o[2]);
+        }
         CHECK(false);
     }
     for(size_t i=0u;i<golden_count;++i) {
