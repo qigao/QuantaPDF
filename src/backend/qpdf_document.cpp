@@ -2,9 +2,9 @@
 #include "qpdf_edit.h"
 #include "jpeg_encoder.h"
 #include "secure_random.h"
-#include "../annotation_snapshot.h"
-#include "../form_snapshot.h"
-#include "../outline_snapshot.h"
+#include "snapshot/annotation_snapshot.h"
+#include "snapshot/form_snapshot.h"
+#include "snapshot/outline_snapshot.h"
 
 #include <qpdf/Constants.h>
 #include <qpdf/Pipeline.hh>

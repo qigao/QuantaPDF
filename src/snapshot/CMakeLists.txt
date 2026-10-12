@@ -1,0 +1,16 @@
+target_sources(quantapdf PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/annotation_snapshot.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/form_snapshot.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/image_bitmap.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/image_snapshot.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/images.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/link_snapshot.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/links.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/outline_snapshot.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/pdf_annotations.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/pdf_form.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/pdf_outline.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/search.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/structured_text.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/text.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/text_snapshot.h")

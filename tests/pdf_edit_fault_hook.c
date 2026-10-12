@@ -1,4 +1,4 @@
-#include "../src/pdf_edit_internal.h"
+#include "../src/document/pdf_edit_internal.h"
 #include "pdf_edit_test_api.h"
 
 void quantapdf_test_pdf_edit_set_fault(

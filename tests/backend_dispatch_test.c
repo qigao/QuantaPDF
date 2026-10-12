@@ -1,4 +1,5 @@
-#include "internal.h"
+#include "document/document_internal.h"
+#include "snapshot/text_snapshot.h"
 
 #include <stdio.h>
 #include <stdlib.h>

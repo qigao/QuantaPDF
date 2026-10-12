@@ -1,4 +1,4 @@
-#include "../src/internal.h"
+#include "../src/document/document_internal.h"
 #include "pdf_poster_test_api.h"
 
 _Static_assert(

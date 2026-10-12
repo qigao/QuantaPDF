@@ -1,6 +1,6 @@
 #include "qpdf_composer.h"
 
-#include "../internal.h"
+#include "composer/composer_internal.h"
 #include "composer_text_layout.h"
 #include "ttf_font.h"
 

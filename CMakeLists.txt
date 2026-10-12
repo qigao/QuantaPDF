@@ -36,17 +36,8 @@ if(NOT EXISTS "${QUANTAPDF_LIBJPEG_TURBO_COPYRIGHT}")
     "${QUANTAPDF_LIBJPEG_TURBO_COPYRIGHT}")
 endif()
 
-add_library(quantapdf_backend STATIC
-  src/backend/builtin_backend.c
-  src/backend/qpdf_document.cpp
-  src/backend/qpdf_composer.cpp
-  src/backend/composer_text_layout.cpp
-  src/backend/ttf_font.cpp
-  src/backend/secure_random.cpp
-  src/backend/jpeg_validator.c
-  src/backend/jpeg_encoder.cpp
-  src/backend/pdfium_document.cpp
-  src/backend/pdfium_runtime.cpp)
+add_library(quantapdf_backend STATIC)
+add_subdirectory(src/backend)
 target_compile_features(quantapdf_backend PRIVATE c_std_11 cxx_std_20)
 target_include_directories(quantapdf_backend PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/include"
@@ -66,50 +57,19 @@ set_target_properties(quantapdf_backend PROPERTIES
   EXPORT_NAME _backend
   POSITION_INDEPENDENT_CODE ON)
 
-add_library(quantapdf
-  src/status.c
-  src/context.c
-  src/composer.c
-  src/composer_font.c
-  src/composer_navigation.c
-  src/svg.cpp
-  src/barcode.c
-  src/input_file.c
-  src/document.c
-  src/page.c
-  src/render.c
-  src/text.c
-  src/structured_text.c
-  src/search.c
-  src/images.c
-  src/image_bitmap.c
-  src/links.c
-  src/pdf_crop.c
-  src/pdf_trim.c
-  src/pdf_poster.c
-  src/pdf_image_recompression.c
-  src/pdf_rewrite.c
-  src/pdf_export.c
-  src/pdf_range.c
-  src/pdf_merge.c
-  src/output_file.c
-  src/pdf_metadata.c
-  src/pdf_outline.c
-  src/pdf_annotations.c
-  src/pdf_form.c
-  src/pdf_edit.c
-  src/pdf_edit_forms.c
-  src/pdf_edit_annotations.c
-  src/pdf_flatten.c
-  src/pdf_security.c
-  src/pdf_security_rewrite.c)
+add_library(quantapdf)
+add_subdirectory(src/core)
+add_subdirectory(src/document)
+add_subdirectory(src/snapshot)
+add_subdirectory(src/composer)
 add_library(QuantaPDF::QuantaPDF ALIAS quantapdf)
 target_compile_features(quantapdf
   PUBLIC c_std_11
   PRIVATE cxx_std_20)
 target_include_directories(quantapdf PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>)
+  $<INSTALL_INTERFACE:include>
+  PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(quantapdf PRIVATE
   quantapdf_backend)
 set_target_properties(quantapdf PROPERTIES
