@@ -123,10 +123,13 @@ def _filter_kind(header):
         (b"/FlateDecode",): "flate",
         (b"/ASCII85Decode",): "ascii85",
         (b"/ASCII85Decode", b"/FlateDecode"): "ascii85_flate",
+        (b"/ASCIIHexDecode",): "asciihex",
+        (b"/ASCIIHexDecode", b"/FlateDecode"): "asciihex_flate",
     }
     # Filter arrays execute in the declared order. DecodeParms arrays need
     # positional semantics we do not implement; never guess them.
-    if b"/ASCII85Decode" in names and b"/DecodeParms" in header:
+    if (any(name in names for name in (b"/ASCII85Decode", b"/ASCIIHexDecode"))
+            and b"/DecodeParms" in header):
         return "unsupported_filter"
     return allowed.get(names, "unsupported_filter")
 
@@ -169,6 +172,48 @@ def _ascii85_bounded(payload):
     if len(decoded) > MAX_DECODED_STREAM:
         raise ValueError("decoded ASCII85 stream exceeds screening limit")
     return decoded
+
+
+def _asciihex_bounded(payload):
+    # PDF ASCIIHex streams end in '>'; a final unpaired nibble gets a zero
+    # low nibble. Non-whitespace after the terminator is invalid.
+    if len(payload) > 2 * MAX_DECODED_STREAM + 64:
+        raise ValueError("encoded ASCIIHex stream exceeds screening limit")
+    decoded = bytearray()
+    high = None
+    terminated = False
+    for char in payload:
+        if char in b"\x00\x09\x0a\x0c\x0d\x20":
+            continue
+        if char == 62:  # '>'
+            if terminated:
+                raise ValueError("duplicate ASCIIHex terminator")
+            terminated = True
+            continue
+        if terminated:
+            raise ValueError("trailing ASCIIHex data")
+        if 48 <= char <= 57:
+            digit = char - 48
+        elif 65 <= char <= 70:
+            digit = char - 55
+        elif 97 <= char <= 102:
+            digit = char - 87
+        else:
+            raise ValueError("non-hex ASCIIHex byte")
+        if high is None:
+            high = digit
+        else:
+            decoded.append((high << 4) | digit)
+            high = None
+            if len(decoded) > MAX_DECODED_STREAM:
+                raise ValueError("decoded ASCIIHex stream exceeds screening limit")
+    if not terminated:
+        raise ValueError("missing ASCIIHex terminator")
+    if high is not None:
+        decoded.append(high << 4)
+    if len(decoded) > MAX_DECODED_STREAM:
+        raise ValueError("decoded ASCIIHex stream exceeds screening limit")
+    return bytes(decoded)
 
 
 def screen_pdf_bytes(blob):
@@ -217,13 +262,19 @@ def screen_pdf_bytes(blob):
                 decoded = _ascii85_bounded(payload)
             elif kind == "ascii85_flate":
                 decoded = _inflate_bounded(_ascii85_bounded(payload))
+            elif kind == "asciihex":
+                decoded = _asciihex_bounded(payload)
+            elif kind == "asciihex_flate":
+                decoded = _inflate_bounded(_asciihex_bounded(payload))
             else:
                 decoded = payload
         except (ValueError, OverflowError, zlib.error):
             stream_issues.append(
                 "ascii85_decode_failed_or_over_budget"
                 if kind.startswith("ascii85")
-                else "flate_decode_failed_or_over_budget"
+                else ("asciihex_decode_failed_or_over_budget"
+                      if kind.startswith("asciihex")
+                      else "flate_decode_failed_or_over_budget")
             )
             continue
         if len(decoded) > MAX_DECODED_STREAM:

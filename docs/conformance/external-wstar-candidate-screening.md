@@ -83,7 +83,8 @@ python3 tools/qualification/screen_external_wstar.py \
 ```
 
 The scanner records an original-byte SHA-256, examines raw, Flate-decoded,
-and strictly bounded ASCII85/Flate-decoded streams using per-object direct /Length and precise endstream
+strictly bounded ASCII85, ASCIIHex, and ordered ASCII85/ASCIIHex-to-Flate
+streams using per-object direct /Length and precise endstream
 boundaries (at most 128 PDFs, 16 MiB per source, 64 streams per source and
 1 MiB decoded per stream), and distinguishes `W*` from
 `W` and `f*`. It flags later Text/XObject/Image/marked-content
@@ -94,10 +95,13 @@ preflight. It never edits, generates, fetches, or installs a candidate.
 compressed object streams, indirect /Length, non-identity PNG/TIFF
 /DecodeParms predictors, unresolved DecodeParms references, inherited
 resources and unapproved filters/filter orders remain inconclusive.
-The only additional decoded filters are a single PDF ASCII85 stream and
-an ASCII85Decode -> FlateDecode pair in that order, without DecodeParms;
-malformed terminators, decode expansion over budget and filter-parameter
-ambiguity remain inconclusive. No source PDF is rewritten. Missing or mismatched stream
+The narrowly accepted additional filters are a single PDF ASCII85Decode
+or ASCIIHexDecode stream, plus either ASCII85Decode -> FlateDecode or
+ASCIIHexDecode -> FlateDecode in that order, without DecodeParms. PDF
+ASCIIHex requires the '>' terminator, enforces valid hex digits, permits
+PDF whitespace and pads a final unpaired nibble with zero. Invalid hex,
+malformed terminators, reversed/unknown filter orders, decode expansion
+over budget and ambiguous filter parameters remain inconclusive. No source PDF is rewritten. Missing or mismatched stream
 boundaries now fail closed; inner /DecodeParms dictionaries do not hide
 outer /Filter /FlateDecode. Embedded literal 'endstream' does not
 truncate a source stream. This is still **not** complete object/page
@@ -106,7 +110,7 @@ result is **not** a native-support claim: verify the complete selected
 page, source/license, immutable revision, independent PDFium pixels and
 cross-platform CI separately. The JSON explicitly fixes the W* native
 positive count to zero and marks license/page attribution unreviewed.
-29 synthetic + 3 pinned original-PDF scanner regression cases run as part of the existing
+37 synthetic + 3 pinned original-PDF scanner regression cases run as part of the existing
 Linux, macOS and Windows workflows; no new CI workflow is introduced.
 
 The exact, previously reviewed unchanged PDFium `clip_path.pdf` and

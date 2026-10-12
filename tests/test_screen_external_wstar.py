@@ -11,7 +11,9 @@ import unittest
 import zlib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "qualification"))
-from screen_external_wstar import screen_pdf_bytes, screen_pdf_file, main
+from screen_external_wstar import (
+    screen_pdf_bytes, screen_pdf_file, main, _asciihex_bounded
+)
 
 REAL_SOURCES = Path(__file__).resolve().parent / "external_source_corpus" / "documents"
 NONZERO = REAL_SOURCES / "pdfium.clip-path-v1.pdf"
@@ -19,15 +21,19 @@ WSTAR_TEXT = REAL_SOURCES / "pdfium.bug-1574-wstar-text-v1.pdf"
 
 
 def pdf(content, compress=False, filter_token=b"/FlateDecode", ascii85=False,
-        ascii85_pad=False):
+        ascii85_pad=False, asciihex=False):
     body = zlib.compress(content) if compress else content
+    if ascii85 and asciihex:
+        raise ValueError("choose exactly one ASCII armoring")
     if ascii85:
         body = base64.a85encode(body, adobe=True)[2:]
+    if asciihex:
+        body = body.hex().encode("ascii") + b">"
     if ascii85_pad:
         if not ascii85:
             raise ValueError("ASCII85 padding requires ASCII85")
         body += b" \r\n"
-    filt = b"/Filter " + filter_token + b" " if compress or ascii85 else b""
+    filt = b"/Filter " + filter_token + b" " if compress or ascii85 or asciihex else b""
     return (b"%PDF-1.7\n1 0 obj << /Length " + str(len(body)).encode("ascii") +
             b" " + filt + b">>\nstream\n" + body + b"\nendstream\n"
             b"endobj\ntrailer << /Size 2 >>\n%%EOF\n")
@@ -237,6 +243,89 @@ class ExternalWStarScreening(unittest.TestCase):
                          b" >>\nstream",
                          b" /DecodeParms [null << /Predictor 1 >>] >>\nstream", 1)
         report = screen_pdf_bytes(source)
+        self.assertEqual(report["status"], "inconclusive")
+        self.assertIn("unsupported_stream_filter", report["stream_issues"])
+
+    def test_asciihex_single_original_stream_is_screening_only(self):
+        original = pdf(
+            b"q 0 0 10 10 re W* n 1 0 0 rg 0 0 11 11 re f Q",
+            filter_token=b"/ASCIIHexDecode", asciihex=True)
+        digest = hashlib.sha256(original).hexdigest()
+        report = screen_pdf_bytes(original)
+        self.assertEqual(report["status"], "candidate_requires_full_page_preflight")
+        self.assertEqual(report["decoded_stream_count"], 1)
+        self.assertEqual(report["operator_counts"]["wstar"], 1)
+        self.assertEqual(report["native_wstar_clip_supported_count"], 0)
+        self.assertEqual(report["native_pixel_conformance"], "not_run")
+        self.assertEqual(hashlib.sha256(original).hexdigest(), digest)
+
+    def test_asciihex_flate_chain_decodes_in_declared_order(self):
+        original = pdf(
+            b"q 0 0 10 10 re W* n 0 0 11 11 re f Q",
+            compress=True, asciihex=True,
+            filter_token=b"[/ASCIIHexDecode /FlateDecode]")
+        report = screen_pdf_bytes(original)
+        self.assertEqual(report["status"], "candidate_requires_full_page_preflight")
+        self.assertEqual(report["operator_counts"]["wstar"], 1)
+        self.assertEqual(report["decoded_stream_count"], 1)
+        self.assertEqual(report["native_wstar_clip_supported_count"], 0)
+
+    def test_asciihex_mixed_case_whitespace_and_odd_nibble(self):
+        self.assertEqual(_asciihex_bounded(b"57 2a\r\n 6e > \t"), b"W*n")
+        self.assertEqual(_asciihex_bounded(b"F>"), b"\xf0")
+        self.assertEqual(_asciihex_bounded(b"aB C>"), b"\xab\xc0")
+
+    def test_asciihex_invalid_character_fails_closed(self):
+        original = pdf(
+            b"q 0 0 10 10 re W* n 0 0 11 11 re f",
+            filter_token=b"/ASCIIHexDecode", asciihex=True)
+        mutated = bytearray(original)
+        start = mutated.index(b"stream\n") + len(b"stream\n")
+        mutated[start] = ord("Z")
+        report = screen_pdf_bytes(bytes(mutated))
+        self.assertEqual(report["status"], "inconclusive")
+        self.assertIn("asciihex_decode_failed_or_over_budget", report["stream_issues"])
+        self.assertEqual(report["native_wstar_clip_supported_count"], 0)
+
+    def test_asciihex_missing_terminator_fails_closed(self):
+        original = pdf(
+            b"q 0 0 10 10 re W* n 0 0 11 11 re f",
+            filter_token=b"/ASCIIHexDecode", asciihex=True)
+        mutated = original.replace(b">\nendstream", b"!\nendstream", 1)
+        self.assertNotEqual(mutated, original)
+        report = screen_pdf_bytes(mutated)
+        self.assertEqual(report["status"], "inconclusive")
+        self.assertIn("asciihex_decode_failed_or_over_budget", report["stream_issues"])
+
+    def test_asciihex_flate_invalid_inner_payload_fails_closed(self):
+        original = pdf(
+            b"q 0 0 10 10 re W* n 0 0 11 11 re f",
+            asciihex=True,
+            filter_token=b"[/ASCIIHexDecode /FlateDecode]")
+        report = screen_pdf_bytes(original)
+        self.assertEqual(report["status"], "inconclusive")
+        self.assertIn("asciihex_decode_failed_or_over_budget", report["stream_issues"])
+        self.assertEqual(report["operator_counts"]["wstar"], 0)
+
+    def test_asciihex_reversed_filter_order_stays_inconclusive(self):
+        original = pdf(
+            b"q 0 0 10 10 re W* n 0 0 11 11 re f",
+            compress=True, asciihex=True,
+            filter_token=b"[/FlateDecode /ASCIIHexDecode]")
+        report = screen_pdf_bytes(original)
+        self.assertEqual(report["status"], "inconclusive")
+        self.assertIn("unsupported_stream_filter", report["stream_issues"])
+
+    def test_asciihex_decodeparms_array_stays_inconclusive(self):
+        original = pdf(
+            b"q 0 0 10 10 re W* n 0 0 11 11 re f",
+            compress=True, asciihex=True,
+            filter_token=b"[/ASCIIHexDecode /FlateDecode]")
+        amended = original.replace(
+            b" >>\nstream",
+            b" /DecodeParms [null << /Predictor 1 >>] >>\nstream", 1)
+        self.assertNotEqual(amended, original)
+        report = screen_pdf_bytes(amended)
         self.assertEqual(report["status"], "inconclusive")
         self.assertIn("unsupported_stream_filter", report["stream_issues"])
 
