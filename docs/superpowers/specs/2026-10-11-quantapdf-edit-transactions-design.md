@@ -67,9 +67,10 @@ A candidate version must pass structural validation before publication; failed
 validation/allocation leaves the preceding version authoritative. The document
 graph can contain PDF cycles while the version/dependency history remains acyclic.
 
-The current `quantapdf_graph_model` has sealed local IDs but no origin/version
-mapping, and current QP IR represents composer input rather than arbitrary PDF
-content. Therefore this change does not fabricate mappings, retain QPDF handles
+The `quantapdf_graph_model` has sealed local IDs; graph owners now attach runtime
+origin/version identity as described below. Current QP IR represents composer
+input rather than arbitrary PDF content. Therefore this change does not
+fabricate graph-to-IR mappings, retain QPDF handles
 in a pure-C graph, or force all edit inputs through graph-capture limits. Graph
 identity work (#156), semantic graph editing (#146), arbitrary content IR (#145)
 and ownership budgets (#157) must supply those contracts before migration.
@@ -77,6 +78,65 @@ Provider undo records are temporary implementation details, not serializable
 change sets or a second authoritative model. Annotation deletion and snapshot
 serialization retain their existing implementation; their broader failure
 coverage remains part of #153/#152.
+
+## Immutable graph commits
+
+The next private graph increment implements whole-node replacement and append
+as an atomic batch against an exact sealed base version. A change set borrows
+input descriptors for one serialized call. Replacement IDs must be strictly
+increasing and name existing nodes; additions receive consecutive local IDs
+after the base nodes. Edges may refer to base nodes or any addition in that batch,
+including forward references and cycles. The caller supplies replacement values,
+never provider handles. Optional root/page replacement is explicit. Removing an
+edge does not reclaim or recycle its target node; graph GC and public editor
+tombstones are separate policies.
+
+Each root graph owns a runtime lineage token and a small shared lineage owner.
+That owner issues checked, non-reused version numbers to all branches. A node's
+identity is `(lineage, creation-version, local-ID)`. Replacing its value preserves
+identity. New nodes in sibling branches can occupy the same local slot but have
+different creation versions. A compact ordered range table records inherited
+creation versions; current additions share the candidate's version. All tokens
+are ephemeral within one runtime instance and absent from the deterministic
+node/edge/byte model. Cross-process persistence and mixing independent runtime
+copies are unsupported.
+
+Commit verifies the change set's lineage/version before allocating a candidate.
+It copies nodes, edges, bytes and page indexes into a new bounded builder, copies
+the inherited identity ranges, then validates and seals the candidate before
+publishing it. Caller data, the base graph and its parser may be released after
+success. Failure destroys the candidate, clears the output and leaves the base
+usable; a reserved version number may be consumed but is never recycled. Stale
+base selection returns STATE, invalid descriptors return ARGUMENT, budget limits
+return UNSUPPORTED, and allocation failure returns NOMEM. Final structural
+validation returns BACKEND and its deterministic report, as for graph finish.
+Commit additionally verifies that the supplied page index exactly matches the
+ordered leaves of the catalog's `/Pages` tree. Wrong tree types, direct tree
+nodes, repeated nodes and cycles fail before publication. Generic object cycles
+remain legal. `/Parent`, `/Count`, geometry and broader PDF semantics are not
+validated by this increment.
+
+Only the lineage owner is shared, with externally serialized checked retain and
+release. Versions do not retain parent payloads or a history chain. Each graph's
+storage budget conservatively charges the shared lineage owner as well as its
+private owner, provenance ranges and node/edge/byte capacities. Thus summing
+per-version storage may count lineage metadata more than once; it is not process
+RSS or a bound on allocator metadata, caller input, the live base, or providers.
+The complete base and candidate coexist during commit. No pooling, concurrency,
+or reduction in allocation cost is claimed. Copying is bounded by node/edge/byte
+limits. Page-tree validation also applies `max_depth`, counting both the root
+and leaf on the active path. Its transient scratch is `node_count` bytes plus
+`min(node_count, max_depth) * sizeof(quantapdf_validation_page_frame)` bytes,
+allocated with checked sizes and freed before return. This bounded transient
+cost is separate from persistent `storage_bytes` and its storage budget.
+
+The private graph-snapshot facade is the first production consumer: a committed
+snapshot retains the source snapshot's context and owns the new sealed graph.
+Tests must use real imported PDF metadata as well as provider-free synthetic
+models, drop the source snapshot/document/context, and inspect the surviving
+committed graph. This still does not switch public metadata/form/annotation
+authority. Graph-to-PDF writing and equivalent feature behavior remain required
+before that switch, as do graph-to-IR mappings for #145/#156.
 
 ## Alternatives, migration and verification
 

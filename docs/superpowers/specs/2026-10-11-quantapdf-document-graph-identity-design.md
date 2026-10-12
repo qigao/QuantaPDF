@@ -3,8 +3,10 @@
 Architecture decision for [#146](https://github.com/qigao/QuantaPDF/issues/146),
 [#156](https://github.com/qigao/QuantaPDF/issues/156) and
 [#153](https://github.com/qigao/QuantaPDF/issues/153), following the validation
-foundation in #186. This document specifies the next migration; it does not
-claim that a document graph, graph importer or graph transaction is implemented.
+foundation in #186. The findings below describe that baseline. Runtime
+references, bounded graph import and private immutable graph commits are now
+implemented in the sections below. Feature-authority migration, graph writing
+and graph-to-IR conversion remain outstanding.
 
 ## Evidence and problem
 
@@ -235,7 +237,8 @@ reference bookkeeping with no persisted-data or public ABI migration.
 
 The first graph implementation adds a pure-C, uniquely owned model and builder.
 Its flat node/edge/byte storage owns all copied values. Local IDs use the #156
-ordinal, scoped to this model; cross-version origins remain a transaction task.
+ordinal; graph owners now attach runtime lineage/version identity independently
+of this deterministic model. The private commit protocol is described below.
 An internal document graph snapshot wraps the sealed model in the #148 snapshot
 owner, retaining its context until all graph storage is disposed. Capturing is
 explicit and demand-driven through the private backend dispatch table. Existing
@@ -292,8 +295,39 @@ Validation checks storage partitions, all references, kinds, scalar and byte
 shapes, dictionary order, roots and page node types with the #149 deterministic
 first-failure report. It does not certify PDF/A/UA or interpret content streams.
 The facade capture and formal parser-independent snapshot tests are the first
-consumers. Migrating existing feature reads, graph transactions and QP IR
-lowering remain separate steps; their requirements are not closed by capture.
+consumers. Migrating existing feature reads and public editing, graph writing
+and QP IR lowering remain separate steps; their requirements are not closed by
+capture or the private commits below.
+
+## Graph identity across immutable commits
+
+`quantapdf_graph_commit` in `graph_edit.h` copies a sealed base plus a batch of
+whole-node replacements/additions into a separately owned sealed graph. The
+[transaction design](2026-10-11-quantapdf-edit-transactions-design.md#immutable-graph-commits)
+defines admission, root/page selection, failure publication and memory limits.
+The graph-snapshot facade consumes this path and retains the context without
+retaining parent payloads or provider state.
+
+`quantapdf_graph_reference` contains lineage, creation-version and local ordinal.
+A shared lineage owner issues non-recycled version numbers under external
+serialization; ordered origin ranges identify nodes inherited from earlier
+versions. Replacements keep their identities, while sibling additions at equal
+local ordinals have distinct origins. These tokens do not enter the graph model
+or determine traversal order. A reference resolves only where that exact origin
+and ordinal still exist; it neither retains a graph nor authenticates callers.
+There is no graph GC, physical node deletion, branch merge, persistence or public
+editor-reference migration in this increment. Disconnected nodes remain owned.
+
+The copy visits nodes, edges, payload bytes and provenance ranges linearly,
+followed by structural and bounded page-tree/index validation. Reference lookup binary-searches
+the origin ranges. Every range covers at least one inherited node, so provenance
+is bounded by node count; no-op versions do not grow a retained history table.
+Snapshot integration tests import real metadata, commit copied binary values,
+drop the parser/base/context reference and inspect the surviving version. Pure
+tests cover sibling rejection, inherited references, stale batches, cycles,
+root/page changes, mismatched indexes, repeated tree nodes, page-tree depth,
+bounded failure and deterministic model equality. Graph-to-IR
+identity mapping and equivalent PDF output remain unverified future work.
 
 ## Acceptance evidence
 

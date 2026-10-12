@@ -147,4 +147,71 @@ static void test_provider_failure(void)
     quantapdf_drop_context(document.context);
 }
 
-int main(void) { test_capture(); test_document_families(); test_provider_failure(); return EXIT_SUCCESS; }
+static void test_commit_detached_metadata(void)
+{
+    quantapdf_context *context = NULL;
+    quantapdf_document *document = NULL;
+    quantapdf_graph_snapshot *base = NULL, *a = NULL, *b = NULL, *failed;
+    quantapdf_graph_limits budget = limits(), small;
+    quantapdf_graph_change_set changes = {0};
+    quantapdf_graph_replacement replacement = {0};
+    quantapdf_graph_reference title_ref;
+    quantapdf_validation_report report;
+    const quantapdf_graph_model *model;
+    const quantapdf_graph_node *original, *title;
+    quantapdf_local_id title_id, resolved;
+    unsigned char payload[] = {'N', 0, 0xff, 'W'};
+    size_t finalized = 0, references;
+    OK(quantapdf_context_create(&context)); context->test_finalizations = &finalized;
+    OK(quantapdf_open_with_context(context, GRAPH_METADATA_PDF, NULL, &document));
+    OK(quantapdf_document_capture_graph(document, &budget, &base));
+    quantapdf_close(document); quantapdf_drop_context(context);
+    context = base->owner.context;
+    references = context->references;
+    model = quantapdf_graph_view(base->graph);
+    title_id = field(model, field(model, model->trailer, "/Info"), "/Title");
+    original = quantapdf_graph_node_at(model, title_id);
+    CHECK(original->kind == QUANTAPDF_GRAPH_STRING && model->bytes[original->data_offset] == 0xfe);
+    OK(quantapdf_graph_reference_at(base->graph, title_id, &title_ref));
+    changes.lineage = quantapdf_graph_lineage(base->graph);
+    changes.base_version = quantapdf_graph_version(base->graph);
+    replacement.id = title_id;
+    replacement.value.kind = QUANTAPDF_GRAPH_STRING;
+    replacement.value.indirect = original->indirect;
+    replacement.value.data = payload;
+    replacement.value.data_size = sizeof(payload);
+    changes.replacements = &replacement; changes.replacement_count = 1;
+    context->test_fail_allocation = 1;
+    failed = (quantapdf_graph_snapshot *)(uintptr_t)1;
+    CHECK(quantapdf_graph_snapshot_commit(base, &changes, &budget, &failed, &report) == QUANTAPDF_ERROR_NOMEM);
+    CHECK(failed == NULL && context->references == references);
+    small = budget; small.max_nodes = 1;
+    CHECK(quantapdf_graph_snapshot_commit(base, &changes, &small, &failed, &report) == QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(failed == NULL && context->references == references);
+    OK(quantapdf_graph_snapshot_commit(base, &changes, &budget, &a, &report));
+    OK(quantapdf_graph_snapshot_commit(base, &changes, &budget, &b, &report));
+    CHECK(context->references == references + 2);
+    CHECK(quantapdf_graph_version(a->graph) != quantapdf_graph_version(b->graph));
+    equal_models(quantapdf_graph_view(a->graph), quantapdf_graph_view(b->graph));
+    CHECK(model->bytes[original->data_offset] == 0xfe);
+    CHECK(quantapdf_graph_snapshot_commit(a, &changes, &budget, &failed, &report) == QUANTAPDF_ERROR_STATE);
+    CHECK(failed == NULL && context->references == references + 2);
+    payload[0] = 'X';
+    quantapdf_graph_snapshot_drop(base); CHECK(finalized == 0);
+    quantapdf_graph_snapshot_drop(a); CHECK(finalized == 0);
+    OK(quantapdf_graph_resolve(b->graph, &title_ref, &resolved)); CHECK(resolved == title_id);
+    model = quantapdf_graph_view(b->graph);
+    title = quantapdf_graph_node_at(model, title_id);
+    CHECK(title->data_size == sizeof(payload));
+    CHECK(model->bytes[title->data_offset] == 'N' && model->bytes[title->data_offset + 1] == 0);
+    CHECK(model->bytes[title->data_offset + 2] == 0xff);
+    OK(quantapdf_validate_graph(model, &report));
+    quantapdf_graph_snapshot_drop(b); CHECK(finalized == 1);
+}
+
+int main(void)
+{
+    test_capture(); test_document_families(); test_provider_failure();
+    test_commit_detached_metadata();
+    return EXIT_SUCCESS;
+}

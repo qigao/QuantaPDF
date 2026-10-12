@@ -1,7 +1,18 @@
-#include "graph.h"
+#include "graph_edit.h"
 
 #include <stdlib.h>
 #include <string.h>
+
+typedef struct graph_lineage {
+    size_t references;
+    uint64_t token;
+    quantapdf_identity_sequence versions;
+} graph_lineage;
+
+typedef struct graph_origin_range {
+    uint64_t origin;
+    quantapdf_local_id last;
+} graph_origin_range;
 
 struct quantapdf_graph {
     quantapdf_graph_model model;
@@ -12,9 +23,22 @@ struct quantapdf_graph {
     quantapdf_graph_limits limits;
     size_t node_capacity, edge_capacity, byte_capacity, storage;
     size_t value_bytes, stream_bytes, defined_count;
+    graph_lineage *lineage;
+    uint64_t version;
+    graph_origin_range *origins;
+    size_t origin_count, inherited_count;
     quantapdf_local_id active;
     int sealed;
 };
+
+static int valid_limits(const quantapdf_graph_limits *limits)
+{
+    return limits != NULL && limits->max_nodes != 0 && limits->max_nodes <= UINT32_MAX &&
+        limits->max_nodes <= SIZE_MAX / sizeof(quantapdf_graph_node) &&
+        limits->max_edges <= SIZE_MAX / sizeof(quantapdf_graph_edge) &&
+        limits->max_storage_bytes >= sizeof(quantapdf_graph) + sizeof(graph_lineage) &&
+        limits->max_depth != 0;
+}
 
 static quantapdf_status grow(quantapdf_graph *g, void *old_data, size_t *capacity,
     size_t needed, size_t maximum, size_t element, void **out_data)
@@ -75,19 +99,31 @@ quantapdf_status quantapdf_graph_create(
     const quantapdf_graph_limits *limits, quantapdf_graph **out_graph)
 {
     quantapdf_graph *g;
+    quantapdf_status status;
     if (out_graph == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_graph = NULL;
-    if (limits == NULL || limits->max_nodes == 0 || limits->max_nodes > UINT32_MAX ||
-        limits->max_nodes > SIZE_MAX / sizeof(quantapdf_graph_node) ||
-        limits->max_edges > SIZE_MAX / sizeof(quantapdf_graph_edge) ||
-        limits->max_storage_bytes < sizeof(*g) || limits->max_depth == 0)
+    if (!valid_limits(limits))
         return QUANTAPDF_ERROR_ARGUMENT;
     g = (quantapdf_graph *)calloc(1, sizeof(*g));
     if (g == NULL)
         return QUANTAPDF_ERROR_NOMEM;
+    g->lineage = (graph_lineage *)calloc(1, sizeof(*g->lineage));
+    if (g->lineage == NULL) {
+        free(g);
+        return QUANTAPDF_ERROR_NOMEM;
+    }
+    status = quantapdf_reference_scope_create(&g->lineage->token);
+    if (status != QUANTAPDF_OK) {
+        free(g->lineage);
+        free(g);
+        return status;
+    }
+    g->lineage->references = 1;
+    g->lineage->versions.next = 2;
+    g->version = 1;
     g->limits = *limits;
-    g->storage = sizeof(*g);
+    g->storage = sizeof(*g) + sizeof(*g->lineage);
     *out_graph = g;
     return QUANTAPDF_OK;
 }
@@ -99,6 +135,9 @@ void quantapdf_graph_drop(quantapdf_graph *g)
     free(g->nodes);
     free(g->edges);
     free(g->bytes);
+    free(g->origins);
+    if (--g->lineage->references == 0)
+        free(g->lineage);
     free(g);
 }
 
@@ -222,14 +261,15 @@ quantapdf_status quantapdf_graph_end_node(quantapdf_graph *g)
     return QUANTAPDF_OK;
 }
 
-quantapdf_status quantapdf_graph_finish(quantapdf_graph *g,
+static quantapdf_status finish_graph(quantapdf_graph *g,
     quantapdf_local_id trailer, quantapdf_local_id catalog,
-    const quantapdf_local_id *pages, size_t page_count, quantapdf_validation_report *report)
+    const quantapdf_local_id *pages, const quantapdf_graph_edge *page_edges,
+    size_t page_count, quantapdf_validation_report *report)
 {
     quantapdf_status status;
     size_t i, original;
     if (report != NULL) memset(report, 0, sizeof(*report));
-    if (g == NULL || report == NULL || (page_count != 0 && pages == NULL))
+    if (g == NULL || report == NULL || (page_count != 0 && pages == NULL && page_edges == NULL))
         return QUANTAPDF_ERROR_ARGUMENT;
     if (g->sealed || g->active != 0 || g->defined_count != g->model.node_count)
         return QUANTAPDF_ERROR_STATE;
@@ -240,7 +280,7 @@ quantapdf_status quantapdf_graph_finish(quantapdf_graph *g,
     if (status != QUANTAPDF_OK)
         return status;
     for (i = 0; i < page_count; ++i) {
-        quantapdf_graph_edge edge = {pages[i], 0, 0};
+        quantapdf_graph_edge edge = {pages != NULL ? pages[i] : page_edges[i].target, 0, 0};
         g->edges[original + i] = edge;
     }
     g->model.trailer = trailer; g->model.catalog = catalog;
@@ -257,6 +297,13 @@ quantapdf_status quantapdf_graph_finish(quantapdf_graph *g,
     return status;
 }
 
+quantapdf_status quantapdf_graph_finish(quantapdf_graph *g,
+    quantapdf_local_id trailer, quantapdf_local_id catalog,
+    const quantapdf_local_id *pages, size_t page_count, quantapdf_validation_report *report)
+{
+    return finish_graph(g, trailer, catalog, pages, NULL, page_count, report);
+}
+
 const quantapdf_graph_model *quantapdf_graph_view(const quantapdf_graph *g)
 {
     return g != NULL && g->sealed ? &g->model : NULL;
@@ -265,6 +312,235 @@ const quantapdf_graph_model *quantapdf_graph_view(const quantapdf_graph *g)
 size_t quantapdf_graph_storage_bytes(const quantapdf_graph *g)
 {
     return g == NULL ? 0 : g->storage;
+}
+
+uint64_t quantapdf_graph_lineage(const quantapdf_graph *g)
+{
+    return g != NULL && g->sealed ? g->lineage->token : 0;
+}
+
+uint64_t quantapdf_graph_version(const quantapdf_graph *g)
+{
+    return g != NULL && g->sealed ? g->version : 0;
+}
+
+static uint64_t node_origin(const quantapdf_graph *g, quantapdf_local_id id)
+{
+    size_t first = 0, last = g->origin_count;
+    if (id > g->inherited_count)
+        return g->version;
+    while (first < last) {
+        size_t middle = first + (last - first) / 2;
+        if (id > g->origins[middle].last) first = middle + 1;
+        else last = middle;
+    }
+    return g->origins[first].origin;
+}
+
+quantapdf_status quantapdf_graph_reference_at(const quantapdf_graph *g,
+    quantapdf_local_id id, quantapdf_graph_reference *out_reference)
+{
+    if (out_reference == NULL) return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out_reference, 0, sizeof(*out_reference));
+    if (g == NULL) return QUANTAPDF_ERROR_ARGUMENT;
+    if (!g->sealed) return QUANTAPDF_ERROR_STATE;
+    if (id == 0 || id > g->model.node_count) return QUANTAPDF_ERROR_ARGUMENT;
+    out_reference->lineage = g->lineage->token;
+    out_reference->origin = node_origin(g, id);
+    out_reference->id = id;
+    return QUANTAPDF_OK;
+}
+
+quantapdf_status quantapdf_graph_resolve(const quantapdf_graph *g,
+    const quantapdf_graph_reference *reference, quantapdf_local_id *out_id)
+{
+    if (out_id == NULL) return QUANTAPDF_ERROR_ARGUMENT;
+    *out_id = 0;
+    if (g == NULL || reference == NULL) return QUANTAPDF_ERROR_ARGUMENT;
+    if (!g->sealed) return QUANTAPDF_ERROR_STATE;
+    if (reference->lineage != g->lineage->token || reference->id == 0 ||
+        reference->id > g->model.node_count || reference->origin != node_origin(g, reference->id))
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_id = reference->id;
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status create_candidate(const quantapdf_graph *base,
+    const quantapdf_graph_limits *limits, quantapdf_graph **out_graph)
+{
+    quantapdf_graph *g;
+    quantapdf_status status;
+    size_t count, bytes;
+    *out_graph = NULL;
+    if (base->lineage->references == SIZE_MAX) return QUANTAPDF_ERROR_NOMEM;
+    g = (quantapdf_graph *)calloc(1, sizeof(*g));
+    if (g == NULL) return QUANTAPDF_ERROR_NOMEM;
+    status = quantapdf_identity_next(&base->lineage->versions, &g->version);
+    if (status != QUANTAPDF_OK) { free(g); return status; }
+    g->lineage = base->lineage;
+    ++g->lineage->references;
+    g->limits = *limits;
+    g->storage = sizeof(*g) + sizeof(*g->lineage);
+    count = base->origin_count + (base->model.node_count > base->inherited_count ? 1u : 0u);
+    if (count > SIZE_MAX / sizeof(*g->origins)) {
+        quantapdf_graph_drop(g);
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    bytes = count * sizeof(*g->origins);
+    if (bytes > limits->max_storage_bytes - g->storage) {
+        quantapdf_graph_drop(g);
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    if (count != 0) {
+        g->origins = (graph_origin_range *)malloc(bytes);
+        if (g->origins == NULL) { quantapdf_graph_drop(g); return QUANTAPDF_ERROR_NOMEM; }
+        if (base->origin_count != 0)
+            memcpy(g->origins, base->origins, base->origin_count * sizeof(*g->origins));
+        if (count > base->origin_count) {
+            g->origins[count - 1].origin = base->version;
+            g->origins[count - 1].last = (quantapdf_local_id)base->model.node_count;
+        }
+    }
+    g->storage += bytes;
+    g->origin_count = count;
+    g->inherited_count = base->model.node_count;
+    *out_graph = g;
+    return QUANTAPDF_OK;
+}
+
+static int valid_input(const quantapdf_graph_node_input *input)
+{
+    int bytes = input->kind == QUANTAPDF_GRAPH_REAL || input->kind == QUANTAPDF_GRAPH_NAME ||
+        input->kind == QUANTAPDF_GRAPH_STRING || input->kind == QUANTAPDF_GRAPH_STREAM;
+    int container = input->kind == QUANTAPDF_GRAPH_ARRAY || input->kind == QUANTAPDF_GRAPH_DICTIONARY ||
+        input->kind == QUANTAPDF_GRAPH_STREAM;
+    return input->kind >= QUANTAPDF_GRAPH_NULL && input->kind <= QUANTAPDF_GRAPH_STREAM &&
+        (input->indirect == 0 || input->indirect == 1) &&
+        (bytes || input->data_size == 0) && (container || input->edge_count == 0) &&
+        (input->data_size == 0 || input->data != NULL) &&
+        (input->edge_count == 0 || input->edges != NULL) &&
+        input->edge_count <= SIZE_MAX / sizeof(*input->edges);
+}
+
+static quantapdf_status copy_input(quantapdf_graph *g, quantapdf_local_id id,
+    const quantapdf_graph_node_input *input)
+{
+    size_t i;
+    quantapdf_status status = quantapdf_graph_begin_node(g, id, input->kind, input->integer);
+    if (status == QUANTAPDF_OK && input->data_size != 0)
+        status = quantapdf_graph_append_data(g, input->data, input->data_size);
+    for (i = 0; status == QUANTAPDF_OK && i < input->edge_count; ++i)
+        status = quantapdf_graph_append_edge(g, input->edges[i].target,
+            input->edges[i].key, input->edges[i].key_size);
+    return status == QUANTAPDF_OK ? quantapdf_graph_end_node(g) : status;
+}
+
+static quantapdf_status copy_node(quantapdf_graph *g, const quantapdf_graph_model *base,
+    quantapdf_local_id id)
+{
+    const quantapdf_graph_node *node = &base->nodes[id - 1];
+    size_t i;
+    quantapdf_status status = quantapdf_graph_begin_node(g, id, node->kind, node->integer);
+    if (status == QUANTAPDF_OK && node->data_size != 0)
+        status = quantapdf_graph_append_data(g, base->bytes + node->data_offset, node->data_size);
+    for (i = 0; status == QUANTAPDF_OK && i < node->edge_count; ++i) {
+        const quantapdf_graph_edge *edge = &base->edges[node->edge_offset + i];
+        status = quantapdf_graph_append_edge(g, edge->target,
+            edge->key_size != 0 ? base->bytes + edge->key_offset : NULL, edge->key_size);
+    }
+    return status == QUANTAPDF_OK ? quantapdf_graph_end_node(g) : status;
+}
+
+/* Validation owns the page-tree rules; the candidate owns bounded scratch.
+ * Generic graph cycles remain legal. Only the page-tree view is constrained. */
+static quantapdf_status validate_page_index(const quantapdf_graph *g,
+    quantapdf_validation_report *report)
+{
+    const quantapdf_graph_model *model = &g->model;
+    size_t capacity = model->node_count < g->limits.max_depth ? model->node_count : g->limits.max_depth;
+    unsigned char *seen;
+    quantapdf_validation_page_frame *stack;
+    quantapdf_status status;
+    if (capacity > SIZE_MAX / sizeof(*stack)) return QUANTAPDF_ERROR_UNSUPPORTED;
+    seen = (unsigned char *)malloc(model->node_count);
+    if (seen == NULL) return QUANTAPDF_ERROR_NOMEM;
+    stack = (quantapdf_validation_page_frame *)malloc(capacity * sizeof(*stack));
+    if (stack == NULL) { free(seen); return QUANTAPDF_ERROR_NOMEM; }
+    status = quantapdf_validate_graph_pages(model, seen, model->node_count, stack, capacity, report);
+    free(stack); free(seen);
+    return status;
+}
+
+quantapdf_status quantapdf_graph_commit(const quantapdf_graph *base,
+    const quantapdf_graph_change_set *changes, const quantapdf_graph_limits *limits,
+    quantapdf_graph **out_graph, quantapdf_validation_report *report)
+{
+    quantapdf_graph *g = NULL;
+    const quantapdf_graph_model *model;
+    size_t i, replacement, count;
+    quantapdf_status status;
+    if (report != NULL) memset(report, 0, sizeof(*report));
+    if (out_graph == NULL) return QUANTAPDF_ERROR_ARGUMENT;
+    *out_graph = NULL;
+    if (base == NULL || changes == NULL || report == NULL || !valid_limits(limits))
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if (!base->sealed || changes->lineage != base->lineage->token ||
+        changes->base_version != base->version)
+        return QUANTAPDF_ERROR_STATE;
+    model = &base->model;
+    if ((changes->replacement_count != 0 && changes->replacements == NULL) ||
+        changes->replacement_count > model->node_count ||
+        changes->replacement_count > SIZE_MAX / sizeof(*changes->replacements) ||
+        (changes->addition_count != 0 && changes->additions == NULL) ||
+        changes->addition_count > SIZE_MAX / sizeof(*changes->additions) ||
+        (changes->replace_roots != 0 && changes->replace_roots != 1) ||
+        (changes->page_count != 0 && changes->pages == NULL) ||
+        changes->page_count > SIZE_MAX / sizeof(*changes->pages) ||
+        (!changes->replace_roots && (changes->trailer != 0 || changes->catalog != 0 ||
+            changes->pages != NULL || changes->page_count != 0)))
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if (model->node_count > limits->max_nodes ||
+        changes->addition_count > limits->max_nodes - model->node_count)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    count = model->node_count + changes->addition_count;
+    for (i = 0; i < changes->replacement_count; ++i) {
+        if (changes->replacements[i].id == 0 || changes->replacements[i].id > model->node_count ||
+            (i != 0 && changes->replacements[i - 1].id >= changes->replacements[i].id) ||
+            !valid_input(&changes->replacements[i].value))
+            return QUANTAPDF_ERROR_ARGUMENT;
+    }
+    for (i = 0; i < changes->addition_count; ++i)
+        if (!valid_input(&changes->additions[i])) return QUANTAPDF_ERROR_ARGUMENT;
+    status = create_candidate(base, limits, &g);
+    for (i = 0, replacement = 0; status == QUANTAPDF_OK && i < count; ++i) {
+        quantapdf_local_id id;
+        const quantapdf_graph_node_input *input = NULL;
+        if (i >= model->node_count) input = &changes->additions[i - model->node_count];
+        else if (replacement < changes->replacement_count && changes->replacements[replacement].id == i + 1)
+            input = &changes->replacements[replacement++].value;
+        status = quantapdf_graph_reserve_node(g,
+            input != NULL ? input->indirect : model->nodes[i].indirect, &id);
+    }
+    for (i = 0, replacement = 0; status == QUANTAPDF_OK && i < count; ++i) {
+        quantapdf_local_id id = (quantapdf_local_id)(i + 1);
+        if (i >= model->node_count) status = copy_input(g, id, &changes->additions[i - model->node_count]);
+        else if (replacement < changes->replacement_count && changes->replacements[replacement].id == id)
+            status = copy_input(g, id, &changes->replacements[replacement++].value);
+        else status = copy_node(g, model, id);
+    }
+    if (status == QUANTAPDF_OK) {
+        if (changes->replace_roots)
+            status = quantapdf_graph_finish(g, changes->trailer, changes->catalog,
+                changes->pages, changes->page_count, report);
+        else
+            status = finish_graph(g, model->trailer, model->catalog, NULL,
+                model->page_count != 0 ? model->edges + model->page_offset : NULL,
+                model->page_count, report);
+    }
+    if (status == QUANTAPDF_OK) status = validate_page_index(g, report);
+    if (status != QUANTAPDF_OK) { quantapdf_graph_drop(g); return status; }
+    *out_graph = g;
+    return QUANTAPDF_OK;
 }
 
 const quantapdf_graph_node *quantapdf_graph_node_at(const quantapdf_graph_model *model, quantapdf_local_id id)

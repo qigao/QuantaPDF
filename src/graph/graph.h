@@ -52,6 +52,13 @@ typedef struct quantapdf_graph_limits {
 
 typedef struct quantapdf_graph quantapdf_graph;
 
+/* Runtime-only identity. References borrow no storage and confer no liveness
+ * beyond their resolved graph. Origin is the version that created this slot. */
+typedef struct quantapdf_graph_reference {
+    uint64_t lineage, origin;
+    quantapdf_local_id id;
+} quantapdf_graph_reference;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -85,8 +92,22 @@ quantapdf_status quantapdf_graph_finish(
 
 /* NULL until sealed; then borrows the complete model until graph_drop. */
 const quantapdf_graph_model *quantapdf_graph_view(const quantapdf_graph *graph);
-/* Includes graph and allocated capacities, not allocator metadata. */
+/* Includes graph, capacities, origin ranges and the shared lineage owner's full
+ * size (charged conservatively per version), not allocator metadata. */
 size_t quantapdf_graph_storage_bytes(const quantapdf_graph *graph);
+/* Zero until sealed. Tokens are not persisted or part of model equality. */
+uint64_t quantapdf_graph_lineage(const quantapdf_graph *graph);
+uint64_t quantapdf_graph_version(const quantapdf_graph *graph);
+/* References survive value replacement in descendants. Appended sibling nodes
+ * are distinct even at equal local IDs. Unsealed owner: STATE; foreign/missing
+ * reference or invalid argument: ARGUMENT. Outputs reset on failure and must
+ * not alias input references or graph storage. */
+quantapdf_status quantapdf_graph_reference_at(
+    const quantapdf_graph *graph, quantapdf_local_id id,
+    quantapdf_graph_reference *out_reference);
+quantapdf_status quantapdf_graph_resolve(
+    const quantapdf_graph *graph, const quantapdf_graph_reference *reference,
+    quantapdf_local_id *out_id);
 /* Borrowed node/edge lookup in a validated model. Missing ID/key returns NULL.
  * Dictionary keys must be sorted; find uses unsigned-byte binary search. */
 const quantapdf_graph_node *quantapdf_graph_node_at(
