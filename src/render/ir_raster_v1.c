@@ -372,6 +372,59 @@ static int qp_no_resources(const quantapdf_ir *ir)
            ir->link_count == 0u && ir->outline_count == 0u;
 }
 
+/* The V1 stroke sampler models 1px line segments but not arbitrary miter
+ * wedges. Guarantee that every join lies OUTSIDE the only supported
+ * rectangular Clip, at least half_width * miter_limit away. Thus none of
+ * the unimplemented join pixels can appear in the accepted visible area.
+ * A stroke without a Clip or with a complex Clip is not accepted. */
+static int qp_guard_clipped_stroke_geometry(
+    const qp_edge *edges, const qp_raster_draw *stroke,
+    const qp_raster_draw *clip)
+{
+    double minx = 0.0, maxx = 0.0, miny = 0.0, maxy = 0.0;
+    const double join_reach = 5.0; /* width 1 * miter limit 10 / 2 */
+    if (stroke->edge_count != 3u || clip->edge_count != 4u)
+        return 0;
+    for (size_t i = 0u; i < clip->edge_count; ++i) {
+        const qp_edge *edge = &edges[clip->first_edge + i];
+        const qp_point_d points[2] = {edge->from, edge->to};
+        if ((edge->from.x == edge->to.x) ==
+            (edge->from.y == edge->to.y))
+            return 0; /* zero-length or diagonal edge */
+        for (size_t p = 0u; p < 2u; ++p) {
+            const qp_point_d v = points[p];
+            if (i == 0u && p == 0u) {
+                minx = maxx = v.x; miny = maxy = v.y;
+            } else {
+                if (v.x < minx) minx = v.x;
+                if (v.x > maxx) maxx = v.x;
+                if (v.y < miny) miny = v.y;
+                if (v.y > maxy) maxy = v.y;
+            }
+        }
+    }
+    if (!(maxx > minx && maxy > miny))
+        return 0;
+    for (size_t i = 0u; i < clip->edge_count; ++i) {
+        const qp_edge *e = &edges[clip->first_edge + i];
+        /* Every edge must lie on a boundary of one axis-aligned rectangle. */
+        if (!((e->from.x == minx && e->to.x == minx) ||
+              (e->from.x == maxx && e->to.x == maxx) ||
+              (e->from.y == miny && e->to.y == miny) ||
+              (e->from.y == maxy && e->to.y == maxy)))
+            return 0;
+    }
+    for (size_t i = 0u; i < stroke->edge_count; ++i) {
+        const qp_point_d v = edges[stroke->first_edge + i].from;
+        /* Joins in/near the Clip would need miter coverage not modeled by
+         * the segment sampler. Conservatively reject their whole operation. */
+        if (v.x > minx - join_reach && v.x < maxx + join_reach &&
+            v.y > miny - join_reach && v.y < maxy + join_reach)
+            return 0;
+    }
+    return 1;
+}
+
 static quantapdf_status qp_render_v1_impl(
     const quantapdf_ir *ir, size_t page_index,
     const quantapdf_ir_raster_v1_limits *limits,
@@ -493,6 +546,18 @@ static quantapdf_status qp_render_v1_impl(
         }
         total_checks += clip_draws[ci].edge_count *
                         (QP_TOTAL_SAMPLES * pixels_count);
+    }
+
+    /* The admitted one-pixel stroke remains exact only where the only
+     * Clip excludes all closed-triangle joins. No silent stroke fallback. */
+    for (i = 0u; i < draw_count; ++i) {
+        if (draws[i].one_pixel_stroke &&
+            (draw_count != 1u || clip_count != 1u ||
+             !qp_guard_clipped_stroke_geometry(flatten.edges,
+                 &draws[i], &clip_draws[0]))) {
+            status = QUANTAPDF_ERROR_UNSUPPORTED;
+            goto cleanup;
+        }
     }
 
     pixels = (unsigned char *)malloc(pixels_count * 4u);
