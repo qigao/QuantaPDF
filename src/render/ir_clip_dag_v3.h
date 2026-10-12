@@ -10,6 +10,15 @@ extern "C" {
 #define QUANTAPDF_NATIVE_CLIP_DAG_MAX_NODES ((size_t)8u)
 #define QUANTAPDF_NATIVE_CLIP_DAG_MAX_DEPTH ((size_t)4u)
 
+/* Reusable bounded, read-only Clip graph admission for scoped operations.
+ * Resolves an arbitrary Path/Intersection root to unique leaf references.
+ * visited_bits covers validated nodes, allowing callers to require complete
+ * resource ownership across several independent operation scopes. */
+quantapdf_status quantapdf_ir_clip_dag_collect_v3(
+    const quantapdf_ir *ir, quantapdf_composer_clip_id root,
+    const quantapdf_composer_clip_state **
+        leaves, size_t *leaf_count, unsigned *visited_bits);
+
 /* One opaque PATH paint, one Normal/full-alpha Graphics State and a Clip DAG
  * consisting only of Clip Paths and intersections. The root must contain a
  * nested intersection, with 3..8 total nodes, <=4 unique leaves, depth <=4.
