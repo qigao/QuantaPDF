@@ -18,10 +18,15 @@ NONZERO = REAL_SOURCES / "pdfium.clip-path-v1.pdf"
 WSTAR_TEXT = REAL_SOURCES / "pdfium.bug-1574-wstar-text-v1.pdf"
 
 
-def pdf(content, compress=False, filter_token=b"/FlateDecode", ascii85=False):
+def pdf(content, compress=False, filter_token=b"/FlateDecode", ascii85=False,
+        ascii85_pad=False):
     body = zlib.compress(content) if compress else content
     if ascii85:
         body = base64.a85encode(body, adobe=True)[2:]
+    if ascii85_pad:
+        if not ascii85:
+            raise ValueError("ASCII85 padding requires ASCII85")
+        body += b" \\r\\n"
     filt = b"/Filter " + filter_token + b" " if compress or ascii85 else b""
     return (b"%PDF-1.7\n1 0 obj << /Length " + str(len(body)).encode("ascii") +
             b" " + filt + b">>\nstream\n" + body + b"\nendstream\n"
@@ -190,6 +195,14 @@ class ExternalWStarScreening(unittest.TestCase):
         self.assertEqual(report["status"], "candidate_requires_full_page_preflight")
         self.assertEqual(report["operator_counts"]["wstar"], 1)
 
+    def test_ascii85_terminal_whitespace_is_ignored(self):
+        source = pdf(b"q 0 0 10 10 re W* n 0 0 12 12 re f Q",
+                     filter_token=b"/ASCII85Decode", ascii85=True,
+                     ascii85_pad=True)
+        report = screen_pdf_bytes(source)
+        self.assertEqual(report["status"], "candidate_requires_full_page_preflight")
+        self.assertEqual(report["operator_counts"]["wstar"], 1)
+
     def test_ascii85_flate_reversed_filters_stay_inconclusive(self):
         source = pdf(b"q 0 0 10 10 re W* n 0 0 12 12 re f Q",
                      compress=True,
@@ -204,8 +217,8 @@ class ExternalWStarScreening(unittest.TestCase):
                      compress=True,
                      filter_token=b"[/ASCII85Decode /FlateDecode]",
                      ascii85=True).replace(
-                         b" >>\\nstream",
-                         b" /DecodeParms [null << /Predictor 1 >>] >>\\nstream", 1)
+                         b" >>\nstream",
+                         b" /DecodeParms [null << /Predictor 1 >>] >>\nstream", 1)
         report = screen_pdf_bytes(source)
         self.assertEqual(report["status"], "inconclusive")
         self.assertIn("unsupported_stream_filter", report["stream_issues"])

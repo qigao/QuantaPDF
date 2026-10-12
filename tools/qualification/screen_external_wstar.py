@@ -165,7 +165,7 @@ def _ascii85_bounded(payload):
     # Reject oversized decoded intermediates before any Flate pass.
     if len(payload) > 2 * MAX_DECODED_STREAM + 64:
         raise ValueError("encoded ASCII85 stream exceeds screening limit")
-    decoded = base64.a85decode(payload.strip(b" \\t\\r\\n\\v\\f"), adobe=True)
+    decoded = base64.a85decode(payload.strip(b" \t\r\n\v\f"), adobe=True)
     if len(decoded) > MAX_DECODED_STREAM:
         raise ValueError("decoded ASCII85 stream exceeds screening limit")
     return decoded
