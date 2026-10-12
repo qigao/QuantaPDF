@@ -82,7 +82,13 @@ static int qp_curve_flat_enough(
     {
         double v1 = (b.x - a.x) * dy - (b.y - a.y) * dx;
         double v2 = (c.x - a.x) * dy - (c.y - a.y) * dx;
-        return v1 * v1 <= QP_CURVE_TOLERANCE_SQUARED * chord2 &&
+        double along1 = (b.x - a.x) * dx + (b.y - a.y) * dy;
+        double along2 = (c.x - a.x) * dx + (c.y - a.y) * dy;
+        /* A collinear cubic can still reverse or overshoot the chord.
+         * Subdivide those cases instead of silently erasing the extrema. */
+        return along1 >= 0.0 && along1 <= along2 &&
+               along2 <= chord2 &&
+               v1 * v1 <= QP_CURVE_TOLERANCE_SQUARED * chord2 &&
                v2 * v2 <= QP_CURVE_TOLERANCE_SQUARED * chord2;
     }
 }
