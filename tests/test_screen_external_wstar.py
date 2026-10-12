@@ -26,7 +26,7 @@ def pdf(content, compress=False, filter_token=b"/FlateDecode", ascii85=False,
     if ascii85_pad:
         if not ascii85:
             raise ValueError("ASCII85 padding requires ASCII85")
-        body += b" \\r\\n"
+        body += b" \r\n"
     filt = b"/Filter " + filter_token + b" " if compress or ascii85 else b""
     return (b"%PDF-1.7\n1 0 obj << /Length " + str(len(body)).encode("ascii") +
             b" " + filt + b">>\nstream\n" + body + b"\nendstream\n"
