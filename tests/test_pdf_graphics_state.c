@@ -71,7 +71,8 @@ static void test_fail_closed(void)
     fails("0 0 m W 1 1 l n",QUANTAPDF_ERROR_FORMAT);
     fails("0 0 m W W* n",QUANTAPDF_ERROR_FORMAT);
     fails("0 0 m",QUANTAPDF_ERROR_FORMAT);
-    fails("W n",QUANTAPDF_ERROR_FORMAT);
+    /* Empty current-path Clip is well-formed; W must be terminated by n. */
+    fails("W",QUANTAPDF_ERROR_FORMAT);
     fails("1.1 g",QUANTAPDF_ERROR_FORMAT);
     fails("-0.1 0 0 rg",QUANTAPDF_ERROR_FORMAT);
     fails("9999999999999999999999999999999999999999 0 0 9999999999999999999999999999999999999999 0 0 cm "
