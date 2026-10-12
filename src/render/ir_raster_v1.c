@@ -23,6 +23,7 @@ typedef struct qp_raster_draw {
     size_t first_edge, edge_count;
     uint32_t color;
     quantapdf_composer_fill_rule rule;
+    int one_pixel_stroke;
 } qp_raster_draw;
 
 typedef struct qp_flatten {
@@ -197,10 +198,21 @@ static quantapdf_status qp_admit_draw(
     const quantapdf_composer_path_options *opt = &path->options;
     quantapdf_status status;
     size_t first = flat->count;
+    const int stroke = opt->stroke == 1 && opt->fill == 0;
     if (op->graphics_state_id != 0u ||
         opt->struct_size < QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE ||
-        opt->fill != 1 || opt->stroke != 0 ||
-        (opt->fill_argb >> 24u) != 255u ||
+        !(stroke || (opt->fill == 1 && opt->stroke == 0)) ||
+        ((stroke ? opt->stroke_argb : opt->fill_argb) >> 24u) != 255u ||
+        (stroke && (opt->stroke_width != 1.0f ||
+            opt->line_cap != QUANTAPDF_COMPOSER_LINE_CAP_BUTT ||
+            opt->line_join != QUANTAPDF_COMPOSER_LINE_JOIN_MITER ||
+            opt->miter_limit != 10.0f ||
+            path->command_count != 4u ||
+            path->commands == NULL ||
+            path->commands[0].kind != QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
+            path->commands[1].kind != QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+            path->commands[2].kind != QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+            path->commands[3].kind != QUANTAPDF_COMPOSER_PATH_CLOSE)) ||
         (opt->fill_rule != QUANTAPDF_COMPOSER_FILL_NONZERO &&
          opt->fill_rule != QUANTAPDF_COMPOSER_FILL_EVEN_ODD) ||
         (opt->struct_size >= QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE &&
@@ -238,15 +250,26 @@ static quantapdf_status qp_admit_draw(
                 return QUANTAPDF_ERROR_UNSUPPORTED;
         }
     }
+    if (stroke) {
+        /* One-pixel distance-based stroke is only correct under an isometry.
+         * Reject scaling/shearing instead of silently changing stroke width. */
+        const double x2 = flat->a * flat->a + flat->b * flat->b;
+        const double y2 = flat->c * flat->c + flat->d * flat->d;
+        const double cross = flat->a * flat->c + flat->b * flat->d;
+        if (fabs(x2 - 1.0) > 0.000001 ||
+            fabs(y2 - 1.0) > 0.000001 || fabs(cross) > 0.000001)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
     status = qp_flatten_path(flat, path);
     if (status != QUANTAPDF_OK)
         return status;
-    if (flat->count == first)
+    if (flat->count == first || (stroke && flat->count - first != 3u))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     out->first_edge = first;
     out->edge_count = flat->count - first;
-    out->color = opt->fill_argb;
+    out->color = stroke ? opt->stroke_argb : opt->fill_argb;
     out->rule = opt->fill_rule;
+    out->one_pixel_stroke = stroke;
     return QUANTAPDF_OK;
 }
 
@@ -268,6 +291,31 @@ static int qp_inside(
     if (draw->rule == QUANTAPDF_COMPOSER_FILL_EVEN_ODD)
         return (winding % 2) != 0;
     return winding != 0;
+}
+
+/* Bounded one-pixel path stroke. Each antialias sample is covered iff it
+ * lies within half a device-space pixel of one of three closed segments.
+ * Unsupported widths, caps, joins, dashes and non-isometric transforms are
+ * rejected by qp_admit_draw; this cannot silently approximate general strokes. */
+static int qp_stroke_inside(const qp_edge *edges,
+    const qp_raster_draw *draw, double x, double y)
+{
+    for (size_t i = 0u; i < draw->edge_count; ++i) {
+        const qp_edge *edge = &edges[draw->first_edge + i];
+        const double dx = edge->to.x - edge->from.x;
+        const double dy = edge->to.y - edge->from.y;
+        const double squared = dx * dx + dy * dy;
+        const double t = ((x - edge->from.x) * dx +
+                          (y - edge->from.y) * dy) / squared;
+        if (squared <= 0.0 || t < 0.0 || t > 1.0)
+            continue;
+        const double px = edge->from.x + t * dx;
+        const double py = edge->from.y + t * dy;
+        const double ux = x - px, uy = y - py;
+        if (ux * ux + uy * uy <= 0.25)
+            return 1;
+    }
+    return 0;
 }
 
 /* Straight-alpha source-over with coverage n/16 and opaque source color.
@@ -465,7 +513,9 @@ static quantapdf_status qp_render_v1_impl(
                     for (sx = 0u; sx < QP_SAMPLES; ++sx) {
                         double px = (double)x +
                             ((double)sx + 0.5) / (double)QP_SAMPLES;
-                        int visible = qp_inside(flatten.edges, draw, px, py);
+                        int visible = draw->one_pixel_stroke ?
+                            qp_stroke_inside(flatten.edges, draw, px, py) :
+                            qp_inside(flatten.edges, draw, px, py);
                         for (ci = 0u; visible && ci < clip_count; ++ci)
                             visible = qp_inside(
                                 flatten.edges, &clip_draws[ci], px, py);
