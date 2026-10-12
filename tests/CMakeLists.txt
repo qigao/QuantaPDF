@@ -1448,3 +1448,28 @@ add_test(NAME quantapdf.native_ir_clip_rect_v0
   COMMAND quantapdf_test_native_ir_clip_rect_v0)
 set_tests_properties(quantapdf.native_ir_clip_rect_v0 PROPERTIES
   TIMEOUT 30 LABELS "conformance;native-raster")
+
+
+# Flat intersection admission is independently compiled without PDFium/qpdf.
+add_executable(quantapdf_test_native_clip_intersection_v1
+  test_ir_clip_intersection_v1.c
+  "${PROJECT_SOURCE_DIR}/src/render/ir_clip_intersection_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_clip_v0.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c")
+target_include_directories(quantapdf_test_native_clip_intersection_v1 PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_native_clip_intersection_v1 PRIVATE c_std_11)
+if(MSVC)
+  target_compile_options(quantapdf_test_native_clip_intersection_v1 PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_test_native_clip_intersection_v1 PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+if(UNIX)
+  target_link_libraries(quantapdf_test_native_clip_intersection_v1 PRIVATE m)
+endif()
+add_test(NAME quantapdf.native_clip_intersection_v1
+  COMMAND quantapdf_test_native_clip_intersection_v1)
+set_tests_properties(quantapdf.native_clip_intersection_v1 PROPERTIES
+  TIMEOUT 30 LABELS "conformance;native-raster")

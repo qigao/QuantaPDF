@@ -24,3 +24,9 @@ target_sources(quantapdf PRIVATE
 target_sources(quantapdf PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_clip_v0.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_clip_v0.h")
+
+
+# Bounded flat Clip intersection V1: private C11 resource projection only.
+target_sources(quantapdf PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/ir_clip_intersection_v1.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ir_clip_intersection_v1.h")
