@@ -114,6 +114,10 @@ Snapshot/output ownership is explicit:
   call. Every successful `quantapdf_composer_finish()` returns an independent
   `quantapdf_output`; finish does not consume or freeze the composer.
 
+The [context runtime ownership proposal](docs/superpowers/specs/2026-10-11-quantapdf-context-runtime-owner-design.md)
+describes planned additive context APIs, retained runtime lifetimes, and their
+compatibility with these existing handle contracts.
+
 ## ABI-sized structures
 
 The installed header publishes `QUANTAPDF_VERSION_MAJOR`,
