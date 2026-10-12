@@ -11,21 +11,23 @@ import sys
 
 TEXT_ID="tinytoolkit.sample-1-page-v1"
 BLANK_ID="tinytoolkit.sample-blank-letter-v1"
+PATH_ID="pdfium.black-original-v1"
 
-def verify(admission, text, blank):
+def verify(admission, text, blank, path):
     assert admission["schema_version"]==1 and admission["corpus_id"]=="external-source-pdf"
     assert admission["fixture_kind"]=="external"
     assert admission["result"]=="integrity_verified_only"
     docs=admission["documents"]
     assert admission["document_count"]==len(docs)
-    assert len(docs)==2
+    assert len(docs)==3
     indexed={d["id"]:d for d in docs}
-    assert len(indexed)==len(docs) and set(indexed)=={TEXT_ID,BLANK_ID}
+    assert len(indexed)==len(docs) and set(indexed)=={TEXT_ID,BLANK_ID,PATH_ID}
     assert all(d["integrity"]=="verified" and d["native_conformance"]=="not_run" for d in docs)
     assert admission["native_conformance_passed_count"]==0
     assert indexed[TEXT_ID]["expected_native_outcome"]=="unsupported"
     assert indexed[BLANK_ID]["expected_native_outcome"]=="supported-blank-page"
-    for report,id_ in [(text,TEXT_ID),(blank,BLANK_ID)]:
+    assert indexed[PATH_ID]["expected_native_outcome"]=="supported-path-clip"
+    for report,id_ in [(text,TEXT_ID),(blank,BLANK_ID),(path,PATH_ID)]:
         assert report["schema_version"]==1
         assert report["corpus_id"]=="external-source-pdf"
         assert report["fixture_kind"]=="external"
@@ -43,20 +45,32 @@ def verify(admission, text, blank):
     assert blank["native_blank_page_supported_count"]==1
     assert blank["native_path_clip_supported_count"]==0
     assert blank["native_text_supported_count"]==0
+    assert path["pdfium_result"]=="rendered_opaque_black"
+    assert path["page_width"]==612 and path["page_height"]==792
+    assert path["native_painted_path_count"]==1
+    assert path["native_clipped_path_supported_count"]==0
+    assert path["native_path_clip_supported_count"]==1
+    assert path["native_blank_page_supported_count"]==0
+    assert path["native_text_supported_count"]==0
+    assert type(path["mean_rgb_error"]) in (int,float)
+    assert 0<=path["mean_rgb_error"]<=3.0
+    assert type(path["gross_error_pixels"]) is int and path["gross_error_pixels"]==0
+    assert type(path["mismatched_channels"]) is int and path["mismatched_channels"]>=0
     return {
       "schema_version":1,"corpus_id":"external-source-pdf",
-      "result":"passed","admitted_documents":2,
+      "result":"passed","admitted_documents":3,
       "external_text_rejection_passed":1,
       "native_blank_page_supported":1,
-      "native_path_clip_supported":0,
+      "native_path_clip_supported":1,
+      "native_clipped_path_supported":0,
       "native_text_supported":0,
       "generated_source_pdf_fixtures_included":0,
-      "evidence_document_ids":[TEXT_ID,BLANK_ID]
+      "evidence_document_ids":[TEXT_ID,BLANK_ID,PATH_ID]
     }
 
 def main():
     p=argparse.ArgumentParser()
-    for key in ("admission","text","blank","output"):
+    for key in ("admission","text","blank","path","output"):
         p.add_argument("--"+key,required=True,type=Path)
     args=p.parse_args()
     if args.output.is_symlink():
@@ -68,7 +82,7 @@ def main():
     staged.unlink(missing_ok=True)
     try:
         inputs=[json.loads(path.read_text(encoding="utf-8")) for path in
-                (args.admission,args.text,args.blank)]
+                (args.admission,args.text,args.blank,args.path)]
         report=verify(*inputs)
         with staged.open("w",encoding="utf-8",newline="\n") as stream:
             json.dump(report,stream,sort_keys=True,indent=2)
@@ -76,7 +90,7 @@ def main():
         staged.replace(args.output)
     except (AssertionError,KeyError,TypeError,ValueError,OSError) as exc:
         p.error("external corpus evidence mismatch: "+str(exc))
-    print("[external-corpus] reconciled=2 blank_native=1 path_clip_native=0")
+    print("[external-corpus] reconciled=3 blank_native=1 path_native=1 clipped_native=0")
 
 if __name__=="__main__":
     sys.exit(main())
