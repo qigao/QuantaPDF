@@ -27,7 +27,7 @@ struct scene {
     quantapdf_ir ir{};
     quantapdf_composer_page_state page{};
     quantapdf_composer_operation op[2]{};
-    quantapdf_composer_path_command path[2][8]{};
+    quantapdf_composer_path_command path[2][12]{};
 
     scene()
     {
@@ -42,7 +42,7 @@ struct scene {
     void add(size_t index, size_t command_count, uint32_t color,
              quantapdf_composer_fill_rule rule = QUANTAPDF_COMPOSER_FILL_NONZERO)
     {
-        CHECK(index < 2 && command_count <= 8 && command_count != 0);
+        CHECK(index < 2 && command_count <= 12 && command_count != 0);
         op[index].kind = QUANTAPDF_COMPOSER_OPERATION_PATH;
         op[index].page_index = 0;
         op[index].value.path.commands = path[index];
@@ -59,7 +59,7 @@ struct scene {
                  quantapdf_composer_path_command_kind kind,
                  float x, float y)
     {
-        CHECK(index < 2 && n < 8);
+        CHECK(index < 2 && n < 12);
         auto& cmd = path[index][n];
         cmd.kind = kind;
         cmd.point1.x = x;
@@ -209,9 +209,8 @@ void test_evenodd_hole()
     s.command(0, 5, QUANTAPDF_COMPOSER_PATH_MOVE_TO, 20, 20);
     s.command(0, 6, QUANTAPDF_COMPOSER_PATH_LINE_TO, 44, 20);
     s.command(0, 7, QUANTAPDF_COMPOSER_PATH_LINE_TO, 44, 44);
-    /* Expand the path command array for the complete inner rectangle below. */
-    s.op[0].value.path.command_count = 8u;
-    /* A three-edge inner triangle is sufficient to make a deterministic hole. */
+    s.command(0, 8, QUANTAPDF_COMPOSER_PATH_LINE_TO, 20, 44);
+    s.command(0, 9, QUANTAPDF_COMPOSER_PATH_CLOSE, 0, 0);
     const sample samples[] = {
         {8, 8, 0, 128, 0}, {32, 24, 255, 255, 255},
         {50, 50, 0, 128, 0}, {2, 2, 255, 255, 255}
