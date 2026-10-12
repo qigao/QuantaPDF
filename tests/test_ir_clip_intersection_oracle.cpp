@@ -49,8 +49,10 @@ struct scene {
         ir.operation_count = 1u;
         ir.resources.graphics_states = &state;
         ir.resources.graphics_state_count = 1u;
+        ir.resources.graphics_state_capacity = 1u;
         ir.resources.clips = clips;
         ir.resources.clip_count = clip_members + 1u;
+        ir.resources.clip_capacity = clip_members + 1u;
 
         operation.kind = QUANTAPDF_COMPOSER_OPERATION_PATH;
         operation.graphics_state_id = 1u;
