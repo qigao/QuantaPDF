@@ -25,35 +25,13 @@ void quantapdf_ir_dispose(quantapdf_ir *ir)
             free(ir->operations[i].value.glyph_run.unicode_utf8);
         }
     }
-    for (i = 0u; i < ir->image_count; ++i)
-        free(ir->images[i].alpha_data);
-    for (i = 0u; i < ir->image_count; ++i)
-        free(ir->images[i].data);
+    quantapdf_resource_dispose(&ir->resources);
     for (i = 0u; i < ir->link_count; ++i)
         free(ir->links[i].uri_utf8);
     for (i = 0u; i < ir->outline_count; ++i)
         free(ir->outlines[i].title_utf8);
-    for (i = 0u; i < ir->font_count; ++i)
-        free(ir->fonts[i].data);
-    for (i = 0u; i < ir->paint_count; ++i) {
-        free(ir->paints[i].stops);
-        free(ir->paints[i].pdf_data);
-    }
-    for (i = 0u; i < ir->form_count; ++i)
-        free(ir->forms[i].pdf_data);
-    for (i = 0u; i < ir->clip_count; ++i) {
-        free(ir->clips[i].commands);
-        free(ir->clips[i].members);
-    }
-    free(ir->clips);
-    free(ir->forms);
-    free(ir->paints);
-    free(ir->soft_masks);
-    free(ir->graphics_states);
-    free(ir->fonts);
     free(ir->outlines);
     free(ir->links);
-    free(ir->images);
     free(ir->operations);
     free(ir->pages);
     memset(ir, 0, sizeof(*ir));
