@@ -222,8 +222,11 @@ quantapdf_status quantapdf_validate_ir(
         if (r->clips[i].kind == QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL) {
             size_t stack[8] = {0};
             size_t visits = 0u;
-            VALUE(clip_dag_acyclic(r, i + 1u, stack, 0u, &visits),
-                  QUANTAPDF_VALIDATION_CLIP, i);
+            /* A cyclic Clip reference is a reference violation. Preserve
+             * the prior deterministic self-reference report coordinates:
+             * subject=CLIP, index=root slot, detail=root ID. */
+            REF(clip_dag_acyclic(r, i + 1u, stack, 0u, &visits),
+                QUANTAPDF_VALIDATION_CLIP, i, i + 1u);
         }
     }
     for (i = 0; i < r->paint_count; ++i) {
