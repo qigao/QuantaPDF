@@ -595,7 +595,7 @@ void test_zero_segment_clip_native_restore()
  * numeric/box metadata before native pixels or partially owned IR escape. */
 void test_invalid_inherited_geometry()
 {
-    struct bad_case { const char *key; const char *value; };
+    struct bad_case { const char *key; const char *value; bool leaf; };
     const bad_case cases[]={
         {"/MediaBox","[0 0 0 120]"},
         {"/MediaBox","[0 0 120 0]"},
@@ -603,7 +603,13 @@ void test_invalid_inherited_geometry()
         {"/CropBox","[25 25 25 90]"},
         {"/CropBox","[25 25 90 25]"},
         {"/Rotate","45"},
-        {"/Rotate","/Invalid"}
+        {"/Rotate","/Invalid"},
+        {"/CropBox","[-1 0 100 100]"},
+        {"/CropBox","[0 0 121 120]"},
+        {"/CropBox","[130 0 140 120]"},
+        {"/UserUnit","0",true},
+        {"/UserUnit","-1",true},
+        {"/UserUnit","/Invalid",true}
     };
     for(const auto& t:cases) {
         auto pdf=QPDF::create();
@@ -614,7 +620,8 @@ void test_invalid_inherited_geometry()
         root.replaceKey("/Kids",QPDFObjectHandle::newArray({page}));
         root.replaceKey("/Count",QPDFObjectHandle::newInteger(1));
         root.replaceKey("/MediaBox",QPDFObjectHandle::parse("[0 0 120 120]"));
-        root.replaceKey(t.key,QPDFObjectHandle::parse(t.value));
+        if(t.leaf)page.replaceKey(t.key,QPDFObjectHandle::parse(t.value));
+        else root.replaceKey(t.key,QPDFObjectHandle::parse(t.value));
         page.replaceKey("/Parent",root);
         page.replaceKey("/Contents",pdf->newStream(
             "q 10 10 60 60 re W n 1 0 0 rg 0 0 120 120 re f Q"));
