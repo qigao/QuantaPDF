@@ -195,6 +195,11 @@ void compare(const char *content, const probe *goldens,
         const unsigned expected[3]={p.r,p.g,p.b};
         for(size_t c=0u;c<3u;++c) {
             unsigned actual=on_white(a,c);
+            if(std::abs((int)actual-(int)expected[c])>3 ||
+               std::abs((int)b[c]-(int)expected[c])>3)
+                std::fprintf(stderr,
+                    "golden failure point=%zu x=%d y=%d channel=%zu native=%u pdfium=%u expected=%u\n",
+                    i,p.x,p.y_pdf,c,actual,(unsigned)b[c],expected[c]);
             CHECK(std::abs((int)actual-(int)expected[c])<=3);
             CHECK(std::abs((int)b[c]-(int)expected[c])<=3);
         }
