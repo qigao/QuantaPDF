@@ -1603,3 +1603,43 @@ add_test(NAME quantapdf.native_scoped_operations_v0
   COMMAND quantapdf_test_native_scoped_operations_v0)
 set_tests_properties(quantapdf.native_scoped_operations_v0 PROPERTIES
   TIMEOUT 30 LABELS "conformance;native-raster")
+
+
+# Differential oracle ONLY: PDFium/qpdf are linked here, never in native C11.
+add_executable(quantapdf_test_native_scoped_operations_oracle
+  test_ir_scoped_operations_oracle.cpp
+  "${PROJECT_SOURCE_DIR}/src/render/ir_scoped_operations_v0.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c")
+target_include_directories(quantapdf_test_native_scoped_operations_oracle PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_native_scoped_operations_oracle PRIVATE
+  QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium qpdf::libqpdf)
+target_compile_features(quantapdf_test_native_scoped_operations_oracle PRIVATE
+  c_std_11 cxx_std_20)
+target_compile_definitions(quantapdf_test_native_scoped_operations_oracle PRIVATE
+  ORACLE_SCOPES_PDF="${CMAKE_CURRENT_BINARY_DIR}/scoped-oracle-scopes.pdf"
+  ORACLE_NO_LEAK_PDF="${CMAKE_CURRENT_BINARY_DIR}/scoped-oracle-no-leak.pdf"
+  ORACLE_REVERSED_PDF="${CMAKE_CURRENT_BINARY_DIR}/scoped-oracle-reverse.pdf"
+  ORACLE_FRACTIONAL_PDF="${CMAKE_CURRENT_BINARY_DIR}/scoped-oracle-fraction.pdf")
+if(MSVC)
+  target_compile_options(quantapdf_test_native_scoped_operations_oracle
+    PRIVATE /utf-8)
+endif()
+add_test(NAME quantapdf.native_scoped_operations_oracle
+  COMMAND quantapdf_test_native_scoped_operations_oracle)
+set_tests_properties(quantapdf.native_scoped_operations_oracle PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native-raster")
+if(WIN32)
+  set_property(TEST quantapdf.native_scoped_operations_oracle
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_scoped_operations_oracle
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_scoped_operations_oracle
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
