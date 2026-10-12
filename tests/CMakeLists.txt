@@ -1916,4 +1916,27 @@ else()
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
 
+# Independently published upstream W n rectangular Clip and one-pixel closed
+# blue stroke. Renderer uses pure C11; PDFium reads the ORIGINAL PDF only.
+add_test(NAME quantapdf.external_pdfium_clipped_stroke
+  COMMAND quantapdf_test_native_source_qq_oracle --external-clip-stroke-pdf
+    "${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/pdfium.clip-path-v1.pdf"
+    --external-report "${CMAKE_CURRENT_BINARY_DIR}/external-pdfium-clip-stroke-status.json")
+set_tests_properties(quantapdf.external_pdfium_clipped_stroke PROPERTIES
+  TIMEOUT 40 LABELS "conformance;external-corpus;native-raster;clip-stroke")
+if(WIN32)
+  set_property(TEST quantapdf.external_pdfium_clipped_stroke
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_pdfium_clipped_stroke
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_pdfium_clipped_stroke
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
+
 

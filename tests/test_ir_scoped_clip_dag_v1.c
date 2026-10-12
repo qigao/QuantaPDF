@@ -187,6 +187,93 @@ static int test_single_opaque_path(void)
     return EXIT_SUCCESS;
 }
 
+
+/* Provider-free reproduction of the independently published one-pixel,
+ * closed triangle stroke inside a rectangular PDF W n clip. */
+static int test_clipped_one_pixel_stroke(void)
+{
+    fixture f;
+    const quantapdf_ir_raster_v1_limits budget = {5000u,1u,32u,1500000u};
+    quantapdf_ir_raster_image result = {0}, repeated = {0};
+    size_t blue_samples = 0u;
+    initialize(&f);
+    f.page.width_points = 100.0f;
+    f.page.height_points = 50.0f;
+    f.page.suppress_background = 1;
+    f.ir.operation_count = 1u;
+    f.ir.resources.graphics_state_count = 1u;
+    f.ir.resources.clip_count = 1u;
+    f.states[0].clip_id = 1u;
+    f.states[0].fill_alpha = f.states[0].stroke_alpha = 1.0f;
+    f.clips[0].kind = QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;
+    f.clips[0].commands = f.paths[0];
+    f.clips[0].command_count = 4u;
+    f.clips[0].fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
+    f.clips[0].transform = (quantapdf_affine_transform){1,0,0,1,0,0};
+    rectangle(f.paths[0],10,15,40,35);
+    f.ops[0].value.path.command_count = 4u;
+    f.ops[0].value.path.options.fill = 0;
+    f.ops[0].value.path.options.stroke = 1;
+    f.ops[0].value.path.options.stroke_argb = UINT32_C(0xff0000ff);
+    f.ops[0].value.path.options.stroke_width = 1.0f;
+    f.ops[0].value.path.options.line_cap = QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
+    f.ops[0].value.path.options.line_join = QUANTAPDF_COMPOSER_LINE_JOIN_MITER;
+    f.ops[0].value.path.options.miter_limit = 10.0f;
+    rectangle(f.shapes[0],10,10,40,40);
+    f.shapes[0][0].point1 = (quantapdf_point){10,40};
+    f.shapes[0][1].point1 = (quantapdf_point){25,10};
+    f.shapes[0][2].point1 = (quantapdf_point){40,40};
+    f.shapes[0][3].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
+    OK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&result));
+    OK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&repeated));
+    CHECK(result.width==100u && result.height==50u &&
+          result.size==100u*50u*4u &&
+          result.size==repeated.size &&
+          memcmp(result.pixels,repeated.pixels,result.size)==0);
+    CHECK(rgba(&result,0u,0u)==0u);
+    CHECK(rgba(&result,25u,25u)==0u);
+    for (size_t i=0u;i<100u*50u;++i)
+        if (result.pixels[4u*i+3u]!=0u &&
+            result.pixels[4u*i+2u]>=128u) ++blue_samples;
+    CHECK(blue_samples>12u);
+    quantapdf_ir_raster_image_dispose(&result);
+    quantapdf_ir_raster_image_dispose(&repeated);
+
+    /* An unsupported miter join cannot be silently exposed by enlarging
+     * the Clip, nor can the triangle stroke be drawn without a Clip. */
+    rectangle(f.paths[0],0,0,100,50);
+    CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&result)==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(result.pixels==NULL && result.size==0u);
+    rectangle(f.paths[0],10,15,40,35);
+    f.states[0].clip_id=0u;
+    f.ir.resources.clip_count=0u;
+    CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&result)==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(result.pixels==NULL && result.size==0u);
+    f.ir.resources.clip_count=1u;
+    f.states[0].clip_id=1u;
+
+    f.ops[0].value.path.options.stroke_width=2.0f;
+    CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&result)==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(result.pixels==NULL && result.size==0u);
+    f.ops[0].value.path.options.stroke_width=1.0f;
+    f.ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
+    CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&result)==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    f.ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
+    f.ops[0].value.path.options.transform.a=2.0f;
+    CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&result)==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    f.ops[0].value.path.options.transform.a=1.0f;
+    f.ops[0].value.path.options.fill=1;
+    CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&result)==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(result.pixels==NULL && result.size==0u);
+    return EXIT_SUCCESS;
+}
+
 static int test_fractional_and_transparent(void)
 {
     fixture f;
@@ -337,6 +424,7 @@ static int test_rejection_and_atomicity(void)
 int main(void)
 {
     CHECK(test_single_opaque_path() == EXIT_SUCCESS);
+    CHECK(test_clipped_one_pixel_stroke() == EXIT_SUCCESS);
     CHECK(test_scoped_dag() == EXIT_SUCCESS);
     CHECK(test_fractional_and_transparent() == EXIT_SUCCESS);
     CHECK(test_rejection_and_atomicity() == EXIT_SUCCESS);

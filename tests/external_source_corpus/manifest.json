@@ -60,6 +60,27 @@
       ],
       "page_index": 0,
       "expected_native_outcome": "supported-path-clip"
+    },
+    {
+      "id": "pdfium.clip-path-v1",
+      "source_url": "https://github.com/chromium/pdfium/blob/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources/clip_path.pdf",
+      "source_revision": "a84323421e94f484faca52dd9d027934eba42ab8",
+      "sha256": "6674dbd092ef8ae55b6ab1cda6a8b966019fbf22f7556291253853303072288b",
+      "size_bytes": 514,
+      "license_spdx": "BSD-3-Clause",
+      "license_url": "https://github.com/chromium/pdfium/blob/a84323421e94f484faca52dd9d027934eba42ab8/LICENSE",
+      "license_review_url": "https://github.com/qigao/QuantaPDF/issues/260",
+      "attribution": "PDFium Authors; reviewed published W n clip + blue stroke test PDF (BSD-3-Clause project license)",
+      "feature_tags": [
+        "external",
+        "clip-nonzero",
+        "stroke-1px",
+        "opaque",
+        "closed-path",
+        "positive"
+      ],
+      "page_index": 0,
+      "expected_native_outcome": "supported-clipped-stroke"
     }
   ]
 }
