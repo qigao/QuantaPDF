@@ -127,6 +127,13 @@ static void test_branches_and_owned_data(void)
     added_a = reference(a, 10); added_b = reference(b, 10);
     CHECK(added_a.id == added_b.id && added_a.origin != added_b.origin);
     rejects(b, &added_a); rejects(a, &added_b); rejects(base, &added_a);
+    {
+        quantapdf_graph_reference array_ref = reference(a, 11);
+        quantapdf_graph_cursor cursor;
+        CHECK(quantapdf_graph_query_members(b, &array_ref, &cursor) == QUANTAPDF_ERROR_ARGUMENT);
+        CHECK(cursor.graph == NULL);
+        OK(quantapdf_graph_query_members(a, &array_ref, &cursor));
+    }
     next = selection(a); next.additions = &boolean; next.addition_count = 1;
     OK(quantapdf_graph_commit(a, &next, &budget, &c, &report));
     last = reference(c, 12); rejects(a, &last);
@@ -253,6 +260,24 @@ static void test_root_page_batch(void)
     CHECK(model->edges[model->page_offset + 1].target == 8);
     CHECK(model->nodes[4].integer == 2);
     CHECK(model->edges[model->nodes[5].edge_offset].target == 10);
+    {
+        quantapdf_graph_cursor cursor;
+        quantapdf_graph_match match;
+        quantapdf_graph_reference kids_ref = reference(result, 6);
+        int found;
+        size_t i;
+        OK(quantapdf_graph_query_pages(result, &cursor));
+        for (i = 0; i < 2; ++i) {
+            OK(quantapdf_graph_query_next(&cursor, &match, &found));
+            CHECK(found && match.reference.id == pages[i] && match.ordinal == i);
+        }
+        OK(quantapdf_graph_query_members(result, &kids_ref, &cursor));
+        for (i = 0; i < 2; ++i) {
+            OK(quantapdf_graph_query_next(&cursor, &match, &found));
+            CHECK(found && match.reference.id == pages[i] && match.owner.id == 6);
+            CHECK(match.name == NULL && match.name_size == 0 && match.ordinal == i);
+        }
+    }
     CHECK(quantapdf_graph_view(base)->page_count == 1 && quantapdf_graph_view(base)->nodes[4].integer == 1);
     quantapdf_graph_drop(base); quantapdf_graph_drop(result);
 }
@@ -408,6 +433,115 @@ static void test_metadata_queries(void)
     quantapdf_graph_drop(base);
 }
 
+static void test_query_cursors_and_resources(void)
+{
+    quantapdf_graph *base = base_graph(), *g = NULL, *other = base_graph(), *changed = NULL;
+    quantapdf_graph_limits budget = limits();
+    quantapdf_graph_change_set changes = selection(base);
+    quantapdf_graph_cursor cursor, bookmark, uninitialized = {0};
+    quantapdf_graph_match match, inherited;
+    quantapdf_validation_report report;
+    quantapdf_graph_reference root, resource, foreign = reference(other, 3);
+    int found;
+    size_t i;
+    quantapdf_graph_edge_input pages[] = {{5, "/Count", 6}, {6, "/Kids", 5}, {10, "/Resources", 10}, {7, "/Type", 5}};
+    quantapdf_graph_edge_input resources[] = {{11, "/Font", 5}, {12, "/XObject", 8}, {13, "/\x80", 2}};
+    quantapdf_graph_edge_input fonts[] = {{14, "/F1", 3}};
+    quantapdf_graph_edge_input self[] = {{14, "/Self", 5}};
+    quantapdf_graph_node_input additions[] = {
+        {QUANTAPDF_GRAPH_DICTIONARY, 1, 0, NULL, 0, resources, 3},
+        {QUANTAPDF_GRAPH_DICTIONARY, 0, 0, NULL, 0, fonts, 1},
+        {QUANTAPDF_GRAPH_DICTIONARY, 0, 0, NULL, 0, NULL, 0},
+        {QUANTAPDF_GRAPH_NULL, 0, 0, NULL, 0, NULL, 0},
+        {QUANTAPDF_GRAPH_DICTIONARY, 1, 0, NULL, 0, self, 1},
+        {QUANTAPDF_GRAPH_BOOL, 0, 1, NULL, 0, NULL, 0} /* disconnected stored value */
+    };
+    quantapdf_graph_replacement replacement = {3, {QUANTAPDF_GRAPH_DICTIONARY, 1, 0, NULL, 0, pages, 4}};
+    changes.replacements = &replacement; changes.replacement_count = 1;
+    changes.additions = additions; changes.addition_count = 6;
+    OK(quantapdf_graph_commit(base, &changes, &budget, &g, &report));
+    CHECK(quantapdf_graph_query_next(&uninitialized, &match, &found) == QUANTAPDF_ERROR_STATE);
+    CHECK(!found && match.node == NULL && match.reference.id == 0);
+    OK(quantapdf_graph_query_objects(g, &cursor));
+    found = 99;
+    CHECK(quantapdf_graph_query_next(&cursor, NULL, &found) == QUANTAPDF_ERROR_ARGUMENT && !found);
+    for (i = 0; i < 15; ++i) {
+        OK(quantapdf_graph_query_next(&cursor, &match, &found));
+        CHECK(found && match.reference.id == i + 1 && match.ordinal == i);
+        CHECK(match.owner.id == 0 && match.name == NULL && match.name_size == 0);
+        CHECK(match.node == &quantapdf_graph_view(g)->nodes[i]);
+        if (i == 2) bookmark = cursor;
+    }
+    for (i = 0; i < 2; ++i) {
+        OK(quantapdf_graph_query_next(&cursor, &match, &found));
+        CHECK(!found && match.node == NULL && match.reference.id == 0);
+    }
+    OK(quantapdf_graph_query_next(&bookmark, &match, &found)); CHECK(found && match.reference.id == 4);
+    OK(quantapdf_graph_query_pages(g, &cursor));
+    OK(quantapdf_graph_query_next(&cursor, &match, &found)); CHECK(found && match.reference.id == 8 && match.ordinal == 0);
+    CHECK(quantapdf_graph_query_resources(g, 0, 1, &match, &found) == QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(!found && match.node == NULL);
+    OK(quantapdf_graph_query_resources(g, 0, 2, &inherited, &found));
+    CHECK(found && inherited.reference.id == 10 && inherited.owner.id == 3);
+    resource = inherited.reference;
+    OK(quantapdf_graph_query_members(g, &resource, &cursor));
+    for (i = 0; i < 3; ++i) {
+        OK(quantapdf_graph_query_next(&cursor, &match, &found));
+        CHECK(found && match.owner.id == 10 && match.ordinal == i && match.reference.id == 11 + i);
+        CHECK(match.name_size == resources[i].key_size && memcmp(match.name, resources[i].key, match.name_size) == 0);
+    }
+    OK(quantapdf_graph_query_next(&cursor, &match, &found)); CHECK(!found);
+    OK(quantapdf_graph_query_member(g, &resource, "/\x80", 2, &match, &found));
+    CHECK(found && match.node->kind == QUANTAPDF_GRAPH_NULL);
+    OK(quantapdf_graph_query_member(g, &resource, "/Font", 5, &match, &found)); CHECK(found);
+    OK(quantapdf_graph_query_member(g, &match.reference, "/F1", 3, &match, &found));
+    CHECK(found && match.reference.id == 14 && match.owner.id == 11);
+    OK(quantapdf_graph_query_member(g, &resource, "/Missing", 8, &match, &found)); CHECK(!found && match.reference.id == 0);
+    CHECK(quantapdf_graph_query_members(g, &foreign, &cursor) == QUANTAPDF_ERROR_ARGUMENT && cursor.graph == NULL);
+    CHECK(quantapdf_graph_query_member(g, &foreign, "/Resources", 10, &match, &found) == QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(!found && match.reference.id == 0);
+
+    /* A nearer empty dictionary replaces inherited resources as a whole. */
+    changes = selection(g);
+    {
+        quantapdf_graph_edge_input local[] = {{3, "/Parent", 7}, {12, "/Resources", 10}, {9, "/Type", 5}};
+        replacement = (quantapdf_graph_replacement){8, {QUANTAPDF_GRAPH_DICTIONARY, 1, 0, NULL, 0, local, 3}};
+        changes.replacements = &replacement; changes.replacement_count = 1;
+        OK(quantapdf_graph_commit(g, &changes, &budget, &changed, &report));
+        OK(quantapdf_graph_query_resources(changed, 0, 1, &match, &found));
+        CHECK(found && match.reference.id == 12 && match.owner.id == 8 && match.node->edge_count == 0);
+        resolves(changed, &resource); quantapdf_graph_drop(changed);
+        local[1].target = 13;
+        OK(quantapdf_graph_commit(g, &changes, &budget, &changed, &report));
+        OK(quantapdf_graph_query_resources(changed, 0, 2, &match, &found));
+        CHECK(found && match.reference.id == resource.id && match.owner.id == 3);
+        quantapdf_graph_drop(changed);
+        local[1].target = 5;
+        OK(quantapdf_graph_commit(g, &changes, &budget, &changed, &report));
+        CHECK(quantapdf_graph_query_resources(changed, 0, 2, &match, &found) == QUANTAPDF_ERROR_FORMAT);
+        CHECK(!found && match.reference.id == 0); quantapdf_graph_drop(changed);
+    }
+    /* No resource dictionary plus a cyclic parent chain is bounded. */
+    {
+        quantapdf_graph_edge_input cycle[] = {{5, "/Count", 6}, {6, "/Kids", 5}, {3, "/Parent", 7}, {7, "/Type", 5}};
+        replacement = (quantapdf_graph_replacement){3, {QUANTAPDF_GRAPH_DICTIONARY, 1, 0, NULL, 0, cycle, 4}};
+        changes = selection(g); changes.replacements = &replacement; changes.replacement_count = 1;
+        OK(quantapdf_graph_commit(g, &changes, &budget, &changed, &report));
+        CHECK(quantapdf_graph_query_resources(changed, 0, 3, &match, &found) == QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(quantapdf_graph_query_resources(changed, 0, 100, &match, &found) == QUANTAPDF_ERROR_FORMAT);
+        CHECK(!found && match.node == NULL); quantapdf_graph_drop(changed);
+    }
+    OK(quantapdf_graph_query_resources(base, 0, 2, &match, &found)); CHECK(!found);
+    CHECK(quantapdf_graph_query_resources(g, 1, 2, &match, &found) == QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_graph_query_resources(g, 0, 0, &match, &found) == QUANTAPDF_ERROR_ARGUMENT);
+    root = reference(g, 3);
+    changes = selection(g); OK(quantapdf_graph_commit(g, &changes, &budget, &changed, &report));
+    quantapdf_graph_drop(base); quantapdf_graph_drop(other); quantapdf_graph_drop(g);
+    OK(quantapdf_graph_query_member(changed, &root, "/Resources", 10, &match, &found));
+    CHECK(found && match.reference.origin == resource.origin);
+    quantapdf_graph_drop(changed);
+}
+
 int main(void)
 {
     test_branches_and_owned_data();
@@ -416,5 +550,6 @@ int main(void)
     test_page_tree_admission();
     test_stream_values_and_noop_history();
     test_metadata_queries();
+    test_query_cursors_and_resources();
     return EXIT_SUCCESS;
 }

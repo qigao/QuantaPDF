@@ -1,6 +1,8 @@
 #include "backend/qpdf_graph.h"
+#include "graph/graph_query.h"
 
 #include <qpdf/QPDF.hh>
+#include <qpdf/QPDFPageObjectHelper.hh>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -114,4 +116,49 @@ static void test_encoded_stream()
     quantapdf_graph_drop(graph);
 }
 
-int main() { test_page_tree(); test_depth_shortcut(); test_encoded_stream(); return EXIT_SUCCESS; }
+static void test_query_resource_inheritance()
+{
+    auto pdf = QPDF::create(); pdf->emptyPDF();
+    auto root = pdf->getRoot().getKey("/Pages");
+    auto branch = pdf->makeIndirectObject(QPDFObjectHandle::parse("<< /Type /Pages /Count 2 /Resources null >>"));
+    auto a = pdf->makeIndirectObject(QPDFObjectHandle::parse("<< /Type /Page /Resources << >> >>"));
+    auto b = pdf->makeIndirectObject(QPDFObjectHandle::parse("<< /Type /Page >>"));
+    auto c = pdf->makeIndirectObject(QPDFObjectHandle::parse("<< /Type /Page >>"));
+    auto font = pdf->makeIndirectObject(QPDFObjectHandle::parse("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"));
+    auto fonts = QPDFObjectHandle::newDictionary(); fonts.replaceKey("/F1", font);
+    auto resources = pdf->makeIndirectObject(QPDFObjectHandle::newDictionary());
+    resources.replaceKey("/Font", fonts); root.replaceKey("/Resources", resources);
+    root.replaceKey("/Count", QPDFObjectHandle::newInteger(3));
+    root.replaceKey("/Kids", QPDFObjectHandle::newArray({a, branch}));
+    branch.replaceKey("/Kids", QPDFObjectHandle::newArray({b, c}));
+    branch.replaceKey("/Parent", root);
+    a.replaceKey("/Parent", root); b.replaceKey("/Parent", branch); c.replaceKey("/Parent", branch);
+    CHECK(QPDFPageObjectHelper(a).getAttribute("/Resources", false).getDictAsMap().empty());
+    CHECK(QPDFPageObjectHelper(b).getAttribute("/Resources", false).getObjGen() == resources.getObjGen());
+    CHECK(QPDFPageObjectHelper(c).getAttribute("/Resources", false).getObjGen() == resources.getObjGen());
+    auto budget = limits(); quantapdf_graph *graph = nullptr;
+    CHECK(quantapdf_qpdf_import_graph(*pdf, &budget, &graph) == QUANTAPDF_OK);
+    pdf.reset();
+    auto model = quantapdf_graph_view(graph);
+    quantapdf_graph_match match, shared;
+    quantapdf_graph_cursor cursor;
+    int found = 0;
+    CHECK(quantapdf_graph_query_resources(graph, 0, 1, &match, &found) == QUANTAPDF_OK);
+    CHECK(found && match.node->edge_count == 0 && match.owner.id == model->edges[model->page_offset].target);
+    CHECK(quantapdf_graph_query_resources(graph, 1, 2, &match, &found) == QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(!found && match.node == nullptr);
+    CHECK(quantapdf_graph_query_resources(graph, 1, 3, &shared, &found) == QUANTAPDF_OK && found);
+    CHECK(shared.owner.id == field(model, model->catalog, "/Pages"));
+    CHECK(quantapdf_graph_query_resources(graph, 2, 3, &match, &found) == QUANTAPDF_OK && found);
+    CHECK(match.reference.id == shared.reference.id && match.reference.origin == shared.reference.origin);
+    CHECK(quantapdf_graph_query_members(graph, &shared.reference, &cursor) == QUANTAPDF_OK);
+    CHECK(quantapdf_graph_query_next(&cursor, &match, &found) == QUANTAPDF_OK && found);
+    CHECK(match.name_size == 5 && std::memcmp(match.name, "/Font", 5) == 0);
+    CHECK(quantapdf_graph_query_member(graph, &match.reference, "/F1", 3, &match, &found) == QUANTAPDF_OK && found);
+    CHECK(quantapdf_graph_query_member(graph, &match.reference, "/BaseFont", 9, &match, &found) == QUANTAPDF_OK && found);
+    CHECK(match.node->kind == QUANTAPDF_GRAPH_NAME && match.node->data_size == 10 &&
+        std::memcmp(model->bytes + match.node->data_offset, "/Helvetica", 10) == 0);
+    quantapdf_graph_drop(graph);
+}
+
+int main() { test_page_tree(); test_depth_shortcut(); test_encoded_stream(); test_query_resource_inheritance(); return EXIT_SUCCESS; }

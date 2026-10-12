@@ -37,6 +37,10 @@ target_include_directories(quantapdf_test_graph_import PRIVATE "${PROJECT_SOURCE
 target_link_libraries(quantapdf_test_graph_import PRIVATE
   QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium qpdf::libqpdf)
 target_compile_features(quantapdf_test_graph_import PRIVATE cxx_std_20)
+if(MSVC)
+  # QPDFPageObjectHelper includes UTF-8 diagram comments in QPDFMatrix.hh.
+  target_compile_options(quantapdf_test_graph_import PRIVATE /utf-8)
+endif()
 add_test(NAME quantapdf.graph_import COMMAND quantapdf_test_graph_import)
 set_tests_properties(quantapdf.graph_import PROPERTIES TIMEOUT 30)
 

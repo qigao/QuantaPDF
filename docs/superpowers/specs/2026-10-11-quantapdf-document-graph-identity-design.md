@@ -9,6 +9,11 @@ implemented in the sections below. A private, policy-restricted graph writer now
 supports detached snapshot output. Feature-authority migration, encrypted/signed
 graph output policy and graph-to-IR conversion remain outstanding.
 
+The [private query layer](2026-10-11-quantapdf-graph-query-design.md) enumerates
+stored objects, pages and members with stable references and resolves inherited
+page resources. Metadata is a consumer of the same member lookup. Cursors borrow
+one immutable version and require no provider calls or result allocation.
+
 ## Evidence and problem
 
 MED, fact: `src/document/document_internal.h` owns input bytes, a password and an
