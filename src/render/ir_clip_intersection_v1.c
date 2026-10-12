@@ -31,6 +31,13 @@ static int identity_or_empty(const quantapdf_affine_transform *t)
     return zero || identity;
 }
 
+static int exact_identity(const quantapdf_affine_transform *t)
+{
+    return t->a == 1.0f && t->b == 0.0f &&
+           t->c == 0.0f && t->d == 1.0f &&
+           t->e == 0.0f && t->f == 0.0f;
+}
+
 static int read_leaf(const quantapdf_composer_clip_state *clip,
                      size_t width, size_t height, native_rectangle *out)
 {
@@ -40,7 +47,7 @@ static int read_leaf(const quantapdf_composer_clip_state *clip,
     if (clip->kind != QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL ||
         clip->commands == NULL || clip->command_count != 5u ||
         clip->members != NULL || clip->member_count != 0u ||
-        !identity_or_empty(&clip->transform) ||
+        !exact_identity(&clip->transform) ||
         (clip->fill_rule != QUANTAPDF_COMPOSER_FILL_NONZERO &&
          clip->fill_rule != QUANTAPDF_COMPOSER_FILL_EVEN_ODD) ||
         clip->commands[0].kind != QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
