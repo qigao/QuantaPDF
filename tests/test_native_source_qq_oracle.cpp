@@ -556,6 +556,30 @@ void test_selected_page_multistream()
     CHECK(std::remove(SOURCE_QQ_PDF)==0);
 }
 
+
+/* PDF allows clipping the empty current path. The current constrained Graph
+ * evaluator cannot encode it and rejects it as FORMAT. Pin that behavior as
+ * an explicit fail-closed contract until an owned empty-clip representation
+ * is implemented; this is NOT a positive PDF compatibility claim. */
+void test_zero_segment_clip_fail_closed()
+{
+    const char *cases[]={
+        "q W n 1 0 0 rg 0 0 120 120 re f Q",
+        "q W* n 1 0 0 rg 0 0 120 120 re f Q"
+    };
+    for(const char *content:cases){
+        quantapdf_ir rejected{};
+        make_source(content);
+        CHECK(snapshot_lower(&rejected)==QUANTAPDF_ERROR_FORMAT);
+        CHECK(rejected.pages==nullptr && rejected.operations==nullptr &&
+              rejected.operation_count==0u &&
+              rejected.resources.clip_count==0u &&
+              rejected.resources.graphics_state_count==0u);
+        quantapdf_ir_dispose(&rejected);
+        CHECK(std::remove(SOURCE_QQ_PDF)==0);
+    }
+}
+
 void test_unsupported_operator_fails_closed()
 {
     quantapdf_ir failed{};
@@ -577,6 +601,7 @@ int main()
     test_clip_definition_ctm();
     test_page_geometry_matrix();
     test_selected_page_multistream();
+    test_zero_segment_clip_fail_closed();
     test_unsupported_operator_fails_closed();
     std::fprintf(stderr,"[quantapdf.native_source_qq_oracle] complete\n");
     return EXIT_SUCCESS;
