@@ -26,7 +26,8 @@ SPDX_ALLOWLIST = frozenset({
     "CC0-1.0", "CC-BY-4.0", "Apache-2.0", "BSD-3-Clause", "MIT"
 })
 EXPECTED_NATIVE = frozenset({
-    "supported-path-clip", "supported-blank-page", "unsupported", "malformed"
+    "supported-path-clip", "supported-clipped-stroke", "supported-blank-page",
+    "unsupported", "malformed"
 })
 ROOT_FIELDS = frozenset({"schema_version", "corpus_id", "documents"})
 DOC_FIELDS = frozenset({
