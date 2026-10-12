@@ -91,8 +91,9 @@ operators, truncated/unknown streams, and files needing complete page
 preflight. It never edits, generates, fetches, or installs a candidate.
 
 **Heuristic only:** stream recovery is not full PDF object-resolution;
-compressed object streams, indirect /Length, inherited resources and
-arbitrary filters remain inconclusive. Missing or mismatched stream
+compressed object streams, indirect /Length, non-identity PNG/TIFF
+/DecodeParms predictors, unresolved DecodeParms references, inherited
+resources and arbitrary filters remain inconclusive. Missing or mismatched stream
 boundaries now fail closed; inner /DecodeParms dictionaries do not hide
 outer /Filter /FlateDecode. Embedded literal 'endstream' does not
 truncate a source stream. This is still **not** complete object/page
@@ -101,7 +102,7 @@ result is **not** a native-support claim: verify the complete selected
 page, source/license, immutable revision, independent PDFium pixels and
 cross-platform CI separately. The JSON explicitly fixes the W* native
 positive count to zero and marks license/page attribution unreviewed.
-21 synthetic + 3 pinned original-PDF scanner regression cases run as part of the existing
+23 synthetic + 3 pinned original-PDF scanner regression cases run as part of the existing
 Linux, macOS and Windows workflows; no new CI workflow is introduced.
 
 The exact, previously reviewed unchanged PDFium `clip_path.pdf` and

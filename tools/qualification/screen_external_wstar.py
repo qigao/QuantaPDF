@@ -89,6 +89,24 @@ def content_tokens(data):
 
 
 def _filter_kind(header):
+    # Flate output is a PDF operator stream only with identity prediction.
+    # PNG/TIFF /Predictor and indirect DecodeParms require a real PDF
+    # decoder; blindly tokenizing their residual bytes can yield a false
+    # 'no W*' verdict. They are explicitly INCONCLUSIVE instead.
+    if header.count(b"/DecodeParms") > 1:
+        return "unsupported_filter"
+    if b"/DecodeParms" in header:
+        parameters = header.split(b"/DecodeParms", 1)[1].lstrip()
+        if parameters.startswith(b"<<"):
+            end = parameters.find(b">>")
+            if end < 0:
+                return "unsupported_filter"
+            values = re.findall(rb"/Predictor\s+(\d+)\b",
+                                parameters[:end])
+            if len(values) > 1 or (values and values[0] != b"1"):
+                return "unsupported_filter"
+        elif not parameters.startswith(b"null"):
+            return "unsupported_filter"
     matches = list(FILTER.finditer(header))
     # Nested dictionaries may have their own Filter entries. Do not
     # silently select the last one and pretend it describes this stream.

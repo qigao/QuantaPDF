@@ -130,6 +130,28 @@ class ExternalWStarScreening(unittest.TestCase):
         self.assertEqual(result["status"], "inconclusive")
         self.assertIn("stream_length_or_boundary_mismatch", result["stream_issues"])
 
+    def test_png_predictor_is_inconclusive_not_no_wstar(self):
+        original = pdf(b"q 0 0 3 3 re W* n 0 0 4 4 re f Q",
+                       compress=True)
+        original = original.replace(
+            b" >>\nstream",
+            b" /DecodeParms << /Predictor 12 /Columns 4 >> >>\nstream",
+            1,
+        )
+        report = screen_pdf_bytes(original)
+        self.assertEqual(report["status"], "inconclusive")
+        self.assertIn("unsupported_stream_filter", report["stream_issues"])
+
+    def test_indirect_decodeparms_is_inconclusive(self):
+        original = pdf(b"q 0 0 3 3 re W* n 0 0 4 4 re f Q",
+                       compress=True)
+        original = original.replace(
+            b" >>\nstream", b" /DecodeParms 9 0 R >>\nstream", 1,
+        )
+        report = screen_pdf_bytes(original)
+        self.assertEqual(report["status"], "inconclusive")
+        self.assertIn("unsupported_stream_filter", report["stream_issues"])
+
     def test_absent_stream_is_inconclusive(self):
         report = screen_pdf_bytes(b"%PDF-1.7\n%%EOF\n")
         self.assertEqual(report["status"], "inconclusive")
