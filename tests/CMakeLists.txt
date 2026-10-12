@@ -1831,7 +1831,8 @@ endif()
 # Reuse the same executable, but NOT the 14/36 generated-fixture registry.
 add_test(NAME quantapdf.external_cc0_text_source
   COMMAND quantapdf_test_native_source_qq_oracle --external-pdf
-    "${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/tinytoolkit.sample-1-page-v1.pdf")
+    "${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/tinytoolkit.sample-1-page-v1.pdf"
+    --external-report "${CMAKE_CURRENT_BINARY_DIR}/external-cc0-text-status.json")
 set_tests_properties(quantapdf.external_cc0_text_source PROPERTIES
   TIMEOUT 40 LABELS "conformance;external-corpus;native-raster")
 if(WIN32)
