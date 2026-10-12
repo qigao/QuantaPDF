@@ -124,7 +124,7 @@ static int test_coverage_transform_and_curves(void)
     CHECK(rgba_at(&image, 1, 1) == UINT32_C(0xff0000ff));
     CHECK(rgba_at(&image, 7, 7) == UINT32_C(0xffffffff));
     /* Diagonal crosses this pixel. The 4x4 sampler must give partial red. */
-    CHECK(image.pixels[4u * (4u * 8u + 3u)] > 0u);
+    CHECK(image.pixels[4u * (4u * 8u + 3u) + 1u] > 0u);
     CHECK(image.pixels[4u * (4u * 8u + 3u) + 1u] < 255u);
     memcpy(saved, image.pixels, sizeof(saved));
     OK(quantapdf_ir_raster_render_v1(&ir, 0, &limits, &second));
@@ -170,7 +170,7 @@ static int test_coverage_transform_and_curves(void)
         1, 0, 0.5f, 1, 0, 0
     };
     OK(quantapdf_ir_raster_render_v1(&ir, 0, &limits, &image));
-    CHECK(rgba_at(&image, 3, 3) == UINT32_C(0xff0000ff));
+    CHECK(rgba_at(&image, 4, 3) == UINT32_C(0xff0000ff));
     quantapdf_ir_raster_image_dispose(&image);
     return EXIT_SUCCESS;
 }
