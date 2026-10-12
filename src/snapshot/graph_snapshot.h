@@ -5,6 +5,7 @@
 #include "graph/graph_edit.h"
 #include "graph/graph_write.h"
 #include "graph/graph_stream.h"
+#include "ir/pdf_content_ir.h"
 
 typedef struct quantapdf_graph_snapshot {
     quantapdf_snapshot owner;
@@ -45,6 +46,17 @@ quantapdf_status quantapdf_graph_snapshot_metadata(const quantapdf_graph_snapsho
 quantapdf_status quantapdf_graph_snapshot_stream(const quantapdf_graph_snapshot *snapshot,
     const quantapdf_graph_reference *reference, const quantapdf_graph_stream_limits *limits,
     unsigned char **out_data, size_t *out_size);
+
+/* One decoded stream -> detached private path operator tape. Both graph
+ * replay/decode and parsing use explicit independent caller budgets.
+ * /Contents arrays and resource-dependent PDF operators are out of scope. */
+quantapdf_status quantapdf_graph_snapshot_path_ir(
+    const quantapdf_graph_snapshot *snapshot,
+    const quantapdf_graph_reference *reference,
+    const quantapdf_graph_stream_limits *stream_limits,
+    const quantapdf_pdf_content_limits *content_limits,
+    quantapdf_pdf_content_ir **out_ir);
+
 #ifdef __cplusplus
 }
 #endif

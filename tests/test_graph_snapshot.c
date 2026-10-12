@@ -311,11 +311,96 @@ static void test_stream_snapshot_lifetime(void)
     CHECK(first == NULL && first_size == 0);
 }
 
+
+static void test_content_ir_snapshot_version(void)
+{
+    static const unsigned char path[] = "q 0 0 m 10 20 l S Q";
+    quantapdf_graph_limits budget = limits();
+    quantapdf_graph_stream_limits decode = {4096, 128, 100000};
+    quantapdf_pdf_content_limits parse = {4096, 16, 4}, small;
+    quantapdf_context *context = NULL;
+    quantapdf_document *document = NULL;
+    quantapdf_graph_snapshot *base = NULL, *next = NULL;
+    const quantapdf_graph_model *model;
+    const quantapdf_graph_node *node;
+    quantapdf_graph_reference reference;
+    quantapdf_graph_edge_input *edges;
+    quantapdf_graph_change_set changes = {0};
+    quantapdf_graph_replacement replacement = {0};
+    quantapdf_validation_report report;
+    quantapdf_pdf_content_ir *ir = NULL;
+    quantapdf_local_id id, page;
+    size_t i, finalized = 0;
+
+    OK(quantapdf_context_create(&context));
+    context->test_finalizations = &finalized;
+    OK(quantapdf_open_with_context(context, GRAPH_PDF, NULL, &document));
+    OK(quantapdf_document_capture_graph(document, &budget, &base));
+    quantapdf_close(document); quantapdf_drop_context(context);
+    CHECK(finalized == 0);
+    model = quantapdf_graph_view(base->graph);
+    page = model->edges[model->page_offset].target;
+    id = field(model, page, "/Contents");
+    node = quantapdf_graph_node_at(model, id);
+    CHECK(node != NULL && node->kind == QUANTAPDF_GRAPH_STREAM);
+    OK(quantapdf_graph_reference_at(base->graph, id, &reference));
+
+    /* The original fixture contains BT/text, which must not be silently
+     * discarded to produce a misleading incomplete path interpretation. */
+    ir = (quantapdf_pdf_content_ir *)(uintptr_t)1;
+    CHECK(quantapdf_graph_snapshot_path_ir(base, &reference, &decode, &parse,
+        &ir) == QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(ir == NULL);
+
+    edges = (quantapdf_graph_edge_input *)calloc(
+        node->edge_count ? node->edge_count : 1, sizeof(*edges));
+    CHECK(edges != NULL);
+    for (i = 0; i < node->edge_count; ++i) {
+        const quantapdf_graph_edge *edge = &model->edges[node->edge_offset + i];
+        edges[i].target = edge->target;
+        edges[i].key = model->bytes + edge->key_offset;
+        edges[i].key_size = edge->key_size;
+    }
+    changes.lineage = quantapdf_graph_lineage(base->graph);
+    changes.base_version = quantapdf_graph_version(base->graph);
+    replacement.id = id;
+    replacement.value.kind = QUANTAPDF_GRAPH_STREAM;
+    replacement.value.indirect = node->indirect;
+    replacement.value.data = path;
+    replacement.value.data_size = sizeof(path) - 1;
+    replacement.value.edges = edges;
+    replacement.value.edge_count = node->edge_count;
+    changes.replacements = &replacement;
+    changes.replacement_count = 1;
+    OK(quantapdf_graph_snapshot_commit(base, &changes, &budget, &next, &report));
+    free(edges);
+    quantapdf_graph_snapshot_drop(base);
+    CHECK(finalized == 0);
+
+    small = parse; small.max_operators = 2;
+    ir = (quantapdf_pdf_content_ir *)(uintptr_t)1;
+    CHECK(quantapdf_graph_snapshot_path_ir(next, &reference, &decode, &small,
+        &ir) == QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(ir == NULL);
+    OK(quantapdf_graph_snapshot_path_ir(next, &reference, &decode, &parse, &ir));
+    CHECK(ir != NULL && ir->count == 5);
+    CHECK(ir->ops[0].opcode == QUANTAPDF_PDF_OP_SAVE);
+    CHECK(ir->ops[1].opcode == QUANTAPDF_PDF_OP_MOVE);
+    CHECK(ir->ops[2].opcode == QUANTAPDF_PDF_OP_LINE &&
+          ir->ops[2].arguments[0] == 10.0 && ir->ops[2].arguments[1] == 20.0);
+    CHECK(ir->ops[3].opcode == QUANTAPDF_PDF_OP_STROKE);
+    CHECK(ir->ops[4].opcode == QUANTAPDF_PDF_OP_RESTORE);
+    quantapdf_graph_snapshot_drop(next);
+    CHECK(finalized == 1 && ir->ops[2].opcode == QUANTAPDF_PDF_OP_LINE);
+    quantapdf_pdf_content_dispose(ir);
+}
+
 int main(void)
 {
     test_capture(); test_document_families(); test_provider_failure();
     test_commit_detached_metadata();
     test_metadata_compatibility();
     test_stream_snapshot_lifetime();
+    test_content_ir_snapshot_version();
     return EXIT_SUCCESS;
 }

@@ -125,3 +125,27 @@ quantapdf_status quantapdf_graph_snapshot_stream(const quantapdf_graph_snapshot 
     return snapshot->owner.context->ops->read_graph_stream(snapshot->graph, reference, limits,
         out_data, out_size);
 }
+
+
+/* Private one-stream PDF content admission. No provider, decoded byte or
+ * graph ownership is retained by the result. */
+quantapdf_status quantapdf_graph_snapshot_path_ir(
+    const quantapdf_graph_snapshot *snapshot,
+    const quantapdf_graph_reference *reference,
+    const quantapdf_graph_stream_limits *stream_limits,
+    const quantapdf_pdf_content_limits *content_limits,
+    quantapdf_pdf_content_ir **out_ir)
+{
+    unsigned char *decoded = NULL;
+    size_t decoded_size = 0;
+    quantapdf_status status;
+    if (out_ir != NULL) *out_ir = NULL;
+    if (snapshot == NULL || reference == NULL || stream_limits == NULL ||
+        content_limits == NULL || out_ir == NULL) return QUANTAPDF_ERROR_ARGUMENT;
+    status = quantapdf_graph_snapshot_stream(snapshot, reference, stream_limits,
+        &decoded, &decoded_size);
+    if (status != QUANTAPDF_OK) return status;
+    status = quantapdf_pdf_content_parse(decoded, decoded_size, content_limits, out_ir);
+    quantapdf_free(decoded);
+    return status;
+}
