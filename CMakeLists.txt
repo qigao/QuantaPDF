@@ -62,6 +62,7 @@ add_subdirectory(src/core)
 add_subdirectory(src/document)
 add_subdirectory(src/snapshot)
 add_subdirectory(src/composer)
+add_subdirectory(src/ir)
 add_library(QuantaPDF::QuantaPDF ALIAS quantapdf)
 target_compile_features(quantapdf
   PUBLIC c_std_11

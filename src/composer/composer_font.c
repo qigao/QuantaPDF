@@ -151,9 +151,9 @@ static quantapdf_status quantapdf_composer_reserve_font(
     quantapdf_composer_font_state *grown;
     size_t capacity;
 
-    if (composer->font_count >= (size_t)UINT32_MAX)
+    if (composer->ir.font_count >= (size_t)UINT32_MAX)
         return QUANTAPDF_ERROR_UNSUPPORTED;
-    if (composer->font_count < composer->font_capacity)
+    if (composer->ir.font_count < composer->font_capacity)
         return QUANTAPDF_OK;
     capacity = composer->font_capacity == 0u
         ? 4u
@@ -163,10 +163,10 @@ static quantapdf_status quantapdf_composer_reserve_font(
         capacity > SIZE_MAX / sizeof(*grown))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     grown = (quantapdf_composer_font_state *)realloc(
-        composer->fonts, capacity * sizeof(*grown));
+        composer->ir.fonts, capacity * sizeof(*grown));
     if (grown == NULL)
         return QUANTAPDF_ERROR_NOMEM;
-    composer->fonts = grown;
+    composer->ir.fonts = grown;
     composer->font_capacity = capacity;
     return QUANTAPDF_OK;
 }
@@ -194,9 +194,9 @@ quantapdf_status quantapdf_composer_add_font(
     if (status != QUANTAPDF_OK)
         return status;
 
-    for (i = 0u; i < composer->font_count; ++i) {
-        if (composer->fonts[i].size == font_size &&
-            memcmp(composer->fonts[i].data, font_data, font_size) == 0) {
+    for (i = 0u; i < composer->ir.font_count; ++i) {
+        if (composer->ir.fonts[i].size == font_size &&
+            memcmp(composer->ir.fonts[i].data, font_data, font_size) == 0) {
             *out_font_id = (quantapdf_composer_font_id)(i + 1u);
             return QUANTAPDF_OK;
         }
@@ -215,10 +215,10 @@ quantapdf_status quantapdf_composer_add_font(
     memcpy(font.data, font_data, font_size);
     font.size = font_size;
 
-    composer->fonts[composer->font_count] = font;
-    ++composer->font_count;
+    composer->ir.fonts[composer->ir.font_count] = font;
+    ++composer->ir.font_count;
     composer->resource_bytes += font_size;
-    *out_font_id = (quantapdf_composer_font_id)composer->font_count;
+    *out_font_id = (quantapdf_composer_font_id)composer->ir.font_count;
     return QUANTAPDF_OK;
 }
 
@@ -238,7 +238,7 @@ quantapdf_status quantapdf_composer_measure_embedded_text(
         options->struct_size <
             QUANTAPDF_COMPOSER_EMBEDDED_TEXT_OPTIONS_V1_MIN_SIZE ||
         options->font_id == 0u ||
-        (size_t)options->font_id > composer->font_count ||
+        (size_t)options->font_id > composer->ir.font_count ||
         !isfinite(max_width) || max_width <= 0.0f ||
         !isfinite(options->font_size) || options->font_size <= 0.0f ||
         (options->argb >> 24u) != 0xffu ||
@@ -249,7 +249,7 @@ quantapdf_status quantapdf_composer_measure_embedded_text(
         (options->wrap != 0 && options->wrap != 1))
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    font = &composer->fonts[options->font_id - 1u];
+    font = &composer->ir.fonts[options->font_id - 1u];
     status = quantapdf_ttf_validate_text(
         font->data, font->size, text_utf8);
     if (status != QUANTAPDF_OK)
@@ -280,9 +280,9 @@ static quantapdf_status quantapdf_composer_draw_embedded_text_internal(
     if (composer == NULL || text_utf8 == NULL || options == NULL ||
         options->struct_size <
             QUANTAPDF_COMPOSER_EMBEDDED_TEXT_OPTIONS_V1_MIN_SIZE ||
-        page_index >= composer->page_count ||
+        page_index >= composer->ir.page_count ||
         options->font_id == 0u ||
-        (size_t)options->font_id > composer->font_count ||
+        (size_t)options->font_id > composer->ir.font_count ||
         !quantapdf_embedded_text_rect_valid(bounds) ||
         !quantapdf_affine_transform_valid_internal(transform) ||
         !isfinite(options->font_size) || options->font_size <= 0.0f ||
@@ -296,7 +296,7 @@ static quantapdf_status quantapdf_composer_draw_embedded_text_internal(
             composer, quantapdf_embedded_graphics_state_id(options)))
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    font = &composer->fonts[options->font_id - 1u];
+    font = &composer->ir.fonts[options->font_id - 1u];
     status = quantapdf_ttf_validate_text(
         font->data, font->size, text_utf8);
     if (status != QUANTAPDF_OK)
@@ -326,7 +326,7 @@ static quantapdf_status quantapdf_composer_draw_embedded_text_internal(
     quantapdf_copy_embedded_options(
         &operation.value.embedded_text.options, options);
     operation.value.embedded_text.transform = *transform;
-    composer->operations[composer->operation_count++] = operation;
+    composer->ir.operations[composer->ir.operation_count++] = operation;
     composer->resource_bytes += text_size;
     return QUANTAPDF_OK;
 }
@@ -382,9 +382,9 @@ static quantapdf_status quantapdf_composer_draw_glyph_run_internal(
     if (composer == NULL || options == NULL ||
         options->struct_size <
             QUANTAPDF_COMPOSER_GLYPH_RUN_OPTIONS_V1_MIN_SIZE ||
-        page_index >= composer->page_count ||
+        page_index >= composer->ir.page_count ||
         options->font_id == 0u ||
-        (size_t)options->font_id > composer->font_count ||
+        (size_t)options->font_id > composer->ir.font_count ||
         !isfinite(origin.x) || !isfinite(origin.y) ||
         !quantapdf_affine_transform_valid_internal(transform) ||
         !isfinite(options->font_size) || options->font_size <= 0.0f ||
@@ -400,7 +400,7 @@ static quantapdf_status quantapdf_composer_draw_glyph_run_internal(
     if (!quantapdf_glyph_run_utf8_valid(unicode_bytes, unicode_size))
         return QUANTAPDF_ERROR_FORMAT;
 
-    font = &composer->fonts[options->font_id - 1u];
+    font = &composer->ir.fonts[options->font_id - 1u];
     status = quantapdf_ttf_glyph_count(
         font->data, font->size, &font_glyph_count);
     if (status != QUANTAPDF_OK)
@@ -470,7 +470,7 @@ static quantapdf_status quantapdf_composer_draw_glyph_run_internal(
     quantapdf_copy_glyph_options(
         &operation.value.glyph_run.options, options);
     operation.value.glyph_run.transform = *transform;
-    composer->operations[composer->operation_count++] = operation;
+    composer->ir.operations[composer->ir.operation_count++] = operation;
     composer->resource_bytes += resource_bytes;
     return QUANTAPDF_OK;
 }

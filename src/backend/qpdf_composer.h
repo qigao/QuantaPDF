@@ -9,10 +9,10 @@
 extern "C" {
 #endif
 
-typedef struct quantapdf_composer quantapdf_composer;
+typedef struct quantapdf_ir quantapdf_ir;
 
 quantapdf_status quantapdf_qpdf_compose(
-    const quantapdf_composer *composer,
+    const quantapdf_ir *ir,
     unsigned char **out_data,
     size_t *out_size);
 

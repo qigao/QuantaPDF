@@ -5256,12 +5256,12 @@ svg_publish_snapshot capture_svg_snapshot(
     quantapdf_composer const* composer)
 {
     return {
-        composer->operation_count,
-        composer->paint_count,
-        composer->clip_count,
-        composer->graphics_state_count,
-        composer->soft_mask_count,
-        composer->form_count,
+        composer->ir.operation_count,
+        composer->ir.paint_count,
+        composer->ir.clip_count,
+        composer->ir.graphics_state_count,
+        composer->ir.soft_mask_count,
+        composer->ir.form_count,
         composer->resource_bytes};
 }
 
@@ -5270,37 +5270,37 @@ void rollback_svg_publish(
     svg_publish_snapshot const& snapshot)
 {
     for (size_t i = snapshot.operation_count;
-         i < composer->operation_count;
+         i < composer->ir.operation_count;
          ++i) {
-        auto& operation = composer->operations[i];
+        auto& operation = composer->ir.operations[i];
         if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_PATH) {
             std::free(operation.value.path.dash_lengths);
             std::free(operation.value.path.commands);
         }
     }
     for (size_t i = snapshot.paint_count;
-         i < composer->paint_count;
+         i < composer->ir.paint_count;
          ++i) {
-        std::free(composer->paints[i].stops);
-        std::free(composer->paints[i].pdf_data);
+        std::free(composer->ir.paints[i].stops);
+        std::free(composer->ir.paints[i].pdf_data);
     }
     for (size_t i = snapshot.clip_count;
-         i < composer->clip_count;
+         i < composer->ir.clip_count;
          ++i) {
-        std::free(composer->clips[i].commands);
-        std::free(composer->clips[i].members);
+        std::free(composer->ir.clips[i].commands);
+        std::free(composer->ir.clips[i].members);
     }
     for (size_t i = snapshot.form_count;
-         i < composer->form_count;
+         i < composer->ir.form_count;
          ++i)
-        std::free(composer->forms[i].pdf_data);
+        std::free(composer->ir.forms[i].pdf_data);
 
-    composer->operation_count = snapshot.operation_count;
-    composer->paint_count = snapshot.paint_count;
-    composer->clip_count = snapshot.clip_count;
-    composer->graphics_state_count = snapshot.graphics_state_count;
-    composer->soft_mask_count = snapshot.soft_mask_count;
-    composer->form_count = snapshot.form_count;
+    composer->ir.operation_count = snapshot.operation_count;
+    composer->ir.paint_count = snapshot.paint_count;
+    composer->ir.clip_count = snapshot.clip_count;
+    composer->ir.graphics_state_count = snapshot.graphics_state_count;
+    composer->ir.soft_mask_count = snapshot.soft_mask_count;
+    composer->ir.form_count = snapshot.form_count;
     composer->resource_bytes = snapshot.resource_bytes;
 }
 
@@ -5350,29 +5350,29 @@ quantapdf_status publish_paths(
         state_ids(paths.size(), 0u);
     std::vector<quantapdf_composer_operation> staged(paths.size());
 
-    size_t const paint_snapshot = composer->paint_count;
-    size_t const state_snapshot = composer->graphics_state_count;
-    size_t const clip_snapshot = composer->clip_count;
-    size_t const soft_mask_snapshot = composer->soft_mask_count;
-    size_t const form_snapshot = composer->form_count;
+    size_t const paint_snapshot = composer->ir.paint_count;
+    size_t const state_snapshot = composer->ir.graphics_state_count;
+    size_t const clip_snapshot = composer->ir.clip_count;
+    size_t const soft_mask_snapshot = composer->ir.soft_mask_count;
+    size_t const form_snapshot = composer->ir.form_count;
     size_t const resource_snapshot = composer->resource_bytes;
 
     auto rollback_resources = [&]() {
-        for (size_t i = paint_snapshot; i < composer->paint_count; ++i) {
-            std::free(composer->paints[i].stops);
-            std::free(composer->paints[i].pdf_data);
+        for (size_t i = paint_snapshot; i < composer->ir.paint_count; ++i) {
+            std::free(composer->ir.paints[i].stops);
+            std::free(composer->ir.paints[i].pdf_data);
         }
-        for (size_t i = clip_snapshot; i < composer->clip_count; ++i) {
-            std::free(composer->clips[i].commands);
-            std::free(composer->clips[i].members);
+        for (size_t i = clip_snapshot; i < composer->ir.clip_count; ++i) {
+            std::free(composer->ir.clips[i].commands);
+            std::free(composer->ir.clips[i].members);
         }
-        for (size_t i = form_snapshot; i < composer->form_count; ++i)
-            std::free(composer->forms[i].pdf_data);
-        composer->paint_count = paint_snapshot;
-        composer->clip_count = clip_snapshot;
-        composer->graphics_state_count = state_snapshot;
-        composer->soft_mask_count = soft_mask_snapshot;
-        composer->form_count = form_snapshot;
+        for (size_t i = form_snapshot; i < composer->ir.form_count; ++i)
+            std::free(composer->ir.forms[i].pdf_data);
+        composer->ir.paint_count = paint_snapshot;
+        composer->ir.clip_count = clip_snapshot;
+        composer->ir.graphics_state_count = state_snapshot;
+        composer->ir.soft_mask_count = soft_mask_snapshot;
+        composer->ir.form_count = form_snapshot;
         composer->resource_bytes = resource_snapshot;
     };
 
@@ -5576,7 +5576,7 @@ quantapdf_status publish_paths(
     }
 
     for (auto const& operation: staged)
-        composer->operations[composer->operation_count++] = operation;
+        composer->ir.operations[composer->ir.operation_count++] = operation;
     composer->resource_bytes += total_bytes;
     return QUANTAPDF_OK;
 }
@@ -5632,7 +5632,7 @@ quantapdf_status publish_svg_document(
 
         size_t const expected =
             paths.size() + uses.size() + groups.size();
-        if (composer->operation_count - snapshot.operation_count !=
+        if (composer->ir.operation_count - snapshot.operation_count !=
             expected) {
             rollback_svg_publish(composer, snapshot);
             return QUANTAPDF_ERROR_BACKEND;
@@ -5643,11 +5643,11 @@ quantapdf_status publish_svg_document(
         ordered.reserve(expected);
         size_t cursor = snapshot.operation_count;
         for (auto const& path: paths)
-            ordered.emplace_back(path.order, composer->operations[cursor++]);
+            ordered.emplace_back(path.order, composer->ir.operations[cursor++]);
         for (auto const& use: uses)
-            ordered.emplace_back(use.order, composer->operations[cursor++]);
+            ordered.emplace_back(use.order, composer->ir.operations[cursor++]);
         for (auto const& group: groups)
-            ordered.emplace_back(group.order, composer->operations[cursor++]);
+            ordered.emplace_back(group.order, composer->ir.operations[cursor++]);
         std::sort(
             ordered.begin(),
             ordered.end(),
@@ -5661,7 +5661,7 @@ quantapdf_status publish_svg_document(
             }
         }
         for (size_t i = 0u; i < ordered.size(); ++i) {
-            composer->operations[snapshot.operation_count + i] =
+            composer->ir.operations[snapshot.operation_count + i] =
                 ordered[i].second;
         }
         return QUANTAPDF_OK;
@@ -5684,14 +5684,14 @@ extern "C" quantapdf_status quantapdf_composer_draw_svg(
     if (composer == nullptr || svg_data == nullptr || svg_size == 0u ||
         bounds == nullptr || options == nullptr ||
         options->struct_size < QUANTAPDF_COMPOSER_SVG_OPTIONS_V1_MIN_SIZE ||
-        page_index >= composer->page_count ||
+        page_index >= composer->ir.page_count ||
         !std::isfinite(bounds->x0) || !std::isfinite(bounds->y0) ||
         !std::isfinite(bounds->x1) || !std::isfinite(bounds->y1) ||
         bounds->x1 <= bounds->x0 || bounds->y1 <= bounds->y0)
         return QUANTAPDF_ERROR_ARGUMENT;
     if (svg_size > k_svg_max_input_bytes)
         return QUANTAPDF_ERROR_UNSUPPORTED;
-    if (composer->operation_count > composer->max_operations)
+    if (composer->ir.operation_count > composer->max_operations)
         return QUANTAPDF_ERROR_STATE;
 
     for (size_t i = 0u; i < svg_size; ++i) {
@@ -5701,7 +5701,7 @@ extern "C" quantapdf_status quantapdf_composer_draw_svg(
 
     try {
         size_t const available =
-            composer->max_operations - composer->operation_count;
+            composer->max_operations - composer->ir.operation_count;
         definition_table const definitions =
             parse_definitions(svg_data, svg_size);
         svg_parser parser(
