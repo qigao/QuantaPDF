@@ -132,7 +132,7 @@ static quantapdf_status qp_flatten_path(
     size_t i;
     for (i = 0; i < path->command_count; ++i) {
         const quantapdf_composer_path_command *cmd = &path->commands[i];
-        qp_point_d p, q, r;
+        qp_point_d p = {0}, q = {0}, r = {0};
         quantapdf_status status = QUANTAPDF_OK;
         switch (cmd->kind) {
         case QUANTAPDF_COMPOSER_PATH_MOVE_TO:
