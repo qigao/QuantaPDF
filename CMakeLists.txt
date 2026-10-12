@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(QuantaPDF VERSION 2.33.0 LANGUAGES C CXX)
+project(QuantaPDF VERSION 2.34.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 
@@ -65,6 +65,7 @@ set_target_properties(quantapdf_backend PROPERTIES
 
 add_library(quantapdf
   src/status.c
+  src/context.c
   src/composer.c
   src/composer_font.c
   src/composer_navigation.c

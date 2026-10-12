@@ -7,8 +7,10 @@
 
 static void quantapdf_dispose_text_page(quantapdf_text_page *text)
 {
+    quantapdf_context *context;
     if (text == NULL)
         return;
+    context = text->context;
 
     free(text->blocks);
     free(text->lines);
@@ -16,20 +18,31 @@ static void quantapdf_dispose_text_page(quantapdf_text_page *text)
     free(text->chars);
     free(text->strings);
     free(text);
+    quantapdf_drop_context(context);
 }
 
 quantapdf_status quantapdf_extract_structured_text(
     quantapdf_page *page,
     quantapdf_text_page **out_text)
 {
+    quantapdf_status status;
     if (out_text == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_text = NULL;
 
     if (page == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return page->document->ops->extract_structured_text(
+    status = quantapdf_context_retain_internal(page->context);
+    if (status != QUANTAPDF_OK)
+        return status;
+    status = page->document->ops->extract_structured_text(
         page->backend, out_text);
+    if (status != QUANTAPDF_OK) {
+        quantapdf_drop_context(page->context);
+        return status;
+    }
+    (*out_text)->context = page->context;
+    return QUANTAPDF_OK;
 }
 
 quantapdf_status quantapdf_text_block_count(

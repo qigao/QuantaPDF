@@ -16,15 +16,18 @@ static void quantapdf_zero_rect(quantapdf_rect *rect)
 
 static void quantapdf_dispose_link_page(quantapdf_link_page *links)
 {
+    quantapdf_context *context;
     size_t i;
 
     if (links == NULL)
         return;
+    context = links->context;
 
     for (i = 0; i < links->count; ++i)
         free(links->items[i].uri);
     free(links->items);
     free(links);
+    quantapdf_drop_context(context);
 }
 
 quantapdf_status quantapdf_extract_links(
@@ -42,9 +45,15 @@ quantapdf_status quantapdf_extract_links(
 
     if (page == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    status = page->document->ops->extract_links(page->backend, &links);
+    status = quantapdf_context_retain_internal(page->context);
     if (status != QUANTAPDF_OK)
         return status;
+    status = page->document->ops->extract_links(page->backend, &links);
+    if (status != QUANTAPDF_OK) {
+        quantapdf_drop_context(page->context);
+        return status;
+    }
+    links->context = page->context;
     status = quantapdf_document_page_user_unit(
         page->document, page->page_index, &source_user_unit);
     if (status != QUANTAPDF_OK) {

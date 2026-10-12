@@ -19,6 +19,7 @@ typedef struct quantapdf_image_occurrence_internal {
 } quantapdf_image_occurrence_internal;
 
 struct quantapdf_image_page {
+    quantapdf_context *context;
     quantapdf_image_occurrence_internal *items;
     size_t count;
 };

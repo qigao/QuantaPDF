@@ -42,6 +42,7 @@ typedef struct quantapdf_text_char_internal {
 } quantapdf_text_char_internal;
 
 struct quantapdf_text_page {
+    quantapdf_context *context;
     quantapdf_text_block_internal *blocks;
     quantapdf_text_line_internal *lines;
     quantapdf_text_span_internal *spans;

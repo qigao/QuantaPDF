@@ -19,9 +19,9 @@ quantapdf_status quantapdf_export_pages(
         page_count > (size_t)INT_MAX)
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    output = (quantapdf_output *)calloc(1, sizeof(*output));
-    if (output == NULL)
-        return QUANTAPDF_ERROR_NOMEM;
+    status = quantapdf_output_create_internal(document->context, &output);
+    if (status != QUANTAPDF_OK)
+        return status;
     status = document->ops->export_pages(
         document->backend,
         page_indices,
@@ -29,7 +29,7 @@ quantapdf_status quantapdf_export_pages(
         &output->data,
         &output->size);
     if (status != QUANTAPDF_OK) {
-        free(output);
+        quantapdf_drop_output(output);
         return status;
     }
     *out_output = output;
@@ -54,8 +54,11 @@ quantapdf_status quantapdf_output_data(
 
 void quantapdf_drop_output(quantapdf_output *output)
 {
+    quantapdf_context *context;
     if (output == NULL)
         return;
+    context = output->context;
     free(output->data);
     free(output);
+    quantapdf_drop_context(context);
 }

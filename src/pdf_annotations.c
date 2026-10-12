@@ -6,11 +6,14 @@
 static void quantapdf_dispose_annotation_page(
     quantapdf_annotation_page *annotations)
 {
+    quantapdf_context *context;
     if (annotations == NULL)
         return;
+    context = annotations->context;
     free(annotations->items);
     free(annotations->strings);
     free(annotations);
+    quantapdf_drop_context(context);
 }
 
 quantapdf_status quantapdf_extract_annotations(
@@ -26,15 +29,26 @@ quantapdf_status quantapdf_extract_annotations(
     if (page == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    status = quantapdf_document_page_user_unit(
-        page->document, page->page_index, &user_unit);
+    status = quantapdf_context_retain_internal(page->context);
     if (status != QUANTAPDF_OK)
         return status;
+    status = quantapdf_document_page_user_unit(
+        page->document, page->page_index, &user_unit);
+    if (status != QUANTAPDF_OK) {
+        quantapdf_drop_context(page->context);
+        return status;
+    }
     (void)user_unit;
-    return page->document->ops->extract_annotations(
+    status = page->document->ops->extract_annotations(
         page->document->backend,
         page->page_index,
         out_annotations);
+    if (status != QUANTAPDF_OK) {
+        quantapdf_drop_context(page->context);
+        return status;
+    }
+    (*out_annotations)->context = page->context;
+    return QUANTAPDF_OK;
 }
 
 quantapdf_status quantapdf_annotation_count(

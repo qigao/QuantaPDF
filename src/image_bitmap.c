@@ -10,6 +10,7 @@ quantapdf_status quantapdf_image_render(
 {
     const quantapdf_image_occurrence_internal *occurrence;
     quantapdf_bitmap *bitmap;
+    quantapdf_status status;
 
     if (out_bitmap == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -18,12 +19,20 @@ quantapdf_status quantapdf_image_render(
         return QUANTAPDF_ERROR_ARGUMENT;
 
     occurrence = &images->items[index];
-    bitmap = (quantapdf_bitmap *)calloc(1, sizeof(*bitmap));
-    if (bitmap == NULL)
+    status = quantapdf_context_retain_internal(images->context);
+    if (status != QUANTAPDF_OK)
+        return status;
+    bitmap = (quantapdf_bitmap *)quantapdf_context_allocate_internal(
+        images->context, sizeof(*bitmap));
+    if (bitmap == NULL) {
+        quantapdf_drop_context(images->context);
         return QUANTAPDF_ERROR_NOMEM;
+    }
+    bitmap->context = images->context;
     bitmap->data = (unsigned char *)malloc(occurrence->pixel_size);
     if (bitmap->data == NULL) {
         free(bitmap);
+        quantapdf_drop_context(images->context);
         return QUANTAPDF_ERROR_NOMEM;
     }
     memcpy(bitmap->data, occurrence->pixels, occurrence->pixel_size);

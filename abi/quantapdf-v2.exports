@@ -121,3 +121,8 @@ quantapdf_recompress_images
 quantapdf_encrypt_pdf
 quantapdf_decrypt_pdf
 quantapdf_reencrypt_pdf
+quantapdf_context_create
+quantapdf_drop_context
+quantapdf_composer_create_with_context
+quantapdf_open_with_context
+quantapdf_merge_outputs_with_context

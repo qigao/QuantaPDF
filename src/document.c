@@ -8,8 +8,10 @@
 
 static void quantapdf_dispose_document(quantapdf_document *document)
 {
+    quantapdf_context *context;
     if (document == NULL)
         return;
+    context = document->context;
 
     if (document->backend != NULL)
         document->ops->close(document->backend);
@@ -23,6 +25,7 @@ static void quantapdf_dispose_document(quantapdf_document *document)
         free(document->password);
     }
     free(document);
+    quantapdf_drop_context(context);
 }
 
 static quantapdf_status quantapdf_copy_password(
@@ -50,20 +53,49 @@ quantapdf_status quantapdf_open(
     const char *password,
     quantapdf_document **out_document)
 {
+    quantapdf_context *context;
+    quantapdf_status status;
+    if (out_document == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_document = NULL;
+    status = quantapdf_context_create(&context);
+    if (status != QUANTAPDF_OK)
+        return status;
+    status = quantapdf_open_with_context(
+        context, filename, password, out_document);
+    quantapdf_drop_context(context);
+    return status;
+}
+
+quantapdf_status quantapdf_open_with_context(
+    quantapdf_context *context,
+    const char *filename,
+    const char *password,
+    quantapdf_document **out_document)
+{
     quantapdf_document *document;
     quantapdf_status status;
 
     if (out_document == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_document = NULL;
+    if (context == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     if (filename == NULL || filename[0] == '\0')
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    document = (quantapdf_document *)calloc(1, sizeof(*document));
-    if (document == NULL)
+    status = quantapdf_context_retain_internal(context);
+    if (status != QUANTAPDF_OK)
+        return status;
+    document = (quantapdf_document *)quantapdf_context_allocate_internal(
+        context, sizeof(*document));
+    if (document == NULL) {
+        quantapdf_drop_context(context);
         return QUANTAPDF_ERROR_NOMEM;
-    document->ops = quantapdf_builtin_backend_ops();
+    }
+    document->context = context;
+    document->ops = context->ops;
 
     status = quantapdf_copy_password(
         password, &document->password, &document->password_size);

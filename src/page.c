@@ -19,9 +19,16 @@ quantapdf_status quantapdf_load_page(
     if (document == NULL || page_index < 0)
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    page = (quantapdf_page *)calloc(1, sizeof(*page));
-    if (page == NULL)
+    status = quantapdf_context_retain_internal(document->context);
+    if (status != QUANTAPDF_OK)
+        return status;
+    page = (quantapdf_page *)quantapdf_context_allocate_internal(
+        document->context, sizeof(*page));
+    if (page == NULL) {
+        quantapdf_drop_context(document->context);
         return QUANTAPDF_ERROR_NOMEM;
+    }
+    page->context = document->context;
 
     page->document = document;
     page->page_index = page_index;
@@ -29,6 +36,7 @@ quantapdf_status quantapdf_load_page(
         document->backend, page_index, &page->backend);
     if (status != QUANTAPDF_OK) {
         free(page);
+        quantapdf_drop_context(document->context);
         return status;
     }
     *out_page = page;
@@ -97,9 +105,12 @@ quantapdf_status quantapdf_page_box_bounds(
 
 void quantapdf_drop_page(quantapdf_page *page)
 {
+    quantapdf_context *context;
     if (page == NULL)
         return;
+    context = page->context;
 
     page->document->ops->drop_page(page->backend);
     free(page);
+    quantapdf_drop_context(context);
 }

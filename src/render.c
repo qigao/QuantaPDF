@@ -25,9 +25,16 @@ static quantapdf_status quantapdf_render_page_transformed(
         !isfinite(rotation_degrees) || (alpha != 0 && alpha != 1))
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    bitmap = (quantapdf_bitmap *)calloc(1, sizeof(*bitmap));
-    if (bitmap == NULL)
+    status = quantapdf_context_retain_internal(page->context);
+    if (status != QUANTAPDF_OK)
+        return status;
+    bitmap = (quantapdf_bitmap *)quantapdf_context_allocate_internal(
+        page->context, sizeof(*bitmap));
+    if (bitmap == NULL) {
+        quantapdf_drop_context(page->context);
         return QUANTAPDF_ERROR_NOMEM;
+    }
+    bitmap->context = page->context;
 
     status = quantapdf_document_page_user_unit(
         page->document, page->page_index, &user_unit);
@@ -38,6 +45,7 @@ static quantapdf_status quantapdf_render_page_transformed(
     }
     if (status != QUANTAPDF_OK) {
         free(bitmap);
+        quantapdf_drop_context(page->context);
         return status;
     }
 
@@ -210,9 +218,12 @@ quantapdf_status quantapdf_bitmap_data(
 
 void quantapdf_drop_bitmap(quantapdf_bitmap *bitmap)
 {
+    quantapdf_context *context;
     if (bitmap == NULL)
         return;
+    context = bitmap->context;
 
     free(bitmap->data);
     free(bitmap);
+    quantapdf_drop_context(context);
 }

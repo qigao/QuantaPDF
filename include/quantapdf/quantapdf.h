@@ -22,10 +22,11 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 33
+#define QUANTAPDF_VERSION_MINOR 34
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
+typedef struct quantapdf_context quantapdf_context;
 typedef struct quantapdf_document quantapdf_document;
 typedef struct quantapdf_page quantapdf_page;
 typedef struct quantapdf_bitmap quantapdf_bitmap;
@@ -935,6 +936,46 @@ typedef quantapdf_status (*quantapdf_composer_pattern_builder_fn)(
     quantapdf_composer *tile_composer,
     size_t page_index,
     void *user_data);
+
+/* Create one caller-owned runtime reference using the default C allocator and
+ * built-in provider. NULL out_context returns ARGUMENT; otherwise the slot is
+ * reset to NULL. Allocation failure returns NOMEM. No backend is initialized.
+ * All calls, including on distinct contexts, require external serialization.
+ */
+QUANTAPDF_API quantapdf_status quantapdf_context_create(
+    quantapdf_context **out_context);
+
+/* NULL-safe. Consumes the caller reference; existing handles keep the domain
+ * alive and may produce new handles. The caller must not reuse this pointer.
+ * This does not extend document-dependent page, bitmap or image lifetimes.
+ */
+QUANTAPDF_API void quantapdf_drop_context(quantapdf_context *context);
+
+/* The following three factories borrow a live caller-owned context and retain
+ * it in the successful result. NULL context returns ARGUMENT; output slots
+ * are reset to NULL on failure. Other arguments/statuses match the legacy
+ * factory; reference-count exhaustion returns UNSUPPORTED before backend work.
+ * Legacy factories create an independent implicit domain for each result.
+ */
+QUANTAPDF_API quantapdf_status quantapdf_composer_create_with_context(
+    quantapdf_context *context,
+    const quantapdf_composer_options *options,
+    quantapdf_composer **out_composer);
+
+QUANTAPDF_API quantapdf_status quantapdf_open_with_context(
+    quantapdf_context *context,
+    const char *filename,
+    const char *password,
+    quantapdf_document **out_document);
+
+/* Inputs may belong to different contexts. They are borrowed for this call;
+ * the merged output belongs to context and owns its serialized bytes.
+ */
+QUANTAPDF_API quantapdf_status quantapdf_merge_outputs_with_context(
+    quantapdf_context *context,
+    const quantapdf_output *const *inputs,
+    size_t input_count,
+    quantapdf_output **out_output);
 
 QUANTAPDF_API quantapdf_status quantapdf_composer_create(
     const quantapdf_composer_options *options,

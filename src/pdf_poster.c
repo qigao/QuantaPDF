@@ -25,9 +25,9 @@ quantapdf_status quantapdf_poster_split_pages(
     }
 #endif
 
-    output = (quantapdf_output *)calloc(1, sizeof(*output));
-    if (output == NULL)
-        return QUANTAPDF_ERROR_NOMEM;
+    status = quantapdf_output_create_internal(document->context, &output);
+    if (status != QUANTAPDF_OK)
+        return status;
     status = document->ops->poster_split_pages(
         document->backend,
         splits,
@@ -35,7 +35,7 @@ quantapdf_status quantapdf_poster_split_pages(
         &output->data,
         &output->size);
     if (status != QUANTAPDF_OK) {
-        free(output);
+        quantapdf_drop_output(output);
         return status;
     }
     *out_output = output;

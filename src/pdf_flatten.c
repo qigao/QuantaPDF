@@ -20,9 +20,9 @@ quantapdf_status quantapdf_flatten_interactive(
         flags == 0 || (flags & ~known) != 0)
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    output = (quantapdf_output *)calloc(1, sizeof(*output));
-    if (output == NULL)
-        return QUANTAPDF_ERROR_NOMEM;
+    status = quantapdf_output_create_internal(document->context, &output);
+    if (status != QUANTAPDF_OK)
+        return status;
 
     status = document->ops->flatten_interactive(
         document->backend,
@@ -30,8 +30,7 @@ quantapdf_status quantapdf_flatten_interactive(
         &output->data,
         &output->size);
     if (status != QUANTAPDF_OK) {
-        free(output->data);
-        free(output);
+        quantapdf_drop_output(output);
         return status;
     }
 

@@ -5,10 +5,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-struct quantapdf_form {
-    quantapdf_pdf_form_model *model;
-};
-
 void quantapdf_pdf_form_drop_model(quantapdf_pdf_form_model *model)
 {
     size_t index;
@@ -44,7 +40,6 @@ quantapdf_status quantapdf_document_form(
     quantapdf_document *document,
     quantapdf_form **out_form)
 {
-    quantapdf_pdf_form_model *model = NULL;
     quantapdf_form *form;
     quantapdf_status status;
 
@@ -54,18 +49,21 @@ quantapdf_status quantapdf_document_form(
 
     if (document == NULL || document->backend == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    status = document->ops->extract_form(document->backend, &model);
-    if (status != QUANTAPDF_OK) {
-        quantapdf_pdf_form_drop_model(model);
+    status = quantapdf_context_retain_internal(document->context);
+    if (status != QUANTAPDF_OK)
         return status;
-    }
-
-    form = (quantapdf_form *)calloc(1, sizeof(*form));
+    form = (quantapdf_form *)quantapdf_context_allocate_internal(
+        document->context, sizeof(*form));
     if (form == NULL) {
-        quantapdf_pdf_form_drop_model(model);
+        quantapdf_drop_context(document->context);
         return QUANTAPDF_ERROR_NOMEM;
     }
-    form->model = model;
+    form->context = document->context;
+    status = document->ops->extract_form(document->backend, &form->model);
+    if (status != QUANTAPDF_OK) {
+        quantapdf_drop_form(form);
+        return status;
+    }
     *out_form = form;
     return QUANTAPDF_OK;
 }
@@ -379,8 +377,11 @@ quantapdf_status quantapdf_form_widget_get_info(
 
 void quantapdf_drop_form(quantapdf_form *form)
 {
+    quantapdf_context *context;
     if (form == NULL)
         return;
+    context = form->context;
     quantapdf_pdf_form_drop_model(form->model);
     free(form);
+    quantapdf_drop_context(context);
 }
