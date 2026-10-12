@@ -157,6 +157,20 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Reconcile external source conformance (Linux)
+        shell: bash
+        run: |
+          python3 -m unittest discover -s tests -p test_external_corpus_reconcile.py
+          python3 tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/linux-gcc-release/tests/external-cc0-text-status.json" --blank "build/linux-gcc-release/tests/external-cc0-blank-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
+
+      - name: Upload reconciled external corpus (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-corpus-reconciled-linux
+          path: ${{ runner.temp }}/external-corpus-reconciled.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload external blank-page native oracle (Linux)
         uses: actions/upload-artifact@v4
         with:
@@ -295,6 +309,20 @@ jobs:
         with:
           name: external-corpus-admission-macos
           path: ${{ runner.temp }}/external-pdf-corpus.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Reconcile external source conformance (macOS)
+        shell: bash
+        run: |
+          python3 -m unittest discover -s tests -p test_external_corpus_reconcile.py
+          python3 tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/macos-clang-release/tests/external-cc0-text-status.json" --blank "build/macos-clang-release/tests/external-cc0-blank-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
+
+      - name: Upload reconciled external corpus (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-corpus-reconciled-macos
+          path: ${{ runner.temp }}/external-corpus-reconciled.json
           if-no-files-found: error
           retention-days: 7
 
@@ -459,6 +487,20 @@ jobs:
         with:
           name: external-corpus-admission-windows
           path: ${{ runner.temp }}/external-pdf-corpus.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Reconcile external source conformance (Windows)
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p test_external_corpus_reconcile.py
+          python tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/Msvc-Release/tests/external-cc0-text-status.json" --blank "build/Msvc-Release/tests/external-cc0-blank-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
+
+      - name: Upload reconciled external corpus (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-corpus-reconciled-windows
+          path: ${{ runner.temp }}/external-corpus-reconciled.json
           if-no-files-found: error
           retention-days: 7
 
