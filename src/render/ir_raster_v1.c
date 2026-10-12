@@ -333,7 +333,7 @@ quantapdf_status quantapdf_ir_raster_render_v1(
     memset(out_image, 0, sizeof(*out_image));
     if (ir == NULL || limits == NULL || ir->pages == NULL ||
         page_index >= ir->page_count ||
-        limits->max_pixels == 0u || limits->max_edges == 0u ||
+        limits->max_pixels == 0u || limits->max_edges == 0u || limits->max_edges > 65536u ||
         limits->max_operations == 0u || limits->max_sample_tests == 0u ||
         limits->max_pixels > SIZE_MAX / 4u ||
         limits->max_edges > SIZE_MAX / sizeof(qp_edge) ||
