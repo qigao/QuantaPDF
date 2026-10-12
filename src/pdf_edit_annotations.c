@@ -11,7 +11,7 @@ quantapdf_status quantapdf_pdf_edit_annotation_count(
         *out_count = 0;
     if (edit == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return quantapdf_qpdf_edit_annotation_count(
+    return edit->ops->annotation_count(
         edit->backend, page_index, out_count);
 }
 
@@ -25,7 +25,7 @@ quantapdf_status quantapdf_pdf_edit_annotation_ref_at(
         memset(out_ref, 0, sizeof(*out_ref));
     if (edit == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return quantapdf_qpdf_edit_annotation_ref_at(
+    return edit->ops->annotation_ref_at(
         edit->backend, page_index, index, out_ref);
 }
 
@@ -36,7 +36,7 @@ quantapdf_status quantapdf_pdf_edit_annotation_get_info(
 {
     if (edit == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return quantapdf_qpdf_edit_annotation_get_info(
+    return edit->ops->annotation_get_info(
         edit->backend, ref, out_info);
 }
 
@@ -52,7 +52,7 @@ quantapdf_status quantapdf_pdf_edit_annotation_contents(
         *out_size = 0;
     if (edit == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return quantapdf_qpdf_edit_annotation_contents(
+    return edit->ops->annotation_contents(
         edit->backend, ref, out_utf8, out_size);
 }
 
@@ -66,7 +66,7 @@ quantapdf_status quantapdf_pdf_edit_annotation_create(
         memset(out_ref, 0, sizeof(*out_ref));
     if (edit == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return quantapdf_qpdf_edit_annotation_create(
+    return edit->ops->annotation_create(
         edit->backend, page_index, options, out_ref,
 #if defined(QUANTAPDF_TESTING)
         &edit->test_fault
@@ -83,7 +83,7 @@ quantapdf_status quantapdf_pdf_edit_annotation_update(
 {
     if (edit == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return quantapdf_qpdf_edit_annotation_update(
+    return edit->ops->annotation_update(
         edit->backend, ref, update,
 #if defined(QUANTAPDF_TESTING)
         &edit->test_fault
@@ -99,5 +99,5 @@ quantapdf_status quantapdf_pdf_edit_annotation_delete(
 {
     if (edit == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return quantapdf_qpdf_edit_annotation_delete(edit->backend, ref);
+    return edit->ops->annotation_delete(edit->backend, ref);
 }

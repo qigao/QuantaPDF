@@ -1,8 +1,5 @@
 #include "internal.h"
 
-#include "backend/pdfium_document.h"
-#include "backend/qpdf_document.h"
-
 #include <float.h>
 #include <math.h>
 #include <stdlib.h>
@@ -28,8 +25,8 @@ quantapdf_status quantapdf_load_page(
 
     page->document = document;
     page->page_index = page_index;
-    status = quantapdf_pdfium_load_page(
-        document->pdfium_document, page_index, &page->pdfium_page);
+    status = document->ops->load_page(
+        document->backend, page_index, &page->backend);
     if (status != QUANTAPDF_OK) {
         free(page);
         return status;
@@ -50,7 +47,7 @@ quantapdf_status quantapdf_page_bounds(
 
     if (page == NULL || out_bounds == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    status = quantapdf_pdfium_page_bounds(page->pdfium_page, &bounds);
+    status = page->document->ops->page_bounds(page->backend, &bounds);
     if (status != QUANTAPDF_OK)
         return status;
     status = quantapdf_document_page_user_unit(
@@ -84,8 +81,8 @@ quantapdf_status quantapdf_page_box_bounds(
         page->document, page->page_index, &user_unit);
     if (status != QUANTAPDF_OK)
         return status;
-    status = quantapdf_qpdf_page_box_bounds(
-        page->document->qpdf_document,
+    status = page->document->ops->page_box_bounds(
+        page->document->backend,
         page->page_index,
         box,
         out_bounds);
@@ -103,6 +100,6 @@ void quantapdf_drop_page(quantapdf_page *page)
     if (page == NULL)
         return;
 
-    quantapdf_pdfium_drop_page(page->pdfium_page);
+    page->document->ops->drop_page(page->backend);
     free(page);
 }

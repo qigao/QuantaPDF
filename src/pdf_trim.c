@@ -1,7 +1,5 @@
 #include "internal.h"
 
-#include "backend/qpdf_document.h"
-
 #include <stdlib.h>
 
 quantapdf_status quantapdf_trim_pages(
@@ -16,15 +14,15 @@ quantapdf_status quantapdf_trim_pages(
     if (out_output == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_output = NULL;
-    if (document == NULL || document->qpdf_document == NULL ||
+    if (document == NULL || document->backend == NULL ||
         trims == NULL || trim_count == 0)
         return QUANTAPDF_ERROR_ARGUMENT;
 
     output = (quantapdf_output *)calloc(1, sizeof(*output));
     if (output == NULL)
         return QUANTAPDF_ERROR_NOMEM;
-    status = quantapdf_qpdf_trim_pages(
-        document->qpdf_document,
+    status = document->ops->trim_pages(
+        document->backend,
         trims,
         trim_count,
         &output->data,

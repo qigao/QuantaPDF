@@ -1,5 +1,4 @@
 #include "internal.h"
-#include "backend/qpdf_document.h"
 
 #include <stdlib.h>
 
@@ -39,7 +38,7 @@ quantapdf_status quantapdf_merge_outputs(
         data[index] = inputs[index]->data;
         sizes[index] = inputs[index]->size;
     }
-    status = quantapdf_qpdf_merge_memory(
+    status = quantapdf_builtin_backend_ops()->merge_memory(
         data,
         sizes,
         input_count,

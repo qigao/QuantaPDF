@@ -36,6 +36,7 @@ if(NOT EXISTS "${QUANTAPDF_LIBJPEG_TURBO_COPYRIGHT}")
 endif()
 
 add_library(quantapdf_backend STATIC
+  src/backend/builtin_backend.c
   src/backend/qpdf_document.cpp
   src/backend/qpdf_composer.cpp
   src/backend/composer_text_layout.cpp
@@ -45,7 +46,7 @@ add_library(quantapdf_backend STATIC
   src/backend/jpeg_encoder.cpp
   src/backend/pdfium_document.cpp
   src/backend/pdfium_runtime.cpp)
-target_compile_features(quantapdf_backend PRIVATE cxx_std_20)
+target_compile_features(quantapdf_backend PRIVATE c_std_11 cxx_std_20)
 target_include_directories(quantapdf_backend PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/include"
   "${CMAKE_CURRENT_SOURCE_DIR}/src")

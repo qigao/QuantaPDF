@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include <quantapdf/quantapdf.h>
+#include "document_backend.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,20 +29,9 @@ static inline quantapdf_status quantapdf_qpdf_compute_work_budget_limit(
     return QUANTAPDF_OK;
 }
 
-typedef struct quantapdf_qpdf_image_recompression_test_stats {
-    size_t unique_images;
-    size_t provider_registrations;
-    size_t provider_invocations;
-    size_t decoded_preflight_bytes;
-    int every_provider_once;
-} quantapdf_qpdf_image_recompression_test_stats;
-
-typedef struct quantapdf_qpdf_security_test_stats {
-    size_t context_entries;
-    size_t configure_requests;
-    size_t write_requests;
-    size_t context_exits;
-} quantapdf_qpdf_security_test_stats;
+typedef quantapdf_backend_image_recompression_test_stats
+    quantapdf_qpdf_image_recompression_test_stats;
+typedef quantapdf_backend_security_test_stats quantapdf_qpdf_security_test_stats;
 
 quantapdf_status quantapdf_qpdf_open_memory(
     const unsigned char *data,

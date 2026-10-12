@@ -1,5 +1,4 @@
 #include "internal.h"
-#include "backend/qpdf_document.h"
 
 #include <stddef.h>
 #include <stdlib.h>
@@ -32,8 +31,8 @@ quantapdf_status quantapdf_extract_annotations(
     if (status != QUANTAPDF_OK)
         return status;
     (void)user_unit;
-    return quantapdf_qpdf_extract_annotations(
-        page->document->qpdf_document,
+    return page->document->ops->extract_annotations(
+        page->document->backend,
         page->page_index,
         out_annotations);
 }

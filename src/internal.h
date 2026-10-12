@@ -2,16 +2,13 @@
 #define QUANTAPDF_INTERNAL_H
 
 #include <quantapdf/quantapdf.h>
+#include "backend/document_backend.h"
 
 #include "text_snapshot.h"
 #include "image_snapshot.h"
 #include "link_snapshot.h"
 #include "annotation_snapshot.h"
 #include "outline_snapshot.h"
-
-typedef struct quantapdf_pdfium_document quantapdf_pdfium_document;
-typedef struct quantapdf_pdfium_page quantapdf_pdfium_page;
-typedef struct quantapdf_qpdf_document quantapdf_qpdf_document;
 
 #if defined(QUANTAPDF_TESTING)
 typedef enum quantapdf_test_poster_fault_internal {
@@ -33,8 +30,8 @@ typedef enum quantapdf_test_security_fault_internal {
 struct quantapdf_document {
     unsigned char *source_data;
     size_t source_size;
-    quantapdf_pdfium_document *pdfium_document;
-    quantapdf_qpdf_document *qpdf_document;
+    const quantapdf_backend_ops *ops;
+    void *backend;
     char *password;
     size_t password_size;
 #if defined(QUANTAPDF_TESTING)
@@ -55,7 +52,7 @@ struct quantapdf_document {
 
 struct quantapdf_page {
     quantapdf_document *document;
-    quantapdf_pdfium_page *pdfium_page;
+    void *backend;
     int page_index;
 };
 

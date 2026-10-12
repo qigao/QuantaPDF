@@ -1,5 +1,4 @@
 #include "internal.h"
-#include "backend/pdfium_document.h"
 
 #include <stddef.h>
 #include <stdlib.h>
@@ -25,7 +24,7 @@ quantapdf_status quantapdf_extract_images(
     *out_images = NULL;
     if (page == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return quantapdf_pdfium_extract_images(page->pdfium_page, out_images);
+    return page->document->ops->extract_images(page->backend, out_images);
 }
 
 quantapdf_status quantapdf_image_count(

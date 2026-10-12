@@ -1,5 +1,4 @@
 #include "internal.h"
-#include "backend/pdfium_document.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -14,7 +13,7 @@ static quantapdf_status quantapdf_render_page_transformed(
     quantapdf_bitmap **out_bitmap)
 {
     quantapdf_bitmap *bitmap;
-    quantapdf_pdfium_bitmap rendered = {0};
+    quantapdf_backend_bitmap rendered = {0};
     quantapdf_status status;
     double user_unit;
 
@@ -33,8 +32,8 @@ static quantapdf_status quantapdf_render_page_transformed(
     status = quantapdf_document_page_user_unit(
         page->document, page->page_index, &user_unit);
     if (status == QUANTAPDF_OK) {
-        status = quantapdf_pdfium_render_page(
-            page->pdfium_page, dpi, rotation_degrees, clip, user_unit,
+        status = page->document->ops->render_page(
+            page->backend, dpi, rotation_degrees, clip, user_unit,
             alpha, &rendered);
     }
     if (status != QUANTAPDF_OK) {

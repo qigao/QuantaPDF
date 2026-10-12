@@ -1,7 +1,5 @@
 #include "internal.h"
 
-#include "backend/qpdf_document.h"
-
 #include <stdlib.h>
 
 quantapdf_status quantapdf_poster_split_pages(
@@ -16,7 +14,7 @@ quantapdf_status quantapdf_poster_split_pages(
     if (out_output == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_output = NULL;
-    if (document == NULL || document->qpdf_document == NULL ||
+    if (document == NULL || document->backend == NULL ||
         splits == NULL || split_count == 0)
         return QUANTAPDF_ERROR_ARGUMENT;
 
@@ -30,8 +28,8 @@ quantapdf_status quantapdf_poster_split_pages(
     output = (quantapdf_output *)calloc(1, sizeof(*output));
     if (output == NULL)
         return QUANTAPDF_ERROR_NOMEM;
-    status = quantapdf_qpdf_poster_split_pages(
-        document->qpdf_document,
+    status = document->ops->poster_split_pages(
+        document->backend,
         splits,
         split_count,
         &output->data,
