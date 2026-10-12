@@ -32,6 +32,15 @@ const quantapdf_graph_stream_limits decode_limits = {8192u,128u,100000u};
 const quantapdf_pdf_content_limits parse_limits = {8192u,256u,16u};
 const quantapdf_pdf_path_lower_limits lower_limits = {3u,256u};
 
+/* Exactly one call per generated source-PDF fixture, including rejected
+ * fixtures. The manifest runner checks actual work against declared counts. */
+size_t corpus_fixture_executions = 0u;
+void track_corpus_fixture()
+{
+    CHECK(corpus_fixture_executions < 256u);
+    ++corpus_fixture_executions;
+}
+
 struct probe {
     int x, y_pdf;
     unsigned r, g, b;
@@ -131,6 +140,7 @@ unsigned on_white(const unsigned char *rgba, size_t channel)
 void compare(const char *content, const probe *goldens,
              size_t golden_count, size_t min_clip_resources)
 {
+    track_corpus_fixture();
     quantapdf_ir ir{};
     quantapdf_ir_raster_image native{}, again{};
     size_t gross = 0u;
@@ -356,6 +366,7 @@ struct source_point { int x, y; unsigned r,g,b; };
 void test_mapped_geometry(int rotate,int unit,
                           bool inherited_crop,bool inherited_rotation)
 {
+    track_corpus_fixture();
     quantapdf_ir ir{};
     quantapdf_ir_raster_image native{},again{};
     make_geometry_source(rotate,unit,inherited_crop,inherited_rotation);
@@ -497,6 +508,7 @@ void make_multipage_multistream_source()
 
 void test_selected_page_multistream()
 {
+    track_corpus_fixture();
     make_multipage_multistream_source();
     quantapdf_ir rejected{};
     CHECK(snapshot_lower(&rejected,1u,1u)==QUANTAPDF_ERROR_UNSUPPORTED);
@@ -599,6 +611,7 @@ void test_zero_segment_clip_native_restore()
  * Strict Graph lowering must prefer the nearer wider CropBox. */
 void test_multilevel_page_tree_override()
 {
+    track_corpus_fixture();
     auto pdf=QPDF::create();
     pdf->emptyPDF();
     auto root=pdf->getRoot().getKey("/Pages");
@@ -662,6 +675,7 @@ void test_invalid_inherited_geometry()
         {"/UserUnit","/Invalid",true}
     };
     for(const auto& t:cases) {
+        track_corpus_fixture();
         auto pdf=QPDF::create();
         pdf->emptyPDF();
         auto root=pdf->getRoot().getKey("/Pages");
@@ -706,6 +720,7 @@ void test_extgstate_inheritance_and_override()
     const char *unsupported =
         "<< /ExtGState << /GS << /SMask /None >> >> >>";
     for(int leaf_override=0;leaf_override!=2;++leaf_override) {
+        track_corpus_fixture();
         auto pdf=QPDF::create();
         pdf->emptyPDF();
         auto root=pdf->getRoot().getKey("/Pages");
@@ -766,6 +781,7 @@ void test_extgstate_inheritance_and_override()
  * Resolving page 0 must not leak page 1's unsupported ExtGState. */
 void test_indirect_resource_page_isolation()
 {
+    track_corpus_fixture();
     auto pdf=QPDF::create();
     pdf->emptyPDF();
     auto root=pdf->getRoot().getKey("/Pages");
@@ -899,6 +915,7 @@ void test_inherited_extgstate_fail_closed()
          QUANTAPDF_ERROR_UNSUPPORTED}
     };
     for(const auto& tc:cases) {
+        track_corpus_fixture();
         auto pdf=QPDF::create();
         pdf->emptyPDF();
         auto root=pdf->getRoot().getKey("/Pages");
@@ -933,6 +950,7 @@ void test_inherited_extgstate_fail_closed()
 
 void test_unsupported_operator_fails_closed()
 {
+    track_corpus_fixture();
     quantapdf_ir failed{};
     make_source("q BT ET Q");
     quantapdf_status st=snapshot_lower(&failed);
@@ -941,24 +959,61 @@ void test_unsupported_operator_fails_closed()
           failed.operation_count==0u && failed.resources.clip_count==0u);
     CHECK(std::remove(SOURCE_QQ_PDF)==0);
 }
+
 }
+
+struct source_corpus_family {
+    const char *id;
+    const char *features;
+    const char *expected;
+    const char *oracle;
+    size_t expected_fixtures;
+    void (*run)();
+};
+
+/* Registry and execution are inseparable: adding a row causes the existing
+ * CTest target to execute it and validate its fixture cardinality. */
+static const source_corpus_family source_corpus_families[] = {
+#define QP_SOURCE_CORPUS_FAMILY(ID, TAGS, EXPECTED, ORACLE, COUNT, FN) \
+    {ID, TAGS, EXPECTED, ORACLE, COUNT, &FN},
+#include "native_source_corpus.def"
+#undef QP_SOURCE_CORPUS_FAMILY
+};
 
 int main()
 {
-    test_nested_restore();
-    test_disjoint_clip_restoration();
-    test_evenodd_cancelled_clip_restore();
-    test_evenodd_restore();
-    test_clip_definition_ctm();
-    test_page_geometry_matrix();
-    test_selected_page_multistream();
-    test_zero_segment_clip_native_restore();
-    test_multilevel_page_tree_override();
-    test_invalid_inherited_geometry();
-    test_extgstate_inheritance_and_override();
-    test_indirect_resource_page_isolation();
-    test_inherited_extgstate_fail_closed();
-    test_unsupported_operator_fails_closed();
-    std::fprintf(stderr,"[quantapdf.native_source_qq_oracle] complete\n");
+    constexpr size_t expected_families = 14u;
+    constexpr size_t expected_fixtures = 36u;
+    const size_t families =
+        sizeof(source_corpus_families)/sizeof(source_corpus_families[0]);
+    size_t fixture_total = 0u;
+    CHECK(families == expected_families);
+    for(size_t i=0u;i<families;++i){
+        const source_corpus_family& entry=source_corpus_families[i];
+        CHECK(entry.id && *entry.id && entry.features && *entry.features &&
+              entry.expected && entry.oracle && entry.run);
+        CHECK(entry.expected_fixtures>0u && entry.expected_fixtures<=256u);
+        CHECK(std::strcmp(entry.expected,"accepted")==0 ||
+              std::strcmp(entry.expected,"rejected")==0 ||
+              std::strcmp(entry.expected,"mixed")==0);
+        CHECK(std::strcmp(entry.oracle,"original-pdfium")==0 ||
+              std::strcmp(entry.oracle,"native-only")==0 ||
+              std::strcmp(entry.oracle,"status-only")==0);
+        for(size_t j=0u;j<i;++j)
+            CHECK(std::strcmp(entry.id,source_corpus_families[j].id)!=0);
+        const size_t before=corpus_fixture_executions;
+        entry.run();
+        CHECK(corpus_fixture_executions-before==entry.expected_fixtures);
+        fixture_total+=entry.expected_fixtures;
+        std::fprintf(stderr,
+            "[source-corpus] PASS id=%s expected=%s oracle=%s fixtures=%zu tags=%s\n",
+            entry.id,entry.expected,entry.oracle,entry.expected_fixtures,
+            entry.features);
+    }
+    CHECK(fixture_total==expected_fixtures &&
+          corpus_fixture_executions==expected_fixtures);
+    std::fprintf(stderr,
+        "[source-corpus] complete families=%zu fixtures=%zu\n",
+        families,fixture_total);
     return EXIT_SUCCESS;
 }
