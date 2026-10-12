@@ -1916,6 +1916,28 @@ else()
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
 
+# Independently published original PDFium W* + opaque f* with late text.
+# This qualifies fail-closed UNSUPPORTED, never W* native pixel support.
+add_test(NAME quantapdf.external_pdfium_wstar_late_text_rejection
+  COMMAND quantapdf_test_native_source_qq_oracle --external-wstar-text-pdf
+    "${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/pdfium.bug-1574-wstar-text-v1.pdf"
+    --external-report "${CMAKE_CURRENT_BINARY_DIR}/external-pdfium-wstar-text-status.json")
+set_tests_properties(quantapdf.external_pdfium_wstar_late_text_rejection PROPERTIES
+  TIMEOUT 40 LABELS "conformance;external-corpus;native-raster;wstar-negative")
+if(WIN32)
+  set_property(TEST quantapdf.external_pdfium_wstar_late_text_rejection
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_pdfium_wstar_late_text_rejection
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_pdfium_wstar_late_text_rejection
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
 # Independently published upstream W n rectangular Clip and one-pixel closed
 # blue stroke. Renderer uses pure C11; PDFium reads the ORIGINAL PDF only.
 add_test(NAME quantapdf.external_pdfium_clipped_stroke

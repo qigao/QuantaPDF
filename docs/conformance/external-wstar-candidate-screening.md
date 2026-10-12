@@ -132,6 +132,11 @@ appears, the entire detached IR must remain empty (pages, operations,
 Clip and graphics-state resources). It replaces the prior early-text
 fixture within the same registry slot and does **not** increase 14/36.
 
+The exact original `bug_1574.pdf` has now been admitted solely
+for original-PDFium/nonblank + native-UNSUPPORTED late-text regression
+([#264](https://github.com/qigao/QuantaPDF/issues/264)). It has
+not passed W* native pixel parity and adds zero supported W* sources.
+
 Current external W* positive count: **0**. Reconciled external semantic
 JSON now distinguishes `native_w_clip_supported_count: 1` from
 `native_wstar_clip_supported_count: 0`; attempts to report a positive W*

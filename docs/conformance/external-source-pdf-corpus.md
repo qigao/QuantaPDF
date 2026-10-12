@@ -306,3 +306,26 @@ positive, and this source's **clipped width-1 stroke**. Successful
 opaque-fill case; the 14/36 generated corpus totals remain unchanged.
 No production PDFium removal or public ABI change follows from
 qualifying this particular sample.
+
+## Fifth original PDF: W* Clip followed by unsupported late Text (#264)
+
+[Unchanged upstream PDFium bug_1574.pdf](https://github.com/chromium/pdfium/blob/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources/bug_1574.pdf)
+is independently published at `a84323421e94f484faca52dd9d027934eba42ab8`.
+Original size **724 bytes**, Git Blob `df274187155e8c02b86b1e51eb3347e29759fad4`,
+SHA-256 `900d0ff1911736c372e0c7ead2c68be338479b985c676572db1cc6e35483b890`.
+The specific PDF, its upstream `bug_1574.in` template and preserved
+PDFium BSD notice were reviewed in [#264](https://github.com/qigao/QuantaPDF/issues/264).
+
+The **original** 200×300 page uses `W* n` Clip, opaque `f*`
+Path paint, then `BT/Tf/Tj/ET` Text. A distinct
+`quantapdf.external_pdfium_wstar_late_text_rejection` CTest independently
+renders the original PDFium source (visible ink mandatory) and confirms
+Graph→Detached IR returns **UNSUPPORTED with zero page/operation/Clip/
+graphics-state resources**. No partial-page rewrite or PDFium fallback.
+Its separate JSON contributes only a **rejection**, never a W* pixel pass.
+
+The external manifest contains **5** independent originals: two text
+rejections, one blank positive, one opaque Path positive, and one W nonzero
+clipped-stroke positive. Generated 14/36 is unchanged. Native external W*
+pixel-positive count remains **0**. Continue #262 for an independent,
+fully admitted W* source original and exact-head three-platform pixel parity.

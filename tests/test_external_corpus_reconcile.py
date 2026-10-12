@@ -4,14 +4,14 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"tools"/"qualification"))
-from reconcile_external_corpus import verify, TEXT_ID, BLANK_ID, PATH_ID, CLIP_ID
+from reconcile_external_corpus import verify, TEXT_ID, BLANK_ID, PATH_ID, CLIP_ID, WSTAR_TEXT_ID
 
 
 class ExternalEvidenceReconciliation(unittest.TestCase):
     def setUp(self):
         self.admission={"schema_version":1,"corpus_id":"external-source-pdf",
             "fixture_kind":"external","result":"integrity_verified_only",
-            "document_count":4,"native_conformance_passed_count":0,
+            "document_count":5,"native_conformance_passed_count":0,
             "documents":[
                 {"id":TEXT_ID,"integrity":"verified","native_conformance":"not_run",
                  "expected_native_outcome":"unsupported"},
@@ -20,7 +20,9 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
                 {"id":PATH_ID,"integrity":"verified","native_conformance":"not_run",
                  "expected_native_outcome":"supported-path-clip"},
                 {"id":CLIP_ID,"integrity":"verified","native_conformance":"not_run",
-                 "expected_native_outcome":"supported-clipped-stroke"}]}
+                 "expected_native_outcome":"supported-clipped-stroke"},
+                {"id":WSTAR_TEXT_ID,"integrity":"verified","native_conformance":"not_run",
+                 "expected_native_outcome":"unsupported"}]}
         self.text={"schema_version":1,"corpus_id":"external-source-pdf",
             "fixture_kind":"external","document_id":TEXT_ID,
             "reference_oracle":"original-pdfium","generated_fixture_count":0,
@@ -67,8 +69,17 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
             "mean_rgb_error":0.0,"gross_error_pixels":0,
             "reference_blue_pixels":30,"native_blue_pixels":30,
             "common_blue_pixels":30}
+        self.wstar_text={"schema_version":1,"corpus_id":"external-source-pdf",
+            "fixture_kind":"external","document_id":WSTAR_TEXT_ID,
+            "reference_oracle":"original-pdfium","generated_fixture_count":0,
+            "result":"passed","native_expected_outcome":"unsupported",
+            "native_observed_outcome":"unsupported","pdfium_result":"rendered_nonblank",
+            "native_ir":"empty","page_width":200,"page_height":300,
+            "reference_ink_pixels":45,"status_conformance_passed_count":1,
+            "native_supported_passed_count":0,"native_path_clip_supported_count":0,
+            "native_w_clip_supported_count":0,"native_wstar_clip_supported_count":0}
     def accept(self):
-        return verify(self.admission,self.text,self.blank,self.path,self.clip)
+        return verify(self.admission,self.text,self.blank,self.path,self.clip,self.wstar_text)
 
     def test_valid_evidence_remains_capability_scoped(self):
         report=self.accept()
@@ -77,7 +88,32 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
         self.assertEqual(report["native_w_clip_supported_count"],1)
         self.assertEqual(report["native_wstar_clip_supported_count"],0)
         self.assertEqual(report["native_blank_page_supported"],1)
-        self.assertEqual(report["admitted_documents"],4)
+        self.assertEqual(report["admitted_documents"],5)
+        self.assertEqual(report["external_text_rejection_passed"],2)
+
+    def test_missing_wstar_negative_report_rejects(self):
+        self.wstar_text["result"]="not_run"
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_text_cannot_count_as_native_positive(self):
+        self.wstar_text["native_wstar_clip_supported_count"]=1
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_text_cannot_count_as_w_clip(self):
+        self.wstar_text["native_w_clip_supported_count"]=1
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_text_requires_visible_original(self):
+        self.wstar_text["reference_ink_pixels"]=0
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_text_requires_empty_ir(self):
+        self.wstar_text["native_ir"]="partial"
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_text_wrong_document_rejects(self):
+        self.wstar_text["document_id"]=CLIP_ID
+        with self.assertRaises(AssertionError): self.accept()
 
     def test_forged_wstar_positive_rejects(self):
         self.clip["native_wstar_clip_supported_count"]=1
@@ -97,7 +133,7 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
 
     def test_missing_qualified_document_rejects(self):
         self.admission["documents"].pop()
-        self.admission["document_count"]=3
+        self.admission["document_count"]=4
         with self.assertRaises(AssertionError): self.accept()
 
     def test_unreviewed_document_rejects(self):

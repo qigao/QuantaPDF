@@ -1653,6 +1653,76 @@ int test_external_pdfium_clip_stroke(const char *filename,
     return EXIT_SUCCESS;
 }
 
+/* Published original PDFium W* n + f* then late Text. Test-only PDFium
+ * must visibly render original source; native detached IR rejects atomically.
+ * This is UNSUPPORTED conformance, never native W* pixel compatibility. */
+int test_external_pdfium_wstar_text_rejection(const char *filename,
+                                              const char *report_path)
+{
+    CHECK(filename && *filename && report_path && *report_path);
+    const std::string pending=std::string(report_path)+".tmp";
+    errno=0;
+    if(std::remove(report_path)!=0) CHECK(errno==ENOENT);
+    errno=0;
+    if(std::remove(pending.c_str())!=0) CHECK(errno==ENOENT);
+    CHECK(corpus_fixture_executions==0u);
+    const rgb_image reference=render_original_pdfium(0u,filename);
+    CHECK(reference.width==200 && reference.height==300 &&
+          reference.components==3 && reference.stride>=600);
+    size_t ink=0u;
+    for(size_t y=0u;y<300u;++y)for(size_t x=0u;x<200u;++x){
+        const unsigned char *p=reference.at(x,y);
+        ink+=(size_t)(p[0]<200u || p[1]<200u || p[2]<200u);
+    }
+    CHECK(ink>=8u);
+    quantapdf_ir rejected{};
+    CHECK(snapshot_lower(&rejected,0u,1u,2u,filename)==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(rejected.pages==nullptr && rejected.page_count==0u &&
+          rejected.operations==nullptr && rejected.operation_count==0u &&
+          rejected.resources.clips==nullptr &&
+          rejected.resources.clip_count==0u &&
+          rejected.resources.graphics_states==nullptr &&
+          rejected.resources.graphics_state_count==0u &&
+          rejected.resources.font_count==0u &&
+          rejected.resources.image_count==0u &&
+          rejected.resources.form_count==0u &&
+          rejected.resources.soft_mask_count==0u);
+    quantapdf_ir_dispose(&rejected);
+    CHECK(corpus_fixture_executions==0u);
+    FILE *report=std::fopen(pending.c_str(),"wb");
+    CHECK(report!=nullptr);
+    std::fprintf(report,R"JSON({
+  "schema_version": 1,
+  "corpus_id": "external-source-pdf",
+  "document_id": "pdfium.bug-1574-wstar-text-v1",
+  "fixture_kind": "external",
+  "reference_oracle": "original-pdfium",
+  "native_expected_outcome": "unsupported",
+  "native_observed_outcome": "unsupported",
+  "pdfium_result": "rendered_nonblank",
+  "native_ir": "empty",
+  "page_width": 200,
+  "page_height": 300,
+  "reference_ink_pixels": %zu,
+  "status_conformance_passed_count": 1,
+  "native_supported_passed_count": 0,
+  "native_path_clip_supported_count": 0,
+  "native_w_clip_supported_count": 0,
+  "native_wstar_clip_supported_count": 0,
+  "generated_fixture_count": 0,
+  "result": "passed"
+})JSON"
+    "\n",ink);
+    CHECK(std::ferror(report)==0 && std::fclose(report)==0);
+    CHECK(std::rename(pending.c_str(),report_path)==0);
+    std::fprintf(stderr,
+        "[external-corpus] id=pdfium.bug-1574-wstar-text-v1 "
+        "pdfium=nonblank native=unsupported ir=empty "
+        "wstar-positive=0 ink=%zu\n",ink);
+    return EXIT_SUCCESS;
+}
+
 }
 
 struct source_corpus_family {
@@ -1752,6 +1822,9 @@ int main(int argc,char **argv)
     if(argc==5 && std::strcmp(argv[1],"--external-clip-stroke-pdf")==0 &&
        std::strcmp(argv[3],"--external-report")==0)
         return test_external_pdfium_clip_stroke(argv[2],argv[4]);
+    if(argc==5 && std::strcmp(argv[1],"--external-wstar-text-pdf")==0 &&
+       std::strcmp(argv[3],"--external-report")==0)
+        return test_external_pdfium_wstar_text_rejection(argv[2],argv[4]);
     const char *report_path = nullptr;
     if(argc != 1){
         CHECK(argc==3 && std::strcmp(argv[1],"--corpus-report")==0 &&

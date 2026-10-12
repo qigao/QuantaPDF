@@ -13,23 +13,25 @@ TEXT_ID="tinytoolkit.sample-1-page-v1"
 BLANK_ID="tinytoolkit.sample-blank-letter-v1"
 PATH_ID="pdfium.black-original-v1"
 CLIP_ID="pdfium.clip-path-v1"
+WSTAR_TEXT_ID="pdfium.bug-1574-wstar-text-v1"
 
-def verify(admission, text, blank, path, clip):
+def verify(admission, text, blank, path, clip, wstar_text):
     assert admission["schema_version"]==1 and admission["corpus_id"]=="external-source-pdf"
     assert admission["fixture_kind"]=="external"
     assert admission["result"]=="integrity_verified_only"
     docs=admission["documents"]
     assert admission["document_count"]==len(docs)
-    assert len(docs)==4
+    assert len(docs)==5
     indexed={d["id"]:d for d in docs}
-    assert len(indexed)==len(docs) and set(indexed)=={TEXT_ID,BLANK_ID,PATH_ID,CLIP_ID}
+    assert len(indexed)==len(docs) and set(indexed)=={TEXT_ID,BLANK_ID,PATH_ID,CLIP_ID,WSTAR_TEXT_ID}
     assert all(d["integrity"]=="verified" and d["native_conformance"]=="not_run" for d in docs)
     assert admission["native_conformance_passed_count"]==0
     assert indexed[TEXT_ID]["expected_native_outcome"]=="unsupported"
     assert indexed[BLANK_ID]["expected_native_outcome"]=="supported-blank-page"
     assert indexed[PATH_ID]["expected_native_outcome"]=="supported-path-clip"
     assert indexed[CLIP_ID]["expected_native_outcome"]=="supported-clipped-stroke"
-    for report,id_ in [(text,TEXT_ID),(blank,BLANK_ID),(path,PATH_ID),(clip,CLIP_ID)]:
+    assert indexed[WSTAR_TEXT_ID]["expected_native_outcome"]=="unsupported"
+    for report,id_ in [(text,TEXT_ID),(blank,BLANK_ID),(path,PATH_ID),(clip,CLIP_ID),(wstar_text,WSTAR_TEXT_ID)]:
         assert report["schema_version"]==1
         assert report["corpus_id"]=="external-source-pdf"
         assert report["fixture_kind"]=="external"
@@ -83,10 +85,19 @@ def verify(admission, text, blank, path, clip):
     assert type(clip["native_blue_pixels"]) is int and clip["native_blue_pixels"]>=15
     assert type(clip["common_blue_pixels"]) is int
     assert 2*clip["common_blue_pixels"]>=clip["reference_blue_pixels"]
+    assert wstar_text["pdfium_result"]=="rendered_nonblank"
+    assert wstar_text["native_ir"]=="empty"
+    assert wstar_text["page_width"]==200 and wstar_text["page_height"]==300
+    assert type(wstar_text["reference_ink_pixels"]) is int and wstar_text["reference_ink_pixels"]>=8
+    assert wstar_text["status_conformance_passed_count"]==1
+    assert wstar_text["native_supported_passed_count"]==0
+    for key in ("native_path_clip_supported_count","native_w_clip_supported_count",
+                "native_wstar_clip_supported_count"):
+        assert type(wstar_text[key]) is int and wstar_text[key]==0
     return {
       "schema_version":1,"corpus_id":"external-source-pdf",
-      "result":"passed","admitted_documents":4,
-      "external_text_rejection_passed":1,
+      "result":"passed","admitted_documents":5,
+      "external_text_rejection_passed":2,
       "native_blank_page_supported":1,
       "native_path_clip_supported":2,
       "native_clipped_path_supported":1,
@@ -94,12 +105,12 @@ def verify(admission, text, blank, path, clip):
       "native_wstar_clip_supported_count":0,
       "native_text_supported":0,
       "generated_source_pdf_fixtures_included":0,
-      "evidence_document_ids":[TEXT_ID,BLANK_ID,PATH_ID,CLIP_ID]
+      "evidence_document_ids":[TEXT_ID,BLANK_ID,PATH_ID,CLIP_ID,WSTAR_TEXT_ID]
     }
 
 def main():
     p=argparse.ArgumentParser()
-    for key in ("admission","text","blank","path","clip","output"):
+    for key in ("admission","text","blank","path","clip","wstar-text","output"):
         p.add_argument("--"+key,required=True,type=Path)
     args=p.parse_args()
     if args.output.is_symlink():
@@ -111,7 +122,7 @@ def main():
     staged.unlink(missing_ok=True)
     try:
         inputs=[json.loads(path.read_text(encoding="utf-8")) for path in
-                (args.admission,args.text,args.blank,args.path,args.clip)]
+                (args.admission,args.text,args.blank,args.path,args.clip,args.wstar_text)]
         report=verify(*inputs)
         with staged.open("w",encoding="utf-8",newline="\n") as stream:
             json.dump(report,stream,sort_keys=True,indent=2)
@@ -119,7 +130,7 @@ def main():
         staged.replace(args.output)
     except (AssertionError,KeyError,TypeError,ValueError,OSError) as exc:
         p.error("external corpus evidence mismatch: "+str(exc))
-    print("[external-corpus] reconciled=4 blank_native=1 path_native=2 clipped_native=1 w_clip=1 wstar_clip=0")
+    print("[external-corpus] reconciled=5 text_rejections=2 blank_native=1 path_native=2 clipped_native=1 w_clip=1 wstar_clip=0")
 
 if __name__=="__main__":
     sys.exit(main())
