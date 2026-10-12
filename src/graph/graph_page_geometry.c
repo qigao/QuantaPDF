@@ -348,7 +348,10 @@ quantapdf_status quantapdf_graph_admit_native_page_group(
     group_edge = quantapdf_graph_find(model, leaf, "/Group", 6);
     if (group_edge == NULL) return QUANTAPDF_OK;
     group = quantapdf_graph_node_at(model, group_edge->target);
-    if (group == NULL || group->kind != QUANTAPDF_GRAPH_DICTIONARY)
+    if (group == NULL) return QUANTAPDF_ERROR_BACKEND;
+    /* A null dictionary value is semantically an omitted /Group key. */
+    if (group->kind == QUANTAPDF_GRAPH_NULL) return QUANTAPDF_OK;
+    if (group->kind != QUANTAPDF_GRAPH_DICTIONARY)
         return QUANTAPDF_ERROR_FORMAT;
     /* A group with no explicitly known isolation/space is not admitted,
      * even when its rendered contents happen to look opaque. */
