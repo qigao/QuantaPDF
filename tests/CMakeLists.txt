@@ -1803,7 +1803,8 @@ target_link_libraries(quantapdf_test_native_source_qq_oracle PRIVATE
 target_compile_features(quantapdf_test_native_source_qq_oracle PRIVATE
   c_std_11 cxx_std_20)
 target_compile_definitions(quantapdf_test_native_source_qq_oracle PRIVATE
-  SOURCE_QQ_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-qq-source.pdf")
+  SOURCE_QQ_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-qq-source.pdf"
+  GROUP_SOURCE_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-group-source.pdf")
 if(MSVC)
   target_compile_options(quantapdf_test_native_source_qq_oracle PRIVATE /utf-8)
 endif()
