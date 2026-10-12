@@ -1825,3 +1825,26 @@ else()
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
+
+# Independently published CC0 PDF source; test-only PDFium validates that
+# the ORIGINAL file renders, while native Graph/IR rejects unsupported text.
+# Reuse the same executable, but NOT the 14/36 generated-fixture registry.
+add_test(NAME quantapdf.external_cc0_text_source
+  COMMAND quantapdf_test_native_source_qq_oracle --external-pdf
+    "${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/tinytoolkit.sample-1-page-v1.pdf")
+set_tests_properties(quantapdf.external_cc0_text_source PROPERTIES
+  TIMEOUT 40 LABELS "conformance;external-corpus;native-raster")
+if(WIN32)
+  set_property(TEST quantapdf.external_cc0_text_source
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_cc0_text_source
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_cc0_text_source
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
