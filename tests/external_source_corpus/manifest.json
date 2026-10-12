@@ -20,6 +20,25 @@
       ],
       "page_index": 0,
       "expected_native_outcome": "unsupported"
+    },
+    {
+      "id": "tinytoolkit.sample-blank-letter-v1",
+      "source_url": "https://github.com/tinytoolkit-org/pdf-sample-files/blob/4fd733c47ead5446b06372ab910cb78d1c7da55e/out/sample-blank-letter.pdf",
+      "source_revision": "4fd733c47ead5446b06372ab910cb78d1c7da55e",
+      "sha256": "a53d48827af9f28e3616195bae3d345d5b2708100d0ec43f222f4a19f785cf5c",
+      "size_bytes": 1370,
+      "license_spdx": "CC0-1.0",
+      "license_url": "https://github.com/tinytoolkit-org/pdf-sample-files/blob/4fd733c47ead5446b06372ab910cb78d1c7da55e/README.md",
+      "license_review_url": "https://github.com/qigao/QuantaPDF/issues/252",
+      "attribution": "tinytoolkit-org/pdf-sample-files contributors; CC0 1.0 blank US Letter fixture",
+      "feature_tags": [
+        "blank",
+        "external",
+        "page-geometry",
+        "positive"
+      ],
+      "page_index": 0,
+      "expected_native_outcome": "supported-blank-page"
     }
   ]
 }

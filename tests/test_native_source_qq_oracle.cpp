@@ -4,6 +4,7 @@
  * production rendering intermediate and never invoke a PDFium fallback. */
 #include "document/page_composer_ir.h"
 #include "render/ir_scoped_operations_v1.h"
+#include "render/ir_raster.h"
 
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFWriter.hh>
@@ -1057,6 +1058,121 @@ int test_external_cc0_text_rejection(const char *filename,
     return EXIT_SUCCESS;
 }
 
+
+/* An independently published CC0 blank PDF, not one of our QPDF-generated
+ * fixtures. Blank positive is intentionally a DIFFERENT capability from
+ * opaque Path/Clip paint. Original PDFium pixels are a test-only oracle. */
+int test_external_cc0_blank_native_parity(const char *filename,
+                                          const char *report_path)
+{
+    CHECK(filename && *filename && report_path && *report_path);
+    const std::string pending=std::string(report_path)+".tmp";
+    errno=0;
+    if(std::remove(report_path)!=0) CHECK(errno==ENOENT);
+    errno=0;
+    if(std::remove(pending.c_str())!=0) CHECK(errno==ENOENT);
+    CHECK(corpus_fixture_executions==0u);
+
+    constexpr size_t WIDTH=612u, HEIGHT=792u;
+    quantapdf_document *pdfium_doc=nullptr;
+    quantapdf_page *pdfium_page=nullptr;
+    quantapdf_bitmap *bitmap=nullptr;
+    const unsigned char *rgb=nullptr;
+    size_t bitmap_size=0u;
+    int width=0,height=0,stride=0,components=0;
+    OK(quantapdf_open(filename,nullptr,&pdfium_doc));
+    OK(quantapdf_load_page(pdfium_doc,0u,&pdfium_page));
+    OK(quantapdf_render_page(pdfium_page,&bitmap));
+    OK(quantapdf_bitmap_dimensions(bitmap,
+        &width,&height,&stride,&components));
+    OK(quantapdf_bitmap_data(bitmap,&rgb,&bitmap_size));
+    CHECK(width==(int)WIDTH && height==(int)HEIGHT &&
+          components==3 && stride>=width*3 &&
+          bitmap_size>=(size_t)stride*HEIGHT && rgb!=nullptr);
+
+    quantapdf_document *source=nullptr;
+    quantapdf_graph_snapshot *snapshot=nullptr;
+    quantapdf_ir detached{};
+    OK(quantapdf_open(filename,nullptr,&source));
+    quantapdf_status status=quantapdf_document_capture_graph(
+        source,&graph_limits,&snapshot);
+    quantapdf_close(source);
+    CHECK(status==QUANTAPDF_OK && snapshot!=nullptr);
+    status=quantapdf_graph_snapshot_page_composer_ir(
+        snapshot,0u,2u,&decode_limits,&parse_limits,1u,
+        &lower_limits,&detached);
+    quantapdf_graph_snapshot_drop(snapshot);
+    CHECK(status==QUANTAPDF_OK);
+    CHECK(detached.pages && detached.page_count==1u &&
+          detached.operation_count==0u && detached.operations==nullptr &&
+          detached.pages[0].suppress_background==1 &&
+          detached.pages[0].width_points==(float)WIDTH &&
+          detached.pages[0].height_points==(float)HEIGHT);
+    CHECK(detached.resources.clip_count==0u &&
+          detached.resources.graphics_state_count==0u &&
+          detached.resources.font_count==0u &&
+          detached.resources.image_count==0u &&
+          detached.resources.soft_mask_count==0u &&
+          detached.resources.paint_count==0u &&
+          detached.resources.form_count==0u);
+
+    const quantapdf_ir_raster_limits limits={WIDTH*HEIGHT,1u};
+    quantapdf_ir_raster_image native{},repeat{};
+    OK(quantapdf_ir_raster_render_v0(&detached,0u,&limits,&native));
+    OK(quantapdf_ir_raster_render_v0(&detached,0u,&limits,&repeat));
+    CHECK(native.width==WIDTH && native.height==HEIGHT &&
+          native.stride==WIDTH*4u && native.size==WIDTH*HEIGHT*4u);
+    CHECK(repeat.size==native.size &&
+          std::memcmp(native.pixels,repeat.pixels,native.size)==0);
+    quantapdf_ir_raster_image_dispose(&repeat);
+    quantapdf_ir_dispose(&detached);
+
+    size_t mismatch=0u;
+    for(size_t y=0u;y<HEIGHT;++y)for(size_t x=0u;x<WIDTH;++x){
+        const unsigned char *a=native.pixels+y*native.stride+x*4u;
+        const unsigned char *b=rgb+y*(size_t)stride+x*3u;
+        CHECK(a[0]==0u && a[1]==0u && a[2]==0u && a[3]==0u);
+        for(size_t c=0u;c<3u;++c)
+            if(on_white(a,c)!=b[c])++mismatch;
+    }
+    CHECK(mismatch==0u);
+    quantapdf_ir_raster_image_dispose(&native);
+    quantapdf_drop_bitmap(bitmap);
+    quantapdf_drop_page(pdfium_page);
+    quantapdf_close(pdfium_doc);
+    CHECK(corpus_fixture_executions==0u);
+
+    FILE *report=std::fopen(pending.c_str(),"wb");
+    CHECK(report!=nullptr);
+    std::fprintf(report,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"corpus_id\": \"external-source-pdf\",\n"
+        "  \"document_id\": \"tinytoolkit.sample-blank-letter-v1\",\n"
+        "  \"fixture_kind\": \"external\",\n"
+        "  \"reference_oracle\": \"original-pdfium\",\n"
+        "  \"pdfium_result\": \"rendered_blank\",\n"
+        "  \"native_expected_outcome\": \"supported-blank-page\",\n"
+        "  \"native_observed_outcome\": \"supported-blank-page\",\n"
+        "  \"page_width\": %zu,\n"
+        "  \"page_height\": %zu,\n"
+        "  \"mean_rgb_error\": 0,\n"
+        "  \"mismatched_channels\": %zu,\n"
+        "  \"native_blank_page_supported_count\": 1,\n"
+        "  \"native_path_clip_supported_count\": 0,\n"
+        "  \"native_text_supported_count\": 0,\n"
+        "  \"generated_fixture_count\": 0,\n"
+        "  \"result\": \"passed\"\n"
+        "}\n",WIDTH,HEIGHT,mismatch);
+    CHECK(std::ferror(report)==0);
+    CHECK(std::fclose(report)==0);
+    CHECK(std::rename(pending.c_str(),report_path)==0);
+    std::fprintf(stderr,
+        "[external-corpus] id=tinytoolkit.sample-blank-letter-v1 "
+        "pdfium=blank native=blank-equal path-clip-supported=0\n");
+    return EXIT_SUCCESS;
+}
+
 }
 
 struct source_corpus_family {
@@ -1143,6 +1259,9 @@ int main(int argc,char **argv)
     if(argc==5 && std::strcmp(argv[1],"--external-pdf")==0 &&
        std::strcmp(argv[3],"--external-report")==0)
         return test_external_cc0_text_rejection(argv[2],argv[4]);
+    if(argc==5 && std::strcmp(argv[1],"--external-blank-pdf")==0 &&
+       std::strcmp(argv[3],"--external-report")==0)
+        return test_external_cc0_blank_native_parity(argv[2],argv[4]);
     const char *report_path = nullptr;
     if(argc != 1){
         CHECK(argc==3 && std::strcmp(argv[1],"--corpus-report")==0 &&
