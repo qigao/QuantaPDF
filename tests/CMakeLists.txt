@@ -1514,3 +1514,27 @@ else()
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
+
+
+# Pure C11 per-sample polygon Clip conformance: no PDFium/qpdf/SDK links.
+add_executable(quantapdf_test_native_clip_path_v2
+  test_ir_clip_path_v2.c
+  "${PROJECT_SOURCE_DIR}/src/render/ir_clip_path_v2.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c")
+target_include_directories(quantapdf_test_native_clip_path_v2 PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_native_clip_path_v2 PRIVATE c_std_11)
+if(MSVC)
+  target_compile_options(quantapdf_test_native_clip_path_v2 PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_test_native_clip_path_v2 PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+if(UNIX)
+  target_link_libraries(quantapdf_test_native_clip_path_v2 PRIVATE m)
+endif()
+add_test(NAME quantapdf.native_clip_path_v2
+  COMMAND quantapdf_test_native_clip_path_v2)
+set_tests_properties(quantapdf.native_clip_path_v2 PROPERTIES
+  TIMEOUT 30 LABELS "conformance;native-raster")
