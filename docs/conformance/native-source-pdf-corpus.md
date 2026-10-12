@@ -32,10 +32,10 @@ exact status, budgets, deterministic repeated render and color checks.
 ## Deterministic JSON results (CI artifact)
 
 The existing CTest target invokes its test binary with
-\`--corpus-report <build-directory>/tests/native-source-corpus.json\`.
-The report has \`schema_version: 1\`, \`corpus_id: native-source-pdf\`,
-\`fixture_kind: generated\`, \`result: passed\`, and aggregate
-\`family_count\` and \`fixture_count\`. The ordered \`family_results\` array
+`--corpus-report <build-directory>/tests/native-source-corpus.json`.
+The report has `schema_version: 1`, `corpus_id: native-source-pdf`,
+`fixture_kind: generated`, `result: passed`, and aggregate
+`family_count` and `fixture_count`. The ordered `family_results` array
 contains the family ID, feature tags, expected outcome, oracle category,
 declared and **observed** fixture counts, and pass status. All string fields
 are JSON escaped.
@@ -48,8 +48,8 @@ only after every test has passed, every family execution count matches its
 declaration, and the output is fully written.
 
 The **same** QuantaPDF CI workflow uploads platform-specific artifacts
-under \`source-corpus-linux\`, \`source-corpus-macos\`, and
-\`source-corpus-windows\` (seven-day retention). Linux includes separate
+under `source-corpus-linux`, `source-corpus-macos`, and
+`source-corpus-windows` (seven-day retention). Linux includes separate
 Release and ASan/UBSan reports. Missing output is a CI failure on a
 successful job. These artifacts are machine-readable **family-coverage
 results**, not per-PDF pixels, externally sourced PDFs, or PDF file hashes.
