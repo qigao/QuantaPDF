@@ -18,6 +18,8 @@ MAX_INPUT = 16 * 1024 * 1024
 MAX_STREAMS = 64
 MAX_DECODED_STREAM = 1024 * 1024
 STREAM_MARKER = re.compile(rb"(?<![A-Za-z])stream(?:\r\n|\n|\r)")
+OBJECT_HEADER = re.compile(rb"(?:^|[\r\n])\s*\d+\s+\d+\s+obj\b")
+DIRECT_LENGTH = re.compile(rb"/Length\s+(\d+)(?:\s+(\d+)\s+R)?\b")
 FILTER = re.compile(rb"/Filter\s*(\[[^\]]*\]|/[A-Za-z0-9]+)", re.S)
 PAINT = frozenset((b"f", b"F", b"f*", b"S", b"s", b"B", b"B*", b"b", b"b*"))
 PATH = frozenset((b"m", b"l", b"c", b"v", b"y", b"h", b"re"))
@@ -88,19 +90,44 @@ def content_tokens(data):
 
 def _filter_kind(header):
     matches = list(FILTER.finditer(header))
+    # Nested dictionaries may have their own Filter entries. Do not
+    # silently select the last one and pretend it describes this stream.
+    if len(matches) > 1:
+        return "unsupported_filter"
     if not matches:
         return "raw"
-    selected = matches[-1].group(1).strip()
-    if selected in (b"/FlateDecode", b"[/FlateDecode]", b"[ /FlateDecode ]"):
+    selected = matches[0].group(1).strip()
+    if selected == b"/FlateDecode":
+        return "flate"
+    if (selected.startswith(b"[") and selected.endswith(b"]")
+            and selected[1:-1].split() == [b"/FlateDecode"]):
         return "flate"
     return "unsupported_filter"
+
+
+def _stream_header(blob, marker_start):
+    # The last << may be a nested /DecodeParms dictionary and may follow
+    # /Filter /FlateDecode. Limit to the actual indirect object's header.
+    prefix = blob[max(0, marker_start - 4096):marker_start]
+    objects = list(OBJECT_HEADER.finditer(prefix))
+    if not objects:
+        return None, "unresolved_stream_object"
+    header = prefix[objects[-1].end():]
+    lengths = list(DIRECT_LENGTH.finditer(header))
+    if len(lengths) != 1 or lengths[0].group(2) is not None:
+        return None, "indirect_or_ambiguous_length"
+    length = int(lengths[0].group(1))
+    if length > MAX_INPUT:
+        return None, "stream_exceeds_budget"
+    return (header, length), None
 
 
 def _inflate_bounded(payload):
     decoder = zlib.decompressobj()
     data = decoder.decompress(payload, MAX_DECODED_STREAM + 1)
-    if len(data) > MAX_DECODED_STREAM or not decoder.eof:
-        raise ValueError("exceeded decoded stream limit or incomplete Flate data")
+    if (len(data) > MAX_DECODED_STREAM or not decoder.eof
+            or decoder.unused_data or decoder.unconsumed_tail):
+        raise ValueError("exceeded decoded stream limit or malformed Flate data")
     trailer = decoder.flush()
     if len(data) + len(trailer) > MAX_DECODED_STREAM:
         raise ValueError("decoded stream exceeds limit")
@@ -125,24 +152,24 @@ def screen_pdf_bytes(blob):
         if stream_count > MAX_STREAMS:
             stream_issues.append("too_many_streams")
             break
-        marker = blob.find(b"endstream", match.end())
-        if marker < 0:
-            stream_issues.append("missing_endstream")
+        spec, failure = _stream_header(blob, match.start())
+        if failure is not None:
+            stream_issues.append(failure)
             break
-        end = marker
-        if blob[end - 2:end] == b"\r\n":
-            end -= 2
-        elif blob[end - 1:end] in (b"\n", b"\r"):
-            end -= 1
+        header, length = spec
+        end = match.end() + length
+        if end > len(blob):
+            stream_issues.append("truncated_stream")
+            break
+        # /Length is the authority: the bytes inside a stream can contain
+        # the ASCII word endstream, including in PDF literal strings.
+        boundary = re.match(rb"[ \\t\\r\\n]*endstream\\b", blob[end:end + 32])
+        if boundary is None:
+            stream_issues.append("stream_length_or_boundary_mismatch")
+            break
         payload = blob[match.end():end]
-        # Restrict header inspection to the nearby object dictionary; this
-        # remains a *heuristic* and must not be mistaken for page preflight.
-        header = blob[max(0, match.start() - 2048):match.start()]
-        start = header.rfind(b"<<")
-        if start != -1:
-            header = header[start:]
         kind = _filter_kind(header)
-        position = marker + len(b"endstream")
+        position = end + boundary.end()
         if kind == "unsupported_filter":
             stream_issues.append("unsupported_stream_filter")
             continue
@@ -167,6 +194,8 @@ def screen_pdf_bytes(blob):
             for name, operators in BLOCKERS.items():
                 if tok in operators:
                     blocker_counts[name] += 1
+    if stream_count == 0:
+        stream_issues.append("no_streams_found")
     blockers = sorted(name for name, value in blocker_counts.items() if value)
     if stream_issues:
         status = "inconclusive"

@@ -83,20 +83,25 @@ python3 tools/qualification/screen_external_wstar.py \
 ```
 
 The scanner records an original-byte SHA-256, examines raw and Flate-decoded
-streams (at most 128 PDFs, 16 MiB per source, 64 streams per source and
+streams using bounded per-object direct /Length and precise endstream
+boundaries (at most 128 PDFs, 16 MiB per source, 64 streams per source and
 1 MiB decoded per stream), and distinguishes `W*` from
 `W` and `f*`. It flags later Text/XObject/Image/marked-content
 operators, truncated/unknown streams, and files needing complete page
 preflight. It never edits, generates, fetches, or installs a candidate.
 
 **Heuristic only:** stream recovery is not full PDF object-resolution;
-compressed object streams, inherited resources and arbitrary filters may
-remain inconclusive. Even a `candidate_requires_full_page_preflight`
+compressed object streams, indirect /Length, inherited resources and
+arbitrary filters remain inconclusive. Missing or mismatched stream
+boundaries now fail closed; inner /DecodeParms dictionaries do not hide
+outer /Filter /FlateDecode. Embedded literal 'endstream' does not
+truncate a source stream. This is still **not** complete object/page
+resolution. Even a `candidate_requires_full_page_preflight`
 result is **not** a native-support claim: verify the complete selected
 page, source/license, immutable revision, independent PDFium pixels and
 cross-platform CI separately. The JSON explicitly fixes the W* native
 positive count to zero and marks license/page attribution unreviewed.
-13 synthetic + 3 pinned original-PDF scanner regression cases run as part of the existing
+21 synthetic + 3 pinned original-PDF scanner regression cases run as part of the existing
 Linux, macOS and Windows workflows; no new CI workflow is introduced.
 
 The exact, previously reviewed unchanged PDFium `clip_path.pdf` and

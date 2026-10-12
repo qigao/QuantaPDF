@@ -89,6 +89,75 @@ class ExternalWStarScreening(unittest.TestCase):
         self.assertEqual(doc["native_wstar_clip_supported_count"], 0)
         self.assertEqual(doc["native_pixel_conformance"], "not_run")
 
+    def test_nested_decodeparms_does_not_hide_flate_filter(self):
+        # /Filter belongs to the outer stream dictionary even when the
+        # closest << is a nested /DecodeParms dictionary.
+        content = b"q 0 0 10 10 re W* n 0 0 12 12 re f Q"
+        source = pdf(content, compress=True).replace(
+            b" >>\nstream",
+            b" /DecodeParms << /Predictor 1 >> >>\nstream",
+            1,
+        )
+        result = screen_pdf_bytes(source)
+        self.assertEqual(result["status"], "candidate_requires_full_page_preflight")
+        self.assertEqual(result["operator_counts"]["wstar"], 1)
+        self.assertEqual(result["decoded_stream_count"], 1)
+
+    def test_embedded_endstream_word_does_not_truncate_real_content(self):
+        original = pdf(
+            b"q 0 0 10 10 re W* n (endstream) 0 0 12 12 re f Q"
+        )
+        result = screen_pdf_bytes(original)
+        self.assertEqual(result["status"], "candidate_requires_full_page_preflight")
+        self.assertEqual(result["operator_counts"]["wstar"], 1)
+        self.assertEqual(result["operator_counts"]["paint"], 1)
+
+    def test_indirect_stream_length_is_inconclusive(self):
+        original = pdf(b"0 0 10 10 re W* n 0 0 12 12 re f")
+        source = __import__("re").sub(
+            rb"/Length \d+", b"/Length 5 0 R", original, count=1
+        )
+        result = screen_pdf_bytes(source)
+        self.assertEqual(result["status"], "inconclusive")
+        self.assertIn("indirect_or_ambiguous_length", result["stream_issues"])
+
+    def test_stream_length_boundary_mismatch_is_inconclusive(self):
+        original = pdf(b"0 0 10 10 re W* n 0 0 12 12 re f")
+        source = __import__("re").sub(
+            rb"/Length \d+", b"/Length 1", original, count=1
+        )
+        result = screen_pdf_bytes(source)
+        self.assertEqual(result["status"], "inconclusive")
+        self.assertIn("stream_length_or_boundary_mismatch", result["stream_issues"])
+
+    def test_absent_stream_is_inconclusive(self):
+        report = screen_pdf_bytes(b"%PDF-1.7\n%%EOF\n")
+        self.assertEqual(report["status"], "inconclusive")
+        self.assertIn("no_streams_found", report["stream_issues"])
+
+    def test_multifilter_array_stays_inconclusive(self):
+        report = screen_pdf_bytes(pdf(
+            b"0 0 10 10 re W* n 0 0 12 12 re f",
+            compress=True,
+            filter_token=b"[/ASCII85Decode /FlateDecode]",
+        ))
+        self.assertEqual(report["status"], "inconclusive")
+        self.assertIn("unsupported_stream_filter", report["stream_issues"])
+
+    def test_single_filter_array_accepts_whitespace(self):
+        original = pdf(b"q 0 0 10 10 re W* n 0 0 12 12 re f Q",
+                       compress=True,
+                       filter_token=b"[ /FlateDecode\n ]")
+        report = screen_pdf_bytes(original)
+        self.assertEqual(report["status"], "candidate_requires_full_page_preflight")
+        self.assertEqual(report["operator_counts"]["wstar"], 1)
+
+    def test_missing_endstream_is_inconclusive(self):
+        original = pdf(b"0 0 10 10 re W* n 0 0 12 12 re f")
+        result = screen_pdf_bytes(original.replace(b"endstream", b"endstram"))
+        self.assertEqual(result["status"], "inconclusive")
+        self.assertIn("stream_length_or_boundary_mismatch", result["stream_issues"])
+
     def test_fstar_fill_is_not_evenodd_clip(self):
         doc = screen_pdf_bytes(pdf(b"q 0 0 10 10 re f* Q"))
         self.assertEqual(doc["status"], "no_wstar_observed")
