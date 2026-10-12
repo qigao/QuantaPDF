@@ -107,10 +107,10 @@ rgb_image render_original_pdfium()
     OK(quantapdf_bitmap_dimensions(bitmap,&out.width,&out.height,
                                    &out.stride,&out.components));
     OK(quantapdf_bitmap_data(bitmap,&bytes,&size));
-    CHECK(out.width==(int)PAGE && out.height==(int)PAGE &&
-          out.components==3 && out.stride >= (int)(PAGE*3u) &&
-          size >= PAGE * (size_t)out.stride);
-    out.pixels.assign(bytes, bytes + PAGE*(size_t)out.stride);
+    CHECK(out.width>0 && out.height>0 &&
+          out.components==3 && out.stride >= out.width*3 &&
+          size >= (size_t)out.height * (size_t)out.stride);
+    out.pixels.assign(bytes, bytes + (size_t)out.height*(size_t)out.stride);
     quantapdf_drop_bitmap(bitmap);
     quantapdf_drop_page(page);
     quantapdf_close(doc);
@@ -247,6 +247,154 @@ void test_clip_definition_ctm()
     compare(content,points,sizeof(points)/sizeof(points[0]),1u);
 }
 
+/* Source page geometry is specified independently of the mapped IR:
+ * nonzero inherited MediaBox, inherited or leaf CropBox and /Rotate,
+ * plus a leaf /UserUnit. Comparing against the ORIGINAL PDFium pixels is
+ * essential: serializing the IR again would not test this chain. */
+void make_geometry_source(int rotate, int user_unit,
+                          bool inherited_crop, bool inherited_rotation)
+{
+    CHECK(rotate==0 || rotate==90 || rotate==180 || rotate==270);
+    CHECK(user_unit==1 || user_unit==2);
+    static const char *content =
+        "q 50 45 75 50 re W n "
+        "q 65 55 45 30 re W n "
+        "1 0 0 rg 40 40 100 60 re f "
+        "Q 0 0 1 rg 95 40 45 60 re f "
+        "Q 0 1 0 rg 42 42 12 12 re f";
+    auto pdf=QPDF::create();
+    pdf->emptyPDF();
+    auto root=pdf->getRoot().getKey("/Pages");
+    auto leaf=pdf->makeIndirectObject(
+        QPDFObjectHandle::parse("<< /Type /Page >>"));
+    root.replaceKey("/Kids",QPDFObjectHandle::newArray({leaf}));
+    root.replaceKey("/Count",QPDFObjectHandle::newInteger(1));
+    root.replaceKey("/MediaBox",
+                    QPDFObjectHandle::parse("[20 30 220 150]"));
+    auto crop=QPDFObjectHandle::parse("[40 40 140 100]");
+    if(inherited_crop)root.replaceKey("/CropBox",crop);
+    else leaf.replaceKey("/CropBox",crop);
+    if(inherited_rotation)
+        root.replaceKey("/Rotate",QPDFObjectHandle::newInteger(rotate));
+    else
+        leaf.replaceKey("/Rotate",QPDFObjectHandle::newInteger(rotate));
+    leaf.replaceKey("/UserUnit",QPDFObjectHandle::newInteger(user_unit));
+    leaf.replaceKey("/Parent",root);
+    leaf.replaceKey("/Contents",pdf->newStream(content));
+    QPDFWriter writer(*pdf);
+    writer.setMinimumPDFVersion("1.6");
+    writer.setOutputMemory();
+    writer.write();
+    auto blob=writer.getBufferSharedPointer();
+    FILE *f=std::fopen(SOURCE_QQ_PDF,"wb");
+    CHECK(f!=nullptr);
+    CHECK(std::fwrite(blob->getBuffer(),1,blob->getSize(),f)==
+          blob->getSize() && std::fclose(f)==0);
+}
+
+struct source_point { int x, y; unsigned r,g,b; };
+
+void test_mapped_geometry(int rotate,int unit,
+                          bool inherited_crop,bool inherited_rotation)
+{
+    quantapdf_ir ir{};
+    quantapdf_ir_raster_image native{},again{};
+    make_geometry_source(rotate,unit,inherited_crop,inherited_rotation);
+    OK(snapshot_lower(&ir)); /* releases source document and Graph Snapshot */
+    const size_t width=(size_t)(unit * ((rotate%180)==0 ? 100:60));
+    const size_t height=(size_t)(unit * ((rotate%180)==0 ? 60:100));
+    CHECK(ir.page_count==1u && ir.operation_count==3u &&
+          ir.pages[0].suppress_background==1 &&
+          ir.pages[0].width_points==(float)width &&
+          ir.pages[0].height_points==(float)height &&
+          ir.resources.clip_count>=3u && ir.resources.clip_count<=8u);
+    quantapdf_ir_raster_v1_limits budget={
+        width*height,3u,768u,70000000u
+    };
+    OK(quantapdf_ir_raster_scoped_operations_v1(
+        &ir,0u,&budget,&native));
+    OK(quantapdf_ir_raster_scoped_operations_v1(
+        &ir,0u,&budget,&again));
+    CHECK(native.width==width && native.height==height &&
+          native.stride==4u*width && native.size==4u*width*height);
+    CHECK(native.size==again.size &&
+          std::memcmp(native.pixels,again.pixels,native.size)==0);
+    quantapdf_ir_raster_image_dispose(&again);
+    quantapdf_ir_dispose(&ir);
+    rgb_image reference=render_original_pdfium();
+    CHECK(reference.width==(int)width && reference.height==(int)height);
+
+    /* Compare every pixel, with unchanged strict AA error thresholds. */
+    double aggregate=0.0;
+    size_t gross=0u;
+    for(size_t y=0;y<height;++y)for(size_t x=0;x<width;++x){
+        const unsigned char *a=native.pixels+y*native.stride+x*4u;
+        const unsigned char *b=reference.at(x,y);
+        unsigned worst=0u;
+        for(size_t channel=0;channel<3u;++channel){
+            unsigned p=on_white(a,channel),q=b[channel];
+            unsigned diff=p>q?p-q:q-p;
+            if(diff>worst)worst=diff;
+            aggregate+=(double)diff;
+        }
+        if(worst>64u)++gross;
+    }
+    const double mean=aggregate/(double)(width*height*3u);
+    if(mean>10.0 || gross>width*height/12u){
+        std::fprintf(stderr,
+            "source geometry rotate=%d unit=%d crop_root=%d rot_root=%d mean=%.4f gross=%zu\n",
+            rotate,unit,(int)inherited_crop,(int)inherited_rotation,mean,gross);
+        CHECK(false);
+    }
+
+    /* Independently calculate PDF source-space point → expected display pixel,
+     * rather than trusting Graph's own affine map when selecting goldens. */
+    const source_point goldens[]={
+        {80,70,255,0,0}, {115,70,0,0,255},
+        {44,44,0,255,0}, {130,70,255,255,255},
+        {48,88,255,255,255}, {67,65,255,0,0}
+    };
+    for(const auto& p:goldens){
+        int px=0,py=0;
+        switch(rotate){
+        case 0:   px=p.x-40; py=p.y-40; break;
+        case 90:  px=p.y-40; py=140-p.x; break;
+        case 180: px=140-p.x; py=100-p.y; break;
+        case 270: px=100-p.y; py=p.x-40; break;
+        default: CHECK(false);
+        }
+        px*=unit;
+        py=(int)height-1-py*unit;
+        CHECK(px>=0 && py>=0 && (size_t)px<width && (size_t)py<height);
+        const unsigned char *a=native.pixels+
+            (size_t)py*native.stride+(size_t)px*4u;
+        const unsigned char *b=reference.at((size_t)px,(size_t)py);
+        const unsigned want[3]={p.r,p.g,p.b};
+        for(size_t channel=0;channel<3u;++channel){
+            CHECK(std::abs((int)on_white(a,channel)-(int)want[channel])<=3);
+            CHECK(std::abs((int)b[channel]-(int)want[channel])<=3);
+        }
+    }
+    quantapdf_ir_raster_image_dispose(&native);
+    CHECK(std::remove(SOURCE_QQ_PDF)==0);
+}
+
+void test_page_geometry_matrix()
+{
+    /* Include all four quarter-turns, inherited and leaf boxes/rotation,
+     * and high-dpi page UserUnit without changing paint or clip semantics. */
+    struct test_case { int rotation,unit; bool root_crop,root_rotation; };
+    const test_case cases[]={
+        {0,1,true,true}, {90,1,false,true},
+        {180,1,true,false}, {270,1,false,false},
+        {0,2,false,true}, {90,2,true,false},
+        {180,2,true,true}, {270,2,false,false}
+    };
+    for(const auto& t:cases)
+        test_mapped_geometry(
+            t.rotation,t.unit,t.root_crop,t.root_rotation);
+}
+
 void test_unsupported_operator_fails_closed()
 {
     quantapdf_ir failed{};
@@ -264,6 +412,7 @@ int main()
     test_nested_restore();
     test_evenodd_restore();
     test_clip_definition_ctm();
+    test_page_geometry_matrix();
     test_unsupported_operator_fails_closed();
     std::fprintf(stderr,"[quantapdf.native_source_qq_oracle] complete\n");
     return EXIT_SUCCESS;
