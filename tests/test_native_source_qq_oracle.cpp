@@ -695,6 +695,49 @@ void test_invalid_inherited_geometry()
     }
 }
 
+/* Real source PDF: inherited /Resources resolves /ExtGState through the
+ * page tree. Missing and unsupported states must never publish partial IR. */
+void test_inherited_extgstate_fail_closed()
+{
+    struct scenario { const char *resources; quantapdf_status expected; };
+    const scenario cases[]={
+        {"<< /ExtGState << /Other << /ca 1 >> >> >>", QUANTAPDF_ERROR_FORMAT},
+        {"<< /ExtGState << /GS << /SMask /None >> >> >>",
+         QUANTAPDF_ERROR_UNSUPPORTED}
+    };
+    for(const auto& tc:cases) {
+        auto pdf=QPDF::create();
+        pdf->emptyPDF();
+        auto root=pdf->getRoot().getKey("/Pages");
+        auto page=pdf->makeIndirectObject(
+            QPDFObjectHandle::parse("<< /Type /Page >>"));
+        root.replaceKey("/Kids",QPDFObjectHandle::newArray({page}));
+        root.replaceKey("/Count",QPDFObjectHandle::newInteger(1));
+        root.replaceKey("/MediaBox",QPDFObjectHandle::parse("[0 0 120 120]"));
+        root.replaceKey("/Resources",QPDFObjectHandle::parse(tc.resources));
+        page.replaceKey("/Parent",root);
+        page.replaceKey("/Contents",pdf->newStream(
+            "q /GS gs 10 10 80 80 re W n "
+            "1 0 0 rg 0 0 120 120 re f Q"));
+        QPDFWriter writer(*pdf);
+        writer.setOutputMemory();
+        writer.write();
+        auto blob=writer.getBufferSharedPointer();
+        FILE *file=std::fopen(SOURCE_QQ_PDF,"wb");
+        CHECK(file!=nullptr);
+        CHECK(std::fwrite(blob->getBuffer(),1,blob->getSize(),file)==
+              blob->getSize());
+        CHECK(std::fclose(file)==0);
+        quantapdf_ir ir{};
+        CHECK(snapshot_lower(&ir)==tc.expected);
+        CHECK(ir.pages==nullptr && ir.page_count==0u &&
+              ir.operations==nullptr && ir.operation_count==0u &&
+              ir.resources.clip_count==0u);
+        quantapdf_ir_dispose(&ir);
+        CHECK(std::remove(SOURCE_QQ_PDF)==0);
+    }
+}
+
 void test_unsupported_operator_fails_closed()
 {
     quantapdf_ir failed{};
@@ -719,6 +762,7 @@ int main()
     test_zero_segment_clip_native_restore();
     test_multilevel_page_tree_override();
     test_invalid_inherited_geometry();
+    test_inherited_extgstate_fail_closed();
     test_unsupported_operator_fails_closed();
     std::fprintf(stderr,"[quantapdf.native_source_qq_oracle] complete\n");
     return EXIT_SUCCESS;
