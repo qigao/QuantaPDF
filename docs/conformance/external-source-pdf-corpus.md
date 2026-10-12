@@ -79,10 +79,59 @@ The standalone semantic report records
 compatibility success and not complete PDF compatibility.** The required
 future first external painted/Clip path pixel-oracle remains under #233.
 
-The repository now contains two externally sourced CC0 PDF documents:
-one strict text `UNSUPPORTED` example and one blank-page positive baseline.
+The repository includes two externally sourced CC0 PDFs:
+one strict text `UNSUPPORTED` example and one blank-page positive baseline,
+plus one separately reviewed PDFium opaque-PATH test asset.
 The generated 14 families / 36 PDF executions are unaffected, and no
 external document is generated or downloaded in CI.
+
+## Third external document: original PDFium opaque black PATH
+
+Source and publisher license evidence: [#256](https://github.com/qigao/QuantaPDF/issues/256).
+The exact *original PDF* is
+[PDFium testing/resources/black.pdf](https://github.com/chromium/pdfium/blob/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources/black.pdf),
+pinned to commit `a84323421e94f484faca52dd9d027934eba42ab8`
+(923 bytes, SHA-256
+`41974886a825bb43056bc121a96780577b4f537c7776e705e485c55a1230bf4d`).
+The upstream and vendored Git Blob IDs both equal
+`8513d9f3fd64b1481bf3bd9cf8c963b6c6643b4d`.
+Its publisher is PDFium Authors with a BSD-3-Clause license declaration
+in the pinned repository `LICENSE`; the repository preserves that BSD
+notice under `tests/external_source_corpus/PDFIUM-BSD-NOTICE.txt`.
+The creator and producer fields identify Cairo 1.13.1 as the PDF authoring
+software, not an independent copyright grant. The minimal test source
+contains no external fonts, images, or personal information. This review
+is specific to the **single reviewed asset**, not blanket approval for
+other PDFium test fixtures.
+
+The source has one 612×792 page. Its compressed original content stream
+uses an opaque solid black rectangle with ordinary graphics-state save,
+normal alpha `/a0 gs`, rectangle fill `re f`, and restore. The page
+also advertises a DeviceRGB transparency group. The native acceptance
+gate is deliberately limited to that exact **opaque** case; it is
+*not* a general transparency-group, soft-mask, or blend-mode feature.
+
+The separate `quantapdf.external_pdfium_black_path` CTest independently
+renders original PDFium RGB and lowers the original document into detached
+IR, disposing source document and Graph Snapshot before pure C11 raster.
+The native raster now permits one bounded opaque operation; the test
+requires a single PATH, no Clip nodes, no font/image/mask/form resources,
+exact dimensions, repeat byte identity, black native golden pixels,
+mean RGB difference <=3 and zero gross (>64) error pixels.
+Report `external-pdfium-black-path-status.json` contains actual measured
+per-page metrics, with `native_path_clip_supported_count: 1` and
+`native_clipped_path_supported_count: 0` **only after the exact source
+passes**.
+
+The independent reconciliation gate compares this third semantic
+report with the offline SHA-256 admission record and with prior text
+rejection and blank positive reports. The three distinct external source
+documents, 14 generated test families, and 36 generated source-PDF
+executions are never merged into one compatibility percentage.
+
+**Remaining**: one independently sourced PDF with actual W/W* Clip and
+paint operation(s), original-source PDFium pixel parity and bounded
+clip semantics. This remains [#254](https://github.com/qigao/QuantaPDF/issues/254).
 
 ## Admission ledger and offline tool
 
