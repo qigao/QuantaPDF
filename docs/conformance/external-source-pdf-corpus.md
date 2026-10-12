@@ -51,6 +51,39 @@ recorded source and its own copyright/licensing status. A repository's
 open-source *code* license does not necessarily license every attached PDF.
 No files are downloaded during CI.
 
+## Second external document: CC0 blank Letter native-positive baseline
+
+[#252](https://github.com/qigao/QuantaPDF/issues/252) pins the exact
+independently published `sample-blank-letter.pdf` from the same upstream
+CC0 sample-file set, revision `4fd733c47ead5446b06372ab910cb78d1c7da55e`.
+The source is 1,370 bytes with SHA-256
+`a53d48827af9f28e3616195bae3d345d5b2708100d0ec43f222f4a19f785cf5c`
+and matching upstream/vendored Git Blob
+`12b76d33fa368d2e2a8234448c44ab85e42ecf04`.
+
+This fixture has one **612×792 Letter page and no /Contents**.
+`quantapdf.external_cc0_blank_native` parses the original PDF via
+Graph → detached IR and requires exactly one blank page with zero path,
+text, image and Clip resources. The existing private pure-C11
+`quantapdf_ir_raster_render_v0` consumes that detached IR without calling
+PDFium. The original source file is rendered separately using test-only
+PDFium, and every RGB channel of every pixel is compared against native
+RGBA composited over white. Repeat native raster bytes must match exactly.
+
+The standalone semantic report records
+`native_blank_page_supported_count: 1`,
+`native_path_clip_supported_count: 0`, and
+`native_text_supported_count: 0`. The admission report remains
+`integrity_verified_only` and contains no renderer-pass claims.
+**This is a positive external blank-page qualification, not a Path/Clip
+compatibility success and not complete PDF compatibility.** The required
+future first external painted/Clip path pixel-oracle remains under #233.
+
+The repository now contains two externally sourced CC0 PDF documents:
+one strict text `UNSUPPORTED` example and one blank-page positive baseline.
+The generated 14 families / 36 PDF executions are unaffected, and no
+external document is generated or downloaded in CI.
+
 ## Admission ledger and offline tool
 
 `tools/qualification/external_pdf_corpus.py` reads the source-controlled
