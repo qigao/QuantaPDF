@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(QuantaPDF VERSION 2.34.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
 
 option(QUANTAPDF_BUILD_TESTS "Build QuantaPDF tests" ON)
 
@@ -51,7 +52,8 @@ target_include_directories(quantapdf_backend PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/include"
   "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(quantapdf_backend PRIVATE
-  QuantaPDF::PDFium
+  $<BUILD_INTERFACE:QuantaPDF::PDFium>
+  $<INSTALL_INTERFACE:QuantaPDF::_PDFium>
   qpdf::libqpdf
   JPEG::JPEG
   ZLIB::ZLIB)
@@ -61,6 +63,7 @@ elseif(APPLE)
   target_link_libraries(quantapdf_backend PRIVATE "-framework Security")
 endif()
 set_target_properties(quantapdf_backend PROPERTIES
+  EXPORT_NAME _backend
   POSITION_INDEPENDENT_CODE ON)
 
 add_library(quantapdf
@@ -110,6 +113,7 @@ target_include_directories(quantapdf PUBLIC
 target_link_libraries(quantapdf PRIVATE
   quantapdf_backend)
 set_target_properties(quantapdf PROPERTIES
+  EXPORT_NAME QuantaPDF
   LINKER_LANGUAGE CXX
   VERSION "${PROJECT_VERSION}"
   SOVERSION "${PROJECT_VERSION_MAJOR}")
@@ -131,20 +135,66 @@ else()
     -Wall -Wextra -Wpedantic -Werror)
 endif()
 
-install(TARGETS quantapdf
+install(TARGETS quantapdf EXPORT QuantaPDFTargets
   RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
   LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
   ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/quantapdf"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
 
+# A static SDK must carry the private archive and describe its link closure.
+# Shared SDK consumers only link QuantaPDF; its backend is already linked in.
+if(NOT BUILD_SHARED_LIBS)
+  install(TARGETS quantapdf_backend EXPORT QuantaPDFTargets
+    ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+endif()
+
 if(WIN32)
-  set(_quantapdf_pdfium_destination "${CMAKE_INSTALL_BINDIR}")
+  set(QUANTAPDF_PDFIUM_INSTALL_DIR "${CMAKE_INSTALL_BINDIR}")
 else()
-  set(_quantapdf_pdfium_destination "${CMAKE_INSTALL_LIBDIR}")
+  set(QUANTAPDF_PDFIUM_INSTALL_DIR "${CMAKE_INSTALL_LIBDIR}")
 endif()
 install(FILES "$<TARGET_FILE:quantapdf_pdfium>"
-  DESTINATION "${_quantapdf_pdfium_destination}")
+  DESTINATION "${QUANTAPDF_PDFIUM_INSTALL_DIR}")
+if(WIN32 AND NOT BUILD_SHARED_LIBS)
+  install(FILES "$<TARGET_LINKER_FILE:quantapdf_pdfium>"
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+endif()
+
+if(APPLE)
+  set_property(TARGET quantapdf PROPERTY INSTALL_RPATH "@loader_path")
+elseif(UNIX)
+  set_property(TARGET quantapdf PROPERTY INSTALL_RPATH "$ORIGIN")
+endif()
+
+get_target_property(_quantapdf_pdfium_runtime quantapdf_pdfium IMPORTED_LOCATION)
+get_filename_component(QUANTAPDF_PDFIUM_RUNTIME_NAME
+  "${_quantapdf_pdfium_runtime}" NAME)
+if(WIN32)
+  get_target_property(_quantapdf_pdfium_import quantapdf_pdfium IMPORTED_IMPLIB)
+  get_filename_component(QUANTAPDF_PDFIUM_IMPORT_NAME
+    "${_quantapdf_pdfium_import}" NAME)
+endif()
+set(_quantapdf_package_dir "${CMAKE_INSTALL_LIBDIR}/cmake/QuantaPDF")
+configure_package_config_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/QuantaPDFConfig.cmake.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/QuantaPDFConfig.cmake"
+  INSTALL_DESTINATION "${_quantapdf_package_dir}"
+  PATH_VARS QUANTAPDF_PDFIUM_INSTALL_DIR CMAKE_INSTALL_LIBDIR)
+write_basic_package_version_file(
+  "${CMAKE_CURRENT_BINARY_DIR}/QuantaPDFConfigVersion.cmake"
+  VERSION "${PROJECT_VERSION}"
+  COMPATIBILITY SameMajorVersion)
+install(EXPORT QuantaPDFTargets
+  FILE QuantaPDFTargets.cmake
+  NAMESPACE QuantaPDF::
+  DESTINATION "${_quantapdf_package_dir}")
+install(FILES
+  "${CMAKE_CURRENT_BINARY_DIR}/QuantaPDFConfig.cmake"
+  "${CMAKE_CURRENT_BINARY_DIR}/QuantaPDFConfigVersion.cmake"
+  DESTINATION "${_quantapdf_package_dir}")
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/docs/native-sdk.md"
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/quantapdf/docs")
 install(FILES
   "${QUANTAPDF_PDFIUM_ROOT}/LICENSE"
   DESTINATION "${CMAKE_INSTALL_DATADIR}/quantapdf/licenses/pdfium")
