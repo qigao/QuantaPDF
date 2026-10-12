@@ -93,10 +93,13 @@ provenance have been qualified.
 This baseline provides an executable inventory rather than a broad public
 PDF compatibility score. It does not count the entire standalone native
 test suite, and it deliberately includes one `native-only` fixture.
-External PDF corpus provenance, license metadata, canonicalized source
-hashes, normalized per-document manifest records, coverage-by-feature
-aggregation and machine-readable CI artifacts remain separate increments
-under #233. A failed test must never be converted to a pass by loosening
+An independently tracked **external PDF** corpus now has an offline
+provenance/byte-integrity admission gate documented in
+[external-source-pdf-corpus.md](external-source-pdf-corpus.md). Its initial
+manifest contains **zero** admitted documents. That gate never adds to the
+36 generated-source executions and never claims native renderer parity;
+actual licensed external PDFs and their semantic pixel/status qualification
+remain future #233 work. A failed test must never be converted to a pass by loosening
 pixel thresholds or silently redirecting to PDFium.
 
 The public QuantaPDF SDK remains PDFium-backed. Remove its PDFium
