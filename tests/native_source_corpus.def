@@ -1,0 +1,30 @@
+/* Test-only generated source-PDF conformance FAMILY registry.
+ * Each row is one executable group. The family_count is the exact number
+ * of PDFs generated/tested by that group (not number of rendered pages).
+ *
+ * QP_SOURCE_CORPUS_FAMILY(id, feature_tags, expected_result, oracle,
+ *                         fixture_count, test_function)
+ * expected_result: accepted | rejected | mixed
+ * oracle: original-pdfium | native-only | status-only
+ *
+ * These are generated, test-owned PDFs, not an external licensed corpus.
+ * This X-macro list is compiled into the test runner, which checks that
+ * every listed group executes its declared number of fixtures.
+ */
+#ifndef QP_SOURCE_CORPUS_FAMILY
+#error "Define QP_SOURCE_CORPUS_FAMILY before including the corpus registry"
+#endif
+QP_SOURCE_CORPUS_FAMILY("clip.nested_q_restore", "q/Q;W;n;restoration", "accepted", "original-pdfium", 1u, test_nested_restore)
+QP_SOURCE_CORPUS_FAMILY("clip.disjoint_intersection", "nested-clips;disjoint;restoration", "accepted", "original-pdfium", 1u, test_disjoint_clip_restoration)
+QP_SOURCE_CORPUS_FAMILY("clip.evenodd_cancelled", "W*;evenodd;empty-intersection", "accepted", "original-pdfium", 1u, test_evenodd_cancelled_clip_restore)
+QP_SOURCE_CORPUS_FAMILY("clip.evenodd_hole", "W*;evenodd;hole;restoration", "accepted", "original-pdfium", 1u, test_evenodd_restore)
+QP_SOURCE_CORPUS_FAMILY("clip.definition_ctm", "W;CTM;clip-definition;restoration", "accepted", "original-pdfium", 1u, test_clip_definition_ctm)
+QP_SOURCE_CORPUS_FAMILY("geometry.rotate_crop_userunit", "MediaBox;CropBox;Rotate;UserUnit;inheritance", "accepted", "original-pdfium", 8u, test_page_geometry_matrix)
+QP_SOURCE_CORPUS_FAMILY("content.multipage_multistream", "page-isolation;Contents-array;q/Q;stream-limit", "mixed", "original-pdfium", 1u, test_selected_page_multistream)
+QP_SOURCE_CORPUS_FAMILY("clip.zero_segment", "W;W*;zero-segment;pdfium-observed", "accepted", "original-pdfium", 2u, test_zero_segment_clip_native_restore)
+QP_SOURCE_CORPUS_FAMILY("geometry.three_level_override", "PageTree;parent-depth;CropBox;nearest-ancestor", "accepted", "native-only", 1u, test_multilevel_page_tree_override)
+QP_SOURCE_CORPUS_FAMILY("geometry.invalid_metadata", "MediaBox;CropBox;Rotate;UserUnit;fail-closed", "rejected", "status-only", 13u, test_invalid_inherited_geometry)
+QP_SOURCE_CORPUS_FAMILY("resources.inherited_override", "Resources;ExtGState;leaf-override;opacity", "accepted", "original-pdfium", 2u, test_extgstate_inheritance_and_override)
+QP_SOURCE_CORPUS_FAMILY("resources.indirect_page_isolation", "Resources;ExtGState;indirect;SMask;page-isolation", "mixed", "original-pdfium", 1u, test_indirect_resource_page_isolation)
+QP_SOURCE_CORPUS_FAMILY("resources.inherited_gs_rejection", "Resources;ExtGState;missing-ref;SMask;fail-closed", "rejected", "status-only", 2u, test_inherited_extgstate_fail_closed)
+QP_SOURCE_CORPUS_FAMILY("operators.unsupported_text", "BT;ET;unsupported;fail-closed", "rejected", "status-only", 1u, test_unsupported_operator_fails_closed)
