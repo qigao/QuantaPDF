@@ -80,13 +80,20 @@ Run the portable, bounded, standard-library-only diagnostic on existing,
 ```sh
 python3 tools/qualification/screen_external_wstar.py \
   --pdf /path/to/original.pdf --report /tmp/wstar-screen.json
+
+# For a separately downloaded, unchanged local corpus:
+python3 tools/qualification/screen_external_wstar.py \
+  --pdf-dir /path/to/pinned-upstream-pdfs --report /tmp/wstar-corpus-screen.json
 ```
 
 The scanner records an original-byte SHA-256, examines raw, Flate-decoded,
 strictly bounded ASCII85, ASCIIHex, and ordered ASCII85/ASCIIHex-to-Flate
 streams using per-object direct /Length and precise endstream
 boundaries (at most 128 PDFs, 16 MiB per source, 64 streams per source and
-1 MiB decoded per stream), and distinguishes `W*` from
+1 MiB decoded per stream). Directory discovery is bounded to 4,096 entries
+and 16 levels, sorted deterministically, never follows symlinks, and
+rejects duplicate basenames. It is offline and never downloads files.
+The scanner distinguishes `W*` from
 `W` and `f*`. It flags later Text/XObject/Image/marked-content
 operators, truncated/unknown streams, and files needing complete page
 preflight. It never edits, generates, fetches, or installs a candidate.
@@ -110,7 +117,7 @@ result is **not** a native-support claim: verify the complete selected
 page, source/license, immutable revision, independent PDFium pixels and
 cross-platform CI separately. The JSON explicitly fixes the W* native
 positive count to zero and marks license/page attribution unreviewed.
-37 synthetic + 3 pinned original-PDF scanner regression cases run as part of the existing
+42 synthetic + 3 pinned original-PDF scanner regression cases run as part of the existing
 Linux, macOS and Windows workflows; no new CI workflow is introduced.
 
 The exact, previously reviewed unchanged PDFium `clip_path.pdf` and
@@ -228,3 +235,10 @@ Current external W* positive count: **0**. Reconciled external semantic
 JSON now distinguishes `native_w_clip_supported_count: 1` from
 `native_wstar_clip_supported_count: 0`; attempts to report a positive W*
 count without a qualified original source must fail closed.
+
+## Additional immutable upstream search checkpoint (2026-10-13)
+
+- [Mozilla PDF.js at `68f5e2182525acc90c030fd839f6cda90d555c17`](https://github.com/mozilla/pdf.js/tree/68f5e2182525acc90c030fd839f6cda90d555c17/test/pdfs), published `test/pdfs` Git tree `17d31edb817fbc716cfd9558a7f203b364c0a9b8`: screened **raw unchanged bytes** of 180 small `.pdf` files. Reproduce selection by filtering the tree to regular `.pdf` blobs with size 200..2,600 bytes, sorting by byte size then Git tree filename order, and selecting the first 180. No literal whitespace-delimited `W*` was observed in their raw source bytes; `clippath.pdf` uses `W`, not `W*`. This was **not** decompressed selected-page screening: Flate/ASCII encodings, inherited content/resources and remaining PDFs are not excluded. No PDF.js file was admitted or relicensed.
+- Previously reviewed fpdf2/PDFium and PDF Association candidates remain screening-only or strict unsupported negatives unless individually approved. Upstream repository code licenses alone do not establish document-level redistribution rights.
+
+**No native original-source W* pixel-positive has been found.** The next gate remains a complete selected-page typed-original `W*` Path/Clip admission followed by unchanged-source PDFium versus owned Detached IR/C11 pixel goldens, full-image budgets and deterministic repeat on exact-head CI. Keep [#262](https://github.com/qigao/QuantaPDF/issues/262) OPEN and Draft [#263](https://github.com/qigao/QuantaPDF/pull/263) unmerged.

@@ -9,6 +9,7 @@ import argparse
 import base64
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -18,6 +19,8 @@ MAX_PDFS = 128
 MAX_INPUT = 16 * 1024 * 1024
 MAX_STREAMS = 64
 MAX_DECODED_STREAM = 1024 * 1024
+MAX_DIRECTORY_ENTRIES = 4096
+MAX_DIRECTORY_DEPTH = 16
 STREAM_MARKER = re.compile(rb"(?<![A-Za-z])stream(?:\r\n|\n|\r)")
 OBJECT_HEADER = re.compile(rb"(?:^|[\r\n])\s*\d+\s+\d+\s+obj\b")
 DIRECT_LENGTH = re.compile(rb"/Length\s+(\d+)(?:\s+(\d+)\s+R)?\b")
@@ -332,13 +335,62 @@ def screen_pdf_file(path):
             "sha256": hashlib.sha256(original_bytes).hexdigest(), **result}
 
 
+def _discover_pdf_directory(root):
+    """Enumerate bounded, deterministic local PDF files without following links.
+
+    This is a source-*discovery* convenience only, not native admission.
+    """
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError("PDF directory must be a real, non-symlink directory")
+    base = root.resolve()
+    pending = [(root, 0)]
+    found = []
+    entries_seen = 0
+    while pending:
+        current, depth = pending.pop()
+        with os.scandir(current) as scan:
+            entries = sorted(scan, key=lambda item: item.name)
+        for entry in entries:
+            entries_seen += 1
+            if entries_seen > MAX_DIRECTORY_ENTRIES:
+                raise ValueError("PDF directory exceeds entry budget")
+            path = Path(entry.path)
+            # Never follow a symlink, including symlinked directories.
+            if entry.is_symlink():
+                if path.suffix.lower() == ".pdf":
+                    raise ValueError("symlink PDF candidate rejected")
+                continue
+            if entry.is_dir(follow_symlinks=False):
+                if depth >= MAX_DIRECTORY_DEPTH:
+                    raise ValueError("PDF directory exceeds nesting budget")
+                pending.append((path, depth + 1))
+            elif path.suffix.lower() == ".pdf":
+                if not entry.is_file(follow_symlinks=False):
+                    raise ValueError("PDF candidate is not a regular file")
+                if base not in path.resolve().parents:
+                    raise ValueError("PDF candidate leaves input directory")
+                found.append(path)
+                if len(found) > MAX_PDFS:
+                    raise ValueError("PDF directory exceeds document budget")
+    return found
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pdf", action="append", type=Path, required=True,
+    parser.add_argument("--pdf", action="append", type=Path,
                         help="existing unchanged original PDF (repeatable)")
+    parser.add_argument("--pdf-dir", action="append", type=Path,
+                        help="bounded recursive offline PDF directory (repeatable)")
     parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args(argv)
-    paths = args.pdf
+    paths = list(args.pdf or [])
+    try:
+        for directory in args.pdf_dir or []:
+            paths.extend(_discover_pdf_directory(directory))
+            if len(paths) > MAX_PDFS:
+                raise ValueError("PDF input count exceeds document budget")
+    except (OSError, ValueError) as exc:
+        parser.error("external W* directory discovery failed: " + str(exc))
     if not 1 <= len(paths) <= MAX_PDFS or len({p.name for p in paths}) != len(paths):
         parser.error("1..128 distinct input PDF basenames required")
     input_paths = {p.resolve() for p in paths}

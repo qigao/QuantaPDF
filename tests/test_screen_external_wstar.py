@@ -407,6 +407,85 @@ class ExternalWStarScreening(unittest.TestCase):
                     main(["--pdf", str(source), "--report", str(source)])
             self.assertEqual(source.read_bytes(), original)
 
+    def test_pdf_dir_screens_unchanged_nested_pinned_originals(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "corpus"
+            (root / "a").mkdir(parents=True)
+            (root / "b").mkdir()
+            w = root / "a" / NONZERO.name
+            star = root / "b" / WSTAR_TEXT.name
+            w.write_bytes(NONZERO.read_bytes())
+            star.write_bytes(WSTAR_TEXT.read_bytes())
+            (root / "notes.txt").write_text("unrelated file")
+            before = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                      for p in (w, star)}
+            output = Path(directory) / "screen.json"
+            self.assertEqual(main(["--pdf-dir", str(root),
+                                   "--report", str(output)]), 0)
+            report = json.loads(output.read_text())
+            documents = {doc["filename"]: doc for doc in report["documents"]}
+            self.assertEqual(set(documents), set(before))
+            for p in (w, star):
+                self.assertEqual(documents[p.name]["sha256"], before[p.name])
+                self.assertEqual(hashlib.sha256(p.read_bytes()).hexdigest(),
+                                 before[p.name])
+                self.assertEqual(documents[p.name]["native_pixel_conformance"],
+                                 "not_run")
+            self.assertEqual(report["native_wstar_clip_supported_count"], 0)
+
+    def test_pdf_dir_rejects_duplicate_basenames(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "corpus"
+            (root / "a").mkdir(parents=True)
+            (root / "b").mkdir()
+            (root / "a" / "duplicate.pdf").write_bytes(NONZERO.read_bytes())
+            (root / "b" / "duplicate.pdf").write_bytes(WSTAR_TEXT.read_bytes())
+            report = Path(directory) / "result.json"
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    main(["--pdf-dir", str(root), "--report", str(report)])
+            self.assertFalse(report.exists())
+
+    def test_pdf_dir_rejects_symlink_to_original(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "corpus"
+            root.mkdir()
+            target = root / "genuine.pdf"
+            target.write_bytes(NONZERO.read_bytes())
+            alias = root / "alias.pdf"
+            try:
+                alias.symlink_to(target)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks unavailable")
+            report = Path(directory) / "result.json"
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    main(["--pdf-dir", str(root), "--report", str(report)])
+            self.assertFalse(report.exists())
+            self.assertEqual(target.read_bytes(), NONZERO.read_bytes())
+
+    def test_pdf_dir_rejects_more_than_128_candidates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "corpus"
+            root.mkdir()
+            for index in range(129):
+                (root / f"candidate-{index:03d}.pdf").write_bytes(b"%PDF")
+            report = Path(directory) / "result.json"
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    main(["--pdf-dir", str(root), "--report", str(report)])
+            self.assertFalse(report.exists())
+
+    def test_pdf_dir_rejects_empty_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "corpus"
+            root.mkdir()
+            report = Path(directory) / "result.json"
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    main(["--pdf-dir", str(root), "--report", str(report)])
+            self.assertFalse(report.exists())
+
     def test_symlink_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "real.pdf"
