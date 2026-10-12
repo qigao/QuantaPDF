@@ -258,6 +258,26 @@ void cubic()
     };
     compare(s,ORACLE_CUBIC_PDF,goldens,3u);
 }
+
+void rejects_cycles()
+{
+    scene s;
+    unsigned char *bytes = (unsigned char *)(uintptr_t)1u;
+    size_t size = SIZE_MAX;
+    s.outer[0] = 5u; /* root -> root */
+    CHECK(quantapdf_qpdf_compose(&s.ir,&bytes,&size) ==
+          QUANTAPDF_ERROR_BACKEND);
+    CHECK(bytes == nullptr && size == 0u);
+    s.outer[0] = 3u;
+    s.inner[1] = 5u; /* root -> nested -> root */
+    bytes = (unsigned char *)(uintptr_t)1u;
+    size = SIZE_MAX;
+    CHECK(quantapdf_qpdf_compose(&s.ir,&bytes,&size) ==
+          QUANTAPDF_ERROR_BACKEND);
+    CHECK(bytes == nullptr && size == 0u);
+    s.inner[1] = 2u;
+}
+
 }
 
 int main()
@@ -267,6 +287,7 @@ int main()
     shared();
     evenodd_hole();
     cubic();
+    rejects_cycles();
     std::fprintf(stderr,"[quantapdf.native_nested_clip_oracle] complete\n");
     return EXIT_SUCCESS;
 }
