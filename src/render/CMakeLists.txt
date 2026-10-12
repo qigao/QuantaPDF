@@ -42,3 +42,9 @@ target_sources(quantapdf PRIVATE
 target_sources(quantapdf PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_scoped_operations_v0.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_scoped_operations_v0.h")
+
+
+# Private native nested Clip DAG: bounded C11 sample intersections.
+target_sources(quantapdf PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/ir_clip_dag_v3.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ir_clip_dag_v3.h")
