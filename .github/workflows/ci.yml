@@ -96,6 +96,9 @@ jobs:
       - name: Test static build
         run: ctest --preset linux-release-user
 
+      - name: Product conformance (Linux Release)
+        run: ctest --preset linux-release-user -L conformance --output-on-failure
+
       - name: Install static SDK
         run: cmake --build --preset install-linux-release-user --parallel 2
 
@@ -133,6 +136,9 @@ jobs:
 
       - name: Test sanitizer configuration
         run: ctest --preset linux-dev-user
+
+      - name: Product conformance (Linux ASan/UBSan)
+        run: ctest --preset linux-dev-user -L conformance --output-on-failure
 
   macos:
     if: >-
@@ -221,6 +227,9 @@ jobs:
 
       - name: Test
         run: ctest --preset "$CMAKE_PRESET"
+
+      - name: Product conformance (macOS)
+        run: ctest --preset "$CMAKE_PRESET" -L conformance --output-on-failure
 
       - name: Install SDK
         run: cmake --build --preset "install-$CMAKE_PRESET" --parallel 2
@@ -323,6 +332,10 @@ jobs:
       - name: Test
         shell: cmd
         run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && ctest --preset win-release-user
+
+      - name: Product conformance (Windows)
+        shell: cmd
+        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && ctest --preset win-release-user -L conformance --output-on-failure
 
       - name: Install Release package
         shell: cmd
