@@ -831,6 +831,11 @@ qpdf C++ object graph --+
 
 Only the `quantapdf_*` ABI is exported by the wrapper.
 
+The proposed [document intelligence extension boundary](docs/superpowers/specs/2026-10-11-quantapdf-document-intelligence-design.md)
+keeps external analysis above the native SDK, using immutable observations and
+separately owned derived results. Provider registration, schema projections and
+index services remain future work; the proposal adds no SDK dependency or API.
+
 ## Build with CMake Presets and vcpkg
 
 Set `PROJECT_ROOT` to the parent package workspace and `VCPKG_ROOT` to a
