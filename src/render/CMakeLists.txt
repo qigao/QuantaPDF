@@ -18,3 +18,9 @@ target_sources(quantapdf PRIVATE
 target_sources(quantapdf PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_stroke_v0.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_stroke_v0.h")
+
+
+# Strict native Clip rectangle V0 as a private Raster V1 consumer.
+target_sources(quantapdf PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/ir_clip_v0.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ir_clip_v0.h")
