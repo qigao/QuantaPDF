@@ -1,4 +1,5 @@
 #include "pdfium_document.h"
+#include "render/render_plan.h"
 
 #include "pdfium_runtime.h"
 #include "qpdf_document.h"
@@ -815,34 +816,13 @@ extern "C" quantapdf_status quantapdf_pdfium_render_page(
     quantapdf_status status;
     FS_SIZEF page_size = {};
     page_geometry geometry = {};
+    quantapdf_render_plan plan = {};
+    quantapdf_render_transform source_to_page = {};
+    quantapdf_affine_transform source_to_device = {};
     FS_MATRIX matrix = {};
     FS_RECTF device_clip = {};
     FPDF_BITMAP pdfium_bitmap = nullptr;
-    double const radians = static_cast<double>(rotation_degrees) *
-        3.14159265358979323846 / 180.0;
-    double cosine = std::cos(radians);
-    double sine = std::sin(radians);
-    double const scale = static_cast<double>(dpi) / 72.0;
-    double source_x0;
-    double source_y0;
-    double source_x1;
-    double source_y1;
-    double min_x;
-    double min_y;
-    double max_x;
-    double max_y;
-    double public_a;
-    double public_b;
-    double public_c;
-    double public_d;
-    double public_e;
-    double public_f;
-    int width;
-    int height;
-    int components;
     int source_stride;
-    size_t stride;
-    size_t size;
     unsigned char *data = nullptr;
 
     if (out_bitmap == nullptr)
@@ -852,11 +832,6 @@ extern "C" quantapdf_status quantapdf_pdfium_render_page(
         !std::isfinite(rotation_degrees) || !std::isfinite(user_unit) ||
         user_unit <= 0.0 || (alpha != 0 && alpha != 1))
         return QUANTAPDF_ERROR_ARGUMENT;
-
-    if (std::abs(cosine) < 1.0e-12)
-        cosine = 0.0;
-    if (std::abs(sine) < 1.0e-12)
-        sine = 0.0;
 
     status = quantapdf_pdfium_enter();
     if (status != QUANTAPDF_OK)
@@ -871,126 +846,42 @@ extern "C" quantapdf_status quantapdf_pdfium_render_page(
         page->document, page->page_index, page->handle, &geometry);
     if (status != QUANTAPDF_OK)
         return status;
-    geometry.scale = static_cast<float>(geometry.scale * user_unit);
+    status = quantapdf_render_plan_create(
+        page_size.width * user_unit, page_size.height * user_unit,
+        dpi, rotation_degrees, clip, alpha, &plan);
+    if (status != QUANTAPDF_OK)
+        return status;
+    int const width = plan.width;
+    int const height = plan.height;
+    int const components = plan.components;
+    size_t const stride = static_cast<size_t>(plan.stride);
+    size_t const size = plan.size;
 
-    source_x0 = clip == nullptr ? 0.0 : clip->x0;
-    source_y0 = clip == nullptr ? 0.0 : clip->y0;
-    source_x1 = clip == nullptr ? page_size.width * user_unit : clip->x1;
-    source_y1 = clip == nullptr ? page_size.height * user_unit : clip->y1;
-
-    {
-        double const source_width = (source_x1 - source_x0) * scale;
-        double const source_height = (source_y1 - source_y0) * scale;
-        double const xs[] = {
-            0.0,
-            cosine * source_width,
-            -sine * source_height,
-            cosine * source_width - sine * source_height
-        };
-        double const ys[] = {
-            0.0,
-            sine * source_width,
-            cosine * source_height,
-            sine * source_width + cosine * source_height
-        };
-        min_x = *std::min_element(std::begin(xs), std::end(xs));
-        max_x = *std::max_element(std::begin(xs), std::end(xs));
-        min_y = *std::min_element(std::begin(ys), std::end(ys));
-        max_y = *std::max_element(std::begin(ys), std::end(ys));
+    if (!plan.aligned) {
+        // PDFium first applies its own display matrix (CropBox, intrinsic
+        // rotation and downward y). Only UserUnit remains before our plan.
+        source_to_page.a = user_unit;
+        source_to_page.d = user_unit;
+        status = quantapdf_render_plan_map_source(&plan, &source_to_page, &source_to_device);
+        if (status != QUANTAPDF_OK)
+            return status;
+        matrix = {source_to_device.a, source_to_device.b, source_to_device.c,
+                  source_to_device.d, source_to_device.e, source_to_device.f};
+        device_clip = {0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height)};
     }
-
-    if (!std::isfinite(min_x) || !std::isfinite(min_y) ||
-        !std::isfinite(max_x) || !std::isfinite(max_y) ||
-        max_x - min_x > static_cast<double>(std::numeric_limits<int>::max()) ||
-        max_y - min_y > static_cast<double>(std::numeric_limits<int>::max()))
-        return QUANTAPDF_ERROR_ARGUMENT;
-
-    width = static_cast<int>(std::ceil(max_x) - std::floor(min_x));
-    height = static_cast<int>(std::ceil(max_y) - std::floor(min_y));
-    components = alpha != 0 ? 4 : 3;
-    if (!checked_bitmap_size(width, height, components, &stride, &size))
-        return QUANTAPDF_ERROR_ARGUMENT;
-
     pdfium_bitmap = FPDFBitmap_Create(width, height, alpha);
     if (pdfium_bitmap == nullptr)
         return QUANTAPDF_ERROR_NOMEM;
-    FPDFBitmap_FillRect(
-        pdfium_bitmap, 0, 0, width, height,
-        alpha != 0 ? 0x00000000u : 0xffffffffu);
-
-    switch (geometry.rotation) {
-    case 0:
-        public_a = geometry.scale;
-        public_b = 0.0;
-        public_c = 0.0;
-        public_d = -geometry.scale;
-        public_e = -geometry.left * geometry.scale;
-        public_f = geometry.top * geometry.scale;
-        break;
-    case 1:
-        public_a = 0.0;
-        public_b = geometry.scale;
-        public_c = geometry.scale;
-        public_d = 0.0;
-        public_e = -geometry.bottom * geometry.scale;
-        public_f = -geometry.left * geometry.scale;
-        break;
-    case 2:
-        public_a = -geometry.scale;
-        public_b = 0.0;
-        public_c = 0.0;
-        public_d = geometry.scale;
-        public_e = geometry.right * geometry.scale;
-        public_f = -geometry.bottom * geometry.scale;
-        break;
-    case 3:
-        public_a = 0.0;
-        public_b = -geometry.scale;
-        public_c = -geometry.scale;
-        public_d = 0.0;
-        public_e = geometry.top * geometry.scale;
-        public_f = geometry.right * geometry.scale;
-        break;
-    default:
-        return QUANTAPDF_ERROR_FORMAT;
-    }
-    matrix.a = static_cast<float>(
-        scale * (cosine * public_a - sine * public_b));
-    matrix.b = static_cast<float>(
-        scale * (sine * public_a + cosine * public_b));
-    matrix.c = static_cast<float>(
-        scale * (cosine * public_c - sine * public_d));
-    matrix.d = static_cast<float>(
-        scale * (sine * public_c + cosine * public_d));
-    matrix.e = static_cast<float>(
-        scale * (cosine * (public_e - source_x0) -
-                 sine * (public_f - source_y0)) -
-        std::floor(min_x));
-    matrix.f = static_cast<float>(
-        scale * (sine * (public_e - source_x0) +
-                 cosine * (public_f - source_y0)) -
-        std::floor(min_y));
-    device_clip.left = 0.0f;
-    device_clip.top = 0.0f;
-    device_clip.right = static_cast<float>(width);
-    device_clip.bottom = static_cast<float>(height);
-    if (cosine == 1.0 && sine == 0.0) {
-        int const start_x = static_cast<int>(
-            std::floor(-source_x0 * scale));
-        int const start_y = static_cast<int>(
-            std::floor(-source_y0 * scale));
-        int const size_x = static_cast<int>(
-            std::ceil(page_size.width * user_unit * scale));
-        int const size_y = static_cast<int>(
-            std::ceil(page_size.height * user_unit * scale));
+    FPDFBitmap_FillRect(pdfium_bitmap, 0, 0, width, height, plan.background_argb);
+    if (plan.aligned) {
         FPDF_RenderPageBitmap(
             pdfium_bitmap, page->handle,
-            start_x, start_y, size_x, size_y,
+            plan.start_x, plan.start_y, plan.size_x, plan.size_y,
             0, FPDF_ANNOT | FPDF_LCD_TEXT);
         if (page->form_handle != nullptr) {
             FPDF_FFLDraw(
                 page->form_handle, pdfium_bitmap, page->handle,
-                start_x, start_y, size_x, size_y, 0,
+                plan.start_x, plan.start_y, plan.size_x, plan.size_y, 0,
                 FPDF_ANNOT | FPDF_LCD_TEXT);
         }
     } else {
