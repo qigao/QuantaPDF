@@ -148,6 +148,27 @@ W-positive or W*-negative external semantic artifact. They are not added
 to the fixed 14/36 generated corpus, and neither increases the external
 W* **pixel-positive** count.
 
+## Typed Clip-path winding evidence (#262)
+
+The native source-PDF oracle now counts **actual owned detached IR
+Clip Path leaves** by their winding rules, separately from DAG
+\`CLIP_INTERSECTION\` nodes. For every generated original-PDFium/native
+nested-Clip pixel oracle with admitted nonempty Clip graphs, it fails if
+a source containing \`W* n\` has no even-odd Clip leaf, or if a W-only
+source unexpectedly acquires an even-odd leaf. This prevents a false W*
+acceptance caused by collapsing \`W*\` into nonzero \`W\`, even when
+the two geometries happen to produce identical pixels.
+
+The selected-page typed preflight JSON includes distinct
+\`detached_ir_w_nonzero_clip_path_leaves\`,
+\`detached_ir_wstar_evenodd_clip_path_leaves\` and
+\`detached_ir_clip_intersection_nodes\`. On a late unsupported source,
+the entire IR and all three counts remain zero by contract; this is
+**not** proof that the original source lacked a W* operator.
+Token detection, complete typed admission and independent **original**
+PDFium vs native C11 pixel rendering remain three separate evidence
+steps. The external W* pixel-native-positive count remains zero.
+
 ## Native preparation in this branch
 
 `quantapdf.native_scoped_clip_dag_v1` now exercises a provider-free C11

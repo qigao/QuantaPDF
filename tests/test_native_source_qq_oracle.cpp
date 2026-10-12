@@ -143,6 +143,36 @@ unsigned on_white(const unsigned char *rgba, size_t channel)
     return ((unsigned)rgba[channel]*alpha + 255u*(255u-alpha) + 127u)/255u;
 }
 
+/* Owned detached-IR Clip semantics are independent of any source-token
+ * heuristic. A candidate W* must actually lower to an EVEN_ODD path leaf,
+ * not silently become W nonzero, nor be counted from DAG intersections. */
+struct clip_leaf_counts {
+    size_t nonzero=0u,evenodd=0u,intersections=0u;
+};
+clip_leaf_counts inspect_clip_fill_rules(const quantapdf_ir& ir)
+{
+    clip_leaf_counts out{};
+    CHECK(ir.resources.clip_count<=8u);
+    CHECK(ir.resources.clip_count==0u || ir.resources.clips!=nullptr);
+    for(size_t i=0u;i<ir.resources.clip_count;++i){
+        const auto& item=ir.resources.clips[i];
+        if(item.kind==QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL){
+            CHECK(item.fill_rule==QUANTAPDF_COMPOSER_FILL_NONZERO ||
+                  item.fill_rule==QUANTAPDF_COMPOSER_FILL_EVEN_ODD);
+            if(item.fill_rule==QUANTAPDF_COMPOSER_FILL_EVEN_ODD)
+                ++out.evenodd;
+            else
+                ++out.nonzero;
+        }else{
+            CHECK(item.kind==QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL);
+            ++out.intersections;
+        }
+    }
+    CHECK(out.nonzero+out.evenodd+out.intersections==
+          ir.resources.clip_count);
+    return out;
+}
+
 void compare(const char *content, const probe *goldens,
              size_t golden_count, size_t min_clip_resources)
 {
@@ -161,6 +191,16 @@ void compare(const char *content, const probe *goldens,
     /* No more than 4 normal-opacity operations or 8 DAG nodes admitted. */
     CHECK(ir.resources.clip_count<=8u &&
           ir.resources.graphics_state_count<=4u);
+    /* Every generated original-PDFium vs native oracle with a nonempty
+     * Clip graph must retain W vs W* on actual owned Clip Path leaves.
+     * The zero-segment W/W* tests remain separate explicit semantics. */
+    if(min_clip_resources>0u){
+        const clip_leaf_counts rules=inspect_clip_fill_rules(ir);
+        const bool source_wstar=std::strstr(content,"W* n")!=nullptr;
+        CHECK(rules.nonzero>=1u);
+        CHECK((rules.evenodd>0u)==source_wstar);
+        CHECK(rules.intersections>=1u);
+    }
     OK(quantapdf_ir_raster_scoped_operations_v1(
         &ir,0u,&raster_limits,&native));
     OK(quantapdf_ir_raster_scoped_operations_v1(
@@ -1784,6 +1824,7 @@ int typed_original_preflight(const char *source_path,const char *page_str,
     CHECK((status==QUANTAPDF_OK)==expect_lowered);
     CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED)==expect_rejected);
     size_t page_count=0u,op_count=0u,clip_count=0u,state_count=0u;
+    clip_leaf_counts winding{};
     if(expect_lowered){
         CHECK(detached.pages!=nullptr && detached.page_count==1u &&
               detached.operations!=nullptr &&
@@ -1798,6 +1839,7 @@ int typed_original_preflight(const char *source_path,const char *page_str,
         op_count=detached.operation_count;
         clip_count=detached.resources.clip_count;
         state_count=detached.resources.graphics_state_count;
+        winding=inspect_clip_fill_rules(detached);
     } else {
         /* W* and painted Path may precede a late Text/XObject. Reject
          * transactionally: no pages, operations or owned resources leak. */
@@ -1829,6 +1871,9 @@ int typed_original_preflight(const char *source_path,const char *page_str,
         "  \"detached_ir_pages\": %zu,\n"
         "  \"detached_ir_operations\": %zu,\n"
         "  \"detached_ir_clips\": %zu,\n"
+        "  \"detached_ir_w_nonzero_clip_path_leaves\": %zu,\n"
+        "  \"detached_ir_wstar_evenodd_clip_path_leaves\": %zu,\n"
+        "  \"detached_ir_clip_intersection_nodes\": %zu,\n"
         "  \"detached_ir_graphics_states\": %zu,\n"
         "  \"original_pdfium_pixel_oracle\": \"not_run\",\n"
         "  \"native_raster\": \"not_run\",\n"
@@ -1836,7 +1881,8 @@ int typed_original_preflight(const char *source_path,const char *page_str,
         "  \"generated_fixture_count\": 0\n"
         "}\n",page_index,
         expect_lowered?"lowered":"unsupported",
-        page_count,op_count,clip_count,state_count);
+        page_count,op_count,clip_count,
+        winding.nonzero,winding.evenodd,winding.intersections,state_count);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
     CHECK(std::rename(staged.c_str(),report_path)==0);
     std::fprintf(stderr,
