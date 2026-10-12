@@ -25,6 +25,13 @@ quantapdf_status quantapdf_graph_query_page_geometry(
     const quantapdf_graph *graph, size_t page_index, size_t max_parent_steps,
     quantapdf_graph_page_geometry *out_geometry);
 
+/* Native-only selected /Page transparency Group preflight. Allows only
+ * /S /Transparency, explicit /I true, /CS /DeviceRGB, optional /K false
+ * and /Type /Group. Other groups fail closed before any Composer IR is
+ * published. Not inherited from /Pages; no provider or allocations. */
+quantapdf_status quantapdf_graph_admit_native_page_group(
+    const quantapdf_graph *graph, size_t page_index);
+
 /* Strict subset supported by the current Composer path lowering. No page
  * transform is synthesized: require zero-origin equal Media/Crop boxes,
  * effective rotation 0 and UserUnit 1. Other valid geometry: UNSUPPORTED.

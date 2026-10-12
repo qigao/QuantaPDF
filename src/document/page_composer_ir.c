@@ -31,6 +31,12 @@ quantapdf_status quantapdf_graph_snapshot_page_composer_ir(
     status = quantapdf_graph_page_display_map(&geometry, &display);
     if (status != QUANTAPDF_OK) return status;
 
+    /* A source page /Group may alter every pixel; reject unsupported values
+     * before parsing content, allocating any Composer IR or invoking raster. */
+    status = quantapdf_graph_admit_native_page_group(snapshot->graph,
+        page_index);
+    if (status != QUANTAPDF_OK) return status;
+
     status = quantapdf_graph_snapshot_page_semantics(snapshot, page_index,
         decode_limits, content_limits, max_streams, &semantics);
     if (status != QUANTAPDF_OK) return status;

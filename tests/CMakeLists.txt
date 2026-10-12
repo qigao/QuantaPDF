@@ -1803,7 +1803,8 @@ target_link_libraries(quantapdf_test_native_source_qq_oracle PRIVATE
 target_compile_features(quantapdf_test_native_source_qq_oracle PRIVATE
   c_std_11 cxx_std_20)
 target_compile_definitions(quantapdf_test_native_source_qq_oracle PRIVATE
-  SOURCE_QQ_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-qq-source.pdf")
+  SOURCE_QQ_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-qq-source.pdf"
+  GROUP_SOURCE_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-group-source.pdf")
 if(MSVC)
   target_compile_options(quantapdf_test_native_source_qq_oracle PRIVATE /utf-8)
 endif()
@@ -1822,6 +1823,28 @@ elseif(APPLE)
     "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 else()
   set_property(TEST quantapdf.native_source_qq_oracle
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
+
+# Real source-PDF leaf /Group admission. Reuse the original PDFium test-only
+# binary, but do NOT count its generated scenario fixtures as external PDFs
+# or as members of the existing 14/36 source corpus manifest.
+add_test(NAME quantapdf.native_page_group_admission
+  COMMAND quantapdf_test_native_source_qq_oracle --page-group-admission)
+set_tests_properties(quantapdf.native_page_group_admission PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native-raster;source-pdf;page-group")
+if(WIN32)
+  set_property(TEST quantapdf.native_page_group_admission
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_page_group_admission
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_page_group_admission
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()

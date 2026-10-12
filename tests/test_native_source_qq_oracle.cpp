@@ -88,14 +88,15 @@ void make_source(const char *content)
 
 quantapdf_status snapshot_lower(quantapdf_ir *out,
                                 size_t page_index=0u,size_t max_streams=1u,
-                                size_t max_parent_steps=2u)
+                                size_t max_parent_steps=2u,
+                                const char *source_path=SOURCE_QQ_PDF)
 {
     quantapdf_document *doc=nullptr;
     quantapdf_graph_snapshot *snap=nullptr;
     quantapdf_status st;
     CHECK(out != nullptr);
     std::memset(out,0,sizeof(*out));
-    st = quantapdf_open(SOURCE_QQ_PDF,nullptr,&doc);
+    st = quantapdf_open(source_path,nullptr,&doc);
     if(st != QUANTAPDF_OK) return st;
     st = quantapdf_document_capture_graph(doc,&graph_limits,&snap);
     quantapdf_close(doc);
@@ -107,7 +108,8 @@ quantapdf_status snapshot_lower(quantapdf_ir *out,
     return st;
 }
 
-rgb_image render_original_pdfium(size_t page_index=0u)
+rgb_image render_original_pdfium(size_t page_index=0u,
+                                const char *source_path=SOURCE_QQ_PDF)
 {
     rgb_image out;
     quantapdf_document *doc=nullptr;
@@ -115,7 +117,7 @@ rgb_image render_original_pdfium(size_t page_index=0u)
     quantapdf_bitmap *bitmap=nullptr;
     const unsigned char *bytes=nullptr;
     size_t size=0u;
-    OK(quantapdf_open(SOURCE_QQ_PDF,nullptr,&doc));
+    OK(quantapdf_open(source_path,nullptr,&doc));
     OK(quantapdf_load_page(doc,page_index,&page));
     OK(quantapdf_render_page(page,&bitmap));
     OK(quantapdf_bitmap_dimensions(bitmap,&out.width,&out.height,
@@ -1314,6 +1316,172 @@ int test_external_pdfium_black_path(const char *filename,const char *report_path
     return EXIT_SUCCESS;
 }
 
+
+/* Pages /Group conformance uses real source PDF bytes and genuine page
+ * selection. These independent negative/positive probes are NOT admitted
+ * external PDFs and do not modify the 14/36 generated-corpus registry. */
+void test_page_group_admission()
+{
+    struct scenario {
+        const char *group;
+        quantapdf_status expected;
+        bool indirect;
+    };
+    const scenario cases[] = {
+        {nullptr,QUANTAPDF_OK,false},
+        {"<< /S /Transparency /I true /CS /DeviceRGB >>",
+         QUANTAPDF_OK,false},
+        {"<< /Type /Group /S /Transparency /I true /K false "
+         "/CS /DeviceRGB >>",QUANTAPDF_OK,true},
+        {"<< /S /Transparency /I false /CS /DeviceRGB >>",
+         QUANTAPDF_ERROR_UNSUPPORTED,false},
+        {"<< /S /Transparency /I true /K true /CS /DeviceRGB >>",
+         QUANTAPDF_ERROR_UNSUPPORTED,true},
+        {"<< /S /Transparency /I true /CS /DeviceCMYK >>",
+         QUANTAPDF_ERROR_UNSUPPORTED,false},
+        {"<< /S /Other /I true /CS /DeviceRGB >>",
+         QUANTAPDF_ERROR_UNSUPPORTED,false},
+        {"<< /S /Transparency /I true /CS /DeviceRGB /Extra 1 >>",
+         QUANTAPDF_ERROR_UNSUPPORTED,false},
+        {"<< /S /Transparency /I /true /CS /DeviceRGB >>",
+         QUANTAPDF_ERROR_FORMAT,false},
+        {"<< /S /Transparency /I true /CS [ /DeviceRGB ] >>",
+         QUANTAPDF_ERROR_FORMAT,false},
+        {"<< /S /Transparency /I true /K /false /CS /DeviceRGB >>",
+         QUANTAPDF_ERROR_FORMAT,false},
+        {"<< /I true /CS /DeviceRGB >>",
+         QUANTAPDF_ERROR_UNSUPPORTED,false},
+        {"<< /S /Transparency /CS /DeviceRGB >>",
+         QUANTAPDF_ERROR_UNSUPPORTED,false},
+        {"<< /S /Transparency /I true >>",
+         QUANTAPDF_ERROR_UNSUPPORTED,false},
+        {"<< /Type /Wrong /S /Transparency /I true /CS /DeviceRGB >>",
+         QUANTAPDF_ERROR_FORMAT,false},
+        {"null",QUANTAPDF_OK,false},
+        {"4",QUANTAPDF_ERROR_FORMAT,false}
+    };
+    auto write_source = [](QPDF& pdf) {
+        QPDFWriter writer(pdf);
+        writer.setOutputMemory();
+        writer.write();
+        auto bytes=writer.getBufferSharedPointer();
+        FILE *output=std::fopen(GROUP_SOURCE_PDF,"wb");
+        CHECK(output!=nullptr);
+        CHECK(std::fwrite(bytes->getBuffer(),1,bytes->getSize(),output)==
+              bytes->getSize());
+        CHECK(std::fclose(output)==0);
+    };
+    const char *content =
+        "q 1 0 0 rg 10 10 80 80 re f Q "
+        "0 0 1 rg 0 0 20 20 re f";
+    const probe expected_colors[] = {
+        {5,5,0,0,255}, {15,15,0,0,255},
+        {60,60,255,0,0}, {100,100,255,255,255}
+    };
+    for(size_t index=0;index<sizeof(cases)/sizeof(cases[0]);++index){
+        const auto& tc=cases[index];
+        auto pdf=QPDF::create();
+        pdf->emptyPDF();
+        auto root=pdf->getRoot().getKey("/Pages");
+        auto leaf=pdf->makeIndirectObject(
+            QPDFObjectHandle::parse("<< /Type /Page >>"));
+        root.replaceKey("/Kids",QPDFObjectHandle::newArray({leaf}));
+        root.replaceKey("/Count",QPDFObjectHandle::newInteger(1));
+        root.replaceKey("/MediaBox",
+            QPDFObjectHandle::parse("[0 0 120 120]"));
+        leaf.replaceKey("/Parent",root);
+        leaf.replaceKey("/Contents",pdf->newStream(content));
+        if(tc.group!=nullptr){
+            auto value=QPDFObjectHandle::parse(tc.group);
+            if(tc.indirect)value=pdf->makeIndirectObject(value);
+            leaf.replaceKey("/Group",value);
+        }
+        write_source(*pdf);
+        quantapdf_ir lowered{};
+        const quantapdf_status status=snapshot_lower(&lowered,0u,1u,2u,GROUP_SOURCE_PDF);
+        if(status!=tc.expected)
+            std::fprintf(stderr,
+                "page Group case=%zu expected=%d got=%d\n",
+                index,(int)tc.expected,(int)status);
+        CHECK(status==tc.expected);
+        if(status==QUANTAPDF_OK){
+            CHECK(lowered.page_count==1u &&
+                  lowered.operation_count==2u &&
+                  lowered.resources.clip_count==0u);
+            quantapdf_ir_raster_image native{},repeat{};
+            OK(quantapdf_ir_raster_scoped_operations_v1(
+                &lowered,0u,&raster_limits,&native));
+            OK(quantapdf_ir_raster_scoped_operations_v1(
+                &lowered,0u,&raster_limits,&repeat));
+            CHECK(native.width==PAGE && native.height==PAGE &&
+                  repeat.size==native.size &&
+                  std::memcmp(native.pixels,repeat.pixels,native.size)==0);
+            quantapdf_ir_raster_image_dispose(&repeat);
+            quantapdf_ir_dispose(&lowered);
+            rgb_image reference=render_original_pdfium(0u,GROUP_SOURCE_PDF);
+            CHECK(reference.width==(int)PAGE && reference.height==(int)PAGE);
+            for(const auto& p:expected_colors){
+                size_t y=PAGE-1u-(size_t)p.y_pdf;
+                const unsigned char *a=native.pixels+
+                    y*native.stride+4u*(size_t)p.x;
+                const unsigned char *b=reference.at((size_t)p.x,y);
+                const unsigned colors[]={p.r,p.g,p.b};
+                for(size_t c=0;c<3u;++c){
+                    CHECK(std::abs((int)on_white(a,c)-(int)colors[c])<=3);
+                    CHECK(std::abs((int)b[c]-(int)colors[c])<=3);
+                }
+            }
+            quantapdf_ir_raster_image_dispose(&native);
+        }else{
+            CHECK(lowered.pages==nullptr && lowered.page_count==0u &&
+                  lowered.operations==nullptr &&
+                  lowered.operation_count==0u &&
+                  lowered.resources.clip_count==0u &&
+                  lowered.resources.graphics_state_count==0u);
+            quantapdf_ir_dispose(&lowered);
+        }
+        CHECK(std::remove(GROUP_SOURCE_PDF)==0);
+    }
+
+    /* /Group is not inherited from /Pages. An unsupported sibling must
+     * not alter or poison the selected page's admission. */
+    auto pdf=QPDF::create();
+    pdf->emptyPDF();
+    auto root=pdf->getRoot().getKey("/Pages");
+    auto bad=pdf->makeIndirectObject(
+        QPDFObjectHandle::parse("<< /Type /Page >>"));
+    auto good=pdf->makeIndirectObject(
+        QPDFObjectHandle::parse("<< /Type /Page >>"));
+    root.replaceKey("/Kids",QPDFObjectHandle::newArray({bad,good}));
+    root.replaceKey("/Count",QPDFObjectHandle::newInteger(2));
+    root.replaceKey("/MediaBox",
+        QPDFObjectHandle::parse("[0 0 120 120]"));
+    /* An ancestor /Group is not inherited, even if not supported. */
+    root.replaceKey("/Group",QPDFObjectHandle::parse(
+        "<< /S /Transparency /I false /CS /DeviceCMYK >>"));
+    bad.replaceKey("/Parent",root);
+    good.replaceKey("/Parent",root);
+    bad.replaceKey("/Group",QPDFObjectHandle::parse(
+        "<< /S /Transparency /I false /CS /DeviceRGB >>"));
+    bad.replaceKey("/Contents",pdf->newStream(content));
+    good.replaceKey("/Contents",pdf->newStream(content));
+    write_source(*pdf);
+    quantapdf_ir refused{};
+    CHECK(snapshot_lower(&refused,0u,1u,2u,GROUP_SOURCE_PDF)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(refused.pages==nullptr && refused.operation_count==0u);
+    quantapdf_ir_dispose(&refused);
+    quantapdf_ir admitted{};
+    OK(snapshot_lower(&admitted,1u,1u,2u,GROUP_SOURCE_PDF));
+    CHECK(admitted.page_count==1u && admitted.operation_count==2u);
+    quantapdf_ir_dispose(&admitted);
+    CHECK(std::remove(GROUP_SOURCE_PDF)==0);
+    CHECK(corpus_fixture_executions==0u);
+    std::fprintf(stderr,
+        "[quantapdf.native_page_group_admission] cases=%zu "
+        "page-isolation=passed\n",
+        sizeof(cases)/sizeof(cases[0]));
+}
+
 }
 
 struct source_corpus_family {
@@ -1397,6 +1565,10 @@ static void publish_corpus_report(const char *destination,
 
 int main(int argc,char **argv)
 {
+    if(argc==2 && std::strcmp(argv[1],"--page-group-admission")==0){
+        test_page_group_admission();
+        return EXIT_SUCCESS;
+    }
     if(argc==5 && std::strcmp(argv[1],"--external-pdf")==0 &&
        std::strcmp(argv[3],"--external-report")==0)
         return test_external_cc0_text_rejection(argv[2],argv[4]);
