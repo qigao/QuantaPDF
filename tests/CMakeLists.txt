@@ -1668,3 +1668,44 @@ add_test(NAME quantapdf.native_clip_dag_v3
   COMMAND quantapdf_test_native_clip_dag_v3)
 set_tests_properties(quantapdf.native_clip_dag_v3 PROPERTIES
   TIMEOUT 30 LABELS "conformance;native-raster")
+
+
+# Test-only nested Clip DAG oracle: native C11 evaluation vs Writer + PDFium.
+# Only this differential test links PDFium/qpdf, not the native DAG runtime.
+add_executable(quantapdf_test_native_nested_clip_oracle
+  test_ir_nested_clip_oracle.cpp
+  "${PROJECT_SOURCE_DIR}/src/render/ir_clip_dag_v3.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c")
+target_include_directories(quantapdf_test_native_nested_clip_oracle PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_native_nested_clip_oracle PRIVATE
+  QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium qpdf::libqpdf)
+target_compile_features(quantapdf_test_native_nested_clip_oracle PRIVATE
+  c_std_11 cxx_std_20)
+target_compile_definitions(quantapdf_test_native_nested_clip_oracle PRIVATE
+  ORACLE_NESTED_PDF="${CMAKE_CURRENT_BINARY_DIR}/nested-oracle-nested.pdf"
+  ORACLE_SHARED_PDF="${CMAKE_CURRENT_BINARY_DIR}/nested-oracle-shared.pdf"
+  ORACLE_FRACTIONAL_PDF="${CMAKE_CURRENT_BINARY_DIR}/nested-oracle-fraction.pdf"
+  ORACLE_HOLE_PDF="${CMAKE_CURRENT_BINARY_DIR}/nested-oracle-hole.pdf"
+  ORACLE_CUBIC_PDF="${CMAKE_CURRENT_BINARY_DIR}/nested-oracle-cubic.pdf")
+if(MSVC)
+  target_compile_options(quantapdf_test_native_nested_clip_oracle PRIVATE /utf-8)
+endif()
+add_test(NAME quantapdf.native_nested_clip_oracle
+  COMMAND quantapdf_test_native_nested_clip_oracle)
+set_tests_properties(quantapdf.native_nested_clip_oracle PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native-raster")
+if(WIN32)
+  set_property(TEST quantapdf.native_nested_clip_oracle
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_nested_clip_oracle
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_nested_clip_oracle
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()

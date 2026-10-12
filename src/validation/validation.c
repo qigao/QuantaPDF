@@ -87,6 +87,39 @@ static int required_id(size_t id, size_t count)
     return id != 0 && id <= count;
 }
 
+/* Nested Clip intersections are a bounded borrowed DAG. Validation does
+ * not allocate or mutate model state. The stack catches active back-edges
+ * while permitting shared leaves/subgraphs. A total-visit ceiling prevents
+ * pathological DAG expansion during validation and export. */
+static int clip_dag_acyclic(
+    const quantapdf_resource_registry *registry, size_t id,
+    size_t *stack, size_t depth, size_t *visits)
+{
+    const quantapdf_composer_clip_state *clip;
+    size_t i;
+    if (id == 0u || id > registry->clip_count ||
+        depth >= 8u || *visits >= 1024u)
+        return 0;
+    ++*visits;
+    for (i = 0u; i < depth; ++i) {
+        if (stack[i] == id)
+            return 0;
+    }
+    clip = &registry->clips[id - 1u];
+    if (clip->kind == QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL)
+        return 1;
+    if (clip->kind != QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL ||
+        clip->members == NULL || clip->member_count == 0u)
+        return 0;
+    stack[depth] = id;
+    for (i = 0u; i < clip->member_count; ++i) {
+        if (!clip_dag_acyclic(
+                registry, (size_t)clip->members[i], stack, depth + 1u, visits))
+            return 0;
+    }
+    return 1;
+}
+
 /* Macros only attach record coordinates to a failed predicate. They do not
  * evaluate the predicate twice or hide allocation, traversal, or mutation. */
 #define REQUIRE(test, rule, subject, index, detail) do { \
@@ -178,9 +211,22 @@ quantapdf_status quantapdf_validate_ir(
             for (j = 0; j < v->member_count; ++j) {
                 size_t id = v->members[j];
                 REF(required_id(id, r->clip_count), QUANTAPDF_VALIDATION_CLIP, i, id);
-                REF(r->clips[id - 1].kind == QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL,
-                    QUANTAPDF_VALIDATION_CLIP, i, id);
+                /* Members may be Clip Paths OR nested intersections; the
+                 * traversal gate below rejects cycles/unsupported graphs. */
             }
+        }
+    }
+    /* Validate every nested graph once as a possible root. Flat legacy
+     * intersection resources continue to pass this same bounded gate. */
+    for (i = 0; i < r->clip_count; ++i) {
+        if (r->clips[i].kind == QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL) {
+            size_t stack[8] = {0};
+            size_t visits = 0u;
+            /* A cyclic Clip reference is a reference violation. Preserve
+             * the prior deterministic self-reference report coordinates:
+             * subject=CLIP, index=root slot, detail=root ID. */
+            REF(clip_dag_acyclic(r, i + 1u, stack, 0u, &visits),
+                QUANTAPDF_VALIDATION_CLIP, i, i + 1u);
         }
     }
     for (i = 0; i < r->paint_count; ++i) {
