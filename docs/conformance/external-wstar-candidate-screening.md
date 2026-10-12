@@ -69,6 +69,33 @@ or document-specific license review). This is a limited selection, not
 a claim of complete fpdf2 corpus coverage. Neither `f*` nor
 nonzero `W` can satisfy #262's W* positive counter.
 
+## Offline W* source-candidate scanner (screening only)
+
+Run the portable, bounded, standard-library-only diagnostic on existing,
+**unchanged** original PDFs:
+
+```sh
+python3 tools/qualification/screen_external_wstar.py \
+  --pdf /path/to/original.pdf --report /tmp/wstar-screen.json
+```
+
+The scanner records an original-byte SHA-256, examines raw and Flate-decoded
+streams (at most 128 PDFs, 16 MiB per source, 64 streams per source and
+1 MiB decoded per stream), and distinguishes `W*` from
+`W` and `f*`. It flags later Text/XObject/Image/marked-content
+operators, truncated/unknown streams, and files needing complete page
+preflight. It never edits, generates, fetches, or installs a candidate.
+
+**Heuristic only:** stream recovery is not full PDF object-resolution;
+compressed object streams, inherited resources and arbitrary filters may
+remain inconclusive. Even a `candidate_requires_full_page_preflight`
+result is **not** a native-support claim: verify the complete selected
+page, source/license, immutable revision, independent PDFium pixels and
+cross-platform CI separately. The JSON explicitly fixes the W* native
+positive count to zero and marks license/page attribution unreviewed.
+13 synthetic-only scanner regression cases run as part of the existing
+Linux, macOS and Windows workflows; no new CI workflow is introduced.
+
 ## Native preparation in this branch
 
 `quantapdf.native_scoped_clip_dag_v1` now exercises a provider-free C11

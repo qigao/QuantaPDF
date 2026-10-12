@@ -144,6 +144,7 @@ jobs:
         shell: bash
         run: |
           python3 -m unittest discover -s tests -p test_external_pdf_corpus.py
+          python3 -m unittest discover -s tests -p test_screen_external_wstar.py
           python3 tools/qualification/external_pdf_corpus.py \
             --manifest tests/external_source_corpus/manifest.json \
             --assets tests/external_source_corpus/documents \
@@ -319,6 +320,7 @@ jobs:
         shell: bash
         run: |
           python3 -m unittest discover -s tests -p test_external_pdf_corpus.py
+          python3 -m unittest discover -s tests -p test_screen_external_wstar.py
           python3 tools/qualification/external_pdf_corpus.py \
             --manifest tests/external_source_corpus/manifest.json \
             --assets tests/external_source_corpus/documents \
@@ -516,6 +518,7 @@ jobs:
         shell: pwsh
         run: |
           python -m unittest discover -s tests -p test_external_pdf_corpus.py
+          python -m unittest discover -s tests -p test_screen_external_wstar.py
           python tools/qualification/external_pdf_corpus.py --manifest tests/external_source_corpus/manifest.json --assets tests/external_source_corpus/documents --report "$env:RUNNER_TEMP/external-pdf-corpus.json"
 
       - name: Upload external PDF corpus admission (Windows)
