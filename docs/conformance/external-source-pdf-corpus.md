@@ -260,3 +260,46 @@ corpus baseline or the independently sourced external PDF ledger.
 General transparent compositing, knockout, non-isolated, soft-mask,
 backdrop and arbitrary color-space semantics remain unimplemented.
 The installed public SDK remains PDFium-backed.
+
+
+## Fourth external document: original PDFium W Clip and blue stroke
+
+The publisher's original [clip_path.pdf](https://github.com/chromium/pdfium/blob/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources/clip_path.pdf)
+is independently authored by PDFium, not generated or rewritten by QuantaPDF.
+The pinned upstream revision is
+`a84323421e94f484faca52dd9d027934eba42ab8`.
+Its exact raw length is **510 bytes**, SHA-256
+`ee3ee39d47db0022f8042c9629f4b8d69d99c4ce226532f9f16c867117b3050a`,
+and matching upstream/vendored Git blob SHA-1
+`8d27bcb6395965ae9c6d7fbd91e802d786a84ab7`.
+Document-specific source and BSD-3-Clause attribution review are recorded
+in [#260](https://github.com/qigao/QuantaPDF/issues/260);
+the upstream license notice is retained under
+`tests/external_source_corpus/PDFIUM-BSD-NOTICE.txt`.
+
+The original 100×50 page's PDF content uses a rectangle
+`10 15 m 40 15 l 40 35 l 10 35 l W n` as a nonzero-winding
+Clip, then blue `0 0 1 RG` and a closed triangular
+`10 10 m 25 40 l 40 10 l s` stroked path. It has **no text,
+images, forms or soft masks**. It is a deliberate narrow expansion
+from fill-only to one **opaque width-1 solid miter-joined closed triangle
+stroke** under an isometric transform. It does **not** imply arbitrary
+stroke width, cap/join, dash, transform, or transparency support.
+
+The original-source PDFium oracle is independent of Source → Graph →
+detached IR → private C11 Native Raster, and original Document/Graph
+ownership is released before the native render. The real-source
+`quantapdf.external_pdfium_clipped_stroke` CTest compares entire-page
+RGB pixels, requires visible blue stroke pixels and overlap with
+the PDFium oracle, exact repeat RGBA bytes, and fail-closed rejection of
+unsupported stroke configurations. An additional provider-free C11
+test verifies owned single-stroke plus borrowed Clip intersection
+without introducing PDFium/qpdf to the renderer itself.
+
+The external ledger now distinguishes four original source documents:
+one text-rejected, one blank positive, one opaque single-PATH-fill
+positive, and this source's **clipped width-1 stroke**. Successful
+**clipped Path** conformance is counted separately from the existing
+opaque-fill case; the 14/36 generated corpus totals remain unchanged.
+No production PDFium removal or public ABI change follows from
+qualifying this particular sample.
