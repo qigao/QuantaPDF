@@ -762,6 +762,68 @@ void test_extgstate_inheritance_and_override()
     }
 }
 
+/* Two real source pages own different indirect resource dictionaries.
+ * Resolving page 0 must not leak page 1's unsupported ExtGState. */
+void test_indirect_resource_page_isolation()
+{
+    auto pdf=QPDF::create();
+    pdf->emptyPDF();
+    auto root=pdf->getRoot().getKey("/Pages");
+    auto first=pdf->makeIndirectObject(
+        QPDFObjectHandle::parse("<< /Type /Page >>"));
+    auto second=pdf->makeIndirectObject(
+        QPDFObjectHandle::parse("<< /Type /Page >>"));
+    root.replaceKey("/Kids",QPDFObjectHandle::newArray({first,second}));
+    root.replaceKey("/Count",QPDFObjectHandle::newInteger(2));
+    root.replaceKey("/MediaBox",QPDFObjectHandle::parse("[0 0 120 120]"));
+    auto valid=pdf->makeIndirectObject(QPDFObjectHandle::parse(
+        "<< /ca 1 /CA 1 /BM /Normal >>"));
+    auto invalid=pdf->makeIndirectObject(QPDFObjectHandle::parse(
+        "<< /SMask /None >>"));
+    auto resources0=pdf->makeIndirectObject(QPDFObjectHandle::newDictionary());
+    auto resources1=pdf->makeIndirectObject(QPDFObjectHandle::newDictionary());
+    auto gs0=pdf->makeIndirectObject(QPDFObjectHandle::newDictionary());
+    auto gs1=pdf->makeIndirectObject(QPDFObjectHandle::newDictionary());
+    gs0.replaceKey("/GS",valid);
+    gs1.replaceKey("/GS",invalid);
+    resources0.replaceKey("/ExtGState",gs0);
+    resources1.replaceKey("/ExtGState",gs1);
+    first.replaceKey("/Parent",root);
+    second.replaceKey("/Parent",root);
+    first.replaceKey("/Resources",resources0);
+    second.replaceKey("/Resources",resources1);
+    const char *content=
+        "q /GS gs 10 10 80 80 re W n "
+        "1 0 0 rg 0 0 120 120 re f Q "
+        "0 0 1 rg 0 0 12 12 re f "
+        "0 1 0 rg 100 100 12 12 re f";
+    first.replaceKey("/Contents",pdf->newStream(content));
+    second.replaceKey("/Contents",pdf->newStream(content));
+    QPDFWriter writer(*pdf);
+    writer.setOutputMemory();
+    writer.write();
+    auto blob=writer.getBufferSharedPointer();
+    FILE *file=std::fopen(SOURCE_QQ_PDF,"wb");
+    CHECK(file!=nullptr);
+    CHECK(std::fwrite(blob->getBuffer(),1,blob->getSize(),file)==blob->getSize());
+    CHECK(std::fclose(file)==0);
+    quantapdf_ir rejected{};
+    CHECK(snapshot_lower(&rejected,1u)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(rejected.pages==nullptr && rejected.operations==nullptr &&
+          rejected.operation_count==0u && rejected.resources.clip_count==0u);
+    quantapdf_ir_dispose(&rejected);
+    quantapdf_ir accepted{};
+    OK(snapshot_lower(&accepted,0u));
+    CHECK(accepted.page_count==1u && accepted.operation_count==3u);
+    quantapdf_ir_raster_image pixels{};
+    OK(quantapdf_ir_raster_scoped_operations_v1(
+        &accepted,0u,&raster_limits,&pixels));
+    CHECK(pixels.width==PAGE && pixels.height==PAGE);
+    quantapdf_ir_raster_image_dispose(&pixels);
+    quantapdf_ir_dispose(&accepted);
+    CHECK(std::remove(SOURCE_QQ_PDF)==0);
+}
+
 void test_inherited_extgstate_fail_closed()
 {
     struct scenario { const char *resources; quantapdf_status expected; };
@@ -828,6 +890,7 @@ int main()
     test_multilevel_page_tree_override();
     test_invalid_inherited_geometry();
     test_extgstate_inheritance_and_override();
+    test_indirect_resource_page_isolation();
     test_inherited_extgstate_fail_closed();
     test_unsupported_operator_fails_closed();
     std::fprintf(stderr,"[quantapdf.native_source_qq_oracle] complete\n");
