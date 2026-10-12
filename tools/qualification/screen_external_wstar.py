@@ -24,7 +24,7 @@ MAX_DIRECTORY_DEPTH = 16
 MAX_INTEGER_OBJECT_HEADERS = 4096
 STREAM_MARKER = re.compile(rb"(?<![A-Za-z])stream(?:\r\n|\n|\r)")
 OBJECT_HEADER = re.compile(rb"(?:^|[\r\n])\s*\d+\s+\d+\s+obj\b")
-PDF_HEADER = re.compile(rb"%PDF-(?:1\\.[0-7]|2\\.0)(?:\\r\\n|\\r|\\n)")
+PDF_HEADER = re.compile(rb"%PDF-(?:1\.[0-7]|2\.0)(?:\r\n|\r|\n)")
 DIRECT_LENGTH = re.compile(rb"/Length\s+(\d+)(?:\s+(\d+)\s+R)?\b")
 INDIRECT_OBJECT_HEADER = re.compile(
     rb"(?:^|[\r\n])[ \t]*(\d+)[ \t]+(\d+)[ \t]+obj\b"

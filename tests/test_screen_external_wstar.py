@@ -112,7 +112,7 @@ class ExternalWStarScreening(unittest.TestCase):
     def test_pdf20_style_prefix_before_valid_wstar_is_screening_only(self):
         # PDF Association publishes a PDF 2.0 sample whose header starts
         # at byte 656. Do not reject a bounded printer/preamble prefix.
-        source = b"# printer metadata\n" * 41
+        source = b"# preface\n" * 40
         source += b"# " + b" " * (656 - len(source) - 2)
         self.assertEqual(len(source), 656)
         original = source + pdf(
