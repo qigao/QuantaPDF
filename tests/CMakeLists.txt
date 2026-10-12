@@ -1810,7 +1810,7 @@ endif()
 add_test(NAME quantapdf.native_source_qq_oracle
   COMMAND quantapdf_test_native_source_qq_oracle)
 set_tests_properties(quantapdf.native_source_qq_oracle PROPERTIES
-  TIMEOUT 40 LABELS "conformance;native-raster;source-pdf")
+  TIMEOUT 40 LABELS "conformance;native-raster;source-pdf;source-corpus")
 if(WIN32)
   set_property(TEST quantapdf.native_source_qq_oracle
     PROPERTY ENVIRONMENT_MODIFICATION
