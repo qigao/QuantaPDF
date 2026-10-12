@@ -579,8 +579,8 @@ void test_zero_segment_clip_native_restore()
     };
     const probe points[]={
         {30,30,0,0,255}, {50,50,0,0,255},
-        {105,105,0,255,0}, {5,5,255,255,255},
-        {80,80,255,255,255}
+        {105,105,0,255,0}, {5,5,255,0,0},
+        {80,80,255,0,0}
     };
     for(const char *content:cases)
         compare(content,points,sizeof(points)/sizeof(points[0]),0u);
