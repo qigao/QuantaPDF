@@ -59,3 +59,28 @@ normal blend, and a bounded Clip DAG. CropBox, Rotate, UserUnit source
 comparisons, larger document corpus, incomplete/malformed PDFs, arbitrary
 graphics-state operations, Stroke+Clip, soft masks, text/images/forms and
 PDFium-free installed SDK packaging remain #229/#214/#213/#208 work.
+
+
+## Source multi-stream and sibling-page isolation increment
+
+The same test target now creates a **two-page source PDF**, where page
+zero paints the entire canvas blue and page one contains two independently
+encoded `/Contents` streams. The first stream leaves an active nested
+`q/W` Clip stack and an unpainted path; the second begins by finishing
+the `f` paint and later restores `Q` twice before blue and green
+painting. This exercises token/graphics state across the stream boundary.
+
+A requested `max_streams = 1` strictly rejects the selected page and
+returns an empty IR slot; `max_streams = 2` admits it. Capturing/lowering
+page zero produces only its own single paint, with no leaked Clip state.
+Capturing/lowering page one yields precisely three path operations and
+its owned Clip resources, independent of the other page.
+
+The test drops the document and Graph before repeated direct native V1
+scoped DAG rasterization. The only PDFium invocation independently renders
+**page index 1 of the original source PDF**. The identical fixed RGB
+interior goldens, <=10 mean RGB and <=1/12 gross-error thresholds are
+applied across the whole white-composited framebuffer. Page-level
+selection and content-array concatenation are thus tested without
+PDFium in the native render path, without changing C11 ABI or introducing
+an additional test binary/workflow.
