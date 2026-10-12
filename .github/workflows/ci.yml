@@ -140,6 +140,16 @@ jobs:
       - name: Product conformance (Linux ASan/UBSan)
         run: ctest --preset linux-dev-user -L conformance --output-on-failure
 
+      - name: Upload source-PDF corpus reports (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-corpus-linux
+          path: |
+            build/linux-gcc-release/tests/native-source-corpus.json
+            build/linux-gcc-debug/tests/native-source-corpus.json
+          if-no-files-found: error
+          retention-days: 7
+
   macos:
     if: >-
       github.event_name == 'push' ||
@@ -233,6 +243,14 @@ jobs:
 
       - name: Install SDK
         run: cmake --build --preset "install-$CMAKE_PRESET" --parallel 2
+
+      - name: Upload source-PDF corpus report (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-corpus-macos
+          path: build/macos-clang-release/tests/native-source-corpus.json
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Upload failed poster output
         if: failure()
@@ -359,3 +377,11 @@ jobs:
           if not exist "%RUNNER_TEMP%\installed-composer-smoke-cff.pdf" exit /b 1
           "%RUNNER_TEMP%\quantapdf-installed-consumer.exe" "tests\fixtures\fonts\SourceSans3VF-Upright.otf" "%RUNNER_TEMP%\installed-composer-smoke-cff2.pdf"
           if not exist "%RUNNER_TEMP%\installed-composer-smoke-cff2.pdf" exit /b 1
+
+      - name: Upload source-PDF corpus report (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-corpus-windows
+          path: build/Msvc-Release/tests/native-source-corpus.json
+          if-no-files-found: error
+          retention-days: 7

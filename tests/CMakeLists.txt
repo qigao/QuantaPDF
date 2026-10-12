@@ -1808,7 +1808,8 @@ if(MSVC)
   target_compile_options(quantapdf_test_native_source_qq_oracle PRIVATE /utf-8)
 endif()
 add_test(NAME quantapdf.native_source_qq_oracle
-  COMMAND quantapdf_test_native_source_qq_oracle)
+  COMMAND quantapdf_test_native_source_qq_oracle
+    --corpus-report "${CMAKE_CURRENT_BINARY_DIR}/native-source-corpus.json")
 set_tests_properties(quantapdf.native_source_qq_oracle PROPERTIES
   TIMEOUT 40 LABELS "conformance;native-raster;source-pdf;source-corpus")
 if(WIN32)
