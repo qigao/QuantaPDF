@@ -74,7 +74,8 @@ void make_source(const char *content)
     CHECK(std::fclose(f) == 0);
 }
 
-quantapdf_status snapshot_lower(quantapdf_ir *out)
+quantapdf_status snapshot_lower(quantapdf_ir *out,
+                                size_t page_index=0u,size_t max_streams=1u)
 {
     quantapdf_document *doc=nullptr;
     quantapdf_graph_snapshot *snap=nullptr;
@@ -87,13 +88,13 @@ quantapdf_status snapshot_lower(quantapdf_ir *out)
     quantapdf_close(doc);
     if(st != QUANTAPDF_OK) return st;
     st = quantapdf_graph_snapshot_page_composer_ir(
-        snap,0u,2u,&decode_limits,&parse_limits,1u,&lower_limits,out);
+        snap,page_index,2u,&decode_limits,&parse_limits,max_streams,&lower_limits,out);
     /* Deliberately sever all source-page ownership before rasterization. */
     quantapdf_graph_snapshot_drop(snap);
     return st;
 }
 
-rgb_image render_original_pdfium()
+rgb_image render_original_pdfium(size_t page_index=0u)
 {
     rgb_image out;
     quantapdf_document *doc=nullptr;
@@ -102,7 +103,7 @@ rgb_image render_original_pdfium()
     const unsigned char *bytes=nullptr;
     size_t size=0u;
     OK(quantapdf_open(SOURCE_QQ_PDF,nullptr,&doc));
-    OK(quantapdf_load_page(doc,0u,&page));
+    OK(quantapdf_load_page(doc,page_index,&page));
     OK(quantapdf_render_page(page,&bitmap));
     OK(quantapdf_bitmap_dimensions(bitmap,&out.width,&out.height,
                                    &out.stride,&out.components));
@@ -395,6 +396,123 @@ void test_page_geometry_matrix()
             t.rotation,t.unit,t.root_crop,t.root_rotation);
 }
 
+/* Two independently encoded /Contents streams make one operator tape.
+ * Deliberately put the terminal f and both Q restores in the second stream.
+ * Another page draws a completely different color; selected-page lowering
+ * must not inherit the sibling page's graphics state or paint. */
+void make_multipage_multistream_source()
+{
+    auto pdf=QPDF::create();
+    pdf->emptyPDF();
+    auto root=pdf->getRoot().getKey("/Pages");
+    auto page0=pdf->makeIndirectObject(
+        QPDFObjectHandle::parse("<< /Type /Page >>"));
+    auto page1=pdf->makeIndirectObject(
+        QPDFObjectHandle::parse("<< /Type /Page >>"));
+    root.replaceKey("/Kids",QPDFObjectHandle::newArray({page0,page1}));
+    root.replaceKey("/Count",QPDFObjectHandle::newInteger(2));
+    root.replaceKey("/MediaBox",QPDFObjectHandle::parse("[0 0 120 120]"));
+    page0.replaceKey("/Parent",root);
+    page1.replaceKey("/Parent",root);
+    page0.replaceKey("/Contents",pdf->newStream(
+        "q 0 0 1 rg 0 0 120 120 re f Q"));
+    auto part_a=pdf->newStream(
+        "q 10 10 80 80 re W n "
+        "q 20 20 40 40 re W n "
+        "1 0 0 rg 0 0 120 120 re ");
+    auto part_b=pdf->newStream(
+        "f Q 0 0 1 rg 50 0 70 120 re f "
+        "Q 0 1 0 rg 0 0 12 12 re f");
+    page1.replaceKey("/Contents",QPDFObjectHandle::newArray({
+        part_a,part_b
+    }));
+    QPDFWriter writer(*pdf);
+    writer.setMinimumPDFVersion("1.6");
+    writer.setOutputMemory();
+    writer.write();
+    auto blob=writer.getBufferSharedPointer();
+    FILE *file=std::fopen(SOURCE_QQ_PDF,"wb");
+    CHECK(file!=nullptr);
+    CHECK(std::fwrite(blob->getBuffer(),1,blob->getSize(),file)==
+          blob->getSize() && std::fclose(file)==0);
+}
+
+void test_selected_page_multistream()
+{
+    make_multipage_multistream_source();
+    quantapdf_ir rejected{};
+    CHECK(snapshot_lower(&rejected,1u,1u)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(rejected.pages==nullptr && rejected.operations==nullptr &&
+          rejected.operation_count==0u && rejected.resources.clip_count==0u);
+
+    /* The other page is independent and contains only one blue paint. */
+    quantapdf_ir first{};
+    OK(snapshot_lower(&first,0u,1u));
+    CHECK(first.page_count==1u && first.operation_count==1u &&
+          first.resources.clip_count==0u);
+    quantapdf_ir_dispose(&first);
+
+    quantapdf_ir ir{};
+    quantapdf_ir_raster_image pixels{},repeat{};
+    OK(snapshot_lower(&ir,1u,2u));
+    CHECK(ir.page_count==1u && ir.operation_count==3u &&
+          ir.resources.clip_count>=3u &&
+          ir.pages[0].width_points==(float)PAGE &&
+          ir.pages[0].height_points==(float)PAGE &&
+          ir.pages[0].suppress_background==1);
+    OK(quantapdf_ir_raster_scoped_operations_v1(
+        &ir,0u,&raster_limits,&pixels));
+    OK(quantapdf_ir_raster_scoped_operations_v1(
+        &ir,0u,&raster_limits,&repeat));
+    CHECK(pixels.size==PAGE*PAGE*4u && repeat.size==pixels.size &&
+          std::memcmp(pixels.pixels,repeat.pixels,pixels.size)==0);
+    quantapdf_ir_raster_image_dispose(&repeat);
+    quantapdf_ir_dispose(&ir);
+
+    rgb_image baseline=render_original_pdfium(1u);
+    CHECK(baseline.width==(int)PAGE && baseline.height==(int)PAGE);
+    double total_error=0.0;
+    size_t gross=0u;
+    for(size_t y=0;y<PAGE;++y)for(size_t x=0;x<PAGE;++x){
+        const unsigned char *a=pixels.pixels+y*pixels.stride+4u*x;
+        const unsigned char *b=baseline.at(x,y);
+        unsigned worst=0u;
+        for(size_t channel=0u;channel<3u;++channel){
+            unsigned lhs=on_white(a,channel),rhs=b[channel];
+            unsigned delta=lhs>rhs?lhs-rhs:rhs-lhs;
+            if(delta>worst)worst=delta;
+            total_error+=(double)delta;
+        }
+        if(worst>64u)++gross;
+    }
+    const double mean=total_error/(double)(PAGE*PAGE*3u);
+    if(mean>10.0 || gross>PAGE*PAGE/12u){
+        std::fprintf(stderr,
+            "multi-page two-stream native/PDFium mean=%.3f gross=%zu\n",
+            mean,gross);
+        CHECK(false);
+    }
+
+    const probe samples[]={
+        {30,30,255,0,0}, {75,35,0,0,255},
+        {5,5,0,255,0}, {5,110,255,255,255},
+        {95,35,255,255,255}, {15,35,255,255,255}
+    };
+    for(const auto& p:samples){
+        size_t yy=PAGE-1u-(size_t)p.y_pdf;
+        const unsigned char *a=pixels.pixels+yy*pixels.stride+
+                                4u*(size_t)p.x;
+        const unsigned char *b=baseline.at((size_t)p.x,yy);
+        const unsigned want[3]={p.r,p.g,p.b};
+        for(size_t channel=0u;channel<3u;++channel){
+            CHECK(std::abs((int)on_white(a,channel)-(int)want[channel])<=3);
+            CHECK(std::abs((int)b[channel]-(int)want[channel])<=3);
+        }
+    }
+    quantapdf_ir_raster_image_dispose(&pixels);
+    CHECK(std::remove(SOURCE_QQ_PDF)==0);
+}
+
 void test_unsupported_operator_fails_closed()
 {
     quantapdf_ir failed{};
@@ -413,6 +531,7 @@ int main()
     test_evenodd_restore();
     test_clip_definition_ctm();
     test_page_geometry_matrix();
+    test_selected_page_multistream();
     test_unsupported_operator_fails_closed();
     std::fprintf(stderr,"[quantapdf.native_source_qq_oracle] complete\n");
     return EXIT_SUCCESS;
