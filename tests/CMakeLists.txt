@@ -1826,6 +1826,28 @@ else()
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
 
+
+# Real source-PDF leaf /Group admission. Reuse the original PDFium test-only
+# binary, but do NOT count its generated scenario fixtures as external PDFs
+# or as members of the existing 14/36 source corpus manifest.
+add_test(NAME quantapdf.native_page_group_admission
+  COMMAND quantapdf_test_native_source_qq_oracle --page-group-admission)
+set_tests_properties(quantapdf.native_page_group_admission PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native-raster;source-pdf;page-group")
+if(WIN32)
+  set_property(TEST quantapdf.native_page_group_admission
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_page_group_admission
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_page_group_admission
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
 # Independently published CC0 PDF source; test-only PDFium validates that
 # the ORIGINAL file renders, while native Graph/IR rejects unsupported text.
 # Reuse the same executable, but NOT the 14/36 generated-fixture registry.
