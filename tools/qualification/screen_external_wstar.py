@@ -394,17 +394,25 @@ def main(argv=None):
     if not 1 <= len(paths) <= MAX_PDFS or len({p.name for p in paths}) != len(paths):
         parser.error("1..128 distinct input PDF basenames required")
     input_paths = {p.resolve() for p in paths}
-    if args.report.resolve() in input_paths or Path(str(args.report) + ".tmp").resolve() in input_paths:
+    staged = Path(str(args.report) + ".tmp")
+    if args.report.resolve() in input_paths or staged.resolve() in input_paths:
         parser.error("screening report would replace an original PDF")
     if args.report.is_symlink():
         parser.error("report symlink rejected")
-    staged = Path(str(args.report) + ".tmp")
     if staged.is_symlink():
         parser.error("temporary report symlink rejected")
-    args.report.unlink(missing_ok=True)
-    staged.unlink(missing_ok=True)
+    # Resolve inode aliases as well as canonical paths. A hardlinked report
+    # can be the exact original PDF under another filename.
+    for output in (args.report, staged):
+        if output.exists():
+            for source in paths:
+                if os.path.samefile(output, source):
+                    parser.error("screening output hardlinks an original PDF")
     try:
         docs = [screen_pdf_file(p) for p in paths]
+        # Stage only after all input bytes have passed validation.
+        # A pre-existing report is never unlinked on an input failure.
+        staged.unlink(missing_ok=True)
         report = {"schema_version": 1, "result": "screening_only",
                   "native_wstar_clip_supported_count": 0,
                   "documents": sorted(docs, key=lambda doc: doc["filename"])}

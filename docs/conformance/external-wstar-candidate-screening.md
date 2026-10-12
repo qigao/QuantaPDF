@@ -93,7 +93,7 @@ boundaries (at most 128 PDFs, 16 MiB per source, 64 streams per source and
 1 MiB decoded per stream). Directory discovery is bounded to 4,096 entries
 and 16 levels, sorted deterministically, never follows symlinks, and
 rejects duplicate basenames. It is offline and never downloads files.
-The scanner distinguishes `W*` from
+On a validation failure, an existing report remains untouched; output paths\nthat hardlink an original input are rejected before any write.\nThe scanner distinguishes `W*` from
 `W` and `f*`. It flags later Text/XObject/Image/marked-content
 operators, truncated/unknown streams, and files needing complete page
 preflight. It never edits, generates, fetches, or installs a candidate.
@@ -117,7 +117,7 @@ result is **not** a native-support claim: verify the complete selected
 page, source/license, immutable revision, independent PDFium pixels and
 cross-platform CI separately. The JSON explicitly fixes the W* native
 positive count to zero and marks license/page attribution unreviewed.
-42 synthetic + 3 pinned original-PDF scanner regression cases run as part of the existing
+44 synthetic + 3 pinned original-PDF scanner regression cases run as part of the existing
 Linux, macOS and Windows workflows; no new CI workflow is introduced.
 
 The exact, previously reviewed unchanged PDFium `clip_path.pdf` and

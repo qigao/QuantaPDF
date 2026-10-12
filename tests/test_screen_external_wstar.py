@@ -407,6 +407,35 @@ class ExternalWStarScreening(unittest.TestCase):
                     main(["--pdf", str(source), "--report", str(source)])
             self.assertEqual(source.read_bytes(), original)
 
+    def test_invalid_source_preserves_preexisting_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "invalid.pdf"
+            source.write_bytes(b"not a PDF")
+            report = Path(directory) / "result.json"
+            report.write_text('{"existing":"do-not-delete"}')
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    main(["--pdf", str(source), "--report", str(report)])
+            self.assertEqual(report.read_text(), '{"existing":"do-not-delete"}')
+            self.assertFalse(Path(str(report) + ".tmp").exists())
+
+    def test_report_hardlink_to_original_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            original = Path(directory) / "original.pdf"
+            original.write_bytes(NONZERO.read_bytes())
+            report = Path(directory) / "alias.json"
+            try:
+                import os
+                os.link(original, report)
+            except (OSError, NotImplementedError):
+                self.skipTest("hardlinks unavailable")
+            before = hashlib.sha256(original.read_bytes()).hexdigest()
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    main(["--pdf", str(original), "--report", str(report)])
+            self.assertEqual(hashlib.sha256(original.read_bytes()).hexdigest(), before)
+            self.assertEqual(report.read_bytes(), original.read_bytes())
+
     def test_pdf_dir_screens_unchanged_nested_pinned_originals(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "corpus"
