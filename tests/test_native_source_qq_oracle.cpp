@@ -1173,6 +1173,147 @@ int test_external_cc0_blank_native_parity(const char *filename,
     return EXIT_SUCCESS;
 }
 
+
+/* Exact externally published PDFium test fixture: one opaque black PATH.
+ * Source PDF is preserved unchanged; test-only PDFium is independent of
+ * Source -> Graph Snapshot -> detached IR -> pure C11 native raster. */
+int test_external_pdfium_black_path(const char *filename,const char *report_path)
+{
+    CHECK(filename && *filename && report_path && *report_path);
+    const std::string staged=std::string(report_path)+".tmp";
+    errno=0;
+    if(std::remove(report_path)!=0) CHECK(errno==ENOENT);
+    errno=0;
+    if(std::remove(staged.c_str())!=0) CHECK(errno==ENOENT);
+    CHECK(corpus_fixture_executions==0u);
+    constexpr size_t WIDTH=612u, HEIGHT=792u;
+    quantapdf_document *pdfium_doc=nullptr;
+    quantapdf_page *pdfium_page=nullptr;
+    quantapdf_bitmap *bitmap=nullptr;
+    const unsigned char *rgb=nullptr;
+    size_t bitmap_bytes=0u;
+    int width=0,height=0,stride=0,components=0;
+    OK(quantapdf_open(filename,nullptr,&pdfium_doc));
+    OK(quantapdf_load_page(pdfium_doc,0u,&pdfium_page));
+    OK(quantapdf_render_page(pdfium_page,&bitmap));
+    OK(quantapdf_bitmap_dimensions(bitmap,&width,&height,&stride,&components));
+    OK(quantapdf_bitmap_data(bitmap,&rgb,&bitmap_bytes));
+    CHECK(width==(int)WIDTH && height==(int)HEIGHT &&
+          components==3 && stride>=width*3 && rgb!=nullptr &&
+          bitmap_bytes>=(size_t)stride*HEIGHT);
+
+    quantapdf_document *source=nullptr;
+    quantapdf_graph_snapshot *snapshot=nullptr;
+    quantapdf_ir detached{};
+    OK(quantapdf_open(filename,nullptr,&source));
+    quantapdf_status status=quantapdf_document_capture_graph(
+        source,&graph_limits,&snapshot);
+    quantapdf_close(source);
+    CHECK(status==QUANTAPDF_OK && snapshot!=nullptr);
+    status=quantapdf_graph_snapshot_page_composer_ir(
+        snapshot,0u,2u,&decode_limits,&parse_limits,1u,
+        &lower_limits,&detached);
+    quantapdf_graph_snapshot_drop(snapshot);
+    CHECK(status==QUANTAPDF_OK);
+    CHECK(detached.pages && detached.page_count==1u &&
+          detached.pages[0].width_points==(float)WIDTH &&
+          detached.pages[0].height_points==(float)HEIGHT &&
+          detached.pages[0].suppress_background==1);
+    CHECK(detached.operations && detached.operation_count==1u &&
+          detached.operations[0].kind==QUANTAPDF_COMPOSER_OPERATION_PATH &&
+          detached.resources.graphics_state_count<=1u &&
+          detached.resources.clip_count==0u &&
+          detached.resources.font_count==0u &&
+          detached.resources.image_count==0u &&
+          detached.resources.soft_mask_count==0u &&
+          detached.resources.paint_count==0u &&
+          detached.resources.form_count==0u);
+    if(detached.resources.graphics_state_count==1u){
+        CHECK(detached.resources.graphics_states!=nullptr);
+        CHECK(detached.resources.graphics_states[0].fill_alpha==1.0f &&
+              detached.resources.graphics_states[0].stroke_alpha==1.0f &&
+              detached.resources.graphics_states[0].blend_mode==
+                  QUANTAPDF_COMPOSER_BLEND_NORMAL &&
+              detached.resources.graphics_states[0].soft_mask_id==0u);
+    }
+
+    const quantapdf_ir_raster_v1_limits limits={
+        WIDTH*HEIGHT,1u,768u,60000000u
+    };
+    quantapdf_ir_raster_image native{},repeat{};
+    OK(quantapdf_ir_raster_scoped_operations_v1(
+        &detached,0u,&limits,&native));
+    OK(quantapdf_ir_raster_scoped_operations_v1(
+        &detached,0u,&limits,&repeat));
+    CHECK(native.pixels && native.width==WIDTH && native.height==HEIGHT &&
+          native.stride==WIDTH*4u && native.size==WIDTH*HEIGHT*4u);
+    CHECK(native.size==repeat.size &&
+          std::memcmp(native.pixels,repeat.pixels,native.size)==0);
+    quantapdf_ir_raster_image_dispose(&repeat);
+    quantapdf_ir_dispose(&detached);
+
+    double total_difference=0.0;
+    size_t mismatched_channels=0u,gross_pixels=0u;
+    for(size_t y=0u;y<HEIGHT;++y)for(size_t x=0u;x<WIDTH;++x){
+        const unsigned char *a=native.pixels+y*native.stride+x*4u;
+        const unsigned char *b=rgb+y*(size_t)stride+x*3u;
+        CHECK(a[0]==0u && a[1]==0u && a[2]==0u && a[3]==255u);
+        unsigned worst=0u;
+        for(size_t channel=0u;channel<3u;++channel){
+            const unsigned actual=on_white(a,channel),expected=b[channel];
+            const unsigned delta=actual>expected?actual-expected:expected-actual;
+            total_difference+=(double)delta;
+            if(delta!=0u)++mismatched_channels;
+            if(delta>worst)worst=delta;
+        }
+        if(worst>64u)++gross_pixels;
+    }
+    const double mean=total_difference/(double)(WIDTH*HEIGHT*3u);
+    if(mean>3.0 || gross_pixels!=0u)
+        std::fprintf(stderr,
+            "source black/PDFium mean=%.5f gross=%zu mismatched=%zu\n",
+            mean,gross_pixels,mismatched_channels);
+    CHECK(mean<=3.0 && gross_pixels==0u);
+    quantapdf_ir_raster_image_dispose(&native);
+    quantapdf_drop_bitmap(bitmap);
+    quantapdf_drop_page(pdfium_page);
+    quantapdf_close(pdfium_doc);
+    CHECK(corpus_fixture_executions==0u);
+
+    FILE *report=std::fopen(staged.c_str(),"wb");
+    CHECK(report!=nullptr);
+    std::fprintf(report,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"corpus_id\": \"external-source-pdf\",\n"
+        "  \"document_id\": \"pdfium.black-original-v1\",\n"
+        "  \"fixture_kind\": \"external\",\n"
+        "  \"reference_oracle\": \"original-pdfium\",\n"
+        "  \"pdfium_result\": \"rendered_opaque_black\",\n"
+        "  \"native_expected_outcome\": \"supported-path-clip\",\n"
+        "  \"native_observed_outcome\": \"supported-path-clip\",\n"
+        "  \"native_painted_path_count\": 1,\n"
+        "  \"native_clipped_path_supported_count\": 0,\n"
+        "  \"native_path_clip_supported_count\": 1,\n"
+        "  \"native_blank_page_supported_count\": 0,\n"
+        "  \"native_text_supported_count\": 0,\n"
+        "  \"page_width\": %zu,\n"
+        "  \"page_height\": %zu,\n"
+        "  \"mean_rgb_error\": %.6f,\n"
+        "  \"mismatched_channels\": %zu,\n"
+        "  \"gross_error_pixels\": %zu,\n"
+        "  \"generated_fixture_count\": 0,\n"
+        "  \"result\": \"passed\"\n"
+        "}\n",WIDTH,HEIGHT,mean,mismatched_channels,gross_pixels);
+    CHECK(std::ferror(report)==0);
+    CHECK(std::fclose(report)==0);
+    CHECK(std::rename(staged.c_str(),report_path)==0);
+    std::fprintf(stderr,
+        "[external-corpus] id=pdfium.black-original-v1 "
+        "path-painted=1 clipped=0 native-source-pixel-oracle=passed\n");
+    return EXIT_SUCCESS;
+}
+
 }
 
 struct source_corpus_family {
@@ -1262,6 +1403,9 @@ int main(int argc,char **argv)
     if(argc==5 && std::strcmp(argv[1],"--external-blank-pdf")==0 &&
        std::strcmp(argv[3],"--external-report")==0)
         return test_external_cc0_blank_native_parity(argv[2],argv[4]);
+    if(argc==5 && std::strcmp(argv[1],"--external-black-pdf")==0 &&
+       std::strcmp(argv[3],"--external-report")==0)
+        return test_external_pdfium_black_path(argv[2],argv[4]);
     const char *report_path = nullptr;
     if(argc != 1){
         CHECK(argc==3 && std::strcmp(argv[1],"--corpus-report")==0 &&
