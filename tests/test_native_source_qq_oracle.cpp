@@ -199,7 +199,11 @@ void compare(const char *content, const probe *goldens,
         const bool source_wstar=std::strstr(content,"W* n")!=nullptr;
         CHECK(rules.nonzero>=1u);
         CHECK((rules.evenodd>0u)==source_wstar);
-        CHECK(rules.intersections>=1u);
+        /* A single W Clip legitimately has a direct leaf and no DAG
+         * intersection. Require an intersection only for multi-Clip
+         * generated q/Q cases (at least three registered resources). */
+        if(min_clip_resources>=3u)
+            CHECK(rules.intersections>=1u);
     }
     OK(quantapdf_ir_raster_scoped_operations_v1(
         &ir,0u,&raster_limits,&native));
