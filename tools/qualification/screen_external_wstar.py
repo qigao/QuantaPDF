@@ -24,6 +24,7 @@ MAX_DIRECTORY_DEPTH = 16
 MAX_INTEGER_OBJECT_HEADERS = 4096
 STREAM_MARKER = re.compile(rb"(?<![A-Za-z])stream(?:\r\n|\n|\r)")
 OBJECT_HEADER = re.compile(rb"(?:^|[\r\n])\s*\d+\s+\d+\s+obj\b")
+PDF_HEADER = re.compile(rb"%PDF-(?:1\\.[0-7]|2\\.0)(?:\\r\\n|\\r|\\n)")
 DIRECT_LENGTH = re.compile(rb"/Length\s+(\d+)(?:\s+(\d+)\s+R)?\b")
 INDIRECT_OBJECT_HEADER = re.compile(
     rb"(?:^|[\r\n])[ \t]*(\d+)[ \t]+(\d+)[ \t]+obj\b"
@@ -257,15 +258,20 @@ def _asciihex_bounded(payload):
 def screen_pdf_bytes(blob):
     if len(blob) > MAX_INPUT:
         raise ValueError("original PDF exceeds bounded input limit")
-    if not blob.startswith(b"%PDF-") or b"%%EOF" not in blob[-1024:]:
+    header = PDF_HEADER.search(blob, 0, min(len(blob), 1024 + 9))
+    if (header is None or header.start() >= 1024
+            or b"%%EOF" not in blob[-1024:]):
         raise ValueError("invalid PDF framing")
+    pdf_header_offset = header.start()
     stream_count = decoded_count = 0
     stream_issues = []
     counts = {"w": 0, "wstar": 0, "paint": 0, "path_commands": 0}
     blocker_counts = {name: 0 for name in BLOCKERS}
-    position = 0
+    # Any printer wrapper or non-PDF preamble is not a PDF content stream.
+    # Do not read its fake object headers or W* tokens as page evidence.
+    position = pdf_header_offset
     # Build the bounded integer-object index once, not once per stream.
-    length_objects = _simple_length_object_index(blob)
+    length_objects = _simple_length_object_index(blob[pdf_header_offset:])
     while True:
         match = STREAM_MARKER.search(blob, position)
         if match is None:
@@ -348,6 +354,7 @@ def screen_pdf_bytes(blob):
         status = "candidate_requires_full_page_preflight"
     return {
         "status": status,
+        "pdf_header_offset": pdf_header_offset,
         "stream_count": stream_count,
         "decoded_stream_count": decoded_count,
         "stream_issues": sorted(set(stream_issues)),

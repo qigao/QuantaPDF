@@ -109,6 +109,53 @@ class ExternalWStarScreening(unittest.TestCase):
                 self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),
                                  before[path.name])
 
+    def test_pdf20_style_prefix_before_valid_wstar_is_screening_only(self):
+        # PDF Association publishes a PDF 2.0 sample whose header starts
+        # at byte 656. Do not reject a bounded printer/preamble prefix.
+        source = b"# printer metadata\n" * 41
+        source += b"# " + b" " * (656 - len(source) - 2)
+        self.assertEqual(len(source), 656)
+        original = source + pdf(
+            b"q 0 0 10 10 re W* n 0 0 12 12 re f Q")
+        before = hashlib.sha256(original).hexdigest()
+        result = screen_pdf_bytes(original)
+        self.assertEqual(result["pdf_header_offset"], 656)
+        self.assertEqual(result["status"], "candidate_requires_full_page_preflight")
+        self.assertEqual(result["operator_counts"]["wstar"], 1)
+        self.assertEqual(result["native_wstar_clip_supported_count"], 0)
+        self.assertEqual(result["native_pixel_conformance"], "not_run")
+        self.assertEqual(hashlib.sha256(original).hexdigest(), before)
+
+    def test_preamble_fake_stream_is_not_page_evidence(self):
+        fake = (b"# ignored wrapper\n"
+                b"99 0 obj << /Length 4 >>\n"
+                b"stream\nW* n\nendstream\nendobj\n")
+        actual = pdf(b"q 0 0 10 10 re W n 0 0 12 12 re f Q")
+        report = screen_pdf_bytes(fake + actual)
+        self.assertEqual(report["pdf_header_offset"], len(fake))
+        self.assertEqual(report["status"], "no_wstar_observed")
+        self.assertEqual(report["operator_counts"]["wstar"], 0)
+        self.assertEqual(report["operator_counts"]["w"], 1)
+        self.assertEqual(report["stream_count"], 1)
+
+    def test_header_at_byte_1023_is_within_bound(self):
+        source = b"#" * 1023 + pdf(b"q 0 0 5 5 re W* n 0 0 5 5 re f")
+        report = screen_pdf_bytes(source)
+        self.assertEqual(report["pdf_header_offset"], 1023)
+        self.assertEqual(report["operator_counts"]["wstar"], 1)
+        self.assertEqual(report["native_wstar_clip_supported_count"], 0)
+
+    def test_header_after_first_1024_bytes_is_rejected(self):
+        source = b"#" * 1024 + pdf(b"q 0 0 5 5 re W* n 0 0 5 5 re f")
+        with self.assertRaisesRegex(ValueError, "invalid PDF framing"):
+            screen_pdf_bytes(source)
+
+    def test_malformed_pdf_header_version_is_rejected(self):
+        original = pdf(b"q 0 0 5 5 re W* n 0 0 5 5 re f")
+        source = original.replace(b"%PDF-1.7\n", b"%PDF-1.7x\n", 1)
+        with self.assertRaisesRegex(ValueError, "invalid PDF framing"):
+            screen_pdf_bytes(source)
+
     def test_path_clip_candidate_is_screening_only(self):
         doc = screen_pdf_bytes(pdf(b"q 1 1 3 3 re W* n 1 0 0 rg 0 0 5 5 re f Q"))
         self.assertEqual(doc["status"], "candidate_requires_full_page_preflight")

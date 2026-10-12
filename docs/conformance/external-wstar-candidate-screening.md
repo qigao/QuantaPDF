@@ -92,7 +92,9 @@ streams using direct /Length or uniquely resolved simple bounded integer
 /Length references with precise endstream boundaries (at most 128 PDFs, 16 MiB per source, 64 streams per source and
 1 MiB decoded per stream). Directory discovery is bounded to 4,096 entries
 and 16 levels, sorted deterministically, never follows symlinks, and
-rejects duplicate basenames. It is offline and never downloads files.
+rejects duplicate basenames. It is offline and never downloads files. A PDF header is accepted at
+offset 0..1023 (bounded leading printer bytes are ignored during scanning),
+and the JSON records `pdf_header_offset`; this is not full PDF page parsing.
 On a validation failure, an existing report remains untouched; output paths
 that hardlink an original input are rejected before any write.
 The scanner distinguishes `W*` from
@@ -119,7 +121,7 @@ result is **not** a native-support claim: verify the complete selected
 page, source/license, immutable revision, independent PDFium pixels and
 cross-platform CI separately. The JSON explicitly fixes the W* native
 positive count to zero and marks license/page attribution unreviewed.
-49 synthetic + 3 pinned original-PDF scanner regression cases run as part of the existing
+54 synthetic + 3 pinned original-PDF scanner regression cases run as part of the existing
 Linux, macOS and Windows workflows; no new CI workflow is introduced.
 
 The exact, previously reviewed unchanged PDFium `clip_path.pdf` and
@@ -244,3 +246,10 @@ count without a qualified original source must fail closed.
 - Previously reviewed fpdf2/PDFium and PDF Association candidates remain screening-only or strict unsupported negatives unless individually approved. Upstream repository code licenses alone do not establish document-level redistribution rights.
 
 **No native original-source W* pixel-positive has been found.** The next gate remains a complete selected-page typed-original `W*` Path/Clip admission followed by unchanged-source PDFium versus owned Detached IR/C11 pixel goldens, full-image budgets and deterministic repeat on exact-head CI. Keep [#262](https://github.com/qigao/QuantaPDF/issues/262) OPEN and Draft [#263](https://github.com/qigao/QuantaPDF/pull/263) unmerged.
+
+## Additional independent PDF 2.0 source review (2026-10-13)
+
+- Publisher: [PDF Association PDF 2.0 examples](https://github.com/pdf-association/pdf20examples), immutable repository tree `c20f2c17bfcc4baab7cfe62e70fae64caf14d5fa`.
+- The unchanged upstream `PDF 2.0 with offset start.pdf` (5,264 bytes, Git blob `4cf62cc204ecbc2c2027451ea265ab8978510c6b`) contains printer-preface text and begins the actual `%PDF-` header at **byte 656**. See [the publisher's source](https://github.com/pdf-association/pdf20examples/blob/c20f2c17bfcc4baab7cfe62e70fae64caf14d5fa/PDF%202.0%20with%20offset%20start.pdf). The repository's [LICENSE.md](https://github.com/pdf-association/pdf20examples/blob/c20f2c17bfcc4baab7cfe62e70fae64caf14d5fa/LICENSE.md) grants PDF files CC BY-SA 4.0; this is *not* the CC BY 4.0 corpus from `pdf-differences`.
+- Seven upstream PDF 2.0 examples were checked for literal, whitespace-delimited raw `W*` tokens; **none was observed** in that raw probe. This does not exclude compressed/structural streams or constitute selected-page semantic preflight. No new original asset has been admitted, redistributed or modified, no raw-byte SHA-256 conformance pin has been recorded, and no W* external-positive counter changes.
+- Five synthetic header-framing regressions exercise offset 656, a spoofed preamble stream, the 1023/1024 boundary, and malformed version rejection. The scanner reports the header offset but is still **screening-only**. Only real selected-page Source→Graph→Detached IR admission and original PDFium/C11 pixels may qualify an external W* positive.
