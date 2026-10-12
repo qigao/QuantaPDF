@@ -27,6 +27,16 @@ quantapdf_status quantapdf_ir_raster_render_v1(
     const quantapdf_ir_raster_v1_limits *limits,
     quantapdf_ir_raster_image *out_image);
 
+/* Private shared native sample-intersection consumer. 'ir' must already be
+ * a single-operation resource-free local projection, and clip is a borrowed
+ * canonical Clip Path. Both shapes are flattened under the same bounded work
+ * budget. A sample paints only when inside BOTH shapes. */
+quantapdf_status quantapdf_ir_raster_render_v1_clipped(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_composer_clip_state *clip,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
