@@ -7,3 +7,8 @@ target_sources(quantapdf_backend PRIVATE
 target_sources(quantapdf PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_raster.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_raster.h")
+
+# Standalone native IR general-path consumer; no PDFium/qpdf calls or headers.
+target_sources(quantapdf PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/ir_raster_v1.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ir_raster_v1.h")
