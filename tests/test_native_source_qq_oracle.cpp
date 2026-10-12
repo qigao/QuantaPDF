@@ -234,6 +234,27 @@ void test_disjoint_clip_restoration()
     compare(content,points,sizeof(points)/sizeof(points[0]),3u);
 }
 
+
+/* A duplicated closed contour has zero even-odd interior everywhere.
+ * Restore the outer rectangular clip before blue paint and then restore
+ * the page before green paint. PDFium compares the original PDF, not IR. */
+void test_evenodd_cancelled_clip_restore()
+{
+    const char *content =
+        "q 10 10 80 80 re W n "
+        "q 20 20 40 40 re 20 20 40 40 re W* n "
+        "1 0 0 rg 0 0 120 120 re f "
+        "Q 0 0 1 rg 25 25 35 35 re f "
+        "Q 0 1 0 rg 100 100 15 15 re f";
+    const probe points[]={
+        {30,30,0,0,255}, {50,50,0,0,255},
+        {100,100,0,255,0}, {110,110,0,255,0},
+        {15,15,255,255,255}, {95,95,255,255,255},
+        {70,70,255,255,255}, {5,5,255,255,255}
+    };
+    compare(content,points,sizeof(points)/sizeof(points[0]),3u);
+}
+
 void test_evenodd_restore()
 {
     /* W* hole under inner scope, then a blue paint restored to outer W.
@@ -551,6 +572,7 @@ int main()
 {
     test_nested_restore();
     test_disjoint_clip_restoration();
+    test_evenodd_cancelled_clip_restore();
     test_evenodd_restore();
     test_clip_definition_ctm();
     test_page_geometry_matrix();
