@@ -1482,6 +1482,159 @@ void test_page_group_admission()
         sizeof(cases)/sizeof(cases[0]));
 }
 
+
+/* Original independent upstream PDF: W n rectangular clip and a solid
+ * one-pixel closed blue stroked triangle, no text or image. Neither this
+ * source nor the PDFium oracle is manufactured from detached Composer IR. */
+int test_external_pdfium_clip_stroke(const char *filename,
+                                    const char *report_path)
+{
+    CHECK(filename && *filename && report_path && *report_path);
+    const std::string pending=std::string(report_path)+".tmp";
+    errno=0;
+    if(std::remove(report_path)!=0) CHECK(errno==ENOENT);
+    errno=0;
+    if(std::remove(pending.c_str())!=0) CHECK(errno==ENOENT);
+    CHECK(corpus_fixture_executions==0u);
+    constexpr size_t WIDTH=100u, HEIGHT=50u;
+    quantapdf_document *source_pdfium=nullptr;
+    quantapdf_page *source_page=nullptr;
+    quantapdf_bitmap *source_bitmap=nullptr;
+    const unsigned char *rgb=nullptr;
+    size_t image_bytes=0u;
+    int width=0,height=0,stride=0,components=0;
+    OK(quantapdf_open(filename,nullptr,&source_pdfium));
+    OK(quantapdf_load_page(source_pdfium,0u,&source_page));
+    OK(quantapdf_render_page(source_page,&source_bitmap));
+    OK(quantapdf_bitmap_dimensions(source_bitmap,
+        &width,&height,&stride,&components));
+    OK(quantapdf_bitmap_data(source_bitmap,&rgb,&image_bytes));
+    CHECK(width==(int)WIDTH && height==(int)HEIGHT &&
+          components==3 && stride>=(int)WIDTH*3 && rgb &&
+          image_bytes>=HEIGHT*(size_t)stride);
+
+    quantapdf_document *source=nullptr;
+    quantapdf_graph_snapshot *snapshot=nullptr;
+    quantapdf_ir detached{};
+    OK(quantapdf_open(filename,nullptr,&source));
+    quantapdf_status status=quantapdf_document_capture_graph(
+        source,&graph_limits,&snapshot);
+    quantapdf_close(source);
+    CHECK(status==QUANTAPDF_OK && snapshot!=nullptr);
+    status=quantapdf_graph_snapshot_page_composer_ir(
+        snapshot,0u,2u,&decode_limits,&parse_limits,1u,
+        &lower_limits,&detached);
+    quantapdf_graph_snapshot_drop(snapshot);
+    CHECK(status==QUANTAPDF_OK);
+    CHECK(detached.page_count==1u && detached.pages &&
+          detached.pages[0].width_points==(float)WIDTH &&
+          detached.pages[0].height_points==(float)HEIGHT &&
+          detached.pages[0].suppress_background==1);
+    CHECK(detached.operation_count==1u && detached.operations &&
+          detached.operations[0].kind==QUANTAPDF_COMPOSER_OPERATION_PATH &&
+          detached.operations[0].value.path.options.fill==0 &&
+          detached.operations[0].value.path.options.stroke==1 &&
+          detached.operations[0].value.path.options.stroke_width==1.0f &&
+          detached.operations[0].value.path.options.stroke_argb==UINT32_C(0xff0000ff) &&
+          detached.resources.clip_count==1u &&
+          detached.resources.graphics_state_count==1u &&
+          detached.resources.font_count==0u &&
+          detached.resources.image_count==0u &&
+          detached.resources.form_count==0u &&
+          detached.resources.soft_mask_count==0u &&
+          detached.resources.paint_count==0u);
+    const quantapdf_ir_raster_v1_limits limits={
+        WIDTH*HEIGHT,1u,128u,5000000u
+    };
+    quantapdf_ir_raster_image native{},repeat{};
+    OK(quantapdf_ir_raster_scoped_operations_v1(
+        &detached,0u,&limits,&native));
+    OK(quantapdf_ir_raster_scoped_operations_v1(
+        &detached,0u,&limits,&repeat));
+    CHECK(native.pixels && native.width==WIDTH && native.height==HEIGHT &&
+          native.stride==WIDTH*4u && native.size==WIDTH*HEIGHT*4u &&
+          repeat.size==native.size &&
+          std::memcmp(repeat.pixels,native.pixels,native.size)==0);
+    quantapdf_ir_raster_image_dispose(&repeat);
+    quantapdf_ir_dispose(&detached);
+
+    size_t reference_ink=0u,native_ink=0u,common_ink=0u,gross=0u;
+    double total=0.0;
+    for(size_t y=0u;y<HEIGHT;++y)for(size_t x=0u;x<WIDTH;++x){
+        const unsigned char *a=native.pixels+y*native.stride+4u*x;
+        const unsigned char *b=rgb+y*(size_t)stride+3u*x;
+        unsigned worst=0u;
+        unsigned red=on_white(a,0u),green=on_white(a,1u),
+                 blue=on_white(a,2u);
+        const bool ref_blue=b[0]<240u && b[1]<240u && b[2]>=240u;
+        const bool native_blue=red<240u && green<240u && blue>=240u;
+        reference_ink+=(size_t)ref_blue;
+        native_ink+=(size_t)native_blue;
+        common_ink+=(size_t)(ref_blue && native_blue);
+        const unsigned actual[]={red,green,blue};
+        for(size_t c=0u;c<3u;++c){
+            const unsigned delta=actual[c]>b[c] ?
+                actual[c]-b[c] : b[c]-actual[c];
+            total+=(double)delta;
+            if(delta>worst)worst=delta;
+        }
+        if(worst>64u)++gross;
+    }
+    const double mean=total/(double)(WIDTH*HEIGHT*3u);
+    if(mean>6.0 || gross>WIDTH*HEIGHT/12u ||
+       reference_ink<15u || native_ink<15u ||
+       common_ink*2u<reference_ink)
+        std::fprintf(stderr,
+            "external clip stroke mean=%.4f gross=%zu "
+            "referenceInk=%zu nativeInk=%zu overlap=%zu\n",
+            mean,gross,reference_ink,native_ink,common_ink);
+    CHECK(mean<=6.0 && gross<=WIDTH*HEIGHT/12u);
+    CHECK(reference_ink>=15u && native_ink>=15u &&
+          common_ink*2u>=reference_ink);
+    CHECK(native.pixels[0u+3u]==0u);
+    CHECK(native.pixels[(25u*WIDTH+25u)*4u+3u]==0u);
+    quantapdf_ir_raster_image_dispose(&native);
+    quantapdf_drop_bitmap(source_bitmap);
+    quantapdf_drop_page(source_page);
+    quantapdf_close(source_pdfium);
+    CHECK(corpus_fixture_executions==0u);
+    FILE *report=std::fopen(pending.c_str(),"wb");
+    CHECK(report!=nullptr);
+    std::fprintf(report,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"corpus_id\": \"external-source-pdf\",\n"
+        "  \"document_id\": \"pdfium.clip-path-v1\",\n"
+        "  \"fixture_kind\": \"external\",\n"
+        "  \"reference_oracle\": \"original-pdfium\",\n"
+        "  \"native_expected_outcome\": \"supported-clipped-stroke\",\n"
+        "  \"native_observed_outcome\": \"supported-clipped-stroke\",\n"
+        "  \"pdfium_result\": \"rendered_clipped_blue_stroke\",\n"
+        "  \"native_path_clip_supported_count\": 1,\n"
+        "  \"native_clipped_path_supported_count\": 1,\n"
+        "  \"native_stroke_1px_supported_count\": 1,\n"
+        "  \"native_text_supported_count\": 0,\n"
+        "  \"native_blank_page_supported_count\": 0,\n"
+        "  \"page_width\": %zu,\n"
+        "  \"page_height\": %zu,\n"
+        "  \"mean_rgb_error\": %.6f,\n"
+        "  \"gross_error_pixels\": %zu,\n"
+        "  \"reference_blue_pixels\": %zu,\n"
+        "  \"native_blue_pixels\": %zu,\n"
+        "  \"common_blue_pixels\": %zu,\n"
+        "  \"generated_fixture_count\": 0,\n"
+        "  \"result\": \"passed\"\n"
+        "}\n",WIDTH,HEIGHT,mean,gross,
+        reference_ink,native_ink,common_ink);
+    CHECK(std::ferror(report)==0);
+    CHECK(std::fclose(report)==0);
+    CHECK(std::rename(pending.c_str(),report_path)==0);
+    std::fprintf(stderr,
+        "[external-corpus] id=pdfium.clip-path-v1 "
+        "native=clipped-one-pixel-stroke pixel-oracle=passed\n");
+    return EXIT_SUCCESS;
+}
+
 }
 
 struct source_corpus_family {
@@ -1578,6 +1731,9 @@ int main(int argc,char **argv)
     if(argc==5 && std::strcmp(argv[1],"--external-black-pdf")==0 &&
        std::strcmp(argv[3],"--external-report")==0)
         return test_external_pdfium_black_path(argv[2],argv[4]);
+    if(argc==5 && std::strcmp(argv[1],"--external-clip-stroke-pdf")==0 &&
+       std::strcmp(argv[3],"--external-report")==0)
+        return test_external_pdfium_clip_stroke(argv[2],argv[4]);
     const char *report_path = nullptr;
     if(argc != 1){
         CHECK(argc==3 && std::strcmp(argv[1],"--corpus-report")==0 &&
