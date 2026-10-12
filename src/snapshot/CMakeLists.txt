@@ -1,4 +1,6 @@
 target_sources(quantapdf PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/snapshot_owner.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/snapshot_owner.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/annotation_snapshot.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/form_snapshot.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/image_bitmap.c"

@@ -15,20 +15,18 @@ static void quantapdf_zero_rect(quantapdf_rect *rect)
     rect->y1 = 0.0f;
 }
 
-static void quantapdf_dispose_link_page(quantapdf_link_page *links)
+static void quantapdf_dispose_link_page(quantapdf_snapshot *snapshot)
 {
-    quantapdf_context *context;
+    quantapdf_link_page *links = (quantapdf_link_page *)snapshot;
     size_t i;
 
     if (links == NULL)
         return;
-    context = links->context;
 
     for (i = 0; i < links->count; ++i)
         free(links->items[i].uri);
     free(links->items);
     free(links);
-    quantapdf_drop_context(context);
 }
 
 quantapdf_status quantapdf_extract_links(
@@ -54,11 +52,12 @@ quantapdf_status quantapdf_extract_links(
         quantapdf_drop_context(page->context);
         return status;
     }
-    links->context = page->context;
+    quantapdf_snapshot_bind(&links->snapshot,
+        page->context, quantapdf_dispose_link_page);
     status = quantapdf_document_page_user_unit(
         page->document, page->page_index, &source_user_unit);
     if (status != QUANTAPDF_OK) {
-        quantapdf_dispose_link_page(links);
+        quantapdf_snapshot_drop(&links->snapshot);
         return status;
     }
     for (index = 0; index < links->count; ++index) {
@@ -72,7 +71,7 @@ quantapdf_status quantapdf_extract_links(
             status = quantapdf_document_page_user_unit(
                 page->document, item->target_page, &target_user_unit);
             if (status != QUANTAPDF_OK) {
-                quantapdf_dispose_link_page(links);
+                quantapdf_snapshot_drop(&links->snapshot);
                 return status;
             }
             item->target.x = (float)(item->target.x * target_user_unit);
@@ -81,7 +80,7 @@ quantapdf_status quantapdf_extract_links(
         if (!isfinite(item->hotspot.x0) || !isfinite(item->hotspot.y0) ||
             !isfinite(item->hotspot.x1) || !isfinite(item->hotspot.y1) ||
             !isfinite(item->target.x) || !isfinite(item->target.y)) {
-            quantapdf_dispose_link_page(links);
+            quantapdf_snapshot_drop(&links->snapshot);
             return QUANTAPDF_ERROR_FORMAT;
         }
     }
@@ -163,5 +162,5 @@ quantapdf_status quantapdf_link_uri(
 
 void quantapdf_drop_link_page(quantapdf_link_page *links)
 {
-    quantapdf_dispose_link_page(links);
+    quantapdf_snapshot_drop(links == NULL ? NULL : &links->snapshot);
 }

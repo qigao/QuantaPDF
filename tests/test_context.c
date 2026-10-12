@@ -24,6 +24,36 @@ static void check_impl(int ok, const char *expression, int line)
 #define CHECK(x) check_impl((x), #x, __LINE__)
 #define SENTINEL(type) ((type *)(uintptr_t)1)
 
+typedef struct snapshot_release_probe {
+    quantapdf_snapshot snapshot;
+    size_t *disposals;
+} snapshot_release_probe;
+
+static void dispose_snapshot_probe(quantapdf_snapshot *snapshot)
+{
+    snapshot_release_probe *probe = (snapshot_release_probe *)snapshot;
+    CHECK(snapshot->context->references == 1);
+    CHECK(*snapshot->context->test_finalizations == 0);
+    ++*probe->disposals;
+    free(probe);
+}
+
+static void test_snapshot_finalization_order(void)
+{
+    quantapdf_context *context = NULL;
+    snapshot_release_probe *probe = calloc(1, sizeof(*probe));
+    size_t finalized = 0, disposals = 0;
+    CHECK(probe != NULL);
+    CHECK(quantapdf_context_create(&context) == QUANTAPDF_OK);
+    context->test_finalizations = &finalized;
+    probe->disposals = &disposals;
+    /* Transfer the caller's only reference; disposal needs a live context. */
+    quantapdf_snapshot_bind(&probe->snapshot, context, dispose_snapshot_probe);
+    quantapdf_snapshot_drop(&probe->snapshot);
+    CHECK(disposals == 1 && finalized == 1);
+    quantapdf_snapshot_drop(NULL);
+}
+
 static void check_pdf(const quantapdf_output *output)
 {
     const unsigned char *data = NULL;
@@ -104,9 +134,9 @@ static void test_shared_domain_and_detached_results(void)
     CHECK(quantapdf_document_form(document, &form) == QUANTAPDF_OK);
     CHECK(quantapdf_pdf_edit_begin(document, &edit) == QUANTAPDF_OK);
     CHECK(page->context == document->context && bitmap->context == page->context);
-    CHECK(text->context == page->context && links->context == page->context);
-    CHECK(annotations->context == page->context && outline->context == page->context);
-    CHECK(form->context == page->context && edit->context == page->context);
+    CHECK(text->snapshot.context == page->context && links->snapshot.context == page->context);
+    CHECK(annotations->snapshot.context == page->context && outline->snapshot.context == page->context);
+    CHECK(form->snapshot.context == page->context && edit->context == page->context);
     quantapdf_drop_page(page);
     quantapdf_drop_bitmap(bitmap);
     quantapdf_close(document);
@@ -119,7 +149,7 @@ static void test_shared_domain_and_detached_results(void)
     CHECK(quantapdf_outline_count(outline, &count) == QUANTAPDF_OK);
     CHECK(quantapdf_form_field_count(form, &count) == QUANTAPDF_OK);
     CHECK(quantapdf_pdf_edit_form_snapshot(edit, &edit_form) == QUANTAPDF_OK);
-    CHECK(edit_form->context == edit->context);
+    CHECK(edit_form->snapshot.context == edit->context);
     CHECK(quantapdf_pdf_edit_snapshot(edit, &output) == QUANTAPDF_OK);
     CHECK(output->context == edit->context);
     quantapdf_drop_pdf_edit(edit);
@@ -151,11 +181,11 @@ static void test_image_domain(void)
     quantapdf_drop_context(context);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     CHECK(quantapdf_extract_images(page, &images) == QUANTAPDF_OK);
-    CHECK(images->context == document->context);
+    CHECK(images->snapshot.context == document->context);
     quantapdf_drop_page(page);
     CHECK(quantapdf_image_count(images, &count) == QUANTAPDF_OK && count > 0);
     CHECK(quantapdf_image_render(images, 0, &bitmap) == QUANTAPDF_OK);
-    CHECK(bitmap->context == images->context);
+    CHECK(bitmap->context == images->snapshot.context);
     quantapdf_drop_image_page(images);
     CHECK(bitmap->size > 0 && bitmap->data != NULL);
     quantapdf_drop_bitmap(bitmap);
@@ -387,6 +417,7 @@ static void test_transform_output_domains(void)
 
 int main(void)
 {
+    test_snapshot_finalization_order();
     test_arguments_and_failed_open();
     test_shared_domain_and_detached_results();
     test_image_domain();

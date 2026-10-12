@@ -25,7 +25,8 @@ quantapdf_status quantapdf_pdf_edit_form_snapshot(
         quantapdf_drop_context(edit->context);
         return QUANTAPDF_ERROR_NOMEM;
     }
-    form->context = edit->context;
+    quantapdf_snapshot_bind(&form->snapshot, edit->context,
+        quantapdf_form_dispose_internal);
     status = edit->ops->form_snapshot(edit->backend, &form->model);
     if (status != QUANTAPDF_OK) {
         quantapdf_drop_form(form);

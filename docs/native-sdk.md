@@ -114,6 +114,15 @@ Accessor views should carry an owner lifetime or be copied before returning to
 unrestricted managed code. A future arena cannot reset storage beneath these
 published values; allocator changes require a separate compatible contract.
 
+Snapshot construction completes before publication. A published snapshot is an
+immutable observation: later edits and later snapshots do not refresh or change
+its values or invalidate its borrowed strings. Drop each snapshot independently;
+even equal observations do not share a public lifetime. Internally, typed
+snapshots use one owner protocol that releases their payload before their retained
+runtime context. This preserves the image/document requirement in the table.
+Metadata and plain-text extraction remain detached caller-owned byte results,
+released with `quantapdf_free`, rather than acquiring a new snapshot handle.
+
 Composer form/pattern builders borrow their temporary child only for the
 synchronous callback. They cannot drop or keep it, destroy the parent, or
 reenter an in-progress mutation. A callback may release a separately owned

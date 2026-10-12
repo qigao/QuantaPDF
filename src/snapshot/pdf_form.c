@@ -58,7 +58,8 @@ quantapdf_status quantapdf_document_form(
         quantapdf_drop_context(document->context);
         return QUANTAPDF_ERROR_NOMEM;
     }
-    form->context = document->context;
+    quantapdf_snapshot_bind(&form->snapshot, document->context,
+        quantapdf_form_dispose_internal);
     status = document->ops->extract_form(document->backend, &form->model);
     if (status != QUANTAPDF_OK) {
         quantapdf_drop_form(form);
@@ -375,13 +376,14 @@ quantapdf_status quantapdf_form_widget_get_info(
     return QUANTAPDF_OK;
 }
 
-void quantapdf_drop_form(quantapdf_form *form)
+void quantapdf_form_dispose_internal(quantapdf_snapshot *snapshot)
 {
-    quantapdf_context *context;
-    if (form == NULL)
-        return;
-    context = form->context;
+    quantapdf_form *form = (quantapdf_form *)snapshot;
     quantapdf_pdf_form_drop_model(form->model);
     free(form);
-    quantapdf_drop_context(context);
+}
+
+void quantapdf_drop_form(quantapdf_form *form)
+{
+    quantapdf_snapshot_drop(form == NULL ? NULL : &form->snapshot);
 }

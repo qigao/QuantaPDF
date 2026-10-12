@@ -6,12 +6,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-static void quantapdf_dispose_text_page(quantapdf_text_page *text)
+static void quantapdf_dispose_text_page(quantapdf_snapshot *snapshot)
 {
-    quantapdf_context *context;
+    quantapdf_text_page *text = (quantapdf_text_page *)snapshot;
     if (text == NULL)
         return;
-    context = text->context;
 
     free(text->blocks);
     free(text->lines);
@@ -19,7 +18,6 @@ static void quantapdf_dispose_text_page(quantapdf_text_page *text)
     free(text->chars);
     free(text->strings);
     free(text);
-    quantapdf_drop_context(context);
 }
 
 quantapdf_status quantapdf_extract_structured_text(
@@ -42,7 +40,8 @@ quantapdf_status quantapdf_extract_structured_text(
         quantapdf_drop_context(page->context);
         return status;
     }
-    (*out_text)->context = page->context;
+    quantapdf_snapshot_bind(&(*out_text)->snapshot,
+        page->context, quantapdf_dispose_text_page);
     return QUANTAPDF_OK;
 }
 
@@ -239,5 +238,5 @@ quantapdf_status quantapdf_text_span_text(
 
 void quantapdf_drop_text_page(quantapdf_text_page *text)
 {
-    quantapdf_dispose_text_page(text);
+    quantapdf_snapshot_drop(text == NULL ? NULL : &text->snapshot);
 }

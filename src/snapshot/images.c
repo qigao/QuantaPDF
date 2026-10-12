@@ -4,19 +4,17 @@
 #include <stddef.h>
 #include <stdlib.h>
 
-static void quantapdf_dispose_image_page(quantapdf_image_page *images)
+static void quantapdf_dispose_image_page(quantapdf_snapshot *snapshot)
 {
-    quantapdf_context *context;
+    quantapdf_image_page *images = (quantapdf_image_page *)snapshot;
     size_t index;
 
     if (images == NULL)
         return;
-    context = images->context;
     for (index = 0; index < images->count; ++index)
         free(images->items[index].pixels);
     free(images->items);
     free(images);
-    quantapdf_drop_context(context);
 }
 
 quantapdf_status quantapdf_extract_images(
@@ -37,7 +35,8 @@ quantapdf_status quantapdf_extract_images(
         quantapdf_drop_context(page->context);
         return status;
     }
-    (*out_images)->context = page->context;
+    quantapdf_snapshot_bind(&(*out_images)->snapshot,
+        page->context, quantapdf_dispose_image_page);
     return QUANTAPDF_OK;
 }
 
@@ -90,5 +89,5 @@ quantapdf_status quantapdf_image_get_info(
 
 void quantapdf_drop_image_page(quantapdf_image_page *images)
 {
-    quantapdf_dispose_image_page(images);
+    quantapdf_snapshot_drop(images == NULL ? NULL : &images->snapshot);
 }

@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <quantapdf/quantapdf.h>
+#include "snapshot_owner.h"
 
 typedef struct quantapdf_text_block_internal {
     quantapdf_rect bounds;
@@ -42,7 +42,7 @@ typedef struct quantapdf_text_char_internal {
 } quantapdf_text_char_internal;
 
 struct quantapdf_text_page {
-    quantapdf_context *context;
+    quantapdf_snapshot snapshot;
     quantapdf_text_block_internal *blocks;
     quantapdf_text_line_internal *lines;
     quantapdf_text_span_internal *spans;

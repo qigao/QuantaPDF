@@ -5,16 +5,14 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-static void quantapdf_dispose_outline(quantapdf_outline *outline)
+static void quantapdf_dispose_outline(quantapdf_snapshot *snapshot)
 {
-    quantapdf_context *context;
+    quantapdf_outline *outline = (quantapdf_outline *)snapshot;
     if (outline == NULL)
         return;
-    context = outline->context;
     free(outline->nodes);
     free(outline->strings);
     free(outline);
-    quantapdf_drop_context(context);
 }
 
 quantapdf_status quantapdf_document_outline(
@@ -35,7 +33,8 @@ quantapdf_status quantapdf_document_outline(
         quantapdf_drop_context(document->context);
         return status;
     }
-    (*out_outline)->context = document->context;
+    quantapdf_snapshot_bind(&(*out_outline)->snapshot,
+        document->context, quantapdf_dispose_outline);
     return QUANTAPDF_OK;
 }
 
@@ -135,5 +134,5 @@ quantapdf_status quantapdf_outline_uri(
 
 void quantapdf_drop_outline(quantapdf_outline *outline)
 {
-    quantapdf_dispose_outline(outline);
+    quantapdf_snapshot_drop(outline == NULL ? NULL : &outline->snapshot);
 }

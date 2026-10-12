@@ -5,16 +5,14 @@
 #include <stdlib.h>
 
 static void quantapdf_dispose_annotation_page(
-    quantapdf_annotation_page *annotations)
+    quantapdf_snapshot *snapshot)
 {
-    quantapdf_context *context;
+    quantapdf_annotation_page *annotations = (quantapdf_annotation_page *)snapshot;
     if (annotations == NULL)
         return;
-    context = annotations->context;
     free(annotations->items);
     free(annotations->strings);
     free(annotations);
-    quantapdf_drop_context(context);
 }
 
 quantapdf_status quantapdf_extract_annotations(
@@ -48,7 +46,8 @@ quantapdf_status quantapdf_extract_annotations(
         quantapdf_drop_context(page->context);
         return status;
     }
-    (*out_annotations)->context = page->context;
+    quantapdf_snapshot_bind(&(*out_annotations)->snapshot,
+        page->context, quantapdf_dispose_annotation_page);
     return QUANTAPDF_OK;
 }
 
@@ -119,5 +118,5 @@ quantapdf_status quantapdf_annotation_contents(
 void quantapdf_drop_annotation_page(
     quantapdf_annotation_page *annotations)
 {
-    quantapdf_dispose_annotation_page(annotations);
+    quantapdf_snapshot_drop(annotations == NULL ? NULL : &annotations->snapshot);
 }

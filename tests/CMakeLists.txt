@@ -18,7 +18,8 @@ target_compile_definitions(quantapdf_test_ir PRIVATE
 add_test(NAME quantapdf.ir COMMAND quantapdf_test_ir)
 set_tests_properties(quantapdf.ir PROPERTIES TIMEOUT 30)
 
-add_executable(quantapdf_test_context test_context.c)
+add_executable(quantapdf_test_context test_context.c
+  ../src/snapshot/snapshot_owner.c)
 target_include_directories(quantapdf_test_context PRIVATE "${PROJECT_SOURCE_DIR}/src")
 target_link_libraries(quantapdf_test_context PRIVATE QuantaPDF::QuantaPDF)
 target_compile_definitions(quantapdf_test_context PRIVATE

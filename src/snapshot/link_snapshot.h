@@ -3,7 +3,7 @@
 
 #include <stddef.h>
 
-#include <quantapdf/quantapdf.h>
+#include "snapshot_owner.h"
 
 typedef struct quantapdf_link_internal {
     quantapdf_rect hotspot;
@@ -15,7 +15,7 @@ typedef struct quantapdf_link_internal {
 } quantapdf_link_internal;
 
 struct quantapdf_link_page {
-    quantapdf_context *context;
+    quantapdf_snapshot snapshot;
     quantapdf_link_internal *items;
     size_t count;
 };
