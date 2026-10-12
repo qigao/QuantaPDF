@@ -75,7 +75,8 @@ void make_source(const char *content)
 }
 
 quantapdf_status snapshot_lower(quantapdf_ir *out,
-                                size_t page_index=0u,size_t max_streams=1u)
+                                size_t page_index=0u,size_t max_streams=1u,
+                                size_t max_parent_steps=2u)
 {
     quantapdf_document *doc=nullptr;
     quantapdf_graph_snapshot *snap=nullptr;
@@ -88,7 +89,7 @@ quantapdf_status snapshot_lower(quantapdf_ir *out,
     quantapdf_close(doc);
     if(st != QUANTAPDF_OK) return st;
     st = quantapdf_graph_snapshot_page_composer_ir(
-        snap,page_index,2u,&decode_limits,&parse_limits,max_streams,&lower_limits,out);
+        snap,page_index,max_parent_steps,&decode_limits,&parse_limits,max_streams,&lower_limits,out);
     /* Deliberately sever all source-page ownership before rasterization. */
     quantapdf_graph_snapshot_drop(snap);
     return st;
@@ -629,7 +630,7 @@ void test_multilevel_page_tree_override()
           blob->getSize());
     CHECK(std::fclose(file)==0);
     quantapdf_ir ir{};
-    OK(snapshot_lower(&ir));
+    OK(snapshot_lower(&ir,0u,1u,3u)); /* leaf, middle, root */
     CHECK(ir.page_count==1u && ir.operation_count==3u);
     CHECK(ir.pages[0].width_points==120.0f &&
           ir.pages[0].height_points==120.0f);
