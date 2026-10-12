@@ -173,6 +173,15 @@ void compare(const char *content, const probe *goldens,
         std::fprintf(stderr,
             "source PDF q/Q native/PDFium mismatch mean=%.3f gross=%zu\n",
             mean,gross);
+        for(const auto& p: {probe{5,5,0,0,0}, probe{30,30,0,0,0},
+                            probe{80,80,0,0,0}, probe{105,105,0,0,0}}) {
+            size_t y=PAGE-1u-(size_t)p.y_pdf;
+            const unsigned char *n=native.pixels+y*native.stride+4u*(size_t)p.x;
+            const unsigned char *o=reference.at((size_t)p.x,y);
+            std::fprintf(stderr,"zero-clip probe x=%d y=%d native=%u,%u,%u pdfium=%u,%u,%u\n",
+                p.x,p.y_pdf,on_white(n,0),on_white(n,1),on_white(n,2),
+                (unsigned)o[0],(unsigned)o[1],(unsigned)o[2]);
+        }
         CHECK(false);
     }
     for(size_t i=0u;i<golden_count;++i) {
@@ -186,6 +195,11 @@ void compare(const char *content, const probe *goldens,
         const unsigned expected[3]={p.r,p.g,p.b};
         for(size_t c=0u;c<3u;++c) {
             unsigned actual=on_white(a,c);
+            if(std::abs((int)actual-(int)expected[c])>3 ||
+               std::abs((int)b[c]-(int)expected[c])>3)
+                std::fprintf(stderr,
+                    "golden failure point=%zu x=%d y=%d channel=%zu native=%u pdfium=%u expected=%u\n",
+                    i,p.x,p.y_pdf,c,actual,(unsigned)b[c],expected[c]);
             CHECK(std::abs((int)actual-(int)expected[c])<=3);
             CHECK(std::abs((int)b[c]-(int)expected[c])<=3);
         }
@@ -557,27 +571,24 @@ void test_selected_page_multistream()
 }
 
 
-/* PDF allows clipping the empty current path. The current constrained Graph
- * evaluator cannot encode it and rejects it as FORMAT. Pin that behavior as
- * an explicit fail-closed contract until an owned empty-clip representation
- * is implemented; this is NOT a positive PDF compatibility claim. */
-void test_zero_segment_clip_fail_closed()
+/* Zero-segment W/W* must clip everything and restore on Q. */
+void test_zero_segment_clip_native_restore()
 {
     const char *cases[]={
-        "q W n 1 0 0 rg 0 0 120 120 re f Q",
-        "q W* n 1 0 0 rg 0 0 120 120 re f Q"
+        "q W n 1 0 0 rg 0 0 120 120 re f Q "
+        "0 0 1 rg 20 20 40 40 re f "
+        "0 1 0 rg 100 100 15 15 re f",
+        "q W* n 1 0 0 rg 0 0 120 120 re f Q "
+        "0 0 1 rg 20 20 40 40 re f "
+        "0 1 0 rg 100 100 15 15 re f"
     };
-    for(const char *content:cases){
-        quantapdf_ir rejected{};
-        make_source(content);
-        CHECK(snapshot_lower(&rejected)==QUANTAPDF_ERROR_FORMAT);
-        CHECK(rejected.pages==nullptr && rejected.operations==nullptr &&
-              rejected.operation_count==0u &&
-              rejected.resources.clip_count==0u &&
-              rejected.resources.graphics_state_count==0u);
-        quantapdf_ir_dispose(&rejected);
-        CHECK(std::remove(SOURCE_QQ_PDF)==0);
-    }
+    const probe points[]={
+        {30,30,0,0,255}, {50,50,0,0,255},
+        {105,105,0,255,0}, {5,5,255,0,0},
+        {80,80,255,0,0}
+    };
+    for(const char *content:cases)
+        compare(content,points,sizeof(points)/sizeof(points[0]),0u);
 }
 
 void test_unsupported_operator_fails_closed()
@@ -601,7 +612,7 @@ int main()
     test_clip_definition_ctm();
     test_page_geometry_matrix();
     test_selected_page_multistream();
-    test_zero_segment_clip_fail_closed();
+    test_zero_segment_clip_native_restore();
     test_unsupported_operator_fails_closed();
     std::fprintf(stderr,"[quantapdf.native_source_qq_oracle] complete\n");
     return EXIT_SUCCESS;
