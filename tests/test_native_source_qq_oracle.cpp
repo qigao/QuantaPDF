@@ -591,6 +591,53 @@ void test_zero_segment_clip_native_restore()
         compare(content,points,sizeof(points)/sizeof(points[0]),0u);
 }
 
+/* Negative original-source page-tree geometry: reject malformed inherited
+ * numeric/box metadata before native pixels or partially owned IR escape. */
+void test_invalid_inherited_geometry()
+{
+    struct bad_case { const char *key; const char *value; };
+    const bad_case cases[]={
+        {"/MediaBox","[0 0 0 120]"},
+        {"/MediaBox","[0 0 120 0]"},
+        {"/MediaBox","[0 0 120]"},
+        {"/CropBox","[25 25 25 90]"},
+        {"/CropBox","[25 25 90 25]"},
+        {"/Rotate","45"},
+        {"/Rotate","/Invalid"}
+    };
+    for(const auto& t:cases) {
+        auto pdf=QPDF::create();
+        pdf->emptyPDF();
+        auto root=pdf->getRoot().getKey("/Pages");
+        auto page=pdf->makeIndirectObject(
+            QPDFObjectHandle::parse("<< /Type /Page >>"));
+        root.replaceKey("/Kids",QPDFObjectHandle::newArray({page}));
+        root.replaceKey("/Count",QPDFObjectHandle::newInteger(1));
+        root.replaceKey("/MediaBox",QPDFObjectHandle::parse("[0 0 120 120]"));
+        root.replaceKey(t.key,QPDFObjectHandle::parse(t.value));
+        page.replaceKey("/Parent",root);
+        page.replaceKey("/Contents",pdf->newStream(
+            "q 10 10 60 60 re W n 1 0 0 rg 0 0 120 120 re f Q"));
+        QPDFWriter writer(*pdf);
+        writer.setOutputMemory();
+        writer.write();
+        auto blob=writer.getBufferSharedPointer();
+        FILE *file=std::fopen(SOURCE_QQ_PDF,"wb");
+        CHECK(file!=nullptr);
+        CHECK(std::fwrite(blob->getBuffer(),1,blob->getSize(),file)==
+              blob->getSize());
+        CHECK(std::fclose(file)==0);
+        quantapdf_ir rejected{};
+        quantapdf_status status=snapshot_lower(&rejected);
+        CHECK(status!=QUANTAPDF_OK);
+        CHECK(rejected.pages==nullptr && rejected.page_count==0u &&
+              rejected.operations==nullptr && rejected.operation_count==0u &&
+              rejected.resources.clip_count==0u);
+        quantapdf_ir_dispose(&rejected);
+        CHECK(std::remove(SOURCE_QQ_PDF)==0);
+    }
+}
+
 void test_unsupported_operator_fails_closed()
 {
     quantapdf_ir failed{};
@@ -613,6 +660,7 @@ int main()
     test_page_geometry_matrix();
     test_selected_page_multistream();
     test_zero_segment_clip_native_restore();
+    test_invalid_inherited_geometry();
     test_unsupported_operator_fails_closed();
     std::fprintf(stderr,"[quantapdf.native_source_qq_oracle] complete\n");
     return EXIT_SUCCESS;
