@@ -1252,3 +1252,56 @@ else()
   set_property(TEST ${_quantapdf_tests} PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
+
+
+# #173 product conformance: validate externally visible SDK contracts separately
+# from backend-internal tests. Existing suites remain the authoritative semantic
+# corpus; labels provide a stable cross-platform release qualification entrypoint.
+add_executable(quantapdf_test_product_conformance test_product_conformance.c)
+target_link_libraries(quantapdf_test_product_conformance PRIVATE
+  QuantaPDF::QuantaPDF)
+target_compile_features(quantapdf_test_product_conformance PRIVATE c_std_11)
+if(MSVC)
+  target_compile_options(quantapdf_test_product_conformance PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_test_product_conformance PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.product_conformance
+  COMMAND quantapdf_test_product_conformance
+    "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
+    "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-non-pdf.txt")
+set_tests_properties(quantapdf.product_conformance PROPERTIES TIMEOUT 30)
+
+set(_qp_conformance_tests
+  quantapdf.product_conformance
+  quantapdf.version
+  quantapdf.status
+  quantapdf.context
+  quantapdf.document
+  quantapdf.render
+  quantapdf.text
+  quantapdf.structured_text
+  quantapdf.pdf_rewrite_lossless
+  quantapdf.pdf_security
+  quantapdf.pdf_security_rewrite
+  quantapdf.pdf_export
+  quantapdf.pdf_image_recompression
+  quantapdf.graph_snapshot
+  quantapdf.graph_edit
+  quantapdf.validation
+  quantapdf.composer
+  quantapdf.pdf_clip_pixels
+  quantapdf.pdf_extgstate)
+foreach(_qp_test IN LISTS _qp_conformance_tests)
+  if(NOT TEST "${_qp_test}")
+    message(FATAL_ERROR "Product conformance test missing: ${_qp_test}")
+  endif()
+  set_property(TEST "${_qp_test}" APPEND PROPERTY LABELS conformance)
+endforeach()
+# On shared SDK builds the checked export table is itself a conformance test.
+if(TEST quantapdf.abi_exports)
+  set_property(TEST quantapdf.abi_exports APPEND PROPERTY LABELS conformance)
+endif()
+unset(_qp_test)
+unset(_qp_conformance_tests)
