@@ -243,8 +243,48 @@ static int test_rejections(void)
     return EXIT_SUCCESS;
 }
 
+static int test_concave_and_self_intersecting(void)
+{
+    quantapdf_ir ir;
+    quantapdf_composer_page_state page;
+    quantapdf_composer_operation op;
+    quantapdf_composer_path_command commands[7];
+    quantapdf_ir_raster_image image = {0};
+    quantapdf_ir_raster_v1_limits limits = {64, 1, 128, 1000000};
+
+    /* Concave L: its excluded quadrant must remain entirely white. */
+    setup(&ir, &page, &op, commands, 7u);
+    set_point(commands, QUANTAPDF_COMPOSER_PATH_MOVE_TO, 1, 1);
+    set_point(commands + 1, QUANTAPDF_COMPOSER_PATH_LINE_TO, 6, 1);
+    set_point(commands + 2, QUANTAPDF_COMPOSER_PATH_LINE_TO, 6, 2);
+    set_point(commands + 3, QUANTAPDF_COMPOSER_PATH_LINE_TO, 2, 2);
+    set_point(commands + 4, QUANTAPDF_COMPOSER_PATH_LINE_TO, 2, 6);
+    set_point(commands + 5, QUANTAPDF_COMPOSER_PATH_LINE_TO, 1, 6);
+    set_point(commands + 6, QUANTAPDF_COMPOSER_PATH_CLOSE, 0, 0);
+    OK(quantapdf_ir_raster_render_v1(&ir, 0, &limits, &image));
+    CHECK(rgba_at(&image, 1, 4) == UINT32_C(0xff0000ff));
+    CHECK(rgba_at(&image, 4, 1) == UINT32_C(0xff0000ff));
+    CHECK(rgba_at(&image, 4, 4) == UINT32_C(0xffffffff));
+    quantapdf_ir_raster_image_dispose(&image);
+
+    /* Self-intersection is admitted and obeys even-odd ray crossing. */
+    op.value.path.command_count = 5u;
+    op.value.path.options.fill_rule = QUANTAPDF_COMPOSER_FILL_EVEN_ODD;
+    set_point(commands, QUANTAPDF_COMPOSER_PATH_MOVE_TO, 1, 1);
+    set_point(commands + 1, QUANTAPDF_COMPOSER_PATH_LINE_TO, 7, 7);
+    set_point(commands + 2, QUANTAPDF_COMPOSER_PATH_LINE_TO, 1, 7);
+    set_point(commands + 3, QUANTAPDF_COMPOSER_PATH_LINE_TO, 7, 1);
+    set_point(commands + 4, QUANTAPDF_COMPOSER_PATH_CLOSE, 0, 0);
+    OK(quantapdf_ir_raster_render_v1(&ir, 0, &limits, &image));
+    CHECK(rgba_at(&image, 4, 2) == UINT32_C(0xff0000ff));
+    CHECK(rgba_at(&image, 0, 4) == UINT32_C(0xffffffff));
+    quantapdf_ir_raster_image_dispose(&image);
+    return EXIT_SUCCESS;
+}
+
 int main(void)
 {
+    CHECK(test_concave_and_self_intersecting() == EXIT_SUCCESS);
     CHECK(test_winding_and_subpaths() == EXIT_SUCCESS);
     CHECK(test_coverage_transform_and_curves() == EXIT_SUCCESS);
     CHECK(test_rejections() == EXIT_SUCCESS);
