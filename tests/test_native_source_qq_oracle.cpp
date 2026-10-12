@@ -855,7 +855,7 @@ void test_indirect_resource_page_isolation()
     const double mean=error/(double)(PAGE*PAGE*3u);
     if(mean>10.0 || gross>PAGE*PAGE/12u)
         std::fprintf(stderr,
-            "indirect resource source/PDFium mean=%.3f gross=%zu\\n",
+            "indirect resource source/PDFium mean=%.3f gross=%zu\n",
             mean,gross);
     CHECK(mean<=10.0 && gross<=PAGE*PAGE/12u);
 
