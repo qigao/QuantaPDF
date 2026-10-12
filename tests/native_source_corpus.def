@@ -27,4 +27,4 @@ QP_SOURCE_CORPUS_FAMILY("geometry.invalid_metadata", "MediaBox;CropBox;Rotate;Us
 QP_SOURCE_CORPUS_FAMILY("resources.inherited_override", "Resources;ExtGState;leaf-override;opacity", "accepted", "original-pdfium", 2u, test_extgstate_inheritance_and_override)
 QP_SOURCE_CORPUS_FAMILY("resources.indirect_page_isolation", "Resources;ExtGState;indirect;SMask;page-isolation", "mixed", "original-pdfium", 1u, test_indirect_resource_page_isolation)
 QP_SOURCE_CORPUS_FAMILY("resources.inherited_gs_rejection", "Resources;ExtGState;missing-ref;SMask;fail-closed", "rejected", "status-only", 2u, test_inherited_extgstate_fail_closed)
-QP_SOURCE_CORPUS_FAMILY("operators.unsupported_text", "BT;ET;unsupported;fail-closed", "rejected", "status-only", 1u, test_unsupported_operator_fails_closed)
+QP_SOURCE_CORPUS_FAMILY("operators.unsupported_text", "W;W*;three-painted-paths;late-BT-ET;atomic-rollback", "rejected", "status-only", 1u, test_unsupported_operator_fails_closed)

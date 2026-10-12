@@ -49,6 +49,26 @@ external corpus, add a permissive license tag by inference, or increment
 `W*` token alone. Generated fixtures and original-source evidence are
 separate populations.
 
+## Independent fpdf2 published PDF screening (compressed streams decoded)
+
+- Upstream `py-pdf/fpdf2` immutable revision:
+  `a3cca5cc77144775603ace8467c0743e2deee53f`.
+- Published `test/svg/generated_pdf/clip_path.pdf` (Git blob
+  `be2d337add45e0b110c56c1326c8d011c8cb6206`): decoded source
+  stream contains `W n` with a green filled curve, **not W***.
+- Published `test/drawing/generated_pdf/bounding_box_painted_path_evenodd_fill_with_hole.pdf`
+  (Git blob `3161ce2a62ca94a6fb87a4fb7849eee0e8f4737b`):
+  decoded operators contain **`f*` even-odd paint**, but no `W*` Clip.
+- Published `test/svg/generated_pdf/path_clippingpath.pdf`
+  (Git blob `1871beb4bd24f1a66ca9b598ba601f76cf6a1eb2`):
+  decoded long source content stream contains no `W*` operation.
+
+The blobs above were screened as **originals**, not rewritten, and
+their byte identities refer to Git blobs (not a substitute for SHA-256
+or document-specific license review). This is a limited selection, not
+a claim of complete fpdf2 corpus coverage. Neither `f*` nor
+nonzero `W` can satisfy #262's W* positive counter.
+
 ## Native preparation in this branch
 
 `quantapdf.native_scoped_clip_dag_v1` now exercises a provider-free C11
@@ -77,6 +97,13 @@ pixel oracle.
    exact-head Linux Release+ASan/UBSan, macOS, Windows and installed SDK
    evidence. No public ABI changes, no PDFium fallback or SDK cutover
    (roadmap #208).
+
+The generated `operators.unsupported_text` source oracle now tests
+**late `BT/ET`** after the exact previously qualified three painted PATH
+operations under nested W/W* scopes. If the final unsupported text token
+appears, the entire detached IR must remain empty (pages, operations,
+Clip and graphics-state resources). It replaces the prior early-text
+fixture within the same registry slot and does **not** increase 14/36.
 
 Current external W* positive count: **0**. Reconciled external semantic
 JSON now distinguishes `native_w_clip_supported_count: 1` from

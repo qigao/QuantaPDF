@@ -953,15 +953,31 @@ void test_inherited_extgstate_fail_closed()
     }
 }
 
+/* This fixture is deliberately a late rejection, not a trivial early BT.
+ * The entire prefix is identical to the independently PDFium-qualified
+ * nested W/W* three-paint fixture in test_evenodd_restore(). Unsupported
+ * text must reject atomically even after Clip DAG and PATH resources could
+ * otherwise have been lowered. One generated PDF: 14/36 stays unchanged. */
 void test_unsupported_operator_fails_closed()
 {
     track_corpus_fixture();
     quantapdf_ir failed{};
-    make_source("q BT ET Q");
+    make_source(
+        "q 0 0 100 100 re W n "
+        "q 20 20 60 60 re 35 35 20 20 re W* n "
+        "1 0 0 rg 0 0 120 120 re f "
+        "Q 0 0 1 rg 75 10 40 40 re f "
+        "Q 0 1 0 rg 0 0 12 12 re f "
+        "q BT ET Q");
     quantapdf_status st=snapshot_lower(&failed);
     CHECK(st==QUANTAPDF_ERROR_UNSUPPORTED);
-    CHECK(failed.pages==nullptr && failed.operations==nullptr &&
-          failed.operation_count==0u && failed.resources.clip_count==0u);
+    CHECK(failed.pages==nullptr && failed.page_count==0u &&
+          failed.operations==nullptr && failed.operation_count==0u &&
+          failed.resources.clips==nullptr &&
+          failed.resources.clip_count==0u &&
+          failed.resources.graphics_states==nullptr &&
+          failed.resources.graphics_state_count==0u);
+    quantapdf_ir_dispose(&failed);
     CHECK(std::remove(SOURCE_QQ_PDF)==0);
 }
 
