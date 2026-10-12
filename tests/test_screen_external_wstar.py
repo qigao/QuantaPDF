@@ -1,5 +1,6 @@
-"""Synthetic byte-level scanner tests; NO external native conformance."""
+"""Synthetic and immutable original-source scanner tests; NOT pixel conformance."""
 import json
+import hashlib
 import contextlib
 import io
 from pathlib import Path
@@ -11,6 +12,10 @@ import zlib
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "qualification"))
 from screen_external_wstar import screen_pdf_bytes, screen_pdf_file, main
 
+REAL_SOURCES = Path(__file__).resolve().parent / "external_source_corpus" / "documents"
+NONZERO = REAL_SOURCES / "pdfium.clip-path-v1.pdf"
+WSTAR_TEXT = REAL_SOURCES / "pdfium.bug-1574-wstar-text-v1.pdf"
+
 
 def pdf(content, compress=False, filter_token=b"/FlateDecode"):
     body = zlib.compress(content) if compress else content
@@ -21,6 +26,62 @@ def pdf(content, compress=False, filter_token=b"/FlateDecode"):
 
 
 class ExternalWStarScreening(unittest.TestCase):
+    def test_real_original_w_is_not_wstar(self):
+        # Exact unchanged independently published PDFium source admitted in
+        # #260. The W clipping positive MUST NOT raise the W* counter.
+        src = NONZERO.read_bytes()
+        self.assertEqual(len(src), 514)
+        self.assertEqual(hashlib.sha256(src).hexdigest(),
+                         "6674dbd092ef8ae55b6ab1cda6a8b966019fbf22f7556291253853303072288b")
+        info = screen_pdf_file(NONZERO)
+        self.assertEqual(info["status"], "no_wstar_observed")
+        self.assertEqual(info["operator_counts"]["w"], 1)
+        self.assertEqual(info["operator_counts"]["wstar"], 0)
+        self.assertGreaterEqual(info["operator_counts"]["path_commands"], 4)
+        self.assertEqual(info["native_wstar_clip_supported_count"], 0)
+        self.assertEqual(info["native_pixel_conformance"], "not_run")
+
+    def test_real_original_wstar_with_late_text_is_not_positive(self):
+        # The original PDFium source from #264 contains W* n + f*
+        # followed by later font/text operators. Report rejection evidence,
+        # NOT a successful native W* pixel rendering.
+        src = WSTAR_TEXT.read_bytes()
+        self.assertEqual(len(src), 724)
+        self.assertEqual(hashlib.sha256(src).hexdigest(),
+                         "900d0ff1911736c372e0c7ead2c68be338479b985c676572db1cc6e35483b890")
+        info = screen_pdf_file(WSTAR_TEXT)
+        self.assertEqual(info["status"], "wstar_with_unsupported_operations")
+        self.assertEqual(info["operator_counts"]["wstar"], 1)
+        self.assertEqual(info["operator_counts"]["w"], 0)
+        self.assertGreaterEqual(info["operator_counts"]["paint"], 1)
+        self.assertIn("text", info["unsupported_feature_classes"])
+        self.assertGreater(info["unsupported_feature_counts"]["text"], 0)
+        self.assertEqual(info["native_wstar_clip_supported_count"], 0)
+        self.assertEqual(info["native_pixel_conformance"], "not_run")
+
+    def test_real_source_multi_document_screening_keeps_bytes(self):
+        # The two pinned originals are not modified or re-rendered by the
+        # scanner; it does not claim page resolution or native parity.
+        sources = (NONZERO, WSTAR_TEXT)
+        before = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                  for path in sources}
+        with tempfile.TemporaryDirectory() as directory:
+            report_path = Path(directory) / "screen-originals.json"
+            self.assertEqual(main(["--pdf", str(WSTAR_TEXT), "--pdf",
+                                   str(NONZERO), "--report", str(report_path)]), 0)
+            report = json.loads(report_path.read_text())
+            self.assertEqual(report["result"], "screening_only")
+            self.assertEqual(report["native_wstar_clip_supported_count"], 0)
+            docs = {doc["filename"]: doc for doc in report["documents"]}
+            self.assertEqual(set(docs), set(before))
+            for path in sources:
+                self.assertEqual(docs[path.name]["sha256"], before[path.name])
+                self.assertEqual(docs[path.name]["page_content_attribution"],
+                                 "not_verified")
+                self.assertEqual(docs[path.name]["license_review"], "required")
+                self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(),
+                                 before[path.name])
+
     def test_path_clip_candidate_is_screening_only(self):
         doc = screen_pdf_bytes(pdf(b"q 1 1 3 3 re W* n 1 0 0 rg 0 0 5 5 re f Q"))
         self.assertEqual(doc["status"], "candidate_requires_full_page_preflight")
