@@ -1359,3 +1359,44 @@ add_test(NAME quantapdf.native_ir_raster_v1
   COMMAND quantapdf_test_native_ir_raster_v1)
 set_tests_properties(quantapdf.native_ir_raster_v1 PROPERTIES
   TIMEOUT 30 LABELS "conformance;native-raster")
+
+
+# Native IR vs PDFium differential oracle: PDFium and QPDF are test-only
+# dependencies; the independent C11 native-raster suite above remains backend-free.
+add_executable(quantapdf_test_native_ir_raster_oracle
+  test_ir_raster_oracle.cpp
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c")
+target_include_directories(quantapdf_test_native_ir_raster_oracle PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_native_ir_raster_oracle PRIVATE
+  QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium qpdf::libqpdf)
+target_compile_features(quantapdf_test_native_ir_raster_oracle PRIVATE
+  c_std_11 cxx_std_20)
+target_compile_definitions(quantapdf_test_native_ir_raster_oracle PRIVATE
+  ORACLE_RECT_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-oracle-rect.pdf"
+  ORACLE_HOLE_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-oracle-hole.pdf"
+  ORACLE_TRIANGLE_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-oracle-triangle.pdf"
+  ORACLE_CUBIC_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-oracle-cubic.pdf")
+if(MSVC)
+  target_compile_options(quantapdf_test_native_ir_raster_oracle PRIVATE /utf-8)
+endif()
+add_test(NAME quantapdf.native_ir_raster_oracle
+  COMMAND quantapdf_test_native_ir_raster_oracle)
+set_tests_properties(quantapdf.native_ir_raster_oracle PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native-raster")
+# Registered after the shared CTest environment setup; apply the provider
+# runtime loader directory explicitly, as in product_conformance.
+if(WIN32)
+  set_property(TEST quantapdf.native_ir_raster_oracle
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_ir_raster_oracle
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_ir_raster_oracle
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
