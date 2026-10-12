@@ -1,0 +1,214 @@
+# Document graph, identity and transaction boundaries
+
+Architecture decision for [#146](https://github.com/qigao/QuantaPDF/issues/146),
+[#156](https://github.com/qigao/QuantaPDF/issues/156) and
+[#153](https://github.com/qigao/QuantaPDF/issues/153), following the validation
+foundation in #186. This document specifies the next migration; it does not
+claim that a document graph, graph importer or graph transaction is implemented.
+
+## Evidence and problem
+
+MED, fact: `src/document/document_internal.h` owns input bytes, a password and an
+opaque backend. `src/backend/document_backend.h` isolates provider calls, but
+pages, resources and object relationships are still discovered inside providers.
+There is no provider-independent object lookup or common graph snapshot.
+
+MED, fact: `src/ir/ir.h` owns Composer pages, drawing operations, seven resource
+families and navigation. `qpdf_composer.cpp` consumes that model to write PDFs.
+The model does not represent arbitrary imported PDF dictionaries, object cycles,
+catalog state or uninterpreted streams. A document graph and drawing IR therefore
+need distinct representations with explicit conversion boundaries.
+
+MED, fact: `quantapdf_qpdf_edit_begin` copies source bytes and reparses them into
+an independent QPDF instance. Annotation and form entry tables retain QPDF
+handles; public references encode a session cookie, a slot and a tag. Deleted
+annotation entries remain tombstones. Form updates use a rollback journal, while
+output snapshots serialize the editor without consuming it. The source and
+earlier form snapshots remain unchanged, as tested by the mutation suites.
+
+MED, fact: the cookie in `qpdf_document.cpp` mixes an atomic sequence with an
+allocation address. It is an ephemeral session discriminator, not a persistent
+graph identity. Neither its representation nor QPDF object numbers establish
+identity for graph copies, independent editors or a rewritten PDF.
+
+## Responsibilities and dependency direction
+
+Introduce a private `src/graph` module for graph values, local identity, immutable
+ownership and structural lookup. It must not include provider types or call a
+parser. A backend adapter imports parsed values and maintains any mapping from
+provider objects to graph IDs. `src/validation` consumes const graph values;
+validation cannot repair or own the graph. The document facade coordinates
+construction and publication, with `quantapdf_context` retaining runtime lifetime.
+
+The graph represents catalog/trailer roots, page relationships, generic PDF
+values, resources, metadata and stream payloads. QP IR represents interpreted
+drawing content. A page-to-IR lowering step must explicitly interpret content
+streams and inherited resources; merely storing those streams is not completion
+of #145. Existing Composer IR continues to own its records until an actual
+conversion has equivalent coverage. Do not create mirrored mutable resource
+tables or cast a Composer resource index into an imported PDF object ID.
+
+Catalog, ordered pages, resources and metadata are typed views/indexes derived
+from graph nodes, not separate authoritative copies. Annotation/form/text/image
+snapshots keep their current publication and borrow contracts. Optional CMeta
+metadata may describe graph types later; it does not supply ownership, mutation
+permission or parsing and is not required by this migration.
+
+## Values, references and identity
+
+Represent null, boolean, integer, real, name, byte string, array, dictionary and
+stream distinctly. Names and strings carry explicit byte lengths. Retain exact
+real tokens when conversion to a machine number would lose information; numeric
+accessors must validate conversion. A stream owns its dictionary and its copied
+payload representation, with an explicit encoding/filter contract. Do not label
+decrypted encoded bytes as source-file bytes or silently decode/recompress them.
+Structural inspection must not execute actions or invoke optional codecs.
+
+Every referenced node has a graph-local ID. Zero is invalid. IDs are values, not
+addresses, provider handles, PDF object numbers or positions in a compacting
+vector. Indirect references preserve sharing and cycles. Inline values retain
+their containment and must not be accidentally interned by equality. Dictionary
+keys have a deterministic byte ordering; array/page order retains document order.
+
+An ID is meaningful only in its owning lineage. Independent imports have
+independent lineage owners even when their local IDs happen to be equal. Import
+assigns local IDs through a specified root/key/array traversal, registering an
+indirect object before visiting children. A backend-private map resolves repeated
+objects. Reimporting the same admitted model under the same traversal yields the
+same local ordering without incorporating process addresses or time.
+
+Versions of one lineage preserve the IDs of surviving objects. Deleted objects
+are tombstones, and committed IDs are never recycled. New nodes in distinct
+transaction branches need distinct origin namespaces within that lineage; use
+an origin identifier plus an append-only ordinal rather than letting two clones
+allocate the same next ID. Exhaustion returns an error before publication.
+Equal values are not necessarily the same object. Copying an object into another
+lineage requires an explicit old-to-new mapping.
+
+Keep graph identity separate from runtime reference validity. A public editor
+reference remains restricted to its original editor and object family, even if
+two editors share a base graph. A provider-independent reference helper can
+allocate non-reused runtime scopes and validate slot/domain bounds, while the
+owning table decides liveness. Runtime scope tokens are not serialized. The
+current annotation/form reference structs and error behavior remain unchanged:
+foreign/invalid references fail ARGUMENT; deleted annotations fail STATE.
+Opaque references are not an authentication mechanism.
+
+Deterministic output orders nodes and assigns output PDF object numbers using
+document structure and writer policy, never runtime scopes, allocator addresses
+or the order unrelated editors were created. This guarantees neither byte
+identity to the original input nor canonical equivalence across arbitrary PDFs.
+Those are separate contracts with separate tests.
+
+## Construction, ownership and limits
+
+Graph construction is unpublished and uniquely mutable. The builder owns every
+allocated node, edge, key and payload until successful validation and sealing.
+On failure it releases all partial storage, clears the output and leaves source
+state unchanged. Sealing publishes an immutable owner; readers may borrow views
+only while holding that owner. A builder pointer cannot survive growth or seal.
+Stable IDs do not imply stable storage addresses or extend a borrow.
+
+An immutable owner retains its context and its complete payload dependency
+closure. It must survive destruction of the parser, source document and temporary
+adapter maps. Final release destroys graph payloads before releasing the context,
+consistent with #148. Existing image snapshots retain their documented source
+lifetime restriction until their implementation and tests are explicitly migrated.
+
+Require explicit internal import limits for node count, edge count, copied value
+bytes, copied stream bytes and nesting/traversal work. Charge allocated capacity,
+not only committed counts, and check multiplication/addition before allocation.
+Adapter worklists/maps also need limits. These limits bound graph-owned storage
+and adapter work; they do not pretend to bound all memory inside a third-party
+parser. No limit may silently truncate the graph or publish a partial success.
+
+Invalid internal arguments return ARGUMENT; invalid PDF structure follows the
+existing FORMAT contract; unsupported representations or exceeded admission
+limits return UNSUPPORTED; allocation failure returns NOMEM. Broken admitted
+graph invariants return BACKEND with #149 reports. Preserve provider errors and
+the existing precedence of public argument checks. A new graph budget cannot
+silently become a stricter limit on an existing public API during migration.
+
+Initial operations remain synchronous and externally serialized, including
+retain/release and lineage-origin allocation. There is no async queue, concurrent
+mutation or lock-free reclamation. A later concurrency proposal must specify its
+own publication and shutdown protocol. No arena or pool is needed solely to
+implement this design; #157 can evaluate storage strategies against these owners.
+
+## Transaction model
+
+An editor owns a retained immutable base version and a private change set. Reads
+resolve the change set before the base; the change set is the only authority for
+pending replacements/deletions. Indexes derive from that resolved view. New nodes
+receive IDs in the editor's origin namespace. Shared base payloads remain const.
+
+Each public mutation stages all fallible work before publishing its change set.
+Failure preserves the preceding editor view, reference liveness and previously
+published snapshots. Successful deletion records a tombstone instead of recycling
+an ID. An aborted, unpublished allocation may be reclaimed, but any ID that has
+escaped through a successful API result must never identify another object.
+
+Snapshot/commit resolves and validates a complete candidate graph, then writes
+output into unpublished storage. Only successful completion publishes the output
+or new immutable version. Failure leaves the source, editor and earlier outputs
+unchanged and permits retry. Snapshot does not consume or implicitly close an
+editor; repeated snapshots preserve current public behavior. File replacement
+continues through the established output-file publication path.
+
+Do not maintain both a mutable QPDF tree and a mutable neutral graph as competing
+state owners. Until a feature migrates, its current provider transaction remains
+authoritative. After it migrates, a provider writer receives a resolved const
+graph and builds temporary output state. A reader may not switch authority after
+an error or silently fall back to a stale provider copy.
+
+## Alternatives and rollout
+
+Wrapping QPDF handles would retain provider-specific lifetimes and identities.
+Eagerly rebuilding a graph on every open would add allocations and parser
+admission failures to unrelated rendering calls. Replacing all providers at once
+would combine graph import, rendering semantics, transactions and serialization
+without a useful compatibility checkpoint. A second PDF parser or general
+reflection framework is unnecessary. Select private, demand-driven import and
+feature-by-feature migration with one state authority per operation.
+
+1. Extract provider-independent local identity/reference rules with actual edit
+   consumers and tests. Preserve deletion, repeated lookup, foreign-reference and
+   domain behavior. This is only the runtime-reference portion of #156.
+2. Implement the bounded graph owner/builder and QPDF import adapter behind private
+   interfaces. Test shared references, cycles, roots, streams, deterministic
+   traversal and independence from the parser. Feed structural rules into #149.
+3. Migrate an existing read consumer only after its admission, error and snapshot
+   behavior is covered. Expand catalog/page/resource/metadata views without
+   shadow owners. #146 remains open until its actual required families work.
+4. Introduce graph change sets and migrate form/annotation editing with the current
+   failure-injection and immutability tests. Preserve isolated editor references.
+   Writer coverage and equivalent output behavior are prerequisites for switching
+   authority; isolated change-set unit tests do not complete #153.
+5. Implement content interpretation and the relevant QP IR consumers for #145,
+   with explicit origin/resource mappings and unsupported-feature admission.
+
+Each step must leave usable internal code, a concrete consumer or formal boundary
+test, and a named remaining scope. Do not expose incomplete public graph APIs.
+There is no new dependency, public layout change or persisted graph format.
+Reverting an individual step restores its previous private path; outputs already
+published retain their established PDF semantics. Future persisted graph IDs or
+incremental PDF writing require a separate versioned design and migration plan.
+
+## Acceptance evidence
+
+Use backend-free tests for identity bounds, runtime scope exhaustion, deleted-ID
+non-reuse, deterministic local ordering, graph ownership, capacity accounting,
+publication failure and retained-version behavior. Backend integration tests must
+exercise shared/cyclic indirect objects, direct containment, binary names/strings,
+stream encoding, parser destruction, failed import and equivalent read results.
+
+Transaction tests must cover independent editors, source/snapshot immutability,
+reference domains, create/update/delete, allocation failure before publication,
+validation/writer failure, retry and repeated deterministic output. Compare
+logical graph identity separately from output PDF object numbering and ephemeral
+public reference bytes. Existing fixtures and mutation tests remain compatibility
+evidence; test-only success of an unused graph implementation is insufficient.
+
+For each implementation step run focused CTest, the affected full native and
+sanitizer suites, ABI checks, and shared/static SDK installation. This decision
+document itself requires source/contract and link review, not an unrelated build.
