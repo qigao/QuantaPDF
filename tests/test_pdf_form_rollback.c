@@ -269,10 +269,43 @@ static void test_first_ap_refresh_rollback_and_reuse(void)
     quantapdf_drop_pdf_edit(edit);
 }
 
+static void test_failed_rollback_disables_form_session(void)
+{
+    quantapdf_pdf_edit *edit = rollback_open_edit(FORM_MUTATION_DIRECT_FIELD_PDF);
+    quantapdf_form_field_ref ref = rollback_field_ref(edit, "direct");
+    quantapdf_form_value_input value;
+    quantapdf_form_value_update update;
+    quantapdf_form *before = NULL;
+    quantapdf_form *failed = (quantapdf_form *)(uintptr_t)1;
+    quantapdf_output *output = (quantapdf_output *)(uintptr_t)1;
+    size_t before_count = 0;
+    size_t after_count = 0;
+
+    ROLLBACK_CHECK(quantapdf_pdf_edit_form_snapshot(edit, &before) == QUANTAPDF_OK);
+    ROLLBACK_CHECK(quantapdf_form_field_count(before, &before_count) == QUANTAPDF_OK);
+    ROLLBACK_CHECK(before_count != 0);
+    rollback_make_text(&value, &update, "unpublished");
+    quantapdf_test_pdf_edit_set_fault(edit, QUANTAPDF_TEST_PDF_EDIT_FAULT_ROLLBACK);
+    ROLLBACK_CHECK(quantapdf_pdf_edit_form_set_values(edit, &ref, &update) ==
+        QUANTAPDF_ERROR_BACKEND);
+    ROLLBACK_CHECK(quantapdf_pdf_edit_form_set_values(edit, &ref, &update) ==
+        QUANTAPDF_ERROR_STATE);
+    ROLLBACK_CHECK(quantapdf_pdf_edit_form_snapshot(edit, &failed) == QUANTAPDF_ERROR_STATE);
+    ROLLBACK_CHECK(failed == NULL);
+    ROLLBACK_CHECK(quantapdf_pdf_edit_snapshot(edit, &output) == QUANTAPDF_ERROR_STATE);
+    ROLLBACK_CHECK(output == NULL);
+    quantapdf_drop_pdf_edit(edit);
+    ROLLBACK_CHECK(quantapdf_form_field_count(before, &after_count) == QUANTAPDF_OK);
+    ROLLBACK_CHECK(before_count == after_count);
+    ROLLBACK_CHECK(rollback_field_index(before, "direct") < after_count);
+    quantapdf_drop_form(before);
+}
+
 int quantapdf_pdf_form_rollback_main(void)
 {
     test_direct_field_ref_survives_semantic_rollback();
     test_button_first_state_rollback_and_reuse();
     test_first_ap_refresh_rollback_and_reuse();
+    test_failed_rollback_disables_form_session();
     return EXIT_SUCCESS;
 }

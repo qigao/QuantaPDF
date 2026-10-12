@@ -2,6 +2,7 @@
 #include "graph/identity.h"
 #include "qpdf_document.h"
 #include "qpdf_edit.h"
+#include "edit_fault.h"
 #include "qpdf_graph.h"
 #include "jpeg_encoder.h"
 #include "secure_random.h"
@@ -56,6 +57,7 @@ struct quantapdf_qpdf_edit_form_entry {
 };
 
 struct quantapdf_qpdf_edit {
+    bool rollback_failed = false;
     std::shared_ptr<QPDF> pdf;
     std::vector<unsigned char> source_bytes;
     uint64_t annotation_scope = 0;
@@ -6291,6 +6293,8 @@ static quantapdf_status quantapdf_qpdf_edit_scan_annotations(
 {
     if (edit == nullptr || edit->pdf == nullptr || page_index < 0)
         return QUANTAPDF_ERROR_ARGUMENT;
+    if (edit->rollback_failed)
+        return QUANTAPDF_ERROR_STATE;
     auto const& pages = edit->pdf->getAllPages();
     if (static_cast<size_t>(page_index) >= pages.size())
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -6334,6 +6338,8 @@ static quantapdf_status quantapdf_qpdf_edit_resolve_annotation(
 {
     if (edit == nullptr || ref == nullptr)
         return QUANTAPDF_ERROR_ARGUMENT;
+    if (edit->rollback_failed)
+        return QUANTAPDF_ERROR_STATE;
     size_t slot = SIZE_MAX;
     quantapdf_status status = quantapdf_reference_resolve(
         edit->annotation_scope, edit->annotations.size(), ref->opaque, &slot);
@@ -6393,7 +6399,10 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_snapshot(
     *out_size = 0;
     if (edit == nullptr || edit->pdf == nullptr)
         return QUANTAPDF_ERROR_ARGUMENT;
-    if (test_fault != nullptr && *test_fault == 3) {
+    if (edit->rollback_failed)
+        return QUANTAPDF_ERROR_STATE;
+    if (test_fault != nullptr &&
+        *test_fault == QUANTAPDF_TEST_PDF_EDIT_FAULT_SNAPSHOT_BEFORE_PUBLISH) {
         *test_fault = 0;
         return QUANTAPDF_ERROR_BACKEND;
     }
@@ -6417,6 +6426,8 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_form_snapshot(
     *out_model = nullptr;
     if (edit == nullptr || edit->pdf == nullptr)
         return QUANTAPDF_ERROR_ARGUMENT;
+    if (edit->rollback_failed)
+        return QUANTAPDF_ERROR_STATE;
     quantapdf_qpdf_document view = {};
     view.pdf = edit->pdf;
     return quantapdf_qpdf_extract_form(&view, out_model);
@@ -6529,6 +6540,8 @@ static quantapdf_status quantapdf_qpdf_edit_resolve_form_ref(
 {
     if (edit == nullptr || ref == nullptr)
         return QUANTAPDF_ERROR_ARGUMENT;
+    if (edit->rollback_failed)
+        return QUANTAPDF_ERROR_STATE;
     size_t slot = SIZE_MAX;
     quantapdf_status status = quantapdf_reference_resolve(
         edit->form_scope, edit->forms.size(), ref->opaque, &slot);
@@ -6538,15 +6551,26 @@ static quantapdf_status quantapdf_qpdf_edit_resolve_form_ref(
     return QUANTAPDF_OK;
 }
 
-struct quantapdf_qpdf_form_change {
+struct quantapdf_qpdf_edit_change {
     QPDFObjectHandle object;
     std::string key;
     QPDFObjectHandle old_value;
     bool present;
+    int array_size = -1;
 };
 
-class quantapdf_qpdf_form_transaction {
+class quantapdf_qpdf_edit_transaction {
   public:
+    quantapdf_qpdf_edit_transaction(
+        quantapdf_qpdf_edit& owner, size_t limit, int *fault) :
+        owner(owner), limit(limit), fault(fault)
+    {
+    }
+
+    quantapdf_qpdf_edit_transaction(quantapdf_qpdf_edit_transaction const&) = delete;
+    quantapdf_qpdf_edit_transaction& operator=(
+        quantapdf_qpdf_edit_transaction const&) = delete;
+
     void save(QPDFObjectHandle object, char const *key)
     {
         for (auto const& change : changes) {
@@ -6554,30 +6578,61 @@ class quantapdf_qpdf_form_transaction {
                 quantapdf_qpdf_same_object(change.object, object))
                 return;
         }
+        if (changes.size() == limit)
+            throw std::bad_alloc();
         changes.push_back(
             {object, key, object.getKey(key), object.hasKey(key)});
     }
 
+    // Only appends are allowed after saving a tail. Retain array identity so
+    // aliases observe the same committed update and the same rollback.
+    void save_array_tail(QPDFObjectHandle array)
+    {
+        if (changes.size() == limit)
+            throw std::bad_alloc();
+        changes.push_back({array, {}, {}, false, array.getArrayNItems()});
+    }
+
     void commit() noexcept { committed = true; }
 
-    ~quantapdf_qpdf_form_transaction()
+    ~quantapdf_qpdf_edit_transaction() noexcept
     {
         if (committed)
             return;
-        try {
-            for (auto change = changes.rbegin(); change != changes.rend();
-                 ++change) {
-                if (change->present)
+        for (auto change = changes.rbegin(); change != changes.rend();
+             ++change) {
+            try {
+                if (fault != nullptr &&
+                    *fault == QUANTAPDF_TEST_PDF_EDIT_FAULT_ROLLBACK) {
+                    *fault = QUANTAPDF_TEST_PDF_EDIT_FAULT_NONE;
+                    throw std::bad_alloc();
+                }
+                if (change->array_size >= 0) {
+                    int count = change->object.getArrayNItems();
+                    if (count < change->array_size) {
+                        owner.rollback_failed = true;
+                        continue;
+                    }
+                    while (count > change->array_size)
+                        change->object.eraseItem(--count);
+                } else if (change->present) {
                     change->object.replaceKey(change->key, change->old_value);
-                else
+                } else {
                     change->object.removeKey(change->key);
+                }
+            } catch (...) {
+                // A failed restoration must never be hidden by a later write
+                // or snapshot. Continue restoring the other independent keys.
+                owner.rollback_failed = true;
             }
-        } catch (...) {
         }
     }
 
   private:
-    std::vector<quantapdf_qpdf_form_change> changes;
+    quantapdf_qpdf_edit& owner;
+    size_t limit;
+    int *fault;
+    std::vector<quantapdf_qpdf_edit_change> changes;
     bool committed = false;
 };
 
@@ -6900,12 +6955,17 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_form_set_values(
                 !quantapdf_qpdf_edit_live_form_contains(live, owner))
                 return QUANTAPDF_ERROR_UNSUPPORTED;
         }
-        if (test_fault != nullptr && *test_fault == 4) {
+        if (test_fault != nullptr &&
+            *test_fault == QUANTAPDF_TEST_PDF_EDIT_FAULT_FORM_AFTER_WIDGET_PREPARE) {
             *test_fault = 0;
             return QUANTAPDF_ERROR_BACKEND;
         }
 
-        quantapdf_qpdf_form_transaction transaction;
+        if (live.widgets.size() > SIZE_MAX / 2u ||
+            live.nodes.size() > SIZE_MAX / 2u - live.widgets.size())
+            return QUANTAPDF_ERROR_NOMEM;
+        quantapdf_qpdf_edit_transaction transaction(
+            *edit, 2u * (live.nodes.size() + live.widgets.size()), test_fault);
         for (auto const& node : live.nodes) {
             transaction.save(node, "/V");
             transaction.save(node, "/I");
@@ -6941,7 +7001,8 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_form_set_values(
                     state = selected;
                 widget.replaceKey(
                     "/AS", QPDFObjectHandle::newName("/" + state));
-                if (test_fault != nullptr && *test_fault == 6 &&
+                if (test_fault != nullptr &&
+                    *test_fault == QUANTAPDF_TEST_PDF_EDIT_FAULT_FORM_AFTER_FIRST_WIDGET_STATE &&
                     widget_index == 0u) {
                     *test_fault = 0;
                     return QUANTAPDF_ERROR_BACKEND;
@@ -6982,7 +7043,11 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_form_set_values(
                     live, "/I", QPDFObjectHandle::newArray(indices), false);
             }
         }
-        if (test_fault != nullptr && *test_fault == 5) {
+        if (test_fault != nullptr &&
+            *test_fault == QUANTAPDF_TEST_PDF_EDIT_FAULT_ROLLBACK)
+            return QUANTAPDF_ERROR_BACKEND;
+        if (test_fault != nullptr &&
+            *test_fault == QUANTAPDF_TEST_PDF_EDIT_FAULT_FORM_AFTER_SEMANTIC_WRITE) {
             *test_fault = 0;
             return QUANTAPDF_ERROR_BACKEND;
         }
@@ -6992,7 +7057,8 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_form_set_values(
             for (auto widget : live.widgets) {
                 quantapdf_qpdf_edit_form_refresh_appearance(
                     *edit->pdf, widget, appearance_seed);
-                if (test_fault != nullptr && *test_fault == 7 &&
+                if (test_fault != nullptr &&
+                    *test_fault == QUANTAPDF_TEST_PDF_EDIT_FAULT_FORM_AFTER_FIRST_AP_REFRESH &&
                     widget_index == 0u) {
                     *test_fault = 0;
                     return QUANTAPDF_ERROR_BACKEND;
@@ -7198,6 +7264,8 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_annotation_create(
         !quantapdf_qpdf_valid_utf8(
             options->contents_utf8, options->contents_size))
         return QUANTAPDF_ERROR_ARGUMENT;
+    if (edit->rollback_failed)
+        return QUANTAPDF_ERROR_STATE;
     try {
         auto const& pages = edit->pdf->getAllPages();
         if (static_cast<size_t>(page_index) >= pages.size())
@@ -7230,18 +7298,29 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_annotation_create(
         }
         QPDFObjectHandle page = pages[static_cast<size_t>(page_index)];
         QPDFObjectHandle annots = page.getKey("/Annots");
+        quantapdf_qpdf_edit_transaction transaction(*edit, 2u, test_fault);
         if (!annots.isArray()) {
+            transaction.save(page, "/Annots");
             annots = QPDFObjectHandle::newArray();
             page.replaceKey("/Annots", annots);
         }
+        if (annots.getArrayNItems() == INT_MAX)
+            return QUANTAPDF_ERROR_NOMEM;
+        transaction.save_array_tail(annots);
         annots.appendItem(object);
-        if (test_fault != nullptr && *test_fault == 2) {
+        if (test_fault != nullptr &&
+            *test_fault == QUANTAPDF_TEST_PDF_EDIT_FAULT_AFTER_CREATE_MUTATION) {
             *test_fault = 0;
-            annots.eraseItem(annots.getArrayNItems() - 1);
             return QUANTAPDF_ERROR_BACKEND;
+        }
+        if (test_fault != nullptr &&
+            *test_fault == QUANTAPDF_TEST_PDF_EDIT_FAULT_CREATE_NOMEM) {
+            *test_fault = 0;
+            throw std::bad_alloc();
         }
         edit->annotations.push_back({
             object, page_index, true});
+        transaction.commit();
         *out_ref = reference;
         return QUANTAPDF_OK;
     } catch (QPDFExc const& error) {
@@ -7293,9 +7372,13 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_annotation_update(
             info.type != QUANTAPDF_ANNOTATION_SQUARE &&
             info.type != QUANTAPDF_ANNOTATION_CIRCLE)
             return QUANTAPDF_ERROR_UNSUPPORTED;
-        QPDFObjectHandle old_rect = entry->object.getKey("/Rect");
-        QPDFObjectHandle old_flags = entry->object.getKey("/F");
-        QPDFObjectHandle old_contents = entry->object.getKey("/Contents");
+        quantapdf_qpdf_edit_transaction transaction(*edit, 3u, test_fault);
+        if ((update->fields & QUANTAPDF_ANNOTATION_UPDATE_BOUNDS) != 0u)
+            transaction.save(entry->object, "/Rect");
+        if ((update->fields & QUANTAPDF_ANNOTATION_UPDATE_FLAGS) != 0u)
+            transaction.save(entry->object, "/F");
+        if ((update->fields & QUANTAPDF_ANNOTATION_UPDATE_CONTENTS) != 0u)
+            transaction.save(entry->object, "/Contents");
         if ((update->fields & QUANTAPDF_ANNOTATION_UPDATE_BOUNDS) != 0u) {
             status = quantapdf_qpdf_edit_set_annotation_rect(
                 *edit->pdf, entry->page_index, entry->object, update->bounds);
@@ -7305,6 +7388,11 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_annotation_update(
         if ((update->fields & QUANTAPDF_ANNOTATION_UPDATE_FLAGS) != 0u)
             entry->object.replaceKey(
                 "/F", QPDFObjectHandle::newInteger(update->flags));
+        if (test_fault != nullptr &&
+            *test_fault == QUANTAPDF_TEST_PDF_EDIT_FAULT_UPDATE_NOMEM) {
+            *test_fault = 0;
+            throw std::bad_alloc();
+        }
         if ((update->fields & QUANTAPDF_ANNOTATION_UPDATE_CONTENTS) != 0u) {
             if (update->contents_utf8 == nullptr) {
                 entry->object.removeKey("/Contents");
@@ -7315,19 +7403,15 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_annotation_update(
                                     update->contents_size)));
             }
         }
-        if (test_fault != nullptr && *test_fault == 1) {
+        if (test_fault != nullptr &&
+            *test_fault == QUANTAPDF_TEST_PDF_EDIT_FAULT_ROLLBACK)
+            return QUANTAPDF_ERROR_BACKEND;
+        if (test_fault != nullptr &&
+            *test_fault == QUANTAPDF_TEST_PDF_EDIT_FAULT_AFTER_FIRST_UPDATE_FIELD) {
             *test_fault = 0;
-            entry->object.replaceKey("/Rect", old_rect);
-            if (old_flags.isNull())
-                entry->object.removeKey("/F");
-            else
-                entry->object.replaceKey("/F", old_flags);
-            if (old_contents.isNull())
-                entry->object.removeKey("/Contents");
-            else
-                entry->object.replaceKey("/Contents", old_contents);
             return QUANTAPDF_ERROR_BACKEND;
         }
+        transaction.commit();
         return QUANTAPDF_OK;
     } catch (QPDFExc const& error) {
         return quantapdf_status_from_qpdf(error);

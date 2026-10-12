@@ -167,6 +167,13 @@ Do not consume outputs after failure. Factory output slots are reset to NULL;
 other records/scalars follow their individual reset rules, so a binding must
 not infer success from a nonzero field. Unknown status values remain errors.
 
+Edit sessions preserve the source document. Annotation create/update and form
+updates roll back failed mutations. If restoration itself fails, subsequent
+valid operations on that edit return `QUANTAPDF_ERROR_STATE`; drop it and begin
+a new edit from the source. The initiating operation retains its original error.
+Previously published outputs and snapshots remain valid. A failed output snapshot
+publishes no output and does not close an otherwise usable edit session.
+
 Initialize option/info records to zero, then set `struct_size` to the matching
 native layout size or documented version size. Single records use append-only
 size negotiation. Fixed-stride array elements cannot grow without a new
