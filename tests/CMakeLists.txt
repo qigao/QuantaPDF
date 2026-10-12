@@ -1734,3 +1734,43 @@ add_test(NAME quantapdf.native_scoped_clip_dag_v1
   COMMAND quantapdf_test_native_scoped_clip_dag_v1)
 set_tests_properties(quantapdf.native_scoped_clip_dag_v1 PROPERTIES
   TIMEOUT 30 LABELS "conformance;native-raster")
+
+
+# Test-only QPDF/PDFium differential oracle for private scoped nested Clip DAG.
+# Standalone native C11 scoped DAG test remains independent of both backends.
+add_executable(quantapdf_test_native_scoped_dag_oracle
+  test_ir_scoped_dag_oracle.cpp
+  "${PROJECT_SOURCE_DIR}/src/render/ir_scoped_operations_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_clip_dag_v3.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c")
+target_include_directories(quantapdf_test_native_scoped_dag_oracle PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_native_scoped_dag_oracle PRIVATE
+  QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium qpdf::libqpdf)
+target_compile_features(quantapdf_test_native_scoped_dag_oracle PRIVATE
+  c_std_11 cxx_std_20)
+target_compile_definitions(quantapdf_test_native_scoped_dag_oracle PRIVATE
+  ORACLE_SCOPED_PDF="${CMAKE_CURRENT_BINARY_DIR}/dag-oracle-scoped.pdf"
+  ORACLE_REVERSE_PDF="${CMAKE_CURRENT_BINARY_DIR}/dag-oracle-reverse.pdf"
+  ORACLE_FRACTION_PDF="${CMAKE_CURRENT_BINARY_DIR}/dag-oracle-fraction.pdf")
+if(MSVC)
+  target_compile_options(quantapdf_test_native_scoped_dag_oracle PRIVATE /utf-8)
+endif()
+add_test(NAME quantapdf.native_scoped_dag_oracle
+  COMMAND quantapdf_test_native_scoped_dag_oracle)
+set_tests_properties(quantapdf.native_scoped_dag_oracle PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native-raster")
+if(WIN32)
+  set_property(TEST quantapdf.native_scoped_dag_oracle
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_scoped_dag_oracle
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_scoped_dag_oracle
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
