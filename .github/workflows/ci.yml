@@ -157,6 +157,16 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Upload external CC0 semantic report (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-source-semantic-linux
+          path: |
+            build/linux-gcc-release/tests/external-cc0-text-status.json
+            build/linux-gcc-debug/tests/external-cc0-text-status.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload source-PDF corpus reports (Linux)
         uses: actions/upload-artifact@v4
         with:
@@ -275,6 +285,14 @@ jobs:
         with:
           name: external-corpus-admission-macos
           path: ${{ runner.temp }}/external-pdf-corpus.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload external CC0 semantic report (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-source-semantic-macos
+          path: build/macos-clang-release/tests/external-cc0-text-status.json
           if-no-files-found: error
           retention-days: 7
 
@@ -423,6 +441,14 @@ jobs:
         with:
           name: external-corpus-admission-windows
           path: ${{ runner.temp }}/external-pdf-corpus.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload external CC0 semantic report (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-source-semantic-windows
+          path: build/Msvc-Release/tests/external-cc0-text-status.json
           if-no-files-found: error
           retention-days: 7
 
