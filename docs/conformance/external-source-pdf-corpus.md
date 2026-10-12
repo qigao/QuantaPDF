@@ -160,3 +160,23 @@ broader page geometry and public SDK removal of PDFium remain #208 exit
 criteria. Admission/byte-integrity checks are intentionally separate
 from both the existing generated corpus and the future external
 render-compatibility qualification.
+
+## Cross-report conformance reconciliation
+
+The existing three-platform CI additionally invokes
+`tools/qualification/reconcile_external_corpus.py` **after** both external
+source CTests. This gate verifies the separate offline admission report
+against actual original-PDFium/native semantic JSON for both pinned
+documents. A manifest's expected capability, PDFium's successful rendering
+alone, or merely having a JSON file can **never** increment a native
+Path/Clip pass counter. It fails on missing/swapped IDs, altered byte
+admission status, missing test success, nonzero blank pixel error,
+unjustified painted Path/Clip counts, or leakage from the 14/36
+QPDF-generated fixture totals.
+
+The published artifact `external-corpus-reconciled-{linux,macos,windows}`
+currently records two admitted documents, one expected text rejection,
+one independently rendered blank page, and **zero** external native painted
+Path/Clip matches. This reconciled evidence is the denominator and baseline
+for #254; it does not replace future true painted Path/Clip acceptance and
+original-source PDFium pixel parity.
