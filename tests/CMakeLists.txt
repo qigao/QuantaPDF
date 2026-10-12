@@ -1,3 +1,42 @@
+# Pure C11 clip-chain lowering: W/W* delayed activation, nested q/Q,
+# ownership, cardinality and aggregate command admission budgets.
+add_executable(quantapdf_test_pdf_clip_lowering test_pdf_clip_lowering.c
+  ../src/ir/pdf_content_ir.c ../src/ir/pdf_graphics_state.c
+  ../src/ir/pdf_path_lowering.c ../src/ir/ir.c
+  ../src/resource/resource_registry.c)
+target_include_directories(quantapdf_test_pdf_clip_lowering PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_pdf_clip_lowering PRIVATE c_std_11)
+if(UNIX)
+  target_link_libraries(quantapdf_test_pdf_clip_lowering PRIVATE m)
+endif()
+add_test(NAME quantapdf.pdf_clip_lowering COMMAND quantapdf_test_pdf_clip_lowering)
+set_tests_properties(quantapdf.pdf_clip_lowering PROPERTIES TIMEOUT 30)
+
+# Real QPDF source vs Composer re-export PDFium raster comparison.
+add_executable(quantapdf_test_pdf_clip_pixels test_pdf_clip_pixels.cpp
+  ../src/graph/graph_page_geometry.c
+  ../src/document/page_composer_ir.c ../src/document/page_content_ir.c
+  ../src/document/document_graph.c
+  ../src/ir/pdf_path_lowering.c ../src/ir/pdf_graphics_state.c
+  ../src/ir/pdf_content_ir.c ../src/ir/ir.c
+  ../src/resource/resource_registry.c
+  ../src/core/context_lifetime.c ../src/core/output_lifetime.c
+  ../src/snapshot/snapshot_owner.c)
+target_include_directories(quantapdf_test_pdf_clip_pixels PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_pdf_clip_pixels PRIVATE
+  QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium qpdf::libqpdf)
+target_compile_features(quantapdf_test_pdf_clip_pixels PRIVATE c_std_11 cxx_std_20)
+target_compile_definitions(quantapdf_test_pdf_clip_pixels PRIVATE
+  CLIP_SOURCE_PDF="${CMAKE_CURRENT_BINARY_DIR}/clip-original.pdf"
+  CLIP_LOWERED_PDF="${CMAKE_CURRENT_BINARY_DIR}/clip-export.pdf")
+if(MSVC)
+  target_compile_options(quantapdf_test_pdf_clip_pixels PRIVATE /utf-8)
+endif()
+add_test(NAME quantapdf.pdf_clip_pixels COMMAND quantapdf_test_pdf_clip_pixels)
+set_tests_properties(quantapdf.pdf_clip_pixels PROPERTIES TIMEOUT 30)
+
 # Private page display affine map, exact Composer lowering, and source-vs-output pixels.
 add_executable(quantapdf_test_pdf_page_display test_pdf_page_display.cpp
   ../src/graph/graph_page_geometry.c

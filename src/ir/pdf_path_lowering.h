@@ -10,9 +10,10 @@
  * crop offset. This function does not inspect /MediaBox or /UserUnit.
  *
  * Only values that round-trip through the Composer writer's float + four
- * decimal formatting and RGB8 encoding are admitted. Any clipping, malformed
- * path, unpainted path, lossy value or unsupported paint returns UNSUPPORTED
- * or FORMAT and leaves out_ir entirely zeroed. No implicit approximation.
+ * decimal formatting and RGB8 encoding are admitted. W/W* clip definitions
+ * become owned Clip Path / Clip Intersection resources, preserving q/Q and
+ * delayed activation. A standalone n without clipping, unrepresentable
+ * geometry, unsupported paint or budget exhaustion fails atomically.
  */
 typedef struct quantapdf_pdf_path_lower_limits {
     size_t max_painted_paths;
@@ -34,7 +35,8 @@ quantapdf_status quantapdf_pdf_path_lower_to_composer(
  * affine matrix applied AFTER the PDF content's own graphics CTM. This
  * preserves nonzero source origins, crop translation, right-angle rotation,
  * and /UserUnit scaling for values that Composer can represent. It does not
- * change the existing strict numeric/clip admission or input ownership. */
+ * change strict numeric admission or ownership. A clip chain may contain at
+ * most QUANTAPDF_COMPOSER_MAX_CLIP_COMPONENTS path definitions. */
 quantapdf_status quantapdf_pdf_path_lower_to_composer_mapped(
     const quantapdf_pdf_page_semantics *page,
     double canvas_width, double canvas_height,

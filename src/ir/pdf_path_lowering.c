@@ -85,6 +85,23 @@ static quantapdf_status transform(const double pdf[6], float height,
     return QUANTAPDF_OK;
 }
 
+/* The same conjugated source CTM must be used for both drawing and clipping.
+ * PDF clipping freezes the geometry under the CTM active at W/W*, while
+ * later cm operators can change the CTM of subsequent painted paths. */
+static quantapdf_status mapped_transform(
+    const double source[6], const double page[6], float height,
+    quantapdf_affine_transform *out)
+{
+    double mapped[6];
+    mapped[0] = source[0] * page[0] + source[1] * page[2];
+    mapped[1] = source[0] * page[1] + source[1] * page[3];
+    mapped[2] = source[2] * page[0] + source[3] * page[2];
+    mapped[3] = source[2] * page[1] + source[3] * page[3];
+    mapped[4] = source[4] * page[0] + source[5] * page[2] + page[4];
+    mapped[5] = source[4] * page[1] + source[5] * page[3] + page[5];
+    return transform(mapped, height, out);
+}
+
 static quantapdf_status paint_options(
     const quantapdf_pdf_path_record *path, float height,
     const double page_transform[6],
@@ -92,18 +109,6 @@ static quantapdf_status paint_options(
 {
     quantapdf_pdf_content_opcode opcode = path->paint_opcode;
     quantapdf_status status;
-    double mapped[6];
-    const double *source = path->graphics.ctm;
-    const double *page = page_transform;
-    /* Row-vector composition: final path = operand * content_CTM * page_map.
-     * The page rotation/scale is applied after graphics operators, including
-     * CTM translations, and not to the source path operands twice. */
-    mapped[0] = source[0] * page[0] + source[1] * page[2];
-    mapped[1] = source[0] * page[1] + source[1] * page[3];
-    mapped[2] = source[2] * page[0] + source[3] * page[2];
-    mapped[3] = source[2] * page[1] + source[3] * page[3];
-    mapped[4] = source[4] * page[0] + source[5] * page[2] + page[4];
-    mapped[5] = source[4] * page[1] + source[5] * page[3] + page[5];
     memset(options, 0, sizeof(*options));
     options->struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     options->fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -128,7 +133,8 @@ static quantapdf_status paint_options(
         opcode == QUANTAPDF_PDF_OP_FILL_STROKE_EVEN_ODD ||
         opcode == QUANTAPDF_PDF_OP_CLOSE_FILL_STROKE_EVEN_ODD)
         options->fill_rule = QUANTAPDF_COMPOSER_FILL_EVEN_ODD;
-    status = transform(mapped, height, &options->transform);
+    status = mapped_transform(path->graphics.ctm, page_transform,
+        height, &options->transform);
     if (status != QUANTAPDF_OK) return status;
     if (options->stroke) {
         double width = path->graphics.line_width;
@@ -281,6 +287,121 @@ static quantapdf_status commands_from_path(
     return count == expected ? QUANTAPDF_OK : QUANTAPDF_ERROR_BACKEND;
 }
 
+/* A path with W/W* has an operator between geometry and the paint/n
+ * terminator. Reuse the strictly admitted geometry encoder by making a
+ * local view ending at that clipping marker, then append a paint-specific
+ * implicit h for s/b/b* if the source has not already closed the path.
+ * Clip geometry itself uses W's own implicit subpath closing, not paint h. */
+static quantapdf_status lower_commands(
+    const quantapdf_pdf_content_ir *content,
+    const quantapdf_pdf_path_record *path,
+    const quantapdf_pdf_clip_record *clip,
+    float height, size_t available, int for_clip,
+    quantapdf_composer_path_command **out_commands, size_t *out_count)
+{
+    quantapdf_pdf_path_record geometry = *path;
+    quantapdf_composer_path_command *commands;
+    size_t base_count, count;
+    int add_close = 0;
+    quantapdf_status status;
+    *out_commands = NULL;
+    *out_count = 0;
+    if (path->terminal_operator >= content->count ||
+        content->ops[path->terminal_operator].opcode != path->paint_opcode)
+        return QUANTAPDF_ERROR_FORMAT;
+    if (clip != NULL) {
+        if (clip->clip_operator >= content->count ||
+            clip->clip_operator <= path->path_first_operator ||
+            clip->clip_operator >= path->terminal_operator ||
+            clip->clip_operator + 1 != path->terminal_operator)
+            return QUANTAPDF_ERROR_FORMAT;
+        geometry.terminal_operator = clip->clip_operator;
+        geometry.paint_opcode = content->ops[clip->clip_operator].opcode;
+        if (geometry.paint_opcode != QUANTAPDF_PDF_OP_CLIP &&
+            geometry.paint_opcode != QUANTAPDF_PDF_OP_CLIP_EVEN_ODD)
+            return QUANTAPDF_ERROR_FORMAT;
+    } else if (for_clip) return QUANTAPDF_ERROR_ARGUMENT;
+    status = count_commands(content, &geometry, available, &base_count);
+    if (status != QUANTAPDF_OK) return status;
+    if (clip != NULL && !for_clip && closing_paint(path->paint_opcode) &&
+        content->ops[geometry.terminal_operator - 1].opcode !=
+            QUANTAPDF_PDF_OP_CLOSE) {
+        if (base_count >= available) return QUANTAPDF_ERROR_UNSUPPORTED;
+        add_close = 1;
+    }
+    count = base_count + (size_t)add_close;
+    if (count > SIZE_MAX / sizeof(*commands))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    commands = (quantapdf_composer_path_command *)calloc(count,
+        sizeof(*commands));
+    if (commands == NULL) return QUANTAPDF_ERROR_NOMEM;
+    status = commands_from_path(content, &geometry, height,
+        commands, base_count);
+    if (status != QUANTAPDF_OK) {
+        free(commands);
+        return status;
+    }
+    if (add_close)
+        commands[base_count].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
+    *out_commands = commands;
+    *out_count = count;
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status intern_active_clip_state(
+    quantapdf_resource_registry *resources,
+    quantapdf_composer_clip_id clip,
+    quantapdf_composer_graphics_state_id *out_id)
+{
+    quantapdf_composer_graphics_state candidate = {0};
+    size_t added_bytes = 0;
+    candidate.fill_alpha = 1.0f;
+    candidate.stroke_alpha = 1.0f;
+    candidate.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
+    candidate.clip_id = clip;
+    return quantapdf_resource_intern_graphics_state(resources,
+        &candidate, SIZE_MAX, out_id, &added_bytes);
+}
+
+/* Every source clip record extends its parent and is given a 1-based ID.
+ * Flat leaf intersections are equivalent to the persistent clip chain, but
+ * fit the existing Composer Writer's CLIP_INTERSECTION representation.
+ * There is no synthetic rasterization, and q/Q only changes the active ID. */
+static quantapdf_status intern_clip_chain(
+    quantapdf_resource_registry *resources,
+    const quantapdf_pdf_graphics_ir *graphics,
+    size_t new_clip_index,
+    const quantapdf_composer_clip_id
+        leaves[QUANTAPDF_COMPOSER_MAX_CLIP_COMPONENTS],
+    quantapdf_composer_clip_id *out_effective)
+{
+    quantapdf_composer_clip_id members[QUANTAPDF_COMPOSER_MAX_CLIP_COMPONENTS];
+    quantapdf_composer_clip_state candidate = {0};
+    size_t n = 0, current = new_clip_index + 1, bytes, added_bytes = 0;
+    while (current != 0) {
+        if (current > new_clip_index + 1 ||
+            n >= QUANTAPDF_COMPOSER_MAX_CLIP_COMPONENTS ||
+            leaves[current - 1] == 0)
+            return QUANTAPDF_ERROR_FORMAT;
+        members[n++] = leaves[current - 1];
+        current = graphics->clips[current - 1].parent_clip_id;
+        if (current > new_clip_index) return QUANTAPDF_ERROR_FORMAT;
+    }
+    if (n == 1) {
+        *out_effective = members[0];
+        return QUANTAPDF_OK;
+    }
+    bytes = n * sizeof(*members);
+    candidate.kind = QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL;
+    candidate.members = (quantapdf_composer_clip_id *)malloc(bytes);
+    if (candidate.members == NULL) return QUANTAPDF_ERROR_NOMEM;
+    memcpy(candidate.members, members, bytes);
+    candidate.member_count = n;
+    /* Intern consumes all owned candidate payload, even on failure. */
+    return quantapdf_resource_intern_clip(resources, &candidate, SIZE_MAX,
+        out_effective, &added_bytes);
+}
+
 quantapdf_status quantapdf_pdf_path_lower_to_composer_mapped(
     const quantapdf_pdf_page_semantics *page,
     double canvas_width, double canvas_height,
@@ -291,7 +412,11 @@ quantapdf_status quantapdf_pdf_path_lower_to_composer_mapped(
     const quantapdf_pdf_content_ir *content;
     const quantapdf_pdf_graphics_ir *graphics;
     quantapdf_status status = QUANTAPDF_OK;
-    size_t command_total = 0;
+    size_t command_total = 0, painted_count = 0, next_clip = 0;
+    quantapdf_composer_clip_id
+        leaves[QUANTAPDF_COMPOSER_MAX_CLIP_COMPONENTS] = {0};
+    quantapdf_composer_clip_id
+        effective[QUANTAPDF_COMPOSER_MAX_CLIP_COMPONENTS] = {0};
     if (out_ir != NULL) memset(out_ir, 0, sizeof(*out_ir));
     if (out_ir == NULL || page == NULL || page->content == NULL ||
         page->graphics == NULL || page_transform == NULL || limits == NULL ||
@@ -310,9 +435,16 @@ quantapdf_status quantapdf_pdf_path_lower_to_composer_mapped(
         (graphics->path_count != 0 && graphics->paths == NULL) ||
         (graphics->clip_count != 0 && graphics->clips == NULL))
         return QUANTAPDF_ERROR_ARGUMENT;
-    if (graphics->clip_count != 0) return QUANTAPDF_ERROR_UNSUPPORTED;
-    if (graphics->path_count > limits->max_painted_paths ||
-        graphics->path_count > SIZE_MAX / sizeof(*temporary.operations))
+    if (graphics->clip_count > QUANTAPDF_COMPOSER_MAX_CLIP_COMPONENTS)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    for (size_t i = 0; i < graphics->path_count; ++i) {
+        if (graphics->paths[i].paint_opcode == QUANTAPDF_PDF_OP_END_PATH)
+            continue;
+        if (painted_count == limits->max_painted_paths)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        ++painted_count;
+    }
+    if (painted_count > SIZE_MAX / sizeof(*temporary.operations))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     temporary.pages = (quantapdf_composer_page_state *)calloc(1, sizeof(*temporary.pages));
     if (temporary.pages == NULL) return QUANTAPDF_ERROR_NOMEM;
@@ -321,37 +453,91 @@ quantapdf_status quantapdf_pdf_path_lower_to_composer_mapped(
     temporary.pages[0].height_points = (float)canvas_height;
     /* A PDF page has no implicit opaque white background paint. */
     temporary.pages[0].suppress_background = 1;
-    if (graphics->path_count) {
+    if (painted_count) {
         temporary.operations = (quantapdf_composer_operation *)calloc(
-            graphics->path_count, sizeof(*temporary.operations));
+            painted_count, sizeof(*temporary.operations));
         if (temporary.operations == NULL) { status = QUANTAPDF_ERROR_NOMEM; goto fail; }
     }
     for (size_t i = 0; i < graphics->path_count; ++i) {
         const quantapdf_pdf_path_record *path = &graphics->paths[i];
-        quantapdf_composer_operation *op = &temporary.operations[i];
-        size_t commands;
-        if (path->graphics.clip_id != 0 || path->clip_after != 0) {
+        const quantapdf_pdf_clip_record *clip = NULL;
+        quantapdf_composer_clip_id prior_clip = 0;
+        size_t count;
+        if (path->graphics.clip_id > next_clip ||
+            path->clip_after > graphics->clip_count)
+        { status = QUANTAPDF_ERROR_FORMAT; goto fail; }
+        if (path->graphics.clip_id != 0) {
+            prior_clip = effective[path->graphics.clip_id - 1];
+            if (prior_clip == 0) { status = QUANTAPDF_ERROR_FORMAT; goto fail; }
+        }
+        if (path->clip_after != path->graphics.clip_id) {
+            if (next_clip >= graphics->clip_count ||
+                path->clip_after != next_clip + 1)
+            { status = QUANTAPDF_ERROR_FORMAT; goto fail; }
+            clip = &graphics->clips[next_clip];
+            if (clip->clip_operator >= content->count ||
+                clip->parent_clip_id != path->graphics.clip_id ||
+                clip->path_first_operator != path->path_first_operator ||
+                clip->terminal_operator != path->terminal_operator ||
+                clip->even_odd != (content->ops[clip->clip_operator].opcode ==
+                    QUANTAPDF_PDF_OP_CLIP_EVEN_ODD))
+            { status = QUANTAPDF_ERROR_FORMAT; goto fail; }
+        }
+        if (path->paint_opcode != QUANTAPDF_PDF_OP_END_PATH) {
+            quantapdf_composer_operation *op =
+                &temporary.operations[temporary.operation_count];
+            op->kind = QUANTAPDF_COMPOSER_OPERATION_PATH;
+            op->page_index = 0;
+            op->bounds = (quantapdf_rect){0, 0,
+                (float)canvas_width, (float)canvas_height};
+            status = paint_options(path, (float)canvas_height,
+                page_transform, &op->value.path.options);
+            if (status != QUANTAPDF_OK) goto fail;
+            status = lower_commands(content, path, clip, (float)canvas_height,
+                limits->max_path_commands - command_total, 0,
+                &op->value.path.commands, &op->value.path.command_count);
+            if (status != QUANTAPDF_OK) goto fail;
+            command_total += op->value.path.command_count;
+            ++temporary.operation_count; /* No partially-owned record escapes. */
+            if (prior_clip != 0) {
+                status = intern_active_clip_state(&temporary.resources,
+                    prior_clip, &op->graphics_state_id);
+                if (status != QUANTAPDF_OK) goto fail;
+                op->value.path.options.graphics_state_id = op->graphics_state_id;
+            }
+        } else if (clip == NULL) {
+            /* n without a clipping operation is harmless to PDF but cannot
+             * be represented as a painted Composer operation. */
             status = QUANTAPDF_ERROR_UNSUPPORTED; goto fail;
         }
-        status = count_commands(content, path,
-            limits->max_path_commands - command_total, &commands);
-        if (status != QUANTAPDF_OK) goto fail;
-        op->kind = QUANTAPDF_COMPOSER_OPERATION_PATH;
-        op->page_index = 0;
-        op->bounds = (quantapdf_rect){0, 0, (float)canvas_width, (float)canvas_height};
-        status = paint_options(path, (float)canvas_height,
-            page_transform, &op->value.path.options);
-        if (status != QUANTAPDF_OK) goto fail;
-        op->value.path.commands = (quantapdf_composer_path_command *)calloc(
-            commands, sizeof(*op->value.path.commands));
-        if (op->value.path.commands == NULL) { status = QUANTAPDF_ERROR_NOMEM; goto fail; }
-        op->value.path.command_count = commands;
-        ++temporary.operation_count;
-        status = commands_from_path(content, path, (float)canvas_height,
-            op->value.path.commands, commands);
-        if (status != QUANTAPDF_OK) goto fail;
-        command_total += commands;
+        if (clip != NULL) {
+            quantapdf_composer_clip_state candidate = {0};
+            size_t added_bytes = 0;
+            count = 0;
+            candidate.kind = QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;
+            candidate.fill_rule = clip->even_odd ?
+                QUANTAPDF_COMPOSER_FILL_EVEN_ODD :
+                QUANTAPDF_COMPOSER_FILL_NONZERO;
+            status = mapped_transform(path->graphics.ctm, page_transform,
+                (float)canvas_height, &candidate.transform);
+            if (status != QUANTAPDF_OK) goto fail;
+            status = lower_commands(content, path, clip, (float)canvas_height,
+                limits->max_path_commands - command_total, 1,
+                &candidate.commands, &count);
+            if (status != QUANTAPDF_OK) goto fail;
+            candidate.command_count = count;
+            command_total += count;
+            status = quantapdf_resource_intern_clip(&temporary.resources,
+                &candidate, SIZE_MAX, &leaves[next_clip], &added_bytes);
+            if (status != QUANTAPDF_OK) goto fail;
+            status = intern_clip_chain(&temporary.resources,
+                graphics, next_clip, leaves, &effective[next_clip]);
+            if (status != QUANTAPDF_OK) goto fail;
+            ++next_clip;
+        }
     }
+    if (next_clip != graphics->clip_count)
+    { status = QUANTAPDF_ERROR_FORMAT; goto fail; }
     *out_ir = temporary;
     return QUANTAPDF_OK;
 fail:
