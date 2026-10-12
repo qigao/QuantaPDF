@@ -30,7 +30,7 @@ subject family, zero-based record index, and related reference or finding bits.
 Reports contain values only, never pointers, parser messages or process IDs.
 Success and argument failure reset the report; callers must check the status.
 
-First-failure order is deliberate and deterministic: top-level storage shapes,
+IR first-failure order is deliberate and deterministic: top-level storage shapes,
 pages, resources in declared family order, operations, then navigation. Within a
 record, rule order is source order. One report is the complete fail-fast result,
 not an implicitly truncated list. A later multi-finding API must have an explicit
@@ -81,15 +81,20 @@ is introduced.
 
 Keeping only backend checks would not serve other IR consumers. Duplicating
 the PDF parser in C would lose backend semantics and require a second ownership
-model. A generic visitor/report framework is unnecessary for the two current
-input models. Typed validators share the actual report contract and policy rules.
+model. These typed inputs do not require a generic visitor/report framework.
+Typed validators share the actual report contract and policy rules.
 
-The generic Document Graph from #146 does not exist yet. Its object/stream graph
-adapter and broader structural validation remain required follow-up for #149;
-this implementation does not close that gap. Future CMeta descriptors can name
-these typed subjects and rules, but cannot replace input ownership or parser
-admission. Reverting this commit restores prior internal checks; no persisted
-format or public ABI migration is needed.
+The initial foundation above covered IR and security facts. The subsequent
+[Document Graph capture](2026-10-11-quantapdf-document-graph-identity-design.md#imported-graph-implementation-protocol)
+adds a copied object/stream model and a separate pure-C validator. Its first-
+failure order is storage admission, nodes in local-ID order with their edges,
+partition completion, trailer/catalog roots, then ordered page entries. It
+checks scalar shapes, sorted dictionary keys and references, while allowing
+shared/cyclic graph references. Page-tree extraction admission remains with
+the adapter. Broader PDF structural/compliance rules and feature migration
+remain required follow-up for #149/#146. Future CMeta descriptors can name these
+typed subjects and rules, but cannot replace input ownership or parser admission.
+No persisted format or public ABI migration is needed.
 
 ## Verification
 

@@ -8,6 +8,8 @@ extern "C" {
 #endif
 
 typedef struct quantapdf_pdf_form_model quantapdf_pdf_form_model;
+typedef struct quantapdf_graph quantapdf_graph;
+typedef struct quantapdf_graph_limits quantapdf_graph_limits;
 
 /* Snapshot handles returned by providers have a zeroed, unbound snapshot owner.
  * The facade holds the context guard and binds the finalizer before publication.
@@ -242,6 +244,9 @@ typedef struct quantapdf_backend_ops {
         size_t *out_size);
     quantapdf_status (*edit_begin)(void *document, void **out_edit);
     const quantapdf_backend_edit_ops *edit_ops;
+    /* Transfers a sealed, fully copied graph. No source/provider borrow. */
+    quantapdf_status (*capture_graph)(void *document,
+        const quantapdf_graph_limits *limits, quantapdf_graph **out_graph);
 } quantapdf_backend_ops;
 
 /* Explicit built-in PDFium/qpdf composition; no mutable provider registry. */

@@ -231,6 +231,70 @@ reference failures, and use public edit APIs to verify lifetime, domain,
 tombstone and output behavior. Reverting this increment restores private
 reference bookkeeping with no persisted-data or public ABI migration.
 
+## Imported graph implementation protocol
+
+The first graph implementation adds a pure-C, uniquely owned model and builder.
+Its flat node/edge/byte storage owns all copied values. Local IDs use the #156
+ordinal, scoped to this model; cross-version origins remain a transaction task.
+An internal document graph snapshot wraps the sealed model in the #148 snapshot
+owner, retaining its context until all graph storage is disposed. Capturing is
+explicit and demand-driven through the private backend dispatch table. Existing
+public reads/edits retain their current owners and admission behavior.
+
+Import uses deterministic breadth-first discovery: trailer first, dictionary
+keys in unsigned byte order, arrays in source order. Register an indirect object
+before scheduling its children; inline values get their own containment node.
+Definitions follow increasing local IDs. Node edge ranges and byte ranges form
+contiguous partitions, so storage validation scans each span once. Typed root
+checks use binary dictionary lookup. Cycles and shared references are valid. The trailer/catalog
+and ordered page IDs are explicit roots/views into the same nodes.
+
+The builder reserves nodes, then defines each node once; child reservations may
+occur during definition. Only one definition is active. Payload bytes precede
+dictionary-key bytes, and each edge references an already reserved ID. Finish
+temporarily installs roots/pages, runs the pure graph validator, and seals on
+success. Failure rolls back root/page publication; allocated capacity stays
+owned until retry or drop. A failed adapter import drops the complete builder
+and leaves the output empty. Readers borrow const model data only after sealing.
+
+Mandatory internal limits cover nodes, edges (including page-index entries),
+value/key bytes, encoded stream bytes, total allocated model storage and first-
+discovery depth. Total storage charges the owner and allocated array capacities;
+it excludes allocator metadata and transient allocations internal to QPDF.
+Adapter worklists and the indirect-object map are bounded by the node limit;
+depth and edge limits bound discovery work. Page indexing also checks actual
+page-tree depth, independently of graph discovery shortcuts. Growth caps itself to the remaining
+storage budget instead of allocating speculative capacity beyond it. No budget
+is silently inferred or added to an existing public API.
+
+QPDF performs parsing/type admission. The adapter copies booleans, signed
+integers, exact real tokens, canonical names/keys, and binary strings. Streams
+use the success-reporting `pipeStreamData` overload with no decoding/encoding,
+and a bounded sink writes directly into graph-owned storage. These are encoded
+bytes after provider decryption, not original encrypted file bytes. Filters and
+stream dictionaries are preserved for inspection. A later writer must handle
+encryption/filter normalization explicitly; this increment is not a graph-to-PDF
+writer or a lossless serializer. Warnings, unsupported values, traversal limits
+and stream read failures abort capture rather than publish an incomplete graph.
+The adapter uses the operation's success result, not its filtering-attempted
+flag: [QPDF 12.4 sets that flag for empty streams too](https://github.com/qpdf/qpdf/blob/v12.4.0/libqpdf/QPDF_Stream.cc#L560-L588).
+
+The adapter extracts ordered page IDs from the original `/Pages` and `/Kids`
+hierarchy without invoking QPDF's repairing page helpers. An iterative traversal
+admits only indirect `/Page` and `/Pages` dictionaries with array children;
+repeated page-tree nodes (including cycles) fail with FORMAT. This restriction
+does not apply to generic graph references. Traversal stacks and page IDs are
+bounded by the imported node count and explicit limits. Resource inheritance
+and absent resource entries remain exactly as parsed. Parent/count consistency,
+page geometry, and other PDF semantic validation remain later validation work.
+
+Validation checks storage partitions, all references, kinds, scalar and byte
+shapes, dictionary order, roots and page node types with the #149 deterministic
+first-failure report. It does not certify PDF/A/UA or interpret content streams.
+The facade capture and formal parser-independent snapshot tests are the first
+consumers. Migrating existing feature reads, graph transactions and QP IR
+lowering remain separate steps; their requirements are not closed by capture.
+
 ## Acceptance evidence
 
 Use backend-free tests for identity bounds, runtime scope exhaustion, deleted-ID
@@ -249,3 +313,12 @@ evidence; test-only success of an unused graph implementation is insufficient.
 For each implementation step run focused CTest, the affected full native and
 sanitizer suites, ABI checks, and shared/static SDK installation. This decision
 document itself requires source/contract and link review, not an unrelated build.
+The development presets instrument both first-party C and C++ sources, including
+the importer. Prebuilt QPDF/PDFium and other third-party dependencies are outside
+that instrumentation scope.
+The Windows vcpkg QPDF archive has no MSVC STL sanitizer annotations. The Windows
+development preset therefore disables the vector/string/optional annotations
+consistently in first-party C++ objects while retaining AddressSanitizer's memory
+instrumentation. This follows the [MSVC annotation compatibility contract](https://learn.microsoft.com/en-us/cpp/sanitizers/error-container-overflow).
+Container logical-bound/lifetime annotation checks require rebuilding the full
+C++ dependency closure with matching settings; this profile does not claim them.

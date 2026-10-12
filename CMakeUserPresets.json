@@ -64,6 +64,7 @@
       "cacheVariables": {
         "BUILD_SHARED_LIBS": "ON",
         "CMAKE_C_FLAGS": "/fsanitize=address /Zi",
+        "CMAKE_CXX_FLAGS": "/fsanitize=address /Zi /EHsc /D_DISABLE_VECTOR_ANNOTATION /D_DISABLE_STRING_ANNOTATION /D_DISABLE_OPTIONAL_ANNOTATION",
         "CMAKE_PREFIX_PATH": "$env{VCPKG_INSTALLED_DIR}/x64-windows-static-md/debug",
         "CMAKE_INSTALL_PREFIX": "$env{PKG_ROOT}/quantapdf/debug"
       },
@@ -97,6 +98,7 @@
       "cacheVariables": {
         "BUILD_SHARED_LIBS": "OFF",
         "CMAKE_C_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer",
         "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined",
         "CMAKE_PREFIX_PATH": "$env{VCPKG_INSTALLED_DIR}/x64-linux/debug",
         "CMAKE_INSTALL_PREFIX": "$env{PKG_ROOT}/quantapdf/debug"
