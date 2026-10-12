@@ -1,4 +1,5 @@
 #include "snapshot/graph_snapshot.h"
+#include "document/page_content_ir.h"
 #include "document/document_internal.h"
 
 #include <stdio.h>
@@ -395,6 +396,117 @@ static void test_content_ir_snapshot_version(void)
     quantapdf_pdf_content_dispose(ir);
 }
 
+
+static void test_page_semantics_arrays(void)
+{
+    static const char a[] = "q 1 0 0 1 100 0 cm 1 0 0 rg 0 0 m 10";
+    static const char b[] = "20 l S Q";
+    quantapdf_graph_limits budget = limits();
+    quantapdf_graph_stream_limits decode = {4096, 128, 100000};
+    quantapdf_pdf_content_limits parse = {4096, 32, 8}, small;
+    quantapdf_graph_snapshot *base = NULL, *next = NULL, *empty = NULL;
+    quantapdf_context *context = NULL;
+    quantapdf_document *document = NULL;
+    const quantapdf_graph_model *model;
+    const quantapdf_graph_node *original;
+    quantapdf_graph_edge_input items[2] = {{0}};
+    quantapdf_graph_node_input additions[2] = {{0}};
+    quantapdf_graph_change_set change = {0};
+    quantapdf_graph_replacement replacement = {0};
+    quantapdf_validation_report report;
+    quantapdf_pdf_page_semantics *semantics = NULL;
+    quantapdf_local_id content_id, page_id;
+    size_t finalized = 0;
+
+    OK(quantapdf_context_create(&context));
+    context->test_finalizations = &finalized;
+    OK(quantapdf_open_with_context(context, GRAPH_PDF, NULL, &document));
+    OK(quantapdf_document_capture_graph(document, &budget, &base));
+    quantapdf_close(document);
+    quantapdf_drop_context(context);
+    model = quantapdf_graph_view(base->graph);
+    page_id = model->edges[model->page_offset].target;
+    content_id = field(model, page_id, "/Contents");
+    original = quantapdf_graph_node_at(model, content_id);
+    CHECK(original != NULL && original->kind == QUANTAPDF_GRAPH_STREAM);
+
+    /* Base version contains text; no silently incomplete path-only IR. */
+    semantics = (quantapdf_pdf_page_semantics *)(uintptr_t)1;
+    CHECK(quantapdf_graph_snapshot_page_semantics(base, 0, &decode, &parse, 2,
+        &semantics) == QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(semantics == NULL);
+
+    /* One stable /Contents slot becomes an array referring to two new streams.
+     * Operands and the q/Q graphics state now cross the stream boundary. */
+    items[0].target = (quantapdf_local_id)(model->node_count + 1);
+    items[1].target = (quantapdf_local_id)(model->node_count + 2);
+    additions[0].kind = additions[1].kind = QUANTAPDF_GRAPH_STREAM;
+    additions[0].indirect = additions[1].indirect = 1;
+    additions[0].data = a;
+    additions[0].data_size = sizeof(a) - 1;
+    additions[1].data = b;
+    additions[1].data_size = sizeof(b) - 1;
+    replacement.id = content_id;
+    replacement.value.kind = QUANTAPDF_GRAPH_ARRAY;
+    replacement.value.indirect = original->indirect;
+    replacement.value.edges = items;
+    replacement.value.edge_count = 2;
+    change.lineage = quantapdf_graph_lineage(base->graph);
+    change.base_version = quantapdf_graph_version(base->graph);
+    change.replacements = &replacement;
+    change.replacement_count = 1;
+    change.additions = additions;
+    change.addition_count = 2;
+    OK(quantapdf_graph_snapshot_commit(base, &change, &budget, &next, &report));
+
+    /* Two empty decoded streams require exactly one delimiter byte. */
+    additions[0].data = NULL; additions[0].data_size = 0;
+    additions[1].data = NULL; additions[1].data_size = 0;
+    OK(quantapdf_graph_snapshot_commit(base, &change, &budget, &empty, &report));
+    small = parse; small.max_input_bytes = 1;
+    OK(quantapdf_graph_snapshot_page_semantics(empty, 0, &decode, &small, 2,
+        &semantics));
+    CHECK(semantics->content->count == 0 && semantics->graphics->path_count == 0);
+    quantapdf_pdf_page_semantics_dispose(semantics); semantics = NULL;
+    {
+        quantapdf_graph_stream_limits invalid_decode = decode;
+        invalid_decode.max_direct_depth = QUANTAPDF_GRAPH_MAX_DIRECT_DEPTH + 1;
+        CHECK(quantapdf_graph_snapshot_page_semantics(empty, 0, &invalid_decode,
+            &parse, 2, &semantics) == QUANTAPDF_ERROR_ARGUMENT);
+        CHECK(semantics == NULL);
+    }
+    quantapdf_graph_snapshot_drop(empty);
+    quantapdf_graph_snapshot_drop(base);
+    CHECK(finalized == 0);
+
+    semantics = (quantapdf_pdf_page_semantics *)(uintptr_t)1;
+    CHECK(quantapdf_graph_snapshot_page_semantics(next, 0, &decode, &parse, 1,
+        &semantics) == QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(semantics == NULL);
+    small = parse; small.max_input_bytes = 10;
+    CHECK(quantapdf_graph_snapshot_page_semantics(next, 0, &decode, &small, 2,
+        &semantics) == QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(semantics == NULL);
+    CHECK(quantapdf_graph_snapshot_page_semantics(next, 3, &decode, &parse, 2,
+        &semantics) == QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(semantics == NULL);
+    OK(quantapdf_graph_snapshot_page_semantics(next, 0, &decode, &parse, 2,
+        &semantics));
+    CHECK(semantics->content != NULL && semantics->graphics != NULL);
+    CHECK(semantics->content->count == 7 && semantics->graphics->path_count == 1);
+    CHECK(semantics->content->ops[4].opcode == QUANTAPDF_PDF_OP_LINE);
+    CHECK(semantics->content->ops[4].arguments[0] == 10);
+    CHECK(semantics->content->ops[4].arguments[1] == 20);
+    CHECK(semantics->graphics->paths[0].graphics.ctm[4] == 100);
+    CHECK(semantics->graphics->paths[0].graphics.fill_rgb[0] == 1);
+
+    quantapdf_graph_snapshot_drop(next);
+    CHECK(finalized == 1);
+    CHECK(semantics->content->ops[4].arguments[1] == 20);
+    quantapdf_pdf_page_semantics_dispose(semantics);
+    quantapdf_pdf_page_semantics_dispose(NULL);
+}
+
 int main(void)
 {
     test_capture(); test_document_families(); test_provider_failure();
@@ -402,5 +514,6 @@ int main(void)
     test_metadata_compatibility();
     test_stream_snapshot_lifetime();
     test_content_ir_snapshot_version();
+    test_page_semantics_arrays();
     return EXIT_SUCCESS;
 }
