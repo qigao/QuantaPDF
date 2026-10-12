@@ -75,7 +75,8 @@ void make_source(const char *content)
 }
 
 quantapdf_status snapshot_lower(quantapdf_ir *out,
-                                size_t page_index=0u,size_t max_streams=1u)
+                                size_t page_index=0u,size_t max_streams=1u,
+                                size_t max_parent_steps=2u)
 {
     quantapdf_document *doc=nullptr;
     quantapdf_graph_snapshot *snap=nullptr;
@@ -88,7 +89,7 @@ quantapdf_status snapshot_lower(quantapdf_ir *out,
     quantapdf_close(doc);
     if(st != QUANTAPDF_OK) return st;
     st = quantapdf_graph_snapshot_page_composer_ir(
-        snap,page_index,2u,&decode_limits,&parse_limits,max_streams,&lower_limits,out);
+        snap,page_index,max_parent_steps,&decode_limits,&parse_limits,max_streams,&lower_limits,out);
     /* Deliberately sever all source-page ownership before rasterization. */
     quantapdf_graph_snapshot_drop(snap);
     return st;
@@ -593,6 +594,55 @@ void test_zero_segment_clip_native_restore()
 
 /* Negative original-source page-tree geometry: reject malformed inherited
  * numeric/box metadata before native pixels or partially owned IR escape. */
+/* Three-level Page Tree: leaf values shadow malformed ancestor values,
+ * while inherited MediaBox remains resolved from the root Pages.
+ * Strict Graph lowering must prefer the nearer wider CropBox. */
+void test_multilevel_page_tree_override()
+{
+    auto pdf=QPDF::create();
+    pdf->emptyPDF();
+    auto root=pdf->getRoot().getKey("/Pages");
+    auto middle=pdf->makeIndirectObject(
+        QPDFObjectHandle::parse("<< /Type /Pages >>"));
+    auto leaf=pdf->makeIndirectObject(
+        QPDFObjectHandle::parse("<< /Type /Page >>"));
+    root.replaceKey("/Kids",QPDFObjectHandle::newArray({middle}));
+    root.replaceKey("/Count",QPDFObjectHandle::newInteger(1));
+    root.replaceKey("/MediaBox",QPDFObjectHandle::parse("[0 0 120 120]"));
+    root.replaceKey("/CropBox",QPDFObjectHandle::parse("[0 0 60 60]"));
+    middle.replaceKey("/Parent",root);
+    middle.replaceKey("/Kids",QPDFObjectHandle::newArray({leaf}));
+    middle.replaceKey("/Count",QPDFObjectHandle::newInteger(1));
+    middle.replaceKey("/CropBox",QPDFObjectHandle::parse("[0 0 120 120]"));
+    leaf.replaceKey("/Parent",middle);
+    leaf.replaceKey("/Contents",pdf->newStream(
+        "q 10 10 80 80 re W n "
+        "1 0 0 rg 0 0 120 120 re f "
+        "Q 0 0 1 rg 0 0 12 12 re f "
+        "0 1 0 rg 100 100 12 12 re f"));
+    QPDFWriter writer(*pdf);
+    writer.setOutputMemory();
+    writer.write();
+    auto blob=writer.getBufferSharedPointer();
+    FILE *file=std::fopen(SOURCE_QQ_PDF,"wb");
+    CHECK(file!=nullptr);
+    CHECK(std::fwrite(blob->getBuffer(),1,blob->getSize(),file)==
+          blob->getSize());
+    CHECK(std::fclose(file)==0);
+    quantapdf_ir ir{};
+    OK(snapshot_lower(&ir,0u,1u,3u)); /* leaf, middle, root */
+    CHECK(ir.page_count==1u && ir.operation_count==3u);
+    CHECK(ir.pages[0].width_points==120.0f &&
+          ir.pages[0].height_points==120.0f);
+    quantapdf_ir_raster_image pixels{};
+    OK(quantapdf_ir_raster_scoped_operations_v1(
+        &ir,0u,&raster_limits,&pixels));
+    CHECK(pixels.width==120u && pixels.height==120u);
+    quantapdf_ir_raster_image_dispose(&pixels);
+    quantapdf_ir_dispose(&ir);
+    CHECK(std::remove(SOURCE_QQ_PDF)==0);
+}
+
 void test_invalid_inherited_geometry()
 {
     struct bad_case { const char *key; const char *value; bool leaf; };
@@ -667,6 +717,7 @@ int main()
     test_page_geometry_matrix();
     test_selected_page_multistream();
     test_zero_segment_clip_native_restore();
+    test_multilevel_page_tree_override();
     test_invalid_inherited_geometry();
     test_unsupported_operator_fails_closed();
     std::fprintf(stderr,"[quantapdf.native_source_qq_oracle] complete\n");
