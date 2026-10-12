@@ -1318,3 +1318,22 @@ if(TEST quantapdf.abi_exports)
 endif()
 unset(_qp_test)
 unset(_qp_conformance_tests)
+
+# Private native raster V0 qualification. Standalone pure C11: deliberately
+# does NOT link QuantaPDF::QuantaPDF, qpdf::libqpdf, PDFium or backend objects.
+add_executable(quantapdf_test_native_ir_raster
+  test_ir_raster.c
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c")
+target_include_directories(quantapdf_test_native_ir_raster PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_native_ir_raster PRIVATE c_std_11)
+if(MSVC)
+  target_compile_options(quantapdf_test_native_ir_raster PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_test_native_ir_raster PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_ir_raster
+  COMMAND quantapdf_test_native_ir_raster)
+set_tests_properties(quantapdf.native_ir_raster PROPERTIES
+  TIMEOUT 15 LABELS "conformance;native-raster")
