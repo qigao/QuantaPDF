@@ -305,9 +305,12 @@ static int qp_stroke_inside(const qp_edge *edges,
         const double dx = edge->to.x - edge->from.x;
         const double dy = edge->to.y - edge->from.y;
         const double squared = dx * dx + dy * dy;
-        const double t = ((x - edge->from.x) * dx +
-                          (y - edge->from.y) * dy) / squared;
-        if (squared <= 0.0 || t < 0.0 || t > 1.0)
+        double t;
+        if (squared <= 0.0)
+            continue;
+        t = ((x - edge->from.x) * dx +
+             (y - edge->from.y) * dy) / squared;
+        if (t < 0.0 || t > 1.0)
             continue;
         const double px = edge->from.x + t * dx;
         const double py = edge->from.y + t * dy;
