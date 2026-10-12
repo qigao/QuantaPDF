@@ -165,14 +165,31 @@ class ExternalWStarScreening(unittest.TestCase):
         self.assertEqual(report["status"], "inconclusive")
         self.assertIn("no_streams_found", report["stream_issues"])
 
-    def test_multifilter_array_stays_inconclusive(self):
+    def test_declared_ascii85_flate_with_unencoded_payload_fails_closed(self):
+        # Flate bytes are NOT ASCII85 just because the dictionary declares
+        # a supported filter chain. Never reinterpret the payload as Flate
+        # or convert a malformed original into a candidate success.
         report = screen_pdf_bytes(pdf(
             b"0 0 10 10 re W* n 0 0 12 12 re f",
             compress=True,
             filter_token=b"[/ASCII85Decode /FlateDecode]",
         ))
         self.assertEqual(report["status"], "inconclusive")
-        self.assertIn("unsupported_stream_filter", report["stream_issues"])
+        self.assertIn("ascii85_decode_failed_or_over_budget", report["stream_issues"])
+        self.assertEqual(report["decoded_stream_count"], 0)
+        self.assertEqual(report["native_wstar_clip_supported_count"], 0)
+
+    def test_ascii85_without_valid_flate_payload_fails_closed(self):
+        source = pdf(
+            b"q 0 0 10 10 re W* n 0 0 12 12 re f Q",
+            compress=False, ascii85=True,
+            filter_token=b"[/ASCII85Decode /FlateDecode]",
+        )
+        report = screen_pdf_bytes(source)
+        self.assertEqual(report["status"], "inconclusive")
+        self.assertIn("ascii85_decode_failed_or_over_budget", report["stream_issues"])
+        self.assertEqual(report["operator_counts"]["wstar"], 0)
+        self.assertEqual(report["native_pixel_conformance"], "not_run")
 
     def test_ascii85_flate_array_discovers_wstar(self):
         source = pdf(b"q 0 0 10 10 re W* n 1 0 0 rg 0 0 12 12 re f Q",
