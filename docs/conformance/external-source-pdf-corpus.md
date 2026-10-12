@@ -4,20 +4,52 @@ Tracks [#233](https://github.com/qigao/QuantaPDF/issues/233),
 [#229](https://github.com/qigao/QuantaPDF/issues/229), and the
 PDFium-free product exit gate [#208](https://github.com/qigao/QuantaPDF/issues/208).
 
-## Baseline: zero external PDFs
+## First candidate external document: independently published CC0 PDF
 
-The first version of `tests/external_source_corpus/manifest.json` deliberately
-contains `"documents": []`. **No external PDF has yet been admitted or
-qualified**. The existing generated corpus remains **14 families / 36
-synthetically generated PDF executions**, tracked separately in
-`tests/native_source_corpus.def`. Never add these counts together as a
-compatibility score or characterize an empty manifest as external conformance.
+The first v1 baseline had **zero** externally sourced PDFs. Issue
+[#250](https://github.com/qigao/QuantaPDF/issues/250) now records the
+publisher's document-set CC0 dedication and exact source identity for
+`tinytoolkit.sample-1-page-v1.pdf`. Its inclusion is limited to **one
+external status-only source**; the generated **14 families / 36 QPDF-created
+test executions** remain entirely separate.
+
+| Property | Pin |
+|---|---|
+| Source | [tinytoolkit-org/pdf-sample-files/out/sample-1-page.pdf](https://github.com/tinytoolkit-org/pdf-sample-files/blob/4fd733c47ead5446b06372ab910cb78d1c7da55e/out/sample-1-page.pdf) |
+| Revision | `4fd733c47ead5446b06372ab910cb78d1c7da55e` |
+| Source license | [Publisher's CC0 sample-file declaration](https://github.com/tinytoolkit-org/pdf-sample-files/blob/4fd733c47ead5446b06372ab910cb78d1c7da55e/README.md) and CC0 LICENSE |
+| SHA-256 | `ada1603d4396b84ac0d85ca940b0149df13fd4a6beb46f2f2f62c4c8a6bc69b2` |
+| Bytes | 3,312 |
+| Page | 0 |
+| Expected native outcome | `UNSUPPORTED` (PDF text/fonts are outside current Path/Clip subset) |
+
+The exact source Git Blob SHA-1 is
+`ddab89a772c7727cfab3d50f094a41a6950292cd`, matching the vendored
+blob in this repository. The PDF is used **as-is** without QPDF rewriting
+or synthetic reconstruction. The publisher explicitly identifies the
+sample PDFs as CC0 and machine-generated without personal data. This
+is a per-source documented license declaration, not permission inferred
+from the repository's code alone.
+
+The distinct `quantapdf.external_cc0_text_source` CTest (reusing the
+existing test-only executable) verifies the *original* file renders visible
+pixels through test-only PDFium, then confirms strict Graph→detached IR
+`QUANTAPDF_ERROR_UNSUPPORTED` with no partial page, operation, Clip or
+graphics-state resources. No production renderer fallback exists. Its
+atomic `external-cc0-text-status.json` includes
+`status_conformance_passed_count: 1` **only when the test passes**, while
+`native_supported_passed_count: 0` always. CI uploads the separate semantic
+report from Linux Release/ASan+UBSan, macOS and Windows. This is a successful
+**unsupported-operation rejection** test, not a successful native render.
+
+This semantic outcome does **not** alter the admission tool's own
+`native_conformance_passed_count: 0`: admission checks provenance and
+binary integrity only. External supported pixel parity remains unqualified.
 
 An external PDF must be a pre-existing document with an independently
 recorded source and its own copyright/licensing status. A repository's
-open-source *code* license does not necessarily license every attached
-PDF test file. No external PDF is silently downloaded, redistributed, or
-passed off as licensed merely because its URL is public.
+open-source *code* license does not necessarily license every attached PDF.
+No files are downloaded during CI.
 
 ## Admission ledger and offline tool
 
@@ -37,19 +69,17 @@ manifest as untrusted input. It performs bounded, offline validation:
   checks, no symlinks, no unregistered PDF files. These bytes are never
   fetched automatically by the validation script.
 
-The CLI produces an atomic, deterministic JSON report. With the initial
-empty manifest its result is `no_external_documents`,
-`document_count: 0` and `native_conformance_passed_count: 0`.
-If documents are added and pass the integrity checks, the result is
-`integrity_verified_only`: **this is not yet a native compatibility
-pass**. The per-document expected native outcome is declarative, not
+The CLI produces an atomic, deterministic JSON report. With an empty manifest, the result is `no_external_documents` and
+`document_count: 0`. With checked-in, byte-verified source PDFs, the result
+is `integrity_verified_only`, with its `document_count` representing
+admitted **source bytes** only. It is **not a native compatibility pass**. The per-document expected native outcome is declarative, not
 executed by this admission tool. The binary SHA-256 measures *exact source
 bytes*, not canonicalized PDF semantic equivalence.
 
 The tool never substitutes PDFium or qpdf rendering for native results,
 and cannot change QuantaPDF's public SDK dependency graph.
 
-## Procedure to admit the first licensed external PDF
+## Procedure to admit subsequent licensed external PDFs
 
 1. Open an issue/PR naming the document's owner, original URL, revision or
    durable snapshot, document-level license and attribution. Obtain a human

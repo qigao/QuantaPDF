@@ -95,11 +95,12 @@ PDF compatibility score. It does not count the entire standalone native
 test suite, and it deliberately includes one `native-only` fixture.
 An independently tracked **external PDF** corpus now has an offline
 provenance/byte-integrity admission gate documented in
-[external-source-pdf-corpus.md](external-source-pdf-corpus.md). Its initial
-manifest contains **zero** admitted documents. That gate never adds to the
-36 generated-source executions and never claims native renderer parity;
-actual licensed external PDFs and their semantic pixel/status qualification
-remain future #233 work. A failed test must never be converted to a pass by loosening
+[external-source-pdf-corpus.md](external-source-pdf-corpus.md). The manifest now lists **one independently published CC0 PDF**, admitted
+by exact SHA-256 and recorded document-level license evidence in [#250](https://github.com/qigao/QuantaPDF/issues/250).
+Its initial *native* qualification is a strict **UNSUPPORTED** text
+rejection with original-source PDFium reference rendering. It never adds to
+the 36 generated-source executions, and counts **zero** successful external
+native rendered pages; future supported pixel parity remains #233 work. A failed test must never be converted to a pass by loosening
 pixel thresholds or silently redirecting to PDFium.
 
 The public QuantaPDF SDK remains PDFium-backed. Remove its PDFium
