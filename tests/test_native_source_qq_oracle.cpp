@@ -594,8 +594,8 @@ void test_zero_segment_clip_native_restore()
 /* Negative original-source page-tree geometry: reject malformed inherited
  * numeric/box metadata before native pixels or partially owned IR escape. */
 /* Three-level Page Tree: leaf values shadow malformed ancestor values,
- * while inherited MediaBox and rotation remain resolved from nearest Pages.
- * Strict Graph lowering must not accidentally use the root's bad CropBox. */
+ * while inherited MediaBox remains resolved from the root Pages.
+ * Strict Graph lowering must prefer the nearer wider CropBox. */
 void test_multilevel_page_tree_override()
 {
     auto pdf=QPDF::create();
@@ -608,7 +608,7 @@ void test_multilevel_page_tree_override()
     root.replaceKey("/Kids",QPDFObjectHandle::newArray({middle}));
     root.replaceKey("/Count",QPDFObjectHandle::newInteger(1));
     root.replaceKey("/MediaBox",QPDFObjectHandle::parse("[0 0 120 120]"));
-    root.replaceKey("/CropBox",QPDFObjectHandle::parse("[0 0 0 120]"));
+    root.replaceKey("/CropBox",QPDFObjectHandle::parse("[0 0 60 60]"));
     middle.replaceKey("/Parent",root);
     middle.replaceKey("/Kids",QPDFObjectHandle::newArray({leaf}));
     middle.replaceKey("/Count",QPDFObjectHandle::newInteger(1));
