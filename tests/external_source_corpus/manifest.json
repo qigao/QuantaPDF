@@ -1,5 +1,25 @@
 {
   "schema_version": 1,
   "corpus_id": "external-source-pdf",
-  "documents": []
+  "documents": [
+    {
+      "id": "tinytoolkit.sample-1-page-v1",
+      "source_url": "https://github.com/tinytoolkit-org/pdf-sample-files/blob/4fd733c47ead5446b06372ab910cb78d1c7da55e/out/sample-1-page.pdf",
+      "source_revision": "4fd733c47ead5446b06372ab910cb78d1c7da55e",
+      "sha256": "ada1603d4396b84ac0d85ca940b0149df13fd4a6beb46f2f2f62c4c8a6bc69b2",
+      "size_bytes": 3312,
+      "license_spdx": "CC0-1.0",
+      "license_url": "https://github.com/tinytoolkit-org/pdf-sample-files/blob/4fd733c47ead5446b06372ab910cb78d1c7da55e/README.md",
+      "license_review_url": "https://github.com/qigao/QuantaPDF/issues/250",
+      "attribution": "tinytoolkit-org/pdf-sample-files contributors; CC0 1.0 sample PDFs",
+      "feature_tags": [
+        "external",
+        "extractable-text",
+        "font",
+        "unsupported"
+      ],
+      "page_index": 0,
+      "expected_native_outcome": "unsupported"
+    }
+  ]
 }
