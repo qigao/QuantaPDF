@@ -163,7 +163,7 @@ def screen_pdf_bytes(blob):
             break
         # /Length is the authority: the bytes inside a stream can contain
         # the ASCII word endstream, including in PDF literal strings.
-        boundary = re.match(rb"[ \\t\\r\\n]*endstream\\b", blob[end:end + 32])
+        boundary = re.match(rb"[ \t\r\n]*endstream\b", blob[end:end + 32])
         if boundary is None:
             stream_issues.append("stream_length_or_boundary_mismatch")
             break
