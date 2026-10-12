@@ -8,10 +8,12 @@
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFWriter.hh>
 
+#include <cerrno>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
 
 #define CHECK(e) do { if (!(e)) { \
@@ -980,13 +982,88 @@ static const source_corpus_family source_corpus_families[] = {
 #undef QP_SOURCE_CORPUS_FAMILY
 };
 
-int main()
+/* Report bytes are stable across OSes and contain no time, host paths or
+ * PDF writer binary hashes. The report is published only after every
+ * generated fixture and all family cardinality assertions have passed. */
+static std::string corpus_json_string(const char *value)
 {
+    static const char digits[] = "0123456789abcdef";
+    std::string result(1u, '"');
+    for(const unsigned char *p =
+            reinterpret_cast<const unsigned char *>(value); *p; ++p) {
+        if(*p == '"' || *p == '\\') {
+            result.push_back('\\');
+            result.push_back(static_cast<char>(*p));
+        } else if(*p < 0x20u) {
+            result += "\\u00";
+            result.push_back(digits[*p >> 4u]);
+            result.push_back(digits[*p & 15u]);
+        } else {
+            result.push_back(static_cast<char>(*p));
+        }
+    }
+    result.push_back('"');
+    return result;
+}
+
+static void publish_corpus_report(const char *destination,
+                                  const size_t *executed,
+                                  size_t family_count,size_t fixture_count)
+{
+    const std::string staged = std::string(destination) + ".tmp";
+    FILE *out = std::fopen(staged.c_str(),"wb");
+    CHECK(out != nullptr);
+    std::fprintf(out,
+        "{\n  \"schema_version\": 1,\n"
+        "  \"corpus_id\": \"native-source-pdf\",\n"
+        "  \"fixture_kind\": \"generated\",\n"
+        "  \"result\": \"passed\",\n"
+        "  \"family_count\": %zu,\n"
+        "  \"fixture_count\": %zu,\n"
+        "  \"family_results\": [\n",family_count,fixture_count);
+    for(size_t i=0u;i<family_count;++i){
+        const source_corpus_family& family=source_corpus_families[i];
+        const std::string id=corpus_json_string(family.id);
+        const std::string features=corpus_json_string(family.features);
+        const std::string expected=corpus_json_string(family.expected);
+        const std::string oracle=corpus_json_string(family.oracle);
+        std::fprintf(out,
+            "    {\"id\": %s, \"feature_tags\": %s, "
+            "\"expected_outcome\": %s, \"oracle\": %s, "
+            "\"declared_fixtures\": %zu, \"executed_fixtures\": %zu, "
+            "\"result\": \"passed\"}%s\n",
+            id.c_str(),features.c_str(),expected.c_str(),
+            oracle.c_str(),family.expected_fixtures,executed[i],
+            (i+1u==family_count) ? "" : ",");
+    }
+    std::fprintf(out,"  ]\n}\n");
+    CHECK(std::ferror(out)==0);
+    CHECK(std::fclose(out)==0);
+    CHECK(std::rename(staged.c_str(),destination)==0);
+    std::fprintf(stderr,"[source-corpus] report=%s\n",destination);
+}
+
+int main(int argc,char **argv)
+{
+    const char *report_path = nullptr;
+    if(argc != 1){
+        CHECK(argc==3 && std::strcmp(argv[1],"--corpus-report")==0 &&
+              argv[2]!=nullptr && *argv[2]!='\0');
+        report_path=argv[2];
+        const std::string staged=std::string(report_path)+".tmp";
+        /* Never let a prior successful CTest run masquerade as a failed
+         * run's coverage artifact on rerun or on Windows. */
+        errno=0;
+        if(std::remove(report_path)!=0) CHECK(errno==ENOENT);
+        errno=0;
+        if(std::remove(staged.c_str())!=0) CHECK(errno==ENOENT);
+    }
     constexpr size_t expected_families = 14u;
     constexpr size_t expected_fixtures = 36u;
     const size_t families =
         sizeof(source_corpus_families)/sizeof(source_corpus_families[0]);
     size_t fixture_total = 0u;
+    size_t executed[expected_families] = {};
     CHECK(families == expected_families);
     for(size_t i=0u;i<families;++i){
         const source_corpus_family& entry=source_corpus_families[i];
@@ -1003,8 +1080,9 @@ int main()
             CHECK(std::strcmp(entry.id,source_corpus_families[j].id)!=0);
         const size_t before=corpus_fixture_executions;
         entry.run();
-        CHECK(corpus_fixture_executions-before==entry.expected_fixtures);
-        fixture_total+=entry.expected_fixtures;
+        executed[i]=corpus_fixture_executions-before;
+        CHECK(executed[i]==entry.expected_fixtures);
+        fixture_total+=executed[i];
         std::fprintf(stderr,
             "[source-corpus] PASS id=%s expected=%s oracle=%s fixtures=%zu tags=%s\n",
             entry.id,entry.expected,entry.oracle,entry.expected_fixtures,
@@ -1015,5 +1093,7 @@ int main()
     std::fprintf(stderr,
         "[source-corpus] complete families=%zu fixtures=%zu\n",
         families,fixture_total);
+    if(report_path)
+        publish_corpus_report(report_path,executed,families,fixture_total);
     return EXIT_SUCCESS;
 }
