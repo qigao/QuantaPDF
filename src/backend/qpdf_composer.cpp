@@ -1648,12 +1648,21 @@ void append_path_clip_content(
         : "W n\n";
 }
 
-void append_clip_content(
+void append_clip_content_bounded(
     std::string& content,
     quantapdf_ir const* ir,
     quantapdf_composer_page_state const& page,
-    quantapdf_composer_clip_state const& clip)
+    quantapdf_composer_clip_state const& clip,
+    std::size_t depth,
+    std::size_t& visits)
 {
+    /* A valid Clip intersection DAG is a conjunction of path clips.
+     * Emitting the leaves in DFS order preserves its semantics in PDF:
+     * each W/W* narrows the current graphics-state Clip. No flattened
+     * unbounded temporary paths or fallback providers are needed. */
+    if (depth >= 8u || visits >= 1024u)
+        throw std::logic_error("clip graph traversal budget exceeded");
+    ++visits;
     if (clip.kind == QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL) {
         append_path_clip_content(content, page, clip);
         return;
@@ -1666,10 +1675,19 @@ void append_clip_content(
         if (id == 0u || id > ir->resources.clip_count)
             throw std::logic_error("compound clip member missing");
         auto const& member = ir->resources.clips[id - 1u];
-        if (member.kind != QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL)
-            throw std::logic_error("compound clip member is not a leaf");
-        append_path_clip_content(content, page, member);
+        append_clip_content_bounded(
+            content, ir, page, member, depth + 1u, visits);
     }
+}
+
+void append_clip_content(
+    std::string& content,
+    quantapdf_ir const* ir,
+    quantapdf_composer_page_state const& page,
+    quantapdf_composer_clip_state const& clip)
+{
+    std::size_t visits = 0u;
+    append_clip_content_bounded(content, ir, page, clip, 0u, visits);
 }
 
 std::string page_content(
