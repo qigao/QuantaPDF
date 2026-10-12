@@ -16,7 +16,7 @@ typedef struct fixture {
     quantapdf_composer_page_state page;
     quantapdf_composer_operation ops[3];
     quantapdf_composer_graphics_state states[2];
-    quantapdf_composer_clip_state clips[5];
+    quantapdf_composer_clip_state clips[8];
     quantapdf_composer_path_command shapes[3][5];
     quantapdf_composer_path_command paths[3][5];
     quantapdf_composer_clip_id inner[2], outer[2];
@@ -249,6 +249,36 @@ static int test_rejection_and_atomicity(void)
     CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&image) ==
           QUANTAPDF_ERROR_UNSUPPORTED);
     budget.max_sample_tests = 120000u;
+
+    /* Global node ceiling is eight, checked before indexing resources. */
+    f.ir.resources.clip_count = 9u;
+    CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&image) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(image.pixels == NULL && image.size == 0u);
+    f.ir.resources.clip_count = 5u;
+
+    /* Depth-five path with seven registered nodes, below the node ceiling:
+     * 7 -> 6 -> 5 -> 3 -> 1. The original five nodes retain ownership and
+     * every new node is initialized; depth rejection must be atomic. */
+    {
+        quantapdf_composer_clip_id chain6[2] = {5u,4u};
+        quantapdf_composer_clip_id chain7[2] = {6u,2u};
+        f.clips[5].kind = QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL;
+        f.clips[5].members = chain6;
+        f.clips[5].member_count = 2u;
+        f.clips[6].kind = QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL;
+        f.clips[6].members = chain7;
+        f.clips[6].member_count = 2u;
+        f.ir.resources.clip_count = 7u;
+        f.states[0].clip_id = 7u;
+        CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&image) ==
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(image.pixels == NULL && image.size == 0u);
+        f.states[0].clip_id = 5u;
+        f.ir.resources.clip_count = 5u;
+        memset(&f.clips[5],0,sizeof(f.clips[5]));
+        memset(&f.clips[6],0,sizeof(f.clips[6]));
+    }
 
     f.ir.resources.clip_count = 6u; /* unowned extra resource */
     CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&image) ==
