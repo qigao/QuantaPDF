@@ -36,3 +36,9 @@ target_sources(quantapdf PRIVATE
 target_sources(quantapdf PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_clip_path_v2.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_clip_path_v2.h")
+
+
+# Scoped multi-operation native raster, private C11 and provider-free.
+target_sources(quantapdf PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/ir_scoped_operations_v0.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ir_scoped_operations_v0.h")
