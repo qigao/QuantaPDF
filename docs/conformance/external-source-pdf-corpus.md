@@ -234,7 +234,8 @@ original-source PDFium pixel parity.
 
 The restricted native source-PDF lowering explicitly checks the selected
 leaf /Page's /Group property before parsing content or publishing Composer
-IR. An absent group is accepted. A present dictionary must specify
+IR. An absent or explicit null group is accepted (PDF null is equivalent to
+omission). A present dictionary must specify
 /S /Transparency, /I true, /CS /DeviceRGB; /K false and /Type /Group
 are optional. This narrowly bounded, isolated non-knockout DeviceRGB
 configuration is permitted only with the C11 raster's existing opaque
