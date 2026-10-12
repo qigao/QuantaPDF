@@ -1871,3 +1871,26 @@ else()
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
 
+# The ORIGINAL upstream PDFium black.pdf contains one opaque black /Path
+# fill with /ExtGState normal alpha. Independent source-PDFium pixel oracle.
+add_test(NAME quantapdf.external_pdfium_black_path
+  COMMAND quantapdf_test_native_source_qq_oracle --external-black-pdf
+    "${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/pdfium.black-original-v1.pdf"
+    --external-report "${CMAKE_CURRENT_BINARY_DIR}/external-pdfium-black-path-status.json")
+set_tests_properties(quantapdf.external_pdfium_black_path PROPERTIES
+  TIMEOUT 40 LABELS "conformance;external-corpus;native-raster;opaque-path")
+if(WIN32)
+  set_property(TEST quantapdf.external_pdfium_black_path
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_pdfium_black_path
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_pdfium_black_path
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
+
