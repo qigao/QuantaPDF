@@ -39,6 +39,19 @@ def pdf(content, compress=False, filter_token=b"/FlateDecode", ascii85=False,
             b"endobj\ntrailer << /Size 2 >>\n%%EOF\n")
 
 
+def pdf_indirect_length(content, compress=False, referenced_value=None,
+                        extra_object=b""):
+    body = zlib.compress(content) if compress else content
+    original = pdf(content, compress=compress)
+    original = original.replace(
+        b"/Length " + str(len(body)).encode("ascii"),
+        b"/Length 2 0 R", 1)
+    value = len(body) if referenced_value is None else referenced_value
+    extra = (b"2 0 obj\n" + str(value).encode("ascii") +
+             b"\nendobj\n" + extra_object)
+    return original.replace(b"trailer", extra + b"trailer", 1)
+
+
 class ExternalWStarScreening(unittest.TestCase):
     def test_real_original_w_is_not_wstar(self):
         # Exact unchanged independently published PDFium source admitted in
@@ -134,6 +147,48 @@ class ExternalWStarScreening(unittest.TestCase):
         result = screen_pdf_bytes(source)
         self.assertEqual(result["status"], "inconclusive")
         self.assertIn("indirect_or_ambiguous_length", result["stream_issues"])
+
+    def test_unique_indirect_stream_length_discovers_wstar(self):
+        content = b"q 0 0 10 10 re W* n 0 0 12 12 re f Q"
+        original = pdf_indirect_length(content, compress=True)
+        before = hashlib.sha256(original).hexdigest()
+        report = screen_pdf_bytes(original)
+        self.assertEqual(report["status"], "candidate_requires_full_page_preflight")
+        self.assertEqual(report["operator_counts"]["wstar"], 1)
+        self.assertEqual(report["decoded_stream_count"], 1)
+        self.assertEqual(report["native_wstar_clip_supported_count"], 0)
+        self.assertEqual(report["native_pixel_conformance"], "not_run")
+        self.assertEqual(hashlib.sha256(original).hexdigest(), before)
+
+    def test_duplicate_indirect_length_objects_are_inconclusive(self):
+        original = pdf_indirect_length(
+            b"0 0 10 10 re W* n 0 0 12 12 re f",
+            extra_object=b"2 0 obj\n40\nendobj\n")
+        report = screen_pdf_bytes(original)
+        self.assertEqual(report["status"], "inconclusive")
+        self.assertIn("indirect_or_ambiguous_length", report["stream_issues"])
+
+    def test_complex_indirect_length_object_is_inconclusive(self):
+        original = pdf_indirect_length(b"0 0 10 10 re W* n 0 0 12 12 re f")
+        original = original.replace(
+            b"2 0 obj\n", b"2 0 obj\n<< /Value 20 >>\n", 1)
+        report = screen_pdf_bytes(original)
+        self.assertEqual(report["status"], "inconclusive")
+        self.assertIn("indirect_or_ambiguous_length", report["stream_issues"])
+
+    def test_wrong_indirect_length_boundary_is_inconclusive(self):
+        content = b"0 0 10 10 re W* n 0 0 12 12 re f"
+        original = pdf_indirect_length(content, referenced_value=len(content)-1)
+        report = screen_pdf_bytes(original)
+        self.assertEqual(report["status"], "inconclusive")
+        self.assertIn("stream_length_or_boundary_mismatch", report["stream_issues"])
+
+    def test_missing_indirect_length_object_is_inconclusive(self):
+        original = pdf_indirect_length(b"0 0 10 10 re W* n 0 0 12 12 re f")
+        original = original.replace(b"2 0 obj\n", b"3 0 obj\n", 1)
+        report = screen_pdf_bytes(original)
+        self.assertEqual(report["status"], "inconclusive")
+        self.assertIn("indirect_or_ambiguous_length", report["stream_issues"])
 
     def test_stream_length_boundary_mismatch_is_inconclusive(self):
         original = pdf(b"0 0 10 10 re W* n 0 0 12 12 re f")

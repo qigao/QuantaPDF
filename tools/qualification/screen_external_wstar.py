@@ -21,9 +21,16 @@ MAX_STREAMS = 64
 MAX_DECODED_STREAM = 1024 * 1024
 MAX_DIRECTORY_ENTRIES = 4096
 MAX_DIRECTORY_DEPTH = 16
+MAX_INTEGER_OBJECT_HEADERS = 4096
 STREAM_MARKER = re.compile(rb"(?<![A-Za-z])stream(?:\r\n|\n|\r)")
 OBJECT_HEADER = re.compile(rb"(?:^|[\r\n])\s*\d+\s+\d+\s+obj\b")
 DIRECT_LENGTH = re.compile(rb"/Length\s+(\d+)(?:\s+(\d+)\s+R)?\b")
+INDIRECT_OBJECT_HEADER = re.compile(
+    rb"(?:^|[\r\n])[ \t]*(\d+)[ \t]+(\d+)[ \t]+obj\b"
+)
+SIMPLE_INTEGER_OBJECT = re.compile(
+    rb"[ \t\r\n]+([0-9]{1,8})[ \t\r\n]+endobj\b"
+)
 FILTER = re.compile(rb"/Filter\s*(\[[^\]]*\]|/[A-Za-z0-9]+)", re.S)
 PAINT = frozenset((b"f", b"F", b"f*", b"S", b"s", b"B", b"B*", b"b", b"b*"))
 PATH = frozenset((b"m", b"l", b"c", b"v", b"y", b"h", b"re"))
@@ -137,7 +144,27 @@ def _filter_kind(header):
     return allowed.get(names, "unsupported_filter")
 
 
-def _stream_header(blob, marker_start):
+def _simple_length_object_index(blob):
+    """Index uniquely named simple integer objects, without xref guessing.
+
+    Duplicate revisions, complex references or excessive object counts are
+    deliberately ambiguous. This is discovery, not native PDF admission.
+    """
+    result = {}
+    for index, match in enumerate(INDIRECT_OBJECT_HEADER.finditer(blob)):
+        if index >= MAX_INTEGER_OBJECT_HEADERS:
+            return None
+        key = (int(match.group(1)), int(match.group(2)))
+        if key in result:
+            result[key] = None
+            continue
+        body = blob[match.end():match.end() + 96]
+        value = SIMPLE_INTEGER_OBJECT.match(body)
+        result[key] = int(value.group(1)) if value else None
+    return result
+
+
+def _stream_header(blob, marker_start, length_objects):
     # The last << may be a nested /DecodeParms dictionary and may follow
     # /Filter /FlateDecode. Limit to the actual indirect object's header.
     prefix = blob[max(0, marker_start - 4096):marker_start]
@@ -146,9 +173,17 @@ def _stream_header(blob, marker_start):
         return None, "unresolved_stream_object"
     header = prefix[objects[-1].end():]
     lengths = list(DIRECT_LENGTH.finditer(header))
-    if len(lengths) != 1 or lengths[0].group(2) is not None:
+    if len(lengths) != 1:
         return None, "indirect_or_ambiguous_length"
-    length = int(lengths[0].group(1))
+    number, generation = lengths[0].group(1), lengths[0].group(2)
+    if generation is None:
+        length = int(number)
+    else:
+        key = (int(number), int(generation))
+        length = (length_objects.get(key)
+                  if length_objects is not None else None)
+        if length is None:
+            return None, "indirect_or_ambiguous_length"
     if length > MAX_INPUT:
         return None, "stream_exceeds_budget"
     return (header, length), None
@@ -229,6 +264,8 @@ def screen_pdf_bytes(blob):
     counts = {"w": 0, "wstar": 0, "paint": 0, "path_commands": 0}
     blocker_counts = {name: 0 for name in BLOCKERS}
     position = 0
+    # Build the bounded integer-object index once, not once per stream.
+    length_objects = _simple_length_object_index(blob)
     while True:
         match = STREAM_MARKER.search(blob, position)
         if match is None:
@@ -237,7 +274,7 @@ def screen_pdf_bytes(blob):
         if stream_count > MAX_STREAMS:
             stream_issues.append("too_many_streams")
             break
-        spec, failure = _stream_header(blob, match.start())
+        spec, failure = _stream_header(blob, match.start(), length_objects)
         if failure is not None:
             stream_issues.append(failure)
             break
