@@ -30,3 +30,9 @@ target_sources(quantapdf PRIVATE
 target_sources(quantapdf PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_clip_intersection_v1.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_clip_intersection_v1.h")
+
+
+# Native arbitrary single-path Clip uses shared V1 subpixel winding; no PDFium.
+target_sources(quantapdf PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/ir_clip_path_v2.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ir_clip_path_v2.h")
