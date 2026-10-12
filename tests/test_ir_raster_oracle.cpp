@@ -52,6 +52,10 @@ struct scene {
         opts.fill = 1;
         opts.fill_argb = color;
         opts.fill_rule = rule;
+        /* Canonical V4 IR stores explicit identity. Composer normalizes
+         * all-zero caller defaults BEFORE publishing an IR record. The
+         * writer does not reinterpret a V4 zero CTM as identity. */
+        opts.transform = quantapdf_affine_transform{1, 0, 0, 1, 0, 0};
         ir.operation_count = index + 1;
     }
 
