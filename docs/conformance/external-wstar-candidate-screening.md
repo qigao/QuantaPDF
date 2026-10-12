@@ -103,6 +103,48 @@ screening report preserves both immutable byte hashes while reporting zero
 native W* passes. Their test expectations are strict but do not replace
 real native source/PDFium pixel conformance.
 
+## Complete selected-page Typed IR preflight (test-only)
+
+The offline Python token scanner is intentionally **heuristic**. The new
+`--preflight-original-pdf` mode in the **existing test-only**
+`quantapdf_test_native_source_qq_oracle` binary instead runs the real
+bounded **Source Document → Graph Snapshot → Detached Composer IR**
+selected-page pipeline, including every relevant admitted page content
+stream, inherited page geometry, q/Q scope, Clip and resource preflight.
+Document/Graph ownership is released before inspecting detached IR.
+
+```sh
+quantapdf_test_native_source_qq_oracle \
+  --preflight-original-pdf /path/to/unchanged-original.pdf \
+  --page-index 0 --expect-status unsupported \
+  --preflight-report /tmp/selected-page-status.json
+```
+
+Valid expectations are exactly `lowered` and `unsupported`. A rejected
+original MUST leave zero Pages, Operations, Clip resources, Graphics
+States, fonts, images, Forms and masks. A lowered original must remain
+within the documented narrow resource and operation limits. Path
+canonicalization and symlink/hardlink checks protect the original input
+from accidental report/staged-file overwrites.
+
+This mode does **not** validate a document's license, provenance or hash,
+does **not** render any pixel, and does **not** call the PDFium oracle.
+The deterministic JSON reports `original_source_provenance_verified:false`,
+`native_raster:not_run`, `original_pdfium_pixel_oracle:not_run` and
+`external_wstar_pixel_supported_count:0` even for a typed `lowered` page.
+Source-specific provenance and SHA-256 remain obligations of the external
+corpus manifest, independent from a parser-success status.
+
+Two dedicated CTests run against unchanged pinned originals:
+`quantapdf.external_original_w_typed_preflight` (typed `lowered` for
+`clip_path.pdf`) and
+`quantapdf.external_original_wstar_text_typed_preflight`
+(`UNSUPPORTED` + empty IR for `bug_1574.pdf`). These use the same three
+existing CI platform jobs; each uploads its report alongside the separate
+W-positive or W*-negative external semantic artifact. They are not added
+to the fixed 14/36 generated corpus, and neither increases the external
+W* **pixel-positive** count.
+
 ## Native preparation in this branch
 
 `quantapdf.native_scoped_clip_dag_v1` now exercises a provider-free C11

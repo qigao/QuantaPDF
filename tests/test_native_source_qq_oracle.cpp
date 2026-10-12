@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -1735,6 +1736,32 @@ int typed_original_preflight(const char *source_path,const char *page_str,
     CHECK(std::strcmp(source_path,report_path)!=0);
     const std::string staged=std::string(report_path)+".tmp";
     CHECK(std::strcmp(source_path,staged.c_str())!=0);
+    /* A candidate original is read-only. Never let report or staged path
+     * aliases (including symlinked directories or hard links) overwrite
+     * the original file under a different spelling. */
+    namespace fs=std::filesystem;
+    std::error_code path_error;
+    const fs::path source=fs::path(source_path);
+    const fs::path report=fs::path(report_path);
+    const fs::path stage=fs::path(staged);
+    CHECK(fs::is_regular_file(source,path_error) && !path_error);
+    CHECK(!fs::is_symlink(source,path_error));
+    const fs::path canonical_source=fs::weakly_canonical(source,path_error);
+    CHECK(!path_error);
+    const fs::path canonical_report=fs::weakly_canonical(report,path_error);
+    CHECK(!path_error && canonical_source!=canonical_report);
+    const fs::path canonical_stage=fs::weakly_canonical(stage,path_error);
+    CHECK(!path_error && canonical_source!=canonical_stage);
+    for(const fs::path& output:{report,stage}){
+        const bool exists=fs::exists(output,path_error);
+        CHECK(!path_error);
+        if(exists){
+            CHECK(!fs::is_symlink(output,path_error));
+            CHECK(!path_error);
+            CHECK(!fs::equivalent(source,output,path_error));
+            CHECK(!path_error);
+        }
+    }
     const bool expect_lowered=std::strcmp(expect,"lowered")==0;
     const bool expect_rejected=std::strcmp(expect,"unsupported")==0;
     CHECK(expect_lowered || expect_rejected);
@@ -1795,7 +1822,7 @@ int typed_original_preflight(const char *source_path,const char *page_str,
         "{\n"
         "  \"schema_version\": 1,\n"
         "  \"result\": \"typed_selected_page_preflight_only\",\n"
-        "  \"original_source\": true,\n"
+        "  \"original_source_provenance_verified\": false,\n"
         "  \"selected_page_index\": %zu,\n"
         "  \"native_lower_status\": \"%s\",\n"
         "  \"source_document_graph_released\": true,\n"

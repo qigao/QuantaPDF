@@ -178,7 +178,9 @@ jobs:
           name: external-clipped-stroke-native-linux
           path: |
             build/linux-gcc-release/tests/external-pdfium-clip-stroke-status.json
+            build/linux-gcc-release/tests/external-original-w-preflight.json
             build/linux-gcc-debug/tests/external-pdfium-clip-stroke-status.json
+            build/linux-gcc-debug/tests/external-original-w-preflight.json
           if-no-files-found: error
           retention-days: 7
 
@@ -188,7 +190,9 @@ jobs:
           name: external-wstar-late-text-negative-linux
           path: |
             build/linux-gcc-release/tests/external-pdfium-wstar-text-status.json
+            build/linux-gcc-release/tests/external-original-wstar-preflight.json
             build/linux-gcc-debug/tests/external-pdfium-wstar-text-status.json
+            build/linux-gcc-debug/tests/external-original-wstar-preflight.json
           if-no-files-found: error
           retention-days: 7
 
@@ -362,7 +366,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: external-clipped-stroke-native-macos
-          path: build/macos-clang-release/tests/external-pdfium-clip-stroke-status.json
+          path: |
+            build/macos-clang-release/tests/external-pdfium-clip-stroke-status.json
+            build/macos-clang-release/tests/external-original-w-preflight.json
           if-no-files-found: error
           retention-days: 7
 
@@ -370,7 +376,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: external-wstar-late-text-negative-macos
-          path: build/macos-clang-release/tests/external-pdfium-wstar-text-status.json
+          path: |
+            build/macos-clang-release/tests/external-pdfium-wstar-text-status.json
+            build/macos-clang-release/tests/external-original-wstar-preflight.json
           if-no-files-found: error
           retention-days: 7
 
@@ -565,7 +573,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: external-clipped-stroke-native-windows
-          path: build/Msvc-Release/tests/external-pdfium-clip-stroke-status.json
+          path: |
+            build/Msvc-Release/tests/external-pdfium-clip-stroke-status.json
+            build/Msvc-Release/tests/external-original-w-preflight.json
           if-no-files-found: error
           retention-days: 7
 
@@ -573,7 +583,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: external-wstar-late-text-negative-windows
-          path: build/Msvc-Release/tests/external-pdfium-wstar-text-status.json
+          path: |
+            build/Msvc-Release/tests/external-pdfium-wstar-text-status.json
+            build/Msvc-Release/tests/external-original-wstar-preflight.json
           if-no-files-found: error
           retention-days: 7
 
