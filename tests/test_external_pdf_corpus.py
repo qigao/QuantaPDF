@@ -111,6 +111,20 @@ class ExternalPDFCorpusAdmissionTest(unittest.TestCase):
         self.write([self.doc])
         self.rejects("unreviewed")
 
+    def test_supported_blank_is_separate_from_path_clip(self):
+        self.fixture()
+        self.doc["expected_native_outcome"] = "supported-blank-page"
+        self.write([self.doc])
+        record = verify_corpus(self.manifest, self.assets)["documents"][0]
+        self.assertEqual(record["expected_native_outcome"], "supported-blank-page")
+        self.assertEqual(record["native_conformance"], "not_run")
+
+    def test_unknown_expected_capability_is_rejected(self):
+        self.fixture()
+        self.doc["expected_native_outcome"] = "supported-all-pdf"
+        self.write([self.doc])
+        self.rejects("unknown expected native outcome")
+
     def test_http_source_is_rejected(self):
         self.fixture()
         self.doc["source_url"] = "http://example.org/a.pdf"
