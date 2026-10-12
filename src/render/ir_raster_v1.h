@@ -20,7 +20,9 @@ typedef struct quantapdf_ir_raster_v1_limits {
  * CLOSE, affine transforms, implicit closing, even-odd/nonzero winding and
  * fixed deterministic 4x4 coverage. Also supports a narrowly bounded
  * *closed triangle*, opaque, solid **one-device-pixel stroke** with butt cap,
- * miter join, default miter=10, no dashes and an isometric transform.
+ * miter join, default miter=10, no dashes and an isometric transform;
+ * its joins must lie outside one canonical rectangle Clip, so the native
+ * segment sampler never approximates visible miter joins.
  * Unsupported widths/joins/transforms still fail closed. Optional canonical
  * Clip Path intersection is borrowed only by the _clipped entry points;
  * there is no general stroke, alpha, resource or PDFium fallback.
