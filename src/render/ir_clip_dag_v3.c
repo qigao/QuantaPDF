@@ -87,6 +87,41 @@ static int visit(qp_dag_admission *a, size_t id, size_t depth)
     return 1;
 }
 
+quantapdf_status quantapdf_ir_clip_dag_collect_v3(
+    const quantapdf_ir *ir, quantapdf_composer_clip_id root,
+    const quantapdf_composer_clip_state **leaves,
+    size_t *leaf_count, unsigned *visited_bits)
+{
+    qp_dag_admission admission = {0};
+    size_t i;
+    unsigned visited = 0u;
+    if (leaves == NULL || leaf_count == NULL || visited_bits == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *leaf_count = 0u;
+    *visited_bits = 0u;
+    for (i = 0u; i < QUANTAPDF_NATIVE_CLIP_DAG_MAX_LEAVES; ++i)
+        leaves[i] = NULL;
+    if (ir == NULL || ir->resources.clips == NULL ||
+        ir->resources.clip_count == 0u ||
+        ir->resources.clip_count > QUANTAPDF_NATIVE_CLIP_DAG_MAX_NODES ||
+        root == 0u || (size_t)root > ir->resources.clip_count)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    admission.ir = ir;
+    if (!visit(&admission, (size_t)root, 1u) ||
+        admission.leaf_count == 0u)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    for (i = 0u; i < ir->resources.clip_count; ++i) {
+        if (admission.marks[i] == 2u)
+            visited |= 1u << (unsigned)i;
+    }
+    for (i = 0u; i < admission.leaf_count; ++i)
+        leaves[i] = admission.leaves[i];
+    *leaf_count = admission.leaf_count;
+    *visited_bits = visited;
+    return QUANTAPDF_OK;
+}
+
 quantapdf_status quantapdf_ir_raster_clip_dag_v3(
     const quantapdf_ir *ir, size_t page_index,
     const quantapdf_ir_raster_v1_limits *limits,
