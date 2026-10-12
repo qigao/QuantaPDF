@@ -6,6 +6,7 @@ PDFium oracle. No result from this tool can increment conformance counters.
 """
 
 import argparse
+import base64
 import hashlib
 import json
 from pathlib import Path
@@ -115,12 +116,19 @@ def _filter_kind(header):
     if not matches:
         return "raw"
     selected = matches[0].group(1).strip()
-    if selected == b"/FlateDecode":
-        return "flate"
-    if (selected.startswith(b"[") and selected.endswith(b"]")
-            and selected[1:-1].split() == [b"/FlateDecode"]):
-        return "flate"
-    return "unsupported_filter"
+    names = (tuple(selected[1:-1].split())
+             if selected.startswith(b"[") and selected.endswith(b"]")
+             else (selected,))
+    allowed = {
+        (b"/FlateDecode",): "flate",
+        (b"/ASCII85Decode",): "ascii85",
+        (b"/ASCII85Decode", b"/FlateDecode"): "ascii85_flate",
+    }
+    # Filter arrays execute in the declared order. DecodeParms arrays need
+    # positional semantics we do not implement; never guess them.
+    if b"/ASCII85Decode" in names and b"/DecodeParms" in header:
+        return "unsupported_filter"
+    return allowed.get(names, "unsupported_filter")
 
 
 def _stream_header(blob, marker_start):
@@ -150,6 +158,17 @@ def _inflate_bounded(payload):
     if len(data) + len(trailer) > MAX_DECODED_STREAM:
         raise ValueError("decoded stream exceeds limit")
     return data + trailer
+
+
+def _ascii85_bounded(payload):
+    # PDF ASCII85 streams normally end in ~> without the optional <~ prefix.
+    # Reject oversized decoded intermediates before any Flate pass.
+    if len(payload) > 2 * MAX_DECODED_STREAM + 64:
+        raise ValueError("encoded ASCII85 stream exceeds screening limit")
+    decoded = base64.a85decode(payload.strip(b" \\t\\r\\n\\v\\f"), adobe=True)
+    if len(decoded) > MAX_DECODED_STREAM:
+        raise ValueError("decoded ASCII85 stream exceeds screening limit")
+    return decoded
 
 
 def screen_pdf_bytes(blob):
@@ -192,9 +211,20 @@ def screen_pdf_bytes(blob):
             stream_issues.append("unsupported_stream_filter")
             continue
         try:
-            decoded = _inflate_bounded(payload) if kind == "flate" else payload
-        except (ValueError, zlib.error):
-            stream_issues.append("flate_decode_failed_or_over_budget")
+            if kind == "flate":
+                decoded = _inflate_bounded(payload)
+            elif kind == "ascii85":
+                decoded = _ascii85_bounded(payload)
+            elif kind == "ascii85_flate":
+                decoded = _inflate_bounded(_ascii85_bounded(payload))
+            else:
+                decoded = payload
+        except (ValueError, OverflowError, zlib.error):
+            stream_issues.append(
+                "ascii85_decode_failed_or_over_budget"
+                if kind.startswith("ascii85")
+                else "flate_decode_failed_or_over_budget"
+            )
             continue
         if len(decoded) > MAX_DECODED_STREAM:
             stream_issues.append("decoded_stream_over_budget")

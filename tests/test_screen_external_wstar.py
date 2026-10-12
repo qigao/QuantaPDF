@@ -1,5 +1,6 @@
 """Synthetic and immutable original-source scanner tests; NOT pixel conformance."""
 import json
+import base64
 import hashlib
 import contextlib
 import io
@@ -17,9 +18,11 @@ NONZERO = REAL_SOURCES / "pdfium.clip-path-v1.pdf"
 WSTAR_TEXT = REAL_SOURCES / "pdfium.bug-1574-wstar-text-v1.pdf"
 
 
-def pdf(content, compress=False, filter_token=b"/FlateDecode"):
+def pdf(content, compress=False, filter_token=b"/FlateDecode", ascii85=False):
     body = zlib.compress(content) if compress else content
-    filt = b"/Filter " + filter_token + b" " if compress else b""
+    if ascii85:
+        body = base64.a85encode(body, adobe=True)[2:]
+    filt = b"/Filter " + filter_token + b" " if compress or ascii85 else b""
     return (b"%PDF-1.7\n1 0 obj << /Length " + str(len(body)).encode("ascii") +
             b" " + filt + b">>\nstream\n" + body + b"\nendstream\n"
             b"endobj\ntrailer << /Size 2 >>\n%%EOF\n")
@@ -163,6 +166,47 @@ class ExternalWStarScreening(unittest.TestCase):
             compress=True,
             filter_token=b"[/ASCII85Decode /FlateDecode]",
         ))
+        self.assertEqual(report["status"], "inconclusive")
+        self.assertIn("unsupported_stream_filter", report["stream_issues"])
+
+    def test_ascii85_flate_array_discovers_wstar(self):
+        source = pdf(b"q 0 0 10 10 re W* n 1 0 0 rg 0 0 12 12 re f Q",
+                     compress=True,
+                     filter_token=b"[/ASCII85Decode /FlateDecode]",
+                     ascii85=True)
+        before = hashlib.sha256(source).hexdigest()
+        report = screen_pdf_bytes(source)
+        self.assertEqual(report["status"], "candidate_requires_full_page_preflight")
+        self.assertEqual(report["decoded_stream_count"], 1)
+        self.assertEqual(report["operator_counts"]["wstar"], 1)
+        self.assertEqual(report["native_wstar_clip_supported_count"], 0)
+        self.assertEqual(report["native_pixel_conformance"], "not_run")
+        self.assertEqual(hashlib.sha256(source).hexdigest(), before)
+
+    def test_ascii85_single_filter_discovers_wstar(self):
+        source = pdf(b"q 0 0 10 10 re W* n 0 0 12 12 re f Q",
+                     filter_token=b"/ASCII85Decode", ascii85=True)
+        report = screen_pdf_bytes(source)
+        self.assertEqual(report["status"], "candidate_requires_full_page_preflight")
+        self.assertEqual(report["operator_counts"]["wstar"], 1)
+
+    def test_ascii85_flate_reversed_filters_stay_inconclusive(self):
+        source = pdf(b"q 0 0 10 10 re W* n 0 0 12 12 re f Q",
+                     compress=True,
+                     filter_token=b"[/FlateDecode /ASCII85Decode]",
+                     ascii85=True)
+        report = screen_pdf_bytes(source)
+        self.assertEqual(report["status"], "inconclusive")
+        self.assertIn("unsupported_stream_filter", report["stream_issues"])
+
+    def test_ascii85_flate_decodeparms_are_inconclusive(self):
+        source = pdf(b"q 0 0 10 10 re W* n 0 0 12 12 re f Q",
+                     compress=True,
+                     filter_token=b"[/ASCII85Decode /FlateDecode]",
+                     ascii85=True).replace(
+                         b" >>\\nstream",
+                         b" /DecodeParms [null << /Predictor 1 >>] >>\\nstream", 1)
+        report = screen_pdf_bytes(source)
         self.assertEqual(report["status"], "inconclusive")
         self.assertIn("unsupported_stream_filter", report["stream_issues"])
 
