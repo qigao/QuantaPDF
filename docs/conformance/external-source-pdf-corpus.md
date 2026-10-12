@@ -283,8 +283,11 @@ Clip, then blue `0 0 1 RG` and a closed triangular
 `10 10 m 25 40 l 40 10 l s` stroked path. It has **no text,
 images, forms or soft masks**. It is a deliberate narrow expansion
 from fill-only to one **opaque width-1 solid miter-joined closed triangle
-stroke** under an isometric transform. It does **not** imply arbitrary
-stroke width, cap/join, dash, transform, or transparency support.
+stroke** under an isometric transform, **only when the three miter joins lie
+outside the single rectangular Clip**. Otherwise the native engine
+rejects before output allocation rather than approximating joins. It
+does **not** imply arbitrary stroke width, cap/join, dash, transform,
+unclipped strokes, or transparency support.
 
 The original-source PDFium oracle is independent of Source → Graph →
 detached IR → private C11 Native Raster, and original Document/Graph
