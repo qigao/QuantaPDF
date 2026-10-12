@@ -37,6 +37,18 @@ quantapdf_status quantapdf_ir_raster_render_v1_clipped(
     const quantapdf_composer_clip_state *clip,
     quantapdf_ir_raster_image *out_image);
 
+/* Strict private multi-Clip sample intersection consumer. Each canonical
+ * path is borrowed synchronously and flattened under the same total edge and
+ * sampled-edge budget as the selected opaque paint operation. All clips must
+ * contain the subpixel point for it to be painted; duplicate/no Clip input
+ * is not a valid call. No provider dependency or fallback. */
+#define QUANTAPDF_NATIVE_CLIP_DAG_MAX_LEAVES ((size_t)4u)
+quantapdf_status quantapdf_ir_raster_render_v1_multi_clipped(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_composer_clip_state *const *clips, size_t clip_count,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

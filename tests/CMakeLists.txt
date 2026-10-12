@@ -1643,3 +1643,28 @@ else()
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
+
+
+# Standalone nested Clip DAG runtime. This pure C11 test intentionally links
+# neither QuantaPDF nor qpdf/PDFium; pixel oracles remain test-only and separate.
+add_executable(quantapdf_test_native_clip_dag_v3
+  test_ir_clip_dag_v3.c
+  "${PROJECT_SOURCE_DIR}/src/render/ir_clip_dag_v3.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c")
+target_include_directories(quantapdf_test_native_clip_dag_v3 PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_native_clip_dag_v3 PRIVATE c_std_11)
+if(MSVC)
+  target_compile_options(quantapdf_test_native_clip_dag_v3 PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_test_native_clip_dag_v3 PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+if(UNIX)
+  target_link_libraries(quantapdf_test_native_clip_dag_v3 PRIVATE m)
+endif()
+add_test(NAME quantapdf.native_clip_dag_v3
+  COMMAND quantapdf_test_native_clip_dag_v3)
+set_tests_properties(quantapdf.native_clip_dag_v3 PROPERTIES
+  TIMEOUT 30 LABELS "conformance;native-raster")
