@@ -151,6 +151,42 @@ static int test_scoped_dag(void)
     return EXIT_SUCCESS;
 }
 
+/* Single opaque PATH is now admitted without artificial second operations.
+ * This pure C11 gate must stay independent of any PDFium/qpdf source. */
+static int test_single_opaque_path(void)
+{
+    fixture f;
+    const quantapdf_ir_raster_v1_limits budget = {64u,1u,192u,120000u};
+    quantapdf_ir_raster_image image = {0}, repeated = {0};
+    initialize(&f);
+    f.ir.operation_count = 1u;
+    f.ir.resources.graphics_state_count = 1u;
+    f.ir.resources.clip_count = 0u;
+    f.ir.resources.clips = NULL;
+    f.states[0].clip_id = 0u;
+    f.page.suppress_background = 1;
+    OK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&image));
+    CHECK(image.size == 8u*8u*4u && image.width==8u && image.height==8u);
+    CHECK(rgba(&image,0u,0u) == UINT32_C(0xff0000ff));
+    CHECK(rgba(&image,7u,7u) == UINT32_C(0xff0000ff));
+    OK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&repeated));
+    CHECK(repeated.size == image.size &&
+          memcmp(image.pixels,repeated.pixels,image.size)==0);
+    quantapdf_ir_raster_image_dispose(&image);
+    quantapdf_ir_raster_image_dispose(&repeated);
+
+    f.ir.resources.graphics_state_count = 2u; /* unused state rejected */
+    CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&image) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(image.pixels==NULL && image.size==0u);
+    f.ir.resources.graphics_state_count = 1u;
+    f.ir.operation_count = 0u; /* empty path list is not a scoped draw */
+    CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&image) ==
+          QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(image.pixels==NULL && image.size==0u);
+    return EXIT_SUCCESS;
+}
+
 static int test_fractional_and_transparent(void)
 {
     fixture f;
@@ -300,6 +336,7 @@ static int test_rejection_and_atomicity(void)
 
 int main(void)
 {
+    CHECK(test_single_opaque_path() == EXIT_SUCCESS);
     CHECK(test_scoped_dag() == EXIT_SUCCESS);
     CHECK(test_fractional_and_transparent() == EXIT_SUCCESS);
     CHECK(test_rejection_and_atomicity() == EXIT_SUCCESS);
