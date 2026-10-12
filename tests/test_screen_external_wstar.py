@@ -150,6 +150,19 @@ class ExternalWStarScreening(unittest.TestCase):
         self.assertEqual(report["operator_counts"]["wstar"], 0)
         self.assertEqual(report["native_wstar_clip_supported_count"], 0)
 
+    def test_two_valid_looking_headers_in_wrapper_are_rejected(self):
+        wrapper = b"%PDF-1.7\n# not an actual PDF\n"
+        actual = pdf(b"0 0 5 5 re W* n 0 0 6 6 re f")
+        with self.assertRaisesRegex(ValueError, "ambiguous PDF framing"):
+            screen_pdf_bytes(wrapper + actual)
+
+    def test_second_pdf_header_inside_stream_is_inconclusive(self):
+        # A complete PDF parser is needed to classify embedded headers.
+        # The screening heuristic cannot guess that one is harmless.
+        source = pdf(b"(literal %PDF-2.0\nmarker) 0 0 5 5 re W* n 0 0 6 6 re f")
+        with self.assertRaisesRegex(ValueError, "ambiguous PDF framing"):
+            screen_pdf_bytes(source)
+
     def test_header_at_byte_1023_is_within_bound(self):
         source = b"#" * 1023 + pdf(b"q 0 0 5 5 re W* n 0 0 5 5 re f")
         report = screen_pdf_bytes(source)

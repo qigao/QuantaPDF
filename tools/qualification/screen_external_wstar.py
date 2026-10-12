@@ -263,6 +263,14 @@ def screen_pdf_bytes(blob):
             or b"%%EOF" not in blob[-1024:]):
         raise ValueError("invalid PDF framing")
     pdf_header_offset = header.start()
+    # A second PDF-looking header in the bounded discovery window can
+    # indicate a spoofed wrapper or concatenated input. Without real xref
+    # resolution the screening heuristic cannot select the authoritative
+    # document, so it must reject rather than infer page content.
+    second_header = PDF_HEADER.search(blob, header.end(),
+                                      min(len(blob), 1024 + 9))
+    if second_header is not None and second_header.start() < 1024:
+        raise ValueError("ambiguous PDF framing")
     stream_count = decoded_count = 0
     stream_issues = []
     counts = {"w": 0, "wstar": 0, "paint": 0, "path_commands": 0}

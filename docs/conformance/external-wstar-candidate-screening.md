@@ -96,7 +96,9 @@ rejects duplicate basenames. It is offline and never downloads files. A PDF head
 offset 0..1023 (bounded leading printer bytes are ignored during scanning),
 and the JSON records `pdf_header_offset`. Candidate object-header lookup
 never crosses into the leading non-PDF preface; a spoofed preamble
-indirect object cannot authorize a stream in the PDF body. This is not
+indirect object cannot authorize a stream in the PDF body. Multiple
+valid-looking PDF headers within this bounded window are rejected as
+ambiguous, rather than guessing which is authoritative. This is not
 full PDF page parsing.
 On a validation failure, an existing report remains untouched; output paths
 that hardlink an original input are rejected before any write.
@@ -124,7 +126,7 @@ result is **not** a native-support claim: verify the complete selected
 page, source/license, immutable revision, independent PDFium pixels and
 cross-platform CI separately. The JSON explicitly fixes the W* native
 positive count to zero and marks license/page attribution unreviewed.
-55 synthetic + 3 pinned original-PDF scanner regression cases run as part of the existing
+57 synthetic + 3 pinned original-PDF scanner regression cases run as part of the existing
 Linux, macOS and Windows workflows; no new CI workflow is introduced.
 
 The exact, previously reviewed unchanged PDFium `clip_path.pdf` and
@@ -256,3 +258,13 @@ count without a qualified original source must fail closed.
 - The unchanged upstream `PDF 2.0 with offset start.pdf` (5,264 bytes, Git blob `4cf62cc204ecbc2c2027451ea265ab8978510c6b`) contains printer-preface text and begins the actual `%PDF-` header at **byte 656**. See [the publisher's source](https://github.com/pdf-association/pdf20examples/blob/c20f2c17bfcc4baab7cfe62e70fae64caf14d5fa/PDF%202.0%20with%20offset%20start.pdf). The repository's [LICENSE.md](https://github.com/pdf-association/pdf20examples/blob/c20f2c17bfcc4baab7cfe62e70fae64caf14d5fa/LICENSE.md) grants PDF files CC BY-SA 4.0; this is *not* the CC BY 4.0 corpus from `pdf-differences`.
 - Seven upstream PDF 2.0 examples were checked for literal, whitespace-delimited raw `W*` tokens; **none was observed** in that raw probe. This does not exclude compressed/structural streams or constitute selected-page semantic preflight. No new original asset has been admitted, redistributed or modified, no raw-byte SHA-256 conformance pin has been recorded, and no W* external-positive counter changes.
 - Five synthetic header-framing regressions exercise offset 656, a spoofed preamble stream, the 1023/1024 boundary, and malformed version rejection. The scanner reports the header offset but is still **screening-only**. Only real selected-page Source→Graph→Detached IR admission and original PDFium/C11 pixels may qualify an external W* positive.
+
+## PDFium original .in/.pdf paired-template inventory (2026-10-13)
+
+At independently pinned [PDFium revision `a84323421e94f484faca52dd9d027934eba42ab8`](https://github.com/chromium/pdfium/tree/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources), the immediate `testing/resources` directory contains **194** distinct published `.in` templates with name-matched upstream `.pdf` originals. The paired template names were inventoried from Git tree `de61fddd874c49940e3c9befee4906f961bd3789`, then all templates screened for literal standalone `W*` (193 readable as UTF-8, one checked as original binary bytes).
+
+- `bug_1574.in` contains one `W* n`, followed by opaque `f*` and **later `BT/Tf/Tj/ET` Text**. The corresponding original `.pdf` is already admitted only as the fail-closed Text negative under #264.
+- `tagged_actual_text.in`, `tagged_alt_text.in`, `tagged_table.in`, `tagged_table_bad_elem.in` and `tagged_table_bad_parent.in` each contain **two `W* n`** sequences, but the page also invokes marked-content and **XObject `Do`**, outside the current narrow native subset. These documents are not newly admitted or individually relicensed by this inventory.
+- `bug_402562387.in` contains an incidental `W*` substring inside binary-like data, **not** a delimiter-bounded `W*` operator. `bug_861842.in` (upstream Git blob `244da49c60c2b3bfb99df528ec8233ff8116c286`) is not UTF-8 readable; a separate exact-byte inspection found no `W*` byte sequence.
+
+**Scope:** this is a complete enumeration of those **194 paired templates**, not an exhaustive search of their real original PDF streams, other PDFium subdirectories, PDF templates without paired `.pdf`, or actual selected-page typed semantics. No unmodified external W* Path-only **positive** is qualified by this screening. Do not count a template as an original PDF, and do not skip unsupported operations to manufacture one. External W* original-source pixel-positive remains **0**.
