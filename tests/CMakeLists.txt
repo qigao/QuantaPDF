@@ -1938,6 +1938,38 @@ else()
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
 
+# Selected-page typed semantic preflight. Unlike the byte scanner, the
+# existing Graph parser resolves the COMPLETE original selected page.
+# This test-only gate NEVER claims W* pixel or public SDK support.
+add_test(NAME quantapdf.external_original_w_typed_preflight
+  COMMAND quantapdf_test_native_source_qq_oracle
+    --preflight-original-pdf
+      "${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/pdfium.clip-path-v1.pdf"
+    --page-index 0 --expect-status lowered
+    --preflight-report "${CMAKE_CURRENT_BINARY_DIR}/external-original-w-preflight.json")
+add_test(NAME quantapdf.external_original_wstar_text_typed_preflight
+  COMMAND quantapdf_test_native_source_qq_oracle
+    --preflight-original-pdf
+      "${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/pdfium.bug-1574-wstar-text-v1.pdf"
+    --page-index 0 --expect-status unsupported
+    --preflight-report "${CMAKE_CURRENT_BINARY_DIR}/external-original-wstar-preflight.json")
+foreach(qp_test IN ITEMS
+        quantapdf.external_original_w_typed_preflight
+        quantapdf.external_original_wstar_text_typed_preflight)
+  set_tests_properties(${qp_test} PROPERTIES
+    TIMEOUT 40 LABELS "conformance;external-corpus;source-preflight")
+  if(WIN32)
+    set_property(TEST ${qp_test} PROPERTY ENVIRONMENT_MODIFICATION
+      "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+  elseif(APPLE)
+    set_property(TEST ${qp_test} PROPERTY ENVIRONMENT_MODIFICATION
+      "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+  else()
+    set_property(TEST ${qp_test} PROPERTY ENVIRONMENT_MODIFICATION
+      "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+  endif()
+endforeach()
+
 # Independently published upstream W n rectangular Clip and one-pixel closed
 # blue stroke. Renderer uses pure C11; PDFium reads the ORIGINAL PDF only.
 add_test(NAME quantapdf.external_pdfium_clipped_stroke

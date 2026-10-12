@@ -1723,6 +1723,102 @@ int test_external_pdfium_wstar_text_rejection(const char *filename,
     return EXIT_SUCCESS;
 }
 
+/* Complete selected-page typed preflight of an unchanged ORIGINAL PDF.
+ * This test-only diagnostic checks full bounded Graph -> detached IR lowering,
+ * not keyword extraction. It deliberately runs neither PDFium oracle nor
+ * native raster, and NEVER counts as positive native W* pixel conformance. */
+int typed_original_preflight(const char *source_path,const char *page_str,
+                             const char *expect,const char *report_path)
+{
+    CHECK(source_path && *source_path && page_str && *page_str &&
+          expect && *expect && report_path && *report_path);
+    CHECK(std::strcmp(source_path,report_path)!=0);
+    const std::string staged=std::string(report_path)+".tmp";
+    CHECK(std::strcmp(source_path,staged.c_str())!=0);
+    const bool expect_lowered=std::strcmp(expect,"lowered")==0;
+    const bool expect_rejected=std::strcmp(expect,"unsupported")==0;
+    CHECK(expect_lowered || expect_rejected);
+    char *end=nullptr;
+    errno=0;
+    const unsigned long number=std::strtoul(page_str,&end,10);
+    CHECK(errno==0 && end!=page_str && *end=='\0' && number<=255ul);
+    const size_t page_index=(size_t)number;
+    errno=0;
+    if(std::remove(report_path)!=0) CHECK(errno==ENOENT);
+    errno=0;
+    if(std::remove(staged.c_str())!=0) CHECK(errno==ENOENT);
+    quantapdf_ir detached{};
+    /* Four content streams + eight page-tree steps are bounded by the
+     * existing private Graph/Content limits. No partial prefix admitted. */
+    const quantapdf_status status=snapshot_lower(
+        &detached,page_index,4u,8u,source_path);
+    CHECK(status==QUANTAPDF_OK ||
+          status==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK((status==QUANTAPDF_OK)==expect_lowered);
+    CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED)==expect_rejected);
+    size_t page_count=0u,op_count=0u,clip_count=0u,state_count=0u;
+    if(expect_lowered){
+        CHECK(detached.pages!=nullptr && detached.page_count==1u &&
+              detached.operations!=nullptr &&
+              detached.operation_count>=1u && detached.operation_count<=4u &&
+              detached.resources.clip_count<=8u &&
+              detached.resources.graphics_state_count<=4u &&
+              detached.resources.font_count==0u &&
+              detached.resources.image_count==0u &&
+              detached.resources.form_count==0u &&
+              detached.resources.soft_mask_count==0u);
+        page_count=detached.page_count;
+        op_count=detached.operation_count;
+        clip_count=detached.resources.clip_count;
+        state_count=detached.resources.graphics_state_count;
+    } else {
+        /* W* and painted Path may precede a late Text/XObject. Reject
+         * transactionally: no pages, operations or owned resources leak. */
+        CHECK(detached.pages==nullptr && detached.page_count==0u &&
+              detached.operations==nullptr &&
+              detached.operation_count==0u &&
+              detached.resources.clips==nullptr &&
+              detached.resources.clip_count==0u &&
+              detached.resources.graphics_states==nullptr &&
+              detached.resources.graphics_state_count==0u &&
+              detached.resources.font_count==0u &&
+              detached.resources.image_count==0u &&
+              detached.resources.form_count==0u &&
+              detached.resources.soft_mask_count==0u &&
+              detached.resources.paint_count==0u);
+    }
+    quantapdf_ir_dispose(&detached);
+    CHECK(corpus_fixture_executions==0u);
+    FILE *out=std::fopen(staged.c_str(),"wb");
+    CHECK(out!=nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"result\": \"typed_selected_page_preflight_only\",\n"
+        "  \"original_source\": true,\n"
+        "  \"selected_page_index\": %zu,\n"
+        "  \"native_lower_status\": \"%s\",\n"
+        "  \"source_document_graph_released\": true,\n"
+        "  \"detached_ir_pages\": %zu,\n"
+        "  \"detached_ir_operations\": %zu,\n"
+        "  \"detached_ir_clips\": %zu,\n"
+        "  \"detached_ir_graphics_states\": %zu,\n"
+        "  \"original_pdfium_pixel_oracle\": \"not_run\",\n"
+        "  \"native_raster\": \"not_run\",\n"
+        "  \"external_wstar_pixel_supported_count\": 0,\n"
+        "  \"generated_fixture_count\": 0\n"
+        "}\n",page_index,
+        expect_lowered?"lowered":"unsupported",
+        page_count,op_count,clip_count,state_count);
+    CHECK(std::ferror(out)==0 && std::fclose(out)==0);
+    CHECK(std::rename(staged.c_str(),report_path)==0);
+    std::fprintf(stderr,
+        "[source-preflight] page=%zu typed=%s raster=not_run "
+        "pdfium_pixel=not_run wstar_positive=0\n",
+        page_index,expect_lowered?"lowered":"unsupported");
+    return EXIT_SUCCESS;
+}
+
 }
 
 struct source_corpus_family {
@@ -1806,6 +1902,12 @@ static void publish_corpus_report(const char *destination,
 
 int main(int argc,char **argv)
 {
+    if(argc==9 &&
+       std::strcmp(argv[1],"--preflight-original-pdf")==0 &&
+       std::strcmp(argv[3],"--page-index")==0 &&
+       std::strcmp(argv[5],"--expect-status")==0 &&
+       std::strcmp(argv[7],"--preflight-report")==0)
+        return typed_original_preflight(argv[2],argv[4],argv[6],argv[8]);
     if(argc==2 && std::strcmp(argv[1],"--page-group-admission")==0){
         test_page_group_admission();
         return EXIT_SUCCESS;
