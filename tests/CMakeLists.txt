@@ -1,3 +1,12 @@
+# Compile and link rules without any backend or SDK library dependency.
+add_executable(quantapdf_test_validation
+  test_validation.c ../src/validation/validation.c)
+target_include_directories(quantapdf_test_validation PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_validation PRIVATE c_std_11)
+add_test(NAME quantapdf.validation COMMAND quantapdf_test_validation)
+set_tests_properties(quantapdf.validation PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_test_resource_registry
   test_resource_registry.c ../src/resource/resource_registry.c)
 target_include_directories(quantapdf_test_resource_registry PRIVATE

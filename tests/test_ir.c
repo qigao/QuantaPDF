@@ -99,6 +99,14 @@ static int test_model_outlives_builder(void)
     quantapdf_drop_composer(composer);
     CHECK(finalizations == 1);
     CHECK(ir.page_count == 1 && ir.operation_count == 2 && ir.resources.image_count == 1);
+    /* Writer admission rejects an inconsistent model without publishing bytes.
+     * Restoring the reference must leave deterministic export unchanged. */
+    ir.operations[0].page_index = ir.page_count;
+    first = (unsigned char *)(uintptr_t)1;
+    first_size = SIZE_MAX;
+    CHECK(quantapdf_qpdf_compose(&ir, &first, &first_size) == QUANTAPDF_ERROR_BACKEND);
+    CHECK(first == NULL && first_size == 0);
+    ir.operations[0].page_index = 0;
     CHECK(quantapdf_qpdf_compose(&ir, &first, &first_size) == QUANTAPDF_OK);
     CHECK(quantapdf_qpdf_compose(&ir, &second, &second_size) == QUANTAPDF_OK);
     CHECK(first_size == expected_size && second_size == first_size);

@@ -1,3 +1,4 @@
+#include "validation/validation.h"
 #include "qpdf_document.h"
 #include "qpdf_edit.h"
 #include "jpeg_encoder.h"
@@ -816,17 +817,7 @@ static quantapdf_status quantapdf_qpdf_classify_action(
     if (!type.isName())
         return QUANTAPDF_ERROR_FORMAT;
     std::string const name = type.getName();
-    if (name == "/JavaScript") {
-        *finding = QUANTAPDF_AUDIT_JAVASCRIPT_ACTION;
-    } else if (name == "/Launch") {
-        *finding = QUANTAPDF_AUDIT_LAUNCH_ACTION;
-    } else if (name == "/URI" || name == "/GoToR" ||
-               name == "/GoToE" || name == "/SubmitForm" ||
-               name == "/ImportData") {
-        *finding = QUANTAPDF_AUDIT_EXTERNAL_ACTION;
-    } else if (name != "/GoTo") {
-        *finding = QUANTAPDF_AUDIT_OTHER_ACTION;
-    }
+    *finding = quantapdf_validation_action_finding(name.data(), name.size());
     return QUANTAPDF_OK;
 }
 
@@ -1197,9 +1188,7 @@ static quantapdf_status quantapdf_qpdf_audit_catalog_signatures(
 
 static bool quantapdf_qpdf_audit_rich_media(std::string const& subtype)
 {
-    return subtype == "/RichMedia" || subtype == "/3D" ||
-        subtype == "/Movie" || subtype == "/Sound" ||
-        subtype == "/Screen";
+    return quantapdf_validation_rich_media(subtype.data(), subtype.size()) != 0;
 }
 
 static quantapdf_status quantapdf_qpdf_audit_graph(
@@ -4855,9 +4844,11 @@ extern "C" quantapdf_status quantapdf_qpdf_recompress_images(
             return status;
         if (pdf->anyWarnings())
             return QUANTAPDF_ERROR_FORMAT;
-        if ((findings & (QUANTAPDF_AUDIT_SIGNATURE |
-                         QUANTAPDF_AUDIT_ENCRYPTION)) != 0)
-            return QUANTAPDF_ERROR_UNSUPPORTED;
+        quantapdf_validation_report report{};
+        status = quantapdf_validate_security(findings,
+            QUANTAPDF_AUDIT_SIGNATURE | QUANTAPDF_AUDIT_ENCRYPTION, &report);
+        if (status != QUANTAPDF_OK)
+            return status;
 
         std::vector<QPDFObjectHandle> images;
         status = quantapdf_qpdf_discover_images(
@@ -5042,9 +5033,11 @@ extern "C" quantapdf_status quantapdf_qpdf_sanitize(
             return status;
         if (pdf->anyWarnings())
             return QUANTAPDF_ERROR_FORMAT;
-        if ((findings & (QUANTAPDF_AUDIT_SIGNATURE |
-                         QUANTAPDF_AUDIT_ENCRYPTION)) != 0)
-            return QUANTAPDF_ERROR_UNSUPPORTED;
+        quantapdf_validation_report report{};
+        status = quantapdf_validate_security(findings,
+            QUANTAPDF_AUDIT_SIGNATURE | QUANTAPDF_AUDIT_ENCRYPTION, &report);
+        if (status != QUANTAPDF_OK)
+            return status;
 
         status = quantapdf_qpdf_preflight_aliases(
             *pdf, document->source_size, flags);
@@ -5065,8 +5058,9 @@ extern "C" quantapdf_status quantapdf_qpdf_sanitize(
             return status;
         if (pdf->anyWarnings())
             return QUANTAPDF_ERROR_FORMAT;
-        if ((findings & flags) != 0)
-            return QUANTAPDF_ERROR_UNSUPPORTED;
+        status = quantapdf_validate_security(findings, flags, &report);
+        if (status != QUANTAPDF_OK)
+            return status;
 
         status = quantapdf_qpdf_write_memory(*pdf, out_data, out_size);
         if (status != QUANTAPDF_OK)
@@ -7514,8 +7508,10 @@ quantapdf_status quantapdf_qpdf_security_signature_preflight(
         pdf, source_size, &findings);
     if (status != QUANTAPDF_OK)
         return status;
-    if ((findings & QUANTAPDF_AUDIT_SIGNATURE) != 0u)
-        return QUANTAPDF_ERROR_UNSUPPORTED;
+    quantapdf_validation_report report{};
+    status = quantapdf_validate_security(findings, QUANTAPDF_AUDIT_SIGNATURE, &report);
+    if (status != QUANTAPDF_OK)
+        return status;
 
     for (QPDFObjectHandle object : pdf.getAllObjects()) {
         if (object.isStream())

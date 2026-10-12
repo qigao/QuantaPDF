@@ -1,3 +1,4 @@
+#include "validation/validation.h"
 #include "qpdf_composer.h"
 
 #include "ir/ir.h"
@@ -1963,6 +1964,11 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
     *out_size = 0u;
     if (ir == nullptr)
         return QUANTAPDF_ERROR_ARGUMENT;
+
+    quantapdf_validation_report report{};
+    quantapdf_status const validation = quantapdf_validate_ir(ir, &report);
+    if (validation != QUANTAPDF_OK)
+        return validation;
 
     try {
         QPDF pdf;
