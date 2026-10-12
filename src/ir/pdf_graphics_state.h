@@ -10,6 +10,9 @@ typedef struct quantapdf_pdf_graphics_state {
     double stroke_rgb[3];
     double fill_rgb[3];
     double line_width;
+    double miter_limit, dash_phase;
+    size_t dash_offset, dash_count; /* into the owning Content IR pool */
+    int line_cap, line_join; /* PDF J/j values 0..2 */
     size_t clip_id; /* 0 = full page, else 1-based immutable clip chain */
 } quantapdf_pdf_graphics_state;
 

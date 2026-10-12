@@ -7,8 +7,10 @@
 
 static quantapdf_pdf_graphics_state initial_state(void)
 {
-    quantapdf_pdf_graphics_state value = {{1., 0., 0., 1., 0., 0.},
-        {0., 0., 0.}, {0., 0., 0.}, 1., 0};
+    quantapdf_pdf_graphics_state value = {0};
+    value.ctm[0] = value.ctm[3] = 1.0;
+    value.line_width = 1.0;
+    value.miter_limit = 10.0;
     return value;
 }
 
@@ -84,6 +86,7 @@ quantapdf_status quantapdf_pdf_graphics_evaluate(
     if (out_graphics != NULL) *out_graphics = NULL;
     if (out_graphics == NULL || source == NULL || limits == NULL ||
         (source->count != 0 && source->ops == NULL) ||
+        (source->dash_value_count != 0 && source->dash_values == NULL) ||
         limits->max_graphics_depth == 0 || limits->max_operators == 0 ||
         source->count > limits->max_operators) return QUANTAPDF_ERROR_ARGUMENT;
     ir = (quantapdf_pdf_graphics_ir *)calloc(1, sizeof(*ir));
@@ -161,6 +164,46 @@ quantapdf_status quantapdf_pdf_graphics_evaluate(
         case QUANTAPDF_PDF_OP_LINE_WIDTH:
             if (a[0] < 0.0) { status = QUANTAPDF_ERROR_FORMAT; goto fail; }
             current.line_width = a[0];
+            break;
+        case QUANTAPDF_PDF_OP_LINE_CAP:
+        case QUANTAPDF_PDF_OP_LINE_JOIN:
+            if (op->argument_count != 1 ||
+                (a[0] != 0.0 && a[0] != 1.0 && a[0] != 2.0)) {
+                status = QUANTAPDF_ERROR_FORMAT; goto fail;
+            }
+            if (op->opcode == QUANTAPDF_PDF_OP_LINE_CAP)
+                current.line_cap = (int)a[0];
+            else current.line_join = (int)a[0];
+            break;
+        case QUANTAPDF_PDF_OP_MITER_LIMIT:
+            if (op->argument_count != 1 || a[0] < 1.0) {
+                status = QUANTAPDF_ERROR_FORMAT; goto fail;
+            }
+            current.miter_limit = a[0];
+            break;
+        case QUANTAPDF_PDF_OP_DASH:
+            if (op->argument_count != 1 || a[0] < 0.0 ||
+                op->dash_count > QUANTAPDF_PDF_MAX_DASH_ITEMS ||
+                op->dash_offset > source->dash_value_count ||
+                op->dash_count > source->dash_value_count - op->dash_offset) {
+                status = QUANTAPDF_ERROR_FORMAT; goto fail;
+            }
+            if (op->dash_count != 0) {
+                int any_positive = 0;
+                for (size_t j = 0; j < op->dash_count; ++j) {
+                    double length = source->dash_values[op->dash_offset + j];
+                    if (!isfinite(length) || length < 0.0) {
+                        status = QUANTAPDF_ERROR_FORMAT; goto fail;
+                    }
+                    if (length > 0.0) any_positive = 1;
+                }
+                if (!any_positive) {
+                    status = QUANTAPDF_ERROR_FORMAT; goto fail;
+                }
+            }
+            current.dash_offset = op->dash_offset;
+            current.dash_count = op->dash_count;
+            current.dash_phase = op->dash_count != 0 ? a[0] : 0.0;
             break;
         case QUANTAPDF_PDF_OP_STROKE_GRAY:
         case QUANTAPDF_PDF_OP_FILL_GRAY: {

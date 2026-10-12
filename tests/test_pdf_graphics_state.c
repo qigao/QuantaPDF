@@ -96,8 +96,36 @@ static void test_empty(void)
     CHECK(r==NULL);
 }
 
+
+static void test_stroke_style_graphics_state(void)
+{
+    const char *source =
+        "q 2 J 1 j 8 M [3 1 0 2] 1.25 d "
+        "0 0 m 60 0 l S Q "
+        "0 0 m 30 0 l S";
+    quantapdf_pdf_content_limits budget = limits();
+    quantapdf_pdf_content_ir *tape = NULL;
+    quantapdf_pdf_graphics_ir *ir = NULL;
+    CHECK(quantapdf_pdf_content_parse((const unsigned char *)source,
+        strlen(source), &budget, &tape) == QUANTAPDF_OK);
+    CHECK(quantapdf_pdf_graphics_evaluate(tape, &budget, &ir) == QUANTAPDF_OK);
+    CHECK(ir->path_count == 2 && ir->paths[0].graphics.line_cap == 2);
+    CHECK(ir->paths[0].graphics.line_join == 1 &&
+        ir->paths[0].graphics.miter_limit == 8.0);
+    CHECK(ir->paths[0].graphics.dash_count == 4 &&
+        ir->paths[0].graphics.dash_phase == 1.25);
+    CHECK(tape->dash_values[ir->paths[0].graphics.dash_offset + 2] == 0);
+    CHECK(ir->paths[1].graphics.line_cap == 0 &&
+        ir->paths[1].graphics.line_join == 0 &&
+        ir->paths[1].graphics.miter_limit == 10.0 &&
+        ir->paths[1].graphics.dash_count == 0);
+    quantapdf_pdf_graphics_dispose(ir);
+    quantapdf_pdf_content_dispose(tape);
+}
+
 int main(void)
 {
+    test_stroke_style_graphics_state();
     test_ctm_and_saved_state();
     test_clip_deferred_and_restored();
     test_fail_closed();

@@ -112,9 +112,16 @@ static quantapdf_status paint_options(
     memset(options, 0, sizeof(*options));
     options->struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     options->fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
-    options->line_cap = QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
-    options->line_join = QUANTAPDF_COMPOSER_LINE_JOIN_MITER;
-    options->miter_limit = 10.0f;
+    if (path->graphics.line_cap < 0 || path->graphics.line_cap > 2 ||
+        path->graphics.line_join < 0 || path->graphics.line_join > 2 ||
+        !isfinite(path->graphics.miter_limit) ||
+        path->graphics.miter_limit < 1.0)
+        return QUANTAPDF_ERROR_FORMAT;
+    options->line_cap = (quantapdf_composer_line_cap)path->graphics.line_cap;
+    options->line_join = (quantapdf_composer_line_join)path->graphics.line_join;
+    options->miter_limit = (float)path->graphics.miter_limit;
+    if (!decimal4(path->graphics.miter_limit, options->miter_limit))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
     options->stroke_argb = UINT32_C(0xff000000);
     options->fill_argb = UINT32_C(0xff000000);
     switch (opcode) {
@@ -150,6 +157,43 @@ static quantapdf_status paint_options(
         if (status != QUANTAPDF_OK) return status;
     }
     return QUANTAPDF_OK;
+}
+
+/* Optional stroke dash is owned by the Composer operation, independently of
+ * the Content IR's detached numeric array pool. Empty d array means solid,
+ * and a fill-only paint never emits a stroke dash. */
+static quantapdf_status lower_dash(const quantapdf_pdf_content_ir *content,
+    const quantapdf_pdf_path_record *source,
+    quantapdf_composer_path_operation *operation)
+{
+    const quantapdf_pdf_graphics_state *graphics = &source->graphics;
+    float *lengths;
+    size_t n = graphics->dash_count;
+    int any_positive = 0;
+    if (!operation->options.stroke || n == 0) return QUANTAPDF_OK;
+    if (n > QUANTAPDF_PDF_MAX_DASH_ITEMS ||
+        graphics->dash_offset > content->dash_value_count ||
+        n > content->dash_value_count - graphics->dash_offset ||
+        content->dash_values == NULL)
+        return QUANTAPDF_ERROR_FORMAT;
+    if (!isfinite(graphics->dash_phase) || graphics->dash_phase < 0.0)
+        return QUANTAPDF_ERROR_FORMAT;
+    operation->dash_phase = (float)graphics->dash_phase;
+    if (!decimal4(graphics->dash_phase, operation->dash_phase))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (n > SIZE_MAX / sizeof(float)) return QUANTAPDF_ERROR_UNSUPPORTED;
+    lengths = (float *)malloc(n * sizeof(*lengths));
+    if (lengths == NULL) return QUANTAPDF_ERROR_NOMEM;
+    operation->dash_lengths = lengths;
+    operation->dash_count = n;
+    for (size_t i = 0; i < n; ++i) {
+        double v = content->dash_values[graphics->dash_offset + i];
+        if (!isfinite(v) || v < 0.0) return QUANTAPDF_ERROR_FORMAT;
+        if (v > 0.0) any_positive = 1;
+        lengths[i] = (float)v;
+        if (!decimal4(v, lengths[i])) return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    return any_positive ? QUANTAPDF_OK : QUANTAPDF_ERROR_FORMAT;
 }
 
 static int closing_paint(quantapdf_pdf_content_opcode code)
@@ -499,6 +543,8 @@ quantapdf_status quantapdf_pdf_path_lower_to_composer_mapped(
             if (status != QUANTAPDF_OK) goto fail;
             command_total += op->value.path.command_count;
             ++temporary.operation_count; /* No partially-owned record escapes. */
+            status = lower_dash(content, path, &op->value.path);
+            if (status != QUANTAPDF_OK) goto fail;
             if (prior_clip != 0) {
                 status = intern_active_clip_state(&temporary.resources,
                     prior_clip, &op->graphics_state_id);
