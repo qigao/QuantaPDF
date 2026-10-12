@@ -371,16 +371,20 @@ static quantapdf_status lower_commands(
      * visible paint operation. Keep the original source PDF for the oracle. */
     if (clip != NULL && for_clip &&
         clip->clip_operator == path->path_first_operator) {
-        if (available < 5u) return QUANTAPDF_ERROR_UNSUPPORTED;
-        commands = (quantapdf_composer_path_command *)calloc(5u, sizeof(*commands));
+        /* Three collinear points give the strict raster admission bounded
+         * nonzero edges, but winding remains zero under any nonsingular
+         * affine transform. This is an internal empty-area encoding. */
+        if (available < 4u) return QUANTAPDF_ERROR_UNSUPPORTED;
+        commands = (quantapdf_composer_path_command *)calloc(4u, sizeof(*commands));
         if (commands == NULL) return QUANTAPDF_ERROR_NOMEM;
         commands[0].kind = QUANTAPDF_COMPOSER_PATH_MOVE_TO;
         commands[1].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
+        commands[1].point1.x = 1.0f;
         commands[2].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
-        commands[3].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
-        commands[4].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
+        commands[2].point1.x = 2.0f;
+        commands[3].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
         *out_commands = commands;
-        *out_count = 5u;
+        *out_count = 4u;
         return QUANTAPDF_OK;
     }
     status = count_commands(content, &geometry, available, &base_count);
