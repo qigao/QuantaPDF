@@ -268,8 +268,8 @@ The publisher's original [clip_path.pdf](https://github.com/chromium/pdfium/blob
 is independently authored by PDFium, not generated or rewritten by QuantaPDF.
 The pinned upstream revision is
 `a84323421e94f484faca52dd9d027934eba42ab8`.
-Its exact raw length is **510 bytes**, SHA-256
-`ee3ee39d47db0022f8042c9629f4b8d69d99c4ce226532f9f16c867117b3050a`,
+Its exact raw length is **514 bytes**, SHA-256
+`6674dbd092ef8ae55b6ab1cda6a8b966019fbf22f7556291253853303072288b`,
 and matching upstream/vendored Git blob SHA-1
 `8d27bcb6395965ae9c6d7fbd91e802d786a84ab7`.
 Document-specific source and BSD-3-Clause attribution review are recorded
