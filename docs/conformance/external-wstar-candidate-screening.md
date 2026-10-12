@@ -43,11 +43,14 @@ raw-byte SHA-256 and document-level redistribution review.
 | `testing/resources/text_font.pdf` | `78f3bcc784a08d0abf0948d78c52881fafca6d49` | `W* n` followed by font-dependent `BT/TJ/ET` text. |
 | `testing/resources/pixel/bug_925736.pdf` | `429d53a477fc436692a00c08a2a7b4e867e1cce3` | Original uncompressed `W* n`, followed by `BT`, font-dependent `TJ`, and `ET` text. It remains outside the current Path-only subset. |
 
-All sources above remain **unadmitted**. Do not commit them to the
-external corpus, add a permissive license tag by inference, or increment
-`native_path_clip_supported_count` / a W* counter based on a parsed
-`W*` token alone. Generated fixtures and original-source evidence are
-separate populations.
+Only the precisely pinned, document-license-reviewed
+`bug_1574.pdf` is admitted to the external corpus under
+[#264](https://github.com/qigao/QuantaPDF/issues/264), exclusively as
+an **UNSUPPORTED late-Text negative**. All other sources in this table
+remain unadmitted. Never strip unsupported operators, infer
+redistribution rights, or increment a native W* pixel-positive counter
+merely because a token `W*` appears. Generated and external evidence
+remain separate populations.
 
 ## Independent fpdf2 published PDF screening (compressed streams decoded)
 

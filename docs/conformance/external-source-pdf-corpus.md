@@ -79,9 +79,11 @@ The standalone semantic report records
 compatibility success and not complete PDF compatibility.** The required
 future first external painted/Clip path pixel-oracle remains under #233.
 
-The repository includes two externally sourced CC0 PDFs:
-one strict text `UNSUPPORTED` example and one blank-page positive baseline,
-plus one separately reviewed PDFium opaque-PATH test asset.
+At the first three-document milestone the corpus contained two CC0 PDFs
+(one strict text rejection and one blank positive), plus the first
+independently reviewed PDFium opaque-PATH test asset. The **current**
+five-document totals, including a W Clip positive and a W* late-Text
+negative, are recorded in the sections below.
 The generated 14 families / 36 PDF executions are unaffected, and no
 external document is generated or downloaded in CI.
 
@@ -129,9 +131,11 @@ rejection and blank positive reports. The three distinct external source
 documents, 14 generated test families, and 36 generated source-PDF
 executions are never merged into one compatibility percentage.
 
-**Remaining**: one independently sourced PDF with actual W/W* Clip and
-paint operation(s), original-source PDFium pixel parity and bounded
-clip semantics. This remains [#254](https://github.com/qigao/QuantaPDF/issues/254).
+**Historical next milestone:** [#254](https://github.com/qigao/QuantaPDF/issues/254)
+subsequently qualified an unchanged independent W Clip + stroke source
+with original-PDFium pixel parity. Its W* even-odd successor remains
+[#262](https://github.com/qigao/QuantaPDF/issues/262) and is **not**
+qualified by the W-only result.
 
 ## Admission ledger and offline tool
 
@@ -213,10 +217,10 @@ render-compatibility qualification.
 ## Cross-report conformance reconciliation
 
 The existing three-platform CI additionally invokes
-`tools/qualification/reconcile_external_corpus.py` **after** both external
-source CTests. This gate verifies the separate offline admission report
-against actual original-PDFium/native semantic JSON for both pinned
-documents. A manifest's expected capability, PDFium's successful rendering
+`tools/qualification/reconcile_external_corpus.py` **after** all
+registered external source CTests. This gate verifies the separate offline
+admission report against original-PDFium/native semantic JSON for the
+five pinned, independently reviewed original documents. A manifest's expected capability, PDFium's successful rendering
 alone, or merely having a JSON file can **never** increment a native
 Path/Clip pass counter. It fails on missing/swapped IDs, altered byte
 admission status, missing test success, nonzero blank pixel error,
@@ -224,11 +228,12 @@ unjustified painted Path/Clip counts, or leakage from the 14/36
 QPDF-generated fixture totals.
 
 The published artifact `external-corpus-reconciled-{linux,macos,windows}`
-currently records two admitted documents, one expected text rejection,
-one independently rendered blank page, and **zero** external native painted
-Path/Clip matches. This reconciled evidence is the denominator and baseline
-for #254; it does not replace future true painted Path/Clip acceptance and
-original-source PDFium pixel parity.
+currently records **five** admitted originals: two strict text-rejection
+sources (one containing actual W* and late Text), one blank native-positive,
+one opaque PATH native-positive and one **W nonzero** clipped stroke
+native-positive. It verifies **zero** external W* even-odd native
+pixel-positives. The independent generated 14/36 suite stays separate.
+Only future original-source W* + opaque Path pixel evidence can advance #262.
 
 ## Selected page transparency Group admission (#258)
 
