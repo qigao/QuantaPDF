@@ -87,6 +87,30 @@ static void test_model(void)
     quantapdf_graph_drop(g);
 }
 
+static void test_source(void)
+{
+    quantapdf_graph *g = build();
+    quantapdf_graph_source source = {"2.0", 1};
+    quantapdf_validation_report report;
+    quantapdf_local_id page = 6;
+    quantapdf_graph_model bad;
+    source.pdf_version[3] = 'X';
+    CHECK(quantapdf_graph_set_source(g, &source) == QUANTAPDF_ERROR_ARGUMENT);
+    source.pdf_version[3] = 0; source.encrypted = 2;
+    CHECK(quantapdf_graph_set_source(g, &source) == QUANTAPDF_ERROR_ARGUMENT);
+    source.encrypted = 1;
+    OK(quantapdf_graph_set_source(g, &source));
+    source.pdf_version[0] = '1';
+    OK(quantapdf_graph_finish(g, 1, 2, &page, 1, &report));
+    CHECK(strcmp(quantapdf_graph_view(g)->source.pdf_version, "2.0") == 0);
+    CHECK(quantapdf_graph_view(g)->source.encrypted == 1);
+    CHECK(quantapdf_graph_set_source(g, &source) == QUANTAPDF_ERROR_STATE);
+    bad = *quantapdf_graph_view(g); bad.source.pdf_version[1] = 'X';
+    CHECK(quantapdf_validate_graph(&bad, &report) == QUANTAPDF_ERROR_BACKEND);
+    CHECK(report.rule == QUANTAPDF_VALIDATION_VALUE && report.subject == QUANTAPDF_VALIDATION_MODEL);
+    quantapdf_graph_drop(g);
+}
+
 static void test_report_storage_independence(void)
 {
     quantapdf_graph *graphs[2] = {build(), build()};
@@ -232,4 +256,4 @@ static void test_dictionary_order(void)
     }
 }
 
-int main(void) { test_model(); test_report_storage_independence(); test_limits(); test_scalars(); test_dictionary_order(); return EXIT_SUCCESS; }
+int main(void) { test_model(); test_source(); test_report_storage_independence(); test_limits(); test_scalars(); test_dictionary_order(); return EXIT_SUCCESS; }

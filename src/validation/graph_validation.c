@@ -57,6 +57,13 @@ quantapdf_status quantapdf_validate_graph(const quantapdf_graph_model *m, quanta
     const quantapdf_graph_edge *root;
     if (report != NULL) memset(report, 0, sizeof(*report));
     if (m == NULL || report == NULL) return QUANTAPDF_ERROR_ARGUMENT;
+    VALUE((m->source.encrypted == 0 || m->source.encrypted == 1) &&
+        ((m->source.pdf_version[0] == 0 && m->source.pdf_version[1] == 0 &&
+          m->source.pdf_version[2] == 0 && m->source.pdf_version[3] == 0) ||
+         (m->source.pdf_version[0] >= '1' && m->source.pdf_version[0] <= '9' &&
+          m->source.pdf_version[1] == '.' && m->source.pdf_version[2] >= '0' &&
+          m->source.pdf_version[2] <= '9' && m->source.pdf_version[3] == 0)),
+        QUANTAPDF_VALIDATION_MODEL, 0);
     STORAGE(m->node_count <= UINT32_MAX && array(m->nodes, m->node_count, sizeof(*m->nodes)), QUANTAPDF_VALIDATION_GRAPH_NODE, 0);
     STORAGE(array(m->edges, m->edge_count, sizeof(*m->edges)), QUANTAPDF_VALIDATION_GRAPH_EDGE, 0);
     STORAGE(array(m->bytes, m->byte_count, 1), QUANTAPDF_VALIDATION_MODEL, 0);

@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 #include <algorithm>
+#include <cstring>
 #include <vector>
 
 namespace {
@@ -181,6 +182,12 @@ quantapdf_status quantapdf_qpdf_import_graph(
     std::unique_ptr<quantapdf_graph, decltype(&quantapdf_graph_drop)> graph(raw, quantapdf_graph_drop);
     try {
         if (pdf.anyWarnings()) return QUANTAPDF_ERROR_FORMAT;
+        auto version = pdf.getPDFVersion();
+        if (version.size() != 3) return QUANTAPDF_ERROR_UNSUPPORTED;
+        quantapdf_graph_source source{};
+        std::memcpy(source.pdf_version, version.data(), 3);
+        source.encrypted = pdf.isEncrypted() ? 1 : 0;
+        checked(quantapdf_graph_set_source(graph.get(), &source));
         quantapdf_validation_report report{};
         importer(graph.get(), *limits).run(pdf, &report);
         *out_graph = graph.release();

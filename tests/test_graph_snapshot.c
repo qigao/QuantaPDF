@@ -26,6 +26,7 @@ static void equal_models(const quantapdf_graph_model *a, const quantapdf_graph_m
     CHECK(a->node_count == b->node_count && a->edge_count == b->edge_count && a->byte_count == b->byte_count);
     CHECK(a->trailer == b->trailer && a->catalog == b->catalog && a->page_count == b->page_count && a->page_offset == b->page_offset);
     CHECK(memcmp(a->bytes, b->bytes, a->byte_count) == 0);
+    CHECK(memcmp(a->source.pdf_version, b->source.pdf_version, 4) == 0 && a->source.encrypted == b->source.encrypted);
     for (i = 0; i < a->node_count; ++i) {
         const quantapdf_graph_node *x = &a->nodes[i], *y = &b->nodes[i];
         CHECK(x->kind == y->kind && x->indirect == y->indirect && x->integer == y->integer);
@@ -152,6 +153,12 @@ static void test_commit_detached_metadata(void)
     quantapdf_context *context = NULL;
     quantapdf_document *document = NULL;
     quantapdf_graph_snapshot *base = NULL, *a = NULL, *b = NULL, *failed;
+    quantapdf_output *output = NULL, *second = NULL;
+    quantapdf_document *reopened = NULL;
+    quantapdf_graph_snapshot *roundtrip = NULL;
+    quantapdf_graph_write_limits write_limits = {262144, 128, 100000};
+    const unsigned char *written, *repeated;
+    size_t written_size, repeated_size;
     quantapdf_graph_limits budget = limits(), small;
     quantapdf_graph_change_set changes = {0};
     quantapdf_graph_replacement replacement = {0};
@@ -206,7 +213,30 @@ static void test_commit_detached_metadata(void)
     CHECK(model->bytes[title->data_offset] == 'N' && model->bytes[title->data_offset + 1] == 0);
     CHECK(model->bytes[title->data_offset + 2] == 0xff);
     OK(quantapdf_validate_graph(model, &report));
-    quantapdf_graph_snapshot_drop(b); CHECK(finalized == 1);
+    context->test_fail_allocation = 1;
+    CHECK(quantapdf_graph_snapshot_write(b, &write_limits, &output) == QUANTAPDF_ERROR_NOMEM);
+    CHECK(output == NULL && context->references == 1);
+    write_limits.max_output_bytes = 1;
+    CHECK(quantapdf_graph_snapshot_write(b, &write_limits, &output) == QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(output == NULL && context->references == 1);
+    write_limits.max_output_bytes = 262144;
+    OK(quantapdf_graph_snapshot_write(b, &write_limits, &output));
+    OK(quantapdf_graph_snapshot_write(b, &write_limits, &second));
+    OK(quantapdf_output_data(output, &written, &written_size));
+    OK(quantapdf_output_data(second, &repeated, &repeated_size));
+    CHECK(written_size == repeated_size && memcmp(written, repeated, written_size) == 0);
+    quantapdf_drop_output(second);
+    quantapdf_graph_snapshot_drop(b); CHECK(finalized == 0);
+    OK(quantapdf_output_save_file(output, "graph-writer-output.pdf"));
+    OK(quantapdf_open("graph-writer-output.pdf", NULL, &reopened));
+    OK(quantapdf_document_capture_graph(reopened, &budget, &roundtrip));
+    model = quantapdf_graph_view(roundtrip->graph);
+    title = quantapdf_graph_node_at(model, field(model, field(model, model->trailer, "/Info"), "/Title"));
+    CHECK(title->data_size == sizeof(payload) && model->bytes[title->data_offset] == 'N' &&
+        model->bytes[title->data_offset + 1] == 0 && model->bytes[title->data_offset + 2] == 0xff);
+    quantapdf_graph_snapshot_drop(roundtrip); quantapdf_close(reopened);
+    CHECK(remove("graph-writer-output.pdf") == 0);
+    quantapdf_drop_output(output); CHECK(finalized == 1);
 }
 
 int main(void)

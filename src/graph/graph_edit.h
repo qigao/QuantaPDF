@@ -47,6 +47,7 @@ extern "C" {
 /* Copies and seals a new independently owned version. The base is immutable;
  * it must remain live during the call only. Sorted unique replacements preserve
  * IDs; additions use base.node_count + index + 1, with no slot recycling.
+ * Source header version and encryption provenance are inherited unchanged.
  * Storage includes provenance and conservatively charges shared lineage data.
  * Page-tree/index agreement is checked before publication; max_depth counts
  * /Pages and /Page nodes on the active path, including the root and leaf.

@@ -135,8 +135,11 @@ snapshot retains the source snapshot's context and owns the new sealed graph.
 Tests must use real imported PDF metadata as well as provider-free synthetic
 models, drop the source snapshot/document/context, and inspect the surviving
 committed graph. This still does not switch public metadata/form/annotation
-authority. Graph-to-PDF writing and equivalent feature behavior remain required
-before that switch, as do graph-to-IR mappings for #145/#156.
+authority. The subsequent private
+[graph writer](2026-10-11-quantapdf-graph-writer-design.md) exercises deterministic
+output, committed metadata and page order. Complete encrypted/signed output
+policies and equivalent feature behavior remain required before that switch,
+as do graph-to-IR mappings for #145/#156.
 
 ## Alternatives, migration and verification
 

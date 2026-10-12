@@ -1,6 +1,7 @@
 #include "document_backend.h"
 #include "pdfium_document.h"
 #include "qpdf_document.h"
+#include "qpdf_graph_write.h"
 #include "qpdf_edit.h"
 
 #include <stdlib.h>
@@ -493,6 +494,7 @@ static const quantapdf_backend_ops builtin_ops = {
     .edit_begin = builtin_edit_begin,
     .edit_ops = &builtin_edit_ops,
     .capture_graph = builtin_capture_graph,
+    .write_graph = quantapdf_qpdf_write_graph,
 };
 
 const quantapdf_backend_ops *quantapdf_builtin_backend_ops(void)

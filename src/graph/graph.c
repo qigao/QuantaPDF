@@ -40,6 +40,20 @@ static int valid_limits(const quantapdf_graph_limits *limits)
         limits->max_depth != 0;
 }
 
+quantapdf_status quantapdf_graph_set_source(quantapdf_graph *g,
+    const quantapdf_graph_source *source)
+{
+    if (g == NULL || source == NULL) return QUANTAPDF_ERROR_ARGUMENT;
+    if (g->sealed) return QUANTAPDF_ERROR_STATE;
+    if (source->pdf_version[0] < '1' || source->pdf_version[0] > '9' ||
+        source->pdf_version[1] != '.' || source->pdf_version[2] < '0' ||
+        source->pdf_version[2] > '9' || source->pdf_version[3] != 0 ||
+        (source->encrypted != 0 && source->encrypted != 1))
+        return QUANTAPDF_ERROR_ARGUMENT;
+    g->model.source = *source;
+    return QUANTAPDF_OK;
+}
+
 static quantapdf_status grow(quantapdf_graph *g, void *old_data, size_t *capacity,
     size_t needed, size_t maximum, size_t element, void **out_data)
 {
@@ -382,6 +396,7 @@ static quantapdf_status create_candidate(const quantapdf_graph *base,
     g->limits = *limits;
     g->storage = sizeof(*g) + sizeof(*g->lineage);
     count = base->origin_count + (base->model.node_count > base->inherited_count ? 1u : 0u);
+    g->model.source = base->model.source;
     if (count > SIZE_MAX / sizeof(*g->origins)) {
         quantapdf_graph_drop(g);
         return QUANTAPDF_ERROR_UNSUPPORTED;
