@@ -45,7 +45,7 @@ quantapdf_status quantapdf_ir_raster_scoped_operations_v1(
     memset(out_image, 0, sizeof(*out_image));
     if (ir == NULL || limits == NULL || ir->pages == NULL ||
         ir->operations == NULL || ir->page_count != 1u || page_index != 0u ||
-        ir->operation_count < 2u ||
+        ir->operation_count == 0u ||
         ir->operation_count > QUANTAPDF_IR_SCOPED_OPERATIONS_V0_MAX_OPERATIONS ||
         ir->operation_count > limits->max_operations ||
         limits->max_pixels == 0u || limits->max_pixels > SIZE_MAX / 4u ||
