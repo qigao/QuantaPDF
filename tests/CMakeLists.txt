@@ -1273,6 +1273,19 @@ add_test(NAME quantapdf.product_conformance
     "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-non-pdf.txt")
 set_tests_properties(quantapdf.product_conformance PROPERTIES TIMEOUT 30)
 
+# Must opt into the same runtime loader search path as the existing CTests:
+# the product test is registered after the earlier directory TESTS enumeration.
+if(WIN32)
+  set_property(TEST quantapdf.product_conformance PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.product_conformance PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.product_conformance PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
 set(_qp_conformance_tests
   quantapdf.product_conformance
   quantapdf.version
