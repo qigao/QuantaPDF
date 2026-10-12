@@ -4,6 +4,8 @@ target_sources(quantapdf_backend PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/identity.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/graph.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/graph_query.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/graph_extgstate.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/graph_extgstate.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/graph_page_geometry.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/graph_page_geometry.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/graph_query.h"

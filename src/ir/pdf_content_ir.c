@@ -37,7 +37,8 @@ static const operator_spec vocabulary[] = {
     {"J", QUANTAPDF_PDF_OP_LINE_CAP, 1},
     {"j", QUANTAPDF_PDF_OP_LINE_JOIN, 1},
     {"M", QUANTAPDF_PDF_OP_MITER_LIMIT, 1},
-    {"d", QUANTAPDF_PDF_OP_DASH, 1}
+    {"d", QUANTAPDF_PDF_OP_DASH, 1},
+    {"gs", QUANTAPDF_PDF_OP_EXT_GSTATE, 0}
 };
 
 static int is_white(unsigned char c)
@@ -157,6 +158,57 @@ static quantapdf_status append_dash_values(quantapdf_pdf_content_ir *ir,
     return QUANTAPDF_OK;
 }
 
+/* Byte-opaque PDF names need #xx decoding in general. Admit only a small
+ * canonical 7-bit subset with no escapes, never guess a resource identity.
+ * Resource dictionary keys use the same slash-prefixed spelling. */
+static quantapdf_status read_extgstate_name(const unsigned char *data,
+    size_t size, size_t *cursor, unsigned char pending[128], size_t *length)
+{
+    size_t start = *cursor, pos = start + 1;
+    while (pos < size && !is_white(data[pos]) && !is_delimiter(data[pos])) {
+        if (data[pos] == '#' || data[pos] >= 0x7f || data[pos] < 0x21)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        ++pos;
+    }
+    if (pos == start + 1) return QUANTAPDF_ERROR_FORMAT;
+    if (pos - start > 127) return QUANTAPDF_ERROR_UNSUPPORTED;
+    memcpy(pending, data + start, pos - start);
+    *length = pos - start;
+    *cursor = pos;
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status append_name(quantapdf_pdf_content_ir *ir,
+    size_t *capacity, const quantapdf_pdf_content_limits *limits,
+    const unsigned char *data, size_t size, size_t *out_offset)
+{
+    size_t needed, next;
+    unsigned char *next_bytes;
+    if (size == 0 || ir->name_byte_count > limits->max_input_bytes ||
+        size > limits->max_input_bytes - ir->name_byte_count)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    needed = ir->name_byte_count + size;
+    if (needed > *capacity) {
+        next = *capacity == 0 ? 16 : *capacity;
+        while (next < needed) {
+            if (next > limits->max_input_bytes / 2) {
+                next = limits->max_input_bytes;
+                break;
+            }
+            next *= 2;
+        }
+        if (next < needed) return QUANTAPDF_ERROR_UNSUPPORTED;
+        next_bytes = (unsigned char *)realloc(ir->name_bytes, next);
+        if (next_bytes == NULL) return QUANTAPDF_ERROR_NOMEM;
+        ir->name_bytes = next_bytes;
+        *capacity = next;
+    }
+    *out_offset = ir->name_byte_count;
+    memcpy(ir->name_bytes + ir->name_byte_count, data, size);
+    ir->name_byte_count = needed;
+    return QUANTAPDF_OK;
+}
+
 static const operator_spec *find_operator(const unsigned char *s, size_t n)
 {
     size_t i;
@@ -200,6 +252,7 @@ void quantapdf_pdf_content_dispose(quantapdf_pdf_content_ir *ir)
     if (ir == NULL) return;
     free(ir->ops);
     free(ir->dash_values);
+    free(ir->name_bytes);
     free(ir);
 }
 
@@ -207,12 +260,13 @@ quantapdf_status quantapdf_pdf_content_parse(const unsigned char *data, size_t s
     const quantapdf_pdf_content_limits *limits, quantapdf_pdf_content_ir **out_ir)
 {
     quantapdf_pdf_content_ir *ir;
-    size_t pos = 0, capacity = 0, dash_capacity = 0, state_depth = 0;
+    size_t pos = 0, capacity = 0, dash_capacity = 0, name_capacity = 0, state_depth = 0;
     double arguments[6] = {0};
     double dash[QUANTAPDF_PDF_MAX_DASH_ITEMS] = {0};
-    size_t dash_count = 0;
+    unsigned char pending_name[128] = {0};
+    size_t dash_count = 0, name_length = 0;
     unsigned int argument_count = 0;
-    int current_point = 0, dash_ready = 0;
+    int current_point = 0, dash_ready = 0, name_ready = 0;
     quantapdf_status status = QUANTAPDF_OK;
     if (out_ir != NULL) *out_ir = NULL;
     if (out_ir == NULL || limits == NULL || (size && data == NULL) ||
@@ -234,8 +288,18 @@ quantapdf_status quantapdf_pdf_content_parse(const unsigned char *data, size_t s
             break;
         }
         if (pos == size) break;
+        if (data[pos] == '/') {
+            if (argument_count != 0 || dash_ready || name_ready) {
+                status = QUANTAPDF_ERROR_FORMAT; break;
+            }
+            status = read_extgstate_name(data, size, &pos,
+                pending_name, &name_length);
+            if (status != QUANTAPDF_OK) break;
+            name_ready = 1;
+            continue;
+        }
         if (data[pos] == '[') {
-            if (argument_count != 0 || dash_ready) {
+            if (argument_count != 0 || dash_ready || name_ready) {
                 status = QUANTAPDF_ERROR_FORMAT; break;
             }
             status = read_dash_array(data, size, &pos, dash, &dash_count);
@@ -247,6 +311,7 @@ quantapdf_status quantapdf_pdf_content_parse(const unsigned char *data, size_t s
         start = pos;
         while (pos < size && !is_white(data[pos]) && !is_delimiter(data[pos])) ++pos;
         if (is_number_start(data[start])) {
+            if (name_ready) { status = QUANTAPDF_ERROR_FORMAT; break; }
             if (argument_count == 6) { status = QUANTAPDF_ERROR_UNSUPPORTED; break; }
             status = read_number(data + start, pos - start, &arguments[argument_count]);
             if (status != QUANTAPDF_OK) break;
@@ -256,7 +321,8 @@ quantapdf_status quantapdf_pdf_content_parse(const unsigned char *data, size_t s
         spec = find_operator(data + start, pos - start);
         if (spec == NULL) { status = QUANTAPDF_ERROR_UNSUPPORTED; break; }
         if (spec->arity != argument_count ||
-            dash_ready != (spec->opcode == QUANTAPDF_PDF_OP_DASH)) {
+            dash_ready != (spec->opcode == QUANTAPDF_PDF_OP_DASH) ||
+            name_ready != (spec->opcode == QUANTAPDF_PDF_OP_EXT_GSTATE)) {
             status = QUANTAPDF_ERROR_FORMAT; break;
         }
         if ((spec->opcode == QUANTAPDF_PDF_OP_LINE_CAP ||
@@ -306,11 +372,20 @@ quantapdf_status quantapdf_pdf_content_parse(const unsigned char *data, size_t s
             dash_ready = 0;
             dash_count = 0;
         }
+        if (spec->opcode == QUANTAPDF_PDF_OP_EXT_GSTATE) {
+            quantapdf_pdf_content_op *added = &ir->ops[ir->count - 1];
+            added->name_size = name_length;
+            status = append_name(ir, &name_capacity, limits, pending_name,
+                name_length, &added->name_offset);
+            if (status != QUANTAPDF_OK) break;
+            name_ready = 0;
+            name_length = 0;
+        }
         argument_count = 0;
         if ((spec->opcode >= QUANTAPDF_PDF_OP_STROKE &&
              spec->opcode <= QUANTAPDF_PDF_OP_END_PATH)) current_point = 0;
     }
-    if (status == QUANTAPDF_OK && (argument_count || state_depth || dash_ready))
+    if (status == QUANTAPDF_OK && (argument_count || state_depth || dash_ready || name_ready))
         status = QUANTAPDF_ERROR_FORMAT;
     if (status != QUANTAPDF_OK) {
         quantapdf_pdf_content_dispose(ir);

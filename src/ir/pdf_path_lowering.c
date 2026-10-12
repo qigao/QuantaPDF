@@ -392,16 +392,35 @@ static quantapdf_status lower_commands(
     return QUANTAPDF_OK;
 }
 
-static quantapdf_status intern_active_clip_state(
+/* Clip and opacity/blend must share one compositor graphics-state resource;
+ * two separate gs calls in PDF could otherwise reset one another. */
+static quantapdf_status intern_graphics_state(
     quantapdf_resource_registry *resources,
+    const quantapdf_pdf_graphics_state *graphics,
     quantapdf_composer_clip_id clip,
     quantapdf_composer_graphics_state_id *out_id)
 {
     quantapdf_composer_graphics_state candidate = {0};
     size_t added_bytes = 0;
-    candidate.fill_alpha = 1.0f;
-    candidate.stroke_alpha = 1.0f;
-    candidate.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
+    if (out_id == NULL) return QUANTAPDF_ERROR_ARGUMENT;
+    *out_id = 0;
+    if (!isfinite(graphics->fill_alpha) || !isfinite(graphics->stroke_alpha) ||
+        graphics->fill_alpha < 0.0 || graphics->fill_alpha > 1.0 ||
+        graphics->stroke_alpha < 0.0 || graphics->stroke_alpha > 1.0)
+        return QUANTAPDF_ERROR_FORMAT;
+    if (graphics->blend_mode < QUANTAPDF_COMPOSER_BLEND_NORMAL ||
+        graphics->blend_mode > QUANTAPDF_COMPOSER_BLEND_LIGHTEN)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (clip == 0 && graphics->fill_alpha == 1.0 &&
+        graphics->stroke_alpha == 1.0 &&
+        graphics->blend_mode == QUANTAPDF_COMPOSER_BLEND_NORMAL)
+        return QUANTAPDF_OK;
+    candidate.fill_alpha = (float)graphics->fill_alpha;
+    candidate.stroke_alpha = (float)graphics->stroke_alpha;
+    if (!decimal4(graphics->fill_alpha, candidate.fill_alpha) ||
+        !decimal4(graphics->stroke_alpha, candidate.stroke_alpha))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    candidate.blend_mode = graphics->blend_mode;
     candidate.clip_id = clip;
     return quantapdf_resource_intern_graphics_state(resources,
         &candidate, SIZE_MAX, out_id, &added_bytes);
@@ -545,12 +564,10 @@ quantapdf_status quantapdf_pdf_path_lower_to_composer_mapped(
             ++temporary.operation_count; /* No partially-owned record escapes. */
             status = lower_dash(content, path, &op->value.path);
             if (status != QUANTAPDF_OK) goto fail;
-            if (prior_clip != 0) {
-                status = intern_active_clip_state(&temporary.resources,
-                    prior_clip, &op->graphics_state_id);
-                if (status != QUANTAPDF_OK) goto fail;
-                op->value.path.options.graphics_state_id = op->graphics_state_id;
-            }
+            status = intern_graphics_state(&temporary.resources,
+                &path->graphics, prior_clip, &op->graphics_state_id);
+            if (status != QUANTAPDF_OK) goto fail;
+            op->value.path.options.graphics_state_id = op->graphics_state_id;
         } else if (clip == NULL) {
             /* n without a clipping operation is harmless to PDF but cannot
              * be represented as a painted Composer operation. */

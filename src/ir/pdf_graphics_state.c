@@ -10,6 +10,8 @@ static quantapdf_pdf_graphics_state initial_state(void)
     quantapdf_pdf_graphics_state value = {0};
     value.ctm[0] = value.ctm[3] = 1.0;
     value.line_width = 1.0;
+    value.fill_alpha = value.stroke_alpha = 1.0;
+    value.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
     value.miter_limit = 10.0;
     return value;
 }
@@ -71,9 +73,10 @@ static int is_constructor(quantapdf_pdf_content_opcode opcode)
 }
 
 /* Do not accept partial graphics objects as successful semantic imports. */
-quantapdf_status quantapdf_pdf_graphics_evaluate(
+quantapdf_status quantapdf_pdf_graphics_evaluate_resolved(
     const quantapdf_pdf_content_ir *source,
     const quantapdf_pdf_content_limits *limits,
+    const quantapdf_pdf_extgstate_delta *deltas, size_t deltas_count,
     quantapdf_pdf_graphics_ir **out_graphics)
 {
     quantapdf_pdf_graphics_ir *ir = NULL;
@@ -87,6 +90,9 @@ quantapdf_status quantapdf_pdf_graphics_evaluate(
     if (out_graphics == NULL || source == NULL || limits == NULL ||
         (source->count != 0 && source->ops == NULL) ||
         (source->dash_value_count != 0 && source->dash_values == NULL) ||
+        (source->name_byte_count != 0 && source->name_bytes == NULL) ||
+        ((deltas == NULL && deltas_count != 0) ||
+         (deltas != NULL && deltas_count != source->count)) ||
         limits->max_graphics_depth == 0 || limits->max_operators == 0 ||
         source->count > limits->max_operators) return QUANTAPDF_ERROR_ARGUMENT;
     ir = (quantapdf_pdf_graphics_ir *)calloc(1, sizeof(*ir));
@@ -205,6 +211,38 @@ quantapdf_status quantapdf_pdf_graphics_evaluate(
             current.dash_count = op->dash_count;
             current.dash_phase = op->dash_count != 0 ? a[0] : 0.0;
             break;
+        case QUANTAPDF_PDF_OP_EXT_GSTATE: {
+            const quantapdf_pdf_extgstate_delta *delta;
+            if (deltas == NULL || i >= deltas_count || !deltas[i].resolved) {
+                status = QUANTAPDF_ERROR_UNSUPPORTED; goto fail;
+            }
+            delta = &deltas[i];
+            if ((delta->presence & ~7u) != 0) {
+                status = QUANTAPDF_ERROR_FORMAT; goto fail;
+            }
+            if ((delta->presence & QUANTAPDF_PDF_GS_FILL_ALPHA) != 0) {
+                if (!isfinite(delta->fill_alpha) || delta->fill_alpha < 0.0 ||
+                    delta->fill_alpha > 1.0) {
+                    status = QUANTAPDF_ERROR_FORMAT; goto fail;
+                }
+                current.fill_alpha = delta->fill_alpha;
+            }
+            if ((delta->presence & QUANTAPDF_PDF_GS_STROKE_ALPHA) != 0) {
+                if (!isfinite(delta->stroke_alpha) || delta->stroke_alpha < 0.0 ||
+                    delta->stroke_alpha > 1.0) {
+                    status = QUANTAPDF_ERROR_FORMAT; goto fail;
+                }
+                current.stroke_alpha = delta->stroke_alpha;
+            }
+            if ((delta->presence & QUANTAPDF_PDF_GS_BLEND_MODE) != 0) {
+                if (delta->blend_mode < QUANTAPDF_COMPOSER_BLEND_NORMAL ||
+                    delta->blend_mode > QUANTAPDF_COMPOSER_BLEND_LIGHTEN) {
+                    status = QUANTAPDF_ERROR_UNSUPPORTED; goto fail;
+                }
+                current.blend_mode = delta->blend_mode;
+            }
+            break;
+        }
         case QUANTAPDF_PDF_OP_STROKE_GRAY:
         case QUANTAPDF_PDF_OP_FILL_GRAY: {
             double *dest = op->opcode == QUANTAPDF_PDF_OP_FILL_GRAY ?
@@ -236,4 +274,14 @@ fail:
     free(stack);
     quantapdf_pdf_graphics_dispose(ir);
     return status;
+}
+
+
+quantapdf_status quantapdf_pdf_graphics_evaluate(
+    const quantapdf_pdf_content_ir *source,
+    const quantapdf_pdf_content_limits *limits,
+    quantapdf_pdf_graphics_ir **out_graphics)
+{
+    return quantapdf_pdf_graphics_evaluate_resolved(source, limits,
+        NULL, 0, out_graphics);
 }

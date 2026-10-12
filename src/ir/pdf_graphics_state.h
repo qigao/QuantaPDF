@@ -10,11 +10,29 @@ typedef struct quantapdf_pdf_graphics_state {
     double stroke_rgb[3];
     double fill_rgb[3];
     double line_width;
+    double fill_alpha, stroke_alpha;
+    quantapdf_composer_blend_mode blend_mode;
     double miter_limit, dash_phase;
     size_t dash_offset, dash_count; /* into the owning Content IR pool */
     int line_cap, line_join; /* PDF J/j values 0..2 */
     size_t clip_id; /* 0 = full page, else 1-based immutable clip chain */
 } quantapdf_pdf_graphics_state;
+
+/* Each GS opcode is resolved against the selected Graph page's inherited
+ * /Resources/ExtGState dictionary BEFORE evaluation. A delta is indexed by
+ * source operator index, not by resource name, and is detached numeric data.
+ * Presence bits ensure a resource containing only /ca does not reset /CA. */
+enum {
+    QUANTAPDF_PDF_GS_FILL_ALPHA = 1u,
+    QUANTAPDF_PDF_GS_STROKE_ALPHA = 2u,
+    QUANTAPDF_PDF_GS_BLEND_MODE = 4u
+};
+typedef struct quantapdf_pdf_extgstate_delta {
+    int resolved;
+    unsigned int presence;
+    double fill_alpha, stroke_alpha;
+    quantapdf_composer_blend_mode blend_mode;
+} quantapdf_pdf_extgstate_delta;
 
 typedef struct quantapdf_pdf_clip_record {
     size_t parent_clip_id;
@@ -49,6 +67,15 @@ extern "C" {
 quantapdf_status quantapdf_pdf_graphics_evaluate(
     const quantapdf_pdf_content_ir *source,
     const quantapdf_pdf_content_limits *limits,
+    quantapdf_pdf_graphics_ir **out_graphics);
+
+/* Graph-independent evaluation with externally resolved, per-op ExtGState
+ * deltas. deltas_count must equal source->count when nonzero; a missing binding
+ * for any gs operator returns UNSUPPORTED rather than guessing defaults. */
+quantapdf_status quantapdf_pdf_graphics_evaluate_resolved(
+    const quantapdf_pdf_content_ir *source,
+    const quantapdf_pdf_content_limits *limits,
+    const quantapdf_pdf_extgstate_delta *deltas, size_t deltas_count,
     quantapdf_pdf_graphics_ir **out_graphics);
 void quantapdf_pdf_graphics_dispose(quantapdf_pdf_graphics_ir *graphics);
 #ifdef __cplusplus

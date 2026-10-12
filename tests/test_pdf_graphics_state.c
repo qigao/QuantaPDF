@@ -123,8 +123,55 @@ static void test_stroke_style_graphics_state(void)
     quantapdf_pdf_content_dispose(tape);
 }
 
+
+static void test_resolved_extgstate_scopes(void)
+{
+    const char *source =
+        "/Fill gs q /Stroke gs /Multiply gs 0 0 10 10 re B Q "
+        "0 0 10 10 re f";
+    quantapdf_pdf_content_limits limit = limits();
+    quantapdf_pdf_content_ir *tape = NULL;
+    quantapdf_pdf_graphics_ir *ir = NULL;
+    quantapdf_pdf_extgstate_delta *deltas;
+    CHECK(quantapdf_pdf_content_parse((const unsigned char *)source,
+        strlen(source), &limit, &tape) == QUANTAPDF_OK);
+    CHECK(quantapdf_pdf_graphics_evaluate(tape, &limit, &ir) ==
+        QUANTAPDF_ERROR_UNSUPPORTED && ir == NULL);
+    deltas = (quantapdf_pdf_extgstate_delta *)calloc(
+        tape->count, sizeof(*deltas));
+    CHECK(deltas != NULL);
+    deltas[0].resolved = 1;
+    deltas[0].presence = QUANTAPDF_PDF_GS_FILL_ALPHA;
+    deltas[0].fill_alpha = 0.5;
+    deltas[2].resolved = 1;
+    deltas[2].presence = QUANTAPDF_PDF_GS_STROKE_ALPHA;
+    deltas[2].stroke_alpha = 0.25;
+    deltas[3].resolved = 1;
+    deltas[3].presence = QUANTAPDF_PDF_GS_BLEND_MODE;
+    deltas[3].blend_mode = QUANTAPDF_COMPOSER_BLEND_MULTIPLY;
+    CHECK(quantapdf_pdf_graphics_evaluate_resolved(tape, &limit,
+        deltas, tape->count, &ir) == QUANTAPDF_OK);
+    CHECK(ir->path_count == 2);
+    CHECK(ir->paths[0].graphics.fill_alpha == 0.5);
+    CHECK(ir->paths[0].graphics.stroke_alpha == 0.25);
+    CHECK(ir->paths[0].graphics.blend_mode ==
+        QUANTAPDF_COMPOSER_BLEND_MULTIPLY);
+    CHECK(ir->paths[1].graphics.fill_alpha == 0.5);
+    CHECK(ir->paths[1].graphics.stroke_alpha == 1.0);
+    CHECK(ir->paths[1].graphics.blend_mode ==
+        QUANTAPDF_COMPOSER_BLEND_NORMAL);
+    quantapdf_pdf_graphics_dispose(ir); ir = NULL;
+    deltas[2].stroke_alpha = 1.25;
+    CHECK(quantapdf_pdf_graphics_evaluate_resolved(tape, &limit,
+        deltas, tape->count, &ir) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(ir == NULL);
+    free(deltas);
+    quantapdf_pdf_content_dispose(tape);
+}
+
 int main(void)
 {
+    test_resolved_extgstate_scopes();
     test_stroke_style_graphics_state();
     test_ctm_and_saved_state();
     test_clip_deferred_and_restored();

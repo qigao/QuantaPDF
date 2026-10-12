@@ -1,4 +1,5 @@
 #include "page_content_ir.h"
+#include "graph/graph_extgstate.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -56,6 +57,8 @@ quantapdf_status quantapdf_graph_snapshot_page_semantics(
     quantapdf_pdf_page_semantics *page = NULL;
     quantapdf_status status = QUANTAPDF_OK;
     bounded_content joined = {0};
+    quantapdf_pdf_extgstate_delta *deltas = NULL;
+    size_t delta_count = 0;
     size_t count = 0;
     int array = 0;
     if (out_page != NULL) *out_page = NULL;
@@ -125,13 +128,20 @@ quantapdf_status quantapdf_graph_snapshot_page_semantics(
     status = quantapdf_pdf_content_parse(joined.data, joined.size,
         parse_limits, &page->content);
     if (status != QUANTAPDF_OK) goto fail;
-    status = quantapdf_pdf_graphics_evaluate(page->content,
-        parse_limits, &page->graphics);
+    status = quantapdf_graph_resolve_page_extgstates(snapshot->graph,
+        page_index, decode_limits->max_direct_depth, page->content,
+        &deltas, &delta_count);
     if (status != QUANTAPDF_OK) goto fail;
+    status = quantapdf_pdf_graphics_evaluate_resolved(page->content,
+        parse_limits, deltas, delta_count, &page->graphics);
+    if (status != QUANTAPDF_OK) goto fail;
+    free(deltas);
+    deltas = NULL;
     free(joined.data);
     *out_page = page;
     return QUANTAPDF_OK;
 fail:
+    free(deltas);
     free(joined.data);
     quantapdf_pdf_page_semantics_dispose(page);
     return status;

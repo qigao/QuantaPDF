@@ -35,7 +35,8 @@ typedef enum quantapdf_pdf_content_opcode {
     QUANTAPDF_PDF_OP_LINE_CAP,
     QUANTAPDF_PDF_OP_LINE_JOIN,
     QUANTAPDF_PDF_OP_MITER_LIMIT,
-    QUANTAPDF_PDF_OP_DASH
+    QUANTAPDF_PDF_OP_DASH,
+    QUANTAPDF_PDF_OP_EXT_GSTATE
 } quantapdf_pdf_content_opcode;
 
 /* Strict private PDF and Composer dash-array bound. This is an operator
@@ -50,6 +51,8 @@ typedef struct quantapdf_pdf_content_op {
     /* DASH only: indices into the detached tape-owned double dash_values.
      * The phase is arguments[0]. [] produces count 0 (solid stroke). */
     size_t dash_offset, dash_count;
+    /* EXT_GSTATE only: name including '/' into owned name_bytes pool. */
+    size_t name_offset, name_size;
 } quantapdf_pdf_content_op;
 
 typedef struct quantapdf_pdf_content_ir {
@@ -57,6 +60,8 @@ typedef struct quantapdf_pdf_content_ir {
     size_t count;
     double *dash_values;
     size_t dash_value_count;
+    unsigned char *name_bytes;
+    size_t name_byte_count;
 } quantapdf_pdf_content_ir;
 
 typedef struct quantapdf_pdf_content_limits {
@@ -69,7 +74,9 @@ extern "C" {
 /* Budgets must be nonzero. Unsupported tokens/operators fail UNSUPPORTED.
  * Invalid syntax/state fails FORMAT. Failure publishes no partial output.
  * Success owns an independent tape and bounded dash-value pool. Arrays other
- * than the numeric dash operand of d remain unsupported. Discard source bytes
+ * than the numeric dash operand of d remain unsupported. Names are admitted
+ * only as the operand of gs, with bounded ASCII spelling and no # escapes.
+ * Discard source bytes
  * freely and dispose the output with quantapdf_pdf_content_dispose. */
 quantapdf_status quantapdf_pdf_content_parse(const unsigned char *data, size_t size,
     const quantapdf_pdf_content_limits *limits, quantapdf_pdf_content_ir **out_ir);
