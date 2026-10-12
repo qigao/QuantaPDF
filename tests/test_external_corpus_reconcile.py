@@ -59,6 +59,8 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
             "page_width":100,"page_height":50,
             "native_path_clip_supported_count":1,
             "native_clipped_path_supported_count":1,
+            "native_w_clip_supported_count":1,
+            "native_wstar_clip_supported_count":0,
             "native_stroke_1px_supported_count":1,
             "native_blank_page_supported_count":0,
             "native_text_supported_count":0,
@@ -72,8 +74,26 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
         report=self.accept()
         self.assertEqual(report["native_path_clip_supported"],2)
         self.assertEqual(report["native_clipped_path_supported"],1)
+        self.assertEqual(report["native_w_clip_supported_count"],1)
+        self.assertEqual(report["native_wstar_clip_supported_count"],0)
         self.assertEqual(report["native_blank_page_supported"],1)
         self.assertEqual(report["admitted_documents"],4)
+
+    def test_forged_wstar_positive_rejects(self):
+        self.clip["native_wstar_clip_supported_count"]=1
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_forged_wstar_positive_in_opaque_report_rejects(self):
+        self.path["native_wstar_clip_supported_count"]=1
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_forged_nonzero_clip_count_rejects(self):
+        self.clip["native_w_clip_supported_count"]=0
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_boolean_wstar_count_rejects(self):
+        self.clip["native_wstar_clip_supported_count"]=False
+        with self.assertRaises(AssertionError): self.accept()
 
     def test_missing_qualified_document_rejects(self):
         self.admission["documents"].pop()

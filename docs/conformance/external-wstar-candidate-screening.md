@@ -16,6 +16,11 @@ extension of public SDK compatibility.
   `W* n` tokens (one template could not be UTF-8 decoded), and 62
   additional published `.pdf` files lacking paired `.in` were inspected
   for literal, uncompressed `W*` tokens.
+- The independently published `testing/resources/pixel` subdirectory was
+  additionally screened at the same revision: 24 tracked original `.pdf`
+  files were checked for literal raw `W*`; one text-bearing candidate was
+  found. Two of those PDFs advertise `FlateDecode`, so this probe does not
+  establish completeness for compressed streams.
 - These are **candidate probes**, not a complete search: compressed PDF
   content streams, non-line-separated operators, nested directories and
   unparseable files can escape text scanning. A complete page-content
@@ -36,6 +41,7 @@ raw-byte SHA-256 and document-level redistribution review.
 | `testing/resources/tagged_table_bad_parent.pdf` | `43d9aa38a4e4ec416d0cf4c22a868b1ffb0d198f` | Same XObject/marked-content blocker; not an independent positive primitive. |
 | `testing/resources/bug_601362.pdf` | `d21a83405ea6469ec329ab31ad207362fcdd6706` | Repeated `W* n` scopes followed by `BT/TJ/ET` and graphics-state operations. |
 | `testing/resources/text_font.pdf` | `78f3bcc784a08d0abf0948d78c52881fafca6d49` | `W* n` followed by font-dependent `BT/TJ/ET` text. |
+| `testing/resources/pixel/bug_925736.pdf` | `429d53a477fc436692a00c08a2a7b4e867e1cce3` | Original uncompressed `W* n`, followed by `BT`, font-dependent `TJ`, and `ET` text. It remains outside the current Path-only subset. |
 
 All sources above remain **unadmitted**. Do not commit them to the
 external corpus, add a permissive license tag by inference, or increment
@@ -72,4 +78,7 @@ pixel oracle.
    evidence. No public ABI changes, no PDFium fallback or SDK cutover
    (roadmap #208).
 
-Current external W* positive count: **0**.
+Current external W* positive count: **0**. Reconciled external semantic
+JSON now distinguishes `native_w_clip_supported_count: 1` from
+`native_wstar_clip_supported_count: 0`; attempts to report a positive W*
+count without a qualified original source must fail closed.

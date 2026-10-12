@@ -1612,6 +1612,8 @@ int test_external_pdfium_clip_stroke(const char *filename,
         "  \"pdfium_result\": \"rendered_clipped_blue_stroke\",\n"
         "  \"native_path_clip_supported_count\": 1,\n"
         "  \"native_clipped_path_supported_count\": 1,\n"
+        "  \"native_w_clip_supported_count\": 1,\n"
+        "  \"native_wstar_clip_supported_count\": 0,\n"
         "  \"native_stroke_1px_supported_count\": 1,\n"
         "  \"native_text_supported_count\": 0,\n"
         "  \"native_blank_page_supported_count\": 0,\n"

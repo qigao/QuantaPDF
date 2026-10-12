@@ -38,6 +38,12 @@ def verify(admission, text, blank, path, clip):
         assert report["generated_fixture_count"]==0 and report["result"]=="passed"
         assert report["native_expected_outcome"]==indexed[id_]["expected_native_outcome"]
         assert report["native_observed_outcome"]==report["native_expected_outcome"]
+        # No currently admitted external source contains W*: metadata alone
+        # must never be allowed to inflate the even-odd Clip positive count.
+        assert type(report.get("native_wstar_clip_supported_count",0)) is int
+        assert report.get("native_wstar_clip_supported_count",0)==0
+        if id_!=CLIP_ID:
+            assert report.get("native_w_clip_supported_count",0)==0
     assert text["pdfium_result"]=="rendered_nonblank"
     assert text["native_ir"]=="empty" and text["status_conformance_passed_count"]==1
     assert text["native_supported_passed_count"]==0
@@ -62,6 +68,10 @@ def verify(admission, text, blank, path, clip):
     assert clip["page_width"]==100 and clip["page_height"]==50
     assert clip["native_path_clip_supported_count"]==1
     assert clip["native_clipped_path_supported_count"]==1
+    assert type(clip["native_w_clip_supported_count"]) is int
+    assert clip["native_w_clip_supported_count"]==1
+    assert type(clip["native_wstar_clip_supported_count"]) is int
+    assert clip["native_wstar_clip_supported_count"]==0
     assert clip["native_stroke_1px_supported_count"]==1
     assert clip["native_blank_page_supported_count"]==0
     assert clip["native_text_supported_count"]==0
@@ -80,6 +90,8 @@ def verify(admission, text, blank, path, clip):
       "native_blank_page_supported":1,
       "native_path_clip_supported":2,
       "native_clipped_path_supported":1,
+      "native_w_clip_supported_count":1,
+      "native_wstar_clip_supported_count":0,
       "native_text_supported":0,
       "generated_source_pdf_fixtures_included":0,
       "evidence_document_ids":[TEXT_ID,BLANK_ID,PATH_ID,CLIP_ID]
@@ -107,7 +119,7 @@ def main():
         staged.replace(args.output)
     except (AssertionError,KeyError,TypeError,ValueError,OSError) as exc:
         p.error("external corpus evidence mismatch: "+str(exc))
-    print("[external-corpus] reconciled=4 blank_native=1 path_native=2 clipped_native=1")
+    print("[external-corpus] reconciled=4 blank_native=1 path_native=2 clipped_native=1 w_clip=1 wstar_clip=0")
 
 if __name__=="__main__":
     sys.exit(main())
