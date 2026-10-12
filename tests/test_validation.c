@@ -189,6 +189,30 @@ static void test_models(void)
     CHECK(report.rule == QUANTAPDF_VALIDATION_OK && report.index == 0 && report.detail == 0);
 }
 
+static void test_report_storage_independence(void)
+{
+    model_fixture a, b;
+    quantapdf_validation_report report;
+    initialize(&a); initialize(&b);
+    CHECK(a.ir.operations != b.ir.operations && a.ir.outlines != b.ir.outlines);
+    a.operations[3].graphics_state_id = b.operations[3].graphics_state_id = 99;
+    a.outlines[1].parent_id = b.outlines[1].parent_id = 2;
+    /* Equal logical defects in independent storage have equal coordinates. */
+    expect_failure(&a.ir, QUANTAPDF_VALIDATION_REFERENCE, QUANTAPDF_VALIDATION_OPERATION, 3, 99);
+    expect_failure(&b.ir, QUANTAPDF_VALIDATION_REFERENCE, QUANTAPDF_VALIDATION_OPERATION, 3, 99);
+    a.operations[3].graphics_state_id = 1;
+    expect_failure(&a.ir, QUANTAPDF_VALIDATION_ANCESTRY, QUANTAPDF_VALIDATION_OUTLINE, 1, 2);
+    /* Repairing one model must not alter the other model's first failure. */
+    expect_failure(&b.ir, QUANTAPDF_VALIDATION_REFERENCE, QUANTAPDF_VALIDATION_OPERATION, 3, 99);
+    b.operations[3].graphics_state_id = 1;
+    expect_failure(&b.ir, QUANTAPDF_VALIDATION_ANCESTRY, QUANTAPDF_VALIDATION_OUTLINE, 1, 2);
+    a.outlines[1].parent_id = 1;
+    memset(&report, 0xff, sizeof(report));
+    CHECK(quantapdf_validate_ir(&a.ir, &report) == QUANTAPDF_OK);
+    CHECK(report.rule == QUANTAPDF_VALIDATION_OK && report.subject == QUANTAPDF_VALIDATION_MODEL);
+    CHECK(report.index == 0 && report.detail == 0);
+}
+
 static void test_security(void)
 {
     static const struct { const char *name; uint32_t flag; } names[] = {
@@ -234,6 +258,7 @@ static void test_security(void)
 int main(void)
 {
     test_models();
+    test_report_storage_independence();
     test_security();
     return EXIT_SUCCESS;
 }

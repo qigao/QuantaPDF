@@ -106,3 +106,60 @@ after repairing the model. Existing public Composer, security, rewrite and
 sanitization tests verify compatibility; run focused tests then full Release and
 sanitizer CTest, native SDK installs and Linux static CI. This work makes no
 performance or external-standard conformance claim.
+
+## Runtime regression model
+
+For [#152](https://github.com/qigao/QuantaPDF/issues/152), the regression model is
+the set of observable contracts below, exercised by the existing CTest suites.
+It adds no test runner, provider registry, public report format, or serialized
+test-only document representation.
+
+| Contract | Existing executable evidence | Comparison boundary |
+| --- | --- | --- |
+| Native ABI admission | `quantapdf.version`, `quantapdf.abi_exports`, `quantapdf.abi_checker_rejects_extra_export`, public option/result tests | Published version, actual shared exports, accepted structure prefixes, status and output reset; static builds omit the shared-export checks. |
+| Context and result lifetime | `quantapdf.context`, `quantapdf.ir`, `quantapdf.graph_snapshot` | Results survive their documented producer lifetime; finalization occurs once; failed construction restores retained-owner counts. |
+| Backend dispatch and failures | `quantapdf.backend_foundation`, `quantapdf.graph_snapshot`, public document/transform tests | Real facade dispatch, status propagation, absent output after failure, and complete snapshot admission. |
+| Snapshot and editor isolation | `quantapdf.pdf_annotation_mutation`, `quantapdf.pdf_form_mutation`, `quantapdf.graph_snapshot` | Source bytes and prior snapshot borrows remain unchanged; independent editors reject each other's references. |
+| Resource reuse | `quantapdf.resource_registry`, `quantapdf.ir`, public Composer resource tests | Equal owned resources reuse local IDs; rejected admissions and nested rewind preserve the owning registry. |
+| Deterministic logical reports | `quantapdf.validation`, `quantapdf.graph`, `quantapdf.identity` | Value-only rule/subject/index/detail, explicit first-failure precedence, reset on success, independent model storage, and checked ID exhaustion. |
+| Deterministic output and capture | `quantapdf.composer`, `quantapdf.ir`, edit mutation tests, `quantapdf.graph_snapshot` | Equivalent operations in the same qualified build produce equal bytes where promised; repeated capture produces equal logical node/edge/value data. |
+
+Tests of pure rules compile the production C validator/identity/graph sources
+without a provider library. Public behavior assertions use SDK-visible values.
+Private boundary tests may inspect owned models and lifecycle counters; adapter
+tests such as `quantapdf.graph_import` separately qualify QPDF extraction. A
+provider fixture helper is not the oracle for an SDK ownership or status rule.
+The test boundary remains usable when a provider is replaced.
+
+Determinism is scoped to a declared operation, fixture, options and qualified
+build. Compare model fields rather than C struct padding, allocation addresses,
+runtime scope numbers, PDF object numbering across providers, or log timestamps.
+Reports for equal logical defects must agree even when all model arrays occupy
+different storage; repairing one model must not change another model's report.
+Faults are removed in priority order to verify the next error and eventual reset.
+Encoded payload decoding remains a provider responsibility, not a pure-validator
+test expectation.
+
+Encryption intentionally uses fresh randomness. Its tests compare decoded
+content, policy, password/permission behavior and failure atomicity, rather than
+requiring equal ciphertext or weakening the random source. Pixel/font output
+across provider upgrades needs explicit qualification; same-build byte equality
+does not certify cross-version rendering equivalence.
+
+Run the affected registered CTests first, then the native or sanitizer suite for
+the changed runtime/profile. Configure determines CI's complete build graph;
+build that graph and run tests through CTest. Linux development flags disable
+UBSan recovery for both C and C++ so a diagnostic cannot leave a successful exit
+status; see the [GCC recovery contract](https://gcc.gnu.org/onlinedocs/gcc/Instrumentation-Options.html#index-fsanitize-recover_003d).
+Windows instrumentation and its prebuilt-dependency limitations are recorded in
+the [graph acceptance protocol](2026-10-11-quantapdf-document-graph-identity-design.md#acceptance-evidence).
+Report actual commit, profile, passed/failed counts, timeouts, platform omissions,
+and known qualification warnings. A timeout or incomplete run is not a pass.
+
+This is regression evidence for the implemented runtime, not exhaustive ABI
+record-layout coverage or proof of absent defects. Future graph transactions,
+arbitrary-PDF IR lowering, bindings and concurrency policies require new cases
+when implemented. The current ABI still requires process-wide external
+serialization; the suite does not imply a concurrent-call contract. PDF/A/UA
+certification, aggregate allocator quotas and coverage of all allocation-failure
+sites remain outside these tests.
