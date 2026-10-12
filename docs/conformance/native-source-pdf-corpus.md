@@ -29,6 +29,33 @@ variations has two generated PDFs; a two-page fixture still counts as one
 generated PDF. The individual assertions within each family retain their
 exact status, budgets, deterministic repeated render and color checks.
 
+## Deterministic JSON results (CI artifact)
+
+The existing CTest target invokes its test binary with
+\`--corpus-report <build-directory>/tests/native-source-corpus.json\`.
+The report has \`schema_version: 1\`, \`corpus_id: native-source-pdf\`,
+\`fixture_kind: generated\`, \`result: passed\`, and aggregate
+\`family_count\` and \`fixture_count\`. The ordered \`family_results\` array
+contains the family ID, feature tags, expected outcome, oracle category,
+declared and **observed** fixture counts, and pass status. All string fields
+are JSON escaped.
+
+The file contains no timestamps, runner paths, randomized identifiers or
+QPDF output-byte hashes. On a new invocation, any old JSON and temporary
+file are removed; a failing fixture or report write cannot leave a new
+published success JSON. The final JSON is renamed from a temporary file
+only after every test has passed, every family execution count matches its
+declaration, and the output is fully written.
+
+The **same** QuantaPDF CI workflow uploads platform-specific artifacts
+under \`source-corpus-linux\`, \`source-corpus-macos\`, and
+\`source-corpus-windows\` (seven-day retention). Linux includes separate
+Release and ASan/UBSan reports. Missing output is a CI failure on a
+successful job. These artifacts are machine-readable **family-coverage
+results**, not per-PDF pixels, externally sourced PDFs, or PDF file hashes.
+The fixed pixel thresholds and explicit unsupported contracts remain
+enforced by their existing executable tests.
+
 ## Oracle and acceptance boundaries
 
 | Oracle label | Meaning |
