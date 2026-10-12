@@ -88,14 +88,15 @@ void make_source(const char *content)
 
 quantapdf_status snapshot_lower(quantapdf_ir *out,
                                 size_t page_index=0u,size_t max_streams=1u,
-                                size_t max_parent_steps=2u)
+                                size_t max_parent_steps=2u,
+                                const char *source_path=SOURCE_QQ_PDF)
 {
     quantapdf_document *doc=nullptr;
     quantapdf_graph_snapshot *snap=nullptr;
     quantapdf_status st;
     CHECK(out != nullptr);
     std::memset(out,0,sizeof(*out));
-    st = quantapdf_open(SOURCE_QQ_PDF,nullptr,&doc);
+    st = quantapdf_open(source_path,nullptr,&doc);
     if(st != QUANTAPDF_OK) return st;
     st = quantapdf_document_capture_graph(doc,&graph_limits,&snap);
     quantapdf_close(doc);
@@ -107,7 +108,8 @@ quantapdf_status snapshot_lower(quantapdf_ir *out,
     return st;
 }
 
-rgb_image render_original_pdfium(size_t page_index=0u)
+rgb_image render_original_pdfium(size_t page_index=0u,
+                                const char *source_path=SOURCE_QQ_PDF)
 {
     rgb_image out;
     quantapdf_document *doc=nullptr;
@@ -115,7 +117,7 @@ rgb_image render_original_pdfium(size_t page_index=0u)
     quantapdf_bitmap *bitmap=nullptr;
     const unsigned char *bytes=nullptr;
     size_t size=0u;
-    OK(quantapdf_open(SOURCE_QQ_PDF,nullptr,&doc));
+    OK(quantapdf_open(source_path,nullptr,&doc));
     OK(quantapdf_load_page(doc,page_index,&page));
     OK(quantapdf_render_page(page,&bitmap));
     OK(quantapdf_bitmap_dimensions(bitmap,&out.width,&out.height,
@@ -1363,7 +1365,7 @@ void test_page_group_admission()
         writer.setOutputMemory();
         writer.write();
         auto bytes=writer.getBufferSharedPointer();
-        FILE *output=std::fopen(SOURCE_QQ_PDF,"wb");
+        FILE *output=std::fopen(GROUP_SOURCE_PDF,"wb");
         CHECK(output!=nullptr);
         CHECK(std::fwrite(bytes->getBuffer(),1,bytes->getSize(),output)==
               bytes->getSize());
@@ -1396,7 +1398,7 @@ void test_page_group_admission()
         }
         write_source(*pdf);
         quantapdf_ir lowered{};
-        const quantapdf_status status=snapshot_lower(&lowered);
+        const quantapdf_status status=snapshot_lower(&lowered,0u,1u,2u,GROUP_SOURCE_PDF);
         if(status!=tc.expected)
             std::fprintf(stderr,
                 "page Group case=%zu expected=%d got=%d\n",
@@ -1416,7 +1418,7 @@ void test_page_group_admission()
                   std::memcmp(native.pixels,repeat.pixels,native.size)==0);
             quantapdf_ir_raster_image_dispose(&repeat);
             quantapdf_ir_dispose(&lowered);
-            rgb_image reference=render_original_pdfium();
+            rgb_image reference=render_original_pdfium(0u,GROUP_SOURCE_PDF);
             CHECK(reference.width==(int)PAGE && reference.height==(int)PAGE);
             for(const auto& p:expected_colors){
                 size_t y=PAGE-1u-(size_t)p.y_pdf;
@@ -1438,7 +1440,7 @@ void test_page_group_admission()
                   lowered.resources.graphics_state_count==0u);
             quantapdf_ir_dispose(&lowered);
         }
-        CHECK(std::remove(SOURCE_QQ_PDF)==0);
+        CHECK(std::remove(GROUP_SOURCE_PDF)==0);
     }
 
     /* /Group is not inherited from /Pages. An unsupported sibling must
@@ -1465,14 +1467,14 @@ void test_page_group_admission()
     good.replaceKey("/Contents",pdf->newStream(content));
     write_source(*pdf);
     quantapdf_ir refused{};
-    CHECK(snapshot_lower(&refused,0u)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(snapshot_lower(&refused,0u,1u,2u,GROUP_SOURCE_PDF)==QUANTAPDF_ERROR_UNSUPPORTED);
     CHECK(refused.pages==nullptr && refused.operation_count==0u);
     quantapdf_ir_dispose(&refused);
     quantapdf_ir admitted{};
-    OK(snapshot_lower(&admitted,1u));
+    OK(snapshot_lower(&admitted,1u,1u,2u,GROUP_SOURCE_PDF));
     CHECK(admitted.page_count==1u && admitted.operation_count==2u);
     quantapdf_ir_dispose(&admitted);
-    CHECK(std::remove(SOURCE_QQ_PDF)==0);
+    CHECK(std::remove(GROUP_SOURCE_PDF)==0);
     CHECK(corpus_fixture_executions==0u);
     std::fprintf(stderr,
         "[quantapdf.native_page_group_admission] cases=%zu "
