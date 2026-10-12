@@ -7,4 +7,5 @@ target_sources(quantapdf_backend PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/graph_query.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/graph_edit.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/graph_write.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/graph_stream.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/graph.h")

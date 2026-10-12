@@ -113,3 +113,15 @@ quantapdf_status quantapdf_graph_snapshot_metadata(const quantapdf_graph_snapsho
     if (status != QUANTAPDF_OK || !text.present) return status;
     return snapshot->owner.context->ops->decode_pdf_text(text.data, text.size, out_utf8, out_size);
 }
+
+quantapdf_status quantapdf_graph_snapshot_stream(const quantapdf_graph_snapshot *snapshot,
+    const quantapdf_graph_reference *reference, const quantapdf_graph_stream_limits *limits,
+    unsigned char **out_data, size_t *out_size)
+{
+    if (out_data != NULL) *out_data = NULL;
+    if (out_size != NULL) *out_size = 0;
+    if (snapshot == NULL || reference == NULL || limits == NULL || out_data == NULL || out_size == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    return snapshot->owner.context->ops->read_graph_stream(snapshot->graph, reference, limits,
+        out_data, out_size);
+}

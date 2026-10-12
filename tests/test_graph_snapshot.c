@@ -276,10 +276,46 @@ static void test_metadata_compatibility(void)
     CHECK(retained == NULL && retained_size == 0);
 }
 
+static void test_stream_snapshot_lifetime(void)
+{
+    quantapdf_context *context = NULL;
+    quantapdf_document *document = NULL;
+    quantapdf_graph_snapshot *snapshot = NULL;
+    quantapdf_graph_limits budget = limits();
+    quantapdf_graph_stream_limits decode = {4096, 128, 100000};
+    quantapdf_graph_reference reference;
+    const quantapdf_graph_model *model;
+    const quantapdf_graph_node *node;
+    quantapdf_local_id id;
+    unsigned char *first = NULL, *second = NULL;
+    size_t first_size = 0, second_size = 0, finalized = 0;
+    OK(quantapdf_context_create(&context)); context->test_finalizations = &finalized;
+    OK(quantapdf_open_with_context(context, GRAPH_PDF, NULL, &document));
+    OK(quantapdf_document_capture_graph(document, &budget, &snapshot));
+    quantapdf_drop_context(context); quantapdf_close(document);
+    CHECK(finalized == 0);
+    model = quantapdf_graph_view(snapshot->graph);
+    id = field(model, model->edges[model->page_offset].target, "/Contents");
+    node = quantapdf_graph_node_at(model, id);
+    CHECK(node->kind == QUANTAPDF_GRAPH_STREAM);
+    OK(quantapdf_graph_reference_at(snapshot->graph, id, &reference));
+    OK(quantapdf_graph_snapshot_stream(snapshot, &reference, &decode, &first, &first_size));
+    CHECK(first_size == node->data_size && first_size != 0);
+    CHECK(memcmp(first, model->bytes + node->data_offset, first_size) == 0);
+    OK(quantapdf_graph_snapshot_stream(snapshot, &reference, &decode, &second, &second_size));
+    quantapdf_graph_snapshot_drop(snapshot);
+    CHECK(finalized == 1 && first_size == second_size && memcmp(first, second, first_size) == 0);
+    quantapdf_free(first); quantapdf_free(second);
+    first = (unsigned char *)(uintptr_t)1; first_size = 99;
+    CHECK(quantapdf_graph_snapshot_stream(NULL, &reference, &decode, &first, &first_size) == QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(first == NULL && first_size == 0);
+}
+
 int main(void)
 {
     test_capture(); test_document_families(); test_provider_failure();
     test_commit_detached_metadata();
     test_metadata_compatibility();
+    test_stream_snapshot_lifetime();
     return EXIT_SUCCESS;
 }

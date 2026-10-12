@@ -1,4 +1,5 @@
 #include "qpdf_graph_write.h"
+#include "qpdf_graph_replay.h"
 
 #include <qpdf/Pipeline.hh>
 #include <qpdf/QPDF.hh>
@@ -96,53 +97,6 @@ void policy(quantapdf_graph_model const& m)
     }
 }
 
-/* Postorder follows only inline edges. Indirect references are emitted as
- * references, so their cycles neither recurse nor contribute inline depth. */
-std::vector<size_t> direct_order(quantapdf_graph_model const& m,
-    quantapdf_graph_write_limits const& limits)
-{
-    struct frame { size_t id, next; };
-    std::vector<unsigned char> state(m.node_count, 0);
-    std::vector<size_t> weights(m.node_count, 1), heights(m.node_count, 1), order;
-    std::vector<frame> stack;
-    order.reserve(m.node_count); stack.reserve(std::min(m.node_count, limits.max_direct_depth));
-    size_t total = 0;
-    for (size_t i = 0; i < m.node_count; ++i) {
-        if (state[i] == 2) continue;
-        state[i] = 1; stack.push_back({i, 0});
-        while (!stack.empty()) {
-            auto& top = stack.back();
-            auto const& n = m.nodes[top.id];
-            if (top.next < n.edge_count) {
-                size_t child = m.edges[n.edge_offset + top.next].target - 1;
-                if (!m.nodes[child].indirect && state[child] != 2) {
-                    require(state[child] == 0, QUANTAPDF_ERROR_BACKEND);
-                    require(stack.size() < limits.max_direct_depth, QUANTAPDF_ERROR_UNSUPPORTED);
-                    state[child] = 1; stack.push_back({child, 0});
-                    continue;
-                }
-                size_t weight = m.nodes[child].indirect ? 1 : weights[child];
-                require(weight <= limits.max_direct_visits - weights[top.id], QUANTAPDF_ERROR_UNSUPPORTED);
-                weights[top.id] += weight;
-                if (!m.nodes[child].indirect)
-                    heights[top.id] = std::max(heights[top.id], heights[child] + 1);
-                require(heights[top.id] <= limits.max_direct_depth, QUANTAPDF_ERROR_UNSUPPORTED);
-                ++top.next;
-            } else {
-                require(weights[top.id] <= limits.max_direct_visits - total, QUANTAPDF_ERROR_UNSUPPORTED);
-                total += weights[top.id];
-                state[top.id] = 2; order.push_back(top.id); stack.pop_back();
-            }
-        }
-    }
-    return order;
-}
-
-std::string bytes(quantapdf_graph_model const& m, size_t offset, size_t count)
-{
-    return count == 0 ? std::string{} : std::string(reinterpret_cast<char const *>(m.bytes + offset), count);
-}
-
 bool trailer_bookkeeping(std::string const& key)
 {
     return key == "/Size" || key == "/Prev" || key == "/XRefStm" ||
@@ -150,49 +104,9 @@ bool trailer_bookkeeping(std::string const& key)
         key == "/Filter" || key == "/DecodeParms";
 }
 
-void reconstruct(QPDF& pdf, quantapdf_graph_model const& m, std::vector<size_t> const& order)
+void attach_trailer(QPDF& pdf, quantapdf_graph_model const& m,
+    std::vector<QPDFObjectHandle> const& values)
 {
-    std::vector<QPDFObjectHandle> values(m.node_count);
-    for (size_t i = 0; i < m.node_count; ++i) {
-        auto const& n = m.nodes[i];
-        if (n.kind == QUANTAPDF_GRAPH_STREAM)
-            values[i] = pdf.newStream(bytes(m, n.data_offset, n.data_size));
-        else if (n.indirect) values[i] = pdf.newReserved();
-    }
-    for (auto i : order) {
-        auto const& n = m.nodes[i];
-        QPDFObjectHandle value;
-        switch (n.kind) {
-        case QUANTAPDF_GRAPH_NULL: value = QPDFObjectHandle::newNull(); break;
-        case QUANTAPDF_GRAPH_BOOL: value = QPDFObjectHandle::newBool(n.integer != 0); break;
-        case QUANTAPDF_GRAPH_INTEGER: value = QPDFObjectHandle::newInteger(n.integer); break;
-        case QUANTAPDF_GRAPH_REAL: value = QPDFObjectHandle::newReal(bytes(m, n.data_offset, n.data_size)); break;
-        case QUANTAPDF_GRAPH_NAME: value = QPDFObjectHandle::newName(bytes(m, n.data_offset, n.data_size)); break;
-        case QUANTAPDF_GRAPH_STRING: value = QPDFObjectHandle::newString(bytes(m, n.data_offset, n.data_size)); break;
-        case QUANTAPDF_GRAPH_ARRAY: {
-            std::vector<QPDFObjectHandle> items;
-            items.reserve(n.edge_count);
-            for (size_t j = 0; j < n.edge_count; ++j)
-                items.push_back(values[m.edges[n.edge_offset + j].target - 1]);
-            value = QPDFObjectHandle::newArray(items); break;
-        }
-        case QUANTAPDF_GRAPH_DICTIONARY:
-        case QUANTAPDF_GRAPH_STREAM: {
-            std::map<std::string, QPDFObjectHandle> entries;
-            for (size_t j = 0; j < n.edge_count; ++j) {
-                auto const& e = m.edges[n.edge_offset + j];
-                auto key = bytes(m, e.key_offset, e.key_size);
-                if (n.kind == QUANTAPDF_GRAPH_STREAM && key == "/Length") continue;
-                entries.emplace(std::move(key), values[e.target - 1]);
-            }
-            value = QPDFObjectHandle::newDictionary(entries); break;
-        }
-        default: throw write_failure{QUANTAPDF_ERROR_BACKEND};
-        }
-        if (n.kind == QUANTAPDF_GRAPH_STREAM) values[i].replaceDict(value);
-        else if (n.indirect) pdf.replaceReserved(values[i], value);
-        else values[i] = value;
-    }
     auto trailer = pdf.getTrailer();
     for (auto const& entry : values[m.trailer - 1].getDictAsMap())
         if (!trailer_bookkeeping(entry.first)) trailer.replaceKey(entry.first, entry.second);
@@ -219,9 +133,10 @@ quantapdf_status quantapdf_qpdf_write_graph(const quantapdf_graph *graph,
         status = quantapdf_validate_graph_pages(model, seen.data(), seen.size(), pages.data(), pages.size(), &report);
         if (status != QUANTAPDF_OK) return status;
         policy(*model);
-        auto order = direct_order(*model, *limits);
         auto pdf = QPDF::create(); pdf->emptyPDF();
-        reconstruct(*pdf, *model, order);
+        auto values = quantapdf_qpdf_replay_graph(*pdf, *model,
+            limits->max_direct_depth, limits->max_direct_visits);
+        attach_trailer(*pdf, *model, values);
         output_sink sink(limits->max_output_bytes);
         QPDFWriter writer(*pdf);
         writer.setOutputPipeline(&sink);
@@ -235,6 +150,7 @@ quantapdf_status quantapdf_qpdf_write_graph(const quantapdf_graph *graph,
         sink.publish(out_data, out_size);
         return QUANTAPDF_OK;
     } catch (write_failure const& failure) { return failure.status; }
+      catch (quantapdf_qpdf_graph_error const& failure) { return failure.status; }
       catch (std::bad_alloc const&) { return QUANTAPDF_ERROR_NOMEM; }
       catch (std::length_error const&) { return QUANTAPDF_ERROR_UNSUPPORTED; }
       catch (...) { return QUANTAPDF_ERROR_BACKEND; }
