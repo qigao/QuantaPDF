@@ -809,18 +809,84 @@ void test_indirect_resource_page_isolation()
     CHECK(std::fclose(file)==0);
     quantapdf_ir rejected{};
     CHECK(snapshot_lower(&rejected,1u)==QUANTAPDF_ERROR_UNSUPPORTED);
-    CHECK(rejected.pages==nullptr && rejected.operations==nullptr &&
-          rejected.operation_count==0u && rejected.resources.clip_count==0u);
+    CHECK(rejected.pages==nullptr && rejected.page_count==0u &&
+          rejected.operations==nullptr && rejected.operation_count==0u &&
+          rejected.resources.clip_count==0u &&
+          rejected.resources.graphics_state_count==0u);
     quantapdf_ir_dispose(&rejected);
+
+    /* Rendering the other page must not borrow or inherit page 1's /GS.
+     * The source document and Graph are closed before native raster use. */
     quantapdf_ir accepted{};
     OK(snapshot_lower(&accepted,0u));
     CHECK(accepted.page_count==1u && accepted.operation_count==3u);
-    quantapdf_ir_raster_image pixels{};
+    CHECK(accepted.pages[0].width_points==(float)PAGE &&
+          accepted.pages[0].height_points==(float)PAGE);
+    quantapdf_ir_raster_image native{},repeat{};
     OK(quantapdf_ir_raster_scoped_operations_v1(
-        &accepted,0u,&raster_limits,&pixels));
-    CHECK(pixels.width==PAGE && pixels.height==PAGE);
-    quantapdf_ir_raster_image_dispose(&pixels);
+        &accepted,0u,&raster_limits,&native));
+    OK(quantapdf_ir_raster_scoped_operations_v1(
+        &accepted,0u,&raster_limits,&repeat));
+    CHECK(native.width==PAGE && native.height==PAGE &&
+          native.stride==PAGE*4u && native.size==PAGE*PAGE*4u);
+    CHECK(repeat.size==native.size &&
+          std::memcmp(native.pixels,repeat.pixels,native.size)==0);
+    quantapdf_ir_raster_image_dispose(&repeat);
     quantapdf_ir_dispose(&accepted);
+
+    /* Independently render the ORIGINAL page 0 through test-only PDFium.
+     * Never serialize the native IR back to PDF as the reference. */
+    rgb_image reference=render_original_pdfium(0u);
+    CHECK(reference.width==(int)PAGE && reference.height==(int)PAGE);
+    double error=0.0;
+    size_t gross=0u;
+    for(size_t y=0u;y<PAGE;++y)for(size_t x=0u;x<PAGE;++x){
+        const unsigned char *a=native.pixels+y*native.stride+x*4u;
+        const unsigned char *b=reference.at(x,y);
+        unsigned worst=0u;
+        for(size_t channel=0u;channel<3u;++channel){
+            unsigned actual=on_white(a,channel), desired=b[channel];
+            unsigned delta=actual>desired?actual-desired:desired-actual;
+            if(delta>worst)worst=delta;
+            error+=(double)delta;
+        }
+        if(worst>64u)++gross;
+    }
+    const double mean=error/(double)(PAGE*PAGE*3u);
+    if(mean>10.0 || gross>PAGE*PAGE/12u)
+        std::fprintf(stderr,
+            "indirect resource source/PDFium mean=%.3f gross=%zu\n",
+            mean,gross);
+    CHECK(mean<=10.0 && gross<=PAGE*PAGE/12u);
+
+    /* Interior source-space goldens also protect restoration and colors. */
+    const probe points[]={
+        {30,30,255,0,0}, {5,5,0,0,255}, {105,105,0,255,0},
+        {95,35,255,255,255}, {50,100,255,255,255}
+    };
+    for(const auto& p:points){
+        size_t row=PAGE-1u-(size_t)p.y_pdf;
+        const unsigned char *a=native.pixels+row*native.stride+
+                               4u*(size_t)p.x;
+        const unsigned char *b=reference.at((size_t)p.x,row);
+        const unsigned expected[]={p.r,p.g,p.b};
+        for(size_t channel=0u;channel<3u;++channel){
+            CHECK(std::abs((int)on_white(a,channel)-
+                           (int)expected[channel])<=3);
+            CHECK(std::abs((int)b[channel]-
+                           (int)expected[channel])<=3);
+        }
+    }
+    quantapdf_ir_raster_image_dispose(&native);
+
+    /* Re-evaluate the unsupported sibling AFTER successful native paint. */
+    quantapdf_ir rejected_again{};
+    CHECK(snapshot_lower(&rejected_again,1u)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(rejected_again.pages==nullptr &&
+          rejected_again.operations==nullptr &&
+          rejected_again.operation_count==0u &&
+          rejected_again.resources.clip_count==0u);
+    quantapdf_ir_dispose(&rejected_again);
     CHECK(std::remove(SOURCE_QQ_PDF)==0);
 }
 
