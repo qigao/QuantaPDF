@@ -1824,12 +1824,23 @@ int typed_original_preflight(const char *source_path,const char *page_str,
      * existing private Graph/Content limits. No partial prefix admitted. */
     const quantapdf_status status=snapshot_lower(
         &detached,page_index,4u,8u,source_path);
-    CHECK(status==QUANTAPDF_OK ||
-          status==QUANTAPDF_ERROR_UNSUPPORTED);
+    /* Typed candidate rejection is not a generic crash/failure: return
+     * distinct test-only codes and diagnostics so CI cannot mistake an
+     * ordinary source error for the expected typed status mismatch. */
+    if(status!=QUANTAPDF_OK && status!=QUANTAPDF_ERROR_UNSUPPORTED){
+        std::fprintf(stderr,
+            "[source-preflight-error] class=source_error status=%d\n",
+            (int)status);
+        quantapdf_ir_dispose(&detached);
+        return 70;
+    }
     const bool actual_lowered=status==QUANTAPDF_OK;
-    if(!observe_only){
-        CHECK(actual_lowered==expect_lowered);
-        CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED)==expect_rejected);
+    if(!observe_only && actual_lowered!=expect_lowered){
+        std::fprintf(stderr,
+            "[source-preflight-error] class=status_mismatch expected=%s actual=%s\n",
+            expect,actual_lowered?"lowered":"unsupported");
+        quantapdf_ir_dispose(&detached);
+        return 71;
     }
     size_t page_count=0u,op_count=0u,clip_count=0u,state_count=0u;
     clip_leaf_counts winding{};
