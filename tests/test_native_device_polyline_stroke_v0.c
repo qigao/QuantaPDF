@@ -540,6 +540,116 @@ static int test_single_vertical_analytic_trial(void)
     return EXIT_SUCCESS;
 }
 
+
+/* Fifth strict C11 A/B: source-space analytic horizontal width, only
+ * once-per-Path and only safely inside the source segment. */
+static int test_single_horizontal_analytic_trial(void)
+{
+    const float dpi_values[]={72.0f,96.0f,144.0f};
+    for(size_t i=0u;i<3u;++i) {
+        fixture f;
+        quantapdf_ir_raster_image old={0},horizontal={0},repeat={0};
+        setup(&f);
+        f.geom.dpi=dpi_values[i];
+        f.grid_budget.max_pixels=4000u;
+        f.grid_budget.max_rgba_bytes=16000u;
+        f.raster_budget.max_pixels=4000u;
+        f.op.value.path.options.stroke_width=1.0f;
+        f.op.value.path.command_count=2u;
+        OK(quantapdf_ir_raster_device_polyline_stroke_single_vertical_analytic_preview_v0(
+            &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+        OK(quantapdf_ir_raster_device_polyline_stroke_single_horizontal_analytic_preview_v0(
+            &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&horizontal));
+        OK(quantapdf_ir_raster_device_polyline_stroke_single_horizontal_analytic_preview_v0(
+            &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&repeat));
+        CHECK(old.size==horizontal.size && horizontal.size==repeat.size &&
+              memcmp(horizontal.pixels,repeat.pixels,repeat.size)==0);
+        const double px=f.geom.page_width_points/(double)horizontal.width;
+        const double py=f.geom.page_height_points/(double)horizontal.height;
+        const size_t x=(size_t)floor(10.0/px);
+        size_t differences=0u;
+        for(size_t y=0u;y<horizontal.height;++y) {
+            const double y0=(double)y*py,y1=((double)y+1.0)*py;
+            const double shared=fmax(0.0,fmin(y1,8.5)-fmax(y0,7.5));
+            const unsigned expected=(unsigned)floor(
+                255.0*fmin(1.0,shared/py)+0.5);
+            CHECK(alpha(&horizontal,x,y)==expected);
+            if(alpha(&horizontal,x,y)!=alpha(&old,x,y))++differences;
+        }
+        CHECK(differences>0u);
+        quantapdf_ir_raster_image_dispose(&repeat);
+        quantapdf_ir_raster_image_dispose(&horizontal);
+        quantapdf_ir_raster_image_dispose(&old);
+    }
+    fixture f;
+    quantapdf_ir_raster_image old={0},candidate={0};
+    /* Three genuine same-Y horizontal source traversals remain mode4. */
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=4u;
+    f.cmds[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[2].point1=(quantapdf_point){2.0f,8.0f};
+    f.cmds[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[3].point1=(quantapdf_point){20.0f,8.0f};
+    OK(quantapdf_ir_raster_device_polyline_stroke_single_vertical_analytic_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_single_horizontal_analytic_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&candidate));
+    CHECK(old.size==candidate.size &&
+          memcmp(old.pixels,candidate.pixels,old.size)==0);
+    quantapdf_ir_raster_image_dispose(&candidate);
+    quantapdf_ir_raster_image_dispose(&old);
+
+    /* Vertical-only retains exactly the previous mode4 analytic result. */
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=2u;
+    f.cmds[0].point1=(quantapdf_point){20.0f,3.0f};
+    f.cmds[1].point1=(quantapdf_point){20.0f,20.0f};
+    OK(quantapdf_ir_raster_device_polyline_stroke_single_vertical_analytic_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_single_horizontal_analytic_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&candidate));
+    CHECK(old.size==candidate.size &&
+          memcmp(old.pixels,candidate.pixels,old.size)==0);
+    quantapdf_ir_raster_image_dispose(&candidate);
+    quantapdf_ir_raster_image_dispose(&old);
+
+    /* A diagonal following a horizontal invalidates the shortcut,
+     * including otherwise eligible earlier interior pixels. */
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=3u;
+    f.cmds[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[2].point1=(quantapdf_point){22.0f,10.0f};
+    OK(quantapdf_ir_raster_device_polyline_stroke_single_vertical_analytic_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_single_horizontal_analytic_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&candidate));
+    CHECK(old.size==candidate.size &&
+          memcmp(old.pixels,candidate.pixels,old.size)==0);
+    quantapdf_ir_raster_image_dispose(&candidate);
+    quantapdf_ir_raster_image_dispose(&old);
+
+    /* Count=1 edge work: 33*25*16*4 = 52,800 mode4;
+     * mode5 needs 66,000 slots. Reject mode5 under a valid 60,000 cap. */
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=2u;
+    f.grid_budget.max_sample_tests=60000u;
+    f.raster_budget.max_sample_tests=60000u;
+    OK(quantapdf_ir_raster_device_polyline_stroke_single_vertical_analytic_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    quantapdf_ir_raster_image_dispose(&old);
+    memset(&candidate,0xa5,sizeof(candidate));
+    BAD(quantapdf_ir_raster_device_polyline_stroke_single_horizontal_analytic_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&candidate));
+    CHECK(candidate.pixels==NULL && candidate.size==0u &&
+          candidate.stride==0u && candidate.width==0u &&
+          candidate.height==0u);
+    return EXIT_SUCCESS;
+}
+
 static int test_pixel_width_and_rejections(void)
 {
     fixture f;
@@ -591,6 +701,7 @@ int main(void)
     CHECK(test_repeated_horizontal_endpoint_trial()==EXIT_SUCCESS);
     CHECK(test_repeated_right_down_corner_trial()==EXIT_SUCCESS);
     CHECK(test_single_vertical_analytic_trial()==EXIT_SUCCESS);
+    CHECK(test_single_horizontal_analytic_trial()==EXIT_SUCCESS);
     CHECK(test_pixel_width_and_rejections()==EXIT_SUCCESS);
     puts("native-device-polyline-stroke: butt+miter+bevel+union+limits PASS");
     return EXIT_SUCCESS;

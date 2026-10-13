@@ -177,6 +177,33 @@ if(NOT got_mode4_abs_rgb_error EQUAL 10979
   message(FATAL_ERROR "Verified mode4 candidate output unexpectedly changed")
 endif()
 
+
+# Independent fifth PRIVATE C11 experiment on the unchanged original
+# PDFium page. A regression is measurable and valid experimental evidence.
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_alpha_changed_pixels
+    changes_outside_horizontal_interior abs_rgb_error
+    mean_abs_rgb_error changed_pixels gross_delta64_pixels
+    max_channel_delta rgb_fnv64)
+  string(JSON h_${field} GET "${json}" mode5_${field})
+endforeach()
+string(LENGTH "${h_rgb_fnv64}" h_fnv_len)
+if(NOT h_status STREQUAL "measured_unqualified"
+   OR h_default_changed OR h_pixel_parity_qualified OR NOT h_repeat_equal
+   OR h_source_alpha_changed_pixels LESS 1
+   OR h_source_alpha_changed_pixels GREATER 501832
+   OR NOT h_changes_outside_horizontal_interior EQUAL 0
+   OR NOT h_fnv_len EQUAL 16 OR NOT h_rgb_fnv64 MATCHES "^[0-9a-f]+$"
+   OR h_abs_rgb_error LESS 0 OR h_abs_rgb_error GREATER 383901480
+   OR h_mean_abs_rgb_error LESS 0 OR h_mean_abs_rgb_error GREATER 255
+   OR h_changed_pixels LESS 0 OR h_changed_pixels GREATER 501832
+   OR h_gross_delta64_pixels LESS 0
+   OR h_gross_delta64_pixels GREATER h_changed_pixels
+   OR h_max_channel_delta LESS 0 OR h_max_channel_delta GREATER 255)
+  message(FATAL_ERROR "Private horizontal A/B status, budget or pixel scope invalid")
+endif()
+message(STATUS "jspdf-single-horizontal-analytic: mode4_rgb=${got_mode4_abs_rgb_error} mode5_rgb=${h_abs_rgb_error} mode4_changed=${got_mode4_changed_pixels} mode5_changed=${h_changed_pixels} source_changes=${h_source_alpha_changed_pixels} pixel_parity=false")
+
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")

@@ -428,6 +428,69 @@ static int qp_single_vertical_analytic_alpha(
     return 1;
 }
 
+
+/* Fifth, EXPLICIT PRIVATE source-width horizontal analytical A/B.
+ * Only a genuinely SINGLE source traversal, strictly horizontal 1pt
+ * interior can replace the 4x4 sampled alpha. Connected caps, miters,
+ * retraces, diagonals and overlaps keep the already-tested mode4 union.
+ * This is a hypothesis, NOT a general PDF/Skia raster contract. */
+static int qp_single_horizontal_analytic_alpha(
+    const qp_stroke_segment *segments, size_t count,
+    const quantapdf_native_device_grid *grid,
+    size_t x, size_t y, double radius, unsigned *out_alpha)
+{
+    const double x0=(double)x*grid->points_per_device_x;
+    const double x1=((double)x+1.0)*grid->points_per_device_x;
+    const double y0=(double)y*grid->points_per_device_y;
+    const double y1=((double)y+1.0)*grid->points_per_device_y;
+    const double guard=radius+grid->points_per_device_x;
+    size_t hit=SIZE_MAX;
+    double coverage=0.0;
+    if(radius!=0.5 || out_alpha==NULL ||
+       !(x1>x0 && y1>y0) || !isfinite(guard))
+        return 0;
+    /* A potentially long miter from any diagonal edge invalidates this
+     * entire narrow shortcut; default mode4 remains authoritative. */
+    for(size_t i=0u;i<count;++i)
+        if(segments[i].dx!=0.0 && segments[i].dy!=0.0)
+            return 0;
+    for(size_t i=0u;i<count;++i) {
+        const qp_stroke_segment *h=&segments[i];
+        const double left=fmin(h->a.x,h->b.x);
+        const double right=fmax(h->a.x,h->b.x);
+        const double top=h->a.y-radius;
+        const double bottom=h->a.y+radius;
+        double common;
+        if(h->dy!=0.0 || h->dx==0.0 ||
+           !(x0>left+guard && x1<right-guard) ||
+           !(y0<bottom && y1>top))
+            continue;
+        common=fmin(y1,bottom)-fmax(y0,top);
+        if(!(common>0.0))
+            continue;
+        if(hit!=SIZE_MAX)
+            return 0; /* never promote genuine retraces */
+        hit=i;
+        coverage=common/(y1-y0);
+    }
+    if(hit==SIZE_MAX || !isfinite(coverage) ||
+       !(coverage>0.0 && coverage<=1.0))
+        return 0;
+    /* Overlap-aware fail closed, conservatively bounding all other
+     * segments. Do not construct a second join/cap ownership path. */
+    for(size_t i=0u;i<count;++i) {
+        const qp_stroke_segment *s=&segments[i];
+        const double ax=fmin(s->a.x,s->b.x)-radius;
+        const double bx=fmax(s->a.x,s->b.x)+radius;
+        const double ay=fmin(s->a.y,s->b.y)-radius;
+        const double by=fmax(s->a.y,s->b.y)+radius;
+        if(i!=hit && x0<bx && x1>ax && y0<by && y1>ay)
+            return 0;
+    }
+    *out_alpha=(unsigned)floor(fmin(1.0,coverage)*255.0+0.5);
+    return 1;
+}
+
 /* Bounds-only acceleration for the THIRD experimental corner preview.
  * The source is a finite, bounded OPEN POLYLINE. Every stroked segment
  * lies within its two endpoints expanded by source radius; every admitted
@@ -548,12 +611,21 @@ static quantapdf_status qp_stroke_render_impl(
 
     /* The single-vertical analytical trial does a fourth conservative
      * source-edge scan. Keep the old V0/1/2/3 admission unchanged. */
-    if(horizontal_preview==4 &&
+    if(horizontal_preview>=4 &&
        (count>grid_limits->max_edges/4u ||
         count>raster_limits->max_edges/4u ||
         quantapdf_native_device_grid_admit_edges_v0(
             &grid,grid_limits,count*4u)!=QUANTAPDF_NATIVE_DEVICE_GRID_OK ||
         count*4u>raster_limits->max_sample_tests/grid.sample_slots))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    /* Separate fifth source-edge scan admission, only for mode5. */
+    if(horizontal_preview==5 &&
+       (count>grid_limits->max_edges/5u ||
+        count>raster_limits->max_edges/5u ||
+        quantapdf_native_device_grid_admit_edges_v0(
+            &grid,grid_limits,count*5u)!=QUANTAPDF_NATIVE_DEVICE_GRID_OK ||
+        count*5u>raster_limits->max_sample_tests/grid.sample_slots))
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
     for(size_t i=1u;i<count;++i) {
@@ -566,7 +638,7 @@ static quantapdf_status qp_stroke_render_impl(
     if(rgba==NULL) return QUANTAPDF_ERROR_NOMEM;
     memset(rgba,0,grid.rgba_bytes);
     qp_stroke_roi sampled={0u,grid.width,0u,grid.height};
-    if(horizontal_preview==3 || horizontal_preview==4)
+    if(horizontal_preview>=3)
         sampled=qp_corner_preview_sample_bounds(
             segments,count,&grid,radius,miter_limit);
     for(size_t y=sampled.y0;y<sampled.y1;++y) {
@@ -595,7 +667,7 @@ static quantapdf_status qp_stroke_render_impl(
                 /* Modes 1/2 and every non-corner pixel in mode 3 retain
                  * the exact fully saturated repeated-edge trial. */
                 pixel_alpha=255u;
-                if(horizontal_preview==3 || horizontal_preview==4) {
+                if(horizontal_preview>=3) {
                     const size_t repeats=qp_repeated_right_down_corner_outer(
                         segments,count,&grid,x,y,radius);
                     if(repeats>=2u && covered!=0u)
@@ -603,9 +675,15 @@ static quantapdf_status qp_stroke_render_impl(
                             (covered*255u+8u)/16u,repeats);
                 }
             }
-            if(horizontal_preview==4) {
+            if(horizontal_preview>=4) {
                 unsigned analytic_alpha=0u;
                 if(qp_single_vertical_analytic_alpha(
+                       segments,count,&grid,x,y,radius,&analytic_alpha))
+                    pixel_alpha=analytic_alpha;
+            }
+            if(horizontal_preview==5) {
+                unsigned analytic_alpha=0u;
+                if(qp_single_horizontal_analytic_alpha(
                        segments,count,&grid,x,y,radius,&analytic_alpha))
                     pixel_alpha=analytic_alpha;
             }
@@ -694,4 +772,18 @@ quantapdf_status quantapdf_ir_raster_device_polyline_stroke_single_vertical_anal
 {
     return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
                                  raster_limits,out_image,4);
+}
+
+
+/* Fifth PRIVATE hypothesis. Mode4 remains independently callable and
+ * byte-for-byte unchanged for its previous input geometries. */
+quantapdf_status quantapdf_ir_raster_device_polyline_stroke_single_horizontal_analytic_preview_v0(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
+                                 raster_limits,out_image,5);
 }
