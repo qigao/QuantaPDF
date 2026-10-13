@@ -16,10 +16,21 @@ file(SHA256 "${SOURCE}" before)
 if(NOT "${before}" STREQUAL "${EXPECTED_SHA256}")
   message(FATAL_ERROR "Original W candidate SHA256 mismatch: ${before}")
 endif()
+# An opt-in bounded diagnostic executes once. No automatic fallback/retry.
+set(budget_args)
+set(test_paint_budget 3)
+if(DEFINED EXPLICIT_MAX_PAINTED)
+  if(NOT "${EXPLICIT_MAX_PAINTED}" STREQUAL "8")
+    message(FATAL_ERROR "Only explicit test-only max-painted-paths=8 permitted")
+  endif()
+  set(test_paint_budget 8)
+  list(APPEND budget_args --max-painted-paths 8)
+endif()
 # Never unlink a prior successful JSON report before the typed oracle starts.
 execute_process(
   COMMAND "${ORACLE}" --preflight-original-pdf "${SOURCE}"
     --page-index 0 --expect-status observe --preflight-report "${REPORT}"
+    ${budget_args}
   RESULT_VARIABLE rc OUTPUT_VARIABLE out ERROR_VARIABLE err)
 if(NOT "${rc}" STREQUAL "0")
   message(FATAL_ERROR "Real selected-page typed observe failed: ${rc}: ${err}")
@@ -64,4 +75,4 @@ file(SHA256 "${SOURCE}" after)
 if(NOT "${before}" STREQUAL "${after}")
   message(FATAL_ERROR "Original W-only source PDF mutated by typed preflight")
 endif()
-message(STATUS "external W-only candidate: ${CASE_ID} typed=${value_native_lower_status} W=${value_detached_ir_w_nonzero_clip_path_leaves} W*=0 pixel=not_run external_positive=0")
+message(STATUS "external W-only candidate: ${CASE_ID} typed=${value_native_lower_status} W=${value_detached_ir_w_nonzero_clip_path_leaves} W*=0 paint_budget=${test_paint_budget} pixel=not_run external_positive=0")

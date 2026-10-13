@@ -91,7 +91,8 @@ void make_source(const char *content,
 quantapdf_status snapshot_lower(quantapdf_ir *out,
                                 size_t page_index=0u,size_t max_streams=1u,
                                 size_t max_parent_steps=2u,
-                                const char *source_path=SOURCE_QQ_PDF)
+                                const char *source_path=SOURCE_QQ_PDF,
+                                const quantapdf_pdf_path_lower_limits *explicit_limits=&lower_limits)
 {
     quantapdf_document *doc=nullptr;
     quantapdf_graph_snapshot *snap=nullptr;
@@ -104,7 +105,7 @@ quantapdf_status snapshot_lower(quantapdf_ir *out,
     quantapdf_close(doc);
     if(st != QUANTAPDF_OK) return st;
     st = quantapdf_graph_snapshot_page_composer_ir(
-        snap,page_index,max_parent_steps,&decode_limits,&parse_limits,max_streams,&lower_limits,out);
+        snap,page_index,max_parent_steps,&decode_limits,&parse_limits,max_streams,explicit_limits,out);
     /* Deliberately sever all source-page ownership before rasterization. */
     quantapdf_graph_snapshot_drop(snap);
     return st;
@@ -1969,7 +1970,8 @@ int test_external_yworks_wstar_candidate_pixels(
  * not keyword extraction. It deliberately runs neither PDFium oracle nor
  * native raster, and NEVER counts as positive native W* pixel conformance. */
 int typed_original_preflight(const char *source_path,const char *page_str,
-                             const char *expect,const char *report_path)
+                             const char *expect,const char *report_path,
+                             size_t max_painted_paths=3u)
 {
     CHECK(source_path && *source_path && page_str && *page_str &&
           expect && *expect && report_path && *report_path);
@@ -2018,8 +2020,12 @@ int typed_original_preflight(const char *source_path,const char *page_str,
     quantapdf_ir detached{};
     /* Four content streams + eight page-tree steps are bounded by the
      * existing private Graph/Content limits. No partial prefix admitted. */
+    CHECK(max_painted_paths>=lower_limits.max_painted_paths &&
+          max_painted_paths<=8u);
+    quantapdf_pdf_path_lower_limits bounded_limits=lower_limits;
+    bounded_limits.max_painted_paths=max_painted_paths;
     const quantapdf_status status=snapshot_lower(
-        &detached,page_index,4u,8u,source_path);
+        &detached,page_index,4u,8u,source_path,&bounded_limits);
     /* Typed candidate rejection is not a generic crash/failure: return
      * distinct test-only codes and diagnostics so CI cannot mistake an
      * ordinary source error for the expected typed status mismatch. */
@@ -2043,9 +2049,10 @@ int typed_original_preflight(const char *source_path,const char *page_str,
     if(actual_lowered){
         CHECK(detached.pages!=nullptr && detached.page_count==1u &&
               detached.operations!=nullptr &&
-              detached.operation_count>=1u && detached.operation_count<=4u &&
+              detached.operation_count>=1u &&
+              detached.operation_count<=(max_painted_paths>4u?max_painted_paths:4u) &&
               detached.resources.clip_count<=8u &&
-              detached.resources.graphics_state_count<=4u &&
+              detached.resources.graphics_state_count<=(max_painted_paths>4u?8u:4u) &&
               detached.resources.font_count==0u &&
               detached.resources.image_count==0u &&
               detached.resources.form_count==0u &&
@@ -2242,6 +2249,21 @@ static void publish_corpus_report(const char *destination,
 
 int main(int argc,char **argv)
 {
+    if(argc==11 &&
+       std::strcmp(argv[1],"--preflight-original-pdf")==0 &&
+       std::strcmp(argv[3],"--page-index")==0 &&
+       std::strcmp(argv[5],"--expect-status")==0 &&
+       std::strcmp(argv[7],"--preflight-report")==0 &&
+       std::strcmp(argv[9],"--max-painted-paths")==0) {
+        char *tail=nullptr;
+        errno=0;
+        const unsigned long budget=std::strtoul(argv[10],&tail,10);
+        if(errno!=0 || tail==argv[10] || *tail!='\0' ||
+           budget<3ul || budget>8ul)
+            return 70; /* Explicit test-only budget, never a fallback. */
+        return typed_original_preflight(argv[2],argv[4],argv[6],argv[8],
+                                        (size_t)budget);
+    }
     if(argc==9 &&
        std::strcmp(argv[1],"--preflight-original-pdf")==0 &&
        std::strcmp(argv[3],"--page-index")==0 &&

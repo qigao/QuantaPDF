@@ -2032,6 +2032,10 @@ endif()
 # The actual selected-page Document -> Graph -> detached IR observe is used
 # instead of heuristic token scanning. No pixel parity or corpus admission.
 function(add_external_nonzero_candidate_observe case_id relative_pdf expected_sha256 expected_size)
+  set(optional_paint_budget)
+  if(ARGC GREATER 4)
+    set(optional_paint_budget "-DEXPLICIT_MAX_PAINTED=${ARGV4}")
+  endif()
   add_test(NAME quantapdf.external_${case_id}_typed_observe
     COMMAND "${CMAKE_COMMAND}"
       "-DORACLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
@@ -2040,6 +2044,7 @@ function(add_external_nonzero_candidate_observe case_id relative_pdf expected_sh
       "-DEXPECTED_SHA256=${expected_sha256}"
       "-DEXPECTED_SIZE=${expected_size}"
       "-DCASE_ID=${case_id}"
+      ${optional_paint_budget}
       -P "${CMAKE_CURRENT_SOURCE_DIR}/check_external_nonzero_candidate_observe.cmake")
   set_tests_properties(quantapdf.external_${case_id}_typed_observe PROPERTIES
     TIMEOUT 40 LABELS "conformance;source-preflight;nonzero-candidate"
@@ -2067,6 +2072,10 @@ add_external_nonzero_candidate_observe(
 add_external_nonzero_candidate_observe(
   jspdf-w3s-clip external_wstar_candidates/documents/jspdf.w3s-clip-v1.pdf
   179d8552191bbd1890c72a85fac58bad3dd59ff66766fff76e9a790915a1b11e 3344)
+
+add_external_nonzero_candidate_observe(
+  yworks-svg-nested-w-budget8 external_wstar_candidates/documents/yworks.clippath-svg-v1.pdf
+  7c9d3eab0f401537052a5ec4a8c531954aaf354061a9de25080376a9e13cb921 4107 8)
 
 # Authentic, byte-pinned upstream W* PDF typed candidate, isolated from
 # five admitted original conformance sources and all native pixel counters.

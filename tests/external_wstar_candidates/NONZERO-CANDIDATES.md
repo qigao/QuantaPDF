@@ -39,3 +39,17 @@ and requires further document-level license review; no bytes included.
 W* native pixel-positive = 1/1**. The next positive must use a separately
 licensed, byte-pinned original W* source and full PDFium original pixels
 versus detached C11 comparison on exact-head three-platform CI.
+
+## Separate explicit paint-budget diagnostic (test-only)
+
+The original `clippath-svg.pdf` has **six painted Path operations** (3 `S`
+and 3 `f`) while the default private test preflight has
+`lower_limits.max_painted_paths=3`. The extra CTest
+`external_yworks-svg-nested-w-budget8_typed_observe` uses the **same
+unchanged and SHA-256-pinned raw PDF**, but makes a single, explicit request
+for **max-painted-paths=8** in the test-only oracle. The default path and all
+production/API/native pixel/SDK paths retain their existing limits. The
+budget8 result is observation-only and never a pixel positive; no source
+rewrite, automatic retry or fallback. Exact per-platform JSON remains
+separate from the default-budget report. Further unsupported results
+still require an explicit reason investigation.
