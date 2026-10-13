@@ -59,3 +59,9 @@ target_sources(quantapdf PRIVATE
 target_sources(quantapdf PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/native_device_grid.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/native_device_grid.h")
+ 
+# Explicit private fractional Scoped Raster — only bounded synthetic fills.
+# Does not replace or relax the historical scoped V1 entrypoint.
+target_sources(quantapdf PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/ir_scoped_device_grid_v0.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ir_scoped_device_grid_v0.h")
