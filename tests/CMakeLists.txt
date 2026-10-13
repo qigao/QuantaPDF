@@ -2313,5 +2313,22 @@ else()
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
 
-
-
+# Strict private native-device grid: no PDFium/QPDF or data fixture.
+add_executable(quantapdf_test_native_device_grid
+  test_native_device_grid.c ../src/render/native_device_grid.c)
+target_include_directories(quantapdf_test_native_device_grid PRIVATE
+  "${PROJECT_SOURCE_DIR}/src")
+set_target_properties(quantapdf_test_native_device_grid PROPERTIES
+  C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+if(MSVC)
+  target_compile_options(quantapdf_test_native_device_grid PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_test_native_device_grid PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+if(UNIX)
+  target_link_libraries(quantapdf_test_native_device_grid PRIVATE m)
+endif()
+add_test(NAME quantapdf.native_device_grid COMMAND quantapdf_test_native_device_grid)
+set_tests_properties(quantapdf.native_device_grid PROPERTIES
+  TIMEOUT 20 LABELS "conformance;native-grid;geometry-only")

@@ -54,3 +54,8 @@ target_sources(quantapdf PRIVATE
 target_sources(quantapdf PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_scoped_operations_v1.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_scoped_operations_v1.h")
+
+# Private C11 point-to-device grid; no raster-path behavior change.
+target_sources(quantapdf PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/native_device_grid.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/native_device_grid.h")
