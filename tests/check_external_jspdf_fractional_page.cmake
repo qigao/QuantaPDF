@@ -228,6 +228,74 @@ if(NOT preview_status STREQUAL "measured_unqualified"
   message(FATAL_ERROR "Preview candidate is unbounded or falsely pixel-qualified")
 endif()
 
+# Separate candidate spatial failure evidence: an actual full-page rescan,
+# not just a curated list of large differences. Category sums must equal
+# the independently measured Preview totals; no new pixel-positive is allowed.
+string(JSON pr_schema GET "${json}" horizontal_thin_1pt_preview_spatial_attribution schema_version)
+string(JSON pr_changed_len LENGTH "${json}" horizontal_thin_1pt_preview_spatial_attribution changed_by_partial_mask)
+string(JSON pr_gross_len LENGTH "${json}" horizontal_thin_1pt_preview_spatial_attribution gross_by_partial_mask)
+string(JSON pr_error_len LENGTH "${json}" horizontal_thin_1pt_preview_spatial_attribution abs_rgb_error_by_partial_mask)
+string(JSON pr_bounds_len LENGTH "${json}" horizontal_thin_1pt_preview_spatial_attribution changed_bounds)
+string(JSON pr_worst_len LENGTH "${json}" horizontal_thin_1pt_preview_spatial_attribution worst_pixels)
+if(NOT pr_schema EQUAL 1 OR NOT pr_changed_len EQUAL 4
+   OR NOT pr_gross_len EQUAL 4 OR NOT pr_error_len EQUAL 4
+   OR NOT pr_bounds_len EQUAL 4 OR pr_worst_len GREATER 12)
+  message(FATAL_ERROR "Original repeated-Stroke preview attribution incomplete")
+endif()
+set(pr_changed_total 0)
+set(pr_gross_total 0)
+set(pr_error_total 0)
+foreach(i RANGE 0 3)
+  string(JSON n GET "${json}" horizontal_thin_1pt_preview_spatial_attribution changed_by_partial_mask ${i})
+  string(JSON g GET "${json}" horizontal_thin_1pt_preview_spatial_attribution gross_by_partial_mask ${i})
+  string(JSON e GET "${json}" horizontal_thin_1pt_preview_spatial_attribution abs_rgb_error_by_partial_mask ${i})
+  if(n LESS 0 OR n GREATER 501832 OR g LESS 0 OR g GREATER n
+     OR e LESS 0 OR e GREATER 383901480)
+    message(FATAL_ERROR "Preview group counts invalid")
+  endif()
+  math(EXPR pr_changed_total "${pr_changed_total}+${n}")
+  math(EXPR pr_gross_total "${pr_gross_total}+${g}")
+  math(EXPR pr_error_total "${pr_error_total}+${e}")
+endforeach()
+if(NOT pr_changed_total EQUAL preview_changed_pixels
+   OR NOT pr_gross_total EQUAL preview_gross_delta64_pixels
+   OR NOT pr_error_total EQUAL preview_abs_rgb_error)
+  message(FATAL_ERROR "Preview spatial attribution contradicts whole-page totals")
+endif()
+if(preview_gross_delta64_pixels GREATER 0)
+  if(pr_worst_len EQUAL 0)
+    message(FATAL_ERROR "Preview large mismatches lack device coordinates")
+  endif()
+  string(JSON top_delta GET "${json}" horizontal_thin_1pt_preview_spatial_attribution worst_pixels 0 max_delta)
+  if(NOT top_delta EQUAL preview_max_channel_delta)
+    message(FATAL_ERROR "Preview worst coordinate does not match max delta")
+  endif()
+endif()
+if(pr_worst_len GREATER 0)
+  math(EXPR pr_last "${pr_worst_len}-1")
+  set(pr_prior 256)
+  foreach(i RANGE 0 ${pr_last})
+    foreach(field IN ITEMS x y max_delta stroke_alpha fill_alpha)
+      string(JSON pr_${field} GET "${json}" horizontal_thin_1pt_preview_spatial_attribution worst_pixels ${i} ${field})
+    endforeach()
+    if(pr_x LESS 0 OR pr_x GREATER 595
+       OR pr_y LESS 0 OR pr_y GREATER 841
+       OR pr_max_delta LESS 1 OR pr_max_delta GREATER pr_prior
+       OR pr_stroke_alpha LESS 0 OR pr_stroke_alpha GREATER 255
+       OR pr_fill_alpha LESS 0 OR pr_fill_alpha GREATER 255)
+      message(FATAL_ERROR "Preview sorted original pixel coordinates malformed")
+    endif()
+    set(pr_prior ${pr_max_delta})
+  endforeach()
+endif()
+# A real-original A/B acceptance gate: preview must improve BOTH total RGB
+# error and gross-error count, without claiming per-pixel exact parity.
+if(preview_abs_rgb_error GREATER_EQUAL cmp_ordered_native_composite_abs_rgb_error
+   OR preview_gross_delta64_pixels GREATER_EQUAL
+      cmp_ordered_native_composite_gross_delta64_pixels)
+  message(FATAL_ERROR "Repeated-Stroke preview regressed pinned original image")
+endif()
+
 string(JSON positive GET "${json}" native_pixel_positive_count)
 string(JSON admitted GET "${json}" official_corpus_admitted)
 string(JSON generated GET "${json}" generated_fixture_count)
