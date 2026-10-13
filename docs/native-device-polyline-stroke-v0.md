@@ -57,3 +57,22 @@ interior goldens, repeats and caps/joins before changing any negative gate.
 
 Keep #269 open, stacked PRs Draft/DO NOT MERGE, original corpus/W* counters
 unchanged, public SDK PDFium-backed and #208 cutover blocked.
+
+## Follow-up: source-style translation and original isolated Stroke candidate
+
+The follow-up accepts ONLY translation-only source Path matrices. This is
+required by `pdf_path_lowering.c`: it stores raw PDF Path points in a local
+`(x,-y)` basis, and the selected-page transform contributes page height
+exactly once. Scaling, shear, rotation, clipping and resource-bearing source
+Stroke remain unsupported in this isolated primitive. A strict C11
+equivalence test requires rebased and normalized Paths to render
+byte-identical RGBA.
+
+The unchanged original jsPDF `S` path is extracted as a synchronous
+borrowed one-operation, resource-free view, with its source Path translation
+preserved. C11 renders this real-original Stroke as an ISOLATED layer, checks
+fixed nonzero anchors (outside later red fill), verifies black stroke
+observation independently on the original PDFium page and checks repeat
+byte equality. This is **not** a complete image match: later W Clip Fill is
+not composed here, and full-page original native-positive remains zero.
+#270 and #277 old/fill-only original negative gates are unchanged.

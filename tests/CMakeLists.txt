@@ -1794,6 +1794,7 @@ add_executable(quantapdf_test_native_source_qq_oracle
   ../src/snapshot/snapshot_owner.c
   ../src/render/ir_scoped_operations_v1.c
   ../src/render/ir_scoped_device_grid_v0.c
+  ../src/render/ir_device_polyline_stroke_v0.c
   ../src/render/native_device_grid.c
   ../src/render/ir_clip_dag_v3.c
   ../src/render/ir_raster_v1.c
