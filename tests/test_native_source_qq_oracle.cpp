@@ -1951,10 +1951,24 @@ int test_external_jspdf_fractional_page_rejection(
     quantapdf_ir isolated_fill=detached;
     isolated_fill.operations=&detached.operations[1];
     isolated_fill.operation_count=1u;
+    /* Original Fill and W Clip each retain repeated source edges; exact
+     * sample-edge billing needs a separate, explicit bounded per-layer
+     * allowance. This does not change #270 whole-original admission. */
+    quantapdf_native_device_grid_limits fill_grid_limits=grid_limits;
+    fill_grid_limits.max_sample_tests=160000000u;
+    const quantapdf_ir_raster_v1_limits fill_raster_limits={
+        600u*850u,1u,768u,160000000u
+    };
     quantapdf_ir_raster_image source_fill{};
     quantapdf_ir_raster_image repeat_fill{};
-    OK(quantapdf_ir_raster_scoped_device_grid_v0(
-        &isolated_fill,0u,&source_geometry,&grid_limits,&limits,&source_fill));
+    const quantapdf_status source_fill_status=
+        quantapdf_ir_raster_scoped_device_grid_v0(
+            &isolated_fill,0u,&source_geometry,&fill_grid_limits,
+            &fill_raster_limits,&source_fill);
+    if (source_fill_status!=QUANTAPDF_OK)
+        std::fprintf(stderr,"source-fill isolated status=%d\n",
+                     (int)source_fill_status);
+    OK(source_fill_status);
     CHECK(source_fill.pixels!=nullptr &&
           source_fill.width==596u && source_fill.height==842u &&
           source_fill.stride==596u*4u && source_fill.size==596u*842u*4u);
@@ -1974,8 +1988,14 @@ int test_external_jspdf_fractional_page_rejection(
     CHECK(reference.at(200u,50u)[0]>245u &&
           reference.at(200u,50u)[1]>245u &&
           reference.at(200u,50u)[2]>245u);
-    OK(quantapdf_ir_raster_scoped_device_grid_v0(
-        &isolated_fill,0u,&source_geometry,&grid_limits,&limits,&repeat_fill));
+    const quantapdf_status repeat_fill_status=
+        quantapdf_ir_raster_scoped_device_grid_v0(
+            &isolated_fill,0u,&source_geometry,&fill_grid_limits,
+            &fill_raster_limits,&repeat_fill);
+    if (repeat_fill_status!=QUANTAPDF_OK)
+        std::fprintf(stderr,"source-fill repeat status=%d\n",
+                     (int)repeat_fill_status);
+    OK(repeat_fill_status);
     CHECK(repeat_fill.size==source_fill.size &&
           std::memcmp(repeat_fill.pixels,source_fill.pixels,
                       source_fill.size)==0);
