@@ -104,3 +104,18 @@ coordinate representation must preserve exact semantics (W vs W*,
 q/Q, CTM, geometry and stroke) and pass independent PDFium-original
 vs detached-C11 whole-image/golden/repeat pixel evidence, before any
 formal conformance count can change.
+
+## #266 Draft #267 — typed-only improvement (no pixel admission)
+
+Uniform source Path/W/W* Clip rebasing makes the exact raw yWorks
+`clippath-svg.pdf` selected page **lowerable** with the separately
+requested painted-path budget 8. Its five original `W` Clip leaves
+and six painted Path operations are preserved in owned detached IR.
+This is deliberately **only typed observation**: the private C11
+scoped raster currently admits up to four operations and eight Clip
+nodes, so a whole-page independent PDFium-vs-native pixel oracle is
+still outstanding. This page contributes **zero new W or W* native
+pixel positives** to the six-source official manifest. The default
+paint budget 3 continues to return transactional `UNSUPPORTED`.
+The status report distinguishes `lowered` from a pixel-positive
+and retains original-byte report guards and source ownership release.

@@ -156,7 +156,10 @@ struct clip_leaf_counts {
 clip_leaf_counts inspect_clip_fill_rules(const quantapdf_ir& ir)
 {
     clip_leaf_counts out{};
-    CHECK(ir.resources.clip_count<=8u);
+    /* Typed IR may hold more owned Clip nodes than the currently supported
+     * private C11 pixel raster's maximum of eight. Do not conflate the two
+     * admission gates or report native pixel parity from typed lowering. */
+    CHECK(ir.resources.clip_count<=16u);
     CHECK(ir.resources.clip_count==0u || ir.resources.clips!=nullptr);
     for(size_t i=0u;i<ir.resources.clip_count;++i){
         const auto& item=ir.resources.clips[i];
@@ -2123,24 +2126,47 @@ int diagnose_original_stages(const char *source_path,const char *report_path)
     }
     const int code=(int)st;
     const bool unsupported=st==QUANTAPDF_ERROR_UNSUPPORTED;
-    if(st==QUANTAPDF_OK)
-        CHECK(detached.page_count==1u && detached.pages!=nullptr);
-    else CHECK(detached.page_count==0u && detached.pages==nullptr &&
-               detached.operation_count==0u && detached.operations==nullptr &&
-               detached.resources.clip_count==0u &&
-               detached.resources.graphics_state_count==0u);
-    quantapdf_ir_dispose(&detached);
-    quantapdf_pdf_page_semantics_dispose(semantics);
-    quantapdf_graph_snapshot_drop(snapshot);
-    /* This particular original is intentionally expected to remain a
-     * clean UNSUPPORTED selected page at budget 8 until independently fixed.
-     * Reject parser crashes/format errors rather than mislabeling success. */
-    if(!unsupported) {
+    const bool lowered=st==QUANTAPDF_OK;
+    if(!unsupported && !lowered) {
+        quantapdf_ir_dispose(&detached);
+        quantapdf_pdf_page_semantics_dispose(semantics);
+        quantapdf_graph_snapshot_drop(snapshot);
         std::fprintf(stderr,
             "[original-stage-diag] unexpected result=%d stage=%s\n",
             code,failed_stage);
         return 71;
     }
+    size_t native_pages=0u,native_ops=0u,native_clips=0u;
+    size_t native_states=0u;
+    clip_leaf_counts native_winding{};
+    if(lowered) {
+        CHECK(std::strcmp(failed_stage,"none")==0 &&
+              detached.page_count==1u && detached.pages!=nullptr &&
+              detached.operation_count==6u && detached.operations!=nullptr &&
+              detached.resources.clip_count>=5u &&
+              detached.resources.clip_count<=16u &&
+              detached.resources.graphics_state_count<=8u &&
+              detached.resources.font_count==0u &&
+              detached.resources.image_count==0u &&
+              detached.resources.form_count==0u &&
+              detached.resources.soft_mask_count==0u);
+        native_winding=inspect_clip_fill_rules(detached);
+        CHECK(native_winding.nonzero==5u && native_winding.evenodd==0u);
+        native_pages=detached.page_count;
+        native_ops=detached.operation_count;
+        native_clips=detached.resources.clip_count;
+        native_states=detached.resources.graphics_state_count;
+    } else {
+        CHECK(detached.page_count==0u && detached.pages==nullptr &&
+              detached.operation_count==0u && detached.operations==nullptr &&
+              detached.resources.clip_count==0u &&
+              detached.resources.graphics_state_count==0u);
+    }
+    quantapdf_ir_dispose(&detached);
+    quantapdf_pdf_page_semantics_dispose(semantics);
+    quantapdf_graph_snapshot_drop(snapshot);
+    const std::string first_record=lowered?
+        std::string("null"):std::to_string(first_failed_path);
     FILE *out=std::fopen(staged.c_str(),"wb");
     CHECK(out!=nullptr);
     std::fprintf(out,
@@ -2151,13 +2177,15 @@ int diagnose_original_stages(const char *source_path,const char *report_path)
         "  \"original_source_provenance_verified\": false,\n"
         "  \"selected_page_index\": 0,\n"
         "  \"paint_budget\": 8,\n"
+        "  \"native_lower_status\": \"%s\",\n"
         "  \"failed_stage\": \"%s\",\n"
         "  \"actual_status_code\": %d,\n"
         "  \"parsed_content_ops\": %zu,\n"
         "  \"parsed_path_records\": %zu,\n"
         "  \"parsed_clip_records\": %zu,\n"
         "  \"parsed_painted_paths\": %zu,\n"
-        "  \"first_rejected_path_record_index\": %zu,\n"
+        "  \"first_rejected_record_is_present\": %s,\n"
+        "  \"first_rejected_path_record_index\": %s,\n"
         "  \"first_rejected_path_first_operator_index\": %zu,\n"
         "  \"first_rejected_path_terminal_operator_index\": %zu,\n"
         "  \"first_rejected_prefix_clip_count\": %zu,\n"
@@ -2167,22 +2195,35 @@ int diagnose_original_stages(const char *source_path,const char *report_path)
         "  \"first_rejected_source_ctm\": [%.17g, %.17g, %.17g, %.17g, %.17g, %.17g],\n"
         "  \"first_rejected_conjugated_y_translation\": %.17g,\n"
         "  \"composer_transform_component_abs_bound\": 65536,\n"
-        "  \"first_rejected_numeric_guard\": \"conjugated_y_translation_exceeds_bound\",\n"
+        "  \"first_rejected_numeric_guard\": \"%s\",\n"
         "  \"source_document_graph_released\": true,\n"
-        "  \"detached_ir_pages\": 0,\n"
-        "  \"detached_ir_operations\": 0,\n"
+        "  \"detached_ir_pages\": %zu,\n"
+        "  \"detached_ir_operations\": %zu,\n"
+        "  \"detached_ir_clips\": %zu,\n"
+        "  \"detached_ir_graphics_states\": %zu,\n"
+        "  \"detached_ir_w_nonzero_clip_path_leaves\": %zu,\n"
+        "  \"detached_ir_wstar_evenodd_clip_path_leaves\": %zu,\n"
+        "  \"detached_ir_clip_intersection_nodes\": %zu,\n"
         "  \"original_pdfium_pixel_oracle\": \"not_run\",\n"
         "  \"native_raster\": \"not_run\",\n"
         "  \"external_wstar_pixel_supported_count\": 0,\n"
         "  \"generated_fixture_count\": 0\n"
         "}\n",
+        lowered?"lowered":"unsupported",
         failed_stage,code,content_ops,paths,clips,painted,
-        first_failed_path,first_failed_operator,first_failed_terminal_operator,
-        first_failed_clip_count,first_failed_is_clip,first_failed_paint_opcode,
-        first_failed_status,first_failed_source_ctm[0],first_failed_source_ctm[1],
+        lowered?"false":"true",first_record.c_str(),
+        lowered?0u:first_failed_operator,
+        lowered?0u:first_failed_terminal_operator,
+        first_failed_clip_count,first_failed_is_clip,
+        first_failed_paint_opcode,first_failed_status,
+        first_failed_source_ctm[0],first_failed_source_ctm[1],
         first_failed_source_ctm[2],first_failed_source_ctm[3],
         first_failed_source_ctm[4],first_failed_source_ctm[5],
-        first_failed_composer_f);
+        first_failed_composer_f,
+        lowered?"none":"conjugated_y_translation_exceeds_bound",
+        native_pages,native_ops,native_clips,native_states,
+        native_winding.nonzero,native_winding.evenodd,
+        native_winding.intersections);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
@@ -2190,9 +2231,10 @@ int diagnose_original_stages(const char *source_path,const char *report_path)
 #endif
     CHECK(std::rename(staged.c_str(),report_path)==0);
     std::fprintf(stderr,
-        "[original-stage-diag] stage=%s status=unsupported parsed_paths=%zu "
-        "clips=%zu painted=%zu first_rejected_record=%zu budget=8 pixels=not_run\n",
-        failed_stage,paths,clips,painted,first_failed_path);
+        "[original-stage-diag] stage=%s status=%s parsed_paths=%zu "
+        "clips=%zu painted=%zu owned_clip_nodes=%zu budget=8 pixels=not_run\n",
+        failed_stage,lowered?"lowered":"unsupported",
+        paths,clips,painted,native_clips);
     return 0;
 }
 
@@ -2278,7 +2320,7 @@ int typed_original_preflight(const char *source_path,const char *page_str,
               detached.operations!=nullptr &&
               detached.operation_count>=1u &&
               detached.operation_count<=(max_painted_paths>4u?max_painted_paths:4u) &&
-              detached.resources.clip_count<=8u &&
+              detached.resources.clip_count<=(max_painted_paths>4u?16u:8u) &&
               detached.resources.graphics_state_count<=(max_painted_paths>4u?8u:4u) &&
               detached.resources.font_count==0u &&
               detached.resources.image_count==0u &&

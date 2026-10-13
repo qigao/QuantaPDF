@@ -2089,7 +2089,7 @@ add_test(NAME quantapdf.external_yworks_svg_w_stage_diagnostic
     -P "${CMAKE_CURRENT_SOURCE_DIR}/check_external_nonzero_stage_diagnostic.cmake")
 set_tests_properties(quantapdf.external_yworks_svg_w_stage_diagnostic PROPERTIES
   TIMEOUT 40 LABELS "conformance;source-preflight;nonzero-stage-diagnostic"
-  PASS_REGULAR_EXPRESSION "original-stage-diag.*status=unsupported")
+  PASS_REGULAR_EXPRESSION "original-stage-diag.*status=lowered")
 if(WIN32)
   set_property(TEST quantapdf.external_yworks_svg_w_stage_diagnostic
     PROPERTY ENVIRONMENT_MODIFICATION
