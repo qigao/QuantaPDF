@@ -103,8 +103,9 @@ static void test_clip_uses_definition_ctm(void)
     OK(quantapdf_pdf_path_lower_to_composer(&page, 120, 120, &limit, &ir));
     CHECK(ir.operation_count == 1 && ir.resources.clip_count == 1);
     CHECK(ir.resources.clips[0].transform.e == 10 &&
-        ir.resources.clips[0].transform.f == 0);
-    CHECK(ir.operations[0].value.path.options.transform.e == 0);
+        ir.resources.clips[0].transform.f == 120);
+    CHECK(ir.operations[0].value.path.options.transform.e == 0 &&
+        ir.operations[0].value.path.options.transform.f == 120);
     quantapdf_ir_dispose(&ir);
     drop(&page);
 }

@@ -104,3 +104,32 @@ coordinate representation must preserve exact semantics (W vs W*,
 q/Q, CTM, geometry and stroke) and pass independent PDFium-original
 vs detached-C11 whole-image/golden/repeat pixel evidence, before any
 formal conformance count can change.
+
+## #266 Draft #267 — typed-only improvement (no pixel admission)
+
+Uniform source Path/W/W* Clip rebasing makes the exact raw yWorks
+`clippath-svg.pdf` selected page **lowerable** with the separately
+requested painted-path budget 8. Its five original `W` Clip leaves
+and six painted Path operations are preserved in owned detached IR.
+This is deliberately **only typed observation**: the private C11
+scoped raster currently admits up to four operations and eight Clip
+nodes, so a whole-page independent PDFium-vs-native pixel oracle is
+still outstanding. This page contributes **zero new W or W* native
+pixel positives** to the six-source official manifest. The default
+paint budget 3 continues to return transactional `UNSUPPORTED`.
+The status report distinguishes `lowered` from a pixel-positive
+and retains original-byte report guards and source ownership release.
+
+## Candidate-only original PDFium/C11 pixel oracle — hidden W Clip
+
+This Draft #267 gate compares unchanged, independently published yWorks
+`hidden-clippath.pdf` (fixed original SHA-256 above) against **PDFium
+rendering those exact original bytes**, with Source/Graph ownership dropped
+before pure-C11 native Raster. It uses the independent SVG to fix interior
+red/white semantic probes, measures all 500x500 pixels with explicit RGB/gross
+budgets, and checks byte-identical repeat RGBA. The original has two ordinary
+`W` Clip leaves and one Clip intersection. It has **no W*** and remains
+quarantined, so even successful pixels do not alter the six official original
+manifest entries, the generated 14/36 corpus or W* pixel-positive 1/1.
+The CTest validates the original SHA-256 before/after, rejects hardlink
+report/source aliases and retains earlier reports on failure.

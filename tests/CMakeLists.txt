@@ -2089,7 +2089,7 @@ add_test(NAME quantapdf.external_yworks_svg_w_stage_diagnostic
     -P "${CMAKE_CURRENT_SOURCE_DIR}/check_external_nonzero_stage_diagnostic.cmake")
 set_tests_properties(quantapdf.external_yworks_svg_w_stage_diagnostic PROPERTIES
   TIMEOUT 40 LABELS "conformance;source-preflight;nonzero-stage-diagnostic"
-  PASS_REGULAR_EXPRESSION "original-stage-diag.*status=unsupported")
+  PASS_REGULAR_EXPRESSION "original-stage-diag.*status=lowered")
 if(WIN32)
   set_property(TEST quantapdf.external_yworks_svg_w_stage_diagnostic
     PROPERTY ENVIRONMENT_MODIFICATION
@@ -2126,6 +2126,33 @@ elseif(APPLE)
     "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 else()
   set_property(TEST quantapdf.external_yworks_wstar_typed_observe
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
+# Candidate-only unchanged upstream yWorks hidden W Clip, independently
+# checked against ORIGINAL PDFium pixels. Never participates in official
+# six-source corpus counters or the separate W* numerator.
+add_test(NAME quantapdf.external_yworks_hidden_w_candidate_pixels
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/external_wstar_candidates/documents/yworks.hidden-clippath-v1.pdf"
+    "-DREPORT=${CMAKE_CURRENT_BINARY_DIR}/yworks-hidden-w-candidate-pixel.json"
+    "-DEXPECTED_SHA256=6369893b1f5bd57790f098242d49775094d6c25a1a9b2316aaf1fd1f9a39bc71"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_external_hidden_w_candidate_pixel.cmake")
+set_tests_properties(quantapdf.external_yworks_hidden_w_candidate_pixels PROPERTIES
+  TIMEOUT 90 LABELS "conformance;native-raster;nonzero-pixel-candidate"
+  PASS_REGULAR_EXPRESSION "candidate-hidden-W-pixel: passed")
+if(WIN32)
+  set_property(TEST quantapdf.external_yworks_hidden_w_candidate_pixels
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_yworks_hidden_w_candidate_pixels
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_yworks_hidden_w_candidate_pixels
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
