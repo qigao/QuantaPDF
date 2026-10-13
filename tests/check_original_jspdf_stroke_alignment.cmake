@@ -1,6 +1,6 @@
 # Pinned original jsPDF, independent PDFium raster vs private C11 grid.
 cmake_minimum_required(VERSION 3.24)
-foreach(arg IN ITEMS ORACLE SOURCE)
+foreach(arg IN ITEMS ORACLE SOURCE REPORT)
   if(NOT DEFINED ${arg} OR "${${arg}}" STREQUAL "")
     message(FATAL_ERROR "Missing ${arg}")
   endif()
@@ -136,4 +136,18 @@ endforeach()
 if(NOT observed_total EQUAL got_total_row_observations)
   message(FATAL_ERROR "Incomplete Stroke row scans")
 endif()
+
+# Published as a quarantined test artifact, never an original-PDF positive.
+# Reject symlink or source aliases before writing any stage report.
+get_filename_component(report_dir "${REPORT}" DIRECTORY)
+get_filename_component(report_base "${REPORT}" NAME)
+file(REAL_PATH "${SOURCE}" original_real)
+file(REAL_PATH "${report_dir}" report_dir_real)
+if("${report_dir_real}/${report_base}" STREQUAL "${original_real}"
+   OR IS_SYMLINK "${REPORT}" OR IS_SYMLINK "${REPORT}.tmp")
+  message(FATAL_ERROR "Stroke phase report aliases original or symlink")
+endif()
+file(WRITE "${REPORT}.tmp" "${json}\n")
+file(RENAME "${REPORT}.tmp" "${REPORT}")
+
 message(STATUS "original-jsPDF-Stroke-pixel-phase: pinned_sha256=${after}\n${json}")

@@ -229,6 +229,8 @@ jobs:
         run: |
           cat build/linux-gcc-release/tests/external-jspdf-fractional-page-native.json
           cat build/linux-gcc-debug/tests/external-jspdf-fractional-page-native.json
+          cat build/linux-gcc-release/tests/original-jspdf-stroke-phase-ab.json
+          cat build/linux-gcc-debug/tests/original-jspdf-stroke-phase-ab.json
 
       - name: Upload independent jsPDF fractional page rejection (Linux)
         uses: actions/upload-artifact@v4
@@ -237,6 +239,8 @@ jobs:
           path: |
             build/linux-gcc-release/tests/external-jspdf-fractional-page-native.json
             build/linux-gcc-debug/tests/external-jspdf-fractional-page-native.json
+            build/linux-gcc-release/tests/original-jspdf-stroke-phase-ab.json
+            build/linux-gcc-debug/tests/original-jspdf-stroke-phase-ab.json
           if-no-files-found: error
           retention-days: 7
 
@@ -510,6 +514,7 @@ jobs:
         shell: bash
         run: |
           cat build/macos-clang-release/tests/external-jspdf-fractional-page-native.json
+          cat build/macos-clang-release/tests/original-jspdf-stroke-phase-ab.json
 
       - name: Upload independent jsPDF fractional page rejection (macOS)
         uses: actions/upload-artifact@v4
@@ -517,6 +522,7 @@ jobs:
           name: quarantined-jspdf-fractional-macos
           path: |
             build/macos-clang-release/tests/external-jspdf-fractional-page-native.json
+            build/macos-clang-release/tests/original-jspdf-stroke-phase-ab.json
           if-no-files-found: error
           retention-days: 7
 
@@ -808,6 +814,7 @@ jobs:
         shell: pwsh
         run: |
           Get-Content build/Msvc-Release/tests/external-jspdf-fractional-page-native.json
+          Get-Content build/Msvc-Release/tests/original-jspdf-stroke-phase-ab.json
 
       - name: Upload independent jsPDF fractional page rejection (Windows)
         uses: actions/upload-artifact@v4
@@ -815,6 +822,7 @@ jobs:
           name: quarantined-jspdf-fractional-windows
           path: |
             build/Msvc-Release/tests/external-jspdf-fractional-page-native.json
+            build/Msvc-Release/tests/original-jspdf-stroke-phase-ab.json
           if-no-files-found: error
           retention-days: 7
 

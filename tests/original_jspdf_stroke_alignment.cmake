@@ -23,6 +23,7 @@ add_test(NAME quantapdf.original_jspdf_stroke_alignment
   COMMAND "${CMAKE_COMMAND}"
     "-DORACLE=$<TARGET_FILE:quantapdf_test_original_jspdf_stroke_alignment>"
     "-DSOURCE=${PROJECT_SOURCE_DIR}/tests/external_wstar_candidates/documents/jspdf.w3s-clip-v1.pdf"
+    "-DREPORT=${CMAKE_CURRENT_BINARY_DIR}/original-jspdf-stroke-phase-ab.json"
     -P "${PROJECT_SOURCE_DIR}/tests/check_original_jspdf_stroke_alignment.cmake")
 set_tests_properties(quantapdf.original_jspdf_stroke_alignment PROPERTIES
   TIMEOUT 40
