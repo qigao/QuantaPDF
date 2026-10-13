@@ -140,6 +140,22 @@ jobs:
       - name: Product conformance (Linux ASan/UBSan)
         run: ctest --preset linux-dev-user -L conformance --output-on-failure
 
+      - name: Review original Wstar candidate typed report (Linux)
+        shell: bash
+        run: |
+          cat build/linux-gcc-release/tests/yworks-wstar-typed-observe.json
+          cat build/linux-gcc-debug/tests/yworks-wstar-typed-observe.json
+
+      - name: Upload original Wstar candidate typed evidence (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: yworks-wstar-typed-candidate-linux
+          path: |
+            build/linux-gcc-release/tests/yworks-wstar-typed-observe.json
+            build/linux-gcc-debug/tests/yworks-wstar-typed-observe.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Qualify external PDF corpus admission (Linux)
         shell: bash
         run: |
@@ -330,6 +346,18 @@ jobs:
       - name: Install SDK
         run: cmake --build --preset "install-$CMAKE_PRESET" --parallel 2
 
+      - name: Review original Wstar candidate typed report (macOS)
+        shell: bash
+        run: cat build/macos-clang-release/tests/yworks-wstar-typed-observe.json
+
+      - name: Upload original Wstar candidate typed evidence (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: yworks-wstar-typed-candidate-macos
+          path: build/macos-clang-release/tests/yworks-wstar-typed-observe.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Qualify external PDF corpus admission (macOS)
         shell: bash
         run: |
@@ -516,6 +544,18 @@ jobs:
       - name: Product conformance (Windows)
         shell: cmd
         run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && ctest --preset win-release-user -L conformance --output-on-failure
+
+      - name: Review original Wstar candidate typed report (Windows)
+        shell: pwsh
+        run: Get-Content build/Msvc-Release/tests/yworks-wstar-typed-observe.json
+
+      - name: Upload original Wstar candidate typed evidence (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: yworks-wstar-typed-candidate-windows
+          path: build/Msvc-Release/tests/yworks-wstar-typed-observe.json
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Install Release package
         shell: cmd

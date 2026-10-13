@@ -1,0 +1,34 @@
+# External original PDF candidate: yWorks svg2pdf.js even-odd Clip
+
+**QUARANTINED: only typed selected-page observation, not pixel conformance.**
+Never count it in the five already admitted originals, the fixed generated
+14/36 corpus or an external W* pixel-positive numerator on the basis of
+this gate alone. Do not merge PR #263.
+
+- Upstream: https://github.com/yWorks/svg2pdf.js/blob/b564556f41b245893fbadd3a6c4f832455383dbe/test/clippath/clippath-cliprule.pdf
+- Exact upstream revision: `b564556f41b245893fbadd3a6c4f832455383dbe`
+- Raw PDF size: 3,747 bytes; PDF version 1.3
+- Original Git blob: `5b5b629da9faa1a969e8bf3290b4439dc01bc860`
+- Original raw SHA-256: `9d30a67c8194b6822f28ad9ed4848a57c7745e95d11b79267ac5141001a91783`
+- Publisher's MIT LICENSE: https://github.com/yWorks/svg2pdf.js/blob/b564556f41b245893fbadd3a6c4f832455383dbe/LICENSE
+- Copyright yWorks GmbH 2015-2026 and Vitaly Puzrin 2013-2015. Preserve
+  `yworks-MIT-LICENSE.txt`. No contrary file-specific notice found in
+  the upstream fixture.
+- Corresponding SVG: https://github.com/yWorks/svg2pdf.js/blob/b564556f41b245893fbadd3a6c4f832455383dbe/test/clippath/clippath-cliprule.svg
+- Original content has two `W*` even-odd Clips and two ordinary `W` Clips
+  with nested q/Q, opaque Path paint and stroke, with no observed
+  BT Text or Do XObject operator. This lexical triage is not page admission.
+
+The original `.pdf` is copied as raw bytes **unchanged**, not Composer-
+exported, optimized, filtered or rewritten. CTest uses the existing test-only
+`--preflight-original-pdf ... --expect-status observe` actual full selected-
+page Source -> Graph Snapshot -> detached IR pipeline. The SHA-256/size
+must match both before and after. If `lowered`, there must be actual even-odd
+Clip Path leaves; if `unsupported`, there must be no partial IR/resources.
+Both outcomes have `observation_only: true`, source provenance false, PDFium
+pixel and native raster `not_run`, and external W* pixel-supported count `0`.
+
+An admitted native W* **pixel positive** still requires independent original
+PDFium-vs-owned-detached-C11 whole-image comparison, fixed interior goldens,
+bounded gross/RGB errors, deterministic RGBA repeat, and exact-head three-
+platform CI. Public SDK remains PDFium-backed.

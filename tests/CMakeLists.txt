@@ -2028,6 +2028,32 @@ else()
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
 
+# Authentic, byte-pinned upstream W* PDF typed candidate, isolated from
+# five admitted original conformance sources and all native pixel counters.
+add_test(NAME quantapdf.external_yworks_wstar_typed_observe
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/external_wstar_candidates/documents/yworks.clippath-cliprule-v1.pdf"
+    "-DREPORT=${CMAKE_CURRENT_BINARY_DIR}/yworks-wstar-typed-observe.json"
+    "-DEXPECTED_SHA256=9d30a67c8194b6822f28ad9ed4848a57c7745e95d11b79267ac5141001a91783"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_external_wstar_candidate_observe.cmake")
+set_tests_properties(quantapdf.external_yworks_wstar_typed_observe PROPERTIES
+  TIMEOUT 40 LABELS "conformance;source-preflight;wstar-candidate"
+  PASS_REGULAR_EXPRESSION "yworks Wstar original candidate: typed=")
+if(WIN32)
+  set_property(TEST quantapdf.external_yworks_wstar_typed_observe
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_yworks_wstar_typed_observe
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_yworks_wstar_typed_observe
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
 # Independently published upstream W n rectangular Clip and one-pixel closed
 # blue stroke. Renderer uses pure C11; PDFium reads the ORIGINAL PDF only.
 add_test(NAME quantapdf.external_pdfium_clipped_stroke
