@@ -99,12 +99,12 @@ static int qp_rectangle(const quantapdf_composer_path_command *commands,
     return 1;
 }
 
-quantapdf_status quantapdf_ir_raster_rect_fill_right_preview_v0(
+static quantapdf_status qp_rect_fill_boundary_impl(
     const quantapdf_ir *ir,size_t page_index,
     const quantapdf_native_device_grid_geometry *geometry,
     const quantapdf_native_device_grid_limits *grid_limits,
     const quantapdf_ir_raster_v1_limits *raster_limits,
-    quantapdf_ir_raster_image *out_image)
+    quantapdf_ir_raster_image *out_image,int left_preview)
 {
     quantapdf_native_device_grid grid;
     quantapdf_native_device_grid_status grid_status;
@@ -178,7 +178,7 @@ quantapdf_status quantapdf_ir_raster_rect_fill_right_preview_v0(
     /* The native V0 already accounts for BOTH source rectangles' sampled
      * edges. This variant charges one more analytical boundary-edge pass
      * before ANY output allocation; never silently borrow old quota. */
-    work_edges=fill.edges+clip.edges+1u;
+    work_edges=fill.edges+clip.edges+(left_preview?2u:1u);
     if(work_edges>raster_limits->max_edges ||
        work_edges>grid_limits->max_edges ||
        quantapdf_native_device_grid_admit_edges_v0(
@@ -195,17 +195,38 @@ quantapdf_status quantapdf_ir_raster_rect_fill_right_preview_v0(
         return QUANTAPDF_ERROR_UNSUPPORTED;
     }
     column=(size_t)floor(effective_right/grid.points_per_device_x);
-    if(column>=grid.width)return QUANTAPDF_OK;
+    if(column>=grid.width) {
+        if(left_preview) {
+            quantapdf_ir_raster_image_dispose(out_image);
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        }
+        return QUANTAPDF_OK;
+    }
     x0=(double)column*grid.points_per_device_x;
     x1=((double)column+1.0)*grid.points_per_device_x;
-    if(!(x0<effective_right && effective_right<x1))
+    if(!(x0<effective_right && effective_right<x1)) {
+        if(left_preview) {
+            quantapdf_ir_raster_image_dispose(out_image);
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        }
         return QUANTAPDF_OK;
+    }
     overlap=fmin(x1,effective_right)-fmax(x0,effective_left);
-    if(!(overlap>0.0 && overlap<x1-x0))
+    if(!(overlap>0.0 && overlap<x1-x0)) {
+        if(left_preview) {
+            quantapdf_ir_raster_image_dispose(out_image);
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        }
         return QUANTAPDF_OK;
+    }
     alpha=(unsigned)floor(255.0*overlap/(x1-x0)+0.5);
-    if(alpha==0u || alpha>=255u)
+    if(alpha==0u || alpha>=255u) {
+        if(left_preview) {
+            quantapdf_ir_raster_image_dispose(out_image);
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        }
         return QUANTAPDF_OK;
+    }
     for(size_t y=0u;y<grid.height;++y) {
         const double y0=(double)y*grid.points_per_device_y;
         const double y1=((double)y+1.0)*grid.points_per_device_y;
@@ -226,5 +247,89 @@ quantapdf_status quantapdf_ir_raster_rect_fill_right_preview_v0(
         }
         pixel[3]=(unsigned char)alpha;
     }
+    if(left_preview) {
+        /* A second, explicit-only source-Clip LEFT boundary coverage
+         * hypothesis. Its source X comes from the actual admitted W
+         * rectangle, not jsPDF IDs or hardcoded device columns.
+         * The earlier Fill-right pass above is left untouched. */
+        const size_t right_column=column;
+        size_t left_column,changed=0u;
+        if(effective_left<=0.0 ||
+           effective_left>=grid.source_width_points) {
+            quantapdf_ir_raster_image_dispose(out_image);
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        }
+        left_column=(size_t)floor(
+            effective_left/grid.points_per_device_x);
+        if(left_column>=right_column || left_column>=grid.width) {
+            quantapdf_ir_raster_image_dispose(out_image);
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        }
+        x0=(double)left_column*grid.points_per_device_x;
+        x1=((double)left_column+1.0)*grid.points_per_device_x;
+        if(!(x0<effective_left && effective_left<x1)) {
+            quantapdf_ir_raster_image_dispose(out_image);
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        }
+        overlap=fmin(x1,effective_right)-fmax(x0,effective_left);
+        if(!(overlap>0.0 && overlap<x1-x0)) {
+            quantapdf_ir_raster_image_dispose(out_image);
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        }
+        alpha=(unsigned)floor(255.0*overlap/(x1-x0)+0.5);
+        if(alpha==0u || alpha>=255u) {
+            quantapdf_ir_raster_image_dispose(out_image);
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        }
+        for(size_t y=0u;y<grid.height;++y) {
+            const double row0=(double)y*grid.points_per_device_y;
+            const double row1=((double)y+1.0)*grid.points_per_device_y;
+            unsigned char *pixel;
+            if(!(row0>effective_top && row1<effective_bottom))
+                continue; /* no multi-edge/corner phase inference */
+            pixel=out_image->pixels+y*out_image->stride+left_column*4u;
+            if(pixel[3]==0u ||
+               pixel[0]!=(unsigned char)((opt->fill_argb>>16u)&255u) ||
+               pixel[1]!=(unsigned char)((opt->fill_argb>>8u)&255u) ||
+               pixel[2]!=(unsigned char)(opt->fill_argb&255u)) {
+                quantapdf_ir_raster_image_dispose(out_image);
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+            }
+            if(pixel[3]!=(unsigned char)alpha) {
+                pixel[3]=(unsigned char)alpha;
+                ++changed;
+            }
+        }
+        if(changed==0u) {
+            quantapdf_ir_raster_image_dispose(out_image);
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        }
+    }
     return QUANTAPDF_OK;
+}
+
+/* Existing CI-qualified right-Fill trial remains a separate, byte-stable
+ * opt-in. No caller automatically selects the new Clip-left hypothesis. */
+quantapdf_status quantapdf_ir_raster_rect_fill_right_preview_v0(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_rect_fill_boundary_impl(ir,page_index,geometry,grid_limits,
+                                      raster_limits,out_image,0);
+}
+
+/* Seventh private A/B: keep the accepted Fill-right preview and add
+ * one strictly admitted, source-derived W Clip LEFT interior border. */
+quantapdf_status quantapdf_ir_raster_rect_fill_left_clip_preview_v0(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_rect_fill_boundary_impl(ir,page_index,geometry,grid_limits,
+                                      raster_limits,out_image,1);
 }
