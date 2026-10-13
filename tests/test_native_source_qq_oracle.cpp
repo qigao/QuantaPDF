@@ -8,6 +8,7 @@
 #include "render/ir_scoped_operations_v1.h"
 #include "render/ir_scoped_device_grid_v0.h"
 #include "render/ir_device_polyline_stroke_v0.h"
+#include "render/ir_ordered_layer_composite_v0.h"
 #include "render/ir_clip_dag_v3.h"
 #include "render/ir_raster.h"
 
@@ -19,6 +20,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -1941,8 +1943,8 @@ int test_external_jspdf_fractional_page_rejection(
     CHECK(repeat_stroke.size==source_stroke.size &&
           std::memcmp(repeat_stroke.pixels,source_stroke.pixels,
                       source_stroke.size)==0);
-    quantapdf_ir_raster_image_dispose(&repeat_stroke);
-    quantapdf_ir_raster_image_dispose(&source_stroke);
+    /* Retain both repeat-verified C11 Stroke layers until source-order
+     * composition with the later W-clipped Fill has been measured. */
     /* The second original operation is the later FILL, so its frozen W
      * Clip applies only to this operation, not to the already-painted S.
      * The source Path and its Clip leaf share translation-only (x,-y)+H. */
@@ -1999,8 +2001,107 @@ int test_external_jspdf_fractional_page_rejection(
     CHECK(repeat_fill.size==source_fill.size &&
           std::memcmp(repeat_fill.pixels,source_fill.pixels,
                       source_fill.size)==0);
+    /* Candidate WHOLE-PAGE image: native Stroke first (no future W Clip),
+     * then native W-clipped Fill. Entirely pure C11 layer source-over.
+     * Both layers were independently rendered from the genuine original
+     * owned IR after source/graph lifetime ended. No PDFium fallback. */
+    const quantapdf_ir_ordered_composite_v0_limits composite_budget={
+        600u*850u,600u*850u*4u
+    };
+    quantapdf_ir_raster_image composite{},composite_repeat{};
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &source_stroke,&source_fill,&composite_budget,&composite));
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &repeat_stroke,&repeat_fill,&composite_budget,&composite_repeat));
+    CHECK(composite.pixels!=nullptr &&
+          composite.width==596u && composite.height==842u &&
+          composite.stride==596u*4u && composite.size==596u*842u*4u &&
+          composite_repeat.size==composite.size &&
+          std::memcmp(composite.pixels,composite_repeat.pixels,
+                      composite.size)==0);
+    CHECK(on_white(composite.pixels+50u*composite.stride+100u*4u,0u)>245u &&
+          on_white(composite.pixels+50u*composite.stride+100u*4u,1u)<10u &&
+          on_white(composite.pixels+50u*composite.stride+100u*4u,2u)<10u);
+    CHECK(on_white(composite.pixels+20u*composite.stride+20u*4u,0u)==255u &&
+          on_white(composite.pixels+20u*composite.stride+20u*4u,1u)==255u &&
+          on_white(composite.pixels+20u*composite.stride+20u*4u,2u)==255u);
+
+    /* Full-image QUANTITATIVE DIAGNOSTIC, not an independent assertion that
+     * PDFium's coverage/sample-center contract has been reproduced.
+     * Aggregate RGBA coverage can lose per-subpixel stroke/fill correlation
+     * where two antialiased edges overlap. Record all errors explicitly. */
+    const size_t composed_pixels=composite.width*composite.height;
+    const size_t composed_rgb_samples=composed_pixels*3u;
+    size_t composed_changed_pixels=0u,composed_gross_delta64_pixels=0u;
+    size_t composed_partial_coverage_pixels=0u;
+    size_t composed_partial_coverage_changed_pixels=0u;
+    size_t composed_flat_coverage_changed_pixels=0u;
+    unsigned composed_max_delta=0u;
+    std::uint64_t composed_total_abs_rgb_error=0u;
+    unsigned long long composed_rgb_fnv64=14695981039346656037ULL;
+    for(size_t y=0u;y<composite.height;++y) {
+        for(size_t x=0u;x<composite.width;++x) {
+            const unsigned char *pixel=
+                composite.pixels+y*composite.stride+x*4u;
+            const unsigned char *old=
+                source_stroke.pixels+y*source_stroke.stride+x*4u;
+            const unsigned char *fill=
+                source_fill.pixels+y*source_fill.stride+x*4u;
+            const unsigned char *oracle=reference.at(x,y);
+            const bool partial=(old[3]!=0u && old[3]!=255u) ||
+                               (fill[3]!=0u && fill[3]!=255u);
+            unsigned largest=0u;
+            if(partial)++composed_partial_coverage_pixels;
+            for(size_t c=0u;c<3u;++c) {
+                const unsigned observed=on_white(pixel,c);
+                const unsigned expected=oracle[c];
+                const unsigned delta=(observed>=expected) ?
+                    observed-expected : expected-observed;
+                composed_total_abs_rgb_error+=(std::uint64_t)delta;
+                composed_rgb_fnv64^=(unsigned long long)observed;
+                composed_rgb_fnv64*=1099511628211ULL;
+                if(delta>largest)largest=delta;
+                if(delta>composed_max_delta)composed_max_delta=delta;
+            }
+            if(largest!=0u) {
+                ++composed_changed_pixels;
+                if(partial)++composed_partial_coverage_changed_pixels;
+                else ++composed_flat_coverage_changed_pixels;
+            }
+            if(largest>64u)++composed_gross_delta64_pixels;
+        }
+    }
+    const double composed_mean_abs_rgb_error=
+        (double)composed_total_abs_rgb_error/(double)composed_rgb_samples;
+    CHECK(composed_pixels==501832u && composed_rgb_samples==1505496u);
+    CHECK(std::isfinite(composed_mean_abs_rgb_error) &&
+          composed_mean_abs_rgb_error>=0.0 &&
+          composed_mean_abs_rgb_error<=255.0);
+    CHECK(composed_max_delta<=255u &&
+          composed_changed_pixels<=composed_pixels &&
+          composed_gross_delta64_pixels<=composed_changed_pixels &&
+          composed_partial_coverage_pixels<=composed_pixels &&
+          composed_partial_coverage_changed_pixels<=
+              composed_partial_coverage_pixels &&
+          composed_flat_coverage_changed_pixels+
+              composed_partial_coverage_changed_pixels==
+              composed_changed_pixels);
+    std::fprintf(stderr,
+        "[jsPDF full-image diagnostic] original 596x842 Stroke->W-Fill "
+        "mean_rgb=%.9f max_delta=%u gross_delta64=%zu "
+        "changed=%zu fractional_coverage=%zu flat_changed=%zu "
+        "rgb_fnv64=%016llx; NOT pixel parity certification\n",
+        composed_mean_abs_rgb_error,composed_max_delta,
+        composed_gross_delta64_pixels,composed_changed_pixels,
+        composed_partial_coverage_pixels,
+        composed_flat_coverage_changed_pixels,composed_rgb_fnv64);
+
+    quantapdf_ir_raster_image_dispose(&composite_repeat);
+    quantapdf_ir_raster_image_dispose(&composite);
     quantapdf_ir_raster_image_dispose(&repeat_fill);
     quantapdf_ir_raster_image_dispose(&source_fill);
+    quantapdf_ir_raster_image_dispose(&repeat_stroke);
+    quantapdf_ir_raster_image_dispose(&source_stroke);
 
     quantapdf_ir_dispose(&detached);
     CHECK(corpus_fixture_executions==0u);
@@ -2044,11 +2145,34 @@ int test_external_jspdf_fractional_page_rejection(
         "  \"original_pdfium_geometry_oracle\": \"passed\",\n"
         "  \"original_pdfium_device_width\": 596,\n"
         "  \"original_pdfium_device_height\": 842,\n"
-        "  \"original_pdfium_pixel_oracle\": \"not_run\",\n"
+        "  \"original_pdfium_pixel_oracle\": \"compared_diagnostic_unqualified\",\n"
+        "  \"ordered_native_composite_status\": \"full_image_measured_diagnostic\",\n"
+        "  \"ordered_native_composite_sequence\": \"stroke_then_w_clipped_fill\",\n"
+        "  \"ordered_native_composite_repeat_equal\": true,\n"
+        "  \"ordered_native_composite_rgba_is_candidate\": true,\n"
+        "  \"ordered_native_composite_pixel_parity_qualified\": false,\n"
+        "  \"ordered_native_composite_pixel_count\": %zu,\n"
+        "  \"ordered_native_composite_rgb_samples\": %zu,\n"
+        "  \"ordered_native_composite_abs_rgb_error\": %llu,\n"
+        "  \"ordered_native_composite_mean_abs_rgb_error\": %.9f,\n"
+        "  \"ordered_native_composite_max_channel_delta\": %u,\n"
+        "  \"ordered_native_composite_changed_pixels\": %zu,\n"
+        "  \"ordered_native_composite_gross_delta64_pixels\": %zu,\n"
+        "  \"ordered_native_composite_partial_coverage_pixels\": %zu,\n"
+        "  \"ordered_native_composite_partial_coverage_changed_pixels\": %zu,\n"
+        "  \"ordered_native_composite_flat_coverage_changed_pixels\": %zu,\n"
+        "  \"ordered_native_composite_rgb_fnv64\": \"%016llx\",\n"
         "  \"native_pixel_positive_count\": 0,\n"
         "  \"official_corpus_admitted\": false,\n"
         "  \"generated_fixture_count\": 0\n"
-        "}\n",original_stroke_paths,original_fill_paths);
+        "}\n",original_stroke_paths,original_fill_paths,
+        composed_pixels,composed_rgb_samples,
+        (unsigned long long)composed_total_abs_rgb_error,
+        composed_mean_abs_rgb_error,composed_max_delta,
+        composed_changed_pixels,composed_gross_delta64_pixels,
+        composed_partial_coverage_pixels,
+        composed_partial_coverage_changed_pixels,
+        composed_flat_coverage_changed_pixels,composed_rgb_fnv64);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
