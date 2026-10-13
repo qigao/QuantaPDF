@@ -6,6 +6,7 @@
 #include "document/page_content_ir.h"
 #include "graph/graph_page_geometry.h"
 #include "render/ir_scoped_operations_v1.h"
+#include "render/ir_clip_dag_v3.h"
 #include "render/ir_raster.h"
 
 #include <qpdf/QPDF.hh>
@@ -1844,10 +1845,74 @@ int test_external_yworks_svg_w_pixels(const char *filename,
     const quantapdf_status status=
         quantapdf_ir_raster_scoped_operations_v1(
             &detached,0u,&limits,&native);
-    if(status!=QUANTAPDF_OK)
+    if(status!=QUANTAPDF_OK) {
         std::fprintf(stderr,
-            "[svg-W-pixel] native C11 status=%d ops=%zu clips=%zu\n",
-            (int)status,detached.operation_count,detached.resources.clip_count);
+            "[svg-W-pixel] native C11 status=%d ops=%zu clips=%zu states=%zu\n",
+            (int)status,detached.operation_count,
+            detached.resources.clip_count,detached.resources.graphics_state_count);
+        /* Test-only deterministic scope attribution. Borrow the already
+         * detached original IR, never rewrite it or invoke a fallback. */
+        unsigned all_states=0u,all_clips=0u;
+        for(size_t i=0u;i<detached.operation_count;++i) {
+            const auto& op=detached.operations[i];
+            const auto& path=op.value.path;
+            const size_t state_id=(size_t)op.graphics_state_id;
+            size_t clip_id=0u,leaf_count=0u;
+            unsigned visited=0u;
+            const quantapdf_composer_clip_state *leaves
+                [QUANTAPDF_NATIVE_CLIP_DAG_MAX_LEAVES]={};
+            quantapdf_status collect=QUANTAPDF_OK;
+            if(state_id>0u && state_id<=detached.resources.graphics_state_count) {
+                all_states|=1u<<(unsigned)(state_id-1u);
+                clip_id=(size_t)detached.resources.graphics_states[state_id-1u].clip_id;
+                if(clip_id>0u)
+                    collect=quantapdf_ir_clip_dag_collect_v3(
+                        &detached,(quantapdf_composer_clip_id)clip_id,
+                        leaves,&leaf_count,&visited);
+                if(collect==QUANTAPDF_OK) all_clips|=visited;
+            }
+            quantapdf_composer_operation projected=op;
+            projected.graphics_state_id=0u;
+            projected.value.path.options.graphics_state_id=0u;
+            quantapdf_composer_page_state copied=*detached.pages;
+            copied.suppress_background=1;
+            quantapdf_ir local{};
+            local.pages=&copied;local.page_count=1u;
+            local.operations=&projected;local.operation_count=1u;
+            quantapdf_ir_raster_image sub{};
+            quantapdf_ir_raster_v1_limits one_limit=limits;
+            one_limit.max_operations=1u;
+            one_limit.max_sample_tests/=detached.operation_count;
+            one_limit.max_edges/=detached.operation_count;
+            quantapdf_status sub_status=QUANTAPDF_ERROR_UNSUPPORTED;
+            if(collect==QUANTAPDF_OK) {
+                if(leaf_count==0u)
+                    sub_status=quantapdf_ir_raster_render_v1(
+                        &local,0u,&one_limit,&sub);
+                else
+                    sub_status=quantapdf_ir_raster_render_v1_multi_clipped(
+                        &local,0u,&one_limit,leaves,leaf_count,&sub);
+            }
+            quantapdf_ir_raster_image_dispose(&sub);
+            std::fprintf(stderr,
+                "[svg-W-scope] i=%zu path_commands=%zu stroke=%d fill=%d "
+                "width=%.5f cap=%d join=%d miter=%.5f ctm=[%.4f %.4f %.4f %.4f %.4f %.4f] "
+                "gs=%zu clip=%zu leaves=%zu visited=%u collect=%d raster=%d\n",
+                i,path.command_count,path.options.stroke,path.options.fill,
+                (double)path.options.stroke_width,(int)path.options.line_cap,
+                (int)path.options.line_join,(double)path.options.miter_limit,
+                (double)path.options.transform.a,(double)path.options.transform.b,
+                (double)path.options.transform.c,(double)path.options.transform.d,
+                (double)path.options.transform.e,(double)path.options.transform.f,
+                state_id,clip_id,leaf_count,visited,
+                (int)collect,(int)sub_status);
+        }
+        std::fprintf(stderr,
+            "[svg-W-resource] used_states=%u used_clips=%u all_states=%u all_clips=%u\n",
+            all_states,all_clips,
+            (1u<<(unsigned)detached.resources.graphics_state_count)-1u,
+            (1u<<(unsigned)detached.resources.clip_count)-1u);
+    }
     CHECK(status==QUANTAPDF_OK);
     OK(quantapdf_ir_raster_scoped_operations_v1(
         &detached,0u,&limits,&repeat));
