@@ -1,6 +1,6 @@
 # External original PDF candidate: yWorks svg2pdf.js even-odd Clip
 
-**QUARANTINED: only typed selected-page observation, not pixel conformance.**
+**QUARANTINED: discovery source with independent typed and candidate-only pixel evidence; not the official six-source counter.**
 Never count it in the five already admitted originals, the fixed generated
 14/36 corpus or an external W* pixel-positive numerator on the basis of
 this gate alone. Do not merge PR #263.
@@ -53,3 +53,14 @@ five-original reconciliation. Any successful report explicitly states
 `native_wstar_clip_supported_count: 0`; the independent pixel evidence
 must pass exact-head Linux Release + Sanitizers, macOS and Windows and
 be reconciled through a separate admission review before counters change.
+
+## Separation from officially admitted source evidence
+
+A byte-identical source is staged separately at
+`tests/external_source_corpus/documents/yworks.clippath-cliprule-v1.pdf`,
+with its own MIT license notice, manifest entry, official CTest pixel report
+and strict cross-report reconciliation. See
+[`docs/conformance/external-wstar-admission.md`](../../docs/conformance/external-wstar-admission.md).
+This **candidate-only** directory and its `candidate_pixel_parity_passed_not_admitted`
+report do not contribute to the admitted external positive count. The
+new six-source CI must pass before any count of 1 can be claimed.

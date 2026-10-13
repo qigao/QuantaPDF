@@ -1774,7 +1774,7 @@ int test_external_pdfium_wstar_text_rejection(const char *filename,
  * evidence + review. Uses independent PDFium page -> RGB and owned detached
  * Graph -> pure C11 Raster, with no fallback or Composer export to PDF. */
 int test_external_yworks_wstar_candidate_pixels(
-    const char *filename,const char *report_path)
+    const char *filename,const char *report_path,bool admitted=false)
 {
     CHECK(filename && *filename && report_path && *report_path);
     CHECK(corpus_fixture_executions==0u);
@@ -1890,9 +1890,14 @@ int test_external_yworks_wstar_candidate_pixels(
     std::fprintf(out,
         "{\n"
         "  \"schema_version\": 1,\n"
-        "  \"result\": \"candidate_pixel_parity_passed_not_admitted\",\n"
+        "  \"corpus_id\": \"external-source-pdf\",\n"
+        "  \"document_id\": \"yworks.clippath-cliprule-v1\",\n"
+        "  \"reference_oracle\": \"original-pdfium\",\n"
+        "  \"native_expected_outcome\": \"supported-path-clip\",\n"
+        "  \"native_observed_outcome\": \"supported-path-clip\",\n"
+        "  \"result\": \"%s\",\n"
         "  \"candidate\": \"yworks.clippath-cliprule-v1\",\n"
-        "  \"fixture_kind\": \"external_original_candidate_only\",\n"
+        "  \"fixture_kind\": \"%s\",\n"
         "  \"original_source_pdfium_oracle\": \"passed\",\n"
         "  \"detached_c11_native_raster\": \"passed\",\n"
         "  \"source_and_graph_released_before_raster\": true,\n"
@@ -1908,12 +1913,18 @@ int test_external_yworks_wstar_candidate_pixels(
         "  \"reference_red_pixels\": %zu,\n"
         "  \"native_red_pixels\": %zu,\n"
         "  \"overlap_red_pixels\": %zu,\n"
-        "  \"native_wstar_clip_supported_count\": 0,\n"
+        "  \"native_path_clip_supported_count\": %u,\n"
+        "  \"native_clipped_path_supported_count\": %u,\n"
+        "  \"native_w_clip_supported_count\": %u,\n"
+        "  \"native_wstar_clip_supported_count\": %u,\n"
         "  \"generated_fixture_count\": 0\n"
         "}\n",
+        admitted?"passed":"candidate_pixel_parity_passed_not_admitted",
+        admitted?"external":"external_original_candidate_only",
         WIDTH,HEIGHT,rules.nonzero,rules.evenodd,rules.intersections,
         sizeof(goldens)/sizeof(goldens[0]),mean,gross,
-        ref_red,native_red,overlap_red);
+        ref_red,native_red,overlap_red,
+        admitted?1u:0u,admitted?1u:0u,admitted?1u:0u,admitted?1u:0u);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
@@ -1922,8 +1933,8 @@ int test_external_yworks_wstar_candidate_pixels(
     CHECK(std::rename(staged.c_str(),report_path)==0);
     std::fprintf(stderr,
         "[yworks-Wstar-pixel] original-pdfium/C11 passed "
-        "mean=%.5f gross=%zu repeat=identical pixel_positive=0\n",
-        mean,gross);
+        "mean=%.5f gross=%zu repeat=identical pixel_positive=%u\n",
+        mean,gross,admitted?1u:0u);
     return EXIT_SUCCESS;
 }
 
@@ -2219,6 +2230,10 @@ int main(int argc,char **argv)
        std::strcmp(argv[1],"--external-wstar-candidate-pixel-pdf")==0 &&
        std::strcmp(argv[3],"--external-report")==0)
         return test_external_yworks_wstar_candidate_pixels(argv[2],argv[4]);
+    if(argc==5 &&
+       std::strcmp(argv[1],"--external-wstar-original-pdf")==0 &&
+       std::strcmp(argv[3],"--external-report")==0)
+        return test_external_yworks_wstar_candidate_pixels(argv[2],argv[4],true);
     if(argc==2 && std::strcmp(argv[1],"--page-group-admission")==0){
         test_page_group_admission();
         return EXIT_SUCCESS;
