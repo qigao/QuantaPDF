@@ -69,6 +69,137 @@ string(JSON cmp_ordered_native_composite_partial_coverage_pixels GET "${json}" o
 string(JSON cmp_ordered_native_composite_partial_coverage_changed_pixels GET "${json}" ordered_native_composite_partial_coverage_changed_pixels)
 string(JSON cmp_ordered_native_composite_flat_coverage_changed_pixels GET "${json}" ordered_native_composite_flat_coverage_changed_pixels)
 string(JSON cmp_ordered_native_composite_rgb_fnv64 GET "${json}" ordered_native_composite_rgb_fnv64)
+
+# Independently recomputed bounded spatial attribution of exact same pixels.
+string(JSON attr_schema GET "${json}" ordered_native_spatial_attribution schema_version)
+string(JSON attr_mask_count LENGTH "${json}" ordered_native_spatial_attribution changed_by_partial_mask)
+string(JSON attr_gross_count LENGTH "${json}" ordered_native_spatial_attribution gross_by_partial_mask)
+string(JSON attr_error_count LENGTH "${json}" ordered_native_spatial_attribution abs_rgb_error_by_partial_mask)
+string(JSON attr_bound_len LENGTH "${json}" ordered_native_spatial_attribution changed_bounds)
+string(JSON attr_worst_len LENGTH "${json}" ordered_native_spatial_attribution worst_pixels)
+string(JSON attr_group_bounds_len LENGTH "${json}" ordered_native_spatial_attribution changed_bounds_by_partial_mask)
+string(JSON attr_near_bounds_len LENGTH "${json}" ordered_native_spatial_attribution flat_near_changed_bounds)
+string(JSON attr_far_bounds_len LENGTH "${json}" ordered_native_spatial_attribution flat_far_changed_bounds)
+string(JSON attr_far_worst_len LENGTH "${json}" ordered_native_spatial_attribution flat_far_worst_pixels)
+string(JSON attr_near GET "${json}" ordered_native_spatial_attribution flat_changed_adjacent_partial_3x3)
+string(JSON attr_far GET "${json}" ordered_native_spatial_attribution flat_changed_far_from_partial_3x3)
+string(JSON attr_uncovered GET "${json}" ordered_native_spatial_attribution native_uncovered_reference_foreground)
+if(NOT attr_schema EQUAL 1 OR NOT attr_mask_count EQUAL 4
+   OR NOT attr_gross_count EQUAL 4 OR NOT attr_error_count EQUAL 4
+   OR NOT attr_bound_len EQUAL 4 OR attr_worst_len GREATER 12
+   OR NOT attr_group_bounds_len EQUAL 4
+   OR NOT attr_near_bounds_len EQUAL 4
+   OR NOT attr_far_bounds_len EQUAL 4 OR attr_far_worst_len GREATER 8)
+  message(FATAL_ERROR "Original jsPDF spatial attribution shape malformed")
+endif()
+set(attr_changed_sum 0)
+set(attr_gross_sum 0)
+set(attr_error_sum 0)
+foreach(i RANGE 0 3)
+  string(JSON attr_changed GET "${json}" ordered_native_spatial_attribution changed_by_partial_mask ${i})
+  string(JSON attr_gross GET "${json}" ordered_native_spatial_attribution gross_by_partial_mask ${i})
+  string(JSON attr_error GET "${json}" ordered_native_spatial_attribution abs_rgb_error_by_partial_mask ${i})
+  if(attr_changed LESS 0 OR attr_gross LESS 0 OR attr_error LESS 0
+     OR attr_gross GREATER attr_changed)
+    message(FATAL_ERROR "Original jsPDF attribution negative/out-of-range counts")
+  endif()
+  math(EXPR attr_changed_sum "${attr_changed_sum}+${attr_changed}")
+  math(EXPR attr_gross_sum "${attr_gross_sum}+${attr_gross}")
+  math(EXPR attr_error_sum "${attr_error_sum}+${attr_error}")
+  if(i EQUAL 0)
+    set(attr_flat ${attr_changed})
+  endif()
+  # Each per-category bbox is a four-number rectangle within source pixels.
+  string(JSON attr_group_box_len LENGTH "${json}" ordered_native_spatial_attribution changed_bounds_by_partial_mask ${i})
+  if(NOT attr_group_box_len EQUAL 4)
+    message(FATAL_ERROR "Original jsPDF mismatch category bbox missing")
+  endif()
+  foreach(coord RANGE 0 3)
+    string(JSON attr_group_box_value GET "${json}" ordered_native_spatial_attribution changed_bounds_by_partial_mask ${i} ${coord})
+    if(attr_group_box_value LESS 0 OR
+       ((coord EQUAL 0 OR coord EQUAL 2) AND attr_group_box_value GREATER 595) OR
+       ((coord EQUAL 1 OR coord EQUAL 3) AND attr_group_box_value GREATER 841))
+      message(FATAL_ERROR "Original jsPDF per-category bbox outside original page")
+    endif()
+  endforeach()
+
+endforeach()
+math(EXPR attr_flat_decomposition "${attr_near}+${attr_far}")
+if(NOT attr_changed_sum EQUAL cmp_ordered_native_composite_changed_pixels
+   OR NOT attr_gross_sum EQUAL cmp_ordered_native_composite_gross_delta64_pixels
+   OR NOT attr_error_sum EQUAL cmp_ordered_native_composite_abs_rgb_error
+   OR NOT attr_flat EQUAL cmp_ordered_native_composite_flat_coverage_changed_pixels
+   OR NOT attr_flat_decomposition EQUAL attr_flat
+   OR attr_uncovered LESS 0 OR attr_uncovered GREATER attr_changed_sum)
+  message(FATAL_ERROR "Original jsPDF attribution disagrees with full-image metrics")
+endif()
+foreach(i RANGE 0 3)
+  string(JSON bound GET "${json}" ordered_native_spatial_attribution changed_bounds ${i})
+  if(bound LESS 0 OR (i EQUAL 0 AND bound GREATER 595)
+     OR (i EQUAL 2 AND bound GREATER 595)
+     OR (i EQUAL 1 AND bound GREATER 841)
+     OR (i EQUAL 3 AND bound GREATER 841))
+    message(FATAL_ERROR "Original jsPDF attribution bounds invalid")
+  endif()
+endforeach()
+if(cmp_ordered_native_composite_changed_pixels GREATER 0)
+  if(attr_worst_len EQUAL 0)
+    message(FATAL_ERROR "Original jsPDF changed pixels missing worst-site proof")
+  endif()
+  string(JSON attr_worst_max GET "${json}" ordered_native_spatial_attribution worst_pixels 0 max_delta)
+  if(NOT attr_worst_max EQUAL cmp_ordered_native_composite_max_channel_delta)
+    message(FATAL_ERROR "Original jsPDF worst-site mismatch")
+  endif()
+endif()
+# The suspected native-flat, non-adjacent group must expose its own
+# coordinates, without treating PDFium antialiasing as a proven explanation.
+foreach(region IN ITEMS flat_near_changed_bounds flat_far_changed_bounds)
+  foreach(coord RANGE 0 3)
+    string(JSON edge GET "${json}" ordered_native_spatial_attribution ${region} ${coord})
+    if(edge LESS 0 OR
+       ((coord EQUAL 0 OR coord EQUAL 2) AND edge GREATER 595) OR
+       ((coord EQUAL 1 OR coord EQUAL 3) AND edge GREATER 841))
+      message(FATAL_ERROR "Original jsPDF flat mismatch region invalid")
+    endif()
+  endforeach()
+endforeach()
+if(attr_far GREATER 0 AND attr_far_worst_len EQUAL 0)
+  message(FATAL_ERROR "Unexplained native-flat mismatch has no sample coordinates")
+endif()
+if(attr_far_worst_len GREATER 0)
+  math(EXPR attr_far_last "${attr_far_worst_len}-1")
+  set(attr_far_prior 256)
+  foreach(i RANGE 0 ${attr_far_last})
+    string(JSON x GET "${json}" ordered_native_spatial_attribution flat_far_worst_pixels ${i} x)
+    string(JSON y GET "${json}" ordered_native_spatial_attribution flat_far_worst_pixels ${i} y)
+    string(JSON delta GET "${json}" ordered_native_spatial_attribution flat_far_worst_pixels ${i} max_delta)
+    string(JSON sa GET "${json}" ordered_native_spatial_attribution flat_far_worst_pixels ${i} stroke_alpha)
+    string(JSON fa GET "${json}" ordered_native_spatial_attribution flat_far_worst_pixels ${i} fill_alpha)
+    if(x LESS 0 OR x GREATER 595 OR y LESS 0 OR y GREATER 841
+       OR delta LESS 1 OR delta GREATER attr_far_prior
+       OR (sa GREATER 0 AND sa LESS 255)
+       OR (fa GREATER 0 AND fa LESS 255))
+      message(FATAL_ERROR "Original jsPDF native-flat far hotspot invalid")
+    endif()
+    set(attr_far_prior ${delta})
+  endforeach()
+endif()
+
+if(attr_worst_len GREATER 0)
+  math(EXPR attr_last "${attr_worst_len}-1")
+  set(attr_prior 256)
+  foreach(i RANGE 0 ${attr_last})
+    string(JSON x GET "${json}" ordered_native_spatial_attribution worst_pixels ${i} x)
+    string(JSON y GET "${json}" ordered_native_spatial_attribution worst_pixels ${i} y)
+    string(JSON delta GET "${json}" ordered_native_spatial_attribution worst_pixels ${i} max_delta)
+    if(x GREATER 595 OR x LESS 0 OR y GREATER 841 OR y LESS 0
+       OR delta LESS 1 OR delta GREATER attr_prior)
+      message(FATAL_ERROR "Original jsPDF worst-site coordinates/ranking invalid")
+    endif()
+    set(attr_prior ${delta})
+  endforeach()
+endif()
+
 string(JSON positive GET "${json}" native_pixel_positive_count)
 string(JSON admitted GET "${json}" official_corpus_admitted)
 string(JSON generated GET "${json}" generated_fixture_count)

@@ -2411,3 +2411,23 @@ add_test(NAME quantapdf.native_ordered_layer_composite
   COMMAND quantapdf_test_native_ordered_layer_composite_v0)
 set_tests_properties(quantapdf.native_ordered_layer_composite PROPERTIES
   TIMEOUT 30 LABELS "conformance;native-raster;ordered-source-composition")
+
+ 
+# Test-only bounded spatial diagnosis for the unmodified external jsPDF page.
+# No PDFium, QPDF, native raster or formal corpus dependency.
+add_executable(quantapdf_test_original_jspdf_diff_attribution
+  test_original_jspdf_diff_attribution.cpp
+  original_jspdf_diff_attribution.h)
+target_compile_features(quantapdf_test_original_jspdf_diff_attribution
+  PRIVATE cxx_std_20)
+if(MSVC)
+  target_compile_options(quantapdf_test_original_jspdf_diff_attribution
+    PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_test_original_jspdf_diff_attribution
+    PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.original_jspdf_diff_attribution
+  COMMAND quantapdf_test_original_jspdf_diff_attribution)
+set_tests_properties(quantapdf.original_jspdf_diff_attribution PROPERTIES
+  TIMEOUT 20 LABELS "conformance;native-raster;source-preflight;diagnostic")
