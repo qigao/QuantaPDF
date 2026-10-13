@@ -2101,6 +2101,63 @@ int test_external_jspdf_fractional_page_rejection(
           preview_changed_pixels<=596u*842u &&
           preview_gross_delta64_pixels<=preview_changed_pixels &&
           preview_max_delta<=255u);
+    /* Revisit ALL 596x842 candidate pixels through the independently
+     * tested bounded spatial-attribution helper. This is not a guess from
+     * 2 or 12 selected sites: category sums must match independently
+     * calculated whole-original preview counts/absolute error. */
+    using jspdf_pixel_attribution::plane;
+    const auto repeated_preview_attribution=
+        jspdf_pixel_attribution::analyze(
+            plane{preview_stroke.pixels,preview_stroke.stride,
+                  preview_stroke.size},
+            plane{source_fill.pixels,source_fill.stride,source_fill.size},
+            plane{preview_ordered.pixels,preview_ordered.stride,
+                  preview_ordered.size},
+            plane{reference.pixels.data(),(size_t)reference.stride,
+                  reference.pixels.size()},
+            596u,842u);
+    CHECK(repeated_preview_attribution.valid);
+    CHECK(repeated_preview_attribution.changed_total()==
+          preview_changed_pixels);
+    CHECK(repeated_preview_attribution.gross_total()==
+          preview_gross_delta64_pixels);
+    CHECK(repeated_preview_attribution.error_total()==preview_abs_error);
+    CHECK(repeated_preview_attribution.worst_count<=
+          jspdf_pixel_attribution::report::max_hotspots);
+    CHECK(repeated_preview_attribution.flat_far_from_partial_3x3+
+          repeated_preview_attribution.flat_near_partial_3x3==
+          repeated_preview_attribution.changed[0]);
+    if(preview_changed_pixels!=0u) {
+        CHECK(repeated_preview_attribution.worst_count!=0u);
+        CHECK(repeated_preview_attribution.worst[0].max_delta==
+              preview_max_delta);
+    }
+    const std::string repeated_preview_attribution_json=
+        jspdf_pixel_attribution::json(repeated_preview_attribution);
+    std::fprintf(stderr,
+        "[jsPDF repeat-only preview residual] changed=[%zu,%zu,%zu,%zu] "
+        "gross=[%zu,%zu,%zu,%zu] far_flat=%zu\n",
+        repeated_preview_attribution.changed[0],
+        repeated_preview_attribution.changed[1],
+        repeated_preview_attribution.changed[2],
+        repeated_preview_attribution.changed[3],
+        repeated_preview_attribution.gross[0],
+        repeated_preview_attribution.gross[1],
+        repeated_preview_attribution.gross[2],
+        repeated_preview_attribution.gross[3],
+        repeated_preview_attribution.flat_far_from_partial_3x3);
+    for(size_t i=0u;i<repeated_preview_attribution.worst_count;++i) {
+        const auto& h=repeated_preview_attribution.worst[i];
+        std::fprintf(stderr,
+            "  preview-residual %zu (%zu,%zu) delta=%u sum=%u "
+            "stroke_alpha=%u fill_alpha=%u "
+            "native=(%u,%u,%u) original_pdfium=(%u,%u,%u)\n",
+            i,h.x,h.y,h.max_delta,h.rgb_error,
+            h.stroke_alpha,h.fill_alpha,
+            h.candidate[0],h.candidate[1],h.candidate[2],
+            h.oracle[0],h.oracle[1],h.oracle[2]);
+    }
+
     std::fprintf(stderr,
         "[jsPDF horizontal 1pt preview, NOT pixel parity] "
         "error=%llu mean=%.9f changed=%zu gross_delta64=%zu "
@@ -2315,6 +2372,7 @@ int test_external_jspdf_fractional_page_rejection(
         "  \"horizontal_thin_1pt_preview_gross_delta64_pixels\": %zu,\n"
         "  \"horizontal_thin_1pt_preview_max_channel_delta\": %u,\n"
         "  \"horizontal_thin_1pt_preview_rgb_fnv64\": \"%016llx\",\n"
+        "  \"horizontal_thin_1pt_preview_spatial_attribution\": %s,\n"
         "  \"native_pixel_positive_count\": 0,\n"
         "  \"official_corpus_admitted\": false,\n"
         "  \"generated_fixture_count\": 0\n"
@@ -2329,7 +2387,8 @@ int test_external_jspdf_fractional_page_rejection(
         attribution_json.c_str(),
         (unsigned long long)preview_abs_error,preview_mean_abs_rgb_error,
         preview_changed_pixels,preview_gross_delta64_pixels,
-        preview_max_delta,preview_rgb_fnv64);
+        preview_max_delta,preview_rgb_fnv64,
+        repeated_preview_attribution_json.c_str());
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
