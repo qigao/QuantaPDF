@@ -140,13 +140,13 @@ set(w_regions bottom_single_horizontal_stroke
     bottom_single_horizontal_stroke bottom_single_horizontal_stroke
     right_vertical_stroke left_vertical_stroke top_repeated_stroke
     clip_right_red_boundary clip_bottom_weak_fringe)
-set(w_x 50 100 250 250 50 250 150 100)
-set(w_y 139 139 139 60 110 19 40 100)
+set(w_expected_x 50 100 250 250 50 250 150 100)
+set(w_expected_y 139 139 139 60 110 19 40 100)
 foreach(i RANGE 0 7)
   list(GET w_names ${i} expected_name)
   list(GET w_regions ${i} expected_region)
-  list(GET w_x ${i} expected_x)
-  list(GET w_y ${i} expected_y)
+  list(GET w_expected_x ${i} expected_x)
+  list(GET w_expected_y ${i} expected_y)
   foreach(field IN ITEMS name region x y stroke_alpha fill_alpha)
     string(JSON w_${field} GET "${json}"
       mode4_original_source_regions witnesses ${i} ${field})
