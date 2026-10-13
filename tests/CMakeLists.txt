@@ -1794,6 +1794,7 @@ add_executable(quantapdf_test_native_source_qq_oracle
   ../src/snapshot/snapshot_owner.c
   ../src/render/ir_scoped_operations_v1.c
   ../src/render/ir_scoped_device_grid_v0.c
+  ../src/render/ir_rect_fill_right_preview_v0.c
   ../src/render/ir_device_polyline_stroke_v0.c
   ../src/render/ir_ordered_layer_composite_v0.c
   ../src/render/native_device_grid.c
@@ -2390,6 +2391,36 @@ add_test(NAME quantapdf.native_scoped_device_grid
   COMMAND quantapdf_test_native_scoped_device_grid_v0)
 set_tests_properties(quantapdf.native_scoped_device_grid PROPERTIES
   TIMEOUT 30 LABELS "conformance;native-raster;fractional-grid-synthetic")
+
+# Strict standalone C11 rectangle Fill/W Clip right-edge analytic A/B.
+# Explicit private trial; compiled only in tests, no SDK export.
+add_executable(quantapdf_test_native_rect_fill_right_preview_v0
+  test_native_rect_fill_right_preview_v0.c
+  "${PROJECT_SOURCE_DIR}/src/render/ir_rect_fill_right_preview_v0.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_scoped_device_grid_v0.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_grid.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_scoped_operations_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_clip_dag_v3.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c")
+target_include_directories(quantapdf_test_native_rect_fill_right_preview_v0
+  PRIVATE "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+set_target_properties(quantapdf_test_native_rect_fill_right_preview_v0 PROPERTIES
+  C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+if(MSVC)
+  target_compile_options(quantapdf_test_native_rect_fill_right_preview_v0
+    PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_test_native_rect_fill_right_preview_v0
+    PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+if(UNIX)
+  target_link_libraries(quantapdf_test_native_rect_fill_right_preview_v0 PRIVATE m)
+endif()
+add_test(NAME quantapdf.native_rect_fill_right_preview
+  COMMAND quantapdf_test_native_rect_fill_right_preview_v0)
+set_tests_properties(quantapdf.native_rect_fill_right_preview PROPERTIES
+  TIMEOUT 30 LABELS "conformance;native-raster;rect-fill-right-preview")
 
 # Private pure-C11 fractional open-polyline stroke unit oracle. No PDFium/qpdf.
 add_executable(quantapdf_test_native_device_polyline_stroke_v0
