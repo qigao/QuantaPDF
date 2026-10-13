@@ -53,6 +53,19 @@ quantapdf_status quantapdf_ir_raster_device_polyline_stroke_repeated_endpoint_pr
     const quantapdf_ir_raster_v1_limits *raster_limits,
     quantapdf_ir_raster_image *out_image);
 
+
+/* Third explicit/private stroke-only A/B: at a repeated horizontal-to-
+ * downward-vertical right-angle corner, compare bounded repeated
+ * straight-alpha source-over with the #286 full-row endpoint hypothesis.
+ * No default raster/public SDK/cap/clip behavior is changed. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_right_down_corner_preview_v0(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
