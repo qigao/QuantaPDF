@@ -32,3 +32,24 @@ An admitted native W* **pixel positive** still requires independent original
 PDFium-vs-owned-detached-C11 whole-image comparison, fixed interior goldens,
 bounded gross/RGB errors, deterministic RGBA repeat, and exact-head three-
 platform CI. Public SDK remains PDFium-backed.
+
+## Candidate-only original PDFium versus detached pure-C11 pixel gate
+
+`quantapdf.external_yworks_wstar_candidate_pixels` renders the **original**
+unmodified 600x600 PDF through independent PDFium, then obtains the owned
+detached IR through the actual Source -> Graph Snapshot pipeline, drops the
+Source/Graph before C11 rasterization, and renders twice with bounded
+operations, clip resources, segments, pixels and work.
+
+The test checks separate `W` and `W*` path leaves, Clip intersections,
+fixed interior blue/white semantic goldens drawn from the independently
+published SVG's nonzero-vs-even-odd star geometries, whole-image RGB error
+and gross-pixel budgets, line ink intersection, and byte-identical repeat
+RGBA. A separate CMake wrapper hashes the original file before and after.
+
+This is an **experimental candidate-only pixel gate**, not the formal
+five-original reconciliation. Any successful report explicitly states
+`candidate_pixel_parity_passed_not_admitted` with
+`native_wstar_clip_supported_count: 0`; the independent pixel evidence
+must pass exact-head Linux Release + Sanitizers, macOS and Windows and
+be reconciled through a separate admission review before counters change.

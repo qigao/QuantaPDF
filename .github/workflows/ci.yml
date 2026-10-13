@@ -145,6 +145,8 @@ jobs:
         run: |
           cat build/linux-gcc-release/tests/yworks-wstar-typed-observe.json
           cat build/linux-gcc-debug/tests/yworks-wstar-typed-observe.json
+          cat build/linux-gcc-release/tests/yworks-wstar-candidate-pixel.json
+          cat build/linux-gcc-debug/tests/yworks-wstar-candidate-pixel.json
 
       - name: Upload original Wstar candidate typed evidence (Linux)
         uses: actions/upload-artifact@v4
@@ -153,6 +155,8 @@ jobs:
           path: |
             build/linux-gcc-release/tests/yworks-wstar-typed-observe.json
             build/linux-gcc-debug/tests/yworks-wstar-typed-observe.json
+            build/linux-gcc-release/tests/yworks-wstar-candidate-pixel.json
+            build/linux-gcc-debug/tests/yworks-wstar-candidate-pixel.json
           if-no-files-found: error
           retention-days: 7
 
@@ -348,13 +352,17 @@ jobs:
 
       - name: Review original Wstar candidate typed report (macOS)
         shell: bash
-        run: cat build/macos-clang-release/tests/yworks-wstar-typed-observe.json
+        run: |
+          cat build/macos-clang-release/tests/yworks-wstar-typed-observe.json
+          cat build/macos-clang-release/tests/yworks-wstar-candidate-pixel.json
 
       - name: Upload original Wstar candidate typed evidence (macOS)
         uses: actions/upload-artifact@v4
         with:
           name: yworks-wstar-typed-candidate-macos
-          path: build/macos-clang-release/tests/yworks-wstar-typed-observe.json
+          path: |
+            build/macos-clang-release/tests/yworks-wstar-typed-observe.json
+            build/macos-clang-release/tests/yworks-wstar-candidate-pixel.json
           if-no-files-found: error
           retention-days: 7
 
@@ -547,13 +555,17 @@ jobs:
 
       - name: Review original Wstar candidate typed report (Windows)
         shell: pwsh
-        run: Get-Content build/Msvc-Release/tests/yworks-wstar-typed-observe.json
+        run: |
+          Get-Content build/Msvc-Release/tests/yworks-wstar-typed-observe.json
+          Get-Content build/Msvc-Release/tests/yworks-wstar-candidate-pixel.json
 
       - name: Upload original Wstar candidate typed evidence (Windows)
         uses: actions/upload-artifact@v4
         with:
           name: yworks-wstar-typed-candidate-windows
-          path: build/Msvc-Release/tests/yworks-wstar-typed-observe.json
+          path: |
+            build/Msvc-Release/tests/yworks-wstar-typed-observe.json
+            build/Msvc-Release/tests/yworks-wstar-candidate-pixel.json
           if-no-files-found: error
           retention-days: 7
 

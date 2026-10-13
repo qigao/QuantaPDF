@@ -1769,6 +1769,158 @@ int test_external_pdfium_wstar_text_rejection(const char *filename,
     return EXIT_SUCCESS;
 }
 
+/* Original yWorks MIT PDF, unchanged source byte stream, candidate-only
+ * pixel parity. No corpus admission count until exact-head three-platform
+ * evidence + review. Uses independent PDFium page -> RGB and owned detached
+ * Graph -> pure C11 Raster, with no fallback or Composer export to PDF. */
+int test_external_yworks_wstar_candidate_pixels(
+    const char *filename,const char *report_path)
+{
+    CHECK(filename && *filename && report_path && *report_path);
+    CHECK(corpus_fixture_executions==0u);
+    constexpr size_t WIDTH=600u, HEIGHT=600u;
+    rgb_image pdfium=render_original_pdfium(0u,filename);
+    CHECK(pdfium.width==(int)WIDTH && pdfium.height==(int)HEIGHT &&
+          pdfium.components==3 && pdfium.stride>=(int)WIDTH*3);
+    quantapdf_ir detached{};
+    OK(snapshot_lower(&detached,0u,4u,8u,filename));
+    CHECK(detached.pages && detached.page_count==1u &&
+          detached.pages[0].width_points==(float)WIDTH &&
+          detached.pages[0].height_points==(float)HEIGHT);
+    CHECK(detached.operations && detached.operation_count==3u);
+    CHECK(detached.resources.clip_count==7u &&
+          detached.resources.graphics_state_count==3u &&
+          detached.resources.font_count==0u &&
+          detached.resources.image_count==0u &&
+          detached.resources.form_count==0u &&
+          detached.resources.soft_mask_count==0u);
+    const clip_leaf_counts rules=inspect_clip_fill_rules(detached);
+    CHECK(rules.nonzero==2u && rules.evenodd==2u &&
+          rules.intersections==3u);
+
+    const quantapdf_ir_raster_v1_limits limits={
+        WIDTH*HEIGHT,3u,768u,60000000u
+    };
+    quantapdf_ir_raster_image native{},repeat{};
+    OK(quantapdf_ir_raster_scoped_operations_v1(
+        &detached,0u,&limits,&native));
+    OK(quantapdf_ir_raster_scoped_operations_v1(
+        &detached,0u,&limits,&repeat));
+    CHECK(native.pixels && native.width==WIDTH && native.height==HEIGHT &&
+          native.stride==WIDTH*4u && native.size==WIDTH*HEIGHT*4u);
+    CHECK(repeat.pixels && repeat.size==native.size &&
+          std::memcmp(repeat.pixels,native.pixels,native.size)==0);
+    quantapdf_ir_raster_image_dispose(&repeat);
+    quantapdf_ir_dispose(&detached); /* No source/Graph/IR during comparison. */
+
+    /* Independently published upstream SVG contains a nonzero-winding blue
+     * star at x~80 and an even-odd blue star at x~180. Their self-crossing
+     * centers must differ: nonzero paints center, even-odd leaves a hole.
+     * PDFium AND C11 must separately match fixed interior semantic goldens. */
+    struct sample {size_t x,y; unsigned red,green,blue;};
+    const sample goldens[]={
+        {80u,125u,0u,0u,255u},       /* W nonzero star center: painted */
+        {180u,125u,255u,255u,255u}, /* W* even-odd star center: hole */
+        {180u,95u,0u,0u,255u},      /* W* star tip: painted */
+        {250u,125u,255u,255u,255u},
+        {300u,300u,255u,255u,255u},
+        {500u,500u,255u,255u,255u}
+    };
+    for(const sample& q:goldens){
+        const unsigned char *b=pdfium.at(q.x,q.y);
+        const unsigned char *a=native.pixels+q.y*native.stride+q.x*4u;
+        const unsigned want[]={q.red,q.green,q.blue};
+        for(size_t c=0u;c<3u;++c){
+            const unsigned actual=on_white(a,c);
+            if(std::abs((int)actual-(int)want[c])>8 ||
+               std::abs((int)b[c]-(int)want[c])>8)
+                std::fprintf(stderr,
+                    "[yworks-Wstar-golden] x=%zu y=%zu c=%zu "
+                    "expected=%u native=%u pdfium=%u\n",
+                    q.x,q.y,c,want[c],actual,(unsigned)b[c]);
+            CHECK(std::abs((int)actual-(int)want[c])<=8);
+            CHECK(std::abs((int)b[c]-(int)want[c])<=8);
+        }
+    }
+    double sum_diff=0.0;
+    size_t gross=0u,ref_red=0u,native_red=0u,overlap_red=0u;
+    for(size_t y=0u;y<HEIGHT;++y)for(size_t x=0u;x<WIDTH;++x){
+        const unsigned char *a=native.pixels+y*native.stride+x*4u;
+        const unsigned char *b=pdfium.at(x,y);
+        unsigned delta_max=0u;
+        unsigned rgb[3];
+        for(size_t c=0u;c<3u;++c){
+            rgb[c]=on_white(a,c);
+            unsigned diff=rgb[c]>b[c] ? rgb[c]-b[c] : b[c]-rgb[c];
+            sum_diff+=(double)diff;
+            if(diff>delta_max)delta_max=diff;
+        }
+        if(delta_max>64u)++gross;
+        if(y>=37u && y<=43u && x>=200u && x<=350u){
+            const bool r=b[0]>=190u && b[1]<=150u && b[2]<=150u;
+            const bool n=rgb[0]>=190u && rgb[1]<=150u && rgb[2]<=150u;
+            ref_red+=(size_t)r;
+            native_red+=(size_t)n;
+            overlap_red+=(size_t)(r&&n);
+        }
+    }
+    const double mean=sum_diff/(double)(WIDTH*HEIGHT*3u);
+    if(mean>8.0 || gross>WIDTH*HEIGHT/20u ||
+       ref_red<25u || native_red<25u ||
+       overlap_red*2u<ref_red)
+        std::fprintf(stderr,
+            "[yworks-Wstar-pixel] mean=%.5f gross=%zu "
+            "ref_red=%zu native_red=%zu overlap=%zu\n",
+            mean,gross,ref_red,native_red,overlap_red);
+    CHECK(mean<=8.0 && gross<=WIDTH*HEIGHT/20u);
+    CHECK(ref_red>=25u && native_red>=25u &&
+          overlap_red*2u>=ref_red);
+    quantapdf_ir_raster_image_dispose(&native);
+    CHECK(corpus_fixture_executions==0u);
+
+    const std::string staged=std::string(report_path)+".tmp";
+    FILE *out=std::fopen(staged.c_str(),"wb");
+    CHECK(out!=nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"result\": \"candidate_pixel_parity_passed_not_admitted\",\n"
+        "  \"candidate\": \"yworks.clippath-cliprule-v1\",\n"
+        "  \"fixture_kind\": \"external_original_candidate_only\",\n"
+        "  \"original_source_pdfium_oracle\": \"passed\",\n"
+        "  \"detached_c11_native_raster\": \"passed\",\n"
+        "  \"source_and_graph_released_before_raster\": true,\n"
+        "  \"page_width\": %zu,\n"
+        "  \"page_height\": %zu,\n"
+        "  \"native_w_nonzero_clip_path_leaves\": %zu,\n"
+        "  \"native_wstar_evenodd_clip_path_leaves\": %zu,\n"
+        "  \"native_clip_intersection_nodes\": %zu,\n"
+        "  \"fixed_interior_goldens\": %zu,\n"
+        "  \"repeat_rgba_identical\": true,\n"
+        "  \"mean_rgb_error\": %.6f,\n"
+        "  \"gross_error_pixels\": %zu,\n"
+        "  \"reference_red_pixels\": %zu,\n"
+        "  \"native_red_pixels\": %zu,\n"
+        "  \"overlap_red_pixels\": %zu,\n"
+        "  \"native_wstar_clip_supported_count\": 0,\n"
+        "  \"generated_fixture_count\": 0\n"
+        "}\n",
+        WIDTH,HEIGHT,rules.nonzero,rules.evenodd,rules.intersections,
+        sizeof(goldens)/sizeof(goldens[0]),mean,gross,
+        ref_red,native_red,overlap_red);
+    CHECK(std::ferror(out)==0 && std::fclose(out)==0);
+#ifdef _WIN32
+    errno=0;
+    if(std::remove(report_path)!=0) CHECK(errno==ENOENT);
+#endif
+    CHECK(std::rename(staged.c_str(),report_path)==0);
+    std::fprintf(stderr,
+        "[yworks-Wstar-pixel] original-pdfium/C11 passed "
+        "mean=%.5f gross=%zu repeat=identical pixel_positive=0\n",
+        mean,gross);
+    return EXIT_SUCCESS;
+}
+
 /* Complete selected-page typed preflight of an unchanged ORIGINAL PDF.
  * This test-only diagnostic checks full bounded Graph -> detached IR lowering,
  * not keyword extraction. It deliberately runs neither PDFium oracle nor
@@ -2057,6 +2209,10 @@ int main(int argc,char **argv)
        std::strcmp(argv[1],"--generated-wstar-observe")==0 &&
        std::strcmp(argv[2],"--preflight-report")==0)
         return test_generated_wstar_typed_observe(argv[3]);
+    if(argc==5 &&
+       std::strcmp(argv[1],"--external-wstar-candidate-pixel-pdf")==0 &&
+       std::strcmp(argv[3],"--external-report")==0)
+        return test_external_yworks_wstar_candidate_pixels(argv[2],argv[4]);
     if(argc==2 && std::strcmp(argv[1],"--page-group-admission")==0){
         test_page_group_admission();
         return EXIT_SUCCESS;
