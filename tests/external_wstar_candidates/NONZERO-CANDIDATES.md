@@ -133,3 +133,20 @@ quarantined, so even successful pixels do not alter the six official original
 manifest entries, the generated 14/36 corpus or W* pixel-positive 1/1.
 The CTest validates the original SHA-256 before/after, rejects hardlink
 report/source aliases and retains earlier reports on failure.
+
+## Exact complex W-only 6-op/9-node full original-page candidate pixel gate
+
+The quarantined `clippath-svg.pdf` (pinned original SHA-256 above) is
+rendered *without rewriting bytes* using independent original PDFium,
+versus Source→Graph→fully owned Detached IR→private C11 Raster, 500×800
+page. It exercises six ordered painted Paths (3 closed mitered 1px red
+rectangle/open red strokes, 3 black/blue fills), five nonzero W Clip
+leaves with four Clip intersection nodes, q/Q scopes and exact CTMs.
+The native path is explicitly bounded to **6 operations, 9 Clip nodes,
+4 Clip leaves per operation**, finite work/segment/pixel budgets, and
+the narrow existing 1px mitered rectangle/open line stroke subset.
+Golden interior probes derive from the published SVG; full RGB/gross
+budgets, red stroke overlap and byte-identical repeat RGBA are checked.
+This is **candidate-only** and contributes zero new formal W or W*
+pixel-positive counters pending source-specific license/admission
+review and exact-head full three-platform CI.
