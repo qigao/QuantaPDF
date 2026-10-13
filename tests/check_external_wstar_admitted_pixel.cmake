@@ -17,7 +17,9 @@ file(SHA256 "${SOURCE}" before)
 if(NOT "${before}" STREQUAL "${EXPECTED_SHA256}")
   message(FATAL_ERROR "Original PDF SHA-256 mismatch")
 endif()
-file(REMOVE "${REPORT}" "${REPORT}.tmp")
+# The C++ oracle atomically publishes only after valid native pixels.
+# Retain an earlier successful report if source parsing or raster fails.
+file(REMOVE "${REPORT}.tmp")
 execute_process(
   COMMAND "${ORACLE}" --external-wstar-original-pdf "${SOURCE}"
       --external-report "${REPORT}"

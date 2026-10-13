@@ -1777,6 +1777,33 @@ int test_external_yworks_wstar_candidate_pixels(
     const char *filename,const char *report_path,bool admitted=false)
 {
     CHECK(filename && *filename && report_path && *report_path);
+    /* Preserve the immutable external original even if an output has a
+     * different spelling, an intermediate symlink, or a hardlink alias. */
+    namespace fs=std::filesystem;
+    std::error_code path_error;
+    const fs::path source=fs::path(filename);
+    const fs::path report=fs::path(report_path);
+    const std::string staged=std::string(report_path)+".tmp";
+    const fs::path stage=fs::path(staged);
+    CHECK(fs::is_regular_file(source,path_error) && !path_error);
+    CHECK(!fs::is_symlink(source,path_error));
+    CHECK(!path_error);
+    const fs::path canonical_source=fs::weakly_canonical(source,path_error);
+    CHECK(!path_error);
+    const fs::path canonical_report=fs::weakly_canonical(report,path_error);
+    CHECK(!path_error && canonical_source!=canonical_report);
+    const fs::path canonical_stage=fs::weakly_canonical(stage,path_error);
+    CHECK(!path_error && canonical_source!=canonical_stage);
+    for(const fs::path& output:{report,stage}){
+        const bool exists=fs::exists(output,path_error);
+        CHECK(!path_error);
+        if(exists){
+            CHECK(!fs::is_symlink(output,path_error));
+            CHECK(!path_error);
+            CHECK(!fs::equivalent(source,output,path_error));
+            CHECK(!path_error);
+        }
+    }
     CHECK(corpus_fixture_executions==0u);
     constexpr size_t WIDTH=600u, HEIGHT=600u;
     rgb_image pdfium=render_original_pdfium(0u,filename);
@@ -1884,7 +1911,6 @@ int test_external_yworks_wstar_candidate_pixels(
     quantapdf_ir_raster_image_dispose(&native);
     CHECK(corpus_fixture_executions==0u);
 
-    const std::string staged=std::string(report_path)+".tmp";
     FILE *out=std::fopen(staged.c_str(),"wb");
     CHECK(out!=nullptr);
     std::fprintf(out,

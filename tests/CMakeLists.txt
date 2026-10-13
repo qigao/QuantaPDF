@@ -2106,6 +2106,34 @@ else()
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
 
+# Failure-path evidence gate for BOTH independent original-PDFium/C11
+# W* wrappers. Invalid-but-SHA-pinned source must preserve a prior report;
+# source/output hardlink aliases must be rejected before any pixel writes.
+add_test(NAME quantapdf.external_wstar_pixel_report_guard
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DORIGINAL_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/yworks.clippath-cliprule-v1.pdf"
+    "-DADMITTED_GUARD=${CMAKE_CURRENT_SOURCE_DIR}/check_external_wstar_admitted_pixel.cmake"
+    "-DCANDIDATE_GUARD=${CMAKE_CURRENT_SOURCE_DIR}/check_external_wstar_candidate_pixel.cmake"
+    "-DOUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/external-wstar-pixel-report-guard"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_external_wstar_pixel_report_guard.cmake")
+set_tests_properties(quantapdf.external_wstar_pixel_report_guard PROPERTIES
+  TIMEOUT 40 LABELS "conformance;wstar-pixel-report-guard"
+  PASS_REGULAR_EXPRESSION "wstar-pixel-report-guard: 4 fail-closed cases passed")
+if(WIN32)
+  set_property(TEST quantapdf.external_wstar_pixel_report_guard
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_wstar_pixel_report_guard
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_wstar_pixel_report_guard
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
 # Independently published upstream W n rectangular Clip and one-pixel closed
 # blue stroke. Renderer uses pure C11; PDFium reads the ORIGINAL PDF only.
 add_test(NAME quantapdf.external_pdfium_clipped_stroke
