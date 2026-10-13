@@ -1817,10 +1817,8 @@ int typed_original_preflight(const char *source_path,const char *page_str,
     const unsigned long number=std::strtoul(page_str,&end,10);
     CHECK(errno==0 && end!=page_str && *end=='\0' && number<=255ul);
     const size_t page_index=(size_t)number;
-    errno=0;
-    if(std::remove(report_path)!=0) CHECK(errno==ENOENT);
-    errno=0;
-    if(std::remove(staged.c_str())!=0) CHECK(errno==ENOENT);
+    /* Previous report remains valid evidence if selected-page parsing
+     * or strict typed admission fails. Do not unlink it preemptively. */
     quantapdf_ir detached{};
     /* Four content streams + eight page-tree steps are bounded by the
      * existing private Graph/Content limits. No partial prefix admitted. */
@@ -1896,6 +1894,12 @@ int typed_original_preflight(const char *source_path,const char *page_str,
         page_count,op_count,clip_count,
         winding.nonzero,winding.evenodd,winding.intersections,state_count);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
+#ifdef _WIN32
+    /* Windows rename cannot replace an existing report. Publish only after
+     * the new staged report is fully written and closed. */
+    errno=0;
+    if(std::remove(report_path)!=0) CHECK(errno==ENOENT);
+#endif
     CHECK(std::rename(staged.c_str(),report_path)==0);
     std::fprintf(stderr,
         "[source-preflight] page=%zu typed=%s raster=not_run "

@@ -1972,11 +1972,22 @@ add_test(NAME quantapdf.external_original_wstar_text_typed_observe
     --preflight-report "${CMAKE_CURRENT_BINARY_DIR}/external-original-wstar-observe.json")
 set_tests_properties(quantapdf.external_original_wstar_text_typed_observe PROPERTIES
   PASS_REGULAR_EXPRESSION "typed=unsupported raster=not_run")
+# The test-only typed 'observe' CLI must preserve an existing report
+# if a new candidate is malformed or contradicts strict preflight status.
+add_test(NAME quantapdf.external_original_typed_report_guard
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DW_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/pdfium.clip-path-v1.pdf"
+    "-DWSTAR_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/pdfium.bug-1574-wstar-text-v1.pdf"
+    "-DOUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/typed-original-report-guard"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_native_source_preflight_report.cmake")
+
 foreach(qp_test IN ITEMS
         quantapdf.external_original_w_typed_preflight
         quantapdf.external_original_wstar_text_typed_preflight
         quantapdf.external_original_w_typed_observe
-        quantapdf.external_original_wstar_text_typed_observe)
+        quantapdf.external_original_wstar_text_typed_observe
+        quantapdf.external_original_typed_report_guard)
   set_tests_properties(${qp_test} PROPERTIES
     TIMEOUT 40 LABELS "conformance;external-corpus;source-preflight")
   if(WIN32)
