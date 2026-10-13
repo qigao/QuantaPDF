@@ -208,6 +208,22 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Review candidate complex W original pixel parity (Linux)
+        shell: bash
+        run: |
+          cat build/linux-gcc-release/tests/yworks-svg-w-candidate-pixel.json
+          cat build/linux-gcc-debug/tests/yworks-svg-w-candidate-pixel.json
+
+      - name: Upload candidate complex W native pixel evidence (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-svg-w-native-linux
+          path: |
+            build/linux-gcc-release/tests/yworks-svg-w-candidate-pixel.json
+            build/linux-gcc-debug/tests/yworks-svg-w-candidate-pixel.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Qualify external PDF corpus admission (Linux)
         shell: bash
         run: |
@@ -457,6 +473,20 @@ jobs:
           name: quarantined-hidden-w-pixel-macos
           path: |
             build/macos-clang-release/tests/yworks-hidden-w-candidate-pixel.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review candidate complex W original pixel parity (macOS)
+        shell: bash
+        run: |
+          cat build/macos-clang-release/tests/yworks-svg-w-candidate-pixel.json
+
+      - name: Upload candidate complex W native pixel evidence (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-svg-w-native-macos
+          path: |
+            build/macos-clang-release/tests/yworks-svg-w-candidate-pixel.json
           if-no-files-found: error
           retention-days: 7
 
@@ -727,6 +757,20 @@ jobs:
           name: quarantined-hidden-w-pixel-windows
           path: |
             build/Msvc-Release/tests/yworks-hidden-w-candidate-pixel.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review candidate complex W original pixel parity (Windows)
+        shell: pwsh
+        run: |
+          Get-Content build/Msvc-Release/tests/yworks-svg-w-candidate-pixel.json
+
+      - name: Upload candidate complex W native pixel evidence (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-svg-w-native-windows
+          path: |
+            build/Msvc-Release/tests/yworks-svg-w-candidate-pixel.json
           if-no-files-found: error
           retention-days: 7
 

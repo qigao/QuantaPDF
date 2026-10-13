@@ -2130,6 +2130,33 @@ else()
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
 
+# Independently published yWorks complex W-only SVG PDF. Six original
+# painted Paths, five W leaves, nine total Clip nodes. Test-only original
+# PDFium vs detached pure C11; NEVER modifies formal six-source counter.
+add_test(NAME quantapdf.external_yworks_svg_w_candidate_pixels
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/external_wstar_candidates/documents/yworks.clippath-svg-v1.pdf"
+    "-DREPORT=${CMAKE_CURRENT_BINARY_DIR}/yworks-svg-w-candidate-pixel.json"
+    "-DEXPECTED_SHA256=7c9d3eab0f401537052a5ec4a8c531954aaf354061a9de25080376a9e13cb921"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_external_svg_w_candidate_pixel.cmake")
+set_tests_properties(quantapdf.external_yworks_svg_w_candidate_pixels PROPERTIES
+  TIMEOUT 200 LABELS "conformance;native-raster;nonzero-pixel-candidate"
+  PASS_REGULAR_EXPRESSION "svg-W-original-pixel: passed")
+if(WIN32)
+  set_property(TEST quantapdf.external_yworks_svg_w_candidate_pixels
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_yworks_svg_w_candidate_pixels
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_yworks_svg_w_candidate_pixels
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
 # Candidate-only unchanged upstream yWorks hidden W Clip, independently
 # checked against ORIGINAL PDFium pixels. Never participates in official
 # six-source corpus counters or the separate W* numerator.

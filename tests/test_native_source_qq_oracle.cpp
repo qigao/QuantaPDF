@@ -6,6 +6,7 @@
 #include "document/page_content_ir.h"
 #include "graph/graph_page_geometry.h"
 #include "render/ir_scoped_operations_v1.h"
+#include "render/ir_clip_dag_v3.h"
 #include "render/ir_raster.h"
 
 #include <qpdf/QPDF.hh>
@@ -1783,6 +1784,307 @@ int test_external_pdfium_wstar_text_rejection(const char *filename,
  * The independently published source has one visible red Path under
  * two original W clips, plus source-side hidden/empty Clip controls.
  * This is NOT official six-source corpus admission and NOT a W* positive. */
+/* Quarantined original yWorks 500x800 W-only nested-Clip page. The entire
+ * actual original is rendered independently through PDFium; the private C11
+ * raster consumes only owned detached Source->Graph->Composer IR after both
+ * source/Graph objects are disposed. No QPDF export and no PDFium fallback.
+ * Six painted Paths, five W Clip leaves and four Clip intersection nodes. */
+int test_external_yworks_svg_w_pixels(const char *filename,
+                                      const char *report_path)
+{
+    CHECK(filename && *filename && report_path && *report_path);
+    namespace fs=std::filesystem;
+    std::error_code ec;
+    const fs::path source(filename),report(report_path);
+    const std::string staged=std::string(report_path)+".tmp";
+    const fs::path stage(staged);
+    CHECK(fs::is_regular_file(source,ec) && !ec);
+    CHECK(!fs::is_symlink(source,ec) && !ec);
+    const fs::path original=fs::weakly_canonical(source,ec);
+    CHECK(!ec);
+    const fs::path output=fs::weakly_canonical(report,ec);
+    CHECK(!ec && original!=output);
+    const fs::path temp=fs::weakly_canonical(stage,ec);
+    CHECK(!ec && original!=temp);
+    for(const fs::path& candidate:{report,stage}) {
+        const bool exists=fs::exists(candidate,ec);
+        CHECK(!ec);
+        if(exists) {
+            CHECK(!fs::is_symlink(candidate,ec) && !ec);
+            CHECK(!fs::equivalent(source,candidate,ec) && !ec);
+        }
+    }
+    constexpr size_t WIDTH=500u,HEIGHT=800u;
+    CHECK(corpus_fixture_executions==0u);
+    rgb_image pdfium=render_original_pdfium(0u,filename);
+    CHECK(pdfium.width==(int)WIDTH && pdfium.height==(int)HEIGHT &&
+          pdfium.components==3 && pdfium.stride>=(int)WIDTH*3);
+    quantapdf_pdf_path_lower_limits bounded=lower_limits;
+    bounded.max_painted_paths=8u;  /* Explicit test-only capacity, no retry. */
+    quantapdf_ir detached{};
+    OK(snapshot_lower(&detached,0u,4u,8u,filename,&bounded));
+    CHECK(detached.page_count==1u && detached.pages!=nullptr &&
+          detached.pages[0].width_points==(float)WIDTH &&
+          detached.pages[0].height_points==(float)HEIGHT &&
+          detached.operations!=nullptr && detached.operation_count==6u &&
+          detached.resources.clip_count==9u &&
+          detached.resources.graphics_state_count==3u &&
+          detached.resources.font_count==0u &&
+          detached.resources.image_count==0u &&
+          detached.resources.form_count==0u &&
+          detached.resources.soft_mask_count==0u &&
+          detached.resources.paint_count==0u);
+    const clip_leaf_counts winding=inspect_clip_fill_rules(detached);
+    CHECK(winding.nonzero==5u && winding.evenodd==0u &&
+          winding.intersections==4u);
+
+    const quantapdf_ir_raster_v1_limits limits={
+        WIDTH*HEIGHT,6u,4096u,3200000000ULL
+    };
+    quantapdf_ir_raster_image native{},repeat{};
+    const quantapdf_status status=
+        quantapdf_ir_raster_scoped_operations_v1(
+            &detached,0u,&limits,&native);
+    if(status!=QUANTAPDF_OK) {
+        std::fprintf(stderr,
+            "[svg-W-pixel] native C11 status=%d ops=%zu clips=%zu states=%zu\n",
+            (int)status,detached.operation_count,
+            detached.resources.clip_count,detached.resources.graphics_state_count);
+        /* Test-only deterministic scope attribution. Borrow the already
+         * detached original IR, never rewrite it or invoke a fallback. */
+        unsigned all_states=0u,all_clips=0u;
+        for(size_t i=0u;i<detached.operation_count;++i) {
+            const auto& op=detached.operations[i];
+            const auto& path=op.value.path;
+            const size_t state_id=(size_t)op.graphics_state_id;
+            size_t clip_id=0u,leaf_count=0u;
+            unsigned visited=0u;
+            const quantapdf_composer_clip_state *leaves
+                [QUANTAPDF_NATIVE_CLIP_DAG_MAX_LEAVES]={};
+            quantapdf_status collect=QUANTAPDF_OK;
+            if(state_id>0u && state_id<=detached.resources.graphics_state_count) {
+                all_states|=1u<<(unsigned)(state_id-1u);
+                clip_id=(size_t)detached.resources.graphics_states[state_id-1u].clip_id;
+                if(clip_id>0u)
+                    collect=quantapdf_ir_clip_dag_collect_v3(
+                        &detached,(quantapdf_composer_clip_id)clip_id,
+                        leaves,&leaf_count,&visited);
+                if(collect==QUANTAPDF_OK) all_clips|=visited;
+            }
+            quantapdf_composer_operation projected=op;
+            projected.graphics_state_id=0u;
+            projected.value.path.options.graphics_state_id=0u;
+            quantapdf_composer_page_state copied=*detached.pages;
+            copied.suppress_background=1;
+            quantapdf_ir local{};
+            local.pages=&copied;local.page_count=1u;
+            local.operations=&projected;local.operation_count=1u;
+            quantapdf_ir_raster_image sub{};
+            quantapdf_ir_raster_v1_limits one_limit=limits;
+            one_limit.max_operations=1u;
+            one_limit.max_sample_tests/=detached.operation_count;
+            one_limit.max_edges/=detached.operation_count;
+            quantapdf_status sub_status=QUANTAPDF_ERROR_UNSUPPORTED;
+            if(collect==QUANTAPDF_OK) {
+                if(leaf_count==0u)
+                    sub_status=quantapdf_ir_raster_render_v1(
+                        &local,0u,&one_limit,&sub);
+                else
+                    sub_status=quantapdf_ir_raster_render_v1_multi_clipped(
+                        &local,0u,&one_limit,leaves,leaf_count,&sub);
+            }
+            quantapdf_ir_raster_image_dispose(&sub);
+            std::fprintf(stderr,
+                "[svg-W-scope] i=%zu path_commands=%zu stroke=%d fill=%d "
+                "width=%.5f cap=%d join=%d miter=%.5f ctm=[%.4f %.4f %.4f %.4f %.4f %.4f] "
+                "gs=%zu clip=%zu leaves=%zu visited=%u collect=%d raster=%d\n",
+                i,path.command_count,path.options.stroke,path.options.fill,
+                (double)path.options.stroke_width,(int)path.options.line_cap,
+                (int)path.options.line_join,(double)path.options.miter_limit,
+                (double)path.options.transform.a,(double)path.options.transform.b,
+                (double)path.options.transform.c,(double)path.options.transform.d,
+                (double)path.options.transform.e,(double)path.options.transform.f,
+                state_id,clip_id,leaf_count,visited,
+                (int)collect,(int)sub_status);
+        }
+        std::fprintf(stderr,
+            "[svg-W-resource] used_states=%u used_clips=%u all_states=%u all_clips=%u\n",
+            all_states,all_clips,
+            (1u<<(unsigned)detached.resources.graphics_state_count)-1u,
+            (1u<<(unsigned)detached.resources.clip_count)-1u);
+    }
+    CHECK(status==QUANTAPDF_OK);
+    /* Reject a forged orphan: this copy changes only an intermediate
+     * prefix descriptor, never the byte-pinned original/owned detached IR. */
+    {
+        std::vector<quantapdf_composer_clip_state> altered(
+            detached.resources.clips,
+            detached.resources.clips+detached.resources.clip_count);
+        quantapdf_ir invalid=detached;
+        invalid.resources.clips=altered.data();
+        altered[2].kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;
+        quantapdf_ir_raster_image rejected{};
+        CHECK(quantapdf_ir_raster_scoped_operations_v1(
+            &invalid,0u,&limits,&rejected)==QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(rejected.pixels==nullptr && rejected.size==0u);
+    }
+    /* Every explicit capacity is a strict ceiling; test projections borrow
+     * only descriptor copies, never mutate/dispose the original owned IR. */
+    {
+        std::vector<quantapdf_composer_operation> over(
+            detached.operations,detached.operations+detached.operation_count);
+        over.push_back(detached.operations[0]);
+        quantapdf_ir invalid=detached;
+        invalid.operations=over.data();
+        invalid.operation_count=over.size();
+        quantapdf_ir_raster_image rejected{};
+        CHECK(quantapdf_ir_raster_scoped_operations_v1(
+            &invalid,0u,&limits,&rejected)==QUANTAPDF_ERROR_ARGUMENT);
+        CHECK(rejected.pixels==nullptr && rejected.size==0u);
+    }
+    {
+        std::vector<quantapdf_composer_clip_state> over(
+            detached.resources.clips,
+            detached.resources.clips+detached.resources.clip_count);
+        over.push_back(detached.resources.clips[0]);
+        quantapdf_ir invalid=detached;
+        invalid.resources.clips=over.data();
+        invalid.resources.clip_count=over.size();
+        quantapdf_ir_raster_image rejected{};
+        CHECK(quantapdf_ir_raster_scoped_operations_v1(
+            &invalid,0u,&limits,&rejected)==QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(rejected.pixels==nullptr && rejected.size==0u);
+    }
+    {
+        /* A shadow intersection must be an ORDERED suffix of the active
+         * later root; matching leaf IDs with swapped parents is not enough. */
+        std::vector<quantapdf_composer_clip_state> altered(
+            detached.resources.clips,
+            detached.resources.clips+detached.resources.clip_count);
+        CHECK(altered[2].member_count==2u && altered[2].members!=nullptr);
+        std::vector<quantapdf_composer_clip_id> ids(
+            altered[2].members,altered[2].members+altered[2].member_count);
+        const auto tmp=ids[0];ids[0]=ids[1];ids[1]=tmp;
+        altered[2].members=ids.data();
+        quantapdf_ir invalid=detached;
+        invalid.resources.clips=altered.data();
+        quantapdf_ir_raster_image rejected{};
+        CHECK(quantapdf_ir_raster_scoped_operations_v1(
+            &invalid,0u,&limits,&rejected)==QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(rejected.pixels==nullptr && rejected.size==0u);
+    }
+    OK(quantapdf_ir_raster_scoped_operations_v1(
+        &detached,0u,&limits,&repeat));
+    CHECK(native.pixels!=nullptr && native.width==WIDTH &&
+          native.height==HEIGHT && native.stride==WIDTH*4u &&
+          native.size==WIDTH*HEIGHT*4u &&
+          repeat.pixels!=nullptr && repeat.size==native.size &&
+          std::memcmp(repeat.pixels,native.pixels,native.size)==0);
+    quantapdf_ir_raster_image_dispose(&repeat);
+    quantapdf_ir_dispose(&detached);
+
+    /* Independent published SVG semantics: objectBoundingBox top W clips
+     * y=220..280 to black-left/blue-right; lower W clips y=520..580 to
+     * black-left/white-right. Red 1px mitered rectangle/vertical line
+     * probes are billed separately by whole-image red ink overlap. */
+    struct sample {size_t x,y;unsigned r,g,b;};
+    const sample goldens[]={
+        {200u,240u,0u,0u,0u},
+        {300u,240u,0u,0u,255u},
+        {200u,550u,0u,0u,0u},
+        {300u,550u,255u,255u,255u},
+        {200u,190u,255u,255u,255u},
+        {300u,600u,255u,255u,255u},
+        {50u,50u,255u,255u,255u}
+    };
+    for(const sample& p:goldens) {
+        const unsigned char *b=pdfium.at(p.x,p.y);
+        const unsigned char *a=native.pixels+p.y*native.stride+p.x*4u;
+        const unsigned want[]={p.r,p.g,p.b};
+        for(size_t c=0u;c<3u;++c) {
+            const int n=(int)on_white(a,c),r=(int)b[c],v=(int)want[c];
+            if(std::abs(n-v)>8 || std::abs(r-v)>8)
+                std::fprintf(stderr,
+                    "[svg-W-golden] x=%zu y=%zu c=%zu native=%d pdfium=%d expected=%d\n",
+                    p.x,p.y,c,n,r,v);
+            CHECK(std::abs(n-v)<=8 && std::abs(r-v)<=8);
+        }
+    }
+    double total=0.0;
+    size_t gross=0u,ref_red=0u,native_red=0u,overlap_red=0u;
+    for(size_t y=0u;y<HEIGHT;++y)for(size_t x=0u;x<WIDTH;++x) {
+        const unsigned char *a=native.pixels+y*native.stride+x*4u;
+        const unsigned char *b=pdfium.at(x,y);
+        unsigned rgb[3],worst=0u;
+        for(size_t c=0u;c<3u;++c) {
+            rgb[c]=on_white(a,c);
+            const unsigned diff=rgb[c]>b[c]?rgb[c]-b[c]:b[c]-rgb[c];
+            total+=(double)diff;
+            if(diff>worst)worst=diff;
+        }
+        if(worst>64u)++gross;
+        const bool ref=(b[0]>=190u && b[1]<=150u && b[2]<=150u);
+        const bool nat=(rgb[0]>=190u && rgb[1]<=150u && rgb[2]<=150u);
+        ref_red+=(size_t)ref;
+        native_red+=(size_t)nat;
+        overlap_red+=(size_t)(ref&&nat);
+    }
+    const double mean=total/(double)(WIDTH*HEIGHT*3u);
+    if(mean>0.05 || gross!=0u ||
+       ref_red<5000u || native_red<5000u ||
+       overlap_red*100u<ref_red*99u)
+        std::fprintf(stderr,
+            "[svg-W-parity] mean=%.6f gross=%zu "
+            "ref_red=%zu native_red=%zu overlap=%zu\n",
+            mean,gross,ref_red,native_red,overlap_red);
+    CHECK(mean<=0.05 && gross==0u);
+    CHECK(ref_red>=5000u && native_red>=5000u &&
+          overlap_red*100u>=ref_red*99u);
+    quantapdf_ir_raster_image_dispose(&native);
+    CHECK(corpus_fixture_executions==0u);
+
+    FILE *out=std::fopen(staged.c_str(),"wb");
+    CHECK(out!=nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"result\": \"candidate_pixel_parity_passed_not_admitted\",\n"
+        "  \"document_id\": \"yworks.clippath-svg-v1\",\n"
+        "  \"fixture_kind\": \"quarantined-external-original\",\n"
+        "  \"original_source_pdfium_oracle\": \"passed\",\n"
+        "  \"detached_c11_native_raster\": \"passed\",\n"
+        "  \"source_and_graph_released_before_raster\": true,\n"
+        "  \"official_corpus_admitted\": false,\n"
+        "  \"page_width\": %zu,\n"
+        "  \"page_height\": %zu,\n"
+        "  \"native_painted_paths\": 6,\n"
+        "  \"native_w_nonzero_clip_path_leaves\": 5,\n"
+        "  \"native_wstar_evenodd_clip_path_leaves\": 0,\n"
+        "  \"native_clip_intersection_nodes\": 4,\n"
+        "  \"native_total_clip_nodes\": 9,\n"
+        "  \"fixed_interior_goldens\": %zu,\n"
+        "  \"repeat_rgba_identical\": true,\n"
+        "  \"mean_rgb_error\": %.6f,\n"
+        "  \"gross_error_pixels\": %zu,\n"
+        "  \"reference_red_pixels\": %zu,\n"
+        "  \"native_red_pixels\": %zu,\n"
+        "  \"overlap_red_pixels\": %zu,\n"
+        "  \"external_wstar_pixel_supported_count\": 0,\n"
+        "  \"generated_fixture_count\": 0\n"
+        "}\n",WIDTH,HEIGHT,sizeof(goldens)/sizeof(goldens[0]),
+        mean,gross,ref_red,native_red,overlap_red);
+    CHECK(std::ferror(out)==0 && std::fclose(out)==0);
+#ifdef _WIN32
+    errno=0;
+    if(std::remove(report_path)!=0) CHECK(errno==ENOENT);
+#endif
+    CHECK(std::rename(staged.c_str(),report_path)==0);
+    std::fprintf(stderr,
+        "[svg-W-original-pixel] passed mean=%.6f gross=%zu W=5 intersections=4 "
+        "official_positive=0\n",mean,gross);
+    return EXIT_SUCCESS;
+}
+
 int test_external_yworks_hidden_w_pixels(
     const char *filename,const char *report_path)
 {
@@ -2723,6 +3025,10 @@ int main(int argc,char **argv)
        std::strcmp(argv[1],"--generated-wstar-observe")==0 &&
        std::strcmp(argv[2],"--preflight-report")==0)
         return test_generated_wstar_typed_observe(argv[3]);
+    if(argc==5 &&
+       std::strcmp(argv[1],"--external-svg-w-candidate-pdf")==0 &&
+       std::strcmp(argv[3],"--external-report")==0)
+        return test_external_yworks_svg_w_pixels(argv[2],argv[4]);
     if(argc==5 &&
        std::strcmp(argv[1],"--external-hidden-w-candidate-pdf")==0 &&
        std::strcmp(argv[3],"--external-report")==0)

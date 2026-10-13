@@ -133,3 +133,37 @@ quarantined, so even successful pixels do not alter the six official original
 manifest entries, the generated 14/36 corpus or W* pixel-positive 1/1.
 The CTest validates the original SHA-256 before/after, rejects hardlink
 report/source aliases and retains earlier reports on failure.
+
+## Exact complex W-only 6-op/9-node full original-page candidate pixel gate
+
+The quarantined `clippath-svg.pdf` (pinned original SHA-256 above) is
+rendered *without rewriting bytes* using independent original PDFium,
+versus Source→Graph→fully owned Detached IR→private C11 Raster, 500×800
+page. It exercises six ordered painted Paths (3 closed mitered 1px red
+rectangle/open red strokes, 3 black/blue fills), five nonzero W Clip
+leaves with four Clip intersection nodes, q/Q scopes and exact CTMs.
+The native path is explicitly bounded to **6 operations, 9 Clip nodes,
+4 Clip leaves per operation**, finite work/segment/pixel budgets, and
+the narrow existing 1px mitered rectangle/open line stroke subset.
+Golden interior probes derive from the published SVG; full RGB/gross
+budgets, red stroke overlap and byte-identical repeat RGBA are checked.
+This is **candidate-only** and contributes zero new formal W or W*
+pixel-positive counters pending source-specific license/admission
+review and exact-head full three-platform CI.
+
+## Tightened full-page evidence and explicit fail-closed capacity gates
+
+Initial full exact-head [CI #38356963846](https://github.com/qigao/QuantaPDF/actions/runs/38356963846)
+passed Linux Release/ASan+UBSan, macOS, Windows on the unchanged yWorks
+`clippath-svg.pdf`: **mean RGB 0.000333**, **zero gross-error pixels**,
+red reference/native/overlap **5660/5660/5660**, repeat RGBA identical.
+The separately pinned candidate gate now requires **mean RGB ≤0.05**,
+**zero gross-error pixels**, **at least 5000** original/native red pixels,
+**at least 99%** red overlap, and all **seven** SVG interior goldens.
+
+Additional deterministic negative tests borrow shallow projections of the
+same owned Detached IR and require **seven painted operations**, **ten
+Clip nodes**, and an incorrectly ordered shadowed prefix intersection to
+reject with **zero published pixels**. They do not rewrite the PDF, modify
+the original IR, raise unrelated admission bounds or increment either the
+formal six-source corpus or the W* positive counter.
