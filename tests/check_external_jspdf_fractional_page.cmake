@@ -37,6 +37,12 @@ string(JSON wstar GET "${json}" detached_ir_wstar_clip_leaves)
 string(JSON observed GET "${json}" observation_only)
 string(JSON released GET "${json}" source_and_graph_released_before_raster)
 string(JSON partial GET "${json}" native_partial_pixels_published)
+string(JSON optin_grid GET "${json}" optin_grid_dimensions_qualified)
+string(JSON optin_status GET "${json}" optin_native_raster_status)
+string(JSON optin_class GET "${json}" optin_rejection_classification)
+string(JSON optin_strokes GET "${json}" optin_original_stroke_paths)
+string(JSON optin_fills GET "${json}" optin_original_fill_paths)
+string(JSON optin_partial GET "${json}" optin_native_partial_pixels_published)
 string(JSON positive GET "${json}" native_pixel_positive_count)
 string(JSON admitted GET "${json}" official_corpus_admitted)
 string(JSON generated GET "${json}" generated_fixture_count)
@@ -50,6 +56,9 @@ if(NOT got_result STREQUAL "quarantined_original_fractional_page_native_rejectio
    OR NOT dpi EQUAL 72
    OR NOT width EQUAL 595.28 OR NOT height EQUAL 841.89
    OR NOT paths EQUAL 2 OR NOT w EQUAL 1 OR NOT wstar EQUAL 0
+   OR NOT optin_grid OR NOT optin_status STREQUAL "unsupported"
+   OR NOT optin_class STREQUAL "stroked_source_not_admitted"
+   OR optin_strokes LESS 1 OR optin_fills LESS 1 OR optin_partial
    OR NOT observed OR NOT released OR partial OR positive OR admitted OR generated)
   message(FATAL_ERROR "Fractional page refusal was not complete and correctly classified")
 endif()
