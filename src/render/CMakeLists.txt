@@ -71,3 +71,9 @@ target_sources(quantapdf PRIVATE
 target_sources(quantapdf PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_device_polyline_stroke_v0.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_device_polyline_stroke_v0.h")
+
+# Strict private C11 source-order compositor of two detached RGBA layers.
+# No PDFium/qpdf, no automatic raster admission, no exported public symbol.
+target_sources(quantapdf PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/ir_ordered_layer_composite_v0.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ir_ordered_layer_composite_v0.h")
