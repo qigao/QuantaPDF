@@ -2024,6 +2024,235 @@ int test_external_jspdf_single_vertical_analytic_ab(
         (unsigned)edge_oracle[0],(unsigned)edge_oracle[1],
         (unsigned)edge_oracle[2],
         (unsigned long long)right_metric.fnv);
+
+    /* Only a READ-ONLY post-right-Fill-original audit. Source geometry
+     * windows are pinned to this immutable jsPDF, never native renderer
+     * recognition rules or PDFium implementation assumptions.
+     * Every one of 596*842 original source pixels belongs to exactly
+     * ONE region, including all "other" pixels and uncovered fringes. */
+    struct final_region {
+        const char *name;
+        size_t pixels=0u,changed=0u,gross=0u,worst_x=0u,worst_y=0u;
+        std::uint64_t abs_rgb=0u,brighter=0u,darker=0u;
+        unsigned max_delta=0u;
+    };
+    final_region last_regions[]={
+        {"bottom_single_horizontal_stroke"},
+        {"right_vertical_stroke"},
+        {"left_vertical_below_red"},
+        {"top_repeated_stroke"},
+        {"red_fill_right_boundary"},
+        {"red_left_shared_stroke_clip"},
+        {"red_left_clip_only"},
+        {"red_top_stroke_shared"},
+        {"red_fill_bottom_boundary"},
+        {"red_bottom_uncovered_fringe"},
+        {"other"}
+    };
+    const auto classify_last=[](size_t x,size_t y,
+                                unsigned sa,unsigned fa)->size_t {
+        if(x>=49u && x<=250u && y>=138u && y<=140u &&
+           sa!=0u && fa==0u) return 0u;
+        if(x>=249u && x<=251u && y>=22u && y<=137u &&
+           sa!=0u && fa==0u) return 1u;
+        if(x>=49u && x<=51u && y>=101u && y<=137u &&
+           sa!=0u && fa==0u) return 2u;
+        if(x>=49u && x<=250u && y>=19u && y<=21u &&
+           sa!=0u && fa==0u) return 3u;
+        if(x==150u && y>=21u && y<=99u &&
+           sa==0u && fa!=0u) return 4u;
+        if(x>=49u && x<=51u && y>=21u && y<=99u &&
+           fa!=0u && sa!=0u) return 5u;
+        if(x>=49u && x<=51u && y>=21u && y<=99u &&
+           fa!=0u && sa==0u) return 6u;
+        if(x>=52u && x<=149u && y>=19u && y<=21u &&
+           fa!=0u) return 7u;
+        if(x>=52u && x<=149u && y>=99u && y<=100u &&
+           fa!=0u) return 8u;
+        if(x>=52u && x<=148u && y==100u &&
+           sa==0u && fa==0u) return 9u;
+        return 10u;
+    };
+    struct worst_site {
+        size_t x,y,category;
+        unsigned channel_delta,rgb_error,stroke_alpha,fill_alpha;
+        unsigned char native[3],reference[3];
+    };
+    std::vector<worst_site> last_worst;
+    last_worst.reserve(12u);
+    for(size_t y=0u;y<842u;++y) for(size_t x=0u;x<596u;++x) {
+        const size_t so=y*h_stroke.stride+x*4u;
+        const unsigned sa=h_stroke.pixels[so+3u];
+        const unsigned fa=right_fill.pixels[
+            y*right_fill.stride+x*4u+3u];
+        const size_t category=classify_last(x,y,sa,fa);
+        CHECK(category<sizeof(last_regions)/sizeof(last_regions[0]));
+        final_region &region=last_regions[category];
+        const unsigned char *pixel=
+            right_page.pixels+y*right_page.stride+x*4u;
+        const unsigned char *oracle=reference.at(x,y);
+        unsigned max_channel=0u,rgb_error=0u;
+        worst_site current{};
+        current.x=x;current.y=y;current.category=category;
+        current.stroke_alpha=sa;current.fill_alpha=fa;
+        ++region.pixels;
+        for(size_t ch=0u;ch<3u;++ch) {
+            const unsigned actual=on_white(pixel,ch);
+            const unsigned truth=oracle[ch];
+            const unsigned delta=actual>=truth?actual-truth:truth-actual;
+            region.abs_rgb+=(std::uint64_t)delta;
+            rgb_error+=delta;
+            if(actual>truth)region.brighter+=(std::uint64_t)delta;
+            if(actual<truth)region.darker+=(std::uint64_t)delta;
+            if(delta>max_channel)max_channel=delta;
+            current.native[ch]=(unsigned char)actual;
+            current.reference[ch]=(unsigned char)truth;
+        }
+        if(max_channel==0u)continue;
+        ++region.changed;
+        if(max_channel>64u)++region.gross;
+        if(max_channel>region.max_delta) {
+            region.max_delta=max_channel;
+            region.worst_x=x;
+            region.worst_y=y;
+        }
+        current.channel_delta=max_channel;
+        current.rgb_error=rgb_error;
+        const auto better=[](const worst_site &a,const worst_site &b){
+            if(a.channel_delta!=b.channel_delta)
+                return a.channel_delta>b.channel_delta;
+            if(a.rgb_error!=b.rgb_error)
+                return a.rgb_error>b.rgb_error;
+            if(a.y!=b.y)return a.y<b.y;
+            return a.x<b.x;
+        };
+        size_t at=0u;
+        while(at<last_worst.size() &&
+              !better(current,last_worst[at]))++at;
+        if(at<12u) {
+            last_worst.insert(last_worst.begin()+(std::ptrdiff_t)at,current);
+            if(last_worst.size()>12u)last_worst.pop_back();
+        }
+    }
+    size_t final_pixels=0u,final_changed=0u,final_gross=0u;
+    std::uint64_t final_rgb=0u,final_brighter=0u,final_darker=0u;
+    unsigned final_max_delta=0u;
+    std::string final_region_json=
+        "{\"schema_version\":1,\"observation_only\":true,"
+        "\"pixel_parity_qualified\":false,\"regions\":{";
+    for(size_t i=0u;i<sizeof(last_regions)/sizeof(last_regions[0]);++i) {
+        const final_region &a=last_regions[i];
+        CHECK(a.changed<=a.pixels && a.gross<=a.changed &&
+              a.abs_rgb==a.brighter+a.darker);
+        final_pixels+=a.pixels;
+        final_changed+=a.changed;
+        final_gross+=a.gross;
+        final_rgb+=a.abs_rgb;
+        final_brighter+=a.brighter;
+        final_darker+=a.darker;
+        if(a.max_delta>final_max_delta)final_max_delta=a.max_delta;
+        if(i!=0u)final_region_json+=",";
+        final_region_json+="\""+std::string(a.name)+"\":{";
+        final_region_json+="\"pixels\":"+std::to_string(a.pixels)+",";
+        final_region_json+="\"changed\":"+std::to_string(a.changed)+",";
+        final_region_json+="\"gross\":"+std::to_string(a.gross)+",";
+        final_region_json+="\"abs_rgb_error\":"+
+                           std::to_string(a.abs_rgb)+",";
+        final_region_json+="\"brighter_rgb_error\":"+
+                           std::to_string(a.brighter)+",";
+        final_region_json+="\"darker_rgb_error\":"+
+                           std::to_string(a.darker)+",";
+        final_region_json+="\"max_channel_delta\":"+
+                           std::to_string(a.max_delta)+",";
+        final_region_json+="\"worst_x\":"+std::to_string(a.worst_x)+",";
+        final_region_json+="\"worst_y\":"+std::to_string(a.worst_y)+"}";
+    }
+    CHECK(final_pixels==501832u &&
+          final_changed==right_metric.changed &&
+          final_gross==right_metric.gross &&
+          final_rgb==right_metric.abs_rgb &&
+          final_rgb==final_brighter+final_darker &&
+          final_max_delta==right_metric.max_delta &&
+          !last_worst.empty() &&
+          last_worst[0].channel_delta==right_metric.max_delta);
+    final_region_json+="},\"worst_pixels\":[";
+    for(size_t i=0u;i<last_worst.size();++i) {
+        const worst_site &p=last_worst[i];
+        if(i)final_region_json+=",";
+        final_region_json+="{\"x\":"+std::to_string(p.x)+",";
+        final_region_json+="\"y\":"+std::to_string(p.y)+",";
+        final_region_json+="\"region\":\""+
+            std::string(last_regions[p.category].name)+"\",";
+        final_region_json+="\"max_channel_delta\":"+
+            std::to_string(p.channel_delta)+",";
+        final_region_json+="\"rgb_error\":"+
+            std::to_string(p.rgb_error)+",";
+        final_region_json+="\"stroke_alpha\":"+
+            std::to_string(p.stroke_alpha)+",";
+        final_region_json+="\"fill_alpha\":"+
+            std::to_string(p.fill_alpha)+",";
+        final_region_json+="\"native_rgb\":["+
+            std::to_string((unsigned)p.native[0])+","+
+            std::to_string((unsigned)p.native[1])+","+
+            std::to_string((unsigned)p.native[2])+"],";
+        final_region_json+="\"pdfium_rgb\":["+
+            std::to_string((unsigned)p.reference[0])+","+
+            std::to_string((unsigned)p.reference[1])+","+
+            std::to_string((unsigned)p.reference[2])+"]}";
+    }
+    final_region_json+="],\"witnesses\":[";
+    struct real_witness {const char *name;size_t x,y;};
+    const real_witness final_witnesses[]={
+        {"bottom_left",50u,139u},
+        {"bottom_center",100u,139u},
+        {"bottom_right",250u,139u},
+        {"right_vertical",250u,60u},
+        {"left_vertical_lower",50u,110u},
+        {"left_red_stroke_overlap",50u,40u},
+        {"left_outside",49u,40u},
+        {"top_corner",250u,19u},
+        {"red_top",100u,20u},
+        {"red_bottom",100u,99u},
+        {"red_right",150u,40u},
+        {"red_bottom_uncovered",100u,100u}
+    };
+    for(size_t i=0u;i<sizeof(final_witnesses)/
+                           sizeof(final_witnesses[0]);++i) {
+        const real_witness &w=final_witnesses[i];
+        const unsigned char *stroke=h_stroke.pixels+
+            w.y*h_stroke.stride+w.x*4u;
+        const unsigned char *fill_pixel=right_fill.pixels+
+            w.y*right_fill.stride+w.x*4u;
+        const unsigned char *native=right_page.pixels+
+            w.y*right_page.stride+w.x*4u;
+        const unsigned char *truth=reference.at(w.x,w.y);
+        const size_t category=
+            classify_last(w.x,w.y,stroke[3],fill_pixel[3]);
+        CHECK(category<sizeof(last_regions)/sizeof(last_regions[0]));
+        if(i)final_region_json+=",";
+        final_region_json+="{\"name\":\""+std::string(w.name)+"\",";
+        final_region_json+="\"x\":"+std::to_string(w.x)+",";
+        final_region_json+="\"y\":"+std::to_string(w.y)+",";
+        final_region_json+="\"region\":\""+
+             std::string(last_regions[category].name)+"\",";
+        final_region_json+="\"stroke_alpha\":"+
+             std::to_string((unsigned)stroke[3])+",";
+        final_region_json+="\"fill_alpha\":"+
+             std::to_string((unsigned)fill_pixel[3])+",";
+        final_region_json+="\"native_rgb\":["+
+             std::to_string(on_white(native,0u))+","+
+             std::to_string(on_white(native,1u))+","+
+             std::to_string(on_white(native,2u))+"],";
+        final_region_json+="\"pdfium_rgb\":["+
+             std::to_string((unsigned)truth[0])+","+
+             std::to_string((unsigned)truth[1])+","+
+             std::to_string((unsigned)truth[2])+"]}";
+    }
+    final_region_json+="],\"full_original_reconciled\":true}";
+    std::fprintf(stderr,
+       "[jsPDF private Fill-right candidate original residual audit] %s\n",
+       final_region_json.c_str());
+
     size_t horizontal_alpha_changes=0u,outside_horizontal=0u;
     for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
         const size_t off=y*h_stroke.stride+x*4u;
@@ -2266,7 +2495,7 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"rect_fill_right_changed_pixels\": %zu,\n"
         "  \"rect_fill_right_gross_delta64_pixels\": %zu,\n"
         "  \"rect_fill_right_max_channel_delta\": %u,\n"
-        "  \"rect_fill_right_rgb_fnv64\": \"%016llx\",\n"
+        "  \"rect_fill_right_rgb_fnv64\": \"%016llx\",\n"        "  \"rect_fill_right_post_ab_residual_regions\": %s,\n"
         "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
@@ -2287,7 +2516,8 @@ int test_external_jspdf_single_vertical_analytic_ab(
         (unsigned long long)right_metric.abs_rgb,
         (double)right_metric.abs_rgb/1505496.0,
         right_metric.changed,right_metric.gross,right_metric.max_delta,
-        (unsigned long long)right_metric.fnv);
+        (unsigned long long)right_metric.fnv,
+        final_region_json.c_str());
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
