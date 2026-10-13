@@ -160,6 +160,30 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Review quarantined W-only original typed observations (Linux)
+        shell: bash
+        run: |
+          cat build/linux-gcc-release/tests/external-yworks-svg-nested-w-typed-observe.json
+          cat build/linux-gcc-release/tests/external-yworks-hidden-w-typed-observe.json
+          cat build/linux-gcc-release/tests/external-jspdf-w3s-clip-typed-observe.json
+          cat build/linux-gcc-debug/tests/external-yworks-svg-nested-w-typed-observe.json
+          cat build/linux-gcc-debug/tests/external-yworks-hidden-w-typed-observe.json
+          cat build/linux-gcc-debug/tests/external-jspdf-w3s-clip-typed-observe.json
+
+      - name: Upload quarantined W-only original typed evidence (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-nonzero-typed-observe-linux
+          path: |
+            build/linux-gcc-release/tests/external-yworks-svg-nested-w-typed-observe.json
+            build/linux-gcc-release/tests/external-yworks-hidden-w-typed-observe.json
+            build/linux-gcc-release/tests/external-jspdf-w3s-clip-typed-observe.json
+            build/linux-gcc-debug/tests/external-yworks-svg-nested-w-typed-observe.json
+            build/linux-gcc-debug/tests/external-yworks-hidden-w-typed-observe.json
+            build/linux-gcc-debug/tests/external-jspdf-w3s-clip-typed-observe.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Qualify external PDF corpus admission (Linux)
         shell: bash
         run: |
@@ -373,6 +397,24 @@ jobs:
           path: |
             build/macos-clang-release/tests/yworks-wstar-typed-observe.json
             build/macos-clang-release/tests/yworks-wstar-candidate-pixel.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review quarantined W-only original typed observations (macOS)
+        shell: bash
+        run: |
+          cat build/macos-clang-release/tests/external-yworks-svg-nested-w-typed-observe.json
+          cat build/macos-clang-release/tests/external-yworks-hidden-w-typed-observe.json
+          cat build/macos-clang-release/tests/external-jspdf-w3s-clip-typed-observe.json
+
+      - name: Upload quarantined W-only original typed evidence (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-nonzero-typed-observe-macos
+          path: |
+            build/macos-clang-release/tests/external-yworks-svg-nested-w-typed-observe.json
+            build/macos-clang-release/tests/external-yworks-hidden-w-typed-observe.json
+            build/macos-clang-release/tests/external-jspdf-w3s-clip-typed-observe.json
           if-no-files-found: error
           retention-days: 7
 
@@ -609,6 +651,24 @@ jobs:
           if not exist "%RUNNER_TEMP%\installed-composer-smoke-cff.pdf" exit /b 1
           "%RUNNER_TEMP%\quantapdf-installed-consumer.exe" "tests\fixtures\fonts\SourceSans3VF-Upright.otf" "%RUNNER_TEMP%\installed-composer-smoke-cff2.pdf"
           if not exist "%RUNNER_TEMP%\installed-composer-smoke-cff2.pdf" exit /b 1
+
+      - name: Review quarantined W-only original typed observations (Windows)
+        shell: pwsh
+        run: |
+          Get-Content build/Msvc-Release/tests/external-yworks-svg-nested-w-typed-observe.json
+          Get-Content build/Msvc-Release/tests/external-yworks-hidden-w-typed-observe.json
+          Get-Content build/Msvc-Release/tests/external-jspdf-w3s-clip-typed-observe.json
+
+      - name: Upload quarantined W-only original typed evidence (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-nonzero-typed-observe-windows
+          path: |
+            build/Msvc-Release/tests/external-yworks-svg-nested-w-typed-observe.json
+            build/Msvc-Release/tests/external-yworks-hidden-w-typed-observe.json
+            build/Msvc-Release/tests/external-jspdf-w3s-clip-typed-observe.json
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Qualify external PDF corpus admission (Windows)
         shell: pwsh
