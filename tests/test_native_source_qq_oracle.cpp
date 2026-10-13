@@ -3,6 +3,8 @@
  * -> private pure-C11 scoped Clip DAG raster. Never export IR to PDF as a
  * production rendering intermediate and never invoke a PDFium fallback. */
 #include "document/page_composer_ir.h"
+#include "document/page_content_ir.h"
+#include "graph/graph_page_geometry.h"
 #include "render/ir_scoped_operations_v1.h"
 #include "render/ir_raster.h"
 
@@ -14,6 +16,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -61,7 +64,8 @@ struct rgb_image {
 
 /* Real, well-formed source PDF document; all q/Q/W/W* operators are native
  * PDF source syntax parsed after an independent Graph snapshot capture. */
-void make_source(const char *content)
+void make_source(const char *content,
+                 const char *source_output=SOURCE_QQ_PDF)
 {
     auto pdf = QPDF::create();
     pdf->emptyPDF();
@@ -79,7 +83,7 @@ void make_source(const char *content)
     writer.setOutputMemory();
     writer.write();
     auto blob = writer.getBufferSharedPointer();
-    FILE *f = std::fopen(SOURCE_QQ_PDF,"wb");
+    FILE *f = std::fopen(source_output,"wb");
     CHECK(f != nullptr);
     CHECK(std::fwrite(blob->getBuffer(),1,blob->getSize(),f) ==
           blob->getSize());
@@ -89,7 +93,8 @@ void make_source(const char *content)
 quantapdf_status snapshot_lower(quantapdf_ir *out,
                                 size_t page_index=0u,size_t max_streams=1u,
                                 size_t max_parent_steps=2u,
-                                const char *source_path=SOURCE_QQ_PDF)
+                                const char *source_path=SOURCE_QQ_PDF,
+                                const quantapdf_pdf_path_lower_limits *explicit_limits=&lower_limits)
 {
     quantapdf_document *doc=nullptr;
     quantapdf_graph_snapshot *snap=nullptr;
@@ -102,7 +107,7 @@ quantapdf_status snapshot_lower(quantapdf_ir *out,
     quantapdf_close(doc);
     if(st != QUANTAPDF_OK) return st;
     st = quantapdf_graph_snapshot_page_composer_ir(
-        snap,page_index,max_parent_steps,&decode_limits,&parse_limits,max_streams,&lower_limits,out);
+        snap,page_index,max_parent_steps,&decode_limits,&parse_limits,max_streams,explicit_limits,out);
     /* Deliberately sever all source-page ownership before rasterization. */
     quantapdf_graph_snapshot_drop(snap);
     return st;
@@ -142,6 +147,36 @@ unsigned on_white(const unsigned char *rgba, size_t channel)
     return ((unsigned)rgba[channel]*alpha + 255u*(255u-alpha) + 127u)/255u;
 }
 
+/* Owned detached-IR Clip semantics are independent of any source-token
+ * heuristic. A candidate W* must actually lower to an EVEN_ODD path leaf,
+ * not silently become W nonzero, nor be counted from DAG intersections. */
+struct clip_leaf_counts {
+    size_t nonzero=0u,evenodd=0u,intersections=0u;
+};
+clip_leaf_counts inspect_clip_fill_rules(const quantapdf_ir& ir)
+{
+    clip_leaf_counts out{};
+    CHECK(ir.resources.clip_count<=8u);
+    CHECK(ir.resources.clip_count==0u || ir.resources.clips!=nullptr);
+    for(size_t i=0u;i<ir.resources.clip_count;++i){
+        const auto& item=ir.resources.clips[i];
+        if(item.kind==QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL){
+            CHECK(item.fill_rule==QUANTAPDF_COMPOSER_FILL_NONZERO ||
+                  item.fill_rule==QUANTAPDF_COMPOSER_FILL_EVEN_ODD);
+            if(item.fill_rule==QUANTAPDF_COMPOSER_FILL_EVEN_ODD)
+                ++out.evenodd;
+            else
+                ++out.nonzero;
+        }else{
+            CHECK(item.kind==QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL);
+            ++out.intersections;
+        }
+    }
+    CHECK(out.nonzero+out.evenodd+out.intersections==
+          ir.resources.clip_count);
+    return out;
+}
+
 void compare(const char *content, const probe *goldens,
              size_t golden_count, size_t min_clip_resources)
 {
@@ -160,6 +195,20 @@ void compare(const char *content, const probe *goldens,
     /* No more than 4 normal-opacity operations or 8 DAG nodes admitted. */
     CHECK(ir.resources.clip_count<=8u &&
           ir.resources.graphics_state_count<=4u);
+    /* Every generated original-PDFium vs native oracle with a nonempty
+     * Clip graph must retain W vs W* on actual owned Clip Path leaves.
+     * The zero-segment W/W* tests remain separate explicit semantics. */
+    if(min_clip_resources>0u){
+        const clip_leaf_counts rules=inspect_clip_fill_rules(ir);
+        const bool source_wstar=std::strstr(content,"W* n")!=nullptr;
+        CHECK(rules.nonzero>=1u);
+        CHECK((rules.evenodd>0u)==source_wstar);
+        /* A single W Clip legitimately has a direct leaf and no DAG
+         * intersection. Require an intersection only for multi-Clip
+         * generated q/Q cases (at least three registered resources). */
+        if(min_clip_resources>=3u)
+            CHECK(rules.intersections>=1u);
+    }
     OK(quantapdf_ir_raster_scoped_operations_v1(
         &ir,0u,&raster_limits,&native));
     OK(quantapdf_ir_raster_scoped_operations_v1(
@@ -953,15 +1002,31 @@ void test_inherited_extgstate_fail_closed()
     }
 }
 
+/* This fixture is deliberately a late rejection, not a trivial early BT.
+ * The entire prefix is identical to the independently PDFium-qualified
+ * nested W/W* three-paint fixture in test_evenodd_restore(). Unsupported
+ * text must reject atomically even after Clip DAG and PATH resources could
+ * otherwise have been lowered. One generated PDF: 14/36 stays unchanged. */
 void test_unsupported_operator_fails_closed()
 {
     track_corpus_fixture();
     quantapdf_ir failed{};
-    make_source("q BT ET Q");
+    make_source(
+        "q 0 0 100 100 re W n "
+        "q 20 20 60 60 re 35 35 20 20 re W* n "
+        "1 0 0 rg 0 0 120 120 re f "
+        "Q 0 0 1 rg 75 10 40 40 re f "
+        "Q 0 1 0 rg 0 0 12 12 re f "
+        "q BT ET Q");
     quantapdf_status st=snapshot_lower(&failed);
     CHECK(st==QUANTAPDF_ERROR_UNSUPPORTED);
-    CHECK(failed.pages==nullptr && failed.operations==nullptr &&
-          failed.operation_count==0u && failed.resources.clip_count==0u);
+    CHECK(failed.pages==nullptr && failed.page_count==0u &&
+          failed.operations==nullptr && failed.operation_count==0u &&
+          failed.resources.clips==nullptr &&
+          failed.resources.clip_count==0u &&
+          failed.resources.graphics_states==nullptr &&
+          failed.resources.graphics_state_count==0u);
+    quantapdf_ir_dispose(&failed);
     CHECK(std::remove(SOURCE_QQ_PDF)==0);
 }
 
@@ -1612,6 +1677,8 @@ int test_external_pdfium_clip_stroke(const char *filename,
         "  \"pdfium_result\": \"rendered_clipped_blue_stroke\",\n"
         "  \"native_path_clip_supported_count\": 1,\n"
         "  \"native_clipped_path_supported_count\": 1,\n"
+        "  \"native_w_clip_supported_count\": 1,\n"
+        "  \"native_wstar_clip_supported_count\": 0,\n"
         "  \"native_stroke_1px_supported_count\": 1,\n"
         "  \"native_text_supported_count\": 0,\n"
         "  \"native_blank_page_supported_count\": 0,\n"
@@ -1632,6 +1699,697 @@ int test_external_pdfium_clip_stroke(const char *filename,
     std::fprintf(stderr,
         "[external-corpus] id=pdfium.clip-path-v1 "
         "native=clipped-one-pixel-stroke pixel-oracle=passed\n");
+    return EXIT_SUCCESS;
+}
+
+/* Published original PDFium W* n + f* then late Text. Test-only PDFium
+ * must visibly render original source; native detached IR rejects atomically.
+ * This is UNSUPPORTED conformance, never native W* pixel compatibility. */
+int test_external_pdfium_wstar_text_rejection(const char *filename,
+                                              const char *report_path)
+{
+    CHECK(filename && *filename && report_path && *report_path);
+    const std::string pending=std::string(report_path)+".tmp";
+    errno=0;
+    if(std::remove(report_path)!=0) CHECK(errno==ENOENT);
+    errno=0;
+    if(std::remove(pending.c_str())!=0) CHECK(errno==ENOENT);
+    CHECK(corpus_fixture_executions==0u);
+    const rgb_image reference=render_original_pdfium(0u,filename);
+    CHECK(reference.width==200 && reference.height==300 &&
+          reference.components==3 && reference.stride>=600);
+    size_t ink=0u;
+    for(size_t y=0u;y<300u;++y)for(size_t x=0u;x<200u;++x){
+        const unsigned char *p=reference.at(x,y);
+        ink+=(size_t)(p[0]<200u || p[1]<200u || p[2]<200u);
+    }
+    CHECK(ink>=8u);
+    quantapdf_ir rejected{};
+    CHECK(snapshot_lower(&rejected,0u,1u,2u,filename)==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(rejected.pages==nullptr && rejected.page_count==0u &&
+          rejected.operations==nullptr && rejected.operation_count==0u &&
+          rejected.resources.clips==nullptr &&
+          rejected.resources.clip_count==0u &&
+          rejected.resources.graphics_states==nullptr &&
+          rejected.resources.graphics_state_count==0u &&
+          rejected.resources.font_count==0u &&
+          rejected.resources.image_count==0u &&
+          rejected.resources.form_count==0u &&
+          rejected.resources.soft_mask_count==0u);
+    quantapdf_ir_dispose(&rejected);
+    CHECK(corpus_fixture_executions==0u);
+    FILE *report=std::fopen(pending.c_str(),"wb");
+    CHECK(report!=nullptr);
+    std::fprintf(report,R"JSON({
+  "schema_version": 1,
+  "corpus_id": "external-source-pdf",
+  "document_id": "pdfium.bug-1574-wstar-text-v1",
+  "fixture_kind": "external",
+  "reference_oracle": "original-pdfium",
+  "native_expected_outcome": "unsupported",
+  "native_observed_outcome": "unsupported",
+  "pdfium_result": "rendered_nonblank",
+  "native_ir": "empty",
+  "page_width": 200,
+  "page_height": 300,
+  "reference_ink_pixels": %zu,
+  "status_conformance_passed_count": 1,
+  "native_supported_passed_count": 0,
+  "native_path_clip_supported_count": 0,
+  "native_w_clip_supported_count": 0,
+  "native_wstar_clip_supported_count": 0,
+  "generated_fixture_count": 0,
+  "result": "passed"
+})JSON"
+    "\n",ink);
+    CHECK(std::ferror(report)==0 && std::fclose(report)==0);
+    CHECK(std::rename(pending.c_str(),report_path)==0);
+    std::fprintf(stderr,
+        "[external-corpus] id=pdfium.bug-1574-wstar-text-v1 "
+        "pdfium=nonblank native=unsupported ir=empty "
+        "wstar-positive=0 ink=%zu\n",ink);
+    return EXIT_SUCCESS;
+}
+
+/* Original yWorks MIT PDF, unchanged source byte stream, candidate-only
+ * pixel parity. No corpus admission count until exact-head three-platform
+ * evidence + review. Uses independent PDFium page -> RGB and owned detached
+ * Graph -> pure C11 Raster, with no fallback or Composer export to PDF. */
+int test_external_yworks_wstar_candidate_pixels(
+    const char *filename,const char *report_path,bool admitted=false)
+{
+    CHECK(filename && *filename && report_path && *report_path);
+    /* Preserve the immutable external original even if an output has a
+     * different spelling, an intermediate symlink, or a hardlink alias. */
+    namespace fs=std::filesystem;
+    std::error_code path_error;
+    const fs::path source=fs::path(filename);
+    const fs::path report=fs::path(report_path);
+    const std::string staged=std::string(report_path)+".tmp";
+    const fs::path stage=fs::path(staged);
+    CHECK(fs::is_regular_file(source,path_error) && !path_error);
+    CHECK(!fs::is_symlink(source,path_error));
+    CHECK(!path_error);
+    const fs::path canonical_source=fs::weakly_canonical(source,path_error);
+    CHECK(!path_error);
+    const fs::path canonical_report=fs::weakly_canonical(report,path_error);
+    CHECK(!path_error && canonical_source!=canonical_report);
+    const fs::path canonical_stage=fs::weakly_canonical(stage,path_error);
+    CHECK(!path_error && canonical_source!=canonical_stage);
+    for(const fs::path& output:{report,stage}){
+        const bool exists=fs::exists(output,path_error);
+        CHECK(!path_error);
+        if(exists){
+            CHECK(!fs::is_symlink(output,path_error));
+            CHECK(!path_error);
+            CHECK(!fs::equivalent(source,output,path_error));
+            CHECK(!path_error);
+        }
+    }
+    CHECK(corpus_fixture_executions==0u);
+    constexpr size_t WIDTH=600u, HEIGHT=600u;
+    rgb_image pdfium=render_original_pdfium(0u,filename);
+    CHECK(pdfium.width==(int)WIDTH && pdfium.height==(int)HEIGHT &&
+          pdfium.components==3 && pdfium.stride>=(int)WIDTH*3);
+    quantapdf_ir detached{};
+    OK(snapshot_lower(&detached,0u,4u,8u,filename));
+    CHECK(detached.pages && detached.page_count==1u &&
+          detached.pages[0].width_points==(float)WIDTH &&
+          detached.pages[0].height_points==(float)HEIGHT);
+    CHECK(detached.operations && detached.operation_count==3u);
+    CHECK(detached.resources.clip_count==7u &&
+          detached.resources.graphics_state_count==3u &&
+          detached.resources.font_count==0u &&
+          detached.resources.image_count==0u &&
+          detached.resources.form_count==0u &&
+          detached.resources.soft_mask_count==0u);
+    const clip_leaf_counts rules=inspect_clip_fill_rules(detached);
+    CHECK(rules.nonzero==2u && rules.evenodd==2u &&
+          rules.intersections==3u);
+
+    const quantapdf_ir_raster_v1_limits limits={
+        WIDTH*HEIGHT,3u,768u,420000000u
+    };
+    quantapdf_ir_raster_image native{},repeat{};
+    const quantapdf_status raster_status =
+        quantapdf_ir_raster_scoped_operations_v1(
+            &detached,0u,&limits,&native);
+    if(raster_status != QUANTAPDF_OK)
+        std::fprintf(stderr,
+            "[yworks-Wstar-raster] first-pass status=%d budget=%zu\n",
+            (int)raster_status,limits.max_sample_tests);
+    CHECK(raster_status == QUANTAPDF_OK);
+    OK(quantapdf_ir_raster_scoped_operations_v1(
+        &detached,0u,&limits,&repeat));
+    CHECK(native.pixels && native.width==WIDTH && native.height==HEIGHT &&
+          native.stride==WIDTH*4u && native.size==WIDTH*HEIGHT*4u);
+    CHECK(repeat.pixels && repeat.size==native.size &&
+          std::memcmp(repeat.pixels,native.pixels,native.size)==0);
+    quantapdf_ir_raster_image_dispose(&repeat);
+    quantapdf_ir_dispose(&detached); /* No source/Graph/IR during comparison. */
+
+    /* Independently published upstream SVG contains a nonzero-winding blue
+     * star at x~80 and an even-odd blue star at x~180. Their self-crossing
+     * centers must differ: nonzero paints center, even-odd leaves a hole.
+     * PDFium AND C11 must separately match fixed interior semantic goldens. */
+    struct sample {size_t x,y; unsigned red,green,blue;};
+    const sample goldens[]={
+        {80u,125u,0u,0u,255u},       /* W nonzero star center: painted */
+        {180u,125u,255u,255u,255u}, /* W* even-odd star center: hole */
+        {180u,95u,0u,0u,255u},      /* W* star tip: painted */
+        {250u,125u,255u,255u,255u},
+        {300u,300u,255u,255u,255u},
+        {500u,500u,255u,255u,255u}
+    };
+    for(const sample& q:goldens){
+        const unsigned char *b=pdfium.at(q.x,q.y);
+        const unsigned char *a=native.pixels+q.y*native.stride+q.x*4u;
+        const unsigned want[]={q.red,q.green,q.blue};
+        for(size_t c=0u;c<3u;++c){
+            const unsigned actual=on_white(a,c);
+            if(std::abs((int)actual-(int)want[c])>8 ||
+               std::abs((int)b[c]-(int)want[c])>8)
+                std::fprintf(stderr,
+                    "[yworks-Wstar-golden] x=%zu y=%zu c=%zu "
+                    "expected=%u native=%u pdfium=%u\n",
+                    q.x,q.y,c,want[c],actual,(unsigned)b[c]);
+            CHECK(std::abs((int)actual-(int)want[c])<=8);
+            CHECK(std::abs((int)b[c]-(int)want[c])<=8);
+        }
+    }
+    double sum_diff=0.0;
+    size_t gross=0u,ref_red=0u,native_red=0u,overlap_red=0u;
+    for(size_t y=0u;y<HEIGHT;++y)for(size_t x=0u;x<WIDTH;++x){
+        const unsigned char *a=native.pixels+y*native.stride+x*4u;
+        const unsigned char *b=pdfium.at(x,y);
+        unsigned delta_max=0u;
+        unsigned rgb[3];
+        for(size_t c=0u;c<3u;++c){
+            rgb[c]=on_white(a,c);
+            unsigned diff=rgb[c]>b[c] ? rgb[c]-b[c] : b[c]-rgb[c];
+            sum_diff+=(double)diff;
+            if(diff>delta_max)delta_max=diff;
+        }
+        if(delta_max>64u)++gross;
+        if(y>=37u && y<=43u && x>=200u && x<=350u){
+            const bool r=b[0]>=190u && b[1]<=150u && b[2]<=150u;
+            const bool n=rgb[0]>=190u && rgb[1]<=150u && rgb[2]<=150u;
+            ref_red+=(size_t)r;
+            native_red+=(size_t)n;
+            overlap_red+=(size_t)(r&&n);
+        }
+    }
+    const double mean=sum_diff/(double)(WIDTH*HEIGHT*3u);
+    if(mean>8.0 || gross>WIDTH*HEIGHT/20u ||
+       ref_red<25u || native_red<25u ||
+       overlap_red*2u<ref_red)
+        std::fprintf(stderr,
+            "[yworks-Wstar-pixel] mean=%.5f gross=%zu "
+            "ref_red=%zu native_red=%zu overlap=%zu\n",
+            mean,gross,ref_red,native_red,overlap_red);
+    CHECK(mean<=8.0 && gross<=WIDTH*HEIGHT/20u);
+    CHECK(ref_red>=25u && native_red>=25u &&
+          overlap_red*2u>=ref_red);
+    quantapdf_ir_raster_image_dispose(&native);
+    CHECK(corpus_fixture_executions==0u);
+
+    FILE *out=std::fopen(staged.c_str(),"wb");
+    CHECK(out!=nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"corpus_id\": \"external-source-pdf\",\n"
+        "  \"document_id\": \"yworks.clippath-cliprule-v1\",\n"
+        "  \"reference_oracle\": \"original-pdfium\",\n"
+        "  \"native_expected_outcome\": \"supported-path-clip\",\n"
+        "  \"native_observed_outcome\": \"supported-path-clip\",\n"
+        "  \"result\": \"%s\",\n"
+        "  \"candidate\": \"yworks.clippath-cliprule-v1\",\n"
+        "  \"fixture_kind\": \"%s\",\n"
+        "  \"original_source_pdfium_oracle\": \"passed\",\n"
+        "  \"detached_c11_native_raster\": \"passed\",\n"
+        "  \"source_and_graph_released_before_raster\": true,\n"
+        "  \"page_width\": %zu,\n"
+        "  \"page_height\": %zu,\n"
+        "  \"native_w_nonzero_clip_path_leaves\": %zu,\n"
+        "  \"native_wstar_evenodd_clip_path_leaves\": %zu,\n"
+        "  \"native_clip_intersection_nodes\": %zu,\n"
+        "  \"fixed_interior_goldens\": %zu,\n"
+        "  \"repeat_rgba_identical\": true,\n"
+        "  \"mean_rgb_error\": %.6f,\n"
+        "  \"gross_error_pixels\": %zu,\n"
+        "  \"reference_red_pixels\": %zu,\n"
+        "  \"native_red_pixels\": %zu,\n"
+        "  \"overlap_red_pixels\": %zu,\n"
+        "  \"native_path_clip_supported_count\": %u,\n"
+        "  \"native_clipped_path_supported_count\": %u,\n"
+        "  \"native_w_clip_supported_count\": %u,\n"
+        "  \"native_wstar_clip_supported_count\": %u,\n"
+        "  \"generated_fixture_count\": 0\n"
+        "}\n",
+        admitted?"passed":"candidate_pixel_parity_passed_not_admitted",
+        admitted?"external":"external_original_candidate_only",
+        WIDTH,HEIGHT,rules.nonzero,rules.evenodd,rules.intersections,
+        sizeof(goldens)/sizeof(goldens[0]),mean,gross,
+        ref_red,native_red,overlap_red,
+        admitted?1u:0u,admitted?1u:0u,admitted?1u:0u,admitted?1u:0u);
+    CHECK(std::ferror(out)==0 && std::fclose(out)==0);
+#ifdef _WIN32
+    errno=0;
+    if(std::remove(report_path)!=0) CHECK(errno==ENOENT);
+#endif
+    CHECK(std::rename(staged.c_str(),report_path)==0);
+    std::fprintf(stderr,
+        "[yworks-Wstar-pixel] original-pdfium/C11 passed "
+        "mean=%.5f gross=%zu repeat=identical pixel_positive=%u\n",
+        mean,gross,admitted?1u:0u);
+    return EXIT_SUCCESS;
+}
+
+/* Complete selected-page typed preflight of an unchanged ORIGINAL PDF.
+ * This test-only diagnostic checks full bounded Graph -> detached IR lowering,
+ * not keyword extraction. It deliberately runs neither PDFium oracle nor
+ * native raster, and NEVER counts as positive native W* pixel conformance. */
+/* Explicit test-only stage attribution for an unchanged external original.
+ * No opaque production error is reclassified as pixel support. Unlike a
+ * silent retry this is a separate opt-in CTest with the same fixed budget. */
+int diagnose_original_stages(const char *source_path,const char *report_path)
+{
+    CHECK(source_path && *source_path && report_path && *report_path);
+    namespace fs=std::filesystem;
+    const std::string staged=std::string(report_path)+".tmp";
+    std::error_code ec;
+    const fs::path source=fs::path(source_path);
+    const fs::path report=fs::path(report_path);
+    const fs::path stage=fs::path(staged);
+    CHECK(fs::is_regular_file(source,ec) && !ec);
+    CHECK(!fs::is_symlink(source,ec) && !ec);
+    const fs::path cs=fs::weakly_canonical(source,ec);
+    CHECK(!ec);
+    const fs::path cr=fs::weakly_canonical(report,ec);
+    CHECK(!ec && cs!=cr);
+    const fs::path ct=fs::weakly_canonical(stage,ec);
+    CHECK(!ec && cs!=ct);
+    for(const fs::path& output:{report,stage}) {
+        const bool exists=fs::exists(output,ec);
+        CHECK(!ec);
+        if(exists) {
+            CHECK(!fs::is_symlink(output,ec) && !ec);
+            CHECK(!fs::equivalent(source,output,ec) && !ec);
+        }
+    }
+
+    quantapdf_document *doc=nullptr;
+    quantapdf_graph_snapshot *snapshot=nullptr;
+    quantapdf_pdf_page_semantics *semantics=nullptr;
+    quantapdf_graph_page_geometry geometry{};
+    quantapdf_graph_page_display display{};
+    quantapdf_ir detached{};
+    quantapdf_status st=quantapdf_open(source_path,nullptr,&doc);
+    if(st!=QUANTAPDF_OK) return 70;
+    st=quantapdf_document_capture_graph(doc,&graph_limits,&snapshot);
+    quantapdf_close(doc);
+    if(st!=QUANTAPDF_OK) return 70;
+    const char *failed_stage="none";
+    size_t painted=0u,paths=0u,clips=0u,content_ops=0u;
+    st=quantapdf_graph_query_page_geometry(snapshot->graph,0u,8u,&geometry);
+    if(st!=QUANTAPDF_OK) failed_stage="page_geometry";
+    if(st==QUANTAPDF_OK) {
+        st=quantapdf_graph_page_display_map(&geometry,&display);
+        if(st!=QUANTAPDF_OK) failed_stage="page_display";
+    }
+    if(st==QUANTAPDF_OK) {
+        st=quantapdf_graph_admit_native_page_group(snapshot->graph,0u);
+        if(st!=QUANTAPDF_OK) failed_stage="page_group";
+    }
+    if(st==QUANTAPDF_OK) {
+        st=quantapdf_graph_snapshot_page_semantics(snapshot,0u,
+            &decode_limits,&parse_limits,4u,&semantics);
+        if(st!=QUANTAPDF_OK) failed_stage="page_semantics";
+    }
+    if(st==QUANTAPDF_OK) {
+        CHECK(semantics!=nullptr && semantics->graphics!=nullptr &&
+              semantics->content!=nullptr);
+        paths=semantics->graphics->path_count;
+        clips=semantics->graphics->clip_count;
+        content_ops=semantics->content->count;
+        for(size_t i=0u;i<paths;++i)
+            if(semantics->graphics->paths[i].paint_opcode !=
+               QUANTAPDF_PDF_OP_END_PATH)
+                ++painted;
+        const quantapdf_pdf_path_lower_limits diagnostic_limits={8u,256u};
+        st=quantapdf_pdf_path_lower_to_composer_mapped(semantics,
+            display.width_points,display.height_points,display.from_source,
+            &diagnostic_limits,&detached);
+        if(st!=QUANTAPDF_OK) failed_stage="path_lowering";
+    }
+    /* Diagnose the earliest incompatible ORIGINAL Path record using the
+     * actual native lowerer on strictly bounded cumulative views. These
+     * views borrow fully parsed semantics; only temporary IR is disposed.
+     * No original rewrite, production retry, or pixel rendering occurs. */
+    size_t first_failed_path=SIZE_MAX;
+    size_t first_failed_operator=SIZE_MAX;
+    size_t first_failed_terminal_operator=SIZE_MAX;
+    size_t first_failed_clip_count=0u;
+    size_t first_failed_is_clip=0u;
+    int first_failed_status=0;
+    int first_failed_paint_opcode=0;
+    double first_failed_source_ctm[6]={0};
+    if(std::strcmp(failed_stage,"path_lowering")==0) {
+        CHECK(semantics!=nullptr && semantics->graphics!=nullptr);
+        size_t prefix_clip_count=0u;
+        const quantapdf_pdf_path_lower_limits diagnostic_limits={8u,256u};
+        for(size_t i=0u;i<semantics->graphics->path_count;++i) {
+            const quantapdf_pdf_path_record& record=semantics->graphics->paths[i];
+            if(record.clip_after>prefix_clip_count)
+                prefix_clip_count=record.clip_after;
+            CHECK(prefix_clip_count<=semantics->graphics->clip_count);
+            quantapdf_pdf_graphics_ir prefix_graphics=*semantics->graphics;
+            prefix_graphics.path_count=i+1u;
+            prefix_graphics.clip_count=prefix_clip_count;
+            quantapdf_pdf_page_semantics prefix_page=*semantics;
+            prefix_page.graphics=&prefix_graphics;
+            quantapdf_ir prefix_ir{};
+            const quantapdf_status prefix_status=
+                quantapdf_pdf_path_lower_to_composer_mapped(
+                    &prefix_page,display.width_points,display.height_points,
+                    display.from_source,&diagnostic_limits,&prefix_ir);
+            if(prefix_status==QUANTAPDF_OK) {
+                quantapdf_ir_dispose(&prefix_ir);
+                continue;
+            }
+            CHECK(prefix_status==QUANTAPDF_ERROR_UNSUPPORTED);
+            CHECK(prefix_ir.pages==nullptr && prefix_ir.page_count==0u &&
+                  prefix_ir.operations==nullptr && prefix_ir.operation_count==0u &&
+                  prefix_ir.resources.clip_count==0u &&
+                  prefix_ir.resources.graphics_state_count==0u);
+            quantapdf_ir_dispose(&prefix_ir);
+            first_failed_path=i;
+            first_failed_operator=record.path_first_operator;
+            first_failed_terminal_operator=record.terminal_operator;
+            first_failed_clip_count=prefix_clip_count;
+            first_failed_is_clip=record.clip_after!=record.graphics.clip_id?1u:0u;
+            first_failed_paint_opcode=(int)record.paint_opcode;
+            first_failed_status=(int)prefix_status;
+            for(size_t k=0u;k<6u;++k)
+                first_failed_source_ctm[k]=record.graphics.ctm[k];
+            break;
+        }
+        CHECK(first_failed_path!=SIZE_MAX);
+    }
+    /* Verify the exact first failing W n Clip record's Composer CTM
+     * admission algebra without changing the native implementation.
+     * Composer command points are top-down: conjugating a source CTM
+     * around the page-height flip can create a huge cancelling offset.
+     * The path lowerer's strict finite +/-65536 guard rejects that value.
+     */
+    double first_failed_composer_f=0.0;
+    if(std::strcmp(failed_stage,"path_lowering")==0) {
+        CHECK(first_failed_path==3u && first_failed_operator==31u &&
+              first_failed_terminal_operator==37u &&
+              first_failed_clip_count==3u && first_failed_is_clip==1u &&
+              first_failed_paint_opcode==(int)QUANTAPDF_PDF_OP_END_PATH);
+        const double *source_ctm=first_failed_source_ctm;
+        const double *page=display.from_source;
+        const double mapped_d=source_ctm[2]*page[1]+source_ctm[3]*page[3];
+        const double mapped_f=source_ctm[4]*page[1]+
+                              source_ctm[5]*page[3]+page[5];
+        first_failed_composer_f=(double)(float)display.height_points *
+                                 (1.0-mapped_d)-mapped_f;
+        CHECK(std::isfinite(first_failed_composer_f) &&
+              std::fabs(first_failed_composer_f)>65536.0 &&
+              std::fabs(first_failed_composer_f-240100.0)<1e-9);
+    }
+    const int code=(int)st;
+    const bool unsupported=st==QUANTAPDF_ERROR_UNSUPPORTED;
+    if(st==QUANTAPDF_OK)
+        CHECK(detached.page_count==1u && detached.pages!=nullptr);
+    else CHECK(detached.page_count==0u && detached.pages==nullptr &&
+               detached.operation_count==0u && detached.operations==nullptr &&
+               detached.resources.clip_count==0u &&
+               detached.resources.graphics_state_count==0u);
+    quantapdf_ir_dispose(&detached);
+    quantapdf_pdf_page_semantics_dispose(semantics);
+    quantapdf_graph_snapshot_drop(snapshot);
+    /* This particular original is intentionally expected to remain a
+     * clean UNSUPPORTED selected page at budget 8 until independently fixed.
+     * Reject parser crashes/format errors rather than mislabeling success. */
+    if(!unsupported) {
+        std::fprintf(stderr,
+            "[original-stage-diag] unexpected result=%d stage=%s\n",
+            code,failed_stage);
+        return 71;
+    }
+    FILE *out=std::fopen(staged.c_str(),"wb");
+    CHECK(out!=nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"result\": \"test_only_original_source_stage_diagnostic\",\n"
+        "  \"observation_only\": true,\n"
+        "  \"original_source_provenance_verified\": false,\n"
+        "  \"selected_page_index\": 0,\n"
+        "  \"paint_budget\": 8,\n"
+        "  \"failed_stage\": \"%s\",\n"
+        "  \"actual_status_code\": %d,\n"
+        "  \"parsed_content_ops\": %zu,\n"
+        "  \"parsed_path_records\": %zu,\n"
+        "  \"parsed_clip_records\": %zu,\n"
+        "  \"parsed_painted_paths\": %zu,\n"
+        "  \"first_rejected_path_record_index\": %zu,\n"
+        "  \"first_rejected_path_first_operator_index\": %zu,\n"
+        "  \"first_rejected_path_terminal_operator_index\": %zu,\n"
+        "  \"first_rejected_prefix_clip_count\": %zu,\n"
+        "  \"first_rejected_introduces_clip\": %zu,\n"
+        "  \"first_rejected_paint_opcode\": %d,\n"
+        "  \"first_rejected_prefix_status\": %d,\n"
+        "  \"first_rejected_source_ctm\": [%.17g, %.17g, %.17g, %.17g, %.17g, %.17g],\n"
+        "  \"first_rejected_conjugated_y_translation\": %.17g,\n"
+        "  \"composer_transform_component_abs_bound\": 65536,\n"
+        "  \"first_rejected_numeric_guard\": \"conjugated_y_translation_exceeds_bound\",\n"
+        "  \"source_document_graph_released\": true,\n"
+        "  \"detached_ir_pages\": 0,\n"
+        "  \"detached_ir_operations\": 0,\n"
+        "  \"original_pdfium_pixel_oracle\": \"not_run\",\n"
+        "  \"native_raster\": \"not_run\",\n"
+        "  \"external_wstar_pixel_supported_count\": 0,\n"
+        "  \"generated_fixture_count\": 0\n"
+        "}\n",
+        failed_stage,code,content_ops,paths,clips,painted,
+        first_failed_path,first_failed_operator,first_failed_terminal_operator,
+        first_failed_clip_count,first_failed_is_clip,first_failed_paint_opcode,
+        first_failed_status,first_failed_source_ctm[0],first_failed_source_ctm[1],
+        first_failed_source_ctm[2],first_failed_source_ctm[3],
+        first_failed_source_ctm[4],first_failed_source_ctm[5],
+        first_failed_composer_f);
+    CHECK(std::ferror(out)==0 && std::fclose(out)==0);
+#ifdef _WIN32
+    errno=0;
+    if(std::remove(report_path)!=0) CHECK(errno==ENOENT);
+#endif
+    CHECK(std::rename(staged.c_str(),report_path)==0);
+    std::fprintf(stderr,
+        "[original-stage-diag] stage=%s status=unsupported parsed_paths=%zu "
+        "clips=%zu painted=%zu first_rejected_record=%zu budget=8 pixels=not_run\n",
+        failed_stage,paths,clips,painted,first_failed_path);
+    return 0;
+}
+
+int typed_original_preflight(const char *source_path,const char *page_str,
+                             const char *expect,const char *report_path,
+                             size_t max_painted_paths=3u)
+{
+    CHECK(source_path && *source_path && page_str && *page_str &&
+          expect && *expect && report_path && *report_path);
+    CHECK(std::strcmp(source_path,report_path)!=0);
+    const std::string staged=std::string(report_path)+".tmp";
+    CHECK(std::strcmp(source_path,staged.c_str())!=0);
+    /* A candidate original is read-only. Never let report or staged path
+     * aliases (including symlinked directories or hard links) overwrite
+     * the original file under a different spelling. */
+    namespace fs=std::filesystem;
+    std::error_code path_error;
+    const fs::path source=fs::path(source_path);
+    const fs::path report=fs::path(report_path);
+    const fs::path stage=fs::path(staged);
+    CHECK(fs::is_regular_file(source,path_error) && !path_error);
+    CHECK(!fs::is_symlink(source,path_error));
+    const fs::path canonical_source=fs::weakly_canonical(source,path_error);
+    CHECK(!path_error);
+    const fs::path canonical_report=fs::weakly_canonical(report,path_error);
+    CHECK(!path_error && canonical_source!=canonical_report);
+    const fs::path canonical_stage=fs::weakly_canonical(stage,path_error);
+    CHECK(!path_error && canonical_source!=canonical_stage);
+    for(const fs::path& output:{report,stage}){
+        const bool exists=fs::exists(output,path_error);
+        CHECK(!path_error);
+        if(exists){
+            CHECK(!fs::is_symlink(output,path_error));
+            CHECK(!path_error);
+            CHECK(!fs::equivalent(source,output,path_error));
+            CHECK(!path_error);
+        }
+    }
+    const bool expect_lowered=std::strcmp(expect,"lowered")==0;
+    const bool expect_rejected=std::strcmp(expect,"unsupported")==0;
+    /* Source discovery can observe narrow typed status without guessing
+     * an expected outcome; this is never independent pixel conformance. */
+    const bool observe_only=std::strcmp(expect,"observe")==0;
+    CHECK(expect_lowered || expect_rejected || observe_only);
+    char *end=nullptr;
+    errno=0;
+    const unsigned long number=std::strtoul(page_str,&end,10);
+    CHECK(errno==0 && end!=page_str && *end=='\0' && number<=255ul);
+    const size_t page_index=(size_t)number;
+    /* Previous report remains valid evidence if selected-page parsing
+     * or strict typed admission fails. Do not unlink it preemptively. */
+    quantapdf_ir detached{};
+    /* Four content streams + eight page-tree steps are bounded by the
+     * existing private Graph/Content limits. No partial prefix admitted. */
+    CHECK(max_painted_paths>=lower_limits.max_painted_paths &&
+          max_painted_paths<=8u);
+    quantapdf_pdf_path_lower_limits bounded_limits=lower_limits;
+    bounded_limits.max_painted_paths=max_painted_paths;
+    const quantapdf_status status=snapshot_lower(
+        &detached,page_index,4u,8u,source_path,&bounded_limits);
+    /* Typed candidate rejection is not a generic crash/failure: return
+     * distinct test-only codes and diagnostics so CI cannot mistake an
+     * ordinary source error for the expected typed status mismatch. */
+    if(status!=QUANTAPDF_OK && status!=QUANTAPDF_ERROR_UNSUPPORTED){
+        std::fprintf(stderr,
+            "[source-preflight-error] class=source_error status=%d\n",
+            (int)status);
+        quantapdf_ir_dispose(&detached);
+        return 70;
+    }
+    const bool actual_lowered=status==QUANTAPDF_OK;
+    if(!observe_only && actual_lowered!=expect_lowered){
+        std::fprintf(stderr,
+            "[source-preflight-error] class=status_mismatch expected=%s actual=%s\n",
+            expect,actual_lowered?"lowered":"unsupported");
+        quantapdf_ir_dispose(&detached);
+        return 71;
+    }
+    size_t page_count=0u,op_count=0u,clip_count=0u,state_count=0u;
+    clip_leaf_counts winding{};
+    if(actual_lowered){
+        CHECK(detached.pages!=nullptr && detached.page_count==1u &&
+              detached.operations!=nullptr &&
+              detached.operation_count>=1u &&
+              detached.operation_count<=(max_painted_paths>4u?max_painted_paths:4u) &&
+              detached.resources.clip_count<=8u &&
+              detached.resources.graphics_state_count<=(max_painted_paths>4u?8u:4u) &&
+              detached.resources.font_count==0u &&
+              detached.resources.image_count==0u &&
+              detached.resources.form_count==0u &&
+              detached.resources.soft_mask_count==0u);
+        page_count=detached.page_count;
+        op_count=detached.operation_count;
+        clip_count=detached.resources.clip_count;
+        state_count=detached.resources.graphics_state_count;
+        winding=inspect_clip_fill_rules(detached);
+    } else {
+        /* W* and painted Path may precede a late Text/XObject. Reject
+         * transactionally: no pages, operations or owned resources leak. */
+        CHECK(detached.pages==nullptr && detached.page_count==0u &&
+              detached.operations==nullptr &&
+              detached.operation_count==0u &&
+              detached.resources.clips==nullptr &&
+              detached.resources.clip_count==0u &&
+              detached.resources.graphics_states==nullptr &&
+              detached.resources.graphics_state_count==0u &&
+              detached.resources.font_count==0u &&
+              detached.resources.image_count==0u &&
+              detached.resources.form_count==0u &&
+              detached.resources.soft_mask_count==0u &&
+              detached.resources.paint_count==0u);
+    }
+    quantapdf_ir_dispose(&detached);
+    CHECK(corpus_fixture_executions==0u);
+    FILE *out=std::fopen(staged.c_str(),"wb");
+    CHECK(out!=nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"result\": \"typed_selected_page_preflight_only\",\n"
+        "%s"
+        "  \"original_source_provenance_verified\": false,\n"
+        "  \"selected_page_index\": %zu,\n"
+        "  \"native_lower_status\": \"%s\",\n"
+        "  \"source_document_graph_released\": true,\n"
+        "  \"detached_ir_pages\": %zu,\n"
+        "  \"detached_ir_operations\": %zu,\n"
+        "  \"detached_ir_clips\": %zu,\n"
+        "  \"detached_ir_w_nonzero_clip_path_leaves\": %zu,\n"
+        "  \"detached_ir_wstar_evenodd_clip_path_leaves\": %zu,\n"
+        "  \"detached_ir_clip_intersection_nodes\": %zu,\n"
+        "  \"detached_ir_graphics_states\": %zu,\n"
+        "  \"original_pdfium_pixel_oracle\": \"not_run\",\n"
+        "  \"native_raster\": \"not_run\",\n"
+        "  \"external_wstar_pixel_supported_count\": 0,\n"
+        "  \"generated_fixture_count\": 0\n"
+        "}\n",
+        observe_only?"  \"observation_only\": true,\n":"",
+        page_index,actual_lowered?"lowered":"unsupported",
+        page_count,op_count,clip_count,
+        winding.nonzero,winding.evenodd,winding.intersections,state_count);
+    CHECK(std::ferror(out)==0 && std::fclose(out)==0);
+#ifdef _WIN32
+    /* Windows rename cannot replace an existing report. Publish only after
+     * the new staged report is fully written and closed. */
+    errno=0;
+    if(std::remove(report_path)!=0) CHECK(errno==ENOENT);
+#endif
+    CHECK(std::rename(staged.c_str(),report_path)==0);
+    std::fprintf(stderr,
+        "[source-preflight] page=%zu typed=%s raster=not_run "
+        "pdfium_pixel=not_run wstar_positive=0\n",
+        page_index,actual_lowered?"lowered":"unsupported");
+    return EXIT_SUCCESS;
+}
+
+
+/* Synthetic check for the actual typed observation mechanism. The generated
+ * PDF is NOT an independently published PDF and never counts as external. */
+int test_generated_wstar_typed_observe(const char *report_path)
+{
+    CHECK(report_path!=nullptr && *report_path!='\0');
+    const char *content=
+        "q 0 0 100 100 re W n "
+        "q 20 20 60 60 re 35 35 20 20 re W* n "
+        "1 0 0 rg 0 0 120 120 re f "
+        "Q 0 0 1 rg 75 10 40 40 re f "
+        "Q 0 1 0 rg 0 0 12 12 re f";
+    /* Use an isolated build-local source path to avoid concurrent CTest
+     * collisions with the existing native SOURCE_QQ_PDF pixel fixtures. */
+    make_source(content,GENERATED_WSTAR_OBSERVE_PDF);
+    const int rc=typed_original_preflight(
+        GENERATED_WSTAR_OBSERVE_PDF,"0","observe",report_path);
+    if(rc!=EXIT_SUCCESS) return rc;
+    FILE *in=std::fopen(report_path,"rb");
+    CHECK(in!=nullptr);
+    char bytes[4096];
+    const size_t n=std::fread(bytes,1,sizeof(bytes),in);
+    CHECK(n>0u && n<sizeof(bytes) && !std::ferror(in));
+    CHECK(std::fclose(in)==0);
+    const std::string observed(bytes,n);
+    CHECK(observed.find("\"observation_only\": true")!=std::string::npos);
+    CHECK(observed.find("\"original_source_provenance_verified\": false")!=std::string::npos);
+    CHECK(observed.find("\"native_lower_status\": \"lowered\"")!=std::string::npos);
+    CHECK(observed.find("\"detached_ir_pages\": 1")!=std::string::npos);
+    CHECK(observed.find("\"detached_ir_operations\": 3")!=std::string::npos);
+    CHECK(observed.find("\"detached_ir_w_nonzero_clip_path_leaves\": 1")!=std::string::npos);
+    CHECK(observed.find("\"detached_ir_wstar_evenodd_clip_path_leaves\": 1")!=std::string::npos);
+    CHECK(observed.find("\"detached_ir_clip_intersection_nodes\": ")!=std::string::npos);
+    CHECK(observed.find("\"original_pdfium_pixel_oracle\": \"not_run\"")!=std::string::npos);
+    CHECK(observed.find("\"native_raster\": \"not_run\"")!=std::string::npos);
+    CHECK(observed.find("\"external_wstar_pixel_supported_count\": 0")!=std::string::npos);
+    CHECK(observed.find("\"generated_fixture_count\": 0")!=std::string::npos);
+    CHECK(corpus_fixture_executions==0u);
+    std::fprintf(stderr,
+        "[generated-wstar-observe] typed=lowered w=1 wstar=1 "
+        "pdfium_pixel=not_run native_raster=not_run external_positive=0\n");
     return EXIT_SUCCESS;
 }
 
@@ -1718,6 +2476,43 @@ static void publish_corpus_report(const char *destination,
 
 int main(int argc,char **argv)
 {
+    if(argc==5 &&
+       std::strcmp(argv[1],"--diagnose-original-pdf")==0 &&
+       std::strcmp(argv[3],"--diagnostic-report")==0)
+        return diagnose_original_stages(argv[2],argv[4]);
+    if(argc==11 &&
+       std::strcmp(argv[1],"--preflight-original-pdf")==0 &&
+       std::strcmp(argv[3],"--page-index")==0 &&
+       std::strcmp(argv[5],"--expect-status")==0 &&
+       std::strcmp(argv[7],"--preflight-report")==0 &&
+       std::strcmp(argv[9],"--max-painted-paths")==0) {
+        char *tail=nullptr;
+        errno=0;
+        const unsigned long budget=std::strtoul(argv[10],&tail,10);
+        if(errno!=0 || tail==argv[10] || *tail!='\0' ||
+           budget<3ul || budget>8ul)
+            return 70; /* Explicit test-only budget, never a fallback. */
+        return typed_original_preflight(argv[2],argv[4],argv[6],argv[8],
+                                        (size_t)budget);
+    }
+    if(argc==9 &&
+       std::strcmp(argv[1],"--preflight-original-pdf")==0 &&
+       std::strcmp(argv[3],"--page-index")==0 &&
+       std::strcmp(argv[5],"--expect-status")==0 &&
+       std::strcmp(argv[7],"--preflight-report")==0)
+        return typed_original_preflight(argv[2],argv[4],argv[6],argv[8]);
+    if(argc==4 &&
+       std::strcmp(argv[1],"--generated-wstar-observe")==0 &&
+       std::strcmp(argv[2],"--preflight-report")==0)
+        return test_generated_wstar_typed_observe(argv[3]);
+    if(argc==5 &&
+       std::strcmp(argv[1],"--external-wstar-candidate-pixel-pdf")==0 &&
+       std::strcmp(argv[3],"--external-report")==0)
+        return test_external_yworks_wstar_candidate_pixels(argv[2],argv[4]);
+    if(argc==5 &&
+       std::strcmp(argv[1],"--external-wstar-original-pdf")==0 &&
+       std::strcmp(argv[3],"--external-report")==0)
+        return test_external_yworks_wstar_candidate_pixels(argv[2],argv[4],true);
     if(argc==2 && std::strcmp(argv[1],"--page-group-admission")==0){
         test_page_group_admission();
         return EXIT_SUCCESS;
@@ -1734,6 +2529,9 @@ int main(int argc,char **argv)
     if(argc==5 && std::strcmp(argv[1],"--external-clip-stroke-pdf")==0 &&
        std::strcmp(argv[3],"--external-report")==0)
         return test_external_pdfium_clip_stroke(argv[2],argv[4]);
+    if(argc==5 && std::strcmp(argv[1],"--external-wstar-text-pdf")==0 &&
+       std::strcmp(argv[3],"--external-report")==0)
+        return test_external_pdfium_wstar_text_rejection(argv[2],argv[4]);
     const char *report_path = nullptr;
     if(argc != 1){
         CHECK(argc==3 && std::strcmp(argv[1],"--corpus-report")==0 &&

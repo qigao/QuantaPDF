@@ -140,10 +140,63 @@ jobs:
       - name: Product conformance (Linux ASan/UBSan)
         run: ctest --preset linux-dev-user -L conformance --output-on-failure
 
+      - name: Review original Wstar candidate typed report (Linux)
+        shell: bash
+        run: |
+          cat build/linux-gcc-release/tests/yworks-wstar-typed-observe.json
+          cat build/linux-gcc-debug/tests/yworks-wstar-typed-observe.json
+          cat build/linux-gcc-release/tests/yworks-wstar-candidate-pixel.json
+          cat build/linux-gcc-debug/tests/yworks-wstar-candidate-pixel.json
+
+      - name: Upload original Wstar candidate typed evidence (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: yworks-wstar-typed-candidate-linux
+          path: |
+            build/linux-gcc-release/tests/yworks-wstar-typed-observe.json
+            build/linux-gcc-debug/tests/yworks-wstar-typed-observe.json
+            build/linux-gcc-release/tests/yworks-wstar-candidate-pixel.json
+            build/linux-gcc-debug/tests/yworks-wstar-candidate-pixel.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review quarantined W-only original typed observations (Linux)
+        shell: bash
+        run: |
+          cat build/linux-gcc-release/tests/external-yworks-svg-nested-w-typed-observe.json
+          cat build/linux-gcc-release/tests/external-yworks-svg-nested-w-budget8-typed-observe.json
+          cat build/linux-gcc-release/tests/external-yworks-svg-w-stage-diagnostic.json
+          cat build/linux-gcc-release/tests/external-yworks-hidden-w-typed-observe.json
+          cat build/linux-gcc-release/tests/external-jspdf-w3s-clip-typed-observe.json
+          cat build/linux-gcc-debug/tests/external-yworks-svg-nested-w-typed-observe.json
+          cat build/linux-gcc-debug/tests/external-yworks-svg-nested-w-budget8-typed-observe.json
+          cat build/linux-gcc-debug/tests/external-yworks-svg-w-stage-diagnostic.json
+          cat build/linux-gcc-debug/tests/external-yworks-hidden-w-typed-observe.json
+          cat build/linux-gcc-debug/tests/external-jspdf-w3s-clip-typed-observe.json
+
+      - name: Upload quarantined W-only original typed evidence (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-nonzero-typed-observe-linux
+          path: |
+            build/linux-gcc-release/tests/external-yworks-svg-nested-w-typed-observe.json
+            build/linux-gcc-release/tests/external-yworks-svg-nested-w-budget8-typed-observe.json
+            build/linux-gcc-release/tests/external-yworks-svg-w-stage-diagnostic.json
+            build/linux-gcc-release/tests/external-yworks-hidden-w-typed-observe.json
+            build/linux-gcc-release/tests/external-jspdf-w3s-clip-typed-observe.json
+            build/linux-gcc-debug/tests/external-yworks-svg-nested-w-typed-observe.json
+            build/linux-gcc-debug/tests/external-yworks-svg-nested-w-budget8-typed-observe.json
+            build/linux-gcc-debug/tests/external-yworks-svg-w-stage-diagnostic.json
+            build/linux-gcc-debug/tests/external-yworks-hidden-w-typed-observe.json
+            build/linux-gcc-debug/tests/external-jspdf-w3s-clip-typed-observe.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Qualify external PDF corpus admission (Linux)
         shell: bash
         run: |
           python3 -m unittest discover -s tests -p test_external_pdf_corpus.py
+          python3 -m unittest discover -s tests -p test_screen_external_wstar.py
           python3 tools/qualification/external_pdf_corpus.py \
             --manifest tests/external_source_corpus/manifest.json \
             --assets tests/external_source_corpus/documents \
@@ -161,7 +214,17 @@ jobs:
         shell: bash
         run: |
           python3 -m unittest discover -s tests -p test_external_corpus_reconcile.py
-          python3 tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/linux-gcc-release/tests/external-cc0-text-status.json" --blank "build/linux-gcc-release/tests/external-cc0-blank-status.json" --path "build/linux-gcc-release/tests/external-pdfium-black-path-status.json" --clip "build/linux-gcc-release/tests/external-pdfium-clip-stroke-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
+          python3 tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/linux-gcc-release/tests/external-cc0-text-status.json" --blank "build/linux-gcc-release/tests/external-cc0-blank-status.json" --path "build/linux-gcc-release/tests/external-pdfium-black-path-status.json" --clip "build/linux-gcc-release/tests/external-pdfium-clip-stroke-status.json" --wstar-text "build/linux-gcc-release/tests/external-pdfium-wstar-text-status.json" --wstar-native "build/linux-gcc-release/tests/external-yworks-wstar-native-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
+
+      - name: Upload admitted original Wstar native oracle (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-wstar-native-linux
+          path: |
+            build/linux-gcc-release/tests/external-yworks-wstar-native-status.json
+            build/linux-gcc-debug/tests/external-yworks-wstar-native-status.json
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Upload reconciled external corpus (Linux)
         uses: actions/upload-artifact@v4
@@ -177,7 +240,21 @@ jobs:
           name: external-clipped-stroke-native-linux
           path: |
             build/linux-gcc-release/tests/external-pdfium-clip-stroke-status.json
+            build/linux-gcc-release/tests/external-original-w-preflight.json
             build/linux-gcc-debug/tests/external-pdfium-clip-stroke-status.json
+            build/linux-gcc-debug/tests/external-original-w-preflight.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload original W* late-text negative (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-wstar-late-text-negative-linux
+          path: |
+            build/linux-gcc-release/tests/external-pdfium-wstar-text-status.json
+            build/linux-gcc-release/tests/external-original-wstar-preflight.json
+            build/linux-gcc-debug/tests/external-pdfium-wstar-text-status.json
+            build/linux-gcc-debug/tests/external-original-wstar-preflight.json
           if-no-files-found: error
           retention-days: 7
 
@@ -315,10 +392,49 @@ jobs:
       - name: Install SDK
         run: cmake --build --preset "install-$CMAKE_PRESET" --parallel 2
 
+      - name: Review original Wstar candidate typed report (macOS)
+        shell: bash
+        run: |
+          cat build/macos-clang-release/tests/yworks-wstar-typed-observe.json
+          cat build/macos-clang-release/tests/yworks-wstar-candidate-pixel.json
+
+      - name: Upload original Wstar candidate typed evidence (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: yworks-wstar-typed-candidate-macos
+          path: |
+            build/macos-clang-release/tests/yworks-wstar-typed-observe.json
+            build/macos-clang-release/tests/yworks-wstar-candidate-pixel.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review quarantined W-only original typed observations (macOS)
+        shell: bash
+        run: |
+          cat build/macos-clang-release/tests/external-yworks-svg-nested-w-typed-observe.json
+          cat build/macos-clang-release/tests/external-yworks-svg-nested-w-budget8-typed-observe.json
+          cat build/macos-clang-release/tests/external-yworks-svg-w-stage-diagnostic.json
+          cat build/macos-clang-release/tests/external-yworks-hidden-w-typed-observe.json
+          cat build/macos-clang-release/tests/external-jspdf-w3s-clip-typed-observe.json
+
+      - name: Upload quarantined W-only original typed evidence (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-nonzero-typed-observe-macos
+          path: |
+            build/macos-clang-release/tests/external-yworks-svg-nested-w-typed-observe.json
+            build/macos-clang-release/tests/external-yworks-svg-nested-w-budget8-typed-observe.json
+            build/macos-clang-release/tests/external-yworks-svg-w-stage-diagnostic.json
+            build/macos-clang-release/tests/external-yworks-hidden-w-typed-observe.json
+            build/macos-clang-release/tests/external-jspdf-w3s-clip-typed-observe.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Qualify external PDF corpus admission (macOS)
         shell: bash
         run: |
           python3 -m unittest discover -s tests -p test_external_pdf_corpus.py
+          python3 -m unittest discover -s tests -p test_screen_external_wstar.py
           python3 tools/qualification/external_pdf_corpus.py \
             --manifest tests/external_source_corpus/manifest.json \
             --assets tests/external_source_corpus/documents \
@@ -336,7 +452,15 @@ jobs:
         shell: bash
         run: |
           python3 -m unittest discover -s tests -p test_external_corpus_reconcile.py
-          python3 tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/macos-clang-release/tests/external-cc0-text-status.json" --blank "build/macos-clang-release/tests/external-cc0-blank-status.json" --path "build/macos-clang-release/tests/external-pdfium-black-path-status.json" --clip "build/macos-clang-release/tests/external-pdfium-clip-stroke-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
+          python3 tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/macos-clang-release/tests/external-cc0-text-status.json" --blank "build/macos-clang-release/tests/external-cc0-blank-status.json" --path "build/macos-clang-release/tests/external-pdfium-black-path-status.json" --clip "build/macos-clang-release/tests/external-pdfium-clip-stroke-status.json" --wstar-text "build/macos-clang-release/tests/external-pdfium-wstar-text-status.json" --wstar-native "build/macos-clang-release/tests/external-yworks-wstar-native-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
+
+      - name: Upload admitted original Wstar native oracle (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-wstar-native-macos
+          path: build/macos-clang-release/tests/external-yworks-wstar-native-status.json
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Upload reconciled external corpus (macOS)
         uses: actions/upload-artifact@v4
@@ -350,7 +474,19 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: external-clipped-stroke-native-macos
-          path: build/macos-clang-release/tests/external-pdfium-clip-stroke-status.json
+          path: |
+            build/macos-clang-release/tests/external-pdfium-clip-stroke-status.json
+            build/macos-clang-release/tests/external-original-w-preflight.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload original W* late-text negative (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-wstar-late-text-negative-macos
+          path: |
+            build/macos-clang-release/tests/external-pdfium-wstar-text-status.json
+            build/macos-clang-release/tests/external-original-wstar-preflight.json
           if-no-files-found: error
           retention-days: 7
 
@@ -489,6 +625,22 @@ jobs:
         shell: cmd
         run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && ctest --preset win-release-user -L conformance --output-on-failure
 
+      - name: Review original Wstar candidate typed report (Windows)
+        shell: pwsh
+        run: |
+          Get-Content build/Msvc-Release/tests/yworks-wstar-typed-observe.json
+          Get-Content build/Msvc-Release/tests/yworks-wstar-candidate-pixel.json
+
+      - name: Upload original Wstar candidate typed evidence (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: yworks-wstar-typed-candidate-windows
+          path: |
+            build/Msvc-Release/tests/yworks-wstar-typed-observe.json
+            build/Msvc-Release/tests/yworks-wstar-candidate-pixel.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Install Release package
         shell: cmd
         run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && cmake --build --preset install-win-release-user
@@ -512,10 +664,33 @@ jobs:
           "%RUNNER_TEMP%\quantapdf-installed-consumer.exe" "tests\fixtures\fonts\SourceSans3VF-Upright.otf" "%RUNNER_TEMP%\installed-composer-smoke-cff2.pdf"
           if not exist "%RUNNER_TEMP%\installed-composer-smoke-cff2.pdf" exit /b 1
 
+      - name: Review quarantined W-only original typed observations (Windows)
+        shell: pwsh
+        run: |
+          Get-Content build/Msvc-Release/tests/external-yworks-svg-nested-w-typed-observe.json
+          Get-Content build/Msvc-Release/tests/external-yworks-svg-nested-w-budget8-typed-observe.json
+          Get-Content build/Msvc-Release/tests/external-yworks-svg-w-stage-diagnostic.json
+          Get-Content build/Msvc-Release/tests/external-yworks-hidden-w-typed-observe.json
+          Get-Content build/Msvc-Release/tests/external-jspdf-w3s-clip-typed-observe.json
+
+      - name: Upload quarantined W-only original typed evidence (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-nonzero-typed-observe-windows
+          path: |
+            build/Msvc-Release/tests/external-yworks-svg-nested-w-typed-observe.json
+            build/Msvc-Release/tests/external-yworks-svg-nested-w-budget8-typed-observe.json
+            build/Msvc-Release/tests/external-yworks-svg-w-stage-diagnostic.json
+            build/Msvc-Release/tests/external-yworks-hidden-w-typed-observe.json
+            build/Msvc-Release/tests/external-jspdf-w3s-clip-typed-observe.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Qualify external PDF corpus admission (Windows)
         shell: pwsh
         run: |
           python -m unittest discover -s tests -p test_external_pdf_corpus.py
+          python -m unittest discover -s tests -p test_screen_external_wstar.py
           python tools/qualification/external_pdf_corpus.py --manifest tests/external_source_corpus/manifest.json --assets tests/external_source_corpus/documents --report "$env:RUNNER_TEMP/external-pdf-corpus.json"
 
       - name: Upload external PDF corpus admission (Windows)
@@ -530,7 +705,15 @@ jobs:
         shell: pwsh
         run: |
           python -m unittest discover -s tests -p test_external_corpus_reconcile.py
-          python tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/Msvc-Release/tests/external-cc0-text-status.json" --blank "build/Msvc-Release/tests/external-cc0-blank-status.json" --path "build/Msvc-Release/tests/external-pdfium-black-path-status.json" --clip "build/Msvc-Release/tests/external-pdfium-clip-stroke-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
+          python tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/Msvc-Release/tests/external-cc0-text-status.json" --blank "build/Msvc-Release/tests/external-cc0-blank-status.json" --path "build/Msvc-Release/tests/external-pdfium-black-path-status.json" --clip "build/Msvc-Release/tests/external-pdfium-clip-stroke-status.json" --wstar-text "build/Msvc-Release/tests/external-pdfium-wstar-text-status.json" --wstar-native "build/Msvc-Release/tests/external-yworks-wstar-native-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
+
+      - name: Upload admitted original Wstar native oracle (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-wstar-native-windows
+          path: build/Msvc-Release/tests/external-yworks-wstar-native-status.json
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Upload reconciled external corpus (Windows)
         uses: actions/upload-artifact@v4
@@ -544,7 +727,19 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: external-clipped-stroke-native-windows
-          path: build/Msvc-Release/tests/external-pdfium-clip-stroke-status.json
+          path: |
+            build/Msvc-Release/tests/external-pdfium-clip-stroke-status.json
+            build/Msvc-Release/tests/external-original-w-preflight.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload original W* late-text negative (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-wstar-late-text-negative-windows
+          path: |
+            build/Msvc-Release/tests/external-pdfium-wstar-text-status.json
+            build/Msvc-Release/tests/external-original-wstar-preflight.json
           if-no-files-found: error
           retention-days: 7
 

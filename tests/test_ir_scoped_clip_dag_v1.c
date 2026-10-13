@@ -274,6 +274,60 @@ static int test_clipped_one_pixel_stroke(void)
     return EXIT_SUCCESS;
 }
 
+
+/* W* is a distinct geometric gate from W. The deepest nested red paint
+ * must disappear inside the even-odd hole, while a subsequent scoped blue
+ * operation sees only the restored outer W clip. Finally, green is
+ * unrestricted. All three operations share borrowed Clip resources; no
+ * PDFium, synthetic PDF export or external-source positive is involved. */
+static int test_evenodd_nested_hole_and_scope_restore(void)
+{
+    fixture f;
+    const quantapdf_ir_raster_v1_limits budget = {64u,3u,192u,120000u};
+    quantapdf_composer_path_command ring[10];
+    quantapdf_ir_raster_image first = {0}, repeated = {0};
+    unsigned char saved[8u*8u*4u];
+    initialize(&f);
+    rectangle(ring,2,2,6,6);
+    rectangle(ring+5,3,3,5,5);
+    f.clips[1].commands = ring;
+    f.clips[1].command_count = 10u;
+    f.clips[1].fill_rule = QUANTAPDF_COMPOSER_FILL_EVEN_ODD;
+
+    OK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&first));
+    CHECK(first.size==sizeof(saved) && first.width==8u &&
+          first.height==8u);
+    CHECK(rgba(&first,3,3)==UINT32_C(0xffffffff)); /* ring's hole */
+    CHECK(rgba(&first,4,4)==UINT32_C(0x0000ffff)); /* blue after restore */
+    CHECK(rgba(&first,6,6)==UINT32_C(0x0000ffff)); /* outer W remains */
+    CHECK(rgba(&first,0,0)==UINT32_C(0x00ff00ff)); /* unscoped green */
+    CHECK(rgba(&first,7,7)==UINT32_C(0xffffffff));
+    memcpy(saved,first.pixels,sizeof(saved));
+    OK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&repeated));
+    CHECK(repeated.size==sizeof(saved) &&
+          memcmp(saved,repeated.pixels,sizeof(saved))==0);
+    quantapdf_ir_raster_image_dispose(&first);
+    quantapdf_ir_raster_image_dispose(&repeated);
+
+    /* Identical contours under nonzero winding admit red where W* did not.
+     * This prevents treating W* as a synonym for W. */
+    f.clips[1].fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
+    OK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&first));
+    CHECK(rgba(&first,3,3)==UINT32_C(0xff0000ff));
+    CHECK(rgba(&first,4,4)==UINT32_C(0x0000ffff));
+    quantapdf_ir_raster_image_dispose(&first);
+
+    /* An unknown Clip rule must fail before publishing any pixels, even
+     * though the nested state and earlier paint layers are otherwise valid. */
+    f.clips[1].fill_rule = (quantapdf_composer_fill_rule)127;
+    first.pixels = (unsigned char *)(uintptr_t)1u;
+    first.size = SIZE_MAX;
+    CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&first) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(first.pixels==NULL && first.size==0u);
+    return EXIT_SUCCESS;
+}
+
 static int test_fractional_and_transparent(void)
 {
     fixture f;
@@ -426,6 +480,7 @@ int main(void)
     CHECK(test_single_opaque_path() == EXIT_SUCCESS);
     CHECK(test_clipped_one_pixel_stroke() == EXIT_SUCCESS);
     CHECK(test_scoped_dag() == EXIT_SUCCESS);
+    CHECK(test_evenodd_nested_hole_and_scope_restore() == EXIT_SUCCESS);
     CHECK(test_fractional_and_transparent() == EXIT_SUCCESS);
     CHECK(test_rejection_and_atomicity() == EXIT_SUCCESS);
     fprintf(stderr,"[quantapdf.native_scoped_clip_dag_v1] complete\n");

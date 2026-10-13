@@ -4,14 +4,14 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"tools"/"qualification"))
-from reconcile_external_corpus import verify, TEXT_ID, BLANK_ID, PATH_ID, CLIP_ID
+from reconcile_external_corpus import verify, TEXT_ID, BLANK_ID, PATH_ID, CLIP_ID, WSTAR_TEXT_ID, WSTAR_PATH_ID
 
 
 class ExternalEvidenceReconciliation(unittest.TestCase):
     def setUp(self):
         self.admission={"schema_version":1,"corpus_id":"external-source-pdf",
             "fixture_kind":"external","result":"integrity_verified_only",
-            "document_count":4,"native_conformance_passed_count":0,
+            "document_count":6,"native_conformance_passed_count":0,
             "documents":[
                 {"id":TEXT_ID,"integrity":"verified","native_conformance":"not_run",
                  "expected_native_outcome":"unsupported"},
@@ -20,7 +20,15 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
                 {"id":PATH_ID,"integrity":"verified","native_conformance":"not_run",
                  "expected_native_outcome":"supported-path-clip"},
                 {"id":CLIP_ID,"integrity":"verified","native_conformance":"not_run",
-                 "expected_native_outcome":"supported-clipped-stroke"}]}
+                 "expected_native_outcome":"supported-clipped-stroke"},
+                {"id":WSTAR_TEXT_ID,"integrity":"verified","native_conformance":"not_run",
+                 "expected_native_outcome":"unsupported"},
+                {"id":WSTAR_PATH_ID,"integrity":"verified","native_conformance":"not_run",
+                 "expected_native_outcome":"supported-path-clip",
+                 "sha256":"9d30a67c8194b6822f28ad9ed4848a57c7745e95d11b79267ac5141001a91783",
+                 "size_bytes":3747,"license_spdx_declared":"MIT",
+                 "license_review_url":"https://github.com/qigao/QuantaPDF/issues/265",
+                 "page_index":0}]}
         self.text={"schema_version":1,"corpus_id":"external-source-pdf",
             "fixture_kind":"external","document_id":TEXT_ID,
             "reference_oracle":"original-pdfium","generated_fixture_count":0,
@@ -59,25 +67,140 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
             "page_width":100,"page_height":50,
             "native_path_clip_supported_count":1,
             "native_clipped_path_supported_count":1,
+            "native_w_clip_supported_count":1,
+            "native_wstar_clip_supported_count":0,
             "native_stroke_1px_supported_count":1,
             "native_blank_page_supported_count":0,
             "native_text_supported_count":0,
             "mean_rgb_error":0.0,"gross_error_pixels":0,
             "reference_blue_pixels":30,"native_blue_pixels":30,
             "common_blue_pixels":30}
+        self.wstar_text={"schema_version":1,"corpus_id":"external-source-pdf",
+            "fixture_kind":"external","document_id":WSTAR_TEXT_ID,
+            "reference_oracle":"original-pdfium","generated_fixture_count":0,
+            "result":"passed","native_expected_outcome":"unsupported",
+            "native_observed_outcome":"unsupported","pdfium_result":"rendered_nonblank",
+            "native_ir":"empty","page_width":200,"page_height":300,
+            "reference_ink_pixels":45,"status_conformance_passed_count":1,
+            "native_supported_passed_count":0,"native_path_clip_supported_count":0,
+            "native_w_clip_supported_count":0,"native_wstar_clip_supported_count":0}
+        self.wstar_path={"schema_version":1,"corpus_id":"external-source-pdf",
+            "fixture_kind":"external","document_id":WSTAR_PATH_ID,
+            "reference_oracle":"original-pdfium","generated_fixture_count":0,
+            "result":"passed","native_expected_outcome":"supported-path-clip",
+            "native_observed_outcome":"supported-path-clip",
+            "original_source_pdfium_oracle":"passed",
+            "detached_c11_native_raster":"passed",
+            "source_and_graph_released_before_raster":True,
+            "repeat_rgba_identical":True,
+            "page_width":600,"page_height":600,
+            "native_w_nonzero_clip_path_leaves":2,
+            "native_wstar_evenodd_clip_path_leaves":2,
+            "native_clip_intersection_nodes":3,
+            "fixed_interior_goldens":6,
+            "mean_rgb_error":0.006831,"gross_error_pixels":0,
+            "reference_red_pixels":302,"native_red_pixels":302,
+            "overlap_red_pixels":302,
+            "native_path_clip_supported_count":1,
+            "native_clipped_path_supported_count":1,
+            "native_w_clip_supported_count":1,
+            "native_wstar_clip_supported_count":1}
     def accept(self):
-        return verify(self.admission,self.text,self.blank,self.path,self.clip)
+        return verify(self.admission,self.text,self.blank,self.path,self.clip,self.wstar_text,self.wstar_path)
+
+
+    def test_cli_failure_preserves_prior_reconciliation(self):
+        import contextlib
+        import io
+        import json
+        import tempfile
+        from unittest.mock import patch
+        from reconcile_external_corpus import main
+        with tempfile.TemporaryDirectory() as root:
+            base=Path(root)
+            reports=(self.admission,self.text,self.blank,self.path,self.clip,
+                     self.wstar_text,self.wstar_path)
+            names=("admission","text","blank","path","clip","wstar-text","wstar-native")
+            paths=[]
+            for name,report in zip(names,reports):
+                file=base/(name+".json")
+                file.write_text(json.dumps(report),encoding="utf-8")
+                paths.append(file)
+            output=base/"official-reconciled.json"
+            sentinel=b"previous successful original-source evidence\\n"
+            output.write_bytes(sentinel)
+            argv=[]
+            for name,path in zip(names,paths):
+                argv.extend(("--"+name,str(path)))
+            argv.extend(("--output",str(output)))
+            with patch.object(sys,"argv",["reconcile_external_corpus.py",*argv]):
+                self.wstar_path["native_wstar_clip_supported_count"]=0
+                paths[-1].write_text(json.dumps(self.wstar_path),encoding="utf-8")
+                with contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit):
+                        main()
+                self.assertEqual(output.read_bytes(),sentinel)
+                self.assertFalse(Path(str(output)+".tmp").exists())
+                self.wstar_path["native_wstar_clip_supported_count"]=1
+                paths[-1].write_text(json.dumps(self.wstar_path),encoding="utf-8")
+                main()
+                result=json.loads(output.read_text(encoding="utf-8"))
+                self.assertEqual(result["native_wstar_clip_supported_count"],1)
+                self.assertFalse(Path(str(output)+".tmp").exists())
 
     def test_valid_evidence_remains_capability_scoped(self):
         report=self.accept()
-        self.assertEqual(report["native_path_clip_supported"],2)
-        self.assertEqual(report["native_clipped_path_supported"],1)
+        self.assertEqual(report["native_path_clip_supported"],3)
+        self.assertEqual(report["native_clipped_path_supported"],2)
+        self.assertEqual(report["native_w_clip_supported_count"],2)
+        self.assertEqual(report["native_wstar_clip_supported_count"],1)
         self.assertEqual(report["native_blank_page_supported"],1)
-        self.assertEqual(report["admitted_documents"],4)
+        self.assertEqual(report["admitted_documents"],6)
+        self.assertEqual(report["external_text_rejection_passed"],2)
+
+    def test_missing_wstar_negative_report_rejects(self):
+        self.wstar_text["result"]="not_run"
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_text_cannot_count_as_native_positive(self):
+        self.wstar_text["native_wstar_clip_supported_count"]=1
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_text_cannot_count_as_w_clip(self):
+        self.wstar_text["native_w_clip_supported_count"]=1
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_text_requires_visible_original(self):
+        self.wstar_text["reference_ink_pixels"]=0
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_text_requires_empty_ir(self):
+        self.wstar_text["native_ir"]="partial"
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_text_wrong_document_rejects(self):
+        self.wstar_text["document_id"]=CLIP_ID
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_forged_wstar_positive_rejects(self):
+        self.clip["native_wstar_clip_supported_count"]=1
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_forged_wstar_positive_in_opaque_report_rejects(self):
+        self.path["native_wstar_clip_supported_count"]=1
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_forged_nonzero_clip_count_rejects(self):
+        self.clip["native_w_clip_supported_count"]=0
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_boolean_wstar_count_rejects(self):
+        self.clip["native_wstar_clip_supported_count"]=False
+        with self.assertRaises(AssertionError): self.accept()
 
     def test_missing_qualified_document_rejects(self):
         self.admission["documents"].pop()
-        self.admission["document_count"]=3
+        self.admission["document_count"]=5
         with self.assertRaises(AssertionError): self.accept()
 
     def test_unreviewed_document_rejects(self):
@@ -150,6 +273,50 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
 
     def test_unqualified_opaque_source_rejects(self):
         self.path["result"]="not_run"
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_candidate_only_report_cannot_count(self):
+        self.wstar_path["result"]="candidate_pixel_parity_passed_not_admitted"
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_candidate_wrong_original_rejects(self):
+        self.wstar_path["document_id"]=WSTAR_TEXT_ID
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_candidate_wrong_reference_rejects(self):
+        self.wstar_path["reference_oracle"]="composer-export-pdf"
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_missing_native_raster_rejects(self):
+        self.wstar_path["detached_c11_native_raster"]="not_run"
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_repeat_bytes_must_be_exact(self):
+        self.wstar_path["repeat_rgba_identical"]=False
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_native_count_boolean_forgery_rejects(self):
+        self.wstar_path["native_wstar_clip_supported_count"]=True
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_forged_pixel_error_rejects(self):
+        self.wstar_path["mean_rgb_error"]=255.0
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_gross_pixel_error_rejects(self):
+        self.wstar_path["gross_error_pixels"]=1
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_wrong_clip_winding_rejects(self):
+        self.wstar_path["native_wstar_evenodd_clip_path_leaves"]=0
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_provenance_manifest_swap_rejects(self):
+        self.admission["documents"][-1]["sha256"]="f"*64
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_license_review_required(self):
+        self.admission["documents"][-1]["license_review_url"]="#265"
         with self.assertRaises(AssertionError): self.accept()
 
 

@@ -199,6 +199,18 @@ static quantapdf_status qp_admit_draw(
     quantapdf_status status;
     size_t first = flat->count;
     const int stroke = opt->stroke == 1 && opt->fill == 0;
+    /* A single open butt-cap line has no joins and no implicit close.
+     * Keep closed triangle admission separate and strictly guarded. */
+    const int open_line = stroke && path->commands != NULL &&
+        path->command_count == 2u &&
+        path->commands[0].kind == QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
+        path->commands[1].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    const int closed_triangle = stroke && path->commands != NULL &&
+        path->command_count == 4u &&
+        path->commands[0].kind == QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
+        path->commands[1].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+        path->commands[2].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+        path->commands[3].kind == QUANTAPDF_COMPOSER_PATH_CLOSE;
     if (op->graphics_state_id != 0u ||
         opt->struct_size < QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE ||
         !(stroke || (opt->fill == 1 && opt->stroke == 0)) ||
@@ -207,12 +219,7 @@ static quantapdf_status qp_admit_draw(
             opt->line_cap != QUANTAPDF_COMPOSER_LINE_CAP_BUTT ||
             opt->line_join != QUANTAPDF_COMPOSER_LINE_JOIN_MITER ||
             opt->miter_limit != 10.0f ||
-            path->command_count != 4u ||
-            path->commands == NULL ||
-            path->commands[0].kind != QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
-            path->commands[1].kind != QUANTAPDF_COMPOSER_PATH_LINE_TO ||
-            path->commands[2].kind != QUANTAPDF_COMPOSER_PATH_LINE_TO ||
-            path->commands[3].kind != QUANTAPDF_COMPOSER_PATH_CLOSE)) ||
+            !(open_line || closed_triangle))) ||
         (opt->fill_rule != QUANTAPDF_COMPOSER_FILL_NONZERO &&
          opt->fill_rule != QUANTAPDF_COMPOSER_FILL_EVEN_ODD) ||
         (opt->struct_size >= QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE &&
@@ -260,10 +267,20 @@ static quantapdf_status qp_admit_draw(
             fabs(y2 - 1.0) > 0.000001 || fabs(cross) > 0.000001)
             return QUANTAPDF_ERROR_UNSUPPORTED;
     }
-    status = qp_flatten_path(flat, path);
+    if (open_line) {
+        qp_point_d a = {0}, b = {0};
+        status = qp_transform_point(flat, path->commands[0].point1, &a);
+        if (status == QUANTAPDF_OK)
+            status = qp_transform_point(flat, path->commands[1].point1, &b);
+        if (status == QUANTAPDF_OK)
+            status = qp_add_edge(flat, a, b);
+    } else {
+        status = qp_flatten_path(flat, path);
+    }
     if (status != QUANTAPDF_OK)
         return status;
-    if (flat->count == first || (stroke && flat->count - first != 3u))
+    if (flat->count == first ||
+        (stroke && flat->count - first != (open_line ? 1u : 3u)))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     out->first_edge = first;
     out->edge_count = flat->count - first;
@@ -293,10 +310,9 @@ static int qp_inside(
     return winding != 0;
 }
 
-/* Bounded one-pixel path stroke. Each antialias sample is covered iff it
- * lies within half a device-space pixel of one of three closed segments.
- * Unsupported widths, caps, joins, dashes and non-isometric transforms are
- * rejected by qp_admit_draw; this cannot silently approximate general strokes. */
+/* Bounded one-pixel path stroke: a single open segment (butt caps and no
+ * joins) or three closed triangle segments. Both use true 4x4 device-space
+ * coverage; unsupported widths, caps, joins and transforms fail closed. */
 static int qp_stroke_inside(const qp_edge *edges,
     const qp_raster_draw *draw, double x, double y)
 {
@@ -552,6 +568,7 @@ static quantapdf_status qp_render_v1_impl(
      * Clip excludes all closed-triangle joins. No silent stroke fallback. */
     for (i = 0u; i < draw_count; ++i) {
         if (draws[i].one_pixel_stroke &&
+            draws[i].edge_count != 1u &&
             (draw_count != 1u || clip_count != 1u ||
              !qp_guard_clipped_stroke_geometry(flatten.edges,
                  &draws[i], &clip_draws[0]))) {

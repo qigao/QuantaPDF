@@ -1804,7 +1804,8 @@ target_compile_features(quantapdf_test_native_source_qq_oracle PRIVATE
   c_std_11 cxx_std_20)
 target_compile_definitions(quantapdf_test_native_source_qq_oracle PRIVATE
   SOURCE_QQ_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-qq-source.pdf"
-  GROUP_SOURCE_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-group-source.pdf")
+  GROUP_SOURCE_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-group-source.pdf"
+  GENERATED_WSTAR_OBSERVE_PDF="${CMAKE_CURRENT_BINARY_DIR}/generated-wstar-typed-observe.pdf")
 if(MSVC)
   target_compile_options(quantapdf_test_native_source_qq_oracle PRIVATE /utf-8)
 endif()
@@ -1912,6 +1913,299 @@ elseif(APPLE)
     "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 else()
   set_property(TEST quantapdf.external_pdfium_black_path
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
+# Independently published original PDFium W* + opaque f* with late text.
+# This qualifies fail-closed UNSUPPORTED, never W* native pixel support.
+add_test(NAME quantapdf.external_pdfium_wstar_late_text_rejection
+  COMMAND quantapdf_test_native_source_qq_oracle --external-wstar-text-pdf
+    "${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/pdfium.bug-1574-wstar-text-v1.pdf"
+    --external-report "${CMAKE_CURRENT_BINARY_DIR}/external-pdfium-wstar-text-status.json")
+set_tests_properties(quantapdf.external_pdfium_wstar_late_text_rejection PROPERTIES
+  TIMEOUT 40 LABELS "conformance;external-corpus;native-raster;wstar-negative")
+if(WIN32)
+  set_property(TEST quantapdf.external_pdfium_wstar_late_text_rejection
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_pdfium_wstar_late_text_rejection
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_pdfium_wstar_late_text_rejection
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
+# Selected-page typed semantic preflight. Unlike the byte scanner, the
+# existing Graph parser resolves the COMPLETE original selected page.
+# This test-only gate NEVER claims W* pixel or public SDK support.
+add_test(NAME quantapdf.external_original_w_typed_preflight
+  COMMAND quantapdf_test_native_source_qq_oracle
+    --preflight-original-pdf
+      "${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/pdfium.clip-path-v1.pdf"
+    --page-index 0 --expect-status lowered
+    --preflight-report "${CMAKE_CURRENT_BINARY_DIR}/external-original-w-preflight.json")
+add_test(NAME quantapdf.external_original_wstar_text_typed_preflight
+  COMMAND quantapdf_test_native_source_qq_oracle
+    --preflight-original-pdf
+      "${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/pdfium.bug-1574-wstar-text-v1.pdf"
+    --page-index 0 --expect-status unsupported
+    --preflight-report "${CMAKE_CURRENT_BINARY_DIR}/external-original-wstar-preflight.json")
+
+# Discovery-only typed observation: reuse the actual original/Graph/owned-IR
+# chain and assert logged statuses, without attributing any native pixel pass.
+add_test(NAME quantapdf.external_original_w_typed_observe
+  COMMAND quantapdf_test_native_source_qq_oracle
+    --preflight-original-pdf
+      "${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/pdfium.clip-path-v1.pdf"
+    --page-index 0 --expect-status observe
+    --preflight-report "${CMAKE_CURRENT_BINARY_DIR}/external-original-w-observe.json")
+set_tests_properties(quantapdf.external_original_w_typed_observe PROPERTIES
+  PASS_REGULAR_EXPRESSION "typed=lowered raster=not_run")
+add_test(NAME quantapdf.external_original_wstar_text_typed_observe
+  COMMAND quantapdf_test_native_source_qq_oracle
+    --preflight-original-pdf
+      "${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/pdfium.bug-1574-wstar-text-v1.pdf"
+    --page-index 0 --expect-status observe
+    --preflight-report "${CMAKE_CURRENT_BINARY_DIR}/external-original-wstar-observe.json")
+set_tests_properties(quantapdf.external_original_wstar_text_typed_observe PROPERTIES
+  PASS_REGULAR_EXPRESSION "typed=unsupported raster=not_run")
+# The test-only typed 'observe' CLI must preserve an existing report
+# if a new candidate is malformed or contradicts strict preflight status.
+add_test(NAME quantapdf.external_original_typed_report_guard
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DW_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/pdfium.clip-path-v1.pdf"
+    "-DWSTAR_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/pdfium.bug-1574-wstar-text-v1.pdf"
+    "-DOUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/typed-original-report-guard"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_native_source_preflight_report.cmake")
+
+foreach(qp_test IN ITEMS
+        quantapdf.external_original_w_typed_preflight
+        quantapdf.external_original_wstar_text_typed_preflight
+        quantapdf.external_original_w_typed_observe
+        quantapdf.external_original_wstar_text_typed_observe
+        quantapdf.external_original_typed_report_guard)
+  set_tests_properties(${qp_test} PROPERTIES
+    TIMEOUT 40 LABELS "conformance;external-corpus;source-preflight")
+  if(WIN32)
+    set_property(TEST ${qp_test} PROPERTY ENVIRONMENT_MODIFICATION
+      "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+  elseif(APPLE)
+    set_property(TEST ${qp_test} PROPERTY ENVIRONMENT_MODIFICATION
+      "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+  else()
+    set_property(TEST ${qp_test} PROPERTY ENVIRONMENT_MODIFICATION
+      "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+  endif()
+endforeach()
+
+# Deliberately GENERATED observation-only control for the real bounded
+# Document->Graph->detached IR W* leaf report. This must not enter the
+# five-original external manifest or the fixed generated 14/36 counters.
+add_test(NAME quantapdf.generated_wstar_typed_observe
+  COMMAND quantapdf_test_native_source_qq_oracle
+    --generated-wstar-observe
+    --preflight-report "${CMAKE_CURRENT_BINARY_DIR}/generated-wstar-typed-observe.json")
+set_tests_properties(quantapdf.generated_wstar_typed_observe PROPERTIES
+  TIMEOUT 40
+  LABELS "conformance;source-preflight;generated-observation"
+  PASS_REGULAR_EXPRESSION "generated-wstar-observe.*external_positive=0")
+if(WIN32)
+  set_property(TEST quantapdf.generated_wstar_typed_observe
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.generated_wstar_typed_observe
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.generated_wstar_typed_observe
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
+# Byte-pinned W-only originals, quarantined from the W* positive population.
+# The actual selected-page Document -> Graph -> detached IR observe is used
+# instead of heuristic token scanning. No pixel parity or corpus admission.
+function(add_external_nonzero_candidate_observe case_id relative_pdf expected_sha256 expected_size)
+  set(optional_paint_budget)
+  if(ARGC GREATER 4)
+    set(optional_paint_budget "-DEXPLICIT_MAX_PAINTED=${ARGV4}")
+  endif()
+  add_test(NAME quantapdf.external_${case_id}_typed_observe
+    COMMAND "${CMAKE_COMMAND}"
+      "-DORACLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+      "-DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/${relative_pdf}"
+      "-DREPORT=${CMAKE_CURRENT_BINARY_DIR}/external-${case_id}-typed-observe.json"
+      "-DEXPECTED_SHA256=${expected_sha256}"
+      "-DEXPECTED_SIZE=${expected_size}"
+      "-DCASE_ID=${case_id}"
+      ${optional_paint_budget}
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/check_external_nonzero_candidate_observe.cmake")
+  set_tests_properties(quantapdf.external_${case_id}_typed_observe PROPERTIES
+    TIMEOUT 40 LABELS "conformance;source-preflight;nonzero-candidate"
+    PASS_REGULAR_EXPRESSION "external W-only candidate:.*typed=")
+  if(WIN32)
+    set_property(TEST quantapdf.external_${case_id}_typed_observe
+      PROPERTY ENVIRONMENT_MODIFICATION
+      "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+  elseif(APPLE)
+    set_property(TEST quantapdf.external_${case_id}_typed_observe
+      PROPERTY ENVIRONMENT_MODIFICATION
+      "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+  else()
+    set_property(TEST quantapdf.external_${case_id}_typed_observe
+      PROPERTY ENVIRONMENT_MODIFICATION
+      "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+  endif()
+endfunction()
+add_external_nonzero_candidate_observe(
+  yworks-svg-nested-w external_wstar_candidates/documents/yworks.clippath-svg-v1.pdf
+  7c9d3eab0f401537052a5ec4a8c531954aaf354061a9de25080376a9e13cb921 4107)
+add_external_nonzero_candidate_observe(
+  yworks-hidden-w external_wstar_candidates/documents/yworks.hidden-clippath-v1.pdf
+  6369893b1f5bd57790f098242d49775094d6c25a1a9b2316aaf1fd1f9a39bc71 3309)
+add_external_nonzero_candidate_observe(
+  jspdf-w3s-clip external_wstar_candidates/documents/jspdf.w3s-clip-v1.pdf
+  179d8552191bbd1890c72a85fac58bad3dd59ff66766fff76e9a790915a1b11e 3344)
+
+add_external_nonzero_candidate_observe(
+  yworks-svg-nested-w-budget8 external_wstar_candidates/documents/yworks.clippath-svg-v1.pdf
+  7c9d3eab0f401537052a5ec4a8c531954aaf354061a9de25080376a9e13cb921 4107 8)
+
+# Test-only explicit stage diagnostic on one raw byte-pinned, still
+# unsupported nested-W original; never a positive or backend switch.
+add_test(NAME quantapdf.external_yworks_svg_w_stage_diagnostic
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/external_wstar_candidates/documents/yworks.clippath-svg-v1.pdf"
+    "-DREPORT=${CMAKE_CURRENT_BINARY_DIR}/external-yworks-svg-w-stage-diagnostic.json"
+    "-DEXPECTED_SHA256=7c9d3eab0f401537052a5ec4a8c531954aaf354061a9de25080376a9e13cb921"
+    "-DEXPECTED_SIZE=4107"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_external_nonzero_stage_diagnostic.cmake")
+set_tests_properties(quantapdf.external_yworks_svg_w_stage_diagnostic PROPERTIES
+  TIMEOUT 40 LABELS "conformance;source-preflight;nonzero-stage-diagnostic"
+  PASS_REGULAR_EXPRESSION "original-stage-diag.*status=unsupported")
+if(WIN32)
+  set_property(TEST quantapdf.external_yworks_svg_w_stage_diagnostic
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_yworks_svg_w_stage_diagnostic
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_yworks_svg_w_stage_diagnostic
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
+# Authentic, byte-pinned upstream W* PDF typed candidate, isolated from
+# five admitted original conformance sources and all native pixel counters.
+add_test(NAME quantapdf.external_yworks_wstar_typed_observe
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/external_wstar_candidates/documents/yworks.clippath-cliprule-v1.pdf"
+    "-DREPORT=${CMAKE_CURRENT_BINARY_DIR}/yworks-wstar-typed-observe.json"
+    "-DEXPECTED_SHA256=9d30a67c8194b6822f28ad9ed4848a57c7745e95d11b79267ac5141001a91783"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_external_wstar_candidate_observe.cmake")
+set_tests_properties(quantapdf.external_yworks_wstar_typed_observe PROPERTIES
+  TIMEOUT 40 LABELS "conformance;source-preflight;wstar-candidate"
+  PASS_REGULAR_EXPRESSION "yworks Wstar original candidate: typed=")
+if(WIN32)
+  set_property(TEST quantapdf.external_yworks_wstar_typed_observe
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_yworks_wstar_typed_observe
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_yworks_wstar_typed_observe
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
+# Isolated original PDFium-vs-C11 candidate W* pixel oracle, not yet
+# admitted to the five-original corpus or the production SDK.
+add_test(NAME quantapdf.external_yworks_wstar_candidate_pixels
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/external_wstar_candidates/documents/yworks.clippath-cliprule-v1.pdf"
+    "-DREPORT=${CMAKE_CURRENT_BINARY_DIR}/yworks-wstar-candidate-pixel.json"
+    "-DEXPECTED_SHA256=9d30a67c8194b6822f28ad9ed4848a57c7745e95d11b79267ac5141001a91783"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_external_wstar_candidate_pixel.cmake")
+set_tests_properties(quantapdf.external_yworks_wstar_candidate_pixels PROPERTIES
+  TIMEOUT 80 LABELS "conformance;native-raster;wstar-pixel-candidate"
+  PASS_REGULAR_EXPRESSION "yworks original Wstar candidate independent PDFium/C11 pixel parity: passed")
+if(WIN32)
+  set_property(TEST quantapdf.external_yworks_wstar_candidate_pixels
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_yworks_wstar_candidate_pixels
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_yworks_wstar_candidate_pixels
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
+# Independently released, MIT-licensed, SHA-256-pinned W/W* original.
+# The official six-source reconciler is the ONLY place that counts evidence.
+add_test(NAME quantapdf.external_yworks_wstar_original_native
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/yworks.clippath-cliprule-v1.pdf"
+    "-DREPORT=${CMAKE_CURRENT_BINARY_DIR}/external-yworks-wstar-native-status.json"
+    "-DEXPECTED_SHA256=9d30a67c8194b6822f28ad9ed4848a57c7745e95d11b79267ac5141001a91783"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_external_wstar_admitted_pixel.cmake")
+set_tests_properties(quantapdf.external_yworks_wstar_original_native PROPERTIES
+  TIMEOUT 80 LABELS "conformance;external-corpus;native-raster;wstar-positive"
+  PASS_REGULAR_EXPRESSION "admitted Wstar original: PDFium/C11 parity PASSED")
+if(WIN32)
+  set_property(TEST quantapdf.external_yworks_wstar_original_native
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_yworks_wstar_original_native
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_yworks_wstar_original_native
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
+# Failure-path evidence gate for BOTH independent original-PDFium/C11
+# W* wrappers. Invalid-but-SHA-pinned source must preserve a prior report;
+# source/output hardlink aliases must be rejected before any pixel writes.
+add_test(NAME quantapdf.external_wstar_pixel_report_guard
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DORIGINAL_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/yworks.clippath-cliprule-v1.pdf"
+    "-DADMITTED_GUARD=${CMAKE_CURRENT_SOURCE_DIR}/check_external_wstar_admitted_pixel.cmake"
+    "-DCANDIDATE_GUARD=${CMAKE_CURRENT_SOURCE_DIR}/check_external_wstar_candidate_pixel.cmake"
+    "-DOUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/external-wstar-pixel-report-guard"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_external_wstar_pixel_report_guard.cmake")
+set_tests_properties(quantapdf.external_wstar_pixel_report_guard PROPERTIES
+  TIMEOUT 40 LABELS "conformance;wstar-pixel-report-guard"
+  PASS_REGULAR_EXPRESSION "wstar-pixel-report-guard: 4 fail-closed cases passed")
+if(WIN32)
+  set_property(TEST quantapdf.external_wstar_pixel_report_guard
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_wstar_pixel_report_guard
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_wstar_pixel_report_guard
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
