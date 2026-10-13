@@ -480,6 +480,45 @@ static int test_single_vertical_analytic_trial(void)
     quantapdf_ir_raster_image_dispose(&candidate);
     quantapdf_ir_raster_image_dispose(&previous);
 
+
+    /* The fourth trial is NOT a generic miter renderer: an unrelated
+     * diagonal/acute turn in the same source path must leave all pixels
+     * unchanged, even where an earlier vertical interior would otherwise
+     * be eligible for the private analytic shortcut. */
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=3u;
+    f.cmds[0].point1=(quantapdf_point){20.0f,3.0f};
+    f.cmds[1].point1=(quantapdf_point){20.0f,20.0f};
+    f.cmds[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[2].point1=(quantapdf_point){23.0f,22.0f};
+    OK(quantapdf_ir_raster_device_polyline_stroke_right_down_corner_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&previous));
+    OK(quantapdf_ir_raster_device_polyline_stroke_single_vertical_analytic_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&candidate));
+    CHECK(previous.size==candidate.size &&
+          memcmp(previous.pixels,candidate.pixels,previous.size)==0);
+    quantapdf_ir_raster_image_dispose(&candidate);
+    quantapdf_ir_raster_image_dispose(&previous);
+
+    /* Also reject repeated same-X source vertical traversals: source
+     * membership is one Stroke union, not N alpha source-over passes. */
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=3u;
+    f.cmds[0].point1=(quantapdf_point){20.0f,3.0f};
+    f.cmds[1].point1=(quantapdf_point){20.0f,20.0f};
+    f.cmds[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[2].point1=(quantapdf_point){20.0f,3.0f};
+    OK(quantapdf_ir_raster_device_polyline_stroke_right_down_corner_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&previous));
+    OK(quantapdf_ir_raster_device_polyline_stroke_single_vertical_analytic_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&candidate));
+    CHECK(previous.size==candidate.size &&
+          memcmp(previous.pixels,candidate.pixels,previous.size)==0);
+    quantapdf_ir_raster_image_dispose(&candidate);
+    quantapdf_ir_raster_image_dispose(&previous);
+
     /* Separate fourth source-edge pass: count=1, 33x25x16 slots;
      * mode3 requires 39,600 while mode4 requires 52,800. */
     setup(&f);

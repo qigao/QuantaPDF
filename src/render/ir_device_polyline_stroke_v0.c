@@ -382,6 +382,13 @@ static int qp_single_vertical_analytic_alpha(
     if(radius!=0.5 || out_alpha==NULL ||
        !(x1>x0 && y1>y0) || !isfinite(endpoint_guard))
         return 0;
+    /* Orthogonal-only source topology is deliberate: an acute diagonal
+     * miter may project several radii beyond its neighbor's rectangle.
+     * Refuse this analytic shortcut for the entire source Stroke if ANY
+     * diagonal appears, rather than silently sampling across such a join. */
+    for(size_t i=0u;i<count;++i)
+        if(segments[i].dx!=0.0 && segments[i].dy!=0.0)
+            return 0;
     for(size_t i=0u;i<count;++i) {
         const qp_stroke_segment *v=&segments[i];
         const double bottom=fmin(v->a.y,v->b.y);
