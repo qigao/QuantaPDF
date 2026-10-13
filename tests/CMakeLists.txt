@@ -2028,6 +2028,46 @@ else()
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
 
+# Byte-pinned W-only originals, quarantined from the W* positive population.
+# The actual selected-page Document -> Graph -> detached IR observe is used
+# instead of heuristic token scanning. No pixel parity or corpus admission.
+function(add_external_nonzero_candidate_observe case_id relative_pdf expected_sha256 expected_size)
+  add_test(NAME quantapdf.external_${case_id}_typed_observe
+    COMMAND "${CMAKE_COMMAND}"
+      "-DORACLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+      "-DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/${relative_pdf}"
+      "-DREPORT=${CMAKE_CURRENT_BINARY_DIR}/external-${case_id}-typed-observe.json"
+      "-DEXPECTED_SHA256=${expected_sha256}"
+      "-DEXPECTED_SIZE=${expected_size}"
+      "-DCASE_ID=${case_id}"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/check_external_nonzero_candidate_observe.cmake")
+  set_tests_properties(quantapdf.external_${case_id}_typed_observe PROPERTIES
+    TIMEOUT 40 LABELS "conformance;source-preflight;nonzero-candidate"
+    PASS_REGULAR_EXPRESSION "external W-only candidate:.*typed=")
+  if(WIN32)
+    set_property(TEST quantapdf.external_${case_id}_typed_observe
+      PROPERTY ENVIRONMENT_MODIFICATION
+      "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+  elseif(APPLE)
+    set_property(TEST quantapdf.external_${case_id}_typed_observe
+      PROPERTY ENVIRONMENT_MODIFICATION
+      "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+  else()
+    set_property(TEST quantapdf.external_${case_id}_typed_observe
+      PROPERTY ENVIRONMENT_MODIFICATION
+      "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+  endif()
+endfunction()
+add_external_nonzero_candidate_observe(
+  yworks-svg-nested-w external_wstar_candidates/documents/yworks.clippath-svg-v1.pdf
+  7c9d3eab0f401537052a5ec4a8c531954aaf354061a9de25080376a9e13cb921 4107)
+add_external_nonzero_candidate_observe(
+  yworks-hidden-w external_wstar_candidates/documents/yworks.hidden-clippath-v1.pdf
+  6369893b1f5bd57790f098242d49775094d6c25a1a9b2316aaf1fd1f9a39bc71 3309)
+add_external_nonzero_candidate_observe(
+  jspdf-w3s-clip external_wstar_candidates/documents/jspdf.w3s-clip-v1.pdf
+  179d8552191bbd1890c72a85fac58bad3dd59ff66766fff76e9a790915a1b11e 3344)
+
 # Authentic, byte-pinned upstream W* PDF typed candidate, isolated from
 # five admitted original conformance sources and all native pixel counters.
 add_test(NAME quantapdf.external_yworks_wstar_typed_observe
