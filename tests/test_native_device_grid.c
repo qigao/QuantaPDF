@@ -42,12 +42,12 @@ static void check_extents_and_samples(void)
         CHECK(grid.stride == grid.width * 4u);
         CHECK(grid.rgba_bytes == grid.width * grid.height * 4u);
         CHECK(grid.sample_slots == grid.width * grid.height * 16u);
-        CHECK(fabs(grid.points_per_device_x - g.page_width_points / grid.width) < 1e-14);
-        CHECK(fabs(grid.points_per_device_y - g.page_height_points / grid.height) < 1e-14);
+        CHECK(fabs(grid.points_per_device_x - g.page_width_points / (double)grid.width) < 1e-14);
+        CHECK(fabs(grid.points_per_device_y - g.page_height_points / (double)grid.height) < 1e-14);
         copy = grid;
         OK(quantapdf_native_device_grid_sample_v0(&copy,0u,0u,0u,0u,&x,&y));
-        CHECK(fabs(x - g.page_width_points / (grid.width * 8.0)) < 1e-13);
-        CHECK(fabs(y - g.page_height_points / (grid.height * 8.0)) < 1e-13);
+        CHECK(fabs(x - g.page_width_points / ((double)grid.width * 8.0)) < 1e-13);
+        CHECK(fabs(y - g.page_height_points / ((double)grid.height * 8.0)) < 1e-13);
         OK(quantapdf_native_device_grid_sample_v0(&copy,grid.width-1u,
             grid.height-1u,3u,3u,&x,&y));
         CHECK(x > 0.0 && x < g.page_width_points);
