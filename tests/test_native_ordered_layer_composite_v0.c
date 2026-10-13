@@ -46,7 +46,7 @@ static int check_order_and_repeat(void)
 static int check_fail_closed(void)
 {
     unsigned char earlier_pixels[8]={0u,0u,0u,255u,0u,0u,0u,128u};
-    unsigned char later_pixels[8]={255u,0u,0u,255u,255u,0u,0u,128u};
+    unsigned char later_pixels[16]={255u,0u,0u,255u,255u,0u,0u,128u};
     quantapdf_ir_raster_image earlier={0},later={0},output={0};
     quantapdf_ir_ordered_composite_v0_limits limits={2u,8u};
     earlier.pixels=earlier_pixels;
@@ -66,14 +66,14 @@ static int check_fail_closed(void)
     REFUSE(quantapdf_ir_ordered_layer_composite_v0(
         &earlier,&later,&limits,&output));
     limits.max_output_bytes=8u;
-    later.width=1u;
+    later.width=1u;later.stride=4u;later.size=4u;
     REFUSE(quantapdf_ir_ordered_layer_composite_v0(
         &earlier,&later,&limits,&output));
-    later.width=2u;
-    later.height=2u;
+    later.width=2u;later.stride=8u;later.size=8u;
+    later.height=2u;later.size=16u;
     REFUSE(quantapdf_ir_ordered_layer_composite_v0(
         &earlier,&later,&limits,&output));
-    later.height=1u;
+    later.height=1u;later.size=8u;
     later.stride=4u;
     memset(&output,0xa5,sizeof(output));
     CHECK(quantapdf_ir_ordered_layer_composite_v0(
