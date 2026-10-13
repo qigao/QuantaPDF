@@ -1789,6 +1789,99 @@ int test_external_pdfium_wstar_text_rejection(const char *filename,
  * raster consumes only owned detached Source->Graph->Composer IR after both
  * source/Graph objects are disposed. No QPDF export and no PDFium fallback.
  * Six painted Paths, five W Clip leaves and four Clip intersection nodes. */
+/* Original published jsPDF A4 W n selected page. Full typed Source->Graph
+ * lowering is supported, while private C11 pixel raster deliberately has
+ * no fractional-point PDF-to-device grid contract yet (#269). Do not
+ * silently truncate, round or rewrite the original MediaBox to pass. */
+int test_external_jspdf_fractional_page_rejection(
+    const char *filename, const char *report_path)
+{
+    CHECK(filename && *filename && report_path && *report_path);
+    namespace fs=std::filesystem;
+    std::error_code ec;
+    const fs::path source(filename),report(report_path);
+    const std::string pending=std::string(report_path)+".tmp";
+    const fs::path stage(pending);
+    CHECK(fs::is_regular_file(source,ec) && !ec);
+    CHECK(!fs::is_symlink(source,ec) && !ec);
+    const fs::path pinned=fs::weakly_canonical(source,ec);
+    CHECK(!ec);
+    CHECK(fs::weakly_canonical(report,ec)!=pinned && !ec);
+    CHECK(fs::weakly_canonical(stage,ec)!=pinned && !ec);
+    for(const fs::path& candidate:{report,stage}) {
+        const bool exists=fs::exists(candidate,ec);
+        CHECK(!ec);
+        if(exists) {
+            CHECK(!fs::is_symlink(candidate,ec) && !ec);
+            CHECK(!fs::equivalent(source,candidate,ec) && !ec);
+        }
+    }
+    CHECK(corpus_fixture_executions==0u);
+    quantapdf_ir detached{};
+    OK(snapshot_lower(&detached,0u,4u,8u,filename));
+    CHECK(detached.pages!=nullptr && detached.page_count==1u &&
+          detached.pages[0].width_points==(float)595.28 &&
+          detached.pages[0].height_points==(float)841.89 &&
+          detached.pages[0].suppress_background==1 &&
+          detached.operations!=nullptr && detached.operation_count==2u &&
+          detached.resources.clip_count==1u &&
+          detached.resources.graphics_state_count==1u &&
+          detached.resources.font_count==0u &&
+          detached.resources.image_count==0u &&
+          detached.resources.form_count==0u &&
+          detached.resources.soft_mask_count==0u);
+    const clip_leaf_counts winding=inspect_clip_fill_rules(detached);
+    CHECK(winding.nonzero==1u && winding.evenodd==0u &&
+          winding.intersections==0u);
+    const quantapdf_ir_raster_v1_limits limits={
+        600u*850u,2u,768u,70000000u
+    };
+    quantapdf_ir_raster_image native{};
+    const quantapdf_status status=
+        quantapdf_ir_raster_scoped_operations_v1(
+            &detached,0u,&limits,&native);
+    CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(native.pixels==nullptr && native.size==0u &&
+          native.width==0u && native.height==0u && native.stride==0u);
+    quantapdf_ir_dispose(&detached);
+    CHECK(corpus_fixture_executions==0u);
+
+    FILE *out=std::fopen(pending.c_str(),"wb");
+    CHECK(out!=nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"result\": \"quarantined_original_fractional_page_native_rejection\",\n"
+        "  \"document_id\": \"jspdf.w3s-clip-v1\",\n"
+        "  \"fixture_kind\": \"quarantined-external-original\",\n"
+        "  \"observation_only\": true,\n"
+        "  \"typed_native_lower_status\": \"lowered\",\n"
+        "  \"native_raster_status\": \"unsupported\",\n"
+        "  \"native_raster_rejection_reason\": \"fractional_page_points\",\n"
+        "  \"page_width_points\": 595.28,\n"
+        "  \"page_height_points\": 841.89,\n"
+        "  \"detached_ir_painted_paths\": 2,\n"
+        "  \"detached_ir_w_nonzero_clip_leaves\": 1,\n"
+        "  \"detached_ir_wstar_clip_leaves\": 0,\n"
+        "  \"source_and_graph_released_before_raster\": true,\n"
+        "  \"native_partial_pixels_published\": false,\n"
+        "  \"original_pdfium_pixel_oracle\": \"not_run\",\n"
+        "  \"native_pixel_positive_count\": 0,\n"
+        "  \"official_corpus_admitted\": false,\n"
+        "  \"generated_fixture_count\": 0\n"
+        "}\n");
+    CHECK(std::ferror(out)==0 && std::fclose(out)==0);
+#ifdef _WIN32
+    errno=0;
+    if(std::remove(report_path)!=0) CHECK(errno==ENOENT);
+#endif
+    CHECK(std::rename(pending.c_str(),report_path)==0);
+    std::fprintf(stderr,
+        "[fractional-page-jsPDF] typed=lowered raster=UNSUPPORTED "
+        "page=595.28x841.89 W=1 W*=0 original=unchanged pixels=0\n");
+    return EXIT_SUCCESS;
+}
+
 int test_external_yworks_svg_w_pixels(const char *filename,
                                       const char *report_path)
 {
@@ -3025,6 +3118,11 @@ int main(int argc,char **argv)
        std::strcmp(argv[1],"--generated-wstar-observe")==0 &&
        std::strcmp(argv[2],"--preflight-report")==0)
         return test_generated_wstar_typed_observe(argv[3]);
+    if(argc==5 &&
+       std::strcmp(argv[1],"--external-fractional-jspdf-pdf")==0 &&
+       std::strcmp(argv[3],"--external-report")==0)
+        return test_external_jspdf_fractional_page_rejection(
+            argv[2],argv[4]);
     if(argc==5 &&
        std::strcmp(argv[1],"--external-svg-w-candidate-pdf")==0 &&
        std::strcmp(argv[3],"--external-report")==0)

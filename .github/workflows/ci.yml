@@ -224,6 +224,22 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Review independent jsPDF fractional page rejection (Linux)
+        shell: bash
+        run: |
+          cat build/linux-gcc-release/tests/external-jspdf-fractional-page-native.json
+          cat build/linux-gcc-debug/tests/external-jspdf-fractional-page-native.json
+
+      - name: Upload independent jsPDF fractional page rejection (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-jspdf-fractional-linux
+          path: |
+            build/linux-gcc-release/tests/external-jspdf-fractional-page-native.json
+            build/linux-gcc-debug/tests/external-jspdf-fractional-page-native.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Qualify external PDF corpus admission (Linux)
         shell: bash
         run: |
@@ -487,6 +503,20 @@ jobs:
           name: quarantined-svg-w-native-macos
           path: |
             build/macos-clang-release/tests/yworks-svg-w-candidate-pixel.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review independent jsPDF fractional page rejection (macOS)
+        shell: bash
+        run: |
+          cat build/macos-clang-release/tests/external-jspdf-fractional-page-native.json
+
+      - name: Upload independent jsPDF fractional page rejection (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-jspdf-fractional-macos
+          path: |
+            build/macos-clang-release/tests/external-jspdf-fractional-page-native.json
           if-no-files-found: error
           retention-days: 7
 
@@ -771,6 +801,20 @@ jobs:
           name: quarantined-svg-w-native-windows
           path: |
             build/Msvc-Release/tests/yworks-svg-w-candidate-pixel.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review independent jsPDF fractional page rejection (Windows)
+        shell: pwsh
+        run: |
+          Get-Content build/Msvc-Release/tests/external-jspdf-fractional-page-native.json
+
+      - name: Upload independent jsPDF fractional page rejection (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-jspdf-fractional-windows
+          path: |
+            build/Msvc-Release/tests/external-jspdf-fractional-page-native.json
           if-no-files-found: error
           retention-days: 7
 

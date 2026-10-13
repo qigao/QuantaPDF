@@ -2104,6 +2104,33 @@ else()
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
 
+# Original jsPDF producer W-only Clip with fractional A4 page points:
+# typed lower succeeds, but private C11 pixel grid has not qualified
+# fractional MediaBox→pixel mapping. Fail closed; no QPDF/PDFium fallback.
+add_test(NAME quantapdf.external_jspdf_fractional_page_native_rejection
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/external_wstar_candidates/documents/jspdf.w3s-clip-v1.pdf"
+    "-DREPORT=${CMAKE_CURRENT_BINARY_DIR}/external-jspdf-fractional-page-native.json"
+    "-DEXPECTED_SHA256=179d8552191bbd1890c72a85fac58bad3dd59ff66766fff76e9a790915a1b11e"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_external_jspdf_fractional_page.cmake")
+set_tests_properties(quantapdf.external_jspdf_fractional_page_native_rejection PROPERTIES
+  TIMEOUT 40 LABELS "conformance;source-preflight;fractional-page-negative"
+  PASS_REGULAR_EXPRESSION "fractional-page-jsPDF: typed=lowered raster=UNSUPPORTED")
+if(WIN32)
+  set_property(TEST quantapdf.external_jspdf_fractional_page_native_rejection
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_jspdf_fractional_page_native_rejection
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_jspdf_fractional_page_native_rejection
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
 # Authentic, byte-pinned upstream W* PDF typed candidate, isolated from
 # five admitted original conformance sources and all native pixel counters.
 add_test(NAME quantapdf.external_yworks_wstar_typed_observe
