@@ -278,3 +278,48 @@ At independently pinned [PDFium revision `a84323421e94f484faca52dd9d027934eba42a
 - `bug_402562387.in` contains an incidental `W*` substring inside binary-like data, **not** a delimiter-bounded `W*` operator. `bug_861842.in` (upstream Git blob `244da49c60c2b3bfb99df528ec8233ff8116c286`) is not UTF-8 readable; a separate exact-byte inspection found no `W*` byte sequence.
 
 **Scope:** this is a complete enumeration of those **194 paired templates**, not an exhaustive search of their real original PDF streams, other PDFium subdirectories, PDF templates without paired `.pdf`, or actual selected-page typed semantics. No unmodified external W* Path-only **positive** is qualified by this screening. Do not count a template as an original PDF, and do not skip unsupported operations to manufacture one. External W* original-source pixel-positive remains **0**.
+
+## Additional small-original source reconnaissance (2026-10-13)
+
+These observations are **discovery only**, not complete typed selected-page
+preflight, a document-level license grant, SHA-256 original-byte admission, or
+an original PDFium/native pixel-parity pass. No original PDF was modified,
+redistributed, copied into the test corpus, or counted. The existing
+test-only --expect-status observe tool remains the next necessary gate
+**once a plausible separately published W* Path/Clip candidate is found**.
+
+- **PDFium:** At immutable upstream revision
+  [a84323421e94f484faca52dd9d027934eba42ab8](https://github.com/chromium/pdfium/tree/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources),
+  screened 75 Git-tree PDFs in testing/resources recursively with
+  file size 101..12,000 bytes and *without* a paired .in file.
+  Delimiter-bounded raw W* text was observed in
+  [bug_601362.pdf](https://github.com/chromium/pdfium/blob/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources/bug_601362.pdf)
+  (Git blob d21a83405ea6469ec329ab31ad207362fcdd6706),
+  [text_font.pdf](https://github.com/chromium/pdfium/blob/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources/text_font.pdf)
+  (blob 78f3bcc784a08d0abf0948d78c52881fafca6d49) and
+  [pixel/bug_925736.pdf](https://github.com/chromium/pdfium/blob/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources/pixel/bug_925736.pdf)
+  (blob 429d53a477fc436692a00c08a2a7b4e867e1cce3).
+  All three observed W* contexts subsequently use BT/TJ/ET Text.
+  This was not complete content-stream decompression or page attribution;
+  a no-hit is **not** proof that no W* exists elsewhere.
+- **fpdf2:** At immutable upstream
+  [a3cca5cc77144775603ace8467c0743e2deee53f](https://github.com/py-pdf/fpdf2/tree/a3cca5cc77144775603ace8467c0743e2deee53f/test/svg/generated_pdf),
+  attempted the first 45 tree-ordered test/svg/generated_pdf PDF blobs
+  under 50,000 bytes. Ad-hoc raw/Flate content inspection found no
+  standalone W* in the successfully recovered content; there was one
+  fetch error and two stream decompression errors. Therefore this census
+  is incomplete. A W nonzero clip or f* paint is not a W* clip; the
+  software repository license does not replace document-specific review.
+- **PDF Association:** At immutable
+  [pdf-differences revision 907fe96e52b73e491489eee545c47b119bf9989b](https://github.com/pdf-association/pdf-differences/tree/907fe96e52b73e491489eee545c47b119bf9989b),
+  scanned the original raw content of 30 PDF blobs smaller than 14,000
+  bytes; no delimiter-bounded raw W* was observed. UnknownFilter
+  streams and larger sources were not fully examined. The PDF-specific
+  CC BY 4.0 notice does not establish W* source eligibility.
+
+**No new candidate has passed a complete typed --expect-status observe
+preflight or independent original-source PDFium versus detached C11
+whole-page pixel oracle.** The previously CI-validated original-source
+observe controls (clip_path lowerable; bug_1574 with late Text rejected)
+remain unchanged. External W* original-source pixel positives **0**.
+Issue #262 OPEN, PR #263 DRAFT / DO NOT MERGE; public SDK PDFium unchanged.
