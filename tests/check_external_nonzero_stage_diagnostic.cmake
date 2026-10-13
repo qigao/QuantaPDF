@@ -36,6 +36,14 @@ string(JSON pixel GET "${json}" original_pdfium_pixel_oracle)
 string(JSON raster GET "${json}" native_raster)
 string(JSON positives GET "${json}" external_wstar_pixel_supported_count)
 string(JSON generated GET "${json}" generated_fixture_count)
+string(JSON first_path GET "${json}" first_rejected_path_record_index)
+string(JSON first_status GET "${json}" first_rejected_prefix_status)
+string(JSON total_paths GET "${json}" parsed_path_records)
+string(JSON ctm_type TYPE "${json}" first_rejected_source_ctm)
+if(NOT ctm_type STREQUAL "ARRAY" OR NOT first_status EQUAL 5
+   OR first_path LESS 0 OR NOT first_path LESS total_paths)
+  message(FATAL_ERROR "First unsupported prefix diagnostic missing/invalid")
+endif()
 if(NOT result STREQUAL "test_only_original_source_stage_diagnostic"
     OR failed_stage STREQUAL "none" OR NOT budget EQUAL 8
     OR NOT observed OR provenance OR NOT released

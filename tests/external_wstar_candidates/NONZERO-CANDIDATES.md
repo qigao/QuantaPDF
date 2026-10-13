@@ -66,3 +66,17 @@ no C11 raster, no fallback and no official corpus counter changes**.
 Any non-UNSUPPORTED error or leaked native support claim fails closed.
 CI uploads the stage JSON alongside the two independent default/budget8
 typed observations.
+
+## Cumulative Path prefix localization (test only)
+
+The actual `quantapdf_pdf_path_lower_to_composer_mapped` C11
+implementation is invoked on sequential **borrowed views** of the same
+fully parsed, unmodified upstream original. Every prefix owns and
+disposes its own temporary detached IR; cumulative Clip counts follow
+the original immutable record order. The first prefix returning
+`UNSUPPORTED` is recorded with its zero-based Path record index,
+original content operator range, Clip-introduction flag, paint opcode
+and exact six-component source CTM. Prefix tracing does not alter the
+production admission or claim a pixel positive. It only narrows the
+remaining failure **within** `path_lowering` and must agree across all
+three CI platforms before interpretation.

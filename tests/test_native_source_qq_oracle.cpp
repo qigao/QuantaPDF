@@ -2044,6 +2044,60 @@ int diagnose_original_stages(const char *source_path,const char *report_path)
             &diagnostic_limits,&detached);
         if(st!=QUANTAPDF_OK) failed_stage="path_lowering";
     }
+    /* Diagnose the earliest incompatible ORIGINAL Path record using the
+     * actual native lowerer on strictly bounded cumulative views. These
+     * views borrow fully parsed semantics; only temporary IR is disposed.
+     * No original rewrite, production retry, or pixel rendering occurs. */
+    size_t first_failed_path=SIZE_MAX;
+    size_t first_failed_operator=SIZE_MAX;
+    size_t first_failed_terminal_operator=SIZE_MAX;
+    size_t first_failed_clip_count=0u;
+    size_t first_failed_is_clip=0u;
+    int first_failed_status=0;
+    int first_failed_paint_opcode=0;
+    double first_failed_source_ctm[6]={0};
+    if(std::strcmp(failed_stage,"path_lowering")==0) {
+        CHECK(semantics!=nullptr && semantics->graphics!=nullptr);
+        size_t prefix_clip_count=0u;
+        const quantapdf_pdf_path_lower_limits diagnostic_limits={8u,256u};
+        for(size_t i=0u;i<semantics->graphics->path_count;++i) {
+            const quantapdf_pdf_path_record& record=semantics->graphics->paths[i];
+            if(record.clip_after>prefix_clip_count)
+                prefix_clip_count=record.clip_after;
+            CHECK(prefix_clip_count<=semantics->graphics->clip_count);
+            quantapdf_pdf_graphics_ir prefix_graphics=*semantics->graphics;
+            prefix_graphics.path_count=i+1u;
+            prefix_graphics.clip_count=prefix_clip_count;
+            quantapdf_pdf_page_semantics prefix_page=*semantics;
+            prefix_page.graphics=&prefix_graphics;
+            quantapdf_ir prefix_ir{};
+            const quantapdf_status prefix_status=
+                quantapdf_pdf_path_lower_to_composer_mapped(
+                    &prefix_page,display.width_points,display.height_points,
+                    display.from_source,&diagnostic_limits,&prefix_ir);
+            if(prefix_status==QUANTAPDF_OK) {
+                quantapdf_ir_dispose(&prefix_ir);
+                continue;
+            }
+            CHECK(prefix_status==QUANTAPDF_ERROR_UNSUPPORTED);
+            CHECK(prefix_ir.pages==nullptr && prefix_ir.page_count==0u &&
+                  prefix_ir.operations==nullptr && prefix_ir.operation_count==0u &&
+                  prefix_ir.resources.clip_count==0u &&
+                  prefix_ir.resources.graphics_state_count==0u);
+            quantapdf_ir_dispose(&prefix_ir);
+            first_failed_path=i;
+            first_failed_operator=record.path_first_operator;
+            first_failed_terminal_operator=record.terminal_operator;
+            first_failed_clip_count=prefix_clip_count;
+            first_failed_is_clip=record.clip_after!=record.graphics.clip_id?1u:0u;
+            first_failed_paint_opcode=(int)record.paint_opcode;
+            first_failed_status=(int)prefix_status;
+            for(size_t k=0u;k<6u;++k)
+                first_failed_source_ctm[k]=record.graphics.ctm[k];
+            break;
+        }
+        CHECK(first_failed_path!=SIZE_MAX);
+    }
     const int code=(int)st;
     const bool unsupported=st==QUANTAPDF_ERROR_UNSUPPORTED;
     if(st==QUANTAPDF_OK)
@@ -2080,6 +2134,14 @@ int diagnose_original_stages(const char *source_path,const char *report_path)
         "  \"parsed_path_records\": %zu,\n"
         "  \"parsed_clip_records\": %zu,\n"
         "  \"parsed_painted_paths\": %zu,\n"
+        "  \"first_rejected_path_record_index\": %zu,\n"
+        "  \"first_rejected_path_first_operator_index\": %zu,\n"
+        "  \"first_rejected_path_terminal_operator_index\": %zu,\n"
+        "  \"first_rejected_prefix_clip_count\": %zu,\n"
+        "  \"first_rejected_introduces_clip\": %zu,\n"
+        "  \"first_rejected_paint_opcode\": %d,\n"
+        "  \"first_rejected_prefix_status\": %d,\n"
+        "  \"first_rejected_source_ctm\": [%.17g, %.17g, %.17g, %.17g, %.17g, %.17g],\n"
         "  \"source_document_graph_released\": true,\n"
         "  \"detached_ir_pages\": 0,\n"
         "  \"detached_ir_operations\": 0,\n"
@@ -2088,7 +2150,12 @@ int diagnose_original_stages(const char *source_path,const char *report_path)
         "  \"external_wstar_pixel_supported_count\": 0,\n"
         "  \"generated_fixture_count\": 0\n"
         "}\n",
-        failed_stage,code,content_ops,paths,clips,painted);
+        failed_stage,code,content_ops,paths,clips,painted,
+        first_failed_path,first_failed_operator,first_failed_terminal_operator,
+        first_failed_clip_count,first_failed_is_clip,first_failed_paint_opcode,
+        first_failed_status,first_failed_source_ctm[0],first_failed_source_ctm[1],
+        first_failed_source_ctm[2],first_failed_source_ctm[3],
+        first_failed_source_ctm[4],first_failed_source_ctm[5]);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
@@ -2097,8 +2164,8 @@ int diagnose_original_stages(const char *source_path,const char *report_path)
     CHECK(std::rename(staged.c_str(),report_path)==0);
     std::fprintf(stderr,
         "[original-stage-diag] stage=%s status=unsupported parsed_paths=%zu "
-        "clips=%zu painted=%zu budget=8 pixels=not_run\n",
-        failed_stage,paths,clips,painted);
+        "clips=%zu painted=%zu first_rejected_record=%zu budget=8 pixels=not_run\n",
+        failed_stage,paths,clips,painted,first_failed_path);
     return 0;
 }
 
