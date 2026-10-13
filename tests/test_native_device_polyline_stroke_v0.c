@@ -243,6 +243,101 @@ static int test_horizontal_thin_preview(void)
     return EXIT_SUCCESS;
 }
 
+/* A/B only: repeated 1pt horizontal source endpoints are a separate
+ * hypothesis; the previous CI-qualified interior preview remains exactly
+ * unchanged and no wider/vertical/single-pass line is automatically snapped. */
+static int test_repeated_horizontal_endpoint_trial(void)
+{
+    fixture f;
+    quantapdf_ir_raster_image old={0},inner={0},endpoint={0},again={0};
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=2u;
+    OK(RENDER(f,old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_repeated_endpoint_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&endpoint));
+    CHECK(endpoint.size==old.size &&
+          memcmp(old.pixels,endpoint.pixels,old.size)==0);
+    quantapdf_ir_raster_image_dispose(&endpoint);
+    quantapdf_ir_raster_image_dispose(&old);
+
+    /* One same-Y horizontal Stroke retraced twice, including both source
+     * endpoints. The existing interior preview excludes the endpoint
+     * device columns, while the new trial includes *only* intersecting
+     * repeated-strip columns. */
+    f.cmds[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[2].point1=(quantapdf_point){2.0f,8.0f};
+    f.cmds[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[3].point1=(quantapdf_point){20.0f,8.0f};
+    f.op.value.path.command_count=4u;
+    OK(RENDER(f,old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_thin_horizontal_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&inner));
+    OK(quantapdf_ir_raster_device_polyline_stroke_repeated_endpoint_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&endpoint));
+    CHECK(old.size==inner.size && old.size==endpoint.size);
+    CHECK(alpha(&inner,10u,7u)==255u &&
+          alpha(&endpoint,10u,7u)==255u);
+    CHECK(alpha(&inner,2u,7u)<255u &&
+          alpha(&endpoint,2u,7u)==255u);
+    CHECK(alpha(&inner,20u,7u)<255u &&
+          alpha(&endpoint,20u,7u)==255u);
+    CHECK(alpha(&endpoint,1u,7u)==alpha(&old,1u,7u));
+    CHECK(alpha(&endpoint,21u,7u)==alpha(&old,21u,7u));
+    CHECK(alpha(&endpoint,21u,7u)==0u);
+    OK(quantapdf_ir_raster_device_polyline_stroke_repeated_endpoint_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&again));
+    CHECK(endpoint.size==again.size &&
+          memcmp(endpoint.pixels,again.pixels,endpoint.size)==0);
+    quantapdf_ir_raster_image_dispose(&again);
+    quantapdf_ir_raster_image_dispose(&endpoint);
+    quantapdf_ir_raster_image_dispose(&inner);
+    quantapdf_ir_raster_image_dispose(&old);
+
+    /* Source lines on slightly different Y coordinates may touch the
+     * same device row: they must NEVER count as exact source repeats. */
+    f.cmds[2].point1=(quantapdf_point){2.0f,8.25f};
+    f.cmds[3].point1=(quantapdf_point){20.0f,8.25f};
+    OK(RENDER(f,old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_repeated_endpoint_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&endpoint));
+    CHECK(endpoint.size==old.size &&
+          memcmp(endpoint.pixels,old.pixels,old.size)==0);
+    quantapdf_ir_raster_image_dispose(&endpoint);
+    quantapdf_ir_raster_image_dispose(&old);
+
+    /* 144 DPI makes a 1pt Stroke >=2 device rows: both preview modes
+     * must remain byte-identical to the original 4x4 renderer. */
+    setup(&f);
+    f.geom.dpi=144.0f;
+    f.grid_budget.max_pixels=4000u;
+    f.grid_budget.max_rgba_bytes=16000u;
+    f.raster_budget.max_pixels=4000u;
+    f.op.value.path.options.stroke_width=1.0f;
+    f.cmds[2].point1=(quantapdf_point){2.0f,8.0f};
+    f.cmds[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[3].point1=(quantapdf_point){20.0f,8.0f};
+    f.op.value.path.command_count=4u;
+    OK(RENDER(f,old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_repeated_endpoint_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&endpoint));
+    CHECK(endpoint.size==old.size &&
+          memcmp(endpoint.pixels,old.pixels,old.size)==0);
+    quantapdf_ir_raster_image_dispose(&endpoint);
+    quantapdf_ir_raster_image_dispose(&old);
+
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.grid_budget.max_rgba_bytes=16u; /* valid argument, below output */
+    memset(&endpoint,0xa5,sizeof(endpoint));
+    BAD(quantapdf_ir_raster_device_polyline_stroke_repeated_endpoint_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&endpoint));
+    CHECK(endpoint.pixels==NULL && endpoint.size==0u &&
+          endpoint.width==0u && endpoint.height==0u &&
+          endpoint.stride==0u);
+    return EXIT_SUCCESS;
+}
+
 static int test_pixel_width_and_rejections(void)
 {
     fixture f;
@@ -291,6 +386,7 @@ int main(void)
 {
     CHECK(test_miter_and_butt_and_repeat()==EXIT_SUCCESS);
     CHECK(test_horizontal_thin_preview()==EXIT_SUCCESS);
+    CHECK(test_repeated_horizontal_endpoint_trial()==EXIT_SUCCESS);
     CHECK(test_pixel_width_and_rejections()==EXIT_SUCCESS);
     puts("native-device-polyline-stroke: butt+miter+bevel+union+limits PASS");
     return EXIT_SUCCESS;

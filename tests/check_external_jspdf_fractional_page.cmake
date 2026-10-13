@@ -296,6 +296,89 @@ if(preview_abs_rgb_error GREATER_EQUAL cmp_ordered_native_composite_abs_rgb_erro
   message(FATAL_ERROR "Repeated-Stroke preview regressed pinned original image")
 endif()
 
+# Second independent endpoint-overlap A/B (still unqualified).
+# A full original 596x842 rescan must agree with its spatial error
+# decomposition and reported digest; NO guessed pixel-acceptance threshold.
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    original_pdfium_pixel_count repeat_equal abs_rgb_error
+    mean_abs_rgb_error changed_pixels gross_delta64_pixels
+    max_channel_delta rgb_fnv64)
+  string(JSON ep_${field} GET "${json}" horizontal_repeated_endpoint_preview_${field})
+endforeach()
+string(LENGTH "${ep_rgb_fnv64}" ep_digest_length)
+if(NOT ep_status STREQUAL "measured_unqualified"
+   OR ep_default_changed OR ep_pixel_parity_qualified
+   OR NOT ep_original_pdfium_pixel_count EQUAL 501832
+   OR NOT ep_repeat_equal
+   OR ep_abs_rgb_error LESS 0 OR ep_abs_rgb_error GREATER 383901480
+   OR ep_mean_abs_rgb_error LESS 0 OR ep_mean_abs_rgb_error GREATER 255
+   OR ep_changed_pixels LESS 0 OR ep_changed_pixels GREATER 501832
+   OR ep_gross_delta64_pixels LESS 0
+   OR ep_gross_delta64_pixels GREATER ep_changed_pixels
+   OR ep_max_channel_delta LESS 0 OR ep_max_channel_delta GREATER 255
+   OR NOT ep_digest_length EQUAL 16
+   OR NOT ep_rgb_fnv64 MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "Unqualified repeated-endpoint trial is unbounded")
+endif()
+string(JSON ep_schema GET "${json}" horizontal_repeated_endpoint_preview_spatial_attribution schema_version)
+string(JSON ep_changed_len LENGTH "${json}" horizontal_repeated_endpoint_preview_spatial_attribution changed_by_partial_mask)
+string(JSON ep_gross_len LENGTH "${json}" horizontal_repeated_endpoint_preview_spatial_attribution gross_by_partial_mask)
+string(JSON ep_error_len LENGTH "${json}" horizontal_repeated_endpoint_preview_spatial_attribution abs_rgb_error_by_partial_mask)
+string(JSON ep_worst_len LENGTH "${json}" horizontal_repeated_endpoint_preview_spatial_attribution worst_pixels)
+string(JSON ep_bounds_len LENGTH "${json}" horizontal_repeated_endpoint_preview_spatial_attribution changed_bounds)
+if(NOT ep_schema EQUAL 1 OR NOT ep_changed_len EQUAL 4
+   OR NOT ep_gross_len EQUAL 4 OR NOT ep_error_len EQUAL 4
+   OR NOT ep_bounds_len EQUAL 4 OR ep_worst_len GREATER 12)
+  message(FATAL_ERROR "Endpoint A/B whole-image attribution incomplete")
+endif()
+set(ep_sum_changed 0)
+set(ep_sum_gross 0)
+set(ep_sum_error 0)
+foreach(i RANGE 0 3)
+  string(JSON count GET "${json}" horizontal_repeated_endpoint_preview_spatial_attribution changed_by_partial_mask ${i})
+  string(JSON severe GET "${json}" horizontal_repeated_endpoint_preview_spatial_attribution gross_by_partial_mask ${i})
+  string(JSON error GET "${json}" horizontal_repeated_endpoint_preview_spatial_attribution abs_rgb_error_by_partial_mask ${i})
+  if(count LESS 0 OR count GREATER 501832 OR severe LESS 0 OR severe GREATER count
+     OR error LESS 0 OR error GREATER 383901480)
+    message(FATAL_ERROR "Endpoint A/B attribution group malformed")
+  endif()
+  math(EXPR ep_sum_changed "${ep_sum_changed}+${count}")
+  math(EXPR ep_sum_gross "${ep_sum_gross}+${severe}")
+  math(EXPR ep_sum_error "${ep_sum_error}+${error}")
+endforeach()
+if(NOT ep_sum_changed EQUAL ep_changed_pixels
+   OR NOT ep_sum_gross EQUAL ep_gross_delta64_pixels
+   OR NOT ep_sum_error EQUAL ep_abs_rgb_error)
+  message(FATAL_ERROR "Endpoint A/B whole-image counts contradict pixel origins")
+endif()
+if(ep_changed_pixels GREATER 0)
+  if(ep_worst_len EQUAL 0)
+    message(FATAL_ERROR "Endpoint A/B changed pixels lack reference coordinates")
+  endif()
+  string(JSON leading GET "${json}" horizontal_repeated_endpoint_preview_spatial_attribution worst_pixels 0 max_delta)
+  if(NOT leading EQUAL ep_max_channel_delta)
+    message(FATAL_ERROR "Endpoint A/B maximum channel delta not grounded")
+  endif()
+endif()
+if(ep_worst_len GREATER 0)
+  math(EXPR ep_last "${ep_worst_len}-1")
+  set(ep_prior 256)
+  foreach(i RANGE 0 ${ep_last})
+    foreach(field IN ITEMS x y max_delta stroke_alpha fill_alpha)
+      string(JSON ep_${field} GET "${json}" horizontal_repeated_endpoint_preview_spatial_attribution worst_pixels ${i} ${field})
+    endforeach()
+    if(ep_x LESS 0 OR ep_x GREATER 595 OR ep_y LESS 0 OR ep_y GREATER 841
+       OR ep_max_delta LESS 1 OR ep_max_delta GREATER ep_prior
+       OR ep_stroke_alpha LESS 0 OR ep_stroke_alpha GREATER 255
+       OR ep_fill_alpha LESS 0 OR ep_fill_alpha GREATER 255)
+      message(FATAL_ERROR "Endpoint A/B worst-site source coordinates invalid")
+    endif()
+    set(ep_prior ${ep_max_delta})
+  endforeach()
+endif()
+# Deliberately do NOT demand endpoint trial improvement: it may regress.
+# This stage establishes a falsifiable measurement, not a production rule.
+
 string(JSON positive GET "${json}" native_pixel_positive_count)
 string(JSON admitted GET "${json}" official_corpus_admitted)
 string(JSON generated GET "${json}" generated_fixture_count)
@@ -360,3 +443,4 @@ if(NOT before STREQUAL after)
 endif()
 message(STATUS "fractional-page-jsPDF: typed=lowered raster=UNSUPPORTED original_sha256=${after} official=0 whole_image_diagnostic_mean_rgb=${cmp_ordered_native_composite_mean_abs_rgb_error} gross_delta64=${cmp_ordered_native_composite_gross_delta64_pixels}")
 message(STATUS "jsPDF Stroke 1pt horizontal preview: NOT certified, original_count=0 baseline_abs=${cmp_ordered_native_composite_abs_rgb_error} preview_abs=${preview_abs_rgb_error} baseline_gross=${cmp_ordered_native_composite_gross_delta64_pixels} preview_gross=${preview_gross_delta64_pixels}")
+message(STATUS "jsPDF Stroke repeated endpoint A/B: NOT certified, interior_preview_abs=${preview_abs_rgb_error} endpoint_abs=${ep_abs_rgb_error} interior_gross=${preview_gross_delta64_pixels} endpoint_gross=${ep_gross_delta64_pixels}")
