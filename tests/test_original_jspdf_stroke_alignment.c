@@ -63,9 +63,122 @@ static unsigned absdiff(unsigned a,unsigned b)
     return a>b ? a-b : b-a;
 }
 
+/* Same ORIGINAL source: the unoccluded vertical black segment at PDF
+ * x=250 runs across displayed y=20..140. At y=60/80 there is neither a
+ * miter/join nor the later red Fill. The X scan isolates width/coverage. */
+static int c11_vertical_coverage(
+    const quantapdf_native_device_grid *grid,
+    size_t x,size_t y,double device_x_phase,unsigned *out)
+{
+    unsigned inside=0u;
+    for(unsigned sy=0u;sy<SAMPLE_SIDE;++sy) {
+        for(unsigned sx=0u;sx<SAMPLE_SIDE;++sx) {
+            double px=0.0,py=0.0;
+            if(quantapdf_native_device_grid_sample_v0(
+                   grid,x,y,sx,sy,&px,&py)!=QUANTAPDF_NATIVE_DEVICE_GRID_OK)
+                return 0;
+            px+=device_x_phase*grid->points_per_device_x;
+            if(py>20.0 && py<140.0 && px>=249.5 && px<=250.5)
+                ++inside;
+        }
+    }
+    *out=(inside*255u+8u)/16u;
+    return 1;
+}
+
+static int compare_vertical(
+    FPDF_PAGE page,const alignment_case *c,
+    const quantapdf_native_device_grid *grid,
+    const unsigned char *raw,int stride,
+    double page_width,double page_height,
+    size_t *out_samples,double *out_coordinate_max)
+{
+    const unsigned source_y[2]={60u,80u};
+    const double phases[3]={-0.5,0.0,0.5};
+    const int center=(int)floor(250.0*(double)c->width/page_width);
+    unsigned long long error[3]={0u,0u,0u};
+    unsigned max_delta[3]={0u,0u,0u};
+    size_t samples=0u;
+    double max_coord=0.0;
+    if(center<3 || center+3>=c->width)
+        return 0;
+    printf(",\"vertical_stroke\":{\"source_x_points\":250,"
+           "\"source_y_display_points\":[60,80],\"observations\":[\n");
+    for(size_t iy=0u;iy<2u;++iy) {
+        int anchored_x=0,anchored_y=0;
+        const double page_y=page_height-(double)source_y[iy];
+        if(!FPDF_PageToDevice(
+               page,0,0,c->width,c->height,0,250.0,page_y,
+               &anchored_x,&anchored_y) ||
+           anchored_y<3 || anchored_y>=c->height-3 ||
+           absdiff((unsigned)anchored_x,(unsigned)center)>1u ||
+           fabs((double)anchored_y-
+                (double)source_y[iy]*(double)c->height/page_height)>1.5)
+            return 0;
+        for(int step=-3;step<=3;++step) {
+            const int col=center+step;
+            double px=NAN,py=NAN;
+            double ex,ey;
+            const unsigned char *pixel;
+            unsigned pdfium_rgb[3],candidate_alpha[3],delta[3];
+            if(!FPDF_DeviceToPage(
+                   page,0,0,c->width,c->height,0,
+                   col,anchored_y,&px,&py))
+                return 0;
+            ex=fabs(px-(double)col*grid->points_per_device_x);
+            ey=fabs((page_height-py)-
+                    (double)anchored_y*grid->points_per_device_y);
+            if(!isfinite(ex)||!isfinite(ey) || ex>0.0005 || ey>0.0005)
+                return 0;
+            if(ex>max_coord)max_coord=ex;
+            if(ey>max_coord)max_coord=ey;
+            pixel=raw+(size_t)anchored_y*(size_t)stride+(size_t)col*4u;
+            pdfium_rgb[0]=pixel[2];
+            pdfium_rgb[1]=pixel[1];
+            pdfium_rgb[2]=pixel[0];
+            for(size_t phase=0u;phase<3u;++phase) {
+                unsigned predicted;
+                if(!c11_vertical_coverage(grid,(size_t)col,
+                                          (size_t)anchored_y,
+                                          phases[phase],&candidate_alpha[phase]))
+                    return 0;
+                predicted=255u-candidate_alpha[phase];
+                delta[phase]=absdiff(pdfium_rgb[0],predicted);
+                error[phase]+=(unsigned long long)delta[phase];
+                if(delta[phase]>max_delta[phase])
+                    max_delta[phase]=delta[phase];
+            }
+            if(samples!=0u)printf(",\n");
+            printf("      {\"source_y_display\":%u,\"device_x\":%d,"
+                   "\"device_y\":%d,\"pdfium_rgb\":[%u,%u,%u],"
+                   "\"c11_unshifted_4x4_alpha\":%u,"
+                   "\"phase_trial_alpha\":[%u,%u,%u],"
+                   "\"abs_delta_trial\":[%u,%u,%u],"
+                   "\"device_anchor_error_points\":%.9f}",
+                   source_y[iy],col,anchored_y,
+                   pdfium_rgb[0],pdfium_rgb[1],pdfium_rgb[2],
+                   candidate_alpha[1],
+                   candidate_alpha[0],candidate_alpha[1],candidate_alpha[2],
+                   delta[0],delta[1],delta[2],fmax(ex,ey));
+            ++samples;
+        }
+    }
+    printf("\n    ],\"samples\":%zu,\"max_page_api_error_points\":%.9f,"
+           "\"phase_trial_abs_gray_error\":[%llu,%llu,%llu],"
+           "\"phase_trial_max_gray_delta\":[%u,%u,%u],"
+           "\"sample_phase_is_test_only\":true,"
+           "\"pdfium_aa_sample_centers_proven\":false}",
+           samples,max_coord,error[0],error[1],error[2],
+           max_delta[0],max_delta[1],max_delta[2]);
+    *out_samples+=samples;
+    if(max_coord>*out_coordinate_max)*out_coordinate_max=max_coord;
+    return samples==14u;
+}
+
 static int compare_dpi(FPDF_PAGE page,const alignment_case *c,
                        double page_width,double page_height,
-                       size_t *out_samples,double *out_coordinate_max)
+                       size_t *out_samples,size_t *out_vertical_samples,
+                       double *out_coordinate_max)
 {
     const double centre_down=20.0;
     const double centre_pdf_y=page_height-centre_down;
@@ -186,10 +299,14 @@ static int compare_dpi(FPDF_PAGE page,const alignment_case *c,
            "\"phase_trial_abs_gray_error\":[%llu,%llu,%llu],"
            "\"phase_trial_max_gray_delta\":[%u,%u,%u],"
            "\"sample_phase_is_test_only\":true,"
-           "\"pdfium_aa_sample_centers_proven\":false}",
+           "\"pdfium_aa_sample_centers_proven\":false",
            samples,max_coord_error,
            errors[0],errors[1],errors[2],
            error_max[0],error_max[1],error_max[2]);
+    if(!compare_vertical(page,c,&grid,raw,stride,page_width,page_height,
+                         out_vertical_samples,&max_coord_error))
+        goto cleanup;
+    printf("}");
     success=1;
 cleanup:
     FPDFBitmap_Destroy(bitmap);
@@ -205,7 +322,7 @@ int main(int argc,char **argv)
 {
     FPDF_DOCUMENT doc=NULL;
     FPDF_PAGE page=NULL;
-    size_t total_samples=0u;
+    size_t total_samples=0u,total_vertical_samples=0u;
     double coordinate_max=0.0;
     double w=0.0,h=0.0;
     int success=0;
@@ -238,14 +355,17 @@ int main(int argc,char **argv)
     for(size_t i=0u;i<DPI_CASES;++i) {
         if(i!=0u)printf(",\n");
         if(!compare_dpi(page,&cases[i],w,h,
-                        &total_samples,&coordinate_max))
+                        &total_samples,&total_vertical_samples,
+                        &coordinate_max))
             goto cleanup;
     }
     printf("\n],\"total_row_observations\":%zu,"
+           "\"total_vertical_observations\":%zu,"
            "\"max_pdfium_api_coordinate_error_points\":%.9f,"
            "\"sample_centers_independently_qualified\":false}\n",
-           total_samples,coordinate_max);
-    if(total_samples!=DPI_CASES*X_PROBES*Y_ROWS ||
+           total_samples,total_vertical_samples,coordinate_max);
+    if(total_vertical_samples!=DPI_CASES*X_PROBES*Y_ROWS ||
+       total_samples!=DPI_CASES*X_PROBES*Y_ROWS ||
        !isfinite(coordinate_max) || coordinate_max>0.0005)
         goto cleanup;
     if(fflush(stdout)!=0 || ferror(stdout))goto cleanup;

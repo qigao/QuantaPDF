@@ -29,7 +29,7 @@ foreach(field IN ITEMS result document_id original_pdfium_raster_invocations
     pixel_parity_qualified original_pixel_positive_count
     official_corpus_admitted total_row_observations
     max_pdfium_api_coordinate_error_points
-    sample_centers_independently_qualified)
+    sample_centers_independently_qualified total_vertical_observations)
   string(JSON got_${field} GET "${json}" ${field})
 endforeach()
 string(JSON count LENGTH "${json}" cases)
@@ -48,6 +48,7 @@ if(NOT got_result STREQUAL "original_jspdf_stroke_pixel_phase_diagnostic"
    OR got_official_corpus_admitted
    OR got_sample_centers_independently_qualified
    OR NOT got_total_row_observations EQUAL 42
+   OR NOT got_total_vertical_observations EQUAL 42
    OR NOT count EQUAL 3 OR NOT xs_length EQUAL 2
    OR NOT x0 EQUAL 200 OR NOT x1 EQUAL 220
    OR got_max_pdfium_api_coordinate_error_points GREATER 0.0005
@@ -55,6 +56,7 @@ if(NOT got_result STREQUAL "original_jspdf_stroke_pixel_phase_diagnostic"
   message(FATAL_ERROR "Original phase A/B overstates or omits evidence")
 endif()
 set(observed_total 0)
+set(vertical_total 0)
 foreach(i RANGE 0 2)
   if(i EQUAL 0)
     set(expected_dpi 72)
@@ -132,7 +134,81 @@ foreach(i RANGE 0 2)
     endforeach()
   endforeach()
   math(EXPR observed_total "${observed_total}+${rows}")
+
+  # Independent vertical original S stroke at x=250, y=60/80 (Y-down).
+  foreach(vfield IN ITEMS source_x_points samples
+      max_page_api_error_points sample_phase_is_test_only
+      pdfium_aa_sample_centers_proven)
+    string(JSON vertical_${vfield} GET "${json}" cases ${i} vertical_stroke ${vfield})
+  endforeach()
+  string(JSON vsource_len LENGTH "${json}" cases ${i} vertical_stroke source_y_display_points)
+  string(JSON vrows LENGTH "${json}" cases ${i} vertical_stroke observations)
+  string(JSON vtrial_count LENGTH "${json}" cases ${i} vertical_stroke phase_trial_abs_gray_error)
+  string(JSON vmax_count LENGTH "${json}" cases ${i} vertical_stroke phase_trial_max_gray_delta)
+  if(NOT vertical_source_x_points EQUAL 250
+     OR NOT vertical_samples EQUAL 14 OR NOT vrows EQUAL 14
+     OR NOT vsource_len EQUAL 2 OR NOT vtrial_count EQUAL 3
+     OR NOT vmax_count EQUAL 3
+     OR vertical_max_page_api_error_points LESS 0
+     OR vertical_max_page_api_error_points GREATER 0.0005
+     OR NOT vertical_sample_phase_is_test_only
+     OR vertical_pdfium_aa_sample_centers_proven)
+    message(FATAL_ERROR "Original vertical Stroke source/DPI provenance invalid")
+  endif()
+  string(JSON vy0 GET "${json}" cases ${i} vertical_stroke source_y_display_points 0)
+  string(JSON vy1 GET "${json}" cases ${i} vertical_stroke source_y_display_points 1)
+  if(NOT vy0 EQUAL 60 OR NOT vy1 EQUAL 80)
+    message(FATAL_ERROR "Original vertical Stroke control was changed")
+  endif()
+  foreach(k RANGE 0 2)
+    string(JSON vscore GET "${json}" cases ${i} vertical_stroke phase_trial_abs_gray_error ${k})
+    string(JSON vmax GET "${json}" cases ${i} vertical_stroke phase_trial_max_gray_delta ${k})
+    if(vscore LESS 0 OR vscore GREATER 3570 OR
+       vmax LESS 0 OR vmax GREATER 255)
+      message(FATAL_ERROR "Vertical phase A/B score invalid")
+    endif()
+  endforeach()
+  foreach(j RANGE 0 13)
+    math(EXPR ygroup "${j}/7")
+    if(ygroup EQUAL 0)
+      set(expected_source_y 60)
+    else()
+      set(expected_source_y 80)
+    endif()
+    string(JSON source_y GET "${json}" cases ${i} vertical_stroke observations ${j} source_y_display)
+    string(JSON dev_x GET "${json}" cases ${i} vertical_stroke observations ${j} device_x)
+    string(JSON dev_y GET "${json}" cases ${i} vertical_stroke observations ${j} device_y)
+    string(JSON err GET "${json}" cases ${i} vertical_stroke observations ${j} device_anchor_error_points)
+    string(JSON rgb_n LENGTH "${json}" cases ${i} vertical_stroke observations ${j} pdfium_rgb)
+    string(JSON alphas_n LENGTH "${json}" cases ${i} vertical_stroke observations ${j} phase_trial_alpha)
+    string(JSON deltas_n LENGTH "${json}" cases ${i} vertical_stroke observations ${j} abs_delta_trial)
+    string(JSON current GET "${json}" cases ${i} vertical_stroke observations ${j} c11_unshifted_4x4_alpha)
+    string(JSON neutral GET "${json}" cases ${i} vertical_stroke observations ${j} phase_trial_alpha 1)
+    if(NOT source_y EQUAL expected_source_y
+       OR dev_x LESS 0 OR dev_x GREATER_EQUAL expected_w
+       OR dev_y LESS 0 OR dev_y GREATER_EQUAL expected_h
+       OR err LESS 0 OR err GREATER 0.0005
+       OR NOT rgb_n EQUAL 3 OR NOT alphas_n EQUAL 3 OR
+       NOT deltas_n EQUAL 3 OR NOT current EQUAL neutral)
+      message(FATAL_ERROR "Vertical A/B source geometry or alpha gate invalid")
+    endif()
+    foreach(k RANGE 0 2)
+      string(JSON rgb GET "${json}" cases ${i} vertical_stroke observations ${j} pdfium_rgb ${k})
+      string(JSON alpha GET "${json}" cases ${i} vertical_stroke observations ${j} phase_trial_alpha ${k})
+      string(JSON difference GET "${json}" cases ${i} vertical_stroke observations ${j} abs_delta_trial ${k})
+      if(rgb LESS 0 OR rgb GREATER 255 OR
+         alpha LESS 0 OR alpha GREATER 255 OR
+         difference LESS 0 OR difference GREATER 255)
+        message(FATAL_ERROR "Vertical A/B RGB/coverage outside physical bounds")
+      endif()
+    endforeach()
+  endforeach()
+  math(EXPR vertical_total "${vertical_total}+${vrows}")
+
 endforeach()
+if(NOT vertical_total EQUAL got_total_vertical_observations)
+  message(FATAL_ERROR "Incomplete original vertical Stroke scans")
+endif()
 if(NOT observed_total EQUAL got_total_row_observations)
   message(FATAL_ERROR "Incomplete Stroke row scans")
 endif()
