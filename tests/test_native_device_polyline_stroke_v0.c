@@ -458,7 +458,8 @@ static int test_single_vertical_analytic_trial(void)
             CHECK(alpha(&trial,x,y)==expectation);
             if(alpha(&trial,x,y)!=alpha(&old,x,y))++different;
         }
-        CHECK(different>0u);
+        if(index<2u) CHECK(different>0u);
+        else CHECK(different==0u);
         quantapdf_ir_raster_image_dispose(&again);
         quantapdf_ir_raster_image_dispose(&trial);
         quantapdf_ir_raster_image_dispose(&corner);
@@ -550,6 +551,7 @@ int main(void)
     CHECK(test_horizontal_thin_preview()==EXIT_SUCCESS);
     CHECK(test_repeated_horizontal_endpoint_trial()==EXIT_SUCCESS);
     CHECK(test_repeated_right_down_corner_trial()==EXIT_SUCCESS);
+    CHECK(test_single_vertical_analytic_trial()==EXIT_SUCCESS);
     CHECK(test_pixel_width_and_rejections()==EXIT_SUCCESS);
     puts("native-device-polyline-stroke: butt+miter+bevel+union+limits PASS");
     return EXIT_SUCCESS;
