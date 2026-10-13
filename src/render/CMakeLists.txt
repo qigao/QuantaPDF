@@ -65,3 +65,9 @@ target_sources(quantapdf PRIVATE
 target_sources(quantapdf PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_scoped_device_grid_v0.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_scoped_device_grid_v0.h")
+
+# Bounded C11 source-width Butt/Miter open-polyline stroke in fractional grid.
+# Explicit private entrypoint only; no old V1 behavior or ABI change.
+target_sources(quantapdf PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/ir_device_polyline_stroke_v0.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ir_device_polyline_stroke_v0.h")
