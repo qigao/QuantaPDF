@@ -402,8 +402,10 @@ static int test_repeated_right_down_corner_trial(void)
     /* The right-angle trial charges one additional bounded source-edge
      * pass. An allowance sufficient for mode 2 must still refuse mode 3
      * transactionally when it cannot fund the extra accounting. */
-    f.grid_budget.max_sample_tests=120000u;
-    f.raster_budget.max_sample_tests=120000u;
+    /* 33*25*16 slots * (3 segments): mode2 charges 79200,
+     * mode3 charges 118800; choose a VALID limit between them. */
+    f.grid_budget.max_sample_tests=100000u;
+    f.raster_budget.max_sample_tests=100000u;
     OK(quantapdf_ir_raster_device_polyline_stroke_repeated_endpoint_preview_v0(
         &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&endpoints));
     quantapdf_ir_raster_image_dispose(&endpoints);
