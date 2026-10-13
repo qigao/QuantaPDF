@@ -328,7 +328,7 @@ static int test_repeated_horizontal_endpoint_trial(void)
 
     setup(&f);
     f.op.value.path.options.stroke_width=1.0f;
-    f.grid_budget.max_rgba_bytes=1u;
+    f.grid_budget.max_rgba_bytes=16u; /* valid argument, below output */
     memset(&endpoint,0xa5,sizeof(endpoint));
     BAD(quantapdf_ir_raster_device_polyline_stroke_repeated_endpoint_preview_v0(
         &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&endpoint));
