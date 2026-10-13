@@ -462,6 +462,86 @@ endif()
 # Deliberately do NOT demand corner trial improvement: it may regress.
 # This stage establishes a falsifiable measurement, not a production rule.
 
+# Fourth-stage READ-ONLY residual partition: test the full image, not
+# a few selected sites. No numeric threshold or candidate promotion.
+string(JSON roi_schema GET "${json}" horizontal_right_down_corner_residual_regions schema_version)
+string(JSON roi_observe GET "${json}" horizontal_right_down_corner_residual_regions observation_only)
+string(JSON roi_parity GET "${json}" horizontal_right_down_corner_residual_regions pixel_parity_qualified)
+string(JSON roi_reconciled GET "${json}" horizontal_right_down_corner_residual_regions full_image_partition_reconciled)
+string(JSON roi_n LENGTH "${json}" horizontal_right_down_corner_residual_regions regions)
+string(JSON roi_anchors LENGTH "${json}" horizontal_right_down_corner_residual_regions anchors)
+if(NOT roi_schema EQUAL 1 OR NOT roi_observe OR roi_parity OR
+   NOT roi_reconciled OR NOT roi_n EQUAL 6 OR NOT roi_anchors EQUAL 5)
+  message(FATAL_ERROR "jsPDF original residual partition was not measured")
+endif()
+set(roi_regions bottom_single_pass_stroke right_vertical_stroke
+    top_repeated_stroke clip_right_antialias clip_bottom_weak_fringe other)
+set(roi_pixels_sum 0)
+set(roi_changed_sum 0)
+set(roi_gross_sum 0)
+set(roi_error_sum 0)
+set(roi_max 0)
+foreach(region IN LISTS roi_regions)
+  foreach(field IN ITEMS pixels changed gross abs_rgb_error max_channel_delta worst_x worst_y)
+    string(JSON roi_${field} GET "${json}" horizontal_right_down_corner_residual_regions regions ${region} ${field})
+  endforeach()
+  if(roi_pixels LESS 0 OR roi_pixels GREATER 501832
+     OR roi_changed LESS 0 OR roi_changed GREATER roi_pixels
+     OR roi_gross LESS 0 OR roi_gross GREATER roi_changed
+     OR roi_abs_rgb_error LESS 0 OR roi_abs_rgb_error GREATER 383901480
+     OR roi_max_channel_delta LESS 0 OR roi_max_channel_delta GREATER 255
+     OR roi_worst_x LESS 0 OR roi_worst_x GREATER 595
+     OR roi_worst_y LESS 0 OR roi_worst_y GREATER 841)
+    message(FATAL_ERROR "jsPDF original residual region metric malformed")
+  endif()
+  math(EXPR roi_pixels_sum "${roi_pixels_sum}+${roi_pixels}")
+  math(EXPR roi_changed_sum "${roi_changed_sum}+${roi_changed}")
+  math(EXPR roi_gross_sum "${roi_gross_sum}+${roi_gross}")
+  math(EXPR roi_error_sum "${roi_error_sum}+${roi_abs_rgb_error}")
+  if(roi_max_channel_delta GREATER roi_max)
+    set(roi_max "${roi_max_channel_delta}")
+  endif()
+endforeach()
+if(NOT roi_pixels_sum EQUAL 501832
+   OR NOT roi_changed_sum EQUAL corner_changed_pixels
+   OR NOT roi_gross_sum EQUAL corner_gross_delta64_pixels
+   OR NOT roi_error_sum EQUAL corner_abs_rgb_error
+   OR NOT roi_max EQUAL corner_max_channel_delta)
+  message(FATAL_ERROR "jsPDF six error regions fail full-original reconciliation")
+endif()
+set(roi_anchor_names bottom_left bottom_right clip_right clip_bottom repeated_corner)
+set(roi_anchor_groups bottom_single_pass_stroke bottom_single_pass_stroke
+    clip_right_antialias clip_bottom_weak_fringe top_repeated_stroke)
+set(roi_anchor_x 50 250 150 100 250)
+set(roi_anchor_y 139 139 21 100 19)
+foreach(i RANGE 0 4)
+  list(GET roi_anchor_names ${i} expected_name)
+  list(GET roi_anchor_groups ${i} expected_group)
+  list(GET roi_anchor_x ${i} expected_x)
+  list(GET roi_anchor_y ${i} expected_y)
+  foreach(field IN ITEMS name region x y stroke_alpha fill_alpha)
+    string(JSON anchor_${field} GET "${json}" horizontal_right_down_corner_residual_regions anchors ${i} ${field})
+  endforeach()
+  string(JSON rgb_len LENGTH "${json}" horizontal_right_down_corner_residual_regions anchors ${i} native_rgb)
+  string(JSON pdf_len LENGTH "${json}" horizontal_right_down_corner_residual_regions anchors ${i} pdfium_rgb)
+  if(NOT anchor_name STREQUAL expected_name
+     OR NOT anchor_region STREQUAL expected_group
+     OR NOT anchor_x EQUAL expected_x OR NOT anchor_y EQUAL expected_y
+     OR anchor_stroke_alpha LESS 0 OR anchor_stroke_alpha GREATER 255
+     OR anchor_fill_alpha LESS 0 OR anchor_fill_alpha GREATER 255
+     OR NOT rgb_len EQUAL 3 OR NOT pdf_len EQUAL 3)
+    message(FATAL_ERROR "jsPDF residual original-anchor classification invalid")
+  endif()
+  foreach(c RANGE 0 2)
+    string(JSON native GET "${json}" horizontal_right_down_corner_residual_regions anchors ${i} native_rgb ${c})
+    string(JSON oracle GET "${json}" horizontal_right_down_corner_residual_regions anchors ${i} pdfium_rgb ${c})
+    if(native LESS 0 OR native GREATER 255 OR oracle LESS 0 OR oracle GREATER 255)
+      message(FATAL_ERROR "jsPDF residual site RGB malformed")
+    endif()
+  endforeach()
+endforeach()
+
+
 string(JSON positive GET "${json}" native_pixel_positive_count)
 string(JSON admitted GET "${json}" official_corpus_admitted)
 string(JSON generated GET "${json}" generated_fixture_count)
