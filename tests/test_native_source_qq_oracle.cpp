@@ -1914,6 +1914,20 @@ int test_external_yworks_svg_w_pixels(const char *filename,
             (1u<<(unsigned)detached.resources.clip_count)-1u);
     }
     CHECK(status==QUANTAPDF_OK);
+    /* Reject a forged orphan: this copy changes only an intermediate
+     * prefix descriptor, never the byte-pinned original/owned detached IR. */
+    {
+        std::vector<quantapdf_composer_clip_state> altered(
+            detached.resources.clips,
+            detached.resources.clips+detached.resources.clip_count);
+        quantapdf_ir invalid=detached;
+        invalid.resources.clips=altered.data();
+        altered[2].kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;
+        quantapdf_ir_raster_image rejected{};
+        CHECK(quantapdf_ir_raster_scoped_operations_v1(
+            &invalid,0u,&limits,&rejected)==QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(rejected.pixels==nullptr && rejected.size==0u);
+    }
     OK(quantapdf_ir_raster_scoped_operations_v1(
         &detached,0u,&limits,&repeat));
     CHECK(native.pixels!=nullptr && native.width==WIDTH &&
