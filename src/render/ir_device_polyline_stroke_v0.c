@@ -223,12 +223,49 @@ static int qp_stroke_hit(
     return 0;
 }
 
-quantapdf_status quantapdf_ir_raster_device_polyline_stroke_v0(
+/* **EXPERIMENTAL PRIVATE PREVIEW**: PDFium original-black source Stroke has
+ * full opaque horizontal scan rows at 72/96dpi that the unmodified C11
+ * area sampler splits into two partial rows. Test a narrowly restricted
+ * alternative: horizontal 1pt source strips projected to <2 device rows
+ * fully cover intersected rows, only in the segment interior. Vertical,
+ * diagonal, joins, endpoints, wider strokes and >=2px rows use the
+ * unchanged 4x4 sampler. This is a test-only hypothesis, NOT a PDF
+ * specification rule or default native admission. */
+static int qp_horizontal_thin_preview_hit(
+    const qp_stroke_segment *segments, size_t count,
+    const quantapdf_native_device_grid *grid,
+    size_t x, size_t y, double radius)
+{
+    const double point_y_per_pixel=grid->points_per_device_y;
+    const double point_x_per_pixel=grid->points_per_device_x;
+    const double source_x=((double)x+0.5)*point_x_per_pixel;
+    const double top=(double)y*point_y_per_pixel;
+    const double bottom=((double)y+1.0)*point_y_per_pixel;
+    if(radius!=0.5 || point_y_per_pixel<=0.5)
+        return 0;
+    for(size_t i=0u;i<count;++i) {
+        const qp_stroke_segment *s=&segments[i];
+        double left,right;
+        if(s->dy!=0.0 || s->dx==0.0)
+            continue;
+        left=fmin(s->a.x,s->b.x);
+        right=fmax(s->a.x,s->b.x);
+        /* Exclude joins/end caps: only the original segment interior is
+         * tested, never a general path-width or W Clip adjustment. */
+        if(source_x<=left+radius || source_x>=right-radius)
+            continue;
+        if(bottom>s->a.y-radius && top<s->a.y+radius)
+            return 1;
+    }
+    return 0;
+}
+
+static quantapdf_status qp_stroke_render_impl(
     const quantapdf_ir *ir, size_t page_index,
     const quantapdf_native_device_grid_geometry *geometry,
     const quantapdf_native_device_grid_limits *grid_limits,
     const quantapdf_ir_raster_v1_limits *raster_limits,
-    quantapdf_ir_raster_image *out_image)
+    quantapdf_ir_raster_image *out_image, int horizontal_preview)
 {
     quantapdf_native_device_grid grid;
     quantapdf_native_device_grid_status gs;
@@ -299,6 +336,10 @@ quantapdf_status quantapdf_ir_raster_device_polyline_stroke_v0(
                                             join_kinds,p,radius);
                 }
             }
+            if(horizontal_preview && covered<16u &&
+               qp_horizontal_thin_preview_hit(
+                   segments,count,&grid,x,y,radius))
+                covered=16u;
             if(covered!=0u) {
                 size_t offset=(y*grid.width+x)*4u;
                 rgba[offset]=(unsigned char)((color>>16u)&255u);
@@ -318,4 +359,28 @@ quantapdf_status quantapdf_ir_raster_device_polyline_stroke_v0(
 cleanup:
     free(rgba);
     return status;
+}
+
+/* Existing private V0 semantics stay unchanged: no implicit stroke
+ * alignment adjustment or native-original pixel positive. */
+quantapdf_status quantapdf_ir_raster_device_polyline_stroke_v0(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
+                                 raster_limits,out_image,0);
+}
+
+quantapdf_status quantapdf_ir_raster_device_polyline_stroke_thin_horizontal_preview_v0(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
+                                 raster_limits,out_image,1);
 }

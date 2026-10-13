@@ -134,6 +134,71 @@ static int test_miter_and_butt_and_repeat(void)
     quantapdf_ir_raster_image_dispose(&miter);
     return EXIT_SUCCESS;
 }
+/* Diagnostic only: test a narrow scan-row-fullcover *candidate* without
+ * ever relaxing or replacing the existing source-width Stroke entrypoint. */
+static int test_horizontal_thin_preview(void)
+{
+    fixture f;
+    quantapdf_ir_raster_image baseline={0},trial={0},repeat={0};
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=2u; /* exactly one horizontal segment */
+    OK(RENDER(f,baseline));
+    OK(quantapdf_ir_raster_device_polyline_stroke_thin_horizontal_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+    CHECK(trial.width==baseline.width && trial.height==baseline.height);
+    CHECK(trial.size==baseline.size);
+    /* 1pt center y=8 projects to <2 device rows. Only the two intersected
+     * scan rows of this horizontal segment interior become opaque. */
+    CHECK(alpha(&baseline,10u,7u)>0u && alpha(&baseline,10u,7u)<255u);
+    CHECK(alpha(&baseline,10u,8u)>0u && alpha(&baseline,10u,8u)<255u);
+    CHECK(alpha(&trial,10u,7u)==255u && alpha(&trial,10u,8u)==255u);
+    CHECK(alpha(&trial,10u,6u)==0u && alpha(&trial,10u,9u)==0u);
+    CHECK(alpha(&trial,1u,7u)==alpha(&baseline,1u,7u));
+    CHECK(alpha(&trial,25u,7u)==0u);
+    OK(quantapdf_ir_raster_device_polyline_stroke_thin_horizontal_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&repeat));
+    CHECK(repeat.size==trial.size &&
+          memcmp(repeat.pixels,trial.pixels,trial.size)==0);
+    quantapdf_ir_raster_image_dispose(&repeat);
+    quantapdf_ir_raster_image_dispose(&trial);
+    quantapdf_ir_raster_image_dispose(&baseline);
+
+    /* 1pt vertical is not snapped: PDFium's vertical original is already
+     * closer to area coverage than its horizontal original. */
+    f.cmds[0].point1=(quantapdf_point){20.0f,3.0f};
+    f.cmds[1].point1=(quantapdf_point){20.0f,20.0f};
+    OK(RENDER(f,baseline));
+    OK(quantapdf_ir_raster_device_polyline_stroke_thin_horizontal_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+    CHECK(baseline.size==trial.size &&
+          memcmp(baseline.pixels,trial.pixels,baseline.size)==0);
+    quantapdf_ir_raster_image_dispose(&baseline);
+    quantapdf_ir_raster_image_dispose(&trial);
+
+    /* >1pt widths never receive this preview adjustment. */
+    setup(&f);
+    OK(RENDER(f,baseline));
+    OK(quantapdf_ir_raster_device_polyline_stroke_thin_horizontal_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+    CHECK(baseline.size==trial.size &&
+          memcmp(baseline.pixels,trial.pixels,baseline.size)==0);
+    quantapdf_ir_raster_image_dispose(&baseline);
+    quantapdf_ir_raster_image_dispose(&trial);
+
+    /* Both modes retain the exact same budget/zero-publication barriers. */
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.grid_budget.max_rgba_bytes=16u;
+    memset(&trial,0xa5,sizeof(trial));
+    CHECK(quantapdf_ir_raster_device_polyline_stroke_thin_horizontal_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial)==
+        QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(trial.pixels==NULL && trial.size==0u && trial.width==0u &&
+          trial.height==0u && trial.stride==0u);
+    return EXIT_SUCCESS;
+}
+
 static int test_pixel_width_and_rejections(void)
 {
     fixture f;
@@ -181,6 +246,7 @@ static int test_pixel_width_and_rejections(void)
 int main(void)
 {
     CHECK(test_miter_and_butt_and_repeat()==EXIT_SUCCESS);
+    CHECK(test_horizontal_thin_preview()==EXIT_SUCCESS);
     CHECK(test_pixel_width_and_rejections()==EXIT_SUCCESS);
     puts("native-device-polyline-stroke: butt+miter+bevel+union+limits PASS");
     return EXIT_SUCCESS;
