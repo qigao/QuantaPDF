@@ -167,3 +167,37 @@ Clip nodes**, and an incorrectly ordered shadowed prefix intersection to
 reject with **zero published pixels**. They do not rewrite the PDF, modify
 the original IR, raise unrelated admission bounds or increment either the
 formal six-source corpus or the W* positive counter.
+
+## #269 Different producer: fractional A4 page geometry is a separate native raster gate
+
+The unchanged jsPDF `w3s_clip.pdf` (3,344 bytes, SHA-256
+`179d8552191bbd1890c72a85fac58bad3dd59ff66766fff76e9a790915a1b11e`)
+has a PDF MediaBox `[0 0 595.28 841.89]`, independently declared
+`Producer (jsPDF 0.0.0)`, **one W nonzero Clip** and **two painted Paths**.
+Actual Document→Graph→owned detached IR typed lowering is `lowered`;
+however, private C11 Scoped Raster currently requires **integer PDF page
+dimensions** to define its pixel grid and must fail closed without publishing
+any partial RGBA. The newly separated candidate negative test records
+`typed=lowered / raster=UNSUPPORTED`, exact original SHA before/after, and
+no PDFium-native pixel parity claim. This is cross-producer **W-only**
+semantic screening, **not W*** or formal source corpus admission.
+
+[Issue #269](https://github.com/qigao/QuantaPDF/issues/269) tracks the
+future bounded, independently qualified fractional-page-to-pixel mapping.
+No page MediaBox rewriting, silent truncation, automatic fallback or
+public SDK backend switch is permitted.
+
+### #269 independently observed PDFium device-grid target
+
+The original default rendering entry point uses 72 DPI and zero rotation.
+Its shared RenderPlan computes the integer output rectangle by outward
+floor/ceil pixel bounds. An additional test-only geometry probe now renders
+**the same unmodified jsPDF original through PDFium** and requires
+**596 × 842 device pixels** for its **595.28 × 841.89 PDF-point** MediaBox.
+The negative C11 Raster still returns `UNSUPPORTED` and publishes
+**zero pixels**. The report keeps `original_pdfium_pixel_oracle=not_run`
+because no native-vs-PDFium pixel parity is claimed, and records a
+separate `original_pdfium_geometry_oracle=passed`.
+This measurement is an empirical device-grid target for #269, not
+authorization to round or rewrite PDF point coordinates or to relax
+native renderer bounds.
