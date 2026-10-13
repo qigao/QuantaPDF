@@ -200,6 +200,34 @@ if(attr_worst_len GREATER 0)
   endforeach()
 endif()
 
+# Experimental bounded axis-aligned 1pt Stroke preview is independently
+# measured, NEVER promoted to whole-original positive admission.
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal original_pdfium_pixel_count abs_rgb_error
+    mean_abs_rgb_error changed_pixels gross_delta64_pixels
+    max_channel_delta rgb_fnv64)
+  string(JSON preview_${field} GET "${json}" horizontal_thin_1pt_preview_${field})
+endforeach()
+string(LENGTH "${preview_rgb_fnv64}" preview_digest_len)
+if(NOT preview_status STREQUAL "measured_unqualified"
+   OR preview_default_changed OR preview_pixel_parity_qualified
+   OR NOT preview_repeat_equal
+   OR NOT preview_original_pdfium_pixel_count EQUAL 501832
+   OR preview_abs_rgb_error LESS 0
+   OR preview_abs_rgb_error GREATER 383901480
+   OR preview_mean_abs_rgb_error LESS 0
+   OR preview_mean_abs_rgb_error GREATER 255
+   OR preview_changed_pixels LESS 0
+   OR preview_changed_pixels GREATER 501832
+   OR preview_gross_delta64_pixels LESS 0
+   OR preview_gross_delta64_pixels GREATER preview_changed_pixels
+   OR preview_max_channel_delta LESS 0
+   OR preview_max_channel_delta GREATER 255
+   OR NOT preview_digest_len EQUAL 16
+   OR NOT preview_rgb_fnv64 MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "Preview candidate is unbounded or falsely pixel-qualified")
+endif()
+
 string(JSON positive GET "${json}" native_pixel_positive_count)
 string(JSON admitted GET "${json}" official_corpus_admitted)
 string(JSON generated GET "${json}" generated_fixture_count)
@@ -263,3 +291,4 @@ if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated")
 endif()
 message(STATUS "fractional-page-jsPDF: typed=lowered raster=UNSUPPORTED original_sha256=${after} official=0 whole_image_diagnostic_mean_rgb=${cmp_ordered_native_composite_mean_abs_rgb_error} gross_delta64=${cmp_ordered_native_composite_gross_delta64_pixels}")
+message(STATUS "jsPDF Stroke 1pt horizontal preview: NOT certified, original_count=0 baseline_abs=${cmp_ordered_native_composite_abs_rgb_error} preview_abs=${preview_abs_rgb_error} baseline_gross=${cmp_ordered_native_composite_gross_delta64_pixels} preview_gross=${preview_gross_delta64_pixels}")

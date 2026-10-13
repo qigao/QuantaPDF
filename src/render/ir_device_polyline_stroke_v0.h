@@ -27,6 +27,20 @@ quantapdf_status quantapdf_ir_raster_device_polyline_stroke_v0(
     const quantapdf_ir_raster_v1_limits *raster_limits,
     quantapdf_ir_raster_image *out_image);
 
+
+/* Experimental explicitly-invoked private preview, NEVER the default.
+ * Tests a 1pt horizontal (<2 projected device pixels) strip interior full
+ * row-cover alternative while leaving Path, Clip, vertical lines, joins,
+ * caps, ownership and negative source admission unchanged. Pixel parity
+ * of this candidate must be measured against the untouched original PDF. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_thin_horizontal_preview_v0(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

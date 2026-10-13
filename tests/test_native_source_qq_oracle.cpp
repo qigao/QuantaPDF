@@ -2002,6 +2002,34 @@ int test_external_jspdf_fractional_page_rejection(
     CHECK(repeat_fill.size==source_fill.size &&
           std::memcmp(repeat_fill.pixels,source_fill.pixels,
                       source_fill.size)==0);
+    /* Explicit, bounded PRIVATE stroke-only *hypothesis* from same owned
+     * original IR. Never replace the V0 C11 Stroke baseline, never publish
+     * a native whole-original positive, and do not modify W Clip / Fill.
+     * PDFium's 72/96dpi thin horizontal scan rows were observed to be more
+     * opaque than simple C11 4x4 area sampling; this test measures whether
+     * that limited alternative improves ALL 596x842 source pixels. */
+    quantapdf_ir_raster_image preview_stroke{},preview_repeat{};
+    OK(quantapdf_ir_raster_device_polyline_stroke_thin_horizontal_preview_v0(
+        &isolated_stroke,0u,&source_geometry,&stroke_grid_limits,
+        &stroke_raster_limits,&preview_stroke));
+    OK(quantapdf_ir_raster_device_polyline_stroke_thin_horizontal_preview_v0(
+        &isolated_stroke,0u,&source_geometry,&stroke_grid_limits,
+        &stroke_raster_limits,&preview_repeat));
+    CHECK(preview_stroke.pixels!=nullptr &&
+          preview_stroke.width==596u && preview_stroke.height==842u &&
+          preview_stroke.stride==596u*4u &&
+          preview_stroke.size==596u*842u*4u &&
+          preview_repeat.size==preview_stroke.size &&
+          std::memcmp(preview_stroke.pixels,preview_repeat.pixels,
+                      preview_stroke.size)==0);
+    /* Source horizontal line at x=200,y=19/20 is black in raw PDFium.
+     * Vertical Stroke at x=250,y=60 is not changed by horizontal preview. */
+    CHECK(source_stroke.pixels[19u*source_stroke.stride+200u*4u+3u]==128u);
+    CHECK(preview_stroke.pixels[19u*preview_stroke.stride+200u*4u+3u]==255u);
+    CHECK(preview_stroke.pixels[20u*preview_stroke.stride+200u*4u+3u]==255u);
+    CHECK(preview_stroke.pixels[60u*preview_stroke.stride+250u*4u+3u]==
+          source_stroke.pixels[60u*source_stroke.stride+250u*4u+3u]);
+
     /* Candidate WHOLE-PAGE image: native Stroke first (no future W Clip),
      * then native W-clipped Fill. Entirely pure C11 layer source-over.
      * Both layers were independently rendered from the genuine original
@@ -2026,6 +2054,64 @@ int test_external_jspdf_fractional_page_rejection(
     CHECK(on_white(composite.pixels+20u*composite.stride+20u*4u,0u)==255u &&
           on_white(composite.pixels+20u*composite.stride+20u*4u,1u)==255u &&
           on_white(composite.pixels+20u*composite.stride+20u*4u,2u)==255u);
+
+    /* **Non-admitted experimental alternative**. Source operation order
+     * and bounded layer composition are identical to the baseline #281.
+     * Only the isolated horizontal thin source Stroke inner-coverage trial
+     * differs. Entire original-PDFium-vs-C11 metrics are independently
+     * measured on EVERY pixel, never judged from a single scanline. */
+    quantapdf_ir_raster_image preview_ordered{},preview_ordered_repeat{};
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &preview_stroke,&source_fill,&composite_budget,&preview_ordered));
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &preview_repeat,&repeat_fill,&composite_budget,&preview_ordered_repeat));
+    CHECK(preview_ordered.width==596u && preview_ordered.height==842u &&
+          preview_ordered.stride==596u*4u &&
+          preview_ordered.size==596u*842u*4u &&
+          preview_ordered_repeat.size==preview_ordered.size &&
+          std::memcmp(preview_ordered.pixels,preview_ordered_repeat.pixels,
+                      preview_ordered.size)==0);
+    std::uint64_t preview_abs_error=0u;
+    size_t preview_changed_pixels=0u,preview_gross_delta64_pixels=0u;
+    unsigned preview_max_delta=0u;
+    unsigned long long preview_rgb_fnv64=14695981039346656037ULL;
+    for(size_t py=0u;py<842u;++py) for(size_t px=0u;px<596u;++px) {
+        const unsigned char *trial=
+            preview_ordered.pixels+py*preview_ordered.stride+px*4u;
+        const unsigned char *oracle=reference.at(px,py);
+        unsigned largest=0u;
+        for(size_t channel=0u;channel<3u;++channel) {
+            unsigned sample=on_white(trial,channel);
+            unsigned truth=oracle[channel];
+            unsigned delta=sample>=truth ? sample-truth : truth-sample;
+            preview_abs_error+=(std::uint64_t)delta;
+            if(delta>largest)largest=delta;
+            if(delta>preview_max_delta)preview_max_delta=delta;
+            preview_rgb_fnv64^=(unsigned long long)sample;
+            preview_rgb_fnv64*=1099511628211ULL;
+        }
+        if(largest!=0u)++preview_changed_pixels;
+        if(largest>64u)++preview_gross_delta64_pixels;
+    }
+    const double preview_mean_abs_rgb_error=
+        (double)preview_abs_error/(double)(596u*842u*3u);
+    CHECK(std::isfinite(preview_mean_abs_rgb_error) &&
+          preview_mean_abs_rgb_error>=0.0 &&
+          preview_mean_abs_rgb_error<=255.0 &&
+          preview_changed_pixels<=596u*842u &&
+          preview_gross_delta64_pixels<=preview_changed_pixels &&
+          preview_max_delta<=255u);
+    std::fprintf(stderr,
+        "[jsPDF horizontal 1pt preview, NOT pixel parity] "
+        "error=%llu mean=%.9f changed=%zu gross_delta64=%zu "
+        "max_delta=%u rgb_fnv64=%016llx\n",
+        (unsigned long long)preview_abs_error,preview_mean_abs_rgb_error,
+        preview_changed_pixels,preview_gross_delta64_pixels,
+        preview_max_delta,preview_rgb_fnv64);
+    quantapdf_ir_raster_image_dispose(&preview_ordered_repeat);
+    quantapdf_ir_raster_image_dispose(&preview_ordered);
+    quantapdf_ir_raster_image_dispose(&preview_repeat);
+    quantapdf_ir_raster_image_dispose(&preview_stroke);
 
     /* Full-image QUANTITATIVE DIAGNOSTIC, not an independent assertion that
      * PDFium's coverage/sample-center contract has been reproduced.
@@ -2218,6 +2304,17 @@ int test_external_jspdf_fractional_page_rejection(
         "  \"ordered_native_composite_flat_coverage_changed_pixels\": %zu,\n"
         "  \"ordered_native_composite_rgb_fnv64\": \"%016llx\",\n"
         "  \"ordered_native_spatial_attribution\": %s,\n"
+        "  \"horizontal_thin_1pt_preview_status\": \"measured_unqualified\",\n"
+        "  \"horizontal_thin_1pt_preview_default_changed\": false,\n"
+        "  \"horizontal_thin_1pt_preview_pixel_parity_qualified\": false,\n"
+        "  \"horizontal_thin_1pt_preview_repeat_equal\": true,\n"
+        "  \"horizontal_thin_1pt_preview_original_pdfium_pixel_count\": 501832,\n"
+        "  \"horizontal_thin_1pt_preview_abs_rgb_error\": %llu,\n"
+        "  \"horizontal_thin_1pt_preview_mean_abs_rgb_error\": %.9f,\n"
+        "  \"horizontal_thin_1pt_preview_changed_pixels\": %zu,\n"
+        "  \"horizontal_thin_1pt_preview_gross_delta64_pixels\": %zu,\n"
+        "  \"horizontal_thin_1pt_preview_max_channel_delta\": %u,\n"
+        "  \"horizontal_thin_1pt_preview_rgb_fnv64\": \"%016llx\",\n"
         "  \"native_pixel_positive_count\": 0,\n"
         "  \"official_corpus_admitted\": false,\n"
         "  \"generated_fixture_count\": 0\n"
@@ -2229,7 +2326,10 @@ int test_external_jspdf_fractional_page_rejection(
         composed_partial_coverage_pixels,
         composed_partial_coverage_changed_pixels,
         composed_flat_coverage_changed_pixels,composed_rgb_fnv64,
-        attribution_json.c_str());
+        attribution_json.c_str(),
+        (unsigned long long)preview_abs_error,preview_mean_abs_rgb_error,
+        preview_changed_pixels,preview_gross_delta64_pixels,
+        preview_max_delta,preview_rgb_fnv64);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
