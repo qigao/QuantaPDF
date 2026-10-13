@@ -31,3 +31,11 @@ error/changed/gross/max, validate witness geometry and RGB, and preserve
 the previous output digest. These windows must NEVER become production
 heuristics. No passing error tolerance is invented or PDFium mechanism
 asserted. #269 remains Open, public SDK stays PDFium, #208 cutover blocked.
+
+## Witness boundary correction
+
+Initial diagnostic witness at (50,60) was inside the later red Fill
+area as well as the earlier black left Stroke. The pure-Stroke witness
+has been relocated to (50,110), below that Fill, and the strict test
+now emits source Stroke/Fill alpha and actual group on any mismatch.
+No raster implementation, PDF bytes, or whole-image acceptance changed.

@@ -141,7 +141,7 @@ set(w_regions bottom_single_horizontal_stroke
     right_vertical_stroke left_vertical_stroke top_repeated_stroke
     clip_right_red_boundary clip_bottom_weak_fringe)
 set(w_x 50 100 250 250 50 250 150 100)
-set(w_y 139 139 139 60 60 19 40 100)
+set(w_y 139 139 139 60 110 19 40 100)
 foreach(i RANGE 0 7)
   list(GET w_names ${i} expected_name)
   list(GET w_regions ${i} expected_region)

@@ -2048,7 +2048,7 @@ int test_external_jspdf_single_vertical_analytic_ab(
     const witness witnesses[]={
         {"bottom_left",50u,139u,0u},{"bottom_interior",100u,139u,0u},
         {"bottom_right",250u,139u,0u},{"right_vertical",250u,60u,1u},
-        {"left_vertical",50u,60u,2u},{"top_corner",250u,19u,3u},
+        {"left_vertical",50u,110u,2u},{"top_corner",250u,19u,3u},
         {"clip_right",150u,40u,4u},{"clip_bottom",100u,100u,5u}
     };
     for(size_t i=0u;i<8u;++i) {
@@ -2059,6 +2059,11 @@ int test_external_jspdf_single_vertical_analytic_ab(
         const unsigned char *n=trial_page.pixels+
             w.y*trial_page.stride+w.x*4u;
         const unsigned char *o=reference.at(w.x,w.y);
+        if(locate(w.x,w.y,sa,fa)!=w.region)
+            std::fprintf(stderr,
+                "[jsPDF original witness invalid] %s (%zu,%zu) "
+                "expected=%zu actual=%zu stroke_alpha=%u fill_alpha=%u\n",
+                w.name,w.x,w.y,w.region,locate(w.x,w.y,sa,fa),sa,fa);
         CHECK(locate(w.x,w.y,sa,fa)==w.region);
         if(i)mode4_regions_json+=",";
         mode4_regions_json+="{\"name\":\""+std::string(w.name)+"\",";
