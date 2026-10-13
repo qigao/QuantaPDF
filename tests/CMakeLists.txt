@@ -2431,3 +2431,8 @@ add_test(NAME quantapdf.original_jspdf_diff_attribution
   COMMAND quantapdf_test_original_jspdf_diff_attribution)
 set_tests_properties(quantapdf.original_jspdf_diff_attribution PROPERTIES
   TIMEOUT 20 LABELS "conformance;native-raster;source-preflight;diagnostic")
+
+# Independent actual original-PDFium scanline A/B vs private C11 grid.
+# This is a diagnostic only; no formal original-pixel-positive promotion.
+include("${PROJECT_SOURCE_DIR}/tests/original_jspdf_stroke_alignment.cmake")
+
