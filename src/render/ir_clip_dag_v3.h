@@ -7,7 +7,9 @@
 extern "C" {
 #endif
 
-#define QUANTAPDF_NATIVE_CLIP_DAG_MAX_NODES ((size_t)8u)
+/* Exact bounded six-Path source: 5 W leaves + 4 intersection nodes.
+ * Per-operation active Clip leaves remain capped at 4, DAG depth at 4. */
+#define QUANTAPDF_NATIVE_CLIP_DAG_MAX_NODES ((size_t)9u)
 #define QUANTAPDF_NATIVE_CLIP_DAG_MAX_DEPTH ((size_t)4u)
 
 /* Reusable bounded, read-only Clip graph admission for scoped operations.

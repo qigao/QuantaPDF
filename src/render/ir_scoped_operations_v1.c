@@ -34,9 +34,9 @@ quantapdf_status quantapdf_ir_raster_scoped_operations_v1(
     size_t width, height, count, bytes, i, k;
     unsigned states_used = 0u, clips_used = 0u;
     const quantapdf_composer_clip_state *active_clips
-        [QUANTAPDF_IR_SCOPED_OPERATIONS_V0_MAX_OPERATIONS]
+        [QUANTAPDF_IR_SCOPED_OPERATIONS_V1_MAX_OPERATIONS]
         [QUANTAPDF_NATIVE_CLIP_DAG_MAX_LEAVES] = {{0}};
-    size_t active_counts[QUANTAPDF_IR_SCOPED_OPERATIONS_V0_MAX_OPERATIONS] = {0};
+    size_t active_counts[QUANTAPDF_IR_SCOPED_OPERATIONS_V1_MAX_OPERATIONS] = {0};
     unsigned char *final_pixels = NULL;
     quantapdf_status status = QUANTAPDF_ERROR_ARGUMENT;
 
@@ -46,7 +46,7 @@ quantapdf_status quantapdf_ir_raster_scoped_operations_v1(
     if (ir == NULL || limits == NULL || ir->pages == NULL ||
         ir->operations == NULL || ir->page_count != 1u || page_index != 0u ||
         ir->operation_count == 0u ||
-        ir->operation_count > QUANTAPDF_IR_SCOPED_OPERATIONS_V0_MAX_OPERATIONS ||
+        ir->operation_count > QUANTAPDF_IR_SCOPED_OPERATIONS_V1_MAX_OPERATIONS ||
         ir->operation_count > limits->max_operations ||
         limits->max_pixels == 0u || limits->max_pixels > SIZE_MAX / 4u ||
         limits->max_edges == 0u ||
@@ -54,7 +54,7 @@ quantapdf_status quantapdf_ir_raster_scoped_operations_v1(
         return QUANTAPDF_ERROR_ARGUMENT;
 
     if (ir->resources.graphics_state_count >
-            QUANTAPDF_IR_SCOPED_OPERATIONS_V0_MAX_OPERATIONS ||
+            QUANTAPDF_IR_SCOPED_OPERATIONS_V1_MAX_OPERATIONS ||
         ir->resources.clip_count > QUANTAPDF_NATIVE_CLIP_DAG_MAX_NODES ||
         (ir->resources.graphics_state_count != 0u &&
          ir->resources.graphics_states == NULL) ||

@@ -24,6 +24,9 @@ typedef struct qp_raster_draw {
     uint32_t color;
     quantapdf_composer_fill_rule rule;
     int one_pixel_stroke;
+    /* For a precise 1px mitered axis-aligned rectangle. */
+    int one_pixel_rectangle_stroke;
+    double rect_minx, rect_miny, rect_maxx, rect_maxy;
 } qp_raster_draw;
 
 typedef struct qp_flatten {
@@ -190,6 +193,67 @@ static quantapdf_status qp_flatten_path(
     return QUANTAPDF_OK;
 }
 
+/* Admit exactly four full, distinct axis-aligned rectangle sides.
+ * A 1-device-pixel miter join is represented by the exact outer-minus-
+ * inner rectangle ring at each 4x4 sample, preserving corner wedges.
+ * No diagonal quadrilaterals, rotated/sheared/scaled CTMs, dashes or
+ * general path-stroke fallback are admitted by this helper. */
+static int qp_rectangle_stroke_bounds(const qp_edge *edges, size_t first,
+                                      qp_raster_draw *out)
+{
+    double minx, maxx, miny, maxy;
+    unsigned sides = 0u;
+    if (out->edge_count != 4u) return 0;
+    minx=maxx=edges[first].from.x;
+    miny=maxy=edges[first].from.y;
+    for (size_t i=0u;i<4u;++i) {
+        const qp_edge *e=&edges[first+i];
+        const qp_point_d pts[2]={e->from,e->to};
+        for (size_t p=0u;p<2u;++p) {
+            if (pts[p].x<minx) minx=pts[p].x;
+            if (pts[p].x>maxx) maxx=pts[p].x;
+            if (pts[p].y<miny) miny=pts[p].y;
+            if (pts[p].y>maxy) maxy=pts[p].y;
+        }
+    }
+    if (!qp_valid_coordinate(minx) || !qp_valid_coordinate(maxx) ||
+        !qp_valid_coordinate(miny) || !qp_valid_coordinate(maxy) ||
+        maxx-minx<1.0 || maxy-miny<1.0) return 0;
+    for (size_t i=0u;i<4u;++i) {
+        const qp_edge *e=&edges[first+i];
+        unsigned side=0u;
+        if (e->from.y==miny && e->to.y==miny &&
+            ((e->from.x==minx && e->to.x==maxx) ||
+             (e->from.x==maxx && e->to.x==minx))) side=1u;
+        else if (e->from.y==maxy && e->to.y==maxy &&
+            ((e->from.x==minx && e->to.x==maxx) ||
+             (e->from.x==maxx && e->to.x==minx))) side=2u;
+        else if (e->from.x==minx && e->to.x==minx &&
+            ((e->from.y==miny && e->to.y==maxy) ||
+             (e->from.y==maxy && e->to.y==miny))) side=4u;
+        else if (e->from.x==maxx && e->to.x==maxx &&
+            ((e->from.y==miny && e->to.y==maxy) ||
+             (e->from.y==maxy && e->to.y==miny))) side=8u;
+        if (side==0u || (sides & side)!=0u) return 0;
+        sides|=side;
+    }
+    if (sides!=15u) return 0;
+    out->rect_minx=minx;out->rect_miny=miny;
+    out->rect_maxx=maxx;out->rect_maxy=maxy;
+    return 1;
+}
+static int qp_rectangle_stroke_inside(const qp_raster_draw *draw,
+                                      double x,double y)
+{
+    if (x<draw->rect_minx-0.5 || x>draw->rect_maxx+0.5 ||
+        y<draw->rect_miny-0.5 || y>draw->rect_maxy+0.5)
+        return 0;
+    if (x>draw->rect_minx+0.5 && x<draw->rect_maxx-0.5 &&
+        y>draw->rect_miny+0.5 && y<draw->rect_maxy-0.5)
+        return 0;
+    return 1;
+}
+
 static quantapdf_status qp_admit_draw(
     const quantapdf_composer_operation *op, qp_flatten *flat,
     qp_raster_draw *out)
@@ -205,6 +269,13 @@ static quantapdf_status qp_admit_draw(
         path->command_count == 2u &&
         path->commands[0].kind == QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
         path->commands[1].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    const int closed_rectangle = stroke && path->commands != NULL &&
+        path->command_count==5u &&
+        path->commands[0].kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
+        path->commands[1].kind==QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+        path->commands[2].kind==QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+        path->commands[3].kind==QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+        path->commands[4].kind==QUANTAPDF_COMPOSER_PATH_CLOSE;
     const int closed_triangle = stroke && path->commands != NULL &&
         path->command_count == 4u &&
         path->commands[0].kind == QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
@@ -219,7 +290,7 @@ static quantapdf_status qp_admit_draw(
             opt->line_cap != QUANTAPDF_COMPOSER_LINE_CAP_BUTT ||
             opt->line_join != QUANTAPDF_COMPOSER_LINE_JOIN_MITER ||
             opt->miter_limit != 10.0f ||
-            !(open_line || closed_triangle))) ||
+            !(open_line || closed_triangle || closed_rectangle))) ||
         (opt->fill_rule != QUANTAPDF_COMPOSER_FILL_NONZERO &&
          opt->fill_rule != QUANTAPDF_COMPOSER_FILL_EVEN_ODD) ||
         (opt->struct_size >= QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE &&
@@ -280,13 +351,17 @@ static quantapdf_status qp_admit_draw(
     if (status != QUANTAPDF_OK)
         return status;
     if (flat->count == first ||
-        (stroke && flat->count - first != (open_line ? 1u : 3u)))
+        (stroke && flat->count - first != (open_line?1u:(closed_triangle?3u:4u))))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     out->first_edge = first;
     out->edge_count = flat->count - first;
     out->color = stroke ? opt->stroke_argb : opt->fill_argb;
     out->rule = opt->fill_rule;
     out->one_pixel_stroke = stroke;
+    out->one_pixel_rectangle_stroke = closed_rectangle;
+    if (closed_rectangle &&
+        !qp_rectangle_stroke_bounds(flat->edges,first,out))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
     return QUANTAPDF_OK;
 }
 
@@ -568,6 +643,7 @@ static quantapdf_status qp_render_v1_impl(
      * Clip excludes all closed-triangle joins. No silent stroke fallback. */
     for (i = 0u; i < draw_count; ++i) {
         if (draws[i].one_pixel_stroke &&
+            !draws[i].one_pixel_rectangle_stroke &&
             draws[i].edge_count != 1u &&
             (draw_count != 1u || clip_count != 1u ||
              !qp_guard_clipped_stroke_geometry(flatten.edges,
@@ -598,9 +674,11 @@ static quantapdf_status qp_render_v1_impl(
                     for (sx = 0u; sx < QP_SAMPLES; ++sx) {
                         double px = (double)x +
                             ((double)sx + 0.5) / (double)QP_SAMPLES;
-                        int visible = draw->one_pixel_stroke ?
-                            qp_stroke_inside(flatten.edges, draw, px, py) :
-                            qp_inside(flatten.edges, draw, px, py);
+                        int visible = draw->one_pixel_rectangle_stroke ?
+                            qp_rectangle_stroke_inside(draw, px, py) :
+                            (draw->one_pixel_stroke ?
+                             qp_stroke_inside(flatten.edges, draw, px, py) :
+                             qp_inside(flatten.edges, draw, px, py));
                         for (ci = 0u; visible && ci < clip_count; ++ci)
                             visible = qp_inside(
                                 flatten.edges, &clip_draws[ci], px, py);
