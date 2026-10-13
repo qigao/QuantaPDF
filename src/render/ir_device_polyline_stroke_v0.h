@@ -41,6 +41,18 @@ quantapdf_ir_raster_device_polyline_stroke_thin_horizontal_preview_v0(
     const quantapdf_ir_raster_v1_limits *raster_limits,
     quantapdf_ir_raster_image *out_image);
 
+/* Second EXPERIMENTAL private A/B. Unlike the #284 repeat-only
+ * interior preview, this counts device pixels at geometrically repeated
+ * source horizontal endpoints. It changes NEITHER old private entrypoint,
+ * nor the prior preview, and may be rejected by full original-PDF parity.
+ * No PDFium fallback, no public ABI or SDK change. */
+quantapdf_status quantapdf_ir_raster_device_polyline_stroke_repeated_endpoint_preview_v0(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

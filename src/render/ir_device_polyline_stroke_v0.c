@@ -233,33 +233,72 @@ static int qp_stroke_hit(
  * diagonal, joins, endpoints, wider strokes and >=2px rows use the
  * unchanged 4x4 sampler. This is a test-only hypothesis, NOT a PDF
  * specification rule or default native admission. */
+/* Two mutually exclusive preview hypotheses, both restricted to repeated
+ * same-Y source horizontal lines. The original private V0 and the first
+ * repeated-interior candidate remain unchanged. Endpoint A/B uses pixel
+ * strip *intersection* at the source endpoint; only an explicit second
+ * preview opts in. This is not PDF cap/join semantics or a general fix. */
 static int qp_horizontal_thin_preview_hit(
     const qp_stroke_segment *segments, size_t count,
     const quantapdf_native_device_grid *grid,
-    size_t x, size_t y, double radius)
+    size_t x, size_t y, double radius, int include_endpoint_pixels)
 {
     const double point_y_per_pixel=grid->points_per_device_y;
     const double point_x_per_pixel=grid->points_per_device_x;
     const double source_x=((double)x+0.5)*point_x_per_pixel;
+    const double pixel_left=(double)x*point_x_per_pixel;
+    const double pixel_right=((double)x+1.0)*point_x_per_pixel;
     const double top=(double)y*point_y_per_pixel;
-    size_t overlap_count=0u;
     const double bottom=((double)y+1.0)*point_y_per_pixel;
+    size_t overlap_count=0u;
+    double matching_source_y=0.0;
+    double first_left=0.0, first_right=0.0;
+    int matching_y_seen=0;
     if(radius!=0.5 || point_y_per_pixel<=0.5)
         return 0;
     for(size_t i=0u;i<count;++i) {
-        const qp_stroke_segment *s=&segments[i];
+        const qp_stroke_segment *segment=&segments[i];
         double left,right;
-        if(s->dy!=0.0 || s->dx==0.0)
+        if(segment->dy!=0.0 || segment->dx==0.0)
             continue;
-        left=fmin(s->a.x,s->b.x);
-        right=fmax(s->a.x,s->b.x);
-        /* Exclude joins/end caps: only the original segment interior is
-         * tested, never a general path-width or W Clip adjustment. */
-        if(source_x<=left+radius || source_x>=right-radius)
+        left=fmin(segment->a.x,segment->b.x);
+        right=fmax(segment->a.x,segment->b.x);
+        if(include_endpoint_pixels) {
+            /* A true overlapping source horizontal strip must occupy
+             * some of the pixel; do not extend Butt Caps by a whole pixel. */
+            if(pixel_right<=left || pixel_left>=right)
+                continue;
+        } else {
+            /* Preserve #284's exact interior-only behavior. */
+            if(source_x<=left+radius || source_x>=right-radius)
+                continue;
+        }
+        if(bottom<=segment->a.y-radius ||
+           top>=segment->a.y+radius)
             continue;
-        if(bottom>s->a.y-radius && top<s->a.y+radius)
+        /* Mode 1 remains the already qualified #284 repeated-interior
+         * algorithm; do not silently alter its supported behavior. */
+        if(!include_endpoint_pixels) {
             ++overlap_count;
-        if(overlap_count>=2u) return 1;
+            if(overlap_count>=2u) return 1;
+            continue;
+        }
+        /* The NEW endpoint-inclusive trial must not count unrelated
+         * parallel lines or non-overlapping spans inside one pixel. */
+        if(!matching_y_seen) {
+            matching_source_y=segment->a.y;
+            first_left=left;
+            first_right=right;
+            matching_y_seen=1;
+            ++overlap_count;
+        } else if(segment->a.y==matching_source_y &&
+                  fmax(first_left,left)<fmin(first_right,right)) {
+            /* Two source segments must overlap geometrically, not just
+             * occupy different tiny parts of the same device pixel. */
+            ++overlap_count;
+        }
+        if(overlap_count>=2u)
+            return 1;
     }
     return 0;
 }
@@ -342,7 +381,8 @@ static quantapdf_status qp_stroke_render_impl(
             }
             if(horizontal_preview && covered<16u &&
                qp_horizontal_thin_preview_hit(
-                   segments,count,&grid,x,y,radius))
+                   segments,count,&grid,x,y,radius,
+                   horizontal_preview==2))
                 covered=16u;
             if(covered!=0u) {
                 size_t offset=(y*grid.width+x)*4u;
@@ -387,4 +427,17 @@ quantapdf_status quantapdf_ir_raster_device_polyline_stroke_thin_horizontal_prev
 {
     return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
                                  raster_limits,out_image,1);
+}
+
+/* Second experimental A/B: this does NOT silently change the existing
+ * private renderer or previously CI-green interior-only preview. */
+quantapdf_status quantapdf_ir_raster_device_polyline_stroke_repeated_endpoint_preview_v0(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
+                                 raster_limits,out_image,2);
 }

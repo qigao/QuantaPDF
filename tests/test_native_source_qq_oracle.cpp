@@ -2158,6 +2158,104 @@ int test_external_jspdf_fractional_page_rejection(
             h.oracle[0],h.oracle[1],h.oracle[2]);
     }
 
+    /* One more explicitly invoked A/B experiment: include only the
+     * pixel intervals at geometrically repeated source horizontal
+     * endpoints. Source/Graph are still released; the real S and W+Fill
+     * ownership and paint order stay intact. No original native
+     * positive is authorized by the result. */
+    quantapdf_ir_raster_image endpoint_stroke{},endpoint_repeat{};
+    OK(quantapdf_ir_raster_device_polyline_stroke_repeated_endpoint_preview_v0(
+        &isolated_stroke,0u,&source_geometry,&stroke_grid_limits,
+        &stroke_raster_limits,&endpoint_stroke));
+    OK(quantapdf_ir_raster_device_polyline_stroke_repeated_endpoint_preview_v0(
+        &isolated_stroke,0u,&source_geometry,&stroke_grid_limits,
+        &stroke_raster_limits,&endpoint_repeat));
+    CHECK(endpoint_stroke.pixels!=nullptr &&
+          endpoint_stroke.width==596u && endpoint_stroke.height==842u &&
+          endpoint_stroke.size==preview_stroke.size &&
+          endpoint_stroke.stride==preview_stroke.stride &&
+          endpoint_repeat.size==endpoint_stroke.size &&
+          std::memcmp(endpoint_stroke.pixels,endpoint_repeat.pixels,
+                      endpoint_stroke.size)==0);
+    /* These two actual source pixels correspond exactly to the last
+     * >64-delta sites observed by the already CI-green #285 report.
+     * The new endpoint preview must actually exercise both sites. */
+    CHECK(preview_stroke.pixels[19u*preview_stroke.stride+
+                                50u*4u+3u]<255u);
+    CHECK(preview_stroke.pixels[19u*preview_stroke.stride+
+                                250u*4u+3u]<255u);
+    CHECK(endpoint_stroke.pixels[19u*endpoint_stroke.stride+
+                                 50u*4u+3u]==255u);
+    CHECK(endpoint_stroke.pixels[19u*endpoint_stroke.stride+
+                                 250u*4u+3u]==255u);
+    quantapdf_ir_raster_image endpoint_composite{},endpoint_composite_repeat{};
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &endpoint_stroke,&source_fill,&composite_budget,&endpoint_composite));
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &endpoint_repeat,&repeat_fill,&composite_budget,
+        &endpoint_composite_repeat));
+    CHECK(endpoint_composite.width==596u &&
+          endpoint_composite.height==842u &&
+          endpoint_composite.size==596u*842u*4u &&
+          endpoint_composite_repeat.size==endpoint_composite.size &&
+          std::memcmp(endpoint_composite.pixels,
+                      endpoint_composite_repeat.pixels,
+                      endpoint_composite.size)==0);
+    const auto endpoint_attr=jspdf_pixel_attribution::analyze(
+        plane{endpoint_stroke.pixels,endpoint_stroke.stride,
+              endpoint_stroke.size},
+        plane{source_fill.pixels,source_fill.stride,source_fill.size},
+        plane{endpoint_composite.pixels,endpoint_composite.stride,
+              endpoint_composite.size},
+        plane{reference.pixels.data(),(size_t)reference.stride,
+              reference.pixels.size()},
+        596u,842u);
+    CHECK(endpoint_attr.valid);
+    const std::uint64_t endpoint_error=endpoint_attr.error_total();
+    const size_t endpoint_changed=endpoint_attr.changed_total();
+    const size_t endpoint_gross=endpoint_attr.gross_total();
+    const unsigned endpoint_max_delta=endpoint_attr.worst_count!=0u ?
+        endpoint_attr.worst[0].max_delta : 0u;
+    const double endpoint_mean_error=
+        (double)endpoint_error/(double)(596u*842u*3u);
+    CHECK(std::isfinite(endpoint_mean_error) &&
+          endpoint_mean_error>=0.0 && endpoint_mean_error<=255.0 &&
+          endpoint_changed<=596u*842u && endpoint_gross<=endpoint_changed &&
+          endpoint_max_delta<=255u);
+    const std::string endpoint_attr_json=
+        jspdf_pixel_attribution::json(endpoint_attr);
+    unsigned long long endpoint_rgb_fnv64=14695981039346656037ULL;
+    for(size_t y=0u;y<842u;++y) for(size_t x=0u;x<596u;++x) {
+        const unsigned char *pixel=
+            endpoint_composite.pixels+y*endpoint_composite.stride+x*4u;
+        for(size_t c=0u;c<3u;++c) {
+            endpoint_rgb_fnv64^=(unsigned long long)on_white(pixel,c);
+            endpoint_rgb_fnv64*=1099511628211ULL;
+        }
+    }
+    std::fprintf(stderr,
+        "[jsPDF repeated endpoint preview, NOT pixel parity] "
+        "error=%llu mean=%.9f changed=%zu gross=%zu max=%u "
+        "rgb_fnv64=%016llx\n",
+        (unsigned long long)endpoint_error,endpoint_mean_error,
+        endpoint_changed,endpoint_gross,endpoint_max_delta,
+        endpoint_rgb_fnv64);
+    for(size_t i=0u;i<endpoint_attr.worst_count;++i) {
+        const auto& h=endpoint_attr.worst[i];
+        std::fprintf(stderr,
+            "  endpoint-trial-residual %zu (%zu,%zu) delta=%u sum=%u "
+            "stroke_alpha=%u fill_alpha=%u "
+            "native=(%u,%u,%u) original_pdfium=(%u,%u,%u)\n",
+            i,h.x,h.y,h.max_delta,h.rgb_error,
+            h.stroke_alpha,h.fill_alpha,
+            h.candidate[0],h.candidate[1],h.candidate[2],
+            h.oracle[0],h.oracle[1],h.oracle[2]);
+    }
+    quantapdf_ir_raster_image_dispose(&endpoint_composite_repeat);
+    quantapdf_ir_raster_image_dispose(&endpoint_composite);
+    quantapdf_ir_raster_image_dispose(&endpoint_repeat);
+    quantapdf_ir_raster_image_dispose(&endpoint_stroke);
+
     std::fprintf(stderr,
         "[jsPDF horizontal 1pt preview, NOT pixel parity] "
         "error=%llu mean=%.9f changed=%zu gross_delta64=%zu "
@@ -2373,6 +2471,18 @@ int test_external_jspdf_fractional_page_rejection(
         "  \"horizontal_thin_1pt_preview_max_channel_delta\": %u,\n"
         "  \"horizontal_thin_1pt_preview_rgb_fnv64\": \"%016llx\",\n"
         "  \"horizontal_thin_1pt_preview_spatial_attribution\": %s,\n"
+        "  \"horizontal_repeated_endpoint_preview_status\": \"measured_unqualified\",\n"
+        "  \"horizontal_repeated_endpoint_preview_default_changed\": false,\n"
+        "  \"horizontal_repeated_endpoint_preview_pixel_parity_qualified\": false,\n"
+        "  \"horizontal_repeated_endpoint_preview_original_pdfium_pixel_count\": 501832,\n"
+        "  \"horizontal_repeated_endpoint_preview_repeat_equal\": true,\n"
+        "  \"horizontal_repeated_endpoint_preview_abs_rgb_error\": %llu,\n"
+        "  \"horizontal_repeated_endpoint_preview_mean_abs_rgb_error\": %.9f,\n"
+        "  \"horizontal_repeated_endpoint_preview_changed_pixels\": %zu,\n"
+        "  \"horizontal_repeated_endpoint_preview_gross_delta64_pixels\": %zu,\n"
+        "  \"horizontal_repeated_endpoint_preview_max_channel_delta\": %u,\n"
+        "  \"horizontal_repeated_endpoint_preview_rgb_fnv64\": \"%016llx\",\n"
+        "  \"horizontal_repeated_endpoint_preview_spatial_attribution\": %s,\n"
         "  \"native_pixel_positive_count\": 0,\n"
         "  \"official_corpus_admitted\": false,\n"
         "  \"generated_fixture_count\": 0\n"
@@ -2388,7 +2498,10 @@ int test_external_jspdf_fractional_page_rejection(
         (unsigned long long)preview_abs_error,preview_mean_abs_rgb_error,
         preview_changed_pixels,preview_gross_delta64_pixels,
         preview_max_delta,preview_rgb_fnv64,
-        repeated_preview_attribution_json.c_str());
+        repeated_preview_attribution_json.c_str(),
+        (unsigned long long)endpoint_error,endpoint_mean_error,
+        endpoint_changed,endpoint_gross,endpoint_max_delta,
+        endpoint_rgb_fnv64,endpoint_attr_json.c_str());
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
