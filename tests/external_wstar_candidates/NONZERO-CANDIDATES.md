@@ -150,3 +150,20 @@ budgets, red stroke overlap and byte-identical repeat RGBA are checked.
 This is **candidate-only** and contributes zero new formal W or W*
 pixel-positive counters pending source-specific license/admission
 review and exact-head full three-platform CI.
+
+## Tightened full-page evidence and explicit fail-closed capacity gates
+
+Initial full exact-head [CI #38356963846](https://github.com/qigao/QuantaPDF/actions/runs/38356963846)
+passed Linux Release/ASan+UBSan, macOS, Windows on the unchanged yWorks
+`clippath-svg.pdf`: **mean RGB 0.000333**, **zero gross-error pixels**,
+red reference/native/overlap **5660/5660/5660**, repeat RGBA identical.
+The separately pinned candidate gate now requires **mean RGB ≤0.05**,
+**zero gross-error pixels**, **at least 5000** original/native red pixels,
+**at least 99%** red overlap, and all **seven** SVG interior goldens.
+
+Additional deterministic negative tests borrow shallow projections of the
+same owned Detached IR and require **seven painted operations**, **ten
+Clip nodes**, and an incorrectly ordered shadowed prefix intersection to
+reject with **zero published pixels**. They do not rewrite the PDF, modify
+the original IR, raise unrelated admission bounds or increment either the
+formal six-source corpus or the W* positive counter.

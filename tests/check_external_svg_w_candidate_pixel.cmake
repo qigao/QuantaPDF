@@ -34,12 +34,26 @@ string(JSON clips GET "${json}" native_total_clip_nodes)
 string(JSON repeat GET "${json}" repeat_rgba_identical)
 string(JSON positives GET "${json}" external_wstar_pixel_supported_count)
 string(JSON generated GET "${json}" generated_fixture_count)
+string(JSON mean GET "${json}" mean_rgb_error)
+string(JSON gross GET "${json}" gross_error_pixels)
+string(JSON ref_red GET "${json}" reference_red_pixels)
+string(JSON native_red GET "${json}" native_red_pixels)
+string(JSON overlap_red GET "${json}" overlap_red_pixels)
+string(JSON goldens GET "${json}" fixed_interior_goldens)
 if(NOT result STREQUAL "candidate_pixel_parity_passed_not_admitted"
    OR NOT oracle STREQUAL "passed" OR NOT native STREQUAL "passed"
    OR admitted OR NOT painted EQUAL 6 OR NOT w EQUAL 5
    OR NOT wstar EQUAL 0 OR NOT intersects EQUAL 4 OR NOT clips EQUAL 9
-   OR NOT repeat OR NOT positives EQUAL 0 OR NOT generated EQUAL 0)
+   OR NOT repeat OR NOT positives EQUAL 0 OR NOT generated EQUAL 0
+   OR mean GREATER 0.05 OR NOT gross EQUAL 0
+   OR NOT goldens EQUAL 7 OR ref_red LESS 5000
+   OR native_red LESS 5000)
   message(FATAL_ERROR "SVG W candidate report contaminated official support")
+endif()
+math(EXPR required_red_overlap "${ref_red} * 99")
+math(EXPR actual_red_overlap "${overlap_red} * 100")
+if(actual_red_overlap LESS required_red_overlap)
+  message(FATAL_ERROR "Original source red strokes mismatch beyond 1%")
 endif()
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)

@@ -1928,6 +1928,51 @@ int test_external_yworks_svg_w_pixels(const char *filename,
             &invalid,0u,&limits,&rejected)==QUANTAPDF_ERROR_UNSUPPORTED);
         CHECK(rejected.pixels==nullptr && rejected.size==0u);
     }
+    /* Every explicit capacity is a strict ceiling; test projections borrow
+     * only descriptor copies, never mutate/dispose the original owned IR. */
+    {
+        std::vector<quantapdf_composer_operation> over(
+            detached.operations,detached.operations+detached.operation_count);
+        over.push_back(detached.operations[0]);
+        quantapdf_ir invalid=detached;
+        invalid.operations=over.data();
+        invalid.operation_count=over.size();
+        quantapdf_ir_raster_image rejected{};
+        CHECK(quantapdf_ir_raster_scoped_operations_v1(
+            &invalid,0u,&limits,&rejected)==QUANTAPDF_ERROR_ARGUMENT);
+        CHECK(rejected.pixels==nullptr && rejected.size==0u);
+    }
+    {
+        std::vector<quantapdf_composer_clip_state> over(
+            detached.resources.clips,
+            detached.resources.clips+detached.resources.clip_count);
+        over.push_back(detached.resources.clips[0]);
+        quantapdf_ir invalid=detached;
+        invalid.resources.clips=over.data();
+        invalid.resources.clip_count=over.size();
+        quantapdf_ir_raster_image rejected{};
+        CHECK(quantapdf_ir_raster_scoped_operations_v1(
+            &invalid,0u,&limits,&rejected)==QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(rejected.pixels==nullptr && rejected.size==0u);
+    }
+    {
+        /* A shadow intersection must be an ORDERED suffix of the active
+         * later root; matching leaf IDs with swapped parents is not enough. */
+        std::vector<quantapdf_composer_clip_state> altered(
+            detached.resources.clips,
+            detached.resources.clips+detached.resources.clip_count);
+        CHECK(altered[2].member_count==2u && altered[2].members!=nullptr);
+        std::vector<quantapdf_composer_clip_id> ids(
+            altered[2].members,altered[2].members+altered[2].member_count);
+        const auto tmp=ids[0];ids[0]=ids[1];ids[1]=tmp;
+        altered[2].members=ids.data();
+        quantapdf_ir invalid=detached;
+        invalid.resources.clips=altered.data();
+        quantapdf_ir_raster_image rejected{};
+        CHECK(quantapdf_ir_raster_scoped_operations_v1(
+            &invalid,0u,&limits,&rejected)==QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(rejected.pixels==nullptr && rejected.size==0u);
+    }
     OK(quantapdf_ir_raster_scoped_operations_v1(
         &detached,0u,&limits,&repeat));
     CHECK(native.pixels!=nullptr && native.width==WIDTH &&
@@ -1985,16 +2030,16 @@ int test_external_yworks_svg_w_pixels(const char *filename,
         overlap_red+=(size_t)(ref&&nat);
     }
     const double mean=total/(double)(WIDTH*HEIGHT*3u);
-    if(mean>5.0 || gross>WIDTH*HEIGHT/50u ||
-       ref_red<300u || native_red<300u ||
-       overlap_red*5u<ref_red*4u)
+    if(mean>0.05 || gross!=0u ||
+       ref_red<5000u || native_red<5000u ||
+       overlap_red*100u<ref_red*99u)
         std::fprintf(stderr,
             "[svg-W-parity] mean=%.6f gross=%zu "
             "ref_red=%zu native_red=%zu overlap=%zu\n",
             mean,gross,ref_red,native_red,overlap_red);
-    CHECK(mean<=5.0 && gross<=WIDTH*HEIGHT/50u);
-    CHECK(ref_red>=300u && native_red>=300u &&
-          overlap_red*5u>=ref_red*4u);
+    CHECK(mean<=0.05 && gross==0u);
+    CHECK(ref_red>=5000u && native_red>=5000u &&
+          overlap_red*100u>=ref_red*99u);
     quantapdf_ir_raster_image_dispose(&native);
     CHECK(corpus_fixture_executions==0u);
 
