@@ -417,6 +417,89 @@ static int test_repeated_right_down_corner_trial(void)
     return EXIT_SUCCESS;
 }
 
+
+/* Fourth private hypothesis: rectangle-pixel intersection, not global
+ * sampler shift. Synthetic checks across each admitted device DPI and
+ * an explicit fail-closed edge-work budget independent of mode 3. */
+static int test_single_vertical_analytic_trial(void)
+{
+    const float dpi[]={72.0f,96.0f,144.0f};
+    for(size_t index=0u;index<3u;++index) {
+        fixture f;
+        quantapdf_ir_raster_image old={0},corner={0},trial={0},again={0};
+        setup(&f);
+        f.geom.dpi=dpi[index];
+        f.grid_budget.max_pixels=4000u;
+        f.grid_budget.max_rgba_bytes=16000u;
+        f.raster_budget.max_pixels=4000u;
+        f.op.value.path.options.stroke_width=1.0f;
+        f.op.value.path.command_count=2u;
+        f.cmds[0].point1=(quantapdf_point){20.0f,3.0f};
+        f.cmds[1].point1=(quantapdf_point){20.0f,20.0f};
+        OK(RENDER(f,old));
+        OK(quantapdf_ir_raster_device_polyline_stroke_right_down_corner_preview_v0(
+            &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&corner));
+        OK(quantapdf_ir_raster_device_polyline_stroke_single_vertical_analytic_preview_v0(
+            &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+        OK(quantapdf_ir_raster_device_polyline_stroke_single_vertical_analytic_preview_v0(
+            &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&again));
+        CHECK(old.size==trial.size && trial.size==again.size &&
+              memcmp(trial.pixels,again.pixels,trial.size)==0 &&
+              memcmp(old.pixels,corner.pixels,old.size)==0);
+        const double px=f.geom.page_width_points/(double)trial.width;
+        const double py=f.geom.page_height_points/(double)trial.height;
+        const size_t y=(size_t)floor(10.0/py);
+        size_t different=0u;
+        for(size_t x=0u;x<trial.width;++x) {
+            const double x0=(double)x*px,x1=((double)x+1.0)*px;
+            const double common=fmax(0.0,fmin(x1,20.5)-fmax(x0,19.5));
+            const unsigned expectation=(unsigned)floor(
+                255.0*fmin(1.0,common/px)+0.5);
+            CHECK(alpha(&trial,x,y)==expectation);
+            if(alpha(&trial,x,y)!=alpha(&old,x,y))++different;
+        }
+        CHECK(different>0u);
+        quantapdf_ir_raster_image_dispose(&again);
+        quantapdf_ir_raster_image_dispose(&trial);
+        quantapdf_ir_raster_image_dispose(&corner);
+        quantapdf_ir_raster_image_dispose(&old);
+    }
+    /* Single horizontal-only Path cannot gain new vertical coverage. */
+    fixture f;
+    quantapdf_ir_raster_image previous={0},candidate={0};
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=2u;
+    OK(quantapdf_ir_raster_device_polyline_stroke_right_down_corner_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&previous));
+    OK(quantapdf_ir_raster_device_polyline_stroke_single_vertical_analytic_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&candidate));
+    CHECK(previous.size==candidate.size &&
+          memcmp(previous.pixels,candidate.pixels,previous.size)==0);
+    quantapdf_ir_raster_image_dispose(&candidate);
+    quantapdf_ir_raster_image_dispose(&previous);
+
+    /* Separate fourth source-edge pass: count=1, 33x25x16 slots;
+     * mode3 requires 39,600 while mode4 requires 52,800. */
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=2u;
+    f.cmds[0].point1=(quantapdf_point){20.0f,3.0f};
+    f.cmds[1].point1=(quantapdf_point){20.0f,20.0f};
+    f.grid_budget.max_sample_tests=47000u;
+    f.raster_budget.max_sample_tests=47000u;
+    OK(quantapdf_ir_raster_device_polyline_stroke_right_down_corner_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&previous));
+    quantapdf_ir_raster_image_dispose(&previous);
+    memset(&candidate,0xa5,sizeof(candidate));
+    BAD(quantapdf_ir_raster_device_polyline_stroke_single_vertical_analytic_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&candidate));
+    CHECK(candidate.pixels==NULL && candidate.size==0u &&
+          candidate.width==0u && candidate.height==0u &&
+          candidate.stride==0u);
+    return EXIT_SUCCESS;
+}
+
 static int test_pixel_width_and_rejections(void)
 {
     fixture f;

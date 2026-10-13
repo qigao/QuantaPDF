@@ -66,6 +66,18 @@ quantapdf_ir_raster_device_polyline_stroke_right_down_corner_preview_v0(
     const quantapdf_ir_raster_v1_limits *raster_limits,
     quantapdf_ir_raster_image *out_image);
 
+
+/* Fourth private A/B: 1pt single-pass axis-aligned vertical Stroke interiors
+ * use analytical device-pixel strip coverage only if all other source
+ * segments and joins are excluded. Modes 0..3 stay unchanged. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_single_vertical_analytic_preview_v0(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
