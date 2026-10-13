@@ -192,6 +192,22 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Review quarantined hidden W original pixel parity (Linux)
+        shell: bash
+        run: |
+          cat build/linux-gcc-release/tests/yworks-hidden-w-candidate-pixel.json
+          cat build/linux-gcc-debug/tests/yworks-hidden-w-candidate-pixel.json
+
+      - name: Upload quarantined hidden W pixel evidence (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-hidden-w-pixel-linux
+          path: |
+            build/linux-gcc-release/tests/yworks-hidden-w-candidate-pixel.json
+            build/linux-gcc-debug/tests/yworks-hidden-w-candidate-pixel.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Qualify external PDF corpus admission (Linux)
         shell: bash
         run: |
@@ -427,6 +443,20 @@ jobs:
             build/macos-clang-release/tests/external-yworks-svg-w-stage-diagnostic.json
             build/macos-clang-release/tests/external-yworks-hidden-w-typed-observe.json
             build/macos-clang-release/tests/external-jspdf-w3s-clip-typed-observe.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review quarantined hidden W original pixel parity (macOS)
+        shell: bash
+        run: |
+          cat build/macos-clang-release/tests/yworks-hidden-w-candidate-pixel.json
+
+      - name: Upload quarantined hidden W pixel evidence (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-hidden-w-pixel-macos
+          path: |
+            build/macos-clang-release/tests/yworks-hidden-w-candidate-pixel.json
           if-no-files-found: error
           retention-days: 7
 
@@ -683,6 +713,20 @@ jobs:
             build/Msvc-Release/tests/external-yworks-svg-w-stage-diagnostic.json
             build/Msvc-Release/tests/external-yworks-hidden-w-typed-observe.json
             build/Msvc-Release/tests/external-jspdf-w3s-clip-typed-observe.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review quarantined hidden W original pixel parity (Windows)
+        shell: pwsh
+        run: |
+          Get-Content build/Msvc-Release/tests/yworks-hidden-w-candidate-pixel.json
+
+      - name: Upload quarantined hidden W pixel evidence (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-hidden-w-pixel-windows
+          path: |
+            build/Msvc-Release/tests/yworks-hidden-w-candidate-pixel.json
           if-no-files-found: error
           retention-days: 7
 

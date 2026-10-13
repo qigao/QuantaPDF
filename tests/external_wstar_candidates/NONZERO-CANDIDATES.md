@@ -119,3 +119,17 @@ pixel positives** to the six-source official manifest. The default
 paint budget 3 continues to return transactional `UNSUPPORTED`.
 The status report distinguishes `lowered` from a pixel-positive
 and retains original-byte report guards and source ownership release.
+
+## Candidate-only original PDFium/C11 pixel oracle — hidden W Clip
+
+This Draft #267 gate compares unchanged, independently published yWorks
+`hidden-clippath.pdf` (fixed original SHA-256 above) against **PDFium
+rendering those exact original bytes**, with Source/Graph ownership dropped
+before pure-C11 native Raster. It uses the independent SVG to fix interior
+red/white semantic probes, measures all 500x500 pixels with explicit RGB/gross
+budgets, and checks byte-identical repeat RGBA. The original has two ordinary
+`W` Clip leaves and one Clip intersection. It has **no W*** and remains
+quarantined, so even successful pixels do not alter the six official original
+manifest entries, the generated 14/36 corpus or W* pixel-positive 1/1.
+The CTest validates the original SHA-256 before/after, rejects hardlink
+report/source aliases and retains earlier reports on failure.
