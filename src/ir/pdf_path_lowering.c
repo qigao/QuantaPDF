@@ -17,14 +17,19 @@ static int decimal4(double value, double writer_value)
         fabs(value - round(writer_value * 10000.0) / 10000.0) < 1e-9;
 }
 
-static quantapdf_status point(double x, double y, float h, quantapdf_point *out)
+/* A single local basis is used for every native Path and W/W* Clip:
+ * (x, -y), without a page-height offset in the local float coordinates.
+ * The matching transform below contributes H only once after the CTM.
+ * Rebase both points and transforms together; never switch representations
+ * on rejection. The same decimal4/finite/range gate still applies. */
+static quantapdf_status point(double x, double y, quantapdf_point *out)
 {
     float cx, cy;
     if (!isfinite(x) || !isfinite(y)) return QUANTAPDF_ERROR_FORMAT;
     cx = (float)x;
-    cy = (float)((double)h - y);
+    cy = (float)(-y);
     if (!decimal4(x, (double)cx) ||
-        !decimal4(y, (double)h - (double)cy))
+        !decimal4(y, -(double)cy))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     out->x = cx; out->y = cy;
     return QUANTAPDF_OK;
@@ -60,12 +65,15 @@ static quantapdf_status transform(const double pdf[6], float height,
     if (!isfinite(determinant) || fabs(determinant) < 1e-12)
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
-    /* Conjugate the PDF row-vector CTM by Composer's top-down page flip.
-     * This exactly inverts qpdf_composer.cpp::append_path_content. */
+    /* Canonical, uniformly rebased source path basis (x, -y).
+     * The same transform is frozen at W/W* and used at each paint.
+     * Composer's Writer will apply its normal page-height conversion;
+     * do not embed c*H/d*H in this private float transform as well.
+     * No fallback to the prior basis if any numeric gate rejects. */
     candidate[0] = pdf[0]; candidate[1] = -pdf[1];
     candidate[2] = -pdf[2]; candidate[3] = pdf[3];
-    candidate[4] = pdf[4] + pdf[2] * (double)height;
-    candidate[5] = (double)height * (1.0 - pdf[3]) - pdf[5];
+    candidate[4] = pdf[4];
+    candidate[5] = (double)height - pdf[5];
     for (size_t i = 0; i < 6; ++i) {
         if (!isfinite(candidate[i]) || fabs(candidate[i]) > 65536.0)
             return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -75,8 +83,8 @@ static quantapdf_status transform(const double pdf[6], float height,
     roundtrip[1] = -(double)stored[1];
     roundtrip[2] = -(double)stored[2];
     roundtrip[3] = stored[3];
-    roundtrip[4] = (double)stored[2] * height + stored[4];
-    roundtrip[5] = (double)height * (1.0 - (double)stored[3]) - stored[5];
+    roundtrip[4] = stored[4];
+    roundtrip[5] = (double)height - stored[5];
     for (size_t i = 0; i < 6; ++i)
         if (!decimal4(pdf[i], roundtrip[i]))
             return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -239,7 +247,7 @@ static quantapdf_status count_commands(
 
 static quantapdf_status commands_from_path(
     const quantapdf_pdf_content_ir *content,
-    const quantapdf_pdf_path_record *path, float height,
+    const quantapdf_pdf_path_record *path,
     quantapdf_composer_path_command *commands, size_t expected)
 {
     size_t count = 0;
@@ -247,13 +255,13 @@ static quantapdf_status commands_from_path(
     int have_current = 0;
     quantapdf_status status;
 #define EMIT_MOVE(X,Y) do { \
-    status = point((X), (Y), height, &target); \
+    status = point((X), (Y), &target); \
     if (status != QUANTAPDF_OK) return status; \
     commands[count].kind = QUANTAPDF_COMPOSER_PATH_MOVE_TO; \
     commands[count++].point1 = target; current = start = target; have_current = 1; \
 } while(0)
 #define EMIT_LINE(X,Y) do { \
-    status = point((X), (Y), height, &target); \
+    status = point((X), (Y), &target); \
     if (status != QUANTAPDF_OK) return status; \
     if (!have_current) return QUANTAPDF_ERROR_FORMAT; \
     commands[count].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO; \
@@ -279,22 +287,22 @@ static quantapdf_status commands_from_path(
             if (!have_current) return QUANTAPDF_ERROR_FORMAT;
             if (op->opcode == QUANTAPDF_PDF_OP_CURVE) {
                 if (op->argument_count != 6) return QUANTAPDF_ERROR_FORMAT;
-                status = point(a[0], a[1], height, &p1);
+                status = point(a[0], a[1], &p1);
                 if (status != QUANTAPDF_OK) return status;
-                status = point(a[2], a[3], height, &p2);
+                status = point(a[2], a[3], &p2);
                 if (status != QUANTAPDF_OK) return status;
-                status = point(a[4], a[5], height, &p3);
+                status = point(a[4], a[5], &p3);
             } else if (op->opcode == QUANTAPDF_PDF_OP_CURVE_V) {
                 if (op->argument_count != 4) return QUANTAPDF_ERROR_FORMAT;
                 p1 = current;
-                status = point(a[0], a[1], height, &p2);
+                status = point(a[0], a[1], &p2);
                 if (status != QUANTAPDF_OK) return status;
-                status = point(a[2], a[3], height, &p3);
+                status = point(a[2], a[3], &p3);
             } else {
                 if (op->argument_count != 4) return QUANTAPDF_ERROR_FORMAT;
-                status = point(a[0], a[1], height, &p1);
+                status = point(a[0], a[1], &p1);
                 if (status != QUANTAPDF_OK) return status;
-                status = point(a[2], a[3], height, &p3);
+                status = point(a[2], a[3], &p3);
                 p2 = p3;
             }
             if (status != QUANTAPDF_OK) return status;
@@ -340,7 +348,7 @@ static quantapdf_status lower_commands(
     const quantapdf_pdf_content_ir *content,
     const quantapdf_pdf_path_record *path,
     const quantapdf_pdf_clip_record *clip,
-    float height, size_t available, int for_clip,
+    size_t available, int for_clip,
     quantapdf_composer_path_command **out_commands, size_t *out_count)
 {
     quantapdf_pdf_path_record geometry = *path;
@@ -379,7 +387,7 @@ static quantapdf_status lower_commands(
     commands = (quantapdf_composer_path_command *)calloc(count,
         sizeof(*commands));
     if (commands == NULL) return QUANTAPDF_ERROR_NOMEM;
-    status = commands_from_path(content, &geometry, height,
+    status = commands_from_path(content, &geometry,
         commands, base_count);
     if (status != QUANTAPDF_OK) {
         free(commands);
@@ -556,7 +564,7 @@ quantapdf_status quantapdf_pdf_path_lower_to_composer_mapped(
             status = paint_options(path, (float)canvas_height,
                 page_transform, &op->value.path.options);
             if (status != QUANTAPDF_OK) goto fail;
-            status = lower_commands(content, path, clip, (float)canvas_height,
+            status = lower_commands(content, path, clip,
                 limits->max_path_commands - command_total, 0,
                 &op->value.path.commands, &op->value.path.command_count);
             if (status != QUANTAPDF_OK) goto fail;
@@ -584,7 +592,7 @@ quantapdf_status quantapdf_pdf_path_lower_to_composer_mapped(
             status = mapped_transform(path->graphics.ctm, page_transform,
                 (float)canvas_height, &candidate.transform);
             if (status != QUANTAPDF_OK) goto fail;
-            status = lower_commands(content, path, clip, (float)canvas_height,
+            status = lower_commands(content, path, clip,
                 limits->max_path_commands - command_total, 1,
                 &candidate.commands, &count);
             if (status != QUANTAPDF_OK) goto fail;
