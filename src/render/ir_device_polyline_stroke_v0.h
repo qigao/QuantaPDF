@@ -78,6 +78,18 @@ quantapdf_ir_raster_device_polyline_stroke_single_vertical_analytic_preview_v0(
     const quantapdf_ir_raster_v1_limits *raster_limits,
     quantapdf_ir_raster_image *out_image);
 
+
+/* Fifth explicit/private A/B: source-geometry 1pt single-pass horizontal
+ * interior coverage, retaining the mode4 vertical, repeated top and
+ * corner preview. No default entrypoint, SDK, ABI or fallback change. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_single_horizontal_analytic_preview_v0(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
