@@ -71,8 +71,8 @@ static void test_fractional_grid_render_clip(void)
     OK(quantapdf_render_plan_map_source(&plan, &identity, &matrix));
     point(&matrix, 10.25, 20.5, 0, 0);
     point(&matrix, 110.75, 220.875, 100.5, 200.375);
-    CHECK(fabs(matrix.e - plan.start_x) == 0.75);
-    CHECK(fabs(matrix.f - plan.start_y) == 0.5);
+    CHECK(fabs((double)matrix.e - plan.start_x) == 0.75);
+    CHECK(fabs((double)matrix.f - plan.start_y) == 0.5);
     /* Negative fractional origin is legal for a render clip; it must not be
      * silently clamped to the page. The output rectangle is still bounded. */
     clip = (quantapdf_rect){-0.25f, -0.5f, 1.25f, 2.125f};
