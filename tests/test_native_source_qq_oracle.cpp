@@ -2098,6 +2098,29 @@ int diagnose_original_stages(const char *source_path,const char *report_path)
         }
         CHECK(first_failed_path!=SIZE_MAX);
     }
+    /* Verify the exact first failing W n Clip record's Composer CTM
+     * admission algebra without changing the native implementation.
+     * Composer command points are top-down: conjugating a source CTM
+     * around the page-height flip can create a huge cancelling offset.
+     * The path lowerer's strict finite +/-65536 guard rejects that value.
+     */
+    double first_failed_composer_f=0.0;
+    if(std::strcmp(failed_stage,"path_lowering")==0) {
+        CHECK(first_failed_path==3u && first_failed_operator==31u &&
+              first_failed_terminal_operator==37u &&
+              first_failed_clip_count==3u && first_failed_is_clip==1u &&
+              first_failed_paint_opcode==(int)QUANTAPDF_PDF_OP_END_PATH);
+        const double *source_ctm=first_failed_source_ctm;
+        const double *page=display.from_source;
+        const double mapped_d=source_ctm[2]*page[1]+source_ctm[3]*page[3];
+        const double mapped_f=source_ctm[4]*page[1]+
+                              source_ctm[5]*page[3]+page[5];
+        first_failed_composer_f=(double)(float)display.height_points *
+                                 (1.0-mapped_d)-mapped_f;
+        CHECK(std::isfinite(first_failed_composer_f) &&
+              std::fabs(first_failed_composer_f)>65536.0 &&
+              std::fabs(first_failed_composer_f-240100.0)<1e-9);
+    }
     const int code=(int)st;
     const bool unsupported=st==QUANTAPDF_ERROR_UNSUPPORTED;
     if(st==QUANTAPDF_OK)
@@ -2142,6 +2165,9 @@ int diagnose_original_stages(const char *source_path,const char *report_path)
         "  \"first_rejected_paint_opcode\": %d,\n"
         "  \"first_rejected_prefix_status\": %d,\n"
         "  \"first_rejected_source_ctm\": [%.17g, %.17g, %.17g, %.17g, %.17g, %.17g],\n"
+        "  \"first_rejected_conjugated_y_translation\": %.17g,\n"
+        "  \"composer_transform_component_abs_bound\": 65536,\n"
+        "  \"first_rejected_numeric_guard\": \"conjugated_y_translation_exceeds_bound\",\n"
         "  \"source_document_graph_released\": true,\n"
         "  \"detached_ir_pages\": 0,\n"
         "  \"detached_ir_operations\": 0,\n"
@@ -2155,7 +2181,8 @@ int diagnose_original_stages(const char *source_path,const char *report_path)
         first_failed_clip_count,first_failed_is_clip,first_failed_paint_opcode,
         first_failed_status,first_failed_source_ctm[0],first_failed_source_ctm[1],
         first_failed_source_ctm[2],first_failed_source_ctm[3],
-        first_failed_source_ctm[4],first_failed_source_ctm[5]);
+        first_failed_source_ctm[4],first_failed_source_ctm[5],
+        first_failed_composer_f);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;

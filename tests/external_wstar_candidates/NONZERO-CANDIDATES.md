@@ -80,3 +80,27 @@ and exact six-component source CTM. Prefix tracing does not alter the
 production admission or claim a pixel positive. It only narrows the
 remaining failure **within** `path_lowering` and must agree across all
 three CI platforms before interpretation.
+
+## Exact first-rejection numeric guard, evidence from original PDF
+
+Three-platform prefix tracing localized the first rejection to Path record
+`3` (zero-based), source operations `31..37`. It introduces the
+third **W n** Clip (paint opcode `END_PATH=19`) with CTM
+`[300,0,0,-300,100,700]`. The full page is 800 points tall.
+
+The actual `pdf_path_lowering.c::transform()` Composer coordinates
+conjugate the PDF CTM around the page-height flip. For this original,
+the candidate Y translation is exactly
+`800 * (1 - (-300)) - 700 = 240100`, exceeding the existing
+`abs(component) <= 65536` numeric admission guard. The proof is
+recomputed from the selected page's **actual parsed geometry and CTM**
+in the test-only stage tool and checked by the CMake regression.
+This is the **first** rejected cumulative prefix. It is not evidence
+that Clip intersection is wrong. Higher capacity alone cannot help.
+
+**Do not increase the Composer numeric bound or transform/sanitize the
+original PDF to manufacture a passing oracle**. A future equivalent
+coordinate representation must preserve exact semantics (W vs W*,
+q/Q, CTM, geometry and stroke) and pass independent PDFium-original
+vs detached-C11 whole-image/golden/repeat pixel evidence, before any
+formal conformance count can change.

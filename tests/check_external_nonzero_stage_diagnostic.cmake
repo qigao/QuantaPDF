@@ -40,8 +40,19 @@ string(JSON first_path GET "${json}" first_rejected_path_record_index)
 string(JSON first_status GET "${json}" first_rejected_prefix_status)
 string(JSON total_paths GET "${json}" parsed_path_records)
 string(JSON ctm_type TYPE "${json}" first_rejected_source_ctm)
+string(JSON candidate_y GET "${json}" first_rejected_conjugated_y_translation)
+string(JSON bound GET "${json}" composer_transform_component_abs_bound)
+string(JSON guard GET "${json}" first_rejected_numeric_guard)
+string(JSON operator_start GET "${json}" first_rejected_path_first_operator_index)
+string(JSON operator_end GET "${json}" first_rejected_path_terminal_operator_index)
+string(JSON is_clip GET "${json}" first_rejected_introduces_clip)
+string(JSON opcode GET "${json}" first_rejected_paint_opcode)
 if(NOT ctm_type STREQUAL "ARRAY" OR NOT first_status EQUAL 5
-   OR first_path LESS 0 OR NOT first_path LESS total_paths)
+   OR NOT first_path EQUAL 3 OR NOT first_path LESS total_paths
+   OR NOT operator_start EQUAL 31 OR NOT operator_end EQUAL 37
+   OR NOT is_clip EQUAL 1 OR NOT opcode EQUAL 19
+   OR NOT bound EQUAL 65536 OR NOT candidate_y EQUAL 240100
+   OR NOT guard STREQUAL "conjugated_y_translation_exceeds_bound")
   message(FATAL_ERROR "First unsupported prefix diagnostic missing/invalid")
 endif()
 if(NOT result STREQUAL "test_only_original_source_stage_diagnostic"
