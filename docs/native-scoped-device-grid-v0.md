@@ -53,3 +53,27 @@ corpus totals are unchanged. Full C11 Raster/PDFium antialiasing differences,
 source precision of individual commands, requested rotation and fractional
 stroke scaling remain open in #269. Public SDK stays PDFium and #208 remains
 blocked. Keep all staged PRs Draft / DO NOT MERGE.
+
+## Source translation-qualified Fill + W Clip (next stacked stage)
+
+The private fill-only projection now accepts **bounded translation-only**
+Path and Clip PATH leaf transforms, matching the source-origin `(x,-y)`
+basis and compensating `+page_height` path/clip translations from the
+same Source→Graph pipeline. It keeps Clip INTERSECTION ordering and
+borrowed Source/IR ownership unchanged, still rejecting scaling, shear,
+rotation, Stroke, arbitrary resource types and unsupported page geometry.
+
+The strict C11 synthetic regression requires byte-identical RGBA when
+both filled Paths and nested W Clip leaves are represented either in
+already-normalized coordinates or with local Y-rebased commands plus
+the compensating translation. The independent original jsPDF source's
+second (Fill-only) Detached IR operation is also projected into a
+one-operation, borrowed Clip-respecting native layer. Fixed red interior
+and white exterior PDFium anchors, zero outside native alpha and repeated
+byte-identical RGBA are required.
+
+These are **isolated source Stroke and isolated source Fill** candidates,
+NOT the correctly ordered composited full-page original and NOT a full
+PDFium/native image pixel-parity certification. #270/#277 old and
+whole-original opt-in negative gates remain unchanged, as do W* count,
+formal external corpus, and public SDK PDFium backend.

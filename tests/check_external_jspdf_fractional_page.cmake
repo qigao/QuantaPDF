@@ -48,6 +48,11 @@ string(JSON stroke_anchors GET "${json}" isolated_original_stroke_native_nonzero
 string(JSON stroke_pdfium GET "${json}" isolated_original_stroke_pdfium_anchor_observations)
 string(JSON stroke_repeat GET "${json}" isolated_original_stroke_native_repeat_equal)
 string(JSON stroke_full_positive GET "${json}" isolated_original_stroke_is_full_page_positive)
+string(JSON fill_status GET "${json}" isolated_original_fill_native_status)
+string(JSON fill_clip_count GET "${json}" isolated_original_fill_native_clip_count)
+string(JSON fill_pdfium GET "${json}" isolated_original_fill_pdfium_anchor_observations)
+string(JSON fill_repeat GET "${json}" isolated_original_fill_native_repeat_equal)
+string(JSON fill_full_positive GET "${json}" isolated_original_fill_is_full_page_positive)
 string(JSON positive GET "${json}" native_pixel_positive_count)
 string(JSON admitted GET "${json}" official_corpus_admitted)
 string(JSON generated GET "${json}" generated_fixture_count)
@@ -67,6 +72,10 @@ if(NOT got_result STREQUAL "quarantined_original_fractional_page_native_rejectio
    OR NOT stroke_anchors EQUAL 2
    OR NOT stroke_pdfium STREQUAL "passed"
    OR NOT stroke_repeat OR stroke_full_positive
+   OR NOT fill_status STREQUAL "rasterized_candidate"
+   OR NOT fill_clip_count EQUAL 1
+   OR NOT fill_pdfium STREQUAL "passed"
+   OR NOT fill_repeat OR fill_full_positive
    OR optin_strokes LESS 1 OR optin_fills LESS 1 OR optin_partial
    OR NOT observed OR NOT released OR partial OR positive OR admitted OR generated)
   message(FATAL_ERROR "Fractional page refusal was not complete and correctly classified")

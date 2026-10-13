@@ -160,6 +160,44 @@ static int test_device_space_projection(void)
     return EXIT_SUCCESS;
 }
 
+static int test_source_rebased_path_and_clips(void)
+{
+    fixture f;
+    quantapdf_ir_raster_image normalized={0},rebased={0};
+    initialize(&f);
+    OK(quantapdf_ir_raster_scoped_device_grid_v0(
+        &f.ir,0u,&f.geometry,&f.grid_limits,&f.raster_limits,&normalized));
+    /* Identical shape in the PDF source path basis (x,-y) with one
+     * compensating (0,page_height) translation on EVERY Path and W Clip.
+     * Keep intersection member IDs unchanged. */
+    for (size_t op=0u;op<2u;++op) {
+        for (size_t c=0u;c<f.ops[op].value.path.command_count;++c) {
+            quantapdf_composer_path_command *cmd=
+                &f.ops[op].value.path.commands[c];
+            if (cmd->kind!=QUANTAPDF_COMPOSER_PATH_CLOSE)
+                cmd->point1.y-=8.5f;
+        }
+        f.ops[op].value.path.options.transform.f=8.5f;
+    }
+    for (size_t clip=0u;clip<2u;++clip) {
+        for (size_t c=0u;c<f.clips[clip].command_count;++c) {
+            quantapdf_composer_path_command *cmd=&f.clips[clip].commands[c];
+            if (cmd->kind!=QUANTAPDF_COMPOSER_PATH_CLOSE)
+                cmd->point1.y-=8.5f;
+        }
+        f.clips[clip].transform.f=8.5f;
+    }
+    OK(quantapdf_ir_raster_scoped_device_grid_v0(
+        &f.ir,0u,&f.geometry,&f.grid_limits,&f.raster_limits,&rebased));
+    CHECK(rebased.width==normalized.width &&
+          rebased.height==normalized.height &&
+          rebased.size==normalized.size &&
+          memcmp(rebased.pixels,normalized.pixels,normalized.size)==0);
+    quantapdf_ir_raster_image_dispose(&normalized);
+    quantapdf_ir_raster_image_dispose(&rebased);
+    return EXIT_SUCCESS;
+}
+
 static int test_refusal(void)
 {
     fixture f;
@@ -211,6 +249,7 @@ static int test_refusal(void)
 int main(void)
 {
     CHECK(test_device_space_projection() == EXIT_SUCCESS);
+    CHECK(test_source_rebased_path_and_clips() == EXIT_SUCCESS);
     CHECK(test_refusal() == EXIT_SUCCESS);
     puts("native-scoped-grid: fractional Path+Clip projection PASS; original jsPDF not admitted");
     return EXIT_SUCCESS;

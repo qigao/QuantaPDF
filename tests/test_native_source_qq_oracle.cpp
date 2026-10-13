@@ -1943,6 +1943,65 @@ int test_external_jspdf_fractional_page_rejection(
                       source_stroke.size)==0);
     quantapdf_ir_raster_image_dispose(&repeat_stroke);
     quantapdf_ir_raster_image_dispose(&source_stroke);
+    /* The second original operation is the later FILL, so its frozen W
+     * Clip applies only to this operation, not to the already-painted S.
+     * The source Path and its Clip leaf share translation-only (x,-y)+H. */
+    CHECK(detached.operations[1].value.path.options.fill==1 &&
+          detached.operations[1].value.path.options.stroke==0);
+    quantapdf_ir isolated_fill=detached;
+    isolated_fill.operations=&detached.operations[1];
+    isolated_fill.operation_count=1u;
+    /* Original Fill and W Clip each retain repeated source edges; exact
+     * sample-edge billing needs a separate, explicit bounded per-layer
+     * allowance. This does not change #270 whole-original admission. */
+    quantapdf_native_device_grid_limits fill_grid_limits=grid_limits;
+    fill_grid_limits.max_sample_tests=160000000u;
+    const quantapdf_ir_raster_v1_limits fill_raster_limits={
+        600u*850u,1u,768u,160000000u
+    };
+    quantapdf_ir_raster_image source_fill{};
+    quantapdf_ir_raster_image repeat_fill{};
+    const quantapdf_status source_fill_status=
+        quantapdf_ir_raster_scoped_device_grid_v0(
+            &isolated_fill,0u,&source_geometry,&fill_grid_limits,
+            &fill_raster_limits,&source_fill);
+    if (source_fill_status!=QUANTAPDF_OK)
+        std::fprintf(stderr,"source-fill isolated status=%d\n",
+                     (int)source_fill_status);
+    OK(source_fill_status);
+    CHECK(source_fill.pixels!=nullptr &&
+          source_fill.width==596u && source_fill.height==842u &&
+          source_fill.stride==596u*4u && source_fill.size==596u*842u*4u);
+    const size_t fill_inside=50u*source_fill.stride+100u*4u;
+    CHECK(source_fill.pixels[fill_inside]==255u &&
+          source_fill.pixels[fill_inside+1u]==0u &&
+          source_fill.pixels[fill_inside+2u]==0u &&
+          source_fill.pixels[fill_inside+3u]==255u);
+    CHECK(source_fill.pixels[50u*source_fill.stride+25u*4u+3u]==0u);
+    CHECK(source_fill.pixels[50u*source_fill.stride+200u*4u+3u]==0u);
+    CHECK(reference.at(100u,50u)[0]>245u &&
+          reference.at(100u,50u)[1]<10u &&
+          reference.at(100u,50u)[2]<10u);
+    CHECK(reference.at(25u,50u)[0]>245u &&
+          reference.at(25u,50u)[1]>245u &&
+          reference.at(25u,50u)[2]>245u);
+    CHECK(reference.at(200u,50u)[0]>245u &&
+          reference.at(200u,50u)[1]>245u &&
+          reference.at(200u,50u)[2]>245u);
+    const quantapdf_status repeat_fill_status=
+        quantapdf_ir_raster_scoped_device_grid_v0(
+            &isolated_fill,0u,&source_geometry,&fill_grid_limits,
+            &fill_raster_limits,&repeat_fill);
+    if (repeat_fill_status!=QUANTAPDF_OK)
+        std::fprintf(stderr,"source-fill repeat status=%d\n",
+                     (int)repeat_fill_status);
+    OK(repeat_fill_status);
+    CHECK(repeat_fill.size==source_fill.size &&
+          std::memcmp(repeat_fill.pixels,source_fill.pixels,
+                      source_fill.size)==0);
+    quantapdf_ir_raster_image_dispose(&repeat_fill);
+    quantapdf_ir_raster_image_dispose(&source_fill);
+
     quantapdf_ir_dispose(&detached);
     CHECK(corpus_fixture_executions==0u);
 
@@ -1976,6 +2035,11 @@ int test_external_jspdf_fractional_page_rejection(
         "  \"isolated_original_stroke_pdfium_anchor_observations\": \"passed\",\n"
         "  \"isolated_original_stroke_native_repeat_equal\": true,\n"
         "  \"isolated_original_stroke_is_full_page_positive\": false,\n"
+        "  \"isolated_original_fill_native_status\": \"rasterized_candidate\",\n"
+        "  \"isolated_original_fill_native_clip_count\": 1,\n"
+        "  \"isolated_original_fill_pdfium_anchor_observations\": \"passed\",\n"
+        "  \"isolated_original_fill_native_repeat_equal\": true,\n"
+        "  \"isolated_original_fill_is_full_page_positive\": false,\n"
         "  \"original_pdfium_default_dpi\": 72,\n"
         "  \"original_pdfium_geometry_oracle\": \"passed\",\n"
         "  \"original_pdfium_device_width\": 596,\n"
