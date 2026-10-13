@@ -9,6 +9,7 @@
 #include "render/ir_scoped_device_grid_v0.h"
 #include "render/ir_device_polyline_stroke_v0.h"
 #include "render/ir_ordered_layer_composite_v0.h"
+#include "original_jspdf_diff_attribution.h"
 #include "render/ir_clip_dag_v3.h"
 #include "render/ir_raster.h"
 
@@ -2086,6 +2087,60 @@ int test_external_jspdf_fractional_page_rejection(
           composed_flat_coverage_changed_pixels+
               composed_partial_coverage_changed_pixels==
               composed_changed_pixels);
+    /* An independent bounded PASS over exactly the same original pixels
+     * now locates the large errors and the 100 mismatches whose local C11
+     * coverage is flat. It never identifies PDFium's sampling algorithm
+     * or authorizes an original native pixel-positive. */
+    using jspdf_pixel_attribution::plane;
+    const auto attribution=jspdf_pixel_attribution::analyze(
+        plane{source_stroke.pixels,source_stroke.stride,source_stroke.size},
+        plane{source_fill.pixels,source_fill.stride,source_fill.size},
+        plane{composite.pixels,composite.stride,composite.size},
+        plane{reference.pixels.data(),(size_t)reference.stride,
+              reference.pixels.size()},
+        composite.width,composite.height);
+    CHECK(attribution.valid);
+    CHECK(attribution.changed_total()==composed_changed_pixels);
+    CHECK(attribution.gross_total()==composed_gross_delta64_pixels);
+    CHECK(attribution.error_total()==composed_total_abs_rgb_error);
+    CHECK(attribution.changed[0]==composed_flat_coverage_changed_pixels);
+    CHECK(attribution.changed[1]+attribution.changed[2]+
+          attribution.changed[3]==
+          composed_partial_coverage_changed_pixels);
+    CHECK(attribution.flat_near_partial_3x3+
+          attribution.flat_far_from_partial_3x3==
+          attribution.changed[0]);
+    CHECK(attribution.worst_count<=
+          jspdf_pixel_attribution::report::max_hotspots);
+    if(composed_changed_pixels!=0u) {
+        CHECK(attribution.worst_count>0u);
+        CHECK(attribution.worst[0].max_delta==composed_max_delta);
+    }
+    const std::string attribution_json=
+        jspdf_pixel_attribution::json(attribution);
+    std::fprintf(stderr,
+        "[jsPDF pixel attribution] flat=%zu (3x3-near-partial=%zu far=%zu), "
+        "stroke-partial=%zu fill-partial=%zu both-partial=%zu "
+        "uncovered-reference=%zu bbox=[%zu,%zu..%zu,%zu]\n",
+        attribution.changed[0],attribution.flat_near_partial_3x3,
+        attribution.flat_far_from_partial_3x3,
+        attribution.changed[1],attribution.changed[2],
+        attribution.changed[3],
+        attribution.native_uncovered_reference_foreground,
+        attribution.min_x,attribution.min_y,attribution.max_x,
+        attribution.max_y);
+    for(size_t i=0u;i<attribution.worst_count;++i) {
+        const auto& h=attribution.worst[i];
+        std::fprintf(stderr,
+            "  pixel-hotspot %zu (%zu,%zu) delta=%u sum=%u "
+            "stroke_alpha=%u fill_alpha=%u "
+            "native=(%u,%u,%u) PDFium=(%u,%u,%u)\n",
+            i,h.x,h.y,h.max_delta,h.rgb_error,
+            h.stroke_alpha,h.fill_alpha,
+            h.candidate[0],h.candidate[1],h.candidate[2],
+            h.oracle[0],h.oracle[1],h.oracle[2]);
+    }
+
     std::fprintf(stderr,
         "[jsPDF full-image diagnostic] original 596x842 Stroke->W-Fill "
         "mean_rgb=%.9f max_delta=%u gross_delta64=%zu "
@@ -2094,7 +2149,8 @@ int test_external_jspdf_fractional_page_rejection(
         composed_mean_abs_rgb_error,composed_max_delta,
         composed_gross_delta64_pixels,composed_changed_pixels,
         composed_partial_coverage_pixels,
-        composed_flat_coverage_changed_pixels,composed_rgb_fnv64);
+        composed_flat_coverage_changed_pixels,composed_rgb_fnv64,
+        attribution_json.c_str());
 
     quantapdf_ir_raster_image_dispose(&composite_repeat);
     quantapdf_ir_raster_image_dispose(&composite);
@@ -2162,6 +2218,7 @@ int test_external_jspdf_fractional_page_rejection(
         "  \"ordered_native_composite_partial_coverage_changed_pixels\": %zu,\n"
         "  \"ordered_native_composite_flat_coverage_changed_pixels\": %zu,\n"
         "  \"ordered_native_composite_rgb_fnv64\": \"%016llx\",\n"
+        "  \"ordered_native_spatial_attribution\": %s,\n"
         "  \"native_pixel_positive_count\": 0,\n"
         "  \"official_corpus_admitted\": false,\n"
         "  \"generated_fixture_count\": 0\n"

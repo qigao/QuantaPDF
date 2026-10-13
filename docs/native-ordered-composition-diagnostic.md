@@ -64,3 +64,39 @@ analysis and cross-platform evidence, followed by source provenance/corpus
 qualification. The legacy #270/#277 `UNSUPPORTED/zero pixels` checks,
 formal source corpus count, W* count, #208 backend cutover prohibition
 and Draft/DO NOT MERGE state remain unchanged.
+
+## Spatial attribution of the remaining original mismatches
+
+This follow-up does **not** change the C11 raster, original PDF bytes,
+PDFium reference or any acceptance tolerance. The original 596×842 image is
+independently rescanned through a bounded test-only C++20 analyzer in
+`tests/original_jspdf_diff_attribution.h`. Input planes are read-only and
+validated for strides and sizes. At most **12 ordered worst-site records** are
+kept; memory does not scale with the number of changed pixels.
+
+Every changed pixel is assigned to exactly one of four mutually exclusive
+groups based on the *native source layer* alpha states: neither layer partially
+covered, Stroke-only partially covered, Fill-only partially covered, or both.
+Each group separately bills changed pixels, >64-channel-delta pixels and
+absolute RGB error. The full-image totals must match the existing independent
+comparison; a separate synthetic CTest tests mask-group construction, top-N
+stable ranking, partial-edge 3×3 adjacency and structural refusal.
+
+In particular the old **100 native-flat-classified changed pixels** are
+divided into those with a 3×3 neighboring partial-coverage sample and those
+without. This is spatial evidence, **not proof** of a PDFium AA kernel or the
+specific source of an error. The analyzer also counts pixels where both
+native layers are uncovered although the original PDFium pixel is nonwhite;
+records the changed-pixel bounding rectangle; and reports coordinates,
+reference/native RGB, per-layer alpha and maximum channel difference for the
+12 most severe mismatches. Ordering is deterministic: maximum channel error
+descending, RGB error sum descending, then top-to-bottom, left-to-right.
+
+The machine CMake guard validates the four attribution sums against the
+unchanged all-image counts/errors, checks bounds and sorted worst-site
+coordinates, and retains `pixel_parity_qualified=false`,
+`native_pixel_positive_count=0`. Do not promote this external PDF, change
+SDK PDFium cutover status, or alter any legacy negative gate on diagnostic
+evidence. The next decision should use real CI coordinates to determine
+whether edge coverage correlation, sample centers or source geometry are the
+right code correction.
