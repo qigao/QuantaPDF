@@ -1843,6 +1843,13 @@ int test_external_jspdf_fractional_page_rejection(
     CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED);
     CHECK(native.pixels==nullptr && native.size==0u &&
           native.width==0u && native.height==0u && native.stride==0u);
+    /* Independently query PDFium's *original-page* 72-DPI, zero-rotation
+     * device-grid geometry. Rendering is only a geometry reference, not a
+     * claim that the C11 negative case has achieved pixel parity. */
+    const rgb_image reference=render_original_pdfium(0u,filename);
+    CHECK(reference.width==596 && reference.height==842 &&
+          reference.components==3 && reference.stride>=596*3 &&
+          reference.pixels.size()>=(size_t)reference.stride*842u);
     quantapdf_ir_dispose(&detached);
     CHECK(corpus_fixture_executions==0u);
 
@@ -1865,6 +1872,10 @@ int test_external_jspdf_fractional_page_rejection(
         "  \"detached_ir_wstar_clip_leaves\": 0,\n"
         "  \"source_and_graph_released_before_raster\": true,\n"
         "  \"native_partial_pixels_published\": false,\n"
+        "  \"original_pdfium_default_dpi\": 72,\n"
+        "  \"original_pdfium_geometry_oracle\": \"passed\",\n"
+        "  \"original_pdfium_device_width\": 596,\n"
+        "  \"original_pdfium_device_height\": 842,\n"
         "  \"original_pdfium_pixel_oracle\": \"not_run\",\n"
         "  \"native_pixel_positive_count\": 0,\n"
         "  \"official_corpus_admitted\": false,\n"
@@ -1878,7 +1889,8 @@ int test_external_jspdf_fractional_page_rejection(
     CHECK(std::rename(pending.c_str(),report_path)==0);
     std::fprintf(stderr,
         "[fractional-page-jsPDF] typed=lowered raster=UNSUPPORTED "
-        "page=595.28x841.89 W=1 W*=0 original=unchanged pixels=0\n");
+        "page=595.28x841.89 device=596x842@72dpi W=1 W*=0 "
+        "original=unchanged native_pixels=0\n");
     return EXIT_SUCCESS;
 }
 

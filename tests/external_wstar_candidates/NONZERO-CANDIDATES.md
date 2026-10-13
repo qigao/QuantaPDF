@@ -186,3 +186,18 @@ semantic screening, **not W*** or formal source corpus admission.
 future bounded, independently qualified fractional-page-to-pixel mapping.
 No page MediaBox rewriting, silent truncation, automatic fallback or
 public SDK backend switch is permitted.
+
+### #269 independently observed PDFium device-grid target
+
+The original default rendering entry point uses 72 DPI and zero rotation.
+Its shared RenderPlan computes the integer output rectangle by outward
+floor/ceil pixel bounds. An additional test-only geometry probe now renders
+**the same unmodified jsPDF original through PDFium** and requires
+**596 × 842 device pixels** for its **595.28 × 841.89 PDF-point** MediaBox.
+The negative C11 Raster still returns `UNSUPPORTED` and publishes
+**zero pixels**. The report keeps `original_pdfium_pixel_oracle=not_run`
+because no native-vs-PDFium pixel parity is claimed, and records a
+separate `original_pdfium_geometry_oracle=passed`.
+This measurement is an empirical device-grid target for #269, not
+authorization to round or rewrite PDF point coordinates or to relax
+native renderer bounds.

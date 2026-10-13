@@ -22,9 +22,13 @@ if(NOT "${rc}" STREQUAL "0")
 endif()
 file(READ "${REPORT}" json)
 foreach(field IN ITEMS result typed_native_lower_status native_raster_status
-    native_raster_rejection_reason original_pdfium_pixel_oracle)
+    native_raster_rejection_reason original_pdfium_pixel_oracle
+    original_pdfium_geometry_oracle)
   string(JSON got_${field} GET "${json}" ${field})
 endforeach()
+string(JSON device_width GET "${json}" original_pdfium_device_width)
+string(JSON device_height GET "${json}" original_pdfium_device_height)
+string(JSON dpi GET "${json}" original_pdfium_default_dpi)
 string(JSON width GET "${json}" page_width_points)
 string(JSON height GET "${json}" page_height_points)
 string(JSON paths GET "${json}" detached_ir_painted_paths)
@@ -41,6 +45,9 @@ if(NOT got_result STREQUAL "quarantined_original_fractional_page_native_rejectio
    OR NOT got_native_raster_status STREQUAL "unsupported"
    OR NOT got_native_raster_rejection_reason STREQUAL "fractional_page_points"
    OR NOT got_original_pdfium_pixel_oracle STREQUAL "not_run"
+   OR NOT got_original_pdfium_geometry_oracle STREQUAL "passed"
+   OR NOT device_width EQUAL 596 OR NOT device_height EQUAL 842
+   OR NOT dpi EQUAL 72
    OR NOT width EQUAL 595.28 OR NOT height EQUAL 841.89
    OR NOT paths EQUAL 2 OR NOT w EQUAL 1 OR NOT wstar EQUAL 0
    OR NOT observed OR NOT released OR partial OR positive OR admitted OR generated)
