@@ -162,6 +162,27 @@ endif()
 add_test(NAME quantapdf.render_plan COMMAND quantapdf_test_render_plan)
 set_tests_properties(quantapdf.render_plan PROPERTIES TIMEOUT 30)
 
+# Pure C11 NativeDeviceGrid V1: width mapping, precision and work limits.
+# No PDFium, qpdf, native raster output or formal external corpus admission.
+add_executable(quantapdf_test_native_device_grid_v1
+  test_native_device_grid_v1.c ../src/render/native_device_grid_v1.c)
+target_include_directories(quantapdf_test_native_device_grid_v1 PRIVATE
+  "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_native_device_grid_v1 PRIVATE c_std_11)
+if(MSVC)
+  target_compile_options(quantapdf_test_native_device_grid_v1 PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_test_native_device_grid_v1 PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+if(UNIX)
+  target_link_libraries(quantapdf_test_native_device_grid_v1 PRIVATE m)
+endif()
+add_test(NAME quantapdf.native_device_grid_v1
+  COMMAND quantapdf_test_native_device_grid_v1)
+set_tests_properties(quantapdf.native_device_grid_v1 PROPERTIES
+  TIMEOUT 30 LABELS "conformance;native-grid;fractional-page-negative")
+
 # Pure model/validator tests do not link the SDK or any parser.
 add_executable(quantapdf_test_graph test_graph.c
   ../src/graph/graph.c ../src/graph/identity.c ../src/validation/graph_validation.c)

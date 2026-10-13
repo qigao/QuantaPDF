@@ -54,3 +54,8 @@ target_sources(quantapdf PRIVATE
 target_sources(quantapdf PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_scoped_operations_v1.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_scoped_operations_v1.h")
+
+# Private bounded C11 page-to-device grid. No raster admission yet.
+target_sources(quantapdf PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/native_device_grid_v1.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/native_device_grid_v1.h")
