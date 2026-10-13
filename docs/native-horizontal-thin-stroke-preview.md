@@ -1,4 +1,4 @@
-# #269 — Experimental private horizontal 1pt Stroke scan-row candidate
+# #269 — Experimental repeated horizontal 1pt Stroke scan-row candidate
 
 Status: explicitly invoked **preview-only**, not a PDF-compatible production
 stroke renderer and not a native original-PDF pixel positive.
@@ -24,14 +24,23 @@ grid at 72/96/144 DPI show:
   horizontal; a universal half-pixel phase shift gets substantially worse
   at 144 DPI.
 
-**Narrow testable candidate:** only for a one-source-point-wide, strictly
-horizontal segment, whose projected width is *less than two* device rows,
-and only between endpoints excluding a source-radius margin, replace
-partially hit scan rows by full coverage when their source-space device
-pixel rectangle geometrically intersects the Stroke strip. This is not a
-general AA algorithm, line snapping guarantee, or PDFium implementation
-claim. Vertical and diagonal segments, endpoints, caps, joins, source width
-!=1, and >=2 device-row thickness retain the existing exact 4×4 logic.
+**Narrower testable candidate after negative first-run evidence:** the
+original jsPDF S path traces its TOP horizontal line at display y=20
+THREE times, but its bottom horizontal line at y=140 only ONCE. A
+test-only local PDFium probe shows 1pt single-pass source line edges are
+partially covered while repeated source line edges are fully opaque.
+The first broad preview over-filled both horizontal edges and **FAILED
+the real full-page A/B**: original baseline RGB absolute error 141,465,
+first preview error 174,438 and >64 channel-delta pixels 301 -> 400.
+
+The revised candidate promotes coverage only when at least **two
+overlapping horizontal source segments of the same one Stroke path**
+geometrically intersect the same pixel interior; source width must be
+exactly 1pt and projected width <2 device rows. Single-pass horizontal
+edges retain 4×4 partial coverage, as do vertical/diagonal, endpoints,
+caps, joins, wider widths and >=2 device-row thickness. The repeated-
+line candidate is an *experiment*, not a PDF spec rule, generic
+antialiasing algorithm or reason to admit the original as native-positive.
 
 ## Concrete code and ownership
 
@@ -42,16 +51,18 @@ entrypoint. The existing
 behavior. Both call the same bounded single-owner implementation with a
 private flag; no fallback or user-selected global knob is introduced.
 The preview adds one bounded source-segment scan per output pixel after
-the existing 4×4 coverage test. Existing admission reserves up to
+the existing 4×4 coverage test, counting **distinct overlapping
+source segments** instead of marking any single intersecting line. Existing admission reserves up to
 32 sampled-edge checks per pixel per segment, so the extra preview check
 fits its already enforced upper bound; no heap buffer besides the owned
 RGBA output is allocated.
 
-An existing strict C11 standalone test proves the preview modifies only
-the interior two scan rows of a synthetic 1pt horizontal line; a vertical
-line and a 4pt stroke remain byte-identical to the baseline; original
-stroke source bytes and resource limits do not change. An intentional
-over-budget request returns with zero output.
+The strict C11 standalone test proves a one-pass 1pt horizontal line
+remains byte-identical to baseline, but three coincident source-line
+passes increase only the interior two scan rows. A vertical line, a
+4pt Stroke and the same repeated source at 144dpi remain byte-identical
+to baseline. It tests deterministic repeat, original source ownership
+and zero output under insufficient budget.
 
 ## Authentic original 596×842 complete image diagnostic
 
