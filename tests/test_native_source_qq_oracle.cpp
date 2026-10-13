@@ -7,6 +7,7 @@
 #include "graph/graph_page_geometry.h"
 #include "render/ir_scoped_operations_v1.h"
 #include "render/ir_scoped_device_grid_v0.h"
+#include "render/ir_rect_fill_right_preview_v0.h"
 #include "render/ir_device_polyline_stroke_v0.h"
 #include "render/ir_ordered_layer_composite_v0.h"
 #include "original_jspdf_diff_attribution.h"
@@ -1968,6 +1969,61 @@ int test_external_jspdf_single_vertical_analytic_ab(
           h_page_repeat.size==h_page.size &&
           std::memcmp(h_page.pixels,h_page_repeat.pixels,h_page.size)==0);
     const page_metrics horizontal=measure(h_page);
+
+    /* Sixth test-only A/B: the effective red right boundary belongs to
+     * the later FILL rectangle, NOT the preceding W clip's right edge.
+     * Admit actual source rectangle geometry and compare an explicit
+     * C11 one-edge coverage trial, never a PDFium fallback. */
+    quantapdf_ir_raster_image right_fill{},right_repeat{},right_page{},
+                              right_page_repeat{};
+    OK(quantapdf_ir_raster_rect_fill_right_preview_v0(
+        &only_fill,0u,&geometry,&fill_grid,&fill_budget,&right_fill));
+    OK(quantapdf_ir_raster_rect_fill_right_preview_v0(
+        &only_fill,0u,&geometry,&fill_grid,&fill_budget,&right_repeat));
+    CHECK(right_fill.pixels && right_repeat.pixels &&
+          right_fill.size==fill.size &&
+          right_fill.stride==fill.stride &&
+          right_repeat.size==right_fill.size &&
+          std::memcmp(right_fill.pixels,right_repeat.pixels,
+                      right_fill.size)==0);
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &h_stroke,&right_fill,&composite_budget,&right_page));
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &h_repeat,&right_repeat,&composite_budget,&right_page_repeat));
+    CHECK(right_page.pixels && right_page_repeat.pixels &&
+          right_page.size==h_page.size &&
+          right_page_repeat.size==right_page.size &&
+          std::memcmp(right_page.pixels,right_page_repeat.pixels,
+                      right_page.size)==0);
+    const page_metrics right_metric=measure(right_page);
+    size_t right_alpha_changes=0u,right_outside=0u;
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t off=y*fill.stride+x*4u;
+        if(fill.pixels[off+3u]==right_fill.pixels[off+3u])
+            continue;
+        ++right_alpha_changes;
+        if(x!=150u || y<21u || y>99u)
+            ++right_outside;
+        CHECK(std::memcmp(fill.pixels+off,right_fill.pixels+off,3u)==0);
+    }
+    CHECK(right_alpha_changes>0u && right_outside==0u);
+    const unsigned char *edge_pixel=
+        right_page.pixels+40u*right_page.stride+150u*4u;
+    const unsigned char *edge_oracle=reference.at(150u,40u);
+    std::fprintf(stderr,
+        "[jsPDF original FILL-right analytic A/B, NOT parity] "
+        "mode5_rgb=%llu right_rgb=%llu changed=%zu gross=%zu "
+        "source_alpha_changes=%zu corner_exceptions=%zu "
+        "edge_native=(%u,%u,%u) raw_pdfium=(%u,%u,%u) fnv64=%016llx\n",
+        (unsigned long long)horizontal.abs_rgb,
+        (unsigned long long)right_metric.abs_rgb,
+        right_metric.changed,right_metric.gross,
+        right_alpha_changes,right_outside,
+        on_white(edge_pixel,0u),on_white(edge_pixel,1u),
+        on_white(edge_pixel,2u),
+        (unsigned)edge_oracle[0],(unsigned)edge_oracle[1],
+        (unsigned)edge_oracle[2],
+        (unsigned long long)right_metric.fnv);
     size_t horizontal_alpha_changes=0u,outside_horizontal=0u;
     for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
         const size_t off=y*h_stroke.stride+x*4u;
@@ -2138,6 +2194,10 @@ int test_external_jspdf_single_vertical_analytic_ab(
     std::fprintf(stderr,"[jsPDF mode4 original residual regions] %s\n",
                  mode4_regions_json.c_str());
 
+    quantapdf_ir_raster_image_dispose(&right_page_repeat);
+    quantapdf_ir_raster_image_dispose(&right_page);
+    quantapdf_ir_raster_image_dispose(&right_repeat);
+    quantapdf_ir_raster_image_dispose(&right_fill);
     quantapdf_ir_raster_image_dispose(&h_page_repeat);
     quantapdf_ir_raster_image_dispose(&h_page);
     quantapdf_ir_raster_image_dispose(&h_repeat);
@@ -2195,6 +2255,18 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"mode5_gross_delta64_pixels\": %zu,\n"
         "  \"mode5_max_channel_delta\": %u,\n"
         "  \"mode5_rgb_fnv64\": \"%016llx\",\n"
+        "  \"rect_fill_right_status\": \"measured_unqualified\",\n"
+        "  \"rect_fill_right_default_changed\": false,\n"
+        "  \"rect_fill_right_pixel_parity_qualified\": false,\n"
+        "  \"rect_fill_right_repeat_equal\": true,\n"
+        "  \"rect_fill_right_source_alpha_changed_pixels\": %zu,\n"
+        "  \"rect_fill_right_changes_outside_fill_right_interior\": %zu,\n"
+        "  \"rect_fill_right_abs_rgb_error\": %llu,\n"
+        "  \"rect_fill_right_mean_abs_rgb_error\": %.9f,\n"
+        "  \"rect_fill_right_changed_pixels\": %zu,\n"
+        "  \"rect_fill_right_gross_delta64_pixels\": %zu,\n"
+        "  \"rect_fill_right_max_channel_delta\": %u,\n"
+        "  \"rect_fill_right_rgb_fnv64\": \"%016llx\",\n"
         "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
@@ -2210,7 +2282,12 @@ int test_external_jspdf_single_vertical_analytic_ab(
         (unsigned long long)horizontal.abs_rgb,
         (double)horizontal.abs_rgb/1505496.0,
         horizontal.changed,horizontal.gross,horizontal.max_delta,
-        (unsigned long long)horizontal.fnv);
+        (unsigned long long)horizontal.fnv,
+        right_alpha_changes,right_outside,
+        (unsigned long long)right_metric.abs_rgb,
+        (double)right_metric.abs_rgb/1505496.0,
+        right_metric.changed,right_metric.gross,right_metric.max_delta,
+        (unsigned long long)right_metric.fnv);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;

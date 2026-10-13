@@ -204,6 +204,45 @@ if(NOT h_status STREQUAL "measured_unqualified"
 endif()
 message(STATUS "jspdf-single-horizontal-analytic: mode4_rgb=${got_mode4_abs_rgb_error} mode5_rgb=${h_abs_rgb_error} mode4_changed=${got_mode4_changed_pixels} mode5_changed=${h_changed_pixels} source_changes=${h_source_alpha_changed_pixels} pixel_parity=false")
 
+
+# Sixth explicit PRIVATE C11 one-rectangle W-clipped right-Fill border A/B.
+# The x=150 original edge is the FILL's right bound, not W Clip's right.
+# The new result may be worse; no invented PDFium-equivalence tolerance.
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_alpha_changed_pixels
+    changes_outside_fill_right_interior abs_rgb_error
+    mean_abs_rgb_error changed_pixels gross_delta64_pixels
+    max_channel_delta rgb_fnv64)
+  string(JSON fillr_${field} GET "${json}" rect_fill_right_${field})
+endforeach()
+string(LENGTH "${fillr_rgb_fnv64}" fillr_fnv_len)
+if(NOT fillr_status STREQUAL "measured_unqualified"
+   OR fillr_default_changed OR fillr_pixel_parity_qualified
+   OR NOT fillr_repeat_equal
+   OR fillr_source_alpha_changed_pixels LESS 1
+   OR fillr_source_alpha_changed_pixels GREATER 501832
+   OR NOT fillr_changes_outside_fill_right_interior EQUAL 0
+   OR NOT fillr_fnv_len EQUAL 16
+   OR NOT fillr_rgb_fnv64 MATCHES "^[0-9a-f]+$"
+   OR fillr_abs_rgb_error LESS 0 OR fillr_abs_rgb_error GREATER 383901480
+   OR fillr_mean_abs_rgb_error LESS 0
+   OR fillr_mean_abs_rgb_error GREATER 255
+   OR fillr_changed_pixels LESS 0 OR fillr_changed_pixels GREATER 501832
+   OR fillr_gross_delta64_pixels LESS 0
+   OR fillr_gross_delta64_pixels GREATER fillr_changed_pixels
+   OR fillr_max_channel_delta LESS 0 OR fillr_max_channel_delta GREATER 255)
+  message(FATAL_ERROR "Original fill-right A/B scope, repeat or sample bounds failed")
+endif()
+# Existing exact green mode5 original A/B stays byte-identical.
+if(NOT h_abs_rgb_error EQUAL 6863
+   OR NOT h_changed_pixels EQUAL 595
+   OR NOT h_gross_delta64_pixels EQUAL 0
+   OR NOT h_max_channel_delta EQUAL 38
+   OR NOT h_rgb_fnv64 STREQUAL "b6b1c313e4693ab8")
+  message(FATAL_ERROR "Mode5 original Stroke reference changed under Fill trial")
+endif()
+message(STATUS "jspdf-fill-right-private: baseline_rgb=${h_abs_rgb_error} trial_rgb=${fillr_abs_rgb_error} changed=${fillr_changed_pixels} alpha_changes=${fillr_source_alpha_changed_pixels} parity=false official=0")
+
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
