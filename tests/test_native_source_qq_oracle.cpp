@@ -6,6 +6,7 @@
 #include "document/page_content_ir.h"
 #include "graph/graph_page_geometry.h"
 #include "render/ir_scoped_operations_v1.h"
+#include "render/ir_scoped_device_grid_v0.h"
 #include "render/ir_clip_dag_v3.h"
 #include "render/ir_raster.h"
 
@@ -1843,6 +1844,42 @@ int test_external_jspdf_fractional_page_rejection(
     CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED);
     CHECK(native.pixels==nullptr && native.size==0u &&
           native.width==0u && native.height==0u && native.stride==0u);
+    /* Independently exercise #276's opt-in C11 grid on the SAME immutable
+     * original, after Source/Graph lifetime ends. Its fill-only admission
+     * deliberately refuses real jsPDF stroked Path content and must publish
+     * zero RGBA. The stroke classification is test-authored, not an API
+     * rejection-reason enum. */
+    size_t original_stroke_paths=0u, original_fill_paths=0u;
+    for (size_t i=0u;i<detached.operation_count;++i) {
+        const quantapdf_composer_operation& op=detached.operations[i];
+        CHECK(op.kind==QUANTAPDF_COMPOSER_OPERATION_PATH);
+        if (op.value.path.options.stroke!=0) ++original_stroke_paths;
+        if (op.value.path.options.fill!=0) ++original_fill_paths;
+    }
+    CHECK(original_stroke_paths>=1u && original_fill_paths>=1u);
+    const quantapdf_native_device_grid_geometry source_geometry={
+        595.28,841.89,0.0,0.0,1.0,0,0,72.0f
+    };
+    const quantapdf_native_device_grid_limits grid_limits={
+        600u*850u,600u*850u*4u,768u,70000000u
+    };
+    quantapdf_native_device_grid device_grid{};
+    CHECK(quantapdf_native_device_grid_create_v0(
+        &source_geometry,&grid_limits,&device_grid)==
+        QUANTAPDF_NATIVE_DEVICE_GRID_OK);
+    CHECK(device_grid.width==596u && device_grid.height==842u);
+    CHECK(quantapdf_native_device_grid_check_ir_v0(
+        &device_grid,detached.pages[0].width_points,
+        detached.pages[0].height_points)==
+        QUANTAPDF_NATIVE_DEVICE_GRID_OK);
+    quantapdf_ir_raster_image optin_native{};
+    const quantapdf_status optin_status=
+        quantapdf_ir_raster_scoped_device_grid_v0(
+            &detached,0u,&source_geometry,&grid_limits,&limits,&optin_native);
+    CHECK(optin_status==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(optin_native.pixels==nullptr && optin_native.size==0u &&
+          optin_native.width==0u && optin_native.height==0u &&
+          optin_native.stride==0u);
     /* Independently query PDFium's *original-page* 72-DPI, zero-rotation
      * device-grid geometry. Rendering is only a geometry reference, not a
      * claim that the C11 negative case has achieved pixel parity. */
@@ -1872,6 +1909,12 @@ int test_external_jspdf_fractional_page_rejection(
         "  \"detached_ir_wstar_clip_leaves\": 0,\n"
         "  \"source_and_graph_released_before_raster\": true,\n"
         "  \"native_partial_pixels_published\": false,\n"
+        "  \"optin_grid_dimensions_qualified\": true,\n"
+        "  \"optin_native_raster_status\": \"unsupported\",\n"
+        "  \"optin_rejection_classification\": \"stroked_source_not_admitted\",\n"
+        "  \"optin_original_stroke_paths\": %zu,\n"
+        "  \"optin_original_fill_paths\": %zu,\n"
+        "  \"optin_native_partial_pixels_published\": false,\n"
         "  \"original_pdfium_default_dpi\": 72,\n"
         "  \"original_pdfium_geometry_oracle\": \"passed\",\n"
         "  \"original_pdfium_device_width\": 596,\n"
@@ -1880,7 +1923,7 @@ int test_external_jspdf_fractional_page_rejection(
         "  \"native_pixel_positive_count\": 0,\n"
         "  \"official_corpus_admitted\": false,\n"
         "  \"generated_fixture_count\": 0\n"
-        "}\n");
+        "}\n",original_stroke_paths,original_fill_paths);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
