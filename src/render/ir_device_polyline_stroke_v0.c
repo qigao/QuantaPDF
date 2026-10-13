@@ -227,7 +227,9 @@ static int qp_stroke_hit(
  * full opaque horizontal scan rows at 72/96dpi that the unmodified C11
  * area sampler splits into two partial rows. Test a narrowly restricted
  * alternative: horizontal 1pt source strips projected to <2 device rows
- * fully cover intersected rows, only in the segment interior. Vertical,
+ * fully cover intersected rows ONLY when at least TWO overlapping source
+ * segments cover the SAME interior device pixel. The original jsPDF top
+ * line is traced three times; its bottom line only once. Vertical,
  * diagonal, joins, endpoints, wider strokes and >=2px rows use the
  * unchanged 4x4 sampler. This is a test-only hypothesis, NOT a PDF
  * specification rule or default native admission. */
@@ -240,6 +242,7 @@ static int qp_horizontal_thin_preview_hit(
     const double point_x_per_pixel=grid->points_per_device_x;
     const double source_x=((double)x+0.5)*point_x_per_pixel;
     const double top=(double)y*point_y_per_pixel;
+    size_t overlap_count=0u;
     const double bottom=((double)y+1.0)*point_y_per_pixel;
     if(radius!=0.5 || point_y_per_pixel<=0.5)
         return 0;
@@ -255,7 +258,8 @@ static int qp_horizontal_thin_preview_hit(
         if(source_x<=left+radius || source_x>=right-radius)
             continue;
         if(bottom>s->a.y-radius && top<s->a.y+radius)
-            return 1;
+            ++overlap_count;
+        if(overlap_count>=2u) return 1;
     }
     return 0;
 }
