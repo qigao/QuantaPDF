@@ -77,12 +77,19 @@ string(JSON attr_gross_count LENGTH "${json}" ordered_native_spatial_attribution
 string(JSON attr_error_count LENGTH "${json}" ordered_native_spatial_attribution abs_rgb_error_by_partial_mask)
 string(JSON attr_bound_len LENGTH "${json}" ordered_native_spatial_attribution changed_bounds)
 string(JSON attr_worst_len LENGTH "${json}" ordered_native_spatial_attribution worst_pixels)
+string(JSON attr_group_bounds_len LENGTH "${json}" ordered_native_spatial_attribution changed_bounds_by_partial_mask)
+string(JSON attr_near_bounds_len LENGTH "${json}" ordered_native_spatial_attribution flat_near_changed_bounds)
+string(JSON attr_far_bounds_len LENGTH "${json}" ordered_native_spatial_attribution flat_far_changed_bounds)
+string(JSON attr_far_worst_len LENGTH "${json}" ordered_native_spatial_attribution flat_far_worst_pixels)
 string(JSON attr_near GET "${json}" ordered_native_spatial_attribution flat_changed_adjacent_partial_3x3)
 string(JSON attr_far GET "${json}" ordered_native_spatial_attribution flat_changed_far_from_partial_3x3)
 string(JSON attr_uncovered GET "${json}" ordered_native_spatial_attribution native_uncovered_reference_foreground)
 if(NOT attr_schema EQUAL 1 OR NOT attr_mask_count EQUAL 4
    OR NOT attr_gross_count EQUAL 4 OR NOT attr_error_count EQUAL 4
-   OR NOT attr_bound_len EQUAL 4 OR attr_worst_len GREATER 12)
+   OR NOT attr_bound_len EQUAL 4 OR attr_worst_len GREATER 12
+   OR NOT attr_group_bounds_len EQUAL 4
+   OR NOT attr_near_bounds_len EQUAL 4
+   OR NOT attr_far_bounds_len EQUAL 4 OR attr_far_worst_len GREATER 8)
   message(FATAL_ERROR "Original jsPDF spatial attribution shape malformed")
 endif()
 set(attr_changed_sum 0)
@@ -102,6 +109,20 @@ foreach(i RANGE 0 3)
   if(i EQUAL 0)
     set(attr_flat ${attr_changed})
   endif()
+  # Each per-category bbox is a four-number rectangle within source pixels.
+  string(JSON attr_group_box_len LENGTH "${json}" ordered_native_spatial_attribution changed_bounds_by_partial_mask ${i})
+  if(NOT attr_group_box_len EQUAL 4)
+    message(FATAL_ERROR "Original jsPDF mismatch category bbox missing")
+  endif()
+  foreach(coord RANGE 0 3)
+    string(JSON attr_group_box_value GET "${json}" ordered_native_spatial_attribution changed_bounds_by_partial_mask ${i} ${coord})
+    if(attr_group_box_value LESS 0 OR
+       ((coord EQUAL 0 OR coord EQUAL 2) AND attr_group_box_value GREATER 595) OR
+       ((coord EQUAL 1 OR coord EQUAL 3) AND attr_group_box_value GREATER 841))
+      message(FATAL_ERROR "Original jsPDF per-category bbox outside original page")
+    endif()
+  endforeach()
+
 endforeach()
 math(EXPR attr_flat_decomposition "${attr_near}+${attr_far}")
 if(NOT attr_changed_sum EQUAL cmp_ordered_native_composite_changed_pixels
@@ -130,6 +151,40 @@ if(cmp_ordered_native_composite_changed_pixels GREATER 0)
     message(FATAL_ERROR "Original jsPDF worst-site mismatch")
   endif()
 endif()
+# The suspected native-flat, non-adjacent group must expose its own
+# coordinates, without treating PDFium antialiasing as a proven explanation.
+foreach(region IN ITEMS flat_near_changed_bounds flat_far_changed_bounds)
+  foreach(coord RANGE 0 3)
+    string(JSON edge GET "${json}" ordered_native_spatial_attribution ${region} ${coord})
+    if(edge LESS 0 OR
+       ((coord EQUAL 0 OR coord EQUAL 2) AND edge GREATER 595) OR
+       ((coord EQUAL 1 OR coord EQUAL 3) AND edge GREATER 841))
+      message(FATAL_ERROR "Original jsPDF flat mismatch region invalid")
+    endif()
+  endforeach()
+endforeach()
+if(attr_far GREATER 0 AND attr_far_worst_len EQUAL 0)
+  message(FATAL_ERROR "Unexplained native-flat mismatch has no sample coordinates")
+endif()
+if(attr_far_worst_len GREATER 0)
+  math(EXPR attr_far_last "${attr_far_worst_len}-1")
+  set(attr_far_prior 256)
+  foreach(i RANGE 0 ${attr_far_last})
+    string(JSON x GET "${json}" ordered_native_spatial_attribution flat_far_worst_pixels ${i} x)
+    string(JSON y GET "${json}" ordered_native_spatial_attribution flat_far_worst_pixels ${i} y)
+    string(JSON delta GET "${json}" ordered_native_spatial_attribution flat_far_worst_pixels ${i} max_delta)
+    string(JSON sa GET "${json}" ordered_native_spatial_attribution flat_far_worst_pixels ${i} stroke_alpha)
+    string(JSON fa GET "${json}" ordered_native_spatial_attribution flat_far_worst_pixels ${i} fill_alpha)
+    if(x LESS 0 OR x GREATER 595 OR y LESS 0 OR y GREATER 841
+       OR delta LESS 1 OR delta GREATER attr_far_prior
+       OR (sa GREATER 0 AND sa LESS 255)
+       OR (fa GREATER 0 AND fa LESS 255))
+      message(FATAL_ERROR "Original jsPDF native-flat far hotspot invalid")
+    endif()
+    set(attr_far_prior ${delta})
+  endforeach()
+endif()
+
 if(attr_worst_len GREATER 0)
   math(EXPR attr_last "${attr_worst_len}-1")
   set(attr_prior 256)

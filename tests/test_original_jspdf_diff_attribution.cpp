@@ -69,6 +69,25 @@ static int synthetic_attribution()
     CHECK(a.flat_near_partial_3x3==2u);
     CHECK(a.flat_far_from_partial_3x3==2u);
     CHECK(a.native_uncovered_reference_foreground==3u);
+    CHECK(a.group_bounds[0].seen && a.group_bounds[0].min_x==1u &&
+          a.group_bounds[0].min_y==0u &&
+          a.group_bounds[0].max_x==4u && a.group_bounds[0].max_y==4u);
+    CHECK(a.group_bounds[1].seen && a.group_bounds[1].min_x==0u &&
+          a.group_bounds[1].min_y==0u);
+    CHECK(a.group_bounds[2].seen && a.group_bounds[2].min_x==0u &&
+          a.group_bounds[2].min_y==4u);
+    CHECK(a.group_bounds[3].seen && a.group_bounds[3].min_x==2u &&
+          a.group_bounds[3].min_y==2u);
+    CHECK(a.flat_near_bounds.seen && a.flat_near_bounds.min_x==1u &&
+          a.flat_near_bounds.min_y==0u &&
+          a.flat_near_bounds.max_x==3u && a.flat_near_bounds.max_y==2u);
+    CHECK(a.flat_far_bounds.seen && a.flat_far_bounds.min_x==4u &&
+          a.flat_far_bounds.min_y==0u &&
+          a.flat_far_bounds.max_x==4u && a.flat_far_bounds.max_y==4u);
+    CHECK(a.flat_far_worst_count==2u);
+    CHECK(a.flat_far_worst[0].x==4u && a.flat_far_worst[0].y==4u &&
+          a.flat_far_worst[0].max_delta==255u);
+    CHECK(a.flat_far_worst[1].x==4u && a.flat_far_worst[1].y==0u);
     CHECK(a.min_x==0u && a.min_y==0u);
     CHECK(a.max_x==4u && a.max_y==4u);
     CHECK(a.worst_count==7u);
@@ -81,6 +100,10 @@ static int synthetic_attribution()
     CHECK(json(a)==json(same));
     CHECK(json(a).find("\"worst_pixels\":[{")!=std::string::npos);
     CHECK(json(a).find("\"changed_by_partial_mask\":[4,1,1,1]")!=
+          std::string::npos);
+    CHECK(json(a).find("\"flat_far_changed_bounds\":[4,0,4,4]")!=
+          std::string::npos);
+    CHECK(json(a).find("\"flat_far_worst_pixels\":[{")!=
           std::string::npos);
 
     // Fail-closed on incorrect source buffers, strides and bounded extents.

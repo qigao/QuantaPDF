@@ -100,3 +100,37 @@ SDK PDFium cutover status, or alter any legacy negative gate on diagnostic
 evidence. The next decision should use real CI coordinates to determine
 whether edge coverage correlation, sample centers or source geometry are the
 right code correction.
+
+## Narrowed source-origin edge hypotheses
+
+The first full-image mismatch attribution on Linux and Windows agrees
+exactly: partial-mask changed counts `[100,1180,79,1]` (flat, only
+Stroke, only Fill, both) and >64 delta counts `[0,300,0,1]`.
+The RGB absolute error by those four groups is
+`[596,137722,2844,303]`. Thus large observed differences are
+concentrated on the **Stroke-only** boundary. The worst sites start
+at original-device coordinate (50,19), where the C11 candidate is
+(127,127,127) but original PDFium is (0,0,0) with Stroke alpha 128.
+This suggests a stroke-boundary coverage/pixel-alignment discrepancy;
+it does not prove one renderer's antialias kernel or justify a new
+raster rounding rule.
+
+Of the 100 pixels classified flat by native source-layer Alpha, 97
+have no 3×3 partial-coverage neighbor and three do; all 100 have
+uncovered native layers and nonwhite original PDFium RGB. Their
+combined absolute RGB error is only 596, so these should not be
+conflated with the 301 large channel-delta pixels.
+
+The next report revision bounds **each of the four partial-mask
+categories**, records separate rectangles for the 3 neighbor-proximate
+and 97 farther native-flat mismatches, and retains up to eight *far-flat
+specific* worst coordinates and colors. These coordinates are measured
+from the same original PDF, never invented or substituted. The machine
+guard checks numeric ranges, sorting and category bounds but **does
+not promote** the independent original to native-positive status.
+
+Only after those coordinates are grounded should the implementation
+evaluate a strictly limited stroke pixel-alignment correction. Do not
+change the original PDF, substitute a mock/synthetic PDFium reference,
+raise comparison tolerance to pass, or silently accept additional
+Stroke/Clip semantics.

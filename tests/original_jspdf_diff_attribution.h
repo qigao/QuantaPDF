@@ -26,6 +26,21 @@ struct hotspot {
     std::array<unsigned,3> candidate{}, oracle{};
 };
 
+/* Coordinates are retained only as bounded metadata. Zero rectangle means
+ * no site in that group (the caller verifies group cardinality separately). */
+struct bounds {
+    bool seen=false;
+    size_t min_x=0u,min_y=0u,max_x=0u,max_y=0u;
+    void add(size_t x,size_t y) {
+        if(!seen) {
+            seen=true;min_x=max_x=x;min_y=max_y=y;
+        } else {
+            min_x=std::min(min_x,x);min_y=std::min(min_y,y);
+            max_x=std::max(max_x,x);max_y=std::max(max_y,y);
+        }
+    }
+};
+
 struct report {
     bool valid = false;
     std::array<size_t,4> changed{}; // mask 0=flat, 1=stroke, 2=fill, 3=both
@@ -38,6 +53,11 @@ struct report {
     static constexpr size_t max_hotspots = 12u;
     std::array<hotspot,max_hotspots> worst{};
     size_t worst_count = 0;
+    std::array<bounds,4> group_bounds{};
+    bounds flat_near_bounds{}, flat_far_bounds{};
+    static constexpr size_t max_flat_far_sites=8u;
+    std::array<hotspot,max_flat_far_sites> flat_far_worst{};
+    size_t flat_far_worst_count=0u;
 
     size_t changed_total() const {
         size_t sum=0; for (size_t x:changed) sum+=x; return sum;
@@ -74,14 +94,16 @@ inline bool better(hotspot const& a,hotspot const& b) {
     if(a.y!=b.y) return a.y<b.y;
     return a.x<b.x;
 }
-inline void offer(report& out,const hotspot& item) {
+template<size_t N>
+inline void offer(std::array<hotspot,N>& sites,size_t& count,
+                  const hotspot& item) {
     size_t i=0u;
-    while(i<out.worst_count && !better(item,out.worst[i]))++i;
-    if(i>=report::max_hotspots) return;
-    if(out.worst_count<report::max_hotspots)++out.worst_count;
-    for(size_t k=out.worst_count-1u;k>i;--k)
-        out.worst[k]=out.worst[k-1u];
-    out.worst[i]=item;
+    while(i<count && !better(item,sites[i]))++i;
+    if(i>=N)return;
+    if(count<N)++count;
+    for(size_t k=count-1u;k>i;--k)
+        sites[k]=sites[k-1u];
+    sites[i]=item;
 }
 
 inline report analyze(
@@ -123,7 +145,8 @@ inline report analyze(
         if(largest>64u)++out.gross[group];
         sample.rgb_error=error;
         sample.max_delta=largest;
-        offer(out,sample);
+        offer(out.worst,out.worst_count,sample);
+        out.group_bounds[group].add(x,y);
         out.min_x=std::min(out.min_x,x);
         out.min_y=std::min(out.min_y,y);
         out.max_x=std::max(out.max_x,x);
@@ -150,8 +173,14 @@ inline report analyze(
                     }
                 }
             }
-            if(adjacent)++out.flat_near_partial_3x3;
-            else ++out.flat_far_from_partial_3x3;
+            if(adjacent) {
+                ++out.flat_near_partial_3x3;
+                out.flat_near_bounds.add(x,y);
+            } else {
+                ++out.flat_far_from_partial_3x3;
+                out.flat_far_bounds.add(x,y);
+                offer(out.flat_far_worst,out.flat_far_worst_count,sample);
+            }
         }
     }
     if(out.changed_total()==0u) {
@@ -185,24 +214,44 @@ inline std::string json(const report& r) {
     append("changed_bounds","["+std::to_string(r.min_x)+","+
            std::to_string(r.min_y)+","+std::to_string(r.max_x)+","+
            std::to_string(r.max_y)+"]");
-    std::string top="[";
-    for(size_t i=0u;i<r.worst_count;++i) {
-        if(i)top+=",";
-        const hotspot &h=r.worst[i];
-        top+="{\"x\":"+std::to_string(h.x)+
-             ",\"y\":"+std::to_string(h.y)+
-             ",\"max_delta\":"+std::to_string(h.max_delta)+
-             ",\"rgb_error\":"+std::to_string(h.rgb_error)+
-             ",\"stroke_alpha\":"+std::to_string(h.stroke_alpha)+
-             ",\"fill_alpha\":"+std::to_string(h.fill_alpha)+
-             ",\"candidate_rgb\":["+std::to_string(h.candidate[0])+","+
-             std::to_string(h.candidate[1])+","+
-             std::to_string(h.candidate[2])+"]"+
-             ",\"pdfium_rgb\":["+std::to_string(h.oracle[0])+","+
-             std::to_string(h.oracle[1])+","+
-             std::to_string(h.oracle[2])+"]}";
+    auto bounds_json=[](bounds const& b) {
+        return "["+std::to_string(b.min_x)+","+
+               std::to_string(b.min_y)+","+
+               std::to_string(b.max_x)+","+
+               std::to_string(b.max_y)+"]";
+    };
+    std::string per_group="[";
+    for(size_t i=0u;i<r.group_bounds.size();++i) {
+        if(i)per_group+=",";
+        per_group+=bounds_json(r.group_bounds[i]);
     }
-    append("worst_pixels",top+"]");
+    append("changed_bounds_by_partial_mask",per_group+"]");
+    append("flat_near_changed_bounds",bounds_json(r.flat_near_bounds));
+    append("flat_far_changed_bounds",bounds_json(r.flat_far_bounds));
+
+    auto hotspots_json=[](auto const& sites,size_t count) {
+        std::string top="[";
+        for(size_t i=0u;i<count;++i) {
+            if(i)top+=",";
+            const hotspot &h=sites[i];
+            top+="{\"x\":"+std::to_string(h.x)+
+                 ",\"y\":"+std::to_string(h.y)+
+                 ",\"max_delta\":"+std::to_string(h.max_delta)+
+                 ",\"rgb_error\":"+std::to_string(h.rgb_error)+
+                 ",\"stroke_alpha\":"+std::to_string(h.stroke_alpha)+
+                 ",\"fill_alpha\":"+std::to_string(h.fill_alpha)+
+                 ",\"candidate_rgb\":["+std::to_string(h.candidate[0])+","+
+                 std::to_string(h.candidate[1])+","+
+                 std::to_string(h.candidate[2])+"]"+
+                 ",\"pdfium_rgb\":["+std::to_string(h.oracle[0])+","+
+                 std::to_string(h.oracle[1])+","+
+                 std::to_string(h.oracle[2])+"]}";
+        }
+        return top+"]";
+    };
+    append("worst_pixels",hotspots_json(r.worst,r.worst_count));
+    append("flat_far_worst_pixels",
+           hotspots_json(r.flat_far_worst,r.flat_far_worst_count));
     return s+"}";
 }
 } // namespace jspdf_pixel_attribution
