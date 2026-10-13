@@ -1808,7 +1808,10 @@ int typed_original_preflight(const char *source_path,const char *page_str,
     }
     const bool expect_lowered=std::strcmp(expect,"lowered")==0;
     const bool expect_rejected=std::strcmp(expect,"unsupported")==0;
-    CHECK(expect_lowered || expect_rejected);
+    /* Source discovery can observe narrow typed status without guessing
+     * an expected outcome; this is never independent pixel conformance. */
+    const bool observe_only=std::strcmp(expect,"observe")==0;
+    CHECK(expect_lowered || expect_rejected || observe_only);
     char *end=nullptr;
     errno=0;
     const unsigned long number=std::strtoul(page_str,&end,10);
@@ -1825,11 +1828,14 @@ int typed_original_preflight(const char *source_path,const char *page_str,
         &detached,page_index,4u,8u,source_path);
     CHECK(status==QUANTAPDF_OK ||
           status==QUANTAPDF_ERROR_UNSUPPORTED);
-    CHECK((status==QUANTAPDF_OK)==expect_lowered);
-    CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED)==expect_rejected);
+    const bool actual_lowered=status==QUANTAPDF_OK;
+    if(!observe_only){
+        CHECK(actual_lowered==expect_lowered);
+        CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED)==expect_rejected);
+    }
     size_t page_count=0u,op_count=0u,clip_count=0u,state_count=0u;
     clip_leaf_counts winding{};
-    if(expect_lowered){
+    if(actual_lowered){
         CHECK(detached.pages!=nullptr && detached.page_count==1u &&
               detached.operations!=nullptr &&
               detached.operation_count>=1u && detached.operation_count<=4u &&
@@ -1868,6 +1874,7 @@ int typed_original_preflight(const char *source_path,const char *page_str,
         "{\n"
         "  \"schema_version\": 1,\n"
         "  \"result\": \"typed_selected_page_preflight_only\",\n"
+        "%s"
         "  \"original_source_provenance_verified\": false,\n"
         "  \"selected_page_index\": %zu,\n"
         "  \"native_lower_status\": \"%s\",\n"
@@ -1883,8 +1890,9 @@ int typed_original_preflight(const char *source_path,const char *page_str,
         "  \"native_raster\": \"not_run\",\n"
         "  \"external_wstar_pixel_supported_count\": 0,\n"
         "  \"generated_fixture_count\": 0\n"
-        "}\n",page_index,
-        expect_lowered?"lowered":"unsupported",
+        "}\n",
+        observe_only?"  \"observation_only\": true,\n":"",
+        page_index,actual_lowered?"lowered":"unsupported",
         page_count,op_count,clip_count,
         winding.nonzero,winding.evenodd,winding.intersections,state_count);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
@@ -1892,7 +1900,7 @@ int typed_original_preflight(const char *source_path,const char *page_str,
     std::fprintf(stderr,
         "[source-preflight] page=%zu typed=%s raster=not_run "
         "pdfium_pixel=not_run wstar_positive=0\n",
-        page_index,expect_lowered?"lowered":"unsupported");
+        page_index,actual_lowered?"lowered":"unsupported");
     return EXIT_SUCCESS;
 }
 

@@ -1953,9 +1953,30 @@ add_test(NAME quantapdf.external_original_wstar_text_typed_preflight
       "${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/pdfium.bug-1574-wstar-text-v1.pdf"
     --page-index 0 --expect-status unsupported
     --preflight-report "${CMAKE_CURRENT_BINARY_DIR}/external-original-wstar-preflight.json")
+
+# Discovery-only typed observation: reuse the actual original/Graph/owned-IR
+# chain and assert logged statuses, without attributing any native pixel pass.
+add_test(NAME quantapdf.external_original_w_typed_observe
+  COMMAND quantapdf_test_native_source_qq_oracle
+    --preflight-original-pdf
+      "${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/pdfium.clip-path-v1.pdf"
+    --page-index 0 --expect-status observe
+    --preflight-report "${CMAKE_CURRENT_BINARY_DIR}/external-original-w-observe.json")
+set_tests_properties(quantapdf.external_original_w_typed_observe PROPERTIES
+  PASS_REGULAR_EXPRESSION "typed=lowered raster=not_run")
+add_test(NAME quantapdf.external_original_wstar_text_typed_observe
+  COMMAND quantapdf_test_native_source_qq_oracle
+    --preflight-original-pdf
+      "${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/pdfium.bug-1574-wstar-text-v1.pdf"
+    --page-index 0 --expect-status observe
+    --preflight-report "${CMAKE_CURRENT_BINARY_DIR}/external-original-wstar-observe.json")
+set_tests_properties(quantapdf.external_original_wstar_text_typed_observe PROPERTIES
+  PASS_REGULAR_EXPRESSION "typed=unsupported raster=not_run")
 foreach(qp_test IN ITEMS
         quantapdf.external_original_w_typed_preflight
-        quantapdf.external_original_wstar_text_typed_preflight)
+        quantapdf.external_original_wstar_text_typed_preflight
+        quantapdf.external_original_w_typed_observe
+        quantapdf.external_original_wstar_text_typed_observe)
   set_tests_properties(${qp_test} PROPERTIES
     TIMEOUT 40 LABELS "conformance;external-corpus;source-preflight")
   if(WIN32)

@@ -153,7 +153,15 @@ quantapdf_test_native_source_qq_oracle \
   --preflight-report /tmp/selected-page-status.json
 ```
 
-Valid expectations are exactly `lowered` and `unsupported`. A rejected
+Strict expected-result checks accept exactly `lowered` and
+`unsupported`. Unknown-source triage may instead use
+`--expect-status observe` with the same original-PDF / selected-page
+arguments. It reports the actual narrow typed outcome and emits
+`observation_only:true`. This success is **not** original-source
+admission or native rendering: PDFium pixel and C11 Raster remain
+`not_run`, provenance remains unverified, and W* positive stays zero.
+
+A rejected
 original MUST leave zero Pages, Operations, Clip resources, Graphics
 States, fonts, images, Forms and masks. A lowered original must remain
 within the documented narrow resource and operation limits. Path
@@ -174,9 +182,11 @@ Two dedicated CTests run against unchanged pinned originals:
 `quantapdf.external_original_wstar_text_typed_preflight`
 (`UNSUPPORTED` + empty IR for `bug_1574.pdf`). These use the same three
 existing CI platform jobs; each uploads its report alongside the separate
-W-positive or W*-negative external semantic artifact. They are not added
-to the fixed 14/36 generated corpus, and neither increases the external
-W* **pixel-positive** count.
+W-positive or W*-negative external semantic artifact. Two additional observation-only CTests use the same pinned originals and
+require actual `typed=lowered` vs `typed=unsupported` console evidence.
+All four use the existing three-platform workflow, not a new workflow.
+They are not added to the fixed 14/36 generated corpus, and none increases
+the external W* **pixel-positive** count.
 
 ## Typed Clip-path winding evidence (#262)
 
