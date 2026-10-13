@@ -2251,6 +2251,98 @@ int test_external_jspdf_fractional_page_rejection(
             h.candidate[0],h.candidate[1],h.candidate[2],
             h.oracle[0],h.oracle[1],h.oracle[2]);
     }
+    /* Third *explicit/private* C11 A/B: preserve the #286 same-source
+     * repeated horizontal endpoints but soften only the exterior of a
+     * real right-going horizontal -> downward vertical corner. The
+     * independent source PDFium reference, original Detached IR, later
+     * W-clipped Fill, output ownership and old raster negatives remain. */
+    quantapdf_ir_raster_image corner_stroke{},corner_repeat{};
+    OK(quantapdf_ir_raster_device_polyline_stroke_right_down_corner_preview_v0(
+        &isolated_stroke,0u,&source_geometry,&stroke_grid_limits,
+        &stroke_raster_limits,&corner_stroke));
+    OK(quantapdf_ir_raster_device_polyline_stroke_right_down_corner_preview_v0(
+        &isolated_stroke,0u,&source_geometry,&stroke_grid_limits,
+        &stroke_raster_limits,&corner_repeat));
+    CHECK(corner_stroke.pixels!=nullptr &&
+          corner_stroke.width==596u && corner_stroke.height==842u &&
+          corner_stroke.size==endpoint_stroke.size &&
+          corner_repeat.size==corner_stroke.size &&
+          std::memcmp(corner_stroke.pixels,corner_repeat.pixels,
+                      corner_stroke.size)==0);
+    CHECK(corner_stroke.pixels[19u*corner_stroke.stride+50u*4u+3u]==
+          endpoint_stroke.pixels[19u*endpoint_stroke.stride+50u*4u+3u]);
+    CHECK(corner_stroke.pixels[19u*corner_stroke.stride+250u*4u+3u]>0u &&
+          corner_stroke.pixels[19u*corner_stroke.stride+250u*4u+3u]<
+          endpoint_stroke.pixels[19u*endpoint_stroke.stride+250u*4u+3u]);
+    CHECK(corner_stroke.pixels[20u*corner_stroke.stride+250u*4u+3u]==
+          endpoint_stroke.pixels[20u*endpoint_stroke.stride+250u*4u+3u]);
+
+    quantapdf_ir_raster_image corner_composite{},corner_composite_repeat{};
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &corner_stroke,&source_fill,&composite_budget,&corner_composite));
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &corner_repeat,&repeat_fill,&composite_budget,
+        &corner_composite_repeat));
+    CHECK(corner_composite.width==596u && corner_composite.height==842u &&
+          corner_composite.stride==596u*4u &&
+          corner_composite.size==596u*842u*4u &&
+          corner_composite_repeat.size==corner_composite.size &&
+          std::memcmp(corner_composite.pixels,
+                      corner_composite_repeat.pixels,
+                      corner_composite.size)==0);
+    const auto corner_attr=jspdf_pixel_attribution::analyze(
+        plane{corner_stroke.pixels,corner_stroke.stride,corner_stroke.size},
+        plane{source_fill.pixels,source_fill.stride,source_fill.size},
+        plane{corner_composite.pixels,corner_composite.stride,
+              corner_composite.size},
+        plane{reference.pixels.data(),(size_t)reference.stride,
+              reference.pixels.size()},
+        596u,842u);
+    CHECK(corner_attr.valid);
+    const std::uint64_t corner_error=corner_attr.error_total();
+    const size_t corner_changed=corner_attr.changed_total();
+    const size_t corner_gross=corner_attr.gross_total();
+    const unsigned corner_max_delta=corner_attr.worst_count ?
+        corner_attr.worst[0].max_delta : 0u;
+    const double corner_mean_error=
+        (double)corner_error/(double)(596u*842u*3u);
+    CHECK(std::isfinite(corner_mean_error) &&
+          corner_mean_error>=0.0 && corner_mean_error<=255.0 &&
+          corner_changed<=596u*842u && corner_gross<=corner_changed &&
+          corner_max_delta<=255u);
+    const std::string corner_attr_json=
+        jspdf_pixel_attribution::json(corner_attr);
+    unsigned long long corner_rgb_fnv64=14695981039346656037ULL;
+    for(size_t y=0u;y<842u;++y) for(size_t x=0u;x<596u;++x) {
+        const unsigned char *pixel=
+            corner_composite.pixels+y*corner_composite.stride+x*4u;
+        for(size_t c=0u;c<3u;++c) {
+            corner_rgb_fnv64^=(unsigned long long)on_white(pixel,c);
+            corner_rgb_fnv64*=1099511628211ULL;
+        }
+    }
+    std::fprintf(stderr,
+        "[jsPDF right-angle corner A/B, NOT pixel parity] "
+        "error=%llu mean=%.9f changed=%zu gross=%zu max=%u "
+        "rgb_fnv64=%016llx\n",
+        (unsigned long long)corner_error,corner_mean_error,
+        corner_changed,corner_gross,corner_max_delta,corner_rgb_fnv64);
+    for(size_t i=0u;i<corner_attr.worst_count;++i) {
+        const auto& h=corner_attr.worst[i];
+        std::fprintf(stderr,
+            "  corner-trial-residual %zu (%zu,%zu) delta=%u sum=%u "
+            "stroke_alpha=%u fill_alpha=%u "
+            "native=(%u,%u,%u) original_pdfium=(%u,%u,%u)\n",
+            i,h.x,h.y,h.max_delta,h.rgb_error,
+            h.stroke_alpha,h.fill_alpha,
+            h.candidate[0],h.candidate[1],h.candidate[2],
+            h.oracle[0],h.oracle[1],h.oracle[2]);
+    }
+    quantapdf_ir_raster_image_dispose(&corner_composite_repeat);
+    quantapdf_ir_raster_image_dispose(&corner_composite);
+    quantapdf_ir_raster_image_dispose(&corner_repeat);
+    quantapdf_ir_raster_image_dispose(&corner_stroke);
+
     quantapdf_ir_raster_image_dispose(&endpoint_composite_repeat);
     quantapdf_ir_raster_image_dispose(&endpoint_composite);
     quantapdf_ir_raster_image_dispose(&endpoint_repeat);
@@ -2483,6 +2575,18 @@ int test_external_jspdf_fractional_page_rejection(
         "  \"horizontal_repeated_endpoint_preview_max_channel_delta\": %u,\n"
         "  \"horizontal_repeated_endpoint_preview_rgb_fnv64\": \"%016llx\",\n"
         "  \"horizontal_repeated_endpoint_preview_spatial_attribution\": %s,\n"
+        "  \"horizontal_right_down_corner_preview_status\": \"measured_unqualified\",\n"
+        "  \"horizontal_right_down_corner_preview_default_changed\": false,\n"
+        "  \"horizontal_right_down_corner_preview_pixel_parity_qualified\": false,\n"
+        "  \"horizontal_right_down_corner_preview_original_pdfium_pixel_count\": 501832,\n"
+        "  \"horizontal_right_down_corner_preview_repeat_equal\": true,\n"
+        "  \"horizontal_right_down_corner_preview_abs_rgb_error\": %llu,\n"
+        "  \"horizontal_right_down_corner_preview_mean_abs_rgb_error\": %.9f,\n"
+        "  \"horizontal_right_down_corner_preview_changed_pixels\": %zu,\n"
+        "  \"horizontal_right_down_corner_preview_gross_delta64_pixels\": %zu,\n"
+        "  \"horizontal_right_down_corner_preview_max_channel_delta\": %u,\n"
+        "  \"horizontal_right_down_corner_preview_rgb_fnv64\": \"%016llx\",\n"
+        "  \"horizontal_right_down_corner_preview_spatial_attribution\": %s,\n"
         "  \"native_pixel_positive_count\": 0,\n"
         "  \"official_corpus_admitted\": false,\n"
         "  \"generated_fixture_count\": 0\n"
@@ -2501,7 +2605,10 @@ int test_external_jspdf_fractional_page_rejection(
         repeated_preview_attribution_json.c_str(),
         (unsigned long long)endpoint_error,endpoint_mean_error,
         endpoint_changed,endpoint_gross,endpoint_max_delta,
-        endpoint_rgb_fnv64,endpoint_attr_json.c_str());
+        endpoint_rgb_fnv64,endpoint_attr_json.c_str(),
+        (unsigned long long)corner_error,corner_mean_error,
+        corner_changed,corner_gross,corner_max_delta,
+        corner_rgb_fnv64,corner_attr_json.c_str());
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;

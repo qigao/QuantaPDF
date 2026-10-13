@@ -338,6 +338,83 @@ static int test_repeated_horizontal_endpoint_trial(void)
     return EXIT_SUCCESS;
 }
 
+/* Third opt-in A/B uses source topology, not original page/device literal
+ * coordinates: repeated 1pt horizontal source Strip -> down-going vertical
+ * join; only the outer upper-right corner receives bounded multi-pass
+ * source-over, rather than the #286 opaque pixel rectangle. */
+static int test_repeated_right_down_corner_trial(void)
+{
+    fixture f;
+    quantapdf_ir_raster_image old={0},endpoints={0},corner={0},repeat={0};
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    /* horizontal right, vertical down and up, horizontal left: two
+     * repeated top segments, one genuine horizontal->vertical join. */
+    f.op.value.path.command_count=5u;
+    f.cmds[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[2].point1=(quantapdf_point){20.0f,18.0f};
+    f.cmds[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[3].point1=(quantapdf_point){20.0f,8.0f};
+    f.cmds[4].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[4].point1=(quantapdf_point){2.0f,8.0f};
+
+    OK(RENDER(f,old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_repeated_endpoint_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&endpoints));
+    OK(quantapdf_ir_raster_device_polyline_stroke_right_down_corner_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&corner));
+    CHECK(old.size==endpoints.size && endpoints.size==corner.size);
+    CHECK(alpha(&endpoints,10u,7u)==255u && alpha(&corner,10u,7u)==255u);
+    CHECK(alpha(&endpoints,20u,7u)==255u);
+    CHECK(alpha(&corner,20u,7u)>0u && alpha(&corner,20u,7u)<255u);
+    /* The inside/lower join and the left repeated endpoint remain fully
+     * opaque in both experimental modes; no global pixel shift. */
+    CHECK(alpha(&corner,20u,8u)==alpha(&endpoints,20u,8u));
+    CHECK(alpha(&corner,2u,7u)==alpha(&endpoints,2u,7u));
+    CHECK(alpha(&corner,1u,7u)==alpha(&old,1u,7u));
+    OK(quantapdf_ir_raster_device_polyline_stroke_right_down_corner_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&repeat));
+    CHECK(corner.size==repeat.size &&
+          memcmp(corner.pixels,repeat.pixels,corner.size)==0);
+    quantapdf_ir_raster_image_dispose(&repeat);
+    quantapdf_ir_raster_image_dispose(&old);
+    quantapdf_ir_raster_image_dispose(&endpoints);
+    quantapdf_ir_raster_image_dispose(&corner);
+
+    /* Remove the perpendicular turn and keep a repeated horizontal line:
+     * modes 2/3 must render the same bytes. */
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=4u;
+    f.cmds[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[2].point1=(quantapdf_point){2.0f,8.0f};
+    f.cmds[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[3].point1=(quantapdf_point){20.0f,8.0f};
+    OK(quantapdf_ir_raster_device_polyline_stroke_repeated_endpoint_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&endpoints));
+    OK(quantapdf_ir_raster_device_polyline_stroke_right_down_corner_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&corner));
+    CHECK(endpoints.size==corner.size &&
+          memcmp(endpoints.pixels,corner.pixels,corner.size)==0);
+    quantapdf_ir_raster_image_dispose(&corner);
+    quantapdf_ir_raster_image_dispose(&endpoints);
+
+    /* The right-angle trial charges one additional bounded source-edge
+     * pass. An allowance sufficient for mode 2 must still refuse mode 3
+     * transactionally when it cannot fund the extra accounting. */
+    f.grid_budget.max_sample_tests=120000u;
+    f.raster_budget.max_sample_tests=120000u;
+    OK(quantapdf_ir_raster_device_polyline_stroke_repeated_endpoint_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&endpoints));
+    quantapdf_ir_raster_image_dispose(&endpoints);
+    memset(&corner,0xa5,sizeof(corner));
+    BAD(quantapdf_ir_raster_device_polyline_stroke_right_down_corner_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&corner));
+    CHECK(corner.pixels==NULL && corner.size==0u && corner.width==0u &&
+          corner.height==0u && corner.stride==0u);
+    return EXIT_SUCCESS;
+}
+
 static int test_pixel_width_and_rejections(void)
 {
     fixture f;
@@ -387,6 +464,7 @@ int main(void)
     CHECK(test_miter_and_butt_and_repeat()==EXIT_SUCCESS);
     CHECK(test_horizontal_thin_preview()==EXIT_SUCCESS);
     CHECK(test_repeated_horizontal_endpoint_trial()==EXIT_SUCCESS);
+    CHECK(test_repeated_right_down_corner_trial()==EXIT_SUCCESS);
     CHECK(test_pixel_width_and_rejections()==EXIT_SUCCESS);
     puts("native-device-polyline-stroke: butt+miter+bevel+union+limits PASS");
     return EXIT_SUCCESS;
