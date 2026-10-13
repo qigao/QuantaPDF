@@ -2338,6 +2338,132 @@ int test_external_jspdf_fractional_page_rejection(
             h.candidate[0],h.candidate[1],h.candidate[2],
             h.oracle[0],h.oracle[1],h.oracle[2]);
     }
+
+    /* Fourth, read-only original-page diagnostic: seven disjoint bins
+     * partition ALL pixels into bottom single-pass Stroke, left/right
+     * vertical Stroke, top repeated Stroke, W Clip right/bottom, and remaining.
+     * The bins are anchored to the immutable jsPDF source, NOT raster
+     * heuristics, a production renderer, or a PDFium fallback. */
+    struct roi_error {
+        const char *name;
+        size_t pixels=0u, changed=0u, gross=0u, worst_x=0u, worst_y=0u;
+        std::uint64_t abs_rgb_error=0u;
+        unsigned max_delta=0u;
+    };
+    roi_error regions[]={
+        {"bottom_single_pass_stroke"},{"right_vertical_stroke"},
+        {"left_vertical_stroke"},{"top_repeated_stroke"},
+        {"clip_right_antialias"},{"clip_bottom_weak_fringe"},{"other"}
+    };
+    const auto category=[](size_t x,size_t y,unsigned sa,unsigned fa)->size_t {
+        if(x>=49u && x<=250u && y>=138u && y<=140u &&
+           sa!=0u && fa==0u) return 0u;
+        if(x>=249u && x<=251u && y>=22u && y<=137u &&
+           sa!=0u && fa==0u) return 1u;
+        if(x>=49u && x<=51u && y>=22u && y<=137u &&
+           sa!=0u && fa==0u) return 2u;
+        if(x>=49u && x<=250u && y>=19u && y<=21u &&
+           sa!=0u && fa==0u) return 3u;
+        if(x==150u && y>=21u && y<=99u &&
+           sa==0u && fa!=0u) return 4u;
+        if(x>=52u && x<=148u && y==100u &&
+           sa==0u && fa==0u) return 5u;
+        return 6u;
+    };
+    for(size_t y=0u;y<842u;++y) for(size_t x=0u;x<596u;++x) {
+        const unsigned char *s=corner_stroke.pixels+
+            y*corner_stroke.stride+x*4u;
+        const unsigned char *f=source_fill.pixels+
+            y*source_fill.stride+x*4u;
+        const unsigned char *p=corner_composite.pixels+
+            y*corner_composite.stride+x*4u;
+        const unsigned char *o=reference.at(x,y);
+        roi_error &r=regions[category(x,y,s[3],f[3])];
+        ++r.pixels;
+        unsigned dmax=0u;
+        for(size_t c=0u;c<3u;++c) {
+            const unsigned v=on_white(p,c),t=o[c];
+            const unsigned d=v>=t?v-t:t-v;
+            r.abs_rgb_error+=(std::uint64_t)d;
+            if(d>dmax) dmax=d;
+        }
+        if(dmax!=0u) ++r.changed;
+        if(dmax>64u) ++r.gross;
+        if(dmax>r.max_delta) {
+            r.max_delta=dmax;
+            r.worst_x=x; r.worst_y=y;
+        }
+    }
+    size_t region_pixels=0u,region_changed=0u,region_gross=0u;
+    std::uint64_t region_error=0u;
+    unsigned region_max=0u;
+    std::string residual_regions_json=
+        "{\"schema_version\":1,\"observation_only\":true,"
+        "\"pixel_parity_qualified\":false,\"regions\":{";
+    for(size_t i=0u;i<sizeof(regions)/sizeof(regions[0]);++i) {
+        const roi_error &r=regions[i];
+        CHECK(r.changed<=r.pixels && r.gross<=r.changed &&
+              r.max_delta<=255u);
+        region_pixels+=r.pixels;
+        region_changed+=r.changed;
+        region_gross+=r.gross;
+        region_error+=r.abs_rgb_error;
+        if(r.max_delta>region_max) region_max=r.max_delta;
+        if(i) residual_regions_json+=",";
+        residual_regions_json+="\""+std::string(r.name)+"\":{";
+        residual_regions_json+="\"pixels\":"+std::to_string(r.pixels)+",";
+        residual_regions_json+="\"changed\":"+std::to_string(r.changed)+",";
+        residual_regions_json+="\"gross\":"+std::to_string(r.gross)+",";
+        residual_regions_json+="\"abs_rgb_error\":"+
+                                std::to_string(r.abs_rgb_error)+",";
+        residual_regions_json+="\"max_channel_delta\":"+
+                                std::to_string(r.max_delta)+",";
+        residual_regions_json+="\"worst_x\":"+std::to_string(r.worst_x)+",";
+        residual_regions_json+="\"worst_y\":"+std::to_string(r.worst_y)+"}";
+    }
+    CHECK(region_pixels==501832u && region_changed==corner_changed &&
+          region_gross==corner_gross && region_error==corner_error &&
+          region_max==corner_max_delta);
+    residual_regions_json+="},\"anchors\":[";
+    struct anchor {const char *name;size_t x,y,group;};
+    const anchor anchors[]={
+        {"bottom_left",50u,139u,0u},{"bottom_right",250u,139u,0u},
+        {"clip_right",150u,21u,4u},{"clip_bottom",100u,100u,5u},
+        {"repeated_corner",250u,19u,3u}
+    };
+    for(size_t i=0u;i<sizeof(anchors)/sizeof(anchors[0]);++i) {
+        const anchor &a=anchors[i];
+        const unsigned char *s=corner_stroke.pixels+
+            a.y*corner_stroke.stride+a.x*4u;
+        const unsigned char *f=source_fill.pixels+
+            a.y*source_fill.stride+a.x*4u;
+        const unsigned char *p=corner_composite.pixels+
+            a.y*corner_composite.stride+a.x*4u;
+        const unsigned char *o=reference.at(a.x,a.y);
+        CHECK(category(a.x,a.y,s[3],f[3])==a.group);
+        if(i) residual_regions_json+=",";
+        residual_regions_json+="{\"name\":\""+std::string(a.name)+"\",";
+        residual_regions_json+="\"region\":\""+
+            std::string(regions[a.group].name)+"\",";
+        residual_regions_json+="\"x\":"+std::to_string(a.x)+",";
+        residual_regions_json+="\"y\":"+std::to_string(a.y)+",";
+        residual_regions_json+="\"stroke_alpha\":"+
+            std::to_string((unsigned)s[3])+",";
+        residual_regions_json+="\"fill_alpha\":"+
+            std::to_string((unsigned)f[3])+",";
+        residual_regions_json+="\"native_rgb\":["+
+            std::to_string(on_white(p,0u))+","+
+            std::to_string(on_white(p,1u))+","+
+            std::to_string(on_white(p,2u))+"],";
+        residual_regions_json+="\"pdfium_rgb\":["+
+            std::to_string((unsigned)o[0])+","+
+            std::to_string((unsigned)o[1])+","+
+            std::to_string((unsigned)o[2])+"]}";
+    }
+    residual_regions_json+="],\"full_image_partition_reconciled\":true}";
+    std::fprintf(stderr,"[jsPDF pinned original residual region scan] %s\n",
+                 residual_regions_json.c_str());
+
     quantapdf_ir_raster_image_dispose(&corner_composite_repeat);
     quantapdf_ir_raster_image_dispose(&corner_composite);
     quantapdf_ir_raster_image_dispose(&corner_repeat);
@@ -2587,6 +2713,7 @@ int test_external_jspdf_fractional_page_rejection(
         "  \"horizontal_right_down_corner_preview_max_channel_delta\": %u,\n"
         "  \"horizontal_right_down_corner_preview_rgb_fnv64\": \"%016llx\",\n"
         "  \"horizontal_right_down_corner_preview_spatial_attribution\": %s,\n"
+        "  \"horizontal_right_down_corner_residual_regions\": %s,\n"
         "  \"native_pixel_positive_count\": 0,\n"
         "  \"official_corpus_admitted\": false,\n"
         "  \"generated_fixture_count\": 0\n"
@@ -2608,7 +2735,8 @@ int test_external_jspdf_fractional_page_rejection(
         endpoint_rgb_fnv64,endpoint_attr_json.c_str(),
         (unsigned long long)corner_error,corner_mean_error,
         corner_changed,corner_gross,corner_max_delta,
-        corner_rgb_fnv64,corner_attr_json.c_str());
+        corner_rgb_fnv64,corner_attr_json.c_str(),
+        residual_regions_json.c_str());
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
