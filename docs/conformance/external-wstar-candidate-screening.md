@@ -188,6 +188,16 @@ All four use the existing three-platform workflow, not a new workflow.
 They are not added to the fixed 14/36 generated corpus, and none increases
 the external W* **pixel-positive** count.
 
+An additional **explicitly synthetic** `quantapdf.generated_wstar_typed_observe`
+CTest generates a private q/Q + W + W* + three opaque fills PDF in its
+own build-local path, then executes the real selected-page `observe`
+Source→Graph→detached IR pipeline. It checks for a true nonzero W leaf
+and a true even-odd W* Clip Path leaf in the report, while still recording
+provenance unverified, PDFium/native raster `not_run`, and the external
+W* pixel-positive count **0**. This proves positive typed observation,
+NOT independently published original-source or pixel conformance, and
+is excluded from both existing fixture populations.
+
 ## Typed Clip-path winding evidence (#262)
 
 The native source-PDF oracle now counts **actual owned detached IR

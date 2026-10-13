@@ -1804,7 +1804,8 @@ target_compile_features(quantapdf_test_native_source_qq_oracle PRIVATE
   c_std_11 cxx_std_20)
 target_compile_definitions(quantapdf_test_native_source_qq_oracle PRIVATE
   SOURCE_QQ_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-qq-source.pdf"
-  GROUP_SOURCE_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-group-source.pdf")
+  GROUP_SOURCE_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-group-source.pdf"
+  GENERATED_WSTAR_OBSERVE_PDF="${CMAKE_CURRENT_BINARY_DIR}/generated-wstar-typed-observe.pdf")
 if(MSVC)
   target_compile_options(quantapdf_test_native_source_qq_oracle PRIVATE /utf-8)
 endif()
@@ -2001,6 +2002,31 @@ foreach(qp_test IN ITEMS
       "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
   endif()
 endforeach()
+
+# Deliberately GENERATED observation-only control for the real bounded
+# Document->Graph->detached IR W* leaf report. This must not enter the
+# five-original external manifest or the fixed generated 14/36 counters.
+add_test(NAME quantapdf.generated_wstar_typed_observe
+  COMMAND quantapdf_test_native_source_qq_oracle
+    --generated-wstar-observe
+    --preflight-report "${CMAKE_CURRENT_BINARY_DIR}/generated-wstar-typed-observe.json")
+set_tests_properties(quantapdf.generated_wstar_typed_observe PROPERTIES
+  TIMEOUT 40
+  LABELS "conformance;source-preflight;generated-observation"
+  PASS_REGULAR_EXPRESSION "generated-wstar-observe.*external_positive=0")
+if(WIN32)
+  set_property(TEST quantapdf.generated_wstar_typed_observe
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.generated_wstar_typed_observe
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.generated_wstar_typed_observe
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
 
 # Independently published upstream W n rectangular Clip and one-pixel closed
 # blue stroke. Renderer uses pure C11; PDFium reads the ORIGINAL PDF only.

@@ -62,7 +62,8 @@ struct rgb_image {
 
 /* Real, well-formed source PDF document; all q/Q/W/W* operators are native
  * PDF source syntax parsed after an independent Graph snapshot capture. */
-void make_source(const char *content)
+void make_source(const char *content,
+                 const char *source_output=SOURCE_QQ_PDF)
 {
     auto pdf = QPDF::create();
     pdf->emptyPDF();
@@ -80,7 +81,7 @@ void make_source(const char *content)
     writer.setOutputMemory();
     writer.write();
     auto blob = writer.getBufferSharedPointer();
-    FILE *f = std::fopen(SOURCE_QQ_PDF,"wb");
+    FILE *f = std::fopen(source_output,"wb");
     CHECK(f != nullptr);
     CHECK(std::fwrite(blob->getBuffer(),1,blob->getSize(),f) ==
           blob->getSize());
@@ -1919,6 +1920,50 @@ int typed_original_preflight(const char *source_path,const char *page_str,
     return EXIT_SUCCESS;
 }
 
+
+/* Synthetic check for the actual typed observation mechanism. The generated
+ * PDF is NOT an independently published PDF and never counts as external. */
+int test_generated_wstar_typed_observe(const char *report_path)
+{
+    CHECK(report_path!=nullptr && *report_path!='\0');
+    const char *content=
+        "q 0 0 100 100 re W n "
+        "q 20 20 60 60 re 35 35 20 20 re W* n "
+        "1 0 0 rg 0 0 120 120 re f "
+        "Q 0 0 1 rg 75 10 40 40 re f "
+        "Q 0 1 0 rg 0 0 12 12 re f";
+    /* Use an isolated build-local source path to avoid concurrent CTest
+     * collisions with the existing native SOURCE_QQ_PDF pixel fixtures. */
+    make_source(content,GENERATED_WSTAR_OBSERVE_PDF);
+    const int rc=typed_original_preflight(
+        GENERATED_WSTAR_OBSERVE_PDF,"0","observe",report_path);
+    if(rc!=EXIT_SUCCESS) return rc;
+    FILE *in=std::fopen(report_path,"rb");
+    CHECK(in!=nullptr);
+    char bytes[4096];
+    const size_t n=std::fread(bytes,1,sizeof(bytes),in);
+    CHECK(n>0u && n<sizeof(bytes) && !std::ferror(in));
+    CHECK(std::fclose(in)==0);
+    const std::string observed(bytes,n);
+    CHECK(observed.find("\"observation_only\": true")!=std::string::npos);
+    CHECK(observed.find("\"original_source_provenance_verified\": false")!=std::string::npos);
+    CHECK(observed.find("\"native_lower_status\": \"lowered\"")!=std::string::npos);
+    CHECK(observed.find("\"detached_ir_pages\": 1")!=std::string::npos);
+    CHECK(observed.find("\"detached_ir_operations\": 3")!=std::string::npos);
+    CHECK(observed.find("\"detached_ir_w_nonzero_clip_path_leaves\": 1")!=std::string::npos);
+    CHECK(observed.find("\"detached_ir_wstar_evenodd_clip_path_leaves\": 1")!=std::string::npos);
+    CHECK(observed.find("\"detached_ir_clip_intersection_nodes\": ")!=std::string::npos);
+    CHECK(observed.find("\"original_pdfium_pixel_oracle\": \"not_run\"")!=std::string::npos);
+    CHECK(observed.find("\"native_raster\": \"not_run\"")!=std::string::npos);
+    CHECK(observed.find("\"external_wstar_pixel_supported_count\": 0")!=std::string::npos);
+    CHECK(observed.find("\"generated_fixture_count\": 0")!=std::string::npos);
+    CHECK(corpus_fixture_executions==0u);
+    std::fprintf(stderr,
+        "[generated-wstar-observe] typed=lowered w=1 wstar=1 "
+        "pdfium_pixel=not_run native_raster=not_run external_positive=0\n");
+    return EXIT_SUCCESS;
+}
+
 }
 
 struct source_corpus_family {
@@ -2008,6 +2053,10 @@ int main(int argc,char **argv)
        std::strcmp(argv[5],"--expect-status")==0 &&
        std::strcmp(argv[7],"--preflight-report")==0)
         return typed_original_preflight(argv[2],argv[4],argv[6],argv[8]);
+    if(argc==4 &&
+       std::strcmp(argv[1],"--generated-wstar-observe")==0 &&
+       std::strcmp(argv[2],"--preflight-report")==0)
+        return test_generated_wstar_typed_observe(argv[3]);
     if(argc==2 && std::strcmp(argv[1],"--page-group-admission")==0){
         test_page_group_admission();
         return EXIT_SUCCESS;
