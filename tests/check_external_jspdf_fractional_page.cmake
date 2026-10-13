@@ -471,11 +471,12 @@ string(JSON roi_reconciled GET "${json}" horizontal_right_down_corner_residual_r
 string(JSON roi_n LENGTH "${json}" horizontal_right_down_corner_residual_regions regions)
 string(JSON roi_anchors LENGTH "${json}" horizontal_right_down_corner_residual_regions anchors)
 if(NOT roi_schema EQUAL 1 OR NOT roi_observe OR roi_parity OR
-   NOT roi_reconciled OR NOT roi_n EQUAL 6 OR NOT roi_anchors EQUAL 5)
+   NOT roi_reconciled OR NOT roi_n EQUAL 7 OR NOT roi_anchors EQUAL 5)
   message(FATAL_ERROR "jsPDF original residual partition was not measured")
 endif()
 set(roi_regions bottom_single_pass_stroke right_vertical_stroke
-    top_repeated_stroke clip_right_antialias clip_bottom_weak_fringe other)
+    left_vertical_stroke top_repeated_stroke clip_right_antialias
+    clip_bottom_weak_fringe other)
 set(roi_pixels_sum 0)
 set(roi_changed_sum 0)
 set(roi_gross_sum 0)
@@ -507,7 +508,7 @@ if(NOT roi_pixels_sum EQUAL 501832
    OR NOT roi_gross_sum EQUAL corner_gross_delta64_pixels
    OR NOT roi_error_sum EQUAL corner_abs_rgb_error
    OR NOT roi_max EQUAL corner_max_channel_delta)
-  message(FATAL_ERROR "jsPDF six error regions fail full-original reconciliation")
+  message(FATAL_ERROR "jsPDF seven error regions fail full-original reconciliation")
 endif()
 set(roi_anchor_names bottom_left bottom_right clip_right clip_bottom repeated_corner)
 set(roi_anchor_groups bottom_single_pass_stroke bottom_single_pass_stroke

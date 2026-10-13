@@ -2339,9 +2339,9 @@ int test_external_jspdf_fractional_page_rejection(
             h.oracle[0],h.oracle[1],h.oracle[2]);
     }
 
-    /* Fourth, read-only original-page diagnostic: six disjoint bins
-     * partition ALL pixels into bottom single-pass Stroke, vertical
-     * Stroke, top repeated Stroke, W Clip right/bottom, and remaining.
+    /* Fourth, read-only original-page diagnostic: seven disjoint bins
+     * partition ALL pixels into bottom single-pass Stroke, left/right
+     * vertical Stroke, top repeated Stroke, W Clip right/bottom, and remaining.
      * The bins are anchored to the immutable jsPDF source, NOT raster
      * heuristics, a production renderer, or a PDFium fallback. */
     struct roi_error {
@@ -2352,21 +2352,23 @@ int test_external_jspdf_fractional_page_rejection(
     };
     roi_error regions[]={
         {"bottom_single_pass_stroke"},{"right_vertical_stroke"},
-        {"top_repeated_stroke"},{"clip_right_antialias"},
-        {"clip_bottom_weak_fringe"},{"other"}
+        {"left_vertical_stroke"},{"top_repeated_stroke"},
+        {"clip_right_antialias"},{"clip_bottom_weak_fringe"},{"other"}
     };
     const auto category=[](size_t x,size_t y,unsigned sa,unsigned fa)->size_t {
         if(x>=49u && x<=250u && y>=138u && y<=140u &&
            sa!=0u && fa==0u) return 0u;
-        if(x>=249u && x<=251u && y>=22u && y<=99u &&
+        if(x>=249u && x<=251u && y>=22u && y<=137u &&
            sa!=0u && fa==0u) return 1u;
-        if(x>=49u && x<=250u && y>=19u && y<=21u &&
+        if(x>=49u && x<=51u && y>=22u && y<=137u &&
            sa!=0u && fa==0u) return 2u;
+        if(x>=49u && x<=250u && y>=19u && y<=21u &&
+           sa!=0u && fa==0u) return 3u;
         if(x==150u && y>=21u && y<=99u &&
-           sa==0u && fa!=0u) return 3u;
+           sa==0u && fa!=0u) return 4u;
         if(x>=52u && x<=148u && y==100u &&
-           sa==0u && fa==0u) return 4u;
-        return 5u;
+           sa==0u && fa==0u) return 5u;
+        return 6u;
     };
     for(size_t y=0u;y<842u;++y) for(size_t x=0u;x<596u;++x) {
         const unsigned char *s=corner_stroke.pixels+
@@ -2426,8 +2428,8 @@ int test_external_jspdf_fractional_page_rejection(
     struct anchor {const char *name;size_t x,y,group;};
     const anchor anchors[]={
         {"bottom_left",50u,139u,0u},{"bottom_right",250u,139u,0u},
-        {"clip_right",150u,21u,3u},{"clip_bottom",100u,100u,4u},
-        {"repeated_corner",250u,19u,2u}
+        {"clip_right",150u,21u,4u},{"clip_bottom",100u,100u,5u},
+        {"repeated_corner",250u,19u,3u}
     };
     for(size_t i=0u;i<sizeof(anchors)/sizeof(anchors[0]);++i) {
         const anchor &a=anchors[i];

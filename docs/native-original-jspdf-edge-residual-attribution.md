@@ -18,8 +18,8 @@ changed (23,482 error), 80 Fill-partial (2,862 error) and 101 flat
 ## This trial: no renderer change
 
 A new full-page **read-only** re-scan partitions each original pixel
-into six exclusive test-only regions: bottom single-pass Stroke,
-right vertical Stroke, top repeated Stroke control, x=150 red W Clip
+into seven exclusive test-only regions: bottom single-pass Stroke,
+right and left vertical Stroke, top repeated Stroke control, x=150 red W Clip
 edge, weak y=100 W Clip fringe, and all other pixels. Region names are
 literal original-source observation windows with native per-layer alpha
 guards, *not* production heuristics or PDFium internals.
@@ -30,7 +30,7 @@ coordinate. It also emits original PDFium RGB, C11 RGB and the two
 C11 layer alphas at exact witnesses (50,139), (250,139), (150,21),
 (100,100) and (250,19).
 
-An independent CMake checker proves all six bins partition 501,832
+An independent CMake checker proves all seven bins partition 501,832
 pixels and reconcile to the existing whole-page error/changed/gross/max
 totals, verifies five anchored source categories and RGB bounds, and
 retains the SHA/non-admission contract. The report explicitly keeps
