@@ -358,6 +358,64 @@ static unsigned qp_repeated_alpha(unsigned single_pass_alpha,size_t repeats)
     return 255u-remains;
 }
 
+/* Bounds-only acceleration for the THIRD experimental corner preview.
+ * The source is a finite, bounded OPEN POLYLINE. Every stroked segment
+ * lies within its two endpoints expanded by source radius; every admitted
+ * miter join lies within radius*miter_limit of a vertex (or bevel
+ * fallback within radius). Expand conservatively by another TWO full
+ * device pixels in each direction to absorb float/ceil rounding.
+ *
+ * This rejects NOTHING and DOES NOT change the sampled geometry or
+ * resource ceiling. The owned RGBA remains zero outside this rectangle.
+ * Modes 0/1/2 continue scanning the exact historical whole image. */
+typedef struct qp_stroke_roi {
+    size_t x0,x1,y0,y1; /* exclusive upper bounds */
+} qp_stroke_roi;
+
+static size_t qp_clamp_device_bound(
+    double source_coordinate, double points_per_device,
+    size_t extent, int upper)
+{
+    double pixel=source_coordinate/points_per_device;
+    pixel=upper?ceil(pixel)+2.0:floor(pixel)-2.0;
+    if(!isfinite(pixel) || pixel<=0.0)return 0u;
+    if(pixel>=(double)extent)return extent;
+    return (size_t)pixel;
+}
+
+static qp_stroke_roi qp_corner_preview_sample_bounds(
+    const qp_stroke_segment *segments,size_t count,
+    const quantapdf_native_device_grid *grid,
+    double radius,double miter_limit)
+{
+    qp_stroke_roi bounds={0u,grid->width,0u,grid->height};
+    double minx,maxx,miny,maxy,fringe;
+    if(count==0u)return bounds;
+    minx=maxx=segments[0].a.x;
+    miny=maxy=segments[0].a.y;
+    for(size_t i=0u;i<count;++i) {
+        const qp_stroke_segment *s=&segments[i];
+        minx=fmin(minx,fmin(s->a.x,s->b.x));
+        maxx=fmax(maxx,fmax(s->a.x,s->b.x));
+        miny=fmin(miny,fmin(s->a.y,s->b.y));
+        maxy=fmax(maxy,fmax(s->a.y,s->b.y));
+    }
+    fringe=radius*fmax(1.0,miter_limit);
+    bounds.x0=qp_clamp_device_bound(
+        minx-fringe,grid->points_per_device_x,grid->width,0);
+    bounds.x1=qp_clamp_device_bound(
+        maxx+fringe,grid->points_per_device_x,grid->width,1);
+    bounds.y0=qp_clamp_device_bound(
+        miny-fringe,grid->points_per_device_y,grid->height,0);
+    bounds.y1=qp_clamp_device_bound(
+        maxy+fringe,grid->points_per_device_y,grid->height,1);
+    /* Conservatively fall back to full bounds if precision ever fails;
+     * never silently omit source pixels due to malformed bounds. */
+    if(bounds.x1<=bounds.x0 || bounds.y1<=bounds.y0)
+        return (qp_stroke_roi){0u,grid->width,0u,grid->height};
+    return bounds;
+}
+
 static quantapdf_status qp_stroke_render_impl(
     const quantapdf_ir *ir, size_t page_index,
     const quantapdf_native_device_grid_geometry *geometry,
@@ -427,8 +485,12 @@ static quantapdf_status qp_stroke_render_impl(
     rgba=(unsigned char *)malloc(grid.rgba_bytes);
     if(rgba==NULL) return QUANTAPDF_ERROR_NOMEM;
     memset(rgba,0,grid.rgba_bytes);
-    for(size_t y=0u;y<grid.height;++y) {
-        for(size_t x=0u;x<grid.width;++x) {
+    qp_stroke_roi sampled={0u,grid.width,0u,grid.height};
+    if(horizontal_preview==3)
+        sampled=qp_corner_preview_sample_bounds(
+            segments,count,&grid,radius,miter_limit);
+    for(size_t y=sampled.y0;y<sampled.y1;++y) {
+        for(size_t x=sampled.x0;x<sampled.x1;++x) {
             unsigned covered=0u;
             for(unsigned sy=0u;sy<QP_DEVICE_STROKE_SUBPIXELS;++sy) {
                 for(unsigned sx=0u;sx<QP_DEVICE_STROKE_SUBPIXELS;++sx) {
