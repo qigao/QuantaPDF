@@ -165,10 +165,12 @@ jobs:
         run: |
           cat build/linux-gcc-release/tests/external-yworks-svg-nested-w-typed-observe.json
           cat build/linux-gcc-release/tests/external-yworks-svg-nested-w-budget8-typed-observe.json
+          cat build/linux-gcc-release/tests/external-yworks-svg-w-stage-diagnostic.json
           cat build/linux-gcc-release/tests/external-yworks-hidden-w-typed-observe.json
           cat build/linux-gcc-release/tests/external-jspdf-w3s-clip-typed-observe.json
           cat build/linux-gcc-debug/tests/external-yworks-svg-nested-w-typed-observe.json
           cat build/linux-gcc-debug/tests/external-yworks-svg-nested-w-budget8-typed-observe.json
+          cat build/linux-gcc-debug/tests/external-yworks-svg-w-stage-diagnostic.json
           cat build/linux-gcc-debug/tests/external-yworks-hidden-w-typed-observe.json
           cat build/linux-gcc-debug/tests/external-jspdf-w3s-clip-typed-observe.json
 
@@ -179,10 +181,12 @@ jobs:
           path: |
             build/linux-gcc-release/tests/external-yworks-svg-nested-w-typed-observe.json
             build/linux-gcc-release/tests/external-yworks-svg-nested-w-budget8-typed-observe.json
+            build/linux-gcc-release/tests/external-yworks-svg-w-stage-diagnostic.json
             build/linux-gcc-release/tests/external-yworks-hidden-w-typed-observe.json
             build/linux-gcc-release/tests/external-jspdf-w3s-clip-typed-observe.json
             build/linux-gcc-debug/tests/external-yworks-svg-nested-w-typed-observe.json
             build/linux-gcc-debug/tests/external-yworks-svg-nested-w-budget8-typed-observe.json
+            build/linux-gcc-debug/tests/external-yworks-svg-w-stage-diagnostic.json
             build/linux-gcc-debug/tests/external-yworks-hidden-w-typed-observe.json
             build/linux-gcc-debug/tests/external-jspdf-w3s-clip-typed-observe.json
           if-no-files-found: error
@@ -409,6 +413,7 @@ jobs:
         run: |
           cat build/macos-clang-release/tests/external-yworks-svg-nested-w-typed-observe.json
           cat build/macos-clang-release/tests/external-yworks-svg-nested-w-budget8-typed-observe.json
+          cat build/macos-clang-release/tests/external-yworks-svg-w-stage-diagnostic.json
           cat build/macos-clang-release/tests/external-yworks-hidden-w-typed-observe.json
           cat build/macos-clang-release/tests/external-jspdf-w3s-clip-typed-observe.json
 
@@ -419,6 +424,7 @@ jobs:
           path: |
             build/macos-clang-release/tests/external-yworks-svg-nested-w-typed-observe.json
             build/macos-clang-release/tests/external-yworks-svg-nested-w-budget8-typed-observe.json
+            build/macos-clang-release/tests/external-yworks-svg-w-stage-diagnostic.json
             build/macos-clang-release/tests/external-yworks-hidden-w-typed-observe.json
             build/macos-clang-release/tests/external-jspdf-w3s-clip-typed-observe.json
           if-no-files-found: error
@@ -663,6 +669,7 @@ jobs:
         run: |
           Get-Content build/Msvc-Release/tests/external-yworks-svg-nested-w-typed-observe.json
           Get-Content build/Msvc-Release/tests/external-yworks-svg-nested-w-budget8-typed-observe.json
+          Get-Content build/Msvc-Release/tests/external-yworks-svg-w-stage-diagnostic.json
           Get-Content build/Msvc-Release/tests/external-yworks-hidden-w-typed-observe.json
           Get-Content build/Msvc-Release/tests/external-jspdf-w3s-clip-typed-observe.json
 
@@ -673,6 +680,7 @@ jobs:
           path: |
             build/Msvc-Release/tests/external-yworks-svg-nested-w-typed-observe.json
             build/Msvc-Release/tests/external-yworks-svg-nested-w-budget8-typed-observe.json
+            build/Msvc-Release/tests/external-yworks-svg-w-stage-diagnostic.json
             build/Msvc-Release/tests/external-yworks-hidden-w-typed-observe.json
             build/Msvc-Release/tests/external-jspdf-w3s-clip-typed-observe.json
           if-no-files-found: error

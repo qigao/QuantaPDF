@@ -53,3 +53,16 @@ budget8 result is observation-only and never a pixel positive; no source
 rewrite, automatic retry or fallback. Exact per-platform JSON remains
 separate from the default-budget report. Further unsupported results
 still require an explicit reason investigation.
+
+## Explicit selected-page stage attribution
+
+A separate `quantapdf.external_yworks_svg_w_stage_diagnostic` CTest
+executes an **opt-in**, read-only stage examination of the same exact original
+`clippath-svg.pdf` with painted-path budget 8. It distinguishes page
+geometry, page display, page Group, whole-page semantics parsing, and mapped
+Path/Clip lowering; records numeric statuses and parsed painted/Clip counts,
+then disposes all Source/Graph/semantics/IR resources. **No PDFium oracle,
+no C11 raster, no fallback and no official corpus counter changes**.
+Any non-UNSUPPORTED error or leaked native support claim fails closed.
+CI uploads the stage JSON alongside the two independent default/budget8
+typed observations.

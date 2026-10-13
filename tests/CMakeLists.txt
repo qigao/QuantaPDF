@@ -2077,6 +2077,33 @@ add_external_nonzero_candidate_observe(
   yworks-svg-nested-w-budget8 external_wstar_candidates/documents/yworks.clippath-svg-v1.pdf
   7c9d3eab0f401537052a5ec4a8c531954aaf354061a9de25080376a9e13cb921 4107 8)
 
+# Test-only explicit stage diagnostic on one raw byte-pinned, still
+# unsupported nested-W original; never a positive or backend switch.
+add_test(NAME quantapdf.external_yworks_svg_w_stage_diagnostic
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/external_wstar_candidates/documents/yworks.clippath-svg-v1.pdf"
+    "-DREPORT=${CMAKE_CURRENT_BINARY_DIR}/external-yworks-svg-w-stage-diagnostic.json"
+    "-DEXPECTED_SHA256=7c9d3eab0f401537052a5ec4a8c531954aaf354061a9de25080376a9e13cb921"
+    "-DEXPECTED_SIZE=4107"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_external_nonzero_stage_diagnostic.cmake")
+set_tests_properties(quantapdf.external_yworks_svg_w_stage_diagnostic PROPERTIES
+  TIMEOUT 40 LABELS "conformance;source-preflight;nonzero-stage-diagnostic"
+  PASS_REGULAR_EXPRESSION "original-stage-diag.*status=unsupported")
+if(WIN32)
+  set_property(TEST quantapdf.external_yworks_svg_w_stage_diagnostic
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_yworks_svg_w_stage_diagnostic
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_yworks_svg_w_stage_diagnostic
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
 # Authentic, byte-pinned upstream W* PDF typed candidate, isolated from
 # five admitted original conformance sources and all native pixel counters.
 add_test(NAME quantapdf.external_yworks_wstar_typed_observe
