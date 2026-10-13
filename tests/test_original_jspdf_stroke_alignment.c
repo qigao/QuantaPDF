@@ -128,6 +128,8 @@ static int compare_dpi(FPDF_PAGE page,const alignment_case *c,
             page,0,0,c->width,c->height,0,
             (double)source_x[ix],centre_pdf_y,&dx,&dy));
         AB_REQUIRE(dx>=3 && dx<c->width-3);
+        AB_REQUIRE(fabs((double)dx-(double)source_x[ix]*
+                         (double)c->width/page_width)<=1.5);
         AB_REQUIRE(dy>=0 && dy<c->height);
         AB_REQUIRE(absdiff((unsigned)dy,(unsigned)anchor_device_y)<=1u);
         for (int step=-3;step<=3;++step) {
