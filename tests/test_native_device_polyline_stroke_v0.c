@@ -99,6 +99,20 @@ static int test_miter_and_butt_and_repeat(void)
     CHECK(memcmp(&f.op.value.path.options,&original_opt,sizeof(original_opt))==0);
     quantapdf_ir_raster_image_dispose(&repeat);
 
+    /* Exact PDF source-style rebase (x,-y) + (0,page_height) must be
+     * byte-identical to already-normalized coordinates, without editing
+     * either source IR or the device grid. */
+    for (size_t i=0u;i<f.op.value.path.command_count;++i)
+        f.cmds[i].point1.y -= 24.75f;
+    f.op.value.path.options.transform.f=24.75f;
+    OK(RENDER(f,repeat));
+    CHECK(repeat.size==miter.size &&
+          memcmp(repeat.pixels,miter.pixels,miter.size)==0);
+    quantapdf_ir_raster_image_dispose(&repeat);
+    for (size_t i=0u;i<f.op.value.path.command_count;++i)
+        f.cmds[i].point1.y += 24.75f;
+    f.op.value.path.options.transform.f=0.0f;
+
     f.op.value.path.options.miter_limit=1.0f; /* bevel fallback */
     OK(RENDER(f,bevel));
     CHECK(alpha(&bevel,21u,6u)<alpha(&miter,21u,6u));
@@ -143,8 +157,8 @@ static int test_pixel_width_and_rejections(void)
     REFUSE(RENDER(f,im)); f.op.value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_MITER;
     f.op.value.path.options.fill=1;
     REFUSE(RENDER(f,im)); f.op.value.path.options.fill=0;
-    f.op.value.path.options.transform.e=1.0f;
-    REFUSE(RENDER(f,im)); f.op.value.path.options.transform.e=0.0f;
+    f.op.value.path.options.transform.a=2.0f;
+    REFUSE(RENDER(f,im)); f.op.value.path.options.transform.a=1.0f;
     f.cmds[2].kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
     REFUSE(RENDER(f,im)); f.cmds[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
     f.cmds[2].point1.x=33.0f;

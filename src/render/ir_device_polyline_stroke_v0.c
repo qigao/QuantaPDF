@@ -29,24 +29,45 @@ static double qp_cross(double ax, double ay, double bx, double by)
     return ax * by - ay * bx;
 }
 
-static int qp_stroke_point_valid(
-    quantapdf_point point,
-    const quantapdf_native_device_grid_geometry *geometry)
-{
-    return isfinite(point.x) && isfinite(point.y) &&
-           point.x >= 0.0f && point.y >= 0.0f &&
-           (double)point.x <= geometry->page_width_points &&
-           (double)point.y <= geometry->page_height_points;
-}
-
-static int qp_stroke_transform_identity_or_zero(
-    const quantapdf_affine_transform *t)
+/* Source PDF Path lowering uses local (x,-y) coordinates with a
+ * compensating translation to the displayed top-left page. Preserve that
+ * translation exactly. Scaling, shear and rotation remain unqualified. */
+static int qp_stroke_translation_only(
+    const quantapdf_affine_transform *t, double *tx, double *ty)
 {
     int zero = t->a == 0.0f && t->b == 0.0f && t->c == 0.0f &&
                t->d == 0.0f && t->e == 0.0f && t->f == 0.0f;
-    int identity = t->a == 1.0f && t->b == 0.0f && t->c == 0.0f &&
-                   t->d == 1.0f && t->e == 0.0f && t->f == 0.0f;
-    return zero || identity;
+    if (zero) {
+        *tx = 0.0;
+        *ty = 0.0;
+        return 1;
+    }
+    if (t->a != 1.0f || t->b != 0.0f || t->c != 0.0f ||
+        t->d != 1.0f || !isfinite(t->e) || !isfinite(t->f) ||
+        fabs((double)t->e) > 1000000.0 ||
+        fabs((double)t->f) > 1000000.0)
+        return 0;
+    *tx = (double)t->e;
+    *ty = (double)t->f;
+    return 1;
+}
+
+static int qp_stroke_map_source_point(
+    quantapdf_point point,
+    double tx, double ty,
+    const quantapdf_native_device_grid_geometry *geometry,
+    qp_stroke_point *out)
+{
+    if (!isfinite(point.x) || !isfinite(point.y) ||
+        fabs((double)point.x) > 1000000.0 ||
+        fabs((double)point.y) > 1000000.0)
+        return 0;
+    out->x = (double)point.x + tx;
+    out->y = (double)point.y + ty;
+    return isfinite(out->x) && isfinite(out->y) &&
+           out->x >= 0.0 && out->y >= 0.0 &&
+           out->x <= geometry->page_width_points &&
+           out->y <= geometry->page_height_points;
 }
 
 static int qp_stroke_no_resources(const quantapdf_ir *ir)
@@ -72,6 +93,7 @@ static int qp_stroke_admit_path(
     const quantapdf_composer_path_options *opt = &path->options;
     qp_stroke_point current;
     size_t count = 0u;
+    double tx = 0.0, ty = 0.0;
 
     if (op->kind != QUANTAPDF_COMPOSER_OPERATION_PATH ||
         op->page_index != 0u || op->graphics_state_id != 0u ||
@@ -87,24 +109,23 @@ static int qp_stroke_admit_path(
         !isfinite(opt->miter_limit) ||
         opt->miter_limit < 1.0f || opt->miter_limit > 10.0f ||
         path->dash_count != 0u || path->dash_lengths != NULL ||
-        !qp_stroke_transform_identity_or_zero(&opt->transform) ||
         path->commands == NULL || path->command_count < 2u ||
         path->command_count > QP_DEVICE_STROKE_MAX_SEGMENTS + 1u ||
-        path->commands[0].kind != QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
-        !qp_stroke_point_valid(path->commands[0].point1, geometry))
+        path->commands[0].kind != QUANTAPDF_COMPOSER_PATH_MOVE_TO)
         return 0;
-
-    current.x = (double)path->commands[0].point1.x;
-    current.y = (double)path->commands[0].point1.y;
+    if (!qp_stroke_translation_only(&opt->transform, &tx, &ty) ||
+        !qp_stroke_map_source_point(path->commands[0].point1,
+                                    tx, ty, geometry, &current))
+        return 0;
     for (size_t i = 1u; i < path->command_count; ++i) {
         const quantapdf_composer_path_command *cmd = &path->commands[i];
         qp_stroke_segment segment;
-        if (cmd->kind != QUANTAPDF_COMPOSER_PATH_LINE_TO ||
-            !qp_stroke_point_valid(cmd->point1, geometry))
+        if (cmd->kind != QUANTAPDF_COMPOSER_PATH_LINE_TO)
             return 0;
         segment.a = current;
-        segment.b.x = (double)cmd->point1.x;
-        segment.b.y = (double)cmd->point1.y;
+        if (!qp_stroke_map_source_point(cmd->point1, tx, ty,
+                                        geometry, &segment.b))
+            return 0;
         segment.dx = segment.b.x - segment.a.x;
         segment.dy = segment.b.y - segment.a.y;
         segment.len_squared = segment.dx * segment.dx +

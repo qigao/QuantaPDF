@@ -7,6 +7,7 @@
 #include "graph/graph_page_geometry.h"
 #include "render/ir_scoped_operations_v1.h"
 #include "render/ir_scoped_device_grid_v0.h"
+#include "render/ir_device_polyline_stroke_v0.h"
 #include "render/ir_clip_dag_v3.h"
 #include "render/ir_raster.h"
 
@@ -1887,6 +1888,61 @@ int test_external_jspdf_fractional_page_rejection(
     CHECK(reference.width==596 && reference.height==842 &&
           reference.components==3 && reference.stride>=596*3 &&
           reference.pixels.size()>=(size_t)reference.stride*842u);
+    /* Original S operator was painted BEFORE the later W Clip became
+     * active. Borrow only the first stroked Path without adopting future
+     * graphics state/Clip nodes. New translation-only C11 stroke support
+     * correctly maps source local (x,-y) + (0,page_height) to displayed
+     * device points, leaving source ownership completely unchanged.
+     * This isolates a real-original Stroke layer, NOT full-page parity. */
+    CHECK(detached.operations[0].value.path.options.stroke==1 &&
+          detached.operations[0].value.path.options.fill==0);
+    quantapdf_ir isolated_stroke=detached;
+    isolated_stroke.operations=&detached.operations[0];
+    isolated_stroke.operation_count=1u;
+    isolated_stroke.resources=quantapdf_resource_registry{};
+    isolated_stroke.links=nullptr;
+    isolated_stroke.link_count=0u;
+    isolated_stroke.outlines=nullptr;
+    isolated_stroke.outline_count=0u;
+    quantapdf_native_device_grid_limits stroke_grid_limits=grid_limits;
+    stroke_grid_limits.max_sample_tests=160000000u;
+    const quantapdf_ir_raster_v1_limits stroke_raster_limits={
+        600u*850u,1u,768u,160000000u
+    };
+    quantapdf_ir_raster_image source_stroke{};
+    quantapdf_ir_raster_image repeat_stroke{};
+    OK(quantapdf_ir_raster_device_polyline_stroke_v0(
+        &isolated_stroke,0u,&source_geometry,&stroke_grid_limits,
+        &stroke_raster_limits,&source_stroke));
+    CHECK(source_stroke.pixels!=nullptr &&
+          source_stroke.width==596u && source_stroke.height==842u &&
+          source_stroke.stride==596u*4u && source_stroke.size==596u*842u*4u);
+    /* Exact source interior anchors outside later red fill:
+     * PDFium's raw original has the earlier black stroke here, whereas
+     * the isolated native layer has only stroke RGBA, transparent elsewhere.
+     * The coarse oracle is intentionally NOT edge/per-pixel parity. */
+    CHECK(source_stroke.pixels[20u*source_stroke.stride+200u*4u+3u]>0u);
+    CHECK(source_stroke.pixels[70u*source_stroke.stride+250u*4u+3u]>0u);
+    CHECK(source_stroke.pixels[20u*source_stroke.stride+20u*4u+3u]==0u);
+    CHECK(source_stroke.pixels[20u*source_stroke.stride+100u*4u+3u]==
+          source_stroke.pixels[20u*source_stroke.stride+200u*4u+3u]);
+    CHECK(reference.at(200u,20u)[0]<245u &&
+          reference.at(200u,20u)[1]<245u &&
+          reference.at(200u,20u)[2]<245u);
+    CHECK(reference.at(250u,70u)[0]<245u &&
+          reference.at(250u,70u)[1]<245u &&
+          reference.at(250u,70u)[2]<245u);
+    CHECK(reference.at(20u,20u)[0]>245u &&
+          reference.at(20u,20u)[1]>245u &&
+          reference.at(20u,20u)[2]>245u);
+    OK(quantapdf_ir_raster_device_polyline_stroke_v0(
+        &isolated_stroke,0u,&source_geometry,&stroke_grid_limits,
+        &stroke_raster_limits,&repeat_stroke));
+    CHECK(repeat_stroke.size==source_stroke.size &&
+          std::memcmp(repeat_stroke.pixels,source_stroke.pixels,
+                      source_stroke.size)==0);
+    quantapdf_ir_raster_image_dispose(&repeat_stroke);
+    quantapdf_ir_raster_image_dispose(&source_stroke);
     quantapdf_ir_dispose(&detached);
     CHECK(corpus_fixture_executions==0u);
 
@@ -1915,6 +1971,11 @@ int test_external_jspdf_fractional_page_rejection(
         "  \"optin_original_stroke_paths\": %zu,\n"
         "  \"optin_original_fill_paths\": %zu,\n"
         "  \"optin_native_partial_pixels_published\": false,\n"
+        "  \"isolated_original_stroke_native_status\": \"rasterized_candidate\",\n"
+        "  \"isolated_original_stroke_native_nonzero_anchors\": 2,\n"
+        "  \"isolated_original_stroke_pdfium_anchor_observations\": \"passed\",\n"
+        "  \"isolated_original_stroke_native_repeat_equal\": true,\n"
+        "  \"isolated_original_stroke_is_full_page_positive\": false,\n"
         "  \"original_pdfium_default_dpi\": 72,\n"
         "  \"original_pdfium_geometry_oracle\": \"passed\",\n"
         "  \"original_pdfium_device_width\": 596,\n"
