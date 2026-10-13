@@ -159,15 +159,22 @@ def main():
     args=p.parse_args()
     if args.output.is_symlink():
         p.error("output symlink rejected")
-    args.output.unlink(missing_ok=True)
+    # Keep previously successful evidence on failed or malformed inputs.
+    # Validate both output paths and their hardlink aliases before writes.
     staged=Path(str(args.output)+".tmp")
     if staged.is_symlink():
         p.error("staged output symlink rejected")
-    staged.unlink(missing_ok=True)
+    for output in (args.output,staged):
+        if output.exists() and any(output.samefile(path) for path in
+                (args.admission,args.text,args.blank,args.path,args.clip,
+                 args.wstar_text,args.wstar_native) if path.exists()):
+            p.error("output aliases an original evidence input")
     try:
         inputs=[json.loads(path.read_text(encoding="utf-8")) for path in
                 (args.admission,args.text,args.blank,args.path,args.clip,args.wstar_text,args.wstar_native)]
         report=verify(*inputs)
+        # Stage only after complete evidence verification. The destination
+        # remains intact on failure; replace is atomic on all CI platforms.
         with staged.open("w",encoding="utf-8",newline="\n") as stream:
             json.dump(report,stream,sort_keys=True,indent=2)
             stream.write("\n")

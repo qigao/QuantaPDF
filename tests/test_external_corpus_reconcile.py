@@ -108,6 +108,46 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
     def accept(self):
         return verify(self.admission,self.text,self.blank,self.path,self.clip,self.wstar_text,self.wstar_path)
 
+
+    def test_cli_failure_preserves_prior_reconciliation(self):
+        import contextlib
+        import io
+        import json
+        import tempfile
+        from unittest.mock import patch
+        from reconcile_external_corpus import main
+        with tempfile.TemporaryDirectory() as root:
+            base=Path(root)
+            reports=(self.admission,self.text,self.blank,self.path,self.clip,
+                     self.wstar_text,self.wstar_path)
+            names=("admission","text","blank","path","clip","wstar-text","wstar-native")
+            paths=[]
+            for name,report in zip(names,reports):
+                file=base/(name+".json")
+                file.write_text(json.dumps(report),encoding="utf-8")
+                paths.append(file)
+            output=base/"official-reconciled.json"
+            sentinel=b"previous successful original-source evidence\\n"
+            output.write_bytes(sentinel)
+            argv=[]
+            for name,path in zip(names,paths):
+                argv.extend(("--"+name,str(path)))
+            argv.extend(("--output",str(output)))
+            with patch.object(sys,"argv",["reconcile_external_corpus.py",*argv]):
+                self.wstar_path["native_wstar_clip_supported_count"]=0
+                paths[-1].write_text(json.dumps(self.wstar_path),encoding="utf-8")
+                with contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit):
+                        main()
+                self.assertEqual(output.read_bytes(),sentinel)
+                self.assertFalse(Path(str(output)+".tmp").exists())
+                self.wstar_path["native_wstar_clip_supported_count"]=1
+                paths[-1].write_text(json.dumps(self.wstar_path),encoding="utf-8")
+                main()
+                result=json.loads(output.read_text(encoding="utf-8"))
+                self.assertEqual(result["native_wstar_clip_supported_count"],1)
+                self.assertFalse(Path(str(output)+".tmp").exists())
+
     def test_valid_evidence_remains_capability_scoped(self):
         report=self.accept()
         self.assertEqual(report["native_path_clip_supported"],3)
