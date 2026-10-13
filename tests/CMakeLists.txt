@@ -2362,3 +2362,27 @@ add_test(NAME quantapdf.native_scoped_device_grid
   COMMAND quantapdf_test_native_scoped_device_grid_v0)
 set_tests_properties(quantapdf.native_scoped_device_grid PROPERTIES
   TIMEOUT 30 LABELS "conformance;native-raster;fractional-grid-synthetic")
+
+# Private pure-C11 fractional open-polyline stroke unit oracle. No PDFium/qpdf.
+add_executable(quantapdf_test_native_device_polyline_stroke_v0
+  test_native_device_polyline_stroke_v0.c
+  "${PROJECT_SOURCE_DIR}/src/render/ir_device_polyline_stroke_v0.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_grid.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c")
+target_include_directories(quantapdf_test_native_device_polyline_stroke_v0
+  PRIVATE "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+set_target_properties(quantapdf_test_native_device_polyline_stroke_v0 PROPERTIES
+  C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+if(MSVC)
+  target_compile_options(quantapdf_test_native_device_polyline_stroke_v0 PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_test_native_device_polyline_stroke_v0 PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+if(UNIX)
+  target_link_libraries(quantapdf_test_native_device_polyline_stroke_v0 PRIVATE m)
+endif()
+add_test(NAME quantapdf.native_device_polyline_stroke
+  COMMAND quantapdf_test_native_device_polyline_stroke_v0)
+set_tests_properties(quantapdf.native_device_polyline_stroke PROPERTIES
+  TIMEOUT 30 LABELS "conformance;native-raster;fractional-stroke-synthetic")
