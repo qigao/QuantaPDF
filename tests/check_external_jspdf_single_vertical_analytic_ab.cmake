@@ -243,6 +243,144 @@ if(NOT h_abs_rgb_error EQUAL 6863
 endif()
 message(STATUS "jspdf-fill-right-private: baseline_rgb=${h_abs_rgb_error} trial_rgb=${fillr_abs_rgb_error} changed=${fillr_changed_pixels} alpha_changes=${fillr_source_alpha_changed_pixels} parity=false official=0")
 
+
+# Seventh-stage read-only POST mode6 original-page residual accounting.
+# Exactly 11 mutually exclusive source-anchored bins, including OTHER.
+# No new renderer, tolerance, admission, SDK/backend or score promotion.
+string(JSON last_schema GET "${json}" rect_fill_right_post_ab_residual_regions schema_version)
+string(JSON last_obs GET "${json}" rect_fill_right_post_ab_residual_regions observation_only)
+string(JSON last_parity GET "${json}" rect_fill_right_post_ab_residual_regions pixel_parity_qualified)
+string(JSON last_ok GET "${json}" rect_fill_right_post_ab_residual_regions full_original_reconciled)
+string(JSON last_regions_len LENGTH "${json}" rect_fill_right_post_ab_residual_regions regions)
+string(JSON last_worst_len LENGTH "${json}" rect_fill_right_post_ab_residual_regions worst_pixels)
+string(JSON last_witness_len LENGTH "${json}" rect_fill_right_post_ab_residual_regions witnesses)
+if(NOT last_schema EQUAL 1 OR NOT last_obs OR last_parity OR
+   NOT last_ok OR NOT last_regions_len EQUAL 11
+   OR last_worst_len LESS 1 OR last_worst_len GREATER 12
+   OR NOT last_witness_len EQUAL 12)
+  message(FATAL_ERROR "Original private Fill-right residual audit not complete")
+endif()
+set(last_names bottom_single_horizontal_stroke right_vertical_stroke
+    left_vertical_below_red top_repeated_stroke red_fill_right_boundary
+    red_left_shared_stroke_clip red_left_clip_only red_top_stroke_shared
+    red_fill_bottom_boundary red_bottom_uncovered_fringe other)
+set(last_sum_pixels 0)
+set(last_sum_changed 0)
+set(last_sum_gross 0)
+set(last_sum_error 0)
+set(last_sum_lighter 0)
+set(last_sum_darker 0)
+set(last_max_delta 0)
+foreach(name IN LISTS last_names)
+  foreach(field IN ITEMS pixels changed gross abs_rgb_error
+      brighter_rgb_error darker_rgb_error
+      max_channel_delta worst_x worst_y)
+    string(JSON src_${field} GET "${json}"
+      rect_fill_right_post_ab_residual_regions regions ${name} ${field})
+  endforeach()
+  math(EXPR group_bias "${src_brighter_rgb_error}+${src_darker_rgb_error}")
+  if(src_pixels LESS 0 OR src_pixels GREATER 501832
+     OR src_changed LESS 0 OR src_changed GREATER src_pixels
+     OR src_gross LESS 0 OR src_gross GREATER src_changed
+     OR src_abs_rgb_error LESS 0 OR src_abs_rgb_error GREATER 383901480
+     OR NOT group_bias EQUAL src_abs_rgb_error
+     OR src_max_channel_delta LESS 0 OR src_max_channel_delta GREATER 255
+     OR src_worst_x LESS 0 OR src_worst_x GREATER 595
+     OR src_worst_y LESS 0 OR src_worst_y GREATER 841)
+    message(FATAL_ERROR "Real original source-group residual out of range")
+  endif()
+  math(EXPR last_sum_pixels "${last_sum_pixels}+${src_pixels}")
+  math(EXPR last_sum_changed "${last_sum_changed}+${src_changed}")
+  math(EXPR last_sum_gross "${last_sum_gross}+${src_gross}")
+  math(EXPR last_sum_error "${last_sum_error}+${src_abs_rgb_error}")
+  math(EXPR last_sum_lighter "${last_sum_lighter}+${src_brighter_rgb_error}")
+  math(EXPR last_sum_darker "${last_sum_darker}+${src_darker_rgb_error}")
+  if(src_max_channel_delta GREATER last_max_delta)
+    set(last_max_delta "${src_max_channel_delta}")
+  endif()
+endforeach()
+math(EXPR last_bias_total "${last_sum_lighter}+${last_sum_darker}")
+if(NOT last_sum_pixels EQUAL 501832
+   OR NOT last_sum_changed EQUAL fillr_changed_pixels
+   OR NOT last_sum_gross EQUAL fillr_gross_delta64_pixels
+   OR NOT last_sum_error EQUAL fillr_abs_rgb_error
+   OR NOT last_bias_total EQUAL fillr_abs_rgb_error
+   OR NOT last_max_delta EQUAL fillr_max_channel_delta)
+  message(FATAL_ERROR "Read-only residual groups contradict entire source page")
+endif()
+string(JSON last_leading GET "${json}"
+    rect_fill_right_post_ab_residual_regions worst_pixels 0 max_channel_delta)
+if(NOT last_leading EQUAL fillr_max_channel_delta)
+  message(FATAL_ERROR "Leading original worst pixel contradicts whole image")
+endif()
+set(last_prior_delta 256)
+math(EXPR last_worst_end "${last_worst_len}-1")
+foreach(i RANGE 0 ${last_worst_end})
+  foreach(field IN ITEMS x y region max_channel_delta
+      rgb_error stroke_alpha fill_alpha)
+    string(JSON last_w_${field} GET "${json}"
+      rect_fill_right_post_ab_residual_regions worst_pixels ${i} ${field})
+  endforeach()
+  list(FIND last_names "${last_w_region}" last_region_index)
+  string(JSON native_count LENGTH "${json}" rect_fill_right_post_ab_residual_regions worst_pixels ${i} native_rgb)
+  string(JSON oracle_count LENGTH "${json}" rect_fill_right_post_ab_residual_regions worst_pixels ${i} pdfium_rgb)
+  if(last_region_index LESS 0
+     OR last_w_x LESS 0 OR last_w_x GREATER 595
+     OR last_w_y LESS 0 OR last_w_y GREATER 841
+     OR last_w_max_channel_delta LESS 1
+     OR last_w_max_channel_delta GREATER last_prior_delta
+     OR last_w_rgb_error LESS last_w_max_channel_delta
+     OR last_w_rgb_error GREATER 765
+     OR last_w_stroke_alpha LESS 0 OR last_w_stroke_alpha GREATER 255
+     OR last_w_fill_alpha LESS 0 OR last_w_fill_alpha GREATER 255
+     OR NOT native_count EQUAL 3 OR NOT oracle_count EQUAL 3)
+    message(FATAL_ERROR "Malformed original-pixel worst-site evidence")
+  endif()
+  set(last_prior_delta "${last_w_max_channel_delta}")
+endforeach()
+set(last_witness_names bottom_left bottom_center bottom_right
+    right_vertical left_vertical_lower left_red_stroke_overlap
+    left_outside top_corner red_top red_bottom red_right
+    red_bottom_uncovered)
+set(last_witness_x 50 100 250 250 50 50 49 250 100 100 150 100)
+set(last_witness_y 139 139 139 60 110 40 40 19 20 99 40 100)
+foreach(i RANGE 0 11)
+  list(GET last_witness_names ${i} expected_name)
+  list(GET last_witness_x ${i} expected_x)
+  list(GET last_witness_y ${i} expected_y)
+  foreach(field IN ITEMS name region x y stroke_alpha fill_alpha)
+    string(JSON wit_${field} GET "${json}"
+      rect_fill_right_post_ab_residual_regions witnesses ${i} ${field})
+  endforeach()
+  list(FIND last_names "${wit_region}" witness_region_index)
+  string(JSON native_count LENGTH "${json}" rect_fill_right_post_ab_residual_regions witnesses ${i} native_rgb)
+  string(JSON oracle_count LENGTH "${json}" rect_fill_right_post_ab_residual_regions witnesses ${i} pdfium_rgb)
+  if(NOT wit_name STREQUAL expected_name
+     OR NOT wit_x EQUAL expected_x OR NOT wit_y EQUAL expected_y
+     OR witness_region_index LESS 0
+     OR wit_stroke_alpha LESS 0 OR wit_stroke_alpha GREATER 255
+     OR wit_fill_alpha LESS 0 OR wit_fill_alpha GREATER 255
+     OR NOT native_count EQUAL 3 OR NOT oracle_count EQUAL 3)
+    message(FATAL_ERROR "Original jsPDF source witness missing/invalid")
+  endif()
+  foreach(channel RANGE 0 2)
+    string(JSON actual GET "${json}" rect_fill_right_post_ab_residual_regions witnesses ${i} native_rgb ${channel})
+    string(JSON truth GET "${json}" rect_fill_right_post_ab_residual_regions witnesses ${i} pdfium_rgb ${channel})
+    if(actual LESS 0 OR actual GREATER 255
+       OR truth LESS 0 OR truth GREATER 255)
+      message(FATAL_ERROR "Invalid original RGB witness channel")
+    endif()
+  endforeach()
+endforeach()
+# This branch is strictly observation-only. Freeze exact last accepted A/B.
+if(NOT fillr_abs_rgb_error EQUAL 4019
+   OR NOT fillr_changed_pixels EQUAL 516
+   OR NOT fillr_gross_delta64_pixels EQUAL 0
+   OR NOT fillr_max_channel_delta EQUAL 38
+   OR NOT fillr_rgb_fnv64 STREQUAL "4d2bfdd4bbf32298")
+  message(FATAL_ERROR "Last qualified Fill-right mode output mutated")
+endif()
+
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
