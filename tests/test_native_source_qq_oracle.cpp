@@ -2149,8 +2149,7 @@ int test_external_jspdf_fractional_page_rejection(
         composed_mean_abs_rgb_error,composed_max_delta,
         composed_gross_delta64_pixels,composed_changed_pixels,
         composed_partial_coverage_pixels,
-        composed_flat_coverage_changed_pixels,composed_rgb_fnv64,
-        attribution_json.c_str());
+        composed_flat_coverage_changed_pixels,composed_rgb_fnv64);
 
     quantapdf_ir_raster_image_dispose(&composite_repeat);
     quantapdf_ir_raster_image_dispose(&composite);
@@ -2229,7 +2228,8 @@ int test_external_jspdf_fractional_page_rejection(
         composed_changed_pixels,composed_gross_delta64_pixels,
         composed_partial_coverage_pixels,
         composed_partial_coverage_changed_pixels,
-        composed_flat_coverage_changed_pixels,composed_rgb_fnv64);
+        composed_flat_coverage_changed_pixels,composed_rgb_fnv64,
+        attribution_json.c_str());
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
