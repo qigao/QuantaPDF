@@ -1798,6 +1798,232 @@ int test_external_pdfium_wstar_text_rejection(const char *filename,
  * lowering is supported, while private C11 pixel raster deliberately has
  * no fractional-point PDF-to-device grid contract yet (#269). Do not
  * silently truncate, round or rewrite the original MediaBox to pass. */
+
+/* Fourth PRIVATE original-PDF A/B is a separate CTest process: the #287
+ * historical page-negative test takes ~38 seconds under ASan/UBSan and
+ * MUST keep its unchanged 40-second timeout. This independently lowers
+ * the same immutable source and compares ALL 596x842 original PDFium RGB
+ * pixels, without rerunning the old modes 0/1/2 or changing their paths. */
+int test_external_jspdf_single_vertical_analytic_ab(
+    const char *filename, const char *report_path)
+{
+    CHECK(filename && *filename && report_path && *report_path);
+    namespace fs=std::filesystem;
+    std::error_code ec;
+    const fs::path source(filename), report(report_path);
+    const std::string pending=std::string(report_path)+".tmp";
+    CHECK(fs::is_regular_file(source,ec) && !ec);
+    CHECK(!fs::is_symlink(source,ec) && !ec);
+    const fs::path pinned=fs::weakly_canonical(source,ec);
+    CHECK(!ec && fs::weakly_canonical(report,ec)!=pinned && !ec);
+    CHECK(fs::weakly_canonical(fs::path(pending),ec)!=pinned && !ec);
+    for(const fs::path& candidate:{report,fs::path(pending)}) {
+        const bool exists=fs::exists(candidate,ec);
+        CHECK(!ec);
+        if(exists) {
+            CHECK(!fs::is_symlink(candidate,ec) && !ec);
+            CHECK(!fs::equivalent(source,candidate,ec) && !ec);
+        }
+    }
+    CHECK(corpus_fixture_executions==0u);
+    quantapdf_ir detached{};
+    OK(snapshot_lower(&detached,0u,4u,8u,filename));
+    CHECK(detached.page_count==1u && detached.operation_count==2u &&
+          detached.pages!=nullptr && detached.operations!=nullptr &&
+          detached.pages[0].width_points==(float)595.28 &&
+          detached.pages[0].height_points==(float)841.89 &&
+          detached.pages[0].suppress_background==1 &&
+          detached.operations[0].value.path.options.stroke==1 &&
+          detached.operations[0].value.path.options.fill==0 &&
+          detached.operations[1].value.path.options.stroke==0 &&
+          detached.operations[1].value.path.options.fill==1 &&
+          detached.resources.clip_count==1u);
+    const rgb_image reference=render_original_pdfium(0u,filename);
+    CHECK(reference.width==596 && reference.height==842 &&
+          reference.components==3 && reference.stride>=596*3 &&
+          reference.pixels.size()>=(size_t)reference.stride*842u);
+    const quantapdf_native_device_grid_geometry geometry={
+        595.28,841.89,0.0,0.0,1.0,0,0,72.0f
+    };
+    /* New mode 4 charges count*4 full-page edge work, separately from
+     * mode 3's count*3. Raising only THIS opt-in test-local limit does
+     * not change admission of the old original or any prior previews. */
+    const quantapdf_native_device_grid_limits stroke_grid={
+        600u*850u,600u*850u*4u,768u,300000000u
+    };
+    const quantapdf_ir_raster_v1_limits stroke_budget={
+        600u*850u,1u,768u,300000000u
+    };
+    const quantapdf_native_device_grid_limits fill_grid={
+        600u*850u,600u*850u*4u,768u,160000000u
+    };
+    const quantapdf_ir_raster_v1_limits fill_budget={
+        600u*850u,1u,768u,160000000u
+    };
+    const quantapdf_ir_ordered_composite_v0_limits composite_budget={
+        600u*850u,600u*850u*4u
+    };
+    quantapdf_ir only_stroke=detached;
+    only_stroke.operations=&detached.operations[0];
+    only_stroke.operation_count=1u;
+    only_stroke.resources=quantapdf_resource_registry{};
+    only_stroke.links=nullptr;
+    only_stroke.link_count=0u;
+    only_stroke.outlines=nullptr;
+    only_stroke.outline_count=0u;
+    quantapdf_ir only_fill=detached;
+    only_fill.operations=&detached.operations[1];
+    only_fill.operation_count=1u;
+
+    quantapdf_ir_raster_image baseline_stroke{},analytic_stroke{},repeat_stroke{};
+    OK(quantapdf_ir_raster_device_polyline_stroke_right_down_corner_preview_v0(
+        &only_stroke,0u,&geometry,&stroke_grid,&stroke_budget,&baseline_stroke));
+    OK(quantapdf_ir_raster_device_polyline_stroke_single_vertical_analytic_preview_v0(
+        &only_stroke,0u,&geometry,&stroke_grid,&stroke_budget,&analytic_stroke));
+    OK(quantapdf_ir_raster_device_polyline_stroke_single_vertical_analytic_preview_v0(
+        &only_stroke,0u,&geometry,&stroke_grid,&stroke_budget,&repeat_stroke));
+    CHECK(baseline_stroke.pixels && analytic_stroke.pixels && repeat_stroke.pixels &&
+          baseline_stroke.width==596u && baseline_stroke.height==842u &&
+          baseline_stroke.size==596u*842u*4u &&
+          baseline_stroke.stride==596u*4u &&
+          analytic_stroke.size==baseline_stroke.size &&
+          analytic_stroke.stride==baseline_stroke.stride &&
+          repeat_stroke.size==baseline_stroke.size &&
+          std::memcmp(analytic_stroke.pixels,repeat_stroke.pixels,
+                      analytic_stroke.size)==0);
+    quantapdf_ir_raster_image fill{};
+    OK(quantapdf_ir_raster_scoped_device_grid_v0(
+        &only_fill,0u,&geometry,&fill_grid,&fill_budget,&fill));
+    CHECK(fill.pixels && fill.size==baseline_stroke.size);
+    quantapdf_ir_raster_image base_page{},trial_page{},repeat_page{};
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &baseline_stroke,&fill,&composite_budget,&base_page));
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &analytic_stroke,&fill,&composite_budget,&trial_page));
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &repeat_stroke,&fill,&composite_budget,&repeat_page));
+    CHECK(base_page.pixels && trial_page.pixels && repeat_page.pixels &&
+          base_page.size==baseline_stroke.size &&
+          trial_page.size==base_page.size &&
+          repeat_page.size==base_page.size &&
+          std::memcmp(trial_page.pixels,repeat_page.pixels,
+                      trial_page.size)==0);
+
+    struct page_metrics {
+        std::uint64_t abs_rgb=0u;
+        std::uint64_t fnv=14695981039346656037ULL;
+        size_t changed=0u,gross=0u;
+        unsigned max_delta=0u;
+    };
+    const auto measure=[&](const quantapdf_ir_raster_image &image){
+        page_metrics metric;
+        for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+            const unsigned char *pixel=image.pixels+y*image.stride+x*4u;
+            const unsigned char *truth=reference.at(x,y);
+            unsigned worst=0u;
+            for(size_t c=0u;c<3u;++c) {
+                const unsigned val=on_white(pixel,c),expected=truth[c];
+                const unsigned d=val>=expected?val-expected:expected-val;
+                metric.abs_rgb+=(std::uint64_t)d;
+                if(d>worst)worst=d;
+                metric.fnv^=(std::uint64_t)val;
+                metric.fnv*=1099511628211ULL;
+            }
+            if(worst)++metric.changed;
+            if(worst>64u)++metric.gross;
+            if(worst>metric.max_delta)metric.max_delta=worst;
+        }
+        CHECK(metric.changed<=501832u && metric.gross<=metric.changed &&
+              metric.abs_rgb<=383901480u && metric.max_delta<=255u);
+        return metric;
+    };
+    const page_metrics old=measure(base_page);
+    const page_metrics candidate=measure(trial_page);
+    size_t changed_stroke_pixels=0u,other_geometry_changes=0u;
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t off=y*baseline_stroke.stride+x*4u;
+        const unsigned a=baseline_stroke.pixels[off+3u];
+        const unsigned b=analytic_stroke.pixels[off+3u];
+        if(a==b) continue;
+        ++changed_stroke_pixels;
+        if(!((x>=49u && x<=51u)||(x>=249u && x<=251u)) ||
+           y<22u || y>137u)
+            ++other_geometry_changes;
+        CHECK(std::memcmp(baseline_stroke.pixels+off,
+                          analytic_stroke.pixels+off,3u)==0);
+    }
+    CHECK(changed_stroke_pixels>0u && other_geometry_changes==0u);
+    CHECK(corpus_fixture_executions==0u);
+    std::fprintf(stderr,
+        "[jsPDF original vertical analytic A/B, NOT pixel parity] "
+        "mode3_error=%llu mode4_error=%llu old_changed=%zu "
+        "trial_changed=%zu sampled_vertical_changes=%zu "
+        "mode3_gross=%zu trial_gross=%zu mode4_fnv=%016llx\n",
+        (unsigned long long)old.abs_rgb,
+        (unsigned long long)candidate.abs_rgb,
+        old.changed,candidate.changed,changed_stroke_pixels,
+        old.gross,candidate.gross,
+        (unsigned long long)candidate.fnv);
+
+    quantapdf_ir_raster_image_dispose(&repeat_page);
+    quantapdf_ir_raster_image_dispose(&trial_page);
+    quantapdf_ir_raster_image_dispose(&base_page);
+    quantapdf_ir_raster_image_dispose(&fill);
+    quantapdf_ir_raster_image_dispose(&repeat_stroke);
+    quantapdf_ir_raster_image_dispose(&analytic_stroke);
+    quantapdf_ir_raster_image_dispose(&baseline_stroke);
+    quantapdf_ir_dispose(&detached);
+
+    FILE *out=std::fopen(pending.c_str(),"wb");
+    CHECK(out);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"result\": \"original_jspdf_private_vertical_analytic_ab\",\n"
+        "  \"document_id\": \"jspdf.w3s-clip-v1\",\n"
+        "  \"observation_only\": true,\n"
+        "  \"pixel_parity_qualified\": false,\n"
+        "  \"default_renderer_changed\": false,\n"
+        "  \"source_and_graph_released\": true,\n"
+        "  \"original_pdfium_width\": 596,\n"
+        "  \"original_pdfium_height\": 842,\n"
+        "  \"original_pdfium_pixel_count\": 501832,\n"
+        "  \"original_rgb_channels\": 1505496,\n"
+        "  \"paint_order\": \"stroke_then_w_clipped_fill\",\n"
+        "  \"candidate_mode\": \"explicit_private_single_vertical_analytic\",\n"
+        "  \"candidate_repeat_equal\": true,\n"
+        "  \"source_stroke_alpha_changed_pixels\": %zu,\n"
+        "  \"source_stroke_changes_outside_vertical_interior\": %zu,\n"
+        "  \"mode3_abs_rgb_error\": %llu,\n"
+        "  \"mode3_changed_pixels\": %zu,\n"
+        "  \"mode3_gross_delta64_pixels\": %zu,\n"
+        "  \"mode3_max_channel_delta\": %u,\n"
+        "  \"mode3_rgb_fnv64\": \"%016llx\",\n"
+        "  \"mode4_abs_rgb_error\": %llu,\n"
+        "  \"mode4_mean_abs_rgb_error\": %.9f,\n"
+        "  \"mode4_changed_pixels\": %zu,\n"
+        "  \"mode4_gross_delta64_pixels\": %zu,\n"
+        "  \"mode4_max_channel_delta\": %u,\n"
+        "  \"mode4_rgb_fnv64\": \"%016llx\",\n"
+        "  \"native_original_pixel_positive_count\": 0,\n"
+        "  \"official_w_wstar_positive_count_increase\": 0\n"
+        "}\n",
+        changed_stroke_pixels,other_geometry_changes,
+        (unsigned long long)old.abs_rgb,old.changed,old.gross,
+        old.max_delta,(unsigned long long)old.fnv,
+        (unsigned long long)candidate.abs_rgb,
+        (double)candidate.abs_rgb/1505496.0,
+        candidate.changed,candidate.gross,candidate.max_delta,
+        (unsigned long long)candidate.fnv);
+    CHECK(std::ferror(out)==0 && std::fclose(out)==0);
+#ifdef _WIN32
+    errno=0;
+    if(std::remove(report_path)!=0)CHECK(errno==ENOENT);
+#endif
+    CHECK(std::rename(pending.c_str(),report_path)==0);
+    return EXIT_SUCCESS;
+}
+
 int test_external_jspdf_fractional_page_rejection(
     const char *filename, const char *report_path)
 {
@@ -3986,6 +4212,11 @@ int main(int argc,char **argv)
        std::strcmp(argv[1],"--generated-wstar-observe")==0 &&
        std::strcmp(argv[2],"--preflight-report")==0)
         return test_generated_wstar_typed_observe(argv[3]);
+    if(argc==5 &&
+       std::strcmp(argv[1],"--external-jspdf-vertical-analytic-ab")==0 &&
+       std::strcmp(argv[3],"--external-report")==0)
+        return test_external_jspdf_single_vertical_analytic_ab(
+            argv[2],argv[4]);
     if(argc==5 &&
        std::strcmp(argv[1],"--external-fractional-jspdf-pdf")==0 &&
        std::strcmp(argv[3],"--external-report")==0)

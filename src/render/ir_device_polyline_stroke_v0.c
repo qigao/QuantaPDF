@@ -358,6 +358,76 @@ static unsigned qp_repeated_alpha(unsigned single_pass_alpha,size_t repeats)
     return 255u-remains;
 }
 
+
+/* Fourth EXPLICIT PRIVATE A/B: for an *isolated*, single-traversal,
+ * axis-aligned 1pt vertical Stroke interior, estimate the source strip's
+ * exact horizontal intersection with this device pixel. No fixed pixel
+ * coordinate, PDFium input, half-pixel offset or legacy replacement.
+ * Guard both segment ends by one full device row beyond the source radius;
+ * nearby joins, caps, diagonals and overlapping source segments retain
+ * the old sampled union. This is not a generic PDF AA specification. */
+static int qp_single_vertical_analytic_alpha(
+    const qp_stroke_segment *segments, size_t count,
+    const quantapdf_native_device_grid *grid,
+    size_t x, size_t y, double radius, unsigned *out_alpha)
+{
+    const double x0=(double)x*grid->points_per_device_x;
+    const double x1=((double)x+1.0)*grid->points_per_device_x;
+    const double y0=(double)y*grid->points_per_device_y;
+    const double y1=((double)y+1.0)*grid->points_per_device_y;
+    const double endpoint_guard=radius+grid->points_per_device_y;
+    size_t hit=SIZE_MAX;
+    double coverage=0.0;
+
+    if(radius!=0.5 || out_alpha==NULL ||
+       !(x1>x0 && y1>y0) || !isfinite(endpoint_guard))
+        return 0;
+    /* Orthogonal-only source topology is deliberate: an acute diagonal
+     * miter may project several radii beyond its neighbor's rectangle.
+     * Refuse this analytic shortcut for the entire source Stroke if ANY
+     * diagonal appears, rather than silently sampling across such a join. */
+    for(size_t i=0u;i<count;++i)
+        if(segments[i].dx!=0.0 && segments[i].dy!=0.0)
+            return 0;
+    for(size_t i=0u;i<count;++i) {
+        const qp_stroke_segment *v=&segments[i];
+        const double bottom=fmin(v->a.y,v->b.y);
+        const double top=fmax(v->a.y,v->b.y);
+        const double left=v->a.x-radius;
+        const double right=v->a.x+radius;
+        double common;
+        if(v->dx!=0.0 || v->dy==0.0 ||
+           !(y0>bottom+endpoint_guard &&
+             y1<top-endpoint_guard) ||
+           !(x0<right && x1>left))
+            continue;
+        common=fmin(x1,right)-fmax(x0,left);
+        if(!(common>0.0))
+            continue;
+        if(hit!=SIZE_MAX)
+            return 0; /* no multi-pass vertical alpha amplification */
+        hit=i;
+        coverage=common/(x1-x0);
+    }
+    if(hit==SIZE_MAX || !isfinite(coverage) ||
+       !(coverage>0.0 && coverage<=1.0))
+        return 0;
+    /* Fail conservative if ANY other source segment's width-expanded
+     * bounding rectangle reaches the pixel. This excludes ambiguous
+     * joins/crossings without assuming how PDFium handles their union. */
+    for(size_t i=0u;i<count;++i) {
+        const qp_stroke_segment *s=&segments[i];
+        const double ax=fmin(s->a.x,s->b.x)-radius;
+        const double bx=fmax(s->a.x,s->b.x)+radius;
+        const double ay=fmin(s->a.y,s->b.y)-radius;
+        const double by=fmax(s->a.y,s->b.y)+radius;
+        if(i!=hit && x0<bx && x1>ax && y0<by && y1>ay)
+            return 0;
+    }
+    *out_alpha=(unsigned)floor(fmin(1.0,coverage)*255.0+0.5);
+    return 1;
+}
+
 /* Bounds-only acceleration for the THIRD experimental corner preview.
  * The source is a finite, bounded OPEN POLYLINE. Every stroked segment
  * lies within its two endpoints expanded by source radius; every admitted
@@ -468,12 +538,22 @@ static quantapdf_status qp_stroke_render_impl(
     /* The corner A/B performs extra bounded segment scans per device
      * pixel. Charge an additional entire source-edge pass, only for this
      * explicit experimental mode. Keep modes V0/1/2 byte-equivalent. */
-    if(horizontal_preview==3 &&
+    if(horizontal_preview>=3 &&
        (count>grid_limits->max_edges/3u ||
         count>raster_limits->max_edges/3u ||
         quantapdf_native_device_grid_admit_edges_v0(
             &grid,grid_limits,count*3u)!=QUANTAPDF_NATIVE_DEVICE_GRID_OK ||
         count*3u>raster_limits->max_sample_tests/grid.sample_slots))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    /* The single-vertical analytical trial does a fourth conservative
+     * source-edge scan. Keep the old V0/1/2/3 admission unchanged. */
+    if(horizontal_preview==4 &&
+       (count>grid_limits->max_edges/4u ||
+        count>raster_limits->max_edges/4u ||
+        quantapdf_native_device_grid_admit_edges_v0(
+            &grid,grid_limits,count*4u)!=QUANTAPDF_NATIVE_DEVICE_GRID_OK ||
+        count*4u>raster_limits->max_sample_tests/grid.sample_slots))
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
     for(size_t i=1u;i<count;++i) {
@@ -486,7 +566,7 @@ static quantapdf_status qp_stroke_render_impl(
     if(rgba==NULL) return QUANTAPDF_ERROR_NOMEM;
     memset(rgba,0,grid.rgba_bytes);
     qp_stroke_roi sampled={0u,grid.width,0u,grid.height};
-    if(horizontal_preview==3)
+    if(horizontal_preview==3 || horizontal_preview==4)
         sampled=qp_corner_preview_sample_bounds(
             segments,count,&grid,radius,miter_limit);
     for(size_t y=sampled.y0;y<sampled.y1;++y) {
@@ -515,13 +595,19 @@ static quantapdf_status qp_stroke_render_impl(
                 /* Modes 1/2 and every non-corner pixel in mode 3 retain
                  * the exact fully saturated repeated-edge trial. */
                 pixel_alpha=255u;
-                if(horizontal_preview==3) {
+                if(horizontal_preview==3 || horizontal_preview==4) {
                     const size_t repeats=qp_repeated_right_down_corner_outer(
                         segments,count,&grid,x,y,radius);
                     if(repeats>=2u && covered!=0u)
                         pixel_alpha=qp_repeated_alpha(
                             (covered*255u+8u)/16u,repeats);
                 }
+            }
+            if(horizontal_preview==4) {
+                unsigned analytic_alpha=0u;
+                if(qp_single_vertical_analytic_alpha(
+                       segments,count,&grid,x,y,radius,&analytic_alpha))
+                    pixel_alpha=analytic_alpha;
             }
             if(pixel_alpha!=0u) {
                 size_t offset=(y*grid.width+x)*4u;
@@ -593,4 +679,19 @@ quantapdf_status quantapdf_ir_raster_device_polyline_stroke_right_down_corner_pr
 {
     return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
                                  raster_limits,out_image,3);
+}
+
+
+/* Fourth opt-in preview retains all mode-3 repeated-horizontal/corner
+ * behavior, changing only isolated source-vertical interior coverage.
+ * Never invoked by the default renderer or published through the SDK. */
+quantapdf_status quantapdf_ir_raster_device_polyline_stroke_single_vertical_analytic_preview_v0(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
+                                 raster_limits,out_image,4);
 }

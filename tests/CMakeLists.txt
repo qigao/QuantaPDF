@@ -2135,6 +2135,32 @@ else()
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
 
+# Independent test-only ORIGINAL jsPDF whole-page private mode-4 A/B.
+# Separate CTest avoids extending the near-40s ASan negative diagnostic.
+add_test(NAME quantapdf.external_jspdf_single_vertical_analytic_ab
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/external_wstar_candidates/documents/jspdf.w3s-clip-v1.pdf"
+    "-DREPORT=${CMAKE_CURRENT_BINARY_DIR}/external-jspdf-single-vertical-analytic-ab.json"
+    "-DEXPECTED_SHA256=179d8552191bbd1890c72a85fac58bad3dd59ff66766fff76e9a790915a1b11e"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_external_jspdf_single_vertical_analytic_ab.cmake")
+set_tests_properties(quantapdf.external_jspdf_single_vertical_analytic_ab PROPERTIES
+  TIMEOUT 40 LABELS "conformance;source-preflight;native-raster;vertical-analytic-ab"
+  PASS_REGULAR_EXPRESSION "jspdf-single-vertical-analytic: status=measured_unqualified")
+if(WIN32)
+  set_property(TEST quantapdf.external_jspdf_single_vertical_analytic_ab
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_jspdf_single_vertical_analytic_ab
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_jspdf_single_vertical_analytic_ab
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
 # Authentic, byte-pinned upstream W* PDF typed candidate, isolated from
 # five admitted original conformance sources and all native pixel counters.
 add_test(NAME quantapdf.external_yworks_wstar_typed_observe
