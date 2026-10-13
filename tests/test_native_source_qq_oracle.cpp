@@ -1965,6 +1965,127 @@ int test_external_jspdf_single_vertical_analytic_ab(
         old.gross,candidate.gross,
         (unsigned long long)candidate.fnv);
 
+
+    /* Read-only fourth-mode original-page region audit; the windows below
+     * describe ONLY the immutable source PDF, never production heuristics. */
+    struct source_region {
+        const char *name;
+        size_t pixels=0u,changed=0u,gross=0u,worst_x=0u,worst_y=0u;
+        std::uint64_t abs_rgb=0u,brighter=0u,darker=0u;
+        unsigned max_delta=0u;
+    };
+    source_region regions[]={
+        {"bottom_single_horizontal_stroke"},{"right_vertical_stroke"},
+        {"left_vertical_stroke"},{"top_repeated_stroke"},
+        {"clip_right_red_boundary"},{"clip_bottom_weak_fringe"},{"other"}
+    };
+    const auto locate=[](size_t x,size_t y,unsigned sa,unsigned fa)->size_t {
+        if(x>=49u&&x<=250u&&y>=138u&&y<=140u&&sa&&!fa)return 0u;
+        if(x>=249u&&x<=251u&&y>=22u&&y<=137u&&sa&&!fa)return 1u;
+        if(x>=49u&&x<=51u&&y>=22u&&y<=137u&&sa&&!fa)return 2u;
+        if(x>=49u&&x<=250u&&y>=19u&&y<=21u&&sa&&!fa)return 3u;
+        if(x==150u&&y>=21u&&y<=99u&&!sa&&fa)return 4u;
+        if(x>=52u&&x<=148u&&y==100u&&!sa&&!fa)return 5u;
+        return 6u;
+    };
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t so=y*analytic_stroke.stride+x*4u;
+        const unsigned sa=analytic_stroke.pixels[so+3u];
+        const unsigned fa=fill.pixels[y*fill.stride+x*4u+3u];
+        source_region &b=regions[locate(x,y,sa,fa)];
+        const unsigned char *n=trial_page.pixels+y*trial_page.stride+x*4u;
+        const unsigned char *o=reference.at(x,y);
+        ++b.pixels;
+        unsigned largest=0u;
+        for(size_t ch=0u;ch<3u;++ch) {
+            const unsigned a=on_white(n,ch),r=o[ch];
+            const unsigned d=a>=r?a-r:r-a;
+            b.abs_rgb+=(std::uint64_t)d;
+            if(a>r)b.brighter+=(std::uint64_t)d;
+            if(a<r)b.darker+=(std::uint64_t)d;
+            if(d>largest)largest=d;
+        }
+        if(largest!=0u)++b.changed;
+        if(largest>64u)++b.gross;
+        if(largest>b.max_delta) {
+            b.max_delta=largest;b.worst_x=x;b.worst_y=y;
+        }
+    }
+    size_t region_pixels=0u,region_changed=0u,region_gross=0u;
+    std::uint64_t region_error=0u,region_pos=0u,region_neg=0u;
+    unsigned region_max=0u;
+    std::string mode4_regions_json=
+        "{\"schema_version\":1,\"observation_only\":true,"
+        "\"pixel_parity_qualified\":false,\"regions\":{";
+    for(size_t i=0u;i<7u;++i) {
+        const source_region &b=regions[i];
+        CHECK(b.changed<=b.pixels&&b.gross<=b.changed&&
+              b.abs_rgb==b.brighter+b.darker);
+        region_pixels+=b.pixels;region_changed+=b.changed;
+        region_gross+=b.gross;region_error+=b.abs_rgb;
+        region_pos+=b.brighter;region_neg+=b.darker;
+        if(b.max_delta>region_max)region_max=b.max_delta;
+        if(i)mode4_regions_json+=",";
+        mode4_regions_json+="\""+std::string(b.name)+"\":{";
+        mode4_regions_json+="\"pixels\":"+std::to_string(b.pixels)+",";
+        mode4_regions_json+="\"changed\":"+std::to_string(b.changed)+",";
+        mode4_regions_json+="\"gross\":"+std::to_string(b.gross)+",";
+        mode4_regions_json+="\"abs_rgb_error\":"+std::to_string(b.abs_rgb)+",";
+        mode4_regions_json+="\"brighter_rgb_error\":"+
+                            std::to_string(b.brighter)+",";
+        mode4_regions_json+="\"darker_rgb_error\":"+
+                            std::to_string(b.darker)+",";
+        mode4_regions_json+="\"max_delta\":"+std::to_string(b.max_delta)+",";
+        mode4_regions_json+="\"worst_x\":"+std::to_string(b.worst_x)+",";
+        mode4_regions_json+="\"worst_y\":"+std::to_string(b.worst_y)+"}";
+    }
+    CHECK(region_pixels==501832u&&region_changed==candidate.changed&&
+          region_gross==candidate.gross&&region_error==candidate.abs_rgb&&
+          region_error==region_pos+region_neg&&
+          region_max==candidate.max_delta);
+    mode4_regions_json+="},\"witnesses\":[";
+    struct witness{const char *name;size_t x,y,region;};
+    const witness witnesses[]={
+        {"bottom_left",50u,139u,0u},{"bottom_interior",100u,139u,0u},
+        {"bottom_right",250u,139u,0u},{"right_vertical",250u,60u,1u},
+        {"left_vertical",50u,110u,2u},{"top_corner",250u,19u,3u},
+        {"clip_right",150u,40u,4u},{"clip_bottom",100u,100u,5u}
+    };
+    for(size_t i=0u;i<8u;++i) {
+        const witness &w=witnesses[i];
+        const unsigned sa=analytic_stroke.pixels[
+            w.y*analytic_stroke.stride+w.x*4u+3u];
+        const unsigned fa=fill.pixels[w.y*fill.stride+w.x*4u+3u];
+        const unsigned char *n=trial_page.pixels+
+            w.y*trial_page.stride+w.x*4u;
+        const unsigned char *o=reference.at(w.x,w.y);
+        if(locate(w.x,w.y,sa,fa)!=w.region)
+            std::fprintf(stderr,
+                "[jsPDF original witness invalid] %s (%zu,%zu) "
+                "expected=%zu actual=%zu stroke_alpha=%u fill_alpha=%u\n",
+                w.name,w.x,w.y,w.region,locate(w.x,w.y,sa,fa),sa,fa);
+        CHECK(locate(w.x,w.y,sa,fa)==w.region);
+        if(i)mode4_regions_json+=",";
+        mode4_regions_json+="{\"name\":\""+std::string(w.name)+"\",";
+        mode4_regions_json+="\"region\":\""+
+                            std::string(regions[w.region].name)+"\",";
+        mode4_regions_json+="\"x\":"+std::to_string(w.x)+",";
+        mode4_regions_json+="\"y\":"+std::to_string(w.y)+",";
+        mode4_regions_json+="\"stroke_alpha\":"+std::to_string(sa)+",";
+        mode4_regions_json+="\"fill_alpha\":"+std::to_string(fa)+",";
+        mode4_regions_json+="\"native_rgb\":["+
+            std::to_string(on_white(n,0u))+","+
+            std::to_string(on_white(n,1u))+","+
+            std::to_string(on_white(n,2u))+"],";
+        mode4_regions_json+="\"pdfium_rgb\":["+
+            std::to_string((unsigned)o[0])+","+
+            std::to_string((unsigned)o[1])+","+
+            std::to_string((unsigned)o[2])+"]}";
+    }
+    mode4_regions_json+="],\"full_original_reconciled\":true}";
+    std::fprintf(stderr,"[jsPDF mode4 original residual regions] %s\n",
+                 mode4_regions_json.c_str());
+
     quantapdf_ir_raster_image_dispose(&repeat_page);
     quantapdf_ir_raster_image_dispose(&trial_page);
     quantapdf_ir_raster_image_dispose(&base_page);
@@ -2005,6 +2126,7 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"mode4_gross_delta64_pixels\": %zu,\n"
         "  \"mode4_max_channel_delta\": %u,\n"
         "  \"mode4_rgb_fnv64\": \"%016llx\",\n"
+        "  \"mode4_original_source_regions\": %s,\n"
         "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
@@ -2014,7 +2136,8 @@ int test_external_jspdf_single_vertical_analytic_ab(
         (unsigned long long)candidate.abs_rgb,
         (double)candidate.abs_rgb/1505496.0,
         candidate.changed,candidate.gross,candidate.max_delta,
-        (unsigned long long)candidate.fnv);
+        (unsigned long long)candidate.fnv,
+        mode4_regions_json.c_str());
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
