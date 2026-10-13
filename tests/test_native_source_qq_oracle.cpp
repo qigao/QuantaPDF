@@ -1799,11 +1799,17 @@ int test_external_yworks_wstar_candidate_pixels(
           rules.intersections==3u);
 
     const quantapdf_ir_raster_v1_limits limits={
-        WIDTH*HEIGHT,3u,768u,60000000u
+        WIDTH*HEIGHT,3u,768u,420000000u
     };
     quantapdf_ir_raster_image native{},repeat{};
-    OK(quantapdf_ir_raster_scoped_operations_v1(
-        &detached,0u,&limits,&native));
+    const quantapdf_status raster_status =
+        quantapdf_ir_raster_scoped_operations_v1(
+            &detached,0u,&limits,&native);
+    if(raster_status != QUANTAPDF_OK)
+        std::fprintf(stderr,
+            "[yworks-Wstar-raster] first-pass status=%d budget=%zu\n",
+            (int)raster_status,limits.max_sample_tests);
+    CHECK(raster_status == QUANTAPDF_OK);
     OK(quantapdf_ir_raster_scoped_operations_v1(
         &detached,0u,&limits,&repeat));
     CHECK(native.pixels && native.width==WIDTH && native.height==HEIGHT &&

@@ -282,8 +282,67 @@ static int test_concave_and_self_intersecting(void)
     return EXIT_SUCCESS;
 }
 
+
+/* Single open 1px butt line has no joins and must not be implicitly closed.
+ * Negative cases reject without publishing partial pixels. */
+static int test_open_segment_butt_stroke(void)
+{
+    quantapdf_ir ir;
+    quantapdf_composer_page_state page;
+    quantapdf_composer_operation op;
+    quantapdf_composer_path_command commands[3];
+    quantapdf_ir_raster_image image = {0}, repeat = {0};
+    quantapdf_ir_raster_v1_limits limits = {64u,1u,64u,1000000u};
+
+    setup(&ir,&page,&op,commands,2u);
+    set_point(commands,QUANTAPDF_COMPOSER_PATH_MOVE_TO,1,3);
+    set_point(commands+1,QUANTAPDF_COMPOSER_PATH_LINE_TO,7,3);
+    op.value.path.options.fill=0;
+    op.value.path.options.stroke=1;
+    op.value.path.options.stroke_argb=UINT32_C(0xffff0000);
+    op.value.path.options.stroke_width=1.0f;
+    op.value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
+    op.value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_MITER;
+    op.value.path.options.miter_limit=10.0f;
+
+    OK(quantapdf_ir_raster_render_v1(&ir,0u,&limits,&image));
+    CHECK(rgba_at(&image,4,1)==UINT32_C(0xffffffff));
+    CHECK(rgba_at(&image,0,3)==UINT32_C(0xffffffff));
+    CHECK(rgba_at(&image,7,3)==UINT32_C(0xffffffff));
+    CHECK(rgba_at(&image,4,2)!=UINT32_C(0xffffffff));
+    CHECK(rgba_at(&image,4,3)!=UINT32_C(0xffffffff));
+    OK(quantapdf_ir_raster_render_v1(&ir,0u,&limits,&repeat));
+    CHECK(image.size==repeat.size &&
+          memcmp(image.pixels,repeat.pixels,image.size)==0);
+    quantapdf_ir_raster_image_dispose(&image);
+    quantapdf_ir_raster_image_dispose(&repeat);
+
+    op.value.path.options.stroke_width=2.0f;
+    CHECK(quantapdf_ir_raster_render_v1(&ir,0u,&limits,&image)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(image.pixels==NULL && image.size==0u);
+    op.value.path.options.stroke_width=1.0f;
+    op.value.path.options.line_cap=99;
+    CHECK(quantapdf_ir_raster_render_v1(&ir,0u,&limits,&image)==QUANTAPDF_ERROR_UNSUPPORTED);
+    op.value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
+
+    set_point(commands+2,QUANTAPDF_COMPOSER_PATH_LINE_TO,7,7);
+    op.value.path.command_count=3u;
+    CHECK(quantapdf_ir_raster_render_v1(&ir,0u,&limits,&image)==QUANTAPDF_ERROR_UNSUPPORTED);
+    op.value.path.command_count=2u;
+
+    op.value.path.options.transform=(quantapdf_affine_transform){2,0,0,2,0,0};
+    CHECK(quantapdf_ir_raster_render_v1(&ir,0u,&limits,&image)==QUANTAPDF_ERROR_UNSUPPORTED);
+    memset(&op.value.path.options.transform,0,sizeof(op.value.path.options.transform));
+
+    set_point(commands+1,QUANTAPDF_COMPOSER_PATH_LINE_TO,1,3);
+    CHECK(quantapdf_ir_raster_render_v1(&ir,0u,&limits,&image)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(image.pixels==NULL && image.size==0u);
+    return EXIT_SUCCESS;
+}
+
 int main(void)
 {
+    CHECK(test_open_segment_butt_stroke() == EXIT_SUCCESS);
     CHECK(test_concave_and_self_intersecting() == EXIT_SUCCESS);
     CHECK(test_winding_and_subpaths() == EXIT_SUCCESS);
     CHECK(test_coverage_transform_and_curves() == EXIT_SUCCESS);
