@@ -160,10 +160,13 @@ static void test_rejection_and_reset(void)
     CHECK(quantapdf_render_plan_map_source(&plan, &identity, NULL) == QUANTAPDF_ERROR_ARGUMENT);
 }
 
+#include "test_fractional_page_grid_contract.h"
+
 int main(void)
 {
     test_extent_clip_and_copy();
     test_rotation_and_source_mapping();
     test_rejection_and_reset();
+    test_fractional_page_grid_contract();
     return EXIT_SUCCESS;
 }
