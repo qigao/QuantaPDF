@@ -7,6 +7,7 @@
 #include "graph/graph_page_geometry.h"
 #include "render/ir_scoped_operations_v1.h"
 #include "render/ir_scoped_device_grid_v0.h"
+#include "render/ir_rect_fill_right_preview_v0.h"
 #include "render/ir_device_polyline_stroke_v0.h"
 #include "render/ir_ordered_layer_composite_v0.h"
 #include "original_jspdf_diff_attribution.h"
