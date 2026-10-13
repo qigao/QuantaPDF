@@ -76,6 +76,107 @@ if(got_mode4_abs_rgb_error LESS 0 OR got_mode4_abs_rgb_error GREATER 383901480
    OR got_mode4_max_channel_delta GREATER 255)
   message(FATAL_ERROR "Mode-4 full-original statistics out of range")
 endif()
+
+# Read-only mode4 original-page region report. Exactly seven disjoint
+# real source-specific buckets and eight coordinate-anchored observations.
+string(JSON roi_schema GET "${json}" mode4_original_source_regions schema_version)
+string(JSON roi_observe GET "${json}" mode4_original_source_regions observation_only)
+string(JSON roi_parity GET "${json}" mode4_original_source_regions pixel_parity_qualified)
+string(JSON roi_ok GET "${json}" mode4_original_source_regions full_original_reconciled)
+string(JSON roi_count LENGTH "${json}" mode4_original_source_regions regions)
+string(JSON wit_count LENGTH "${json}" mode4_original_source_regions witnesses)
+if(NOT roi_schema EQUAL 1 OR NOT roi_observe OR roi_parity OR
+   NOT roi_ok OR NOT roi_count EQUAL 7 OR NOT wit_count EQUAL 8)
+  message(FATAL_ERROR "Missing or overstated mode4 original source-region audit")
+endif()
+set(roi_names bottom_single_horizontal_stroke right_vertical_stroke
+    left_vertical_stroke top_repeated_stroke clip_right_red_boundary
+    clip_bottom_weak_fringe other)
+set(sum_pixels 0)
+set(sum_changed 0)
+set(sum_gross 0)
+set(sum_error 0)
+set(sum_brighter 0)
+set(sum_darker 0)
+set(max_delta 0)
+foreach(name IN LISTS roi_names)
+  foreach(field IN ITEMS pixels changed gross abs_rgb_error
+      brighter_rgb_error darker_rgb_error max_delta worst_x worst_y)
+    string(JSON r_${field} GET "${json}"
+      mode4_original_source_regions regions ${name} ${field})
+  endforeach()
+  math(EXPR biased "${r_brighter_rgb_error}+${r_darker_rgb_error}")
+  if(r_pixels LESS 0 OR r_pixels GREATER 501832
+     OR r_changed LESS 0 OR r_changed GREATER r_pixels
+     OR r_gross LESS 0 OR r_gross GREATER r_changed
+     OR r_abs_rgb_error LESS 0 OR r_abs_rgb_error GREATER 383901480
+     OR NOT biased EQUAL r_abs_rgb_error
+     OR r_max_delta LESS 0 OR r_max_delta GREATER 255
+     OR r_worst_x LESS 0 OR r_worst_x GREATER 595
+     OR r_worst_y LESS 0 OR r_worst_y GREATER 841)
+    message(FATAL_ERROR "Mode4 source-region counter exceeds bounds")
+  endif()
+  math(EXPR sum_pixels "${sum_pixels}+${r_pixels}")
+  math(EXPR sum_changed "${sum_changed}+${r_changed}")
+  math(EXPR sum_gross "${sum_gross}+${r_gross}")
+  math(EXPR sum_error "${sum_error}+${r_abs_rgb_error}")
+  math(EXPR sum_brighter "${sum_brighter}+${r_brighter_rgb_error}")
+  math(EXPR sum_darker "${sum_darker}+${r_darker_rgb_error}")
+  if(r_max_delta GREATER max_delta)
+    set(max_delta "${r_max_delta}")
+  endif()
+endforeach()
+math(EXPR signed_errors "${sum_brighter}+${sum_darker}")
+if(NOT sum_pixels EQUAL 501832 OR NOT sum_changed EQUAL got_mode4_changed_pixels
+   OR NOT sum_gross EQUAL got_mode4_gross_delta64_pixels
+   OR NOT sum_error EQUAL got_mode4_abs_rgb_error
+   OR NOT signed_errors EQUAL got_mode4_abs_rgb_error
+   OR NOT max_delta EQUAL got_mode4_max_channel_delta)
+  message(FATAL_ERROR "Mode4 residual category totals contradict full PDF")
+endif()
+set(w_names bottom_left bottom_interior bottom_right
+    right_vertical left_vertical top_corner clip_right clip_bottom)
+set(w_regions bottom_single_horizontal_stroke
+    bottom_single_horizontal_stroke bottom_single_horizontal_stroke
+    right_vertical_stroke left_vertical_stroke top_repeated_stroke
+    clip_right_red_boundary clip_bottom_weak_fringe)
+set(w_x 50 100 250 250 50 250 150 100)
+set(w_y 139 139 139 60 60 19 40 100)
+foreach(i RANGE 0 7)
+  list(GET w_names ${i} expected_name)
+  list(GET w_regions ${i} expected_region)
+  list(GET w_x ${i} expected_x)
+  list(GET w_y ${i} expected_y)
+  foreach(field IN ITEMS name region x y stroke_alpha fill_alpha)
+    string(JSON w_${field} GET "${json}"
+      mode4_original_source_regions witnesses ${i} ${field})
+  endforeach()
+  string(JSON rn LENGTH "${json}" mode4_original_source_regions witnesses ${i} native_rgb)
+  string(JSON ro LENGTH "${json}" mode4_original_source_regions witnesses ${i} pdfium_rgb)
+  if(NOT w_name STREQUAL expected_name OR NOT w_region STREQUAL expected_region
+     OR NOT w_x EQUAL expected_x OR NOT w_y EQUAL expected_y
+     OR w_stroke_alpha LESS 0 OR w_stroke_alpha GREATER 255
+     OR w_fill_alpha LESS 0 OR w_fill_alpha GREATER 255
+     OR NOT rn EQUAL 3 OR NOT ro EQUAL 3)
+    message(FATAL_ERROR "Mode4 original witness coordinates/category invalid")
+  endif()
+  foreach(ch RANGE 0 2)
+    string(JSON native GET "${json}" mode4_original_source_regions witnesses ${i} native_rgb ${ch})
+    string(JSON oracle GET "${json}" mode4_original_source_regions witnesses ${i} pdfium_rgb ${ch})
+    if(native LESS 0 OR native GREATER 255 OR oracle LESS 0 OR oracle GREATER 255)
+      message(FATAL_ERROR "Mode4 original witness RGB invalid")
+    endif()
+  endforeach()
+endforeach()
+# Purely read-only branch: the verified 289 candidate cannot change.
+if(NOT got_mode4_abs_rgb_error EQUAL 10979
+   OR NOT got_mode4_changed_pixels EQUAL 791
+   OR NOT got_mode4_gross_delta64_pixels EQUAL 0
+   OR NOT got_mode4_max_channel_delta EQUAL 38
+   OR NOT got_mode4_rgb_fnv64 STREQUAL "226faee70471ea2c")
+  message(FATAL_ERROR "Verified mode4 candidate output unexpectedly changed")
+endif()
+
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
