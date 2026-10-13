@@ -212,7 +212,7 @@ quantapdf_status quantapdf_ir_raster_device_polyline_stroke_v0(
     quantapdf_native_device_grid grid;
     quantapdf_native_device_grid_status gs;
     qp_stroke_segment segments[QP_DEVICE_STROKE_MAX_SEGMENTS];
-    qp_stroke_join joins[QP_DEVICE_STROKE_MAX_SEGMENTS] = {{0}};
+    qp_stroke_join joins[QP_DEVICE_STROKE_MAX_SEGMENTS] = {0};
     int join_kinds[QP_DEVICE_STROKE_MAX_SEGMENTS] = {0};
     double radius,miter_limit;
     uint32_t color;
