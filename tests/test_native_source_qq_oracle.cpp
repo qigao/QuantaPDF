@@ -2487,6 +2487,222 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "[jsPDF mode7 original source endpoint attribution, NOT parity] %s\n",
         mode7_regions_json.c_str());
 
+
+    /* Strictly READ-ONLY original-PDF mode9 AFTER its accepted private
+     * source-Stroke upper-side +1. The 16 mutually disjoint windows below
+     * are borrowed from the pinned upstream jsPDF SOURCE TEST geometry,
+     * never inserted into a C11 renderer or made general PDF claims.
+     * Reconstruct BOTH baseline (mode5 Stroke + mode8 Fill) and accepted
+     * private mode9 (upper-side Stroke + same Fill) RGB error by source
+     * effect, preserving all 501,832 original PDFium source pixels. */
+    struct mode9_region {
+        const char *name;
+        size_t pixels=0u,old_changed=0u,changed=0u,gross=0u;
+        size_t worst_x=0u,worst_y=0u;
+        std::uint64_t old_rgb_error=0u,rgb_error=0u;
+        std::uint64_t brighter=0u,darker=0u;
+        unsigned max_delta=0u;
+    };
+    mode9_region mode9_regions[]={
+        {"bottom_left_endpoint"},{"bottom_right_endpoint"},
+        {"bottom_single_horizontal_interior"},
+        {"top_repeated_left_endpoint"},{"top_repeated_right_endpoint"},
+        {"top_repeated_horizontal_interior"},
+        {"right_vertical_stroke"},{"left_vertical_below_red"},
+        {"red_left_w_clip_stroke_overlap"},{"red_left_w_clip_only"},
+        {"red_right_fill_boundary"},{"red_top_right_coupled_corner"},
+        {"red_top_stroke_overlap"},{"red_fill_bottom_edge"},
+        {"red_bottom_uncovered_fringe"},{"other"}
+    };
+    std::vector<worst_point> mode9_worst;
+    mode9_worst.reserve(16u);
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t p=y*upper_stroke.stride+x*4u;
+        const unsigned sa=upper_stroke.pixels[p+3u];
+        const unsigned old_sa=h_stroke.pixels[p+3u];
+        const unsigned fa=bottom_fill.pixels[
+            y*bottom_fill.stride+x*4u+3u];
+        const size_t id=group_of(x,y,sa,fa);
+        CHECK(id<sizeof(mode9_regions)/sizeof(mode9_regions[0]) &&
+              id==group_of(x,y,old_sa,fa));
+        mode9_region &r=mode9_regions[id];
+        const unsigned char *old_pixel=
+            bottom_page.pixels+y*bottom_page.stride+x*4u;
+        const unsigned char *pixel=
+            upper_page.pixels+y*upper_page.stride+x*4u;
+        const unsigned char *oracle=reference.at(x,y);
+        worst_point p9{};
+        p9.x=x;p9.y=y;p9.region=id;
+        p9.stroke_alpha=sa;p9.fill_alpha=fa;
+        unsigned old_max=0u,current_max=0u,current_error=0u;
+        ++r.pixels;
+        for(size_t ch=0u;ch<3u;++ch) {
+            const unsigned oldv=on_white(old_pixel,ch);
+            const unsigned now=on_white(pixel,ch);
+            const unsigned expected=oracle[ch];
+            const unsigned old_delta=oldv>=expected?
+                oldv-expected:expected-oldv;
+            const unsigned delta=now>=expected?
+                now-expected:expected-now;
+            r.old_rgb_error+=(std::uint64_t)old_delta;
+            r.rgb_error+=(std::uint64_t)delta;
+            if(now>expected)r.brighter+=(std::uint64_t)delta;
+            if(now<expected)r.darker+=(std::uint64_t)delta;
+            if(old_delta>old_max)old_max=old_delta;
+            if(delta>current_max)current_max=delta;
+            current_error+=delta;
+            p9.native_rgb[ch]=(unsigned char)now;
+            p9.pdfium_rgb[ch]=(unsigned char)expected;
+        }
+        if(old_max!=0u)++r.old_changed;
+        if(current_max==0u)continue;
+        ++r.changed;
+        if(current_max>64u)++r.gross;
+        if(current_max>r.max_delta) {
+            r.max_delta=current_max;r.worst_x=x;r.worst_y=y;
+        }
+        p9.max_delta=current_max;p9.rgb_error=current_error;
+        const auto worse=[](const worst_point &a,const worst_point &b) {
+            if(a.max_delta!=b.max_delta)
+                return a.max_delta>b.max_delta;
+            if(a.rgb_error!=b.rgb_error)
+                return a.rgb_error>b.rgb_error;
+            if(a.y!=b.y)return a.y<b.y;
+            return a.x<b.x;
+        };
+        size_t at=0u;
+        while(at<mode9_worst.size() &&
+              !worse(p9,mode9_worst[at]))++at;
+        if(at<16u) {
+            mode9_worst.insert(
+                mode9_worst.begin()+(std::ptrdiff_t)at,p9);
+            if(mode9_worst.size()>16u)mode9_worst.pop_back();
+        }
+    }
+    size_t m9_pixel_total=0u,m9_old_changed=0u,m9_changed=0u,
+           m9_gross=0u;
+    std::uint64_t m9_old_rgb=0u,m9_rgb=0u,
+                  m9_brighter=0u,m9_darker=0u;
+    unsigned m9_max_delta=0u;
+    std::string mode9_region_json=
+        "{\"schema_version\":1,\"observation_only\":true,"
+        "\"pixel_parity_qualified\":false,\"regions\":{";
+    for(size_t i=0u;i<sizeof(mode9_regions)/
+                         sizeof(mode9_regions[0]);++i) {
+        const mode9_region &r=mode9_regions[i];
+        CHECK(r.old_changed<=r.pixels && r.changed<=r.pixels &&
+              r.gross<=r.changed &&
+              r.rgb_error==r.brighter+r.darker);
+        m9_pixel_total+=r.pixels;
+        m9_old_changed+=r.old_changed;
+        m9_changed+=r.changed;
+        m9_gross+=r.gross;
+        m9_old_rgb+=r.old_rgb_error;
+        m9_rgb+=r.rgb_error;
+        m9_brighter+=r.brighter;
+        m9_darker+=r.darker;
+        if(r.max_delta>m9_max_delta)m9_max_delta=r.max_delta;
+        if(i)mode9_region_json+=",";
+        mode9_region_json+="\""+std::string(r.name)+"\":{";
+        mode9_region_json+="\"pixels\":"+std::to_string(r.pixels)+",";
+        mode9_region_json+="\"old_changed\":"+
+            std::to_string(r.old_changed)+",";
+        mode9_region_json+="\"changed\":"+std::to_string(r.changed)+",";
+        mode9_region_json+="\"gross\":"+std::to_string(r.gross)+",";
+        mode9_region_json+="\"old_rgb_error\":"+
+            std::to_string(r.old_rgb_error)+",";
+        mode9_region_json+="\"abs_rgb_error\":"+
+            std::to_string(r.rgb_error)+",";
+        mode9_region_json+="\"brighter_rgb_error\":"+
+            std::to_string(r.brighter)+",";
+        mode9_region_json+="\"darker_rgb_error\":"+
+            std::to_string(r.darker)+",";
+        mode9_region_json+="\"max_channel_delta\":"+
+            std::to_string(r.max_delta)+",";
+        mode9_region_json+="\"worst_x\":"+std::to_string(r.worst_x)+",";
+        mode9_region_json+="\"worst_y\":"+std::to_string(r.worst_y)+"}";
+    }
+    CHECK(m9_pixel_total==501832u &&
+          m9_old_changed==bottom_metric.changed &&
+          m9_changed==upper_metric.changed &&
+          m9_gross==upper_metric.gross &&
+          m9_old_rgb==bottom_metric.abs_rgb &&
+          m9_rgb==upper_metric.abs_rgb &&
+          m9_rgb==m9_brighter+m9_darker &&
+          m9_max_delta==upper_metric.max_delta &&
+          !mode9_worst.empty() &&
+          mode9_worst[0].max_delta==upper_metric.max_delta);
+    mode9_region_json+="},\"worst_pixels\":[";
+    for(size_t i=0u;i<mode9_worst.size();++i) {
+        const worst_point &p=mode9_worst[i];
+        if(i)mode9_region_json+=",";
+        mode9_region_json+="{\"x\":"+std::to_string(p.x)+",";
+        mode9_region_json+="\"y\":"+std::to_string(p.y)+",";
+        mode9_region_json+="\"region\":\""+
+            std::string(mode9_regions[p.region].name)+"\",";
+        mode9_region_json+="\"max_channel_delta\":"+
+            std::to_string(p.max_delta)+",";
+        mode9_region_json+="\"rgb_error\":"+
+            std::to_string(p.rgb_error)+",";
+        mode9_region_json+="\"stroke_alpha\":"+
+            std::to_string(p.stroke_alpha)+",";
+        mode9_region_json+="\"fill_alpha\":"+
+            std::to_string(p.fill_alpha)+",";
+        mode9_region_json+="\"native_rgb\":["+
+            std::to_string((unsigned)p.native_rgb[0])+","+
+            std::to_string((unsigned)p.native_rgb[1])+","+
+            std::to_string((unsigned)p.native_rgb[2])+"],";
+        mode9_region_json+="\"pdfium_rgb\":["+
+            std::to_string((unsigned)p.pdfium_rgb[0])+","+
+            std::to_string((unsigned)p.pdfium_rgb[1])+","+
+            std::to_string((unsigned)p.pdfium_rgb[2])+"]}";
+    }
+    mode9_region_json+="],\"witnesses\":[";
+    for(size_t i=0u;i<sizeof(mode7_witnesses)/
+                         sizeof(mode7_witnesses[0]);++i) {
+        const mode7_witness &w=mode7_witnesses[i];
+        const size_t p=w.y*upper_stroke.stride+w.x*4u;
+        const unsigned sa=upper_stroke.pixels[p+3u];
+        const unsigned old_sa=h_stroke.pixels[p+3u];
+        const unsigned fa=bottom_fill.pixels[
+            w.y*bottom_fill.stride+w.x*4u+3u];
+        const size_t id=group_of(w.x,w.y,sa,fa);
+        CHECK(id<sizeof(mode9_regions)/sizeof(mode9_regions[0]));
+        const unsigned char *old=bottom_page.pixels+
+            w.y*bottom_page.stride+w.x*4u;
+        const unsigned char *native=upper_page.pixels+
+            w.y*upper_page.stride+w.x*4u;
+        const unsigned char *oracle=reference.at(w.x,w.y);
+        if(i)mode9_region_json+=",";
+        mode9_region_json+="{\"name\":\""+std::string(w.name)+"\",";
+        mode9_region_json+="\"x\":"+std::to_string(w.x)+",";
+        mode9_region_json+="\"y\":"+std::to_string(w.y)+",";
+        mode9_region_json+="\"region\":\""+
+            std::string(mode9_regions[id].name)+"\",";
+        mode9_region_json+="\"old_stroke_alpha\":"+
+            std::to_string(old_sa)+",";
+        mode9_region_json+="\"stroke_alpha\":"+
+            std::to_string(sa)+",";
+        mode9_region_json+="\"fill_alpha\":"+
+            std::to_string(fa)+",";
+        mode9_region_json+="\"baseline_rgb\":["+
+            std::to_string(on_white(old,0u))+","+
+            std::to_string(on_white(old,1u))+","+
+            std::to_string(on_white(old,2u))+"],";
+        mode9_region_json+="\"native_rgb\":["+
+            std::to_string(on_white(native,0u))+","+
+            std::to_string(on_white(native,1u))+","+
+            std::to_string(on_white(native,2u))+"],";
+        mode9_region_json+="\"pdfium_rgb\":["+
+            std::to_string((unsigned)oracle[0])+","+
+            std::to_string((unsigned)oracle[1])+","+
+            std::to_string((unsigned)oracle[2])+"]}";
+    }
+    mode9_region_json+="],\"full_original_reconciled\":true}";
+    std::fprintf(stderr,
+        "[jsPDF upper-side private Stroke post-A/B regions, NOT parity] %s\n",
+        mode9_region_json.c_str());
+
     size_t left_alpha_changed=0u,left_outside=0u;
     for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
         const size_t off=y*right_fill.stride+x*4u;
@@ -3078,7 +3294,7 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"stroke_upper_changed_pixels\": %zu,\n"
         "  \"stroke_upper_gross_delta64_pixels\": %zu,\n"
         "  \"stroke_upper_max_channel_delta\": %u,\n"
-        "  \"stroke_upper_rgb_fnv64\": \"%016llx\",\n"
+        "  \"stroke_upper_rgb_fnv64\": \"%016llx\",\n"        "  \"stroke_upper_original_residual_regions\": %s,\n"
         "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
@@ -3121,7 +3337,8 @@ int test_external_jspdf_single_vertical_analytic_ab(
         (unsigned long long)upper_metric.abs_rgb,
         (double)upper_metric.abs_rgb/1505496.0,
         upper_metric.changed,upper_metric.gross,upper_metric.max_delta,
-        (unsigned long long)upper_metric.fnv);
+        (unsigned long long)upper_metric.fnv,
+        mode9_region_json.c_str());
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
