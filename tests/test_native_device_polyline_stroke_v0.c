@@ -1228,6 +1228,58 @@ static int test_q8_miter_adjacent_device_cells_trial(void)
     return EXIT_SUCCESS;
 }
 
+
+/* Source-topology V->H/Q8 private experiment: the old mode10 bytes MUST
+ * survive on non-retraced, diagonal and saturated interior geometry.
+ * The full immutable external-source retrace is tested separately. */
+static int test_vh_retrace_q8_strict_negative(void)
+{
+    fixture f;
+    quantapdf_ir_raster_image old={0},candidate={0},again={0};
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_vh_retrace_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&candidate));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_vh_retrace_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&again));
+    CHECK(old.size==candidate.size && candidate.size==again.size &&
+          memcmp(old.pixels,candidate.pixels,old.size)==0 &&
+          memcmp(candidate.pixels,again.pixels,candidate.size)==0);
+    quantapdf_ir_raster_image_dispose(&again);
+    quantapdf_ir_raster_image_dispose(&candidate);
+    quantapdf_ir_raster_image_dispose(&old);
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.cmds[2].point1.x=23.0f; /* diagonal -> no eligible Q8 miter */
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_vh_retrace_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&candidate));
+    CHECK(old.size==candidate.size &&
+          memcmp(old.pixels,candidate.pixels,old.size)==0);
+    quantapdf_ir_raster_image_dispose(&candidate);
+    quantapdf_ir_raster_image_dispose(&old);
+    /* One stroke segment x ten full-grid source scans fits 132000;
+     * the private eleventh pass cannot fit a 135000 sample budget. */
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=2u;
+    f.grid_budget.max_edges=10u;
+    f.raster_budget.max_edges=10u;
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    quantapdf_ir_raster_image_dispose(&old);
+    memset(&candidate,0xa5,sizeof(candidate));
+    BAD(quantapdf_ir_raster_device_polyline_stroke_q8_vh_retrace_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&candidate));
+    CHECK(candidate.pixels==NULL && candidate.size==0u &&
+          candidate.stride==0u && candidate.width==0u &&
+          candidate.height==0u);
+    return EXIT_SUCCESS;
+}
+
 static int test_pixel_width_and_rejections(void)
 {
     fixture f;
@@ -1285,6 +1337,7 @@ int main(void)
     CHECK(test_device_q8_strip_trial()==EXIT_SUCCESS);
     CHECK(test_q8_inner_bevel_miter_join_trial()==EXIT_SUCCESS);
     CHECK(test_q8_miter_adjacent_device_cells_trial()==EXIT_SUCCESS);
+    CHECK(test_vh_retrace_q8_strict_negative()==EXIT_SUCCESS);
     CHECK(test_pixel_width_and_rejections()==EXIT_SUCCESS);
     puts("native-device-polyline-stroke: butt+miter+bevel+union+limits PASS");
     return EXIT_SUCCESS;

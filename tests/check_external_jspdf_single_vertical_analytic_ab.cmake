@@ -1118,6 +1118,42 @@ if(NOT sum_pixel EQUAL aud_total OR NOT sum_changed EQUAL aud_changed
 endif()
 message(STATUS
   "jspdf-post-corner-original-audit: pixels=${aud_total} residual=${aud_changed} error=${aud_error} parity=false official=0")
+# Seventeenth source topology V->H repeated-line miter A/B.
+# The prior Q8 Fill/Clip control and all previous original negatives
+# remain frozen. The candidate is allowed to be falsified.
+if(NOT corner_abs_rgb_error EQUAL 143
+   OR NOT corner_changed_pixels EQUAL 8
+   OR NOT corner_gross_delta64_pixels EQUAL 0
+   OR NOT corner_max_channel_delta EQUAL 15
+   OR NOT corner_rgb_fnv64 STREQUAL "5dff11faa26ac6c2")
+  message(FATAL_ERROR "Historical Q8 Fill/Clip control changed")
+endif()
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_alpha_changes outside_source_top
+    saturated_pixel_regressions alpha_delta_gt128 rgb_outside_alpha
+    abs_rgb_error mean_abs_rgb_error changed_pixels
+    gross_delta64_pixels max_channel_delta rgb_fnv64)
+  string(JSON vh_${field} GET "${json}" vh_retrace_${field})
+endforeach()
+string(LENGTH "${vh_rgb_fnv64}" vh_digest_len)
+if(NOT vh_status STREQUAL "measured_unqualified"
+   OR vh_default_changed OR vh_pixel_parity_qualified OR NOT vh_repeat_equal
+   OR vh_source_alpha_changes LESS 0 OR vh_source_alpha_changes GREATER 50
+   OR NOT vh_outside_source_top EQUAL 0
+   OR NOT vh_saturated_pixel_regressions EQUAL 0
+   OR NOT vh_alpha_delta_gt128 EQUAL 0 OR NOT vh_rgb_outside_alpha EQUAL 0
+   OR vh_abs_rgb_error LESS 0 OR vh_abs_rgb_error GREATER 383901480
+   OR vh_mean_abs_rgb_error LESS 0 OR vh_mean_abs_rgb_error GREATER 255
+   OR vh_changed_pixels LESS 0 OR vh_changed_pixels GREATER 501832
+   OR vh_gross_delta64_pixels LESS 0
+   OR vh_gross_delta64_pixels GREATER vh_changed_pixels
+   OR vh_max_channel_delta LESS 0 OR vh_max_channel_delta GREATER 255
+   OR NOT vh_digest_len EQUAL 16
+   OR NOT vh_rgb_fnv64 MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "V-to-H Q8 candidate escaped geometric isolation")
+endif()
+message(STATUS
+  "jspdf-q8-vh-retrace: parent_rgb=${corner_abs_rgb_error} trial_rgb=${vh_abs_rgb_error} parent_diff=${corner_changed_pixels} trial_diff=${vh_changed_pixels} source_alpha_changes=${vh_source_alpha_changes} official=0 parity=false")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")

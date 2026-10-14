@@ -526,7 +526,8 @@ static int qp_q8_isolated_inner_bevel_join_alpha(
     const qp_stroke_segment *segments,size_t count,
     const quantapdf_native_device_grid *grid,
     size_t x,size_t y,double radius,double miter_limit,
-    int adjacent_cells,unsigned *out_alpha)
+    int adjacent_cells,int allow_vh_retrace,
+    unsigned *out_alpha)
 {
     const double px0=(double)x*grid->points_per_device_x;
     const double px1=((double)x+1.0)*grid->points_per_device_x;
@@ -550,7 +551,12 @@ static int qp_q8_isolated_inner_bevel_join_alpha(
                       b->dx==0.0 && b->dy!=0.0);
         const int vh=(a->dx==0.0 && a->dy!=0.0 &&
                       b->dx!=0.0 && b->dy==0.0);
+        /* Eleventh private A/B: only a source vertical that rises to
+         * an exact forward horizontal retrace is eligible. In particular
+         * do not reinterpret the opposite horizontal-to-vertical corner
+         * whose source alpha belongs to a different repeated contour. */
         if((!hv && !vh) ||
+           (allow_vh_retrace && !(vh && a->dy<0.0 && b->dx>0.0)) ||
            a->b.x!=b->a.x || a->b.y!=b->a.y ||
            sqrt(a->len_squared)<=radius+2.0*grid->points_per_device_x+
                                           2.0*grid->points_per_device_y ||
@@ -580,6 +586,12 @@ static int qp_q8_isolated_inner_bevel_join_alpha(
         for(size_t k=0u;k<count;++k) {
             if(k==i || k==i+1u)continue;
             const qp_stroke_segment *other=&segments[k];
+            if(allow_vh_retrace &&
+               other->dy==0.0 && other->dx!=0.0 &&
+               other->a.y==b->a.y &&
+               fmin(other->a.x,other->b.x)==fmin(b->a.x,b->b.x) &&
+               fmax(other->a.x,other->b.x)==fmax(b->a.x,b->b.x))
+                continue; /* EXACT same source horizontal edge */
             const double lx=fmin(other->a.x,other->b.x)-radius;
             const double rx=fmax(other->a.x,other->b.x)+radius;
             const double ty=fmin(other->a.y,other->b.y)-radius;
@@ -989,6 +1001,16 @@ static quantapdf_status qp_stroke_render_impl(
         count*10u>raster_limits->max_sample_tests/grid.sample_slots))
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
+    /* Eleventh isolated rising-vertical to forward-horizontal retrace
+     * carries a separately charged bounded source-edge work pass. */
+    if(horizontal_preview==11 &&
+       (count>grid_limits->max_edges/11u ||
+        count>raster_limits->max_edges/11u ||
+        quantapdf_native_device_grid_admit_edges_v0(
+            &grid,grid_limits,count*11u)!=QUANTAPDF_NATIVE_DEVICE_GRID_OK ||
+        count*11u>raster_limits->max_sample_tests/grid.sample_slots))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
     for(size_t i=1u;i<count;++i) {
         join_kinds[i-1u]=qp_stroke_join_build(&segments[i-1u],&segments[i],
                                                radius,miter_limit,&joins[i-1u]);
@@ -1054,9 +1076,14 @@ static quantapdf_status qp_stroke_render_impl(
             }
             if(horizontal_preview>=9) {
                 unsigned join_alpha=0u;
-                if(qp_q8_isolated_inner_bevel_join_alpha(
+                /* Existing opaque repeated-horizontal interior rows are
+                 * already independently qualified; a retrace-specific
+                 * joint must never turn a saturated pixel translucent. */
+                if(!(horizontal_preview==11 && pixel_alpha==255u) &&
+                   qp_q8_isolated_inner_bevel_join_alpha(
                        segments,count,&grid,x,y,radius,miter_limit,
-                       horizontal_preview==10,&join_alpha))
+                       horizontal_preview>=10,
+                       horizontal_preview==11,&join_alpha))
                     pixel_alpha=join_alpha;
             }
             if(pixel_alpha!=0u) {
@@ -1238,4 +1265,20 @@ quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
 {
     return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
                                  raster_limits,out_image,10);
+}
+
+
+/* ELEVENTH independent PRIVATE source-topology A/B: rising vertical
+ * connected to exactly retraced forward horizontal, Q8 corner only.
+ * Modes0..10 remain independently callable with identical outputs. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_q8_vh_retrace_preview_v0(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
+                                 raster_limits,out_image,11);
 }
