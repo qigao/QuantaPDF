@@ -197,6 +197,7 @@ static int test_left_clip_edge_and_repeat(void)
     const double dx=32.5/33.0;
     const double x0=5.0*dx;
     const double x1=6.0*dx;
+    CHECK(x0<5.0 && 5.0<x1);
     const double fraction=(x1-5.0)/dx;
     const unsigned expected=(unsigned)floor(255.0*fraction+0.5);
     CHECK(expected>0u && expected<255u);
