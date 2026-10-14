@@ -2107,6 +2107,77 @@ int test_external_jspdf_single_vertical_analytic_ab(
           std::memcmp(upper_page.pixels,upper_page_repeat.pixels,
                       upper_page.size)==0);
     const page_metrics upper_metric=measure(upper_page);
+
+    /* EIGHTH explicitly private source Stroke A/B: the previous mode7
+     * upper-side linear-strip model is left byte-stable everywhere;
+     * only unique bottommost orthogonal source 1pt MITER join pixels
+     * may use 16x16 hit coverage of the SAME source C11 geometry.
+     * Correct source order, immutable genuine raw original PDFium. */
+    quantapdf_ir_raster_image fine_stroke{},fine_repeat{},
+                              fine_page{},fine_page_repeat{};
+    OK(quantapdf_ir_raster_device_polyline_stroke_bottom_miter_fine_preview_v0(
+        &only_stroke,0u,&geometry,&h_grid,&h_budget,&fine_stroke));
+    OK(quantapdf_ir_raster_device_polyline_stroke_bottom_miter_fine_preview_v0(
+        &only_stroke,0u,&geometry,&h_grid,&h_budget,&fine_repeat));
+    CHECK(fine_stroke.pixels && fine_repeat.pixels &&
+          fine_stroke.size==upper_stroke.size &&
+          fine_stroke.stride==upper_stroke.stride &&
+          fine_repeat.size==fine_stroke.size &&
+          std::memcmp(fine_stroke.pixels,fine_repeat.pixels,
+                      fine_stroke.size)==0);
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &fine_stroke,&bottom_fill,&composite_budget,&fine_page));
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &fine_repeat,&bottom_repeat,&composite_budget,&fine_page_repeat));
+    CHECK(fine_page.pixels && fine_page_repeat.pixels &&
+          fine_page.size==upper_page.size &&
+          fine_page_repeat.size==fine_page.size &&
+          std::memcmp(fine_page.pixels,fine_page_repeat.pixels,
+                      fine_page.size)==0);
+    const page_metrics fine_metric=measure(fine_page);
+    size_t fine_source_changes=0u,fine_outside=0u;
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t off=y*fine_stroke.stride+x*4u;
+        const unsigned before=upper_stroke.pixels[off+3u];
+        const unsigned after=fine_stroke.pixels[off+3u];
+        CHECK(std::memcmp(upper_stroke.pixels+off,
+                          fine_stroke.pixels+off,3u)==0);
+        if(before==after)continue;
+        ++fine_source_changes;
+        const bool x_corner=(x>=48u&&x<=52u) ||
+                            (x>=248u&&x<=252u);
+        if(!x_corner || y<138u || y>141u)
+            ++fine_outside;
+    }
+    CHECK(fine_source_changes>0u && fine_outside==0u);
+    const unsigned char *fine_left=
+        fine_page.pixels+139u*fine_page.stride+50u*4u;
+    const unsigned char *fine_right=
+        fine_page.pixels+139u*fine_page.stride+250u*4u;
+    const unsigned char *pdf_left=reference.at(50u,139u);
+    const unsigned char *pdf_right=reference.at(250u,139u);
+    std::fprintf(stderr,
+        "[original jsPDF private orthogonal-bottom-miter 16x16 A/B] "
+        "old_rgb=%llu fine_rgb=%llu fine_changed=%zu gross=%zu "
+        "source_changes=%zu outside=%zu left_alpha=%u->%u "
+        "right_alpha=%u->%u native_left_gray=%u truth_left_gray=%u "
+        "native_right_gray=%u truth_right_gray=%u fnv64=%016llx\n",
+        (unsigned long long)upper_metric.abs_rgb,
+        (unsigned long long)fine_metric.abs_rgb,
+        fine_metric.changed,fine_metric.gross,
+        fine_source_changes,fine_outside,
+        (unsigned)upper_stroke.pixels[
+            139u*upper_stroke.stride+50u*4u+3u],
+        (unsigned)fine_stroke.pixels[
+            139u*fine_stroke.stride+50u*4u+3u],
+        (unsigned)upper_stroke.pixels[
+            139u*upper_stroke.stride+250u*4u+3u],
+        (unsigned)fine_stroke.pixels[
+            139u*fine_stroke.stride+250u*4u+3u],
+        on_white(fine_left,0u),(unsigned)pdf_left[0],
+        on_white(fine_right,0u),(unsigned)pdf_right[0],
+        (unsigned long long)fine_metric.fnv);
+
     size_t upper_alpha_changes=0u,upper_outside=0u,
            upper_other_than_one=0u;
     for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
@@ -3160,6 +3231,10 @@ int test_external_jspdf_single_vertical_analytic_ab(
     std::fprintf(stderr,"[jsPDF mode4 original residual regions] %s\n",
                  mode4_regions_json.c_str());
 
+    quantapdf_ir_raster_image_dispose(&fine_page_repeat);
+    quantapdf_ir_raster_image_dispose(&fine_page);
+    quantapdf_ir_raster_image_dispose(&fine_repeat);
+    quantapdf_ir_raster_image_dispose(&fine_stroke);
     quantapdf_ir_raster_image_dispose(&upper_page_repeat);
     quantapdf_ir_raster_image_dispose(&upper_page);
     quantapdf_ir_raster_image_dispose(&upper_repeat);
@@ -3294,7 +3369,18 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"stroke_upper_changed_pixels\": %zu,\n"
         "  \"stroke_upper_gross_delta64_pixels\": %zu,\n"
         "  \"stroke_upper_max_channel_delta\": %u,\n"
-        "  \"stroke_upper_rgb_fnv64\": \"%016llx\",\n"        "  \"stroke_upper_original_residual_regions\": %s,\n"
+        "  \"stroke_upper_rgb_fnv64\": \"%016llx\",\n"        "  \"stroke_upper_original_residual_regions\": %s,\n"        "  \"bottom_miter_fine_status\": \"measured_unqualified\",\n"
+        "  \"bottom_miter_fine_default_changed\": false,\n"
+        "  \"bottom_miter_fine_pixel_parity_qualified\": false,\n"
+        "  \"bottom_miter_fine_repeat_equal\": true,\n"
+        "  \"bottom_miter_fine_source_alpha_changed_pixels\": %zu,\n"
+        "  \"bottom_miter_fine_outside_bottom_join_roi\": %zu,\n"
+        "  \"bottom_miter_fine_abs_rgb_error\": %llu,\n"
+        "  \"bottom_miter_fine_mean_abs_rgb_error\": %.9f,\n"
+        "  \"bottom_miter_fine_changed_pixels\": %zu,\n"
+        "  \"bottom_miter_fine_gross_delta64_pixels\": %zu,\n"
+        "  \"bottom_miter_fine_max_channel_delta\": %u,\n"
+        "  \"bottom_miter_fine_rgb_fnv64\": \"%016llx\",\n"
         "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
@@ -3338,7 +3424,12 @@ int test_external_jspdf_single_vertical_analytic_ab(
         (double)upper_metric.abs_rgb/1505496.0,
         upper_metric.changed,upper_metric.gross,upper_metric.max_delta,
         (unsigned long long)upper_metric.fnv,
-        mode9_region_json.c_str());
+        mode9_region_json.c_str(),
+        fine_source_changes,fine_outside,
+        (unsigned long long)fine_metric.abs_rgb,
+        (double)fine_metric.abs_rgb/1505496.0,
+        fine_metric.changed,fine_metric.gross,fine_metric.max_delta,
+        (unsigned long long)fine_metric.fnv);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;

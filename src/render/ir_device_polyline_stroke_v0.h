@@ -118,6 +118,21 @@ quantapdf_ir_raster_device_polyline_stroke_upper_horizontal_lsb_preview_v0(
     const quantapdf_ir_raster_v1_limits *raster_limits,
     quantapdf_ir_raster_image *out_image);
 
+
+/* EIGHTH, explicitly invoked PRIVATE 1pt Stroke A/B: 16x16 C11
+ * supersampling on STRICTLY orthogonal, unique bottommost source
+ * miter corners only, leaving previously qualified mode7 one-sided
+ * horizontal, vertical, source repeated edges and Fill/Clip byte-stable.
+ * Charges one extra full-page pass plus conservatively bounded
+ * per-join fine subpixel source-hit work BEFORE allocation. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_bottom_miter_fine_preview_v0(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

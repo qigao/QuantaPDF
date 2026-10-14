@@ -885,6 +885,45 @@ endif()
 message(STATUS
   "jspdf-mode9-effect-audit: pixels=${post_pixels} old_error=${post_old_error} accepted_error=${post_error} remaining=${post_changed} parity=false official=0")
 
+
+# TWELFTH PRIVATE original source-geometry Stroke join A/B. Parent
+# accepted upper-side single-horizontal interior plus Fill-bottom still
+# must reconcile the exact original source PDFium across 501,832 pixels.
+# The 16x16 bottommost orthogonal miter candidate is diagnostic ONLY,
+# scoped to two source-derived corner pixels, and MAY REGRESS.
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_alpha_changed_pixels outside_bottom_join_roi
+    abs_rgb_error mean_abs_rgb_error changed_pixels gross_delta64_pixels
+    max_channel_delta rgb_fnv64)
+  string(JSON fine_${field} GET "${json}" bottom_miter_fine_${field})
+endforeach()
+string(LENGTH "${fine_rgb_fnv64}" fine_digest_len)
+if(NOT fine_status STREQUAL "measured_unqualified"
+   OR fine_default_changed OR fine_pixel_parity_qualified
+   OR NOT fine_repeat_equal
+   OR fine_source_alpha_changed_pixels LESS 1
+   OR fine_source_alpha_changed_pixels GREATER 40
+   OR NOT fine_outside_bottom_join_roi EQUAL 0
+   OR NOT fine_digest_len EQUAL 16
+   OR NOT fine_rgb_fnv64 MATCHES "^[0-9a-f]+$"
+   OR fine_abs_rgb_error LESS 0 OR fine_abs_rgb_error GREATER 383901480
+   OR fine_mean_abs_rgb_error LESS 0 OR fine_mean_abs_rgb_error GREATER 255
+   OR fine_changed_pixels LESS 0 OR fine_changed_pixels GREATER 501832
+   OR fine_gross_delta64_pixels LESS 0
+   OR fine_gross_delta64_pixels GREATER fine_changed_pixels
+   OR fine_max_channel_delta LESS 0 OR fine_max_channel_delta GREATER 255)
+  message(FATAL_ERROR "Source bottommost orthogonal Miter A/B invalid or changed out of scope")
+endif()
+if(NOT upper_abs_rgb_error EQUAL 1349
+   OR NOT upper_changed_pixels EQUAL 223
+   OR NOT upper_gross_delta64_pixels EQUAL 0
+   OR NOT upper_max_channel_delta EQUAL 38
+   OR NOT upper_rgb_fnv64 STREQUAL "04d883c87f2ec8bc")
+  message(FATAL_ERROR "CI-qualified original mode9 Stroke+Fill bytes changed")
+endif()
+message(STATUS
+  "jspdf-bottom-orthogonal-miter-16x16: previous_rgb=${upper_abs_rgb_error} candidate_rgb=${fine_abs_rgb_error} changed=${fine_changed_pixels} isolated_source_alpha=${fine_source_alpha_changed_pixels} full_original_parity=false positive=0")
+
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
