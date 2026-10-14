@@ -421,6 +421,162 @@ endif()
 message(STATUS
  "jspdf-w-clip-left-private: baseline_rgb=${fillr_abs_rgb_error} trial_rgb=${left_abs_rgb_error} changed=${left_changed_pixels} alpha_changes=${left_source_alpha_changed_pixels} official=0 pixel_parity=false")
 
+
+# Eighth, strictly READ-ONLY residual audit after private Clip-left mode7.
+# All 501,832 untouched source-page pixels must be allocated to exactly
+# one of 16 source-labelled buckets; no new renderer or parity promotion.
+string(JSON m7_schema GET "${json}" rect_clip_left_original_residual_regions schema_version)
+string(JSON m7_obs GET "${json}" rect_clip_left_original_residual_regions observation_only)
+string(JSON m7_parity GET "${json}" rect_clip_left_original_residual_regions pixel_parity_qualified)
+string(JSON m7_reconciled GET "${json}" rect_clip_left_original_residual_regions full_original_reconciled)
+string(JSON m7_count LENGTH "${json}" rect_clip_left_original_residual_regions regions)
+string(JSON m7_worst_count LENGTH "${json}" rect_clip_left_original_residual_regions worst_pixels)
+string(JSON m7_witness_count LENGTH "${json}" rect_clip_left_original_residual_regions witnesses)
+if(NOT m7_schema EQUAL 1 OR NOT m7_obs OR m7_parity
+   OR NOT m7_reconciled OR NOT m7_count EQUAL 16
+   OR m7_worst_count LESS 1 OR m7_worst_count GREATER 16
+   OR NOT m7_witness_count EQUAL 16)
+  message(FATAL_ERROR "Missing or invalid private mode7 original residual audit")
+endif()
+set(m7_regions bottom_left_endpoint bottom_right_endpoint
+    bottom_single_horizontal_interior
+    top_repeated_left_endpoint top_repeated_right_endpoint
+    top_repeated_horizontal_interior right_vertical_stroke
+    left_vertical_below_red red_left_w_clip_stroke_overlap
+    red_left_w_clip_only red_right_fill_boundary
+    red_top_right_coupled_corner red_top_stroke_overlap
+    red_fill_bottom_edge red_bottom_uncovered_fringe other)
+set(m7_total_pixels 0)
+set(m7_total_changed 0)
+set(m7_total_gross 0)
+set(m7_total_rgb 0)
+set(m7_total_brighter 0)
+set(m7_total_darker 0)
+set(m7_overall_max 0)
+foreach(region IN LISTS m7_regions)
+  foreach(field IN ITEMS pixels changed gross abs_rgb_error
+      brighter_rgb_error darker_rgb_error
+      max_channel_delta worst_x worst_y)
+    string(JSON m7_${field} GET "${json}"
+      rect_clip_left_original_residual_regions regions ${region} ${field})
+  endforeach()
+  math(EXPR m7_signed "${m7_brighter_rgb_error}+${m7_darker_rgb_error}")
+  if(m7_pixels LESS 0 OR m7_pixels GREATER 501832
+     OR m7_changed LESS 0 OR m7_changed GREATER m7_pixels
+     OR m7_gross LESS 0 OR m7_gross GREATER m7_changed
+     OR m7_abs_rgb_error LESS 0 OR m7_abs_rgb_error GREATER 383901480
+     OR NOT m7_signed EQUAL m7_abs_rgb_error
+     OR m7_max_channel_delta LESS 0 OR m7_max_channel_delta GREATER 255
+     OR m7_worst_x LESS 0 OR m7_worst_x GREATER 595
+     OR m7_worst_y LESS 0 OR m7_worst_y GREATER 841)
+    message(FATAL_ERROR "Source-original mode7 region counter invalid")
+  endif()
+  math(EXPR m7_total_pixels "${m7_total_pixels}+${m7_pixels}")
+  math(EXPR m7_total_changed "${m7_total_changed}+${m7_changed}")
+  math(EXPR m7_total_gross "${m7_total_gross}+${m7_gross}")
+  math(EXPR m7_total_rgb "${m7_total_rgb}+${m7_abs_rgb_error}")
+  math(EXPR m7_total_brighter "${m7_total_brighter}+${m7_brighter_rgb_error}")
+  math(EXPR m7_total_darker "${m7_total_darker}+${m7_darker_rgb_error}")
+  if(m7_max_channel_delta GREATER m7_overall_max)
+    set(m7_overall_max "${m7_max_channel_delta}")
+  endif()
+endforeach()
+math(EXPR m7_signed_total "${m7_total_brighter}+${m7_total_darker}")
+if(NOT m7_total_pixels EQUAL 501832
+   OR NOT m7_total_changed EQUAL left_changed_pixels
+   OR NOT m7_total_gross EQUAL left_gross_delta64_pixels
+   OR NOT m7_total_rgb EQUAL left_abs_rgb_error
+   OR NOT m7_signed_total EQUAL left_abs_rgb_error
+   OR NOT m7_overall_max EQUAL left_max_channel_delta)
+  message(FATAL_ERROR "Original mode7 residual bins do not reconcile")
+endif()
+string(JSON m7_top_delta GET "${json}"
+    rect_clip_left_original_residual_regions worst_pixels 0 max_channel_delta)
+if(NOT m7_top_delta EQUAL left_max_channel_delta)
+  message(FATAL_ERROR "Original mode7 worst pixel does not match global max")
+endif()
+set(m7_prev_delta 256)
+math(EXPR m7_last_worst "${m7_worst_count}-1")
+foreach(i RANGE 0 ${m7_last_worst})
+  foreach(field IN ITEMS x y region max_channel_delta rgb_error
+      stroke_alpha fill_alpha)
+    string(JSON m7_worst_${field} GET "${json}"
+      rect_clip_left_original_residual_regions worst_pixels ${i} ${field})
+  endforeach()
+  list(FIND m7_regions "${m7_worst_region}" m7_region_id)
+  string(JSON m7_nat_count LENGTH "${json}"
+    rect_clip_left_original_residual_regions worst_pixels ${i} native_rgb)
+  string(JSON m7_pdf_count LENGTH "${json}"
+    rect_clip_left_original_residual_regions worst_pixels ${i} pdfium_rgb)
+  if(m7_region_id LESS 0
+     OR m7_worst_x LESS 0 OR m7_worst_x GREATER 595
+     OR m7_worst_y LESS 0 OR m7_worst_y GREATER 841
+     OR m7_worst_max_channel_delta LESS 1
+     OR m7_worst_max_channel_delta GREATER m7_prev_delta
+     OR m7_worst_rgb_error LESS m7_worst_max_channel_delta
+     OR m7_worst_rgb_error GREATER 765
+     OR m7_worst_stroke_alpha LESS 0 OR m7_worst_stroke_alpha GREATER 255
+     OR m7_worst_fill_alpha LESS 0 OR m7_worst_fill_alpha GREATER 255
+     OR NOT m7_nat_count EQUAL 3 OR NOT m7_pdf_count EQUAL 3)
+    message(FATAL_ERROR "Bad original-PDF mode7 worst-pixel data")
+  endif()
+  set(m7_prev_delta "${m7_worst_max_channel_delta}")
+endforeach()
+set(m7_expected_names bottom_outer_left bottom_left_join
+    bottom_interior bottom_right_join bottom_right_upper
+    top_outer_left top_right_corner right_vertical
+    left_vertical_lower red_left_overlap left_outer_stroke
+    red_right red_top_right_corner red_bottom_interior
+    red_bottom_fringe red_top_interior)
+set(m7_expected_xs 49 50 100 250 250 49 250 250
+    50 50 49 150 150 100 100 100)
+set(m7_expected_ys 139 139 139 139 138 20 19 60
+    110 40 40 40 20 99 100 20)
+foreach(i RANGE 0 15)
+  list(GET m7_expected_names ${i} m7_expected_name)
+  list(GET m7_expected_xs ${i} m7_expected_x)
+  list(GET m7_expected_ys ${i} m7_expected_y)
+  foreach(field IN ITEMS name x y region stroke_alpha fill_alpha)
+    string(JSON m7_wit_${field} GET "${json}"
+      rect_clip_left_original_residual_regions witnesses ${i} ${field})
+  endforeach()
+  list(FIND m7_regions "${m7_wit_region}" m7_wit_region_id)
+  string(JSON m7_nat_len LENGTH "${json}"
+    rect_clip_left_original_residual_regions witnesses ${i} native_rgb)
+  string(JSON m7_pdf_len LENGTH "${json}"
+    rect_clip_left_original_residual_regions witnesses ${i} pdfium_rgb)
+  if(NOT m7_wit_name STREQUAL m7_expected_name
+     OR NOT m7_wit_x EQUAL m7_expected_x
+     OR NOT m7_wit_y EQUAL m7_expected_y
+     OR m7_wit_region_id LESS 0
+     OR m7_wit_stroke_alpha LESS 0 OR m7_wit_stroke_alpha GREATER 255
+     OR m7_wit_fill_alpha LESS 0 OR m7_wit_fill_alpha GREATER 255
+     OR NOT m7_nat_len EQUAL 3 OR NOT m7_pdf_len EQUAL 3)
+    message(FATAL_ERROR "Original mode7 witness coordinates invalid")
+  endif()
+  foreach(ch RANGE 0 2)
+    string(JSON m7_value GET "${json}"
+      rect_clip_left_original_residual_regions witnesses ${i} native_rgb ${ch})
+    string(JSON m7_truth GET "${json}"
+      rect_clip_left_original_residual_regions witnesses ${i} pdfium_rgb ${ch})
+    if(m7_value LESS 0 OR m7_value GREATER 255
+       OR m7_truth LESS 0 OR m7_truth GREATER 255)
+      message(FATAL_ERROR "Out-of-range original mode7 RGB witness")
+    endif()
+  endforeach()
+endforeach()
+# Read-only changes cannot alter the already CI-qualified original
+# mode7 whole-page observations, nor enable a public positive.
+if(NOT left_abs_rgb_error EQUAL 2519
+   OR NOT left_changed_pixels EQUAL 516
+   OR NOT left_gross_delta64_pixels EQUAL 0
+   OR NOT left_max_channel_delta EQUAL 38
+   OR NOT left_rgb_fnv64 STREQUAL "37927e64c5916882")
+  message(FATAL_ERROR "CI-green original mode7 output changed")
+endif()
+message(STATUS
+  "jspdf-mode7-original-residual: reconciled=501832 pixels changed=${m7_total_changed} error=${m7_total_rgb} gross=${m7_total_gross} parity=false official=0")
+
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
