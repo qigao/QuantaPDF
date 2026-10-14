@@ -650,6 +650,143 @@ static int test_single_horizontal_analytic_trial(void)
     return EXIT_SUCCESS;
 }
 
+
+/* SIXTH private C11 source-Stroke trial: only quantization of already
+ * eligible single-pass 1pt horizontal INTERIOR changes, NEVER any cap,
+ * miter, repeated top trace, diagonal or vertical coverage. */
+static int test_single_horizontal_ceil_quantization_trial(void)
+{
+    const float dpis[]={72.0f,96.0f,144.0f};
+    size_t changed_total=0u;
+    for(size_t i=0u;i<3u;++i) {
+        fixture f;
+        quantapdf_ir_raster_image old={0},new_image={0},repeat={0};
+        setup(&f);
+        f.geom.dpi=dpis[i];
+        f.grid_budget.max_pixels=4000u;
+        f.grid_budget.max_rgba_bytes=16000u;
+        f.raster_budget.max_pixels=4000u;
+        f.op.value.path.options.stroke_width=1.0f;
+        f.op.value.path.command_count=2u;
+        OK(quantapdf_ir_raster_device_polyline_stroke_single_horizontal_analytic_preview_v0(
+            &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+        OK(quantapdf_ir_raster_device_polyline_stroke_single_horizontal_ceil_preview_v0(
+            &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&new_image));
+        OK(quantapdf_ir_raster_device_polyline_stroke_single_horizontal_ceil_preview_v0(
+            &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&repeat));
+        CHECK(old.size==new_image.size && old.stride==new_image.stride &&
+              new_image.size==repeat.size &&
+              memcmp(new_image.pixels,repeat.pixels,repeat.size)==0);
+        const double dx=f.geom.page_width_points/(double)new_image.width;
+        const double dy=f.geom.page_height_points/(double)new_image.height;
+        const size_t center_x=(size_t)floor(10.0/dx);
+        size_t changes=0u;
+        for(size_t y=0u;y<new_image.height;++y) {
+            const double y0=(double)y*dy;
+            const double y1=((double)y+1.0)*dy;
+            const double shared=fmax(0.0,fmin(y1,8.5)-fmax(y0,7.5));
+            const double coverage=fmin(1.0,shared/dy);
+            const unsigned old_expected=
+                (unsigned)floor(255.0*coverage+0.5);
+            const unsigned new_expected=
+                (unsigned)ceil(255.0*coverage);
+            CHECK(alpha(&old,center_x,y)==old_expected);
+            CHECK(alpha(&new_image,center_x,y)==new_expected);
+            CHECK(new_expected>=old_expected &&
+                  new_expected<=old_expected+1u);
+        }
+        for(size_t y=0u;y<new_image.height;++y)
+            for(size_t x=0u;x<new_image.width;++x) {
+                const size_t off=y*new_image.stride+x*4u;
+                const unsigned oa=old.pixels[off+3u];
+                const unsigned na=new_image.pixels[off+3u];
+                CHECK(memcmp(old.pixels+off,new_image.pixels+off,3u)==0);
+                CHECK(na>=oa && na<=oa+1u);
+                if(na!=oa) {
+                    const double x0=(double)x*dx;
+                    const double x1=((double)x+1.0)*dx;
+                    const double y0=(double)y*dy;
+                    const double y1=((double)y+1.0)*dy;
+                    const double guard=0.5+dx;
+                    CHECK(x0>2.0+guard && x1<20.0-guard);
+                    CHECK(y0<8.5 && y1>7.5);
+                    ++changes;
+                }
+            }
+        /* Different original grid phases can have integral coverage;
+         * 96dpi legitimately has no ceil-vs-round difference here. */
+        if(dpis[i]!=96.0f)CHECK(changes>0u);
+        changed_total+=changes;
+        quantapdf_ir_raster_image_dispose(&repeat);
+        quantapdf_ir_raster_image_dispose(&new_image);
+        quantapdf_ir_raster_image_dispose(&old);
+    }
+    CHECK(changed_total>0u);
+    fixture f;
+    quantapdf_ir_raster_image old={0},candidate={0};
+    /* Repeated source top horizontal: NEVER ceil-paint or amplify. */
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=4u;
+    f.cmds[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[2].point1=(quantapdf_point){2.0f,8.0f};
+    f.cmds[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[3].point1=(quantapdf_point){20.0f,8.0f};
+    OK(quantapdf_ir_raster_device_polyline_stroke_single_horizontal_analytic_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_single_horizontal_ceil_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&candidate));
+    CHECK(old.size==candidate.size &&
+          memcmp(old.pixels,candidate.pixels,old.size)==0);
+    quantapdf_ir_raster_image_dispose(&candidate);
+    quantapdf_ir_raster_image_dispose(&old);
+    /* Isolated source vertical retains the exact mode5 analytic strip. */
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=2u;
+    f.cmds[0].point1=(quantapdf_point){20.0f,3.0f};
+    f.cmds[1].point1=(quantapdf_point){20.0f,20.0f};
+    OK(quantapdf_ir_raster_device_polyline_stroke_single_horizontal_analytic_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_single_horizontal_ceil_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&candidate));
+    CHECK(old.size==candidate.size &&
+          memcmp(old.pixels,candidate.pixels,old.size)==0);
+    quantapdf_ir_raster_image_dispose(&candidate);
+    quantapdf_ir_raster_image_dispose(&old);
+    /* Any diagonal edge in source Path suppresses BOTH narrow trials. */
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=3u;
+    f.cmds[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[2].point1=(quantapdf_point){22.0f,10.0f};
+    OK(quantapdf_ir_raster_device_polyline_stroke_single_horizontal_analytic_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_single_horizontal_ceil_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&candidate));
+    CHECK(old.size==candidate.size &&
+          memcmp(old.pixels,candidate.pixels,old.size)==0);
+    quantapdf_ir_raster_image_dispose(&candidate);
+    quantapdf_ir_raster_image_dispose(&old);
+    /* Mode5 count*5 budget = 66,000 < 70,000; mode6 count*6 =
+     * 79,200 > 70,000. Refusal publishes ZERO partial RGBA. */
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=2u;
+    f.grid_budget.max_sample_tests=70000u;
+    f.raster_budget.max_sample_tests=70000u;
+    OK(quantapdf_ir_raster_device_polyline_stroke_single_horizontal_analytic_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    quantapdf_ir_raster_image_dispose(&old);
+    memset(&candidate,0xa5,sizeof(candidate));
+    BAD(quantapdf_ir_raster_device_polyline_stroke_single_horizontal_ceil_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&candidate));
+    CHECK(candidate.pixels==NULL && candidate.size==0u &&
+          candidate.stride==0u && candidate.width==0u &&
+          candidate.height==0u);
+    return EXIT_SUCCESS;
+}
+
 static int test_pixel_width_and_rejections(void)
 {
     fixture f;
@@ -702,6 +839,7 @@ int main(void)
     CHECK(test_repeated_right_down_corner_trial()==EXIT_SUCCESS);
     CHECK(test_single_vertical_analytic_trial()==EXIT_SUCCESS);
     CHECK(test_single_horizontal_analytic_trial()==EXIT_SUCCESS);
+    CHECK(test_single_horizontal_ceil_quantization_trial()==EXIT_SUCCESS);
     CHECK(test_pixel_width_and_rejections()==EXIT_SUCCESS);
     puts("native-device-polyline-stroke: butt+miter+bevel+union+limits PASS");
     return EXIT_SUCCESS;
