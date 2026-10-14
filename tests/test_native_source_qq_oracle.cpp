@@ -2272,6 +2272,41 @@ int test_external_jspdf_single_vertical_analytic_ab(
                     ++adjacent_rgb_outside;
         }
     }
+    /* TEST-ONLY: print genuine candidate changes BEFORE enforcing the
+     * narrow source A/B isolation gate, including negative trial evidence.
+     * No reference truth or device coordinates enter any C11 raster path. */
+    std::fprintf(stderr,
+        "[original source mode10 isolation-before-gate] "
+        "changed=%zu outside=%zu delta_gt64=%zu rgb_outside=%zu "
+        "parent_abs=%llu candidate_abs=%llu parent_mismatch=%zu "
+        "candidate_mismatch=%zu max=%u fnv=%016llx\n",
+        adjacent_source_alpha_changes,adjacent_outside,
+        adjacent_alpha_gt64,adjacent_rgb_outside,
+        (unsigned long long)miter_floor_metric.abs_rgb,
+        (unsigned long long)adjacent_floor_metric.abs_rgb,
+        miter_floor_metric.changed,adjacent_floor_metric.changed,
+        adjacent_floor_metric.max_delta,
+        (unsigned long long)adjacent_floor_metric.fnv);
+    size_t mode10_debug_n=0u;
+    for(size_t debug_y=0u;debug_y<842u;++debug_y)
+        for(size_t debug_x=0u;debug_x<596u;++debug_x) {
+            const size_t pos=debug_y*adjacent_stroke.stride+debug_x*4u;
+            const unsigned previous=miter_stroke.pixels[pos+3u];
+            const unsigned candidate=adjacent_stroke.pixels[pos+3u];
+            if(previous==candidate)continue;
+            if(mode10_debug_n++>=32u)continue;
+            const unsigned char *reference_pixel=reference.at(debug_x,debug_y);
+            const unsigned char *trial_pixel=adjacent_floor.pixels+pos;
+            std::fprintf(stderr,
+                "[original source mode10 alpha delta] (%zu,%zu) %u -> %u "
+                "C11=(%u,%u,%u) PDFium=(%u,%u,%u)\n",
+                debug_x,debug_y,previous,candidate,
+                (unsigned)trial_pixel[0],(unsigned)trial_pixel[1],
+                (unsigned)trial_pixel[2],
+                (unsigned)reference_pixel[0],
+                (unsigned)reference_pixel[1],
+                (unsigned)reference_pixel[2]);
+        }
     CHECK(adjacent_source_alpha_changes>0u && adjacent_outside==0u &&
           adjacent_alpha_gt64==0u && adjacent_rgb_outside==0u);
     std::fprintf(stderr,
