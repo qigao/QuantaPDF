@@ -716,6 +716,175 @@ endif()
 message(STATUS
   "jspdf-upper-horizontal-lsb: baseline_rgb=${bottom_abs_rgb_error} global_ceil_rgb=${ceil_abs_rgb_error} upper_rgb=${upper_abs_rgb_error} upper_changed=${upper_changed_pixels} alpha_changed=${upper_source_alpha_changed_pixels} official=0 parity=false")
 
+
+# ELEVENTH-stage READ-ONLY original-PDF effect attribution AFTER exact
+# CI-qualified source horizontal upper-side +1 Stroke. Both previous
+# mode8 (source Fill-bottom) and current mode9 full-page residuals must
+# reconstruct from the same 16 disjoint pinned-source report categories.
+string(JSON post_schema GET "${json}" stroke_upper_original_residual_regions schema_version)
+string(JSON post_observe GET "${json}" stroke_upper_original_residual_regions observation_only)
+string(JSON post_parity GET "${json}" stroke_upper_original_residual_regions pixel_parity_qualified)
+string(JSON post_reconciled GET "${json}" stroke_upper_original_residual_regions full_original_reconciled)
+string(JSON post_count LENGTH "${json}" stroke_upper_original_residual_regions regions)
+string(JSON post_worst_count LENGTH "${json}" stroke_upper_original_residual_regions worst_pixels)
+string(JSON post_witness_count LENGTH "${json}" stroke_upper_original_residual_regions witnesses)
+if(NOT post_schema EQUAL 1 OR NOT post_observe OR post_parity OR
+   NOT post_reconciled OR NOT post_count EQUAL 16 OR
+   post_worst_count LESS 1 OR post_worst_count GREATER 16 OR
+   NOT post_witness_count EQUAL 16)
+  message(FATAL_ERROR "Missing or overstated accepted mode9 source-region audit")
+endif()
+set(post_regions bottom_left_endpoint bottom_right_endpoint
+    bottom_single_horizontal_interior
+    top_repeated_left_endpoint top_repeated_right_endpoint
+    top_repeated_horizontal_interior
+    right_vertical_stroke left_vertical_below_red
+    red_left_w_clip_stroke_overlap red_left_w_clip_only
+    red_right_fill_boundary red_top_right_coupled_corner
+    red_top_stroke_overlap red_fill_bottom_edge
+    red_bottom_uncovered_fringe other)
+set(post_pixels 0)
+set(post_old_changed 0)
+set(post_changed 0)
+set(post_gross 0)
+set(post_old_error 0)
+set(post_error 0)
+set(post_brighter 0)
+set(post_darker 0)
+set(post_max 0)
+foreach(region IN LISTS post_regions)
+  foreach(field IN ITEMS pixels old_changed changed gross old_rgb_error
+      abs_rgb_error brighter_rgb_error darker_rgb_error
+      max_channel_delta worst_x worst_y)
+    string(JSON value_${field} GET "${json}"
+      stroke_upper_original_residual_regions regions ${region} ${field})
+  endforeach()
+  math(EXPR signed_error "${value_brighter_rgb_error}+${value_darker_rgb_error}")
+  if(value_pixels LESS 0 OR value_pixels GREATER 501832
+     OR value_old_changed LESS 0 OR value_old_changed GREATER value_pixels
+     OR value_changed LESS 0 OR value_changed GREATER value_pixels
+     OR value_gross LESS 0 OR value_gross GREATER value_changed
+     OR value_old_rgb_error LESS 0 OR value_old_rgb_error GREATER 383901480
+     OR value_abs_rgb_error LESS 0 OR value_abs_rgb_error GREATER 383901480
+     OR NOT signed_error EQUAL value_abs_rgb_error
+     OR value_max_channel_delta LESS 0 OR value_max_channel_delta GREATER 255
+     OR value_worst_x LESS 0 OR value_worst_x GREATER 595
+     OR value_worst_y LESS 0 OR value_worst_y GREATER 841)
+    message(FATAL_ERROR "Original source effect-group counters out of bounds")
+  endif()
+  math(EXPR post_pixels "${post_pixels}+${value_pixels}")
+  math(EXPR post_old_changed "${post_old_changed}+${value_old_changed}")
+  math(EXPR post_changed "${post_changed}+${value_changed}")
+  math(EXPR post_gross "${post_gross}+${value_gross}")
+  math(EXPR post_old_error "${post_old_error}+${value_old_rgb_error}")
+  math(EXPR post_error "${post_error}+${value_abs_rgb_error}")
+  math(EXPR post_brighter "${post_brighter}+${value_brighter_rgb_error}")
+  math(EXPR post_darker "${post_darker}+${value_darker_rgb_error}")
+  if(value_max_channel_delta GREATER post_max)
+    set(post_max "${value_max_channel_delta}")
+  endif()
+endforeach()
+math(EXPR post_signed "${post_brighter}+${post_darker}")
+if(NOT post_pixels EQUAL 501832
+   OR NOT post_old_changed EQUAL bottom_changed_pixels
+   OR NOT post_changed EQUAL upper_changed_pixels
+   OR NOT post_gross EQUAL upper_gross_delta64_pixels
+   OR NOT post_old_error EQUAL bottom_abs_rgb_error
+   OR NOT post_error EQUAL upper_abs_rgb_error
+   OR NOT post_signed EQUAL upper_abs_rgb_error
+   OR NOT post_max EQUAL upper_max_channel_delta)
+  message(FATAL_ERROR "Post-mode9 source-effect totals mismatch original full page")
+endif()
+string(JSON leading GET "${json}"
+    stroke_upper_original_residual_regions worst_pixels 0 max_channel_delta)
+if(NOT leading EQUAL upper_max_channel_delta)
+  message(FATAL_ERROR "Original mode9 worst mismatch exceeds reconstructed max")
+endif()
+set(prev_max 256)
+math(EXPR last_worst "${post_worst_count}-1")
+foreach(i RANGE 0 ${last_worst})
+  foreach(field IN ITEMS x y region max_channel_delta rgb_error
+      stroke_alpha fill_alpha)
+    string(JSON site_${field} GET "${json}"
+      stroke_upper_original_residual_regions worst_pixels ${i} ${field})
+  endforeach()
+  list(FIND post_regions "${site_region}" site_id)
+  string(JSON rgb_native_len LENGTH "${json}"
+    stroke_upper_original_residual_regions worst_pixels ${i} native_rgb)
+  string(JSON rgb_oracle_len LENGTH "${json}"
+    stroke_upper_original_residual_regions worst_pixels ${i} pdfium_rgb)
+  if(site_id LESS 0
+     OR site_x LESS 0 OR site_x GREATER 595
+     OR site_y LESS 0 OR site_y GREATER 841
+     OR site_max_channel_delta LESS 1
+     OR site_max_channel_delta GREATER prev_max
+     OR site_rgb_error LESS site_max_channel_delta
+     OR site_rgb_error GREATER 765
+     OR site_stroke_alpha LESS 0 OR site_stroke_alpha GREATER 255
+     OR site_fill_alpha LESS 0 OR site_fill_alpha GREATER 255
+     OR NOT rgb_native_len EQUAL 3 OR NOT rgb_oracle_len EQUAL 3)
+    message(FATAL_ERROR "Malformed ranked original mode9 pixel witness")
+  endif()
+  set(prev_max "${site_max_channel_delta}")
+endforeach()
+set(post_witness_names bottom_outer_left bottom_left_join
+    bottom_interior bottom_right_join bottom_right_upper
+    top_outer_left top_right_corner right_vertical
+    left_vertical_lower red_left_overlap left_outer_stroke
+    red_right red_top_right_corner red_bottom_interior
+    red_bottom_fringe red_top_interior)
+set(post_witness_xs 49 50 100 250 250 49 250 250
+    50 50 49 150 150 100 100 100)
+set(post_witness_ys 139 139 139 139 138 20 19 60
+    110 40 40 40 20 99 100 20)
+foreach(i RANGE 0 15)
+  list(GET post_witness_names ${i} expect_name)
+  list(GET post_witness_xs ${i} expect_x)
+  list(GET post_witness_ys ${i} expect_y)
+  foreach(field IN ITEMS name x y region old_stroke_alpha
+      stroke_alpha fill_alpha)
+    string(JSON w_${field} GET "${json}"
+      stroke_upper_original_residual_regions witnesses ${i} ${field})
+  endforeach()
+  list(FIND post_regions "${w_region}" post_id)
+  string(JSON old_rgb_len LENGTH "${json}"
+    stroke_upper_original_residual_regions witnesses ${i} baseline_rgb)
+  string(JSON new_rgb_len LENGTH "${json}"
+    stroke_upper_original_residual_regions witnesses ${i} native_rgb)
+  string(JSON oracle_rgb_len LENGTH "${json}"
+    stroke_upper_original_residual_regions witnesses ${i} pdfium_rgb)
+  if(NOT w_name STREQUAL expect_name OR NOT w_x EQUAL expect_x
+     OR NOT w_y EQUAL expect_y OR post_id LESS 0
+     OR w_old_stroke_alpha LESS 0 OR w_old_stroke_alpha GREATER 255
+     OR w_stroke_alpha LESS 0 OR w_stroke_alpha GREATER 255
+     OR w_fill_alpha LESS 0 OR w_fill_alpha GREATER 255
+     OR NOT old_rgb_len EQUAL 3 OR NOT new_rgb_len EQUAL 3
+     OR NOT oracle_rgb_len EQUAL 3)
+    message(FATAL_ERROR "Original source region witness coordinates or alpha invalid")
+  endif()
+  foreach(ch RANGE 0 2)
+    string(JSON oldval GET "${json}" stroke_upper_original_residual_regions witnesses ${i} baseline_rgb ${ch})
+    string(JSON newval GET "${json}" stroke_upper_original_residual_regions witnesses ${i} native_rgb ${ch})
+    string(JSON oracleval GET "${json}" stroke_upper_original_residual_regions witnesses ${i} pdfium_rgb ${ch})
+    if(oldval LESS 0 OR oldval GREATER 255 OR
+       newval LESS 0 OR newval GREATER 255 OR
+       oracleval LESS 0 OR oracleval GREATER 255)
+      message(FATAL_ERROR "Malformed old/new/original source-pixel RGB")
+    endif()
+  endforeach()
+endforeach()
+# This branch has NO new implementation or mode switch. All earlier
+# accepted image fingerprints must be byte-stable at exact HEAD.
+if(NOT upper_abs_rgb_error EQUAL 1349
+   OR NOT upper_changed_pixels EQUAL 223
+   OR NOT upper_gross_delta64_pixels EQUAL 0
+   OR NOT upper_max_channel_delta EQUAL 38
+   OR NOT upper_rgb_fnv64 STREQUAL "04d883c87f2ec8bc")
+  message(FATAL_ERROR "CI-qualified mode9 original-source output changed")
+endif()
+message(STATUS
+  "jspdf-mode9-effect-audit: pixels=${post_pixels} old_error=${post_old_error} accepted_error=${post_error} remaining=${post_changed} parity=false official=0")
+
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
