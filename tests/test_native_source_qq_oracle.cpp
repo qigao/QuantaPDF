@@ -2260,8 +2260,17 @@ int test_external_jspdf_single_vertical_analytic_ab(
         CHECK(adjacent_floor.pixels[off+3u]==255u);
         if(old_alpha!=new_alpha) {
             ++adjacent_source_alpha_changes;
-            if(!(y>=137u && y<=141u &&
-                ((x>=47u && x<=53u) || (x>=247u && x<=253u))))
+            /* The untouched original has orthogonal joins at both the
+             * upper and lower ends. The repeated upper horizontal lies
+             * above row 21; its expanded Stroke does NOT reach that row,
+             * so mode10 may legitimately correct the adjoining vertical
+             * strip there. These windows isolate TEST pixels only; the
+             * renderer uses actual source edge topology, never coordinates. */
+            const bool endpoint_x=(x>=47u && x<=53u) ||
+                                  (x>=247u && x<=253u);
+            const bool lower_joint=(y>=137u && y<=141u);
+            const bool upper_joint=(y>=19u && y<=23u);
+            if(!(endpoint_x && (lower_joint || upper_joint)))
                 ++adjacent_outside;
             const unsigned d=old_alpha>new_alpha?
                 old_alpha-new_alpha:new_alpha-old_alpha;
@@ -2287,26 +2296,29 @@ int test_external_jspdf_single_vertical_analytic_ab(
         miter_floor_metric.changed,adjacent_floor_metric.changed,
         adjacent_floor_metric.max_delta,
         (unsigned long long)adjacent_floor_metric.fnv);
-    size_t mode10_debug_n=0u;
-    for(size_t debug_y=0u;debug_y<842u;++debug_y)
-        for(size_t debug_x=0u;debug_x<596u;++debug_x) {
-            const size_t pos=debug_y*adjacent_stroke.stride+debug_x*4u;
-            const unsigned previous=miter_stroke.pixels[pos+3u];
-            const unsigned candidate=adjacent_stroke.pixels[pos+3u];
-            if(previous==candidate)continue;
-            if(mode10_debug_n++>=32u)continue;
-            const unsigned char *reference_pixel=reference.at(debug_x,debug_y);
-            const unsigned char *trial_pixel=adjacent_floor.pixels+pos;
-            std::fprintf(stderr,
-                "[original source mode10 alpha delta] (%zu,%zu) %u -> %u "
-                "C11=(%u,%u,%u) PDFium=(%u,%u,%u)\n",
-                debug_x,debug_y,previous,candidate,
-                (unsigned)trial_pixel[0],(unsigned)trial_pixel[1],
-                (unsigned)trial_pixel[2],
-                (unsigned)reference_pixel[0],
-                (unsigned)reference_pixel[1],
-                (unsigned)reference_pixel[2]);
-        }
+    if(adjacent_source_alpha_changes==0u || adjacent_outside!=0u ||
+       adjacent_alpha_gt64!=0u || adjacent_rgb_outside!=0u) {
+        size_t mode10_debug_n=0u;
+        for(size_t debug_y=0u;debug_y<842u;++debug_y)
+            for(size_t debug_x=0u;debug_x<596u;++debug_x) {
+                const size_t pos=debug_y*adjacent_stroke.stride+debug_x*4u;
+                const unsigned previous=miter_stroke.pixels[pos+3u];
+                const unsigned candidate=adjacent_stroke.pixels[pos+3u];
+                if(previous==candidate)continue;
+                if(mode10_debug_n++>=32u)continue;
+                const unsigned char *reference_pixel=reference.at(debug_x,debug_y);
+                const unsigned char *trial_pixel=adjacent_floor.pixels+pos;
+                std::fprintf(stderr,
+                    "[original source mode10 alpha delta] (%zu,%zu) %u -> %u "
+                    "C11=(%u,%u,%u) PDFium=(%u,%u,%u)\n",
+                    debug_x,debug_y,previous,candidate,
+                    (unsigned)trial_pixel[0],(unsigned)trial_pixel[1],
+                    (unsigned)trial_pixel[2],
+                    (unsigned)reference_pixel[0],
+                    (unsigned)reference_pixel[1],
+                    (unsigned)reference_pixel[2]);
+            }
+    }
     CHECK(adjacent_source_alpha_changes>0u && adjacent_outside==0u &&
           adjacent_alpha_gt64==0u && adjacent_rgb_outside==0u);
     std::fprintf(stderr,
