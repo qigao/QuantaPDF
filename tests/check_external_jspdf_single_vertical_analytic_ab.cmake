@@ -1118,6 +1118,39 @@ if(NOT sum_pixel EQUAL aud_total OR NOT sum_changed EQUAL aud_changed
 endif()
 message(STATUS
   "jspdf-post-corner-original-audit: pixels=${aud_total} residual=${aud_changed} error=${aud_error} parity=false official=0")
+# Sixteenth independent REAL original-page A/B: the same source Q8 miter
+# union, selectively admitting exact overlapping horizontal retraces.
+# Source geometry alone controls eligibility; no improvement threshold.
+if(NOT corner_abs_rgb_error EQUAL 143
+   OR NOT corner_changed_pixels EQUAL 8
+   OR NOT corner_gross_delta64_pixels EQUAL 0
+   OR NOT corner_max_channel_delta EQUAL 15
+   OR NOT corner_rgb_fnv64 STREQUAL "5dff11faa26ac6c2")
+  message(FATAL_ERROR "Previously qualified Q8 Fill/W top corner changed")
+endif()
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_alpha_changes outside_top alpha_delta_gt128
+    rgb_outside_alpha abs_rgb_error mean_abs_rgb_error changed_pixels
+    gross_delta64_pixels max_channel_delta rgb_fnv64)
+  string(JSON rt_${field} GET "${json}" retrace_top_${field})
+endforeach()
+string(LENGTH "${rt_rgb_fnv64}" rt_hashlen)
+if(NOT rt_status STREQUAL "measured_unqualified"
+   OR rt_default_changed OR rt_pixel_parity_qualified OR NOT rt_repeat_equal
+   OR rt_source_alpha_changes LESS 0 OR rt_source_alpha_changes GREATER 50
+   OR NOT rt_outside_top EQUAL 0 OR NOT rt_alpha_delta_gt128 EQUAL 0
+   OR NOT rt_rgb_outside_alpha EQUAL 0
+   OR rt_abs_rgb_error LESS 0 OR rt_abs_rgb_error GREATER 383901480
+   OR rt_mean_abs_rgb_error LESS 0 OR rt_mean_abs_rgb_error GREATER 255
+   OR rt_changed_pixels LESS 0 OR rt_changed_pixels GREATER 501832
+   OR rt_gross_delta64_pixels LESS 0
+   OR rt_gross_delta64_pixels GREATER rt_changed_pixels
+   OR rt_max_channel_delta LESS 0 OR rt_max_channel_delta GREATER 255
+   OR NOT rt_hashlen EQUAL 16 OR NOT rt_rgb_fnv64 MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "Repeated upper-Q8 source geometry A/B escaped scope")
+endif()
+message(STATUS
+  "jspdf-q8-retraced-top: parent_rgb=${corner_abs_rgb_error} trial_rgb=${rt_abs_rgb_error} parent_mismatch=${corner_changed_pixels} trial_mismatch=${rt_changed_pixels} source_alpha_changes=${rt_source_alpha_changes} parity=false official=0")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
