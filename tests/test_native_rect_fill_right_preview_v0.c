@@ -111,6 +111,8 @@ static unsigned alpha(const quantapdf_ir_raster_image *im,
     &(f).ir,0u,&(f).geometry,&(f).grid_budget,&(f).raster_budget,&(o))
 #define UPPER_RIGHT_Q8(f,o) quantapdf_ir_raster_rect_fill_upper_right_q8_preview_v0( \
     &(f).ir,0u,&(f).geometry,&(f).grid_budget,&(f).raster_budget,&(o))
+#define BOTTOM_FULL_Q8(f,o) quantapdf_ir_raster_rect_fill_bottom_full_q8_cells_preview_v0( \
+    &(f).ir,0u,&(f).geometry,&(f).grid_budget,&(f).raster_budget,&(o))
 
 static int test_analytic_edge_and_repeat(void)
 {
@@ -492,6 +494,79 @@ static int test_upper_right_q8_corner(void)
     return EXIT_SUCCESS;
 }
 
+
+/* Tenth independent PRIVATE pure-C11 source Fill-bottom Q8-full-X-cell
+ * trial. The source left W and right Fill edges admit X cells wholly
+ * inside their intersection, without introducing fractional corner AA. */
+static int test_bottom_full_q8_cells(void)
+{
+    fixture f;
+    quantapdf_ir_raster_image prior={0},trial={0},repeat={0};
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    OK(UPPER_RIGHT_Q8(f,prior));
+    OK(BOTTOM_FULL_Q8(f,trial));
+    OK(BOTTOM_FULL_Q8(f,repeat));
+    CHECK(prior.pixels && trial.pixels && repeat.pixels &&
+          prior.size==trial.size && trial.size==repeat.size &&
+          memcmp(trial.pixels,repeat.pixels,trial.size)==0);
+    const double dy=24.75/25.0;
+    const double row0=15.0*dy,row1=16.0*dy;
+    const double bottom=(double)14.9f;
+    CHECK(row0<bottom && bottom<row1);
+    const unsigned expected=(unsigned)floor(
+        255.0*(bottom-row0)/(row1-row0)+0.5);
+    CHECK(expected>0u && expected<255u);
+    CHECK(alpha(&prior,6u,15u)==0u && alpha(&prior,14u,15u)==0u);
+    CHECK(alpha(&trial,6u,15u)==expected &&
+          alpha(&trial,14u,15u)==expected);
+    CHECK(alpha(&trial,5u,15u)==alpha(&prior,5u,15u) &&
+          alpha(&trial,15u,15u)==alpha(&prior,15u,15u));
+    CHECK(alpha(&trial,15u,2u)==alpha(&prior,15u,2u));
+    size_t differences=0u;
+    for(size_t y=0u;y<trial.height;++y)
+        for(size_t x=0u;x<trial.width;++x) {
+            const size_t off=y*trial.stride+x*4u;
+            if(memcmp(prior.pixels+off,trial.pixels+off,4u)==0)
+                continue;
+            CHECK(y==15u && (x==6u || x==14u));
+            CHECK(prior.pixels[off]==0u && prior.pixels[off+1u]==0u &&
+                  prior.pixels[off+2u]==0u && prior.pixels[off+3u]==0u);
+            CHECK(trial.pixels[off]==255u &&
+                  trial.pixels[off+1u]==0u &&
+                  trial.pixels[off+2u]==0u &&
+                  trial.pixels[off+3u]==expected);
+            ++differences;
+        }
+    CHECK(differences==2u);
+    quantapdf_ir_raster_image_dispose(&repeat);
+    quantapdf_ir_raster_image_dispose(&trial);
+    quantapdf_ir_raster_image_dispose(&prior);
+
+    /* Budget admits mode9 12×13,200=158,400 but refuses mode10
+     * 13×13,200=171,600 at the separate 165K work cap. */
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    f.grid_budget.max_sample_tests=165000u;
+    f.raster_budget.max_sample_tests=165000u;
+    OK(UPPER_RIGHT_Q8(f,prior));
+    quantapdf_ir_raster_image_dispose(&prior);
+    REFUSE(BOTTOM_FULL_Q8(f,result));
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    f.clip.fill_rule=QUANTAPDF_COMPOSER_FILL_EVEN_ODD;
+    REFUSE(BOTTOM_FULL_Q8(f,result));
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    f.op.value.path.options.transform.a=2.0f;
+    REFUSE(BOTTOM_FULL_Q8(f,result));
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    f.mask[2].point1.x=21.0f;
+    REFUSE(BOTTOM_FULL_Q8(f,result));
+    return EXIT_SUCCESS;
+}
+
 static int test_fail_closed(void)
 {
     fixture f;
@@ -530,6 +605,7 @@ int main(void)
     CHECK(test_bottom_faint_fringe()==EXIT_SUCCESS);
     CHECK(test_bottom_retraces_and_refusal()==EXIT_SUCCESS);
     CHECK(test_upper_right_q8_corner()==EXIT_SUCCESS);
+    CHECK(test_bottom_full_q8_cells()==EXIT_SUCCESS);
     CHECK(test_fail_closed()==EXIT_SUCCESS);
     puts("native-rect-fill-right-private-A/B: geometry, repeat, fail-closed PASS");
     return EXIT_SUCCESS;
