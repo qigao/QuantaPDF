@@ -156,6 +156,19 @@ quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
     const quantapdf_ir_raster_v1_limits *raster_limits,
     quantapdf_ir_raster_image *out_image);
 
+/* ELEVENTH PRIVATE source-geometry A/B. Retain exact mode10 Q8 and
+ * allow only true VH orthogonal-miter joints with another exact
+ * same-Y, same-endpoint H retrace in the single owned source Stroke.
+ * Count that coincident line once, preserving zero-output refusal for
+ * any distinct overlapping source edge. No public SDK or ABI export. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_q8_retraced_vh_join_preview_v0(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

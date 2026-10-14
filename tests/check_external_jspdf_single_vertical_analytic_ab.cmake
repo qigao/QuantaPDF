@@ -1063,6 +1063,50 @@ if(NOT corner_status STREQUAL "measured_unqualified"
 endif()
 message(STATUS
   "jspdf-q8-upper-right-fill-corner: parent_rgb=${neighbor_abs_rgb_error} trial_rgb=${corner_abs_rgb_error} parent_changed=${neighbor_changed_pixels} trial_changed=${corner_changed_pixels} source_alpha_changes=${corner_source_alpha_changed_pixels} parity=false official=0")
+# SIXTEENTH independent PRIVATE original-source Stroke Q8 retrace test.
+# Freeze #308 successfully qualified four-platform Fill corner baseline.
+if(NOT corner_abs_rgb_error EQUAL 143
+   OR NOT corner_changed_pixels EQUAL 8
+   OR NOT corner_gross_delta64_pixels EQUAL 0
+   OR NOT corner_max_channel_delta EQUAL 15
+   OR NOT corner_rgb_fnv64 STREQUAL "5dff11faa26ac6c2")
+  message(FATAL_ERROR "Parent #308 native-image baseline mutated")
+endif()
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_alpha_changed_pixels outside_top_left_join
+    alpha_delta_gt64_pixels rgb_outside_source_alpha
+    rgba_abs_rgb_error rgba_changed_pixels rgba_fnv64
+    abs_rgb_error mean_abs_rgb_error changed_pixels
+    gross_delta64_pixels max_channel_delta rgb_fnv64)
+  string(JSON vh_${field} GET "${json}" retrace_vh_${field})
+endforeach()
+string(LENGTH "${vh_rgb_fnv64}" vh_hashlen)
+string(LENGTH "${vh_rgba_fnv64}" vh_rgba_hashlen)
+if(NOT vh_status STREQUAL "measured_unqualified"
+   OR vh_default_changed OR vh_pixel_parity_qualified
+   OR NOT vh_repeat_equal
+   OR vh_source_alpha_changed_pixels LESS 1
+   OR vh_source_alpha_changed_pixels GREATER 25
+   OR NOT vh_outside_top_left_join EQUAL 0
+   OR NOT vh_alpha_delta_gt64_pixels EQUAL 0
+   OR NOT vh_rgb_outside_source_alpha EQUAL 0
+   OR vh_rgba_abs_rgb_error LESS 0
+   OR vh_rgba_abs_rgb_error GREATER 383901480
+   OR vh_rgba_changed_pixels LESS 0 OR vh_rgba_changed_pixels GREATER 501832
+   OR NOT vh_rgba_hashlen EQUAL 16
+   OR NOT vh_rgba_fnv64 MATCHES "^[0-9a-f]+$"
+   OR vh_abs_rgb_error LESS 0 OR vh_abs_rgb_error GREATER 383901480
+   OR vh_mean_abs_rgb_error LESS 0 OR vh_mean_abs_rgb_error GREATER 255
+   OR vh_changed_pixels LESS 0 OR vh_changed_pixels GREATER 501832
+   OR vh_gross_delta64_pixels LESS 0
+   OR vh_gross_delta64_pixels GREATER vh_changed_pixels
+   OR vh_max_channel_delta LESS 0 OR vh_max_channel_delta GREATER 255
+   OR NOT vh_hashlen EQUAL 16
+   OR NOT vh_rgb_fnv64 MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "Source retraced VH Q8 trial escaped bounded A/B")
+endif()
+message(STATUS
+  "jspdf-q8-retraced-vh: parent_rgb=${corner_abs_rgb_error} trial_rgb=${vh_abs_rgb_error} parent_mismatch=${corner_changed_pixels} trial_mismatch=${vh_changed_pixels} alpha_changes=${vh_source_alpha_changed_pixels} official=0 parity=false")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")

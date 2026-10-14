@@ -1228,6 +1228,116 @@ static int test_q8_miter_adjacent_device_cells_trial(void)
     return EXIT_SUCCESS;
 }
 
+
+/* ELEVENTH private C11 Q8 source-retrace test. One VH 90-degree join
+ * plus exact collinear horizontal retrace belongs to one source Stroke.
+ * It is NOT two independently composited paints. No PDFium oracle. */
+static int test_q8_retraced_vh_join_trial(void)
+{
+    fixture f;
+    quantapdf_ir_raster_image old={0},trial={0},again={0};
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=4u;
+    f.cmds[0].point1=(quantapdf_point){20.0f,20.0f};
+    f.cmds[1].point1=(quantapdf_point){20.0f,8.0f};
+    f.cmds[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[2].point1=(quantapdf_point){30.0f,8.0f};
+    f.cmds[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[3].point1=(quantapdf_point){20.0f,8.0f};
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_retraced_vh_join_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_retraced_vh_join_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&again));
+    CHECK(old.pixels && trial.pixels && again.pixels &&
+          old.size==trial.size && trial.size==again.size &&
+          memcmp(trial.pixels,again.pixels,trial.size)==0);
+    size_t changed=0u,escaped=0u;
+    const double dx=f.geom.page_width_points/(double)trial.width;
+    const double dy=f.geom.page_height_points/(double)trial.height;
+    for(size_t y=0u;y<trial.height;++y)
+        for(size_t x=0u;x<trial.width;++x) {
+            const size_t off=y*trial.stride+x*4u;
+            CHECK(memcmp(old.pixels+off,trial.pixels+off,3u)==0);
+            if(old.pixels[off+3u]!=trial.pixels[off+3u]) {
+                const double x0=(double)x*dx,x1=((double)x+1.0)*dx;
+                const double y0=(double)y*dy,y1=((double)y+1.0)*dy;
+                ++changed;
+                if(!(x0<20.5+2.0*dx && x1>19.5-2.0*dx &&
+                     y0<8.5+dy && y1>7.5-dy))
+                    ++escaped;
+            }
+        }
+    CHECK(changed>0u && escaped==0u);
+    /* The genuine repeated H interior remains governed by the older
+     * mode10 winding/coverage rule, never an isolated VH miter area. */
+    CHECK(alpha(&trial,(size_t)floor(24.0/dx),(size_t)floor(8.0/dy))==
+          alpha(&old,(size_t)floor(24.0/dx),(size_t)floor(8.0/dy)));
+    quantapdf_ir_raster_image_dispose(&again);
+    quantapdf_ir_raster_image_dispose(&trial);
+    quantapdf_ir_raster_image_dispose(&old);
+
+    /* A similarly positioned THIRD stroke without identical endpoints
+     * is independent source geometry and must NOT be ignored. */
+    f.cmds[3].point1=(quantapdf_point){21.0f,8.0f};
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_retraced_vh_join_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+    CHECK(old.size==trial.size &&
+          memcmp(old.pixels,trial.pixels,old.size)==0);
+    quantapdf_ir_raster_image_dispose(&trial);
+    quantapdf_ir_raster_image_dispose(&old);
+
+    /* A diagonal or too-small miter invalidates the new shortcut. */
+    f.cmds[3].point1=(quantapdf_point){20.0f,9.0f};
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_retraced_vh_join_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+    CHECK(old.size==trial.size &&
+          memcmp(old.pixels,trial.pixels,old.size)==0);
+    quantapdf_ir_raster_image_dispose(&trial);
+    quantapdf_ir_raster_image_dispose(&old);
+
+    f.cmds[3].point1=(quantapdf_point){20.0f,8.0f};
+    f.op.value.path.options.miter_limit=1.0f;
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_retraced_vh_join_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+    CHECK(old.size==trial.size &&
+          memcmp(old.pixels,trial.pixels,old.size)==0);
+    quantapdf_ir_raster_image_dispose(&trial);
+    quantapdf_ir_raster_image_dispose(&old);
+
+    /* Three source edges × 13,200 samples: mode10 396,000 is allowed,
+     * mode11 435,600 refused under this 415,000 sample-slot ceiling.
+     * Refusal publishes NO partially allocated RGBA. */
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=4u;
+    f.cmds[0].point1=(quantapdf_point){20.0f,20.0f};
+    f.cmds[1].point1=(quantapdf_point){20.0f,8.0f};
+    f.cmds[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[2].point1=(quantapdf_point){30.0f,8.0f};
+    f.cmds[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[3].point1=(quantapdf_point){20.0f,8.0f};
+    f.grid_budget.max_sample_tests=415000u;
+    f.raster_budget.max_sample_tests=415000u;
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    quantapdf_ir_raster_image_dispose(&old);
+    memset(&trial,0xa5,sizeof(trial));
+    BAD(quantapdf_ir_raster_device_polyline_stroke_q8_retraced_vh_join_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+    CHECK(trial.pixels==NULL && trial.size==0u &&
+          trial.width==0u && trial.height==0u && trial.stride==0u);
+    return EXIT_SUCCESS;
+}
+
 static int test_pixel_width_and_rejections(void)
 {
     fixture f;
@@ -1285,6 +1395,7 @@ int main(void)
     CHECK(test_device_q8_strip_trial()==EXIT_SUCCESS);
     CHECK(test_q8_inner_bevel_miter_join_trial()==EXIT_SUCCESS);
     CHECK(test_q8_miter_adjacent_device_cells_trial()==EXIT_SUCCESS);
+    CHECK(test_q8_retraced_vh_join_trial()==EXIT_SUCCESS);
     CHECK(test_pixel_width_and_rejections()==EXIT_SUCCESS);
     puts("native-device-polyline-stroke: butt+miter+bevel+union+limits PASS");
     return EXIT_SUCCESS;
