@@ -145,6 +145,17 @@ quantapdf_ir_raster_device_polyline_stroke_q8_inner_bevel_join_preview_v0(
     const quantapdf_ir_raster_v1_limits *raster_limits,
     quantapdf_ir_raster_image *out_image);
 
+/* TENTH independent PRIVATE Q8 miter A/B: reuse exact mode9
+ * inner-bevel area integral in device cells immediately adjacent to
+ * a fully source-admitted orthogonal join. Mode0..9 byte-identical. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
