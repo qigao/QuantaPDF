@@ -2078,6 +2078,77 @@ int test_external_jspdf_single_vertical_analytic_ab(
           std::memcmp(ceil_page.pixels,ceil_page_repeat.pixels,
                       ceil_page.size)==0);
     const page_metrics ceil_metric=measure(ceil_page);
+
+    /* Seventh independent PRIVATE Stroke-only source-geometry A/B.
+     * Earlier global CEIL (#297) is intentionally still measured as a
+     * negative. This new candidate starts from the exact accepted
+     * mode5 round-alpha behavior and changes only the whole device
+     * row above each truly single-pass 1pt horizontal source center.
+     * Compose after Stroke with the SAME accepted mode8 Fill-bottom. */
+    quantapdf_ir_raster_image upper_stroke{},upper_repeat{},
+                              upper_page{},upper_page_repeat{};
+    OK(quantapdf_ir_raster_device_polyline_stroke_upper_horizontal_lsb_preview_v0(
+        &only_stroke,0u,&geometry,&h_grid,&h_budget,&upper_stroke));
+    OK(quantapdf_ir_raster_device_polyline_stroke_upper_horizontal_lsb_preview_v0(
+        &only_stroke,0u,&geometry,&h_grid,&h_budget,&upper_repeat));
+    CHECK(upper_stroke.pixels && upper_repeat.pixels &&
+          upper_stroke.size==h_stroke.size &&
+          upper_stroke.stride==h_stroke.stride &&
+          upper_repeat.size==upper_stroke.size &&
+          std::memcmp(upper_stroke.pixels,upper_repeat.pixels,
+                      upper_stroke.size)==0);
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &upper_stroke,&bottom_fill,&composite_budget,&upper_page));
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &upper_repeat,&bottom_repeat,&composite_budget,&upper_page_repeat));
+    CHECK(upper_page.pixels && upper_page_repeat.pixels &&
+          upper_page.size==bottom_page.size &&
+          upper_page_repeat.size==upper_page.size &&
+          std::memcmp(upper_page.pixels,upper_page_repeat.pixels,
+                      upper_page.size)==0);
+    const page_metrics upper_metric=measure(upper_page);
+    size_t upper_alpha_changes=0u,upper_outside=0u,
+           upper_other_than_one=0u;
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t off=y*upper_stroke.stride+x*4u;
+        const unsigned prior=h_stroke.pixels[off+3u];
+        const unsigned trial=upper_stroke.pixels[off+3u];
+        CHECK(std::memcmp(h_stroke.pixels+off,
+                          upper_stroke.pixels+off,3u)==0);
+        if(prior==trial)continue;
+        ++upper_alpha_changes;
+        if(x<52u || x>248u || y<138u || y>139u)
+            ++upper_outside;
+        if(trial<prior || trial>prior+1u)
+            ++upper_other_than_one;
+    }
+    CHECK(upper_alpha_changes>0u && upper_outside==0u &&
+          upper_other_than_one==0u);
+    const size_t upper_center=139u*upper_stroke.stride+100u*4u;
+    const unsigned old_center=h_stroke.pixels[upper_center+3u];
+    const unsigned new_center=upper_stroke.pixels[upper_center+3u];
+    CHECK(new_center>=old_center && new_center<=old_center+1u);
+    const unsigned char *upper_site=
+        upper_page.pixels+139u*upper_page.stride+100u*4u;
+    const unsigned char *upper_pdfium=reference.at(100u,139u);
+    std::fprintf(stderr,
+        "[original jsPDF upper-single-horizontal LSB A/B, NOT parity] "
+        "old_mode8_rgb=%llu ceil_bad_rgb=%llu upper_rgb=%llu "
+        "source_changed=%zu outside=%zu delta_gt1=%zu "
+        "changed_pixels=%zu gross=%zu old_alpha=%u new_alpha=%u "
+        "upper_native=(%u,%u,%u) raw_pdfium=(%u,%u,%u) fnv64=%016llx\n",
+        (unsigned long long)bottom_metric.abs_rgb,
+        (unsigned long long)ceil_metric.abs_rgb,
+        (unsigned long long)upper_metric.abs_rgb,
+        upper_alpha_changes,upper_outside,upper_other_than_one,
+        upper_metric.changed,upper_metric.gross,
+        old_center,new_center,
+        on_white(upper_site,0u),on_white(upper_site,1u),
+        on_white(upper_site,2u),
+        (unsigned)upper_pdfium[0],(unsigned)upper_pdfium[1],
+        (unsigned)upper_pdfium[2],
+        (unsigned long long)upper_metric.fnv);
+
     size_t ceil_alpha_changed=0u,ceil_outside=0u,
            ceil_more_than_one=0u;
     for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
@@ -2873,6 +2944,10 @@ int test_external_jspdf_single_vertical_analytic_ab(
     std::fprintf(stderr,"[jsPDF mode4 original residual regions] %s\n",
                  mode4_regions_json.c_str());
 
+    quantapdf_ir_raster_image_dispose(&upper_page_repeat);
+    quantapdf_ir_raster_image_dispose(&upper_page);
+    quantapdf_ir_raster_image_dispose(&upper_repeat);
+    quantapdf_ir_raster_image_dispose(&upper_stroke);
     quantapdf_ir_raster_image_dispose(&ceil_page_repeat);
     quantapdf_ir_raster_image_dispose(&ceil_page);
     quantapdf_ir_raster_image_dispose(&ceil_repeat);
@@ -2991,7 +3066,19 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"stroke_ceil_changed_pixels\": %zu,\n"
         "  \"stroke_ceil_gross_delta64_pixels\": %zu,\n"
         "  \"stroke_ceil_max_channel_delta\": %u,\n"
-        "  \"stroke_ceil_rgb_fnv64\": \"%016llx\",\n"
+        "  \"stroke_ceil_rgb_fnv64\": \"%016llx\",\n"        "  \"stroke_upper_status\": \"measured_unqualified\",\n"
+        "  \"stroke_upper_default_changed\": false,\n"
+        "  \"stroke_upper_pixel_parity_qualified\": false,\n"
+        "  \"stroke_upper_repeat_equal\": true,\n"
+        "  \"stroke_upper_source_alpha_changed_pixels\": %zu,\n"
+        "  \"stroke_upper_outside_top_horizontal_interior\": %zu,\n"
+        "  \"stroke_upper_alpha_delta_gt1_pixels\": %zu,\n"
+        "  \"stroke_upper_abs_rgb_error\": %llu,\n"
+        "  \"stroke_upper_mean_abs_rgb_error\": %.9f,\n"
+        "  \"stroke_upper_changed_pixels\": %zu,\n"
+        "  \"stroke_upper_gross_delta64_pixels\": %zu,\n"
+        "  \"stroke_upper_max_channel_delta\": %u,\n"
+        "  \"stroke_upper_rgb_fnv64\": \"%016llx\",\n"
         "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
@@ -3029,7 +3116,12 @@ int test_external_jspdf_single_vertical_analytic_ab(
         (unsigned long long)ceil_metric.abs_rgb,
         (double)ceil_metric.abs_rgb/1505496.0,
         ceil_metric.changed,ceil_metric.gross,ceil_metric.max_delta,
-        (unsigned long long)ceil_metric.fnv);
+        (unsigned long long)ceil_metric.fnv,
+        upper_alpha_changes,upper_outside,upper_other_than_one,
+        (unsigned long long)upper_metric.abs_rgb,
+        (double)upper_metric.abs_rgb/1505496.0,
+        upper_metric.changed,upper_metric.gross,upper_metric.max_delta,
+        (unsigned long long)upper_metric.fnv);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
