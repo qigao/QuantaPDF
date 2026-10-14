@@ -18,6 +18,7 @@
 #include <qpdf/QPDFWriter.hh>
 
 #include <cerrno>
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -2638,6 +2639,132 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "[jsPDF mode7 original source endpoint attribution, NOT parity] %s\n",
         mode7_regions_json.c_str());
 
+    /* READ-ONLY after Q8 + opaque-floor original-page A/B. Reuse the
+     * previously pinned #295 16 disjoint source-specific diagnostic bins;
+     * ALL renderer functions and historic reports remain unchanged.
+     * The bin boundaries are TEST-only observations, not source-driven
+     * production dispatch. Every PDFium pixel must reconcile exactly. */
+    mode7_region q8_groups[16]={};
+    for(size_t i=0u;i<16u;++i)q8_groups[i].name=groups[i].name;
+    std::vector<worst_point> q8_worst_points;
+    q8_worst_points.reserve(64u);
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t off=y*q8_stroke.stride+x*4u;
+        const unsigned sa=q8_stroke.pixels[off+3u];
+        const unsigned fa=bottom_fill.pixels[off+3u];
+        const size_t id=group_of(x,y,sa,fa);
+        CHECK(id<16u);
+        mode7_region &group=q8_groups[id];
+        const unsigned char *native=q8_floor.pixels+off;
+        const unsigned char *oracle=reference.at(x,y);
+        CHECK(native[3]==255u);
+        ++group.pixels;
+        unsigned largest=0u,delta_rgb=0u;
+        for(size_t ch=0u;ch<3u;++ch) {
+            const unsigned a=native[ch],b=oracle[ch];
+            const unsigned d=a>b?a-b:b-a;
+            group.error+=(std::uint64_t)d;
+            delta_rgb+=d;
+            if(a>b)group.brighter+=(std::uint64_t)d;
+            if(a<b)group.darker+=(std::uint64_t)d;
+            if(d>largest)largest=d;
+        }
+        if(largest!=0u) {
+            ++group.changed;
+            worst_point p{};
+            p.x=x;p.y=y;p.region=id;p.max_delta=largest;
+            p.rgb_error=delta_rgb;p.stroke_alpha=sa;p.fill_alpha=fa;
+            for(size_t ch=0u;ch<3u;++ch) {
+                p.native_rgb[ch]=native[ch];
+                p.pdfium_rgb[ch]=oracle[ch];
+            }
+            q8_worst_points.push_back(p);
+        }
+        if(largest>64u)++group.gross;
+        if(largest>group.max_delta) {
+            group.max_delta=largest;
+            group.worst_x=x;group.worst_y=y;
+        }
+    }
+    size_t q8_region_pixels=0u,q8_region_changed=0u,
+           q8_region_gross=0u;
+    std::uint64_t q8_region_error=0u,q8_region_brighter=0u,
+                  q8_region_darker=0u;
+    unsigned q8_region_max=0u;
+    std::string q8_region_json=
+        "{\"schema_version\":1,\"observation_only\":true,"
+        "\"pixel_parity_qualified\":false,\"regions\":{";
+    for(size_t i=0u;i<16u;++i) {
+        const mode7_region &b=q8_groups[i];
+        CHECK(b.changed<=b.pixels && b.gross<=b.changed &&
+              b.error==b.brighter+b.darker);
+        q8_region_pixels+=b.pixels;q8_region_changed+=b.changed;
+        q8_region_gross+=b.gross;q8_region_error+=b.error;
+        q8_region_brighter+=b.brighter;q8_region_darker+=b.darker;
+        if(b.max_delta>q8_region_max)q8_region_max=b.max_delta;
+        if(i)q8_region_json+=",";
+        q8_region_json+="\""+std::string(b.name)+"\":{";
+        q8_region_json+="\"pixels\":"+std::to_string(b.pixels)+",";
+        q8_region_json+="\"changed\":"+std::to_string(b.changed)+",";
+        q8_region_json+="\"gross\":"+std::to_string(b.gross)+",";
+        q8_region_json+="\"abs_rgb_error\":"+std::to_string(b.error)+",";
+        q8_region_json+="\"brighter_rgb_error\":"+
+                          std::to_string(b.brighter)+",";
+        q8_region_json+="\"darker_rgb_error\":"+
+                          std::to_string(b.darker)+",";
+        q8_region_json+="\"max_delta\":"+std::to_string(b.max_delta)+",";
+        q8_region_json+="\"worst_x\":"+std::to_string(b.worst_x)+",";
+        q8_region_json+="\"worst_y\":"+std::to_string(b.worst_y)+"}";
+    }
+    CHECK(q8_region_pixels==501832u &&
+          q8_region_changed==q8_floor_metric.changed &&
+          q8_region_gross==q8_floor_metric.gross &&
+          q8_region_error==q8_floor_metric.abs_rgb &&
+          q8_region_error==q8_region_brighter+q8_region_darker &&
+          q8_region_max==q8_floor_metric.max_delta);
+    CHECK(q8_worst_points.size()==q8_region_changed);
+    std::sort(q8_worst_points.begin(),q8_worst_points.end(),
+        [](const worst_point &a,const worst_point &b) {
+            if(a.rgb_error!=b.rgb_error)return a.rgb_error>b.rgb_error;
+            if(a.max_delta!=b.max_delta)return a.max_delta>b.max_delta;
+            if(a.y!=b.y)return a.y<b.y;
+            return a.x<b.x;
+        });
+    if(q8_worst_points.size()>16u)q8_worst_points.resize(16u);
+    q8_region_json+="},\"total_pixels\":"+
+                    std::to_string(q8_region_pixels)+
+                    ",\"total_changed\":"+
+                    std::to_string(q8_region_changed)+
+                    ",\"total_abs_rgb_error\":"+
+                    std::to_string(q8_region_error)+
+                    ",\"total_gross\":"+
+                    std::to_string(q8_region_gross)+
+                    ",\"max_channel_delta\":"+
+                    std::to_string(q8_region_max)+
+                    ",\"worst_pixels\":[";
+    for(size_t i=0u;i<q8_worst_points.size();++i) {
+        const worst_point &p=q8_worst_points[i];
+        if(i)q8_region_json+=",";
+        q8_region_json+="{\"x\":"+std::to_string(p.x)+
+            ",\"y\":"+std::to_string(p.y)+
+            ",\"region\":\""+std::string(q8_groups[p.region].name)+"\""+
+            ",\"rgb_error\":"+std::to_string(p.rgb_error)+
+            ",\"max_channel_delta\":"+std::to_string(p.max_delta)+
+            ",\"stroke_alpha\":"+std::to_string(p.stroke_alpha)+
+            ",\"fill_alpha\":"+std::to_string(p.fill_alpha)+
+            ",\"native_rgb\":["+std::to_string((unsigned)p.native_rgb[0])+
+            ","+std::to_string((unsigned)p.native_rgb[1])+
+            ","+std::to_string((unsigned)p.native_rgb[2])+
+            "],\"pdfium_rgb\":["+
+            std::to_string((unsigned)p.pdfium_rgb[0])+","+
+            std::to_string((unsigned)p.pdfium_rgb[1])+","+
+            std::to_string((unsigned)p.pdfium_rgb[2])+"]}";
+    }
+    q8_region_json+="],\"full_original_reconciled\":true}";
+    std::fprintf(stderr,
+        "[jsPDF Q8+opaque source residual attribution, NOT parity] %s\n",
+        q8_region_json.c_str());
+
     size_t left_alpha_changed=0u,left_outside=0u;
     for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
         const size_t off=y*right_fill.stride+x*4u;
@@ -3275,6 +3402,7 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"q8_floor_gross_delta64_pixels\": %zu,\n"
         "  \"q8_floor_max_channel_delta\": %u,\n"
         "  \"q8_floor_rgb_fnv64\": \"%016llx\",\n"
+        "  \"q8_floor_residual_regions\": %s,\n"
         "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
@@ -3334,7 +3462,8 @@ int test_external_jspdf_single_vertical_analytic_ab(
         (double)q8_floor_metric.abs_rgb/1505496.0,
         q8_floor_metric.changed,q8_floor_metric.gross,
         q8_floor_metric.max_delta,
-        (unsigned long long)q8_floor_metric.fnv);
+        (unsigned long long)q8_floor_metric.fnv,
+        q8_region_json.c_str());
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;

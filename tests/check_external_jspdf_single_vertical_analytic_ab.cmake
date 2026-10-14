@@ -804,6 +804,53 @@ if(NOT q8_status STREQUAL "measured_unqualified"
 endif()
 message(STATUS
   "jspdf-device-Q8: old_rgba=${upper_abs_rgb_error} q8_rgba=${q8_abs_rgb_error} old_opaque=${opaque_abs_rgb_error} q8_opaque=${q8floor_abs_rgb_error} alpha_changed=${q8_source_alpha_changed_pixels} official=0 parity=false")
+# Read-only successor: account for all remaining #303 Q8+opaque original
+# pixels in the historical 16 exclusive diagnostic groups. No source
+# geometry rule or admitted renderer code changes on this child branch.
+if(NOT q8floor_abs_rgb_error EQUAL 845
+   OR NOT q8floor_changed_pixels EQUAL 29
+   OR NOT q8floor_gross_delta64_pixels EQUAL 0
+   OR NOT q8floor_max_channel_delta EQUAL 38
+   OR NOT q8floor_rgb_fnv64 STREQUAL "6ed067c204238cf8")
+  message(FATAL_ERROR "Q8 parent original-pixel evidence mutated")
+endif()
+string(JSON audit_bins LENGTH "${json}" q8_floor_residual_regions regions)
+string(JSON audit_pixels GET "${json}" q8_floor_residual_regions total_pixels)
+string(JSON audit_changed GET "${json}" q8_floor_residual_regions total_changed)
+string(JSON audit_rgb GET "${json}" q8_floor_residual_regions total_abs_rgb_error)
+string(JSON audit_gross GET "${json}" q8_floor_residual_regions total_gross)
+string(JSON audit_max GET "${json}" q8_floor_residual_regions max_channel_delta)
+string(JSON audit_repeat GET "${json}" q8_floor_residual_regions full_original_reconciled)
+string(JSON audit_parity GET "${json}" q8_floor_residual_regions pixel_parity_qualified)
+string(JSON audit_witnesses LENGTH "${json}" q8_floor_residual_regions worst_pixels)
+if(NOT audit_bins EQUAL 16 OR NOT audit_pixels EQUAL 501832
+   OR NOT audit_changed EQUAL q8floor_changed_pixels
+   OR NOT audit_rgb EQUAL q8floor_abs_rgb_error
+   OR NOT audit_gross EQUAL q8floor_gross_delta64_pixels
+   OR NOT audit_max EQUAL q8floor_max_channel_delta
+   OR NOT audit_repeat OR audit_parity
+   OR NOT audit_witnesses EQUAL 16)
+  message(FATAL_ERROR "Q8 post-candidate region audit does not reconcile")
+endif()
+set(audit_changed_sum 0)
+set(audit_rgb_sum 0)
+foreach(bin IN ITEMS bottom_left_endpoint bottom_right_endpoint
+    bottom_single_horizontal_interior top_repeated_left_endpoint
+    top_repeated_right_endpoint top_repeated_horizontal_interior
+    right_vertical_stroke left_vertical_below_red red_left_w_clip_stroke_overlap
+    red_left_w_clip_only red_right_fill_boundary red_top_right_coupled_corner
+    red_top_stroke_overlap red_fill_bottom_edge red_bottom_uncovered_fringe other)
+  string(JSON bin_changed GET "${json}" q8_floor_residual_regions regions "${bin}" changed)
+  string(JSON bin_error GET "${json}" q8_floor_residual_regions regions "${bin}" abs_rgb_error)
+  math(EXPR audit_changed_sum "${audit_changed_sum}+${bin_changed}")
+  math(EXPR audit_rgb_sum "${audit_rgb_sum}+${bin_error}")
+endforeach()
+if(NOT audit_changed_sum EQUAL audit_changed
+   OR NOT audit_rgb_sum EQUAL audit_rgb)
+  message(FATAL_ERROR "Q8 source-residual 16 bins do not sum to whole page")
+endif()
+message(STATUS
+  "jspdf-q8-final-regions: mismatch=${audit_changed} error=${audit_rgb} gross=${audit_gross} max=${audit_max} bins=${audit_bins} parity=false")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
