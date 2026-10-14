@@ -851,6 +851,52 @@ if(NOT audit_changed_sum EQUAL audit_changed
 endif()
 message(STATUS
   "jspdf-q8-final-regions: mismatch=${audit_changed} error=${audit_rgb} gross=${audit_gross} max=${audit_max} bins=${audit_bins} parity=false")
+# THIRTEENTH source-geometry, provider-free C11 A/B: orthogonal inner
+# miter bevel contributes bounded signed coverage in Q8 device cells.
+# Parent #303 Q8 and #304 all-pixel residual digest stay fixed.
+if(NOT q8floor_abs_rgb_error EQUAL 845
+   OR NOT q8floor_changed_pixels EQUAL 29
+   OR NOT q8floor_gross_delta64_pixels EQUAL 0
+   OR NOT q8floor_max_channel_delta EQUAL 38
+   OR NOT q8floor_rgb_fnv64 STREQUAL "6ed067c204238cf8")
+  message(FATAL_ERROR "Parent Q8 source-image baseline changed")
+endif()
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_alpha_changed_pixels outside_source_endpoint
+    alpha_delta_gt64_pixels composite_outside_source_alpha
+    rgba_abs_rgb_error rgba_changed_pixels rgba_fnv64
+    abs_rgb_error mean_abs_rgb_error changed_pixels
+    gross_delta64_pixels max_channel_delta rgb_fnv64)
+  string(JSON join_${field} GET "${json}" miter_join_${field})
+endforeach()
+string(LENGTH "${join_rgb_fnv64}" join_hashlen)
+string(LENGTH "${join_rgba_fnv64}" join_rgba_hashlen)
+if(NOT join_status STREQUAL "measured_unqualified"
+   OR join_default_changed OR join_pixel_parity_qualified
+   OR NOT join_repeat_equal
+   OR join_source_alpha_changed_pixels LESS 1
+   OR join_source_alpha_changed_pixels GREATER 48
+   OR NOT join_outside_source_endpoint EQUAL 0
+   OR NOT join_alpha_delta_gt64_pixels EQUAL 0
+   OR NOT join_composite_outside_source_alpha EQUAL 0
+   OR join_rgba_abs_rgb_error LESS 0
+   OR join_rgba_abs_rgb_error GREATER 383901480
+   OR join_rgba_changed_pixels LESS 0
+   OR join_rgba_changed_pixels GREATER 501832
+   OR NOT join_rgba_hashlen EQUAL 16
+   OR NOT join_rgba_fnv64 MATCHES "^[0-9a-f]+$"
+   OR join_abs_rgb_error LESS 0 OR join_abs_rgb_error GREATER 383901480
+   OR join_mean_abs_rgb_error LESS 0 OR join_mean_abs_rgb_error GREATER 255
+   OR join_changed_pixels LESS 0 OR join_changed_pixels GREATER 501832
+   OR join_gross_delta64_pixels LESS 0
+   OR join_gross_delta64_pixels GREATER join_changed_pixels
+   OR join_max_channel_delta LESS 0 OR join_max_channel_delta GREATER 255
+   OR NOT join_hashlen EQUAL 16
+   OR NOT join_rgb_fnv64 MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "Q8 inner-bevel isolated join A/B escaped scope")
+endif()
+message(STATUS
+  "jspdf-q8-inner-bevel-join: parent_rgb=${q8floor_abs_rgb_error} trial_rgb=${join_abs_rgb_error} parent_mismatch=${q8floor_changed_pixels} trial_mismatch=${join_changed_pixels} changed_alpha=${join_source_alpha_changed_pixels} official=0 parity=false")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
