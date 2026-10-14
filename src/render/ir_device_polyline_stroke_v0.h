@@ -118,6 +118,19 @@ quantapdf_ir_raster_device_polyline_stroke_upper_horizontal_lsb_preview_v0(
     const quantapdf_ir_raster_v1_limits *raster_limits,
     quantapdf_ir_raster_image *out_image);
 
+/* EIGHTH separate PRIVATE single-pass 1pt source-strip Q8 A/B:
+ * truncate source strip boundaries to 1/256 device pixels before area
+ * measurement, for isolated horizontal AND vertical interiors only.
+ * Repeated source edges, caps, miters, diagonal edges, Fill/Clip, and
+ * public SDK remain under their previous independently tested rules. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_q8_strip_preview_v0(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
