@@ -1152,6 +1152,57 @@ if(NOT hv_status STREQUAL "measured_unqualified"
 endif()
 message(STATUS
   "jspdf-q8-retraced-hv-outer: parent_rgb=${vh_abs_rgb_error} trial_rgb=${hv_abs_rgb_error} parent_changed=${vh_changed_pixels} trial_changed=${hv_changed_pixels} alpha_changes=${hv_source_alpha_changed_pixels} official=0 parity=false")
+# EIGHTEENTH completely detached-original Q8 integration measurement.
+# Do not numerically sum #311 and #310 independently generated scores.
+# This child measures BOTH candidate images in the very same source IR.
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_fill_new_pixels outside_full_x_cells
+    alpha_gt3_pixels rgb_outside_source_alpha
+    sibling_abs_rgb_error sibling_changed_pixels sibling_rgb_fnv64
+    rgba_abs_rgb_error rgba_changed_pixels rgba_fnv64
+    abs_rgb_error mean_abs_rgb_error changed_pixels
+    gross_delta64_pixels max_channel_delta rgb_fnv64)
+  string(JSON integrated_${field} GET "${json}" integrated_q8_${field})
+endforeach()
+# The independently CI-qualified #310 control must reproduce even
+# while the newer source Stroke preview is present in this test process.
+if(NOT integrated_sibling_abs_rgb_error EQUAL 131
+   OR NOT integrated_sibling_changed_pixels EQUAL 6
+   OR NOT integrated_sibling_rgb_fnv64 STREQUAL "215e4b11090c7b7e")
+  message(FATAL_ERROR "#310 full-device Fill side-control mutated")
+endif()
+string(LENGTH "${integrated_rgb_fnv64}" integrated_hashlen)
+string(LENGTH "${integrated_rgba_fnv64}" integrated_rgba_hashlen)
+if(NOT integrated_status STREQUAL "measured_unqualified"
+   OR integrated_default_changed OR integrated_pixel_parity_qualified
+   OR NOT integrated_repeat_equal
+   OR integrated_source_fill_new_pixels LESS 1
+   OR integrated_source_fill_new_pixels GREATER 2
+   OR NOT integrated_outside_full_x_cells EQUAL 0
+   OR NOT integrated_alpha_gt3_pixels EQUAL 0
+   OR NOT integrated_rgb_outside_source_alpha EQUAL 0
+   OR integrated_rgba_abs_rgb_error LESS 0
+   OR integrated_rgba_abs_rgb_error GREATER 383901480
+   OR integrated_rgba_changed_pixels LESS 0
+   OR integrated_rgba_changed_pixels GREATER 501832
+   OR NOT integrated_rgba_hashlen EQUAL 16
+   OR NOT integrated_rgba_fnv64 MATCHES "^[0-9a-f]+$"
+   OR integrated_abs_rgb_error LESS 0
+   OR integrated_abs_rgb_error GREATER 383901480
+   OR integrated_mean_abs_rgb_error LESS 0
+   OR integrated_mean_abs_rgb_error GREATER 255
+   OR integrated_changed_pixels LESS 0
+   OR integrated_changed_pixels GREATER 501832
+   OR integrated_gross_delta64_pixels LESS 0
+   OR integrated_gross_delta64_pixels GREATER integrated_changed_pixels
+   OR integrated_max_channel_delta LESS 0
+   OR integrated_max_channel_delta GREATER 255
+   OR NOT integrated_hashlen EQUAL 16
+   OR NOT integrated_rgb_fnv64 MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "Combined Q8 Stroke/Fill original-source trial escaped scope")
+endif()
+message(STATUS
+  "jspdf-q8-integrated-retrace-fill: source_stroke_rgb=${hv_abs_rgb_error} source_fill_rgb=${integrated_sibling_abs_rgb_error} combined_rgb=${integrated_abs_rgb_error} combined_changed=${integrated_changed_pixels} original=501832 parity=false official=0")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
