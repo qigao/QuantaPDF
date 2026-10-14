@@ -87,10 +87,84 @@ static int check_fail_closed(void)
 #undef REFUSE
     return EXIT_SUCCESS;
 }
+/* Opaque-white floor A/B: the reference pixel here is a deterministic
+ * arithmetic fixture, not a PDFium lookup or an asserted general rule.
+ * Keep the pre-existing straight RGBA8 compositing test unchanged. */
+static int check_opaque_white_floor_preview(void)
+{
+    unsigned char stroke_bytes[16]={
+        0u,0u,0u,143u, 0u,0u,0u,0u,
+        0u,0u,0u,255u, 0u,0u,0u,128u
+    };
+    unsigned char fill_bytes[16]={
+        255u,0u,0u,240u, 255u,0u,0u,0u,
+        255u,0u,0u,255u, 255u,0u,0u,128u
+    };
+    const unsigned char expected[16]={
+        246u,6u,6u,255u, 255u,255u,255u,255u,
+        255u,0u,0u,255u, 191u,63u,63u,255u
+    };
+    quantapdf_ir_raster_image stroke={0},fill={0},out={0},repeat={0};
+    quantapdf_ir_ordered_composite_v0_limits limits={4u,16u};
+    stroke.pixels=stroke_bytes;stroke.width=4u;stroke.height=1u;
+    stroke.stride=16u;stroke.size=16u;
+    fill.pixels=fill_bytes;fill.width=4u;fill.height=1u;
+    fill.stride=16u;fill.size=16u;
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &stroke,&fill,&limits,&out));
+    CHECK(out.size==16u && out.stride==16u && out.width==4u &&
+          out.height==1u && out.pixels!=NULL);
+    CHECK(memcmp(out.pixels,expected,sizeof(expected))==0);
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &stroke,&fill,&limits,&repeat));
+    CHECK(repeat.size==out.size &&
+          memcmp(out.pixels,repeat.pixels,out.size)==0);
+    CHECK(memcmp(stroke.pixels,stroke_bytes,sizeof(stroke_bytes))==0);
+    CHECK(memcmp(fill.pixels,fill_bytes,sizeof(fill_bytes))==0);
+    quantapdf_ir_raster_image_dispose(&repeat);
+    quantapdf_ir_raster_image_dispose(&out);
+
+#define FLOOR_REFUSE(expr) do { \
+    memset(&out,0xa5,sizeof(out)); \
+    BAD(expr); \
+    CHECK(out.pixels==NULL && out.width==0u && \
+          out.height==0u && out.stride==0u && out.size==0u); \
+} while(0)
+    limits.max_pixels=3u;
+    FLOOR_REFUSE(
+        quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+            &stroke,&fill,&limits,&out));
+    limits.max_pixels=4u;
+    limits.max_output_bytes=15u;
+    FLOOR_REFUSE(
+        quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+            &stroke,&fill,&limits,&out));
+    limits.max_output_bytes=16u;
+    fill.width=3u;fill.stride=12u;fill.size=12u;
+    FLOOR_REFUSE(
+        quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+            &stroke,&fill,&limits,&out));
+    fill.width=4u;fill.stride=16u;fill.size=16u;
+    memset(&out,0xa5,sizeof(out));
+    CHECK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        NULL,&fill,&limits,&out)==QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(out.pixels==NULL && out.size==0u);
+    memset(&out,0xa5,sizeof(out));
+    CHECK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &stroke,&fill,&limits,&stroke)==QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(stroke.pixels==stroke_bytes && stroke.width==4u &&
+          stroke.size==16u);
+    CHECK(stroke_bytes[3]==143u && stroke_bytes[7]==0u &&
+          stroke_bytes[11]==255u && stroke_bytes[15]==128u);
+#undef FLOOR_REFUSE
+    return EXIT_SUCCESS;
+}
+
 int main(void)
 {
     CHECK(check_order_and_repeat()==EXIT_SUCCESS);
     CHECK(check_fail_closed()==EXIT_SUCCESS);
+    CHECK(check_opaque_white_floor_preview()==EXIT_SUCCESS);
     puts("native ordered layers: source-over order, repeat and bounds PASS");
     return EXIT_SUCCESS;
 }
