@@ -933,14 +933,29 @@ static int test_bottom_orthogonal_join_16x16_trial(void)
     fixture f;
     quantapdf_ir_raster_image old={0},trial={0},repeat={0};
     setup(&f);
+    /* The tiny default synthetic page quantizes 4x4 and 16x16 to
+     * identical integers. A pinned, fractional 595.28x841.89 source
+     * DEVICE GRID instead genuinely exercises BOTH source-bottom joins.
+     * No PDFium or production source detector is used by this test. */
+    f.geom.page_width_points=595.28;
+    f.geom.page_height_points=841.89;
+    f.page.width_points=595.28f;
+    f.page.height_points=841.89f;
+    f.grid_budget.max_pixels=600u*850u;
+    f.grid_budget.max_rgba_bytes=600u*850u*4u;
+    f.grid_budget.max_edges=768u;
+    f.grid_budget.max_sample_tests=450000000u;
+    f.raster_budget.max_pixels=600u*850u;
+    f.raster_budget.max_edges=768u;
+    f.raster_budget.max_sample_tests=450000000u;
     f.op.value.path.options.stroke_width=1.0f;
     f.op.value.path.command_count=4u;
-    f.cmds[0].point1=(quantapdf_point){20.2f,3.0f};
-    f.cmds[1].point1=(quantapdf_point){20.2f,15.35f};
+    f.cmds[0].point1=(quantapdf_point){250.0f,20.0f};
+    f.cmds[1].point1=(quantapdf_point){250.0f,140.0f};
     f.cmds[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
-    f.cmds[2].point1=(quantapdf_point){2.2f,15.35f};
+    f.cmds[2].point1=(quantapdf_point){50.0f,140.0f};
     f.cmds[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
-    f.cmds[3].point1=(quantapdf_point){2.2f,3.0f};
+    f.cmds[3].point1=(quantapdf_point){50.0f,20.0f};
     OK(quantapdf_ir_raster_device_polyline_stroke_upper_horizontal_lsb_preview_v0(
         &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
     OK(quantapdf_ir_raster_device_polyline_stroke_bottom_miter_fine_preview_v0(
@@ -954,7 +969,7 @@ static int test_bottom_orthogonal_join_16x16_trial(void)
     const double bottom_y=(double)f.cmds[1].point1.y;
     const double right_x=(double)f.cmds[1].point1.x;
     const double left_x=(double)f.cmds[2].point1.x;
-    const size_t center=(size_t)floor(10.0/dx);
+    const size_t center=(size_t)floor(100.0/dx);
     const size_t row=(size_t)floor(bottom_y/dy);
     size_t changed=0u;
     CHECK(alpha(&trial,center,row)==alpha(&old,center,row));

@@ -99,3 +99,18 @@ valid evidence: NO mandatory improvement threshold.
 **Keep this and all upstream stacked PRs Draft / DO NOT MERGE**,
 #269 Open, original whole-native renderer UNSUPPORTED/zero pixels,
 public installed SDK PDFium, #208 cutover blocked.
+
+## Source-scale synthetic positive qualification
+
+The first strict synthetic 32.5pt×24.75pt page with bottommost 1pt
+Miter corners at (20.2,15.35) and (2.2,15.35) happened to produce
+identical rounded 4×4 and 16×16 alpha despite different subpixel
+sampling. Its unqualified `changed > 0` assumption correctly failed
+on Linux/macOS. The strict positive now uses independent C11 geometry
+at the original source page's fractional **595.28×841.89pt** scale
+with source bottom orthogonal joins at (250,140) and (50,140), a
+max-bounded 596×842 device grid and no PDFium fallback. The separate
+small-grid resource-rejection fixture remains unchanged, including
+mode7 admitted / mode8 refused at 350,000 sample slots. This is
+strictly a fixture change; the eighth private C11 Stroke algorithm
+and previously qualified mode9 bytes are unchanged.
