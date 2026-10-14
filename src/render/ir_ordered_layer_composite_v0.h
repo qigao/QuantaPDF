@@ -26,6 +26,16 @@ quantapdf_status quantapdf_ir_ordered_layer_composite_v0(
     const quantapdf_ir_ordered_composite_v0_limits *limits,
     quantapdf_ir_raster_image *out_image);
 
+/* PRIVATE A/B only: compose existing layers on opaque WHITE with floor
+ * division after each paint. Returned RGBA8 has alpha=255 throughout.
+ * Does not modify the original transparent composite or source layers. */
+quantapdf_status
+quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+    const quantapdf_ir_raster_image *earlier_stroke,
+    const quantapdf_ir_raster_image *later_clipped_fill,
+    const quantapdf_ir_ordered_composite_v0_limits *limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

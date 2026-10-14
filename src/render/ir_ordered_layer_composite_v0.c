@@ -85,3 +85,65 @@ quantapdf_status quantapdf_ir_ordered_layer_composite_v0(
     out_image->size=bytes;
     return QUANTAPDF_OK;
 }
+
+
+/* PRIVATE A/B ONLY: render the two ALREADY rasterized source layers directly
+ * onto an explicitly opaque WHITE RGB destination, in original paint order.
+ * Neither layer's alpha/geometry is altered. This tests whether the original
+ * mismatch comes from straight RGBA8 intermediate quantization followed by
+ * a second white-background conversion. No PDFium data enters this path.
+ *
+ * Floor division is an explicit hypothesis; it is NOT a general PDF
+ * compositing rule, a replacement for the transparent RGBA renderer, or
+ * an admission of whole-document native rendering. */
+quantapdf_status
+quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+    const quantapdf_ir_raster_image *earlier_stroke,
+    const quantapdf_ir_raster_image *later_clipped_fill,
+    const quantapdf_ir_ordered_composite_v0_limits *limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    unsigned char *pixels;
+    size_t pixels_count,bytes;
+    if(out_image==NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    /* Never clear borrowed input through an aliased result. */
+    if(out_image==earlier_stroke || out_image==later_clipped_fill)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out_image,0,sizeof(*out_image));
+    if(limits==NULL || limits->max_pixels==0u ||
+       limits->max_output_bytes==0u ||
+       !qp_composite_layout_valid(earlier_stroke) ||
+       !qp_composite_layout_valid(later_clipped_fill))
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if(earlier_stroke->width!=later_clipped_fill->width ||
+       earlier_stroke->height!=later_clipped_fill->height ||
+       earlier_stroke->size!=later_clipped_fill->size)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    pixels_count=earlier_stroke->width*earlier_stroke->height;
+    bytes=earlier_stroke->size;
+    if(pixels_count>limits->max_pixels || bytes>limits->max_output_bytes)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    pixels=(unsigned char *)malloc(bytes);
+    if(pixels==NULL)
+        return QUANTAPDF_ERROR_NOMEM;
+    for(size_t i=0u;i<pixels_count;++i) {
+        const unsigned char *stroke=earlier_stroke->pixels+i*4u;
+        const unsigned char *fill=later_clipped_fill->pixels+i*4u;
+        unsigned char *dst=pixels+i*4u;
+        const unsigned sa=stroke[3],fa=fill[3];
+        for(size_t ch=0u;ch<3u;++ch) {
+            /* Each numerator <= 65025, with no signed or float rounding. */
+            unsigned value=(255u*(255u-sa)+(unsigned)stroke[ch]*sa)/255u;
+            value=(value*(255u-fa)+(unsigned)fill[ch]*fa)/255u;
+            dst[ch]=(unsigned char)value;
+        }
+        dst[3]=255u;
+    }
+    out_image->pixels=pixels;
+    out_image->width=earlier_stroke->width;
+    out_image->height=earlier_stroke->height;
+    out_image->stride=earlier_stroke->stride;
+    out_image->size=bytes;
+    return QUANTAPDF_OK;
+}
