@@ -111,6 +111,8 @@ static unsigned alpha(const quantapdf_ir_raster_image *im,
     &(f).ir,0u,&(f).geometry,&(f).grid_budget,&(f).raster_budget,&(o))
 #define UPPER_RIGHT_Q8(f,o) quantapdf_ir_raster_rect_fill_upper_right_q8_preview_v0( \
     &(f).ir,0u,&(f).geometry,&(f).grid_budget,&(f).raster_budget,&(o))
+#define NEAR_BOTTOM(f,o) quantapdf_ir_raster_rect_fill_bottom_near_edges_preview_v0( \
+    &(f).ir,0u,&(f).geometry,&(f).grid_budget,&(f).raster_budget,&(o))
 
 static int test_analytic_edge_and_repeat(void)
 {
@@ -492,6 +494,68 @@ static int test_upper_right_q8_corner(void)
     return EXIT_SUCCESS;
 }
 
+
+/* Tenth private source-exact bottom fringe: not a global one-pixel border
+ * growth. Only source-FULL X coverage of the formerly empty bottom row
+ * is admitted, leaving partial corners and all old mode9 bytes alone. */
+static int test_source_bottom_near_edges(void)
+{
+    fixture f;
+    quantapdf_ir_raster_image old={0},trial={0},repeat={0};
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    OK(UPPER_RIGHT_Q8(f,old));
+    OK(NEAR_BOTTOM(f,trial));
+    OK(NEAR_BOTTOM(f,repeat));
+    CHECK(old.pixels && trial.pixels && repeat.pixels &&
+          old.size==trial.size && trial.size==repeat.size &&
+          memcmp(trial.pixels,repeat.pixels,trial.size)==0);
+    const double dy=24.75/25.0;
+    const unsigned expected=(unsigned)floor(
+        255.0*((double)14.9f-15.0*dy)/dy+0.5);
+    CHECK(expected>0u && expected<255u);
+    CHECK(alpha(&old,6u,15u)==0u &&
+          alpha(&trial,6u,15u)==expected);
+    CHECK(alpha(&old,14u,15u)==0u &&
+          alpha(&trial,14u,15u)==expected);
+    CHECK(alpha(&old,5u,15u)==alpha(&trial,5u,15u));
+    CHECK(alpha(&old,15u,15u)==alpha(&trial,15u,15u));
+    CHECK(alpha(&old,15u,2u)==alpha(&trial,15u,2u));
+    size_t count=0u;
+    for(size_t y=0u;y<trial.height;++y)
+        for(size_t x=0u;x<trial.width;++x) {
+            const size_t off=y*trial.stride+x*4u;
+            CHECK(memcmp(old.pixels+off,trial.pixels+off,3u)==0);
+            if(old.pixels[off+3u]!=trial.pixels[off+3u]) {
+                CHECK(y==15u && (x==6u || x==14u));
+                ++count;
+            }
+        }
+    CHECK(count==2u);
+    quantapdf_ir_raster_image_dispose(&repeat);
+    quantapdf_ir_raster_image_dispose(&trial);
+    quantapdf_ir_raster_image_dispose(&old);
+
+    /* Previous mode9 12-edge budget admitted, new mode10 13-edge
+     * budget rejected with zero output at 165K sample slots. */
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    f.grid_budget.max_sample_tests=165000u;
+    f.raster_budget.max_sample_tests=165000u;
+    OK(UPPER_RIGHT_Q8(f,old));
+    quantapdf_ir_raster_image_dispose(&old);
+    REFUSE(NEAR_BOTTOM(f,result));
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    f.clip.fill_rule=QUANTAPDF_COMPOSER_FILL_EVEN_ODD;
+    REFUSE(NEAR_BOTTOM(f,result));
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    f.op.value.path.options.transform.a=2.0f;
+    REFUSE(NEAR_BOTTOM(f,result));
+    return EXIT_SUCCESS;
+}
+
 static int test_fail_closed(void)
 {
     fixture f;
@@ -530,6 +594,7 @@ int main(void)
     CHECK(test_bottom_faint_fringe()==EXIT_SUCCESS);
     CHECK(test_bottom_retraces_and_refusal()==EXIT_SUCCESS);
     CHECK(test_upper_right_q8_corner()==EXIT_SUCCESS);
+    CHECK(test_source_bottom_near_edges()==EXIT_SUCCESS);
     CHECK(test_fail_closed()==EXIT_SUCCESS);
     puts("native-rect-fill-right-private-A/B: geometry, repeat, fail-closed PASS");
     return EXIT_SUCCESS;
