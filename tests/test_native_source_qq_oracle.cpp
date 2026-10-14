@@ -2326,19 +2326,26 @@ int test_external_jspdf_single_vertical_analytic_ab(
         const size_t off=y*full_bottom_fill.stride+x*4u;
         const unsigned old_alpha=top_right_fill.pixels[off+3u];
         const unsigned new_alpha=full_bottom_fill.pixels[off+3u];
-        CHECK(std::memcmp(top_right_fill.pixels+off,
-                          full_bottom_fill.pixels+off,3u)==0);
         CHECK(full_bottom_floor.pixels[off+3u]==255u);
         if(old_alpha!=new_alpha) {
             ++full_bottom_source_changes;
-            /* Original-specific evidence window only; source Q8
-             * predicates alone control the pure C11 implementation. */
+            /* A genuinely newly painted source-Fill pixel changes
+             * stored RGBA from transparent zeros to source-owned red.
+             * No previously colored or nontransparent pixels may be
+             * overwritten; all RGB outside these new pixels stays
+             * strictly byte-identical. */
+            const unsigned char *old_px=top_right_fill.pixels+off;
+            const unsigned char *new_px=full_bottom_fill.pixels+off;
+            CHECK(old_alpha==0u && new_alpha>0u &&
+                  old_px[0]==0u && old_px[1]==0u && old_px[2]==0u &&
+                  new_px[0]==255u && new_px[1]==0u && new_px[2]==0u);
+            /* Test-only original-source evidence window. */
             if(y!=100u || (x!=51u && x!=149u))
                 ++full_bottom_outside;
-            const unsigned delta=new_alpha>old_alpha?
-                new_alpha-old_alpha:old_alpha-new_alpha;
-            if(delta>3u)++full_bottom_alpha_delta_gt3;
+            if(new_alpha>3u)++full_bottom_alpha_delta_gt3;
         } else {
+            CHECK(std::memcmp(top_right_fill.pixels+off,
+                              full_bottom_fill.pixels+off,3u)==0);
             for(size_t ch=0u;ch<3u;++ch)
                 if(full_bottom_floor.pixels[off+ch]!=
                    top_right_floor.pixels[off+ch])
