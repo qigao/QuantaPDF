@@ -1235,7 +1235,7 @@ static int test_q8_miter_adjacent_device_cells_trial(void)
 static int test_retraced_top_q8_miter_trial(void)
 {
     fixture f;
-    quantapdf_ir_raster_image old={0},trial={0},again={0};
+    quantapdf_ir_raster_image old={0},trial={0};
     setup(&f);
     f.op.value.path.options.stroke_width=1.0f;
     f.op.value.path.command_count=5u;
