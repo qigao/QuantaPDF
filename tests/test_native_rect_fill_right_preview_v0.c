@@ -107,6 +107,8 @@ static unsigned alpha(const quantapdf_ir_raster_image *im,
     &(f).ir,0u,&(f).geometry,&(f).grid_budget,&(f).raster_budget,&(o))
 #define LEFT(f,o) quantapdf_ir_raster_rect_fill_left_clip_preview_v0( \
     &(f).ir,0u,&(f).geometry,&(f).grid_budget,&(f).raster_budget,&(o))
+#define BOTTOM(f,o) quantapdf_ir_raster_rect_fill_bottom_preview_v0( \
+    &(f).ir,0u,&(f).geometry,&(f).grid_budget,&(f).raster_budget,&(o))
 
 static int test_analytic_edge_and_repeat(void)
 {
@@ -270,6 +272,128 @@ static int test_left_clip_retraces_and_refusal(void)
     REFUSE(LEFT(f,result));
     return EXIT_SUCCESS;
 }
+
+/* Eighth isolated source-Fill BOTTOM edge A/B, only a weak pixel row
+ * that the previous 4x4 V0 sampler left completely transparent. */
+static int test_bottom_faint_fringe(void)
+{
+    fixture f;
+    quantapdf_ir_raster_image old={0},trial={0},repeat={0};
+    setup(&f);
+    /* Choose a source bottom just after the top of device row15,
+     * BEFORE its first 4x4 subpixel sample: the old Fill truly left
+     * that whole row untouched, unlike source bottom=15.0. */
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    OK(LEFT(f,old));
+    OK(BOTTOM(f,trial));
+    OK(BOTTOM(f,repeat));
+    CHECK(old.size==trial.size && trial.size==repeat.size &&
+          memcmp(trial.pixels,repeat.pixels,trial.size)==0);
+    const double dy=24.75/25.0;
+    const double row0=15.0*dy;
+    const double row1=16.0*dy;
+    const double true_bottom=(double)14.9f;
+    CHECK(row0<true_bottom && true_bottom<row1);
+    const unsigned expected=(unsigned)floor(
+        255.0*(true_bottom-row0)/(row1-row0)+0.5);
+    CHECK(expected>0u && expected<255u);
+    CHECK(alpha(&old,10u,15u)==0u);
+    CHECK(alpha(&trial,10u,15u)==expected);
+    const unsigned char *p=trial.pixels+15u*trial.stride+10u*4u;
+    CHECK(p[0]==255u && p[1]==0u && p[2]==0u);
+    CHECK(alpha(&trial,10u,14u)==alpha(&old,10u,14u));
+    CHECK(alpha(&trial,5u,7u)==alpha(&old,5u,7u));
+    CHECK(alpha(&trial,15u,7u)==alpha(&old,15u,7u));
+    size_t changed=0u;
+    for(size_t y=0u;y<trial.height;++y)
+        for(size_t x=0u;x<trial.width;++x) {
+            const size_t off=y*trial.stride+x*4u;
+            if(memcmp(old.pixels+off,trial.pixels+off,4u)==0)
+                continue;
+            ++changed;
+            CHECK(y==15u && x>=7u && x<=13u);
+            CHECK(old.pixels[off]==0u && old.pixels[off+1u]==0u &&
+                  old.pixels[off+2u]==0u && old.pixels[off+3u]==0u);
+            CHECK(trial.pixels[off]==255u &&
+                  trial.pixels[off+1u]==0u &&
+                  trial.pixels[off+2u]==0u &&
+                  trial.pixels[off+3u]==expected);
+        }
+    CHECK(changed==7u);
+    quantapdf_ir_raster_image_dispose(&repeat);
+    quantapdf_ir_raster_image_dispose(&trial);
+    quantapdf_ir_raster_image_dispose(&old);
+    return EXIT_SUCCESS;
+}
+static int test_bottom_retraces_and_refusal(void)
+{
+    fixture f;
+    quantapdf_ir_raster_image left={0},trial={0};
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    /* A repeated source rectangle border is one Fill/Clip, never
+     * multiple alpha sources. Keep all three previous edge passes. */
+    f.fill[4].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.fill[4].point1=(quantapdf_point){0.0f,0.0f};
+    f.fill[5].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.fill[5].point1=(quantapdf_point){15.0f,0.0f};
+    f.fill[6].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.fill[6].point1=(quantapdf_point){0.0f,0.0f};
+    f.mask[4].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.mask[4].point1=(quantapdf_point){5.0f,2.0f};
+    f.mask[5].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.mask[5].point1=(quantapdf_point){25.0f,2.0f};
+    f.mask[6].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.mask[6].point1=(quantapdf_point){5.0f,2.0f};
+    f.op.value.path.command_count=7u;
+    f.clip.command_count=7u;
+    OK(LEFT(f,left));
+    OK(BOTTOM(f,trial));
+    CHECK(alpha(&trial,10u,15u)>0u);
+    CHECK(alpha(&trial,5u,7u)==alpha(&left,5u,7u));
+    CHECK(alpha(&trial,15u,7u)==alpha(&left,15u,7u));
+    quantapdf_ir_raster_image_dispose(&trial);
+    quantapdf_ir_raster_image_dispose(&left);
+
+    /* NEGATIVE: source bottom=15.0 already covers one 4x4 sample
+     * in row15, so strict mode8 must refuse touching that pixel. */
+    setup(&f);
+    REFUSE(BOTTOM(f,result));
+
+    /* Work budget admits mode7's 10*13,200 slots but refuses
+     * mode8's separately charged 11*13,200 slots. */
+    setup(&f);
+    f.grid_budget.max_sample_tests=140000u;
+    f.raster_budget.max_sample_tests=140000u;
+    OK(LEFT(f,left));
+    quantapdf_ir_raster_image_dispose(&left);
+    REFUSE(BOTTOM(f,result));
+    setup(&f);
+    f.gs.blend_mode=QUANTAPDF_COMPOSER_BLEND_MULTIPLY;
+    REFUSE(BOTTOM(f,result));
+    setup(&f);
+    f.clip.fill_rule=QUANTAPDF_COMPOSER_FILL_EVEN_ODD;
+    REFUSE(BOTTOM(f,result));
+    setup(&f);
+    f.mask[2].point1.x=21.0f;
+    REFUSE(BOTTOM(f,result));
+    setup(&f);
+    f.op.value.path.options.transform.a=2.0f;
+    REFUSE(BOTTOM(f,result));
+
+    /* A device row EXACTLY aligned with source bottom has zero new
+     * fringe. The eighth candidate must refuse rather than fabricate. */
+    setup(&f);
+    f.geometry.dpi=96.0f;
+    f.grid_budget.max_pixels=2000u;
+    f.grid_budget.max_rgba_bytes=8000u;
+    f.grid_budget.max_sample_tests=800000u;
+    f.raster_budget.max_pixels=2000u;
+    f.raster_budget.max_sample_tests=800000u;
+    REFUSE(BOTTOM(f,result));
+    return EXIT_SUCCESS;
+}
+
 static int test_fail_closed(void)
 {
     fixture f;
@@ -305,6 +429,8 @@ int main(void)
     CHECK(test_retraced_rectangle()==EXIT_SUCCESS);
     CHECK(test_left_clip_edge_and_repeat()==EXIT_SUCCESS);
     CHECK(test_left_clip_retraces_and_refusal()==EXIT_SUCCESS);
+    CHECK(test_bottom_faint_fringe()==EXIT_SUCCESS);
+    CHECK(test_bottom_retraces_and_refusal()==EXIT_SUCCESS);
     CHECK(test_fail_closed()==EXIT_SUCCESS);
     puts("native-rect-fill-right-private-A/B: geometry, repeat, fail-closed PASS");
     return EXIT_SUCCESS;

@@ -577,6 +577,49 @@ endif()
 message(STATUS
   "jspdf-mode7-original-residual: reconciled=501832 pixels changed=${m7_total_changed} error=${m7_total_rgb} gross=${m7_total_gross} parity=false official=0")
 
+
+# Eighth EXPLICIT PRIVATE source-derived red Fill bottom-fringe A/B.
+# Its new source RGBA result must be deterministic, isolated to the one
+# previously unpainted device row and separately sample-budgeted.
+# A regression is valid evidence: do NOT invent a parity threshold.
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_rgba_changed_pixels
+    changes_outside_bottom_interior abs_rgb_error
+    mean_abs_rgb_error changed_pixels gross_delta64_pixels
+    max_channel_delta rgb_fnv64)
+  string(JSON bottom_${field} GET "${json}" rect_fill_bottom_${field})
+endforeach()
+string(LENGTH "${bottom_rgb_fnv64}" bottom_digest_length)
+if(NOT bottom_status STREQUAL "measured_unqualified"
+   OR bottom_default_changed OR bottom_pixel_parity_qualified
+   OR NOT bottom_repeat_equal
+   OR bottom_source_rgba_changed_pixels LESS 1
+   OR bottom_source_rgba_changed_pixels GREATER 97
+   OR NOT bottom_changes_outside_bottom_interior EQUAL 0
+   OR NOT bottom_digest_length EQUAL 16
+   OR NOT bottom_rgb_fnv64 MATCHES "^[0-9a-f]+$"
+   OR bottom_abs_rgb_error LESS 0 OR bottom_abs_rgb_error GREATER 383901480
+   OR bottom_mean_abs_rgb_error LESS 0
+   OR bottom_mean_abs_rgb_error GREATER 255
+   OR bottom_changed_pixels LESS 0 OR bottom_changed_pixels GREATER 501832
+   OR bottom_gross_delta64_pixels LESS 0
+   OR bottom_gross_delta64_pixels GREATER bottom_changed_pixels
+   OR bottom_max_channel_delta LESS 0
+   OR bottom_max_channel_delta GREATER 255)
+  message(FATAL_ERROR "Original Fill-bottom A/B scope, repeat or budget invalid")
+endif()
+# Read-only mode7 source attribution and exact already-CI-green bytes
+# MUST NOT silently shift when the eighth test-only variant runs.
+if(NOT left_abs_rgb_error EQUAL 2519
+   OR NOT left_changed_pixels EQUAL 516
+   OR NOT left_gross_delta64_pixels EQUAL 0
+   OR NOT left_max_channel_delta EQUAL 38
+   OR NOT left_rgb_fnv64 STREQUAL "37927e64c5916882")
+  message(FATAL_ERROR "Previously qualified Clip-left source image changed")
+endif()
+message(STATUS
+  "jspdf-private-fill-bottom: mode7_rgb=${left_abs_rgb_error} bottom_rgb=${bottom_abs_rgb_error} mode7_changed=${left_changed_pixels} bottom_changed=${bottom_changed_pixels} changed_rgba=${bottom_source_rgba_changed_pixels} parity=false official=0")
+
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")

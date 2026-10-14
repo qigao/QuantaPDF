@@ -2024,6 +2024,78 @@ int test_external_jspdf_single_vertical_analytic_ab(
                       left_page.size)==0);
     const page_metrics left_metric=measure(left_page);
 
+    /* Eighth EXPLICIT PRIVATE source-bottom Fill A/B, after the
+     * separately verified right Fill and left W Clip boundaries.
+     * Same immutable 3344-byte real jsPDF, first mode5 black Stroke,
+     * later owned red Fill and directly rendered PDFium source page. */
+    quantapdf_ir_raster_image bottom_fill{},bottom_repeat{},
+                              bottom_page{},bottom_page_repeat{};
+    OK(quantapdf_ir_raster_rect_fill_bottom_preview_v0(
+        &only_fill,0u,&geometry,&fill_grid,&fill_budget,&bottom_fill));
+    OK(quantapdf_ir_raster_rect_fill_bottom_preview_v0(
+        &only_fill,0u,&geometry,&fill_grid,&fill_budget,&bottom_repeat));
+    CHECK(bottom_fill.pixels && bottom_repeat.pixels &&
+          bottom_fill.size==left_fill.size &&
+          bottom_fill.stride==left_fill.stride &&
+          bottom_repeat.size==bottom_fill.size &&
+          std::memcmp(bottom_fill.pixels,bottom_repeat.pixels,
+                      bottom_fill.size)==0);
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &h_stroke,&bottom_fill,&composite_budget,&bottom_page));
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &h_repeat,&bottom_repeat,&composite_budget,&bottom_page_repeat));
+    CHECK(bottom_page.pixels && bottom_page_repeat.pixels &&
+          bottom_page.size==left_page.size &&
+          bottom_page_repeat.size==bottom_page.size &&
+          std::memcmp(bottom_page.pixels,bottom_page_repeat.pixels,
+                      bottom_page.size)==0);
+    const page_metrics bottom_metric=measure(bottom_page);
+    size_t bottom_rgba_changed=0u,bottom_outside=0u;
+    const auto &source_fill_options=only_fill.operations[0].value.path.options;
+    const unsigned char fill_red=(unsigned char)(
+        (source_fill_options.fill_argb>>16u)&255u);
+    const unsigned char fill_green=(unsigned char)(
+        (source_fill_options.fill_argb>>8u)&255u);
+    const unsigned char fill_blue=(unsigned char)(
+        source_fill_options.fill_argb&255u);
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t off=y*left_fill.stride+x*4u;
+        if(std::memcmp(left_fill.pixels+off,
+                       bottom_fill.pixels+off,4u)==0)
+            continue;
+        ++bottom_rgba_changed;
+        if(y!=100u || x<52u || x>148u)
+            ++bottom_outside;
+        CHECK(left_fill.pixels[off]==0u &&
+              left_fill.pixels[off+1u]==0u &&
+              left_fill.pixels[off+2u]==0u &&
+              left_fill.pixels[off+3u]==0u);
+        CHECK(bottom_fill.pixels[off]==fill_red &&
+              bottom_fill.pixels[off+1u]==fill_green &&
+              bottom_fill.pixels[off+2u]==fill_blue &&
+              bottom_fill.pixels[off+3u]>0u &&
+              bottom_fill.pixels[off+3u]<255u);
+    }
+    CHECK(bottom_rgba_changed>0u && bottom_outside==0u);
+    const unsigned char *weak_native=
+        bottom_page.pixels+100u*bottom_page.stride+100u*4u;
+    const unsigned char *weak_pdfium=reference.at(100u,100u);
+    std::fprintf(stderr,
+        "[original jsPDF eighth private Fill-bottom A/B, NOT parity] "
+        "mode7_rgb=%llu bottom_rgb=%llu changed=%zu gross=%zu "
+        "changed_source_rgba=%zu out_of_scope=%zu "
+        "weak_native=(%u,%u,%u) raw_pdfium=(%u,%u,%u) fnv64=%016llx\n",
+        (unsigned long long)left_metric.abs_rgb,
+        (unsigned long long)bottom_metric.abs_rgb,
+        bottom_metric.changed,bottom_metric.gross,
+        bottom_rgba_changed,bottom_outside,
+        on_white(weak_native,0u),on_white(weak_native,1u),
+        on_white(weak_native,2u),
+        (unsigned)weak_pdfium[0],(unsigned)weak_pdfium[1],
+        (unsigned)weak_pdfium[2],
+        (unsigned long long)bottom_metric.fnv);
+
+
     /* New exact-original mode7 read-only attribution. The SOURCE pinned
      * windows are test-only labels, never C11 admission or rendering rules.
      * Every 596*842 pixel is assigned to one and only one group; the
@@ -2720,6 +2792,10 @@ int test_external_jspdf_single_vertical_analytic_ab(
     std::fprintf(stderr,"[jsPDF mode4 original residual regions] %s\n",
                  mode4_regions_json.c_str());
 
+    quantapdf_ir_raster_image_dispose(&bottom_page_repeat);
+    quantapdf_ir_raster_image_dispose(&bottom_page);
+    quantapdf_ir_raster_image_dispose(&bottom_repeat);
+    quantapdf_ir_raster_image_dispose(&bottom_fill);
     quantapdf_ir_raster_image_dispose(&left_page_repeat);
     quantapdf_ir_raster_image_dispose(&left_page);
     quantapdf_ir_raster_image_dispose(&left_repeat);
@@ -2807,7 +2883,18 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"rect_clip_left_changed_pixels\": %zu,\n"
         "  \"rect_clip_left_gross_delta64_pixels\": %zu,\n"
         "  \"rect_clip_left_max_channel_delta\": %u,\n"
-        "  \"rect_clip_left_rgb_fnv64\": \"%016llx\",\n"        "  \"rect_clip_left_original_residual_regions\": %s,\n"
+        "  \"rect_clip_left_rgb_fnv64\": \"%016llx\",\n"        "  \"rect_clip_left_original_residual_regions\": %s,\n"        "  \"rect_fill_bottom_status\": \"measured_unqualified\",\n"
+        "  \"rect_fill_bottom_default_changed\": false,\n"
+        "  \"rect_fill_bottom_pixel_parity_qualified\": false,\n"
+        "  \"rect_fill_bottom_repeat_equal\": true,\n"
+        "  \"rect_fill_bottom_source_rgba_changed_pixels\": %zu,\n"
+        "  \"rect_fill_bottom_changes_outside_bottom_interior\": %zu,\n"
+        "  \"rect_fill_bottom_abs_rgb_error\": %llu,\n"
+        "  \"rect_fill_bottom_mean_abs_rgb_error\": %.9f,\n"
+        "  \"rect_fill_bottom_changed_pixels\": %zu,\n"
+        "  \"rect_fill_bottom_gross_delta64_pixels\": %zu,\n"
+        "  \"rect_fill_bottom_max_channel_delta\": %u,\n"
+        "  \"rect_fill_bottom_rgb_fnv64\": \"%016llx\",\n"
         "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
@@ -2835,7 +2922,12 @@ int test_external_jspdf_single_vertical_analytic_ab(
         (double)left_metric.abs_rgb/1505496.0,
         left_metric.changed,left_metric.gross,left_metric.max_delta,
         (unsigned long long)left_metric.fnv,
-        mode7_regions_json.c_str());
+        mode7_regions_json.c_str(),
+        bottom_rgba_changed,bottom_outside,
+        (unsigned long long)bottom_metric.abs_rgb,
+        (double)bottom_metric.abs_rgb/1505496.0,
+        bottom_metric.changed,bottom_metric.gross,bottom_metric.max_delta,
+        (unsigned long long)bottom_metric.fnv);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
