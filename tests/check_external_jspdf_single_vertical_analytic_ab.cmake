@@ -948,6 +948,72 @@ if(NOT neighbor_status STREQUAL "measured_unqualified"
 endif()
 message(STATUS
   "jspdf-q8-adjacent-join: parent_rgb=${join_abs_rgb_error} trial_rgb=${neighbor_abs_rgb_error} parent_changed=${join_changed_pixels} trial_changed=${neighbor_changed_pixels} alpha_changes=${neighbor_source_alpha_changed_pixels} official=0 parity=false")
+# Final read-only mode10 source residual accounting. This work occurs
+# entirely after the existing private Q8 raster and original PDFium
+# oracle have produced their images. All 501,832 pixels are included.
+string(JSON nine_schema GET "${json}" adjacent_join_residual_regions schema_version)
+string(JSON nine_status GET "${json}" adjacent_join_residual_regions observation_only)
+string(JSON nine_parity GET "${json}" adjacent_join_residual_regions pixel_parity_qualified)
+string(JSON nine_count LENGTH "${json}" adjacent_join_residual_regions regions)
+string(JSON nine_pixels GET "${json}" adjacent_join_residual_regions total_pixels)
+string(JSON nine_changed GET "${json}" adjacent_join_residual_regions total_changed)
+string(JSON nine_error GET "${json}" adjacent_join_residual_regions total_abs_rgb_error)
+string(JSON nine_gross GET "${json}" adjacent_join_residual_regions total_gross)
+string(JSON nine_max GET "${json}" adjacent_join_residual_regions max_channel_delta)
+string(JSON nine_complete GET "${json}" adjacent_join_residual_regions full_original_reconciled)
+string(JSON nine_worst LENGTH "${json}" adjacent_join_residual_regions worst_pixels)
+if(NOT nine_schema EQUAL 1 OR NOT nine_status OR nine_parity
+   OR NOT nine_count EQUAL 16 OR NOT nine_complete
+   OR NOT nine_pixels EQUAL 501832
+   OR NOT nine_changed EQUAL neighbor_changed_pixels
+   OR NOT nine_error EQUAL neighbor_abs_rgb_error
+   OR NOT nine_gross EQUAL neighbor_gross_delta64_pixels
+   OR NOT nine_max EQUAL neighbor_max_channel_delta)
+  message(FATAL_ERROR "Mode10 actual source 16-bin audit does not reconcile")
+endif()
+if(nine_changed GREATER 16)
+  if(NOT nine_worst EQUAL 16)
+    message(FATAL_ERROR "Mode10 residual witness count was truncated wrongly")
+  endif()
+elseif(NOT nine_worst EQUAL nine_changed)
+  message(FATAL_ERROR "Mode10 residual witness count mismatch")
+endif()
+set(nine_bin_pixels 0)
+set(nine_bin_changed 0)
+set(nine_bin_error 0)
+set(nine_bin_gross 0)
+foreach(name IN ITEMS bottom_left_endpoint bottom_right_endpoint
+    bottom_single_horizontal_interior top_repeated_left_endpoint
+    top_repeated_right_endpoint top_repeated_horizontal_interior
+    right_vertical_stroke left_vertical_below_red
+    red_left_w_clip_stroke_overlap red_left_w_clip_only
+    red_right_fill_boundary red_top_right_coupled_corner
+    red_top_stroke_overlap red_fill_bottom_edge
+    red_bottom_uncovered_fringe other)
+  string(JSON value_pixels GET "${json}" adjacent_join_residual_regions regions "${name}" pixels)
+  string(JSON value_changed GET "${json}" adjacent_join_residual_regions regions "${name}" changed)
+  string(JSON value_error GET "${json}" adjacent_join_residual_regions regions "${name}" abs_rgb_error)
+  string(JSON value_gross GET "${json}" adjacent_join_residual_regions regions "${name}" gross)
+  string(JSON value_bright GET "${json}" adjacent_join_residual_regions regions "${name}" brighter_rgb_error)
+  string(JSON value_dark GET "${json}" adjacent_join_residual_regions regions "${name}" darker_rgb_error)
+  math(EXPR signed_sum "${value_bright}+${value_dark}")
+  if(NOT signed_sum EQUAL value_error OR value_changed GREATER value_pixels
+     OR value_gross GREATER value_changed)
+    message(FATAL_ERROR "Mode10 source bucket has inconsistent signed RGB accounting")
+  endif()
+  math(EXPR nine_bin_pixels "${nine_bin_pixels}+${value_pixels}")
+  math(EXPR nine_bin_changed "${nine_bin_changed}+${value_changed}")
+  math(EXPR nine_bin_error "${nine_bin_error}+${value_error}")
+  math(EXPR nine_bin_gross "${nine_bin_gross}+${value_gross}")
+endforeach()
+if(NOT nine_bin_pixels EQUAL nine_pixels OR
+   NOT nine_bin_changed EQUAL nine_changed OR
+   NOT nine_bin_error EQUAL nine_error OR
+   NOT nine_bin_gross EQUAL nine_gross)
+  message(FATAL_ERROR "Mode10 source bins do not add up to original page")
+endif()
+message(STATUS
+  "jspdf-post-mode10-16-bins: source_pixels=${nine_pixels} mismatches=${nine_changed} rgb=${nine_error} max=${nine_max} official=0 parity=false")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
