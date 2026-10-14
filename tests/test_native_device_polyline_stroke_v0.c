@@ -816,7 +816,7 @@ static int test_upper_horizontal_lsb_trial(void)
               memcmp(trial.pixels,repeat.pixels,trial.size)==0);
         const double dx=f.geom.page_width_points/(double)trial.width;
         const double dy=f.geom.page_height_points/(double)trial.height;
-        const size_t x=(size_t)floor(10.0/dx);
+        const size_t center_x=(size_t)floor(10.0/dx);
         size_t changes=0u;
         for(size_t y=0u;y<trial.height;++y) {
             const double y0=(double)y*dy;
@@ -826,8 +826,8 @@ static int test_upper_horizontal_lsb_trial(void)
             const unsigned rounded=(unsigned)floor(255.0*cover+0.5);
             const unsigned expected=(y1<=8.0 && rounded>0u &&
                 rounded<255u)?rounded+1u:rounded;
-            CHECK(alpha(&old,x,y)==rounded);
-            CHECK(alpha(&trial,x,y)==expected);
+            CHECK(alpha(&old,center_x,y)==rounded);
+            CHECK(alpha(&trial,center_x,y)==expected);
         }
         for(size_t y=0u;y<trial.height;++y)
             for(size_t x=0u;x<trial.width;++x) {

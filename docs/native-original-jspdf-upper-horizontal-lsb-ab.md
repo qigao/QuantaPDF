@@ -86,3 +86,11 @@ that the new mode7 improves the score.
 `UNSUPPORTED` / zero partial output; official native W/W* original
 positive count unchanged. Installed/public SDK continues to use
 PDFium, and #208 cutover remains blocked.
+
+## Strict MSVC fixture validation
+
+Initial Windows CI exposed a `/W4 /WX` C4456 in the new pure-C11
+synthetic fixture: the named center-column local `x` was shadowed by
+a later per-pixel loop local `x`. The center is now named
+`center_x`; no source Stroke C11 preview or A/B acceptance behavior
+was modified. Final qualification requires fresh exact-HEAD full CI.
