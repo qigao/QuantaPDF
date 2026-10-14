@@ -716,6 +716,42 @@ endif()
 message(STATUS
   "jspdf-upper-horizontal-lsb: baseline_rgb=${bottom_abs_rgb_error} global_ceil_rgb=${ceil_abs_rgb_error} upper_rgb=${upper_abs_rgb_error} upper_changed=${upper_changed_pixels} alpha_changed=${upper_source_alpha_changed_pixels} official=0 parity=false")
 
+# ELEVENTH independent private A/B: EXACT accepted #298 Stroke and #296
+# clipped-fill RGBA bytes; destination RGB is composed onto opaque white.
+# Earlier modes/SDK/parity count remain unchanged.
+if(NOT upper_abs_rgb_error EQUAL 1349
+   OR NOT upper_changed_pixels EQUAL 223
+   OR NOT upper_gross_delta64_pixels EQUAL 0
+   OR NOT upper_max_channel_delta EQUAL 38
+   OR NOT upper_rgb_fnv64 STREQUAL "04d883c87f2ec8bc")
+  message(FATAL_ERROR "Previously measured #298 source image changed")
+endif()
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_layers_equal
+    changed_vs_upper_pixels changed_outside_overlap
+    abs_rgb_error mean_abs_rgb_error changed_pixels
+    gross_delta64_pixels max_channel_delta rgb_fnv64)
+  string(JSON opaque_${field} GET "${json}" opaque_floor_${field})
+endforeach()
+string(LENGTH "${opaque_rgb_fnv64}" opaque_hashlen)
+if(NOT opaque_status STREQUAL "measured_unqualified"
+   OR opaque_default_changed OR opaque_pixel_parity_qualified
+   OR NOT opaque_repeat_equal OR NOT opaque_source_layers_equal
+   OR opaque_changed_vs_upper_pixels LESS 1
+   OR opaque_changed_vs_upper_pixels GREATER 501832
+   OR NOT opaque_changed_outside_overlap EQUAL 0
+   OR opaque_abs_rgb_error LESS 0 OR opaque_abs_rgb_error GREATER 383901480
+   OR opaque_mean_abs_rgb_error LESS 0 OR opaque_mean_abs_rgb_error GREATER 255
+   OR opaque_changed_pixels LESS 0 OR opaque_changed_pixels GREATER 501832
+   OR opaque_gross_delta64_pixels LESS 0
+   OR opaque_gross_delta64_pixels GREATER opaque_changed_pixels
+   OR opaque_max_channel_delta LESS 0 OR opaque_max_channel_delta GREATER 255
+   OR NOT opaque_hashlen EQUAL 16
+   OR NOT opaque_rgb_fnv64 MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "Opaque-white floor A/B escaped isolation")
+endif()
+message(STATUS
+  "jspdf-opaque-white-floor: upper_rgb=${upper_abs_rgb_error} trial_rgb=${opaque_abs_rgb_error} upper_changed=${upper_changed_pixels} trial_changed=${opaque_changed_pixels} changed_vs_upper=${opaque_changed_vs_upper_pixels} outside_overlap=${opaque_changed_outside_overlap} official=0 parity=false")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
