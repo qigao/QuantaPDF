@@ -280,6 +280,10 @@ static int test_bottom_faint_fringe(void)
     fixture f;
     quantapdf_ir_raster_image old={0},trial={0},repeat={0};
     setup(&f);
+    /* Choose a source bottom just after the top of device row15,
+     * BEFORE its first 4x4 subpixel sample: the old Fill truly left
+     * that whole row untouched, unlike source bottom=15.0. */
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
     OK(LEFT(f,old));
     OK(BOTTOM(f,trial));
     OK(BOTTOM(f,repeat));
@@ -288,9 +292,10 @@ static int test_bottom_faint_fringe(void)
     const double dy=24.75/25.0;
     const double row0=15.0*dy;
     const double row1=16.0*dy;
-    CHECK(row0<15.0 && 15.0<row1);
+    const double true_bottom=(double)14.9f;
+    CHECK(row0<true_bottom && true_bottom<row1);
     const unsigned expected=(unsigned)floor(
-        255.0*(15.0-row0)/(row1-row0)+0.5);
+        255.0*(true_bottom-row0)/(row1-row0)+0.5);
     CHECK(expected>0u && expected<255u);
     CHECK(alpha(&old,10u,15u)==0u);
     CHECK(alpha(&trial,10u,15u)==expected);
@@ -325,6 +330,7 @@ static int test_bottom_retraces_and_refusal(void)
     fixture f;
     quantapdf_ir_raster_image left={0},trial={0};
     setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
     /* A repeated source rectangle border is one Fill/Clip, never
      * multiple alpha sources. Keep all three previous edge passes. */
     f.fill[4].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
@@ -348,6 +354,11 @@ static int test_bottom_retraces_and_refusal(void)
     CHECK(alpha(&trial,15u,7u)==alpha(&left,15u,7u));
     quantapdf_ir_raster_image_dispose(&trial);
     quantapdf_ir_raster_image_dispose(&left);
+
+    /* NEGATIVE: source bottom=15.0 already covers one 4x4 sample
+     * in row15, so strict mode8 must refuse touching that pixel. */
+    setup(&f);
+    REFUSE(BOTTOM(f,result));
 
     /* Work budget admits mode7's 10*13,200 slots but refuses
      * mode8's separately charged 11*13,200 slots. */

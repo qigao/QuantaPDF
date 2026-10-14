@@ -75,3 +75,16 @@ Public SDK continues using PDFium, original whole-document C11
 remains UNSUPPORTED/zero pixels, official W/W* positive count
 unchanged and #208 cutover blocked. #269 stays Open, this and
 upstream Draft PRs **DO NOT MERGE** pending exact-head CI.
+
+## Independent synthetic fixture correction
+
+The first synthetic test used source Fill bottom `15.0` on a 24.75pt-high
+25-row grid. Its sampled pixel row15 starts at 14.85pt, and the first
+4x4 sample is still inside the Fill, so the baseline alpha is
+**nonzero**. The strict mode8 correctly refuses that case; it cannot
+be used as a weak *unpainted* fringe positive. The positive and source
+retraced fixtures now use a bottom at `14.9f`, after row15 begins but
+before its first sample, and calculate the expected alpha from the
+actual stored float. The old `15.0f` fixture remains an explicit
+negative test. No production/private C11 raster algorithm or original
+source bytes changed in this correction.
