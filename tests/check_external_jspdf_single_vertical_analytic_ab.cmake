@@ -1063,6 +1063,55 @@ if(NOT corner_status STREQUAL "measured_unqualified"
 endif()
 message(STATUS
   "jspdf-q8-upper-right-fill-corner: parent_rgb=${neighbor_abs_rgb_error} trial_rgb=${corner_abs_rgb_error} parent_changed=${neighbor_changed_pixels} trial_changed=${corner_changed_pixels} source_alpha_changes=${corner_source_alpha_changed_pixels} parity=false official=0")
+# SIXTEENTH independent Q8 full-X device-cell Fill-bottom fringe A/B.
+# Freeze exact full Linux Release/Debug, Windows, macOS #308 control.
+if(NOT corner_abs_rgb_error EQUAL 143
+   OR NOT corner_changed_pixels EQUAL 8
+   OR NOT corner_gross_delta64_pixels EQUAL 0
+   OR NOT corner_max_channel_delta EQUAL 15
+   OR NOT corner_rgb_fnv64 STREQUAL "5dff11faa26ac6c2")
+  message(FATAL_ERROR "Parent #308 Q8 Fill-corner source image mutated")
+endif()
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_alpha_changed_pixels outside_fully_covered_cells
+    alpha_delta_gt3_pixels rgb_outside_source_alpha
+    rgba_abs_rgb_error rgba_changed_pixels rgba_fnv64
+    abs_rgb_error mean_abs_rgb_error changed_pixels
+    gross_delta64_pixels max_channel_delta rgb_fnv64)
+  string(JSON fullq8_${field} GET "${json}" full_bottom_q8_${field})
+endforeach()
+string(LENGTH "${fullq8_rgb_fnv64}" fullq8_hashlen)
+string(LENGTH "${fullq8_rgba_fnv64}" fullq8_rgba_hashlen)
+if(NOT fullq8_status STREQUAL "measured_unqualified"
+   OR fullq8_default_changed OR fullq8_pixel_parity_qualified
+   OR NOT fullq8_repeat_equal
+   OR fullq8_source_alpha_changed_pixels LESS 1
+   OR fullq8_source_alpha_changed_pixels GREATER 2
+   OR NOT fullq8_outside_fully_covered_cells EQUAL 0
+   OR NOT fullq8_alpha_delta_gt3_pixels EQUAL 0
+   OR NOT fullq8_rgb_outside_source_alpha EQUAL 0
+   OR fullq8_rgba_abs_rgb_error LESS 0
+   OR fullq8_rgba_abs_rgb_error GREATER 383901480
+   OR fullq8_rgba_changed_pixels LESS 0
+   OR fullq8_rgba_changed_pixels GREATER 501832
+   OR NOT fullq8_rgba_hashlen EQUAL 16
+   OR NOT fullq8_rgba_fnv64 MATCHES "^[0-9a-f]+$"
+   OR fullq8_abs_rgb_error LESS 0
+   OR fullq8_abs_rgb_error GREATER 383901480
+   OR fullq8_mean_abs_rgb_error LESS 0
+   OR fullq8_mean_abs_rgb_error GREATER 255
+   OR fullq8_changed_pixels LESS 0
+   OR fullq8_changed_pixels GREATER 501832
+   OR fullq8_gross_delta64_pixels LESS 0
+   OR fullq8_gross_delta64_pixels GREATER fullq8_changed_pixels
+   OR fullq8_max_channel_delta LESS 0
+   OR fullq8_max_channel_delta GREATER 255
+   OR NOT fullq8_hashlen EQUAL 16
+   OR NOT fullq8_rgb_fnv64 MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "Original Q8 fully inside Fill-bottom cell A/B escaped scope")
+endif()
+message(STATUS
+  "jspdf-q8-fill-bottom-full-cell: parent_rgb=${corner_abs_rgb_error} trial_rgb=${fullq8_abs_rgb_error} parent_changed=${corner_changed_pixels} trial_changed=${fullq8_changed_pixels} source_alpha_changes=${fullq8_source_alpha_changed_pixels} official=0 parity=false")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
