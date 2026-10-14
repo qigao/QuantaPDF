@@ -2095,9 +2095,22 @@ int test_external_jspdf_single_vertical_analytic_ab(
     }
     CHECK(ceil_alpha_changed>0u && ceil_outside==0u &&
           ceil_more_than_one==0u);
+    /* CEIL is a falsifiable trial, NOT an assumed +1 improvement.
+     * The same raw coverage may legitimately produce identical integers
+     * under ROUND and CEIL at a particular original PDF source pixel. */
     const size_t center=139u*ceil_stroke.stride+100u*4u;
-    CHECK(ceil_stroke.pixels[center+3u]==
-          (unsigned)(h_stroke.pixels[center+3u]+1u));
+    const unsigned old_center_alpha=h_stroke.pixels[center+3u];
+    const unsigned new_center_alpha=ceil_stroke.pixels[center+3u];
+    CHECK(new_center_alpha>=old_center_alpha &&
+          new_center_alpha<=old_center_alpha+1u);
+    const unsigned char *old_center_pixel=
+        bottom_page.pixels+139u*bottom_page.stride+100u*4u;
+    std::fprintf(stderr,
+        "[original jsPDF ceil interior witness] source=(100,139) "
+        "old_alpha=%u new_alpha=%u old_gray=(%u,%u,%u)\n",
+        old_center_alpha,new_center_alpha,
+        on_white(old_center_pixel,0u),on_white(old_center_pixel,1u),
+        on_white(old_center_pixel,2u));
     const unsigned char *ceil_site=
         ceil_page.pixels+139u*ceil_page.stride+100u*4u;
     const unsigned char *ceil_truth=reference.at(100u,139u);

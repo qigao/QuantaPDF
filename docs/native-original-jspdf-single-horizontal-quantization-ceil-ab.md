@@ -76,3 +76,15 @@ DO NOT MERGE, original whole-document native `UNSUPPORTED` with
 zero pixels, formal W/W* native-positive unchanged, public
 SDK still PDFium, #208 cutover blocked until TRUE full-original
 pixel-parity conformance.
+
+## Falsifiability guard refinement
+
+The first true-original Linux run showed that source pixel (100,139)
+need **not** change under `ceil` versus nearest rounding: both integer
+alphas can coincide at a given fractional source coverage, even if its
+old gray pixel differs from PDFium. A test-only `old+1` requirement
+was an unjustified improvement assumption and was replaced by a strict
+`old <= ceil <= old+1` guard plus independent baseline/trial source
+Alpha and RGB witness logging. The candidate still must reconcile ALL
+source-original pixels and is explicitly allowed to regress. No C11
+renderer algorithm or previous source-PDF counters were changed.
