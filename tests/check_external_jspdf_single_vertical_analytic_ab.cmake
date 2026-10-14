@@ -897,6 +897,57 @@ if(NOT join_status STREQUAL "measured_unqualified"
 endif()
 message(STATUS
   "jspdf-q8-inner-bevel-join: parent_rgb=${q8floor_abs_rgb_error} trial_rgb=${join_abs_rgb_error} parent_mismatch=${q8floor_changed_pixels} trial_mismatch=${join_changed_pixels} changed_alpha=${join_source_alpha_changed_pixels} official=0 parity=false")
+# FOURTEENTH original source Q8 join-neighbor A/B: the same isolated
+# miter formula as #305, sampled over additional adjacent device cells.
+# Freeze independently validated miter parent; no improvement tolerance.
+if(NOT join_abs_rgb_error EQUAL 509
+   OR NOT join_changed_pixels EQUAL 21
+   OR NOT join_gross_delta64_pixels EQUAL 0
+   OR NOT join_max_channel_delta EQUAL 18
+   OR NOT join_rgb_fnv64 STREQUAL "439859a3b614efea")
+  message(FATAL_ERROR "Previously measured #305 Q8 miter control changed")
+endif()
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_alpha_changed_pixels
+    outside_source_neighborhood alpha_delta_gt64_pixels
+    rgb_changed_outside_source_alpha
+    rgba_abs_rgb_error rgba_changed_pixels rgba_fnv64
+    abs_rgb_error mean_abs_rgb_error changed_pixels
+    gross_delta64_pixels max_channel_delta rgb_fnv64)
+  string(JSON neighbor_${field} GET "${json}" adjacent_join_${field})
+endforeach()
+string(LENGTH "${neighbor_rgb_fnv64}" neighbor_hashlen)
+string(LENGTH "${neighbor_rgba_fnv64}" neighbor_rgba_hashlen)
+if(NOT neighbor_status STREQUAL "measured_unqualified"
+   OR neighbor_default_changed OR neighbor_pixel_parity_qualified
+   OR NOT neighbor_repeat_equal
+   OR neighbor_source_alpha_changed_pixels LESS 1
+   OR neighbor_source_alpha_changed_pixels GREATER 100
+   OR NOT neighbor_outside_source_neighborhood EQUAL 0
+   OR NOT neighbor_alpha_delta_gt64_pixels EQUAL 0
+   OR NOT neighbor_rgb_changed_outside_source_alpha EQUAL 0
+   OR neighbor_rgba_abs_rgb_error LESS 0
+   OR neighbor_rgba_abs_rgb_error GREATER 383901480
+   OR neighbor_rgba_changed_pixels LESS 0
+   OR neighbor_rgba_changed_pixels GREATER 501832
+   OR NOT neighbor_rgba_hashlen EQUAL 16
+   OR NOT neighbor_rgba_fnv64 MATCHES "^[0-9a-f]+$"
+   OR neighbor_abs_rgb_error LESS 0
+   OR neighbor_abs_rgb_error GREATER 383901480
+   OR neighbor_mean_abs_rgb_error LESS 0
+   OR neighbor_mean_abs_rgb_error GREATER 255
+   OR neighbor_changed_pixels LESS 0
+   OR neighbor_changed_pixels GREATER 501832
+   OR neighbor_gross_delta64_pixels LESS 0
+   OR neighbor_gross_delta64_pixels GREATER neighbor_changed_pixels
+   OR neighbor_max_channel_delta LESS 0
+   OR neighbor_max_channel_delta GREATER 255
+   OR NOT neighbor_hashlen EQUAL 16
+   OR NOT neighbor_rgb_fnv64 MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "Q8 adjacent-join hypothesis escaped source scope")
+endif()
+message(STATUS
+  "jspdf-q8-adjacent-join: parent_rgb=${join_abs_rgb_error} trial_rgb=${neighbor_abs_rgb_error} parent_changed=${join_changed_pixels} trial_changed=${neighbor_changed_pixels} alpha_changes=${neighbor_source_alpha_changed_pixels} official=0 parity=false")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
