@@ -7,7 +7,9 @@
 
 enum {
     QP_DEVICE_STROKE_MAX_SEGMENTS = 24,
-    QP_DEVICE_STROKE_SUBPIXELS = 4
+    QP_DEVICE_STROKE_SUBPIXELS = 4,
+    QP_DEVICE_STROKE_FINE_SUBPIXELS = 16,
+    QP_DEVICE_STROKE_MAX_JOIN_WINDOW_PIXELS = 36
 };
 
 typedef struct qp_stroke_point {
@@ -221,6 +223,94 @@ static int qp_stroke_hit(
             return 1;
     }
     return 0;
+}
+
+
+/* EIGHTH, explicitly invoked PRIVATE Stroke A/B: a higher-resolution,
+ * still PURE source-geometric 16x16 sample only near the lowest source
+ * 1pt orthogonal miter joins. Not an overall supersampling switch and
+ * NOT a claim of PDFium AA equivalence.
+ *
+ * This computes from the SAME C11 union-of-segments/miter triangles as
+ * the existing trusted source Stroke renderer. Qualification:
+ * - a true 90-degree axis-aligned contiguous source Path join at the
+ *   source Path's BOTTOMMOST Y, width exactly 1pt, source miter valid;
+ * - candidate pixel intersects the source radius + 1 device pixel
+ *   neighborhood; the adjacent segments are long enough;
+ * - NO third source segment's expanded bounds touch that pixel;
+ * - no two eligible joins compete for a pixel.
+ *
+ * The maximum candidate source pixel window is conservatively 6x6
+ * device pixels for 72/96/144dpi with a 1pt stroke; a separate
+ * worst-case count*(count-1)*36*256 source-hit budget is charged in
+ * addition to the prior 8 full-page source-edge passes BEFORE malloc. */
+static int qp_bottom_join_fine_alpha(
+    const qp_stroke_segment *segments, size_t count,
+    const qp_stroke_join *joins, const int *kinds,
+    const quantapdf_native_device_grid *grid,
+    size_t x,size_t y,double radius,double max_source_y,
+    unsigned *out_alpha)
+{
+    const double x0=(double)x*grid->points_per_device_x;
+    const double x1=((double)x+1.0)*grid->points_per_device_x;
+    const double y0=(double)y*grid->points_per_device_y;
+    const double y1=((double)y+1.0)*grid->points_per_device_y;
+    const double gx=radius+grid->points_per_device_x;
+    const double gy=radius+grid->points_per_device_y;
+    size_t selected=SIZE_MAX;
+    unsigned hits=0u;
+    if(radius!=0.5 || out_alpha==NULL ||
+       !(x1>x0 && y1>y0) || !isfinite(max_source_y))
+        return 0;
+    for(size_t i=0u;i+1u<count;++i) {
+        const qp_stroke_segment *a=&segments[i],*b=&segments[i+1u];
+        const qp_stroke_join *join=&joins[i];
+        const int from_horizontal=a->dy==0.0 && a->dx!=0.0 &&
+                                  b->dx==0.0 && b->dy!=0.0;
+        const int from_vertical=a->dx==0.0 && a->dy!=0.0 &&
+                                b->dy==0.0 && b->dx!=0.0;
+        int disjoint=1;
+        if(kinds[i]!=2 || !join->has_miter ||
+           join->vertex.y!=max_source_y ||
+           !(from_horizontal || from_vertical) ||
+           !(fabs(a->dx)+fabs(b->dx)>2.0*gx &&
+             fabs(a->dy)+fabs(b->dy)>2.0*gy) ||
+           x0>=join->vertex.x+gx || x1<=join->vertex.x-gx ||
+           y0>=join->vertex.y+gy || y1<=join->vertex.y-gy)
+            continue;
+        for(size_t k=0u;k<count;++k) {
+            const qp_stroke_segment *s;
+            double sx0,sx1,sy0,sy1;
+            if(k==i || k==i+1u)continue;
+            s=&segments[k];
+            sx0=fmin(s->a.x,s->b.x)-radius;
+            sx1=fmax(s->a.x,s->b.x)+radius;
+            sy0=fmin(s->a.y,s->b.y)-radius;
+            sy1=fmax(s->a.y,s->b.y)+radius;
+            if(x0<sx1 && x1>sx0 && y0<sy1 && y1>sy0) {
+                disjoint=0;
+                break;
+            }
+        }
+        if(!disjoint)continue;
+        if(selected!=SIZE_MAX)return 0;
+        selected=i;
+    }
+    if(selected==SIZE_MAX)return 0;
+    for(unsigned sy=0u;sy<QP_DEVICE_STROKE_FINE_SUBPIXELS;++sy)
+        for(unsigned sx=0u;sx<QP_DEVICE_STROKE_FINE_SUBPIXELS;++sx) {
+            qp_stroke_point p;
+            p.x=((double)x+((double)sx+0.5)/
+                 (double)QP_DEVICE_STROKE_FINE_SUBPIXELS)*
+                 grid->points_per_device_x;
+            p.y=((double)y+((double)sy+0.5)/
+                 (double)QP_DEVICE_STROKE_FINE_SUBPIXELS)*
+                 grid->points_per_device_y;
+            hits+=(unsigned)qp_stroke_hit(
+                segments,count,joins,kinds,p,radius);
+        }
+    *out_alpha=(hits*255u+128u)/256u;
+    return 1;
 }
 
 /* **EXPERIMENTAL PRIVATE PREVIEW**: PDFium original-black source Stroke has
@@ -582,7 +672,7 @@ static quantapdf_status qp_stroke_render_impl(
     qp_stroke_segment segments[QP_DEVICE_STROKE_MAX_SEGMENTS];
     qp_stroke_join joins[QP_DEVICE_STROKE_MAX_SEGMENTS] = {0};
     int join_kinds[QP_DEVICE_STROKE_MAX_SEGMENTS] = {0};
-    double radius,miter_limit;
+    double radius,miter_limit,max_source_y=0.0;
     uint32_t color;
     size_t count=0u;
     unsigned char *rgba=NULL;
@@ -669,10 +759,42 @@ static quantapdf_status qp_stroke_render_impl(
         count*7u>raster_limits->max_sample_tests/grid.sample_slots))
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
+    /* One more FULL conservative source pass plus a worst-case budget
+     * of 36 device pixels per source join, 16x16 hit scans of all
+     * source edges per candidate. All before owned output allocation. */
+    if(horizontal_preview==8) {
+        const size_t edges=count*8u;
+        const size_t extra=count*(count-1u)*
+            (size_t)QP_DEVICE_STROKE_MAX_JOIN_WINDOW_PIXELS*
+            (size_t)QP_DEVICE_STROKE_FINE_SUBPIXELS*
+            (size_t)QP_DEVICE_STROKE_FINE_SUBPIXELS;
+        size_t base_work;
+        if(count>grid_limits->max_edges/8u ||
+           count>raster_limits->max_edges/8u ||
+           quantapdf_native_device_grid_admit_edges_v0(
+               &grid,grid_limits,edges)!=QUANTAPDF_NATIVE_DEVICE_GRID_OK ||
+           edges>raster_limits->max_sample_tests/grid.sample_slots)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        /* Division admission proves no overflow in the multiplication.
+         * Both max_sample_tests budgets cover this full-page work. */
+        base_work=edges*grid.sample_slots;
+        if(extra>grid_limits->max_sample_tests-base_work ||
+           extra>raster_limits->max_sample_tests-base_work)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+
     for(size_t i=1u;i<count;++i) {
         join_kinds[i-1u]=qp_stroke_join_build(&segments[i-1u],&segments[i],
                                                radius,miter_limit,&joins[i-1u]);
         if(join_kinds[i-1u]==0) return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+
+    if(horizontal_preview==8) {
+        max_source_y=segments[0].a.y;
+        for(size_t i=0u;i<count;++i) {
+            max_source_y=fmax(max_source_y,segments[i].a.y);
+            max_source_y=fmax(max_source_y,segments[i].b.y);
+        }
     }
 
     rgba=(unsigned char *)malloc(grid.rgba_bytes);
@@ -727,8 +849,17 @@ static quantapdf_status qp_stroke_render_impl(
                 if(qp_single_horizontal_analytic_alpha(
                        segments,count,&grid,x,y,radius,&analytic_alpha,
                        horizontal_preview==6?1:
-                       (horizontal_preview==7?2:0)))
+                       (horizontal_preview>=7?2:0)))
                     pixel_alpha=analytic_alpha;
+            }
+            if(horizontal_preview==8 && pixel_alpha!=0u &&
+               pixel_alpha<255u) {
+                unsigned fine_alpha=0u;
+                if(qp_bottom_join_fine_alpha(
+                       segments,count,joins,join_kinds,&grid,x,y,
+                       radius,max_source_y,&fine_alpha) &&
+                   fine_alpha!=0u)
+                    pixel_alpha=fine_alpha;
             }
             if(pixel_alpha!=0u) {
                 size_t offset=(y*grid.width+x)*4u;
@@ -860,4 +991,20 @@ quantapdf_ir_raster_device_polyline_stroke_upper_horizontal_lsb_preview_v0(
 {
     return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
                                  raster_limits,out_image,7);
+}
+
+
+/* EIGHTH distinct PRIVATE C11 Stroke preview: 16x16 source-miter
+ * samples only at the Path's bottommost, uniquely orthogonal 1pt
+ * corner pixels. All prior source preview modes are separate. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_bottom_miter_fine_preview_v0(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
+                                 raster_limits,out_image,8);
 }
