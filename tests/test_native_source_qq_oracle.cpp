@@ -2336,6 +2336,128 @@ int test_external_jspdf_single_vertical_analytic_ab(
         adjacent_floor_metric.max_delta,
         (unsigned long long)adjacent_floor_metric.fnv);
 
+    /* READ-ONLY post-mode10 audit. Reuse the earlier verified 16 disjoint
+     * SOURCE-specific report bins; scan the ALREADY rendered original page.
+     * None of these test-only coordinates or PDFium pixels enter C11
+     * drawing or affect any image acceptance/admission decision. */
+    mode7_region adjacent_bins[16]={};
+    for(size_t i=0u;i<16u;++i)adjacent_bins[i].name=groups[i].name;
+    std::vector<worst_point> adjacent_worst;
+    adjacent_worst.reserve(32u);
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t off=y*adjacent_stroke.stride+x*4u;
+        const unsigned source_alpha=adjacent_stroke.pixels[off+3u];
+        const unsigned fill_alpha=bottom_fill.pixels[off+3u];
+        const size_t bin=group_of(x,y,source_alpha,fill_alpha);
+        CHECK(bin<16u);
+        mode7_region &b=adjacent_bins[bin];
+        const unsigned char *pixel=adjacent_floor.pixels+off;
+        const unsigned char *oracle=reference.at(x,y);
+        CHECK(pixel[3]==255u);
+        ++b.pixels;
+        unsigned worst_channel=0u,total=0u;
+        for(size_t c=0u;c<3u;++c) {
+            const unsigned a=pixel[c],z=oracle[c];
+            const unsigned difference=a>=z?a-z:z-a;
+            total+=difference;b.error+=(std::uint64_t)difference;
+            if(a>z)b.brighter+=(std::uint64_t)difference;
+            if(a<z)b.darker+=(std::uint64_t)difference;
+            if(difference>worst_channel)worst_channel=difference;
+        }
+        if(worst_channel!=0u) {
+            ++b.changed;
+            worst_point p{};
+            p.x=x;p.y=y;p.region=bin;
+            p.max_delta=worst_channel;p.rgb_error=total;
+            p.stroke_alpha=source_alpha;p.fill_alpha=fill_alpha;
+            for(size_t c=0u;c<3u;++c) {
+                p.native_rgb[c]=pixel[c];p.pdfium_rgb[c]=oracle[c];
+            }
+            adjacent_worst.push_back(p);
+        }
+        if(worst_channel>64u)++b.gross;
+        if(worst_channel>b.max_delta) {
+            b.max_delta=worst_channel;b.worst_x=x;b.worst_y=y;
+        }
+    }
+    size_t adjacent_scan_pixels=0u,adjacent_scan_changed=0u,
+           adjacent_scan_gross=0u;
+    std::uint64_t adjacent_scan_abs=0u,adjacent_scan_brighter=0u,
+                  adjacent_scan_darker=0u;
+    unsigned adjacent_scan_max=0u;
+    std::string adjacent_regions_json=
+        "{\"schema_version\":1,\"observation_only\":true,"
+        "\"pixel_parity_qualified\":false,\"regions\":{";
+    for(size_t i=0u;i<16u;++i) {
+        const mode7_region &b=adjacent_bins[i];
+        CHECK(b.changed<=b.pixels && b.gross<=b.changed &&
+              b.error==b.brighter+b.darker);
+        adjacent_scan_pixels+=b.pixels;
+        adjacent_scan_changed+=b.changed;
+        adjacent_scan_gross+=b.gross;
+        adjacent_scan_abs+=b.error;
+        adjacent_scan_brighter+=b.brighter;
+        adjacent_scan_darker+=b.darker;
+        if(b.max_delta>adjacent_scan_max)adjacent_scan_max=b.max_delta;
+        if(i)adjacent_regions_json+=",";
+        adjacent_regions_json+="\""+std::string(b.name)+"\":{";
+        adjacent_regions_json+="\"pixels\":"+std::to_string(b.pixels)+",";
+        adjacent_regions_json+="\"changed\":"+std::to_string(b.changed)+",";
+        adjacent_regions_json+="\"gross\":"+std::to_string(b.gross)+",";
+        adjacent_regions_json+="\"abs_rgb_error\":"+std::to_string(b.error)+",";
+        adjacent_regions_json+="\"brighter_rgb_error\":"+
+                                std::to_string(b.brighter)+",";
+        adjacent_regions_json+="\"darker_rgb_error\":"+
+                                std::to_string(b.darker)+",";
+        adjacent_regions_json+="\"max_delta\":"+std::to_string(b.max_delta)+",";
+        adjacent_regions_json+="\"worst_x\":"+std::to_string(b.worst_x)+",";
+        adjacent_regions_json+="\"worst_y\":"+std::to_string(b.worst_y)+"}";
+    }
+    CHECK(adjacent_scan_pixels==501832u &&
+          adjacent_scan_changed==adjacent_floor_metric.changed &&
+          adjacent_scan_gross==adjacent_floor_metric.gross &&
+          adjacent_scan_abs==adjacent_floor_metric.abs_rgb &&
+          adjacent_scan_abs==adjacent_scan_brighter+adjacent_scan_darker &&
+          adjacent_scan_max==adjacent_floor_metric.max_delta &&
+          adjacent_worst.size()==adjacent_scan_changed);
+    std::sort(adjacent_worst.begin(),adjacent_worst.end(),
+        [](const worst_point &a,const worst_point &b) {
+            if(a.rgb_error!=b.rgb_error)return a.rgb_error>b.rgb_error;
+            if(a.max_delta!=b.max_delta)return a.max_delta>b.max_delta;
+            if(a.y!=b.y)return a.y<b.y;
+            return a.x<b.x;
+        });
+    if(adjacent_worst.size()>16u)adjacent_worst.resize(16u);
+    adjacent_regions_json+="},\"total_pixels\":"+
+        std::to_string(adjacent_scan_pixels)+
+        ",\"total_changed\":"+std::to_string(adjacent_scan_changed)+
+        ",\"total_abs_rgb_error\":"+std::to_string(adjacent_scan_abs)+
+        ",\"total_gross\":"+std::to_string(adjacent_scan_gross)+
+        ",\"max_channel_delta\":"+std::to_string(adjacent_scan_max)+
+        ",\"worst_pixels\":[";
+    for(size_t i=0u;i<adjacent_worst.size();++i) {
+        const worst_point &p=adjacent_worst[i];
+        if(i)adjacent_regions_json+=",";
+        adjacent_regions_json+="{\"x\":"+std::to_string(p.x)+
+            ",\"y\":"+std::to_string(p.y)+
+            ",\"region\":\""+std::string(adjacent_bins[p.region].name)+"\""+
+            ",\"rgb_error\":"+std::to_string(p.rgb_error)+
+            ",\"max_channel_delta\":"+std::to_string(p.max_delta)+
+            ",\"stroke_alpha\":"+std::to_string(p.stroke_alpha)+
+            ",\"fill_alpha\":"+std::to_string(p.fill_alpha)+
+            ",\"native_rgb\":["+std::to_string((unsigned)p.native_rgb[0])+
+            ","+std::to_string((unsigned)p.native_rgb[1])+
+            ","+std::to_string((unsigned)p.native_rgb[2])+
+            "],\"pdfium_rgb\":["+
+            std::to_string((unsigned)p.pdfium_rgb[0])+","+
+            std::to_string((unsigned)p.pdfium_rgb[1])+","+
+            std::to_string((unsigned)p.pdfium_rgb[2])+"]}";
+    }
+    adjacent_regions_json+="],\"full_original_reconciled\":true}";
+    std::fprintf(stderr,
+        "[jsPDF post-mode10 original 16-bin residual, NOT parity] %s\n",
+        adjacent_regions_json.c_str());
+
     size_t miter_source_alpha_changes=0u,miter_outside_endpoint=0u,
            miter_delta_over64=0u,miter_composite_outside_alpha=0u;
     for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
@@ -3658,6 +3780,7 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"adjacent_join_gross_delta64_pixels\": %zu,\n"
         "  \"adjacent_join_max_channel_delta\": %u,\n"
         "  \"adjacent_join_rgb_fnv64\": \"%016llx\",\n"
+        "  \"adjacent_join_residual_regions\": %s,\n"
         "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
@@ -3738,7 +3861,8 @@ int test_external_jspdf_single_vertical_analytic_ab(
         (double)adjacent_floor_metric.abs_rgb/1505496.0,
         adjacent_floor_metric.changed,adjacent_floor_metric.gross,
         adjacent_floor_metric.max_delta,
-        (unsigned long long)adjacent_floor_metric.fnv);
+        (unsigned long long)adjacent_floor_metric.fnv,
+        adjacent_regions_json.c_str());
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
