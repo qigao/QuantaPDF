@@ -2353,6 +2353,26 @@ int test_external_jspdf_single_vertical_analytic_ab(
         retrace_changed_alpha,retrace_outside_top,
         retrace_large_delta,retrace_rgb_outside,
         retrace_metric.max_delta,(unsigned long long)retrace_metric.fnv);
+    /* Retain the STRICT scope refusal, but expose the actual generated
+     * changes first: a failed source hypothesis is evidence, not an excuse
+     * to enlarge an original-PDF test-only acceptance window. */
+    size_t retrace_debug_count=0u;
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t off=y*retrace_stroke.stride+x*4u;
+        const unsigned prior=adjacent_stroke.pixels[off+3u];
+        const unsigned trial=retrace_stroke.pixels[off+3u];
+        if(prior==trial)continue;
+        if(retrace_debug_count++>=32u)continue;
+        const unsigned char *out=retrace_page.pixels+off;
+        const unsigned char *oracle=reference.at(x,y);
+        std::fprintf(stderr,
+            "[original jsPDF retrace-negative source pixel] "
+            "x=%zu y=%zu prev_alpha=%u new_alpha=%u "
+            "trial=(%u,%u,%u) pdfium=(%u,%u,%u)\n",
+            x,y,prior,trial,
+            (unsigned)out[0],(unsigned)out[1],(unsigned)out[2],
+            (unsigned)oracle[0],(unsigned)oracle[1],(unsigned)oracle[2]);
+    }
     CHECK(retrace_outside_top==0u &&
           retrace_large_delta==0u &&
           retrace_rgb_outside==0u);
