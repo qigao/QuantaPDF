@@ -2107,6 +2107,70 @@ int test_external_jspdf_single_vertical_analytic_ab(
           std::memcmp(upper_page.pixels,upper_page_repeat.pixels,
                       upper_page.size)==0);
     const page_metrics upper_metric=measure(upper_page);
+
+    /* ELEVENTH independent original-source A/B. Keep EXACT source Stroke
+     * mode7 Alpha and mode8 clipped Fill bytes. Change ONLY the destination
+     * contract: compose the existing layers in original paint order onto
+     * opaque white with integer floor after each paint. This is a PRIVATE
+     * compositing hypothesis, NOT whole-original pixel-parity admission.
+     * Older RGBA baseline and negative CEIL remain unchanged. */
+    quantapdf_ir_raster_image opaque_floor_page{},opaque_floor_repeat{};
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &upper_stroke,&bottom_fill,&composite_budget,&opaque_floor_page));
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &upper_repeat,&bottom_repeat,&composite_budget,&opaque_floor_repeat));
+    CHECK(opaque_floor_page.pixels && opaque_floor_repeat.pixels &&
+          opaque_floor_page.size==upper_page.size &&
+          opaque_floor_page.stride==upper_page.stride &&
+          opaque_floor_repeat.size==opaque_floor_page.size &&
+          std::memcmp(opaque_floor_page.pixels,opaque_floor_repeat.pixels,
+                      opaque_floor_page.size)==0);
+    CHECK(std::memcmp(upper_stroke.pixels,upper_repeat.pixels,
+                      upper_stroke.size)==0 &&
+          std::memcmp(bottom_fill.pixels,bottom_repeat.pixels,
+                      bottom_fill.size)==0);
+    const page_metrics opaque_floor_metric=measure(opaque_floor_page);
+    size_t opaque_floor_changed_vs_upper=0u,opaque_floor_outside_overlap=0u;
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t off=y*opaque_floor_page.stride+x*4u;
+        const unsigned char *trial=opaque_floor_page.pixels+off;
+        const unsigned char *old=upper_page.pixels+off;
+        CHECK(trial[3]==255u);
+        unsigned changed=0u;
+        for(size_t ch=0u;ch<3u;++ch)
+            changed|=(trial[ch]!=on_white(old,ch));
+        if(changed!=0u) {
+            ++opaque_floor_changed_vs_upper;
+            if(upper_stroke.pixels[off+3u]==0u ||
+               bottom_fill.pixels[off+3u]==0u)
+                ++opaque_floor_outside_overlap;
+        }
+    }
+    CHECK(opaque_floor_changed_vs_upper>0u &&
+          opaque_floor_outside_overlap==0u);
+    const size_t opaque_witness=40u*opaque_floor_page.stride+50u*4u;
+    const unsigned char *opaque_rgb=opaque_floor_page.pixels+opaque_witness;
+    const unsigned char *opaque_pdfium=reference.at(50u,40u);
+    CHECK(opaque_rgb[0]==246u && opaque_rgb[1]==6u &&
+          opaque_rgb[2]==6u && opaque_rgb[3]==255u);
+    std::fprintf(stderr,
+        "[original jsPDF opaque WHITE floor A/B, NOT parity] "
+        "upper_rgb=%llu trial_rgb=%llu upper_changed=%zu "
+        "trial_changed=%zu changed_vs_upper=%zu outside_overlap=%zu "
+        "stroke_alpha=%u fill_alpha=%u opaque=(%u,%u,%u) "
+        "pdfium=(%u,%u,%u) fnv64=%016llx\n",
+        (unsigned long long)upper_metric.abs_rgb,
+        (unsigned long long)opaque_floor_metric.abs_rgb,
+        upper_metric.changed,opaque_floor_metric.changed,
+        opaque_floor_changed_vs_upper,opaque_floor_outside_overlap,
+        (unsigned)upper_stroke.pixels[opaque_witness+3u],
+        (unsigned)bottom_fill.pixels[opaque_witness+3u],
+        (unsigned)opaque_rgb[0],(unsigned)opaque_rgb[1],
+        (unsigned)opaque_rgb[2],
+        (unsigned)opaque_pdfium[0],(unsigned)opaque_pdfium[1],
+        (unsigned)opaque_pdfium[2],
+        (unsigned long long)opaque_floor_metric.fnv);
+
     size_t upper_alpha_changes=0u,upper_outside=0u,
            upper_other_than_one=0u;
     for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
@@ -2944,6 +3008,8 @@ int test_external_jspdf_single_vertical_analytic_ab(
     std::fprintf(stderr,"[jsPDF mode4 original residual regions] %s\n",
                  mode4_regions_json.c_str());
 
+    quantapdf_ir_raster_image_dispose(&opaque_floor_repeat);
+    quantapdf_ir_raster_image_dispose(&opaque_floor_page);
     quantapdf_ir_raster_image_dispose(&upper_page_repeat);
     quantapdf_ir_raster_image_dispose(&upper_page);
     quantapdf_ir_raster_image_dispose(&upper_repeat);
@@ -3079,6 +3145,19 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"stroke_upper_gross_delta64_pixels\": %zu,\n"
         "  \"stroke_upper_max_channel_delta\": %u,\n"
         "  \"stroke_upper_rgb_fnv64\": \"%016llx\",\n"
+        "  \"opaque_floor_status\": \"measured_unqualified\",\n"
+        "  \"opaque_floor_default_changed\": false,\n"
+        "  \"opaque_floor_pixel_parity_qualified\": false,\n"
+        "  \"opaque_floor_repeat_equal\": true,\n"
+        "  \"opaque_floor_source_layers_equal\": true,\n"
+        "  \"opaque_floor_changed_vs_upper_pixels\": %zu,\n"
+        "  \"opaque_floor_changed_outside_overlap\": %zu,\n"
+        "  \"opaque_floor_abs_rgb_error\": %llu,\n"
+        "  \"opaque_floor_mean_abs_rgb_error\": %.9f,\n"
+        "  \"opaque_floor_changed_pixels\": %zu,\n"
+        "  \"opaque_floor_gross_delta64_pixels\": %zu,\n"
+        "  \"opaque_floor_max_channel_delta\": %u,\n"
+        "  \"opaque_floor_rgb_fnv64\": \"%016llx\",\n"
         "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
@@ -3121,7 +3200,13 @@ int test_external_jspdf_single_vertical_analytic_ab(
         (unsigned long long)upper_metric.abs_rgb,
         (double)upper_metric.abs_rgb/1505496.0,
         upper_metric.changed,upper_metric.gross,upper_metric.max_delta,
-        (unsigned long long)upper_metric.fnv);
+        (unsigned long long)upper_metric.fnv,
+        opaque_floor_changed_vs_upper,opaque_floor_outside_overlap,
+        (unsigned long long)opaque_floor_metric.abs_rgb,
+        (double)opaque_floor_metric.abs_rgb/1505496.0,
+        opaque_floor_metric.changed,opaque_floor_metric.gross,
+        opaque_floor_metric.max_delta,
+        (unsigned long long)opaque_floor_metric.fnv);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
