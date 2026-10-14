@@ -2209,13 +2209,23 @@ int test_external_jspdf_single_vertical_analytic_ab(
      * integrated over the immediately neighboring device cells. Compare
      * against independent original PDFium using both unchanged RGBA and
      * opaque-white compositor. Mode9 itself is a frozen control. */
+    /* Mode10 legitimately charges count*10 source-edge sample work; the
+     * original #303/#305 source preview budgets remain byte-for-byte
+     * unchanged. Only this independently invoked experiment opts into
+     * a larger bounded 600M slot ceiling before any output allocation. */
+    const quantapdf_native_device_grid_limits adjacent_grid={
+        600u*850u,600u*850u*4u,768u,600000000u
+    };
+    const quantapdf_ir_raster_v1_limits adjacent_budget={
+        600u*850u,1u,768u,600000000u
+    };
     quantapdf_ir_raster_image adjacent_stroke{},adjacent_repeat{},
         adjacent_rgba{},adjacent_rgba_repeat{},adjacent_floor{},
         adjacent_floor_repeat{};
     OK(quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
-        &only_stroke,0u,&geometry,&h_grid,&h_budget,&adjacent_stroke));
+        &only_stroke,0u,&geometry,&adjacent_grid,&adjacent_budget,&adjacent_stroke));
     OK(quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
-        &only_stroke,0u,&geometry,&h_grid,&h_budget,&adjacent_repeat));
+        &only_stroke,0u,&geometry,&adjacent_grid,&adjacent_budget,&adjacent_repeat));
     CHECK(adjacent_stroke.pixels && adjacent_repeat.pixels &&
           adjacent_stroke.size==miter_stroke.size &&
           adjacent_repeat.size==adjacent_stroke.size &&
