@@ -2023,6 +2023,246 @@ int test_external_jspdf_single_vertical_analytic_ab(
           std::memcmp(left_page.pixels,left_page_repeat.pixels,
                       left_page.size)==0);
     const page_metrics left_metric=measure(left_page);
+
+    /* New exact-original mode7 read-only attribution. The SOURCE pinned
+     * windows are test-only labels, never C11 admission or rendering rules.
+     * Every 596*842 pixel is assigned to one and only one group; the
+     * genuine PDFium oracle is referenced directly, never re-exported. */
+    struct mode7_region {
+        const char *name;
+        size_t pixels=0u,changed=0u,gross=0u,worst_x=0u,worst_y=0u;
+        std::uint64_t error=0u,brighter=0u,darker=0u;
+        unsigned max_delta=0u;
+    };
+    mode7_region groups[]={
+        {"bottom_left_endpoint"},{"bottom_right_endpoint"},
+        {"bottom_single_horizontal_interior"},
+        {"top_repeated_left_endpoint"},{"top_repeated_right_endpoint"},
+        {"top_repeated_horizontal_interior"},
+        {"right_vertical_stroke"},{"left_vertical_below_red"},
+        {"red_left_w_clip_stroke_overlap"},{"red_left_w_clip_only"},
+        {"red_right_fill_boundary"},{"red_top_right_coupled_corner"},
+        {"red_top_stroke_overlap"},{"red_fill_bottom_edge"},
+        {"red_bottom_uncovered_fringe"},{"other"}
+    };
+    const auto group_of=[](size_t x,size_t y,
+                           unsigned stroke_alpha,unsigned red_alpha)->size_t {
+        if(x>=49u&&x<=51u&&y>=138u&&y<=140u&&
+           stroke_alpha!=0u&&red_alpha==0u)return 0u;
+        if(x>=249u&&x<=251u&&y>=138u&&y<=140u&&
+           stroke_alpha!=0u&&red_alpha==0u)return 1u;
+        if(x>=52u&&x<=248u&&y>=138u&&y<=140u&&
+           stroke_alpha!=0u&&red_alpha==0u)return 2u;
+        if(x>=49u&&x<=51u&&y>=19u&&y<=21u&&
+           stroke_alpha!=0u&&red_alpha==0u)return 3u;
+        if(x>=249u&&x<=251u&&y>=19u&&y<=21u&&
+           stroke_alpha!=0u&&red_alpha==0u)return 4u;
+        if(x>=52u&&x<=248u&&y>=19u&&y<=21u&&
+           stroke_alpha!=0u&&red_alpha==0u)return 5u;
+        if(x>=249u&&x<=251u&&y>=22u&&y<=137u&&
+           stroke_alpha!=0u&&red_alpha==0u)return 6u;
+        if(x>=49u&&x<=51u&&y>=101u&&y<=137u&&
+           stroke_alpha!=0u&&red_alpha==0u)return 7u;
+        if(x>=49u&&x<=51u&&y>=21u&&y<=99u&&
+           stroke_alpha!=0u&&red_alpha!=0u)return 8u;
+        if(x>=49u&&x<=51u&&y>=21u&&y<=99u&&
+           stroke_alpha==0u&&red_alpha!=0u)return 9u;
+        if(x==150u&&y>=21u&&y<=99u&&
+           stroke_alpha==0u&&red_alpha!=0u)return 10u;
+        if(x==150u&&y>=19u&&y<=21u&&red_alpha!=0u)
+            return 11u;
+        if(x>=50u&&x<=149u&&y>=19u&&y<=21u&&
+           red_alpha!=0u&&stroke_alpha!=0u)return 12u;
+        if(x>=50u&&x<=150u&&y>=99u&&y<=100u&&
+           red_alpha!=0u)return 13u;
+        if(x>=52u&&x<=149u&&y==100u&&
+           stroke_alpha==0u&&red_alpha==0u)return 14u;
+        return 15u;
+    };
+    struct worst_point {
+        size_t x,y,region;
+        unsigned max_delta,rgb_error,stroke_alpha,fill_alpha;
+        unsigned char native_rgb[3],pdfium_rgb[3];
+    };
+    std::vector<worst_point> mode7_worst;
+    mode7_worst.reserve(16u);
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t off=y*h_stroke.stride+x*4u;
+        const unsigned sa=h_stroke.pixels[off+3u];
+        const unsigned fa=left_fill.pixels[
+            y*left_fill.stride+x*4u+3u];
+        const size_t region_id=group_of(x,y,sa,fa);
+        CHECK(region_id<sizeof(groups)/sizeof(groups[0]));
+        mode7_region &group=groups[region_id];
+        const unsigned char *native_pixel=
+            left_page.pixels+y*left_page.stride+x*4u;
+        const unsigned char *pdfium=reference.at(x,y);
+        worst_point p{};
+        p.x=x;p.y=y;p.region=region_id;
+        p.stroke_alpha=sa;p.fill_alpha=fa;
+        ++group.pixels;
+        unsigned pixel_max=0u,pixel_error=0u;
+        for(size_t ch=0u;ch<3u;++ch) {
+            const unsigned actual=on_white(native_pixel,ch);
+            const unsigned oracle=pdfium[ch];
+            const unsigned delta=
+                actual>=oracle?actual-oracle:oracle-actual;
+            group.error+=(std::uint64_t)delta;
+            pixel_error+=delta;
+            if(actual>oracle)group.brighter+=(std::uint64_t)delta;
+            if(actual<oracle)group.darker+=(std::uint64_t)delta;
+            if(delta>pixel_max)pixel_max=delta;
+            p.native_rgb[ch]=(unsigned char)actual;
+            p.pdfium_rgb[ch]=(unsigned char)oracle;
+        }
+        if(pixel_max==0u)continue;
+        ++group.changed;
+        if(pixel_max>64u)++group.gross;
+        if(pixel_max>group.max_delta) {
+            group.max_delta=pixel_max;
+            group.worst_x=x;
+            group.worst_y=y;
+        }
+        p.max_delta=pixel_max;
+        p.rgb_error=pixel_error;
+        const auto worse=[](const worst_point &a,const worst_point &b){
+            if(a.max_delta!=b.max_delta)
+                return a.max_delta>b.max_delta;
+            if(a.rgb_error!=b.rgb_error)
+                return a.rgb_error>b.rgb_error;
+            if(a.y!=b.y)return a.y<b.y;
+            return a.x<b.x;
+        };
+        size_t index=0u;
+        while(index<mode7_worst.size() &&
+              !worse(p,mode7_worst[index]))++index;
+        if(index<16u) {
+            mode7_worst.insert(
+                mode7_worst.begin()+(std::ptrdiff_t)index,p);
+            if(mode7_worst.size()>16u)mode7_worst.pop_back();
+        }
+    }
+    size_t mode7_pixels=0u,mode7_changed=0u,mode7_gross=0u;
+    std::uint64_t mode7_error=0u,mode7_brighter=0u,mode7_darker=0u;
+    unsigned mode7_max=0u;
+    std::string mode7_regions_json=
+        "{\"schema_version\":1,\"observation_only\":true,"
+        "\"pixel_parity_qualified\":false,\"regions\":{";
+    for(size_t i=0u;i<sizeof(groups)/sizeof(groups[0]);++i) {
+        const mode7_region &r=groups[i];
+        CHECK(r.changed<=r.pixels && r.gross<=r.changed &&
+              r.error==r.brighter+r.darker);
+        mode7_pixels+=r.pixels;
+        mode7_changed+=r.changed;
+        mode7_gross+=r.gross;
+        mode7_error+=r.error;
+        mode7_brighter+=r.brighter;
+        mode7_darker+=r.darker;
+        if(r.max_delta>mode7_max)mode7_max=r.max_delta;
+        if(i)mode7_regions_json+=",";
+        mode7_regions_json+="\""+std::string(r.name)+"\":{";
+        mode7_regions_json+="\"pixels\":"+std::to_string(r.pixels)+",";
+        mode7_regions_json+="\"changed\":"+std::to_string(r.changed)+",";
+        mode7_regions_json+="\"gross\":"+std::to_string(r.gross)+",";
+        mode7_regions_json+="\"abs_rgb_error\":"+
+                            std::to_string(r.error)+",";
+        mode7_regions_json+="\"brighter_rgb_error\":"+
+                            std::to_string(r.brighter)+",";
+        mode7_regions_json+="\"darker_rgb_error\":"+
+                            std::to_string(r.darker)+",";
+        mode7_regions_json+="\"max_channel_delta\":"+
+                            std::to_string(r.max_delta)+",";
+        mode7_regions_json+="\"worst_x\":"+std::to_string(r.worst_x)+",";
+        mode7_regions_json+="\"worst_y\":"+std::to_string(r.worst_y)+"}";
+    }
+    CHECK(mode7_pixels==501832u &&
+          mode7_changed==left_metric.changed &&
+          mode7_gross==left_metric.gross &&
+          mode7_error==left_metric.abs_rgb &&
+          mode7_error==mode7_brighter+mode7_darker &&
+          mode7_max==left_metric.max_delta &&
+          !mode7_worst.empty() &&
+          mode7_worst[0].max_delta==left_metric.max_delta);
+    mode7_regions_json+="},\"worst_pixels\":[";
+    for(size_t i=0u;i<mode7_worst.size();++i) {
+        const worst_point &p=mode7_worst[i];
+        if(i)mode7_regions_json+=",";
+        mode7_regions_json+="{\"x\":"+std::to_string(p.x)+",";
+        mode7_regions_json+="\"y\":"+std::to_string(p.y)+",";
+        mode7_regions_json+="\"region\":\""+
+            std::string(groups[p.region].name)+"\",";
+        mode7_regions_json+="\"max_channel_delta\":"+
+            std::to_string(p.max_delta)+",";
+        mode7_regions_json+="\"rgb_error\":"+
+            std::to_string(p.rgb_error)+",";
+        mode7_regions_json+="\"stroke_alpha\":"+
+            std::to_string(p.stroke_alpha)+",";
+        mode7_regions_json+="\"fill_alpha\":"+
+            std::to_string(p.fill_alpha)+",";
+        mode7_regions_json+="\"native_rgb\":["+
+            std::to_string((unsigned)p.native_rgb[0])+","+
+            std::to_string((unsigned)p.native_rgb[1])+","+
+            std::to_string((unsigned)p.native_rgb[2])+"],";
+        mode7_regions_json+="\"pdfium_rgb\":["+
+            std::to_string((unsigned)p.pdfium_rgb[0])+","+
+            std::to_string((unsigned)p.pdfium_rgb[1])+","+
+            std::to_string((unsigned)p.pdfium_rgb[2])+"]}";
+    }
+    mode7_regions_json+="],\"witnesses\":[";
+    struct mode7_witness {const char *name;size_t x,y;};
+    const mode7_witness mode7_witnesses[]={
+        {"bottom_outer_left",49u,139u},
+        {"bottom_left_join",50u,139u},
+        {"bottom_interior",100u,139u},
+        {"bottom_right_join",250u,139u},
+        {"bottom_right_upper",250u,138u},
+        {"top_outer_left",49u,20u},
+        {"top_right_corner",250u,19u},
+        {"right_vertical",250u,60u},
+        {"left_vertical_lower",50u,110u},
+        {"red_left_overlap",50u,40u},
+        {"left_outer_stroke",49u,40u},
+        {"red_right",150u,40u},
+        {"red_top_right_corner",150u,20u},
+        {"red_bottom_interior",100u,99u},
+        {"red_bottom_fringe",100u,100u},
+        {"red_top_interior",100u,20u}
+    };
+    for(size_t i=0u;i<sizeof(mode7_witnesses)/sizeof(mode7_witnesses[0]);++i) {
+        const mode7_witness &w=mode7_witnesses[i];
+        const unsigned char *stroke=h_stroke.pixels+
+            w.y*h_stroke.stride+w.x*4u;
+        const unsigned char *red=left_fill.pixels+
+            w.y*left_fill.stride+w.x*4u;
+        const unsigned char *native=left_page.pixels+
+            w.y*left_page.stride+w.x*4u;
+        const unsigned char *oracle=reference.at(w.x,w.y);
+        const size_t id=group_of(w.x,w.y,stroke[3],red[3]);
+        CHECK(id<sizeof(groups)/sizeof(groups[0]));
+        if(i)mode7_regions_json+=",";
+        mode7_regions_json+="{\"name\":\""+std::string(w.name)+"\",";
+        mode7_regions_json+="\"x\":"+std::to_string(w.x)+",";
+        mode7_regions_json+="\"y\":"+std::to_string(w.y)+",";
+        mode7_regions_json+="\"region\":\""+
+            std::string(groups[id].name)+"\",";
+        mode7_regions_json+="\"stroke_alpha\":"+
+            std::to_string((unsigned)stroke[3])+",";
+        mode7_regions_json+="\"fill_alpha\":"+
+            std::to_string((unsigned)red[3])+",";
+        mode7_regions_json+="\"native_rgb\":["+
+            std::to_string(on_white(native,0u))+","+
+            std::to_string(on_white(native,1u))+","+
+            std::to_string(on_white(native,2u))+"],";
+        mode7_regions_json+="\"pdfium_rgb\":["+
+            std::to_string((unsigned)oracle[0])+","+
+            std::to_string((unsigned)oracle[1])+","+
+            std::to_string((unsigned)oracle[2])+"]}";
+    }
+    mode7_regions_json+="],\"full_original_reconciled\":true}";
+    std::fprintf(stderr,
+        "[jsPDF mode7 original source endpoint attribution, NOT parity] %s\n",
+        mode7_regions_json.c_str());
+
     size_t left_alpha_changed=0u,left_outside=0u;
     for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
         const size_t off=y*right_fill.stride+x*4u;
@@ -2567,7 +2807,7 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"rect_clip_left_changed_pixels\": %zu,\n"
         "  \"rect_clip_left_gross_delta64_pixels\": %zu,\n"
         "  \"rect_clip_left_max_channel_delta\": %u,\n"
-        "  \"rect_clip_left_rgb_fnv64\": \"%016llx\",\n"
+        "  \"rect_clip_left_rgb_fnv64\": \"%016llx\",\n"        "  \"rect_clip_left_original_residual_regions\": %s,\n"
         "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
@@ -2594,7 +2834,8 @@ int test_external_jspdf_single_vertical_analytic_ab(
         (unsigned long long)left_metric.abs_rgb,
         (double)left_metric.abs_rgb/1505496.0,
         left_metric.changed,left_metric.gross,left_metric.max_delta,
-        (unsigned long long)left_metric.fnv);
+        (unsigned long long)left_metric.fnv,
+        mode7_regions_json.c_str());
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
