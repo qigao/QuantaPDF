@@ -359,6 +359,46 @@ static unsigned qp_repeated_alpha(unsigned single_pass_alpha,size_t repeats)
 }
 
 
+
+/* EIGHTH PRIVATE source-edge Q8 A/B. Quantize each source stroke strip
+ * boundary in DEVICE coordinates to 1/256 pixel BEFORE evaluating the
+ * covered interval. Float then truncation mirrors a falsifiable device-edge
+ * hypothesis; this is not a claim about the pinned PDFium binary's backend.
+ * Coordinate/range limits prevent undefined float-to-integer conversion. */
+static int qp_q8_device_strip_alpha(
+    double source_left, double source_right, double points_per_device,
+    size_t device_index, unsigned *out_alpha)
+{
+    float left_device,right_device,left_scaled,right_scaled;
+    int64_t left_q,right_q,cell0,cell1,hit0,hit1,amount;
+    if(out_alpha==NULL || !isfinite(source_left) ||
+       !isfinite(source_right) || !(source_right>source_left) ||
+       !isfinite(points_per_device) || !(points_per_device>0.0) ||
+       (uint64_t)device_index>(uint64_t)(INT64_MAX/256-1))
+        return 0;
+    left_device=(float)(source_left/points_per_device);
+    right_device=(float)(source_right/points_per_device);
+    if(!isfinite(left_device) || !isfinite(right_device) ||
+       fabsf(left_device)>8388607.0f ||
+       fabsf(right_device)>8388607.0f)
+        return 0;
+    left_scaled=left_device*256.0f;
+    right_scaled=right_device*256.0f;
+    /* Truncation toward zero is intentional; negative points are not
+     * silently floored or wrapped. */
+    left_q=(int64_t)left_scaled;
+    right_q=(int64_t)right_scaled;
+    if(right_q<left_q)
+        return 0;
+    cell0=(int64_t)device_index*256;
+    cell1=cell0+256;
+    hit0=left_q>cell0?left_q:cell0;
+    hit1=right_q<cell1?right_q:cell1;
+    amount=hit1>hit0?hit1-hit0:0;
+    *out_alpha=(unsigned)(amount>=255?255:amount);
+    return 1;
+}
+
 /* Fourth EXPLICIT PRIVATE A/B: for an *isolated*, single-traversal,
  * axis-aligned 1pt vertical Stroke interior, estimate the source strip's
  * exact horizontal intersection with this device pixel. No fixed pixel
@@ -369,7 +409,8 @@ static unsigned qp_repeated_alpha(unsigned single_pass_alpha,size_t repeats)
 static int qp_single_vertical_analytic_alpha(
     const qp_stroke_segment *segments, size_t count,
     const quantapdf_native_device_grid *grid,
-    size_t x, size_t y, double radius, unsigned *out_alpha)
+    size_t x, size_t y, double radius, unsigned *out_alpha,
+    int q8_policy)
 {
     const double x0=(double)x*grid->points_per_device_x;
     const double x1=((double)x+1.0)*grid->points_per_device_x;
@@ -424,6 +465,10 @@ static int qp_single_vertical_analytic_alpha(
         if(i!=hit && x0<bx && x1>ax && y0<by && y1>ay)
             return 0;
     }
+    if(q8_policy)
+        return qp_q8_device_strip_alpha(segments[hit].a.x-radius,
+            segments[hit].a.x+radius,grid->points_per_device_x,
+            x,out_alpha);
     *out_alpha=(unsigned)floor(fmin(1.0,coverage)*255.0+0.5);
     return 1;
 }
@@ -493,7 +538,11 @@ static int qp_single_horizontal_analytic_alpha(
      * same source-eligible 1pt single-pass horizontal pixel only. */
     const unsigned old_alpha=(unsigned)floor(
         fmin(1.0,coverage)*255.0+0.5);
-    if(quantization_policy==1) {
+    if(quantization_policy==3) {
+        return qp_q8_device_strip_alpha(
+            segments[hit].a.y-radius,segments[hit].a.y+radius,
+            grid->points_per_device_y,y,out_alpha);
+    } else if(quantization_policy==1) {
         /* Old mode6: literal ceil hypothesis, independently callable
          * even though it may worsen the exact original-PDF result. */
         *out_alpha=(unsigned)ceil(fmin(1.0,coverage)*255.0);
@@ -669,6 +718,16 @@ static quantapdf_status qp_stroke_render_impl(
         count*7u>raster_limits->max_sample_tests/grid.sample_slots))
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
+    /* Eighth Q8 source-edge A/B uses a separate bounded pass, charged
+     * before allocation. Earlier modes retain exact budgets. */
+    if(horizontal_preview==8 &&
+       (count>grid_limits->max_edges/8u ||
+        count>raster_limits->max_edges/8u ||
+        quantapdf_native_device_grid_admit_edges_v0(
+            &grid,grid_limits,count*8u)!=QUANTAPDF_NATIVE_DEVICE_GRID_OK ||
+        count*8u>raster_limits->max_sample_tests/grid.sample_slots))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
     for(size_t i=1u;i<count;++i) {
         join_kinds[i-1u]=qp_stroke_join_build(&segments[i-1u],&segments[i],
                                                radius,miter_limit,&joins[i-1u]);
@@ -719,7 +778,8 @@ static quantapdf_status qp_stroke_render_impl(
             if(horizontal_preview>=4) {
                 unsigned analytic_alpha=0u;
                 if(qp_single_vertical_analytic_alpha(
-                       segments,count,&grid,x,y,radius,&analytic_alpha))
+                       segments,count,&grid,x,y,radius,&analytic_alpha,
+                       horizontal_preview==8))
                     pixel_alpha=analytic_alpha;
             }
             if(horizontal_preview>=5) {
@@ -727,7 +787,8 @@ static quantapdf_status qp_stroke_render_impl(
                 if(qp_single_horizontal_analytic_alpha(
                        segments,count,&grid,x,y,radius,&analytic_alpha,
                        horizontal_preview==6?1:
-                       (horizontal_preview==7?2:0)))
+                       (horizontal_preview==7?2:
+                        (horizontal_preview==8?3:0))))
                     pixel_alpha=analytic_alpha;
             }
             if(pixel_alpha!=0u) {
@@ -860,4 +921,21 @@ quantapdf_ir_raster_device_polyline_stroke_upper_horizontal_lsb_preview_v0(
 {
     return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
                                  raster_limits,out_image,7);
+}
+
+
+/* EIGHTH separately invoked PRIVATE Q8 edge quantization A/B.
+ * Uses the same strict single-pass horizontal/vertical source geometry
+ * guards; modes0..7 and both earlier quantization experiments remain
+ * independently callable and unmodified. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_q8_strip_preview_v0(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
+                                 raster_limits,out_image,8);
 }
