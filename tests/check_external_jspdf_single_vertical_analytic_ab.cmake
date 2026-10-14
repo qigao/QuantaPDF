@@ -716,6 +716,161 @@ endif()
 message(STATUS
   "jspdf-upper-horizontal-lsb: baseline_rgb=${bottom_abs_rgb_error} global_ceil_rgb=${ceil_abs_rgb_error} upper_rgb=${upper_abs_rgb_error} upper_changed=${upper_changed_pixels} alpha_changed=${upper_source_alpha_changed_pixels} official=0 parity=false")
 
+
+# Final-original mode7 upper-side Stroke + mode8 Fill: READ-ONLY
+# exhaustive per-effect diagnostics. No source-pixel positive promotion.
+string(JSON m9_schema GET "${json}" stroke_upper_original_residual_regions schema_version)
+string(JSON m9_obs GET "${json}" stroke_upper_original_residual_regions observation_only)
+string(JSON m9_parity GET "${json}" stroke_upper_original_residual_regions pixel_parity_qualified)
+string(JSON m9_reconciled GET "${json}" stroke_upper_original_residual_regions full_original_reconciled)
+string(JSON m9_count LENGTH "${json}" stroke_upper_original_residual_regions regions)
+string(JSON m9_worst_count LENGTH "${json}" stroke_upper_original_residual_regions worst_pixels)
+string(JSON m9_witness_count LENGTH "${json}" stroke_upper_original_residual_regions witnesses)
+if(NOT m9_schema EQUAL 1 OR NOT m9_obs OR m9_parity
+   OR NOT m9_reconciled OR NOT m9_count EQUAL 18
+   OR m9_worst_count LESS 1 OR m9_worst_count GREATER 16
+   OR NOT m9_witness_count EQUAL 16)
+  message(FATAL_ERROR "Missing/invalid post-upper original residual report")
+endif()
+set(m9_region_names bottom_left_endpoint bottom_right_endpoint
+    bottom_horizontal_upper_interior bottom_horizontal_lower_interior
+    top_repeated_left_endpoint top_repeated_right_endpoint
+    top_repeated_horizontal_interior right_vertical_stroke
+    left_vertical_below_red red_left_w_clip_stroke_overlap
+    red_left_w_clip_only red_right_fill_boundary
+    red_top_right_coupled_corner red_top_left_coupled_corner
+    red_top_stroke_overlap red_fill_bottom_full_edge
+    red_fill_bottom_faint_fringe other)
+set(m9_all_pixels 0)
+set(m9_all_changed 0)
+set(m9_all_gross 0)
+set(m9_all_error 0)
+set(m9_all_brighter 0)
+set(m9_all_darker 0)
+set(m9_global_max 0)
+foreach(name IN LISTS m9_region_names)
+  foreach(field IN ITEMS pixels changed gross abs_rgb_error
+      brighter_rgb_error darker_rgb_error max_channel_delta worst_x worst_y)
+    string(JSON m9_v_${field} GET "${json}"
+      stroke_upper_original_residual_regions regions ${name} ${field})
+  endforeach()
+  math(EXPR m9_signed "${m9_v_brighter_rgb_error}+${m9_v_darker_rgb_error}")
+  if(m9_v_pixels LESS 0 OR m9_v_pixels GREATER 501832
+     OR m9_v_changed LESS 0 OR m9_v_changed GREATER m9_v_pixels
+     OR m9_v_gross LESS 0 OR m9_v_gross GREATER m9_v_changed
+     OR m9_v_abs_rgb_error LESS 0 OR m9_v_abs_rgb_error GREATER 383901480
+     OR NOT m9_signed EQUAL m9_v_abs_rgb_error
+     OR m9_v_max_channel_delta LESS 0 OR m9_v_max_channel_delta GREATER 255
+     OR m9_v_worst_x LESS 0 OR m9_v_worst_x GREATER 595
+     OR m9_v_worst_y LESS 0 OR m9_v_worst_y GREATER 841)
+    message(FATAL_ERROR "Original mode9 category metric out of bounds")
+  endif()
+  math(EXPR m9_all_pixels "${m9_all_pixels}+${m9_v_pixels}")
+  math(EXPR m9_all_changed "${m9_all_changed}+${m9_v_changed}")
+  math(EXPR m9_all_gross "${m9_all_gross}+${m9_v_gross}")
+  math(EXPR m9_all_error "${m9_all_error}+${m9_v_abs_rgb_error}")
+  math(EXPR m9_all_brighter "${m9_all_brighter}+${m9_v_brighter_rgb_error}")
+  math(EXPR m9_all_darker "${m9_all_darker}+${m9_v_darker_rgb_error}")
+  if(m9_v_max_channel_delta GREATER m9_global_max)
+    set(m9_global_max "${m9_v_max_channel_delta}")
+  endif()
+endforeach()
+math(EXPR m9_signed_total "${m9_all_brighter}+${m9_all_darker}")
+if(NOT m9_all_pixels EQUAL 501832
+   OR NOT m9_all_changed EQUAL upper_changed_pixels
+   OR NOT m9_all_gross EQUAL upper_gross_delta64_pixels
+   OR NOT m9_all_error EQUAL upper_abs_rgb_error
+   OR NOT m9_signed_total EQUAL upper_abs_rgb_error
+   OR NOT m9_global_max EQUAL upper_max_channel_delta)
+  message(FATAL_ERROR "Post-upper original effect bins failed full-page reconciliation")
+endif()
+string(JSON m9_first_max GET "${json}"
+  stroke_upper_original_residual_regions worst_pixels 0 max_channel_delta)
+if(NOT m9_first_max EQUAL upper_max_channel_delta)
+  message(FATAL_ERROR "Post-upper original worst pixel differs from full page")
+endif()
+set(m9_previous_max 256)
+math(EXPR m9_worst_end "${m9_worst_count}-1")
+foreach(i RANGE 0 ${m9_worst_end})
+  foreach(field IN ITEMS x y region max_channel_delta rgb_error
+      stroke_alpha fill_alpha)
+    string(JSON m9_w_${field} GET "${json}"
+      stroke_upper_original_residual_regions worst_pixels ${i} ${field})
+  endforeach()
+  list(FIND m9_region_names "${m9_w_region}" m9_index)
+  string(JSON m9_native_len LENGTH "${json}"
+      stroke_upper_original_residual_regions worst_pixels ${i} native_rgb)
+  string(JSON m9_truth_len LENGTH "${json}"
+      stroke_upper_original_residual_regions worst_pixels ${i} pdfium_rgb)
+  if(m9_index LESS 0
+     OR m9_w_x LESS 0 OR m9_w_x GREATER 595
+     OR m9_w_y LESS 0 OR m9_w_y GREATER 841
+     OR m9_w_max_channel_delta LESS 1
+     OR m9_w_max_channel_delta GREATER m9_previous_max
+     OR m9_w_rgb_error LESS m9_w_max_channel_delta
+     OR m9_w_rgb_error GREATER 765
+     OR m9_w_stroke_alpha LESS 0 OR m9_w_stroke_alpha GREATER 255
+     OR m9_w_fill_alpha LESS 0 OR m9_w_fill_alpha GREATER 255
+     OR NOT m9_native_len EQUAL 3 OR NOT m9_truth_len EQUAL 3)
+    message(FATAL_ERROR "Post-upper original worst pixel record invalid")
+  endif()
+  set(m9_previous_max "${m9_w_max_channel_delta}")
+endforeach()
+set(m9_names bottom_outer_left bottom_left_join
+    bottom_interior bottom_right_join bottom_right_upper
+    top_outer_left top_right_corner right_vertical
+    left_vertical_lower red_left_overlap left_outer_stroke
+    red_right red_top_right_corner red_bottom_interior
+    red_bottom_fringe red_top_interior)
+set(m9_xs 49 50 100 250 250 49 250 250
+    50 50 49 150 150 100 100 100)
+set(m9_ys 139 139 139 139 138 20 19 60
+    110 40 40 40 20 99 100 20)
+foreach(i RANGE 0 15)
+  list(GET m9_names ${i} expected_name)
+  list(GET m9_xs ${i} expected_x)
+  list(GET m9_ys ${i} expected_y)
+  foreach(field IN ITEMS name x y region stroke_alpha fill_alpha)
+    string(JSON m9_wit_${field} GET "${json}"
+      stroke_upper_original_residual_regions witnesses ${i} ${field})
+  endforeach()
+  list(FIND m9_region_names "${m9_wit_region}" m9_wit_region_index)
+  string(JSON m9_nlen LENGTH "${json}"
+    stroke_upper_original_residual_regions witnesses ${i} native_rgb)
+  string(JSON m9_olen LENGTH "${json}"
+    stroke_upper_original_residual_regions witnesses ${i} pdfium_rgb)
+  if(NOT m9_wit_name STREQUAL expected_name
+     OR NOT m9_wit_x EQUAL expected_x
+     OR NOT m9_wit_y EQUAL expected_y
+     OR m9_wit_region_index LESS 0
+     OR m9_wit_stroke_alpha LESS 0 OR m9_wit_stroke_alpha GREATER 255
+     OR m9_wit_fill_alpha LESS 0 OR m9_wit_fill_alpha GREATER 255
+     OR NOT m9_nlen EQUAL 3 OR NOT m9_olen EQUAL 3)
+    message(FATAL_ERROR "Post-upper original witness location invalid")
+  endif()
+  foreach(c RANGE 0 2)
+    string(JSON m9_native GET "${json}"
+      stroke_upper_original_residual_regions witnesses ${i} native_rgb ${c})
+    string(JSON m9_oracle GET "${json}"
+      stroke_upper_original_residual_regions witnesses ${i} pdfium_rgb ${c})
+    if(m9_native LESS 0 OR m9_native GREATER 255
+       OR m9_oracle LESS 0 OR m9_oracle GREATER 255)
+      message(FATAL_ERROR "Post-upper original witness RGB channel out of bounds")
+    endif()
+  endforeach()
+endforeach()
+# This PR is strictly test-only, so old source bytes and newest exact
+# accepted private output FNV are immutable (no acceptance threshold).
+if(NOT upper_abs_rgb_error EQUAL 1349
+   OR NOT upper_changed_pixels EQUAL 223
+   OR NOT upper_gross_delta64_pixels EQUAL 0
+   OR NOT upper_max_channel_delta EQUAL 38
+   OR NOT upper_rgb_fnv64 STREQUAL "04d883c87f2ec8bc")
+  message(FATAL_ERROR "Previously qualified upper-only original image changed")
+endif()
+message(STATUS
+  "jspdf-post-upper-original-regions: source_pixels=${m9_all_pixels} mismatches=${m9_all_changed} rgb_error=${m9_all_error} gross=${m9_all_gross} parity=false official=0")
+
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
