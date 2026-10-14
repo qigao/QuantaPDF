@@ -2284,6 +2284,86 @@ int test_external_jspdf_single_vertical_analytic_ab(
                       top_right_floor.size)==0);
     const page_metrics top_right_rgba_metric=measure(top_right_rgba);
     const page_metrics top_right_floor_metric=measure(top_right_floor);
+
+    /* SIXTEENTH independent original-source A/B: Q8 full-X device
+     * cell extension of the previously qualified clipped red Fill
+     * bottom weak-fringe. Stroke remains EXACT mode10 source Q8.
+     * Compare both unchanged RGBA and opaque-white paint contracts
+     * against all untouched original PDFium pixels. */
+    quantapdf_ir_raster_image full_bottom_fill{},full_bottom_repeat{},
+        full_bottom_rgba{},full_bottom_rgba_repeat{},
+        full_bottom_floor{},full_bottom_floor_repeat{};
+    OK(quantapdf_ir_raster_rect_fill_bottom_full_q8_cells_preview_v0(
+        &only_fill,0u,&geometry,&fill_grid,&fill_budget,&full_bottom_fill));
+    OK(quantapdf_ir_raster_rect_fill_bottom_full_q8_cells_preview_v0(
+        &only_fill,0u,&geometry,&fill_grid,&fill_budget,&full_bottom_repeat));
+    CHECK(full_bottom_fill.pixels && full_bottom_repeat.pixels &&
+          full_bottom_fill.size==top_right_fill.size &&
+          full_bottom_repeat.size==full_bottom_fill.size &&
+          std::memcmp(full_bottom_fill.pixels,full_bottom_repeat.pixels,
+                      full_bottom_fill.size)==0);
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &adjacent_stroke,&full_bottom_fill,&composite_budget,&full_bottom_rgba));
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &adjacent_repeat,&full_bottom_repeat,&composite_budget,&full_bottom_rgba_repeat));
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &adjacent_stroke,&full_bottom_fill,&composite_budget,&full_bottom_floor));
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &adjacent_repeat,&full_bottom_repeat,&composite_budget,&full_bottom_floor_repeat));
+    CHECK(full_bottom_rgba.pixels && full_bottom_rgba_repeat.pixels &&
+          full_bottom_floor.pixels && full_bottom_floor_repeat.pixels &&
+          full_bottom_rgba.size==top_right_rgba.size &&
+          full_bottom_floor.size==top_right_floor.size &&
+          std::memcmp(full_bottom_rgba.pixels,full_bottom_rgba_repeat.pixels,
+                      full_bottom_rgba.size)==0 &&
+          std::memcmp(full_bottom_floor.pixels,full_bottom_floor_repeat.pixels,
+                      full_bottom_floor.size)==0);
+    const page_metrics full_bottom_rgba_metric=measure(full_bottom_rgba);
+    const page_metrics full_bottom_floor_metric=measure(full_bottom_floor);
+    size_t full_bottom_source_changes=0u,full_bottom_outside=0u,
+           full_bottom_alpha_delta_gt3=0u,full_bottom_rgb_outside=0u;
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t off=y*full_bottom_fill.stride+x*4u;
+        const unsigned old_alpha=top_right_fill.pixels[off+3u];
+        const unsigned new_alpha=full_bottom_fill.pixels[off+3u];
+        CHECK(std::memcmp(top_right_fill.pixels+off,
+                          full_bottom_fill.pixels+off,3u)==0);
+        CHECK(full_bottom_floor.pixels[off+3u]==255u);
+        if(old_alpha!=new_alpha) {
+            ++full_bottom_source_changes;
+            /* Original-specific evidence window only; source Q8
+             * predicates alone control the pure C11 implementation. */
+            if(y!=100u || (x!=51u && x!=149u))
+                ++full_bottom_outside;
+            const unsigned delta=new_alpha>old_alpha?
+                new_alpha-old_alpha:old_alpha-new_alpha;
+            if(delta>3u)++full_bottom_alpha_delta_gt3;
+        } else {
+            for(size_t ch=0u;ch<3u;++ch)
+                if(full_bottom_floor.pixels[off+ch]!=
+                   top_right_floor.pixels[off+ch])
+                    ++full_bottom_rgb_outside;
+        }
+    }
+    std::fprintf(stderr,
+        "[original jsPDF Q8 full-cell Fill-bottom fringe A/B, NOT parity] "
+        "parent_rgb=%llu trial_rgba_rgb=%llu trial_opaque_rgb=%llu "
+        "parent_changed=%zu trial_changed=%zu fill_alpha_changes=%zu "
+        "outside=%zu delta_gt3=%zu rgb_outside=%zu max=%u fnv=%016llx\n",
+        (unsigned long long)top_right_floor_metric.abs_rgb,
+        (unsigned long long)full_bottom_rgba_metric.abs_rgb,
+        (unsigned long long)full_bottom_floor_metric.abs_rgb,
+        top_right_floor_metric.changed,full_bottom_floor_metric.changed,
+        full_bottom_source_changes,full_bottom_outside,
+        full_bottom_alpha_delta_gt3,full_bottom_rgb_outside,
+        full_bottom_floor_metric.max_delta,
+        (unsigned long long)full_bottom_floor_metric.fnv);
+    CHECK(full_bottom_source_changes>0u &&
+          full_bottom_source_changes<=2u &&
+          full_bottom_outside==0u &&
+          full_bottom_alpha_delta_gt3==0u &&
+          full_bottom_rgb_outside==0u);
+
     size_t top_right_fill_alpha_changes=0u,top_right_outside=0u,
            top_right_alpha_delta_gt64=0u,top_right_rgb_outside_alpha=0u;
     for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
@@ -3636,6 +3716,12 @@ int test_external_jspdf_single_vertical_analytic_ab(
     std::fprintf(stderr,"[jsPDF mode4 original residual regions] %s\n",
                  mode4_regions_json.c_str());
 
+    quantapdf_ir_raster_image_dispose(&full_bottom_floor_repeat);
+    quantapdf_ir_raster_image_dispose(&full_bottom_floor);
+    quantapdf_ir_raster_image_dispose(&full_bottom_rgba_repeat);
+    quantapdf_ir_raster_image_dispose(&full_bottom_rgba);
+    quantapdf_ir_raster_image_dispose(&full_bottom_repeat);
+    quantapdf_ir_raster_image_dispose(&full_bottom_fill);
     quantapdf_ir_raster_image_dispose(&top_right_floor_repeat);
     quantapdf_ir_raster_image_dispose(&top_right_floor);
     quantapdf_ir_raster_image_dispose(&top_right_rgba_repeat);
@@ -3887,6 +3973,23 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"top_right_fill_gross_delta64_pixels\": %zu,\n"
         "  \"top_right_fill_max_channel_delta\": %u,\n"
         "  \"top_right_fill_rgb_fnv64\": \"%016llx\",\n"
+        "  \"full_bottom_q8_status\": \"measured_unqualified\",\n"
+        "  \"full_bottom_q8_default_changed\": false,\n"
+        "  \"full_bottom_q8_pixel_parity_qualified\": false,\n"
+        "  \"full_bottom_q8_repeat_equal\": true,\n"
+        "  \"full_bottom_q8_source_alpha_changed_pixels\": %zu,\n"
+        "  \"full_bottom_q8_outside_fully_covered_cells\": %zu,\n"
+        "  \"full_bottom_q8_alpha_delta_gt3_pixels\": %zu,\n"
+        "  \"full_bottom_q8_rgb_outside_source_alpha\": %zu,\n"
+        "  \"full_bottom_q8_rgba_abs_rgb_error\": %llu,\n"
+        "  \"full_bottom_q8_rgba_changed_pixels\": %zu,\n"
+        "  \"full_bottom_q8_rgba_fnv64\": \"%016llx\",\n"
+        "  \"full_bottom_q8_abs_rgb_error\": %llu,\n"
+        "  \"full_bottom_q8_mean_abs_rgb_error\": %.9f,\n"
+        "  \"full_bottom_q8_changed_pixels\": %zu,\n"
+        "  \"full_bottom_q8_gross_delta64_pixels\": %zu,\n"
+        "  \"full_bottom_q8_max_channel_delta\": %u,\n"
+        "  \"full_bottom_q8_rgb_fnv64\": \"%016llx\",\n"
         "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
@@ -3978,7 +4081,17 @@ int test_external_jspdf_single_vertical_analytic_ab(
         (double)top_right_floor_metric.abs_rgb/1505496.0,
         top_right_floor_metric.changed,top_right_floor_metric.gross,
         top_right_floor_metric.max_delta,
-        (unsigned long long)top_right_floor_metric.fnv);
+        (unsigned long long)top_right_floor_metric.fnv,
+        full_bottom_source_changes,full_bottom_outside,
+        full_bottom_alpha_delta_gt3,full_bottom_rgb_outside,
+        (unsigned long long)full_bottom_rgba_metric.abs_rgb,
+        full_bottom_rgba_metric.changed,
+        (unsigned long long)full_bottom_rgba_metric.fnv,
+        (unsigned long long)full_bottom_floor_metric.abs_rgb,
+        (double)full_bottom_floor_metric.abs_rgb/1505496.0,
+        full_bottom_floor_metric.changed,full_bottom_floor_metric.gross,
+        full_bottom_floor_metric.max_delta,
+        (unsigned long long)full_bottom_floor_metric.fnv);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
