@@ -650,6 +650,13 @@ static int qp_q8_isolated_inner_bevel_join_alpha(
         rh.y1<rv.y1?rh.y1:rv.y1
     };
     const int64_t h_area=qp_join_q8_rect_cell_area(rh,cell_x,cell_y);
+    /* In the retraced-VH experiment the coincident horizontal strip
+     * is already resolved by the independently qualified repeated
+     * Stroke policy. Do not overwrite pixels inside that H area with
+     * an isolated one-pass miter: only the source-external quadrant
+     * and neighboring vertical strip are eligible for new Q8 area. */
+    if(retraced_vh_preview && h_area!=0)
+        return 0;
     const int64_t v_area=qp_join_q8_rect_cell_area(rv,cell_x,cell_y);
     const int64_t both=qp_join_q8_rect_cell_area(shared,cell_x,cell_y);
     const int64_t extra=qp_join_q8_rect_cell_area(outer,cell_x,cell_y);
