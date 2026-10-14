@@ -50,6 +50,19 @@ quantapdf_status quantapdf_ir_raster_rect_fill_bottom_preview_v0(
     const quantapdf_ir_raster_v1_limits *raster_limits,
     quantapdf_ir_raster_image *out_image);
 
+/* NINTH independently callable PRIVATE source Fill-right / W Clip-top
+ * Q8 fractional corner A/B. The old clipped Fill-bottom preview remains
+ * independently callable and byte-identical, including left, right and
+ * bottom accepted interiors. One source-owned pixel may change; no
+ * default SDK/ABI, new owner, fallback, or PDFium-assisted C11 drawing. */
+quantapdf_status
+quantapdf_ir_raster_rect_fill_upper_right_q8_preview_v0(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
