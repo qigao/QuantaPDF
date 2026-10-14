@@ -446,6 +446,27 @@ static int test_upper_right_q8_corner(void)
     quantapdf_ir_raster_image_dispose(&candidate);
     quantapdf_ir_raster_image_dispose(&previous);
 
+    /* Genuine sub-Q8 device-row phase: the continuous W top is strictly
+     * inside row2, but Q8 truncation makes it EXACTLY cell_y. It must be
+     * admitted with 256/256 Y coverage rather than refused or offset. */
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    rect(f.mask,5.0f,1.9801f,25.0f,20.0f);
+    const double tiny_phase_dy=24.75/25.0;
+    CHECK((double)1.9801f>2.0*tiny_phase_dy &&
+          (double)1.9801f<3.0*tiny_phase_dy);
+    const int64_t phase_top_q=
+        (int64_t)((float)((double)1.9801f/tiny_phase_dy)*256.0f);
+    CHECK(phase_top_q==(int64_t)2*256);
+    OK(BOTTOM(f,previous));
+    OK(UPPER_RIGHT_Q8(f,candidate));
+    CHECK(candidate.size==previous.size &&
+          alpha(&candidate,15u,2u)!=alpha(&previous,15u,2u));
+    const unsigned phase_expected=(unsigned)(ax*256/256);
+    CHECK(alpha(&candidate,15u,2u)==phase_expected);
+    quantapdf_ir_raster_image_dispose(&candidate);
+    quantapdf_ir_raster_image_dispose(&previous);
+
     /* Q8 mode9 charges one more original source-edge pass than mode8.
      * The latter is admissible at 150K samples, the former must refuse
      * transactionally, with ZERO partially published output. */
