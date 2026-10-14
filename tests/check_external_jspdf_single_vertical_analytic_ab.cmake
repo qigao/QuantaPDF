@@ -752,6 +752,58 @@ if(NOT opaque_status STREQUAL "measured_unqualified"
 endif()
 message(STATUS
   "jspdf-opaque-white-floor: upper_rgb=${upper_abs_rgb_error} trial_rgb=${opaque_abs_rgb_error} upper_changed=${upper_changed_pixels} trial_changed=${opaque_changed_pixels} changed_vs_upper=${opaque_changed_vs_upper_pixels} outside_overlap=${opaque_changed_outside_overlap} official=0 parity=false")
+# TWELFTH independent original-PDF device-Q8 A/B. Pin the completed
+# Linux/macOS/Windows #302 opaque compositing result separately.
+if(NOT opaque_abs_rgb_error EQUAL 1193
+   OR NOT opaque_changed_pixels EQUAL 145
+   OR NOT opaque_gross_delta64_pixels EQUAL 0
+   OR NOT opaque_max_channel_delta EQUAL 38
+   OR NOT opaque_changed_vs_upper_pixels EQUAL 78
+   OR NOT opaque_changed_outside_overlap EQUAL 0
+   OR NOT opaque_rgb_fnv64 STREQUAL "7932506afd903c78")
+  message(FATAL_ERROR "Qualified private opaque-white composite control changed")
+endif()
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_alpha_changed_pixels outside_eligible_geometry
+    alpha_delta_gt3_pixels abs_rgb_error mean_abs_rgb_error changed_pixels
+    gross_delta64_pixels max_channel_delta rgb_fnv64)
+  string(JSON q8_${field} GET "${json}" stroke_q8_${field})
+endforeach()
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal outside_source_alpha_change abs_rgb_error
+    mean_abs_rgb_error changed_pixels gross_delta64_pixels
+    max_channel_delta rgb_fnv64)
+  string(JSON q8floor_${field} GET "${json}" q8_floor_${field})
+endforeach()
+string(LENGTH "${q8_rgb_fnv64}" q8_hashlen)
+string(LENGTH "${q8floor_rgb_fnv64}" q8floor_hashlen)
+if(NOT q8_status STREQUAL "measured_unqualified"
+   OR q8_default_changed OR q8_pixel_parity_qualified OR NOT q8_repeat_equal
+   OR q8_source_alpha_changed_pixels LESS 1
+   OR q8_source_alpha_changed_pixels GREATER 501832
+   OR NOT q8_outside_eligible_geometry EQUAL 0
+   OR NOT q8_alpha_delta_gt3_pixels EQUAL 0
+   OR q8_abs_rgb_error LESS 0 OR q8_abs_rgb_error GREATER 383901480
+   OR q8_mean_abs_rgb_error LESS 0 OR q8_mean_abs_rgb_error GREATER 255
+   OR q8_changed_pixels LESS 0 OR q8_changed_pixels GREATER 501832
+   OR q8_gross_delta64_pixels LESS 0 OR q8_gross_delta64_pixels GREATER q8_changed_pixels
+   OR q8_max_channel_delta LESS 0 OR q8_max_channel_delta GREATER 255
+   OR NOT q8_hashlen EQUAL 16 OR NOT q8_rgb_fnv64 MATCHES "^[0-9a-f]+$"
+   OR NOT q8floor_status STREQUAL "measured_unqualified"
+   OR q8floor_default_changed OR q8floor_pixel_parity_qualified
+   OR NOT q8floor_repeat_equal OR NOT q8floor_outside_source_alpha_change EQUAL 0
+   OR q8floor_abs_rgb_error LESS 0 OR q8floor_abs_rgb_error GREATER 383901480
+   OR q8floor_mean_abs_rgb_error LESS 0 OR q8floor_mean_abs_rgb_error GREATER 255
+   OR q8floor_changed_pixels LESS 0 OR q8floor_changed_pixels GREATER 501832
+   OR q8floor_gross_delta64_pixels LESS 0
+   OR q8floor_gross_delta64_pixels GREATER q8floor_changed_pixels
+   OR q8floor_max_channel_delta LESS 0 OR q8floor_max_channel_delta GREATER 255
+   OR NOT q8floor_hashlen EQUAL 16
+   OR NOT q8floor_rgb_fnv64 MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "Unqualified Q8 device-edge source A/B escaped isolation")
+endif()
+message(STATUS
+  "jspdf-device-Q8: old_rgba=${upper_abs_rgb_error} q8_rgba=${q8_abs_rgb_error} old_opaque=${opaque_abs_rgb_error} q8_opaque=${q8floor_abs_rgb_error} alpha_changed=${q8_source_alpha_changed_pixels} official=0 parity=false")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")

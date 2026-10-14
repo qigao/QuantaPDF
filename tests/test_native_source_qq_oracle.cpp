@@ -2130,6 +2130,93 @@ int test_external_jspdf_single_vertical_analytic_ab(
           std::memcmp(bottom_fill.pixels,bottom_repeat.pixels,
                       bottom_fill.size)==0);
     const page_metrics opaque_floor_metric=measure(opaque_floor_page);
+
+    /* TWELFTH original-source A/B: same paint layers but Stroke now uses
+     * device-edge Q8 quantization on strictly isolated 1pt horizontal/
+     * vertical interiors. Compare geometry with OLD RGBA compositor and
+     * NEW opaque RGB compositor independently, before any promotion. */
+    quantapdf_ir_raster_image q8_stroke{},q8_repeat{},q8_page{},
+                              q8_page_repeat{},q8_floor{},q8_floor_repeat{};
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_strip_preview_v0(
+        &only_stroke,0u,&geometry,&h_grid,&h_budget,&q8_stroke));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_strip_preview_v0(
+        &only_stroke,0u,&geometry,&h_grid,&h_budget,&q8_repeat));
+    CHECK(q8_stroke.pixels && q8_repeat.pixels &&
+          q8_stroke.size==upper_stroke.size &&
+          q8_repeat.size==q8_stroke.size &&
+          std::memcmp(q8_stroke.pixels,q8_repeat.pixels,
+                      q8_stroke.size)==0);
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &q8_stroke,&bottom_fill,&composite_budget,&q8_page));
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &q8_repeat,&bottom_repeat,&composite_budget,&q8_page_repeat));
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &q8_stroke,&bottom_fill,&composite_budget,&q8_floor));
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &q8_repeat,&bottom_repeat,&composite_budget,&q8_floor_repeat));
+    CHECK(q8_page.pixels && q8_page_repeat.pixels &&
+          q8_floor.pixels && q8_floor_repeat.pixels &&
+          q8_page.size==upper_page.size &&
+          q8_floor.size==opaque_floor_page.size &&
+          std::memcmp(q8_page.pixels,q8_page_repeat.pixels,
+                      q8_page.size)==0 &&
+          std::memcmp(q8_floor.pixels,q8_floor_repeat.pixels,
+                      q8_floor.size)==0);
+    CHECK(std::memcmp(bottom_fill.pixels,bottom_repeat.pixels,
+                      bottom_fill.size)==0 &&
+          std::memcmp(upper_stroke.pixels,upper_repeat.pixels,
+                      upper_stroke.size)==0);
+    const page_metrics q8_metric=measure(q8_page);
+    const page_metrics q8_floor_metric=measure(q8_floor);
+    size_t q8_alpha_changed=0u,q8_alpha_outside=0u,
+           q8_alpha_delta_over3=0u,q8_floor_outside_source_change=0u;
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t off=y*q8_stroke.stride+x*4u;
+        const unsigned prior=upper_stroke.pixels[off+3u];
+        const unsigned trial=q8_stroke.pixels[off+3u];
+        CHECK(std::memcmp(upper_stroke.pixels+off,
+                          q8_stroke.pixels+off,3u)==0);
+        CHECK(q8_floor.pixels[off+3u]==255u);
+        const int changed=(prior!=trial);
+        if(changed) {
+            ++q8_alpha_changed;
+            const int horizontal=(x>=52u && x<=248u &&
+                                  y>=138u && y<=140u);
+            const int vertical=((x>=49u && x<=51u) ||
+                                (x>=249u && x<=251u)) &&
+                               y>=22u && y<=137u;
+            if(!horizontal && !vertical)++q8_alpha_outside;
+            const unsigned delta=trial>prior?trial-prior:prior-trial;
+            if(delta>3u)++q8_alpha_delta_over3;
+        }
+        unsigned rgb_changed=0u;
+        for(size_t ch=0u;ch<3u;++ch)
+            rgb_changed|=(q8_floor.pixels[off+ch]!=
+                          opaque_floor_page.pixels[off+ch]);
+        if(rgb_changed!=0u && !changed)
+            ++q8_floor_outside_source_change;
+    }
+    CHECK(q8_alpha_changed>0u && q8_alpha_outside==0u &&
+          q8_alpha_delta_over3==0u &&
+          q8_floor_outside_source_change==0u);
+    const size_t q8_probe=110u*q8_stroke.stride+49u*4u;
+    std::fprintf(stderr,
+        "[original jsPDF device-Q8 source strip A/B, NOT parity] "
+        "upper_rgb=%llu q8_rgba_rgb=%llu opaque_floor_rgb=%llu "
+        "q8_opaque_floor_rgb=%llu upper_changed=%zu q8_changed=%zu "
+        "q8_floor_changed=%zu source_alpha_changes=%zu "
+        "outside_source_geometry=%zu delta_gt3=%zu "
+        "x49y110_old_alpha=%u x49y110_q8_alpha=%u fnv=%016llx\n",
+        (unsigned long long)upper_metric.abs_rgb,
+        (unsigned long long)q8_metric.abs_rgb,
+        (unsigned long long)opaque_floor_metric.abs_rgb,
+        (unsigned long long)q8_floor_metric.abs_rgb,
+        upper_metric.changed,q8_metric.changed,q8_floor_metric.changed,
+        q8_alpha_changed,q8_alpha_outside,q8_alpha_delta_over3,
+        (unsigned)upper_stroke.pixels[q8_probe+3u],
+        (unsigned)q8_stroke.pixels[q8_probe+3u],
+        (unsigned long long)q8_floor_metric.fnv);
+
     size_t opaque_floor_changed_vs_upper=0u,opaque_floor_outside_overlap=0u;
     for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
         const size_t off=y*opaque_floor_page.stride+x*4u;
@@ -3008,6 +3095,12 @@ int test_external_jspdf_single_vertical_analytic_ab(
     std::fprintf(stderr,"[jsPDF mode4 original residual regions] %s\n",
                  mode4_regions_json.c_str());
 
+    quantapdf_ir_raster_image_dispose(&q8_floor_repeat);
+    quantapdf_ir_raster_image_dispose(&q8_floor);
+    quantapdf_ir_raster_image_dispose(&q8_page_repeat);
+    quantapdf_ir_raster_image_dispose(&q8_page);
+    quantapdf_ir_raster_image_dispose(&q8_repeat);
+    quantapdf_ir_raster_image_dispose(&q8_stroke);
     quantapdf_ir_raster_image_dispose(&opaque_floor_repeat);
     quantapdf_ir_raster_image_dispose(&opaque_floor_page);
     quantapdf_ir_raster_image_dispose(&upper_page_repeat);
@@ -3158,6 +3251,30 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"opaque_floor_gross_delta64_pixels\": %zu,\n"
         "  \"opaque_floor_max_channel_delta\": %u,\n"
         "  \"opaque_floor_rgb_fnv64\": \"%016llx\",\n"
+        "  \"stroke_q8_status\": \"measured_unqualified\",\n"
+        "  \"stroke_q8_default_changed\": false,\n"
+        "  \"stroke_q8_pixel_parity_qualified\": false,\n"
+        "  \"stroke_q8_repeat_equal\": true,\n"
+        "  \"stroke_q8_source_alpha_changed_pixels\": %zu,\n"
+        "  \"stroke_q8_outside_eligible_geometry\": %zu,\n"
+        "  \"stroke_q8_alpha_delta_gt3_pixels\": %zu,\n"
+        "  \"stroke_q8_abs_rgb_error\": %llu,\n"
+        "  \"stroke_q8_mean_abs_rgb_error\": %.9f,\n"
+        "  \"stroke_q8_changed_pixels\": %zu,\n"
+        "  \"stroke_q8_gross_delta64_pixels\": %zu,\n"
+        "  \"stroke_q8_max_channel_delta\": %u,\n"
+        "  \"stroke_q8_rgb_fnv64\": \"%016llx\",\n"
+        "  \"q8_floor_status\": \"measured_unqualified\",\n"
+        "  \"q8_floor_default_changed\": false,\n"
+        "  \"q8_floor_pixel_parity_qualified\": false,\n"
+        "  \"q8_floor_repeat_equal\": true,\n"
+        "  \"q8_floor_outside_source_alpha_change\": %zu,\n"
+        "  \"q8_floor_abs_rgb_error\": %llu,\n"
+        "  \"q8_floor_mean_abs_rgb_error\": %.9f,\n"
+        "  \"q8_floor_changed_pixels\": %zu,\n"
+        "  \"q8_floor_gross_delta64_pixels\": %zu,\n"
+        "  \"q8_floor_max_channel_delta\": %u,\n"
+        "  \"q8_floor_rgb_fnv64\": \"%016llx\",\n"
         "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
@@ -3206,7 +3323,18 @@ int test_external_jspdf_single_vertical_analytic_ab(
         (double)opaque_floor_metric.abs_rgb/1505496.0,
         opaque_floor_metric.changed,opaque_floor_metric.gross,
         opaque_floor_metric.max_delta,
-        (unsigned long long)opaque_floor_metric.fnv);
+        (unsigned long long)opaque_floor_metric.fnv,
+        q8_alpha_changed,q8_alpha_outside,q8_alpha_delta_over3,
+        (unsigned long long)q8_metric.abs_rgb,
+        (double)q8_metric.abs_rgb/1505496.0,
+        q8_metric.changed,q8_metric.gross,q8_metric.max_delta,
+        (unsigned long long)q8_metric.fnv,
+        q8_floor_outside_source_change,
+        (unsigned long long)q8_floor_metric.abs_rgb,
+        (double)q8_floor_metric.abs_rgb/1505496.0,
+        q8_floor_metric.changed,q8_floor_metric.gross,
+        q8_floor_metric.max_delta,
+        (unsigned long long)q8_floor_metric.fnv);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
