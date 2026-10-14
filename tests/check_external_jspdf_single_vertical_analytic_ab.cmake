@@ -1063,6 +1063,61 @@ if(NOT corner_status STREQUAL "measured_unqualified"
 endif()
 message(STATUS
   "jspdf-q8-upper-right-fill-corner: parent_rgb=${neighbor_abs_rgb_error} trial_rgb=${corner_abs_rgb_error} parent_changed=${neighbor_changed_pixels} trial_changed=${corner_changed_pixels} source_alpha_changes=${corner_source_alpha_changed_pixels} parity=false official=0")
+# Post #308 read-only 16-bin audit: all original PDFium source pixels.
+if(NOT corner_abs_rgb_error EQUAL 143
+   OR NOT corner_changed_pixels EQUAL 8
+   OR NOT corner_gross_delta64_pixels EQUAL 0
+   OR NOT corner_max_channel_delta EQUAL 15
+   OR NOT corner_rgb_fnv64 STREQUAL "5dff11faa26ac6c2")
+  message(FATAL_ERROR "Exact #308 raw-original PDFium control changed")
+endif()
+string(JSON aud_schema GET "${json}" top_right_post_residual_regions schema_version)
+string(JSON aud_pass GET "${json}" top_right_post_residual_regions full_original_reconciled)
+string(JSON aud_bins LENGTH "${json}" top_right_post_residual_regions regions)
+string(JSON aud_total GET "${json}" top_right_post_residual_regions total_pixels)
+string(JSON aud_changed GET "${json}" top_right_post_residual_regions total_changed)
+string(JSON aud_error GET "${json}" top_right_post_residual_regions total_abs_rgb_error)
+string(JSON aud_gross GET "${json}" top_right_post_residual_regions total_gross)
+string(JSON aud_max GET "${json}" top_right_post_residual_regions max_channel_delta)
+string(JSON aud_worst LENGTH "${json}" top_right_post_residual_regions worst_pixels)
+if(NOT aud_schema EQUAL 1 OR NOT aud_pass OR NOT aud_bins EQUAL 16
+   OR NOT aud_total EQUAL 501832 OR NOT aud_changed EQUAL corner_changed_pixels
+   OR NOT aud_error EQUAL corner_abs_rgb_error
+   OR NOT aud_gross EQUAL corner_gross_delta64_pixels
+   OR NOT aud_max EQUAL corner_max_channel_delta
+   OR NOT aud_worst EQUAL aud_changed)
+  message(FATAL_ERROR "Post-corner 16-bin audit failed full-page reconciliation")
+endif()
+set(sum_pixel 0)
+set(sum_changed 0)
+set(sum_error 0)
+foreach(region IN ITEMS bottom_left_endpoint bottom_right_endpoint
+    bottom_single_horizontal_interior top_repeated_left_endpoint
+    top_repeated_right_endpoint top_repeated_horizontal_interior
+    right_vertical_stroke left_vertical_below_red
+    red_left_w_clip_stroke_overlap red_left_w_clip_only
+    red_right_fill_boundary red_top_right_coupled_corner
+    red_top_stroke_overlap red_fill_bottom_edge
+    red_bottom_uncovered_fringe other)
+  string(JSON p GET "${json}" top_right_post_residual_regions regions "${region}" pixels)
+  string(JSON n GET "${json}" top_right_post_residual_regions regions "${region}" changed)
+  string(JSON e GET "${json}" top_right_post_residual_regions regions "${region}" abs_rgb_error)
+  string(JSON b GET "${json}" top_right_post_residual_regions regions "${region}" brighter_rgb_error)
+  string(JSON d GET "${json}" top_right_post_residual_regions regions "${region}" darker_rgb_error)
+  math(EXPR total_signed "${b}+${d}")
+  if(NOT total_signed EQUAL e)
+    message(FATAL_ERROR "Signed source error buckets do not reconcile")
+  endif()
+  math(EXPR sum_pixel "${sum_pixel}+${p}")
+  math(EXPR sum_changed "${sum_changed}+${n}")
+  math(EXPR sum_error "${sum_error}+${e}")
+endforeach()
+if(NOT sum_pixel EQUAL aud_total OR NOT sum_changed EQUAL aud_changed
+   OR NOT sum_error EQUAL aud_error)
+  message(FATAL_ERROR "Post-corner original source region sums mismatched")
+endif()
+message(STATUS
+  "jspdf-post-corner-original-audit: pixels=${aud_total} residual=${aud_changed} error=${aud_error} parity=false official=0")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
