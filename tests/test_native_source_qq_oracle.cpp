@@ -2209,8 +2209,8 @@ int test_external_jspdf_single_vertical_analytic_ab(
             std::to_string((unsigned)p.pdfium_rgb[2])+"]}";
     }
     mode7_regions_json+="],\"witnesses\":[";
-    struct witness {const char *name;size_t x,y;};
-    const witness witnesses[]={
+    struct mode7_witness {const char *name;size_t x,y;};
+    const mode7_witness mode7_witnesses[]={
         {"bottom_outer_left",49u,139u},
         {"bottom_left_join",50u,139u},
         {"bottom_interior",100u,139u},
@@ -2228,8 +2228,8 @@ int test_external_jspdf_single_vertical_analytic_ab(
         {"red_bottom_fringe",100u,100u},
         {"red_top_interior",100u,20u}
     };
-    for(size_t i=0u;i<sizeof(witnesses)/sizeof(witnesses[0]);++i) {
-        const witness &w=witnesses[i];
+    for(size_t i=0u;i<sizeof(mode7_witnesses)/sizeof(mode7_witnesses[0]);++i) {
+        const mode7_witness &w=mode7_witnesses[i];
         const unsigned char *stroke=h_stroke.pixels+
             w.y*h_stroke.stride+w.x*4u;
         const unsigned char *red=left_fill.pixels+
