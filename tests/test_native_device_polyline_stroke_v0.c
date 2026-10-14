@@ -1271,6 +1271,10 @@ static int test_q8_retraced_vh_join_trial(void)
             }
         }
     CHECK(changed>0u && escaped==0u);
+    /* The genuine repeated H interior remains governed by the older
+     * mode10 winding/coverage rule, never an isolated VH miter area. */
+    CHECK(alpha(&trial,(size_t)floor(24.0/dx),(size_t)floor(8.0/dy))==
+          alpha(&old,(size_t)floor(24.0/dx),(size_t)floor(8.0/dy)));
     quantapdf_ir_raster_image_dispose(&again);
     quantapdf_ir_raster_image_dispose(&trial);
     quantapdf_ir_raster_image_dispose(&old);
