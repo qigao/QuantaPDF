@@ -156,6 +156,18 @@ quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
     const quantapdf_ir_raster_v1_limits *raster_limits,
     quantapdf_ir_raster_image *out_image);
 
+/* ELEVENTH independent PRIVATE Q8 source 90-degree Miter trial.
+ * Admit an exact horizontal source retrace within one Stroke operation;
+ * still refuse all other intersecting source edges. No source-coordinate
+ * oracle, runtime fallback, SDK ABI export, or previous mode changes. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_q8_retraced_top_miter_preview_v0(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
