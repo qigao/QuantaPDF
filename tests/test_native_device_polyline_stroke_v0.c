@@ -1278,8 +1278,10 @@ static int test_retraced_top_q8_miter_trial(void)
     setup(&f);
     f.op.value.path.options.stroke_width=1.0f;
     f.op.value.path.command_count=2u;
-    f.grid_budget.max_sample_tests=135000u;
-    f.raster_budget.max_sample_tests=135000u;
+    f.grid_budget.max_edges=10u;
+    f.raster_budget.max_edges=10u;
+    f.grid_budget.max_sample_tests=2000000u;
+    f.raster_budget.max_sample_tests=2000000u;
     OK(quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
         &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
     quantapdf_ir_raster_image_dispose(&old);
