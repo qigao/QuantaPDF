@@ -399,6 +399,241 @@ static int qp_q8_device_strip_alpha(
     return 1;
 }
 
+
+/* NINTH ISOLATED PRIVATE A/B: a 90-degree inner-miter BEVEL is not
+ * identical to the Boolean union of its two stroke rectangles. On a
+ * Q8 raster grid an additional half-square, bounded to the inner
+ * corner, contributes signed coverage; the outer miter contributes
+ * its full quadrant. This is source-topology/geometry only, never a
+ * PDFium lookup, coordinate fixture, or public renderer admission.
+ *
+ * Scope: 1pt opaque butt/miter, orthogonal adjacent segments, exact
+ * shared endpoint, sufficient source length and no THIRD expanded edge
+ * touching this device pixel. Repeated/diagonal/ambiguous joins retain
+ * the independently qualified eighth preview byte-for-byte. */
+typedef struct qp_join_q8_rect {
+    int64_t x0,y0,x1,y1;
+} qp_join_q8_rect;
+
+typedef struct qp_join_q8_point {
+    double x,y;
+} qp_join_q8_point;
+
+static int qp_join_q8_coord(
+    double source, double points_per_device, int64_t *out)
+{
+    float device;
+    if(out==NULL || !isfinite(source) ||
+       !isfinite(points_per_device) || !(points_per_device>0.0))
+        return 0;
+    device=(float)(source/points_per_device);
+    if(!isfinite(device) || fabsf(device)>8388607.0f)
+        return 0;
+    *out=(int64_t)(device*256.0f); /* explicitly truncate toward zero */
+    return 1;
+}
+
+static int qp_join_q8_rect_make(
+    const quantapdf_native_device_grid *grid,
+    double left,double top,double right,double bottom,
+    qp_join_q8_rect *out)
+{
+    if(out==NULL || !(right>left && bottom>top))
+        return 0;
+    return qp_join_q8_coord(left,grid->points_per_device_x,&out->x0) &&
+           qp_join_q8_coord(right,grid->points_per_device_x,&out->x1) &&
+           qp_join_q8_coord(top,grid->points_per_device_y,&out->y0) &&
+           qp_join_q8_coord(bottom,grid->points_per_device_y,&out->y1) &&
+           out->x0<=out->x1 && out->y0<=out->y1;
+}
+
+static int64_t qp_join_q8_rect_cell_area(
+    qp_join_q8_rect rect,int64_t cell_x,int64_t cell_y)
+{
+    const int64_t a=rect.x0>cell_x?rect.x0:cell_x;
+    const int64_t b=rect.x1<cell_x+256?rect.x1:cell_x+256;
+    const int64_t c=rect.y0>cell_y?rect.y0:cell_y;
+    const int64_t d=rect.y1<cell_y+256?rect.y1:cell_y+256;
+    return b>a && d>c?(b-a)*(d-c):0;
+}
+
+static int qp_join_q8_inside(qp_join_q8_point p,unsigned plane)
+{
+    if(plane==0u)return p.x>=0.0;
+    if(plane==1u)return p.x<=256.0;
+    if(plane==2u)return p.y>=0.0;
+    return p.y<=256.0;
+}
+
+static qp_join_q8_point qp_join_q8_intersection(
+    qp_join_q8_point a,qp_join_q8_point b,unsigned plane)
+{
+    qp_join_q8_point p;
+    const double bound=(plane==1u || plane==3u)?256.0:0.0;
+    const double av=plane<2u?a.x:a.y;
+    const double bv=plane<2u?b.x:b.y;
+    const double t=(bound-av)/(bv-av); /* called only across plane */
+    p.x=a.x+(b.x-a.x)*t;
+    p.y=a.y+(b.y-a.y)*t;
+    if(plane<2u)p.x=bound;else p.y=bound;
+    return p;
+}
+
+/* Triangle clipped to exactly one Q8 device cell. Relative coordinates
+ * avoid large floating point products; at most seven polygon vertices. */
+static double qp_join_q8_triangle_cell_area(
+    const qp_join_q8_rect *inside, int inner_x,int inner_y,
+    int64_t joint_x,int64_t joint_y,
+    int64_t cell_x,int64_t cell_y)
+{
+    qp_join_q8_point src[12],dst[12];
+    int64_t cx=inner_x>0?inside->x1:inside->x0;
+    int64_t cy=inner_y>0?inside->y1:inside->y0;
+    size_t n=3u;
+    src[0]=(qp_join_q8_point){(double)(cx-cell_x),(double)(cy-cell_y)};
+    src[1]=(qp_join_q8_point){(double)(joint_x-cell_x),(double)(cy-cell_y)};
+    src[2]=(qp_join_q8_point){(double)(cx-cell_x),(double)(joint_y-cell_y)};
+    for(unsigned plane=0u;plane<4u;++plane) {
+        size_t m=0u;
+        qp_join_q8_point prev=src[n-1u];
+        int prev_inside=qp_join_q8_inside(prev,plane);
+        for(size_t i=0u;i<n;++i) {
+            const qp_join_q8_point cur=src[i];
+            const int cur_inside=qp_join_q8_inside(cur,plane);
+            if(cur_inside!=prev_inside) {
+                if(m>=12u)return 0.0;
+                dst[m++]=qp_join_q8_intersection(prev,cur,plane);
+            }
+            if(cur_inside) {
+                if(m>=12u)return 0.0;
+                dst[m++]=cur;
+            }
+            prev=cur;prev_inside=cur_inside;
+        }
+        if(m<3u)return 0.0;
+        for(size_t i=0u;i<m;++i)src[i]=dst[i];
+        n=m;
+    }
+    double double_area=0.0;
+    for(size_t i=0u;i<n;++i) {
+        const size_t next=(i+1u)%n;
+        double_area+=src[i].x*src[next].y-src[next].x*src[i].y;
+    }
+    return fabs(double_area)*0.5;
+}
+
+static int qp_q8_isolated_inner_bevel_join_alpha(
+    const qp_stroke_segment *segments,size_t count,
+    const quantapdf_native_device_grid *grid,
+    size_t x,size_t y,double radius,double miter_limit,
+    unsigned *out_alpha)
+{
+    const double px0=(double)x*grid->points_per_device_x;
+    const double px1=((double)x+1.0)*grid->points_per_device_x;
+    const double py0=(double)y*grid->points_per_device_y;
+    const double py1=((double)y+1.0)*grid->points_per_device_y;
+    size_t hit=SIZE_MAX;
+    int inner_x=0,inner_y=0;
+    if(radius!=0.5 || miter_limit<1.414214 ||
+       out_alpha==NULL ||
+       (uint64_t)x>(uint64_t)(INT64_MAX/256-1) ||
+       (uint64_t)y>(uint64_t)(INT64_MAX/256-1))
+        return 0;
+    for(size_t i=0u;i<count;++i)
+        if(segments[i].dx!=0.0 && segments[i].dy!=0.0)
+            return 0;
+    for(size_t i=0u;i+1u<count;++i) {
+        const qp_stroke_segment *a=&segments[i];
+        const qp_stroke_segment *b=&segments[i+1u];
+        int sx=0,sy=0;
+        const int hv=(a->dx!=0.0 && a->dy==0.0 &&
+                      b->dx==0.0 && b->dy!=0.0);
+        const int vh=(a->dx==0.0 && a->dy!=0.0 &&
+                      b->dx!=0.0 && b->dy==0.0);
+        if((!hv && !vh) ||
+           a->b.x!=b->a.x || a->b.y!=b->a.y ||
+           sqrt(a->len_squared)<=radius+2.0*grid->points_per_device_x+
+                                          2.0*grid->points_per_device_y ||
+           sqrt(b->len_squared)<=radius+2.0*grid->points_per_device_x+
+                                          2.0*grid->points_per_device_y)
+            continue;
+        if(hv) {
+            sx=a->dx<0.0?1:-1;
+            sy=b->dy<0.0?-1:1;
+        } else {
+            sx=b->dx<0.0?-1:1;
+            sy=a->dy<0.0?1:-1;
+        }
+        const double jx=a->b.x,jy=a->b.y;
+        if(px1<=jx-radius || px0>=jx+radius ||
+           py1<=jy-radius || py0>=jy+radius)
+            continue;
+        /* A third source edge touching the entire cell makes this
+         * local analytic replacement ambiguous; retain mode8 instead. */
+        int isolated=1;
+        for(size_t k=0u;k<count;++k) {
+            if(k==i || k==i+1u)continue;
+            const qp_stroke_segment *other=&segments[k];
+            const double lx=fmin(other->a.x,other->b.x)-radius;
+            const double rx=fmax(other->a.x,other->b.x)+radius;
+            const double ty=fmin(other->a.y,other->b.y)-radius;
+            const double by=fmax(other->a.y,other->b.y)+radius;
+            if(px0<rx && px1>lx && py0<by && py1>ty) {
+                isolated=0;break;
+            }
+        }
+        if(!isolated)continue;
+        if(hit!=SIZE_MAX)return 0;
+        hit=i;inner_x=sx;inner_y=sy;
+    }
+    if(hit==SIZE_MAX)return 0;
+    const qp_stroke_segment *a=&segments[hit];
+    const qp_stroke_segment *b=&segments[hit+1u];
+    const qp_stroke_segment *h=a->dx!=0.0?a:b;
+    const qp_stroke_segment *v=a->dy!=0.0?a:b;
+    const double jx=a->b.x,jy=a->b.y;
+    qp_join_q8_rect rh,rv,outer,inner;
+    const double outer_x=jx-(double)inner_x*radius;
+    const double outer_y=jy-(double)inner_y*radius;
+    if(!qp_join_q8_rect_make(grid,
+           fmin(h->a.x,h->b.x),jy-radius,
+           fmax(h->a.x,h->b.x),jy+radius,&rh) ||
+       !qp_join_q8_rect_make(grid,
+           jx-radius,fmin(v->a.y,v->b.y),
+           jx+radius,fmax(v->a.y,v->b.y),&rv) ||
+       !qp_join_q8_rect_make(grid,
+           fmin(jx,outer_x),fmin(jy,outer_y),
+           fmax(jx,outer_x),fmax(jy,outer_y),&outer) ||
+       !qp_join_q8_rect_make(grid,
+           fmin(jx,jx+(double)inner_x*radius),
+           fmin(jy,jy+(double)inner_y*radius),
+           fmax(jx,jx+(double)inner_x*radius),
+           fmax(jy,jy+(double)inner_y*radius),&inner))
+        return 0;
+    int64_t jqx=0,jqy=0;
+    if(!qp_join_q8_coord(jx,grid->points_per_device_x,&jqx) ||
+       !qp_join_q8_coord(jy,grid->points_per_device_y,&jqy))
+        return 0;
+    const int64_t cell_x=(int64_t)x*256;
+    const int64_t cell_y=(int64_t)y*256;
+    qp_join_q8_rect shared={
+        rh.x0>rv.x0?rh.x0:rv.x0,
+        rh.y0>rv.y0?rh.y0:rv.y0,
+        rh.x1<rv.x1?rh.x1:rv.x1,
+        rh.y1<rv.y1?rh.y1:rv.y1
+    };
+    const int64_t h_area=qp_join_q8_rect_cell_area(rh,cell_x,cell_y);
+    const int64_t v_area=qp_join_q8_rect_cell_area(rv,cell_x,cell_y);
+    const int64_t both=qp_join_q8_rect_cell_area(shared,cell_x,cell_y);
+    const int64_t extra=qp_join_q8_rect_cell_area(outer,cell_x,cell_y);
+    const double bevel=qp_join_q8_triangle_cell_area(
+        &inner,inner_x,inner_y,jqx,jqy,cell_x,cell_y);
+    const double total=(double)(h_area+v_area-both+extra)+bevel;
+    if(!isfinite(total) || total<0.0)return 0;
+    *out_alpha=(unsigned)(total>=65280.0?255.0:floor(total/256.0));
+    return 1;
+}
+
 /* Fourth EXPLICIT PRIVATE A/B: for an *isolated*, single-traversal,
  * axis-aligned 1pt vertical Stroke interior, estimate the source strip's
  * exact horizontal intersection with this device pixel. No fixed pixel
@@ -728,6 +963,16 @@ static quantapdf_status qp_stroke_render_impl(
         count*8u>raster_limits->max_sample_tests/grid.sample_slots))
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
+    /* Ninth private orthogonal-join analytics performs an additional
+     * bounded topology/other-edge scan before any output allocation. */
+    if(horizontal_preview==9 &&
+       (count>grid_limits->max_edges/9u ||
+        count>raster_limits->max_edges/9u ||
+        quantapdf_native_device_grid_admit_edges_v0(
+            &grid,grid_limits,count*9u)!=QUANTAPDF_NATIVE_DEVICE_GRID_OK ||
+        count*9u>raster_limits->max_sample_tests/grid.sample_slots))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
     for(size_t i=1u;i<count;++i) {
         join_kinds[i-1u]=qp_stroke_join_build(&segments[i-1u],&segments[i],
                                                radius,miter_limit,&joins[i-1u]);
@@ -779,7 +1024,7 @@ static quantapdf_status qp_stroke_render_impl(
                 unsigned analytic_alpha=0u;
                 if(qp_single_vertical_analytic_alpha(
                        segments,count,&grid,x,y,radius,&analytic_alpha,
-                       horizontal_preview==8))
+                       horizontal_preview>=8))
                     pixel_alpha=analytic_alpha;
             }
             if(horizontal_preview>=5) {
@@ -788,8 +1033,15 @@ static quantapdf_status qp_stroke_render_impl(
                        segments,count,&grid,x,y,radius,&analytic_alpha,
                        horizontal_preview==6?1:
                        (horizontal_preview==7?2:
-                        (horizontal_preview==8?3:0))))
+                        (horizontal_preview>=8?3:0))))
                     pixel_alpha=analytic_alpha;
+            }
+            if(horizontal_preview==9) {
+                unsigned join_alpha=0u;
+                if(qp_q8_isolated_inner_bevel_join_alpha(
+                       segments,count,&grid,x,y,radius,miter_limit,
+                       &join_alpha))
+                    pixel_alpha=join_alpha;
             }
             if(pixel_alpha!=0u) {
                 size_t offset=(y*grid.width+x)*4u;
@@ -938,4 +1190,19 @@ quantapdf_ir_raster_device_polyline_stroke_q8_strip_preview_v0(
 {
     return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
                                  raster_limits,out_image,8);
+}
+
+
+/* NINTH isolated PRIVATE Q8 90-degree miter inner-bevel hypothesis.
+ * Earlier 0..8 preview algorithms, budgets and output remain unchanged. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_q8_inner_bevel_join_preview_v0(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
+                                 raster_limits,out_image,9);
 }

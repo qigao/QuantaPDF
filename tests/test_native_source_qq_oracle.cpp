@@ -2169,6 +2169,83 @@ int test_external_jspdf_single_vertical_analytic_ab(
                       upper_stroke.size)==0);
     const page_metrics q8_metric=measure(q8_page);
     const page_metrics q8_floor_metric=measure(q8_floor);
+
+    /* THIRTEENTH private raw-original A/B: orthogonal-miter inner bevel.
+     * Use the same Q8 interior strips, exact unchanged clipped Fill, and
+     * compare BOTH historical straight RGBA and separately tested opaque
+     * destination compositing. New source Stroke Alpha may change only at
+     * isolated genuinely connected source 90-degree miter joins. */
+    quantapdf_ir_raster_image miter_stroke{},miter_repeat{},
+        miter_rgba{},miter_rgba_repeat{},miter_floor{},miter_floor_repeat{};
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_inner_bevel_join_preview_v0(
+        &only_stroke,0u,&geometry,&h_grid,&h_budget,&miter_stroke));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_inner_bevel_join_preview_v0(
+        &only_stroke,0u,&geometry,&h_grid,&h_budget,&miter_repeat));
+    CHECK(miter_stroke.pixels && miter_repeat.pixels &&
+          miter_stroke.size==q8_stroke.size &&
+          miter_repeat.size==miter_stroke.size &&
+          std::memcmp(miter_stroke.pixels,miter_repeat.pixels,
+                      miter_stroke.size)==0);
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &miter_stroke,&bottom_fill,&composite_budget,&miter_rgba));
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &miter_repeat,&bottom_repeat,&composite_budget,&miter_rgba_repeat));
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &miter_stroke,&bottom_fill,&composite_budget,&miter_floor));
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &miter_repeat,&bottom_repeat,&composite_budget,&miter_floor_repeat));
+    CHECK(miter_rgba.pixels && miter_rgba_repeat.pixels &&
+          miter_floor.pixels && miter_floor_repeat.pixels &&
+          miter_rgba.size==q8_page.size &&
+          miter_floor.size==q8_floor.size &&
+          std::memcmp(miter_rgba.pixels,miter_rgba_repeat.pixels,
+                      miter_rgba.size)==0 &&
+          std::memcmp(miter_floor.pixels,miter_floor_repeat.pixels,
+                      miter_floor.size)==0);
+    const page_metrics miter_rgba_metric=measure(miter_rgba);
+    const page_metrics miter_floor_metric=measure(miter_floor);
+    size_t miter_source_alpha_changes=0u,miter_outside_endpoint=0u,
+           miter_delta_over64=0u,miter_composite_outside_alpha=0u;
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t off=y*miter_stroke.stride+x*4u;
+        const unsigned a=q8_stroke.pixels[off+3u];
+        const unsigned b=miter_stroke.pixels[off+3u];
+        CHECK(std::memcmp(q8_stroke.pixels+off,
+                          miter_stroke.pixels+off,3u)==0);
+        CHECK(miter_floor.pixels[off+3u]==255u);
+        if(a!=b) {
+            ++miter_source_alpha_changes;
+            const int left=x>=49u && x<=51u;
+            const int right=x>=249u && x<=251u;
+            if(!(y>=138u && y<=140u && (left || right)))
+                ++miter_outside_endpoint;
+            const unsigned d=a>b?a-b:b-a;
+            if(d>64u)++miter_delta_over64;
+        } else {
+            for(size_t ch=0u;ch<3u;++ch)
+                if(miter_floor.pixels[off+ch]!=q8_floor.pixels[off+ch])
+                    ++miter_composite_outside_alpha;
+        }
+    }
+    CHECK(miter_source_alpha_changes>0u &&
+          miter_outside_endpoint==0u &&
+          miter_delta_over64==0u &&
+          miter_composite_outside_alpha==0u);
+    std::fprintf(stderr,
+        "[original jsPDF Q8 orthogonal inner-bevel miter A/B, NOT parity] "
+        "parent_q8_floor_rgb=%llu trial_rgba_rgb=%llu "
+        "trial_opaque_rgb=%llu parent_diff=%zu trial_diff=%zu "
+        "alpha_changes=%zu outside_join=%zu delta_gt64=%zu "
+        "rgb_outside_alpha=%zu max=%u fnv=%016llx\n",
+        (unsigned long long)q8_floor_metric.abs_rgb,
+        (unsigned long long)miter_rgba_metric.abs_rgb,
+        (unsigned long long)miter_floor_metric.abs_rgb,
+        q8_floor_metric.changed,miter_floor_metric.changed,
+        miter_source_alpha_changes,miter_outside_endpoint,
+        miter_delta_over64,miter_composite_outside_alpha,
+        miter_floor_metric.max_delta,
+        (unsigned long long)miter_floor_metric.fnv);
+
     size_t q8_alpha_changed=0u,q8_alpha_outside=0u,
            q8_alpha_delta_over3=0u,q8_floor_outside_source_change=0u;
     for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
@@ -3222,6 +3299,12 @@ int test_external_jspdf_single_vertical_analytic_ab(
     std::fprintf(stderr,"[jsPDF mode4 original residual regions] %s\n",
                  mode4_regions_json.c_str());
 
+    quantapdf_ir_raster_image_dispose(&miter_floor_repeat);
+    quantapdf_ir_raster_image_dispose(&miter_floor);
+    quantapdf_ir_raster_image_dispose(&miter_rgba_repeat);
+    quantapdf_ir_raster_image_dispose(&miter_rgba);
+    quantapdf_ir_raster_image_dispose(&miter_repeat);
+    quantapdf_ir_raster_image_dispose(&miter_stroke);
     quantapdf_ir_raster_image_dispose(&q8_floor_repeat);
     quantapdf_ir_raster_image_dispose(&q8_floor);
     quantapdf_ir_raster_image_dispose(&q8_page_repeat);
@@ -3403,6 +3486,23 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"q8_floor_max_channel_delta\": %u,\n"
         "  \"q8_floor_rgb_fnv64\": \"%016llx\",\n"
         "  \"q8_floor_residual_regions\": %s,\n"
+        "  \"miter_join_status\": \"measured_unqualified\",\n"
+        "  \"miter_join_default_changed\": false,\n"
+        "  \"miter_join_pixel_parity_qualified\": false,\n"
+        "  \"miter_join_repeat_equal\": true,\n"
+        "  \"miter_join_source_alpha_changed_pixels\": %zu,\n"
+        "  \"miter_join_outside_source_endpoint\": %zu,\n"
+        "  \"miter_join_alpha_delta_gt64_pixels\": %zu,\n"
+        "  \"miter_join_composite_outside_source_alpha\": %zu,\n"
+        "  \"miter_join_rgba_abs_rgb_error\": %llu,\n"
+        "  \"miter_join_rgba_changed_pixels\": %zu,\n"
+        "  \"miter_join_rgba_fnv64\": \"%016llx\",\n"
+        "  \"miter_join_abs_rgb_error\": %llu,\n"
+        "  \"miter_join_mean_abs_rgb_error\": %.9f,\n"
+        "  \"miter_join_changed_pixels\": %zu,\n"
+        "  \"miter_join_gross_delta64_pixels\": %zu,\n"
+        "  \"miter_join_max_channel_delta\": %u,\n"
+        "  \"miter_join_rgb_fnv64\": \"%016llx\",\n"
         "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
@@ -3463,7 +3563,17 @@ int test_external_jspdf_single_vertical_analytic_ab(
         q8_floor_metric.changed,q8_floor_metric.gross,
         q8_floor_metric.max_delta,
         (unsigned long long)q8_floor_metric.fnv,
-        q8_region_json.c_str());
+        q8_region_json.c_str(),
+        miter_source_alpha_changes,miter_outside_endpoint,
+        miter_delta_over64,miter_composite_outside_alpha,
+        (unsigned long long)miter_rgba_metric.abs_rgb,
+        miter_rgba_metric.changed,
+        (unsigned long long)miter_rgba_metric.fnv,
+        (unsigned long long)miter_floor_metric.abs_rgb,
+        (double)miter_floor_metric.abs_rgb/1505496.0,
+        miter_floor_metric.changed,miter_floor_metric.gross,
+        miter_floor_metric.max_delta,
+        (unsigned long long)miter_floor_metric.fnv);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;

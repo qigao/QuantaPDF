@@ -131,6 +131,20 @@ quantapdf_ir_raster_device_polyline_stroke_q8_strip_preview_v0(
     const quantapdf_ir_raster_v1_limits *raster_limits,
     quantapdf_ir_raster_image *out_image);
 
+/* NINTH explicitly invoked PRIVATE C11 Q8 90-degree join A/B.
+ * Same source Stroke as mode8, with a bounded analytic union of the two
+ * orthogonal segment rectangles, the outward miter quadrant, and the
+ * inner-bevel signed-area triangle ONLY at strictly isolated joints.
+ * Repeated/diagonal/ambiguous source geometry stays byte-identical to
+ * mode8; no default SDK, public ABI or pixel-parity admission. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_q8_inner_bevel_join_preview_v0(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
