@@ -169,6 +169,21 @@ quantapdf_ir_raster_device_polyline_stroke_q8_retraced_vh_join_preview_v0(
     const quantapdf_ir_raster_v1_limits *raster_limits,
     quantapdf_ir_raster_image *out_image);
 
+/* TWELFTH independent PRIVATE C11 Q8 outer-Miter source retrace A/B:
+ * only a true right-going H→down-going V joint inside one opaque 1pt
+ * source Stroke, with >=2 EXACT source-horizontal retraces, and a
+ * device cell crossing that endpoint wholly above its center. Accumulate
+ * Q8 H coverage per source traversal and one outer miter quadrant;
+ * any independent overlapping edge refuses the shortcut. Preserve
+ * modes0..11, public SDK/ABI and source ownership byte-for-byte. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_q8_retraced_hv_outer_preview_v0(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
