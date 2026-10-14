@@ -1338,6 +1338,114 @@ static int test_q8_retraced_vh_join_trial(void)
     return EXIT_SUCCESS;
 }
 
+
+/* TWELFTH separate PRIVATE right→down HV Q8 repeated-source A/B.
+ * The true H segment is traced three times in one Stroke, but the
+ * outer Miter quadrant is a single geometric join. Exact device-Q8
+ * cell coverage comes from source points and the actual grid only. */
+static int test_q8_retraced_hv_outer_cell_trial(void)
+{
+    fixture f;
+    quantapdf_ir_raster_image old={0},trial={0},again={0};
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=5u;
+    f.cmds[0].point1=(quantapdf_point){2.0f,8.0f};
+    f.cmds[1].point1=(quantapdf_point){20.0f,8.0f};
+    f.cmds[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[2].point1=(quantapdf_point){2.0f,8.0f};
+    f.cmds[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[3].point1=(quantapdf_point){20.0f,8.0f};
+    f.cmds[4].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[4].point1=(quantapdf_point){20.0f,20.0f};
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_retraced_vh_join_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_retraced_hv_outer_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_retraced_hv_outer_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&again));
+    CHECK(old.pixels && trial.pixels && again.pixels &&
+          old.size==trial.size && trial.size==again.size &&
+          memcmp(trial.pixels,again.pixels,trial.size)==0);
+    const double dx=f.geom.page_width_points/(double)trial.width;
+    const double dy=f.geom.page_height_points/(double)trial.height;
+    const size_t cell_x=(size_t)floor(20.0/dx);
+    const size_t cell_y=(size_t)floor(7.5/dy);
+    const int64_t jx=(int64_t)((float)(20.0/dx)*256.0f);
+    const int64_t right=(int64_t)((float)(20.5/dx)*256.0f);
+    const int64_t yt=(int64_t)((float)(7.5/dy)*256.0f);
+    const int64_t yj=(int64_t)((float)(8.0/dy)*256.0f);
+    const int64_t yb=(int64_t)((float)(8.5/dy)*256.0f);
+    const int64_t xstart=(int64_t)cell_x*256;
+    const int64_t ystart=(int64_t)cell_y*256;
+    CHECK(xstart<jx && xstart+256>jx &&
+          ystart+256<=yj && ystart+256>yt);
+    const int64_t h_x=jx-xstart;
+    const int64_t h_y=(ystart+256<yb?ystart+256:yb)-yt;
+    const int64_t m_x=(right<xstart+256?right:xstart+256)-jx;
+    const int64_t m_y=(yj<ystart+256?yj:ystart+256)-yt;
+    CHECK(h_x>0 && h_y>0 && m_x>0 && m_y>0);
+    const unsigned expected=(unsigned)((3*h_x*h_y+m_x*m_y)/256);
+    CHECK(expected>0u && expected<255u);
+    CHECK(alpha(&trial,cell_x,cell_y)==expected &&
+          alpha(&old,cell_x,cell_y)!=expected);
+    size_t count=0u,escaped=0u;
+    for(size_t y=0u;y<trial.height;++y)
+        for(size_t x=0u;x<trial.width;++x) {
+            const size_t off=y*trial.stride+x*4u;
+            CHECK(memcmp(old.pixels+off,trial.pixels+off,3u)==0);
+            if(old.pixels[off+3u]!=trial.pixels[off+3u]) {
+                const double x0=(double)x*dx,x1=((double)x+1.0)*dx;
+                const double y0=(double)y*dy,y1=((double)y+1.0)*dy;
+                ++count;
+                if(!(x0<20.5 && x1>20.0 && y0<8.0 &&
+                     y1<=8.0 && y1>7.5))
+                    ++escaped;
+            }
+        }
+    CHECK(count>0u && escaped==0u);
+    quantapdf_ir_raster_image_dispose(&again);
+    quantapdf_ir_raster_image_dispose(&trial);
+    quantapdf_ir_raster_image_dispose(&old);
+
+    /* With no exact repeated H trace, mode12 must preserve mode11. */
+    f.op.value.path.command_count=3u;
+    f.cmds[2].point1=(quantapdf_point){20.0f,20.0f};
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_retraced_vh_join_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_retraced_hv_outer_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+    CHECK(old.size==trial.size &&
+          memcmp(old.pixels,trial.pixels,old.size)==0);
+    quantapdf_ir_raster_image_dispose(&trial);
+    quantapdf_ir_raster_image_dispose(&old);
+
+    /* Separate budget: 4*11*13200=580800 is admitted, 4*12*13200
+     * =633600 refuses with zero output under 600000 slots. */
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=5u;
+    f.cmds[0].point1=(quantapdf_point){2.0f,8.0f};
+    f.cmds[1].point1=(quantapdf_point){20.0f,8.0f};
+    f.cmds[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[2].point1=(quantapdf_point){2.0f,8.0f};
+    f.cmds[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[3].point1=(quantapdf_point){20.0f,8.0f};
+    f.cmds[4].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[4].point1=(quantapdf_point){20.0f,20.0f};
+    f.grid_budget.max_sample_tests=600000u;
+    f.raster_budget.max_sample_tests=600000u;
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_retraced_vh_join_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    quantapdf_ir_raster_image_dispose(&old);
+    memset(&trial,0xa5,sizeof(trial));
+    BAD(quantapdf_ir_raster_device_polyline_stroke_q8_retraced_hv_outer_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+    CHECK(trial.pixels==NULL && trial.width==0u && trial.height==0u &&
+          trial.size==0u && trial.stride==0u);
+    return EXIT_SUCCESS;
+}
+
 static int test_pixel_width_and_rejections(void)
 {
     fixture f;
@@ -1396,6 +1504,7 @@ int main(void)
     CHECK(test_q8_inner_bevel_miter_join_trial()==EXIT_SUCCESS);
     CHECK(test_q8_miter_adjacent_device_cells_trial()==EXIT_SUCCESS);
     CHECK(test_q8_retraced_vh_join_trial()==EXIT_SUCCESS);
+    CHECK(test_q8_retraced_hv_outer_cell_trial()==EXIT_SUCCESS);
     CHECK(test_pixel_width_and_rejections()==EXIT_SUCCESS);
     puts("native-device-polyline-stroke: butt+miter+bevel+union+limits PASS");
     return EXIT_SUCCESS;
