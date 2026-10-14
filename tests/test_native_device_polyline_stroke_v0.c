@@ -922,6 +922,135 @@ static int test_upper_horizontal_lsb_trial(void)
     return EXIT_SUCCESS;
 }
 
+
+/* Eighth independent private C11 quantized-edge trial. The alpha oracle
+ * here is derived only from source geometry and Q8 device-cell arithmetic,
+ * never from a PDFium image or hard-coded source PDF coordinates. */
+static int test_device_q8_strip_trial(void)
+{
+    const float dpis[]={72.0f,96.0f,144.0f};
+    size_t total_changes=0u;
+    for(size_t i=0u;i<3u;++i) {
+        fixture f;
+        quantapdf_ir_raster_image previous={0},q8={0},repeat={0};
+        setup(&f);
+        f.geom.dpi=dpis[i];
+        f.grid_budget.max_pixels=4000u;
+        f.grid_budget.max_rgba_bytes=16000u;
+        f.raster_budget.max_pixels=4000u;
+        f.op.value.path.options.stroke_width=1.0f;
+        f.op.value.path.command_count=2u;
+        OK(quantapdf_ir_raster_device_polyline_stroke_upper_horizontal_lsb_preview_v0(
+            &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&previous));
+        OK(quantapdf_ir_raster_device_polyline_stroke_q8_strip_preview_v0(
+            &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&q8));
+        OK(quantapdf_ir_raster_device_polyline_stroke_q8_strip_preview_v0(
+            &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&repeat));
+        CHECK(q8.size==repeat.size && q8.size==previous.size &&
+              memcmp(q8.pixels,repeat.pixels,q8.size)==0);
+        const double dx=f.geom.page_width_points/(double)q8.width;
+        const double dy=f.geom.page_height_points/(double)q8.height;
+        const size_t cx=(size_t)floor(10.0/dx);
+        const float devlo=(float)(7.5/dy),devhi=(float)(8.5/dy);
+        const int64_t qlo=(int64_t)(devlo*256.0f);
+        const int64_t qhi=(int64_t)(devhi*256.0f);
+        for(size_t y=0u;y<q8.height;++y) {
+            const int64_t first=(int64_t)y*256;
+            const int64_t last=first+256;
+            const int64_t low=qlo>first?qlo:first;
+            const int64_t high=qhi<last?qhi:last;
+            const int64_t span=high>low?high-low:0;
+            const unsigned expected=(unsigned)(span>=255?255:span);
+            CHECK(alpha(&q8,cx,y)==expected);
+        }
+        for(size_t y=0u;y<q8.height;++y)for(size_t x=0u;x<q8.width;++x) {
+            const size_t off=y*q8.stride+x*4u;
+            CHECK(memcmp(previous.pixels+off,q8.pixels+off,3u)==0);
+            if(previous.pixels[off+3u]!=q8.pixels[off+3u]) {
+                const double x0=(double)x*dx,x1=((double)x+1.0)*dx;
+                const double y0=(double)y*dy,y1=((double)y+1.0)*dy;
+                const double guard=0.5+dx;
+                CHECK(x0>2.0+guard && x1<20.0-guard);
+                CHECK(y0<8.5 && y1>7.5);
+                ++total_changes;
+            }
+        }
+        quantapdf_ir_raster_image_dispose(&repeat);
+        quantapdf_ir_raster_image_dispose(&q8);
+        quantapdf_ir_raster_image_dispose(&previous);
+    }
+    CHECK(total_changes>0u);
+    fixture f;
+    quantapdf_ir_raster_image old={0},trial={0};
+    /* Single-pass vertical source strip: x direction is quantized Q8. */
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=2u;
+    f.cmds[0].point1=(quantapdf_point){20.0f,3.0f};
+    f.cmds[1].point1=(quantapdf_point){20.0f,20.0f};
+    OK(quantapdf_ir_raster_device_polyline_stroke_upper_horizontal_lsb_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_strip_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+    const double dx=f.geom.page_width_points/(double)trial.width;
+    const double dy=f.geom.page_height_points/(double)trial.height;
+    const size_t cy=(size_t)floor(12.0/dy);
+    const int64_t qleft=(int64_t)((float)(19.5/dx)*256.0f);
+    const int64_t qright=(int64_t)((float)(20.5/dx)*256.0f);
+    for(size_t x=0u;x<trial.width;++x) {
+        const int64_t low=(int64_t)x*256,high=low+256;
+        const int64_t a=qleft>low?qleft:low;
+        const int64_t b=qright<high?qright:high;
+        const int64_t span=b>a?b-a:0;
+        CHECK(alpha(&trial,x,cy)==(unsigned)(span>=255?255:span));
+    }
+    quantapdf_ir_raster_image_dispose(&trial);
+    quantapdf_ir_raster_image_dispose(&old);
+    /* Repeated source horizontal and any diagonal retain old mode7 bytes. */
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=4u;
+    f.cmds[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[2].point1=(quantapdf_point){2.0f,8.0f};
+    f.cmds[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[3].point1=(quantapdf_point){20.0f,8.0f};
+    OK(quantapdf_ir_raster_device_polyline_stroke_upper_horizontal_lsb_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_strip_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+    CHECK(old.size==trial.size && memcmp(old.pixels,trial.pixels,old.size)==0);
+    quantapdf_ir_raster_image_dispose(&trial);
+    quantapdf_ir_raster_image_dispose(&old);
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=3u;
+    f.cmds[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[2].point1=(quantapdf_point){22.0f,10.0f};
+    OK(quantapdf_ir_raster_device_polyline_stroke_upper_horizontal_lsb_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_strip_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+    CHECK(old.size==trial.size && memcmp(old.pixels,trial.pixels,old.size)==0);
+    quantapdf_ir_raster_image_dispose(&trial);
+    quantapdf_ir_raster_image_dispose(&old);
+    /* count7*13,200=92,400 is admitted; count8*13,200=105,600 is
+     * refused under 100,000 slots, with ZERO partial output. */
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=2u;
+    f.grid_budget.max_sample_tests=100000u;
+    f.raster_budget.max_sample_tests=100000u;
+    OK(quantapdf_ir_raster_device_polyline_stroke_upper_horizontal_lsb_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    quantapdf_ir_raster_image_dispose(&old);
+    memset(&trial,0xa5,sizeof(trial));
+    BAD(quantapdf_ir_raster_device_polyline_stroke_q8_strip_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+    CHECK(trial.pixels==NULL && trial.size==0u &&
+          trial.stride==0u && trial.width==0u && trial.height==0u);
+    return EXIT_SUCCESS;
+}
+
 static int test_pixel_width_and_rejections(void)
 {
     fixture f;
@@ -976,6 +1105,7 @@ int main(void)
     CHECK(test_single_horizontal_analytic_trial()==EXIT_SUCCESS);
     CHECK(test_single_horizontal_ceil_quantization_trial()==EXIT_SUCCESS);
     CHECK(test_upper_horizontal_lsb_trial()==EXIT_SUCCESS);
+    CHECK(test_device_q8_strip_trial()==EXIT_SUCCESS);
     CHECK(test_pixel_width_and_rejections()==EXIT_SUCCESS);
     puts("native-device-polyline-stroke: butt+miter+bevel+union+limits PASS");
     return EXIT_SUCCESS;
