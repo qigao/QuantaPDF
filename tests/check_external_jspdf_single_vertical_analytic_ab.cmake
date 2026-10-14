@@ -1014,6 +1014,55 @@ if(NOT nine_bin_pixels EQUAL nine_pixels OR
 endif()
 message(STATUS
   "jspdf-post-mode10-16-bins: source_pixels=${nine_pixels} mismatches=${nine_changed} rgb=${nine_error} max=${nine_max} official=0 parity=false")
+# FIFTEENTH independent original-source A/B: Q8 upper W-top / Fill-right
+# coupling of ONE source clipped Fill device cell, not a renderer fallback.
+# Preserve frozen #306 source geometry, original PDFium and report.
+if(NOT neighbor_abs_rgb_error EQUAL 161
+   OR NOT neighbor_changed_pixels EQUAL 9
+   OR NOT neighbor_gross_delta64_pixels EQUAL 0
+   OR NOT neighbor_max_channel_delta EQUAL 18
+   OR NOT neighbor_rgb_fnv64 STREQUAL "91f25b6668d58b7c")
+  message(FATAL_ERROR "Previously verified #306 source RGB digest changed")
+endif()
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_alpha_changed_pixels outside_corner
+    alpha_delta_gt64_pixels rgb_changed_outside_source_alpha
+    rgba_abs_rgb_error rgba_changed_pixels rgba_fnv64
+    abs_rgb_error mean_abs_rgb_error changed_pixels
+    gross_delta64_pixels max_channel_delta rgb_fnv64)
+  string(JSON corner_${field} GET "${json}" top_right_fill_${field})
+endforeach()
+string(LENGTH "${corner_rgb_fnv64}" corner_hashlen)
+string(LENGTH "${corner_rgba_fnv64}" corner_rgba_hashlen)
+if(NOT corner_status STREQUAL "measured_unqualified"
+   OR corner_default_changed OR corner_pixel_parity_qualified
+   OR NOT corner_repeat_equal
+   OR NOT corner_source_alpha_changed_pixels EQUAL 1
+   OR NOT corner_outside_corner EQUAL 0
+   OR NOT corner_alpha_delta_gt64_pixels EQUAL 0
+   OR NOT corner_rgb_changed_outside_source_alpha EQUAL 0
+   OR corner_rgba_abs_rgb_error LESS 0
+   OR corner_rgba_abs_rgb_error GREATER 383901480
+   OR corner_rgba_changed_pixels LESS 0
+   OR corner_rgba_changed_pixels GREATER 501832
+   OR NOT corner_rgba_hashlen EQUAL 16
+   OR NOT corner_rgba_fnv64 MATCHES "^[0-9a-f]+$"
+   OR corner_abs_rgb_error LESS 0
+   OR corner_abs_rgb_error GREATER 383901480
+   OR corner_mean_abs_rgb_error LESS 0
+   OR corner_mean_abs_rgb_error GREATER 255
+   OR corner_changed_pixels LESS 0
+   OR corner_changed_pixels GREATER 501832
+   OR corner_gross_delta64_pixels LESS 0
+   OR corner_gross_delta64_pixels GREATER corner_changed_pixels
+   OR corner_max_channel_delta LESS 0
+   OR corner_max_channel_delta GREATER 255
+   OR NOT corner_hashlen EQUAL 16
+   OR NOT corner_rgb_fnv64 MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "Private source Fill/W coupled corner left its isolation window")
+endif()
+message(STATUS
+  "jspdf-q8-upper-right-fill-corner: parent_rgb=${neighbor_abs_rgb_error} trial_rgb=${corner_abs_rgb_error} parent_changed=${neighbor_changed_pixels} trial_changed=${corner_changed_pixels} source_alpha_changes=${corner_source_alpha_changed_pixels} parity=false official=0")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")

@@ -2249,6 +2249,89 @@ int test_external_jspdf_single_vertical_analytic_ab(
                       adjacent_floor.size)==0);
     const page_metrics adjacent_rgba_metric=measure(adjacent_rgba);
     const page_metrics adjacent_floor_metric=measure(adjacent_floor);
+
+    /* FIFTEENTH independent original-source PRIVATE A/B: change only
+     * the clipped red Fill's TRUE right/top Q8 corner after mode8.
+     * Keep the fully qualified mode10 Stroke, same owned Source->IR,
+     * original paint order and immutable direct-original PDFium oracle. */
+    quantapdf_ir_raster_image top_right_fill{},top_right_repeat{},
+        top_right_rgba{},top_right_rgba_repeat{},
+        top_right_floor{},top_right_floor_repeat{};
+    OK(quantapdf_ir_raster_rect_fill_upper_right_q8_preview_v0(
+        &only_fill,0u,&geometry,&fill_grid,&fill_budget,&top_right_fill));
+    OK(quantapdf_ir_raster_rect_fill_upper_right_q8_preview_v0(
+        &only_fill,0u,&geometry,&fill_grid,&fill_budget,&top_right_repeat));
+    CHECK(top_right_fill.pixels && top_right_repeat.pixels &&
+          top_right_fill.size==bottom_fill.size &&
+          top_right_repeat.size==top_right_fill.size &&
+          std::memcmp(top_right_fill.pixels,top_right_repeat.pixels,
+                      top_right_fill.size)==0);
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &adjacent_stroke,&top_right_fill,&composite_budget,&top_right_rgba));
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &adjacent_repeat,&top_right_repeat,&composite_budget,&top_right_rgba_repeat));
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &adjacent_stroke,&top_right_fill,&composite_budget,&top_right_floor));
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &adjacent_repeat,&top_right_repeat,&composite_budget,&top_right_floor_repeat));
+    CHECK(top_right_rgba.pixels && top_right_rgba_repeat.pixels &&
+          top_right_floor.pixels && top_right_floor_repeat.pixels &&
+          top_right_rgba.size==adjacent_rgba.size &&
+          top_right_floor.size==adjacent_floor.size &&
+          std::memcmp(top_right_rgba.pixels,top_right_rgba_repeat.pixels,
+                      top_right_rgba.size)==0 &&
+          std::memcmp(top_right_floor.pixels,top_right_floor_repeat.pixels,
+                      top_right_floor.size)==0);
+    const page_metrics top_right_rgba_metric=measure(top_right_rgba);
+    const page_metrics top_right_floor_metric=measure(top_right_floor);
+    size_t top_right_fill_alpha_changes=0u,top_right_outside=0u,
+           top_right_alpha_delta_gt64=0u,top_right_rgb_outside_alpha=0u;
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t off=y*top_right_fill.stride+x*4u;
+        const unsigned before=bottom_fill.pixels[off+3u];
+        const unsigned after=top_right_fill.pixels[off+3u];
+        CHECK(std::memcmp(bottom_fill.pixels+off,
+                          top_right_fill.pixels+off,3u)==0);
+        CHECK(top_right_floor.pixels[off+3u]==255u);
+        if(before!=after) {
+            ++top_right_fill_alpha_changes;
+            if(x!=150u || y!=20u)++top_right_outside;
+            const unsigned delta=before>after?before-after:after-before;
+            if(delta>64u)++top_right_alpha_delta_gt64;
+        } else {
+            for(size_t ch=0u;ch<3u;++ch)
+                if(top_right_floor.pixels[off+ch]!=
+                   adjacent_floor.pixels[off+ch])
+                    ++top_right_rgb_outside_alpha;
+        }
+    }
+    CHECK(top_right_fill_alpha_changes>0u && top_right_outside==0u &&
+          top_right_alpha_delta_gt64==0u &&
+          top_right_rgb_outside_alpha==0u);
+    const size_t tr_site=20u*top_right_floor.stride+150u*4u;
+    const unsigned char *tr_oracle=reference.at(150u,20u);
+    std::fprintf(stderr,
+        "[original jsPDF W-top/Fill-right Q8 corner A/B, NOT parity] "
+        "parent_rgb=%llu trial_rgba_rgb=%llu trial_opaque_rgb=%llu "
+        "parent_diff=%zu trial_diff=%zu changed_fill_alpha=%zu "
+        "outside=%zu delta_gt64=%zu rgb_outside=%zu "
+        "old_alpha=%u q8_alpha=%u trial=(%u,%u,%u) "
+        "pdfium=(%u,%u,%u) max=%u fnv=%016llx\n",
+        (unsigned long long)adjacent_floor_metric.abs_rgb,
+        (unsigned long long)top_right_rgba_metric.abs_rgb,
+        (unsigned long long)top_right_floor_metric.abs_rgb,
+        adjacent_floor_metric.changed,top_right_floor_metric.changed,
+        top_right_fill_alpha_changes,top_right_outside,
+        top_right_alpha_delta_gt64,top_right_rgb_outside_alpha,
+        (unsigned)bottom_fill.pixels[tr_site+3u],
+        (unsigned)top_right_fill.pixels[tr_site+3u],
+        (unsigned)top_right_floor.pixels[tr_site],
+        (unsigned)top_right_floor.pixels[tr_site+1u],
+        (unsigned)top_right_floor.pixels[tr_site+2u],
+        (unsigned)tr_oracle[0],(unsigned)tr_oracle[1],
+        (unsigned)tr_oracle[2],top_right_floor_metric.max_delta,
+        (unsigned long long)top_right_floor_metric.fnv);
+
     size_t adjacent_source_alpha_changes=0u,adjacent_outside=0u,
            adjacent_alpha_gt64=0u,adjacent_rgb_outside=0u;
     for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
@@ -3553,6 +3636,12 @@ int test_external_jspdf_single_vertical_analytic_ab(
     std::fprintf(stderr,"[jsPDF mode4 original residual regions] %s\n",
                  mode4_regions_json.c_str());
 
+    quantapdf_ir_raster_image_dispose(&top_right_floor_repeat);
+    quantapdf_ir_raster_image_dispose(&top_right_floor);
+    quantapdf_ir_raster_image_dispose(&top_right_rgba_repeat);
+    quantapdf_ir_raster_image_dispose(&top_right_rgba);
+    quantapdf_ir_raster_image_dispose(&top_right_repeat);
+    quantapdf_ir_raster_image_dispose(&top_right_fill);
     quantapdf_ir_raster_image_dispose(&adjacent_floor_repeat);
     quantapdf_ir_raster_image_dispose(&adjacent_floor);
     quantapdf_ir_raster_image_dispose(&adjacent_rgba_repeat);
@@ -3781,6 +3870,23 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"adjacent_join_max_channel_delta\": %u,\n"
         "  \"adjacent_join_rgb_fnv64\": \"%016llx\",\n"
         "  \"adjacent_join_residual_regions\": %s,\n"
+        "  \"top_right_fill_status\": \"measured_unqualified\",\n"
+        "  \"top_right_fill_default_changed\": false,\n"
+        "  \"top_right_fill_pixel_parity_qualified\": false,\n"
+        "  \"top_right_fill_repeat_equal\": true,\n"
+        "  \"top_right_fill_source_alpha_changed_pixels\": %zu,\n"
+        "  \"top_right_fill_outside_corner\": %zu,\n"
+        "  \"top_right_fill_alpha_delta_gt64_pixels\": %zu,\n"
+        "  \"top_right_fill_rgb_changed_outside_source_alpha\": %zu,\n"
+        "  \"top_right_fill_rgba_abs_rgb_error\": %llu,\n"
+        "  \"top_right_fill_rgba_changed_pixels\": %zu,\n"
+        "  \"top_right_fill_rgba_fnv64\": \"%016llx\",\n"
+        "  \"top_right_fill_abs_rgb_error\": %llu,\n"
+        "  \"top_right_fill_mean_abs_rgb_error\": %.9f,\n"
+        "  \"top_right_fill_changed_pixels\": %zu,\n"
+        "  \"top_right_fill_gross_delta64_pixels\": %zu,\n"
+        "  \"top_right_fill_max_channel_delta\": %u,\n"
+        "  \"top_right_fill_rgb_fnv64\": \"%016llx\",\n"
         "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
@@ -3862,7 +3968,17 @@ int test_external_jspdf_single_vertical_analytic_ab(
         adjacent_floor_metric.changed,adjacent_floor_metric.gross,
         adjacent_floor_metric.max_delta,
         (unsigned long long)adjacent_floor_metric.fnv,
-        adjacent_regions_json.c_str());
+        adjacent_regions_json.c_str(),
+        top_right_fill_alpha_changes,top_right_outside,
+        top_right_alpha_delta_gt64,top_right_rgb_outside_alpha,
+        (unsigned long long)top_right_rgba_metric.abs_rgb,
+        top_right_rgba_metric.changed,
+        (unsigned long long)top_right_rgba_metric.fnv,
+        (unsigned long long)top_right_floor_metric.abs_rgb,
+        (double)top_right_floor_metric.abs_rgb/1505496.0,
+        top_right_floor_metric.changed,top_right_floor_metric.gross,
+        top_right_floor_metric.max_delta,
+        (unsigned long long)top_right_floor_metric.fnv);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;

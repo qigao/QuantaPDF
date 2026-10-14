@@ -109,6 +109,8 @@ static unsigned alpha(const quantapdf_ir_raster_image *im,
     &(f).ir,0u,&(f).geometry,&(f).grid_budget,&(f).raster_budget,&(o))
 #define BOTTOM(f,o) quantapdf_ir_raster_rect_fill_bottom_preview_v0( \
     &(f).ir,0u,&(f).geometry,&(f).grid_budget,&(f).raster_budget,&(o))
+#define UPPER_RIGHT_Q8(f,o) quantapdf_ir_raster_rect_fill_upper_right_q8_preview_v0( \
+    &(f).ir,0u,&(f).geometry,&(f).grid_budget,&(f).raster_budget,&(o))
 
 static int test_analytic_edge_and_repeat(void)
 {
@@ -394,6 +396,102 @@ static int test_bottom_retraces_and_refusal(void)
     return EXIT_SUCCESS;
 }
 
+
+/* Ninth isolated, pure-C11 source Fill-right/W Clip-top Q8 coverage
+ * experiment. Only the synthetic true coupled corner cell may change;
+ * no original PDFium oracle, source-coordinate runtime heuristics,
+ * duplicate owner or fallback is used in this standalone fixture. */
+static int test_upper_right_q8_corner(void)
+{
+    fixture f;
+    quantapdf_ir_raster_image previous={0},candidate={0},repeat={0};
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    OK(BOTTOM(f,previous));
+    OK(UPPER_RIGHT_Q8(f,candidate));
+    OK(UPPER_RIGHT_Q8(f,repeat));
+    CHECK(previous.pixels!=NULL && candidate.pixels!=NULL &&
+          repeat.pixels!=NULL && previous.size==candidate.size &&
+          candidate.size==repeat.size &&
+          memcmp(candidate.pixels,repeat.pixels,candidate.size)==0);
+    const double dx=32.5/33.0,dy=24.75/25.0;
+    const int64_t xright=(int64_t)((float)(15.0/dx)*256.0f);
+    const int64_t xleft=(int64_t)((float)(5.0/dx)*256.0f);
+    const int64_t ytop=(int64_t)((float)(2.0/dy)*256.0f);
+    const int64_t ybottom=(int64_t)((float)((double)14.9f/dy)*256.0f);
+    const int64_t cell_x=15*256,cell_y=2*256;
+    const int64_t ax=xright-cell_x;
+    const int64_t ay=(cell_y+256)-ytop;
+    CHECK(xleft<cell_x && ybottom>cell_y+256 &&
+          ax>0 && ax<256 && ay>0 && ay<256);
+    const unsigned expected=(unsigned)((ax*ay+128)/256);
+    CHECK(expected>0u && expected<255u);
+    CHECK(alpha(&candidate,15u,2u)==expected &&
+          alpha(&candidate,15u,2u)!=alpha(&previous,15u,2u));
+    CHECK(alpha(&candidate,15u,7u)==alpha(&previous,15u,7u));
+    CHECK(alpha(&candidate,5u,7u)==alpha(&previous,5u,7u));
+    CHECK(alpha(&candidate,10u,15u)==alpha(&previous,10u,15u));
+    size_t changed=0u;
+    for(size_t y=0u;y<candidate.height;++y)
+        for(size_t x=0u;x<candidate.width;++x) {
+            const size_t off=y*candidate.stride+x*4u;
+            CHECK(memcmp(previous.pixels+off,candidate.pixels+off,3u)==0);
+            if(previous.pixels[off+3u]!=candidate.pixels[off+3u]) {
+                CHECK(x==15u && y==2u);
+                ++changed;
+            }
+        }
+    CHECK(changed==1u);
+    quantapdf_ir_raster_image_dispose(&repeat);
+    quantapdf_ir_raster_image_dispose(&candidate);
+    quantapdf_ir_raster_image_dispose(&previous);
+
+    /* Genuine sub-Q8 device-row phase: the continuous W top is strictly
+     * inside row2, but Q8 truncation makes it EXACTLY cell_y. It must be
+     * admitted with 256/256 Y coverage rather than refused or offset. */
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    rect(f.mask,5.0f,1.9801f,25.0f,20.0f);
+    const double tiny_phase_dy=24.75/25.0;
+    CHECK((double)1.9801f>2.0*tiny_phase_dy &&
+          (double)1.9801f<3.0*tiny_phase_dy);
+    const int64_t phase_top_q=
+        (int64_t)((float)((double)1.9801f/tiny_phase_dy)*256.0f);
+    CHECK(phase_top_q==(int64_t)2*256);
+    OK(BOTTOM(f,previous));
+    OK(UPPER_RIGHT_Q8(f,candidate));
+    CHECK(candidate.size==previous.size &&
+          alpha(&candidate,15u,2u)!=alpha(&previous,15u,2u));
+    const unsigned phase_expected=(unsigned)(ax*256/256);
+    CHECK(alpha(&candidate,15u,2u)==phase_expected);
+    quantapdf_ir_raster_image_dispose(&candidate);
+    quantapdf_ir_raster_image_dispose(&previous);
+
+    /* Q8 mode9 charges one more original source-edge pass than mode8.
+     * The latter is admissible at 150K samples, the former must refuse
+     * transactionally, with ZERO partially published output. */
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    f.grid_budget.max_sample_tests=150000u;
+    f.raster_budget.max_sample_tests=150000u;
+    OK(BOTTOM(f,previous));
+    quantapdf_ir_raster_image_dispose(&previous);
+    REFUSE(UPPER_RIGHT_Q8(f,result));
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    f.clip.fill_rule=QUANTAPDF_COMPOSER_FILL_EVEN_ODD;
+    REFUSE(UPPER_RIGHT_Q8(f,result));
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    f.op.value.path.options.transform.a=2.0f;
+    REFUSE(UPPER_RIGHT_Q8(f,result));
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    f.mask[2].point1.x=21.0f;
+    REFUSE(UPPER_RIGHT_Q8(f,result));
+    return EXIT_SUCCESS;
+}
+
 static int test_fail_closed(void)
 {
     fixture f;
@@ -431,6 +529,7 @@ int main(void)
     CHECK(test_left_clip_retraces_and_refusal()==EXIT_SUCCESS);
     CHECK(test_bottom_faint_fringe()==EXIT_SUCCESS);
     CHECK(test_bottom_retraces_and_refusal()==EXIT_SUCCESS);
+    CHECK(test_upper_right_q8_corner()==EXIT_SUCCESS);
     CHECK(test_fail_closed()==EXIT_SUCCESS);
     puts("native-rect-fill-right-private-A/B: geometry, repeat, fail-closed PASS");
     return EXIT_SUCCESS;
