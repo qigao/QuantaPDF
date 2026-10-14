@@ -668,6 +668,104 @@ static int qp_q8_isolated_inner_bevel_join_alpha(
     return 1;
 }
 
+
+/* TWELFTH independent PRIVATE source Stroke topological Q8 A/B.
+ * A right-going horizontal source segment followed by a down-going
+ * vertical forms an outward upper-right Miter quadrant. Where the
+ * physical DEVICE CELL straddles the shared endpoint and lies wholly
+ * above its center, repeated exact-horizontal source paths may
+ * contribute signed H-strip area once per source traversal, while
+ * the geometric outward Miter quadrant belongs to the joint ONCE.
+ *
+ * Restrict this hypothesis to actual identical source H traversals in
+ * a single opaque 1pt Stroke, not separate paint operations, and
+ * reject any unrelated expanded edge touching the device cell.
+ * No PDFium data, fixture IDs or source-page pixel coordinates. */
+static int qp_q8_retraced_hv_outer_miter_alpha(
+    const qp_stroke_segment *segments,size_t count,
+    const quantapdf_native_device_grid *grid,
+    size_t x,size_t y,double radius,double miter_limit,
+    unsigned *out_alpha)
+{
+    const double px0=(double)x*grid->points_per_device_x;
+    const double px1=((double)x+1.0)*grid->points_per_device_x;
+    const double py0=(double)y*grid->points_per_device_y;
+    const double py1=((double)y+1.0)*grid->points_per_device_y;
+    size_t hit=SIZE_MAX,hit_repeats=0u;
+    if(out_alpha==NULL || radius!=0.5 ||
+       miter_limit<1.414214 ||
+       (uint64_t)x>(uint64_t)(INT64_MAX/256-1) ||
+       (uint64_t)y>(uint64_t)(INT64_MAX/256-1))
+        return 0;
+    for(size_t i=0u;i<count;++i)
+        if(segments[i].dx!=0.0 && segments[i].dy!=0.0)
+            return 0;
+    for(size_t i=0u;i+1u<count;++i) {
+        const qp_stroke_segment *h=&segments[i];
+        const qp_stroke_segment *v=&segments[i+1u];
+        const double jx=h->b.x,jy=h->b.y;
+        if(h->dx<=0.0 || h->dy!=0.0 ||
+           v->dx!=0.0 || v->dy<=0.0 ||
+           h->b.x!=v->a.x || h->b.y!=v->a.y ||
+           sqrt(h->len_squared)<=radius+2.0*grid->points_per_device_x+
+                                           2.0*grid->points_per_device_y ||
+           sqrt(v->len_squared)<=radius+2.0*grid->points_per_device_x+
+                                           2.0*grid->points_per_device_y ||
+           !(px0<jx && px1>jx && py0<jy &&
+             py1<=jy && py1>jy-radius))
+            continue;
+        size_t repeats=0u;
+        int isolated=1;
+        const double left=fmin(h->a.x,h->b.x);
+        const double right=fmax(h->a.x,h->b.x);
+        for(size_t k=0u;k<count;++k) {
+            const qp_stroke_segment *other=&segments[k];
+            if(other->dx!=0.0 && other->dy==0.0 &&
+               other->a.y==jy &&
+               fmin(other->a.x,other->b.x)==left &&
+               fmax(other->a.x,other->b.x)==right) {
+                ++repeats;
+                continue;
+            }
+            if(k==i+1u)continue; /* the true connecting V */
+            /* No third independent source contour may affect this
+             * cell; a geometric retrace alone is not a new boundary. */
+            const double ax=fmin(other->a.x,other->b.x)-radius;
+            const double bx=fmax(other->a.x,other->b.x)+radius;
+            const double ay=fmin(other->a.y,other->b.y)-radius;
+            const double by=fmax(other->a.y,other->b.y)+radius;
+            if(px0<bx && px1>ax && py0<by && py1>ay) {
+                isolated=0;break;
+            }
+        }
+        if(!isolated || repeats<2u)continue;
+        if(hit!=SIZE_MAX)return 0; /* no ambiguous double join */
+        hit=i;hit_repeats=repeats;
+    }
+    if(hit==SIZE_MAX)return 0;
+    const qp_stroke_segment *h=&segments[hit];
+    const double jx=h->b.x,jy=h->b.y;
+    qp_join_q8_rect source_h,outer_miter;
+    if(!qp_join_q8_rect_make(grid,
+            fmin(h->a.x,h->b.x),jy-radius,jx,jy+radius,
+            &source_h) ||
+       !qp_join_q8_rect_make(grid,
+            jx,jy-radius,jx+radius,jy,&outer_miter))
+        return 0;
+    const int64_t cell_x=(int64_t)x*256;
+    const int64_t cell_y=(int64_t)y*256;
+    const int64_t h_area=qp_join_q8_rect_cell_area(
+        source_h,cell_x,cell_y);
+    const int64_t outer_area=qp_join_q8_rect_cell_area(
+        outer_miter,cell_x,cell_y);
+    if(h_area<=0 || outer_area<=0)return 0;
+    /* count<=24 and area<=65536; the 64-bit sum is bounded. */
+    const int64_t total=(int64_t)hit_repeats*h_area+outer_area;
+    if(total<=0)return 0;
+    *out_alpha=(unsigned)(total>=65280?255:total/256);
+    return 1;
+}
+
 /* Fourth EXPLICIT PRIVATE A/B: for an *isolated*, single-traversal,
  * axis-aligned 1pt vertical Stroke interior, estimate the source strip's
  * exact horizontal intersection with this device pixel. No fixed pixel
@@ -1027,6 +1125,16 @@ static quantapdf_status qp_stroke_render_impl(
         count*11u>raster_limits->max_sample_tests/grid.sample_slots))
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
+    /* Twelfth private path-topology trial charges one additional
+     * source edge pass before publishing any owned output. */
+    if(horizontal_preview==12 &&
+       (count>grid_limits->max_edges/12u ||
+        count>raster_limits->max_edges/12u ||
+        quantapdf_native_device_grid_admit_edges_v0(
+            &grid,grid_limits,count*12u)!=QUANTAPDF_NATIVE_DEVICE_GRID_OK ||
+        count*12u>raster_limits->max_sample_tests/grid.sample_slots))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
     for(size_t i=1u;i<count;++i) {
         join_kinds[i-1u]=qp_stroke_join_build(&segments[i-1u],&segments[i],
                                                radius,miter_limit,&joins[i-1u]);
@@ -1097,11 +1205,18 @@ static quantapdf_status qp_stroke_render_impl(
                        segments,count,&grid,x,y,radius,miter_limit,
                        horizontal_preview>=10,0,&join_alpha))
                     pixel_alpha=join_alpha;
-                if(horizontal_preview==11 &&
+                if(horizontal_preview>=11 &&
                    qp_q8_isolated_inner_bevel_join_alpha(
                        segments,count,&grid,x,y,radius,miter_limit,
                        1,1,&join_alpha))
                     pixel_alpha=join_alpha;
+            }
+            if(horizontal_preview==12) {
+                unsigned hv_alpha=0u;
+                if(qp_q8_retraced_hv_outer_miter_alpha(
+                       segments,count,&grid,x,y,radius,miter_limit,
+                       &hv_alpha))
+                    pixel_alpha=hv_alpha;
             }
             if(pixel_alpha!=0u) {
                 size_t offset=(y*grid.width+x)*4u;
@@ -1302,4 +1417,22 @@ quantapdf_ir_raster_device_polyline_stroke_q8_retraced_vh_join_preview_v0(
 {
     return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
                                  raster_limits,out_image,11);
+}
+
+
+/* TWELFTH independently invoked PRIVATE source-topology trial:
+ * count equal source-horizontal retraces in the upper exterior cell
+ * of a genuine right→down 90-degree HV connection. The repeated H
+ * cover is additive in Q8 signed cell area; the outer Miter cover is
+ * added once. Earlier modes0..11 keep exact prior output. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_q8_retraced_hv_outer_preview_v0(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
+                                 raster_limits,out_image,12);
 }

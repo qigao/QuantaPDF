@@ -1107,6 +1107,51 @@ if(NOT vh_status STREQUAL "measured_unqualified"
 endif()
 message(STATUS
   "jspdf-q8-retraced-vh: parent_rgb=${corner_abs_rgb_error} trial_rgb=${vh_abs_rgb_error} parent_mismatch=${corner_changed_pixels} trial_mismatch=${vh_changed_pixels} alpha_changes=${vh_source_alpha_changed_pixels} official=0 parity=false")
+# SEVENTEENTH original-source Q8 repeated-horizontal outer HV Miter A/B.
+# Frozen #309 success: Linux Release/Debug, macOS, Windows byte equality.
+if(NOT vh_abs_rgb_error EQUAL 74
+   OR NOT vh_changed_pixels EQUAL 6
+   OR NOT vh_gross_delta64_pixels EQUAL 0
+   OR NOT vh_max_channel_delta EQUAL 15
+   OR NOT vh_rgb_fnv64 STREQUAL "2603f5392dea206f")
+  message(FATAL_ERROR "Qualified #309 VH original-source control mutated")
+endif()
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_alpha_changed_pixels outside_right_outer_join
+    alpha_delta_gt64_pixels rgb_outside_source_alpha
+    rgba_abs_rgb_error rgba_changed_pixels rgba_fnv64
+    abs_rgb_error mean_abs_rgb_error changed_pixels
+    gross_delta64_pixels max_channel_delta rgb_fnv64)
+  string(JSON hv_${field} GET "${json}" retrace_hv_${field})
+endforeach()
+string(LENGTH "${hv_rgb_fnv64}" hv_hashlen)
+string(LENGTH "${hv_rgba_fnv64}" hv_rgba_hashlen)
+if(NOT hv_status STREQUAL "measured_unqualified"
+   OR hv_default_changed OR hv_pixel_parity_qualified
+   OR NOT hv_repeat_equal
+   OR hv_source_alpha_changed_pixels LESS 1
+   OR hv_source_alpha_changed_pixels GREATER 3
+   OR NOT hv_outside_right_outer_join EQUAL 0
+   OR NOT hv_alpha_delta_gt64_pixels EQUAL 0
+   OR NOT hv_rgb_outside_source_alpha EQUAL 0
+   OR hv_rgba_abs_rgb_error LESS 0
+   OR hv_rgba_abs_rgb_error GREATER 383901480
+   OR hv_rgba_changed_pixels LESS 0
+   OR hv_rgba_changed_pixels GREATER 501832
+   OR NOT hv_rgba_hashlen EQUAL 16
+   OR NOT hv_rgba_fnv64 MATCHES "^[0-9a-f]+$"
+   OR hv_abs_rgb_error LESS 0 OR hv_abs_rgb_error GREATER 383901480
+   OR hv_mean_abs_rgb_error LESS 0 OR hv_mean_abs_rgb_error GREATER 255
+   OR hv_changed_pixels LESS 0 OR hv_changed_pixels GREATER 501832
+   OR hv_gross_delta64_pixels LESS 0
+   OR hv_gross_delta64_pixels GREATER hv_changed_pixels
+   OR hv_max_channel_delta LESS 0 OR hv_max_channel_delta GREATER 255
+   OR NOT hv_hashlen EQUAL 16
+   OR NOT hv_rgb_fnv64 MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "Q8 repeated-source HV Miter trial escaped bounds")
+endif()
+message(STATUS
+  "jspdf-q8-retraced-hv-outer: parent_rgb=${vh_abs_rgb_error} trial_rgb=${hv_abs_rgb_error} parent_changed=${vh_changed_pixels} trial_changed=${hv_changed_pixels} alpha_changes=${hv_source_alpha_changed_pixels} official=0 parity=false")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
