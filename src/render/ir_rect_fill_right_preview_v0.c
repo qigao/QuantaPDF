@@ -613,8 +613,17 @@ quantapdf_ir_raster_rect_fill_upper_right_q8_preview_v0(
         return QUANTAPDF_ERROR_UNSUPPORTED;
     /* A single genuine fractional Fill-right AND W-top corner; neither
      * the Clip-left nor the Fill-bottom may touch this pixel. */
-    if(!(cell_x<fill_right_q && fill_right_q<cell_x+256 &&
-         cell_y<clip_top_q && clip_top_q<cell_y+256 &&
+    /* The TRUE source Clip-top boundary must lie inside this device
+     * row; after truncating it to Q8 the tiny fractional phase may
+     * legitimately land EXACTLY on cell_y (as in the original A4
+     * source). This represents 256/256 Y coverage, not rejection.
+     * Never admit a genuinely row-aligned source top just because its
+     * Q8 value is also aligned. */
+    const double true_row0=(double)row*grid.points_per_device_y;
+    const double true_row1=((double)row+1.0)*grid.points_per_device_y;
+    if(!(true_row0<clip.top && clip.top<true_row1 &&
+         cell_x<fill_right_q && fill_right_q<cell_x+256 &&
+         cell_y<=clip_top_q && clip_top_q<cell_y+256 &&
          clip_left_q<cell_x && fill_bottom_q>cell_y+256))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     x0=clip_left_q>cell_x?clip_left_q:cell_x;
