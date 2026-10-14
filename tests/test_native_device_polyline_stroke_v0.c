@@ -1153,6 +1153,81 @@ static int test_q8_inner_bevel_miter_join_trial(void)
     return EXIT_SUCCESS;
 }
 
+
+/* Tenth independent private cell-extent A/B: same Q8 source join shape as
+ * mode9, with additional bounded adjacent device cells. No source
+ * position magic or PDFium oracle in this pure-C11 geometry test. */
+static int test_q8_miter_adjacent_device_cells_trial(void)
+{
+    fixture f;
+    quantapdf_ir_raster_image old={0},trial={0},repeat={0};
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=3u;
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_inner_bevel_join_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&repeat));
+    CHECK(old.pixels && trial.pixels && repeat.pixels &&
+          old.size==trial.size && trial.size==repeat.size &&
+          memcmp(trial.pixels,repeat.pixels,trial.size)==0);
+    const double dx=f.geom.page_width_points/(double)trial.width;
+    const double dy=f.geom.page_height_points/(double)trial.height;
+    size_t changed=0u,escaped=0u;
+    for(size_t y=0u;y<trial.height;++y)
+        for(size_t x=0u;x<trial.width;++x) {
+            const size_t off=y*trial.stride+x*4u;
+            CHECK(memcmp(old.pixels+off,trial.pixels+off,3u)==0);
+            if(old.pixels[off+3u]!=trial.pixels[off+3u]) {
+                const double x0=(double)x*dx,x1=((double)x+1.0)*dx;
+                const double y0=(double)y*dy,y1=((double)y+1.0)*dy;
+                ++changed;
+                if(!(x0<20.5+2.0*dx && x1>19.5-2.0*dx &&
+                     y0<8.5+dy && y1>7.5-dy))
+                    ++escaped;
+            }
+        }
+    CHECK(changed>0u && escaped==0u);
+    quantapdf_ir_raster_image_dispose(&repeat);
+    quantapdf_ir_raster_image_dispose(&trial);
+    quantapdf_ir_raster_image_dispose(&old);
+
+    /* Repeated orthogonal retrace has ambiguous third coverage; widening
+     * device cells must NEVER bypass mode9's source-overlap exclusion. */
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.op.value.path.command_count=5u;
+    f.cmds[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[3].point1=(quantapdf_point){20.0f,8.0f};
+    f.cmds[4].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    f.cmds[4].point1=(quantapdf_point){2.0f,8.0f};
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_inner_bevel_join_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+    CHECK(old.size==trial.size && memcmp(old.pixels,trial.pixels,old.size)==0);
+    quantapdf_ir_raster_image_dispose(&trial);
+    quantapdf_ir_raster_image_dispose(&old);
+
+    /* Explicit additional bounded work: mode9 count*9*13200=237600
+     * is allowed; mode10 count*10*13200=264000 refused with ZERO output. */
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    f.grid_budget.max_sample_tests=250000u;
+    f.raster_budget.max_sample_tests=250000u;
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_inner_bevel_join_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    quantapdf_ir_raster_image_dispose(&old);
+    memset(&trial,0xa5,sizeof(trial));
+    BAD(quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+    CHECK(trial.pixels==NULL && trial.size==0u &&
+          trial.width==0u && trial.height==0u && trial.stride==0u);
+    return EXIT_SUCCESS;
+}
+
 static int test_pixel_width_and_rejections(void)
 {
     fixture f;
@@ -1209,6 +1284,7 @@ int main(void)
     CHECK(test_upper_horizontal_lsb_trial()==EXIT_SUCCESS);
     CHECK(test_device_q8_strip_trial()==EXIT_SUCCESS);
     CHECK(test_q8_inner_bevel_miter_join_trial()==EXIT_SUCCESS);
+    CHECK(test_q8_miter_adjacent_device_cells_trial()==EXIT_SUCCESS);
     CHECK(test_pixel_width_and_rejections()==EXIT_SUCCESS);
     puts("native-device-polyline-stroke: butt+miter+bevel+union+limits PASS");
     return EXIT_SUCCESS;

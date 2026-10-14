@@ -526,7 +526,7 @@ static int qp_q8_isolated_inner_bevel_join_alpha(
     const qp_stroke_segment *segments,size_t count,
     const quantapdf_native_device_grid *grid,
     size_t x,size_t y,double radius,double miter_limit,
-    unsigned *out_alpha)
+    int adjacent_cells,unsigned *out_alpha)
 {
     const double px0=(double)x*grid->points_per_device_x;
     const double px1=((double)x+1.0)*grid->points_per_device_x;
@@ -565,8 +565,14 @@ static int qp_q8_isolated_inner_bevel_join_alpha(
             sy=a->dy<0.0?1:-1;
         }
         const double jx=a->b.x,jy=a->b.y;
-        if(px1<=jx-radius || px0>=jx+radius ||
-           py1<=jy-radius || py0>=jy+radius)
+        /* Mode10 widens only the candidate device CELL window, not the
+         * source geometry or quantization formula. This allows the Q8
+         * strips immediately beside a qualified join to be integrated by
+         * the same analytic shape rather than the coarse 4x4 sampler. */
+        const double gx=radius+(adjacent_cells?2.0*grid->points_per_device_x:0.0);
+        const double gy=radius+(adjacent_cells?grid->points_per_device_y:0.0);
+        if(px1<=jx-gx || px0>=jx+gx ||
+           py1<=jy-gy || py0>=jy+gy)
             continue;
         /* A third source edge touching the entire cell makes this
          * local analytic replacement ambiguous; retain mode8 instead. */
@@ -973,6 +979,16 @@ static quantapdf_status qp_stroke_render_impl(
         count*9u>raster_limits->max_sample_tests/grid.sample_slots))
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
+    /* Tenth separate candidate allows two extra source-edge scans;
+     * previous mode9 count*9, mode8 count*8 remain byte/budget exact. */
+    if(horizontal_preview==10 &&
+       (count>grid_limits->max_edges/10u ||
+        count>raster_limits->max_edges/10u ||
+        quantapdf_native_device_grid_admit_edges_v0(
+            &grid,grid_limits,count*10u)!=QUANTAPDF_NATIVE_DEVICE_GRID_OK ||
+        count*10u>raster_limits->max_sample_tests/grid.sample_slots))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
     for(size_t i=1u;i<count;++i) {
         join_kinds[i-1u]=qp_stroke_join_build(&segments[i-1u],&segments[i],
                                                radius,miter_limit,&joins[i-1u]);
@@ -1036,11 +1052,11 @@ static quantapdf_status qp_stroke_render_impl(
                         (horizontal_preview>=8?3:0))))
                     pixel_alpha=analytic_alpha;
             }
-            if(horizontal_preview==9) {
+            if(horizontal_preview>=9) {
                 unsigned join_alpha=0u;
                 if(qp_q8_isolated_inner_bevel_join_alpha(
                        segments,count,&grid,x,y,radius,miter_limit,
-                       &join_alpha))
+                       horizontal_preview==10,&join_alpha))
                     pixel_alpha=join_alpha;
             }
             if(pixel_alpha!=0u) {
@@ -1205,4 +1221,21 @@ quantapdf_ir_raster_device_polyline_stroke_q8_inner_bevel_join_preview_v0(
 {
     return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
                                  raster_limits,out_image,9);
+}
+
+
+/* TENTH private A/B: same isolated orthogonal Q8 inner-miter join
+ * coverage and original paint order, but also integrate immediately
+ * adjacent source-strip device cells with that exact shape. Neither
+ * mode9 nor any earlier preview/default output is modified. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
+                                 raster_limits,out_image,10);
 }

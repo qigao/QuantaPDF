@@ -2204,6 +2204,138 @@ int test_external_jspdf_single_vertical_analytic_ab(
                       miter_floor.size)==0);
     const page_metrics miter_rgba_metric=measure(miter_rgba);
     const page_metrics miter_floor_metric=measure(miter_floor);
+
+    /* FOURTEENTH separate source Q8 A/B: the SAME inner-bevel miter shape,
+     * integrated over the immediately neighboring device cells. Compare
+     * against independent original PDFium using both unchanged RGBA and
+     * opaque-white compositor. Mode9 itself is a frozen control. */
+    /* Mode10 legitimately charges count*10 source-edge sample work; the
+     * original #303/#305 source preview budgets remain byte-for-byte
+     * unchanged. Only this independently invoked experiment opts into
+     * a larger bounded 600M slot ceiling before any output allocation. */
+    const quantapdf_native_device_grid_limits adjacent_grid={
+        600u*850u,600u*850u*4u,768u,600000000u
+    };
+    const quantapdf_ir_raster_v1_limits adjacent_budget={
+        600u*850u,1u,768u,600000000u
+    };
+    quantapdf_ir_raster_image adjacent_stroke{},adjacent_repeat{},
+        adjacent_rgba{},adjacent_rgba_repeat{},adjacent_floor{},
+        adjacent_floor_repeat{};
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
+        &only_stroke,0u,&geometry,&adjacent_grid,&adjacent_budget,&adjacent_stroke));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
+        &only_stroke,0u,&geometry,&adjacent_grid,&adjacent_budget,&adjacent_repeat));
+    CHECK(adjacent_stroke.pixels && adjacent_repeat.pixels &&
+          adjacent_stroke.size==miter_stroke.size &&
+          adjacent_repeat.size==adjacent_stroke.size &&
+          std::memcmp(adjacent_stroke.pixels,adjacent_repeat.pixels,
+                      adjacent_stroke.size)==0);
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &adjacent_stroke,&bottom_fill,&composite_budget,&adjacent_rgba));
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &adjacent_repeat,&bottom_repeat,&composite_budget,&adjacent_rgba_repeat));
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &adjacent_stroke,&bottom_fill,&composite_budget,&adjacent_floor));
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &adjacent_repeat,&bottom_repeat,&composite_budget,&adjacent_floor_repeat));
+    CHECK(adjacent_rgba.pixels && adjacent_rgba_repeat.pixels &&
+          adjacent_floor.pixels && adjacent_floor_repeat.pixels &&
+          adjacent_rgba.size==miter_rgba.size &&
+          adjacent_floor.size==miter_floor.size &&
+          std::memcmp(adjacent_rgba.pixels,adjacent_rgba_repeat.pixels,
+                      adjacent_rgba.size)==0 &&
+          std::memcmp(adjacent_floor.pixels,adjacent_floor_repeat.pixels,
+                      adjacent_floor.size)==0);
+    const page_metrics adjacent_rgba_metric=measure(adjacent_rgba);
+    const page_metrics adjacent_floor_metric=measure(adjacent_floor);
+    size_t adjacent_source_alpha_changes=0u,adjacent_outside=0u,
+           adjacent_alpha_gt64=0u,adjacent_rgb_outside=0u;
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t off=y*adjacent_stroke.stride+x*4u;
+        const unsigned old_alpha=miter_stroke.pixels[off+3u];
+        const unsigned new_alpha=adjacent_stroke.pixels[off+3u];
+        CHECK(std::memcmp(miter_stroke.pixels+off,
+                          adjacent_stroke.pixels+off,3u)==0);
+        CHECK(adjacent_floor.pixels[off+3u]==255u);
+        if(old_alpha!=new_alpha) {
+            ++adjacent_source_alpha_changes;
+            /* The untouched original has orthogonal joins at both the
+             * upper and lower ends. The repeated upper horizontal lies
+             * above row 21; its expanded Stroke does NOT reach that row,
+             * so mode10 may legitimately correct the adjoining vertical
+             * strip there. These windows isolate TEST pixels only; the
+             * renderer uses actual source edge topology, never coordinates. */
+            const bool endpoint_x=(x>=47u && x<=53u) ||
+                                  (x>=247u && x<=253u);
+            const bool lower_joint=(y>=137u && y<=141u);
+            const bool upper_joint=(y>=19u && y<=23u);
+            if(!(endpoint_x && (lower_joint || upper_joint)))
+                ++adjacent_outside;
+            const unsigned d=old_alpha>new_alpha?
+                old_alpha-new_alpha:new_alpha-old_alpha;
+            if(d>64u)++adjacent_alpha_gt64;
+        } else {
+            for(size_t ch=0u;ch<3u;++ch)
+                if(adjacent_floor.pixels[off+ch]!=miter_floor.pixels[off+ch])
+                    ++adjacent_rgb_outside;
+        }
+    }
+    /* TEST-ONLY: print genuine candidate changes BEFORE enforcing the
+     * narrow source A/B isolation gate, including negative trial evidence.
+     * No reference truth or device coordinates enter any C11 raster path. */
+    std::fprintf(stderr,
+        "[original source mode10 isolation-before-gate] "
+        "changed=%zu outside=%zu delta_gt64=%zu rgb_outside=%zu "
+        "parent_abs=%llu candidate_abs=%llu parent_mismatch=%zu "
+        "candidate_mismatch=%zu max=%u fnv=%016llx\n",
+        adjacent_source_alpha_changes,adjacent_outside,
+        adjacent_alpha_gt64,adjacent_rgb_outside,
+        (unsigned long long)miter_floor_metric.abs_rgb,
+        (unsigned long long)adjacent_floor_metric.abs_rgb,
+        miter_floor_metric.changed,adjacent_floor_metric.changed,
+        adjacent_floor_metric.max_delta,
+        (unsigned long long)adjacent_floor_metric.fnv);
+    if(adjacent_source_alpha_changes==0u || adjacent_outside!=0u ||
+       adjacent_alpha_gt64!=0u || adjacent_rgb_outside!=0u) {
+        size_t mode10_debug_n=0u;
+        for(size_t debug_y=0u;debug_y<842u;++debug_y)
+            for(size_t debug_x=0u;debug_x<596u;++debug_x) {
+                const size_t pos=debug_y*adjacent_stroke.stride+debug_x*4u;
+                const unsigned previous=miter_stroke.pixels[pos+3u];
+                const unsigned candidate=adjacent_stroke.pixels[pos+3u];
+                if(previous==candidate)continue;
+                if(mode10_debug_n++>=32u)continue;
+                const unsigned char *reference_pixel=reference.at(debug_x,debug_y);
+                const unsigned char *trial_pixel=adjacent_floor.pixels+pos;
+                std::fprintf(stderr,
+                    "[original source mode10 alpha delta] (%zu,%zu) %u -> %u "
+                    "C11=(%u,%u,%u) PDFium=(%u,%u,%u)\n",
+                    debug_x,debug_y,previous,candidate,
+                    (unsigned)trial_pixel[0],(unsigned)trial_pixel[1],
+                    (unsigned)trial_pixel[2],
+                    (unsigned)reference_pixel[0],
+                    (unsigned)reference_pixel[1],
+                    (unsigned)reference_pixel[2]);
+            }
+    }
+    CHECK(adjacent_source_alpha_changes>0u && adjacent_outside==0u &&
+          adjacent_alpha_gt64==0u && adjacent_rgb_outside==0u);
+    std::fprintf(stderr,
+        "[original jsPDF Q8 adjacent-miter source A/B, NOT parity] "
+        "parent_rgb=%llu trial_rgba_rgb=%llu trial_opaque_rgb=%llu "
+        "parent_diff=%zu trial_diff=%zu changed_alpha=%zu "
+        "outside=%zu delta_gt64=%zu rgb_outside=%zu "
+        "max=%u fnv=%016llx\n",
+        (unsigned long long)miter_floor_metric.abs_rgb,
+        (unsigned long long)adjacent_rgba_metric.abs_rgb,
+        (unsigned long long)adjacent_floor_metric.abs_rgb,
+        miter_floor_metric.changed,adjacent_floor_metric.changed,
+        adjacent_source_alpha_changes,adjacent_outside,
+        adjacent_alpha_gt64,adjacent_rgb_outside,
+        adjacent_floor_metric.max_delta,
+        (unsigned long long)adjacent_floor_metric.fnv);
+
     size_t miter_source_alpha_changes=0u,miter_outside_endpoint=0u,
            miter_delta_over64=0u,miter_composite_outside_alpha=0u;
     for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
@@ -3299,6 +3431,12 @@ int test_external_jspdf_single_vertical_analytic_ab(
     std::fprintf(stderr,"[jsPDF mode4 original residual regions] %s\n",
                  mode4_regions_json.c_str());
 
+    quantapdf_ir_raster_image_dispose(&adjacent_floor_repeat);
+    quantapdf_ir_raster_image_dispose(&adjacent_floor);
+    quantapdf_ir_raster_image_dispose(&adjacent_rgba_repeat);
+    quantapdf_ir_raster_image_dispose(&adjacent_rgba);
+    quantapdf_ir_raster_image_dispose(&adjacent_repeat);
+    quantapdf_ir_raster_image_dispose(&adjacent_stroke);
     quantapdf_ir_raster_image_dispose(&miter_floor_repeat);
     quantapdf_ir_raster_image_dispose(&miter_floor);
     quantapdf_ir_raster_image_dispose(&miter_rgba_repeat);
@@ -3503,6 +3641,23 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"miter_join_gross_delta64_pixels\": %zu,\n"
         "  \"miter_join_max_channel_delta\": %u,\n"
         "  \"miter_join_rgb_fnv64\": \"%016llx\",\n"
+        "  \"adjacent_join_status\": \"measured_unqualified\",\n"
+        "  \"adjacent_join_default_changed\": false,\n"
+        "  \"adjacent_join_pixel_parity_qualified\": false,\n"
+        "  \"adjacent_join_repeat_equal\": true,\n"
+        "  \"adjacent_join_source_alpha_changed_pixels\": %zu,\n"
+        "  \"adjacent_join_outside_source_neighborhood\": %zu,\n"
+        "  \"adjacent_join_alpha_delta_gt64_pixels\": %zu,\n"
+        "  \"adjacent_join_rgb_changed_outside_source_alpha\": %zu,\n"
+        "  \"adjacent_join_rgba_abs_rgb_error\": %llu,\n"
+        "  \"adjacent_join_rgba_changed_pixels\": %zu,\n"
+        "  \"adjacent_join_rgba_fnv64\": \"%016llx\",\n"
+        "  \"adjacent_join_abs_rgb_error\": %llu,\n"
+        "  \"adjacent_join_mean_abs_rgb_error\": %.9f,\n"
+        "  \"adjacent_join_changed_pixels\": %zu,\n"
+        "  \"adjacent_join_gross_delta64_pixels\": %zu,\n"
+        "  \"adjacent_join_max_channel_delta\": %u,\n"
+        "  \"adjacent_join_rgb_fnv64\": \"%016llx\",\n"
         "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
@@ -3573,7 +3728,17 @@ int test_external_jspdf_single_vertical_analytic_ab(
         (double)miter_floor_metric.abs_rgb/1505496.0,
         miter_floor_metric.changed,miter_floor_metric.gross,
         miter_floor_metric.max_delta,
-        (unsigned long long)miter_floor_metric.fnv);
+        (unsigned long long)miter_floor_metric.fnv,
+        adjacent_source_alpha_changes,adjacent_outside,
+        adjacent_alpha_gt64,adjacent_rgb_outside,
+        (unsigned long long)adjacent_rgba_metric.abs_rgb,
+        adjacent_rgba_metric.changed,
+        (unsigned long long)adjacent_rgba_metric.fnv,
+        (unsigned long long)adjacent_floor_metric.abs_rgb,
+        (double)adjacent_floor_metric.abs_rgb/1505496.0,
+        adjacent_floor_metric.changed,adjacent_floor_metric.gross,
+        adjacent_floor_metric.max_delta,
+        (unsigned long long)adjacent_floor_metric.fnv);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
