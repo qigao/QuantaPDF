@@ -620,6 +620,50 @@ endif()
 message(STATUS
   "jspdf-private-fill-bottom: mode7_rgb=${left_abs_rgb_error} bottom_rgb=${bottom_abs_rgb_error} mode7_changed=${left_changed_pixels} bottom_changed=${bottom_changed_pixels} changed_rgba=${bottom_source_rgba_changed_pixels} parity=false official=0")
 
+
+# Ninth independent original-PDF A/B: sixth explicitly callable C11
+# STROKE mode only; inherits exact mode5 single-pass horizontal source
+# geometry eligibility and compares CEIL to the prior rounded alpha.
+# No improvement assumption, tolerance or native-positive promotion.
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_alpha_changed_pixels
+    outside_single_horizontal_interior alpha_delta_gt1_pixels
+    abs_rgb_error mean_abs_rgb_error changed_pixels
+    gross_delta64_pixels max_channel_delta rgb_fnv64)
+  string(JSON ceil_${field} GET "${json}" stroke_ceil_${field})
+endforeach()
+string(LENGTH "${ceil_rgb_fnv64}" ceil_fnv_len)
+if(NOT ceil_status STREQUAL "measured_unqualified"
+   OR ceil_default_changed OR ceil_pixel_parity_qualified
+   OR NOT ceil_repeat_equal
+   OR ceil_source_alpha_changed_pixels LESS 1
+   OR ceil_source_alpha_changed_pixels GREATER 591
+   OR NOT ceil_outside_single_horizontal_interior EQUAL 0
+   OR NOT ceil_alpha_delta_gt1_pixels EQUAL 0
+   OR NOT ceil_fnv_len EQUAL 16
+   OR NOT ceil_rgb_fnv64 MATCHES "^[0-9a-f]+$"
+   OR ceil_abs_rgb_error LESS 0 OR ceil_abs_rgb_error GREATER 383901480
+   OR ceil_mean_abs_rgb_error LESS 0
+   OR ceil_mean_abs_rgb_error GREATER 255
+   OR ceil_changed_pixels LESS 0 OR ceil_changed_pixels GREATER 501832
+   OR ceil_gross_delta64_pixels LESS 0
+   OR ceil_gross_delta64_pixels GREATER ceil_changed_pixels
+   OR ceil_max_channel_delta LESS 0
+   OR ceil_max_channel_delta GREATER 255)
+  message(FATAL_ERROR "Private source-horizontal CEIL A/B out of isolation scope")
+endif()
+# Known-green original #296 composite/source identity is immutable on
+# this Stroke-only branch. This is not a new source-positive acceptance.
+if(NOT bottom_abs_rgb_error EQUAL 1937
+   OR NOT bottom_changed_pixels EQUAL 419
+   OR NOT bottom_gross_delta64_pixels EQUAL 0
+   OR NOT bottom_max_channel_delta EQUAL 38
+   OR NOT bottom_rgb_fnv64 STREQUAL "7a88c595fcde2208")
+  message(FATAL_ERROR "Qualified source Fill-bottom mode8 baseline changed")
+endif()
+message(STATUS
+  "jspdf-private-horizontal-ceil: baseline_rgb=${bottom_abs_rgb_error} trial_rgb=${ceil_abs_rgb_error} baseline_changed=${bottom_changed_pixels} trial_changed=${ceil_changed_pixels} source_alpha_changes=${ceil_source_alpha_changed_pixels} official=0 parity=false")
+
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")

@@ -437,7 +437,8 @@ static int qp_single_vertical_analytic_alpha(
 static int qp_single_horizontal_analytic_alpha(
     const qp_stroke_segment *segments, size_t count,
     const quantapdf_native_device_grid *grid,
-    size_t x, size_t y, double radius, unsigned *out_alpha)
+    size_t x, size_t y, double radius, unsigned *out_alpha,
+    int ceil_quantization)
 {
     const double x0=(double)x*grid->points_per_device_x;
     const double x1=((double)x+1.0)*grid->points_per_device_x;
@@ -487,7 +488,13 @@ static int qp_single_horizontal_analytic_alpha(
         if(i!=hit && x0<bx && x1>ax && y0<by && y1>ay)
             return 0;
     }
-    *out_alpha=(unsigned)floor(fmin(1.0,coverage)*255.0+0.5);
+    /* Preserve mode5 nearest-integer quantization byte-for-byte.
+     * The sixth PRIVATE Stroke A/B tests upward quantization of the
+     * same source-eligible 1pt single-pass horizontal pixel only. */
+    if(ceil_quantization)
+        *out_alpha=(unsigned)ceil(fmin(1.0,coverage)*255.0);
+    else
+        *out_alpha=(unsigned)floor(fmin(1.0,coverage)*255.0+0.5);
     return 1;
 }
 
@@ -619,13 +626,23 @@ static quantapdf_status qp_stroke_render_impl(
         count*4u>raster_limits->max_sample_tests/grid.sample_slots))
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
-    /* Separate fifth source-edge scan admission, only for mode5. */
-    if(horizontal_preview==5 &&
+    /* Preserve fifth pass admission for fifth and sixth isolated trials. */
+    if(horizontal_preview>=5 &&
        (count>grid_limits->max_edges/5u ||
         count>raster_limits->max_edges/5u ||
         quantapdf_native_device_grid_admit_edges_v0(
             &grid,grid_limits,count*5u)!=QUANTAPDF_NATIVE_DEVICE_GRID_OK ||
         count*5u>raster_limits->max_sample_tests/grid.sample_slots))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    /* Sixth independent source-edge work admission before allocation.
+     * Older modes0..5 are not charged this extra pass or changed. */
+    if(horizontal_preview==6 &&
+       (count>grid_limits->max_edges/6u ||
+        count>raster_limits->max_edges/6u ||
+        quantapdf_native_device_grid_admit_edges_v0(
+            &grid,grid_limits,count*6u)!=QUANTAPDF_NATIVE_DEVICE_GRID_OK ||
+        count*6u>raster_limits->max_sample_tests/grid.sample_slots))
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
     for(size_t i=1u;i<count;++i) {
@@ -681,10 +698,11 @@ static quantapdf_status qp_stroke_render_impl(
                        segments,count,&grid,x,y,radius,&analytic_alpha))
                     pixel_alpha=analytic_alpha;
             }
-            if(horizontal_preview==5) {
+            if(horizontal_preview>=5) {
                 unsigned analytic_alpha=0u;
                 if(qp_single_horizontal_analytic_alpha(
-                       segments,count,&grid,x,y,radius,&analytic_alpha))
+                       segments,count,&grid,x,y,radius,&analytic_alpha,
+                       horizontal_preview==6))
                     pixel_alpha=analytic_alpha;
             }
             if(pixel_alpha!=0u) {
@@ -786,4 +804,20 @@ quantapdf_status quantapdf_ir_raster_device_polyline_stroke_single_horizontal_an
 {
     return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
                                  raster_limits,out_image,5);
+}
+
+
+/* SIXTH explicitly called, PRIVATE source-Stroke hypothesis: ceil the
+ * same analytically measured single-pass 1pt horizontal interior alpha
+ * without ever changing the default renderer or earlier preview modes. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_single_horizontal_ceil_preview_v0(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
+                                 raster_limits,out_image,6);
 }

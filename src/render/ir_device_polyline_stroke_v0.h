@@ -90,6 +90,19 @@ quantapdf_ir_raster_device_polyline_stroke_single_horizontal_analytic_preview_v0
     const quantapdf_ir_raster_v1_limits *raster_limits,
     quantapdf_ir_raster_image *out_image);
 
+
+/* SIXTH explicit PRIVATE source-geometry C11 Stroke A/B. Retain
+ * mode5's proven single-pass 1pt horizontal interior eligibility,
+ * replacing only rounded Alpha with ceil Alpha. Stroke endpoints,
+ * miters, repeated sources, verticals, Clip/Fill and SDK unaffected. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_single_horizontal_ceil_preview_v0(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

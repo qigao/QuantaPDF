@@ -2050,6 +2050,87 @@ int test_external_jspdf_single_vertical_analytic_ab(
           std::memcmp(bottom_page.pixels,bottom_page_repeat.pixels,
                       bottom_page.size)==0);
     const page_metrics bottom_metric=measure(bottom_page);
+
+    /* SIXTH explicit source Stroke-only alpha quantization A/B.
+     * Exact mode5 fifth preview/previous Fill-bottom 8th preview remain
+     * independently rendered and their source-PDFium digests frozen.
+     * The new Stroke is composited only with the SAME qualified,
+     * unchanged source-rect Fill-bottom layer, on raw original PDFium. */
+    quantapdf_ir_raster_image ceil_stroke{},ceil_repeat{},
+                              ceil_page{},ceil_page_repeat{};
+    OK(quantapdf_ir_raster_device_polyline_stroke_single_horizontal_ceil_preview_v0(
+        &only_stroke,0u,&geometry,&h_grid,&h_budget,&ceil_stroke));
+    OK(quantapdf_ir_raster_device_polyline_stroke_single_horizontal_ceil_preview_v0(
+        &only_stroke,0u,&geometry,&h_grid,&h_budget,&ceil_repeat));
+    CHECK(ceil_stroke.pixels && ceil_repeat.pixels &&
+          ceil_stroke.size==h_stroke.size &&
+          ceil_stroke.stride==h_stroke.stride &&
+          ceil_repeat.size==ceil_stroke.size &&
+          std::memcmp(ceil_stroke.pixels,ceil_repeat.pixels,
+                      ceil_stroke.size)==0);
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &ceil_stroke,&bottom_fill,&composite_budget,&ceil_page));
+    OK(quantapdf_ir_ordered_layer_composite_v0(
+        &ceil_repeat,&bottom_repeat,&composite_budget,&ceil_page_repeat));
+    CHECK(ceil_page.pixels && ceil_page_repeat.pixels &&
+          ceil_page.size==bottom_page.size &&
+          ceil_page_repeat.size==ceil_page.size &&
+          std::memcmp(ceil_page.pixels,ceil_page_repeat.pixels,
+                      ceil_page.size)==0);
+    const page_metrics ceil_metric=measure(ceil_page);
+    size_t ceil_alpha_changed=0u,ceil_outside=0u,
+           ceil_more_than_one=0u;
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t off=y*ceil_stroke.stride+x*4u;
+        const unsigned before=h_stroke.pixels[off+3u];
+        const unsigned after=ceil_stroke.pixels[off+3u];
+        CHECK(std::memcmp(h_stroke.pixels+off,
+                          ceil_stroke.pixels+off,3u)==0);
+        if(before==after)continue;
+        ++ceil_alpha_changed;
+        if(x<52u || x>248u || y<138u || y>140u)
+            ++ceil_outside;
+        if(after<before || after>before+1u)
+            ++ceil_more_than_one;
+    }
+    CHECK(ceil_alpha_changed>0u && ceil_outside==0u &&
+          ceil_more_than_one==0u);
+    /* CEIL is a falsifiable trial, NOT an assumed +1 improvement.
+     * The same raw coverage may legitimately produce identical integers
+     * under ROUND and CEIL at a particular original PDF source pixel. */
+    const size_t center=139u*ceil_stroke.stride+100u*4u;
+    const unsigned old_center_alpha=h_stroke.pixels[center+3u];
+    const unsigned new_center_alpha=ceil_stroke.pixels[center+3u];
+    CHECK(new_center_alpha>=old_center_alpha &&
+          new_center_alpha<=old_center_alpha+1u);
+    const unsigned char *old_center_pixel=
+        bottom_page.pixels+139u*bottom_page.stride+100u*4u;
+    std::fprintf(stderr,
+        "[original jsPDF ceil interior witness] source=(100,139) "
+        "old_alpha=%u new_alpha=%u old_gray=(%u,%u,%u)\n",
+        old_center_alpha,new_center_alpha,
+        on_white(old_center_pixel,0u),on_white(old_center_pixel,1u),
+        on_white(old_center_pixel,2u));
+    const unsigned char *ceil_site=
+        ceil_page.pixels+139u*ceil_page.stride+100u*4u;
+    const unsigned char *ceil_truth=reference.at(100u,139u);
+    std::fprintf(stderr,
+        "[original jsPDF private single-horizontal ceil A/B, NOT parity] "
+        "mode5_stroke_plus_fill8_rgb=%llu ceil_rgb=%llu "
+        "old_changed=%zu trial_changed=%zu gross=%zu "
+        "stroke_source_changes=%zu outside_interior=%zu "
+        "out_of_quantization_range=%zu center_native=(%u,%u,%u) "
+        "original_pdfium=(%u,%u,%u) fnv64=%016llx\n",
+        (unsigned long long)bottom_metric.abs_rgb,
+        (unsigned long long)ceil_metric.abs_rgb,
+        bottom_metric.changed,ceil_metric.changed,ceil_metric.gross,
+        ceil_alpha_changed,ceil_outside,ceil_more_than_one,
+        on_white(ceil_site,0u),on_white(ceil_site,1u),
+        on_white(ceil_site,2u),
+        (unsigned)ceil_truth[0],(unsigned)ceil_truth[1],
+        (unsigned)ceil_truth[2],
+        (unsigned long long)ceil_metric.fnv);
+
     size_t bottom_rgba_changed=0u,bottom_outside=0u;
     const auto &source_fill_options=only_fill.operations[0].value.path.options;
     const unsigned char fill_red=(unsigned char)(
@@ -2792,6 +2873,10 @@ int test_external_jspdf_single_vertical_analytic_ab(
     std::fprintf(stderr,"[jsPDF mode4 original residual regions] %s\n",
                  mode4_regions_json.c_str());
 
+    quantapdf_ir_raster_image_dispose(&ceil_page_repeat);
+    quantapdf_ir_raster_image_dispose(&ceil_page);
+    quantapdf_ir_raster_image_dispose(&ceil_repeat);
+    quantapdf_ir_raster_image_dispose(&ceil_stroke);
     quantapdf_ir_raster_image_dispose(&bottom_page_repeat);
     quantapdf_ir_raster_image_dispose(&bottom_page);
     quantapdf_ir_raster_image_dispose(&bottom_repeat);
@@ -2894,7 +2979,19 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"rect_fill_bottom_changed_pixels\": %zu,\n"
         "  \"rect_fill_bottom_gross_delta64_pixels\": %zu,\n"
         "  \"rect_fill_bottom_max_channel_delta\": %u,\n"
-        "  \"rect_fill_bottom_rgb_fnv64\": \"%016llx\",\n"
+        "  \"rect_fill_bottom_rgb_fnv64\": \"%016llx\",\n"        "  \"stroke_ceil_status\": \"measured_unqualified\",\n"
+        "  \"stroke_ceil_default_changed\": false,\n"
+        "  \"stroke_ceil_pixel_parity_qualified\": false,\n"
+        "  \"stroke_ceil_repeat_equal\": true,\n"
+        "  \"stroke_ceil_source_alpha_changed_pixels\": %zu,\n"
+        "  \"stroke_ceil_outside_single_horizontal_interior\": %zu,\n"
+        "  \"stroke_ceil_alpha_delta_gt1_pixels\": %zu,\n"
+        "  \"stroke_ceil_abs_rgb_error\": %llu,\n"
+        "  \"stroke_ceil_mean_abs_rgb_error\": %.9f,\n"
+        "  \"stroke_ceil_changed_pixels\": %zu,\n"
+        "  \"stroke_ceil_gross_delta64_pixels\": %zu,\n"
+        "  \"stroke_ceil_max_channel_delta\": %u,\n"
+        "  \"stroke_ceil_rgb_fnv64\": \"%016llx\",\n"
         "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
@@ -2927,7 +3024,12 @@ int test_external_jspdf_single_vertical_analytic_ab(
         (unsigned long long)bottom_metric.abs_rgb,
         (double)bottom_metric.abs_rgb/1505496.0,
         bottom_metric.changed,bottom_metric.gross,bottom_metric.max_delta,
-        (unsigned long long)bottom_metric.fnv);
+        (unsigned long long)bottom_metric.fnv,
+        ceil_alpha_changed,ceil_outside,ceil_more_than_one,
+        (unsigned long long)ceil_metric.abs_rgb,
+        (double)ceil_metric.abs_rgb/1505496.0,
+        ceil_metric.changed,ceil_metric.gross,ceil_metric.max_delta,
+        (unsigned long long)ceil_metric.fnv);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
