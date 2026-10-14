@@ -1118,6 +1118,40 @@ if(NOT sum_pixel EQUAL aud_total OR NOT sum_changed EQUAL aud_changed
 endif()
 message(STATUS
   "jspdf-post-corner-original-audit: pixels=${aud_total} residual=${aud_changed} error=${aud_error} parity=false official=0")
+# Eighteenth isolated source bottom-fringe A/B extends only fully
+# X-contained previously clear red pixels; original #308 remains pinned.
+if(NOT corner_abs_rgb_error EQUAL 143
+   OR NOT corner_changed_pixels EQUAL 8
+   OR NOT corner_gross_delta64_pixels EQUAL 0
+   OR NOT corner_max_channel_delta EQUAL 15
+   OR NOT corner_rgb_fnv64 STREQUAL "5dff11faa26ac6c2")
+  message(FATAL_ERROR "Previously validated Q8 Fill/W control changed")
+endif()
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal changed_source_alpha outside_source_window
+    alpha_delta_gt3 rgb_outside_alpha
+    abs_rgb_error mean_abs_rgb_error changed_pixels
+    gross_delta64_pixels max_channel_delta rgb_fnv64)
+  string(JSON near_${field} GET "${json}" bottom_near_${field})
+endforeach()
+string(LENGTH "${near_rgb_fnv64}" near_hashlen)
+if(NOT near_status STREQUAL "measured_unqualified"
+   OR near_default_changed OR near_pixel_parity_qualified OR NOT near_repeat_equal
+   OR near_changed_source_alpha LESS 1 OR near_changed_source_alpha GREATER 2
+   OR NOT near_outside_source_window EQUAL 0
+   OR NOT near_alpha_delta_gt3 EQUAL 0 OR NOT near_rgb_outside_alpha EQUAL 0
+   OR near_abs_rgb_error LESS 0 OR near_abs_rgb_error GREATER 383901480
+   OR near_mean_abs_rgb_error LESS 0 OR near_mean_abs_rgb_error GREATER 255
+   OR near_changed_pixels LESS 0 OR near_changed_pixels GREATER 501832
+   OR near_gross_delta64_pixels LESS 0
+   OR near_gross_delta64_pixels GREATER near_changed_pixels
+   OR near_max_channel_delta LESS 0 OR near_max_channel_delta GREATER 255
+   OR NOT near_hashlen EQUAL 16
+   OR NOT near_rgb_fnv64 MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "Fully X-contained source bottom edge A/B escaped isolation")
+endif()
+message(STATUS
+  "jspdf-bottom-near-source-edge: parent_rgb=${corner_abs_rgb_error} trial_rgb=${near_abs_rgb_error} old_mismatches=${corner_changed_pixels} new_mismatches=${near_changed_pixels} pixels_changed=${near_changed_source_alpha} official=0 parity=false")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
