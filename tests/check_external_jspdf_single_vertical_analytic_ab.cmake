@@ -381,6 +381,46 @@ if(NOT fillr_abs_rgb_error EQUAL 4019
   message(FATAL_ERROR "Last qualified Fill-right mode output mutated")
 endif()
 
+
+# Seventh PRIVATE original-source A/B for ONE strictly admitted W Clip LEFT
+# boundary. May regress; reporting is NOT original/native certification.
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_alpha_changed_pixels
+    changes_outside_w_clip_left_interior abs_rgb_error
+    mean_abs_rgb_error changed_pixels gross_delta64_pixels
+    max_channel_delta rgb_fnv64)
+  string(JSON left_${field} GET "${json}" rect_clip_left_${field})
+endforeach()
+string(LENGTH "${left_rgb_fnv64}" left_digest_length)
+if(NOT left_status STREQUAL "measured_unqualified"
+   OR left_default_changed OR left_pixel_parity_qualified
+   OR NOT left_repeat_equal
+   OR left_source_alpha_changed_pixels LESS 1
+   OR left_source_alpha_changed_pixels GREATER 79
+   OR NOT left_changes_outside_w_clip_left_interior EQUAL 0
+   OR NOT left_digest_length EQUAL 16
+   OR NOT left_rgb_fnv64 MATCHES "^[0-9a-f]+$"
+   OR left_abs_rgb_error LESS 0 OR left_abs_rgb_error GREATER 383901480
+   OR left_mean_abs_rgb_error LESS 0
+   OR left_mean_abs_rgb_error GREATER 255
+   OR left_changed_pixels LESS 0 OR left_changed_pixels GREATER 501832
+   OR left_gross_delta64_pixels LESS 0
+   OR left_gross_delta64_pixels GREATER left_changed_pixels
+   OR left_max_channel_delta LESS 0 OR left_max_channel_delta GREATER 255)
+  message(FATAL_ERROR "Unqualified Clip-left A/B changed outside scope or budget")
+endif()
+# Original preceding candidate and its complete source-effect breakdown
+# remain byte-identical; no hidden promotion of whole-original admission.
+if(NOT fillr_abs_rgb_error EQUAL 4019
+   OR NOT fillr_changed_pixels EQUAL 516
+   OR NOT fillr_gross_delta64_pixels EQUAL 0
+   OR NOT fillr_max_channel_delta EQUAL 38
+   OR NOT fillr_rgb_fnv64 STREQUAL "4d2bfdd4bbf32298")
+  message(FATAL_ERROR "CI-green private Fill-right original baseline changed")
+endif()
+message(STATUS
+ "jspdf-w-clip-left-private: baseline_rgb=${fillr_abs_rgb_error} trial_rgb=${left_abs_rgb_error} changed=${left_changed_pixels} alpha_changes=${left_source_alpha_changed_pixels} official=0 pixel_parity=false")
+
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")

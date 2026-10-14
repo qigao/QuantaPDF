@@ -24,6 +24,18 @@ quantapdf_status quantapdf_ir_raster_rect_fill_right_preview_v0(
     const quantapdf_ir_raster_v1_limits *raster_limits,
     quantapdf_ir_raster_image *out_image);
 
+
+/* Seventh EXPLICIT PRIVATE original clipped-Fill candidate: preserve
+ * the right-Fill analytical boundary and optionally correct the single
+ * W Clip LEFT boundary's interior subpixel coverage. No default/SDK
+ * renderer switch, no second ownership path, no PDFium fallback. */
+quantapdf_status quantapdf_ir_raster_rect_fill_left_clip_preview_v0(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
