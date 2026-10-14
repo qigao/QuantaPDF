@@ -664,6 +664,58 @@ endif()
 message(STATUS
   "jspdf-private-horizontal-ceil: baseline_rgb=${bottom_abs_rgb_error} trial_rgb=${ceil_abs_rgb_error} baseline_changed=${bottom_changed_pixels} trial_changed=${ceil_changed_pixels} source_alpha_changes=${ceil_source_alpha_changed_pixels} official=0 parity=false")
 
+
+# TENTH independently callable original-PDF Stroke quantization trial:
+# retain single-pass source geometry eligibility but add one alpha unit
+# ONLY when the whole device row is above the source horizontal center.
+# No improvement threshold, numerical oracle fallback or positive count.
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_alpha_changed_pixels
+    outside_top_horizontal_interior alpha_delta_gt1_pixels
+    abs_rgb_error mean_abs_rgb_error changed_pixels
+    gross_delta64_pixels max_channel_delta rgb_fnv64)
+  string(JSON upper_${field} GET "${json}" stroke_upper_${field})
+endforeach()
+string(LENGTH "${upper_rgb_fnv64}" upper_hashlen)
+if(NOT upper_status STREQUAL "measured_unqualified"
+   OR upper_default_changed OR upper_pixel_parity_qualified
+   OR NOT upper_repeat_equal
+   OR upper_source_alpha_changed_pixels LESS 1
+   OR upper_source_alpha_changed_pixels GREATER 394
+   OR NOT upper_outside_top_horizontal_interior EQUAL 0
+   OR NOT upper_alpha_delta_gt1_pixels EQUAL 0
+   OR NOT upper_hashlen EQUAL 16
+   OR NOT upper_rgb_fnv64 MATCHES "^[0-9a-f]+$"
+   OR upper_abs_rgb_error LESS 0 OR upper_abs_rgb_error GREATER 383901480
+   OR upper_mean_abs_rgb_error LESS 0
+   OR upper_mean_abs_rgb_error GREATER 255
+   OR upper_changed_pixels LESS 0 OR upper_changed_pixels GREATER 501832
+   OR upper_gross_delta64_pixels LESS 0
+   OR upper_gross_delta64_pixels GREATER upper_changed_pixels
+   OR upper_max_channel_delta LESS 0
+   OR upper_max_channel_delta GREATER 255)
+  message(FATAL_ERROR "Unqualified single-horizontal TOP side A/B report")
+endif()
+# The earlier global CEIL is frozen as independent negative evidence;
+# do NOT conflate it with the new upper-side experiment or change the
+# previous CI-green clipped Fill-bottom composite.
+if(NOT ceil_abs_rgb_error EQUAL 2525
+   OR NOT ceil_changed_pixels EQUAL 615
+   OR NOT ceil_gross_delta64_pixels EQUAL 0
+   OR NOT ceil_max_channel_delta EQUAL 38
+   OR NOT ceil_rgb_fnv64 STREQUAL "d2d04c526c2c20dc")
+  message(FATAL_ERROR "Previously measured negative global CEIL A/B mutated")
+endif()
+if(NOT bottom_abs_rgb_error EQUAL 1937
+   OR NOT bottom_changed_pixels EQUAL 419
+   OR NOT bottom_gross_delta64_pixels EQUAL 0
+   OR NOT bottom_max_channel_delta EQUAL 38
+   OR NOT bottom_rgb_fnv64 STREQUAL "7a88c595fcde2208")
+  message(FATAL_ERROR "Qualified mode8 original-Fill reference changed")
+endif()
+message(STATUS
+  "jspdf-upper-horizontal-lsb: baseline_rgb=${bottom_abs_rgb_error} global_ceil_rgb=${ceil_abs_rgb_error} upper_rgb=${upper_abs_rgb_error} upper_changed=${upper_changed_pixels} alpha_changed=${upper_source_alpha_changed_pixels} official=0 parity=false")
+
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")

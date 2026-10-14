@@ -103,6 +103,21 @@ quantapdf_ir_raster_device_polyline_stroke_single_horizontal_ceil_preview_v0(
     const quantapdf_ir_raster_v1_limits *raster_limits,
     quantapdf_ir_raster_image *out_image);
 
+
+/* SEVENTH explicitly invoked PRIVATE source-Stroke A/B.
+ * Keep the rounded mode5 alpha on all geometry except the whole-device
+ * row immediately ABOVE a single-pass 1pt source horizontal segment,
+ * which gets +1 Alpha only if it is nonzero, nonsaturated and passes
+ * all existing source segment/endpoint/retrace isolation tests.
+ * Other Stroke modes, Fill/Clip and the public SDK are unchanged. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_upper_horizontal_lsb_preview_v0(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

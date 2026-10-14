@@ -438,7 +438,7 @@ static int qp_single_horizontal_analytic_alpha(
     const qp_stroke_segment *segments, size_t count,
     const quantapdf_native_device_grid *grid,
     size_t x, size_t y, double radius, unsigned *out_alpha,
-    int ceil_quantization)
+    int quantization_policy)
 {
     const double x0=(double)x*grid->points_per_device_x;
     const double x1=((double)x+1.0)*grid->points_per_device_x;
@@ -491,10 +491,24 @@ static int qp_single_horizontal_analytic_alpha(
     /* Preserve mode5 nearest-integer quantization byte-for-byte.
      * The sixth PRIVATE Stroke A/B tests upward quantization of the
      * same source-eligible 1pt single-pass horizontal pixel only. */
-    if(ceil_quantization)
+    const unsigned old_alpha=(unsigned)floor(
+        fmin(1.0,coverage)*255.0+0.5);
+    if(quantization_policy==1) {
+        /* Old mode6: literal ceil hypothesis, independently callable
+         * even though it may worsen the exact original-PDF result. */
         *out_alpha=(unsigned)ceil(fmin(1.0,coverage)*255.0);
-    else
-        *out_alpha=(unsigned)floor(fmin(1.0,coverage)*255.0+0.5);
+    } else if(quantization_policy==2 &&
+              old_alpha>0u && old_alpha<255u &&
+              y1<=segments[hit].a.y) {
+        /* SEVENTH PRIVATE Stroke A/B: one Alpha LSB ONLY where the
+         * WHOLE device pixel row is strictly above the source horizontal
+         * segment center. The lower/crossing side, endpoints, joins,
+         * repeated edges and verticals keep exact old mode5 bytes.
+         * No PDFium data enters this pure C11 geometric hypothesis. */
+        *out_alpha=old_alpha+1u;
+    } else {
+        *out_alpha=old_alpha;
+    }
     return 1;
 }
 
@@ -645,6 +659,16 @@ static quantapdf_status qp_stroke_render_impl(
         count*6u>raster_limits->max_sample_tests/grid.sample_slots))
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
+    /* Seventh independently callable Stroke preview adds one more
+     * bounded source-edge work pass. Do not charge modes0..6 for it. */
+    if(horizontal_preview==7 &&
+       (count>grid_limits->max_edges/7u ||
+        count>raster_limits->max_edges/7u ||
+        quantapdf_native_device_grid_admit_edges_v0(
+            &grid,grid_limits,count*7u)!=QUANTAPDF_NATIVE_DEVICE_GRID_OK ||
+        count*7u>raster_limits->max_sample_tests/grid.sample_slots))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
     for(size_t i=1u;i<count;++i) {
         join_kinds[i-1u]=qp_stroke_join_build(&segments[i-1u],&segments[i],
                                                radius,miter_limit,&joins[i-1u]);
@@ -702,7 +726,8 @@ static quantapdf_status qp_stroke_render_impl(
                 unsigned analytic_alpha=0u;
                 if(qp_single_horizontal_analytic_alpha(
                        segments,count,&grid,x,y,radius,&analytic_alpha,
-                       horizontal_preview==6))
+                       horizontal_preview==6?1:
+                       (horizontal_preview==7?2:0)))
                     pixel_alpha=analytic_alpha;
             }
             if(pixel_alpha!=0u) {
@@ -820,4 +845,19 @@ quantapdf_ir_raster_device_polyline_stroke_single_horizontal_ceil_preview_v0(
 {
     return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
                                  raster_limits,out_image,6);
+}
+
+
+/* SEVENTH isolated PRIVATE Stroke hypothesis: upper device-row source
+ * coverage LSB, never global ceil or repeated/cap/miter reinterpreting. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_upper_horizontal_lsb_preview_v0(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
+                                 raster_limits,out_image,7);
 }
