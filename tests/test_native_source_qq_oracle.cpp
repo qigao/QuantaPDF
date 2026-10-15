@@ -9872,6 +9872,7 @@ static int test_generated_unit7_fill_dpi_heldout(const char *report_path)
         size_t error[5]={0u};
     } records[120]={};
     size_t source_repeat_count=0u,bitmap_frame_count=0u;
+    size_t private_grid_admitted=0u,private_grid_unsupported=0u;
     size_t total_pixels=0u;
     size_t per_dpi_pixels[5]={0u},per_dpi_red[5]={0u};
     size_t per_dpi_partial[5]={0u},per_dpi_non_redwhite[5]={0u};
@@ -9942,11 +9943,64 @@ static int test_generated_unit7_fill_dpi_heldout(const char *report_path)
                         vertical[dpi_slot]:horizontal[dpi_slot];
                     const size_t pixels=(size_t)width*(size_t)height;
                     CHECK(pixels>0u && pixels<=22000u);
+                    /* v0 explicitly admits only 72/96/144 DPI. For
+                     * held-out 120/168, retain the UNSUPPORTED + zero
+                     * output admission gate. An isolated *numeric-only*
+                     * diagnostic uses the already qualified Graph display
+                     * affine for PDFium original bitmap comparisons, not
+                     * the v0 grid API or a native render authorization. */
                     quantapdf_graph_device_grid grid{};
-                    OK(quantapdf_graph_page_device_grid(
-                        &geometry,dpi,22000u,70000u,&grid));
-                    CHECK(grid.width==width && grid.height==height &&
-                          grid.output_bytes==pixels*3u);
+                    grid.width=width;
+                    grid.height=height;
+                    grid.stride_bytes=(size_t)width*3u;
+                    grid.output_bytes=grid.stride_bytes*(size_t)height;
+                    CHECK(grid.output_bytes==pixels*3u &&
+                          pixels<=22000u && grid.output_bytes<=70000u);
+                    const double scale_x=
+                        (double)width/display.width_points;
+                    const double scale_y=
+                        (double)height/display.height_points;
+                    CHECK(std::isfinite(scale_x) &&
+                          std::isfinite(scale_y) &&
+                          scale_x>0.0 && scale_y>0.0);
+                    grid.from_source[0]=
+                        scale_x*display.from_source[0];
+                    grid.from_source[1]=
+                        -scale_y*display.from_source[1];
+                    grid.from_source[2]=
+                        scale_x*display.from_source[2];
+                    grid.from_source[3]=
+                        -scale_y*display.from_source[3];
+                    grid.from_source[4]=
+                        scale_x*display.from_source[4];
+                    grid.from_source[5]=scale_y*(
+                        display.height_points-display.from_source[5]);
+                    for(size_t a=0u;a<6u;++a)
+                        CHECK(std::isfinite(grid.from_source[a]));
+                    if(dpi==72u || dpi==96u || dpi==144u){
+                        quantapdf_graph_device_grid admitted{};
+                        OK(quantapdf_graph_page_device_grid(
+                            &geometry,dpi,22000u,70000u,&admitted));
+                        CHECK(admitted.width==grid.width &&
+                              admitted.height==grid.height &&
+                              admitted.stride_bytes==grid.stride_bytes &&
+                              admitted.output_bytes==grid.output_bytes);
+                        for(size_t a=0u;a<6u;++a)
+                            CHECK(admitted.from_source[a]==
+                                  grid.from_source[a]);
+                        ++private_grid_admitted;
+                    }else{
+                        CHECK(dpi==120u || dpi==168u);
+                        quantapdf_graph_device_grid denied{},zero{};
+                        std::memset(&denied,0xa5,sizeof(denied));
+                        std::memset(&zero,0,sizeof(zero));
+                        CHECK(quantapdf_graph_page_device_grid(
+                            &geometry,dpi,22000u,70000u,&denied)==
+                            QUANTAPDF_ERROR_UNSUPPORTED);
+                        CHECK(std::memcmp(
+                            &denied,&zero,sizeof(denied))==0);
+                        ++private_grid_unsupported;
+                    }
 
                     const quantapdf_render_options options={
                         sizeof(quantapdf_render_options),(float)dpi,
@@ -10114,7 +10168,9 @@ static int test_generated_unit7_fill_dpi_heldout(const char *report_path)
             }
     CHECK(source_repeat_count==24u &&
           bitmap_frame_count==120u &&
-          total_pixels==1419168u);
+          total_pixels==1419168u &&
+          private_grid_admitted==72u &&
+          private_grid_unsupported==48u);
     FILE *out=std::fopen(pending.c_str(),"wb");
     CHECK(out!=nullptr);
     std::fprintf(out,
@@ -10130,6 +10186,10 @@ static int test_generated_unit7_fill_dpi_heldout(const char *report_path)
         "  \"quarter_rotation_count\":4,\n"
         "  \"frame_count\":%zu,\n"
         "  \"total_original_pdfium_pixels\":%zu,\n"
+        "  \"private_grid_admitted_dpi_acceptances\":%zu,\n"
+        "  \"private_grid_unadmitted_dpi_refusals\":%zu,\n"
+        "  \"heldout_grid_model_test_only\":true,\n"
+        "  \"dpis_120_168_not_authorized\":true,\n"
         "  \"dpi_order\":[72,96,120,144,168],\n"
         "  \"model_order\":\"fitted_outward,fitted_floor,"
                        "fitted_floor_origin_ceil_extent,"
@@ -10140,7 +10200,8 @@ static int test_generated_unit7_fill_dpi_heldout(const char *report_path)
         "  \"external_native_positive_increment\":0,\n"
         "  \"public_sdk_backend_switched\":false,\n"
         "  \"dpi_totals\":[\n",
-        source_repeat_count,bitmap_frame_count,total_pixels);
+        source_repeat_count,bitmap_frame_count,total_pixels,
+        private_grid_admitted,private_grid_unsupported);
     for(size_t d=0u;d<5u;++d){
         std::fprintf(out,
             "    {\"dpi\":%u,\"pixels\":%zu,\"red_pixels\":%zu,"
