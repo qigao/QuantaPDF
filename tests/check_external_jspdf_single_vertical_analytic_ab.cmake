@@ -1262,6 +1262,49 @@ if(NOT mask_status STREQUAL "measured_unqualified"
 endif()
 message(STATUS
   "jspdf-source-clip-left-fill-bottom: parent_rgb=${lt_abs_rgb_error} trial_rgb=${mask_abs_rgb_error} parent_diff=${lt_changed_pixels} trial_diff=${mask_changed_pixels} source_changes=${mask_source_rgba_changed_pixels} parity=false official=0")
+# TWENTY-THIRD private crossed-source A/B, independent baselines.
+# No rendering code reads this oracle/report; the fields below only
+# validate isolation and protect earlier separate candidate results.
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal stroke_control_abs_rgb_error
+    stroke_control_changed_pixels stroke_control_fnv64
+    mask_control_abs_rgb_error mask_control_changed_pixels
+    mask_control_fnv64 source_alpha_changed_pixels
+    outside_original_source_join saturated_source_regressions
+    alpha_delta_gt64 output_outside_source_alpha
+    fill_source_repeat_differences abs_rgb_error
+    mean_abs_rgb_error changed_pixels gross_delta64_pixels
+    max_channel_delta rgb_fnv64)
+  string(JSON cross_${field} GET "${json}" cross_q8_${field})
+endforeach()
+string(LENGTH "${cross_rgb_fnv64}" cross_digest_length)
+if(NOT cross_status STREQUAL "measured_unqualified"
+   OR cross_default_changed OR cross_pixel_parity_qualified
+   OR NOT cross_repeat_equal
+   OR NOT cross_stroke_control_abs_rgb_error EQUAL 74
+   OR NOT cross_stroke_control_changed_pixels EQUAL 6
+   OR NOT cross_stroke_control_fnv64 STREQUAL "2603f5392dea206f"
+   OR NOT cross_mask_control_abs_rgb_error EQUAL 111
+   OR NOT cross_mask_control_changed_pixels EQUAL 3
+   OR NOT cross_mask_control_fnv64 STREQUAL "1ac92a222d1d1000"
+   OR NOT cross_source_alpha_changed_pixels EQUAL 2
+   OR NOT cross_outside_original_source_join EQUAL 0
+   OR NOT cross_saturated_source_regressions EQUAL 0
+   OR NOT cross_alpha_delta_gt64 EQUAL 0
+   OR NOT cross_output_outside_source_alpha EQUAL 0
+   OR NOT cross_fill_source_repeat_differences EQUAL 0
+   OR cross_abs_rgb_error LESS 0 OR cross_abs_rgb_error GREATER 383901480
+   OR cross_mean_abs_rgb_error LESS 0 OR cross_mean_abs_rgb_error GREATER 255
+   OR cross_changed_pixels LESS 0 OR cross_changed_pixels GREATER 501832
+   OR cross_gross_delta64_pixels LESS 0
+   OR cross_gross_delta64_pixels GREATER cross_changed_pixels
+   OR cross_max_channel_delta LESS 0 OR cross_max_channel_delta GREATER 255
+   OR NOT cross_digest_length EQUAL 16
+   OR NOT cross_rgb_fnv64 MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "Crossed Q8 Stroke + source Clip-mask A/B escaped isolation or changed control")
+endif()
+message(STATUS
+  "jspdf-cross-Q8: stroke_only_rgb=${cross_stroke_control_abs_rgb_error} mask_only_rgb=${cross_mask_control_abs_rgb_error} combined_rgb=${cross_abs_rgb_error} combined_pixels=${cross_changed_pixels} max=${cross_max_channel_delta} source_alpha_changes=${cross_source_alpha_changed_pixels} parity=false official=0")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
