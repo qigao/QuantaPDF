@@ -354,6 +354,24 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      # #269: test-GENERATED original source pixel observations only.
+      # Separate from externally licensed source-conformance counts.
+      - name: Review generated visible-page RGB metrics (Linux)
+        shell: bash
+        run: |
+          cat build/linux-gcc-release/tests/generated-visible-page-rgb-report.json
+          cat build/linux-gcc-debug/tests/generated-visible-page-rgb-report.json
+
+      - name: Upload generated visible-page RGB metrics (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-visible-rgb-linux
+          path: |
+            build/linux-gcc-release/tests/generated-visible-page-rgb-report.json
+            build/linux-gcc-debug/tests/generated-visible-page-rgb-report.json
+          if-no-files-found: error
+          retention-days: 7
+
   macos:
     if: >-
       github.event_name == 'push' ||
@@ -632,6 +650,18 @@ jobs:
           path: build/macos-clang-release/poster-split-output.pdf
           if-no-files-found: error
           retention-days: 1
+
+      - name: Review generated visible-page RGB metrics (macOS)
+        shell: bash
+        run: cat build/macos-clang-release/tests/generated-visible-page-rgb-report.json
+
+      - name: Upload generated visible-page RGB metrics (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-visible-rgb-macos
+          path: build/macos-clang-release/tests/generated-visible-page-rgb-report.json
+          if-no-files-found: error
+          retention-days: 7
 
   windows:
     if: >-
@@ -920,5 +950,17 @@ jobs:
         with:
           name: source-corpus-windows
           path: build/Msvc-Release/tests/native-source-corpus.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review generated visible-page RGB metrics (Windows)
+        shell: pwsh
+        run: Get-Content build/Msvc-Release/tests/generated-visible-page-rgb-report.json
+
+      - name: Upload generated visible-page RGB metrics (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-visible-rgb-windows
+          path: build/Msvc-Release/tests/generated-visible-page-rgb-report.json
           if-no-files-found: error
           retention-days: 7
