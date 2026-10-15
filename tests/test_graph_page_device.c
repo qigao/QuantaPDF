@@ -74,7 +74,7 @@ int main(void)
         mapped(&d,20,80,&x,&y);
         CHECK(close_to(x,0)&&close_to(y,0));
         mapped(&d,120,30,&x,&y);
-        CHECK(close_to(x,100*s)&&close_to(y,50*s));
+        CHECK(close_to(x,(double)d.width)&&close_to(y,(double)d.height));
         for (int rotation=90;rotation<=270;rotation+=90) {
             g.rotation=rotation;
             accepted(g,dpis[n],
@@ -85,10 +85,16 @@ int main(void)
             mapped(&d,20,30,&x,&y);
             if (rotation==90) {
                 CHECK(close_to(x,0)&&close_to(y,0));
+                mapped(&d,120,80,&x,&y);
+                CHECK(close_to(x,(double)d.width)&&close_to(y,(double)d.height));
             } else if (rotation==180) {
-                CHECK(close_to(x,100*s)&&close_to(y,0));
+                CHECK(close_to(x,(double)d.width)&&close_to(y,0));
+                mapped(&d,120,30,&x,&y);
+                CHECK(close_to(x,0)&&close_to(y,(double)d.height));
             } else {
-                CHECK(close_to(x,50*s)&&close_to(y,100*s));
+                CHECK(close_to(x,(double)d.width)&&close_to(y,(double)d.height));
+                mapped(&d,120,80,&x,&y);
+                CHECK(close_to(x,0)&&close_to(y,0));
             }
         }
         for (int k=0;k<2;k++) {
@@ -101,6 +107,23 @@ int main(void)
     {
         quantapdf_graph_page_geometry g=page(0,0,595.28,841.89,1,0);
         accepted(g,72,596,842);
+        {
+            quantapdf_graph_device_grid d;
+            double x,y;
+            CHECK(quantapdf_graph_page_device_grid(&g,72,10000000u,
+                30000000u,&d)==QUANTAPDF_OK);
+            mapped(&d,0,841.89,&x,&y);
+            CHECK(close_to(x,0)&&close_to(y,0));
+            mapped(&d,595.28,0,&x,&y);
+            CHECK(close_to(x,596)&&close_to(y,842));
+            mapped(&d,595.28/2.0,841.89/2.0,&x,&y);
+            CHECK(close_to(x,298)&&close_to(y,421));
+            /* Under fractional extents the actual X/Y bitmap phases differ
+             * from both one another and nominal 72 DPI. */
+            CHECK(d.from_source[0]>1.0 && d.from_source[0]!=1.0);
+            CHECK(d.from_source[3]<-1.0 && d.from_source[3]!=-1.0);
+            CHECK(!close_to(d.from_source[0],-d.from_source[3]));
+        }
         refused(g,120,10000000u,30000000u,QUANTAPDF_ERROR_UNSUPPORTED);
         refused(g,72,100u,30000000u,QUANTAPDF_ERROR_UNSUPPORTED);
         refused(g,72,10000000u,100u,QUANTAPDF_ERROR_UNSUPPORTED);
