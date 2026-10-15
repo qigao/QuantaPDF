@@ -2317,17 +2317,27 @@ int test_external_jspdf_single_vertical_analytic_ab(
         const size_t off=y*bottom_near_fill.stride+x*4u;
         const unsigned old_alpha=top_right_fill.pixels[off+3u];
         const unsigned new_alpha=bottom_near_fill.pixels[off+3u];
-        CHECK(std::memcmp(top_right_fill.pixels+off,
-                          bottom_near_fill.pixels+off,3u)==0);
         CHECK(bottom_near_page.pixels[off+3u]==255u);
         if(old_alpha!=new_alpha) {
             ++bottom_near_changed;
             if(!(y==100u && (x==51u || x==149u)))
                 ++bottom_near_outside;
+            /* A previously transparent BLACK pixel gains actual red
+             * source paint along with new bottom-edge alpha. Other
+             * source cells must be byte-identical to #308 mode9. */
+            CHECK(old_alpha==0u && new_alpha>0u && new_alpha<=3u);
+            CHECK(top_right_fill.pixels[off]==0u &&
+                  top_right_fill.pixels[off+1u]==0u &&
+                  top_right_fill.pixels[off+2u]==0u);
+            CHECK(bottom_near_fill.pixels[off]==255u &&
+                  bottom_near_fill.pixels[off+1u]==0u &&
+                  bottom_near_fill.pixels[off+2u]==0u);
             const unsigned d=new_alpha>old_alpha?
                 new_alpha-old_alpha:old_alpha-new_alpha;
             if(d>3u)++bottom_near_alpha_gt3;
         } else {
+            CHECK(std::memcmp(top_right_fill.pixels+off,
+                              bottom_near_fill.pixels+off,4u)==0);
             for(size_t ch=0u;ch<3u;++ch)
                 if(bottom_near_page.pixels[off+ch]!=top_right_floor.pixels[off+ch])
                     ++bottom_near_rgb_outside;
