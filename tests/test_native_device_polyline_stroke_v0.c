@@ -1560,6 +1560,160 @@ static int test_retraced_outer_q8_phase_sweep(void)
     return EXIT_SUCCESS;
 }
 
+
+/* INDEPENDENT strict C11 source-representation conformance for mode12.
+ * Encode the IDENTICAL absolute path either as direct source points or
+ * as unshifted source points plus an affine TRANSLATION. The signed-area
+ * Q8 preview must not depend on where the translation was represented.
+ * Also prove a near-but-not-exact retrace CANNOT enter the specialized
+ * 2-forward/1-reverse source-topology rule.
+ *
+ * Test fixture geometry deliberately differs from the original jsPDF
+ * coordinates. No PDFium data, original-file hash or user pixel literals
+ * enter the renderer. Page/cell sizes are derived for three DPIs. */
+static int test_retraced_outer_source_translation_and_near_match(void)
+{
+    const float dpis[3]={72.0f,96.0f,144.0f};
+    const quantapdf_point base[7]={
+        {2.0f,8.0f},{20.0f,8.0f},{20.0f,20.0f},
+        {2.0f,20.0f},{2.0f,8.0f},{20.0f,8.0f},
+        {2.0f,8.0f}
+    };
+    size_t differences_total=0u;
+    for(size_t phase=0u;phase<3u;++phase) {
+        fixture direct,translated;
+        quantapdf_composer_path_command direct_cmds[7],source_cmds[7];
+        quantapdf_composer_path_command direct_copy[7],source_copy[7];
+        quantapdf_ir_raster_image direct_parent={0},direct_q8={0};
+        quantapdf_ir_raster_image translated_parent={0},translated_q8={0};
+        quantapdf_ir_raster_image translated_repeat={0};
+        setup(&direct);
+        setup(&translated);
+        memset(direct_cmds,0,sizeof(direct_cmds));
+        memset(source_cmds,0,sizeof(source_cmds));
+        for(size_t i=0u;i<7u;++i) {
+            const quantapdf_composer_path_command_kind kind=
+                i==0u?QUANTAPDF_COMPOSER_PATH_MOVE_TO:
+                      QUANTAPDF_COMPOSER_PATH_LINE_TO;
+            direct_cmds[i].kind=kind;
+            direct_cmds[i].point1=(quantapdf_point){
+                base[i].x+2.0f,base[i].y+1.0f
+            };
+            source_cmds[i].kind=kind;
+            source_cmds[i].point1=base[i];
+        }
+        memcpy(direct_copy,direct_cmds,sizeof(direct_cmds));
+        memcpy(source_copy,source_cmds,sizeof(source_cmds));
+        direct.op.value.path.commands=direct_cmds;
+        translated.op.value.path.commands=source_cmds;
+        direct.op.value.path.command_count=7u;
+        translated.op.value.path.command_count=7u;
+        direct.op.value.path.options.stroke_width=1.0f;
+        translated.op.value.path.options.stroke_width=1.0f;
+        translated.op.value.path.options.transform=
+            (quantapdf_affine_transform){1,0,0,1,2,1};
+        direct.geom.dpi=dpis[phase];
+        translated.geom.dpi=dpis[phase];
+        direct.grid_budget.max_pixels=5000u;
+        direct.grid_budget.max_rgba_bytes=20000u;
+        direct.grid_budget.max_edges=96u;
+        direct.grid_budget.max_sample_tests=10000000u;
+        direct.raster_budget.max_pixels=5000u;
+        direct.raster_budget.max_edges=96u;
+        direct.raster_budget.max_sample_tests=10000000u;
+        translated.grid_budget=direct.grid_budget;
+        translated.raster_budget=direct.raster_budget;
+        OK(quantapdf_ir_raster_device_polyline_stroke_q8_vh_exterior_preview_v0(
+            &direct.ir,0u,&direct.geom,&direct.grid_budget,
+            &direct.raster_budget,&direct_parent));
+        OK(quantapdf_ir_raster_device_polyline_stroke_q8_vh_exterior_preview_v0(
+            &translated.ir,0u,&translated.geom,&translated.grid_budget,
+            &translated.raster_budget,&translated_parent));
+        OK(quantapdf_ir_raster_device_polyline_stroke_q8_retrace_outer_area_preview_v0(
+            &direct.ir,0u,&direct.geom,&direct.grid_budget,
+            &direct.raster_budget,&direct_q8));
+        OK(quantapdf_ir_raster_device_polyline_stroke_q8_retrace_outer_area_preview_v0(
+            &translated.ir,0u,&translated.geom,&translated.grid_budget,
+            &translated.raster_budget,&translated_q8));
+        OK(quantapdf_ir_raster_device_polyline_stroke_q8_retrace_outer_area_preview_v0(
+            &translated.ir,0u,&translated.geom,&translated.grid_budget,
+            &translated.raster_budget,&translated_repeat));
+        CHECK(direct_parent.pixels && direct_q8.pixels &&
+              translated_parent.pixels && translated_q8.pixels &&
+              translated_repeat.pixels &&
+              direct_parent.size==direct_q8.size &&
+              translated_parent.size==direct_parent.size &&
+              translated_q8.size==direct_q8.size &&
+              translated_repeat.size==translated_q8.size &&
+              memcmp(direct_parent.pixels,translated_parent.pixels,
+                     direct_parent.size)==0 &&
+              memcmp(direct_q8.pixels,translated_q8.pixels,
+                     direct_q8.size)==0 &&
+              memcmp(translated_repeat.pixels,translated_q8.pixels,
+                     translated_q8.size)==0);
+        CHECK(memcmp(direct_cmds,direct_copy,sizeof(direct_cmds))==0 &&
+              memcmp(source_cmds,source_copy,sizeof(source_cmds))==0);
+        const double dx=32.5/(double)direct_q8.width;
+        const double dy=24.75/(double)direct_q8.height;
+        const size_t joint_x=(size_t)floor(22.0/dx);
+        const size_t upper_y=(size_t)floor(9.0/dy)-1u;
+        CHECK(joint_x<direct_q8.width && upper_y<direct_q8.height);
+        for(size_t y=0u;y<direct_q8.height;++y)
+            for(size_t x=0u;x<direct_q8.width;++x) {
+                const size_t off=y*direct_q8.stride+x*4u;
+                CHECK(memcmp(direct_parent.pixels+off,
+                             direct_q8.pixels+off,3u)==0);
+                if(direct_parent.pixels[off+3u]!=
+                   direct_q8.pixels[off+3u]) {
+                    CHECK(x==joint_x && y==upper_y &&
+                          direct_parent.pixels[off+3u]<255u);
+                    ++differences_total;
+                }
+            }
+        fprintf(stderr,
+            "[source-Q8 equivalent affine translation] dpi=%u "
+            "device=%zux%zu exact_bytes=%zu source_unchanged=true\n",
+            (unsigned)dpis[phase],direct_q8.width,direct_q8.height,
+            direct_q8.size);
+        quantapdf_ir_raster_image_dispose(&translated_repeat);
+        quantapdf_ir_raster_image_dispose(&translated_q8);
+        quantapdf_ir_raster_image_dispose(&direct_q8);
+        quantapdf_ir_raster_image_dispose(&translated_parent);
+        quantapdf_ir_raster_image_dispose(&direct_parent);
+    }
+    CHECK(differences_total>0u);
+
+    /* Source-near retrace is NOT an exact repeated traversal. The
+     * specialized signed-area correction must refuse admission without
+     * changing any byte of its already-qualified mode11 predecessor. */
+    fixture f;
+    quantapdf_composer_path_command cmds[7];
+    quantapdf_ir_raster_image parent={0},trial={0};
+    setup(&f);
+    memset(cmds,0,sizeof(cmds));
+    for(size_t i=0u;i<7u;++i) {
+        cmds[i].kind=i==0u?QUANTAPDF_COMPOSER_PATH_MOVE_TO:
+                              QUANTAPDF_COMPOSER_PATH_LINE_TO;
+        cmds[i].point1=base[i];
+    }
+    cmds[6].point1.x=2.125f; /* reverse edge misses original LEFT end */
+    f.op.value.path.commands=cmds;
+    f.op.value.path.command_count=7u;
+    f.op.value.path.options.stroke_width=1.0f;
+    f.grid_budget.max_edges=96u;
+    f.raster_budget.max_edges=96u;
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_vh_exterior_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&parent));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_retrace_outer_area_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+    CHECK(parent.pixels && trial.pixels &&
+          parent.size==trial.size &&
+          memcmp(parent.pixels,trial.pixels,parent.size)==0);
+    quantapdf_ir_raster_image_dispose(&trial);
+    quantapdf_ir_raster_image_dispose(&parent);
+    return EXIT_SUCCESS;
+}
+
 static int test_pixel_width_and_rejections(void)
 {
     fixture f;
@@ -1620,6 +1774,7 @@ int main(void)
     CHECK(test_vh_retrace_exterior_q8()==EXIT_SUCCESS);
     CHECK(test_q8_retraced_outer_signed_area()==EXIT_SUCCESS);
     CHECK(test_retraced_outer_q8_phase_sweep()==EXIT_SUCCESS);
+    CHECK(test_retraced_outer_source_translation_and_near_match()==EXIT_SUCCESS);
     CHECK(test_pixel_width_and_rejections()==EXIT_SUCCESS);
     puts("native-device-polyline-stroke: butt+miter+bevel+union+limits PASS");
     return EXIT_SUCCESS;
