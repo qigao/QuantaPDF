@@ -72,11 +72,11 @@ int main(void)
                 10000000u,30000000u,&d)==QUANTAPDF_OK);
             mapped(&d,20,30,&x,&y);
             if (rotation==90) {
-                assert(close_to(x,0)&&close_to(y,0));
+                assert(close_to(x,0)&&close_to(y,100*s));
             } else if (rotation==180) {
                 assert(close_to(x,100*s)&&close_to(y,0));
             } else {
-                assert(close_to(x,50*s)&&close_to(y,100*s));
+                assert(close_to(x,50*s)&&close_to(y,0));
             }
         }
         for (int k=0;k<2;k++) {
