@@ -14,7 +14,7 @@ This child uses **24 original sources**, formed by three Fill-only source rectan
 - 5×4 held-out source Fill: `1 0 0 rg 4 5 5 4 re f`
 - Fractional 5.625×3.375 source Fill: `1 0 0 rg 4.125 5.125 5.625 3.375 re f`
 
-The same source PDF is evaluated at **72, 96, 120, 144, and 168 DPI**, producing 24×5 = **120 bounded original-PDFium images** totaling **1,419,168 RGB pixels**. All dimensions are independently predicted from the existing Graph device grid before accepting a reference bitmap; the maximum single image remains only 164×131 (21,484 pixels). For 90°/270° the axes swap. No alternate raster or large allocation is used.
+The same source PDF is evaluated at **72, 96, 120, 144, and 168 DPI**, producing 24×5 = **120 bounded original-PDFium images** totaling **1,419,168 RGB pixels**. All dimensions are independently predicted from bounded Graph **page-display geometry** before accepting an original PDFium reference bitmap. The existing private Device Grid v0 API admits only 72/96/144 DPI: those three modes must match the independent numerical projection exactly. For held-out 120/168 DPI the private API must return `UNSUPPORTED` with a completely zeroed output grid, while a separately bounded **test-only numeric projection** from the existing page-display affine is compared to PDFium. This does not authorize native 120/168 DPI rendering. The maximum single reference image remains only 164×131 (21,484 pixels). For 90°/270° the axes swap. No alternate raster or large allocation is used.
 
 | DPI | Expected unrotated width×height | Source image pixels |
 |---|---:|---:|
@@ -26,7 +26,7 @@ The same source PDF is evaluated at **72, 96, 120, 144, and 168 DPI**, producing
 
 ## Numerically compared alternative hypotheses
 
-The original source-space rectangle's four corners are independently transformed through (A) the qualified bitmap-fitted Source→Device grid and (B) the existing Graph Source→visible-page affine at nominal DPI/72, with the necessary PDF Y-to-device Y inversion. Only values already within 1e-9 of an integer are stabilized against a one-ULP decimal parser result; nothing silently changes original geometry.
+The original source-space rectangle's four corners are independently transformed through (A) the qualified bitmap-fitted Source→Device grid for the three admitted DPIs, or the identical **test-only bounded numeric extension** of that affine for the two rejected DPIs, and (B) the existing Graph Source→visible-page affine at nominal DPI/72, with the necessary PDF Y-to-device Y inversion. Only values already within 1e-9 of an integer are stabilized against a one-ULP decimal parser result; nothing silently changes original geometry.
 
 Five **test-only integer bbox candidates**, copied from #357, are measured against original PDFium opaque red bounding boxes at each DPI:
 
@@ -38,7 +38,7 @@ Five **test-only integer bbox candidates**, copied from #357, are measured again
 
 Each original PDFium frame is scanned for exactly opaque red pixels, white background pixels, partially covered green pixels, and any non-red/white RGB. Record the actual observed red bbox and whether it is a complete **binary** red rectangle; do **not** assume every DPI has no antialiasing. The five candidate bboxes are compared to the observed original red bbox, reporting exact matches and summed four-edge absolute integer error **separately per DPI**. No candidate is privileged for acceptance.
 
-CTest must validate the 24 immutable source checks, 120 bitmap frames, source-byte and per-DPI bitmap repeat identity, explicit dimension/pixel limits, content/rotation/crop identity, all five observed per-frame model values, and independent per-DPI aggregate reconciliation. Linux Release, Linux ASan/UBSan, Windows, and macOS archive original JSONs; a missing, partial or stale artifact fails.
+CTest must validate the 24 immutable source checks, 120 bitmap frames, source-byte and per-DPI bitmap repeat identity, **72 admitted private grid calculations and 48 fail-closed unsupported-DPI zero-output rejections**, explicit dimension/pixel limits, content/rotation/crop identity, all five observed per-frame model values, and independent per-DPI aggregate reconciliation. Linux Release, Linux ASan/UBSan, Windows, and macOS archive original JSONs; a missing, partial or stale artifact fails.
 
 Interpretation: If an origin/extent rule fits some DPIs but fails at held-out DPIs for the **same source PDF bytes**, this distinguishes scale-dependent integer quantization from a single fixed source-space vertex snapping contract. Exact bounds on test-generated rectangles still do not prove correct PDFium edge antialiasing or general painted Path/Clip rendering compatibility. **This is an observation, not permission to rewrite the already qualified Graph→Composer affine or private C11 Q4 Raster.**
 
