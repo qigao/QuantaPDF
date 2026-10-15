@@ -55,7 +55,7 @@ endforeach()
 # no hardcoded assumptions about which limit is exhausted across platforms.
 foreach(field IN ITEMS graph_node_count graph_edge_count
     graph_model_bytes graph_owner_storage_bytes)
-  if(NOT report MATCHES "\"\${field}\": ([0-9]+)")
+  if(NOT report MATCHES "\"${field}\": ([0-9]+)")
     message(FATAL_ERROR "Missing Graph budget metric: ${field}")
   endif()
   if(NOT CMAKE_MATCH_1 GREATER 0)
