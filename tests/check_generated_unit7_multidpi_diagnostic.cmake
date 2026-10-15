@@ -36,6 +36,8 @@ foreach(field IN ITEMS
   "\"dpi144_pixel_parity\":\"diagnostic_only\""
   "\"analytic_coverage_test_only\":true"
   "\"quantum_ledger_diagnostic_only\":true"
+  "\"integer_snap_test_only\":true"
+  "\"integer_snap_policy_order\":\"nearest,floor,ceil,outward,inward\""
   "\"external_original_provenance_verified\":false"
   "\"external_native_positive_increment\":0"
   "\"public_sdk_backend_switched\":false")
@@ -69,6 +71,8 @@ set(chroma96 0)
 set(changed96 0)
 foreach(edge RANGE 0 4)
   set(edgesum_${edge} 0)
+  set(snap_abs_${edge} 0)
+  set(snap_different_${edge} 0)
 endforeach()
 set(exact72 0)
 foreach(index RANGE 0 11)
@@ -94,17 +98,28 @@ foreach(index RANGE 0 11)
   string(JSON nativemore GET "${report}" frames ${index} native_more_red_pixels)
   string(JSON chroma GET "${report}" frames ${index} pdfium_chroma_mismatch_pixels)
   string(JSON edgelength LENGTH "${report}" frames ${index} edge_diff_pixels)
-  if(NOT edgelength EQUAL 5)
-    message(FATAL_ERROR "Expected five disjoint 96DPI theoretical edge groups")
+  string(JSON snap_abs_length LENGTH "${report}" frames ${index} integer_snap_abs_rgb)
+  string(JSON snap_diff_length LENGTH "${report}" frames ${index} integer_snap_differing_pixels)
+  if(NOT edgelength EQUAL 5 OR
+     NOT snap_abs_length EQUAL 5 OR NOT snap_diff_length EQUAL 5)
+    message(FATAL_ERROR "Expected five disjoint edge and candidate snap bins")
   endif()
   set(frame_edges 0)
   foreach(edge RANGE 0 4)
     string(JSON edgecount GET "${report}" frames ${index} edge_diff_pixels ${edge})
+    string(JSON snaperror GET "${report}" frames ${index} integer_snap_abs_rgb ${edge})
+    string(JSON snapchanged GET "${report}" frames ${index} integer_snap_differing_pixels ${edge})
     math(EXPR frame_edges "${frame_edges}+${edgecount}")
     if(dpi EQUAL 96)
       math(EXPR edgesum_${edge} "${edgesum_${edge}}+${edgecount}")
-    elseif(NOT edgecount EQUAL 0)
-      message(FATAL_ERROR "Non-96DPI edge ledger unexpectedly enabled")
+      math(EXPR snap_abs_${edge} "${snap_abs_${edge}}+${snaperror}")
+      math(EXPR snap_different_${edge} "${snap_different_${edge}}+${snapchanged}")
+      if(snapchanged GREATER pixels OR snaperror GREATER pixels*765)
+        message(FATAL_ERROR "Snap candidate error budget cannot exceed RGB extent")
+      endif()
+    elseif(NOT edgecount EQUAL 0 OR
+           NOT snaperror EQUAL 0 OR NOT snapchanged EQUAL 0)
+      message(FATAL_ERROR "Non-96DPI edge/snap ledger unexpectedly enabled")
     endif()
   endforeach()
   math(EXPR rindex "${index} / 3")
@@ -244,6 +259,23 @@ math(EXPR classified "${all_edges}+${far96}")
 if(NOT classified EQUAL changed96)
   message(FATAL_ERROR "96DPI every changed pixel must be classified")
 endif()
+foreach(kind IN ITEMS "dpi96_integer_snap_abs_rgb" "dpi96_integer_snap_differing_pixels")
+  string(JSON count LENGTH "${report}" ${kind})
+  if(NOT count EQUAL 5)
+    message(FATAL_ERROR "Expected exactly five finite integer snap policies")
+  endif()
+  foreach(edge RANGE 0 4)
+    string(JSON observed GET "${report}" ${kind} ${edge})
+    if(kind STREQUAL "dpi96_integer_snap_abs_rgb")
+      set(want "${snap_abs_${edge}}")
+    else()
+      set(want "${snap_different_${edge}}")
+    endif()
+    if(NOT observed EQUAL want)
+      message(FATAL_ERROR "Snap policy total does not match source frame ledger")
+    endif()
+  endforeach()
+endforeach()
 message(STATUS
   "12 test-generated ORIGINAL unit7 frames; 72DPI 4/4 exact RGB; "
   "96DPI raster absRGB=${sum96}, fitted analytic=${fit96}, "
@@ -252,4 +284,6 @@ message(STATUS
   "96DPI Q4 native absRGB=${q4native96}, PDFium absRGB=${q4pdfium96}, "
   "PDFium off-Q4 green distance=${q4quantum96}, "
   "edge bins=${edgesum_0}/${edgesum_1}/${edgesum_2}/${edgesum_3}/${edgesum_4}; "
+  "96DPI finite integer-snap absRGB nearest/floor/ceil/out/in="
+  "${snap_abs_0}/${snap_abs_1}/${snap_abs_2}/${snap_abs_3}/${snap_abs_4}; "
   "all high-DPI results DIAGNOSTIC")
