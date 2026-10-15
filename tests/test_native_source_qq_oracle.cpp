@@ -9829,8 +9829,374 @@ static int test_generated_unit7_fill_extent_heldout(
     return EXIT_SUCCESS;
 }
 
+
+/* #269: keep each QPDF-generated original source fixed while varying
+ * the *original PDFium* raster DPI. This is separate from the existing
+ * 96DPI Fill-source tests and never invokes a C11 production renderer.
+ * The source document closes before Graph observations; Graph closes
+ * before PDFium access; every source byte stream is unchanged on exit. */
+static int test_generated_unit7_fill_dpi_heldout(const char *report_path)
+{
+    CHECK(report_path!=nullptr && *report_path);
+    const char *source_path=GENERATED_UNIT7_FILL_DPI_PDF;
+    const std::string pending=std::string(report_path)+".tmp";
+    CHECK(source_path!=nullptr && *source_path &&
+          std::strcmp(source_path,report_path)!=0 &&
+          pending!=source_path);
+    const unsigned dpis[5]={72u,96u,120u,144u,168u};
+    const uint32_t horizontal[5]={70u,94u,117u,140u,164u};
+    const uint32_t vertical[5]={56u,75u,94u,112u,131u};
+    const unsigned content_ids[3]={1u,3u,5u};
+    const char *content_names[3]={
+        "source_six_by_four","heldout_five_by_four",
+        "heldout_fractional_five625_by_three375"
+    };
+    const unsigned crop_ids[2]={0u,3u};
+    const double expected_crops[2][4]={
+        {2.0,3.0,12.0,11.0},
+        {2.375,3.375,12.375,11.375}
+    };
+    const double fill_rects[3][4]={
+        {4.0,5.0,6.0,4.0},
+        {4.0,5.0,5.0,4.0},
+        {4.125,5.125,5.625,3.375}
+    };
+    struct frame {
+        unsigned shape=0u,crop=0u,dpi=0u;
+        int rotation=0;
+        uint32_t width=0u,height=0u;
+        size_t red_count=0u,partial_green=0u,other_rgb=0u;
+        int binary_rect=0;
+        int observed_bbox[4]={0,0,0,0};
+        int candidates[5][4]={{0}};
+        size_t error[5]={0u};
+    } records[120]={};
+    size_t source_repeat_count=0u,bitmap_frame_count=0u;
+    size_t total_pixels=0u;
+    size_t per_dpi_pixels[5]={0u},per_dpi_red[5]={0u};
+    size_t per_dpi_partial[5]={0u},per_dpi_non_redwhite[5]={0u};
+    size_t per_dpi_binary[5]={0u};
+    size_t per_dpi_exact[5][5]={{0u}},per_dpi_error[5][5]={{0u}};
+    const auto file_bytes=[](const char *name){
+        FILE *stream=std::fopen(name,"rb");
+        CHECK(stream!=nullptr && std::fseek(stream,0,SEEK_END)==0);
+        const long size=std::ftell(stream);
+        CHECK(size>0 && size<=65536 &&
+              std::fseek(stream,0,SEEK_SET)==0);
+        std::vector<unsigned char> contents((size_t)size);
+        CHECK(std::fread(contents.data(),1,contents.size(),stream)==
+              contents.size());
+        CHECK(std::fclose(stream)==0);
+        return contents;
+    };
+    const auto stable=[](double value){
+        const double nearest=std::round(value);
+        return std::fabs(value-nearest)<1e-9?nearest:value;
+    };
+    for(unsigned shape=0u;shape<3u;++shape)
+        for(unsigned crop_slot=0u;crop_slot<2u;++crop_slot)
+            for(int rotation=0;rotation<360;rotation+=90){
+                write_single_w_visible_page(
+                    rotation,7,source_path,crop_ids[crop_slot],
+                    content_ids[shape]);
+                const std::vector<unsigned char> original=
+                    file_bytes(source_path);
+                quantapdf_document *source_doc=nullptr;
+                quantapdf_graph_snapshot *snapshot=nullptr;
+                OK(quantapdf_open(source_path,nullptr,&source_doc));
+                OK(quantapdf_document_capture_graph(
+                    source_doc,&graph_limits,&snapshot));
+                quantapdf_close(source_doc);
+                CHECK(snapshot!=nullptr && snapshot->graph!=nullptr);
+                const quantapdf_graph_model *model=
+                    quantapdf_graph_view(snapshot->graph);
+                CHECK(model!=nullptr && model->page_count==1u);
+                quantapdf_graph_page_geometry geometry{};
+                OK(quantapdf_graph_query_page_geometry(
+                    snapshot->graph,0u,4u,&geometry));
+                CHECK(geometry.rotation==rotation &&
+                      geometry.user_unit==7.0 &&
+                      geometry.media_box[0]==0.0 &&
+                      geometry.media_box[1]==0.0 &&
+                      geometry.media_box[2]==20.0 &&
+                      geometry.media_box[3]==30.0);
+                for(size_t component=0u;component<4u;++component)
+                    CHECK(std::isfinite(geometry.crop_box[component]) &&
+                          std::fabs(
+                              geometry.crop_box[component]-
+                              expected_crops[crop_slot][component])<1e-9);
+                quantapdf_graph_page_display display{};
+                OK(quantapdf_graph_page_display_map(&geometry,&display));
+                quantapdf_graph_snapshot_drop(snapshot);
+                const size_t source_index=(size_t)shape*8u+
+                    (size_t)crop_slot*4u+(size_t)rotation/90u;
+                quantapdf_document *reference_doc=nullptr;
+                quantapdf_page *reference_page=nullptr;
+                OK(quantapdf_open(source_path,nullptr,&reference_doc));
+                OK(quantapdf_load_page(reference_doc,0u,&reference_page));
+                for(size_t dpi_slot=0u;dpi_slot<5u;++dpi_slot){
+                    const unsigned dpi=dpis[dpi_slot];
+                    const uint32_t width=rotation%180==0?
+                        horizontal[dpi_slot]:vertical[dpi_slot];
+                    const uint32_t height=rotation%180==0?
+                        vertical[dpi_slot]:horizontal[dpi_slot];
+                    const size_t pixels=(size_t)width*(size_t)height;
+                    CHECK(pixels>0u && pixels<=22000u);
+                    quantapdf_graph_device_grid grid{};
+                    OK(quantapdf_graph_page_device_grid(
+                        &geometry,dpi,22000u,70000u,&grid));
+                    CHECK(grid.width==width && grid.height==height &&
+                          grid.output_bytes==pixels*3u);
+
+                    const quantapdf_render_options options={
+                        sizeof(quantapdf_render_options),(float)dpi,
+                        0.0f,0,{0},0
+                    };
+                    quantapdf_bitmap *reference=nullptr,*again=nullptr;
+                    OK(quantapdf_render_page_with_options(
+                        reference_page,&options,&reference));
+                    OK(quantapdf_render_page_with_options(
+                        reference_page,&options,&again));
+                    CHECK(reference!=nullptr && again!=nullptr);
+                    int w=0,h=0,stride=0,components=0;
+                    int rw=0,rh=0,rs=0,rc=0;
+                    OK(quantapdf_bitmap_dimensions(
+                        reference,&w,&h,&stride,&components));
+                    OK(quantapdf_bitmap_dimensions(
+                        again,&rw,&rh,&rs,&rc));
+                    CHECK(w==(int)width && h==(int)height &&
+                          components==3 && stride>=w*3 &&
+                          stride<=w*3+4 &&
+                          rw==w && rh==h && rs==stride && rc==components);
+                    const unsigned char *bitmap=nullptr,*repeated=nullptr;
+                    size_t size=0u,repeated_size=0u;
+                    OK(quantapdf_bitmap_data(reference,&bitmap,&size));
+                    OK(quantapdf_bitmap_data(
+                        again,&repeated,&repeated_size));
+                    CHECK(bitmap!=nullptr && repeated!=nullptr &&
+                          size==(size_t)stride*height &&
+                          repeated_size==size &&
+                          std::memcmp(bitmap,repeated,size)==0);
+                    const size_t row_index=source_index*5u+dpi_slot;
+                    auto& row=records[row_index];
+                    row.shape=shape;
+                    row.crop=crop_ids[crop_slot];
+                    row.dpi=dpi;
+                    row.rotation=rotation;
+                    row.width=width;
+                    row.height=height;
+                    int left=(int)width,top=(int)height;
+                    int right=-1,bottom=-1;
+                    for(size_t y=0u;y<height;++y)
+                        for(size_t x=0u;x<width;++x){
+                            const unsigned char *rgb=
+                                bitmap+y*(size_t)stride+3u*x;
+                            const bool red=rgb[0]==255u &&
+                                rgb[1]==0u && rgb[2]==0u;
+                            const bool white=rgb[0]==255u &&
+                                rgb[1]==255u && rgb[2]==255u;
+                            if(red){
+                                ++row.red_count;
+                                left=std::min(left,(int)x);
+                                right=std::max(right,(int)x);
+                                top=std::min(top,(int)y);
+                                bottom=std::max(bottom,(int)y);
+                            }
+                            if(rgb[1]>0u && rgb[1]<255u)
+                                ++row.partial_green;
+                            if(!red && !white)
+                                ++row.other_rgb;
+                        }
+                    CHECK(row.red_count>0u && row.red_count<=pixels &&
+                          left>=0 && top>=0 && right>=left &&
+                          bottom>=top && right<w && bottom<h);
+                    row.observed_bbox[0]=left;
+                    row.observed_bbox[1]=top;
+                    row.observed_bbox[2]=right+1;
+                    row.observed_bbox[3]=bottom+1;
+                    const size_t rectangle_area=
+                        (size_t)(right+1-left)*(size_t)(bottom+1-top);
+                    CHECK(rectangle_area>=row.red_count &&
+                          rectangle_area<=pixels);
+                    row.binary_rect=(row.other_rgb==0u &&
+                        rectangle_area==row.red_count)?1:0;
+
+                    double fit[4]={1e100,1e100,-1e100,-1e100};
+                    double nominal[4]={1e100,1e100,-1e100,-1e100};
+                    for(unsigned corner=0u;corner<4u;++corner){
+                        const double x=fill_rects[shape][0]+
+                            ((corner&1u)?fill_rects[shape][2]:0.0);
+                        const double y=fill_rects[shape][1]+
+                            ((corner&2u)?fill_rects[shape][3]:0.0);
+                        const double fx=grid.from_source[0]*x+
+                            grid.from_source[2]*y+grid.from_source[4];
+                        const double fy=grid.from_source[1]*x+
+                            grid.from_source[3]*y+grid.from_source[5];
+                        const double vx=display.from_source[0]*x+
+                            display.from_source[2]*y+display.from_source[4];
+                        const double vy=display.from_source[1]*x+
+                            display.from_source[3]*y+display.from_source[5];
+                        const double nx=vx*(double)dpi/72.0;
+                        const double ny=(display.height_points-vy)*
+                            (double)dpi/72.0;
+                        CHECK(std::isfinite(fx) && std::isfinite(fy) &&
+                              std::isfinite(nx) && std::isfinite(ny));
+                        fit[0]=std::min(fit[0],fx);
+                        fit[1]=std::min(fit[1],fy);
+                        fit[2]=std::max(fit[2],fx);
+                        fit[3]=std::max(fit[3],fy);
+                        nominal[0]=std::min(nominal[0],nx);
+                        nominal[1]=std::min(nominal[1],ny);
+                        nominal[2]=std::max(nominal[2],nx);
+                        nominal[3]=std::max(nominal[3],ny);
+                    }
+                    for(size_t edge=0u;edge<4u;++edge){
+                        fit[edge]=stable(fit[edge]);
+                        nominal[edge]=stable(nominal[edge]);
+                    }
+                    const auto low=[](double value){
+                        return (int)std::floor(value);
+                    };
+                    const auto high=[](double value){
+                        return (int)std::ceil(value);
+                    };
+                    const auto nearest=[](double value){
+                        return (int)std::floor(value+0.5);
+                    };
+                    for(size_t axis=0u;axis<2u;++axis){
+                        const size_t lo=axis,hi=axis+2u;
+                        row.candidates[0][lo]=low(fit[lo]);
+                        row.candidates[0][hi]=high(fit[hi]);
+                        row.candidates[1][lo]=low(fit[lo]);
+                        row.candidates[1][hi]=low(fit[hi]);
+                        row.candidates[2][lo]=low(fit[lo]);
+                        row.candidates[2][hi]=
+                            row.candidates[2][lo]+high(stable(
+                                fit[hi]-fit[lo]));
+                        row.candidates[3][lo]=nearest(fit[lo]);
+                        row.candidates[3][hi]=
+                            row.candidates[3][lo]+high(stable(
+                                fit[hi]-fit[lo]));
+                        row.candidates[4][lo]=low(nominal[lo]);
+                        row.candidates[4][hi]=high(nominal[hi]);
+                    }
+                    for(size_t rule=0u;rule<5u;++rule){
+                        const int *edges=row.candidates[rule];
+                        CHECK(edges[0]>=0 && edges[1]>=0 &&
+                              edges[2]>(int)edges[0] &&
+                              edges[3]>(int)edges[1] &&
+                              edges[2]<=(int)width &&
+                              edges[3]<=(int)height);
+                        size_t error=0u;
+                        for(size_t edge=0u;edge<4u;++edge)
+                            error+=(size_t)std::abs(
+                                row.observed_bbox[edge]-edges[edge]);
+                        row.error[rule]=error;
+                        per_dpi_error[dpi_slot][rule]+=error;
+                        if(error==0u)
+                            ++per_dpi_exact[dpi_slot][rule];
+                    }
+                    total_pixels+=pixels;
+                    per_dpi_pixels[dpi_slot]+=pixels;
+                    per_dpi_red[dpi_slot]+=row.red_count;
+                    per_dpi_partial[dpi_slot]+=row.partial_green;
+                    per_dpi_non_redwhite[dpi_slot]+=row.other_rgb;
+                    per_dpi_binary[dpi_slot]+=(size_t)row.binary_rect;
+                    ++bitmap_frame_count;
+                    quantapdf_drop_bitmap(again);
+                    quantapdf_drop_bitmap(reference);
+                }
+                quantapdf_drop_page(reference_page);
+                quantapdf_close(reference_doc);
+                CHECK(file_bytes(source_path)==original);
+                ++source_repeat_count;
+                CHECK(std::remove(source_path)==0);
+            }
+    CHECK(source_repeat_count==24u &&
+          bitmap_frame_count==120u &&
+          total_pixels==1419168u);
+    FILE *out=std::fopen(pending.c_str(),"wb");
+    CHECK(out!=nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\":1,\n"
+        "  \"source_kind\":\"test_generated_original_pdf\",\n"
+        "  \"source_producer\":\"test_owned_qpdf_writer\",\n"
+        "  \"source_files\":24,\n"
+        "  \"source_byte_repeat_count\":%zu,\n"
+        "  \"dpi_count\":5,\n"
+        "  \"shape_count\":3,\n"
+        "  \"crop_variant_count\":2,\n"
+        "  \"quarter_rotation_count\":4,\n"
+        "  \"frame_count\":%zu,\n"
+        "  \"total_original_pdfium_pixels\":%zu,\n"
+        "  \"dpi_order\":[72,96,120,144,168],\n"
+        "  \"model_order\":\"fitted_outward,fitted_floor,"
+                       "fitted_floor_origin_ceil_extent,"
+                       "fitted_nearest_origin_ceil_extent,nominal_outward\",\n"
+        "  \"pdfium_dpi_original_source_only\":true,\n"
+        "  \"native_raster\":\"not_run\",\n"
+        "  \"external_original_provenance_verified\":false,\n"
+        "  \"external_native_positive_increment\":0,\n"
+        "  \"public_sdk_backend_switched\":false,\n"
+        "  \"dpi_totals\":[\n",
+        source_repeat_count,bitmap_frame_count,total_pixels);
+    for(size_t d=0u;d<5u;++d){
+        std::fprintf(out,
+            "    {\"dpi\":%u,\"pixels\":%zu,\"red_pixels\":%zu,"
+            "\"partial_green_pixels\":%zu,\"non_redwhite_pixels\":%zu,"
+            "\"binary_rectangles\":%zu,"
+            "\"model_exact_matches\":[%zu,%zu,%zu,%zu,%zu],"
+            "\"model_abs_edge_errors\":[%zu,%zu,%zu,%zu,%zu]}%s\n",
+            dpis[d],per_dpi_pixels[d],per_dpi_red[d],
+            per_dpi_partial[d],per_dpi_non_redwhite[d],
+            per_dpi_binary[d],
+            per_dpi_exact[d][0],per_dpi_exact[d][1],
+            per_dpi_exact[d][2],per_dpi_exact[d][3],
+            per_dpi_exact[d][4],
+            per_dpi_error[d][0],per_dpi_error[d][1],
+            per_dpi_error[d][2],per_dpi_error[d][3],
+            per_dpi_error[d][4],
+            d==4u?"":",");
+    }
+    std::fprintf(out,"  ],\n  \"frames\":[\n");
+    for(size_t i=0u;i<120u;++i){
+        const auto& v=records[i];
+        std::fprintf(out,
+            "    {\"shape_id\":%u,\"shape\":\"%s\","
+            "\"crop_variant\":%u,\"rotation\":%d,\"dpi\":%u,"
+            "\"width\":%u,\"height\":%u,\"red_pixels\":%zu,"
+            "\"partial_green_pixels\":%zu,\"non_redwhite_pixels\":%zu,"
+            "\"binary_rectangle\":%d,"
+            "\"observed_bbox\":[%d,%d,%d,%d],\"model_bboxes\":[",
+            v.shape,content_names[v.shape],v.crop,v.rotation,v.dpi,
+            v.width,v.height,v.red_count,v.partial_green,
+            v.other_rgb,v.binary_rect,
+            v.observed_bbox[0],v.observed_bbox[1],
+            v.observed_bbox[2],v.observed_bbox[3]);
+        for(size_t m=0u;m<5u;++m){
+            const int *e=v.candidates[m];
+            std::fprintf(out,"[%d,%d,%d,%d]%s",
+                e[0],e[1],e[2],e[3],m==4u?"":",");
+        }
+        std::fprintf(out,
+            "],\"model_abs_edge_error\":[%zu,%zu,%zu,%zu,%zu]}%s\n",
+            v.error[0],v.error[1],v.error[2],v.error[3],
+            v.error[4],i==119u?"":",");
+    }
+    std::fprintf(out,"  ]\n}\n");
+    CHECK(std::ferror(out)==0 && std::fclose(out)==0);
+    CHECK(std::rename(pending.c_str(),report_path)==0);
+    CHECK(corpus_fixture_executions==0u);
+    return EXIT_SUCCESS;
+}
+
 int main(int argc,char **argv)
 {
+    if(argc==4 &&
+       std::strcmp(argv[1],"--generated-unit7-fill-dpi-heldout")==0 &&
+       std::strcmp(argv[2],"--fill-dpi-report")==0)
+        return test_generated_unit7_fill_dpi_heldout(argv[3]);
     if(argc==4 &&
        std::strcmp(argv[1],"--generated-unit7-fill-extent-heldout")==0 &&
        std::strcmp(argv[2],"--fill-extent-report")==0)
