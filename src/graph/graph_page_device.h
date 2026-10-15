@@ -10,6 +10,9 @@
  * directly into device Y-down coordinates (pixel edges, not pixel centers).
  * Inputs are the selected Graph geometry and explicit caller limits.
  * A consumer samples pixel (i,j) at (i+0.5,j+0.5).
+ * DPI chooses ceil(width_points * DPI/72) and ceil(height_points * DPI/72).
+ * Affine scales then use those EXACT integer bitmap extents divided by
+ * the unrounded displayed-page width/height, independently for X and Y.
  * Only 72, 96 and 144 DPI and RGB8 (3 bytes/pixel) are admitted in v0.
  */
 typedef struct quantapdf_graph_device_grid {
