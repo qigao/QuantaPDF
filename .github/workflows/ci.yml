@@ -381,6 +381,7 @@ jobs:
             cat "$configuration/tests/external-pypdf-rotcrop-raw-geometry.json"
             cat "$configuration/tests/external-pypdf-rotcrop-graph-device.json"
             cat "$configuration/tests/external-pypdf-capture-stage-matrix.json"
+            cat "$configuration/tests/external-pypdf-original-pdfium-dimensions.json"
             for page in 0 1 2 3; do
               cat "$configuration/tests/external-pypdf-rotcrop-page${page}-typed-observe.json"
             done
@@ -394,10 +395,12 @@ jobs:
             build/linux-gcc-release/tests/external-pypdf-rotcrop-raw-geometry.json
             build/linux-gcc-release/tests/external-pypdf-rotcrop-graph-device.json
             build/linux-gcc-release/tests/external-pypdf-capture-stage-matrix.json
+            build/linux-gcc-release/tests/external-pypdf-original-pdfium-dimensions.json
             build/linux-gcc-release/tests/external-pypdf-rotcrop-page*-typed-observe.json
             build/linux-gcc-debug/tests/external-pypdf-rotcrop-raw-geometry.json
             build/linux-gcc-debug/tests/external-pypdf-rotcrop-graph-device.json
             build/linux-gcc-debug/tests/external-pypdf-capture-stage-matrix.json
+            build/linux-gcc-debug/tests/external-pypdf-original-pdfium-dimensions.json
             build/linux-gcc-debug/tests/external-pypdf-rotcrop-page*-typed-observe.json
           if-no-files-found: error
           retention-days: 7
@@ -699,6 +702,7 @@ jobs:
           cat build/macos-clang-release/tests/external-pypdf-rotcrop-raw-geometry.json
           cat build/macos-clang-release/tests/external-pypdf-rotcrop-graph-device.json
           cat build/macos-clang-release/tests/external-pypdf-capture-stage-matrix.json
+          cat build/macos-clang-release/tests/external-pypdf-original-pdfium-dimensions.json
           for page in 0 1 2 3; do
             cat "build/macos-clang-release/tests/external-pypdf-rotcrop-page${page}-typed-observe.json"
           done
@@ -711,6 +715,7 @@ jobs:
             build/macos-clang-release/tests/external-pypdf-rotcrop-raw-geometry.json
             build/macos-clang-release/tests/external-pypdf-rotcrop-graph-device.json
             build/macos-clang-release/tests/external-pypdf-capture-stage-matrix.json
+            build/macos-clang-release/tests/external-pypdf-original-pdfium-dimensions.json
             build/macos-clang-release/tests/external-pypdf-rotcrop-page*-typed-observe.json
           if-no-files-found: error
           retention-days: 7
@@ -1023,6 +1028,7 @@ jobs:
           Get-Content build/Msvc-Release/tests/external-pypdf-rotcrop-raw-geometry.json
           Get-Content build/Msvc-Release/tests/external-pypdf-rotcrop-graph-device.json
           Get-Content build/Msvc-Release/tests/external-pypdf-capture-stage-matrix.json
+          Get-Content build/Msvc-Release/tests/external-pypdf-original-pdfium-dimensions.json
           foreach ($page in 0..3) {
             Get-Content "build/Msvc-Release/tests/external-pypdf-rotcrop-page${page}-typed-observe.json"
           }
@@ -1035,6 +1041,7 @@ jobs:
             build/Msvc-Release/tests/external-pypdf-rotcrop-raw-geometry.json
             build/Msvc-Release/tests/external-pypdf-rotcrop-graph-device.json
             build/Msvc-Release/tests/external-pypdf-capture-stage-matrix.json
+            build/Msvc-Release/tests/external-pypdf-original-pdfium-dimensions.json
             build/Msvc-Release/tests/external-pypdf-rotcrop-page*-typed-observe.json
           if-no-files-found: error
           retention-days: 7

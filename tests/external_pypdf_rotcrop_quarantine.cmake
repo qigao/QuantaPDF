@@ -94,3 +94,28 @@ else()
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
+
+# #269: independent ORIGINAL PDFium display dimensions at 72/96/144 DPI,
+# compared with prior sealed Graph->C11 device extents. No native paint.
+add_test(NAME quantapdf.external_pypdf_original_pdfium_dimensions
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORIGINAL_FILE=${QP_PYPDF_ROT_CROP_ORIGINAL}"
+    "-DORACLE_EXECUTABLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DREPORT_FILE=${CMAKE_CURRENT_BINARY_DIR}/external-pypdf-original-pdfium-dimensions.json"
+    -P "${PROJECT_SOURCE_DIR}/tests/check_external_pypdf_pdfium_dimensions.cmake")
+set_tests_properties(quantapdf.external_pypdf_original_pdfium_dimensions
+  PROPERTIES TIMEOUT 75 LABELS
+  "conformance;external-original;PDFium-reference;geometry-only;quarantine")
+if(WIN32)
+  set_property(TEST quantapdf.external_pypdf_original_pdfium_dimensions
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_pypdf_original_pdfium_dimensions
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_pypdf_original_pdfium_dimensions
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
