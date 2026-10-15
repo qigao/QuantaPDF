@@ -35,6 +35,7 @@ foreach(field IN ITEMS
   "\"dpi96_pixel_parity\":\"diagnostic_only\""
   "\"dpi144_pixel_parity\":\"diagnostic_only\""
   "\"analytic_coverage_test_only\":true"
+  "\"quantum_ledger_diagnostic_only\":true"
   "\"external_original_provenance_verified\":false"
   "\"external_native_positive_increment\":0"
   "\"public_sdk_backend_switched\":false")
@@ -56,6 +57,19 @@ set(sum144 0)
 set(fit96 0)
 set(nominal96 0)
 set(far96 0)
+set(q4native96 0)
+set(q4pdfium96 0)
+set(q4quantum96 0)
+set(q4pixels96 0)
+set(partialref96 0)
+set(partialnative96 0)
+set(refmore96 0)
+set(nativemore96 0)
+set(chroma96 0)
+set(changed96 0)
+foreach(edge RANGE 0 4)
+  set(edgesum_${edge} 0)
+endforeach()
 set(exact72 0)
 foreach(index RANGE 0 11)
   string(JSON rotation GET "${report}" frames ${index} rotation)
@@ -70,6 +84,29 @@ foreach(index RANGE 0 11)
   string(JSON fitted_area GET "${report}" frames ${index} fitted_area_abs_rgb)
   string(JSON nominal_area GET "${report}" frames ${index} nominal_area_abs_rgb)
   string(JSON off_edge GET "${report}" frames ${index} off_ideal_edge_differences)
+  string(JSON q4native GET "${report}" frames ${index} q4_analytic_native_abs_rgb)
+  string(JSON q4pdfium GET "${report}" frames ${index} q4_analytic_pdfium_abs_rgb)
+  string(JSON quantization GET "${report}" frames ${index} pdfium_nearest_q4_green_distance)
+  string(JSON q4pixels GET "${report}" frames ${index} q4_analytic_native_diff_pixels)
+  string(JSON pdfium_partial GET "${report}" frames ${index} pdfium_partial_green_pixels)
+  string(JSON native_partial GET "${report}" frames ${index} native_partial_green_pixels)
+  string(JSON refmore GET "${report}" frames ${index} pdfium_more_red_pixels)
+  string(JSON nativemore GET "${report}" frames ${index} native_more_red_pixels)
+  string(JSON chroma GET "${report}" frames ${index} pdfium_chroma_mismatch_pixels)
+  string(JSON edgelength LENGTH "${report}" frames ${index} edge_diff_pixels)
+  if(NOT edgelength EQUAL 5)
+    message(FATAL_ERROR "Expected five disjoint 96DPI theoretical edge groups")
+  endif()
+  set(frame_edges 0)
+  foreach(edge RANGE 0 4)
+    string(JSON edgecount GET "${report}" frames ${index} edge_diff_pixels ${edge})
+    math(EXPR frame_edges "${frame_edges}+${edgecount}")
+    if(dpi EQUAL 96)
+      math(EXPR edgesum_${edge} "${edgesum_${edge}}+${edgecount}")
+    elseif(NOT edgecount EQUAL 0)
+      message(FATAL_ERROR "Non-96DPI edge ledger unexpectedly enabled")
+    endif()
+  endforeach()
   math(EXPR rindex "${index} / 3")
   math(EXPR dindex "${index} % 3")
   math(EXPR expected_rotation "${rindex} * 90")
@@ -113,7 +150,31 @@ foreach(index RANGE 0 11)
     math(EXPR fit96 "${fit96}+${fitted_area}")
     math(EXPR nominal96 "${nominal96}+${nominal_area}")
     math(EXPR far96 "${far96}+${off_edge}")
+    math(EXPR q4native96 "${q4native96}+${q4native}")
+    math(EXPR q4pdfium96 "${q4pdfium96}+${q4pdfium}")
+    math(EXPR q4quantum96 "${q4quantum96}+${quantization}")
+    math(EXPR q4pixels96 "${q4pixels96}+${q4pixels}")
+    math(EXPR partialref96 "${partialref96}+${pdfium_partial}")
+    math(EXPR partialnative96 "${partialnative96}+${native_partial}")
+    math(EXPR refmore96 "${refmore96}+${refmore}")
+    math(EXPR nativemore96 "${nativemore96}+${nativemore}")
+    math(EXPR chroma96 "${chroma96}+${chroma}")
+    math(EXPR changed96 "${changed96}+${changed}")
+    math(EXPR grouped "${frame_edges}+${off_edge}")
+    if(NOT grouped EQUAL changed OR
+       q4pixels GREATER pixels OR pdfium_partial GREATER pixels OR
+       native_partial GREATER pixels OR chroma GREATER pixels OR
+       refmore GREATER changed OR nativemore GREATER changed)
+      message(FATAL_ERROR "96DPI disjoint edge/quantization ledger is inconsistent")
+    endif()
   else()
+    if(NOT frame_edges EQUAL 0 OR q4native GREATER 0 OR
+       q4pdfium GREATER 0 OR quantization GREATER 0 OR
+       q4pixels GREATER 0 OR pdfium_partial GREATER 0 OR
+       native_partial GREATER 0 OR refmore GREATER 0 OR
+       nativemore GREATER 0 OR chroma GREATER 0)
+      message(FATAL_ERROR "Only 96DPI can populate edge/quantization diagnostics")
+    endif()
     math(EXPR sum144 "${sum144}+${abs_error}")
   endif()
 endforeach()
@@ -133,8 +194,62 @@ if(NOT fit96 EQUAL reported_fit OR
    NOT far96 EQUAL reported_far)
   message(FATAL_ERROR "96DPI analytic A/B ledger differs from 4 frame rows")
 endif()
+foreach(field IN ITEMS
+  "dpi96_q4_analytic_native_abs_rgb"
+  "dpi96_q4_analytic_pdfium_abs_rgb"
+  "dpi96_pdfium_nearest_q4_green_distance"
+  "dpi96_q4_analytic_native_diff_pixels"
+  "dpi96_pdfium_partial_green_pixels"
+  "dpi96_native_partial_green_pixels"
+  "dpi96_pdfium_more_red_pixels"
+  "dpi96_native_more_red_pixels"
+  "dpi96_pdfium_chroma_mismatch_pixels")
+  string(JSON stored GET "${report}" ${field})
+  if(field STREQUAL "dpi96_q4_analytic_native_abs_rgb")
+    set(actual "${q4native96}")
+  elseif(field STREQUAL "dpi96_q4_analytic_pdfium_abs_rgb")
+    set(actual "${q4pdfium96}")
+  elseif(field STREQUAL "dpi96_pdfium_nearest_q4_green_distance")
+    set(actual "${q4quantum96}")
+  elseif(field STREQUAL "dpi96_q4_analytic_native_diff_pixels")
+    set(actual "${q4pixels96}")
+  elseif(field STREQUAL "dpi96_pdfium_partial_green_pixels")
+    set(actual "${partialref96}")
+  elseif(field STREQUAL "dpi96_native_partial_green_pixels")
+    set(actual "${partialnative96}")
+  elseif(field STREQUAL "dpi96_pdfium_more_red_pixels")
+    set(actual "${refmore96}")
+  elseif(field STREQUAL "dpi96_native_more_red_pixels")
+    set(actual "${nativemore96}")
+  else()
+    set(actual "${chroma96}")
+  endif()
+  if(NOT stored EQUAL actual)
+    message(FATAL_ERROR "96DPI quantum ledger aggregate mismatch: ${field}")
+  endif()
+endforeach()
+string(JSON topedges LENGTH "${report}" dpi96_edge_diff_pixels)
+if(NOT topedges EQUAL 5)
+  message(FATAL_ERROR "96DPI aggregate edge histogram must have 5 bins")
+endif()
+set(all_edges 0)
+foreach(edge RANGE 0 4)
+  string(JSON stored GET "${report}" dpi96_edge_diff_pixels ${edge})
+  if(NOT stored EQUAL edgesum_${edge})
+    message(FATAL_ERROR "96DPI aggregate edge bins disagree with frame rows")
+  endif()
+  math(EXPR all_edges "${all_edges}+${stored}")
+endforeach()
+math(EXPR classified "${all_edges}+${far96}")
+if(NOT classified EQUAL changed96)
+  message(FATAL_ERROR "96DPI every changed pixel must be classified")
+endif()
 message(STATUS
   "12 test-generated ORIGINAL unit7 frames; 72DPI 4/4 exact RGB; "
   "96DPI raster absRGB=${sum96}, fitted analytic=${fit96}, "
   "nominal analytic=${nominal96}, offEdge=${far96}; "
-  "144DPI raster absRGB=${sum144}; all high-DPI results DIAGNOSTIC")
+  "144DPI raster absRGB=${sum144}; "
+  "96DPI Q4 native absRGB=${q4native96}, PDFium absRGB=${q4pdfium96}, "
+  "PDFium off-Q4 green distance=${q4quantum96}, "
+  "edge bins=${edgesum_0}/${edgesum_1}/${edgesum_2}/${edgesum_3}/${edgesum_4}; "
+  "all high-DPI results DIAGNOSTIC")
