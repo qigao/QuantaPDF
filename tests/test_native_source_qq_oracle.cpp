@@ -7239,9 +7239,13 @@ static int quarantine_pypdf_graph_geometry(
      * 4-page original has >700 indirect objects plus annotation/form
      * subtrees. This explicitly larger TEST-ONLY bounded budget is not
      * a production fallback or an acceptance rule for native painting. */
-    const quantapdf_graph_limits geometry_budget={
-        40000u,120000u,4194304u,4194304u,33554432u,256u
-    };
+    /* Measured original Graph: 13,471 nodes, 13,863 edges,
+     * 179,055 total model bytes and <1.5 MiB owner storage.
+     * The ONLY exceeded original/default limit is max_nodes=10,000.
+     * Increase solely the selected test's node capacity to 16k; all
+     * edge/value/stream/storage/depth caps stay byte-for-byte original. */
+    quantapdf_graph_limits geometry_budget=graph_limits;
+    geometry_budget.max_nodes=16000u;
     const quantapdf_status capture=
         quantapdf_document_capture_graph(document,&geometry_budget,&snapshot);
     quantapdf_close(document);
@@ -7263,12 +7267,15 @@ static int quarantine_pypdf_graph_geometry(
     const size_t original_graph_bytes=model->byte_count;
     const size_t original_graph_storage=
         quantapdf_graph_storage_bytes(snapshot->graph);
-    CHECK(original_graph_nodes>0u &&
+    CHECK(original_graph_nodes>graph_limits.max_nodes &&
           original_graph_nodes<=geometry_budget.max_nodes);
     CHECK(original_graph_edges>0u &&
-          original_graph_edges<=geometry_budget.max_edges);
+          original_graph_edges<=graph_limits.max_edges);
+    /* Total bytes bound each disjoint stream/nonstream class. */
     CHECK(original_graph_bytes>0u &&
-          original_graph_storage<=geometry_budget.max_storage_bytes);
+          original_graph_bytes<=graph_limits.max_value_bytes &&
+          original_graph_bytes<=graph_limits.max_stream_bytes);
+    CHECK(original_graph_storage<=graph_limits.max_storage_bytes);
     std::fprintf(stderr,
         "[pypdf original capture budget] baseline=UNSUPPORTED "
         "expanded=OK nodes=%zu edges=%zu model_bytes=%zu owned_bytes=%zu "
@@ -7357,13 +7364,17 @@ static int quarantine_pypdf_graph_geometry(
         "  \"default_graph_capture_status\": \"unsupported\",\n"
         "  \"default_graph_capture_error_code\": %d,\n"
         "  \"expanded_test_only_capture_status\": \"ok\",\n"
+        "  \"capture_budget_only_node_limit_changed\": true,\n"
+        "  \"default_node_limit\": %zu,\n"
+        "  \"test_node_limit\": %zu,\n"
         "  \"graph_node_count\": %zu,\n"
         "  \"graph_edge_count\": %zu,\n"
         "  \"graph_model_bytes\": %zu,\n"
         "  \"graph_owner_storage_bytes\": %zu,\n"
         "  \"page_count\": 4,\n"
         "  \"pages\": [\n",
-        (int)default_status,original_graph_nodes,original_graph_edges,
+        (int)default_status,graph_limits.max_nodes,geometry_budget.max_nodes,
+        original_graph_nodes,original_graph_edges,
         original_graph_bytes,original_graph_storage);
     for(size_t i=0u;i<4u;++i){
         const auto& p=observations[i];
