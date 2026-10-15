@@ -453,6 +453,22 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Review generated Unit7 original CropBox shift diagnostics (Linux)
+        shell: bash
+        run: |
+          cat build/linux-gcc-release/tests/generated-unit7-crop-shift.json
+          cat build/linux-gcc-debug/tests/generated-unit7-crop-shift.json
+
+      - name: Upload generated Unit7 original CropBox shift diagnostics (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-unit7-crop-shift-linux
+          path: |
+            build/linux-gcc-release/tests/generated-unit7-crop-shift.json
+            build/linux-gcc-debug/tests/generated-unit7-crop-shift.json
+          if-no-files-found: error
+          retention-days: 7
+
   macos:
     if: >-
       github.event_name == 'push' ||
@@ -799,6 +815,18 @@ jobs:
         with:
           name: generated-unit7-multidpi-macos
           path: build/macos-clang-release/tests/generated-unit7-multidpi-diagnostic.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review generated Unit7 original CropBox shift diagnostics (macOS)
+        shell: bash
+        run: cat build/macos-clang-release/tests/generated-unit7-crop-shift.json
+
+      - name: Upload generated Unit7 original CropBox shift diagnostics (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-unit7-crop-shift-macos
+          path: build/macos-clang-release/tests/generated-unit7-crop-shift.json
           if-no-files-found: error
           retention-days: 7
 
@@ -1159,5 +1187,17 @@ jobs:
         with:
           name: generated-unit7-multidpi-windows
           path: build/Msvc-Release/tests/generated-unit7-multidpi-diagnostic.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review generated Unit7 original CropBox shift diagnostics (Windows)
+        shell: pwsh
+        run: Get-Content build/Msvc-Release/tests/generated-unit7-crop-shift.json
+
+      - name: Upload generated Unit7 original CropBox shift diagnostics (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-unit7-crop-shift-windows
+          path: build/Msvc-Release/tests/generated-unit7-crop-shift.json
           if-no-files-found: error
           retention-days: 7

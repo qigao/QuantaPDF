@@ -1817,7 +1817,8 @@ target_compile_definitions(quantapdf_test_native_source_qq_oracle PRIVATE
   GENERATED_VISIBLE_DEVICE_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-generated-visible-device-source.pdf"
   GENERATED_USERUNIT7_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-generated-unit7-original.pdf"
   GENERATED_OVERSIZED_USERUNIT7_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-generated-oversize-unit7-original.pdf"
-  GENERATED_UNIT7_MULTIDPI_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-generated-unit7-multidpi-original.pdf")
+  GENERATED_UNIT7_MULTIDPI_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-generated-unit7-multidpi-original.pdf"
+  GENERATED_UNIT7_SHIFT_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-generated-unit7-fractional-crop-shift.pdf")
 if(MSVC)
   target_compile_options(quantapdf_test_native_source_qq_oracle PRIVATE /utf-8)
 endif()
@@ -2672,6 +2673,32 @@ elseif(APPLE)
     "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 else()
   set_property(TEST quantapdf.native_generated_unit7_multidpi_diagnostic
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
+
+# #269: 3 fractional CropBox translations x 4 /Rotate; actual test-owned
+# SOURCE PDF -> detached owned Composer IR / original PDFium 96DPI.
+# Strict evidence-only. No PDFium fallback or SDK/native-positive admission.
+add_test(NAME quantapdf.native_generated_unit7_crop_shift_diagnostic
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE_EXECUTABLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DREPORT_FILE=${CMAKE_CURRENT_BINARY_DIR}/generated-unit7-crop-shift.json"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_generated_unit7_crop_shift.cmake")
+set_tests_properties(quantapdf.native_generated_unit7_crop_shift_diagnostic
+  PROPERTIES TIMEOUT 40
+    LABELS "conformance;native-raster;source-pdf;generated-original;crop-shift;diagnostic")
+if(WIN32)
+  set_property(TEST quantapdf.native_generated_unit7_crop_shift_diagnostic
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_generated_unit7_crop_shift_diagnostic
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_generated_unit7_crop_shift_diagnostic
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()

@@ -7061,10 +7061,12 @@ static void publish_corpus_report(const char *destination,
  * The PDFium oracle consumes source bytes, never a Composer re-export.
  * No source/PDFium object is reachable from the private C11 Raster call. */
 static void write_single_w_visible_page(
-    int rotation,int unit,const char *source_output=GENERATED_VISIBLE_DEVICE_PDF)
+    int rotation,int unit,const char *source_output=GENERATED_VISIBLE_DEVICE_PDF,
+    unsigned crop_variant=0u)
 {
     CHECK(rotation==0 || rotation==90 || rotation==180 || rotation==270);
     CHECK(unit==1 || unit==2 || unit==7);
+    CHECK(crop_variant<=3u);
     CHECK(source_output!=nullptr && *source_output);
     auto pdf=QPDF::create();
     pdf->emptyPDF();
@@ -7074,7 +7076,16 @@ static void write_single_w_visible_page(
     root.replaceKey("/Kids",QPDFObjectHandle::newArray({leaf}));
     root.replaceKey("/Count",QPDFObjectHandle::newInteger(1));
     root.replaceKey("/MediaBox",QPDFObjectHandle::parse("[0 0 20 30]"));
-    const auto crop=QPDFObjectHandle::parse("[2 3 12 11]");
+    /* Additional fractional CropBox offsets are scoped ONLY to the
+     * #269 test-owned 96DPI source perturbation matrix. The path/clip
+     * content stream and original Source→Graph lowering are unchanged. */
+    const char *crop_values[4]={
+        "[2 3 12 11]",
+        "[2.125 3 12.125 11]",
+        "[2 3.125 12 11.125]",
+        "[2.375 3.375 12.375 11.375]"
+    };
+    const auto crop=QPDFObjectHandle::parse(crop_values[crop_variant]);
     if(rotation==0 || rotation==180)
         root.replaceKey("/CropBox",crop);
     else leaf.replaceKey("/CropBox",crop);
@@ -8834,8 +8845,244 @@ static int test_generated_unit7_multidpi_original_diagnostic(
     return EXIT_SUCCESS;
 }
 
+
+/* #269: perturb each original CropBox by exact fractional translations.
+ * The original PDFium raster determines actual red edge bounds; no pixels
+ * are copied into a replacement renderer or used as a dynamic fallback. */
+static int test_generated_unit7_crop_shift_matrix(const char *report_path)
+{
+    CHECK(report_path!=nullptr && *report_path);
+    const std::string pending=std::string(report_path)+".tmp";
+    CHECK(std::strcmp(report_path,GENERATED_UNIT7_SHIFT_PDF)!=0 &&
+          pending!=GENERATED_UNIT7_SHIFT_PDF);
+    const double crops[3][4]={
+        {2.125,3.0,12.125,11.0},
+        {2.0,3.125,12.0,11.125},
+        {2.375,3.375,12.375,11.375}
+    };
+    const char *labels[3]={"x_plus_0_125","y_plus_0_125","xy_plus_0_375"};
+    struct observation {
+        unsigned variant;
+        int rotation;
+        uint32_t width,height;
+        unsigned long long abs_rgb;
+        size_t different,red_count,partial_count,unexpected_color;
+        int binary_rectangular;
+        int bbox[4],floor_steps[4];
+    } rows[12]={};
+    size_t total_pixels=0u,source_repeats=0u,binary_rectangle_count=0u;
+    unsigned long long total_abs_rgb=0u;
+    const auto read_small_pdf=[](const char *path){
+        FILE *f=std::fopen(path,"rb");
+        CHECK(f!=nullptr);
+        CHECK(std::fseek(f,0,SEEK_END)==0);
+        const long len=std::ftell(f);
+        CHECK(len>0 && len<=65536 && std::fseek(f,0,SEEK_SET)==0);
+        std::vector<unsigned char> result((size_t)len);
+        CHECK(std::fread(result.data(),1,result.size(),f)==result.size());
+        CHECK(std::fclose(f)==0);
+        return result;
+    };
+    for(unsigned variant=1u;variant<=3u;++variant)
+        for(int rotation=0;rotation<360;rotation+=90){
+            const size_t index=(size_t)(variant-1u)*4u+
+                (size_t)(rotation/90);
+            write_single_w_visible_page(
+                rotation,7,GENERATED_UNIT7_SHIFT_PDF,variant);
+            const auto bytes=read_small_pdf(GENERATED_UNIT7_SHIFT_PDF);
+            quantapdf_ir ir{};
+            OK(snapshot_lower(&ir,0u,1u,2u,GENERATED_UNIT7_SHIFT_PDF));
+            CHECK(ir.page_count==1u && ir.operation_count==1u &&
+                  ir.resources.graphics_state_count==1u &&
+                  ir.resources.clip_count==1u);
+            quantapdf_graph_page_geometry g{};
+            g.media_box[2]=20.0;g.media_box[3]=30.0;
+            for(size_t k=0u;k<4u;++k)
+                g.crop_box[k]=crops[variant-1u][k];
+            g.user_unit=7.0;g.rotation=rotation;
+            quantapdf_graph_device_grid device{};
+            OK(quantapdf_graph_page_device_grid(
+                &g,96u,20000u,100000u,&device));
+            const uint32_t want_w=(rotation%180==0)?94u:75u;
+            const uint32_t want_h=(rotation%180==0)?75u:94u;
+            CHECK(device.width==want_w && device.height==want_h &&
+                  device.output_bytes==(size_t)want_w*want_h*3u);
+            const quantapdf_ir_raster_v1_limits limits={
+                20000u,1u,64u,3000000u
+            };
+            quantapdf_ir_raster_image native{};
+            OK(quantapdf_ir_raster_visible_page_fillclip_preview_v0(
+                &ir,0u,&g,96u,&limits,100000u,&native));
+            CHECK(native.pixels!=nullptr && native.width==want_w &&
+                  native.height==want_h &&
+                  native.size==(size_t)want_w*want_h*4u);
+
+            quantapdf_document *doc=nullptr;
+            quantapdf_page *page=nullptr;
+            quantapdf_bitmap *original=nullptr,*repeat=nullptr;
+            OK(quantapdf_open(GENERATED_UNIT7_SHIFT_PDF,nullptr,&doc));
+            OK(quantapdf_load_page(doc,0u,&page));
+            const quantapdf_render_options options={
+                sizeof(quantapdf_render_options),96.0f,0.0f,0,{0},0
+            };
+            OK(quantapdf_render_page_with_options(page,&options,&original));
+            OK(quantapdf_render_page_with_options(page,&options,&repeat));
+            int ow=0,oh=0,stride=0,components=0;
+            int rw=0,rh=0,rs=0,rc=0;
+            OK(quantapdf_bitmap_dimensions(
+                original,&ow,&oh,&stride,&components));
+            OK(quantapdf_bitmap_dimensions(
+                repeat,&rw,&rh,&rs,&rc));
+            CHECK(ow==(int)want_w && oh==(int)want_h &&
+                  components==3 && stride>=3*ow && stride<=3*ow+4 &&
+                  rw==ow && rh==oh && rs==stride && rc==components);
+            const unsigned char *pdfium=nullptr,*repeated=nullptr;
+            size_t pdfium_bytes=0u,repeated_bytes=0u;
+            OK(quantapdf_bitmap_data(original,&pdfium,&pdfium_bytes));
+            OK(quantapdf_bitmap_data(repeat,&repeated,&repeated_bytes));
+            CHECK(pdfium!=nullptr && repeated!=nullptr &&
+                  pdfium_bytes==(size_t)stride*want_h &&
+                  repeated_bytes==pdfium_bytes &&
+                  std::memcmp(pdfium,repeated,pdfium_bytes)==0);
+
+            size_t red_pixels=0u,partial_pixels=0u,bad_color=0u;
+            size_t changed=0u;
+            unsigned long long abs_rgb=0u;
+            int left=(int)want_w,top=(int)want_h,right=-1,bottom=-1;
+            for(size_t y=0u;y<want_h;++y)
+                for(size_t x=0u;x<want_w;++x){
+                    const unsigned char *p=pdfium+y*(size_t)stride+x*3u;
+                    const unsigned char *n=
+                        native.pixels+y*native.stride+x*4u;
+                    const unsigned gref=p[1];
+                    if(gref==0u){
+                        ++red_pixels;
+                        left=std::min(left,(int)x);
+                        right=std::max(right,(int)x);
+                        top=std::min(top,(int)y);
+                        bottom=std::max(bottom,(int)y);
+                    }
+                    if(gref>0u && gref<255u)++partial_pixels;
+                    if(p[0]!=255u || p[1]!=p[2])++bad_color;
+                    unsigned delta_max=0u;
+                    for(size_t channel=0u;channel<3u;++channel){
+                        const unsigned from_native=on_white(n,channel);
+                        const unsigned target=p[channel];
+                        const unsigned diff=from_native>target?
+                            from_native-target:target-from_native;
+                        abs_rgb+=(unsigned long long)diff;
+                        delta_max=std::max(delta_max,diff);
+                    }
+                    if(delta_max>0u)++changed;
+                }
+            CHECK(red_pixels>0u && red_pixels<=
+                  (size_t)want_w*(size_t)want_h);
+            CHECK(left>=0 && top>=0 && right>=left && bottom>=top);
+            int bbox[4]={left,top,right+1,bottom+1};
+            const size_t area=(size_t)(bbox[2]-bbox[0])*
+                              (size_t)(bbox[3]-bbox[1]);
+            const int rectangular=(area==red_pixels &&
+                partial_pixels==0u && bad_color==0u)?1:0;
+            double xlo=1e100,xhi=-1e100,ylo=1e100,yhi=-1e100;
+            for(size_t xx=0u;xx<2u;++xx)
+                for(size_t yy=0u;yy<2u;++yy){
+                    const double x=xx?9.0:4.0;
+                    const double y=yy?9.0:5.0;
+                    const double dx=device.from_source[0]*x+
+                        device.from_source[2]*y+device.from_source[4];
+                    const double dy=device.from_source[1]*x+
+                        device.from_source[3]*y+device.from_source[5];
+                    CHECK(std::isfinite(dx) && std::isfinite(dy));
+                    xlo=std::min(xlo,dx);xhi=std::max(xhi,dx);
+                    ylo=std::min(ylo,dy);yhi=std::max(yhi,dy);
+                }
+            CHECK(xlo>=0.0 && ylo>=0.0 &&
+                  xhi<=(double)want_w && yhi<=(double)want_h);
+            const double projected[4]={xlo,ylo,xhi,yhi};
+            const int actual[4]={bbox[0],bbox[1],bbox[2],bbox[3]};
+            int floor_steps[4]={};
+            for(size_t k=0u;k<4u;++k){
+                floor_steps[k]=actual[k]-(int)std::floor(projected[k]);
+                CHECK(floor_steps[k]>=-3 && floor_steps[k]<=3);
+            }
+            auto& row=rows[index];
+            row.variant=variant;row.rotation=rotation;
+            row.width=want_w;row.height=want_h;
+            row.abs_rgb=abs_rgb;row.different=changed;
+            row.red_count=red_pixels;row.partial_count=partial_pixels;
+            row.unexpected_color=bad_color;
+            row.binary_rectangular=rectangular;
+            std::memcpy(row.bbox,bbox,sizeof(bbox));
+            std::memcpy(row.floor_steps,floor_steps,sizeof(floor_steps));
+            total_pixels+=(size_t)want_w*want_h;
+            total_abs_rgb+=abs_rgb;
+            binary_rectangle_count+=(size_t)rectangular;
+            quantapdf_drop_bitmap(repeat);
+            quantapdf_drop_bitmap(original);
+            quantapdf_drop_page(page);
+            quantapdf_close(doc);
+            quantapdf_ir_raster_image_dispose(&native);
+            quantapdf_ir_dispose(&ir);
+            CHECK(read_small_pdf(GENERATED_UNIT7_SHIFT_PDF)==bytes);
+            ++source_repeats;
+            CHECK(std::remove(GENERATED_UNIT7_SHIFT_PDF)==0);
+        }
+    CHECK(total_pixels==84600u && source_repeats==12u);
+    FILE *out=std::fopen(pending.c_str(),"wb");
+    CHECK(out!=nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\":1,\n"
+        "  \"source_kind\":\"test_generated_original_pdf\",\n"
+        "  \"producer\":\"test_owned_qpdf_writer\",\n"
+        "  \"test_owned_fractional_crop_shift\":true,\n"
+        "  \"page_user_unit\":7,\n"
+        "  \"dpi\":96,\n"
+        "  \"shift_variant_count\":3,\n"
+        "  \"rotations_per_variant\":4,\n"
+        "  \"frame_count\":12,\n"
+        "  \"source_byte_repeat_count\":%zu,\n"
+        "  \"total_rgb_pixels\":%zu,\n"
+        "  \"total_native_pdfium_abs_rgb\":%llu,\n"
+        "  \"pdfium_binary_rectangle_count\":%zu,\n"
+        "  \"external_original_provenance_verified\":false,\n"
+        "  \"external_native_positive_increment\":0,\n"
+        "  \"public_sdk_backend_switched\":false,\n"
+        "  \"frames\":[\n",
+        source_repeats,total_pixels,total_abs_rgb,binary_rectangle_count);
+    for(size_t k=0u;k<12u;++k){
+        const auto& v=rows[k];
+        std::fprintf(out,
+            "    {\"variant\":%u,\"variant_label\":\"%s\","
+            "\"rotation\":%d,\"width\":%u,\"height\":%u,"
+            "\"native_abs_rgb\":%llu,\"different_pixels\":%zu,"
+            "\"pdfium_red_pixels\":%zu,\"pdfium_partial_pixels\":%zu,"
+            "\"pdfium_unexpected_color_pixels\":%zu,"
+            "\"pdfium_binary_rectangle\":%d,"
+            "\"pdfium_bbox\":[%d,%d,%d,%d],"
+            "\"edge_step_from_floor\":[%d,%d,%d,%d]}%s\n",
+            v.variant,labels[v.variant-1u],v.rotation,
+            v.width,v.height,v.abs_rgb,v.different,
+            v.red_count,v.partial_count,v.unexpected_color,
+            v.binary_rectangular,
+            v.bbox[0],v.bbox[1],v.bbox[2],v.bbox[3],
+            v.floor_steps[0],v.floor_steps[1],
+            v.floor_steps[2],v.floor_steps[3],
+            k==11u?"":",");
+    }
+    std::fprintf(out,"  ]\n}\n");
+    CHECK(std::ferror(out)==0 && std::fclose(out)==0);
+    CHECK(std::rename(pending.c_str(),report_path)==0);
+    CHECK(corpus_fixture_executions==0u);
+    return EXIT_SUCCESS;
+}
+
 int main(int argc,char **argv)
 {
+    if(argc==4 &&
+       std::strcmp(argv[1],"--generated-unit7-crop-shift-diagnostic")==0 &&
+       std::strcmp(argv[2],"--crop-shift-report")==0)
+        return test_generated_unit7_crop_shift_matrix(argv[3]);
     if(argc==4 &&
        std::strcmp(argv[1],"--generated-unit7-multidpi-original-diagnostic")==0 &&
        std::strcmp(argv[2],"--multidpi-report")==0)
