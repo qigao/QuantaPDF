@@ -952,6 +952,73 @@ static int test_clip_fill_direct_vs_affine_translation_dpis(void)
     return EXIT_SUCCESS;
 }
 
+
+/* The highest private Clip-left × Fill-bottom A8-mask candidate must
+ * refuse raw /CropBox origins, /Rotate, /UserUnit and unqualified DPI
+ * before allocation; direct/affine coordinate equivalence does NOT
+ * normalize PDF page metadata. Test at supported 72/96/144 DPI with
+ * a genuine admitted clipped Fill as positive control, preserving all
+ * borrowed source commands byte-for-byte after each zero-output denial.
+ * No renderer/default/SDK/ABI code or source PDFs are changed. */
+static int test_final_clip_mask_page_geometry_refusals(void)
+{
+    const float dpis[3]={72.0f,96.0f,144.0f};
+    const float bottoms[3]={14.875f,15.03125f,15.375f};
+    const float clip_lefts[3]={6.125f,6.125f,6.0625f};
+    size_t accepted=0u,rejected=0u;
+    for(size_t index=0u;index<3u;++index) {
+        fixture f;
+        quantapdf_ir_raster_image valid={0};
+        quantapdf_composer_path_command old_fill[8],old_clip[8];
+        setup(&f);
+        rect(f.fill,1.0f,1.0f,16.125f,bottoms[index]);
+        rect(f.mask,clip_lefts[index],3.125f,26.0f,21.0f);
+        f.geometry.dpi=dpis[index];
+        f.grid_budget.max_pixels=5000u;
+        f.grid_budget.max_rgba_bytes=20000u;
+        f.grid_budget.max_edges=64u;
+        f.grid_budget.max_sample_tests=10000000u;
+        f.raster_budget.max_pixels=5000u;
+        f.raster_budget.max_edges=64u;
+        f.raster_budget.max_sample_tests=10000000u;
+        memcpy(old_fill,f.fill,sizeof(old_fill));
+        memcpy(old_clip,f.mask,sizeof(old_clip));
+        const quantapdf_native_device_grid_geometry supported=f.geometry;
+        OK(CORNER_CLIP_LEFT_FILL_BOTTOM(f,valid));
+        CHECK(valid.pixels!=NULL && valid.size!=0u &&
+              memcmp(f.fill,old_fill,sizeof(old_fill))==0 &&
+              memcmp(f.mask,old_clip,sizeof(old_clip))==0);
+        quantapdf_ir_raster_image_dispose(&valid);
+        ++accepted;
+        for(unsigned variant=0u;variant<9u;++variant) {
+            f.geometry=supported;
+            switch(variant) {
+                case 0u:f.geometry.visible_origin_x_points=0.125;break;
+                case 1u:f.geometry.visible_origin_y_points=-0.125;break;
+                case 2u:f.geometry.user_unit=2.0;break;
+                case 3u:f.geometry.intrinsic_rotation_quarters=1;break;
+                case 4u:f.geometry.requested_rotation_quarters=3;break;
+                case 5u:f.geometry.page_width_points+=0.25;break;
+                case 6u:f.geometry.page_height_points+=0.25;break;
+                case 7u:f.geometry.user_unit=0.5;break;
+                case 8u:f.geometry.dpi=120.0f;break;
+                default:CHECK(0);
+            }
+            REFUSE(CORNER_CLIP_LEFT_FILL_BOTTOM(f,result));
+            CHECK(memcmp(f.fill,old_fill,sizeof(old_fill))==0 &&
+                  memcmp(f.mask,old_clip,sizeof(old_clip))==0);
+            ++rejected;
+        }
+        fprintf(stderr,
+            "[source W Clip/Fill unsupported page geometry] dpi=%u "
+            "baseline=accepted refused=9 CropBox/Rotate/UserUnit "
+            "borrowed_source=unchanged zero_output=true\n",
+            (unsigned)dpis[index]);
+    }
+    CHECK(accepted==3u && rejected==27u);
+    return EXIT_SUCCESS;
+}
+
 static int test_fail_closed(void)
 {
     fixture f;
@@ -995,6 +1062,7 @@ int main(void)
     CHECK(test_clip_left_top_q8_corner()==EXIT_SUCCESS);
     CHECK(test_clip_left_fill_bottom_mask_product()==EXIT_SUCCESS);
     CHECK(test_clip_fill_direct_vs_affine_translation_dpis()==EXIT_SUCCESS);
+    CHECK(test_final_clip_mask_page_geometry_refusals()==EXIT_SUCCESS);
     CHECK(test_fail_closed()==EXIT_SUCCESS);
     puts("native-rect-fill-right-private-A/B: geometry, repeat, fail-closed PASS");
     return EXIT_SUCCESS;
