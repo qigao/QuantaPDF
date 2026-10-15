@@ -485,6 +485,22 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Review PDFium original Fill-only held-out extents (Linux)
+        shell: bash
+        run: |
+          cat build/linux-gcc-release/tests/generated-unit7-fill-extent-heldout.json
+          cat build/linux-gcc-debug/tests/generated-unit7-fill-extent-heldout.json
+
+      - name: Upload PDFium original Fill-only held-out extents (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-unit7-fill-extent-linux
+          path: |
+            build/linux-gcc-release/tests/generated-unit7-fill-extent-heldout.json
+            build/linux-gcc-debug/tests/generated-unit7-fill-extent-heldout.json
+          if-no-files-found: error
+          retention-days: 7
+
   macos:
     if: >-
       github.event_name == 'push' ||
@@ -855,6 +871,18 @@ jobs:
         with:
           name: generated-unit7-pdfium-mask-decomp-macos
           path: build/macos-clang-release/tests/generated-unit7-pdfium-mask-decomposition.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review PDFium original Fill-only held-out extents (macOS)
+        shell: bash
+        run: cat build/macos-clang-release/tests/generated-unit7-fill-extent-heldout.json
+
+      - name: Upload PDFium original Fill-only held-out extents (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-unit7-fill-extent-macos
+          path: build/macos-clang-release/tests/generated-unit7-fill-extent-heldout.json
           if-no-files-found: error
           retention-days: 7
 
@@ -1239,5 +1267,17 @@ jobs:
         with:
           name: generated-unit7-pdfium-mask-decomp-windows
           path: build/Msvc-Release/tests/generated-unit7-pdfium-mask-decomposition.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review PDFium original Fill-only held-out extents (Windows)
+        shell: pwsh
+        run: Get-Content build/Msvc-Release/tests/generated-unit7-fill-extent-heldout.json
+
+      - name: Upload PDFium original Fill-only held-out extents (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-unit7-fill-extent-windows
+          path: build/Msvc-Release/tests/generated-unit7-fill-extent-heldout.json
           if-no-files-found: error
           retention-days: 7
