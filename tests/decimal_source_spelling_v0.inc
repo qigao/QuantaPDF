@@ -21,6 +21,7 @@ static const decimal360_case decimal360_cases[] = {
     {"three-quarter", {"2.75","3.75","12.75","11.75"},               {27500,37500,127500,117500},0,false,false},
     {"seven-eighth",  {"2.875","3.875","12.875","11.875"},           {28750,38750,128750,118750},90,true,false},
     {"negative",      {"-2.375","-3.375","7.625","4.625"},          {-23750,-33750,76250,46250},180,false,false},
+    {"correctround-ulp",{"6.004","3.004","16.004","11.004"},           {60040,30040,160040,110040},0,true,false},
     {"fractional",    {"2.375","3.375","12.3751","11.3751"},         {23750,33750,123751,113751},0,true,true},
     {"fractional-90", {"2.3750","3.3750","12.3751","11.3751"},      {23750,33750,123751,113751},270,false,true}
 };
@@ -115,6 +116,17 @@ static int test_decimal360_source_spelling(const char *report_path)
     (void)std::remove(report_path); (void)std::remove(stage.c_str());
     const size_t cases=sizeof(decimal360_cases)/sizeof(decimal360_cases[0]);
     const unsigned dpis[]={72u,96u,144u};
+    /* Even an independently correctly-rounded decimal-to-binary64 lexer
+     * cannot guarantee that endpoint subtraction is an exact PDF span.
+     * Exact textual 6.004 -> 16.004 is 10, yet these correctly-rounded
+     * binary64 endpoints subtract to one positive ULP above 10. */
+    const uint64_t lo_bits=UINT64_C(0x401804189374bc6a);
+    const uint64_t hi_bits=UINT64_C(0x4030010624dd2f1b);
+    double lo=0.0,hi=0.0;
+    std::memcpy(&lo,&lo_bits,sizeof(lo));
+    std::memcpy(&hi,&hi_bits,sizeof(hi));
+    CHECK(decimal360_bits(lo)==lo_bits && decimal360_bits(hi)==hi_bits);
+    CHECK(hi-lo>10.0 && std::ceil((hi-lo)*7.0)==71.0);
     size_t source_ok=0u,spell_ok=0u,repeat_ok=0u,frame_count=0u;
     size_t exact_pdfium_ok=0u,raw_grid_diff=0u;
     size_t fractional_pdfium_diff=0u,unsupported_zero=0u;
@@ -123,6 +135,7 @@ static int test_decimal360_source_spelling(const char *report_path)
         " \"source_kind\":\"test_generated_original_pdf\",\n"
         " \"origin\":\"literal_pdf_bytes_not_reexport\",\n"
         " \"decimal_contract_test_only\":true,\n"
+        " \"correct_rounded_double_still_inflates\":true,\n"
         " \"native_render\":\"not_run\",\n"
         " \"public_sdk_backend_switched\":false,\n"
         " \"external_native_positive_increment\":0,\n"
