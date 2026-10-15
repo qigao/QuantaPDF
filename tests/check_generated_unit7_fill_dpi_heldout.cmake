@@ -73,6 +73,7 @@ foreach(slot RANGE 0 4)
   set(partial_${slot} 0)
   set(other_${slot} 0)
   set(binary_${slot} 0)
+  set(grid_mismatch_${slot} 0)
   set(pixels_${slot} 0)
   foreach(rule RANGE 0 4)
     set(matches_${slot}_${rule} 0)
@@ -91,6 +92,9 @@ foreach(index RANGE 0 119)
   string(JSON partial GET "${report}" frames ${index} partial_green_pixels)
   string(JSON other GET "${report}" frames ${index} non_redwhite_pixels)
   string(JSON rectangle GET "${report}" frames ${index} binary_rectangle)
+  string(JSON private_width GET "${report}" frames ${index} private_grid_width)
+  string(JSON private_height GET "${report}" frames ${index} private_grid_height)
+  string(JSON grid_mismatch GET "${report}" frames ${index} private_grid_differs_from_original_pdfium)
   string(JSON box_n LENGTH "${report}" frames ${index} observed_bbox)
   string(JSON model_n LENGTH "${report}" frames ${index} model_bboxes)
   string(JSON err_n LENGTH "${report}" frames ${index} model_abs_edge_error)
@@ -134,9 +138,31 @@ foreach(index RANGE 0 119)
   endif()
   if(red LESS 1 OR red GREATER frame_pixels OR
      partial GREATER frame_pixels OR other GREATER frame_pixels OR
-     (NOT rectangle EQUAL 0 AND NOT rectangle EQUAL 1))
+     (NOT rectangle EQUAL 0 AND NOT rectangle EQUAL 1) OR
+     (NOT grid_mismatch EQUAL 0 AND NOT grid_mismatch EQUAL 1))
     message(FATAL_ERROR "Invalid original PDFium pixel/capacity ledger")
   endif()
+  if(dpi EQUAL 120 OR dpi EQUAL 168)
+    if(NOT private_width EQUAL 0 OR
+       NOT private_height EQUAL 0 OR NOT grid_mismatch EQUAL 0)
+      message(FATAL_ERROR "Unsupported DPI must not publish private grid dimensions")
+    endif()
+  else()
+    math(EXPR difference_x "${private_width}-${width}")
+    math(EXPR difference_y "${private_height}-${height}")
+    if(difference_x LESS -1 OR difference_x GREATER 1 OR
+       difference_y LESS -1 OR difference_y GREATER 1)
+      message(FATAL_ERROR "Private admitted grid deviates more than one pixel from original")
+    endif()
+    if((difference_x EQUAL 0 AND difference_y EQUAL 0 AND
+        NOT grid_mismatch EQUAL 0) OR
+       ((NOT difference_x EQUAL 0 OR NOT difference_y EQUAL 0) AND
+        NOT grid_mismatch EQUAL 1))
+      message(FATAL_ERROR "Private grid-vs-PDFium dimensions were misreported")
+    endif()
+  endif()
+  math(EXPR grid_mismatch_${dpi_slot}
+    "${grid_mismatch_${dpi_slot}}+${grid_mismatch}")
   set(bbox_edges)
   foreach(edge RANGE 0 3)
     string(JSON v GET "${report}" frames ${index} observed_bbox ${edge})
@@ -214,6 +240,7 @@ foreach(slot RANGE 0 4)
   string(JSON partial GET "${report}" dpi_totals ${slot} partial_green_pixels)
   string(JSON other GET "${report}" dpi_totals ${slot} non_redwhite_pixels)
   string(JSON binary GET "${report}" dpi_totals ${slot} binary_rectangles)
+  string(JSON private_mismatches GET "${report}" dpi_totals ${slot} private_grid_original_dimension_mismatches)
   string(JSON matches_length LENGTH "${report}" dpi_totals ${slot} model_exact_matches)
   string(JSON errors_length LENGTH "${report}" dpi_totals ${slot} model_abs_edge_errors)
   if(NOT dpi EQUAL expected_dpi OR
@@ -223,6 +250,7 @@ foreach(slot RANGE 0 4)
      NOT partial EQUAL partial_${slot} OR
      NOT other EQUAL other_${slot} OR
      NOT binary EQUAL binary_${slot} OR
+     NOT private_mismatches EQUAL grid_mismatch_${slot} OR
      NOT matches_length EQUAL 5 OR NOT errors_length EQUAL 5)
     message(FATAL_ERROR "Original PDFium scale-level ledger differs from frames")
   endif()
@@ -239,8 +267,19 @@ endforeach()
 if(NOT all_pixels EQUAL 1419168)
   message(FATAL_ERROR "Original PDFium total benchmark pixel budget changed")
 endif()
+set(all_grid_mismatches 0)
+foreach(slot RANGE 0 4)
+  math(EXPR all_grid_mismatches
+    "${all_grid_mismatches}+${grid_mismatch_${slot}}")
+endforeach()
+string(JSON reported_grid_mismatches GET "${report}" private_grid_vs_pdfium_dimension_mismatch_cases)
+if(NOT all_grid_mismatches EQUAL reported_grid_mismatches)
+  message(FATAL_ERROR "Original PDFium vs private v0 DPI-grid discrepancy ledger differs")
+endif()
 message(STATUS
   "24 immutable QPDF test-generated originals at DPI 72/96/120/144/168 "
   "=> 120 repeated original PDFium source renders / 1419168 pixels. "
+  "Grid v0 admitted 72 source-DPI modes, rejected 48 unsupported modes, "
+  "with ${all_grid_mismatches} dimension discrepancies vs independent PDFium. "
   "Numerical candidate diagnostics per DPI, no C11 raster, "
   "no third-party source promotion and no SDK switch.")
