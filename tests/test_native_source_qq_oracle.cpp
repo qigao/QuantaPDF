@@ -7062,11 +7062,11 @@ static void publish_corpus_report(const char *destination,
  * No source/PDFium object is reachable from the private C11 Raster call. */
 static void write_single_w_visible_page(
     int rotation,int unit,const char *source_output=GENERATED_VISIBLE_DEVICE_PDF,
-    unsigned crop_variant=0u)
+    unsigned crop_variant=0u,unsigned content_variant=0u)
 {
     CHECK(rotation==0 || rotation==90 || rotation==180 || rotation==270);
     CHECK(unit==1 || unit==2 || unit==7);
-    CHECK(crop_variant<=3u);
+    CHECK(crop_variant<=3u && content_variant<=2u);
     CHECK(source_output!=nullptr && *source_output);
     auto pdf=QPDF::create();
     pdf->emptyPDF();
@@ -7096,8 +7096,15 @@ static void write_single_w_visible_page(
     leaf.replaceKey("/Parent",root);
     /* One nonzero source W Clip, one opaque red Fill; no content CTM.
      * Native preview must consume the source-derived Owned Composer IR. */
-    leaf.replaceKey("/Contents",pdf->newStream(
-        "3 4 6 6 re W n 1 0 0 rg 4 5 6 4 re f"));
+    const char *const source_commands[3]={
+        "3 4 6 6 re W n 1 0 0 rg 4 5 6 4 re f",
+        "1 0 0 rg 4 5 6 4 re f",
+        "3 4 6 6 re W n 1 0 0 rg 0 0 20 30 re f"
+    };
+    /* Test-only original source variants: combined / paint-only / clip-only.
+     * Never re-export a Composer IR into the PDFium oracle. */
+    leaf.replaceKey("/Contents",
+        pdf->newStream(source_commands[content_variant]));
     QPDFWriter writer(*pdf);
     writer.setMinimumPDFVersion("1.6");
     writer.setOutputMemory();
