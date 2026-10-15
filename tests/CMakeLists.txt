@@ -2534,3 +2534,6 @@ endif()
 add_test(NAME quantapdf.graph_page_device_sampling
   COMMAND quantapdf_test_graph_page_device_sampling)
 set_tests_properties(quantapdf.graph_page_device_sampling PROPERTIES TIMEOUT 30)
+
+# #269 private visible-IR device pixel positive, no public renderer.
+include("${PROJECT_SOURCE_DIR}/tests/native_visible_page_device_preview_v0.cmake")
