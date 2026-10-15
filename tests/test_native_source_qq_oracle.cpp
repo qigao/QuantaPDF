@@ -9178,8 +9178,14 @@ static int test_generated_unit7_pdfium_mask_decomposition(
                 quantapdf_graph_page_geometry g{};
                 OK(quantapdf_graph_query_page_geometry(
                     snapshot->graph,0u,4u,&g));
+                /* Graph's bounded locale-independent decimal parser
+                 * sums 0.1, 0.01, ... digits as binary doubles. Even
+                 * exact decimal names such as 2.375 may be 1 ulp away
+                 * from the C++ literal; keep the ORIGINAL Graph value
+                 * for the subsequent device grid and bound admission. */
                 for(size_t k=0u;k<4u;++k)
-                    CHECK(g.crop_box[k]==crops[variant][k]);
+                    CHECK(std::isfinite(g.crop_box[k]) &&
+                          std::fabs(g.crop_box[k]-crops[variant][k])<1e-9);
                 CHECK(g.user_unit==7.0 && g.rotation==rotation &&
                       g.media_box[0]==0.0 && g.media_box[1]==0.0 &&
                       g.media_box[2]==20.0 && g.media_box[3]==30.0);
