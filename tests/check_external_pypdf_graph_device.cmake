@@ -39,6 +39,12 @@ foreach(field IN ITEMS
   "\"source_document_closed_before_geometry_report\": true"
   "\"graph_snapshot_released\": true"
   "\"user_unit_is_original_default_1\": true"
+  "\"default_graph_capture_status\": \"unsupported\""
+  "\"default_graph_capture_error_code\": 5"
+  "\"expanded_test_only_capture_status\": \"ok\""
+  "\"capture_budget_only_node_limit_changed\": true"
+  "\"default_node_limit\": 10000"
+  "\"test_node_limit\": 16000"
   "\"page_count\": 4"
   "\"original_pdfium_pixel_oracle\": \"not_run\""
   "\"native_raster\": \"not_run\""
@@ -48,6 +54,37 @@ foreach(field IN ITEMS
     message(FATAL_ERROR "Missing strict Graph provenance/negative marker: ${field}")
   endif()
 endforeach()
+# Require actual bounded source Graph accounting in the observation;
+# no hardcoded assumptions about which limit is exhausted across platforms.
+foreach(field IN ITEMS graph_node_count graph_edge_count
+    graph_model_bytes graph_owner_storage_bytes)
+  if(NOT report MATCHES "\"${field}\": ([0-9]+)")
+    message(FATAL_ERROR "Missing Graph budget metric: ${field}")
+  endif()
+  if(NOT CMAKE_MATCH_1 GREATER 0)
+    message(FATAL_ERROR "Empty graph budget metric: ${field}")
+  endif()
+endforeach()
+# The node count must exceed the old cap while *every other*
+# pre-existing limit is retained. This precisely attributes the old
+# UNSUPPORTED to bounded Graph node admission, not Content decoding.
+string(REGEX MATCH "\"graph_node_count\": ([0-9]+)" node_entry "${report}")
+set(actual_nodes "${CMAKE_MATCH_1}")
+string(REGEX MATCH "\"graph_edge_count\": ([0-9]+)" edge_entry "${report}")
+set(actual_edges "${CMAKE_MATCH_1}")
+string(REGEX MATCH "\"graph_model_bytes\": ([0-9]+)" byte_entry "${report}")
+set(actual_bytes "${CMAKE_MATCH_1}")
+string(REGEX MATCH "\"graph_owner_storage_bytes\": ([0-9]+)" store_entry "${report}")
+set(actual_storage "${CMAKE_MATCH_1}")
+if(NOT actual_nodes GREATER 10000 OR actual_nodes GREATER 16000 OR
+   NOT actual_edges LESS_EQUAL 30000 OR
+   NOT actual_bytes LESS_EQUAL 1048576 OR
+   NOT actual_storage LESS_EQUAL 4194304)
+  message(FATAL_ERROR
+    "Pypdf Graph budget diagnosis not node-only: "
+    "nodes=${actual_nodes}, edges=${actual_edges}, "
+    "model_bytes=${actual_bytes}, storage=${actual_storage}")
+endif()
 foreach(page RANGE 0 3)
   string(FIND "${report}" "\"page_index\": ${page}" at)
   if(at EQUAL -1)

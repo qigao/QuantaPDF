@@ -7225,13 +7225,27 @@ static int quarantine_pypdf_graph_geometry(
     quantapdf_document *document=nullptr;
     quantapdf_graph_snapshot *snapshot=nullptr;
     OK(quantapdf_open(source_path,nullptr,&document));
+    /* Reproduce the exact default-test-budget negative in a separate
+     * read-only capture BEFORE the successful bounded geometry admission.
+     * A source budget refusal must not publish a partial Graph. This is
+     * diagnostic only; it is not a fallback for production rendering. */
+    quantapdf_graph_snapshot *default_capture=nullptr;
+    const quantapdf_status default_status=
+        quantapdf_document_capture_graph(
+            document,&graph_limits,&default_capture);
+    CHECK(default_status==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(default_capture==nullptr);
     /* Unlike the default 14-family/36-fixture test budget, the external
      * 4-page original has >700 indirect objects plus annotation/form
      * subtrees. This explicitly larger TEST-ONLY bounded budget is not
      * a production fallback or an acceptance rule for native painting. */
-    const quantapdf_graph_limits geometry_budget={
-        40000u,120000u,4194304u,4194304u,33554432u,256u
-    };
+    /* Measured original Graph: 13,471 nodes, 13,863 edges,
+     * 179,055 total model bytes and <1.5 MiB owner storage.
+     * The ONLY exceeded original/default limit is max_nodes=10,000.
+     * Increase solely the selected test's node capacity to 16k; all
+     * edge/value/stream/storage/depth caps stay byte-for-byte original. */
+    quantapdf_graph_limits geometry_budget=graph_limits;
+    geometry_budget.max_nodes=16000u;
     const quantapdf_status capture=
         quantapdf_document_capture_graph(document,&geometry_budget,&snapshot);
     quantapdf_close(document);
@@ -7248,6 +7262,28 @@ static int quarantine_pypdf_graph_geometry(
     const quantapdf_graph_model *model=
         quantapdf_graph_view(snapshot->graph);
     CHECK(model!=nullptr && model->page_count==4u);
+    const size_t original_graph_nodes=model->node_count;
+    const size_t original_graph_edges=model->edge_count;
+    const size_t original_graph_bytes=model->byte_count;
+    const size_t original_graph_storage=
+        quantapdf_graph_storage_bytes(snapshot->graph);
+    CHECK(original_graph_nodes>graph_limits.max_nodes &&
+          original_graph_nodes<=geometry_budget.max_nodes);
+    CHECK(original_graph_edges>0u &&
+          original_graph_edges<=graph_limits.max_edges);
+    /* Total bytes bound each disjoint stream/nonstream class. */
+    CHECK(original_graph_bytes>0u &&
+          original_graph_bytes<=graph_limits.max_value_bytes &&
+          original_graph_bytes<=graph_limits.max_stream_bytes);
+    CHECK(original_graph_storage<=graph_limits.max_storage_bytes);
+    std::fprintf(stderr,
+        "[pypdf original capture budget] baseline=UNSUPPORTED "
+        "expanded=OK nodes=%zu edges=%zu model_bytes=%zu owned_bytes=%zu "
+        "default_nodes=%zu default_edges=%zu default_storage=%zu\n",
+        original_graph_nodes,original_graph_edges,
+        original_graph_bytes,original_graph_storage,
+        graph_limits.max_nodes,graph_limits.max_edges,
+        graph_limits.max_storage_bytes);
 
     const double expected_media[4][4]={
         {12,12,612,732},{9,9,459,549},
@@ -7325,8 +7361,21 @@ static int quarantine_pypdf_graph_geometry(
         "  \"source_document_closed_before_geometry_report\": true,\n"
         "  \"graph_snapshot_released\": true,\n"
         "  \"user_unit_is_original_default_1\": true,\n"
+        "  \"default_graph_capture_status\": \"unsupported\",\n"
+        "  \"default_graph_capture_error_code\": %d,\n"
+        "  \"expanded_test_only_capture_status\": \"ok\",\n"
+        "  \"capture_budget_only_node_limit_changed\": true,\n"
+        "  \"default_node_limit\": %zu,\n"
+        "  \"test_node_limit\": %zu,\n"
+        "  \"graph_node_count\": %zu,\n"
+        "  \"graph_edge_count\": %zu,\n"
+        "  \"graph_model_bytes\": %zu,\n"
+        "  \"graph_owner_storage_bytes\": %zu,\n"
         "  \"page_count\": 4,\n"
-        "  \"pages\": [\n");
+        "  \"pages\": [\n",
+        (int)default_status,graph_limits.max_nodes,geometry_budget.max_nodes,
+        original_graph_nodes,original_graph_edges,
+        original_graph_bytes,original_graph_storage);
     for(size_t i=0u;i<4u;++i){
         const auto& p=observations[i];
         std::fprintf(out,
