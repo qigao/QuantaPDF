@@ -794,3 +794,161 @@ quantapdf_ir_raster_rect_fill_bottom_near_edges_preview_v0(
     }
     return QUANTAPDF_OK;
 }
+
+
+/* ELEVENTH independent PRIVATE clipped Fill/W A/B:
+ * the exact source Fill-right AND Fill-bottom intersect inside a single
+ * device pixel; its Q8-covered rectangle is a tiny red fringe that
+ * previous 4x4 and mode10 fully-contained-X sampling deliberately left
+ * untouched. Only this genuine source corner can be changed. This code
+ * never reads PDFium oracle pixels or a source-document-specific constant.
+ *
+ * The prior mode10 retains all coverage/ownership elsewhere. No public
+ * SDK/ABI, alternate owner or fallback is introduced. */
+quantapdf_status
+quantapdf_ir_raster_rect_fill_bottom_right_q8_preview_v0(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    quantapdf_native_device_grid grid;
+    quantapdf_native_device_grid_status gs_status;
+    quantapdf_status result;
+    qp_rect_source fill,clip;
+    const quantapdf_composer_operation *op;
+    const quantapdf_composer_graphics_state *state;
+    const quantapdf_composer_clip_state *mask;
+    const quantapdf_composer_path_options *options;
+    size_t col,row,work_edges,offset;
+    int64_t xr_q,yb_q,clip_left_q,clip_top_q,clip_bottom_q;
+    int64_t cell_x,cell_y,area_x,area_y;
+    unsigned alpha;
+    unsigned char *pixel;
+    double px0,px1,py0,py1;
+
+    if(out_image==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out_image,0,sizeof(*out_image));
+    if(ir==NULL || geometry==NULL || grid_limits==NULL ||
+       raster_limits==NULL || ir->pages==NULL || ir->operations==NULL ||
+       ir->page_count!=1u || page_index!=0u ||
+       ir->operation_count!=1u ||
+       ir->resources.graphics_state_count!=1u ||
+       ir->resources.clip_count!=1u ||
+       ir->resources.graphics_states==NULL ||
+       ir->resources.clips==NULL)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    op=&ir->operations[0];
+    state=&ir->resources.graphics_states[0];
+    mask=&ir->resources.clips[0];
+    options=&op->value.path.options;
+    if(op->kind!=QUANTAPDF_COMPOSER_OPERATION_PATH ||
+       op->page_index!=0u || op->graphics_state_id!=1u ||
+       state->clip_id!=1u ||
+       state->blend_mode!=QUANTAPDF_COMPOSER_BLEND_NORMAL ||
+       state->fill_alpha!=1.0f || state->stroke_alpha!=1.0f ||
+       state->soft_mask_id!=0u ||
+       options->struct_size<QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_MIN_SIZE ||
+       options->fill!=1 || options->stroke!=0 ||
+       options->fill_rule!=QUANTAPDF_COMPOSER_FILL_NONZERO ||
+       options->graphics_state_id!=1u ||
+       (options->fill_argb>>24u)!=255u ||
+       mask->kind!=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL ||
+       mask->members!=NULL || mask->member_count!=0u ||
+       mask->fill_rule!=QUANTAPDF_COMPOSER_FILL_NONZERO ||
+       !qp_rectangle(op->value.path.commands,
+                     op->value.path.command_count,
+                     &options->transform,geometry,&fill) ||
+       !qp_rectangle(mask->commands,mask->command_count,
+                     &mask->transform,geometry,&clip))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if(!(fill.left<clip.left && clip.left<fill.right &&
+         fill.right<clip.right && fill.top<clip.top &&
+         clip.top<fill.bottom && fill.bottom<clip.bottom))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    gs_status=quantapdf_native_device_grid_create_v0(
+        geometry,grid_limits,&grid);
+    if(gs_status==QUANTAPDF_NATIVE_DEVICE_GRID_ARGUMENT)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if(gs_status!=QUANTAPDF_NATIVE_DEVICE_GRID_OK ||
+       quantapdf_native_device_grid_check_ir_v0(
+           &grid,ir->pages[0].width_points,
+           ir->pages[0].height_points)!=QUANTAPDF_NATIVE_DEVICE_GRID_OK)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    /* One more bounded rectangle-edge pass, charged before invoking the
+     * previous private mode10 and before it allocates any image bytes. */
+    work_edges=fill.edges+clip.edges+6u;
+    if(work_edges>grid_limits->max_edges ||
+       work_edges>raster_limits->max_edges ||
+       quantapdf_native_device_grid_admit_edges_v0(
+           &grid,grid_limits,work_edges)!=QUANTAPDF_NATIVE_DEVICE_GRID_OK ||
+       work_edges>raster_limits->max_sample_tests/grid.sample_slots)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    col=(size_t)floor(fill.right/grid.points_per_device_x);
+    row=(size_t)floor(fill.bottom/grid.points_per_device_y);
+    if(col>=grid.width || row>=grid.height ||
+       (uint64_t)col>(uint64_t)(INT64_MAX/256-1) ||
+       (uint64_t)row>(uint64_t)(INT64_MAX/256-1))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    cell_x=(int64_t)col*256;
+    cell_y=(int64_t)row*256;
+    px0=(double)col*grid.points_per_device_x;
+    px1=((double)col+1.0)*grid.points_per_device_x;
+    py0=(double)row*grid.points_per_device_y;
+    py1=((double)row+1.0)*grid.points_per_device_y;
+    /* Even when the Q8 boundary becomes grid-aligned, genuine
+     * source-space edges MUST be strictly fractional within the pixel. */
+    if(!(px0<fill.right && fill.right<px1 &&
+         py0<fill.bottom && fill.bottom<py1 &&
+         px0>=clip.left && py0>=clip.top &&
+         px1<clip.right && py1<clip.bottom))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if(!qp_rect_q8_device_edge(fill.right,grid.points_per_device_x,
+                               &xr_q) ||
+       !qp_rect_q8_device_edge(fill.bottom,grid.points_per_device_y,
+                               &yb_q) ||
+       !qp_rect_q8_device_edge(clip.left,grid.points_per_device_x,
+                               &clip_left_q) ||
+       !qp_rect_q8_device_edge(clip.top,grid.points_per_device_y,
+                               &clip_top_q) ||
+       !qp_rect_q8_device_edge(clip.bottom,grid.points_per_device_y,
+                               &clip_bottom_q))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    /* The Clip cannot be the source of partial X/Y coverage here;
+     * both partial boundaries belong exclusively to the Fill. */
+    if(!(cell_x<xr_q && xr_q<cell_x+256 &&
+         cell_y<yb_q && yb_q<cell_y+256 &&
+         clip_left_q<=cell_x && clip_top_q<=cell_y &&
+         clip_bottom_q>=cell_y+256))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    area_x=xr_q-cell_x;
+    area_y=yb_q-cell_y;
+    alpha=(unsigned)((area_x*area_y+128)/256);
+    if(alpha==0u || alpha>=255u)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    result=quantapdf_ir_raster_rect_fill_bottom_near_edges_preview_v0(
+        ir,page_index,geometry,grid_limits,raster_limits,out_image);
+    if(result!=QUANTAPDF_OK)return result;
+    if(out_image->pixels==NULL || out_image->size!=grid.rgba_bytes ||
+       out_image->stride!=grid.stride ||
+       out_image->width!=grid.width ||
+       out_image->height!=grid.height) {
+        quantapdf_ir_raster_image_dispose(out_image);
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    offset=row*out_image->stride+col*4u;
+    pixel=out_image->pixels+offset;
+    if(pixel[0]!=0u || pixel[1]!=0u ||
+       pixel[2]!=0u || pixel[3]!=0u) {
+        quantapdf_ir_raster_image_dispose(out_image);
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    pixel[0]=(unsigned char)((options->fill_argb>>16u)&255u);
+    pixel[1]=(unsigned char)((options->fill_argb>>8u)&255u);
+    pixel[2]=(unsigned char)(options->fill_argb&255u);
+    pixel[3]=(unsigned char)alpha;
+    return QUANTAPDF_OK;
+}
