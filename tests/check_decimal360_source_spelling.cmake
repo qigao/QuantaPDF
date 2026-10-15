@@ -20,6 +20,7 @@ foreach(marker IN ITEMS
     "\"source_kind\":\"test_generated_original_pdf\""
     "\"origin\":\"literal_pdf_bytes_not_reexport\""
     "\"decimal_contract_test_only\":true"
+    "\"correct_rounded_double_still_inflates\":true"
     "\"native_render\":\"not_run\""
     "\"public_sdk_backend_switched\":false"
     "\"external_native_positive_increment\":0")
@@ -35,14 +36,14 @@ string(JSON repeat_count GET "${report}" pdfium_bitmap_repeat_count)
 string(JSON frame_count GET "${report}" frame_count)
 string(JSON integral_count GET "${report}" integer_span_pdfium_matches)
 string(JSON unsupported_count GET "${report}" unsupported_dpi_zero_refusals)
-if(NOT n EQUAL 13 OR NOT source_count EQUAL 13 OR
-   NOT spelling_count EQUAL 52 OR NOT repeat_count EQUAL 39 OR
-   NOT frame_count EQUAL 39 OR NOT integral_count EQUAL 33 OR
-   NOT unsupported_count EQUAL 26)
+if(NOT n EQUAL 14 OR NOT source_count EQUAL 14 OR
+   NOT spelling_count EQUAL 56 OR NOT repeat_count EQUAL 42 OR
+   NOT frame_count EQUAL 42 OR NOT integral_count EQUAL 36 OR
+   NOT unsupported_count EQUAL 28)
   message(FATAL_ERROR "#360 source/Graph/PDFium ledger missing cases")
 endif()
 set(dpis 72 96 144)
-foreach(i RANGE 0 12)
+foreach(i RANGE 0 13)
   string(JSON nbytes GET "${report}" cases ${i} original_bytes)
   string(JSON fnv GET "${report}" cases ${i} source_fnv64)
   string(JSON crop GET "${report}" cases ${i} crop)
@@ -78,7 +79,7 @@ foreach(i RANGE 0 12)
        pw LESS 1 OR ph LESS 1 OR gw LESS 1 OR gh LESS 1)
       message(FATAL_ERROR "#360 invalid original Source/Grid frame")
     endif()
-    if(i LESS 11)
+    if(i LESS 12)
       string(JSON parity GET "${report}" cases ${i} frames ${j} pdfium_matches_exact)
       if(NOT parity)
         message(FATAL_ERROR "#360 exact decimal span differs from original PDFium")
@@ -87,7 +88,7 @@ foreach(i RANGE 0 12)
   endforeach()
 endforeach()
 message(STATUS
-  "#360 source-backed decimal: 13 immutable test-owned literal PDFs, "
-  "52 original Graph numeric spellings, 39 repeated PDFium frames, "
-  "33 exact-integer-size PDFium matches, 26 hard unsupported DPI refuses; "
+  "#360 source-backed decimal: 14 immutable test-owned literal PDFs, "
+  "56 original Graph numeric spellings, 42 repeated PDFium frames, "
+  "36 exact-integer-size PDFium matches, 28 hard unsupported DPI refuses; "
   "no production parser or renderer mutation.")
