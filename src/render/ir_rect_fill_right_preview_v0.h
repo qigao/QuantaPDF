@@ -76,6 +76,18 @@ quantapdf_ir_raster_rect_fill_bottom_near_edges_preview_v0(
     const quantapdf_ir_raster_v1_limits *raster_limits,
     quantapdf_ir_raster_image *out_image);
 
+/* ELEVENTH independently invoked PRIVATE source Fill-right/bottom Q8
+ * tiny corner A/B. Requires two genuine fractional source-owned edges,
+ * an unoccluded W Clip rectangle and an originally CLEAR RGBA device
+ * pixel. All old modes and public SDK/ABI remain byte-for-byte unchanged. */
+quantapdf_status
+quantapdf_ir_raster_rect_fill_bottom_right_q8_preview_v0(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
