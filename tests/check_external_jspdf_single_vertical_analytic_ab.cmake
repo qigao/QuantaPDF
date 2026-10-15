@@ -1230,6 +1230,38 @@ if(NOT lt_status STREQUAL "measured_unqualified"
 endif()
 message(STATUS
   "jspdf-W-left-top: baseline_rgb=${corner_br_abs_rgb_error} trial_rgb=${lt_abs_rgb_error} baseline_diff=${corner_br_changed_pixels} trial_diff=${lt_changed_pixels} alpha_changes=${lt_source_alpha_changed_pixels} official=0 parity=false")
+# TWENTY-SECOND independent original-source W-left x Fill-bottom
+# mask-product C11 A/B; caller remains required to measure all pixels.
+# Parent #317 exact RGB remains frozen by the preceding mode12 gate.
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_rgba_changed_pixels outside_source_corner
+    alpha_delta_gt4 output_outside_source_alpha
+    abs_rgb_error mean_abs_rgb_error changed_pixels
+    gross_delta64_pixels max_channel_delta rgb_fnv64)
+  string(JSON mask_${field} GET "${json}" clip_bottom_mask_${field})
+endforeach()
+string(LENGTH "${mask_rgb_fnv64}" mask_hashlen)
+if(NOT mask_status STREQUAL "measured_unqualified"
+   OR mask_default_changed OR mask_pixel_parity_qualified
+   OR NOT mask_repeat_equal
+   OR NOT mask_source_rgba_changed_pixels EQUAL 1
+   OR NOT mask_outside_source_corner EQUAL 0
+   OR NOT mask_alpha_delta_gt4 EQUAL 0
+   OR NOT mask_output_outside_source_alpha EQUAL 0
+   OR mask_abs_rgb_error LESS 0
+   OR mask_abs_rgb_error GREATER 383901480
+   OR mask_mean_abs_rgb_error LESS 0
+   OR mask_mean_abs_rgb_error GREATER 255
+   OR mask_changed_pixels LESS 0 OR mask_changed_pixels GREATER 501832
+   OR mask_gross_delta64_pixels LESS 0
+   OR mask_gross_delta64_pixels GREATER mask_changed_pixels
+   OR mask_max_channel_delta LESS 0 OR mask_max_channel_delta GREATER 255
+   OR NOT mask_hashlen EQUAL 16
+   OR NOT mask_rgb_fnv64 MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "Separate Clip-left Fill-bottom A8 product escaped source scope")
+endif()
+message(STATUS
+  "jspdf-source-clip-left-fill-bottom: parent_rgb=${lt_abs_rgb_error} trial_rgb=${mask_abs_rgb_error} parent_diff=${lt_changed_pixels} trial_diff=${mask_changed_pixels} source_changes=${mask_source_rgba_changed_pixels} parity=false official=0")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")

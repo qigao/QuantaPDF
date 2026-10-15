@@ -101,6 +101,19 @@ quantapdf_ir_raster_rect_clip_left_top_preview_v0(
     const quantapdf_ir_raster_v1_limits *raster_limits,
     quantapdf_ir_raster_image *out_image);
 
+/* THIRTEENTH separate PRIVATE source-mask intersection A/B.
+ * Source Clip-left and Fill-bottom are independent antialiased masks,
+ * not two edges of the same Fill polygon. Test integer
+ * floor(ClipLeftA8 * FillBottomA8 / 255) for their one true fractional
+ * intersection, preserving all earlier mode12 source RGBA elsewhere. */
+quantapdf_status
+quantapdf_ir_raster_rect_clip_left_fill_bottom_preview_v0(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

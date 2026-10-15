@@ -119,6 +119,9 @@ static unsigned alpha(const quantapdf_ir_raster_image *im,
 #define CORNER_CLIP_LEFT_TOP(f,o) \
     quantapdf_ir_raster_rect_clip_left_top_preview_v0( \
     &(f).ir,0u,&(f).geometry,&(f).grid_budget,&(f).raster_budget,&(o))
+#define CORNER_CLIP_LEFT_FILL_BOTTOM(f,o) \
+    quantapdf_ir_raster_rect_clip_left_fill_bottom_preview_v0( \
+    &(f).ir,0u,&(f).geometry,&(f).grid_budget,&(f).raster_budget,&(o))
 
 static int test_analytic_edge_and_repeat(void)
 {
@@ -729,6 +732,79 @@ static int test_clip_left_top_q8_corner(void)
     return EXIT_SUCCESS;
 }
 
+
+/* THIRTEENTH PRIVATE C11 source-specific mask test: one W Clip-left
+ * X sample combines with one separate Fill-bottom Y sample through
+ * the proposed integer A8 mask-product contract, rather than
+ * round-to-nearest 2D Fill-polygon coverage. */
+static int test_clip_left_fill_bottom_mask_product(void)
+{
+    fixture f;
+    quantapdf_ir_raster_image old={0},trial={0},repeat={0};
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    OK(CORNER_CLIP_LEFT_TOP(f,old));
+    OK(CORNER_CLIP_LEFT_FILL_BOTTOM(f,trial));
+    OK(CORNER_CLIP_LEFT_FILL_BOTTOM(f,repeat));
+    CHECK(old.pixels && trial.pixels && repeat.pixels &&
+          old.size==trial.size && trial.size==repeat.size &&
+          memcmp(trial.pixels,repeat.pixels,trial.size)==0);
+    const double dx=32.5/33.0,dy=24.75/25.0;
+    const double px0=5.0*dx,px1=6.0*dx;
+    const double py0=15.0*dy,py1=16.0*dy;
+    CHECK(px0<5.0 && 5.0<px1 &&
+          py0<(double)14.9f && (double)14.9f<py1);
+    const unsigned clip_alpha=(unsigned)floor(
+        255.0*(px1-5.0)/(px1-px0)+0.5);
+    const unsigned bottom_alpha=(unsigned)floor(
+        255.0*((double)14.9f-py0)/(py1-py0)+0.5);
+    const unsigned expected=clip_alpha*bottom_alpha/255u;
+    CHECK(clip_alpha>0u && clip_alpha<255u &&
+          bottom_alpha>0u && bottom_alpha<255u &&
+          expected>0u && expected<255u);
+    const size_t off=15u*trial.stride+5u*4u;
+    CHECK(old.pixels[off]==0u && old.pixels[off+1u]==0u &&
+          old.pixels[off+2u]==0u && old.pixels[off+3u]==0u);
+    CHECK(trial.pixels[off]==255u && trial.pixels[off+1u]==0u &&
+          trial.pixels[off+2u]==0u &&
+          trial.pixels[off+3u]==expected);
+    CHECK(alpha(&old,5u,2u)==alpha(&trial,5u,2u));
+    CHECK(alpha(&old,6u,15u)==alpha(&trial,6u,15u));
+    CHECK(alpha(&old,15u,15u)==alpha(&trial,15u,15u));
+    size_t changed=0u;
+    for(size_t y=0u;y<trial.height;++y)
+        for(size_t x=0u;x<trial.width;++x) {
+            const size_t index=y*trial.stride+x*4u;
+            if(memcmp(old.pixels+index,trial.pixels+index,4u)!=0) {
+                CHECK(x==5u && y==15u);
+                ++changed;
+            }
+        }
+    CHECK(changed==1u);
+    quantapdf_ir_raster_image_dispose(&repeat);
+    quantapdf_ir_raster_image_dispose(&trial);
+    quantapdf_ir_raster_image_dispose(&old);
+
+    /* Previous mode12 15*13200=198K admitted; new mode13 16*13200
+     * must refuse at 205K before allocating an output image. */
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    f.grid_budget.max_sample_tests=205000u;
+    f.raster_budget.max_sample_tests=205000u;
+    OK(CORNER_CLIP_LEFT_TOP(f,old));
+    quantapdf_ir_raster_image_dispose(&old);
+    REFUSE(CORNER_CLIP_LEFT_FILL_BOTTOM(f,result));
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    f.clip.fill_rule=QUANTAPDF_COMPOSER_FILL_EVEN_ODD;
+    REFUSE(CORNER_CLIP_LEFT_FILL_BOTTOM(f,result));
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    f.op.value.path.options.transform.a=2.0f;
+    REFUSE(CORNER_CLIP_LEFT_FILL_BOTTOM(f,result));
+    return EXIT_SUCCESS;
+}
+
 static int test_fail_closed(void)
 {
     fixture f;
@@ -770,6 +846,7 @@ int main(void)
     CHECK(test_source_bottom_near_edges()==EXIT_SUCCESS);
     CHECK(test_bottom_right_q8_tiny_corner()==EXIT_SUCCESS);
     CHECK(test_clip_left_top_q8_corner()==EXIT_SUCCESS);
+    CHECK(test_clip_left_fill_bottom_mask_product()==EXIT_SUCCESS);
     CHECK(test_fail_closed()==EXIT_SUCCESS);
     puts("native-rect-fill-right-private-A/B: geometry, repeat, fail-closed PASS");
     return EXIT_SUCCESS;
