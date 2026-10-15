@@ -1455,10 +1455,12 @@ static int64_t test_q8_cell_intersection(
 static int test_retraced_outer_q8_phase_sweep(void)
 {
     const float dpis[]={72.0f,96.0f,144.0f};
-    const float X=20.125f,Y=8.33f;
+    const float X=20.125f;
+    const float phase_y[]={8.0f,8.33f,8.33f};
     const float L=2.125f,B=20.33f;
     size_t all_changes=0u;
     for(size_t phase=0u;phase<3u;++phase) {
+        const float Y=phase_y[phase];
         fixture f;
         quantapdf_composer_path_command cmds[7];
         quantapdf_ir_raster_image parent={0},trial={0},repeat={0};
@@ -1528,7 +1530,18 @@ static int test_retraced_outer_q8_phase_sweep(void)
             alpha(&parent,target_x,upper_y),
             alpha(&trial,target_x,upper_y),expected,
             (long long)h_area,(long long)outer_area);
-        CHECK(alpha(&trial,target_x,upper_y)==expected);
+        /* The pre-existing repeated-line mode is deliberately allowed
+         * to saturate a pixel at some phases. The new source-signed
+         * Q8 trial MUST leave an already opaque pixel untouched rather
+         * than forcing partial coverage. Where its prior Alpha is not
+         * saturated, the signed-area result must match independently
+         * computed source Q8 coverage exactly. */
+        const unsigned old_alpha=alpha(&parent,target_x,upper_y);
+        const unsigned actual_alpha=alpha(&trial,target_x,upper_y);
+        if(old_alpha==255u)
+            CHECK(actual_alpha==255u);
+        else
+            CHECK(actual_alpha==expected);
         for(size_t y=0u;y<trial.height;++y)
             for(size_t x=0u;x<trial.width;++x) {
                 const size_t off=y*trial.stride+x*4u;
