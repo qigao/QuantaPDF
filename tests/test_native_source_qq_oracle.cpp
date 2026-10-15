@@ -9130,6 +9130,14 @@ static int test_generated_unit7_pdfium_mask_decomposition(
         size_t intersection_different=0u;
         int all_binary=0,exact_binary_intersection=0;
     } rows[16]={};
+    struct primitive_model {
+        int fitted[3][4]={{0}};
+        int nominal[3][4]={{0}};
+        size_t fitted_error[3]={0u};
+        size_t nominal_error[3]={0u};
+    } models[16]={};
+    size_t fitted_matches[3]={0u},nominal_matches[3]={0u};
+    size_t fitted_error_total[3]={0u},nominal_error_total[3]={0u};
     size_t source_repeats=0u,total_mask_pixels=0u;
     size_t total_combination_different=0u,total_missing=0u,total_extra=0u;
     size_t exact_modes=0u,all_binary_modes=0u,combined_red_total=0u;
@@ -9194,6 +9202,79 @@ static int test_generated_unit7_pdfium_mask_decomposition(
                     &g,96u,20000u,100000u,&grid));
                 CHECK(grid.width==w && grid.height==h &&
                       grid.output_bytes==pixels*3u);
+                quantapdf_graph_page_display display{};
+                OK(quantapdf_graph_page_display_map(&g,&display));
+                /* Pure bounded analytical source-rectangle probes. Model
+                 * neither creates nor edits a bitmap, and each observed
+                 * PDFium mask remains an independent original PDF source. */
+                const double rects[3][4]={
+                    {4.0,5.0,9.0,9.0},
+                    {4.0,5.0,10.0,9.0},
+                    {3.0,4.0,9.0,10.0}
+                };
+                double fitted_min_x=1e100,fitted_min_y=1e100;
+                double fitted_max_x=-1e100,fitted_max_y=-1e100;
+                double nominal_min_x=1e100,nominal_min_y=1e100;
+                double nominal_max_x=-1e100,nominal_max_y=-1e100;
+                for(unsigned corner=0u;corner<4u;++corner) {
+                    const double x=rects[kind][(corner&1u)?2u:0u];
+                    const double y=rects[kind][(corner&2u)?3u:1u];
+                    const double fx=grid.from_source[0]*x+
+                        grid.from_source[2]*y+grid.from_source[4];
+                    const double fy=grid.from_source[1]*x+
+                        grid.from_source[3]*y+grid.from_source[5];
+                    const double vx=display.from_source[0]*x+
+                        display.from_source[2]*y+display.from_source[4];
+                    const double vy=display.from_source[1]*x+
+                        display.from_source[3]*y+display.from_source[5];
+                    const double nx=vx*(96.0/72.0);
+                    const double ny=(display.height_points-vy)*(96.0/72.0);
+                    CHECK(std::isfinite(fx) && std::isfinite(fy) &&
+                          std::isfinite(nx) && std::isfinite(ny));
+                    fitted_min_x=std::min(fitted_min_x,fx);
+                    fitted_min_y=std::min(fitted_min_y,fy);
+                    fitted_max_x=std::max(fitted_max_x,fx);
+                    fitted_max_y=std::max(fitted_max_y,fy);
+                    nominal_min_x=std::min(nominal_min_x,nx);
+                    nominal_min_y=std::min(nominal_min_y,ny);
+                    nominal_max_x=std::max(nominal_max_x,nx);
+                    nominal_max_y=std::max(nominal_max_y,ny);
+                }
+                const auto numeric_edge=[](double value){
+                    const double nearest=std::round(value);
+                    /* Graph decimal text may differ by one binary ULP.
+                     * Stabilize only edges within 1e-9 of exact integers,
+                     * never round an arbitrary fractional page extent. */
+                    return std::fabs(value-nearest)<1e-9?
+                        nearest:value;
+                };
+                const double fitted_bounds[4]={
+                    fitted_min_x,fitted_min_y,fitted_max_x,fitted_max_y
+                };
+                const double nominal_bounds[4]={
+                    nominal_min_x,nominal_min_y,nominal_max_x,nominal_max_y
+                };
+                for(size_t edge=0u;edge<4u;++edge){
+                    const int f=(int)(edge<2u?
+                        std::floor(numeric_edge(fitted_bounds[edge])):
+                        std::ceil(numeric_edge(fitted_bounds[edge])));
+                    const int n=(int)(edge<2u?
+                        std::floor(numeric_edge(nominal_bounds[edge])):
+                        std::ceil(numeric_edge(nominal_bounds[edge])));
+                    CHECK(f>=0 && n>=0 &&
+                          f<=(int)((edge&1u)?h:w) &&
+                          n<=(int)((edge&1u)?h:w));
+                    models[row_index].fitted[kind][edge]=f;
+                    models[row_index].nominal[kind][edge]=n;
+                }
+                CHECK(models[row_index].fitted[kind][0]<
+                      models[row_index].fitted[kind][2] &&
+                      models[row_index].fitted[kind][1]<
+                      models[row_index].fitted[kind][3] &&
+                      models[row_index].nominal[kind][0]<
+                      models[row_index].nominal[kind][2] &&
+                      models[row_index].nominal[kind][1]<
+                      models[row_index].nominal[kind][3]);
                 quantapdf_graph_snapshot_drop(snapshot);
 
                 quantapdf_document *doc=nullptr;
@@ -9257,6 +9338,20 @@ static int test_generated_unit7_pdfium_mask_decomposition(
                                       (size_t)(bottom+1-top);
                 CHECK(enclosed>=red && enclosed<=pixels);
                 stat.rectangle=(enclosed==red && nonbinary==0u)?1:0;
+                size_t f_error=0u,n_error=0u;
+                for(size_t edge=0u;edge<4u;++edge){
+                    const int actual=stat.bbox[edge];
+                    const int f=models[row_index].fitted[kind][edge];
+                    const int n=models[row_index].nominal[kind][edge];
+                    f_error+=(size_t)std::abs(actual-f);
+                    n_error+=(size_t)std::abs(actual-n);
+                }
+                models[row_index].fitted_error[kind]=f_error;
+                models[row_index].nominal_error[kind]=n_error;
+                fitted_error_total[kind]+=f_error;
+                nominal_error_total[kind]+=n_error;
+                if(f_error==0u)++fitted_matches[kind];
+                if(n_error==0u)++nominal_matches[kind];
                 quantapdf_drop_bitmap(again);
                 quantapdf_drop_bitmap(first);
                 quantapdf_drop_page(page);
@@ -9304,6 +9399,10 @@ static int test_generated_unit7_pdfium_mask_decomposition(
 
     CHECK(source_repeats==48u && total_mask_pixels==338400u &&
           combined_red_total>0u &&
+          fitted_matches[0]<=16u && fitted_matches[1]<=16u &&
+          fitted_matches[2]<=16u &&
+          nominal_matches[0]<=16u && nominal_matches[1]<=16u &&
+          nominal_matches[2]<=16u &&
           total_missing+total_extra==total_combination_different &&
           all_binary_modes<=16u && exact_modes<=all_binary_modes);
     FILE *out=std::fopen(stage.c_str(),"wb");
@@ -9364,6 +9463,42 @@ static int test_generated_unit7_pdfium_mask_decomposition(
             v.predicted_and,v.intersection_missing,v.intersection_extra,
             v.intersection_different,v.all_binary,
             v.exact_binary_intersection,k==15u?"":",");
+    }
+    std::fprintf(out,
+        "  ],\n"
+        "  \"primitive_model_test_only\":true,\n"
+        "  \"primitive_model_source\":\"Graph qualified geometry\",\n"
+        "  \"primitive_model_kind_order\":\"combined,fill_only,clip_only\",\n"
+        "  \"primitive_fitted_bbox_match_counts\":[%zu,%zu,%zu],\n"
+        "  \"primitive_nominal_bbox_match_counts\":[%zu,%zu,%zu],\n"
+        "  \"primitive_fitted_bbox_error_totals\":[%zu,%zu,%zu],\n"
+        "  \"primitive_nominal_bbox_error_totals\":[%zu,%zu,%zu],\n"
+        "  \"primitive_models\":[\n",
+        fitted_matches[0],fitted_matches[1],fitted_matches[2],
+        nominal_matches[0],nominal_matches[1],nominal_matches[2],
+        fitted_error_total[0],fitted_error_total[1],fitted_error_total[2],
+        nominal_error_total[0],nominal_error_total[1],
+        nominal_error_total[2]);
+    for(size_t i=0u;i<16u;++i){
+        const auto& m=models[i];
+        std::fprintf(out,"    {\"crop_variant\":%u,\"rotation\":%d,",
+                     rows[i].variant,rows[i].rotate);
+        for(unsigned type=0u;type<2u;++type){
+            std::fprintf(out,"\"%s\":[",
+                type==0u?"fitted_bboxes":"nominal_bboxes");
+            for(size_t kind=0u;kind<3u;++kind){
+                const int *e=type==0u?m.fitted[kind]:m.nominal[kind];
+                std::fprintf(out,"[%d,%d,%d,%d]%s",
+                    e[0],e[1],e[2],e[3],kind==2u?"":",");
+            }
+            std::fprintf(out,"],");
+        }
+        std::fprintf(out,
+            "\"fitted_abs_edge_error\":[%zu,%zu,%zu],"
+            "\"nominal_abs_edge_error\":[%zu,%zu,%zu]}%s\n",
+            m.fitted_error[0],m.fitted_error[1],m.fitted_error[2],
+            m.nominal_error[0],m.nominal_error[1],m.nominal_error[2],
+            i==15u?"":",");
     }
     std::fprintf(out,"  ]\n}\n");
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
