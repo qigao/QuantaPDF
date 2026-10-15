@@ -8203,8 +8203,277 @@ static int test_generated_small_unit7_original_exact(
     return EXIT_SUCCESS;
 }
 
+
+/* #269: 4 genuine test-generated original PDFs x 3 device DPIs.
+ * 72 DPI retains the already-qualified exact RGB gate; 96/144 DPI are
+ * independent diagnostic evidence only until actual parity is proven.
+ * Never count these QPDF-generated sources as licensed external originals. */
+static int test_generated_unit7_multidpi_original_diagnostic(
+    const char *report_path)
+{
+    CHECK(report_path!=nullptr && *report_path);
+    const std::string staged=std::string(report_path)+".tmp";
+    CHECK(std::strcmp(report_path,GENERATED_UNIT7_MULTIDPI_PDF)!=0 &&
+          staged!=GENERATED_UNIT7_MULTIDPI_PDF);
+    const unsigned dpis[3]={72u,96u,144u};
+    const uint32_t widths[3]={70u,94u,140u};
+    const uint32_t heights[3]={56u,75u,112u};
+    struct mode_record {
+        int rotation;
+        unsigned dpi;
+        uint32_t width,height;
+        size_t pixels;
+        unsigned long long abs_rgb;
+        size_t differing,gross;
+        unsigned max_delta;
+    } modes[12]={};
+    size_t total_pixels=0u,zero_output_negative=0u,source_repeats=0u;
+    unsigned long long sum96=0u,sum144=0u;
+    const auto read_original=[](const char *source_path){
+        FILE *f=std::fopen(source_path,"rb");
+        CHECK(f!=nullptr && std::fseek(f,0,SEEK_END)==0);
+        const long length=std::ftell(f);
+        CHECK(length>0 && length<=65536 &&
+              std::fseek(f,0,SEEK_SET)==0);
+        std::vector<unsigned char> original((size_t)length);
+        CHECK(std::fread(original.data(),1,original.size(),f)==
+              original.size());
+        CHECK(std::fclose(f)==0);
+        return original;
+    };
+    for(int rotation=0;rotation<360;rotation+=90){
+        write_single_w_visible_page(
+            rotation,7,GENERATED_UNIT7_MULTIDPI_PDF);
+        const auto source_bytes=read_original(GENERATED_UNIT7_MULTIDPI_PDF);
+        quantapdf_graph_page_geometry g{};
+        g.media_box[2]=20.0; g.media_box[3]=30.0;
+        g.crop_box[0]=2.0;g.crop_box[1]=3.0;
+        g.crop_box[2]=12.0;g.crop_box[3]=11.0;
+        g.rotation=rotation;
+        g.user_unit=7.0;
+        quantapdf_ir ir{};
+        OK(snapshot_lower(
+            &ir,0u,1u,2u,GENERATED_UNIT7_MULTIDPI_PDF));
+        CHECK(ir.page_count==1u && ir.operation_count==1u &&
+              ir.operations!=nullptr && ir.resources.clip_count==1u &&
+              ir.resources.clips!=nullptr &&
+              ir.resources.graphics_state_count==1u &&
+              ir.operations[0].value.path.command_count==5u &&
+              ir.resources.clips[0].command_count==5u);
+        const auto *commands=ir.operations[0].value.path.commands;
+        const auto *clip_commands=ir.resources.clips[0].commands;
+        CHECK(commands!=nullptr && clip_commands!=nullptr);
+        const std::vector<quantapdf_composer_path_command> saved_ops(
+            commands,commands+5u);
+        const std::vector<quantapdf_composer_path_command> saved_clip(
+            clip_commands,clip_commands+5u);
+        const quantapdf_ir_raster_v1_limits caps={
+            20000u,1u,64u,3000000u
+        };
+        for(size_t mode=0u;mode<3u;++mode){
+            const unsigned dpi=dpis[mode];
+            const uint32_t w=(rotation%180==0)?
+                widths[mode]:heights[mode];
+            const uint32_t h=(rotation%180==0)?
+                heights[mode]:widths[mode];
+            const size_t pixels=(size_t)w*(size_t)h;
+            quantapdf_graph_device_grid grid{};
+            OK(quantapdf_graph_page_device_grid(
+                &g,dpi,20000u,100000u,&grid));
+            CHECK(grid.width==w && grid.height==h &&
+                  grid.output_bytes==pixels*3u);
+            OK(quantapdf_graph_device_grid_admit_q4_work(
+                &grid,8u,64u,3000000u));
+            quantapdf_ir_raster_image native{},again{},rejected{};
+            OK(quantapdf_ir_raster_visible_page_fillclip_preview_v0(
+                &ir,0u,&g,dpi,&caps,100000u,&native));
+            OK(quantapdf_ir_raster_visible_page_fillclip_preview_v0(
+                &ir,0u,&g,dpi,&caps,100000u,&again));
+            CHECK(native.pixels!=nullptr && again.pixels!=nullptr &&
+                  native.width==w && native.height==h &&
+                  native.stride==w*4u && native.size==pixels*4u &&
+                  again.size==native.size &&
+                  std::memcmp(native.pixels,again.pixels,native.size)==0);
+            quantapdf_graph_page_geometry changed=g;
+            changed.user_unit=1.0;
+            std::memset(&rejected,0xa5,sizeof(rejected));
+            CHECK(quantapdf_ir_raster_visible_page_fillclip_preview_v0(
+                &ir,0u,&changed,dpi,&caps,100000u,&rejected)==
+                QUANTAPDF_ERROR_UNSUPPORTED);
+            CHECK(rejected.pixels==nullptr && rejected.width==0u &&
+                  rejected.height==0u && rejected.stride==0u &&
+                  rejected.size==0u);
+            ++zero_output_negative;
+            quantapdf_ir_raster_v1_limits few_pixels=caps;
+            few_pixels.max_pixels=pixels-1u;
+            std::memset(&rejected,0xa5,sizeof(rejected));
+            CHECK(quantapdf_ir_raster_visible_page_fillclip_preview_v0(
+                &ir,0u,&g,dpi,&few_pixels,100000u,&rejected)==
+                QUANTAPDF_ERROR_UNSUPPORTED);
+            CHECK(rejected.pixels==nullptr && rejected.size==0u &&
+                  rejected.width==0u && rejected.height==0u &&
+                  rejected.stride==0u);
+            ++zero_output_negative;
+            std::memset(&rejected,0xa5,sizeof(rejected));
+            CHECK(quantapdf_ir_raster_visible_page_fillclip_preview_v0(
+                &ir,0u,&g,dpi,&caps,pixels*4u-1u,&rejected)==
+                QUANTAPDF_ERROR_UNSUPPORTED);
+            CHECK(rejected.pixels==nullptr && rejected.size==0u &&
+                  rejected.width==0u && rejected.height==0u &&
+                  rejected.stride==0u);
+            ++zero_output_negative;
+
+            /* The PDFium reference reopens ORIGINAL generated source bytes
+             * after the source/Graph owners were dropped by snapshot_lower.
+             * No Composer IR re-export or fallback is used. */
+            quantapdf_document *doc=nullptr;
+            quantapdf_page *page=nullptr;
+            quantapdf_bitmap *ref=nullptr,*ref_again=nullptr;
+            OK(quantapdf_open(GENERATED_UNIT7_MULTIDPI_PDF,nullptr,&doc));
+            OK(quantapdf_load_page(doc,0u,&page));
+            const quantapdf_render_options options={
+                sizeof(quantapdf_render_options),(float)dpi,0.0f,0,{0},0
+            };
+            OK(quantapdf_render_page_with_options(page,&options,&ref));
+            OK(quantapdf_render_page_with_options(page,&options,&ref_again));
+            CHECK(ref!=nullptr && ref_again!=nullptr);
+            int fw=0,fh=0,fs=0,fc=0;
+            int rw=0,rh=0,rs=0,rc=0;
+            OK(quantapdf_bitmap_dimensions(ref,&fw,&fh,&fs,&fc));
+            OK(quantapdf_bitmap_dimensions(ref_again,&rw,&rh,&rs,&rc));
+            CHECK(fw==(int)w && fh==(int)h && fc==3 &&
+                  fs>=(int)w*3 && fs<=(int)w*3+4 &&
+                  rw==fw && rh==fh && rs==fs && rc==fc);
+            const unsigned char *ref_bytes=nullptr,*again_bytes=nullptr;
+            size_t ref_count=0u,again_count=0u;
+            OK(quantapdf_bitmap_data(ref,&ref_bytes,&ref_count));
+            OK(quantapdf_bitmap_data(ref_again,&again_bytes,&again_count));
+            CHECK(ref_bytes!=nullptr && again_bytes!=nullptr &&
+                  ref_count==(size_t)fs*h && again_count==ref_count &&
+                  std::memcmp(ref_bytes,again_bytes,ref_count)==0);
+
+            const int sample_x=rotation==180?6:4;
+            const int sample_y=rotation==270?6:4;
+            const size_t red_x=(size_t)std::floor(
+                (double)sample_x*7.0*(double)dpi/72.0);
+            const size_t red_y=(size_t)std::floor(
+                (double)sample_y*7.0*(double)dpi/72.0);
+            CHECK(red_x<w && red_y<h);
+            const unsigned char *red=ref_bytes+red_y*(size_t)fs+red_x*3u;
+            CHECK(red[0]==255u && red[1]==0u && red[2]==0u);
+            const unsigned char *outside=ref_bytes;
+            CHECK(outside[0]==255u && outside[1]==255u &&
+                  outside[2]==255u);
+            const unsigned char *native_red=
+                native.pixels+red_y*native.stride+red_x*4u;
+            CHECK(on_white(native_red,0u)==255u &&
+                  on_white(native_red,1u)==0u &&
+                  on_white(native_red,2u)==0u);
+
+            unsigned long long abs_error=0u;
+            size_t differing=0u,gross=0u;
+            unsigned max_delta=0u;
+            for(size_t y=0u;y<h;++y)
+                for(size_t x=0u;x<w;++x){
+                    const unsigned char *n=
+                        native.pixels+y*native.stride+x*4u;
+                    const unsigned char *p=
+                        ref_bytes+y*(size_t)fs+x*3u;
+                    unsigned maximum=0u;
+                    for(size_t channel=0u;channel<3u;++channel){
+                        const unsigned actual=on_white(n,channel);
+                        const unsigned target=p[channel];
+                        const unsigned delta=actual>target?
+                            actual-target:target-actual;
+                        abs_error+=(unsigned long long)delta;
+                        if(delta>maximum)maximum=delta;
+                    }
+                    if(maximum>0u)++differing;
+                    if(maximum>64u)++gross;
+                    if(maximum>max_delta)max_delta=maximum;
+                }
+            const size_t record_index=(size_t)(rotation/90)*3u+mode;
+            modes[record_index]={
+                rotation,dpi,w,h,pixels,abs_error,differing,gross,max_delta
+            };
+            total_pixels+=pixels;
+            if(dpi==72u)
+                CHECK(abs_error==0u && differing==0u &&
+                      gross==0u && max_delta==0u);
+            if(dpi==96u)sum96+=abs_error;
+            if(dpi==144u)sum144+=abs_error;
+            std::fprintf(stderr,
+                "[generated original Unit7 multi-dpi DIAGNOSTIC] "
+                "rotation=%d dpi=%u w=%u h=%u RGBabs=%llu "
+                "different=%zu gross=%zu max=%u\n",
+                rotation,dpi,w,h,abs_error,differing,gross,max_delta);
+
+            quantapdf_drop_bitmap(ref_again);
+            quantapdf_drop_bitmap(ref);
+            quantapdf_drop_page(page);
+            quantapdf_close(doc);
+            quantapdf_ir_raster_image_dispose(&native);
+            quantapdf_ir_raster_image_dispose(&again);
+        }
+        CHECK(std::memcmp(
+            commands,saved_ops.data(),5u*sizeof(saved_ops[0]))==0);
+        CHECK(std::memcmp(
+            clip_commands,saved_clip.data(),5u*sizeof(saved_clip[0]))==0);
+        quantapdf_ir_dispose(&ir);
+        CHECK(read_original(GENERATED_UNIT7_MULTIDPI_PDF)==source_bytes);
+        ++source_repeats;
+        CHECK(std::remove(GENERATED_UNIT7_MULTIDPI_PDF)==0);
+    }
+    CHECK(source_repeats==4u && zero_output_negative==36u &&
+          total_pixels==106600u);
+    FILE *out=std::fopen(staged.c_str(),"wb");
+    CHECK(out!=nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\":1,\n"
+        "  \"source_kind\":\"test_generated_original_pdf\",\n"
+        "  \"original_source_provider\":\"test_owned_qpdf_writer\",\n"
+        "  \"page_user_unit\":7,\n"
+        "  \"source_originals\":4,\n"
+        "  \"frame_count\":12,\n"
+        "  \"total_rgb_pixels\":%zu,\n"
+        "  \"borrowed_ir_unchanged\":true,\n"
+        "  \"source_byte_repeat_count\":%zu,\n"
+        "  \"zero_output_refusals\":%zu,\n"
+        "  \"dpi72_zero_rgb_required\":true,\n"
+        "  \"dpi96_pixel_parity\":\"diagnostic_only\",\n"
+        "  \"dpi144_pixel_parity\":\"diagnostic_only\",\n"
+        "  \"dpi96_total_abs_rgb\":%llu,\n"
+        "  \"dpi144_total_abs_rgb\":%llu,\n"
+        "  \"external_original_provenance_verified\":false,\n"
+        "  \"external_native_positive_increment\":0,\n"
+        "  \"public_sdk_backend_switched\":false,\n"
+        "  \"frames\":[\n",
+        total_pixels,source_repeats,zero_output_negative,sum96,sum144);
+    for(size_t k=0u;k<12u;++k){
+        const auto& frame=modes[k];
+        std::fprintf(out,
+            "    {\"rotation\":%d,\"dpi\":%u,\"width\":%u,"
+            "\"height\":%u,\"pixels\":%zu,\"abs_rgb\":%llu,"
+            "\"different_pixels\":%zu,\"gross_pixels\":%zu,"
+            "\"max_channel_delta\":%u}%s\n",
+            frame.rotation,frame.dpi,frame.width,frame.height,
+            frame.pixels,frame.abs_rgb,frame.differing,frame.gross,
+            frame.max_delta,k==11u?"":",");
+    }
+    std::fprintf(out,"  ]\n}\n");
+    CHECK(std::ferror(out)==0 && std::fclose(out)==0);
+    CHECK(std::rename(staged.c_str(),report_path)==0);
+    CHECK(corpus_fixture_executions==0u);
+    return EXIT_SUCCESS;
+}
+
 int main(int argc,char **argv)
 {
+    if(argc==4 &&
+       std::strcmp(argv[1],"--generated-unit7-multidpi-original-diagnostic")==0 &&
+       std::strcmp(argv[2],"--multidpi-report")==0)
+        return test_generated_unit7_multidpi_original_diagnostic(argv[3]);
     if(argc==4 &&
        std::strcmp(argv[1],"--generated-oversize-unit7-original-refusal")==0 &&
        std::strcmp(argv[2],"--oversize-unit7-report")==0)
