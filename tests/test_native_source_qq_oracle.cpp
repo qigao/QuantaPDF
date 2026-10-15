@@ -2284,6 +2284,95 @@ int test_external_jspdf_single_vertical_analytic_ab(
                       top_right_floor.size)==0);
     const page_metrics top_right_rgba_metric=measure(top_right_rgba);
     const page_metrics top_right_floor_metric=measure(top_right_floor);
+
+    /* TWENTIETH independent original-source Q8 external join A/B:
+     * mode10 source stroke remains frozen; only Q8 coverage in fully
+     * exterior LEFT cells of a rising-V→right-H exact source retrace can
+     * differ. Compose with SAME mode9 clipped red Fill and direct opaque
+     * destination. The true original PDFium oracle is read only below. */
+    const quantapdf_native_device_grid_limits exterior_grid={
+        600u*850u,600u*850u*4u,768u,650000000u
+    };
+    const quantapdf_ir_raster_v1_limits exterior_budget={
+        600u*850u,1u,768u,650000000u
+    };
+    quantapdf_ir_raster_image exterior_stroke{},exterior_repeat{},
+        exterior_page{},exterior_page_repeat{};
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_vh_exterior_preview_v0(
+        &only_stroke,0u,&geometry,&exterior_grid,&exterior_budget,
+        &exterior_stroke));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_vh_exterior_preview_v0(
+        &only_stroke,0u,&geometry,&exterior_grid,&exterior_budget,
+        &exterior_repeat));
+    CHECK(exterior_stroke.pixels && exterior_repeat.pixels &&
+          exterior_stroke.size==adjacent_stroke.size &&
+          exterior_repeat.size==exterior_stroke.size &&
+          std::memcmp(exterior_stroke.pixels,exterior_repeat.pixels,
+                      exterior_stroke.size)==0);
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &exterior_stroke,&top_right_fill,&composite_budget,&exterior_page));
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &exterior_repeat,&top_right_repeat,&composite_budget,
+        &exterior_page_repeat));
+    CHECK(exterior_page.pixels && exterior_page_repeat.pixels &&
+          exterior_page.size==top_right_floor.size &&
+          std::memcmp(exterior_page.pixels,exterior_page_repeat.pixels,
+                      exterior_page.size)==0);
+    const page_metrics exterior_metric=measure(exterior_page);
+    size_t exterior_source_changes=0u,exterior_outside=0u,
+           exterior_saturated_changed=0u,exterior_delta_gt64=0u,
+           exterior_output_outside_alpha=0u;
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t off=y*exterior_stroke.stride+x*4u;
+        const unsigned before=adjacent_stroke.pixels[off+3u];
+        const unsigned after=exterior_stroke.pixels[off+3u];
+        CHECK(std::memcmp(adjacent_stroke.pixels+off,
+                          exterior_stroke.pixels+off,3u)==0);
+        CHECK(exterior_page.pixels[off+3u]==255u);
+        if(before!=after) {
+            ++exterior_source_changes;
+            if(!(x>=48u && x<=49u && y>=18u && y<=21u))
+                ++exterior_outside;
+            if(before==255u)++exterior_saturated_changed;
+            const unsigned diff=before>after?before-after:after-before;
+            if(diff>64u)++exterior_delta_gt64;
+        } else {
+            for(size_t c=0u;c<3u;++c)
+                if(exterior_page.pixels[off+c]!=top_right_floor.pixels[off+c])
+                    ++exterior_output_outside_alpha;
+        }
+    }
+    std::fprintf(stderr,
+        "[original jsPDF Q8 true exterior rising-V retrace A/B] "
+        "parent_rgb=%llu trial_rgb=%llu parent_diff=%zu trial_diff=%zu "
+        "source_changes=%zu outside=%zu saturated_changes=%zu "
+        "alpha_gt64=%zu rgb_outside=%zu max=%u fnv=%016llx\n",
+        (unsigned long long)top_right_floor_metric.abs_rgb,
+        (unsigned long long)exterior_metric.abs_rgb,
+        top_right_floor_metric.changed,exterior_metric.changed,
+        exterior_source_changes,exterior_outside,
+        exterior_saturated_changed,exterior_delta_gt64,
+        exterior_output_outside_alpha,exterior_metric.max_delta,
+        (unsigned long long)exterior_metric.fnv);
+    CHECK(exterior_source_changes>0u && exterior_outside==0u &&
+          exterior_saturated_changed==0u &&
+          exterior_delta_gt64==0u && exterior_output_outside_alpha==0u);
+    for(size_t probe_y=19u;probe_y<=20u;++probe_y) {
+        const size_t off=probe_y*exterior_page.stride+49u*4u;
+        const unsigned char *truth=reference.at(49u,probe_y);
+        std::fprintf(stderr,
+            "[original jsPDF exterior left witness] pixel=(49,%zu) "
+            "old_source_alpha=%u new_alpha=%u RGB=(%u,%u,%u) "
+            "PDFium=(%u,%u,%u)\n",
+            probe_y,
+            (unsigned)adjacent_stroke.pixels[off+3u],
+            (unsigned)exterior_stroke.pixels[off+3u],
+            (unsigned)exterior_page.pixels[off],
+            (unsigned)exterior_page.pixels[off+1u],
+            (unsigned)exterior_page.pixels[off+2u],
+            (unsigned)truth[0],(unsigned)truth[1],(unsigned)truth[2]);
+    }
+
     size_t top_right_fill_alpha_changes=0u,top_right_outside=0u,
            top_right_alpha_delta_gt64=0u,top_right_rgb_outside_alpha=0u;
     for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
@@ -3756,6 +3845,10 @@ int test_external_jspdf_single_vertical_analytic_ab(
     std::fprintf(stderr,"[jsPDF mode4 original residual regions] %s\n",
                  mode4_regions_json.c_str());
 
+    quantapdf_ir_raster_image_dispose(&exterior_page_repeat);
+    quantapdf_ir_raster_image_dispose(&exterior_page);
+    quantapdf_ir_raster_image_dispose(&exterior_repeat);
+    quantapdf_ir_raster_image_dispose(&exterior_stroke);
     quantapdf_ir_raster_image_dispose(&top_right_floor_repeat);
     quantapdf_ir_raster_image_dispose(&top_right_floor);
     quantapdf_ir_raster_image_dispose(&top_right_rgba_repeat);
@@ -4007,7 +4100,22 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"top_right_fill_gross_delta64_pixels\": %zu,\n"
         "  \"top_right_fill_max_channel_delta\": %u,\n"
         "  \"top_right_fill_rgb_fnv64\": \"%016llx\",\n"
-        "  \"top_right_post_residual_regions\": %s,\n"        "  \"native_original_pixel_positive_count\": 0,\n"
+        "  \"top_right_post_residual_regions\": %s,\n"        "  \"exterior_vh_status\": \"measured_unqualified\",\n"
+        "  \"exterior_vh_default_changed\": false,\n"
+        "  \"exterior_vh_pixel_parity_qualified\": false,\n"
+        "  \"exterior_vh_repeat_equal\": true,\n"
+        "  \"exterior_vh_source_alpha_changed_pixels\": %zu,\n"
+        "  \"exterior_vh_outside_original_source_top_left\": %zu,\n"
+        "  \"exterior_vh_saturated_source_changes\": %zu,\n"
+        "  \"exterior_vh_alpha_delta_gt64\": %zu,\n"
+        "  \"exterior_vh_output_outside_source_alpha\": %zu,\n"
+        "  \"exterior_vh_abs_rgb_error\": %llu,\n"
+        "  \"exterior_vh_mean_abs_rgb_error\": %.9f,\n"
+        "  \"exterior_vh_changed_pixels\": %zu,\n"
+        "  \"exterior_vh_gross_delta64_pixels\": %zu,\n"
+        "  \"exterior_vh_max_channel_delta\": %u,\n"
+        "  \"exterior_vh_rgb_fnv64\": \"%016llx\",\n"
+        "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
         changed_stroke_pixels,other_geometry_changes,
@@ -4099,7 +4207,15 @@ int test_external_jspdf_single_vertical_analytic_ab(
         top_right_floor_metric.changed,top_right_floor_metric.gross,
         top_right_floor_metric.max_delta,
         (unsigned long long)top_right_floor_metric.fnv,
-        corrected_regions_json.c_str());
+        corrected_regions_json.c_str(),
+        exterior_source_changes,exterior_outside,
+        exterior_saturated_changed,exterior_delta_gt64,
+        exterior_output_outside_alpha,
+        (unsigned long long)exterior_metric.abs_rgb,
+        (double)exterior_metric.abs_rgb/1505496.0,
+        exterior_metric.changed,exterior_metric.gross,
+        exterior_metric.max_delta,
+        (unsigned long long)exterior_metric.fnv);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;

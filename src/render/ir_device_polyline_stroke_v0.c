@@ -526,7 +526,7 @@ static int qp_q8_isolated_inner_bevel_join_alpha(
     const qp_stroke_segment *segments,size_t count,
     const quantapdf_native_device_grid *grid,
     size_t x,size_t y,double radius,double miter_limit,
-    int adjacent_cells,unsigned *out_alpha)
+    int adjacent_cells,int exterior_vh_retrace,unsigned *out_alpha)
 {
     const double px0=(double)x*grid->points_per_device_x;
     const double px1=((double)x+1.0)*grid->points_per_device_x;
@@ -551,6 +551,7 @@ static int qp_q8_isolated_inner_bevel_join_alpha(
         const int vh=(a->dx==0.0 && a->dy!=0.0 &&
                       b->dx!=0.0 && b->dy==0.0);
         if((!hv && !vh) ||
+           (exterior_vh_retrace && !(vh && a->dy<0.0 && b->dx>0.0)) ||
            a->b.x!=b->a.x || a->b.y!=b->a.y ||
            sqrt(a->len_squared)<=radius+2.0*grid->points_per_device_x+
                                           2.0*grid->points_per_device_y ||
@@ -574,12 +575,32 @@ static int qp_q8_isolated_inner_bevel_join_alpha(
         if(px1<=jx-gx || px0>=jx+gx ||
            py1<=jy-gy || py0>=jy+gy)
             continue;
-        /* A third source edge touching the entire cell makes this
-         * local analytic replacement ambiguous; retain mode8 instead. */
+        /* The new mode11 applies a repeated-source Miter ONLY in the
+         * truly exterior device cell to the LEFT of an ascending
+         * vertical→rightward horizontal join. No part of the horizontal
+         * stroke interior, nor rows entirely past the joint strip, may
+         * be re-quantized. Coordinates derive ONLY from source segments
+         * and the device grid, never from the original PDF oracle. */
+        if(exterior_vh_retrace &&
+           !(px1<=jx && py0<jy+radius))
+            continue;
+        /* A third source edge touching the entire cell normally makes
+         * this local analytical replacement ambiguous. Only exact
+         * horizontal retraces within the same admitted source Stroke
+         * are considered duplicate topology for this exterior trial. */
         int isolated=1;
+        int exact_retrace_seen=0;
         for(size_t k=0u;k<count;++k) {
             if(k==i || k==i+1u)continue;
             const qp_stroke_segment *other=&segments[k];
+            if(exterior_vh_retrace &&
+               other->dy==0.0 && other->dx!=0.0 &&
+               other->a.y==b->a.y &&
+               fmin(other->a.x,other->b.x)==fmin(b->a.x,b->b.x) &&
+               fmax(other->a.x,other->b.x)==fmax(b->a.x,b->b.x)) {
+                exact_retrace_seen=1;
+                continue;
+            }
             const double lx=fmin(other->a.x,other->b.x)-radius;
             const double rx=fmax(other->a.x,other->b.x)+radius;
             const double ty=fmin(other->a.y,other->b.y)-radius;
@@ -588,7 +609,8 @@ static int qp_q8_isolated_inner_bevel_join_alpha(
                 isolated=0;break;
             }
         }
-        if(!isolated)continue;
+        if(!isolated || (exterior_vh_retrace && !exact_retrace_seen))
+            continue;
         if(hit!=SIZE_MAX)return 0;
         hit=i;inner_x=sx;inner_y=sy;
     }
@@ -989,6 +1011,16 @@ static quantapdf_status qp_stroke_render_impl(
         count*10u>raster_limits->max_sample_tests/grid.sample_slots))
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
+    /* ELEVENTH completely opt-in exterior source-retrace test: charge
+     * one bounded additional source-edge pass before any allocation. */
+    if(horizontal_preview==11 &&
+       (count>grid_limits->max_edges/11u ||
+        count>raster_limits->max_edges/11u ||
+        quantapdf_native_device_grid_admit_edges_v0(
+            &grid,grid_limits,count*11u)!=QUANTAPDF_NATIVE_DEVICE_GRID_OK ||
+        count*11u>raster_limits->max_sample_tests/grid.sample_slots))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
     for(size_t i=1u;i<count;++i) {
         join_kinds[i-1u]=qp_stroke_join_build(&segments[i-1u],&segments[i],
                                                radius,miter_limit,&joins[i-1u]);
@@ -1054,9 +1086,16 @@ static quantapdf_status qp_stroke_render_impl(
             }
             if(horizontal_preview>=9) {
                 unsigned join_alpha=0u;
+                /* Preserve all previously qualified mode10 coverage
+                 * before attempting one strictly external duplicate join. */
                 if(qp_q8_isolated_inner_bevel_join_alpha(
                        segments,count,&grid,x,y,radius,miter_limit,
-                       horizontal_preview==10,&join_alpha))
+                       horizontal_preview>=10,0,&join_alpha))
+                    pixel_alpha=join_alpha;
+                if(horizontal_preview==11 && pixel_alpha<255u &&
+                   qp_q8_isolated_inner_bevel_join_alpha(
+                       segments,count,&grid,x,y,radius,miter_limit,
+                       1,1,&join_alpha) && join_alpha!=0u)
                     pixel_alpha=join_alpha;
             }
             if(pixel_alpha!=0u) {
@@ -1238,4 +1277,20 @@ quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
 {
     return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
                                  raster_limits,out_image,10);
+}
+
+
+/* ELEVENTH independently called private source Q8 miter A/B:
+ * admit only true exterior pixels of a rising-V→forward-H retrace.
+ * All existing modes0..10 and their admission/ownership unchanged. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_q8_vh_exterior_preview_v0(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
+                                 raster_limits,out_image,11);
 }
