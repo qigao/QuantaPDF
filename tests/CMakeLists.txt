@@ -2565,3 +2565,28 @@ else()
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
+
+# #269: test-generated original-PDF RGB metrics are observation-only.
+# A second independent invocation records per-page measurements that
+# successful CTest hides. Never modifies the formal external corpus.
+add_test(NAME quantapdf.native_generated_visible_page_rgb_report
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE_EXECUTABLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DREPORT_FILE=${CMAKE_CURRENT_BINARY_DIR}/generated-visible-page-rgb-report.json"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_generated_visible_page_rgb_report.cmake")
+set_tests_properties(quantapdf.native_generated_visible_page_rgb_report
+  PROPERTIES TIMEOUT 40
+  LABELS "conformance;native-raster;generated-source;visible-device-rgb-diagnostic")
+if(WIN32)
+  set_property(TEST quantapdf.native_generated_visible_page_rgb_report
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_generated_visible_page_rgb_report
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_generated_visible_page_rgb_report
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
