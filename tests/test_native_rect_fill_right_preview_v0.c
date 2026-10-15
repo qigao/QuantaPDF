@@ -824,6 +824,13 @@ static int test_clip_fill_direct_vs_affine_translation_dpis(void)
     const float absolute_bottoms[3]={
         14.875f,15.03125f,15.375f
     };
+    /* At 144 DPI the exact one-quarter Clip-left phase already agrees
+     * with the old 4x4 interior sampler and mode7 correctly returns
+     * UNSUPPORTED (no newly corrected source pixels). A one-eighth
+     * phase exercises the actually distinct analytical boundary. */
+    const float absolute_clip_left[3]={
+        6.125f,6.125f,6.0625f
+    };
     size_t total_changes=0u;
     for(size_t k=0u;k<3u;++k) {
         fixture direct,affine;
@@ -837,10 +844,10 @@ static int test_clip_fill_direct_vs_affine_translation_dpis(void)
         setup(&direct);
         setup(&affine);
         rect(direct.fill,1.0f,1.0f,16.125f,absolute_bottoms[k]);
-        rect(direct.mask,6.125f,3.125f,26.0f,21.0f);
+        rect(direct.mask,absolute_clip_left[k],3.125f,26.0f,21.0f);
         rect(affine.fill,0.0f,0.0f,15.125f,
              absolute_bottoms[k]-1.0f);
-        rect(affine.mask,5.125f,2.125f,25.0f,20.0f);
+        rect(affine.mask,absolute_clip_left[k]-1.0f,2.125f,25.0f,20.0f);
         affine.op.value.path.options.transform=
             (quantapdf_affine_transform){1,0,0,1,1,1};
         affine.clip.transform=
@@ -888,7 +895,8 @@ static int test_clip_fill_direct_vs_affine_translation_dpis(void)
                      sizeof(affine.mask))==0);
         const double dx=32.5/(double)direct_trial.width;
         const double dy=24.75/(double)direct_trial.height;
-        const size_t left_col=(size_t)floor(6.125/dx);
+        const double clip_left=(double)absolute_clip_left[k];
+        const size_t left_col=(size_t)floor(clip_left/dx);
         const size_t bottom_row=(size_t)floor(
             (double)absolute_bottoms[k]/dy);
         CHECK(left_col<direct_trial.width &&
@@ -897,11 +905,11 @@ static int test_clip_fill_direct_vs_affine_translation_dpis(void)
         const double px1=((double)left_col+1.0)*dx;
         const double py0=(double)bottom_row*dy;
         const double py1=((double)bottom_row+1.0)*dy;
-        CHECK(px0<6.125 && 6.125<px1 &&
+        CHECK(px0<clip_left && clip_left<px1 &&
               py0<(double)absolute_bottoms[k] &&
               (double)absolute_bottoms[k]<py1);
         const unsigned alpha_left=(unsigned)floor(
-            255.0*(px1-6.125)/(px1-px0)+0.5);
+            255.0*(px1-clip_left)/(px1-px0)+0.5);
         const unsigned alpha_bottom=(unsigned)floor(
             255.0*((double)absolute_bottoms[k]-py0)/(py1-py0)+0.5);
         const unsigned expected=alpha_left*alpha_bottom/255u;
