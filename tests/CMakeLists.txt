@@ -2811,3 +2811,46 @@ else()
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
+
+# #360: test-only bounded exact decimal arithmetic baseline.
+# This is NOT source-PDF conformance; original QPDF/PDFium A/B remains #359.
+add_executable(quantapdf_test_decimal_exact_contract_v0
+  "${CMAKE_CURRENT_SOURCE_DIR}/decimal_exact_contract_v0.c")
+target_compile_features(quantapdf_test_decimal_exact_contract_v0 PRIVATE c_std_11)
+if(MSVC)
+  target_compile_options(quantapdf_test_decimal_exact_contract_v0 PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_test_decimal_exact_contract_v0 PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.decimal_exact_contract_v0
+  COMMAND quantapdf_test_decimal_exact_contract_v0)
+set_tests_properties(quantapdf.decimal_exact_contract_v0 PROPERTIES
+  TIMEOUT 10 LABELS "conformance;test-only;decimal-geometry;bounded")
+
+
+# #360: genuine test-written ORIGINAL PDF byte spellings, captured via actual
+# Source->Graph and independently rendered by installed PDFium; observation
+# only, never a production parser/renderer or corpus promotion.
+target_compile_definitions(quantapdf_test_native_source_qq_oracle PRIVATE
+  GENERATED_UNIT7_DECIMAL_SPELL_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-decimal360-literal-source.pdf")
+add_test(NAME quantapdf.native_decimal360_source_spelling
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE_EXECUTABLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DREPORT_FILE=${CMAKE_CURRENT_BINARY_DIR}/native-decimal360-source-spelling.json"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_decimal360_source_spelling.cmake")
+set_tests_properties(quantapdf.native_decimal360_source_spelling
+  PROPERTIES TIMEOUT 50
+  LABELS "conformance;test-only;source-pdf;decimal-geometry;original-pdfium")
+if(WIN32)
+  set_property(TEST quantapdf.native_decimal360_source_spelling
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_decimal360_source_spelling
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_decimal360_source_spelling
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
