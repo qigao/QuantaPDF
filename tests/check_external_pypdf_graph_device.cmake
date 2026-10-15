@@ -39,6 +39,9 @@ foreach(field IN ITEMS
   "\"source_document_closed_before_geometry_report\": true"
   "\"graph_snapshot_released\": true"
   "\"user_unit_is_original_default_1\": true"
+  "\"default_graph_capture_status\": \"unsupported\""
+  "\"default_graph_capture_error_code\": 5"
+  "\"expanded_test_only_capture_status\": \"ok\""
   "\"page_count\": 4"
   "\"original_pdfium_pixel_oracle\": \"not_run\""
   "\"native_raster\": \"not_run\""
@@ -46,6 +49,17 @@ foreach(field IN ITEMS
   string(FIND "${report}" "${field}" found)
   if(found EQUAL -1)
     message(FATAL_ERROR "Missing strict Graph provenance/negative marker: ${field}")
+  endif()
+endforeach()
+# Require actual bounded source Graph accounting in the observation;
+# no hardcoded assumptions about which limit is exhausted across platforms.
+foreach(field IN ITEMS graph_node_count graph_edge_count
+    graph_model_bytes graph_owner_storage_bytes)
+  if(NOT report MATCHES "\"\${field}\": ([0-9]+)")
+    message(FATAL_ERROR "Missing Graph budget metric: ${field}")
+  endif()
+  if(NOT CMAKE_MATCH_1 GREATER 0)
+    message(FATAL_ERROR "Empty graph budget metric: ${field}")
   endif()
 endforeach()
 foreach(page RANGE 0 3)
