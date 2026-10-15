@@ -1814,7 +1814,8 @@ target_compile_definitions(quantapdf_test_native_source_qq_oracle PRIVATE
   SOURCE_QQ_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-qq-source.pdf"
   GROUP_SOURCE_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-group-source.pdf"
   GENERATED_WSTAR_OBSERVE_PDF="${CMAKE_CURRENT_BINARY_DIR}/generated-wstar-typed-observe.pdf"
-  GENERATED_VISIBLE_DEVICE_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-generated-visible-device-source.pdf")
+  GENERATED_VISIBLE_DEVICE_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-generated-visible-device-source.pdf"
+  GENERATED_USERUNIT7_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-generated-unit7-original.pdf")
 if(MSVC)
   target_compile_options(quantapdf_test_native_source_qq_oracle PRIVATE /utf-8)
 endif()
