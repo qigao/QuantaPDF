@@ -1195,6 +1195,41 @@ if(NOT corner_br_status STREQUAL "measured_unqualified"
 endif()
 message(STATUS
   "jspdf-source-q8-fill-bottom-right: baseline_rgb=${near_abs_rgb_error} trial_rgb=${corner_br_abs_rgb_error} baseline_diff=${near_changed_pixels} trial_diff=${corner_br_changed_pixels} corner_source_changes=${corner_br_source_rgba_changed_pixels} official=0 parity=false")
+# TWENTY-FIRST isolated source W Clip-left/top fractional intersection.
+# Exact independent source-PDFium parent #317 evidence is retained.
+if(NOT corner_br_abs_rgb_error EQUAL 129
+   OR NOT corner_br_changed_pixels EQUAL 5
+   OR NOT corner_br_gross_delta64_pixels EQUAL 0
+   OR NOT corner_br_max_channel_delta EQUAL 15
+   OR NOT corner_br_rgb_fnv64 STREQUAL "bf7d7d45ee3a9500")
+  message(FATAL_ERROR "Previously measured #317 source RGB baseline changed")
+endif()
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_alpha_changed_pixels outside_source_corner
+    alpha_delta_gt64 output_outside_source_alpha
+    abs_rgb_error mean_abs_rgb_error changed_pixels
+    gross_delta64_pixels max_channel_delta rgb_fnv64)
+  string(JSON lt_${field} GET "${json}" clip_left_top_${field})
+endforeach()
+string(LENGTH "${lt_rgb_fnv64}" lt_hashlen)
+if(NOT lt_status STREQUAL "measured_unqualified"
+   OR lt_default_changed OR lt_pixel_parity_qualified OR NOT lt_repeat_equal
+   OR NOT lt_source_alpha_changed_pixels EQUAL 1
+   OR NOT lt_outside_source_corner EQUAL 0
+   OR NOT lt_alpha_delta_gt64 EQUAL 0
+   OR NOT lt_output_outside_source_alpha EQUAL 0
+   OR lt_abs_rgb_error LESS 0 OR lt_abs_rgb_error GREATER 383901480
+   OR lt_mean_abs_rgb_error LESS 0 OR lt_mean_abs_rgb_error GREATER 255
+   OR lt_changed_pixels LESS 0 OR lt_changed_pixels GREATER 501832
+   OR lt_gross_delta64_pixels LESS 0
+   OR lt_gross_delta64_pixels GREATER lt_changed_pixels
+   OR lt_max_channel_delta LESS 0 OR lt_max_channel_delta GREATER 255
+   OR NOT lt_hashlen EQUAL 16
+   OR NOT lt_rgb_fnv64 MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "Private source W Clip-left/top A/B escaped its isolation")
+endif()
+message(STATUS
+  "jspdf-W-left-top: baseline_rgb=${corner_br_abs_rgb_error} trial_rgb=${lt_abs_rgb_error} baseline_diff=${corner_br_changed_pixels} trial_diff=${lt_changed_pixels} alpha_changes=${lt_source_alpha_changed_pixels} official=0 parity=false")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
