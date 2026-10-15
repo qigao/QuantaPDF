@@ -805,6 +805,145 @@ static int test_clip_left_fill_bottom_mask_product(void)
     return EXIT_SUCCESS;
 }
 
+
+/* INDEPENDENT C11 source-representation conformance for the private
+ * Clip-left × Fill-bottom alpha-mask pipeline. The SAME opaque red
+ * rectangle and W nonzero Clip are encoded either with DIRECT absolute
+ * source path points or with base points plus a +1,+1 SOURCE affine
+ * translation on both Fill and Clip. Every resulting owned RGBA byte
+ * must agree for 72/96/144 DPI; no source input bytes may change.
+ *
+ * These are independent synthetic rectangles and device phases, not
+ * a second oracle, a PDFium fallback or a general SDK admission. */
+static int test_clip_fill_direct_vs_affine_translation_dpis(void)
+{
+    const float dpis[3]={72.0f,96.0f,144.0f};
+    /* Each source Fill bottom lies just inside a different true
+     * fractional device row, before its first 4x4 sample position.
+     * All decimals below are exactly representable binary32. */
+    const float absolute_bottoms[3]={
+        14.875f,15.03125f,15.375f
+    };
+    size_t total_changes=0u;
+    for(size_t k=0u;k<3u;++k) {
+        fixture direct,affine;
+        quantapdf_ir_raster_image direct_parent={0},affine_parent={0};
+        quantapdf_ir_raster_image direct_trial={0},affine_trial={0};
+        quantapdf_ir_raster_image affine_repeat={0};
+        quantapdf_composer_path_command direct_fill_copy[8],
+                                              direct_clip_copy[8],
+                                              affine_fill_copy[8],
+                                              affine_clip_copy[8];
+        setup(&direct);
+        setup(&affine);
+        rect(direct.fill,1.0f,1.0f,16.125f,absolute_bottoms[k]);
+        rect(direct.mask,6.125f,3.125f,26.0f,21.0f);
+        rect(affine.fill,0.0f,0.0f,15.125f,
+             absolute_bottoms[k]-1.0f);
+        rect(affine.mask,5.125f,2.125f,25.0f,20.0f);
+        affine.op.value.path.options.transform=
+            (quantapdf_affine_transform){1,0,0,1,1,1};
+        affine.clip.transform=
+            (quantapdf_affine_transform){1,0,0,1,1,1};
+        memcpy(direct_fill_copy,direct.fill,sizeof(direct.fill));
+        memcpy(direct_clip_copy,direct.mask,sizeof(direct.mask));
+        memcpy(affine_fill_copy,affine.fill,sizeof(affine.fill));
+        memcpy(affine_clip_copy,affine.mask,sizeof(affine.mask));
+        direct.geometry.dpi=dpis[k];
+        affine.geometry.dpi=dpis[k];
+        direct.grid_budget.max_pixels=5000u;
+        direct.grid_budget.max_rgba_bytes=20000u;
+        direct.grid_budget.max_edges=64u;
+        direct.grid_budget.max_sample_tests=10000000u;
+        direct.raster_budget.max_pixels=5000u;
+        direct.raster_budget.max_edges=64u;
+        direct.raster_budget.max_sample_tests=10000000u;
+        affine.grid_budget=direct.grid_budget;
+        affine.raster_budget=direct.raster_budget;
+        OK(CORNER_CLIP_LEFT_TOP(direct,direct_parent));
+        OK(CORNER_CLIP_LEFT_TOP(affine,affine_parent));
+        OK(CORNER_CLIP_LEFT_FILL_BOTTOM(direct,direct_trial));
+        OK(CORNER_CLIP_LEFT_FILL_BOTTOM(affine,affine_trial));
+        OK(CORNER_CLIP_LEFT_FILL_BOTTOM(affine,affine_repeat));
+        CHECK(direct_parent.pixels && affine_parent.pixels &&
+              direct_trial.pixels && affine_trial.pixels &&
+              affine_repeat.pixels &&
+              direct_parent.size==affine_parent.size &&
+              direct_trial.size==direct_parent.size &&
+              direct_trial.size==affine_trial.size &&
+              affine_trial.size==affine_repeat.size &&
+              memcmp(direct_parent.pixels,affine_parent.pixels,
+                     direct_parent.size)==0 &&
+              memcmp(direct_trial.pixels,affine_trial.pixels,
+                     direct_trial.size)==0 &&
+              memcmp(affine_trial.pixels,affine_repeat.pixels,
+                     affine_trial.size)==0);
+        CHECK(memcmp(direct.fill,direct_fill_copy,
+                     sizeof(direct.fill))==0 &&
+              memcmp(direct.mask,direct_clip_copy,
+                     sizeof(direct.mask))==0 &&
+              memcmp(affine.fill,affine_fill_copy,
+                     sizeof(affine.fill))==0 &&
+              memcmp(affine.mask,affine_clip_copy,
+                     sizeof(affine.mask))==0);
+        const double dx=32.5/(double)direct_trial.width;
+        const double dy=24.75/(double)direct_trial.height;
+        const size_t left_col=(size_t)floor(6.125/dx);
+        const size_t bottom_row=(size_t)floor(
+            (double)absolute_bottoms[k]/dy);
+        CHECK(left_col<direct_trial.width &&
+              bottom_row<direct_trial.height);
+        const double px0=(double)left_col*dx;
+        const double px1=((double)left_col+1.0)*dx;
+        const double py0=(double)bottom_row*dy;
+        const double py1=((double)bottom_row+1.0)*dy;
+        CHECK(px0<6.125 && 6.125<px1 &&
+              py0<(double)absolute_bottoms[k] &&
+              (double)absolute_bottoms[k]<py1);
+        const unsigned alpha_left=(unsigned)floor(
+            255.0*(px1-6.125)/(px1-px0)+0.5);
+        const unsigned alpha_bottom=(unsigned)floor(
+            255.0*((double)absolute_bottoms[k]-py0)/(py1-py0)+0.5);
+        const unsigned expected=alpha_left*alpha_bottom/255u;
+        CHECK(expected>0u && expected<255u &&
+              alpha(&direct_parent,left_col,bottom_row)==0u &&
+              alpha(&direct_trial,left_col,bottom_row)==expected);
+        size_t actual_changes=0u;
+        for(size_t y=0u;y<direct_trial.height;++y)
+            for(size_t x=0u;x<direct_trial.width;++x) {
+                const size_t off=y*direct_trial.stride+x*4u;
+                if(memcmp(direct_parent.pixels+off,
+                          direct_trial.pixels+off,4u)==0)
+                    continue;
+                CHECK(x==left_col && y==bottom_row &&
+                      direct_parent.pixels[off]==0u &&
+                      direct_parent.pixels[off+1u]==0u &&
+                      direct_parent.pixels[off+2u]==0u &&
+                      direct_parent.pixels[off+3u]==0u &&
+                      direct_trial.pixels[off]==255u &&
+                      direct_trial.pixels[off+1u]==0u &&
+                      direct_trial.pixels[off+2u]==0u &&
+                      direct_trial.pixels[off+3u]==expected);
+                ++actual_changes;
+            }
+        CHECK(actual_changes==1u);
+        total_changes+=actual_changes;
+        fprintf(stderr,
+            "[source-Clip/Fill affine conformance] dpi=%u "
+            "device=%zux%zu old_A8=0 new_A8=%u "
+            "direct_equals_affine=true source_unchanged=true\n",
+            (unsigned)dpis[k],direct_trial.width,direct_trial.height,
+            expected);
+        quantapdf_ir_raster_image_dispose(&affine_repeat);
+        quantapdf_ir_raster_image_dispose(&affine_trial);
+        quantapdf_ir_raster_image_dispose(&direct_trial);
+        quantapdf_ir_raster_image_dispose(&affine_parent);
+        quantapdf_ir_raster_image_dispose(&direct_parent);
+    }
+    CHECK(total_changes==3u);
+    return EXIT_SUCCESS;
+}
+
 static int test_fail_closed(void)
 {
     fixture f;
@@ -847,6 +986,7 @@ int main(void)
     CHECK(test_bottom_right_q8_tiny_corner()==EXIT_SUCCESS);
     CHECK(test_clip_left_top_q8_corner()==EXIT_SUCCESS);
     CHECK(test_clip_left_fill_bottom_mask_product()==EXIT_SUCCESS);
+    CHECK(test_clip_fill_direct_vs_affine_translation_dpis()==EXIT_SUCCESS);
     CHECK(test_fail_closed()==EXIT_SUCCESS);
     puts("native-rect-fill-right-private-A/B: geometry, repeat, fail-closed PASS");
     return EXIT_SUCCESS;
