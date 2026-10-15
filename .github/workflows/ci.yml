@@ -438,6 +438,21 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Review generated Unit7 multi-DPI original RGB diagnostics (Linux)
+        shell: bash
+        run: |
+          cat build/linux-gcc-release/tests/generated-unit7-multidpi-diagnostic.json
+          cat build/linux-gcc-debug/tests/generated-unit7-multidpi-diagnostic.json
+      - name: Upload generated Unit7 multi-DPI original RGB diagnostics (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-unit7-multidpi-linux
+          path: |
+            build/linux-gcc-release/tests/generated-unit7-multidpi-diagnostic.json
+            build/linux-gcc-debug/tests/generated-unit7-multidpi-diagnostic.json
+          if-no-files-found: error
+          retention-days: 7
+
   macos:
     if: >-
       github.event_name == 'push' ||
@@ -773,6 +788,17 @@ jobs:
         with:
           name: generated-oversize-unit7-source-macos
           path: build/macos-clang-release/tests/generated-oversize-unit7-source-refusal.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review generated Unit7 multi-DPI original RGB diagnostics (macOS)
+        shell: bash
+        run: cat build/macos-clang-release/tests/generated-unit7-multidpi-diagnostic.json
+      - name: Upload generated Unit7 multi-DPI original RGB diagnostics (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-unit7-multidpi-macos
+          path: build/macos-clang-release/tests/generated-unit7-multidpi-diagnostic.json
           if-no-files-found: error
           retention-days: 7
 
@@ -1122,5 +1148,16 @@ jobs:
         with:
           name: generated-oversize-unit7-source-windows
           path: build/Msvc-Release/tests/generated-oversize-unit7-source-refusal.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review generated Unit7 multi-DPI original RGB diagnostics (Windows)
+        shell: pwsh
+        run: Get-Content build/Msvc-Release/tests/generated-unit7-multidpi-diagnostic.json
+      - name: Upload generated Unit7 multi-DPI original RGB diagnostics (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-unit7-multidpi-windows
+          path: build/Msvc-Release/tests/generated-unit7-multidpi-diagnostic.json
           if-no-files-found: error
           retention-days: 7
