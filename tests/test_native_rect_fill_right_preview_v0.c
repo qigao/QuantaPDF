@@ -643,6 +643,7 @@ static int test_bottom_right_q8_tiny_corner(void)
     /* An exactly device-aligned bottom/right is not a fractional
      * source corner and must never be fabricated by Q8 rounding. */
     setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,15.0f);
     f.geometry.dpi=96.0f;
     f.grid_budget.max_pixels=2000u;
     f.grid_budget.max_rgba_bytes=8000u;
