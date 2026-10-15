@@ -469,6 +469,22 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Review PDFium original Fill and W Clip mask decomposition (Linux)
+        shell: bash
+        run: |
+          cat build/linux-gcc-release/tests/generated-unit7-pdfium-mask-decomposition.json
+          cat build/linux-gcc-debug/tests/generated-unit7-pdfium-mask-decomposition.json
+
+      - name: Upload PDFium original Fill and W Clip mask decomposition (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-unit7-pdfium-mask-decomp-linux
+          path: |
+            build/linux-gcc-release/tests/generated-unit7-pdfium-mask-decomposition.json
+            build/linux-gcc-debug/tests/generated-unit7-pdfium-mask-decomposition.json
+          if-no-files-found: error
+          retention-days: 7
+
   macos:
     if: >-
       github.event_name == 'push' ||
@@ -827,6 +843,18 @@ jobs:
         with:
           name: generated-unit7-crop-shift-macos
           path: build/macos-clang-release/tests/generated-unit7-crop-shift.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review PDFium original Fill and W Clip mask decomposition (macOS)
+        shell: bash
+        run: cat build/macos-clang-release/tests/generated-unit7-pdfium-mask-decomposition.json
+
+      - name: Upload PDFium original Fill and W Clip mask decomposition (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-unit7-pdfium-mask-decomp-macos
+          path: build/macos-clang-release/tests/generated-unit7-pdfium-mask-decomposition.json
           if-no-files-found: error
           retention-days: 7
 
@@ -1199,5 +1227,17 @@ jobs:
         with:
           name: generated-unit7-crop-shift-windows
           path: build/Msvc-Release/tests/generated-unit7-crop-shift.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review PDFium original Fill and W Clip mask decomposition (Windows)
+        shell: pwsh
+        run: Get-Content build/Msvc-Release/tests/generated-unit7-pdfium-mask-decomposition.json
+
+      - name: Upload PDFium original Fill and W Clip mask decomposition (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-unit7-pdfium-mask-decomp-windows
+          path: build/Msvc-Release/tests/generated-unit7-pdfium-mask-decomposition.json
           if-no-files-found: error
           retention-days: 7

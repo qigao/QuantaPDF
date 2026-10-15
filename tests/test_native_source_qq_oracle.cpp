@@ -7062,11 +7062,11 @@ static void publish_corpus_report(const char *destination,
  * No source/PDFium object is reachable from the private C11 Raster call. */
 static void write_single_w_visible_page(
     int rotation,int unit,const char *source_output=GENERATED_VISIBLE_DEVICE_PDF,
-    unsigned crop_variant=0u)
+    unsigned crop_variant=0u,unsigned content_variant=0u)
 {
     CHECK(rotation==0 || rotation==90 || rotation==180 || rotation==270);
     CHECK(unit==1 || unit==2 || unit==7);
-    CHECK(crop_variant<=3u);
+    CHECK(crop_variant<=3u && content_variant<=2u);
     CHECK(source_output!=nullptr && *source_output);
     auto pdf=QPDF::create();
     pdf->emptyPDF();
@@ -7096,8 +7096,15 @@ static void write_single_w_visible_page(
     leaf.replaceKey("/Parent",root);
     /* One nonzero source W Clip, one opaque red Fill; no content CTM.
      * Native preview must consume the source-derived Owned Composer IR. */
-    leaf.replaceKey("/Contents",pdf->newStream(
-        "3 4 6 6 re W n 1 0 0 rg 4 5 6 4 re f"));
+    const char *const source_commands[3]={
+        "3 4 6 6 re W n 1 0 0 rg 4 5 6 4 re f",
+        "1 0 0 rg 4 5 6 4 re f",
+        "3 4 6 6 re W n 1 0 0 rg 0 0 20 30 re f"
+    };
+    /* Test-only original source variants: combined / paint-only / clip-only.
+     * Never re-export a Composer IR into the PDFium oracle. */
+    leaf.replaceKey("/Contents",
+        pdf->newStream(source_commands[content_variant]));
     QPDFWriter writer(*pdf);
     writer.setMinimumPDFVersion("1.6");
     writer.setOutputMemory();
@@ -9077,8 +9084,300 @@ static int test_generated_unit7_crop_shift_matrix(const char *report_path)
     return EXIT_SUCCESS;
 }
 
+
+/* #269: compare THREE distinct test-generated original PDFium sources
+ * with identical page geometry: Fill+W Clip, Fill only, and W Clip
+ * painted by a full-MediaBox Fill. This is source-backed numerical
+ * diagnosis only, never a production raster or PDFium fallback. */
+static int test_generated_unit7_pdfium_mask_decomposition(
+    const char *report_path)
+{
+    CHECK(report_path!=nullptr && *report_path);
+    const std::string stage=std::string(report_path)+".tmp";
+    const char *sources[3]={
+        GENERATED_UNIT7_DECOMP_COMBINED_PDF,
+        GENERATED_UNIT7_DECOMP_FILL_PDF,
+        GENERATED_UNIT7_DECOMP_CLIP_PDF
+    };
+    for(size_t i=0u;i<3u;++i){
+        CHECK(sources[i]!=nullptr && *sources[i]);
+        CHECK(std::strcmp(report_path,sources[i])!=0 &&
+              stage!=sources[i]);
+        for(size_t j=0u;j<i;++j)
+            CHECK(std::strcmp(sources[i],sources[j])!=0);
+    }
+    const double crops[4][4]={
+        {2,3,12,11},
+        {2.125,3,12.125,11},
+        {2,3.125,12,11.125},
+        {2.375,3.375,12.375,11.375}
+    };
+    const char *variants[4]={
+        "baseline","x_plus_0_125","y_plus_0_125","xy_plus_0_375"
+    };
+    struct mask_metrics {
+        size_t red=0u,nonbinary=0u;
+        int rectangle=0;
+        int bbox[4]={0,0,0,0};
+    };
+    struct observation {
+        unsigned variant=0u;
+        int rotate=0;
+        uint32_t width=0u,height=0u;
+        mask_metrics masks[3]={};
+        size_t predicted_and=0u;
+        size_t intersection_missing=0u,intersection_extra=0u;
+        size_t intersection_different=0u;
+        int all_binary=0,exact_binary_intersection=0;
+    } rows[16]={};
+    size_t source_repeats=0u,total_mask_pixels=0u;
+    size_t total_combination_different=0u,total_missing=0u,total_extra=0u;
+    size_t exact_modes=0u,all_binary_modes=0u,combined_red_total=0u;
+
+    const auto read_pdf=[](const char *path){
+        FILE *f=std::fopen(path,"rb");
+        CHECK(f!=nullptr && std::fseek(f,0,SEEK_END)==0);
+        const long count=std::ftell(f);
+        CHECK(count>0 && count<=65536 && std::fseek(f,0,SEEK_SET)==0);
+        std::vector<unsigned char> bytes((size_t)count);
+        CHECK(std::fread(bytes.data(),1,bytes.size(),f)==bytes.size());
+        CHECK(std::fclose(f)==0);
+        return bytes;
+    };
+
+    for(unsigned variant=0u;variant<4u;++variant)
+        for(int rotation=0;rotation<360;rotation+=90){
+            const size_t row_index=(size_t)variant*4u+(size_t)rotation/90u;
+            auto& row=rows[row_index];
+            row.variant=variant;
+            row.rotate=rotation;
+            const uint32_t w=(rotation%180==0)?94u:75u;
+            const uint32_t h=(rotation%180==0)?75u:94u;
+            const size_t pixels=(size_t)w*(size_t)h;
+            CHECK(pixels==7050u);
+            row.width=w;row.height=h;
+            std::vector<unsigned char> masks[3];
+
+            for(unsigned kind=0u;kind<3u;++kind){
+                write_single_w_visible_page(
+                    rotation,7,sources[kind],variant,kind);
+                const auto original=read_pdf(sources[kind]);
+
+                quantapdf_document *document=nullptr;
+                quantapdf_graph_snapshot *snapshot=nullptr;
+                OK(quantapdf_open(sources[kind],nullptr,&document));
+                const quantapdf_status captured=
+                    quantapdf_document_capture_graph(
+                        document,&graph_limits,&snapshot);
+                quantapdf_close(document);
+                OK(captured);
+                CHECK(snapshot!=nullptr && snapshot->graph!=nullptr);
+                const quantapdf_graph_model *model=
+                    quantapdf_graph_view(snapshot->graph);
+                CHECK(model!=nullptr && model->page_count==1u);
+                quantapdf_graph_page_geometry g{};
+                OK(quantapdf_graph_query_page_geometry(
+                    snapshot->graph,0u,4u,&g));
+                /* Graph's bounded locale-independent decimal parser
+                 * sums 0.1, 0.01, ... digits as binary doubles. Even
+                 * exact decimal names such as 2.375 may be 1 ulp away
+                 * from the C++ literal; keep the ORIGINAL Graph value
+                 * for the subsequent device grid and bound admission. */
+                for(size_t k=0u;k<4u;++k)
+                    CHECK(std::isfinite(g.crop_box[k]) &&
+                          std::fabs(g.crop_box[k]-crops[variant][k])<1e-9);
+                CHECK(g.user_unit==7.0 && g.rotation==rotation &&
+                      g.media_box[0]==0.0 && g.media_box[1]==0.0 &&
+                      g.media_box[2]==20.0 && g.media_box[3]==30.0);
+                quantapdf_graph_device_grid grid{};
+                OK(quantapdf_graph_page_device_grid(
+                    &g,96u,20000u,100000u,&grid));
+                CHECK(grid.width==w && grid.height==h &&
+                      grid.output_bytes==pixels*3u);
+                quantapdf_graph_snapshot_drop(snapshot);
+
+                quantapdf_document *doc=nullptr;
+                quantapdf_page *page=nullptr;
+                quantapdf_bitmap *first=nullptr,*again=nullptr;
+                OK(quantapdf_open(sources[kind],nullptr,&doc));
+                OK(quantapdf_load_page(doc,0u,&page));
+                const quantapdf_render_options opts={
+                    sizeof(quantapdf_render_options),96.0f,0.0f,0,{0},0
+                };
+                OK(quantapdf_render_page_with_options(page,&opts,&first));
+                OK(quantapdf_render_page_with_options(page,&opts,&again));
+                int fw=0,fh=0,fs=0,fc=0,rw=0,rh=0,rs=0,rc=0;
+                OK(quantapdf_bitmap_dimensions(
+                    first,&fw,&fh,&fs,&fc));
+                OK(quantapdf_bitmap_dimensions(
+                    again,&rw,&rh,&rs,&rc));
+                CHECK(fw==(int)w && fh==(int)h && fc==3 &&
+                      fs >= fw*3 && fs <= fw*3+4 &&
+                      rw==fw && rh==fh && rs==fs && rc==fc);
+                const unsigned char *rgb=nullptr,*repeat_rgb=nullptr;
+                size_t bytes=0u,repeat_bytes=0u;
+                OK(quantapdf_bitmap_data(first,&rgb,&bytes));
+                OK(quantapdf_bitmap_data(again,&repeat_rgb,&repeat_bytes));
+                CHECK(rgb!=nullptr && repeat_rgb!=nullptr &&
+                      bytes==(size_t)fs*h && repeat_bytes==bytes &&
+                      std::memcmp(rgb,repeat_rgb,bytes)==0);
+
+                masks[kind].resize(pixels);
+                int left=(int)w,top=(int)h,right=-1,bottom=-1;
+                size_t red=0u,nonbinary=0u;
+                for(size_t y=0u;y<h;++y)
+                    for(size_t x=0u;x<w;++x){
+                        const unsigned char *p=
+                            rgb+y*(size_t)fs+x*3u;
+                        const bool is_red=p[0]==255u &&
+                            p[1]==0u && p[2]==0u;
+                        const bool is_white=p[0]==255u &&
+                            p[1]==255u && p[2]==255u;
+                        masks[kind][y*(size_t)w+x]=is_red?1u:0u;
+                        if(!is_red && !is_white)++nonbinary;
+                        if(is_red){
+                            ++red;
+                            left=std::min(left,(int)x);
+                            right=std::max(right,(int)x);
+                            top=std::min(top,(int)y);
+                            bottom=std::max(bottom,(int)y);
+                        }
+                    }
+                CHECK(red>0u && red<=pixels &&
+                      left>=0 && top>=0 &&
+                      right>=left && bottom>=top);
+                auto& stat=row.masks[kind];
+                stat.red=red;
+                stat.nonbinary=nonbinary;
+                stat.bbox[0]=left;
+                stat.bbox[1]=top;
+                stat.bbox[2]=right+1;
+                stat.bbox[3]=bottom+1;
+                const size_t enclosed=(size_t)(right+1-left)*
+                                      (size_t)(bottom+1-top);
+                CHECK(enclosed>=red && enclosed<=pixels);
+                stat.rectangle=(enclosed==red && nonbinary==0u)?1:0;
+                quantapdf_drop_bitmap(again);
+                quantapdf_drop_bitmap(first);
+                quantapdf_drop_page(page);
+                quantapdf_close(doc);
+                CHECK(read_pdf(sources[kind])==original);
+                ++source_repeats;
+                CHECK(std::remove(sources[kind])==0);
+                total_mask_pixels+=pixels;
+            }
+
+            size_t predicted=0u,missing=0u,extra=0u;
+            for(size_t k=0u;k<pixels;++k){
+                const bool joint=masks[1][k]!=0u && masks[2][k]!=0u;
+                const bool observed=masks[0][k]!=0u;
+                if(joint)++predicted;
+                if(joint && !observed)++missing;
+                if(observed && !joint)++extra;
+            }
+            row.predicted_and=predicted;
+            row.intersection_missing=missing;
+            row.intersection_extra=extra;
+            row.intersection_different=missing+extra;
+            row.all_binary=(
+                row.masks[0].nonbinary==0u &&
+                row.masks[1].nonbinary==0u &&
+                row.masks[2].nonbinary==0u)?1:0;
+            row.exact_binary_intersection=(
+                row.all_binary!=0 &&
+                row.intersection_different==0u)?1:0;
+            total_combination_different+=row.intersection_different;
+            total_missing+=missing;
+            total_extra+=extra;
+            combined_red_total+=row.masks[0].red;
+            exact_modes+=(size_t)row.exact_binary_intersection;
+            all_binary_modes+=(size_t)row.all_binary;
+            CHECK(row.intersection_different<=pixels &&
+                  row.predicted_and<=pixels &&
+                  row.masks[0].red+missing>=extra);
+            std::fprintf(stderr,
+                "[PDFium original mask decomposition] crop=%u rotate=%d "
+                "paint=%zu clip=%zu combined=%zu AND=%zu missing=%zu extra=%zu\n",
+                variant,rotation,row.masks[1].red,row.masks[2].red,
+                row.masks[0].red,predicted,missing,extra);
+        }
+
+    CHECK(source_repeats==48u && total_mask_pixels==338400u &&
+          combined_red_total>0u &&
+          total_missing+total_extra==total_combination_different &&
+          all_binary_modes<=16u && exact_modes<=all_binary_modes);
+    FILE *out=std::fopen(stage.c_str(),"wb");
+    CHECK(out!=nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\":1,\n"
+        "  \"source_kind\":\"test_generated_original_pdf\",\n"
+        "  \"original_producer\":\"test_owned_qpdf_writer\",\n"
+        "  \"source_kind_counts\":{\"combined\":16,\"fill_only\":16,\"clip_only\":16},\n"
+        "  \"source_files\":48,\n"
+        "  \"source_byte_repeat_count\":%zu,\n"
+        "  \"mask_pixel_count\":%zu,\n"
+        "  \"frame_count\":16,\n"
+        "  \"dpi\":96,\n"
+        "  \"page_user_unit\":7,\n"
+        "  \"binary_modes\":%zu,\n"
+        "  \"exact_mask_intersection_modes\":%zu,\n"
+        "  \"combined_red_pixel_count\":%zu,\n"
+        "  \"intersection_missing_red_pixels\":%zu,\n"
+        "  \"intersection_extra_red_pixels\":%zu,\n"
+        "  \"intersection_differing_pixels\":%zu,\n"
+        "  \"all_measurements_from_original_pdfium\":true,\n"
+        "  \"native_raster\":\"not_run\",\n"
+        "  \"external_original_provenance_verified\":false,\n"
+        "  \"external_native_positive_increment\":0,\n"
+        "  \"public_sdk_backend_switched\":false,\n"
+        "  \"frames\":[\n",
+        source_repeats,total_mask_pixels,all_binary_modes,
+        exact_modes,combined_red_total,total_missing,total_extra,
+        total_combination_different);
+    for(size_t k=0u;k<16u;++k){
+        const auto& v=rows[k];
+        std::fprintf(out,
+            "    {\"crop_variant\":%u,\"crop_label\":\"%s\","
+            "\"rotation\":%d,\"width\":%u,\"height\":%u,"
+            "\"combined_red\":%zu,\"fill_only_red\":%zu,\"clip_only_red\":%zu,"
+            "\"nonbinary_counts\":[%zu,%zu,%zu],"
+            "\"combined_bbox\":[%d,%d,%d,%d],"
+            "\"fill_only_bbox\":[%d,%d,%d,%d],"
+            "\"clip_only_bbox\":[%d,%d,%d,%d],"
+            "\"rectangular_flags\":[%d,%d,%d],"
+            "\"predicted_binary_and\":%zu,"
+            "\"missing_from_combined\":%zu,"
+            "\"extra_in_combined\":%zu,"
+            "\"combined_vs_and_different\":%zu,"
+            "\"all_binary\":%d,\"exact_binary_intersection\":%d}%s\n",
+            v.variant,variants[v.variant],v.rotate,v.width,v.height,
+            v.masks[0].red,v.masks[1].red,v.masks[2].red,
+            v.masks[0].nonbinary,v.masks[1].nonbinary,v.masks[2].nonbinary,
+            v.masks[0].bbox[0],v.masks[0].bbox[1],
+            v.masks[0].bbox[2],v.masks[0].bbox[3],
+            v.masks[1].bbox[0],v.masks[1].bbox[1],
+            v.masks[1].bbox[2],v.masks[1].bbox[3],
+            v.masks[2].bbox[0],v.masks[2].bbox[1],
+            v.masks[2].bbox[2],v.masks[2].bbox[3],
+            v.masks[0].rectangle,v.masks[1].rectangle,v.masks[2].rectangle,
+            v.predicted_and,v.intersection_missing,v.intersection_extra,
+            v.intersection_different,v.all_binary,
+            v.exact_binary_intersection,k==15u?"":",");
+    }
+    std::fprintf(out,"  ]\n}\n");
+    CHECK(std::ferror(out)==0 && std::fclose(out)==0);
+    CHECK(std::rename(stage.c_str(),report_path)==0);
+    CHECK(corpus_fixture_executions==0u);
+    return EXIT_SUCCESS;
+}
+
 int main(int argc,char **argv)
 {
+    if(argc==4 &&
+       std::strcmp(argv[1],"--generated-unit7-pdfium-mask-decomposition")==0 &&
+       std::strcmp(argv[2],"--decomposition-report")==0)
+        return test_generated_unit7_pdfium_mask_decomposition(argv[3]);
     if(argc==4 &&
        std::strcmp(argv[1],"--generated-unit7-crop-shift-diagnostic")==0 &&
        std::strcmp(argv[2],"--crop-shift-report")==0)
