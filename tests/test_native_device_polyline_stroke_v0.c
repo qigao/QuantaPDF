@@ -1430,6 +1430,114 @@ static int test_q8_retraced_outer_signed_area(void)
     return EXIT_SUCCESS;
 }
 
+
+/* Separate read-only 72/96/144 DPI Q8 source-edge phase sweep.
+ * These test-only numerical helpers implement explicit float-to-Q8
+ * followed by integer rectangle/cell intersection, independently
+ * of the rasterizer's geometric helper implementation. */
+static int64_t test_q8_edge_from_source(double p,double cell_points)
+{
+    return (int64_t)((float)(p/cell_points)*256.0f);
+}
+static int64_t test_q8_cell_intersection(
+    int64_t line0,int64_t line1,int64_t cell0)
+{
+    const int64_t a=line0>cell0?line0:cell0;
+    const int64_t b=line1<cell0+256?line1:cell0+256;
+    return b>a?b-a:0;
+}
+
+/* The signed area model must follow SOURCE geometry across pixel phases
+ * and DPIs, not just the one released jsPDF source output. A different
+ * page/device phase can make the old 4x4 or new Q8 model match by
+ * coincidence; that is allowed. ANY changed pixel outside the true
+ * exterior H->down-V device cell remains a hard failure. */
+static int test_retraced_outer_q8_phase_sweep(void)
+{
+    const float dpis[]={72.0f,96.0f,144.0f};
+    const float X=20.125f,Y=8.33f;
+    const float L=2.125f,B=20.33f;
+    size_t all_changes=0u;
+    for(size_t phase=0u;phase<3u;++phase) {
+        fixture f;
+        quantapdf_composer_path_command cmds[7];
+        quantapdf_ir_raster_image parent={0},trial={0},repeat={0};
+        const quantapdf_point path[7]={
+            {L,Y},{X,Y},{X,B},{L,B},{L,Y},{X,Y},{L,Y}
+        };
+        setup(&f);
+        memset(cmds,0,sizeof(cmds));
+        for(size_t i=0u;i<7u;++i) {
+            cmds[i].kind=i==0u?QUANTAPDF_COMPOSER_PATH_MOVE_TO:
+                                  QUANTAPDF_COMPOSER_PATH_LINE_TO;
+            cmds[i].point1=path[i];
+        }
+        f.op.value.path.commands=cmds;
+        f.op.value.path.command_count=7u;
+        f.op.value.path.options.stroke_width=1.0f;
+        f.geom.dpi=dpis[phase];
+        f.grid_budget.max_pixels=5000u;
+        f.grid_budget.max_rgba_bytes=20000u;
+        f.grid_budget.max_edges=96u;
+        f.grid_budget.max_sample_tests=10000000u;
+        f.raster_budget.max_pixels=5000u;
+        f.raster_budget.max_edges=96u;
+        f.raster_budget.max_sample_tests=10000000u;
+        OK(quantapdf_ir_raster_device_polyline_stroke_q8_vh_exterior_preview_v0(
+            &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&parent));
+        OK(quantapdf_ir_raster_device_polyline_stroke_q8_retrace_outer_area_preview_v0(
+            &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+        OK(quantapdf_ir_raster_device_polyline_stroke_q8_retrace_outer_area_preview_v0(
+            &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&repeat));
+        CHECK(parent.pixels && trial.pixels && repeat.pixels &&
+              parent.size==trial.size && trial.size==repeat.size &&
+              memcmp(trial.pixels,repeat.pixels,trial.size)==0);
+        const double dx=32.5/(double)trial.width;
+        const double dy=24.75/(double)trial.height;
+        const size_t target_x=(size_t)floor((double)X/dx);
+        const size_t upper_y=(size_t)floor((double)Y/dy)-1u;
+        CHECK(target_x<trial.width && upper_y<trial.height);
+        CHECK(((double)target_x*dx)<(double)X &&
+              ((double)(target_x+1u)*dx)>(double)X &&
+              ((double)(upper_y+1u)*dy)<=(double)Y &&
+              ((double)(upper_y+1u)*dy)>(double)Y-0.5);
+        const int64_t cell_x=(int64_t)target_x*256;
+        const int64_t cell_y=(int64_t)upper_y*256;
+        const int64_t h_x0=test_q8_edge_from_source((double)L,dx);
+        const int64_t h_x1=test_q8_edge_from_source((double)X,dx);
+        const int64_t h_y0=test_q8_edge_from_source((double)Y-0.5,dy);
+        const int64_t h_y1=test_q8_edge_from_source((double)Y+0.5,dy);
+        const int64_t o_x1=test_q8_edge_from_source((double)X+0.5,dx);
+        const int64_t o_y1=test_q8_edge_from_source((double)Y,dy);
+        const int64_t h_area=
+            test_q8_cell_intersection(h_x0,h_x1,cell_x)*
+            test_q8_cell_intersection(h_y0,h_y1,cell_y);
+        const int64_t outer_area=
+            test_q8_cell_intersection(h_x1,o_x1,cell_x)*
+            test_q8_cell_intersection(h_y0,o_y1,cell_y);
+        CHECK(h_area>0 && outer_area>0);
+        const uint64_t total=(uint64_t)(3*h_area+outer_area);
+        const unsigned expected=total>=65280u?255u:(unsigned)(total/256u);
+        CHECK(expected>0u && expected<255u);
+        CHECK(alpha(&trial,target_x,upper_y)==expected);
+        for(size_t y=0u;y<trial.height;++y)
+            for(size_t x=0u;x<trial.width;++x) {
+                const size_t off=y*trial.stride+x*4u;
+                CHECK(memcmp(parent.pixels+off,trial.pixels+off,3u)==0);
+                if(parent.pixels[off+3u]!=trial.pixels[off+3u]) {
+                    CHECK(x==target_x && y==upper_y &&
+                          parent.pixels[off+3u]<255u);
+                    ++all_changes;
+                }
+            }
+        quantapdf_ir_raster_image_dispose(&repeat);
+        quantapdf_ir_raster_image_dispose(&trial);
+        quantapdf_ir_raster_image_dispose(&parent);
+    }
+    CHECK(all_changes>0u);
+    return EXIT_SUCCESS;
+}
+
 static int test_pixel_width_and_rejections(void)
 {
     fixture f;
@@ -1489,6 +1597,7 @@ int main(void)
     CHECK(test_q8_miter_adjacent_device_cells_trial()==EXIT_SUCCESS);
     CHECK(test_vh_retrace_exterior_q8()==EXIT_SUCCESS);
     CHECK(test_q8_retraced_outer_signed_area()==EXIT_SUCCESS);
+    CHECK(test_retraced_outer_q8_phase_sweep()==EXIT_SUCCESS);
     CHECK(test_pixel_width_and_rejections()==EXIT_SUCCESS);
     puts("native-device-polyline-stroke: butt+miter+bevel+union+limits PASS");
     return EXIT_SUCCESS;
