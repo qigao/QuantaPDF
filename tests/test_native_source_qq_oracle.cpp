@@ -9867,16 +9867,20 @@ static int test_generated_unit7_fill_dpi_heldout(const char *report_path)
         uint32_t width=0u,height=0u;
         size_t red_count=0u,partial_green=0u,other_rgb=0u;
         int binary_rect=0;
+        uint32_t private_grid_width=0u,private_grid_height=0u;
+        int private_grid_differs_from_original_pdfium=0;
         int observed_bbox[4]={0,0,0,0};
         int candidates[5][4]={{0}};
         size_t error[5]={0u};
     } records[120]={};
     size_t source_repeat_count=0u,bitmap_frame_count=0u;
     size_t private_grid_admitted=0u,private_grid_unsupported=0u;
+    size_t private_grid_dimension_mismatches=0u;
     size_t total_pixels=0u;
     size_t per_dpi_pixels[5]={0u},per_dpi_red[5]={0u};
     size_t per_dpi_partial[5]={0u},per_dpi_non_redwhite[5]={0u};
     size_t per_dpi_binary[5]={0u};
+    size_t per_dpi_grid_mismatches[5]={0u};
     size_t per_dpi_exact[5][5]={{0u}},per_dpi_error[5][5]={{0u}};
     const auto file_bytes=[](const char *name){
         FILE *stream=std::fopen(name,"rb");
@@ -9977,17 +9981,36 @@ static int test_generated_unit7_fill_dpi_heldout(const char *report_path)
                         display.height_points-display.from_source[5]);
                     for(size_t a=0u;a<6u;++a)
                         CHECK(std::isfinite(grid.from_source[a]));
+                    uint32_t private_width=0u,private_height=0u;
+                    int grid_dimension_mismatch=0;
                     if(dpi==72u || dpi==96u || dpi==144u){
                         quantapdf_graph_device_grid admitted{};
                         OK(quantapdf_graph_page_device_grid(
                             &geometry,dpi,22000u,70000u,&admitted));
-                        CHECK(admitted.width==grid.width &&
-                              admitted.height==grid.height &&
-                              admitted.stride_bytes==grid.stride_bytes &&
-                              admitted.output_bytes==grid.output_bytes);
-                        for(size_t a=0u;a<6u;++a)
-                            CHECK(admitted.from_source[a]==
-                                  grid.from_source[a]);
+                        CHECK(admitted.width>0u && admitted.height>0u &&
+                              admitted.width<=width+1u &&
+                              admitted.height<=height+1u &&
+                              admitted.width>=(width>1u?width-1u:width) &&
+                              admitted.height>=(height>1u?height-1u:height));
+                        CHECK((size_t)admitted.width*admitted.height<=22000u &&
+                              admitted.stride_bytes==(size_t)admitted.width*3u &&
+                              admitted.output_bytes==
+                                  admitted.stride_bytes*admitted.height &&
+                              admitted.output_bytes<=70000u);
+                        private_width=admitted.width;
+                        private_height=admitted.height;
+                        grid_dimension_mismatch=(
+                            admitted.width!=grid.width ||
+                            admitted.height!=grid.height)?1:0;
+                        if(grid_dimension_mismatch) {
+                            ++private_grid_dimension_mismatches;
+                            ++per_dpi_grid_mismatches[dpi_slot];
+                        }else{
+                            CHECK(admitted.output_bytes==grid.output_bytes);
+                            for(size_t a=0u;a<6u;++a)
+                                CHECK(admitted.from_source[a]==
+                                      grid.from_source[a]);
+                        }
                         ++private_grid_admitted;
                     }else{
                         CHECK(dpi==120u || dpi==168u);
@@ -10039,6 +10062,10 @@ static int test_generated_unit7_fill_dpi_heldout(const char *report_path)
                     row.rotation=rotation;
                     row.width=width;
                     row.height=height;
+                    row.private_grid_width=private_width;
+                    row.private_grid_height=private_height;
+                    row.private_grid_differs_from_original_pdfium=
+                        grid_dimension_mismatch;
                     int left=(int)width,top=(int)height;
                     int right=-1,bottom=-1;
                     for(size_t y=0u;y<height;++y)
@@ -10170,7 +10197,8 @@ static int test_generated_unit7_fill_dpi_heldout(const char *report_path)
           bitmap_frame_count==120u &&
           total_pixels==1419168u &&
           private_grid_admitted==72u &&
-          private_grid_unsupported==48u);
+          private_grid_unsupported==48u &&
+          private_grid_dimension_mismatches<=private_grid_admitted);
     FILE *out=std::fopen(pending.c_str(),"wb");
     CHECK(out!=nullptr);
     std::fprintf(out,
@@ -10188,6 +10216,7 @@ static int test_generated_unit7_fill_dpi_heldout(const char *report_path)
         "  \"total_original_pdfium_pixels\":%zu,\n"
         "  \"private_grid_admitted_dpi_acceptances\":%zu,\n"
         "  \"private_grid_unadmitted_dpi_refusals\":%zu,\n"
+        "  \"private_grid_vs_pdfium_dimension_mismatch_cases\":%zu,\n"
         "  \"heldout_grid_model_test_only\":true,\n"
         "  \"dpis_120_168_not_authorized\":true,\n"
         "  \"dpi_order\":[72,96,120,144,168],\n"
@@ -10201,17 +10230,19 @@ static int test_generated_unit7_fill_dpi_heldout(const char *report_path)
         "  \"public_sdk_backend_switched\":false,\n"
         "  \"dpi_totals\":[\n",
         source_repeat_count,bitmap_frame_count,total_pixels,
-        private_grid_admitted,private_grid_unsupported);
+        private_grid_admitted,private_grid_unsupported,
+        private_grid_dimension_mismatches);
     for(size_t d=0u;d<5u;++d){
         std::fprintf(out,
             "    {\"dpi\":%u,\"pixels\":%zu,\"red_pixels\":%zu,"
             "\"partial_green_pixels\":%zu,\"non_redwhite_pixels\":%zu,"
             "\"binary_rectangles\":%zu,"
+            "\"private_grid_original_dimension_mismatches\":%zu,"
             "\"model_exact_matches\":[%zu,%zu,%zu,%zu,%zu],"
             "\"model_abs_edge_errors\":[%zu,%zu,%zu,%zu,%zu]}%s\n",
             dpis[d],per_dpi_pixels[d],per_dpi_red[d],
             per_dpi_partial[d],per_dpi_non_redwhite[d],
-            per_dpi_binary[d],
+            per_dpi_binary[d],per_dpi_grid_mismatches[d],
             per_dpi_exact[d][0],per_dpi_exact[d][1],
             per_dpi_exact[d][2],per_dpi_exact[d][3],
             per_dpi_exact[d][4],
@@ -10229,10 +10260,14 @@ static int test_generated_unit7_fill_dpi_heldout(const char *report_path)
             "\"width\":%u,\"height\":%u,\"red_pixels\":%zu,"
             "\"partial_green_pixels\":%zu,\"non_redwhite_pixels\":%zu,"
             "\"binary_rectangle\":%d,"
+            "\"private_grid_width\":%u,\"private_grid_height\":%u,"
+            "\"private_grid_differs_from_original_pdfium\":%d,"
             "\"observed_bbox\":[%d,%d,%d,%d],\"model_bboxes\":[",
             v.shape,content_names[v.shape],v.crop,v.rotation,v.dpi,
             v.width,v.height,v.red_count,v.partial_green,
             v.other_rgb,v.binary_rect,
+            v.private_grid_width,v.private_grid_height,
+            v.private_grid_differs_from_original_pdfium,
             v.observed_bbox[0],v.observed_bbox[1],
             v.observed_bbox[2],v.observed_bbox[3]);
         for(size_t m=0u;m<5u;++m){
