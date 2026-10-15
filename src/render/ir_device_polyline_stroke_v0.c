@@ -662,6 +662,123 @@ static int qp_q8_isolated_inner_bevel_join_alpha(
     return 1;
 }
 
+
+/* TWELFTH INDEPENDENT PRIVATE Q8 SOURCE-SIGNED-AREA A/B.
+ *
+ * A SINGLE Stroke path can go through the SAME horizontal source edge
+ * forward, forward and backward before its final Butt cap. Within the
+ * outer-upper cell of the first H→down-V miter, a fill-style signed-area
+ * rasterizer counts each horizontal edge traversal in its cell area and
+ * adds the ONE outward Miter quadrant; it does NOT alpha-source-over a
+ * separately painted image per traversal.
+ *
+ * On the precise original source, this source-derived geometry gives
+ * horizontal area=9856 Q8^2 three times and outer-Miter area=16384,
+ * yielding floor((3*9856+16384)/256)=179. These numbers are explanatory
+ * evidence only: NO source document position, pixel ID, reference color
+ * or PDFium API appears in the implementation below.
+ *
+ * Admit ONLY exactly two forward + one reverse FULL-SPAN horizontal
+ * source traversals plus ONE connected orthogonal down-vertical, one
+ * opaque 1pt Miter stroke, and a device cell that straddles the joint X
+ * entirely ABOVE the joint Y. A different segment whose expanded
+ * bounding rectangle touches the cell makes the trial ineligible.
+ * Bounded source scans, finite Q8 mapping and a checked accumulator
+ * preserve the existing fail-closed ownership/capacity contract.
+ */
+static int qp_q8_retraced_hv_outer_signed_area_alpha(
+    const qp_stroke_segment *segments,size_t count,
+    const quantapdf_native_device_grid *grid,
+    size_t x,size_t y,double radius,double miter_limit,
+    unsigned *out_alpha)
+{
+    const double px0=(double)x*grid->points_per_device_x;
+    const double px1=((double)x+1.0)*grid->points_per_device_x;
+    const double py0=(double)y*grid->points_per_device_y;
+    const double py1=((double)y+1.0)*grid->points_per_device_y;
+    size_t matched=SIZE_MAX;
+    unsigned result_alpha=0u;
+    if(out_alpha==NULL || radius!=0.5 || miter_limit<1.414214 ||
+       count<4u || count>UINT64_MAX/65536u ||
+       (uint64_t)x>(uint64_t)(INT64_MAX/256-1) ||
+       (uint64_t)y>(uint64_t)(INT64_MAX/256-1))
+        return 0;
+    for(size_t k=0u;k<count;++k)
+        if(segments[k].dx!=0.0 && segments[k].dy!=0.0)
+            return 0; /* no diagonal, projected or acute join */
+    for(size_t i=0u;i+1u<count;++i) {
+        const qp_stroke_segment *h=&segments[i];
+        const qp_stroke_segment *v=&segments[i+1u];
+        const double joint_x=h->b.x,joint_y=h->b.y;
+        qp_join_q8_rect horizontal,outer;
+        size_t fwd=0u,reverse=0u;
+        int reject=0;
+        if(!(h->dx>0.0 && h->dy==0.0 &&
+             v->dx==0.0 && v->dy>0.0 &&
+             h->b.x==v->a.x && h->b.y==v->a.y &&
+             h->len_squared>radius*radius &&
+             v->len_squared>radius*radius))
+            continue;
+        /* The device cell must straddle the genuine source joint X,
+         * remain wholly above Y, and intersect the 1pt Stroke strip.
+         * No upper horizontal interior or below-joint pixel is edited. */
+        if(!(px0<joint_x && px1>joint_x &&
+             py0<joint_y && py1<=joint_y &&
+             py1>joint_y-radius))
+            continue;
+        for(size_t j=0u;j<count;++j) {
+            const qp_stroke_segment *edge=&segments[j];
+            const double left=fmin(edge->a.x,edge->b.x);
+            const double right=fmax(edge->a.x,edge->b.x);
+            if(edge->dy==0.0 && edge->dx!=0.0 &&
+               edge->a.y==joint_y &&
+               left==h->a.x && right==joint_x) {
+                if(edge->dx>0.0)++fwd;else ++reverse;
+                continue;
+            }
+            if(j==i+1u)continue; /* vertical joins at Y; outer tip below */
+            /* An unrelated source edge may not contribute to the cell. */
+            const double left_exp=left-radius;
+            const double right_exp=right+radius;
+            const double top_exp=fmin(edge->a.y,edge->b.y)-radius;
+            const double bottom_exp=fmax(edge->a.y,edge->b.y)+radius;
+            if(px0<right_exp && px1>left_exp &&
+               py0<bottom_exp && py1>top_exp) {
+                reject=1;
+                break;
+            }
+        }
+        if(reject || fwd!=2u || reverse!=1u)
+            continue;
+        if(matched!=SIZE_MAX)return 0; /* ambiguous multiple joins */
+        if(!qp_join_q8_rect_make(
+               grid,h->a.x,joint_y-radius,joint_x,joint_y+radius,
+               &horizontal) ||
+           !qp_join_q8_rect_make(
+               grid,joint_x,joint_y-radius,
+               joint_x+radius,joint_y,&outer))
+            return 0;
+        const int64_t cell_x=(int64_t)x*256;
+        const int64_t cell_y=(int64_t)y*256;
+        const int64_t area_h=qp_join_q8_rect_cell_area(
+            horizontal,cell_x,cell_y);
+        const int64_t area_outer=qp_join_q8_rect_cell_area(
+            outer,cell_x,cell_y);
+        if(area_h<=0 || area_outer<=0 ||
+           area_h>65536 || area_outer>65536)
+            return 0;
+        const uint64_t sum_area=
+            (uint64_t)(fwd+reverse)*(uint64_t)area_h +
+            (uint64_t)area_outer;
+        result_alpha=(unsigned)(
+            sum_area>=65280u?255u:sum_area/256u);
+        matched=i;
+    }
+    if(matched==SIZE_MAX)return 0;
+    *out_alpha=result_alpha;
+    return 1;
+}
+
 /* Fourth EXPLICIT PRIVATE A/B: for an *isolated*, single-traversal,
  * axis-aligned 1pt vertical Stroke interior, estimate the source strip's
  * exact horizontal intersection with this device pixel. No fixed pixel
@@ -1021,6 +1138,17 @@ static quantapdf_status qp_stroke_render_impl(
         count*11u>raster_limits->max_sample_tests/grid.sample_slots))
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
+    /* TWELFTH independent source-signed-area trial, separately charged
+     * before ANY source-edge allocation/pixel output. No mode0..11
+     * resource limits or admitted geometry are changed. */
+    if(horizontal_preview==12 &&
+       (count>grid_limits->max_edges/12u ||
+        count>raster_limits->max_edges/12u ||
+        quantapdf_native_device_grid_admit_edges_v0(
+            &grid,grid_limits,count*12u)!=QUANTAPDF_NATIVE_DEVICE_GRID_OK ||
+        count*12u>raster_limits->max_sample_tests/grid.sample_slots))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
     for(size_t i=1u;i<count;++i) {
         join_kinds[i-1u]=qp_stroke_join_build(&segments[i-1u],&segments[i],
                                                radius,miter_limit,&joins[i-1u]);
@@ -1092,11 +1220,18 @@ static quantapdf_status qp_stroke_render_impl(
                        segments,count,&grid,x,y,radius,miter_limit,
                        horizontal_preview>=10,0,&join_alpha))
                     pixel_alpha=join_alpha;
-                if(horizontal_preview==11 && pixel_alpha<255u &&
+                if(horizontal_preview>=11 && pixel_alpha<255u &&
                    qp_q8_isolated_inner_bevel_join_alpha(
                        segments,count,&grid,x,y,radius,miter_limit,
                        1,1,&join_alpha) && join_alpha!=0u)
                     pixel_alpha=join_alpha;
+            }
+            if(horizontal_preview==12 && pixel_alpha<255u) {
+                unsigned signed_alpha=0u;
+                if(qp_q8_retraced_hv_outer_signed_area_alpha(
+                       segments,count,&grid,x,y,radius,miter_limit,
+                       &signed_alpha))
+                    pixel_alpha=signed_alpha;
             }
             if(pixel_alpha!=0u) {
                 size_t offset=(y*grid.width+x)*4u;
@@ -1293,4 +1428,21 @@ quantapdf_ir_raster_device_polyline_stroke_q8_vh_exterior_preview_v0(
 {
     return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
                                  raster_limits,out_image,11);
+}
+
+
+/* TWELFTH opt-in PRIVATE C11 source-SIGNED-AREA experiment.
+ * Repeated horizontal traversals and a true H→down-V outer miter are
+ * combined in Q8 area before saturation, never as repeated RGBA paints.
+ * Existing modes0..11 and public/installed SDK remain untouched. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_q8_retrace_outer_area_preview_v0(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_stroke_render_impl(ir,page_index,geometry,grid_limits,
+                                 raster_limits,out_image,12);
 }
