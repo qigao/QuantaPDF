@@ -7266,6 +7266,21 @@ static int quarantine_pypdf_graph_geometry(
         double display_width,display_height;
         size_t device_width,device_height,device_rgb_bytes;
     } observations[4]={};
+    struct multi_dpi_observation {
+        unsigned dpi;
+        uint32_t device_width,device_height;
+        size_t rgb_output_bytes;
+        size_t inverse_roundtrip_count;
+    } dpi_observations[4][3]={};
+    const unsigned dpis[3]={72u,96u,144u};
+    /* These original rotated crop dimensions independently fix all
+     * exact integer bitmap extents (including fractional 96-DPI ceil). */
+    const uint32_t pixel_bounds[4][3][2]={
+        {{384u,504u},{512u,672u},{768u,1008u}},
+        {{378u,288u},{504u,384u},{756u,576u}},
+        {{352u,294u},{470u,392u},{704u,588u}},
+        {{546u,352u},{728u,470u},{1092u,704u}}
+    };
 
     for(size_t page=0u;page<4u;++page) {
         quantapdf_graph_page_geometry g{};
@@ -7310,6 +7325,86 @@ static int quarantine_pypdf_graph_geometry(
             g.rotation,display.width_points,display.height_points,
             grid.width,grid.height,grid.output_bytes
         };
+        for(size_t mode=0u;mode<3u;++mode){
+            const unsigned dpi=dpis[mode];
+            quantapdf_graph_device_grid device{},repeat{};
+            const quantapdf_graph_device_grid zero{};
+            const uint32_t want_w=pixel_bounds[page][mode][0];
+            const uint32_t want_h=pixel_bounds[page][mode][1];
+            OK(quantapdf_graph_page_device_grid(
+                &g,dpi,1000000u,3000000u,&device));
+            CHECK(device.width==want_w && device.height==want_h &&
+                  device.stride_bytes==(size_t)want_w*3u &&
+                  device.output_bytes==(size_t)want_w*(size_t)want_h*3u);
+            OK(quantapdf_graph_page_device_grid(
+                &g,dpi,1000000u,3000000u,&repeat));
+            CHECK(std::memcmp(&device,&repeat,sizeof(device))==0);
+            double left=1e100,right=-1e100,top=1e100,bottom=-1e100;
+            for(unsigned corner=0u;corner<4u;++corner) {
+                const double x=g.crop_box[(corner&1u)?2u:0u];
+                const double y=g.crop_box[(corner&2u)?3u:1u];
+                const double px=device.from_source[0]*x+
+                    device.from_source[2]*y+device.from_source[4];
+                const double py=device.from_source[1]*x+
+                    device.from_source[3]*y+device.from_source[5];
+                CHECK(std::isfinite(px) && std::isfinite(py));
+                left=std::min(left,px);right=std::max(right,px);
+                top=std::min(top,py);bottom=std::max(bottom,py);
+            }
+            CHECK(std::fabs(left)<1e-8 && std::fabs(top)<1e-8);
+            CHECK(std::fabs(right-(double)want_w)<1e-8);
+            CHECK(std::fabs(bottom-(double)want_h)<1e-8);
+            size_t inverse_roundtrips=0u;
+            for(unsigned edge_x=0;edge_x<2u;++edge_x)
+                for(unsigned edge_y=0;edge_y<2u;++edge_y)
+                    for(unsigned sx=0u;sx<4u;++sx)
+                        for(unsigned sy=0u;sy<4u;++sy){
+                            const uint32_t px=edge_x?want_w-1u:0u;
+                            const uint32_t py=edge_y?want_h-1u:0u;
+                            double x=0.0,y=0.0;
+                            OK(quantapdf_graph_device_grid_sample_q4(
+                                &device,px,py,sx,sy,&x,&y));
+                            const double dx=device.from_source[0]*x+
+                                device.from_source[2]*y+device.from_source[4];
+                            const double dy=device.from_source[1]*x+
+                                device.from_source[3]*y+device.from_source[5];
+                            const double expected_x=(double)px+
+                                ((double)sx+0.5)/4.0;
+                            const double expected_y=(double)py+
+                                ((double)sy+0.5)/4.0;
+                            CHECK(std::fabs(dx-expected_x)<1e-8);
+                            CHECK(std::fabs(dy-expected_y)<1e-8);
+                            ++inverse_roundtrips;
+                        }
+            CHECK(inverse_roundtrips==64u);
+            const size_t work=(size_t)want_w*(size_t)want_h*16u;
+            OK(quantapdf_graph_device_grid_admit_q4_work(
+                &device,1u,1u,work));
+            CHECK(quantapdf_graph_device_grid_admit_q4_work(
+                &device,1u,1u,work-1u)==QUANTAPDF_ERROR_UNSUPPORTED);
+            quantapdf_graph_device_grid rejected{};
+            std::memset(&rejected,0xa5,sizeof(rejected));
+            CHECK(quantapdf_graph_page_device_grid(
+                &g,dpi,(size_t)want_w*(size_t)want_h-1u,
+                3000000u,&rejected)==QUANTAPDF_ERROR_UNSUPPORTED);
+            CHECK(std::memcmp(&rejected,&zero,sizeof(rejected))==0);
+            std::memset(&rejected,0xa5,sizeof(rejected));
+            CHECK(quantapdf_graph_page_device_grid(
+                &g,dpi,1000000u,device.output_bytes-1u,
+                &rejected)==QUANTAPDF_ERROR_UNSUPPORTED);
+            CHECK(std::memcmp(&rejected,&zero,sizeof(rejected))==0);
+            dpi_observations[page][mode]={
+                dpi,device.width,device.height,device.output_bytes,
+                inverse_roundtrips
+            };
+        }
+        quantapdf_graph_device_grid invalid{};
+        std::memset(&invalid,0xa5,sizeof(invalid));
+        const quantapdf_graph_device_grid zero{};
+        CHECK(quantapdf_graph_page_device_grid(
+            &g,120u,1000000u,3000000u,&invalid)==
+            QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(std::memcmp(&invalid,&zero,sizeof(invalid))==0);
     }
 
     quantapdf_graph_snapshot_drop(snapshot);
@@ -7340,8 +7435,25 @@ static int quarantine_pypdf_graph_geometry(
             p.device_width,p.device_height,p.device_rgb_bytes,
             i==3u?"":",");
     }
+    std::fprintf(out,"  ],\n  \"dpi_device_qualifications\": [\n");
+    for(size_t page=0u;page<4u;++page)
+        for(size_t mode=0u;mode<3u;++mode){
+            const auto& result=dpi_observations[page][mode];
+            std::fprintf(out,
+                "    {\"page_index\":%zu,\"dpi\":%u,"
+                "\"device_width\":%u,\"device_height\":%u,"
+                "\"rgb_output_bytes\":%zu,"
+                "\"source_roundtrip_samples\":%zu,"
+                "\"limited_memory_refusal\":true,"
+                "\"source_page_original\":true}%s\n",
+                page,result.dpi,result.device_width,result.device_height,
+                result.rgb_output_bytes,result.inverse_roundtrip_count,
+                page==3u&&mode==2u?"":",");
+        }
     std::fprintf(out,
         "  ],\n"
+        "  \"dpi_qualification_count\": 12,\n"
+        "  \"total_source_roundtrip_samples\": 768,\n"
         "  \"original_pdfium_pixel_oracle\": \"not_run\",\n"
         "  \"native_raster\": \"not_run\",\n"
         "  \"external_native_positive_increment\": 0\n"
