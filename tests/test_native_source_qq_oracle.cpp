@@ -7705,8 +7705,157 @@ static int quarantine_pypdf_capture_stage_matrix(
     return EXIT_SUCCESS;
 }
 
+/* #269: compare true ORIGINAL source PDFium dimensions to the independently
+ * qualified C11 Graph->Device geometry, at 72/96/144 DPI. Test-only
+ * PDFium is an EXTERNAL oracle, not a native Raster fallback. This never
+ * feeds raw Content into private C11 pixels and never increments corpus. */
+static int quarantine_pypdf_pdfium_device_dimensions(
+    const char *original_path,const char *report_path)
+{
+    CHECK(original_path && *original_path && report_path && *report_path);
+    namespace fs=std::filesystem;
+    std::error_code ec;
+    const fs::path source(original_path),report(report_path);
+    const fs::path stage(std::string(report_path)+".tmp");
+    CHECK(fs::is_regular_file(source,ec) && !ec &&
+          !fs::is_symlink(source,ec) && !ec);
+    const fs::path canonical=fs::weakly_canonical(source,ec);
+    CHECK(!ec && fs::weakly_canonical(report,ec)!=canonical && !ec);
+    CHECK(fs::weakly_canonical(stage,ec)!=canonical && !ec);
+    for(const fs::path& output:{report,stage}) {
+        const bool exists=fs::exists(output,ec);
+        CHECK(!ec);
+        if(exists){
+            CHECK(!fs::is_symlink(output,ec) && !ec);
+            CHECK(!fs::equivalent(source,output,ec) && !ec);
+        }
+    }
+    const unsigned dpis[]={72u,96u,144u};
+    const uint32_t expected[4][3][2]={
+        {{384u,504u},{512u,672u},{768u,1008u}},
+        {{378u,288u},{504u,384u},{756u,576u}},
+        {{352u,294u},{470u,392u},{704u,588u}},
+        {{546u,352u},{728u,470u},{1092u,704u}}
+    };
+    struct source_frame {
+        int width=0,height=0;
+        size_t nonwhite=0;
+        uint64_t fnv64=0;
+    } observations[4][3]={};
+    quantapdf_document *source_doc=nullptr;
+    OK(quantapdf_open(original_path,nullptr,&source_doc));
+    for(size_t page_index=0u;page_index<4u;++page_index) {
+        quantapdf_page *page=nullptr;
+        OK(quantapdf_load_page(source_doc,page_index,&page));
+        quantapdf_rect bounds{};
+        OK(quantapdf_page_bounds(page,&bounds));
+        CHECK(std::isfinite(bounds.x0) && std::isfinite(bounds.y0) &&
+              std::isfinite(bounds.x1) && std::isfinite(bounds.y1));
+        for(size_t mode=0u;mode<3u;++mode){
+            const unsigned dpi=dpis[mode];
+            const size_t predicted_pixels=(size_t)expected[page_index][mode][0]*
+                (size_t)expected[page_index][mode][1];
+            const size_t predicted_rgb_bytes=predicted_pixels*3u;
+            CHECK(predicted_pixels>0u && predicted_pixels<1000000u &&
+                  predicted_rgb_bytes<=3000000u);
+            quantapdf_render_options options={
+                sizeof(options),(float)dpi,0.0f,0,{0},0
+            };
+            quantapdf_bitmap *reference=nullptr,*repeat=nullptr;
+            OK(quantapdf_render_page_with_options(page,&options,&reference));
+            CHECK(reference!=nullptr);
+            int w=0,h=0,stride=0,components=0;
+            OK(quantapdf_bitmap_dimensions(
+                reference,&w,&h,&stride,&components));
+            if(w!=(int)expected[page_index][mode][0] ||
+               h!=(int)expected[page_index][mode][1]) {
+                std::fprintf(stderr,
+                    "[external pypdf ORIGINAL PDFium size mismatch] "
+                    "page=%zu dpi=%u actual=%d x %d expected=%u x %u\n",
+                    page_index,dpi,w,h,expected[page_index][mode][0],
+                    expected[page_index][mode][1]);
+            }
+            CHECK(w==(int)expected[page_index][mode][0] &&
+                  h==(int)expected[page_index][mode][1]);
+            CHECK(components==3 && stride>=w*3 &&
+                  stride<=3*(int)expected[page_index][mode][0]+4);
+            const unsigned char *pixels=nullptr;
+            size_t bitmap_bytes=0u;
+            OK(quantapdf_bitmap_data(reference,&pixels,&bitmap_bytes));
+            CHECK(pixels!=nullptr &&
+                  bitmap_bytes>=(size_t)h*(size_t)stride &&
+                  bitmap_bytes<=(size_t)h*((size_t)w*3u+4u));
+            size_t nonwhite=0u;
+            uint64_t fnv=UINT64_C(0xcbf29ce484222325);
+            for(size_t y=0u;y<(size_t)h;++y) {
+                const unsigned char *row=pixels+y*(size_t)stride;
+                for(size_t x=0u;x<(size_t)w;++x){
+                    const unsigned char *rgb=row+3u*x;
+                    for(size_t channel=0u;channel<3u;++channel){
+                        fnv^=(uint64_t)rgb[channel];
+                        fnv*=UINT64_C(0x100000001b3);
+                    }
+                    if(rgb[0]!=255u || rgb[1]!=255u || rgb[2]!=255u)
+                        ++nonwhite;
+                }
+            }
+            CHECK(nonwhite>0u && nonwhite<=predicted_pixels);
+            OK(quantapdf_render_page_with_options(page,&options,&repeat));
+            int rw=0,rh=0,rs=0,rc=0;
+            OK(quantapdf_bitmap_dimensions(repeat,&rw,&rh,&rs,&rc));
+            CHECK(rw==w && rh==h && rs==stride && rc==components);
+            const unsigned char *repeat_pixels=nullptr;
+            size_t repeat_size=0u;
+            OK(quantapdf_bitmap_data(repeat,&repeat_pixels,&repeat_size));
+            CHECK(repeat_size==bitmap_bytes && repeat_pixels!=nullptr &&
+                  std::memcmp(pixels,repeat_pixels,bitmap_bytes)==0);
+            observations[page_index][mode]={w,h,nonwhite,fnv};
+            quantapdf_drop_bitmap(repeat);
+            quantapdf_drop_bitmap(reference);
+        }
+        quantapdf_drop_page(page);
+    }
+    quantapdf_close(source_doc);
+    FILE *out=std::fopen(stage.string().c_str(),"wb");
+    CHECK(out!=nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"source_kind\":\"independently_published_original_quarantine\",\n"
+        "  \"reference\":\"original_pdfium_rendering_only\",\n"
+        "  \"page_mode_count\":12,\n"
+        "  \"original_pdfium_device_dimensions_match_c11_grid\":true,\n"
+        "  \"original_pdfium_byte_repeat\":true,\n"
+        "  \"source_original_content_nonwhite\":true,\n"
+        "  \"external_native_pixel_parity_qualified\":false,\n"
+        "  \"native_raster\":\"not_run\",\n"
+        "  \"external_native_positive_increment\":0,\n"
+        "  \"pages\":[\n");
+    for(size_t page=0u;page<4u;++page)
+        for(size_t mode=0u;mode<3u;++mode){
+            const auto& f=observations[page][mode];
+            std::fprintf(out,
+                "    {\"page_index\":%zu,\"dpi\":%u,"
+                "\"pdfium_width\":%d,\"pdfium_height\":%d,"
+                "\"pdfium_nonwhite_pixels\":%zu,\"pdfium_rgb_fnv64\":\"%016llx\","
+                "\"C11_native_raster\":\"not_run\"}%s\n",
+                page,dpis[mode],f.width,f.height,f.nonwhite,
+                (unsigned long long)f.fnv64,
+                page==3u&&mode==2u?"":",");
+        }
+    std::fprintf(out,"  ]\n}\n");
+    CHECK(std::ferror(out)==0 && std::fclose(out)==0);
+    CHECK(std::rename(stage.string().c_str(),report_path)==0);
+    CHECK(corpus_fixture_executions==0u);
+    return EXIT_SUCCESS;
+}
+
 int main(int argc,char **argv)
 {
+    if(argc==5 &&
+       std::strcmp(argv[1],"--quarantined-pypdf-original-pdfium-dimensions")==0 &&
+       std::strcmp(argv[3],"--pdfium-dimension-report")==0)
+        return quarantine_pypdf_pdfium_device_dimensions(argv[2],argv[4]);
     if(argc==5 &&
        std::strcmp(argv[1],"--quarantined-pypdf-capture-stage-matrix")==0 &&
        std::strcmp(argv[3],"--stage-report")==0)
