@@ -40,6 +40,67 @@ static void forward(const quantapdf_graph_device_grid *g,
     *oy=g->from_source[1]*x+g->from_source[3]*y+g->from_source[5];
 }
 
+/* #269/#343: oversized UserUnit=7 source geometry is inspired by a
+ * PUBLIC REPORTER'S description, NOT by verified/licensed source PDF bytes.
+ * No PDFium rendering, bitmap allocation or formal external-positive.
+ * Exercise bounds before any work, on all right-angle page rotations. */
+static void test_large_userunit7_preallocation_refusal(void)
+{
+    quantapdf_graph_page_geometry g={0};
+    g.media_box[0]=10.0;
+    g.media_box[1]=20.0;
+    g.media_box[2]=14183.2;
+    g.media_box[3]=360.562;
+    memcpy(g.crop_box,g.media_box,sizeof(g.crop_box));
+    g.user_unit=7.0;
+    const unsigned dpis[]={72u,96u,144u};
+    const quantapdf_graph_device_grid zero={0};
+    size_t refused=0u;
+    for(int rotation=0;rotation<360;rotation+=90){
+        g.rotation=rotation;
+        quantapdf_graph_page_display display={0};
+        CHECK(quantapdf_graph_page_display_map(&g,&display)==QUANTAPDF_OK);
+        CHECK(display.width_points>2000.0 && display.height_points>2000.0);
+        /* The page is a >200-million-pixel geometry at 72 DPI. Only
+         * STRUCTURAL metadata (no image buffer) may be produced below. */
+        quantapdf_graph_device_grid diagnostic={0};
+        CHECK(quantapdf_graph_page_device_grid(&g,72u,
+            300000000u,900000000u,&diagnostic)==QUANTAPDF_OK);
+        CHECK((size_t)diagnostic.width*(size_t)diagnostic.height>
+              200000000u);
+        CHECK(diagnostic.output_bytes>600000000u &&
+              diagnostic.output_bytes<=900000000u);
+        /* Any 4x4 geometry sample budget permitted by the private
+         * test caps must refuse before pixel/edge iteration. */
+        CHECK(quantapdf_graph_device_grid_admit_q4_work(
+            &diagnostic,1u,1u,50000000u)==QUANTAPDF_ERROR_UNSUPPORTED);
+        double x=1.0,y=2.0;
+        CHECK(quantapdf_graph_device_grid_sample_q4(
+            &diagnostic,0u,0u,0u,0u,&x,&y)==QUANTAPDF_OK);
+        const double px=diagnostic.from_source[0]*x+
+            diagnostic.from_source[2]*y+diagnostic.from_source[4];
+        const double py=diagnostic.from_source[1]*x+
+            diagnostic.from_source[3]*y+diagnostic.from_source[5];
+        CHECK(near(px,0.125) && near(py,0.125));
+
+        for(size_t n=0u;n<3u;++n){
+            quantapdf_graph_device_grid denied;
+            memset(&denied,0xa5,sizeof(denied));
+            CHECK(quantapdf_graph_page_device_grid(&g,dpis[n],
+                1000000u,3000000u,&denied)==QUANTAPDF_ERROR_UNSUPPORTED);
+            CHECK(memcmp(&denied,&zero,sizeof(denied))==0);
+            ++refused;
+        }
+        quantapdf_graph_device_grid denied;
+        memset(&denied,0xa5,sizeof(denied));
+        CHECK(quantapdf_graph_page_device_grid(&g,72u,
+            300000000u,3000000u,&denied)==QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(memcmp(&denied,&zero,sizeof(denied))==0);
+        ++refused;
+    }
+    CHECK(refused==16u);
+}
+
 int main(void)
 {
     const unsigned dpis[]={72u,96u,144u};
@@ -141,6 +202,7 @@ int main(void)
     }
     CHECK(positive==4608u);
     CHECK(refused==723u);
+    test_large_userunit7_preallocation_refusal();
     puts("private device inverse Q4 source sampling: OK");
     return EXIT_SUCCESS;
 }
