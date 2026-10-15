@@ -8234,6 +8234,8 @@ static int test_generated_unit7_multidpi_original_diagnostic(
         size_t q4_analytic_native_diff, pdfium_partial_g, native_partial_g;
         size_t pdfium_more_red, native_more_red, pdfium_chroma_mismatch;
         size_t edge_diff_pixels[5];
+        unsigned long long snap_abs_rgb[5];
+        size_t snap_diff_pixels[5];
     } modes[12]={};
     size_t total_pixels=0u,zero_output_negative=0u,source_repeats=0u;
     unsigned long long sum96=0u,sum144=0u;
@@ -8245,6 +8247,8 @@ static int test_generated_unit7_multidpi_original_diagnostic(
     size_t pdfium_partial96=0u,native_partial96=0u;
     size_t pdfium_more_red96=0u,native_more_red96=0u;
     size_t pdfium_chroma96=0u;
+    unsigned long long snap96_abs[5]={0u};
+    size_t snap96_changed[5]={0u};
     const auto read_original=[](const char *source_path){
         FILE *f=std::fopen(source_path,"rb");
         CHECK(f!=nullptr && std::fseek(f,0,SEEK_END)==0);
@@ -8408,6 +8412,37 @@ static int test_generated_unit7_multidpi_original_diagnostic(
                 }
             CHECK(xlo>=0.0 && ylo>=0.0 && xhi<=(double)w &&
                   yhi<=(double)h && xhi>xlo && yhi>ylo);
+            /* Five explicitly enumerated test-only INTEGER BINARY edge
+             * policies: nearest, floor, ceil, outward, inward. Evaluate
+             * them against ORIGINAL PDFium, never publish a candidate
+             * bitmap or alter the Q4 production/preview raster. */
+            const auto floor_edge=[](double v)->int{
+                return (int)std::floor(v);
+            };
+            const auto ceil_edge=[](double v)->int{
+                return (int)std::ceil(v);
+            };
+            const auto nearest_edge=[](double v)->int{
+                return (int)std::floor(v+0.5);
+            };
+            const int snap_edges[5][4]={
+                {nearest_edge(xlo),nearest_edge(xhi),
+                 nearest_edge(ylo),nearest_edge(yhi)},
+                {floor_edge(xlo),floor_edge(xhi),
+                 floor_edge(ylo),floor_edge(yhi)},
+                {ceil_edge(xlo),ceil_edge(xhi),
+                 ceil_edge(ylo),ceil_edge(yhi)},
+                {floor_edge(xlo),ceil_edge(xhi),
+                 floor_edge(ylo),ceil_edge(yhi)},
+                {ceil_edge(xlo),floor_edge(xhi),
+                 ceil_edge(ylo),floor_edge(yhi)}
+            };
+            for(size_t policy=0u;policy<5u;++policy) {
+                const int *edges=snap_edges[policy];
+                CHECK(edges[0]>=0 && edges[1]<=(int)w &&
+                      edges[2]>=0 && edges[3]<=(int)h &&
+                      edges[0]<edges[1] && edges[2]<edges[3]);
+            }
             /* Nominal DPI is an intentionally alternative phase.
              * Existing qualified Grid maps the original visible page
              * to the entire ceil-rounded bitmap, independently X/Y. */
@@ -8439,6 +8474,8 @@ static int test_generated_unit7_multidpi_original_diagnostic(
             size_t q4_native_diff=0u,ref_partial=0u,src_partial=0u;
             size_t ref_more_red=0u,src_more_red=0u,chroma=0u;
             size_t edge_pixels[5]={0u};
+            unsigned long long snap_error[5]={0u};
+            size_t snap_changed[5]={0u};
             unsigned max_delta=0u;
             for(size_t y=0u;y<h;++y)
                 for(size_t x=0u;x<w;++x){
@@ -8532,6 +8569,26 @@ static int test_generated_unit7_multidpi_original_diagnostic(
                         if(native_green>0u && native_green<255u)++src_partial;
                         if(p[0]!=255u || p[1]!=p[2])++chroma;
                     }
+                    if(dpi==96u) {
+                        for(size_t policy=0u;policy<5u;++policy) {
+                            const int *e=snap_edges[policy];
+                            const int px=(int)x,py=(int)y;
+                            const bool inside=px>=e[0] && px<e[1] &&
+                                              py>=e[2] && py<e[3];
+                            const unsigned green=inside?0u:255u;
+                            unsigned max_snap=0u;
+                            for(unsigned channel=0u;channel<3u;++channel){
+                                const unsigned candidate=channel==0u?
+                                    255u:green;
+                                const unsigned actual=p[channel];
+                                const unsigned diff=candidate>actual?
+                                    candidate-actual:actual-candidate;
+                                snap_error[policy]+=(unsigned long long)diff;
+                                max_snap=std::max(max_snap,diff);
+                            }
+                            if(max_snap>0u)++snap_changed[policy];
+                        }
+                    }
                     const unsigned fitted=theoretical_green(
                         x,y,xlo,xhi,ylo,yhi);
                     const unsigned nominal_green=theoretical_green(
@@ -8553,10 +8610,14 @@ static int test_generated_unit7_multidpi_original_diagnostic(
                 fit_area_error,nominal_area_error,off_edge,
                 q4_native_abs,q4_pdfium_abs,pdfium_q4_quantum,
                 q4_native_diff,ref_partial,src_partial,
-                ref_more_red,src_more_red,chroma,{0u}
+                ref_more_red,src_more_red,chroma,{0u},{0u},{0u}
             };
             std::memcpy(modes[record_index].edge_diff_pixels,
                 edge_pixels,sizeof(edge_pixels));
+            std::memcpy(modes[record_index].snap_abs_rgb,
+                snap_error,sizeof(snap_error));
+            std::memcpy(modes[record_index].snap_diff_pixels,
+                snap_changed,sizeof(snap_changed));
             total_pixels+=pixels;
             if(dpi==72u)
                 CHECK(abs_error==0u && differing==0u &&
@@ -8575,8 +8636,11 @@ static int test_generated_unit7_multidpi_original_diagnostic(
                 pdfium_more_red96+=ref_more_red;
                 native_more_red96+=src_more_red;
                 pdfium_chroma96+=chroma;
-                for(size_t k=0u;k<5u;++k)
+                for(size_t k=0u;k<5u;++k) {
                     edge96[k]+=edge_pixels[k];
+                    snap96_abs[k]+=snap_error[k];
+                    snap96_changed[k]+=snap_changed[k];
+                }
             }
             if(dpi==144u)sum144+=abs_error;
             std::fprintf(stderr,
@@ -8637,6 +8701,10 @@ static int test_generated_unit7_multidpi_original_diagnostic(
         "  \"dpi96_native_more_red_pixels\":%zu,\n"
         "  \"dpi96_pdfium_chroma_mismatch_pixels\":%zu,\n"
         "  \"dpi96_edge_diff_pixels\":[%zu,%zu,%zu,%zu,%zu],\n"
+        "  \"dpi96_integer_snap_abs_rgb\":[%llu,%llu,%llu,%llu,%llu],\n"
+        "  \"dpi96_integer_snap_differing_pixels\":[%zu,%zu,%zu,%zu,%zu],\n"
+        "  \"integer_snap_policy_order\":\"nearest,floor,ceil,outward,inward\",\n"
+        "  \"integer_snap_test_only\":true,\n"
         "  \"quantum_ledger_diagnostic_only\":true,\n"
         "  \"analytic_coverage_test_only\":true,\n"
         "  \"external_original_provenance_verified\":false,\n"
@@ -8648,7 +8716,11 @@ static int test_generated_unit7_multidpi_original_diagnostic(
         q4_native_96,q4_pdfium_96,pdfium_quantum_distance_96,
         q4_native_diff96,pdfium_partial96,native_partial96,
         pdfium_more_red96,native_more_red96,pdfium_chroma96,
-        edge96[0],edge96[1],edge96[2],edge96[3],edge96[4]);
+        edge96[0],edge96[1],edge96[2],edge96[3],edge96[4],
+        snap96_abs[0],snap96_abs[1],snap96_abs[2],
+        snap96_abs[3],snap96_abs[4],
+        snap96_changed[0],snap96_changed[1],snap96_changed[2],
+        snap96_changed[3],snap96_changed[4]);
     for(size_t k=0u;k<12u;++k){
         const auto& frame=modes[k];
         std::fprintf(out,
@@ -8668,7 +8740,9 @@ static int test_generated_unit7_multidpi_original_diagnostic(
             "\"pdfium_more_red_pixels\":%zu,"
             "\"native_more_red_pixels\":%zu,"
             "\"pdfium_chroma_mismatch_pixels\":%zu,"
-            "\"edge_diff_pixels\":[%zu,%zu,%zu,%zu,%zu]}%s\n",
+            "\"edge_diff_pixels\":[%zu,%zu,%zu,%zu,%zu],"
+            "\"integer_snap_abs_rgb\":[%llu,%llu,%llu,%llu,%llu],"
+            "\"integer_snap_differing_pixels\":[%zu,%zu,%zu,%zu,%zu]}%s\n",
             frame.rotation,frame.dpi,frame.width,frame.height,
             frame.pixels,frame.abs_rgb,frame.differing,frame.gross,
             frame.max_delta,frame.fitted_area_abs_rgb,
@@ -8682,7 +8756,14 @@ static int test_generated_unit7_multidpi_original_diagnostic(
             frame.pdfium_chroma_mismatch,
             frame.edge_diff_pixels[0],frame.edge_diff_pixels[1],
             frame.edge_diff_pixels[2],frame.edge_diff_pixels[3],
-            frame.edge_diff_pixels[4],k==11u?"":",");
+            frame.edge_diff_pixels[4],
+            frame.snap_abs_rgb[0],frame.snap_abs_rgb[1],
+            frame.snap_abs_rgb[2],frame.snap_abs_rgb[3],
+            frame.snap_abs_rgb[4],
+            frame.snap_diff_pixels[0],frame.snap_diff_pixels[1],
+            frame.snap_diff_pixels[2],frame.snap_diff_pixels[3],
+            frame.snap_diff_pixels[4],
+            k==11u?"":",");
     }
     std::fprintf(out,"  ]\n}\n");
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
