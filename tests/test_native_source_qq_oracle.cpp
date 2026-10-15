@@ -7852,6 +7852,187 @@ static int quarantine_pypdf_pdfium_device_dimensions(
     return EXIT_SUCCESS;
 }
 
+/* #269/#343: source-backed large /UserUnit 7 refusal, not the independent
+ * reporter attachment. QPDF owns only test-created ORIGINAL file bytes.
+ * No PDFium image, raster image, or large device allocation is attempted. */
+static void write_generated_oversized_unit7_original(
+    int rotation,const char *source_path)
+{
+    CHECK(source_path!=nullptr && *source_path);
+    CHECK(rotation==0 || rotation==90 || rotation==180 || rotation==270);
+    auto pdf=QPDF::create();
+    pdf->emptyPDF();
+    auto pages=pdf->getRoot().getKey("/Pages");
+    auto leaf=pdf->makeIndirectObject(
+        QPDFObjectHandle::parse("<< /Type /Page >>"));
+    pages.replaceKey("/Kids",QPDFObjectHandle::newArray({leaf}));
+    pages.replaceKey("/Count",QPDFObjectHandle::newInteger(1));
+    /* Source page stays within the 14,400-PDF-user-unit format bound;
+     * /UserUnit 7, not an oversized source MediaBox, scales its display. */
+    pages.replaceKey("/MediaBox",
+        QPDFObjectHandle::parse("[0 0 14300 500]"));
+    const auto crop=QPDFObjectHandle::parse(
+        "[10 20 14183.2 360.562]");
+    if(rotation==0 || rotation==180)
+        pages.replaceKey("/CropBox",crop);
+    else leaf.replaceKey("/CropBox",crop);
+    if(rotation==0 || rotation==90)
+        pages.replaceKey("/Rotate",QPDFObjectHandle::newInteger(rotation));
+    else leaf.replaceKey("/Rotate",QPDFObjectHandle::newInteger(rotation));
+    leaf.replaceKey("/UserUnit",QPDFObjectHandle::newInteger(7));
+    leaf.replaceKey("/Parent",pages);
+    /* Intentionally no painted path: this is a geometry/capacity negative. */
+    leaf.replaceKey("/Contents",pdf->newStream("q Q"));
+    QPDFWriter writer(*pdf);
+    writer.setMinimumPDFVersion("1.6");
+    writer.setOutputMemory();
+    writer.write();
+    auto bytes=writer.getBufferSharedPointer();
+    CHECK(bytes->getSize()>0u && bytes->getSize()<=65536u);
+    FILE *f=std::fopen(source_path,"wb");
+    CHECK(f!=nullptr);
+    CHECK(std::fwrite(bytes->getBuffer(),1,bytes->getSize(),f)==
+          bytes->getSize());
+    CHECK(std::fclose(f)==0);
+}
+
+static int test_generated_oversized_unit7_original_refusal(
+    const char *report_path)
+{
+    CHECK(report_path!=nullptr && *report_path);
+    CHECK(std::strcmp(report_path,GENERATED_OVERSIZED_USERUNIT7_PDF)!=0);
+    const std::string stage=std::string(report_path)+".tmp";
+    CHECK(stage!=GENERATED_OVERSIZED_USERUNIT7_PDF);
+    const unsigned dpis[3]={72u,96u,144u};
+    /* Independently pinned extents of the displayed crop
+     * (14173.2 x 340.562) multiplied by /UserUnit 7. */
+    const uint32_t expected[3][2]={
+        {99213u,2384u},{132284u,3179u},{198425u,4768u}
+    };
+    const quantapdf_graph_device_grid zero{};
+    size_t pixel_cap_refusals=0u,byte_cap_refusals=0u;
+    size_t work_cap_refusals=0u,source_byte_repeats=0u;
+    const auto read_small_source=[](const char *path) {
+        FILE *f=std::fopen(path,"rb");
+        CHECK(f!=nullptr);
+        CHECK(std::fseek(f,0,SEEK_END)==0);
+        const long n=std::ftell(f);
+        CHECK(n>0 && n<=65536);
+        CHECK(std::fseek(f,0,SEEK_SET)==0);
+        std::vector<unsigned char> contents((size_t)n);
+        CHECK(std::fread(contents.data(),1,contents.size(),f)==contents.size());
+        CHECK(std::fclose(f)==0);
+        return contents;
+    };
+
+    for(int rotation=0;rotation<360;rotation+=90) {
+        write_generated_oversized_unit7_original(
+            rotation,GENERATED_OVERSIZED_USERUNIT7_PDF);
+        const auto original=read_small_source(GENERATED_OVERSIZED_USERUNIT7_PDF);
+        quantapdf_document *document=nullptr;
+        quantapdf_graph_snapshot *snapshot=nullptr;
+        OK(quantapdf_open(GENERATED_OVERSIZED_USERUNIT7_PDF,nullptr,&document));
+        /* No budget enlargement; a tiny generated original must capture
+         * under the existing bounded test-only Graph configuration. */
+        const quantapdf_status captured=
+            quantapdf_document_capture_graph(document,&graph_limits,&snapshot);
+        quantapdf_close(document);
+        OK(captured);
+        CHECK(snapshot!=nullptr && snapshot->graph!=nullptr);
+        const quantapdf_graph_model *model=
+            quantapdf_graph_view(snapshot->graph);
+        CHECK(model!=nullptr && model->page_count==1u);
+        quantapdf_graph_page_geometry g{};
+        OK(quantapdf_graph_query_page_geometry(snapshot->graph,0u,4u,&g));
+        CHECK(g.media_box[0]==0.0 && g.media_box[1]==0.0 &&
+              g.media_box[2]==14300.0 && g.media_box[3]==500.0);
+        CHECK(g.crop_box[0]==10.0 && g.crop_box[1]==20.0 &&
+              g.crop_box[2]==14183.2 && g.crop_box[3]==360.562);
+        CHECK(g.user_unit==7.0 && g.rotation==rotation);
+
+        for(size_t i=0u;i<3u;++i) {
+            const uint32_t w=(rotation%180==0)?
+                expected[i][0]:expected[i][1];
+            const uint32_t h=(rotation%180==0)?
+                expected[i][1]:expected[i][0];
+            CHECK((size_t)w*(size_t)h>200000000u);
+            quantapdf_graph_device_grid denied{};
+            std::memset(&denied,0xa5,sizeof(denied));
+            CHECK(quantapdf_graph_page_device_grid(
+                &g,dpis[i],1000000u,3000000u,&denied)==
+                QUANTAPDF_ERROR_UNSUPPORTED);
+            CHECK(std::memcmp(&denied,&zero,sizeof(denied))==0);
+            ++pixel_cap_refusals;
+        }
+
+        /* Geometry-only diagnostic with an explicit large structural cap;
+         * NOT an allocation authorization. The real small private raster
+         * budget must still fail, including an independent output byte cap. */
+        quantapdf_graph_device_grid diagnostic{};
+        OK(quantapdf_graph_page_device_grid(
+            &g,72u,300000000u,900000000u,&diagnostic));
+        CHECK(diagnostic.width==(rotation%180==0?99213u:2384u));
+        CHECK(diagnostic.height==(rotation%180==0?2384u:99213u));
+        CHECK(diagnostic.output_bytes==709571376u);
+        CHECK(quantapdf_graph_device_grid_admit_q4_work(
+            &diagnostic,8u,8u,50000000u)==QUANTAPDF_ERROR_UNSUPPORTED);
+        ++work_cap_refusals;
+        double x=0.0,y=0.0;
+        OK(quantapdf_graph_device_grid_sample_q4(
+            &diagnostic,0u,0u,0u,0u,&x,&y));
+        const double dx=diagnostic.from_source[0]*x+
+            diagnostic.from_source[2]*y+diagnostic.from_source[4];
+        const double dy=diagnostic.from_source[1]*x+
+            diagnostic.from_source[3]*y+diagnostic.from_source[5];
+        CHECK(std::fabs(dx-0.125)<1e-6 && std::fabs(dy-0.125)<1e-6);
+        quantapdf_graph_device_grid denied{};
+        std::memset(&denied,0xa5,sizeof(denied));
+        CHECK(quantapdf_graph_page_device_grid(
+            &g,72u,300000000u,3000000u,&denied)==
+            QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(std::memcmp(&denied,&zero,sizeof(denied))==0);
+        ++byte_cap_refusals;
+
+        quantapdf_graph_snapshot_drop(snapshot);
+        CHECK(read_small_source(GENERATED_OVERSIZED_USERUNIT7_PDF)==original);
+        ++source_byte_repeats;
+        CHECK(std::remove(GENERATED_OVERSIZED_USERUNIT7_PDF)==0);
+    }
+    CHECK(pixel_cap_refusals==12u && byte_cap_refusals==4u &&
+          work_cap_refusals==4u && source_byte_repeats==4u);
+    FILE *out=std::fopen(stage.c_str(),"wb");
+    CHECK(out!=nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\":1,\n"
+        "  \"source_kind\":\"test_generated_original_pdf\",\n"
+        "  \"page_user_unit\":7,\n"
+        "  \"source_graph_geometry_verified\":true,\n"
+        "  \"source_bytes_unchanged_cases\":%zu,\n"
+        "  \"rotation_count\":4,\n"
+        "  \"dpi_count\":3,\n"
+        "  \"device_pixel_budget_refusals\":%zu,\n"
+        "  \"rgb_byte_budget_refusals\":%zu,\n"
+        "  \"q4_work_budget_refusals\":%zu,\n"
+        "  \"device_bitmap_allocated\":false,\n"
+        "  \"original_pdfium_pixel_oracle\":\"not_run\",\n"
+        "  \"native_raster\":\"not_run\",\n"
+        "  \"independent_reporter_attachment_verified\":false,\n"
+        "  \"external_native_positive_increment\":0,\n"
+        "  \"public_sdk_backend_switched\":false\n"
+        "}\n",
+        source_byte_repeats,pixel_cap_refusals,
+        byte_cap_refusals,work_cap_refusals);
+    CHECK(std::ferror(out)==0 && std::fclose(out)==0);
+    CHECK(std::rename(stage.c_str(),report_path)==0);
+    CHECK(corpus_fixture_executions==0u);
+    std::fprintf(stderr,
+        "[generated oversized original /UserUnit7] Graph geometry proven, "
+        "12 pixel-budget + 4 byte-budget + 4 Q4-work refusals; "
+        "no bitmap, no external native positive\n");
+    return EXIT_SUCCESS;
+}
+
 /* #269: an ACTUAL generated original PDF carrying nondefault /UserUnit 7,
  * with small enough page extent to admit bounded Fill + W Clip pixels.
  * This is not the reporter's unverified attached original PDF and cannot
@@ -8024,6 +8205,10 @@ static int test_generated_small_unit7_original_exact(
 
 int main(int argc,char **argv)
 {
+    if(argc==4 &&
+       std::strcmp(argv[1],"--generated-oversize-unit7-original-refusal")==0 &&
+       std::strcmp(argv[2],"--oversize-unit7-report")==0)
+        return test_generated_oversized_unit7_original_refusal(argv[3]);
     if(argc==4 &&
        std::strcmp(argv[1],"--generated-small-unit7-original-exact")==0 &&
        std::strcmp(argv[2],"--unit7-report")==0)

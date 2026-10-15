@@ -423,6 +423,21 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Review generated oversized UserUnit7 original source refusal (Linux)
+        shell: bash
+        run: |
+          cat build/linux-gcc-release/tests/generated-oversize-unit7-source-refusal.json
+          cat build/linux-gcc-debug/tests/generated-oversize-unit7-source-refusal.json
+      - name: Upload generated oversized UserUnit7 original source refusal (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-oversize-unit7-source-linux
+          path: |
+            build/linux-gcc-release/tests/generated-oversize-unit7-source-refusal.json
+            build/linux-gcc-debug/tests/generated-oversize-unit7-source-refusal.json
+          if-no-files-found: error
+          retention-days: 7
+
   macos:
     if: >-
       github.event_name == 'push' ||
@@ -747,6 +762,17 @@ jobs:
         with:
           name: generated-userunit7-original-macos
           path: build/macos-clang-release/tests/generated-small-unit7-original-rgb.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review generated oversized UserUnit7 original source refusal (macOS)
+        shell: bash
+        run: cat build/macos-clang-release/tests/generated-oversize-unit7-source-refusal.json
+      - name: Upload generated oversized UserUnit7 original source refusal (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-oversize-unit7-source-macos
+          path: build/macos-clang-release/tests/generated-oversize-unit7-source-refusal.json
           if-no-files-found: error
           retention-days: 7
 
@@ -1085,5 +1111,16 @@ jobs:
         with:
           name: generated-userunit7-original-windows
           path: build/Msvc-Release/tests/generated-small-unit7-original-rgb.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review generated oversized UserUnit7 original source refusal (Windows)
+        shell: pwsh
+        run: Get-Content build/Msvc-Release/tests/generated-oversize-unit7-source-refusal.json
+      - name: Upload generated oversized UserUnit7 original source refusal (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-oversize-unit7-source-windows
+          path: build/Msvc-Release/tests/generated-oversize-unit7-source-refusal.json
           if-no-files-found: error
           retention-days: 7
