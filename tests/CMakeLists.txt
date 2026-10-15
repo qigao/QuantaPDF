@@ -1781,6 +1781,9 @@ endif()
 add_executable(quantapdf_test_native_source_qq_oracle
   test_native_source_qq_oracle.cpp
   ../src/graph/graph_page_geometry.c
+  ../src/graph/graph_page_device.c
+  ../src/graph/graph_page_device_sample.c
+  ../src/render/ir_visible_page_device_preview_v0.c
   ../src/document/page_composer_ir.c
   ../src/document/page_content_ir.c
   ../src/document/document_graph.c
@@ -1810,7 +1813,8 @@ target_compile_features(quantapdf_test_native_source_qq_oracle PRIVATE
 target_compile_definitions(quantapdf_test_native_source_qq_oracle PRIVATE
   SOURCE_QQ_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-qq-source.pdf"
   GROUP_SOURCE_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-group-source.pdf"
-  GENERATED_WSTAR_OBSERVE_PDF="${CMAKE_CURRENT_BINARY_DIR}/generated-wstar-typed-observe.pdf")
+  GENERATED_WSTAR_OBSERVE_PDF="${CMAKE_CURRENT_BINARY_DIR}/generated-wstar-typed-observe.pdf"
+  GENERATED_VISIBLE_DEVICE_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-generated-visible-device-source.pdf")
 if(MSVC)
   target_compile_options(quantapdf_test_native_source_qq_oracle PRIVATE /utf-8)
 endif()
@@ -2537,3 +2541,27 @@ set_tests_properties(quantapdf.graph_page_device_sampling PROPERTIES TIMEOUT 30)
 
 # #269 private visible-IR device pixel positive, no public renderer.
 include("${PROJECT_SOURCE_DIR}/tests/native_visible_page_device_preview_v0.cmake")
+
+# #269: separate genuine PDF SOURCE bytes generated in a test, never a
+# Composer re-export or independent licensed external original.
+# This verifies Graph->owned IR->test-only pure C11 Fill+W Clip pixels
+# against independently rendered original PDFium, but does NOT increment
+# the formal external-original native-positive corpus counts.
+add_test(NAME quantapdf.native_generated_visible_page_pixels
+  COMMAND quantapdf_test_native_source_qq_oracle
+    --generated-visible-page-pixels)
+set_tests_properties(quantapdf.native_generated_visible_page_pixels PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native-raster;generated-source;visible-device-private")
+if(WIN32)
+  set_property(TEST quantapdf.native_generated_visible_page_pixels
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_generated_visible_page_pixels
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_generated_visible_page_pixels
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()

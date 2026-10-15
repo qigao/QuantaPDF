@@ -7,6 +7,7 @@
 #include "graph/graph_page_geometry.h"
 #include "render/ir_scoped_operations_v1.h"
 #include "render/ir_scoped_device_grid_v0.h"
+#include "render/ir_visible_page_device_preview_v0.h"
 #include "render/ir_rect_fill_right_preview_v0.h"
 #include "render/ir_device_polyline_stroke_v0.h"
 #include "render/ir_ordered_layer_composite_v0.h"
@@ -7054,8 +7055,154 @@ static void publish_corpus_report(const char *destination,
     std::fprintf(stderr,"[source-corpus] report=%s\n",destination);
 }
 
+/* Test-owned ORIGINAL PDF path, outside the formal external corpus.
+ * The PDFium oracle consumes source bytes, never a Composer re-export.
+ * No source/PDFium object is reachable from the private C11 Raster call. */
+static void write_single_w_visible_page(int rotation,int unit)
+{
+    CHECK(rotation==0 || rotation==90 || rotation==180 || rotation==270);
+    CHECK(unit==1 || unit==2);
+    auto pdf=QPDF::create();
+    pdf->emptyPDF();
+    auto root=pdf->getRoot().getKey("/Pages");
+    auto leaf=pdf->makeIndirectObject(
+        QPDFObjectHandle::parse("<< /Type /Page >>"));
+    root.replaceKey("/Kids",QPDFObjectHandle::newArray({leaf}));
+    root.replaceKey("/Count",QPDFObjectHandle::newInteger(1));
+    root.replaceKey("/MediaBox",QPDFObjectHandle::parse("[0 0 20 30]"));
+    const auto crop=QPDFObjectHandle::parse("[2 3 12 11]");
+    if(rotation==0 || rotation==180)
+        root.replaceKey("/CropBox",crop);
+    else leaf.replaceKey("/CropBox",crop);
+    if(rotation==0 || rotation==90)
+        root.replaceKey("/Rotate",QPDFObjectHandle::newInteger(rotation));
+    else leaf.replaceKey("/Rotate",QPDFObjectHandle::newInteger(rotation));
+    leaf.replaceKey("/UserUnit",QPDFObjectHandle::newInteger(unit));
+    leaf.replaceKey("/Parent",root);
+    /* One nonzero source W Clip, one opaque red Fill; no content CTM.
+     * Native preview must consume the source-derived Owned Composer IR. */
+    leaf.replaceKey("/Contents",pdf->newStream(
+        "3 4 6 6 re W n 1 0 0 rg 4 5 6 4 re f"));
+    QPDFWriter writer(*pdf);
+    writer.setMinimumPDFVersion("1.6");
+    writer.setOutputMemory();
+    writer.write();
+    auto bytes=writer.getBufferSharedPointer();
+    FILE *out=std::fopen(GENERATED_VISIBLE_DEVICE_PDF,"wb");
+    CHECK(out!=nullptr);
+    CHECK(std::fwrite(bytes->getBuffer(),1,bytes->getSize(),out)==
+          bytes->getSize());
+    CHECK(std::fclose(out)==0);
+}
+
+static void test_single_w_visible_page_original_pixel_oracle()
+{
+    size_t rendered=0u;
+    for(int rotation=0;rotation<360;rotation+=90)
+        for(int unit=1;unit<=2;++unit) {
+            write_single_w_visible_page(rotation,unit);
+            quantapdf_graph_page_geometry geometry{};
+            geometry.media_box[2]=20.0;
+            geometry.media_box[3]=30.0;
+            geometry.crop_box[0]=2.0;
+            geometry.crop_box[1]=3.0;
+            geometry.crop_box[2]=12.0;
+            geometry.crop_box[3]=11.0;
+            geometry.rotation=rotation;
+            geometry.user_unit=(double)unit;
+            quantapdf_ir ir{};
+            quantapdf_ir_raster_image native{},repeat{},refusal{};
+            OK(snapshot_lower(&ir,0u,1u,2u,GENERATED_VISIBLE_DEVICE_PDF));
+            CHECK(ir.page_count==1u && ir.operation_count==1u &&
+                  ir.resources.graphics_state_count==1u &&
+                  ir.resources.clip_count==1u);
+            const quantapdf_ir_raster_v1_limits caps={
+                20000u,1u,64u,2000000u
+            };
+            OK(quantapdf_ir_raster_visible_page_fillclip_preview_v0(
+                &ir,0u,&geometry,72u,&caps,80000u,&native));
+            OK(quantapdf_ir_raster_visible_page_fillclip_preview_v0(
+                &ir,0u,&geometry,72u,&caps,80000u,&repeat));
+            CHECK(native.pixels!=nullptr && native.width==repeat.width &&
+                  native.height==repeat.height &&
+                  native.size==repeat.size &&
+                  std::memcmp(native.pixels,repeat.pixels,native.size)==0);
+            const size_t w=(size_t)(unit*(rotation%180 ? 8:10));
+            const size_t h=(size_t)(unit*(rotation%180 ? 10:8));
+            CHECK(native.width==w && native.height==h &&
+                  native.stride==4u*w && native.size==4u*w*h);
+
+            /* A distinct, never re-exported original source PDFium page. */
+            const rgb_image oracle=render_original_pdfium(
+                0u,GENERATED_VISIBLE_DEVICE_PDF);
+            CHECK(oracle.width==(int)w && oracle.height==(int)h);
+            int test_x=0,test_y=0;
+            switch(rotation){
+            case 0:case 90:test_x=4;test_y=4;break;
+            case 180:test_x=6;test_y=4;break;
+            case 270:test_x=4;test_y=6;break;
+            default:CHECK(false);
+            }
+            const size_t px=(size_t)(test_x*unit);
+            const size_t py=(size_t)(test_y*unit);
+            CHECK(px<w && py<h);
+            const unsigned char *inside=native.pixels+py*native.stride+px*4u;
+            const unsigned char *inside_oracle=oracle.at(px,py);
+            CHECK(inside[0]==255u && inside[1]==0u &&
+                  inside[2]==0u && inside[3]==255u);
+            CHECK(inside_oracle[0]==255u && inside_oracle[1]==0u &&
+                  inside_oracle[2]==0u);
+            const unsigned char *background=oracle.at(0u,0u);
+            CHECK(background[0]==255u && background[1]==255u &&
+                  background[2]==255u);
+
+            std::uint64_t absolute_error=0u;
+            size_t different=0u,gross=0u;
+            unsigned largest=0u;
+            for(size_t y=0u;y<h;++y)
+                for(size_t x=0u;x<w;++x){
+                    const unsigned char *n=native.pixels+y*native.stride+4u*x;
+                    const unsigned char *p=oracle.at(x,y);
+                    unsigned maximum=0u;
+                    for(size_t channel=0u;channel<3u;++channel) {
+                        const unsigned actual=on_white(n,channel);
+                        const unsigned target=p[channel];
+                        const unsigned diff=actual>target?
+                            actual-target:target-actual;
+                        absolute_error+=(std::uint64_t)diff;
+                        if(diff>maximum)maximum=diff;
+                    }
+                    if(maximum!=0u)++different;
+                    if(maximum>64u)++gross;
+                    if(maximum>largest)largest=maximum;
+                }
+            const double mean=(double)absolute_error/(double)(w*h*3u);
+            std::fprintf(stderr,
+                "[test-owned original-PDFium visible device] rotation=%d "
+                "unit=%d pixels=%zu abs_rgb=%llu differing=%zu gross=%zu "
+                "max_delta=%u mean=%.5f NOT-formal-parity\n",
+                rotation,unit,w*h,
+                (unsigned long long)absolute_error,
+                different,gross,largest,mean);
+            /* This is a geometry-golden and coarse source-pixel diagnostic,
+             * NOT a pixel-parity claim for a licensed external producer. */
+            CHECK(mean<24.0 && gross<(w*h)/4u+1u);
+            quantapdf_ir_raster_image_dispose(&native);
+            quantapdf_ir_raster_image_dispose(&repeat);
+            quantapdf_ir_dispose(&ir);
+            CHECK(std::remove(GENERATED_VISIBLE_DEVICE_PDF)==0);
+            ++rendered;
+        }
+    CHECK(rendered==8u);
+}
+
 int main(int argc,char **argv)
 {
+    if(argc==2 &&
+       std::strcmp(argv[1],"--generated-visible-page-pixels")==0) {
+        test_single_w_visible_page_original_pixel_oracle();
+        return EXIT_SUCCESS;
+    }
     if(argc==5 &&
        std::strcmp(argv[1],"--diagnose-original-pdf")==0 &&
        std::strcmp(argv[3],"--diagnostic-report")==0)
