@@ -34,6 +34,7 @@ foreach(field IN ITEMS
   "\"dpi72_zero_rgb_required\":true"
   "\"dpi96_pixel_parity\":\"diagnostic_only\""
   "\"dpi144_pixel_parity\":\"diagnostic_only\""
+  "\"analytic_coverage_test_only\":true"
   "\"external_original_provenance_verified\":false"
   "\"external_native_positive_increment\":0"
   "\"public_sdk_backend_switched\":false")
@@ -52,6 +53,9 @@ if(NOT original_count EQUAL 4 OR NOT frame_count EQUAL 12 OR
 endif()
 set(sum96 0)
 set(sum144 0)
+set(fit96 0)
+set(nominal96 0)
+set(far96 0)
 set(exact72 0)
 foreach(index RANGE 0 11)
   string(JSON rotation GET "${report}" frames ${index} rotation)
@@ -63,6 +67,9 @@ foreach(index RANGE 0 11)
   string(JSON changed GET "${report}" frames ${index} different_pixels)
   string(JSON gross GET "${report}" frames ${index} gross_pixels)
   string(JSON maximum GET "${report}" frames ${index} max_channel_delta)
+  string(JSON fitted_area GET "${report}" frames ${index} fitted_area_abs_rgb)
+  string(JSON nominal_area GET "${report}" frames ${index} nominal_area_abs_rgb)
+  string(JSON off_edge GET "${report}" frames ${index} off_ideal_edge_differences)
   math(EXPR rindex "${index} / 3")
   math(EXPR dindex "${index} % 3")
   math(EXPR expected_rotation "${rindex} * 90")
@@ -92,7 +99,7 @@ foreach(index RANGE 0 11)
      NOT width EQUAL w OR NOT height EQUAL h OR
      NOT pixels EQUAL expected_pixels OR
      changed GREATER pixels OR gross GREATER changed OR
-     maximum GREATER 255)
+     off_edge GREATER changed OR maximum GREATER 255)
     message(FATAL_ERROR "Corrupt multidpi pixel ledger at index ${index}")
   endif()
   if(dpi EQUAL 72)
@@ -103,6 +110,9 @@ foreach(index RANGE 0 11)
     math(EXPR exact72 "${exact72}+1")
   elseif(dpi EQUAL 96)
     math(EXPR sum96 "${sum96}+${abs_error}")
+    math(EXPR fit96 "${fit96}+${fitted_area}")
+    math(EXPR nominal96 "${nominal96}+${nominal_area}")
+    math(EXPR far96 "${far96}+${off_edge}")
   else()
     math(EXPR sum144 "${sum144}+${abs_error}")
   endif()
@@ -115,7 +125,16 @@ string(JSON reported144 GET "${report}" dpi144_total_abs_rgb)
 if(NOT sum96 EQUAL reported96 OR NOT sum144 EQUAL reported144)
   message(FATAL_ERROR "Multidpi RGB totals disagree with frame rows")
 endif()
+string(JSON reported_fit GET "${report}" dpi96_analytic_fit_area_abs_rgb)
+string(JSON reported_nominal GET "${report}" dpi96_analytic_nominal_area_abs_rgb)
+string(JSON reported_far GET "${report}" dpi96_off_ideal_edge_differences)
+if(NOT fit96 EQUAL reported_fit OR
+   NOT nominal96 EQUAL reported_nominal OR
+   NOT far96 EQUAL reported_far)
+  message(FATAL_ERROR "96DPI analytic A/B ledger differs from 4 frame rows")
+endif()
 message(STATUS
   "12 test-generated ORIGINAL unit7 frames; 72DPI 4/4 exact RGB; "
-  "96DPI total absRGB=${sum96}, 144DPI total absRGB=${sum144} "
-  "(both diagnostic, not external original positives)")
+  "96DPI raster absRGB=${sum96}, fitted analytic=${fit96}, "
+  "nominal analytic=${nominal96}, offEdge=${far96}; "
+  "144DPI raster absRGB=${sum144}; all high-DPI results DIAGNOSTIC")
