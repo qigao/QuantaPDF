@@ -113,6 +113,9 @@ static unsigned alpha(const quantapdf_ir_raster_image *im,
     &(f).ir,0u,&(f).geometry,&(f).grid_budget,&(f).raster_budget,&(o))
 #define NEAR_BOTTOM(f,o) quantapdf_ir_raster_rect_fill_bottom_near_edges_preview_v0( \
     &(f).ir,0u,&(f).geometry,&(f).grid_budget,&(f).raster_budget,&(o))
+#define CORNER_BOTTOM_RIGHT(f,o) \
+    quantapdf_ir_raster_rect_fill_bottom_right_q8_preview_v0( \
+    &(f).ir,0u,&(f).geometry,&(f).grid_budget,&(f).raster_budget,&(o))
 
 static int test_analytic_edge_and_repeat(void)
 {
@@ -567,6 +570,90 @@ static int test_source_bottom_near_edges(void)
     return EXIT_SUCCESS;
 }
 
+
+/* Eleventh strict C11 A/B: a single genuinely fractional Fill-right X /
+ * Fill-bottom Y intersection produces a tiny red corner on the original
+ * device grid. Old source rectangle edges and all other RGBA retained. */
+static int test_bottom_right_q8_tiny_corner(void)
+{
+    fixture f;
+    quantapdf_ir_raster_image old={0},trial={0},again={0};
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    OK(NEAR_BOTTOM(f,old));
+    OK(CORNER_BOTTOM_RIGHT(f,trial));
+    OK(CORNER_BOTTOM_RIGHT(f,again));
+    CHECK(old.pixels && trial.pixels && again.pixels &&
+          old.size==trial.size && trial.size==again.size &&
+          memcmp(trial.pixels,again.pixels,trial.size)==0);
+    const double dx=32.5/33.0,dy=24.75/25.0;
+    const int64_t right_q=(int64_t)((float)(15.0/dx)*256.0f);
+    const int64_t bottom_q=(int64_t)((float)((double)14.9f/dy)*256.0f);
+    const int64_t x0=15*256,y0=15*256;
+    CHECK(right_q>x0 && right_q<x0+256 &&
+          bottom_q>y0 && bottom_q<y0+256);
+    const unsigned expected=(unsigned)(
+        ((right_q-x0)*(bottom_q-y0)+128)/256);
+    CHECK(expected>0u && expected<255u);
+    const size_t site=15u*trial.stride+15u*4u;
+    CHECK(old.pixels[site]==0u && old.pixels[site+1u]==0u &&
+          old.pixels[site+2u]==0u && old.pixels[site+3u]==0u);
+    CHECK(trial.pixels[site]==255u && trial.pixels[site+1u]==0u &&
+          trial.pixels[site+2u]==0u &&
+          trial.pixels[site+3u]==expected);
+    CHECK(alpha(&old,6u,15u)==alpha(&trial,6u,15u));
+    CHECK(alpha(&old,14u,15u)==alpha(&trial,14u,15u));
+    CHECK(alpha(&old,15u,2u)==alpha(&trial,15u,2u));
+    size_t changes=0u;
+    for(size_t y=0u;y<trial.height;++y)
+        for(size_t x=0u;x<trial.width;++x) {
+            const size_t off=y*trial.stride+x*4u;
+            if(memcmp(old.pixels+off,trial.pixels+off,4u)!=0) {
+                CHECK(x==15u && y==15u);
+                ++changes;
+            }
+        }
+    CHECK(changes==1u);
+    quantapdf_ir_raster_image_dispose(&again);
+    quantapdf_ir_raster_image_dispose(&trial);
+    quantapdf_ir_raster_image_dispose(&old);
+
+    /* The old mode10 source-edge budget (13*13200) is admitted, while
+     * the new 14-edge mode11 budget exceeds 179K before allocation. */
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    f.grid_budget.max_sample_tests=179000u;
+    f.raster_budget.max_sample_tests=179000u;
+    OK(NEAR_BOTTOM(f,old));
+    quantapdf_ir_raster_image_dispose(&old);
+    REFUSE(CORNER_BOTTOM_RIGHT(f,result));
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    f.clip.fill_rule=QUANTAPDF_COMPOSER_FILL_EVEN_ODD;
+    REFUSE(CORNER_BOTTOM_RIGHT(f,result));
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    f.op.value.path.options.transform.a=2.0f;
+    REFUSE(CORNER_BOTTOM_RIGHT(f,result));
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    f.mask[2].point1.x=21.0f;
+    REFUSE(CORNER_BOTTOM_RIGHT(f,result));
+
+    /* An exactly device-aligned bottom/right is not a fractional
+     * source corner and must never be fabricated by Q8 rounding. */
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,15.0f);
+    f.geometry.dpi=96.0f;
+    f.grid_budget.max_pixels=2000u;
+    f.grid_budget.max_rgba_bytes=8000u;
+    f.grid_budget.max_sample_tests=900000u;
+    f.raster_budget.max_pixels=2000u;
+    f.raster_budget.max_sample_tests=900000u;
+    REFUSE(CORNER_BOTTOM_RIGHT(f,result));
+    return EXIT_SUCCESS;
+}
+
 static int test_fail_closed(void)
 {
     fixture f;
@@ -606,6 +693,7 @@ int main(void)
     CHECK(test_bottom_retraces_and_refusal()==EXIT_SUCCESS);
     CHECK(test_upper_right_q8_corner()==EXIT_SUCCESS);
     CHECK(test_source_bottom_near_edges()==EXIT_SUCCESS);
+    CHECK(test_bottom_right_q8_tiny_corner()==EXIT_SUCCESS);
     CHECK(test_fail_closed()==EXIT_SUCCESS);
     puts("native-rect-fill-right-private-A/B: geometry, repeat, fail-closed PASS");
     return EXIT_SUCCESS;

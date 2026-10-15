@@ -1152,6 +1152,49 @@ if(NOT near_status STREQUAL "measured_unqualified"
 endif()
 message(STATUS
   "jspdf-bottom-near-source-edge: parent_rgb=${corner_abs_rgb_error} trial_rgb=${near_abs_rgb_error} old_mismatches=${corner_changed_pixels} new_mismatches=${near_changed_pixels} pixels_changed=${near_changed_source_alpha} official=0 parity=false")
+# NINETEENTH exact original-source Q8 bottom-right Fill corner A/B.
+# Freeze the now independently verified two-platform #316 baseline.
+# This trial may be negative evidence; no improvement assertion.
+if(NOT near_abs_rgb_error EQUAL 131
+   OR NOT near_changed_pixels EQUAL 6
+   OR NOT near_gross_delta64_pixels EQUAL 0
+   OR NOT near_max_channel_delta EQUAL 15
+   OR NOT near_changed_source_alpha EQUAL 2
+   OR NOT near_outside_source_window EQUAL 0
+   OR NOT near_rgb_fnv64 STREQUAL "215e4b11090c7b7e")
+  message(FATAL_ERROR "Previously measured #316 original source control changed")
+endif()
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_rgba_changed_pixels outside_source_corner
+    alpha_delta_gt3 output_outside_source_change
+    abs_rgb_error mean_abs_rgb_error changed_pixels
+    gross_delta64_pixels max_channel_delta rgb_fnv64)
+  string(JSON corner_br_${field} GET "${json}" bottom_right_q8_${field})
+endforeach()
+string(LENGTH "${corner_br_rgb_fnv64}" corner_br_hashlen)
+if(NOT corner_br_status STREQUAL "measured_unqualified"
+   OR corner_br_default_changed OR corner_br_pixel_parity_qualified
+   OR NOT corner_br_repeat_equal
+   OR NOT corner_br_source_rgba_changed_pixels EQUAL 1
+   OR NOT corner_br_outside_source_corner EQUAL 0
+   OR NOT corner_br_alpha_delta_gt3 EQUAL 0
+   OR NOT corner_br_output_outside_source_change EQUAL 0
+   OR corner_br_abs_rgb_error LESS 0
+   OR corner_br_abs_rgb_error GREATER 383901480
+   OR corner_br_mean_abs_rgb_error LESS 0
+   OR corner_br_mean_abs_rgb_error GREATER 255
+   OR corner_br_changed_pixels LESS 0
+   OR corner_br_changed_pixels GREATER 501832
+   OR corner_br_gross_delta64_pixels LESS 0
+   OR corner_br_gross_delta64_pixels GREATER corner_br_changed_pixels
+   OR corner_br_max_channel_delta LESS 0
+   OR corner_br_max_channel_delta GREATER 255
+   OR NOT corner_br_hashlen EQUAL 16
+   OR NOT corner_br_rgb_fnv64 MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "Unqualified Q8 Fill bottom-right corner escaped isolation")
+endif()
+message(STATUS
+  "jspdf-source-q8-fill-bottom-right: baseline_rgb=${near_abs_rgb_error} trial_rgb=${corner_br_abs_rgb_error} baseline_diff=${near_changed_pixels} trial_diff=${corner_br_changed_pixels} corner_source_changes=${corner_br_source_rgba_changed_pixels} official=0 parity=false")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
