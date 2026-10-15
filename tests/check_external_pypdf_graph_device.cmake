@@ -54,6 +54,36 @@ foreach(page RANGE 0 3)
     message(FATAL_ERROR "Graph report does not contain page ${page}")
   endif()
 endforeach()
+
+# Same ORIGINAL four-page CropBox/Rotate source, 3 DPI levels,
+# 64 exact bounded inverse 4x4 device-subsample probes per mode.
+# No PDFium original-pixel rendering or C11 paint admission.
+foreach(field IN ITEMS
+  "\"dpi_qualification_count\": 12"
+  "\"total_source_roundtrip_samples\": 768")
+  string(FIND "${report}" "${field}" found)
+  if(found EQUAL -1)
+    message(FATAL_ERROR "Missing real-source multi-DPI bound: ${field}")
+  endif()
+endforeach()
+foreach(page RANGE 0 3)
+  foreach(dpi IN ITEMS 72 96 144)
+    string(FIND "${report}" "\"page_index\":${page},\"dpi\":${dpi}" seen)
+    if(seen EQUAL -1)
+      message(FATAL_ERROR "Missing original page ${page} at ${dpi} DPI")
+    endif()
+  endforeach()
+endforeach()
+string(REGEX MATCHALL [=["source_roundtrip_samples":64]=] checks "${report}")
+list(LENGTH checks roundtrip_rows)
+if(NOT roundtrip_rows EQUAL 12)
+  message(FATAL_ERROR "Require 12 x 64 exact inverse sample groups")
+endif()
+string(REGEX MATCHALL [=["limited_memory_refusal":true]=] refused "${report}")
+list(LENGTH refused bounded_rows)
+if(NOT bounded_rows EQUAL 12)
+  message(FATAL_ERROR "Require exact pixel and byte cap refusals for each source mode")
+endif()
 message(STATUS
   "External pypdf original sealed Graph: four page display dimensions, "
   "CropBox/Rotate/default UserUnit validated; no C11 pixel admission")
