@@ -1118,6 +1118,44 @@ if(NOT sum_pixel EQUAL aud_total OR NOT sum_changed EQUAL aud_changed
 endif()
 message(STATUS
   "jspdf-post-corner-original-audit: pixels=${aud_total} residual=${aud_changed} error=${aud_error} parity=false official=0")
+# TWENTIETH private source Q8 exterior V->H genuine retrace A/B.
+# Parent #308 Q8/Clip corner and original PDFium source are unchanged.
+if(NOT corner_abs_rgb_error EQUAL 143
+   OR NOT corner_changed_pixels EQUAL 8
+   OR NOT corner_gross_delta64_pixels EQUAL 0
+   OR NOT corner_max_channel_delta EQUAL 15
+   OR NOT corner_rgb_fnv64 STREQUAL "5dff11faa26ac6c2")
+  message(FATAL_ERROR "Pinned #308 source RGB control has changed")
+endif()
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_alpha_changed_pixels
+    outside_original_source_top_left saturated_source_changes
+    alpha_delta_gt64 output_outside_source_alpha abs_rgb_error
+    mean_abs_rgb_error changed_pixels gross_delta64_pixels
+    max_channel_delta rgb_fnv64)
+  string(JSON ext_${field} GET "${json}" exterior_vh_${field})
+endforeach()
+string(LENGTH "${ext_rgb_fnv64}" ext_hashlen)
+if(NOT ext_status STREQUAL "measured_unqualified"
+   OR ext_default_changed OR ext_pixel_parity_qualified OR NOT ext_repeat_equal
+   OR ext_source_alpha_changed_pixels LESS 1
+   OR ext_source_alpha_changed_pixels GREATER 8
+   OR NOT ext_outside_original_source_top_left EQUAL 0
+   OR NOT ext_saturated_source_changes EQUAL 0
+   OR NOT ext_alpha_delta_gt64 EQUAL 0
+   OR NOT ext_output_outside_source_alpha EQUAL 0
+   OR ext_abs_rgb_error LESS 0 OR ext_abs_rgb_error GREATER 383901480
+   OR ext_mean_abs_rgb_error LESS 0 OR ext_mean_abs_rgb_error GREATER 255
+   OR ext_changed_pixels LESS 0 OR ext_changed_pixels GREATER 501832
+   OR ext_gross_delta64_pixels LESS 0
+   OR ext_gross_delta64_pixels GREATER ext_changed_pixels
+   OR ext_max_channel_delta LESS 0 OR ext_max_channel_delta GREATER 255
+   OR NOT ext_hashlen EQUAL 16
+   OR NOT ext_rgb_fnv64 MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "Q8 exterior V-to-H retrace escaped its source geometry")
+endif()
+message(STATUS
+  "jspdf-q8-exterior-vh: baseline_rgb=${corner_abs_rgb_error} trial_rgb=${ext_abs_rgb_error} parent_mismatches=${corner_changed_pixels} trial_mismatches=${ext_changed_pixels} alpha_changes=${ext_source_alpha_changed_pixels} official=0 parity=false")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
