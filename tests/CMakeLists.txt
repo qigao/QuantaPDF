@@ -2590,3 +2590,7 @@ else()
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
+
+# #269: independent original py-pdf/PyMuPDF crop/rotate QUARANTINE.
+# CC-BY-SA, original source hash pin, no external native-positive admission.
+include("${PROJECT_SOURCE_DIR}/tests/external_pypdf_rotcrop_quarantine.cmake")
