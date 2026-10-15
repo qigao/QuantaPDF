@@ -7355,8 +7355,229 @@ static int quarantine_pypdf_graph_geometry(
     return EXIT_SUCCESS;
 }
 
+/* #269: separate the narrow default-budget Graph failure from actual
+ * page Group / Contents / Path semantics. ALL variants share the EXACT
+ * unchanged published source bytes; no native pixels, no PDFium fallback.
+ * Bounds are caller-owned test configuration, never public SDK defaults. */
+static const char *pypdf_stage_status_name(quantapdf_status status)
+{
+    switch (status) {
+    case QUANTAPDF_OK: return "ok";
+    case QUANTAPDF_ERROR_ARGUMENT: return "argument";
+    case QUANTAPDF_ERROR_IO: return "io";
+    case QUANTAPDF_ERROR_PASSWORD: return "password";
+    case QUANTAPDF_ERROR_FORMAT: return "format";
+    case QUANTAPDF_ERROR_UNSUPPORTED: return "unsupported";
+    case QUANTAPDF_ERROR_NOMEM: return "nomem";
+    case QUANTAPDF_ERROR_BACKEND: return "backend";
+    case QUANTAPDF_ERROR_STATE: return "state";
+    default: return "unknown";
+    }
+}
+
+static int quarantine_pypdf_capture_stage_matrix(
+    const char *source_path,const char *report_path)
+{
+    namespace fs=std::filesystem;
+    CHECK(source_path && *source_path && report_path && *report_path);
+    const fs::path source(source_path),report(report_path);
+    const fs::path stage(std::string(report_path)+".tmp");
+    std::error_code ec;
+    CHECK(fs::is_regular_file(source,ec) && !ec);
+    CHECK(!fs::is_symlink(source,ec) && !ec);
+    const fs::path original=fs::weakly_canonical(source,ec);
+    CHECK(!ec && fs::weakly_canonical(report,ec)!=original && !ec);
+    CHECK(fs::weakly_canonical(stage,ec)!=original && !ec);
+    for(const fs::path& destination:{report,stage}) {
+        const bool exists=fs::exists(destination,ec);
+        CHECK(!ec);
+        if(exists) {
+            CHECK(!fs::is_symlink(destination,ec) && !ec);
+            CHECK(!fs::equivalent(source,destination,ec) && !ec);
+        }
+    }
+
+    const quantapdf_graph_limits baseline=graph_limits;
+    const quantapdf_graph_limits wide={
+        40000u,120000u,4194304u,4194304u,33554432u,256u
+    };
+    struct capture_trial {
+        const char *name;
+        quantapdf_graph_limits limits;
+        quantapdf_status status;
+    };
+    capture_trial trials[]={
+        {"default",baseline,QUANTAPDF_ERROR_STATE},
+        {"wide",wide,QUANTAPDF_ERROR_STATE},
+        {"only_nodes_default",{
+            baseline.max_nodes,wide.max_edges,wide.max_value_bytes,
+            wide.max_stream_bytes,wide.max_storage_bytes,wide.max_depth
+        },QUANTAPDF_ERROR_STATE},
+        {"only_edges_default",{
+            wide.max_nodes,baseline.max_edges,wide.max_value_bytes,
+            wide.max_stream_bytes,wide.max_storage_bytes,wide.max_depth
+        },QUANTAPDF_ERROR_STATE},
+        {"only_value_bytes_default",{
+            wide.max_nodes,wide.max_edges,baseline.max_value_bytes,
+            wide.max_stream_bytes,wide.max_storage_bytes,wide.max_depth
+        },QUANTAPDF_ERROR_STATE},
+        {"only_stream_bytes_default",{
+            wide.max_nodes,wide.max_edges,wide.max_value_bytes,
+            baseline.max_stream_bytes,wide.max_storage_bytes,wide.max_depth
+        },QUANTAPDF_ERROR_STATE},
+        {"only_total_storage_default",{
+            wide.max_nodes,wide.max_edges,wide.max_value_bytes,
+            wide.max_stream_bytes,baseline.max_storage_bytes,wide.max_depth
+        },QUANTAPDF_ERROR_STATE}
+    };
+    constexpr size_t trial_count=sizeof(trials)/sizeof(trials[0]);
+    CHECK(trial_count==7u);
+    quantapdf_document *doc=nullptr;
+    quantapdf_graph_snapshot *large=nullptr;
+    OK(quantapdf_open(source_path,nullptr,&doc));
+    for(size_t i=0u;i<trial_count;++i) {
+        quantapdf_graph_snapshot *candidate=nullptr;
+        trials[i].status=quantapdf_document_capture_graph(
+            doc,&trials[i].limits,&candidate);
+        CHECK(trials[i].status==QUANTAPDF_OK ||
+              trials[i].status==QUANTAPDF_ERROR_UNSUPPORTED);
+        if(trials[i].status==QUANTAPDF_OK) {
+            CHECK(candidate && candidate->graph);
+            CHECK(quantapdf_graph_view(candidate->graph)!=nullptr);
+            if(i==1u) large=candidate;
+            else quantapdf_graph_snapshot_drop(candidate);
+        } else
+            CHECK(candidate==nullptr);
+        std::fprintf(stderr,
+            "[pypdf Graph budget] %s: status=%s (code=%d)\n",
+            trials[i].name,pypdf_stage_status_name(trials[i].status),
+            (int)trials[i].status);
+    }
+    quantapdf_close(doc);
+    CHECK(large && trials[0].status==QUANTAPDF_ERROR_UNSUPPORTED &&
+          trials[1].status==QUANTAPDF_OK);
+    const quantapdf_graph_model *model=quantapdf_graph_view(large->graph);
+    CHECK(model && model->page_count==4u);
+    const size_t nodes=model->node_count;
+    const size_t edges=model->edge_count;
+    const size_t bytes=model->byte_count;
+    const size_t storage=quantapdf_graph_storage_bytes(large->graph);
+    CHECK(nodes>0u && edges>0u && bytes>0u && storage>0u);
+    CHECK(nodes<=wide.max_nodes && edges<=wide.max_edges &&
+          storage<=wide.max_storage_bytes);
+
+    struct stage_row {
+        quantapdf_status group,semantics,full;
+        size_t detached_pages,detached_ops;
+    } stages[4]={};
+    for(size_t page_index=0u;page_index<4u;++page_index) {
+        quantapdf_graph_page_geometry g{};
+        OK(quantapdf_graph_query_page_geometry(
+            large->graph,page_index,8u,&g));
+        CHECK(g.rotation==(int)(page_index*90u) &&
+              g.user_unit==1.0);
+        quantapdf_graph_page_display display{};
+        OK(quantapdf_graph_page_display_map(&g,&display));
+        stages[page_index].group=
+            quantapdf_graph_admit_native_page_group(large->graph,page_index);
+        quantapdf_pdf_page_semantics *semantic_ir=nullptr;
+        if(stages[page_index].group==QUANTAPDF_OK){
+            stages[page_index].semantics=
+                quantapdf_graph_snapshot_page_semantics(
+                    large,page_index,&decode_limits,&parse_limits,4u,
+                    &semantic_ir);
+            if(stages[page_index].semantics!=QUANTAPDF_OK)
+                CHECK(semantic_ir==nullptr);
+        } else
+            stages[page_index].semantics=stages[page_index].group;
+        quantapdf_pdf_page_semantics_dispose(semantic_ir);
+
+        quantapdf_ir detached{};
+        stages[page_index].full=quantapdf_graph_snapshot_page_composer_ir(
+            large,page_index,8u,&decode_limits,&parse_limits,4u,
+            &lower_limits,&detached);
+        if(stages[page_index].full!=QUANTAPDF_OK){
+            CHECK(detached.pages==nullptr && detached.page_count==0u &&
+                  detached.operations==nullptr && detached.operation_count==0u &&
+                  detached.resources.clips==nullptr &&
+                  detached.resources.clip_count==0u &&
+                  detached.resources.graphics_states==nullptr &&
+                  detached.resources.graphics_state_count==0u &&
+                  detached.resources.image_count==0u &&
+                  detached.resources.font_count==0u &&
+                  detached.resources.form_count==0u &&
+                  detached.resources.soft_mask_count==0u);
+        }
+        stages[page_index].detached_pages=detached.page_count;
+        stages[page_index].detached_ops=detached.operation_count;
+        quantapdf_ir_dispose(&detached);
+        std::fprintf(stderr,
+            "[pypdf staged native eligibility] page=%zu group=%s "
+            "Content=%s Full=%s (no raster)\n",page_index,
+            pypdf_stage_status_name(stages[page_index].group),
+            pypdf_stage_status_name(stages[page_index].semantics),
+            pypdf_stage_status_name(stages[page_index].full));
+    }
+    quantapdf_graph_snapshot_drop(large);
+
+    FILE *out=std::fopen(stage.string().c_str(),"wb");
+    CHECK(out!=nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"source_kind\": \"independently_published_original_quarantine\",\n"
+        "  \"observation_only\": true,\n"
+        "  \"scope\": \"separate_default_Graph_budget_from_content_pipeline\",\n"
+        "  \"default_Graph_capture\": \"unsupported\",\n"
+        "  \"wide_Graph_capture\": \"ok\",\n"
+        "  \"graph_owns_no_source_document\": true,\n"
+        "  \"source_document_closed_before_page_stages\": true,\n"
+        "  \"graph_node_count\": %zu,\n"
+        "  \"graph_edge_count\": %zu,\n"
+        "  \"graph_byte_count\": %zu,\n"
+        "  \"graph_storage_bytes\": %zu,\n"
+        "  \"budget_matrix\": [\n",nodes,edges,bytes,storage);
+    for(size_t i=0u;i<trial_count;++i)
+        std::fprintf(out,
+            "    {\"name\":\"%s\",\"status\":\"%s\","
+            "\"max_nodes\":%zu,\"max_edges\":%zu,"
+            "\"max_value_bytes\":%zu,\"max_stream_bytes\":%zu,"
+            "\"max_storage_bytes\":%zu,\"max_depth\":%zu}%s\n",
+            trials[i].name,pypdf_stage_status_name(trials[i].status),
+            trials[i].limits.max_nodes,trials[i].limits.max_edges,
+            trials[i].limits.max_value_bytes,trials[i].limits.max_stream_bytes,
+            trials[i].limits.max_storage_bytes,trials[i].limits.max_depth,
+            i+1u==trial_count?"":",");
+    std::fprintf(out,"  ],\n  \"pages\": [\n");
+    for(size_t i=0u;i<4u;++i)
+        std::fprintf(out,
+            "    {\"page_index\":%zu,\"group_status\":\"%s\","
+            "\"content_semantics_status\":\"%s\","
+            "\"full_typed_lowering_status\":\"%s\","
+            "\"detached_pages\":%zu,\"detached_operations\":%zu}%s\n",
+            i,pypdf_stage_status_name(stages[i].group),
+            pypdf_stage_status_name(stages[i].semantics),
+            pypdf_stage_status_name(stages[i].full),
+            stages[i].detached_pages,stages[i].detached_ops,
+            i==3u?"":",");
+    std::fprintf(out,
+        "  ],\n"
+        "  \"original_pdfium_pixel_oracle\":\"not_run\",\n"
+        "  \"native_raster\":\"not_run\",\n"
+        "  \"external_native_positive_increment\":0\n"
+        "}\n");
+    CHECK(std::ferror(out)==0 && std::fclose(out)==0);
+    CHECK(std::rename(stage.string().c_str(),report_path)==0);
+    CHECK(corpus_fixture_executions==0u);
+    return EXIT_SUCCESS;
+}
+
 int main(int argc,char **argv)
 {
+    if(argc==5 &&
+       std::strcmp(argv[1],"--quarantined-pypdf-capture-stage-matrix")==0 &&
+       std::strcmp(argv[3],"--stage-report")==0)
+        return quarantine_pypdf_capture_stage_matrix(argv[2],argv[4]);
     if(argc==5 &&
        std::strcmp(argv[1],"--quarantined-pypdf-graph-geometry")==0 &&
        std::strcmp(argv[3],"--geometry-report")==0)
