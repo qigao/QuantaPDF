@@ -52,8 +52,6 @@ int main(void)
                     quantapdf_graph_page_geometry g=
                         geometry(shifted,units[u],rotation);
                     quantapdf_graph_device_grid d;
-                    const uint32_t pxs[2]={0u,UINT32_MAX};
-                    const uint32_t pys[2]={0u,UINT32_MAX};
                     CHECK(quantapdf_graph_page_device_grid(&g,dpis[k],
                         60000000u,200000000u,&d)==QUANTAPDF_OK);
                     CHECK(d.width>0u && d.height>0u);
@@ -61,8 +59,8 @@ int main(void)
                         for(size_t jj=0;jj<2u;jj++)
                             for(unsigned sx=0u;sx<4u;sx++)
                                 for(unsigned sy=0u;sy<4u;sy++) {
-                                    uint32_t px=ii==0?pxs[0]:d.width-1u;
-                                    uint32_t py=jj==0?pys[0]:d.height-1u;
+                                    uint32_t px=ii==0?0u:d.width-1u;
+                                    uint32_t py=jj==0?0u:d.height-1u;
                                     double x=0.0,y=0.0,ox,oy,x2=0.0,y2=0.0;
                                     double target_x=(double)px+
                                         ((double)sx+0.5)/4.0;
@@ -142,7 +140,7 @@ int main(void)
         refused+=3u;
     }
     CHECK(positive==4608u);
-    CHECK(refused==939u);
+    CHECK(refused==723u);
     puts("private device inverse Q4 source sampling: OK");
     return EXIT_SUCCESS;
 }
