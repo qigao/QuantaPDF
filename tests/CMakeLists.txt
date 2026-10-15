@@ -1822,7 +1822,8 @@ target_compile_definitions(quantapdf_test_native_source_qq_oracle PRIVATE
   GENERATED_UNIT7_DECOMP_COMBINED_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-unit7-decomp-combined-original.pdf"
   GENERATED_UNIT7_DECOMP_FILL_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-unit7-decomp-fill-original.pdf"
   GENERATED_UNIT7_DECOMP_CLIP_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-unit7-decomp-clip-original.pdf"
-  GENERATED_UNIT7_FILL_EXTENT_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-unit7-fill-extent-heldout-original.pdf")
+  GENERATED_UNIT7_FILL_EXTENT_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-unit7-fill-extent-heldout-original.pdf"
+  GENERATED_UNIT7_FILL_DPI_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-unit7-fill-dpi-heldout-original.pdf")
 if(MSVC)
   target_compile_options(quantapdf_test_native_source_qq_oracle PRIVATE /utf-8)
 endif()
@@ -2755,6 +2756,31 @@ elseif(APPLE)
     "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 else()
   set_property(TEST quantapdf.native_generated_unit7_fill_extent_heldout
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
+# #269: one immutable test-generated ORIGINAL PDF per source geometry
+# observed at five DPIs. Separate source path isolates parallel CTests.
+# Numerical bbox-scale diagnostic only: no C11 production Raster cutover.
+add_test(NAME quantapdf.native_generated_unit7_fill_dpi_heldout
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE_EXECUTABLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DREPORT_FILE=${CMAKE_CURRENT_BINARY_DIR}/generated-unit7-fill-dpi-heldout.json"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_generated_unit7_fill_dpi_heldout.cmake")
+set_tests_properties(quantapdf.native_generated_unit7_fill_dpi_heldout
+  PROPERTIES TIMEOUT 50
+    LABELS "conformance;source-pdf;generated-original;pdfium-observation;dpi-heldout")
+if(WIN32)
+  set_property(TEST quantapdf.native_generated_unit7_fill_dpi_heldout
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_generated_unit7_fill_dpi_heldout
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_generated_unit7_fill_dpi_heldout
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
