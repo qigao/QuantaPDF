@@ -12,10 +12,21 @@ Text/Image XObjects/SMask.
 
 #339 then established four real selected-Graph CropBox/Rotate/default
 UserUnit page maps and exact 72DPI device bounds with an explicitly
-larger but still limited test-only Graph capture
-(`40000 nodes / 120000 edges / 4 MiB values / 4 MiB streams / 32 MiB owner
-storage / max depth 256`); full Linux Release+Sanitizers, Windows and macOS
-succeeded. This does not alter product/API/default limits.
+bounded larger test-only Graph capture. Its full Linux
+Release+Sanitizers, Windows and macOS CI succeeded.
+
+The first #340 macOS source report exposed the actual graph footprint:
+**13,471 nodes**, **13,863 edges**, **179,055 model bytes**, and
+**1,486,860 owner-storage bytes**. Compared against the default test
+budget, only the **10,000 node cap** is exceeded. The 30,000-edge,
+1 MiB value, 1 MiB stream, 4 MiB owner storage, and 256-depth limits
+need no expansion (the aggregate 179,055 model bytes bounds both the
+stream and ordinary-value storage).
+
+This child therefore NARROWS the isolated Graph capture to
+**16,000 nodes** (instead of 10,000) while retaining every other existing
+budget field byte-for-byte. It does not alter any product/API/default
+limits or introduce any runtime fallback.
 
 ## Budget attribution without a production fallback
 
@@ -47,3 +58,11 @@ nothing about its unsupported text, image transparency or annotations.
 Issue #269 remains OPEN; license-review #336 OPEN; all PRs Draft /
 DO NOT MERGE, formal external pixel-positive count zero for this
 document and public SDK stays PDFium. #208 backend switch blocked.
+
+## Current exact-head status
+
+After the initial resource report, the final node-only cap and its strict
+CMake verification have been submitted. Full Linux Release+Sanitizers,
+macOS, Windows must pass on this *latest* HEAD before this specific
+minimal-cap qualification can be reported as successful. The earlier
+macOS count is evidence for the narrowing, not final node-only CI success.
