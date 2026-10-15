@@ -8236,6 +8236,10 @@ static int test_generated_unit7_multidpi_original_diagnostic(
         size_t edge_diff_pixels[5];
         unsigned long long snap_abs_rgb[5];
         size_t snap_diff_pixels[5];
+        size_t pdfium_opaque_red_pixels;
+        int pdfium_binary_rectangle;
+        int pdfium_red_bbox[4];
+        int pdfium_edge_step_from_floor[4];
     } modes[12]={};
     size_t total_pixels=0u,zero_output_negative=0u,source_repeats=0u;
     unsigned long long sum96=0u,sum144=0u;
@@ -8249,6 +8253,7 @@ static int test_generated_unit7_multidpi_original_diagnostic(
     size_t pdfium_chroma96=0u;
     unsigned long long snap96_abs[5]={0u};
     size_t snap96_changed[5]={0u};
+    size_t pdfium_red96=0u,rectangular96=0u;
     const auto read_original=[](const char *source_path){
         FILE *f=std::fopen(source_path,"rb");
         CHECK(f!=nullptr && std::fseek(f,0,SEEK_END)==0);
@@ -8476,6 +8481,9 @@ static int test_generated_unit7_multidpi_original_diagnostic(
             size_t edge_pixels[5]={0u};
             unsigned long long snap_error[5]={0u};
             size_t snap_changed[5]={0u};
+            size_t red_pixels=0u;
+            int red_left=(int)w,red_top=(int)h;
+            int red_right=-1,red_bottom=-1;
             unsigned max_delta=0u;
             for(size_t y=0u;y<h;++y)
                 for(size_t x=0u;x<w;++x){
@@ -8483,6 +8491,13 @@ static int test_generated_unit7_multidpi_original_diagnostic(
                         native.pixels+y*native.stride+x*4u;
                     const unsigned char *p=
                         ref_bytes+y*(size_t)fs+x*3u;
+                    if(dpi==96u && p[1]==0u) {
+                        ++red_pixels;
+                        red_left=std::min(red_left,(int)x);
+                        red_right=std::max(red_right,(int)x);
+                        red_top=std::min(red_top,(int)y);
+                        red_bottom=std::max(red_bottom,(int)y);
+                    }
                     unsigned maximum=0u;
                     for(size_t channel=0u;channel<3u;++channel){
                         const unsigned actual=on_white(n,channel);
@@ -8604,13 +8619,38 @@ static int test_generated_unit7_multidpi_original_diagnostic(
                             candidate_nominal-ref_value:ref_value-candidate_nominal;
                     }
                 }
+            int bbox[4]={0,0,0,0};
+            int from_floor[4]={0,0,0,0};
+            int binary_rectangular=0;
+            if(dpi==96u) {
+                CHECK(red_pixels>0u && red_pixels<=pixels);
+                CHECK(red_left>=0 && red_top>=0 &&
+                      red_right>=red_left && red_bottom>=red_top &&
+                      red_right<(int)w && red_bottom<(int)h);
+                bbox[0]=red_left; bbox[1]=red_top;
+                bbox[2]=red_right+1; bbox[3]=red_bottom+1;
+                const size_t enclosed=(size_t)(bbox[2]-bbox[0])*
+                                      (size_t)(bbox[3]-bbox[1]);
+                CHECK(enclosed>=red_pixels && enclosed<=pixels);
+                binary_rectangular=(enclosed==red_pixels &&
+                    ref_partial==0u && chroma==0u)?1:0;
+                const double theoretical[4]={xlo,ylo,xhi,yhi};
+                const int actual[4]={bbox[0],bbox[1],bbox[2],bbox[3]};
+                for(size_t edge=0u;edge<4u;++edge) {
+                    from_floor[edge]=actual[edge]-
+                        (int)std::floor(theoretical[edge]);
+                    CHECK(from_floor[edge]>=-2 &&
+                          from_floor[edge]<=3);
+                }
+            }
             const size_t record_index=(size_t)(rotation/90)*3u+mode;
             modes[record_index]={
                 rotation,dpi,w,h,pixels,abs_error,differing,gross,max_delta,
                 fit_area_error,nominal_area_error,off_edge,
                 q4_native_abs,q4_pdfium_abs,pdfium_q4_quantum,
                 q4_native_diff,ref_partial,src_partial,
-                ref_more_red,src_more_red,chroma,{0u},{0u},{0u}
+                ref_more_red,src_more_red,chroma,{0u},{0u},{0u},
+                red_pixels,binary_rectangular,{0,0,0,0},{0,0,0,0}
             };
             std::memcpy(modes[record_index].edge_diff_pixels,
                 edge_pixels,sizeof(edge_pixels));
@@ -8618,6 +8658,10 @@ static int test_generated_unit7_multidpi_original_diagnostic(
                 snap_error,sizeof(snap_error));
             std::memcpy(modes[record_index].snap_diff_pixels,
                 snap_changed,sizeof(snap_changed));
+            std::memcpy(modes[record_index].pdfium_red_bbox,
+                bbox,sizeof(bbox));
+            std::memcpy(modes[record_index].pdfium_edge_step_from_floor,
+                from_floor,sizeof(from_floor));
             total_pixels+=pixels;
             if(dpi==72u)
                 CHECK(abs_error==0u && differing==0u &&
@@ -8641,6 +8685,8 @@ static int test_generated_unit7_multidpi_original_diagnostic(
                     snap96_abs[k]+=snap_error[k];
                     snap96_changed[k]+=snap_changed[k];
                 }
+                pdfium_red96+=red_pixels;
+                rectangular96+=(size_t)binary_rectangular;
             }
             if(dpi==144u)sum144+=abs_error;
             std::fprintf(stderr,
@@ -8705,6 +8751,9 @@ static int test_generated_unit7_multidpi_original_diagnostic(
         "  \"dpi96_integer_snap_differing_pixels\":[%zu,%zu,%zu,%zu,%zu],\n"
         "  \"integer_snap_policy_order\":\"nearest,floor,ceil,outward,inward\",\n"
         "  \"integer_snap_test_only\":true,\n"
+        "  \"dpi96_pdfium_opaque_red_pixels\":%zu,\n"
+        "  \"dpi96_pdfium_binary_rectangle_count\":%zu,\n"
+        "  \"pdfium_rectangle_bounds_test_only\":true,\n"
         "  \"quantum_ledger_diagnostic_only\":true,\n"
         "  \"analytic_coverage_test_only\":true,\n"
         "  \"external_original_provenance_verified\":false,\n"
@@ -8720,7 +8769,8 @@ static int test_generated_unit7_multidpi_original_diagnostic(
         snap96_abs[0],snap96_abs[1],snap96_abs[2],
         snap96_abs[3],snap96_abs[4],
         snap96_changed[0],snap96_changed[1],snap96_changed[2],
-        snap96_changed[3],snap96_changed[4]);
+        snap96_changed[3],snap96_changed[4],
+        pdfium_red96,rectangular96);
     for(size_t k=0u;k<12u;++k){
         const auto& frame=modes[k];
         std::fprintf(out,
@@ -8742,7 +8792,11 @@ static int test_generated_unit7_multidpi_original_diagnostic(
             "\"pdfium_chroma_mismatch_pixels\":%zu,"
             "\"edge_diff_pixels\":[%zu,%zu,%zu,%zu,%zu],"
             "\"integer_snap_abs_rgb\":[%llu,%llu,%llu,%llu,%llu],"
-            "\"integer_snap_differing_pixels\":[%zu,%zu,%zu,%zu,%zu]}%s\n",
+            "\"integer_snap_differing_pixels\":[%zu,%zu,%zu,%zu,%zu],"
+            "\"pdfium_opaque_red_pixels\":%zu,"
+            "\"pdfium_binary_rectangle\":%d,"
+            "\"pdfium_red_bbox\":[%d,%d,%d,%d],"
+            "\"pdfium_edge_step_from_floor\":[%d,%d,%d,%d]}%s\n",
             frame.rotation,frame.dpi,frame.width,frame.height,
             frame.pixels,frame.abs_rgb,frame.differing,frame.gross,
             frame.max_delta,frame.fitted_area_abs_rgb,
@@ -8763,6 +8817,14 @@ static int test_generated_unit7_multidpi_original_diagnostic(
             frame.snap_diff_pixels[0],frame.snap_diff_pixels[1],
             frame.snap_diff_pixels[2],frame.snap_diff_pixels[3],
             frame.snap_diff_pixels[4],
+            frame.pdfium_opaque_red_pixels,
+            frame.pdfium_binary_rectangle,
+            frame.pdfium_red_bbox[0],frame.pdfium_red_bbox[1],
+            frame.pdfium_red_bbox[2],frame.pdfium_red_bbox[3],
+            frame.pdfium_edge_step_from_floor[0],
+            frame.pdfium_edge_step_from_floor[1],
+            frame.pdfium_edge_step_from_floor[2],
+            frame.pdfium_edge_step_from_floor[3],
             k==11u?"":",");
     }
     std::fprintf(out,"  ]\n}\n");

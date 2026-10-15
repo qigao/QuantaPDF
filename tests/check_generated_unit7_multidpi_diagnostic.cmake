@@ -38,6 +38,7 @@ foreach(field IN ITEMS
   "\"quantum_ledger_diagnostic_only\":true"
   "\"integer_snap_test_only\":true"
   "\"integer_snap_policy_order\":\"nearest,floor,ceil,outward,inward\""
+  "\"pdfium_rectangle_bounds_test_only\":true"
   "\"external_original_provenance_verified\":false"
   "\"external_native_positive_increment\":0"
   "\"public_sdk_backend_switched\":false")
@@ -69,6 +70,8 @@ set(refmore96 0)
 set(nativemore96 0)
 set(chroma96 0)
 set(changed96 0)
+set(pdfium_red_total96 0)
+set(pdfium_rect_count96 0)
 foreach(edge RANGE 0 4)
   set(edgesum_${edge} 0)
   set(snap_abs_${edge} 0)
@@ -100,6 +103,35 @@ foreach(index RANGE 0 11)
   string(JSON edgelength LENGTH "${report}" frames ${index} edge_diff_pixels)
   string(JSON snap_abs_length LENGTH "${report}" frames ${index} integer_snap_abs_rgb)
   string(JSON snap_diff_length LENGTH "${report}" frames ${index} integer_snap_differing_pixels)
+  string(JSON pdfium_red GET "${report}" frames ${index} pdfium_opaque_red_pixels)
+  string(JSON pdfium_rect GET "${report}" frames ${index} pdfium_binary_rectangle)
+  string(JSON bbox_count LENGTH "${report}" frames ${index} pdfium_red_bbox)
+  string(JSON step_count LENGTH "${report}" frames ${index} pdfium_edge_step_from_floor)
+  if(NOT bbox_count EQUAL 4 OR NOT step_count EQUAL 4)
+    message(FATAL_ERROR "PDFium observed binary bounding rectangle needs 4 edges")
+  endif()
+  set(rect_width 0)
+  set(rect_height 0)
+  foreach(edge RANGE 0 3)
+    string(JSON bound GET "${report}" frames ${index} pdfium_red_bbox ${edge})
+    string(JSON step GET "${report}" frames ${index} pdfium_edge_step_from_floor ${edge})
+    if(dpi EQUAL 96)
+      if(step LESS -2 OR step GREATER 3)
+        message(FATAL_ERROR "Observed PDFium integer edge exceeds diagnostic range")
+      endif()
+      if(edge EQUAL 0)
+        set(rect_left "${bound}")
+      elseif(edge EQUAL 1)
+        set(rect_top "${bound}")
+      elseif(edge EQUAL 2)
+        set(rect_right "${bound}")
+      else()
+        set(rect_bottom "${bound}")
+      endif()
+    elseif(NOT bound EQUAL 0 OR NOT step EQUAL 0)
+      message(FATAL_ERROR "Observed bbox only applies to 96DPI frames")
+    endif()
+  endforeach()
   if(NOT edgelength EQUAL 5 OR
      NOT snap_abs_length EQUAL 5 OR NOT snap_diff_length EQUAL 5)
     message(FATAL_ERROR "Expected five disjoint edge and candidate snap bins")
@@ -176,6 +208,23 @@ foreach(index RANGE 0 11)
     math(EXPR nativemore96 "${nativemore96}+${nativemore}")
     math(EXPR chroma96 "${chroma96}+${chroma}")
     math(EXPR changed96 "${changed96}+${changed}")
+    if(NOT pdfium_rect EQUAL 0 AND NOT pdfium_rect EQUAL 1)
+      message(FATAL_ERROR "PDFium rectangle marker must be a boolean integer")
+    endif()
+    if(rect_left LESS 0 OR rect_top LESS 0 OR
+       rect_right GREATER width OR rect_bottom GREATER height OR
+       rect_left GREATER_EQUAL rect_right OR rect_top GREATER_EQUAL rect_bottom)
+      message(FATAL_ERROR "Observed original PDFium red bbox is invalid")
+    endif()
+    math(EXPR red_bbox_area
+      "(${rect_right}-${rect_left})*(${rect_bottom}-${rect_top})")
+    if(pdfium_red LESS 1 OR pdfium_red GREATER red_bbox_area OR
+       red_bbox_area GREATER pixels OR
+       (pdfium_rect EQUAL 1 AND NOT pdfium_red EQUAL red_bbox_area))
+      message(FATAL_ERROR "Observed original PDFium red rectangle count is inconsistent")
+    endif()
+    math(EXPR pdfium_red_total96 "${pdfium_red_total96}+${pdfium_red}")
+    math(EXPR pdfium_rect_count96 "${pdfium_rect_count96}+${pdfium_rect}")
     math(EXPR grouped "${frame_edges}+${off_edge}")
     if(NOT grouped EQUAL changed OR
        q4pixels GREATER pixels OR pdfium_partial GREATER pixels OR
@@ -184,6 +233,9 @@ foreach(index RANGE 0 11)
       message(FATAL_ERROR "96DPI disjoint edge/quantization ledger is inconsistent")
     endif()
   else()
+    if(NOT pdfium_red EQUAL 0 OR NOT pdfium_rect EQUAL 0)
+      message(FATAL_ERROR "Non-96DPI PDFium bounding box must remain diagnostic-only")
+    endif()
     if(NOT frame_edges EQUAL 0 OR q4native GREATER 0 OR
        q4pdfium GREATER 0 OR quantization GREATER 0 OR
        q4pixels GREATER 0 OR pdfium_partial GREATER 0 OR
@@ -260,6 +312,13 @@ math(EXPR classified "${all_edges}+${far96}")
 if(NOT classified EQUAL changed96)
   message(FATAL_ERROR "96DPI every changed pixel must be classified")
 endif()
+string(JSON reported_red GET "${report}" dpi96_pdfium_opaque_red_pixels)
+string(JSON reported_rect GET "${report}" dpi96_pdfium_binary_rectangle_count)
+if(NOT reported_red EQUAL pdfium_red_total96 OR
+   NOT reported_rect EQUAL pdfium_rect_count96 OR
+   pdfium_rect_count96 GREATER 4)
+  message(FATAL_ERROR "96DPI observed PDFium red rectangle aggregate is inconsistent")
+endif()
 foreach(kind IN ITEMS "dpi96_integer_snap_abs_rgb" "dpi96_integer_snap_differing_pixels")
   string(JSON count LENGTH "${report}" ${kind})
   if(NOT count EQUAL 5)
@@ -287,4 +346,5 @@ message(STATUS
   "edge bins=${edgesum_0}/${edgesum_1}/${edgesum_2}/${edgesum_3}/${edgesum_4}; "
   "96DPI finite integer-snap absRGB nearest/floor/ceil/out/in="
   "${snap_abs_0}/${snap_abs_1}/${snap_abs_2}/${snap_abs_3}/${snap_abs_4}; "
+  "PDFium 96DPI binary rectangle cases=${pdfium_rect_count96}/4; "
   "all high-DPI results DIAGNOSTIC")
