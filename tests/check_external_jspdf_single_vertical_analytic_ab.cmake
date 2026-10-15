@@ -1347,6 +1347,33 @@ if(NOT signed_status STREQUAL "measured_unqualified"
 endif()
 message(STATUS
   "jspdf-source-retrace-Q8-signed: cross_rgb=${cross_abs_rgb_error} trial_rgb=${signed_abs_rgb_error} cross_different=${cross_changed_pixels} trial_different=${signed_changed_pixels} source_alpha_changes=${signed_source_alpha_changed_pixels} official=0 parity=false")
+# PRIVATE exact-original source-PDF pixel regression sentinel.
+# This is a test-only admission of one immutable byte-pinned ORIGINAL
+# raw jsPDF source at the pre-existing 596x842 device configuration.
+# It explicitly does NOT promote the installed/public Native C11 SDK
+# backend or increment official external-pixel positive counters.
+string(JSON private_source_positive GET "${json}" native_original_pixel_positive_count)
+string(JSON official_corpus_increase GET "${json}" official_w_wstar_positive_count_increase)
+if(NOT signed_status STREQUAL "measured_unqualified"
+   OR signed_pixel_parity_qualified
+   OR NOT signed_repeat_equal
+   OR NOT signed_abs_rgb_error EQUAL 0
+   OR NOT signed_changed_pixels EQUAL 0
+   OR NOT signed_gross_delta64_pixels EQUAL 0
+   OR NOT signed_max_channel_delta EQUAL 0
+   OR NOT signed_rgb_fnv64 STREQUAL "bfba622e41c96ca7"
+   OR NOT cross_abs_rgb_error EQUAL 42
+   OR NOT cross_changed_pixels EQUAL 1
+   OR NOT cross_rgb_fnv64 STREQUAL "13fe307eb1d71581"
+   OR NOT signed_source_alpha_changed_pixels EQUAL 1
+   OR NOT signed_outside_original_source_joint EQUAL 0
+   OR NOT private_source_positive EQUAL 0
+   OR NOT official_corpus_increase EQUAL 0)
+  message(FATAL_ERROR
+    "Original byte-pinned jsPDF native PRIVATE exact-pixel oracle regressed; do NOT promote SDK")
+endif()
+message(STATUS
+  "jspdf-private-original-exact-pixel: source_pixels=501832 rgb_error=0 different=0 max=0 fnv=bfba622e41c96ca7 release=false official_original_positive=0 sdk=pdfium")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")
