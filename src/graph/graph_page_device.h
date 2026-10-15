@@ -29,9 +29,17 @@ typedef struct quantapdf_graph_device_grid {
  * intentionally unsupported by the upstream page_display_map.
  * This only calculates geometry; it does NOT admit native rendering.
  */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 quantapdf_status quantapdf_graph_page_device_grid(
     const quantapdf_graph_page_geometry *geometry,
     unsigned int dpi, size_t max_pixels, size_t max_output_bytes,
     quantapdf_graph_device_grid *out_grid);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
