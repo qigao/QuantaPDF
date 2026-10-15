@@ -10,9 +10,17 @@ The sealed selected Graph returns detached effective MediaBox/CropBox/Rotate/
 UserUnit metadata. Existing `quantapdf_graph_page_display_map()` converts
 source PDF Y-up to zero-origin visible PDF Y-up. New private
 `quantapdf_graph_page_device_grid()` composes the Y-down pixel-edge affine:
-`X = s * (a*x + c*y + e)`;
-`Y = s * (display.height_points - (b*x + d*y + f))`,
-where `s=dpi/72`. This maps **pixel edges**; sampling for destination pixel
+`Nx = ceil(display.width_points * dpi/72)`,
+`Ny = ceil(display.height_points * dpi/72)`,
+`sx = Nx / display.width_points`, `sy = Ny / display.height_points`;
+`X = sx * (a*x + c*y + e)`;
+`Y = sy * (display.height_points - (b*x + d*y + f))`.
+DPI determines the integer bitmap extent, while the exact bitmap width/height
+independently fix X and Y sampling phase. Using nominal `dpi/72` for the
+mapping after `ceil` would leave a subpixel uncovered right/bottom fringe
+on noninteger page dimensions and contradict the existing native grid's
+`points_per_device_x/y=source_width/bitmap_width` rule.
+This maps **pixel edges**; sampling for destination pixel
 `(i,j)` happens at `(i+1/2,j+1/2)`. The output contains no source pointers.
 
 Output width/height are `ceil(visible_dimension_points * dpi / 72)` with no
@@ -55,5 +63,7 @@ renderer, PDFium dependency or fallback is introduced.
 
 #269 stays OPEN, this and its parent PRs Draft / DO NOT MERGE, formal
 original-native positive count stays unchanged, installed/public SDK remains
-PDFium, #208 cutover remains blocked. No CI success or original-source
-conformance is asserted by the introduction of this isolated helper alone.
+PDFium, #208 cutover remains blocked. The exact bitmap-fit correction is test-only/geometry-only, and does NOT
+imply original-PDFium native pixel acceptance or render-path integration.
+The CI gate for this child must pass independently on Linux Release and
+ASan/UBSan, macOS and Windows before promotion.
