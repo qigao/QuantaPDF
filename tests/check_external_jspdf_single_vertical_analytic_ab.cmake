@@ -1305,6 +1305,48 @@ if(NOT cross_status STREQUAL "measured_unqualified"
 endif()
 message(STATUS
   "jspdf-cross-Q8: stroke_only_rgb=${cross_stroke_control_abs_rgb_error} mask_only_rgb=${cross_mask_control_abs_rgb_error} combined_rgb=${cross_abs_rgb_error} combined_pixels=${cross_changed_pixels} max=${cross_max_channel_delta} source_alpha_changes=${cross_source_alpha_changed_pixels} parity=false official=0")
+# TWENTY-FOURTH independently invoked PRIVATE original source H-retrace
+# Q8 signed-area model. Freeze the separately CI-qualified cross-parent.
+if(NOT cross_abs_rgb_error EQUAL 42
+   OR NOT cross_changed_pixels EQUAL 1
+   OR NOT cross_gross_delta64_pixels EQUAL 0
+   OR NOT cross_max_channel_delta EQUAL 14
+   OR NOT cross_rgb_fnv64 STREQUAL "13fe307eb1d71581")
+  message(FATAL_ERROR "Previously qualified #321 crossed Stroke/Fill control mutated")
+endif()
+foreach(field IN ITEMS status default_changed pixel_parity_qualified
+    repeat_equal source_alpha_changed_pixels
+    outside_original_source_joint saturated_source_regressions
+    alpha_delta_gt64 destination_outside_source_alpha
+    abs_rgb_error mean_abs_rgb_error changed_pixels
+    gross_delta64_pixels max_channel_delta rgb_fnv64)
+  string(JSON signed_${field} GET "${json}" signed_outer_${field})
+endforeach()
+string(LENGTH "${signed_rgb_fnv64}" signed_digest_length)
+if(NOT signed_status STREQUAL "measured_unqualified"
+   OR signed_default_changed OR signed_pixel_parity_qualified
+   OR NOT signed_repeat_equal
+   OR NOT signed_source_alpha_changed_pixels EQUAL 1
+   OR NOT signed_outside_original_source_joint EQUAL 0
+   OR NOT signed_saturated_source_regressions EQUAL 0
+   OR NOT signed_alpha_delta_gt64 EQUAL 0
+   OR NOT signed_destination_outside_source_alpha EQUAL 0
+   OR signed_abs_rgb_error LESS 0
+   OR signed_abs_rgb_error GREATER 383901480
+   OR signed_mean_abs_rgb_error LESS 0
+   OR signed_mean_abs_rgb_error GREATER 255
+   OR signed_changed_pixels LESS 0
+   OR signed_changed_pixels GREATER 501832
+   OR signed_gross_delta64_pixels LESS 0
+   OR signed_gross_delta64_pixels GREATER signed_changed_pixels
+   OR signed_max_channel_delta LESS 0
+   OR signed_max_channel_delta GREATER 255
+   OR NOT signed_digest_length EQUAL 16
+   OR NOT signed_rgb_fnv64 MATCHES "^[0-9a-f]+$")
+  message(FATAL_ERROR "Private signed-area original-source trial escaped exact Q8 topology scope")
+endif()
+message(STATUS
+  "jspdf-source-retrace-Q8-signed: cross_rgb=${cross_abs_rgb_error} trial_rgb=${signed_abs_rgb_error} cross_different=${cross_changed_pixels} trial_different=${signed_changed_pixels} source_alpha_changes=${signed_source_alpha_changed_pixels} official=0 parity=false")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")

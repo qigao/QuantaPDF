@@ -170,6 +170,21 @@ quantapdf_ir_raster_device_polyline_stroke_q8_vh_exterior_preview_v0(
     const quantapdf_ir_raster_v1_limits *raster_limits,
     quantapdf_ir_raster_image *out_image);
 
+/* TWELFTH explicitly called PRIVATE source Q8 signed-area trial.
+ * For one true H->down-V 1pt Miter with exactly two forward and one
+ * reverse identical source horizontal traversals within the SAME
+ * Stroke operation, use 3*horizontal_Q8_area + outward_Miter_Q8_area
+ * in the wholly-above-joint X-straddling device cell. No alpha
+ * source-over of source edge traversals, no PDFium input and no public
+ * SDK/ABI change. All older mode0..11 results/budgets untouched. */
+quantapdf_status
+quantapdf_ir_raster_device_polyline_stroke_q8_retrace_outer_area_preview_v0(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

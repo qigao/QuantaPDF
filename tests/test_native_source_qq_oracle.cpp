@@ -2467,6 +2467,104 @@ int test_external_jspdf_single_vertical_analytic_ab(
           std::memcmp(cross_both_page.pixels,cross_both_repeat.pixels,
                       cross_both_page.size)==0);
     const page_metrics cross_both_metric=measure(cross_both_page);
+
+    /* TWENTY-FOURTH independent original-source Q8 signed-area A/B.
+     * The #321 dual-source parent is already validated. Its final
+     * nonmatching pixel is the upper-right H→down-V outer Miter, whose
+     * SOURCE has exactly 2 forward+1 backward identical horizontal
+     * traversals in ONE paint operation. Compute those signed cell
+     * areas in private pure C11 rather than source-over compositing.
+     * All PDFium colors, device positions and pixel tests are used
+     * ONLY here, never in the candidate renderer.
+     */
+    const quantapdf_native_device_grid_limits signed_grid={
+        600u*850u,600u*850u*4u,768u,650000000u
+    };
+    const quantapdf_ir_raster_v1_limits signed_budget={
+        600u*850u,1u,768u,650000000u
+    };
+    quantapdf_ir_raster_image signed_stroke{},signed_repeat{},
+        signed_page{},signed_page_repeat{};
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_retrace_outer_area_preview_v0(
+        &only_stroke,0u,&geometry,&signed_grid,&signed_budget,
+        &signed_stroke));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_retrace_outer_area_preview_v0(
+        &only_stroke,0u,&geometry,&signed_grid,&signed_budget,
+        &signed_repeat));
+    CHECK(signed_stroke.pixels && signed_repeat.pixels &&
+          signed_stroke.size==cross_stroke.size &&
+          signed_repeat.size==signed_stroke.size &&
+          std::memcmp(signed_stroke.pixels,signed_repeat.pixels,
+                      signed_stroke.size)==0);
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &signed_stroke,&clip_bottom_fill,&composite_budget,&signed_page));
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &signed_repeat,&clip_bottom_repeat,&composite_budget,
+        &signed_page_repeat));
+    CHECK(signed_page.pixels && signed_page_repeat.pixels &&
+          signed_page.size==cross_both_page.size &&
+          std::memcmp(signed_page.pixels,signed_page_repeat.pixels,
+                      signed_page.size)==0);
+    const page_metrics signed_metric=measure(signed_page);
+    size_t signed_source_changes=0u,signed_outside=0u,
+           signed_opaque_regressions=0u,signed_alpha_gt64=0u,
+           signed_dest_outside_alpha=0u;
+    /* This is an exact independent frozen source result, not a
+     * requirement that the new experimental candidate reach parity. */
+    CHECK(cross_both_metric.abs_rgb==42u &&
+          cross_both_metric.changed==1u &&
+          cross_both_metric.gross==0u &&
+          cross_both_metric.max_delta==14u &&
+          cross_both_metric.fnv==UINT64_C(0x13fe307eb1d71581));
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t off=y*signed_stroke.stride+x*4u;
+        const unsigned prior=cross_stroke.pixels[off+3u];
+        const unsigned candidate=signed_stroke.pixels[off+3u];
+        CHECK(std::memcmp(cross_stroke.pixels+off,
+                          signed_stroke.pixels+off,3u)==0);
+        CHECK(signed_page.pixels[off+3u]==255u);
+        if(prior!=candidate) {
+            ++signed_source_changes;
+            /* Source fixture coordinates ONLY bound this test.
+             * The C11 renderer uses edge positions and topology. */
+            if(!(x==250u && y==19u))++signed_outside;
+            if(prior==255u)++signed_opaque_regressions;
+            const unsigned delta=prior>candidate?
+                prior-candidate:candidate-prior;
+            if(delta>64u)++signed_alpha_gt64;
+        } else {
+            for(size_t ch=0u;ch<3u;++ch)
+                if(signed_page.pixels[off+ch]!=
+                   cross_both_page.pixels[off+ch])
+                    ++signed_dest_outside_alpha;
+        }
+    }
+    CHECK(signed_source_changes==1u && signed_outside==0u &&
+          signed_opaque_regressions==0u && signed_alpha_gt64==0u &&
+          signed_dest_outside_alpha==0u);
+    const size_t tip=19u*signed_stroke.stride+250u*4u;
+    const unsigned char *pdfium_tip=reference.at(250u,19u);
+    std::fprintf(stderr,
+        "[original jsPDF source-Q8 signed-area repeated right-Miter A/B, NOT parity] "
+        "parent_rgb=%llu trial_rgb=%llu parent_mismatch=%zu "
+        "trial_mismatch=%zu alpha_changes=%zu outside=%zu "
+        "old_alpha=%u new_alpha=%u trial_RGB=(%u,%u,%u) "
+        "pdfium_RGB=(%u,%u,%u) gross=%zu max=%u fnv64=%016llx\n",
+        (unsigned long long)cross_both_metric.abs_rgb,
+        (unsigned long long)signed_metric.abs_rgb,
+        cross_both_metric.changed,signed_metric.changed,
+        signed_source_changes,signed_outside,
+        (unsigned)cross_stroke.pixels[tip+3u],
+        (unsigned)signed_stroke.pixels[tip+3u],
+        (unsigned)signed_page.pixels[tip],
+        (unsigned)signed_page.pixels[tip+1u],
+        (unsigned)signed_page.pixels[tip+2u],
+        (unsigned)pdfium_tip[0],
+        (unsigned)pdfium_tip[1],
+        (unsigned)pdfium_tip[2],
+        signed_metric.gross,signed_metric.max_delta,
+        (unsigned long long)signed_metric.fnv);
+
     size_t cross_alpha_changes=0u,cross_outside_join=0u,
            cross_saturated_changed=0u,cross_alpha_gt64=0u,
            cross_output_changed_outside_alpha=0u,
@@ -4188,6 +4286,10 @@ int test_external_jspdf_single_vertical_analytic_ab(
     std::fprintf(stderr,"[jsPDF mode4 original residual regions] %s\n",
                  mode4_regions_json.c_str());
 
+    quantapdf_ir_raster_image_dispose(&signed_page_repeat);
+    quantapdf_ir_raster_image_dispose(&signed_page);
+    quantapdf_ir_raster_image_dispose(&signed_repeat);
+    quantapdf_ir_raster_image_dispose(&signed_stroke);
     quantapdf_ir_raster_image_dispose(&cross_both_repeat);
     quantapdf_ir_raster_image_dispose(&cross_both_page);
     quantapdf_ir_raster_image_dispose(&cross_stroke_only_repeat);
@@ -4538,6 +4640,21 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"cross_q8_gross_delta64_pixels\": %zu,\n"
         "  \"cross_q8_max_channel_delta\": %u,\n"
         "  \"cross_q8_rgb_fnv64\": \"%016llx\",\n"
+        "  \"signed_outer_status\": \"measured_unqualified\",\n"
+        "  \"signed_outer_default_changed\": false,\n"
+        "  \"signed_outer_pixel_parity_qualified\": false,\n"
+        "  \"signed_outer_repeat_equal\": true,\n"
+        "  \"signed_outer_source_alpha_changed_pixels\": %zu,\n"
+        "  \"signed_outer_outside_original_source_joint\": %zu,\n"
+        "  \"signed_outer_saturated_source_regressions\": %zu,\n"
+        "  \"signed_outer_alpha_delta_gt64\": %zu,\n"
+        "  \"signed_outer_destination_outside_source_alpha\": %zu,\n"
+        "  \"signed_outer_abs_rgb_error\": %llu,\n"
+        "  \"signed_outer_mean_abs_rgb_error\": %.9f,\n"
+        "  \"signed_outer_changed_pixels\": %zu,\n"
+        "  \"signed_outer_gross_delta64_pixels\": %zu,\n"
+        "  \"signed_outer_max_channel_delta\": %u,\n"
+        "  \"signed_outer_rgb_fnv64\": \"%016llx\",\n"
         "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
@@ -4672,7 +4789,15 @@ int test_external_jspdf_single_vertical_analytic_ab(
         (double)cross_both_metric.abs_rgb/1505496.0,
         cross_both_metric.changed,cross_both_metric.gross,
         cross_both_metric.max_delta,
-        (unsigned long long)cross_both_metric.fnv);
+        (unsigned long long)cross_both_metric.fnv,
+        signed_source_changes,signed_outside,
+        signed_opaque_regressions,signed_alpha_gt64,
+        signed_dest_outside_alpha,
+        (unsigned long long)signed_metric.abs_rgb,
+        (double)signed_metric.abs_rgb/1505496.0,
+        signed_metric.changed,signed_metric.gross,
+        signed_metric.max_delta,
+        (unsigned long long)signed_metric.fnv);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
