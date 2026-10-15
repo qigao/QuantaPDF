@@ -24,7 +24,7 @@ execute_process(
   COMMAND "${ORACLE_EXECUTABLE}"
     --preflight-original-pdf "${ORIGINAL_FILE}"
     --page-index "${PAGE_INDEX}"
-    --expect-status observe
+    --expect-status unsupported
     --preflight-report "${REPORT_FILE}"
   RESULT_VARIABLE rc
   OUTPUT_VARIABLE stdout_text
@@ -49,8 +49,12 @@ endif()
 file(READ "${REPORT_FILE}" report_text)
 foreach(field IN ITEMS
   "\"result\": \"typed_selected_page_preflight_only\""
-  "\"observation_only\": true"
   "\"original_source_provenance_verified\": false"
+  "\"native_lower_status\": \"unsupported\""
+  "\"detached_ir_pages\": 0"
+  "\"detached_ir_operations\": 0"
+  "\"detached_ir_clips\": 0"
+  "\"detached_ir_graphics_states\": 0"
   "\"original_pdfium_pixel_oracle\": \"not_run\""
   "\"native_raster\": \"not_run\""
   "\"external_wstar_pixel_supported_count\": 0"
@@ -65,11 +69,11 @@ if(selected EQUAL -1)
   message(FATAL_ERROR "Selected original source page report mismatch")
 endif()
 if(NOT report_text MATCHES
-  [=["native_lower_status": "(lowered|unsupported)"]=])
-  message(FATAL_ERROR "Missing/unknown strict selected-page typed outcome")
+  [=["native_lower_status": "unsupported"]=])
+  message(FATAL_ERROR "Complex py-pdf page must reject atomically; native positive forbidden")
 endif()
 
 message(STATUS
   "pypdf original page ${PAGE_INDEX}: exact SHA256 preserved, "
-  "typed=${CMAKE_MATCH_1}, pdfium=not_run, C11Raster=not_run, "
+  "typed=unsupported, output_resources=0, pdfium=not_run, C11Raster=not_run, "
   "external_native_positive_increment=0")
