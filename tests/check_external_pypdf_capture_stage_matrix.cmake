@@ -38,6 +38,8 @@ foreach(fragment IN ITEMS
   "\"source_kind\": \"independently_published_original_quarantine\""
   "\"default_Graph_capture\": \"unsupported\""
   "\"wide_Graph_capture\": \"ok\""
+  "\"node_only_16000_capture\": \"ok\""
+  "\"strict_group_ok_content_unsupported_ir_zero\": true"
   "\"graph_owns_no_source_document\": true"
   "\"source_document_closed_before_page_stages\": true"
   "\"external_native_positive_increment\":0"
@@ -51,7 +53,7 @@ endforeach()
 foreach(name IN ITEMS
   default wide only_nodes_default only_edges_default
   only_value_bytes_default only_stream_bytes_default
-  only_total_storage_default)
+  only_total_storage_default node_only_16000)
   string(FIND "${payload}" "\"name\":\"${name}\"" found)
   if(found EQUAL -1)
     message(FATAL_ERROR "Missing budget trial ${name}")
@@ -63,7 +65,22 @@ foreach(page RANGE 0 3)
     message(FATAL_ERROR "Missing content-stage record for page ${page}")
   endif()
 endforeach()
+
+# All four PAGES must pass the Group admission, then be rejected specifically
+# at the independent Content semantics stage, with FULL lowering zero output.
+# Broad Graph quota refusal alone is no longer considered sufficient.
+string(REGEX MATCHALL
+  [=["group_status":"ok","content_semantics_status":"unsupported","full_typed_lowering_status":"unsupported","detached_pages":0,"detached_operations":0]=]
+  accepted_negative_rows "${payload}")
+list(LENGTH accepted_negative_rows negative_count)
+if(NOT negative_count EQUAL 4)
+  message(FATAL_ERROR
+    "Exactly four real Content-stage atomic UNSUPPORTED cases required, "
+    "got ${negative_count}")
+endif()
+
 message(STATUS
   "Quarantined upstream original: default Graph capture UNSUPPORTED; "
-  "wide bounded Graph capture OK; 7 budget trials + 4 separate "
-  "Group/Content/Lowering observations; native/PDFium pixels NOT run")
+  "node-only 16k capture OK; 8 budget trials + 4 strict "
+  "Group=OK Content=UNSUPPORTED full lowering zero-resource cases; "
+  "native/PDFium pixels NOT run")
