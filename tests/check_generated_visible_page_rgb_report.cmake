@@ -67,6 +67,15 @@ foreach(row IN LISTS rows)
   if(error GREATER max_error)
     message(FATAL_ERROR "RGB error outside bounded page capacity: ${row}")
   endif()
+  # #269 strict synthetic ORIGINAL-PDFIUM pixel parity: eight generated
+  # PDFs are an exact *test-owned* gate after observation-only #334.
+  # This does not qualify any independently published/licensed source.
+  if(NOT error EQUAL 0 OR NOT different EQUAL 0 OR
+     NOT gross EQUAL 0 OR NOT max_delta EQUAL 0 OR
+     NOT mean STREQUAL "0.00000")
+    message(FATAL_ERROR
+      "Generated original-PDFium vs C11 exact RGB parity failed: ${row}")
+  endif()
 
   if(index GREATER 0)
     string(APPEND json_rows ",\n")
@@ -93,7 +102,8 @@ set(document
   "  \"source_kind\": \"test_generated_original_pdf\",\n"
   "  \"reference\": \"independent_original_pdfium\",\n"
   "  \"subject\": \"private_c11_visible_composer_fill_nonzero_w_clip\",\n"
-  "  \"observation_only\": true,\n"
+  "  \"observation_only\": false,\n"
+  "  \"generated_source_exact_rgb_parity\": true,\n"
   "  \"pixel_parity_qualified\": false,\n"
   "  \"external_source_positive_increment\": 0,\n"
   "  \"page_count\": 8,\n"
