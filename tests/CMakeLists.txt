@@ -1818,7 +1818,10 @@ target_compile_definitions(quantapdf_test_native_source_qq_oracle PRIVATE
   GENERATED_USERUNIT7_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-generated-unit7-original.pdf"
   GENERATED_OVERSIZED_USERUNIT7_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-generated-oversize-unit7-original.pdf"
   GENERATED_UNIT7_MULTIDPI_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-generated-unit7-multidpi-original.pdf"
-  GENERATED_UNIT7_SHIFT_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-generated-unit7-fractional-crop-shift.pdf")
+  GENERATED_UNIT7_SHIFT_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-generated-unit7-fractional-crop-shift.pdf"
+  GENERATED_UNIT7_DECOMP_COMBINED_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-unit7-decomp-combined-original.pdf"
+  GENERATED_UNIT7_DECOMP_FILL_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-unit7-decomp-fill-original.pdf"
+  GENERATED_UNIT7_DECOMP_CLIP_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-unit7-decomp-clip-original.pdf")
 if(MSVC)
   target_compile_options(quantapdf_test_native_source_qq_oracle PRIVATE /utf-8)
 endif()
@@ -2699,6 +2702,33 @@ elseif(APPLE)
     "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 else()
   set_property(TEST quantapdf.native_generated_unit7_crop_shift_diagnostic
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
+
+# #269: three separate QPDF test-written ORIGINAL PDFs per mode,
+# with identical CropBox/Rotate/UserUnit but different source content.
+# Compare PDFium's combined mask with independently painted Fill-only
+# and W Clip-only original masks; no alternative render, SDK or fallback.
+add_test(NAME quantapdf.native_original_pdfium_clip_fill_decomposition
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE_EXECUTABLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DREPORT_FILE=${CMAKE_CURRENT_BINARY_DIR}/generated-unit7-pdfium-mask-decomposition.json"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_generated_unit7_pdfium_decomposition.cmake")
+set_tests_properties(quantapdf.native_original_pdfium_clip_fill_decomposition
+  PROPERTIES TIMEOUT 50
+    LABELS "conformance;source-pdf;generated-original;pdfium-observation;clip-fill-decomposition")
+if(WIN32)
+  set_property(TEST quantapdf.native_original_pdfium_clip_fill_decomposition
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_original_pdfium_clip_fill_decomposition
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_original_pdfium_clip_fill_decomposition
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
