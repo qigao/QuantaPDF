@@ -7329,7 +7329,8 @@ static int quarantine_pypdf_graph_geometry(
         for(size_t mode=0u;mode<3u;++mode){
             const unsigned dpi=dpis[mode];
             quantapdf_graph_device_grid device{},repeat{};
-            const quantapdf_graph_device_grid zero{};
+            quantapdf_graph_device_grid zero{};
+            std::memset(&zero,0,sizeof(zero));
             const uint32_t want_w=pixel_bounds[page][mode][0];
             const uint32_t want_h=pixel_bounds[page][mode][1];
             OK(quantapdf_graph_page_device_grid(
@@ -7401,7 +7402,8 @@ static int quarantine_pypdf_graph_geometry(
         }
         quantapdf_graph_device_grid invalid{};
         std::memset(&invalid,0xa5,sizeof(invalid));
-        const quantapdf_graph_device_grid zero{};
+        quantapdf_graph_device_grid zero{};
+        std::memset(&zero,0,sizeof(zero));
         CHECK(quantapdf_graph_page_device_grid(
             &g,120u,1000000u,3000000u,&invalid)==
             QUANTAPDF_ERROR_UNSUPPORTED);
