@@ -517,6 +517,22 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Review actual original Unit7 decimal CropBox grid A/B (Linux)
+        shell: bash
+        run: |
+          cat build/linux-gcc-release/tests/generated-unit7-decimal-crop-device-ab.json
+          cat build/linux-gcc-debug/tests/generated-unit7-decimal-crop-device-ab.json
+
+      - name: Upload original Unit7 decimal CropBox grid A/B (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-unit7-decimal-crop-linux
+          path: |
+            build/linux-gcc-release/tests/generated-unit7-decimal-crop-device-ab.json
+            build/linux-gcc-debug/tests/generated-unit7-decimal-crop-device-ab.json
+          if-no-files-found: error
+          retention-days: 7
+
   macos:
     if: >-
       github.event_name == 'push' ||
@@ -911,6 +927,18 @@ jobs:
         with:
           name: generated-unit7-fill-dpi-macos
           path: build/macos-clang-release/tests/generated-unit7-fill-dpi-heldout.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review actual original Unit7 decimal CropBox grid A/B (macOS)
+        shell: bash
+        run: cat build/macos-clang-release/tests/generated-unit7-decimal-crop-device-ab.json
+
+      - name: Upload original Unit7 decimal CropBox grid A/B (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-unit7-decimal-crop-macos
+          path: build/macos-clang-release/tests/generated-unit7-decimal-crop-device-ab.json
           if-no-files-found: error
           retention-days: 7
 
@@ -1319,5 +1347,17 @@ jobs:
         with:
           name: generated-unit7-fill-dpi-windows
           path: build/Msvc-Release/tests/generated-unit7-fill-dpi-heldout.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review actual original Unit7 decimal CropBox grid A/B (Windows)
+        shell: pwsh
+        run: Get-Content build/Msvc-Release/tests/generated-unit7-decimal-crop-device-ab.json
+
+      - name: Upload original Unit7 decimal CropBox grid A/B (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-unit7-decimal-crop-windows
+          path: build/Msvc-Release/tests/generated-unit7-decimal-crop-device-ab.json
           if-no-files-found: error
           retention-days: 7
