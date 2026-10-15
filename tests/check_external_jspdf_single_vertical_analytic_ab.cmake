@@ -1374,6 +1374,23 @@ if(NOT signed_status STREQUAL "measured_unqualified"
 endif()
 message(STATUS
   "jspdf-private-original-exact-pixel: source_pixels=501832 rgb_error=0 different=0 max=0 fnv=bfba622e41c96ca7 release=false official_original_positive=0 sdk=pdfium")
+# Real original-source owned-IR page metadata refusal experiment.
+# Both FINAL private C11 candidates already rendered the unchanged
+# source page with pixel-exact independent PDFium comparison. The
+# following 18 unsupported geometry calls are negatives only.
+string(JSON source_meta_status GET "${json}" source_page_metadata_refusal_status)
+string(JSON source_meta_stroke GET "${json}" source_page_metadata_refused_stroke)
+string(JSON source_meta_clip GET "${json}" source_page_metadata_refused_clip_fill)
+string(JSON source_meta_commands GET "${json}" source_page_metadata_command_buffers_unchanged)
+string(JSON source_meta_zero GET "${json}" source_page_metadata_all_zero_output)
+if(NOT source_meta_status STREQUAL "measured_unqualified"
+   OR NOT source_meta_stroke EQUAL 9
+   OR NOT source_meta_clip EQUAL 9
+   OR NOT source_meta_commands OR NOT source_meta_zero)
+  message(FATAL_ERROR "Immutable original-source Q8 page geometry did not fail closed")
+endif()
+message(STATUS
+  "jsPDF-owned-IR-unsupported-page-geometry: stroke=${source_meta_stroke} clip_fill=${source_meta_clip} no_output=true source_unchanged=true")
 file(SHA256 "${SOURCE}" after)
 if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original jsPDF source mutated by A/B")

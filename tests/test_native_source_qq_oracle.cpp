@@ -4286,6 +4286,89 @@ int test_external_jspdf_single_vertical_analytic_ab(
     std::fprintf(stderr,"[jsPDF mode4 original residual regions] %s\n",
                  mode4_regions_json.c_str());
 
+
+    /* Source-backed post-render PRIVATE negative page-metadata gate.
+     * The entire genuine immutable jsPDF PDF was parsed, lowered into
+     * owned Detached IR, and already rendered by both final private
+     * signed-area Stroke and Clip/Fill A8-mask candidates. Reuse these
+     * EXACT borrowed real-source commands and alter ONLY the supplied
+     * device/page geometry for separately unqualified /CropBox origins,
+     * /Rotate, /UserUnit, page extent, and unsupported DPI.
+     *
+     * No PDF bytes, Source/Graph/Detached IR content, main geometry or
+     * positive pixel result is changed. All negative calls must refuse
+     * transactionally. This is NOT a metadata normalizer or an SDK
+     * dispatch path, and makes no claim of supported rotated pages. */
+    CHECK(only_stroke.operations!=nullptr &&
+          only_fill.operations!=nullptr &&
+          only_fill.resources.clips!=nullptr &&
+          only_fill.resources.clip_count==1u);
+    const auto *owned_stroke_cmds=only_stroke.operations[0].value.path.commands;
+    const auto *owned_fill_cmds=only_fill.operations[0].value.path.commands;
+    const auto *owned_clip_cmds=only_fill.resources.clips[0].commands;
+    const size_t owned_stroke_n=only_stroke.operations[0].value.path.command_count;
+    const size_t owned_fill_n=only_fill.operations[0].value.path.command_count;
+    const size_t owned_clip_n=only_fill.resources.clips[0].command_count;
+    CHECK(owned_stroke_cmds && owned_fill_cmds && owned_clip_cmds &&
+          owned_stroke_n>0u && owned_stroke_n<=64u &&
+          owned_fill_n>0u && owned_fill_n<=64u &&
+          owned_clip_n>0u && owned_clip_n<=64u);
+    const std::vector<quantapdf_composer_path_command> stroke_source_bytes(
+        owned_stroke_cmds,owned_stroke_cmds+owned_stroke_n);
+    const std::vector<quantapdf_composer_path_command> fill_source_bytes(
+        owned_fill_cmds,owned_fill_cmds+owned_fill_n);
+    const std::vector<quantapdf_composer_path_command> clip_source_bytes(
+        owned_clip_cmds,owned_clip_cmds+owned_clip_n);
+    size_t original_metadata_refused_stroke=0u;
+    size_t original_metadata_refused_clip_fill=0u;
+    for(unsigned variant=0u;variant<9u;++variant) {
+        quantapdf_native_device_grid_geometry unsupported=geometry;
+        switch(variant) {
+            case 0u:unsupported.visible_origin_x_points=0.125;break;
+            case 1u:unsupported.visible_origin_y_points=-0.125;break;
+            case 2u:unsupported.user_unit=2.0;break;
+            case 3u:unsupported.intrinsic_rotation_quarters=1;break;
+            case 4u:unsupported.requested_rotation_quarters=3;break;
+            case 5u:unsupported.page_width_points+=0.25;break;
+            case 6u:unsupported.page_height_points+=0.25;break;
+            case 7u:unsupported.user_unit=0.5;break;
+            case 8u:unsupported.dpi=120.0f;break;
+            default:CHECK(false);
+        }
+        quantapdf_ir_raster_image refused_stroke;
+        std::memset(&refused_stroke,0xa5,sizeof(refused_stroke));
+        CHECK(quantapdf_ir_raster_device_polyline_stroke_q8_retrace_outer_area_preview_v0(
+            &only_stroke,0u,&unsupported,&signed_grid,&signed_budget,
+            &refused_stroke)==QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(refused_stroke.pixels==nullptr &&
+              refused_stroke.width==0u && refused_stroke.height==0u &&
+              refused_stroke.stride==0u && refused_stroke.size==0u);
+        ++original_metadata_refused_stroke;
+        quantapdf_ir_raster_image refused_clip_fill;
+        std::memset(&refused_clip_fill,0xa5,sizeof(refused_clip_fill));
+        CHECK(quantapdf_ir_raster_rect_clip_left_fill_bottom_preview_v0(
+            &only_fill,0u,&unsupported,&clip_bottom_grid,
+            &clip_bottom_budget,&refused_clip_fill)==QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(refused_clip_fill.pixels==nullptr &&
+              refused_clip_fill.width==0u && refused_clip_fill.height==0u &&
+              refused_clip_fill.stride==0u && refused_clip_fill.size==0u);
+        ++original_metadata_refused_clip_fill;
+        CHECK(std::memcmp(owned_stroke_cmds,stroke_source_bytes.data(),
+                          owned_stroke_n*sizeof(*owned_stroke_cmds))==0 &&
+              std::memcmp(owned_fill_cmds,fill_source_bytes.data(),
+                          owned_fill_n*sizeof(*owned_fill_cmds))==0 &&
+              std::memcmp(owned_clip_cmds,clip_source_bytes.data(),
+                          owned_clip_n*sizeof(*owned_clip_cmds))==0);
+    }
+    CHECK(original_metadata_refused_stroke==9u &&
+          original_metadata_refused_clip_fill==9u);
+    CHECK(signed_metric.abs_rgb==0u && signed_metric.changed==0u);
+    std::fprintf(stderr,
+        "[original jsPDF owned-IR page-metadata refusal] "
+        "signed_area=9 clip_mask=9 original_pdfium_pixel_error=0 "
+        "borrowed_commands_unchanged=true zero_output=true "
+        "sdk_switch=false\n");
+
     quantapdf_ir_raster_image_dispose(&signed_page_repeat);
     quantapdf_ir_raster_image_dispose(&signed_page);
     quantapdf_ir_raster_image_dispose(&signed_repeat);
@@ -4655,6 +4738,11 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"signed_outer_gross_delta64_pixels\": %zu,\n"
         "  \"signed_outer_max_channel_delta\": %u,\n"
         "  \"signed_outer_rgb_fnv64\": \"%016llx\",\n"
+        "  \"source_page_metadata_refusal_status\": \"measured_unqualified\",\n"
+        "  \"source_page_metadata_refused_stroke\": %zu,\n"
+        "  \"source_page_metadata_refused_clip_fill\": %zu,\n"
+        "  \"source_page_metadata_command_buffers_unchanged\": true,\n"
+        "  \"source_page_metadata_all_zero_output\": true,\n"
         "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
@@ -4797,7 +4885,9 @@ int test_external_jspdf_single_vertical_analytic_ab(
         (double)signed_metric.abs_rgb/1505496.0,
         signed_metric.changed,signed_metric.gross,
         signed_metric.max_delta,
-        (unsigned long long)signed_metric.fnv);
+        (unsigned long long)signed_metric.fnv,
+        original_metadata_refused_stroke,
+        original_metadata_refused_clip_fill);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
