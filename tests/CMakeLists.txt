@@ -1823,7 +1823,8 @@ target_compile_definitions(quantapdf_test_native_source_qq_oracle PRIVATE
   GENERATED_UNIT7_DECOMP_FILL_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-unit7-decomp-fill-original.pdf"
   GENERATED_UNIT7_DECOMP_CLIP_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-unit7-decomp-clip-original.pdf"
   GENERATED_UNIT7_FILL_EXTENT_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-unit7-fill-extent-heldout-original.pdf"
-  GENERATED_UNIT7_FILL_DPI_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-unit7-fill-dpi-heldout-original.pdf")
+  GENERATED_UNIT7_FILL_DPI_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-unit7-fill-dpi-heldout-original.pdf"
+  GENERATED_UNIT7_DECIMAL_CROP_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-unit7-decimal-crop-device-original.pdf")
 if(MSVC)
   target_compile_options(quantapdf_test_native_source_qq_oracle PRIVATE /utf-8)
 endif()
@@ -2781,6 +2782,32 @@ elseif(APPLE)
     "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 else()
   set_property(TEST quantapdf.native_generated_unit7_fill_dpi_heldout
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
+
+# #269: original QPDF test-generated CropBox decimal spellings versus
+# existing bounded Graph decimal parser & private 72/96/144 grid.
+# Integer-thousandth candidate is TEST NUMERICAL DIAGNOSTIC ONLY.
+add_test(NAME quantapdf.native_generated_unit7_decimal_crop_device_ab
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE_EXECUTABLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DREPORT_FILE=${CMAKE_CURRENT_BINARY_DIR}/generated-unit7-decimal-crop-device-ab.json"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_generated_unit7_decimal_crop_ab.cmake")
+set_tests_properties(quantapdf.native_generated_unit7_decimal_crop_device_ab
+  PROPERTIES TIMEOUT 40
+    LABELS "conformance;source-pdf;generated-original;decimal-page-device;diagnostic")
+if(WIN32)
+  set_property(TEST quantapdf.native_generated_unit7_decimal_crop_device_ab
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_generated_unit7_decimal_crop_device_ab
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_generated_unit7_decimal_crop_device_ab
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
