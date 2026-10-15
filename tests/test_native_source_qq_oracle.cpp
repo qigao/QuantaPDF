@@ -2311,6 +2311,89 @@ int test_external_jspdf_single_vertical_analytic_ab(
           std::memcmp(bottom_near_page.pixels,bottom_near_page_repeat.pixels,
                       bottom_near_page.size)==0);
     const page_metrics bottom_near_metric=measure(bottom_near_page);
+
+    /* NINETEENTH entirely independent original-source Q8 A/B:
+     * the tiny Fill-right/BOTTOM clipped corner. Same exact admitted
+     * mode10 source Fill elsewhere and same immutable mode10 Stroke.
+     * Original PDFium is measured ONLY by the test's pixel metric. */
+    quantapdf_ir_raster_image bottom_right_fill{},bottom_right_repeat{},
+        bottom_right_page{},bottom_right_page_repeat{};
+    OK(quantapdf_ir_raster_rect_fill_bottom_right_q8_preview_v0(
+        &only_fill,0u,&geometry,&fill_grid,&fill_budget,&bottom_right_fill));
+    OK(quantapdf_ir_raster_rect_fill_bottom_right_q8_preview_v0(
+        &only_fill,0u,&geometry,&fill_grid,&fill_budget,&bottom_right_repeat));
+    CHECK(bottom_right_fill.pixels && bottom_right_repeat.pixels &&
+          bottom_right_fill.size==bottom_near_fill.size &&
+          bottom_right_repeat.size==bottom_right_fill.size &&
+          std::memcmp(bottom_right_fill.pixels,bottom_right_repeat.pixels,
+                      bottom_right_fill.size)==0);
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &adjacent_stroke,&bottom_right_fill,&composite_budget,
+        &bottom_right_page));
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &adjacent_repeat,&bottom_right_repeat,&composite_budget,
+        &bottom_right_page_repeat));
+    CHECK(bottom_right_page.pixels && bottom_right_page_repeat.pixels &&
+          bottom_right_page.size==bottom_near_page.size &&
+          std::memcmp(bottom_right_page.pixels,bottom_right_page_repeat.pixels,
+                      bottom_right_page.size)==0);
+    const page_metrics bottom_right_metric=measure(bottom_right_page);
+    size_t bottom_right_source_changed=0u,bottom_right_outside=0u,
+           bottom_right_alpha_gt3=0u,bottom_right_output_outside=0u;
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t off=y*bottom_right_fill.stride+x*4u;
+        const unsigned old_a=bottom_near_fill.pixels[off+3u];
+        const unsigned new_a=bottom_right_fill.pixels[off+3u];
+        CHECK(bottom_right_page.pixels[off+3u]==255u);
+        if(old_a!=new_a) {
+            ++bottom_right_source_changed;
+            /* Source page coordinates below are exclusively in this
+             * test-only scope guard, never in the private C11 raster. */
+            if(!(x==150u && y==100u))++bottom_right_outside;
+            CHECK(old_a==0u && new_a>0u);
+            CHECK(bottom_near_fill.pixels[off]==0u &&
+                  bottom_near_fill.pixels[off+1u]==0u &&
+                  bottom_near_fill.pixels[off+2u]==0u);
+            CHECK(bottom_right_fill.pixels[off]==255u &&
+                  bottom_right_fill.pixels[off+1u]==0u &&
+                  bottom_right_fill.pixels[off+2u]==0u);
+            if(new_a>3u)++bottom_right_alpha_gt3;
+        } else {
+            CHECK(std::memcmp(bottom_near_fill.pixels+off,
+                              bottom_right_fill.pixels+off,4u)==0);
+            for(size_t ch=0u;ch<3u;++ch)
+                if(bottom_right_page.pixels[off+ch]!=
+                   bottom_near_page.pixels[off+ch])
+                    ++bottom_right_output_outside;
+        }
+    }
+    CHECK(bottom_right_source_changed==1u &&
+          bottom_right_outside==0u &&
+          bottom_right_alpha_gt3==0u &&
+          bottom_right_output_outside==0u);
+    const size_t corner_off=100u*bottom_right_page.stride+150u*4u;
+    const unsigned char *truth_bottom_right=reference.at(150u,100u);
+    std::fprintf(stderr,
+        "[original jsPDF genuine Q8 Fill-bottom-right source corner A/B] "
+        "parent_rgb=%llu trial_rgb=%llu parent_changed=%zu "
+        "trial_changed=%zu source_changed=%zu outside=%zu "
+        "source_alpha_before=%u after=%u native=(%u,%u,%u) "
+        "pdfium=(%u,%u,%u) max=%u fnv=%016llx\n",
+        (unsigned long long)bottom_near_metric.abs_rgb,
+        (unsigned long long)bottom_right_metric.abs_rgb,
+        bottom_near_metric.changed,bottom_right_metric.changed,
+        bottom_right_source_changed,bottom_right_outside,
+        (unsigned)bottom_near_fill.pixels[corner_off+3u],
+        (unsigned)bottom_right_fill.pixels[corner_off+3u],
+        (unsigned)bottom_right_page.pixels[corner_off],
+        (unsigned)bottom_right_page.pixels[corner_off+1u],
+        (unsigned)bottom_right_page.pixels[corner_off+2u],
+        (unsigned)truth_bottom_right[0],
+        (unsigned)truth_bottom_right[1],
+        (unsigned)truth_bottom_right[2],
+        bottom_right_metric.max_delta,
+        (unsigned long long)bottom_right_metric.fnv);
+
     size_t bottom_near_changed=0u,bottom_near_outside=0u,
            bottom_near_alpha_gt3=0u,bottom_near_rgb_outside=0u;
     for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
@@ -3829,6 +3912,10 @@ int test_external_jspdf_single_vertical_analytic_ab(
     std::fprintf(stderr,"[jsPDF mode4 original residual regions] %s\n",
                  mode4_regions_json.c_str());
 
+    quantapdf_ir_raster_image_dispose(&bottom_right_page_repeat);
+    quantapdf_ir_raster_image_dispose(&bottom_right_page);
+    quantapdf_ir_raster_image_dispose(&bottom_right_repeat);
+    quantapdf_ir_raster_image_dispose(&bottom_right_fill);
     quantapdf_ir_raster_image_dispose(&bottom_near_page_repeat);
     quantapdf_ir_raster_image_dispose(&bottom_near_page);
     quantapdf_ir_raster_image_dispose(&bottom_near_repeat);
@@ -4097,7 +4184,21 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"bottom_near_changed_pixels\": %zu,\n"
         "  \"bottom_near_gross_delta64_pixels\": %zu,\n"
         "  \"bottom_near_max_channel_delta\": %u,\n"
-        "  \"bottom_near_rgb_fnv64\": \"%016llx\",\n"        "  \"native_original_pixel_positive_count\": 0,\n"
+        "  \"bottom_near_rgb_fnv64\": \"%016llx\",\n"        "  \"bottom_right_q8_status\": \"measured_unqualified\",\n"
+        "  \"bottom_right_q8_default_changed\": false,\n"
+        "  \"bottom_right_q8_pixel_parity_qualified\": false,\n"
+        "  \"bottom_right_q8_repeat_equal\": true,\n"
+        "  \"bottom_right_q8_source_rgba_changed_pixels\": %zu,\n"
+        "  \"bottom_right_q8_outside_source_corner\": %zu,\n"
+        "  \"bottom_right_q8_alpha_delta_gt3\": %zu,\n"
+        "  \"bottom_right_q8_output_outside_source_change\": %zu,\n"
+        "  \"bottom_right_q8_abs_rgb_error\": %llu,\n"
+        "  \"bottom_right_q8_mean_abs_rgb_error\": %.9f,\n"
+        "  \"bottom_right_q8_changed_pixels\": %zu,\n"
+        "  \"bottom_right_q8_gross_delta64_pixels\": %zu,\n"
+        "  \"bottom_right_q8_max_channel_delta\": %u,\n"
+        "  \"bottom_right_q8_rgb_fnv64\": \"%016llx\",\n"
+        "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
         changed_stroke_pixels,other_geometry_changes,
@@ -4196,7 +4297,14 @@ int test_external_jspdf_single_vertical_analytic_ab(
         (double)bottom_near_metric.abs_rgb/1505496.0,
         bottom_near_metric.changed,bottom_near_metric.gross,
         bottom_near_metric.max_delta,
-        (unsigned long long)bottom_near_metric.fnv);
+        (unsigned long long)bottom_near_metric.fnv,
+        bottom_right_source_changed,bottom_right_outside,
+        bottom_right_alpha_gt3,bottom_right_output_outside,
+        (unsigned long long)bottom_right_metric.abs_rgb,
+        (double)bottom_right_metric.abs_rgb/1505496.0,
+        bottom_right_metric.changed,bottom_right_metric.gross,
+        bottom_right_metric.max_delta,
+        (unsigned long long)bottom_right_metric.fnv);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
