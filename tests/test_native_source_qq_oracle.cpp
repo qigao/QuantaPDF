@@ -7066,7 +7066,7 @@ static void write_single_w_visible_page(
 {
     CHECK(rotation==0 || rotation==90 || rotation==180 || rotation==270);
     CHECK(unit==1 || unit==2 || unit==7);
-    CHECK(crop_variant<=3u && content_variant<=2u);
+    CHECK(crop_variant<=3u && content_variant<=5u);
     CHECK(source_output!=nullptr && *source_output);
     auto pdf=QPDF::create();
     pdf->emptyPDF();
@@ -7096,13 +7096,18 @@ static void write_single_w_visible_page(
     leaf.replaceKey("/Parent",root);
     /* One nonzero source W Clip, one opaque red Fill; no content CTM.
      * Native preview must consume the source-derived Owned Composer IR. */
-    const char *const source_commands[3]={
+    const char *const source_commands[6]={
         "3 4 6 6 re W n 1 0 0 rg 4 5 6 4 re f",
         "1 0 0 rg 4 5 6 4 re f",
-        "3 4 6 6 re W n 1 0 0 rg 0 0 20 30 re f"
+        "3 4 6 6 re W n 1 0 0 rg 0 0 20 30 re f",
+        /* Held-out independent original SOURCE Fill-only dimensions;
+         * no modification to existing three original content fixtures. */
+        "1 0 0 rg 4 5 5 4 re f",
+        "1 0 0 rg 4 5 6 3 re f",
+        "1 0 0 rg 4.125 5.125 5.625 3.375 re f"
     };
-    /* Test-only original source variants: combined / paint-only / clip-only.
-     * Never re-export a Composer IR into the PDFium oracle. */
+    /* Test-only original source variants: combined / paint-only /
+     * clip-only / held-out Fill dimensions. Never re-export Composer IR. */
     leaf.replaceKey("/Contents",
         pdf->newStream(source_commands[content_variant]));
     QPDFWriter writer(*pdf);
