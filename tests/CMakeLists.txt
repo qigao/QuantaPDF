@@ -2512,3 +2512,25 @@ else()
 endif()
 add_test(NAME quantapdf.graph_page_device COMMAND quantapdf_test_graph_page_device)
 set_tests_properties(quantapdf.graph_page_device PROPERTIES TIMEOUT 30)
+
+# #269 Draft only: native-facing inverse Q4 sampling remains standalone pure C11.
+# No QPDF, PDFium, quantapdf_backend, SDK, or raster target linkage.
+add_executable(quantapdf_test_graph_page_device_sampling
+  test_graph_page_device_sampling.c
+  ../src/graph/graph_page_device_sample.c
+  ../src/graph/graph_page_device.c
+  ../src/graph/graph_page_display.c)
+target_include_directories(quantapdf_test_graph_page_device_sampling PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_graph_page_device_sampling PRIVATE c_std_11)
+if(UNIX)
+  target_link_libraries(quantapdf_test_graph_page_device_sampling PRIVATE m)
+endif()
+if(MSVC)
+  target_compile_options(quantapdf_test_graph_page_device_sampling PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_test_graph_page_device_sampling PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.graph_page_device_sampling
+  COMMAND quantapdf_test_graph_page_device_sampling)
+set_tests_properties(quantapdf.graph_page_device_sampling PROPERTIES TIMEOUT 30)
