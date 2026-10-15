@@ -102,7 +102,7 @@ set(document
   "  \"source_kind\": \"test_generated_original_pdf\",\n"
   "  \"reference\": \"independent_original_pdfium\",\n"
   "  \"subject\": \"private_c11_visible_composer_fill_nonzero_w_clip\",\n"
-  "  \"observation_only\": false,\n"
+  "  \"observation_only\": true,\n"
   "  \"generated_source_exact_rgb_parity\": true,\n"
   "  \"pixel_parity_qualified\": false,\n"
   "  \"external_source_positive_increment\": 0,\n"
