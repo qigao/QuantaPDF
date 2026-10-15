@@ -1519,7 +1519,7 @@ static int test_retraced_outer_q8_phase_sweep(void)
         const uint64_t total=(uint64_t)(3*h_area+outer_area);
         const unsigned expected=total>=65280u?255u:(unsigned)(total/256u);
         CHECK(expected>0u && expected<255u);
-        std::fprintf(stderr,
+        fprintf(stderr,
             "[source-Q8 phase sweep] dpi=%u device=%zux%zu "
             "cell=(%zu,%zu) old=%u candidate=%u model=%u "
             "hQ8area=%lld outerQ8area=%lld\n",
