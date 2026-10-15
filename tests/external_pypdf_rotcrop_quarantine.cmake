@@ -41,3 +41,30 @@ foreach(page_idx RANGE 0 3)
       "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
   endif()
 endforeach()
+
+# Real selected sealed Graph page geometry (not a PDF lexical shortcut):
+# compare effective CropBox/Rotate/default UserUnit to independently pinned
+# ORIGINAL boxes, then bound the four source corners to device bitmap edges.
+# This is a private geometry-only observer; no native pixels or SDK change.
+add_test(NAME quantapdf.external_pypdf_rotcrop_graph_device
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORIGINAL_FILE=${QP_PYPDF_ROT_CROP_ORIGINAL}"
+    "-DORACLE_EXECUTABLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DREPORT_FILE=${CMAKE_CURRENT_BINARY_DIR}/external-pypdf-rotcrop-graph-device.json"
+    -P "${PROJECT_SOURCE_DIR}/tests/check_external_pypdf_graph_device.cmake")
+set_tests_properties(quantapdf.external_pypdf_rotcrop_graph_device
+  PROPERTIES TIMEOUT 45
+    LABELS "conformance;external-original;sealed-graph;geometry-only;quarantine")
+if(WIN32)
+  set_property(TEST quantapdf.external_pypdf_rotcrop_graph_device
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_pypdf_rotcrop_graph_device
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_pypdf_rotcrop_graph_device
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
