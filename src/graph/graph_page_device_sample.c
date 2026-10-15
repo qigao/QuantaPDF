@@ -8,9 +8,15 @@
  * these checks also make the sampling helper standalone and fail-closed. */
 static int grid_valid(const quantapdf_graph_device_grid *grid)
 {
-    if (grid == NULL || grid->width == 0u || grid->height == 0u ||
-        (size_t)grid->width > SIZE_MAX / 3u)
+    if (grid == NULL || grid->width == 0u || grid->height == 0u)
         return 0;
+    /* uint32_t width*RGB3 is automatically safe on 64-bit size_t.
+     * Only 32-bit hosts require the explicit width multiplication guard.
+     * Avoid a permanently-false comparison rejected by -Wtype-limits. */
+#if SIZE_MAX <= UINT32_MAX
+    if ((size_t)grid->width > SIZE_MAX / 3u)
+        return 0;
+#endif
     if (grid->stride_bytes != (size_t)grid->width * 3u ||
         (size_t)grid->height > SIZE_MAX / grid->stride_bytes ||
         grid->output_bytes != grid->stride_bytes * (size_t)grid->height)
