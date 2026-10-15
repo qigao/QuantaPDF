@@ -7428,10 +7428,17 @@ static int quarantine_pypdf_capture_stage_matrix(
         {"only_total_storage_default",{
             wide.max_nodes,wide.max_edges,wide.max_value_bytes,
             wide.max_stream_bytes,baseline.max_storage_bytes,wide.max_depth
+        },QUANTAPDF_ERROR_STATE},
+        /* Minimal test-only admission: change ONLY the proven original
+         * 10k-node cap; keep default edge/bytes/storage/depth contracts. */
+        {"node_only_16000",{
+            16000u,baseline.max_edges,baseline.max_value_bytes,
+            baseline.max_stream_bytes,baseline.max_storage_bytes,
+            baseline.max_depth
         },QUANTAPDF_ERROR_STATE}
     };
     constexpr size_t trial_count=sizeof(trials)/sizeof(trials[0]);
-    CHECK(trial_count==7u);
+    CHECK(trial_count==8u);
     quantapdf_document *doc=nullptr;
     quantapdf_graph_snapshot *large=nullptr;
     OK(quantapdf_open(source_path,nullptr,&doc));
@@ -7444,7 +7451,7 @@ static int quarantine_pypdf_capture_stage_matrix(
         if(trials[i].status==QUANTAPDF_OK) {
             CHECK(candidate && candidate->graph);
             CHECK(quantapdf_graph_view(candidate->graph)!=nullptr);
-            if(i==1u) large=candidate;
+            if(i==7u) large=candidate;
             else quantapdf_graph_snapshot_drop(candidate);
         } else
             CHECK(candidate==nullptr);
@@ -7455,7 +7462,10 @@ static int quarantine_pypdf_capture_stage_matrix(
     }
     quantapdf_close(doc);
     CHECK(large && trials[0].status==QUANTAPDF_ERROR_UNSUPPORTED &&
-          trials[1].status==QUANTAPDF_OK);
+          trials[1].status==QUANTAPDF_OK &&
+          trials[2].status==QUANTAPDF_ERROR_UNSUPPORTED);
+    for(size_t trial=3u;trial<trial_count;++trial)
+        CHECK(trials[trial].status==QUANTAPDF_OK);
     const quantapdf_graph_model *model=quantapdf_graph_view(large->graph);
     CHECK(model && model->page_count==4u);
     const size_t nodes=model->node_count;
@@ -7508,6 +7518,12 @@ static int quarantine_pypdf_capture_stage_matrix(
                   detached.resources.form_count==0u &&
                   detached.resources.soft_mask_count==0u);
         }
+        /* Now a STRICT content-stage rejection, not a generic Graph
+         * capacity failure. The source is unchanged, Group passes and
+         * independent Content rejects before any Composer IR publication. */
+        CHECK(stages[page_index].group==QUANTAPDF_OK &&
+              stages[page_index].semantics==QUANTAPDF_ERROR_UNSUPPORTED &&
+              stages[page_index].full==QUANTAPDF_ERROR_UNSUPPORTED);
         stages[page_index].detached_pages=detached.page_count;
         stages[page_index].detached_ops=detached.operation_count;
         quantapdf_ir_dispose(&detached);
@@ -7530,6 +7546,8 @@ static int quarantine_pypdf_capture_stage_matrix(
         "  \"scope\": \"separate_default_Graph_budget_from_content_pipeline\",\n"
         "  \"default_Graph_capture\": \"unsupported\",\n"
         "  \"wide_Graph_capture\": \"ok\",\n"
+        "  \"node_only_16000_capture\": \"ok\",\n"
+        "  \"strict_group_ok_content_unsupported_ir_zero\": true,\n"
         "  \"graph_owns_no_source_document\": true,\n"
         "  \"source_document_closed_before_page_stages\": true,\n"
         "  \"graph_node_count\": %zu,\n"
