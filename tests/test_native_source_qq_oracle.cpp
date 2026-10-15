@@ -9101,7 +9101,8 @@ static int test_generated_unit7_pdfium_mask_decomposition(
     };
     for(size_t i=0u;i<3u;++i){
         CHECK(sources[i]!=nullptr && *sources[i]);
-        CHECK(report_path!=sources[i] && stage!=sources[i]);
+        CHECK(std::strcmp(report_path,sources[i])!=0 &&
+              stage!=sources[i]);
         for(size_t j=0u;j<i;++j)
             CHECK(std::strcmp(sources[i],sources[j])!=0);
     }
