@@ -8226,9 +8226,13 @@ static int test_generated_unit7_multidpi_original_diagnostic(
         unsigned long long abs_rgb;
         size_t differing,gross;
         unsigned max_delta;
+        unsigned long long fitted_area_abs_rgb,nominal_area_abs_rgb;
+        size_t off_ideal_edge_diff;
     } modes[12]={};
     size_t total_pixels=0u,zero_output_negative=0u,source_repeats=0u;
     unsigned long long sum96=0u,sum144=0u;
+    unsigned long long fit96=0u,nominal96=0u;
+    size_t far96=0u;
     const auto read_original=[](const char *source_path){
         FILE *f=std::fopen(source_path,"rb");
         CHECK(f!=nullptr && std::fseek(f,0,SEEK_END)==0);
@@ -8370,8 +8374,54 @@ static int test_generated_unit7_multidpi_original_diagnostic(
                   on_white(native_red,1u)==0u &&
                   on_white(native_red,2u)==0u);
 
-            unsigned long long abs_error=0u;
-            size_t differing=0u,gross=0u;
+            /* #269 fractional-96dpi pure DIAGNOSTIC A/B.
+             * Source Clip [3..9,4..10] and Fill [4..10,5..9]
+             * intersect in one red source-space rect [4..9,5..9].
+             * Use the ORIGINAL Graph→Device transform for two analytic
+             * coverage models, not a second native paint/fallback. */
+            quantapdf_graph_page_display visible{};
+            OK(quantapdf_graph_page_display_map(&g,&visible));
+            double xlo=1e100,xhi=-1e100,ylo=1e100,yhi=-1e100;
+            const double rect_x[2]={4.0,9.0};
+            const double rect_y[2]={5.0,9.0};
+            for(unsigned ix=0u;ix<2u;++ix)
+                for(unsigned iy=0u;iy<2u;++iy){
+                    const double xx=grid.from_source[0]*rect_x[ix]+
+                        grid.from_source[2]*rect_y[iy]+grid.from_source[4];
+                    const double yy=grid.from_source[1]*rect_x[ix]+
+                        grid.from_source[3]*rect_y[iy]+grid.from_source[5];
+                    CHECK(std::isfinite(xx) && std::isfinite(yy));
+                    xlo=std::min(xlo,xx);xhi=std::max(xhi,xx);
+                    ylo=std::min(ylo,yy);yhi=std::max(yhi,yy);
+                }
+            CHECK(xlo>=0.0 && ylo>=0.0 && xhi<=(double)w &&
+                  yhi<=(double)h && xhi>xlo && yhi>ylo);
+            /* Nominal DPI is an intentionally alternative phase.
+             * Existing qualified Grid maps the original visible page
+             * to the entire ceil-rounded bitmap, independently X/Y. */
+            const double nominal=(double)dpi/72.0;
+            const double nx=nominal/
+                ((double)grid.width/visible.width_points);
+            const double ny=nominal/
+                ((double)grid.height/visible.height_points);
+            CHECK(std::isfinite(nx) && std::isfinite(ny) &&
+                  nx>0.0 && ny>0.0);
+            const auto overlap=[](double cell,double lo,double hi){
+                return std::max(0.0,std::min(cell+1.0,hi)-
+                                   std::max(cell,lo));
+            };
+            const auto theoretical_green=[&](size_t px,size_t py,
+                    double left,double right,double top,double bottom){
+                const double opacity=overlap((double)px,left,right)*
+                                     overlap((double)py,top,bottom);
+                CHECK(std::isfinite(opacity) && opacity>=0.0 &&
+                      opacity<=1.0+1e-9);
+                const double bounded=std::min(1.0,opacity);
+                return (unsigned)std::lround(255.0*(1.0-bounded));
+            };
+            unsigned long long abs_error=0u,fit_area_error=0u;
+            unsigned long long nominal_area_error=0u;
+            size_t differing=0u,gross=0u,off_edge=0u;
             unsigned max_delta=0u;
             for(size_t y=0u;y<h;++y)
                 for(size_t x=0u;x<w;++x){
@@ -8388,25 +8438,61 @@ static int test_generated_unit7_multidpi_original_diagnostic(
                         abs_error+=(unsigned long long)delta;
                         if(delta>maximum)maximum=delta;
                     }
-                    if(maximum>0u)++differing;
+                    if(maximum>0u) {
+                        ++differing;
+                        const double cx=(double)x+0.5;
+                        const double cy=(double)y+0.5;
+                        const bool near_vertical=
+                            (std::fabs(cx-xlo)<1.5 ||
+                             std::fabs(cx-xhi)<1.5) &&
+                            cy>=ylo-1.5 && cy<=yhi+1.5;
+                        const bool near_horizontal=
+                            (std::fabs(cy-ylo)<1.5 ||
+                             std::fabs(cy-yhi)<1.5) &&
+                            cx>=xlo-1.5 && cx<=xhi+1.5;
+                        if(!near_vertical && !near_horizontal)
+                            ++off_edge;
+                    }
                     if(maximum>64u)++gross;
                     if(maximum>max_delta)max_delta=maximum;
+                    const unsigned fitted=theoretical_green(
+                        x,y,xlo,xhi,ylo,yhi);
+                    const unsigned nominal_green=theoretical_green(
+                        x,y,xlo*nx,xhi*nx,ylo*ny,yhi*ny);
+                    for(unsigned channel=0u;channel<3u;++channel) {
+                        const unsigned ref_value=p[channel];
+                        const unsigned candidate_fit=channel==0u?255u:fitted;
+                        const unsigned candidate_nominal=
+                            channel==0u?255u:nominal_green;
+                        fit_area_error+=candidate_fit>ref_value?
+                            candidate_fit-ref_value:ref_value-candidate_fit;
+                        nominal_area_error+=candidate_nominal>ref_value?
+                            candidate_nominal-ref_value:ref_value-candidate_nominal;
+                    }
                 }
             const size_t record_index=(size_t)(rotation/90)*3u+mode;
             modes[record_index]={
-                rotation,dpi,w,h,pixels,abs_error,differing,gross,max_delta
+                rotation,dpi,w,h,pixels,abs_error,differing,gross,max_delta,
+                fit_area_error,nominal_area_error,off_edge
             };
             total_pixels+=pixels;
             if(dpi==72u)
                 CHECK(abs_error==0u && differing==0u &&
                       gross==0u && max_delta==0u);
-            if(dpi==96u)sum96+=abs_error;
+            if(dpi==96u) {
+                sum96+=abs_error;
+                fit96+=fit_area_error;
+                nominal96+=nominal_area_error;
+                far96+=off_edge;
+            }
             if(dpi==144u)sum144+=abs_error;
             std::fprintf(stderr,
-                "[generated original Unit7 multi-dpi DIAGNOSTIC] "
-                "rotation=%d dpi=%u w=%u h=%u RGBabs=%llu "
-                "different=%zu gross=%zu max=%u\n",
-                rotation,dpi,w,h,abs_error,differing,gross,max_delta);
+                "[generated original Unit7 96DPI COVERAGE A/B] "
+                "rotation=%d dpi=%u rasterRGB=%llu "
+                "fittedAreaRGB=%llu nominalAreaRGB=%llu "
+                "offIdealEdge=%zu changed=%zu gross=%zu max=%u\n",
+                rotation,dpi,abs_error,fit_area_error,
+                nominal_area_error,off_edge,differing,gross,max_delta);
 
             quantapdf_drop_bitmap(ref_again);
             quantapdf_drop_bitmap(ref);
@@ -8445,21 +8531,31 @@ static int test_generated_unit7_multidpi_original_diagnostic(
         "  \"dpi144_pixel_parity\":\"diagnostic_only\",\n"
         "  \"dpi96_total_abs_rgb\":%llu,\n"
         "  \"dpi144_total_abs_rgb\":%llu,\n"
+        "  \"dpi96_analytic_fit_area_abs_rgb\":%llu,\n"
+        "  \"dpi96_analytic_nominal_area_abs_rgb\":%llu,\n"
+        "  \"dpi96_off_ideal_edge_differences\":%zu,\n"
+        "  \"analytic_coverage_test_only\":true,\n"
         "  \"external_original_provenance_verified\":false,\n"
         "  \"external_native_positive_increment\":0,\n"
         "  \"public_sdk_backend_switched\":false,\n"
         "  \"frames\":[\n",
-        total_pixels,source_repeats,zero_output_negative,sum96,sum144);
+        total_pixels,source_repeats,zero_output_negative,
+        sum96,sum144,fit96,nominal96,far96);
     for(size_t k=0u;k<12u;++k){
         const auto& frame=modes[k];
         std::fprintf(out,
             "    {\"rotation\":%d,\"dpi\":%u,\"width\":%u,"
             "\"height\":%u,\"pixels\":%zu,\"abs_rgb\":%llu,"
             "\"different_pixels\":%zu,\"gross_pixels\":%zu,"
-            "\"max_channel_delta\":%u}%s\n",
+            "\"max_channel_delta\":%u,"
+            "\"fitted_area_abs_rgb\":%llu,"
+            "\"nominal_area_abs_rgb\":%llu,"
+            "\"off_ideal_edge_differences\":%zu}%s\n",
             frame.rotation,frame.dpi,frame.width,frame.height,
             frame.pixels,frame.abs_rgb,frame.differing,frame.gross,
-            frame.max_delta,k==11u?"":",");
+            frame.max_delta,frame.fitted_area_abs_rgb,
+            frame.nominal_area_abs_rgb,frame.off_ideal_edge_diff,
+            k==11u?"":",");
     }
     std::fprintf(out,"  ]\n}\n");
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
