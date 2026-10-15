@@ -88,6 +88,19 @@ quantapdf_ir_raster_rect_fill_bottom_right_q8_preview_v0(
     const quantapdf_ir_raster_v1_limits *raster_limits,
     quantapdf_ir_raster_image *out_image);
 
+/* TWELFTH explicitly callable PRIVATE source W Clip-left/top corner.
+ * Uses the existing source-continuous left coverage and Q8-quantized
+ * Clip-top coverage for one genuine two-edge source intersection only.
+ * Reuses the independently qualified mode11 Fill image and modifies
+ * only that corner's already-red Alpha. No SDK/public ABI or fallback. */
+quantapdf_status
+quantapdf_ir_raster_rect_clip_left_top_preview_v0(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
