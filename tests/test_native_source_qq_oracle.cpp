@@ -7060,10 +7060,12 @@ static void publish_corpus_report(const char *destination,
 /* Test-owned ORIGINAL PDF path, outside the formal external corpus.
  * The PDFium oracle consumes source bytes, never a Composer re-export.
  * No source/PDFium object is reachable from the private C11 Raster call. */
-static void write_single_w_visible_page(int rotation,int unit)
+static void write_single_w_visible_page(
+    int rotation,int unit,const char *source_output=GENERATED_VISIBLE_DEVICE_PDF)
 {
     CHECK(rotation==0 || rotation==90 || rotation==180 || rotation==270);
-    CHECK(unit==1 || unit==2);
+    CHECK(unit==1 || unit==2 || unit==7);
+    CHECK(source_output!=nullptr && *source_output);
     auto pdf=QPDF::create();
     pdf->emptyPDF();
     auto root=pdf->getRoot().getKey("/Pages");
@@ -7090,7 +7092,7 @@ static void write_single_w_visible_page(int rotation,int unit)
     writer.setOutputMemory();
     writer.write();
     auto bytes=writer.getBufferSharedPointer();
-    FILE *out=std::fopen(GENERATED_VISIBLE_DEVICE_PDF,"wb");
+    FILE *out=std::fopen(source_output,"wb");
     CHECK(out!=nullptr);
     CHECK(std::fwrite(bytes->getBuffer(),1,bytes->getSize(),out)==
           bytes->getSize());
@@ -7850,8 +7852,182 @@ static int quarantine_pypdf_pdfium_device_dimensions(
     return EXIT_SUCCESS;
 }
 
+/* #269: an ACTUAL generated original PDF carrying nondefault /UserUnit 7,
+ * with small enough page extent to admit bounded Fill + W Clip pixels.
+ * This is not the reporter's unverified attached original PDF and cannot
+ * increase the externally published/licensed source-positive count.
+ * Keep a separate source filename: CTest may run test modes concurrently. */
+static int test_generated_small_unit7_original_exact(
+    const char *report_path)
+{
+    CHECK(report_path!=nullptr && *report_path);
+    const std::string stage=std::string(report_path)+".tmp";
+    CHECK(std::strcmp(report_path,GENERATED_USERUNIT7_PDF)!=0 &&
+          stage!=GENERATED_USERUNIT7_PDF);
+    struct record {
+        int rotation;
+        size_t width,height,pixels;
+        unsigned long long abs_error;
+        size_t differing,gross;
+        unsigned max_channel;
+    } records[4]={};
+    size_t total_pixels=0u;
+    for(int rotation=0;rotation<360;rotation+=90){
+        const size_t i=(size_t)(rotation/90);
+        write_single_w_visible_page(rotation,7,GENERATED_USERUNIT7_PDF);
+        quantapdf_graph_page_geometry g{};
+        g.media_box[2]=20.0;
+        g.media_box[3]=30.0;
+        g.crop_box[0]=2.0;g.crop_box[1]=3.0;
+        g.crop_box[2]=12.0;g.crop_box[3]=11.0;
+        g.rotation=rotation;
+        g.user_unit=7.0;
+        quantapdf_ir ir{};
+        OK(snapshot_lower(&ir,0u,1u,2u,GENERATED_USERUNIT7_PDF));
+        CHECK(ir.page_count==1u && ir.operation_count==1u &&
+              ir.resources.graphics_state_count==1u &&
+              ir.resources.clip_count==1u);
+        const quantapdf_ir_raster_v1_limits caps={
+            20000u,1u,64u,2000000u
+        };
+        quantapdf_graph_device_grid grid{};
+        OK(quantapdf_graph_page_device_grid(&g,72u,20000u,60000u,&grid));
+        const size_t w=rotation%180?56u:70u;
+        const size_t h=rotation%180?70u:56u;
+        CHECK(grid.width==w && grid.height==h &&
+              grid.output_bytes==w*h*3u);
+        /* Still bounded despite the same nonunit UserUnit as the
+         * large synthetic preallocation refusal in the parent PR. */
+        OK(quantapdf_graph_device_grid_admit_q4_work(
+            &grid,8u,64u,2000000u));
+        quantapdf_ir_raster_image native{},again{};
+        OK(quantapdf_ir_raster_visible_page_fillclip_preview_v0(
+            &ir,0u,&g,72u,&caps,80000u,&native));
+        OK(quantapdf_ir_raster_visible_page_fillclip_preview_v0(
+            &ir,0u,&g,72u,&caps,80000u,&again));
+        CHECK(native.width==w && native.height==h &&
+              native.stride==4u*w && native.size==w*h*4u &&
+              again.size==native.size && native.pixels!=nullptr &&
+              again.pixels!=nullptr &&
+              std::memcmp(native.pixels,again.pixels,native.size)==0);
+
+        /* A falsified Unit=1 metadata projection MUST NOT be accepted for
+         * content already normalized with Unit=7, to prevent applying or
+         * overlooking the page transform in the native Raster. */
+        quantapdf_graph_page_geometry bad=g;
+        bad.user_unit=1.0;
+        quantapdf_ir_raster_image rejected{};
+        std::memset(&rejected,0xa5,sizeof(rejected));
+        CHECK(quantapdf_ir_raster_visible_page_fillclip_preview_v0(
+            &ir,0u,&bad,72u,&caps,80000u,&rejected)==
+            QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(rejected.pixels==nullptr && rejected.width==0u &&
+              rejected.height==0u && rejected.stride==0u &&
+              rejected.size==0u);
+        const rgb_image pdfium=render_original_pdfium(
+            0u,GENERATED_USERUNIT7_PDF);
+        CHECK(pdfium.width==(int)w && pdfium.height==(int)h);
+
+        /* An original-source interior sample is red after every intrinsic
+         * quarter-turn; the original PDFium's exterior must remain white. */
+        int center_x=4,center_y=4;
+        switch(rotation){
+        case 0:case 90:break;
+        case 180:center_x=6;break;
+        case 270:center_y=6;break;
+        default:CHECK(false);
+        }
+        const size_t sx=(size_t)center_x*7u;
+        const size_t sy=(size_t)center_y*7u;
+        CHECK(sx<w && sy<h);
+        const unsigned char *red=native.pixels+sy*native.stride+sx*4u;
+        const unsigned char *original_red=pdfium.at(sx,sy);
+        CHECK(red[0]==255u && red[1]==0u && red[2]==0u &&
+              red[3]==255u);
+        CHECK(original_red[0]==255u && original_red[1]==0u &&
+              original_red[2]==0u);
+        const unsigned char *outside=pdfium.at(0u,0u);
+        CHECK(outside[0]==255u && outside[1]==255u &&
+              outside[2]==255u);
+
+        unsigned long long abs_rgb=0u;
+        size_t changed=0u,gross=0u;
+        unsigned max_channel=0u;
+        for(size_t py=0u;py<h;++py)
+            for(size_t px=0u;px<w;++px){
+                const unsigned char *native_pixel=
+                    native.pixels+py*native.stride+4u*px;
+                const unsigned char *ref_pixel=pdfium.at(px,py);
+                unsigned max_pixel=0u;
+                for(size_t channel=0u;channel<3u;++channel){
+                    const unsigned actual=on_white(native_pixel,channel);
+                    const unsigned desired=ref_pixel[channel];
+                    const unsigned diff=actual>desired?
+                        actual-desired:desired-actual;
+                    abs_rgb+=(unsigned long long)diff;
+                    if(diff>max_pixel)max_pixel=diff;
+                }
+                if(max_pixel>0u)++changed;
+                if(max_pixel>64u)++gross;
+                if(max_pixel>max_channel)max_channel=max_pixel;
+            }
+        records[i]={rotation,w,h,w*h,abs_rgb,changed,gross,max_channel};
+        total_pixels+=w*h;
+        std::fprintf(stderr,
+            "[test-owned original UserUnit7 C11 vs PDFium] rotation=%d "
+            "pixels=%zu abs_rgb=%llu differing=%zu gross=%zu max_delta=%u\n",
+            rotation,w*h,abs_rgb,changed,gross,max_channel);
+        quantapdf_ir_raster_image_dispose(&native);
+        quantapdf_ir_raster_image_dispose(&again);
+        quantapdf_ir_dispose(&ir);
+        CHECK(std::remove(GENERATED_USERUNIT7_PDF)==0);
+        /* Require genuine zero RGB on every ORIGINAL generated input,
+         * never just an accepted mean/maximum tolerance. */
+        CHECK(abs_rgb==0u && changed==0u &&
+              gross==0u && max_channel==0u);
+    }
+    CHECK(total_pixels==15680u);
+
+    /* Atomic report. A failed test publishes no successful sentinel. */
+    FILE *out=std::fopen(stage.c_str(),"wb");
+    CHECK(out!=nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\":1,\n"
+        "  \"source_kind\":\"test_generated_original_pdf\",\n"
+        "  \"page_user_unit\":7,\n"
+        "  \"page_count\":4,\n"
+        "  \"total_rgb_pixels\":%zu,\n"
+        "  \"generated_source_exact_rgb_parity\":true,\n"
+        "  \"original_pdfium_byte_independent\":true,\n"
+        "  \"original_source_provider\":\"test_owned_qpdf_writer\",\n"
+        "  \"external_original_provenance_verified\":false,\n"
+        "  \"external_native_positive_increment\":0,\n"
+        "  \"public_sdk_backend_switched\":false,\n"
+        "  \"pages\":[\n",total_pixels);
+    for(size_t i=0u;i<4u;++i){
+        const auto& p=records[i];
+        std::fprintf(out,
+            "    {\"rotation\":%d,\"user_unit\":7,\"width\":%zu,"
+            "\"height\":%zu,\"pixels\":%zu,\"abs_rgb\":%llu,"
+            "\"different_pixels\":%zu,\"gross_pixels\":%zu,"
+            "\"max_channel_delta\":%u}%s\n",
+            p.rotation,p.width,p.height,p.pixels,p.abs_error,
+            p.differing,p.gross,p.max_channel,i==3u?"":",");
+    }
+    std::fprintf(out,"  ]\n}\n");
+    CHECK(std::ferror(out)==0 && std::fclose(out)==0);
+    CHECK(std::rename(stage.c_str(),report_path)==0);
+    CHECK(corpus_fixture_executions==0u);
+    return EXIT_SUCCESS;
+}
+
 int main(int argc,char **argv)
 {
+    if(argc==4 &&
+       std::strcmp(argv[1],"--generated-small-unit7-original-exact")==0 &&
+       std::strcmp(argv[2],"--unit7-report")==0)
+        return test_generated_small_unit7_original_exact(argv[3]);
     if(argc==5 &&
        std::strcmp(argv[1],"--quarantined-pypdf-original-pdfium-dimensions")==0 &&
        std::strcmp(argv[3],"--pdfium-dimension-report")==0)

@@ -1814,7 +1814,8 @@ target_compile_definitions(quantapdf_test_native_source_qq_oracle PRIVATE
   SOURCE_QQ_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-qq-source.pdf"
   GROUP_SOURCE_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-group-source.pdf"
   GENERATED_WSTAR_OBSERVE_PDF="${CMAKE_CURRENT_BINARY_DIR}/generated-wstar-typed-observe.pdf"
-  GENERATED_VISIBLE_DEVICE_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-generated-visible-device-source.pdf")
+  GENERATED_VISIBLE_DEVICE_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-generated-visible-device-source.pdf"
+  GENERATED_USERUNIT7_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-generated-unit7-original.pdf")
 if(MSVC)
   target_compile_options(quantapdf_test_native_source_qq_oracle PRIVATE /utf-8)
 endif()
@@ -2594,3 +2595,29 @@ endif()
 # #269: independent original py-pdf/PyMuPDF crop/rotate QUARANTINE.
 # CC-BY-SA, original source hash pin, no external native-positive admission.
 include("${PROJECT_SOURCE_DIR}/tests/external_pypdf_rotcrop_quarantine.cmake")
+
+# #269 test-GENERATED ORIGINAL PDF with nondefault /UserUnit 7.
+# No external uploaded source, no production renderer or SDK admission.
+# The separate source filename prevents data races with the existing
+# 8-page generated-original unit1/2 CTest under parallel ctest -j.
+add_test(NAME quantapdf.native_generated_small_unit7_original_exact
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE_EXECUTABLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DREPORT_FILE=${CMAKE_CURRENT_BINARY_DIR}/generated-small-unit7-original-rgb.json"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_generated_small_unit7_original.cmake")
+set_tests_properties(quantapdf.native_generated_small_unit7_original_exact
+  PROPERTIES TIMEOUT 40
+    LABELS "conformance;native-raster;generated-original;nonunit-userunit;exact-rgb")
+if(WIN32)
+  set_property(TEST quantapdf.native_generated_small_unit7_original_exact
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_generated_small_unit7_original_exact
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_generated_small_unit7_original_exact
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()

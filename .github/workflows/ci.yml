@@ -405,6 +405,24 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      # #269: strict four ORIGINAL test-generated UserUnit7 Fill/W Clip pages;
+      # never a licensed independent publisher-source positive.
+      - name: Review generated original UserUnit7 RGB parity (Linux)
+        shell: bash
+        run: |
+          cat build/linux-gcc-release/tests/generated-small-unit7-original-rgb.json
+          cat build/linux-gcc-debug/tests/generated-small-unit7-original-rgb.json
+
+      - name: Upload generated original UserUnit7 RGB parity (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-userunit7-original-linux
+          path: |
+            build/linux-gcc-release/tests/generated-small-unit7-original-rgb.json
+            build/linux-gcc-debug/tests/generated-small-unit7-original-rgb.json
+          if-no-files-found: error
+          retention-days: 7
+
   macos:
     if: >-
       github.event_name == 'push' ||
@@ -717,6 +735,18 @@ jobs:
             build/macos-clang-release/tests/external-pypdf-capture-stage-matrix.json
             build/macos-clang-release/tests/external-pypdf-original-pdfium-dimensions.json
             build/macos-clang-release/tests/external-pypdf-rotcrop-page*-typed-observe.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review generated original UserUnit7 RGB parity (macOS)
+        shell: bash
+        run: cat build/macos-clang-release/tests/generated-small-unit7-original-rgb.json
+
+      - name: Upload generated original UserUnit7 RGB parity (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-userunit7-original-macos
+          path: build/macos-clang-release/tests/generated-small-unit7-original-rgb.json
           if-no-files-found: error
           retention-days: 7
 
@@ -1043,5 +1073,17 @@ jobs:
             build/Msvc-Release/tests/external-pypdf-capture-stage-matrix.json
             build/Msvc-Release/tests/external-pypdf-original-pdfium-dimensions.json
             build/Msvc-Release/tests/external-pypdf-rotcrop-page*-typed-observe.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review generated original UserUnit7 RGB parity (Windows)
+        shell: pwsh
+        run: Get-Content build/Msvc-Release/tests/generated-small-unit7-original-rgb.json
+
+      - name: Upload generated original UserUnit7 RGB parity (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-userunit7-original-windows
+          path: build/Msvc-Release/tests/generated-small-unit7-original-rgb.json
           if-no-files-found: error
           retention-days: 7
