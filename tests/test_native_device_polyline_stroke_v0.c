@@ -1228,6 +1228,91 @@ static int test_q8_miter_adjacent_device_cells_trial(void)
     return EXIT_SUCCESS;
 }
 
+
+/* ELEVENTH private C11 source-topology trial: an EXACT top horizontal
+ * retrace following a rising vertical may quantize only the exterior
+ * device-cell fragment to the left of its joint, never the opaque top
+ * horizontal interior or any unrelated miter/cap. */
+static int test_vh_retrace_exterior_q8(void)
+{
+    fixture f;
+    quantapdf_ir_raster_image old={0},trial={0},repeat={0};
+    quantapdf_composer_path_command path[7];
+    setup(&f);
+    memset(path,0,sizeof(path));
+    const quantapdf_point pts[7]={
+        {2.0f,8.0f},{20.0f,8.0f},{20.0f,20.0f},
+        {2.0f,20.0f},{2.0f,8.0f},{20.0f,8.0f},{2.0f,8.0f}
+    };
+    for(size_t i=0u;i<7u;++i) {
+        path[i].kind=i==0u?QUANTAPDF_COMPOSER_PATH_MOVE_TO:
+                              QUANTAPDF_COMPOSER_PATH_LINE_TO;
+        path[i].point1=pts[i];
+    }
+    f.op.value.path.commands=path;
+    f.op.value.path.command_count=7u;
+    f.op.value.path.options.stroke_width=1.0f;
+    f.grid_budget.max_edges=96u;f.raster_budget.max_edges=96u;
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_vh_exterior_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_vh_exterior_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&repeat));
+    CHECK(old.pixels && trial.pixels && repeat.pixels &&
+          old.size==trial.size && trial.size==repeat.size &&
+          memcmp(trial.pixels,repeat.pixels,trial.size)==0);
+    const double dx=f.geom.page_width_points/(double)trial.width;
+    const double dy=f.geom.page_height_points/(double)trial.height;
+    size_t changed=0u;
+    for(size_t y=0u;y<trial.height;++y)
+        for(size_t x=0u;x<trial.width;++x) {
+            const size_t off=y*trial.stride+x*4u;
+            CHECK(memcmp(old.pixels+off,trial.pixels+off,3u)==0);
+            const unsigned before=old.pixels[off+3u],after=trial.pixels[off+3u];
+            if(before==after)continue;
+            const double x0=(double)x*dx,x1=((double)x+1.0)*dx;
+            const double y0=(double)y*dy,y1=((double)y+1.0)*dy;
+            CHECK(before<255u && after>0u && after<255u);
+            CHECK(x1<=2.0 && x0<2.0 &&
+                  y0<8.5 && y1>8.0-1.5);
+            ++changed;
+        }
+    CHECK(changed>0u);
+    /* Source pixels already fully painted by the repeated horizontal
+     * must remain saturated: no one-sided correction of the interior. */
+    CHECK(alpha(&old,10u,8u)==255u && alpha(&trial,10u,8u)==255u);
+    quantapdf_ir_raster_image_dispose(&repeat);
+    quantapdf_ir_raster_image_dispose(&trial);
+    quantapdf_ir_raster_image_dispose(&old);
+
+    /* On this same source, old count*10 fits 64 edge slots (six source
+     * segments), while new count*11 must refuse with ZERO output. */
+    f.grid_budget.max_edges=64u;f.raster_budget.max_edges=64u;
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    quantapdf_ir_raster_image_dispose(&old);
+    memset(&trial,0xa5,sizeof(trial));
+    BAD(quantapdf_ir_raster_device_polyline_stroke_q8_vh_exterior_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+    CHECK(trial.pixels==NULL && trial.size==0u &&
+          trial.width==0u && trial.height==0u && trial.stride==0u);
+
+    /* Without any retrace the new source-specific admission must not
+     * change the earlier mode10 Q8 result. */
+    setup(&f);
+    f.op.value.path.options.stroke_width=1.0f;
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_miter_adjacent_cells_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&old));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_vh_exterior_preview_v0(
+        &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&trial));
+    CHECK(old.size==trial.size &&
+          memcmp(old.pixels,trial.pixels,old.size)==0);
+    quantapdf_ir_raster_image_dispose(&trial);
+    quantapdf_ir_raster_image_dispose(&old);
+    return EXIT_SUCCESS;
+}
+
 static int test_pixel_width_and_rejections(void)
 {
     fixture f;
@@ -1285,6 +1370,7 @@ int main(void)
     CHECK(test_device_q8_strip_trial()==EXIT_SUCCESS);
     CHECK(test_q8_inner_bevel_miter_join_trial()==EXIT_SUCCESS);
     CHECK(test_q8_miter_adjacent_device_cells_trial()==EXIT_SUCCESS);
+    CHECK(test_vh_retrace_exterior_q8()==EXIT_SUCCESS);
     CHECK(test_pixel_width_and_rejections()==EXIT_SUCCESS);
     puts("native-device-polyline-stroke: butt+miter+bevel+union+limits PASS");
     return EXIT_SUCCESS;
