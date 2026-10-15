@@ -89,7 +89,7 @@ int main(void)
                 CHECK(close_to(x,(double)d.width)&&close_to(y,(double)d.height));
             } else if (rotation==180) {
                 CHECK(close_to(x,(double)d.width)&&close_to(y,0));
-                mapped(&d,120,30,&x,&y);
+                mapped(&d,120,80,&x,&y);
                 CHECK(close_to(x,0)&&close_to(y,(double)d.height));
             } else {
                 CHECK(close_to(x,(double)d.width)&&close_to(y,(double)d.height));
