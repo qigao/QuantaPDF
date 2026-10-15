@@ -501,6 +501,22 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Review fixed-original Unit7 Fill multi-DPI report (Linux)
+        shell: bash
+        run: |
+          cat build/linux-gcc-release/tests/generated-unit7-fill-dpi-heldout.json
+          cat build/linux-gcc-debug/tests/generated-unit7-fill-dpi-heldout.json
+
+      - name: Upload fixed-original Unit7 Fill multi-DPI report (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-unit7-fill-dpi-linux
+          path: |
+            build/linux-gcc-release/tests/generated-unit7-fill-dpi-heldout.json
+            build/linux-gcc-debug/tests/generated-unit7-fill-dpi-heldout.json
+          if-no-files-found: error
+          retention-days: 7
+
   macos:
     if: >-
       github.event_name == 'push' ||
@@ -883,6 +899,18 @@ jobs:
         with:
           name: generated-unit7-fill-extent-macos
           path: build/macos-clang-release/tests/generated-unit7-fill-extent-heldout.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review fixed-original Unit7 Fill multi-DPI report (macOS)
+        shell: bash
+        run: cat build/macos-clang-release/tests/generated-unit7-fill-dpi-heldout.json
+
+      - name: Upload fixed-original Unit7 Fill multi-DPI report (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-unit7-fill-dpi-macos
+          path: build/macos-clang-release/tests/generated-unit7-fill-dpi-heldout.json
           if-no-files-found: error
           retention-days: 7
 
@@ -1279,5 +1307,17 @@ jobs:
         with:
           name: generated-unit7-fill-extent-windows
           path: build/Msvc-Release/tests/generated-unit7-fill-extent-heldout.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Review fixed-original Unit7 Fill multi-DPI report (Windows)
+        shell: pwsh
+        run: Get-Content build/Msvc-Release/tests/generated-unit7-fill-dpi-heldout.json
+
+      - name: Upload fixed-original Unit7 Fill multi-DPI report (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-unit7-fill-dpi-windows
+          path: build/Msvc-Release/tests/generated-unit7-fill-dpi-heldout.json
           if-no-files-found: error
           retention-days: 7
