@@ -2811,3 +2811,18 @@ else()
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
+
+# #360: test-only bounded exact decimal arithmetic baseline.
+# This is NOT source-PDF conformance; original QPDF/PDFium A/B remains #359.
+add_executable(quantapdf_test_decimal_exact_contract_v0
+  "${CMAKE_CURRENT_SOURCE_DIR}/decimal_exact_contract_v0.c")
+target_compile_features(quantapdf_test_decimal_exact_contract_v0 PRIVATE c_std_11)
+if(MSVC)
+  target_compile_options(quantapdf_test_decimal_exact_contract_v0 PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_test_decimal_exact_contract_v0 PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.decimal_exact_contract_v0
+  COMMAND quantapdf_test_decimal_exact_contract_v0)
+set_tests_properties(quantapdf.decimal_exact_contract_v0 PROPERTIES
+  TIMEOUT 10 LABELS "conformance;test-only;decimal-geometry;bounded")
