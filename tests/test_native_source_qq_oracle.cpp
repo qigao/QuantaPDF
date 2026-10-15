@@ -2400,6 +2400,121 @@ int test_external_jspdf_single_vertical_analytic_ab(
           std::memcmp(clip_bottom_page.pixels,clip_bottom_page_repeat.pixels,
                       clip_bottom_page.size)==0);
     const page_metrics clip_bottom_metric=measure(clip_bottom_page);
+
+    /* TWENTY-THIRD independent PRIVATE crossed-source A/B:
+     * #318 EXACT CI-qualified exterior V→H source Stroke is composed
+     * with #320 EXACT CI-qualified W-left×Fill-bottom source mask.
+     * These candidates were developed on separate branches: confirm
+     * their original full-page errors in the same test process BEFORE
+     * assessing whether both improvements can safely compose.
+     * No PDFium/oracle image or source-pixel coordinates enter C11.
+     * This is an explicit experiment, never an SDK/back-end switch. */
+    const quantapdf_native_device_grid_limits cross_stroke_grid={
+        600u*850u,600u*850u*4u,768u,650000000u
+    };
+    const quantapdf_ir_raster_v1_limits cross_stroke_budget={
+        600u*850u,1u,768u,650000000u
+    };
+    quantapdf_ir_raster_image cross_stroke{},cross_stroke_repeat{},
+        cross_stroke_only_page{},cross_stroke_only_repeat{},
+        cross_both_page{},cross_both_repeat{};
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_vh_exterior_preview_v0(
+        &only_stroke,0u,&geometry,
+        &cross_stroke_grid,&cross_stroke_budget,&cross_stroke));
+    OK(quantapdf_ir_raster_device_polyline_stroke_q8_vh_exterior_preview_v0(
+        &only_stroke,0u,&geometry,
+        &cross_stroke_grid,&cross_stroke_budget,&cross_stroke_repeat));
+    CHECK(cross_stroke.pixels && cross_stroke_repeat.pixels &&
+          cross_stroke.size==adjacent_stroke.size &&
+          cross_stroke_repeat.size==cross_stroke.size &&
+          std::memcmp(cross_stroke.pixels,cross_stroke_repeat.pixels,
+                      cross_stroke.size)==0);
+    /* Independent #318 control: exterior Stroke plus unchanged #308 Fill. */
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &cross_stroke,&top_right_fill,&composite_budget,
+        &cross_stroke_only_page));
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &cross_stroke_repeat,&top_right_repeat,&composite_budget,
+        &cross_stroke_only_repeat));
+    CHECK(cross_stroke_only_page.pixels && cross_stroke_only_repeat.pixels &&
+          cross_stroke_only_page.size==top_right_floor.size &&
+          std::memcmp(cross_stroke_only_page.pixels,
+                      cross_stroke_only_repeat.pixels,
+                      cross_stroke_only_page.size)==0);
+    const page_metrics cross_stroke_only_metric=measure(cross_stroke_only_page);
+    /* Pin the exact independent 3-platform #318 result. This is a
+     * consistency contract, NOT permission to select the new renderer. */
+    CHECK(cross_stroke_only_metric.abs_rgb==74u &&
+          cross_stroke_only_metric.changed==6u &&
+          cross_stroke_only_metric.gross==0u &&
+          cross_stroke_only_metric.max_delta==15u &&
+          cross_stroke_only_metric.fnv==UINT64_C(0x2603f5392dea206f));
+    /* Independent #320 control, already rendered above. */
+    CHECK(clip_bottom_metric.abs_rgb==111u &&
+          clip_bottom_metric.changed==3u &&
+          clip_bottom_metric.gross==0u &&
+          clip_bottom_metric.max_delta==15u &&
+          clip_bottom_metric.fnv==UINT64_C(0x1ac92a222d1d1000));
+    /* Crossed candidate: the same owned mode11 source Stroke plus
+     * the same owned mode13 Clip-left/Fill-bottom source mask. */
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &cross_stroke,&clip_bottom_fill,&composite_budget,&cross_both_page));
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &cross_stroke_repeat,&clip_bottom_repeat,&composite_budget,
+        &cross_both_repeat));
+    CHECK(cross_both_page.pixels && cross_both_repeat.pixels &&
+          cross_both_page.size==clip_bottom_page.size &&
+          std::memcmp(cross_both_page.pixels,cross_both_repeat.pixels,
+                      cross_both_page.size)==0);
+    const page_metrics cross_both_metric=measure(cross_both_page);
+    size_t cross_alpha_changes=0u,cross_outside_join=0u,
+           cross_saturated_changed=0u,cross_alpha_gt64=0u,
+           cross_output_changed_outside_alpha=0u,
+           cross_fill_source_difference=0u;
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t off=y*cross_stroke.stride+x*4u;
+        const unsigned before=adjacent_stroke.pixels[off+3u];
+        const unsigned after=cross_stroke.pixels[off+3u];
+        CHECK(cross_both_page.pixels[off+3u]==255u);
+        CHECK(std::memcmp(adjacent_stroke.pixels+off,
+                          cross_stroke.pixels+off,3u)==0);
+        if(std::memcmp(clip_bottom_fill.pixels+off,
+                       clip_bottom_repeat.pixels+off,4u)!=0)
+            ++cross_fill_source_difference;
+        if(before!=after) {
+            ++cross_alpha_changes;
+            /* Historical original-source observation window lives
+             * solely in this test; C11 raster uses source topology. */
+            if(!(x>=48u && x<=49u && y>=18u && y<=21u))
+                ++cross_outside_join;
+            if(before==255u)++cross_saturated_changed;
+            const unsigned delta=before>after?before-after:after-before;
+            if(delta>64u)++cross_alpha_gt64;
+        } else {
+            for(size_t ch=0u;ch<3u;++ch)
+                if(cross_both_page.pixels[off+ch]!=
+                   clip_bottom_page.pixels[off+ch])
+                    ++cross_output_changed_outside_alpha;
+        }
+    }
+    CHECK(cross_fill_source_difference==0u &&
+          cross_alpha_changes==2u && cross_outside_join==0u &&
+          cross_saturated_changed==0u && cross_alpha_gt64==0u &&
+          cross_output_changed_outside_alpha==0u);
+    std::fprintf(stderr,
+        "[original jsPDF cross Q8 exterior Stroke × clipped Fill A/B, NOT parity] "
+        "base_stroke_only_rgb=%llu base_mask_only_rgb=%llu "
+        "combined_rgb=%llu combined_mismatches=%zu combined_max=%u "
+        "alpha_changes=%zu outside_join=%zu saturated=%zu "
+        "rgb_outside_alpha=%zu fnv=%016llx\n",
+        (unsigned long long)cross_stroke_only_metric.abs_rgb,
+        (unsigned long long)clip_bottom_metric.abs_rgb,
+        (unsigned long long)cross_both_metric.abs_rgb,
+        cross_both_metric.changed,cross_both_metric.max_delta,
+        cross_alpha_changes,cross_outside_join,cross_saturated_changed,
+        cross_output_changed_outside_alpha,
+        (unsigned long long)cross_both_metric.fnv);
+
     size_t clip_bottom_alpha_changes=0u,clip_bottom_outside=0u,
            clip_bottom_delta_gt4=0u,clip_bottom_output_outside=0u;
     for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
@@ -4073,6 +4188,12 @@ int test_external_jspdf_single_vertical_analytic_ab(
     std::fprintf(stderr,"[jsPDF mode4 original residual regions] %s\n",
                  mode4_regions_json.c_str());
 
+    quantapdf_ir_raster_image_dispose(&cross_both_repeat);
+    quantapdf_ir_raster_image_dispose(&cross_both_page);
+    quantapdf_ir_raster_image_dispose(&cross_stroke_only_repeat);
+    quantapdf_ir_raster_image_dispose(&cross_stroke_only_page);
+    quantapdf_ir_raster_image_dispose(&cross_stroke_repeat);
+    quantapdf_ir_raster_image_dispose(&cross_stroke);
     quantapdf_ir_raster_image_dispose(&clip_bottom_page_repeat);
     quantapdf_ir_raster_image_dispose(&clip_bottom_page);
     quantapdf_ir_raster_image_dispose(&clip_bottom_repeat);
@@ -4395,6 +4516,28 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"clip_bottom_mask_gross_delta64_pixels\": %zu,\n"
         "  \"clip_bottom_mask_max_channel_delta\": %u,\n"
         "  \"clip_bottom_mask_rgb_fnv64\": \"%016llx\",\n"
+        "  \"cross_q8_status\": \"measured_unqualified\",\n"
+        "  \"cross_q8_default_changed\": false,\n"
+        "  \"cross_q8_pixel_parity_qualified\": false,\n"
+        "  \"cross_q8_repeat_equal\": true,\n"
+        "  \"cross_q8_stroke_control_abs_rgb_error\": %llu,\n"
+        "  \"cross_q8_stroke_control_changed_pixels\": %zu,\n"
+        "  \"cross_q8_stroke_control_fvn64\": \"%016llx\",\n"
+        "  \"cross_q8_mask_control_abs_rgb_error\": %llu,\n"
+        "  \"cross_q8_mask_control_changed_pixels\": %zu,\n"
+        "  \"cross_q8_mask_control_fvn64\": \"%016llx\",\n"
+        "  \"cross_q8_source_alpha_changed_pixels\": %zu,\n"
+        "  \"cross_q8_outside_original_source_join\": %zu,\n"
+        "  \"cross_q8_saturated_source_regressions\": %zu,\n"
+        "  \"cross_q8_alpha_delta_gt64\": %zu,\n"
+        "  \"cross_q8_output_outside_source_alpha\": %zu,\n"
+        "  \"cross_q8_fill_source_repeat_differences\": %zu,\n"
+        "  \"cross_q8_abs_rgb_error\": %llu,\n"
+        "  \"cross_q8_mean_abs_rgb_error\": %.9f,\n"
+        "  \"cross_q8_changed_pixels\": %zu,\n"
+        "  \"cross_q8_gross_delta64_pixels\": %zu,\n"
+        "  \"cross_q8_max_channel_delta\": %u,\n"
+        "  \"cross_q8_rgb_fnv64\": \"%016llx\",\n"
         "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
@@ -4515,7 +4658,21 @@ int test_external_jspdf_single_vertical_analytic_ab(
         (double)clip_bottom_metric.abs_rgb/1505496.0,
         clip_bottom_metric.changed,clip_bottom_metric.gross,
         clip_bottom_metric.max_delta,
-        (unsigned long long)clip_bottom_metric.fnv);
+        (unsigned long long)clip_bottom_metric.fnv,
+        (unsigned long long)cross_stroke_only_metric.abs_rgb,
+        cross_stroke_only_metric.changed,
+        (unsigned long long)cross_stroke_only_metric.fnv,
+        (unsigned long long)clip_bottom_metric.abs_rgb,
+        clip_bottom_metric.changed,
+        (unsigned long long)clip_bottom_metric.fnv,
+        cross_alpha_changes,cross_outside_join,
+        cross_saturated_changed,cross_alpha_gt64,
+        cross_output_changed_outside_alpha,cross_fill_source_difference,
+        (unsigned long long)cross_both_metric.abs_rgb,
+        (double)cross_both_metric.abs_rgb/1505496.0,
+        cross_both_metric.changed,cross_both_metric.gross,
+        cross_both_metric.max_delta,
+        (unsigned long long)cross_both_metric.fnv);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
