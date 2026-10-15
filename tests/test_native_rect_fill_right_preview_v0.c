@@ -525,10 +525,21 @@ static int test_source_bottom_near_edges(void)
     for(size_t y=0u;y<trial.height;++y)
         for(size_t x=0u;x<trial.width;++x) {
             const size_t off=y*trial.stride+x*4u;
-            CHECK(memcmp(old.pixels+off,trial.pixels+off,3u)==0);
             if(old.pixels[off+3u]!=trial.pixels[off+3u]) {
+                /* Source A8 coverage goes from fully CLEAR to the red
+                 * fringe: RGB must be initialized together with alpha,
+                 * not falsely required to remain transparent black. */
                 CHECK(y==15u && (x==6u || x==14u));
+                CHECK(old.pixels[off]==0u && old.pixels[off+1u]==0u &&
+                      old.pixels[off+2u]==0u && old.pixels[off+3u]==0u);
+                CHECK(trial.pixels[off]==255u &&
+                      trial.pixels[off+1u]==0u &&
+                      trial.pixels[off+2u]==0u &&
+                      trial.pixels[off+3u]==expected);
                 ++count;
+            } else {
+                /* No hidden RGB changes in already-owned source cells. */
+                CHECK(memcmp(old.pixels+off,trial.pixels+off,4u)==0);
             }
         }
     CHECK(count==2u);
