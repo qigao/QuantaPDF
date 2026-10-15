@@ -5,6 +5,7 @@
 #include "document/page_composer_ir.h"
 #include "document/page_content_ir.h"
 #include "graph/graph_page_geometry.h"
+#include "graph/graph_page_device.h"
 #include "render/ir_scoped_operations_v1.h"
 #include "render/ir_scoped_device_grid_v0.h"
 #include "render/ir_visible_page_device_preview_v0.h"
@@ -7196,8 +7197,155 @@ static void test_single_w_visible_page_original_pixel_oracle()
     CHECK(rendered==8u);
 }
 
+/* #269 independent ORIGINAL py-pdf source: real selected Graph metadata,
+ * AFTER parser/capture but BEFORE all unqualified Content and native pixels.
+ * No QPDF rewriting, default Content CTM approximation, or SDK cutover. */
+static int quarantine_pypdf_graph_geometry(
+    const char *source_path, const char *report_path)
+{
+    CHECK(source_path && *source_path && report_path && *report_path);
+    namespace fs=std::filesystem;
+    std::error_code ec;
+    const fs::path source(source_path),report(report_path);
+    const fs::path stage(std::string(report_path)+".tmp");
+    CHECK(fs::is_regular_file(source,ec) && !ec);
+    CHECK(!fs::is_symlink(source,ec) && !ec);
+    const fs::path original=fs::weakly_canonical(source,ec);
+    CHECK(!ec && fs::weakly_canonical(report,ec)!=original && !ec);
+    CHECK(fs::weakly_canonical(stage,ec)!=original && !ec);
+    for(const fs::path& output:{report,stage}){
+        const bool exists=fs::exists(output,ec);
+        CHECK(!ec);
+        if(exists) {
+            CHECK(!fs::is_symlink(output,ec) && !ec);
+            CHECK(!fs::equivalent(source,output,ec) && !ec);
+        }
+    }
+
+    quantapdf_document *document=nullptr;
+    quantapdf_graph_snapshot *snapshot=nullptr;
+    OK(quantapdf_open(source_path,nullptr,&document));
+    const quantapdf_status capture=
+        quantapdf_document_capture_graph(document,&graph_limits,&snapshot);
+    quantapdf_close(document);
+    OK(capture);
+    CHECK(snapshot!=nullptr && snapshot->graph!=nullptr);
+    const quantapdf_graph_model *model=
+        quantapdf_graph_view(snapshot->graph);
+    CHECK(model!=nullptr && model->page_count==4u);
+
+    const double expected_media[4][4]={
+        {12,12,612,732},{9,9,459,549},
+        {11,7,561,427},{11,13,561,793}
+    };
+    const double expected_crop[4][4]={
+        {132,108,516,612},{99,81,387,459},
+        {121,63,473,357},{121,117,473,663}
+    };
+    const int rotations[4]={0,90,180,270};
+    const size_t sizes[4][2]={
+        {384u,504u},{378u,288u},{352u,294u},{546u,352u}
+    };
+    struct page_observation {
+        int rotation;
+        double display_width,display_height;
+        size_t device_width,device_height,device_rgb_bytes;
+    } observations[4]={};
+
+    for(size_t page=0u;page<4u;++page) {
+        quantapdf_graph_page_geometry g{};
+        quantapdf_graph_page_display display{};
+        quantapdf_graph_device_grid grid{};
+        OK(quantapdf_graph_query_page_geometry(
+            snapshot->graph,page,8u,&g));
+        for(size_t k=0u;k<4u;++k){
+            CHECK(g.media_box[k]==expected_media[page][k]);
+            CHECK(g.crop_box[k]==expected_crop[page][k]);
+        }
+        CHECK(g.user_unit==1.0); /* /UserUnit truly absent in original */
+        CHECK(g.rotation==rotations[page]);
+        OK(quantapdf_graph_page_display_map(&g,&display));
+        CHECK(display.width_points==(double)sizes[page][0] &&
+              display.height_points==(double)sizes[page][1]);
+        OK(quantapdf_graph_page_device_grid(&g,72u,
+            1000000u,3000000u,&grid));
+        CHECK(grid.width==sizes[page][0] &&
+              grid.height==sizes[page][1] &&
+              grid.stride_bytes==grid.width*3u &&
+              grid.output_bytes==grid.stride_bytes*grid.height);
+
+        double min_x=1e100,max_x=-1e100,min_y=1e100,max_y=-1e100;
+        /* Verify four ORIGINAL CropBox corners project to precisely the
+         * zero-origin bitmap edges after rotation. No raster admitted. */
+        for(int corner=0;corner<4;++corner){
+            const double x=g.crop_box[(corner&1)?2:0];
+            const double y=g.crop_box[(corner&2)?3:1];
+            const double dx=grid.from_source[0]*x+
+                grid.from_source[2]*y+grid.from_source[4];
+            const double dy=grid.from_source[1]*x+
+                grid.from_source[3]*y+grid.from_source[5];
+            CHECK(std::isfinite(dx) && std::isfinite(dy));
+            min_x=std::min(min_x,dx);max_x=std::max(max_x,dx);
+            min_y=std::min(min_y,dy);max_y=std::max(max_y,dy);
+        }
+        CHECK(std::fabs(min_x)<1e-8 && std::fabs(min_y)<1e-8);
+        CHECK(std::fabs(max_x-(double)grid.width)<1e-8);
+        CHECK(std::fabs(max_y-(double)grid.height)<1e-8);
+        observations[page]={
+            g.rotation,display.width_points,display.height_points,
+            grid.width,grid.height,grid.output_bytes
+        };
+    }
+
+    quantapdf_graph_snapshot_drop(snapshot);
+    snapshot=nullptr;
+    const std::string pending=std::string(report_path)+".tmp";
+    FILE *out=std::fopen(pending.c_str(),"wb");
+    CHECK(out!=nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"source_kind\": \"independently_published_original_quarantine\",\n"
+        "  \"graph_selected_page_geometry_verified\": true,\n"
+        "  \"source_document_closed_before_geometry_report\": true,\n"
+        "  \"graph_snapshot_released\": true,\n"
+        "  \"user_unit_is_original_default_1\": true,\n"
+        "  \"page_count\": 4,\n"
+        "  \"pages\": [\n");
+    for(size_t i=0u;i<4u;++i){
+        const auto& p=observations[i];
+        std::fprintf(out,
+            "    {\"page_index\": %zu,\"rotate\": %d,"
+            "\"display_width_points\": %.17g,"
+            "\"display_height_points\": %.17g,"
+            "\"device_width_72dpi\": %zu,"
+            "\"device_height_72dpi\": %zu,"
+            "\"device_rgb_bytes\": %zu}%s\n",
+            i,p.rotation,p.display_width,p.display_height,
+            p.device_width,p.device_height,p.device_rgb_bytes,
+            i==3u?"":",");
+    }
+    std::fprintf(out,
+        "  ],\n"
+        "  \"original_pdfium_pixel_oracle\": \"not_run\",\n"
+        "  \"native_raster\": \"not_run\",\n"
+        "  \"external_native_positive_increment\": 0\n"
+        "}\n");
+    CHECK(std::ferror(out)==0 && std::fclose(out)==0);
+    CHECK(std::rename(pending.c_str(),report_path)==0);
+    std::fprintf(stderr,
+        "[pypdf-original Graph geometry] four pages, "
+        "all page-to-device boundaries exact; "
+        "native_raster=not_run, positive_increment=0\n");
+    return EXIT_SUCCESS;
+}
+
 int main(int argc,char **argv)
 {
+    if(argc==5 &&
+       std::strcmp(argv[1],"--quarantined-pypdf-graph-geometry")==0 &&
+       std::strcmp(argv[3],"--geometry-report")==0)
+        return quarantine_pypdf_graph_geometry(argv[2],argv[4]);
     if(argc==2 &&
        std::strcmp(argv[1],"--generated-visible-page-pixels")==0) {
         test_single_w_visible_page_original_pixel_oracle();
