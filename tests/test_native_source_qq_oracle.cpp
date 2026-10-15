@@ -7225,9 +7225,24 @@ static int quarantine_pypdf_graph_geometry(
     quantapdf_document *document=nullptr;
     quantapdf_graph_snapshot *snapshot=nullptr;
     OK(quantapdf_open(source_path,nullptr,&document));
+    /* Unlike the default 14-family/36-fixture test budget, the external
+     * 4-page original has >700 indirect objects plus annotation/form
+     * subtrees. This explicitly larger TEST-ONLY bounded budget is not
+     * a production fallback or an acceptance rule for native painting. */
+    const quantapdf_graph_limits geometry_budget={
+        40000u,120000u,4194304u,4194304u,33554432u,256u
+    };
     const quantapdf_status capture=
-        quantapdf_document_capture_graph(document,&graph_limits,&snapshot);
+        quantapdf_document_capture_graph(document,&geometry_budget,&snapshot);
     quantapdf_close(document);
+    if(capture!=QUANTAPDF_OK)
+        std::fprintf(stderr,
+            "[pypdf-original sealed Graph capture] exact source status=%d "
+            "limits nodes=%zu edges=%zu value=%zu stream=%zu storage=%zu depth=%zu; "
+            "failure stage=Graph capture (NOT Path/Clip lowering)\n",
+            (int)capture,geometry_budget.max_nodes,geometry_budget.max_edges,
+            geometry_budget.max_value_bytes,geometry_budget.max_stream_bytes,
+            geometry_budget.max_storage_bytes,geometry_budget.max_depth);
     OK(capture);
     CHECK(snapshot!=nullptr && snapshot->graph!=nullptr);
     const quantapdf_graph_model *model=
