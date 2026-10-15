@@ -1714,6 +1714,89 @@ static int test_retraced_outer_source_translation_and_near_match(void)
     return EXIT_SUCCESS;
 }
 
+
+/* Private-final Q8 signed-area page geometry refusal matrix. A source
+ * Stroke at supported 72/96/144 DPI is a positive control; the same
+ * byte-identical borrowed IR must NOT acquire implicit /CropBox,
+ * /Rotate, /UserUnit or unapproved DPI normalization. Each refusal
+ * is transactional (zero published pixels, zero mutated source state).
+ *
+ * This is a test of existing admission. It does not normalize metadata,
+ * teach the renderer CropBox/Rotate support, or change SDK behavior. */
+static int test_signed_area_page_geometry_refusals(void)
+{
+    const float dpis[3]={72.0f,96.0f,144.0f};
+    const quantapdf_point pts[7]={
+        {2.0f,8.0f},{20.0f,8.0f},{20.0f,20.0f},
+        {2.0f,20.0f},{2.0f,8.0f},{20.0f,8.0f},{2.0f,8.0f}
+    };
+    size_t accepted=0u,rejected=0u;
+    for(size_t dpi_index=0u;dpi_index<3u;++dpi_index) {
+        fixture f;
+        quantapdf_composer_path_command cmds[7],original[7];
+        quantapdf_ir_raster_image rendered={0};
+        setup(&f);
+        memset(cmds,0,sizeof(cmds));
+        for(size_t i=0u;i<7u;++i) {
+            cmds[i].kind=i==0u?QUANTAPDF_COMPOSER_PATH_MOVE_TO:
+                                  QUANTAPDF_COMPOSER_PATH_LINE_TO;
+            cmds[i].point1=pts[i];
+        }
+        memcpy(original,cmds,sizeof(cmds));
+        f.op.value.path.commands=cmds;
+        f.op.value.path.command_count=7u;
+        f.op.value.path.options.stroke_width=1.0f;
+        f.geom.dpi=dpis[dpi_index];
+        f.grid_budget.max_pixels=5000u;
+        f.grid_budget.max_rgba_bytes=20000u;
+        f.grid_budget.max_edges=96u;
+        f.grid_budget.max_sample_tests=10000000u;
+        f.raster_budget.max_pixels=5000u;
+        f.raster_budget.max_edges=96u;
+        f.raster_budget.max_sample_tests=10000000u;
+        const quantapdf_native_device_grid_geometry supported=f.geom;
+        OK(quantapdf_ir_raster_device_polyline_stroke_q8_retrace_outer_area_preview_v0(
+            &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&rendered));
+        CHECK(rendered.pixels!=NULL && rendered.size!=0u &&
+              memcmp(cmds,original,sizeof(cmds))==0);
+        quantapdf_ir_raster_image_dispose(&rendered);
+        ++accepted;
+        /* Changing the source page's geometry without an independently
+         * qualified normalization is UNSUPPORTED for this Q8 backend.
+         * Case 8 also denies silently accepting unqualified 120 DPI. */
+        for(unsigned variant=0u;variant<9u;++variant) {
+            f.geom=supported;
+            switch(variant) {
+                case 0u:f.geom.visible_origin_x_points=0.125;break;
+                case 1u:f.geom.visible_origin_y_points=-0.125;break;
+                case 2u:f.geom.user_unit=2.0;break;
+                case 3u:f.geom.intrinsic_rotation_quarters=1;break;
+                case 4u:f.geom.requested_rotation_quarters=3;break;
+                case 5u:f.geom.page_width_points+=0.25;break;
+                case 6u:f.geom.page_height_points+=0.25;break;
+                case 7u:f.geom.user_unit=0.5;break;
+                case 8u:f.geom.dpi=120.0f;break;
+                default:CHECK(0);
+            }
+            memset(&rendered,0xa5,sizeof(rendered));
+            BAD(quantapdf_ir_raster_device_polyline_stroke_q8_retrace_outer_area_preview_v0(
+                &f.ir,0u,&f.geom,&f.grid_budget,&f.raster_budget,&rendered));
+            CHECK(rendered.pixels==NULL && rendered.width==0u &&
+                  rendered.height==0u && rendered.stride==0u &&
+                  rendered.size==0u);
+            CHECK(memcmp(cmds,original,sizeof(cmds))==0);
+            ++rejected;
+        }
+        fprintf(stderr,
+            "[Q8 signed-source-area unsupported page geometry] dpi=%u "
+            "baseline=accepted rejected=9 crop/rotation/userunit/dpi "
+            "borrowed_source=unchanged zero_output=true\n",
+            (unsigned)dpis[dpi_index]);
+    }
+    CHECK(accepted==3u && rejected==27u);
+    return EXIT_SUCCESS;
+}
+
 static int test_pixel_width_and_rejections(void)
 {
     fixture f;
@@ -1775,6 +1858,7 @@ int main(void)
     CHECK(test_q8_retraced_outer_signed_area()==EXIT_SUCCESS);
     CHECK(test_retraced_outer_q8_phase_sweep()==EXIT_SUCCESS);
     CHECK(test_retraced_outer_source_translation_and_near_match()==EXIT_SUCCESS);
+    CHECK(test_signed_area_page_geometry_refusals()==EXIT_SUCCESS);
     CHECK(test_pixel_width_and_rejections()==EXIT_SUCCESS);
     puts("native-device-polyline-stroke: butt+miter+bevel+union+limits PASS");
     return EXIT_SUCCESS;
