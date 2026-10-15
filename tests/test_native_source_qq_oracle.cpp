@@ -2338,6 +2338,81 @@ int test_external_jspdf_single_vertical_analytic_ab(
           std::memcmp(bottom_right_page.pixels,bottom_right_page_repeat.pixels,
                       bottom_right_page.size)==0);
     const page_metrics bottom_right_metric=measure(bottom_right_page);
+
+    /* TWENTY-FIRST independent PRIVATE A/B. A true W Clip-left and
+     * Clip-top intersect in ONE source Fill pixel; the already-qualified
+     * source-continuous X coverage and Q8 top Y coverage are evaluated
+     * before source Alpha quantization. The original PDFium reference
+     * is consulted only by the full-page read-only metric. */
+    quantapdf_ir_raster_image left_top_fill{},left_top_repeat{},
+        left_top_page{},left_top_page_repeat{};
+    OK(quantapdf_ir_raster_rect_clip_left_top_preview_v0(
+        &only_fill,0u,&geometry,&fill_grid,&fill_budget,&left_top_fill));
+    OK(quantapdf_ir_raster_rect_clip_left_top_preview_v0(
+        &only_fill,0u,&geometry,&fill_grid,&fill_budget,&left_top_repeat));
+    CHECK(left_top_fill.pixels && left_top_repeat.pixels &&
+          left_top_fill.size==bottom_right_fill.size &&
+          left_top_repeat.size==left_top_fill.size &&
+          std::memcmp(left_top_fill.pixels,left_top_repeat.pixels,
+                      left_top_fill.size)==0);
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &adjacent_stroke,&left_top_fill,&composite_budget,&left_top_page));
+    OK(quantapdf_ir_ordered_layer_composite_opaque_white_floor_preview_v0(
+        &adjacent_repeat,&left_top_repeat,&composite_budget,
+        &left_top_page_repeat));
+    CHECK(left_top_page.pixels && left_top_page_repeat.pixels &&
+          left_top_page.size==bottom_right_page.size &&
+          std::memcmp(left_top_page.pixels,left_top_page_repeat.pixels,
+                      left_top_page.size)==0);
+    const page_metrics left_top_metric=measure(left_top_page);
+    size_t left_top_alpha_changed=0u,left_top_outside=0u,
+           left_top_delta_gt64=0u,left_top_output_outside=0u;
+    for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
+        const size_t off=y*left_top_fill.stride+x*4u;
+        const unsigned old_a=bottom_right_fill.pixels[off+3u];
+        const unsigned new_a=left_top_fill.pixels[off+3u];
+        CHECK(std::memcmp(bottom_right_fill.pixels+off,
+                          left_top_fill.pixels+off,3u)==0);
+        CHECK(left_top_page.pixels[off+3u]==255u);
+        if(old_a!=new_a) {
+            ++left_top_alpha_changed;
+            if(!(x==50u && y==20u))++left_top_outside;
+            CHECK(old_a>0u && new_a>0u);
+            const unsigned d=old_a>new_a?old_a-new_a:new_a-old_a;
+            if(d>64u)++left_top_delta_gt64;
+        } else {
+            CHECK(std::memcmp(bottom_right_fill.pixels+off,
+                              left_top_fill.pixels+off,4u)==0);
+            for(size_t ch=0u;ch<3u;++ch)
+                if(left_top_page.pixels[off+ch]!=bottom_right_page.pixels[off+ch])
+                    ++left_top_output_outside;
+        }
+    }
+    CHECK(left_top_alpha_changed==1u && left_top_outside==0u &&
+          left_top_delta_gt64==0u && left_top_output_outside==0u);
+    const size_t left_top_site=20u*left_top_fill.stride+50u*4u;
+    const unsigned char *left_top_truth=reference.at(50u,20u);
+    std::fprintf(stderr,
+        "[original jsPDF genuine W Clip-left/top source corner A/B] "
+        "parent_rgb=%llu trial_rgb=%llu parent_changed=%zu "
+        "trial_changed=%zu alpha_changes=%zu outside=%zu "
+        "source_alpha_before=%u after=%u native=(%u,%u,%u) "
+        "pdfium=(%u,%u,%u) max=%u fnv64=%016llx\n",
+        (unsigned long long)bottom_right_metric.abs_rgb,
+        (unsigned long long)left_top_metric.abs_rgb,
+        bottom_right_metric.changed,left_top_metric.changed,
+        left_top_alpha_changed,left_top_outside,
+        (unsigned)bottom_right_fill.pixels[left_top_site+3u],
+        (unsigned)left_top_fill.pixels[left_top_site+3u],
+        (unsigned)left_top_page.pixels[left_top_site],
+        (unsigned)left_top_page.pixels[left_top_site+1u],
+        (unsigned)left_top_page.pixels[left_top_site+2u],
+        (unsigned)left_top_truth[0],
+        (unsigned)left_top_truth[1],
+        (unsigned)left_top_truth[2],
+        left_top_metric.max_delta,
+        (unsigned long long)left_top_metric.fnv);
+
     size_t bottom_right_source_changed=0u,bottom_right_outside=0u,
            bottom_right_alpha_gt3=0u,bottom_right_output_outside=0u;
     for(size_t y=0u;y<842u;++y)for(size_t x=0u;x<596u;++x) {
@@ -3912,6 +3987,10 @@ int test_external_jspdf_single_vertical_analytic_ab(
     std::fprintf(stderr,"[jsPDF mode4 original residual regions] %s\n",
                  mode4_regions_json.c_str());
 
+    quantapdf_ir_raster_image_dispose(&left_top_page_repeat);
+    quantapdf_ir_raster_image_dispose(&left_top_page);
+    quantapdf_ir_raster_image_dispose(&left_top_repeat);
+    quantapdf_ir_raster_image_dispose(&left_top_fill);
     quantapdf_ir_raster_image_dispose(&bottom_right_page_repeat);
     quantapdf_ir_raster_image_dispose(&bottom_right_page);
     quantapdf_ir_raster_image_dispose(&bottom_right_repeat);
@@ -4198,6 +4277,20 @@ int test_external_jspdf_single_vertical_analytic_ab(
         "  \"bottom_right_q8_gross_delta64_pixels\": %zu,\n"
         "  \"bottom_right_q8_max_channel_delta\": %u,\n"
         "  \"bottom_right_q8_rgb_fnv64\": \"%016llx\",\n"
+        "  \"clip_left_top_status\": \"measured_unqualified\",\n"
+        "  \"clip_left_top_default_changed\": false,\n"
+        "  \"clip_left_top_pixel_parity_qualified\": false,\n"
+        "  \"clip_left_top_repeat_equal\": true,\n"
+        "  \"clip_left_top_source_alpha_changed_pixels\": %zu,\n"
+        "  \"clip_left_top_outside_source_corner\": %zu,\n"
+        "  \"clip_left_top_alpha_delta_gt64\": %zu,\n"
+        "  \"clip_left_top_output_outside_source_alpha\": %zu,\n"
+        "  \"clip_left_top_abs_rgb_error\": %llu,\n"
+        "  \"clip_left_top_mean_abs_rgb_error\": %.9f,\n"
+        "  \"clip_left_top_changed_pixels\": %zu,\n"
+        "  \"clip_left_top_gross_delta64_pixels\": %zu,\n"
+        "  \"clip_left_top_max_channel_delta\": %u,\n"
+        "  \"clip_left_top_rgb_fnv64\": \"%016llx\",\n"
         "  \"native_original_pixel_positive_count\": 0,\n"
         "  \"official_w_wstar_positive_count_increase\": 0\n"
         "}\n",
@@ -4304,7 +4397,14 @@ int test_external_jspdf_single_vertical_analytic_ab(
         (double)bottom_right_metric.abs_rgb/1505496.0,
         bottom_right_metric.changed,bottom_right_metric.gross,
         bottom_right_metric.max_delta,
-        (unsigned long long)bottom_right_metric.fnv);
+        (unsigned long long)bottom_right_metric.fnv,
+        left_top_alpha_changed,left_top_outside,
+        left_top_delta_gt64,left_top_output_outside,
+        (unsigned long long)left_top_metric.abs_rgb,
+        (double)left_top_metric.abs_rgb/1505496.0,
+        left_top_metric.changed,left_top_metric.gross,
+        left_top_metric.max_delta,
+        (unsigned long long)left_top_metric.fnv);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;

@@ -116,6 +116,9 @@ static unsigned alpha(const quantapdf_ir_raster_image *im,
 #define CORNER_BOTTOM_RIGHT(f,o) \
     quantapdf_ir_raster_rect_fill_bottom_right_q8_preview_v0( \
     &(f).ir,0u,&(f).geometry,&(f).grid_budget,&(f).raster_budget,&(o))
+#define CORNER_CLIP_LEFT_TOP(f,o) \
+    quantapdf_ir_raster_rect_clip_left_top_preview_v0( \
+    &(f).ir,0u,&(f).geometry,&(f).grid_budget,&(f).raster_budget,&(o))
 
 static int test_analytic_edge_and_repeat(void)
 {
@@ -654,6 +657,78 @@ static int test_bottom_right_q8_tiny_corner(void)
     return EXIT_SUCCESS;
 }
 
+
+/* TWELFTH independent true Clip-left/top source corner: validate the
+ * previously qualified continuous-X 255-scale coverage times Y Q8
+ * coverage, without PDFium data or user-specific source positions. */
+static int test_clip_left_top_q8_corner(void)
+{
+    fixture f;
+    quantapdf_ir_raster_image old={0},trial={0},repeat={0};
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    OK(CORNER_BOTTOM_RIGHT(f,old));
+    OK(CORNER_CLIP_LEFT_TOP(f,trial));
+    OK(CORNER_CLIP_LEFT_TOP(f,repeat));
+    CHECK(old.pixels && trial.pixels && repeat.pixels &&
+          old.size==trial.size && trial.size==repeat.size &&
+          memcmp(trial.pixels,repeat.pixels,trial.size)==0);
+    const double dx=32.5/33.0,dy=24.75/25.0;
+    const size_t col=5u,row=2u;
+    const double x0=(double)col*dx,x1=((double)col+1.0)*dx;
+    const double y0=(double)row*dy,y1=((double)row+1.0)*dy;
+    CHECK(x0<5.0 && 5.0<x1 && y0<2.0 && 2.0<y1);
+    const unsigned continuous_x_alpha=(unsigned)floor(
+        255.0*(x1-5.0)/(x1-x0)+0.5);
+    const int64_t y_edge_q=(int64_t)((float)(2.0/dy)*256.0f);
+    const int64_t q8_y=(int64_t)(row+1u)*256-y_edge_q;
+    CHECK(continuous_x_alpha>0u && continuous_x_alpha<255u &&
+          q8_y>0 && q8_y<=256);
+    const unsigned expected=(unsigned)(
+        (continuous_x_alpha*(unsigned)q8_y+128u)/256u);
+    CHECK(expected>0u && expected<255u);
+    const size_t idx=row*trial.stride+col*4u;
+    CHECK(old.pixels[idx+3u]!=expected);
+    CHECK(trial.pixels[idx]==255u && trial.pixels[idx+1u]==0u &&
+          trial.pixels[idx+2u]==0u && trial.pixels[idx+3u]==expected);
+    CHECK(alpha(&old,15u,2u)==alpha(&trial,15u,2u));
+    CHECK(alpha(&old,6u,15u)==alpha(&trial,6u,15u));
+    CHECK(alpha(&old,15u,15u)==alpha(&trial,15u,15u));
+    size_t changes=0u;
+    for(size_t y=0u;y<trial.height;++y)
+        for(size_t x=0u;x<trial.width;++x) {
+            const size_t off=y*trial.stride+x*4u;
+            CHECK(memcmp(old.pixels+off,trial.pixels+off,3u)==0);
+            if(old.pixels[off+3u]!=trial.pixels[off+3u]) {
+                CHECK(x==col && y==row);
+                ++changes;
+            }
+        }
+    CHECK(changes==1u);
+    quantapdf_ir_raster_image_dispose(&repeat);
+    quantapdf_ir_raster_image_dispose(&trial);
+    quantapdf_ir_raster_image_dispose(&old);
+
+    /* Source work: old 14*13200=184800 admitted, new 15*13200=198000
+     * refused before an output is published under the 190K quota. */
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    f.grid_budget.max_sample_tests=190000u;
+    f.raster_budget.max_sample_tests=190000u;
+    OK(CORNER_BOTTOM_RIGHT(f,old));
+    quantapdf_ir_raster_image_dispose(&old);
+    REFUSE(CORNER_CLIP_LEFT_TOP(f,result));
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    f.clip.fill_rule=QUANTAPDF_COMPOSER_FILL_EVEN_ODD;
+    REFUSE(CORNER_CLIP_LEFT_TOP(f,result));
+    setup(&f);
+    rect(f.fill,0.0f,0.0f,15.0f,14.9f);
+    f.op.value.path.options.transform.a=2.0f;
+    REFUSE(CORNER_CLIP_LEFT_TOP(f,result));
+    return EXIT_SUCCESS;
+}
+
 static int test_fail_closed(void)
 {
     fixture f;
@@ -694,6 +769,7 @@ int main(void)
     CHECK(test_upper_right_q8_corner()==EXIT_SUCCESS);
     CHECK(test_source_bottom_near_edges()==EXIT_SUCCESS);
     CHECK(test_bottom_right_q8_tiny_corner()==EXIT_SUCCESS);
+    CHECK(test_clip_left_top_q8_corner()==EXIT_SUCCESS);
     CHECK(test_fail_closed()==EXIT_SUCCESS);
     puts("native-rect-fill-right-private-A/B: geometry, repeat, fail-closed PASS");
     return EXIT_SUCCESS;
