@@ -63,6 +63,19 @@ quantapdf_ir_raster_rect_fill_upper_right_q8_preview_v0(
     const quantapdf_ir_raster_v1_limits *raster_limits,
     quantapdf_ir_raster_image *out_image);
 
+/* TENTH independently callable PRIVATE clipped-Fill bottom-fringe A/B.
+ * Preserve Q8 W-top/Fill-right correction, extend source-bottom faint
+ * fringe ONLY into previously clear, wholly X-contained device pixels
+ * immediately adjacent to conservative old interior limits. No public
+ * SDK/ABI, second owner, fallback, coordinate fixtures or source state. */
+quantapdf_status
+quantapdf_ir_raster_rect_fill_bottom_near_edges_preview_v0(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_native_device_grid_geometry *geometry,
+    const quantapdf_native_device_grid_limits *grid_limits,
+    const quantapdf_ir_raster_v1_limits *raster_limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
