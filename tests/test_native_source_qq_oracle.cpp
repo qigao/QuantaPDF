@@ -10287,8 +10287,291 @@ static int test_generated_unit7_fill_dpi_heldout(const char *report_path)
     return EXIT_SUCCESS;
 }
 
+
+/* #269: isolate the decimal-digit Graph /CropBox decoding from v0 ceil
+ * admission, WITHOUT changing parser or renderer. QPDF writes the real
+ * original PDF, whose exact test-owned decimal spellings are expressed
+ * below in integral thousandths, independently of Graph's decoded double.
+ * The rational candidate is NUMERIC TEST DATA, never a product fallback. */
+static int test_generated_unit7_decimal_crop_device_ab(
+    const char *report_path)
+{
+    CHECK(report_path!=nullptr && *report_path);
+    const char *source=GENERATED_UNIT7_DECIMAL_CROP_PDF;
+    const std::string stage=std::string(report_path)+".tmp";
+    CHECK(source!=nullptr && *source &&
+          std::strcmp(source,report_path)!=0 && stage!=source);
+    const int thousandths[4][4]={
+        {2000,3000,12000,11000},
+        {2125,3000,12125,11000},
+        {2000,3125,12000,11125},
+        {2375,3375,12375,11375}
+    };
+    const unsigned dpis[3]={72u,96u,144u};
+    const uint32_t widths[3]={70u,94u,140u};
+    const uint32_t heights[3]={56u,75u,112u};
+    struct observation {
+        unsigned crop=0u,dpi=0u;
+        int rotation=0;
+        uint32_t expected_w=0u,expected_h=0u;
+        uint32_t actual_pdfium_w=0u,actual_pdfium_h=0u;
+        uint32_t graph_w=0u,graph_h=0u;
+        uint32_t rational_w=0u,rational_h=0u;
+        int graph_diff=0,rational_diff=0;
+        double graph_page_w=0.0,graph_page_h=0.0;
+        double rational_page_w=0.0,rational_page_h=0.0;
+    } rows[48]={};
+    size_t source_checks=0u,pdfium_repeat_checks=0u;
+    size_t rejected_unsupported_dpis=0u,graph_mismatches=0u;
+    size_t rational_mismatches=0u,graph_extra_columns=0u;
+    size_t graph_extra_rows=0u;
+    size_t raw_positive_width=0u,raw_positive_height=0u;
+    size_t per_dpi_graph_mismatches[3]={0u};
+    size_t per_crop_graph_mismatches[4]={0u};
+
+    const auto read_original=[](const char *filename){
+        FILE *file=std::fopen(filename,"rb");
+        CHECK(file!=nullptr);
+        CHECK(std::fseek(file,0,SEEK_END)==0);
+        const long length=std::ftell(file);
+        CHECK(length>0 && length<=65536 &&
+              std::fseek(file,0,SEEK_SET)==0);
+        std::vector<unsigned char> bytes((size_t)length);
+        CHECK(std::fread(bytes.data(),1,bytes.size(),file)==
+              bytes.size());
+        CHECK(std::fclose(file)==0);
+        return bytes;
+    };
+
+    for(unsigned crop=0u;crop<4u;++crop)
+        for(int rotation=0;rotation<360;rotation+=90){
+            /* Separate ORIGINAL binary input for every crop/rotation.
+             * Content is a single opaque red Fill without a Clip. */
+            write_single_w_visible_page(rotation,7,source,crop,1u);
+            const auto original_bytes=read_original(source);
+            quantapdf_document *doc=nullptr;
+            quantapdf_graph_snapshot *snapshot=nullptr;
+            OK(quantapdf_open(source,nullptr,&doc));
+            OK(quantapdf_document_capture_graph(
+                doc,&graph_limits,&snapshot));
+            quantapdf_close(doc);
+            CHECK(snapshot!=nullptr && snapshot->graph!=nullptr);
+            const quantapdf_graph_model *model=
+                quantapdf_graph_view(snapshot->graph);
+            CHECK(model!=nullptr && model->page_count==1u);
+            quantapdf_graph_page_geometry raw{};
+            OK(quantapdf_graph_query_page_geometry(
+                snapshot->graph,0u,4u,&raw));
+            CHECK(raw.rotation==rotation && raw.user_unit==7.0 &&
+                  raw.media_box[0]==0.0 && raw.media_box[1]==0.0 &&
+                  raw.media_box[2]==20.0 && raw.media_box[3]==30.0);
+
+            quantapdf_graph_page_geometry rational=raw;
+            for(size_t edge=0u;edge<4u;++edge){
+                /* Source literals use decimal denominators of 1000.
+                 * Test-only integer arithmetic computes exact differences
+                 * before binary floating-point conversion. */
+                rational.crop_box[edge]=
+                    (double)thousandths[crop][edge]/1000.0;
+                CHECK(std::isfinite(raw.crop_box[edge]) &&
+                      std::fabs(raw.crop_box[edge]-
+                                rational.crop_box[edge])<1e-9);
+            }
+            quantapdf_graph_page_display raw_display{},rational_display{};
+            OK(quantapdf_graph_page_display_map(&raw,&raw_display));
+            OK(quantapdf_graph_page_display_map(
+                &rational,&rational_display));
+            const double rational_width=
+                (double)(thousandths[crop][2]-thousandths[crop][0])*
+                7.0/1000.0;
+            const double rational_height=
+                (double)(thousandths[crop][3]-thousandths[crop][1])*
+                7.0/1000.0;
+            CHECK(rational_width==70.0 && rational_height==56.0);
+            const double visible_width=rotation%180==0?
+                rational_width:rational_height;
+            const double visible_height=rotation%180==0?
+                rational_height:rational_width;
+            CHECK(rational_display.width_points==visible_width &&
+                  rational_display.height_points==visible_height);
+            if(raw_display.width_points>rational_display.width_points)
+                ++raw_positive_width;
+            if(raw_display.height_points>rational_display.height_points)
+                ++raw_positive_height;
+            quantapdf_graph_snapshot_drop(snapshot);
+
+            /* v0's deliberate allowlist must reject out-of-scope DPI,
+             * and publication must remain transactional/zero output. */
+            for(const unsigned denied_dpi:{120u,168u}){
+                quantapdf_graph_device_grid denied{},zero{};
+                std::memset(&denied,0xa5,sizeof(denied));
+                CHECK(quantapdf_graph_page_device_grid(
+                    &raw,denied_dpi,20000u,60000u,&denied)==
+                    QUANTAPDF_ERROR_UNSUPPORTED);
+                CHECK(std::memcmp(&denied,&zero,sizeof(denied))==0);
+                ++rejected_unsupported_dpis;
+            }
+            quantapdf_document *reference_doc=nullptr;
+            quantapdf_page *page=nullptr;
+            OK(quantapdf_open(source,nullptr,&reference_doc));
+            OK(quantapdf_load_page(reference_doc,0u,&page));
+
+            for(size_t d=0u;d<3u;++d){
+                const unsigned dpi=dpis[d];
+                const uint32_t w=rotation%180==0?
+                    widths[d]:heights[d];
+                const uint32_t h=rotation%180==0?
+                    heights[d]:widths[d];
+                const size_t pixels=(size_t)w*(size_t)h;
+                CHECK(pixels<=20000u && pixels*3u<=60000u);
+                quantapdf_graph_device_grid raw_grid{},candidate_grid{};
+                OK(quantapdf_graph_page_device_grid(
+                    &raw,dpi,20000u,60000u,&raw_grid));
+                OK(quantapdf_graph_page_device_grid(
+                    &rational,dpi,20000u,60000u,&candidate_grid));
+                CHECK(raw_grid.width>0u && raw_grid.height>0u &&
+                      raw_grid.width<=w+1u && raw_grid.height<=h+1u &&
+                      raw_grid.width>=w && raw_grid.height>=h);
+                CHECK(candidate_grid.width==w &&
+                      candidate_grid.height==h &&
+                      candidate_grid.stride_bytes==(size_t)w*3u &&
+                      candidate_grid.output_bytes==pixels*3u);
+
+                const quantapdf_render_options opts={
+                    sizeof(quantapdf_render_options),(float)dpi,
+                    0.0f,0,{0},0
+                };
+                quantapdf_bitmap *pdfium=nullptr,*again=nullptr;
+                OK(quantapdf_render_page_with_options(
+                    page,&opts,&pdfium));
+                OK(quantapdf_render_page_with_options(
+                    page,&opts,&again));
+                CHECK(pdfium!=nullptr && again!=nullptr);
+                int pw=0,ph=0,ps=0,pc=0,aw=0,ah=0,as=0,ac=0;
+                OK(quantapdf_bitmap_dimensions(pdfium,&pw,&ph,&ps,&pc));
+                OK(quantapdf_bitmap_dimensions(
+                    again,&aw,&ah,&as,&ac));
+                CHECK(pw==(int)w && ph==(int)h &&
+                      pc==3 && ps>=pw*3 && ps<=pw*3+4 &&
+                      aw==pw && ah==ph && as==ps && ac==pc);
+                const unsigned char *first=nullptr,*second=nullptr;
+                size_t first_bytes=0u,second_bytes=0u;
+                OK(quantapdf_bitmap_data(
+                    pdfium,&first,&first_bytes));
+                OK(quantapdf_bitmap_data(
+                    again,&second,&second_bytes));
+                CHECK(first!=nullptr && second!=nullptr &&
+                      first_bytes==(size_t)ps*h &&
+                      second_bytes==first_bytes &&
+                      std::memcmp(first,second,first_bytes)==0);
+                ++pdfium_repeat_checks;
+                auto& row=rows[(size_t)crop*12u+
+                    (size_t)(rotation/90)*3u+d];
+                row.crop=crop;row.dpi=dpi;row.rotation=rotation;
+                row.expected_w=w;row.expected_h=h;
+                row.actual_pdfium_w=(uint32_t)pw;
+                row.actual_pdfium_h=(uint32_t)ph;
+                row.graph_w=raw_grid.width;row.graph_h=raw_grid.height;
+                row.rational_w=candidate_grid.width;
+                row.rational_h=candidate_grid.height;
+                row.graph_page_w=raw_display.width_points;
+                row.graph_page_h=raw_display.height_points;
+                row.rational_page_w=rational_display.width_points;
+                row.rational_page_h=rational_display.height_points;
+                row.graph_diff=(int)(raw_grid.width-w)+
+                    (int)(raw_grid.height-h);
+                row.rational_diff=(int)(candidate_grid.width-w)+
+                    (int)(candidate_grid.height-h);
+                CHECK(row.graph_diff>=0 && row.graph_diff<=2 &&
+                      row.rational_diff==0);
+                if(row.graph_diff>0){
+                    ++graph_mismatches;
+                    ++per_crop_graph_mismatches[crop];
+                    ++per_dpi_graph_mismatches[d];
+                }
+                if(row.rational_diff>0)++rational_mismatches;
+                if(raw_grid.width>w)++graph_extra_columns;
+                if(raw_grid.height>h)++graph_extra_rows;
+                quantapdf_drop_bitmap(again);
+                quantapdf_drop_bitmap(pdfium);
+            }
+            quantapdf_drop_page(page);
+            quantapdf_close(reference_doc);
+            CHECK(read_original(source)==original_bytes);
+            ++source_checks;
+            CHECK(std::remove(source)==0);
+        }
+
+    CHECK(source_checks==16u && pdfium_repeat_checks==48u &&
+          rejected_unsupported_dpis==32u && graph_mismatches>0u &&
+          rational_mismatches==0u);
+    FILE *out=std::fopen(stage.c_str(),"wb");
+    CHECK(out!=nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\":1,\n"
+        "  \"source_kind\":\"test_generated_original_pdf\",\n"
+        "  \"source_writer\":\"test_owned_qpdf_writer\",\n"
+        "  \"decimal_candidate_test_only\":true,\n"
+        "  \"original_source_count\":%zu,\n"
+        "  \"source_bytes_unchanged_count\":%zu,\n"
+        "  \"pdfium_repeat_count\":%zu,\n"
+        "  \"frame_count\":48,\n"
+        "  \"dpi_order\":[72,96,144],\n"
+        "  \"private_unsupported_dpi_zero_refusals\":%zu,\n"
+        "  \"private_v0_allowlist_unchanged\":true,\n"
+        "  \"graph_to_device_raw_mismatch_cases\":%zu,\n"
+        "  \"decimal_rational_candidate_mismatch_cases\":%zu,\n"
+        "  \"raw_extra_column_cases\":%zu,\n"
+        "  \"raw_extra_row_cases\":%zu,\n"
+        "  \"raw_page_width_above_rational_cases\":%zu,\n"
+        "  \"raw_page_height_above_rational_cases\":%zu,\n"
+        "  \"raw_mismatch_by_crop\":[%zu,%zu,%zu,%zu],\n"
+        "  \"raw_mismatch_by_dpi\":[%zu,%zu,%zu],\n"
+        "  \"candidate_writes_source_or_graph\":false,\n"
+        "  \"original_pdfium_pixels_are_observations_only\":true,\n"
+        "  \"external_native_positive_increment\":0,\n"
+        "  \"public_sdk_backend_switched\":false,\n"
+        "  \"frames\":[\n",
+        source_checks,source_checks,pdfium_repeat_checks,
+        rejected_unsupported_dpis,graph_mismatches,
+        rational_mismatches,graph_extra_columns,graph_extra_rows,
+        raw_positive_width,raw_positive_height,
+        per_crop_graph_mismatches[0],per_crop_graph_mismatches[1],
+        per_crop_graph_mismatches[2],per_crop_graph_mismatches[3],
+        per_dpi_graph_mismatches[0],per_dpi_graph_mismatches[1],
+        per_dpi_graph_mismatches[2]);
+    for(size_t i=0u;i<48u;++i){
+        const auto& row=rows[i];
+        std::fprintf(out,
+            "    {\"crop_variant\":%u,\"rotation\":%d,\"dpi\":%u,"
+            "\"pdfium_size\":[%u,%u],\"raw_graph_grid\":[%u,%u],"
+            "\"rational_test_grid\":[%u,%u],"
+            "\"raw_grid_excess_pixels\":%d,"
+            "\"rational_grid_excess_pixels\":%d,"
+            "\"raw_display_points\":[%.17g,%.17g],"
+            "\"rational_display_points\":[%.17g,%.17g]}%s\n",
+            row.crop,row.rotation,row.dpi,
+            row.actual_pdfium_w,row.actual_pdfium_h,
+            row.graph_w,row.graph_h,row.rational_w,row.rational_h,
+            row.graph_diff,row.rational_diff,
+            row.graph_page_w,row.graph_page_h,
+            row.rational_page_w,row.rational_page_h,
+            i==47u?"":",");
+    }
+    std::fprintf(out,"  ]\n}\n");
+    CHECK(std::ferror(out)==0 && std::fclose(out)==0);
+    CHECK(std::rename(stage.c_str(),report_path)==0);
+    CHECK(corpus_fixture_executions==0u);
+    return EXIT_SUCCESS;
+}
+
 int main(int argc,char **argv)
 {
+    if(argc==4 &&
+       std::strcmp(argv[1],"--generated-unit7-decimal-crop-ab")==0 &&
+       std::strcmp(argv[2],"--decimal-crop-report")==0)
+        return test_generated_unit7_decimal_crop_device_ab(argv[3]);
     if(argc==4 &&
        std::strcmp(argv[1],"--generated-unit7-fill-dpi-heldout")==0 &&
        std::strcmp(argv[2],"--fill-dpi-report")==0)
