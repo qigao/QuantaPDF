@@ -45,7 +45,7 @@ endforeach()
 string(JSON original_count GET "${report}" source_originals)
 string(JSON frame_count GET "${report}" frame_count)
 string(JSON image_pixels GET "${report}" total_rgb_pixels)
-string(JSON count GET "${report}" frames)
+string(JSON count LENGTH "${report}" frames)
 if(NOT original_count EQUAL 4 OR NOT frame_count EQUAL 12 OR
    NOT count EQUAL 12 OR NOT image_pixels EQUAL 106600)
   message(FATAL_ERROR "Multidpi counts or total pixel count changed")
