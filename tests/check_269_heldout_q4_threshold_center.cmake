@@ -111,9 +111,9 @@ foreach(i RANGE 0 95)
   math(EXPR want_rotation "((${i}%12)/3)*90")
   math(EXPR dpi_index "${i}%3")
   list(GET expected_dpis ${dpi_index} want_dpi)
-  list(LENGTH fnv weird_length)
   string(LENGTH "${fnv}" fnv_length)
   math(EXPR pixels "${w}*${h}")
+  math(EXPR rgb_max "${pixels}*765")
   if(NOT frame EQUAL i OR NOT shape EQUAL want_shape OR
      NOT crop EQUAL want_crop OR NOT rotation EQUAL want_rotation OR
      NOT dpi EQUAL want_dpi OR NOT methods EQUAL 7 OR
@@ -149,7 +149,7 @@ foreach(i RANGE 0 95)
     string(JSON diff GET "${report}" frames ${i} scores ${method} different)
     string(JSON gross GET "${report}" frames ${i} scores ${method} gross)
     if(NOT name STREQUAL expected_name OR gross GREATER diff OR
-       diff GREATER pixels OR rgb_abs GREATER pixels*765)
+       diff GREATER pixels OR rgb_abs GREATER rgb_max)
       message(FATAL_ERROR "Held-out candidate score invalid")
     endif()
     math(EXPR abs_${method} "${abs_${method}}+${rgb_abs}")
