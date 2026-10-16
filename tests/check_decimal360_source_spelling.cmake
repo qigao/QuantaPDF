@@ -40,13 +40,15 @@ string(JSON unsupported_count GET "${report}" unsupported_dpi_zero_refusals)
 string(JSON graph_exact_count GET "${report}" graph_exact_pdfium_matches)
 string(JSON graph_exact_reject GET "${report}" graph_exact_unsupported_zero_refusals)
 string(JSON graph_exact_bad_tokens GET "${report}" graph_exact_negative_lexer_refusals)
+string(JSON graph_exact_budget GET "${report}" graph_exact_budget_zero_refusals)
 if(NOT n EQUAL 14 OR NOT source_count EQUAL 14 OR
    NOT spelling_count EQUAL 56 OR NOT repeat_count EQUAL 42 OR
    NOT frame_count EQUAL 42 OR NOT integral_count EQUAL 36 OR
    NOT unsupported_count EQUAL 28 OR
    NOT graph_exact_count EQUAL 42 OR
    NOT graph_exact_reject EQUAL 28 OR
-   NOT graph_exact_bad_tokens EQUAL 15)
+   NOT graph_exact_bad_tokens EQUAL 15 OR
+   NOT graph_exact_budget EQUAL 28)
   message(FATAL_ERROR "#360 source/Graph/PDFium ledger missing cases")
 endif()
 set(dpis 72 96 144)
