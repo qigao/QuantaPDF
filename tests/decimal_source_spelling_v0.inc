@@ -131,6 +131,7 @@ static int test_decimal360_source_spelling(const char *report_path)
     size_t exact_pdfium_ok=0u,raw_grid_diff=0u;
     size_t fractional_pdfium_diff=0u,unsupported_zero=0u;
     size_t graph_exact_pdfium_ok=0u,graph_exact_denied=0u;
+    size_t graph_exact_budget_refusals=0u;
     size_t negative_lexer_refusals=0u;
     const char *const invalid_numbers[]={
         "", "-", "+", "-.", ".", "1e2", "NaN", "Inf",
@@ -258,6 +259,17 @@ static int test_decimal360_source_spelling(const char *report_path)
             CHECK(std::memcmp(&denied,&zero,sizeof(denied))==0);
             ++graph_exact_denied;
         }
+        for(unsigned budget_case=0u;budget_case<2u;++budget_case) {
+            quantapdf_test_decimal_grid_v0 denied{},zero{};
+            std::memset(&denied,0xa5,sizeof(denied));
+            CHECK(quantapdf_test_graph_exact_decimal_grid_v0(
+                snapshot->graph,0u,4u,72u,
+                budget_case==0u?1u:20000u,
+                budget_case==1u?1u:60000u,
+                &denied)==QUANTAPDF_ERROR_UNSUPPORTED);
+            CHECK(std::memcmp(&denied,&zero,sizeof(denied))==0);
+            ++graph_exact_budget_refusals;
+        }
         quantapdf_graph_snapshot_drop(snapshot);
         ++source_ok;
         const uint32_t w72=decimal360_expected_edge(
@@ -350,6 +362,7 @@ static int test_decimal360_source_spelling(const char *report_path)
           frame_count==cases*3u && repeat_ok==frame_count &&
           unsupported_zero==cases*2u &&
           graph_exact_denied==cases*2u &&
+          graph_exact_budget_refusals==cases*2u &&
           graph_exact_pdfium_ok==frame_count &&
           negative_lexer_refusals==15u &&
           exact_pdfium_ok==(cases-2u)*3u);
@@ -364,10 +377,12 @@ static int test_decimal360_source_spelling(const char *report_path)
         "\"graph_exact_candidate_test_only\":true,"
         "\"graph_exact_pdfium_matches\":%zu,"
         "\"graph_exact_unsupported_zero_refusals\":%zu,"
-        "\"graph_exact_negative_lexer_refusals\":%zu\n}\n",
+        "\"graph_exact_negative_lexer_refusals\":%zu,"
+        "\"graph_exact_budget_zero_refusals\":%zu\n}\n",
         source_ok,spell_ok,repeat_ok,frame_count,exact_pdfium_ok,
         fractional_pdfium_diff,raw_grid_diff,unsupported_zero,
-        graph_exact_pdfium_ok,graph_exact_denied,negative_lexer_refusals);
+        graph_exact_pdfium_ok,graph_exact_denied,negative_lexer_refusals,
+        graph_exact_budget_refusals);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
     CHECK(std::rename(stage.c_str(),report_path)==0);
     CHECK(corpus_fixture_executions==0u);
