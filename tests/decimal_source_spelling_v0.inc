@@ -106,6 +106,8 @@ static uint32_t decimal360_expected_edge(int64_t lo,int64_t hi,unsigned dpi)
     CHECK(result>0u && result<500u);
     return (uint32_t)result;
 }
+#include "decimal_q4_consumer_v0.inc"
+
 static int test_decimal360_source_spelling(const char *report_path)
 {
     CHECK(report_path!=nullptr && *report_path);
@@ -135,6 +137,10 @@ static int test_decimal360_source_spelling(const char *report_path)
     size_t handoff_corner_edges=0u,handoff_legacy_affine_equal=0u;
     size_t handoff_unsupported_zero=0u,handoff_budget_zero=0u;
     size_t handoff_invalid_argument_zero=0u;
+    size_t q4_consumer_frames=0u,q4_valid_samples=0u;
+    size_t q4_legacy_exact_samples=0u,q4_discrepant_samples=0u;
+    size_t q4_sample_zero_refusals=0u,q4_work_acceptances=0u;
+    size_t q4_work_budget_refusals=0u,q4_edge_budget_refusals=0u;
     size_t graph_exact_budget_refusals=0u;
     size_t negative_lexer_refusals=0u;
     const char *const invalid_numbers[]={
@@ -445,6 +451,20 @@ static int test_decimal360_source_spelling(const char *report_path)
                           affine_bits[j][component]);
                 ++handoff_legacy_affine_equal;
             }
+            /* This is the EXISTING private Q4 sampler/edge-work consumer.
+             * Both calls run AFTER Snapshot drop using value-only metadata.
+             * The 12 old-size-mismatch frames are evaluated in their new
+             * integer pixel space, with no Fill/W pixel-parity claim. */
+            const auto q4=decimal360_probe_existing_q4_consumer(
+                handoff[j],raw_grid,geometry,raw_matches);
+            ++q4_consumer_frames;
+            q4_valid_samples+=q4.valid_samples;
+            q4_legacy_exact_samples+=q4.legacy_exact_samples;
+            q4_discrepant_samples+=q4.size_discrepant_samples;
+            q4_sample_zero_refusals+=q4.sample_refusals;
+            q4_work_acceptances+=q4.q4_work_acceptances;
+            q4_work_budget_refusals+=q4.work_budget_refusals;
+            q4_edge_budget_refusals+=q4.edge_budget_refusals;
             std::fprintf(out,"   {\"dpi\":%u,\"exact_grid\":[%u,%u],"
                 "\"original_pdfium\":[%d,%d],\"raw_graph_grid\":[%u,%u],"
                 "\"exact_graph_grid\":[%u,%u],\"handoff_grid\":[%u,%u],"
@@ -456,8 +476,15 @@ static int test_decimal360_source_spelling(const char *report_path)
                 std::fprintf(out,"\"%016llx\"%s",
                     (unsigned long long)affine_bits[j][component],
                     component==5u?"":",");
-            std::fprintf(out,"],\"pdfium_matches_exact\":%s,"
+            std::fprintf(out, "],\"q4_consumer_samples\":%zu,"
+                "\"q4_legacy_identical\":%zu,"
+                "\"q4_size_discrepant\":%zu,"
+                "\"q4_sample_fnv64\":\"%016llx\","
+                "\"pdfium_matches_exact\":%s,"
                 "\"raw_matches_pdfium\":%s}%s\n",
+                q4.valid_samples,q4.legacy_exact_samples,
+                q4.size_discrepant_samples,
+                (unsigned long long)q4.sample_fnv64,
                 pdfium_matches?"true":"false",
                 raw_matches?"true":"false",j==2u?"":",");
             quantapdf_drop_bitmap(second);
@@ -482,6 +509,14 @@ static int test_decimal360_source_spelling(const char *report_path)
           handoff_unsupported_zero==cases*2u &&
           handoff_budget_zero==cases*2u &&
           handoff_invalid_argument_zero==cases*2u &&
+          q4_consumer_frames==frame_count &&
+          q4_valid_samples==frame_count*80u &&
+          q4_legacy_exact_samples==handoff_legacy_affine_equal*80u &&
+          q4_discrepant_samples==raw_grid_diff*80u &&
+          q4_sample_zero_refusals==frame_count*7u &&
+          q4_work_acceptances==frame_count &&
+          q4_work_budget_refusals==frame_count &&
+          q4_edge_budget_refusals==frame_count &&
           negative_lexer_refusals==15u &&
           exact_pdfium_ok==(cases-2u)*3u);
     std::fprintf(out," ],\n \"original_source_count\":%zu,"
@@ -504,7 +539,16 @@ static int test_decimal360_source_spelling(const char *report_path)
         "\"handoff_legacy_affine_equal\":%zu,"
         "\"handoff_unsupported_dpi_zero\":%zu,"
         "\"handoff_budget_zero\":%zu,"
-        "\"handoff_argument_zero\":%zu\n}\n",
+        "\"handoff_argument_zero\":%zu,"
+        "\"q4_consumer_only\":true,"
+        "\"q4_consumer_frames\":%zu,"
+        "\"q4_consumer_valid_samples\":%zu,"
+        "\"q4_legacy_bit_identical_samples\":%zu,"
+        "\"q4_dimension_discrepant_samples\":%zu,"
+        "\"q4_sample_zero_refusals\":%zu,"
+        "\"q4_work_acceptances\":%zu,"
+        "\"q4_work_budget_refusals\":%zu,"
+        "\"q4_edge_budget_refusals\":%zu\n}\n",
         source_ok,spell_ok,repeat_ok,frame_count,exact_pdfium_ok,
         fractional_pdfium_diff,raw_grid_diff,unsupported_zero,
         graph_exact_pdfium_ok,graph_exact_denied,negative_lexer_refusals,
@@ -512,7 +556,11 @@ static int test_decimal360_source_spelling(const char *report_path)
         handoff_repeated,handoff_after_drop,handoff_corner_edges,
         handoff_legacy_affine_equal,
         handoff_unsupported_zero,handoff_budget_zero,
-        handoff_invalid_argument_zero);
+        handoff_invalid_argument_zero,
+        q4_consumer_frames,q4_valid_samples,
+        q4_legacy_exact_samples,q4_discrepant_samples,
+        q4_sample_zero_refusals,q4_work_acceptances,
+        q4_work_budget_refusals,q4_edge_budget_refusals);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
     CHECK(std::rename(stage.c_str(),report_path)==0);
     CHECK(corpus_fixture_executions==0u);
