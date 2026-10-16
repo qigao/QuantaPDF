@@ -20,6 +20,7 @@ static const qp269_heldout_shape_v0 qp269_holdout_shapes_v0[2]={
      "1 0 0 rg 3.875 4.625 6.5 4.5 re f",
      {3.125,3.875,9.875,10.125},{3.875,4.625,10.375,9.125}}
 };
+#include "269_heldout_q4_float_handoff_v0.inc"
 static const char *const qp269_holdout_method_v0[7]={
     "native_q4_white_composite",
     "q4_alpha_threshold_1_of_16",
@@ -187,6 +188,8 @@ static int test_269_heldout_q4_threshold_center_ab(const char *report_path)
     qp269_score_v0 total[7]={},by_dpi[3][7]={},by_shape[2][7]={};
     qp269_heldout_signed_v0 signed_total[7]={},signed_dpi[3][7]={};
     size_t signed_regression_144_cases=0u;
+    size_t handoff_frames=0u,handoff_changed=0u;
+    uint64_t handoff_exact_rgb=0u,handoff_pre_rgb=0u,handoff_post_rgb=0u;
     size_t improved[7]={},equal[7]={},regressed[7]={};
     size_t ref_nonbinary[3]={},center_edge_ties[3]={};
     size_t original_sources=0u,source_verified=0u,frames=0u;
@@ -203,6 +206,7 @@ static int test_269_heldout_q4_threshold_center_ab(const char *report_path)
         " \"binary_center_uses_half_open_source_rectangles\":true,\n"
         " \"thresholds_are_offline_observation_only\":true,\n"
         " \"signed_model_audit_test_only\":true,\n"
+        " \"float_handoff_test_only\":true,\n"
         " \"native_renderer_mutated\":false,\n"
         " \"pdfium_fallback_used\":false,\n"
         " \"third_party_native_positive_increment\":0,\n"
@@ -324,6 +328,9 @@ static int test_269_heldout_q4_threshold_center_ab(const char *report_path)
                       ref_size==repeat_size &&
                       std::memcmp(ref_bytes,repeat_bytes,ref_size)==0);
                 ++pdfium_repeats;
+                const auto handoff=qp269_audit_handoff_v0(
+                    detached,geometry,grid,shape,crop,rotation,
+                    ref_bytes,stride,native);
 
                 qp269_score_v0 local[7]={};
                 qp269_heldout_signed_v0 local_signed[7]={};
@@ -404,6 +411,13 @@ static int test_269_heldout_q4_threshold_center_ab(const char *report_path)
                         if(greatest>64u)++local[method].gross;
                     }
                 }
+                CHECK(handoff.post_rgb_abs==local[0].rgb_abs);
+                ++handoff_frames;
+                handoff_exact_rgb+=handoff.exact_rgb_abs;
+                handoff_pre_rgb+=handoff.pre_rgb_abs;
+                handoff_post_rgb+=handoff.post_rgb_abs;
+                if(handoff.exact_rgb_abs!=handoff.post_rgb_abs)
+                    ++handoff_changed;
                 ref_nonbinary[j]+=partials;
                 center_edge_ties[j]+=ties;
                 const size_t frame=source_number*3u+j;
@@ -453,6 +467,8 @@ static int test_269_heldout_q4_threshold_center_ab(const char *report_path)
                 qp269_score_print_v0(out,local);
                 std::fprintf(out,",\"signed_scores\":");
                 qp269_heldout_signed_print_v0(out,local_signed);
+                std::fprintf(out,",\"float_handoff\":");
+                qp269_float_handoff_print_v0(out,handoff);
                 std::fprintf(out,"}%s\n",frame==95u?"":",");
                 quantapdf_drop_bitmap(repeat);
                 quantapdf_drop_bitmap(ref);
@@ -469,7 +485,8 @@ static int test_269_heldout_q4_threshold_center_ab(const char *report_path)
             ++source_verified;
         }
     CHECK(original_sources==32u && source_verified==32u &&
-          signed_regression_144_cases==2u &&
+          signed_regression_144_cases==2u && handoff_frames==96u &&
+          handoff_changed==4u && handoff_post_rgb==total[0].rgb_abs &&
           frames==96u && native_repeats==96u &&
           pdfium_repeats==96u && original_source_pixels>0u &&
           old_size_mismatches+legacy_rgba_equal==96u &&
@@ -503,7 +520,16 @@ static int test_269_heldout_q4_threshold_center_ab(const char *report_path)
     for(unsigned k=0u;k<=16u;++k)
         std::fprintf(out,"%zu%s",q4_actual_alpha_bins[k],
             k==16u?"":",");
-    std::fprintf(out,"],\"total_scores\":");
+    std::fprintf(out,
+        "],\"float_handoff_frames\":%zu,"
+        "\"float_handoff_exact_post_changed\":%zu,"
+        "\"float_handoff_exact_rgb_abs\":%llu,"
+        "\"float_handoff_pre_rgb_abs\":%llu,"
+        "\"float_handoff_post_rgb_abs\":%llu,"
+        "\"total_scores\":",handoff_frames,handoff_changed,
+        (unsigned long long)handoff_exact_rgb,
+        (unsigned long long)handoff_pre_rgb,
+        (unsigned long long)handoff_post_rgb);
     qp269_score_print_v0(out,total);
     std::fprintf(out,",\"total_signed_scores\":");
     qp269_heldout_signed_print_v0(out,signed_total);
