@@ -21,6 +21,7 @@ static const qp269_heldout_shape_v0 qp269_holdout_shapes_v0[2]={
      {3.125,3.875,9.875,10.125},{3.875,4.625,10.375,9.125}}
 };
 #include "269_heldout_q4_float_handoff_v0.inc"
+#include "269_q4_rect_clip_quantization_falsifiers_v0.inc"
 static const char *const qp269_holdout_method_v0[7]={
     "native_q4_white_composite",
     "q4_alpha_threshold_1_of_16",
@@ -189,6 +190,8 @@ static int test_269_heldout_q4_threshold_center_ab(const char *report_path)
     qp269_heldout_signed_v0 signed_total[7]={},signed_dpi[3][7]={};
     size_t signed_regression_144_cases=0u;
     size_t handoff_frames=0u,handoff_changed=0u;
+    size_t quant_legacy_zero=0u;
+    qp269_rect_quant_score_v0 quant_q4_total{},quant_closest_total{};
     uint64_t handoff_exact_rgb=0u,handoff_pre_rgb=0u,handoff_post_rgb=0u;
     size_t improved[7]={},equal[7]={},regressed[7]={};
     size_t ref_nonbinary[3]={},center_edge_ties[3]={};
@@ -331,6 +334,10 @@ static int test_269_heldout_q4_threshold_center_ab(const char *report_path)
                 const auto handoff=qp269_audit_handoff_v0(
                     detached,geometry,grid,shape,crop,rotation,
                     ref_bytes,stride,native);
+                qp269_rect_quant_score_v0 quant_q4{},quant_closest{};
+                qp269_rect_quant_models_v0(handoff.fill.post_box,
+                    handoff.clip.post_box,ref_bytes,(size_t)w,(size_t)h,
+                    (size_t)stride,&quant_q4,&quant_closest);
 
                 qp269_score_v0 local[7]={};
                 qp269_heldout_signed_v0 local_signed[7]={};
@@ -411,7 +418,12 @@ static int test_269_heldout_q4_threshold_center_ab(const char *report_path)
                         if(greatest>64u)++local[method].gross;
                     }
                 }
-                CHECK(handoff.post_rgb_abs==local[0].rgb_abs);
+                CHECK(handoff.post_rgb_abs==local[0].rgb_abs &&
+                      quant_q4.rgb_abs()==local[0].rgb_abs &&
+                      quant_closest.rgb_abs()==0u);
+                ++quant_legacy_zero;
+                qp269_rect_quant_add_v0(&quant_q4_total,quant_q4);
+                qp269_rect_quant_add_v0(&quant_closest_total,quant_closest);
                 ++handoff_frames;
                 handoff_exact_rgb+=handoff.exact_rgb_abs;
                 handoff_pre_rgb+=handoff.pre_rgb_abs;
@@ -469,6 +481,8 @@ static int test_269_heldout_q4_threshold_center_ab(const char *report_path)
                 qp269_heldout_signed_print_v0(out,local_signed);
                 std::fprintf(out,",\"float_handoff\":");
                 qp269_float_handoff_print_v0(out,handoff);
+                std::fprintf(out,",\"rect_closest_outer\":");
+                qp269_rect_quant_print_v0(out,quant_closest);
                 std::fprintf(out,"}%s\n",frame==95u?"":",");
                 quantapdf_drop_bitmap(repeat);
                 quantapdf_drop_bitmap(ref);
@@ -487,6 +501,9 @@ static int test_269_heldout_q4_threshold_center_ab(const char *report_path)
     CHECK(original_sources==32u && source_verified==32u &&
           signed_regression_144_cases==2u && handoff_frames==96u &&
           handoff_changed==4u && handoff_post_rgb==total[0].rgb_abs &&
+          quant_legacy_zero==96u &&
+          quant_q4_total.rgb_abs()==total[0].rgb_abs &&
+          quant_closest_total.rgb_abs()==0u &&
           frames==96u && native_repeats==96u &&
           pdfium_repeats==96u && original_source_pixels>0u &&
           old_size_mismatches+legacy_rgba_equal==96u &&
@@ -557,7 +574,14 @@ static int test_269_heldout_q4_threshold_center_ab(const char *report_path)
     std::fprintf(out,"],\"frames_worse_vs_q4\":[");
     for(unsigned j=0u;j<7u;++j)
         std::fprintf(out,"%zu%s",regressed[j],j==6u?"":",");
-    std::fprintf(out,"]\n}\n");
+    std::fprintf(out,"],\"rect_closest_outer_legacy_zero_frames\":%zu,"
+        "\"rect_closest_outer_legacy_q4_total\":",quant_legacy_zero);
+    qp269_rect_quant_print_v0(out,quant_q4_total);
+    std::fprintf(out,",\"rect_closest_outer_legacy_candidate_total\":");
+    qp269_rect_quant_print_v0(out,quant_closest_total);
+    std::fprintf(out,",\"rect_quant_phase_falsifiers\":");
+    qp269_rect_phase_falsifiers_v0(out,source);
+    std::fprintf(out,"\n}\n");
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
     CHECK(std::rename(stage.c_str(),report_path)==0);
     CHECK(corpus_fixture_executions==0u);
