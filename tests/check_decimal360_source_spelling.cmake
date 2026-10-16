@@ -22,6 +22,7 @@ foreach(marker IN ITEMS
     "\"decimal_contract_test_only\":true"
     "\"graph_exact_candidate_test_only\":true"
     "\"handoff_value_only_test\":true"
+    "\"q4_consumer_only\":true"
     "\"correct_rounded_double_still_inflates\":true"
     "\"native_render\":\"not_run\""
     "\"public_sdk_backend_switched\":false"
@@ -49,6 +50,14 @@ string(JSON handoff_old_unchanged GET "${report}" handoff_legacy_affine_equal)
 string(JSON handoff_dpi_refusals GET "${report}" handoff_unsupported_dpi_zero)
 string(JSON handoff_budget_refusals GET "${report}" handoff_budget_zero)
 string(JSON handoff_bad_arguments GET "${report}" handoff_argument_zero)
+string(JSON q4_frames GET "${report}" q4_consumer_frames)
+string(JSON q4_samples GET "${report}" q4_consumer_valid_samples)
+string(JSON q4_legacy GET "${report}" q4_legacy_bit_identical_samples)
+string(JSON q4_different GET "${report}" q4_dimension_discrepant_samples)
+string(JSON q4_sample_refused GET "${report}" q4_sample_zero_refusals)
+string(JSON q4_work_ok GET "${report}" q4_work_acceptances)
+string(JSON q4_work_refused GET "${report}" q4_work_budget_refusals)
+string(JSON q4_edges_refused GET "${report}" q4_edge_budget_refusals)
 if(NOT n EQUAL 14 OR NOT source_count EQUAL 14 OR
    NOT spelling_count EQUAL 56 OR NOT repeat_count EQUAL 42 OR
    NOT frame_count EQUAL 42 OR NOT integral_count EQUAL 36 OR
@@ -63,7 +72,15 @@ if(NOT n EQUAL 14 OR NOT source_count EQUAL 14 OR
    NOT handoff_old_unchanged EQUAL 30 OR
    NOT handoff_dpi_refusals EQUAL 28 OR
    NOT handoff_budget_refusals EQUAL 28 OR
-   NOT handoff_bad_arguments EQUAL 28)
+   NOT handoff_bad_arguments EQUAL 28 OR
+   NOT q4_frames EQUAL 42 OR
+   NOT q4_samples EQUAL 3360 OR
+   NOT q4_legacy EQUAL 2400 OR
+   NOT q4_different EQUAL 960 OR
+   NOT q4_sample_refused EQUAL 294 OR
+   NOT q4_work_ok EQUAL 42 OR
+   NOT q4_work_refused EQUAL 42 OR
+   NOT q4_edges_refused EQUAL 42)
   message(FATAL_ERROR "#360 source/Graph/PDFium ledger missing cases")
 endif()
 set(dpis 72 96 144)
@@ -101,6 +118,18 @@ foreach(i RANGE 0 13)
     string(JSON xh GET "${report}" cases ${i} frames ${j} exact_graph_grid 1)
     string(JSON hw GET "${report}" cases ${i} frames ${j} handoff_grid 0)
     string(JSON hh GET "${report}" cases ${i} frames ${j} handoff_grid 1)
+    string(JSON q4_count GET "${report}" cases ${i} frames ${j} q4_consumer_samples)
+    string(JSON q4_equal GET "${report}" cases ${i} frames ${j} q4_legacy_identical)
+    string(JSON q4_mismatch GET "${report}" cases ${i} frames ${j} q4_size_discrepant)
+    string(JSON q4_hash GET "${report}" cases ${i} frames ${j} q4_sample_fnv64)
+    string(LENGTH "${q4_hash}" q4_hash_length)
+    math(EXPR q4_sum "${q4_equal}+${q4_mismatch}")
+    if(NOT q4_count EQUAL 80 OR
+       NOT q4_sum EQUAL 80 OR
+       NOT q4_hash_length EQUAL 16 OR
+       NOT q4_hash MATCHES "^[0-9a-f]+$")
+      message(FATAL_ERROR "#360 Q4 sample consumer observations incomplete")
+    endif()
     string(JSON affine_len LENGTH "${report}" cases ${i} frames ${j} handoff_affine_hex)
     if(NOT affine_len EQUAL 6)
       message(FATAL_ERROR "#360 handoff affine value metadata incomplete")
@@ -137,4 +166,5 @@ message(STATUS
   "36 exact-integer-size PDFium matches, 28 hard unsupported DPI refuses, "
   "42/42 Graph-exact C11 dimensions and 15 lexical zero-output refusals; "
   "42/42 value-only handoffs after Graph drop, 168 affine corner checks; "
+  "3360 private Q4 samples (2400 bit-identical legacy, 960 size-mismatch observations); "
   "no production parser or renderer mutation.")
