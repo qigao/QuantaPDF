@@ -2939,8 +2939,11 @@ add_test(NAME quantapdf.native_269_heldout_q4_threshold_center
     "-DORACLE_EXECUTABLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
     "-DREPORT_FILE=${CMAKE_CURRENT_BINARY_DIR}/native-269-heldout-q4-threshold-center.json"
     -P "${CMAKE_CURRENT_SOURCE_DIR}/check_269_heldout_q4_threshold_center.cmake")
+# The scoped 18-frame rectangular phase ledger adds a second strict
+# CMake JSON audit after the already-qualified 96 original PDFium frames.
+# Windows requires more wall-clock for JSON validation; no error budgets change.
 set_tests_properties(quantapdf.native_269_heldout_q4_threshold_center
-  PROPERTIES TIMEOUT 115
+  PROPERTIES TIMEOUT 180
   LABELS "conformance;test-only;heldout-original-pdfium;fill-w-clip;72-96-144-dpi;no-renderer-switch")
 if(WIN32)
   set_property(TEST quantapdf.native_269_heldout_q4_threshold_center
