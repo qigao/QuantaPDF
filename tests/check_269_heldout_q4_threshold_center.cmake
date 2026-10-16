@@ -248,3 +248,7 @@ message(STATUS
   " Base Q4 diff=${diff_0}, RGB abs=${abs_0}."
   " Center diff=${diff_6}, RGB abs=${abs_6}."
   " No threshold/center renderer mutation, backend switch or positive promotion.")
+
+# The original source/PDFium scope and seven independent A/B models must
+# pass before the additional signed 144-DPI counterexample audit runs.
+include("${CMAKE_CURRENT_LIST_DIR}/check_269_heldout_signed_144_audit.cmake")
