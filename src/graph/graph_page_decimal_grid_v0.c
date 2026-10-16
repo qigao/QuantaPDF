@@ -281,14 +281,21 @@ quantapdf_status quantapdf_graph_page_decimal_exact_size_v0(
     if (geometry.rotation==90 || geometry.rotation==270) {
         const uint32_t swap=width; width=height; height=swap;
     }
-    if ((size_t)width>max_pixels/(size_t)height ||
-        (size_t)width>SIZE_MAX/3u)
+    /* The dimension is uint32_t but output accounting is size_t.
+     * Test the complete pixel product BEFORE multiplying RGB bytes; this
+     * is valid on both 32- and 64-bit targets and never compares a known
+     * narrow integer to an unreachably large SIZE_MAX/3 constant. */
+    if ((size_t)width>max_pixels/(size_t)height)
         return QUANTAPDF_ERROR_UNSUPPORTED;
-    result.width=width; result.height=height;
-    result.stride_bytes=(size_t)width*3u;
-    if (result.stride_bytes>max_output_bytes/(size_t)height)
-        return QUANTAPDF_ERROR_UNSUPPORTED;
-    result.output_bytes=result.stride_bytes*(size_t)height;
+    {
+        const size_t pixels=(size_t)width*(size_t)height;
+        if (pixels>SIZE_MAX/3u ||
+            pixels>max_output_bytes/3u)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        result.width=width; result.height=height;
+        result.stride_bytes=(size_t)width*3u;
+        result.output_bytes=pixels*3u;
+    }
     *out=result;
     return QUANTAPDF_OK;
 }
