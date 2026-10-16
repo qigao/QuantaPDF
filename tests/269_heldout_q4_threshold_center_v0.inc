@@ -33,6 +33,41 @@ struct qp269_score_v0 {
     uint64_t rgb_abs=0u;
     size_t different=0u,gross=0u;
 };
+/* Signed model-vs-original coverage: original PDFium reference bitmap
+ * stays immutable and is checked independently per rendered source. */
+struct qp269_heldout_signed_v0 {
+    size_t under=0u,over=0u,color_only=0u;
+    uint64_t under_rgb_abs=0u,over_rgb_abs=0u,color_only_rgb_abs=0u;
+};
+static void qp269_heldout_signed_add_v0(qp269_heldout_signed_v0 *dst,
+    const qp269_heldout_signed_v0& src)
+{
+    dst->under+=src.under;
+    dst->over+=src.over;
+    dst->color_only+=src.color_only;
+    dst->under_rgb_abs+=src.under_rgb_abs;
+    dst->over_rgb_abs+=src.over_rgb_abs;
+    dst->color_only_rgb_abs+=src.color_only_rgb_abs;
+}
+static void qp269_heldout_signed_print_v0(FILE *out,
+    const qp269_heldout_signed_v0 signed_scores[7])
+{
+    std::fprintf(out,"[");
+    for(unsigned m=0u;m<7u;++m){
+        const auto& d=signed_scores[m];
+        std::fprintf(out,
+            "{\"method\":\"%s\",\"under\":%zu,\"over\":%zu,"
+            "\"color_only\":%zu,\"under_rgb_abs\":%llu,"
+            "\"over_rgb_abs\":%llu,\"color_only_rgb_abs\":%llu}%s",
+            qp269_holdout_method_v0[m],
+            d.under,d.over,d.color_only,
+            (unsigned long long)d.under_rgb_abs,
+            (unsigned long long)d.over_rgb_abs,
+            (unsigned long long)d.color_only_rgb_abs,
+            m==6u?"":",");
+    }
+    std::fprintf(out,"]");
+}
 static void qp269_score_add_v0(qp269_score_v0 *dst,
     const qp269_score_v0& src)
 {
@@ -150,6 +185,8 @@ static int test_269_heldout_q4_threshold_center_ab(const char *report_path)
         22000u,1u,64u,4000000u
     };
     qp269_score_v0 total[7]={},by_dpi[3][7]={},by_shape[2][7]={};
+    qp269_heldout_signed_v0 signed_total[7]={},signed_dpi[3][7]={};
+    size_t signed_regression_144_cases=0u;
     size_t improved[7]={},equal[7]={},regressed[7]={};
     size_t ref_nonbinary[3]={},center_edge_ties[3]={};
     size_t original_sources=0u,source_verified=0u,frames=0u;
@@ -165,6 +202,7 @@ static int test_269_heldout_q4_threshold_center_ab(const char *report_path)
         " \"pixel_center_uses_value_grid_without_pdfium_pixels\":true,\n"
         " \"binary_center_uses_half_open_source_rectangles\":true,\n"
         " \"thresholds_are_offline_observation_only\":true,\n"
+        " \"signed_model_audit_test_only\":true,\n"
         " \"native_renderer_mutated\":false,\n"
         " \"pdfium_fallback_used\":false,\n"
         " \"third_party_native_positive_increment\":0,\n"
@@ -288,6 +326,7 @@ static int test_269_heldout_q4_threshold_center_ab(const char *report_path)
                 ++pdfium_repeats;
 
                 qp269_score_v0 local[7]={};
+                qp269_heldout_signed_v0 local_signed[7]={};
                 size_t ties=0u,partials=0u;
                 for(size_t py=0u;py<(size_t)h;++py)
                   for(size_t px=0u;px<(size_t)w;++px){
@@ -332,15 +371,36 @@ static int test_269_heldout_q4_threshold_center_ab(const char *report_path)
                             rgb_pred[1]=rgb_pred[2]=0u;
                         }
                         unsigned greatest=0u;
+                        uint64_t pixel_rgb_abs=0u;
                         for(unsigned channel=0u;channel<3u;++channel){
                             const unsigned left=rgb_pred[channel];
                             const unsigned right=(unsigned)rgb[channel];
                             const unsigned delta=left>right?
                                 left-right:right-left;
                             local[method].rgb_abs+=(uint64_t)delta;
+                            pixel_rgb_abs+=(uint64_t)delta;
                             greatest=std::max(greatest,delta);
                         }
-                        if(greatest!=0u)++local[method].different;
+                        if(greatest!=0u){
+                            ++local[method].different;
+                            /* The selected original red-on-white rectangles
+                             * have binary PDFium coverage. We never threshold
+                             * the reference; every candidate is measured. */
+                            CHECK(rgb[1]==0u || rgb[1]==255u);
+                            const unsigned ref_cov=255u-(unsigned)rgb[1];
+                            const unsigned model_cov=255u-rgb_pred[1];
+                            auto& side=local_signed[method];
+                            if(ref_cov==255u && model_cov<255u){
+                                ++side.under;
+                                side.under_rgb_abs+=pixel_rgb_abs;
+                            }else if(ref_cov==0u && model_cov>0u){
+                                ++side.over;
+                                side.over_rgb_abs+=pixel_rgb_abs;
+                            }else{
+                                ++side.color_only;
+                                side.color_only_rgb_abs+=pixel_rgb_abs;
+                            }
+                        }
                         if(greatest>64u)++local[method].gross;
                     }
                 }
@@ -351,12 +411,31 @@ static int test_269_heldout_q4_threshold_center_ab(const char *report_path)
                 for(unsigned method=0u;method<7u;++method){
                     qp269_score_add_v0(&total[method],local[method]);
                     qp269_score_add_v0(&by_dpi[j][method],local[method]);
+                    qp269_heldout_signed_add_v0(
+                        &signed_total[method],local_signed[method]);
+                    qp269_heldout_signed_add_v0(
+                        &signed_dpi[j][method],local_signed[method]);
+                    const auto& side=local_signed[method];
+                    CHECK(side.under+side.over+side.color_only==
+                              local[method].different &&
+                          side.under_rgb_abs+side.over_rgb_abs+
+                              side.color_only_rgb_abs==
+                              local[method].rgb_abs);
                     qp269_score_add_v0(&by_shape[shape][method],local[method]);
                     if(local[method].rgb_abs<local[0].rgb_abs)
                         ++improved[method];
                     else if(local[method].rgb_abs>local[0].rgb_abs)
                         ++regressed[method];
                     else ++equal[method];
+                }
+                /* Pinned historical counterexamples, not tuning
+                 * criteria for selecting a new threshold on this corpus. */
+                if(frame==68u || frame==71u){
+                    CHECK(shape==1u && crop==1u && dpi==144u &&
+                          (rotation==180 || rotation==270) &&
+                          local[1].rgb_abs>local[0].rgb_abs &&
+                          local[2].rgb_abs>local[0].rgb_abs);
+                    ++signed_regression_144_cases;
                 }
                 original_source_pixels+=pxcount;
                 std::fprintf(out,
@@ -372,6 +451,8 @@ static int test_269_heldout_q4_threshold_center_ab(const char *report_path)
                     grid.width,grid.height,old.width,old.height,
                     old_size_match?"true":"false",partials,ties);
                 qp269_score_print_v0(out,local);
+                std::fprintf(out,",\"signed_scores\":");
+                qp269_heldout_signed_print_v0(out,local_signed);
                 std::fprintf(out,"}%s\n",frame==95u?"":",");
                 quantapdf_drop_bitmap(repeat);
                 quantapdf_drop_bitmap(ref);
@@ -388,6 +469,7 @@ static int test_269_heldout_q4_threshold_center_ab(const char *report_path)
             ++source_verified;
         }
     CHECK(original_sources==32u && source_verified==32u &&
+          signed_regression_144_cases==2u &&
           frames==96u && native_repeats==96u &&
           pdfium_repeats==96u && original_source_pixels>0u &&
           old_size_mismatches+legacy_rgba_equal==96u &&
@@ -410,21 +492,29 @@ static int test_269_heldout_q4_threshold_center_ab(const char *report_path)
         "\"reference_partial_by_dpi\":[%zu,%zu,%zu],"
         "\"center_boundary_ties_by_dpi\":[%zu,%zu,%zu],"
         "\"native_alpha_off_q4_lattice\":%zu,"
+        "\"signed_regression_144_frames\":%zu,"
         "\"native_alpha_q4_counts\":[",
         original_sources,source_verified,pdfium_repeats,native_repeats,
         frames,original_source_pixels,old_size_mismatches,
         legacy_rgba_equal,
         ref_nonbinary[0],ref_nonbinary[1],ref_nonbinary[2],
         center_edge_ties[0],center_edge_ties[1],center_edge_ties[2],
-        off_q4_alpha);
+        off_q4_alpha,signed_regression_144_cases);
     for(unsigned k=0u;k<=16u;++k)
         std::fprintf(out,"%zu%s",q4_actual_alpha_bins[k],
             k==16u?"":",");
     std::fprintf(out,"],\"total_scores\":");
     qp269_score_print_v0(out,total);
+    std::fprintf(out,",\"total_signed_scores\":");
+    qp269_heldout_signed_print_v0(out,signed_total);
     std::fprintf(out,",\"scores_by_dpi\":[");
     for(unsigned j=0u;j<3u;++j){
         qp269_score_print_v0(out,by_dpi[j]);
+        if(j!=2u)std::fprintf(out,",");
+    }
+    std::fprintf(out,"],\"signed_by_dpi\":[");
+    for(unsigned j=0u;j<3u;++j){
+        qp269_heldout_signed_print_v0(out,signed_dpi[j]);
         if(j!=2u)std::fprintf(out,",");
     }
     std::fprintf(out,"],\"scores_by_shape\":[");
