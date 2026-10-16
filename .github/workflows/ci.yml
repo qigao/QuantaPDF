@@ -552,6 +552,16 @@ jobs:
             build/linux-gcc-debug/tests/native-decimal360-exact-fillclip-pixel.json
           if-no-files-found: error
           retention-days: 7
+      
+      - name: Upload #269 original primitive mask ownership (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-unit7-96dpi-mask-ownership-linux
+          path: |
+            build/linux-gcc-release/tests/native-269-unit7-96dpi-mask-ownership.json
+            build/linux-gcc-debug/tests/native-269-unit7-96dpi-mask-ownership.json
+          if-no-files-found: error
+          retention-days: 7
 
   macos:
     if: >-
@@ -975,6 +985,14 @@ jobs:
         with:
           name: decimal360-exact-fillclip-macos
           path: build/macos-clang-release/tests/native-decimal360-exact-fillclip-pixel.json
+          if-no-files-found: error
+          retention-days: 7
+      
+      - name: Upload #269 original primitive mask ownership (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-unit7-96dpi-mask-ownership-macos
+          path: build/macos-clang-release/tests/native-269-unit7-96dpi-mask-ownership.json
           if-no-files-found: error
           retention-days: 7
 
@@ -1411,5 +1429,13 @@ jobs:
         with:
           name: decimal360-exact-fillclip-windows
           path: build/Msvc-Release/tests/native-decimal360-exact-fillclip-pixel.json
+          if-no-files-found: error
+          retention-days: 7
+      
+      - name: Upload #269 original primitive mask ownership (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-unit7-96dpi-mask-ownership-windows
+          path: build/Msvc-Release/tests/native-269-unit7-96dpi-mask-ownership.json
           if-no-files-found: error
           retention-days: 7
