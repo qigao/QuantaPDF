@@ -2928,3 +2928,30 @@ else()
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
+
+# #269: held-out original QPDF Fill/W shapes (NOT the training/mask corpus).
+# 32 originals x 72/96/144 DPI; genuine PDFium bitmap references, native
+# Q4 baseline and OFFLINE threshold/center predictors only. No Raster edits.
+target_compile_definitions(quantapdf_test_native_source_qq_oracle PRIVATE
+  GENERATED_269_Q4_HOLDOUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-269-q4-heldout-original.pdf")
+add_test(NAME quantapdf.native_269_heldout_q4_threshold_center
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE_EXECUTABLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DREPORT_FILE=${CMAKE_CURRENT_BINARY_DIR}/native-269-heldout-q4-threshold-center.json"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_269_heldout_q4_threshold_center.cmake")
+set_tests_properties(quantapdf.native_269_heldout_q4_threshold_center
+  PROPERTIES TIMEOUT 115
+  LABELS "conformance;test-only;heldout-original-pdfium;fill-w-clip;72-96-144-dpi;no-renderer-switch")
+if(WIN32)
+  set_property(TEST quantapdf.native_269_heldout_q4_threshold_center
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_269_heldout_q4_threshold_center
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_269_heldout_q4_threshold_center
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
