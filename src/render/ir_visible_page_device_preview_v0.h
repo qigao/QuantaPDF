@@ -31,6 +31,26 @@ quantapdf_status quantapdf_ir_raster_visible_page_fillclip_preview_v0(
     size_t max_rgba_bytes,
     quantapdf_ir_raster_image *out_image);
 
+/* #360 private, explicit opt-in ONLY. The sealed Graph must have computed
+ * exact_grid via quantapdf_graph_page_decimal_handoff_v0 BEFORE it was dropped.
+ * The caller retains a detached owned IR and copied page_geometry. Both must
+ * outlive this synchronous call. No source/Graph/provider pointer escapes.
+ *
+ * Reuses the same strict one-Fill + one nonzero-W-Clip subset and raster as
+ * preview_v0; does NOT recompute integer extents from binary64 or add a
+ * fallback. Checks the supplied value grid's byte budgets and six binary64
+ * affine coefficients against the existing page-display projection.
+ * No general Path/Clip/FIll PDFium pixel parity is asserted by this API.
+ * Not exported through include/quantapdf or used by installed SDK.
+ */
+quantapdf_status quantapdf_ir_raster_visible_page_fillclip_exact_grid_v0(
+    const quantapdf_ir *normalized_ir, size_t page_index,
+    const quantapdf_graph_page_geometry *source_geometry,
+    const quantapdf_graph_device_grid *exact_grid, unsigned int dpi,
+    const quantapdf_ir_raster_v1_limits *limits,
+    size_t max_rgba_bytes,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
