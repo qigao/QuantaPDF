@@ -19,13 +19,15 @@ string(JSON sources GET "${phase_json}" source_count)
 string(JSON verified GET "${phase_json}" source_bytes_verified)
 string(JSON frames GET "${phase_json}" reference_frames)
 string(JSON regressed GET "${phase_json}" pinned_96dpi_regression_frames)
+string(JSON controls GET "${phase_json}" pinned_96dpi_flank_controls)
 string(JSON frame_len LENGTH "${phase_json}" samples)
 if(NOT legacy_zero EQUAL 96 OR NOT old_q4 EQUAL original_q4 OR
    NOT old_candidate EQUAL 0 OR NOT original_q4 EQUAL 3818356 OR
    NOT kind STREQUAL "six_new_test_generated_original_pdf" OR
    NOT no_promotion EQUAL 0 OR no_raster OR NOT modeled OR
    NOT sources EQUAL 6 OR NOT verified EQUAL 6 OR
-   NOT frames EQUAL 18 OR NOT regressed EQUAL 6 OR NOT frame_len EQUAL 18)
+   NOT frames EQUAL 18 OR NOT regressed EQUAL 2 OR
+   NOT controls EQUAL 4 OR NOT frame_len EQUAL 18)
   message(FATAL_ERROR "Heldout rectangle-quantization scope/provenance changed")
 endif()
 foreach(which IN ITEMS q4 closest_fill_outer_clip)
@@ -34,6 +36,10 @@ foreach(which IN ITEMS q4 closest_fill_outer_clip)
   endforeach()
 endforeach()
 set(regressed_again 0)
+set(flank_again 0)
+set(source_hashes "")
+set(phase_ys "7.36328125" "7.375" "7.38671875")
+set(phase_xs "6.484375" "6.5" "6.515625")
 foreach(i RANGE 0 17)
   math(EXPR src_id "${i}/3")
   math(EXPR dpi_id "${i}%3")
@@ -57,6 +63,22 @@ foreach(i RANGE 0 17)
   string(JSON dpi GET "${phase_json}" samples ${i} dpi)
   string(JSON rotation GET "${phase_json}" samples ${i} rotation)
   string(JSON source_hash GET "${phase_json}" samples ${i} source_fnv64)
+  string(JSON source_y GET "${phase_json}" samples ${i} source_fill_y)
+  string(JSON device_x GET "${phase_json}" samples ${i} device_x_left_96)
+  list(GET phase_ys ${phase_id} expected_y)
+  list(GET phase_xs ${phase_id} expected_x)
+  if(NOT source_y STREQUAL expected_y OR NOT device_x STREQUAL expected_x)
+    message(FATAL_ERROR "Frame ${i}: source Fill edge/device half-pixel phase wrong")
+  endif()
+  if(dpi_id EQUAL 0)
+    # Exactly six UNIQUE source hashes; the previous version inadvertently
+    # reproduced the same Fill-only PDF across all three phase indices.
+    list(FIND source_hashes "${source_hash}" existing)
+    if(NOT existing EQUAL -1)
+      message(FATAL_ERROR "Repeated original source bytes for phase ${phase_id} mode ${mode_id}")
+    endif()
+    list(APPEND source_hashes "${source_hash}")
+  endif()
   if(NOT id EQUAL i OR NOT phase EQUAL phase_id OR
      NOT mode STREQUAL expected_mode OR NOT dpi EQUAL expected_dpi OR
      NOT rotation EQUAL 90 OR NOT source_hash MATCHES "^[0-9a-f]+$")
@@ -86,15 +108,26 @@ foreach(i RANGE 0 17)
   endforeach()
   string(JSON old_abs GET "${phase_json}" samples ${i} q4 rgb_abs)
   string(JSON candidate_abs GET "${phase_json}" samples ${i} closest_fill_outer_clip rgb_abs)
-  if(dpi_id EQUAL 1)
-    if(NOT candidate_abs GREATER old_abs)
-      message(FATAL_ERROR "96DPI new-source half-pixel counterexample lost")
+  if(dpi_id EQUAL 1 AND phase_id EQUAL 1)
+    # Only the exact 6.5px tie may get worse, in two DIFFERENT PDFs.
+    string(JSON under GET "${phase_json}" samples ${i} closest_fill_outer_clip under_rgb_abs)
+    string(JSON over GET "${phase_json}" samples ${i} closest_fill_outer_clip over_rgb_abs)
+    if(NOT candidate_abs GREATER old_abs OR
+       NOT under GREATER 0 OR NOT over GREATER 0)
+      message(FATAL_ERROR "Frame ${i}: 96DPI half-pixel falsifier lost")
     endif()
     math(EXPR regressed_again "${regressed_again}+1")
+  elseif(dpi_id EQUAL 1)
+    if(NOT candidate_abs EQUAL 0)
+      message(FATAL_ERROR "Frame ${i}: +/-1/64px flank incorrectly treated as tie")
+    endif()
+    math(EXPR flank_again "${flank_again}+1")
   endif()
 endforeach()
-if(NOT regressed_again EQUAL 6)
-  message(FATAL_ERROR "Missing exactly six new original half-pixel cases")
+list(LENGTH source_hashes unique_sources)
+if(NOT unique_sources EQUAL 6 OR
+   NOT regressed_again EQUAL 2 OR NOT flank_again EQUAL 4)
+  message(FATAL_ERROR "Exactly two half-pixel negatives plus four flanks required")
 endif()
 foreach(which IN ITEMS q4 closest_fill_outer_clip)
   foreach(k IN ITEMS under over under_rgb_abs over_rgb_abs rgb_abs)
@@ -109,7 +142,7 @@ foreach(which IN ITEMS q4 closest_fill_outer_clip)
     endif()
   endforeach()
 endforeach()
-message(STATUS "#269 rect Fill/Clip quantization falsified on 6 distinct"
-  " new test-generated PDF originals, each checked at 72/96/144DPI:"
-  " six 96DPI regressions despite 96/96 legacy zero-RGB fits."
-  " Test-only, no native Raster change or external-positive promotion.")
+message(STATUS "#269 rectangle quantization: six unique generated PDFs (not"
+  " third-party sources), 18 PDFium frames, two true 96DPI 6.5px-tie"
+  " regressions and four +/-1/64px nonregressing controls; 96/96 prior"
+  " perfect-fit frames preserved. TEST ONLY, no Native Raster change.")
