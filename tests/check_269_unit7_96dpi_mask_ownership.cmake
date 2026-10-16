@@ -44,6 +44,13 @@ string(JSON total_diff GET "${report}" native_vs_original_different)
 string(JSON total_gross GET "${report}" native_vs_original_gross)
 string(JSON total_prod_abs GET "${report}" original_combined_vs_product_abs)
 string(JSON total_prod_diff GET "${report}" original_combined_vs_product_different)
+string(JSON near2_total GET "${report}" native_diff_near_radius2)
+string(JSON far2_total GET "${report}" native_diff_far_radius2)
+string(JSON boundary_len LENGTH "${report}" boundary_near1)
+math(EXPR nearfar_total "${near2_total}+${far2_total}")
+if(NOT boundary_len EQUAL 4 OR NOT nearfar_total EQUAL 2520)
+  message(FATAL_ERROR "Missing original 3x3/5x5 binary boundary attribution")
+endif()
 if(NOT frames EQUAL 16 OR NOT sources EQUAL 48 OR
    NOT repeat_bytes EQUAL 48 OR NOT reference_repeat EQUAL 48 OR
    NOT native_frames EQUAL 16 OR NOT native_repeat EQUAL 16 OR
@@ -52,11 +59,18 @@ if(NOT frames EQUAL 16 OR NOT sources EQUAL 48 OR
 endif()
 # #367 independently established the combined 96 DPI full-image baseline.
 # Retain the regression rather than pretending exact dimensions fix pixels.
-if(NOT total_rgb EQUAL 567648 OR NOT total_diff EQUAL 2520)
+if(NOT total_rgb EQUAL 567648 OR NOT total_diff EQUAL 2520 OR
+   NOT total_prod_abs EQUAL 0 OR NOT total_prod_diff EQUAL 0)
   message(FATAL_ERROR "Old 96dpi Fill/W original RGB mismatch changed")
 endif()
 set(region_names outside_primitives opaque_both fill_edge_only
                  clip_edge_only both_partial)
+set(owner_names far_radius1 fill_edge_radius1 clip_edge_radius1 both_edge_radius1)
+set(frame_owner_count 0)
+set(frame_owner_rgb 0)
+set(frame_owner_gross 0)
+set(frame_near2 0)
+set(frame_far2 0)
 set(sum_frame_rgb 0)
 set(sum_frame_diff 0)
 set(sum_frame_gross 0)
@@ -71,6 +85,9 @@ foreach(i RANGE 0 15)
   string(JSON originals LENGTH "${report}" frames ${i} original_pdf_bytes_fnv64)
   string(JSON mask_count LENGTH "${report}" frames ${i} mask_nonzero)
   string(JSON regions LENGTH "${report}" frames ${i} regions)
+  string(JSON boundary_owner_len LENGTH "${report}" frames ${i} boundary_near1)
+  string(JSON frame_near GET "${report}" frames ${i} native_diff_near_radius2)
+  string(JSON frame_far GET "${report}" frames ${i} native_diff_far_radius2)
   string(JSON ferr GET "${report}" frames ${i} native_vs_combined_rgb_abs)
   string(JSON fdiff GET "${report}" frames ${i} native_vs_combined_different)
   string(JSON fgross GET "${report}" frames ${i} native_vs_combined_gross)
@@ -81,7 +98,8 @@ foreach(i RANGE 0 15)
   math(EXPR pixels "${w}*${h}")
   if(NOT crop EQUAL crop_expected OR NOT rotation EQUAL rotation_expected OR
      NOT dpi EQUAL 96 OR NOT pixels EQUAL 7050 OR NOT originals EQUAL 3 OR
-     NOT mask_count EQUAL 3 OR NOT regions EQUAL 5)
+     NOT mask_count EQUAL 3 OR NOT regions EQUAL 5 OR
+     NOT boundary_owner_len EQUAL 4)
     message(FATAL_ERROR "Incomplete/incorrect original mask frame geometry")
   endif()
   foreach(j RANGE 0 2)
@@ -92,7 +110,8 @@ foreach(i RANGE 0 15)
     string(JSON partial GET "${report}" frames ${i} mask_partial ${j})
     if(NOT fnv_len EQUAL 16 OR NOT fnv MATCHES "^[0-9a-f]+$" OR
        nonzero LESS 1 OR full LESS 1 OR
-       nonzero GREATER 7050 OR partial GREATER nonzero)
+       nonzero GREATER 7050 OR partial GREATER nonzero OR
+       NOT partial EQUAL 0)
       message(FATAL_ERROR "Source original byte fingerprint or mask invalid")
     endif()
   endforeach()
@@ -122,6 +141,32 @@ foreach(i RANGE 0 15)
      NOT region_gross_sum EQUAL fgross)
     message(FATAL_ERROR "Frame-level region totals disagree with RGB oracle")
   endif()
+  set(owned_diff 0)
+  set(owned_gross 0)
+  set(owned_abs 0)
+  foreach(j RANGE 0 3)
+    list(GET owner_names ${j} want)
+    string(JSON oname GET "${report}" frames ${i} boundary_near1 ${j} name)
+    string(JSON oc GET "${report}" frames ${i} boundary_near1 ${j} different)
+    string(JSON og GET "${report}" frames ${i} boundary_near1 ${j} gross)
+    string(JSON oe GET "${report}" frames ${i} boundary_near1 ${j} rgb_abs)
+    if(NOT oname STREQUAL want OR og GREATER oc)
+      message(FATAL_ERROR "Wrong Fill/W original boundary owner category")
+    endif()
+    math(EXPR owned_diff "${owned_diff}+${oc}")
+    math(EXPR owned_gross "${owned_gross}+${og}")
+    math(EXPR owned_abs "${owned_abs}+${oe}")
+  endforeach()
+  math(EXPR in_two_radius "${frame_near}+${frame_far}")
+  if(NOT owned_diff EQUAL fdiff OR NOT owned_gross EQUAL fgross OR
+     NOT owned_abs EQUAL ferr OR NOT in_two_radius EQUAL fdiff)
+    message(FATAL_ERROR "Frame binary boundary attribution incomplete")
+  endif()
+  math(EXPR frame_owner_count "${frame_owner_count}+${owned_diff}")
+  math(EXPR frame_owner_gross "${frame_owner_gross}+${owned_gross}")
+  math(EXPR frame_owner_rgb "${frame_owner_rgb}+${owned_abs}")
+  math(EXPR frame_near2 "${frame_near2}+${frame_near}")
+  math(EXPR frame_far2 "${frame_far2}+${frame_far}")
   math(EXPR sum_frame_rgb "${sum_frame_rgb}+${ferr}")
   math(EXPR sum_frame_diff "${sum_frame_diff}+${fdiff}")
   math(EXPR sum_frame_gross "${sum_frame_gross}+${fgross}")
@@ -151,6 +196,32 @@ foreach(j RANGE 0 4)
   math(EXPR global_diff "${global_diff}+${diff}")
   math(EXPR global_gross "${global_gross}+${gross}")
 endforeach()
+set(owner_diff 0)
+set(owner_gross 0)
+set(owner_rgb 0)
+foreach(j RANGE 0 3)
+  list(GET owner_names ${j} want)
+  string(JSON name GET "${report}" boundary_near1 ${j} name)
+  string(JSON cnt GET "${report}" boundary_near1 ${j} different)
+  string(JSON gross GET "${report}" boundary_near1 ${j} gross)
+  string(JSON abs GET "${report}" boundary_near1 ${j} rgb_abs)
+  if(NOT name STREQUAL want OR gross GREATER cnt)
+    message(FATAL_ERROR "Bad global original Fill/W binary boundary owner")
+  endif()
+  math(EXPR owner_diff "${owner_diff}+${cnt}")
+  math(EXPR owner_gross "${owner_gross}+${gross}")
+  math(EXPR owner_rgb "${owner_rgb}+${abs}")
+endforeach()
+if(NOT frame_owner_count EQUAL total_diff OR
+   NOT frame_owner_rgb EQUAL total_rgb OR
+   NOT frame_owner_gross EQUAL total_gross OR
+   NOT frame_near2 EQUAL near2_total OR
+   NOT frame_far2 EQUAL far2_total OR
+   NOT owner_diff EQUAL total_diff OR
+   NOT owner_rgb EQUAL total_rgb OR
+   NOT owner_gross EQUAL total_gross)
+  message(FATAL_ERROR "Global Fill/W boundary distance totals mismatch")
+endif()
 if(NOT global_pixels EQUAL 112800 OR NOT global_rgb EQUAL total_rgb OR
    NOT global_diff EQUAL total_diff OR NOT global_gross EQUAL total_gross OR
    NOT sum_frame_rgb EQUAL total_rgb OR
@@ -164,4 +235,5 @@ message(STATUS "#269 96DPI original mask decomposition: 48 independent "
   "original PDFium frames, 16 correct-size native renders, "
   "112800 total pixels, 2520 native differing pixels / 567648 abs RGB, "
   "${total_prod_diff} original-combined vs Fill×Clip disagreements; "
+  "${near2_total}/2520 differences within radius 2 of source mask boundary; "
   "no merge, fallback, external pixel-positive or SDK cutover.")
