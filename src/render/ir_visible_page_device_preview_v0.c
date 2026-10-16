@@ -88,9 +88,13 @@ static int project_one_transform(
     return 1;
 }
 
-quantapdf_status quantapdf_ir_raster_visible_page_fillclip_preview_v0(
+/* Single unchanged Path/W Clip admission and raster pipeline. The new
+ * opt-in supplies its Graph-owner-qualified value grid; the old API still
+ * constructs the historical floating grid at this exact call site. */
+static quantapdf_status visible_page_fillclip_preview_impl(
     const quantapdf_ir *ir, size_t page_index,
     const quantapdf_graph_page_geometry *source_geometry,
+    const quantapdf_graph_device_grid *provided_grid,
     unsigned int dpi, const quantapdf_ir_raster_v1_limits *limits,
     size_t max_rgba_bytes, quantapdf_ir_raster_image *out_image)
 {
@@ -121,15 +125,53 @@ quantapdf_status quantapdf_ir_raster_visible_page_fillclip_preview_v0(
         ir->resources.clip_count!=1u || ir->resources.clips==NULL)
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
-    status=quantapdf_graph_page_device_grid(source_geometry,dpi,
-        limits->max_pixels,max_rgba_bytes,&grid);
-    if (status!=QUANTAPDF_OK)
-        return status;
+    if (dpi!=72u && dpi!=96u && dpi!=144u)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (provided_grid==NULL) {
+        /* Historical entrypoint: do not change its rounding/admission. */
+        status=quantapdf_graph_page_device_grid(source_geometry,dpi,
+            limits->max_pixels,max_rgba_bytes,&grid);
+        if (status!=QUANTAPDF_OK) return status;
+    } else {
+        /* The caller already constructed the exact integer grid while the
+         * sealed Graph owner existed. Only copied metadata survives here.
+         * Never round display width again or open a PDFium fallback. */
+        grid=*provided_grid;
+    }
     status=quantapdf_graph_page_display_map(source_geometry,&display);
     if (status!=QUANTAPDF_OK)
         return status;
 
+    /* A fabricated/corrupted value may not evade preallocation checks.
+     * Check pixel product before RGB multiplication on 32/64-bit size_t. */
+    if (grid.width==0u || grid.height==0u ||
+        (size_t)grid.width>SIZE_MAX/(size_t)grid.height)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
     pixels=(size_t)grid.width*(size_t)grid.height;
+    if (pixels>SIZE_MAX/3u ||
+        grid.stride_bytes!=(size_t)grid.width*3u ||
+        grid.output_bytes!=pixels*3u)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (provided_grid!=NULL) {
+        const double sx_expected=(double)grid.width/display.width_points;
+        const double sy_expected=(double)grid.height/display.height_points;
+        const double expected[6]={
+            sx_expected*display.from_source[0],
+            -sy_expected*display.from_source[1],
+            sx_expected*display.from_source[2],
+            -sy_expected*display.from_source[3],
+            sx_expected*display.from_source[4],
+            sy_expected*(display.height_points-display.from_source[5])
+        };
+        if (!isfinite(sx_expected) || !isfinite(sy_expected) ||
+            !(sx_expected>0.0) || !(sy_expected>0.0))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        for (size_t k=0u;k<6u;++k)
+            if (!isfinite(expected[k]) ||
+                memcmp(&expected[k],&grid.from_source[k],
+                       sizeof(double))!=0)
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
     if (pixels>max_rgba_bytes/4u ||
         pixels>limits->max_pixels ||
         (double)(float)grid.width!=(double)grid.width ||
@@ -205,4 +247,34 @@ quantapdf_status quantapdf_ir_raster_visible_page_fillclip_preview_v0(
         return QUANTAPDF_ERROR_UNSUPPORTED;
     }
     return status;
+}
+
+/* Exact-decimal opt-in: no caller switches to this automatically.
+ * The user-owned grid must come from private Graph-owner-time admission.
+ * Strict Path+W Clip policy and actual C11 renderer remain shared. */
+quantapdf_status quantapdf_ir_raster_visible_page_fillclip_exact_grid_v0(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_graph_page_geometry *source_geometry,
+    const quantapdf_graph_device_grid *exact_grid, unsigned int dpi,
+    const quantapdf_ir_raster_v1_limits *limits,
+    size_t max_rgba_bytes, quantapdf_ir_raster_image *out_image)
+{
+    if (exact_grid==NULL) {
+        if (out_image!=NULL) memset(out_image,0,sizeof(*out_image));
+        return QUANTAPDF_ERROR_ARGUMENT;
+    }
+    return visible_page_fillclip_preview_impl(ir,page_index,
+        source_geometry,exact_grid,dpi,limits,max_rgba_bytes,out_image);
+}
+
+/* Historical entrypoint preserved, including old float strict-ceil behavior.
+ * It deliberately does NOT opt into the new exact private Grid. */
+quantapdf_status quantapdf_ir_raster_visible_page_fillclip_preview_v0(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_graph_page_geometry *source_geometry,
+    unsigned int dpi, const quantapdf_ir_raster_v1_limits *limits,
+    size_t max_rgba_bytes, quantapdf_ir_raster_image *out_image)
+{
+    return visible_page_fillclip_preview_impl(ir,page_index,
+        source_geometry,NULL,dpi,limits,max_rgba_bytes,out_image);
 }
