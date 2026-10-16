@@ -542,6 +542,16 @@ jobs:
             build/linux-gcc-debug/tests/native-decimal360-source-spelling.json
           if-no-files-found: error
           retention-days: 7
+      
+      - name: Upload #360 exact-Grid Fill/W original-pixel diagnostic (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: decimal360-exact-fillclip-linux
+          path: |
+            build/linux-gcc-release/tests/native-decimal360-exact-fillclip-pixel.json
+            build/linux-gcc-debug/tests/native-decimal360-exact-fillclip-pixel.json
+          if-no-files-found: error
+          retention-days: 7
 
   macos:
     if: >-
@@ -957,6 +967,14 @@ jobs:
         with:
           name: decimal360-source-spelling-macos
           path: build/macos-clang-release/tests/native-decimal360-source-spelling.json
+          if-no-files-found: error
+          retention-days: 7
+      
+      - name: Upload #360 exact-Grid Fill/W original-pixel diagnostic (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: decimal360-exact-fillclip-macos
+          path: build/macos-clang-release/tests/native-decimal360-exact-fillclip-pixel.json
           if-no-files-found: error
           retention-days: 7
 
@@ -1385,5 +1403,13 @@ jobs:
         with:
           name: decimal360-source-spelling-windows
           path: build/Msvc-Release/tests/native-decimal360-source-spelling.json
+          if-no-files-found: error
+          retention-days: 7
+      
+      - name: Upload #360 exact-Grid Fill/W original-pixel diagnostic (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: decimal360-exact-fillclip-windows
+          path: build/Msvc-Release/tests/native-decimal360-exact-fillclip-pixel.json
           if-no-files-found: error
           retention-days: 7

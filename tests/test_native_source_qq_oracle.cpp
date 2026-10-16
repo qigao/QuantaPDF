@@ -6,6 +6,7 @@
 #include "document/page_content_ir.h"
 #include "graph/graph_page_geometry.h"
 #include "graph/graph_page_device.h"
+#include "graph/graph_page_decimal_grid_v0.h"
 #include "decimal_graph_exact_v0.h"
 #include "decimal_device_handoff_v0.h"
 #include "graph/graph_page_device_sample.h"
@@ -10569,9 +10570,14 @@ static int test_generated_unit7_decimal_crop_device_ab(
 }
 
 #include "decimal_source_spelling_v0.inc"
+#include "decimal_exact_fillclip_pixel_v0.inc"
 
 int main(int argc,char **argv)
 {
+    if(argc==4 &&
+       std::strcmp(argv[1],"--decimal360-exact-fillclip-pixel-ab")==0 &&
+       std::strcmp(argv[2],"--pixel-report")==0)
+        return test_decimal360_exact_fillclip_pixel_ab(argv[3]);
     if(argc==4 &&
        std::strcmp(argv[1],"--decimal360-source-spellings")==0 &&
        std::strcmp(argv[2],"--source-spellings-report")==0)
