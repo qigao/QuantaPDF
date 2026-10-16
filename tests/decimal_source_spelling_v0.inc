@@ -131,6 +131,10 @@ static int test_decimal360_source_spelling(const char *report_path)
     size_t exact_pdfium_ok=0u,raw_grid_diff=0u;
     size_t fractional_pdfium_diff=0u,unsupported_zero=0u;
     size_t graph_exact_pdfium_ok=0u,graph_exact_denied=0u;
+    size_t handoff_repeated=0u,handoff_after_drop=0u;
+    size_t handoff_corner_edges=0u,handoff_legacy_affine_equal=0u;
+    size_t handoff_unsupported_zero=0u,handoff_budget_zero=0u;
+    size_t handoff_invalid_argument_zero=0u;
     size_t graph_exact_budget_refusals=0u;
     size_t negative_lexer_refusals=0u;
     const char *const invalid_numbers[]={
@@ -237,6 +241,32 @@ static int test_decimal360_source_spelling(const char *report_path)
                     (double)c.scaled10000[edge]/10000.0)<1e-9);
             raw_bits[edge]=decimal360_bits(geometry.crop_box[edge]);
         }
+        /* Prepare value-only metadata BEFORE the Graph Snapshot dies.
+         * No source/provider/DSO-owned pointer is allowed to escape. */
+        quantapdf_graph_device_grid handoff[3]={};
+        uint64_t affine_bits[3][6]={{0}};
+        for(unsigned j=0u;j<3u;++j) {
+            quantapdf_graph_device_grid again{};
+            std::memset(&again,0xa5,sizeof(again));
+            OK(quantapdf_test_graph_device_handoff_v0(
+                snapshot->graph,0u,4u,dpis[j],20000u,60000u,
+                &handoff[j]));
+            OK(quantapdf_test_graph_device_handoff_v0(
+                snapshot->graph,0u,4u,dpis[j],20000u,60000u,
+                &again));
+            CHECK(handoff[j].width==again.width &&
+                  handoff[j].height==again.height &&
+                  handoff[j].stride_bytes==again.stride_bytes &&
+                  handoff[j].output_bytes==again.output_bytes);
+            for(unsigned component=0u;component<6u;++component) {
+                affine_bits[j][component]=
+                    decimal360_bits(handoff[j].from_source[component]);
+                CHECK(std::isfinite(handoff[j].from_source[component]) &&
+                      affine_bits[j][component]==
+                        decimal360_bits(again.from_source[component]));
+            }
+            ++handoff_repeated;
+        }
         quantapdf_test_decimal_grid_v0 graph_exact[3]={};
         for(unsigned j=0u;j<3u;++j) {
             OK(quantapdf_test_graph_exact_decimal_grid_v0(
@@ -270,7 +300,74 @@ static int test_decimal360_source_spelling(const char *report_path)
             CHECK(std::memcmp(&denied,&zero,sizeof(denied))==0);
             ++graph_exact_budget_refusals;
         }
+        /* Independent unsupported/budget/argument failure classes: the
+         * entire published metadata structure stays zero, not just size. */
+        for(unsigned forbidden:{120u,168u}) {
+            quantapdf_graph_device_grid denied{},zero{};
+            std::memset(&denied,0xa5,sizeof(denied));
+            CHECK(quantapdf_test_graph_device_handoff_v0(
+                snapshot->graph,0u,4u,forbidden,20000u,60000u,
+                &denied)==QUANTAPDF_ERROR_UNSUPPORTED);
+            CHECK(std::memcmp(&denied,&zero,sizeof(denied))==0);
+            ++handoff_unsupported_zero;
+        }
+        for(unsigned budget=0u;budget<2u;++budget) {
+            quantapdf_graph_device_grid denied{},zero{};
+            std::memset(&denied,0xa5,sizeof(denied));
+            CHECK(quantapdf_test_graph_device_handoff_v0(
+                snapshot->graph,0u,4u,72u,
+                budget==0u?1u:20000u,
+                budget==1u?1u:60000u,&denied)==
+                    QUANTAPDF_ERROR_UNSUPPORTED);
+            CHECK(std::memcmp(&denied,&zero,sizeof(denied))==0);
+            ++handoff_budget_zero;
+        }
+        for(unsigned invalid=0u;invalid<2u;++invalid) {
+            quantapdf_graph_device_grid denied{},zero{};
+            std::memset(&denied,0xa5,sizeof(denied));
+            CHECK(quantapdf_test_graph_device_handoff_v0(
+                snapshot->graph,invalid==0u?1u:0u,
+                invalid==1u?0u:4u,72u,20000u,60000u,
+                &denied)==QUANTAPDF_ERROR_ARGUMENT);
+            CHECK(std::memcmp(&denied,&zero,sizeof(denied))==0);
+            ++handoff_invalid_argument_zero;
+        }
         quantapdf_graph_snapshot_drop(snapshot);
+        snapshot=nullptr;
+        /* Source and Graph ownership is now GONE; only copied doubles,
+         * exact integer bounds and metadata remain. Exercise their affine
+         * on all four CropBox corners without reaccessing any Graph data. */
+        for(unsigned j=0u;j<3u;++j) {
+            const auto& value=handoff[j];
+            CHECK(value.width==graph_exact[j].width &&
+                  value.height==graph_exact[j].height &&
+                  value.stride_bytes==graph_exact[j].stride_bytes &&
+                  value.output_bytes==graph_exact[j].output_bytes);
+            double minx=1e100,miny=1e100,maxx=-1e100,maxy=-1e100;
+            for(unsigned corner=0u;corner<4u;++corner) {
+                const double x=geometry.crop_box[(corner&1u)?2u:0u];
+                const double y=geometry.crop_box[(corner&2u)?3u:1u];
+                const double px=value.from_source[0]*x+
+                    value.from_source[2]*y+value.from_source[4];
+                const double py=value.from_source[1]*x+
+                    value.from_source[3]*y+value.from_source[5];
+                CHECK(std::isfinite(px) && std::isfinite(py));
+                minx=std::min(minx,px);
+                maxx=std::max(maxx,px);
+                miny=std::min(miny,py);
+                maxy=std::max(maxy,py);
+                ++handoff_corner_edges;
+            }
+            /* This is ONLY an affine edge sanity check, never a sizing
+             * epsilon or pixel parity assumption. */
+            CHECK(std::fabs(minx)<1e-9 && std::fabs(miny)<1e-9 &&
+                  std::fabs(maxx-(double)value.width)<1e-9 &&
+                  std::fabs(maxy-(double)value.height)<1e-9);
+            for(unsigned component=0u;component<6u;++component)
+                CHECK(affine_bits[j][component]==
+                    decimal360_bits(value.from_source[component]));
+            ++handoff_after_drop;
+        }
         ++source_ok;
         const uint32_t w72=decimal360_expected_edge(
             c.scaled10000[0],c.scaled10000[2],72u);
@@ -308,7 +405,8 @@ static int test_decimal360_source_spelling(const char *report_path)
             const uint32_t ew=(c.rotation%180)?expected_h:expected_w;
             const uint32_t eh=(c.rotation%180)?expected_w:expected_h;
             CHECK(graph_exact[j].width==ew &&
-                  graph_exact[j].height==eh);
+                  graph_exact[j].height==eh &&
+                  handoff[j].width==ew && handoff[j].height==eh);
             quantapdf_graph_device_grid raw_grid{};
             OK(quantapdf_graph_page_device_grid(
                 &geometry,dpi,20000u,60000u,&raw_grid));
@@ -341,12 +439,25 @@ static int test_decimal360_source_spelling(const char *report_path)
             const bool raw_matches=(raw_grid.width==(uint32_t)pw &&
                                     raw_grid.height==(uint32_t)ph);
             if(!raw_matches)++raw_grid_diff;
+            else {
+                for(unsigned component=0u;component<6u;++component)
+                    CHECK(decimal360_bits(raw_grid.from_source[component])==
+                          affine_bits[j][component]);
+                ++handoff_legacy_affine_equal;
+            }
             std::fprintf(out,"   {\"dpi\":%u,\"exact_grid\":[%u,%u],"
                 "\"original_pdfium\":[%d,%d],\"raw_graph_grid\":[%u,%u],"
-                "\"exact_graph_grid\":[%u,%u],"
-                "\"pdfium_matches_exact\":%s,\"raw_matches_pdfium\":%s}%s\n",
+                "\"exact_graph_grid\":[%u,%u],\"handoff_grid\":[%u,%u],"
+                "\"handoff_affine_hex\":[",
                 dpi,ew,eh,pw,ph,raw_grid.width,raw_grid.height,
                 graph_exact[j].width,graph_exact[j].height,
+                handoff[j].width,handoff[j].height);
+            for(unsigned component=0u;component<6u;++component)
+                std::fprintf(out,"\"%016llx\"%s",
+                    (unsigned long long)affine_bits[j][component],
+                    component==5u?"":",");
+            std::fprintf(out,"],\"pdfium_matches_exact\":%s,"
+                "\"raw_matches_pdfium\":%s}%s\n",
                 pdfium_matches?"true":"false",
                 raw_matches?"true":"false",j==2u?"":",");
             quantapdf_drop_bitmap(second);
@@ -364,6 +475,13 @@ static int test_decimal360_source_spelling(const char *report_path)
           graph_exact_denied==cases*2u &&
           graph_exact_budget_refusals==cases*2u &&
           graph_exact_pdfium_ok==frame_count &&
+          handoff_repeated==frame_count &&
+          handoff_after_drop==frame_count &&
+          handoff_corner_edges==frame_count*4u &&
+          handoff_legacy_affine_equal+raw_grid_diff==frame_count &&
+          handoff_unsupported_zero==cases*2u &&
+          handoff_budget_zero==cases*2u &&
+          handoff_invalid_argument_zero==cases*2u &&
           negative_lexer_refusals==15u &&
           exact_pdfium_ok==(cases-2u)*3u);
     std::fprintf(out," ],\n \"original_source_count\":%zu,"
@@ -378,11 +496,23 @@ static int test_decimal360_source_spelling(const char *report_path)
         "\"graph_exact_pdfium_matches\":%zu,"
         "\"graph_exact_unsupported_zero_refusals\":%zu,"
         "\"graph_exact_negative_lexer_refusals\":%zu,"
-        "\"graph_exact_budget_zero_refusals\":%zu\n}\n",
+        "\"graph_exact_budget_zero_refusals\":%zu,"
+        "\"handoff_value_only_test\":true,"
+        "\"handoff_repeat_matches\":%zu,"
+        "\"handoff_after_graph_drop\":%zu,"
+        "\"handoff_corner_edge_checks\":%zu,"
+        "\"handoff_legacy_affine_equal\":%zu,"
+        "\"handoff_unsupported_dpi_zero\":%zu,"
+        "\"handoff_budget_zero\":%zu,"
+        "\"handoff_argument_zero\":%zu\n}\n",
         source_ok,spell_ok,repeat_ok,frame_count,exact_pdfium_ok,
         fractional_pdfium_diff,raw_grid_diff,unsupported_zero,
         graph_exact_pdfium_ok,graph_exact_denied,negative_lexer_refusals,
-        graph_exact_budget_refusals);
+        graph_exact_budget_refusals,
+        handoff_repeated,handoff_after_drop,handoff_corner_edges,
+        handoff_legacy_affine_equal,
+        handoff_unsupported_zero,handoff_budget_zero,
+        handoff_invalid_argument_zero);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
     CHECK(std::rename(stage.c_str(),report_path)==0);
     CHECK(corpus_fixture_executions==0u);
