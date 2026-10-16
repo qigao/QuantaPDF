@@ -157,10 +157,17 @@ static quantapdf_status exact_ceiling_dimension(
     unsigned dpi,uint32_t *out_dim)
 {
     uint64_t n[3]={span,(uint64_t)unit.units,(uint64_t)dpi};
-    uint64_t d[3]={span_denom,powers10[unit.scale],72u};
+    uint64_t d[3];
     uint64_t numerator=1u,denominator=1u;
-    if (span==0u || unit.units<=0 || unit.scale>9u)
+    /* Guard the array index before use, even if the current caller always
+     * supplies an already-bounded local decimal. Self-contained contract. */
+    if (span==0u || unit.units<=0)
         return QUANTAPDF_ERROR_FORMAT;
+    if (unit.scale>9u)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    d[0]=span_denom;
+    d[1]=powers10[unit.scale];
+    d[2]=72u;
     for (size_t i=0u;i<3u;++i)
         for (size_t j=0u;j<3u;++j) {
             const uint64_t g=gcd64(n[i],d[j]);
