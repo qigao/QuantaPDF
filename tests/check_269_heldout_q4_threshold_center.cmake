@@ -254,3 +254,6 @@ message(STATUS
 include("${CMAKE_CURRENT_LIST_DIR}/check_269_heldout_signed_144_audit.cmake")
 # Strict test-only handoff ledger after the original 96-frame RGB audit.
 include("${CMAKE_CURRENT_LIST_DIR}/check_269_heldout_float_handoff.cmake")
+# Keep the new integer-rectangle model falsification separate from both
+# signed Q4 audit and float-handoff test-only origin ownership.
+include("${CMAKE_CURRENT_LIST_DIR}/check_269_rect_quant_phase_falsifiers.cmake")
