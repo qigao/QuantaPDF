@@ -2854,3 +2854,9 @@ else()
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
+
+# #360: independent test-only, provider-neutral C11 graph-exact dimension helper.
+# It is linked only into the source-PDF conformance oracle, NEVER the SDK.
+target_sources(quantapdf_test_native_source_qq_oracle PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/decimal_graph_exact_v0.c")
+set_source_files_properties(decimal_graph_exact_v0.c PROPERTIES LANGUAGE C)
