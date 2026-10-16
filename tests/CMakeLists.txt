@@ -2860,3 +2860,14 @@ endif()
 target_sources(quantapdf_test_native_source_qq_oracle PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/decimal_graph_exact_v0.c")
 set_source_files_properties(decimal_graph_exact_v0.c PROPERTIES LANGUAGE C)
+
+# #360 next child: value-only Graph-owner-time handoff. Strictly test-local:
+# no SDK/backend target changes, no native painter, no PDFium fallback.
+target_sources(quantapdf_test_native_source_qq_oracle PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/decimal_device_handoff_v0.c")
+set_source_files_properties(decimal_device_handoff_v0.c PROPERTIES LANGUAGE C)
+if(MSVC)
+  set_source_files_properties(decimal_device_handoff_v0.c PROPERTIES COMPILE_OPTIONS "/W4;/WX")
+else()
+  set_source_files_properties(decimal_device_handoff_v0.c PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra;-Wpedantic;-Werror")
+endif()

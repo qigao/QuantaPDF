@@ -21,6 +21,7 @@ foreach(marker IN ITEMS
     "\"origin\":\"literal_pdf_bytes_not_reexport\""
     "\"decimal_contract_test_only\":true"
     "\"graph_exact_candidate_test_only\":true"
+    "\"handoff_value_only_test\":true"
     "\"correct_rounded_double_still_inflates\":true"
     "\"native_render\":\"not_run\""
     "\"public_sdk_backend_switched\":false"
@@ -41,6 +42,13 @@ string(JSON graph_exact_count GET "${report}" graph_exact_pdfium_matches)
 string(JSON graph_exact_reject GET "${report}" graph_exact_unsupported_zero_refusals)
 string(JSON graph_exact_bad_tokens GET "${report}" graph_exact_negative_lexer_refusals)
 string(JSON graph_exact_budget GET "${report}" graph_exact_budget_zero_refusals)
+string(JSON handoff_repeats GET "${report}" handoff_repeat_matches)
+string(JSON handoff_survivors GET "${report}" handoff_after_graph_drop)
+string(JSON handoff_corners GET "${report}" handoff_corner_edge_checks)
+string(JSON handoff_old_unchanged GET "${report}" handoff_legacy_affine_equal)
+string(JSON handoff_dpi_refusals GET "${report}" handoff_unsupported_dpi_zero)
+string(JSON handoff_budget_refusals GET "${report}" handoff_budget_zero)
+string(JSON handoff_bad_arguments GET "${report}" handoff_argument_zero)
 if(NOT n EQUAL 14 OR NOT source_count EQUAL 14 OR
    NOT spelling_count EQUAL 56 OR NOT repeat_count EQUAL 42 OR
    NOT frame_count EQUAL 42 OR NOT integral_count EQUAL 36 OR
@@ -48,7 +56,14 @@ if(NOT n EQUAL 14 OR NOT source_count EQUAL 14 OR
    NOT graph_exact_count EQUAL 42 OR
    NOT graph_exact_reject EQUAL 28 OR
    NOT graph_exact_bad_tokens EQUAL 15 OR
-   NOT graph_exact_budget EQUAL 28)
+   NOT graph_exact_budget EQUAL 28 OR
+   NOT handoff_repeats EQUAL 42 OR
+   NOT handoff_survivors EQUAL 42 OR
+   NOT handoff_corners EQUAL 168 OR
+   NOT handoff_old_unchanged EQUAL 30 OR
+   NOT handoff_dpi_refusals EQUAL 28 OR
+   NOT handoff_budget_refusals EQUAL 28 OR
+   NOT handoff_bad_arguments EQUAL 28)
   message(FATAL_ERROR "#360 source/Graph/PDFium ledger missing cases")
 endif()
 set(dpis 72 96 144)
@@ -84,8 +99,22 @@ foreach(i RANGE 0 13)
     string(JSON gh GET "${report}" cases ${i} frames ${j} raw_graph_grid 1)
     string(JSON xw GET "${report}" cases ${i} frames ${j} exact_graph_grid 0)
     string(JSON xh GET "${report}" cases ${i} frames ${j} exact_graph_grid 1)
+    string(JSON hw GET "${report}" cases ${i} frames ${j} handoff_grid 0)
+    string(JSON hh GET "${report}" cases ${i} frames ${j} handoff_grid 1)
+    string(JSON affine_len LENGTH "${report}" cases ${i} frames ${j} handoff_affine_hex)
+    if(NOT affine_len EQUAL 6)
+      message(FATAL_ERROR "#360 handoff affine value metadata incomplete")
+    endif()
+    foreach(a RANGE 0 5)
+      string(JSON bits GET "${report}" cases ${i} frames ${j} handoff_affine_hex ${a})
+      string(LENGTH "${bits}" bits_size)
+      if(NOT bits_size EQUAL 16 OR NOT bits MATCHES "^[0-9a-f]+$")
+        message(FATAL_ERROR "#360 post-Snapshot affine bit-pattern missing")
+      endif()
+    endforeach()
     if(NOT xw EQUAL ew OR NOT xh EQUAL eh OR
-       NOT xw EQUAL pw OR NOT xh EQUAL ph)
+       NOT xw EQUAL pw OR NOT xh EQUAL ph OR
+       NOT hw EQUAL pw OR NOT hh EQUAL ph)
       message(FATAL_ERROR "#360 independent actual-Graph exact-decimal grid disagrees with source/PDFium")
     endif()
     if(NOT dpi EQUAL expected_dpi OR
@@ -107,4 +136,5 @@ message(STATUS
   "56 original Graph numeric spellings, 42 repeated PDFium frames, "
   "36 exact-integer-size PDFium matches, 28 hard unsupported DPI refuses, "
   "42/42 Graph-exact C11 dimensions and 15 lexical zero-output refusals; "
+  "42/42 value-only handoffs after Graph drop, 168 affine corner checks; "
   "no production parser or renderer mutation.")
