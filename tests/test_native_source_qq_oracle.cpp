@@ -6,6 +6,7 @@
 #include "document/page_content_ir.h"
 #include "graph/graph_page_geometry.h"
 #include "graph/graph_page_device.h"
+#include "graph/graph_page_decimal_grid_v0.h"
 #include "decimal_graph_exact_v0.h"
 #include "decimal_device_handoff_v0.h"
 #include "graph/graph_page_device_sample.h"
