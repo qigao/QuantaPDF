@@ -4,6 +4,8 @@
  * exact-Grid Fill/W opt-in after Graph Snapshot and Source teardown.
  * Do not infer external pixel-positive promotion from these generated PDFs.
  */
+#include "269_unit7_mask_edge_distance_v0.inc"
+
 static int test_269_unit7_96dpi_mask_ownership(const char *report_path)
 {
     CHECK(report_path!=nullptr && *report_path);
@@ -43,6 +45,12 @@ static int test_269_unit7_96dpi_mask_ownership(const char *report_path)
     size_t product_different=0u;
     uint64_t total_rgb_abs=0u,product_abs=0u;
     region_stat total_regions[5]={};
+    region_stat total_boundary[4]={};
+    size_t native_near2_total=0u,native_far2_total=0u;
+    const char *const boundary_names[4]={
+        "far_radius1","fill_edge_radius1","clip_edge_radius1",
+        "both_edge_radius1"
+    };
     FILE *out=std::fopen(stage.c_str(),"wb");
     CHECK(out!=nullptr);
     std::fprintf(out,
@@ -203,6 +211,8 @@ static int test_269_unit7_96dpi_mask_ownership(const char *report_path)
             ++native_repeat_ok;
             ++legacy_exact_rgba;
             region_stat regions[5]={};
+            region_stat boundary[4]={};
+            size_t near2=0u,far2=0u;
             uint64_t rgb_abs=0u,primitive_product_abs=0u;
             size_t differing=0u,gross=0u,product_diff=0u;
             size_t nonzero_product=0u,nonzero_native=0u;
@@ -250,8 +260,51 @@ static int test_269_unit7_96dpi_mask_ownership(const char *report_path)
                 if(largest>0u){++reg.different;++differing;}
                 if(largest>64u){++reg.gross;++gross;}
                 rgb_abs+=rgb_difference;
+                if(largest>0u) {
+                    /* Ownership is inferred from ORIGINAL PDFium binary
+                     * primitive-mask spatial transitions, NOT native
+                     * pixel coverage. This does not adjust any pixels. */
+                    const size_t x=k%(size_t)width;
+                    const size_t y=k/(size_t)width;
+                    const bool near_fill1=
+                        qp269_near_primitive_mask_transition(
+                            masks[1],width,height,x,y,1);
+                    const bool near_clip1=
+                        qp269_near_primitive_mask_transition(
+                            masks[2],width,height,x,y,1);
+                    const unsigned owner=(near_fill1?1u:0u)|
+                        (near_clip1?2u:0u);
+                    CHECK(owner<4u);
+                    ++boundary[owner].different;
+                    boundary[owner].abs_rgb+=rgb_difference;
+                    if(largest>64u) ++boundary[owner].gross;
+                    const bool near_fill2=
+                        qp269_near_primitive_mask_transition(
+                            masks[1],width,height,x,y,2);
+                    const bool near_clip2=
+                        qp269_near_primitive_mask_transition(
+                            masks[2],width,height,x,y,2);
+                    if(near_fill2||near_clip2) ++near2;
+                    else ++far2;
+                }
             }
-            CHECK(differing<=pixels && gross<=differing);
+            CHECK(differing<=pixels && gross<=differing &&
+                  near2+far2==differing);
+            size_t owner_count=0u,owner_gross=0u;
+            uint64_t owner_abs=0u;
+            for(unsigned owner=0u;owner<4u;++owner) {
+                const auto& part=boundary[owner];
+                auto& all=total_boundary[owner];
+                CHECK(part.gross<=part.different);
+                owner_count+=part.different;
+                owner_gross+=part.gross;
+                owner_abs+=part.abs_rgb;
+                all.different+=part.different;
+                all.gross+=part.gross;
+                all.abs_rgb+=part.abs_rgb;
+            }
+            CHECK(owner_count==differing && owner_gross==gross &&
+                  owner_abs==rgb_abs);
             for(unsigned region=0u;region<5u;++region){
                 auto& dest=total_regions[region];
                 const auto& entry=regions[region];
@@ -266,6 +319,8 @@ static int test_269_unit7_96dpi_mask_ownership(const char *report_path)
             total_gross+=gross;
             product_abs+=primitive_product_abs;
             product_different+=product_diff;
+            native_near2_total+=near2;
+            native_far2_total+=far2;
             std::fprintf(out,
                 "  {\"crop\":%u,\"rotation\":%d,\"dpi\":96,"
                 "\"original_pdf_bytes_fnv64\":"
@@ -303,7 +358,20 @@ static int test_269_unit7_96dpi_mask_ownership(const char *report_path)
                     stat.gross,(unsigned long long)stat.abs_rgb,
                     region==4u?"":",");
             }
-            std::fprintf(out,"  ]}%s\n",frame==15u?"":",");
+            std::fprintf(out,"  ],\"boundary_near1\":[\n");
+            for(unsigned owner=0u;owner<4u;++owner) {
+                const auto& part=boundary[owner];
+                std::fprintf(out,
+                    "    {\"name\":\"%s\",\"different\":%zu,"
+                    "\"gross\":%zu,\"rgb_abs\":%llu}%s\n",
+                    boundary_names[owner],part.different,part.gross,
+                    (unsigned long long)part.abs_rgb,
+                    owner==3u?"":",");
+            }
+            std::fprintf(out,
+                "  ],\"native_diff_near_radius2\":%zu,"
+                "\"native_diff_far_radius2\":%zu}%s\n",
+                near2,far2,frame==15u?"":",");
             quantapdf_ir_raster_image_dispose(&old);
             quantapdf_ir_raster_image_dispose(&native_repeat);
             quantapdf_ir_raster_image_dispose(&native);
@@ -330,7 +398,8 @@ static int test_269_unit7_96dpi_mask_ownership(const char *report_path)
           total_pixels==16u*7050u && region_total==total_pixels &&
           diff_total==total_different &&
           gross_total==total_gross && error_total==total_rgb_abs &&
-          product_different<=total_pixels);
+          product_different<=total_pixels &&
+          native_near2_total+native_far2_total==total_different);
     std::fprintf(out,
         " ],\n"
         " \"source_files\":%zu,"
@@ -347,6 +416,8 @@ static int test_269_unit7_96dpi_mask_ownership(const char *report_path)
         "\"original_combined_vs_product_different\":%zu,"
         "\"mask_partial_total\":[%zu,%zu,%zu],"
         "\"mask_full_total\":[%zu,%zu,%zu],"
+        "\"native_diff_near_radius2\":%zu,"
+        "\"native_diff_far_radius2\":%zu,"
         "\"regions\":[\n",
         source_files,source_unchanged,reference_repeats,
         exact_device_sizes,native_repeat_ok,legacy_exact_rgba,
@@ -355,7 +426,8 @@ static int test_269_unit7_96dpi_mask_ownership(const char *report_path)
         (unsigned long long)product_abs,product_different,
         total_mask_partial[0],total_mask_partial[1],
         total_mask_partial[2],
-        total_mask_full[0],total_mask_full[1],total_mask_full[2]);
+        total_mask_full[0],total_mask_full[1],total_mask_full[2],
+        native_near2_total,native_far2_total);
     for(unsigned region=0u;region<5u;++region){
         const auto& stat=total_regions[region];
         std::fprintf(out,
@@ -365,6 +437,16 @@ static int test_269_unit7_96dpi_mask_ownership(const char *report_path)
             region_names[region],stat.pixels,stat.different,
             stat.gross,(unsigned long long)stat.abs_rgb,
             region==4u?"":",");
+    }
+    std::fprintf(out," ],\"boundary_near1\":[\n");
+    for(unsigned owner=0u;owner<4u;++owner) {
+        const auto& part=total_boundary[owner];
+        std::fprintf(out,
+            "  {\"name\":\"%s\",\"different\":%zu,"
+            "\"gross\":%zu,\"rgb_abs\":%llu}%s\n",
+            boundary_names[owner],part.different,part.gross,
+            (unsigned long long)part.abs_rgb,
+            owner==3u?"":",");
     }
     std::fprintf(out," ]\n}\n");
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
