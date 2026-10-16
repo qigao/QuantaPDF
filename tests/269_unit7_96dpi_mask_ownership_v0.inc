@@ -5,6 +5,7 @@
  * Do not infer external pixel-positive promotion from these generated PDFs.
  */
 #include "269_unit7_mask_edge_distance_v0.inc"
+#include "269_unit7_signed_coverage_orientation_v0.inc"
 
 static int test_269_unit7_96dpi_mask_ownership(const char *report_path)
 {
@@ -46,6 +47,12 @@ static int test_269_unit7_96dpi_mask_ownership(const char *report_path)
     uint64_t total_rgb_abs=0u,product_abs=0u;
     region_stat total_regions[5]={};
     region_stat total_boundary[4]={};
+    qp269_residual_stat_v0 total_signed[3]={};
+    qp269_residual_stat_v0 total_orientation[4]={};
+    qp269_residual_stat_v0 total_signed_by_owner[4][3]={};
+    size_t native_alpha_histogram[256]={};
+    size_t alpha_q4_lattice_total=0u,alpha_off_lattice_total=0u;
+    size_t rgb_nonred_outlier_total=0u;
     size_t native_near2_total=0u,native_far2_total=0u;
     const char *const boundary_names[4]={
         "far_radius1","fill_edge_radius1","clip_edge_radius1",
@@ -212,6 +219,10 @@ static int test_269_unit7_96dpi_mask_ownership(const char *report_path)
             ++legacy_exact_rgba;
             region_stat regions[5]={};
             region_stat boundary[4]={};
+            qp269_residual_stat_v0 signed_frame[3]={};
+            qp269_residual_stat_v0 orientation_frame[4]={};
+            size_t alpha_q4_frame=0u,alpha_off_lattice_frame=0u;
+            size_t rgb_nonred_outlier_frame=0u;
             size_t near2=0u,far2=0u;
             uint64_t rgb_abs=0u,primitive_product_abs=0u;
             size_t differing=0u,gross=0u,product_diff=0u;
@@ -286,6 +297,50 @@ static int test_269_unit7_96dpi_mask_ownership(const char *report_path)
                             masks[2],width,height,x,y,2);
                     if(near_fill2||near_clip2) ++near2;
                     else ++far2;
+
+                    /* Signed RGB residual against binary ORIGINAL combined
+                     * PDFium coverage. "Under"/"over" says nothing about
+                     * which native Fill or Clip algorithm caused it. */
+                    CHECK(combined==0u || combined==255u);
+                    const unsigned signed_kind=
+                        (combined==255u && native_cov<255u)?0u:
+                        (combined==0u && native_cov>0u)?1u:2u;
+                    CHECK(signed_kind<3u);
+                    const uint64_t coverage_abs=
+                        native_cov>combined?
+                            (uint64_t)(native_cov-combined):
+                            (uint64_t)(combined-native_cov);
+                    auto& side=signed_frame[signed_kind];
+                    ++side.different;
+                    side.rgb_abs+=rgb_difference;
+                    side.coverage_abs+=coverage_abs;
+                    if(largest>64u)++side.gross;
+                    auto& owner_side=
+                        total_signed_by_owner[owner][signed_kind];
+                    ++owner_side.different;
+                    owner_side.rgb_abs+=rgb_difference;
+                    owner_side.coverage_abs+=coverage_abs;
+                    if(largest>64u)++owner_side.gross;
+
+                    const unsigned axis=
+                        qp269_original_mask_edge_orientation_v0(
+                            masks[1],masks[2],width,height,x,y);
+                    CHECK(axis<4u);
+                    auto& axis_stat=orientation_frame[axis];
+                    ++axis_stat.different;
+                    axis_stat.rgb_abs+=rgb_difference;
+                    axis_stat.coverage_abs+=coverage_abs;
+                    if(largest>64u)++axis_stat.gross;
+
+                    /* Inspect the actual native RGBA Alpha byte
+                     * independently from the red-on-white green coverage.
+                     * Q4 16-sample lattice is an observation, not a rule. */
+                    ++native_alpha_histogram[native_rgba[3]];
+                    if(qp269_alpha_q4_lattice_v0(native_rgba[3]))
+                        ++alpha_q4_frame;
+                    else ++alpha_off_lattice_frame;
+                    if(red!=255u || blue!=green)
+                        ++rgb_nonred_outlier_frame;
                 }
             }
             CHECK(differing<=pixels && gross<=differing &&
@@ -305,6 +360,40 @@ static int test_269_unit7_96dpi_mask_ownership(const char *report_path)
             }
             CHECK(owner_count==differing && owner_gross==gross &&
                   owner_abs==rgb_abs);
+            size_t signed_count=0u,signed_gross=0u;
+            size_t orientation_count=0u,orientation_gross=0u;
+            uint64_t signed_abs=0u,orientation_abs=0u;
+            for(unsigned v=0u;v<3u;++v){
+                const auto& part=signed_frame[v];
+                auto& sum=total_signed[v];
+                signed_count+=part.different;
+                signed_gross+=part.gross;
+                signed_abs+=part.rgb_abs;
+                sum.different+=part.different;
+                sum.gross+=part.gross;
+                sum.rgb_abs+=part.rgb_abs;
+                sum.coverage_abs+=part.coverage_abs;
+            }
+            for(unsigned v=0u;v<4u;++v){
+                const auto& part=orientation_frame[v];
+                auto& sum=total_orientation[v];
+                orientation_count+=part.different;
+                orientation_gross+=part.gross;
+                orientation_abs+=part.rgb_abs;
+                sum.different+=part.different;
+                sum.gross+=part.gross;
+                sum.rgb_abs+=part.rgb_abs;
+                sum.coverage_abs+=part.coverage_abs;
+            }
+            CHECK(signed_count==differing && signed_gross==gross &&
+                  signed_abs==rgb_abs &&
+                  orientation_count==differing &&
+                  orientation_gross==gross &&
+                  orientation_abs==rgb_abs &&
+                  alpha_q4_frame+alpha_off_lattice_frame==differing);
+            alpha_q4_lattice_total+=alpha_q4_frame;
+            alpha_off_lattice_total+=alpha_off_lattice_frame;
+            rgb_nonred_outlier_total+=rgb_nonred_outlier_frame;
             for(unsigned region=0u;region<5u;++region){
                 auto& dest=total_regions[region];
                 const auto& entry=regions[region];
@@ -370,8 +459,38 @@ static int test_269_unit7_96dpi_mask_ownership(const char *report_path)
             }
             std::fprintf(out,
                 "  ],\"native_diff_near_radius2\":%zu,"
-                "\"native_diff_far_radius2\":%zu}%s\n",
-                near2,far2,frame==15u?"":",");
+                "\"native_diff_far_radius2\":%zu,"
+                "\"signed_residual\":[\n",
+                near2,far2);
+            for(unsigned v=0u;v<3u;++v){
+                const auto& p=signed_frame[v];
+                std::fprintf(out,
+                    "   {\"name\":\"%s\",\"different\":%zu,"
+                    "\"gross\":%zu,\"rgb_abs\":%llu,"
+                    "\"coverage_abs\":%llu}%s\n",
+                    qp269_signed_names_v0[v],
+                    p.different,p.gross,
+                    (unsigned long long)p.rgb_abs,
+                    (unsigned long long)p.coverage_abs,
+                    v==2u?"":",");
+            }
+            std::fprintf(out,"  ],\"edge_axis\":[\n");
+            for(unsigned v=0u;v<4u;++v){
+                const auto& p=orientation_frame[v];
+                std::fprintf(out,
+                    "   {\"name\":\"%s\",\"different\":%zu,"
+                    "\"gross\":%zu,\"rgb_abs\":%llu}%s\n",
+                    qp269_orientation_names_v0[v],
+                    p.different,p.gross,
+                    (unsigned long long)p.rgb_abs,
+                    v==3u?"":",");
+            }
+            std::fprintf(out,
+                "  ],\"native_alpha_q4_lattice\":%zu,"
+                "\"native_alpha_off_lattice\":%zu,"
+                "\"native_rgb_nonred_outliers\":%zu}%s\n",
+                alpha_q4_frame,alpha_off_lattice_frame,
+                rgb_nonred_outlier_frame,frame==15u?"":",");
             quantapdf_ir_raster_image_dispose(&old);
             quantapdf_ir_raster_image_dispose(&native_repeat);
             quantapdf_ir_raster_image_dispose(&native);
@@ -392,6 +511,31 @@ static int test_269_unit7_96dpi_mask_ownership(const char *report_path)
         gross_total+=total_regions[i].gross;
         error_total+=total_regions[i].abs_rgb;
     }
+    size_t signed_total=0u,signed_gross=0u;
+    size_t orientation_total=0u,orientation_gross=0u;
+    size_t histogram_total=0u;
+    uint64_t signed_rgb=0u,orientation_rgb=0u;
+    for(unsigned v=0u;v<3u;++v){
+        signed_total+=total_signed[v].different;
+        signed_gross+=total_signed[v].gross;
+        signed_rgb+=total_signed[v].rgb_abs;
+    }
+    for(unsigned v=0u;v<4u;++v){
+        orientation_total+=total_orientation[v].different;
+        orientation_gross+=total_orientation[v].gross;
+        orientation_rgb+=total_orientation[v].rgb_abs;
+    }
+    for(unsigned v=0u;v<256u;++v)
+        histogram_total+=native_alpha_histogram[v];
+    CHECK(signed_total==total_different &&
+          signed_gross==total_gross &&
+          signed_rgb==total_rgb_abs &&
+          orientation_total==total_different &&
+          orientation_gross==total_gross &&
+          orientation_rgb==total_rgb_abs &&
+          histogram_total==total_different &&
+          alpha_q4_lattice_total+alpha_off_lattice_total==total_different &&
+          rgb_nonred_outlier_total<=total_different);
     CHECK(source_files==48u && source_unchanged==48u &&
           reference_repeats==48u && native_repeat_ok==16u &&
           legacy_exact_rgba==16u && exact_device_sizes==16u &&
@@ -448,7 +592,51 @@ static int test_269_unit7_96dpi_mask_ownership(const char *report_path)
             (unsigned long long)part.abs_rgb,
             owner==3u?"":",");
     }
-    std::fprintf(out," ]\n}\n");
+    std::fprintf(out," ],\"signed_residual\":[\n");
+    for(unsigned v=0u;v<3u;++v){
+        const auto& p=total_signed[v];
+        std::fprintf(out,
+            "  {\"name\":\"%s\",\"different\":%zu,"
+            "\"gross\":%zu,\"rgb_abs\":%llu,"
+            "\"coverage_abs\":%llu}%s\n",
+            qp269_signed_names_v0[v],p.different,p.gross,
+            (unsigned long long)p.rgb_abs,
+            (unsigned long long)p.coverage_abs,v==2u?"":",");
+    }
+    std::fprintf(out," ],\"edge_axis\":[\n");
+    for(unsigned v=0u;v<4u;++v){
+        const auto& p=total_orientation[v];
+        std::fprintf(out,
+            "  {\"name\":\"%s\",\"different\":%zu,"
+            "\"gross\":%zu,\"rgb_abs\":%llu}%s\n",
+            qp269_orientation_names_v0[v],p.different,p.gross,
+            (unsigned long long)p.rgb_abs,v==3u?"":",");
+    }
+    std::fprintf(out," ],\"signed_by_boundary\":[\n");
+    for(unsigned owner=0u;owner<4u;++owner){
+        std::fprintf(out,"  [");
+        for(unsigned v=0u;v<3u;++v){
+            const auto& p=total_signed_by_owner[owner][v];
+            std::fprintf(out,
+                "{\"different\":%zu,\"gross\":%zu,"
+                "\"rgb_abs\":%llu}%s",
+                p.different,p.gross,
+                (unsigned long long)p.rgb_abs,
+                v==2u?"":",");
+        }
+        std::fprintf(out,"]%s\n",owner==3u?"":",");
+    }
+    std::fprintf(out,
+        " ],\"native_alpha_q4_lattice\":%zu,"
+        "\"native_alpha_off_lattice\":%zu,"
+        "\"native_rgb_nonred_outliers\":%zu,"
+        "\"mismatched_native_alpha_histogram\":[",
+        alpha_q4_lattice_total,alpha_off_lattice_total,
+        rgb_nonred_outlier_total);
+    for(unsigned k=0u;k<256u;++k)
+        std::fprintf(out,"%zu%s",native_alpha_histogram[k],
+            k==255u?"":",");
+    std::fprintf(out,"]\n}\n");
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
     CHECK(std::rename(stage.c_str(),report_path)==0);
     CHECK(corpus_fixture_executions==0u);
