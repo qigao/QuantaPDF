@@ -20,6 +20,7 @@ foreach(marker IN ITEMS
     "\"source_kind\":\"test_generated_original_pdf\""
     "\"origin\":\"literal_pdf_bytes_not_reexport\""
     "\"decimal_contract_test_only\":true"
+    "\"graph_exact_candidate_test_only\":true"
     "\"correct_rounded_double_still_inflates\":true"
     "\"native_render\":\"not_run\""
     "\"public_sdk_backend_switched\":false"
@@ -36,10 +37,18 @@ string(JSON repeat_count GET "${report}" pdfium_bitmap_repeat_count)
 string(JSON frame_count GET "${report}" frame_count)
 string(JSON integral_count GET "${report}" integer_span_pdfium_matches)
 string(JSON unsupported_count GET "${report}" unsupported_dpi_zero_refusals)
+string(JSON graph_exact_count GET "${report}" graph_exact_pdfium_matches)
+string(JSON graph_exact_reject GET "${report}" graph_exact_unsupported_zero_refusals)
+string(JSON graph_exact_bad_tokens GET "${report}" graph_exact_negative_lexer_refusals)
+string(JSON graph_exact_budget GET "${report}" graph_exact_budget_zero_refusals)
 if(NOT n EQUAL 14 OR NOT source_count EQUAL 14 OR
    NOT spelling_count EQUAL 56 OR NOT repeat_count EQUAL 42 OR
    NOT frame_count EQUAL 42 OR NOT integral_count EQUAL 36 OR
-   NOT unsupported_count EQUAL 28)
+   NOT unsupported_count EQUAL 28 OR
+   NOT graph_exact_count EQUAL 42 OR
+   NOT graph_exact_reject EQUAL 28 OR
+   NOT graph_exact_bad_tokens EQUAL 15 OR
+   NOT graph_exact_budget EQUAL 28)
   message(FATAL_ERROR "#360 source/Graph/PDFium ledger missing cases")
 endif()
 set(dpis 72 96 144)
@@ -73,6 +82,12 @@ foreach(i RANGE 0 13)
     string(JSON ph GET "${report}" cases ${i} frames ${j} original_pdfium 1)
     string(JSON gw GET "${report}" cases ${i} frames ${j} raw_graph_grid 0)
     string(JSON gh GET "${report}" cases ${i} frames ${j} raw_graph_grid 1)
+    string(JSON xw GET "${report}" cases ${i} frames ${j} exact_graph_grid 0)
+    string(JSON xh GET "${report}" cases ${i} frames ${j} exact_graph_grid 1)
+    if(NOT xw EQUAL ew OR NOT xh EQUAL eh OR
+       NOT xw EQUAL pw OR NOT xh EQUAL ph)
+      message(FATAL_ERROR "#360 independent actual-Graph exact-decimal grid disagrees with source/PDFium")
+    endif()
     if(NOT dpi EQUAL expected_dpi OR
        ew LESS 1 OR eh LESS 1 OR
        ew GREATER 500 OR eh GREATER 500 OR
@@ -90,5 +105,6 @@ endforeach()
 message(STATUS
   "#360 source-backed decimal: 14 immutable test-owned literal PDFs, "
   "56 original Graph numeric spellings, 42 repeated PDFium frames, "
-  "36 exact-integer-size PDFium matches, 28 hard unsupported DPI refuses; "
+  "36 exact-integer-size PDFium matches, 28 hard unsupported DPI refuses, "
+  "42/42 Graph-exact C11 dimensions and 15 lexical zero-output refusals; "
   "no production parser or renderer mutation.")

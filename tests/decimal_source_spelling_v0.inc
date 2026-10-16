@@ -130,6 +130,44 @@ static int test_decimal360_source_spelling(const char *report_path)
     size_t source_ok=0u,spell_ok=0u,repeat_ok=0u,frame_count=0u;
     size_t exact_pdfium_ok=0u,raw_grid_diff=0u;
     size_t fractional_pdfium_diff=0u,unsupported_zero=0u;
+    size_t graph_exact_pdfium_ok=0u,graph_exact_denied=0u;
+    size_t graph_exact_budget_refusals=0u;
+    size_t negative_lexer_refusals=0u;
+    const char *const invalid_numbers[]={
+        "", "-", "+", "-.", ".", "1e2", "NaN", "Inf",
+        "1,5", "1.2.3", "1 2", "1/2", "1.12345678901",
+        "999999999999999999999999"
+    };
+    for(const char *invalid:invalid_numbers) {
+        int64_t units=INT64_C(1234);
+        unsigned scale=987u;
+        const quantapdf_status st=quantapdf_test_decimal_exact_token_v0(
+            (const unsigned char *)invalid,std::strlen(invalid),
+            &units,&scale);
+        CHECK((st==QUANTAPDF_ERROR_FORMAT ||
+               st==QUANTAPDF_ERROR_UNSUPPORTED) &&
+              units==0 && scale==0);
+        ++negative_lexer_refusals;
+    }
+    {
+        char overlength[66];
+        std::memset(overlength,'1',65u);
+        overlength[65]='\0';
+        int64_t units=INT64_C(1234); unsigned scale=987u;
+        CHECK(quantapdf_test_decimal_exact_token_v0(
+            (const unsigned char *)overlength,65u,
+            &units,&scale)==QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(units==0 && scale==0);
+        ++negative_lexer_refusals;
+    }
+    {
+        int64_t units=0; unsigned scale=987u;
+        const char *negative_zero="-0.000000000000000000";
+        OK(quantapdf_test_decimal_exact_token_v0(
+            (const unsigned char *)negative_zero,std::strlen(negative_zero),
+            &units,&scale));
+        CHECK(units==0 && scale==0u);
+    }
     FILE *out=std::fopen(stage.c_str(),"wb");CHECK(out!=nullptr);
     std::fprintf(out,"{\n \"schema_version\":1,\n"
         " \"source_kind\":\"test_generated_original_pdf\",\n"
@@ -176,6 +214,13 @@ static int test_decimal360_source_spelling(const char *report_path)
                   v->data_size==std::strlen(c.token[edge]) &&
                   std::memcmp(model->bytes+v->data_offset,
                       c.token[edge],v->data_size)==0);
+            int64_t units=0; unsigned scale=0;
+            OK(quantapdf_test_decimal_exact_token_v0(
+                model->bytes+v->data_offset,v->data_size,
+                &units,&scale));
+            const int64_t pow10_scaled[]={1,10,100,1000,10000};
+            CHECK(scale<=4u &&
+                  units*pow10_scaled[4u-scale]==c.scaled10000[edge]);
             ++spell_ok;
         }
         quantapdf_graph_page_geometry geometry{};
@@ -191,6 +236,39 @@ static int test_decimal360_source_spelling(const char *report_path)
                   std::fabs(geometry.crop_box[edge]-
                     (double)c.scaled10000[edge]/10000.0)<1e-9);
             raw_bits[edge]=decimal360_bits(geometry.crop_box[edge]);
+        }
+        quantapdf_test_decimal_grid_v0 graph_exact[3]={};
+        for(unsigned j=0u;j<3u;++j) {
+            OK(quantapdf_test_graph_exact_decimal_grid_v0(
+                snapshot->graph,0u,4u,dpis[j],20000u,60000u,
+                &graph_exact[j]));
+            CHECK(graph_exact[j].width>0u &&
+                  graph_exact[j].height>0u &&
+                  graph_exact[j].stride_bytes==
+                      3u*(size_t)graph_exact[j].width &&
+                  graph_exact[j].output_bytes==
+                      graph_exact[j].stride_bytes*
+                      (size_t)graph_exact[j].height);
+        }
+        for(unsigned forbidden:{120u,168u}) {
+            quantapdf_test_decimal_grid_v0 denied{},zero{};
+            std::memset(&denied,0xa5,sizeof(denied));
+            CHECK(quantapdf_test_graph_exact_decimal_grid_v0(
+                snapshot->graph,0u,4u,forbidden,20000u,60000u,
+                &denied)==QUANTAPDF_ERROR_UNSUPPORTED);
+            CHECK(std::memcmp(&denied,&zero,sizeof(denied))==0);
+            ++graph_exact_denied;
+        }
+        for(unsigned budget_case=0u;budget_case<2u;++budget_case) {
+            quantapdf_test_decimal_grid_v0 denied{},zero{};
+            std::memset(&denied,0xa5,sizeof(denied));
+            CHECK(quantapdf_test_graph_exact_decimal_grid_v0(
+                snapshot->graph,0u,4u,72u,
+                budget_case==0u?1u:20000u,
+                budget_case==1u?1u:60000u,
+                &denied)==QUANTAPDF_ERROR_UNSUPPORTED);
+            CHECK(std::memcmp(&denied,&zero,sizeof(denied))==0);
+            ++graph_exact_budget_refusals;
         }
         quantapdf_graph_snapshot_drop(snapshot);
         ++source_ok;
@@ -229,6 +307,8 @@ static int test_decimal360_source_spelling(const char *report_path)
                 c.scaled10000[1],c.scaled10000[3],dpi);
             const uint32_t ew=(c.rotation%180)?expected_h:expected_w;
             const uint32_t eh=(c.rotation%180)?expected_w:expected_h;
+            CHECK(graph_exact[j].width==ew &&
+                  graph_exact[j].height==eh);
             quantapdf_graph_device_grid raw_grid{};
             OK(quantapdf_graph_page_device_grid(
                 &geometry,dpi,20000u,60000u,&raw_grid));
@@ -250,6 +330,9 @@ static int test_decimal360_source_spelling(const char *report_path)
             CHECK(a && b && na==nb && na==(size_t)ps*(size_t)ph &&
                   std::memcmp(a,b,na)==0);
             ++repeat_ok; ++frame_count;
+            CHECK(graph_exact[j].width==(uint32_t)pw &&
+                  graph_exact[j].height==(uint32_t)ph);
+            ++graph_exact_pdfium_ok;
             const bool pdfium_matches=(pw==(int)ew && ph==(int)eh);
             if(!c.fractional_span){
                 CHECK(pdfium_matches);
@@ -260,8 +343,10 @@ static int test_decimal360_source_spelling(const char *report_path)
             if(!raw_matches)++raw_grid_diff;
             std::fprintf(out,"   {\"dpi\":%u,\"exact_grid\":[%u,%u],"
                 "\"original_pdfium\":[%d,%d],\"raw_graph_grid\":[%u,%u],"
+                "\"exact_graph_grid\":[%u,%u],"
                 "\"pdfium_matches_exact\":%s,\"raw_matches_pdfium\":%s}%s\n",
                 dpi,ew,eh,pw,ph,raw_grid.width,raw_grid.height,
+                graph_exact[j].width,graph_exact[j].height,
                 pdfium_matches?"true":"false",
                 raw_matches?"true":"false",j==2u?"":",");
             quantapdf_drop_bitmap(second);
@@ -276,6 +361,10 @@ static int test_decimal360_source_spelling(const char *report_path)
     CHECK(source_ok==cases && spell_ok==cases*4u &&
           frame_count==cases*3u && repeat_ok==frame_count &&
           unsupported_zero==cases*2u &&
+          graph_exact_denied==cases*2u &&
+          graph_exact_budget_refusals==cases*2u &&
+          graph_exact_pdfium_ok==frame_count &&
+          negative_lexer_refusals==15u &&
           exact_pdfium_ok==(cases-2u)*3u);
     std::fprintf(out," ],\n \"original_source_count\":%zu,"
         "\"source_spelling_matches\":%zu,"
@@ -284,9 +373,16 @@ static int test_decimal360_source_spelling(const char *report_path)
         "\"integer_span_pdfium_matches\":%zu,"
         "\"fractional_pdfium_mismatches\":%zu,"
         "\"raw_grid_pdfium_mismatches\":%zu,"
-        "\"unsupported_dpi_zero_refusals\":%zu\n}\n",
+        "\"unsupported_dpi_zero_refusals\":%zu,"
+        "\"graph_exact_candidate_test_only\":true,"
+        "\"graph_exact_pdfium_matches\":%zu,"
+        "\"graph_exact_unsupported_zero_refusals\":%zu,"
+        "\"graph_exact_negative_lexer_refusals\":%zu,"
+        "\"graph_exact_budget_zero_refusals\":%zu\n}\n",
         source_ok,spell_ok,repeat_ok,frame_count,exact_pdfium_ok,
-        fractional_pdfium_diff,raw_grid_diff,unsupported_zero);
+        fractional_pdfium_diff,raw_grid_diff,unsupported_zero,
+        graph_exact_pdfium_ok,graph_exact_denied,negative_lexer_refusals,
+        graph_exact_budget_refusals);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
     CHECK(std::rename(stage.c_str(),report_path)==0);
     CHECK(corpus_fixture_executions==0u);
