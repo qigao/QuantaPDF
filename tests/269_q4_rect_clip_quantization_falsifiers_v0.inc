@@ -121,14 +121,17 @@ static qp269_float_box_v0 qp269_rect_rotate90_device_v0(
 static void qp269_rect_phase_source_v0(
     const char *path,unsigned phase,bool clipped)
 {
-    const char *const clip_x[3]={"6.11328125","6.125","6.13671875"};
+    /* Vary PAINTED Y edge: Rotate 90 projects it to device X.
+     * Three phases 6.484375, 6.5 and 6.515625 px at 96 DPI. */
+    const char *const fill_y[3]={
+        "7.36328125","7.375","7.38671875"};
     CHECK(path && phase<3u);
     std::string commands;
-    if(clipped){
-        commands=std::string(clip_x[phase])+
-            " 5.3125 9 13.5 re W n ";
-    }
-    commands+="1 0 0 rg 4.4375 7.375 12.75 9 re f";
+    if(clipped)
+        commands="6.125 5.3125 9 13.5 re W n ";
+    commands+="1 0 0 rg 4.4375 ";
+    commands+=fill_y[phase];
+    commands+=" 12.75 9 re f";
     auto doc=QPDF::create();
     doc->emptyPDF();
     auto pages=doc->getRoot().getKey("/Pages");
@@ -157,16 +160,18 @@ static void qp269_rect_phase_source_v0(
 }
 static void qp269_rect_phase_falsifiers_v0(FILE *out,const char *source)
 {
-    /* Sources: 3 explicit X phases across one previously UNUSED shape,
-     * with /W and without /W. Exactly six new PDFs, each at 3 fixed DPIs.
-     * These are test generated, NOT independently published external PDFs.
-     * A quantized rectangle candidate which was exact on the preceding
-     * 96 inherited frames must retain these counterexamples, not pass CI. */
+    /* Three independent PAINTED Y-edge phases projected to device X:
+     * 6.484375, 6.5 and 6.515625 pixels at 96 DPI under Rotate 90.
+     * Fill-only versus Fill+fixed W Clip: six distinct source byte streams.
+     * These are test-generated, not third-party source families.
+     * Exact half-pixel ties must falsify the integer-rectangle hypothesis;
+     * both +/-1/64px flanks must remain independent controls. */
     const unsigned dpis[3]={72u,96u,144u};
-    const double clip_starts[3]={6.11328125,6.125,6.13671875};
-    const qp269_heldout_rect_v0 fill={4.4375,7.375,17.1875,16.375};
+    const double fill_starts[3]={7.36328125,7.375,7.38671875};
+    const qp269_heldout_rect_v0 clip={6.125,5.3125,15.125,18.8125};
     const qp269_heldout_rect_v0 complete={1.25,2.5,25.25,20.5};
-    size_t sources=0u,verified=0u,frames=0u,regressed96=0u;
+    uint64_t distinct_hashes[6]={};
+    size_t sources=0u,verified=0u,frames=0u,regressed96=0u,flank96=0u;
     qp269_rect_quant_score_v0 total_q4{},total_snap{};
     std::fprintf(out,"{\"source_kind\":\"six_new_test_generated_original_pdf\","
         "\"external_native_positive_increment\":0,"
@@ -179,8 +184,12 @@ static void qp269_rect_phase_falsifiers_v0(FILE *out,const char *source)
         qp269_rect_phase_source_v0(source,phase,mode==1u);
         const auto original=decimal360_read_bytes(source);
         const uint64_t source_hash=decimal360_fnv64(original);
-        const qp269_heldout_rect_v0 clip={
-            clip_starts[phase],5.3125,clip_starts[phase]+9.0,18.8125};
+        for(size_t n=0u;n<sources;++n)
+            CHECK(source_hash!=distinct_hashes[n]);
+        CHECK(sources<6u);
+        distinct_hashes[sources]=source_hash;
+        const qp269_heldout_rect_v0 fill={
+            4.4375,fill_starts[phase],17.1875,fill_starts[phase]+9.0};
         quantapdf_document *doc=nullptr;
         quantapdf_page *page=nullptr;
         OK(quantapdf_open(source,nullptr,&doc));
@@ -216,18 +225,25 @@ static void qp269_rect_phase_falsifiers_v0(FILE *out,const char *source)
                                       &q4,&snap);
             qp269_rect_quant_add_v0(&total_q4,q4);
             qp269_rect_quant_add_v0(&total_snap,snap);
-            if(dpi==96u){
-                /* Two modes x three phases: independent falsifiers of a
-                 * global nearest-Fill/outward-Clip substitution. */
+            if(dpi==96u && phase==1u){
+                /* Two distinct PDFs pin the exact half-pixel tie. */
                 CHECK(snap.rgb_abs()>q4.rgb_abs() &&
                       snap.under_rgb_abs>0u && snap.over_rgb_abs>0u);
                 ++regressed96;
+            }else if(dpi==96u){
+                /* Four +/-1/64px flank observations protect against
+                 * generalizing the exact-tie mismatch across phases. */
+                CHECK(snap.rgb_abs()==0u && snap.under==0u &&
+                      snap.over==0u);
+                ++flank96;
             }
             std::fprintf(out,
                 "{\"frame\":%zu,\"phase\":%u,\"mode\":\"%s\","
                 "\"dpi\":%u,\"rotation\":90,\"source_fnv64\":\"%016llx\","
+                "\"source_fill_y\":%.8f,\"device_x_left_96\":%.8f,"
                 "\"q4\":",frames,phase,mode?"fill_and_w_clip":"fill_only",
-                dpi,(unsigned long long)source_hash);
+                dpi,(unsigned long long)source_hash,fill_starts[phase],
+                (fill_starts[phase]-2.5)*24.0/18.0);
             qp269_rect_quant_print_v0(out,q4);
             std::fprintf(out,",\"closest_fill_outer_clip\":");
             qp269_rect_quant_print_v0(out,snap);
@@ -243,10 +259,12 @@ static void qp269_rect_phase_falsifiers_v0(FILE *out,const char *source)
         ++verified;
       }
     CHECK(sources==6u && verified==6u && frames==18u &&
-          regressed96==6u && corpus_fixture_executions==0u);
+          regressed96==2u && flank96==4u &&
+          corpus_fixture_executions==0u);
     std::fprintf(out,"],\"source_count\":%zu,\"source_bytes_verified\":%zu,"
         "\"reference_frames\":%zu,\"pinned_96dpi_regression_frames\":%zu,"
-        "\"q4_total\":",sources,verified,frames,regressed96);
+        "\"pinned_96dpi_flank_controls\":%zu,"
+        "\"q4_total\":",sources,verified,frames,regressed96,flank96);
     qp269_rect_quant_print_v0(out,total_q4);
     std::fprintf(out,",\"nearest_fill_outer_clip_total\":");
     qp269_rect_quant_print_v0(out,total_snap);
