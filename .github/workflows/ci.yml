@@ -562,6 +562,16 @@ jobs:
             build/linux-gcc-debug/tests/native-269-unit7-96dpi-mask-ownership.json
           if-no-files-found: error
           retention-days: 7
+      
+      - name: Upload held-out Q4 threshold vs center originals (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: heldout-q4-threshold-center-linux
+          path: |
+            build/linux-gcc-release/tests/native-269-heldout-q4-threshold-center.json
+            build/linux-gcc-debug/tests/native-269-heldout-q4-threshold-center.json
+          if-no-files-found: error
+          retention-days: 7
 
   macos:
     if: >-
@@ -993,6 +1003,14 @@ jobs:
         with:
           name: original-unit7-96dpi-mask-ownership-macos
           path: build/macos-clang-release/tests/native-269-unit7-96dpi-mask-ownership.json
+          if-no-files-found: error
+          retention-days: 7
+      
+      - name: Upload held-out Q4 threshold vs center originals (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: heldout-q4-threshold-center-macos
+          path: build/macos-clang-release/tests/native-269-heldout-q4-threshold-center.json
           if-no-files-found: error
           retention-days: 7
 
@@ -1437,5 +1455,13 @@ jobs:
         with:
           name: original-unit7-96dpi-mask-ownership-windows
           path: build/Msvc-Release/tests/native-269-unit7-96dpi-mask-ownership.json
+          if-no-files-found: error
+          retention-days: 7
+      
+      - name: Upload held-out Q4 threshold vs center originals (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: heldout-q4-threshold-center-windows
+          path: build/Msvc-Release/tests/native-269-heldout-q4-threshold-center.json
           if-no-files-found: error
           retention-days: 7
