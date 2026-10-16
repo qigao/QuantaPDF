@@ -6,7 +6,7 @@ if(NOT DEFINED report OR report STREQUAL "")
 endif()
 # One large report read and ONE subtree extraction. Repeated string(JSON)
 # on 278KB for every tiny scalar causes a Windows CTest timeout.
-string(JSON phase_json GET "${phase_json}")
+string(JSON phase_json GET "${report}" rect_quant_phase_falsifiers)
 string(JSON legacy_zero GET "${report}" rect_closest_outer_legacy_zero_frames)
 string(JSON old_q4 GET "${report}" rect_closest_outer_legacy_q4_total rgb_abs)
 string(JSON old_candidate GET "${report}" rect_closest_outer_legacy_candidate_total rgb_abs)
