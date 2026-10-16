@@ -10569,9 +10569,14 @@ static int test_generated_unit7_decimal_crop_device_ab(
 }
 
 #include "decimal_source_spelling_v0.inc"
+#include "decimal_exact_fillclip_pixel_v0.inc"
 
 int main(int argc,char **argv)
 {
+    if(argc==4 &&
+       std::strcmp(argv[1],"--decimal360-exact-fillclip-pixel-ab")==0 &&
+       std::strcmp(argv[2],"--pixel-report")==0)
+        return test_decimal360_exact_fillclip_pixel_ab(argv[3]);
     if(argc==4 &&
        std::strcmp(argv[1],"--decimal360-source-spellings")==0 &&
        std::strcmp(argv[2],"--source-spellings-report")==0)
