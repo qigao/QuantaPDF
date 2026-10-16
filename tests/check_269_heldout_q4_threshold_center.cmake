@@ -252,3 +252,5 @@ message(STATUS
 # The original source/PDFium scope and seven independent A/B models must
 # pass before the additional signed 144-DPI counterexample audit runs.
 include("${CMAKE_CURRENT_LIST_DIR}/check_269_heldout_signed_144_audit.cmake")
+# Strict test-only handoff ledger after the original 96-frame RGB audit.
+include("${CMAKE_CURRENT_LIST_DIR}/check_269_heldout_float_handoff.cmake")
