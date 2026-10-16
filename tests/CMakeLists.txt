@@ -2899,3 +2899,32 @@ else()
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
+
+# #269: separate 96-DPI immutable test-owned ORIGINAL Fill-only, W-only
+# and combined PDFium masks versus exact-Grid native combined Fill/W.
+# Does not mutate the private Fill/Clip Raster or SDK.
+target_compile_definitions(quantapdf_test_native_source_qq_oracle PRIVATE
+  GENERATED_269_MASK_COMBINED_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-269-mask-combined-original.pdf"
+  GENERATED_269_MASK_FILL_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-269-mask-fill-original.pdf"
+  GENERATED_269_MASK_CLIP_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-269-mask-clip-original.pdf")
+add_test(NAME quantapdf.native_269_unit7_96dpi_mask_ownership
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE_EXECUTABLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DREPORT_FILE=${CMAKE_CURRENT_BINARY_DIR}/native-269-unit7-96dpi-mask-ownership.json"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_269_unit7_96dpi_mask_ownership.cmake")
+set_tests_properties(quantapdf.native_269_unit7_96dpi_mask_ownership
+  PROPERTIES TIMEOUT 95
+  LABELS "conformance;test-only;original-pdfium;unit7-96dpi;fill-w-clip;mask-ownership")
+if(WIN32)
+  set_property(TEST quantapdf.native_269_unit7_96dpi_mask_ownership
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_269_unit7_96dpi_mask_ownership
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_269_unit7_96dpi_mask_ownership
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
