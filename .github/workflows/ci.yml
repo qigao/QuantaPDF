@@ -572,6 +572,16 @@ jobs:
             build/linux-gcc-debug/tests/native-269-heldout-q4-threshold-center.json
           if-no-files-found: error
           retention-days: 7
+      
+      - name: Upload new Q4 stage-order originals (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: q4-stage-order-originals-linux
+          path: |
+            build/linux-gcc-release/tests/native-269-q4-stage-order.json
+            build/linux-gcc-debug/tests/native-269-q4-stage-order.json
+          if-no-files-found: error
+          retention-days: 7
 
   macos:
     if: >-
@@ -1011,6 +1021,14 @@ jobs:
         with:
           name: heldout-q4-threshold-center-macos
           path: build/macos-clang-release/tests/native-269-heldout-q4-threshold-center.json
+          if-no-files-found: error
+          retention-days: 7
+      
+      - name: Upload new Q4 stage-order originals (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: q4-stage-order-originals-macos
+          path: build/macos-clang-release/tests/native-269-q4-stage-order.json
           if-no-files-found: error
           retention-days: 7
 
@@ -1463,5 +1481,13 @@ jobs:
         with:
           name: heldout-q4-threshold-center-windows
           path: build/Msvc-Release/tests/native-269-heldout-q4-threshold-center.json
+          if-no-files-found: error
+          retention-days: 7
+      
+      - name: Upload new Q4 stage-order originals (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: q4-stage-order-originals-windows
+          path: build/Msvc-Release/tests/native-269-q4-stage-order.json
           if-no-files-found: error
           retention-days: 7
