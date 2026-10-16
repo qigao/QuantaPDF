@@ -66,6 +66,18 @@ endif()
 set(region_names outside_primitives opaque_both fill_edge_only
                  clip_edge_only both_partial)
 set(owner_names far_radius1 fill_edge_radius1 clip_edge_radius1 both_edge_radius1)
+set(signed_names native_under_original_opaque native_over_original_clear
+                 other_rgb_channels_only)
+set(axis_names diagonal_only vertical_edge horizontal_edge both_axes)
+set(signed_frame_sum 0)
+set(signed_frame_rgb 0)
+set(signed_frame_gross 0)
+set(axis_frame_sum 0)
+set(axis_frame_rgb 0)
+set(axis_frame_gross 0)
+set(q4_lattice_frame_sum 0)
+set(q4_off_lattice_frame_sum 0)
+set(rgb_chroma_frame_sum 0)
 set(frame_owner_count 0)
 set(frame_owner_rgb 0)
 set(frame_owner_gross 0)
@@ -86,6 +98,11 @@ foreach(i RANGE 0 15)
   string(JSON mask_count LENGTH "${report}" frames ${i} mask_nonzero)
   string(JSON regions LENGTH "${report}" frames ${i} regions)
   string(JSON boundary_owner_len LENGTH "${report}" frames ${i} boundary_near1)
+  string(JSON signed_len LENGTH "${report}" frames ${i} signed_residual)
+  string(JSON axis_len LENGTH "${report}" frames ${i} edge_axis)
+  string(JSON q4_on GET "${report}" frames ${i} native_alpha_q4_lattice)
+  string(JSON q4_off GET "${report}" frames ${i} native_alpha_off_lattice)
+  string(JSON chroma_count GET "${report}" frames ${i} native_rgb_nonred_outliers)
   string(JSON frame_near GET "${report}" frames ${i} native_diff_near_radius2)
   string(JSON frame_far GET "${report}" frames ${i} native_diff_far_radius2)
   string(JSON ferr GET "${report}" frames ${i} native_vs_combined_rgb_abs)
@@ -99,7 +116,8 @@ foreach(i RANGE 0 15)
   if(NOT crop EQUAL crop_expected OR NOT rotation EQUAL rotation_expected OR
      NOT dpi EQUAL 96 OR NOT pixels EQUAL 7050 OR NOT originals EQUAL 3 OR
      NOT mask_count EQUAL 3 OR NOT regions EQUAL 5 OR
-     NOT boundary_owner_len EQUAL 4)
+     NOT boundary_owner_len EQUAL 4 OR
+     NOT signed_len EQUAL 3 OR NOT axis_len EQUAL 4)
     message(FATAL_ERROR "Incomplete/incorrect original mask frame geometry")
   endif()
   foreach(j RANGE 0 2)
@@ -157,6 +175,57 @@ foreach(i RANGE 0 15)
     math(EXPR owned_gross "${owned_gross}+${og}")
     math(EXPR owned_abs "${owned_abs}+${oe}")
   endforeach()
+  set(side_count 0)
+  set(side_gross 0)
+  set(side_rgb 0)
+  foreach(j RANGE 0 2)
+    list(GET signed_names ${j} want)
+    string(JSON name GET "${report}" frames ${i} signed_residual ${j} name)
+    string(JSON diff GET "${report}" frames ${i} signed_residual ${j} different)
+    string(JSON gross GET "${report}" frames ${i} signed_residual ${j} gross)
+    string(JSON rgb GET "${report}" frames ${i} signed_residual ${j} rgb_abs)
+    string(JSON coverage GET "${report}" frames ${i} signed_residual ${j} coverage_abs)
+    if(NOT name STREQUAL want OR gross GREATER diff OR
+       coverage GREATER rgb)
+      message(FATAL_ERROR "Invalid native signed-coverage partition")
+    endif()
+    math(EXPR side_count "${side_count}+${diff}")
+    math(EXPR side_gross "${side_gross}+${gross}")
+    math(EXPR side_rgb "${side_rgb}+${rgb}")
+  endforeach()
+  set(axis_count 0)
+  set(axis_gross 0)
+  set(axis_rgb 0)
+  foreach(j RANGE 0 3)
+    list(GET axis_names ${j} want)
+    string(JSON name GET "${report}" frames ${i} edge_axis ${j} name)
+    string(JSON diff GET "${report}" frames ${i} edge_axis ${j} different)
+    string(JSON gross GET "${report}" frames ${i} edge_axis ${j} gross)
+    string(JSON rgb GET "${report}" frames ${i} edge_axis ${j} rgb_abs)
+    if(NOT name STREQUAL want OR gross GREATER diff)
+      message(FATAL_ERROR "Invalid original Fill/W boundary orientation")
+    endif()
+    math(EXPR axis_count "${axis_count}+${diff}")
+    math(EXPR axis_gross "${axis_gross}+${gross}")
+    math(EXPR axis_rgb "${axis_rgb}+${rgb}")
+  endforeach()
+  math(EXPR q4_sum "${q4_on}+${q4_off}")
+  if(NOT q4_sum EQUAL fdiff OR chroma_count GREATER fdiff OR
+     NOT side_count EQUAL fdiff OR NOT side_gross EQUAL fgross OR
+     NOT side_rgb EQUAL ferr OR
+     NOT axis_count EQUAL fdiff OR NOT axis_gross EQUAL fgross OR
+     NOT axis_rgb EQUAL ferr)
+    message(FATAL_ERROR "Frame signed/oriented/Q4-alpha totals not conserved")
+  endif()
+  math(EXPR signed_frame_sum "${signed_frame_sum}+${side_count}")
+  math(EXPR signed_frame_rgb "${signed_frame_rgb}+${side_rgb}")
+  math(EXPR signed_frame_gross "${signed_frame_gross}+${side_gross}")
+  math(EXPR axis_frame_sum "${axis_frame_sum}+${axis_count}")
+  math(EXPR axis_frame_rgb "${axis_frame_rgb}+${axis_rgb}")
+  math(EXPR axis_frame_gross "${axis_frame_gross}+${axis_gross}")
+  math(EXPR q4_lattice_frame_sum "${q4_lattice_frame_sum}+${q4_on}")
+  math(EXPR q4_off_lattice_frame_sum "${q4_off_lattice_frame_sum}+${q4_off}")
+  math(EXPR rgb_chroma_frame_sum "${rgb_chroma_frame_sum}+${chroma_count}")
   math(EXPR in_two_radius "${frame_near}+${frame_far}")
   if(NOT owned_diff EQUAL fdiff OR NOT owned_gross EQUAL fgross OR
      NOT owned_abs EQUAL ferr OR NOT in_two_radius EQUAL fdiff)
@@ -222,6 +291,105 @@ if(NOT frame_owner_count EQUAL total_diff OR
    NOT owner_gross EQUAL total_gross)
   message(FATAL_ERROR "Global Fill/W boundary distance totals mismatch")
 endif()
+# Signed under-/over-coverage and source edge-axis groups are SECOND
+# independent partitions of the same unchanged source-PDF RGB residual.
+string(JSON signed_totals LENGTH "${report}" signed_residual)
+string(JSON axis_totals LENGTH "${report}" edge_axis)
+string(JSON owner_signed_len LENGTH "${report}" signed_by_boundary)
+string(JSON alpha_hist_len LENGTH "${report}" mismatched_native_alpha_histogram)
+string(JSON q4_on_total GET "${report}" native_alpha_q4_lattice)
+string(JSON q4_off_total GET "${report}" native_alpha_off_lattice)
+string(JSON nonred_total GET "${report}" native_rgb_nonred_outliers)
+if(NOT signed_totals EQUAL 3 OR NOT axis_totals EQUAL 4 OR
+   NOT owner_signed_len EQUAL 4 OR NOT alpha_hist_len EQUAL 256)
+  message(FATAL_ERROR "Missing signed-coverage/orientation/alpha histogram evidence")
+endif()
+set(all_side_diff 0)
+set(all_side_rgb 0)
+set(all_side_gross 0)
+foreach(j RANGE 0 2)
+  list(GET signed_names ${j} want)
+  string(JSON name GET "${report}" signed_residual ${j} name)
+  string(JSON diff GET "${report}" signed_residual ${j} different)
+  string(JSON gross GET "${report}" signed_residual ${j} gross)
+  string(JSON rgb GET "${report}" signed_residual ${j} rgb_abs)
+  string(JSON cov GET "${report}" signed_residual ${j} coverage_abs)
+  if(NOT name STREQUAL want OR gross GREATER diff OR cov GREATER rgb)
+    message(FATAL_ERROR "Corrupt global native signed residual")
+  endif()
+  math(EXPR all_side_diff "${all_side_diff}+${diff}")
+  math(EXPR all_side_rgb "${all_side_rgb}+${rgb}")
+  math(EXPR all_side_gross "${all_side_gross}+${gross}")
+endforeach()
+set(all_axis_diff 0)
+set(all_axis_rgb 0)
+set(all_axis_gross 0)
+foreach(j RANGE 0 3)
+  list(GET axis_names ${j} want)
+  string(JSON name GET "${report}" edge_axis ${j} name)
+  string(JSON diff GET "${report}" edge_axis ${j} different)
+  string(JSON gross GET "${report}" edge_axis ${j} gross)
+  string(JSON rgb GET "${report}" edge_axis ${j} rgb_abs)
+  if(NOT name STREQUAL want OR gross GREATER diff)
+    message(FATAL_ERROR "Corrupt original binary-mask edge-axis evidence")
+  endif()
+  math(EXPR all_axis_diff "${all_axis_diff}+${diff}")
+  math(EXPR all_axis_rgb "${all_axis_rgb}+${rgb}")
+  math(EXPR all_axis_gross "${all_axis_gross}+${gross}")
+endforeach()
+set(alpha_hist_sum 0)
+foreach(j RANGE 0 255)
+  string(JSON count GET "${report}" mismatched_native_alpha_histogram ${j})
+  math(EXPR alpha_hist_sum "${alpha_hist_sum}+${count}")
+endforeach()
+math(EXPR q4_alpha_sum "${q4_on_total}+${q4_off_total}")
+if(NOT alpha_hist_sum EQUAL total_diff OR
+   NOT q4_alpha_sum EQUAL total_diff OR
+   NOT q4_lattice_frame_sum EQUAL q4_on_total OR
+   NOT q4_off_lattice_frame_sum EQUAL q4_off_total OR
+   NOT rgb_chroma_frame_sum EQUAL nonred_total OR
+   nonred_total GREATER total_diff OR
+   NOT all_side_diff EQUAL total_diff OR
+   NOT all_side_rgb EQUAL total_rgb OR
+   NOT all_side_gross EQUAL total_gross OR
+   NOT signed_frame_sum EQUAL all_side_diff OR
+   NOT signed_frame_rgb EQUAL all_side_rgb OR
+   NOT signed_frame_gross EQUAL all_side_gross OR
+   NOT all_axis_diff EQUAL total_diff OR
+   NOT all_axis_rgb EQUAL total_rgb OR
+   NOT all_axis_gross EQUAL total_gross OR
+   NOT axis_frame_sum EQUAL all_axis_diff OR
+   NOT axis_frame_rgb EQUAL all_axis_rgb OR
+   NOT axis_frame_gross EQUAL all_axis_gross)
+  message(FATAL_ERROR "Signed/axis/Q4-alpha conservation of 2520 differences failed")
+endif()
+foreach(owner RANGE 0 3)
+  string(JSON row_length LENGTH "${report}" signed_by_boundary ${owner})
+  if(NOT row_length EQUAL 3)
+    message(FATAL_ERROR "Signed residual original-mask owner row truncated")
+  endif()
+  string(JSON owner_diff GET "${report}" boundary_near1 ${owner} different)
+  string(JSON owner_rgb GET "${report}" boundary_near1 ${owner} rgb_abs)
+  string(JSON owner_gross GET "${report}" boundary_near1 ${owner} gross)
+  set(row_diff 0)
+  set(row_rgb 0)
+  set(row_gross 0)
+  foreach(side RANGE 0 2)
+    string(JSON diff GET "${report}" signed_by_boundary ${owner} ${side} different)
+    string(JSON rgb GET "${report}" signed_by_boundary ${owner} ${side} rgb_abs)
+    string(JSON gross GET "${report}" signed_by_boundary ${owner} ${side} gross)
+    if(gross GREATER diff)
+      message(FATAL_ERROR "Signed owner residual gross count invalid")
+    endif()
+    math(EXPR row_diff "${row_diff}+${diff}")
+    math(EXPR row_rgb "${row_rgb}+${rgb}")
+    math(EXPR row_gross "${row_gross}+${gross}")
+  endforeach()
+  if(NOT row_diff EQUAL owner_diff OR NOT row_rgb EQUAL owner_rgb OR
+     NOT row_gross EQUAL owner_gross)
+    message(FATAL_ERROR "Native signed residual not conserved by Fill/W owner")
+  endif()
+endforeach()
 if(NOT global_pixels EQUAL 112800 OR NOT global_rgb EQUAL total_rgb OR
    NOT global_diff EQUAL total_diff OR NOT global_gross EQUAL total_gross OR
    NOT sum_frame_rgb EQUAL total_rgb OR
@@ -236,4 +404,5 @@ message(STATUS "#269 96DPI original mask decomposition: 48 independent "
   "112800 total pixels, 2520 native differing pixels / 567648 abs RGB, "
   "${total_prod_diff} original-combined vs Fill×Clip disagreements; "
   "${near2_total}/2520 differences within radius 2 of source mask boundary; "
+  "${q4_on_total}/2520 actual native alpha values on 16-sample Q4 lattice; "
   "no merge, fallback, external pixel-positive or SDK cutover.")
