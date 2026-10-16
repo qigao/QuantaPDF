@@ -2871,3 +2871,31 @@ if(MSVC)
 else()
   set_source_files_properties(decimal_device_handoff_v0.c PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra;-Wpedantic;-Werror")
 endif()
+
+
+# #360: explicit, isolated owned-IR Fill+W raster opt-in using Graph-owner-
+# time exact decimal Grid. No old/native public path auto-switch and PDFium
+# stays an INDEPENDENT original-source oracle, never a fallback.
+target_compile_definitions(quantapdf_test_native_source_qq_oracle PRIVATE
+  GENERATED_UNIT7_EXACT_FILLCLIP_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-unit7-exact-fillclip-pixel-original.pdf")
+add_test(NAME quantapdf.native_decimal360_exact_fillclip_pixel_ab
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE_EXECUTABLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DREPORT_FILE=${CMAKE_CURRENT_BINARY_DIR}/native-decimal360-exact-fillclip-pixel.json"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_decimal360_exact_fillclip_pixel.cmake")
+set_tests_properties(quantapdf.native_decimal360_exact_fillclip_pixel_ab
+  PROPERTIES TIMEOUT 95
+  LABELS "conformance;source-pdf;generated-original;exact-device-grid;fill-w-clip;pixel-diagnostic")
+if(WIN32)
+  set_property(TEST quantapdf.native_decimal360_exact_fillclip_pixel_ab
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_decimal360_exact_fillclip_pixel_ab
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_decimal360_exact_fillclip_pixel_ab
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
