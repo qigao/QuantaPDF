@@ -2958,3 +2958,29 @@ else()
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
+
+# #269: NEW separate source-PDF stage-order evidence, not the 96/18 #374
+# corpus. No native Raster mutation or external-positive admission.
+target_compile_definitions(quantapdf_test_native_source_qq_oracle PRIVATE
+  GENERATED_269_Q4_STAGE_ORDER_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-269-q4-stage-order-original.pdf")
+add_test(NAME quantapdf.native_269_q4_stage_order
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE_EXECUTABLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DREPORT_FILE=${CMAKE_CURRENT_BINARY_DIR}/native-269-q4-stage-order.json"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_269_q4_stage_order.cmake")
+set_tests_properties(quantapdf.native_269_q4_stage_order
+  PROPERTIES TIMEOUT 120
+  LABELS "conformance;test-only;original-pdfium;fill-w-clip;72-96-144-dpi;no-renderer-switch")
+if(WIN32)
+  set_property(TEST quantapdf.native_269_q4_stage_order
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_269_q4_stage_order
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_269_q4_stage_order
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
