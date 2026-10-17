@@ -156,29 +156,31 @@ static qp378_real_pair qp378_capture(
     return out;
 }
 static qp378_clip_effect qp378_compare_clip_transfer(
-    const qp378_real_pair& clip,const qp378_real_pair& unclip)
+    const qp378_real_pair& original,const qp378_real_pair& narrower)
 {
     constexpr size_t P=5000u;
-    CHECK(clip.ref_rgb.size()==P*3u && unclip.ref_rgb.size()==P*3u &&
-          clip.native_rgba.size()==P*4u && unclip.native_rgba.size()==P*4u);
+    CHECK(original.native_supported && narrower.native_supported &&
+          original.ref_rgb.size()==P*3u && narrower.ref_rgb.size()==P*3u &&
+          original.native_rgba.size()==P*4u &&
+          narrower.native_rgba.size()==P*4u);
     qp378_clip_effect result{};
     for(size_t i=0u;i<P;++i){
         bool ref_changed=false,native_changed=false;
-        bool clip_error=false,no_clip_error=false;
+        bool original_error=false,narrow_error=false;
         uint64_t effect_delta=0u;
         for(unsigned c=0u;c<3u;++c){
-            const int ref_clip=clip.ref_rgb[i*3u+c];
-            const int ref_full=unclip.ref_rgb[i*3u+c];
-            const int native_clip=(int)on_white(
-                &clip.native_rgba[i*4u],c);
-            const int native_full=(int)on_white(
-                &unclip.native_rgba[i*4u],c);
-            ref_changed|=ref_clip!=ref_full;
-            native_changed|=native_clip!=native_full;
-            clip_error|=ref_clip!=native_clip;
-            no_clip_error|=ref_full!=native_full;
+            const int ref_old=original.ref_rgb[i*3u+c];
+            const int ref_narrow=narrower.ref_rgb[i*3u+c];
+            const int native_old=(int)on_white(
+                &original.native_rgba[i*4u],c);
+            const int native_narrow=(int)on_white(
+                &narrower.native_rgba[i*4u],c);
+            ref_changed|=ref_old!=ref_narrow;
+            native_changed|=native_old!=native_narrow;
+            original_error|=ref_old!=native_old;
+            narrow_error|=ref_narrow!=native_narrow;
             effect_delta+=(uint64_t)std::abs(
-                (ref_clip-ref_full)-(native_clip-native_full));
+                (ref_old-ref_narrow)-(native_old-native_narrow));
         }
         result.ref_changed_pixels+=(size_t)ref_changed;
         result.native_changed_pixels+=(size_t)native_changed;
@@ -186,18 +188,17 @@ static qp378_clip_effect qp378_compare_clip_transfer(
         result.changed_disagreement_pixels+=(size_t)(
             ref_changed!=native_changed);
         result.clip_effect_rgb_abs+=effect_delta;
-        result.clipped_error_pixels+=(size_t)clip_error;
-        result.clip_error_also_unclipped+=(size_t)(
-            clip_error&&no_clip_error);
-        result.clip_error_without_unclipped+=(size_t)(
-            clip_error&&!no_clip_error);
-        result.unclipped_error_suppressed_by_clip+=(size_t)(
-            no_clip_error&&!clip_error);
+        result.clipped_error_pixels+=(size_t)original_error;
+        result.clip_error_also_other_clip+=(size_t)(
+            original_error&&narrow_error);
+        result.clip_error_without_other_clip+=(size_t)(
+            original_error&&!narrow_error);
+        result.other_clip_error_suppressed_by_original+=(size_t)(
+            narrow_error&&!original_error);
     }
-    CHECK(result.clipped_error_pixels==
-          clip.signed_ink.different &&
-          result.clip_error_also_unclipped+
-          result.clip_error_without_unclipped==
+    CHECK(result.clipped_error_pixels==original.signed_ink.different &&
+          result.clip_error_also_other_clip+
+          result.clip_error_without_other_clip==
               result.clipped_error_pixels &&
           result.ref_changed_pixels>0u &&
           result.ref_changed_pixels<=P &&
@@ -214,15 +215,15 @@ static void qp378_print_effect(FILE *out,const qp378_clip_effect& e)
       "\"native_changed_pixels\":%zu,"
       "\"both_changed_pixels\":%zu,"
       "\"membership_change_disagreement_pixels\":%zu,"
-      "\"clipped_error_pixels\":%zu,"
-      "\"clipped_error_also_unclipped\":%zu,"
-      "\"clipped_error_without_unclipped\":%zu,"
-      "\"unclipped_error_suppressed_by_clip\":%zu,"
+      "\"original_clip_error_pixels\":%zu,"
+      "\"original_error_also_narrow_clip\":%zu,"
+      "\"original_error_without_narrow_clip\":%zu,"
+      "\"narrow_clip_error_absent_from_original\":%zu,"
       "\"clip_difference_of_differences_rgb_abs\":%llu}",
       e.ref_changed_pixels,e.native_changed_pixels,e.both_changed_pixels,
       e.changed_disagreement_pixels,e.clipped_error_pixels,
-      e.clip_error_also_unclipped,e.clip_error_without_unclipped,
-      e.unclipped_error_suppressed_by_clip,
+      e.clip_error_also_other_clip,e.clip_error_without_other_clip,
+      e.other_clip_error_suppressed_by_original,
       (unsigned long long)e.clip_effect_rgb_abs);
 }
 static int test_269_real_stroke_clip_causal_ab(
@@ -242,8 +243,8 @@ static int test_269_real_stroke_clip_causal_ab(
     (void)std::remove(staged.c_str());
     (void)std::remove(report_path);
 
-    qp378_real_pair observed[4];
-    observed[0]=qp378_capture(published,true);
+    qp378_real_pair observed[5];
+    observed[0]=qp378_capture(published,true,true);
     CHECK(observed[0].signed_ink.compared_pixels==5000u &&
           observed[0].signed_ink.different==100u &&
           observed[0].signed_ink.under==100u &&
@@ -251,10 +252,12 @@ static int test_269_real_stroke_clip_causal_ab(
           observed[0].signed_ink.color_only==0u &&
           observed[0].signed_ink.total_rgb_abs==2480u &&
           observed[0].signed_ink.gross==0u);
-    uint64_t generated_hashes[3]={};
-    for(unsigned i=1u;i<4u;++i){
+    uint64_t generated_hashes[4]={};
+    for(unsigned i=1u;i<5u;++i){
         qp378_write_control_pdf(generated,i);
-        observed[i]=qp378_capture(generated,i!=1u);
+        const bool expect_native=i==3u || i==4u;
+        observed[i]=qp378_capture(generated,i!=1u,expect_native);
+        CHECK(observed[i].native_supported==expect_native);
         for(unsigned prev=1u;prev<i;++prev)
             CHECK(observed[i].source_fnv!=generated_hashes[prev-1u]);
         CHECK(observed[i].source_fnv!=observed[0].source_fnv);
@@ -263,33 +266,43 @@ static int test_269_real_stroke_clip_causal_ab(
     }
     CHECK(decimal360_read_bytes(published)==immutable_original);
 
-    /* Same stroke, full-page W has NO geometry restriction: either a
-     * Native or PDFium change would invalidate the controlled baseline.
-     * The generated original-W is a byte-distinct source whose *pixel*
-     * semantics must match unchanged independently published original.
-     * Neither generated variant is promoted to independent corpus counts. */
+    /* The no-Clip and full-page W originals have equal PDFium RGB pixels.
+     * Both must be strictly unsupported by real Native due to missing
+     * modeled arbitrary miter joins; never fabricate a Native bitmap.
+     * The generated exact original W control equals published original
+     * in both PDFium RGB and real Native RGBA. */
     const size_t reference_bytes=5000u*3u,native_bytes=5000u*4u;
-    const size_t no_clip_ref_different=std::memcmp(
-        observed[1].ref_rgb.data(),observed[2].ref_rgb.data(),
-        reference_bytes)!=0;
-    const size_t no_clip_native_different=std::memcmp(
-        observed[1].native_rgba.data(),observed[2].native_rgba.data(),
-        native_bytes)!=0;
-    const size_t anchored_ref_different=std::memcmp(
-        observed[0].ref_rgb.data(),observed[3].ref_rgb.data(),
-        reference_bytes)!=0;
-    const size_t anchored_native_different=std::memcmp(
-        observed[0].native_rgba.data(),observed[3].native_rgba.data(),
-        native_bytes)!=0;
-    CHECK(no_clip_ref_different==0u && no_clip_native_different==0u &&
-          anchored_ref_different==0u && anchored_native_different==0u);
+    CHECK(observed[1].ref_rgb.size()==reference_bytes &&
+          observed[2].ref_rgb.size()==reference_bytes &&
+          observed[0].ref_rgb.size()==reference_bytes &&
+          observed[3].ref_rgb.size()==reference_bytes &&
+          observed[4].ref_rgb.size()==reference_bytes &&
+          observed[1].native_rgba.empty() &&
+          observed[2].native_rgba.empty() &&
+          !observed[1].native_supported &&
+          !observed[2].native_supported &&
+          observed[0].native_supported &&
+          observed[3].native_supported &&
+          observed[4].native_supported &&
+          observed[0].native_rgba.size()==native_bytes &&
+          observed[3].native_rgba.size()==native_bytes &&
+          observed[4].native_rgba.size()==native_bytes &&
+          std::memcmp(observed[1].ref_rgb.data(),
+                      observed[2].ref_rgb.data(),reference_bytes)==0 &&
+          std::memcmp(observed[0].ref_rgb.data(),
+                      observed[3].ref_rgb.data(),reference_bytes)==0 &&
+          std::memcmp(observed[0].native_rgba.data(),
+                      observed[3].native_rgba.data(),native_bytes)==0);
 
+    /* Only compare TWO admitted rectangular Clips with identical Stroke.
+     * This is a real Native/PDFium difference-of-differences, not a
+     * hypothetical unsupported no-Clip Native rendering. */
     const qp378_clip_effect diff=qp378_compare_clip_transfer(
-        observed[0],observed[1]);
+        observed[0],observed[4]);
     FILE *report=std::fopen(staged.c_str(),"wb");CHECK(report);
     std::fprintf(report,
-      "{\"schema_version\":1,"
-      "\"source_kind\":\"one_unchanged_external_plus_three_test_generated\","
+      "{\"schema_version\":2,"
+      "\"source_kind\":\"one_unchanged_external_plus_four_test_generated\","
       "\"published_document_id\":\"pdfium.clip-path-v1\","
       "\"published_original_provenance_kept\":true,"
       "\"actual_source_to_owned_ir_to_c11\":true,"
@@ -299,11 +312,16 @@ static int test_269_real_stroke_clip_causal_ab(
       "\"independent_external_positive_increment\":0,"
       "\"published_source_bytes\":514,"
       "\"fullpage_and_no_clip_reference_equal\":true,"
-      "\"fullpage_and_no_clip_native_equal\":true,"
+      "\"fullpage_and_no_clip_native_fails_closed\":true,"
       "\"published_and_generated_same_clip_reference_equal\":true,"
       "\"published_and_generated_same_clip_native_equal\":true,"
+      "\"admitted_narrower_W_uses_same_Stroke\":true,"
+      "\"causal_comparison_uses_only_admitted_native_clips\":true,"
       "\"variants\":[");
-    for(unsigned i=0u;i<4u;++i){
+    for(unsigned i=0u;i<5u;++i){
+        const std::string signed_json=observed[i].native_supported?
+            qp377_signed_ink_json_v0(observed[i].signed_ink,"blue"):
+            std::string("null");
         std::fprintf(report,
           "%s{\"index\":%u,\"name\":\"%s\","
           "\"source_kind\":\"%s\","
@@ -311,16 +329,20 @@ static int test_269_real_stroke_clip_causal_ab(
           "\"source_pages\":1,"
           "\"source_clip_count\":%u,"
           "\"original_reference_repeat_identical\":true,"
-          "\"native_rgba_repeat_identical\":true,"
+          "\"native_outcome\":\"%s\","
+          "\"native_rgba_repeat_identical\":%s,"
+          "\"native_rejection_zero_output\":%s,"
           "\"signed_ink_proxy\":%s}",
           i?",":"",i,qp378_variant_name[i],
           i==0u?"independently_published_original":"test_generated_control",
           (unsigned long long)observed[i].source_fnv,
           i==1u?0u:1u,
-          qp377_signed_ink_json_v0(
-              observed[i].signed_ink,"blue").c_str());
+          observed[i].native_supported?"supported":"unsupported_no_partial_output",
+          observed[i].native_supported?"true":"false",
+          observed[i].native_supported?"false":"true",
+          signed_json.c_str());
     }
-    std::fprintf(report,"],\"clip_transfer\":");
+    std::fprintf(report,"],\"admitted_clip_transfer\":");
     qp378_print_effect(report,diff);
     std::fprintf(report,"}\n");
     CHECK(std::ferror(report)==0 && std::fclose(report)==0);
@@ -332,14 +354,15 @@ static int test_269_real_stroke_clip_causal_ab(
     CHECK(decimal360_read_bytes(published)==immutable_original);
     CHECK(corpus_fixture_executions==0u);
     std::fprintf(stderr,
-      "[q269-stroke-clip-ab] passed reference/native equivalences,"
-      " original clip errors=%zu, unclipped=%zu,"
-      " clipped-only-error=%zu, overlap=%zu, effectRGB=%llu,"
-      " no source admission or Raster cutover\n",
+      "[q269-stroke-clip-ab] passed: noClip/fullpage C11 UNSUPPORTED,"
+      " original/narrow clipped Native supported,"
+      " original diff=%zu, narrow diff=%zu,"
+      " original-only-error=%zu, shared-error=%zu, clip-effectRGB=%llu,"
+      " no external increment or Raster cutover\n",
       observed[0].signed_ink.different,
-      observed[1].signed_ink.different,
-      diff.clip_error_without_unclipped,
-      diff.clip_error_also_unclipped,
+      observed[4].signed_ink.different,
+      diff.clip_error_without_other_clip,
+      diff.clip_error_also_other_clip,
       (unsigned long long)diff.clip_effect_rgb_abs);
     return EXIT_SUCCESS;
 }
