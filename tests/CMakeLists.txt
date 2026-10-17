@@ -3039,3 +3039,31 @@ else()
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
+
+# #269: one UNCHANGED independently published original clip_path.pdf vs
+# three bounded TEST-GENERATED identical-Stroke controls (no W, full W,
+# identical original W). No synthetic PDF is an official external source.
+target_compile_definitions(quantapdf_test_native_source_qq_oracle PRIVATE
+  GENERATED_269_WCLIP_STROKE_AB_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-269-stroke-clip-controlled.pdf")
+add_test(NAME quantapdf.native_269_stroke_clip_causal_ab
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/pdfium.clip-path-v1.pdf"
+    "-DREPORT=${CMAKE_CURRENT_BINARY_DIR}/native-269-stroke-clip-causal-ab.json"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_269_stroke_clip_causal_ab.cmake")
+set_tests_properties(quantapdf.native_269_stroke_clip_causal_ab PROPERTIES
+  TIMEOUT 110
+  LABELS "conformance;test-only;external-original;w-clip;native-stroke;no-renderer-switch")
+if(WIN32)
+  set_property(TEST quantapdf.native_269_stroke_clip_causal_ab
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_269_stroke_clip_causal_ab
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_269_stroke_clip_causal_ab
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
