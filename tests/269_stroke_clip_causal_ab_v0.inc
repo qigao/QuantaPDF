@@ -4,32 +4,36 @@
  *    10 15 m 40 15 l 40 35 l 10 35 l W n
  *    0 0 1 RG 10 10 m 25 40 l 40 10 l s
  *
- * Three separately generated source PDFs retain the EXACT same paint tokens:
- * stroke_only, full_page_W, and identical_original_W. Neither generation
- * nor comparison reads or alters PDFium's reference RGB in deciding pixels.
- * This test measures real Source->Graph->owned IR->C11 Native RGBA.
- * Generated controls do NOT count as independently published source PDFs.
+ * Four test-generated source PDFs share EXACTLY the same blue Stroke:
+ * no W, full-page W, the original W, and a narrower still-admitted W.
+ * C11's triangle Stroke intentionally rejects the first two: their joins
+ * require an unimplemented general-miter model. Those are bounded, strict
+ * zero-output negatives, NOT hypothetical Native pixel positives.
+ * A/B comparison of actual Native pixels uses only two admitted Clips.
+ * Generated controls do NOT count as published external source PDFs.
  */
 namespace {
 struct qp378_real_pair {
     std::vector<unsigned char> ref_rgb,native_rgba;
     qp377_external_signed_ink_v0 signed_ink{};
     uint64_t source_fnv=0u;
+    bool native_supported=false;
 };
 struct qp378_clip_effect {
     size_t ref_changed_pixels=0u,native_changed_pixels=0u;
     size_t both_changed_pixels=0u,changed_disagreement_pixels=0u;
     size_t clipped_error_pixels=0u;
-    size_t clip_error_also_unclipped=0u;
-    size_t clip_error_without_unclipped=0u;
-    size_t unclipped_error_suppressed_by_clip=0u;
+    size_t clip_error_also_other_clip=0u;
+    size_t clip_error_without_other_clip=0u;
+    size_t other_clip_error_suppressed_by_original=0u;
     uint64_t clip_effect_rgb_abs=0u;
 };
-static const char *const qp378_variant_name[4]={
+static const char *const qp378_variant_name[5]={
     "independent_original_clipped",
-    "generated_unclipped_same_stroke",
-    "generated_fullpage_W_same_stroke",
-    "generated_original_W_same_stroke"
+    "generated_unclipped_same_stroke_UNSUPPORTED",
+    "generated_fullpage_W_same_stroke_UNSUPPORTED",
+    "generated_original_W_same_stroke",
+    "generated_narrower_admitted_W_same_stroke"
 };
 static const char *const qp378_source_paint =
     "0 0 1 RG\n10 10 m\n25 40 l\n40 10 l\ns\n";
@@ -37,12 +41,15 @@ static const char *const qp378_source_clip =
     "10 15 m\n40 15 l\n40 35 l\n10 35 l\nW n\n";
 static const char *const qp378_full_page_clip =
     "0 0 100 50 re W n\n";
+static const char *const qp378_narrow_clip =
+    "10 16 m\n40 16 l\n40 34 l\n10 34 l\nW n\n";
 static void qp378_write_control_pdf(const char *path,unsigned variant)
 {
-    CHECK(path && *path && variant>=1u && variant<=3u);
+    CHECK(path && *path && variant>=1u && variant<=4u);
     std::string commands;
     if(variant==2u)commands=qp378_full_page_clip;
     else if(variant==3u)commands=qp378_source_clip;
+    else if(variant==4u)commands=qp378_narrow_clip;
     commands+=qp378_source_paint;
     auto pdf=QPDF::create();
     pdf->emptyPDF();
@@ -64,7 +71,8 @@ static void qp378_write_control_pdf(const char *path,unsigned variant)
     CHECK(std::fwrite(data->getBuffer(),1,data->getSize(),out)==data->getSize());
     CHECK(std::fclose(out)==0);
 }
-static qp378_real_pair qp378_capture(const char *source,bool expect_clip)
+static qp378_real_pair qp378_capture(
+    const char *source,bool expect_clip,bool expect_native)
 {
     CHECK(source && *source && corpus_fixture_executions==0u);
     constexpr size_t W=100u,H=50u;
@@ -73,17 +81,21 @@ static qp378_real_pair qp378_capture(const char *source,bool expect_clip)
     qp378_real_pair out{};
     out.source_fnv=decimal360_fnv64(original);
 
-    /* ORIGINAL RGB is rendered independently, without Native result input. */
+    /* Two ORIGINAL PDFium references, rendered independently of Native. */
     const rgb_image reference=render_original_pdfium(0u,source);
+    const rgb_image again=render_original_pdfium(0u,source);
     CHECK(reference.width==(int)W && reference.height==(int)H &&
           reference.components==3 && reference.stride>=3*(int)W &&
-          reference.pixels.size()>=(size_t)reference.stride*H);
+          reference.pixels.size()>=(size_t)reference.stride*H &&
+          reference.width==again.width && reference.height==again.height &&
+          reference.stride==again.stride &&
+          reference.pixels==again.pixels);
     out.ref_rgb.resize(W*H*3u);
     for(size_t y=0u;y<H;++y)
         std::memcpy(out.ref_rgb.data()+y*W*3u,
                     reference.at(0u,y),W*3u);
 
-    /* No source/Graph owner survives into Native. No PDFium fallback. */
+    /* Real Source->Graph->owned IR, source/Graph closed before native. */
     quantapdf_ir detached{};
     OK(snapshot_lower(&detached,0u,1u,2u,source));
     CHECK(detached.page_count==1u && detached.pages &&
@@ -103,34 +115,45 @@ static qp378_real_pair qp378_capture(const char *source,bool expect_clip)
           detached.resources.soft_mask_count==0u &&
           detached.resources.form_count==0u &&
           detached.resources.paint_count==0u);
-    const quantapdf_ir_raster_v1_limits bounds={
-        W*H,1u,128u,5000000u};
+    const quantapdf_ir_raster_v1_limits bounds={W*H,1u,128u,5000000u};
     quantapdf_ir_raster_image native{},repeat{};
-    OK(quantapdf_ir_raster_scoped_operations_v1(
-        &detached,0u,&bounds,&native));
-    OK(quantapdf_ir_raster_scoped_operations_v1(
-        &detached,0u,&bounds,&repeat));
-    CHECK(native.pixels && repeat.pixels && native.width==W &&
-          native.height==H && native.size==W*H*4u &&
-          native.stride==W*4u && repeat.size==native.size &&
-          std::memcmp(native.pixels,repeat.pixels,native.size)==0);
-    out.native_rgba.assign(native.pixels,native.pixels+native.size);
+    const quantapdf_status first=quantapdf_ir_raster_scoped_operations_v1(
+        &detached,0u,&bounds,&native);
+    const quantapdf_status second=quantapdf_ir_raster_scoped_operations_v1(
+        &detached,0u,&bounds,&repeat);
+    if(expect_native){
+        CHECK(first==QUANTAPDF_OK && second==QUANTAPDF_OK &&
+              native.pixels && repeat.pixels && native.width==W &&
+              native.height==H && native.stride==W*4u &&
+              native.size==W*H*4u && repeat.size==native.size &&
+              std::memcmp(native.pixels,repeat.pixels,native.size)==0);
+        out.native_rgba.assign(native.pixels,native.pixels+native.size);
+        out.native_supported=true;
+    }else{
+        /* Contract, not a missing sample to replace with a fake bitmap:
+         * general closed-triangle miter joins are outside C11 Raster's
+         * admitted subset, even when an all-page Clip is nonrestrictive. */
+        CHECK(first==QUANTAPDF_ERROR_UNSUPPORTED &&
+              second==QUANTAPDF_ERROR_UNSUPPORTED &&
+              native.pixels==nullptr && native.size==0u &&
+              native.width==0u && native.height==0u &&
+              repeat.pixels==nullptr && repeat.size==0u &&
+              repeat.width==0u && repeat.height==0u);
+    }
     quantapdf_ir_raster_image_dispose(&repeat);
     quantapdf_ir_raster_image_dispose(&native);
     quantapdf_ir_dispose(&detached);
     CHECK(decimal360_read_bytes(source)==original);
 
-    for(size_t p=0u;p<W*H;++p)
-        out.signed_ink.observe(&out.native_rgba[p*4u],
-                               &out.ref_rgb[p*3u],true);
-    out.signed_ink.assert_conserved(W*H,
-        (double)out.signed_ink.total_rgb_abs,out.signed_ink.gross);
+    if(out.native_supported){
+        for(size_t p=0u;p<W*H;++p)
+            out.signed_ink.observe(&out.native_rgba[p*4u],
+                                   &out.ref_rgb[p*3u],true);
+        out.signed_ink.assert_conserved(W*H,
+            (double)out.signed_ink.total_rgb_abs,out.signed_ink.gross);
+    }
     CHECK(corpus_fixture_executions==0u);
     return out;
-}
-static unsigned qp378_delta(unsigned x,unsigned y)
-{
-    return x>y?x-y:y-x;
 }
 static qp378_clip_effect qp378_compare_clip_transfer(
     const qp378_real_pair& clip,const qp378_real_pair& unclip)
