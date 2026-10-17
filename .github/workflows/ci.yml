@@ -603,6 +603,16 @@ jobs:
             build/linux-gcc-debug/tests/external-wclip-red-signed-v0.json
           if-no-files-found: error
           retention-days: 7
+      
+      - name: Upload original Stroke/W Clip controlled A/B (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-stroke-clip-causal-ab-linux
+          path: |
+            build/linux-gcc-release/tests/native-269-stroke-clip-causal-ab.json
+            build/linux-gcc-debug/tests/native-269-stroke-clip-causal-ab.json
+          if-no-files-found: error
+          retention-days: 7
 
   macos:
     if: >-
@@ -1067,6 +1077,14 @@ jobs:
           path: |
             build/macos-clang-release/tests/external-wclip-blue-signed-v0.json
             build/macos-clang-release/tests/external-wclip-red-signed-v0.json
+          if-no-files-found: error
+          retention-days: 7
+      
+      - name: Upload original Stroke/W Clip controlled A/B (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-stroke-clip-causal-ab-macos
+          path: build/macos-clang-release/tests/native-269-stroke-clip-causal-ab.json
           if-no-files-found: error
           retention-days: 7
 
@@ -1544,5 +1562,13 @@ jobs:
           path: |
             build/Msvc-Release/tests/external-wclip-blue-signed-v0.json
             build/Msvc-Release/tests/external-wclip-red-signed-v0.json
+          if-no-files-found: error
+          retention-days: 7
+      
+      - name: Upload original Stroke/W Clip controlled A/B (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-stroke-clip-causal-ab-windows
+          path: build/Msvc-Release/tests/native-269-stroke-clip-causal-ab.json
           if-no-files-found: error
           retention-days: 7
