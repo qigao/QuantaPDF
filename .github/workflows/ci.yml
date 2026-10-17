@@ -581,6 +581,15 @@ jobs:
             build/linux-gcc-release/tests/native-269-q4-stage-order.json
             build/linux-gcc-debug/tests/native-269-q4-stage-order.json
           if-no-files-found: error
+          retention-days: 7      
+      - name: Upload mirrored float32 Q4 counterexamples (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: q4-mirror-f32-originals-linux
+          path: |
+            build/linux-gcc-release/tests/native-269-q4-mirror-f32.json
+            build/linux-gcc-debug/tests/native-269-q4-mirror-f32.json
+          if-no-files-found: error
           retention-days: 7
 
   macos:
@@ -1029,6 +1038,13 @@ jobs:
         with:
           name: q4-stage-order-originals-macos
           path: build/macos-clang-release/tests/native-269-q4-stage-order.json
+          if-no-files-found: error
+          retention-days: 7      
+      - name: Upload mirrored float32 Q4 counterexamples (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: q4-mirror-f32-originals-macos
+          path: build/macos-clang-release/tests/native-269-q4-mirror-f32.json
           if-no-files-found: error
           retention-days: 7
 
@@ -1489,5 +1505,12 @@ jobs:
         with:
           name: q4-stage-order-originals-windows
           path: build/Msvc-Release/tests/native-269-q4-stage-order.json
+          if-no-files-found: error
+          retention-days: 7      
+      - name: Upload mirrored float32 Q4 counterexamples (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: q4-mirror-f32-originals-windows
+          path: build/Msvc-Release/tests/native-269-q4-mirror-f32.json
           if-no-files-found: error
           retention-days: 7

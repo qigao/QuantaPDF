@@ -2984,3 +2984,29 @@ else()
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
+
+# #269: Independent mirrored 180/270 CropBox original PDFium reference
+# (not the #375 source family and not a production raster promotion).
+target_compile_definitions(quantapdf_test_native_source_qq_oracle PRIVATE
+  GENERATED_269_Q4_MIRROR_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-269-q4-mirrored-original.pdf")
+add_test(NAME quantapdf.native_269_q4_mirror_f32
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE_EXECUTABLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DREPORT_FILE=${CMAKE_CURRENT_BINARY_DIR}/native-269-q4-mirror-f32.json"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_269_q4_mirror_f32_falsifiers.cmake")
+set_tests_properties(quantapdf.native_269_q4_mirror_f32
+  PROPERTIES TIMEOUT 120
+  LABELS "conformance;test-only;original-pdfium;mirror-180-270;no-renderer-switch")
+if(WIN32)
+  set_property(TEST quantapdf.native_269_q4_mirror_f32
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_269_q4_mirror_f32
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_269_q4_mirror_f32
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
