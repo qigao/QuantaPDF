@@ -161,6 +161,8 @@ unsigned on_white(const unsigned char *rgba, size_t channel)
     return ((unsigned)rgba[channel]*alpha + 255u*(255u-alpha) + 127u)/255u;
 }
 
+#include "external_w_clip_signed_ink_v0.inc"
+
 /* Owned detached-IR Clip semantics are independent of any source-token
  * heuristic. A candidate W* must actually lower to an EVEN_ODD path leaf,
  * not silently become W nonzero, nor be counted from DAG intersections. */
@@ -1642,9 +1644,11 @@ int test_external_pdfium_clip_stroke(const char *filename,
 
     size_t reference_ink=0u,native_ink=0u,common_ink=0u,gross=0u;
     double total=0.0;
+    qp377_external_signed_ink_v0 signed_ink{};
     for(size_t y=0u;y<HEIGHT;++y)for(size_t x=0u;x<WIDTH;++x){
         const unsigned char *a=native.pixels+y*native.stride+4u*x;
         const unsigned char *b=rgb+y*(size_t)stride+3u*x;
+        signed_ink.observe(a,b,true);
         unsigned worst=0u;
         unsigned red=on_white(a,0u),green=on_white(a,1u),
                  blue=on_white(a,2u);
@@ -1663,6 +1667,9 @@ int test_external_pdfium_clip_stroke(const char *filename,
         if(worst>64u)++gross;
     }
     const double mean=total/(double)(WIDTH*HEIGHT*3u);
+    signed_ink.assert_conserved(WIDTH*HEIGHT,total,gross);
+    const std::string signed_json=qp377_signed_ink_json_v0(
+        signed_ink,"blue");
     if(mean>6.0 || gross>WIDTH*HEIGHT/12u ||
        reference_ink<15u || native_ink<15u ||
        common_ink*2u<reference_ink)
@@ -1706,10 +1713,11 @@ int test_external_pdfium_clip_stroke(const char *filename,
         "  \"reference_blue_pixels\": %zu,\n"
         "  \"native_blue_pixels\": %zu,\n"
         "  \"common_blue_pixels\": %zu,\n"
+        "  \"signed_ink_proxy\": %s,\n"
         "  \"generated_fixture_count\": 0,\n"
         "  \"result\": \"passed\"\n"
         "}\n",WIDTH,HEIGHT,mean,gross,
-        reference_ink,native_ink,common_ink);
+        reference_ink,native_ink,common_ink,signed_json.c_str());
     CHECK(std::ferror(report)==0);
     CHECK(std::fclose(report)==0);
     CHECK(std::rename(pending.c_str(),report_path)==0);
@@ -6245,10 +6253,12 @@ int test_external_yworks_hidden_w_pixels(
     }
 
     double total_error=0.0;
+    qp377_external_signed_ink_v0 signed_ink{};
     size_t gross=0u,ref_red=0u,native_red=0u,shared_red=0u;
     for(size_t y=0u;y<HEIGHT;++y)for(size_t x=0u;x<WIDTH;++x) {
         const unsigned char *a=native.pixels+y*native.stride+4u*x;
         const unsigned char *b=pdfium.at(x,y);
+        signed_ink.observe(a,b,false);
         unsigned actual[3],worst=0u;
         for(size_t c=0u;c<3u;++c) {
             actual[c]=on_white(a,c);
@@ -6266,6 +6276,9 @@ int test_external_yworks_hidden_w_pixels(
         shared_red+=(size_t)(ref && nat);
     }
     const double mean=total_error/(double)(WIDTH*HEIGHT*3u);
+    signed_ink.assert_conserved(WIDTH*HEIGHT,total_error,gross);
+    const std::string signed_json=qp377_signed_ink_json_v0(
+        signed_ink,"red");
     if(mean>3.0 || gross>WIDTH*HEIGHT/100u ||
        ref_red<2000u || native_red<2000u ||
        shared_red*20u<ref_red*19u)
@@ -6306,11 +6319,13 @@ int test_external_yworks_hidden_w_pixels(
         "  \"reference_red_pixels\": %zu,\n"
         "  \"native_red_pixels\": %zu,\n"
         "  \"overlapping_red_pixels\": %zu,\n"
+        "  \"signed_ink_proxy\": %s,\n"
         "  \"external_wstar_pixel_supported_count\": 0,\n"
         "  \"generated_fixture_count\": 0\n"
         "}\n",
         WIDTH,HEIGHT,sizeof(probes)/sizeof(probes[0]),
-        mean,gross,ref_red,native_red,shared_red);
+        mean,gross,ref_red,native_red,shared_red,
+        signed_json.c_str());
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;

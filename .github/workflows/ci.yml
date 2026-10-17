@@ -591,6 +591,18 @@ jobs:
             build/linux-gcc-debug/tests/native-269-q4-mirror-f32.json
           if-no-files-found: error
           retention-days: 7
+      
+      - name: Upload real-source W Clip signed Native ledger (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wclip-signed-originals-linux
+          path: |
+            build/linux-gcc-release/tests/external-wclip-blue-signed-v0.json
+            build/linux-gcc-release/tests/external-wclip-red-signed-v0.json
+            build/linux-gcc-debug/tests/external-wclip-blue-signed-v0.json
+            build/linux-gcc-debug/tests/external-wclip-red-signed-v0.json
+          if-no-files-found: error
+          retention-days: 7
 
   macos:
     if: >-
@@ -1045,6 +1057,16 @@ jobs:
         with:
           name: q4-mirror-f32-originals-macos
           path: build/macos-clang-release/tests/native-269-q4-mirror-f32.json
+          if-no-files-found: error
+          retention-days: 7
+      
+      - name: Upload real-source W Clip signed Native ledger (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wclip-signed-originals-macos
+          path: |
+            build/macos-clang-release/tests/external-wclip-blue-signed-v0.json
+            build/macos-clang-release/tests/external-wclip-red-signed-v0.json
           if-no-files-found: error
           retention-days: 7
 
@@ -1512,5 +1534,15 @@ jobs:
         with:
           name: q4-mirror-f32-originals-windows
           path: build/Msvc-Release/tests/native-269-q4-mirror-f32.json
+          if-no-files-found: error
+          retention-days: 7
+      
+      - name: Upload real-source W Clip signed Native ledger (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wclip-signed-originals-windows
+          path: |
+            build/Msvc-Release/tests/external-wclip-blue-signed-v0.json
+            build/Msvc-Release/tests/external-wclip-red-signed-v0.json
           if-no-files-found: error
           retention-days: 7
