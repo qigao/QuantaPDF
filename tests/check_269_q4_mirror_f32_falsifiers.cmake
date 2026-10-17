@@ -33,7 +33,12 @@ foreach(pair IN ITEMS
   list(GET parts 0 field)
   list(GET parts 1 expected)
   string(JSON actual GET "${report}" ${field})
-  if(NOT actual STREQUAL expected)
+  # string(JSON) projects booleans as ON/OFF, not literal "false".
+  if(expected STREQUAL "false")
+    if(actual)
+      message(FATAL_ERROR "Mirrored-Q4 nonpromotion flag ${field} became true")
+    endif()
+  elseif(NOT actual STREQUAL expected)
     message(FATAL_ERROR "Mirrored-Q4 original source/status contract ${field}=${actual}")
   endif()
 endforeach()
