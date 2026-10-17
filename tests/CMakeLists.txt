@@ -3010,3 +3010,32 @@ else()
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
+
+# #269: Independently published, BYTE-PINNED real W Clip originals:
+# blue clipped stroke and red nested-W Fill. Reuse actual Source->Graph->
+# detached owned IR->C11 Native/PDFium test oracles. Signed white-ink
+# proxy is a diagnostic, not PDFium internal sample/Clip coverage proof.
+add_test(NAME quantapdf.external_wclip_signed_native
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DBLUE_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/pdfium.clip-path-v1.pdf"
+    "-DRED_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/external_wstar_candidates/documents/yworks.hidden-clippath-v1.pdf"
+    "-DBLUE_REPORT=${CMAKE_CURRENT_BINARY_DIR}/external-wclip-blue-signed-v0.json"
+    "-DRED_REPORT=${CMAKE_CURRENT_BINARY_DIR}/external-wclip-red-signed-v0.json"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_269_external_wclip_signed.cmake")
+set_tests_properties(quantapdf.external_wclip_signed_native PROPERTIES
+  TIMEOUT 240
+  LABELS "conformance;test-only;external-original;w-clip;native-signed;no-renderer-switch")
+if(WIN32)
+  set_property(TEST quantapdf.external_wclip_signed_native
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_wclip_signed_native
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_wclip_signed_native
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
