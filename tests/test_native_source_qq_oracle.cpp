@@ -10574,9 +10574,14 @@ static int test_generated_unit7_decimal_crop_device_ab(
 #include "269_unit7_96dpi_mask_ownership_v0.inc"
 #include "269_heldout_q4_threshold_center_v0.inc"
 #include "269_q4_stage_order_v0.inc"
+#include "269_q4_mirror_f32_falsifiers_v0.inc"
 
 int main(int argc,char **argv)
 {
+    if(argc==4 &&
+       std::strcmp(argv[1],"--269-q4-mirror")==0 &&
+       std::strcmp(argv[2],"--mirror-report")==0)
+        return test_269_q4_mirror_originals(argv[3]);
     if(argc==4 &&
        std::strcmp(argv[1],"--269-q4-stage-order")==0 &&
        std::strcmp(argv[2],"--stage-order-report")==0)
