@@ -126,6 +126,7 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
         CHECK(native_white(rows[0],p,c)==native_white(rows[1],p,c));
 
     size_t ref_restrict_changed=0,native_restrict_changed=0;
+    uint64_t ref_restrict_rgb_abs=0,native_restrict_rgb_abs=0;
     size_t ref_native_errors[3]{},rgb_abs[3]{};
     for(unsigned i=0;i<3u;++i){
         for(size_t p=0;p<P;++p){
@@ -144,6 +145,8 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
         for(unsigned c=0;c<3u;++c){
             r|=rows[0].ref_rgb[p*3u+c]!=rows[2].ref_rgb[p*3u+c];
             n|=native_white(rows[0],p,c)!=native_white(rows[2],p,c);
+            ref_restrict_rgb_abs+=(uint64_t)std::abs((int)rows[0].ref_rgb[p*3u+c]-(int)rows[2].ref_rgb[p*3u+c]);
+            native_restrict_rgb_abs+=(uint64_t)std::abs((int)native_white(rows[0],p,c)-(int)native_white(rows[2],p,c));
         }
         ref_restrict_changed+=r?1u:0u;
         native_restrict_changed+=n?1u:0u;
@@ -157,7 +160,11 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
       "\"all_three_native_supported\":true,"
       "\"restrictive_w_changes_reference\":%zu,"
       "\"restrictive_w_changes_native\":%zu,"
-      "\"cases\":[",ref_restrict_changed,native_restrict_changed);
+      "\"restrictive_w_reference_rgb_abs_delta\":%llu,"
+      "\"restrictive_w_native_rgb_abs_delta\":%llu,"
+      "\"cases\":[",ref_restrict_changed,native_restrict_changed,
+      (unsigned long long)ref_restrict_rgb_abs,
+      (unsigned long long)native_restrict_rgb_abs);
     for(unsigned i=0;i<3u;++i)
         std::fprintf(out,"%s{\"name\":\"%s\",\"source_fnv64\":\"%016llx\","
           "\"different_pixels\":%zu,\"rgb_abs\":%llu}",
