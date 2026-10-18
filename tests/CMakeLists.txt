@@ -3071,26 +3071,26 @@ endif()
 # #269 follow-up: isolate Stroke coverage using a single open line segment,
 # which requires no joins/miter model. All three Native cases must be admitted.
 target_compile_definitions(quantapdf_test_native_source_qq_oracle PRIVATE
-  GENERATED_269_OPEN_STROKE_AB_PDF="\${CMAKE_CURRENT_BINARY_DIR}/native-269-open-stroke-clip-ab.pdf")
+  GENERATED_269_OPEN_STROKE_AB_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-269-open-stroke-clip-ab.pdf")
 add_test(NAME quantapdf.native_269_open_stroke_clip_ab
-  COMMAND "\${CMAKE_COMMAND}"
+  COMMAND "${CMAKE_COMMAND}"
     "-DORACLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
-    "-DREPORT=\${CMAKE_CURRENT_BINARY_DIR}/native-269-open-stroke-clip-ab.json"
-    -P "\${CMAKE_CURRENT_SOURCE_DIR}/check_269_open_stroke_clip_ab.cmake")
+    "-DREPORT=${CMAKE_CURRENT_BINARY_DIR}/native-269-open-stroke-clip-ab.json"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_269_open_stroke_clip_ab.cmake")
 set_tests_properties(quantapdf.native_269_open_stroke_clip_ab PROPERTIES
   TIMEOUT 110
   LABELS "conformance;test-only;stroke;open-line;clip-ab;no-renderer-switch")
 if(WIN32)
   set_property(TEST quantapdf.native_269_open_stroke_clip_ab
     PROPERTY ENVIRONMENT_MODIFICATION
-    "PATH=path_list_prepend:\${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 elseif(APPLE)
   set_property(TEST quantapdf.native_269_open_stroke_clip_ab
     PROPERTY ENVIRONMENT_MODIFICATION
-    "DYLD_LIBRARY_PATH=path_list_prepend:\${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 else()
   set_property(TEST quantapdf.native_269_open_stroke_clip_ab
     PROPERTY ENVIRONMENT_MODIFICATION
-    "LD_LIBRARY_PATH=path_list_prepend:\${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
 
