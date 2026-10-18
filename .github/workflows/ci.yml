@@ -613,6 +613,16 @@ jobs:
             build/linux-gcc-debug/tests/native-269-stroke-clip-causal-ab.json
           if-no-files-found: error
           retention-days: 7
+      
+      - name: Upload open-line Stroke/W Clip A/B report (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: open-stroke-clip-ab-linux
+          path: |
+            build/linux-gcc-release/tests/native-269-open-stroke-clip-ab.json
+            build/linux-gcc-debug/tests/native-269-open-stroke-clip-ab.json
+          if-no-files-found: error
+          retention-days: 7
 
   macos:
     if: >-
@@ -1085,6 +1095,14 @@ jobs:
         with:
           name: original-stroke-clip-causal-ab-macos
           path: build/macos-clang-release/tests/native-269-stroke-clip-causal-ab.json
+          if-no-files-found: error
+          retention-days: 7
+      
+      - name: Upload open-line Stroke/W Clip A/B report (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: open-stroke-clip-ab-macos
+          path: build/macos-clang-release/tests/native-269-open-stroke-clip-ab.json
           if-no-files-found: error
           retention-days: 7
 
@@ -1570,5 +1588,13 @@ jobs:
         with:
           name: original-stroke-clip-causal-ab-windows
           path: build/Msvc-Release/tests/native-269-stroke-clip-causal-ab.json
+          if-no-files-found: error
+          retention-days: 7
+      
+      - name: Upload open-line Stroke/W Clip A/B report (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: open-stroke-clip-ab-windows
+          path: build/Msvc-Release/tests/native-269-open-stroke-clip-ab.json
           if-no-files-found: error
           retention-days: 7
