@@ -10591,6 +10591,7 @@ static int test_generated_unit7_decimal_crop_device_ab(
 #include "269_q4_stage_order_v0.inc"
 #include "269_q4_mirror_f32_falsifiers_v0.inc"
 #include "269_stroke_clip_causal_ab_v0.inc"
+#include "269_open_stroke_clip_ab_v0.inc"
 
 int main(int argc,char **argv)
 {
@@ -10598,6 +10599,10 @@ int main(int argc,char **argv)
        std::strcmp(argv[1],"--269-stroke-clip-ab")==0 &&
        std::strcmp(argv[3],"--causal-report")==0)
         return test_269_real_stroke_clip_causal_ab(argv[2],argv[4]);
+    if(argc==5 &&
+       std::strcmp(argv[1],"--269-open-stroke-clip-ab")==0 &&
+       std::strcmp(argv[3],"--open-stroke-report")==0)
+        return test_269_open_stroke_clip_ab(argv[2],argv[4]);
     if(argc==4 &&
        std::strcmp(argv[1],"--269-q4-mirror")==0 &&
        std::strcmp(argv[2],"--mirror-report")==0)
