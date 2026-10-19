@@ -98,6 +98,55 @@ static qp379_line_capture qp379_capture_line(const char *source,
     return out;
 }
 
+
+/* Independent test-side geometry model for diagnosis only. This models a
+ * 4x4 grid of subpixel centers against the one open 1pt segment. It does not
+ * assert that PDFium uses this antialiasing rule or alter either renderer. */
+struct qp379_sample_prediction {
+    unsigned raw_hits;
+    unsigned clipped_hits;
+    double projection;
+    double perpendicular_distance;
+    bool clip_center_included;
+    const char *endpoint_region;
+};
+static qp379_sample_prediction qp379_predict_samples(size_t x,size_t y,
+                                                       unsigned clip_state)
+{
+    constexpr double ax=10.0, ay=10.0, bx=40.0, by=35.0;
+    constexpr double dx=bx-ax, dy=by-ay, len2=dx*dx+dy*dy;
+    const double cx=(double)x+0.5;
+    const double cy_pdf=50.0-((double)y+0.5);
+    const double vx=cx-ax, vy=cy_pdf-ay;
+    const double projection=(vx*dx+vy*dy)/len2;
+    const double clamped=std::max(0.0,std::min(1.0,projection));
+    const double qx=ax+clamped*dx, qy=ay+clamped*dy;
+    const double ex=cx-qx, ey=cy_pdf-qy;
+    const double distance=std::sqrt(ex*ex+ey*ey);
+    const bool center_clip = clip_state==0u ||
+        (clip_state==1u) ||
+        (cx>=18.0 && cx<=35.0 && cy_pdf>=15.0 && cy_pdf<=30.0);
+    unsigned raw=0u, clipped=0u;
+    for(unsigned sy=0;sy<4u;++sy)for(unsigned sx=0;sx<4u;++sx){
+        const double px=(double)x+((double)sx+0.5)/4.0;
+        const double py=50.0-((double)y+((double)sy+0.5)/4.0);
+        const double ux=px-ax, uy=py-ay;
+        const double t=(ux*dx+uy*dy)/len2;
+        if(t<0.0 || t>1.0)continue; /* Butt-cap segment extent. */
+        const double tx=ax+t*dx, ty=ay+t*dy;
+        const double ddx=px-tx, ddy=py-ty;
+        if(ddx*ddx+ddy*ddy<=0.25){
+            ++raw;
+            const bool in_clip=clip_state!=2u ||
+                (px>=18.0 && px<=35.0 && py>=15.0 && py<=30.0);
+            if(in_clip)++clipped;
+        }
+    }
+    const char *endpoint=projection<0.0?"before_start":
+        (projection>1.0?"after_end":"segment_interior");
+    return {raw,clipped,projection,distance,center_clip,endpoint};
+}
+
 static int test_269_open_stroke_clip_ab(const char *published_unused,
                                         const char *report_path)
 {
@@ -280,6 +329,48 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
     for(size_t y=0;y<50u;++y)std::fprintf(out,"%s%zu",y?",":"",native_clip_rows[y]);
     std::fprintf(out,"],\"restrictive_w_native_changed_cols\":[");
     for(size_t x=0;x<100u;++x)std::fprintf(out,"%s%zu",x?",":"",native_clip_cols[x]);
+    std::fprintf(out,"],\"per_pixel_diagnostic\":[");
+    bool first_diag=true;
+    for(unsigned i=0;i<3u;++i){
+        const unsigned clip_state=i;
+        for(size_t p=0;p<P;++p){
+            const size_t x=p%100u,y=p/100u;
+            const auto pred=qp379_predict_samples(x,y,clip_state);
+            const unsigned alpha=rows[i].native_rgba[p*4u+3u];
+            const unsigned proxy=255u-(unsigned)rows[i].ref_rgb[p*3u];
+            const int coverage_residual=(int)alpha-(int)proxy;
+            const int residual_r=(int)native_white(rows[i],p,0u)-(int)rows[i].ref_rgb[p*3u];
+            const int residual_g=(int)native_white(rows[i],p,1u)-(int)rows[i].ref_rgb[p*3u+1u];
+            const int residual_b=(int)native_white(rows[i],p,2u)-(int)rows[i].ref_rgb[p*3u+2u];
+            if(!first_diag)std::fprintf(out,",");
+            first_diag=false;
+            std::fprintf(out,
+              "{\"case\":\"%s\",\"x\":%zu,\"y\":%zu,"
+              "\"sample_hits_4x4_raw\":%u,\"sample_hits_4x4_after_predicted_clip\":%u,"
+              "\"clip_state\":\"%s\",\"predicted_clip_center_included\":%s,"
+              "\"segment_projection\":%.9g,\"perpendicular_distance\":%.9g,"
+              "\"endpoint_region\":\"%s\",\"native_rgba\":[%u,%u,%u,%u],"
+              "\"native_rgb_on_white\":[%u,%u,%u],\"reference_rgb\":[%u,%u,%u],"
+              "\"signed_rgb_residual\":[%d,%d,%d],"
+              "\"coverage_proxy_approximate\":true,\"coverage_proxy_255_minus_reference_red\":%u,"
+              "\"coverage_residual_alpha_minus_proxy\":%d}",
+              i==0u?"no_clip":i==1u?"fullpage_w":"restrictive_w",x,y,
+              pred.raw_hits,pred.clipped_hits,
+              i==0u?"none":i==1u?"fullpage_w":"restrictive_w",
+              pred.clip_center_included?"true":"false",
+              pred.projection,pred.perpendicular_distance,pred.endpoint_region,
+              (unsigned)rows[i].native_rgba[p*4u],
+              (unsigned)rows[i].native_rgba[p*4u+1u],
+              (unsigned)rows[i].native_rgba[p*4u+2u],alpha,
+              (unsigned)native_white(rows[i],p,0u),
+              (unsigned)native_white(rows[i],p,1u),
+              (unsigned)native_white(rows[i],p,2u),
+              (unsigned)rows[i].ref_rgb[p*3u],
+              (unsigned)rows[i].ref_rgb[p*3u+1u],
+              (unsigned)rows[i].ref_rgb[p*3u+2u],
+              residual_r,residual_g,residual_b,proxy,coverage_residual);
+        }
+    }
     std::fprintf(out,"]}\n");
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
     CHECK(corpus_fixture_executions==0u);
