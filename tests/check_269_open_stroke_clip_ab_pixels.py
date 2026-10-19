@@ -13,6 +13,38 @@ pixels = data.get("per_pixel_diagnostic")
 if not isinstance(pixels, list) or len(pixels) != 3 * 100 * 50:
     raise SystemExit("per_pixel_diagnostic must contain exactly 15000 pixels")
 
+def independent_prediction(x, y, case_i):
+    """Recompute segment geometry independently in Python for checker parity."""
+    ax, ay, bx, by = 10.0, 10.0, 40.0, 35.0
+    dx, dy = bx - ax, by - ay
+    length_squared = dx * dx + dy * dy
+    cx, cy = x + 0.5, 50.0 - (y + 0.5)
+    vx, vy = cx - ax, cy - ay
+    projection = (vx * dx + vy * dy) / length_squared
+    clamped = max(0.0, min(1.0, projection))
+    distance = ((cx - (ax + clamped * dx)) ** 2 +
+                (cy - (ay + clamped * dy)) ** 2) ** 0.5
+    endpoint = "before_start" if projection < 0 else (
+        "after_end" if projection > 1 else "segment_interior")
+    center_inside = (case_i != 2 or
+                     (18.0 <= cx <= 35.0 and 15.0 <= cy <= 30.0))
+    raw = clipped = 0
+    for sy in range(4):
+        for sx in range(4):
+            px = x + (sx + 0.5) / 4.0
+            py = 50.0 - (y + (sy + 0.5) / 4.0)
+            ux, uy = px - ax, py - ay
+            t = (ux * dx + uy * dy) / length_squared
+            if not 0.0 <= t <= 1.0:
+                continue
+            tx, ty = ax + t * dx, ay + t * dy
+            if (px - tx) ** 2 + (py - ty) ** 2 <= 0.25:
+                raw += 1
+                if case_i != 2 or (18.0 <= px <= 35.0 and 15.0 <= py <= 30.0):
+                    clipped += 1
+    return raw, clipped, projection, distance, endpoint, center_inside
+
+
 case_names = ("no_clip", "fullpage_w", "restrictive_w")
 case_counts = {name: 0 for name in case_names}
 case_masks = {name: set() for name in case_names}
@@ -42,14 +74,19 @@ for idx, p in enumerate(pixels):
     clip_state = p.get("clip_state")
     if clip_state != ("none" if case_i == 0 else "fullpage_w" if case_i == 1 else "restrictive_w"):
         raise SystemExit(f"{expected_case} ({x},{y}): invalid clip_state")
-    if not isinstance(p.get("predicted_clip_center_included"), bool):
-        raise SystemExit(f"{expected_case} ({x},{y}): clip inclusion must be boolean")
+    raw, clipped, projection_expected, distance_expected, endpoint_expected, center_expected = independent_prediction(x, y, case_i)
+    if (p["sample_hits_4x4_raw"] != raw or p["sample_hits_4x4_after_predicted_clip"] != clipped):
+        raise SystemExit(f"{expected_case} ({x},{y}): C++ and Python independent sample predictions disagree")
+    if not isinstance(p.get("predicted_clip_center_included"), bool) or p["predicted_clip_center_included"] != center_expected:
+        raise SystemExit(f"{expected_case} ({x},{y}): predicted Clip center inclusion mismatch")
     projection = p.get("segment_projection")
     distance = p.get("perpendicular_distance")
     if not isinstance(projection, (int, float)) or not isinstance(distance, (int, float)) or distance < 0:
         raise SystemExit(f"{expected_case} ({x},{y}): invalid geometry values")
-    if p.get("endpoint_region") not in ("before_start", "segment_interior", "after_end"):
-        raise SystemExit(f"{expected_case} ({x},{y}): invalid endpoint region")
+    if abs(projection - projection_expected) > 1e-8 or abs(distance - distance_expected) > 1e-8:
+        raise SystemExit(f"{expected_case} ({x},{y}): geometry coordinate/distance mismatch")
+    if p.get("endpoint_region") != endpoint_expected:
+        raise SystemExit(f"{expected_case} ({x},{y}): endpoint-region prediction mismatch")
 
     rgba, native, reference = (p.get("native_rgba"), p.get("native_rgb_on_white"), p.get("reference_rgb"))
     if not (isinstance(rgba, list) and len(rgba) == 4 and
