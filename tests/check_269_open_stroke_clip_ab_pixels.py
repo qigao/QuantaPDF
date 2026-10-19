@@ -77,14 +77,30 @@ for idx, p in enumerate(pixels):
     row = data["cases"][case_i]["error_map"][y]
     if (row[x] == "X") != mismatch:
         raise SystemExit(f"{expected_case} ({x},{y}): pixel data disagrees with mismatch map")
-    groups[(expected_case, p["sample_hits_4x4_raw"], p["endpoint_region"])].append(coverage_residual)
+    y_band = f"y{(y // 10) * 10}-{(y // 10) * 10 + 9}"
+    if clip_state != "restrictive_w":
+        clip_relation = "not_restrictive"
+    else:
+        px_center, py_center = x + 0.5, 50.0 - (y + 0.5)
+        edge_distance = min(abs(px_center - 18.0), abs(px_center - 35.0),
+                            abs(py_center - 15.0), abs(py_center - 30.0))
+        clip_relation = "near_boundary" if edge_distance <= 1.0 else (
+            "inside" if p["predicted_clip_center_included"] else "outside")
+    d = p["perpendicular_distance"]
+    distance_band = "d<0.125" if d < 0.125 else (
+        "d<0.25" if d < 0.25 else "d<0.5" if d < 0.5 else (
+        "d<1" if d < 1.0 else "d>=1"))
+    # Focus the grouped report on actual channel/coverage residual evidence.
+    if any(residual) or coverage_residual:
+        groups[(expected_case, y_band, p["sample_hits_4x4_raw"],
+                distance_band, p["endpoint_region"], clip_relation)].append(coverage_residual)
 
 for case in case_names:
     if case_counts[case] != 5000 or len(case_masks[case]) != 5000:
         raise SystemExit(f"{case}: expected 5000 unique pixels")
 
 print("Validated 15000 per-pixel records; all channel, residual, mask, geometry-schema and coordinate checks passed.")
-print("Grouped coverage residual (Native alpha - approximate 255-red proxy); group=case/raw 4x4 hits/endpoint; n/signed_sum/abs_sum/min/max")
+print("Grouped nonzero residuals (Native alpha - approximate 255-red proxy); group=case/y-band/raw-hits/distance-band/endpoint/clip-relation; n/signed_sum/abs_sum/min/max")
 for key in sorted(groups):
     values = groups[key]
-    print(f"{key[0]}/{key[1]}/{key[2]} n={len(values)} signed_sum={sum(values)} abs_sum={sum(abs(v) for v in values)} min={min(values)} max={max(values)}")
+    print(f"{'/'.join(map(str, key))} n={len(values)} signed_sum={sum(values)} abs_sum={sum(abs(v) for v in values)} min={min(values)} max={max(values)}")
