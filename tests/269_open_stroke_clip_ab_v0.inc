@@ -181,6 +181,8 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
     size_t ref_restrict_changed=0,native_restrict_changed=0;
     uint64_t ref_restrict_rgb_abs=0,native_restrict_rgb_abs=0;
     size_t ref_native_errors[3]{},rgb_abs[3]{};
+    size_t highres_changed_vs_72[3]{},native_errors_vs_highres[3]{};
+    uint64_t highres_rgb_abs_vs_72[3]{},native_rgb_abs_vs_highres[3]{};
     size_t err_min_x[3]={100u,100u,100u},err_min_y[3]={50u,50u,50u};
     size_t err_max_x[3]{},err_max_y[3]{};
     size_t err_rows[3][50]{},err_cols[3][100]{};
@@ -192,6 +194,11 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
                 const int b=(int)native_white(rows[i],p,c);
                 pixel_error|=a!=b;
                 rgb_abs[i]+=(uint64_t)std::abs(a-b);
+                const int hi=(int)rows[i].ref_rgb_4x_box[p*3u+c];
+                if(a!=hi && c==0u)++highres_changed_vs_72[i];
+                highres_rgb_abs_vs_72[i]+=(uint64_t)std::abs(a-hi);
+                if(b!=hi && c==0u)++native_errors_vs_highres[i];
+                native_rgb_abs_vs_highres[i]+=(uint64_t)std::abs(b-hi);
             }
             if(pixel_error){
                 const size_t x=p%100u,y=p/100u;
@@ -257,10 +264,18 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
     for(unsigned i=0;i<3u;++i){
         std::fprintf(out,"%s{\"name\":\"%s\",\"source_fnv64\":\"%016llx\","
           "\"different_pixels\":%zu,\"rgb_abs\":%llu,"
+          "\"reference_4x_box_changed_pixels_vs_72dpi\":%zu,"
+          "\"reference_4x_box_rgb_abs_delta_vs_72dpi\":%llu,"
+          "\"native_different_pixels_vs_4x_box\":%zu,"
+          "\"native_rgb_abs_delta_vs_4x_box\":%llu,"
           "\"different_pixel_bounds\":[%zu,%zu,%zu,%zu],\"error_rows\":[",
           i?",":"",i==0u?"no_clip":i==1u?"fullpage_w":"restrictive_w",
           (unsigned long long)hashes[i],ref_native_errors[i],
           (unsigned long long)rgb_abs[i],
+          highres_changed_vs_72[i],
+          (unsigned long long)highres_rgb_abs_vs_72[i],
+          native_errors_vs_highres[i],
+          (unsigned long long)native_rgb_abs_vs_highres[i],
           err_min_x[i],err_min_y[i],err_max_x[i],err_max_y[i]);
         for(size_t y=0;y<50u;++y)std::fprintf(out,"%s%zu",y?",":"",err_rows[i][y]);
         std::fprintf(out,"],\"error_cols\":[");
@@ -357,7 +372,9 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
               "\"native_rgb_on_white\":[%u,%u,%u],\"reference_rgb\":[%u,%u,%u],"
               "\"signed_rgb_residual\":[%d,%d,%d],"
               "\"coverage_proxy_approximate\":true,\"coverage_proxy_255_minus_reference_red\":%u,"
-              "\"coverage_residual_alpha_minus_proxy\":%d}",
+              "\"coverage_residual_alpha_minus_proxy\":%d,"
+              "\"reference_4x_box_rgb\":[%u,%u,%u],"
+              "\"native_minus_4x_box_rgb\":[%d,%d,%d]}",
               i==0u?"no_clip":i==1u?"fullpage_w":"restrictive_w",x,y,
               pred.raw_hits,pred.clipped_hits,
               i==0u?"none":i==1u?"fullpage_w":"restrictive_w",
@@ -372,7 +389,13 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
               (unsigned)rows[i].ref_rgb[p*3u],
               (unsigned)rows[i].ref_rgb[p*3u+1u],
               (unsigned)rows[i].ref_rgb[p*3u+2u],
-              residual_r,residual_g,residual_b,proxy,coverage_residual);
+              residual_r,residual_g,residual_b,proxy,coverage_residual,
+              (unsigned)rows[i].ref_rgb_4x_box[p*3u],
+              (unsigned)rows[i].ref_rgb_4x_box[p*3u+1u],
+              (unsigned)rows[i].ref_rgb_4x_box[p*3u+2u],
+              (int)native_white(rows[i],p,0u)-(int)rows[i].ref_rgb_4x_box[p*3u],
+              (int)native_white(rows[i],p,1u)-(int)rows[i].ref_rgb_4x_box[p*3u+1u],
+              (int)native_white(rows[i],p,2u)-(int)rows[i].ref_rgb_4x_box[p*3u+2u]);
         }
     }
     std::fprintf(out,"]}\n");
