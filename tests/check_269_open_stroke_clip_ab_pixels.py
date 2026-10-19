@@ -202,7 +202,7 @@ for case_i, case in enumerate(case_names):
             raise SystemExit(f"{case}: {field} summary disagrees with per-pixel records")
 print("Validated 15000 per-pixel records; all channel, residual, mask, geometry-schema and coordinate checks passed.")
 print(f"Independent 4x4 geometry versus Native alpha: {prediction_mismatch_pixels}/15000 pixels differ from round(clipped_hits*255/16); this is diagnostic, not a PDFium-AA claim.")
-print("4x DPI PDFium-backed reference box-averaged 4x4 to 100x50; diagnostic only, not internal coverage. case: changed pixels vs 72 DPI / RGB abs delta / Native mismatches / Native RGB abs delta")
+print("4x DPI public-renderer reference box-averaged 4x4 to 100x50; diagnostic only, not direct PDFium or internal coverage. case: changed pixels vs 72 DPI / RGB abs delta / Native mismatches / Native RGB abs delta")
 for case in case_names:
     m = highres_metrics[case]
     print(f"{case}: {m['changed']} / {m['abs_vs_72']} / {m['native_errors']} / {m['native_abs']}")
