@@ -1,5 +1,6 @@
-/* #269 TEST ONLY: single open-segment Stroke, three real Native/PDFium controls.
+/* #269 TEST ONLY: single open-segment Stroke, three Native/public-renderer controls.
  * Unlike the closed triangle in #378, this has no joins or miter geometry.
+ * The reference is QuantaPDF's public API, not a direct PDFium API oracle.
  * No Clip, full-page W, and restrictive W are all expected to be admitted.
  */
 namespace {
@@ -46,7 +47,7 @@ static void qp379_write_line_pdf(const char *path,unsigned variant)
 /* Test-only sampling probe: render through quantapdf_render_page_with_options
  * at 4x DPI, then box-average each 4x4 RGB block to the original 100x50 grid.
  * The 72-DPI baseline likewise calls quantapdf_render_page via the legacy
- * render_original_pdfium helper; neither path is a direct PDFium API call.
+ * render_public_reference helper; neither path is a direct PDFium API call.
  * This is a public-renderer resampling sensitivity diagnostic, not an
  * independent PDFium oracle and not PDFium internal coverage data. */
 static std::vector<unsigned char> qp379_render_4x_box_reference(const char *source)
