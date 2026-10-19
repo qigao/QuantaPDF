@@ -157,7 +157,7 @@ static void test_overrides_and_noncanonical()
 static void test_crop_media_intersection_policy()
 {
     const char *crop_boxes[] = {
-        "[-10 10 100 110]", /* partial overlap on three sides */
+        "[-10 10 100 110]", /* partial overlap; extends past the left edge */
         "[210 10 220 20]"   /* valid box, completely outside MediaBox */
     };
     for (const char *crop : crop_boxes) {
