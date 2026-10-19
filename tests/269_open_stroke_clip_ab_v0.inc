@@ -130,6 +130,7 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
     size_t ref_native_errors[3]{},rgb_abs[3]{};
     size_t err_min_x[3]={100u,100u,100u},err_min_y[3]={50u,50u,50u};
     size_t err_max_x[3]{},err_max_y[3]{};
+    size_t err_rows[3][50]{},err_cols[3][100]{};
     for(unsigned i=0;i<3u;++i){
         for(size_t p=0;p<P;++p){
             bool pixel_error=false;
@@ -145,12 +146,16 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
                 if(y<err_min_y[i])err_min_y[i]=y;
                 if(x>err_max_x[i])err_max_x[i]=x;
                 if(y>err_max_y[i])err_max_y[i]=y;
+                ++err_rows[i][y];
+                ++err_cols[i][x];
                 ++ref_native_errors[i];
             }
         }
     }
     size_t ref_clip_min_x=100u,ref_clip_min_y=50u,ref_clip_max_x=0u,ref_clip_max_y=0u;
     size_t native_clip_min_x=100u,native_clip_min_y=50u,native_clip_max_x=0u,native_clip_max_y=0u;
+    size_t ref_clip_rows[50]{},ref_clip_cols[100]{};
+    size_t native_clip_rows[50]{},native_clip_cols[100]{};
     for(size_t p=0;p<P;++p){
         bool r=false,n=false;
         for(unsigned c=0;c<3u;++c){
@@ -165,6 +170,7 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
             if(y<ref_clip_min_y)ref_clip_min_y=y;
             if(x>ref_clip_max_x)ref_clip_max_x=x;
             if(y>ref_clip_max_y)ref_clip_max_y=y;
+            ++ref_clip_rows[y];++ref_clip_cols[x];
             ++ref_restrict_changed;
         }
         if(n){
@@ -173,6 +179,7 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
             if(y<native_clip_min_y)native_clip_min_y=y;
             if(x>native_clip_max_x)native_clip_max_x=x;
             if(y>native_clip_max_y)native_clip_max_y=y;
+            ++native_clip_rows[y];++native_clip_cols[x];
             ++native_restrict_changed;
         }
     }
@@ -194,14 +201,27 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
       (unsigned long long)native_restrict_rgb_abs,
       ref_clip_min_x,ref_clip_min_y,ref_clip_max_x,ref_clip_max_y,
       native_clip_min_x,native_clip_min_y,native_clip_max_x,native_clip_max_y);
-    for(unsigned i=0;i<3u;++i)
+    for(unsigned i=0;i<3u;++i){
         std::fprintf(out,"%s{\"name\":\"%s\",\"source_fnv64\":\"%016llx\","
           "\"different_pixels\":%zu,\"rgb_abs\":%llu,"
-          "\"different_pixel_bounds\":[%zu,%zu,%zu,%zu]}",
+          "\"different_pixel_bounds\":[%zu,%zu,%zu,%zu],\"error_rows\":[",
           i?",":"",i==0u?"no_clip":i==1u?"fullpage_w":"restrictive_w",
           (unsigned long long)hashes[i],ref_native_errors[i],
           (unsigned long long)rgb_abs[i],
           err_min_x[i],err_min_y[i],err_max_x[i],err_max_y[i]);
+        for(size_t y=0;y<50u;++y)std::fprintf(out,"%s%zu",y?",":"",err_rows[i][y]);
+        std::fprintf(out,"],\"error_cols\":[");
+        for(size_t x=0;x<100u;++x)std::fprintf(out,"%s%zu",x?",":"",err_cols[i][x]);
+        std::fprintf(out,"]}");
+    }
+    std::fprintf(out,"],\"restrictive_w_reference_changed_rows\":[");
+    for(size_t y=0;y<50u;++y)std::fprintf(out,"%s%zu",y?",":"",ref_clip_rows[y]);
+    std::fprintf(out,"],\"restrictive_w_reference_changed_cols\":[");
+    for(size_t x=0;x<100u;++x)std::fprintf(out,"%s%zu",x?",":"",ref_clip_cols[x]);
+    std::fprintf(out,"],\"restrictive_w_native_changed_rows\":[");
+    for(size_t y=0;y<50u;++y)std::fprintf(out,"%s%zu",y?",":"",native_clip_rows[y]);
+    std::fprintf(out,"],\"restrictive_w_native_changed_cols\":[");
+    for(size_t x=0;x<100u;++x)std::fprintf(out,"%s%zu",x?",":"",native_clip_cols[x]);
     std::fprintf(out,"]}\n");
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
     CHECK(corpus_fixture_executions==0u);
