@@ -23,6 +23,8 @@
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFWriter.hh>
 
+#include <fpdfview.h>
+
 #include <cerrno>
 #include <algorithm>
 #include <cmath>
@@ -130,25 +132,69 @@ quantapdf_status snapshot_lower(quantapdf_ir *out,
 rgb_image render_public_reference(size_t page_index=0u,
                                 const char *source_path=SOURCE_QQ_PDF)
 {
+    /* Test-only independent oracle. Open and render the original PDF through
+     * PDFium's public C API; do not enter QuantaPDF's document, Graph,
+     * Composer, or production renderer path for reference pixels. */
+    struct pdfium_runtime {
+        pdfium_runtime() { FPDF_InitLibrary(); }
+        ~pdfium_runtime() { FPDF_DestroyLibrary(); }
+    };
+    static pdfium_runtime runtime;
+    (void)runtime;
+
+    FPDF_DOCUMENT document = FPDF_LoadDocument(source_path, nullptr);
+    CHECK(document != nullptr);
+    const int page_count = FPDF_GetPageCount(document);
+    CHECK(page_index < static_cast<size_t>(page_count));
+    FPDF_PAGE page = FPDF_LoadPage(document, static_cast<int>(page_index));
+    CHECK(page != nullptr);
+
+    const double page_width = static_cast<double>(FPDF_GetPageWidthF(page));
+    const double page_height = static_cast<double>(FPDF_GetPageHeightF(page));
+    CHECK(std::isfinite(page_width) && std::isfinite(page_height) &&
+          page_width > 0.0 && page_height > 0.0);
+    const double rounded_width = std::ceil(page_width);
+    const double rounded_height = std::ceil(page_height);
+    CHECK(rounded_width <= 8192.0 && rounded_height <= 8192.0 &&
+          rounded_width * rounded_height <= 60000000.0);
+
     rgb_image out;
-    quantapdf_document *doc=nullptr;
-    quantapdf_page *page=nullptr;
-    quantapdf_bitmap *bitmap=nullptr;
-    const unsigned char *bytes=nullptr;
-    size_t size=0u;
-    OK(quantapdf_open(source_path,nullptr,&doc));
-    OK(quantapdf_load_page(doc,page_index,&page));
-    OK(quantapdf_render_page(page,&bitmap));
-    OK(quantapdf_bitmap_dimensions(bitmap,&out.width,&out.height,
-                                   &out.stride,&out.components));
-    OK(quantapdf_bitmap_data(bitmap,&bytes,&size));
-    CHECK(out.width>0 && out.height>0 &&
-          out.components==3 && out.stride >= out.width*3 &&
-          size >= (size_t)out.height * (size_t)out.stride);
-    out.pixels.assign(bytes, bytes + (size_t)out.height*(size_t)out.stride);
-    quantapdf_drop_bitmap(bitmap);
-    quantapdf_drop_page(page);
-    quantapdf_close(doc);
+    out.width = static_cast<int>(rounded_width);
+    out.height = static_cast<int>(rounded_height);
+    FPDF_BITMAP bitmap = FPDFBitmap_CreateEx(
+        out.width, out.height, FPDFBitmap_BGR, nullptr, 0);
+    CHECK(bitmap != nullptr);
+    FPDFBitmap_FillRect(bitmap, 0, 0, out.width, out.height, 0xFFFFFFFFu);
+    FPDF_RenderPageBitmap(bitmap, page, 0, 0, out.width, out.height, 0,
+                          FPDF_ANNOT);
+
+    const int stride = FPDFBitmap_GetStride(bitmap);
+    const auto *pixels = static_cast<const unsigned char *>(
+        FPDFBitmap_GetBuffer(bitmap));
+    CHECK(pixels != nullptr && stride >= out.width * 3);
+    out.stride = out.width * 3;
+    out.components = 3;
+    out.pixels.resize(static_cast<size_t>(out.height) *
+                      static_cast<size_t>(out.stride));
+    /* PDFium's FPDFBitmap_BGR storage is B,G,R. Normalize only the test
+     * oracle's channel order to RGB; the Native image is never modified. */
+    for (int y = 0; y < out.height; ++y) {
+        const unsigned char *src = pixels + static_cast<size_t>(y) *
+                                             static_cast<size_t>(stride);
+        unsigned char *dst = out.pixels.data() + static_cast<size_t>(y) *
+                                                  static_cast<size_t>(out.stride);
+        for (int x = 0; x < out.width; ++x) {
+            dst[static_cast<size_t>(x) * 3u + 0u] =
+                src[static_cast<size_t>(x) * 3u + 2u];
+            dst[static_cast<size_t>(x) * 3u + 1u] =
+                src[static_cast<size_t>(x) * 3u + 1u];
+            dst[static_cast<size_t>(x) * 3u + 2u] =
+                src[static_cast<size_t>(x) * 3u + 0u];
+        }
+    }
+    FPDFBitmap_Destroy(bitmap);
+    FPDF_ClosePage(page);
+    FPDF_CloseDocument(document);
     return out;
 }
 
