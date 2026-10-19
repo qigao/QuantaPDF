@@ -1,7 +1,7 @@
-/* Test-only source-PDF q/Q conformance. PDFium is an independent oracle:
- * Original source PDF -> PDFium versus Source -> detached Graph -> owned IR
- * -> private pure-C11 scoped Clip DAG raster. Never export IR to PDF as a
- * production rendering intermediate and never invoke a PDFium fallback. */
+/* Test-only source-PDF q/Q conformance. The public-renderer reference path
+ * is distinct from Source -> detached Graph -> owned IR -> private pure-C11
+ * scoped Clip DAG raster, but is not an independent direct-PDFium oracle.
+ * Do not describe these comparisons as PDFium-internal coverage evidence. */
 #include "document/page_composer_ir.h"
 #include "document/page_content_ir.h"
 #include "graph/graph_page_geometry.h"
@@ -127,7 +127,7 @@ quantapdf_status snapshot_lower(quantapdf_ir *out,
     return st;
 }
 
-rgb_image render_original_pdfium(size_t page_index=0u,
+rgb_image render_public_reference(size_t page_index=0u,
                                 const char *source_path=SOURCE_QQ_PDF)
 {
     rgb_image out;
@@ -238,7 +238,7 @@ void compare(const char *content, const probe *goldens,
           std::memcmp(native.pixels,again.pixels,native.size)==0);
     quantapdf_ir_raster_image_dispose(&again);
     quantapdf_ir_dispose(&ir);
-    rgb_image reference=render_original_pdfium();
+    rgb_image reference=render_public_reference();
 
     for(size_t y=0u;y<PAGE;++y) for(size_t x=0u;x<PAGE;++x) {
         const unsigned char *a=native.pixels+y*native.stride+x*4u;
@@ -464,7 +464,7 @@ void test_mapped_geometry(int rotate,int unit,
           std::memcmp(native.pixels,again.pixels,native.size)==0);
     quantapdf_ir_raster_image_dispose(&again);
     quantapdf_ir_dispose(&ir);
-    rgb_image reference=render_original_pdfium();
+    rgb_image reference=render_public_reference();
     CHECK(reference.width==(int)width && reference.height==(int)height);
 
     /* Compare every pixel, with unchanged strict AA error thresholds. */
@@ -612,7 +612,7 @@ void test_selected_page_multistream()
     quantapdf_ir_raster_image_dispose(&repeat);
     quantapdf_ir_dispose(&ir);
 
-    rgb_image baseline=render_original_pdfium(1u);
+    rgb_image baseline=render_public_reference(1u);
     CHECK(baseline.width==(int)PAGE && baseline.height==(int)PAGE);
     double total_error=0.0;
     size_t gross=0u;
@@ -830,7 +830,7 @@ void test_extgstate_inheritance_and_override()
               std::memcmp(native.pixels,again.pixels,native.size)==0);
         quantapdf_ir_raster_image_dispose(&again);
         quantapdf_ir_dispose(&ir);
-        rgb_image original=render_original_pdfium();
+        rgb_image original=render_public_reference();
         const probe goldens[]={
             {30,30,255,0,0}, {5,5,0,0,255},
             {105,105,0,255,0}, {95,35,255,255,255}
@@ -925,7 +925,7 @@ void test_indirect_resource_page_isolation()
 
     /* Independently render the ORIGINAL page 0 through test-only PDFium.
      * Never serialize the native IR back to PDF as the reference. */
-    rgb_image reference=render_original_pdfium(0u);
+    rgb_image reference=render_public_reference(0u);
     CHECK(reference.width==(int)PAGE && reference.height==(int)PAGE);
     double error=0.0;
     size_t gross=0u;
@@ -1502,7 +1502,7 @@ void test_page_group_admission()
                   std::memcmp(native.pixels,repeat.pixels,native.size)==0);
             quantapdf_ir_raster_image_dispose(&repeat);
             quantapdf_ir_dispose(&lowered);
-            rgb_image reference=render_original_pdfium(0u,GROUP_SOURCE_PDF);
+            rgb_image reference=render_public_reference(0u,GROUP_SOURCE_PDF);
             CHECK(reference.width==(int)PAGE && reference.height==(int)PAGE);
             for(const auto& p:expected_colors){
                 size_t y=PAGE-1u-(size_t)p.y_pdf;
@@ -1569,7 +1569,7 @@ void test_page_group_admission()
 
 /* Original independent upstream PDF: W n rectangular clip and a solid
  * one-pixel closed blue stroked triangle, no text or image. Neither this
- * source nor the PDFium oracle is manufactured from detached Composer IR. */
+ * source nor the public-renderer reference is manufactured from detached Composer IR. */
 int test_external_pdfium_clip_stroke(const char *filename,
                                     const char *report_path)
 {
@@ -1740,7 +1740,7 @@ int test_external_pdfium_wstar_text_rejection(const char *filename,
     errno=0;
     if(std::remove(pending.c_str())!=0) CHECK(errno==ENOENT);
     CHECK(corpus_fixture_executions==0u);
-    const rgb_image reference=render_original_pdfium(0u,filename);
+    const rgb_image reference=render_public_reference(0u,filename);
     CHECK(reference.width==200 && reference.height==300 &&
           reference.components==3 && reference.stride>=600);
     size_t ink=0u;
@@ -1854,7 +1854,7 @@ int test_external_jspdf_single_vertical_analytic_ab(
           detached.operations[1].value.path.options.stroke==0 &&
           detached.operations[1].value.path.options.fill==1 &&
           detached.resources.clip_count==1u);
-    const rgb_image reference=render_original_pdfium(0u,filename);
+    const rgb_image reference=render_public_reference(0u,filename);
     CHECK(reference.width==596 && reference.height==842 &&
           reference.components==3 && reference.stride>=596*3 &&
           reference.pixels.size()>=(size_t)reference.stride*842u);
@@ -2267,7 +2267,7 @@ int test_external_jspdf_single_vertical_analytic_ab(
     /* FIFTEENTH independent original-source PRIVATE A/B: change only
      * the clipped red Fill's TRUE right/top Q8 corner after mode8.
      * Keep the fully qualified mode10 Stroke, same owned Source->IR,
-     * original paint order and immutable direct-original PDFium oracle. */
+     * original paint order and immutable public-renderer reference. */
     quantapdf_ir_raster_image top_right_fill{},top_right_repeat{},
         top_right_rgba{},top_right_rgba_repeat{},
         top_right_floor{},top_right_floor_repeat{};
@@ -3239,7 +3239,7 @@ int test_external_jspdf_single_vertical_analytic_ab(
     /* New exact-original mode7 read-only attribution. The SOURCE pinned
      * windows are test-only labels, never C11 admission or rendering rules.
      * Every 596*842 pixel is assigned to one and only one group; the
-     * genuine PDFium oracle is referenced directly, never re-exported. */
+     * public-renderer reference uses original source bytes, never re-exported IR. */
     struct mode7_region {
         const char *name;
         size_t pixels=0u,changed=0u,gross=0u,worst_x=0u,worst_y=0u;
@@ -5000,7 +5000,7 @@ int test_external_jspdf_fractional_page_rejection(
     /* Independently query PDFium's *original-page* 72-DPI, zero-rotation
      * device-grid geometry. Rendering is only a geometry reference, not a
      * claim that the C11 negative case has achieved pixel parity. */
-    const rgb_image reference=render_original_pdfium(0u,filename);
+    const rgb_image reference=render_public_reference(0u,filename);
     CHECK(reference.width==596 && reference.height==842 &&
           reference.components==3 && reference.stride>=596*3 &&
           reference.pixels.size()>=(size_t)reference.stride*842u);
@@ -5890,7 +5890,7 @@ int test_external_yworks_svg_w_pixels(const char *filename,
     }
     constexpr size_t WIDTH=500u,HEIGHT=800u;
     CHECK(corpus_fixture_executions==0u);
-    rgb_image pdfium=render_original_pdfium(0u,filename);
+    rgb_image pdfium=render_public_reference(0u,filename);
     CHECK(pdfium.width==(int)WIDTH && pdfium.height==(int)HEIGHT &&
           pdfium.components==3 && pdfium.stride>=(int)WIDTH*3);
     quantapdf_pdf_path_lower_limits bounded=lower_limits;
@@ -6187,7 +6187,7 @@ int test_external_yworks_hidden_w_pixels(
     }
     CHECK(corpus_fixture_executions==0u);
     constexpr size_t WIDTH=500u,HEIGHT=500u;
-    rgb_image pdfium=render_original_pdfium(0u,filename);
+    rgb_image pdfium=render_public_reference(0u,filename);
     CHECK(pdfium.width==(int)WIDTH && pdfium.height==(int)HEIGHT &&
           pdfium.components==3 && pdfium.stride>=(int)WIDTH*3);
     quantapdf_ir detached{};
@@ -6371,7 +6371,7 @@ int test_external_yworks_wstar_candidate_pixels(
     }
     CHECK(corpus_fixture_executions==0u);
     constexpr size_t WIDTH=600u, HEIGHT=600u;
-    rgb_image pdfium=render_original_pdfium(0u,filename);
+    rgb_image pdfium=render_public_reference(0u,filename);
     CHECK(pdfium.width==(int)WIDTH && pdfium.height==(int)HEIGHT &&
           pdfium.components==3 && pdfium.stride>=(int)WIDTH*3);
     quantapdf_ir detached{};
@@ -7076,7 +7076,7 @@ static void publish_corpus_report(const char *destination,
 }
 
 /* Test-owned ORIGINAL PDF path, outside the formal external corpus.
- * The PDFium oracle consumes source bytes, never a Composer re-export.
+ * The public-renderer reference consumes source bytes, never a Composer re-export.
  * No source/PDFium object is reachable from the private C11 Raster call. */
 static void write_single_w_visible_page(
     int rotation,int unit,const char *source_output=GENERATED_VISIBLE_DEVICE_PDF,
@@ -7178,7 +7178,7 @@ static void test_single_w_visible_page_original_pixel_oracle()
                   native.stride==4u*w && native.size==4u*w*h);
 
             /* A distinct, never re-exported original source PDFium page. */
-            const rgb_image oracle=render_original_pdfium(
+            const rgb_image oracle=render_public_reference(
                 0u,GENERATED_VISIBLE_DEVICE_PDF);
             CHECK(oracle.width==(int)w && oracle.height==(int)h);
             int test_x=0,test_y=0;
@@ -8146,7 +8146,7 @@ static int test_generated_small_unit7_original_exact(
         CHECK(rejected.pixels==nullptr && rejected.width==0u &&
               rejected.height==0u && rejected.stride==0u &&
               rejected.size==0u);
-        const rgb_image pdfium=render_original_pdfium(
+        const rgb_image pdfium=render_public_reference(
             0u,GENERATED_USERUNIT7_PDF);
         CHECK(pdfium.width==(int)w && pdfium.height==(int)h);
 
