@@ -17,6 +17,8 @@ case_names = ("no_clip", "fullpage_w", "restrictive_w")
 case_counts = {name: 0 for name in case_names}
 case_masks = {name: set() for name in case_names}
 groups = defaultdict(list)
+prediction_groups = defaultdict(list)
+prediction_mismatch_pixels = 0
 for idx, p in enumerate(pixels):
     case_i, within = divmod(idx, 5000)
     expected_case = case_names[case_i]
@@ -70,6 +72,14 @@ for idx, p in enumerate(pixels):
     if p.get("coverage_proxy_255_minus_reference_red") != proxy:
         raise SystemExit(f"{expected_case} ({x},{y}): coverage proxy mismatch")
     coverage_residual = alpha - proxy
+    predicted_alpha = (p["sample_hits_4x4_after_predicted_clip"] * 255 + 8) // 16
+    alpha_minus_prediction = alpha - predicted_alpha
+    if alpha_minus_prediction:
+        prediction_mismatch_pixels += 1
+    if any(residual) or alpha_minus_prediction:
+        prediction_groups[(expected_case, y_band if "y_band" in locals() else f"y{(y // 10) * 10}-{(y // 10) * 10 + 9}",
+                          p["sample_hits_4x4_after_predicted_clip"],
+                          p["endpoint_region"])].append(alpha_minus_prediction)
     if p.get("coverage_residual_alpha_minus_proxy") != coverage_residual:
         raise SystemExit(f"{expected_case} ({x},{y}): coverage residual mismatch")
 
@@ -100,6 +110,11 @@ for case in case_names:
         raise SystemExit(f"{case}: expected 5000 unique pixels")
 
 print("Validated 15000 per-pixel records; all channel, residual, mask, geometry-schema and coordinate checks passed.")
+print(f"Independent 4x4 geometry versus Native alpha: {prediction_mismatch_pixels}/15000 pixels differ from round(clipped_hits*255/16); this is diagnostic, not a PDFium-AA claim.")
+print("Grouped Native alpha minus independently predicted 4x4 alpha; group=case/y-band/clipped-hits/endpoint; n/signed_sum/abs_sum/min/max")
+for key in sorted(prediction_groups):
+    values = prediction_groups[key]
+    print(f"{'/'.join(map(str, key))} n={len(values)} signed_sum={sum(values)} abs_sum={sum(abs(v) for v in values)} min={min(values)} max={max(values)}")
 print("Grouped nonzero residuals (Native alpha - approximate 255-red proxy); group=case/y-band/raw-hits/distance-band/endpoint/clip-relation; n/signed_sum/abs_sum/min/max")
 for key in sorted(groups):
     values = groups[key]
