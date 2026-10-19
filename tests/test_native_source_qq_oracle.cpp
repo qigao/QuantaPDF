@@ -1800,8 +1800,8 @@ int test_external_pdfium_clip_stroke(const char *filename,
         "  \"signed_ink_proxy\": %s,\n"
         "  \"generated_fixture_count\": 0,\n"
         "  \"result\": \"passed\"\n"
-        "}\n",WIDTH,HEIGHT,mean,gross,
-        WIDTH,HEIGHT,(size_t)reference.stride,
+        "}\n",WIDTH,HEIGHT,(size_t)reference.stride,
+        WIDTH,HEIGHT,mean,gross,
         reference_ink,native_ink,common_ink,signed_json.c_str());
     CHECK(std::ferror(report)==0);
     CHECK(std::fclose(report)==0);
