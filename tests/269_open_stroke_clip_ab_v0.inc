@@ -43,9 +43,12 @@ static void qp379_write_line_pdf(const char *path,unsigned variant)
     CHECK(std::fclose(out)==0);
 }
 
-/* Test-only sampling probe: render PDFium-backed public output at 4x DPI,
- * then box-average each 4x4 RGB block to the original 100x50 grid. This is
- * explicitly a resampling sensitivity diagnostic, not PDFium coverage data. */
+/* Test-only sampling probe: render through quantapdf_render_page_with_options
+ * at 4x DPI, then box-average each 4x4 RGB block to the original 100x50 grid.
+ * The 72-DPI baseline likewise calls quantapdf_render_page via the legacy
+ * render_original_pdfium helper; neither path is a direct PDFium API call.
+ * This is a public-renderer resampling sensitivity diagnostic, not an
+ * independent PDFium oracle and not PDFium internal coverage data. */
 static std::vector<unsigned char> qp379_render_4x_box_reference(const char *source)
 {
     constexpr size_t W=100u,H=50u,S=4u,OUT_N=W*H*3u;
@@ -289,6 +292,9 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
     FILE *out=std::fopen(report_path,"wb");CHECK(out);
     std::fprintf(out,
       "{\"schema_version\":1,\"open_line_only\":true,"
+      "\"reference_render_route\":\"quantapdf_render_page\","
+      "\"reference_4x_render_route\":\"quantapdf_render_page_with_options\","
+      "\"reference_is_independent_pdfium_oracle\":false,"
       "\"no_clip_and_fullpage_w_reference_equal\":true,"
       "\"no_clip_and_fullpage_w_native_equal\":true,"
       "\"all_three_native_supported\":true,"
