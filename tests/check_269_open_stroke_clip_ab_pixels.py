@@ -51,6 +51,9 @@ case_masks = {name: set() for name in case_names}
 groups = defaultdict(list)
 prediction_groups = defaultdict(list)
 prediction_mismatch_pixels = 0
+highres_metrics = {name: {"changed": 0, "abs_vs_72": 0,
+                          "native_errors": 0, "native_abs": 0}
+                   for name in case_names}
 for idx, p in enumerate(pixels):
     case_i, within = divmod(idx, 5000)
     expected_case = case_names[case_i]
@@ -132,6 +135,13 @@ for idx, p in enumerate(pixels):
         raise SystemExit(f"{expected_case} ({x},{y}): Native-minus-4x residual mismatch")
     if p.get("reference_4x_box_is_resampling_diagnostic") is not True:
         raise SystemExit(f"{expected_case} ({x},{y}): 4x reference must be marked diagnostic")
+    metrics = highres_metrics[expected_case]
+    if any(reference[c] != highres[c] for c in range(3)):
+        metrics["changed"] += 1
+    if any(native[c] != highres[c] for c in range(3)):
+        metrics["native_errors"] += 1
+    metrics["abs_vs_72"] += sum(abs(reference[c] - highres[c]) for c in range(3))
+    metrics["native_abs"] += sum(abs(native[c] - highres[c]) for c in range(3))
 
     mismatch = any(v != 0 for v in residual)
     row = data["cases"][case_i]["error_map"][y]
@@ -158,8 +168,24 @@ for case in case_names:
     if case_counts[case] != 5000 or len(case_masks[case]) != 5000:
         raise SystemExit(f"{case}: expected 5000 unique pixels")
 
+for case_i, case in enumerate(case_names):
+    recorded = data["cases"][case_i]
+    metrics = highres_metrics[case]
+    expected_fields = {
+        "reference_4x_box_changed_pixels_vs_72dpi": metrics["changed"],
+        "reference_4x_box_rgb_abs_delta_vs_72dpi": metrics["abs_vs_72"],
+        "native_different_pixels_vs_4x_box": metrics["native_errors"],
+        "native_rgb_abs_delta_vs_4x_box": metrics["native_abs"],
+    }
+    for field, expected in expected_fields.items():
+        if recorded.get(field) != expected:
+            raise SystemExit(f"{case}: {field} summary disagrees with per-pixel records")
 print("Validated 15000 per-pixel records; all channel, residual, mask, geometry-schema and coordinate checks passed.")
 print(f"Independent 4x4 geometry versus Native alpha: {prediction_mismatch_pixels}/15000 pixels differ from round(clipped_hits*255/16); this is diagnostic, not a PDFium-AA claim.")
+print("4x DPI PDFium-backed reference box-averaged 4x4 to 100x50; diagnostic only, not internal coverage. case: changed pixels vs 72 DPI / RGB abs delta / Native mismatches / Native RGB abs delta")
+for case in case_names:
+    m = highres_metrics[case]
+    print(f"{case}: {m['changed']} / {m['abs_vs_72']} / {m['native_errors']} / {m['native_abs']}")
 print("Grouped Native alpha minus independently predicted 4x4 alpha; group=case/y-band/clipped-hits/endpoint; n/signed_sum/abs_sum/min/max")
 for key in sorted(prediction_groups):
     values = prediction_groups[key]
