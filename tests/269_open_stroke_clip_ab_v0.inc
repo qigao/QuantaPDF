@@ -95,8 +95,8 @@ static qp379_line_capture qp379_capture_line(const char *source,
     CHECK(!original.empty() && original.size()<=8192u);
     qp379_line_capture out{};
     out.source_fnv=decimal360_fnv64(original);
-    const rgb_image ref=render_original_pdfium(0u,source);
-    const rgb_image ref_again=render_original_pdfium(0u,source);
+    const rgb_image ref=render_public_reference(0u,source);
+    const rgb_image ref_again=render_public_reference(0u,source);
     CHECK(ref.width==(int)W && ref.height==(int)H && ref.components==3 &&
           ref.stride>=3*(int)W && ref.pixels.size()>=(size_t)ref.stride*H &&
           ref.width==ref_again.width && ref.height==ref_again.height &&
