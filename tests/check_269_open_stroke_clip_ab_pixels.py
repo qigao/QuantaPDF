@@ -8,7 +8,20 @@ from pathlib import Path
 if len(sys.argv) != 2:
     raise SystemExit("usage: check_269_open_stroke_clip_ab_pixels.py REPORT.json")
 report_path = Path(sys.argv[1])
-data = json.loads(report_path.read_text(encoding="utf-8"))
+def reject_duplicate_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+try:
+    data = json.loads(report_path.read_text(encoding="utf-8"),
+                      object_pairs_hook=reject_duplicate_keys)
+except ValueError as exc:
+    raise SystemExit(f"invalid report JSON: {exc}")
 if data.get("reference_render_route") != "quantapdf_render_page":
     raise SystemExit("reference_render_route must identify the public 72-DPI renderer path")
 if data.get("reference_4x_render_route") != "quantapdf_render_page_with_options":
