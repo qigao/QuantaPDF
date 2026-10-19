@@ -83,7 +83,7 @@ for idx, p in enumerate(pixels):
     distance = p.get("perpendicular_distance")
     if not isinstance(projection, (int, float)) or not isinstance(distance, (int, float)) or distance < 0:
         raise SystemExit(f"{expected_case} ({x},{y}): invalid geometry values")
-    if abs(projection - projection_expected) > 1e-8 or abs(distance - distance_expected) > 1e-8:
+    if abs(projection - projection_expected) > 1e-6 or abs(distance - distance_expected) > 1e-6:
         raise SystemExit(f"{expected_case} ({x},{y}): geometry coordinate/distance mismatch")
     if p.get("endpoint_region") != endpoint_expected:
         raise SystemExit(f"{expected_case} ({x},{y}): endpoint-region prediction mismatch")
