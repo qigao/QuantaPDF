@@ -120,6 +120,19 @@ for idx, p in enumerate(pixels):
     if p.get("coverage_residual_alpha_minus_proxy") != coverage_residual:
         raise SystemExit(f"{expected_case} ({x},{y}): coverage residual mismatch")
 
+    highres = p.get("reference_4x_box_rgb")
+    native_minus_highres = p.get("native_minus_4x_box_rgb")
+    if not (isinstance(highres, list) and len(highres) == 3 and
+            isinstance(native_minus_highres, list) and len(native_minus_highres) == 3):
+        raise SystemExit(f"{expected_case} ({x},{y}): malformed 4x box-reference channels")
+    if any(not isinstance(c, int) or not 0 <= c <= 255 for c in highres):
+        raise SystemExit(f"{expected_case} ({x},{y}): 4x box-reference channel out of range")
+    expected_native_minus_highres = [native[c] - highres[c] for c in range(3)]
+    if native_minus_highres != expected_native_minus_highres:
+        raise SystemExit(f"{expected_case} ({x},{y}): Native-minus-4x residual mismatch")
+    if p.get("reference_4x_box_is_resampling_diagnostic") is not True:
+        raise SystemExit(f"{expected_case} ({x},{y}): 4x reference must be marked diagnostic")
+
     mismatch = any(v != 0 for v in residual)
     row = data["cases"][case_i]["error_map"][y]
     if (row[x] == "X") != mismatch:
