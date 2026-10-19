@@ -151,6 +151,38 @@ static void test_overrides_and_noncanonical()
     }, QUANTAPDF_ERROR_FORMAT, QUANTAPDF_OK);
 }
 
+/* CropBox/MediaBox intersection policy is explicit: both a partial
+ * overlap and a disjoint, otherwise-valid CropBox are UNSUPPORTED. Do not
+ * silently clip to an intersection or report a successful empty page. */
+static void test_crop_media_intersection_policy()
+{
+    const char *crop_boxes[] = {
+        "[-10 10 100 110]", /* partial overlap on three sides */
+        "[210 10 220 20]"   /* valid box, completely outside MediaBox */
+    };
+    for (const char *crop : crop_boxes) {
+        auto f = build();
+        f.page.replaceKey("/CropBox", QPDFObjectHandle::parse(crop));
+        auto graph = capture(*f.pdf);
+        quantapdf_graph_page_geometry g{};
+        OK(quantapdf_graph_query_page_geometry(graph.get(), 0, 3, &g));
+
+        quantapdf_graph_page_display display{};
+        display.width_points = 999;
+        display.height_points = 999;
+        for (double &v : display.from_source) v = 999;
+        CHECK(quantapdf_graph_page_display_map(&g, &display) ==
+            QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(display.width_points == 0 && display.height_points == 0);
+        for (double v : display.from_source) CHECK(v == 0);
+
+        double width = 999, height = 999;
+        CHECK(quantapdf_graph_canonical_page_dimensions(&g, &width, &height) ==
+            QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(width == 0 && height == 0);
+    }
+}
+
 static quantapdf_local_id media_upper_right_x(const quantapdf_graph_model *model)
 {
     auto pages = quantapdf_graph_find(model, model->catalog, "/Pages", 6);
@@ -291,6 +323,7 @@ int main()
 {
     test_inherited_geometry();
     test_overrides_and_noncanonical();
+    test_crop_media_intersection_policy();
     test_selected_version();
     test_snapshot_to_composer();
 }
