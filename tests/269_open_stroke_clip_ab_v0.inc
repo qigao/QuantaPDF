@@ -212,6 +212,29 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
         for(size_t y=0;y<50u;++y)std::fprintf(out,"%s%zu",y?",":"",err_rows[i][y]);
         std::fprintf(out,"],\"error_cols\":[");
         for(size_t x=0;x<100u;++x)std::fprintf(out,"%s%zu",x?",":"",err_cols[i][x]);
+        std::fprintf(out,"],\"mismatch_pixels\":[");
+        bool first_mismatch=true;
+        for(size_t p=0;p<P;++p){
+            bool mismatch=false;
+            for(unsigned ch=0;ch<3u;++ch)
+                mismatch|=rows[i].ref_rgb[p*3u+ch]!=native_white(rows[i],p,ch);
+            if(!mismatch)continue;
+            if(!first_mismatch)std::fprintf(out,",");
+            first_mismatch=false;
+            std::fprintf(out,"{\"x\":%zu,\"y\":%zu,\"reference_rgb\":[%u,%u,%u],"
+              "\"native_rgb_on_white\":[%u,%u,%u],\"native_rgba\":[%u,%u,%u,%u]}",
+              p%100u,p/100u,
+              (unsigned)rows[i].ref_rgb[p*3u],
+              (unsigned)rows[i].ref_rgb[p*3u+1u],
+              (unsigned)rows[i].ref_rgb[p*3u+2u],
+              (unsigned)native_white(rows[i],p,0u),
+              (unsigned)native_white(rows[i],p,1u),
+              (unsigned)native_white(rows[i],p,2u),
+              (unsigned)rows[i].native_rgba[p*4u],
+              (unsigned)rows[i].native_rgba[p*4u+1u],
+              (unsigned)rows[i].native_rgba[p*4u+2u],
+              (unsigned)rows[i].native_rgba[p*4u+3u]);
+        }
         std::fprintf(out,"],\"error_map\":[");
         for(size_t y=0;y<50u;++y){
             std::fprintf(out,"%s\"",y?",":"");
