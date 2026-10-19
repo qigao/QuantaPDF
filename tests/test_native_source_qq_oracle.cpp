@@ -1770,6 +1770,16 @@ int test_external_pdfium_clip_stroke(const char *filename,
         "  \"document_id\": \"pdfium.clip-path-v1\",\n"
         "  \"fixture_kind\": \"external\",\n"
         "  \"reference_oracle\": \"original-pdfium\",\n"
+        "  \"reference_implementation\": \"direct_pdfium_api\",\n"
+        "  \"reference_independence_verified\": true,\n"
+        "  \"pdfium_bitmap_format\": \"FPDFBitmap_BGR normalized to RGB\",\n"
+        "  \"pdfium_bitmap_width\": %zu,\n"
+        "  \"pdfium_bitmap_height\": %zu,\n"
+        "  \"pdfium_bitmap_rgb_stride\": %zu,\n"
+        "  \"pdfium_background\": \"opaque white\",\n"
+        "  \"pdfium_render_flags\": \"FPDF_ANNOT\",\n"
+        "  \"direct_pdfium_repeat_identical\": true,\n"
+        "  \"native_repeat_rgba_identical\": true,\n"
         "  \"native_expected_outcome\": \"supported-clipped-stroke\",\n"
         "  \"native_observed_outcome\": \"supported-clipped-stroke\",\n"
         "  \"pdfium_result\": \"rendered_clipped_blue_stroke\",\n"
@@ -1791,6 +1801,7 @@ int test_external_pdfium_clip_stroke(const char *filename,
         "  \"generated_fixture_count\": 0,\n"
         "  \"result\": \"passed\"\n"
         "}\n",WIDTH,HEIGHT,mean,gross,
+        WIDTH,HEIGHT,(size_t)reference.stride,
         reference_ink,native_ink,common_ink,signed_json.c_str());
     CHECK(std::ferror(report)==0);
     CHECK(std::fclose(report)==0);
