@@ -183,4 +183,19 @@ list(LENGTH seen unique_count)
 if(NOT unique_count EQUAL 3)
   message(FATAL_ERROR "Open Stroke sources are not distinct")
 endif()
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+execute_process(
+  COMMAND "\${Python3_EXECUTABLE}"
+    "\${CMAKE_CURRENT_LIST_DIR}/check_269_open_stroke_clip_ab_pixels.py"
+    "\${REPORT}"
+  RESULT_VARIABLE pixel_rc
+  OUTPUT_VARIABLE pixel_stdout
+  ERROR_VARIABLE pixel_stderr
+  TIMEOUT 45)
+if(NOT pixel_rc STREQUAL "0")
+  message(FATAL_ERROR
+    "Open Stroke per-pixel diagnostic validation failed rc=\${pixel_rc}\n"
+    "\${pixel_stdout}\n\${pixel_stderr}")
+endif()
+message(STATUS "\${pixel_stdout}")
 message(STATUS "Open-line Stroke A/B passed: no Clip == full-page W in PDFium and Native; restrictive W changes both; diagnostic only.")
