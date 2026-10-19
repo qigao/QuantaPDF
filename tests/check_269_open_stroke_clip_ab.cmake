@@ -13,6 +13,21 @@ if(NOT rc STREQUAL "0" OR NOT EXISTS "${REPORT}")
   message(FATAL_ERROR "Open Stroke/Clip A/B failed rc=${rc}\n${stdout}\n${stderr}")
 endif()
 file(READ "${REPORT}" report)
+string(JSON oracle_route GET "${report}" reference_render_route)
+string(JSON oracle_independent GET "${report}" reference_is_independent_pdfium_oracle)
+string(JSON oracle_verified GET "${report}" reference_independence_verified)
+string(JSON pdfium_width GET "${report}" pdfium_bitmap_width)
+string(JSON pdfium_height GET "${report}" pdfium_bitmap_height)
+string(JSON pdfium_stride GET "${report}" pdfium_bitmap_rgb_stride)
+string(JSON repeat_pdfium GET "${report}" direct_pdfium_repeat_identical)
+string(JSON repeat_native GET "${report}" native_repeat_rgba_identical)
+string(JSON source_unchanged GET "${report}" source_bytes_unchanged_after_reference_and_native)
+if(NOT oracle_route STREQUAL "direct_pdfium_api" OR NOT oracle_independent OR
+   NOT oracle_verified OR NOT pdfium_width EQUAL 100 OR
+   NOT pdfium_height EQUAL 50 OR NOT pdfium_stride EQUAL 300 OR
+   NOT repeat_pdfium OR NOT repeat_native OR NOT source_unchanged)
+  message(FATAL_ERROR "Open Stroke report lacks verified direct-PDFium provenance/repeat/source invariants")
+endif()
 foreach(k IN ITEMS
     open_line_only
     no_clip_and_fullpage_w_reference_equal
