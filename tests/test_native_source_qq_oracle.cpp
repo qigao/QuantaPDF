@@ -141,6 +141,31 @@ quantapdf_status snapshot_lower(quantapdf_ir *out,
 rgb_image render_public_reference(size_t page_index=0u,
                                 const char *source_path=SOURCE_QQ_PDF)
 {
+    rgb_image out;
+    quantapdf_document *doc=nullptr;
+    quantapdf_page *page=nullptr;
+    quantapdf_bitmap *bitmap=nullptr;
+    const unsigned char *bytes=nullptr;
+    size_t size=0u;
+    OK(quantapdf_open(source_path,nullptr,&doc));
+    OK(quantapdf_load_page(doc,page_index,&page));
+    OK(quantapdf_render_page(page,&bitmap));
+    OK(quantapdf_bitmap_dimensions(bitmap,&out.width,&out.height,
+                                   &out.stride,&out.components));
+    OK(quantapdf_bitmap_data(bitmap,&bytes,&size));
+    CHECK(out.width>0 && out.height>0 &&
+          out.components==3 && out.stride >= out.width*3 &&
+          size >= (size_t)out.height * (size_t)out.stride);
+    out.pixels.assign(bytes, bytes + (size_t)out.height*(size_t)out.stride);
+    quantapdf_drop_bitmap(bitmap);
+    quantapdf_drop_page(page);
+    quantapdf_close(doc);
+    return out;
+}
+
+rgb_image render_direct_pdfium_reference(size_t page_index=0u,
+                                const char *source_path=SOURCE_QQ_PDF)
+{
     /* Test-only independent oracle. Open and render the original PDF through
      * PDFium's public C API; do not enter QuantaPDF's document, Graph,
      * Composer, or production renderer path for reference pixels. */
