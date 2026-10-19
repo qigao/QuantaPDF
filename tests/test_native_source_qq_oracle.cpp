@@ -1661,21 +1661,18 @@ int test_external_pdfium_clip_stroke(const char *filename,
     if(std::remove(pending.c_str())!=0) CHECK(errno==ENOENT);
     CHECK(corpus_fixture_executions==0u);
     constexpr size_t WIDTH=100u, HEIGHT=50u;
-    quantapdf_document *source_pdfium=nullptr;
-    quantapdf_page *source_page=nullptr;
-    quantapdf_bitmap *source_bitmap=nullptr;
-    const unsigned char *rgb=nullptr;
-    size_t image_bytes=0u;
-    int width=0,height=0,stride=0,components=0;
-    OK(quantapdf_open(filename,nullptr,&source_pdfium));
-    OK(quantapdf_load_page(source_pdfium,0u,&source_page));
-    OK(quantapdf_render_page(source_page,&source_bitmap));
-    OK(quantapdf_bitmap_dimensions(source_bitmap,
-        &width,&height,&stride,&components));
-    OK(quantapdf_bitmap_data(source_bitmap,&rgb,&image_bytes));
-    CHECK(width==(int)WIDTH && height==(int)HEIGHT &&
-          components==3 && stride>=(int)WIDTH*3 && rgb &&
-          image_bytes>=HEIGHT*(size_t)stride);
+    /* The reference is the unchanged original PDF rendered directly through
+     * PDFium's C API, not QuantaPDF's public renderer. Repeat the complete
+     * direct render and require byte-identical normalized RGB. */
+    const rgb_image reference=render_direct_pdfium_reference(0u,filename);
+    const rgb_image reference_repeat=render_direct_pdfium_reference(0u,filename);
+    CHECK(reference.width==(int)WIDTH && reference.height==(int)HEIGHT &&
+          reference.components==3 && reference.stride==(int)WIDTH*3 &&
+          reference.pixels.size()==HEIGHT*(size_t)reference.stride);
+    CHECK(reference_repeat.width==reference.width &&
+          reference_repeat.height==reference.height &&
+          reference_repeat.stride==reference.stride &&
+          reference_repeat.pixels==reference.pixels);
 
     quantapdf_document *source=nullptr;
     quantapdf_graph_snapshot *snapshot=nullptr;
@@ -1727,7 +1724,7 @@ int test_external_pdfium_clip_stroke(const char *filename,
     qp377_external_signed_ink_v0 signed_ink{};
     for(size_t y=0u;y<HEIGHT;++y)for(size_t x=0u;x<WIDTH;++x){
         const unsigned char *a=native.pixels+y*native.stride+4u*x;
-        const unsigned char *b=rgb+y*(size_t)stride+3u*x;
+        const unsigned char *b=reference.at(x,y);
         signed_ink.observe(a,b,true);
         unsigned worst=0u;
         unsigned red=on_white(a,0u),green=on_white(a,1u),
@@ -1763,9 +1760,6 @@ int test_external_pdfium_clip_stroke(const char *filename,
     CHECK(native.pixels[0u+3u]==0u);
     CHECK(native.pixels[(25u*WIDTH+25u)*4u+3u]==0u);
     quantapdf_ir_raster_image_dispose(&native);
-    quantapdf_drop_bitmap(source_bitmap);
-    quantapdf_drop_page(source_page);
-    quantapdf_close(source_pdfium);
     CHECK(corpus_fixture_executions==0u);
     FILE *report=std::fopen(pending.c_str(),"wb");
     CHECK(report!=nullptr);
