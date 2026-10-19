@@ -82,8 +82,8 @@ static qp378_real_pair qp378_capture(
     out.source_fnv=decimal360_fnv64(original);
 
     /* Two ORIGINAL PDFium references, rendered independently of Native. */
-    const rgb_image reference=render_original_pdfium(0u,source);
-    const rgb_image again=render_original_pdfium(0u,source);
+    const rgb_image reference=render_public_reference(0u,source);
+    const rgb_image again=render_public_reference(0u,source);
     CHECK(reference.width==(int)W && reference.height==(int)H &&
           reference.components==3 && reference.stride>=3*(int)W &&
           reference.pixels.size()>=(size_t)reference.stride*H &&
