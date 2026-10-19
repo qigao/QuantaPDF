@@ -9752,7 +9752,7 @@ static int test_generated_unit7_fill_extent_heldout(
                 const auto up=[](double value) {
                     return (int)std::ceil(value);
                 };
-                const auto near=[](double value) {
+                const auto nearest_integer=[](double value) {
                     return (int)std::floor(value+0.5);
                 };
                 /* 0 fitted outward, 1 fitted all-floor,
@@ -9769,7 +9769,7 @@ static int test_generated_unit7_fill_extent_heldout(
                     b[lo]=down(fit[lo]);b[hi]=down(fit[hi]);
                     c[lo]=down(fit[lo]);
                     c[hi]=c[lo]+up(stable_integer(fit[hi]-fit[lo]));
-                    d[lo]=near(fit[lo]);
+                    d[lo]=nearest_integer(fit[lo]);
                     d[hi]=d[lo]+up(stable_integer(fit[hi]-fit[lo]));
                     e[lo]=down(nom[lo]);e[hi]=up(nom[hi]);
                 }
