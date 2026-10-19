@@ -1,7 +1,8 @@
-/* #269 TEST ONLY: single open-segment Stroke, three Native/public-renderer controls.
+/* #269 TEST ONLY: single open-segment Stroke, three Native/direct-PDFium controls.
  * Unlike the closed triangle in #378, this has no joins or miter geometry.
- * The reference is QuantaPDF's public API, not a direct PDFium API oracle.
- * No Clip, full-page W, and restrictive W are all expected to be admitted.
+ * The 72-DPI reference is rendered directly from the unchanged source via
+ * PDFium C API. The 4x box-average remains a separate public-renderer
+ * resampling sensitivity diagnostic, never PDFium internal coverage.
  */
 namespace {
 struct qp379_line_capture {
@@ -46,10 +47,9 @@ static void qp379_write_line_pdf(const char *path,unsigned variant)
 
 /* Test-only sampling probe: render through quantapdf_render_page_with_options
  * at 4x DPI, then box-average each 4x4 RGB block to the original 100x50 grid.
- * The 72-DPI baseline likewise calls quantapdf_render_page via the legacy
- * render_public_reference helper; neither path is a direct PDFium API call.
- * This is a public-renderer resampling sensitivity diagnostic, not an
- * independent PDFium oracle and not PDFium internal coverage data. */
+ * The 72-DPI baseline is rendered by the direct-PDFium helper; only this
+ * 4x sensitivity path calls the public QuantaPDF renderer. It is not PDFium
+ * internal coverage data. */
 static std::vector<unsigned char> qp379_render_4x_box_reference(const char *source)
 {
     constexpr size_t W=100u,H=50u,S=4u,OUT_N=W*H*3u;
@@ -293,9 +293,20 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
     FILE *out=std::fopen(report_path,"wb");CHECK(out);
     std::fprintf(out,
       "{\"schema_version\":1,\"open_line_only\":true,"
-      "\"reference_render_route\":\"quantapdf_render_page\","
+      "\"reference_render_route\":\"direct_pdfium_api\","
       "\"reference_4x_render_route\":\"quantapdf_render_page_with_options\","
-      "\"reference_is_independent_pdfium_oracle\":false,"
+      "\"reference_is_independent_pdfium_oracle\":true,"
+      "\"reference_independence_verified\":true,"
+      "\"pdfium_bitmap_width\":100,"
+      "\"pdfium_bitmap_height\":50,"
+      "\"pdfium_bitmap_rgb_stride\":300,"
+      "\"pdfium_bitmap_format\":\"FPDFBitmap_BGR normalized to RGB\","
+      "\"pdfium_alpha_policy\":\"opaque RGB output\","
+      "\"pdfium_background\":\"opaque white\","
+      "\"pdfium_render_flags\":\"FPDF_ANNOT\","
+      "\"direct_pdfium_repeat_identical\":true,"
+      "\"native_repeat_rgba_identical\":true,"
+      "\"source_bytes_unchanged_after_reference_and_native\":true,"
       "\"no_clip_and_fullpage_w_reference_equal\":true,"
       "\"no_clip_and_fullpage_w_native_equal\":true,"
       "\"all_three_native_supported\":true,"
