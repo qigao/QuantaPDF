@@ -26,6 +26,7 @@ for idx, p in enumerate(pixels):
     if p.get("case") != expected_case:
         raise SystemExit(f"pixel {idx}: case/order mismatch")
     x, y = p.get("x"), p.get("y")
+    y_band = f"y{(y // 10) * 10}-{(y // 10) * 10 + 9}"
     if (x, y) != (x_expected, y_expected):
         raise SystemExit(f"pixel {idx}: missing, duplicate, or out-of-order coordinate")
     case_counts[expected_case] += 1
@@ -76,10 +77,9 @@ for idx, p in enumerate(pixels):
     alpha_minus_prediction = alpha - predicted_alpha
     if alpha_minus_prediction:
         prediction_mismatch_pixels += 1
-    if any(residual) or alpha_minus_prediction:
-        prediction_groups[(expected_case, y_band if "y_band" in locals() else f"y{(y // 10) * 10}-{(y // 10) * 10 + 9}",
-                          p["sample_hits_4x4_after_predicted_clip"],
-                          p["endpoint_region"])].append(alpha_minus_prediction)
+    prediction_groups[(expected_case, y_band,
+                       p["sample_hits_4x4_after_predicted_clip"],
+                       p["endpoint_region"])].append(alpha_minus_prediction)
     if p.get("coverage_residual_alpha_minus_proxy") != coverage_residual:
         raise SystemExit(f"{expected_case} ({x},{y}): coverage residual mismatch")
 
@@ -87,7 +87,6 @@ for idx, p in enumerate(pixels):
     row = data["cases"][case_i]["error_map"][y]
     if (row[x] == "X") != mismatch:
         raise SystemExit(f"{expected_case} ({x},{y}): pixel data disagrees with mismatch map")
-    y_band = f"y{(y // 10) * 10}-{(y // 10) * 10 + 9}"
     if clip_state != "restrictive_w":
         clip_relation = "not_restrictive"
     else:
