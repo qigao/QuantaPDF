@@ -212,9 +212,44 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
         for(size_t y=0;y<50u;++y)std::fprintf(out,"%s%zu",y?",":"",err_rows[i][y]);
         std::fprintf(out,"],\"error_cols\":[");
         for(size_t x=0;x<100u;++x)std::fprintf(out,"%s%zu",x?",":"",err_cols[i][x]);
+        std::fprintf(out,"],\"error_map\":[");
+        for(size_t y=0;y<50u;++y){
+            std::fprintf(out,"%s\"",y?",":"");
+            for(size_t x=0;x<100u;++x){
+                const size_t p=y*100u+x;
+                bool mismatch=false;
+                for(unsigned ch=0;ch<3u;++ch)
+                    mismatch|=rows[i].ref_rgb[p*3u+ch]!=native_white(rows[i],p,ch);
+                std::fputc(mismatch?'X':'.',out);
+            }
+            std::fputc('\"',out);
+        }
         std::fprintf(out,"]}");
     }
-    std::fprintf(out,"],\"restrictive_w_reference_changed_rows\":[");
+    auto write_clip_map=[&](bool reference){
+        std::fprintf(out,"[");
+        for(size_t y=0;y<50u;++y){
+            std::fprintf(out,"%s\"",y?",":"");
+            for(size_t x=0;x<100u;++x){
+                const size_t p=y*100u+x;
+                bool changed=false;
+                for(unsigned ch=0;ch<3u;++ch){
+                    if(reference)
+                        changed|=rows[0].ref_rgb[p*3u+ch]!=rows[2].ref_rgb[p*3u+ch];
+                    else
+                        changed|=native_white(rows[0],p,ch)!=native_white(rows[2],p,ch);
+                }
+                std::fputc(changed?'X':'.',out);
+            }
+            std::fputc('\"',out);
+        }
+        std::fprintf(out,"]");
+    };
+    std::fprintf(out,"],\"restrictive_w_reference_changed_map\":");
+    write_clip_map(true);
+    std::fprintf(out,",\"restrictive_w_native_changed_map\":");
+    write_clip_map(false);
+    std::fprintf(out,",\"restrictive_w_reference_changed_rows\":[");
     for(size_t y=0;y<50u;++y)std::fprintf(out,"%s%zu",y?",":"",ref_clip_rows[y]);
     std::fprintf(out,"],\"restrictive_w_reference_changed_cols\":[");
     for(size_t x=0;x<100u;++x)std::fprintf(out,"%s%zu",x?",":"",ref_clip_cols[x]);
