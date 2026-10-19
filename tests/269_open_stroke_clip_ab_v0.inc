@@ -43,6 +43,46 @@ static void qp379_write_line_pdf(const char *path,unsigned variant)
     CHECK(std::fclose(out)==0);
 }
 
+/* Test-only sampling probe: render PDFium-backed public output at 4x DPI,
+ * then box-average each 4x4 RGB block to the original 100x50 grid. This is
+ * explicitly a resampling sensitivity diagnostic, not PDFium coverage data. */
+static std::vector<unsigned char> qp379_render_4x_box_reference(const char *source)
+{
+    constexpr size_t W=100u,H=50u,S=4u,OUT_N=W*H*3u;
+    quantapdf_document *doc=nullptr;
+    quantapdf_page *page=nullptr;
+    quantapdf_bitmap *bitmap=nullptr;
+    const unsigned char *bytes=nullptr;
+    size_t size=0u;
+    int width=0,height=0,stride=0,components=0;
+    quantapdf_render_options options{};
+    options.struct_size=sizeof(options);
+    options.dpi=288.0f;
+    options.rotation_degrees=0.0f;
+    options.clip_enabled=0;
+    options.alpha=0;
+    OK(quantapdf_open(source,nullptr,&doc));
+    OK(quantapdf_load_page(doc,0u,&page));
+    OK(quantapdf_render_page_with_options(page,&options,&bitmap));
+    OK(quantapdf_bitmap_dimensions(bitmap,&width,&height,&stride,&components));
+    OK(quantapdf_bitmap_data(bitmap,&bytes,&size));
+    CHECK(width==(int)(W*S) && height==(int)(H*S) && components==3 &&
+          stride>=width*3 && size>=(size_t)stride*(size_t)height);
+    std::vector<unsigned char> out(OUT_N);
+    for(size_t y=0;y<H;++y)for(size_t x=0;x<W;++x)for(size_t c=0;c<3u;++c){
+        unsigned sum=0u;
+        for(size_t sy=0;sy<S;++sy)for(size_t sx=0;sx<S;++sx){
+            const size_t hi_x=x*S+sx,hi_y=y*S+sy;
+            sum+=(unsigned)bytes[hi_y*(size_t)stride+hi_x*3u+c];
+        }
+        out[(y*W+x)*3u+c]=(unsigned char)((sum+8u)/16u);
+    }
+    quantapdf_drop_bitmap(bitmap);
+    quantapdf_drop_page(page);
+    quantapdf_close(doc);
+    return out;
+}
+
 static qp379_line_capture qp379_capture_line(const char *source,
                                               unsigned expected_clips)
 {
