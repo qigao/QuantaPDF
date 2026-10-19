@@ -5,6 +5,7 @@
 namespace {
 struct qp379_line_capture {
     std::vector<unsigned char> ref_rgb;
+    std::vector<unsigned char> ref_rgb_4x_box;
     std::vector<unsigned char> native_rgba;
     uint64_t source_fnv=0u;
 };
@@ -59,6 +60,8 @@ static qp379_line_capture qp379_capture_line(const char *source,
     out.ref_rgb.resize(P*3u);
     for(size_t y=0;y<H;++y)
         std::memcpy(out.ref_rgb.data()+y*W*3u,ref.at(0u,y),W*3u);
+    out.ref_rgb_4x_box=qp379_render_4x_box_reference(source);
+    CHECK(out.ref_rgb_4x_box.size()==P*3u);
 
     quantapdf_ir detached{};
     OK(snapshot_lower(&detached,0u,1u,2u,source));
@@ -166,6 +169,7 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
     const size_t rgb_n=P*3u,rgba_n=P*4u;
     for(unsigned i=0;i<3u;++i)
         CHECK(rows[i].ref_rgb.size()==rgb_n &&
+              rows[i].ref_rgb_4x_box.size()==rgb_n &&
               rows[i].native_rgba.size()==rgba_n);
     auto native_white=[](const qp379_line_capture& r,size_t p,unsigned c) {
         return (unsigned char)on_white(&r.native_rgba[p*4u],c);
