@@ -9,6 +9,13 @@ if len(sys.argv) != 2:
     raise SystemExit("usage: check_269_open_stroke_clip_ab_pixels.py REPORT.json")
 report_path = Path(sys.argv[1])
 data = json.loads(report_path.read_text(encoding="utf-8"))
+if data.get("reference_render_route") != "quantapdf_render_page":
+    raise SystemExit("reference_render_route must identify the public 72-DPI renderer path")
+if data.get("reference_4x_render_route") != "quantapdf_render_page_with_options":
+    raise SystemExit("reference_4x_render_route must identify the public high-DPI renderer path")
+if data.get("reference_is_independent_pdfium_oracle") is not False:
+    raise SystemExit("reference must not be misrepresented as an independent PDFium oracle")
+
 pixels = data.get("per_pixel_diagnostic")
 if not isinstance(pixels, list) or len(pixels) != 3 * 100 * 50:
     raise SystemExit("per_pixel_diagnostic must contain exactly 15000 pixels")
