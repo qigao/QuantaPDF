@@ -25,6 +25,15 @@
 
 #include <fpdfview.h>
 
+/* Keep Windows SDK min/max macros from corrupting std::numeric_limits<T>::max()
+ * and std::min/std::max expressions in this large test translation unit. */
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
+
 #include <cerrno>
 #include <algorithm>
 #include <cmath>
