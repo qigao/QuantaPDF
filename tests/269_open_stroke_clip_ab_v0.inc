@@ -188,18 +188,20 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
     size_t err_rows[3][50]{},err_cols[3][100]{};
     for(unsigned i=0;i<3u;++i){
         for(size_t p=0;p<P;++p){
-            bool pixel_error=false;
+            bool pixel_error=false,highres_changed=false,native_highres_error=false;
             for(unsigned c=0;c<3u;++c){
                 const int a=rows[i].ref_rgb[p*3u+c];
                 const int b=(int)native_white(rows[i],p,c);
                 pixel_error|=a!=b;
                 rgb_abs[i]+=(uint64_t)std::abs(a-b);
                 const int hi=(int)rows[i].ref_rgb_4x_box[p*3u+c];
-                if(a!=hi && c==0u)++highres_changed_vs_72[i];
+                highres_changed|=a!=hi;
+                native_highres_error|=b!=hi;
                 highres_rgb_abs_vs_72[i]+=(uint64_t)std::abs(a-hi);
-                if(b!=hi && c==0u)++native_errors_vs_highres[i];
                 native_rgb_abs_vs_highres[i]+=(uint64_t)std::abs(b-hi);
             }
+            if(highres_changed)++highres_changed_vs_72[i];
+            if(native_highres_error)++native_errors_vs_highres[i];
             if(pixel_error){
                 const size_t x=p%100u,y=p/100u;
                 if(x<err_min_x[i])err_min_x[i]=x;
@@ -373,6 +375,7 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
               "\"signed_rgb_residual\":[%d,%d,%d],"
               "\"coverage_proxy_approximate\":true,\"coverage_proxy_255_minus_reference_red\":%u,"
               "\"coverage_residual_alpha_minus_proxy\":%d,"
+              "\"reference_4x_box_is_resampling_diagnostic\":true,"
               "\"reference_4x_box_rgb\":[%u,%u,%u],"
               "\"native_minus_4x_box_rgb\":[%d,%d,%d]}",
               i==0u?"no_clip":i==1u?"fullpage_w":"restrictive_w",x,y,
