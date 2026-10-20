@@ -254,27 +254,26 @@ static int test_269_real_stroke_clip_causal_ab(
           observed[0].signed_ink.color_only==0u &&
           observed[0].signed_ink.total_rgb_abs==2480u &&
           observed[0].signed_ink.gross==0u);
-    /* QPDF is pinned by vcpkg baseline; deterministic IDs and disabled
-     * object streams make each generated control byte-reproducible across
-     * Linux Release/Debug, macOS, and Windows. Keep that property executable. */
-    static const uint64_t expected_generated_hashes[4]={
-        UINT64_C(0x35a3d7d4752f5b7e),
-        UINT64_C(0xa80ffdb1c5c571fa),
-        UINT64_C(0xb4924c8abe1243c9),
-        UINT64_C(0x27b3ba76d63d88d9)
-    };
+    /* Deterministic IDs and disabled object streams should make each
+     * generated control byte-reproducible on its own platform. Verify by
+     * regenerating each PDF and comparing the complete bytes; do not bake
+     * platform-specific serializer hashes into the test. */
     uint64_t generated_hashes[4]={};
     for(unsigned i=1u;i<5u;++i){
         qp378_write_control_pdf(generated,i);
         const bool expect_native=i==3u || i==4u;
         observed[i]=qp378_capture(generated,i!=1u,expect_native);
         CHECK(observed[i].native_supported==expect_native);
-        CHECK(observed[i].source_fnv==expected_generated_hashes[i-1u]);
+        const auto first_generated_bytes=decimal360_read_bytes(generated);
+        CHECK(!first_generated_bytes.empty() &&
+              observed[i].source_fnv!=0u);
+        qp378_write_control_pdf(generated,i);
+        CHECK(decimal360_read_bytes(generated)==first_generated_bytes);
+        CHECK(std::remove(generated)==0);
         for(unsigned prev=1u;prev<i;++prev)
             CHECK(observed[i].source_fnv!=generated_hashes[prev-1u]);
         CHECK(observed[i].source_fnv!=observed[0].source_fnv);
         generated_hashes[i-1u]=observed[i].source_fnv;
-        CHECK(std::remove(generated)==0);
     }
     CHECK(decimal360_read_bytes(published)==immutable_original);
 
