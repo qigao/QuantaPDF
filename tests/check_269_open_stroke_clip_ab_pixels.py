@@ -43,6 +43,11 @@ case_records = data.get("cases")
 if not isinstance(case_records, list) or len(case_records) != 3:
     raise SystemExit("expected three source records with SHA-256 provenance")
 for case in case_records:
+    size_before = case.get("source_size_bytes_before")
+    size_after = case.get("source_size_bytes_after")
+    if (not isinstance(size_before, int) or not 0 < size_before <= 8192 or
+            not isinstance(size_after, int) or size_after != size_before):
+        raise SystemExit(f"{case.get('name')}: source PDF byte size changed or is invalid")
     before = case.get("source_sha256_before")
     after = case.get("source_sha256_after")
     if (not isinstance(before, str) or len(before) != 64 or
