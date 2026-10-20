@@ -22,12 +22,22 @@ try:
                       object_pairs_hook=reject_duplicate_keys)
 except ValueError as exc:
     raise SystemExit(f"invalid report JSON: {exc}")
-if data.get("reference_render_route") != "quantapdf_render_page":
-    raise SystemExit("reference_render_route must identify the public 72-DPI renderer path")
+if data.get("reference_render_route") != "direct_pdfium_api":
+    raise SystemExit("reference_render_route must identify the direct PDFium C API")
 if data.get("reference_4x_render_route") != "quantapdf_render_page_with_options":
-    raise SystemExit("reference_4x_render_route must identify the public high-DPI renderer path")
-if data.get("reference_is_independent_pdfium_oracle") is not False:
-    raise SystemExit("reference must not be misrepresented as an independent PDFium oracle")
+    raise SystemExit("the 4x sensitivity path must identify the public high-DPI renderer")
+if data.get("reference_is_independent_pdfium_oracle") is not True:
+    raise SystemExit("reference must be verified as an independent direct-PDFium oracle")
+if data.get("reference_independence_verified") is not True:
+    raise SystemExit("direct-PDFium independence verification is missing")
+if data.get("pdfium_bitmap_width") != 100 or data.get("pdfium_bitmap_height") != 50 or data.get("pdfium_bitmap_rgb_stride") != 300:
+    raise SystemExit("direct-PDFium bitmap dimensions/stride mismatch")
+if data.get("pdfium_bitmap_format") != "FPDFBitmap_BGR normalized to RGB" or data.get("pdfium_background") != "opaque white" or data.get("pdfium_render_flags") != "FPDF_ANNOT":
+    raise SystemExit("direct-PDFium bitmap/render metadata mismatch")
+if data.get("direct_pdfium_repeat_identical") is not True or data.get("native_repeat_rgba_identical") is not True:
+    raise SystemExit("reference/Native repeated-render identity check missing")
+if data.get("source_bytes_unchanged_after_reference_and_native") is not True:
+    raise SystemExit("source-byte invariance check missing")
 
 pixels = data.get("per_pixel_diagnostic")
 if not isinstance(pixels, list) or len(pixels) != 3 * 100 * 50:
