@@ -1650,6 +1650,20 @@ void test_page_group_admission()
 /* Original independent upstream PDF: W n rectangular clip and a solid
  * one-pixel closed blue stroked triangle, no text or image. Neither this
  * source nor the public-renderer reference is manufactured from detached Composer IR. */
+std::vector<unsigned char> read_external_source_bytes(const char *filename)
+{
+    FILE *file=std::fopen(filename,"rb");
+    if(!file) return {};
+    if(std::fseek(file,0,SEEK_END)!=0){std::fclose(file);return {};}
+    const long length=std::ftell(file);
+    if(length<0 || std::fseek(file,0,SEEK_SET)!=0){std::fclose(file);return {};}
+    std::vector<unsigned char> bytes((size_t)length);
+    const size_t read=bytes.empty()?0u:std::fread(bytes.data(),1u,bytes.size(),file);
+    const bool ok=read==bytes.size() && std::ferror(file)==0;
+    if(std::fclose(file)!=0 || !ok) return {};
+    return bytes;
+}
+
 int test_external_pdfium_clip_stroke(const char *filename,
                                     const char *report_path)
 {
@@ -1664,7 +1678,7 @@ int test_external_pdfium_clip_stroke(const char *filename,
     /* Guard the actual external source bytes as well as repeating the
      * independent PDFium render. This detects accidental mutation by either
      * oracle or Native processing without relying on a digest implementation. */
-    const auto source_bytes_before=decimal360_read_bytes(filename);
+    const auto source_bytes_before=read_external_source_bytes(filename);
     CHECK(!source_bytes_before.empty() && source_bytes_before.size()<=8192u);
     /* The reference is the unchanged original PDF rendered directly through
      * PDFium's C API, not QuantaPDF's public renderer. Repeat the complete
@@ -1764,7 +1778,7 @@ int test_external_pdfium_clip_stroke(const char *filename,
           common_ink*2u>=reference_ink);
     CHECK(native.pixels[0u+3u]==0u);
     CHECK(native.pixels[(25u*WIDTH+25u)*4u+3u]==0u);
-    const auto source_bytes_after=decimal360_read_bytes(filename);
+    const auto source_bytes_after=read_external_source_bytes(filename);
     CHECK(source_bytes_after==source_bytes_before &&
           source_bytes_after.size()==source_bytes_before.size());
     quantapdf_ir_raster_image_dispose(&native);
