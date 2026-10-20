@@ -63,6 +63,8 @@ static void qp378_write_control_pdf(const char *path,unsigned variant)
     page.replaceKey("/Contents",pdf->newStream(commands));
     QPDFWriter writer(*pdf);
     writer.setMinimumPDFVersion("1.7");
+    writer.setDeterministicID(true);
+    writer.setObjectStreamMode(qpdf_o_disable);
     writer.setOutputMemory();
     writer.write();
     auto data=writer.getBufferSharedPointer();
