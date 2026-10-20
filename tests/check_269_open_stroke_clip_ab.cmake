@@ -6,7 +6,8 @@ foreach(arg IN ITEMS ORACLE REPORT)
   endif()
 endforeach()
 file(REMOVE "${REPORT}" "${REPORT}.tmp")
-# Seed a stale staging file to prove the oracle removes it before writing.
+# Seed stale destination and staging files to prove fail-closed startup cleanup.
+file(WRITE "${REPORT}" "stale published report\n")
 file(WRITE "${REPORT}.tmp" "stale partial report\n")
 execute_process(
   COMMAND "${ORACLE}" --269-open-stroke-clip-ab unused --open-stroke-report "${REPORT}"
