@@ -96,6 +96,7 @@ def independent_prediction(x, y, case_i):
 
 case_names = ("no_clip", "fullpage_w", "restrictive_w")
 case_counts = {name: 0 for name in case_names}
+pixel_metrics = {name: {"different_pixels": 0, "rgb_abs": 0} for name in case_names}
 case_masks = {name: set() for name in case_names}
 groups = defaultdict(list)
 prediction_groups = defaultdict(list)
@@ -193,6 +194,8 @@ for idx, p in enumerate(pixels):
     metrics["native_abs"] += sum(abs(native[c] - highres[c]) for c in range(3))
 
     mismatch = any(v != 0 for v in residual)
+    pixel_metrics[expected_case]["different_pixels"] += int(mismatch)
+    pixel_metrics[expected_case]["rgb_abs"] += sum(abs(v) for v in residual)
     row = data["cases"][case_i]["error_map"][y]
     if (row[x] == "X") != mismatch:
         raise SystemExit(f"{expected_case} ({x},{y}): pixel data disagrees with mismatch map")
@@ -219,6 +222,11 @@ for case in case_names:
 
 for case_i, case in enumerate(case_names):
     recorded = data["cases"][case_i]
+    actual_pixels = pixel_metrics[case]
+    if recorded.get("different_pixels") != actual_pixels["different_pixels"]:
+        raise SystemExit(f"{case}: different_pixels summary disagrees with all 5000 per-pixel residuals")
+    if recorded.get("rgb_abs") != actual_pixels["rgb_abs"]:
+        raise SystemExit(f"{case}: rgb_abs summary disagrees with all 5000 per-pixel residuals")
     metrics = highres_metrics[case]
     expected_fields = {
         "reference_4x_box_changed_pixels_vs_72dpi": metrics["changed"],
