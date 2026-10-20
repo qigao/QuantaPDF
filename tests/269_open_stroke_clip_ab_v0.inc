@@ -62,6 +62,8 @@ struct qp379_line_capture {
     uint64_t source_fnv=0u;
     std::string source_sha256_before;
     std::string source_sha256_after;
+    size_t source_size_bytes_before=0u;
+    size_t source_size_bytes_after=0u;
 };
 static const char *const qp379_line_paint =
     "0 0 1 RG\n10 10 m\n40 35 l\nS\n";
@@ -150,6 +152,7 @@ static qp379_line_capture qp379_capture_line(const char *source,
     qp379_line_capture out{};
     out.source_fnv=decimal360_fnv64(original);
     out.source_sha256_before=qp379_sha256(original);
+    out.source_size_bytes_before=original.size();
     const rgb_image ref=render_direct_pdfium_reference(0u,source);
     const rgb_image ref_again=render_direct_pdfium_reference(0u,source);
     CHECK(ref.width==(int)W && ref.height==(int)H && ref.components==3 &&
@@ -198,7 +201,9 @@ static qp379_line_capture qp379_capture_line(const char *source,
     quantapdf_ir_dispose(&detached);
     const auto final_bytes=decimal360_read_bytes(source);
     out.source_sha256_after=qp379_sha256(final_bytes);
-    CHECK(final_bytes==original && out.source_sha256_before==out.source_sha256_after);
+    out.source_size_bytes_after=final_bytes.size();
+    CHECK(final_bytes==original && out.source_size_bytes_before==out.source_size_bytes_after &&
+          out.source_sha256_before==out.source_sha256_after);
     return out;
 }
 
@@ -379,7 +384,7 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
       ref_clip_min_x,ref_clip_min_y,ref_clip_max_x,ref_clip_max_y,
       native_clip_min_x,native_clip_min_y,native_clip_max_x,native_clip_max_y);
     for(unsigned i=0;i<3u;++i){
-        std::fprintf(out,"%s{\"name\":\"%s\",\"source_fnv64\":\"%016llx\",\"source_sha256_before\":\"%s\",\"source_sha256_after\":\"%s\","
+        std::fprintf(out,"%s{\"name\":\"%s\",\"source_fnv64\":\"%016llx\",\"source_size_bytes_before\":%zu,\"source_size_bytes_after\":%zu,\"source_sha256_before\":\"%s\",\"source_sha256_after\":\"%s\","
           "\"different_pixels\":%zu,\"rgb_abs\":%llu,"
           "\"reference_4x_box_changed_pixels_vs_72dpi\":%zu,"
           "\"reference_4x_box_rgb_abs_delta_vs_72dpi\":%llu,"
@@ -387,7 +392,8 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
           "\"native_rgb_abs_delta_vs_4x_box\":%llu,"
           "\"different_pixel_bounds\":[%zu,%zu,%zu,%zu],\"error_rows\":[",
           i?",":"",i==0u?"no_clip":i==1u?"fullpage_w":"restrictive_w",
-          (unsigned long long)hashes[i],rows[i].source_sha256_before.c_str(),
+          (unsigned long long)hashes[i],rows[i].source_size_bytes_before,
+          rows[i].source_size_bytes_after,rows[i].source_sha256_before.c_str(),
           rows[i].source_sha256_after.c_str(),ref_native_errors[i],
           (unsigned long long)rgb_abs[i],
           highres_changed_vs_72[i],
