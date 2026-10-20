@@ -377,7 +377,7 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
       ref_clip_min_x,ref_clip_min_y,ref_clip_max_x,ref_clip_max_y,
       native_clip_min_x,native_clip_min_y,native_clip_max_x,native_clip_max_y);
     for(unsigned i=0;i<3u;++i){
-        std::fprintf(out,"%s{\"name\":\"%s\",\"source_fnv64\":\"%016llx\",\"source_sha256_before\":\"%s\",\"source_sha256_after\":\"%s\",
+        std::fprintf(out,"%s{\"name\":\"%s\",\"source_fnv64\":\"%016llx\",\"source_sha256_before\":\"%s\",\"source_sha256_after\":\"%s\","
           "\"different_pixels\":%zu,\"rgb_abs\":%llu,"
           "\"reference_4x_box_changed_pixels_vs_72dpi\":%zu,"
           "\"reference_4x_box_rgb_abs_delta_vs_72dpi\":%llu,"
