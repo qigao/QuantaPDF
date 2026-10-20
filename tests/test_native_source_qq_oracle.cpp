@@ -10712,6 +10712,10 @@ int main(int argc,char **argv)
        std::strcmp(argv[1],"--269-open-stroke-clip-ab")==0 &&
        std::strcmp(argv[3],"--open-stroke-report")==0)
         return test_269_open_stroke_clip_ab(argv[2],argv[4]);
+    if(argc==5 &&
+       std::strcmp(argv[1],"--269-open-stroke-geometry-matrix")==0 &&
+       std::strcmp(argv[3],"--geometry-matrix-report")==0)
+        return test_269_open_stroke_geometry_matrix(argv[4]);
     if(argc==4 &&
        std::strcmp(argv[1],"--269-q4-mirror")==0 &&
        std::strcmp(argv[2],"--mirror-report")==0)
