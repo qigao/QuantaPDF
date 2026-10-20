@@ -389,6 +389,7 @@ static int test_269_real_stroke_clip_causal_ab(
     qp378_print_effect(report,diff);
     std::fprintf(report,",\"pixel_mismatches\":[");
     qp378_print_pixel_mismatches(report,observed[0],0u);
+    std::fprintf(report,",");
     qp378_print_pixel_mismatches(report,observed[4],4u);
     std::fprintf(report,"]}\n");
     CHECK(std::ferror(report)==0 && std::fclose(report)==0);
