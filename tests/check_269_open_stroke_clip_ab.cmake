@@ -54,13 +54,27 @@ if(DEFINED MODE AND MODE STREQUAL "geometry-matrix")
     string(JSON ref_delta GET "${c}" restrictive_w_reference_rgb_abs_delta)
     string(JSON native_delta GET "${c}" restrictive_w_native_rgb_abs_delta)
     string(JSON provenance_count LENGTH "${c}" source_provenance)
+    string(JSON comparison_count LENGTH "${c}" reference_native_comparison)
     if(NOT name STREQUAL expected_name OR NOT ref_equal EQUAL 0 OR
        NOT native_equal EQUAL 0 OR ref_changed LESS_EQUAL 0 OR
        native_changed LESS_EQUAL 0 OR ref_changed GREATER 5000 OR
        native_changed GREATER 5000 OR ref_delta LESS_EQUAL 0 OR
-       native_delta LESS_EQUAL 0 OR NOT provenance_count EQUAL 3)
+       native_delta LESS_EQUAL 0 OR NOT provenance_count EQUAL 3 OR
+       NOT comparison_count EQUAL 3)
       message(FATAL_ERROR "Geometry ${i} failed no-Clip/full-page-W equivalence or restrictive-Clip effect checks")
     endif()
+    foreach(v RANGE 0 2)
+      string(JSON comparison GET "${c}" reference_native_comparison ${v})
+      list(GET variants ${v} expected_comparison_variant)
+      string(JSON comparison_variant GET "${comparison}" variant)
+      string(JSON different_pixels GET "${comparison}" different_pixels)
+      string(JSON rgb_abs GET "${comparison}" rgb_abs)
+      if(NOT comparison_variant STREQUAL expected_comparison_variant OR
+         different_pixels LESS 0 OR different_pixels GREATER 5000 OR
+         rgb_abs LESS 0 OR rgb_abs GREATER 3825000)
+        message(FATAL_ERROR "Invalid per-case direct-PDFium/Native residuals at geometry ${i}, variant ${v}")
+      endif()
+    endforeach()
     foreach(v RANGE 0 2)
       string(JSON p GET "${c}" source_provenance ${v})
       list(GET variants ${v} expected_variant)
