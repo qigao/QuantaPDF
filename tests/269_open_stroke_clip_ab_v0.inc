@@ -370,7 +370,13 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
         }
     }
     CHECK(ref_restrict_changed>0u && native_restrict_changed>0u);
-    FILE *out=std::fopen(report_path,"wb");CHECK(out);
+    const std::string staging_path=std::string(report_path)+".tmp";
+    errno=0;
+    if(std::remove(report_path)!=0 && errno!=ENOENT)return EXIT_FAILURE;
+    errno=0;
+    if(std::remove(staging_path.c_str())!=0 && errno!=ENOENT)return EXIT_FAILURE;
+    FILE *out=std::fopen(staging_path.c_str(),"wb");
+    if(!out)return EXIT_FAILURE;
     std::fprintf(out,
       "{\"schema_version\":1,\"open_line_only\":true,"
       "\"reference_render_route\":\"direct_pdfium_api\","
@@ -542,7 +548,24 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
         }
     }
     std::fprintf(out,"]}\n");
-    CHECK(std::ferror(out)==0 && std::fclose(out)==0);
+    const bool report_write_ok=std::ferror(out)==0;
+    const bool report_close_ok=std::fclose(out)==0;
+    if(!report_write_ok || !report_close_ok){
+        (void)std::remove(staging_path.c_str());
+        return EXIT_FAILURE;
+    }
+    /* Publish only a complete report. Remove any stale destination first so
+     * rename has the same fail-closed behavior on Windows and POSIX. */
+    errno=0;
+    if(std::remove(report_path)!=0 && errno!=ENOENT){
+        (void)std::remove(staging_path.c_str());
+        return EXIT_FAILURE;
+    }
+    if(std::rename(staging_path.c_str(),report_path)!=0){
+        (void)std::remove(staging_path.c_str());
+        (void)std::remove(report_path);
+        return EXIT_FAILURE;
+    }
     CHECK(corpus_fixture_executions==0u);
     return EXIT_SUCCESS;
 }
