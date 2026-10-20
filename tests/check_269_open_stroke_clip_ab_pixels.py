@@ -39,6 +39,20 @@ if data.get("direct_pdfium_repeat_identical") is not True or data.get("native_re
 if data.get("source_bytes_unchanged_after_reference_and_native") is not True:
     raise SystemExit("source-byte invariance check missing")
 
+case_records = data.get("cases")
+if not isinstance(case_records, list) or len(case_records) != 3:
+    raise SystemExit("expected three source records with SHA-256 provenance")
+for case in case_records:
+    before = case.get("source_sha256_before")
+    after = case.get("source_sha256_after")
+    if (not isinstance(before, str) or len(before) != 64 or
+            any(ch not in "0123456789abcdef" for ch in before) or
+            not isinstance(after, str) or len(after) != 64 or
+            any(ch not in "0123456789abcdef" for ch in after)):
+        raise SystemExit("source SHA-256 fields must be lowercase 64-hex digests")
+    if before != after:
+        raise SystemExit(f"{case.get('name')}: source SHA-256 changed during reference/Native rendering")
+
 pixels = data.get("per_pixel_diagnostic")
 if not isinstance(pixels, list) or len(pixels) != 3 * 100 * 50:
     raise SystemExit("per_pixel_diagnostic must contain exactly 15000 pixels")
