@@ -185,6 +185,24 @@ static qp379_line_capture qp379_capture_line(const char *source,
           detached.resources.form_count==0u &&
           detached.resources.paint_count==0u);
     const quantapdf_ir_raster_v1_limits limits={P,1u,128u,5000000u};
+
+    /* Fail-closed regression: the scoped API only accepts integral point
+     * dimensions. Seed every output field with nonzero sentinels, pass an
+     * unsupported fractional page size, and require a fully cleared result
+     * with no published/partial pixel buffer. Restore the detached IR before
+     * the supported rendering calls below. */
+    quantapdf_ir_raster_image rejected;
+    std::memset(&rejected,0xa5,sizeof(rejected));
+    const float supported_width=detached.pages[0].width_points;
+    detached.pages[0].width_points=supported_width+0.25f;
+    const quantapdf_status rejected_status=
+        quantapdf_ir_raster_scoped_operations_v1(
+            &detached,0u,&limits,&rejected);
+    detached.pages[0].width_points=supported_width;
+    CHECK(rejected_status==QUANTAPDF_ERROR_UNSUPPORTED &&
+          rejected.pixels==nullptr && rejected.width==0u &&
+          rejected.height==0u && rejected.stride==0u && rejected.size==0u);
+
     quantapdf_ir_raster_image native{},again{};
     const quantapdf_status s1=quantapdf_ir_raster_scoped_operations_v1(
         &detached,0u,&limits,&native);
