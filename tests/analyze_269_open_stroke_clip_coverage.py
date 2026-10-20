@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Offline analytic pixel-area candidate for the #379 open-line diagnostic.
 
-This is deliberately a test-side experiment, not a renderer implementation or
-claim about PDFium's normative rasterization semantics. It handles only the
-known 1pt butt-ended segment and optional axis-aligned rectangular W clip.
+Test-side experiment only; not a renderer implementation or claim about
+PDFium's normative rasterization semantics. Handles the known 1pt
+butt-ended segment and optional axis-aligned rectangular W clip.
 """
 import json
 import sys
@@ -28,9 +28,8 @@ def clip_half_plane(poly, axis, bound, keep_greater):
             denom = cur_v - prev_v
             if denom != 0.0:
                 t = (bound - prev_v) / denom
-                p = (prev[0] + t * (cur[0] - prev[0]),
-                     prev[1] + t * (cur[1] - prev[1]))
-                out.append(p)
+                out.append((prev[0] + t * (cur[0] - prev[0]),
+                            prev[1] + t * (cur[1] - prev[1])))
         if cur_in:
             out.append(cur)
         prev, prev_v, prev_in = cur, cur_v, cur_in
@@ -83,17 +82,26 @@ def main(path):
         pdfium_error = native_error = 0.0
         candidate_abs_rgb = 0
         max_pdfium_error = max_native_error = 0.0
-        for p in rows:
+        for local_idx, p in enumerate(rows):
             x, y = p.get("x"), p.get("y")
-            if p.get("case") != name or (x, y) != (p["x"], p["y"]):
-                raise SystemExit(f"{name}: malformed or unordered pixel record")
+            expected = (local_idx % W, local_idx // W)
+            if p.get("case") != name or (x, y) != expected:
+                raise SystemExit(f"{name}: malformed, missing, or unordered pixel record at {local_idx}")
+            if not isinstance(x, int) or not isinstance(y, int):
+                raise SystemExit(f"{name}: non-integer coordinate")
             cov = pixel_coverage(x, y, ci == 2)
-            ref, native = p["reference_rgb"], p["native_rgb_on_white"]
-            # Blue stroke on white: red channel is a coverage proxy. The
-            # candidate predicts equal R/G and constant blue, not full PDF color semantics.
+            ref, native = p.get("reference_rgb"), p.get("native_rgb_on_white")
+            rgba = p.get("native_rgba")
+            if not (isinstance(ref, list) and len(ref) == 3 and
+                    isinstance(native, list) and len(native) == 3 and
+                    isinstance(rgba, list) and len(rgba) == 4):
+                raise SystemExit(f"{name} ({x},{y}): malformed channel arrays")
+            if any(not isinstance(c, int) or not 0 <= c <= 255 for c in ref + native + rgba):
+                raise SystemExit(f"{name} ({x},{y}): channel outside [0,255]")
+            # For blue stroke on white, red is a coverage proxy, not full RGB semantics.
             ref_cov = (255 - ref[0]) / 255.0
             native_cov = (255 - native[0]) / 255.0
-            if cov > 0.0 or ref_cov > 0.0 or p["native_rgba"][3] > 0:
+            if cov > 0.0 or ref_cov > 0.0 or rgba[3] > 0:
                 active += 1
                 pdf_err, native_err = abs(ref_cov - cov), abs(native_cov - cov)
                 pdfium_error += pdf_err
