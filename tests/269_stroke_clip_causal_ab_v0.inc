@@ -228,6 +228,38 @@ static void qp378_print_effect(FILE *out,const qp378_clip_effect& e)
       e.other_clip_error_suppressed_by_original,
       (unsigned long long)e.clip_effect_rgb_abs);
 }
+static void qp378_print_pixel_mismatches(
+    FILE *out,const qp378_real_pair& sample,unsigned variant)
+{
+    constexpr size_t W=100u,H=50u;
+    CHECK(out && sample.native_supported &&
+          sample.ref_rgb.size()==W*H*3u &&
+          sample.native_rgba.size()==W*H*4u);
+    bool first=true;
+    for(size_t y=0u;y<H;++y){
+        for(size_t x=0u;x<W;++x){
+            const size_t p=y*W+x;
+            int ref[3],native[3],delta[3];
+            bool mismatch=false;
+            for(unsigned c=0u;c<3u;++c){
+                ref[c]=(int)sample.ref_rgb[p*3u+c];
+                native[c]=(int)on_white(&sample.native_rgba[p*4u],c);
+                delta[c]=ref[c]-native[c];
+                mismatch|=delta[c]!=0;
+            }
+            if(!mismatch)continue;
+            std::fprintf(out,
+              "%s{\"variant\":%u,\"x\":%zu,\"y\":%zu,"
+              "\"reference_rgb\":[%d,%d,%d],"
+              "\"native_rgb_on_white\":[%d,%d,%d],"
+              "\"reference_minus_native_rgb\":[%d,%d,%d]}",
+              first?"":",",variant,x,y,
+              ref[0],ref[1],ref[2],native[0],native[1],native[2],
+              delta[0],delta[1],delta[2]);
+            first=false;
+        }
+    }
+}
 static int test_269_real_stroke_clip_causal_ab(
     const char *published,const char *report_path)
 {
@@ -355,7 +387,10 @@ static int test_269_real_stroke_clip_causal_ab(
     }
     std::fprintf(report,"],\"admitted_clip_transfer\":");
     qp378_print_effect(report,diff);
-    std::fprintf(report,"}\n");
+    std::fprintf(report,",\"pixel_mismatches\":[");
+    qp378_print_pixel_mismatches(report,observed[0],0u);
+    qp378_print_pixel_mismatches(report,observed[4],4u);
+    std::fprintf(report,"]}\n");
     CHECK(std::ferror(report)==0 && std::fclose(report)==0);
 #ifdef _WIN32
     errno=0;
