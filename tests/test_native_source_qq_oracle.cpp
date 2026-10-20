@@ -1661,6 +1661,11 @@ int test_external_pdfium_clip_stroke(const char *filename,
     if(std::remove(pending.c_str())!=0) CHECK(errno==ENOENT);
     CHECK(corpus_fixture_executions==0u);
     constexpr size_t WIDTH=100u, HEIGHT=50u;
+    /* Guard the actual external source bytes as well as repeating the
+     * independent PDFium render. This detects accidental mutation by either
+     * oracle or Native processing without relying on a digest implementation. */
+    const auto source_bytes_before=decimal360_read_bytes(filename);
+    CHECK(!source_bytes_before.empty() && source_bytes_before.size()<=8192u);
     /* The reference is the unchanged original PDF rendered directly through
      * PDFium's C API, not QuantaPDF's public renderer. Repeat the complete
      * direct render and require byte-identical normalized RGB. */
@@ -1759,6 +1764,9 @@ int test_external_pdfium_clip_stroke(const char *filename,
           common_ink*2u>=reference_ink);
     CHECK(native.pixels[0u+3u]==0u);
     CHECK(native.pixels[(25u*WIDTH+25u)*4u+3u]==0u);
+    const auto source_bytes_after=decimal360_read_bytes(filename);
+    CHECK(source_bytes_after==source_bytes_before &&
+          source_bytes_after.size()==source_bytes_before.size());
     quantapdf_ir_raster_image_dispose(&native);
     CHECK(corpus_fixture_executions==0u);
     FILE *report=std::fopen(pending.c_str(),"wb");
@@ -1779,6 +1787,8 @@ int test_external_pdfium_clip_stroke(const char *filename,
         "  \"pdfium_background\": \"opaque white\",\n"
         "  \"pdfium_render_flags\": \"FPDF_ANNOT\",\n"
         "  \"direct_pdfium_repeat_identical\": true,\n"
+        "  \"source_bytes_invariance_verified\": true,\n"
+        "  \"source_size_bytes\": %zu,\n"
         "  \"native_repeat_rgba_identical\": true,\n"
         "  \"native_expected_outcome\": \"supported-clipped-stroke\",\n"
         "  \"native_observed_outcome\": \"supported-clipped-stroke\",\n"
@@ -1801,7 +1811,7 @@ int test_external_pdfium_clip_stroke(const char *filename,
         "  \"generated_fixture_count\": 0,\n"
         "  \"result\": \"passed\"\n"
         "}\n",WIDTH,HEIGHT,(size_t)reference.stride,
-        WIDTH,HEIGHT,mean,gross,
+        source_bytes_before.size(),WIDTH,HEIGHT,mean,gross,
         reference_ink,native_ink,common_ink,signed_json.c_str());
     CHECK(std::ferror(report)==0);
     CHECK(std::fclose(report)==0);
