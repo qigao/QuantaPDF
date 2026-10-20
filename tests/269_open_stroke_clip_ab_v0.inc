@@ -101,6 +101,59 @@ static void qp379_write_line_pdf(const char *path,unsigned variant)
     CHECK(std::fclose(out)==0);
 }
 
+
+/* Separate held-out matrix: same open-segment Stroke paint, multiple line
+ * geometries and case-specific restrictive clips. This report is deliberately
+ * compact and does not reinterpret PDFium's antialiasing as a coverage oracle. */
+struct qp379_geometry_case {
+    const char *name;
+    double ax, ay, bx, by;
+    double clip_x, clip_y, clip_width, clip_height;
+};
+static void qp379_write_geometry_pdf(const char *path,unsigned variant,
+                                     const qp379_geometry_case& geometry)
+{
+    CHECK(path && *path && variant<=2u);
+    std::string commands;
+    if(variant==1u)commands=qp379_line_full_w;
+    if(variant==2u){
+        char clip[192]{};
+        const int n=std::snprintf(clip,sizeof(clip),
+            "%.9g %.9g %.9g %.9g re W n\n",
+            geometry.clip_x,geometry.clip_y,
+            geometry.clip_width,geometry.clip_height);
+        CHECK(n>0 && (size_t)n<sizeof(clip));
+        commands=clip;
+    }
+    char paint[256]{};
+    const int n=std::snprintf(paint,sizeof(paint),
+        "0 0 1 RG\n%.9g %.9g m\n%.9g %.9g l\nS\n",
+        geometry.ax,geometry.ay,geometry.bx,geometry.by);
+    CHECK(n>0 && (size_t)n<sizeof(paint));
+    commands+=paint;
+    auto pdf=QPDF::create();
+    pdf->emptyPDF();
+    auto pages=pdf->getRoot().getKey("/Pages");
+    auto page=pdf->makeIndirectObject(
+        QPDFObjectHandle::parse("<< /Type /Page >>"));
+    pages.replaceKey("/Kids",QPDFObjectHandle::newArray({page}));
+    pages.replaceKey("/Count",QPDFObjectHandle::newInteger(1));
+    pages.replaceKey("/MediaBox",QPDFObjectHandle::parse("[0 0 100 50]"));
+    page.replaceKey("/Parent",pages);
+    page.replaceKey("/Contents",pdf->newStream(commands));
+    QPDFWriter writer(*pdf);
+    writer.setMinimumPDFVersion("1.7");
+    writer.setDeterministicID(true);
+    writer.setObjectStreamMode(qpdf_o_disable);
+    writer.setOutputMemory();
+    writer.write();
+    auto data=writer.getBufferSharedPointer();
+    CHECK(data && data->getSize()>0u && data->getSize()<=8192u);
+    FILE *out=std::fopen(path,"wb");CHECK(out);
+    CHECK(std::fwrite(data->getBuffer(),1,data->getSize(),out)==data->getSize());
+    CHECK(std::fclose(out)==0);
+}
+
 /* Test-only sampling probe: render through quantapdf_render_page_with_options
  * at 4x DPI, then box-average each 4x4 RGB block to the original 100x50 grid.
  * The 72-DPI baseline is rendered by the direct-PDFium helper; only this
@@ -569,4 +622,142 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
     CHECK(corpus_fixture_executions==0u);
     return EXIT_SUCCESS;
 }
+
+static int test_269_open_stroke_geometry_matrix(const char *report_path)
+{
+    CHECK(report_path && *report_path && corpus_fixture_executions==0u);
+    constexpr size_t GEOMETRY_COUNT=7u;
+    constexpr size_t VARIANT_COUNT=3u;
+    constexpr size_t P=5000u;
+    const qp379_geometry_case geometries[GEOMETRY_COUNT]={
+        {"diagonal_ascending",10,10,40,35,18,15,17,15},
+        {"diagonal_descending",8,41,47,8,18,15,19,20},
+        {"horizontal",6,24,52,24,19,20,15,9},
+        {"vertical",54,5,57,44,51,16,9,17},
+        {"shallow",7,17,48,29,19,19,15,8},
+        {"boundary_crossing",16,13,39,32,18,15,17,15},
+        {"short_interior",67,8,89,22,73,10,11,10}
+    };
+    const std::string staging_path=std::string(report_path)+".tmp";
+    errno=0;
+    if(std::remove(report_path)!=0 && errno!=ENOENT)return EXIT_FAILURE;
+    errno=0;
+    if(std::remove(staging_path.c_str())!=0 && errno!=ENOENT)return EXIT_FAILURE;
+
+    const char *path=GENERATED_269_OPEN_STROKE_MATRIX_PDF;
+    qp379_line_capture rows[GEOMETRY_COUNT][VARIANT_COUNT];
+    uint64_t hashes[GEOMETRY_COUNT*VARIANT_COUNT]{};
+    size_t ref_clip_changed[GEOMETRY_COUNT]{},native_clip_changed[GEOMETRY_COUNT]{};
+    uint64_t ref_clip_rgb_abs[GEOMETRY_COUNT]{},native_clip_rgb_abs[GEOMETRY_COUNT]{};
+    auto native_white=[](const qp379_line_capture& r,size_t p,unsigned c) {
+        return (unsigned char)on_white(&r.native_rgba[p*4u],c);
+    };
+    for(size_t g=0;g<GEOMETRY_COUNT;++g){
+        for(unsigned v=0;v<VARIANT_COUNT;++v){
+            qp379_write_geometry_pdf(path,v,geometries[g]);
+            rows[g][v]=qp379_capture_line(path,v==0u?0u:1u);
+            hashes[g*VARIANT_COUNT+v]=rows[g][v].source_fnv;
+            CHECK(std::remove(path)==0);
+            CHECK(rows[g][v].source_size_bytes_before==
+                  rows[g][v].source_size_bytes_after &&
+                  rows[g][v].source_sha256_before==
+                  rows[g][v].source_sha256_after);
+            for(size_t prior=0;prior<g*VARIANT_COUNT+v;++prior)
+                CHECK(hashes[prior]!=hashes[g*VARIANT_COUNT+v]);
+        }
+        CHECK(rows[g][0].ref_rgb.size()==P*3u &&
+              rows[g][1].ref_rgb.size()==P*3u &&
+              rows[g][2].ref_rgb.size()==P*3u &&
+              rows[g][0].native_rgba.size()==P*4u &&
+              rows[g][1].native_rgba.size()==P*4u &&
+              rows[g][2].native_rgba.size()==P*4u);
+        CHECK(std::memcmp(rows[g][0].ref_rgb.data(),
+                          rows[g][1].ref_rgb.data(),P*3u)==0);
+        for(size_t p=0;p<P;++p){
+            bool ref_changed=false,native_changed=false;
+            for(unsigned c=0;c<3u;++c){
+                const unsigned r0=rows[g][0].ref_rgb[p*3u+c];
+                const unsigned r2=rows[g][2].ref_rgb[p*3u+c];
+                const unsigned n0=native_white(rows[g][0],p,c);
+                const unsigned n1=native_white(rows[g][1],p,c);
+                const unsigned n2=native_white(rows[g][2],p,c);
+                CHECK(n0==n1);
+                ref_changed|=r0!=r2;
+                native_changed|=n0!=n2;
+                ref_clip_rgb_abs[g]+=(uint64_t)std::abs((int)r0-(int)r2);
+                native_clip_rgb_abs[g]+=(uint64_t)std::abs((int)n0-(int)n2);
+            }
+            if(ref_changed)++ref_clip_changed[g];
+            if(native_changed)++native_clip_changed[g];
+        }
+        /* A restrictive clip must visibly affect each oracle and Native case;
+         * no exact pixel parity assumption is made by this test. */
+        CHECK(ref_clip_changed[g]>0u && native_clip_changed[g]>0u);
+    }
+
+    FILE *out=std::fopen(staging_path.c_str(),"wb");
+    if(!out)return EXIT_FAILURE;
+    std::fprintf(out,
+        "{\"schema_version\":1,"
+        "\"reference_render_route\":\"direct_pdfium_api\","
+        "\"reference_is_independent_pdfium_oracle\":true,"
+        "\"reference_independence_verified\":true,"
+        "\"pdfium_bitmap_width\":100,\"pdfium_bitmap_height\":50,"
+        "\"pdfium_bitmap_rgb_stride\":300,"
+        "\"direct_pdfium_repeat_identical\":true,"
+        "\"native_repeat_rgba_identical\":true,"
+        "\"source_bytes_unchanged_after_reference_and_native\":true,"
+        "\"geometry_count\":%zu,\"variants_per_geometry\":%u,\"cases\":[",
+        GEOMETRY_COUNT,(unsigned)VARIANT_COUNT);
+    for(size_t g=0;g<GEOMETRY_COUNT;++g){
+        if(g)std::fprintf(out,",");
+        std::fprintf(out,
+          "{\"name\":\"%s\","
+          "\"reference_no_clip_fullpage_w_changed_pixels\":0,"
+          "\"native_no_clip_fullpage_w_changed_pixels\":0,"
+          "\"restrictive_w_reference_changed_pixels\":%zu,"
+          "\"restrictive_w_native_changed_pixels\":%zu,"
+          "\"restrictive_w_reference_rgb_abs_delta\":%llu,"
+          "\"restrictive_w_native_rgb_abs_delta\":%llu,"
+          "\"source_provenance\":[",
+          geometries[g].name,ref_clip_changed[g],native_clip_changed[g],
+          (unsigned long long)ref_clip_rgb_abs[g],
+          (unsigned long long)native_clip_rgb_abs[g]);
+        for(unsigned v=0;v<VARIANT_COUNT;++v){
+            if(v)std::fprintf(out,",");
+            std::fprintf(out,
+              "{\"variant\":\"%s\",\"source_fnv64\":\"%016llx\","
+              "\"source_size_bytes_before\":%zu,\"source_size_bytes_after\":%zu,"
+              "\"source_sha256_before\":\"%s\",\"source_sha256_after\":\"%s\"}",
+              v==0u?"no_clip":v==1u?"fullpage_w":"restrictive_w",
+              (unsigned long long)hashes[g*VARIANT_COUNT+v],
+              rows[g][v].source_size_bytes_before,
+              rows[g][v].source_size_bytes_after,
+              rows[g][v].source_sha256_before.c_str(),
+              rows[g][v].source_sha256_after.c_str());
+        }
+        std::fprintf(out,"]}");
+    }
+    std::fprintf(out,"]}\n");
+    const int write_error=std::ferror(out);
+    const int close_rc=std::fclose(out);
+    if(write_error!=0 || close_rc!=0){
+        (void)std::remove(staging_path.c_str());
+        (void)std::remove(report_path);
+        return EXIT_FAILURE;
+    }
+    errno=0;
+    if(std::remove(report_path)!=0 && errno!=ENOENT){
+        (void)std::remove(staging_path.c_str());
+        return EXIT_FAILURE;
+    }
+    if(std::rename(staging_path.c_str(),report_path)!=0){
+        (void)std::remove(staging_path.c_str());
+        (void)std::remove(report_path);
+        return EXIT_FAILURE;
+    }
+    CHECK(corpus_fixture_executions==0u);
+    return EXIT_SUCCESS;
+}
+
 } /* open Stroke/Clip A/B */
