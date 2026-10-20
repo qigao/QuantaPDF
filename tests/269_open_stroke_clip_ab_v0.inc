@@ -651,6 +651,8 @@ static int test_269_open_stroke_geometry_matrix(const char *report_path)
     uint64_t hashes[GEOMETRY_COUNT*VARIANT_COUNT]{};
     size_t ref_clip_changed[GEOMETRY_COUNT]{},native_clip_changed[GEOMETRY_COUNT]{};
     uint64_t ref_clip_rgb_abs[GEOMETRY_COUNT]{},native_clip_rgb_abs[GEOMETRY_COUNT]{};
+    size_t ref_native_changed[GEOMETRY_COUNT][VARIANT_COUNT]{};
+    uint64_t ref_native_rgb_abs[GEOMETRY_COUNT][VARIANT_COUNT]{};
     auto native_white=[](const qp379_line_capture& r,size_t p,unsigned c) {
         return (unsigned char)on_white(&r.native_rgba[p*4u],c);
     };
@@ -692,6 +694,18 @@ static int test_269_open_stroke_geometry_matrix(const char *report_path)
             if(ref_changed)++ref_clip_changed[g];
             if(native_changed)++native_clip_changed[g];
         }
+        for(unsigned v=0;v<VARIANT_COUNT;++v){
+            for(size_t p=0;p<P;++p){
+                bool pixel_diff=false;
+                for(unsigned c=0;c<3u;++c){
+                    const int reference=(int)rows[g][v].ref_rgb[p*3u+c];
+                    const int native=(int)native_white(rows[g][v],p,c);
+                    pixel_diff|=reference!=native;
+                    ref_native_rgb_abs[g][v]+=(uint64_t)std::abs(reference-native);
+                }
+                if(pixel_diff)++ref_native_changed[g][v];
+            }
+        }
         /* A restrictive clip must visibly affect each oracle and Native case;
          * no exact pixel parity assumption is made by this test. */
         CHECK(ref_clip_changed[g]>0u && native_clip_changed[g]>0u);
@@ -721,10 +735,19 @@ static int test_269_open_stroke_geometry_matrix(const char *report_path)
           "\"restrictive_w_native_changed_pixels\":%zu,"
           "\"restrictive_w_reference_rgb_abs_delta\":%llu,"
           "\"restrictive_w_native_rgb_abs_delta\":%llu,"
-          "\"source_provenance\":[",
+          "\"reference_native_comparison\":[",
           geometries[g].name,ref_clip_changed[g],native_clip_changed[g],
           (unsigned long long)ref_clip_rgb_abs[g],
           (unsigned long long)native_clip_rgb_abs[g]);
+        for(unsigned v=0;v<VARIANT_COUNT;++v){
+            if(v)std::fprintf(out,",");
+            std::fprintf(out,
+              "{\"variant\":\"%s\",\"different_pixels\":%zu,\"rgb_abs\":%llu}",
+              v==0u?"no_clip":v==1u?"fullpage_w":"restrictive_w",
+              ref_native_changed[g][v],
+              (unsigned long long)ref_native_rgb_abs[g][v]);
+        }
+        std::fprintf(out,"],\"source_provenance\":[");
         for(unsigned v=0;v<VARIANT_COUNT;++v){
             if(v)std::fprintf(out,",");
             std::fprintf(out,
