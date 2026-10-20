@@ -5,12 +5,17 @@ foreach(arg IN ITEMS ORACLE REPORT)
     message(FATAL_ERROR "Missing open Stroke A/B argument ${arg}")
   endif()
 endforeach()
-file(REMOVE "${REPORT}")
+file(REMOVE "${REPORT}" "${REPORT}.tmp")
+# Seed a stale staging file to prove the oracle removes it before writing.
+file(WRITE "${REPORT}.tmp" "stale partial report\n")
 execute_process(
   COMMAND "${ORACLE}" --269-open-stroke-clip-ab unused --open-stroke-report "${REPORT}"
   RESULT_VARIABLE rc OUTPUT_VARIABLE stdout ERROR_VARIABLE stderr TIMEOUT 90)
 if(NOT rc STREQUAL "0" OR NOT EXISTS "${REPORT}")
   message(FATAL_ERROR "Open Stroke/Clip A/B failed rc=${rc}\n${stdout}\n${stderr}")
+endif()
+if(EXISTS "${REPORT}.tmp")
+  message(FATAL_ERROR "Open Stroke/Clip A/B left a staging report behind")
 endif()
 file(READ "${REPORT}" report)
 string(JSON oracle_route GET "${report}" reference_render_route)
