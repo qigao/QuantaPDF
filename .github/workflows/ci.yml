@@ -621,6 +621,8 @@ jobs:
           path: |
             build/linux-gcc-release/tests/native-269-open-stroke-clip-ab.json
             build/linux-gcc-debug/tests/native-269-open-stroke-clip-ab.json
+            build/linux-gcc-release/tests/native-269-open-stroke-geometry-matrix.json
+            build/linux-gcc-debug/tests/native-269-open-stroke-geometry-matrix.json
           if-no-files-found: error
           retention-days: 7
 
@@ -1102,7 +1104,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: open-stroke-clip-ab-macos
-          path: build/macos-clang-release/tests/native-269-open-stroke-clip-ab.json
+          path: |
+            build/macos-clang-release/tests/native-269-open-stroke-clip-ab.json
+            build/macos-clang-release/tests/native-269-open-stroke-geometry-matrix.json
           if-no-files-found: error
           retention-days: 7
 
@@ -1595,6 +1599,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: open-stroke-clip-ab-windows
-          path: build/Msvc-Release/tests/native-269-open-stroke-clip-ab.json
+          path: |
+            build/Msvc-Release/tests/native-269-open-stroke-clip-ab.json
+            build/Msvc-Release/tests/native-269-open-stroke-geometry-matrix.json
           if-no-files-found: error
           retention-days: 7
