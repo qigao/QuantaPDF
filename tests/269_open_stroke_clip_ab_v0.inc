@@ -119,9 +119,11 @@ static void qp379_write_geometry_pdf(const char *path,unsigned variant,
     if(variant==2u){
         char clip[192]{};
         const int n=std::snprintf(clip,sizeof(clip),
-            "%.9g %.9g %.9g %.9g re W n\n",
+            "%.9g %.9g m\n%.9g %.9g l\n%.9g %.9g l\n%.9g %.9g l\nW n\n",
             geometry.clip_x,geometry.clip_y,
-            geometry.clip_width,geometry.clip_height);
+            geometry.clip_x+geometry.clip_width,geometry.clip_y,
+            geometry.clip_x+geometry.clip_width,geometry.clip_y+geometry.clip_height,
+            geometry.clip_x,geometry.clip_y+geometry.clip_height);
         CHECK(n>0 && (size_t)n<sizeof(clip));
         commands=clip;
     }
