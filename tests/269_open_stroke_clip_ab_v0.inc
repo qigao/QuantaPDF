@@ -628,7 +628,7 @@ static int test_269_open_stroke_clip_ab(const char *published_unused,
 static int test_269_open_stroke_geometry_matrix(const char *report_path)
 {
     CHECK(report_path && *report_path && corpus_fixture_executions==0u);
-    constexpr size_t GEOMETRY_COUNT=7u;
+    constexpr size_t GEOMETRY_COUNT=10u;
     constexpr size_t VARIANT_COUNT=3u;
     constexpr size_t P=5000u;
     const qp379_geometry_case geometries[GEOMETRY_COUNT]={
@@ -638,7 +638,12 @@ static int test_269_open_stroke_geometry_matrix(const char *report_path)
         {"vertical",54,5,57,44,51,16,9,17},
         {"shallow",7,17,48,29,19,19,15,8},
         {"boundary_crossing",16,13,39,32,18,15,17,15},
-        {"short_interior",67,8,89,22,73,10,11,10}
+        {"short_interior",67,8,89,22,73,10,11,10},
+        /* Same line direction and length, translated by fractional device
+         * phases to expose sample-grid/coverage quantization differences. */
+        {"diagonal_x_quarter",10.25,10,40.25,35,18.25,15,17,15},
+        {"diagonal_y_quarter",10,10.25,40,35.25,18,15.25,17,15},
+        {"diagonal_xy_half",10.5,10.5,40.5,35.5,18.5,15.5,17,15}
     };
     const std::string staging_path=std::string(report_path)+".tmp";
     errno=0;
