@@ -2175,7 +2175,7 @@ static int test_external_pdfium_open_line_clip_controls(
         "  \"test_id\": \"issue-384-open-line-clip-controls\",\n"
         "  \"reference_oracle\": \"direct-public-pdfium-c-api\",\n"
         "  \"open_line_only\": true,\n"
-        "  \"native_repeat_rgba_identical\": true,\n"
+        "  \"native_source_clip_fail_closed\": true,\n"
         "  \"unsupported_controls_zero_output\": true,\n"
         "  \"source_bytes_unchanged_after_reference_and_native\": true,\n"
         "  \"pdfium_fallback_used\": false,\n"
