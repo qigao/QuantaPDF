@@ -7,6 +7,7 @@
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFWriter.hh>
 #include <fpdfview.h>
+#include <fpdf_edit.h>
 #include <cerrno>
 #include <cmath>
 #include <cstdint>
@@ -345,9 +346,14 @@ static std::vector<unsigned char> decimal_read_source(const std::string& path)
 /* Write a minimal valid original PDF without normalizing its numeric tokens
  * through an exporter. Record exact object offsets in a real xref table. */
 static void decimal_write_source(const std::string& path,
-                                 const char *crop_literal)
+                                 const char *crop_literal,
+                                 bool crop_on_leaf = false,
+                                 int rotation = -1,
+                                 bool rotation_on_leaf = false)
 {
     CHECK(crop_literal && *crop_literal);
+    CHECK(rotation == -1 || rotation == 0 || rotation == 90 ||
+          rotation == 180 || rotation == 270);
     const std::string drawing = "0 0 1 rg 4 4 5 4 re f\n";
     std::string pdf = "%PDF-1.7\n";
     size_t offsets[5] = {};
@@ -357,10 +363,17 @@ static void decimal_write_source(const std::string& path,
         pdf += std::to_string(id) + " 0 obj\n" + body + "\nendobj\n";
     };
     put(1u, "<< /Type /Catalog /Pages 2 0 R >>");
+    const std::string crop = std::string(" /CropBox [") + crop_literal + "]";
+    const std::string rotate = rotation < 0 ? "" :
+        " /Rotate " + std::to_string(rotation);
     put(2u, std::string("<< /Type /Pages /Count 1 /Kids [3 0 R] ") +
-        "/MediaBox [0 0 20 20] /CropBox [" + crop_literal + "] >>");
-    put(3u, "<< /Type /Page /Parent 2 0 R /UserUnit 7 "
-            "/Contents 4 0 R >>");
+        "/MediaBox [0 0 20 20]" +
+        (crop_on_leaf ? "" : crop) +
+        (rotation_on_leaf ? "" : rotate) + " >>");
+    put(3u, std::string("<< /Type /Page /Parent 2 0 R /UserUnit 7") +
+        (crop_on_leaf ? crop : "") +
+        (rotation_on_leaf ? rotate : "") +
+        " /Contents 4 0 R >>");
     put(4u, "<< /Length " + std::to_string(drawing.size()) +
             " >>\nstream\n" + drawing + "endstream");
     const size_t xref_offset = pdf.size();
@@ -385,7 +398,8 @@ static void decimal_write_source(const std::string& path,
  * Width/height are observed from the original page, not a re-export of IR. */
 static std::vector<unsigned char> decimal_pdfium_original(
     const std::string& path, int expected_width, int expected_height,
-    double *out_crop_width_points, double *out_crop_height_points)
+    double *out_crop_width_points, double *out_crop_height_points,
+    unsigned source_dpi = 72u, int source_rotation = 0)
 {
     CHECK(out_crop_width_points && out_crop_height_points);
     *out_crop_width_points = 0.0;
@@ -393,7 +407,12 @@ static std::vector<unsigned char> decimal_pdfium_original(
     FPDF_DOCUMENT document = FPDF_LoadDocument(path.c_str(), nullptr);
     CHECK(document != nullptr && FPDF_GetPageCount(document) == 1);
     FPDF_PAGE page = FPDF_LoadPage(document, 0);
-    CHECK(page != nullptr);
+    CHECK(page != nullptr && source_dpi >= 72u && source_dpi <= 144u &&
+          (source_rotation == 0 || source_rotation == 90 ||
+           source_rotation == 180 || source_rotation == 270));
+    /* The PDFium page rotation must follow the actual source /Rotate,
+     * including inheritance from /Pages. */
+    CHECK(FPDFPage_GetRotation(page) == source_rotation / 90);
     const double width = (double)FPDF_GetPageWidthF(page);
     const double height = (double)FPDF_GetPageHeightF(page);
     /* FPDF_GetPageWidthF/HeightF report the unscaled visible CropBox
@@ -403,13 +422,16 @@ static std::vector<unsigned char> decimal_pdfium_original(
     constexpr double source_user_unit = 7.0;
     CHECK(std::isfinite(width) && std::isfinite(height) &&
           width > 0.0 && height > 0.0);
-    const double device_width = width * source_user_unit;
-    const double device_height = height * source_user_unit;
+    const double device_width =
+        (width * source_user_unit * (double)source_dpi) / 72.0;
+    const double device_height =
+        (height * source_user_unit * (double)source_dpi) / 72.0;
     std::fprintf(stderr,
         "[issue-360] original PDFium page=%s crop-points=(%.17g,%.17g) "
-        "source-UserUnit=7 effective-72dpi=(%.17g,%.17g) "
+        "source-UserUnit=7 dpi=%u effective-grid=(%.17g,%.17g) "
         "ceil=%d,%d expected=%d,%d\n",
-        path.c_str(), width, height, device_width, device_height,
+        path.c_str(), width, height, source_dpi,
+        device_width, device_height,
         (int)std::ceil(device_width), (int)std::ceil(device_height),
         expected_width, expected_height);
     CHECK(std::isfinite(device_width) && std::isfinite(device_height) &&
