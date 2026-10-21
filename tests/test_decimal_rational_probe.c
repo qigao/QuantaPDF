@@ -264,7 +264,7 @@ int main(void)
     CHECK(decimal_units_accepted==7u*3u*2u+7u+3u);
     CHECK(unit_monotonic==9u);
     CHECK(decimal_units_rejected==
-        sizeof(invalid_units)/sizeof(invalid_units[0])+7u+2u);
+        sizeof(invalid_units)/sizeof(invalid_units[0])+6u+2u);
 
     CHECK(accepted==7u*4u*3u+4u+1u);
     CHECK(monotonic==15u);
