@@ -221,6 +221,18 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      # #360 numerical observations from the literal source-PDF diagnostics.
+      # Compare Release and sanitizer evidence; no production grid change.
+      - name: Upload decimal source diagnostics (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-decimal-geometry-linux
+          path: |
+            build/linux-gcc-release/tests/360-source-decimal-diagnostic.json
+            build/linux-gcc-debug/tests/360-source-decimal-diagnostic.json
+          if-no-files-found: error
+          retention-days: 7
+
   macos:
     if: >-
       github.event_name == 'push' ||
@@ -383,6 +395,14 @@ jobs:
         with:
           name: source-corpus-macos
           path: build/macos-clang-release/tests/native-source-corpus.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload decimal source diagnostics (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-decimal-geometry-macos
+          path: build/macos-clang-release/tests/360-source-decimal-diagnostic.json
           if-no-files-found: error
           retention-days: 7
 
@@ -577,5 +597,13 @@ jobs:
         with:
           name: source-corpus-windows
           path: build/Msvc-Release/tests/native-source-corpus.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload decimal source diagnostics (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-decimal-geometry-windows
+          path: build/Msvc-Release/tests/360-source-decimal-diagnostic.json
           if-no-files-found: error
           retention-days: 7
