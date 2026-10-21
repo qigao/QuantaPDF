@@ -2164,6 +2164,8 @@ static int test_external_pdfium_open_line_clip_controls(
         "  \"reference_oracle\": \"direct-public-pdfium-c-api\",\n"
         "  \"open_line_only\": true,\n"
         "  \"native_repeat_rgba_identical\": true,\n"
+        "  \"source_bytes_unchanged_after_reference_and_native\": true,\n"
+        "  \"pdfium_fallback_used\": false,\n"
         "  \"no_clip_and_fullpage_w_reference_equal\": true,\n"
         "  \"no_clip_and_fullpage_w_native_equal\": true,\n"
         "  \"restrictive_w_reference_changed_pixels\": %zu,\n"
