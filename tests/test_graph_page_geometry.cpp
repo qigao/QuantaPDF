@@ -17,6 +17,7 @@
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <limits>
 #include <string>
 
 #define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #x); std::exit(EXIT_FAILURE); } } while (0)
@@ -505,9 +506,6 @@ static bool decimal_source_significand_scale_try(const char *begin,
         if (significand > (UINT64_MAX - digit) / 10u)
             return false;
         significand = significand * 10u + digit;
-        /* A rounded 64-bit PDF integer must not masquerade as exact double. */
-        if (significand > UINT64_C(9007199254740991))
-            return false;
         if (dot) {
             if (denominator > UINT64_C(1000000000000) / 10u)
                 return false;
@@ -515,7 +513,8 @@ static bool decimal_source_significand_scale_try(const char *begin,
         }
         saw_digit = true;
     }
-    if (!saw_digit) return false;
+    if (!saw_digit || significand > UINT64_C(9007199254740991))
+        return false; /* No silent binary64 rounding of large integers. */
     const double value = (double)significand / (double)denominator;
     if (!std::isfinite(value)) return false;
     *out = negative ? -value : value;
@@ -1059,12 +1058,287 @@ static int test_source_decimal_grid_matrix(const char *prefix,
     return EXIT_SUCCESS;
 }
 
+
+/* #360 next separate admission gate: numeric parsing/bounds only.
+ * This is deliberately a TEST-ONLY candidate contract, not a change to
+ * Graph decimal_number(), PDFium, the device DPI grid or native raster. */
+static bool decimal_test_grid_bounded(double width_points,
+                                      double height_points, unsigned dpi,
+                                      size_t max_pixels,
+                                      size_t *out_width,size_t *out_height)
+{
+    if (out_width) *out_width = 0u;
+    if (out_height) *out_height = 0u;
+    if (!out_width || !out_height || out_width == out_height ||
+        max_pixels == 0u || max_pixels > 1000000u ||
+        (dpi != 72u && dpi != 96u && dpi != 144u) ||
+        !std::isfinite(width_points) || !std::isfinite(height_points) ||
+        width_points <= 0.0 || height_points <= 0.0 ||
+        width_points > (double)max_pixels ||
+        height_points > (double)max_pixels)
+        return false;
+    const double scale = 7.0 * (double)dpi / 72.0;
+    const double dw = std::ceil(width_points * scale);
+    const double dh = std::ceil(height_points * scale);
+    if (!std::isfinite(dw) || !std::isfinite(dh) ||
+        dw <= 0.0 || dh <= 0.0 ||
+        dw > (double)max_pixels || dh > (double)max_pixels)
+        return false;
+    const size_t width = (size_t)dw, height = (size_t)dh;
+    if (height == 0u || width > max_pixels / height)
+        return false;
+    *out_width = width;
+    *out_height = height;
+    return true;
+}
+
+static int test_source_decimal_candidate_admission(const char *report_path)
+{
+    CHECK(report_path && *report_path);
+    const std::string staged = std::string(report_path) + ".tmp";
+    errno = 0;
+    if (std::remove(report_path) != 0) CHECK(errno == ENOENT);
+    errno = 0;
+    if (std::remove(staged.c_str()) != 0) CHECK(errno == ENOENT);
+
+    const char *valid_tokens[] = {
+        "0", "-0", "+0", "-0.0", "0.", ".125", "0.125",
+        "2.375", "+2.3750", "-2.375", ".5", "0.625", "0.75",
+        "0.875", "1.000000000000", "1.000000000001",
+        "0.000000000001", "-0.000000000001",
+        "9007199254740991", "-9007199254740991",
+        "00000000000000000001"
+    };
+    size_t valid_count = 0u, invalid_count = 0u;
+    for (const char *token : valid_tokens) {
+        double output = 999.0;
+        CHECK(decimal_source_significand_scale_try(
+                  token, token + std::strlen(token), &output) &&
+              std::isfinite(output));
+        ++valid_count;
+    }
+    /* Every rejected token must zero the previously nonzero output. */
+    const char *invalid_tokens[] = {
+        "", ".", "+", "-", "+.", "-.", "--1", "++1", "-+1",
+        "1..0", "1.2.3", "1e2", "1E2", "NaN", "nan", "Inf", "inf",
+        "1a", "1_0", "0x1", "1/2", "1,2", " 1", "1 ", "1-0",
+        "0.0000000000001", "1.0000000000000",
+        "9007199254740992", "-9007199254740992",
+        "18446744073709551615", "18446744073709551616",
+        "99999999999999999999", "123456789012345678901",
+        "000000000000000000000", "1e309", "1.2e-3"
+    };
+    for (const char *token : invalid_tokens) {
+        double output = 999.0;
+        CHECK(!decimal_source_significand_scale_try(
+                   token, token + std::strlen(token), &output) &&
+              output == 0.0 && !std::signbit(output));
+        ++invalid_count;
+    }
+    double sentinel = 999.0;
+    CHECK(!decimal_source_significand_scale_try(
+               nullptr, nullptr, &sentinel) && sentinel == 0.0);
+    ++invalid_count;
+    CHECK(!decimal_source_significand_scale_try(
+               "0", nullptr, &sentinel) && sentinel == 0.0);
+    ++invalid_count;
+    CHECK(!decimal_source_significand_scale_try(
+               "0", "0" + 1, nullptr));
+    ++invalid_count;
+
+    auto parse = [](const char *token) {
+        double value = 0.0;
+        CHECK(decimal_source_significand_scale_try(
+                  token, token + std::strlen(token), &value));
+        return value;
+    };
+    CHECK(decimal_double_bits(parse("2.375")) ==
+          decimal_double_bits(parse("2.3750")) &&
+          decimal_double_bits(parse("2.375")) ==
+          decimal_double_bits(parse("+02.375000")) &&
+          decimal_double_bits(parse(".125")) ==
+          decimal_double_bits(parse("0.125000")) &&
+          decimal_double_bits(parse("-0")) ==
+          decimal_double_bits(parse("-0.0")) &&
+          std::signbit(parse("-0")) && !std::signbit(parse("+0")));
+
+    const char *ascending[] = {
+        "-1.000000000001", "-1.000000000000", "-0.999999999999",
+        "-0.5", "-0.000000000001", "0", "0.000000000001",
+        "0.5", "0.999999999999", "1.000000000000",
+        "1.000000000001", "2.374999999999", "2.375",
+        "2.375000000001"
+    };
+    size_t monotonic_steps = 0u;
+    double previous = parse(ascending[0]);
+    for (size_t i = 1u; i < sizeof(ascending)/sizeof(ascending[0]); ++i) {
+        const double current = parse(ascending[i]);
+        CHECK(current > previous);
+        previous = current;
+        ++monotonic_steps;
+    }
+
+    /* CropBox parsing must be transactional and reject missing/extra edges,
+     * reversed boxes, malformed tokens, and invalid UTF-8-free ASCII input. */
+    const char *valid_boxes[] = {
+        "2.375 3.375 12.375 11.375",
+        "2.3750 3.3750 12.3750 11.3750",
+        "  2.375  3.375  12.375  11.375  ",
+        "-2.375 -3.375 12.375 11.375"
+    };
+    size_t accepted_boxes = 0u, rejected_boxes = 0u;
+    double reference_box[4] = {};
+    CHECK(decimal_source_crop_try(valid_boxes[0], reference_box));
+    for (const char *box : valid_boxes) {
+        double output[4] = {9.0, 9.0, 9.0, 9.0};
+        CHECK(decimal_source_crop_try(box, output) &&
+              output[2] > output[0] && output[3] > output[1]);
+        if (accepted_boxes == 1u || accepted_boxes == 2u)
+            for (size_t k = 0u; k < 4u; ++k)
+                CHECK(decimal_double_bits(output[k]) ==
+                      decimal_double_bits(reference_box[k]));
+        ++accepted_boxes;
+    }
+    const char *invalid_boxes[] = {
+        "", "    ", "2.375 3.375 12.375",
+        "2.375 3.375 12.375 11.375 9",
+        "2.375 3.375 2.375 11.375",
+        "2.375 3.375 12.375 3.375",
+        "2.375 3.375 2.0 11.375",
+        "2.375 3.375 12.375 2.0",
+        "2.375 3.375 NaN 11.375",
+        "2.375 3.375 9007199254740992 11.375",
+        "2.375 3.375 12.375 11.375e10",
+        "2.375 3.375 12.375 11.375/",
+        "2.375\t3.375 12.375 11.375",
+        "2.375 3.375 12.375 11.375\n"
+    };
+    for (const char *box : invalid_boxes) {
+        double output[4] = {9.0, 9.0, 9.0, 9.0};
+        CHECK(!decimal_source_crop_try(box, output));
+        for (double value : output) CHECK(value == 0.0);
+        ++rejected_boxes;
+    }
+    std::string overlong_box(97u, '9');
+    double output[4] = {9.0, 9.0, 9.0, 9.0};
+    CHECK(!decimal_source_crop_try(overlong_box.c_str(), output));
+    for (double value : output) CHECK(value == 0.0);
+    ++rejected_boxes;
+    double null_box[4] = {9.0, 9.0, 9.0, 9.0};
+    CHECK(!decimal_source_crop_try(nullptr, null_box));
+    for (double value : null_box) CHECK(value == 0.0);
+    ++rejected_boxes;
+
+    /* Rationally ordered source widths must not shrink a candidate grid.
+     * The under/integer/over sequence explicitly preserves ceil boundaries. */
+    const char *upper[] = {
+        "12.374875", "12.374999999999", "12.375",
+        "12.375000000001", "12.375125"
+    };
+    const unsigned dpis[] = {72u, 96u, 144u};
+    const unsigned expected_widths[3][5] = {
+        {70u, 70u, 70u, 71u, 71u},
+        {94u, 94u, 94u, 94u, 94u},
+        {140u, 140u, 140u, 141u, 141u}
+    };
+    const unsigned expected_heights[3][5] = {
+        {56u, 56u, 56u, 57u, 57u},
+        {75u, 75u, 75u, 75u, 75u},
+        {112u, 112u, 112u, 113u, 113u}
+    };
+    size_t grid_steps = 0u, grid_budget_rejections = 0u;
+    for (size_t d = 0u; d < 3u; ++d) {
+        size_t previous_width = 0u, previous_height = 0u;
+        for (size_t k = 0u; k < 5u; ++k) {
+            const double upper_bound = parse(upper[k]);
+            const double lower_bound = parse("2.375");
+            const double upper_h = upper_bound - 1.0;
+            const double lower_h = parse("3.375");
+            const double width_points = upper_bound - lower_bound;
+            const double height_points = upper_h - lower_h;
+            size_t width = 0u, height = 0u;
+            CHECK(decimal_test_grid_bounded(
+                      width_points, height_points, dpis[d], 100000u,
+                      &width, &height) &&
+                  width == expected_widths[d][k] &&
+                  height == expected_heights[d][k] &&
+                  width >= previous_width && height >= previous_height);
+            previous_width = width;
+            previous_height = height;
+            ++grid_steps;
+        }
+    }
+    size_t width = 99u, height = 99u;
+    CHECK(decimal_test_grid_bounded(
+        10.0, 8.0, 72u, 3920u, &width, &height) &&
+        width == 70u && height == 56u);
+    struct budget_case {
+        double w, h; unsigned dpi; size_t capacity;
+    };
+    const budget_case rejected_grids[] = {
+        {10.0,8.0,72u,3919u}, {10.0,8.0,72u,0u},
+        {10.0,8.0,72u,1000001u}, {10.0,8.0,120u,100000u},
+        {10.0,8.0,0u,100000u},
+        {0.0,8.0,72u,100000u}, {-1.0,8.0,72u,100000u},
+        {10.0,0.0,72u,100000u},
+        {1e300,8.0,72u,100000u},
+        {10.0,std::numeric_limits<double>::quiet_NaN(),72u,100000u},
+        {std::numeric_limits<double>::infinity(),8.0,72u,100000u},
+        {10.0,-std::numeric_limits<double>::infinity(),72u,100000u}
+    };
+    for (const auto &c : rejected_grids) {
+        width = 99u; height = 99u;
+        CHECK(!decimal_test_grid_bounded(
+                  c.w,c.h,c.dpi,c.capacity,&width,&height) &&
+              width == 0u && height == 0u);
+        ++grid_budget_rejections;
+    }
+    CHECK(!decimal_test_grid_bounded(
+        10.0,8.0,72u,100000u,nullptr,&height));
+    CHECK(height == 0u);
+
+    FILE *report = std::fopen(staged.c_str(), "wb");
+    CHECK(report != nullptr);
+    std::fprintf(report,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"test_id\": \"issue-360-decimal-candidate-admission\",\n"
+        "  \"scope\": \"test-only-bounded-decimal-candidate\",\n"
+        "  \"token_max_length\": 20,\n"
+        "  \"max_fractional_digits\": 12,\n"
+        "  \"max_significand\": 9007199254740991,\n"
+        "  \"accepted_token_cases\": %zu,\n"
+        "  \"rejected_token_cases\": %zu,\n"
+        "  \"accepted_crop_cases\": %zu,\n"
+        "  \"rejected_crop_cases\": %zu,\n"
+        "  \"monotonic_decimal_transitions\": %zu,\n"
+        "  \"monotonic_grid_cases\": %zu,\n"
+        "  \"rejected_grid_budget_cases\": %zu,\n"
+        "  \"failure_outputs_reset\": true,\n"
+        "  \"production_parser_changed\": false,\n"
+        "  \"native_device_grid_qualified\": false,\n"
+        "  \"result\": \"passed\"\n"
+        "}\n",
+        valid_count, invalid_count, accepted_boxes, rejected_boxes,
+        monotonic_steps, grid_steps, grid_budget_rejections);
+    CHECK(std::ferror(report) == 0 && std::fclose(report) == 0);
+    CHECK(std::rename(staged.c_str(), report_path) == 0);
+    std::fprintf(stderr,
+        "[issue-360] candidate admission: tokens=%zu/%zu "
+        "crop=%zu/%zu monotonic=%zu grid=%zu budget-reject=%zu\n",
+        valid_count, invalid_count, accepted_boxes, rejected_boxes,
+        monotonic_steps, grid_steps, grid_budget_rejections);
+    return EXIT_SUCCESS;
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 4 && std::strcmp(argv[1], "--decimal-grid-diagnostic") == 0)
         return test_source_decimal_grid_diagnostic(argv[2], argv[3]);
     if (argc == 4 && std::strcmp(argv[1], "--decimal-grid-matrix") == 0)
         return test_source_decimal_grid_matrix(argv[2], argv[3]);
+    if (argc == 3 && std::strcmp(argv[1], "--decimal-parser-admission") == 0)
+        return test_source_decimal_candidate_admission(argv[2]);
     CHECK(argc == 1);
     test_inherited_geometry();
     test_overrides_and_noncanonical();
