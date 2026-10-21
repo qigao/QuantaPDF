@@ -392,14 +392,25 @@ static std::vector<unsigned char> decimal_pdfium_original(
     CHECK(page != nullptr);
     const double width = (double)FPDF_GetPageWidthF(page);
     const double height = (double)FPDF_GetPageHeightF(page);
-    std::fprintf(stderr,
-        "[issue-360] original PDFium page=%s width=%.17g height=%.17g "
-        "ceil=%d,%d expected=%d,%d\\n",
-        path.c_str(), width, height, (int)std::ceil(width),
-        (int)std::ceil(height), expected_width, expected_height);
+    /* FPDF_GetPageWidthF/HeightF report the unscaled visible CropBox
+     * dimensions, not a UserUnit-scaled device pixel grid. The literal
+     * original PDF sets /UserUnit 7; apply that independent source value
+     * at 72 dpi before comparing mathematically expected pixel ceilings. */
+    constexpr double source_user_unit = 7.0;
     CHECK(std::isfinite(width) && std::isfinite(height) &&
-          (int)std::ceil(width) == expected_width &&
-          (int)std::ceil(height) == expected_height);
+          width > 0.0 && height > 0.0);
+    const double device_width = width * source_user_unit;
+    const double device_height = height * source_user_unit;
+    std::fprintf(stderr,
+        "[issue-360] original PDFium page=%s crop-points=(%.17g,%.17g) "
+        "source-UserUnit=7 effective-72dpi=(%.17g,%.17g) "
+        "ceil=%d,%d expected=%d,%d\n",
+        path.c_str(), width, height, device_width, device_height,
+        (int)std::ceil(device_width), (int)std::ceil(device_height),
+        expected_width, expected_height);
+    CHECK(std::isfinite(device_width) && std::isfinite(device_height) &&
+          (int)std::ceil(device_width) == expected_width &&
+          (int)std::ceil(device_height) == expected_height);
     FPDF_BITMAP bitmap = FPDFBitmap_CreateEx(
         expected_width, expected_height, FPDFBitmap_BGR, nullptr, 0);
     CHECK(bitmap != nullptr);
