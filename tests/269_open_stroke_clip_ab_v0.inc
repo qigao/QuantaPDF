@@ -649,6 +649,7 @@ static int test_269_open_stroke_geometry_matrix(const char *report_path)
     const char *path=GENERATED_269_OPEN_STROKE_MATRIX_PDF;
     qp379_line_capture rows[GEOMETRY_COUNT][VARIANT_COUNT];
     uint64_t hashes[GEOMETRY_COUNT*VARIANT_COUNT]{};
+    size_t ref_fullpage_changed[GEOMETRY_COUNT]{},native_fullpage_changed[GEOMETRY_COUNT]{};
     size_t ref_clip_changed[GEOMETRY_COUNT]{},native_clip_changed[GEOMETRY_COUNT]{};
     uint64_t ref_clip_rgb_abs[GEOMETRY_COUNT]{},native_clip_rgb_abs[GEOMETRY_COUNT]{};
     size_t ref_native_changed[GEOMETRY_COUNT][VARIANT_COUNT]{};
@@ -679,12 +680,16 @@ static int test_269_open_stroke_geometry_matrix(const char *report_path)
                           rows[g][1].ref_rgb.data(),P*3u)==0);
         for(size_t p=0;p<P;++p){
             bool ref_changed=false,native_changed=false;
+            bool ref_fullpage_diff=false,native_fullpage_diff=false;
             for(unsigned c=0;c<3u;++c){
                 const unsigned r0=rows[g][0].ref_rgb[p*3u+c];
+                const unsigned r1=rows[g][1].ref_rgb[p*3u+c];
                 const unsigned r2=rows[g][2].ref_rgb[p*3u+c];
                 const unsigned n0=native_white(rows[g][0],p,c);
                 const unsigned n1=native_white(rows[g][1],p,c);
                 const unsigned n2=native_white(rows[g][2],p,c);
+                ref_fullpage_diff|=r0!=r1;
+                native_fullpage_diff|=n0!=n1;
                 CHECK(n0==n1);
                 ref_changed|=r0!=r2;
                 native_changed|=n0!=n2;
@@ -693,6 +698,8 @@ static int test_269_open_stroke_geometry_matrix(const char *report_path)
             }
             if(ref_changed)++ref_clip_changed[g];
             if(native_changed)++native_clip_changed[g];
+            if(ref_fullpage_diff)++ref_fullpage_changed[g];
+            if(native_fullpage_diff)++native_fullpage_changed[g];
         }
         for(unsigned v=0;v<VARIANT_COUNT;++v){
             for(size_t p=0;p<P;++p){
@@ -729,14 +736,15 @@ static int test_269_open_stroke_geometry_matrix(const char *report_path)
         if(g)std::fprintf(out,",");
         std::fprintf(out,
           "{\"name\":\"%s\","
-          "\"reference_no_clip_fullpage_w_changed_pixels\":0,"
-          "\"native_no_clip_fullpage_w_changed_pixels\":0,"
+          "\"reference_no_clip_fullpage_w_changed_pixels\":%zu,"
+          "\"native_no_clip_fullpage_w_changed_pixels\":%zu,"
           "\"restrictive_w_reference_changed_pixels\":%zu,"
           "\"restrictive_w_native_changed_pixels\":%zu,"
           "\"restrictive_w_reference_rgb_abs_delta\":%llu,"
           "\"restrictive_w_native_rgb_abs_delta\":%llu,"
           "\"reference_native_comparison\":[",
-          geometries[g].name,ref_clip_changed[g],native_clip_changed[g],
+          geometries[g].name,ref_fullpage_changed[g],native_fullpage_changed[g],
+          ref_clip_changed[g],native_clip_changed[g],
           (unsigned long long)ref_clip_rgb_abs[g],
           (unsigned long long)native_clip_rgb_abs[g]);
         for(unsigned v=0;v<VARIANT_COUNT;++v){
