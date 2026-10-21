@@ -3,6 +3,7 @@
 #include "document/page_composer_ir.h"
 #include "graph/graph_page_geometry.h"
 #include "graph/graph_edit.h"
+#include "decimal_rational_probe.h"
 
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFWriter.hh>
@@ -865,7 +866,7 @@ static int test_source_decimal_grid_matrix(const char *prefix,
         "  \"cases\": [\n", CASES, FRAMES);
 
     size_t sources = 0u, frames = 0u, graph_mismatches = 0u;
-    size_t candidate_mismatches = 0u;
+    size_t candidate_mismatches = 0u, rational_mismatches = 0u;
     for (size_t fraction = 0u; fraction < FRACTIONS; ++fraction) {
         const std::string digits(fractions[fraction]);
         /* Every upper/lower endpoint difference is EXACTLY 10×8 in source
@@ -1008,6 +1009,14 @@ static int test_source_decimal_grid_matrix(const char *prefix,
                     (int)std::ceil(alternative_w * (double)dpi / 72.0);
                 const int candidate_h =
                     (int)std::ceil(alternative_h * (double)dpi / 72.0);
+                quantapdf_test_rational_grid exact_grid = {};
+                CHECK(quantapdf_test_rational_page_grid(
+                    crop.c_str(), rotation, 7u, dpi, 100000u, &exact_grid));
+                const bool rational_mismatch =
+                    exact_grid.width != (size_t)expected_width ||
+                    exact_grid.height != (size_t)expected_height;
+                rational_mismatches += (size_t)rational_mismatch;
+                CHECK(!rational_mismatch);
                 CHECK(std::abs(graph_w - expected_width) <= 1 &&
                       std::abs(graph_h - expected_height) <= 1 &&
                       candidate_w == expected_width &&
@@ -1026,11 +1035,13 @@ static int test_source_decimal_grid_matrix(const char *prefix,
                     "\"pdfium_reference_rgb_fnv64\":\"%016llx\","
                     "\"graph_ceil_estimate\":[%d,%d],"
                     "\"candidate_ceil_estimate\":[%d,%d],"
+                    "\"exact_rational_ceil_estimate\":[%zu,%zu],"
                     "\"graph_mismatch\":%s}",
                     dpi, expected_width, expected_height,
                     pdfium_w1, pdfium_h1,
                     (unsigned long long)decimal_matrix_reference_hash(reference),
                     graph_w, graph_h, candidate_w, candidate_h,
+                    exact_grid.width, exact_grid.height,
                     graph_mismatch ? "true" : "false");
                 ++frames;
             }
@@ -1040,17 +1051,19 @@ static int test_source_decimal_grid_matrix(const char *prefix,
         }
     }
     CHECK(sources == CASES && frames == FRAMES &&
-          candidate_mismatches == 0u);
+          candidate_mismatches == 0u && rational_mismatches == 0u);
     std::fprintf(out,
         "\n  ],\n"
         "  \"generated_source_count\": %zu,\n"
         "  \"reference_frame_count\": %zu,\n"
         "  \"graph_ceil_mismatch_count\": %zu,\n"
         "  \"candidate_ceil_mismatch_count\": %zu,\n"
+        "  \"exact_rational_ceil_mismatch_count\": %zu,\n"
         "  \"master_native_device_grid_qualified\": false,\n"
         "  \"production_decimal_decoder_changed\": false,\n"
         "  \"result\": \"diagnostic-only\"\n"
-        "}\n", sources, frames, graph_mismatches, candidate_mismatches);
+        "}\n", sources, frames, graph_mismatches, candidate_mismatches,
+        rational_mismatches);
     CHECK(std::ferror(out) == 0 && std::fclose(out) == 0);
     CHECK(std::rename(staged.c_str(), report_path) == 0);
     std::fprintf(stderr,
@@ -1327,6 +1340,7 @@ static int test_source_decimal_candidate_admission(const char *report_path)
     int nondyadic_graph_width = 0, nondyadic_graph_height = 0;
     int nondyadic_candidate_width = 0, nondyadic_candidate_height = 0;
     size_t nondyadic_candidate_overcounts = 0u;
+    size_t nondyadic_rational_mismatches = 0u;
     struct nondyadic_pdfium_guard {
         nondyadic_pdfium_guard() { FPDF_InitLibrary(); }
         ~nondyadic_pdfium_guard() { FPDF_DestroyLibrary(); }
@@ -1387,6 +1401,14 @@ static int test_source_decimal_candidate_admission(const char *report_path)
         const int graph_height = (int)std::ceil(display.height_points);
         const int candidate_width = (int)std::ceil(candidate_width_points);
         const int candidate_height = (int)std::ceil(candidate_height_points);
+        quantapdf_test_rational_grid exact_grid = {};
+        CHECK(quantapdf_test_rational_page_grid(
+            nondyadic_crop[i], 0, 7u, 72u, 100000u, &exact_grid));
+        const bool rational_mismatch =
+            exact_grid.width != (size_t)rational_width_grid ||
+            exact_grid.height != (size_t)rational_height_grid;
+        nondyadic_rational_mismatches += (size_t)rational_mismatch;
+        CHECK(!rational_mismatch);
         CHECK(candidate_width == 71 && candidate_height == 56 &&
               (graph_width == 70 || graph_width == 71) &&
               (graph_height == 56 || graph_height == 57));
@@ -1416,7 +1438,8 @@ static int test_source_decimal_candidate_admission(const char *report_path)
         CHECK(decimal_read_source(source_path) == immutable_source);
         CHECK(std::remove(source_path.c_str()) == 0);
     }
-    CHECK(nondyadic_candidate_overcounts == 2u);
+    CHECK(nondyadic_candidate_overcounts == 2u &&
+          nondyadic_rational_mismatches == 0u);
 
     FILE *report = std::fopen(staged.c_str(), "wb");
     CHECK(report != nullptr);
@@ -1442,6 +1465,7 @@ static int test_source_decimal_candidate_admission(const char *report_path)
         "  \"nondyadic_graph_ceil_grid_72dpi\": [%d,%d],\n"
         "  \"nondyadic_ratio_candidate_ceil_grid_72dpi\": [%d,%d],\n"
         "  \"nondyadic_candidate_width_overcount_cases\": %zu,\n"
+        "  \"nondyadic_exact_rational_mismatch_count\": %zu,\n"
         "  \"nondyadic_original_pdfium_repeat_identical\": true,\n"
         "  \"nondyadic_equivalent_spellings_reference_equal\": true,\n"
         "  \"nondyadic_source_bytes_unchanged\": true,\n"
@@ -1456,7 +1480,7 @@ static int test_source_decimal_candidate_admission(const char *report_path)
         nondyadic_graph_width_points, nondyadic_candidate_width_points,
         nondyadic_graph_width, nondyadic_graph_height,
         nondyadic_candidate_width, nondyadic_candidate_height,
-        nondyadic_candidate_overcounts);
+        nondyadic_candidate_overcounts, nondyadic_rational_mismatches);
     CHECK(std::ferror(report) == 0 && std::fclose(report) == 0);
     CHECK(std::rename(staged.c_str(), report_path) == 0);
     std::fprintf(stderr,
