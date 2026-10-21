@@ -2074,6 +2074,22 @@ static qp384_open_line_capture qp384_capture_open_line(const char *path,
     const quantapdf_status s2 =
         quantapdf_ir_raster_scoped_operations_v1(&detached, 0u, &limits,
                                                   &repeated);
+    if (!(s1 == QUANTAPDF_OK && s2 == QUANTAPDF_OK &&
+          native.pixels && repeated.pixels &&
+          native.width == W && native.height == H &&
+          native.stride == W * 4u && native.size == P * 4u &&
+          repeated.size == native.size &&
+          std::memcmp(native.pixels, repeated.pixels, native.size) == 0)) {
+        std::fprintf(stderr,
+            "[issue-384] Native render diagnostic: path=%s clips=%u "
+            "status1=%d status2=%d pixels1=%p pixels2=%p "
+            "size1=%zu size2=%zu width1=%zu height1=%zu stride1=%zu "
+            "width2=%zu height2=%zu stride2=%zu\\n",
+            path, expected_clips, (int)s1, (int)s2,
+            (void *)native.pixels, (void *)repeated.pixels,
+            native.size, repeated.size, native.width, native.height,
+            native.stride, repeated.width, repeated.height, repeated.stride);
+    }
     CHECK(s1 == QUANTAPDF_OK && s2 == QUANTAPDF_OK &&
           native.pixels && repeated.pixels &&
           native.width == W && native.height == H &&
