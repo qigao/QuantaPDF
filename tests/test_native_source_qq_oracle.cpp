@@ -9,6 +9,15 @@
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFWriter.hh>
 
+#include <fpdfview.h>
+
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
+
 #include <cerrno>
 #include <cmath>
 #include <cstdio>
@@ -130,6 +139,53 @@ rgb_image render_original_pdfium(size_t page_index=0u,
     quantapdf_drop_bitmap(bitmap);
     quantapdf_drop_page(page);
     quantapdf_close(doc);
+    return out;
+}
+
+/* Render an unchanged source PDF directly through PDFium's public C API.
+ * This oracle bypasses QuantaPDF's document and render wrappers. */
+rgb_image render_direct_pdfium_reference(const char *source_path)
+{
+    struct pdfium_runtime {
+        pdfium_runtime() { FPDF_InitLibrary(); }
+        ~pdfium_runtime() { FPDF_DestroyLibrary(); }
+    };
+    static pdfium_runtime runtime;
+    (void)runtime;
+    FPDF_DOCUMENT document = FPDF_LoadDocument(source_path, nullptr);
+    CHECK(document != nullptr);
+    CHECK(FPDF_GetPageCount(document) > 0);
+    FPDF_PAGE page = FPDF_LoadPage(document, 0);
+    CHECK(page != nullptr);
+    const double pw = static_cast<double>(FPDF_GetPageWidthF(page));
+    const double ph = static_cast<double>(FPDF_GetPageHeightF(page));
+    CHECK(std::isfinite(pw) && std::isfinite(ph) && pw > 0.0 && ph > 0.0);
+    CHECK(std::ceil(pw) <= 8192.0 && std::ceil(ph) <= 8192.0 && std::ceil(pw) * std::ceil(ph) <= 60000000.0);
+    rgb_image out;
+    out.width = static_cast<int>(std::ceil(pw));
+    out.height = static_cast<int>(std::ceil(ph));
+    FPDF_BITMAP bitmap = FPDFBitmap_CreateEx(out.width, out.height, FPDFBitmap_BGR, nullptr, 0);
+    CHECK(bitmap != nullptr);
+    FPDFBitmap_FillRect(bitmap, 0, 0, out.width, out.height, 0xFFFFFFFFu);
+    FPDF_RenderPageBitmap(bitmap, page, 0, 0, out.width, out.height, 0, FPDF_ANNOT);
+    const int source_stride = FPDFBitmap_GetStride(bitmap);
+    const auto *source = static_cast<const unsigned char *>(FPDFBitmap_GetBuffer(bitmap));
+    CHECK(source != nullptr && source_stride >= out.width * 3);
+    out.stride = out.width * 3;
+    out.components = 3;
+    out.pixels.resize(static_cast<size_t>(out.height) * static_cast<size_t>(out.stride));
+    for (int y = 0; y < out.height; ++y) {
+        const unsigned char *src = source + static_cast<size_t>(y) * static_cast<size_t>(source_stride);
+        unsigned char *dst = out.pixels.data() + static_cast<size_t>(y) * static_cast<size_t>(out.stride);
+        for (int x = 0; x < out.width; ++x) {
+            dst[static_cast<size_t>(x) * 3u] = src[static_cast<size_t>(x) * 3u + 2u];
+            dst[static_cast<size_t>(x) * 3u + 1u] = src[static_cast<size_t>(x) * 3u + 1u];
+            dst[static_cast<size_t>(x) * 3u + 2u] = src[static_cast<size_t>(x) * 3u];
+        }
+    }
+    FPDFBitmap_Destroy(bitmap);
+    FPDF_ClosePage(page);
+    FPDF_CloseDocument(document);
     return out;
 }
 
@@ -1497,21 +1553,12 @@ int test_external_pdfium_clip_stroke(const char *filename,
     if(std::remove(pending.c_str())!=0) CHECK(errno==ENOENT);
     CHECK(corpus_fixture_executions==0u);
     constexpr size_t WIDTH=100u, HEIGHT=50u;
-    quantapdf_document *source_pdfium=nullptr;
-    quantapdf_page *source_page=nullptr;
-    quantapdf_bitmap *source_bitmap=nullptr;
-    const unsigned char *rgb=nullptr;
-    size_t image_bytes=0u;
-    int width=0,height=0,stride=0,components=0;
-    OK(quantapdf_open(filename,nullptr,&source_pdfium));
-    OK(quantapdf_load_page(source_pdfium,0u,&source_page));
-    OK(quantapdf_render_page(source_page,&source_bitmap));
-    OK(quantapdf_bitmap_dimensions(source_bitmap,
-        &width,&height,&stride,&components));
-    OK(quantapdf_bitmap_data(source_bitmap,&rgb,&image_bytes));
-    CHECK(width==(int)WIDTH && height==(int)HEIGHT &&
-          components==3 && stride>=(int)WIDTH*3 && rgb &&
-          image_bytes>=HEIGHT*(size_t)stride);
+    rgb_image reference = render_direct_pdfium_reference(filename);
+    const unsigned char *rgb = reference.pixels.data();
+    const int width = reference.width, height = reference.height;
+    const int stride = reference.stride, components = reference.components;
+    CHECK(width==(int)WIDTH && height==(int)HEIGHT && components==3 &&
+          stride>=(int)WIDTH*3 && rgb && reference.pixels.size()>=HEIGHT*(size_t)stride);
 
     quantapdf_document *source=nullptr;
     quantapdf_graph_snapshot *snapshot=nullptr;
@@ -1594,9 +1641,6 @@ int test_external_pdfium_clip_stroke(const char *filename,
     CHECK(native.pixels[0u+3u]==0u);
     CHECK(native.pixels[(25u*WIDTH+25u)*4u+3u]==0u);
     quantapdf_ir_raster_image_dispose(&native);
-    quantapdf_drop_bitmap(source_bitmap);
-    quantapdf_drop_page(source_page);
-    quantapdf_close(source_pdfium);
     CHECK(corpus_fixture_executions==0u);
     FILE *report=std::fopen(pending.c_str(),"wb");
     CHECK(report!=nullptr);
