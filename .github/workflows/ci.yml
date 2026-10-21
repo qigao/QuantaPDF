@@ -600,7 +600,11 @@ jobs:
             if (-not (Test-Path (Join-Path $pdfium 'pdfium.dll'))) {
               throw 'Pinned PDFium runtime missing'
             }
-            $env:PATH = "$pdfium;$env:PATH"
+            # CTest's Windows preset prepends the QuantaPDF DLL output dir
+            # as well as the pinned PDFium runtime; reproduce that for the
+            # direct Python child-process probe (this step is not CTest).
+            $builtRuntime = Join-Path $env:GITHUB_WORKSPACE 'build\Msvc-Release'
+            $env:PATH = "$builtRuntime;$pdfium;$env:PATH"
             $exe = Join-Path $env:GITHUB_WORKSPACE 'build\Msvc-Release\tests\quantapdf_test_graph_page_geometry.exe'
             if (-not (Test-Path $exe)) { throw 'Built geometry test executable missing' }
             python tools/qualification/quarantined_jspdf_geometry.py --source $original --executable $exe --report $report
