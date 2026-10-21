@@ -1494,12 +1494,251 @@ static int test_source_decimal_candidate_admission(const char *report_path)
     return EXIT_SUCCESS;
 }
 
+
+/* #360: independent source-backed DECIMAL UserUnit test-only qualification.
+ * Inputs are literal original PDFs with a leaf /UserUnit real, not
+ * Graph-exported or admitted external-source artifacts. The independent grid
+ * uses exact small integer source dimensions and the authored Unit fraction.
+ * Graph/binary64 ceil errors are observations, not successful qualifications. */
+static int q360_source_grid_dimension(unsigned source_points,
+                                      unsigned unit_numerator,
+                                      unsigned unit_denominator,
+                                      unsigned dpi)
+{
+    CHECK(source_points > 0u && source_points <= 10u &&
+          unit_numerator > 0u && unit_numerator <= 8750u &&
+          unit_denominator > 0u && unit_denominator <= 10000u &&
+          (dpi == 72u || dpi == 96u || dpi == 144u));
+    const uint64_t n=(uint64_t)source_points *
+                     (uint64_t)unit_numerator * (uint64_t)dpi;
+    const uint64_t d=(uint64_t)unit_denominator * UINT64_C(72);
+    CHECK(n > 0u && d > 0u && n < UINT64_C(1000000000));
+    return (int)(n/d + (n%d != 0u));
+}
+
+static int test_source_fractional_userunit(const char *prefix,
+                                           const char *report_path)
+{
+    CHECK(prefix && *prefix && report_path && *report_path &&
+          std::strcmp(prefix, report_path) != 0);
+    struct unit_case {
+        const char *spelling;
+        unsigned numerator,denominator;
+        int rotation;
+    };
+    const unit_case cases[] = {
+        {".5",5u,10u,0}, {"0.50",50u,100u,0},
+        {"1.1",11u,10u,90}, {"1.10",110u,100u,90},
+        {"1.25",125u,100u,180}, {"1.250",1250u,1000u,180},
+        {"0.875",875u,1000u,270}, {"0.8750",8750u,10000u,270}
+    };
+    constexpr size_t SOURCES=sizeof(cases)/sizeof(cases[0]);
+    constexpr unsigned dpis[]={72u,96u,144u};
+    constexpr size_t DPIS=sizeof(dpis)/sizeof(dpis[0]);
+    constexpr size_t FRAMES=SOURCES*DPIS;
+    static const char *const crop="6.1 3.375 16.1 11.375";
+    const std::string staged=std::string(report_path)+".tmp";
+    errno=0;
+    if(std::remove(report_path)!=0)CHECK(errno==ENOENT);
+    errno=0;
+    if(std::remove(staged.c_str())!=0)CHECK(errno==ENOENT);
+    FILE *report=std::fopen(staged.c_str(),"wb");
+    CHECK(report!=nullptr);
+    std::fprintf(report,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"test_id\": \"issue-360-source-fractional-userunit\",\n"
+        "  \"fixture_kind\": \"test-generated-original-pdf\",\n"
+        "  \"reference_oracle\": \"direct-public-pdfium-c-api\",\n"
+        "  \"generated_source_count\": %zu,\n"
+        "  \"reference_frame_count\": %zu,\n"
+        "  \"reference_render_calls\": %zu,\n"
+        "  \"source_crop\": \"%s\",\n"
+        "  \"cases\": [\n",
+        SOURCES,FRAMES,FRAMES*2u,crop);
+    struct pdfium_guard {
+        pdfium_guard() { FPDF_InitLibrary(); }
+        ~pdfium_guard() { FPDF_DestroyLibrary(); }
+    } pdfium;
+    (void)pdfium;
+    std::vector<unsigned char> first_reference[4][3];
+    size_t graph_mismatches=0u, ratio_mismatches=0u;
+    size_t exact_mismatches=0u, total_frames=0u;
+    double crop_candidate[4] = {};
+    decimal_source_crop_candidate(crop,crop_candidate);
+    for(size_t i=0u;i<SOURCES;++i) {
+        const unit_case &entry=cases[i];
+        const bool leaf=(i%2u)!=0u;
+        const int rotation=entry.rotation;
+        const bool swapped=rotation==90 || rotation==270;
+        const unsigned source_width=swapped?8u:10u;
+        const unsigned source_height=swapped?10u:8u;
+        const double exact_unit=(double)entry.numerator/
+                                (double)entry.denominator;
+        const std::string source_path=std::string(prefix)+
+            "-unit-"+std::to_string(i)+".pdf";
+        CHECK(source_path!=report_path && source_path!=staged);
+        errno=0;
+        if(std::remove(source_path.c_str())!=0) CHECK(errno==ENOENT);
+        decimal_write_source(source_path,crop,leaf,rotation,leaf,
+                             entry.spelling);
+        const auto immutable=decimal_read_source(source_path);
+        const std::string original_text(immutable.begin(),immutable.end());
+        CHECK(original_text.find(std::string("/UserUnit ")+
+              entry.spelling)!=std::string::npos &&
+              original_text.find(std::string("/CropBox [")+crop+"]")!=
+                  std::string::npos);
+        quantapdf_document *document=nullptr;
+        quantapdf_graph_snapshot *snapshot=nullptr;
+        const auto graph_limit=graph_budget();
+        OK(quantapdf_open(source_path.c_str(),nullptr,&document));
+        OK(quantapdf_document_capture_graph(document,&graph_limit,&snapshot));
+        quantapdf_close(document);
+        CHECK(snapshot && snapshot->graph);
+        quantapdf_graph_page_geometry graph{};
+        quantapdf_graph_page_display display{};
+        OK(quantapdf_graph_query_page_geometry(
+             snapshot->graph,0u,2u,&graph));
+        OK(quantapdf_graph_page_display_map(&graph,&display));
+        quantapdf_graph_snapshot_drop(snapshot);
+        CHECK(graph.rotation==rotation &&
+              graph.media_box[0]==0.0 && graph.media_box[1]==0.0 &&
+              graph.media_box[2]==20.0 && graph.media_box[3]==20.0 &&
+              std::isfinite(graph.user_unit) &&
+              std::abs(graph.user_unit-exact_unit)<1e-12 &&
+              std::abs(display.width_points-
+                       (double)source_width*exact_unit)<1e-9 &&
+              std::abs(display.height_points-
+                       (double)source_height*exact_unit)<1e-9);
+        if(i!=0u)std::fprintf(report,",\n");
+        std::fprintf(report,
+            "    {\"source_index\":%zu,\"unit_literal\":\"%s\","
+            "\"unit_fraction\":[%u,%u],\"crop_owner\":\"%s\","
+            "\"rotate_owner\":\"%s\",\"rotation\":%d,"
+            "\"graph_user_unit\":%.17g,"
+            "\"graph_user_unit_bits\":\"%016llx\","
+            "\"graph_display_points\":[%.17g,%.17g],"
+            "\"graph_display_bits\":[\"%016llx\",\"%016llx\"],"
+            "\"dpi_cases\":[",
+            i,entry.spelling,entry.numerator,entry.denominator,
+            leaf?"leaf":"root",leaf?"leaf":"root",rotation,
+            graph.user_unit,
+            (unsigned long long)decimal_double_bits(graph.user_unit),
+            display.width_points,display.height_points,
+            (unsigned long long)decimal_double_bits(display.width_points),
+            (unsigned long long)decimal_double_bits(display.height_points));
+        for(size_t d=0u;d<DPIS;++d) {
+            const int expected_width=q360_source_grid_dimension(
+                source_width,entry.numerator,entry.denominator,dpis[d]);
+            const int expected_height=q360_source_grid_dimension(
+                source_height,entry.numerator,entry.denominator,dpis[d]);
+            quantapdf_test_rational_grid exact_grid={};
+            CHECK(quantapdf_test_rational_page_grid_decimal_unit(
+                crop,rotation,entry.spelling,dpis[d],100000u,&exact_grid));
+            const bool rational_mismatch=
+                exact_grid.width!=(size_t)expected_width ||
+                exact_grid.height!=(size_t)expected_height;
+            exact_mismatches+=(size_t)rational_mismatch;
+            CHECK(!rational_mismatch);
+            double pdfium_w=0.0,pdfium_h=0.0;
+            double second_w=0.0,second_h=0.0;
+            const auto reference=decimal_pdfium_original(
+                source_path,expected_width,expected_height,
+                &pdfium_w,&pdfium_h,dpis[d],rotation,exact_unit);
+            const auto repeated=decimal_pdfium_original(
+                source_path,expected_width,expected_height,
+                &second_w,&second_h,dpis[d],rotation,exact_unit);
+            CHECK(reference==repeated &&
+                  pdfium_w==(double)source_width &&
+                  pdfium_h==(double)source_height &&
+                  decimal_double_bits(pdfium_w)==
+                      decimal_double_bits(second_w) &&
+                  decimal_double_bits(pdfium_h)==
+                      decimal_double_bits(second_h));
+            const size_t family=i/2u;
+            if(first_reference[family][d].empty())
+                first_reference[family][d]=reference;
+            else CHECK(first_reference[family][d]==reference);
+            const int graph_width=(int)std::ceil(
+                display.width_points*(double)dpis[d]/72.0);
+            const int graph_height=(int)std::ceil(
+                display.height_points*(double)dpis[d]/72.0);
+            const double ratio_width=
+                (swapped?crop_candidate[3]-crop_candidate[1]:
+                         crop_candidate[2]-crop_candidate[0])*
+                exact_unit*(double)dpis[d]/72.0;
+            const double ratio_height=
+                (swapped?crop_candidate[2]-crop_candidate[0]:
+                         crop_candidate[3]-crop_candidate[1])*
+                exact_unit*(double)dpis[d]/72.0;
+            const int ratio_grid_width=(int)std::ceil(ratio_width);
+            const int ratio_grid_height=(int)std::ceil(ratio_height);
+            CHECK(std::abs(graph_width-expected_width)<=1 &&
+                  std::abs(graph_height-expected_height)<=1 &&
+                  std::abs(ratio_grid_width-expected_width)<=1 &&
+                  std::abs(ratio_grid_height-expected_height)<=1);
+            const bool graph_diff=
+                graph_width!=expected_width || graph_height!=expected_height;
+            const bool ratio_diff=
+                ratio_grid_width!=expected_width ||
+                ratio_grid_height!=expected_height;
+            graph_mismatches+=(size_t)graph_diff;
+            ratio_mismatches+=(size_t)ratio_diff;
+            if(d!=0u)std::fprintf(report,",");
+            std::fprintf(report,
+                "{\"dpi\":%u,\"expected_grid\":[%d,%d],"
+                "\"pdfium_crop_points\":[%.17g,%.17g],"
+                "\"pdfium_reference_rgb_fnv64\":\"%016llx\","
+                "\"graph_ceil_estimate\":[%d,%d],"
+                "\"binary64_ratio_estimate\":[%d,%d],"
+                "\"exact_rational_grid\":[%zu,%zu],"
+                "\"graph_mismatch\":%s,\"ratio_mismatch\":%s}",
+                dpis[d],expected_width,expected_height,
+                pdfium_w,pdfium_h,
+                (unsigned long long)decimal_matrix_reference_hash(reference),
+                graph_width,graph_height,
+                ratio_grid_width,ratio_grid_height,
+                exact_grid.width,exact_grid.height,
+                graph_diff?"true":"false",ratio_diff?"true":"false");
+            ++total_frames;
+        }
+        std::fprintf(report,"]}");
+        CHECK(decimal_read_source(source_path)==immutable);
+        CHECK(std::remove(source_path.c_str())==0);
+    }
+    CHECK(total_frames==FRAMES && exact_mismatches==0u);
+    std::fprintf(report,
+        "\n  ],\n"
+        "  \"reference_frame_count_observed\": %zu,\n"
+        "  \"graph_ceil_mismatch_count\": %zu,\n"
+        "  \"binary64_ratio_mismatch_count\": %zu,\n"
+        "  \"exact_rational_mismatch_count\": %zu,\n"
+        "  \"equivalent_unit_spellings_reference_equal\": true,\n"
+        "  \"original_pdf_bytes_unchanged\": true,\n"
+        "  \"production_decoder_changed\": false,\n"
+        "  \"native_device_grid_qualified\": false,\n"
+        "  \"external_source_positive_count_increment\": 0,\n"
+        "  \"result\": \"diagnostic-only\"\n"
+        "}\n",total_frames,graph_mismatches,ratio_mismatches,exact_mismatches);
+    CHECK(std::ferror(report)==0 && std::fclose(report)==0);
+    CHECK(std::rename(staged.c_str(),report_path)==0);
+    std::fprintf(stderr,
+        "[issue-360] source fractional UserUnit: sources=%zu frames=%zu "
+        "graph_mismatches=%zu binary64_mismatches=%zu rational=%zu; "
+        "no production change\n",
+        SOURCES,total_frames,graph_mismatches,ratio_mismatches,
+        exact_mismatches);
+    return EXIT_SUCCESS;
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 4 && std::strcmp(argv[1], "--decimal-grid-diagnostic") == 0)
         return test_source_decimal_grid_diagnostic(argv[2], argv[3]);
     if (argc == 4 && std::strcmp(argv[1], "--decimal-grid-matrix") == 0)
         return test_source_decimal_grid_matrix(argv[2], argv[3]);
+    if (argc == 4 && std::strcmp(argv[1], "--fractional-userunit-source") == 0)
+        return test_source_fractional_userunit(argv[2], argv[3]);
     if (argc == 3 && std::strcmp(argv[1], "--decimal-parser-admission") == 0)
         return test_source_decimal_candidate_admission(argv[2]);
     CHECK(argc == 1);
