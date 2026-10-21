@@ -2151,15 +2151,13 @@ static int test_external_pdfium_open_line_clip_controls(
                                           false);
     }
     constexpr size_t RGB_N = 100u * 50u * 3u;
-    constexpr size_t RGBA_N = 100u * 50u * 4u;
     for (const auto& row : rows)
         CHECK(row.reference_rgb.size() == RGB_N);
     CHECK(rows[0].native_rgba.empty() && rows[1].native_rgba.empty() &&
           rows[2].native_rgba.empty());
 
-    /* PDFium proves the no-Clip/full-page-W semantic equivalence. Native
-     * intentionally remains fail-closed for those unsupported controls;
-     * only the restrictive-W case is admitted for deterministic raster. */
+    /* PDFium proves no-Clip/full-page-W semantic equivalence. The bounded
+     * Native source subset remains fail-closed for these source-Clip controls. */
     CHECK(rows[0].reference_rgb == rows[1].reference_rgb);
     const size_t ref_changed = qp384_open_line_changed_pixels(
         rows[0].reference_rgb, rows[2].reference_rgb, false);
