@@ -29,6 +29,16 @@ int quantapdf_test_rational_page_grid(
     const char *crop_ascii, int rotation, unsigned user_unit,
     unsigned dpi, size_t max_pixels, quantapdf_test_rational_grid *out);
 
+/* Separate decimal UserUnit test-only path (positive rational <= 128).
+ * Unit uses the same strict bounded decimal grammar as CropBox coordinates.
+ * Endpoints and UserUnit retain integer significand/scale through the final
+ * checked device-grid ceiling. Numeric products outside uint64 are rejected
+ * transactionally instead of approximated or retried via binary64.
+ * The integer-UserUnit entry above stays independently qualified. */
+int quantapdf_test_rational_page_grid_decimal_unit(
+    const char *crop_ascii, int rotation, const char *user_unit_ascii,
+    unsigned dpi, size_t max_pixels, quantapdf_test_rational_grid *out);
+
 #ifdef __cplusplus
 }
 #endif
