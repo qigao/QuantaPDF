@@ -171,6 +171,31 @@ else()
 endif()
 
 
+# #360 fractional positive decimal UserUnit on literal source PDFs.
+# Two equivalent spellings per value with root/leaf CropBox and rotation
+# placement, three independent PDFium reference DPI frames, no SDK export.
+add_test(NAME quantapdf.graph_fractional_userunit_source
+  COMMAND quantapdf_test_graph_page_geometry
+    --fractional-userunit-source
+    "${CMAKE_CURRENT_BINARY_DIR}/360-userunit-source"
+    "${CMAKE_CURRENT_BINARY_DIR}/360-source-fractional-userunit.json")
+set_tests_properties(quantapdf.graph_fractional_userunit_source PROPERTIES
+  TIMEOUT 90
+  LABELS "conformance;source-pdf;graph-geometry;diagnostic;issue-360;fractional-userunit")
+if(WIN32)
+  set_property(TEST quantapdf.graph_fractional_userunit_source
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.graph_fractional_userunit_source
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.graph_fractional_userunit_source
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
 # #360 numeric admission: parser syntax/capacity/monotonicity in a separate
 # deterministic test-only lane. No source PDF positivity or production grid.
 add_test(NAME quantapdf.graph_decimal_candidate_admission
