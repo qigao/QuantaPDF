@@ -2201,6 +2201,152 @@ static int test_external_pdfium_open_line_clip_controls(
     return EXIT_SUCCESS;
 }
 
+
+/* #269: generated source-PDF NEGATIVE control for fractional page points.
+ * This is NOT the independently published jsPDF original, cannot increase
+ * the external-source-positive numerator, and changes no raster admission. */
+static void qp269_write_fractional_page(const char *path, bool inherited_crop)
+{
+    CHECK(path && *path);
+    auto pdf = QPDF::create();
+    pdf->emptyPDF();
+    auto pages = pdf->getRoot().getKey("/Pages");
+    auto page = pdf->makeIndirectObject(
+        QPDFObjectHandle::parse("<< /Type /Page >>"));
+    pages.replaceKey("/Kids", QPDFObjectHandle::newArray({page}));
+    pages.replaceKey("/Count", QPDFObjectHandle::newInteger(1));
+    pages.replaceKey("/MediaBox", QPDFObjectHandle::parse(
+        inherited_crop ? "[0 0 120 80]" : "[0 0 100.25 50.5]"));
+    if (inherited_crop)
+        pages.replaceKey("/CropBox", QPDFObjectHandle::parse(
+            "[5.125 7.25 105.375 57.75]"));
+    page.replaceKey("/Parent", pages);
+    page.replaceKey("/Contents", pdf->newStream(
+        "1 0 0 rg 10 10 20 10 re f"));
+    QPDFWriter writer(*pdf);
+    writer.setMinimumPDFVersion("1.7");
+    writer.setDeterministicID(true);
+    writer.setObjectStreamMode(qpdf_o_disable);
+    writer.setOutputMemory();
+    writer.write();
+    auto bytes = writer.getBufferSharedPointer();
+    CHECK(bytes && bytes->getSize() > 0u && bytes->getSize() <= 8192u);
+    FILE *out = std::fopen(path, "wb");
+    CHECK(out != nullptr);
+    CHECK(std::fwrite(bytes->getBuffer(), 1u, bytes->getSize(), out) ==
+          bytes->getSize());
+    CHECK(std::fclose(out) == 0);
+}
+
+static int test_fractional_page_negative(const char *generated_prefix,
+                                         const char *report_path)
+{
+    CHECK(generated_prefix && *generated_prefix && report_path &&
+          *report_path && std::strcmp(generated_prefix, report_path) != 0 &&
+          corpus_fixture_executions == 0u);
+    const std::string paths[2] = {
+        std::string(generated_prefix) + "-media.pdf",
+        std::string(generated_prefix) + "-inherited-crop.pdf"
+    };
+    const std::string staged = std::string(report_path) + ".tmp";
+    for (const auto& path : paths) {
+        CHECK(path != report_path);
+        errno = 0;
+        if (std::remove(path.c_str()) != 0) CHECK(errno == ENOENT);
+    }
+    errno = 0;
+    if (std::remove(report_path) != 0) CHECK(errno == ENOENT);
+    errno = 0;
+    if (std::remove(staged.c_str()) != 0) CHECK(errno == ENOENT);
+
+    for (unsigned i = 0u; i < 2u; ++i) {
+        const bool inherited_crop = i == 1u;
+        qp269_write_fractional_page(paths[i].c_str(), inherited_crop);
+        const auto original = qp384_read_bytes(paths[i].c_str());
+        CHECK(!original.empty() && original.size() <= 8192u);
+
+        /* PDFium directly renders the generated original, never a re-export
+         * of Graph/IR. Both boxes have exact 100.25 x 50.5 visible points. */
+        const rgb_image pdfium = render_direct_pdfium_reference(paths[i].c_str());
+        const rgb_image repeated = render_direct_pdfium_reference(paths[i].c_str());
+        CHECK(pdfium.width == 101 && pdfium.height == 51 &&
+              pdfium.components == 3 && pdfium.stride == 303 &&
+              pdfium.pixels.size() == 101u * 51u * 3u &&
+              pdfium.width == repeated.width &&
+              pdfium.height == repeated.height &&
+              pdfium.pixels == repeated.pixels);
+        bool visible = false;
+        for (const unsigned char channel : pdfium.pixels)
+            visible |= channel < 240u;
+        CHECK(visible);
+
+        quantapdf_ir detached{};
+        OK(snapshot_lower(&detached, 0u, 1u, 2u, paths[i].c_str()));
+        CHECK(detached.page_count == 1u && detached.pages &&
+              detached.pages[0].width_points == 100.25f &&
+              detached.pages[0].height_points == 50.5f &&
+              detached.pages[0].suppress_background == 1 &&
+              detached.operation_count == 1u && detached.operations &&
+              detached.operations[0].kind == QUANTAPDF_COMPOSER_OPERATION_PATH &&
+              detached.operations[0].value.path.options.fill == 1 &&
+              detached.operations[0].value.path.options.stroke == 0 &&
+              detached.resources.clip_count == 0u &&
+              detached.resources.image_count == 0u &&
+              detached.resources.font_count == 0u &&
+              detached.resources.graphics_state_count == 0u);
+
+        const quantapdf_ir_raster_v1_limits bounds = {
+            101u * 51u, 1u, 128u, 5000000u
+        };
+        quantapdf_ir_raster_image native{}, repeat{};
+        const quantapdf_status first = quantapdf_ir_raster_scoped_operations_v1(
+            &detached, 0u, &bounds, &native);
+        const quantapdf_status second = quantapdf_ir_raster_scoped_operations_v1(
+            &detached, 0u, &bounds, &repeat);
+        CHECK(first == QUANTAPDF_ERROR_UNSUPPORTED &&
+              second == QUANTAPDF_ERROR_UNSUPPORTED &&
+              native.pixels == nullptr && repeat.pixels == nullptr &&
+              native.size == 0u && repeat.size == 0u &&
+              native.width == 0u && native.height == 0u &&
+              native.stride == 0u && repeat.width == 0u &&
+              repeat.height == 0u && repeat.stride == 0u);
+        quantapdf_ir_raster_image_dispose(&native);
+        quantapdf_ir_raster_image_dispose(&repeat);
+        quantapdf_ir_dispose(&detached);
+        CHECK(qp384_read_bytes(paths[i].c_str()) == original);
+        CHECK(std::remove(paths[i].c_str()) == 0);
+    }
+
+    CHECK(corpus_fixture_executions == 0u);
+    FILE *out = std::fopen(staged.c_str(), "wb");
+    CHECK(out != nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"test_id\": \"issue-269-fractional-page-negative\",\n"
+        "  \"source_kind\": \"test-generated-not-external\",\n"
+        "  \"case_count\": 2,\n"
+        "  \"fractional_visible_width_points\": 100.25,\n"
+        "  \"fractional_visible_height_points\": 50.5,\n"
+        "  \"pdfium_reference_grid_width\": 101,\n"
+        "  \"pdfium_reference_grid_height\": 51,\n"
+        "  \"pdfium_reference_repeat_identical\": true,\n"
+        "  \"native_ir_lowered\": true,\n"
+        "  \"native_expected_outcome\": \"unsupported\",\n"
+        "  \"native_observed_outcome\": \"unsupported\",\n"
+        "  \"native_rejected_zero_output\": true,\n"
+        "  \"external_native_supported_passed_count\": 0,\n"
+        "  \"production_raster_changed\": false,\n"
+        "  \"result\": \"passed\"\n"
+        "}\n");
+    CHECK(std::ferror(out) == 0 && std::fclose(out) == 0);
+    CHECK(std::rename(staged.c_str(), report_path) == 0);
+    std::fprintf(stderr,
+        "[issue-269] fractional MediaBox/inherited CropBox: PDFium "
+        "101x51, native unsupported with zero output; external positive=0\n");
+    return EXIT_SUCCESS;
+}
+
 }
 
 struct source_corpus_family {
@@ -2307,6 +2453,9 @@ int main(int argc,char **argv)
     if(argc==5 && std::strcmp(argv[1],"--open-line-clip-controls")==0 &&
        std::strcmp(argv[3],"--external-report")==0)
         return test_external_pdfium_open_line_clip_controls(argv[2],argv[4]);
+    if(argc==5 && std::strcmp(argv[1],"--fractional-page-negative")==0 &&
+       std::strcmp(argv[3],"--external-report")==0)
+        return test_fractional_page_negative(argv[2],argv[4]);
     const char *report_path = nullptr;
     if(argc != 1){
         CHECK(argc==3 && std::strcmp(argv[1],"--corpus-report")==0 &&
