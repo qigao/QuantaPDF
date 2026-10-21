@@ -384,8 +384,12 @@ static void decimal_write_source(const std::string& path,
 /* Independent direct public PDFium reference of the SAME original bytes.
  * Width/height are observed from the original page, not a re-export of IR. */
 static std::vector<unsigned char> decimal_pdfium_original(
-    const std::string& path, int expected_width, int expected_height)
+    const std::string& path, int expected_width, int expected_height,
+    double *out_crop_width_points, double *out_crop_height_points)
 {
+    CHECK(out_crop_width_points && out_crop_height_points);
+    *out_crop_width_points = 0.0;
+    *out_crop_height_points = 0.0;
     FPDF_DOCUMENT document = FPDF_LoadDocument(path.c_str(), nullptr);
     CHECK(document != nullptr && FPDF_GetPageCount(document) == 1);
     FPDF_PAGE page = FPDF_LoadPage(document, 0);
@@ -411,6 +415,8 @@ static std::vector<unsigned char> decimal_pdfium_original(
     CHECK(std::isfinite(device_width) && std::isfinite(device_height) &&
           (int)std::ceil(device_width) == expected_width &&
           (int)std::ceil(device_height) == expected_height);
+    *out_crop_width_points = width;
+    *out_crop_height_points = height;
     FPDF_BITMAP bitmap = FPDFBitmap_CreateEx(
         expected_width, expected_height, FPDFBitmap_BGR, nullptr, 0);
     CHECK(bitmap != nullptr);
@@ -467,6 +473,10 @@ static int test_source_decimal_grid_diagnostic(const char *prefix,
     struct observed {
         quantapdf_graph_page_geometry source{};
         quantapdf_graph_page_display display{};
+        double pdfium_crop_width_points = 0.0;
+        double pdfium_crop_height_points = 0.0;
+        int graph_ceil_width = 0;
+        int graph_ceil_height = 0;
         std::vector<unsigned char> reference;
     };
     observed rows[4];
@@ -491,11 +501,19 @@ static int test_source_decimal_grid_diagnostic(const char *prefix,
         const auto immutable = decimal_read_source(path);
         const std::string raw(immutable.begin(), immutable.end());
         CHECK(raw.find(item.crop) != std::string::npos);
+        double first_pdfium_width = 0.0, first_pdfium_height = 0.0;
         const auto first_pdfium = decimal_pdfium_original(
-            path, item.expected_width, item.expected_height);
+            path, item.expected_width, item.expected_height,
+            &first_pdfium_width, &first_pdfium_height);
         rows[i].reference = decimal_pdfium_original(
-            path, item.expected_width, item.expected_height);
-        CHECK(rows[i].reference == first_pdfium);
+            path, item.expected_width, item.expected_height,
+            &rows[i].pdfium_crop_width_points,
+            &rows[i].pdfium_crop_height_points);
+        CHECK(rows[i].reference == first_pdfium &&
+              decimal_double_bits(first_pdfium_width) ==
+                  decimal_double_bits(rows[i].pdfium_crop_width_points) &&
+              decimal_double_bits(first_pdfium_height) ==
+                  decimal_double_bits(rows[i].pdfium_crop_height_points));
 
         quantapdf_document *document = nullptr;
         quantapdf_graph_snapshot *snapshot = nullptr;
@@ -520,6 +538,8 @@ static int test_source_decimal_grid_diagnostic(const char *prefix,
               std::abs(d.height_points - item.exact_height_points) < 0.00001);
         const int estimated_width = (int)std::ceil(d.width_points);
         const int estimated_height = (int)std::ceil(d.height_points);
+        rows[i].graph_ceil_width = estimated_width;
+        rows[i].graph_ceil_height = estimated_height;
         /* Exact integers may ceil to +1 through the existing decimal
          * decoder; flag that as an observation, NOT a passing grid oracle.
          * Genuinely above/below integer cases must remain distinguished. */
@@ -551,6 +571,12 @@ static int test_source_decimal_grid_diagnostic(const char *prefix,
           decimal_double_bits(rows[1].display.width_points) &&
           decimal_double_bits(rows[0].display.height_points) ==
           decimal_double_bits(rows[1].display.height_points) &&
+          decimal_double_bits(rows[0].pdfium_crop_width_points) ==
+          decimal_double_bits(rows[1].pdfium_crop_width_points) &&
+          decimal_double_bits(rows[0].pdfium_crop_height_points) ==
+          decimal_double_bits(rows[1].pdfium_crop_height_points) &&
+          rows[0].graph_ceil_width == rows[1].graph_ceil_width &&
+          rows[0].graph_ceil_height == rows[1].graph_ceil_height &&
           rows[0].reference == rows[1].reference);
 
     FILE *report = std::fopen(staged.c_str(), "wb");
@@ -566,10 +592,48 @@ static int test_source_decimal_grid_diagnostic(const char *prefix,
         "  \"equivalent_spellings_bytewise_double_equal\": true,\n"
         "  \"equivalent_spellings_pdfium_rgb_equal\": true,\n"
         "  \"graph_estimated_ceil_mismatch_count\": %zu,\n"
+        "  \"cases\": [\n", graph_ceil_mismatches);
+    /* Persist the actual IEEE-754 observations, not a synthetic expected
+     * value. This keeps CI artifacts sufficient for cross-platform review. */
+    for (size_t i = 0u; i < 4u; ++i) {
+        const auto& g = rows[i].source;
+        const auto& d = rows[i].display;
+        std::fprintf(report,
+            "    {\"id\":\"%s\",\"source_crop\":\"%s\","
+            "\"graph_crop_points\":[%.17g,%.17g,%.17g,%.17g],"
+            "\"graph_crop_bits\":[\"%016llx\",\"%016llx\","
+            "\"%016llx\",\"%016llx\"],"
+            "\"graph_display_points\":[%.17g,%.17g],"
+            "\"graph_display_bits\":[\"%016llx\",\"%016llx\"],"
+            "\"pdfium_crop_page_points\":[%.17g,%.17g],"
+            "\"source_user_unit\":7,"
+            "\"reference_grid_72dpi\":[%d,%d],"
+            "\"graph_ceil_estimate_72dpi\":[%d,%d],"
+            "\"graph_grid_mismatch\":%s}%s\n",
+            cases[i].name, cases[i].crop,
+            g.crop_box[0], g.crop_box[1], g.crop_box[2], g.crop_box[3],
+            (unsigned long long)decimal_double_bits(g.crop_box[0]),
+            (unsigned long long)decimal_double_bits(g.crop_box[1]),
+            (unsigned long long)decimal_double_bits(g.crop_box[2]),
+            (unsigned long long)decimal_double_bits(g.crop_box[3]),
+            d.width_points, d.height_points,
+            (unsigned long long)decimal_double_bits(d.width_points),
+            (unsigned long long)decimal_double_bits(d.height_points),
+            rows[i].pdfium_crop_width_points,
+            rows[i].pdfium_crop_height_points,
+            cases[i].expected_width, cases[i].expected_height,
+            rows[i].graph_ceil_width, rows[i].graph_ceil_height,
+            (rows[i].graph_ceil_width != cases[i].expected_width ||
+             rows[i].graph_ceil_height != cases[i].expected_height)
+                ? "true" : "false",
+            i + 1u == 4u ? "" : ",");
+    }
+    std::fprintf(report,
+        "  ],\n"
         "  \"master_native_device_grid_qualified\": false,\n"
         "  \"production_decimal_decoder_changed\": false,\n"
         "  \"result\": \"diagnostic-only\"\n"
-        "}\n", graph_ceil_mismatches);
+        "}\n");
     CHECK(std::ferror(report) == 0 && std::fclose(report) == 0);
     CHECK(std::rename(staged.c_str(), report_path) == 0);
     std::fprintf(stderr,
