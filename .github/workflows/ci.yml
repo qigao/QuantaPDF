@@ -232,6 +232,8 @@ jobs:
             build/linux-gcc-debug/tests/360-source-decimal-diagnostic.json
             build/linux-gcc-release/tests/360-source-decimal-matrix.json
             build/linux-gcc-debug/tests/360-source-decimal-matrix.json
+            build/linux-gcc-release/tests/360-source-decimal-admission.json
+            build/linux-gcc-debug/tests/360-source-decimal-admission.json
           if-no-files-found: error
           retention-days: 7
 
@@ -407,6 +409,7 @@ jobs:
           path: |
             build/macos-clang-release/tests/360-source-decimal-diagnostic.json
             build/macos-clang-release/tests/360-source-decimal-matrix.json
+            build/macos-clang-release/tests/360-source-decimal-admission.json
           if-no-files-found: error
           retention-days: 7
 
@@ -611,5 +614,6 @@ jobs:
           path: |
             build/Msvc-Release/tests/360-source-decimal-diagnostic.json
             build/Msvc-Release/tests/360-source-decimal-matrix.json
+            build/Msvc-Release/tests/360-source-decimal-admission.json
           if-no-files-found: error
           retention-days: 7
