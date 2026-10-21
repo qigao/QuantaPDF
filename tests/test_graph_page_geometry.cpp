@@ -7,6 +7,7 @@
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFWriter.hh>
 #include <fpdfview.h>
+#include <cerrno>
 #include <cmath>
 #include <cstdint>
 #include <vector>
@@ -547,7 +548,7 @@ static int test_source_decimal_grid_diagnostic(const char *prefix,
         "  \"case_count\": 4,\n"
         "  \"expected_integer_grid\": [70, 56],\n"
         "  \"equivalent_spellings_bytewise_double_equal\": true,\n"
-        "  \"equivalent_spellings_pdfium_rgba_equal\": true,\n"
+        "  \"equivalent_spellings_pdfium_rgb_equal\": true,\n"
         "  \"graph_estimated_ceil_mismatch_count\": %zu,\n"
         "  \"master_native_device_grid_qualified\": false,\n"
         "  \"production_decimal_decoder_changed\": false,\n"
