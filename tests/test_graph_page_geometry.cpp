@@ -1303,6 +1303,121 @@ static int test_source_decimal_candidate_admission(const char *report_path)
         10.0,8.0,72u,100000u,nullptr,&height));
     CHECK(height == 0u);
 
+    /* Counterexample beyond binary-exact eighth fractions:
+     * Both source spellings express an EXACT rational CropBox width 10,
+     * although independently rounded binary64 endpoints 6.1 and 16.1
+     * can subtract to 10.000000000000002. This is test-only evidence
+     * AGAINST treating significand/scale endpoint conversion as a complete
+     * fix for strict device ceil. Original PDFium reads each original PDF;
+     * no IR PDF export, native grid, production decoder or epsilon. */
+    const char *const nondyadic_crop[2] = {
+        "6.1 3.375 16.1 11.375",
+        "6.10 3.3750 16.10 11.3750"
+    };
+    const int rational_width_grid =
+        (int)(((161u - 61u) * 7u + 10u - 1u) / 10u);
+    const int rational_height_grid =
+        (int)(((11375u - 3375u) * 7u + 1000u - 1u) / 1000u);
+    CHECK(rational_width_grid == 70 && rational_height_grid == 56);
+    std::vector<unsigned char> first_reference;
+    uint64_t initial_graph_width_bits = 0u;
+    uint64_t initial_candidate_width_bits = 0u;
+    double nondyadic_graph_width_points = 0.0;
+    double nondyadic_candidate_width_points = 0.0;
+    int nondyadic_graph_width = 0, nondyadic_graph_height = 0;
+    int nondyadic_candidate_width = 0, nondyadic_candidate_height = 0;
+    size_t nondyadic_candidate_overcounts = 0u;
+    struct nondyadic_pdfium_guard {
+        nondyadic_pdfium_guard() { FPDF_InitLibrary(); }
+        ~nondyadic_pdfium_guard() { FPDF_DestroyLibrary(); }
+    } nondyadic_pdfium;
+    (void)nondyadic_pdfium;
+    for (size_t i = 0u; i < 2u; ++i) {
+        const std::string source_path = std::string(report_path) +
+            (i == 0u ? ".nondyadic-short.pdf" : ".nondyadic-zeros.pdf");
+        errno = 0;
+        if (std::remove(source_path.c_str()) != 0)
+            CHECK(errno == ENOENT);
+        decimal_write_source(source_path, nondyadic_crop[i]);
+        const auto immutable_source = decimal_read_source(source_path);
+        const std::string original_text(immutable_source.begin(),
+                                        immutable_source.end());
+        CHECK(original_text.find(nondyadic_crop[i]) != std::string::npos &&
+              original_text.find("/UserUnit 7") != std::string::npos);
+
+        double pdfium_width = 0.0, pdfium_height = 0.0;
+        double repeated_width = 0.0, repeated_height = 0.0;
+        const auto reference = decimal_pdfium_original(
+            source_path, rational_width_grid, rational_height_grid,
+            &pdfium_width, &pdfium_height);
+        const auto repeated = decimal_pdfium_original(
+            source_path, rational_width_grid, rational_height_grid,
+            &repeated_width, &repeated_height);
+        CHECK(reference == repeated &&
+              pdfium_width == 10.0 && pdfium_height == 8.0 &&
+              decimal_double_bits(pdfium_width) ==
+                  decimal_double_bits(repeated_width) &&
+              decimal_double_bits(pdfium_height) ==
+                  decimal_double_bits(repeated_height));
+        if (i == 0u) first_reference = reference;
+        else CHECK(first_reference == reference);
+
+        quantapdf_document *document = nullptr;
+        quantapdf_graph_snapshot *snapshot = nullptr;
+        const auto budget = graph_budget();
+        OK(quantapdf_open(source_path.c_str(), nullptr, &document));
+        OK(quantapdf_document_capture_graph(document, &budget, &snapshot));
+        quantapdf_close(document);
+        CHECK(snapshot && snapshot->graph);
+        quantapdf_graph_page_geometry geometry{};
+        quantapdf_graph_page_display display{};
+        OK(quantapdf_graph_query_page_geometry(
+            snapshot->graph, 0u, 2u, &geometry));
+        OK(quantapdf_graph_page_display_map(&geometry, &display));
+        quantapdf_graph_snapshot_drop(snapshot);
+        CHECK(geometry.rotation == 0 && geometry.user_unit == 7.0 &&
+              std::abs(display.width_points - 70.0) < 1e-10 &&
+              std::abs(display.height_points - 56.0) < 1e-10);
+
+        double crop[4] = {};
+        decimal_source_crop_candidate(nondyadic_crop[i], crop);
+        const double candidate_width_points = (crop[2] - crop[0]) * 7.0;
+        const double candidate_height_points = (crop[3] - crop[1]) * 7.0;
+        const int graph_width = (int)std::ceil(display.width_points);
+        const int graph_height = (int)std::ceil(display.height_points);
+        const int candidate_width = (int)std::ceil(candidate_width_points);
+        const int candidate_height = (int)std::ceil(candidate_height_points);
+        CHECK(candidate_width == 71 && candidate_height == 56 &&
+              (graph_width == 70 || graph_width == 71) &&
+              (graph_height == 56 || graph_height == 57));
+        nondyadic_candidate_overcounts +=
+            (size_t)(candidate_width != rational_width_grid);
+        if (i == 0u) {
+            initial_graph_width_bits =
+                decimal_double_bits(display.width_points);
+            initial_candidate_width_bits =
+                decimal_double_bits(candidate_width_points);
+            nondyadic_graph_width_points = display.width_points;
+            nondyadic_candidate_width_points = candidate_width_points;
+            nondyadic_graph_width = graph_width;
+            nondyadic_graph_height = graph_height;
+            nondyadic_candidate_width = candidate_width;
+            nondyadic_candidate_height = candidate_height;
+        } else {
+            CHECK(initial_graph_width_bits ==
+                      decimal_double_bits(display.width_points) &&
+                  initial_candidate_width_bits ==
+                      decimal_double_bits(candidate_width_points) &&
+                  nondyadic_graph_width == graph_width &&
+                  nondyadic_graph_height == graph_height &&
+                  nondyadic_candidate_width == candidate_width &&
+                  nondyadic_candidate_height == candidate_height);
+        }
+        CHECK(decimal_read_source(source_path) == immutable_source);
+        CHECK(std::remove(source_path.c_str()) == 0);
+    }
+    CHECK(nondyadic_candidate_overcounts == 2u);
+
     FILE *report = std::fopen(staged.c_str(), "wb");
     CHECK(report != nullptr);
     std::fprintf(report,
