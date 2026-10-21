@@ -1731,8 +1731,161 @@ static int test_source_fractional_userunit(const char *prefix,
     return EXIT_SUCCESS;
 }
 
+
+/* OPTIONAL geometry-only inspection of the independently published jsPDF
+ * w3s_clip.pdf ORIGINAL supplied by the caller. No source file is bundled,
+ * fetched, rewritten, rasterized or promoted by this executable. The
+ * companion Python runner MUST hash-pin the source before/after invocation;
+ * this function intentionally emits only un-attested diagnostic JSON. */
+static int test_quarantined_jspdf_geometry(const char *source_path)
+{
+    CHECK(source_path && *source_path);
+    const auto immutable = decimal_read_source(source_path);
+    CHECK(immutable.size() == 3344u);
+    const std::string source_text(immutable.begin(), immutable.end());
+    CHECK(source_text.find("%PDF-1.3") == 0u &&
+          source_text.find("/MediaBox [0 0 595.28 841.89]") !=
+              std::string::npos &&
+          source_text.find("/Producer (jsPDF 0.0.0)") !=
+              std::string::npos);
+
+    struct pdfium_guard {
+        pdfium_guard() { FPDF_InitLibrary(); }
+        ~pdfium_guard() { FPDF_DestroyLibrary(); }
+    } pdfium;
+    (void)pdfium;
+    FPDF_DOCUMENT original = FPDF_LoadDocument(source_path, nullptr);
+    CHECK(original != nullptr && FPDF_GetPageCount(original) == 1);
+    FPDF_PAGE page = FPDF_LoadPage(original, 0);
+    CHECK(page && FPDFPage_GetRotation(page) == 0);
+    const double pdfium_w = (double)FPDF_GetPageWidthF(page);
+    const double pdfium_h = (double)FPDF_GetPageHeightF(page);
+    CHECK(std::isfinite(pdfium_w) && std::isfinite(pdfium_h) &&
+          std::abs(pdfium_w - 595.28) < 0.01 &&
+          std::abs(pdfium_h - 841.89) < 0.01);
+    FPDF_ClosePage(page);
+    FPDF_CloseDocument(original);
+
+    /* Inspect exact source -> owned Graph page geometry independently of
+     * the public PDFium C page-width query. Source is closed before output. */
+    quantapdf_document *document = nullptr;
+    quantapdf_graph_snapshot *snapshot = nullptr;
+    const auto budget = graph_budget();
+    OK(quantapdf_open(source_path, nullptr, &document));
+    OK(quantapdf_document_capture_graph(document, &budget, &snapshot));
+    quantapdf_close(document);
+    CHECK(snapshot && snapshot->graph);
+    quantapdf_graph_page_geometry geometry{};
+    quantapdf_graph_page_display display{};
+    OK(quantapdf_graph_query_page_geometry(
+        snapshot->graph, 0u, 32u, &geometry));
+    OK(quantapdf_graph_page_display_map(&geometry, &display));
+    quantapdf_graph_snapshot_drop(snapshot);
+    CHECK(geometry.rotation == 0 && geometry.user_unit == 1.0);
+    const double exact_box[4] = {0.0, 0.0, 595.28, 841.89};
+    for (size_t i = 0u; i < 4u; ++i) {
+        CHECK(std::isfinite(geometry.media_box[i]) &&
+              std::isfinite(geometry.crop_box[i]) &&
+              std::abs(geometry.media_box[i] - exact_box[i]) < 0.001 &&
+              std::abs(geometry.crop_box[i] - exact_box[i]) < 0.001);
+    }
+    CHECK(std::isfinite(display.width_points) &&
+          std::isfinite(display.height_points) &&
+          std::abs(display.width_points - 595.28) < 0.001 &&
+          std::abs(display.height_points - 841.89) < 0.001);
+
+    constexpr unsigned dpis[] = {72u, 96u, 144u};
+    constexpr size_t widths[] = {596u, 794u, 1191u};
+    constexpr size_t heights[] = {842u, 1123u, 1684u};
+    constexpr size_t cap = 1000000u;
+    quantapdf_test_rational_grid admitted[3] = {};
+    int pdfium_grid[3][2] = {};
+    int graph_grid[3][2] = {};
+    for (size_t i = 0u; i < 3u; ++i) {
+        const unsigned dpi = dpis[i];
+        const double pw = pdfium_w * (double)dpi / 72.0;
+        const double ph = pdfium_h * (double)dpi / 72.0;
+        CHECK(std::isfinite(pw) && std::isfinite(ph));
+        pdfium_grid[i][0] = (int)std::ceil(pw);
+        pdfium_grid[i][1] = (int)std::ceil(ph);
+        graph_grid[i][0] = (int)std::ceil(
+            display.width_points * (double)dpi / 72.0);
+        graph_grid[i][1] = (int)std::ceil(
+            display.height_points * (double)dpi / 72.0);
+        CHECK(pdfium_grid[i][0] == (int)widths[i] &&
+              pdfium_grid[i][1] == (int)heights[i] &&
+              std::abs(graph_grid[i][0] - (int)widths[i]) <= 1 &&
+              std::abs(graph_grid[i][1] - (int)heights[i]) <= 1);
+        quantapdf_test_rational_grid repeat = {999u, 999u};
+        admitted[i] = {999u, 999u};
+        const int first = quantapdf_test_rational_page_grid(
+            "0 0 595.28 841.89", 0, 1u, dpi, cap, &admitted[i]);
+        const int second = quantapdf_test_rational_page_grid(
+            "0 0 595.28 841.89", 0, 1u, dpi, cap, &repeat);
+        const bool fits = widths[i] <= cap / heights[i];
+        CHECK((first != 0) == fits && first == second &&
+              admitted[i].width == repeat.width &&
+              admitted[i].height == repeat.height);
+        if (fits) {
+            CHECK(admitted[i].width == widths[i] &&
+                  admitted[i].height == heights[i]);
+        } else {
+            /* 144 DPI is too large: reject without a partial device grid. */
+            CHECK(admitted[i].width == 0u &&
+                  admitted[i].height == 0u);
+        }
+    }
+    CHECK(decimal_read_source(source_path) == immutable);
+
+    /* JSON on stdout; NOT a published or SHA-attested formal corpus report.
+     * The hash-checking Python runner captures, validates and publishes it
+     * only if the original's SHA-256 remains unchanged before and after. */
+    std::printf(
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"test_id\": \"issue-269-quarantined-original-geometry\",\n"
+        "  \"fixture_kind\": \"external-original-unvendored\",\n"
+        "  \"source_size_bytes\": 3344,\n"
+        "  \"pdfium_original_page_points\": [%.17g,%.17g],\n"
+        "  \"graph_display_points\": [%.17g,%.17g],\n"
+        "  \"source_user_unit\": 1,\n"
+        "  \"source_rotation\": 0,\n"
+        "  \"grid_cases\": [\n",
+        pdfium_w, pdfium_h,
+        display.width_points, display.height_points);
+    for (size_t i = 0u; i < 3u; ++i) {
+        const bool fits = widths[i] <= cap / heights[i];
+        std::printf(
+            "    {\"dpi\":%u,\"expected_grid\":[%zu,%zu],"
+            "\"pdfium_geometry_grid\":[%d,%d],"
+            "\"graph_ceil_diagnostic\":[%d,%d],"
+            "\"rational_candidate_status\":\"%s\","
+            "\"rational_candidate_output\":[%zu,%zu]}%s\n",
+            dpis[i], widths[i], heights[i],
+            pdfium_grid[i][0], pdfium_grid[i][1],
+            graph_grid[i][0], graph_grid[i][1],
+            fits ? "admitted" : "unsupported-capacity",
+            admitted[i].width, admitted[i].height,
+            i == 2u ? "" : ",");
+    }
+    std::printf(
+        "  ],\n"
+        "  \"pixel_budget\": 1000000,\n"
+        "  \"pdfium_bitmap_created\": false,\n"
+        "  \"native_raster_invoked\": false,\n"
+        "  \"external_native_positive_increment\": 0,\n"
+        "  \"official_corpus_admitted\": false,\n"
+        "  \"result\": \"geometry-only-diagnostic\"\n"
+        "}\n");
+    CHECK(std::fflush(stdout) == 0);
+    return EXIT_SUCCESS;
+}
+
 int main(int argc, char **argv)
 {
+    if (argc == 3 && std::strcmp(argv[1],
+             "--quarantined-jspdf-geometry") == 0)
+        return test_quarantined_jspdf_geometry(argv[2]);
     if (argc == 4 && std::strcmp(argv[1], "--decimal-grid-diagnostic") == 0)
         return test_source_decimal_grid_diagnostic(argv[2], argv[3]);
     if (argc == 4 && std::strcmp(argv[1], "--decimal-grid-matrix") == 0)
