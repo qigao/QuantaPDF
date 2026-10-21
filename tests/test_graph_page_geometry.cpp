@@ -392,6 +392,11 @@ static std::vector<unsigned char> decimal_pdfium_original(
     CHECK(page != nullptr);
     const double width = (double)FPDF_GetPageWidthF(page);
     const double height = (double)FPDF_GetPageHeightF(page);
+    std::fprintf(stderr,
+        "[issue-360] original PDFium page=%s width=%.17g height=%.17g "
+        "ceil=%d,%d expected=%d,%d\\n",
+        path.c_str(), width, height, (int)std::ceil(width),
+        (int)std::ceil(height), expected_width, expected_height);
     CHECK(std::isfinite(width) && std::isfinite(height) &&
           (int)std::ceil(width) == expected_width &&
           (int)std::ceil(height) == expected_height);
