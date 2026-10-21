@@ -110,6 +110,16 @@ def admit_geometry(probe: Any) -> dict[str, Any]:
     return probe
 
 
+def write_json_lf(path: Path, result: dict[str, Any]) -> None:
+    """Emit canonical UTF-8/LF bytes on Windows, Linux and macOS.
+
+    Path.write_text in text mode would translate LF to CRLF on Windows,
+    creating distinct artifact digests for numerically identical evidence.
+    """
+    payload = (json.dumps(result, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    path.write_bytes(payload)
+
+
 def run(source: Path, executable: Path, report: Path) -> None:
     source = source.resolve()
     report = report.resolve()
@@ -159,8 +169,7 @@ def run(source: Path, executable: Path, report: Path) -> None:
             "official_corpus_admitted": False,
             "production_backend_changed": False,
         }
-        staged.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n",
-                          encoding="utf-8")
+        write_json_lf(staged, result)
         staged.replace(report)
     except Exception:
         staged.unlink(missing_ok=True)
@@ -180,6 +189,17 @@ def self_test() -> None:
                 pass
             else:
                 raise AssertionError("unverified original bytes were accepted")
+        # Platform-independent raw JSON output must contain LF only and
+        # remain byte-for-byte identical across Windows, Linux and macOS.
+        serialized = root / "canonical-lf.json"
+        write_json_lf(serialized, {"z": [1, 2], "a": {"pass": True}})
+        raw = serialized.read_bytes()
+        assert raw.endswith(b"\n") and b"\r" not in raw
+        assert raw == (
+            b'{\n  "a": {\n    "pass": true\n  },\n'
+            b'  "z": [\n    1,\n    2\n  ]\n}\n'
+        )
+        assert json.loads(raw) == {"a": {"pass": True}, "z": [1, 2]}
         # Good-looking but forged report metadata is not enough.
         try:
             admit_geometry({
