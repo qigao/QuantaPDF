@@ -18,6 +18,7 @@
 #undef max
 #endif
 
+#include <algorithm>
 #include <cerrno>
 #include <cmath>
 #include <cstdio>
@@ -1892,8 +1893,6 @@ static int test_external_pdfium_clip_causal_ab(const char *published,
 
     qp384_clip_capture observed[5];
     observed[0] = qp384_capture(published, true, true);
-    const std::vector<unsigned char> published_reference =
-        observed[0].reference_rgb;
     for (unsigned i = 1u; i <= 4u; ++i) {
         qp384_write_control_pdf(generated[i - 1u].c_str(), i);
         observed[i] = qp384_capture(generated[i - 1u].c_str(),
