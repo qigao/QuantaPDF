@@ -1938,5 +1938,31 @@ else()
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
 
+# Independent original-PDFium causal A/B for Clip changes. Generated controls
+# share the same blue Stroke; unsupported cases must fail closed.
+add_test(NAME quantapdf.native_stroke_clip_causal_ab
+  COMMAND quantapdf_test_native_source_qq_oracle
+    --clip-causal-ab
+    "${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/pdfium.clip-path-v1.pdf"
+    --generated-prefix "${CMAKE_CURRENT_BINARY_DIR}/269-wclip-control"
+    --external-report "${CMAKE_CURRENT_BINARY_DIR}/269-stroke-clip-causal-ab.json")
+set_tests_properties(quantapdf.native_stroke_clip_causal_ab PROPERTIES
+  TIMEOUT 60
+  LABELS "conformance;external-corpus;native-raster;clip-stroke;issue-384")
+if(WIN32)
+  set_property(TEST quantapdf.native_stroke_clip_causal_ab
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_stroke_clip_causal_ab
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_stroke_clip_causal_ab
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
+
 
 
