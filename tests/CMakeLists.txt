@@ -1955,23 +1955,23 @@ set_tests_properties(quantapdf.native_stroke_clip_causal_ab PROPERTIES
 add_test(NAME quantapdf.native_open_line_clip_controls
   COMMAND quantapdf_test_native_source_qq_oracle
     --open-line-clip-controls
-    "\${CMAKE_CURRENT_BINARY_DIR}/384-open-line-control"
-    --external-report "\${CMAKE_CURRENT_BINARY_DIR}/384-open-line-clip-controls.json")
+    "${CMAKE_CURRENT_BINARY_DIR}/384-open-line-control"
+    --external-report "${CMAKE_CURRENT_BINARY_DIR}/384-open-line-clip-controls.json")
 set_tests_properties(quantapdf.native_open_line_clip_controls PROPERTIES
   TIMEOUT 60
   LABELS "conformance;external-corpus;native-raster;clip-stroke;issue-384")
 if(WIN32)
   set_property(TEST quantapdf.native_open_line_clip_controls
     PROPERTY ENVIRONMENT_MODIFICATION
-    "PATH=path_list_prepend:\${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 elseif(APPLE)
   set_property(TEST quantapdf.native_open_line_clip_controls
     PROPERTY ENVIRONMENT_MODIFICATION
-    "DYLD_LIBRARY_PATH=path_list_prepend:\${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 else()
   set_property(TEST quantapdf.native_open_line_clip_controls
     PROPERTY ENVIRONMENT_MODIFICATION
-    "LD_LIBRARY_PATH=path_list_prepend:\${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
 
 if(WIN32)
