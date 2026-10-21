@@ -363,6 +363,35 @@ jobs:
       - name: Product conformance (macOS)
         run: ctest --preset "$CMAKE_PRESET" -L conformance --output-on-failure
 
+      # Identical SHA-pinned original to Linux: runner-local ephemeral input.
+      # No PDFium bitmap, Native raster, source binary artifact or corpus edit.
+      - name: Qualify quarantined jsPDF original geometry (macOS, opt-in)
+        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
+        shell: bash
+        run: |
+          set -euo pipefail
+          original="$RUNNER_TEMP/qp269-jsPDF-w3s-original.pdf"
+          trap 'rm -f "$original"' EXIT
+          curl --fail --show-error --silent --location --retry 3 --max-time 60 \
+            'https://raw.githubusercontent.com/parallax/jsPDF/20d32998267745aa5336e299baa65d4f45916fb5/test/reference/w3s_clip.pdf' \
+            --output "$original"
+          actual="$(shasum -a 256 "$original" | awk '{print $1}')"
+          test "$actual" = '179d8552191bbd1890c72a85fac58bad3dd59ff66766fff76e9a790915a1b11e'
+          export DYLD_LIBRARY_PATH="$GITHUB_WORKSPACE/build/macos-clang-release/_deps/pdfium-${PDFIUM_VERSION}-${PDFIUM_PLATFORM}/lib:${DYLD_LIBRARY_PATH:-}"
+          python3 tools/qualification/quarantined_jspdf_geometry.py \
+            --source "$original" \
+            --executable "build/macos-clang-release/tests/quantapdf_test_graph_page_geometry" \
+            --report "$RUNNER_TEMP/qp269-quarantined-original-geometry.json"
+
+      - name: Upload quarantined original geometry (macOS, opt-in)
+        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-original-geometry-macos
+          path: ${{ runner.temp }}/qp269-quarantined-original-geometry.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Install SDK
         run: cmake --build --preset "install-$CMAKE_PRESET" --parallel 2
 
@@ -552,6 +581,42 @@ jobs:
       - name: Product conformance (Windows)
         shell: cmd
         run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && ctest --preset win-release-user -L conformance --output-on-failure
+
+      # Fixed SHA-256, fail-closed, temporary source only, JSON-only artifact.
+      - name: Qualify quarantined jsPDF original geometry (Windows, opt-in)
+        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $original = Join-Path $env:RUNNER_TEMP 'qp269-jsPDF-w3s-original.pdf'
+          $report = Join-Path $env:RUNNER_TEMP 'qp269-quarantined-original-geometry.json'
+          try {
+            Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/parallax/jsPDF/20d32998267745aa5336e299baa65d4f45916fb5/test/reference/w3s_clip.pdf' -OutFile $original -MaximumRedirection 5
+            $sourceHash = (Get-FileHash -LiteralPath $original -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($sourceHash -ne '179d8552191bbd1890c72a85fac58bad3dd59ff66766fff76e9a790915a1b11e') {
+              throw 'Quarantined upstream original has unexpected SHA-256'
+            }
+            $pdfium = Join-Path $env:GITHUB_WORKSPACE 'build\Msvc-Release\_deps\pdfium-154.0.8021.0-win-x64\bin'
+            if (-not (Test-Path (Join-Path $pdfium 'pdfium.dll'))) {
+              throw 'Pinned PDFium runtime missing'
+            }
+            $env:PATH = "$pdfium;$env:PATH"
+            $exe = Join-Path $env:GITHUB_WORKSPACE 'build\Msvc-Release\tests\quantapdf_test_graph_page_geometry.exe'
+            if (-not (Test-Path $exe)) { throw 'Built geometry test executable missing' }
+            python tools/qualification/quarantined_jspdf_geometry.py --source $original --executable $exe --report $report
+            if ($LASTEXITCODE -ne 0) { throw 'Quarantined original geometry qualification failed' }
+          } finally {
+            Remove-Item -LiteralPath $original -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Upload quarantined original geometry (Windows, opt-in)
+        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-original-geometry-windows
+          path: ${{ runner.temp }}/qp269-quarantined-original-geometry.json
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Install Release package
         shell: cmd
