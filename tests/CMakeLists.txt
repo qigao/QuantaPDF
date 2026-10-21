@@ -97,6 +97,18 @@ set_tests_properties(quantapdf.decimal_rational_probe PROPERTIES
   TIMEOUT 30
   LABELS "conformance;graph-geometry;diagnostic;issue-360;rational-candidate")
 
+# Independent, deterministic integer-lattice oracle on the same pure C11
+# library: 4,096 generated decimal tuples × 3 DPI × 4 rotations, plus
+# UserUnit monotonicity checks; no PDFium, SDK or production parser involved.
+add_test(NAME quantapdf.decimal_rational_seeded_differential
+  COMMAND quantapdf_test_decimal_rational_probe
+    --seeded-differential
+    "${CMAKE_CURRENT_BINARY_DIR}/360-rational-seeded-differential.json")
+set_tests_properties(quantapdf.decimal_rational_seeded_differential PROPERTIES
+  TIMEOUT 45
+  LABELS "conformance;graph-geometry;diagnostic;issue-360;rational-candidate")
+
+
 # Versioned graph page-geometry and Snapshot->Composer IR admission regression.
 add_executable(quantapdf_test_graph_page_geometry test_graph_page_geometry.cpp
   decimal_rational_probe.c
