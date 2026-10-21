@@ -452,6 +452,56 @@ static uint64_t decimal_double_bits(double value)
     return bits;
 }
 
+/* #360 alternative NUMERICAL OBSERVATION only: parse a bounded source
+ * decimal as an integer significand and base-10 scale, then divide ONCE.
+ * No strtod/locale, exponent syntax, arbitrary precision, or production use. */
+static double decimal_source_significand_scale(const char *begin,
+                                              const char *end)
+{
+    CHECK(begin && end && end > begin && end - begin <= 20);
+    bool negative = false, dot = false, saw_digit = false;
+    if (*begin == '-' || *begin == '+') {
+        negative = *begin == '-';
+        ++begin;
+    }
+    uint64_t significand = 0u, denominator = 1u;
+    for (const char *p = begin; p != end; ++p) {
+        if (*p == '.' && !dot) {
+            dot = true;
+            continue;
+        }
+        CHECK(*p >= '0' && *p <= '9');
+        const unsigned digit = (unsigned)(*p - '0');
+        CHECK(significand <= (UINT64_MAX - digit) / 10u);
+        significand = significand * 10u + digit;
+        if (dot) {
+            CHECK(denominator <= UINT64_C(1000000000000) / 10u);
+            denominator *= 10u;
+        }
+        saw_digit = true;
+    }
+    CHECK(saw_digit);
+    const double result = (double)significand / (double)denominator;
+    CHECK(std::isfinite(result));
+    return negative ? -result : result;
+}
+
+static void decimal_source_crop_candidate(const char *literal,
+                                          double out[4])
+{
+    CHECK(literal && *literal && out);
+    const char *p = literal;
+    for (unsigned i = 0u; i < 4u; ++i) {
+        while (*p == ' ') ++p;
+        const char *start = p;
+        while (*p && *p != ' ') ++p;
+        CHECK(p > start);
+        out[i] = decimal_source_significand_scale(start, p);
+    }
+    while (*p == ' ') ++p;
+    CHECK(*p == '\0' && out[2] > out[0] && out[3] > out[1]);
+}
+
 static int test_source_decimal_grid_diagnostic(const char *prefix,
                                                const char *report_path)
 {
@@ -475,6 +525,11 @@ static int test_source_decimal_grid_diagnostic(const char *prefix,
         quantapdf_graph_page_display display{};
         double pdfium_crop_width_points = 0.0;
         double pdfium_crop_height_points = 0.0;
+        double candidate_crop[4] = {};
+        double candidate_display_width_points = 0.0;
+        double candidate_display_height_points = 0.0;
+        int candidate_ceil_width = 0;
+        int candidate_ceil_height = 0;
         int graph_ceil_width = 0;
         int graph_ceil_height = 0;
         std::vector<unsigned char> reference;
@@ -491,6 +546,7 @@ static int test_source_decimal_grid_diagnostic(const char *prefix,
     errno = 0;
     if (std::remove(staged.c_str()) != 0) CHECK(errno == ENOENT);
     size_t graph_ceil_mismatches = 0u;
+    size_t candidate_ceil_mismatches = 0u;
     for (size_t i = 0u; i < 4u; ++i) {
         const sample& item = cases[i];
         const std::string path = std::string(prefix) + "-" + item.name + ".pdf";
@@ -540,6 +596,30 @@ static int test_source_decimal_grid_diagnostic(const char *prefix,
         const int estimated_height = (int)std::ceil(d.height_points);
         rows[i].graph_ceil_width = estimated_width;
         rows[i].graph_ceil_height = estimated_height;
+
+        /* Derive a separate candidate from the ORIGINAL literal tokens,
+         * not the Graph-parsed binary64 page edges. UserUnit=7 is encoded
+         * in the authored source PDF. This does not round the grid. */
+        decimal_source_crop_candidate(item.crop, rows[i].candidate_crop);
+        rows[i].candidate_display_width_points =
+            (rows[i].candidate_crop[2] - rows[i].candidate_crop[0]) * 7.0;
+        rows[i].candidate_display_height_points =
+            (rows[i].candidate_crop[3] - rows[i].candidate_crop[1]) * 7.0;
+        rows[i].candidate_ceil_width =
+            (int)std::ceil(rows[i].candidate_display_width_points);
+        rows[i].candidate_ceil_height =
+            (int)std::ceil(rows[i].candidate_display_height_points);
+        CHECK(std::isfinite(rows[i].candidate_display_width_points) &&
+              std::isfinite(rows[i].candidate_display_height_points) &&
+              std::abs(rows[i].candidate_display_width_points -
+                       item.exact_width_points) < 0.00001 &&
+              std::abs(rows[i].candidate_display_height_points -
+                       item.exact_height_points) < 0.00001 &&
+              rows[i].candidate_ceil_width == item.expected_width &&
+              rows[i].candidate_ceil_height == item.expected_height);
+        candidate_ceil_mismatches +=
+            (size_t)(rows[i].candidate_ceil_width != item.expected_width ||
+                     rows[i].candidate_ceil_height != item.expected_height);
         /* Exact integers may ceil to +1 through the existing decimal
          * decoder; flag that as an observation, NOT a passing grid oracle.
          * Genuinely above/below integer cases must remain distinguished. */
@@ -577,6 +657,12 @@ static int test_source_decimal_grid_diagnostic(const char *prefix,
           decimal_double_bits(rows[1].pdfium_crop_height_points) &&
           rows[0].graph_ceil_width == rows[1].graph_ceil_width &&
           rows[0].graph_ceil_height == rows[1].graph_ceil_height &&
+          rows[0].candidate_ceil_width == rows[1].candidate_ceil_width &&
+          rows[0].candidate_ceil_height == rows[1].candidate_ceil_height &&
+          decimal_double_bits(rows[0].candidate_display_width_points) ==
+              decimal_double_bits(rows[1].candidate_display_width_points) &&
+          decimal_double_bits(rows[0].candidate_display_height_points) ==
+              decimal_double_bits(rows[1].candidate_display_height_points) &&
           rows[0].reference == rows[1].reference);
 
     FILE *report = std::fopen(staged.c_str(), "wb");
@@ -592,7 +678,9 @@ static int test_source_decimal_grid_diagnostic(const char *prefix,
         "  \"equivalent_spellings_bytewise_double_equal\": true,\n"
         "  \"equivalent_spellings_pdfium_rgb_equal\": true,\n"
         "  \"graph_estimated_ceil_mismatch_count\": %zu,\n"
-        "  \"cases\": [\n", graph_ceil_mismatches);
+        "  \"bounded_significand_scale_mismatch_count\": %zu,\n"
+        "  \"cases\": [\n",
+        graph_ceil_mismatches, candidate_ceil_mismatches);
     /* Persist the actual IEEE-754 observations, not a synthetic expected
      * value. This keeps CI artifacts sufficient for cross-platform review. */
     for (size_t i = 0u; i < 4u; ++i) {
@@ -605,10 +693,13 @@ static int test_source_decimal_grid_diagnostic(const char *prefix,
             "\"%016llx\",\"%016llx\"],"
             "\"graph_display_points\":[%.17g,%.17g],"
             "\"graph_display_bits\":[\"%016llx\",\"%016llx\"],"
+            "\"candidate_display_points\":[%.17g,%.17g],"
+            "\"candidate_display_bits\":[\"%016llx\",\"%016llx\"],"
             "\"pdfium_crop_page_points\":[%.17g,%.17g],"
             "\"source_user_unit\":7,"
             "\"reference_grid_72dpi\":[%d,%d],"
             "\"graph_ceil_estimate_72dpi\":[%d,%d],"
+            "\"candidate_ceil_estimate_72dpi\":[%d,%d],"
             "\"graph_grid_mismatch\":%s}%s\n",
             cases[i].name, cases[i].crop,
             g.crop_box[0], g.crop_box[1], g.crop_box[2], g.crop_box[3],
@@ -619,10 +710,17 @@ static int test_source_decimal_grid_diagnostic(const char *prefix,
             d.width_points, d.height_points,
             (unsigned long long)decimal_double_bits(d.width_points),
             (unsigned long long)decimal_double_bits(d.height_points),
+            rows[i].candidate_display_width_points,
+            rows[i].candidate_display_height_points,
+            (unsigned long long)decimal_double_bits(
+                rows[i].candidate_display_width_points),
+            (unsigned long long)decimal_double_bits(
+                rows[i].candidate_display_height_points),
             rows[i].pdfium_crop_width_points,
             rows[i].pdfium_crop_height_points,
             cases[i].expected_width, cases[i].expected_height,
             rows[i].graph_ceil_width, rows[i].graph_ceil_height,
+            rows[i].candidate_ceil_width, rows[i].candidate_ceil_height,
             (rows[i].graph_ceil_width != cases[i].expected_width ||
              rows[i].graph_ceil_height != cases[i].expected_height)
                 ? "true" : "false",
@@ -638,8 +736,9 @@ static int test_source_decimal_grid_diagnostic(const char *prefix,
     CHECK(std::rename(staged.c_str(), report_path) == 0);
     std::fprintf(stderr,
         "[issue-360] source decimal diagnostic complete: graph ceil "
-        "mismatches=%zu/4; no production grid or raster change\n",
-        graph_ceil_mismatches);
+        "mismatches=%zu/4 candidate_mismatches=%zu/4; "
+        "no production grid or raster change\n",
+        graph_ceil_mismatches, candidate_ceil_mismatches);
     return EXIT_SUCCESS;
 }
 
