@@ -116,13 +116,13 @@ def run(source: Path, executable: Path, report: Path) -> None:
     executable = executable.resolve()
     if source == report or report == executable or source == executable:
         raise QualificationFailure("source, executable and report must be distinct")
-    if not executable.is_file():
-        raise QualificationFailure("test executable does not exist")
-
-    # Never let stale successful artifacts survive any failure.
+    # Never let stale successful artifacts survive ANY failed preflight,
+    # including a missing executable or invalid original input.
     report.unlink(missing_ok=True)
     staged = report.with_name(report.name + ".tmp")
     staged.unlink(missing_ok=True)
+    if not executable.is_file():
+        raise QualificationFailure("test executable does not exist")
     original = pin_original_source(source)
     try:
         process = subprocess.run(
@@ -201,6 +201,19 @@ def self_test() -> None:
             pass
         else:
             raise AssertionError("invalid executable was accepted")
+        assert not fake_report.exists()
+        # Invalid upstream original bytes, even with a plausible executable,
+        # must refuse without leaving a false successful report.
+        fake_exe = root / "dummy-executable"
+        fake_exe.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        fake_report.write_text('{"result":"passed"}', encoding="utf-8")
+        try:
+            run(source, fake_exe, fake_report)
+        except QualificationFailure:
+            pass
+        else:
+            raise AssertionError("incorrect source SHA was accepted")
+        assert not fake_report.exists()
         # No external file nor output was moved/vendored into the repository.
     print("[issue-269] quarantined upstream SHA/geometry guard: negative cases passed")
 
