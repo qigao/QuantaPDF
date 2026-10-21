@@ -1983,6 +1983,210 @@ static int test_external_pdfium_clip_causal_ab(const char *published,
     return EXIT_SUCCESS;
 }
 
+
+
+/* #384 second step: isolated open-line Stroke controls. These intentionally
+ * reuse only the current direct-PDFium and owned-IR helpers, not qp379_* or
+ * decimal360_* experimental reporting machinery. */
+static void qp384_write_open_line_pdf(const char *path, unsigned variant)
+{
+    CHECK(path && *path && variant <= 2u);
+    std::string commands;
+    if (variant == 1u) commands = "0 0 100 50 re W n\n";
+    if (variant == 2u)
+        commands = "18 15 m\n35 15 l\n35 30 l\n18 30 l\nW n\n";
+    commands += "0 0 1 RG\n10 10 m\n40 35 l\nS\n";
+    auto pdf = QPDF::create();
+    pdf->emptyPDF();
+    auto pages = pdf->getRoot().getKey("/Pages");
+    auto page = pdf->makeIndirectObject(
+        QPDFObjectHandle::parse("<< /Type /Page >>"));
+    pages.replaceKey("/Kids", QPDFObjectHandle::newArray({page}));
+    pages.replaceKey("/Count", QPDFObjectHandle::newInteger(1));
+    pages.replaceKey("/MediaBox", QPDFObjectHandle::parse("[0 0 100 50]"));
+    page.replaceKey("/Parent", pages);
+    page.replaceKey("/Contents", pdf->newStream(commands));
+    QPDFWriter writer(*pdf);
+    writer.setMinimumPDFVersion("1.7");
+    writer.setDeterministicID(true);
+    writer.setObjectStreamMode(qpdf_o_disable);
+    writer.setOutputMemory();
+    writer.write();
+    auto data = writer.getBufferSharedPointer();
+    CHECK(data && data->getSize() > 0u && data->getSize() <= 8192u);
+    FILE *out = std::fopen(path, "wb");
+    CHECK(out != nullptr);
+    CHECK(std::fwrite(data->getBuffer(), 1u, data->getSize(), out) ==
+          data->getSize());
+    CHECK(std::fclose(out) == 0);
+}
+
+struct qp384_open_line_capture {
+    std::vector<unsigned char> reference_rgb;
+    std::vector<unsigned char> native_rgba;
+};
+
+static qp384_open_line_capture qp384_capture_open_line(const char *path,
+                                                       unsigned expected_clips)
+{
+    constexpr size_t W = 100u, H = 50u, P = W * H;
+    const auto immutable = qp384_read_bytes(path);
+    CHECK(!immutable.empty() && immutable.size() <= 8192u);
+    const rgb_image ref = render_direct_pdfium_reference(path);
+    const rgb_image again_ref = render_direct_pdfium_reference(path);
+    CHECK(ref.width == (int)W && ref.height == (int)H &&
+          ref.components == 3 && ref.stride >= (int)(W * 3u) &&
+          ref.pixels.size() >= (size_t)ref.stride * H &&
+          ref.width == again_ref.width && ref.height == again_ref.height &&
+          ref.stride == again_ref.stride && ref.pixels == again_ref.pixels);
+
+    qp384_open_line_capture result;
+    result.reference_rgb.resize(P * 3u);
+    for (size_t y = 0u; y < H; ++y)
+        std::memcpy(result.reference_rgb.data() + y * W * 3u,
+                    ref.pixels.data() + y * (size_t)ref.stride, W * 3u);
+
+    quantapdf_ir detached{};
+    OK(snapshot_lower(&detached, 0u, 1u, 2u, path));
+    CHECK(detached.page_count == 1u && detached.pages &&
+          detached.pages[0].width_points == (float)W &&
+          detached.pages[0].height_points == (float)H &&
+          detached.pages[0].suppress_background == 1 &&
+          detached.operations && detached.operation_count == 1u &&
+          detached.operations[0].kind == QUANTAPDF_COMPOSER_OPERATION_PATH &&
+          detached.operations[0].value.path.options.fill == 0 &&
+          detached.operations[0].value.path.options.stroke == 1 &&
+          detached.operations[0].value.path.options.stroke_width == 1.0f &&
+          detached.operations[0].value.path.options.stroke_argb ==
+              UINT32_C(0xff0000ff) &&
+          detached.resources.clip_count == expected_clips &&
+          detached.resources.font_count == 0u &&
+          detached.resources.image_count == 0u &&
+          detached.resources.soft_mask_count == 0u &&
+          detached.resources.form_count == 0u &&
+          detached.resources.paint_count == 0u);
+
+    const quantapdf_ir_raster_v1_limits limits = {P, 1u, 128u, 5000000u};
+    quantapdf_ir_raster_image native{}, repeated{};
+    const quantapdf_status s1 =
+        quantapdf_ir_raster_scoped_operations_v1(&detached, 0u, &limits,
+                                                  &native);
+    const quantapdf_status s2 =
+        quantapdf_ir_raster_scoped_operations_v1(&detached, 0u, &limits,
+                                                  &repeated);
+    CHECK(s1 == QUANTAPDF_OK && s2 == QUANTAPDF_OK &&
+          native.pixels && repeated.pixels &&
+          native.width == W && native.height == H &&
+          native.stride == W * 4u && native.size == P * 4u &&
+          repeated.size == native.size &&
+          std::memcmp(native.pixels, repeated.pixels, native.size) == 0);
+    result.native_rgba.assign(native.pixels, native.pixels + native.size);
+    quantapdf_ir_raster_image_dispose(&repeated);
+    quantapdf_ir_raster_image_dispose(&native);
+    quantapdf_ir_dispose(&detached);
+    CHECK(qp384_read_bytes(path) == immutable);
+    return result;
+}
+
+static size_t qp384_open_line_changed_pixels(
+    const std::vector<unsigned char>& a,
+    const std::vector<unsigned char>& b, bool native)
+{
+    constexpr size_t P = 5000u;
+    const size_t components = native ? 4u : 3u;
+    CHECK(a.size() == P * components && b.size() == a.size());
+    size_t changed = 0u;
+    for (size_t p = 0u; p < P; ++p) {
+        bool diff = false;
+        for (size_t c = 0u; c < 3u; ++c) {
+            const unsigned av = native ? on_white(&a[p * 4u], (unsigned)c)
+                                        : a[p * 3u + c];
+            const unsigned bv = native ? on_white(&b[p * 4u], (unsigned)c)
+                                        : b[p * 3u + c];
+            diff |= av != bv;
+        }
+        changed += (size_t)diff;
+    }
+    return changed;
+}
+
+static int test_external_pdfium_open_line_clip_controls(
+    const char *generated_prefix, const char *report_path)
+{
+    CHECK(generated_prefix && *generated_prefix && report_path &&
+          *report_path && std::strcmp(generated_prefix, report_path) != 0 &&
+          corpus_fixture_executions == 0u);
+    const std::string paths[3] = {
+        std::string(generated_prefix) + "-no-clip.pdf",
+        std::string(generated_prefix) + "-full-page-w.pdf",
+        std::string(generated_prefix) + "-restrictive-w.pdf"
+    };
+    for (const auto& path : paths) {
+        CHECK(path != report_path);
+        errno = 0;
+        if (std::remove(path.c_str()) != 0) CHECK(errno == ENOENT);
+    }
+    const std::string staged = std::string(report_path) + ".tmp";
+    errno = 0;
+    if (std::remove(report_path) != 0) CHECK(errno == ENOENT);
+    errno = 0;
+    if (std::remove(staged.c_str()) != 0) CHECK(errno == ENOENT);
+
+    qp384_open_line_capture rows[3];
+    for (unsigned i = 0u; i < 3u; ++i) {
+        qp384_write_open_line_pdf(paths[i].c_str(), i);
+        rows[i] = qp384_capture_open_line(paths[i].c_str(), i == 0u ? 0u : 1u);
+    }
+    constexpr size_t RGB_N = 100u * 50u * 3u;
+    constexpr size_t RGBA_N = 100u * 50u * 4u;
+    for (const auto& row : rows)
+        CHECK(row.reference_rgb.size() == RGB_N &&
+              row.native_rgba.size() == RGBA_N);
+
+    /* Full-page W is a semantic no-op for this page-sized clip. Restrictive W
+     * must affect both independent PDFium and Native outputs; exact pixel
+     * parity between the two renderers is deliberately not required. */
+    CHECK(rows[0].reference_rgb == rows[1].reference_rgb &&
+          rows[0].native_rgba == rows[1].native_rgba);
+    const size_t ref_changed = qp384_open_line_changed_pixels(
+        rows[0].reference_rgb, rows[2].reference_rgb, false);
+    const size_t native_changed = qp384_open_line_changed_pixels(
+        rows[0].native_rgba, rows[2].native_rgba, true);
+    CHECK(ref_changed > 0u && native_changed > 0u &&
+          ref_changed <= 5000u && native_changed <= 5000u);
+
+    FILE *out = std::fopen(staged.c_str(), "wb");
+    CHECK(out != nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"test_id\": \"issue-384-open-line-clip-controls\",\n"
+        "  \"reference_oracle\": \"direct-public-pdfium-c-api\",\n"
+        "  \"open_line_only\": true,\n"
+        "  \"native_repeat_rgba_identical\": true,\n"
+        "  \"no_clip_and_fullpage_w_reference_equal\": true,\n"
+        "  \"no_clip_and_fullpage_w_native_equal\": true,\n"
+        "  \"restrictive_w_reference_changed_pixels\": %zu,\n"
+        "  \"restrictive_w_native_changed_pixels\": %zu,\n"
+        "  \"native_raster_changed\": false,\n"
+        "  \"pixel_thresholds_changed\": false,\n"
+        "  \"result\": \"passed\"\n"
+        "}\n", ref_changed, native_changed);
+    CHECK(std::ferror(out) == 0 && std::fclose(out) == 0);
+#ifdef _WIN32
+    errno = 0;
+    if (std::remove(report_path) != 0) CHECK(errno == ENOENT);
+#endif
+    CHECK(std::rename(staged.c_str(), report_path) == 0);
+    for (const auto& path : paths) CHECK(std::remove(path.c_str()) == 0);
+    CHECK(corpus_fixture_executions == 0u);
+    std::fprintf(stderr,
+        "[issue-384] open-line Clip controls passed: restrictive W changed "
+        "%zu PDFium pixels and %zu Native pixels; no production changes\n",
+        ref_changed, native_changed);
+    return EXIT_SUCCESS;
+}
+
 }
 
 struct source_corpus_family {
@@ -2086,6 +2290,9 @@ int main(int argc,char **argv)
        std::strcmp(argv[3],"--generated-prefix")==0 &&
        std::strcmp(argv[5],"--external-report")==0)
         return test_external_pdfium_clip_causal_ab(argv[2],argv[4],argv[6]);
+    if(argc==5 && std::strcmp(argv[1],"--open-line-clip-controls")==0 &&
+       std::strcmp(argv[3],"--external-report")==0)
+        return test_external_pdfium_open_line_clip_controls(argv[2],argv[4]);
     const char *report_path = nullptr;
     if(argc != 1){
         CHECK(argc==3 && std::strcmp(argv[1],"--corpus-report")==0 &&
