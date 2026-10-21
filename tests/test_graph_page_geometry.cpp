@@ -351,7 +351,8 @@ static void decimal_write_source(const std::string& path,
                                  const char *crop_literal,
                                  bool crop_on_leaf = false,
                                  int rotation = -1,
-                                 bool rotation_on_leaf = false)
+                                 bool rotation_on_leaf = false,
+                                 const char *unit_ascii = "7")
 {
     CHECK(crop_literal && *crop_literal);
     CHECK(rotation == -1 || rotation == 0 || rotation == 90 ||
@@ -372,8 +373,9 @@ static void decimal_write_source(const std::string& path,
         "/MediaBox [0 0 20 20]" +
         (crop_on_leaf ? "" : crop) +
         (rotation_on_leaf ? "" : rotate) + " >>");
-    put(3u, std::string("<< /Type /Page /Parent 2 0 R /UserUnit 7") +
-        (crop_on_leaf ? crop : "") +
+    CHECK(unit_ascii && *unit_ascii);
+    put(3u, std::string("<< /Type /Page /Parent 2 0 R /UserUnit ") +
+        unit_ascii + (crop_on_leaf ? crop : "") +
         (rotation_on_leaf ? rotate : "") +
         " /Contents 4 0 R >>");
     put(4u, "<< /Length " + std::to_string(drawing.size()) +
@@ -401,7 +403,8 @@ static void decimal_write_source(const std::string& path,
 static std::vector<unsigned char> decimal_pdfium_original(
     const std::string& path, int expected_width, int expected_height,
     double *out_crop_width_points, double *out_crop_height_points,
-    unsigned source_dpi = 72u, int source_rotation = 0)
+    unsigned source_dpi = 72u, int source_rotation = 0,
+    double source_user_unit = 7.0)
 {
     CHECK(out_crop_width_points && out_crop_height_points);
     *out_crop_width_points = 0.0;
@@ -421,8 +424,8 @@ static std::vector<unsigned char> decimal_pdfium_original(
      * dimensions, not a UserUnit-scaled device pixel grid. The literal
      * original PDF sets /UserUnit 7; apply that independent source value
      * at 72 dpi before comparing mathematically expected pixel ceilings. */
-    constexpr double source_user_unit = 7.0;
-    CHECK(std::isfinite(width) && std::isfinite(height) &&
+    CHECK(std::isfinite(source_user_unit) && source_user_unit > 0.0 &&
+          std::isfinite(width) && std::isfinite(height) &&
           width > 0.0 && height > 0.0);
     const double device_width =
         (width * source_user_unit * (double)source_dpi) / 72.0;
@@ -430,9 +433,9 @@ static std::vector<unsigned char> decimal_pdfium_original(
         (height * source_user_unit * (double)source_dpi) / 72.0;
     std::fprintf(stderr,
         "[issue-360] original PDFium page=%s crop-points=(%.17g,%.17g) "
-        "source-UserUnit=7 dpi=%u effective-grid=(%.17g,%.17g) "
+        "source-UserUnit=%.17g dpi=%u effective-grid=(%.17g,%.17g) "
         "ceil=%d,%d expected=%d,%d\n",
-        path.c_str(), width, height, source_dpi,
+        path.c_str(), width, height, source_user_unit, source_dpi,
         device_width, device_height,
         (int)std::ceil(device_width), (int)std::ceil(device_height),
         expected_width, expected_height);
