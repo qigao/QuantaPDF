@@ -526,8 +526,12 @@ static bool decimal_source_significand_scale_try(const char *begin,
 static bool decimal_source_crop_try(const char *literal, double out[4])
 {
     if (out) for (size_t i = 0u; i < 4u; ++i) out[i] = 0.0;
-    if (!literal || !out || std::strlen(literal) > 96u)
-        return false;
+    if (!literal || !out) return false;
+    /* Avoid an unbounded strlen() walk on malformed/oversized input. */
+    size_t bounded_length = 0u;
+    while (bounded_length <= 96u && literal[bounded_length] != '\0')
+        ++bounded_length;
+    if (bounded_length > 96u) return false;
     double temporary[4] = {};
     const char *p = literal;
     for (unsigned i = 0u; i < 4u; ++i) {
@@ -1227,6 +1231,8 @@ static int test_source_decimal_candidate_admission(const char *report_path)
     double null_box[4] = {9.0, 9.0, 9.0, 9.0};
     CHECK(!decimal_source_crop_try(nullptr, null_box));
     for (double value : null_box) CHECK(value == 0.0);
+    ++rejected_boxes;
+    CHECK(!decimal_source_crop_try(valid_boxes[0], nullptr));
     ++rejected_boxes;
 
     /* Rationally ordered source widths must not shrink a candidate grid.
