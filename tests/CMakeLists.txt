@@ -109,6 +109,30 @@ if(MSVC)
 endif()
 add_test(NAME quantapdf.graph_page_geometry COMMAND quantapdf_test_graph_page_geometry)
 set_tests_properties(quantapdf.graph_page_geometry PROPERTIES TIMEOUT 30)
+# #360 source-number spelling experiment on real test-generated PDF bytes.
+# Diagnostic: master does not qualify the experimental native device DPI grid.
+add_test(NAME quantapdf.graph_decimal_source_diagnostic
+  COMMAND quantapdf_test_graph_page_geometry
+    --decimal-grid-diagnostic
+    "${CMAKE_CURRENT_BINARY_DIR}/360-decimal-source"
+    "${CMAKE_CURRENT_BINARY_DIR}/360-source-decimal-diagnostic.json")
+set_tests_properties(quantapdf.graph_decimal_source_diagnostic PROPERTIES
+  TIMEOUT 60
+  LABELS "conformance;source-pdf;graph-geometry;diagnostic;issue-360")
+if(WIN32)
+  set_property(TEST quantapdf.graph_decimal_source_diagnostic
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.graph_decimal_source_diagnostic
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.graph_decimal_source_diagnostic
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
 
 # Private PDF path->Composer IR gate with real QPDF export/PDFium render.
 add_executable(quantapdf_test_pdf_path_lowering test_pdf_path_lowering.c
