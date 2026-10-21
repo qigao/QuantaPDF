@@ -476,11 +476,19 @@ static uint64_t decimal_double_bits(double value)
 
 /* #360 alternative NUMERICAL OBSERVATION only: parse a bounded source
  * decimal as an integer significand and base-10 scale, then divide ONCE.
- * No strtod/locale, exponent syntax, arbitrary precision, or production use. */
-static double decimal_source_significand_scale(const char *begin,
-                                              const char *end)
+ * No strtod/locale, exponent syntax, arbitrary precision, or production use.
+ *
+ * The test-only admission contract deliberately rejects unsafe large integers
+ * (above 2^53-1), >12 fractional digits, malformed signs/dots/exponents and
+ * >20 bytes per token. On EVERY rejection the output is reset to zero.
+ * Do not interpret this as an approved production/PDF-wide numeric grammar. */
+static bool decimal_source_significand_scale_try(const char *begin,
+                                                const char *end,
+                                                double *out)
 {
-    CHECK(begin && end && end > begin && end - begin <= 20);
+    if (out) *out = 0.0;
+    if (!begin || !end || !out || end <= begin || end - begin > 20)
+        return false;
     bool negative = false, dot = false, saw_digit = false;
     if (*begin == '-' || *begin == '+') {
         negative = *begin == '-';
@@ -492,36 +500,57 @@ static double decimal_source_significand_scale(const char *begin,
             dot = true;
             continue;
         }
-        CHECK(*p >= '0' && *p <= '9');
+        if (*p < '0' || *p > '9') return false;
         const unsigned digit = (unsigned)(*p - '0');
-        CHECK(significand <= (UINT64_MAX - digit) / 10u);
+        if (significand > (UINT64_MAX - digit) / 10u)
+            return false;
         significand = significand * 10u + digit;
+        /* A rounded 64-bit PDF integer must not masquerade as exact double. */
+        if (significand > UINT64_C(9007199254740991))
+            return false;
         if (dot) {
-            CHECK(denominator <= UINT64_C(1000000000000) / 10u);
+            if (denominator > UINT64_C(1000000000000) / 10u)
+                return false;
             denominator *= 10u;
         }
         saw_digit = true;
     }
-    CHECK(saw_digit);
-    const double result = (double)significand / (double)denominator;
-    CHECK(std::isfinite(result));
-    return negative ? -result : result;
+    if (!saw_digit) return false;
+    const double value = (double)significand / (double)denominator;
+    if (!std::isfinite(value)) return false;
+    *out = negative ? -value : value;
+    return true;
 }
 
-static void decimal_source_crop_candidate(const char *literal,
-                                          double out[4])
+/* Transactional parser for one bounded source-CropBox numeric tuple.
+ * On failure it exposes no accepted partial coordinate. */
+static bool decimal_source_crop_try(const char *literal, double out[4])
 {
-    CHECK(literal && *literal && out);
+    if (out) for (size_t i = 0u; i < 4u; ++i) out[i] = 0.0;
+    if (!literal || !out || std::strlen(literal) > 96u)
+        return false;
+    double temporary[4] = {};
     const char *p = literal;
     for (unsigned i = 0u; i < 4u; ++i) {
         while (*p == ' ') ++p;
         const char *start = p;
         while (*p && *p != ' ') ++p;
-        CHECK(p > start);
-        out[i] = decimal_source_significand_scale(start, p);
+        if (!decimal_source_significand_scale_try(
+                start, p, &temporary[i]))
+            return false;
     }
     while (*p == ' ') ++p;
-    CHECK(*p == '\0' && out[2] > out[0] && out[3] > out[1]);
+    if (*p != '\0' || !(temporary[2] > temporary[0]) ||
+        !(temporary[3] > temporary[1]))
+        return false;
+    std::memcpy(out, temporary, sizeof(temporary));
+    return true;
+}
+
+static void decimal_source_crop_candidate(const char *literal,
+                                          double out[4])
+{
+    CHECK(decimal_source_crop_try(literal, out));
 }
 
 static int test_source_decimal_grid_diagnostic(const char *prefix,
