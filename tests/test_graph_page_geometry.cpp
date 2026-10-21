@@ -1435,13 +1435,28 @@ static int test_source_decimal_candidate_admission(const char *report_path)
         "  \"monotonic_decimal_transitions\": %zu,\n"
         "  \"monotonic_grid_cases\": %zu,\n"
         "  \"rejected_grid_budget_cases\": %zu,\n"
+        "  \"nondyadic_source_case_count\": 2,\n"
+        "  \"nondyadic_exact_rational_grid_72dpi\": [%d,%d],\n"
+        "  \"nondyadic_graph_width_points\": %.17g,\n"
+        "  \"nondyadic_ratio_candidate_width_points\": %.17g,\n"
+        "  \"nondyadic_graph_ceil_grid_72dpi\": [%d,%d],\n"
+        "  \"nondyadic_ratio_candidate_ceil_grid_72dpi\": [%d,%d],\n"
+        "  \"nondyadic_candidate_width_overcount_cases\": %zu,\n"
+        "  \"nondyadic_original_pdfium_repeat_identical\": true,\n"
+        "  \"nondyadic_equivalent_spellings_reference_equal\": true,\n"
+        "  \"nondyadic_source_bytes_unchanged\": true,\n"
         "  \"failure_outputs_reset\": true,\n"
         "  \"production_parser_changed\": false,\n"
         "  \"native_device_grid_qualified\": false,\n"
         "  \"result\": \"passed\"\n"
         "}\n",
         valid_count, invalid_count, accepted_boxes, rejected_boxes,
-        monotonic_steps, grid_steps, grid_budget_rejections);
+        monotonic_steps, grid_steps, grid_budget_rejections,
+        rational_width_grid, rational_height_grid,
+        nondyadic_graph_width_points, nondyadic_candidate_width_points,
+        nondyadic_graph_width, nondyadic_graph_height,
+        nondyadic_candidate_width, nondyadic_candidate_height,
+        nondyadic_candidate_overcounts);
     CHECK(std::ferror(report) == 0 && std::fclose(report) == 0);
     CHECK(std::rename(staged.c_str(), report_path) == 0);
     std::fprintf(stderr,
