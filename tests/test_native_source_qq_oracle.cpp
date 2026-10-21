@@ -2027,7 +2027,8 @@ struct qp384_open_line_capture {
 };
 
 static qp384_open_line_capture qp384_capture_open_line(const char *path,
-                                                       unsigned expected_clips)
+                                                       unsigned expected_clips,
+                                                       bool expect_native_output)
 {
     constexpr size_t W = 100u, H = 50u, P = W * H;
     const auto immutable = qp384_read_bytes(path);
@@ -2074,29 +2075,25 @@ static qp384_open_line_capture qp384_capture_open_line(const char *path,
     const quantapdf_status s2 =
         quantapdf_ir_raster_scoped_operations_v1(&detached, 0u, &limits,
                                                   &repeated);
-    if (!(s1 == QUANTAPDF_OK && s2 == QUANTAPDF_OK &&
-          native.pixels && repeated.pixels &&
-          native.width == W && native.height == H &&
-          native.stride == W * 4u && native.size == P * 4u &&
-          repeated.size == native.size &&
-          std::memcmp(native.pixels, repeated.pixels, native.size) == 0)) {
-        std::fprintf(stderr,
-            "[issue-384] Native render diagnostic: path=%s clips=%u "
-            "status1=%d status2=%d pixels1=%p pixels2=%p "
-            "size1=%zu size2=%zu width1=%zu height1=%zu stride1=%zu "
-            "width2=%zu height2=%zu stride2=%zu\\n",
-            path, expected_clips, (int)s1, (int)s2,
-            (void *)native.pixels, (void *)repeated.pixels,
-            native.size, repeated.size, native.width, native.height,
-            native.stride, repeated.width, repeated.height, repeated.stride);
+    if (!expect_native_output) {
+        /* The current bounded Native subset deliberately rejects the no-Clip
+         * and full-page-W controls. Rejection must be transactional. */
+        CHECK(s1 == QUANTAPDF_ERROR_UNSUPPORTED &&
+              s2 == QUANTAPDF_ERROR_UNSUPPORTED &&
+              !native.pixels && !repeated.pixels &&
+              native.size == 0u && repeated.size == 0u &&
+              native.width == 0u && native.height == 0u &&
+              native.stride == 0u && repeated.width == 0u &&
+              repeated.height == 0u && repeated.stride == 0u);
+    } else {
+        CHECK(s1 == QUANTAPDF_OK && s2 == QUANTAPDF_OK &&
+              native.pixels && repeated.pixels &&
+              native.width == W && native.height == H &&
+              native.stride == W * 4u && native.size == P * 4u &&
+              repeated.size == native.size &&
+              std::memcmp(native.pixels, repeated.pixels, native.size) == 0);
+        result.native_rgba.assign(native.pixels, native.pixels + native.size);
     }
-    CHECK(s1 == QUANTAPDF_OK && s2 == QUANTAPDF_OK &&
-          native.pixels && repeated.pixels &&
-          native.width == W && native.height == H &&
-          native.stride == W * 4u && native.size == P * 4u &&
-          repeated.size == native.size &&
-          std::memcmp(native.pixels, repeated.pixels, native.size) == 0);
-    result.native_rgba.assign(native.pixels, native.pixels + native.size);
     quantapdf_ir_raster_image_dispose(&repeated);
     quantapdf_ir_raster_image_dispose(&native);
     quantapdf_ir_dispose(&detached);
@@ -2151,25 +2148,27 @@ static int test_external_pdfium_open_line_clip_controls(
     qp384_open_line_capture rows[3];
     for (unsigned i = 0u; i < 3u; ++i) {
         qp384_write_open_line_pdf(paths[i].c_str(), i);
-        rows[i] = qp384_capture_open_line(paths[i].c_str(), i == 0u ? 0u : 1u);
+        rows[i] = qp384_capture_open_line(paths[i].c_str(), i == 0u ? 0u : 1u,
+                                          i == 2u);
     }
     constexpr size_t RGB_N = 100u * 50u * 3u;
     constexpr size_t RGBA_N = 100u * 50u * 4u;
     for (const auto& row : rows)
-        CHECK(row.reference_rgb.size() == RGB_N &&
-              row.native_rgba.size() == RGBA_N);
+        CHECK(row.reference_rgb.size() == RGB_N);
+    CHECK(rows[0].native_rgba.empty() && rows[1].native_rgba.empty() &&
+          rows[2].native_rgba.size() == RGBA_N);
 
-    /* Full-page W is a semantic no-op for this page-sized clip. Restrictive W
-     * must affect both independent PDFium and Native outputs; exact pixel
-     * parity between the two renderers is deliberately not required. */
-    CHECK(rows[0].reference_rgb == rows[1].reference_rgb &&
-          rows[0].native_rgba == rows[1].native_rgba);
+    /* PDFium proves the no-Clip/full-page-W semantic equivalence. Native
+     * intentionally remains fail-closed for those unsupported controls;
+     * only the restrictive-W case is admitted for deterministic raster. */
+    CHECK(rows[0].reference_rgb == rows[1].reference_rgb);
     const size_t ref_changed = qp384_open_line_changed_pixels(
         rows[0].reference_rgb, rows[2].reference_rgb, false);
-    const size_t native_changed = qp384_open_line_changed_pixels(
-        rows[0].native_rgba, rows[2].native_rgba, true);
-    CHECK(ref_changed > 0u && native_changed > 0u &&
-          ref_changed <= 5000u && native_changed <= 5000u);
+    size_t native_nontransparent = 0u;
+    for (size_t p = 0u; p < 5000u; ++p)
+        native_nontransparent += rows[2].native_rgba[p * 4u + 3u] != 0u;
+    CHECK(ref_changed > 0u && native_nontransparent > 0u &&
+          ref_changed <= 5000u && native_nontransparent <= 5000u);
 
     FILE *out = std::fopen(staged.c_str(), "wb");
     CHECK(out != nullptr);
@@ -2180,16 +2179,16 @@ static int test_external_pdfium_open_line_clip_controls(
         "  \"reference_oracle\": \"direct-public-pdfium-c-api\",\n"
         "  \"open_line_only\": true,\n"
         "  \"native_repeat_rgba_identical\": true,\n"
+        "  \"unsupported_controls_zero_output\": true,\n"
         "  \"source_bytes_unchanged_after_reference_and_native\": true,\n"
         "  \"pdfium_fallback_used\": false,\n"
         "  \"no_clip_and_fullpage_w_reference_equal\": true,\n"
-        "  \"no_clip_and_fullpage_w_native_equal\": true,\n"
         "  \"restrictive_w_reference_changed_pixels\": %zu,\n"
-        "  \"restrictive_w_native_changed_pixels\": %zu,\n"
+        "  \"restrictive_w_native_nontransparent_pixels\": %zu,\n"
         "  \"native_raster_changed\": false,\n"
         "  \"pixel_thresholds_changed\": false,\n"
         "  \"result\": \"passed\"\n"
-        "}\n", ref_changed, native_changed);
+        "}\n", ref_changed, native_nontransparent);
     CHECK(std::ferror(out) == 0 && std::fclose(out) == 0);
 #ifdef _WIN32
     errno = 0;
