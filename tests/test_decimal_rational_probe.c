@@ -437,7 +437,65 @@ int main(int argc,char **argv)
     CHECK(decimal_units_rejected==
         sizeof(invalid_units)/sizeof(invalid_units[0])+6u+2u);
 
-    CHECK(accepted==7u*4u*3u+4u+1u);
+    /* Quarantined jsPDF upstream geometry SHAPE ONLY (not the original
+     * document or a provider/native positive). Byte-pinned source's true
+     * MediaBox points are [0 0 595.28 841.89]. Derive expected dimensions
+     * independently from integer cents and integer DPI, no binary64/epsilon.
+     * For this small C11 candidate, the fixed 1M pixel ceiling means
+     * 72/96 DPI admitted and 144 DPI transactionally rejected. */
+    {
+        const char *media = "0 0 595.28 841.89";
+        const char *equivalent = "0.00 0 595.280 841.890";
+        const unsigned requested_dpi[]={72u,96u,144u};
+        const size_t independent_width[]={596u,794u,1191u};
+        const size_t independent_height[]={842u,1123u,1684u};
+        for(d=0u;d<3u;++d) {
+            const uint64_t numerator_width = UINT64_C(59528)*requested_dpi[d];
+            const uint64_t numerator_height = UINT64_C(84189)*requested_dpi[d];
+            const uint64_t denominator = UINT64_C(100)*UINT64_C(72);
+            const size_t width=(size_t)(numerator_width/denominator+
+                                       (numerator_width%denominator!=0u));
+            const size_t height=(size_t)(numerator_height/denominator+
+                                        (numerator_height%denominator!=0u));
+            CHECK(width==independent_width[d] &&
+                  height==independent_height[d]);
+            quantapdf_test_rational_grid first={999u,999u};
+            quantapdf_test_rational_grid second={999u,999u};
+            const int a=quantapdf_test_rational_page_grid(
+                media,0,1u,requested_dpi[d],1000000u,&first);
+            const int b=quantapdf_test_rational_page_grid(
+                equivalent,0,1u,requested_dpi[d],1000000u,&second);
+            CHECK(a==b && first.width==second.width &&
+                  first.height==second.height);
+            if(d<2u){
+                CHECK(a && first.width==width && first.height==height);
+                ++accepted;
+            } else {
+                CHECK(!a && first.width==0u && first.height==0u);
+                ++rejected;
+            }
+        }
+        /* Exact-capacity admit and capacity-minus-one fail closed:
+         * source is default UserUnit=1, unlike accepted_grid's Unit=7. */
+        quantapdf_test_rational_grid exact={999u,999u};
+        CHECK(quantapdf_test_rational_page_grid(
+              media,0,1u,72u,501832u,&exact) &&
+              exact.width==596u && exact.height==842u);
+        exact.width=exact.height=999u;
+        CHECK(!quantapdf_test_rational_page_grid(
+              media,0,1u,72u,501831u,&exact) &&
+              exact.width==0u && exact.height==0u);
+        exact.width=exact.height=999u;
+        CHECK(quantapdf_test_rational_page_grid(
+              media,0,1u,96u,891662u,&exact) &&
+              exact.width==794u && exact.height==1123u);
+        exact.width=exact.height=999u;
+        CHECK(!quantapdf_test_rational_page_grid(
+              media,0,1u,96u,891661u,&exact) &&
+              exact.width==0u && exact.height==0u);
+    }
+
+    CHECK(accepted==7u*4u*3u+4u+1u+2u);
     CHECK(monotonic==15u);
     fprintf(stderr,
             "[issue-360] rational candidate PASS accepted=%zu rejected=%zu "
