@@ -6,6 +6,10 @@
 
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFWriter.hh>
+#include <fpdfview.h>
+#include <cmath>
+#include <cstdint>
+#include <vector>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -319,8 +323,250 @@ static void test_snapshot_to_composer()
     CHECK(std::remove(GEOMETRY_RESULT_PDF) == 0);
 }
 
-int main()
+
+/* #360: test-generated real PDF bytes with literal decimal CropBox spellings.
+ * This is diagnostic only: the master branch has no private v0 DPI device-grid
+ * qualification here. Never interpret a Graph ceil estimate as Native pixels. */
+static std::vector<unsigned char> decimal_read_source(const std::string& path)
 {
+    FILE *file = std::fopen(path.c_str(), "rb");
+    CHECK(file != nullptr);
+    CHECK(std::fseek(file, 0, SEEK_END) == 0);
+    const long length = std::ftell(file);
+    CHECK(length > 0 && length < 8192);
+    CHECK(std::fseek(file, 0, SEEK_SET) == 0);
+    std::vector<unsigned char> bytes((size_t)length);
+    CHECK(std::fread(bytes.data(), 1u, bytes.size(), file) == bytes.size());
+    CHECK(std::fclose(file) == 0);
+    return bytes;
+}
+
+/* Write a minimal valid original PDF without normalizing its numeric tokens
+ * through an exporter. Record exact object offsets in a real xref table. */
+static void decimal_write_source(const std::string& path,
+                                 const char *crop_literal)
+{
+    CHECK(crop_literal && *crop_literal);
+    const std::string drawing = "0 0 1 rg 4 4 5 4 re f\n";
+    std::string pdf = "%PDF-1.7\n";
+    size_t offsets[5] = {};
+    const auto put = [&](unsigned id, const std::string& body) {
+        CHECK(id >= 1u && id <= 4u && offsets[id] == 0u);
+        offsets[id] = pdf.size();
+        pdf += std::to_string(id) + " 0 obj\n" + body + "\nendobj\n";
+    };
+    put(1u, "<< /Type /Catalog /Pages 2 0 R >>");
+    put(2u, std::string("<< /Type /Pages /Count 1 /Kids [3 0 R] ") +
+        "/MediaBox [0 0 20 20] /CropBox [" + crop_literal + "] >>");
+    put(3u, "<< /Type /Page /Parent 2 0 R /UserUnit 7 "
+            "/Contents 4 0 R >>");
+    put(4u, "<< /Length " + std::to_string(drawing.size()) +
+            " >>\nstream\n" + drawing + "endstream");
+    const size_t xref_offset = pdf.size();
+    pdf += "xref\n0 5\n0000000000 65535 f \n";
+    for (unsigned id = 1u; id <= 4u; ++id) {
+        char offset[32];
+        const int n = std::snprintf(offset, sizeof(offset),
+                                    "%010zu 00000 n \n", offsets[id]);
+        CHECK(n == 20);
+        pdf.append(offset, (size_t)n);
+    }
+    pdf += "trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n" +
+           std::to_string(xref_offset) + "\n%%EOF\n";
+    CHECK(pdf.size() < 8192u);
+    FILE *file = std::fopen(path.c_str(), "wb");
+    CHECK(file != nullptr);
+    CHECK(std::fwrite(pdf.data(), 1u, pdf.size(), file) == pdf.size());
+    CHECK(std::fclose(file) == 0);
+}
+
+/* Independent direct public PDFium reference of the SAME original bytes.
+ * Width/height are observed from the original page, not a re-export of IR. */
+static std::vector<unsigned char> decimal_pdfium_original(
+    const std::string& path, int expected_width, int expected_height)
+{
+    FPDF_DOCUMENT document = FPDF_LoadDocument(path.c_str(), nullptr);
+    CHECK(document != nullptr && FPDF_GetPageCount(document) == 1);
+    FPDF_PAGE page = FPDF_LoadPage(document, 0);
+    CHECK(page != nullptr);
+    const double width = (double)FPDF_GetPageWidthF(page);
+    const double height = (double)FPDF_GetPageHeightF(page);
+    CHECK(std::isfinite(width) && std::isfinite(height) &&
+          (int)std::ceil(width) == expected_width &&
+          (int)std::ceil(height) == expected_height);
+    FPDF_BITMAP bitmap = FPDFBitmap_CreateEx(
+        expected_width, expected_height, FPDFBitmap_BGR, nullptr, 0);
+    CHECK(bitmap != nullptr);
+    FPDFBitmap_FillRect(bitmap, 0, 0,
+                        expected_width, expected_height, 0xffffffffu);
+    FPDF_RenderPageBitmap(bitmap, page, 0, 0,
+                          expected_width, expected_height, 0, FPDF_ANNOT);
+    const int stride = FPDFBitmap_GetStride(bitmap);
+    const unsigned char *source = (const unsigned char*)FPDFBitmap_GetBuffer(bitmap);
+    CHECK(source != nullptr && stride >= expected_width * 3);
+    std::vector<unsigned char> rgb(
+        (size_t)expected_width * (size_t)expected_height * 3u);
+    bool has_ink = false;
+    for (int y = 0; y < expected_height; ++y) {
+        unsigned char *dst = rgb.data() + (size_t)y * (size_t)expected_width * 3u;
+        const unsigned char *src = source + (size_t)y * (size_t)stride;
+        std::memcpy(dst, src, (size_t)expected_width * 3u);
+        for (int x = 0; x < expected_width * 3; ++x)
+            has_ink |= dst[x] < 240u;
+    }
+    CHECK(has_ink);
+    FPDFBitmap_Destroy(bitmap);
+    FPDF_ClosePage(page);
+    FPDF_CloseDocument(document);
+    return rgb;
+}
+
+static uint64_t decimal_double_bits(double value)
+{
+    uint64_t bits = 0u;
+    static_assert(sizeof(bits) == sizeof(value), "requires binary64");
+    std::memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+static int test_source_decimal_grid_diagnostic(const char *prefix,
+                                               const char *report_path)
+{
+    CHECK(prefix && *prefix && report_path && *report_path);
+    struct sample {
+        const char *name, *crop;
+        int expected_width, expected_height;
+        double exact_width_points, exact_height_points;
+    };
+    const sample cases[] = {
+        {"base", "2.375 3.375 12.375 11.375", 70, 56, 70.0, 56.0},
+        {"trailing-zero", "2.3750 3.3750 12.3750 11.3750",
+         70, 56, 70.0, 56.0},
+        {"above-integer", "2.375 3.375 12.375125 11.375125",
+         71, 57, 70.000875, 56.000875},
+        {"below-integer", "2.375 3.375 12.374875 11.374875",
+         70, 56, 69.999125, 55.999125}
+    };
+    struct observed {
+        quantapdf_graph_page_geometry source{};
+        quantapdf_graph_page_display display{};
+        std::vector<unsigned char> reference;
+    };
+    observed rows[4];
+    struct pdfium_guard {
+        pdfium_guard() { FPDF_InitLibrary(); }
+        ~pdfium_guard() { FPDF_DestroyLibrary(); }
+    } pdfium;
+    (void)pdfium;
+    const std::string staged = std::string(report_path) + ".tmp";
+    errno = 0;
+    if (std::remove(report_path) != 0) CHECK(errno == ENOENT);
+    errno = 0;
+    if (std::remove(staged.c_str()) != 0) CHECK(errno == ENOENT);
+    size_t graph_ceil_mismatches = 0u;
+    for (size_t i = 0u; i < 4u; ++i) {
+        const sample& item = cases[i];
+        const std::string path = std::string(prefix) + "-" + item.name + ".pdf";
+        CHECK(path != report_path && path != staged);
+        errno = 0;
+        if (std::remove(path.c_str()) != 0) CHECK(errno == ENOENT);
+        decimal_write_source(path, item.crop);
+        const auto immutable = decimal_read_source(path);
+        const std::string raw(immutable.begin(), immutable.end());
+        CHECK(raw.find(item.crop) != std::string::npos);
+        const auto first_pdfium = decimal_pdfium_original(
+            path, item.expected_width, item.expected_height);
+        rows[i].reference = decimal_pdfium_original(
+            path, item.expected_width, item.expected_height);
+        CHECK(rows[i].reference == first_pdfium);
+
+        quantapdf_document *document = nullptr;
+        quantapdf_graph_snapshot *snapshot = nullptr;
+        const auto budget = graph_budget();
+        OK(quantapdf_open(path.c_str(), nullptr, &document));
+        OK(quantapdf_document_capture_graph(document, &budget, &snapshot));
+        quantapdf_close(document);
+        CHECK(snapshot != nullptr && snapshot->graph != nullptr);
+        OK(quantapdf_graph_query_page_geometry(snapshot->graph, 0u, 2u,
+                                               &rows[i].source));
+        OK(quantapdf_graph_page_display_map(
+            &rows[i].source, &rows[i].display));
+        quantapdf_graph_snapshot_drop(snapshot);
+        const auto& g = rows[i].source;
+        const auto& d = rows[i].display;
+        CHECK(g.user_unit == 7.0 && g.rotation == 0 &&
+              g.crop_box[0] >= 0.0 && g.crop_box[2] <= g.media_box[2] &&
+              g.crop_box[1] >= 0.0 && g.crop_box[3] <= g.media_box[3]);
+        CHECK(std::isfinite(d.width_points) &&
+              std::isfinite(d.height_points) &&
+              std::abs(d.width_points - item.exact_width_points) < 0.00001 &&
+              std::abs(d.height_points - item.exact_height_points) < 0.00001);
+        const int estimated_width = (int)std::ceil(d.width_points);
+        const int estimated_height = (int)std::ceil(d.height_points);
+        /* Exact integers may ceil to +1 through the existing decimal
+         * decoder; flag that as an observation, NOT a passing grid oracle.
+         * Genuinely above/below integer cases must remain distinguished. */
+        if (i >= 2u)
+            CHECK(estimated_width == item.expected_width &&
+                  estimated_height == item.expected_height);
+        else
+            CHECK((estimated_width == 70 || estimated_width == 71) &&
+                  (estimated_height == 56 || estimated_height == 57));
+        graph_ceil_mismatches +=
+            (size_t)(estimated_width != item.expected_width ||
+                     estimated_height != item.expected_height);
+        std::fprintf(stderr,
+            "[issue-360] %s parsed=(%.17g,%.17g)-(%.17g,%.17g) "
+            "display=(%.17g,%.17g) source-PDFium=%dx%d graph-ceil=%dx%d\n",
+            item.name, g.crop_box[0], g.crop_box[1],
+            g.crop_box[2], g.crop_box[3],
+            d.width_points, d.height_points, item.expected_width,
+            item.expected_height, estimated_width, estimated_height);
+        CHECK(decimal_read_source(path) == immutable);
+        CHECK(std::remove(path.c_str()) == 0);
+    }
+
+    for (size_t j = 0u; j < 4u; ++j) {
+        CHECK(decimal_double_bits(rows[0].source.crop_box[j]) ==
+              decimal_double_bits(rows[1].source.crop_box[j]));
+    }
+    CHECK(decimal_double_bits(rows[0].display.width_points) ==
+          decimal_double_bits(rows[1].display.width_points) &&
+          decimal_double_bits(rows[0].display.height_points) ==
+          decimal_double_bits(rows[1].display.height_points) &&
+          rows[0].reference == rows[1].reference);
+
+    FILE *report = std::fopen(staged.c_str(), "wb");
+    CHECK(report != nullptr);
+    std::fprintf(report,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"test_id\": \"issue-360-source-decimal-diagnostic\",\n"
+        "  \"fixture_kind\": \"test-generated-original-pdf\",\n"
+        "  \"reference_oracle\": \"direct-public-pdfium-c-api\",\n"
+        "  \"case_count\": 4,\n"
+        "  \"expected_integer_grid\": [70, 56],\n"
+        "  \"equivalent_spellings_bytewise_double_equal\": true,\n"
+        "  \"equivalent_spellings_pdfium_rgba_equal\": true,\n"
+        "  \"graph_estimated_ceil_mismatch_count\": %zu,\n"
+        "  \"master_native_device_grid_qualified\": false,\n"
+        "  \"production_decimal_decoder_changed\": false,\n"
+        "  \"result\": \"diagnostic-only\"\n"
+        "}\n", graph_ceil_mismatches);
+    CHECK(std::ferror(report) == 0 && std::fclose(report) == 0);
+    CHECK(std::rename(staged.c_str(), report_path) == 0);
+    std::fprintf(stderr,
+        "[issue-360] source decimal diagnostic complete: graph ceil "
+        "mismatches=%zu/4; no production grid or raster change\n",
+        graph_ceil_mismatches);
+    return EXIT_SUCCESS;
+}
+
+int main(int argc, char **argv)
+{
+    if (argc == 4 && std::strcmp(argv[1], "--decimal-grid-diagnostic") == 0)
+        return test_source_decimal_grid_diagnostic(argv[2], argv[3]);
+    CHECK(argc == 1);
     test_inherited_geometry();
     test_overrides_and_noncanonical();
     test_crop_media_intersection_policy();
