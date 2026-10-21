@@ -1993,8 +1993,7 @@ static void qp384_write_open_line_pdf(const char *path, unsigned variant)
     CHECK(path && *path && variant <= 2u);
     std::string commands;
     if (variant == 1u) commands = "0 0 100 50 re W n\n";
-    if (variant == 2u)
-        commands = "18 15 m\n35 15 l\n35 30 l\n18 30 l\nW n\n";
+    if (variant == 2u) commands = "18 15 17 15 re W n\n";
     commands += "0 0 1 RG\n10 10 m\n40 35 l\nS\n";
     auto pdf = QPDF::create();
     pdf->emptyPDF();
