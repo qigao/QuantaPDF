@@ -236,6 +236,8 @@ jobs:
             build/linux-gcc-debug/tests/360-source-decimal-admission.json
             build/linux-gcc-release/tests/360-source-fractional-userunit.json
             build/linux-gcc-debug/tests/360-source-fractional-userunit.json
+            build/linux-gcc-release/tests/360-rational-seeded-differential.json
+            build/linux-gcc-debug/tests/360-rational-seeded-differential.json
           if-no-files-found: error
           retention-days: 7
 
@@ -413,6 +415,7 @@ jobs:
             build/macos-clang-release/tests/360-source-decimal-matrix.json
             build/macos-clang-release/tests/360-source-decimal-admission.json
             build/macos-clang-release/tests/360-source-fractional-userunit.json
+            build/macos-clang-release/tests/360-rational-seeded-differential.json
           if-no-files-found: error
           retention-days: 7
 
@@ -619,5 +622,6 @@ jobs:
             build/Msvc-Release/tests/360-source-decimal-matrix.json
             build/Msvc-Release/tests/360-source-decimal-admission.json
             build/Msvc-Release/tests/360-source-fractional-userunit.json
+            build/Msvc-Release/tests/360-rational-seeded-differential.json
           if-no-files-found: error
           retention-days: 7
