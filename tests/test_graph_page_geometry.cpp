@@ -764,10 +764,278 @@ static int test_source_decimal_grid_diagnostic(const char *prefix,
     return EXIT_SUCCESS;
 }
 
+
+/* #360 expanded REAL-SOURCE diagnosis: 7 exact binary fractions × root/leaf
+ * CropBox × root/leaf Rotate × 4 quarter-turns × 72/96/144 DPI.
+ * These are original, test-generated PDF files, not Graph-exported PDFs.
+ * The independent grid is derived with bounded INTEGER arithmetic from
+ * authored source geometry (10×8 points), /UserUnit=7 and the requested DPI.
+ * This is not a production/native DPI grid acceptance lane. */
+static int decimal_matrix_grid(unsigned points, unsigned dpi)
+{
+    CHECK((points == 8u || points == 10u) &&
+          (dpi == 72u || dpi == 96u || dpi == 144u));
+    const unsigned numerator = points * 7u * dpi;
+    CHECK(numerator < 100000u);
+    return (int)((numerator + 71u) / 72u);
+}
+
+static uint64_t decimal_matrix_reference_hash(
+    const std::vector<unsigned char>& pixels)
+{
+    uint64_t hash = UINT64_C(14695981039346656037);
+    for (unsigned char byte : pixels) {
+        hash ^= (uint64_t)byte;
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash;
+}
+
+static int test_source_decimal_grid_matrix(const char *prefix,
+                                           const char *report_path)
+{
+    CHECK(prefix && *prefix && report_path && *report_path &&
+          std::strcmp(prefix, report_path) != 0);
+    const char *const fractions[] = {
+        "125", "25", "375", "5", "625", "75", "875"
+    };
+    const unsigned dpis[] = {72u, 96u, 144u};
+    constexpr size_t FRACTIONS = 7u, ROTATIONS = 4u, DPIS = 3u;
+    constexpr size_t CASES = FRACTIONS * 2u * 2u * ROTATIONS;
+    constexpr size_t FRAMES = CASES * DPIS;
+    std::vector<unsigned char> canonical[FRACTIONS * ROTATIONS * DPIS];
+    struct pdfium_guard {
+        pdfium_guard() { FPDF_InitLibrary(); }
+        ~pdfium_guard() { FPDF_DestroyLibrary(); }
+    } pdfium;
+    (void)pdfium;
+
+    const std::string staged = std::string(report_path) + ".tmp";
+    errno = 0;
+    if (std::remove(report_path) != 0) CHECK(errno == ENOENT);
+    errno = 0;
+    if (std::remove(staged.c_str()) != 0) CHECK(errno == ENOENT);
+    FILE *out = std::fopen(staged.c_str(), "wb");
+    CHECK(out != nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"test_id\": \"issue-360-source-decimal-grid-matrix\",\n"
+        "  \"fixture_kind\": \"test-generated-original-pdf\",\n"
+        "  \"reference_oracle\": \"direct-public-pdfium-c-api\",\n"
+        "  \"fraction_count\": 7,\n"
+        "  \"crop_ownership_options\": 2,\n"
+        "  \"rotation_ownership_options\": 2,\n"
+        "  \"rotation_options\": 4,\n"
+        "  \"dpi_values\": [72,96,144],\n"
+        "  \"expected_generated_sources\": %zu,\n"
+        "  \"expected_reference_frames\": %zu,\n"
+        "  \"cases\": [\n", CASES, FRAMES);
+
+    size_t sources = 0u, frames = 0u, graph_mismatches = 0u;
+    size_t candidate_mismatches = 0u;
+    for (size_t fraction = 0u; fraction < FRACTIONS; ++fraction) {
+        const std::string digits(fractions[fraction]);
+        /* Every upper/lower endpoint difference is EXACTLY 10×8 in source
+         * rational decimal notation; the fraction family itself varies. */
+        const std::string crop =
+            "2." + digits + " 3." + digits + " 12." + digits +
+            " 11." + digits;
+        double alternative[4] = {};
+        decimal_source_crop_candidate(crop.c_str(), alternative);
+        CHECK(alternative[2] - alternative[0] == 10.0 &&
+              alternative[3] - alternative[1] == 8.0);
+
+        for (unsigned crop_leaf = 0u; crop_leaf < 2u; ++crop_leaf)
+        for (unsigned rotate_leaf = 0u; rotate_leaf < 2u; ++rotate_leaf)
+        for (unsigned rotation_index = 0u; rotation_index < 4u;
+             ++rotation_index) {
+            const int rotation = (int)(rotation_index * 90u);
+            const bool swapped = rotation == 90 || rotation == 270;
+            const unsigned source_width = swapped ? 8u : 10u;
+            const unsigned source_height = swapped ? 10u : 8u;
+            const std::string path = std::string(prefix) +
+                "-f" + std::to_string(fraction) +
+                "-c" + std::to_string(crop_leaf) +
+                "-r" + std::to_string(rotate_leaf) +
+                "-a" + std::to_string(rotation_index) + ".pdf";
+            CHECK(path != report_path && path != staged);
+            errno = 0;
+            if (std::remove(path.c_str()) != 0) CHECK(errno == ENOENT);
+            decimal_write_source(path, crop.c_str(),
+                                 crop_leaf != 0u, rotation,
+                                 rotate_leaf != 0u);
+            const auto original = decimal_read_source(path);
+            const std::string original_text(original.begin(), original.end());
+            CHECK(original_text.find(crop) != std::string::npos &&
+                  original_text.find("/UserUnit 7") != std::string::npos &&
+                  original_text.find("/Rotate " + std::to_string(rotation)) !=
+                      std::string::npos);
+
+            quantapdf_document *document = nullptr;
+            quantapdf_graph_snapshot *snapshot = nullptr;
+            const auto budget = graph_budget();
+            OK(quantapdf_open(path.c_str(), nullptr, &document));
+            OK(quantapdf_document_capture_graph(document, &budget, &snapshot));
+            quantapdf_close(document);
+            CHECK(snapshot && snapshot->graph);
+            quantapdf_graph_page_geometry graph_geometry{};
+            quantapdf_graph_page_display graph_display{};
+            OK(quantapdf_graph_query_page_geometry(
+                snapshot->graph, 0u, 2u, &graph_geometry));
+            OK(quantapdf_graph_page_display_map(
+                &graph_geometry, &graph_display));
+            quantapdf_graph_snapshot_drop(snapshot);
+
+            CHECK(graph_geometry.rotation == rotation &&
+                  graph_geometry.user_unit == 7.0 &&
+                  graph_geometry.media_box[0] == 0.0 &&
+                  graph_geometry.media_box[1] == 0.0 &&
+                  graph_geometry.media_box[2] == 20.0 &&
+                  graph_geometry.media_box[3] == 20.0);
+            for (size_t edge = 0u; edge < 4u; ++edge)
+                CHECK(std::abs(graph_geometry.crop_box[edge] -
+                               alternative[edge]) < 0.000000000001);
+            const double exact_display_w = (double)source_width * 7.0;
+            const double exact_display_h = (double)source_height * 7.0;
+            CHECK(std::abs(graph_display.width_points - exact_display_w) <
+                      0.0000000001 &&
+                  std::abs(graph_display.height_points - exact_display_h) <
+                      0.0000000001);
+            const double alternative_w =
+                (swapped ? alternative[3] - alternative[1] :
+                           alternative[2] - alternative[0]) * 7.0;
+            const double alternative_h =
+                (swapped ? alternative[2] - alternative[0] :
+                           alternative[3] - alternative[1]) * 7.0;
+            CHECK(alternative_w == exact_display_w &&
+                  alternative_h == exact_display_h);
+
+            if (sources++ != 0u) std::fprintf(out, ",\n");
+            std::fprintf(out,
+                "    {\"fraction\":\".%s\","
+                "\"crop_owner\":\"%s\",\"rotation_owner\":\"%s\","
+                "\"rotation_degrees\":%d,\"source_crop\":\"%s\","
+                "\"graph_crop_points\":[%.17g,%.17g,%.17g,%.17g],"
+                "\"graph_crop_bits\":[\"%016llx\",\"%016llx\","
+                "\"%016llx\",\"%016llx\"],"
+                "\"graph_display_points\":[%.17g,%.17g],"
+                "\"graph_display_bits\":[\"%016llx\",\"%016llx\"],"
+                "\"candidate_display_points\":[%.17g,%.17g],"
+                "\"dpi_cases\":[",
+                fractions[fraction], crop_leaf ? "leaf" : "root",
+                rotate_leaf ? "leaf" : "root", rotation, crop.c_str(),
+                graph_geometry.crop_box[0], graph_geometry.crop_box[1],
+                graph_geometry.crop_box[2], graph_geometry.crop_box[3],
+                (unsigned long long)decimal_double_bits(
+                    graph_geometry.crop_box[0]),
+                (unsigned long long)decimal_double_bits(
+                    graph_geometry.crop_box[1]),
+                (unsigned long long)decimal_double_bits(
+                    graph_geometry.crop_box[2]),
+                (unsigned long long)decimal_double_bits(
+                    graph_geometry.crop_box[3]),
+                graph_display.width_points, graph_display.height_points,
+                (unsigned long long)decimal_double_bits(
+                    graph_display.width_points),
+                (unsigned long long)decimal_double_bits(
+                    graph_display.height_points),
+                alternative_w, alternative_h);
+
+            for (size_t d = 0u; d < DPIS; ++d) {
+                const unsigned dpi = dpis[d];
+                const int expected_width = decimal_matrix_grid(source_width,dpi);
+                const int expected_height = decimal_matrix_grid(source_height,dpi);
+                double pdfium_w1 = 0.0, pdfium_h1 = 0.0;
+                double pdfium_w2 = 0.0, pdfium_h2 = 0.0;
+                const auto reference = decimal_pdfium_original(
+                    path, expected_width, expected_height,
+                    &pdfium_w1, &pdfium_h1, dpi, rotation);
+                const auto repeated = decimal_pdfium_original(
+                    path, expected_width, expected_height,
+                    &pdfium_w2, &pdfium_h2, dpi, rotation);
+                CHECK(reference == repeated &&
+                      decimal_double_bits(pdfium_w1) ==
+                          decimal_double_bits(pdfium_w2) &&
+                      decimal_double_bits(pdfium_h1) ==
+                          decimal_double_bits(pdfium_h2) &&
+                      pdfium_w1 == (double)source_width &&
+                      pdfium_h1 == (double)source_height);
+                const size_t canonical_index =
+                    (fraction * ROTATIONS + rotation_index) * DPIS + d;
+                if (canonical[canonical_index].empty())
+                    canonical[canonical_index] = reference;
+                else
+                    CHECK(canonical[canonical_index] == reference);
+
+                const int graph_w = (int)std::ceil(
+                    graph_display.width_points * (double)dpi / 72.0);
+                const int graph_h = (int)std::ceil(
+                    graph_display.height_points * (double)dpi / 72.0);
+                const int candidate_w =
+                    (int)std::ceil(alternative_w * (double)dpi / 72.0);
+                const int candidate_h =
+                    (int)std::ceil(alternative_h * (double)dpi / 72.0);
+                CHECK(std::abs(graph_w - expected_width) <= 1 &&
+                      std::abs(graph_h - expected_height) <= 1 &&
+                      candidate_w == expected_width &&
+                      candidate_h == expected_height);
+                const bool graph_mismatch =
+                    graph_w != expected_width || graph_h != expected_height;
+                const bool candidate_mismatch =
+                    candidate_w != expected_width ||
+                    candidate_h != expected_height;
+                graph_mismatches += (size_t)graph_mismatch;
+                candidate_mismatches += (size_t)candidate_mismatch;
+                if (d != 0u) std::fprintf(out, ",");
+                std::fprintf(out,
+                    "{\"dpi\":%u,\"reference_grid\":[%d,%d],"
+                    "\"pdfium_crop_page_points\":[%.17g,%.17g],"
+                    "\"pdfium_reference_rgb_fnv64\":\"%016llx\","
+                    "\"graph_ceil_estimate\":[%d,%d],"
+                    "\"candidate_ceil_estimate\":[%d,%d],"
+                    "\"graph_mismatch\":%s}",
+                    dpi, expected_width, expected_height,
+                    pdfium_w1, pdfium_h1,
+                    (unsigned long long)decimal_matrix_reference_hash(reference),
+                    graph_w, graph_h, candidate_w, candidate_h,
+                    graph_mismatch ? "true" : "false");
+                ++frames;
+            }
+            std::fprintf(out, "]}");
+            CHECK(decimal_read_source(path) == original);
+            CHECK(std::remove(path.c_str()) == 0);
+        }
+    }
+    CHECK(sources == CASES && frames == FRAMES &&
+          candidate_mismatches == 0u);
+    std::fprintf(out,
+        "\n  ],\n"
+        "  \"generated_source_count\": %zu,\n"
+        "  \"reference_frame_count\": %zu,\n"
+        "  \"graph_ceil_mismatch_count\": %zu,\n"
+        "  \"candidate_ceil_mismatch_count\": %zu,\n"
+        "  \"master_native_device_grid_qualified\": false,\n"
+        "  \"production_decimal_decoder_changed\": false,\n"
+        "  \"result\": \"diagnostic-only\"\n"
+        "}\n", sources, frames, graph_mismatches, candidate_mismatches);
+    CHECK(std::ferror(out) == 0 && std::fclose(out) == 0);
+    CHECK(std::rename(staged.c_str(), report_path) == 0);
+    std::fprintf(stderr,
+        "[issue-360] source fraction matrix: %zu original PDFs, %zu "
+        "original-PDFium frames, graph mismatches=%zu, "
+        "candidate mismatches=%zu; no native device grid or "
+        "production raster admitted\n",
+        sources, frames, graph_mismatches, candidate_mismatches);
+    return EXIT_SUCCESS;
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 4 && std::strcmp(argv[1], "--decimal-grid-diagnostic") == 0)
         return test_source_decimal_grid_diagnostic(argv[2], argv[3]);
+    if (argc == 4 && std::strcmp(argv[1], "--decimal-grid-matrix") == 0)
+        return test_source_decimal_grid_matrix(argv[2], argv[3]);
     CHECK(argc == 1);
     test_inherited_geometry();
     test_overrides_and_noncanonical();
