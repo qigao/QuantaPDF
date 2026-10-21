@@ -104,13 +104,17 @@ static int qp_signed_rescale(qp_fixed_decimal n, unsigned common,
     return 1;
 }
 
+/* Exact decimal endpoint subtraction followed by exact decimal UserUnit/DPI
+ * multiplication. Refuse any intermediate exceeding uint64 rather than
+ * converting early to double or injecting epsilon into ceil. */
 static int qp_span_pixels(qp_fixed_decimal lower, qp_fixed_decimal upper,
-                          unsigned unit, unsigned dpi, uint64_t *pixels)
+                          qp_fixed_decimal unit, unsigned dpi,
+                          uint64_t *pixels)
 {
     const unsigned common = lower.places > upper.places ?
                             lower.places : upper.places;
     int64_t lo = 0, hi = 0, delta;
-    uint64_t scaled, numerator, denominator, result;
+    uint64_t scaled, numerator, denominator, result, place_product;
     if (pixels == NULL) return 0;
     *pixels = 0u;
     if (!qp_signed_rescale(lower, common, &lo) ||
@@ -120,10 +124,11 @@ static int qp_span_pixels(qp_fixed_decimal lower, qp_fixed_decimal upper,
     if (lo < 0 && hi > INT64_MAX + lo) return 0;
     delta = hi - lo;
     if (delta <= 0) return 0;
-    if (!qp_checked_mul((uint64_t)delta, (uint64_t)unit, &scaled) ||
+    if (!qp_checked_mul((uint64_t)delta, unit.significand, &scaled) ||
         !qp_checked_mul(scaled, (uint64_t)dpi, &numerator) ||
-        !qp_checked_mul(qp_powers_of_ten[common], UINT64_C(72),
-                        &denominator) ||
+        !qp_checked_mul(qp_powers_of_ten[common],
+                        qp_powers_of_ten[unit.places], &place_product) ||
+        !qp_checked_mul(place_product, UINT64_C(72), &denominator) ||
         denominator == 0u) return 0;
     /* Exact ceiling with NO +denominator-1 overflow risk. */
     result = numerator / denominator + (numerator % denominator != 0u);
@@ -132,8 +137,8 @@ static int qp_span_pixels(qp_fixed_decimal lower, qp_fixed_decimal upper,
     return 1;
 }
 
-int quantapdf_test_rational_page_grid(
-    const char *crop_ascii, int rotation, unsigned user_unit,
+static int qp_grid_with_decimal_unit(
+    const char *crop_ascii, int rotation, qp_fixed_decimal unit,
     unsigned dpi, size_t max_pixels, quantapdf_test_rational_grid *out)
 {
     qp_fixed_decimal values[4] = {{0}};
@@ -143,13 +148,16 @@ int quantapdf_test_rational_page_grid(
     if (crop_ascii == NULL ||
         (rotation != 0 && rotation != 90 &&
          rotation != 180 && rotation != 270) ||
-        user_unit == 0u || user_unit > 128u ||
+        unit.places > QP_MAX_DECIMAL_PLACES ||
+        unit.negative || unit.significand == 0u ||
+        unit.significand >
+            UINT64_C(128) * qp_powers_of_ten[unit.places] ||
         (dpi != 72u && dpi != 96u && dpi != 144u) ||
         max_pixels == 0u || max_pixels > QP_MAX_PIXELS ||
         max_pixels > SIZE_MAX / 4u ||
         !qp_parse_box(crop_ascii, values) ||
-        !qp_span_pixels(values[0], values[2], user_unit, dpi, &w) ||
-        !qp_span_pixels(values[1], values[3], user_unit, dpi, &h))
+        !qp_span_pixels(values[0], values[2], unit, dpi, &w) ||
+        !qp_span_pixels(values[1], values[3], unit, dpi, &h))
         return 0;
     if (rotation == 90 || rotation == 270) {
         tmp = w; w = h; h = tmp;
@@ -159,4 +167,32 @@ int quantapdf_test_rational_page_grid(
     out->width = (size_t)w;
     out->height = (size_t)h;
     return 1;
+}
+
+int quantapdf_test_rational_page_grid(
+    const char *crop_ascii, int rotation, unsigned user_unit,
+    unsigned dpi, size_t max_pixels, quantapdf_test_rational_grid *out)
+{
+    qp_fixed_decimal integer_unit = {0};
+    integer_unit.significand = (uint64_t)user_unit;
+    return qp_grid_with_decimal_unit(crop_ascii, rotation,
+                                     integer_unit, dpi, max_pixels, out);
+}
+
+int quantapdf_test_rational_page_grid_decimal_unit(
+    const char *crop_ascii, int rotation, const char *user_unit_ascii,
+    unsigned dpi, size_t max_pixels, quantapdf_test_rational_grid *out)
+{
+    qp_fixed_decimal decimal_unit = {0};
+    size_t bytes = 0u;
+    if (out == NULL) return 0;
+    out->width = out->height = 0u;
+    if (user_unit_ascii == NULL) return 0;
+    while (bytes <= QP_MAX_TOKEN_ASCII &&
+           user_unit_ascii[bytes] != '\0') ++bytes;
+    if (bytes == 0u || bytes > QP_MAX_TOKEN_ASCII ||
+        !qp_parse_decimal(user_unit_ascii, bytes, &decimal_unit))
+        return 0;
+    return qp_grid_with_decimal_unit(crop_ascii, rotation, decimal_unit,
+                                     dpi, max_pixels, out);
 }
