@@ -99,6 +99,37 @@ jobs:
       - name: Product conformance (Linux Release)
         run: ctest --preset linux-release-user -L conformance --output-on-failure
 
+      # Opt-in ONLY. The regular CI never downloads upstream original bytes.
+      # The label is explicit authorization for this one isolated geometry
+      # comparison; it never vendors/source-rewrites the external PDF or
+      # admits an external original/pixel-positive into the strict corpus.
+      - name: Qualify quarantined jsPDF original geometry (Linux, opt-in)
+        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
+        shell: bash
+        run: |
+          set -euo pipefail
+          original="$RUNNER_TEMP/qp269-jsPDF-w3s-original.pdf"
+          trap 'rm -f "$original"' EXIT
+          curl --fail --show-error --silent --location --retry 3 --max-time 60 \
+            'https://raw.githubusercontent.com/parallax/jsPDF/20d32998267745aa5336e299baa65d4f45916fb5/test/reference/w3s_clip.pdf' \
+            --output "$original"
+          printf '%s  %s\n' \
+            '179d8552191bbd1890c72a85fac58bad3dd59ff66766fff76e9a790915a1b11e' \
+            "$original" | sha256sum --check --status
+          python3 tools/qualification/quarantined_jspdf_geometry.py \
+            --source "$original" \
+            --executable build/linux-gcc-release/tests/quantapdf_test_graph_page_geometry \
+            --report "$RUNNER_TEMP/qp269-quarantined-original-geometry.json"
+
+      - name: Upload quarantined original geometry (Linux, opt-in)
+        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-original-geometry-linux
+          path: ${{ runner.temp }}/qp269-quarantined-original-geometry.json
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Install static SDK
         run: cmake --build --preset install-linux-release-user --parallel 2
 
