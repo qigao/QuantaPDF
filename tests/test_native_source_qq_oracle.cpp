@@ -2199,8 +2199,9 @@ static int test_external_pdfium_open_line_clip_controls(
     CHECK(corpus_fixture_executions == 0u);
     std::fprintf(stderr,
         "[issue-384] open-line Clip controls passed: restrictive W changed "
-        "%zu PDFium pixels and %zu Native pixels; no production changes\n",
-        ref_changed, native_changed);
+        "%zu PDFium pixels; Native emitted %zu nontransparent pixels; "
+        "unsupported controls rejected; no production changes\n",
+        ref_changed, native_nontransparent);
     return EXIT_SUCCESS;
 }
 
