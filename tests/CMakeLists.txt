@@ -133,6 +133,20 @@ if(MSVC)
 endif()
 add_test(NAME quantapdf.graph_page_geometry COMMAND quantapdf_test_graph_page_geometry)
 set_tests_properties(quantapdf.graph_page_geometry PROPERTIES TIMEOUT 30)
+
+# #269 explicit SHA-256 guard for a separately obtained upstream original.
+# Ordinary CI checks only fail-closed negative self-tests; it NEVER downloads
+# or vendors the PDF, consumes external bitmap pixels or admits the corpus.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+  add_test(NAME quantapdf.quarantined_jspdf_source_sha_guard
+    COMMAND "${Python3_EXECUTABLE}"
+      "${PROJECT_SOURCE_DIR}/tools/qualification/quarantined_jspdf_geometry.py"
+      --self-test)
+  set_tests_properties(quantapdf.quarantined_jspdf_source_sha_guard PROPERTIES
+    TIMEOUT 20 LABELS "conformance;source-pdf;issue-269;quarantine;hash-guard")
+endif()
+
 # #360 source-number spelling experiment on real test-generated PDF bytes.
 # Diagnostic: master does not qualify the experimental native device DPI grid.
 add_test(NAME quantapdf.graph_decimal_source_diagnostic
