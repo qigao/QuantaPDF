@@ -86,8 +86,20 @@ endif()
 add_test(NAME quantapdf.pdf_page_display COMMAND quantapdf_test_pdf_page_display)
 set_tests_properties(quantapdf.pdf_page_display PROPERTIES TIMEOUT 30)
 
+# #360 pure C11 exact rational candidate: isolated test-only arithmetic,
+# no PDFium/Graph/SDK dependency, no production fallback or DPI cutover.
+add_executable(quantapdf_test_decimal_rational_probe
+  test_decimal_rational_probe.c decimal_rational_probe.c)
+target_compile_features(quantapdf_test_decimal_rational_probe PRIVATE c_std_11)
+add_test(NAME quantapdf.decimal_rational_probe
+  COMMAND quantapdf_test_decimal_rational_probe)
+set_tests_properties(quantapdf.decimal_rational_probe PROPERTIES
+  TIMEOUT 30
+  LABELS "conformance;graph-geometry;diagnostic;issue-360;rational-candidate")
+
 # Versioned graph page-geometry and Snapshot->Composer IR admission regression.
 add_executable(quantapdf_test_graph_page_geometry test_graph_page_geometry.cpp
+  decimal_rational_probe.c
   ../src/graph/graph_page_geometry.c
   ../src/document/page_composer_ir.c ../src/document/page_content_ir.c
   ../src/document/document_graph.c
