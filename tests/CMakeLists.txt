@@ -1950,6 +1950,30 @@ set_tests_properties(quantapdf.native_stroke_clip_causal_ab PROPERTIES
   TIMEOUT 60
   LABELS "conformance;external-corpus;native-raster;clip-stroke;issue-384")
 
+# #269 test-generated fractional MediaBox / inherited CropBox NEGATIVE.
+# Explicitly NOT an external-original admission or a Native pixel positive.
+add_test(NAME quantapdf.native_fractional_page_negative
+  COMMAND quantapdf_test_native_source_qq_oracle
+    --fractional-page-negative
+    "${CMAKE_CURRENT_BINARY_DIR}/269-fractional-source"
+    --external-report "${CMAKE_CURRENT_BINARY_DIR}/269-fractional-negative.json")
+set_tests_properties(quantapdf.native_fractional_page_negative PROPERTIES
+  TIMEOUT 60
+  LABELS "conformance;native-raster;source-pdf;fractional-geometry;issue-269")
+if(WIN32)
+  set_property(TEST quantapdf.native_fractional_page_negative
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_fractional_page_negative
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_fractional_page_negative
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
 # Independent open-line Stroke controls; deliberately separate from the
 # closed-path causal A/B and from the experimental geometry/reporting matrix.
 add_test(NAME quantapdf.native_open_line_clip_controls
