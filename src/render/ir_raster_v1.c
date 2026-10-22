@@ -724,8 +724,16 @@ static quantapdf_status qp_render_v1_impl(
         options->transform = clip->transform;
         status = qp_admit_draw(&clip_op, &flatten,
             plan == NULL ? NULL : plan->from_composer, &clip_draws[ci]);
-        if (status != QUANTAPDF_OK)
+        if (status != QUANTAPDF_OK) {
+            fprintf(stderr, "native Clip admission rejected: status=%d commands=%zu rule=%d\\n",
+                (int)status, clip->command_count, (int)clip->fill_rule);
+            for (size_t c = 0u; c < clip->command_count; ++c)
+                fprintf(stderr, "  clip[%zu] kind=%d p1=(%.9g,%.9g)\\n",
+                    c, (int)clip->commands[c].kind,
+                    (double)clip->commands[c].point1.x,
+                    (double)clip->commands[c].point1.y);
             goto cleanup;
+        }
         if (clip_draws[ci].edge_count >
             (limits->max_sample_tests - total_checks) /
                 (QP_TOTAL_SAMPLES * pixels_count)) {
