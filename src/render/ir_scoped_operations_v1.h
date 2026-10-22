@@ -22,8 +22,8 @@ quantapdf_status quantapdf_ir_raster_scoped_operations_v1_planned(
     const quantapdf_native_device_plan *plan,
     quantapdf_ir_raster_image *out_image);
 /* Explicit expanded profile: opaque linear multi-segment strokes are
- * converted to a bounded nonzero outline before sampling. Butt/square caps,
- * miter/bevel joins, positive widths/dashes and affine transforms; other Stroke
+ * converted to a bounded nonzero outline before sampling. Butt/square/round caps,
+ * miter/bevel/round joins, positive widths/dashes and affine transforms; other Stroke
  * features reject atomically. The original V1/M2 profile stays unchanged. */
 quantapdf_status quantapdf_ir_raster_scoped_operations_v2(
     const quantapdf_ir *ir,size_t page_index,

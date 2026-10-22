@@ -232,8 +232,9 @@ static quantapdf_status scoped_operations_v1_impl(
             quantapdf_composer_path_operation projected=ir->operations[i].value.path;
             size_t edges=0u;
             projected.options.graphics_state_id=0u;
-            status=quantapdf_ir_stroke_polyline_outline_v1(&projected,
-                limits->max_edges,&outlines[i]);
+            status=plan ? quantapdf_ir_stroke_polyline_outline_v1_planned(&projected,
+                limits->max_edges,plan,&outlines[i]) :
+                quantapdf_ir_stroke_polyline_outline_v1(&projected,limits->max_edges,&outlines[i]);
             if(status!=QUANTAPDF_OK) goto failure;
             /* Dash expansion can dwarf its authored path. Partition from
              * actual outline edges rather than guessing from source size. */
