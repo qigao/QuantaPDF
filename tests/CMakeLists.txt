@@ -1001,13 +1001,13 @@ add_test(NAME quantapdf.links COMMAND quantapdf_test_links)
 
 # Compile the production facade and structure provider without any PDFium
 # sources, headers, imported target or link dependency. Remaining legacy
-# render/text/image calls have aborting tripwires, never alternate results.
+# render/structured-text calls have aborting tripwires, never alternate results.
 # This is a migration test, not a reduced-feature installed SDK configuration.
 get_target_property(_qp_document_sources quantapdf SOURCES)
 get_target_property(_qp_structure_sources quantapdf_backend SOURCES)
 list(FILTER _qp_structure_sources EXCLUDE REGEX "/pdfium_(document|runtime)\\.cpp$")
 add_executable(quantapdf_test_native_document
-  test_native_document.cpp test_native_images.cpp pdfium_forbidden.c
+  test_native_document.cpp test_native_images.cpp test_native_text.cpp pdfium_forbidden.c
   ${_qp_document_sources} ${_qp_structure_sources})
 target_include_directories(quantapdf_test_native_document PRIVATE
   "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
