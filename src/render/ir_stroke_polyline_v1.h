@@ -9,8 +9,8 @@ extern "C" {
 
 /* Detached, bounded user-space outline for opaque linear strokes.
  * MOVE/LINE/CLOSE, positive width, butt/square/round caps, miter/bevel/round joins.
- * Positive dash arrays (<=64 items), odd repetition and nonnegative phase.
- * No zero dash entries, hairline, cubic, alpha or provider fallback.
+ * Nonnegative, not-all-zero dash arrays (<=64 items), odd repetition/phase.
+ * Zero dashes use directed caps. No hairline, cubic, alpha or fallback.
  * The fill preserves the authored affine transform; callers borrow it
  * synchronously and dispose commands after sampling. Source/output must not
  * alias. Dispose earlier successful output before reuse; failure zeroes output. */

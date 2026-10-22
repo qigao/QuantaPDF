@@ -120,7 +120,7 @@ static void test_dashes(void)
     ops[0].value.path.options.transform.a=NAN; reject();
     init(); dash(1,100,2); commands[2].point1=commands[0].point1; reject();
     dash_line(); dash(1,100,2); ops[1]=ops[0]; ops[1].value.path.options.stroke_width=0; ir.operation_count=2; reject();
-    dash_line(); dash(0,2,0); reject(); dash(-1,2,0); reject(); dash(NAN,2,0); reject(); dash(INFINITY,2,0); reject();
+    dash_line(); dash(0,0,0); reject(); dash(-1,2,0); reject(); dash(NAN,2,0); reject(); dash(INFINITY,2,0); reject();
     dash(1,2,-1); reject(); dash(1,2,NAN); reject(); dash(1,2,INFINITY); reject();
     dash(1,2,0); ops[0].value.path.dash_count=65; reject();
     dash_line(); dash(4,4,0);
@@ -135,6 +135,95 @@ static void test_dashes(void)
     dash_line(); dash(0.001f,0.001f,0); reject(); /* expansion capacity */
     dash_line(); dash(4,4,0); float copy[2]={dashes[0],dashes[1]}; image=render();
     CHECK(memcmp(copy,dashes,sizeof(copy))==0); quantapdf_ir_raster_image_dispose(&image);
+}
+/* Independent zero-dash geometry and state goldens. Dots start at path
+ * distances 0,8,16, excluding a new dot at the terminal distance 24. */
+static void test_zero_dashes(void)
+{
+    quantapdf_ir_raster_image image={0},reference={0};
+    dash_line(); dash(0,8,0); image=render();
+    for(size_t y=0;y<32;++y) for(size_t x=0;x<32;++x) CHECK(alpha(&image,x,y)==0);
+    quantapdf_ir_raster_image_dispose(&image);
+    ops[0].value.path.options.stroke_width=4;
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_SQUARE;
+    image=render();
+    for(size_t y=0;y<32;++y) for(size_t x=0;x<32;++x) {
+        int inside=y>=14 && y<18 && ((x>=2 && x<6) || (x>=10 && x<14) || (x>=18 && x<22));
+        CHECK(alpha(&image,x,y)==(inside ? 255u : 0u));
+    }
+    quantapdf_ir_raster_image_dispose(&image);
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
+    image=render();
+    CHECK(alpha(&image,3,15)==255 && alpha(&image,11,15)==255 && alpha(&image,19,15)==255);
+    CHECK(alpha(&image,2,14)>0 && alpha(&image,2,14)<100);
+    CHECK(alpha(&image,7,15)==0 && alpha(&image,27,15)==0 && alpha(&image,28,15)==0);
+    /* A dot at an internal source vertex is retained exactly once. */
+    commands[1].point1.x=12; commands[2]=commands[1]; commands[2].point1.x=28;
+    ops[0].value.path.command_count=3; reference=render();
+    CHECK(memcmp(image.pixels,reference.pixels,image.size)==0);
+    quantapdf_ir_raster_image_dispose(&image); quantapdf_ir_raster_image_dispose(&reference);
+    /* Leading/trailing consecutive zeros are traversed, not discarded when
+     * phase lands on an exact boundary, and odd arrays retain parity. */
+    dash_line(); dash(0,0,0); dashes[2]=0; dashes[3]=8; ops[0].value.path.dash_count=4;
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_SQUARE;
+    image=render(); dash(0,8,0); reference=render();
+    CHECK(memcmp(image.pixels,reference.pixels,image.size)==0);
+    quantapdf_ir_raster_image_dispose(&image); quantapdf_ir_raster_image_dispose(&reference);
+    dash(0,8,3); image=render(); ops[0].value.path.dash_phase=8003; reference=render();
+    CHECK(alpha(&image,8,15)==255 && alpha(&image,4,15)==0);
+    CHECK(memcmp(image.pixels,reference.pixels,image.size)==0);
+    quantapdf_ir_raster_image_dispose(&image); quantapdf_ir_raster_image_dispose(&reference);
+    dash(0,8,8); image=render(); ops[0].value.path.dash_phase=0; reference=render();
+    CHECK(memcmp(image.pixels,reference.pixels,image.size)==0);
+    quantapdf_ir_raster_image_dispose(&image); quantapdf_ir_raster_image_dispose(&reference);
+    dash(0,4,0); dashes[2]=4; ops[0].value.path.dash_count=3; image=render();
+    for(size_t y=0;y<32;++y) for(size_t x=0;x<32;++x) {
+        int inside=y>=15 && y<17 && ((x>=3 && x<5) || (x>=7 && x<17) || (x>=19 && x<21) || (x>=23 && x<29));
+        CHECK(alpha(&image,x,y)==(inside ? 255u : 0u));
+    }
+    quantapdf_ir_raster_image_dispose(&image);
+    /* A zero gap separates two dashes at a corner; their caps do not turn
+     * into a miter join. Square caps still cover that outer corner. */
+    init(); dash(8,0,0); image=render(); CHECK(alpha(&image,17,17)==0);
+    quantapdf_ir_raster_image_dispose(&image);
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_SQUARE;
+    image=render(); CHECK(alpha(&image,17,17)==255); quantapdf_ir_raster_image_dispose(&image);
+    /* Square dot orientation follows the outgoing oblique segment. Its
+     * center is (12,16), and projection along/perpendicular to (1,1)
+     * gives x-extents 12 +/- 2*sqrt(2), not an axis-aligned square. */
+    dash_line(); commands[1].point1=(quantapdf_point){12,16};
+    commands[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO; commands[2].point1=(quantapdf_point){20,24};
+    ops[0].value.path.command_count=3; ops[0].value.path.options.stroke_width=4;
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_SQUARE;
+    dash(0,8,0); image=render(); CHECK(alpha(&image,14,15)>0 && alpha(&image,13,17)<255);
+    quantapdf_ir_raster_image_dispose(&image);
+    /* All-empty butt dots still validate later layers/transforms, charge
+     * transitions, and refuse malformed periods before modulo arithmetic. */
+    dash_line(); dash(0,8,0); ops[1]=ops[0]; ops[1].value.path.options.stroke_width=0; ir.operation_count=2; reject();
+    dash_line(); dash(0,8,0); ops[0].value.path.options.transform.a=NAN; reject();
+    dash_line(); dash(0,0,0); reject(); ops[0].value.path.dash_count=1; reject();
+    dash_line(); dash(0,.0001f,0); reject(); /* transition limit without output */
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND; reject(); /* expanded edges */
+    /* Maximum authored array with long chains of zero entries is bounded
+     * even when every butt dot is invisible. */
+    dash_line(); dash(0,8,0); memset(dashes,0,sizeof(dashes)); dashes[63]=8;
+    ops[0].value.path.dash_count=64; image=render();
+    for(size_t y=0;y<32;++y) for(size_t x=0;x<32;++x) CHECK(alpha(&image,x,y)==0);
+    quantapdf_ir_raster_image_dispose(&image);
+    /* Exact square-dot edge budget, immutable arrays and owned output after
+     * all authored commands/options/dashes have been overwritten. */
+    dash_line(); dash(0,8,0); ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_SQUARE;
+    quantapdf_composer_path_operation fill={0}; float saved[2]={0,8};
+    OK(quantapdf_ir_stroke_polyline_outline_v1(&ops[0].value.path,24,&fill));
+    CHECK(memcmp(saved,dashes,sizeof(saved))==0 && fill.command_count==30);
+    quantapdf_composer_path_operation failed; memset(&failed,0x5a,sizeof(failed));
+    CHECK(quantapdf_ir_stroke_polyline_outline_v1(&ops[0].value.path,23,&failed)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(!failed.commands && !failed.command_count);
+    memset(dashes,0,sizeof(dashes)); memset(commands,0,sizeof(commands)); memset(ops,0,sizeof(ops));
+    ops[0].kind=QUANTAPDF_COMPOSER_OPERATION_PATH; ops[0].value.path=fill;
+    OK(quantapdf_ir_raster_render_v1(&ir,0,&limits,&image));
+    CHECK(alpha(&image,3,15)==255 && alpha(&image,7,15)==0);
+    quantapdf_ir_raster_image_dispose(&image); quantapdf_ir_stroke_polyline_dispose_v1(&fill);
 }
 /* Measure the emitted float chords against an independent radius-2 circle,
  * rather than duplicating the tessellator's segment-count formula. */
@@ -280,5 +369,6 @@ int main(void)
     CHECK(!image.pixels && !image.size);
     test_dashes();
     test_round();
+    test_zero_dashes();
     return 0;
 }

@@ -58,8 +58,8 @@ transform or insufficient output/edge/sample capacity fails atomically.
 
 ## Dash pattern
 
-V2 also admits up to 64 strictly positive dash lengths, each at most 1000000,
-and finite phase in [0,1000000000]. Odd arrays repeat twice before their
+V2 also admits up to 64 nonnegative dash lengths, each at most 1000000,
+with at least one positive entry, and finite phase in [0,1000000000]. Odd arrays repeat twice before their
 on/off parity repeats. The phase is reduced modulo that complete cycle and
 reapplied independently at every authored subpath. Pattern distance is measured
 in user space before affine/device transforms; a source segment boundary does
@@ -74,6 +74,24 @@ They are not inferred to be connected. This follows the endpoint/join rule in
 and is checked with independent solid/empty corner probes and direct original
 PDFium renders, including a dash ending exactly at the seam.
 
+Zero on entries are directed dash fragments, rather than discarded distances.
+Their start/end caps form a circle for round caps or an oriented width-by-width
+square for projecting caps; butt caps have zero coverage. A zero gap still
+separates adjacent dashes, so each retains its caps instead of creating a join.
+Consecutive zero entries retain their on/off parity, including across an odd
+array's second copy. Exact phase boundaries preserve zero on entries at the
+start of the traversed interval. Every zero transition counts against the
+shared work cap, even for invisible butt dots. All-zero arrays refuse before
+modulo arithmetic or allocation.
+
+At an internal vertex a new zero dash takes the outgoing segment's tangent.
+The traversed interval is half-open: a new dot at the terminal path distance
+is not synthesized. A positive dash already reaching that endpoint still gets
+its normal end cap. The same rule avoids a duplicate dot at a closed seam.
+Independent Poppler and direct pinned PDFium probes confirm terminal omission;
+provider-free goldens verify the exact native positions and outgoing square
+orientation. Degenerate authored subpaths remain a separate refusal contract.
+
 An otherwise admitted path entirely inside an off interval succeeds with empty
 coverage. A cancelled two-edge nonzero contour represents this exact empty
 fill, so normal transform, Clip, budget and later-operation validation still
@@ -85,7 +103,8 @@ The outline compiler accepts at most 1024 authored commands. Its fixed maximum
 is 10240 output commands, with coordinates bounded to +/-1000000 before and
 after expansion. It checks nonzero polygon area after conversion to Composer
 float storage. Every emitted edge counts against the caller's edge budget.
-Dash phase traversal and segment splitting share a 65536-step cap per operation;
+Dash phase traversal, zero transitions and segment splitting share a 65536-step
+cap per operation;
 non-progressing arithmetic refuses rather than looping or dropping a dash.
 The scoped V2 renderer builds bounded outlines before partitioning the global
 budgets, using their actual expanded edge counts as Stroke weights. Clip
@@ -100,7 +119,7 @@ are disposed on success or any failure. No source, Graph, qpdf, PDFium or
 provider state is retained. A late unsupported layer discards
 the complete final image. Every failure resets the caller's image output.
 
-Hairlines/zero width, curves, zero dash entries, alpha,
+Hairlines/zero width, curves, alpha,
 paint resources, exact reversal/cusps, move-only/all-zero subpaths, closed
 subpaths with fewer than three distinct vertices, invalid coordinates and
 exhausted budgets remain explicit refusals. This profile requires MOVE after
@@ -147,9 +166,33 @@ Its 22 positives cover horizontal/vertical/diagonal caps, both turn directions,
 acute/closed/short joins, subpaths, positive dashes and seams, affine/reflected
 transforms, nested W/W* Clip, q/Q restore, all-off and thin strokes, plus two
 144-DPI FIT comparisons with direct PDFium renders on the same 240x240 grid.
-Three additional source negatives exercise hairline, cubic and zero-dash
-refusals. The mean/gross/probe thresholds are unchanged. Source and Graph are
+Three additional source negatives exercise hairline, cubic and dense zero-dash
+expansion refusals. The mean/gross/probe thresholds are unchanged. Source and Graph are
 destroyed before native rasterization, and detached pixels survive IR disposal.
+
+`quantapdf.native_zero_dash_oracle` adds 22 generated original-source positives
+under the same mean/gross/probe thresholds, including round/square/butt dots,
+phase/wrapping, odd and consecutive-zero arrays, zero gaps, oblique vertices,
+closed seams, subpath/state reset, affine transforms, W/W* Clip and 144-DPI FIT.
+Three negatives cover dense visible/invisible transition exhaustion and cusps.
+Pure C11 goldens additionally verify exact square/empty coverage, odd parity,
+large modulo-equivalent phases, maximum arrays, exact expanded edge limits,
+immutable dash data, detached outline lifetime and atomic late-layer refusal.
+
+### Zero-interval oracle limitation
+
+An additional immutable original-source pair uses `[0 16]` with phases 5 and
+16005. Native output must be byte-identical, with independent solid probes at
+its mathematically expected dot centers. Direct PDFium outputs are measured
+and logged separately; this pair is not counted as a raster-oracle positive.
+The pinned Linux PDFium reference shifts the large-phase dots and leaves small
+butt-dot coverage. Published PDFium AGG code replaces tiny dash lengths with
+0.1 before applying phase, consistent with this observation (the cause in the
+pinned binary is an inference):
+[RasterizeStroke at 21c5df09](https://pdfium.googlesource.com/pdfium/+/21c5df09b20fbb1b8023337729ac9bf21807207c/core/fxge/agg/cfx_agg_devicedriver.cpp).
+The native compiler preserves exact zeros and mathematical period; it neither
+copies that adjustment nor weakens the existing oracle pixel thresholds.
+The two original files retain their unreduced authored phases and byte guards.
 
 These are generated feature fixtures. They add no independently published
 PDFs or formal external W* positives to the existing four-document corpus.

@@ -2205,21 +2205,23 @@ else()
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
 
-# Round arcs use a separate generated-source filename; allow sanitizer headroom.
+# Round and zero-dash modes isolate generated source paths; allow sanitizer headroom.
 add_test(NAME quantapdf.native_round_stroke_oracle
   COMMAND quantapdf_test_native_stroke_polyline_oracle --round)
-set_tests_properties(quantapdf.native_round_stroke_oracle PROPERTIES
+add_test(NAME quantapdf.native_zero_dash_oracle
+  COMMAND quantapdf_test_native_stroke_polyline_oracle --zero-dash)
+set_tests_properties(quantapdf.native_round_stroke_oracle quantapdf.native_zero_dash_oracle PROPERTIES
   TIMEOUT 90 LABELS "conformance;native-raster;source-pdf")
 if(WIN32)
-  set_property(TEST quantapdf.native_round_stroke_oracle
+  set_property(TEST quantapdf.native_round_stroke_oracle quantapdf.native_zero_dash_oracle
     PROPERTY ENVIRONMENT_MODIFICATION
     "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 elseif(APPLE)
-  set_property(TEST quantapdf.native_round_stroke_oracle
+  set_property(TEST quantapdf.native_round_stroke_oracle quantapdf.native_zero_dash_oracle
     PROPERTY ENVIRONMENT_MODIFICATION
     "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 else()
-  set_property(TEST quantapdf.native_round_stroke_oracle
+  set_property(TEST quantapdf.native_round_stroke_oracle quantapdf.native_zero_dash_oracle
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
