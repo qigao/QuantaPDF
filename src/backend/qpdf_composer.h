@@ -35,6 +35,13 @@ quantapdf_status quantapdf_jpeg_validate(
     uint32_t *out_height,
     int *out_components);
 
+/* Detached malloc-owned Gray/RGB samples. PDF DCT ColorTransform is -1
+ * (JPEG metadata), 0 (no transform), or 1 (YCbCr -> RGB). */
+quantapdf_status quantapdf_jpeg_decode(
+    const unsigned char *data, size_t size, size_t max_working_bytes,
+    int color_transform, unsigned char **out_pixels,
+    uint32_t *out_width, uint32_t *out_height, int *out_components);
+
 #if defined(QUANTAPDF_TESTING)
 #if defined(__GNUC__)
 __attribute__((visibility("hidden")))

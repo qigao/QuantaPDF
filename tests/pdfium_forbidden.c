@@ -49,13 +49,6 @@ quantapdf_status quantapdf_pdfium_extract_structured_text(
     forbidden();
 }
 
-quantapdf_status quantapdf_pdfium_extract_images(quantapdf_pdfium_page *page,
-    quantapdf_image_page **out)
-{
-    (void)page; (void)out;
-    forbidden();
-}
-
 void quantapdf_pdfium_drop_page(quantapdf_pdfium_page *page)
 {
     (void)page;

@@ -1,6 +1,6 @@
 #include "validation/validation.h"
 #include "graph/identity.h"
-#include "qpdf_document.h"
+#include "qpdf_document_internal.h"
 #include "qpdf_edit.h"
 #include "edit_fault.h"
 #include "qpdf_graph.h"
@@ -41,13 +41,6 @@
 #include <string>
 #include <type_traits>
 #include <vector>
-
-struct quantapdf_qpdf_document {
-    std::shared_ptr<QPDF> pdf;
-    unsigned char const *source_data;
-    size_t source_size;
-    char const *password;
-};
 
 struct quantapdf_qpdf_edit_annotation_entry {
     QPDFObjectHandle object = QPDFObjectHandle::newNull();
@@ -131,7 +124,7 @@ static quantapdf_status quantapdf_status_from_qpdf(
     }
 }
 
-static QPDFObjectHandle quantapdf_qpdf_inherited_value(
+QPDFObjectHandle quantapdf_qpdf_inherited_value(
     QPDFObjectHandle current,
     char const *key)
 {
@@ -378,21 +371,6 @@ static quantapdf_status quantapdf_qpdf_walk_outline_siblings(
     return QUANTAPDF_ERROR_FORMAT;
 }
 
-struct quantapdf_qpdf_page_geometry {
-    QPDFObjectHandle page;
-    double media[4];
-    double crop[4];
-    double left;
-    double bottom;
-    double right;
-    double top;
-    double user_unit;
-    double public_width;
-    double public_height;
-    bool has_explicit_crop;
-    int rotation;
-};
-
 static quantapdf_status quantapdf_qpdf_read_rectangle(
     QPDFObjectHandle const& object,
     double values[4], bool allow_empty = false)
@@ -467,7 +445,7 @@ static quantapdf_status quantapdf_qpdf_find_page(
     return QUANTAPDF_ERROR_ARGUMENT;
 }
 
-static quantapdf_status quantapdf_qpdf_load_page_geometry(
+quantapdf_status quantapdf_qpdf_load_page_geometry(
     QPDF& pdf,
     int page_index,
     quantapdf_qpdf_page_geometry *out_geometry)
@@ -575,7 +553,7 @@ static quantapdf_status quantapdf_qpdf_load_page_geometry(
     return QUANTAPDF_OK;
 }
 
-static void quantapdf_qpdf_pdf_point_to_public(
+void quantapdf_qpdf_pdf_point_to_public(
     quantapdf_qpdf_page_geometry const& geometry,
     double raw_x,
     double raw_y,

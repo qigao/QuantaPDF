@@ -12,7 +12,7 @@ typedef struct quantapdf_builtin_document {
     quantapdf_pdfium_document *reader;
     quantapdf_qpdf_document *writer;
     /* Borrowed from the immutable facade document until close. Only the
-     * remaining render/text/image operations need the legacy reader. */
+     * remaining render/text operations need the legacy reader. */
     const unsigned char *source_data;
     size_t source_size;
     const char *password;
@@ -186,19 +186,18 @@ static quantapdf_status builtin_pdfium_extract_structured_text(
     return quantapdf_pdfium_extract_structured_text(state->reader, out_text);
 }
 
-static quantapdf_status builtin_pdfium_extract_images(
+static quantapdf_status builtin_extract_images(
     void *page,
     quantapdf_image_page **out_images)
 {
     quantapdf_builtin_page *state = page;
-    quantapdf_status status;
     if (out_images == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_images = NULL;
-    status = builtin_ensure_legacy_page(state);
-    if (status != QUANTAPDF_OK)
-        return status;
-    return quantapdf_pdfium_extract_images(state->reader, out_images);
+    if (state == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    return quantapdf_qpdf_extract_images(state->document->writer,
+        state->page_index, out_images);
 }
 
 static quantapdf_status builtin_extract_links(
@@ -563,7 +562,7 @@ static const quantapdf_backend_ops builtin_ops = {
     .render_page = builtin_pdfium_render_page,
     .extract_text = builtin_pdfium_extract_text,
     .extract_structured_text = builtin_pdfium_extract_structured_text,
-    .extract_images = builtin_pdfium_extract_images,
+    .extract_images = builtin_extract_images,
     .extract_links = builtin_extract_links,
     .drop_page = builtin_drop_page,
     .page_user_unit = builtin_qpdf_page_user_unit,

@@ -1007,7 +1007,7 @@ get_target_property(_qp_document_sources quantapdf SOURCES)
 get_target_property(_qp_structure_sources quantapdf_backend SOURCES)
 list(FILTER _qp_structure_sources EXCLUDE REGEX "/pdfium_(document|runtime)\\.cpp$")
 add_executable(quantapdf_test_native_document
-  test_native_document.cpp pdfium_forbidden.c
+  test_native_document.cpp test_native_images.cpp pdfium_forbidden.c
   ${_qp_document_sources} ${_qp_structure_sources})
 target_include_directories(quantapdf_test_native_document PRIVATE
   "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")

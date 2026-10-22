@@ -18,6 +18,7 @@ static void check(bool ok, const char *expression, int line)
 }
 #define CHECK(x) check((x), #x, __LINE__)
 using Obj = QPDFObjectHandle;
+void quantapdf_test_native_images();
 
 static void near(float actual, float expected)
 {
@@ -272,6 +273,7 @@ int main()
     test_geometry_and_links(90, true);
     test_atomic_rejections();
     test_structural_operations();
+    quantapdf_test_native_images();
     std::remove(NATIVE_DOCUMENT_OUTPUT_PDF);
     return EXIT_SUCCESS;
 }
