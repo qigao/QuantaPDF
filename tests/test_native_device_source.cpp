@@ -478,14 +478,20 @@ void original_jspdf(const char *path)
             const quantapdf_status first_status =
                 quantapdf_ir_raster_scoped_operations_v1_planned(
                     &ir, 0u, &raster_limits, &plan, &first);
-            if (first_status != QUANTAPDF_OK)
+            if (first_status != QUANTAPDF_OK) {
+                const quantapdf_composer_path_operation *p = &ir.operations[0].value.path;
                 std::fprintf(stderr, "jsPDF native first render rejected: dpi=%u status=%d gs=%u stroke_width=%.9g commands=%zu clip_count=%zu edges_limit=%zu sample_limit=%zu\\n",
                     dpis[i], (int)first_status,
                     (unsigned)ir.operations[0].graphics_state_id,
-                    (double)ir.operations[0].value.path.options.stroke_width,
-                    ir.operations[0].value.path.command_count,
+                    (double)p->options.stroke_width, p->command_count,
                     ir.resources.clip_count, raster_limits.max_edges,
                     raster_limits.max_sample_tests);
+                for (size_t c = 0u; c < p->command_count; ++c)
+                    std::fprintf(stderr, "  cmd[%zu] kind=%d p1=(%.9g,%.9g)\\n",
+                        c, (int)p->commands[c].kind,
+                        (double)p->commands[c].point1.x,
+                        (double)p->commands[c].point1.y);
+            }
             CHECK(first_status == QUANTAPDF_OK);
             OK(quantapdf_ir_raster_scoped_operations_v1_planned(
                 &ir, 0u, &raster_limits, &plan, &second));
