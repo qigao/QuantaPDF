@@ -145,7 +145,7 @@ int main(void)
         &ir, 0u, &limits, &plan, &image) == QUANTAPDF_ERROR_UNSUPPORTED && empty(&image));
     page.width_points = 10.5f;
 
-    /* No M2 stroke is silently admitted by giving it a device plan. */
+    /* Curved strokes remain unsupported; an explicit device plan is not a fallback. */
     op.value.path.options.fill = 0;
     op.value.path.options.stroke = 1;
     op.value.path.options.stroke_argb = 0xff000000u;
@@ -153,10 +153,11 @@ int main(void)
     op.value.path.options.line_cap = QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
     op.value.path.options.line_join = QUANTAPDF_COMPOSER_LINE_JOIN_MITER;
     op.value.path.options.miter_limit = 10.0f;
+    paint[2].kind = QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
     CHECK(quantapdf_ir_raster_scoped_operations_v1_planned(
         &ir, 0u, &limits, &plan, &image) == QUANTAPDF_ERROR_UNSUPPORTED && empty(&image));
-    paint[3].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
-    op.value.path.command_count = 4u;
+    paint[2].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    op.value.path.command_count = 3u;
     CHECK(quantapdf_ir_raster_scoped_operations_v1_planned(
         &ir, 0u, &limits, &plan, &image) == QUANTAPDF_ERROR_UNSUPPORTED && empty(&image));
     puts("Native FIT device raster: independent coverage, frozen Clip, repeat, bounds and reset passed");
