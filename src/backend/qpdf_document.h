@@ -59,6 +59,13 @@ quantapdf_status quantapdf_qpdf_page_box_bounds(
     quantapdf_page_box box,
     quantapdf_rect *out_bounds);
 
+/* Detached link snapshot in unscaled display coordinates. The public facade
+ * applies source/target UserUnit once, as for the other observations. */
+quantapdf_status quantapdf_qpdf_extract_links(
+    quantapdf_qpdf_document *document,
+    int page_index,
+    quantapdf_link_page **out_links);
+
 quantapdf_status quantapdf_qpdf_extract_annotations(
     quantapdf_qpdf_document *document,
     int page_index,

@@ -59,10 +59,6 @@ quantapdf_status quantapdf_pdfium_extract_images(
     quantapdf_pdfium_page *page,
     quantapdf_image_page **out_images);
 
-quantapdf_status quantapdf_pdfium_extract_links(
-    quantapdf_pdfium_page *page,
-    quantapdf_link_page **out_links);
-
 void quantapdf_pdfium_drop_page(quantapdf_pdfium_page *page);
 void quantapdf_pdfium_close(quantapdf_pdfium_document *document);
 

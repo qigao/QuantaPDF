@@ -11,6 +11,7 @@
 #include "snapshot/annotation_snapshot.h"
 #include "snapshot/form_snapshot.h"
 #include "snapshot/outline_snapshot.h"
+#include "snapshot/link_snapshot.h"
 
 #include <qpdf/Constants.h>
 #include <qpdf/Pipeline.hh>
@@ -394,7 +395,7 @@ struct quantapdf_qpdf_page_geometry {
 
 static quantapdf_status quantapdf_qpdf_read_rectangle(
     QPDFObjectHandle const& object,
-    double values[4])
+    double values[4], bool allow_empty = false)
 {
     if (!object.isArray() || object.getArrayNItems() != 4)
         return QUANTAPDF_ERROR_FORMAT;
@@ -411,7 +412,7 @@ static quantapdf_status quantapdf_qpdf_read_rectangle(
     values[1] = input[1] < input[3] ? input[1] : input[3];
     values[2] = input[0] < input[2] ? input[2] : input[0];
     values[3] = input[1] < input[3] ? input[3] : input[1];
-    if (values[2] <= values[0] || values[3] <= values[1])
+    if (!allow_empty && (values[2] <= values[0] || values[3] <= values[1]))
         return QUANTAPDF_ERROR_FORMAT;
     return QUANTAPDF_OK;
 }
@@ -422,8 +423,15 @@ static quantapdf_status quantapdf_qpdf_find_page(
     int *current_index,
     size_t depth,
     std::set<QPDFObjGen> *seen,
-    QPDFObjectHandle *out_page)
+    QPDFObjectHandle *out_page,
+    QPDFObjectHandle const *target_object = nullptr,
+    size_t *remaining = nullptr)
 {
+    if (remaining != nullptr) {
+        if (*remaining == 0)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        --*remaining;
+    }
     if (depth > 256u || !node.isDictionary() || !node.isIndirect())
         return QUANTAPDF_ERROR_FORMAT;
     if (!seen->insert(node.getObjGen()).second)
@@ -431,10 +439,13 @@ static quantapdf_status quantapdf_qpdf_find_page(
 
     QPDFObjectHandle type = node.getKey("/Type");
     if (type.isName() && type.getName() == "/Page") {
-        if (*current_index == target_index) {
+        if (target_object != nullptr ? node.isSameObjectAs(*target_object) :
+            *current_index == target_index) {
             *out_page = node;
             return QUANTAPDF_OK;
         }
+        if (*current_index == INT_MAX)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
         ++*current_index;
         return QUANTAPDF_ERROR_ARGUMENT;
     }
@@ -447,7 +458,7 @@ static quantapdf_status quantapdf_qpdf_find_page(
     for (int index = 0; index < count; ++index) {
         quantapdf_status status = quantapdf_qpdf_find_page(
             kids.getArrayItem(index), target_index, current_index,
-            depth + 1u, seen, out_page);
+            depth + 1u, seen, out_page, target_object, remaining);
         if (status == QUANTAPDF_OK)
             return status;
         if (status != QUANTAPDF_ERROR_ARGUMENT)
@@ -2620,10 +2631,23 @@ extern "C" quantapdf_status quantapdf_qpdf_page_count(
         return QUANTAPDF_ERROR_ARGUMENT;
 
     try {
-        size_t const page_count = document->pdf->getAllPages().size();
-        if (page_count > static_cast<size_t>(INT_MAX))
+        /* getAllPages() repairs malformed page attributes in place. Counting
+         * must not erase invalid /Annots or other later observation evidence. */
+        int page_count = 0;
+        std::set<QPDFObjGen> seen;
+        QPDFObjectHandle ignored = QPDFObjectHandle::newNull();
+        size_t remaining = 0;
+        quantapdf_status status = quantapdf_qpdf_compute_work_budget_limit(
+            document->source_size, &remaining);
+        if (status != QUANTAPDF_OK)
+            return status;
+        status = quantapdf_qpdf_find_page(document->pdf->getRoot().getKey("/Pages"),
+            INT_MAX, &page_count, 1u, &seen, &ignored, nullptr, &remaining);
+        if (status == QUANTAPDF_OK)
             return QUANTAPDF_ERROR_UNSUPPORTED;
-        *out_page_count = static_cast<int>(page_count);
+        if (status != QUANTAPDF_ERROR_ARGUMENT)
+            return status;
+        *out_page_count = page_count;
         return QUANTAPDF_OK;
     } catch (QPDFExc const& error) {
         return quantapdf_status_from_qpdf(error);
@@ -2712,6 +2736,277 @@ extern "C" quantapdf_status quantapdf_qpdf_page_box_bounds(
         return QUANTAPDF_ERROR_NOMEM;
     } catch (std::exception const&) {
         return QUANTAPDF_ERROR_BACKEND;
+    } catch (...) {
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+}
+
+/* Link observations use the same checked page geometry as edits and page boxes.
+ * They do not interpret paint, load a renderer, or retain provider objects. */
+static quantapdf_status quantapdf_qpdf_named_link_destination(
+    QPDF& pdf, QPDFObjectHandle name,
+    quantapdf_qpdf_work_budget *budget, QPDFObjectHandle *out_destination)
+{
+    std::string const key = name.isName() ? name.getName().substr(1) :
+        name.getStringValue();
+    QPDFObjectHandle old_dests = pdf.getRoot().getKey("/Dests");
+    if (!old_dests.isNull()) {
+        if (!old_dests.isDictionary())
+            return QUANTAPDF_ERROR_FORMAT;
+        *out_destination = old_dests.getKey("/" + key);
+        if (!out_destination->isNull())
+            return QUANTAPDF_OK;
+    }
+    QPDFObjectHandle names = pdf.getRoot().getKey("/Names");
+    if (!names.isDictionary())
+        return QUANTAPDF_ERROR_FORMAT;
+    struct item { QPDFObjectHandle node; size_t depth; };
+    std::vector<item> pending = {{names.getKey("/Dests"), 0u}};
+    std::set<QPDFObjGen> seen;
+    while (!pending.empty()) {
+        item const current = pending.back();
+        pending.pop_back();
+        if (!budget->take() || current.depth > 64u)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        if (!current.node.isDictionary() ||
+            (current.node.isIndirect() &&
+             !seen.insert(current.node.getObjGen()).second))
+            return QUANTAPDF_ERROR_FORMAT;
+        QPDFObjectHandle pairs = current.node.getKey("/Names");
+        QPDFObjectHandle kids = current.node.getKey("/Kids");
+        if (!pairs.isNull()) {
+            if (!pairs.isArray() || pairs.getArrayNItems() % 2 != 0 ||
+                !kids.isNull())
+                return QUANTAPDF_ERROR_FORMAT;
+            for (int i = 0; i < pairs.getArrayNItems(); i += 2) {
+                if (!budget->take())
+                    return QUANTAPDF_ERROR_UNSUPPORTED;
+                QPDFObjectHandle candidate = pairs.getArrayItem(i);
+                if (!candidate.isString())
+                    return QUANTAPDF_ERROR_FORMAT;
+                if (candidate.getStringValue() == key) {
+                    *out_destination = pairs.getArrayItem(i + 1);
+                    return QUANTAPDF_OK;
+                }
+            }
+        } else {
+            if (!kids.isArray())
+                return QUANTAPDF_ERROR_FORMAT;
+            for (int i = kids.getArrayNItems(); i > 0; --i) {
+                if (!budget->take())
+                    return QUANTAPDF_ERROR_UNSUPPORTED;
+                pending.push_back({kids.getArrayItem(i - 1), current.depth + 1u});
+            }
+        }
+    }
+    return QUANTAPDF_ERROR_FORMAT;
+}
+
+static quantapdf_status quantapdf_qpdf_link_target(
+    QPDF& pdf, QPDFObjectHandle destination,
+    quantapdf_qpdf_work_budget *budget, quantapdf_link_internal *out_link)
+{
+    if (destination.isName() || destination.isString()) {
+        quantapdf_status const status = quantapdf_qpdf_named_link_destination(
+            pdf, destination, budget, &destination);
+        if (status != QUANTAPDF_OK)
+            return status;
+    }
+    if (destination.isDictionary())
+        destination = destination.getKey("/D");
+    if (!destination.isArray() || destination.getArrayNItems() < 2 ||
+        !destination.getArrayItem(1).isName())
+        return QUANTAPDF_ERROR_FORMAT;
+    QPDFObjectHandle target = destination.getArrayItem(0);
+    int page_index = 0;
+    std::set<QPDFObjGen> seen;
+    QPDFObjectHandle selected = QPDFObjectHandle::newNull();
+    size_t remaining = budget->limit - budget->used;
+    quantapdf_status lookup = quantapdf_qpdf_find_page(pdf.getRoot().getKey("/Pages"),
+        -1, &page_index, 1u, &seen, &selected, &target, &remaining);
+    budget->used = budget->limit - remaining;
+    if (lookup != QUANTAPDF_OK)
+        return lookup == QUANTAPDF_ERROR_ARGUMENT ? QUANTAPDF_ERROR_FORMAT : lookup;
+    quantapdf_qpdf_page_geometry geometry = {};
+    quantapdf_status const status = quantapdf_qpdf_load_page_geometry(
+        pdf, page_index, &geometry);
+    if (status != QUANTAPDF_OK)
+        return status;
+    /* The facade applies the destination page's own UserUnit exactly once. */
+    geometry.user_unit = 1.0;
+    double x = geometry.left;
+    double y = geometry.top;
+    std::string const mode = destination.getArrayItem(1).getName();
+    int const count = destination.getArrayNItems();
+    if (mode == "/XYZ") {
+        if (count != 5)
+            return QUANTAPDF_ERROR_FORMAT;
+        for (int i = 2; i < 5; ++i) {
+            QPDFObjectHandle value = destination.getArrayItem(i);
+            if (!value.isNull() && (!value.isNumber() ||
+                !std::isfinite(value.getNumericValue())))
+                return QUANTAPDF_ERROR_FORMAT;
+        }
+        if (!destination.getArrayItem(2).isNull())
+            x = destination.getArrayItem(2).getNumericValue();
+        if (!destination.getArrayItem(3).isNull())
+            y = destination.getArrayItem(3).getNumericValue();
+    } else if (mode == "/Fit" || mode == "/FitB") {
+        if (count != 2)
+            return QUANTAPDF_ERROR_FORMAT;
+    } else if (mode == "/FitH" || mode == "/FitBH" ||
+               mode == "/FitV" || mode == "/FitBV" || mode == "/FitR") {
+        int const expected = mode == "/FitR" ? 6 : 3;
+        if (count != expected)
+            return QUANTAPDF_ERROR_FORMAT;
+        for (int i = 2; i < expected; ++i) {
+            QPDFObjectHandle value = destination.getArrayItem(i);
+            if ((!value.isNull() || mode == "/FitR") &&
+                (!value.isNumber() || !std::isfinite(value.getNumericValue())))
+                return QUANTAPDF_ERROR_FORMAT;
+        }
+        /* The public point-only observation has no fit/zoom representation,
+         * matching the former reader's zero point for non-XYZ destinations. */
+        out_link->target_page = page_index;
+        out_link->kind = QUANTAPDF_LINK_INTERNAL;
+        return QUANTAPDF_OK;
+    } else {
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    out_link->target_page = page_index;
+    out_link->kind = QUANTAPDF_LINK_INTERNAL;
+    if (mode == "/XYZ") {
+        double public_x = 0.0, public_y = 0.0;
+        quantapdf_qpdf_pdf_point_to_public(geometry, x, y, &public_x, &public_y);
+        out_link->target = {static_cast<float>(public_x), static_cast<float>(public_y)};
+        if (!std::isfinite(out_link->target.x) || !std::isfinite(out_link->target.y))
+            return QUANTAPDF_ERROR_FORMAT;
+    }
+    return QUANTAPDF_OK;
+}
+
+extern "C" quantapdf_status quantapdf_qpdf_extract_links(
+    quantapdf_qpdf_document *document, int page_index,
+    quantapdf_link_page **out_links)
+{
+    if (out_links == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_links = nullptr;
+    if (document == nullptr || document->pdf == nullptr || page_index < 0)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    try {
+        quantapdf_qpdf_page_geometry geometry = {};
+        quantapdf_status status = quantapdf_qpdf_load_page_geometry(
+            *document->pdf, page_index, &geometry);
+        if (status != QUANTAPDF_OK)
+            return status;
+        geometry.user_unit = 1.0;
+        quantapdf_qpdf_work_budget budget;
+        status = quantapdf_qpdf_init_work_budget(document->source_size, &budget);
+        if (status != QUANTAPDF_OK)
+            return status;
+        QPDFObjectHandle annots = geometry.page.getKey("/Annots");
+        if (!annots.isNull() && !annots.isArray())
+            return QUANTAPDF_ERROR_FORMAT;
+        auto dispose = [](quantapdf_link_page *snapshot) {
+            if (snapshot == nullptr)
+                return;
+            for (size_t i = 0; i < snapshot->count; ++i)
+                std::free(snapshot->items[i].uri);
+            std::free(snapshot->items);
+            std::free(snapshot);
+        };
+        std::unique_ptr<quantapdf_link_page, decltype(dispose)> snapshot(
+            static_cast<quantapdf_link_page *>(std::calloc(1u, sizeof(quantapdf_link_page))),
+            dispose);
+        if (!snapshot)
+            return QUANTAPDF_ERROR_NOMEM;
+        std::vector<quantapdf_link_internal> links;
+        std::vector<std::string> uris;
+        size_t uri_bytes = 0;
+        int const count = annots.isArray() ? annots.getArrayNItems() : 0;
+        for (int i = 0; i < count; ++i) {
+            if (!budget.take())
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+            QPDFObjectHandle annot = annots.getArrayItem(i);
+            if (!annot.isDictionary())
+                return QUANTAPDF_ERROR_FORMAT;
+            QPDFObjectHandle subtype = annot.getKey("/Subtype");
+            if (!subtype.isName())
+                return QUANTAPDF_ERROR_FORMAT;
+            if (subtype.getName() != "/Link")
+                continue;
+            if (links.size() >= 16384u)
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+            double rect[4];
+            status = quantapdf_qpdf_read_rectangle(annot.getKey("/Rect"), rect, true);
+            if (status != QUANTAPDF_OK)
+                return status;
+            quantapdf_link_internal link = {};
+            link.target_page = -1;
+            link.hotspot = quantapdf_qpdf_pdf_rectangle_to_public(geometry, rect);
+            if (!std::isfinite(link.hotspot.x0) || !std::isfinite(link.hotspot.x1) ||
+                !std::isfinite(link.hotspot.y0) || !std::isfinite(link.hotspot.y1))
+                return QUANTAPDF_ERROR_FORMAT;
+            QPDFObjectHandle destination = annot.getKey("/Dest");
+            std::string uri;
+            if (destination.isNull()) {
+                QPDFObjectHandle action = annot.getKey("/A");
+                if (!action.isDictionary() || !action.getKey("/S").isName())
+                    return QUANTAPDF_ERROR_FORMAT;
+                std::string const type = action.getKey("/S").getName();
+                if (type == "/URI") {
+                    QPDFObjectHandle value = action.getKey("/URI");
+                    if (!value.isString())
+                        return QUANTAPDF_ERROR_FORMAT;
+                    uri = value.getStringValue();
+                    if (uri.size() > 1048576u - uri_bytes)
+                        return QUANTAPDF_ERROR_UNSUPPORTED;
+                    if (uri.find('\0') != std::string::npos)
+                        return QUANTAPDF_ERROR_FORMAT;
+                    uri_bytes += uri.size();
+                    link.kind = QUANTAPDF_LINK_URI;
+                } else if (type == "/GoTo") {
+                    destination = action.getKey("/D");
+                    if (destination.isNull())
+                        return QUANTAPDF_ERROR_FORMAT;
+                } else {
+                    return QUANTAPDF_ERROR_UNSUPPORTED;
+                }
+            }
+            if (!destination.isNull()) {
+                status = quantapdf_qpdf_link_target(*document->pdf,
+                    destination, &budget, &link);
+                if (status != QUANTAPDF_OK)
+                    return status;
+            }
+            links.push_back(link);
+            uris.push_back(std::move(uri));
+        }
+        if (!links.empty()) {
+            snapshot->items = static_cast<quantapdf_link_internal *>(
+                std::calloc(links.size(), sizeof(*snapshot->items)));
+            if (snapshot->items == nullptr)
+                return QUANTAPDF_ERROR_NOMEM;
+        }
+        snapshot->count = links.size();
+        for (size_t i = 0; i < links.size(); ++i) {
+            snapshot->items[i] = links[i];
+            if (links[i].kind == QUANTAPDF_LINK_URI) {
+                auto& link = snapshot->items[i];
+                link.uri = static_cast<char *>(std::malloc(uris[i].size() + 1u));
+                if (link.uri == nullptr)
+                    return QUANTAPDF_ERROR_NOMEM;
+                std::memcpy(link.uri, uris[i].c_str(), uris[i].size() + 1u);
+                link.uri_size = uris[i].size();
+            }
+        }
+        *out_links = snapshot.release();
+        return QUANTAPDF_OK;
+    } catch (QPDFExc const& error) {
+        return quantapdf_status_from_qpdf(error);
+    } catch (std::bad_alloc const&) {
+        return QUANTAPDF_ERROR_NOMEM;
     } catch (...) {
         return QUANTAPDF_ERROR_BACKEND;
     }
