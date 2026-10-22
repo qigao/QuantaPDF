@@ -13,6 +13,17 @@ typedef struct quantapdf_graph_page_geometry {
     int rotation; /* normalized to 0, 90, 180 or 270 */
 } quantapdf_graph_page_geometry;
 
+/* Exact selected source-number spellings for the bounded private Native
+ * device planner. Each box is four space-separated tokens; arrays include
+ * the NUL terminator. REAL values retain the sealed Graph's literal bytes,
+ * INTEGER values use exact signed decimal. No borrowed pointers escape. */
+typedef struct quantapdf_graph_page_source_numbers {
+    char media_box[96];
+    char crop_box[96];
+    char user_unit[21];
+    int rotation;
+} quantapdf_graph_page_source_numbers;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -24,6 +35,14 @@ extern "C" {
 quantapdf_status quantapdf_graph_query_page_geometry(
     const quantapdf_graph *graph, size_t page_index, size_t max_parent_steps,
     quantapdf_graph_page_geometry *out_geometry);
+
+/* Uses the same validated ancestry/selection traversal as query_page_geometry.
+ * In addition to its geometry admission, source tokens must fit the buffers
+ * above. CropBox defaults to selected MediaBox; leaf-only UserUnit defaults
+ * to "1". Copies all values and clears the entire output on every failure. */
+quantapdf_status quantapdf_graph_query_page_source_numbers(
+    const quantapdf_graph *graph, size_t page_index, size_t max_parent_steps,
+    quantapdf_graph_page_source_numbers *out_numbers);
 
 /* Native-only selected /Page transparency Group preflight. Allows only
  * /S /Transparency, explicit /I true, /CS /DeviceRGB, optional /K false

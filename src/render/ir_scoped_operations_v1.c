@@ -24,9 +24,10 @@ static void over(unsigned char *dst, const unsigned char *src)
     dst[3] = (unsigned char)((denominator + 127u) / 255u);
 }
 
-quantapdf_status quantapdf_ir_raster_scoped_operations_v1(
+static quantapdf_status scoped_operations_v1_impl(
     const quantapdf_ir *ir, size_t page_index,
     const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,
     quantapdf_ir_raster_image *out_image)
 {
     const quantapdf_composer_page_state *page;
@@ -72,13 +73,22 @@ quantapdf_status quantapdf_ir_raster_scoped_operations_v1(
         (double)page->width_points > (double)limits->max_pixels ||
         (double)page->height_points > (double)limits->max_pixels)
         return QUANTAPDF_ERROR_UNSUPPORTED;
-    width = (size_t)page->width_points;
-    height = (size_t)page->height_points;
-    if (width == 0u || height == 0u ||
-        (double)width != (double)page->width_points ||
-        (double)height != (double)page->height_points ||
-        width > limits->max_pixels / height ||
-        (page->suppress_background != 0 && page->suppress_background != 1) ||
+    if (plan != NULL) {
+        if (!quantapdf_native_device_plan_matches_page(plan,
+                page->width_points, page->height_points, limits->max_pixels))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        width = plan->width;
+        height = plan->height;
+    } else {
+        width = (size_t)page->width_points;
+        height = (size_t)page->height_points;
+        if (width == 0u || height == 0u ||
+            (double)width != (double)page->width_points ||
+            (double)height != (double)page->height_points ||
+            width > limits->max_pixels / height)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    if ((page->suppress_background != 0 && page->suppress_background != 1) ||
         (!page->suppress_background && (page->background_argb >> 24u) != 255u))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     count = width * height;
@@ -172,7 +182,11 @@ quantapdf_status quantapdf_ir_raster_scoped_operations_v1(
         local.page_count = 1u;
         local.operations = &operation;
         local.operation_count = 1u;
-        if (active_counts[i] == 0u) {
+        if (plan != NULL) {
+            status = quantapdf_ir_raster_render_v1_planned(
+                &local, 0u, &per_operation, plan, active_clips[i],
+                active_counts[i], &layer);
+        } else if (active_counts[i] == 0u) {
             status = quantapdf_ir_raster_render_v1(
                 &local, 0u, &per_operation, &layer);
         } else {
@@ -204,4 +218,26 @@ quantapdf_status quantapdf_ir_raster_scoped_operations_v1(
 failure:
     free(final_pixels);
     return status;
+}
+
+quantapdf_status quantapdf_ir_raster_scoped_operations_v1(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return scoped_operations_v1_impl(ir, page_index, limits, NULL, out_image);
+}
+
+quantapdf_status quantapdf_ir_raster_scoped_operations_v1_planned(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,
+    quantapdf_ir_raster_image *out_image)
+{
+    if (plan == NULL) {
+        if (out_image != NULL)
+            memset(out_image, 0, sizeof(*out_image));
+        return QUANTAPDF_ERROR_ARGUMENT;
+    }
+    return scoped_operations_v1_impl(ir, page_index, limits, plan, out_image);
 }

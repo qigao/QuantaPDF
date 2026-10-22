@@ -113,18 +113,78 @@ static quantapdf_status parent_contains(const quantapdf_graph_model *model,
     return matches == 1 ? QUANTAPDF_OK : QUANTAPDF_ERROR_FORMAT;
 }
 
-quantapdf_status quantapdf_graph_query_page_geometry(const quantapdf_graph *graph,
+/* Copy from the selected immutable numeric node, never from a binary64
+ * reconstruction. Called only after normal geometry validation succeeds. */
+static quantapdf_status source_number(const quantapdf_graph_model *model,
+    quantapdf_local_id id, char out[21])
+{
+    const quantapdf_graph_node *node = quantapdf_graph_node_at(model, id);
+    if (node == NULL) return QUANTAPDF_ERROR_BACKEND;
+    if (node->kind == QUANTAPDF_GRAPH_REAL) {
+        if (node->data_size == 0u || node->data_size > 20u)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        memcpy(out, model->bytes + node->data_offset, node->data_size);
+        out[node->data_size] = '\0';
+        return QUANTAPDF_OK;
+    }
+    if (node->kind == QUANTAPDF_GRAPH_INTEGER) {
+        char reversed[20];
+        size_t count = 0u, offset = 0u;
+        uint64_t magnitude = node->integer < 0 ?
+            (uint64_t)(-(node->integer + 1)) + UINT64_C(1) :
+            (uint64_t)node->integer;
+        do {
+            reversed[count++] = (char)('0' + magnitude % UINT64_C(10));
+            magnitude /= UINT64_C(10);
+        } while (magnitude != 0u);
+        if (node->integer < 0) out[offset++] = '-';
+        if (offset + count > 20u) return QUANTAPDF_ERROR_UNSUPPORTED;
+        while (count != 0u) out[offset++] = reversed[--count];
+        out[offset] = '\0';
+        return QUANTAPDF_OK;
+    }
+    return QUANTAPDF_ERROR_FORMAT;
+}
+
+static quantapdf_status source_box(const quantapdf_graph_model *model,
+    quantapdf_local_id id, char out[96])
+{
+    const quantapdf_graph_node *node = quantapdf_graph_node_at(model, id);
+    size_t used = 0u;
+    if (node == NULL) return QUANTAPDF_ERROR_BACKEND;
+    if (node->kind != QUANTAPDF_GRAPH_ARRAY || node->edge_count != 4u)
+        return QUANTAPDF_ERROR_FORMAT;
+    for (size_t i = 0u; i < 4u; ++i) {
+        char token[21] = {0};
+        size_t length;
+        quantapdf_status status = source_number(model,
+            model->edges[node->edge_offset + i].target, token);
+        if (status != QUANTAPDF_OK) return status;
+        length = strlen(token);
+        if (used + (i != 0u ? 1u : 0u) + length >= 96u)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        if (i != 0u) out[used++] = ' ';
+        memcpy(out + used, token, length);
+        used += length;
+    }
+    out[used] = '\0';
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status query_page_geometry(const quantapdf_graph *graph,
     size_t page_index, size_t max_parent_steps,
-    quantapdf_graph_page_geometry *out_geometry)
+    quantapdf_graph_page_geometry *out_geometry,
+    quantapdf_graph_page_source_numbers *out_numbers)
 {
     const quantapdf_graph_model *model;
     const quantapdf_graph_edge *root_edge, *entry;
     quantapdf_graph_page_geometry result = {0};
-    quantapdf_local_id root, current;
+    quantapdf_local_id root, current, media_id = 0u, crop_id = 0u, unit_id = 0u;
     size_t limit;
     int have_media = 0, have_crop = 0, have_rotation = 0;
     quantapdf_status status;
     if (out_geometry != NULL) memset(out_geometry, 0, sizeof(*out_geometry));
+    if (out_numbers != NULL) memset(out_numbers, 0, sizeof(*out_numbers));
     if (out_geometry == NULL || graph == NULL || max_parent_steps == 0)
         return QUANTAPDF_ERROR_ARGUMENT;
     model = quantapdf_graph_view(graph);
@@ -153,6 +213,7 @@ quantapdf_status quantapdf_graph_query_page_geometry(const quantapdf_graph *grap
                 if (status != QUANTAPDF_OK) return status;
                 if (!(result.user_unit > 0.0) || !isfinite(result.user_unit))
                     return QUANTAPDF_ERROR_FORMAT;
+                unit_id = entry->target;
             }
         }
         if (!have_media) {
@@ -160,6 +221,7 @@ quantapdf_status quantapdf_graph_query_page_geometry(const quantapdf_graph *grap
             if (entry != NULL) {
                 status = box_value(model, entry->target, result.media_box);
                 if (status != QUANTAPDF_OK) return status;
+                media_id = entry->target;
                 have_media = 1;
             }
         }
@@ -168,6 +230,7 @@ quantapdf_status quantapdf_graph_query_page_geometry(const quantapdf_graph *grap
             if (entry != NULL) {
                 status = box_value(model, entry->target, result.crop_box);
                 if (status != QUANTAPDF_OK) return status;
+                crop_id = entry->target;
                 have_crop = 1;
             }
         }
@@ -185,6 +248,22 @@ quantapdf_status quantapdf_graph_query_page_geometry(const quantapdf_graph *grap
                 !have_media) return QUANTAPDF_ERROR_FORMAT;
             if (!have_crop)
                 memcpy(result.crop_box, result.media_box, sizeof(result.media_box));
+            if (out_numbers != NULL) {
+                quantapdf_graph_page_source_numbers numbers = {{0}, {0}, {0}, 0};
+                status = source_box(model, media_id, numbers.media_box);
+                if (status == QUANTAPDF_OK)
+                    status = source_box(model, have_crop ? crop_id : media_id,
+                        numbers.crop_box);
+                if (status != QUANTAPDF_OK) return status;
+                if (unit_id == 0u) {
+                    numbers.user_unit[0] = '1';
+                } else {
+                    status = source_number(model, unit_id, numbers.user_unit);
+                    if (status != QUANTAPDF_OK) return status;
+                }
+                numbers.rotation = result.rotation;
+                *out_numbers = numbers;
+            }
             *out_geometry = result;
             return QUANTAPDF_OK;
         }
@@ -204,6 +283,24 @@ quantapdf_status quantapdf_graph_query_page_geometry(const quantapdf_graph *grap
     }
     return limit == model->node_count ?
         QUANTAPDF_ERROR_FORMAT : QUANTAPDF_ERROR_UNSUPPORTED;
+}
+
+quantapdf_status quantapdf_graph_query_page_geometry(const quantapdf_graph *graph,
+    size_t page_index, size_t max_parent_steps,
+    quantapdf_graph_page_geometry *out_geometry)
+{
+    return query_page_geometry(graph, page_index, max_parent_steps,
+        out_geometry, NULL);
+}
+
+quantapdf_status quantapdf_graph_query_page_source_numbers(
+    const quantapdf_graph *graph, size_t page_index, size_t max_parent_steps,
+    quantapdf_graph_page_source_numbers *out_numbers)
+{
+    quantapdf_graph_page_geometry geometry = {0};
+    if (out_numbers == NULL) return QUANTAPDF_ERROR_ARGUMENT;
+    return query_page_geometry(graph, page_index, max_parent_steps,
+        &geometry, out_numbers);
 }
 
 quantapdf_status quantapdf_graph_canonical_page_dimensions(

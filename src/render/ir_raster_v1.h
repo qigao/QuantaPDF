@@ -2,6 +2,7 @@
 #define QUANTAPDF_IR_RASTER_V1_H
 
 #include "render/ir_raster.h"
+#include "render/native_device_plan.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -53,6 +54,19 @@ quantapdf_status quantapdf_ir_raster_render_v1_clipped(
 quantapdf_status quantapdf_ir_raster_render_v1_multi_clipped(
     const quantapdf_ir *ir, size_t page_index,
     const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_composer_clip_state *const *clips, size_t clip_count,
+    quantapdf_ir_raster_image *out_image);
+
+/* Explicit private FIT device-grid consumer. The immutable plan is appended
+ * AFTER the semantic operation transform, identically for paint and frozen
+ * Clip paths, before device-space curve flattening. Zero clips is valid.
+ * Fractional semantic page dimensions remain unchanged. A missing/mismatched
+ * plan fails closed; the legacy entry points retain integer-page admission.
+ * Stroke admission checks the combined device transform as well. */
+quantapdf_status quantapdf_ir_raster_render_v1_planned(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,
     const quantapdf_composer_clip_state *const *clips, size_t clip_count,
     quantapdf_ir_raster_image *out_image);
 

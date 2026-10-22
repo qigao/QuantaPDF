@@ -192,7 +192,7 @@ static quantapdf_status qp_flatten_path(
 
 static quantapdf_status qp_admit_draw(
     const quantapdf_composer_operation *op, qp_flatten *flat,
-    qp_raster_draw *out)
+    const double *device, qp_raster_draw *out)
 {
     const quantapdf_composer_path_operation *path = &op->value.path;
     const quantapdf_composer_path_options *opt = &path->options;
@@ -249,6 +249,30 @@ static quantapdf_status qp_admit_draw(
             if (!isfinite(det) || det == 0.0)
                 return QUANTAPDF_ERROR_UNSUPPORTED;
         }
+    }
+    if (device != NULL) {
+        /* Row-vector affine composition: authored transform, THEN device.
+         * Clips use this exact same path; no rounded float matrix is written
+         * back into the borrowed IR. Flattening tolerance stays in pixels. */
+        const double a = flat->a, b = flat->b, c = flat->c;
+        const double d = flat->d, e = flat->e, f = flat->f;
+        double det;
+        flat->a = a * device[0] + b * device[2];
+        flat->b = a * device[1] + b * device[3];
+        flat->c = c * device[0] + d * device[2];
+        flat->d = c * device[1] + d * device[3];
+        flat->e = e * device[0] + f * device[2] + device[4];
+        flat->f = e * device[1] + f * device[3] + device[5];
+        if (!qp_valid_coordinate(flat->a) ||
+            !qp_valid_coordinate(flat->b) ||
+            !qp_valid_coordinate(flat->c) ||
+            !qp_valid_coordinate(flat->d) ||
+            !qp_valid_coordinate(flat->e) ||
+            !qp_valid_coordinate(flat->f))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        det = flat->a * flat->d - flat->b * flat->c;
+        if (!isfinite(det) || det == 0.0)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
     }
     if (stroke) {
         /* One-pixel distance-based stroke is only correct under an isometry.
@@ -428,6 +452,7 @@ static int qp_guard_clipped_stroke_geometry(
 static quantapdf_status qp_render_v1_impl(
     const quantapdf_ir *ir, size_t page_index,
     const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,
     const quantapdf_composer_clip_state *const *clips, size_t clip_count,
     quantapdf_ir_raster_image *out_image)
 {
@@ -462,13 +487,22 @@ static quantapdf_status qp_render_v1_impl(
         (double)page->width_points > (double)limits->max_pixels ||
         (double)page->height_points > (double)limits->max_pixels)
         return QUANTAPDF_ERROR_UNSUPPORTED;
-    width = (size_t)page->width_points;
-    height = (size_t)page->height_points;
-    if (width == 0u || height == 0u ||
-        (double)width != (double)page->width_points ||
-        (double)height != (double)page->height_points ||
-        width > limits->max_pixels / height ||
-        page->suppress_background < 0 || page->suppress_background > 1 ||
+    if (plan != NULL) {
+        if (!quantapdf_native_device_plan_matches_page(plan,
+                page->width_points, page->height_points, limits->max_pixels))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        width = plan->width;
+        height = plan->height;
+    } else {
+        width = (size_t)page->width_points;
+        height = (size_t)page->height_points;
+        if (width == 0u || height == 0u ||
+            (double)width != (double)page->width_points ||
+            (double)height != (double)page->height_points ||
+            width > limits->max_pixels / height)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    if (page->suppress_background < 0 || page->suppress_background > 1 ||
         (!page->suppress_background && (page->background_argb >> 24u) != 255u) ||
         !qp_no_resources(ir) ||
         (clip_count > 0u && (ir->operation_count != 1u ||
@@ -501,7 +535,8 @@ static quantapdf_status qp_render_v1_impl(
             status = QUANTAPDF_ERROR_UNSUPPORTED;
             goto cleanup;
         }
-        status = qp_admit_draw(op, &flatten, &draws[draw_count]);
+        status = qp_admit_draw(op, &flatten,
+            plan == NULL ? NULL : plan->from_composer, &draws[draw_count]);
         if (status != QUANTAPDF_OK)
             goto cleanup;
         if (draws[draw_count].edge_count >
@@ -535,7 +570,8 @@ static quantapdf_status qp_render_v1_impl(
         options->fill_argb = UINT32_C(0xff000000);
         options->fill_rule = clip->fill_rule;
         options->transform = clip->transform;
-        status = qp_admit_draw(&clip_op, &flatten, &clip_draws[ci]);
+        status = qp_admit_draw(&clip_op, &flatten,
+            plan == NULL ? NULL : plan->from_composer, &clip_draws[ci]);
         if (status != QUANTAPDF_OK)
             goto cleanup;
         if (clip_draws[ci].edge_count >
@@ -615,7 +651,7 @@ quantapdf_status quantapdf_ir_raster_render_v1(
     const quantapdf_ir_raster_v1_limits *limits,
     quantapdf_ir_raster_image *out_image)
 {
-    return qp_render_v1_impl(ir, page_index, limits, NULL, 0u, out_image);
+    return qp_render_v1_impl(ir, page_index, limits, NULL, NULL, 0u, out_image);
 }
 
 quantapdf_status quantapdf_ir_raster_render_v1_clipped(
@@ -631,7 +667,7 @@ quantapdf_status quantapdf_ir_raster_render_v1_clipped(
     }
     {
         const quantapdf_composer_clip_state *one[1] = {clip};
-        return qp_render_v1_impl(ir, page_index, limits, one, 1u, out_image);
+        return qp_render_v1_impl(ir, page_index, limits, NULL, one, 1u, out_image);
     }
 }
 
@@ -647,5 +683,21 @@ quantapdf_status quantapdf_ir_raster_render_v1_multi_clipped(
         return QUANTAPDF_ERROR_ARGUMENT;
     }
     return qp_render_v1_impl(
-        ir, page_index, limits, clips, clip_count, out_image);
+        ir, page_index, limits, NULL, clips, clip_count, out_image);
+}
+
+quantapdf_status quantapdf_ir_raster_render_v1_planned(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,
+    const quantapdf_composer_clip_state *const *clips, size_t clip_count,
+    quantapdf_ir_raster_image *out_image)
+{
+    if (plan == NULL) {
+        if (out_image != NULL)
+            memset(out_image, 0, sizeof(*out_image));
+        return QUANTAPDF_ERROR_ARGUMENT;
+    }
+    return qp_render_v1_impl(
+        ir, page_index, limits, plan, clips, clip_count, out_image);
 }
