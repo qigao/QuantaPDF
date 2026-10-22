@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -385,8 +386,10 @@ static quantapdf_status qp_admit_draw(
         if (c[4].point1.x != p0.x || c[4].point1.y != p0.y ||
             c[5].point1.x != c[1].point1.x ||
             c[5].point1.y != c[1].point1.y ||
-            c[6].point1.x != p0.x || c[6].point1.y != p0.y)
+            c[6].point1.x != p0.x || c[6].point1.y != p0.y) {
+            fprintf(stderr, "rect-stroke repeated-close coordinate mismatch\\n");
             return QUANTAPDF_ERROR_UNSUPPORTED;
+        }
         for (size_t i = 0u; i < 4u; ++i)
             commands[i] = c[i];
         commands[4].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
@@ -404,8 +407,11 @@ static quantapdf_status qp_admit_draw(
         status = qp_expand_rect_stroke_ring(flat, first,
             fabs(flat->a) * (double)opt->stroke_width * 0.5,
             fabs(flat->d) * (double)opt->stroke_width * 0.5);
-        if (status != QUANTAPDF_OK)
+        if (status != QUANTAPDF_OK) {
+            fprintf(stderr, "rect-stroke ring expansion rejected: %d edges=%zu\\n",
+                (int)status, flat->count - first);
             return status;
+        }
     }
     if (flat->count == first ||
         (stroke && !rect_stroke && flat->count - first != 3u) ||
