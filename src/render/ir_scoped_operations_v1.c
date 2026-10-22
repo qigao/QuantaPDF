@@ -1,5 +1,6 @@
 #include "render/ir_scoped_operations_v1.h"
 #include "render/ir_clip_dag_v3.h"
+#include "render/ir_stroke_polyline_v1.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -74,7 +75,7 @@ static void over(unsigned char *dst, const unsigned char *src)
 static quantapdf_status scoped_operations_v1_impl(
     const quantapdf_ir *ir, size_t page_index,
     const quantapdf_ir_raster_v1_limits *limits,
-    const quantapdf_native_device_plan *plan,
+    const quantapdf_native_device_plan *plan, int polyline_strokes,
     quantapdf_ir_raster_image *out_image)
 {
     const quantapdf_composer_page_state *page;
@@ -224,6 +225,14 @@ static quantapdf_status scoped_operations_v1_impl(
      * Each per-layer share is still a partition of the original global cap. */
     for (i = 0u; i < ir->operation_count; ++i) {
         uint64_t weight = scoped_operation_weight(&ir->operations[i]);
+        if (polyline_strokes && ir->operations[i].value.path.options.stroke==1 &&
+            ir->operations[i].value.path.options.fill==0) {
+            size_t authored=ir->operations[i].value.path.command_count;
+            /* Each segment rectangle has four edges, each join at most four.
+             * This conservative estimate only partitions the shared budget;
+             * the fill sampler charges every actual expanded edge. */
+            weight=scoped_component_weight(authored>8192u?65536u:authored*8u);
+        }
         for (k = 0u; k < active_counts[i]; ++k) {
             const quantapdf_composer_clip_state *clip = active_clips[i][k];
             if (clip == NULL || clip->commands == NULL ||
@@ -261,6 +270,7 @@ static quantapdf_status scoped_operations_v1_impl(
         quantapdf_composer_page_state transparent_page = *page;
         quantapdf_ir local = {0};
         quantapdf_ir_raster_image layer = {0};
+        quantapdf_composer_path_operation outline = {0};
         operation.graphics_state_id = 0u;
         operation.value.path.options.graphics_state_id = 0u;
         transparent_page.suppress_background = 1;
@@ -270,6 +280,13 @@ static quantapdf_status scoped_operations_v1_impl(
         local.operation_count = 1u;
         per_operation.max_sample_tests = operation_sample_budgets[i];
         per_operation.max_edges = operation_edge_budgets[i];
+        if (polyline_strokes && operation.value.path.options.stroke==1 &&
+            operation.value.path.options.fill==0) {
+            status=quantapdf_ir_stroke_polyline_outline_v1(&operation.value.path,
+                per_operation.max_edges,&outline);
+            if(status!=QUANTAPDF_OK) goto failure;
+            operation.value.path=outline;
+        }
         if (plan != NULL) {
             status = quantapdf_ir_raster_render_v1_planned(
                 &local, 0u, &per_operation, plan, active_clips[i],
@@ -282,6 +299,7 @@ static quantapdf_status scoped_operations_v1_impl(
                 &local, 0u, &per_operation, active_clips[i],
                 active_counts[i], &layer);
         }
+        quantapdf_ir_stroke_polyline_dispose_v1(&outline);
         if (status != QUANTAPDF_OK) {
             goto failure;
         }
@@ -314,7 +332,7 @@ quantapdf_status quantapdf_ir_raster_scoped_operations_v1(
     const quantapdf_ir_raster_v1_limits *limits,
     quantapdf_ir_raster_image *out_image)
 {
-    return scoped_operations_v1_impl(ir, page_index, limits, NULL, out_image);
+    return scoped_operations_v1_impl(ir, page_index, limits, NULL, 0, out_image);
 }
 
 quantapdf_status quantapdf_ir_raster_scoped_operations_v1_planned(
@@ -328,5 +346,23 @@ quantapdf_status quantapdf_ir_raster_scoped_operations_v1_planned(
             memset(out_image, 0, sizeof(*out_image));
         return QUANTAPDF_ERROR_ARGUMENT;
     }
-    return scoped_operations_v1_impl(ir, page_index, limits, plan, out_image);
+    return scoped_operations_v1_impl(ir, page_index, limits, plan, 0, out_image);
+}
+
+quantapdf_status quantapdf_ir_raster_scoped_operations_v2(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,quantapdf_ir_raster_image *out_image)
+{
+    return scoped_operations_v1_impl(ir,page_index,limits,NULL,1,out_image);
+}
+quantapdf_status quantapdf_ir_raster_scoped_operations_v2_planned(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,const quantapdf_native_device_plan *plan,
+    quantapdf_ir_raster_image *out_image)
+{
+    if(!plan) {
+        if(out_image) memset(out_image,0,sizeof(*out_image));
+        return QUANTAPDF_ERROR_ARGUMENT;
+    }
+    return scoped_operations_v1_impl(ir,page_index,limits,plan,1,out_image);
 }

@@ -1,0 +1,187 @@
+#include "render/ir_stroke_polyline_v1.h"
+
+#include <math.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define QP_STROKE_POINTS 1024u
+#define QP_STROKE_COMMANDS (QP_STROKE_POINTS * 10u)
+#define QP_STROKE_COORD 1000000.0
+
+typedef struct stroke_point { double x, y; } stroke_point;
+typedef struct stroke_builder {
+    quantapdf_composer_path_command *commands;
+    size_t count, edges, max_edges;
+    const quantapdf_composer_path_options *options;
+} stroke_builder;
+
+static int valid_point(stroke_point p)
+{
+    return isfinite(p.x) && isfinite(p.y) &&
+        fabs(p.x) <= QP_STROKE_COORD && fabs(p.y) <= QP_STROKE_COORD;
+}
+static int same_point(stroke_point a, stroke_point b)
+{ return a.x == b.x && a.y == b.y; }
+
+/* Equal orientation makes nonzero winding a union of stroke pieces, even
+ * at self intersections. A reflected CTM reverses every piece together. */
+static quantapdf_status polygon(stroke_builder *b, stroke_point *p, size_t n)
+{
+    double area = 0.0;
+    if (n > b->max_edges - b->edges ||
+        n + 1u > QP_STROKE_COMMANDS - b->count)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    for (size_t i = 0; i < n; ++i) {
+        if (!valid_point(p[i])) return QUANTAPDF_ERROR_UNSUPPORTED;
+        /* The Composer path boundary stores floats. Check that the emitted
+         * polygon still has an area at that precision, not just in double. */
+        p[i].x = (float)p[i].x; p[i].y = (float)p[i].y;
+    }
+    for (size_t i = 1; i + 1u < n; ++i)
+        area += (p[i].x-p[0].x)*(p[i+1u].y-p[0].y) -
+                (p[i].y-p[0].y)*(p[i+1u].x-p[0].x);
+    if (!isfinite(area) || area == 0.0) return QUANTAPDF_ERROR_UNSUPPORTED;
+    for (size_t i = 0; i < n; ++i) {
+        size_t j = area > 0.0 ? i : n-1u-i;
+        quantapdf_composer_path_command *c = &b->commands[b->count++];
+        c->kind = i == 0 ? QUANTAPDF_COMPOSER_PATH_MOVE_TO : QUANTAPDF_COMPOSER_PATH_LINE_TO;
+        c->point1 = (quantapdf_point){(float)p[j].x,(float)p[j].y};
+    }
+    b->commands[b->count++].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
+    b->edges += n;
+    return QUANTAPDF_OK;
+}
+static int direction(stroke_point a, stroke_point b, stroke_point *u)
+{
+    double dx=b.x-a.x, dy=b.y-a.y, length=hypot(dx,dy);
+    if (!isfinite(length) || length == 0.0) return 0;
+    *u=(stroke_point){dx/length,dy/length}; return 1;
+}
+static quantapdf_status segment(stroke_builder *b,stroke_point a,
+    stroke_point z,int start_cap,int end_cap)
+{
+    stroke_point u,p[4];
+    double hw=(double)b->options->stroke_width/2.0;
+    if (!direction(a,z,&u)) return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (b->options->line_cap == QUANTAPDF_COMPOSER_LINE_CAP_SQUARE) {
+        if (start_cap) { a.x-=u.x*hw; a.y-=u.y*hw; }
+        if (end_cap) { z.x+=u.x*hw; z.y+=u.y*hw; }
+    }
+    p[0]=(stroke_point){a.x-u.y*hw,a.y+u.x*hw};
+    p[1]=(stroke_point){z.x-u.y*hw,z.y+u.x*hw};
+    p[2]=(stroke_point){z.x+u.y*hw,z.y-u.x*hw};
+    p[3]=(stroke_point){a.x+u.y*hw,a.y-u.x*hw};
+    return polygon(b,p,4u);
+}
+static quantapdf_status join(stroke_builder *b,stroke_point a,
+    stroke_point at,stroke_point z)
+{
+    stroke_point u,v,p[4];
+    double cross,dot,side,hw=(double)b->options->stroke_width/2.0;
+    if (!direction(a,at,&u) || !direction(at,z,&v))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    cross=u.x*v.y-u.y*v.x; dot=u.x*v.x+u.y*v.y;
+    if (cross == 0.0) {
+        /* Collinear continuation needs no wedge. Exact reversal/cusps retain
+         * an explicit refusal until their degenerate semantics are qualified. */
+        return dot > 0.0 ? QUANTAPDF_OK : QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    side=cross > 0.0 ? -1.0 : 1.0;
+    p[0]=at;
+    p[1]=(stroke_point){at.x-u.y*hw*side,at.y+u.x*hw*side};
+    p[2]=(stroke_point){at.x-v.y*hw*side,at.y+v.x*hw*side};
+    if (b->options->line_join == QUANTAPDF_COMPOSER_LINE_JOIN_MITER) {
+        double t=((p[2].x-p[1].x)*v.y-(p[2].y-p[1].y)*v.x)/cross;
+        stroke_point m={p[1].x+t*u.x,p[1].y+t*u.y};
+        double ratio=hypot(m.x-at.x,m.y-at.y)/hw;
+        if (!isfinite(ratio)) return QUANTAPDF_ERROR_UNSUPPORTED;
+        if (ratio <= b->options->miter_limit) {
+            p[3]=p[2]; p[2]=m; return polygon(b,p,4u);
+        }
+    }
+    return polygon(b,p,3u);
+}
+static quantapdf_status subpath(stroke_builder *b,stroke_point *p,size_t n,int closed)
+{
+    quantapdf_status status;
+    if (closed && n > 1u && same_point(p[0],p[n-1u])) --n;
+    if (n < (closed ? 3u : 2u)) return QUANTAPDF_ERROR_UNSUPPORTED;
+    size_t segments=closed ? n : n-1u;
+    for (size_t i=0;i<segments;++i) {
+        status=segment(b,p[i],p[(i+1u)%n],!closed && i==0,!closed && i+1u==segments);
+        if (status != QUANTAPDF_OK) return status;
+    }
+    for (size_t i=closed ? 0u : 1u;i<(closed ? n : n-1u);++i) {
+        status=join(b,p[(i+n-1u)%n],p[i],p[(i+1u)%n]);
+        if (status != QUANTAPDF_OK) return status;
+    }
+    return QUANTAPDF_OK;
+}
+
+void quantapdf_ir_stroke_polyline_dispose_v1(quantapdf_composer_path_operation *fill)
+{
+    if (!fill) return;
+    free(fill->commands); memset(fill,0,sizeof(*fill));
+}
+quantapdf_status quantapdf_ir_stroke_polyline_outline_v1(
+    const quantapdf_composer_path_operation *source,size_t max_edges,
+    quantapdf_composer_path_operation *out_fill)
+{
+    stroke_builder b={0};
+    stroke_point points[QP_STROKE_POINTS];
+    size_t n=0;
+    quantapdf_status status=QUANTAPDF_ERROR_UNSUPPORTED;
+    const quantapdf_composer_path_options *o;
+    if (!out_fill) return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out_fill,0,sizeof(*out_fill));
+    if (!source || max_edges==0u) return QUANTAPDF_ERROR_ARGUMENT;
+    o=&source->options;
+    if (!source->commands || source->command_count<2u ||
+        source->command_count>QP_STROKE_POINTS ||
+        o->struct_size<QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE ||
+        o->stroke!=1 || o->fill!=0 || (o->stroke_argb>>24)!=255u ||
+        !isfinite(o->stroke_width) || o->stroke_width<=0 || o->stroke_width>2048 ||
+        !isfinite(o->miter_limit) || o->miter_limit<1 || o->miter_limit>1000 ||
+        (o->line_cap!=QUANTAPDF_COMPOSER_LINE_CAP_BUTT &&
+         o->line_cap!=QUANTAPDF_COMPOSER_LINE_CAP_SQUARE) ||
+        (o->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_MITER &&
+         o->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL) ||
+        source->dash_count!=0 || source->dash_phase!=0 ||
+        (o->struct_size>=QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE && o->graphics_state_id!=0) ||
+        (o->struct_size>=QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_MIN_SIZE &&
+         (o->fill_paint_id!=0 || o->stroke_paint_id!=0)))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    b.commands=calloc(QP_STROKE_COMMANDS,sizeof(*b.commands));
+    if (!b.commands) return QUANTAPDF_ERROR_NOMEM;
+    b.max_edges=max_edges; b.options=o;
+    for (size_t i=0;i<source->command_count;++i) {
+        const quantapdf_composer_path_command *c=&source->commands[i];
+        stroke_point p={0,0};
+        if(c->kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO || c->kind==QUANTAPDF_COMPOSER_PATH_LINE_TO)
+            p=(stroke_point){(double)c->point1.x,(double)c->point1.y};
+        if (c->kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO) {
+            if (n) { status=subpath(&b,points,n,0); if(status!=QUANTAPDF_OK) goto fail; }
+            if (!valid_point(p)) goto fail;
+            n=1u; points[0]=p;
+        } else if (c->kind==QUANTAPDF_COMPOSER_PATH_LINE_TO) {
+            if (!n || !valid_point(p)) goto fail;
+            if (!same_point(points[n-1u],p)) points[n++]=p;
+        } else if (c->kind==QUANTAPDF_COMPOSER_PATH_CLOSE) {
+            status=subpath(&b,points,n,1); if(status!=QUANTAPDF_OK) goto fail;
+            n=0;
+        } else goto fail;
+    }
+    if(n) { status=subpath(&b,points,n,0); if(status!=QUANTAPDF_OK) goto fail; }
+    if (b.count==0) goto fail;
+    out_fill->commands=b.commands; out_fill->command_count=b.count;
+    out_fill->options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+    out_fill->options.fill=1; out_fill->options.fill_argb=o->stroke_argb;
+    out_fill->options.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
+    out_fill->options.transform=(quantapdf_affine_transform){1,0,0,1,0,0};
+    if(o->struct_size>=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_MIN_SIZE)
+        out_fill->options.transform=o->transform;
+    return QUANTAPDF_OK;
+fail:
+    free(b.commands); return status==QUANTAPDF_OK ? QUANTAPDF_ERROR_UNSUPPORTED : status;
+}
