@@ -128,6 +128,14 @@ jobs:
             --executable build/linux-gcc-release/tests/quantapdf_test_native_source_qq_oracle \
             --report "$RUNNER_TEMP/qp269-quarantined-native-negative.json" \
             --require-native-denial
+          # Two real, independent public PDFium bitmap hypotheses:
+          # fractional page fitted into the ceil integer viewport vs
+          # exact DPI physical matrix to the SAME viewport. Source hash is
+          # checked twice, 72/96 DPI cap enforced, 144 DPI not allocated.
+          python3 tools/qualification/quarantined_jspdf_pixel_mapping.py \
+            --source "$original" \
+            --executable build/linux-gcc-release/tests/quantapdf_test_graph_page_geometry \
+            --report "$RUNNER_TEMP/qp269-quarantined-pdfium-viewport.json"
 
       - name: Upload quarantined original geometry (Linux, opt-in)
         if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
@@ -144,6 +152,15 @@ jobs:
         with:
           name: quarantined-native-negative-linux
           path: ${{ runner.temp }}/qp269-quarantined-native-negative.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload original PDFium viewport hypotheses (Linux, opt-in)
+        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-pdfium-viewport-linux
+          path: ${{ runner.temp }}/qp269-quarantined-pdfium-viewport.json
           if-no-files-found: error
           retention-days: 7
 
