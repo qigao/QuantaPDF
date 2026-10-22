@@ -421,6 +421,10 @@ jobs:
             --executable "build/macos-clang-release/tests/quantapdf_test_native_source_qq_oracle" \
             --report "$RUNNER_TEMP/qp269-quarantined-native-negative.json" \
             --require-native-denial
+          python3 tools/qualification/quarantined_jspdf_pixel_mapping.py \
+            --source "$original" \
+            --executable "build/macos-clang-release/tests/quantapdf_test_graph_page_geometry" \
+            --report "$RUNNER_TEMP/qp269-quarantined-pdfium-viewport.json"
 
       - name: Upload quarantined original geometry (macOS, opt-in)
         if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
@@ -437,6 +441,15 @@ jobs:
         with:
           name: quarantined-native-negative-macos
           path: ${{ runner.temp }}/qp269-quarantined-native-negative.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload original PDFium viewport hypotheses (macOS, opt-in)
+        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-pdfium-viewport-macos
+          path: ${{ runner.temp }}/qp269-quarantined-pdfium-viewport.json
           if-no-files-found: error
           retention-days: 7
 
@@ -662,6 +675,9 @@ jobs:
             if (-not (Test-Path $nativeExe)) { throw 'Built native source test executable missing' }
             python tools/qualification/quarantined_jspdf_native_negative.py --source $original --executable $nativeExe --report $nativeReport --require-native-denial
             if ($LASTEXITCODE -ne 0) { throw 'Quarantined original native negative observation failed' }
+            $viewportReport = Join-Path $env:RUNNER_TEMP 'qp269-quarantined-pdfium-viewport.json'
+            python tools/qualification/quarantined_jspdf_pixel_mapping.py --source $original --executable $exe --report $viewportReport
+            if ($LASTEXITCODE -ne 0) { throw 'Original PDFium pixel mapping hypothesis qualification failed' }
           } finally {
             Remove-Item -LiteralPath $original -Force -ErrorAction SilentlyContinue
           }
@@ -681,6 +697,15 @@ jobs:
         with:
           name: quarantined-native-negative-windows
           path: ${{ runner.temp }}/qp269-quarantined-native-negative.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload original PDFium viewport hypotheses (Windows, opt-in)
+        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-pdfium-viewport-windows
+          path: ${{ runner.temp }}/qp269-quarantined-pdfium-viewport.json
           if-no-files-found: error
           retention-days: 7
 
