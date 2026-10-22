@@ -190,6 +190,50 @@ static quantapdf_status qp_flatten_path(
     return QUANTAPDF_OK;
 }
 
+static quantapdf_status qp_expand_rect_stroke_ring(
+    qp_flatten *flat, size_t first, double half_x, double half_y)
+{
+    double min_x, max_x, min_y, max_y;
+    qp_point_d p[4];
+    if (flat->count - first != 4u || !isfinite(half_x) ||
+        !isfinite(half_y) || half_x <= 0.0 || half_y <= 0.0)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    min_x = max_x = flat->edges[first].from.x;
+    min_y = max_y = flat->edges[first].from.y;
+    for (size_t i = 0u; i < 4u; ++i) {
+        const qp_edge *e = &flat->edges[first + i];
+        if (!((e->from.x == e->to.x) != (e->from.y == e->to.y)))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        if (e->from.x < min_x) min_x = e->from.x;
+        if (e->from.x > max_x) max_x = e->from.x;
+        if (e->from.y < min_y) min_y = e->from.y;
+        if (e->from.y > max_y) max_y = e->from.y;
+        if (e->to.x < min_x) min_x = e->to.x;
+        if (e->to.x > max_x) max_x = e->to.x;
+        if (e->to.y < min_y) min_y = e->to.y;
+        if (e->to.y > max_y) max_y = e->to.y;
+    }
+    if (!(max_x > min_x && max_y > min_y) ||
+        max_x - min_x <= 2.0 * half_x ||
+        max_y - min_y <= 2.0 * half_y ||
+        flat->capacity - flat->count < 4u)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    p[0] = (qp_point_d){min_x - half_x, min_y - half_y};
+    p[1] = (qp_point_d){max_x + half_x, min_y - half_y};
+    p[2] = (qp_point_d){max_x + half_x, max_y + half_y};
+    p[3] = (qp_point_d){min_x - half_x, max_y + half_y};
+    for (size_t i = 0u; i < 4u; ++i) {
+        if (!qp_valid_coordinate(p[i].x) || !qp_valid_coordinate(p[i].y))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    for (size_t i = 0u; i < 4u; ++i) {
+        quantapdf_status st = qp_add_edge(flat, p[i], p[(i + 1u) % 4u]);
+        if (st != QUANTAPDF_OK)
+            return st;
+    }
+    return QUANTAPDF_OK;
+}
+
 static quantapdf_status qp_admit_draw(
     const quantapdf_composer_operation *op, qp_flatten *flat,
     const double *device, qp_raster_draw *out)
@@ -199,6 +243,19 @@ static quantapdf_status qp_admit_draw(
     quantapdf_status status;
     size_t first = flat->count;
     const int stroke = opt->stroke == 1 && opt->fill == 0;
+    const int rect_stroke = stroke && path->command_count == 5u &&
+        path->commands != NULL &&
+        path->commands[0].kind == QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
+        path->commands[1].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+        path->commands[2].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+        path->commands[3].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+        path->commands[4].kind == QUANTAPDF_COMPOSER_PATH_CLOSE;
+    const int triangle_stroke = stroke && path->command_count == 4u &&
+        path->commands != NULL &&
+        path->commands[0].kind == QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
+        path->commands[1].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+        path->commands[2].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+        path->commands[3].kind == QUANTAPDF_COMPOSER_PATH_CLOSE;
     if (op->graphics_state_id != 0u ||
         opt->struct_size < QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE ||
         !(stroke || (opt->fill == 1 && opt->stroke == 0)) ||
@@ -207,12 +264,7 @@ static quantapdf_status qp_admit_draw(
             opt->line_cap != QUANTAPDF_COMPOSER_LINE_CAP_BUTT ||
             opt->line_join != QUANTAPDF_COMPOSER_LINE_JOIN_MITER ||
             opt->miter_limit != 10.0f ||
-            path->command_count != 4u ||
-            path->commands == NULL ||
-            path->commands[0].kind != QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
-            path->commands[1].kind != QUANTAPDF_COMPOSER_PATH_LINE_TO ||
-            path->commands[2].kind != QUANTAPDF_COMPOSER_PATH_LINE_TO ||
-            path->commands[3].kind != QUANTAPDF_COMPOSER_PATH_CLOSE)) ||
+            !(rect_stroke || triangle_stroke))) ||
         (opt->fill_rule != QUANTAPDF_COMPOSER_FILL_NONZERO &&
          opt->fill_rule != QUANTAPDF_COMPOSER_FILL_EVEN_ODD) ||
         (opt->struct_size >= QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE &&
@@ -274,9 +326,8 @@ static quantapdf_status qp_admit_draw(
         if (!isfinite(det) || det == 0.0)
             return QUANTAPDF_ERROR_UNSUPPORTED;
     }
-    if (stroke) {
-        /* One-pixel distance-based stroke is only correct under an isometry.
-         * Reject scaling/shearing instead of silently changing stroke width. */
+    if (stroke && !rect_stroke) {
+        /* The original triangle sampler remains restricted to an isometry. */
         const double x2 = flat->a * flat->a + flat->b * flat->b;
         const double y2 = flat->c * flat->c + flat->d * flat->d;
         const double cross = flat->a * flat->c + flat->b * flat->d;
@@ -284,16 +335,31 @@ static quantapdf_status qp_admit_draw(
             fabs(y2 - 1.0) > 0.000001 || fabs(cross) > 0.000001)
             return QUANTAPDF_ERROR_UNSUPPORTED;
     }
+    if (rect_stroke &&
+        (fabs(flat->b) > 1e-12 || fabs(flat->c) > 1e-12 ||
+         flat->a == 0.0 || flat->d == 0.0))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
     status = qp_flatten_path(flat, path);
     if (status != QUANTAPDF_OK)
         return status;
-    if (flat->count == first || (stroke && flat->count - first != 3u))
+    if (rect_stroke) {
+        /* A rectangular miter stroke is an even-odd ring. Width is transformed
+         * by the normal axis scale, so FIT's unequal X/Y scales stay explicit. */
+        status = qp_expand_rect_stroke_ring(flat, first,
+            fabs(flat->a) * (double)opt->stroke_width * 0.5,
+            fabs(flat->d) * (double)opt->stroke_width * 0.5);
+        if (status != QUANTAPDF_OK)
+            return status;
+    }
+    if (flat->count == first ||
+        (stroke && !rect_stroke && flat->count - first != 3u) ||
+        (rect_stroke && flat->count - first != 8u))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     out->first_edge = first;
     out->edge_count = flat->count - first;
     out->color = stroke ? opt->stroke_argb : opt->fill_argb;
-    out->rule = opt->fill_rule;
-    out->one_pixel_stroke = stroke;
+    out->rule = rect_stroke ? QUANTAPDF_COMPOSER_FILL_EVEN_ODD : opt->fill_rule;
+    out->one_pixel_stroke = stroke && !rect_stroke;
     return QUANTAPDF_OK;
 }
 
