@@ -24,6 +24,7 @@ typedef struct qp_raster_draw {
     uint32_t color;
     quantapdf_composer_fill_rule rule;
     int one_pixel_stroke;
+    int rectangular_stroke;
 } qp_raster_draw;
 
 typedef struct qp_flatten {
@@ -383,6 +384,7 @@ static quantapdf_status qp_admit_draw(
     out->color = stroke ? opt->stroke_argb : opt->fill_argb;
     out->rule = rect_stroke ? QUANTAPDF_COMPOSER_FILL_EVEN_ODD : opt->fill_rule;
     out->one_pixel_stroke = stroke && !rect_stroke;
+    out->rectangular_stroke = rect_stroke;
     return QUANTAPDF_OK;
 }
 
@@ -732,11 +734,9 @@ static quantapdf_status qp_render_v1_impl(
                         int visible = draw->one_pixel_stroke ?
                             qp_stroke_inside(flatten.edges, draw, px, py) :
                             qp_inside(flatten.edges, draw, px, py);
-                        const int stroke_before_clip_sequence =
-                            two_path_clip_sequence &&
-                            op->value.path.options.stroke == 1 &&
-                            op->value.path.options.fill == 0;
-                        if (!stroke_before_clip_sequence) {
+                        const int is_stroke = draw->one_pixel_stroke ||
+                                              draw->rectangular_stroke;
+                        if (!(two_path_clip_sequence && is_stroke)) {
                             for (ci = 0u; visible && ci < clip_count; ++ci)
                                 visible = qp_inside(
                                     flatten.edges, &clip_draws[ci], px, py);
