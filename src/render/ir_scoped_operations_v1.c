@@ -16,6 +16,33 @@ static uint64_t scoped_component_weight(size_t count)
     return value == 0u ? 1u : value;
 }
 
+static uint64_t scoped_operation_weight(
+    const quantapdf_composer_operation *op)
+{
+    const quantapdf_composer_path_operation *path = &op->value.path;
+    const quantapdf_composer_path_options *opt = &path->options;
+    const quantapdf_composer_path_command *c = path->commands;
+    if (opt->stroke == 1 && opt->fill == 0 && c != NULL &&
+        ((path->command_count == 5u &&
+          c[0].kind == QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
+          c[1].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+          c[2].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+          c[3].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+          c[4].kind == QUANTAPDF_COMPOSER_PATH_CLOSE) ||
+         (path->command_count == 7u &&
+          c[0].kind == QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
+          c[1].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+          c[2].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+          c[3].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+          c[4].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+          c[5].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+          c[6].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO))) {
+        /* Rectangular Stroke expands to the outer/inner eight-edge ring. */
+        return scoped_component_weight(8u);
+    }
+    return scoped_component_weight(path->command_count);
+}
+
 static size_t scoped_proportional_budget(
     size_t total, uint64_t weight, uint64_t total_weight)
 {
@@ -213,8 +240,7 @@ static quantapdf_status scoped_operations_v1_impl(
      * are capped, so their sum and proportional arithmetic remain bounded.
      * Each per-layer share is still a partition of the original global cap. */
     for (i = 0u; i < ir->operation_count; ++i) {
-        uint64_t weight = scoped_component_weight(
-            ir->operations[i].value.path.command_count);
+        uint64_t weight = scoped_operation_weight(&ir->operations[i]);
         for (k = 0u; k < active_counts[i]; ++k) {
             const quantapdf_composer_clip_state *clip = active_clips[i][k];
             if (clip == NULL || clip->commands == NULL ||
