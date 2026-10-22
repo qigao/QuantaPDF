@@ -145,6 +145,12 @@ if(Python3_Interpreter_FOUND)
       --self-test)
   set_tests_properties(quantapdf.quarantined_jspdf_source_sha_guard PROPERTIES
     TIMEOUT 20 LABELS "conformance;source-pdf;issue-269;quarantine;hash-guard")
+  add_test(NAME quantapdf.quarantined_jspdf_native_negative_guard
+    COMMAND "${Python3_EXECUTABLE}"
+      "${PROJECT_SOURCE_DIR}/tools/qualification/quarantined_jspdf_native_negative.py"
+      --self-test)
+  set_tests_properties(quantapdf.quarantined_jspdf_native_negative_guard PROPERTIES
+    TIMEOUT 20 LABELS "conformance;source-pdf;issue-269;quarantine;native-negative")
 endif()
 
 # #360 source-number spelling experiment on real test-generated PDF bytes.
