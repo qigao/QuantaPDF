@@ -689,8 +689,13 @@ static quantapdf_status qp_render_v1_impl(
         }
         status = qp_admit_draw(op, &flatten,
             plan == NULL ? NULL : plan->from_composer, &draws[draw_count]);
-        if (status != QUANTAPDF_OK)
+        if (status != QUANTAPDF_OK) {
+            fprintf(stderr, "native draw admission rejected: operation=%zu status=%d commands=%zu fill=%d stroke=%d rule=%d\\n",
+                i, (int)status, op->value.path.command_count,
+                op->value.path.options.fill, op->value.path.options.stroke,
+                (int)op->value.path.options.fill_rule);
             goto cleanup;
+        }
         if (draws[draw_count].edge_count >
             (limits->max_sample_tests - total_checks) /
                 (QP_TOTAL_SAMPLES * pixels_count)) {
