@@ -66,6 +66,10 @@ quantapdf_status quantapdf_qpdf_extract_links(
     int page_index,
     quantapdf_link_page **out_links);
 
+quantapdf_status quantapdf_qpdf_extract_images(
+    quantapdf_qpdf_document *document, int page_index,
+    quantapdf_image_page **out_images);
+
 quantapdf_status quantapdf_qpdf_extract_annotations(
     quantapdf_qpdf_document *document,
     int page_index,

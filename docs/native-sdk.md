@@ -85,9 +85,11 @@ projects, install language bindings or choose a global SDK location.
 
 PDFium removal is tracked in the
 [migration inventory](https://github.com/qigao/QuantaPDF/blob/master/docs/conformance/pdfium-removal.md).
-Document opening, page count/geometry and link snapshots now use the structure
-provider directly. Rendering, text and image observations still load PDFium
-when requested, so this increment does not yet remove its SDK dependency.
+Document opening, page count/geometry, links and admitted image snapshots now
+use the structure provider directly. See the
+[native image contract](https://github.com/qigao/QuantaPDF/blob/master/docs/conformance/native-images.md)
+for supported sample/mask/placement cases and explicit refusals. Rendering and
+text still load PDFium when requested, so the SDK dependency remains.
 
 ## Ownership and deterministic cleanup
 

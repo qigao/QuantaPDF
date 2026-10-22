@@ -1,6 +1,7 @@
 target_sources(quantapdf_backend PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/builtin_backend.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/qpdf_document.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/qpdf_images.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/qpdf_graph.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/qpdf_graph_write.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/qpdf_graph_replay.cpp"
