@@ -201,6 +201,7 @@ void compare(const char *name,const char *content,
         const auto *b=reference.at(x,y); const unsigned expected[]={p.r,p.g,p.b};
         for(size_t c=0;c<3;++c) {
             CHECK(std::abs(static_cast<int>(on_white(a,c))-static_cast<int>(expected[c]))<=3);
+            if(std::abs(static_cast<int>(b[c])-static_cast<int>(expected[c]))>3) std::fprintf(stderr,"probe %s (%d,%d) native=%u reference=%u expected=%u channel=%zu\n",name,p.x,p.y_pdf,on_white(a,c),b[c],expected[c],c);
             CHECK(std::abs(static_cast<int>(b[c])-static_cast<int>(expected[c]))<=3);
         }
     }
@@ -235,10 +236,39 @@ int main()
         {{40,40,255,0,0},{20,40,255,255,255},{90,40,255,255,255},{20,10,0,0,255}});
     compare("nested-evenodd-clip","q 10 10 100 100 re W n q 20 20 80 80 re 40 40 40 40 re W* n 1 0 0 RG 6 w 10 60 m 110 60 l S Q 0 0 1 RG 4 w 10 30 m 110 30 l S Q",
         {{30,60,255,0,0},{60,60,255,255,255},{60,30,0,0,255}});
+    compare("dash-butt-phase","1 0 0 RG 4 w [8 6] 3 d 20 40 m 100 40 l S",
+        {{21,40,255,0,0},{27,40,255,255,255},{33,40,255,0,0}});
+    compare("dash-square","1 0 0 RG 4 w 2 J [8 8] 0 d 20 40 m 100 40 l S",
+        {{19,40,255,0,0},{29,40,255,0,0},{32,40,255,255,255}});
+    compare("dash-odd","0 0 1 RG 4 w [8 4 4] 0 d 20 40 m 100 40 l S");
+    compare("dash-large-phase","1 0 0 RG 4 w [8 6] 14003 d 20 40 m 100 40 l S");
+    compare("dash-move-reset","1 0 0 RG 4 w [8 6] 3 d 20 40 m 47 40 l 20 70 m 100 70 l S");
+    compare("dash-cross-join","1 0 0 RG 8 w [60 20] 0 d 40 40 m 80 40 l 80 90 l S",
+        {{82,37,255,0,0},{80,50,255,0,0},{80,70,255,255,255}});
+    compare("dash-vertex-boundary","1 0 0 RG 8 w [40 20] 0 d 40 40 m 80 40 l 80 90 l S",
+        {{82,37,255,255,255},{80,50,255,255,255},{80,70,255,0,0}});
+    compare("dash-closed-seam","1 0 0 RG 8 w [50 20] 0 d 40 40 m 80 40 l 80 80 l 40 80 l h S",
+        {{37,37,255,255,255}});
+    compare("dash-exact-closed-boundary","1 0 0 RG 8 w [160 20] 0 d 40 40 m 80 40 l 80 80 l 40 80 l h S",
+        {{37,37,255,255,255}});
+    compare("dash-affine","1 0 0 RG 4 w 2 J [9 7] 3 d -1 .2 .3 .8 95 5 cm 20 20 m 75 20 l 75 90 l S");
+    compare("dash-clip-restore","q 30 20 40 60 re W n 1 0 0 RG 6 w [8 6] 2 d 20 40 m 90 40 l S Q 0 0 1 RG 4 w 10 10 m 100 10 l S");
+    compare("dash-all-off","4 w [1 200] 2 d 20 40 m 100 40 l S",
+        {{20,40,255,255,255},{60,40,255,255,255}});
+    compare("dash-phase-starts-off","1 0 0 RG 4 w [3 5] 6 d 20 40 m 100 40 l S",
+        {{20,40,255,255,255},{22,40,255,0,0},{26,40,255,255,255}});
+    compare("dash-single-odd","1 0 0 RG 4 w [8] 3 d 20 40 m 100 40 l S");
+    compare("dash-square-closed","1 0 0 RG 8 w 2 J [50 20] 0 d 40 40 m 80 40 l 80 80 l 40 80 l h S",
+        {{37,37,255,0,0}});
+    compare("dash-dense-mixed-budget","1 0 0 RG 2 w [1 1] 0 d 10 40 m 110 40 l S 0 0 1 rg 10 10 90 10 re f",
+        {{20,15,0,0,255}});
+    compare("dash-state-restore","1 0 0 RG 4 w [8 6] 3 d q [3] 0 d 20 40 m 100 40 l S Q 20 70 m 100 70 l S");
+    compare("dash-bevel-join","1 0 0 RG 8 w 2 j [60 20] 0 d 40 40 m 80 40 l 80 90 l S",
+        {{82,37,255,255,255},{80,50,255,0,0}});
     negative("1 0 0 RG 4 w 20 20 m 90 20 l S 0 w 20 40 m 90 40 l S");
     negative("4 w 1 J 20 20 m 90 20 l S");
     negative("4 w 1 j 20 20 m 90 20 l 90 90 l S");
-    negative("4 w [2 3] 0 d 20 20 m 90 20 l S");
+    negative("4 w [0 3] 0 d 20 20 m 90 20 l S");
     negative("4 w 20 20 m 40 50 60 50 90 20 c S");
     return EXIT_SUCCESS;
 }

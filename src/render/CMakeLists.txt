@@ -16,7 +16,7 @@ target_sources(quantapdf PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_raster_v1.h")
 
 
-# Native butt-cap stroke V0 is a private C11 geometry producer over raster V1.
+# Native linear solid/dashed Stroke and the earlier butt-cap V0 producer.
 target_sources(quantapdf PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_stroke_polyline_v1.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/ir_stroke_polyline_v1.h"

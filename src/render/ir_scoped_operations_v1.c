@@ -93,6 +93,8 @@ static quantapdf_status scoped_operations_v1_impl(
         [QUANTAPDF_IR_SCOPED_OPERATIONS_V0_MAX_OPERATIONS]
         [QUANTAPDF_NATIVE_CLIP_DAG_MAX_LEAVES] = {{0}};
     size_t active_counts[QUANTAPDF_IR_SCOPED_OPERATIONS_V0_MAX_OPERATIONS] = {0};
+    quantapdf_composer_path_operation outlines[
+        QUANTAPDF_IR_SCOPED_OPERATIONS_V0_MAX_OPERATIONS] = {{0}};
     unsigned char *final_pixels = NULL;
     quantapdf_status status = QUANTAPDF_ERROR_ARGUMENT;
 
@@ -227,11 +229,17 @@ static quantapdf_status scoped_operations_v1_impl(
         uint64_t weight = scoped_operation_weight(&ir->operations[i]);
         if (polyline_strokes && ir->operations[i].value.path.options.stroke==1 &&
             ir->operations[i].value.path.options.fill==0) {
-            size_t authored=ir->operations[i].value.path.command_count;
-            /* Each segment rectangle has four edges, each join at most four.
-             * This conservative estimate only partitions the shared budget;
-             * the fill sampler charges every actual expanded edge. */
-            weight=scoped_component_weight(authored>8192u?65536u:authored*8u);
+            quantapdf_composer_path_operation projected=ir->operations[i].value.path;
+            size_t edges=0u;
+            projected.options.graphics_state_id=0u;
+            status=quantapdf_ir_stroke_polyline_outline_v1(&projected,
+                limits->max_edges,&outlines[i]);
+            if(status!=QUANTAPDF_OK) goto failure;
+            /* Dash expansion can dwarf its authored path. Partition from
+             * actual outline edges rather than guessing from source size. */
+            for(size_t ci=0u;ci<outlines[i].command_count;++ci)
+                if(outlines[i].commands[ci].kind!=QUANTAPDF_COMPOSER_PATH_CLOSE) ++edges;
+            weight=scoped_component_weight(edges);
         }
         for (k = 0u; k < active_counts[i]; ++k) {
             const quantapdf_composer_clip_state *clip = active_clips[i][k];
@@ -270,7 +278,6 @@ static quantapdf_status scoped_operations_v1_impl(
         quantapdf_composer_page_state transparent_page = *page;
         quantapdf_ir local = {0};
         quantapdf_ir_raster_image layer = {0};
-        quantapdf_composer_path_operation outline = {0};
         operation.graphics_state_id = 0u;
         operation.value.path.options.graphics_state_id = 0u;
         transparent_page.suppress_background = 1;
@@ -280,13 +287,7 @@ static quantapdf_status scoped_operations_v1_impl(
         local.operation_count = 1u;
         per_operation.max_sample_tests = operation_sample_budgets[i];
         per_operation.max_edges = operation_edge_budgets[i];
-        if (polyline_strokes && operation.value.path.options.stroke==1 &&
-            operation.value.path.options.fill==0) {
-            status=quantapdf_ir_stroke_polyline_outline_v1(&operation.value.path,
-                per_operation.max_edges,&outline);
-            if(status!=QUANTAPDF_OK) goto failure;
-            operation.value.path=outline;
-        }
+        if(outlines[i].commands!=NULL) operation.value.path=outlines[i];
         if (plan != NULL) {
             status = quantapdf_ir_raster_render_v1_planned(
                 &local, 0u, &per_operation, plan, active_clips[i],
@@ -299,7 +300,6 @@ static quantapdf_status scoped_operations_v1_impl(
                 &local, 0u, &per_operation, active_clips[i],
                 active_counts[i], &layer);
         }
-        quantapdf_ir_stroke_polyline_dispose_v1(&outline);
         if (status != QUANTAPDF_OK) {
             goto failure;
         }
@@ -315,6 +315,8 @@ static quantapdf_status scoped_operations_v1_impl(
         quantapdf_ir_raster_image_dispose(&layer);
     }
 
+    for(i=0u;i<ir->operation_count;++i)
+        quantapdf_ir_stroke_polyline_dispose_v1(&outlines[i]);
     out_image->pixels = final_pixels;
     out_image->width = width;
     out_image->height = height;
@@ -323,6 +325,8 @@ static quantapdf_status scoped_operations_v1_impl(
     return QUANTAPDF_OK;
 
 failure:
+    for(i=0u;i<ir->operation_count;++i)
+        quantapdf_ir_stroke_polyline_dispose_v1(&outlines[i]);
     free(final_pixels);
     return status;
 }
