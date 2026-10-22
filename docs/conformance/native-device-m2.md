@@ -1,7 +1,8 @@
 # M2 rectangular Stroke, W Clip and Fill qualification
 
-PR #392 is stacked on the M1 device plan branch. It remains Draft / DO NOT
-MERGE until exact-head cross-platform and installed-SDK checks are reviewed.
+PR #392 is stacked on the M1 device plan branch and remains Draft / DO NOT
+MERGE. The original narrow M2 case passed cross-platform qualification at
+`d6f89641f6071c10b2e0f9f63b0d316755ec3456`; later changes require their own CI.
 This private Native implementation does not switch the public SDK backend,
 add a fallback, or admit the original into the official corpus.
 
@@ -71,3 +72,38 @@ shear, a nonrectangular quadrilateral, insufficient edge/sample budgets and
 over-budget output must reset a nonzero output sentinel to zero. Curved and
 open strokes remain unsupported. Temporary production stderr tracing is
 removed; test failures retain contextual diagnostics.
+
+The source-level Clip/Stroke regression additionally lowers four literal
+PDF streams at 72/96 DPI: Stroke before W, Stroke after Q, and Stroke before
+or after Fill inside an active Clip. All eight frames must retain the expected
+immutable state association and match independent rational 4×4 RGBA samples
+at every pixel. Both source and Graph have been disposed before raster, and
+the detached IR is disposed before checking the image.
+
+## Verified CI checkpoint
+
+[CI #1576](https://github.com/qigao/QuantaPDF/actions/runs/39748784513) succeeded
+at `d6f89641f6071c10b2e0f9f63b0d316755ec3456` on Linux, macOS and Windows.
+Linux Release and sanitizer configurations each passed 104/104 tests and
+47/47 conformance tests. The original sanitizer gate explicitly used
+`ASAN_OPTIONS=detect_leaks=1:halt_on_error=1`; the previous local LSan runtime
+limitation is covered by this successful CI check. SDK installation checks
+passed on all three platforms and the Windows installed consumer compiled
+and ran. These installation checks preserve the existing public backend.
+
+The four downloaded original reports (Linux Release/Debug, macOS Release,
+Windows Release) have identical contents and SHA-256:
+`b30bd0a0edd35c5dfdb26a6a9aea198783a3800aa813a4aecd4a03a024e9d945`.
+The durable [evidence record](native-device-m2-ci1576.json) contains source
+identity, report and artifact digests, run/job IDs, verified steps and the
+common report. It qualifies the original bounded case, not general Stroke.
+
+| DPI | Different pixels / boundary pixels | RGB L1 / budget | Maximum delta |
+| --- | --- | --- | --- |
+| 72 | 1,360 / 1,459 | 141,465 / 686,913 | 127 |
+| 96 | 1,570 / 1,944 | 150,771 / 1,209,268 | 191 |
+
+These are bounded edge differences, not byte-identical PDFium pixels.
+144 DPI consistently rejected the oversized plan with zero IR and plan.
+The eight-frame source-level regression added after this checkpoint still
+requires a fresh exact-head CI run.
