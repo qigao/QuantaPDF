@@ -530,6 +530,7 @@ static quantapdf_status qp_render_v1_impl(
     unsigned char *pixels = NULL;
     quantapdf_status status = QUANTAPDF_ERROR_ARGUMENT;
     const quantapdf_composer_page_state *page;
+    int two_path_clip_sequence = 0;
 
     if (out_image == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -570,9 +571,27 @@ static quantapdf_status qp_render_v1_impl(
     }
     if (page->suppress_background < 0 || page->suppress_background > 1 ||
         (!page->suppress_background && (page->background_argb >> 24u) != 255u) ||
-        !qp_no_resources(ir) ||
-        (clip_count > 0u && (ir->operation_count != 1u ||
-         ir->operations[0].page_index != page_index)))
+        !qp_no_resources(ir))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    /* A single frozen W Clip may follow one rectangular Stroke and precede
+     * one opaque Fill. In this narrowly admitted sequence, the Clip applies
+     * only to the second operation, matching PDF path/clip execution order. */
+    if (clip_count > 0u && ir->operation_count == 2u &&
+        clip_count == 1u && ir->operations != NULL &&
+        ir->operations[0].page_index == page_index &&
+        ir->operations[1].page_index == page_index &&
+        ir->operations[0].kind == QUANTAPDF_COMPOSER_OPERATION_PATH &&
+        ir->operations[1].kind == QUANTAPDF_COMPOSER_OPERATION_PATH &&
+        ir->operations[0].value.path.options.stroke == 1 &&
+        ir->operations[0].value.path.options.fill == 0 &&
+        ir->operations[1].value.path.options.fill == 1 &&
+        ir->operations[1].value.path.options.stroke == 0)
+        two_path_clip_sequence = 1;
+    if (clip_count > 0u &&
+        !(ir->operation_count == 1u &&
+          ir->operations[0].page_index == page_index) &&
+        !two_path_clip_sequence)
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
     pixels_count = width * height;
@@ -686,9 +705,11 @@ static quantapdf_status qp_render_v1_impl(
                         int visible = draw->one_pixel_stroke ?
                             qp_stroke_inside(flatten.edges, draw, px, py) :
                             qp_inside(flatten.edges, draw, px, py);
-                        for (ci = 0u; visible && ci < clip_count; ++ci)
-                            visible = qp_inside(
-                                flatten.edges, &clip_draws[ci], px, py);
+                        if (!(two_path_clip_sequence && i == 0u)) {
+                            for (ci = 0u; visible && ci < clip_count; ++ci)
+                                visible = qp_inside(
+                                    flatten.edges, &clip_draws[ci], px, py);
+                        }
                         covered += (unsigned)visible;
                     }
                 }
