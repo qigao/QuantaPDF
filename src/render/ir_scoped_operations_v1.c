@@ -3,6 +3,7 @@
 
 #include <math.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -215,8 +216,13 @@ static quantapdf_status scoped_operations_v1_impl(
                 &local, 0u, &per_operation, active_clips[i],
                 active_counts[i], &layer);
         }
-        if (status != QUANTAPDF_OK)
+        if (status != QUANTAPDF_OK) {
+            fprintf(stderr, "scoped native layer rejected: operation=%zu status=%d clips=%zu stroke=%d fill=%d\\n",
+                i, (int)status, active_counts[i],
+                operation.value.path.options.stroke,
+                operation.value.path.options.fill);
             goto failure;
+        }
         if (layer.width != width || layer.height != height ||
             layer.stride != width * 4u || layer.size != bytes ||
             layer.pixels == NULL) {
