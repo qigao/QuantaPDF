@@ -194,7 +194,8 @@ static quantapdf_status qp_expand_rect_stroke_ring(
     qp_flatten *flat, size_t first, double half_x, double half_y)
 {
     double min_x, max_x, min_y, max_y;
-    qp_point_d p[4];
+    qp_point_d outer[4], inner[4];
+    unsigned vertical = 0u, horizontal = 0u;
     if (flat->count - first != 4u || !isfinite(half_x) ||
         !isfinite(half_y) || half_x <= 0.0 || half_y <= 0.0)
         return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -202,7 +203,13 @@ static quantapdf_status qp_expand_rect_stroke_ring(
     min_y = max_y = flat->edges[first].from.y;
     for (size_t i = 0u; i < 4u; ++i) {
         const qp_edge *e = &flat->edges[first + i];
-        if (!((e->from.x == e->to.x) != (e->from.y == e->to.y)))
+        if (!qp_point_equal(e->to, flat->edges[first + (i + 1u) % 4u].from))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        if (e->from.x == e->to.x)
+            ++vertical;
+        else if (e->from.y == e->to.y)
+            ++horizontal;
+        else
             return QUANTAPDF_ERROR_UNSUPPORTED;
         if (e->from.x < min_x) min_x = e->from.x;
         if (e->from.x > max_x) max_x = e->from.x;
@@ -213,21 +220,37 @@ static quantapdf_status qp_expand_rect_stroke_ring(
         if (e->to.y < min_y) min_y = e->to.y;
         if (e->to.y > max_y) max_y = e->to.y;
     }
-    if (!(max_x > min_x && max_y > min_y) ||
+    if (vertical != 2u || horizontal != 2u ||
+        !(max_x > min_x && max_y > min_y) ||
         max_x - min_x <= 2.0 * half_x ||
         max_y - min_y <= 2.0 * half_y ||
-        flat->capacity - flat->count < 4u)
+        flat->capacity - first < 8u)
         return QUANTAPDF_ERROR_UNSUPPORTED;
-    p[0] = (qp_point_d){min_x - half_x, min_y - half_y};
-    p[1] = (qp_point_d){max_x + half_x, min_y - half_y};
-    p[2] = (qp_point_d){max_x + half_x, max_y + half_y};
-    p[3] = (qp_point_d){min_x - half_x, max_y + half_y};
+    outer[0] = (qp_point_d){min_x - half_x, min_y - half_y};
+    outer[1] = (qp_point_d){max_x + half_x, min_y - half_y};
+    outer[2] = (qp_point_d){max_x + half_x, max_y + half_y};
+    outer[3] = (qp_point_d){min_x - half_x, max_y + half_y};
+    inner[0] = (qp_point_d){min_x + half_x, min_y + half_y};
+    inner[1] = (qp_point_d){max_x - half_x, min_y + half_y};
+    inner[2] = (qp_point_d){max_x - half_x, max_y - half_y};
+    inner[3] = (qp_point_d){min_x + half_x, max_y - half_y};
     for (size_t i = 0u; i < 4u; ++i) {
-        if (!qp_valid_coordinate(p[i].x) || !qp_valid_coordinate(p[i].y))
+        if (!qp_valid_coordinate(outer[i].x) ||
+            !qp_valid_coordinate(outer[i].y) ||
+            !qp_valid_coordinate(inner[i].x) ||
+            !qp_valid_coordinate(inner[i].y))
             return QUANTAPDF_ERROR_UNSUPPORTED;
     }
+    /* Replace the centerline rectangle with the actual outer/inner ring.
+     * Retaining the centerline as an edge would render only half the stroke. */
+    flat->count = first;
     for (size_t i = 0u; i < 4u; ++i) {
-        quantapdf_status st = qp_add_edge(flat, p[i], p[(i + 1u) % 4u]);
+        quantapdf_status st = qp_add_edge(flat, outer[i], outer[(i + 1u) % 4u]);
+        if (st != QUANTAPDF_OK)
+            return st;
+    }
+    for (size_t i = 0u; i < 4u; ++i) {
+        quantapdf_status st = qp_add_edge(flat, inner[i], inner[(i + 1u) % 4u]);
         if (st != QUANTAPDF_OK)
             return st;
     }
