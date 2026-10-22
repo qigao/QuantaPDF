@@ -409,7 +409,7 @@ void rejections(const fixture& f, const std::string& path)
               ir.operations[stroke].value.path.options.fill == 0 &&
               ir.operations[stroke].value.path.command_count == 5u &&
               ir.operations[fill].value.path.options.fill == 1);
-        if (order == 1) {
+        {
             quantapdf_ir_raster_image first{}, second{};
             OK(quantapdf_ir_raster_scoped_operations_v1_planned(
                 &ir, 0u, &raster_limits, &plan, &first));
