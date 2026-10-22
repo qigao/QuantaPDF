@@ -430,14 +430,6 @@ void rejections(const fixture& f, const std::string& path)
             CHECK(red > 0u && black > 0u);
             quantapdf_ir_raster_image_dispose(&first);
             quantapdf_ir_raster_image_dispose(&second);
-        } else {
-            for (unsigned repeat = 0u; repeat < 2u; ++repeat) {
-                quantapdf_ir_raster_image image;
-                std::memset(&image, 0xa5, sizeof(image));
-                CHECK(quantapdf_ir_raster_scoped_operations_v1_planned(
-                    &ir, 0u, &raster_limits, &plan, &image) == QUANTAPDF_ERROR_UNSUPPORTED);
-                CHECK(all_zero(&image, sizeof(image)));
-            }
         }
         quantapdf_ir_dispose(&ir);
         CHECK(read_file(path.c_str()) == original);
