@@ -411,8 +411,18 @@ void rejections(const fixture& f, const std::string& path)
               ir.operations[fill].value.path.options.fill == 1);
         {
             quantapdf_ir_raster_image first{}, second{};
-            OK(quantapdf_ir_raster_scoped_operations_v1_planned(
-                &ir, 0u, &raster_limits, &plan, &first));
+            const quantapdf_status first_status =
+                quantapdf_ir_raster_scoped_operations_v1_planned(
+                    &ir, 0u, &raster_limits, &plan, &first);
+            if (first_status != QUANTAPDF_OK)
+                std::fprintf(stderr, "jsPDF native first render rejected: dpi=%u status=%d gs=%u stroke_width=%.9g commands=%zu clip_count=%zu edges_limit=%zu sample_limit=%zu\\n",
+                    dpis[i], (int)first_status,
+                    (unsigned)ir.operations[0].graphics_state_id,
+                    (double)ir.operations[0].value.path.options.stroke_width,
+                    ir.operations[0].value.path.command_count,
+                    ir.resources.clip_count, raster_limits.max_edges,
+                    raster_limits.max_sample_tests);
+            CHECK(first_status == QUANTAPDF_OK);
             OK(quantapdf_ir_raster_scoped_operations_v1_planned(
                 &ir, 0u, &raster_limits, &plan, &second));
             CHECK(first.pixels && second.pixels &&
