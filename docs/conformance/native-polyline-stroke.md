@@ -139,7 +139,10 @@ of pixels may have a channel error above 64, and explicit solid/empty/color
 probes must match within 3/255. Different edge antialiasing is allowed.
 
 `quantapdf.native_round_stroke_oracle` runs a separate mode of the same source
-oracle with its own generated filename, allowing safe parallel CTest execution.
+oracle with process/fixture-specific generated filenames, allowing parallel
+CTest runs without sharing a source path. Exact original bytes from QPDFWriter
+are checked after writing, Graph lowering and direct PDFium rendering; negative
+cases also verify unchanged source bytes before cleanup.
 Its 22 positives cover horizontal/vertical/diagonal caps, both turn directions,
 acute/closed/short joins, subpaths, positive dashes and seams, affine/reflected
 transforms, nested W/W* Clip, q/Q restore, all-off and thin strokes, plus two
