@@ -76,13 +76,13 @@ def run(source, executable, report):
     staged.unlink(missing_ok=True)
     try:
         if not executable.is_file():
-            raise QualificationFailure("built M1 source executable is missing")
+            raise QualificationFailure("built Native source qualification executable is missing")
         original = pinned_source(source)
         process = subprocess.run(
             [str(executable), "--quarantined-jspdf-plan", str(source)],
             capture_output=True, text=True, check=False, timeout=90)
         if process.returncode != 0:
-            raise QualificationFailure("M1 source executable failed: " + process.stderr[-1000:])
+            raise QualificationFailure("Native source qualification executable failed: " + process.stderr[-1000:])
         cases = observation(process.stdout)
         if pinned_source(source) != original:
             raise QualificationFailure("source changed during Native observation")
@@ -117,7 +117,7 @@ def self_test():
             pass
         else:
             raise AssertionError("forged or partial Native report accepted")
-    with tempfile.TemporaryDirectory(prefix="qp-m1-source-guard-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="qp-m2-source-guard-") as temporary:
         root = Path(temporary)
         source, executable, report = [root / x for x in ("source.pdf", "built-test", "report.json")]
         source.write_bytes(b"%PDF-1.3\nnot-the-original")
@@ -156,7 +156,7 @@ def self_test():
         else:
             raise AssertionError("staging alias to source accepted")
         assert source.read_bytes() == before
-    print("M1 original source guard: provenance, alias and stale-output refusals passed")
+    print("Original source guard: provenance, alias and stale-output refusals passed")
 
 
 def main():
@@ -176,7 +176,7 @@ def main():
     try:
         run(args.source, args.executable, args.report)
     except (QualificationFailure, OSError, subprocess.SubprocessError) as error:
-        print("M1 original source refused:", error, file=sys.stderr)
+        print("M2 original source observation refused:", error, file=sys.stderr)
         return 1
     print("M2 original device/Native preliminary-positive observation attested:", args.report)
     return 0
