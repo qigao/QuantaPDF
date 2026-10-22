@@ -699,6 +699,9 @@ static quantapdf_status qp_render_v1_impl(
         if (draws[draw_count].edge_count >
             (limits->max_sample_tests - total_checks) /
                 (QP_TOTAL_SAMPLES * pixels_count)) {
+            fprintf(stderr, "native draw sample budget rejected: op=%zu edges=%zu prior=%zu pixels=%zu budget=%zu\\n",
+                i, draws[draw_count].edge_count, total_checks,
+                pixels_count, limits->max_sample_tests);
             status = QUANTAPDF_ERROR_UNSUPPORTED;
             goto cleanup;
         }
@@ -742,6 +745,9 @@ static quantapdf_status qp_render_v1_impl(
         if (clip_draws[ci].edge_count >
             (limits->max_sample_tests - total_checks) /
                 (QP_TOTAL_SAMPLES * pixels_count)) {
+            fprintf(stderr, "native Clip sample budget rejected: clip=%zu edges=%zu prior=%zu pixels=%zu budget=%zu\\n",
+                ci, clip_draws[ci].edge_count, total_checks,
+                pixels_count, limits->max_sample_tests);
             status = QUANTAPDF_ERROR_UNSUPPORTED;
             goto cleanup;
         }
