@@ -409,12 +409,35 @@ void rejections(const fixture& f, const std::string& path)
               ir.operations[stroke].value.path.options.fill == 0 &&
               ir.operations[stroke].value.path.command_count == 5u &&
               ir.operations[fill].value.path.options.fill == 1);
-        for (unsigned repeat = 0u; repeat < 2u; ++repeat) {
-            quantapdf_ir_raster_image image;
-            std::memset(&image, 0xa5, sizeof(image));
-            CHECK(quantapdf_ir_raster_scoped_operations_v1_planned(
-                &ir, 0u, &raster_limits, &plan, &image) == QUANTAPDF_ERROR_UNSUPPORTED);
-            CHECK(all_zero(&image, sizeof(image)));
+        if (order == 1) {
+            quantapdf_ir_raster_image first{}, second{};
+            OK(quantapdf_ir_raster_scoped_operations_v1_planned(
+                &ir, 0u, &raster_limits, &plan, &first));
+            OK(quantapdf_ir_raster_scoped_operations_v1_planned(
+                &ir, 0u, &raster_limits, &plan, &second));
+            CHECK(first.pixels && second.pixels &&
+                  first.width == plan.width && first.height == plan.height &&
+                  first.stride == plan.stride && first.size == plan.size &&
+                  std::memcmp(first.pixels, second.pixels, first.size) == 0);
+            size_t red = 0u, black = 0u;
+            for (size_t p = 0u; p < first.size; p += 4u) {
+                const auto *px = first.pixels + p;
+                if (px[0] == 255u && px[1] == 0u && px[2] == 0u && px[3] != 0u)
+                    ++red;
+                if (px[0] == 0u && px[1] == 0u && px[2] == 0u && px[3] != 0u)
+                    ++black;
+            }
+            CHECK(red > 0u && black > 0u);
+            quantapdf_ir_raster_image_dispose(&first);
+            quantapdf_ir_raster_image_dispose(&second);
+        } else {
+            for (unsigned repeat = 0u; repeat < 2u; ++repeat) {
+                quantapdf_ir_raster_image image;
+                std::memset(&image, 0xa5, sizeof(image));
+                CHECK(quantapdf_ir_raster_scoped_operations_v1_planned(
+                    &ir, 0u, &raster_limits, &plan, &image) == QUANTAPDF_ERROR_UNSUPPORTED);
+                CHECK(all_zero(&image, sizeof(image)));
+            }
         }
         quantapdf_ir_dispose(&ir);
         CHECK(read_file(path.c_str()) == original);
@@ -431,7 +454,8 @@ void rejections(const fixture& f, const std::string& path)
 
 /* Optional observation only: an external SHA-pinning caller must attest the
  * original before/after. This binary performs no network access or vendoring.
- * M1 keeps both original painted Paths and still refuses rectangular Stroke. */
+ * The generated source fixture above qualifies Stroke-before-Clip positive;
+ * the unchanged external original still has a separate attested gate. */
 void original_jspdf(const char *path)
 {
     const std::string original = read_file(path);
