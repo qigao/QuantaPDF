@@ -70,6 +70,10 @@ quantapdf_status quantapdf_qpdf_extract_text(
     quantapdf_qpdf_document *document, int page_index,
     char **out_utf8, size_t *out_size);
 
+quantapdf_status quantapdf_qpdf_extract_structured_text(
+    quantapdf_qpdf_document *document, int page_index,
+    quantapdf_text_page **out_text);
+
 quantapdf_status quantapdf_qpdf_extract_images(
     quantapdf_qpdf_document *document, int page_index,
     quantapdf_image_page **out_images);

@@ -46,10 +46,6 @@ quantapdf_status quantapdf_pdfium_render_page(
     int alpha,
     quantapdf_pdfium_bitmap *out_bitmap);
 
-quantapdf_status quantapdf_pdfium_extract_structured_text(
-    quantapdf_pdfium_page *page,
-    quantapdf_text_page **out_text);
-
 void quantapdf_pdfium_drop_page(quantapdf_pdfium_page *page);
 void quantapdf_pdfium_close(quantapdf_pdfium_document *document);
 

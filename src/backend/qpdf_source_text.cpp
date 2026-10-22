@@ -1,5 +1,6 @@
 #include "qpdf_document_internal.h"
 #include "base14_metrics.h"
+#include "snapshot/text_snapshot.h"
 #include <qpdf/Pipeline.hh>
 #include <qpdf/QPDFExc.hh>
 #include <algorithm>
@@ -8,10 +9,12 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <limits>
 #include <set>
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <type_traits>
 
 namespace {
 using Obj = QPDFObjectHandle;
@@ -209,9 +212,9 @@ struct font {
     std::set<unsigned> differences;
     std::vector<std::pair<unsigned,unsigned>> spaces;
     bool has_cmap=false, ansi=false, standard=true, base14=false, cid=false;
-    double default_width=0;
+    double default_width=0, ascent=0, descent=0;
     quantapdf_composer_font base=QUANTAPDF_COMPOSER_FONT_HELVETICA;
-    explicit font(Obj object)
+    explicit font(Obj object, bool geometry)
     {
         need(object.isDictionary()); Obj subtype=object.getKey("/Subtype"); need(subtype.isName());
         std::string type=subtype.getName(); supported(type=="/Type1" || type=="/TrueType" || type=="/Type0");
@@ -268,6 +271,19 @@ struct font {
             if (!descriptor.isNull()) { need(descriptor.isDictionary()); Obj missing=descriptor.getKey("/MissingWidth"); if(!missing.isNull()) default_width=number(missing); }
         }
         need(default_width>=0);
+        if (geometry) {
+            Obj descriptor=metrics.getKey("/FontDescriptor");
+            if (descriptor.isNull()) {
+                supported(base14);
+                quantapdf::detail::base14_vertical_metrics(base,&ascent,&descent);
+            } else {
+                need(descriptor.isDictionary());
+                Obj a=descriptor.getKey("/Ascent"), d=descriptor.getKey("/Descent");
+                supported(!a.isNull() && !d.isNull());
+                ascent=number(a); descent=number(d);
+            }
+            need(ascent>descent);
+        }
     }
     static unsigned cid_code(Obj v) { need(v.isInteger() && v.getIntValue()>=0 && v.getIntValue()<=65535); return static_cast<unsigned>(v.getIntValue()); }
     void put_width(unsigned c,double n) { need(n>=0); need(widths.emplace(c,n).second); }
@@ -313,9 +329,22 @@ struct graphics {
     matrix ctm=identity;
     font *face=nullptr;
     double size=0, character=0, word=0, scale=1, leading=0, rise=0;
+    std::array<double,3> fill={0,0,0};
+    double opacity=1;
+    int fill_space=1;
+    bool color_supported=true;
+};
+struct character_value {
+    quantapdf_quad quad;
+    float font_size,dx,dy;
+    uint32_t codepoint,argb;
+    bool break_before;
 };
 struct projection {
     QPDF parser;
+    quantapdf_qpdf_page_geometry const *geometry;
+    std::vector<character_value> characters;
+    bool pending_break=false;
     // Direct dictionaries have no ObjGen identity. Cache the handle identity
     // instead; heap ownership keeps font pointers stable across vector growth.
     std::vector<std::pair<Obj,std::unique_ptr<font>>> fonts;
@@ -324,7 +353,8 @@ struct projection {
     std::string output;
     bool previous=false;
     double end_x=0,end_y=0,dir_x=1,dir_y=0,last_height=0;
-    projection() { parser.emptyPDF(); parser.setSuppressWarnings(true); }
+    explicit projection(quantapdf_qpdf_page_geometry const *geometry=nullptr) : geometry(geometry)
+    { parser.emptyPDF(); parser.setSuppressWarnings(true); }
     void step() { supported(++work<=1000000u); }
     void append(std::string const& value) { supported(value.size()<=byte_limit-output.size()); output+=value; }
     font *get_font(Obj object)
@@ -335,13 +365,65 @@ struct projection {
         supported(fonts.size()<256u);
         Obj cmap=object.getKey("/ToUnicode");
         if(cmap.isStream()) { auto bytes=decode(cmap,1024u*1024u); supported(bytes.size()<=byte_limit-font_bytes); font_bytes+=bytes.size(); }
-        auto decoded=std::make_unique<font>(object);
+        auto decoded=std::make_unique<font>(object,geometry!=nullptr);
         size_t entries=decoded->mapping.size()+decoded->widths.size();
         supported(entries<=131072u-font_entries); font_entries+=entries;
         font *result=decoded.get(); fonts.emplace_back(object,std::move(decoded));
         return result;
     }
     void content(Obj streams,Obj resources,graphics const& initial,size_t depth);
+    quantapdf_point point(matrix const& m,double x,double y) const
+    {
+        double px=0,py=0;
+        quantapdf_qpdf_pdf_point_to_public(*geometry,m[0]*x+m[2]*y+m[4],
+            m[1]*x+m[3]*y+m[5],&px,&py);
+        constexpr double bound=static_cast<double>(std::numeric_limits<float>::max())/8.0;
+        supported(std::isfinite(px) && std::isfinite(py) && std::abs(px)<bound && std::abs(py)<bound);
+        return {static_cast<float>(px),static_cast<float>(py)};
+    }
+    character_value cell(matrix const& m,graphics const& g,unsigned c) const
+    {
+        supported(g.color_supported && g.size!=0 && g.scale!=0);
+        double determinant=m[0]*m[3]-m[1]*m[2];
+        supported(std::isfinite(determinant) && determinant!=0);
+        double width=g.face->advance(c)*g.size*g.scale/1000;
+        double top=g.rise+g.face->ascent*g.size/1000;
+        double bottom=g.rise+g.face->descent*g.size/1000;
+        character_value result={};
+        result.quad={point(m,0,top),point(m,width,top),point(m,0,bottom),point(m,width,bottom)};
+        // Transform vectors independently of large translated float positions.
+        auto linear=*geometry;
+        linear.left=linear.bottom=linear.right=linear.top=0;
+        double dx=0,dy=0;
+        quantapdf_qpdf_pdf_point_to_public(linear,m[0]*g.size*g.scale,
+            m[1]*g.size*g.scale,&dx,&dy);
+        double length=std::hypot(dx,dy); supported(std::isfinite(length) && length>0);
+        result.dx=static_cast<float>(dx/length); result.dy=static_cast<float>(dy/length);
+        double size=std::abs(g.size)*std::hypot(m[2],m[3])*geometry->user_unit;
+        supported(std::isfinite(size) && size>0 && size<std::numeric_limits<float>::max()/8);
+        result.font_size=static_cast<float>(size);
+        auto channel=[](double n) { return static_cast<uint32_t>(std::clamp(n,0.0,1.0)*255+0.5); };
+        result.argb=(channel(g.opacity)<<24)|(channel(g.fill[0])<<16)|(channel(g.fill[1])<<8)|channel(g.fill[2]);
+        return result;
+    }
+    void emit(std::string const& value,character_value prototype)
+    {
+        // Validated Unicode only. All scalars in a source glyph's mapping
+        // share its complete loose cell, with one source-glyph advance.
+        for(size_t i=0;i<value.size();) {
+            unsigned first=static_cast<unsigned char>(value[i++]);
+            unsigned cp=first; size_t extra=0;
+            if(first>=0xf0u) { cp=first&7u; extra=3; }
+            else if(first>=0xe0u) { cp=first&15u; extra=2; }
+            else if(first>=0xc0u) { cp=first&31u; extra=1; }
+            need(extra<=value.size()-i);
+            while(extra!=0u) { cp=(cp<<6)|(static_cast<unsigned char>(value[i++])&63u); --extra; }
+            if(cp=='\r' || cp=='\n') { pending_break=true; continue; }
+            supported(characters.size()<262144u);
+            prototype.codepoint=cp; prototype.break_before=pending_break;
+            pending_break=false; characters.push_back(prototype);
+        }
+    }
     void show(std::string const& bytes,graphics const& g,matrix& text)
     {
         need(g.face!=nullptr); need(bytes.size()%g.face->width==0);
@@ -353,14 +435,24 @@ struct projection {
             double len=std::hypot(m[0],m[1]); need(std::isfinite(len) && len>0);
             double dx=m[0]/len,dy=m[1]/len,height=std::abs(g.size)*std::hypot(m[2],m[3]);
             need(std::isfinite(height));
+            character_value current={};
+            if(geometry) current=cell(m,g,c);
             if(previous && !output.empty()) {
                 double cross=std::abs((x-end_x)*dir_y-(y-end_y)*dir_x);
                 double along=(x-end_x)*dir_x+(y-end_y)*dir_y;
                 double unit=std::max(height,last_height);
-                if(dx*dir_x+dy*dir_y<0.95 || cross>std::max(0.1,unit*0.5)) { if(output.back()!='\n' && output.back()!='\r') append("\r\n"); }
-                else if(along>std::max(0.1,unit*0.2) && output.back()!=' ' && output.back()!='\n' && !value.empty() && value.front()!=' ') append(" ");
+                if(dx*dir_x+dy*dir_y<0.95 || cross>std::max(0.1,unit*0.5)) { if(output.back()!='\n' && output.back()!='\r') { append("\r\n"); pending_break=true; } }
+                else if(along>std::max(0.1,unit*0.2) && output.back()!=' ' && output.back()!='\n' && !value.empty() && value.front()!=' ') {
+                    append(" ");
+                    if(geometry && !characters.empty()) {
+                        auto gap=characters.back();
+                        gap.quad={gap.quad.ur,current.quad.ul,gap.quad.lr,current.quad.ll};
+                        emit(" ",gap);
+                    }
+                }
             }
             append(value);
+            if(geometry) emit(value,current);
             double distance=(g.face->advance(c)*g.size/1000.0+g.character+((g.face->width==1u && c==32u)?g.word:0))*g.scale;
             need(std::isfinite(distance));
             text=concat(text,matrix{1,0,0,1,distance,0});
@@ -386,6 +478,29 @@ public:
     void move(double x,double y) { inside(); line=concat(line,matrix{1,0,0,1,x,y}); text=line; }
     void show(Obj v) { inside(); need(v.isString()); p.show(v.getStringValue(),g,text); }
     Obj resource(char const *category,Obj name) { need(name.isName() && resources.isDictionary()); Obj dict=resources.getKey(category); need(dict.isDictionary()); return dict.getKey(name.getName()); }
+    void color_space(Obj value)
+    {
+        need(value.isName());
+        std::set<std::string> seen;
+        while(value.isName()) {
+            auto name=value.getName();
+            if(name=="/DeviceGray" || name=="/DeviceRGB") {
+                g.fill_space=name=="/DeviceGray"?1:3;
+                g.fill={0,0,0}; g.color_supported=true; return;
+            }
+            if(name=="/DeviceCMYK" || name=="/Pattern") break;
+            supported(seen.size()<16u); need(seen.insert(name).second);
+            value=resource("/ColorSpace",value); need(!value.isNull());
+        }
+        g.fill_space=0; g.color_supported=false;
+    }
+    void fill(size_t channels)
+    {
+        count(channels); g.color_supported=true;
+        double red=number(args[0]);
+        g.fill=channels==1u?std::array<double,3>{red,red,red}:
+            std::array<double,3>{red,number(args[1]),number(args[2])};
+    }
     void handleObject(Obj object) override
     {
         p.step(); supported(!object.isInlineImage());
@@ -414,6 +529,14 @@ public:
         else if(op=="gs") {
             count(1); Obj state=resource("/ExtGState",args[0]); need(state.isDictionary()); Obj f=state.getKey("/Font");
             if(!f.isNull()) { need(f.isArray() && f.getArrayNItems()==2); g.face=p.get_font(f.getArrayItem(0)); g.size=number(f.getArrayItem(1)); }
+            if(p.geometry) { Obj alpha=state.getKey("/ca"); if(!alpha.isNull()) g.opacity=std::clamp(number(alpha),0.0,1.0); }
+        } else if(p.geometry && (op=="g" || op=="rg" || op=="k" || op=="cs" || op=="sc" || op=="scn")) {
+            if(op=="g") { fill(1); g.fill_space=1; }
+            else if(op=="rg") { fill(3); g.fill_space=3; }
+            else if(op=="k") { count(4); for(auto v:args) (void)number(v); g.color_supported=false; g.fill_space=0; }
+            else if(op=="cs") { count(1); color_space(args[0]); }
+            else if(g.fill_space==1 || g.fill_space==3) fill(static_cast<size_t>(g.fill_space));
+            else { need(!args.empty() && args.size()<=32u); g.color_supported=false; }
         } else if(op=="BMC" || op=="BDC") {
             count(op=="BMC"?1u:2u); need(args[0].isName()); supported(marked<128u); ++marked;
             if(op=="BDC") { Obj properties=args[1]; if(properties.isName()) properties=resource("/Properties",properties); need(properties.isDictionary()); supported(properties.getKey("/ActualText").isNull()); }
@@ -449,6 +572,82 @@ void projection::content(Obj streams,Obj resources,graphics const& initial,size_
     else if(!streams.isNull()) append_stream(streams);
     Obj stream=parser.newStream(bytes); reader interpret(*this,resources,initial,depth); stream.parseAsContents(&interpret); need(!parser.anyWarnings());
 }
+quantapdf_rect bounds(quantapdf_quad const& q)
+{
+    quantapdf_rect r={q.ul.x,q.ul.y,q.ul.x,q.ul.y};
+    for(auto p:{q.ur,q.ll,q.lr}) {
+        r.x0=std::min(r.x0,p.x); r.y0=std::min(r.y0,p.y);
+        r.x1=std::max(r.x1,p.x); r.y1=std::max(r.y1,p.y);
+    }
+    return r;
+}
+void include(quantapdf_rect& r,quantapdf_rect const& b)
+{
+    r.x0=std::min(r.x0,b.x0); r.y0=std::min(r.y0,b.y0);
+    r.x1=std::max(r.x1,b.x1); r.y1=std::max(r.y1,b.y1);
+}
+void dispose_text(quantapdf_text_page *p)
+{
+    if(!p) return;
+    std::free(p->blocks); std::free(p->lines); std::free(p->spans);
+    std::free(p->chars); std::free(p->strings); std::free(p);
+}
+quantapdf_text_page *publish(projection const& p)
+{
+    std::vector<quantapdf_text_line_internal> lines;
+    std::vector<quantapdf_text_span_internal> spans;
+    std::vector<quantapdf_text_char_internal> chars;
+    std::string strings;
+    for(auto const& source:p.characters) {
+        auto box=bounds(source.quad);
+        bool new_line=lines.empty() || source.break_before;
+        if(!new_line) new_line=source.dx*lines.back().direction_x+source.dy*lines.back().direction_y<0.95f;
+        if(new_line) {
+            if(!lines.empty()) lines.back().span_count=spans.size()-lines.back().first_span;
+            quantapdf_text_line_internal line={}; line.bounds=box;
+            line.direction_x=source.dx; line.direction_y=source.dy;
+            line.first_span=spans.size(); lines.push_back(line);
+        } else include(lines.back().bounds,box);
+        bool new_span=new_line || std::abs(spans.back().font_size-source.font_size)>0.001f || spans.back().argb!=source.argb;
+        if(new_span) {
+            if(!spans.empty()) strings+='\0';
+            quantapdf_text_span_internal span={}; span.bounds=box;
+            span.font_size=source.font_size; span.argb=source.argb;
+            span.first_char=chars.size(); span.text_offset=strings.size(); spans.push_back(span);
+        } else include(spans.back().bounds,box);
+        std::string value; utf8(value,source.codepoint);
+        strings+=value; supported(strings.size()<=byte_limit+p.characters.size());
+        auto& span=spans.back(); span.text_size+=value.size(); ++span.char_count;
+        quantapdf_text_char_internal target={}; target.codepoint=source.codepoint;
+        target.quad=source.quad; target.span_index=spans.size()-1u; chars.push_back(target);
+    }
+    strings+='\0';
+    if(!lines.empty()) lines.back().span_count=spans.size()-lines.back().first_span;
+    size_t retained=sizeof(quantapdf_text_page)+sizeof(quantapdf_text_block_internal)+strings.size()+
+        lines.size()*sizeof(lines[0])+spans.size()*sizeof(spans[0])+chars.size()*sizeof(chars[0]);
+    supported(retained<=64u*1024u*1024u);
+    std::unique_ptr<quantapdf_text_page,decltype(&dispose_text)> result(
+        static_cast<quantapdf_text_page *>(std::calloc(1,sizeof(quantapdf_text_page))),dispose_text);
+    need(result!=nullptr,QUANTAPDF_ERROR_NOMEM);
+    auto copy=[](auto const& values,auto **target) {
+        if(values.empty()) return;
+        *target=static_cast<std::remove_reference_t<decltype(**target)> *>(std::malloc(values.size()*sizeof(values[0])));
+        need(*target!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        std::memcpy(*target,values.data(),values.size()*sizeof(values[0]));
+    };
+    copy(lines,&result->lines); copy(spans,&result->spans); copy(chars,&result->chars);
+    result->strings=static_cast<char *>(std::malloc(strings.size())); need(result->strings!=nullptr,QUANTAPDF_ERROR_NOMEM);
+    std::memcpy(result->strings,strings.data(),strings.size()); result->string_size=strings.size();
+    result->line_count=lines.size(); result->span_count=spans.size(); result->char_count=chars.size();
+    if(!lines.empty()) {
+        result->blocks=static_cast<quantapdf_text_block_internal *>(std::calloc(1,sizeof(*result->blocks)));
+        need(result->blocks!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        result->block_count=1; result->blocks[0].bounds=lines[0].bounds; result->blocks[0].line_count=lines.size();
+        for(auto const& line:lines) include(result->blocks[0].bounds,line.bounds);
+    }
+    return result.release();
+}
+
 }
 extern "C" quantapdf_status quantapdf_qpdf_extract_text(quantapdf_qpdf_document *document,int page_index,char **out_utf8,size_t *out_size)
 {
@@ -461,6 +660,28 @@ extern "C" quantapdf_status quantapdf_qpdf_extract_text(quantapdf_qpdf_document 
         projection p; p.content(geometry.page.getKey("/Contents"),resources,graphics{},0u);
         char *copy=static_cast<char *>(std::malloc(p.output.size()+1u)); need(copy!=nullptr,QUANTAPDF_ERROR_NOMEM);
         std::memcpy(copy,p.output.c_str(),p.output.size()+1u); *out_utf8=copy; *out_size=p.output.size(); return QUANTAPDF_OK;
+    } catch(failure const& e) { return e.status; }
+      catch(std::bad_alloc const&) { return QUANTAPDF_ERROR_NOMEM; }
+      catch(std::length_error const&) { return QUANTAPDF_ERROR_UNSUPPORTED; }
+      catch(QPDFExc const&) { return QUANTAPDF_ERROR_FORMAT; }
+      catch(std::runtime_error const&) { return QUANTAPDF_ERROR_FORMAT; }
+      catch(...) { return QUANTAPDF_ERROR_BACKEND; }
+}
+
+extern "C" quantapdf_status quantapdf_qpdf_extract_structured_text(
+    quantapdf_qpdf_document *document,int page_index,quantapdf_text_page **out_text)
+{
+    if(!out_text) return QUANTAPDF_ERROR_ARGUMENT;
+    *out_text=nullptr;
+    if(!document || page_index<0) return QUANTAPDF_ERROR_ARGUMENT;
+    try {
+        quantapdf_qpdf_page_geometry geometry={};
+        auto status=quantapdf_qpdf_load_page_geometry(*document->pdf,page_index,&geometry);
+        if(status!=QUANTAPDF_OK) return status;
+        Obj resources=quantapdf_qpdf_inherited_value(geometry.page,"/Resources");
+        need(resources.isNull() || resources.isDictionary());
+        projection p(&geometry); p.content(geometry.page.getKey("/Contents"),resources,graphics{},0u);
+        *out_text=publish(p); return QUANTAPDF_OK;
     } catch(failure const& e) { return e.status; }
       catch(std::bad_alloc const&) { return QUANTAPDF_ERROR_NOMEM; }
       catch(std::length_error const&) { return QUANTAPDF_ERROR_UNSUPPORTED; }

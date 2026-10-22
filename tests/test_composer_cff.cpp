@@ -216,6 +216,16 @@ static int exercise_font(
         sizeof(run_text) - 1u));
     quantapdf_free(extracted);
     extracted = nullptr;
+    {
+        quantapdf_text_page *structured = nullptr;
+        CHECK(quantapdf_extract_structured_text(page, &structured) == QUANTAPDF_OK);
+        for (auto needle : {direct_text, run_text}) {
+            size_t matches = 0;
+            CHECK(quantapdf_text_search(structured, needle, nullptr, 0, &matches) == QUANTAPDF_OK);
+            CHECK(matches >= 1);
+        }
+        quantapdf_drop_text_page(structured);
+    }
 
     render.struct_size = sizeof(render);
     render.dpi = 72.0f;

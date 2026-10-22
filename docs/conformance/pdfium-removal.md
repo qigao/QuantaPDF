@@ -41,6 +41,8 @@ loading the legacy reader. Image observations now use the bounded
 coverage in the same no-PDFium executable.
 Plain text now uses [native source text interpretation](native-text.md),
 including bounded ToUnicode, text state and Form resources.
+[Structured text and search](native-structured-text.md) now share that native
+interpreter with detached font-metric selection cells and source styles.
 
 ## Remaining production dependency
 
@@ -48,12 +50,12 @@ including bounded ToUnicode, text state and Form resources.
 | --- | --- | --- |
 | Page rendering and thumbnails | PDFium, loaded only when requested | Native source interpretation, general paint/Stroke/Clip, text/fonts, images, forms, transparency, device transforms and annotations |
 | Plain text | Native bounded font encodings/ToUnicode, text state and Forms | Expand remaining encodings/ActualText/vertical cases; no PDFium caller remains for this API |
-| Structured text and search | PDFium text page | Native Unicode character geometry, spans and search observations |
+| Structured text and search | Native detached font-metric selection cells, styles and line-oriented search | Expand remaining encodings, color spaces, ActualText, bidi/reading order and vertical writing |
 | Image occurrences and decoded bitmap snapshots | Native bounded placement/Gray/RGB/Indexed/JPEG/masks | Expand remaining inline/stencil/complex-color/mask coverage; no PDFium caller remains for this API |
-| Reader lifecycle for render/structured text | PDFium adapter/runtime | Remove after both callers migrate |
+| Reader lifecycle for rendering | PDFium adapter/runtime | Remove after the remaining renderer migrates |
 | CMake, installed SDK and license packaging | PDFium remains required | Remove production import, transitive linkage, runtime copying and package targets; isolate oracle setup to tests |
 
-The former PDFium link, image and plain-text projections are deleted. PDFium page-count/bounds helper
+The former PDFium link, image, plain and structured text projections are deleted. PDFium page-count/bounds helper
 functions remain for the direct legacy-adapter test, not built-in dispatch.
 The legacy adapter's source-rewrite compatibility path is still confined to
 unmigrated observations and disappears with that adapter; it is not part of
@@ -61,12 +63,12 @@ the native interpretation contract.
 
 ## Next implementation sequence
 
-1. Expand remaining native image formats and migrate structured text/font geometry
-   into detached native observations, reusing the selected Graph/resource model.
+1. Expand remaining native image formats and native text encodings/geometry
+   coverage, reusing the selected Graph/resource model.
 2. Feed those admitted resources to the native renderer; complete general
    Stroke/Clip, paint, form/transparency and device-option coverage. Keep
    unsupported publication atomic, without a retry or fallback renderer.
-3. Route public render/extraction calls to their native implementations, then
+3. Route public rendering to the native implementation, then
    delete the PDFium reader/runtime and all production package dependencies.
 4. Verify shared/static installed C11 consumers without PDFium present, all
    platforms/sanitizers, and representative original-source documents. Use

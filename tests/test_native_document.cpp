@@ -20,6 +20,7 @@ static void check(bool ok, const char *expression, int line)
 using Obj = QPDFObjectHandle;
 void quantapdf_test_native_images();
 void quantapdf_test_native_text();
+void quantapdf_test_native_structured();
 
 static void near(float actual, float expected)
 {
@@ -276,6 +277,7 @@ int main()
     test_structural_operations();
     quantapdf_test_native_images();
     quantapdf_test_native_text();
+    quantapdf_test_native_structured();
     std::remove(NATIVE_DOCUMENT_OUTPUT_PDF);
     return EXIT_SUCCESS;
 }
