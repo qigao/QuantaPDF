@@ -142,12 +142,12 @@ jobs:
 
       # Explicitly opted-in original; both actual Release and sanitizer
       # executables inspect the same unchanged file. JSON is the only artifact.
-      - name: Qualify original M1 device plan (Linux Release and ASan/UBSan)
+      - name: Qualify original jsPDF Native-positive observation (Linux Release and ASan/UBSan)
         if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
         shell: bash
         run: |
           set -euo pipefail
-          original="$RUNNER_TEMP/qp-m1-jspdf-original.pdf"
+          original="$RUNNER_TEMP/qp-m2-jspdf-original.pdf"
           trap 'rm -f "$original"' EXIT
           curl --fail --show-error --silent --location --retry 3 --max-time 60 \
             'https://raw.githubusercontent.com/parallax/jsPDF/20d32998267745aa5336e299baa65d4f45916fb5/test/reference/w3s_clip.pdf' \
@@ -160,17 +160,17 @@ jobs:
             python3 tools/qualification/native_device_original.py \
               --source "$original" \
               --executable "$build/tests/quantapdf_test_native_device_source" \
-              --report "$RUNNER_TEMP/qp-m1-original-$configuration.json"
+              --report "$RUNNER_TEMP/qp-m2-original-$configuration.json"
           done
 
-      - name: Upload original M1 device plan (Linux)
+      - name: Upload original jsPDF Native observation (Linux)
         if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
         uses: actions/upload-artifact@v4
         with:
           name: native-device-original-linux
           path: |
-            ${{ runner.temp }}/qp-m1-original-release.json
-            ${{ runner.temp }}/qp-m1-original-debug.json
+            ${{ runner.temp }}/qp-m2-original-release.json
+            ${{ runner.temp }}/qp-m2-original-debug.json
           if-no-files-found: error
           retention-days: 7
 
@@ -346,12 +346,12 @@ jobs:
       - name: Product conformance (macOS)
         run: ctest --preset "$CMAKE_PRESET" -L conformance --output-on-failure
 
-      - name: Qualify original M1 device plan (macOS)
+      - name: Qualify original jsPDF Native-positive observation (macOS)
         if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
         shell: bash
         run: |
           set -euo pipefail
-          original="$RUNNER_TEMP/qp-m1-jspdf-original.pdf"
+          original="$RUNNER_TEMP/qp-m2-jspdf-original.pdf"
           trap 'rm -f "$original"' EXIT
           curl --fail --show-error --silent --location --retry 3 --max-time 60 \
             'https://raw.githubusercontent.com/parallax/jsPDF/20d32998267745aa5336e299baa65d4f45916fb5/test/reference/w3s_clip.pdf' \
@@ -360,14 +360,14 @@ jobs:
           python3 tools/qualification/native_device_original.py \
             --source "$original" \
             --executable build/macos-clang-release/tests/quantapdf_test_native_device_source \
-            --report "$RUNNER_TEMP/qp-m1-original-release.json"
+            --report "$RUNNER_TEMP/qp-m2-original-release.json"
 
-      - name: Upload original M1 device plan (macOS)
+      - name: Upload original jsPDF Native observation (macOS)
         if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
         uses: actions/upload-artifact@v4
         with:
           name: native-device-original-macos
-          path: ${{ runner.temp }}/qp-m1-original-release.json
+          path: ${{ runner.temp }}/qp-m2-original-release.json
           if-no-files-found: error
           retention-days: 7
 
@@ -548,12 +548,12 @@ jobs:
         shell: cmd
         run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && ctest --preset win-release-user -L conformance --output-on-failure
 
-      - name: Qualify original M1 device plan (Windows)
+      - name: Qualify original jsPDF Native-positive observation (Windows)
         if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $original = Join-Path $env:RUNNER_TEMP 'qp-m1-jspdf-original.pdf'
+          $original = Join-Path $env:RUNNER_TEMP 'qp-m2-jspdf-original.pdf'
           try {
             Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/parallax/jsPDF/20d32998267745aa5336e299baa65d4f45916fb5/test/reference/w3s_clip.pdf' -OutFile $original -MaximumRedirection 5
             $built = Join-Path $env:GITHUB_WORKSPACE 'build\Msvc-Release'
@@ -561,19 +561,19 @@ jobs:
             if (-not (Test-Path (Join-Path $pdfium 'pdfium.dll'))) { throw 'Pinned PDFium DLL missing' }
             $env:PATH = "$built;$pdfium;$env:PATH"
             $executable = Join-Path $built 'tests\quantapdf_test_native_device_source.exe'
-            $report = Join-Path $env:RUNNER_TEMP 'qp-m1-original-release.json'
+            $report = Join-Path $env:RUNNER_TEMP 'qp-m2-original-release.json'
             python tools/qualification/native_device_original.py --source $original --executable $executable --report $report
             if ($LASTEXITCODE -ne 0) { throw 'Original M1 device plan qualification failed' }
           } finally {
             Remove-Item -LiteralPath $original -Force -ErrorAction SilentlyContinue
           }
 
-      - name: Upload original M1 device plan (Windows)
+      - name: Upload original jsPDF Native observation (Windows)
         if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
         uses: actions/upload-artifact@v4
         with:
           name: native-device-original-windows
-          path: ${{ runner.temp }}/qp-m1-original-release.json
+          path: ${{ runner.temp }}/qp-m2-original-release.json
           if-no-files-found: error
           retention-days: 7
 
