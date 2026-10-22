@@ -3,7 +3,6 @@
 
 #include <math.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -197,26 +196,10 @@ static quantapdf_status scoped_operations_v1_impl(
         clips_used != ((1u << (unsigned)ir->resources.clip_count) - 1u))
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
-    /* The PDF path is painted before W commits the new Clip. Preserve that
-     * sequence when the scoped renderer splits each operation into a layer:
-     * keep resource admission/ownership checks above, but do not apply the
-     * sole W Clip to the rectangular Stroke layer. The later Fill layer still
-     * receives the frozen Clip through its normal graphics-state association. */
-    if (ir->operation_count == 2u && ir->resources.clip_count == 1u) {
-        size_t stroke_index = SIZE_MAX, fill_index = SIZE_MAX;
-        for (i = 0u; i < 2u; ++i) {
-            const quantapdf_composer_path_options *opt = &ir->operations[i].value.path.options;
-            if (ir->operations[i].kind != QUANTAPDF_COMPOSER_OPERATION_PATH)
-                break;
-            if (opt->stroke == 1 && opt->fill == 0)
-                stroke_index = i;
-            else if (opt->fill == 1 && opt->stroke == 0)
-                fill_index = i;
-        }
-        if (stroke_index != SIZE_MAX && fill_index != SIZE_MAX &&
-            stroke_index != fill_index)
-            active_counts[stroke_index] = 0u;
-    }
+    /* Clip membership comes from each operation's immutable graphics state.
+     * An earlier Stroke has no later W Clip in that state. Never infer this
+     * relationship merely from the number or kinds of operations: an authored
+     * Stroke inside an active Clip must retain that Clip. */
 
     final_pixels = (unsigned char *)malloc(bytes);
     if (final_pixels == NULL)
@@ -300,10 +283,6 @@ static quantapdf_status scoped_operations_v1_impl(
                 active_counts[i], &layer);
         }
         if (status != QUANTAPDF_OK) {
-            fprintf(stderr, "scoped native layer rejected: operation=%zu status=%d clips=%zu stroke=%d fill=%d\\n",
-                i, (int)status, active_counts[i],
-                operation.value.path.options.stroke,
-                operation.value.path.options.fill);
             goto failure;
         }
         if (layer.width != width || layer.height != height ||

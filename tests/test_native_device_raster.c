@@ -103,6 +103,41 @@ int main(void)
     CHECK(memcmp(&plan, &original_plan, sizeof(plan)) == 0);
     CHECK(memcmp(&op, &original_op, sizeof(op)) == 0);
     CHECK(memcmp(&clip, &original_clip, sizeof(clip)) == 0);
+    {
+        /* Both operations were authored INSIDE the same Clip. The rectangle
+         * Stroke lies outside it and must disappear completely. Counting two
+         * Paths and one Clip is not evidence that Stroke preceded W. */
+        quantapdf_composer_operation pair[2] = {op, op};
+        quantapdf_ir clipped = ir;
+        quantapdf_ir_raster_image result = {0};
+        pair[0].value.path.options.fill = 0;
+        pair[0].value.path.options.stroke = 1;
+        pair[0].value.path.options.stroke_argb = 0xff000000u;
+        pair[0].value.path.options.stroke_width = 1.0f;
+        pair[0].value.path.options.line_cap = QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
+        pair[0].value.path.options.line_join = QUANTAPDF_COMPOSER_LINE_JOIN_MITER;
+        pair[0].value.path.options.miter_limit = 10.0f;
+        clipped.operations = pair;
+        clipped.operation_count = 2u;
+        CHECK(quantapdf_ir_raster_scoped_operations_v1_planned(
+            &clipped, 0u, &limits, &plan, &result) == QUANTAPDF_OK);
+        CHECK(result.size == image.size &&
+            memcmp(result.pixels, image.pixels, image.size) == 0);
+        quantapdf_ir_raster_image_dispose(&result);
+        /* Explicit clip arguments at the direct raster boundary apply to all
+         * draws, with the same independent red/white result. */
+        memset(&clipped.resources, 0, sizeof(clipped.resources));
+        for (size_t i = 0u; i < 2u; ++i) {
+            pair[i].graphics_state_id = 0u;
+            pair[i].value.path.options.graphics_state_id = 0u;
+        }
+        const quantapdf_composer_clip_state *clips[] = {&clip};
+        CHECK(quantapdf_ir_raster_render_v1_planned(
+            &clipped, 0u, &limits, &plan, clips, 1u, &result) == QUANTAPDF_OK);
+        CHECK(result.size == image.size &&
+            memcmp(result.pixels, image.pixels, image.size) == 0);
+        quantapdf_ir_raster_image_dispose(&result);
+    }
     quantapdf_ir_raster_image_dispose(&image);
     quantapdf_ir_raster_image_dispose(&repeat);
 
@@ -160,6 +195,37 @@ int main(void)
     op.value.path.command_count = 3u;
     CHECK(quantapdf_ir_raster_scoped_operations_v1_planned(
         &ir, 0u, &limits, &plan, &image) == QUANTAPDF_ERROR_UNSUPPORTED && empty(&image));
+
+    /* Begin every negative at a supported rectangular Stroke, so an unrelated
+     * unsupported shape cannot conceal a broken width/transform/budget guard. */
+    op.value.path.command_count = 5u;
+    op.graphics_state_id = op.value.path.options.graphics_state_id = 0u;
+    memset(&ir.resources, 0, sizeof(ir.resources));
+    rectangle(paint, 2.0f, 2.0f, 8.0f, 6.0f);
+    CHECK(quantapdf_ir_raster_scoped_operations_v1_planned(
+        &ir, 0u, &limits, &plan, &image) == QUANTAPDF_OK);
+    quantapdf_ir_raster_image_dispose(&image);
+    const quantapdf_composer_operation valid_stroke = op;
+    for (unsigned i = 0u; i < 10u; ++i) {
+        op = valid_stroke;
+        quantapdf_ir_raster_v1_limits bounded = limits;
+        switch (i) {
+        case 0: op.value.path.options.stroke_width = 0.0f; break;
+        case 1: op.value.path.options.stroke_width = -1.0f; break;
+        case 2: op.value.path.options.stroke_width = NAN; break;
+        case 3: op.value.path.options.stroke_width = INFINITY; break;
+        case 4: op.value.path.options.stroke_width = 2.0f; break;
+        case 5: op.value.path.options.transform.b = 0.25f; break;
+        case 6: paint[2].point1.x = 7.0f; break;
+        case 7: bounded.max_edges = 7u; break;
+        case 8: bounded.max_sample_tests = 99u * 16u * 8u - 1u; break;
+        default: bounded.max_pixels = 98u; break;
+        }
+        memset(&image, 0xa5, sizeof(image));
+        CHECK(quantapdf_ir_raster_scoped_operations_v1_planned(
+            &ir, 0u, &bounded, &plan, &image) == QUANTAPDF_ERROR_UNSUPPORTED && empty(&image));
+        rectangle(paint, 2.0f, 2.0f, 8.0f, 6.0f);
+    }
     puts("Native FIT device raster: independent coverage, frozen Clip, repeat, bounds and reset passed");
     return 0;
 }

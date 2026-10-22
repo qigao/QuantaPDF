@@ -2,7 +2,6 @@
 
 #include <math.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -25,7 +24,6 @@ typedef struct qp_raster_draw {
     uint32_t color;
     quantapdf_composer_fill_rule rule;
     int one_pixel_stroke;
-    int rectangular_stroke;
 } qp_raster_draw;
 
 typedef struct qp_flatten {
@@ -387,7 +385,6 @@ static quantapdf_status qp_admit_draw(
             c[5].point1.x != c[1].point1.x ||
             c[5].point1.y != c[1].point1.y ||
             c[6].point1.x != p0.x || c[6].point1.y != p0.y) {
-            fprintf(stderr, "rect-stroke repeated-close coordinate mismatch\\n");
             return QUANTAPDF_ERROR_UNSUPPORTED;
         }
         for (size_t i = 0u; i < 4u; ++i)
@@ -408,8 +405,6 @@ static quantapdf_status qp_admit_draw(
             fabs(flat->a) * (double)opt->stroke_width * 0.5,
             fabs(flat->d) * (double)opt->stroke_width * 0.5);
         if (status != QUANTAPDF_OK) {
-            fprintf(stderr, "rect-stroke ring expansion rejected: %d edges=%zu\\n",
-                (int)status, flat->count - first);
             return status;
         }
     }
@@ -422,7 +417,6 @@ static quantapdf_status qp_admit_draw(
     out->color = stroke ? opt->stroke_argb : opt->fill_argb;
     out->rule = rect_stroke ? QUANTAPDF_COMPOSER_FILL_EVEN_ODD : opt->fill_rule;
     out->one_pixel_stroke = stroke && !rect_stroke;
-    out->rectangular_stroke = rect_stroke;
     return QUANTAPDF_OK;
 }
 
@@ -593,7 +587,7 @@ static quantapdf_status qp_render_v1_impl(
     unsigned char *pixels = NULL;
     quantapdf_status status = QUANTAPDF_ERROR_ARGUMENT;
     const quantapdf_composer_page_state *page;
-    int two_path_clip_sequence = 0;
+    int two_path_clip_pair = 0;
 
     if (out_image == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -637,9 +631,9 @@ static quantapdf_status qp_render_v1_impl(
         !qp_no_resources(ir))
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
-    /* A single frozen W Clip may follow one rectangular Stroke and precede
-     * one opaque Fill. In this narrowly admitted sequence, the Clip applies
-     * only to the second operation, matching PDF path/clip execution order. */
+    /* Admit the bounded two-Path Stroke/Fill case. Explicit clip arguments
+     * apply to both draws; source ordering belongs to the scoped graphics
+     * states, not to an inference from operation counts. */
     if (clip_count > 0u && ir->operation_count == 2u &&
         clip_count == 1u && ir->operations != NULL &&
         ir->operations[0].page_index == page_index &&
@@ -654,11 +648,11 @@ static quantapdf_status qp_render_v1_impl(
            ir->operations[1].value.path.options.fill == 0) &&
           (ir->operations[0].value.path.options.fill == 1 &&
            ir->operations[0].value.path.options.stroke == 0))))
-        two_path_clip_sequence = 1;
+        two_path_clip_pair = 1;
     if (clip_count > 0u &&
         !(ir->operation_count == 1u &&
           ir->operations[0].page_index == page_index) &&
-        !two_path_clip_sequence)
+        !two_path_clip_pair)
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
     pixels_count = width * height;
@@ -690,18 +684,11 @@ static quantapdf_status qp_render_v1_impl(
         status = qp_admit_draw(op, &flatten,
             plan == NULL ? NULL : plan->from_composer, &draws[draw_count]);
         if (status != QUANTAPDF_OK) {
-            fprintf(stderr, "native draw admission rejected: operation=%zu status=%d commands=%zu fill=%d stroke=%d rule=%d\\n",
-                i, (int)status, op->value.path.command_count,
-                op->value.path.options.fill, op->value.path.options.stroke,
-                (int)op->value.path.options.fill_rule);
             goto cleanup;
         }
         if (draws[draw_count].edge_count >
             (limits->max_sample_tests - total_checks) /
                 (QP_TOTAL_SAMPLES * pixels_count)) {
-            fprintf(stderr, "native draw sample budget rejected: op=%zu edges=%zu prior=%zu pixels=%zu budget=%zu\\n",
-                i, draws[draw_count].edge_count, total_checks,
-                pixels_count, limits->max_sample_tests);
             status = QUANTAPDF_ERROR_UNSUPPORTED;
             goto cleanup;
         }
@@ -733,21 +720,11 @@ static quantapdf_status qp_render_v1_impl(
         status = qp_admit_draw(&clip_op, &flatten,
             plan == NULL ? NULL : plan->from_composer, &clip_draws[ci]);
         if (status != QUANTAPDF_OK) {
-            fprintf(stderr, "native Clip admission rejected: status=%d commands=%zu rule=%d\\n",
-                (int)status, clip->command_count, (int)clip->fill_rule);
-            for (size_t c = 0u; c < clip->command_count; ++c)
-                fprintf(stderr, "  clip[%zu] kind=%d p1=(%.9g,%.9g)\\n",
-                    c, (int)clip->commands[c].kind,
-                    (double)clip->commands[c].point1.x,
-                    (double)clip->commands[c].point1.y);
             goto cleanup;
         }
         if (clip_draws[ci].edge_count >
             (limits->max_sample_tests - total_checks) /
                 (QP_TOTAL_SAMPLES * pixels_count)) {
-            fprintf(stderr, "native Clip sample budget rejected: clip=%zu edges=%zu prior=%zu pixels=%zu budget=%zu\\n",
-                ci, clip_draws[ci].edge_count, total_checks,
-                pixels_count, limits->max_sample_tests);
             status = QUANTAPDF_ERROR_UNSUPPORTED;
             goto cleanup;
         }
@@ -791,13 +768,9 @@ static quantapdf_status qp_render_v1_impl(
                         int visible = draw->one_pixel_stroke ?
                             qp_stroke_inside(flatten.edges, draw, px, py) :
                             qp_inside(flatten.edges, draw, px, py);
-                        const int is_stroke = draw->one_pixel_stroke ||
-                                              draw->rectangular_stroke;
-                        if (!(two_path_clip_sequence && is_stroke)) {
-                            for (ci = 0u; visible && ci < clip_count; ++ci)
-                                visible = qp_inside(
-                                    flatten.edges, &clip_draws[ci], px, py);
-                        }
+                        for (ci = 0u; visible && ci < clip_count; ++ci)
+                            visible = qp_inside(
+                                flatten.edges, &clip_draws[ci], px, py);
                         covered += (unsigned)visible;
                     }
                 }

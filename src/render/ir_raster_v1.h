@@ -22,9 +22,9 @@ typedef struct quantapdf_ir_raster_v1_limits {
  * fixed deterministic 4x4 coverage. Also supports a narrowly bounded
  * *closed triangle*, opaque, solid one-device-pixel stroke under an isometry,
  * and a closed axis-aligned rectangular miter stroke converted to a bounded
- * even-odd ring with transform-aware X/Y widths. The ring path supports the
- * original two-operation sequence: rectangular Stroke, then one frozen
- * nonzero W Clip and opaque Fill. That Clip applies only to the later Fill.
+ * even-odd ring with transform-aware X/Y widths. The scoped renderer supports
+ * the original Stroke, W Clip, Fill sequence using each operation's immutable
+ * graphics state. An explicit Clip passed to this raster applies to all draws.
  * Unsupported widths/joins/dashes/general stroke transforms fail closed.
  * Optional canonical Clip Path intersection is borrowed only by the _clipped entry points;
  * there is no general stroke, alpha, resource or PDFium fallback.
