@@ -26,6 +26,11 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 #define CHECK(e) do { if (!(e)) { \
     std::fprintf(stderr, "%s:%d: source q/Q oracle: %s\n", \
@@ -34,6 +39,8 @@
 #define OK(e) CHECK((e) == QUANTAPDF_OK)
 
 namespace {
+std::string source_prefix;
+size_t negative_index=0u;
 constexpr size_t PAGE = 120u;
 const quantapdf_ir_raster_v1_limits raster_limits = {
     PAGE * PAGE, 4u, 2048u, 200000000u
@@ -62,7 +69,7 @@ struct rgb_image {
 
 /* Real, well-formed source PDF document; all q/Q/W/W* operators are native
  * PDF source syntax parsed after an independent Graph snapshot capture. */
-void make_source(const char *content)
+std::vector<unsigned char> make_source(const char *path,const char *content)
 {
     auto pdf = QPDF::create();
     pdf->emptyPDF();
@@ -81,24 +88,34 @@ void make_source(const char *content)
     writer.setOutputMemory();
     writer.write();
     auto blob = writer.getBufferSharedPointer();
-    FILE *f = std::fopen(STROKE_SOURCE_PDF,"wb");
+    FILE *f = std::fopen(path,"wb");
     CHECK(f != nullptr);
     CHECK(std::fwrite(blob->getBuffer(),1,blob->getSize(),f) ==
           blob->getSize());
     CHECK(std::fclose(f) == 0);
+    return {blob->getBuffer(),blob->getBuffer()+blob->getSize()};
 }
 
-quantapdf_status snapshot_lower(quantapdf_ir *out,
+std::vector<unsigned char> source_bytes(const char *path)
+{
+    FILE *f=std::fopen(path,"rb"); CHECK(f);
+    CHECK(std::fseek(f,0,SEEK_END)==0); const long length=std::ftell(f);
+    CHECK(length>0 && length<=1048576); CHECK(std::fseek(f,0,SEEK_SET)==0);
+    std::vector<unsigned char> bytes(static_cast<size_t>(length));
+    CHECK(std::fread(bytes.data(),1,bytes.size(),f)==bytes.size()); CHECK(std::fclose(f)==0);
+    return bytes;
+}
+
+quantapdf_status snapshot_lower(const char *input_path,quantapdf_ir *out,
                                 size_t page_index=0u,size_t max_streams=3u,
-                                size_t max_parent_steps=2u,
-                                const char *source_path=STROKE_SOURCE_PDF)
+                                size_t max_parent_steps=2u)
 {
     quantapdf_document *doc=nullptr;
     quantapdf_graph_snapshot *snap=nullptr;
     quantapdf_status st;
     CHECK(out != nullptr);
     std::memset(out,0,sizeof(*out));
-    st = quantapdf_open(source_path,nullptr,&doc);
+    st = quantapdf_open(input_path,nullptr,&doc);
     if(st != QUANTAPDF_OK) return st;
     st = quantapdf_document_capture_graph(doc,&graph_limits,&snap);
     quantapdf_close(doc);
@@ -112,7 +129,7 @@ quantapdf_status snapshot_lower(quantapdf_ir *out,
 
 /* Render an unchanged source PDF directly through PDFium's public C API.
  * This oracle bypasses QuantaPDF's document and render wrappers. */
-rgb_image render_direct_pdfium_reference(const char *source_path)
+rgb_image render_direct_pdfium_reference(const char *source_path,int scale=1)
 {
     struct pdfium_runtime {
         pdfium_runtime() { FPDF_InitLibrary(); }
@@ -130,8 +147,8 @@ rgb_image render_direct_pdfium_reference(const char *source_path)
     CHECK(std::isfinite(pw) && std::isfinite(ph) && pw > 0.0 && ph > 0.0);
     CHECK(std::ceil(pw) <= 8192.0 && std::ceil(ph) <= 8192.0 && std::ceil(pw) * std::ceil(ph) <= 60000000.0);
     rgb_image out;
-    out.width = static_cast<int>(std::ceil(pw));
-    out.height = static_cast<int>(std::ceil(ph));
+    out.width = static_cast<int>(std::ceil(pw))*scale;
+    out.height = static_cast<int>(std::ceil(ph))*scale;
     FPDF_BITMAP bitmap = FPDFBitmap_CreateEx(out.width, out.height, FPDFBitmap_BGR, nullptr, 0);
     CHECK(bitmap != nullptr);
     FPDFBitmap_FillRect(bitmap, 0, 0, out.width, out.height, 0xFFFFFFFFu);
@@ -167,21 +184,34 @@ unsigned on_white(const unsigned char *rgba, size_t channel)
 }
 
 void compare(const char *name,const char *content,
-             const std::vector<probe>& probes={})
+             const std::vector<probe>& probes={},int scale=1)
 {
-    make_source(content);
-    quantapdf_ir ir{}; OK(snapshot_lower(&ir));
+    const std::string file=source_prefix+"."+name+".pdf";
+    const auto original=make_source(file.c_str(),content);
+    CHECK(source_bytes(file.c_str())==original);
+    quantapdf_ir ir{}; OK(snapshot_lower(file.c_str(),&ir));
+    CHECK(source_bytes(file.c_str())==original);
     CHECK(ir.operation_count>0u && ir.operation_count<=4u);
     quantapdf_ir_raster_image native{},repeat{};
-    OK(quantapdf_ir_raster_scoped_operations_v2(&ir,0,&raster_limits,&native));
-    OK(quantapdf_ir_raster_scoped_operations_v2(&ir,0,&raster_limits,&repeat));
-    CHECK(native.width==PAGE && native.height==PAGE && native.size==PAGE*PAGE*4u);
+    quantapdf_native_device_plan plan{};
+    auto bounds=raster_limits;
+    CHECK(scale==1 || scale==2);
+    const size_t side=PAGE*static_cast<size_t>(scale);
+    bounds.max_pixels=side*side; bounds.max_sample_tests*=static_cast<size_t>(scale*scale);
+    if(scale==2) OK(quantapdf_native_device_plan_create("0 0 120 120","0 0 120 120","1",0,144,side*side,&plan));
+    const auto render=[&](quantapdf_ir_raster_image *out) {
+        return scale==1 ? quantapdf_ir_raster_scoped_operations_v2(&ir,0,&bounds,out) :
+            quantapdf_ir_raster_scoped_operations_v2_planned(&ir,0,&bounds,&plan,out);
+    };
+    OK(render(&native)); OK(render(&repeat));
+    CHECK(native.width==side && native.height==side && native.size==side*side*4u);
     CHECK(native.size==repeat.size && std::memcmp(native.pixels,repeat.pixels,native.size)==0);
     quantapdf_ir_raster_image_dispose(&repeat);
     quantapdf_ir_dispose(&ir); /* Pixels survive all source/Graph/IR ownership. */
-    const auto reference=render_direct_pdfium_reference(STROKE_SOURCE_PDF);
+    const auto reference=render_direct_pdfium_reference(file.c_str(),scale);
+    CHECK(source_bytes(file.c_str())==original);
     double error=0; size_t gross=0;
-    for(size_t y=0;y<PAGE;++y) for(size_t x=0;x<PAGE;++x) {
+    for(size_t y=0;y<side;++y) for(size_t x=0;x<side;++x) {
         const auto *a=native.pixels+y*native.stride+x*4u;
         const auto *b=reference.at(x,y); unsigned largest=0;
         for(size_t c=0;c<3;++c) {
@@ -190,13 +220,13 @@ void compare(const char *name,const char *content,
         }
         if(largest>64u) ++gross;
     }
-    const double mean=error/static_cast<double>(PAGE*PAGE*3u);
+    const double mean=error/static_cast<double>(side*side*3u);
     std::fprintf(stderr,"stroke original oracle %s: mean=%.4f gross=%zu\n",name,mean,gross);
     /* Different edge antialiasing is expected. Large geometric differences
      * cannot hide behind a mean: separately cap >64 errors and probe solids. */
-    CHECK(mean<2.0 && gross<PAGE*PAGE/100u);
+    CHECK(mean<2.0 && gross<side*side/100u);
     for(const auto& p:probes) {
-        size_t y=PAGE-1u-static_cast<size_t>(p.y_pdf), x=static_cast<size_t>(p.x);
+        size_t y=side-1u-static_cast<size_t>(p.y_pdf*scale), x=static_cast<size_t>(p.x*scale);
         const auto *a=native.pixels+y*native.stride+x*4u;
         const auto *b=reference.at(x,y); const unsigned expected[]={p.r,p.g,p.b};
         for(size_t c=0;c<3;++c) {
@@ -205,19 +235,64 @@ void compare(const char *name,const char *content,
             CHECK(std::abs(static_cast<int>(b[c])-static_cast<int>(expected[c]))<=3);
         }
     }
-    quantapdf_ir_raster_image_dispose(&native); CHECK(std::remove(STROKE_SOURCE_PDF)==0);
+    quantapdf_ir_raster_image_dispose(&native); CHECK(std::remove(file.c_str())==0);
 }
 void negative(const char *content)
 {
-    make_source(content); quantapdf_ir ir{}; OK(snapshot_lower(&ir));
+    const std::string file=source_prefix+".negative-"+std::to_string(++negative_index)+".pdf";
+    const auto original=make_source(file.c_str(),content);
+    quantapdf_ir ir{}; OK(snapshot_lower(file.c_str(),&ir));
     quantapdf_ir_raster_image image{};
     CHECK(quantapdf_ir_raster_scoped_operations_v2(&ir,0,&raster_limits,&image)==QUANTAPDF_ERROR_UNSUPPORTED);
     CHECK(!image.pixels && !image.size && !image.width && !image.height && !image.stride);
-    quantapdf_ir_dispose(&ir); CHECK(std::remove(STROKE_SOURCE_PDF)==0);
+    quantapdf_ir_dispose(&ir); CHECK(source_bytes(file.c_str())==original); CHECK(std::remove(file.c_str())==0);
 }
-}
-int main()
+void test_round_source()
 {
+    compare("round-horizontal-caps","1 0 0 RG 8 w 1 J 40 40 m 80 40 l S",
+        {{37,40,255,0,0},{36,36,255,255,255},{82,40,255,0,0}});
+    compare("round-vertical-caps","1 0 0 RG 8 w 1 J 60 40 m 60 80 l S",
+        {{60,37,255,0,0},{56,36,255,255,255}});
+    compare("round-diagonal-caps","1 0 0 RG 6 w 1 J 20 20 m 90 80 l S");
+    compare("round-outer-join","1 0 0 RG 8 w 1 j 40 40 m 80 40 l 80 90 l S",
+        {{83,36,255,255,255},{82,38,255,0,0}});
+    compare("round-opposite-turn","1 0 0 RG 8 w 1 j 40 80 m 80 80 l 80 30 l S");
+    compare("round-short-butt-end","1 0 0 RG 8 w 1 j 40 40 m 80 40 l 80 42 l S",
+        {{81,43,255,255,255},{81,41,255,0,0}});
+    compare("round-acute-join","1 0 0 RG 6 w 1 j 20 20 m 90 20 l 25 40 l S");
+    compare("round-closed","1 0 0 RG 6 w 1 J 1 j 30 30 m 90 30 l 90 90 l h S");
+    compare("round-both","1 0 0 RG 8 w 1 J 1 j 40 40 m 80 40 l 80 90 l S");
+    compare("round-subpaths","0 0 1 RG 6 w 1 J 1 j 20 30 m 90 75 l 20 75 m 90 30 l S");
+    compare("round-dash-caps","1 0 0 RG 4 w 1 J [16 12] 3 d 20 40 m 100 40 l S");
+    compare("round-dash-join","1 0 0 RG 8 w 1 J 1 j [60 20] 0 d 40 40 m 80 40 l 80 90 l S");
+    compare("round-dash-vertex","1 0 0 RG 8 w 1 J 1 j [40 20] 0 d 40 40 m 80 40 l 80 90 l S");
+    compare("round-dash-seam","1 0 0 RG 8 w 1 J 1 j [50 20] 0 d 40 40 m 80 40 l 80 80 l 40 80 l h S");
+    compare("round-affine","1 0 0 RG 6 w 1 J 1 j 1.5 .2 .3 .7 0 0 cm 20 20 m 55 20 l 55 85 l S");
+    compare("round-reflection","1 0 0 RG 6 w 1 J 1 j -1 .2 .3 .8 95 5 cm 20 20 m 75 20 l 75 90 l S");
+    compare("round-clip-restore","q 30 20 40 60 re W n 1 0 0 RG 8 w 1 J 1 j 20 40 m 90 40 l 90 70 l S Q 0 0 1 rg 10 10 90 10 re f");
+    compare("round-nested-evenodd","q 10 10 100 100 re W n q 20 20 80 80 re 40 40 40 40 re W* n 1 0 0 RG 6 w 1 J [16 12] 0 d 10 60 m 110 60 l S Q 0 0 1 RG 4 w 1 J 10 30 m 110 30 l S Q");
+    compare("round-all-off","4 w 1 J 1 j [1 200] 2 d 20 40 m 100 40 l S");
+    compare("round-thin","1 0 0 RG .5 w 1 J 20 40 m 100 40 l S");
+    compare("round-fit-144","1 0 0 RG 5 w 1 J 1 j 20 30 m 90 30 l 90 85 l S",{},2);
+    compare("round-dash-fit-144","1 0 0 RG 4 w 1 J 1 j [24 16] 3 d 20 30 m 90 30 l 90 85 l S",{},2);
+    negative("0 w 1 J 1 j 20 20 m 90 20 l S");
+    negative("4 w 1 J 1 j 20 20 m 40 50 60 50 90 20 c S");
+    negative("4 w 1 J [0 3] 0 d 20 20 m 90 20 l S");
+}
+
+}
+int main(int argc,char **argv)
+{
+#ifdef _WIN32
+    const auto pid=_getpid();
+#else
+    const auto pid=getpid();
+#endif
+    source_prefix=std::string(STROKE_SOURCE_PDF)+"."+std::to_string(pid);
+    if(argc==2 && std::strcmp(argv[1],"--round")==0) {
+        source_prefix+=".round"; test_round_source(); return EXIT_SUCCESS;
+    }
+    CHECK(argc==1);
     compare("butt-miter-open","1 0 0 RG 8 w 0 J 0 j 10 M 40 40 m 80 40 l 80 80 l S",
         {{82,37,255,0,0},{37,40,255,255,255},{60,60,255,255,255},{60,40,255,0,0}});
     compare("square-bevel","1 0 0 RG 8 w 2 J 2 j 40 40 m 80 40 l 80 80 l S",
@@ -266,8 +341,8 @@ int main()
     compare("dash-bevel-join","1 0 0 RG 8 w 2 j [60 20] 0 d 40 40 m 80 40 l 80 90 l S",
         {{82,37,255,255,255},{80,50,255,0,0}});
     negative("1 0 0 RG 4 w 20 20 m 90 20 l S 0 w 20 40 m 90 40 l S");
-    negative("4 w 1 J 20 20 m 90 20 l S");
-    negative("4 w 1 j 20 20 m 90 20 l 90 90 l S");
+    negative("4 w 20 20 m 90 20 l h S");
+    negative("4 w 1 j 20 20 m 90 20 l 20 20 l S");
     negative("4 w [0 3] 0 d 20 20 m 90 20 l S");
     negative("4 w 20 20 m 40 50 60 50 90 20 c S");
     return EXIT_SUCCESS;

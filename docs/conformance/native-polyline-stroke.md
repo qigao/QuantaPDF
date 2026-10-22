@@ -8,8 +8,8 @@ linkage and final removal gates remain open. No public C11 ABI changes.
 ## Admitted geometry
 
 Opaque, stroke-only MOVE/LINE/CLOSE paths support multiple segments
-and subpaths, positive user-space width up to 2048, butt/square caps and
-miter/bevel joins. Miter limits range from 1 through 1000. A miter beyond its
+and subpaths, positive user-space width up to 2048, butt/square/round caps and
+miter/bevel/round joins. Miter limits range from 1 through 1000. A miter beyond its
 limit becomes a bevel as required by Stroke semantics. An open subpath stays
 open; only an explicit CLOSE creates its closing segment (and the seam join
 for solid Stroke).
@@ -17,7 +17,8 @@ Consecutive identical vertices collapse; an explicitly repeated first vertex
 is removed before handling CLOSE. Collinear forward segments need no wedge.
 
 Each segment creates a rectangle, and each outer join creates a bevel triangle
-or miter quadrilateral. All pieces have the same orientation, making nonzero
+or miter quadrilateral. Round caps use outward semicircles; round joins use
+only the outer circular sector. All pieces have the same orientation, making nonzero
 winding their union, including overlaps and self intersections. Stroke does
 not use the source fill winding rule. Interior corner overlap is intentional.
 Square caps extend only the first/last endpoint of an open subpath.
@@ -28,6 +29,32 @@ by the sampler. Nonuniform scale, shear, rotation and reflection therefore
 transform the entire outline, rather than scaling a device-space width.
 Frozen Clip leaves and per-operation q/Q associations use the existing scoped
 Clip DAG and shared subpixel membership tests.
+
+## Round sectors and device error
+
+Round caps and joins follow ISO 32000-1, 8.4.3.3–8.4.3.4: caps use an
+outward semicircle, while joins connect the two outer stroke edges with a
+circular sector. A full disk at a join could spill beyond the butt end of a
+short adjacent segment, so the geometry emits only the required sector.
+Solid and positive-dash paths share these cap/join producers.
+
+Each circular sector is an inscribed polygon with 2..512 angular segments.
+For radius `r`, total angle `a`, and `n` segments, the chord error is at most
+`r * a² / (8*n²)` in user space. The Frobenius norm of the complete authored
+linear transform followed by the FIT transform bounds magnification into
+pixels, including nonuniform scale, shear and reflection. Subdivision doubles
+until the resulting chord bound is at most 1/64 pixel. The compiler also
+measures every sector vertex's actual double-to-Composer-float rounding error,
+requiring its magnified value to be at most 1/128 pixel. This leaves the sector
+geometry within 1/32 pixel of its ideal arc; antialiasing remains the existing
+4x4 sampler and has its separate source-oracle tolerance.
+
+The planned outline entry point borrows the checked FIT plan solely to choose
+arc detail and check precision. The returned fill remains in user space and
+must be sampled with the same plan. No plan/provider pointer escapes. The
+unplanned entry point uses the authored transform and an identity device map.
+An excessive segment count, unrepresentable float precision, singular/nonfinite
+transform or insufficient output/edge/sample capacity fails atomically.
 
 ## Dash pattern
 
@@ -73,7 +100,7 @@ are disposed on success or any failure. No source, Graph, qpdf, PDFium or
 provider state is retained. A late unsupported layer discards
 the complete final image. Every failure resets the caller's image output.
 
-Hairlines/zero width, round caps/joins, curves, zero dash entries, alpha,
+Hairlines/zero width, curves, zero dash entries, alpha,
 paint resources, exact reversal/cusps, move-only/all-zero subpaths, closed
 subpaths with fewer than three distinct vertices, invalid coordinates and
 exhausted budgets remain explicit refusals. This profile requires MOVE after
@@ -90,6 +117,8 @@ V1/M2; it is not claimed as a V2 positive.
 `quantapdf.native_stroke_polyline_v1` compiles as strict pure C11 without qpdf
 or PDFium linkage. Numerical goldens cover miter/bevel/limit behavior, caps,
 explicit closing, overlapping contour union, transformed widths, FIT scaling,
+round-sector coverage, short-segment spill prevention, measured float chord
+error, device-dependent subdivision, precision/segment-limit refusals,
 detached outline lifetime, immutable input, malformed/budget refusals and
 late-operation atomic rejection. Dash goldens cover odd repetition, modulo
 phase equivalence, on/off probes, restart at MOVE, crossing/ending at a vertex,
@@ -108,6 +137,19 @@ q/Q pattern restoration. It also checks five source negatives.
 Per fixture, mean absolute channel error must stay below 2/255, fewer than 1%
 of pixels may have a channel error above 64, and explicit solid/empty/color
 probes must match within 3/255. Different edge antialiasing is allowed.
+
+`quantapdf.native_round_stroke_oracle` runs a separate mode of the same source
+oracle with process/fixture-specific generated filenames, allowing parallel
+CTest runs without sharing a source path. Exact original bytes from QPDFWriter
+are checked after writing, Graph lowering and direct PDFium rendering; negative
+cases also verify unchanged source bytes before cleanup.
+Its 22 positives cover horizontal/vertical/diagonal caps, both turn directions,
+acute/closed/short joins, subpaths, positive dashes and seams, affine/reflected
+transforms, nested W/W* Clip, q/Q restore, all-off and thin strokes, plus two
+144-DPI FIT comparisons with direct PDFium renders on the same 240x240 grid.
+Three additional source negatives exercise hairline, cubic and zero-dash
+refusals. The mean/gross/probe thresholds are unchanged. Source and Graph are
+destroyed before native rasterization, and detached pixels survive IR disposal.
 
 These are generated feature fixtures. They add no independently published
 PDFs or formal external W* positives to the existing four-document corpus.

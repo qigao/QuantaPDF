@@ -45,8 +45,9 @@ including bounded ToUnicode, text state and Form resources.
 interpreter with detached font-metric selection cells and source styles.
 
 The private [linear Stroke V2 profile](native-polyline-stroke.md) now adds
-bounded multi-segment/subpath butt/square and miter/bevel outlines, positive
-dash arrays with odd repetition/phase, user-space widths and affine transforms to the native rendering prerequisites. The
+bounded multi-segment/subpath butt/square/round and miter/bevel/round outlines,
+positive dash arrays with odd repetition/phase, device-error-bounded round
+sectors, user-space widths and affine transforms to the native rendering prerequisites. The
 original V1/M2 profile and external corpus accounting remain unchanged.
 
 ## Remaining production dependency

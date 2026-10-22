@@ -10,13 +10,17 @@
 #define QP_STROKE_COORD 1000000.0
 #define QP_DASH_ITEMS 64u
 #define QP_DASH_WORK 65536u
+#define QP_ARC_SEGMENTS 512u
+#define QP_ARC_CHORD_ERROR (1.0/64.0)
+#define QP_ARC_FLOAT_ERROR (1.0/128.0)
+#define QP_PI 3.14159265358979323846
 
 typedef struct stroke_point { double x, y; } stroke_point;
 typedef struct stroke_builder {
     quantapdf_composer_path_command *commands;
     size_t count, edges, max_edges, dash_work;
     const quantapdf_composer_path_operation *source;
-    double dash_period;
+    double dash_period, arc_scale;
     const quantapdf_composer_path_options *options;
 } stroke_builder;
 
@@ -56,6 +60,58 @@ static quantapdf_status polygon(stroke_builder *b, stroke_point *p, size_t n)
     b->edges += n;
     return QUANTAPDF_OK;
 }
+/* Frobenius norm bounds all linear magnification, including shear and the
+ * final FIT grid. Translation does not amplify chord/float error. */
+static double arc_scale(const quantapdf_composer_path_options *o,const double *device)
+{
+    double a=1,b=0,c=0,d=1;
+    if(o->struct_size>=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_MIN_SIZE) {
+        const quantapdf_affine_transform *t=&o->transform;
+        int zero=t->a==0 && t->b==0 && t->c==0 && t->d==0 && t->e==0 && t->f==0;
+        if(!zero) {
+            if(!isfinite(t->e) || !isfinite(t->f) || fabs(t->e)>QP_STROKE_COORD || fabs(t->f)>QP_STROKE_COORD) return 0;
+            a=t->a; b=t->b; c=t->c; d=t->d;
+        }
+    }
+    if(device) {
+        const double aa=a,bb=b,cc=c,dd=d;
+        a=aa*device[0]+bb*device[2]; b=aa*device[1]+bb*device[3];
+        c=cc*device[0]+dd*device[2]; d=cc*device[1]+dd*device[3];
+    }
+    if(!isfinite(a) || !isfinite(b) || !isfinite(c) || !isfinite(d) ||
+        fabs(a)>QP_STROKE_COORD || fabs(b)>QP_STROKE_COORD ||
+        fabs(c)>QP_STROKE_COORD || fabs(d)>QP_STROKE_COORD || a*d-b*c==0.0) return 0;
+    return hypot(hypot(a,b),hypot(c,d));
+}
+static quantapdf_status arc_sector(stroke_builder *b,stroke_point at,
+    stroke_point start,stroke_point end,double angle)
+{
+    stroke_point p[QP_ARC_SEGMENTS+2u];
+    size_t steps=2u;
+    double r=(double)b->options->stroke_width/2.0;
+    /* 1-cos(t/2) <= t*t/8 bounds sagitta without inverse trig cancellation. */
+    double bound=r*b->arc_scale*angle*angle/8.0;
+    while(steps<QP_ARC_SEGMENTS && bound/((double)steps*(double)steps)>QP_ARC_CHORD_ERROR) steps*=2u;
+    if(bound/((double)steps*(double)steps)>QP_ARC_CHORD_ERROR) return QUANTAPDF_ERROR_UNSUPPORTED;
+    p[0]=at;
+    for(size_t i=0;i<=steps;++i) {
+        double theta=angle*(double)i/(double)steps;
+        stroke_point unit=i==0u ? start : i==steps ? end :
+            (stroke_point){start.x*cos(theta)-start.y*sin(theta),start.x*sin(theta)+start.y*cos(theta)};
+        p[i+1u]=(stroke_point){at.x+r*unit.x,at.y+r*unit.y};
+    }
+    for(size_t i=0;i<steps+2u;++i) {
+        if(!valid_point(p[i]) || hypot((double)(float)p[i].x-p[i].x,
+            (double)(float)p[i].y-p[i].y)*b->arc_scale>QP_ARC_FLOAT_ERROR)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    return polygon(b,p,steps+2u);
+}
+static quantapdf_status round_cap(stroke_builder *b,stroke_point at,stroke_point u,int start)
+{
+    stroke_point normal={-u.y,u.x},opposite={u.y,-u.x};
+    return arc_sector(b,at,normal,opposite,start ? QP_PI : -QP_PI);
+}
 static int direction(stroke_point a, stroke_point b, stroke_point *u)
 {
     double dx=b.x-a.x, dy=b.y-a.y, length=hypot(dx,dy);
@@ -76,7 +132,13 @@ static quantapdf_status segment(stroke_builder *b,stroke_point a,
     p[1]=(stroke_point){z.x-u.y*hw,z.y+u.x*hw};
     p[2]=(stroke_point){z.x+u.y*hw,z.y-u.x*hw};
     p[3]=(stroke_point){a.x+u.y*hw,a.y-u.x*hw};
-    return polygon(b,p,4u);
+    quantapdf_status status=polygon(b,p,4u);
+    if(status!=QUANTAPDF_OK) return status;
+    if(b->options->line_cap==QUANTAPDF_COMPOSER_LINE_CAP_ROUND) {
+        if(start_cap) { status=round_cap(b,a,u,1); if(status!=QUANTAPDF_OK) return status; }
+        if(end_cap) return round_cap(b,z,u,0);
+    }
+    return QUANTAPDF_OK;
 }
 static quantapdf_status join(stroke_builder *b,stroke_point a,
     stroke_point at,stroke_point z)
@@ -92,6 +154,10 @@ static quantapdf_status join(stroke_builder *b,stroke_point a,
         return dot > 0.0 ? QUANTAPDF_OK : QUANTAPDF_ERROR_UNSUPPORTED;
     }
     side=cross > 0.0 ? -1.0 : 1.0;
+    if(b->options->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_ROUND) {
+        stroke_point first={-u.y*side,u.x*side},last={-v.y*side,v.x*side};
+        return arc_sector(b,at,first,last,atan2(cross,dot));
+    }
     p[0]=at;
     p[1]=(stroke_point){at.x-u.y*hw*side,at.y+u.x*hw*side};
     p[2]=(stroke_point){at.x-v.y*hw*side,at.y+v.x*hw*side};
@@ -115,6 +181,7 @@ static quantapdf_status dash_cap(stroke_builder *b,stroke_point at,
     double hw=(double)b->options->stroke_width/2.0;
     double sign=start ? -1.0 : 1.0;
     if(b->options->line_cap==QUANTAPDF_COMPOSER_LINE_CAP_BUTT) return QUANTAPDF_OK;
+    if(b->options->line_cap==QUANTAPDF_COMPOSER_LINE_CAP_ROUND) return round_cap(b,at,u,start);
     p[0]=(stroke_point){at.x-u.y*hw,at.y+u.x*hw};
     p[1]=(stroke_point){p[0].x+sign*u.x*hw,p[0].y+sign*u.y*hw};
     p[2]=(stroke_point){at.x+u.y*hw+sign*u.x*hw,at.y-u.x*hw+sign*u.y*hw};
@@ -212,8 +279,8 @@ void quantapdf_ir_stroke_polyline_dispose_v1(quantapdf_composer_path_operation *
     if (!fill) return;
     free(fill->commands); memset(fill,0,sizeof(*fill));
 }
-quantapdf_status quantapdf_ir_stroke_polyline_outline_v1(
-    const quantapdf_composer_path_operation *source,size_t max_edges,
+static quantapdf_status outline_impl(
+    const quantapdf_composer_path_operation *source,size_t max_edges,const double *device,
     quantapdf_composer_path_operation *out_fill)
 {
     stroke_builder b={0};
@@ -232,9 +299,11 @@ quantapdf_status quantapdf_ir_stroke_polyline_outline_v1(
         !isfinite(o->stroke_width) || o->stroke_width<=0 || o->stroke_width>2048 ||
         !isfinite(o->miter_limit) || o->miter_limit<1 || o->miter_limit>1000 ||
         (o->line_cap!=QUANTAPDF_COMPOSER_LINE_CAP_BUTT &&
-         o->line_cap!=QUANTAPDF_COMPOSER_LINE_CAP_SQUARE) ||
+         o->line_cap!=QUANTAPDF_COMPOSER_LINE_CAP_SQUARE &&
+         o->line_cap!=QUANTAPDF_COMPOSER_LINE_CAP_ROUND) ||
         (o->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_MITER &&
-         o->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL) ||
+         o->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL &&
+         o->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND) ||
         source->dash_count>QP_DASH_ITEMS || !isfinite(source->dash_phase) ||
         source->dash_phase<0 || source->dash_phase>1000000000.0f ||
         (source->dash_count==0u && source->dash_phase!=0) ||
@@ -243,6 +312,10 @@ quantapdf_status quantapdf_ir_stroke_polyline_outline_v1(
         (o->struct_size>=QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_MIN_SIZE &&
          (o->fill_paint_id!=0 || o->stroke_paint_id!=0)))
         return QUANTAPDF_ERROR_UNSUPPORTED;
+    if(o->line_cap==QUANTAPDF_COMPOSER_LINE_CAP_ROUND || o->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_ROUND) {
+        b.arc_scale=arc_scale(o,device);
+        if(b.arc_scale<=0.0) return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
     for(size_t i=0;i<source->dash_count;++i) {
         double v=source->dash_lengths[i];
         /* Zero entries require explicit zero-length cap semantics; until
@@ -298,4 +371,22 @@ quantapdf_status quantapdf_ir_stroke_polyline_outline_v1(
     return QUANTAPDF_OK;
 fail:
     free(b.commands); return status==QUANTAPDF_OK ? QUANTAPDF_ERROR_UNSUPPORTED : status;
+}
+
+quantapdf_status quantapdf_ir_stroke_polyline_outline_v1(
+    const quantapdf_composer_path_operation *source,size_t max_edges,
+    quantapdf_composer_path_operation *out_fill)
+{
+    return outline_impl(source,max_edges,NULL,out_fill);
+}
+quantapdf_status quantapdf_ir_stroke_polyline_outline_v1_planned(
+    const quantapdf_composer_path_operation *source,size_t max_edges,
+    const quantapdf_native_device_plan *plan,quantapdf_composer_path_operation *out_fill)
+{
+    if(!out_fill) return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out_fill,0,sizeof(*out_fill));
+    if(!plan) return QUANTAPDF_ERROR_ARGUMENT;
+    if(!quantapdf_native_device_plan_matches_page(plan,(float)plan->width_points,
+        (float)plan->height_points,QUANTAPDF_NATIVE_DEVICE_MAX_PIXELS)) return QUANTAPDF_ERROR_UNSUPPORTED;
+    return outline_impl(source,max_edges,plan->from_composer,out_fill);
 }

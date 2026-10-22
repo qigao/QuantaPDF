@@ -8,15 +8,21 @@ extern "C" {
 #endif
 
 /* Detached, bounded user-space outline for opaque linear strokes.
- * MOVE/LINE/CLOSE, positive width, butt/square caps, miter/bevel joins.
+ * MOVE/LINE/CLOSE, positive width, butt/square/round caps, miter/bevel/round joins.
  * Positive dash arrays (<=64 items), odd repetition and nonnegative phase.
- * No zero dash entries, hairline, round, cubic, alpha or provider fallback.
+ * No zero dash entries, hairline, cubic, alpha or provider fallback.
  * The fill preserves the authored affine transform; callers borrow it
  * synchronously and dispose commands after sampling. Source/output must not
  * alias. Dispose earlier successful output before reuse; failure zeroes output. */
 quantapdf_status quantapdf_ir_stroke_polyline_outline_v1(
     const quantapdf_composer_path_operation *source, size_t max_edges,
     quantapdf_composer_path_operation *out_fill);
+/* Round arc subdivision accounts for the final FIT plan as well as the
+ * authored transform. The returned fill still lives in user space; sample
+ * with this same plan. Chord error <=1/64 px, float error <=1/128 px. */
+quantapdf_status quantapdf_ir_stroke_polyline_outline_v1_planned(
+    const quantapdf_composer_path_operation *source,size_t max_edges,
+    const quantapdf_native_device_plan *plan,quantapdf_composer_path_operation *out_fill);
 void quantapdf_ir_stroke_polyline_dispose_v1(
     quantapdf_composer_path_operation *fill);
 

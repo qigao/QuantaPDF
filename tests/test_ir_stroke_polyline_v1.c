@@ -136,6 +136,84 @@ static void test_dashes(void)
     dash_line(); dash(4,4,0); float copy[2]={dashes[0],dashes[1]}; image=render();
     CHECK(memcmp(copy,dashes,sizeof(copy))==0); quantapdf_ir_raster_image_dispose(&image);
 }
+/* Measure the emitted float chords against an independent radius-2 circle,
+ * rather than duplicating the tessellator's segment-count formula. */
+static void check_round_chords(const quantapdf_composer_path_operation *fill,double scale)
+{
+    size_t begin=0,arcs=0;
+    while(begin<fill->command_count) {
+        size_t end=begin;
+        while(end<fill->command_count && fill->commands[end].kind!=QUANTAPDF_COMPOSER_PATH_CLOSE) ++end;
+        CHECK(end<fill->command_count);
+        if(end-begin>4u) {
+            quantapdf_point center={(float)(arcs==0u ? 8 : 16),16};
+            size_t ci=begin,vertices=end-begin;
+            while(ci<end && (fill->commands[ci].point1.x!=center.x || fill->commands[ci].point1.y!=center.y)) ++ci;
+            CHECK(ci<end); ++arcs;
+            /* Polygon winding normalization may put the known center first
+             * or last. Traverse its arc boundary without assuming ordering. */
+            for(size_t i=1u;i+1u<vertices;++i) {
+                quantapdf_point a=fill->commands[begin+(ci-begin+i)%vertices].point1;
+                quantapdf_point b=fill->commands[begin+(ci-begin+i+1u)%vertices].point1;
+                double mx=((double)a.x+b.x)/2.0-center.x,my=((double)a.y+b.y)/2.0-center.y;
+                CHECK(fabs(hypot((double)a.x-center.x,(double)a.y-center.y)-2.0)*scale<0.00001);
+                CHECK((2.0-hypot(mx,my))*scale<=1.0/64.0);
+            }
+        }
+        begin=end+1u;
+    }
+    CHECK(arcs==2u);
+}
+static void test_round(void)
+{
+    quantapdf_ir_raster_image image={0};
+    /* Independent 4x4 coverage probes distinguish a radius-2 circular cap
+     * from both a butt edge and the square corner outside that circle. */
+    dash_line(); ops[0].value.path.options.stroke_width=4;
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
+    image=render(); CHECK(alpha(&image,2,15)>0 && alpha(&image,2,14)<100 && alpha(&image,4,15)==255);
+    CHECK(alpha(&image,29,15)>0 && alpha(&image,29,14)<100); quantapdf_ir_raster_image_dispose(&image);
+    init(); ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND;
+    image=render(); CHECK(alpha(&image,17,17)>0 && alpha(&image,17,17)<100);
+    CHECK(alpha(&image,16,16)==255); quantapdf_ir_raster_image_dispose(&image);
+    /* A round join is only its outer sector. A full disk would spill past
+     * the butt end of this short last segment (pixel 16,14). */
+    init(); commands[2].point1.y=15.5f; ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND;
+    image=render(); CHECK(alpha(&image,16,14)==0 && alpha(&image,15,15)==255);
+    quantapdf_ir_raster_image_dispose(&image);
+    dash_line(); dash(4,6,0); ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
+    image=render(); CHECK(alpha(&image,3,15)>0 && alpha(&image,8,15)>0 && alpha(&image,10,15)==0);
+    quantapdf_ir_raster_image_dispose(&image);
+    /* Device scaling must increase arc detail as well as stroke width. */
+    init(); ops[0].value.path.command_count=2;
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
+    quantapdf_composer_path_operation native={0},fitted={0}; quantapdf_native_device_plan plan={0};
+    OK(quantapdf_native_device_plan_create("0 0 32 32","0 0 32 32","1",0,144,4096,&plan));
+    OK(quantapdf_ir_stroke_polyline_outline_v1(&ops[0].value.path,4096,&native));
+    OK(quantapdf_ir_stroke_polyline_outline_v1_planned(&ops[0].value.path,4096,&plan,&fitted));
+    CHECK(fitted.command_count>native.command_count);
+    check_round_chords(&native,1.0); check_round_chords(&fitted,2.0);
+    quantapdf_ir_stroke_polyline_dispose_v1(&native); quantapdf_ir_stroke_polyline_dispose_v1(&fitted);
+    quantapdf_ir_raster_v1_limits device_limits={4096,2,4096,64000000};
+    OK(quantapdf_ir_raster_scoped_operations_v2_planned(&ir,0,&device_limits,&plan,&image));
+    CHECK(alpha(&image,13,31)>0 && alpha(&image,12,28)<100); quantapdf_ir_raster_image_dispose(&image);
+    /* Shear/reflection affect the bound; finite but excessive scale refuses
+     * when 512 segments cannot satisfy device tolerance. */
+    ops[0].value.path.options.transform=(quantapdf_affine_transform){-2,0,.5f,1,30,0}; image=render();
+    quantapdf_ir_raster_image_dispose(&image);
+    ops[0].value.path.options.transform=(quantapdf_affine_transform){1000000,0,0,1000000,0,0}; reject();
+    init(); ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
+    commands[0].point1=(quantapdf_point){999990,16}; commands[1].point1=(quantapdf_point){999995,16};
+    ops[0].value.path.command_count=2; reject(); /* float arc precision at large origin */
+    init(); ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND;
+    commands[2].point1=commands[0].point1; reject();
+    init(); ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
+    quantapdf_ir_raster_v1_limits tiny=limits; tiny.max_edges=8;
+    CHECK(quantapdf_ir_raster_scoped_operations_v2(&ir,0,&tiny,&image)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(!image.pixels && !image.size);
+    CHECK(quantapdf_ir_stroke_polyline_outline_v1_planned(&ops[0].value.path,512,NULL,&native)==QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(!native.commands && !native.command_count);
+}
 int main(void)
 {
     quantapdf_ir_raster_image image={0};
@@ -169,8 +247,8 @@ int main(void)
     quantapdf_ir_stroke_polyline_dispose_v1(&fill); CHECK(!fill.commands && !fill.command_count);
     init(); ops[0].value.path.options.stroke_width=0; reject();
     init(); ops[0].value.path.options.stroke_width=NAN; reject();
-    init(); ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND; reject();
-    init(); ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND; reject();
+    init(); ops[0].value.path.options.line_cap=(quantapdf_composer_line_cap)99; reject();
+    init(); ops[0].value.path.options.line_join=(quantapdf_composer_line_join)99; reject();
     init(); ops[0].value.path.dash_count=1; reject();
     init(); ops[0].value.path.dash_phase=1; reject();
     init(); ops[0].value.path.options.stroke_argb=0x80ff0000u; reject();
@@ -201,5 +279,6 @@ int main(void)
     CHECK(quantapdf_ir_raster_scoped_operations_v2_planned(&ir,0,&limits,NULL,&image)==QUANTAPDF_ERROR_ARGUMENT);
     CHECK(!image.pixels && !image.size);
     test_dashes();
+    test_round();
     return 0;
 }
