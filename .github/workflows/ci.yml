@@ -126,7 +126,8 @@ jobs:
           python3 tools/qualification/quarantined_jspdf_native_negative.py \
             --source "$original" \
             --executable build/linux-gcc-release/tests/quantapdf_test_native_source_qq_oracle \
-            --report "$RUNNER_TEMP/qp269-quarantined-native-negative.json"
+            --report "$RUNNER_TEMP/qp269-quarantined-native-negative.json" \
+            --require-native-denial
 
       - name: Upload quarantined original geometry (Linux, opt-in)
         if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
@@ -401,7 +402,8 @@ jobs:
           python3 tools/qualification/quarantined_jspdf_native_negative.py \
             --source "$original" \
             --executable "build/macos-clang-release/tests/quantapdf_test_native_source_qq_oracle" \
-            --report "$RUNNER_TEMP/qp269-quarantined-native-negative.json"
+            --report "$RUNNER_TEMP/qp269-quarantined-native-negative.json" \
+            --require-native-denial
 
       - name: Upload quarantined original geometry (macOS, opt-in)
         if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
@@ -641,7 +643,7 @@ jobs:
             $nativeExe = Join-Path $env:GITHUB_WORKSPACE 'build\Msvc-Release\tests\quantapdf_test_native_source_qq_oracle.exe'
             $nativeReport = Join-Path $env:RUNNER_TEMP 'qp269-quarantined-native-negative.json'
             if (-not (Test-Path $nativeExe)) { throw 'Built native source test executable missing' }
-            python tools/qualification/quarantined_jspdf_native_negative.py --source $original --executable $nativeExe --report $nativeReport
+            python tools/qualification/quarantined_jspdf_native_negative.py --source $original --executable $nativeExe --report $nativeReport --require-native-denial
             if ($LASTEXITCODE -ne 0) { throw 'Quarantined original native negative observation failed' }
           } finally {
             Remove-Item -LiteralPath $original -Force -ErrorAction SilentlyContinue
