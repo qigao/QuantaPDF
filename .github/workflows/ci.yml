@@ -398,6 +398,10 @@ jobs:
             --source "$original" \
             --executable "build/macos-clang-release/tests/quantapdf_test_graph_page_geometry" \
             --report "$RUNNER_TEMP/qp269-quarantined-original-geometry.json"
+          python3 tools/qualification/quarantined_jspdf_native_negative.py \
+            --source "$original" \
+            --executable "build/macos-clang-release/tests/quantapdf_test_native_source_qq_oracle" \
+            --report "$RUNNER_TEMP/qp269-quarantined-native-negative.json"
 
       - name: Upload quarantined original geometry (macOS, opt-in)
         if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
@@ -405,6 +409,15 @@ jobs:
         with:
           name: quarantined-original-geometry-macos
           path: ${{ runner.temp }}/qp269-quarantined-original-geometry.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload quarantined native-negative observation (macOS, opt-in)
+        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-native-negative-macos
+          path: ${{ runner.temp }}/qp269-quarantined-native-negative.json
           if-no-files-found: error
           retention-days: 7
 
@@ -625,6 +638,11 @@ jobs:
             if (-not (Test-Path $exe)) { throw 'Built geometry test executable missing' }
             python tools/qualification/quarantined_jspdf_geometry.py --source $original --executable $exe --report $report
             if ($LASTEXITCODE -ne 0) { throw 'Quarantined original geometry qualification failed' }
+            $nativeExe = Join-Path $env:GITHUB_WORKSPACE 'build\Msvc-Release\tests\quantapdf_test_native_source_qq_oracle.exe'
+            $nativeReport = Join-Path $env:RUNNER_TEMP 'qp269-quarantined-native-negative.json'
+            if (-not (Test-Path $nativeExe)) { throw 'Built native source test executable missing' }
+            python tools/qualification/quarantined_jspdf_native_negative.py --source $original --executable $nativeExe --report $nativeReport
+            if ($LASTEXITCODE -ne 0) { throw 'Quarantined original native negative observation failed' }
           } finally {
             Remove-Item -LiteralPath $original -Force -ErrorAction SilentlyContinue
           }
@@ -635,6 +653,15 @@ jobs:
         with:
           name: quarantined-original-geometry-windows
           path: ${{ runner.temp }}/qp269-quarantined-original-geometry.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload quarantined native-negative observation (Windows, opt-in)
+        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-native-negative-windows
+          path: ${{ runner.temp }}/qp269-quarantined-native-negative.json
           if-no-files-found: error
           retention-days: 7
 
