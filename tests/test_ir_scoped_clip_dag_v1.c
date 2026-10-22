@@ -363,9 +363,19 @@ static int test_rejection_and_atomicity(void)
     CHECK(image.pixels == NULL && image.size == 0u);
     f.ops[2].value.path.options.stroke = 0;
 
-    budget.max_edges = 36u; /* 12 edges allotted per op < 16 for nested */
+    /* A weighted global budget can admit the nested operation that needs
+     * 16 edges; the old equal split (36 / 3 = 12) rejected it despite total
+     * work fitting within 36. The aggregate cap must still reject 24 edges. */
+    budget.max_edges = 36u;
+    OK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&image));
+    CHECK(image.pixels != NULL && image.size == 8u * 8u * 4u);
+    quantapdf_ir_raster_image_dispose(&image);
+    budget.max_edges = 24u;
+    image.pixels = (unsigned char *)(uintptr_t)1u;
+    image.size = SIZE_MAX;
     CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&image) ==
           QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(image.pixels == NULL && image.size == 0u);
     budget.max_edges = 192u;
 
     budget.max_sample_tests = 12u;
