@@ -20,12 +20,13 @@ typedef struct quantapdf_ir_raster_v1_limits {
 /* Private C11 API: general opaque solid-filled paths with MOVE/LINE/CUBIC/
  * CLOSE, affine transforms, implicit closing, even-odd/nonzero winding and
  * fixed deterministic 4x4 coverage. Also supports a narrowly bounded
- * *closed triangle*, opaque, solid **one-device-pixel stroke** with butt cap,
- * miter join, default miter=10, no dashes and an isometric transform;
- * its joins must lie outside one canonical rectangle Clip, so the native
- * segment sampler never approximates visible miter joins.
- * Unsupported widths/joins/transforms still fail closed. Optional canonical
- * Clip Path intersection is borrowed only by the _clipped entry points;
+ * *closed triangle*, opaque, solid one-device-pixel stroke under an isometry,
+ * and a closed axis-aligned rectangular miter stroke converted to a bounded
+ * even-odd ring with transform-aware X/Y widths. The scoped renderer supports
+ * the original Stroke, W Clip, Fill sequence using each operation's immutable
+ * graphics state. An explicit Clip passed to this raster applies to all draws.
+ * Unsupported widths/joins/dashes/general stroke transforms fail closed.
+ * Optional canonical Clip Path intersection is borrowed only by the _clipped entry points;
  * there is no general stroke, alpha, resource or PDFium fallback.
  * The IR is borrowed; pixels are detached.
  * Output is reset on error, and callers dispose previous successful output

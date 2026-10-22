@@ -1,4 +1,4 @@
-/* M1: unchanged literal source PDF -> owned Graph -> detached IR + device
+/* M1/M2: unchanged literal source PDF -> owned Graph -> detached IR + device
  * plan -> Native. PDFium is an independent original-source FIT oracle.
  * The expected grid and 4x4 coverage below use fixture integer coordinates,
  * never a Graph value, production affine, or Native-rendered reference. */
@@ -77,8 +77,12 @@ std::string content(const fixture& f, int stroke_position)
     std::string result = stroke_position == 1 ? stroke : "";
     result += "q " +
         rectangle(f.x + f.step, f.y + f.step, 6 * f.step, 4 * f.step) +
-        "W n 1 0 0 rg " +
-        rectangle(f.x, f.y, 6 * f.step, 6 * f.step) + "f Q\n";
+        "W n ";
+    if (stroke_position == 4) result += stroke;
+    result += "1 0 0 rg " +
+        rectangle(f.x, f.y, 6 * f.step, 6 * f.step) + "f\n";
+    if (stroke_position == 3) result += stroke;
+    result += "Q\n";
     if (stroke_position == 2) result += stroke;
     return result;
 }
@@ -409,12 +413,27 @@ void rejections(const fixture& f, const std::string& path)
               ir.operations[stroke].value.path.options.fill == 0 &&
               ir.operations[stroke].value.path.command_count == 5u &&
               ir.operations[fill].value.path.options.fill == 1);
-        for (unsigned repeat = 0u; repeat < 2u; ++repeat) {
-            quantapdf_ir_raster_image image;
-            std::memset(&image, 0xa5, sizeof(image));
-            CHECK(quantapdf_ir_raster_scoped_operations_v1_planned(
-                &ir, 0u, &raster_limits, &plan, &image) == QUANTAPDF_ERROR_UNSUPPORTED);
-            CHECK(all_zero(&image, sizeof(image)));
+        {
+            quantapdf_ir_raster_image first{}, second{};
+            OK(quantapdf_ir_raster_scoped_operations_v1_planned(
+                &ir, 0u, &raster_limits, &plan, &first));
+            OK(quantapdf_ir_raster_scoped_operations_v1_planned(
+                &ir, 0u, &raster_limits, &plan, &second));
+            CHECK(first.pixels && second.pixels &&
+                  first.width == plan.width && first.height == plan.height &&
+                  first.stride == plan.stride && first.size == plan.size &&
+                  std::memcmp(first.pixels, second.pixels, first.size) == 0);
+            size_t red = 0u, black = 0u;
+            for (size_t p = 0u; p < first.size; p += 4u) {
+                const auto *px = first.pixels + p;
+                if (px[0] == 255u && px[1] == 0u && px[2] == 0u && px[3] != 0u)
+                    ++red;
+                if (px[0] == 0u && px[1] == 0u && px[2] == 0u && px[3] != 0u)
+                    ++black;
+            }
+            CHECK(red > 0u && black > 0u);
+            quantapdf_ir_raster_image_dispose(&first);
+            quantapdf_ir_raster_image_dispose(&second);
         }
         quantapdf_ir_dispose(&ir);
         CHECK(read_file(path.c_str()) == original);
@@ -429,9 +448,171 @@ void rejections(const fixture& f, const std::string& path)
     CHECK(std::remove(path.c_str()) == 0);
 }
 
+/* Exercise the actual PDF -> Graph -> lowering boundary, not a hand-built IR.
+ * The translated 24x18-point CropBox fits 24x18/32x24 grids at 72/96 DPI. Its literal
+ * centerline/Clip is [3,21]x[3,15], with width 1; red intersection is
+ * [3,18]x[3,15]. Integer eighth-pixel tests below are independent of the
+ * production transforms, resource association and path/ring expansion. */
+void source_stroke_clip_order(const std::string& path)
+{
+    const fixture f = {"stroke-clip-order", 225, 350, 2400, 1800, 300,
+                       nullptr, 1, 1, 0, false};
+    const unsigned dpis[] = {72u, 96u};
+    for (const unsigned dpi : dpis) {
+        for (int order = 1; order <= 4; ++order) {
+            const std::string original = make_pdf(f, order);
+            write_file(path, original);
+            quantapdf_ir ir{};
+            quantapdf_native_device_plan plan{};
+            OK(lower(path.c_str(), dpi, 1000000u, &ir, &plan));
+            const size_t width = 24u * dpi / 72u, height = 18u * dpi / 72u;
+            const size_t stroke = order == 1 || order == 4 ? 0u : 1u;
+            const size_t fill = 1u - stroke;
+            const bool clipped_stroke = order >= 3;
+            CHECK(plan.width == width && plan.height == height &&
+                  ir.operation_count == 2u && ir.resources.clip_count == 1u &&
+                  ir.resources.graphics_state_count == 1u &&
+                  ir.operations[stroke].kind == QUANTAPDF_COMPOSER_OPERATION_PATH &&
+                  ir.operations[fill].kind == QUANTAPDF_COMPOSER_OPERATION_PATH &&
+                  ir.operations[stroke].value.path.options.stroke == 1 &&
+                  ir.operations[stroke].value.path.options.fill == 0 &&
+                  ir.operations[stroke].graphics_state_id == (clipped_stroke ? 1u : 0u) &&
+                  ir.operations[fill].graphics_state_id == 1u &&
+                  ir.resources.graphics_states[0].clip_id == 1u);
+            quantapdf_ir_raster_image image{}, repeat{};
+            OK(quantapdf_ir_raster_scoped_operations_v1_planned(
+                &ir, 0u, &raster_limits, &plan, &image));
+            OK(quantapdf_ir_raster_scoped_operations_v1_planned(
+                &ir, 0u, &raster_limits, &plan, &repeat));
+            CHECK(image.pixels && repeat.pixels && image.width == width && image.height == height &&
+                  image.stride == width * 4u && image.size == width * height * 4u &&
+                  repeat.size == image.size && std::memcmp(image.pixels, repeat.pixels, image.size) == 0);
+            quantapdf_ir_dispose(&ir);
+            for (size_t y = 0u; y < height; ++y) {
+                for (size_t x = 0u; x < width; ++x) {
+                    unsigned black = 0u, red = 0u;
+                    for (unsigned sy = 0u; sy < 4u; ++sy) {
+                        for (unsigned sx = 0u; sx < 4u; ++sx) {
+                            const size_t px = (8u * x + 2u * sx + 1u) * 72u;
+                            const size_t py = (8u * y + 2u * sy + 1u) * 72u;
+                            const bool clip = px > 24u * dpi && px < 168u * dpi && py > 24u * dpi && py < 120u * dpi;
+                            const bool outer = px > 20u * dpi && px < 172u * dpi && py > 20u * dpi && py < 124u * dpi;
+                            const bool inner = px > 28u * dpi && px < 164u * dpi && py > 28u * dpi && py < 116u * dpi;
+                            black += outer && !inner && (!clipped_stroke || clip);
+                            red += clip && px < 144u * dpi;
+                        }
+                    }
+                    const unsigned b = (black * 255u + 8u) / 16u;
+                    const unsigned r = (red * 255u + 8u) / 16u;
+                    const bool stroke_last = stroke > fill;
+                    const unsigned denominator = stroke_last ?
+                        255u * b + (255u - b) * r : 255u * r + (255u - r) * b;
+                    const unsigned numerator = stroke_last ?
+                        (255u - b) * 255u * r : 255u * 255u * r;
+                    const unsigned channel = denominator ?
+                        (numerator + denominator / 2u) / denominator : 0u;
+                    const auto *rgba = image.pixels + (y * width + x) * 4u;
+                    if (rgba[0] != channel || rgba[1] || rgba[2] || rgba[3] != (denominator + 127u) / 255u)
+                        std::fprintf(stderr, "M2 source dpi=%u order=%d pixel=(%zu,%zu) failed independent Clip/Stroke coverage\n", dpi, order, x, y);
+                    CHECK(rgba[0] == channel && rgba[1] == 0u && rgba[2] == 0u &&
+                          rgba[3] == (denominator + 127u) / 255u);
+                }
+            }
+            quantapdf_ir_raster_image_dispose(&image);
+            quantapdf_ir_raster_image_dispose(&repeat);
+            CHECK(read_file(path.c_str()) == original);
+        }
+    }
+    CHECK(std::remove(path.c_str()) == 0);
+    std::puts("M2 source Clip/Stroke order: 8 frames (72/96 DPI, before W, after Q and two placements inside active Clip) passed exact RGBA");
+}
+
+/* Independent M2 oracle, in exact source hundredths measured from the page's
+ * top left. These are literal PDF coordinates, not detached IR/plan bounds:
+ * MediaBox 595.28 x 841.89; 1-point black Stroke around (50,20)-(250,140);
+ * W Clip to that centerline rectangle; red Fill (0,0)-(150,100).
+ * Thus the visible red intersection is (50,20)-(150,100). */
+void compare_original_m2(const char *path, unsigned dpi,
+                         const quantapdf_ir_raster_image& image)
+{
+    const rational_rect outer = {4950, 25050, 1950, 14050, 59528, 84189};
+    const rational_rect inner = {5050, 24950, 2050, 13950, 59528, 84189};
+    const rational_rect fill = {5000, 15000, 2000, 10000, 59528, 84189};
+    const auto reference = pdfium_fit(path, image.width, image.height);
+    CHECK(reference == pdfium_fit(path, image.width, image.height));
+    size_t different = 0u, boundary = 0u, l1 = 0u, budget = 0u;
+    size_t red = 0u, black = 0u, white = 0u, clip_white = 0u;
+    unsigned maximum = 0u;
+    for (size_t y = 0u; y < image.height; ++y) {
+        for (size_t x = 0u; x < image.width; ++x) {
+            const size_t p = y * image.width + x;
+            const unsigned char *rgba = image.pixels + 4u * p;
+            const auto o = covered_samples(x, y, image.width, image.height, outer);
+            const auto h = covered_samples(x, y, image.width, image.height, inner);
+            const auto f = covered_samples(x, y, image.width, image.height, fill);
+            /* No sample-center ties exist on these two admitted original grids.
+             * Keep this assertion: float-derived tolerances must not quietly
+             * broaden the exact source oracle. */
+            CHECK(o.strict == o.inclusive && h.strict == h.inclusive &&
+                  f.strict == f.inclusive && o.strict >= h.strict);
+            const unsigned b = ((o.strict - h.strict) * 255u + 8u) / 16u;
+            const unsigned r = (f.strict * 255u + 8u) / 16u;
+            /* Straight-alpha red-over-black, with each layer's 4x4 coverage
+             * quantized to 8 bits. This is the declared Native layer contract. */
+            const unsigned denominator = 255u * r + (255u - r) * b;
+            const unsigned alpha = (denominator + 127u) / 255u;
+            const unsigned channel = denominator ?
+                (255u * 255u * r + denominator / 2u) / denominator : 0u;
+            if (rgba[0] != channel || rgba[1] || rgba[2] || rgba[3] != alpha)
+                std::fprintf(stderr, "M2 dpi=%u (%zu,%zu) RGBA=%u,%u,%u,%u expected=%u,0,0,%u stroke=%u fill=%u\n",
+                    dpi, x, y, rgba[0], rgba[1], rgba[2], rgba[3], channel, alpha, b, r);
+            CHECK(rgba[0] == channel && rgba[1] == 0u && rgba[2] == 0u &&
+                  rgba[3] == alpha);
+            const unsigned char expected[] = {
+                (unsigned char)channel, 0u, 0u, (unsigned char)alpha};
+            red += r == 255u;
+            black += b != 0u && r == 0u;
+            white += denominator == 0u;
+            clip_white += h.strict == 16u && f.inclusive == 0u;
+
+            const bool stroke_edge =
+                boundary_pixel(x, y, image.width, image.height, outer) ||
+                boundary_pixel(x, y, image.width, image.height, inner);
+            const bool edge = stroke_edge ||
+                boundary_pixel(x, y, image.width, image.height, fill);
+            boundary += edge;
+            unsigned largest = 0u;
+            for (size_t c = 0u; c < 3u; ++c) {
+                const unsigned a = on_white(rgba, c), z = reference[3u * p + c];
+                const unsigned delta = a > z ? a - z : z - a;
+                const unsigned source_rgb = on_white(expected, c);
+                /* PDFium may snap boundary coverage inward/outward. The
+                 * endpoint envelope is geometry-only, never fitted to residuals.
+                 * Away from stroke edges red is exact, even on a Fill edge;
+                 * all channels are exact off the union of source boundaries. */
+                const unsigned cap = edge && (stroke_edge || c != 0u) ?
+                    std::max(source_rgb, 255u - source_rgb) : 0u;
+                if (delta > cap)
+                    std::fprintf(stderr, "M2 RGB dpi=%u (%zu,%zu) c=%zu Native=%u PDFium=%u cap=%u\n",
+                        dpi, x, y, c, a, z, cap);
+                CHECK(delta <= cap);
+                l1 += delta;
+                budget += cap;
+                largest = std::max(largest, delta);
+            }
+            different += largest != 0u;
+            maximum = std::max(maximum, largest);
+        }
+    }
+    CHECK(red && black && white && clip_white && different <= boundary && l1 <= budget);
+    std::printf("M2 RGB dpi=%u different=%zu boundary=%zu L1=%zu budget=%zu max=%u red=%zu stroke=%zu outside=%zu clip_white=%zu samples=exact\n",
+        dpi, different, boundary, l1, budget, maximum, red, black, white, clip_white);
+}
+
 /* Optional observation only: an external SHA-pinning caller must attest the
  * original before/after. This binary performs no network access or vendoring.
- * M1 keeps both original painted Paths and still refuses rectangular Stroke. */
+ * The generated source fixture above qualifies Stroke-before-Clip positive;
+ * the unchanged external original still has a separate attested gate. */
 void original_jspdf(const char *path)
 {
     const std::string original = read_file(path);
@@ -457,19 +638,48 @@ void original_jspdf(const char *path)
                   ir.operations[0].value.path.options.stroke == 1 &&
                   ir.operations[0].value.path.options.fill == 0 &&
                   ir.operations[1].value.path.options.fill == 1 &&
-                  ir.operations[1].value.path.options.stroke == 0);
-            for (unsigned repeat = 0u; repeat < 2u; ++repeat) {
-                quantapdf_ir_raster_image image;
-                std::memset(&image, 0xa5, sizeof(image));
-                CHECK(quantapdf_ir_raster_scoped_operations_v1_planned(
-                    &ir, 0u, &raster_limits, &plan, &image) == QUANTAPDF_ERROR_UNSUPPORTED);
-                CHECK(all_zero(&image, sizeof(image)));
+                  ir.operations[1].value.path.options.stroke == 0 &&
+                  ir.operations[0].graphics_state_id == 0u &&
+                  ir.operations[1].graphics_state_id == 1u &&
+                  ir.resources.graphics_states[0].clip_id == 1u);
+            const quantapdf_native_device_plan before = plan;
+            quantapdf_ir_raster_image first{}, second{};
+            const quantapdf_status first_status =
+                quantapdf_ir_raster_scoped_operations_v1_planned(
+                    &ir, 0u, &raster_limits, &plan, &first);
+            if (first_status != QUANTAPDF_OK) {
+                const quantapdf_composer_path_operation *p = &ir.operations[0].value.path;
+                std::fprintf(stderr, "jsPDF native first render rejected: dpi=%u status=%d gs=%u stroke_width=%.9g commands=%zu clip_count=%zu edges_limit=%zu sample_limit=%zu\\n",
+                    dpis[i], (int)first_status,
+                    (unsigned)ir.operations[0].graphics_state_id,
+                    (double)p->options.stroke_width, p->command_count,
+                    ir.resources.clip_count, raster_limits.max_edges,
+                    raster_limits.max_sample_tests);
+                for (size_t c = 0u; c < p->command_count; ++c)
+                    std::fprintf(stderr, "  cmd[%zu] kind=%d p1=(%.9g,%.9g)\\n",
+                        c, (int)p->commands[c].kind,
+                        (double)p->commands[c].point1.x,
+                        (double)p->commands[c].point1.y);
             }
+            CHECK(first_status == QUANTAPDF_OK);
+            OK(quantapdf_ir_raster_scoped_operations_v1_planned(
+                &ir, 0u, &raster_limits, &plan, &second));
+            CHECK(first.pixels && second.pixels &&
+                  first.width == widths[i] && first.height == heights[i] &&
+                  first.stride == widths[i] * 4u &&
+                  first.size == widths[i] * heights[i] * 4u &&
+                  second.size == first.size &&
+                  std::memcmp(first.pixels, second.pixels, first.size) == 0 &&
+                  std::memcmp(&plan, &before, sizeof(plan)) == 0);
             quantapdf_ir_dispose(&ir);
+            compare_original_m2(path, dpis[i], first);
+            quantapdf_ir_raster_image_dispose(&first);
+            quantapdf_ir_raster_image_dispose(&second);
         }
-        std::printf("M1 unchanged jsPDF dpi=%u expected=%zux%zu plan=%s Native=%s; pixel_positive=false\n",
+        std::printf("M2 unchanged jsPDF dpi=%u expected=%zux%zu plan=%s Native=%s; native_pixel_positive=%s\n",
             dpis[i], widths[i], heights[i], i == 2u ? "capacity-rejected" : "admitted",
-            i == 2u ? "not-invoked" : "unsupported-zero-output-twice");
+            i == 2u ? "not-invoked" : "positive-repeatable-full-rgb-source-samples",
+            i == 2u ? "false" : "true");
     }
     CHECK(read_file(path) == original);
 }
@@ -478,7 +688,9 @@ void original_jspdf(const char *path)
 int main(int argc, char **argv)
 {
     if (argc == 3 && std::strcmp(argv[1], "--quarantined-jspdf-plan") == 0) {
+        FPDF_InitLibrary();
         original_jspdf(argv[2]);
+        FPDF_DestroyLibrary();
         return EXIT_SUCCESS;
     }
     CHECK(argc == 1 || (argc == 2 && argv[1] && *argv[1]));
@@ -501,7 +713,8 @@ int main(int argc, char **argv)
         positive(f, path, 96u);
     }
     rejections(cases[1], std::string(prefix) + "-stroke-negative.pdf");
+    source_stroke_clip_order(std::string(prefix) + "-stroke-clip-order.pdf");
     FPDF_DestroyLibrary();
-    std::puts("M1 source device plan: 18 source-PDF FIT frames, exact non-tie coverage and bounded source/sample ties, copied tokens, detached ownership and complete-stroke refusal passed");
+    std::puts("M2 source device plan: 18 source-PDF FIT frames, exact non-tie coverage, bounded source/sample ties, copied tokens, detached ownership and stroke controls passed");
     return EXIT_SUCCESS;
 }
