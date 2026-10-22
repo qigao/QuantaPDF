@@ -606,10 +606,14 @@ static quantapdf_status qp_render_v1_impl(
         ir->operations[1].page_index == page_index &&
         ir->operations[0].kind == QUANTAPDF_COMPOSER_OPERATION_PATH &&
         ir->operations[1].kind == QUANTAPDF_COMPOSER_OPERATION_PATH &&
-        ir->operations[0].value.path.options.stroke == 1 &&
-        ir->operations[0].value.path.options.fill == 0 &&
-        ir->operations[1].value.path.options.fill == 1 &&
-        ir->operations[1].value.path.options.stroke == 0)
+        (((ir->operations[0].value.path.options.stroke == 1 &&
+           ir->operations[0].value.path.options.fill == 0) &&
+          (ir->operations[1].value.path.options.fill == 1 &&
+           ir->operations[1].value.path.options.stroke == 0)) ||
+         ((ir->operations[1].value.path.options.stroke == 1 &&
+           ir->operations[1].value.path.options.fill == 0) &&
+          (ir->operations[0].value.path.options.fill == 1 &&
+           ir->operations[0].value.path.options.stroke == 0))))
         two_path_clip_sequence = 1;
     if (clip_count > 0u &&
         !(ir->operation_count == 1u &&
@@ -728,7 +732,11 @@ static quantapdf_status qp_render_v1_impl(
                         int visible = draw->one_pixel_stroke ?
                             qp_stroke_inside(flatten.edges, draw, px, py) :
                             qp_inside(flatten.edges, draw, px, py);
-                        if (!(two_path_clip_sequence && i == 0u)) {
+                        const int stroke_before_clip_sequence =
+                            two_path_clip_sequence &&
+                            op->value.path.options.stroke == 1 &&
+                            op->value.path.options.fill == 0;
+                        if (!stroke_before_clip_sequence) {
                             for (ci = 0u; visible && ci < clip_count; ++ci)
                                 visible = qp_inside(
                                     flatten.edges, &clip_draws[ci], px, py);
