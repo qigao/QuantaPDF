@@ -52,9 +52,16 @@ void simple()
     fixture f; f.content("BT /F 18 Tf 12 80 Td (Hello Caf\\351 \\200) Tj ET");
     TCHECK(f.extract()=="Hello Caf\xc3\xa9 \xe2\x82\xac");
     TCHECK(f.extract(QUANTAPDF_OK,true)=="Hello Caf\xc3\xa9 \xe2\x82\xac");
+    f.content("BT /F 12 Tf (\\177\\201\\215\\217\\220\\235\\240\\255) Tj ET");
+    std::string bullet="\xe2\x80\xa2";
+    TCHECK(f.extract()==bullet+bullet+bullet+bullet+bullet+bullet+" -");
+    f.content("BT /F 10 Tf <81> Tj 1 0 0 1 4.5 0 Tm (A) Tj ET");
+    TCHECK(f.extract()==bullet+"A");
     f.content(""); TCHECK(f.extract().empty());
     f.face.removeKey("/Encoding"); f.content("BT /F 12 Tf ('`) Tj ET");
     TCHECK(f.extract()=="\xe2\x80\x99\xe2\x80\x98");
+    f.content("BT /F 10 Tf (') Tj 1 0 0 1 4.1 0 Tm (A) Tj ET");
+    TCHECK(f.extract()=="\xe2\x80\x99" "A");
     f.content("BT /F 12 Tf (\\351) Tj ET"); f.extract(QUANTAPDF_ERROR_UNSUPPORTED);
 }
 void mappings()
@@ -67,6 +74,8 @@ void mappings()
     one.cmap("/WMode 0 def 1 beginbfrange <20> <22> <0041> endbfrange");
     TCHECK(one.extract()=="ABC");
     // ToUnicode takes precedence over a Differences encoding.
+    one.face.replaceKey("/FirstChar",Obj::newInteger(32));
+    one.face.replaceKey("/Widths",Obj::parse("[278 333 355]"));
     one.face.replaceKey("/Encoding",Obj::newName("/MacRomanEncoding"));
     TCHECK(one.extract()=="ABC");
     one.face.replaceKey("/Encoding",Obj::parse("<< /BaseEncoding /WinAnsiEncoding /Differences [32 /space] >>"));
@@ -108,7 +117,7 @@ void refusals()
     f.content("BT /F 12 Tf (prefix) Tj ET BI /W 1 /H 1 /BPC 8 /CS /G ID x EI"); f.extract(QUANTAPDF_ERROR_UNSUPPORTED);
     f.content("BT /F 12 Tf (prefix) Tj"); f.extract(QUANTAPDF_ERROR_FORMAT);
     f.content("BT /F 12 Tf (prefix) Tj ET Q"); f.extract(QUANTAPDF_ERROR_FORMAT);
-    f.content("BT /F 12 Tf (\\201) Tj ET"); f.extract(QUANTAPDF_ERROR_UNSUPPORTED);
+    f.content("BT /F 12 Tf (\\037) Tj ET"); f.extract(QUANTAPDF_ERROR_UNSUPPORTED);
     f.cmap("1 beginbfchar <41> <D800> endbfchar"); f.content("BT /F 12 Tf (A) Tj ET"); f.extract(QUANTAPDF_ERROR_FORMAT);
     f.cmap("2 beginbfchar <41> <0041> <41> <0042> endbfchar"); f.extract(QUANTAPDF_ERROR_FORMAT);
     f.cmap("1 beginbfchar <41> <0000> endbfchar"); f.extract(QUANTAPDF_ERROR_FORMAT);

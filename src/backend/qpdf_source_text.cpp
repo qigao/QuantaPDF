@@ -187,8 +187,17 @@ struct cmap {
     static std::string unicode_hex(token const& t) { need(t.hex); return unicode(t.value); }
     void put(unsigned c,std::string value) { supported(values.size()<65536u); need(values.emplace(c,std::move(value)).second); }
 };
+unsigned winansi_metric_code(unsigned c)
+{
+    // PDF WinAnsi uses /bullet in the positions unassigned by Windows-1252.
+    if(c==127u || c==129u || c==141u || c==143u || c==144u || c==157u) return 149u;
+    if(c==160u) return 32u;
+    if(c==173u) return 45u;
+    return c;
+}
 unsigned winansi(unsigned c)
 {
+    c=winansi_metric_code(c);
     static constexpr unsigned special[32]={0x20ac,0,0x201a,0x192,0x201e,0x2026,0x2020,0x2021,0x2c6,0x2030,0x160,0x2039,0x152,0,0x17d,0,0,0x2018,0x2019,0x201c,0x201d,0x2022,0x2013,0x2014,0x2dc,0x2122,0x161,0x203a,0x153,0,0x17e,0x178};
     if(c>=128u && c<160u) { supported(special[c-128u]!=0); return special[c-128u]; }
     supported(c>=32u && c!=127u); return c;
@@ -199,7 +208,7 @@ struct font {
     std::map<unsigned,double> widths;
     std::set<unsigned> differences;
     std::vector<std::pair<unsigned,unsigned>> spaces;
-    bool has_cmap=false, ansi=false, base14=false, cid=false;
+    bool has_cmap=false, ansi=false, standard=true, base14=false, cid=false;
     double default_width=0;
     quantapdf_composer_font base=QUANTAPDF_COMPOSER_FONT_HELVETICA;
     explicit font(Obj object)
@@ -236,7 +245,7 @@ struct font {
             supported(width==1u);
             Obj encoding=object.getKey("/Encoding"), diff=Obj::newNull();
             if (encoding.isDictionary()) { diff=encoding.getKey("/Differences"); encoding=encoding.getKey("/BaseEncoding"); }
-            if (!encoding.isNull()) { need(encoding.isName()); supported(has_cmap || encoding.getName()=="/WinAnsiEncoding" || encoding.getName()=="/StandardEncoding"); ansi=encoding.getName()=="/WinAnsiEncoding"; }
+            if (!encoding.isNull()) { need(encoding.isName()); supported(has_cmap || encoding.getName()=="/WinAnsiEncoding" || encoding.getName()=="/StandardEncoding"); ansi=encoding.getName()=="/WinAnsiEncoding"; standard=encoding.getName()=="/StandardEncoding"; }
             if (!diff.isNull()) {
                 need(diff.isArray()); supported(diff.getArrayNItems()<=512); int n=-1;
                 for (int i=0;i<diff.getArrayNItems();++i) { Obj v=diff.getArrayItem(i); if(v.isInteger()) { n=static_cast<int>(cid_code(v)); need(n<=255); } else { need(v.isName() && n>=0 && n<=255); differences.insert(static_cast<unsigned>(n++)); } }
@@ -282,7 +291,11 @@ struct font {
     double advance(unsigned c) const
     {
         auto it=widths.find(c); if(it!=widths.end()) return it->second;
-        if(base14) return quantapdf::detail::base14_glyph_width(static_cast<unsigned char>(c),base);
+        if(base14) {
+            supported(ansi || standard);
+            unsigned metric=ansi?winansi_metric_code(c):c==39u?146u:c==96u?145u:c;
+            return quantapdf::detail::base14_glyph_width(static_cast<unsigned char>(metric),base);
+        }
         return default_width;
     }
 };

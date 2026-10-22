@@ -9,7 +9,8 @@ allocated empty string. Returned bytes survive page/document destruction.
 ## Admitted interpretation
 
 - Type1 and TrueType simple fonts, direct or indirect resource dictionaries,
-  defined WinAnsi characters and the printable ASCII part of StandardEncoding
+  WinAnsi characters (including PDF bullet, space and hyphen aliases) and the
+  printable ASCII part of StandardEncoding
   (including its curly quote positions). Symbol/ZapfDingbats require ToUnicode.
   Extended StandardEncoding and Differences without an authoritative mapping
   remain unsupported when those character codes are used.
