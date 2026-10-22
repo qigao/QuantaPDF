@@ -188,6 +188,25 @@ static quantapdf_status dash_cap(stroke_builder *b,stroke_point at,
     p[3]=(stroke_point){at.x+u.y*hw,at.y-u.x*hw};
     return polygon(b,p,4u);
 }
+/* Zero on entries are real dash fragments. Their two caps use the underlying
+ * segment direction; zero gaps still separate adjacent painted fragments.
+ * Charge every transition even when butt caps emit no geometry. */
+static quantapdf_status dash_zeros(stroke_builder *b,stroke_point at,
+    stroke_point u,size_t logical,size_t *index,double *remain)
+{
+    const quantapdf_composer_path_operation *src=b->source;
+    while(*remain==0.0) {
+        quantapdf_status status;
+        if(++b->dash_work>QP_DASH_WORK) return QUANTAPDF_ERROR_UNSUPPORTED;
+        if(*index%2u==0u) {
+            status=dash_cap(b,at,u,1); if(status!=QUANTAPDF_OK) return status;
+            status=dash_cap(b,at,u,0); if(status!=QUANTAPDF_OK) return status;
+        }
+        *index=(*index+1u)%logical;
+        *remain=src->dash_lengths[*index%src->dash_count];
+    }
+    return QUANTAPDF_OK;
+}
 static quantapdf_status dashed_subpath(stroke_builder *b,stroke_point *p,
     size_t n,int closed)
 {
@@ -199,7 +218,7 @@ static quantapdf_status dashed_subpath(stroke_builder *b,stroke_point *p,
     quantapdf_status status;
     size_t segments=closed ? n : n-1u;
     /* Odd arrays repeat twice before their on/off state repeats. */
-    while(phase >= src->dash_lengths[index%src->dash_count]) {
+    while(phase>0.0 && phase >= src->dash_lengths[index%src->dash_count]) {
         if(++b->dash_work>QP_DASH_WORK) return QUANTAPDF_ERROR_UNSUPPORTED;
         phase-=src->dash_lengths[index%src->dash_count]; index=(index+1u)%logical;
     }
@@ -213,11 +232,13 @@ static quantapdf_status dashed_subpath(stroke_builder *b,stroke_point *p,
             status=join(b,p[i-1u],a,z); if(status!=QUANTAPDF_OK) return status;
         }
         while(distance < length) {
+            stroke_point begin=distance==0.0 ? a : (stroke_point){a.x+u.x*distance,a.y+u.y*distance};
+            status=dash_zeros(b,begin,u,logical,&index,&remain);
+            if(status!=QUANTAPDF_OK) return status;
             double available=length-distance;
             int boundary=remain<=available, end=remain>=available;
             double take=boundary ? remain : available;
             double next=end ? length : distance+take;
-            stroke_point begin=distance==0.0 ? a : (stroke_point){a.x+u.x*distance,a.y+u.y*distance};
             stroke_point finish=end ? z : (stroke_point){a.x+u.x*next,a.y+u.y*next};
             int on=index%2u==0u, final=end && i+1u==segments;
             if(++b->dash_work>QP_DASH_WORK || !(next>distance)) return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -242,7 +263,10 @@ static quantapdf_status dashed_subpath(stroke_builder *b,stroke_point *p,
     }
     /* Do not join the first and last dash merely because their endpoint
      * coordinates coincide. The dash generator produces open fragments. */
-    if(tail_on) return dash_cap(b,closed ? p[0] : p[n-1u],last_u,0);
+    stroke_point end=closed ? p[0] : p[n-1u];
+    if(tail_on) { status=dash_cap(b,end,last_u,0); if(status!=QUANTAPDF_OK) return status; }
+    /* A new zero dash at the terminal distance is outside the traversed
+     * half-open path interval. Do not synthesize another endpoint fragment. */
     return QUANTAPDF_OK;
 }
 static quantapdf_status subpath(stroke_builder *b,stroke_point *p,size_t n,int closed)
@@ -318,11 +342,10 @@ static quantapdf_status outline_impl(
     }
     for(size_t i=0;i<source->dash_count;++i) {
         double v=source->dash_lengths[i];
-        /* Zero entries require explicit zero-length cap semantics; until
-         * those are qualified, refuse rather than discard a possible dot. */
-        if(!isfinite(v) || v<=0.0 || v>QP_STROKE_COORD) return QUANTAPDF_ERROR_UNSUPPORTED;
+        if(!isfinite(v) || v<0.0 || v>QP_STROKE_COORD) return QUANTAPDF_ERROR_UNSUPPORTED;
         b.dash_period+=v;
     }
+    if(source->dash_count && b.dash_period==0.0) return QUANTAPDF_ERROR_UNSUPPORTED;
     if(source->dash_count%2u) b.dash_period*=2.0;
     b.source=source;
     b.commands=calloc(QP_STROKE_COMMANDS,sizeof(*b.commands));

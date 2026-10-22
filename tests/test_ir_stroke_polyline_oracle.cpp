@@ -277,7 +277,76 @@ void test_round_source()
     compare("round-dash-fit-144","1 0 0 RG 4 w 1 J 1 j [24 16] 3 d 20 30 m 90 30 l 90 85 l S",{},2);
     negative("0 w 1 J 1 j 20 20 m 90 20 l S");
     negative("4 w 1 J 1 j 20 20 m 40 50 60 50 90 20 c S");
-    negative("4 w 1 J [0 3] 0 d 20 20 m 90 20 l S");
+    negative("4 w 1 J [0 .0001] 0 d 20 20 m 90 20 l S");
+}
+
+/* Mathematical modulo equivalence is independent of an oracle's treatment
+ * of zero intervals. Keep the unreduced source intact for both consumers. */
+void test_zero_phase_equivalence()
+{
+    quantapdf_ir_raster_image native[2]{};
+    rgb_image reference[2];
+    const char *content[]={
+        "1 0 0 RG 4 w 1 J [0 16] 5 d 20 40 m 100 40 l S",
+        "1 0 0 RG 4 w 1 J [0 16] 16005 d 20 40 m 100 40 l S"};
+    for(size_t i=0;i<2;++i) {
+        const std::string path=source_prefix+".phase-equivalence-"+std::to_string(i)+".pdf";
+        const auto original=make_source(path.c_str(),content[i]);
+        quantapdf_ir ir{}; OK(snapshot_lower(path.c_str(),&ir));
+        CHECK(source_bytes(path.c_str())==original);
+        OK(quantapdf_ir_raster_scoped_operations_v2(&ir,0,&raster_limits,&native[i]));
+        quantapdf_ir_dispose(&ir);
+        reference[i]=render_direct_pdfium_reference(path.c_str());
+        CHECK(source_bytes(path.c_str())==original); CHECK(std::remove(path.c_str())==0);
+    }
+    CHECK(native[0].size==native[1].size && std::memcmp(native[0].pixels,native[1].pixels,native[0].size)==0);
+    for(int x:{31,47,63,79,95}) {
+        const auto *p=native[1].pixels+79u*native[1].stride+static_cast<size_t>(x)*4u;
+        CHECK(p[0]==255 && p[1]==0 && p[2]==0 && p[3]==255);
+    }
+    size_t differing=0;
+    for(size_t y=0;y<PAGE;++y) for(size_t x=0;x<PAGE;++x) {
+        const auto *a=reference[0].at(x,y),*b=reference[1].at(x,y);
+        if(std::memcmp(a,b,3)!=0) ++differing;
+    }
+    /* Diagnostic only: a future corrected PDFium may render equal phases
+     * identically. This pair is not counted as a raster-oracle positive. */
+    std::fprintf(stderr,"zero-dash original phase 5/16005: native identical; direct PDFium differing pixels=%zu\n",differing);
+    for(auto& image:native) quantapdf_ir_raster_image_dispose(&image);
+}
+void test_zero_dash_source()
+{
+    compare("zero-round-dots","1 0 0 RG 6 w 1 J [0 16] 0 d 20 40 m 100 40 l S",
+        {{20,40,255,0,0},{28,40,255,255,255},{100,40,255,255,255}});
+    compare("zero-square-dots","1 0 0 RG 6 w 2 J [0 16] 0 d 20 40 m 100 40 l S",
+        {{18,38,255,0,0},{28,40,255,255,255},{102,42,255,255,255}});
+    compare("zero-butt-empty","1 0 0 RG 6 w [0 16] 0 d 20 40 m 100 40 l S",
+        {{28,40,255,255,255},{44,40,255,255,255}});
+    compare("zero-round-phase","1 0 0 RG 4 w 1 J [0 16] 5 d 20 40 m 100 40 l S");
+    compare("zero-round-wrapped-phase","1 0 0 RG 4 w 1 J [0 16] 37 d 20 40 m 100 40 l S");
+    compare("zero-square-diagonal","1 0 0 RG 4 w 2 J [0 16] 0 d 20 20 m 90 80 l S");
+    compare("zero-round-odd","1 0 0 RG 4 w 1 J [0 12 8] 0 d 20 40 m 100 40 l S");
+    compare("zero-square-odd","1 0 0 RG 4 w 2 J [8 0 4] 0 d 20 40 m 100 40 l S");
+    compare("zero-consecutive","1 0 0 RG 4 w 2 J [0 0 0 16] 0 d 20 40 m 100 40 l S");
+    compare("zero-gap-butt","1 0 0 RG 8 w [40 0] 0 d 40 40 m 80 40 l 80 90 l S",
+        {{82,37,255,255,255},{80,50,255,0,0}});
+    compare("zero-gap-square","1 0 0 RG 8 w 2 J [40 0] 0 d 40 40 m 80 40 l 80 90 l S",
+        {{82,37,255,0,0}});
+    compare("zero-round-vertex","1 0 0 RG 6 w 1 J [0 40] 0 d 40 40 m 80 40 l 80 90 l S");
+    compare("zero-square-vertex","1 0 0 RG 6 w 2 J [0 40] 0 d 40 40 m 80 40 l 80 90 l S");
+    compare("zero-square-oblique-vertex","1 0 0 RG 6 w 2 J [0 40] 0 d 40 40 m 80 40 l 100 80 l S");
+    compare("zero-round-closed","1 0 0 RG 4 w 1 J [0 40] 0 d 40 40 m 80 40 l 80 80 l 40 80 l h S");
+    compare("zero-square-seam","1 0 0 RG 4 w 2 J [0 40] 0 d 40 40 m 80 40 l 80 80 l 40 80 l h S");
+    compare("zero-reset","1 0 0 RG 4 w 1 J [0 16] 5 d 20 40 m 100 40 l 20 70 m 100 70 l S");
+    compare("zero-affine","1 0 0 RG 4 w 2 J [0 16] 0 d -1 .2 .3 .8 95 5 cm 20 20 m 75 20 l 75 90 l S");
+    compare("zero-clip-restore","q 30 20 40 60 re W n 1 0 0 RG 6 w 1 J [0 16] 0 d 20 40 m 100 40 l S Q 0 0 1 rg 10 10 90 10 re f");
+    compare("zero-nested-evenodd","q 10 10 100 100 re W n q 20 20 80 80 re 40 40 40 40 re W* n 1 0 0 RG 4 w 1 J [0 16] 0 d 10 60 m 110 60 l S Q Q");
+    compare("zero-state-restore","1 0 0 RG 4 w 1 J [0 16] 5 d q [8 0] 0 d 20 40 m 100 40 l S Q 20 70 m 100 70 l S");
+    compare("zero-fit-144","1 0 0 RG 4 w 1 J [0 16] 0 d 20 40 m 100 40 l S",{},2);
+    negative("4 w 1 J [0 .0001] 0 d 20 20 m 90 20 l S");
+    negative("4 w [0 .0001] 0 d 20 20 m 90 20 l S");
+    negative("4 w 1 J [0 16] 0 d 20 20 m 90 20 l 20 20 l S");
+    test_zero_phase_equivalence();
 }
 
 }
@@ -291,6 +360,9 @@ int main(int argc,char **argv)
     source_prefix=std::string(STROKE_SOURCE_PDF)+"."+std::to_string(pid);
     if(argc==2 && std::strcmp(argv[1],"--round")==0) {
         source_prefix+=".round"; test_round_source(); return EXIT_SUCCESS;
+    }
+    if(argc==2 && std::strcmp(argv[1],"--zero-dash")==0) {
+        source_prefix+=".zero-dash"; test_zero_dash_source(); return EXIT_SUCCESS;
     }
     CHECK(argc==1);
     compare("butt-miter-open","1 0 0 RG 8 w 0 J 0 j 10 M 40 40 m 80 40 l 80 80 l S",
@@ -343,7 +415,7 @@ int main(int argc,char **argv)
     negative("1 0 0 RG 4 w 20 20 m 90 20 l S 0 w 20 40 m 90 40 l S");
     negative("4 w 20 20 m 90 20 l h S");
     negative("4 w 1 j 20 20 m 90 20 l 20 20 l S");
-    negative("4 w [0 3] 0 d 20 20 m 90 20 l S");
+    negative("4 w [0 .0001] 0 d 20 20 m 90 20 l S");
     negative("4 w 20 20 m 40 50 60 50 90 20 c S");
     return EXIT_SUCCESS;
 }
