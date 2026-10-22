@@ -474,18 +474,36 @@ void original_jspdf(const char *path)
                   ir.operations[0].value.path.options.fill == 0 &&
                   ir.operations[1].value.path.options.fill == 1 &&
                   ir.operations[1].value.path.options.stroke == 0);
-            for (unsigned repeat = 0u; repeat < 2u; ++repeat) {
-                quantapdf_ir_raster_image image;
-                std::memset(&image, 0xa5, sizeof(image));
-                CHECK(quantapdf_ir_raster_scoped_operations_v1_planned(
-                    &ir, 0u, &raster_limits, &plan, &image) == QUANTAPDF_ERROR_UNSUPPORTED);
-                CHECK(all_zero(&image, sizeof(image)));
+            quantapdf_ir_raster_image first{}, second{};
+            OK(quantapdf_ir_raster_scoped_operations_v1_planned(
+                &ir, 0u, &raster_limits, &plan, &first));
+            OK(quantapdf_ir_raster_scoped_operations_v1_planned(
+                &ir, 0u, &raster_limits, &plan, &second));
+            CHECK(first.pixels && second.pixels &&
+                  first.width == widths[i] && first.height == heights[i] &&
+                  first.stride == widths[i] * 4u &&
+                  first.size == widths[i] * heights[i] * 4u &&
+                  second.size == first.size &&
+                  std::memcmp(first.pixels, second.pixels, first.size) == 0);
+            size_t red = 0u, black = 0u, transparent = 0u;
+            for (size_t p = 0u; p < first.size; p += 4u) {
+                const auto *px = first.pixels + p;
+                if (px[0] == 255u && px[1] == 0u && px[2] == 0u && px[3] != 0u)
+                    ++red;
+                if (px[0] == 0u && px[1] == 0u && px[2] == 0u && px[3] != 0u)
+                    ++black;
+                if (px[3] == 0u && px[0] == 0u && px[1] == 0u && px[2] == 0u)
+                    ++transparent;
             }
+            CHECK(red > 0u && black > 0u && transparent > 0u);
+            quantapdf_ir_raster_image_dispose(&first);
+            quantapdf_ir_raster_image_dispose(&second);
             quantapdf_ir_dispose(&ir);
         }
-        std::printf("M1 unchanged jsPDF dpi=%u expected=%zux%zu plan=%s Native=%s; pixel_positive=false\n",
+        std::printf("M2 unchanged jsPDF dpi=%u expected=%zux%zu plan=%s Native=%s; preliminary_pixel_positive=%s\n",
             dpis[i], widths[i], heights[i], i == 2u ? "capacity-rejected" : "admitted",
-            i == 2u ? "not-invoked" : "unsupported-zero-output-twice");
+            i == 2u ? "not-invoked" : "positive-repeatable-color-regions",
+            i == 2u ? "false" : "true");
     }
     CHECK(read_file(path) == original);
 }
@@ -518,6 +536,6 @@ int main(int argc, char **argv)
     }
     rejections(cases[1], std::string(prefix) + "-stroke-negative.pdf");
     FPDF_DestroyLibrary();
-    std::puts("M1 source device plan: 18 source-PDF FIT frames, exact non-tie coverage and bounded source/sample ties, copied tokens, detached ownership and complete-stroke refusal passed");
+    std::puts("M2 source device plan: 18 source-PDF FIT frames, exact non-tie coverage, bounded source/sample ties, copied tokens, detached ownership and stroke controls passed");
     return EXIT_SUCCESS;
 }
