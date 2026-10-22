@@ -4,7 +4,7 @@ add_executable(quantapdf_test_native_device_plan
   test_native_device_plan.c ../src/render/native_device_plan.c)
 add_executable(quantapdf_test_native_device_raster
   test_native_device_raster.c ../src/render/native_device_plan.c
-  ../src/render/ir_scoped_operations_v1.c ../src/render/ir_clip_dag_v3.c
+  ../src/render/ir_scoped_operations_v1.c ../src/render/ir_stroke_polyline_v1.c ../src/render/ir_clip_dag_v3.c
   ../src/render/ir_raster_v1.c ../src/render/ir_raster.c)
 foreach(device_target IN ITEMS
     quantapdf_test_native_device_plan quantapdf_test_native_device_raster)
@@ -37,7 +37,7 @@ add_executable(quantapdf_test_native_device_source
   ../src/resource/resource_registry.c
   ../src/core/context_lifetime.c ../src/core/output_lifetime.c
   ../src/snapshot/snapshot_owner.c ../src/render/native_device_plan.c
-  ../src/render/ir_scoped_operations_v1.c ../src/render/ir_clip_dag_v3.c
+  ../src/render/ir_scoped_operations_v1.c ../src/render/ir_stroke_polyline_v1.c ../src/render/ir_clip_dag_v3.c
   ../src/render/ir_raster_v1.c ../src/render/ir_raster.c)
 target_include_directories(quantapdf_test_native_device_source PRIVATE
   "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
@@ -1827,6 +1827,7 @@ endif()
 add_executable(quantapdf_test_native_scoped_clip_dag_v1
   test_ir_scoped_clip_dag_v1.c
   "${PROJECT_SOURCE_DIR}/src/render/ir_scoped_operations_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_stroke_polyline_v1.c"
   "${PROJECT_SOURCE_DIR}/src/render/ir_clip_dag_v3.c"
   "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
   "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c")
@@ -1853,6 +1854,7 @@ set_tests_properties(quantapdf.native_scoped_clip_dag_v1 PROPERTIES
 add_executable(quantapdf_test_native_scoped_dag_oracle
   test_ir_scoped_dag_oracle.cpp
   "${PROJECT_SOURCE_DIR}/src/render/ir_scoped_operations_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_stroke_polyline_v1.c"
   "${PROJECT_SOURCE_DIR}/src/render/ir_clip_dag_v3.c"
   "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
   "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c")
@@ -1904,7 +1906,7 @@ add_executable(quantapdf_test_native_source_qq_oracle
   ../src/core/context_lifetime.c
   ../src/core/output_lifetime.c
   ../src/snapshot/snapshot_owner.c
-  ../src/render/ir_scoped_operations_v1.c
+  ../src/render/ir_scoped_operations_v1.c ../src/render/ir_stroke_polyline_v1.c
   ../src/render/ir_clip_dag_v3.c
   ../src/render/ir_raster_v1.c
   ../src/render/ir_raster.c)
@@ -2127,3 +2129,77 @@ endif()
 
 
 
+
+# Linear Stroke numerical goldens, strict pure C11 and no provider linkage.
+add_executable(quantapdf_test_native_stroke_polyline_v1
+  test_ir_stroke_polyline_v1.c
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_scoped_operations_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_stroke_polyline_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_clip_dag_v3.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c")
+target_include_directories(quantapdf_test_native_stroke_polyline_v1 PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_native_stroke_polyline_v1 PRIVATE c_std_11)
+if(MSVC)
+  target_compile_options(quantapdf_test_native_stroke_polyline_v1 PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_test_native_stroke_polyline_v1 PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+if(UNIX)
+  target_link_libraries(quantapdf_test_native_stroke_polyline_v1 PRIVATE m)
+endif()
+add_test(NAME quantapdf.native_stroke_polyline_v1
+  COMMAND quantapdf_test_native_stroke_polyline_v1)
+set_tests_properties(quantapdf.native_stroke_polyline_v1 PROPERTIES
+  TIMEOUT 30 LABELS "conformance;native-raster")
+
+# Original generated PDF -> owned IR -> V2, independent direct PDFium oracle.
+add_executable(quantapdf_test_native_stroke_polyline_oracle
+  test_ir_stroke_polyline_oracle.cpp
+  ../src/graph/graph_page_geometry.c
+  ../src/document/page_composer_ir.c
+  ../src/document/page_content_ir.c
+  ../src/document/document_graph.c
+  ../src/ir/pdf_path_lowering.c
+  ../src/ir/pdf_graphics_state.c
+  ../src/ir/pdf_content_ir.c
+  ../src/ir/ir.c
+  ../src/resource/resource_registry.c
+  ../src/core/context_lifetime.c
+  ../src/core/output_lifetime.c
+  ../src/snapshot/snapshot_owner.c
+  ../src/render/ir_scoped_operations_v1.c ../src/render/ir_stroke_polyline_v1.c
+  ../src/render/ir_clip_dag_v3.c
+  ../src/render/ir_raster_v1.c
+  ../src/render/ir_raster.c)
+target_include_directories(quantapdf_test_native_stroke_polyline_oracle PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_native_stroke_polyline_oracle PRIVATE
+  QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium qpdf::libqpdf)
+target_compile_features(quantapdf_test_native_stroke_polyline_oracle PRIVATE
+  c_std_11 cxx_std_20)
+target_compile_definitions(quantapdf_test_native_stroke_polyline_oracle PRIVATE
+  STROKE_SOURCE_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-stroke-source.pdf")
+if(MSVC)
+  target_compile_options(quantapdf_test_native_stroke_polyline_oracle PRIVATE /utf-8)
+endif()
+add_test(NAME quantapdf.native_stroke_polyline_oracle
+  COMMAND quantapdf_test_native_stroke_polyline_oracle)
+set_tests_properties(quantapdf.native_stroke_polyline_oracle PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native-raster;source-pdf")
+if(WIN32)
+  set_property(TEST quantapdf.native_stroke_polyline_oracle
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_stroke_polyline_oracle
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_stroke_polyline_oracle
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
