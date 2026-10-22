@@ -38,9 +38,9 @@ a direction change with dot product below 0.95, inserts CRLF. A forward gap
 exceeding one fifth of that height (minimum 0.1 units) inserts a space unless
 one is already present. This is deterministic plain-text whitespace inference,
 not reading-order reconstruction or byte-for-byte PDFium whitespace emulation.
-Page rotation/UserUnit do not change text order. Structured text, search and
-character geometry still use the legacy provider; this increment does not
-claim native glyph bounds, bidi, shaping or vertical writing.
+Page rotation/UserUnit do not change text order. Structured text and search now use the
+[same interpreter with detached loose selection cells](native-structured-text.md).
+Neither observation claims glyph ink bounds, bidi, shaping or vertical writing.
 
 ## Refusal and work bounds
 

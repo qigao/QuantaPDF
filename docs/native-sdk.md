@@ -90,8 +90,9 @@ use the structure provider directly. See the
 [native image contract](https://github.com/qigao/QuantaPDF/blob/master/docs/conformance/native-images.md)
 for supported sample/mask/placement cases and explicit refusals. Plain text uses
 [native font/ToUnicode interpretation](https://github.com/qigao/QuantaPDF/blob/master/docs/conformance/native-text.md).
-Rendering, structured text and search still load PDFium when requested, so the
-SDK dependency remains.
+[Structured text and search](https://github.com/qigao/QuantaPDF/blob/master/docs/conformance/native-structured-text.md)
+also use native detached font-metric selection cells. Rendering still loads
+PDFium when requested, so the SDK dependency remains.
 
 ## Ownership and deterministic cleanup
 

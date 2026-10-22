@@ -367,6 +367,16 @@ static int test_render_extract_and_determinism(
         sizeof(combining_source) - 1u));
     quantapdf_free(extracted);
     extracted = nullptr;
+    {
+        quantapdf_text_page *structured = nullptr;
+        CHECK(quantapdf_extract_structured_text(page, &structured) == QUANTAPDF_OK);
+        for (auto needle : {"AV", ligature_source, combining_source}) {
+            size_t matches = 0;
+            CHECK(quantapdf_text_search(structured, needle, nullptr, 0, &matches) == QUANTAPDF_OK);
+            CHECK(matches >= 1);
+        }
+        quantapdf_drop_text_page(structured);
+    }
 
     render.struct_size = sizeof(render);
     render.dpi = 72.0f;

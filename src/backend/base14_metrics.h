@@ -149,6 +149,20 @@ inline double base14_glyph_width(
     }
 }
 
+// Typographic ascender/descender metrics in 1000-em units, derived from the
+// same Adobe Core14 AFMs. These define loose selection cells, not ink bounds.
+inline void base14_vertical_metrics(quantapdf_composer_font font,
+    double *ascent, double *descent) noexcept
+{
+    if (font <= QUANTAPDF_COMPOSER_FONT_HELVETICA_BOLD_OBLIQUE) {
+        *ascent = 718; *descent = -207;
+    } else if (font <= QUANTAPDF_COMPOSER_FONT_TIMES_BOLD_ITALIC) {
+        *ascent = 683; *descent = -217;
+    } else {
+        *ascent = 629; *descent = -157;
+    }
+}
+
 } // namespace quantapdf::detail
 
 #endif

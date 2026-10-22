@@ -54,7 +54,8 @@ JPEG codec boundary.
 
 - Source: Adobe Font Metrics files for the 14 PDF Core Fonts, distributed by
   Matplotlib in `mpl-data/fonts/pdfcorefonts`
-- Use: numeric advance-width tables for Composer Base 14 text layout
+- Use: numeric advance-width tables for Composer Base 14 text layout and
+  ascender/descender metrics for native loose text-selection cells
 - License: the AFM files and accompanying notice permit use, copying,
   modification, and distribution for any purpose without charge, provided the
   copyright notices are retained. QuantaPDF derives numeric metrics only and

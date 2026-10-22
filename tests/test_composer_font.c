@@ -264,6 +264,14 @@ static int test_embedded_text(
     CHECK(memcmp(extracted, expected, strlen(expected)) == 0);
     quantapdf_free(extracted);
     extracted = NULL;
+    {
+        quantapdf_text_page *structured = NULL;
+        size_t matches = 0;
+        CHECK(quantapdf_extract_structured_text(page, &structured) == QUANTAPDF_OK);
+        CHECK(quantapdf_text_search(structured, expected, NULL, 0, &matches) == QUANTAPDF_OK);
+        CHECK(matches >= 1);
+        quantapdf_drop_text_page(structured);
+    }
 
     render.struct_size = sizeof(render);
     render.dpi = 72.0f;
