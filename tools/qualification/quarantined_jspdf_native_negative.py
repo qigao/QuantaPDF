@@ -86,7 +86,8 @@ def validate_native_observation(value: Any) -> dict[str, Any]:
     return value
 
 
-def run(source: Path, executable: Path, report: Path) -> dict[str, Any]:
+def run(source: Path, executable: Path, report: Path,
+        require_native_denial: bool = False) -> dict[str, Any]:
     source = source.resolve()
     executable = executable.resolve()
     report = report.resolve()
@@ -117,6 +118,11 @@ def run(source: Path, executable: Path, report: Path) -> dict[str, Any]:
         if pin_original_source(source) != original:
             raise QualificationFailure("immutable source changed during native observation")
         accepted = native["result"] == "native-fail-closed"
+        if require_native_denial and not accepted:
+            raise QualificationFailure(
+                "source lowering stopped before Native Raster; "
+                "no qualified native zero-output rejection"
+            )
         record = {
             "schema_version": 1,
             "qualification": "quarantined-native-negative-diagnostic",
@@ -234,19 +240,22 @@ def self_test() -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--require-native-denial", action="store_true",
+                        help="fail closed if source lowering blocks before Native")
     parser.add_argument("--source", type=Path)
     parser.add_argument("--executable", type=Path)
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
     if args.self_test:
-        if any((args.source, args.executable, args.report)):
+        if any((args.source, args.executable, args.report)) or args.require_native_denial:
             parser.error("--self-test takes no other arguments")
         self_test()
         return 0
     if not all((args.source, args.executable, args.report)):
         parser.error("--source, --executable and --report are required together")
     try:
-        observation = run(args.source, args.executable, args.report)
+        observation = run(args.source, args.executable, args.report,
+                          require_native_denial=args.require_native_denial)
     except (QualificationFailure, OSError, subprocess.TimeoutExpired) as exc:
         print(f"[issue-269] source native rejection observation refused: {exc}",
               file=sys.stderr)
