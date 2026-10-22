@@ -8,11 +8,15 @@
 #define QP_STROKE_POINTS 1024u
 #define QP_STROKE_COMMANDS (QP_STROKE_POINTS * 10u)
 #define QP_STROKE_COORD 1000000.0
+#define QP_DASH_ITEMS 64u
+#define QP_DASH_WORK 65536u
 
 typedef struct stroke_point { double x, y; } stroke_point;
 typedef struct stroke_builder {
     quantapdf_composer_path_command *commands;
-    size_t count, edges, max_edges;
+    size_t count, edges, max_edges, dash_work;
+    const quantapdf_composer_path_operation *source;
+    double dash_period;
     const quantapdf_composer_path_options *options;
 } stroke_builder;
 
@@ -102,11 +106,95 @@ static quantapdf_status join(stroke_builder *b,stroke_point a,
     }
     return polygon(b,p,3u);
 }
+/* Caps are separate equal-orientation pieces. Each dash remains an open
+ * fragment, including coincident endpoints at an authored closed seam. */
+static quantapdf_status dash_cap(stroke_builder *b,stroke_point at,
+    stroke_point u,int start)
+{
+    stroke_point p[4];
+    double hw=(double)b->options->stroke_width/2.0;
+    double sign=start ? -1.0 : 1.0;
+    if(b->options->line_cap==QUANTAPDF_COMPOSER_LINE_CAP_BUTT) return QUANTAPDF_OK;
+    p[0]=(stroke_point){at.x-u.y*hw,at.y+u.x*hw};
+    p[1]=(stroke_point){p[0].x+sign*u.x*hw,p[0].y+sign*u.y*hw};
+    p[2]=(stroke_point){at.x+u.y*hw+sign*u.x*hw,at.y-u.x*hw+sign*u.y*hw};
+    p[3]=(stroke_point){at.x+u.y*hw,at.y-u.x*hw};
+    return polygon(b,p,4u);
+}
+static quantapdf_status dashed_subpath(stroke_builder *b,stroke_point *p,
+    size_t n,int closed)
+{
+    const quantapdf_composer_path_operation *src=b->source;
+    size_t logical=src->dash_count*(src->dash_count%2u ? 2u : 1u), index=0u;
+    double phase=fmod((double)src->dash_phase,b->dash_period), remain;
+    int active=0,tail_on=0;
+    stroke_point last_u={0,0};
+    quantapdf_status status;
+    size_t segments=closed ? n : n-1u;
+    /* Odd arrays repeat twice before their on/off state repeats. */
+    while(phase >= src->dash_lengths[index%src->dash_count]) {
+        if(++b->dash_work>QP_DASH_WORK) return QUANTAPDF_ERROR_UNSUPPORTED;
+        phase-=src->dash_lengths[index%src->dash_count]; index=(index+1u)%logical;
+    }
+    remain=(double)src->dash_lengths[index%src->dash_count]-phase;
+    for(size_t i=0;i<segments;++i) {
+        stroke_point a=p[i],z=p[(i+1u)%n],u;
+        double length=hypot(z.x-a.x,z.y-a.y), distance=0.0;
+        if(!direction(a,z,&u)) return QUANTAPDF_ERROR_UNSUPPORTED;
+        last_u=u;
+        if(active) {
+            status=join(b,p[i-1u],a,z); if(status!=QUANTAPDF_OK) return status;
+        }
+        while(distance < length) {
+            double available=length-distance;
+            int boundary=remain<=available, end=remain>=available;
+            double take=boundary ? remain : available;
+            double next=end ? length : distance+take;
+            stroke_point begin=distance==0.0 ? a : (stroke_point){a.x+u.x*distance,a.y+u.y*distance};
+            stroke_point finish=end ? z : (stroke_point){a.x+u.x*next,a.y+u.y*next};
+            int on=index%2u==0u, final=end && i+1u==segments;
+            if(++b->dash_work>QP_DASH_WORK || !(next>distance)) return QUANTAPDF_ERROR_UNSUPPORTED;
+            if(on) {
+                if(!active) {
+                    status=dash_cap(b,begin,u,1); if(status!=QUANTAPDF_OK) return status;
+                }
+                status=segment(b,begin,finish,0,0); if(status!=QUANTAPDF_OK) return status;
+                active=1;
+                if(boundary && !final) {
+                    status=dash_cap(b,finish,u,0); if(status!=QUANTAPDF_OK) return status;
+                    active=0;
+                }
+            }
+            if(final) tail_on=on;
+            distance=next;
+            if(boundary) {
+                index=(index+1u)%logical;
+                remain=src->dash_lengths[index%src->dash_count];
+            } else remain-=take;
+        }
+    }
+    /* Do not join the first and last dash merely because their endpoint
+     * coordinates coincide. The dash generator produces open fragments. */
+    if(tail_on) return dash_cap(b,closed ? p[0] : p[n-1u],last_u,0);
+    return QUANTAPDF_OK;
+}
 static quantapdf_status subpath(stroke_builder *b,stroke_point *p,size_t n,int closed)
 {
     quantapdf_status status;
     if (closed && n > 1u && same_point(p[0],p[n-1u])) --n;
     if (n < (closed ? 3u : 2u)) return QUANTAPDF_ERROR_UNSUPPORTED;
+    if(b->source->dash_count) {
+        /* Geometry admission is independent of which intervals happen to be
+         * off: an unqualified cusp must not disappear behind a dash gap. */
+        for(size_t i=closed ? 0u : 1u;i<(closed ? n : n-1u);++i) {
+            stroke_point u,v;
+            if(!direction(p[(i+n-1u)%n],p[i],&u) ||
+                !direction(p[i],p[(i+1u)%n],&v) ||
+                (u.x*v.y-u.y*v.x==0.0 && u.x*v.x+u.y*v.y<=0.0))
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+        }
+        return dashed_subpath(b,p,n,closed);
+    }
     size_t segments=closed ? n : n-1u;
     for (size_t i=0;i<segments;++i) {
         status=segment(b,p[i],p[(i+1u)%n],!closed && i==0,!closed && i+1u==segments);
@@ -147,11 +235,23 @@ quantapdf_status quantapdf_ir_stroke_polyline_outline_v1(
          o->line_cap!=QUANTAPDF_COMPOSER_LINE_CAP_SQUARE) ||
         (o->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_MITER &&
          o->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL) ||
-        source->dash_count!=0 || source->dash_phase!=0 ||
+        source->dash_count>QP_DASH_ITEMS || !isfinite(source->dash_phase) ||
+        source->dash_phase<0 || source->dash_phase>1000000000.0f ||
+        (source->dash_count==0u && source->dash_phase!=0) ||
+        (source->dash_count!=0u && source->dash_lengths==NULL) ||
         (o->struct_size>=QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE && o->graphics_state_id!=0) ||
         (o->struct_size>=QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_MIN_SIZE &&
          (o->fill_paint_id!=0 || o->stroke_paint_id!=0)))
         return QUANTAPDF_ERROR_UNSUPPORTED;
+    for(size_t i=0;i<source->dash_count;++i) {
+        double v=source->dash_lengths[i];
+        /* Zero entries require explicit zero-length cap semantics; until
+         * those are qualified, refuse rather than discard a possible dot. */
+        if(!isfinite(v) || v<=0.0 || v>QP_STROKE_COORD) return QUANTAPDF_ERROR_UNSUPPORTED;
+        b.dash_period+=v;
+    }
+    if(source->dash_count%2u) b.dash_period*=2.0;
+    b.source=source;
     b.commands=calloc(QP_STROKE_COMMANDS,sizeof(*b.commands));
     if (!b.commands) return QUANTAPDF_ERROR_NOMEM;
     b.max_edges=max_edges; b.options=o;
@@ -173,7 +273,21 @@ quantapdf_status quantapdf_ir_stroke_polyline_outline_v1(
         } else goto fail;
     }
     if(n) { status=subpath(&b,points,n,0); if(status!=QUANTAPDF_OK) goto fail; }
-    if (b.count==0) goto fail;
+    if (b.count==0) {
+        /* A validated path entirely inside an off interval has exactly empty
+         * coverage. Opposite directed edges encode that zero-winding fill,
+         * while still passing normal transform/Clip/budget validation. */
+        b.commands[0]=source->commands[0];
+        for(size_t i=1;i<source->command_count;++i) {
+            if(source->commands[i].kind==QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+                (source->commands[i].point1.x!=b.commands[0].point1.x ||
+                 source->commands[i].point1.y!=b.commands[0].point1.y)) {
+                b.commands[1]=source->commands[i]; break;
+            }
+        }
+        if(b.commands[1].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO || max_edges<2u) goto fail;
+        b.commands[2].kind=QUANTAPDF_COMPOSER_PATH_CLOSE; b.count=3u;
+    }
     out_fill->commands=b.commands; out_fill->command_count=b.count;
     out_fill->options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     out_fill->options.fill=1; out_fill->options.fill_argb=o->stroke_argb;
