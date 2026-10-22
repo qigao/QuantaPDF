@@ -6,6 +6,53 @@
 #include <stdlib.h>
 #include <string.h>
 
+static uint64_t scoped_component_weight(size_t count)
+{
+    const uint64_t cap = UINT64_C(65536);
+    uint64_t value = (uint64_t)count;
+    if (value > cap)
+        value = cap;
+    return value == 0u ? 1u : value;
+}
+
+static uint64_t scoped_operation_weight(
+    const quantapdf_composer_operation *op)
+{
+    const quantapdf_composer_path_operation *path = &op->value.path;
+    const quantapdf_composer_path_options *opt = &path->options;
+    const quantapdf_composer_path_command *c = path->commands;
+    if (opt->stroke == 1 && opt->fill == 0 && c != NULL &&
+        ((path->command_count == 5u &&
+          c[0].kind == QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
+          c[1].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+          c[2].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+          c[3].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+          c[4].kind == QUANTAPDF_COMPOSER_PATH_CLOSE) ||
+         (path->command_count == 7u &&
+          c[0].kind == QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
+          c[1].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+          c[2].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+          c[3].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+          c[4].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+          c[5].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+          c[6].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO))) {
+        /* Rectangular Stroke expands to the outer/inner eight-edge ring. */
+        return scoped_component_weight(8u);
+    }
+    return scoped_component_weight(path->command_count);
+}
+
+static size_t scoped_proportional_budget(
+    size_t total, uint64_t weight, uint64_t total_weight)
+{
+    const uint64_t value = (uint64_t)total;
+    const uint64_t quotient = value / total_weight;
+    const uint64_t remainder = value % total_weight;
+    const uint64_t share = quotient * weight +
+        (remainder * weight) / total_weight;
+    return share > (uint64_t)SIZE_MAX ? SIZE_MAX : (size_t)share;
+}
+
 /* Straight-alpha source-over for a detached native V1 RGBA pixel.
  * Multiplications and numerator fit uint32 on every platform. */
 static void over(unsigned char *dst, const unsigned char *src)
@@ -24,14 +71,22 @@ static void over(unsigned char *dst, const unsigned char *src)
     dst[3] = (unsigned char)((denominator + 127u) / 255u);
 }
 
-quantapdf_status quantapdf_ir_raster_scoped_operations_v1(
+static quantapdf_status scoped_operations_v1_impl(
     const quantapdf_ir *ir, size_t page_index,
     const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,
     quantapdf_ir_raster_image *out_image)
 {
     const quantapdf_composer_page_state *page;
     quantapdf_ir_raster_v1_limits per_operation;
     size_t width, height, count, bytes, i, k;
+    uint64_t operation_weights[
+        QUANTAPDF_IR_SCOPED_OPERATIONS_V0_MAX_OPERATIONS] = {0};
+    uint64_t total_weight = 0u;
+    size_t operation_sample_budgets[
+        QUANTAPDF_IR_SCOPED_OPERATIONS_V0_MAX_OPERATIONS] = {0};
+    size_t operation_edge_budgets[
+        QUANTAPDF_IR_SCOPED_OPERATIONS_V0_MAX_OPERATIONS] = {0};
     unsigned states_used = 0u, clips_used = 0u;
     const quantapdf_composer_clip_state *active_clips
         [QUANTAPDF_IR_SCOPED_OPERATIONS_V0_MAX_OPERATIONS]
@@ -72,13 +127,22 @@ quantapdf_status quantapdf_ir_raster_scoped_operations_v1(
         (double)page->width_points > (double)limits->max_pixels ||
         (double)page->height_points > (double)limits->max_pixels)
         return QUANTAPDF_ERROR_UNSUPPORTED;
-    width = (size_t)page->width_points;
-    height = (size_t)page->height_points;
-    if (width == 0u || height == 0u ||
-        (double)width != (double)page->width_points ||
-        (double)height != (double)page->height_points ||
-        width > limits->max_pixels / height ||
-        (page->suppress_background != 0 && page->suppress_background != 1) ||
+    if (plan != NULL) {
+        if (!quantapdf_native_device_plan_matches_page(plan,
+                page->width_points, page->height_points, limits->max_pixels))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        width = plan->width;
+        height = plan->height;
+    } else {
+        width = (size_t)page->width_points;
+        height = (size_t)page->height_points;
+        if (width == 0u || height == 0u ||
+            (double)width != (double)page->width_points ||
+            (double)height != (double)page->height_points ||
+            width > limits->max_pixels / height)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    if ((page->suppress_background != 0 && page->suppress_background != 1) ||
         (!page->suppress_background && (page->background_argb >> 24u) != 255u))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     count = width * height;
@@ -132,6 +196,11 @@ quantapdf_status quantapdf_ir_raster_scoped_operations_v1(
         clips_used != ((1u << (unsigned)ir->resources.clip_count) - 1u))
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
+    /* Clip membership comes from each operation's immutable graphics state.
+     * An earlier Stroke has no later W Clip in that state. Never infer this
+     * relationship merely from the number or kinds of operations: an authored
+     * Stroke inside an active Clip must retain that Clip. */
+
     final_pixels = (unsigned char *)malloc(bytes);
     if (final_pixels == NULL)
         return QUANTAPDF_ERROR_NOMEM;
@@ -147,17 +216,44 @@ quantapdf_status quantapdf_ir_raster_scoped_operations_v1(
         }
     }
 
-    per_operation = *limits;
-    per_operation.max_operations = 1u;
-    /* Enforce global sampled-edge budget by dividing it across calls.
-     * The V1 engine bills exact draw+clip work within each allotment. */
-    per_operation.max_sample_tests =
-        limits->max_sample_tests / ir->operation_count;
-    per_operation.max_edges = limits->max_edges / ir->operation_count;
-    if (per_operation.max_edges == 0u) {
+    /* Allocate the global work and edge budgets in proportion to each
+     * layer's authored path plus the clips actually rasterized with it.
+     * Equal division is incorrect when one layer also evaluates a Clip:
+     * that duplicates edge/sample work inside the layer. Component weights
+     * are capped, so their sum and proportional arithmetic remain bounded.
+     * Each per-layer share is still a partition of the original global cap. */
+    for (i = 0u; i < ir->operation_count; ++i) {
+        uint64_t weight = scoped_operation_weight(&ir->operations[i]);
+        for (k = 0u; k < active_counts[i]; ++k) {
+            const quantapdf_composer_clip_state *clip = active_clips[i][k];
+            if (clip == NULL || clip->commands == NULL ||
+                clip->command_count == 0u) {
+                status = QUANTAPDF_ERROR_UNSUPPORTED;
+                goto failure;
+            }
+            weight += scoped_component_weight(clip->command_count);
+        }
+        operation_weights[i] = weight;
+        total_weight += weight;
+    }
+    if (total_weight == 0u) {
         status = QUANTAPDF_ERROR_UNSUPPORTED;
         goto failure;
     }
+    for (i = 0u; i < ir->operation_count; ++i) {
+        operation_sample_budgets[i] = scoped_proportional_budget(
+            limits->max_sample_tests, operation_weights[i], total_weight);
+        operation_edge_budgets[i] = scoped_proportional_budget(
+            limits->max_edges, operation_weights[i], total_weight);
+        if (operation_sample_budgets[i] == 0u ||
+            operation_edge_budgets[i] == 0u) {
+            status = QUANTAPDF_ERROR_UNSUPPORTED;
+            goto failure;
+        }
+    }
+
+    per_operation = *limits;
+    per_operation.max_operations = 1u;
 
     for (i = 0u; i < ir->operation_count; ++i) {
         const quantapdf_composer_operation *source = &ir->operations[i];
@@ -172,7 +268,13 @@ quantapdf_status quantapdf_ir_raster_scoped_operations_v1(
         local.page_count = 1u;
         local.operations = &operation;
         local.operation_count = 1u;
-        if (active_counts[i] == 0u) {
+        per_operation.max_sample_tests = operation_sample_budgets[i];
+        per_operation.max_edges = operation_edge_budgets[i];
+        if (plan != NULL) {
+            status = quantapdf_ir_raster_render_v1_planned(
+                &local, 0u, &per_operation, plan, active_clips[i],
+                active_counts[i], &layer);
+        } else if (active_counts[i] == 0u) {
             status = quantapdf_ir_raster_render_v1(
                 &local, 0u, &per_operation, &layer);
         } else {
@@ -180,8 +282,9 @@ quantapdf_status quantapdf_ir_raster_scoped_operations_v1(
                 &local, 0u, &per_operation, active_clips[i],
                 active_counts[i], &layer);
         }
-        if (status != QUANTAPDF_OK)
+        if (status != QUANTAPDF_OK) {
             goto failure;
+        }
         if (layer.width != width || layer.height != height ||
             layer.stride != width * 4u || layer.size != bytes ||
             layer.pixels == NULL) {
@@ -204,4 +307,26 @@ quantapdf_status quantapdf_ir_raster_scoped_operations_v1(
 failure:
     free(final_pixels);
     return status;
+}
+
+quantapdf_status quantapdf_ir_raster_scoped_operations_v1(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return scoped_operations_v1_impl(ir, page_index, limits, NULL, out_image);
+}
+
+quantapdf_status quantapdf_ir_raster_scoped_operations_v1_planned(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,
+    quantapdf_ir_raster_image *out_image)
+{
+    if (plan == NULL) {
+        if (out_image != NULL)
+            memset(out_image, 0, sizeof(*out_image));
+        return QUANTAPDF_ERROR_ARGUMENT;
+    }
+    return scoped_operations_v1_impl(ir, page_index, limits, plan, out_image);
 }

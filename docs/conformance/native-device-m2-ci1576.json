@@ -1,0 +1,238 @@
+{
+  "common_report": {
+    "dpi_cases": [
+      {
+        "detached_clips": 1,
+        "detached_graphics_states": 1,
+        "detached_paths": 2,
+        "dpi": 72,
+        "full_rgb_parity_verified": true,
+        "grid": [
+          596,
+          842
+        ],
+        "native_output_zero": false,
+        "native_render_count": 2,
+        "native_status": "ok",
+        "pdfium_pixel_identical": false,
+        "plan": "admitted",
+        "regions": {
+          "black_stroke": 1100,
+          "red_fill": 8000,
+          "transparent_outside": 492652,
+          "white_clip_interior": 15464
+        },
+        "repeat_identical": true,
+        "rgb_comparison": "exact-off-source-boundaries-bounded-on-boundaries",
+        "rgb_metrics": {
+          "boundary_pixels": 1459,
+          "different_pixels": 1360,
+          "l1": 141465,
+          "l1_budget": 686913,
+          "max_channel_delta": 127
+        },
+        "source_and_snapshot_disposed_before_raster": true,
+        "source_sample_oracle": "exact-rational-4x4-stroke-then-clipped-fill"
+      },
+      {
+        "detached_clips": 1,
+        "detached_graphics_states": 1,
+        "detached_paths": 2,
+        "dpi": 96,
+        "full_rgb_parity_verified": true,
+        "grid": [
+          794,
+          1123
+        ],
+        "native_output_zero": false,
+        "native_render_count": 2,
+        "native_status": "ok",
+        "pdfium_pixel_identical": false,
+        "plan": "admitted",
+        "regions": {
+          "black_stroke": 1224,
+          "red_fill": 14098,
+          "transparent_outside": 875966,
+          "white_clip_interior": 27720
+        },
+        "repeat_identical": true,
+        "rgb_comparison": "exact-off-source-boundaries-bounded-on-boundaries",
+        "rgb_metrics": {
+          "boundary_pixels": 1944,
+          "different_pixels": 1570,
+          "l1": 150771,
+          "l1_budget": 1209268,
+          "max_channel_delta": 191
+        },
+        "source_and_snapshot_disposed_before_raster": true,
+        "source_sample_oracle": "exact-rational-4x4-stroke-then-clipped-fill"
+      },
+      {
+        "dpi": 144,
+        "expected_grid": [
+          1191,
+          1684
+        ],
+        "ir_output_zero": true,
+        "native_invoked": false,
+        "native_render_count": 0,
+        "plan": "capacity-rejected",
+        "plan_output_zero": true
+      }
+    ],
+    "full_rgb_parity_verified": true,
+    "mapping": "fitted-integer-viewport",
+    "native_pixel_positive": true,
+    "official_corpus_admitted": false,
+    "pixel_budget": 1000000,
+    "public_sdk_backend_changed": false,
+    "qualification": "m2-original-device-native-bounded-rgb",
+    "rgb_comparison": "exact-off-source-boundaries-bounded-on-boundaries",
+    "schema_version": 3,
+    "source": {
+      "revision": "20d32998267745aa5336e299baa65d4f45916fb5",
+      "sha256": "179d8552191bbd1890c72a85fac58bad3dd59ff66766fff76e9a790915a1b11e",
+      "size_bytes": 3344,
+      "unchanged_before_after": true,
+      "url": "https://github.com/parallax/jsPDF/blob/20d32998267745aa5336e299baa65d4f45916fb5/test/reference/w3s_clip.pdf"
+    }
+  },
+  "head_sha": "d6f89641f6071c10b2e0f9f63b0d316755ec3456",
+  "jobs": [
+    {
+      "conclusion": "success",
+      "id": 119723803070,
+      "name": "windows",
+      "verified_steps": [
+        {
+          "conclusion": "success",
+          "name": "Test"
+        },
+        {
+          "conclusion": "success",
+          "name": "Product conformance (Windows)"
+        },
+        {
+          "conclusion": "success",
+          "name": "Qualify original jsPDF Native-positive observation (Windows)"
+        },
+        {
+          "conclusion": "success",
+          "name": "Install Release package"
+        },
+        {
+          "conclusion": "success",
+          "name": "Compile installed Composer consumer"
+        },
+        {
+          "conclusion": "success",
+          "name": "Run installed Composer consumer"
+        }
+      ]
+    },
+    {
+      "conclusion": "success",
+      "id": 119723803307,
+      "name": "linux",
+      "verified_steps": [
+        {
+          "conclusion": "success",
+          "name": "Test static build"
+        },
+        {
+          "conclusion": "success",
+          "name": "Product conformance (Linux Release)"
+        },
+        {
+          "conclusion": "success",
+          "name": "Install static SDK"
+        },
+        {
+          "conclusion": "success",
+          "name": "Test sanitizer configuration"
+        },
+        {
+          "conclusion": "success",
+          "name": "Product conformance (Linux ASan/UBSan)"
+        },
+        {
+          "conclusion": "success",
+          "name": "Qualify original jsPDF Native-positive observation (Linux Release and ASan/UBSan)"
+        }
+      ]
+    },
+    {
+      "conclusion": "success",
+      "id": 119723803404,
+      "name": "macos",
+      "verified_steps": [
+        {
+          "conclusion": "success",
+          "name": "Test"
+        },
+        {
+          "conclusion": "success",
+          "name": "Product conformance (macOS)"
+        },
+        {
+          "conclusion": "success",
+          "name": "Qualify original jsPDF Native-positive observation (macOS)"
+        },
+        {
+          "conclusion": "success",
+          "name": "Install SDK"
+        }
+      ]
+    }
+  ],
+  "linux_original_sanitizer_environment": {
+    "ASAN_OPTIONS": "detect_leaks=1:halt_on_error=1",
+    "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1"
+  },
+  "qualification": "m2-original-narrow-case-cross-platform-evidence",
+  "report_contents_equal": true,
+  "reports": [
+    {
+      "archive_digest": "sha256:88b9d06d734ede4511610717e4861387327447a1eb80b997aa8a347dcab71374",
+      "artifact_id": 12413231153,
+      "artifact_name": "native-device-original-linux",
+      "report_name": "qp-m2-original-debug.json",
+      "report_sha256": "b30bd0a0edd35c5dfdb26a6a9aea198783a3800aa813a4aecd4a03a024e9d945"
+    },
+    {
+      "archive_digest": "sha256:88b9d06d734ede4511610717e4861387327447a1eb80b997aa8a347dcab71374",
+      "artifact_id": 12413231153,
+      "artifact_name": "native-device-original-linux",
+      "report_name": "qp-m2-original-release.json",
+      "report_sha256": "b30bd0a0edd35c5dfdb26a6a9aea198783a3800aa813a4aecd4a03a024e9d945"
+    },
+    {
+      "archive_digest": "sha256:f93ff0e36438600fd44c72dc2d62f7dd2b03a19715cfd9802df5a2e6b1812963",
+      "artifact_id": 12412393588,
+      "artifact_name": "native-device-original-windows",
+      "report_name": "qp-m2-original-release.json",
+      "report_sha256": "b30bd0a0edd35c5dfdb26a6a9aea198783a3800aa813a4aecd4a03a024e9d945"
+    },
+    {
+      "archive_digest": "sha256:d50ad204575c743c36c2ff9da67b8cb70f18c70ac16c73fc78e5e377f81f051f",
+      "artifact_id": 12412129356,
+      "artifact_name": "native-device-original-macos",
+      "report_name": "qp-m2-original-release.json",
+      "report_sha256": "b30bd0a0edd35c5dfdb26a6a9aea198783a3800aa813a4aecd4a03a024e9d945"
+    }
+  ],
+  "schema_version": 1,
+  "scope_exclusions": [
+    "merge",
+    "release",
+    "public SDK backend switch",
+    "general Stroke qualification",
+    "official corpus admission"
+  ],
+  "workflow_run": {
+    "conclusion": "success",
+    "id": 39748784513,
+    "number": 1576,
+    "url": "https://github.com/qigao/QuantaPDF/actions/runs/39748784513"
+  }
+}

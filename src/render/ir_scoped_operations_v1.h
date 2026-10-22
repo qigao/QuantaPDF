@@ -12,6 +12,15 @@ quantapdf_status quantapdf_ir_raster_scoped_operations_v1(
     const quantapdf_ir *ir, size_t page_index,
     const quantapdf_ir_raster_v1_limits *limits,
     quantapdf_ir_raster_image *out_image);
+
+/* Explicit device plan version: all operations and Clip leaves share one
+ * checked FIT grid and device affine. IR/plan are borrowed synchronously;
+ * neither is changed and no Source/Graph/provider ownership is retained. */
+quantapdf_status quantapdf_ir_raster_scoped_operations_v1_planned(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,
+    quantapdf_ir_raster_image *out_image);
 #ifdef __cplusplus
 }
 #endif

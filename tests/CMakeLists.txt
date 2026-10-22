@@ -1,3 +1,76 @@
+# Private M1 device grid: checked source-rational ceil and explicit FIT map.
+# These two executables have no QuantaPDF/PDFium/qpdf linkage.
+add_executable(quantapdf_test_native_device_plan
+  test_native_device_plan.c ../src/render/native_device_plan.c)
+add_executable(quantapdf_test_native_device_raster
+  test_native_device_raster.c ../src/render/native_device_plan.c
+  ../src/render/ir_scoped_operations_v1.c ../src/render/ir_clip_dag_v3.c
+  ../src/render/ir_raster_v1.c ../src/render/ir_raster.c)
+foreach(device_target IN ITEMS
+    quantapdf_test_native_device_plan quantapdf_test_native_device_raster)
+  target_include_directories(${device_target} PRIVATE
+    "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+  target_compile_features(${device_target} PRIVATE c_std_11)
+  if(MSVC)
+    target_compile_options(${device_target} PRIVATE /W4 /WX)
+  else()
+    target_compile_options(${device_target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  if(UNIX)
+    target_link_libraries(${device_target} PRIVATE m)
+  endif()
+endforeach()
+add_test(NAME quantapdf.native_device_plan COMMAND quantapdf_test_native_device_plan)
+add_test(NAME quantapdf.native_device_raster COMMAND quantapdf_test_native_device_raster)
+set_tests_properties(quantapdf.native_device_plan quantapdf.native_device_raster
+  PROPERTIES TIMEOUT 30 LABELS "conformance;native-raster;device-map")
+
+# Actual original literal PDF -> selected Graph -> detached IR + owned plan.
+# PDFium is linked only here as an independent full-RGB FIT reference.
+add_executable(quantapdf_test_native_device_source
+  test_native_device_source.cpp
+  ../src/graph/graph_page_geometry.c
+  ../src/document/page_native_ir.c ../src/document/page_composer_ir.c
+  ../src/document/page_content_ir.c ../src/document/document_graph.c
+  ../src/ir/pdf_path_lowering.c ../src/ir/pdf_graphics_state.c
+  ../src/ir/pdf_content_ir.c ../src/ir/ir.c
+  ../src/resource/resource_registry.c
+  ../src/core/context_lifetime.c ../src/core/output_lifetime.c
+  ../src/snapshot/snapshot_owner.c ../src/render/native_device_plan.c
+  ../src/render/ir_scoped_operations_v1.c ../src/render/ir_clip_dag_v3.c
+  ../src/render/ir_raster_v1.c ../src/render/ir_raster.c)
+target_include_directories(quantapdf_test_native_device_source PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_native_device_source PRIVATE
+  QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium qpdf::libqpdf)
+target_compile_features(quantapdf_test_native_device_source PRIVATE c_std_11 cxx_std_20)
+target_compile_definitions(quantapdf_test_native_device_source PRIVATE
+  NATIVE_DEVICE_SOURCE_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-device-source.pdf")
+if(MSVC)
+  target_compile_options(quantapdf_test_native_device_source PRIVATE /utf-8)
+endif()
+add_test(NAME quantapdf.native_device_source COMMAND quantapdf_test_native_device_source)
+set_tests_properties(quantapdf.native_device_source PROPERTIES
+  TIMEOUT 90 LABELS "conformance;source-pdf;native-raster;device-map")
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+  add_test(NAME quantapdf.native_device_original_guard
+    COMMAND "${Python3_EXECUTABLE}"
+      "${PROJECT_SOURCE_DIR}/tools/qualification/native_device_original.py" --self-test)
+  set_tests_properties(quantapdf.native_device_original_guard PROPERTIES
+    TIMEOUT 20 LABELS "conformance;source-pdf;device-map;hash-guard")
+endif()
+if(WIN32)
+  set_property(TEST quantapdf.native_device_source PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_device_source PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_device_source PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
 # Selected Graph /Resources/ExtGState admission, partial opacity deltas,
 # q/Q, Clip, blend and source-vs-export PDFium pixel conformance.
 add_executable(quantapdf_test_pdf_extgstate test_pdf_extgstate.cpp
