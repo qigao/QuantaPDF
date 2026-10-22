@@ -998,6 +998,44 @@ target_link_libraries(quantapdf_test_links PRIVATE QuantaPDF::QuantaPDF)
 target_compile_definitions(quantapdf_test_links PRIVATE
   PAGE_LINKS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-links.pdf")
 add_test(NAME quantapdf.links COMMAND quantapdf_test_links)
+
+# Compile the production facade and structure provider without any PDFium
+# sources, headers, imported target or link dependency. Remaining legacy
+# render/text/image calls have aborting tripwires, never alternate results.
+# This is a migration test, not a reduced-feature installed SDK configuration.
+get_target_property(_qp_document_sources quantapdf SOURCES)
+get_target_property(_qp_structure_sources quantapdf_backend SOURCES)
+list(FILTER _qp_structure_sources EXCLUDE REGEX "/pdfium_(document|runtime)\\.cpp$")
+add_executable(quantapdf_test_native_document
+  test_native_document.cpp pdfium_forbidden.c
+  ${_qp_document_sources} ${_qp_structure_sources})
+target_include_directories(quantapdf_test_native_document PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_native_document PRIVATE c_std_11 cxx_std_20)
+target_compile_definitions(quantapdf_test_native_document PRIVATE
+  QUANTAPDF_TESTING=1
+  NATIVE_DOCUMENT_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-document.pdf")
+target_link_libraries(quantapdf_test_native_document PRIVATE
+  qpdf::libqpdf JPEG::JPEG ZLIB::ZLIB)
+if(WIN32)
+  target_link_libraries(quantapdf_test_native_document PRIVATE bcrypt)
+elseif(APPLE)
+  target_link_libraries(quantapdf_test_native_document PRIVATE "-framework Security")
+endif()
+if(UNIX)
+  target_link_libraries(quantapdf_test_native_document PRIVATE m)
+endif()
+if(MSVC)
+  target_compile_options(quantapdf_test_native_document PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_test_native_document PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_document COMMAND quantapdf_test_native_document)
+set_tests_properties(quantapdf.native_document PROPERTIES
+  TIMEOUT 60 LABELS "conformance;native-document;no-pdfium")
+unset(_qp_document_sources)
+unset(_qp_structure_sources)
 set_tests_properties(quantapdf.links PROPERTIES TIMEOUT 30)
 
 add_executable(quantapdf_test_pdf_export test_pdf_export.c)

@@ -11,14 +11,26 @@
 typedef struct quantapdf_builtin_document {
     quantapdf_pdfium_document *reader;
     quantapdf_qpdf_document *writer;
+    /* Borrowed from the immutable facade document until close. Only the
+     * remaining render/text/image operations need the legacy reader. */
+    const unsigned char *source_data;
+    size_t source_size;
+    const char *password;
 } quantapdf_builtin_document;
+
+typedef struct quantapdf_builtin_page {
+    quantapdf_builtin_document *document;
+    int page_index;
+    quantapdf_pdfium_page *reader;
+} quantapdf_builtin_page;
 
 static void builtin_close(void *document)
 {
     quantapdf_builtin_document *state = document;
     if (state == NULL)
         return;
-    quantapdf_pdfium_close(state->reader);
+    if (state->reader != NULL)
+        quantapdf_pdfium_close(state->reader);
     quantapdf_qpdf_close(state->writer);
     free(state);
 }
@@ -40,13 +52,12 @@ static quantapdf_status builtin_open_memory(
     state = (quantapdf_builtin_document *)calloc(1, sizeof(*state));
     if (state == NULL)
         return QUANTAPDF_ERROR_NOMEM;
-    status = quantapdf_pdfium_open_memory(
-        data, size, password_utf8, &state->reader);
-    if (status == QUANTAPDF_OK) {
-        status = quantapdf_qpdf_open_memory(
-            data, size, password_utf8 == NULL ? "" : password_utf8,
-            &state->writer);
-    }
+    state->source_data = data;
+    state->source_size = size;
+    state->password = password_utf8;
+    status = quantapdf_qpdf_open_memory(
+        data, size, password_utf8 == NULL ? "" : password_utf8,
+        &state->writer);
     if (status != QUANTAPDF_OK) {
         builtin_close(state);
         return status;
@@ -55,35 +66,69 @@ static quantapdf_status builtin_open_memory(
     return QUANTAPDF_OK;
 }
 
-static quantapdf_status builtin_pdfium_page_count(
+static quantapdf_status builtin_page_count(
     void *document,
     int *out_page_count)
 {
     quantapdf_builtin_document *state = document;
-    return quantapdf_pdfium_page_count(state->reader, out_page_count);
+    return quantapdf_qpdf_page_count(state->writer, out_page_count);
 }
 
-static quantapdf_status builtin_pdfium_load_page(
+static quantapdf_status builtin_load_page(
     void *document, int page_index, void **out_page)
 {
     quantapdf_builtin_document *state = document;
-    quantapdf_pdfium_page *page = NULL;
+    quantapdf_builtin_page *page;
     quantapdf_status status;
+    int count = 0;
 
     if (out_page == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_page = NULL;
-    status = quantapdf_pdfium_load_page(state->reader, page_index, &page);
-    if (status == QUANTAPDF_OK)
-        *out_page = page;
-    return status;
+    if (state == NULL || page_index < 0)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    status = quantapdf_qpdf_page_count(state->writer, &count);
+    if (status != QUANTAPDF_OK)
+        return status;
+    if (page_index >= count)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    page = (quantapdf_builtin_page *)calloc(1, sizeof(*page));
+    if (page == NULL)
+        return QUANTAPDF_ERROR_NOMEM;
+    page->document = state;
+    page->page_index = page_index;
+    *out_page = page;
+    return QUANTAPDF_OK;
 }
 
-static quantapdf_status builtin_pdfium_page_bounds(
+static quantapdf_status builtin_page_bounds(
     void *page,
     quantapdf_rect *out_bounds)
 {
-    return quantapdf_pdfium_page_bounds(page, out_bounds);
+    quantapdf_builtin_page *state = page;
+    if (state == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    return quantapdf_qpdf_page_box_bounds(state->document->writer,
+        state->page_index, QUANTAPDF_PAGE_BOX_CROP, out_bounds);
+}
+
+static quantapdf_status builtin_ensure_legacy_page(quantapdf_builtin_page *page)
+{
+    quantapdf_builtin_document *document;
+    quantapdf_status status;
+    if (page == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if (page->reader != NULL)
+        return QUANTAPDF_OK;
+    document = page->document;
+    if (document->reader == NULL) {
+        status = quantapdf_pdfium_open_memory(document->source_data,
+            document->source_size, document->password, &document->reader);
+        if (status != QUANTAPDF_OK)
+            return status;
+    }
+    return quantapdf_pdfium_load_page(document->reader,
+        page->page_index, &page->reader);
 }
 
 static quantapdf_status builtin_pdfium_render_page(
@@ -95,8 +140,16 @@ static quantapdf_status builtin_pdfium_render_page(
     int alpha,
     quantapdf_backend_bitmap *out_bitmap)
 {
+    quantapdf_builtin_page *state = page;
+    quantapdf_status status;
+    if (out_bitmap == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_bitmap = (quantapdf_backend_bitmap){0};
+    status = builtin_ensure_legacy_page(state);
+    if (status != QUANTAPDF_OK)
+        return status;
     return quantapdf_pdfium_render_page(
-        page, dpi, rotation_degrees, clip, user_unit, alpha, out_bitmap);
+        state->reader, dpi, rotation_degrees, clip, user_unit, alpha, out_bitmap);
 }
 
 static quantapdf_status builtin_pdfium_extract_text(
@@ -104,34 +157,73 @@ static quantapdf_status builtin_pdfium_extract_text(
     char **out_utf8,
     size_t *out_size)
 {
-    return quantapdf_pdfium_extract_text(page, out_utf8, out_size);
+    quantapdf_builtin_page *state = page;
+    quantapdf_status status;
+    if (out_utf8 != NULL)
+        *out_utf8 = NULL;
+    if (out_size != NULL)
+        *out_size = 0;
+    if (out_utf8 == NULL || out_size == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    status = builtin_ensure_legacy_page(state);
+    if (status != QUANTAPDF_OK)
+        return status;
+    return quantapdf_pdfium_extract_text(state->reader, out_utf8, out_size);
 }
 
 static quantapdf_status builtin_pdfium_extract_structured_text(
     void *page,
     quantapdf_text_page **out_text)
 {
-    return quantapdf_pdfium_extract_structured_text(page, out_text);
+    quantapdf_builtin_page *state = page;
+    quantapdf_status status;
+    if (out_text == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_text = NULL;
+    status = builtin_ensure_legacy_page(state);
+    if (status != QUANTAPDF_OK)
+        return status;
+    return quantapdf_pdfium_extract_structured_text(state->reader, out_text);
 }
 
 static quantapdf_status builtin_pdfium_extract_images(
     void *page,
     quantapdf_image_page **out_images)
 {
-    return quantapdf_pdfium_extract_images(page, out_images);
+    quantapdf_builtin_page *state = page;
+    quantapdf_status status;
+    if (out_images == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_images = NULL;
+    status = builtin_ensure_legacy_page(state);
+    if (status != QUANTAPDF_OK)
+        return status;
+    return quantapdf_pdfium_extract_images(state->reader, out_images);
 }
 
-static quantapdf_status builtin_pdfium_extract_links(
+static quantapdf_status builtin_extract_links(
     void *page,
     quantapdf_link_page **out_links)
 {
-    return quantapdf_pdfium_extract_links(page, out_links);
+    quantapdf_builtin_page *state = page;
+    if (state == NULL) {
+        if (out_links != NULL)
+            *out_links = NULL;
+        return QUANTAPDF_ERROR_ARGUMENT;
+    }
+    return quantapdf_qpdf_extract_links(state->document->writer,
+        state->page_index, out_links);
 }
 
-static void builtin_pdfium_drop_page(
+static void builtin_drop_page(
     void *page)
 {
-    quantapdf_pdfium_drop_page(page);
+    quantapdf_builtin_page *state = page;
+    if (state == NULL)
+        return;
+    if (state->reader != NULL)
+        quantapdf_pdfium_drop_page(state->reader);
+    free(state);
 }
 
 static quantapdf_status builtin_qpdf_page_user_unit(
@@ -465,15 +557,15 @@ static quantapdf_status builtin_capture_graph(void *document,
 static const quantapdf_backend_ops builtin_ops = {
     .open_memory = builtin_open_memory,
     .close = builtin_close,
-    .page_count = builtin_pdfium_page_count,
-    .load_page = builtin_pdfium_load_page,
-    .page_bounds = builtin_pdfium_page_bounds,
+    .page_count = builtin_page_count,
+    .load_page = builtin_load_page,
+    .page_bounds = builtin_page_bounds,
     .render_page = builtin_pdfium_render_page,
     .extract_text = builtin_pdfium_extract_text,
     .extract_structured_text = builtin_pdfium_extract_structured_text,
     .extract_images = builtin_pdfium_extract_images,
-    .extract_links = builtin_pdfium_extract_links,
-    .drop_page = builtin_pdfium_drop_page,
+    .extract_links = builtin_extract_links,
+    .drop_page = builtin_drop_page,
     .page_user_unit = builtin_qpdf_page_user_unit,
     .page_box_bounds = builtin_qpdf_page_box_bounds,
     .extract_annotations = builtin_qpdf_extract_annotations,

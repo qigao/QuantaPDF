@@ -83,6 +83,12 @@ An application linking the static SDK owns its executable deployment and loader
 paths. The package does not download dependencies, copy DLLs into consumer
 projects, install language bindings or choose a global SDK location.
 
+PDFium removal is tracked in the
+[migration inventory](https://github.com/qigao/QuantaPDF/blob/master/docs/conformance/pdfium-removal.md).
+Document opening, page count/geometry and link snapshots now use the structure
+provider directly. Rendering, text and image observations still load PDFium
+when requested, so this increment does not yet remove its SDK dependency.
+
 ## Ownership and deterministic cleanup
 
 Every successful factory publishes one owned handle, consumed exactly once by

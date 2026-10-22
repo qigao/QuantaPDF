@@ -5,7 +5,6 @@
 #include "qpdf_document.h"
 #include "snapshot/text_snapshot.h"
 #include "snapshot/image_snapshot.h"
-#include "snapshot/link_snapshot.h"
 
 #if defined(_WIN32) && !defined(NOMINMAX)
 #define NOMINMAX
@@ -13,7 +12,6 @@
 
 #include <fpdfview.h>
 #include <fpdf_edit.h>
-#include <fpdf_doc.h>
 #include <fpdf_formfill.h>
 #include <fpdf_text.h>
 
@@ -559,85 +557,6 @@ quantapdf_status collect_images_from_object(
     if (status != QUANTAPDF_OK)
         return status;
     images->push_back(std::move(image));
-    return QUANTAPDF_OK;
-}
-
-struct captured_link {
-    quantapdf_rect hotspot;
-    quantapdf_link_kind kind;
-    int target_page;
-    quantapdf_point target;
-    std::string uri;
-};
-
-quantapdf_status capture_link(
-    FPDF_DOCUMENT document,
-    FPDF_LINK link,
-    page_geometry const& geometry,
-    captured_link *out_link)
-{
-    FS_RECTF rect = {};
-    if (!FPDFLink_GetAnnotRect(link, &rect))
-        return QUANTAPDF_ERROR_BACKEND;
-    out_link->hotspot = page_rectangle(geometry, rect);
-    out_link->target_page = -1;
-
-    FPDF_DEST destination = FPDFLink_GetDest(document, link);
-    FPDF_ACTION action = FPDFLink_GetAction(link);
-    if (destination == nullptr && action != nullptr &&
-        FPDFAction_GetType(action) == PDFACTION_GOTO)
-        destination = FPDFAction_GetDest(document, action);
-
-    if (destination != nullptr) {
-        FPDF_BOOL has_x = 0;
-        FPDF_BOOL has_y = 0;
-        FPDF_BOOL has_zoom = 0;
-        FS_FLOAT x = 0.0f;
-        FS_FLOAT y = 0.0f;
-        FS_FLOAT zoom = 0.0f;
-        FPDF_PAGE target_page = nullptr;
-
-        out_link->kind = QUANTAPDF_LINK_INTERNAL;
-        out_link->target_page = FPDFDest_GetDestPageIndex(
-            document, destination);
-        if (out_link->target_page < 0)
-            return QUANTAPDF_ERROR_FORMAT;
-        if (FPDFDest_GetLocationInPage(
-                destination, &has_x, &has_y, &has_zoom,
-                &x, &y, &zoom)) {
-            page_geometry target_geometry = {};
-            target_page = FPDF_LoadPage(document, out_link->target_page);
-            if (target_page == nullptr)
-                return status_from_pdfium(FPDF_GetLastError());
-            quantapdf_status const geometry_status = load_page_geometry(
-                document, out_link->target_page, target_page,
-                &target_geometry);
-            FPDF_ClosePage(target_page);
-            if (geometry_status != QUANTAPDF_OK)
-                return geometry_status;
-            float raw_x = target_geometry.left;
-            float raw_y = target_geometry.top;
-            if (has_x)
-                raw_x = x;
-            if (has_y)
-                raw_y = y;
-            out_link->target = page_point(target_geometry, raw_x, raw_y);
-        }
-        return QUANTAPDF_OK;
-    }
-
-    if (action == nullptr || FPDFAction_GetType(action) != PDFACTION_URI)
-        return QUANTAPDF_ERROR_UNSUPPORTED;
-    unsigned long const uri_size = FPDFAction_GetURIPath(
-        document, action, nullptr, 0);
-    if (uri_size == 0)
-        return QUANTAPDF_ERROR_FORMAT;
-    std::vector<char> uri(uri_size);
-    if (FPDFAction_GetURIPath(
-            document, action, uri.data(), uri_size) != uri_size)
-        return QUANTAPDF_ERROR_BACKEND;
-    out_link->kind = QUANTAPDF_LINK_URI;
-    out_link->uri.assign(uri.data(), uri_size - 1u);
     return QUANTAPDF_OK;
 }
 
@@ -1269,90 +1188,6 @@ extern "C" quantapdf_status quantapdf_pdfium_extract_images(
             target->has_alpha = source.has_alpha;
         }
         *out_images = snapshot;
-        return QUANTAPDF_OK;
-    } catch (std::bad_alloc const&) {
-        return QUANTAPDF_ERROR_NOMEM;
-    } catch (...) {
-        return QUANTAPDF_ERROR_BACKEND;
-    }
-}
-
-extern "C" quantapdf_status quantapdf_pdfium_extract_links(
-    quantapdf_pdfium_page *page,
-    quantapdf_link_page **out_links)
-{
-    quantapdf_status status;
-
-    if (out_links == nullptr)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    *out_links = nullptr;
-    if (page == nullptr)
-        return QUANTAPDF_ERROR_ARGUMENT;
-
-    try {
-        page_geometry geometry = {};
-        std::vector<captured_link> links;
-        int position = 0;
-        FPDF_LINK link = nullptr;
-
-        status = quantapdf_pdfium_enter();
-        if (status != QUANTAPDF_OK)
-            return status;
-        pdfium_scope const scope(status);
-        status = ensure_page_handle(page);
-        if (status != QUANTAPDF_OK)
-            return status;
-        status = load_page_geometry(
-            page->document, page->page_index, page->handle, &geometry);
-        if (status != QUANTAPDF_OK)
-            return status;
-
-        while (FPDFLink_Enumerate(page->handle, &position, &link)) {
-            captured_link captured = {};
-            status = capture_link(
-                page->document, link, geometry, &captured);
-            if (status != QUANTAPDF_OK)
-                return status;
-            links.push_back(std::move(captured));
-        }
-
-        auto *snapshot = static_cast<quantapdf_link_page *>(
-            std::calloc(1u, sizeof(quantapdf_link_page)));
-        if (snapshot == nullptr)
-            return QUANTAPDF_ERROR_NOMEM;
-        if (!links.empty()) {
-            snapshot->items = static_cast<quantapdf_link_internal *>(
-                std::calloc(links.size(), sizeof(*snapshot->items)));
-            if (snapshot->items == nullptr) {
-                std::free(snapshot);
-                return QUANTAPDF_ERROR_NOMEM;
-            }
-        }
-        snapshot->count = links.size();
-        for (size_t index = 0; index < links.size(); ++index) {
-            captured_link const& source = links[index];
-            auto *target = &snapshot->items[index];
-            target->hotspot = source.hotspot;
-            target->kind = source.kind;
-            target->target_page = source.target_page;
-            target->target = source.target;
-            if (!source.uri.empty()) {
-                target->uri = static_cast<char *>(
-                    std::malloc(source.uri.size() + 1u));
-                if (target->uri == nullptr) {
-                    for (size_t cleanup = 0; cleanup < index; ++cleanup)
-                        std::free(snapshot->items[cleanup].uri);
-                    std::free(snapshot->items);
-                    std::free(snapshot);
-                    return QUANTAPDF_ERROR_NOMEM;
-                }
-                std::memcpy(
-                    target->uri, source.uri.data(), source.uri.size());
-                target->uri[source.uri.size()] = '\0';
-                target->uri_size = source.uri.size();
-            }
-        }
-        *out_links = snapshot;
         return QUANTAPDF_OK;
     } catch (std::bad_alloc const&) {
         return QUANTAPDF_ERROR_NOMEM;
