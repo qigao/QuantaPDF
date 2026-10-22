@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Attest M1 device-plan/Native denial on one unchanged original jsPDF.
+"""Attest M1 device mapping and preliminary M2 Native-positive rendering on one unchanged jsPDF.
 
 No download, vendoring, bitmap artifact, corpus promotion, or SDK switch.
-The supplied executable must be the separately built M1 source test.
+The supplied executable must be the separately built Native source qualification test.
 """
 import argparse
 import hashlib
@@ -18,9 +18,9 @@ SOURCE_REVISION = "20d32998267745aa5336e299baa65d4f45916fb5"
 SOURCE_URL = ("https://github.com/parallax/jsPDF/blob/" + SOURCE_REVISION +
               "/test/reference/w3s_clip.pdf")
 EXPECTED_LINES = [
-    "M1 unchanged jsPDF dpi=72 expected=596x842 plan=admitted Native=unsupported-zero-output-twice; pixel_positive=false",
-    "M1 unchanged jsPDF dpi=96 expected=794x1123 plan=admitted Native=unsupported-zero-output-twice; pixel_positive=false",
-    "M1 unchanged jsPDF dpi=144 expected=1191x1684 plan=capacity-rejected Native=not-invoked; pixel_positive=false",
+    "M2 unchanged jsPDF dpi=72 expected=596x842 plan=admitted Native=positive-repeatable-color-regions; preliminary_pixel_positive=true",
+    "M2 unchanged jsPDF dpi=96 expected=794x1123 plan=admitted Native=positive-repeatable-color-regions; preliminary_pixel_positive=true",
+    "M2 unchanged jsPDF dpi=144 expected=1191x1684 plan=capacity-rejected Native=not-invoked; preliminary_pixel_positive=false",
 ]
 
 
@@ -38,18 +38,23 @@ def pinned_source(path):
 
 def observation(stdout):
     if stdout.splitlines() != EXPECTED_LINES:
-        raise QualificationFailure("incomplete or changed M1 device/Native observation")
-    # These facts are assertions in the source test, before its success lines.
+        raise QualificationFailure("incomplete or changed M2 device/Native-positive observation")
+    # The native test asserts source identity, both Path operations, detached
+    # ownership, expected grid, repeat byte identity, visible red/black regions,
+    # transparent pixels, and zero-output capacity rejection at 144 DPI.
     return [
         {"dpi": dpi, "grid": [width, height], "plan": "admitted",
          "detached_paths": 2, "detached_clips": 1, "detached_graphics_states": 1,
          "source_and_snapshot_disposed_before_raster": True,
-         "native_status": "unsupported", "native_output_zero": True,
-         "native_render_count": 2}
+         "native_status": "ok", "native_output_zero": False,
+         "native_render_count": 2, "repeat_identical": True,
+         "visible_regions": ["opaque-red-fill", "opaque-black-stroke", "transparent-outside"],
+         "full_rgb_parity_verified": False}
         for dpi, width, height in ((72, 596, 842), (96, 794, 1123))
     ] + [{"dpi": 144, "expected_grid": [1191, 1684],
           "plan": "capacity-rejected", "plan_output_zero": True,
-          "ir_output_zero": True, "native_render_count": 0}]
+          "ir_output_zero": True, "native_render_count": 0,
+          "native_invoked": False}]
 
 
 def reject_aliases(paths):
@@ -82,12 +87,13 @@ def run(source, executable, report):
         if pinned_source(source) != original:
             raise QualificationFailure("source changed during Native observation")
         record = {
-            "schema_version": 1, "qualification": "m1-original-device-plan-native-denial",
+            "schema_version": 2, "qualification": "m2-original-device-native-preliminary-positive",
             "source": {"url": SOURCE_URL, "revision": SOURCE_REVISION,
                        "sha256": SOURCE_SHA256, "size_bytes": SOURCE_SIZE,
                        "unchanged_before_after": True},
             "pixel_budget": 1000000, "mapping": "fitted-integer-viewport",
-            "dpi_cases": cases, "native_pixel_positive": False,
+            "dpi_cases": cases, "native_pixel_positive_preliminary": True,
+            "full_rgb_parity_verified": False,
             "official_corpus_admitted": False, "public_sdk_backend_changed": False,
         }
         staged.write_bytes((json.dumps(record, indent=2, sort_keys=True) + "\n").encode("utf-8"))
@@ -102,7 +108,7 @@ def self_test():
     import os
     valid = "\n".join(EXPECTED_LINES) + "\n"
     assert len(observation(valid)) == 3
-    for bad in ("", valid + "extra\n", valid.replace("false", "true"),
+    for bad in ("", valid + "extra\n", valid.replace("preliminary_pixel_positive=true", "preliminary_pixel_positive=false", 1),
                 valid.replace("596x842", "595x842"),
                 "\n".join(reversed(EXPECTED_LINES))):
         try:
@@ -172,7 +178,7 @@ def main():
     except (QualificationFailure, OSError, subprocess.SubprocessError) as error:
         print("M1 original source refused:", error, file=sys.stderr)
         return 1
-    print("M1 original device-plan denial attested:", args.report)
+    print("M2 original device/Native preliminary-positive observation attested:", args.report)
     return 0
 
 
