@@ -2347,6 +2347,111 @@ static int test_fractional_page_negative(const char *generated_prefix,
     return EXIT_SUCCESS;
 }
 
+
+/* #269 opt-in REAL-original selected-page native rejection observation.
+ * The caller's SHA-256-pinning wrapper qualifies the unchanged external
+ * source BEFORE/AFTER this mode. This is not a native pixel-positive; it
+ * performs no PDFium bitmap render, re-export or production fallback.
+ *
+ * There are two materially different outcomes:
+ *  - lower_to_detached succeeded: private native raster MUST return
+ *    UNSUPPORTED with a zero image, twice and independently;
+ *  - lowering rejected the source: report the earlier rejection explicitly
+ *    without pretending that the Native Raster has run.
+ *
+ * No source byte paths/timestamps enter the deterministic stdout JSON. */
+int test_quarantined_jspdf_native_rejection(const char *source_path)
+{
+    CHECK(source_path && *source_path && corpus_fixture_executions==0u);
+    quantapdf_ir detached{};
+    const quantapdf_status lower_status =
+        snapshot_lower(&detached, 0u, 1u, 2u, source_path);
+    CHECK(lower_status==QUANTAPDF_OK ||
+          lower_status==QUANTAPDF_ERROR_UNSUPPORTED ||
+          lower_status==QUANTAPDF_ERROR_FORMAT);
+
+    bool lowered=lower_status==QUANTAPDF_OK;
+    size_t operation_count=0u,clip_count=0u,state_count=0u;
+    float page_w=0.0f,page_h=0.0f;
+    if(lowered) {
+        CHECK(detached.page_count==1u && detached.pages &&
+              detached.operation_count>=1u &&
+              detached.operation_count<=4u && detached.operations);
+        operation_count=detached.operation_count;
+        clip_count=detached.resources.clip_count;
+        state_count=detached.resources.graphics_state_count;
+        page_w=detached.pages[0].width_points;
+        page_h=detached.pages[0].height_points;
+        CHECK(std::isfinite(page_w) && std::isfinite(page_h) &&
+              page_w>0.0f && page_h>0.0f &&
+              std::abs((double)page_w-595.28)<0.01 &&
+              std::abs((double)page_h-841.89)<0.01 &&
+              ((double)(size_t)page_w!=(double)page_w ||
+               (double)(size_t)page_h!=(double)page_h));
+        const quantapdf_ir_raster_v1_limits limits={
+            1000000u,4u,4096u,320000000u
+        };
+        quantapdf_ir_raster_image first{},second{};
+        const quantapdf_status a=quantapdf_ir_raster_scoped_operations_v1(
+            &detached,0u,&limits,&first);
+        const quantapdf_status b=quantapdf_ir_raster_scoped_operations_v1(
+            &detached,0u,&limits,&second);
+        CHECK(a==QUANTAPDF_ERROR_UNSUPPORTED &&
+              b==QUANTAPDF_ERROR_UNSUPPORTED &&
+              first.pixels==nullptr && second.pixels==nullptr &&
+              first.width==0u && second.width==0u &&
+              first.height==0u && second.height==0u &&
+              first.stride==0u && second.stride==0u &&
+              first.size==0u && second.size==0u);
+        quantapdf_ir_raster_image_dispose(&first);
+        quantapdf_ir_raster_image_dispose(&second);
+    } else {
+        /* The source may be rejected at the strictly bounded path/Clip
+         * lowering stage. This is NOT a native raster zero-output claim. */
+        CHECK(detached.pages==nullptr && detached.page_count==0u &&
+              detached.operations==nullptr && detached.operation_count==0u);
+    }
+    quantapdf_ir_dispose(&detached);
+    CHECK(corpus_fixture_executions==0u);
+    std::printf(
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"test_id\": \"issue-269-quarantined-original-native-negative\",\n"
+        "  \"fixture_kind\": \"external-original-unvendored\",\n"
+        "  \"source_to_detached_ir\": \"%s\",\n"
+        "  \"lowering_status_code\": %d,\n"
+        "  \"detached_page_count\": %u,\n"
+        "  \"detached_path_operation_count\": %zu,\n"
+        "  \"detached_clip_node_count\": %zu,\n"
+        "  \"detached_graphics_state_count\": %zu,\n"
+        "  \"detached_page_points\": [%.9g,%.9g],\n"
+        "  \"native_raster_attempted\": %s,\n"
+        "  \"native_status\": \"%s\",\n"
+        "  \"native_output_zero\": %s,\n"
+        "  \"native_render_repeat_count\": %u,\n"
+        "  \"source_was_reexported\": false,\n"
+        "  \"pdfium_bitmap_created\": false,\n"
+        "  \"external_native_pixel_positive_increment\": 0,\n"
+        "  \"official_corpus_admitted\": false,\n"
+        "  \"production_raster_changed\": false,\n"
+        "  \"result\": \"%s\"\n"
+        "}\n",
+        lowered?"lowered":
+            (lower_status==QUANTAPDF_ERROR_UNSUPPORTED?
+             "unsupported":"format-rejected"),
+        (int)lower_status,
+        lowered?1u:0u,
+        operation_count,clip_count,state_count,
+        (double)page_w,(double)page_h,
+        lowered?"true":"false",
+        lowered?"unsupported":"not-invoked",
+        lowered?"true":"null",
+        lowered?2u:0u,
+        lowered?"native-fail-closed":"blocked-before-native");
+    CHECK(std::fflush(stdout)==0);
+    return EXIT_SUCCESS;
+}
+
 }
 
 struct source_corpus_family {
@@ -2430,6 +2535,9 @@ static void publish_corpus_report(const char *destination,
 
 int main(int argc,char **argv)
 {
+    if(argc==3 &&
+       std::strcmp(argv[1],"--quarantined-jspdf-native-negative")==0)
+        return test_quarantined_jspdf_native_rejection(argv[2]);
     if(argc==2 && std::strcmp(argv[1],"--page-group-admission")==0){
         test_page_group_admission();
         return EXIT_SUCCESS;
