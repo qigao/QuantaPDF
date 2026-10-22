@@ -1881,8 +1881,256 @@ static int test_quarantined_jspdf_geometry(const char *source_path)
     return EXIT_SUCCESS;
 }
 
+
+/* Issue #269 independent ORIGINAL PDFium device mapping A/B observation.
+ * Fit mode is FPDF_RenderPageBitmap(... ceil(width*dpi/72),...): it maps the
+ * full fractional CropBox into the full integer viewport (possibly a tiny
+ * anisotropic stretch). Physical mode passes a uniform source-point scale
+ * to FPDF_RenderPageBitmapWithMatrix and clips to the SAME integer grid.
+ * These two hypotheses are observed, never silently conflated.
+ *
+ * The bitmap references are temporary, bounded and direct public PDFium C
+ * API only: no private Native Raster, no PDF re-export, no external corpus
+ * admission or pixel-positive claim. The outer SHA wrapper attests original
+ * source bytes before/after the probe. */
+struct qp269_viewport_observation {
+    int width=0,height=0;
+    size_t nonwhite=0u;
+    uint64_t rgb_fnv64=UINT64_C(14695981039346656037);
+    std::vector<unsigned char> rgb;
+};
+
+static qp269_viewport_observation qp269_render_pdfium_viewport(
+    FPDF_PAGE page, int width, int height, unsigned dpi, bool physical)
+{
+    CHECK(page != nullptr && width > 0 && height > 0 &&
+          (dpi == 72u || dpi == 96u) &&
+          (size_t)width <= 1000000u / (size_t)height &&
+          (size_t)width * (size_t)height <= SIZE_MAX / 3u);
+    const FPDF_BITMAP bitmap=FPDFBitmap_CreateEx(
+        width,height,FPDFBitmap_BGR,nullptr,0);
+    CHECK(bitmap != nullptr);
+    FPDFBitmap_FillRect(bitmap,0,0,width,height,UINT32_C(0xffffffff));
+    if(physical) {
+        /* PDFium documents this matrix in DEVICE/page-display coordinates.
+         * With original source CropBox at (0,0), identity is the 72-DPI
+         * source map, unlike the default integer-viewport stretch. */
+        const float scale=(float)dpi/72.0f;
+        const FS_MATRIX matrix={scale,0.0f,0.0f,scale,0.0f,0.0f};
+        const FS_RECTF clip={0.0f,0.0f,(float)width,(float)height};
+        FPDF_RenderPageBitmapWithMatrix(bitmap,page,&matrix,&clip,FPDF_ANNOT);
+    } else {
+        FPDF_RenderPageBitmap(
+            bitmap,page,0,0,width,height,0,FPDF_ANNOT);
+    }
+    const int stride=FPDFBitmap_GetStride(bitmap);
+    const unsigned char *src=static_cast<const unsigned char *>(
+        FPDFBitmap_GetBuffer(bitmap));
+    CHECK(src != nullptr && stride >= width*3);
+    qp269_viewport_observation result;
+    result.width=width;result.height=height;
+    result.rgb.resize((size_t)width*(size_t)height*3u);
+    for(int y=0;y<height;++y) {
+        for(int x=0;x<width;++x) {
+            const unsigned char *in=src+(size_t)y*(size_t)stride+
+                                    (size_t)x*3u;
+            unsigned char *out=result.rgb.data()+
+                               ((size_t)y*(size_t)width+(size_t)x)*3u;
+            /* BGR reference -> deterministic compact packed RGB8. */
+            out[0]=in[2];out[1]=in[1];out[2]=in[0];
+            const bool nonwhite=out[0]<250u||out[1]<250u||out[2]<250u;
+            result.nonwhite+=(size_t)nonwhite;
+            for(unsigned channel=0u;channel<3u;++channel) {
+                result.rgb_fnv64^=(uint64_t)out[channel];
+                result.rgb_fnv64*=UINT64_C(1099511628211);
+            }
+        }
+    }
+    FPDFBitmap_Destroy(bitmap);
+    CHECK(result.nonwhite>=100u &&
+          result.nonwhite<(size_t)width*(size_t)height/2u);
+    return result;
+}
+
+static const unsigned char *qp269_rgb_at(
+    const qp269_viewport_observation &bitmap,int x,int y)
+{
+    CHECK(x>=0 && y>=0 && x<bitmap.width && y<bitmap.height);
+    return bitmap.rgb.data()+((size_t)y*(size_t)bitmap.width+
+                              (size_t)x)*3u;
+}
+
+static void qp269_validate_original_interior(
+    const qp269_viewport_observation &bitmap,unsigned dpi)
+{
+    const double scale=(double)dpi/72.0;
+    /* Pinned upstream same-revision generator:
+     * context2d.w3school.spec.js draws and clips (50,20,200,120)
+     * then paints red (0,0,150,100). Two interior points distinguish
+     * clipping from unconditional red painting. No anti-aliasing edges. */
+    const int rx=(int)std::floor(75.0*scale);
+    const int ry=(int)std::floor(60.0*scale);
+    const int ox=(int)std::floor(10.0*scale);
+    const int oy=(int)std::floor(10.0*scale);
+    const int cx=(int)std::floor(180.0*scale);
+    const int cy=(int)std::floor(50.0*scale);
+    const unsigned char *red=qp269_rgb_at(bitmap,rx,ry);
+    const unsigned char *outside=qp269_rgb_at(bitmap,ox,oy);
+    const unsigned char *clipped=qp269_rgb_at(bitmap,cx,cy);
+    CHECK(red[0]>=180u && red[1]<100u && red[2]<100u);
+    CHECK(outside[0]>245u && outside[1]>245u && outside[2]>245u);
+    CHECK(clipped[0]>245u && clipped[1]>245u && clipped[2]>245u);
+}
+
+static int test_quarantined_jspdf_pixel_mapping(const char *source_path)
+{
+    CHECK(source_path && *source_path);
+    const auto original_bytes=decimal_read_source(source_path);
+    CHECK(original_bytes.size()==3344u);
+    const std::string original(original_bytes.begin(),original_bytes.end());
+    CHECK(original.find("%PDF-1.3")==0u &&
+          original.find("/MediaBox [0 0 595.28 841.89]")!=
+              std::string::npos &&
+          original.find("/Producer (jsPDF 0.0.0)")!=
+              std::string::npos);
+    struct pdfium_guard {
+        pdfium_guard() { FPDF_InitLibrary(); }
+        ~pdfium_guard() { FPDF_DestroyLibrary(); }
+    } guard;
+    (void)guard;
+    FPDF_DOCUMENT document=FPDF_LoadDocument(source_path,nullptr);
+    CHECK(document && FPDF_GetPageCount(document)==1);
+    FPDF_PAGE page=FPDF_LoadPage(document,0);
+    CHECK(page && FPDFPage_GetRotation(page)==0);
+    const double page_w=(double)FPDF_GetPageWidthF(page);
+    const double page_h=(double)FPDF_GetPageHeightF(page);
+    CHECK(std::abs(page_w-595.28)<0.01 &&
+          std::abs(page_h-841.89)<0.01);
+
+    constexpr unsigned dpis[]={72u,96u,144u};
+    constexpr size_t widths[]={596u,794u,1191u};
+    constexpr size_t heights[]={842u,1123u,1684u};
+    constexpr size_t max_pixels=1000000u;
+    const char *const source_crop="0 0 595.28 841.89";
+
+    std::printf(
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"test_id\": \"issue-269-original-pdfium-viewport-hypotheses\",\n"
+        "  \"fixture_kind\": \"external-original-unvendored\",\n"
+        "  \"reference_kind\": \"direct-public-pdfium-c-api-two-independent-modes\",\n"
+        "  \"pdfium_original_page_points\": [%.17g,%.17g],\n"
+        "  \"pixel_budget\": %zu,\n"
+        "  \"dpi_cases\": [\n",page_w,page_h,max_pixels);
+    for(size_t i=0;i<3u;++i) {
+        const unsigned dpi=dpis[i];
+        const size_t w=widths[i],h=heights[i];
+        quantapdf_test_rational_grid grid={999u,999u};
+        const int admitted=quantapdf_test_rational_page_grid(
+            source_crop,0,1u,dpi,max_pixels,&grid);
+        CHECK((admitted!=0)==(i!=2u));
+        if(i==2u) {
+            CHECK(grid.width==0u && grid.height==0u &&
+                  w>max_pixels/h);
+            std::printf(
+                "    {\"dpi\":%u,\"expected_grid\":[%zu,%zu],"
+                "\"status\":\"unsupported-capacity\","
+                "\"pdfium_bitmap_allocated\":false,"
+                "\"candidate_output\":[0,0]}%s\n",
+                dpi,w,h,i==2u?"":",");
+            continue;
+        }
+        CHECK(grid.width==w && grid.height==h);
+        const int width=(int)w,height=(int)h;
+        const auto fitted=qp269_render_pdfium_viewport(
+            page,width,height,dpi,false);
+        const auto repeated_fit=qp269_render_pdfium_viewport(
+            page,width,height,dpi,false);
+        const auto physical=qp269_render_pdfium_viewport(
+            page,width,height,dpi,true);
+        const auto repeated_physical=qp269_render_pdfium_viewport(
+            page,width,height,dpi,true);
+        CHECK(fitted.rgb==repeated_fit.rgb &&
+              physical.rgb==repeated_physical.rgb &&
+              fitted.rgb.size()==physical.rgb.size() &&
+              fitted.nonwhite>0u && physical.nonwhite>0u);
+        qp269_validate_original_interior(fitted,dpi);
+        qp269_validate_original_interior(physical,dpi);
+
+        size_t differing_pixels=0u,channel_abs=0u;
+        unsigned largest_channel_delta=0u;
+        for(size_t px=0u;px<w*h;++px) {
+            unsigned highest=0u;
+            for(size_t c=0u;c<3u;++c) {
+                const size_t v=px*3u+c;
+                const unsigned a=fitted.rgb[v],b=physical.rgb[v];
+                const unsigned diff=a>b?a-b:b-a;
+                channel_abs+=(size_t)diff;
+                if(diff>highest)highest=diff;
+                if(diff>largest_channel_delta)
+                    largest_channel_delta=diff;
+            }
+            differing_pixels+=(size_t)(highest!=0u);
+        }
+        /* Deterministic numerical pixel-center mappings for the same
+         * integer viewport; NOT a choice of one model over the other. */
+        const double fit_sx=(double)w/page_w;
+        const double fit_sy=(double)h/page_h;
+        const double physical_s=(double)dpi/72.0;
+        CHECK(std::isfinite(fit_sx) && std::isfinite(fit_sy) &&
+              fit_sx>physical_s && fit_sy>physical_s);
+        const double cx=((double)w-0.5)/fit_sx;
+        const double physical_cx=((double)w-0.5)/physical_s;
+        CHECK(physical_cx>cx);
+        std::printf(
+            "    {\"dpi\":%u,\"expected_grid\":[%zu,%zu],"
+            "\"status\":\"diagnostic-only\","
+            "\"bitmap_modes\":[\"fitted-integer-viewport\","
+            "\"physical-dpi-matrix\"],"
+            "\"pdfium_bitmap_allocated\":true,"
+            "\"reference_repeats_identical\":true,"
+            "\"upstream_clip_red_interior_goldens\":true,"
+            "\"fitted_scale\":[%.17g,%.17g],"
+            "\"physical_scale\":%.17g,"
+            "\"rightmost_center_source_x_fitted\":%.17g,"
+            "\"rightmost_center_source_x_physical\":%.17g,"
+            "\"fitted_nonwhite_pixels\":%zu,"
+            "\"physical_nonwhite_pixels\":%zu,"
+            "\"fitted_rgb_fnv64\":\"%016llx\","
+            "\"physical_rgb_fnv64\":\"%016llx\","
+            "\"differing_rgb_pixels\":%zu,"
+            "\"total_rgb_channel_absolute_difference\":%zu,"
+            "\"largest_rgb_channel_difference\":%u}%s\n",
+            dpi,w,h,fit_sx,fit_sy,physical_s,
+            cx,physical_cx,
+            fitted.nonwhite,physical.nonwhite,
+            (unsigned long long)fitted.rgb_fnv64,
+            (unsigned long long)physical.rgb_fnv64,
+            differing_pixels,channel_abs,largest_channel_delta,
+            i==2u?"":",");
+    }
+    std::printf(
+        "  ],\n"
+        "  \"bitmap_render_count\": 8,\n"
+        "  \"models_are_pdfium_only\": true,\n"
+        "  \"native_raster_invoked\": false,\n"
+        "  \"native_pixel_positive\": false,\n"
+        "  \"official_corpus_admitted\": false,\n"
+        "  \"production_decoder_changed\": false,\n"
+        "  \"result\": \"two-hypothesis-diagnostic-only\"\n"
+        "}\n");
+    FPDF_ClosePage(page);
+    FPDF_CloseDocument(document);
+    CHECK(decimal_read_source(source_path)==original_bytes &&
+          std::fflush(stdout)==0);
+    return EXIT_SUCCESS;
+}
+
 int main(int argc, char **argv)
 {
+    if (argc == 3 && std::strcmp(argv[1],
+             "--quarantined-jspdf-pixel-map") == 0)
+        return test_quarantined_jspdf_pixel_mapping(argv[2]);
     if (argc == 3 && std::strcmp(argv[1],
              "--quarantined-jspdf-geometry") == 0)
         return test_quarantined_jspdf_geometry(argv[2]);
