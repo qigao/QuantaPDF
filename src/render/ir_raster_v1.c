@@ -267,13 +267,23 @@ static quantapdf_status qp_admit_draw(
     quantapdf_status status;
     size_t first = flat->count;
     const int stroke = opt->stroke == 1 && opt->fill == 0;
-    const int rect_stroke = stroke && path->command_count == 5u &&
+    const int canonical_rect_stroke = stroke && path->command_count == 5u &&
         path->commands != NULL &&
         path->commands[0].kind == QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
         path->commands[1].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
         path->commands[2].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
         path->commands[3].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
         path->commands[4].kind == QUANTAPDF_COMPOSER_PATH_CLOSE;
+    const int repeated_close_rect_stroke = stroke && path->command_count == 7u &&
+        path->commands != NULL &&
+        path->commands[0].kind == QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
+        path->commands[1].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+        path->commands[2].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+        path->commands[3].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+        path->commands[4].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+        path->commands[5].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+        path->commands[6].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    const int rect_stroke = canonical_rect_stroke || repeated_close_rect_stroke;
     const int triangle_stroke = stroke && path->command_count == 4u &&
         path->commands != NULL &&
         path->commands[0].kind == QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
@@ -363,7 +373,29 @@ static quantapdf_status qp_admit_draw(
         (fabs(flat->b) > 1e-12 || fabs(flat->c) > 1e-12 ||
          flat->a == 0.0 || flat->d == 0.0))
         return QUANTAPDF_ERROR_UNSUPPORTED;
-    status = qp_flatten_path(flat, path);
+    if (rect_stroke && repeated_close_rect_stroke) {
+        /* The PDF path lowerer may emit the rectangle's closing edge and then
+         * repeat it while finalizing the path. Accept only the exact observed
+         * pattern: p0->p1->p2->p3->p0->p1->p0. Normalize the duplicate tail
+         * before geometric admission; do not infer a rectangle from bounds. */
+        const quantapdf_composer_path_command *c = path->commands;
+        quantapdf_composer_path_operation normalized = *path;
+        quantapdf_composer_path_command commands[5];
+        const quantapdf_point p0 = c[0].point1;
+        if (c[4].point1.x != p0.x || c[4].point1.y != p0.y ||
+            c[5].point1.x != c[1].point1.x ||
+            c[5].point1.y != c[1].point1.y ||
+            c[6].point1.x != p0.x || c[6].point1.y != p0.y)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        for (size_t i = 0u; i < 4u; ++i)
+            commands[i] = c[i];
+        commands[4].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
+        normalized.commands = commands;
+        normalized.command_count = 5u;
+        status = qp_flatten_path(flat, &normalized);
+    } else {
+        status = qp_flatten_path(flat, path);
+    }
     if (status != QUANTAPDF_OK)
         return status;
     if (rect_stroke) {
