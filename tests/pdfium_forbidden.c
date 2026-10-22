@@ -35,13 +35,6 @@ quantapdf_status quantapdf_pdfium_render_page(quantapdf_pdfium_page *page,
     forbidden();
 }
 
-quantapdf_status quantapdf_pdfium_extract_text(quantapdf_pdfium_page *page,
-    char **out, size_t *size)
-{
-    (void)page; (void)out; (void)size;
-    forbidden();
-}
-
 quantapdf_status quantapdf_pdfium_extract_structured_text(
     quantapdf_pdfium_page *page, quantapdf_text_page **out)
 {

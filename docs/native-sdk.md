@@ -88,8 +88,10 @@ PDFium removal is tracked in the
 Document opening, page count/geometry, links and admitted image snapshots now
 use the structure provider directly. See the
 [native image contract](https://github.com/qigao/QuantaPDF/blob/master/docs/conformance/native-images.md)
-for supported sample/mask/placement cases and explicit refusals. Rendering and
-text still load PDFium when requested, so the SDK dependency remains.
+for supported sample/mask/placement cases and explicit refusals. Plain text uses
+[native font/ToUnicode interpretation](https://github.com/qigao/QuantaPDF/blob/master/docs/conformance/native-text.md).
+Rendering, structured text and search still load PDFium when requested, so the
+SDK dependency remains.
 
 ## Ownership and deterministic cleanup
 

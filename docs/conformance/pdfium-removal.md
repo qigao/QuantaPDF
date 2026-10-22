@@ -39,18 +39,21 @@ It also exercises metadata, an edit session and lossless rewriting without
 loading the legacy reader. Image observations now use the bounded
 [native image projection](native-images.md), with detached sample/quad
 coverage in the same no-PDFium executable.
+Plain text now uses [native source text interpretation](native-text.md),
+including bounded ToUnicode, text state and Form resources.
 
 ## Remaining production dependency
 
 | Surface | Current implementation | Required replacement |
 | --- | --- | --- |
 | Page rendering and thumbnails | PDFium, loaded only when requested | Native source interpretation, general paint/Stroke/Clip, text/fonts, images, forms, transparency, device transforms and annotations |
-| Plain and structured text, search | PDFium text page | Native font encodings/ToUnicode, text state, Unicode and geometry observations |
+| Plain text | Native bounded font encodings/ToUnicode, text state and Forms | Expand remaining encodings/ActualText/vertical cases; no PDFium caller remains for this API |
+| Structured text and search | PDFium text page | Native Unicode character geometry, spans and search observations |
 | Image occurrences and decoded bitmap snapshots | Native bounded placement/Gray/RGB/Indexed/JPEG/masks | Expand remaining inline/stencil/complex-color/mask coverage; no PDFium caller remains for this API |
-| Reader lifecycle for render/text | PDFium adapter/runtime | Remove after both callers migrate |
+| Reader lifecycle for render/structured text | PDFium adapter/runtime | Remove after both callers migrate |
 | CMake, installed SDK and license packaging | PDFium remains required | Remove production import, transitive linkage, runtime copying and package targets; isolate oracle setup to tests |
 
-The former PDFium link and image projections are deleted. PDFium page-count/bounds helper
+The former PDFium link, image and plain-text projections are deleted. PDFium page-count/bounds helper
 functions remain for the direct legacy-adapter test, not built-in dispatch.
 The legacy adapter's source-rewrite compatibility path is still confined to
 unmigrated observations and disappears with that adapter; it is not part of
@@ -58,7 +61,7 @@ the native interpretation contract.
 
 ## Next implementation sequence
 
-1. Expand remaining native image formats and migrate text/font interpretation
+1. Expand remaining native image formats and migrate structured text/font geometry
    into detached native observations, reusing the selected Graph/resource model.
 2. Feed those admitted resources to the native renderer; complete general
    Stroke/Clip, paint, form/transparency and device-option coverage. Keep

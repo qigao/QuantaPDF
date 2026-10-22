@@ -152,23 +152,18 @@ static quantapdf_status builtin_pdfium_render_page(
         state->reader, dpi, rotation_degrees, clip, user_unit, alpha, out_bitmap);
 }
 
-static quantapdf_status builtin_pdfium_extract_text(
-    void *page,
-    char **out_utf8,
-    size_t *out_size)
+static quantapdf_status builtin_qpdf_extract_text(
+    void *page, char **out_utf8, size_t *out_size)
 {
     quantapdf_builtin_page *state = page;
-    quantapdf_status status;
     if (out_utf8 != NULL)
         *out_utf8 = NULL;
     if (out_size != NULL)
         *out_size = 0;
-    if (out_utf8 == NULL || out_size == NULL)
+    if (state == NULL || out_utf8 == NULL || out_size == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    status = builtin_ensure_legacy_page(state);
-    if (status != QUANTAPDF_OK)
-        return status;
-    return quantapdf_pdfium_extract_text(state->reader, out_utf8, out_size);
+    return quantapdf_qpdf_extract_text(state->document->writer,
+        state->page_index, out_utf8, out_size);
 }
 
 static quantapdf_status builtin_pdfium_extract_structured_text(
@@ -560,7 +555,7 @@ static const quantapdf_backend_ops builtin_ops = {
     .load_page = builtin_load_page,
     .page_bounds = builtin_page_bounds,
     .render_page = builtin_pdfium_render_page,
-    .extract_text = builtin_pdfium_extract_text,
+    .extract_text = builtin_qpdf_extract_text,
     .extract_structured_text = builtin_pdfium_extract_structured_text,
     .extract_images = builtin_extract_images,
     .extract_links = builtin_extract_links,

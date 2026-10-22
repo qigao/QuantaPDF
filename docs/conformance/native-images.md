@@ -27,7 +27,8 @@ before image inspection or bitmap creation. No new public ABI is introduced.
   RGB output. q/Q restores placement and opacity independently of resources.
 
 The old PDFium image traversal/decoding entry point and its bitmap retry path
-are removed. Rendering and text remain the two production PDFium callers.
+are removed. Rendering and structured text/search remain production PDFium callers;
+plain text now uses [native source interpretation](native-text.md).
 
 ## Refusal and work bounds
 
