@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static void forbidden(void)
+static _Noreturn void forbidden(void)
 {
     fputs("PDFium called by a migrated document operation\n", stderr);
     abort();
@@ -17,7 +17,6 @@ quantapdf_status quantapdf_pdfium_open_memory(const unsigned char *data,
 {
     (void)data; (void)size; (void)password; (void)out;
     forbidden();
-    return QUANTAPDF_ERROR_BACKEND;
 }
 
 quantapdf_status quantapdf_pdfium_load_page(quantapdf_pdfium_document *document,
@@ -25,7 +24,6 @@ quantapdf_status quantapdf_pdfium_load_page(quantapdf_pdfium_document *document,
 {
     (void)document; (void)index; (void)out;
     forbidden();
-    return QUANTAPDF_ERROR_BACKEND;
 }
 
 quantapdf_status quantapdf_pdfium_render_page(quantapdf_pdfium_page *page,
@@ -35,7 +33,6 @@ quantapdf_status quantapdf_pdfium_render_page(quantapdf_pdfium_page *page,
     (void)page; (void)dpi; (void)rotation; (void)clip; (void)user_unit;
     (void)alpha; (void)out;
     forbidden();
-    return QUANTAPDF_ERROR_BACKEND;
 }
 
 quantapdf_status quantapdf_pdfium_extract_text(quantapdf_pdfium_page *page,
@@ -43,7 +40,6 @@ quantapdf_status quantapdf_pdfium_extract_text(quantapdf_pdfium_page *page,
 {
     (void)page; (void)out; (void)size;
     forbidden();
-    return QUANTAPDF_ERROR_BACKEND;
 }
 
 quantapdf_status quantapdf_pdfium_extract_structured_text(
@@ -51,7 +47,6 @@ quantapdf_status quantapdf_pdfium_extract_structured_text(
 {
     (void)page; (void)out;
     forbidden();
-    return QUANTAPDF_ERROR_BACKEND;
 }
 
 quantapdf_status quantapdf_pdfium_extract_images(quantapdf_pdfium_page *page,
@@ -59,7 +54,6 @@ quantapdf_status quantapdf_pdfium_extract_images(quantapdf_pdfium_page *page,
 {
     (void)page; (void)out;
     forbidden();
-    return QUANTAPDF_ERROR_BACKEND;
 }
 
 void quantapdf_pdfium_drop_page(quantapdf_pdfium_page *page)
