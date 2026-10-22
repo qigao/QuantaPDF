@@ -2159,6 +2159,7 @@ set_tests_properties(quantapdf.native_stroke_polyline_v1 PROPERTIES
 # Original generated PDF -> owned IR -> V2, independent direct PDFium oracle.
 add_executable(quantapdf_test_native_stroke_polyline_oracle
   test_ir_stroke_polyline_oracle.cpp
+  ../src/render/native_device_plan.c
   ../src/graph/graph_page_geometry.c
   ../src/document/page_composer_ir.c
   ../src/document/page_content_ir.c
