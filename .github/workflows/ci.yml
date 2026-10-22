@@ -120,6 +120,13 @@ jobs:
             --source "$original" \
             --executable build/linux-gcc-release/tests/quantapdf_test_graph_page_geometry \
             --report "$RUNNER_TEMP/qp269-quarantined-original-geometry.json"
+          # Independent ownership/native stage observation on THE SAME
+          # original bytes; a lowering refusal is reported as blocked,
+          # never misrepresented as Native Raster zero-output acceptance.
+          python3 tools/qualification/quarantined_jspdf_native_negative.py \
+            --source "$original" \
+            --executable build/linux-gcc-release/tests/quantapdf_test_native_source_qq_oracle \
+            --report "$RUNNER_TEMP/qp269-quarantined-native-negative.json"
 
       - name: Upload quarantined original geometry (Linux, opt-in)
         if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
@@ -127,6 +134,15 @@ jobs:
         with:
           name: quarantined-original-geometry-linux
           path: ${{ runner.temp }}/qp269-quarantined-original-geometry.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload quarantined native-negative observation (Linux, opt-in)
+        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
+        uses: actions/upload-artifact@v4
+        with:
+          name: quarantined-native-negative-linux
+          path: ${{ runner.temp }}/qp269-quarantined-native-negative.json
           if-no-files-found: error
           retention-days: 7
 
