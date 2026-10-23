@@ -215,8 +215,8 @@ render-compatibility qualification.
 The existing three-platform CI additionally invokes
 `tools/qualification/reconcile_external_corpus.py` **after** the external
 source status tests and the positive W* pixel test. This gate verifies the separate offline admission report
-against actual original-PDFium/native semantic JSON for both pinned
-documents. A manifest's expected capability, PDFium's successful rendering
+against actual original-PDFium/native semantic JSON for the exact six
+pinned source IDs. A manifest's expected capability, PDFium's successful rendering
 alone, or merely having a JSON file can **never** increment a native
 Path/Clip pass counter. It fails on missing/swapped IDs, altered byte
 admission status, missing test success, nonzero blank pixel error,
