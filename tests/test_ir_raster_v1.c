@@ -310,6 +310,14 @@ static int test_open_segment_butt_stroke(void)
     CHECK(rgba_at(&image,7u,3u)==white);
     quantapdf_ir_raster_image_dispose(&image);
 
+    /* The one-edge representation does not imply general diagonal Stroke
+     * support; diagonal input remains unsupported with empty output. */
+    set_point(commands+1,QUANTAPDF_COMPOSER_PATH_LINE_TO,7.0f,7.0f);
+    CHECK(quantapdf_ir_raster_render_v1(&ir,0u,&limits,&image)==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(image.pixels==NULL && image.size==0u);
+
+    set_point(commands+1,QUANTAPDF_COMPOSER_PATH_LINE_TO,7.0f,4.0f);
     op.value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
     CHECK(quantapdf_ir_raster_render_v1(&ir,0u,&limits,&image)==
           QUANTAPDF_ERROR_UNSUPPORTED);
