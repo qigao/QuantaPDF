@@ -761,6 +761,87 @@ static void test_explicit_closed_two_point_return(void)
     CHECK(!actual.pixels && !actual.size);
 }
 
+/* Open exact terminal A→B→A is only admitted with Butt caps and
+ * bounded Bevel/Round reversal joins; the A end is not given a B cap. */
+static void test_open_terminal_return(void)
+{
+    quantapdf_ir_raster_image actual={0},reference={0};
+    init(); ops[0].value.path.command_count=3;
+    commands[2].point1=commands[0].point1;
+    ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
+    actual=render();
+    init(); ops[0].value.path.command_count=2;
+    ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
+    reference=render();
+    CHECK(actual.size==reference.size &&
+        memcmp(actual.pixels,reference.pixels,actual.size)==0);
+    quantapdf_ir_raster_image_dispose(&actual);
+    quantapdf_ir_raster_image_dispose(&reference);
+
+    init(); ops[0].value.path.command_count=3;
+    commands[2].point1=commands[0].point1;
+    ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND;
+    actual=render();
+    CHECK(alpha(&actual,17,15)>0 && alpha(&actual,5,15)==0);
+    /* The centerline without its cusp join does not cover beyond B. */
+    init(); ops[0].value.path.command_count=2;
+    ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
+    reference=render();
+    CHECK(alpha(&reference,17,15)==0);
+    quantapdf_ir_raster_image_dispose(&actual);
+    quantapdf_ir_raster_image_dispose(&reference);
+
+    /* The same exact terminal return is admissible as a subpath before
+     * a real cubic without inventing a second segment or a cap at A. */
+    init(); ops[0].value.path.command_count=5;
+    ops[0].value.path.options.stroke_width=2;
+    ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
+    commands[0].point1=(quantapdf_point){4,20};
+    commands[1].point1=(quantapdf_point){20,20};
+    commands[2].point1=commands[0].point1;
+    commands[3].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+    commands[3].point1=(quantapdf_point){4,16};
+    commands[4].kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
+    commands[4].point1=(quantapdf_point){4,4};
+    commands[4].point2=(quantapdf_point){28,4};
+    commands[4].point3=(quantapdf_point){28,16};
+    actual=render_with(&curve_limits);
+    commands[2]=commands[3];
+    commands[3]=commands[4];
+    ops[0].value.path.command_count=4;
+    reference=render_with(&curve_limits);
+    CHECK(actual.size==reference.size &&
+        memcmp(actual.pixels,reference.pixels,actual.size)==0);
+    quantapdf_ir_raster_image_dispose(&actual);
+    quantapdf_ir_raster_image_dispose(&reference);
+
+    /* Miter, non-Butt caps, dash phase, and nonterminal reversals remain
+     * atomic UNSUPPORTED. Preserve exact min-edge preflight. */
+    init(); ops[0].value.path.command_count=3;
+    commands[2].point1=commands[0].point1;
+    reject(); /* default Miter */
+    ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
+    reject();
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_SQUARE;
+    reject();
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
+    dash(4,4,0); reject();
+    init(); ops[0].value.path.command_count=4;
+    commands[2].point1=commands[0].point1;
+    commands[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    commands[3].point1=(quantapdf_point){24,20};
+    ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
+    reject();
+    init(); ops[0].value.path.command_count=3;
+    commands[2].point1=commands[0].point1;
+    ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND;
+    quantapdf_ir_raster_v1_limits tiny=limits; tiny.max_edges=4;
+    CHECK(quantapdf_ir_raster_scoped_operations_v2(&ir,0,&tiny,&actual)
+        ==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(!actual.pixels && !actual.size);
+}
+
 static void test_cubics(void)
 {
     quantapdf_ir_raster_image image={0},reference={0};
@@ -946,6 +1027,7 @@ int main(void)
     test_closed_single_point_caps();
     test_closed_two_point_joins();
     test_explicit_closed_two_point_return();
+    test_open_terminal_return();
     test_cubics();
     return 0;
 }

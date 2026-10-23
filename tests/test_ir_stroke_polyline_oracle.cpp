@@ -401,6 +401,9 @@ void test_cubic_source()
     compare("closed-two-point-explicit-bevel","1 0 0 RG 4 w 2 j 20 40 m 100 40 l 20 40 l h S");
     compare("closed-two-point-explicit-round","1 0 0 RG 4 w 1 j 20 40 m 100 40 l 20 40 l h S");
     compare("closed-two-point-explicit-mixed-cubic","1 0 0 RG 4 w 1 J 1 j 20 40 m 100 40 l 20 40 l h 20 60 m 20 90 100 90 100 60 c S");
+    compare("open-return-bevel-butt","1 0 0 RG 4 w 0 J 2 j 20 40 m 100 40 l 20 40 l S");
+    compare("open-return-round-butt","1 0 0 RG 4 w 0 J 1 j 20 40 m 100 40 l 20 40 l S");
+    compare("open-return-mixed-cubic","1 0 0 RG 4 w 0 J 2 j 20 40 m 100 40 l 20 40 l 20 60 m 20 90 100 90 100 60 c S");
     compare("closed-single-point-s-operator","1 0 0 RG 4 w 1 J 20 40 m s");
     compare("move-only-open-inert","1 0 0 RG 4 w 1 J 20 40 m S");
     compare("closed-coincident-lines-round","1 0 0 RG 4 w 1 J 20 40 m 20 40 l 20 40 l h S");
@@ -426,6 +429,8 @@ void test_cubic_source()
     negative("4 w [4 4] 0 d 20 40 m 20 90 100 90 100 40 c S");
     negative("0 w 20 40 m 20 90 100 90 100 40 c S");
     negative("4 w 0 j 20 40 m 100 40 l h S");
+    negative("4 w 2 J 2 j 20 40 m 100 40 l 20 40 l S");
+    negative("4 w 0 J 2 j [4 4] 0 d 20 40 m 100 40 l 20 40 l S");
     negative("4 w 2 j [4 4] 0 d 20 40 m 100 40 l h S");
     negative("4 w 20 40 m 100 40 20 40 100 40 c S");
     negative("4 w 20 40 m 20 90 100 90 100 40 c S 0 w 20 20 m 90 20 l S");

@@ -317,6 +317,25 @@ static quantapdf_status subpath(stroke_builder *b,stroke_point *p,size_t n,int c
      * stroke, including authored coincident LINEs collapsed to that point.
      * Dashed degenerate paths remain outside the qualified profile. */
     if (closed && n==1u) return zero_length_subpath(b,p[0]);
+    /* An open A→B→A return is a distinct authored cusp. Qualify only
+     * the last exact return under Butt caps and Bevel/Round joins:
+     * the first segment already covers both traversals, and a Round
+     * join at B is an outward semicircle. An open cap at A is Butt;
+     * do not treat the cusp as a new end cap at B. */
+    if(!closed && n==3u && same_point(p[0],p[2]) &&
+        !same_point(p[0],p[1])) {
+        stroke_point u;
+        if(b->source->dash_count!=0u ||
+            b->options->line_cap!=QUANTAPDF_COMPOSER_LINE_CAP_BUTT ||
+            (b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL &&
+             b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND) ||
+            !direction(p[0],p[1],&u))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        status=segment(b,p[0],p[1],0,0);
+        if(status!=QUANTAPDF_OK) return status;
+        return b->options->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_ROUND ?
+            round_cap(b,p[1],u,0) : QUANTAPDF_OK;
+    }
     /* A two-distinct-point closed path traces one segment in both
      * directions. With bevel joins the return adds no coverage beyond the
      * butt-ended centerline strip; with round joins each end is a bounded
@@ -444,7 +463,7 @@ static quantapdf_status cubic_strip(stroke_builder *b,const stroke_point *p,
 typedef struct solid_subpath {
     stroke_point start,current,first,last;
     size_t segments;
-    int active,curves,had_line_command;
+    int active,curves,had_line_command,open_terminal_return;
 } solid_subpath;
 static quantapdf_status solid_line(stroke_builder *b,solid_subpath *s,stroke_point z)
 {
@@ -500,6 +519,12 @@ static quantapdf_status solid_finish(stroke_builder *b,solid_subpath *s,int clos
         status=solid_line(b,s,s->start); if(status!=QUANTAPDF_OK) return status;
         if(!s->curves && s->segments<3u) return QUANTAPDF_ERROR_UNSUPPORTED;
         status=join_directions(b,s->start,s->last,s->first);
+    } else if(s->open_terminal_return) {
+        /* The return was normalized without a duplicate reversing strip.
+         * Butt caps at the coincident A endpoints emit nothing; B gets
+         * only the qualified Bevel or bounded Round cusp join. */
+        status=b->options->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_ROUND ?
+            round_cap(b,s->current,s->last,0) : QUANTAPDF_OK;
     } else {
         status=dash_cap(b,s->start,s->first,1); if(status!=QUANTAPDF_OK) return status;
         status=dash_cap(b,s->current,s->last,0);
@@ -524,6 +549,21 @@ static quantapdf_status curved_path(stroke_builder *b)
         } else if(c->kind==QUANTAPDF_COMPOSER_PATH_LINE_TO) {
             if(!s.active || !valid_point(p)) return QUANTAPDF_ERROR_UNSUPPORTED;
             s.had_line_command=1;
+            /* Open exact A→B→A requires no duplicate strip. Accept only
+             * when no additional segment follows before the next MOVE or
+             * the end of the operation. A separate cubic may have selected
+             * this private compiler, but cannot change the cusp policy. */
+            if((i+1u==b->source->command_count ||
+                b->source->commands[i+1u].kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO) &&
+               s.segments==1u && !s.curves &&
+               same_point(p,s.start) && !same_point(s.current,s.start) &&
+               b->source->dash_count==0u &&
+               b->options->line_cap==QUANTAPDF_COMPOSER_LINE_CAP_BUTT &&
+               (b->options->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL ||
+                b->options->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_ROUND)) {
+                s.open_terminal_return=1;
+                continue;
+            }
             /* Normalize only the terminal exact explicit return before
              * CLOSE. In a mixed cubic operation the first strip has already
              * been emitted, and solid_finish will add its Bevel/Round joins. */
