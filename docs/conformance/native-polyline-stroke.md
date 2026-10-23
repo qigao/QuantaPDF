@@ -149,6 +149,22 @@ coverage. A cancelled two-edge nonzero contour represents this exact empty
 fill, so normal transform, Clip, budget and later-operation validation still
 runs. This is not a shortcut around page admission.
 
+## Dashed cubic admission boundary
+
+Dashed cubics are admitted only when every cubic segment is an exact monotone
+collinear trace. Its two control points must lie exactly on the endpoint line
+and occur in nondecreasing order along that line (in either direction). Such
+a cubic has the same geometric trace and arc length as its endpoint segment,
+so it is lowered to that segment and reuses the already-qualified user-space
+dash/phase logic. This also supports mixed line/collinear-cubic paths without
+changing dash distance at the authored segment boundary.
+
+Non-collinear curves and collinear reversing curves remain explicit
+`QUANTAPDF_ERROR_UNSUPPORTED` refusals. No fixed-step curve flattening,
+parameter-distance approximation, retry or alternate renderer is used.
+General curved arc-length/phase and curve dash endpoint tangents remain open
+work under #213.
+
 ## Bounds, ownership and refusal
 
 The outline compiler accepts at most 1024 authored commands. Its fixed maximum
