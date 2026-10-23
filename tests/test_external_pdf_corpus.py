@@ -111,6 +111,14 @@ class ExternalPDFCorpusAdmissionTest(unittest.TestCase):
         self.write([self.doc])
         self.rejects("unreviewed")
 
+    def test_supported_wstar_clip_outcome_is_admissible(self):
+        self.fixture()
+        self.doc["expected_native_outcome"] = "supported-wstar-clip"
+        self.write([self.doc])
+        record = verify_corpus(self.manifest, self.assets)["documents"][0]
+        self.assertEqual(record["expected_native_outcome"], "supported-wstar-clip")
+        self.assertEqual(record["native_conformance"], "not_run")
+
     def test_supported_blank_is_separate_from_path_clip(self):
         self.fixture()
         self.doc["expected_native_outcome"] = "supported-blank-page"
