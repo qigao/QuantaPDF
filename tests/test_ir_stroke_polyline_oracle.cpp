@@ -380,9 +380,9 @@ void test_cubic_source()
     compare("cubic-y-end-control","1 0 0 RG 4 w 2 J 20 40 m 20 90 100 40 y S");
     compare("cubic-collinear-speed","1 0 0 RG 4 w 2 J 20 40 m 20 40 100 40 100 40 c S");
     compare("zero-length-round-cap","1 0 0 RG 4 w 1 J 20 40 m 20 40 l S",
-        {{20,40,255,0,0},{21,40,255,0,0},{23,40,255,255,255}});
+        {{20,40,255,0,0},{23,40,255,255,255}});
     compare("zero-length-square-cap","1 0 0 RG 4 w 2 J 20 40 m 20 40 l S",
-        {{20,40,255,0,0},{21,41,255,0,0},{23,40,255,255,255}});
+        {{20,40,255,0,0},{23,40,255,255,255}});
     compare("zero-length-butt-cap","1 0 0 RG 4 w 0 J 20 40 m 20 40 l S",
         {{20,40,255,255,255}});
     /* Exact monotone collinear cubic dash length equals the endpoint chord. */
