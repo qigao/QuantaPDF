@@ -298,7 +298,8 @@ static void test_round(void)
     ops[0].value.path.command_count=2; reject(); /* float arc precision at large origin */
     init(); ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND;
     ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
-    commands[2].point1=commands[0].point1; reject(); /* open cusp non-Butt cap */
+    commands[2].point1=(quantapdf_point){8.5f,16};
+    reject(); /* near-return cusp is not the exact A→B→A profile */
     init(); ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
     quantapdf_ir_raster_v1_limits tiny=limits; tiny.max_edges=8;
     CHECK(quantapdf_ir_raster_scoped_operations_v2(&ir,0,&tiny,&image)==QUANTAPDF_ERROR_UNSUPPORTED);
@@ -669,7 +670,8 @@ static void test_closed_two_point_joins(void)
     commands[2].point1=commands[0].point1;
     ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
     ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_SQUARE;
-    reject(); /* open A->B->A with non-Butt cap remains unqualified */
+    dash(4,4,0);
+    reject(); /* open A->B->A with dash remains unqualified */
     init(); ops[0].value.path.command_count=3;
     commands[2].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
     ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
@@ -817,16 +819,36 @@ static void test_open_terminal_return(void)
     quantapdf_ir_raster_image_dispose(&actual);
     quantapdf_ir_raster_image_dispose(&reference);
 
-    /* Miter, non-Butt caps, dash phase, and nonterminal reversals remain
-     * atomic UNSUPPORTED. Preserve exact min-edge preflight. */
+    /* Miter, dash phase, and nonterminal reversals remain atomic
+     * UNSUPPORTED. Cap-style positives above use the same bounded path. */
     init(); ops[0].value.path.command_count=3;
     commands[2].point1=commands[0].point1;
     reject(); /* default Miter */
     ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
     ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
-    reject();
+    actual=render();
+    CHECK(alpha(&actual,6,15)>0 && alpha(&actual,17,15)==0);
+    quantapdf_ir_raster_image_dispose(&actual);
     ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_SQUARE;
-    reject();
+    actual=render();
+    CHECK(alpha(&actual,6,15)>0 && alpha(&actual,17,15)==0);
+    quantapdf_ir_raster_image_dispose(&actual);
+
+    ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND;
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
+    actual=render();
+    ops[0].value.path.command_count=2;
+    reference=render();
+    CHECK(actual.size==reference.size &&
+        memcmp(actual.pixels,reference.pixels,actual.size)==0);
+    quantapdf_ir_raster_image_dispose(&actual);
+    quantapdf_ir_raster_image_dispose(&reference);
+
+    ops[0].value.path.command_count=3;
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_SQUARE;
+    actual=render();
+    CHECK(alpha(&actual,6,15)>0 && alpha(&actual,17,15)>0);
+    quantapdf_ir_raster_image_dispose(&actual);
     ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
     dash(4,4,0); reject();
     init(); ops[0].value.path.command_count=4;

@@ -149,24 +149,29 @@ coverage. A cancelled two-edge nonzero contour represents this exact empty
 fill, so normal transform, Clip, budget and later-operation validation still
 runs. This is not a shortcut around page admission.
 
-## Open exact terminal return — narrow Butt-cap profile
+## Open exact terminal return — qualified cap styles
 
 An authored open `MOVE A → LINE B → LINE A → S` with distinct finite
-A and B is admitted only with solid positive user-space width, **Butt** line
-caps and **Bevel/Round** joins. Since the two traversals share the same
-centerline footprint, the duplicate reverse strip is eliminated:
+A and B is admitted only with solid positive user-space width and
+**Bevel/Round** joins. All three line cap styles (Butt, Round, Square)
+are now supported. Since the two traversals share one centerline footprint,
+the duplicate reversing strip is eliminated:
 
-- Bevel at B leaves the original butt-ended A–B strip
-- Round at B adds the existing bounded outward semicircle at B
-- The coincident open endpoints at A have Butt caps, so no A-end extension
+- Bevel at B leaves the strip unchanged; Round adds the existing outward,
+  error-bounded semicircular join at B
+- Both open endpoint caps at A have the same orientation and overlap
+  geometrically. The implementation emits **one** start cap at A, never
+  an accidental end cap at B
+- Square caps extend the user-space start section, while Round caps use
+  the existing bounded circular sector and Butt caps contribute no extension
 
 The final return must be immediately followed by another MOVE or the end of
 the operation, with no further authored segment. The rule is identical when
-another subpath uses the regular solid cubic backend. Other cap styles,
-Miter joins, dash arrays and nonterminal cusps remain explicitly refused.
-The existing output, transform/Clip, ownership, edge and sampling limits
-apply unchanged. New C11 goldens and original-source/direct-PDFium oracle
-fixtures exercise the admitted subset under unchanged tolerances.
+another subpath uses the regular solid cubic backend. Miter joins, dash
+arrays and nonterminal cusps remain explicitly refused. The existing
+output, transform/Clip, ownership, edge and sampling limits apply unchanged.
+C11 goldens and original-source/direct-PDFium oracles retain all previous
+tolerances and fail-closed checks.
 
 ## Exact explicit closed return — qualified subset
 
