@@ -8,24 +8,24 @@ import zlib
 from pathlib import Path
 
 ROOT = Path("tests/external_wstar_candidates")
-WSTAR = re.compile(rb"(?<![A-Za-z0-9])W\\*(?=\\s|%|$)")
+WSTAR = re.compile(rb"(?<![A-Za-z0-9])W\*(?=\s|%|$)")
 TEXT_OP = re.compile(rb"(?<![A-Za-z0-9])(?:BT|ET|Tj|TJ|Tf|Td|TD|Tm|Tr)(?![A-Za-z0-9])")
 PATH_OP = re.compile(rb"(?<![A-Za-z0-9])(?:m|l|c|v|y|h|re)(?![A-Za-z0-9])")
-PATH_END = re.compile(rb"(?<![A-Za-z0-9])(?:S|s|f|F|B|B\\*|b|b\\*|n)(?![A-Za-z0-9])")
+PATH_END = re.compile(rb"(?<![A-Za-z0-9])(?:S|s|f|F|B|B\*|b|b\*|n)(?![A-Za-z0-9])")
 
 def scan(data: bytes):
     page_refs = set()
-    for match in re.finditer(rb"/Contents\\s*(\\[[^\\]]*\\]|\\d+\\s+\\d+\\s+R)", data):
-        page_refs.update(int(value) for value in re.findall(rb"(\\d+)\\s+\\d+\\s+R", match.group(1)))
+    for match in re.finditer(rb"/Contents\s*(\[[^\]]*\]|\d+\s+\d+\s+R)", data):
+        page_refs.update(int(value) for value in re.findall(rb"(\d+)\s+\d+\s+R", match.group(1)))
     direct_lengths = {
         int(match.group(1)): int(match.group(2))
-        for match in re.finditer(rb"(?m)^\\s*(\\d+)\\s+\\d+\\s+obj\\s+(\\d+)\\s+endobj", data)
+        for match in re.finditer(rb"(?m)^\s*(\d+)\s+\d+\s+obj\s+(\d+)\s+endobj", data)
     }
     streams, page_text_ops = [], 0
-    for obj in re.finditer(rb"(?m)^(\\d+)\\s+\\d+\\s+obj\\b", data):
+    for obj in re.finditer(rb"(?m)^(\d+)\s+\d+\s+obj\b", data):
         object_id = int(obj.group(1))
         body_start = obj.end()
-        marker = re.search(rb"stream\\r?\\n", data[body_start:])
+        marker = re.search(rb"stream\r?\n", data[body_start:])
         if marker is None:
             continue
         marker_start = body_start + marker.start()
@@ -33,17 +33,17 @@ def scan(data: bytes):
             continue
         dictionary = data[body_start:marker_start]
         payload_start = body_start + marker.end()
-        length_match = re.search(rb"/Length\\s+(\\d+)(?:\\s+\\d+\\s+R)?", dictionary)
+        length_match = re.search(rb"/Length\s+(\d+)(?:\s+\d+\s+R)?", dictionary)
         length = int(length_match.group(1)) if length_match else None
-        if length_match and re.search(rb"/Length\\s+\\d+\\s+\\d+\\s+R", dictionary):
+        if length_match and re.search(rb"/Length\s+\d+\s+\d+\s+R", dictionary):
             length = direct_lengths.get(length)
         payload_end = payload_start + length if length is not None and payload_start + length <= len(data) else data.find(b"endstream", payload_start)
         if payload_end < payload_start:
             continue
         payload = data[payload_start:payload_end]
-        if payload.endswith(b"\\r\\n"):
+        if payload.endswith(b"\r\n"):
             payload = payload[:-2]
-        elif payload.endswith(b"\\n"):
+        elif payload.endswith(b"\n"):
             payload = payload[:-1]
         decoded = payload
         if b"/FlateDecode" in dictionary:
