@@ -12,7 +12,7 @@ import zlib
 REPO = "ArtifexSoftware/ghostpdl"
 COMMIT = "b0ef31a9de66f732df0f6dd8b42f9340a14874e4"
 ARCHIVE_URL = f"https://github.com/{REPO}/archive/{COMMIT}.tar.gz"
-MAX_PDF_BYTES = 250_000
+MAX_PDF_BYTES = 5_000_000
 WSTAR = re.compile(rb"(?<![A-Za-z0-9])W\*(?=\s|%|$)")
 TEXT_OP = re.compile(rb"(?<![A-Za-z0-9])(?:BT|ET|Tj|TJ|Tf|Td|TD|Tm|Tr)(?![A-Za-z0-9])")
 PATH_OP = re.compile(rb"(?<![A-Za-z0-9])(?:m|l|c|v|y|h|re)(?![A-Za-z0-9])")
@@ -127,7 +127,7 @@ def main():
         "pinned_commit": COMMIT,
         "repository_license": "Apache-2.0; candidate PDF provenance still requires review",
         "pdfs_scanned": scanned,
-        "pdfs_skipped_over_300kb": skipped,
+        "pdfs_skipped_over_5mb": skipped,
         "candidate_count": len(candidates),
         "candidates": candidates[:30],
         "status": "discovery only; not formal corpus evidence",
