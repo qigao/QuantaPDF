@@ -152,12 +152,18 @@ runs. This is not a shortcut around page admission.
 ## Zero-length open subpaths
 
 A subpath containing MOVE followed by one or more LINE commands at the same
-point is admitted for solid, positive-width Stroke. Butt caps yield exact
-empty coverage; round caps emit a bounded full disk; square caps emit a
-width-by-width square centered at the point. Round geometry uses the existing
+point is admitted for solid, positive-width Stroke. Round caps emit a bounded
+full disk. Butt and projecting-square caps produce exact empty coverage, as
+required for a degenerate PDF stroked subpath whose cap orientation is
+indeterminate (ISO 32000-1, 8.5.3.2). Round geometry uses the existing
 device-error-bounded arc producer. Move-only paths, explicitly closed
 degenerates, dashed zero-length paths and zero-width hairlines remain explicit
 refusals until their separate contracts are qualified.
+
+The pinned PDFium build emits a small point for degenerate butt/square cases.
+Those fixtures retain the fixed aggregate mean/gross comparison but do not
+assert the provider-specific center pixel; the native numerical goldens follow
+the PDF specification rather than copying that behavior.
 
 ## Dashed cubic admission boundary
 
