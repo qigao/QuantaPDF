@@ -302,6 +302,10 @@ static quantapdf_status subpath(stroke_builder *b,stroke_point *p,size_t n,int c
 {
     quantapdf_status status;
     if (closed && n > 1u && same_point(p[0],p[n-1u])) --n;
+    /* Closing a single-point linear subpath still counts as a degenerate
+     * stroke, including authored coincident LINEs collapsed to that point.
+     * Dashed degenerate paths remain outside the qualified profile. */
+    if (closed && n==1u) return zero_length_subpath(b,p[0]);
     if (n < (closed ? 3u : 2u)) return QUANTAPDF_ERROR_UNSUPPORTED;
     if(b->source->dash_count) {
         /* Geometry admission is independent of which intervals happen to be
@@ -424,10 +428,16 @@ static quantapdf_status solid_finish(stroke_builder *b,solid_subpath *s,int clos
 {
     quantapdf_status status;
     if(!s->segments) {
-        /* MOVE without a drawing segment has no stroke footprint. It must
-         * not prevent a later cubic subpath from rendering. A CLOSE on this
-         * empty subpath remains outside the qualified profile. */
-        if(!closed && !s->had_line_command) {
+        /* A closed single-point subpath is a zero-length stroke: round caps
+         * emit a bounded disk, butt/square paint nothing. This also applies
+         * after one or more authored coincident LINEs. The open MOVE-only
+         * subpath remains inert regardless of cap style. */
+        if(closed) {
+            status=zero_length_subpath(b,s->start);
+            if(status==QUANTAPDF_OK) s->active=0;
+            return status;
+        }
+        if(!s->had_line_command) {
             s->active=0;
             return QUANTAPDF_OK;
         }
