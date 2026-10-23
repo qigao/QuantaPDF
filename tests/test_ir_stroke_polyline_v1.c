@@ -405,6 +405,28 @@ static void test_cubics(void)
     image=render_with(&curve_limits); commands[1].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO; commands[1].point1=commands[1].point3;
     reference=render_with(&curve_limits); CHECK(memcmp(image.pixels,reference.pixels,image.size)==0);
     quantapdf_ir_raster_image_dispose(&image); quantapdf_ir_raster_image_dispose(&reference);
+    /* Exact monotone collinear cubics have line-equivalent arc length, so
+     * dashed rendering must match the endpoint segment byte-for-byte. */
+    dash_line();
+    commands[1].kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
+    commands[1].point1=(quantapdf_point){8,16};
+    commands[1].point2=(quantapdf_point){20,16};
+    commands[1].point3=(quantapdf_point){28,16};
+    dash(4,4,1.5f);
+    image=render_with(&curve_limits);
+    commands[1].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    commands[1].point1=commands[1].point3;
+    reference=render_with(&curve_limits);
+    CHECK(image.size==reference.size && memcmp(image.pixels,reference.pixels,image.size)==0);
+    quantapdf_ir_raster_image_dispose(&image);
+    quantapdf_ir_raster_image_dispose(&reference);
+    /* A collinear but reversing cubic is not a line trace and remains refused. */
+    dash_line();
+    commands[1].kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
+    commands[1].point1=(quantapdf_point){28,16};
+    commands[1].point2=(quantapdf_point){4,16};
+    commands[1].point3=(quantapdf_point){28,16};
+    dash(4,4,0); reject();
     /* Curved dash arc-length, interior stationary/cusp, precision and late
      * layer failures are explicit, atomic refusals. */
     cubic_arch(); dash(4,4,0); reject();
