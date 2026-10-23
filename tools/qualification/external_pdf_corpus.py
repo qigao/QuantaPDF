@@ -27,7 +27,7 @@ SPDX_ALLOWLIST = frozenset({
 })
 EXPECTED_NATIVE = frozenset({
     "supported-path-clip", "supported-clipped-stroke", "supported-blank-page",
-    "unsupported", "malformed"
+    "supported-wstar-clip", "unsupported", "malformed"
 })
 ROOT_FIELDS = frozenset({"schema_version", "corpus_id", "documents"})
 DOC_FIELDS = frozenset({
@@ -141,7 +141,9 @@ def _validate_metadata(raw: object) -> dict:
         "feature_tags": tags,
         "expected_native_outcome": expected,
         "license_spdx": license_spdx,
+        "license_url": _https(raw, "license_url"),
         "license_review_url": review_url,
+        "attribution": _required_string(raw, "attribution", 1024),
         "source_url": source_url,
         "source_revision": source_revision,
         "page_index": page_index
@@ -194,7 +196,11 @@ def verify_corpus(manifest_path: Path, assets_root: Path) -> dict:
             "size_bytes": record["size_bytes"],
             "feature_tags": record["feature_tags"],
             "license_spdx_declared": record["license_spdx"],
+            "license_url": record["license_url"],
             "license_review_url": record["license_review_url"],
+            "attribution": record["attribution"],
+            "source_url": record["source_url"],
+            "source_revision": record["source_revision"],
             "page_index": record["page_index"],
             "expected_native_outcome": record["expected_native_outcome"],
             "integrity": "verified",

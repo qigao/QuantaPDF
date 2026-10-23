@@ -198,7 +198,7 @@ jobs:
         shell: bash
         run: |
           python3 -m unittest discover -s tests -p test_external_corpus_reconcile.py
-          python3 tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/linux-gcc-release/tests/external-cc0-text-status.json" --blank "build/linux-gcc-release/tests/external-cc0-blank-status.json" --path "build/linux-gcc-release/tests/external-pdfium-black-path-status.json" --clip "build/linux-gcc-release/tests/external-pdfium-clip-stroke-status.json" --wstar "build/linux-gcc-release/tests/external-pdfium-wstar-late-text-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
+          python3 tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/linux-gcc-release/tests/external-cc0-text-status.json" --blank "build/linux-gcc-release/tests/external-cc0-blank-status.json" --path "build/linux-gcc-release/tests/external-pdfium-black-path-status.json" --clip "build/linux-gcc-release/tests/external-pdfium-clip-stroke-status.json" --wstar "build/linux-gcc-release/tests/external-pdfium-wstar-late-text-status.json" --wstar-positive "build/linux-gcc-release/tests/external-pdfium-wstar-pixel-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
 
       - name: Upload reconciled external corpus (Linux)
         uses: actions/upload-artifact@v4
@@ -247,6 +247,8 @@ jobs:
             build/linux-gcc-debug/tests/external-cc0-text-status.json
             build/linux-gcc-release/tests/external-pdfium-wstar-late-text-status.json
             build/linux-gcc-debug/tests/external-pdfium-wstar-late-text-status.json
+            build/linux-gcc-release/tests/external-pdfium-wstar-pixel-status.json
+            build/linux-gcc-debug/tests/external-pdfium-wstar-pixel-status.json
           if-no-files-found: error
           retention-days: 7
 
@@ -258,7 +260,7 @@ jobs:
             build/linux-gcc-release/tests/native-source-corpus.json
             build/linux-gcc-debug/tests/native-source-corpus.json
             build/linux-gcc-release/tests/yworks-svg-w-candidate-pixel.json
-            build/linux-gcc-release/tests/yworks-cliprule-wstar-candidate-pixel.json
+            build/linux-gcc-release/tests/external-pdfium-wstar-pixel-status.json
           if-no-files-found: error
           retention-days: 7
 
@@ -405,7 +407,7 @@ jobs:
         shell: bash
         run: |
           python3 -m unittest discover -s tests -p test_external_corpus_reconcile.py
-          python3 tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/macos-clang-release/tests/external-cc0-text-status.json" --blank "build/macos-clang-release/tests/external-cc0-blank-status.json" --path "build/macos-clang-release/tests/external-pdfium-black-path-status.json" --clip "build/macos-clang-release/tests/external-pdfium-clip-stroke-status.json" --wstar "build/macos-clang-release/tests/external-pdfium-wstar-late-text-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
+          python3 tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/macos-clang-release/tests/external-cc0-text-status.json" --blank "build/macos-clang-release/tests/external-cc0-blank-status.json" --path "build/macos-clang-release/tests/external-pdfium-black-path-status.json" --clip "build/macos-clang-release/tests/external-pdfium-clip-stroke-status.json" --wstar "build/macos-clang-release/tests/external-pdfium-wstar-late-text-status.json" --wstar-positive "build/macos-clang-release/tests/external-pdfium-wstar-pixel-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
 
       - name: Upload reconciled external corpus (macOS)
         uses: actions/upload-artifact@v4
@@ -446,6 +448,7 @@ jobs:
           path: |
             build/macos-clang-release/tests/external-cc0-text-status.json
             build/macos-clang-release/tests/external-pdfium-wstar-late-text-status.json
+            build/macos-clang-release/tests/external-pdfium-wstar-pixel-status.json
           if-no-files-found: error
           retention-days: 7
 
@@ -456,7 +459,7 @@ jobs:
           path: |
             build/macos-clang-release/tests/native-source-corpus.json
             build/macos-clang-release/tests/yworks-svg-w-candidate-pixel.json
-            build/macos-clang-release/tests/yworks-cliprule-wstar-candidate-pixel.json
+            build/macos-clang-release/tests/external-pdfium-wstar-pixel-status.json
           if-no-files-found: error
           retention-days: 7
 
@@ -637,7 +640,7 @@ jobs:
         shell: pwsh
         run: |
           python -m unittest discover -s tests -p test_external_corpus_reconcile.py
-          python tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/Msvc-Release/tests/external-cc0-text-status.json" --blank "build/Msvc-Release/tests/external-cc0-blank-status.json" --path "build/Msvc-Release/tests/external-pdfium-black-path-status.json" --clip "build/Msvc-Release/tests/external-pdfium-clip-stroke-status.json" --wstar "build/Msvc-Release/tests/external-pdfium-wstar-late-text-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
+          python tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/Msvc-Release/tests/external-cc0-text-status.json" --blank "build/Msvc-Release/tests/external-cc0-blank-status.json" --path "build/Msvc-Release/tests/external-pdfium-black-path-status.json" --clip "build/Msvc-Release/tests/external-pdfium-clip-stroke-status.json" --wstar "build/Msvc-Release/tests/external-pdfium-wstar-late-text-status.json" --wstar-positive "build/Msvc-Release/tests/external-pdfium-wstar-pixel-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
 
       - name: Upload reconciled external corpus (Windows)
         uses: actions/upload-artifact@v4
@@ -678,6 +681,7 @@ jobs:
           path: |
             build/Msvc-Release/tests/external-cc0-text-status.json
             build/Msvc-Release/tests/external-pdfium-wstar-late-text-status.json
+            build/Msvc-Release/tests/external-pdfium-wstar-pixel-status.json
           if-no-files-found: error
           retention-days: 7
 
@@ -688,6 +692,6 @@ jobs:
           path: |
             build/Msvc-Release/tests/native-source-corpus.json
             build/Msvc-Release/tests/yworks-svg-w-candidate-pixel.json
-            build/Msvc-Release/tests/yworks-cliprule-wstar-candidate-pixel.json
+            build/Msvc-Release/tests/external-pdfium-wstar-pixel-status.json
           if-no-files-found: error
           retention-days: 7

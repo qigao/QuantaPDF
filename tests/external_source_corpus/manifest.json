@@ -100,6 +100,28 @@
       ],
       "page_index": 0,
       "expected_native_outcome": "unsupported"
+    },
+    {
+      "id": "yworks.clippath-cliprule-v1",
+      "source_url": "https://github.com/yWorks/svg2pdf.js/blob/b564556f41b245893fbadd3a6c4f832455383dbe/test/clippath/clippath-cliprule.pdf",
+      "source_revision": "b564556f41b245893fbadd3a6c4f832455383dbe",
+      "sha256": "9d30a67c8194b6822f28ad9ed4848a57c7745e95d11b79267ac5141001a91783",
+      "size_bytes": 3747,
+      "license_spdx": "MIT",
+      "license_url": "https://github.com/yWorks/svg2pdf.js/blob/b564556f41b245893fbadd3a6c4f832455383dbe/LICENSE",
+      "license_review_url": "https://github.com/qigao/QuantaPDF/issues/271",
+      "attribution": "yWorks GmbH and Vitaly Puzrin; unchanged svg2pdf.js clip-rule PDF test fixture; see YWORKS-MIT-NOTICE.txt",
+      "feature_tags": [
+        "external",
+        "clip-nonzero",
+        "clip-evenodd",
+        "evenodd-hole",
+        "star-rule-difference",
+        "nested-clips",
+        "positive"
+      ],
+      "page_index": 0,
+      "expected_native_outcome": "supported-wstar-clip"
     }
   ]
 }
