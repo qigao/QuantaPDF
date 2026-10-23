@@ -2593,7 +2593,7 @@ int test_external_yworks_svg_w_pixels(const char *filename,
     };
     quantapdf_ir_raster_image native{},repeat{};
     const quantapdf_status status=
-        quantapdf_ir_raster_scoped_operations_v2(
+        quantapdf_ir_raster_scoped_operations_v1(
             &detached,0u,&limits,&native);
     if(status!=QUANTAPDF_OK) {
         std::fprintf(stderr,
@@ -2674,7 +2674,7 @@ int test_external_yworks_svg_w_pixels(const char *filename,
         invalid.resources.clips=altered.data();
         altered[2].kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;
         quantapdf_ir_raster_image rejected{};
-        CHECK(quantapdf_ir_raster_scoped_operations_v2(
+        CHECK(quantapdf_ir_raster_scoped_operations_v1(
             &invalid,0u,&limits,&rejected)==QUANTAPDF_ERROR_UNSUPPORTED);
         CHECK(rejected.pixels==nullptr && rejected.size==0u);
     }
@@ -2688,7 +2688,7 @@ int test_external_yworks_svg_w_pixels(const char *filename,
         invalid.operations=over.data();
         invalid.operation_count=over.size();
         quantapdf_ir_raster_image rejected{};
-        CHECK(quantapdf_ir_raster_scoped_operations_v2(
+        CHECK(quantapdf_ir_raster_scoped_operations_v1(
             &invalid,0u,&limits,&rejected)==QUANTAPDF_ERROR_ARGUMENT);
         CHECK(rejected.pixels==nullptr && rejected.size==0u);
     }
@@ -2701,7 +2701,7 @@ int test_external_yworks_svg_w_pixels(const char *filename,
         invalid.resources.clips=over.data();
         invalid.resources.clip_count=over.size();
         quantapdf_ir_raster_image rejected{};
-        CHECK(quantapdf_ir_raster_scoped_operations_v2(
+        CHECK(quantapdf_ir_raster_scoped_operations_v1(
             &invalid,0u,&limits,&rejected)==QUANTAPDF_ERROR_UNSUPPORTED);
         CHECK(rejected.pixels==nullptr && rejected.size==0u);
     }
@@ -2719,11 +2719,11 @@ int test_external_yworks_svg_w_pixels(const char *filename,
         quantapdf_ir invalid=detached;
         invalid.resources.clips=altered.data();
         quantapdf_ir_raster_image rejected{};
-        CHECK(quantapdf_ir_raster_scoped_operations_v2(
+        CHECK(quantapdf_ir_raster_scoped_operations_v1(
             &invalid,0u,&limits,&rejected)==QUANTAPDF_ERROR_UNSUPPORTED);
         CHECK(rejected.pixels==nullptr && rejected.size==0u);
     }
-    OK(quantapdf_ir_raster_scoped_operations_v2(
+    OK(quantapdf_ir_raster_scoped_operations_v1(
         &detached,0u,&limits,&repeat));
     CHECK(native.pixels!=nullptr && native.width==WIDTH &&
           native.height==HEIGHT && native.stride==WIDTH*4u &&

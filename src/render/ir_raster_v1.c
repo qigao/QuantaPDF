@@ -283,6 +283,10 @@ static quantapdf_status qp_admit_draw(
         path->commands[5].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO &&
         path->commands[6].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO;
     const int rect_stroke = canonical_rect_stroke || repeated_close_rect_stroke;
+    const int open_line = stroke && path->command_count == 2u &&
+        path->commands != NULL &&
+        path->commands[0].kind == QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
+        path->commands[1].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO;
     const int triangle_stroke = stroke && path->command_count == 4u &&
         path->commands != NULL &&
         path->commands[0].kind == QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
@@ -297,7 +301,7 @@ static quantapdf_status qp_admit_draw(
             opt->line_cap != QUANTAPDF_COMPOSER_LINE_CAP_BUTT ||
             opt->line_join != QUANTAPDF_COMPOSER_LINE_JOIN_MITER ||
             opt->miter_limit != 10.0f ||
-            !(rect_stroke || triangle_stroke))) ||
+            !(rect_stroke || triangle_stroke || open_line))) ||
         (opt->fill_rule != QUANTAPDF_COMPOSER_FILL_NONZERO &&
          opt->fill_rule != QUANTAPDF_COMPOSER_FILL_EVEN_ODD) ||
         (opt->struct_size >= QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE &&
@@ -409,7 +413,8 @@ static quantapdf_status qp_admit_draw(
         }
     }
     if (flat->count == first ||
-        (stroke && !rect_stroke && flat->count - first != 3u) ||
+        (stroke && !rect_stroke &&
+         flat->count - first != (open_line ? 1u : 3u)) ||
         (rect_stroke && flat->count - first != 8u))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     out->first_edge = first;
@@ -441,8 +446,8 @@ static int qp_inside(
 }
 
 /* Bounded one-pixel path stroke. Each antialias sample is covered iff it
- * lies within half a device-space pixel of one of three closed segments.
- * Unsupported widths, caps, joins, dashes and non-isometric transforms are
+ * lies within half a device-space pixel of one open segment or three closed
+ * triangle segments. Unsupported widths, caps, joins, dashes and transforms are
  * rejected by qp_admit_draw; this cannot silently approximate general strokes. */
 static int qp_stroke_inside(const qp_edge *edges,
     const qp_raster_draw *draw, double x, double y)
@@ -735,7 +740,7 @@ static quantapdf_status qp_render_v1_impl(
     /* The admitted one-pixel stroke remains exact only where the only
      * Clip excludes all closed-triangle joins. No silent stroke fallback. */
     for (i = 0u; i < draw_count; ++i) {
-        if (draws[i].one_pixel_stroke &&
+        if (draws[i].one_pixel_stroke && draws[i].edge_count != 1u &&
             (draw_count != 1u || clip_count != 1u ||
              !qp_guard_clipped_stroke_geometry(flatten.edges,
                  &draws[i], &clip_draws[0]))) {

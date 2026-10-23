@@ -282,12 +282,48 @@ static int test_concave_and_self_intersecting(void)
     return EXIT_SUCCESS;
 }
 
+static int test_open_segment_butt_stroke(void)
+{
+    quantapdf_ir ir;
+    quantapdf_composer_page_state page;
+    quantapdf_composer_operation op;
+    quantapdf_composer_path_command commands[2];
+    quantapdf_ir_raster_image image = {0};
+    quantapdf_ir_raster_v1_limits limits = {64u,1u,64u,1000000u};
+    const uint32_t white=UINT32_C(0xffffffff);
+
+    set_point(commands,QUANTAPDF_COMPOSER_PATH_MOVE_TO,1.0f,4.0f);
+    set_point(commands+1,QUANTAPDF_COMPOSER_PATH_LINE_TO,7.0f,4.0f);
+    setup(&ir,&page,&op,commands,2u);
+    op.value.path.options.fill=0;
+    op.value.path.options.stroke=1;
+    op.value.path.options.stroke_argb=UINT32_C(0xffff0000);
+    op.value.path.options.stroke_width=1.0f;
+    op.value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
+    op.value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_MITER;
+    op.value.path.options.miter_limit=10.0f;
+    OK(quantapdf_ir_raster_render_v1(&ir,0u,&limits,&image));
+    CHECK(rgba_at(&image,3u,3u)!=white);
+    CHECK(rgba_at(&image,3u,4u)!=white);
+    CHECK(rgba_at(&image,3u,2u)==white);
+    CHECK(rgba_at(&image,0u,3u)==white);
+    CHECK(rgba_at(&image,7u,3u)==white);
+    quantapdf_ir_raster_image_dispose(&image);
+
+    op.value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
+    CHECK(quantapdf_ir_raster_render_v1(&ir,0u,&limits,&image)==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(image.pixels==NULL && image.size==0u);
+    return EXIT_SUCCESS;
+}
+
 int main(void)
 {
     CHECK(test_concave_and_self_intersecting() == EXIT_SUCCESS);
     CHECK(test_winding_and_subpaths() == EXIT_SUCCESS);
     CHECK(test_coverage_transform_and_curves() == EXIT_SUCCESS);
     CHECK(test_rejections() == EXIT_SUCCESS);
+    CHECK(test_open_segment_butt_stroke() == EXIT_SUCCESS);
     fprintf(stderr, "[quantapdf.native_ir_raster_v1] complete\n");
     return EXIT_SUCCESS;
 }
