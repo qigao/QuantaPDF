@@ -2102,6 +2102,33 @@ else()
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
 
+# Issue #262: unchanged original yWorks PDF with genuine W* even-odd Clips.
+# Candidate-only PDFium vs detached pure-C11 pixel parity; never increments
+# the formal external corpus numerator before the separate #271 admission gate.
+add_test(NAME quantapdf.external_yworks_wstar_candidate_pixels
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/external_wstar_candidates/documents/yworks.clippath-cliprule-v1.pdf"
+    "-DREPORT=${CMAKE_CURRENT_BINARY_DIR}/yworks-cliprule-wstar-candidate-pixel.json"
+    "-DEXPECTED_SHA256=9d30a67c8194b6822f28ad9ed4848a57c7745e95d11b79267ac5141001a91783"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_external_wstar_candidate_pixel.cmake")
+set_tests_properties(quantapdf.external_yworks_wstar_candidate_pixels PROPERTIES
+  TIMEOUT 120 LABELS "conformance;native-raster;wstar-pixel-candidate;issue-262"
+  PASS_REGULAR_EXPRESSION "wstar-original-pixel: passed")
+if(WIN32)
+  set_property(TEST quantapdf.external_yworks_wstar_candidate_pixels
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_yworks_wstar_candidate_pixels
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_yworks_wstar_candidate_pixels
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
 # Independent original-PDFium causal A/B for Clip changes. Generated controls
 # share the same blue Stroke; unsupported cases must fail closed.
 add_test(NAME quantapdf.native_stroke_clip_causal_ab
