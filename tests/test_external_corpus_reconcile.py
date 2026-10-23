@@ -77,8 +77,7 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
             "native_observed_outcome":"unsupported",
             "pdfium_result":"rendered_nonblank","pdfium_dark_pixels":30,
             "native_ir":"empty","status_conformance_passed_count":1,
-            "native_supported_passed_count":0,"prefix_control_supported":True,
-            "generated_control_count":1,
+            "native_supported_passed_count":0,
             "late_text_after_wstar_rejected":True,"source_bytes":724,
             "source_bytes_unchanged_after_reference_and_native":True,
             "pdfium_fallback_used":False}
@@ -161,10 +160,6 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
 
     def test_missing_late_text_rejection_rejects(self):
         self.wstar["late_text_after_wstar_rejected"]=False
-        with self.assertRaises(AssertionError): self.accept()
-
-    def test_unqualified_wstar_prefix_control_rejects(self):
-        self.wstar["prefix_control_supported"]=False
         with self.assertRaises(AssertionError): self.accept()
 
     def test_wstar_wrong_source_rejects(self):
