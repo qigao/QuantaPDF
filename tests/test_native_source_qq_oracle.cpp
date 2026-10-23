@@ -2879,7 +2879,7 @@ int test_external_yworks_wstar_pixels(const char *filename,
     const clip_leaf_counts winding=inspect_clip_fill_rules(detached);
     std::fprintf(stderr,
         "[wstar-candidate-ir] pages=%zu paths=%zu clips=%zu states=%zu "
-        "W=%zu Wstar=%zu intersections=%zu\\n",
+        "W=%zu Wstar=%zu intersections=%zu\n",
         detached.page_count,painted_count,clip_count,state_count,
         winding.nonzero,winding.evenodd,winding.intersections);
     CHECK(detached.page_count==1u && detached.pages!=nullptr &&
@@ -2923,9 +2923,9 @@ int test_external_yworks_wstar_pixels(const char *filename,
 
     struct sample {size_t x,y;unsigned r,g,b;};
     const sample goldens[]={
-        {40u,40u,255u,0u,0u},       /* red line survives W* */
+        {40u,40u,255u,127u,127u},    /* antialiased red line survives W* */
         {100u,40u,255u,255u,255u},  /* inner even-odd hole clips line */
-        {200u,40u,255u,0u,0u},      /* red line outside hole */
+        {200u,40u,255u,127u,127u},   /* antialiased red line outside hole */
         {85u,95u,0u,0u,255u},       /* nonzero star outer lobe */
         {80u,125u,0u,0u,255u},      /* nonzero star fills center */
         {185u,95u,0u,0u,255u},      /* even-odd star outer lobe */
