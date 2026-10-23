@@ -602,6 +602,7 @@ void test_selected_page_multistream()
         &ir,0u,&raster_limits,&repeat));
     CHECK(pixels.size==PAGE*PAGE*4u && repeat.size==pixels.size &&
           std::memcmp(pixels.pixels,repeat.pixels,pixels.size)==0);
+    quantapdf_ir_raster_image_dispose(&repeat);
     quantapdf_ir_dispose(&ir);
 
     rgb_image baseline=render_original_pdfium(1u);
@@ -904,13 +905,6 @@ void test_indirect_resource_page_isolation()
     CHECK(accepted.pages[0].width_points==(float)PAGE &&
           accepted.pages[0].height_points==(float)PAGE);
     quantapdf_ir_raster_image native{},repeat{};
-    /* Keep cleanup active across CHECK's early returns, including sanitizer failures. */
-    struct raster_image_cleanup {
-        quantapdf_ir_raster_image *image;
-        ~raster_image_cleanup() { quantapdf_ir_raster_image_dispose(image); }
-    };
-    raster_image_cleanup native_cleanup{&native};
-    raster_image_cleanup repeat_cleanup{&repeat};
     OK(quantapdf_ir_raster_scoped_operations_v1(
         &accepted,0u,&raster_limits,&native));
     OK(quantapdf_ir_raster_scoped_operations_v1(
@@ -2905,6 +2899,13 @@ int test_external_yworks_wstar_pixels(const char *filename,
         WIDTH*HEIGHT,6u,4096u,3200000000ULL
     };
     quantapdf_ir_raster_image native{},repeat{};
+    /* Keep cleanup active across CHECK's early returns, including sanitizer failures. */
+    struct raster_image_cleanup {
+        quantapdf_ir_raster_image *image;
+        ~raster_image_cleanup() { quantapdf_ir_raster_image_dispose(image); }
+    };
+    raster_image_cleanup native_cleanup{&native};
+    raster_image_cleanup repeat_cleanup{&repeat};
     const quantapdf_status status=
         quantapdf_ir_raster_scoped_operations_v1(
             &detached,0u,&limits,&native);
@@ -2923,7 +2924,6 @@ int test_external_yworks_wstar_pixels(const char *filename,
           native.stride==WIDTH*4u && native.size==WIDTH*HEIGHT*4u &&
           repeat.size==native.size &&
           std::memcmp(native.pixels,repeat.pixels,native.size)==0);
-    quantapdf_ir_raster_image_dispose(&repeat);
     /* No source/Graph objects remain; now also release the owned IR. */
     quantapdf_ir_dispose(&detached);
 
