@@ -173,7 +173,7 @@ the complete final image. Every failure resets the caller's image output.
 
 Hairlines/zero width, dashed curves, alpha,
 paint resources, exact reversal/cusps, move-only/all-zero subpaths, closed
-subpaths with fewer than three distinct vertices, invalid coordinates and
+linear subpaths with fewer than three distinct vertices, invalid coordinates and
 exhausted budgets remain explicit refusals. This profile requires MOVE after
 CLOSE to begin another subpath. Fill+Stroke combined operations remain outside
 this profile. No provider fallback or best-effort partial painting exists.
