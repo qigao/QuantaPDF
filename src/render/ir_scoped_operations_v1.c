@@ -251,7 +251,9 @@ static quantapdf_status scoped_operations_v1_impl(
     }
     if (states_used !=
             ((1u << (unsigned)ir->resources.graphics_state_count) - 1u) ||
-        !qp_shadowed_clip_prefixes_valid(ir, clips_used))
+        (polyline_strokes ?
+            clips_used != ((1u << (unsigned)ir->resources.clip_count) - 1u) :
+            !qp_shadowed_clip_prefixes_valid(ir, clips_used)))
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
     /* Clip membership comes from each operation's immutable graphics state.
