@@ -11,4 +11,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Scan pinned qpdf PDF corpus
-        run: python3 tools/qualification/probe_qpdf_corpus_wstar.py
+        run: |
+          python3 tools/qualification/probe_qpdf_corpus_wstar.py
+          python3 tools/qualification/probe_fop_corpus_wstar.py
