@@ -1084,7 +1084,7 @@ int main(void)
     init(); ops[0].value.path.dash_phase=1; reject();
     init(); ops[0].value.path.options.stroke_argb=0x80ff0000u; reject();
     init(); commands[2].kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO; dash(4,4,0); reject();
-    init(); commands[2].point1=commands[0].point1; reject(); /* reversing cusp */
+    init(); commands[2].point1=(quantapdf_point){8.5f,16}; reject(); /* near-return cusp */
     /* Repeated zero-length LINE_TO commands are a single degenerate open
      * subpath: Butt caps succeed with exact empty coverage. */
     init(); ops[0].value.path.command_count=3;
