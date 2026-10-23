@@ -111,7 +111,7 @@ def main():
             result = api({
                 "action": "query", "generator": "search", "gsrsearch": query,
                 "gsrnamespace": 6, "gsrlimit": 50, "prop": "imageinfo",
-                "iiprop": "url|size|sha1|extmetadata", "format": "json",
+                "iiprop": "url|size|sha1|mime|extmetadata", "format": "json",
             })
             for page in result.get("query", {}).get("pages", {}).values():
                 pages_by_title[page.get("title", "")] = page
