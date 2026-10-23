@@ -1,0 +1,14 @@
+name: Probe PDFKit external W-star candidates
+on:
+  push:
+    branches:
+      - probe/262-pdfkit-corpus
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan pinned PDFKit example PDFs
+        run: python3 tools/qualification/probe_pdfkit_corpus_wstar.py
