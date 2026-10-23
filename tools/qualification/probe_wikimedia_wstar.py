@@ -10,7 +10,22 @@ import zlib
 import time
 
 CANDIDATES = [
-    {"file": "Logo_vector_sign.pdf", "page": "https://commons.wikimedia.org/wiki/File:Logo_vector_sign.pdf", "license": "CC BY-SA 4.0"},
+    {
+        "file": "OSP Logo 2017.pdf",
+        "page": "https://commons.wikimedia.org/wiki/File:OSP_Logo_2017.pdf",
+        "download_url": "https://upload.wikimedia.org/wikipedia/commons/2/21/OSP_Logo_2017.pdf",
+        "license": "CC0 1.0",
+        "author": "Team445",
+        "producer": "Cairo 1.15.2",
+    },
+    {
+        "file": "Logo SensUs.pdf",
+        "page": "https://commons.wikimedia.org/wiki/File:Logo_SensUs.pdf",
+        "download_url": "https://upload.wikimedia.org/wikipedia/commons/b/b2/Logo_SensUs.pdf",
+        "license": "Public domain (PD-textlogo / PD-shape)",
+        "author": "Jorritier",
+        "producer": "Adobe Acrobat 19.12 Conversion Plug-in",
+    },
 ]
 MAX_BYTES = 8_000_000
 WSTAR = re.compile(rb"(?<![A-Za-z0-9])W\*(?=\s|%|$)")
@@ -92,7 +107,7 @@ def scan_pdf(data: bytes):
 def main():
     results = []
     for item in CANDIDATES:
-        url = "https://commons.wikimedia.org/wiki/Special:Redirect/file/" + urllib.parse.quote(item["file"])
+        url = item.get("download_url") or ("https://commons.wikimedia.org/wiki/Special:Redirect/file/" + urllib.parse.quote(item["file"]))
         req = urllib.request.Request(url, headers={"User-Agent": "QuantaPDF-Wstar-Probe/1.0 (conformance research)"})
         try:
             last_error = None
