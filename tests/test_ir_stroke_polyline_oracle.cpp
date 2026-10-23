@@ -445,8 +445,8 @@ void test_cubic_source()
     compare("cubic-wide","1 0 0 RG 12 w 1 J 20 40 m 20 90 100 90 100 40 c S");
     negative("4 w [4 4] 0 d 20 40 m 20 90 100 90 100 40 c S");
     negative("0 w 20 40 m 20 90 100 90 100 40 c S");
-    negative("4 w 0 j 20 40 m 100 40 l h S");
-    negative("4 w 2 J 0 j 20 40 m 100 40 l 20 40 l S");
+    negative("4 w 0 j 20 40 m 100 40 l 20 40 l 40 60 l S");
+    negative("4 w 2 J 0 j 20 40 m 100 40 l 20 40 l 40 60 l S");
     negative("4 w 0 J 2 j [4 4] 0 d 20 40 m 100 40 l 20 40 l S");
     negative("4 w 2 j [4 4] 0 d 20 40 m 100 40 l h S");
     negative("4 w 20 40 m 100 40 20 40 100 40 c S");
@@ -520,8 +520,8 @@ int main(int argc,char **argv)
     compare("dash-bevel-join","1 0 0 RG 8 w 2 j [60 20] 0 d 40 40 m 80 40 l 80 90 l S",
         {{82,37,255,255,255},{80,50,255,0,0}});
     negative("1 0 0 RG 4 w 20 20 m 90 20 l S 0 w 20 40 m 90 40 l S");
-    negative("4 w 20 20 m 90 20 l h S");
-    negative("4 w 1 J 0 j 20 20 m 90 20 l 20 20 l S");
+    negative("4 w 0 j 20 20 m 90 20 l 20 20 l 40 30 l S");
+    negative("4 w 1 J 0 j 20 20 m 90 20 l 20 20 l 40 30 l S");
     negative("4 w [0 .0001] 0 d 20 20 m 90 20 l S");
     negative("4 w [4 4] 0 d 20 20 m 40 50 60 50 90 20 c S");
     return EXIT_SUCCESS;
