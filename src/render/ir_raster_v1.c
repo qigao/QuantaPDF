@@ -402,6 +402,17 @@ static quantapdf_status qp_admit_draw(
     }
     if (status != QUANTAPDF_OK)
         return status;
+    if (open_line && flat->count - first == 2u) {
+        /* qp_flatten_path closes fill subpaths by default. For the strictly
+         * admitted MOVE/LINE Stroke, discard only that exact synthetic return
+         * edge so the butt-capped segment remains open. */
+        const qp_edge *forward=&flat->edges[first];
+        const qp_edge *closing=&flat->edges[first+1u];
+        if (!qp_point_equal(forward->from,closing->to) ||
+            !qp_point_equal(forward->to,closing->from))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        --flat->count;
+    }
     if (rect_stroke) {
         /* A rectangular miter stroke is an even-odd ring. Width is transformed
          * by the normal axis scale, so FIT's unequal X/Y scales stay explicit. */
