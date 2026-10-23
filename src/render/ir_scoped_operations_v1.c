@@ -208,7 +208,8 @@ static quantapdf_status scoped_operations_v1_impl(
         id = (size_t)op->graphics_state_id;
         /* An open one-edge Stroke is admitted only in a real operation Clip
          * scope. Keep the no-Clip source control outside this Native profile. */
-        if (opt->stroke == 1 && opt->fill == 0 &&
+        if (!polyline_strokes &&
+            opt->stroke == 1 && opt->fill == 0 &&
             op->value.path.command_count == 2u && id == 0u)
             return QUANTAPDF_ERROR_UNSUPPORTED;
         if (id != 0u &&
