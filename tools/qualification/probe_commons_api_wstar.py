@@ -12,7 +12,7 @@ import zlib
 API = "https://commons.wikimedia.org/w/api.php"
 USER_AGENT = "QuantaPDF-Issue262-Wstar-Research/1.0 (source qualification; contact via repository issue)"
 MAX_PDF_BYTES = 2_000_000
-MAX_DOWNLOADS = 70
+MAX_DOWNLOADS = 12
 WSTAR = re.compile(rb"(?<![A-Za-z0-9])W\\*(?=\\s|%|$)")
 TEXT_OP = re.compile(rb"(?<![A-Za-z0-9])(?:BT|ET|Tj|TJ|Tf|Td|TD|Tm|Tr)(?![A-Za-z0-9])")
 PATH_OP = re.compile(rb"(?<![A-Za-z0-9])(?:m|l|c|v|y|h|re)(?![A-Za-z0-9])")
@@ -101,8 +101,10 @@ def scan_pdf(data):
 
 def main():
     searches = [
-        'filemime:application/pdf incategory:"CC-Zero"',
-        'filemime:application/pdf incategory:"Public domain"',
+        'filemime:application/pdf incategory:"CC-Zero" logo',
+        'filemime:application/pdf incategory:"CC-Zero" vector',
+        'filemime:application/pdf incategory:"CC-Zero" diagram',
+        'filemime:application/pdf incategory:"Public domain" logo',
     ]
     pages_by_title = {}
     search_errors = []
@@ -118,7 +120,7 @@ def main():
         except Exception as exc:
             search_errors.append({"query": query, "error": repr(exc)})
         time.sleep(1)
-    reports, scanned, skipped = [], 0, 0
+    reports, errors, scanned, skipped = [], [], 0, 0
     for title, page in list(pages_by_title.items())[:MAX_DOWNLOADS]:
         infos = page.get("imageinfo", [])
         if not infos:
@@ -136,8 +138,19 @@ def main():
         page_url = page.get("canonicalurl") or ("https://commons.wikimedia.org/wiki/" + urllib.parse.quote(title.replace(" ", "_")))
         try:
             request = urllib.request.Request(info["url"], headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(request, timeout=30) as response:
-                data = response.read(MAX_PDF_BYTES + 1)
+            last_error = None
+            for attempt in range(4):
+                try:
+                    with urllib.request.urlopen(request, timeout=30) as response:
+                        data = response.read(MAX_PDF_BYTES + 1)
+                    last_error = None
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    if attempt < 3:
+                        time.sleep(4 * (attempt + 1))
+            if last_error is not None:
+                raise last_error
             if len(data) > MAX_PDF_BYTES or not data.startswith(b"%PDF-"):
                 reports.append({"title": title, "page_url": page_url, "status": "invalid-or-over-limit-download", "bytes": len(data)})
                 continue
@@ -163,8 +176,8 @@ def main():
                     "status": "discovery-only; verify source rights and render pixels before admission",
                 })
         except Exception as exc:
-            reports.append({"title": title, "page_url": page_url, "license_short_name": license_name, "status": "download-or-scan-error", "error": repr(exc)})
-        time.sleep(0.25)
+            errors.append({"title": title, "page_url": page_url, "license_short_name": license_name, "status": "download-or-scan-error", "error": repr(exc)})
+        time.sleep(2.0)
     print(json.dumps({
         "purpose": "Find genuinely original, license-described Commons PDFs that use W* in page content; this scan does not admit files.",
         "searches": searches,
@@ -173,6 +186,8 @@ def main():
         "pdfs_scanned": scanned,
         "pdfs_skipped_over_2mb": skipped,
         "wstar_candidate_count": len(reports),
+        "download_error_count": len(errors),
+        "download_errors": errors,
         "candidates": reports,
         "status": "discovery only; formal corpus and counters unchanged",
     }, indent=2, ensure_ascii=False))
