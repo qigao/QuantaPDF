@@ -2994,6 +2994,7 @@ int test_external_yworks_wstar_pixels(const char *filename,
     std::fprintf(out,
         "{\n"
         "  \"schema_version\": 1,\n"
+        "  \"corpus_id\": \"external-source-pdf\",\n"
         "  \"result\": \"passed\",\n"
         "  \"document_id\": \"yworks.clippath-cliprule-v1\",\n"
         "  \"fixture_kind\": \"external\",\n"
