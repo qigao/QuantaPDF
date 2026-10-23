@@ -400,6 +400,11 @@ void test_cubic_source()
     compare("closed-two-point-round-square-cap","1 0 0 RG 4 w 2 J 1 j 20 40 m 100 40 l h S");
     compare("closed-two-point-explicit-bevel","1 0 0 RG 4 w 2 j 20 40 m 100 40 l 20 40 l h S");
     compare("closed-two-point-explicit-round","1 0 0 RG 4 w 1 j 20 40 m 100 40 l 20 40 l h S");
+    compare("closed-two-point-miter","1 0 0 RG 4 w 0 J 0 j 10 M 20 40 m 100 40 l h S",
+        {{102,40,255,255,255}});
+    compare("closed-two-point-explicit-miter","1 0 0 RG 4 w 0 J 0 j 10 M 20 40 m 100 40 l 20 40 l h S",
+        {{102,40,255,255,255}});
+    compare("closed-two-point-miter-mixed-cubic","1 0 0 RG 4 w 0 J 0 j 10 M 20 40 m 100 40 l h 20 60 m 20 90 100 90 100 60 c S");
     compare("closed-two-point-explicit-mixed-cubic","1 0 0 RG 4 w 1 J 1 j 20 40 m 100 40 l 20 40 l h 20 60 m 20 90 100 90 100 60 c S");
     compare("open-return-bevel-butt","1 0 0 RG 4 w 0 J 2 j 20 40 m 100 40 l 20 40 l S");
     compare("open-return-round-butt","1 0 0 RG 4 w 0 J 1 j 20 40 m 100 40 l 20 40 l S");
@@ -408,6 +413,13 @@ void test_cubic_source()
     compare("open-return-bevel-square-cap","1 0 0 RG 4 w 2 J 2 j 20 40 m 100 40 l 20 40 l S");
     compare("open-return-round-round-cap","1 0 0 RG 4 w 1 J 1 j 20 40 m 100 40 l 20 40 l S");
     compare("open-return-round-square-cap","1 0 0 RG 4 w 2 J 1 j 20 40 m 100 40 l 20 40 l S");
+    compare("open-return-miter-butt","1 0 0 RG 4 w 0 J 0 j 10 M 20 40 m 100 40 l 20 40 l S",
+        {{102,40,255,255,255}});
+    compare("open-return-miter-round-cap","1 0 0 RG 4 w 1 J 0 j 10 M 20 40 m 100 40 l 20 40 l S",
+        {{102,40,255,255,255}});
+    compare("open-return-miter-square-cap","1 0 0 RG 4 w 2 J 0 j 10 M 20 40 m 100 40 l 20 40 l S",
+        {{102,40,255,255,255}});
+    compare("open-return-miter-mixed-cubic","1 0 0 RG 4 w 1 J 0 j 10 M 20 40 m 100 40 l 20 40 l 20 60 m 20 90 100 90 100 60 c S");
     compare("open-return-round-cap-mixed-cubic","1 0 0 RG 4 w 1 J 1 j 20 40 m 100 40 l 20 40 l 20 60 m 20 90 100 90 100 60 c S");
     compare("closed-single-point-s-operator","1 0 0 RG 4 w 1 J 20 40 m s");
     compare("move-only-open-inert","1 0 0 RG 4 w 1 J 20 40 m S");
