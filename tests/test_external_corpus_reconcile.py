@@ -22,7 +22,10 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
                 {"id":CLIP_ID,"integrity":"verified","native_conformance":"not_run",
                  "expected_native_outcome":"supported-clipped-stroke"},
                 {"id":WSTAR_ID,"integrity":"verified","native_conformance":"not_run",
-                 "expected_native_outcome":"unsupported"}]}
+                 "expected_native_outcome":"unsupported",
+                 "sha256":"900d0ff1911736c372e0c7ead2c68be338479b985c676572db1cc6e35483b890",
+                 "size_bytes":724,"license_spdx_declared":"BSD-3-Clause",
+                 "license_review_url":"https://github.com/qigao/QuantaPDF/issues/264"}]}
         self.text={"schema_version":1,"corpus_id":"external-source-pdf",
             "fixture_kind":"external","document_id":TEXT_ID,
             "reference_oracle":"original-pdfium","generated_fixture_count":0,
@@ -166,6 +169,18 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
 
     def test_wstar_wrong_source_rejects(self):
         self.wstar["document_id"]=CLIP_ID
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_admission_hash_is_pinned(self):
+        self.admission["documents"][-1]["sha256"]="0"*64
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_admission_size_is_pinned(self):
+        self.admission["documents"][-1]["size_bytes"]=723
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_wstar_license_review_is_pinned(self):
+        self.admission["documents"][-1]["license_review_url"]="https://github.com/qigao/QuantaPDF/issues/233"
         with self.assertRaises(AssertionError): self.accept()
 
     def test_forged_opaque_pixel_error_rejects(self):
