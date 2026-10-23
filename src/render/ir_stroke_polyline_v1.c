@@ -452,6 +452,82 @@ static quantapdf_status curved_path(stroke_builder *b)
     return s.active ? solid_finish(b,&s,0) : QUANTAPDF_OK;
 }
 
+/* A monotone collinear cubic has exactly the same geometric trace and
+ * arc length as its endpoint segment, even when its parameter speed varies.
+ * This admits a narrow, mathematically exact subset of dashed cubics without
+ * approximating curve length or silently flattening a genuinely curved path. */
+static int cubic_is_monotone_collinear(stroke_point p0,stroke_point p1,
+    stroke_point p2,stroke_point p3)
+{
+    const double dx=p3.x-p0.x,dy=p3.y-p0.y;
+    if(!valid_point(p0) || !valid_point(p1) || !valid_point(p2) ||
+        !valid_point(p3) || (dx==0.0 && dy==0.0))
+        return 0;
+    if(dx*(p1.y-p0.y)-dy*(p1.x-p0.x)!=0.0 ||
+        dx*(p2.y-p0.y)-dy*(p2.x-p0.x)!=0.0)
+        return 0;
+    if(fabs(dx)>=fabs(dy)) {
+        return dx>0.0 ?
+            p0.x<=p1.x && p1.x<=p2.x && p2.x<=p3.x :
+            p0.x>=p1.x && p1.x>=p2.x && p2.x>=p3.x;
+    }
+    return dy>0.0 ?
+        p0.y<=p1.y && p1.y<=p2.y && p2.y<=p3.y :
+        p0.y>=p1.y && p1.y>=p2.y && p2.y>=p3.y;
+}
+
+/* Normalize only exact monotone collinear cubic segments. Dash distances are
+ * then measured on their exact line traces; every other cubic+dash pair
+ * remains an atomic UNSUPPORTED result until curved arc-length is qualified. */
+static quantapdf_status normalize_dashed_collinear_cubics(
+    const quantapdf_composer_path_operation *source,
+    quantapdf_composer_path_operation *normalized,
+    quantapdf_composer_path_command **owned_commands)
+{
+    stroke_point current={0,0},start={0,0};
+    int active=0;
+    quantapdf_composer_path_command *commands;
+    *owned_commands=NULL;
+    commands=(quantapdf_composer_path_command *)calloc(
+        source->command_count,sizeof(*commands));
+    if(!commands) return QUANTAPDF_ERROR_NOMEM;
+    memcpy(commands,source->commands,source->command_count*sizeof(*commands));
+    for(size_t i=0;i<source->command_count;++i) {
+        quantapdf_composer_path_command *c=&commands[i];
+        if(c->kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO) {
+            current=start=(stroke_point){c->point1.x,c->point1.y};
+            if(!valid_point(current)) goto unsupported;
+            active=1;
+        } else if(c->kind==QUANTAPDF_COMPOSER_PATH_LINE_TO) {
+            if(!active) goto unsupported;
+            current=(stroke_point){c->point1.x,c->point1.y};
+            if(!valid_point(current)) goto unsupported;
+        } else if(c->kind==QUANTAPDF_COMPOSER_PATH_CUBIC_TO) {
+            stroke_point p1={c->point1.x,c->point1.y};
+            stroke_point p2={c->point2.x,c->point2.y};
+            stroke_point end={c->point3.x,c->point3.y};
+            if(!active || !cubic_is_monotone_collinear(current,p1,p2,end))
+                goto unsupported;
+            c->kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+            c->point1=c->point3;
+            current=end;
+        } else if(c->kind==QUANTAPDF_COMPOSER_PATH_CLOSE) {
+            if(!active) goto unsupported;
+            current=start;
+            active=0;
+        } else {
+            goto unsupported;
+        }
+    }
+    *normalized=*source;
+    normalized->commands=commands;
+    *owned_commands=commands;
+    return QUANTAPDF_OK;
+unsupported:
+    free(commands);
+    return QUANTAPDF_ERROR_UNSUPPORTED;
+}
+
 void quantapdf_ir_stroke_polyline_dispose_v1(quantapdf_composer_path_operation *fill)
 {
     if (!fill) return;
@@ -463,6 +539,8 @@ static quantapdf_status outline_impl(
 {
     stroke_builder b={0};
     stroke_point points[QP_STROKE_POINTS];
+    quantapdf_composer_path_operation normalized={0};
+    quantapdf_composer_path_command *normalized_commands=NULL;
     size_t n=0;
     quantapdf_status status=QUANTAPDF_ERROR_UNSUPPORTED;
     const quantapdf_composer_path_options *o;
@@ -507,8 +585,16 @@ static quantapdf_status outline_impl(
     b.max_edges=max_edges; b.options=o;
     for(size_t i=0;i<source->command_count;++i)
         if(source->commands[i].kind==QUANTAPDF_COMPOSER_PATH_CUBIC_TO) b.curve_mode=1;
-    if(b.curve_mode) {
-        if(source->dash_count) goto fail; /* Curved dash arc-length is a separate contract. */
+    if(b.curve_mode && source->dash_count) {
+        status=normalize_dashed_collinear_cubics(
+            source,&normalized,&normalized_commands);
+        if(status!=QUANTAPDF_OK) goto fail;
+        source=&normalized;
+        b.source=source;
+        o=&source->options;
+        b.options=o;
+        b.curve_mode=0;
+    } else if(b.curve_mode) {
         b.arc_scale=arc_scale(o,device);
         if(b.arc_scale<=0.0) goto fail;
         status=curved_path(&b); if(status!=QUANTAPDF_OK) goto fail;
@@ -555,9 +641,12 @@ publish:
     out_fill->options.transform=(quantapdf_affine_transform){1,0,0,1,0,0};
     if(o->struct_size>=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_MIN_SIZE)
         out_fill->options.transform=o->transform;
+    free(normalized_commands);
     return QUANTAPDF_OK;
 fail:
-    free(b.commands); return status==QUANTAPDF_OK ? QUANTAPDF_ERROR_UNSUPPORTED : status;
+    free(normalized_commands);
+    free(b.commands);
+    return status==QUANTAPDF_OK ? QUANTAPDF_ERROR_UNSUPPORTED : status;
 }
 
 quantapdf_status quantapdf_ir_stroke_polyline_outline_v1(
