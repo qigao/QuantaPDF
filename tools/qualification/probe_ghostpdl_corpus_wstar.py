@@ -125,7 +125,7 @@ def main():
     print(json.dumps({
         "repository": REPO,
         "pinned_commit": COMMIT,
-        "repository_license": "Apache-2.0; candidate PDF provenance still requires review",
+        "repository_license": "Ghostscript project license; candidate PDF provenance still requires review",
         "pdfs_scanned": scanned,
         "pdfs_skipped_over_5mb": skipped,
         "candidate_count": len(candidates),
