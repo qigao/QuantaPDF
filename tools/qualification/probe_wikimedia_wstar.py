@@ -7,11 +7,9 @@ import re
 import urllib.parse
 import urllib.request
 import zlib
+import time
 
 CANDIDATES = [
-    {"file": "Logo vector sign.pdf", "page": "https://commons.wikimedia.org/wiki/File:Logo_vector_sign.pdf", "license": "CC BY-SA 4.0"},
-    {"file": "Slanted_Logo.pdf", "page": "https://commons.wikimedia.org/wiki/File:Slanted_Logo.pdf", "license": "CC BY-SA 3.0 Germany / CC BY-SA 3.0 Unported"},
-    {"file": "Logo farbig.pdf", "page": "https://commons.wikimedia.org/wiki/File:Logo_farbig.pdf", "license": "CC BY-SA 4.0"},
     {"file": "Phc-logo.pdf", "page": "https://commons.wikimedia.org/wiki/File:Phc-logo.pdf", "license": "CC BY-SA 4.0"},
     {"file": "EFF-logo-plain.pdf", "page": "https://commons.wikimedia.org/wiki/File:EFF-logo-plain.pdf", "license": "CC BY 3.0 US"},
 ]
@@ -98,9 +96,20 @@ def main():
         url = "https://commons.wikimedia.org/wiki/Special:Redirect/file/" + urllib.parse.quote(item["file"])
         req = urllib.request.Request(url, headers={"User-Agent": "QuantaPDF-Wstar-Probe/1.0 (conformance research)"})
         try:
-            with urllib.request.urlopen(req, timeout=45) as response:
-                data = response.read(MAX_BYTES + 1)
-                final_url = response.geturl()
+            last_error = None
+            for attempt in range(4):
+                try:
+                    with urllib.request.urlopen(req, timeout=45) as response:
+                        data = response.read(MAX_BYTES + 1)
+                        final_url = response.geturl()
+                    last_error = None
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    if attempt < 3:
+                        time.sleep(15 * (attempt + 1))
+            if last_error is not None:
+                raise last_error
             if len(data) > MAX_BYTES:
                 results.append({**item, "status": "skipped-over-size-limit", "download_url": final_url})
                 continue
