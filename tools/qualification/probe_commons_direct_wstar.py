@@ -10,25 +10,11 @@ import zlib
 
 CANDIDATES = [
     {
-        "file": "Bastelbogen-Polizeiauto.pdf",
-        "url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Bastelbogen-Polizeiauto.pdf",
-        "page": "https://commons.wikimedia.org/wiki/File:Bastelbogen-Polizeiauto.pdf",
-        "license": "CC0 1.0 (creator's explicit dedication)",
-        "producer": "Inkscape; author BogenBastler; original own work",
-    },
-    {
-        "file": "Trafobild.pdf",
-        "url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Trafobild.pdf",
-        "page": "https://commons.wikimedia.org/wiki/File:Trafobild.pdf",
-        "license": "CC0 1.0 (creator's explicit dedication)",
-        "producer": "Not established from metadata; author Michael Lenz; original own work",
-    },
-    {
-        "file": "PRcoords Cheatsheet.pdf",
-        "url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/PRcoords_Cheatsheet.pdf",
-        "page": "https://commons.wikimedia.org/wiki/File:PRcoords_Cheatsheet.pdf",
-        "license": "CC0 1.0 (creator's explicit dedication)",
-        "producer": "Cairo 1.16.0; author Artoria2e5; original own work",
+        "file": "Amsterdam Museum logo.pdf",
+        "url": "https://upload.wikimedia.org/wikipedia/commons/6/6c/Amsterdam_Museum_logo.pdf",
+        "page": "https://commons.wikimedia.org/wiki/File:Amsterdam_Museum_logo.pdf",
+        "license": "Commons public domain (PD-textlogo / simple shapes); trademark caveat",
+        "producer": "Adobe Illustrator CS4 / Adobe PDF library; Commons marks this as BadPDF/superseded",
     },
 ]
 MAX_BYTES = 1_000_000
