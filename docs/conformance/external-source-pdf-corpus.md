@@ -340,5 +340,6 @@ and after both observations. The full source is the negative fixture; this
 test does not claim the preceding W*/fill sequence as a separately qualified
 Native-positive case. The semantic report is separately reconciled on Linux
 Release, macOS and Windows; it increments only the
-`external_wstar_late_text_rejection_passed` status counter, never a Native
+`external_wstar_late_text_rejection_passed` status counter and explicitly
+requires `native_wstar_clip_supported_count: 0`. It never increments a Native
 render-support counter. This is not evidence of positive W* pixel parity.
