@@ -561,13 +561,15 @@ static void test_closed_single_point_caps(void)
     quantapdf_ir_raster_image_dispose(&reference);
 
     /* Dash phase on a closed zero-length subpath has not been qualified.
-     * A two-point closed return/cusp is also not admitted by this change. */
+     * The solid two-point closed reversal is covered by its own join tests. */
     init(); ops[0].value.path.command_count=2;
     commands[1].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
     dash(4,4,0); reject();
     init(); ops[0].value.path.command_count=3;
     commands[2].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
-    reject();
+    image=render();
+    CHECK(image.pixels && image.size);
+    quantapdf_ir_raster_image_dispose(&image);
     /* Even an empty butt-cap close must honor the checked transform, and a
      * round-cap dot must respect expanded edge capacity and reset on failure. */
     init(); ops[0].value.path.command_count=2;
