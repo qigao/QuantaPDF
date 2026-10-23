@@ -218,15 +218,15 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
         with self.assertRaises(AssertionError): self.accept()
 
     def test_wstar_admission_hash_is_pinned(self):
-        self.admission["documents"][-1]["sha256"]="0"*64
+        next(d for d in self.admission["documents"] if d["id"]==WSTAR_ID)["sha256"]="0"*64
         with self.assertRaises(AssertionError): self.accept()
 
     def test_wstar_admission_size_is_pinned(self):
-        self.admission["documents"][-1]["size_bytes"]=723
+        next(d for d in self.admission["documents"] if d["id"]==WSTAR_ID)["size_bytes"]=723
         with self.assertRaises(AssertionError): self.accept()
 
     def test_wstar_license_review_is_pinned(self):
-        self.admission["documents"][-1]["license_review_url"]="https://github.com/qigao/QuantaPDF/issues/233"
+        next(d for d in self.admission["documents"] if d["id"]==WSTAR_ID)["license_review_url"]="https://github.com/qigao/QuantaPDF/issues/233"
         with self.assertRaises(AssertionError): self.accept()
 
     def test_forged_opaque_pixel_error_rejects(self):
