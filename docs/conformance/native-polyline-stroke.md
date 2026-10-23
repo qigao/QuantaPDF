@@ -335,13 +335,12 @@ phase equivalence, on/off probes, restart at MOVE, crossing/ending at a vertex,
 closed-seam caps, all-off output, maximum array length, exact expanded-edge
 budgets, expansion exhaustion and immutable dash arrays.
 
-`quantapdf.native_stroke_polyline_oracle` generates 37 original source PDFs
+`quantapdf.native_stroke_polyline_oracle` generates 30 original source PDFs
 with three content streams, captures Graph, lowers owned IR and destroys all
 source/Graph ownership before V2 rendering. It compares the resulting detached
 pixels with direct pinned PDFium C API renders of the original source files,
 never IR re-export. Cases cover open/closed paths, multiple overlapping
-subpaths, caps/joins, acute miter, exact terminal/closed miter-cusp fallback,
-nonuniform scale/shear/reflection/rotation,
+subpaths, caps/joins, acute miter, nonuniform scale/shear/reflection/rotation,
 q/Q restoration and nested W/W* Clip. Eighteen cases exercise dashes, including
 phase/odd arrays, closed seams, affine transforms, mixed layer budgets and
 q/Q pattern restoration. It also checks five source negatives.
@@ -386,10 +385,11 @@ The native compiler preserves exact zeros and mathematical period; it neither
 copies that adjustment nor weakens the existing oracle pixel thresholds.
 The two original files retain their unreduced authored phases and byte guards.
 
-`quantapdf.native_cubic_stroke_oracle` adds 24 generated source positives and
+`quantapdf.native_cubic_stroke_oracle` adds 31 generated source positives and
 four negatives. Cases include endpoint caps, smooth primitives under all
 join styles, inflections, reversing control polygons, authored line/cubic
-joins, closed four-cubic circles and single-cubic loops, subpaths, `v`/`y`,
+joins, exact terminal/closed miter-cusp fallback for linear and mixed-cubic
+paths, closed four-cubic circles and single-cubic loops, subpaths, `v`/`y`,
 nonuniform/reflected transforms, q/Q and W/W* Clip, wide strokes and 144-DPI FIT.
 The new cubic fixtures explicitly budget up to 4096 expanded edges and
 800000000 sample tests (four times that sample/pixel budget at 144 DPI).
