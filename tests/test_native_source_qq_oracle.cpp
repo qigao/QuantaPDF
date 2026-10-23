@@ -1705,6 +1705,90 @@ static std::vector<unsigned char> qp384_read_bytes(const char *path)
     return bytes;
 }
 
+/* Issue #264: exact upstream W* source has visible text AFTER the
+ * earlier even-odd Clip/fill. PDFium must render the unchanged original,
+ * while native Graph -> detached IR rejects the whole page atomically. */
+static int test_external_pdfium_wstar_late_text_rejection(
+    const char *filename,const char *report_path)
+{
+    CHECK(filename && *filename && report_path && *report_path);
+    const std::string staged=std::string(report_path)+".tmp";
+    errno=0;
+    if(std::remove(report_path)!=0) CHECK(errno==ENOENT);
+    errno=0;
+    if(std::remove(staged.c_str())!=0) CHECK(errno==ENOENT);
+    CHECK(corpus_fixture_executions==0u);
+
+    const std::vector<unsigned char> original=qp384_read_bytes(filename);
+    CHECK(original.size()==724u);
+    const rgb_image reference=render_direct_pdfium_reference(filename);
+    CHECK(reference.width==200 && reference.height==300 &&
+          reference.components==3 && reference.stride>=reference.width*3);
+    size_t dark_pixels=0u;
+    for(int y=0;y<reference.height;++y) {
+        for(int x=0;x<reference.width;++x) {
+            const unsigned char *px=reference.at((size_t)x,(size_t)y);
+            if(px[0]<240u || px[1]<240u || px[2]<240u) ++dark_pixels;
+        }
+    }
+    CHECK(dark_pixels>0u); /* The late (Text) Tj is visible in original PDFium. */
+    CHECK(qp384_read_bytes(filename)==original);
+
+    quantapdf_document *source=nullptr;
+    quantapdf_graph_snapshot *snapshot=nullptr;
+    quantapdf_ir detached{};
+    OK(quantapdf_open(filename,nullptr,&source));
+    quantapdf_status status=quantapdf_document_capture_graph(
+        source,&graph_limits,&snapshot);
+    quantapdf_close(source);
+    CHECK(status==QUANTAPDF_OK && snapshot!=nullptr);
+    status=quantapdf_graph_snapshot_page_composer_ir(
+        snapshot,0u,2u,&decode_limits,&parse_limits,1u,
+        &lower_limits,&detached);
+    quantapdf_graph_snapshot_drop(snapshot);
+    CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(detached.pages==nullptr && detached.page_count==0u &&
+          detached.operations==nullptr && detached.operation_count==0u &&
+          detached.resources.clip_count==0u &&
+          detached.resources.graphics_state_count==0u);
+    quantapdf_ir_dispose(&detached);
+    CHECK(corpus_fixture_executions==0u);
+    CHECK(qp384_read_bytes(filename)==original);
+
+    FILE *out=std::fopen(staged.c_str(),"wb");
+    CHECK(out!=nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"corpus_id\": \"external-source-pdf\",\n"
+        "  \"document_id\": \"pdfium.wstar-late-text-v1\",\n"
+        "  \"fixture_kind\": \"external\",\n"
+        "  \"reference_oracle\": \"original-pdfium\",\n"
+        "  \"pdfium_result\": \"rendered_nonblank\",\n"
+        "  \"pdfium_dark_pixels\": %zu,\n"
+        "  \"native_expected_outcome\": \"unsupported\",\n"
+        "  \"native_observed_outcome\": \"unsupported\",\n"
+        "  \"native_ir\": \"empty\",\n"
+        "  \"late_text_after_wstar_rejected\": true,\n"
+        "  \"source_bytes\": 724,\n"
+        "  \"source_bytes_unchanged_after_reference_and_native\": true,\n"
+        "  \"pdfium_fallback_used\": false,\n"
+        "  \"status_conformance_passed_count\": 1,\n"
+        "  \"native_supported_passed_count\": 0,\n"
+        "  \"native_wstar_clip_supported_count\": 0,\n"
+        "  \"result\": \"passed\",\n"
+        "  \"generated_fixture_count\": 0\n"
+        "}\n",dark_pixels);
+    CHECK(std::ferror(out)==0);
+    CHECK(std::fclose(out)==0);
+    CHECK(std::rename(staged.c_str(),report_path)==0);
+    std::fprintf(stderr,
+        "[external-corpus] id=pdfium.wstar-late-text-v1 "
+        "pdfium=rendered_nonblank native=unsupported ir=empty "
+        "late_text_after_wstar=refused source_bytes=724\n");
+    return EXIT_SUCCESS;
+}
+
 static std::string qp384_control_path(const char *prefix, unsigned variant)
 {
     CHECK(prefix && *prefix && variant >= 1u && variant <= 4u);
@@ -2446,6 +2530,9 @@ int main(int argc,char **argv)
     if(argc==5 && std::strcmp(argv[1],"--external-clip-stroke-pdf")==0 &&
        std::strcmp(argv[3],"--external-report")==0)
         return test_external_pdfium_clip_stroke(argv[2],argv[4]);
+    if(argc==5 && std::strcmp(argv[1],"--external-wstar-pdf")==0 &&
+       std::strcmp(argv[3],"--external-report")==0)
+        return test_external_pdfium_wstar_late_text_rejection(argv[2],argv[4]);
     if(argc==7 && std::strcmp(argv[1],"--clip-causal-ab")==0 &&
        std::strcmp(argv[3],"--generated-prefix")==0 &&
        std::strcmp(argv[5],"--external-report")==0)
