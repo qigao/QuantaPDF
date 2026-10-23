@@ -395,7 +395,7 @@ static void test_zero_length_caps(void)
     commands[3].point2=(quantapdf_point){28,4};
     commands[3].point3=(quantapdf_point){28,16};
     image=render_with(&curve_limits);
-    CHECK(alpha(&image,2,29)==255 && alpha(&image,4,16)==255);
+    CHECK(alpha(&image,2,2)==255 && alpha(&image,4,16)==255);
     CHECK(alpha(&image,0,0)==0);
     quantapdf_ir_raster_image_dispose(&image);
 
