@@ -1775,6 +1775,7 @@ static int test_external_pdfium_wstar_late_text_rejection(
         "  \"pdfium_fallback_used\": false,\n"
         "  \"status_conformance_passed_count\": 1,\n"
         "  \"native_supported_passed_count\": 0,\n"
+        "  \"native_wstar_clip_supported_count\": 0,\n"
         "  \"result\": \"passed\",\n"
         "  \"generated_fixture_count\": 0\n"
         "}\n",dark_pixels);
