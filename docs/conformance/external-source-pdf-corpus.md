@@ -330,16 +330,15 @@ even-odd clip with `W*`, paints a white path, and only afterwards executes
 must not allow the later text operators to be skipped or treated as a
 successful partial page.
 
-`quantapdf.external_pdfium_wstar_late_text` first lowers a generated
-test-only control containing the original `W*` clip/fill prefix and requires
-that prefix to be admitted. It then renders the unchanged original directly
-through the public PDFium C API and requires visible non-white pixels before
-lowering the original Document→Graph Snapshot→Composer IR path. The full
-source must return `QUANTAPDF_ERROR_UNSUPPORTED` with zero pages, operations,
-Clip resources and graphics-state resources. It verifies the 724-byte source
-is unchanged before and after both observations. The one generated causal
-control is reported separately and does not enter the external corpus or the
-14/36 generated-fixture count. The semantic report is separately
-reconciled on Linux Release, macOS and Windows; it increments only the
+`quantapdf.external_pdfium_wstar_late_text` renders the unchanged original
+directly through the public PDFium C API and requires visible non-white pixels
+from the text that follows the earlier `W*` clip and `f*` fill. It then lowers
+the original Document→Graph Snapshot→Composer IR path and requires
+`QUANTAPDF_ERROR_UNSUPPORTED` with zero pages, operations, Clip resources and
+graphics-state resources. It verifies the 724-byte source is unchanged before
+and after both observations. The full source is the negative fixture; this
+test does not claim the preceding W*/fill sequence as a separately qualified
+Native-positive case. The semantic report is separately reconciled on Linux
+Release, macOS and Windows; it increments only the
 `external_wstar_late_text_rejection_passed` status counter, never a Native
 render-support counter. This is not evidence of positive W* pixel parity.
