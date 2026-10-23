@@ -258,6 +258,7 @@ jobs:
             build/linux-gcc-release/tests/native-source-corpus.json
             build/linux-gcc-debug/tests/native-source-corpus.json
             build/linux-gcc-release/tests/yworks-svg-w-candidate-pixel.json
+            build/linux-gcc-release/tests/yworks-cliprule-wstar-candidate-pixel.json
           if-no-files-found: error
           retention-days: 7
 
@@ -455,6 +456,7 @@ jobs:
           path: |
             build/macos-clang-release/tests/native-source-corpus.json
             build/macos-clang-release/tests/yworks-svg-w-candidate-pixel.json
+            build/macos-clang-release/tests/yworks-cliprule-wstar-candidate-pixel.json
           if-no-files-found: error
           retention-days: 7
 
@@ -686,5 +688,6 @@ jobs:
           path: |
             build/Msvc-Release/tests/native-source-corpus.json
             build/Msvc-Release/tests/yworks-svg-w-candidate-pixel.json
+            build/Msvc-Release/tests/yworks-cliprule-wstar-candidate-pixel.json
           if-no-files-found: error
           retention-days: 7
