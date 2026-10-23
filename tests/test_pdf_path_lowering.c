@@ -74,21 +74,21 @@ static void test_paths_and_curves(void)
         first->options.stroke_width == 2);
     CHECK(first->options.transform.a == 0 && first->options.transform.b == -1 &&
         first->options.transform.c == 1 && first->options.transform.d == 0 &&
-        first->options.transform.e == -80 && first->options.transform.f == 70);
+        first->options.transform.e == 40 && first->options.transform.f == 70);
     CHECK(first->commands[0].kind == QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
-        first->commands[0].point1.y == 120);
+        first->commands[0].point1.y == 0);
     CHECK(first->commands[1].kind == QUANTAPDF_COMPOSER_PATH_CUBIC_TO &&
-        first->commands[1].point1.x == 10 && first->commands[1].point3.y == 90);
+        first->commands[1].point1.x == 10 && first->commands[1].point3.y == -30);
     CHECK(first->commands[2].kind == QUANTAPDF_COMPOSER_PATH_CUBIC_TO &&
         first->commands[2].point1.x == 30 && first->commands[2].point3.x == 50);
     CHECK(first->commands[3].kind == QUANTAPDF_COMPOSER_PATH_CUBIC_TO &&
-        first->commands[3].point2.x == 70 && first->commands[3].point3.y == 50);
+        first->commands[3].point2.x == 70 && first->commands[3].point3.y == -70);
     CHECK(first->commands[4].kind == QUANTAPDF_COMPOSER_PATH_CLOSE);
     const quantapdf_composer_path_operation *second = &ir.operations[1].value.path;
     CHECK(second->command_count == 5 && !second->options.stroke &&
         second->options.fill && second->commands[4].kind == QUANTAPDF_COMPOSER_PATH_CLOSE);
-    CHECK(second->commands[0].point1.x == 10 && second->commands[0].point1.y == 100);
-    CHECK(second->commands[2].point1.x == 40 && second->commands[2].point1.y == 60);
+    CHECK(second->commands[0].point1.x == 10 && second->commands[0].point1.y == -20);
+    CHECK(second->commands[2].point1.x == 40 && second->commands[2].point1.y == -60);
     dispose_page(&page);
     CHECK(ir.operations[0].value.path.commands[1].point3.x == 30);
     quantapdf_ir_dispose(&ir);
@@ -237,6 +237,54 @@ static void test_stroke_style_lowering(void)
 }
 
 
+/* #266: rebase local points and their affine transform atomically.
+ * The old top-down conjugation produces 800*(1-(-300))-700 = 240100,
+ * above the existing 65536 component cap. The equivalent canonical basis
+ * keeps the visible mapping (0.2,0.4) -> (160,220) bounded. */
+static void test_bounded_clipped_origin_rebase(void)
+{
+    quantapdf_pdf_page_semantics page = {0};
+    quantapdf_pdf_path_lower_limits budget = lower_limits();
+    quantapdf_ir ir = {0};
+    const char *source =
+        "q 300 0 0 -300 100 700 cm "
+        "0.2 0.4 m 0.8 0.4 l 0.8 0.6 l 0.2 0.6 l h W n "
+        "0 0 1 rg 0 0 1 1 re f Q";
+    parse_page(source, &page);
+    CHECK(page.graphics->clip_count == 1u);
+    OK(quantapdf_pdf_path_lower_to_composer(
+        &page, 800.0, 800.0, &budget, &ir));
+    CHECK(ir.page_count == 1u && ir.operation_count == 1u &&
+          ir.resources.clip_count == 1u);
+    const quantapdf_composer_clip_state *clip = &ir.resources.clips[0];
+    CHECK(clip->fill_rule == QUANTAPDF_COMPOSER_FILL_NONZERO &&
+          clip->transform.a == 300.0f &&
+          clip->transform.d == -300.0f &&
+          clip->transform.e == 100.0f &&
+          clip->transform.f == 100.0f);
+    CHECK(clip->commands != NULL && clip->command_count == 5u &&
+          clip->commands[0].point1.x == 0.2f &&
+          clip->commands[0].point1.y == -0.4f);
+    CHECK(ir.operations[0].value.path.options.transform.e == 100.0f &&
+          ir.operations[0].value.path.options.transform.f == 100.0f);
+    /* The returned IR owns its rebased clip commands after source disposal. */
+    dispose_page(&page);
+    CHECK(ir.resources.clips[0].commands[0].point1.y == -0.4f);
+    quantapdf_ir_dispose(&ir);
+
+    /* Rebase is not a numeric-cap bypass: oversized source translations
+     * still fail closed and publish no partial IR/resources. */
+    parse_page("q 1 0 0 1 70000 0 cm 0 0 1 1 re W n "
+               "0 0 1 rg 0 0 1 1 re f Q", &page);
+    CHECK(quantapdf_pdf_path_lower_to_composer(
+        &page, 800.0, 800.0, &budget, &ir) ==
+        QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(ir.pages == NULL && ir.operations == NULL &&
+          ir.page_count == 0u && ir.operation_count == 0u &&
+          ir.resources.clip_count == 0u);
+    dispose_page(&page);
+}
+
 static void test_extgstate_to_composer_resources(void)
 {
     const char *source =
@@ -288,6 +336,7 @@ int main(void)
 {
     test_extgstate_to_composer_resources();
     test_stroke_style_lowering();
+    test_bounded_clipped_origin_rebase();
     test_paths_and_curves();
     test_close_and_color();
     test_fail_closed();
