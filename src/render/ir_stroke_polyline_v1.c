@@ -301,11 +301,36 @@ static quantapdf_status zero_length_subpath(stroke_builder *b,stroke_point at)
 static quantapdf_status subpath(stroke_builder *b,stroke_point *p,size_t n,int closed)
 {
     quantapdf_status status;
+    /* An authored A→B→A return retains its explicit cusp and is not
+     * silently normalized to this special A→B→CLOSE profile. */
+    if(closed && n==3u && same_point(p[0],p[2]) &&
+        !same_point(p[0],p[1])) return QUANTAPDF_ERROR_UNSUPPORTED;
     if (closed && n > 1u && same_point(p[0],p[n-1u])) --n;
     /* Closing a single-point linear subpath still counts as a degenerate
      * stroke, including authored coincident LINEs collapsed to that point.
      * Dashed degenerate paths remain outside the qualified profile. */
     if (closed && n==1u) return zero_length_subpath(b,p[0]);
+    /* A two-distinct-point closed path traces one segment in both
+     * directions. With bevel joins the return adds no coverage beyond the
+     * butt-ended centerline strip; with round joins each end is a bounded
+     * semicircle. Caps are irrelevant because the subpath is closed.
+     * Unknown cusp/miter and dashed semantics remain fail-closed. */
+    if(closed && n==2u) {
+        stroke_point u;
+        if(b->source->dash_count!=0u ||
+            (b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL &&
+             b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND) ||
+            !direction(p[0],p[1],&u))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        status=segment(b,p[0],p[1],0,0);
+        if(status!=QUANTAPDF_OK) return status;
+        if(b->options->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_ROUND) {
+            status=round_cap(b,p[0],u,1);
+            if(status!=QUANTAPDF_OK) return status;
+            return round_cap(b,p[1],u,0);
+        }
+        return QUANTAPDF_OK;
+    }
     if (n < (closed ? 3u : 2u)) return QUANTAPDF_ERROR_UNSUPPORTED;
     if(b->source->dash_count) {
         /* Geometry admission is independent of which intervals happen to be
@@ -449,6 +474,22 @@ static quantapdf_status solid_finish(stroke_builder *b,solid_subpath *s,int clos
         return QUANTAPDF_ERROR_UNSUPPORTED;
     }
     if(closed) {
+        /* The same one-segment A→B→CLOSE rule applies when another
+         * subpath makes the overall operation use the cubic compiler.
+         * The first strip is already owned and validated by solid_line. */
+        if(!s->curves && s->segments==1u && !same_point(s->current,s->start)) {
+            if(b->source->dash_count!=0u ||
+                (b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL &&
+                 b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND))
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+            if(b->options->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_ROUND) {
+                status=round_cap(b,s->start,s->first,1);
+                if(status!=QUANTAPDF_OK) return status;
+                status=round_cap(b,s->current,s->first,0);
+                if(status!=QUANTAPDF_OK) return status;
+            }
+            s->active=0; return QUANTAPDF_OK;
+        }
         status=solid_line(b,s,s->start); if(status!=QUANTAPDF_OK) return status;
         if(!s->curves && s->segments<3u) return QUANTAPDF_ERROR_UNSUPPORTED;
         status=join_directions(b,s->start,s->last,s->first);

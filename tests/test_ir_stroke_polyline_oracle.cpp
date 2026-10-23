@@ -393,6 +393,11 @@ void test_cubic_source()
      * caps, but not a butt/square dot; PDFium stays an independent A/B
      * reference, with the existing global pixel thresholds unchanged. */
     compare("closed-single-point-round","1 0 0 RG 4 w 1 J 20 40 m h S");
+    /* Two-distinct-point closed reversal: join policy governs cap-like
+     * geometry. Other reversal profiles remain negative on native. */
+    compare("closed-two-point-bevel","1 0 0 RG 4 w 2 j 20 40 m 100 40 l h S");
+    compare("closed-two-point-round","1 0 0 RG 4 w 1 j 20 40 m 100 40 l h S");
+    compare("closed-two-point-round-square-cap","1 0 0 RG 4 w 2 J 1 j 20 40 m 100 40 l h S");
     compare("closed-single-point-s-operator","1 0 0 RG 4 w 1 J 20 40 m s");
     compare("move-only-open-inert","1 0 0 RG 4 w 1 J 20 40 m S");
     compare("closed-coincident-lines-round","1 0 0 RG 4 w 1 J 20 40 m 20 40 l 20 40 l h S");
@@ -417,6 +422,8 @@ void test_cubic_source()
     compare("cubic-wide","1 0 0 RG 12 w 1 J 20 40 m 20 90 100 90 100 40 c S");
     negative("4 w [4 4] 0 d 20 40 m 20 90 100 90 100 40 c S");
     negative("0 w 20 40 m 20 90 100 90 100 40 c S");
+    negative("4 w 0 j 20 40 m 100 40 l h S");
+    negative("4 w 2 j [4 4] 0 d 20 40 m 100 40 l h S");
     negative("4 w 20 40 m 100 40 20 40 100 40 c S");
     negative("4 w 20 40 m 20 90 100 90 100 40 c S 0 w 20 20 m 90 20 l S");
 }
