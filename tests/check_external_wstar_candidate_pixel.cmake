@@ -1,0 +1,73 @@
+# Byte-pinned unchanged original yWorks PDF; quarantined W* candidate only.
+cmake_minimum_required(VERSION 3.24)
+foreach(arg IN ITEMS ORACLE SOURCE REPORT EXPECTED_SHA256)
+  if(NOT DEFINED ${arg} OR "${${arg}}" STREQUAL "")
+    message(FATAL_ERROR "Missing ${arg}")
+  endif()
+endforeach()
+file(SIZE "${SOURCE}" bytes)
+if(NOT bytes EQUAL 3747)
+  message(FATAL_ERROR "Original yWorks clip-rule PDF length changed: ${bytes}")
+endif()
+file(SHA256 "${SOURCE}" before)
+if(NOT before STREQUAL EXPECTED_SHA256)
+  message(FATAL_ERROR "Original yWorks clip-rule PDF SHA-256 mismatch")
+endif()
+execute_process(
+  COMMAND "${ORACLE}" --external-wstar-candidate-pdf "${SOURCE}"
+    --external-report "${REPORT}"
+  RESULT_VARIABLE rc OUTPUT_VARIABLE output ERROR_VARIABLE err)
+if(NOT "${rc}" STREQUAL "0")
+  message(FATAL_ERROR "Original PDFium vs detached C11 W* pixel oracle failed: ${rc}: ${err}")
+endif()
+file(READ "${REPORT}" json)
+string(JSON result GET "${json}" result)
+string(JSON oracle GET "${json}" original_source_pdfium_oracle)
+string(JSON native GET "${json}" detached_c11_native_raster)
+string(JSON admitted GET "${json}" official_corpus_admitted)
+string(JSON width GET "${json}" page_width)
+string(JSON height GET "${json}" page_height)
+string(JSON painted GET "${json}" native_painted_paths)
+string(JSON w GET "${json}" native_w_nonzero_clip_path_leaves)
+string(JSON wstar GET "${json}" native_wstar_evenodd_clip_path_leaves)
+string(JSON intersections GET "${json}" native_clip_intersection_nodes)
+string(JSON clips GET "${json}" native_total_clip_nodes)
+string(JSON repeat GET "${json}" repeat_rgba_identical)
+string(JSON positives GET "${json}" external_wstar_pixel_supported_count)
+string(JSON generated GET "${json}" generated_fixture_count)
+string(JSON mean GET "${json}" mean_rgb_error)
+string(JSON gross GET "${json}" gross_error_pixels)
+string(JSON goldens GET "${json}" fixed_interior_goldens)
+string(JSON ref_red GET "${json}" reference_red_pixels)
+string(JSON native_red GET "${json}" native_red_pixels)
+string(JSON overlap_red GET "${json}" overlap_red_pixels)
+string(JSON ref_blue GET "${json}" reference_blue_pixels)
+string(JSON native_blue GET "${json}" native_blue_pixels)
+string(JSON overlap_blue GET "${json}" overlap_blue_pixels)
+if(NOT result STREQUAL "candidate_wstar_pixel_parity_passed_not_admitted"
+   OR NOT oracle STREQUAL "passed" OR NOT native STREQUAL "passed"
+   OR admitted
+   OR NOT width EQUAL 600 OR NOT height EQUAL 600
+   OR NOT painted EQUAL 3 OR NOT w EQUAL 2 OR NOT wstar EQUAL 2
+   OR NOT intersections EQUAL 3 OR NOT clips EQUAL 7
+   OR NOT repeat OR NOT positives EQUAL 0 OR NOT generated EQUAL 0
+   OR mean GREATER 0.05 OR NOT gross EQUAL 0 OR NOT goldens EQUAL 8
+   OR ref_red LESS 150 OR native_red LESS 150
+   OR ref_blue LESS 2000 OR native_blue LESS 2000)
+  message(FATAL_ERROR "W* candidate report has unexpected semantics or contaminated official counts")
+endif()
+math(EXPR required_red_overlap "${ref_red} * 99")
+math(EXPR actual_red_overlap "${overlap_red} * 100")
+if(actual_red_overlap LESS required_red_overlap)
+  message(FATAL_ERROR "Original W* candidate red stroke mismatch beyond 1%")
+endif()
+math(EXPR required_blue_overlap "${ref_blue} * 99")
+math(EXPR actual_blue_overlap "${overlap_blue} * 100")
+if(actual_blue_overlap LESS required_blue_overlap)
+  message(FATAL_ERROR "Original W* candidate blue fill mismatch beyond 1%")
+endif()
+file(SHA256 "${SOURCE}" after)
+if(NOT before STREQUAL after)
+  message(FATAL_ERROR "Original yWorks clip-rule PDF mutated during candidate oracle")
+endif()
+message(STATUS "wstar-original-pixel: passed; sha=${after} W=${w} W*=${wstar} official_positive=0")
