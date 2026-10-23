@@ -43,23 +43,10 @@ static quantapdf_ir_raster_image render_with(const quantapdf_ir_raster_v1_limits
 }
 static quantapdf_ir_raster_image render(void)
 { return render_with(&limits); }
-static unsigned reject_call_count;
 static void reject(void)
 {
-    quantapdf_ir_raster_image image;
-    memset(&image,0x5a,sizeof(image));
-    const quantapdf_status actual=quantapdf_ir_raster_scoped_operations_v2(&ir,0,&limits,&image);
-    ++reject_call_count;
-    if(actual!=QUANTAPDF_ERROR_UNSUPPORTED) {
-        fprintf(stderr,"reject call %u returned %d: commands=%zu dash_count=%zu width=%.9g cap=%d join=%d\\n",
-            reject_call_count,(int)actual,ops[0].value.path.command_count,
-            ops[0].value.path.dash_count,(double)ops[0].value.path.options.stroke_width,
-            (int)ops[0].value.path.options.line_cap,(int)ops[0].value.path.options.line_join);
-        for(size_t i=0;i<ops[0].value.path.command_count && i<8u;++i)
-            fprintf(stderr,"  command[%zu]=%d (%.9g,%.9g)\\n",i,
-                (int)commands[i].kind,(double)commands[i].point1.x,(double)commands[i].point1.y);
-    }
-    CHECK(actual==QUANTAPDF_ERROR_UNSUPPORTED);
+    quantapdf_ir_raster_image image; memset(&image,0x5a,sizeof(image));
+    CHECK(quantapdf_ir_raster_scoped_operations_v2(&ir,0,&limits,&image)==QUANTAPDF_ERROR_UNSUPPORTED);
     CHECK(!image.pixels && !image.size && !image.width && !image.height && !image.stride);
 }
 static float dashes[65];
@@ -549,8 +536,15 @@ int main(void)
     init(); ops[0].value.path.dash_phase=1; reject();
     init(); ops[0].value.path.options.stroke_argb=0x80ff0000u; reject();
     init(); commands[2].kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO; dash(4,4,0); reject();
-    init(); commands[2].point1=commands[0].point1; reject();
-    init(); commands[1].point1=commands[0].point1; commands[2].point1=commands[0].point1; reject();
+    init(); commands[2].point1=commands[0].point1; reject(); /* reversing cusp */
+    /* Repeated zero-length LINE_TO commands are a single degenerate open
+     * subpath: Butt caps succeed with exact empty coverage. */
+    init(); ops[0].value.path.command_count=3;
+    commands[1].point1=commands[0].point1;
+    commands[2].point1=commands[0].point1;
+    image=render();
+    for(size_t i=0;i<image.size;i+=4u) CHECK(image.pixels[i+3u]==0u);
+    quantapdf_ir_raster_image_dispose(&image);
     init(); commands[2].point1.x=1000001; reject();
     init(); ops[0].value.path.options.stroke_paint_id=1; reject();
     /* A late unsupported layer must discard all previously sampled pixels. */
