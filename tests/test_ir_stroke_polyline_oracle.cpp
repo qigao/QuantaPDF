@@ -504,7 +504,7 @@ int main(int argc,char **argv)
         {{82,37,255,255,255},{80,50,255,0,0}});
     negative("1 0 0 RG 4 w 20 20 m 90 20 l S 0 w 20 40 m 90 40 l S");
     negative("4 w 20 20 m 90 20 l h S");
-    negative("4 w 1 j 20 20 m 90 20 l 20 20 l S");
+    negative("4 w 1 J 1 j 20 20 m 90 20 l 20 20 l S");
     negative("4 w [0 .0001] 0 d 20 20 m 90 20 l S");
     negative("4 w [4 4] 0 d 20 20 m 40 50 60 50 90 20 c S");
     return EXIT_SUCCESS;

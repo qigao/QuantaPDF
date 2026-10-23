@@ -297,7 +297,8 @@ static void test_round(void)
     commands[0].point1=(quantapdf_point){999990,16}; commands[1].point1=(quantapdf_point){999995,16};
     ops[0].value.path.command_count=2; reject(); /* float arc precision at large origin */
     init(); ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND;
-    commands[2].point1=commands[0].point1; reject();
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
+    commands[2].point1=commands[0].point1; reject(); /* open cusp non-Butt cap */
     init(); ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
     quantapdf_ir_raster_v1_limits tiny=limits; tiny.max_edges=8;
     CHECK(quantapdf_ir_raster_scoped_operations_v2(&ir,0,&tiny,&image)==QUANTAPDF_ERROR_UNSUPPORTED);
@@ -667,7 +668,8 @@ static void test_closed_two_point_joins(void)
     init(); ops[0].value.path.command_count=3;
     commands[2].point1=commands[0].point1;
     ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
-    reject(); /* open A->B->A is still an unqualified authored cusp */
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_SQUARE;
+    reject(); /* open A->B->A with non-Butt cap remains unqualified */
     init(); ops[0].value.path.command_count=3;
     commands[2].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
     ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
