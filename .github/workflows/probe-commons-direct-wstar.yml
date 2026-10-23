@@ -1,0 +1,14 @@
+name: Probe public-domain original PDFs for W-star geometry
+on:
+  push:
+    branches:
+      - probe/262-commons-direct
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan pinned direct PDF URLs and report rights metadata
+        run: python3 tools/qualification/probe_commons_direct_wstar.py
