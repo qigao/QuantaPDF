@@ -14,3 +14,4 @@ jobs:
         run: |
           python3 tools/qualification/probe_qpdf_corpus_wstar.py
           python3 tools/qualification/probe_fop_corpus_wstar.py
+          python3 tools/qualification/probe_ghostpdl_corpus_wstar.py
