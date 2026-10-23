@@ -13,12 +13,16 @@
 #define QP_ARC_SEGMENTS 512u
 #define QP_ARC_CHORD_ERROR (1.0/64.0)
 #define QP_ARC_FLOAT_ERROR (1.0/128.0)
+#define QP_CURVE_DEPTH 16u
+#define QP_CURVE_WORK 65536u
+#define QP_CURVE_ERROR (1.0/32.0)
 #define QP_PI 3.14159265358979323846
 
 typedef struct stroke_point { double x, y; } stroke_point;
 typedef struct stroke_builder {
     quantapdf_composer_path_command *commands;
-    size_t count, edges, max_edges, dash_work;
+    size_t count, edges, max_edges, dash_work, curve_work, curve_segments;
+    int curve_mode;
     const quantapdf_composer_path_operation *source;
     double dash_period, arc_scale;
     const quantapdf_composer_path_options *options;
@@ -41,7 +45,9 @@ static quantapdf_status polygon(stroke_builder *b, stroke_point *p, size_t n)
         n + 1u > QP_STROKE_COMMANDS - b->count)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     for (size_t i = 0; i < n; ++i) {
-        if (!valid_point(p[i])) return QUANTAPDF_ERROR_UNSUPPORTED;
+        if (!valid_point(p[i]) || (b->curve_mode &&
+            hypot((double)(float)p[i].x-p[i].x,(double)(float)p[i].y-p[i].y)*b->arc_scale>QP_ARC_FLOAT_ERROR))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
         /* The Composer path boundary stores floats. Check that the emitted
          * polygon still has an area at that precision, not just in double. */
         p[i].x = (float)p[i].x; p[i].y = (float)p[i].y;
@@ -140,13 +146,11 @@ static quantapdf_status segment(stroke_builder *b,stroke_point a,
     }
     return QUANTAPDF_OK;
 }
-static quantapdf_status join(stroke_builder *b,stroke_point a,
-    stroke_point at,stroke_point z)
+static quantapdf_status join_directions(stroke_builder *b,stroke_point at,
+    stroke_point u,stroke_point v)
 {
-    stroke_point u,v,p[4];
+    stroke_point p[4];
     double cross,dot,side,hw=(double)b->options->stroke_width/2.0;
-    if (!direction(a,at,&u) || !direction(at,z,&v))
-        return QUANTAPDF_ERROR_UNSUPPORTED;
     cross=u.x*v.y-u.y*v.x; dot=u.x*v.x+u.y*v.y;
     if (cross == 0.0) {
         /* Collinear continuation needs no wedge. Exact reversal/cusps retain
@@ -171,6 +175,13 @@ static quantapdf_status join(stroke_builder *b,stroke_point a,
         }
     }
     return polygon(b,p,3u);
+}
+static quantapdf_status join(stroke_builder *b,stroke_point a,
+    stroke_point at,stroke_point z)
+{
+    stroke_point u,v;
+    if(!direction(a,at,&u) || !direction(at,z,&v)) return QUANTAPDF_ERROR_UNSUPPORTED;
+    return join_directions(b,at,u,v);
 }
 /* Caps are separate equal-orientation pieces. Each dash remains an open
  * fragment, including coincident endpoints at an authored closed seam. */
@@ -298,6 +309,149 @@ static quantapdf_status subpath(stroke_builder *b,stroke_point *p,size_t n,int c
     return QUANTAPDF_OK;
 }
 
+static stroke_point midpoint(stroke_point a,stroke_point z)
+{ return (stroke_point){(a.x+z.x)*.5,(a.y+z.y)*.5}; }
+static int convex_quad(const stroke_point *p)
+{
+    double sign=0;
+    for(size_t i=0;i<4u;++i) {
+        stroke_point a=p[i],z=p[(i+1u)%4u],q=p[(i+2u)%4u];
+        double cross=(z.x-a.x)*(q.y-z.y)-(z.y-a.y)*(q.x-z.x);
+        if(!isfinite(cross) || cross==0.0 || (sign!=0.0 && (cross>0.0)!=(sign>0.0))) return 0;
+        sign=cross;
+    }
+    return 1;
+}
+/* Certify the entire normal strip, not just its centerline. Derivative
+ * controls share a forward cone, so the tangent cannot vanish in the open
+ * interval. The same-parameter center/normal bounds are documented in the
+ * conformance contract. Artificial vertices share exact tangent cross-sections. */
+static int curve_leaf(stroke_builder *b,const stroke_point *p,
+    stroke_point first,stroke_point last,stroke_point *quad)
+{
+    stroke_point u,d[3]; double m[3],slope=0.0,center,normal;
+    const double hw=(double)b->options->stroke_width/2.0;
+    if(!direction(p[0],p[3],&u)) return 0;
+    for(size_t i=0;i<3u;++i) {
+        d[i]=(stroke_point){p[i+1u].x-p[i].x,p[i+1u].y-p[i].y};
+        m[i]=hypot(d[i].x,d[i].y);
+        if(m[i]>0.0) {
+            double along=d[i].x*u.x+d[i].y*u.y;
+            if(along<=0.0) return 0;
+            slope=fmax(slope,fabs(d[i].x*u.y-d[i].y*u.x)/along);
+        }
+    }
+    stroke_point ends[2]={first,last};
+    for(size_t i=0;i<2u;++i) {
+        double along=ends[i].x*u.x+ends[i].y*u.y;
+        if(along<=0.0) return 0;
+        slope=fmax(slope,fabs(ends[i].x*u.y-ends[i].y*u.x)/along);
+    }
+    center=fmax(hypot(p[1].x-(2.0*p[0].x+p[3].x)/3.0,p[1].y-(2.0*p[0].y+p[3].y)/3.0),
+                hypot(p[2].x-(p[0].x+2.0*p[3].x)/3.0,p[2].y-(p[0].y+2.0*p[3].y)/3.0));
+    if(slope==0.0) center=0.0; /* A monotone collinear curve is exactly a line. */
+    normal=2.0*slope;
+    if(m[0]>0.0 && m[2]>0.0) {
+        stroke_point a={d[0].x/m[0],d[0].y/m[0]},z={d[2].x/m[2],d[2].y/m[2]};
+        double delta=hypot(a.x-z.x,a.y-z.y);
+        double k=hypot(d[1].x-(m[0]*z.x+m[2]*a.x)/2.0,
+                       d[1].y-(m[0]*z.y+m[2]*a.y)/2.0);
+        double endpoint=fmax(hypot(a.x-first.x,a.y-first.y),hypot(z.x-last.x,z.y-last.y));
+        normal=fmin(normal,delta*delta/4.0+k/fmin(m[0],m[2])+endpoint);
+    }
+    if(!isfinite(center+hw*normal) || (center+hw*normal)*b->arc_scale>QP_CURVE_ERROR) return 0;
+    quad[0]=(stroke_point){p[0].x-hw*first.y,p[0].y+hw*first.x};
+    quad[1]=(stroke_point){p[3].x-hw*last.y,p[3].y+hw*last.x};
+    quad[2]=(stroke_point){p[3].x+hw*last.y,p[3].y-hw*last.x};
+    quad[3]=(stroke_point){p[0].x+hw*first.y,p[0].y-hw*first.x};
+    if(!convex_quad(quad)) return 0;
+    stroke_point stored[4];
+    for(size_t i=0;i<4u;++i) stored[i]=(stroke_point){(float)quad[i].x,(float)quad[i].y};
+    return convex_quad(stored);
+}
+static quantapdf_status cubic_strip(stroke_builder *b,const stroke_point *p,
+    stroke_point first,stroke_point last,unsigned depth)
+{
+    stroke_point quad[4];
+    if(++b->curve_work>QP_CURVE_WORK) return QUANTAPDF_ERROR_UNSUPPORTED;
+    if(curve_leaf(b,p,first,last,quad)) {
+        if(++b->curve_segments>QP_STROKE_POINTS) return QUANTAPDF_ERROR_UNSUPPORTED;
+        return polygon(b,quad,4u);
+    }
+    if(depth>=QP_CURVE_DEPTH) return QUANTAPDF_ERROR_UNSUPPORTED;
+    stroke_point q0=midpoint(p[0],p[1]),q1=midpoint(p[1],p[2]),q2=midpoint(p[2],p[3]);
+    stroke_point r0=midpoint(q0,q1),r1=midpoint(q1,q2),at=midpoint(r0,r1),tangent;
+    if(!direction(r0,r1,&tangent)) return QUANTAPDF_ERROR_UNSUPPORTED;
+    stroke_point left[4]={p[0],q0,r0,at},right[4]={at,r1,q2,p[3]};
+    quantapdf_status status=cubic_strip(b,left,first,tangent,depth+1u);
+    if(status!=QUANTAPDF_OK) return status;
+    return cubic_strip(b,right,tangent,last,depth+1u);
+}
+typedef struct solid_subpath {
+    stroke_point start,current,first,last;
+    size_t segments;
+    int active,curves;
+} solid_subpath;
+static quantapdf_status solid_line(stroke_builder *b,solid_subpath *s,stroke_point z)
+{
+    stroke_point u; quantapdf_status status;
+    if(same_point(s->current,z)) return QUANTAPDF_OK;
+    if(!direction(s->current,z,&u) || ++b->curve_segments>QP_STROKE_POINTS) return QUANTAPDF_ERROR_UNSUPPORTED;
+    if(s->segments) { status=join_directions(b,s->current,s->last,u); if(status!=QUANTAPDF_OK) return status; }
+    else s->first=u;
+    status=segment(b,s->current,z,0,0); if(status!=QUANTAPDF_OK) return status;
+    s->current=z; s->last=u; ++s->segments; return QUANTAPDF_OK;
+}
+static quantapdf_status solid_finish(stroke_builder *b,solid_subpath *s,int closed)
+{
+    quantapdf_status status;
+    if(!s->segments) return QUANTAPDF_ERROR_UNSUPPORTED;
+    if(closed) {
+        status=solid_line(b,s,s->start); if(status!=QUANTAPDF_OK) return status;
+        if(!s->curves && s->segments<3u) return QUANTAPDF_ERROR_UNSUPPORTED;
+        status=join_directions(b,s->start,s->last,s->first);
+    } else {
+        status=dash_cap(b,s->start,s->first,1); if(status!=QUANTAPDF_OK) return status;
+        status=dash_cap(b,s->current,s->last,0);
+    }
+    s->active=0; return status;
+}
+static quantapdf_status curved_path(stroke_builder *b)
+{
+    solid_subpath s={0};
+    for(size_t i=0;i<b->source->command_count;++i) {
+        const quantapdf_composer_path_command *c=&b->source->commands[i];
+        stroke_point p={0,0};
+        quantapdf_status status;
+        if(c->kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
+           c->kind==QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+           c->kind==QUANTAPDF_COMPOSER_PATH_CUBIC_TO)
+            p=(stroke_point){(double)c->point1.x,(double)c->point1.y};
+        if(c->kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO) {
+            if(s.active) { status=solid_finish(b,&s,0); if(status!=QUANTAPDF_OK) return status; }
+            if(!valid_point(p)) return QUANTAPDF_ERROR_UNSUPPORTED;
+            memset(&s,0,sizeof(s)); s.active=1; s.start=s.current=p;
+        } else if(c->kind==QUANTAPDF_COMPOSER_PATH_LINE_TO) {
+            if(!s.active || !valid_point(p)) return QUANTAPDF_ERROR_UNSUPPORTED;
+            status=solid_line(b,&s,p); if(status!=QUANTAPDF_OK) return status;
+        } else if(c->kind==QUANTAPDF_COMPOSER_PATH_CUBIC_TO) {
+            stroke_point controls[4]={s.current,p,{c->point2.x,c->point2.y},{c->point3.x,c->point3.y}},first,last;
+            if(!s.active || !valid_point(p) || !valid_point(controls[2]) || !valid_point(controls[3])) return QUANTAPDF_ERROR_UNSUPPORTED;
+            if(!(direction(controls[0],controls[1],&first) || direction(controls[0],controls[2],&first) || direction(controls[0],controls[3],&first)) ||
+               !(direction(controls[2],controls[3],&last) || direction(controls[1],controls[3],&last) || direction(controls[0],controls[3],&last)))
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+            if(s.segments) { status=join_directions(b,s.current,s.last,first); if(status!=QUANTAPDF_OK) return status; }
+            else s.first=first;
+            status=cubic_strip(b,controls,first,last,0u); if(status!=QUANTAPDF_OK) return status;
+            s.current=controls[3]; s.last=last; ++s.segments; s.curves=1;
+        } else if(c->kind==QUANTAPDF_COMPOSER_PATH_CLOSE) {
+            if(!s.active) return QUANTAPDF_ERROR_UNSUPPORTED;
+            status=solid_finish(b,&s,1); if(status!=QUANTAPDF_OK) return status;
+        } else return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    return s.active ? solid_finish(b,&s,0) : QUANTAPDF_OK;
+}
+
 void quantapdf_ir_stroke_polyline_dispose_v1(quantapdf_composer_path_operation *fill)
 {
     if (!fill) return;
@@ -351,6 +505,15 @@ static quantapdf_status outline_impl(
     b.commands=calloc(QP_STROKE_COMMANDS,sizeof(*b.commands));
     if (!b.commands) return QUANTAPDF_ERROR_NOMEM;
     b.max_edges=max_edges; b.options=o;
+    for(size_t i=0;i<source->command_count;++i)
+        if(source->commands[i].kind==QUANTAPDF_COMPOSER_PATH_CUBIC_TO) b.curve_mode=1;
+    if(b.curve_mode) {
+        if(source->dash_count) goto fail; /* Curved dash arc-length is a separate contract. */
+        b.arc_scale=arc_scale(o,device);
+        if(b.arc_scale<=0.0) goto fail;
+        status=curved_path(&b); if(status!=QUANTAPDF_OK) goto fail;
+        goto publish;
+    }
     for (size_t i=0;i<source->command_count;++i) {
         const quantapdf_composer_path_command *c=&source->commands[i];
         stroke_point p={0,0};
@@ -369,6 +532,7 @@ static quantapdf_status outline_impl(
         } else goto fail;
     }
     if(n) { status=subpath(&b,points,n,0); if(status!=QUANTAPDF_OK) goto fail; }
+publish:
     if (b.count==0) {
         /* A validated path entirely inside an off interval has exactly empty
          * coverage. Opposite directed edges encode that zero-winding fill,

@@ -41,6 +41,7 @@
 namespace {
 std::string source_prefix;
 size_t negative_index=0u;
+bool cubic_sources=false;
 constexpr size_t PAGE = 120u;
 const quantapdf_ir_raster_v1_limits raster_limits = {
     PAGE * PAGE, 4u, 2048u, 200000000u
@@ -195,6 +196,7 @@ void compare(const char *name,const char *content,
     quantapdf_ir_raster_image native{},repeat{};
     quantapdf_native_device_plan plan{};
     auto bounds=raster_limits;
+    if(cubic_sources) { bounds.max_edges=4096u; bounds.max_sample_tests=800000000u; }
     CHECK(scale==1 || scale==2);
     const size_t side=PAGE*static_cast<size_t>(scale);
     bounds.max_pixels=side*side; bounds.max_sample_tests*=static_cast<size_t>(scale*scale);
@@ -276,7 +278,7 @@ void test_round_source()
     compare("round-fit-144","1 0 0 RG 5 w 1 J 1 j 20 30 m 90 30 l 90 85 l S",{},2);
     compare("round-dash-fit-144","1 0 0 RG 4 w 1 J 1 j [24 16] 3 d 20 30 m 90 30 l 90 85 l S",{},2);
     negative("0 w 1 J 1 j 20 20 m 90 20 l S");
-    negative("4 w 1 J 1 j 20 20 m 40 50 60 50 90 20 c S");
+    negative("4 w 1 J 1 j [4 4] 0 d 20 20 m 40 50 60 50 90 20 c S");
     negative("4 w 1 J [0 .0001] 0 d 20 20 m 90 20 l S");
 }
 
@@ -349,6 +351,46 @@ void test_zero_dash_source()
     test_zero_phase_equivalence();
 }
 
+void test_cubic_source()
+{
+    compare("cubic-arch-butt","1 0 0 RG 4 w 20 40 m 20 90 100 90 100 40 c S",
+        {{60,77,255,0,0},{60,70,255,255,255},{20,38,255,255,255}});
+    compare("cubic-square-caps","1 0 0 RG 6 w 2 J 20 40 m 20 90 100 90 100 40 c S",
+        {{20,38,255,0,0},{100,38,255,0,0}});
+    compare("cubic-round-caps","1 0 0 RG 6 w 1 J 20 40 m 20 90 100 90 100 40 c S",
+        {{20,38,255,0,0},{100,38,255,0,0}});
+    compare("cubic-smooth-bevel-style","1 0 0 RG 4 w 2 j 20 40 m 20 90 100 90 100 40 c S");
+    compare("cubic-smooth-round-style","1 0 0 RG 4 w 1 j 20 40 m 20 90 100 90 100 40 c S");
+    compare("cubic-inflection","1 0 0 RG 4 w 1 J 20 30 m 45 100 75 0 100 70 c S");
+    compare("cubic-control-backtrack","1 0 0 RG 4 w 20 20 m 110 20 10 90 90 90 c S");
+    compare("line-cubic-miter","1 0 0 RG 8 w 20 40 m 60 40 l 60 80 100 80 100 100 c S",
+        {{62,38,255,0,0}});
+    compare("line-cubic-bevel","1 0 0 RG 8 w 2 j 20 40 m 60 40 l 60 80 100 80 100 100 c S",
+        {{63,37,255,255,255}});
+    compare("line-cubic-round","1 0 0 RG 8 w 1 j 20 40 m 60 40 l 60 80 100 80 100 100 c S",
+        {{63,36,255,255,255},{62,38,255,0,0}});
+    compare("cubic-line-join","1 0 0 RG 8 w 20 40 m 20 90 100 90 100 40 c 110 40 l S",
+        {{98,38,255,0,0}});
+    compare("cubic-cubic-join","1 0 0 RG 6 w 2 j 20 20 m 20 60 60 60 60 20 c 100 20 100 70 60 70 c S");
+    compare("cubic-circle-closed","1 0 0 RG 4 w 60 30 m 76.5685 30 90 43.4315 90 60 c 90 76.5685 76.5685 90 60 90 c 43.4315 90 30 76.5685 30 60 c 30 43.4315 43.4315 30 60 30 c h S",
+        {{60,90,255,0,0},{60,60,255,255,255},{60,100,255,255,255}});
+    compare("cubic-single-closed-loop","1 0 0 RG 4 w 1 j 40 40 m 100 40 100 90 40 40 c h S");
+    compare("cubic-subpaths","1 0 0 RG 4 w 1 J 20 20 m 20 60 100 60 100 20 c 20 70 m 20 110 100 110 100 70 c S");
+    compare("cubic-v-start-control","1 0 0 RG 4 w 2 J 20 40 m 100 90 100 40 v S");
+    compare("cubic-y-end-control","1 0 0 RG 4 w 2 J 20 40 m 20 90 100 40 y S");
+    compare("cubic-collinear-speed","1 0 0 RG 4 w 2 J 20 40 m 20 40 100 40 100 40 c S");
+    compare("cubic-affine","1 0 0 RG 5 w 2 J 1.2 .2 .2 .6 0 0 cm 20 30 m 20 90 80 90 80 30 c S");
+    compare("cubic-reflection","1 0 0 RG 4 w 1 J -.9 .1 .2 .8 105 5 cm 20 30 m 20 90 90 90 90 30 c S");
+    compare("cubic-clip-restore","q 30 20 40 70 re W n 1 0 0 RG 6 w 20 40 m 20 90 100 90 100 40 c S Q 0 0 1 rg 10 10 90 10 re f");
+    compare("cubic-nested-evenodd","q 10 10 100 100 re W n q 20 20 80 80 re 40 40 40 40 re W* n 1 0 0 RG 4 w 1 J 20 40 m 20 90 100 90 100 40 c S Q Q");
+    compare("cubic-fit-144","1 0 0 RG 4 w 2 J 20 40 m 20 90 100 90 100 40 c S",{},2);
+    compare("cubic-wide","1 0 0 RG 12 w 1 J 20 40 m 20 90 100 90 100 40 c S");
+    negative("4 w [4 4] 0 d 20 40 m 20 90 100 90 100 40 c S");
+    negative("0 w 20 40 m 20 90 100 90 100 40 c S");
+    negative("4 w 20 40 m 100 40 20 40 100 40 c S");
+    negative("4 w 20 40 m 20 90 100 90 100 40 c S 0 w 20 20 m 90 20 l S");
+}
+
 }
 int main(int argc,char **argv)
 {
@@ -363,6 +405,9 @@ int main(int argc,char **argv)
     }
     if(argc==2 && std::strcmp(argv[1],"--zero-dash")==0) {
         source_prefix+=".zero-dash"; test_zero_dash_source(); return EXIT_SUCCESS;
+    }
+    if(argc==2 && std::strcmp(argv[1],"--cubic")==0) {
+        source_prefix+=".cubic"; cubic_sources=true; test_cubic_source(); return EXIT_SUCCESS;
     }
     CHECK(argc==1);
     compare("butt-miter-open","1 0 0 RG 8 w 0 J 0 j 10 M 40 40 m 80 40 l 80 80 l S",
@@ -416,6 +461,6 @@ int main(int argc,char **argv)
     negative("4 w 20 20 m 90 20 l h S");
     negative("4 w 1 j 20 20 m 90 20 l 20 20 l S");
     negative("4 w [0 .0001] 0 d 20 20 m 90 20 l S");
-    negative("4 w 20 20 m 40 50 60 50 90 20 c S");
+    negative("4 w [4 4] 0 d 20 20 m 40 50 60 50 90 20 c S");
     return EXIT_SUCCESS;
 }

@@ -7,10 +7,11 @@
 extern "C" {
 #endif
 
-/* Detached, bounded user-space outline for opaque linear strokes.
+/* Detached, bounded user-space outline for opaque linear/solid cubic strokes.
  * MOVE/LINE/CLOSE, positive width, butt/square/round caps, miter/bevel/round joins.
  * Nonnegative, not-all-zero dash arrays (<=64 items), odd repetition/phase.
- * Zero dashes use directed caps. No hairline, cubic, alpha or fallback.
+ * Zero dashes use directed caps. Cubic dash arc-length, hairline and alpha refuse.
+ * Solid cubics use bounded normal strips, true authored joins and endpoint caps.
  * The fill preserves the authored affine transform; callers borrow it
  * synchronously and dispose commands after sampling. Source/output must not
  * alias. Dispose earlier successful output before reuse; failure zeroes output. */

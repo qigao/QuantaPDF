@@ -48,7 +48,7 @@ The private [linear Stroke V2 profile](native-polyline-stroke.md) now adds
 bounded multi-segment/subpath butt/square/round and miter/bevel/round outlines,
 nonnegative dash arrays with directed zero-length caps and odd repetition/phase,
 device-error-bounded round
-sectors, user-space widths and affine transforms to the native rendering prerequisites. The
+sectors and solid cubic normal strips with true endpoint tangents, user-space widths and affine transforms to the native rendering prerequisites. The
 original V1/M2 profile and external corpus accounting remain unchanged.
 
 ## Remaining production dependency

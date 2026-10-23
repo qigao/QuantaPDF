@@ -2225,3 +2225,19 @@ else()
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
+
+# Cubic normal strips use actual expanded-edge budgets; keep source isolation.
+add_test(NAME quantapdf.native_cubic_stroke_oracle
+  COMMAND quantapdf_test_native_stroke_polyline_oracle --cubic)
+set_tests_properties(quantapdf.native_cubic_stroke_oracle PROPERTIES
+  TIMEOUT 180 LABELS "conformance;native-raster;source-pdf")
+if(WIN32)
+  set_property(TEST quantapdf.native_cubic_stroke_oracle PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_cubic_stroke_oracle PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_cubic_stroke_oracle PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
