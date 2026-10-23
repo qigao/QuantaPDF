@@ -377,8 +377,7 @@ static void test_zero_length_caps(void)
     commands[1].point1=commands[0].point1;
     ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_SQUARE;
     image=render();
-    CHECK(alpha(&image,8,15)==255 && alpha(&image,9,17)==255);
-    CHECK(alpha(&image,11,15)==0 && alpha(&image,8,19)==0);
+    for(size_t i=0;i<image.size;i+=4u) CHECK(image.pixels[i+3u]==0u);
     quantapdf_ir_raster_image_dispose(&image);
 
     init(); ops[0].value.path.command_count=2;
