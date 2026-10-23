@@ -7,6 +7,9 @@
 extern "C" {
 #endif
 
+/* Preserve the original scoped V2 cap; the expanded V1 Path/Clip profile
+ * opts into nine nodes explicitly. */
+#define QUANTAPDF_NATIVE_CLIP_DAG_V0_MAX_NODES ((size_t)8u)
 #define QUANTAPDF_NATIVE_CLIP_DAG_MAX_NODES ((size_t)9u)
 #define QUANTAPDF_NATIVE_CLIP_DAG_MAX_DEPTH ((size_t)4u)
 

@@ -147,16 +147,21 @@ static quantapdf_status scoped_operations_v1_impl(
     if (ir == NULL || limits == NULL || ir->pages == NULL ||
         ir->operations == NULL || ir->page_count != 1u || page_index != 0u ||
         ir->operation_count == 0u ||
-        ir->operation_count > QUANTAPDF_IR_SCOPED_OPERATIONS_V1_MAX_OPERATIONS ||
+        ir->operation_count > (polyline_strokes ?
+            QUANTAPDF_IR_SCOPED_OPERATIONS_V0_MAX_OPERATIONS :
+            QUANTAPDF_IR_SCOPED_OPERATIONS_V1_MAX_OPERATIONS) ||
         ir->operation_count > limits->max_operations ||
         limits->max_pixels == 0u || limits->max_pixels > SIZE_MAX / 4u ||
         limits->max_edges == 0u ||
         limits->max_sample_tests / ir->operation_count == 0u)
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    if (ir->resources.graphics_state_count >
-            QUANTAPDF_IR_SCOPED_OPERATIONS_V1_MAX_OPERATIONS ||
-        ir->resources.clip_count > QUANTAPDF_NATIVE_CLIP_DAG_MAX_NODES ||
+    if (ir->resources.graphics_state_count > (polyline_strokes ?
+            QUANTAPDF_IR_SCOPED_OPERATIONS_V0_MAX_OPERATIONS :
+            QUANTAPDF_IR_SCOPED_OPERATIONS_V1_MAX_OPERATIONS) ||
+        ir->resources.clip_count > (polyline_strokes ?
+            QUANTAPDF_NATIVE_CLIP_DAG_V0_MAX_NODES :
+            QUANTAPDF_NATIVE_CLIP_DAG_MAX_NODES) ||
         (ir->resources.graphics_state_count != 0u &&
          ir->resources.graphics_states == NULL) ||
         (ir->resources.clip_count != 0u &&
