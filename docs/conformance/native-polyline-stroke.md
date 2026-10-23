@@ -149,6 +149,28 @@ coverage. A cancelled two-edge nonzero contour represents this exact empty
 fill, so normal transform, Clip, budget and later-operation validation still
 runs. This is not a shortcut around page admission.
 
+## Closed two-point reversal — qualified subset
+
+An authored solid `MOVE A → LINE B → CLOSE` with **two distinct finite
+points** traces a segment forward and back. Its two 180-degree join regions
+are admitted only for **Bevel** and **Round** joins, with bounded user-space
+stroke width:
+
+- Bevel joins yield the original butt-ended strip without cap extensions
+- Round joins yield that strip plus outward semicircles at A and B, produced
+  with the existing error-bounded arc sectors
+- Caps are not consulted: this is an explicitly closed path, not an open
+  path with two caps
+
+The same subset is admitted inside an otherwise solid cubic-containing
+operation. Unknown miter cusp semantics, authored `A→B→A→CLOSE` reversals,
+dash arrays, zero width/hairlines, and arbitrary stationary curves remain
+atomic `QUANTAPDF_ERROR_UNSUPPORTED` cases. Output geometry is still
+checked under affine/FIT transforms, actual expanded-edge and sample budgets,
+Clip and the same final owned pixel publication. The independent original-PDF
+oracle uses unchanged PDFium thresholds; pure C11 tests also require
+byte-identical equivalence to the corresponding open Butt/Round-cap strip.
+
 ## Closed single-point degenerate Stroke
 
 ISO 32000-1 §8.5.3.2 explicitly admits a *single-point closed subpath*
@@ -162,9 +184,10 @@ Stroke (including the implicit CLOSE in the `s` operator). It continues to
 reject all-segment-free Fill and Clip, whose device-dependent semantics are
 not covered by this native Stroke increment.
 
-A **MOVE-only open** subpath remains inert, even with Round Cap. A closed
-subpath with two distinct endpoints followed by a return/cusp, and dashed
-zero-length closed paths, remain explicit `QUANTAPDF_ERROR_UNSUPPORTED` cases.
+A **MOVE-only open** subpath remains inert, even with Round Cap.
+Closed two-point reversals now have the separate restricted join profile
+above; other authored return/cusp patterns and dashed zero-length closed
+paths remain explicit `QUANTAPDF_ERROR_UNSUPPORTED` cases.
 Nonfinite transforms, insufficient expanded-edge budgets and later invalid
 operations fail atomically as before. All pixel tests use the established 4×4
 sampling and independent PDFium source-oracle tolerances.
