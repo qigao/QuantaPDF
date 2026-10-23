@@ -2873,26 +2873,25 @@ int test_external_yworks_wstar_pixels(const char *filename,
     bounded.max_painted_paths=8u;
     quantapdf_ir detached{};
     OK(snapshot_lower(&detached,0u,4u,8u,filename,&bounded));
-    CHECK(detached.page_count==1u && detached.pages!=nullptr &&
-          detached.pages[0].width_points==(float)WIDTH &&
-          detached.pages[0].height_points==(float)HEIGHT &&
-          detached.operations!=nullptr && detached.operation_count==3u &&
-          detached.resources.clip_count==7u &&
-          detached.resources.graphics_state_count==3u &&
-          detached.resources.font_count==0u &&
-          detached.resources.image_count==0u &&
-          detached.resources.form_count==0u &&
-          detached.resources.soft_mask_count==0u &&
-          detached.resources.paint_count==0u);
     const size_t painted_count=detached.operation_count;
     const size_t clip_count=detached.resources.clip_count;
     const size_t state_count=detached.resources.graphics_state_count;
     const clip_leaf_counts winding=inspect_clip_fill_rules(detached);
     std::fprintf(stderr,
-        "[wstar-candidate-ir] paths=%zu clips=%zu states=%zu "
+        "[wstar-candidate-ir] pages=%zu paths=%zu clips=%zu states=%zu "
         "W=%zu Wstar=%zu intersections=%zu\\n",
-        painted_count,clip_count,state_count,winding.nonzero,winding.evenodd,
-        winding.intersections);
+        detached.page_count,painted_count,clip_count,state_count,
+        winding.nonzero,winding.evenodd,winding.intersections);
+    CHECK(detached.page_count==1u && detached.pages!=nullptr &&
+          detached.pages[0].width_points==(float)WIDTH &&
+          detached.pages[0].height_points==(float)HEIGHT &&
+          detached.operations!=nullptr && painted_count==3u &&
+          clip_count==7u && state_count==3u &&
+          detached.resources.font_count==0u &&
+          detached.resources.image_count==0u &&
+          detached.resources.form_count==0u &&
+          detached.resources.soft_mask_count==0u &&
+          detached.resources.paint_count==0u);
     CHECK(winding.nonzero==2u && winding.evenodd==2u &&
           winding.intersections==3u);
 
