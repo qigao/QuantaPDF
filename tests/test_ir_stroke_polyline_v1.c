@@ -716,7 +716,7 @@ static void test_explicit_closed_two_point_return(void)
         QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL,
         QUANTAPDF_COMPOSER_LINE_JOIN_ROUND
     };
-    for(size_t i=0;i<2u;++i) {
+    for(size_t i=0;i<3u;++i) {
         init(); ops[0].value.path.command_count=4;
         ops[0].value.path.options.line_join=joins[i];
         commands[2].point1=commands[0].point1;
