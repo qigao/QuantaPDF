@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "purpose": "Issue #262 source discovery only; every PDF is quarantined and excluded from the formal manifest",
+  "candidates": [
+    {
+      "path": "tests/external_wstar_candidates/pgf-mindmap-1.pdf",
+      "upstream_repository": "pgf-tikz/pgf",
+      "upstream_path": "doc/generic/pgf/images/pgfmanual-mindmap-1.pdf",
+      "upstream_revision": "f8665b683f0a9448d7a1f1198d5caf56fa4707dc",
+      "upstream_git_blob_sha": "8c3a81a7d310dfdbb879c739cdaf698d720b80ed",
+      "license_evidence_url": "https://github.com/pgf-tikz/pgf/blob/f8665b683f0a9448d7a1f1198d5caf56fa4707dc/doc/generic/pgf/licenses/LICENSE",
+      "rights_status": "documentation license is dual FDL 1.2 / LPPL 1.3c; per-PDF redistribution and attribution review pending",
+      "formal_corpus": false
+    },
+    {
+      "path": "tests/external_wstar_candidates/pgf-mindmap-2.pdf",
+      "upstream_repository": "pgf-tikz/pgf",
+      "upstream_path": "doc/generic/pgf/images/pgfmanual-mindmap-2.pdf",
+      "upstream_revision": "f8665b683f0a9448d7a1f1198d5caf56fa4707dc",
+      "upstream_git_blob_sha": "0e1e46be0faeab0cc3cbc7aa1eff25e20800d9b1",
+      "license_evidence_url": "https://github.com/pgf-tikz/pgf/blob/f8665b683f0a9448d7a1f1198d5caf56fa4707dc/doc/generic/pgf/licenses/LICENSE",
+      "rights_status": "documentation license is dual FDL 1.2 / LPPL 1.3c; per-PDF redistribution and attribution review pending",
+      "formal_corpus": false
+    },
+    {
+      "path": "tests/external_wstar_candidates/pgfplots-external2.pdf",
+      "upstream_repository": "pgf-tikz/pgfplots",
+      "upstream_path": "doc/latex/pgfplots/figures/external2.pdf",
+      "upstream_revision": "80c5c7cf40257258bd03c69a77cd46adbf05e028",
+      "upstream_git_blob_sha": "3c9d0630d69d9b1a5fa0cec214bce983c6e9453a",
+      "license_evidence_url": "https://github.com/pgf-tikz/pgfplots/blob/80c5c7cf40257258bd03c69a77cd46adbf05e028/README.md",
+      "rights_status": "repository-level license not sufficient by itself; per-PDF attribution and source review pending",
+      "formal_corpus": false
+    },
+    {
+      "path": "tests/external_wstar_candidates/latex-example-image-a.pdf",
+      "upstream_repository": "latex3/latex2e",
+      "upstream_path": "texmf/tex/latex/mwe/example-image-a.pdf",
+      "upstream_revision": "3858fc13f7d800aaa0d394d56660ff9e72878d1d",
+      "upstream_git_blob_sha": "6d7ecb88a0d8b509bf14a0474ae9940e027a4d8b",
+      "license_evidence_url": "https://github.com/latex3/latex2e/blob/3858fc13f7d800aaa0d394d56660ff9e72878d1d/LICENSE",
+      "rights_status": "repository LPPL-1.3c; individual example image provenance and attribution review pending",
+      "formal_corpus": false
+    },
+    {
+      "path": "tests/external_wstar_candidates/latex-example-image-b.pdf",
+      "upstream_repository": "latex3/latex2e",
+      "upstream_path": "texmf/tex/latex/mwe/example-image-b.pdf",
+      "upstream_revision": "3858fc13f7d800aaa0d394d56660ff9e72878d1d",
+      "upstream_git_blob_sha": "7b404afa22afd9c1d09f1b4c05ef0c80597a3417",
+      "license_evidence_url": "https://github.com/latex3/latex2e/blob/3858fc13f7d800aaa0d394d56660ff9e72878d1d/LICENSE",
+      "rights_status": "repository LPPL-1.3c; individual example image provenance and attribution review pending",
+      "formal_corpus": false
+    },
+    {
+      "path": "tests/external_wstar_candidates/latex-example-image-duck.pdf",
+      "upstream_repository": "latex3/latex2e",
+      "upstream_path": "texmf/tex/latex/mwe/example-image-duck.pdf",
+      "upstream_revision": "3858fc13f7d800aaa0d394d56660ff9e72878d1d",
+      "upstream_git_blob_sha": "f6e7c99ed6c355d00b7928de8dd9fcd0fc8858ab",
+      "license_evidence_url": "https://github.com/latex3/latex2e/blob/3858fc13f7d800aaa0d394d56660ff9e72878d1d/LICENSE",
+      "rights_status": "repository LPPL-1.3c; individual example image provenance and attribution review pending",
+      "formal_corpus": false
+    },
+    {
+      "path": "tests/external_wstar_candidates/latex-example-image.pdf",
+      "upstream_repository": "latex3/latex2e",
+      "upstream_path": "texmf/tex/latex/mwe/example-image.pdf",
+      "upstream_revision": "3858fc13f7d800aaa0d394d56660ff9e72878d1d",
+      "upstream_git_blob_sha": "70f2c3f1ae7235544bb878f483e2e4ac65771c96",
+      "license_evidence_url": "https://github.com/latex3/latex2e/blob/3858fc13f7d800aaa0d394d56660ff9e72878d1d/LICENSE",
+      "rights_status": "repository LPPL-1.3c; individual example image provenance and attribution review pending",
+      "formal_corpus": false
+    }
+  ]
+}

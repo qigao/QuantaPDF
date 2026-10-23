@@ -1,0 +1,14 @@
+name: Probe quarantined PGF and LaTeX PDFs for W-star
+on:
+  push:
+    branches:
+      - probe/262-pgf-corpus
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan candidate PDFs
+        run: python3 tools/qualification/probe_pgf_candidates.py
