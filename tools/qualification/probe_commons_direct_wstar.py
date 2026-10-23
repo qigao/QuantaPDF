@@ -10,11 +10,18 @@ import zlib
 
 CANDIDATES = [
     {
-        "file": "Amsterdam Museum logo.pdf",
-        "url": "https://upload.wikimedia.org/wikipedia/commons/6/6c/Amsterdam_Museum_logo.pdf",
-        "page": "https://commons.wikimedia.org/wiki/File:Amsterdam_Museum_logo.pdf",
+        "file": "Wft048247.pdf",
+        "url": "https://upload.wikimedia.org/wikipedia/commons/5/5b/Wft048247.pdf",
+        "page": "https://commons.wikimedia.org/wiki/File:Wft048247.pdf",
+        "license": "Commons public domain (PD-textlogo); trademark caveat",
+        "producer": "CorelDRAW 8 / Acrobat PDFWriter 4.05",
+    },
+    {
+        "file": "Navalny-2018.pdf",
+        "url": "https://upload.wikimedia.org/wikipedia/commons/2/25/Navalny-2018.pdf",
+        "page": "https://commons.wikimedia.org/wiki/File:Navalny-2018.pdf",
         "license": "Commons public domain (PD-textlogo / simple shapes); trademark caveat",
-        "producer": "Adobe Illustrator CS4 / Adobe PDF library; Commons marks this as BadPDF/superseded",
+        "producer": "Not established from page metadata",
     },
 ]
 MAX_BYTES = 1_000_000
