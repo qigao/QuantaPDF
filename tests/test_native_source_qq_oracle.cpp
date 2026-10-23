@@ -2926,9 +2926,9 @@ int test_external_yworks_wstar_pixels(const char *filename,
         {40u,40u,255u,127u,127u},    /* antialiased red line survives W* */
         {100u,40u,255u,255u,255u},  /* inner even-odd hole clips line */
         {200u,40u,255u,127u,127u},   /* antialiased red line outside hole */
-        {85u,95u,0u,0u,255u},       /* nonzero star outer lobe */
+        {80u,95u,0u,0u,255u},       /* nonzero star outer lobe, safely inside tip */
         {80u,125u,0u,0u,255u},      /* nonzero star fills center */
-        {185u,95u,0u,0u,255u},      /* even-odd star outer lobe */
+        {180u,95u,0u,0u,255u},      /* even-odd star outer lobe, safely inside tip */
         {180u,125u,255u,255u,255u}, /* even-odd star leaves center empty */
         {10u,10u,255u,255u,255u}    /* untouched page */
     };
