@@ -21,7 +21,7 @@ if(NOT "${rc}" STREQUAL "0")
   message(FATAL_ERROR "Original PDFium vs detached C11 W* pixel oracle failed: ${rc}: ${err}")
 endif()
 file(READ "${REPORT}" json)
-foreach(field IN ITEMS result fixture_kind reference_oracle document_id
+foreach(field IN ITEMS result corpus_id fixture_kind reference_oracle document_id
     native_expected_outcome native_observed_outcome pdfium_result
     original_source_pdfium_oracle detached_c11_native_raster native_ir
     source_sha256)
@@ -44,6 +44,7 @@ foreach(field IN ITEMS page_width page_height native_painted_paths
 endforeach()
 string(JSON mean GET "${json}" mean_rgb_error)
 if(NOT result STREQUAL "passed"
+   OR NOT corpus_id STREQUAL "external-source-pdf"
    OR NOT fixture_kind STREQUAL "external"
    OR NOT reference_oracle STREQUAL "original-pdfium"
    OR NOT document_id STREQUAL "yworks.clippath-cliprule-v1"
