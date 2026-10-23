@@ -355,6 +355,14 @@ void test_cubic_source()
 {
     compare("cubic-arch-butt","1 0 0 RG 4 w 20 40 m 20 90 100 90 100 40 c S",
         {{60,77,255,0,0},{60,70,255,255,255},{20,38,255,255,255}});
+    /* A MOVE-only prelude contributes no stroke footprint. The real
+     * curve must match its independently rendered source PDF. */
+    compare("cubic-inert-move-prelude",
+        "1 0 0 RG 4 w 10 10 m 20 40 m 20 90 100 90 100 40 c S",
+        {{60,77,255,0,0},{60,70,255,255,255}});
+    compare("cubic-inert-move-trailing",
+        "1 0 0 RG 4 w 20 40 m 20 90 100 90 100 40 c 10 10 m S",
+        {{60,77,255,0,0},{60,70,255,255,255}});
     compare("cubic-square-caps","1 0 0 RG 6 w 2 J 20 40 m 20 90 100 90 100 40 c S",
         {{20,38,255,0,0},{100,38,255,0,0}});
     compare("cubic-round-caps","1 0 0 RG 6 w 1 J 20 40 m 20 90 100 90 100 40 c S",

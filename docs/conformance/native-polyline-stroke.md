@@ -149,6 +149,24 @@ coverage. A cancelled two-edge nonzero contour represents this exact empty
 fill, so normal transform, Clip, budget and later-operation validation still
 runs. This is not a shortcut around page admission.
 
+## MOVE-only open subpaths
+
+A single MOVE, or a MOVE command without an authored LINE or CUBIC
+segment, contributes no stroked geometry, regardless of cap style or a
+valid dash/phase array. A lone LINE/CLOSE or non-finite MOVE remains refused.
+Consecutive MOVE commands and an unterminated trailing MOVE therefore form
+empty subpaths, and can precede or follow admitted linear or solid cubic
+subpaths without changing their output.
+
+The empty result continues through the ordinary checked transform, clipping,
+resource, edge/sample-budget and atomic-output pipeline. A no-geometry
+operation still uses the existing two-opposite-edge zero-winding encoding,
+not a short circuit into success or a fallback renderer. Closed empty
+subpaths, zero-width hairlines and genuinely degenerate cubic curves remain
+unqualified. All non-finite coordinates and unsupported subsequent path
+commands still refuse the entire operation. No public ABI or renderer
+selection changes.
+
 ## Zero-length open subpaths
 
 A subpath containing MOVE followed by one or more LINE commands at the same
@@ -157,9 +175,9 @@ full disk. Butt and projecting-square caps produce exact empty coverage, as
 required for a degenerate PDF stroked subpath whose cap orientation is
 indeterminate (ISO 32000-1, 8.5.3.2). Round geometry uses the existing
 device-error-bounded arc producer. The same rule applies to a degenerate
-open line subpath in a mixed line/cubic operation. Move-only paths, explicitly
-closed degenerates, dashed zero-length paths and zero-width hairlines remain
-explicit refusals until their separate contracts are qualified.
+open line subpath in a mixed line/cubic operation. Explicitly closed
+degenerates, dashed zero-length paths and zero-width hairlines remain explicit
+refusals until their separate contracts are qualified.
 
 The pinned PDFium build emits a small point for degenerate butt/square cases.
 Those fixtures retain the fixed aggregate mean/gross comparison but do not
