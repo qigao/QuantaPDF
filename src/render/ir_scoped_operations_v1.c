@@ -72,6 +72,49 @@ static void over(unsigned char *dst, const unsigned char *src)
     dst[3] = (unsigned char)((denominator + 127u) / 255u);
 }
 
+/* Source lowering interns Clip intersection prefixes as it reads W.
+ * A later operation may reference only the flattened root, leaving earlier
+ * intersections unreferenced. Permit only ordered suffix prefixes; every
+ * other orphan, malformed node or unrelated resource still rejects. */
+static int qp_shadowed_clip_prefixes_valid(const quantapdf_ir *ir,
+                                           unsigned used)
+{
+    for(size_t i=0u;i<ir->resources.clip_count;++i) {
+        const quantapdf_composer_clip_state *prefix;
+        const quantapdf_affine_transform *t;
+        int identity,empty,valid=0;
+        if(used & (1u << (unsigned)i)) continue;
+        prefix=&ir->resources.clips[i];
+        if(prefix->kind!=QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL ||
+           prefix->commands!=NULL || prefix->command_count!=0u ||
+           prefix->members==NULL || prefix->member_count<2u ||
+           prefix->member_count>=QUANTAPDF_NATIVE_CLIP_DAG_MAX_LEAVES)
+            return 0;
+        t=&prefix->transform;
+        empty=t->a==0.0f && t->b==0.0f && t->c==0.0f &&
+              t->d==0.0f && t->e==0.0f && t->f==0.0f;
+        identity=t->a==1.0f && t->b==0.0f && t->c==0.0f &&
+                 t->d==1.0f && t->e==0.0f && t->f==0.0f;
+        if(!empty && !identity) return 0;
+        for(size_t j=i+1u;j<ir->resources.clip_count && !valid;++j) {
+            const quantapdf_composer_clip_state *root=&ir->resources.clips[j];
+            size_t offset;
+            if(!(used & (1u << (unsigned)j)) ||
+               root->kind!=QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL ||
+               root->members==NULL || root->member_count<=prefix->member_count)
+                continue;
+            offset=root->member_count-prefix->member_count;
+            valid=1;
+            for(size_t k=0u;k<prefix->member_count;++k)
+                if(prefix->members[k]!=root->members[offset+k]) {
+                    valid=0; break;
+                }
+        }
+        if(!valid) return 0;
+    }
+    return 1;
+}
+
 static quantapdf_status scoped_operations_v1_impl(
     const quantapdf_ir *ir, size_t page_index,
     const quantapdf_ir_raster_v1_limits *limits,
@@ -82,19 +125,19 @@ static quantapdf_status scoped_operations_v1_impl(
     quantapdf_ir_raster_v1_limits per_operation;
     size_t width, height, count, bytes, i, k;
     uint64_t operation_weights[
-        QUANTAPDF_IR_SCOPED_OPERATIONS_V0_MAX_OPERATIONS] = {0};
+        QUANTAPDF_IR_SCOPED_OPERATIONS_V1_MAX_OPERATIONS] = {0};
     uint64_t total_weight = 0u;
     size_t operation_sample_budgets[
-        QUANTAPDF_IR_SCOPED_OPERATIONS_V0_MAX_OPERATIONS] = {0};
+        QUANTAPDF_IR_SCOPED_OPERATIONS_V1_MAX_OPERATIONS] = {0};
     size_t operation_edge_budgets[
-        QUANTAPDF_IR_SCOPED_OPERATIONS_V0_MAX_OPERATIONS] = {0};
+        QUANTAPDF_IR_SCOPED_OPERATIONS_V1_MAX_OPERATIONS] = {0};
     unsigned states_used = 0u, clips_used = 0u;
     const quantapdf_composer_clip_state *active_clips
-        [QUANTAPDF_IR_SCOPED_OPERATIONS_V0_MAX_OPERATIONS]
+        [QUANTAPDF_IR_SCOPED_OPERATIONS_V1_MAX_OPERATIONS]
         [QUANTAPDF_NATIVE_CLIP_DAG_MAX_LEAVES] = {{0}};
-    size_t active_counts[QUANTAPDF_IR_SCOPED_OPERATIONS_V0_MAX_OPERATIONS] = {0};
+    size_t active_counts[QUANTAPDF_IR_SCOPED_OPERATIONS_V1_MAX_OPERATIONS] = {0};
     quantapdf_composer_path_operation outlines[
-        QUANTAPDF_IR_SCOPED_OPERATIONS_V0_MAX_OPERATIONS] = {{0}};
+        QUANTAPDF_IR_SCOPED_OPERATIONS_V1_MAX_OPERATIONS] = {{0}};
     unsigned char *final_pixels = NULL;
     quantapdf_status status = QUANTAPDF_ERROR_ARGUMENT;
 
@@ -104,7 +147,7 @@ static quantapdf_status scoped_operations_v1_impl(
     if (ir == NULL || limits == NULL || ir->pages == NULL ||
         ir->operations == NULL || ir->page_count != 1u || page_index != 0u ||
         ir->operation_count == 0u ||
-        ir->operation_count > QUANTAPDF_IR_SCOPED_OPERATIONS_V0_MAX_OPERATIONS ||
+        ir->operation_count > QUANTAPDF_IR_SCOPED_OPERATIONS_V1_MAX_OPERATIONS ||
         ir->operation_count > limits->max_operations ||
         limits->max_pixels == 0u || limits->max_pixels > SIZE_MAX / 4u ||
         limits->max_edges == 0u ||
@@ -112,7 +155,7 @@ static quantapdf_status scoped_operations_v1_impl(
         return QUANTAPDF_ERROR_ARGUMENT;
 
     if (ir->resources.graphics_state_count >
-            QUANTAPDF_IR_SCOPED_OPERATIONS_V0_MAX_OPERATIONS ||
+            QUANTAPDF_IR_SCOPED_OPERATIONS_V1_MAX_OPERATIONS ||
         ir->resources.clip_count > QUANTAPDF_NATIVE_CLIP_DAG_MAX_NODES ||
         (ir->resources.graphics_state_count != 0u &&
          ir->resources.graphics_states == NULL) ||
@@ -195,8 +238,9 @@ static quantapdf_status scoped_operations_v1_impl(
             clips_used |= visited;
         }
     }
-    if (states_used != ((1u << (unsigned)ir->resources.graphics_state_count) - 1u) ||
-        clips_used != ((1u << (unsigned)ir->resources.clip_count) - 1u))
+    if (states_used !=
+            ((1u << (unsigned)ir->resources.graphics_state_count) - 1u) ||
+        !qp_shadowed_clip_prefixes_valid(ir, clips_used))
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
     /* Clip membership comes from each operation's immutable graphics state.
