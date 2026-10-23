@@ -153,11 +153,12 @@ runs. This is not a shortcut around page admission.
 
 An authored open `MOVE A → LINE B → LINE A → S` with distinct finite
 A and B is admitted only with solid positive user-space width and
-**Bevel/Round** joins. All three line cap styles (Butt, Round, Square)
-are now supported. Since the two traversals share one centerline footprint,
+**Miter/Bevel/Round** joins. All three line cap styles (Butt, Round, Square)
+are supported. Since the two traversals share one centerline footprint,
 the duplicate reversing strip is eliminated:
 
-- Bevel at B leaves the strip unchanged; Round adds the existing outward,
+- A finite miter limit makes the exact 180-degree cusp fall back to bevel;
+  Bevel leaves the strip unchanged, while Round adds the existing outward,
   error-bounded semicircular join at B
 - Both open endpoint caps at A have the same orientation and overlap
   geometrically. The implementation emits **one** start cap at A, never
@@ -167,8 +168,8 @@ the duplicate reversing strip is eliminated:
 
 The final return must be immediately followed by another MOVE or the end of
 the operation, with no further authored segment. The rule is identical when
-another subpath uses the regular solid cubic backend. Miter joins, dash
-arrays and nonterminal cusps remain explicitly refused. The existing
+another subpath uses the regular solid cubic backend. Dash arrays and
+nonterminal/near cusps remain explicitly refused. The existing
 output, transform/Clip, ownership, edge and sampling limits apply unchanged.
 C11 goldens and original-source/direct-PDFium oracles retain all previous
 tolerances and fail-closed checks.
@@ -178,14 +179,16 @@ tolerances and fail-closed checks.
 A solid authored `MOVE A → LINE B → LINE A → CLOSE` is admitted **only**
 when the final distinct `LINE A` returns exactly to the initial point and
 is followed immediately by CLOSE. It has the same centered solid Stroke
-coverage as `A→B→CLOSE`, with the same Bevel/Round join constraint below.
+coverage as `A→B→CLOSE`, with the same finite-miter fallback and
+Bevel/Round join semantics below.
 The private line compiler normalizes the exact final return only for this
 pattern; the mixed cubic compiler avoids emitting a duplicate reversing
 segment when another subpath selects the cubic backend. No source command
 storage or provider ownership is modified.
 
-Open `A→B→A`, Miter joins, dashed return/cusps, and any additional segment
-after the return remain atomic `QUANTAPDF_ERROR_UNSUPPORTED`. Strict C11
+Nonterminal/open returns outside the exact terminal profile, dashed
+return/cusps, and any additional segment after the return remain atomic
+`QUANTAPDF_ERROR_UNSUPPORTED`. Strict C11
 byte-equivalence, original-source/PDFium fixtures, and tiny-budget negatives
 are required without broadening the renderer or changing sample tolerances.
 
@@ -193,19 +196,21 @@ are required without broadening the renderer or changing sample tolerances.
 
 An authored solid `MOVE A → LINE B → CLOSE` with **two distinct finite
 points** traces a segment forward and back. Its two 180-degree join regions
-are admitted only for **Bevel** and **Round** joins, with bounded user-space
-stroke width:
+are admitted for **Miter**, **Bevel** and **Round** joins, with bounded
+user-space stroke width:
 
-- Bevel joins yield the original butt-ended strip without cap extensions
+- A finite miter limit makes each exact 180-degree cusp fall back to bevel,
+  yielding the original butt-ended strip without cap extensions
+- Bevel joins yield the same butt-ended strip without cap extensions
 - Round joins yield that strip plus outward semicircles at A and B, produced
   with the existing error-bounded arc sectors
 - Caps are not consulted: this is an explicitly closed path, not an open
   path with two caps
 
 The same subset is admitted inside an otherwise solid cubic-containing
-operation. Unknown miter cusp semantics, open authored reversals and other cusps,
-dash arrays, zero width/hairlines, and arbitrary stationary curves remain
-atomic `QUANTAPDF_ERROR_UNSUPPORTED` cases. Output geometry is still
+operation. General miter cusps, nonterminal/open authored reversals outside
+the exact terminal profile, dash arrays, zero width/hairlines and arbitrary
+stationary curves remain atomic `QUANTAPDF_ERROR_UNSUPPORTED` cases. Output geometry is still
 checked under affine/FIT transforms, actual expanded-edge and sample budgets,
 Clip and the same final owned pixel publication. The independent original-PDF
 oracle uses unchanged PDFium thresholds; pure C11 tests also require
@@ -305,9 +310,9 @@ are disposed on success or any failure. No source, Graph, qpdf, PDFium or
 provider state is retained. A late unsupported layer discards
 the complete final image. Every failure resets the caller's image output.
 
-Hairlines/zero width, dashed curves, alpha,
-paint resources, exact reversal/cusps, move-only/all-zero subpaths, closed
-linear subpaths with fewer than three distinct vertices, invalid coordinates and
+Hairlines/zero width, dashed curves, alpha, paint resources, general/near/
+nonterminal reversal cusps, move-only/all-zero subpaths, closed linear
+subpaths with fewer than three distinct vertices, invalid coordinates and
 exhausted budgets remain explicit refusals. This profile requires MOVE after
 CLOSE to begin another subpath. Fill+Stroke combined operations remain outside
 this profile. No provider fallback or best-effort partial painting exists.
@@ -330,12 +335,13 @@ phase equivalence, on/off probes, restart at MOVE, crossing/ending at a vertex,
 closed-seam caps, all-off output, maximum array length, exact expanded-edge
 budgets, expansion exhaustion and immutable dash arrays.
 
-`quantapdf.native_stroke_polyline_oracle` generates 30 original source PDFs
+`quantapdf.native_stroke_polyline_oracle` generates 37 original source PDFs
 with three content streams, captures Graph, lowers owned IR and destroys all
 source/Graph ownership before V2 rendering. It compares the resulting detached
 pixels with direct pinned PDFium C API renders of the original source files,
 never IR re-export. Cases cover open/closed paths, multiple overlapping
-subpaths, caps/joins, acute miter, nonuniform scale/shear/reflection/rotation,
+subpaths, caps/joins, acute miter, exact terminal/closed miter-cusp fallback,
+nonuniform scale/shear/reflection/rotation,
 q/Q restoration and nested W/W* Clip. Eighteen cases exercise dashes, including
 phase/odd arrays, closed seams, affine transforms, mixed layer budgets and
 q/Q pattern restoration. It also checks five source negatives.
