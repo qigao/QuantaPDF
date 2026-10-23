@@ -424,6 +424,13 @@ static quantapdf_status solid_finish(stroke_builder *b,solid_subpath *s,int clos
 {
     quantapdf_status status;
     if(!s->segments) {
+        /* MOVE without a drawing segment has no stroke footprint. It must
+         * not prevent a later cubic subpath from rendering. A CLOSE on this
+         * empty subpath remains outside the qualified profile. */
+        if(!closed && !s->had_line_command) {
+            s->active=0;
+            return QUANTAPDF_OK;
+        }
         if(!closed && s->had_line_command) {
             status=zero_length_subpath(b,s->start);
             if(status==QUANTAPDF_OK) s->active=0;
@@ -634,9 +641,13 @@ static quantapdf_status outline_impl(
             p=(stroke_point){(double)c->point1.x,(double)c->point1.y};
         if (c->kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO) {
             if (n) {
-                status=(n==1u && zero_length_segment) ?
-                    zero_length_subpath(&b,points[0]) : subpath(&b,points,n,0);
-                if(status!=QUANTAPDF_OK) goto fail;
+                /* An unpainted MOVE is valid, including before another
+                 * subpath; a repeated LINE_TO uses the degenerate cap path. */
+                if(n>1u || zero_length_segment) {
+                    status=n==1u ? zero_length_subpath(&b,points[0]) :
+                        subpath(&b,points,n,0);
+                    if(status!=QUANTAPDF_OK) goto fail;
+                }
             }
             if (!valid_point(p)) goto fail;
             n=1u; points[0]=p; zero_length_segment=0;
@@ -650,9 +661,11 @@ static quantapdf_status outline_impl(
         } else goto fail;
     }
     if(n) {
-        status=(n==1u && zero_length_segment) ?
-            zero_length_subpath(&b,points[0]) : subpath(&b,points,n,0);
-        if(status!=QUANTAPDF_OK) goto fail;
+        if(n>1u || zero_length_segment) {
+            status=n==1u ? zero_length_subpath(&b,points[0]) :
+                subpath(&b,points,n,0);
+            if(status!=QUANTAPDF_OK) goto fail;
+        }
     }
 publish:
     if (b.count==0) {
