@@ -282,17 +282,13 @@ static quantapdf_status dashed_subpath(stroke_builder *b,stroke_point *p,
 }
 static quantapdf_status zero_length_subpath(stroke_builder *b,stroke_point at)
 {
-    const double hw=(double)b->options->stroke_width/2.0;
     quantapdf_status status;
     if(b->source->dash_count!=0u) return QUANTAPDF_ERROR_UNSUPPORTED;
-    if(b->options->line_cap==QUANTAPDF_COMPOSER_LINE_CAP_BUTT)
+    /* ISO 32000-1 §8.5.3.2: a degenerate stroked subpath is painted only
+     * for round caps. Butt/projecting-square caps have no determinate
+     * orientation and therefore produce no output. */
+    if(b->options->line_cap!=QUANTAPDF_COMPOSER_LINE_CAP_ROUND)
         return QUANTAPDF_OK;
-    if(b->options->line_cap==QUANTAPDF_COMPOSER_LINE_CAP_SQUARE) {
-        stroke_point p[4]={
-            {at.x-hw,at.y-hw},{at.x+hw,at.y-hw},
-            {at.x+hw,at.y+hw},{at.x-hw,at.y+hw}};
-        return polygon(b,p,4u);
-    }
     status=arc_sector(b,at,(stroke_point){1,0},(stroke_point){0,1},QP_PI/2.0);
     if(status!=QUANTAPDF_OK) return status;
     status=arc_sector(b,at,(stroke_point){0,1},(stroke_point){-1,0},QP_PI/2.0);
