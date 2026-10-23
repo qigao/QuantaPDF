@@ -299,10 +299,47 @@ unsupported stroke configurations. An additional provider-free C11
 test verifies owned single-stroke plus borrowed Clip intersection
 without introducing PDFium/qpdf to the renderer itself.
 
-The external ledger now distinguishes four original source documents:
-one text-rejected, one blank positive, one opaque single-PATH-fill
-positive, and this source's **clipped width-1 stroke**. Successful
-**clipped Path** conformance is counted separately from the existing
-opaque-fill case; the 14/36 generated corpus totals remain unchanged.
-No production PDFium removal or public ABI change follows from
-qualifying this particular sample.
+Before Issue #264, the external ledger distinguished four original
+source documents: one text-rejected, one blank positive, one opaque
+single-PATH-fill positive, and this source's **clipped width-1 stroke**.
+Issue #264 adds a fifth source solely as a late-text/W* rejection test;
+it does not add a Native-positive capability. Successful **clipped Path**
+conformance remains counted separately from opaque-fill, and the 14/36
+generated corpus totals remain unchanged. No production PDFium removal or
+public ABI change follows from these source-specific tests.
+
+## PDFium W* late-text rejection — Issue #264
+
+The fifth formal external original is the unchanged upstream PDFium
+`testing/resources/bug_1574.pdf`, pinned at revision
+`a84323421e94f484faca52dd9d027934eba42ab8`.
+
+| Property | Pinned evidence |
+|---|---|
+| Source | [PDFium bug_1574.pdf](https://github.com/chromium/pdfium/blob/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources/bug_1574.pdf) |
+| Source template | [bug_1574.in](https://github.com/chromium/pdfium/blob/a84323421e94f484faca52dd9d027934eba42ab8/testing/resources/bug_1574.in) |
+| Git blob SHA-1 | `df274187155e8c02b86b1e51eb3347e29759fad4` |
+| Raw PDF SHA-256 | `900d0ff1911736c372e0c7ead2c68be338479b985c676572db1cc6e35483b890` |
+| Size | 724 bytes |
+| License | [PDFium project BSD-3-Clause license](https://github.com/chromium/pdfium/blob/a84323421e94f484faca52dd9d027934eba42ab8/LICENSE); notice retained in `tests/external_source_corpus/PDFIUM-BSD-NOTICE.txt` |
+| Expected Native outcome | `UNSUPPORTED` — status-only negative evidence |
+
+The original page is 200×300 points. Its content first defines a rectangular
+even-odd clip with `W*`, paints a white path, and only afterwards executes
+`BT`, `Tf`, and `Tj` for visible Times-Roman text. The early Clip/fill
+must not allow the later text operators to be skipped or treated as a
+successful partial page.
+
+`quantapdf.external_pdfium_wstar_late_text` first lowers a generated
+test-only control containing the original `W*` clip/fill prefix and requires
+that prefix to be admitted. It then renders the unchanged original directly
+through the public PDFium C API and requires visible non-white pixels before
+lowering the original Document→Graph Snapshot→Composer IR path. The full
+source must return `QUANTAPDF_ERROR_UNSUPPORTED` with zero pages, operations,
+Clip resources and graphics-state resources. It verifies the 724-byte source
+is unchanged before and after both observations. The one generated causal
+control is reported separately and does not enter the external corpus or the
+14/36 generated-fixture count. The semantic report is separately
+reconciled on Linux Release, macOS and Windows; it increments only the
+`external_wstar_late_text_rejection_passed` status counter, never a Native
+render-support counter. This is not evidence of positive W* pixel parity.

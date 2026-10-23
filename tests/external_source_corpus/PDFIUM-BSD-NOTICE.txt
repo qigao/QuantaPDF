@@ -30,3 +30,8 @@ Project LICENSE BSD-3-Clause portion is preserved verbatim below.
 // THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+Upstream test fixture: testing/resources/bug_1574.pdf
+Source: https://github.com/chromium/pdfium/tree/a84323421e94f484faca52dd9d027934eba42ab8
+Author attribution: PDFium Authors. The 724-byte original PDF is derived from the upstream bug_1574.in test template and contains standard Times-Roman reference text only.
+The BSD-3-Clause license above is the notice retained for this fixture; per-document provenance and integrity are recorded in manifest.json and reviewed in https://github.com/qigao/QuantaPDF/issues/264.

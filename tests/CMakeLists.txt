@@ -2052,6 +2052,29 @@ else()
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
 
+# Issue #264: original upstream W* followed by visible text. The independent
+# PDFium source render must remain nonblank while native lowering rejects the
+# entire page, proving that the earlier Clip/fill cannot hide later text.
+add_test(NAME quantapdf.external_pdfium_wstar_late_text
+  COMMAND quantapdf_test_native_source_qq_oracle --external-wstar-pdf
+    "${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/pdfium.wstar-late-text-v1.pdf"
+    --external-report "${CMAKE_CURRENT_BINARY_DIR}/external-pdfium-wstar-late-text-status.json")
+set_tests_properties(quantapdf.external_pdfium_wstar_late_text PROPERTIES
+  TIMEOUT 40 LABELS "conformance;external-corpus;native-raster;issue-264")
+if(WIN32)
+  set_property(TEST quantapdf.external_pdfium_wstar_late_text
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_pdfium_wstar_late_text
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_pdfium_wstar_late_text
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
 # Independent original-PDFium causal A/B for Clip changes. Generated controls
 # share the same blue Stroke; unsupported cases must fail closed.
 add_test(NAME quantapdf.native_stroke_clip_causal_ab
