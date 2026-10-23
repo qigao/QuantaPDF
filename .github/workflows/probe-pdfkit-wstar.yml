@@ -11,4 +11,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Scan pinned PDFKit example PDFs
-        run: python3 tools/qualification/probe_pdfkit_corpus_wstar.py
+        run: |
+          python3 tools/qualification/probe_pdfkit_corpus_wstar.py
+          python3 tools/qualification/probe_wikimedia_wstar.py
