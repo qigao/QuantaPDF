@@ -213,8 +213,8 @@ render-compatibility qualification.
 ## Cross-report conformance reconciliation
 
 The existing three-platform CI additionally invokes
-`tools/qualification/reconcile_external_corpus.py` **after** both external
-source CTests. This gate verifies the separate offline admission report
+`tools/qualification/reconcile_external_corpus.py` **after** the external
+source status tests and the positive W* pixel test. This gate verifies the separate offline admission report
 against actual original-PDFium/native semantic JSON for both pinned
 documents. A manifest's expected capability, PDFium's successful rendering
 alone, or merely having a JSON file can **never** increment a native
@@ -224,11 +224,9 @@ unjustified painted Path/Clip counts, or leakage from the 14/36
 QPDF-generated fixture totals.
 
 The published artifact `external-corpus-reconciled-{linux,macos,windows}`
-currently records two admitted documents, one expected text rejection,
-one independently rendered blank page, and **zero** external native painted
-Path/Clip matches. This reconciled evidence is the denominator and baseline
-for #254; it does not replace future true painted Path/Clip acceptance and
-original-source PDFium pixel parity.
+That two-document count was the original historical baseline before the later
+Path/Clip admissions. The current formal corpus and strict reconciliation are
+summarized in the Issue #262 section below.
 
 ## Selected page transparency Group admission (#258)
 
@@ -343,3 +341,48 @@ Release, macOS and Windows; it increments only the
 `external_wstar_late_text_rejection_passed` status counter and explicitly
 requires `native_wstar_clip_supported_count: 0`. It never increments a Native
 render-support counter. This is not evidence of positive W* pixel parity.
+
+## Current formal original W* positive — Issue #262 (2026-10-23)
+
+The unchanged yWorks original `test/clippath/clippath-cliprule.pdf` is now
+formally admitted as `yworks.clippath-cliprule-v1` after the source/rights
+review recorded in [#271](https://github.com/qigao/QuantaPDF/issues/271).
+The original bytes are checked in without rewrite at
+`tests/external_source_corpus/documents/yworks.clippath-cliprule-v1.pdf`;
+the retained MIT notice is `tests/external_source_corpus/YWORKS-MIT-NOTICE.txt`.
+
+| Property | Pinned value |
+|---|---|
+| Upstream source | [yWorks/svg2pdf.js original PDF](https://github.com/yWorks/svg2pdf.js/blob/b564556f41b245893fbadd3a6c4f832455383dbe/test/clippath/clippath-cliprule.pdf) |
+| Immutable revision | `b564556f41b245893fbadd3a6c4f832455383dbe` |
+| Original Git blob | `5b5b629da9faa1a969e8bf3290b4439dc01bc860` |
+| Size / SHA-256 | 3,747 bytes / `9d30a67c8194b6822f28ad9ed4848a57c7745e95d11b79267ac5141001a91783` |
+| License / review | MIT; [#271 source and redistribution review](https://github.com/qigao/QuantaPDF/issues/271) |
+| Selected page | 0; 600×600 pixels |
+| Native outcome | `supported-wstar-clip` |
+
+The official `quantapdf.external_pdfium_wstar_pixel_positive` CTest compares
+direct PDFium pixels from the unchanged source against pure C11 Native Raster
+pixels produced from owned detached IR after Source and Graph are released.
+It requires eight fixed interior goldens, the W-vs-W* star-center distinction,
+the rectangular even-odd hole, full-image RGB/gross-error budgets, red/blue
+overlap, repeat RGBA identity, source SHA preservation, and bounded resources.
+The exact report is separately checked against the formal manifest by
+`reconcile_external_corpus.py`; candidate-only reports are not accepted as
+official evidence.
+
+At the qualifying exact head, mean RGB error was 0.006831, gross-error pixels
+were 0, red reference/native/overlap was 540/540/540, blue was 4770/4770/4770,
+and repeated RGBA was byte-identical. The formal denominator is now six
+admitted originals, with one external W* pixel-positive. The existing W*
+late-text source remains a separate unsupported-operation rejection; it is
+not counted as a positive. Generated 14 families / 36 executions remain
+separate from all six externally sourced originals.
+
+This single W* original is from yWorks and therefore does not by itself
+establish cross-producer W* conformance. Broader nested-Clip, other-producer,
+unsupported-operator, runtime and PDFium SDK cutover gates remain open under
+[#262](https://github.com/qigao/QuantaPDF/issues/262),
+[#214](https://github.com/qigao/QuantaPDF/issues/214),
+[#233](https://github.com/qigao/QuantaPDF/issues/233) and
+[#208](https://github.com/qigao/QuantaPDF/issues/208).
