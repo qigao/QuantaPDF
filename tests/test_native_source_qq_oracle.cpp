@@ -3029,7 +3029,6 @@ int test_external_yworks_wstar_pixels(const char *filename,
         "  \"reference_blue_pixels\": %zu,\n"
         "  \"native_blue_pixels\": %zu,\n"
         "  \"overlap_blue_pixels\": %zu,\n"
-        "  \"external_wstar_pixel_supported_count\": 0,\n"
         "  \"generated_fixture_count\": 0\n"
         "}\n",
         WIDTH,HEIGHT,painted_count,winding.nonzero,winding.evenodd,
