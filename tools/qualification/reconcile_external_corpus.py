@@ -31,6 +31,10 @@ def verify(admission, text, blank, path, clip, wstar):
     assert indexed[PATH_ID]["expected_native_outcome"]=="supported-path-clip"
     assert indexed[CLIP_ID]["expected_native_outcome"]=="supported-clipped-stroke"
     assert indexed[WSTAR_ID]["expected_native_outcome"]=="unsupported"
+    assert indexed[WSTAR_ID]["sha256"]=="900d0ff1911736c372e0c7ead2c68be338479b985c676572db1cc6e35483b890"
+    assert indexed[WSTAR_ID]["size_bytes"]==724
+    assert indexed[WSTAR_ID]["license_spdx_declared"]=="BSD-3-Clause"
+    assert indexed[WSTAR_ID]["license_review_url"]=="https://github.com/qigao/QuantaPDF/issues/264"
     for report,id_ in [(text,TEXT_ID),(blank,BLANK_ID),(path,PATH_ID),(clip,CLIP_ID),(wstar,WSTAR_ID)]:
         assert report["schema_version"]==1
         assert report["corpus_id"]=="external-source-pdf"
