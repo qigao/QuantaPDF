@@ -84,6 +84,7 @@ def verify(admission, text, blank, path, clip, wstar):
     assert wstar["native_ir"]=="empty"
     assert wstar["status_conformance_passed_count"]==1
     assert wstar["native_supported_passed_count"]==0
+    assert wstar["native_wstar_clip_supported_count"]==0
     assert wstar["late_text_after_wstar_rejected"] is True
     assert wstar["source_bytes"]==724
     assert wstar["source_bytes_unchanged_after_reference_and_native"] is True
@@ -93,6 +94,7 @@ def verify(admission, text, blank, path, clip, wstar):
       "result":"passed","admitted_documents":5,
       "external_text_rejection_passed":1,
       "external_wstar_late_text_rejection_passed":1,
+      "native_wstar_clip_supported_count":0,
       "native_blank_page_supported":1,
       "native_path_clip_supported":2,
       "native_clipped_path_supported":1,
