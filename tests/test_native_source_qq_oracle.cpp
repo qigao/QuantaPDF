@@ -2819,7 +2819,6 @@ int test_external_yworks_svg_w_pixels(const char *filename,
         "  \"reference_red_pixels\": %zu,\n"
         "  \"native_red_pixels\": %zu,\n"
         "  \"overlap_red_pixels\": %zu,\n"
-        "  \"external_wstar_pixel_supported_count\": 0,\n"
         "  \"generated_fixture_count\": 0\n"
         "}\n",WIDTH,HEIGHT,sizeof(goldens)/sizeof(goldens[0]),
         mean,gross,ref_red,native_red,overlap_red);
@@ -2878,7 +2877,7 @@ int test_external_yworks_wstar_pixels(const char *filename,
     const size_t state_count=detached.resources.graphics_state_count;
     const clip_leaf_counts winding=inspect_clip_fill_rules(detached);
     std::fprintf(stderr,
-        "[wstar-candidate-ir] pages=%zu paths=%zu clips=%zu states=%zu "
+        "[wstar-original-ir] pages=%zu paths=%zu clips=%zu states=%zu "
         "W=%zu Wstar=%zu intersections=%zu\n",
         detached.page_count,painted_count,clip_count,state_count,
         winding.nonzero,winding.evenodd,winding.intersections);
@@ -2911,7 +2910,7 @@ int test_external_yworks_wstar_pixels(const char *filename,
             &detached,0u,&limits,&native);
     if(status!=QUANTAPDF_OK)
         std::fprintf(stderr,
-            "[wstar-candidate] native status=%d ops=%zu clips=%zu states=%zu "
+            "[wstar-original] native status=%d ops=%zu clips=%zu states=%zu "
             "W=%zu Wstar=%zu intersections=%zu\n",
             (int)status,detached.operation_count,detached.resources.clip_count,
             detached.resources.graphics_state_count,winding.nonzero,
@@ -2994,13 +2993,25 @@ int test_external_yworks_wstar_pixels(const char *filename,
     std::fprintf(out,
         "{\n"
         "  \"schema_version\": 1,\n"
-        "  \"result\": \"candidate_wstar_pixel_parity_passed_not_admitted\",\n"
+        "  \"result\": \"passed\",\n"
         "  \"document_id\": \"yworks.clippath-cliprule-v1\",\n"
-        "  \"fixture_kind\": \"quarantined-external-original\",\n"
+        "  \"fixture_kind\": \"external\",\n"
+        "  \"reference_oracle\": \"original-pdfium\",\n"
+        "  \"native_expected_outcome\": \"supported-wstar-clip\",\n"
+        "  \"native_observed_outcome\": \"supported-wstar-clip\",\n"
+        "  \"pdfium_result\": \"rendered_wstar_clip\",\n"
         "  \"original_source_pdfium_oracle\": \"passed\",\n"
         "  \"detached_c11_native_raster\": \"passed\",\n"
+        "  \"native_ir\": \"lowered\",\n"
+        "  \"native_supported_passed_count\": 1,\n"
+        "  \"native_wstar_clip_supported_count\": 1,\n"
+        "  \"external_wstar_pixel_supported_count\": 1,\n"
         "  \"source_and_graph_released_before_raster\": true,\n"
-        "  \"official_corpus_admitted\": false,\n"
+        "  \"official_corpus_admitted\": true,\n"
+        "  \"source_bytes\": 3747,\n"
+        "  \"source_sha256\": \"9d30a67c8194b6822f28ad9ed4848a57c7745e95d11b79267ac5141001a91783\",\n"
+        "  \"source_bytes_unchanged_after_reference_and_native\": true,\n"
+        "  \"pdfium_fallback_used\": false,\n"
         "  \"page_width\": %zu,\n"
         "  \"page_height\": %zu,\n"
         "  \"native_painted_paths\": %zu,\n"
@@ -3034,7 +3045,7 @@ int test_external_yworks_wstar_pixels(const char *filename,
     CHECK(corpus_fixture_executions==0u);
     std::fprintf(stderr,
         "[wstar-original-pixel] passed mean=%.6f gross=%zu W=%zu Wstar=%zu "
-        "official_positive=0\n",mean,gross,winding.nonzero,winding.evenodd);
+        "official_positive=1\n",mean,gross,winding.nonzero,winding.evenodd);
     return EXIT_SUCCESS;
 }
 
@@ -3063,7 +3074,7 @@ int main(int argc,char **argv)
     if(argc==5 && std::strcmp(argv[1],"--external-svg-w-candidate-pdf")==0 &&
        std::strcmp(argv[3],"--external-report")==0)
         return test_external_yworks_svg_w_pixels(argv[2],argv[4]);
-    if(argc==5 && std::strcmp(argv[1],"--external-wstar-candidate-pdf")==0 &&
+    if(argc==5 && std::strcmp(argv[1],"--external-wstar-positive-pdf")==0 &&
        std::strcmp(argv[3],"--external-report")==0)
         return test_external_yworks_wstar_pixels(argv[2],argv[4]);
     if(argc==7 && std::strcmp(argv[1],"--clip-causal-ab")==0 &&
