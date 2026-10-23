@@ -658,17 +658,16 @@ static void test_closed_two_point_joins(void)
     quantapdf_ir_raster_image_dispose(&reference);
 
     /* Do not silently interpret unqualified miter cusps, zero-width strokes,
-     * explicit A->B->A returns, or dashed closures as this narrow profile. */
+     * open reversals or dashed closures as this narrow profile. */
     init(); ops[0].value.path.command_count=3;
     commands[2].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
     reject();
     ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
     dash(4,4,0); reject();
-    init(); ops[0].value.path.command_count=4;
+    init(); ops[0].value.path.command_count=3;
     commands[2].point1=commands[0].point1;
-    commands[3].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
     ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
-    reject();
+    reject(); /* open A->B->A is still an unqualified authored cusp */
     init(); ops[0].value.path.command_count=3;
     commands[2].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
     ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
@@ -679,6 +678,87 @@ static void test_closed_two_point_joins(void)
     quantapdf_ir_raster_v1_limits tiny=limits; tiny.max_edges=4;
     CHECK(quantapdf_ir_raster_scoped_operations_v2(&ir,0,&tiny,&closed)==QUANTAPDF_ERROR_UNSUPPORTED);
     CHECK(!closed.pixels && !closed.size);
+}
+
+/* Exactly A->B->A->CLOSE has the same traversed closed trace as
+ * A->B->CLOSE, and only Bevel/Round joins have a bounded qualified contract. */
+static void test_explicit_closed_two_point_return(void)
+{
+    quantapdf_ir_raster_image actual={0},reference={0};
+    const quantapdf_composer_line_join joins[2]={
+        QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL,
+        QUANTAPDF_COMPOSER_LINE_JOIN_ROUND
+    };
+    for(size_t i=0;i<2u;++i) {
+        init(); ops[0].value.path.command_count=4;
+        ops[0].value.path.options.line_join=joins[i];
+        commands[2].point1=commands[0].point1;
+        commands[3].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+        actual=render();
+        /* Restore the same original command data under a shorter authored
+         * path. This must not alter a single pixel or ownership boundary. */
+        ops[0].value.path.command_count=3;
+        commands[2].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+        reference=render();
+        CHECK(actual.size==reference.size &&
+            memcmp(actual.pixels,reference.pixels,actual.size)==0);
+        quantapdf_ir_raster_image_dispose(&actual);
+        quantapdf_ir_raster_image_dispose(&reference);
+    }
+    /* The equivalence must hold when a separate cubic changes the private
+     * path compiler selection, without changing the cubic cap policy. */
+    init(); ops[0].value.path.command_count=6;
+    ops[0].value.path.options.stroke_width=2;
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
+    ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND;
+    commands[0].point1=(quantapdf_point){4,20};
+    commands[1].point1=(quantapdf_point){20,20};
+    commands[2].point1=commands[0].point1;
+    commands[3].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+    commands[4].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+    commands[4].point1=(quantapdf_point){4,16};
+    commands[5].kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
+    commands[5].point1=(quantapdf_point){4,4};
+    commands[5].point2=(quantapdf_point){28,4};
+    commands[5].point3=(quantapdf_point){28,16};
+    actual=render_with(&curve_limits);
+    commands[2]=commands[3];
+    commands[3]=commands[4];
+    commands[4]=commands[5];
+    ops[0].value.path.command_count=5;
+    reference=render_with(&curve_limits);
+    CHECK(actual.size==reference.size &&
+        memcmp(actual.pixels,reference.pixels,actual.size)==0);
+    quantapdf_ir_raster_image_dispose(&actual);
+    quantapdf_ir_raster_image_dispose(&reference);
+
+    /* Fail closed for miter, dash, an open cusp and any return that does
+     * not terminate immediately at CLOSE. No partial output is published. */
+    init(); ops[0].value.path.command_count=4;
+    commands[2].point1=commands[0].point1;
+    commands[3].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+    reject(); /* default Miter */
+    ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
+    dash(4,4,0); reject();
+    init(); ops[0].value.path.command_count=4;
+    commands[2].point1=commands[0].point1;
+    commands[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    commands[3].point1=(quantapdf_point){24,20};
+    ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
+    reject();
+    init(); ops[0].value.path.command_count=4;
+    commands[2].point1=commands[0].point1;
+    commands[3].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+    ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND;
+    ops[0].value.path.options.stroke_width=0; reject();
+    init(); ops[0].value.path.command_count=4;
+    commands[2].point1=commands[0].point1;
+    commands[3].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+    ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND;
+    quantapdf_ir_raster_v1_limits tiny=limits; tiny.max_edges=4;
+    CHECK(quantapdf_ir_raster_scoped_operations_v2(&ir,0,&tiny,&actual)
+        ==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(!actual.pixels && !actual.size);
 }
 
 static void test_cubics(void)
@@ -865,6 +945,7 @@ int main(void)
     test_inert_move_subpaths();
     test_closed_single_point_caps();
     test_closed_two_point_joins();
+    test_explicit_closed_two_point_return();
     test_cubics();
     return 0;
 }

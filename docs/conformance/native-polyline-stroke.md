@@ -149,6 +149,22 @@ coverage. A cancelled two-edge nonzero contour represents this exact empty
 fill, so normal transform, Clip, budget and later-operation validation still
 runs. This is not a shortcut around page admission.
 
+## Exact explicit closed return — qualified subset
+
+A solid authored `MOVE A → LINE B → LINE A → CLOSE` is admitted **only**
+when the final distinct `LINE A` returns exactly to the initial point and
+is followed immediately by CLOSE. It has the same centered solid Stroke
+coverage as `A→B→CLOSE`, with the same Bevel/Round join constraint below.
+The private line compiler normalizes the exact final return only for this
+pattern; the mixed cubic compiler avoids emitting a duplicate reversing
+segment when another subpath selects the cubic backend. No source command
+storage or provider ownership is modified.
+
+Open `A→B→A`, Miter joins, dashed return/cusps, and any additional segment
+after the return remain atomic `QUANTAPDF_ERROR_UNSUPPORTED`. Strict C11
+byte-equivalence, original-source/PDFium fixtures, and tiny-budget negatives
+are required without broadening the renderer or changing sample tolerances.
+
 ## Closed two-point reversal — qualified subset
 
 An authored solid `MOVE A → LINE B → CLOSE` with **two distinct finite
@@ -163,7 +179,7 @@ stroke width:
   path with two caps
 
 The same subset is admitted inside an otherwise solid cubic-containing
-operation. Unknown miter cusp semantics, authored `A→B→A→CLOSE` reversals,
+operation. Unknown miter cusp semantics, open authored reversals and other cusps,
 dash arrays, zero width/hairlines, and arbitrary stationary curves remain
 atomic `QUANTAPDF_ERROR_UNSUPPORTED` cases. Output geometry is still
 checked under affine/FIT transforms, actual expanded-edge and sample budgets,

@@ -301,10 +301,17 @@ static quantapdf_status zero_length_subpath(stroke_builder *b,stroke_point at)
 static quantapdf_status subpath(stroke_builder *b,stroke_point *p,size_t n,int closed)
 {
     quantapdf_status status;
-    /* An authored A→B→A return retains its explicit cusp and is not
-     * silently normalized to this special A→B→CLOSE profile. */
+    /* Only a final exact A→B→A→CLOSE is the same centerline trace as
+     * A→B→CLOSE: the reverse is already the implicit closing edge.
+     * Keep miter cusp, dashed reversal and all other authored returns out. */
     if(closed && n==3u && same_point(p[0],p[2]) &&
-        !same_point(p[0],p[1])) return QUANTAPDF_ERROR_UNSUPPORTED;
+        !same_point(p[0],p[1])) {
+        if(b->source->dash_count!=0u ||
+            (b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL &&
+             b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        n=2u;
+    }
     if (closed && n > 1u && same_point(p[0],p[n-1u])) --n;
     /* Closing a single-point linear subpath still counts as a degenerate
      * stroke, including authored coincident LINEs collapsed to that point.
@@ -517,6 +524,17 @@ static quantapdf_status curved_path(stroke_builder *b)
         } else if(c->kind==QUANTAPDF_COMPOSER_PATH_LINE_TO) {
             if(!s.active || !valid_point(p)) return QUANTAPDF_ERROR_UNSUPPORTED;
             s.had_line_command=1;
+            /* Normalize only the terminal exact explicit return before
+             * CLOSE. In a mixed cubic operation the first strip has already
+             * been emitted, and solid_finish will add its Bevel/Round joins. */
+            if(i+1u<b->source->command_count &&
+                b->source->commands[i+1u].kind==QUANTAPDF_COMPOSER_PATH_CLOSE &&
+                s.segments==1u && !s.curves &&
+                same_point(p,s.start) && !same_point(s.current,s.start) &&
+                b->source->dash_count==0u &&
+                (b->options->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL ||
+                 b->options->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_ROUND))
+                continue;
             status=solid_line(b,&s,p); if(status!=QUANTAPDF_OK) return status;
         } else if(c->kind==QUANTAPDF_COMPOSER_PATH_CUBIC_TO) {
             stroke_point controls[4]={s.current,p,{c->point2.x,c->point2.y},{c->point3.x,c->point3.y}},first,last;
