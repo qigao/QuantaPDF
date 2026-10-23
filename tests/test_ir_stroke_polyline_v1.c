@@ -342,6 +342,56 @@ static void check_arch_offset(const quantapdf_composer_path_operation *fill,doub
         }
     }
 }
+static void test_zero_length_caps(void)
+{
+    quantapdf_ir_raster_image image={0};
+    init(); ops[0].value.path.command_count=2;
+    commands[1].point1=commands[0].point1;
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
+    image=render();
+    for(size_t i=0;i<image.size;i+=4u) CHECK(image.pixels[i+3u]==0u);
+    quantapdf_ir_raster_image_dispose(&image);
+
+    init(); ops[0].value.path.command_count=2;
+    commands[1].point1=commands[0].point1;
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
+    image=render();
+    CHECK(alpha(&image,8,15)==255);
+    CHECK(alpha(&image,9,15)>0 && alpha(&image,9,15)<255); /* circle boundary coverage */
+    CHECK(alpha(&image,11,15)==0 && alpha(&image,8,18)==0);
+    quantapdf_ir_raster_image_dispose(&image);
+
+    init(); ops[0].value.path.command_count=2;
+    commands[1].point1=commands[0].point1;
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_SQUARE;
+    image=render();
+    for(size_t i=0;i<image.size;i+=4u) CHECK(image.pixels[i+3u]==0u);
+    quantapdf_ir_raster_image_dispose(&image);
+
+    /* A degenerate open line subpath remains paintable when the same
+     * operation also contains a cubic subpath. */
+    init(); ops[0].value.path.command_count=4;
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
+    ops[0].value.path.options.stroke_width=2;
+    commands[0].point1=(quantapdf_point){2.5f,2.5f};
+    commands[1].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    commands[1].point1=(quantapdf_point){2.5f,2.5f};
+    commands[2].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+    commands[2].point1=(quantapdf_point){4,16};
+    commands[3].kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
+    commands[3].point1=(quantapdf_point){4,4};
+    commands[3].point2=(quantapdf_point){28,4};
+    commands[3].point3=(quantapdf_point){28,16};
+    image=render_with(&curve_limits);
+    CHECK(alpha(&image,2,2)==255 && alpha(&image,4,16)>0);
+    CHECK(alpha(&image,0,0)==0);
+    quantapdf_ir_raster_image_dispose(&image);
+
+    init(); ops[0].value.path.command_count=2;
+    commands[1].point1=commands[0].point1;
+    dash(4,4,0); reject();
+}
+
 static void test_cubics(void)
 {
     quantapdf_ir_raster_image image={0},reference={0};
@@ -487,8 +537,15 @@ int main(void)
     init(); ops[0].value.path.dash_phase=1; reject();
     init(); ops[0].value.path.options.stroke_argb=0x80ff0000u; reject();
     init(); commands[2].kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO; dash(4,4,0); reject();
-    init(); commands[2].point1=commands[0].point1; reject();
-    init(); commands[1].point1=commands[0].point1; commands[2].point1=commands[0].point1; reject();
+    init(); commands[2].point1=commands[0].point1; reject(); /* reversing cusp */
+    /* Repeated zero-length LINE_TO commands are a single degenerate open
+     * subpath: Butt caps succeed with exact empty coverage. */
+    init(); ops[0].value.path.command_count=3;
+    commands[1].point1=commands[0].point1;
+    commands[2].point1=commands[0].point1;
+    image=render();
+    for(size_t i=0;i<image.size;i+=4u) CHECK(image.pixels[i+3u]==0u);
+    quantapdf_ir_raster_image_dispose(&image);
     init(); commands[2].point1.x=1000001; reject();
     init(); ops[0].value.path.options.stroke_paint_id=1; reject();
     /* A late unsupported layer must discard all previously sampled pixels. */
@@ -515,6 +572,7 @@ int main(void)
     test_dashes();
     test_round();
     test_zero_dashes();
+    test_zero_length_caps();
     test_cubics();
     return 0;
 }

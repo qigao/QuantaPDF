@@ -280,6 +280,24 @@ static quantapdf_status dashed_subpath(stroke_builder *b,stroke_point *p,
      * half-open path interval. Do not synthesize another endpoint fragment. */
     return QUANTAPDF_OK;
 }
+static quantapdf_status zero_length_subpath(stroke_builder *b,stroke_point at)
+{
+    quantapdf_status status;
+    if(b->source->dash_count!=0u) return QUANTAPDF_ERROR_UNSUPPORTED;
+    /* ISO 32000-1 §8.5.3.2: a degenerate stroked subpath is painted only
+     * for round caps. Butt/projecting-square caps have no determinate
+     * orientation and therefore produce no output. */
+    if(b->options->line_cap!=QUANTAPDF_COMPOSER_LINE_CAP_ROUND)
+        return QUANTAPDF_OK;
+    status=arc_sector(b,at,(stroke_point){1,0},(stroke_point){0,1},QP_PI/2.0);
+    if(status!=QUANTAPDF_OK) return status;
+    status=arc_sector(b,at,(stroke_point){0,1},(stroke_point){-1,0},QP_PI/2.0);
+    if(status!=QUANTAPDF_OK) return status;
+    status=arc_sector(b,at,(stroke_point){-1,0},(stroke_point){0,-1},QP_PI/2.0);
+    if(status!=QUANTAPDF_OK) return status;
+    return arc_sector(b,at,(stroke_point){0,-1},(stroke_point){1,0},QP_PI/2.0);
+}
+
 static quantapdf_status subpath(stroke_builder *b,stroke_point *p,size_t n,int closed)
 {
     quantapdf_status status;
@@ -390,7 +408,7 @@ static quantapdf_status cubic_strip(stroke_builder *b,const stroke_point *p,
 typedef struct solid_subpath {
     stroke_point start,current,first,last;
     size_t segments;
-    int active,curves;
+    int active,curves,had_line_command;
 } solid_subpath;
 static quantapdf_status solid_line(stroke_builder *b,solid_subpath *s,stroke_point z)
 {
@@ -405,7 +423,14 @@ static quantapdf_status solid_line(stroke_builder *b,solid_subpath *s,stroke_poi
 static quantapdf_status solid_finish(stroke_builder *b,solid_subpath *s,int closed)
 {
     quantapdf_status status;
-    if(!s->segments) return QUANTAPDF_ERROR_UNSUPPORTED;
+    if(!s->segments) {
+        if(!closed && s->had_line_command) {
+            status=zero_length_subpath(b,s->start);
+            if(status==QUANTAPDF_OK) s->active=0;
+            return status;
+        }
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
     if(closed) {
         status=solid_line(b,s,s->start); if(status!=QUANTAPDF_OK) return status;
         if(!s->curves && s->segments<3u) return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -433,6 +458,7 @@ static quantapdf_status curved_path(stroke_builder *b)
             memset(&s,0,sizeof(s)); s.active=1; s.start=s.current=p;
         } else if(c->kind==QUANTAPDF_COMPOSER_PATH_LINE_TO) {
             if(!s.active || !valid_point(p)) return QUANTAPDF_ERROR_UNSUPPORTED;
+            s.had_line_command=1;
             status=solid_line(b,&s,p); if(status!=QUANTAPDF_OK) return status;
         } else if(c->kind==QUANTAPDF_COMPOSER_PATH_CUBIC_TO) {
             stroke_point controls[4]={s.current,p,{c->point2.x,c->point2.y},{c->point3.x,c->point3.y}},first,last;
@@ -542,6 +568,7 @@ static quantapdf_status outline_impl(
     quantapdf_composer_path_operation normalized={0};
     quantapdf_composer_path_command *normalized_commands=NULL;
     size_t n=0;
+    int zero_length_segment=0;
     quantapdf_status status=QUANTAPDF_ERROR_UNSUPPORTED;
     const quantapdf_composer_path_options *o;
     if (!out_fill) return QUANTAPDF_ERROR_ARGUMENT;
@@ -606,30 +633,48 @@ static quantapdf_status outline_impl(
         if(c->kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO || c->kind==QUANTAPDF_COMPOSER_PATH_LINE_TO)
             p=(stroke_point){(double)c->point1.x,(double)c->point1.y};
         if (c->kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO) {
-            if (n) { status=subpath(&b,points,n,0); if(status!=QUANTAPDF_OK) goto fail; }
+            if (n) {
+                status=(n==1u && zero_length_segment) ?
+                    zero_length_subpath(&b,points[0]) : subpath(&b,points,n,0);
+                if(status!=QUANTAPDF_OK) goto fail;
+            }
             if (!valid_point(p)) goto fail;
-            n=1u; points[0]=p;
+            n=1u; points[0]=p; zero_length_segment=0;
         } else if (c->kind==QUANTAPDF_COMPOSER_PATH_LINE_TO) {
             if (!n || !valid_point(p)) goto fail;
             if (!same_point(points[n-1u],p)) points[n++]=p;
+            else zero_length_segment=1;
         } else if (c->kind==QUANTAPDF_COMPOSER_PATH_CLOSE) {
             status=subpath(&b,points,n,1); if(status!=QUANTAPDF_OK) goto fail;
-            n=0;
+            n=0; zero_length_segment=0;
         } else goto fail;
     }
-    if(n) { status=subpath(&b,points,n,0); if(status!=QUANTAPDF_OK) goto fail; }
+    if(n) {
+        status=(n==1u && zero_length_segment) ?
+            zero_length_subpath(&b,points[0]) : subpath(&b,points,n,0);
+        if(status!=QUANTAPDF_OK) goto fail;
+    }
 publish:
     if (b.count==0) {
         /* A validated path entirely inside an off interval has exactly empty
          * coverage. Opposite directed edges encode that zero-winding fill,
          * while still passing normal transform/Clip/budget validation. */
         b.commands[0]=source->commands[0];
+        int found_distinct=0;
         for(size_t i=1;i<source->command_count;++i) {
             if(source->commands[i].kind==QUANTAPDF_COMPOSER_PATH_LINE_TO &&
                 (source->commands[i].point1.x!=b.commands[0].point1.x ||
                  source->commands[i].point1.y!=b.commands[0].point1.y)) {
-                b.commands[1]=source->commands[i]; break;
+                b.commands[1]=source->commands[i];
+                found_distinct=1;
+                break;
             }
+        }
+        if(!found_distinct) {
+            const quantapdf_point at=b.commands[0].point1;
+            b.commands[1].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+            b.commands[1].point1=(quantapdf_point){
+                at.x<=QP_STROKE_COORD-1.0f ? at.x+1.0f : at.x-1.0f,at.y};
         }
         if(b.commands[1].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO || max_edges<2u) goto fail;
         b.commands[2].kind=QUANTAPDF_COMPOSER_PATH_CLOSE; b.count=3u;
