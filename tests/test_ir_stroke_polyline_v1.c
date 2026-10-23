@@ -633,6 +633,9 @@ static void test_closed_two_point_joins(void)
     init(); ops[0].value.path.command_count=5;
     ops[0].value.path.options.stroke_width=2;
     ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND;
+    /* Keep cubic endpoint caps identical in both variants: the closed
+     * two-point path's own cap style is irrelevant; joins provide its caps. */
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
     commands[0].point1=(quantapdf_point){4,20};
     commands[1].point1=(quantapdf_point){20,20};
     commands[2].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
