@@ -149,6 +149,16 @@ coverage. A cancelled two-edge nonzero contour represents this exact empty
 fill, so normal transform, Clip, budget and later-operation validation still
 runs. This is not a shortcut around page admission.
 
+## Zero-length open subpaths
+
+A subpath containing MOVE followed by one or more LINE commands at the same
+point is admitted for solid, positive-width Stroke. Butt caps yield exact
+empty coverage; round caps emit a bounded full disk; square caps emit a
+width-by-width square centered at the point. Round geometry uses the existing
+device-error-bounded arc producer. Move-only paths, explicitly closed
+degenerates, dashed zero-length paths and zero-width hairlines remain explicit
+refusals until their separate contracts are qualified.
+
 ## Dashed cubic admission boundary
 
 Dashed cubics are admitted only when every cubic segment is an exact monotone
