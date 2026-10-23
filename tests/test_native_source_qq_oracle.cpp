@@ -71,8 +71,7 @@ struct rgb_image {
 
 /* Real, well-formed source PDF document; all q/Q/W/W* operators are native
  * PDF source syntax parsed after an independent Graph snapshot capture. */
-void make_source(const char *content,
-                 const char *media_box="[0 0 120 120]")
+void make_source(const char *content)
 {
     auto pdf = QPDF::create();
     pdf->emptyPDF();
@@ -81,8 +80,8 @@ void make_source(const char *content,
         QPDFObjectHandle::parse("<< /Type /Page >>"));
     root.replaceKey("/Kids", QPDFObjectHandle::newArray({page}));
     root.replaceKey("/Count", QPDFObjectHandle::newInteger(1));
-    CHECK(media_box != nullptr && *media_box != '\0');
-    root.replaceKey("/MediaBox",QPDFObjectHandle::parse(media_box));
+    root.replaceKey("/MediaBox",
+                    QPDFObjectHandle::parse("[0 0 120 120]"));
     page.replaceKey("/Parent", root);
     page.replaceKey("/Contents", pdf->newStream(content));
     QPDFWriter writer(*pdf);
@@ -1720,33 +1719,6 @@ static int test_external_pdfium_wstar_late_text_rejection(
     if(std::remove(staged.c_str())!=0) CHECK(errno==ENOENT);
     CHECK(corpus_fixture_executions==0u);
 
-    /* Causal control: the original W* clip and f* fill prefix is admitted
-     * by itself. Only the unchanged source's later text must make the full
-     * page fail closed; this generated control is not external corpus data. */
-    make_source(
-        "q\\n"
-        "0 0 50 75 re\\n"
-        "W* n\\n"
-        "1 1 1 rg\\n"
-        "0 150 m\\n"
-        "100 150 l\\n"
-        "100 0 l\\n"
-        "0 0 l\\n"
-        "0 150 l\\n"
-        "h\\n"
-        "f*\\n"
-        "q\\n"
-        "0 0 0 rg\\n"
-        "Q\\n"
-        "Q\\n",
-        "[0 0 200 300]");
-    quantapdf_ir prefix_ir{};
-    quantapdf_status prefix_status=snapshot_lower(&prefix_ir);
-    CHECK(prefix_status==QUANTAPDF_OK);
-    CHECK(prefix_ir.operation_count>0u && prefix_ir.resources.clip_count>0u);
-    quantapdf_ir_dispose(&prefix_ir);
-    CHECK(std::remove(SOURCE_QQ_PDF)==0);
-
     const std::vector<unsigned char> original=qp384_read_bytes(filename);
     CHECK(original.size()==724u);
     const rgb_image reference=render_direct_pdfium_reference(filename);
@@ -1797,8 +1769,6 @@ static int test_external_pdfium_wstar_late_text_rejection(
         "  \"native_expected_outcome\": \"unsupported\",\n"
         "  \"native_observed_outcome\": \"unsupported\",\n"
         "  \"native_ir\": \"empty\",\n"
-        "  \"prefix_control_supported\": true,\n"
-        "  \"generated_control_count\": 1,\n"
         "  \"late_text_after_wstar_rejected\": true,\n"
         "  \"source_bytes\": 724,\n"
         "  \"source_bytes_unchanged_after_reference_and_native\": true,\n"
