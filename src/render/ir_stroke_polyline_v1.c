@@ -317,21 +317,19 @@ static quantapdf_status subpath(stroke_builder *b,stroke_point *p,size_t n,int c
      * stroke, including authored coincident LINEs collapsed to that point.
      * Dashed degenerate paths remain outside the qualified profile. */
     if (closed && n==1u) return zero_length_subpath(b,p[0]);
-    /* An open A→B→A return is a distinct authored cusp. Qualify only
-     * the last exact return under Butt caps and Bevel/Round joins:
-     * the first segment already covers both traversals, and a Round
-     * join at B is an outward semicircle. An open cap at A is Butt;
-     * do not treat the cusp as a new end cap at B. */
+    /* The exact terminal A→B→A open return shares one centerline strip.
+     * Its start and end caps at A coincide geometrically for all three
+     * cap styles, so emit exactly one start cap at A, and a Bevel/Round
+     * cusp at B. Never invent an end cap at B. */
     if(!closed && n==3u && same_point(p[0],p[2]) &&
         !same_point(p[0],p[1])) {
         stroke_point u;
         if(b->source->dash_count!=0u ||
-            b->options->line_cap!=QUANTAPDF_COMPOSER_LINE_CAP_BUTT ||
             (b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL &&
              b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND) ||
             !direction(p[0],p[1],&u))
             return QUANTAPDF_ERROR_UNSUPPORTED;
-        status=segment(b,p[0],p[1],0,0);
+        status=segment(b,p[0],p[1],1,0);
         if(status!=QUANTAPDF_OK) return status;
         return b->options->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_ROUND ?
             round_cap(b,p[1],u,0) : QUANTAPDF_OK;
@@ -520,9 +518,11 @@ static quantapdf_status solid_finish(stroke_builder *b,solid_subpath *s,int clos
         if(!s->curves && s->segments<3u) return QUANTAPDF_ERROR_UNSUPPORTED;
         status=join_directions(b,s->start,s->last,s->first);
     } else if(s->open_terminal_return) {
-        /* The return was normalized without a duplicate reversing strip.
-         * Butt caps at the coincident A endpoints emit nothing; B gets
-         * only the qualified Bevel or bounded Round cusp join. */
+        /* Emit the coincident terminal/start cap at A exactly once.
+         * B receives only its authored Bevel/Round join, never an
+         * accidental line-cap extension. All geometry stays bounded. */
+        status=dash_cap(b,s->start,s->first,1);
+        if(status!=QUANTAPDF_OK) return status;
         status=b->options->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_ROUND ?
             round_cap(b,s->current,s->last,0) : QUANTAPDF_OK;
     } else {
@@ -558,7 +558,6 @@ static quantapdf_status curved_path(stroke_builder *b)
                s.segments==1u && !s.curves &&
                same_point(p,s.start) && !same_point(s.current,s.start) &&
                b->source->dash_count==0u &&
-               b->options->line_cap==QUANTAPDF_COMPOSER_LINE_CAP_BUTT &&
                (b->options->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL ||
                 b->options->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_ROUND)) {
                 s.open_terminal_return=1;
