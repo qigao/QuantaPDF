@@ -71,7 +71,8 @@ struct rgb_image {
 
 /* Real, well-formed source PDF document; all q/Q/W/W* operators are native
  * PDF source syntax parsed after an independent Graph snapshot capture. */
-void make_source(const char *content)
+void make_source(const char *content,
+                 const char *media_box="[0 0 120 120]")
 {
     auto pdf = QPDF::create();
     pdf->emptyPDF();
@@ -80,8 +81,8 @@ void make_source(const char *content)
         QPDFObjectHandle::parse("<< /Type /Page >>"));
     root.replaceKey("/Kids", QPDFObjectHandle::newArray({page}));
     root.replaceKey("/Count", QPDFObjectHandle::newInteger(1));
-    root.replaceKey("/MediaBox",
-                    QPDFObjectHandle::parse("[0 0 120 120]"));
+    CHECK(media_box != nullptr && *media_box != '\0');
+    root.replaceKey("/MediaBox",QPDFObjectHandle::parse(media_box));
     page.replaceKey("/Parent", root);
     page.replaceKey("/Contents", pdf->newStream(content));
     QPDFWriter writer(*pdf);
@@ -1737,7 +1738,8 @@ static int test_external_pdfium_wstar_late_text_rejection(
         "q\\n"
         "0 0 0 rg\\n"
         "Q\\n"
-        "Q\\n");
+        "Q\\n",
+        "[0 0 200 300]");
     quantapdf_ir prefix_ir{};
     quantapdf_status prefix_status=snapshot_lower(&prefix_ir);
     CHECK(prefix_status==QUANTAPDF_OK);
