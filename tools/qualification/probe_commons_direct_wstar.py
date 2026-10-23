@@ -10,18 +10,11 @@ import zlib
 
 CANDIDATES = [
     {
-        "file": "Wft048247.pdf",
-        "url": "https://upload.wikimedia.org/wikipedia/commons/5/5b/Wft048247.pdf",
-        "page": "https://commons.wikimedia.org/wiki/File:Wft048247.pdf",
-        "license": "Commons public domain (PD-textlogo); trademark caveat",
-        "producer": "CorelDRAW 8 / Acrobat PDFWriter 4.05",
-    },
-    {
-        "file": "Navalny-2018.pdf",
-        "url": "https://upload.wikimedia.org/wikipedia/commons/2/25/Navalny-2018.pdf",
-        "page": "https://commons.wikimedia.org/wiki/File:Navalny-2018.pdf",
-        "license": "Commons public domain (PD-textlogo / simple shapes); trademark caveat",
-        "producer": "Not established from page metadata",
+        "file": "BLiSS Logo.pdf",
+        "url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/BLiSS_Logo.pdf",
+        "page": "https://commons.wikimedia.org/wiki/File:BLiSS_Logo.pdf",
+        "license": "CC0 (Commons API LicenseShortName); verify attribution metadata before admission",
+        "producer": "Not established; candidate surfaced by Commons CC0 PDF search",
     },
 ]
 MAX_BYTES = 1_000_000
