@@ -1,0 +1,14 @@
+name: Search licensed Commons PDFs for W-star candidates
+on:
+  push:
+    branches:
+      - probe/262-commons-api
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Query license-described Commons PDF pages and inspect original streams
+        run: python3 tools/qualification/probe_commons_api_wstar.py
