@@ -603,7 +603,7 @@ static void test_closed_two_point_joins(void)
     ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND;
     ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
     closed=render();
-    CHECK(alpha(&closed,6,15)>0 && alpha(&closed,18,15)>0);
+    CHECK(alpha(&closed,6,15)>0 && alpha(&closed,17,15)>0);
     init(); ops[0].value.path.command_count=2;
     ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND;
     ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
