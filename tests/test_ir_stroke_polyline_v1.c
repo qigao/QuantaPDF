@@ -396,6 +396,12 @@ static void test_zero_length_caps(void)
 static void test_inert_move_subpaths(void)
 {
     quantapdf_ir_raster_image image={0},reference={0};
+    /* A sole MOVE command is a valid no-paint Stroke path. */
+    init(); ops[0].value.path.command_count=1;
+    image=render();
+    for(size_t i=0;i<image.size;i+=4u) CHECK(image.pixels[i+3u]==0u);
+    quantapdf_ir_raster_image_dispose(&image);
+
     /* No authored segment: success and exact transparent pixels. */
     init(); ops[0].value.path.command_count=2;
     commands[1].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
@@ -450,6 +456,10 @@ static void test_inert_move_subpaths(void)
     init(); ops[0].value.path.command_count=2;
     commands[1].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
     reject();
+    init(); ops[0].value.path.command_count=1;
+    commands[0].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO; reject();
+    init(); ops[0].value.path.command_count=1;
+    commands[0].point1.x=NAN; reject();
     init(); commands[1].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
     commands[1].point1=(quantapdf_point){20,10};
     commands[2].point1.x=NAN; reject();

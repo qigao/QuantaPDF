@@ -582,7 +582,9 @@ static quantapdf_status outline_impl(
     memset(out_fill,0,sizeof(*out_fill));
     if (!source || max_edges==0u) return QUANTAPDF_ERROR_ARGUMENT;
     o=&source->options;
-    if (!source->commands || source->command_count<2u ||
+    if (!source->commands || source->command_count==0u ||
+        (source->command_count==1u &&
+         source->commands[0].kind!=QUANTAPDF_COMPOSER_PATH_MOVE_TO) ||
         source->command_count>QP_STROKE_POINTS ||
         o->struct_size<QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE ||
         o->stroke!=1 || o->fill!=0 || (o->stroke_argb>>24)!=255u ||

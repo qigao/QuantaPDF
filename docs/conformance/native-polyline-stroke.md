@@ -151,8 +151,9 @@ runs. This is not a shortcut around page admission.
 
 ## MOVE-only open subpaths
 
-A MOVE command without an authored LINE or CUBIC segment contributes no
-stroked geometry, regardless of cap style or a valid dash/phase array.
+A single MOVE, or a MOVE command without an authored LINE or CUBIC
+segment, contributes no stroked geometry, regardless of cap style or a
+valid dash/phase array. A lone LINE/CLOSE or non-finite MOVE remains refused.
 Consecutive MOVE commands and an unterminated trailing MOVE therefore form
 empty subpaths, and can precede or follow admitted linear or solid cubic
 subpaths without changing their output.
