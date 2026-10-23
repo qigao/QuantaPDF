@@ -10,8 +10,7 @@ import zlib
 import time
 
 CANDIDATES = [
-    {"file": "Phc-logo.pdf", "page": "https://commons.wikimedia.org/wiki/File:Phc-logo.pdf", "license": "CC BY-SA 4.0"},
-    {"file": "EFF-logo-plain.pdf", "page": "https://commons.wikimedia.org/wiki/File:EFF-logo-plain.pdf", "license": "CC BY 3.0 US"},
+    {"file": "Logo_vector_sign.pdf", "page": "https://commons.wikimedia.org/wiki/File:Logo_vector_sign.pdf", "license": "CC BY-SA 4.0"},
 ]
 MAX_BYTES = 8_000_000
 WSTAR = re.compile(rb"(?<![A-Za-z0-9])W\*(?=\s|%|$)")
