@@ -303,11 +303,13 @@ static quantapdf_status subpath(stroke_builder *b,stroke_point *p,size_t n,int c
     quantapdf_status status;
     /* Only a final exact A→B→A→CLOSE is the same centerline trace as
      * A→B→CLOSE: the reverse is already the implicit closing edge.
-     * Keep miter cusp, dashed reversal and all other authored returns out. */
+     * A finite miter limit bevels the exact 180-degree cusp. Keep dashed
+     * reversals and all other authored returns out. */
     if(closed && n==3u && same_point(p[0],p[2]) &&
         !same_point(p[0],p[1])) {
         if(b->source->dash_count!=0u ||
-            (b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL &&
+            (b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_MITER &&
+             b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL &&
              b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND))
             return QUANTAPDF_ERROR_UNSUPPORTED;
         n=2u;
@@ -319,13 +321,15 @@ static quantapdf_status subpath(stroke_builder *b,stroke_point *p,size_t n,int c
     if (closed && n==1u) return zero_length_subpath(b,p[0]);
     /* The exact terminal A→B→A open return shares one centerline strip.
      * Its start and end caps at A coincide geometrically for all three
-     * cap styles, so emit exactly one start cap at A, and a Bevel/Round
-     * cusp at B. Never invent an end cap at B. */
+     * cap styles, so emit exactly one start cap at A. A finite miter limit
+     * makes the 180-degree cusp at B fall back to bevel; never invent an
+     * end cap at B. */
     if(!closed && n==3u && same_point(p[0],p[2]) &&
         !same_point(p[0],p[1])) {
         stroke_point u;
         if(b->source->dash_count!=0u ||
-            (b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL &&
+            (b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_MITER &&
+             b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL &&
              b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND) ||
             !direction(p[0],p[1],&u))
             return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -342,7 +346,8 @@ static quantapdf_status subpath(stroke_builder *b,stroke_point *p,size_t n,int c
     if(closed && n==2u) {
         stroke_point u;
         if(b->source->dash_count!=0u ||
-            (b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL &&
+            (b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_MITER &&
+             b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL &&
              b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND) ||
             !direction(p[0],p[1],&u))
             return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -500,10 +505,12 @@ static quantapdf_status solid_finish(stroke_builder *b,solid_subpath *s,int clos
     if(closed) {
         /* The same one-segment A→B→CLOSE rule applies when another
          * subpath makes the overall operation use the cubic compiler.
-         * The first strip is already owned and validated by solid_line. */
+         * The first strip is already owned and validated by solid_line.
+         * A finite miter limit makes an exact reversal fall back to bevel. */
         if(!s->curves && s->segments==1u && !same_point(s->current,s->start)) {
             if(b->source->dash_count!=0u ||
-                (b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL &&
+                (b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_MITER &&
+                 b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL &&
                  b->options->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND))
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             if(b->options->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_ROUND) {
@@ -558,7 +565,8 @@ static quantapdf_status curved_path(stroke_builder *b)
                s.segments==1u && !s.curves &&
                same_point(p,s.start) && !same_point(s.current,s.start) &&
                b->source->dash_count==0u &&
-               (b->options->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL ||
+               (b->options->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_MITER ||
+                b->options->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL ||
                 b->options->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_ROUND)) {
                 s.open_terminal_return=1;
                 continue;
@@ -571,7 +579,8 @@ static quantapdf_status curved_path(stroke_builder *b)
                 s.segments==1u && !s.curves &&
                 same_point(p,s.start) && !same_point(s.current,s.start) &&
                 b->source->dash_count==0u &&
-                (b->options->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL ||
+                (b->options->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_MITER ||
+                 b->options->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL ||
                  b->options->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_ROUND))
                 continue;
             status=solid_line(b,&s,p); if(status!=QUANTAPDF_OK) return status;

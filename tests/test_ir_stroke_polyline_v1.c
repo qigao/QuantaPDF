@@ -561,13 +561,15 @@ static void test_closed_single_point_caps(void)
     quantapdf_ir_raster_image_dispose(&reference);
 
     /* Dash phase on a closed zero-length subpath has not been qualified.
-     * A two-point closed return/cusp is also not admitted by this change. */
+     * The solid two-point closed reversal is covered by its own join tests. */
     init(); ops[0].value.path.command_count=2;
     commands[1].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
     dash(4,4,0); reject();
     init(); ops[0].value.path.command_count=3;
     commands[2].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
-    reject();
+    image=render();
+    CHECK(image.pixels && image.size);
+    quantapdf_ir_raster_image_dispose(&image);
     /* Even an empty butt-cap close must honor the checked transform, and a
      * round-cap dot must respect expanded edge capacity and reset on failure. */
     init(); ops[0].value.path.command_count=2;
@@ -583,8 +585,8 @@ static void test_closed_single_point_caps(void)
     CHECK(!image.pixels && !image.size);
 }
 
-/* Two-point closed path A->B->CLOSE has two reversal joins. Qualify
- * only bounded bevel/round joins, not implicit miter or authored A->B->A. */
+/* Two-point closed path A->B->CLOSE has two reversal joins. A finite
+ * miter limit falls back to bevel at each exact 180-degree cusp. */
 static void test_closed_two_point_joins(void)
 {
     quantapdf_ir_raster_image closed={0},reference={0};
@@ -599,6 +601,24 @@ static void test_closed_two_point_joins(void)
         memcmp(closed.pixels,reference.pixels,closed.size)==0);
     quantapdf_ir_raster_image_dispose(&closed);
     quantapdf_ir_raster_image_dispose(&reference);
+
+    /* Exact reversals with Miter joins use the finite-limit bevel fallback,
+     * independent of a valid miter-limit value. */
+    const float miter_limits[3]={1.0f,10.0f,1000.0f};
+    for(size_t i=0;i<3u;++i) {
+        init(); ops[0].value.path.command_count=3;
+        commands[2].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+        ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_MITER;
+        ops[0].value.path.options.miter_limit=miter_limits[i];
+        closed=render();
+        init(); ops[0].value.path.command_count=2;
+        ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
+        reference=render();
+        CHECK(closed.size==reference.size &&
+            memcmp(closed.pixels,reference.pixels,closed.size)==0);
+        quantapdf_ir_raster_image_dispose(&closed);
+        quantapdf_ir_raster_image_dispose(&reference);
+    }
 
     init(); ops[0].value.path.command_count=3;
     commands[2].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
@@ -659,11 +679,15 @@ static void test_closed_two_point_joins(void)
     quantapdf_ir_raster_image_dispose(&closed);
     quantapdf_ir_raster_image_dispose(&reference);
 
-    /* Do not silently interpret unqualified miter cusps, zero-width strokes,
+    /* Do not silently interpret nonterminal cusps, zero-width strokes,
      * open reversals or dashed closures as this narrow profile. */
+    init(); ops[0].value.path.command_count=4;
+    commands[2].point1=commands[0].point1;
+    commands[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    commands[3].point1=(quantapdf_point){24,20};
+    reject(); /* nonterminal miter cusp */
     init(); ops[0].value.path.command_count=3;
     commands[2].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
-    reject();
     ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
     dash(4,4,0); reject();
     init(); ops[0].value.path.command_count=3;
@@ -685,15 +709,16 @@ static void test_closed_two_point_joins(void)
 }
 
 /* Exactly A->B->A->CLOSE has the same traversed closed trace as
- * A->B->CLOSE, and only Bevel/Round joins have a bounded qualified contract. */
+ * A->B->CLOSE; a finite Miter limit falls back to bevel at its reversal. */
 static void test_explicit_closed_two_point_return(void)
 {
     quantapdf_ir_raster_image actual={0},reference={0};
-    const quantapdf_composer_line_join joins[2]={
+    const quantapdf_composer_line_join joins[3]={
+        QUANTAPDF_COMPOSER_LINE_JOIN_MITER,
         QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL,
         QUANTAPDF_COMPOSER_LINE_JOIN_ROUND
     };
-    for(size_t i=0;i<2u;++i) {
+    for(size_t i=0;i<3u;++i) {
         init(); ops[0].value.path.command_count=4;
         ops[0].value.path.options.line_join=joins[i];
         commands[2].point1=commands[0].point1;
@@ -736,12 +761,17 @@ static void test_explicit_closed_two_point_return(void)
     quantapdf_ir_raster_image_dispose(&actual);
     quantapdf_ir_raster_image_dispose(&reference);
 
-    /* Fail closed for miter, dash, an open cusp and any return that does
-     * not terminate immediately at CLOSE. No partial output is published. */
+    /* Fail closed for nonterminal cusps, dash and any return that does not
+     * terminate immediately at CLOSE. No partial output is published. */
+    init(); ops[0].value.path.command_count=5;
+    commands[2].point1=commands[0].point1;
+    commands[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    commands[3].point1=(quantapdf_point){24,20};
+    commands[4].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+    reject(); /* nonterminal exact miter cusp */
     init(); ops[0].value.path.command_count=4;
     commands[2].point1=commands[0].point1;
     commands[3].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
-    reject(); /* default Miter */
     ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
     dash(4,4,0); reject();
     init(); ops[0].value.path.command_count=4;
@@ -765,8 +795,8 @@ static void test_explicit_closed_two_point_return(void)
     CHECK(!actual.pixels && !actual.size);
 }
 
-/* Open exact terminal A→B→A is only admitted with Butt caps and
- * bounded Bevel/Round reversal joins; the A end is not given a B cap. */
+/* Open exact terminal A→B→A admits Miter/Bevel/Round joins. Miter falls
+ * back to bevel at the exact reversal; A's coincident caps are emitted once. */
 static void test_open_terminal_return(void)
 {
     quantapdf_ir_raster_image actual={0},reference={0};
@@ -781,6 +811,22 @@ static void test_open_terminal_return(void)
         memcmp(actual.pixels,reference.pixels,actual.size)==0);
     quantapdf_ir_raster_image_dispose(&actual);
     quantapdf_ir_raster_image_dispose(&reference);
+
+    const float miter_limits[3]={1.0f,10.0f,1000.0f};
+    for(size_t i=0;i<3u;++i) {
+        init(); ops[0].value.path.command_count=3;
+        commands[2].point1=commands[0].point1;
+        ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_MITER;
+        ops[0].value.path.options.miter_limit=miter_limits[i];
+        actual=render();
+        init(); ops[0].value.path.command_count=2;
+        ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
+        reference=render();
+        CHECK(actual.size==reference.size &&
+            memcmp(actual.pixels,reference.pixels,actual.size)==0);
+        quantapdf_ir_raster_image_dispose(&actual);
+        quantapdf_ir_raster_image_dispose(&reference);
+    }
 
     init(); ops[0].value.path.command_count=3;
     commands[2].point1=commands[0].point1;
@@ -819,11 +865,38 @@ static void test_open_terminal_return(void)
     quantapdf_ir_raster_image_dispose(&actual);
     quantapdf_ir_raster_image_dispose(&reference);
 
-    /* Miter, dash phase, and nonterminal reversals remain atomic
-     * UNSUPPORTED. Cap-style positives above use the same bounded path. */
+    /* Mixed cubic compilation must preserve the same exact miter fallback. */
+    init(); ops[0].value.path.command_count=5;
+    ops[0].value.path.options.stroke_width=2;
+    ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_MITER;
+    commands[0].point1=(quantapdf_point){4,20};
+    commands[1].point1=(quantapdf_point){20,20};
+    commands[2].point1=commands[0].point1;
+    commands[3].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+    commands[3].point1=(quantapdf_point){4,16};
+    commands[4].kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
+    commands[4].point1=(quantapdf_point){4,4};
+    commands[4].point2=(quantapdf_point){28,4};
+    commands[4].point3=(quantapdf_point){28,16};
+    actual=render_with(&curve_limits);
+    commands[2]=commands[3];
+    commands[3]=commands[4];
+    ops[0].value.path.command_count=4;
+    reference=render_with(&curve_limits);
+    CHECK(actual.size==reference.size &&
+        memcmp(actual.pixels,reference.pixels,actual.size)==0);
+    quantapdf_ir_raster_image_dispose(&actual);
+    quantapdf_ir_raster_image_dispose(&reference);
+
+    /* General/nonterminal cusps and dash phase remain atomic UNSUPPORTED.
+     * Cap-style positives above use the same bounded path. */
+    init(); ops[0].value.path.command_count=4;
+    commands[2].point1=commands[0].point1;
+    commands[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    commands[3].point1=(quantapdf_point){24,20};
+    reject(); /* nonterminal exact cusp */
     init(); ops[0].value.path.command_count=3;
     commands[2].point1=commands[0].point1;
-    reject(); /* default Miter */
     ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
     ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
     actual=render();
@@ -1011,7 +1084,7 @@ int main(void)
     init(); ops[0].value.path.dash_phase=1; reject();
     init(); ops[0].value.path.options.stroke_argb=0x80ff0000u; reject();
     init(); commands[2].kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO; dash(4,4,0); reject();
-    init(); commands[2].point1=commands[0].point1; reject(); /* reversing cusp */
+    init(); commands[2].point1=(quantapdf_point){8.5f,16}; reject(); /* near-return cusp */
     /* Repeated zero-length LINE_TO commands are a single degenerate open
      * subpath: Butt caps succeed with exact empty coverage. */
     init(); ops[0].value.path.command_count=3;
