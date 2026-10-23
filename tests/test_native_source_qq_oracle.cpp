@@ -2884,7 +2884,15 @@ int test_external_yworks_wstar_pixels(const char *filename,
           detached.resources.form_count==0u &&
           detached.resources.soft_mask_count==0u &&
           detached.resources.paint_count==0u);
+    const size_t painted_count=detached.operation_count;
+    const size_t clip_count=detached.resources.clip_count;
+    const size_t state_count=detached.resources.graphics_state_count;
     const clip_leaf_counts winding=inspect_clip_fill_rules(detached);
+    std::fprintf(stderr,
+        "[wstar-candidate-ir] paths=%zu clips=%zu states=%zu "
+        "W=%zu Wstar=%zu intersections=%zu\\n",
+        painted_count,clip_count,state_count,winding.nonzero,winding.evenodd,
+        winding.intersections);
     CHECK(winding.nonzero==2u && winding.evenodd==2u &&
           winding.intersections==3u);
 
@@ -3008,8 +3016,8 @@ int test_external_yworks_wstar_pixels(const char *filename,
         "  \"external_wstar_pixel_supported_count\": 0,\n"
         "  \"generated_fixture_count\": 0\n"
         "}\n",
-        WIDTH,HEIGHT,detached.operation_count,winding.nonzero,winding.evenodd,
-        winding.intersections,detached.resources.clip_count,
+        WIDTH,HEIGHT,painted_count,winding.nonzero,winding.evenodd,
+        winding.intersections,clip_count,
         sizeof(goldens)/sizeof(goldens[0]),mean,gross,ref_red,native_red,
         overlap_red,ref_blue,native_blue,overlap_blue);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
