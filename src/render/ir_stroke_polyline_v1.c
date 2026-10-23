@@ -408,7 +408,7 @@ static quantapdf_status cubic_strip(stroke_builder *b,const stroke_point *p,
 typedef struct solid_subpath {
     stroke_point start,current,first,last;
     size_t segments;
-    int active,curves;
+    int active,curves,had_line_command;
 } solid_subpath;
 static quantapdf_status solid_line(stroke_builder *b,solid_subpath *s,stroke_point z)
 {
@@ -423,7 +423,14 @@ static quantapdf_status solid_line(stroke_builder *b,solid_subpath *s,stroke_poi
 static quantapdf_status solid_finish(stroke_builder *b,solid_subpath *s,int closed)
 {
     quantapdf_status status;
-    if(!s->segments) return QUANTAPDF_ERROR_UNSUPPORTED;
+    if(!s->segments) {
+        if(!closed && s->had_line_command) {
+            status=zero_length_subpath(b,s->start);
+            if(status==QUANTAPDF_OK) s->active=0;
+            return status;
+        }
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
     if(closed) {
         status=solid_line(b,s,s->start); if(status!=QUANTAPDF_OK) return status;
         if(!s->curves && s->segments<3u) return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -451,6 +458,7 @@ static quantapdf_status curved_path(stroke_builder *b)
             memset(&s,0,sizeof(s)); s.active=1; s.start=s.current=p;
         } else if(c->kind==QUANTAPDF_COMPOSER_PATH_LINE_TO) {
             if(!s.active || !valid_point(p)) return QUANTAPDF_ERROR_UNSUPPORTED;
+            s.had_line_command=1;
             status=solid_line(b,&s,p); if(status!=QUANTAPDF_OK) return status;
         } else if(c->kind==QUANTAPDF_COMPOSER_PATH_CUBIC_TO) {
             stroke_point controls[4]={s.current,p,{c->point2.x,c->point2.y},{c->point3.x,c->point3.y}},first,last;
