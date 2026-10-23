@@ -342,6 +342,37 @@ static void check_arch_offset(const quantapdf_composer_path_operation *fill,doub
         }
     }
 }
+static void test_zero_length_caps(void)
+{
+    quantapdf_ir_raster_image image={0};
+    init(); ops[0].value.path.command_count=2;
+    commands[1].point1=commands[0].point1;
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
+    image=render();
+    for(size_t i=0;i<image.size;i+=4u) CHECK(image.pixels[i+3u]==0u);
+    quantapdf_ir_raster_image_dispose(&image);
+
+    init(); ops[0].value.path.command_count=2;
+    commands[1].point1=commands[0].point1;
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
+    image=render();
+    CHECK(alpha(&image,8,15)==255 && alpha(&image,9,15)==255);
+    CHECK(alpha(&image,11,15)==0 && alpha(&image,8,18)==0);
+    quantapdf_ir_raster_image_dispose(&image);
+
+    init(); ops[0].value.path.command_count=2;
+    commands[1].point1=commands[0].point1;
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_SQUARE;
+    image=render();
+    CHECK(alpha(&image,8,15)==255 && alpha(&image,9,17)==255);
+    CHECK(alpha(&image,11,15)==0 && alpha(&image,8,19)==0);
+    quantapdf_ir_raster_image_dispose(&image);
+
+    init(); ops[0].value.path.command_count=2;
+    commands[1].point1=commands[0].point1;
+    dash(4,4,0); reject();
+}
+
 static void test_cubics(void)
 {
     quantapdf_ir_raster_image image={0},reference={0};
@@ -515,6 +546,7 @@ int main(void)
     test_dashes();
     test_round();
     test_zero_dashes();
+    test_zero_length_caps();
     test_cubics();
     return 0;
 }
