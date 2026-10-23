@@ -604,7 +604,7 @@ static void test_closed_two_point_joins(void)
 
     /* Exact reversals with Miter joins use the finite-limit bevel fallback,
      * independent of a valid miter-limit value. */
-    const double miter_limits[3]={1.0,10.0,1000.0};
+    const float miter_limits[3]={1.0f,10.0f,1000.0f};
     for(size_t i=0;i<3u;++i) {
         init(); ops[0].value.path.command_count=3;
         commands[2].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
@@ -812,7 +812,7 @@ static void test_open_terminal_return(void)
     quantapdf_ir_raster_image_dispose(&actual);
     quantapdf_ir_raster_image_dispose(&reference);
 
-    const double miter_limits[3]={1.0,10.0,1000.0};
+    const float miter_limits[3]={1.0f,10.0f,1000.0f};
     for(size_t i=0;i<3u;++i) {
         init(); ops[0].value.path.command_count=3;
         commands[2].point1=commands[0].point1;
