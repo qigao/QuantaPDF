@@ -232,7 +232,19 @@ static quantapdf_status count_commands(
         if (count == available) return QUANTAPDF_ERROR_UNSUPPORTED;
         ++count;
     }
-    if (!segment) return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (!segment) {
+        /* A stroked path may contain only MOVE and CLOSE geometry.
+         * PDF 32000-1 §8.5.3.2 gives a closed single point a Round-cap
+         * disk, and an open single MOVE no painted coverage. Do not extend
+         * this admission to Fill or Clip: their degenerates have separate,
+         * device-dependent semantics not qualified by native Stroke. */
+        if ((path->paint_opcode != QUANTAPDF_PDF_OP_STROKE &&
+             path->paint_opcode != QUANTAPDF_PDF_OP_CLOSE_STROKE) ||
+            path->path_first_operator >= path->terminal_operator ||
+            content->ops[path->path_first_operator].opcode !=
+                QUANTAPDF_PDF_OP_MOVE)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
     *out_count = count;
     return QUANTAPDF_OK;
 }

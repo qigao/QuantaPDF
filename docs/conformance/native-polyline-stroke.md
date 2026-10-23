@@ -157,6 +157,10 @@ stroke. For **solid positive-width Stroke**, the existing bounded normal
 round-cap geometry produces a full disk. Butt and projecting-square line caps
 produce exact empty coverage. The same rule is applied inside mixed linear and
 solid-cubic operations. No new rasterizer or approximation is introduced.
+The source-PDF path lowerer now preserves MOVE/CLOSE-only geometry for
+Stroke (including the implicit CLOSE in the `s` operator). It continues to
+reject all-segment-free Fill and Clip, whose device-dependent semantics are
+not covered by this native Stroke increment.
 
 A **MOVE-only open** subpath remains inert, even with Round Cap. A closed
 subpath with two distinct endpoints followed by a return/cusp, and dashed

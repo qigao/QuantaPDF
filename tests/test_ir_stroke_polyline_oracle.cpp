@@ -393,6 +393,8 @@ void test_cubic_source()
      * caps, but not a butt/square dot; PDFium stays an independent A/B
      * reference, with the existing global pixel thresholds unchanged. */
     compare("closed-single-point-round","1 0 0 RG 4 w 1 J 20 40 m h S");
+    compare("closed-single-point-s-operator","1 0 0 RG 4 w 1 J 20 40 m s");
+    compare("move-only-open-inert","1 0 0 RG 4 w 1 J 20 40 m S");
     compare("closed-coincident-lines-round","1 0 0 RG 4 w 1 J 20 40 m 20 40 l 20 40 l h S");
     compare("closed-single-point-butt","1 0 0 RG 4 w 0 J 20 40 m h S");
     compare("closed-single-point-square","1 0 0 RG 4 w 2 J 20 40 m h S");
