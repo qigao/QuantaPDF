@@ -389,6 +389,16 @@ void test_cubic_source()
     compare("cubic-collinear-speed","1 0 0 RG 4 w 2 J 20 40 m 20 40 100 40 100 40 c S");
     compare("zero-length-round-cap","1 0 0 RG 4 w 1 J 20 40 m 20 40 l S",
         {{20,40,255,0,0},{23,40,255,255,255}});
+    /* The PDF specification admits a closed single-point dot under Round
+     * caps, but not a butt/square dot; PDFium stays an independent A/B
+     * reference, with the existing global pixel thresholds unchanged. */
+    compare("closed-single-point-round","1 0 0 RG 4 w 1 J 20 40 m h S");
+    compare("closed-single-point-s-operator","1 0 0 RG 4 w 1 J 20 40 m s");
+    compare("move-only-open-inert","1 0 0 RG 4 w 1 J 20 40 m S");
+    compare("closed-coincident-lines-round","1 0 0 RG 4 w 1 J 20 40 m 20 40 l 20 40 l h S");
+    compare("closed-single-point-butt","1 0 0 RG 4 w 0 J 20 40 m h S");
+    compare("closed-single-point-square","1 0 0 RG 4 w 2 J 20 40 m h S");
+    compare("closed-dot-cubic-subpaths","1 0 0 RG 4 w 1 J 20 40 m h 20 60 m 20 90 100 90 100 60 c S");
     /* The pinned PDFium renderer paints a small point for this degenerate
      * non-round cap, unlike ISO 32000-1's no-output rule. Compare aggregate
      * image error, but do not treat that provider-specific pixel as normative. */

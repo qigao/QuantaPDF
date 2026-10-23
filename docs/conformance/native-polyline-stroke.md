@@ -149,6 +149,26 @@ coverage. A cancelled two-edge nonzero contour represents this exact empty
 fill, so normal transform, Clip, budget and later-operation validation still
 runs. This is not a shortcut around page admission.
 
+## Closed single-point degenerate Stroke
+
+ISO 32000-1 §8.5.3.2 explicitly admits a *single-point closed subpath*
+(including a closed sequence of coincident LINE endpoints) as a zero-length
+stroke. For **solid positive-width Stroke**, the existing bounded normal
+round-cap geometry produces a full disk. Butt and projecting-square line caps
+produce exact empty coverage. The same rule is applied inside mixed linear and
+solid-cubic operations. No new rasterizer or approximation is introduced.
+The source-PDF path lowerer now preserves MOVE/CLOSE-only geometry for
+Stroke (including the implicit CLOSE in the `s` operator). It continues to
+reject all-segment-free Fill and Clip, whose device-dependent semantics are
+not covered by this native Stroke increment.
+
+A **MOVE-only open** subpath remains inert, even with Round Cap. A closed
+subpath with two distinct endpoints followed by a return/cusp, and dashed
+zero-length closed paths, remain explicit `QUANTAPDF_ERROR_UNSUPPORTED` cases.
+Nonfinite transforms, insufficient expanded-edge budgets and later invalid
+operations fail atomically as before. All pixel tests use the established 4×4
+sampling and independent PDFium source-oracle tolerances.
+
 ## MOVE-only open subpaths
 
 A single MOVE, or a MOVE command without an authored LINE or CUBIC
@@ -161,9 +181,8 @@ subpaths without changing their output.
 The empty result continues through the ordinary checked transform, clipping,
 resource, edge/sample-budget and atomic-output pipeline. A no-geometry
 operation still uses the existing two-opposite-edge zero-winding encoding,
-not a short circuit into success or a fallback renderer. Closed empty
-subpaths, zero-width hairlines and genuinely degenerate cubic curves remain
-unqualified. All non-finite coordinates and unsupported subsequent path
+not a short circuit into success or a fallback renderer. Closed single-point subpaths are qualified separately below; zero-width
+hairlines and genuinely degenerate cubic curves remain unqualified. All non-finite coordinates and unsupported subsequent path
 commands still refuse the entire operation. No public ABI or renderer
 selection changes.
 
@@ -175,8 +194,9 @@ full disk. Butt and projecting-square caps produce exact empty coverage, as
 required for a degenerate PDF stroked subpath whose cap orientation is
 indeterminate (ISO 32000-1, 8.5.3.2). Round geometry uses the existing
 device-error-bounded arc producer. The same rule applies to a degenerate
-open line subpath in a mixed line/cubic operation. Explicitly closed
-degenerates, dashed zero-length paths and zero-width hairlines remain explicit
+open line subpath in a mixed line/cubic operation. Closed single-point
+subpaths now share the solid-cap contract above; two-point closed
+returns/cusps, dashed zero-length paths and zero-width hairlines remain explicit
 refusals until their separate contracts are qualified.
 
 The pinned PDFium build emits a small point for degenerate butt/square cases.

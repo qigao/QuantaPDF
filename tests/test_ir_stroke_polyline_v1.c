@@ -451,11 +451,8 @@ static void test_inert_move_subpaths(void)
     quantapdf_ir_raster_image_dispose(&image);
     quantapdf_ir_raster_image_dispose(&reference);
 
-    /* A close-only degenerate and late invalid geometry still fail atomically.
-     * An inert MOVE must not bypass transform and expanded-edge validation. */
-    init(); ops[0].value.path.command_count=2;
-    commands[1].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
-    reject();
+    /* Late invalid geometry still fails atomically. A MOVE→CLOSE single
+     * point is tested as a legal closed degenerate in its own test group. */
     init(); ops[0].value.path.command_count=1;
     commands[0].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO; reject();
     init(); ops[0].value.path.command_count=1;
@@ -472,6 +469,114 @@ static void test_inert_move_subpaths(void)
     commands[1].point1=(quantapdf_point){20,10};
     quantapdf_ir_raster_v1_limits bounded=limits; bounded.max_edges=1;
     CHECK(quantapdf_ir_raster_scoped_operations_v2(&ir,0,&bounded,&image)
+        ==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(!image.pixels && !image.size);
+}
+
+/* ISO 32000-1 8.5.3.2: closed single-point strokes follow the same
+ * degenerate cap behavior as coincident LINE paths, with bounded admission. */
+static void test_closed_single_point_caps(void)
+{
+    quantapdf_ir_raster_image image={0},reference={0};
+    init(); ops[0].value.path.command_count=2;
+    commands[1].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+    image=render();
+    for(size_t i=0;i<image.size;i+=4u) CHECK(image.pixels[i+3u]==0u);
+    quantapdf_ir_raster_image_dispose(&image);
+
+    init(); ops[0].value.path.command_count=2;
+    commands[1].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_SQUARE;
+    image=render();
+    for(size_t i=0;i<image.size;i+=4u) CHECK(image.pixels[i+3u]==0u);
+    quantapdf_ir_raster_image_dispose(&image);
+
+    init(); ops[0].value.path.command_count=2;
+    commands[1].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
+    image=render();
+    CHECK(alpha(&image,8,15)==255);
+    CHECK(alpha(&image,9,15)>0 && alpha(&image,9,15)<255);
+    CHECK(alpha(&image,11,15)==0 && alpha(&image,8,18)==0);
+
+    /* Exact byte equivalence with the independently admitted zero-length
+     * open LINE and a closed path with repeated coincident LINEs. */
+    init(); ops[0].value.path.command_count=2;
+    commands[1].point1=commands[0].point1;
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
+    reference=render();
+    CHECK(image.size==reference.size &&
+        memcmp(image.pixels,reference.pixels,image.size)==0);
+    quantapdf_ir_raster_image_dispose(&reference);
+    init(); ops[0].value.path.command_count=4;
+    commands[1].point1=commands[0].point1;
+    commands[2].point1=commands[0].point1;
+    commands[3].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
+    reference=render();
+    CHECK(image.size==reference.size &&
+        memcmp(image.pixels,reference.pixels,image.size)==0);
+    quantapdf_ir_raster_image_dispose(&image);
+    quantapdf_ir_raster_image_dispose(&reference);
+
+    /* An inert closed point must not alter a following real line. */
+    init(); ops[0].value.path.command_count=4;
+    commands[1].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+    commands[2].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+    commands[2].point1=(quantapdf_point){8,8};
+    commands[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    commands[3].point1=(quantapdf_point){16,8};
+    image=render();
+    init(); ops[0].value.path.command_count=2;
+    commands[0].point1=(quantapdf_point){8,8};
+    commands[1].point1=(quantapdf_point){16,8};
+    reference=render();
+    CHECK(image.size==reference.size &&
+        memcmp(image.pixels,reference.pixels,image.size)==0);
+    quantapdf_ir_raster_image_dispose(&image);
+    quantapdf_ir_raster_image_dispose(&reference);
+
+    /* A closed dot alongside a normal cubic uses the same bounded circle
+     * compiler as the qualified zero-length open subpath. */
+    init(); ops[0].value.path.command_count=4;
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
+    ops[0].value.path.options.stroke_width=2;
+    commands[0].point1=(quantapdf_point){2.5f,2.5f};
+    commands[1].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+    commands[2].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+    commands[2].point1=(quantapdf_point){4,16};
+    commands[3].kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
+    commands[3].point1=(quantapdf_point){4,4};
+    commands[3].point2=(quantapdf_point){28,4};
+    commands[3].point3=(quantapdf_point){28,16};
+    image=render_with(&curve_limits);
+    commands[1].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    commands[1].point1=commands[0].point1;
+    reference=render_with(&curve_limits);
+    CHECK(image.size==reference.size &&
+        memcmp(image.pixels,reference.pixels,image.size)==0);
+    quantapdf_ir_raster_image_dispose(&image);
+    quantapdf_ir_raster_image_dispose(&reference);
+
+    /* Dash phase on a closed zero-length subpath has not been qualified.
+     * A two-point closed return/cusp is also not admitted by this change. */
+    init(); ops[0].value.path.command_count=2;
+    commands[1].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+    dash(4,4,0); reject();
+    init(); ops[0].value.path.command_count=3;
+    commands[2].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+    reject();
+    /* Even an empty butt-cap close must honor the checked transform, and a
+     * round-cap dot must respect expanded edge capacity and reset on failure. */
+    init(); ops[0].value.path.command_count=2;
+    commands[1].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+    ops[0].value.path.options.transform.a=NAN; reject();
+    init(); ops[0].value.path.command_count=2;
+    commands[1].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+    ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
+    quantapdf_ir_raster_v1_limits tiny=limits;
+    tiny.max_edges=2;
+    CHECK(quantapdf_ir_raster_scoped_operations_v2(&ir,0,&tiny,&image)
         ==QUANTAPDF_ERROR_UNSUPPORTED);
     CHECK(!image.pixels && !image.size);
 }
@@ -658,6 +763,7 @@ int main(void)
     test_zero_dashes();
     test_zero_length_caps();
     test_inert_move_subpaths();
+    test_closed_single_point_caps();
     test_cubics();
     return 0;
 }
