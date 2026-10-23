@@ -32,15 +32,17 @@ static void init(void)
 }
 static unsigned alpha(const quantapdf_ir_raster_image *im,size_t x,size_t y)
 { return im->pixels[y*im->stride+x*4+3]; }
-static quantapdf_ir_raster_image render(void)
+static quantapdf_ir_raster_image render_with(const quantapdf_ir_raster_v1_limits *bounds)
 {
     quantapdf_ir_raster_image image={0};
     quantapdf_composer_operation original=ops[0];
     quantapdf_composer_path_command copy[8]; memcpy(copy,commands,sizeof(copy));
-    OK(quantapdf_ir_raster_scoped_operations_v2(&ir,0,&limits,&image));
+    OK(quantapdf_ir_raster_scoped_operations_v2(&ir,0,bounds,&image));
     CHECK(memcmp(copy,commands,sizeof(copy))==0 && memcmp(&original,ops,sizeof(original))==0);
     return image;
 }
+static quantapdf_ir_raster_image render(void)
+{ return render_with(&limits); }
 static void reject(void)
 {
     quantapdf_ir_raster_image image; memset(&image,0x5a,sizeof(image));
@@ -303,6 +305,127 @@ static void test_round(void)
     CHECK(quantapdf_ir_stroke_polyline_outline_v1_planned(&ops[0].value.path,512,NULL,&native)==QUANTAPDF_ERROR_ARGUMENT);
     CHECK(!native.commands && !native.command_count);
 }
+
+static const quantapdf_ir_raster_v1_limits curve_limits={4096,2,4096,200000000};
+static void cubic_arch(void)
+{
+    init(); ops[0].value.path.command_count=2; ops[0].value.path.options.stroke_width=2;
+    commands[0].point1=(quantapdf_point){4,16};
+    commands[1].kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
+    commands[1].point1=(quantapdf_point){4,4}; commands[1].point2=(quantapdf_point){28,4};
+    commands[1].point3=(quantapdf_point){28,16};
+}
+static double point_segment_distance(double x,double y,quantapdf_point a,quantapdf_point z)
+{
+    double dx=z.x-a.x,dy=z.y-a.y,den=dx*dx+dy*dy;
+    double t=den==0.0 ? 0.0 : ((x-a.x)*dx+(y-a.y)*dy)/den;
+    t=fmax(0.0,fmin(1.0,t)); return hypot(x-a.x-t*dx,y-a.y-t*dy);
+}
+/* Independent polynomial/differential samples on the two true offset
+ * boundaries, compared with emitted float strip sides. No tessellator formula
+ * or subdivision parameters are reused to decide the expected boundary. */
+static void check_arch_offset(const quantapdf_composer_path_operation *fill,double scale)
+{
+    CHECK(fill->command_count%5u==0u);
+    for(size_t k=0;k<2000u;++k) {
+        double t=((double)k+.5)/2000.0;
+        double x=4+72*t*t-48*t*t*t,y=16-36*t+36*t*t;
+        double dx=144*t-144*t*t,dy=-36+72*t,n=hypot(dx,dy);
+        for(int side=-1;side<=1;side+=2) {
+            double qx=x-side*dy/n,qy=y+side*dx/n,best=1000000;
+            for(size_t i=0;i<fill->command_count;i+=5u) {
+                CHECK(fill->commands[i+4u].kind==QUANTAPDF_COMPOSER_PATH_CLOSE);
+                best=fmin(best,point_segment_distance(qx,qy,fill->commands[i].point1,fill->commands[i+1u].point1));
+                best=fmin(best,point_segment_distance(qx,qy,fill->commands[i+2u].point1,fill->commands[i+3u].point1));
+            }
+            CHECK(best*scale<1.0/32.0+1.0/128.0+0.000001);
+        }
+    }
+}
+static void test_cubics(void)
+{
+    quantapdf_ir_raster_image image={0},reference={0};
+    quantapdf_composer_path_operation fill={0},fit={0},failed={0};
+    quantapdf_native_device_plan plan={0};
+    cubic_arch(); image=render_with(&curve_limits);
+    CHECK(alpha(&image,16,7)==255 && alpha(&image,16,10)==0 && alpha(&image,4,16)==0);
+    /* A smooth primitive's artificial vertices must ignore authored join
+     * style. Only authored segment boundaries receive joins. */
+    ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
+    reference=render_with(&curve_limits); CHECK(memcmp(image.pixels,reference.pixels,image.size)==0);
+    quantapdf_ir_raster_image_dispose(&reference);
+    ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND;
+    reference=render_with(&curve_limits); CHECK(memcmp(image.pixels,reference.pixels,image.size)==0);
+    quantapdf_ir_raster_image_dispose(&reference);
+    /* Exact de Casteljau split at 1/2 leaves the geometric path unchanged. */
+    commands[1].point1=(quantapdf_point){4,10}; commands[1].point2=(quantapdf_point){10,7}; commands[1].point3=(quantapdf_point){16,7};
+    commands[2]=commands[1]; commands[2].point1=(quantapdf_point){22,7}; commands[2].point2=(quantapdf_point){28,10}; commands[2].point3=(quantapdf_point){28,16};
+    ops[0].value.path.command_count=3;
+    reference=render_with(&curve_limits); CHECK(memcmp(image.pixels,reference.pixels,image.size)==0);
+    quantapdf_ir_raster_image_dispose(&image); quantapdf_ir_raster_image_dispose(&reference);
+    cubic_arch();
+    OK(quantapdf_ir_stroke_polyline_outline_v1(&ops[0].value.path,4096,&fill));
+    CHECK(fill.commands[0].point1.y==16 && fill.commands[3].point1.y==16);
+    CHECK(fill.commands[0].point1.x==3 || fill.commands[0].point1.x==5);
+    check_arch_offset(&fill,1.0);
+    OK(quantapdf_native_device_plan_create("0 0 32 32","0 0 32 32","1",0,144,4096,&plan));
+    OK(quantapdf_ir_stroke_polyline_outline_v1_planned(&ops[0].value.path,4096,&plan,&fit));
+    CHECK(fit.command_count>fill.command_count); check_arch_offset(&fit,2.0);
+    OK(quantapdf_ir_raster_scoped_operations_v2_planned(&ir,0,&curve_limits,&plan,&image));
+    CHECK(image.width==64 && alpha(&image,32,14)==255); quantapdf_ir_raster_image_dispose(&image);
+    size_t edges=fill.command_count/5u*4u;
+    OK(quantapdf_ir_stroke_polyline_outline_v1(&ops[0].value.path,edges,&failed)); quantapdf_ir_stroke_polyline_dispose_v1(&failed);
+    memset(&failed,0x5a,sizeof(failed));
+    CHECK(quantapdf_ir_stroke_polyline_outline_v1(&ops[0].value.path,edges-1u,&failed)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(!failed.commands && !failed.command_count);
+    quantapdf_ir_stroke_polyline_dispose_v1(&fill); quantapdf_ir_stroke_polyline_dispose_v1(&fit);
+    /* Caps use the true endpoint tangents, including coincident endpoint
+     * controls from PDF v/y shorthand. */
+    cubic_arch(); ops[0].value.path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_SQUARE;
+    image=render_with(&curve_limits); CHECK(alpha(&image,4,16)==255 && alpha(&image,28,16)==255);
+    quantapdf_ir_raster_image_dispose(&image);
+    commands[1].point1=commands[0].point1; image=render_with(&curve_limits); quantapdf_ir_raster_image_dispose(&image);
+    cubic_arch(); commands[1].point2=commands[1].point3; image=render_with(&curve_limits); quantapdf_ir_raster_image_dispose(&image);
+    /* Nonuniform authored transforms apply after the complete outline. */
+    cubic_arch(); ops[0].value.path.options.transform=(quantapdf_affine_transform){-.7f,.2f,.3f,1,24,0};
+    image=render_with(&curve_limits); quantapdf_ir_raster_image_dispose(&image);
+    /* Explicit closure adds its authored closing line, and ignores all
+     * unused CLOSE point payload. Repeated contours remain a nonzero union. */
+    cubic_arch(); commands[2].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+    commands[2].point1=commands[2].point2=commands[2].point3=(quantapdf_point){NAN,NAN};
+    ops[0].value.path.command_count=3; image=render_with(&curve_limits);
+    CHECK(alpha(&image,16,16)==255 && alpha(&image,16,12)==0);
+    quantapdf_ir_raster_image_dispose(&image);
+    cubic_arch(); image=render_with(&curve_limits);
+    commands[2]=commands[0]; commands[3]=commands[1]; ops[0].value.path.command_count=4;
+    reference=render_with(&curve_limits); CHECK(memcmp(image.pixels,reference.pixels,image.size)==0);
+    quantapdf_ir_raster_image_dispose(&image); quantapdf_ir_raster_image_dispose(&reference);
+    /* Monotone collinear cubic equals a line despite nonuniform speed. */
+    cubic_arch(); commands[1].point1=commands[0].point1; commands[1].point2=commands[1].point3;
+    image=render_with(&curve_limits); commands[1].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO; commands[1].point1=commands[1].point3;
+    reference=render_with(&curve_limits); CHECK(memcmp(image.pixels,reference.pixels,image.size)==0);
+    quantapdf_ir_raster_image_dispose(&image); quantapdf_ir_raster_image_dispose(&reference);
+    /* Curved dash arc-length, interior stationary/cusp, precision and late
+     * layer failures are explicit, atomic refusals. */
+    cubic_arch(); dash(4,4,0); reject();
+    cubic_arch(); commands[1].point1=(quantapdf_point){28,16}; commands[1].point2=(quantapdf_point){4,16}; reject();
+    cubic_arch(); commands[1].point2.x=NAN; reject();
+    cubic_arch(); commands[1].point3.y=1000001; reject();
+    cubic_arch(); ops[0].value.path.options.transform=(quantapdf_affine_transform){1000000,0,0,1000000,0,0}; reject();
+    cubic_arch();
+    commands[0].point1.x+=999960; commands[1].point1.x+=999960;
+    commands[1].point2.x+=999960; commands[1].point3.x+=999960;
+    ops[0].value.path.options.transform.e=-999960; reject(); /* user-space float precision */
+    cubic_arch(); ops[0].value.path.options.transform=(quantapdf_affine_transform){1000,0,0,1000,0,0};
+    CHECK(quantapdf_ir_stroke_polyline_outline_v1(&ops[0].value.path,10000,&failed)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(!failed.commands && !failed.command_count);
+    cubic_arch(); ops[1]=ops[0]; ops[1].value.path.options.stroke_width=0; ir.operation_count=2; reject();
+    cubic_arch(); OK(quantapdf_ir_stroke_polyline_outline_v1(&ops[0].value.path,4096,&fill));
+    memset(commands,0,sizeof(commands)); memset(ops,0,sizeof(ops));
+    ops[0].kind=QUANTAPDF_COMPOSER_OPERATION_PATH; ops[0].value.path=fill;
+    OK(quantapdf_ir_raster_render_v1(&ir,0,&curve_limits,&image)); CHECK(alpha(&image,16,7)==255);
+    quantapdf_ir_raster_image_dispose(&image); quantapdf_ir_stroke_polyline_dispose_v1(&fill);
+}
 int main(void)
 {
     quantapdf_ir_raster_image image={0};
@@ -341,7 +464,7 @@ int main(void)
     init(); ops[0].value.path.dash_count=1; reject();
     init(); ops[0].value.path.dash_phase=1; reject();
     init(); ops[0].value.path.options.stroke_argb=0x80ff0000u; reject();
-    init(); commands[2].kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO; reject();
+    init(); commands[2].kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO; dash(4,4,0); reject();
     init(); commands[2].point1=commands[0].point1; reject();
     init(); commands[1].point1=commands[0].point1; commands[2].point1=commands[0].point1; reject();
     init(); commands[2].point1.x=1000001; reject();
@@ -370,5 +493,6 @@ int main(void)
     test_dashes();
     test_round();
     test_zero_dashes();
+    test_cubics();
     return 0;
 }

@@ -7,19 +7,20 @@
 extern "C" {
 #endif
 
-/* Detached, bounded user-space outline for opaque linear strokes.
- * MOVE/LINE/CLOSE, positive width, butt/square/round caps, miter/bevel/round joins.
+/* Detached, bounded user-space outline for opaque linear/solid cubic strokes.
+ * MOVE/LINE/CUBIC/CLOSE, positive width, butt/square/round caps, miter/bevel/round joins.
  * Nonnegative, not-all-zero dash arrays (<=64 items), odd repetition/phase.
- * Zero dashes use directed caps. No hairline, cubic, alpha or fallback.
+ * Zero dashes use directed caps. Cubic dash arc-length, hairline and alpha refuse.
+ * Solid cubics use bounded normal strips, true authored joins and endpoint caps.
  * The fill preserves the authored affine transform; callers borrow it
  * synchronously and dispose commands after sampling. Source/output must not
  * alias. Dispose earlier successful output before reuse; failure zeroes output. */
 quantapdf_status quantapdf_ir_stroke_polyline_outline_v1(
     const quantapdf_composer_path_operation *source, size_t max_edges,
     quantapdf_composer_path_operation *out_fill);
-/* Round arc subdivision accounts for the final FIT plan as well as the
- * authored transform. The returned fill still lives in user space; sample
- * with this same plan. Chord error <=1/64 px, float error <=1/128 px. */
+/* Curve detail accounts for the final FIT plan and authored transform. The
+ * fill stays in user space; sample with this same plan. Round chord error
+ * <=1/64 px, cubic strip error <=1/32 px, float error <=1/128 px. */
 quantapdf_status quantapdf_ir_stroke_polyline_outline_v1_planned(
     const quantapdf_composer_path_operation *source,size_t max_edges,
     const quantapdf_native_device_plan *plan,quantapdf_composer_path_operation *out_fill);

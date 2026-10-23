@@ -1,6 +1,6 @@
-# Native linear Stroke profile
+# Native linear and solid cubic Stroke profile
 
-The private scoped renderer V2 expands straight Stroke paths into owned fill
+The private scoped renderer V2 expands admitted linear and solid cubic Stroke paths into owned fill
 geometry before the native V1 sample/Clip consumer. This advances #213 toward
 #208. Public page rendering still uses PDFium; the production runtime, SDK
 linkage and final removal gates remain open. No public C11 ABI changes.
@@ -55,6 +55,58 @@ must be sampled with the same plan. No plan/provider pointer escapes. The
 unplanned entry point uses the authored transform and an identity device map.
 An excessive segment count, unrepresentable float precision, singular/nonfinite
 transform or insufficient output/edge/sample capacity fails atomically.
+
+## Solid cubic normal strips
+
+Solid MOVE/LINE/CUBIC/CLOSE paths also use the same private V2 entry points.
+A regular cubic is subdivided with de Casteljau into convex quadrilateral
+normal strips. Adjacent leaves share the same exact tangent cross-section;
+there is no authored line join at an artificial subdivision vertex. Joins
+between authored line/cubic primitives use their actual endpoint tangents.
+Caps likewise use the actual tangent, including the limiting direction for
+coincident endpoint controls produced by PDF `v` and `y`. Multiple subpaths,
+explicit closing lines and closed cubic loops retain these semantics.
+
+The centerline alone is insufficient to certify a thick Stroke: a small
+centerline error can hide a large normal/offset error. For leaf controls
+`P0..P3`, the same-parameter centerline deviation from the endpoint chord is
+bounded by the maximum norm of
+`P1-(2*P0+P3)/3` and `P2-(P0+2*P3)/3` (the difference's Bernstein controls).
+The derivative controls `di=P(i+1)-Pi` must lie in a common forward cone about
+the chord. Nonzero controls must have strictly positive chord projection;
+zero controls are allowed. Thus the derivative cannot vanish in the open
+leaf interval. If `T` bounds absolute perpendicular/forward ratios for those
+controls and the endpoint unit tangents, the normal interpolation error is
+at most `2*T`.
+
+A second-order bound avoids excessive detail where endpoint derivatives are
+nonzero. Write `m0=|d0|`, `m2=|d2|`, `U0=d0/m0`, `U2=d2/m2`, and
+`K=|d1-(m0*U2+m2*U0)/2|`. The derivative divided by
+`(1-t)*m0+t*m2` differs from the linear unit-tangent interpolation by at most
+`K/(2*min(m0,m2))`. Its normalization adds at most that error again plus the
+interpolated unit vectors' norm deficit, bounded by `|U0-U2|²/4`.
+Thus normal error is at most `|U0-U2|²/4+K/min(m0,m2)`, plus measured endpoint
+tangent discrepancies from shared subdivision arithmetic. The smaller of
+this and the cone bound is used. A monotone collinear cubic is exactly its
+line segment as a geometric set, regardless of parameter speed.
+
+For half-width `r`, the center bound plus `r` times the normal bound must map
+to at most 1/32 pixel under the combined authored/FIT Frobenius bound. Every
+emitted vertex in a curved operation, including caps and joins, also passes
+the measured 1/128-pixel float-storage check. Curve strip geometry is thereby
+within 5/128 pixel, below 1/16 pixel; sampling/antialiasing remains governed by
+its separate source-oracle tolerances. Both the double and stored-float quad
+must be strictly convex. Offset folds or insufficient precision/detail refuse
+rather than publishing an uncertified polygon. Returned geometry remains
+owned in user space and must be sampled with the same borrowed device plan.
+
+Subdivision has maximum depth 16, 65536 visited nodes per operation and at
+most 1024 accepted strips/linear segments across all its subpaths. The existing
+10240-command, coordinate, actual expanded-edge and global sample-work limits
+also apply. Internal stationary points/cusps and exhausted limits refuse
+atomically. An operation containing both a cubic and a dash array is still
+unsupported: curve arc-length, dash phase and dash endpoint tangents are a
+separate qualification contract. No fixed-step or linear fallback is used.
 
 ## Dash pattern
 
@@ -119,9 +171,9 @@ are disposed on success or any failure. No source, Graph, qpdf, PDFium or
 provider state is retained. A late unsupported layer discards
 the complete final image. Every failure resets the caller's image output.
 
-Hairlines/zero width, curves, alpha,
+Hairlines/zero width, dashed curves, alpha,
 paint resources, exact reversal/cusps, move-only/all-zero subpaths, closed
-subpaths with fewer than three distinct vertices, invalid coordinates and
+linear subpaths with fewer than three distinct vertices, invalid coordinates and
 exhausted budgets remain explicit refusals. This profile requires MOVE after
 CLOSE to begin another subpath. Fill+Stroke combined operations remain outside
 this profile. No provider fallback or best-effort partial painting exists.
@@ -166,8 +218,8 @@ Its 22 positives cover horizontal/vertical/diagonal caps, both turn directions,
 acute/closed/short joins, subpaths, positive dashes and seams, affine/reflected
 transforms, nested W/W* Clip, q/Q restore, all-off and thin strokes, plus two
 144-DPI FIT comparisons with direct PDFium renders on the same 240x240 grid.
-Three additional source negatives exercise hairline, cubic and dense zero-dash
-expansion refusals. The mean/gross/probe thresholds are unchanged. Source and Graph are
+Three additional source negatives exercise hairline, dashed-cubic and dense
+zero-dash expansion refusals. The mean/gross/probe thresholds are unchanged. Source and Graph are
 destroyed before native rasterization, and detached pixels survive IR disposal.
 
 `quantapdf.native_zero_dash_oracle` adds 22 generated original-source positives
@@ -193,6 +245,24 @@ pinned binary is an inference):
 The native compiler preserves exact zeros and mathematical period; it neither
 copies that adjustment nor weakens the existing oracle pixel thresholds.
 The two original files retain their unreduced authored phases and byte guards.
+
+`quantapdf.native_cubic_stroke_oracle` adds 24 generated source positives and
+four negatives. Cases include endpoint caps, smooth primitives under all
+join styles, inflections, reversing control polygons, authored line/cubic
+joins, closed four-cubic circles and single-cubic loops, subpaths, `v`/`y`,
+nonuniform/reflected transforms, q/Q and W/W* Clip, wide strokes and 144-DPI FIT.
+The new cubic fixtures explicitly budget up to 4096 expanded edges and
+800000000 sample tests (four times that sample/pixel budget at 144 DPI).
+Existing modes and pixel thresholds are unchanged. Source/Graph are destroyed
+before native rendering and the original bytes are guarded through direct
+PDFium comparison, as in the other source modes.
+
+Pure C11 goldens independently evaluate an analytic arch and its two true
+normal-offset boundaries at 2000 parameter positions, measuring distances to
+the emitted float strip sides at 72/144 DPI. They also verify true tangent
+endpoints, split equivalence, join-style invariance inside a primitive,
+collinear speed equivalence, endpoint-control limits, exact expanded edge
+capacity, immutable input, detached lifetime and atomic late/refusal behavior.
 
 These are generated feature fixtures. They add no independently published
 PDFs or formal external W* positives to the existing four-document corpus.
