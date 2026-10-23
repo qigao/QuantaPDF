@@ -2819,6 +2819,7 @@ int test_external_yworks_svg_w_pixels(const char *filename,
         "  \"reference_red_pixels\": %zu,\n"
         "  \"native_red_pixels\": %zu,\n"
         "  \"overlap_red_pixels\": %zu,\n"
+        "  \"external_wstar_pixel_supported_count\": 0,\n"
         "  \"generated_fixture_count\": 0\n"
         "}\n",WIDTH,HEIGHT,sizeof(goldens)/sizeof(goldens[0]),
         mean,gross,ref_red,native_red,overlap_red);
