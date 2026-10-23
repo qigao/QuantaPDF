@@ -1,0 +1,14 @@
+name: Probe qpdf corpus for external W-star candidates
+on:
+  push:
+    branches:
+      - probe/262-qpdf-corpus
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan pinned qpdf PDF corpus
+        run: python3 tools/qualification/probe_qpdf_corpus_wstar.py
