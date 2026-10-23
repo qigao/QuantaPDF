@@ -392,6 +392,80 @@ static void test_zero_length_caps(void)
     dash(4,4,0); reject();
 }
 
+/* Inert MOVE subpaths are semantically empty, not malformed Stroke. */
+static void test_inert_move_subpaths(void)
+{
+    quantapdf_ir_raster_image image={0},reference={0};
+    /* No authored segment: success and exact transparent pixels. */
+    init(); ops[0].value.path.command_count=2;
+    commands[1].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+    commands[1].point1=(quantapdf_point){20,10};
+    image=render();
+    for(size_t i=0;i<image.size;i+=4u) CHECK(image.pixels[i+3u]==0u);
+    quantapdf_ir_raster_image_dispose(&image);
+
+    /* Dash/phase state cannot invent painted length on MOVE-only paths. */
+    init(); ops[0].value.path.command_count=2;
+    commands[1].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+    commands[1].point1=(quantapdf_point){20,10};
+    dash(4,4,1);
+    image=render();
+    for(size_t i=0;i<image.size;i+=4u) CHECK(image.pixels[i+3u]==0u);
+    quantapdf_ir_raster_image_dispose(&image);
+
+    /* An inert MOVE prelude must not change a subsequent real line. */
+    init(); commands[0].point1=(quantapdf_point){2,2};
+    commands[1].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+    commands[1].point1=(quantapdf_point){8,16};
+    commands[2].point1=(quantapdf_point){16,16};
+    image=render();
+    init(); ops[0].value.path.command_count=2;
+    commands[1].point1=(quantapdf_point){16,16};
+    reference=render();
+    CHECK(image.size==reference.size &&
+        memcmp(image.pixels,reference.pixels,image.size)==0);
+    quantapdf_ir_raster_image_dispose(&image);
+    quantapdf_ir_raster_image_dispose(&reference);
+
+    /* Inert MOVE preceding a solid cubic must not fail the curved compiler. */
+    init(); ops[0].value.path.command_count=3;
+    ops[0].value.path.options.stroke_width=2;
+    commands[0].point1=(quantapdf_point){2,2};
+    commands[1].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+    commands[1].point1=(quantapdf_point){4,16};
+    commands[2].kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
+    commands[2].point1=(quantapdf_point){4,4};
+    commands[2].point2=(quantapdf_point){28,4};
+    commands[2].point3=(quantapdf_point){28,16};
+    image=render_with(&curve_limits);
+    cubic_arch();
+    reference=render_with(&curve_limits);
+    CHECK(image.size==reference.size &&
+        memcmp(image.pixels,reference.pixels,image.size)==0);
+    quantapdf_ir_raster_image_dispose(&image);
+    quantapdf_ir_raster_image_dispose(&reference);
+
+    /* A close-only degenerate and late invalid geometry still fail atomically.
+     * An inert MOVE must not bypass transform and expanded-edge validation. */
+    init(); ops[0].value.path.command_count=2;
+    commands[1].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+    reject();
+    init(); commands[1].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+    commands[1].point1=(quantapdf_point){20,10};
+    commands[2].point1.x=NAN; reject();
+    init(); ops[0].value.path.command_count=2;
+    commands[1].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+    commands[1].point1=(quantapdf_point){20,10};
+    ops[0].value.path.options.transform.a=NAN; reject();
+    init(); ops[0].value.path.command_count=2;
+    commands[1].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+    commands[1].point1=(quantapdf_point){20,10};
+    quantapdf_ir_raster_v1_limits bounded=limits; bounded.max_edges=1;
+    CHECK(quantapdf_ir_raster_scoped_operations_v2(&ir,0,&bounded,&image)
+        ==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(!image.pixels && !image.size);
+}
+
 static void test_cubics(void)
 {
     quantapdf_ir_raster_image image={0},reference={0};
@@ -573,6 +647,7 @@ int main(void)
     test_round();
     test_zero_dashes();
     test_zero_length_caps();
+    test_inert_move_subpaths();
     test_cubics();
     return 0;
 }
