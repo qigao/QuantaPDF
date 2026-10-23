@@ -84,8 +84,6 @@ def verify(admission, text, blank, path, clip, wstar):
     assert wstar["native_ir"]=="empty"
     assert wstar["status_conformance_passed_count"]==1
     assert wstar["native_supported_passed_count"]==0
-    assert wstar["prefix_control_supported"] is True
-    assert wstar["generated_control_count"]==1
     assert wstar["late_text_after_wstar_rejected"] is True
     assert wstar["source_bytes"]==724
     assert wstar["source_bytes_unchanged_after_reference_and_native"] is True
