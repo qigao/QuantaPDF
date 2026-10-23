@@ -583,8 +583,8 @@ static void test_closed_single_point_caps(void)
     CHECK(!image.pixels && !image.size);
 }
 
-/* Two-point closed path A->B->CLOSE has two reversal joins. Qualify
- * only bounded bevel/round joins, not implicit miter or authored A->B->A. */
+/* Two-point closed path A->B->CLOSE has two reversal joins. A finite
+ * miter limit falls back to bevel at each exact 180-degree cusp. */
 static void test_closed_two_point_joins(void)
 {
     quantapdf_ir_raster_image closed={0},reference={0};
@@ -599,6 +599,24 @@ static void test_closed_two_point_joins(void)
         memcmp(closed.pixels,reference.pixels,closed.size)==0);
     quantapdf_ir_raster_image_dispose(&closed);
     quantapdf_ir_raster_image_dispose(&reference);
+
+    /* Exact reversals with Miter joins use the finite-limit bevel fallback,
+     * independent of a valid miter-limit value. */
+    const double miter_limits[3]={1.0,10.0,1000.0};
+    for(size_t i=0;i<3u;++i) {
+        init(); ops[0].value.path.command_count=3;
+        commands[2].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+        ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_MITER;
+        ops[0].value.path.options.miter_limit=miter_limits[i];
+        closed=render();
+        init(); ops[0].value.path.command_count=2;
+        ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
+        reference=render();
+        CHECK(closed.size==reference.size &&
+            memcmp(closed.pixels,reference.pixels,closed.size)==0);
+        quantapdf_ir_raster_image_dispose(&closed);
+        quantapdf_ir_raster_image_dispose(&reference);
+    }
 
     init(); ops[0].value.path.command_count=3;
     commands[2].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
@@ -659,11 +677,15 @@ static void test_closed_two_point_joins(void)
     quantapdf_ir_raster_image_dispose(&closed);
     quantapdf_ir_raster_image_dispose(&reference);
 
-    /* Do not silently interpret unqualified miter cusps, zero-width strokes,
+    /* Do not silently interpret nonterminal cusps, zero-width strokes,
      * open reversals or dashed closures as this narrow profile. */
+    init(); ops[0].value.path.command_count=4;
+    commands[2].point1=commands[0].point1;
+    commands[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    commands[3].point1=(quantapdf_point){24,20};
+    reject(); /* nonterminal miter cusp */
     init(); ops[0].value.path.command_count=3;
     commands[2].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
-    reject();
     ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
     dash(4,4,0); reject();
     init(); ops[0].value.path.command_count=3;
@@ -685,11 +707,12 @@ static void test_closed_two_point_joins(void)
 }
 
 /* Exactly A->B->A->CLOSE has the same traversed closed trace as
- * A->B->CLOSE, and only Bevel/Round joins have a bounded qualified contract. */
+ * A->B->CLOSE; a finite Miter limit falls back to bevel at its reversal. */
 static void test_explicit_closed_two_point_return(void)
 {
     quantapdf_ir_raster_image actual={0},reference={0};
-    const quantapdf_composer_line_join joins[2]={
+    const quantapdf_composer_line_join joins[3]={
+        QUANTAPDF_COMPOSER_LINE_JOIN_MITER,
         QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL,
         QUANTAPDF_COMPOSER_LINE_JOIN_ROUND
     };
@@ -736,12 +759,17 @@ static void test_explicit_closed_two_point_return(void)
     quantapdf_ir_raster_image_dispose(&actual);
     quantapdf_ir_raster_image_dispose(&reference);
 
-    /* Fail closed for miter, dash, an open cusp and any return that does
-     * not terminate immediately at CLOSE. No partial output is published. */
+    /* Fail closed for nonterminal cusps, dash and any return that does not
+     * terminate immediately at CLOSE. No partial output is published. */
+    init(); ops[0].value.path.command_count=5;
+    commands[2].point1=commands[0].point1;
+    commands[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    commands[3].point1=(quantapdf_point){24,20};
+    commands[4].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+    reject(); /* nonterminal exact miter cusp */
     init(); ops[0].value.path.command_count=4;
     commands[2].point1=commands[0].point1;
     commands[3].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
-    reject(); /* default Miter */
     ops[0].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL;
     dash(4,4,0); reject();
     init(); ops[0].value.path.command_count=4;
