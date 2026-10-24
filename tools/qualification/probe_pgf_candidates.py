@@ -36,7 +36,7 @@ BASIC = PATH | END_PATH | {
     b"W", b"W*", b"q", b"Q", b"cm", b"w", b"J", b"j", b"M", b"d",
     b"ri", b"i", b"g", b"G", b"rg", b"RG", b"k", b"K", b"cs", b"CS",
 }
-PDF_WHITESPACE = frozenset(b"\\x00\\t\\n\\f\\r ")
+PDF_WHITESPACE = frozenset(b"\x00\t\n\f\r ")
 
 
 class Incomplete(Exception):
