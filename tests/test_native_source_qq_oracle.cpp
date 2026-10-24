@@ -3093,7 +3093,13 @@ int test_external_tikz_wstar_pixels(const char *filename,
     quantapdf_pdf_path_lower_limits bounded=lower_limits;
     bounded.max_painted_paths=8u;
     quantapdf_ir detached{};
-    OK(snapshot_lower(&detached,0u,4u,8u,filename,&bounded));
+    const quantapdf_status lower_status=
+        snapshot_lower(&detached,0u,4u,8u,filename,&bounded);
+    if(lower_status!=QUANTAPDF_OK)
+        std::fprintf(stderr,
+            "[texample-wstar-lowering] status=%d page=%zux%zu\n",
+            (int)lower_status,width,height);
+    CHECK(lower_status==QUANTAPDF_OK);
     const clip_leaf_counts winding=inspect_clip_fill_rules(detached);
     const size_t painted_count=detached.operation_count;
     const size_t clip_count=detached.resources.clip_count;
