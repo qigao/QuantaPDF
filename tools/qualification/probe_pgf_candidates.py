@@ -97,6 +97,7 @@ def scan_pdf(data: bytes, *, allow_nonzero_xref_warning: bool = False) -> dict[s
         "page_count": None,
         "page_content_wstar_count": None,
         "form_wstar_count": None,
+        "annotation_appearance_wstar_count": None,
         "effective_wstar_count": None,
         "page_text_operator_count": None,
         "native_subgraph_review_required": True,
@@ -134,6 +135,7 @@ def scan_pdf(data: bytes, *, allow_nonzero_xref_warning: bool = False) -> dict[s
                 "index": index,
                 "content_stream_wstar": 0,
                 "form_xobject_wstar": 0,
+                "annotation_appearance_wstar_count": 0,
                 "text_operators": 0,
                 "inline_images": 0,
                 "image_xobject_calls": 0,
@@ -146,7 +148,10 @@ def scan_pdf(data: bytes, *, allow_nonzero_xref_warning: bool = False) -> dict[s
             active_forms: set[str] = set()
             used = [0]
 
-            def analyze(content: Any, resources: Any, origin: str, depth: int) -> None:
+            def analyze(
+                content: Any, resources: Any, origin: str, depth: int,
+                context: str = "page",
+            ) -> None:
                 if depth > MAX_FORM_DEPTH:
                     raise Incomplete("form_depth_limit")
                 res = require_dict(resources, "effective /Resources")
@@ -165,8 +170,11 @@ def scan_pdf(data: bytes, *, allow_nonzero_xref_warning: bool = False) -> dict[s
                     if used[0] > MAX_OPERATIONS:
                         raise Incomplete("operation_limit")
                     if operator == b"W*":
-                        field = "content_stream_wstar" if depth == 0 else "form_xobject_wstar"
-                        details[field] += 1
+                        if context == "annotation":
+                            details["annotation_appearance_wstar_count"] += 1
+                        else:
+                            field = "content_stream_wstar" if depth == 0 else "form_xobject_wstar"
+                            details[field] += 1
                         details["clip_evidence"].append({
                             "origin": origin, "operator": "W*", **path_evidence(path)
                         })
@@ -205,7 +213,7 @@ def scan_pdf(data: bytes, *, allow_nonzero_xref_warning: bool = False) -> dict[s
                             active_forms.add(identity)
                             try:
                                 analyze(target, target.get("/Resources", res),
-                                        f"{origin}/Form({name})", depth + 1)
+                                        f"{origin}/Form({name})", depth + 1, context)
                             finally:
                                 active_forms.remove(identity)
                         else:
@@ -223,11 +231,46 @@ def scan_pdf(data: bytes, *, allow_nonzero_xref_warning: bool = False) -> dict[s
                 # explicitly present content must NOT become a zero hit.
                 analyze(page.raw_get("/Contents"),
                         page.get("/Resources", DictionaryObject()), "page", 0)
-            if page.get("/Annots"):
-                # Annotation appearance streams can paint content and W* too.
-                # Until their appearance/resource graph is traversed, a zero-hit
-                # result for this document would be incomplete evidence.
-                raise Incomplete("annotations_not_scanned")
+            # Static page rendering uses each annotation's normal appearance
+            # (/AP /N). Rollover/down appearances are interactive UI states and
+            # are not part of the ordinary PDF page render. If /N is a state
+            # dictionary, /AS selects the appearance that is actually active.
+            annots_value = page.get("/Annots")
+            if annots_value is not None:
+                annots = resolved(annots_value)
+                if not isinstance(annots, ArrayObject):
+                    raise Incomplete("annotations_not_array")
+                for annot_index, annot_ref in enumerate(annots):
+                    annot = require_dict(annot_ref, f"annotation[{annot_index}]")
+                    ap_value = annot.get("/AP")
+                    if ap_value is None:
+                        continue
+                    ap = require_dict(ap_value, f"annotation[{annot_index}]/AP")
+                    normal_ref = ap.get("/N")
+                    if normal_ref is None:
+                        # No normal appearance stream means no PDF content stream
+                        # is painted for this annotation in ordinary page rendering.
+                        continue
+                    normal = resolved(normal_ref)
+                    if isinstance(normal, DictionaryObject):
+                        state = annot.get("/AS")
+                        if state is None or state not in normal:
+                            raise Incomplete(
+                                f"annotation[{annot_index}]: missing normal appearance state"
+                            )
+                        normal_ref = normal.raw_get(state)
+                        normal = resolved(normal_ref)
+                    if not isinstance(normal, StreamObject):
+                        raise Incomplete(
+                            f"annotation[{annot_index}]/AP/N: expected appearance stream"
+                        )
+                    appearance_resources = normal.get(
+                        "/Resources", page.get("/Resources", DictionaryObject())
+                    )
+                    analyze(
+                        normal, appearance_resources,
+                        f"annotation[{annot_index}]/AP/N", 0, "annotation",
+                    )
             details["native_raster_risks"] = sorted(set(details["native_raster_risks"]))
             details["operator_counts"] = dict(sorted(details["operator_counts"].items()))
             details["risk_operator_counts"] = dict(sorted(details["risk_operator_counts"].items()))
@@ -253,8 +296,12 @@ def scan_pdf(data: bytes, *, allow_nonzero_xref_warning: bool = False) -> dict[s
         result["form_wstar_count"] = sum(
             x["form_xobject_wstar"] for x in result["pages"]
         )
+        result["annotation_appearance_wstar_count"] = sum(
+            x["annotation_appearance_wstar_count"] for x in result["pages"]
+        )
         result["effective_wstar_count"] = (
-            result["page_content_wstar_count"] + result["form_wstar_count"]
+            result["page_content_wstar_count"] + result["form_wstar_count"] +
+            result["annotation_appearance_wstar_count"]
         )
         result["page_text_operator_count"] = sum(
             x["text_operators"] for x in result["pages"]
