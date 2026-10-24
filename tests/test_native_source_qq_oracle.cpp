@@ -3259,24 +3259,58 @@ int test_external_tikz_wstar_pixels(const char *filename,
         page_numbers.rotation,72u,pixel_count,&device_plan));
     CHECK(device_plan.width==width && device_plan.height==height);
 
-    /* Try the complete original page first. The candidate includes two
-       authored thin strokes outside the current detached Native Raster
-       stroke profile, so this must reject atomically rather than silently
-       drop those operations. The qualified pixel oracle below is explicitly
-       scoped to the orange fill operation and its actual W* clip. */
-    quantapdf_ir_raster_image full_page_native{};
-    const quantapdf_status full_page_status=
-        quantapdf_ir_raster_scoped_operations_v1_planned(
+    /* Render the complete original page through the expanded, still bounded
+       pure-C11 stroke profile. This source's two outline paths are cubic;
+       V1 deliberately rejects them, while V2 has a separate, explicit
+       cubic-stroke profile. No operation is omitted from this whole-page pass. */
+    quantapdf_ir_raster_image full_page_native{},full_page_repeat{};
+    quantapdf_status full_page_status=
+        quantapdf_ir_raster_scoped_operations_v2_planned(
             &detached,0u,&limits,&device_plan,&full_page_native);
-    std::fprintf(stderr,
-        "[texample-wstar-full-page] status=%d pixels=%p size=%zu\n",
+    std::fprintf(stderr,"[texample-wstar-full-page] status=%d pixels=%p size=%zu\n",
         (int)full_page_status,(void*)full_page_native.pixels,
         full_page_native.size);
-    CHECK(full_page_status==QUANTAPDF_ERROR_UNSUPPORTED &&
-          full_page_native.pixels==nullptr && full_page_native.size==0u &&
-          full_page_native.width==0u && full_page_native.height==0u &&
-          full_page_native.stride==0u);
-    quantapdf_ir_raster_image_dispose(&full_page_native);
+    CHECK(full_page_status==QUANTAPDF_OK &&
+          full_page_native.pixels!=nullptr &&
+          full_page_native.width==width && full_page_native.height==height &&
+          full_page_native.stride==width*4u &&
+          full_page_native.size==pixel_count*4u);
+    OK(quantapdf_ir_raster_scoped_operations_v2_planned(
+        &detached,0u,&limits,&device_plan,&full_page_repeat));
+    const bool full_page_repeat_equal=
+        full_page_repeat.pixels!=nullptr &&
+        full_page_repeat.width==width && full_page_repeat.height==height &&
+        full_page_repeat.stride==full_page_native.stride &&
+        full_page_repeat.size==full_page_native.size &&
+        std::memcmp(full_page_native.pixels,full_page_repeat.pixels,
+                    full_page_native.size)==0;
+    CHECK(full_page_repeat_equal);
+
+    double full_page_total=0.0;
+    size_t full_page_gross=0u;
+    for(size_t y=0u;y<height;++y) {
+        for(size_t x=0u;x<width;++x) {
+            const unsigned char *ref=pdfium.at(x,y);
+            const unsigned char *rgba=
+                full_page_native.pixels+y*full_page_native.stride+4u*x;
+            unsigned worst=0u;
+            for(size_t channel=0u;channel<3u;++channel) {
+                const unsigned actual=on_white(rgba,channel);
+                const unsigned delta=actual>(unsigned)ref[channel]
+                    ? actual-(unsigned)ref[channel]
+                    : (unsigned)ref[channel]-actual;
+                full_page_total+=(double)delta;
+                if(delta>worst) worst=delta;
+            }
+            if(worst>64u) ++full_page_gross;
+        }
+    }
+    const double full_page_mean=
+        full_page_total/(double)(pixel_count*3u);
+    std::fprintf(stderr,
+        "[texample-wstar-full-page] mean=%.6f gross=%zu repeat-identical=%d\n",
+        full_page_mean,full_page_gross,(int)full_page_repeat_equal);
+    CHECK(full_page_mean<=1.0 && full_page_gross<=100u);
     CHECK(detached.operation_count==3u);
     quantapdf_composer_operation projected_operation=detached.operations[0];
     CHECK(projected_operation.kind==QUANTAPDF_COMPOSER_OPERATION_PATH);
@@ -3465,8 +3499,11 @@ int test_external_tikz_wstar_pixels(const char *filename,
         "  \"reference_oracle\": \"original-pdfium\",\n"
         "  \"original_source_pdfium_oracle\": \"passed\",\n"
         "  \"detached_c11_native_raster\": \"passed\",\n"
-        "  \"full_page_native_raster\": \"rejected_unsupported_stroke_profile\",\n"
-        "  \"comparison_scope\": \"orange-fill-mask-excluding-source-strokes\",\n"
+        "  \"full_page_native_raster\": \"passed\",\n"
+        "  \"full_page_mean_rgb_error\": %.6f,\n"
+        "  \"full_page_gross_error_pixels\": %zu,\n"
+        "  \"full_page_repeat_rgba_identical\": %s,\n"
+        "  \"comparison_scope\": \"full-page-and-orange-fill-mask-control\",\n"
         "  \"native_ir\": \"lowered\",\n"
         "  \"source_sha256\": \"%s\",\n"
         "  \"source_and_graph_released_before_raster\": true,\n"
@@ -3495,7 +3532,8 @@ int test_external_tikz_wstar_pixels(const char *filename,
         clip_count,winding.nonzero,winding.evenodd,
         winding.intersections,union_orange,reference_orange,native_orange,
         overlap_orange,nonzero_orange,control_diff_pixels,mean,gross,
-        fixed_interior_goldens);
+        fixed_interior_goldens,full_page_mean,full_page_gross,
+        full_page_repeat_equal ? "true" : "false");
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
