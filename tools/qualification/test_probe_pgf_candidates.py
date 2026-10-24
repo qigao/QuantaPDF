@@ -60,10 +60,10 @@ def ordinary_pdf(contents=None, forms=None, images=False, annotations=False) -> 
 
 
 
-def whitespace_prefixed_pdf(pdf: bytes, prefix: bytes = b"\\n\\n") -> bytes:
+def whitespace_prefixed_pdf(pdf: bytes, prefix: bytes = b"\n\n") -> bytes:
     """Add a PDF-whitespace header prefix and adjust original xref offsets."""
     data = bytearray(pdf)
-    xref_at = data.rfind(b"\\nxref\\n") + 1
+    xref_at = data.rfind(b"\nxref\n") + 1
     trailer_at = data.find(b"trailer", xref_at)
     if xref_at <= 0 or trailer_at < 0:
         raise ValueError("expected classic xref table")
@@ -74,7 +74,7 @@ def whitespace_prefixed_pdf(pdf: bytes, prefix: bytes = b"\\n\\n") -> bytes:
             lines[index] = f"{int(line[:10]) + len(prefix):010d}".encode() + line[10:]
     data[xref_at:trailer_at] = b"".join(lines)
     startxref_at = data.rfind(b"startxref")
-    number_start = data.find(b"\\n", startxref_at) + 1
+    number_start = data.find(b"\n", startxref_at) + 1
     number_end = data.find(b"\\n", number_start)
     data[number_start:number_end] = str(
         int(data[number_start:number_end]) + len(prefix)
@@ -187,8 +187,8 @@ class ProbeTests(unittest.TestCase):
         original = ordinary_pdf([b"0 0 10 10 re W* n"])
         source = whitespace_prefixed_pdf(original)
         result = scan_pdf(source)
-        self.assertEqual(source[:2], b"\\n\\n")
-        self.assertEqual(source[2:], source[2:])  # scanner must not rewrite source bytes
+        self.assertEqual(source[:2], b"\n\n")
+
         self.assertEqual(result["pdf_header_offset_bytes"], 2)
         self.assertEqual(result["scan_status"], "wstar_found", result["reason"])
         self.assertEqual(result["effective_wstar_count"], 1)
