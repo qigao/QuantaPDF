@@ -13,7 +13,7 @@ from pypdf.generic import (
 from probe_pgf_candidates import scan_pdf
 
 
-def ordinary_pdf(contents=None, forms=None, images=False) -> bytes:
+def ordinary_pdf(contents=None, forms=None, images=False, annotations=False) -> bytes:
     writer = PdfWriter()
     page = writer.add_blank_page(width=100, height=100)
     streams = []
@@ -45,6 +45,15 @@ def ordinary_pdf(contents=None, forms=None, images=False) -> bytes:
         page[NameObject("/Resources")] = DictionaryObject({
             NameObject("/XObject"): xobjs,
         })
+    if annotations:
+        annot = DictionaryObject({
+            NameObject("/Type"): NameObject("/Annot"),
+            NameObject("/Subtype"): NameObject("/Text"),
+            NameObject("/Rect"): ArrayObject([
+                NumberObject(0), NumberObject(0), NumberObject(10), NumberObject(10)
+            ]),
+        })
+        page[NameObject("/Annots")] = ArrayObject([writer._add_object(annot)])
     output = io.BytesIO()
     writer.write(output)
     return output.getvalue()
@@ -122,6 +131,13 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(result["scan_status"], "wstar_found")
         self.assertEqual(result["page_content_wstar_count"], 0)
         self.assertEqual(result["form_wstar_count"], 1)
+        self.assertIn("form_xobject", result["pages"][0]["native_raster_risks"])
+
+    def test_unscanned_annotation_appearance_is_inconclusive(self):
+        result = scan_pdf(ordinary_pdf([b"0 0 5 5 re f"], annotations=True))
+        self.assertEqual(result["scan_status"], "inconclusive")
+        self.assertIsNone(result["effective_wstar_count"])
+        self.assertIn("annotations_not_scanned", result["reason"])
 
     def test_image_does_not_invalidate_operator_count(self):
         result = scan_pdf(ordinary_pdf(
