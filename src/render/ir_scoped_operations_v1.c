@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 static uint64_t scoped_component_weight(size_t count)
 {
@@ -359,6 +360,16 @@ static quantapdf_status scoped_operations_v1_impl(
                 active_counts[i], &layer);
         }
         if (status != QUANTAPDF_OK) {
+            if (polyline_strokes)
+                fprintf(stderr,
+                    "[scoped-v2-layer] i=%zu status=%d sample_budget=%zu "
+                    "edge_budget=%zu source_weight=%llu total_weight=%llu "
+                    "commands=%zu clip_leaves=%zu\n",
+                    i,(int)status,per_operation.max_sample_tests,
+                    per_operation.max_edges,
+                    (unsigned long long)operation_weights[i],
+                    (unsigned long long)total_weight,
+                    source->value.path.command_count,active_counts[i]);
             goto failure;
         }
         if (layer.width != width || layer.height != height ||
