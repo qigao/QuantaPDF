@@ -57,7 +57,7 @@ if(NOT result STREQUAL "passed"
    OR NOT original_source_pdfium_oracle STREQUAL "passed"
    OR NOT detached_c11_native_raster STREQUAL "passed"
    OR NOT full_page_native_raster STREQUAL "rejected_unsupported_stroke_profile"
-   OR NOT comparison_scope STREQUAL "orange-fill-mask-only"
+   OR NOT comparison_scope STREQUAL "orange-fill-mask-excluding-source-strokes"
    OR NOT native_ir STREQUAL "lowered"
    OR NOT source_sha256 STREQUAL PINNED_SHA256
    OR NOT source_and_graph_released_before_raster
