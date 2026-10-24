@@ -1,3 +1,4 @@
+# Regression tests for decoded PDF content scanning.
 """Test the quarantined #262 PDF content scanner; no external corpus needed."""
 from __future__ import annotations
 
