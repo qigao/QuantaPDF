@@ -12,7 +12,26 @@
       "license_evidence": "Wikimedia Commons file page identifies the author, own-work source, and CC BY-SA 4.0 license.",
       "producer": "Microsoft PowerPoint for Office 365",
       "reported_file_size": "1.36 MB",
-      "formal_corpus": false
+      "formal_corpus": false,
+      "observed_sha256": "b3cbff4e7bdbb48b92ff5c6c120964e05cddbcb5a29a43e314e62d834065a221",
+      "observed_size_bytes": 1426600,
+      "qpdf_check": "exit 0",
+      "scan_status": "wstar_found",
+      "qualification_status": "rejected_rectangular_clips_and_unsupported_content",
+      "scan_evidence": {
+        "page_content_wstar_count": 117,
+        "form_wstar_count": 0,
+        "annotation_appearance_wstar_count": 0,
+        "effective_wstar_count": 117,
+        "page_text_operator_count": 180,
+        "native_raster_risks": [
+          "ext_gstate",
+          "image_xobject",
+          "other_graphics_operator",
+          "text"
+        ],
+        "clip_geometry": "all sampled clip evidence is single-rectangle; no parity-discriminating geometry detected"
+      }
     },
     {
       "file": "School Voucher Diagram.pdf",
@@ -24,7 +43,24 @@
       "license_evidence": "Wikimedia Commons file page identifies the author, own-work source, and CC BY-SA 4.0 license.",
       "producer": "PowerPoint; converted with macOS Quartz PDFContext",
       "reported_file_size_bytes": 23000,
-      "formal_corpus": false
+      "formal_corpus": false,
+      "observed_sha256": "e229eebd0f7b3454b9c5b2c6817c388856d119efac6c74059949442aa8ea17a0",
+      "observed_size_bytes": 23693,
+      "qpdf_check": "exit 3 (warnings)",
+      "scan_status": "confirmed_no_wstar",
+      "qualification_status": "rejected_no_wstar_and_qpdf_warnings",
+      "scan_evidence": {
+        "page_content_wstar_count": 0,
+        "form_wstar_count": 0,
+        "annotation_appearance_wstar_count": 0,
+        "effective_wstar_count": 0,
+        "page_text_operator_count": 65,
+        "native_raster_risks": [
+          "other_graphics_operator",
+          "text",
+          "unrecognized_operator"
+        ]
+      }
     }
   ]
 }
