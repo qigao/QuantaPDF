@@ -1,0 +1,105 @@
+name: Probe licensed Commons diagram PDFs for W-star
+on:
+  push:
+    branches:
+      - probe/262-pgf-corpus
+    paths:
+      - 'tests/external_wstar_candidates/commons-diagram-pdfs-source-metadata.json'
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned parser and independent PDF validator
+        run: |
+          python3 -m pip install --disable-pip-version-check "pypdf==5.9.0"
+          sudo apt-get update
+          sudo apt-get install --yes qpdf
+      - name: Download unchanged Commons originals and record identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/commons-diagram-pdfs
+          curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/Iron_cycle3.pdf' \
+            --output '/tmp/commons-diagram-pdfs/Iron cycle3.pdf'
+          curl --fail --location --retry 3 --retry-all-errors --max-time 90 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/School%20Voucher%20Diagram.pdf' \
+            --output '/tmp/commons-diagram-pdfs/School Voucher Diagram.pdf'
+          file /tmp/commons-diagram-pdfs/*.pdf
+          sha256sum /tmp/commons-diagram-pdfs/*.pdf | tee source-sha256.txt
+      - name: Validate each source and scan only when qpdf is clean
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > qpdf-validation.txt
+          for pdf in /tmp/commons-diagram-pdfs/*.pdf; do
+            name="$(basename "$pdf")"
+            safe="$(printf '%s' "$name" | tr ' ' '-' | tr -cd '[:alnum:]._-')"
+            set +e
+            qpdf --check "$pdf" > "qpdf-$safe.log" 2>&1
+            rc=$?
+            set -e
+            printf '%s=%s\n' "$name" "$rc" | tee -a qpdf-validation.txt
+            cat "qpdf-$safe.log"
+          done
+          python3 tools/qualification/probe_pgf_candidates.py \
+            --root /tmp/commons-diagram-pdfs \
+            --max-operations 500000 \
+            --output commons-diagrams-wstar-scan-report.json > commons-diagrams-wstar-scan.log
+      - name: Summarize exact scan status and candidate risks
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("commons-diagrams-wstar-scan-report.json").read_text())
+          expected = {"Iron cycle3.pdf", "School Voucher Diagram.pdf"}
+          assert report["files_scanned"] == len(expected), report["files_scanned"]
+          assert {Path(item["path"]).name for item in report["results"]} == expected
+          assert report["files_scanned"] == (
+              report["confirmed_no_wstar"] + report["wstar_found"] +
+              report["inconclusive"]
+          )
+          print(json.dumps({
+              "files_scanned": report["files_scanned"],
+              "confirmed_no_wstar": report["confirmed_no_wstar"],
+              "wstar_found": report["wstar_found"],
+              "inconclusive": report["inconclusive"],
+              "qpdf_validation": Path("qpdf-validation.txt").read_text().splitlines(),
+              "results": [{
+                  "file": Path(item["path"]).name,
+                  "bytes": item["bytes"],
+                  "sha256": item["sha256"],
+                  "scan_status": item["scan_status"],
+                  "reason": item["reason"],
+                  "pages": item["page_count"],
+                  "page_content_wstar_count": item["page_content_wstar_count"],
+                  "form_wstar_count": item["form_wstar_count"],
+                  "annotation_appearance_wstar_count": item["annotation_appearance_wstar_count"],
+                  "effective_wstar_count": item["effective_wstar_count"],
+                  "page_text_operator_count": item["page_text_operator_count"],
+                  "native_raster_risks": sorted({
+                      risk for page in item["pages"]
+                      for risk in page["native_raster_risks"]
+                  }),
+                  "clip_evidence": [
+                      evidence for page in item["pages"]
+                      for evidence in page["clip_evidence"]
+                  ],
+              } for item in report["results"]],
+          }, sort_keys=True, indent=2))
+          PY
+      - name: Retain quarantined source and scan evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: commons-diagram-pdfs-wstar-scan
+          path: |
+            source-sha256.txt
+            qpdf-validation.txt
+            qpdf-*.log
+            commons-diagrams-wstar-scan-report.json
+            commons-diagrams-wstar-scan.log
+            tests/external_wstar_candidates/commons-diagram-pdfs-source-metadata.json
+          retention-days: 7
