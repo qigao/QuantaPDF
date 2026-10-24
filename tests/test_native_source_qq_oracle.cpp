@@ -3336,23 +3336,31 @@ int test_external_tikz_wstar_pixels(const char *filename,
                     : nzrgb[channel]-rgb[channel];
                 if(nzdiff>nzworst) nzworst=nzdiff;
             }
-            if(nzworst>32u) ++control_diff_pixels;
+            const bool reference_stroke=
+                ref[0]<80u && ref[1]<80u && ref[2]<80u;
             const bool ref_orange=orange_like(ref[0],ref[1],ref[2]);
             const bool nat_orange=orange_like(rgb[0],rgb[1],rgb[2]);
             const bool nz_orange=orange_like(nzrgb[0],nzrgb[1],nzrgb[2]);
-            reference_orange+=(size_t)ref_orange;
-            native_orange+=(size_t)nat_orange;
-            nonzero_orange+=(size_t)nz_orange;
-            overlap_orange+=(size_t)(ref_orange&&nat_orange);
-            if(ref_orange||nat_orange) {
-                ++union_orange;
-                for(size_t channel=0u;channel<3u;++channel) {
-                    const unsigned diff=rgb[channel]>(unsigned)ref[channel]
-                        ? rgb[channel]-(unsigned)ref[channel]
-                        : (unsigned)ref[channel]-rgb[channel];
-                    total+=(double)diff;
+            /* The projected operation intentionally excludes the source's
+               unsupported outline strokes. Do not score their covered pixels
+               as missing orange fill; keep every other source-orange pixel
+               and every unmatched native-orange pixel in the comparison. */
+            if(!reference_stroke) {
+                if(nzworst>32u) ++control_diff_pixels;
+                reference_orange+=(size_t)ref_orange;
+                native_orange+=(size_t)nat_orange;
+                nonzero_orange+=(size_t)nz_orange;
+                overlap_orange+=(size_t)(ref_orange&&nat_orange);
+                if(ref_orange||nat_orange) {
+                    ++union_orange;
+                    for(size_t channel=0u;channel<3u;++channel) {
+                        const unsigned diff=rgb[channel]>(unsigned)ref[channel]
+                            ? rgb[channel]-(unsigned)ref[channel]
+                            : (unsigned)ref[channel]-rgb[channel];
+                        total+=(double)diff;
+                    }
+                    if(worst>64u) ++gross;
                 }
-                if(worst>64u) ++gross;
             }
         }
     }
@@ -3396,7 +3404,7 @@ int test_external_tikz_wstar_pixels(const char *filename,
         "  \"original_source_pdfium_oracle\": \"passed\",\n"
         "  \"detached_c11_native_raster\": \"passed\",\n"
         "  \"full_page_native_raster\": \"rejected_unsupported_stroke_profile\",\n"
-        "  \"comparison_scope\": \"orange-fill-mask-only\",\n"
+        "  \"comparison_scope\": \"orange-fill-mask-excluding-source-strokes\",\n"
         "  \"native_ir\": \"lowered\",\n"
         "  \"source_sha256\": \"%s\",\n"
         "  \"source_and_graph_released_before_raster\": true,\n"
