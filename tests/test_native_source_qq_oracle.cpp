@@ -2877,6 +2877,8 @@ int test_external_yworks_wstar_pixels(const char *filename,
     const size_t clip_count=detached.resources.clip_count;
     const size_t state_count=detached.resources.graphics_state_count;
     const clip_leaf_counts winding=inspect_clip_fill_rules(detached);
+    const size_t painted_count=detached.operation_count;
+    const size_t clip_count=detached.resources.clip_count;
     std::fprintf(stderr,
         "[wstar-original-ir] pages=%zu paths=%zu clips=%zu states=%zu "
         "W=%zu Wstar=%zu intersections=%zu\n",
@@ -3233,8 +3235,8 @@ int test_external_tikz_wstar_pixels(const char *filename,
         "  \"fixed_interior_goldens\": 0,\n"
         "  \"generated_fixture_count\": 0\n"
         "}\n",
-        expected_sha256,width,height,detached.operation_count,
-        detached.resources.clip_count,winding.nonzero,winding.evenodd,
+        expected_sha256,width,height,painted_count,
+        clip_count,winding.nonzero,winding.evenodd,
         winding.intersections,reference_orange,native_orange,overlap_orange,
         reference_black,native_black,reference_white,mean,gross);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
