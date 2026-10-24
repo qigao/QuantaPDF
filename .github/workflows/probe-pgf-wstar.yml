@@ -39,7 +39,29 @@ jobs:
               )
           }, indent=2))
           for item in report["results"]:
-              print(item["path"], item["scan_status"], item["reason"])
+              print(json.dumps({
+                  "path": item["path"],
+                  "scan_status": item["scan_status"],
+                  "reason": item["reason"],
+                  "bytes": item["bytes"],
+                  "sha256": item["sha256"],
+                  "page_content_wstar_count": item["page_content_wstar_count"],
+                  "form_wstar_count": item["form_wstar_count"],
+                  "page_text_operator_count": item["page_text_operator_count"],
+                  "native_raster_risks": sorted({
+                      risk for page in item["pages"]
+                      for risk in page["native_raster_risks"]
+                  }),
+                  "page_operator_counts": [
+                      {"page": page["index"], "operators": page["operator_counts"],
+                       "risk_operators": page["risk_operator_counts"]}
+                      for page in item["pages"]
+                  ],
+                  "clip_evidence": [
+                      evidence for page in item["pages"]
+                      for evidence in page["clip_evidence"]
+                  ],
+              }, sort_keys=True))
           PY
       - name: Retain quarantined evidence
         uses: actions/upload-artifact@v4
