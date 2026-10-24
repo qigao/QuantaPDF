@@ -3448,34 +3448,39 @@ int test_external_tikz_wstar_pixels(const char *filename,
     /* Diagnostic grid is used once to choose fixed source-interior goldens. */
     struct parity_golden {
         size_t x,y;
-        unsigned ref[3],evenodd[3],nonzero[3];
+        unsigned ref[3],full_page[3],evenodd[3],nonzero[3];
     };
     const parity_golden goldens[]={
         /* A stable orange lobe, a stable overlap pixel excluded by W*, and
            a background control. These coordinates are fixed independently
            of the production affine and are not inferred from raster output. */
-        {119u,18u,{255u,128u,0u},{255u,128u,0u},{255u,128u,0u}},
-        {119u,90u,{255u,255u,255u},{255u,255u,255u},{255u,128u,0u}},
-        {23u,18u,{255u,255u,255u},{255u,255u,255u},{255u,255u,255u}}
+        {119u,18u,{255u,128u,0u},{255u,128u,0u},{255u,128u,0u},{255u,128u,0u}},
+        {119u,90u,{255u,255u,255u},{255u,255u,255u},{255u,255u,255u},{255u,128u,0u}},
+        {23u,18u,{255u,255u,255u},{255u,255u,255u},{255u,255u,255u},{255u,255u,255u}}
     };
     for(const parity_golden& p:goldens) {
         const unsigned char *ref=pdfium.at(p.x,p.y);
+        const unsigned char *full=full_page_native.pixels+
+            p.y*full_page_native.stride+4u*p.x;
         const unsigned char *eo=native.pixels+p.y*native.stride+4u*p.x;
         const unsigned char *nz=nonzero.pixels+p.y*nonzero.stride+4u*p.x;
         for(size_t channel=0u;channel<3u;++channel) {
             const unsigned actual_ref=ref[channel];
+            const unsigned actual_full=on_white(full,channel);
             const unsigned actual_eo=on_white(eo,channel);
             const unsigned actual_nz=on_white(nz,channel);
             if(std::abs((int)actual_ref-(int)p.ref[channel])>8 ||
+               std::abs((int)actual_full-(int)p.full_page[channel])>8 ||
                std::abs((int)actual_eo-(int)p.evenodd[channel])>8 ||
                std::abs((int)actual_nz-(int)p.nonzero[channel])>8) {
                 std::fprintf(stderr,
                     "[texample-wstar-golden] x=%zu y=%zu channel=%zu "
-                    "ref=%u evenodd=%u nonzero=%u expected=%u/%u/%u\n",
-                    p.x,p.y,channel,actual_ref,actual_eo,actual_nz,
-                    p.ref[channel],p.evenodd[channel],p.nonzero[channel]);
+                    "ref=%u full=%u evenodd=%u nonzero=%u expected=%u/%u/%u/%u\n",
+                    p.x,p.y,channel,actual_ref,actual_full,actual_eo,actual_nz,
+                    p.ref[channel],p.full_page[channel],p.evenodd[channel],p.nonzero[channel]);
             }
             CHECK(std::abs((int)actual_ref-(int)p.ref[channel])<=8 &&
+                  std::abs((int)actual_full-(int)p.full_page[channel])<=8 &&
                   std::abs((int)actual_eo-(int)p.evenodd[channel])<=8 &&
                   std::abs((int)actual_nz-(int)p.nonzero[channel])<=8);
         }
@@ -3483,6 +3488,8 @@ int test_external_tikz_wstar_pixels(const char *filename,
     const size_t fixed_interior_goldens=
         sizeof(goldens)/sizeof(goldens[0]);
     CHECK(fixed_interior_goldens==3u);
+    quantapdf_ir_raster_image_dispose(&full_page_repeat);
+    quantapdf_ir_raster_image_dispose(&full_page_native);
 
     /* All raster consumers have finished and own independent pixel buffers.
        Release the detached IR/resources explicitly; this is also exercised
