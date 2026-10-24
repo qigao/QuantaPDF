@@ -3,6 +3,10 @@
  * -> private pure-C11 scoped Clip DAG raster. Never export IR to PDF as a
  * production rendering intermediate and never invoke a PDFium fallback. */
 #include "document/page_composer_ir.h"
+#include "document/page_content_ir.h"
+#include "graph/graph_page_geometry.h"
+#include "ir/pdf_path_lowering.h"
+#include "snapshot/graph_snapshot.h"
 #include "render/ir_scoped_operations_v1.h"
 #include "render/ir_clip_dag_v3.h"
 #include "render/ir_raster.h"
@@ -3095,6 +3099,9 @@ int test_external_tikz_wstar_pixels(const char *filename,
     quantapdf_ir detached{};
     quantapdf_document *doc=nullptr;
     quantapdf_graph_snapshot *snap=nullptr;
+    quantapdf_pdf_page_semantics *semantics=nullptr;
+    quantapdf_graph_page_geometry geometry{};
+    quantapdf_graph_page_display display{};
     quantapdf_status lower_status=quantapdf_open(filename,nullptr,&doc);
     std::fprintf(stderr,"[texample-wstar-lowering] open=%d\n",(int)lower_status);
     if(lower_status==QUANTAPDF_OK) {
@@ -3104,10 +3111,32 @@ int test_external_tikz_wstar_pixels(const char *filename,
         std::fprintf(stderr,"[texample-wstar-lowering] capture=%d\n",(int)lower_status);
     }
     if(lower_status==QUANTAPDF_OK) {
-        lower_status=quantapdf_graph_snapshot_page_composer_ir(
-            snap,0u,8u,&decode_limits,&parse_limits,4u,&bounded,&detached);
-        std::fprintf(stderr,"[texample-wstar-lowering] page_ir=%d\n",(int)lower_status);
+        lower_status=quantapdf_graph_query_page_geometry(
+            snap->graph,0u,8u,&geometry);
+        std::fprintf(stderr,"[texample-wstar-lowering] geometry=%d\n",(int)lower_status);
     }
+    if(lower_status==QUANTAPDF_OK) {
+        lower_status=quantapdf_graph_page_display_map(&geometry,&display);
+        std::fprintf(stderr,
+            "[texample-wstar-lowering] display=%d points=%.6fx%.6f\n",
+            (int)lower_status,display.width_points,display.height_points);
+    }
+    if(lower_status==QUANTAPDF_OK) {
+        lower_status=quantapdf_graph_admit_native_page_group(snap->graph,0u);
+        std::fprintf(stderr,"[texample-wstar-lowering] page_group=%d\n",(int)lower_status);
+    }
+    if(lower_status==QUANTAPDF_OK) {
+        lower_status=quantapdf_graph_snapshot_page_semantics(
+            snap,0u,&decode_limits,&parse_limits,4u,&semantics);
+        std::fprintf(stderr,"[texample-wstar-lowering] semantics=%d\n",(int)lower_status);
+    }
+    if(lower_status==QUANTAPDF_OK) {
+        lower_status=quantapdf_pdf_path_lower_to_composer_mapped(
+            semantics,display.width_points,display.height_points,
+            display.from_source,&bounded,&detached);
+        std::fprintf(stderr,"[texample-wstar-lowering] path_lower=%d\n",(int)lower_status);
+    }
+    if(semantics!=nullptr) quantapdf_pdf_page_semantics_dispose(semantics);
     if(snap!=nullptr) quantapdf_graph_snapshot_drop(snap);
     if(doc!=nullptr) quantapdf_close(doc);
     CHECK(lower_status==QUANTAPDF_OK);
