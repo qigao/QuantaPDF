@@ -3358,9 +3358,23 @@ int test_external_tikz_wstar_pixels(const char *filename,
             const bool ref_orange=orange_like(ref[0],ref[1],ref[2]);
             const bool nat_orange=orange_like(rgb[0],rgb[1],rgb[2]);
             const bool nz_orange=orange_like(nzrgb[0],nzrgb[1],nzrgb[2]);
-            const bool reference_stroke=
-                (ref[0]<80u && ref[1]<80u && ref[2]<80u) ||
-                (nat_orange && ref[0]<220u);
+            /* Mask only the source's dark authored outlines and a
+               one-pixel halo for their anti-aliased edge. The mask depends
+               exclusively on PDFium source pixels, never on Native output. */
+            bool reference_stroke=false;
+            for(int dy=-1;dy<=1 && !reference_stroke;++dy) {
+                const int yy=(int)y+dy;
+                if(yy<0 || yy>=(int)height) continue;
+                for(int dx=-1;dx<=1;++dx) {
+                    const int xx=(int)x+dx;
+                    if(xx<0 || xx>=(int)width) continue;
+                    const unsigned char *near=pdfium.at((size_t)xx,(size_t)yy);
+                    if(near[0]<80u && near[1]<80u && near[2]<80u) {
+                        reference_stroke=true;
+                        break;
+                    }
+                }
+            }
             /* The projected operation intentionally excludes the source's
                unsupported outline strokes. Do not score their covered pixels
                as missing orange fill; keep every other source-orange pixel
