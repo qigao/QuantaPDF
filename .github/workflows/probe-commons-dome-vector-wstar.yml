@@ -32,6 +32,7 @@ jobs:
         run: |
           python3 tools/qualification/probe_pgf_candidates.py \
             --root /tmp/commons-dome-pdf \
+            --max-operations 500000 \
             --output commons-dome-wstar-scan-report.json > commons-dome-wstar-scan.log
       - name: Require the candidate to be accounted for
         run: |
