@@ -3297,6 +3297,42 @@ int test_external_tikz_wstar_pixels(const char *filename,
     std::fprintf(stderr,"[texample-wstar-full-page] status=%d pixels=%p size=%zu\n",
         (int)full_page_status,(void*)full_page_native.pixels,
         full_page_native.size);
+    if(full_page_status!=QUANTAPDF_OK) {
+        for(size_t oi=0u;oi<detached.operation_count;++oi) {
+            quantapdf_composer_operation one=detached.operations[oi];
+            quantapdf_composer_page_state page=detached.pages[0];
+            quantapdf_composer_path_operation stroke_outline{};
+            quantapdf_status outline_status=QUANTAPDF_OK;
+            if(one.value.path.options.stroke==1 &&
+               one.value.path.options.fill==0) {
+                one.value.path.options.graphics_state_id=0u;
+                outline_status=quantapdf_ir_stroke_polyline_outline_v1_planned(
+                    &one.value.path,limits.max_edges,&device_plan,&stroke_outline);
+                if(outline_status==QUANTAPDF_OK)
+                    one.value.path=stroke_outline;
+            }
+            one.graphics_state_id=0u;
+            one.value.path.options.graphics_state_id=0u;
+            quantapdf_ir single{};
+            single.pages=&page;
+            single.page_count=1u;
+            single.operations=&one;
+            single.operation_count=1u;
+            quantapdf_ir_raster_image result{};
+            quantapdf_status status=outline_status;
+            if(status==QUANTAPDF_OK &&
+               oi!=0u) status=quantapdf_ir_raster_render_v1_planned(
+                    &single,0u,&limits,&device_plan,nullptr,0u,&result);
+            std::fprintf(stderr,
+                "[texample-op-check] op=%zu original=%zu expanded=%zu "
+                "outline=%d raster=%d rgba_size=%zu\n",
+                oi,detached.operations[oi].value.path.command_count,
+                one.value.path.command_count,
+                (int)outline_status,(int)status,result.size);
+            quantapdf_ir_raster_image_dispose(&result);
+            quantapdf_ir_stroke_polyline_dispose_v1(&stroke_outline);
+        }
+    }
     CHECK(full_page_status==QUANTAPDF_OK &&
           full_page_native.pixels!=nullptr &&
           full_page_native.width==width && full_page_native.height==height &&
