@@ -2877,8 +2877,6 @@ int test_external_yworks_wstar_pixels(const char *filename,
     const size_t clip_count=detached.resources.clip_count;
     const size_t state_count=detached.resources.graphics_state_count;
     const clip_leaf_counts winding=inspect_clip_fill_rules(detached);
-    const size_t painted_count=detached.operation_count;
-    const size_t clip_count=detached.resources.clip_count;
     std::fprintf(stderr,
         "[wstar-original-ir] pages=%zu paths=%zu clips=%zu states=%zu "
         "W=%zu Wstar=%zu intersections=%zu\n",
@@ -3097,6 +3095,8 @@ int test_external_tikz_wstar_pixels(const char *filename,
     quantapdf_ir detached{};
     OK(snapshot_lower(&detached,0u,4u,8u,filename,&bounded));
     const clip_leaf_counts winding=inspect_clip_fill_rules(detached);
+    const size_t painted_count=detached.operation_count;
+    const size_t clip_count=detached.resources.clip_count;
     std::fprintf(stderr,
         "[texample-wstar-ir] pages=%zu page=%.3fx%.3f pixels=%zux%zu "
         "paths=%zu clips=%zu states=%zu W=%zu Wstar=%zu intersections=%zu "
