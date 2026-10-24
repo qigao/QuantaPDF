@@ -10,7 +10,24 @@
       "license": "CC0 1.0 Universal",
       "license_evidence": "Commons file page explicitly states CC0; uploader's own work; metadata identifies PowerPoint and Quartz PDFContext.",
       "description": "Diagram of the path taken by the commando inside OPEC Headquarters; uploaded as graphic-only PDF.",
-      "formal_corpus": false
+      "formal_corpus": false,
+      "observed_sha256": "e6aa9b2399799ce6ddfcac67c3d14e2b0d658f99ac4b1401549f9ba94c64604b",
+      "observed_size_bytes": 424976,
+      "scan_status": "wstar_found",
+      "qualification_status": "rejected_unsupported_native_raster_operations",
+      "scan_evidence": {
+        "effective_wstar_count": 43,
+        "page_text_operator_count": 115,
+        "image_xobject_calls": 85,
+        "native_raster_risks": [
+          "ext_gstate",
+          "image_xobject",
+          "other_graphics_operator",
+          "text",
+          "unrecognized_operator"
+        ],
+        "reason": "43 W* clips with two-subpath curved geometry; unsupported text/images/shading/color-space operators block detached Native Raster comparison."
+      }
     },
     {
       "file": "NfaMin1.pdf",
@@ -20,7 +37,21 @@
       "license": "CC0 1.0 Universal",
       "license_evidence": "Commons file page explicitly states CC0; uploader's own work.",
       "description": "Minimal NFA/DFA state diagram with Graphviz source included on the file page.",
-      "formal_corpus": false
+      "formal_corpus": false,
+      "observed_sha256": "bcba7190060460f3b031de7d3d8d3cb771181dfd04766f49f394b813fed5f08e",
+      "observed_size_bytes": 5182,
+      "scan_status": "confirmed_no_wstar",
+      "qualification_status": "rejected_no_wstar_or_unsupported_content",
+      "scan_evidence": {
+        "effective_wstar_count": 0,
+        "page_text_operator_count": 30,
+        "image_xobject_calls": 0,
+        "native_raster_risks": [
+          "ext_gstate",
+          "text"
+        ],
+        "reason": "No W*; text and extended graphics state remain."
+      }
     }
   ]
 }
