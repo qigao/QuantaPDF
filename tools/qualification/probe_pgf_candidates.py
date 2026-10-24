@@ -252,7 +252,7 @@ def scan_pdf(data: bytes, *, allow_nonzero_xref_warning: bool = False) -> dict[s
                         # is painted for this annotation in ordinary page rendering.
                         continue
                     normal = resolved(normal_ref)
-                    if isinstance(normal, DictionaryObject):
+                    if isinstance(normal, DictionaryObject) and not isinstance(normal, StreamObject):
                         state = annot.get("/AS")
                         if state is None or state not in normal:
                             raise Incomplete(
