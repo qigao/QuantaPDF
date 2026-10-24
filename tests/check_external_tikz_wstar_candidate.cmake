@@ -35,14 +35,15 @@ foreach(field IN ITEMS result document_id reference_oracle
 endforeach()
 foreach(field IN ITEMS source_and_graph_released_before_raster
     source_bytes_unchanged_after_reference_and_native
-    pdfium_fallback_used repeat_rgba_identical)
+    pdfium_fallback_used repeat_rgba_identical
+    full_page_repeat_rgba_identical)
   string(JSON ${field} GET "${json}" ${field})
 endforeach()
 foreach(field IN ITEMS page_width page_height source_painted_paths
     source_clip_count source_w_nonzero_clip_path_leaves
     source_wstar_evenodd_clip_path_leaves source_clip_intersection_nodes
-    comparison_union_orange_pixels reference_orange_pixels
-    native_evenodd_orange_pixels overlap_orange_pixels
+    full_page_gross_error_pixels comparison_union_orange_pixels
+    reference_orange_pixels native_evenodd_orange_pixels overlap_orange_pixels
     native_nonzero_orange_pixels evenodd_nonzero_diff_pixels
     masked_gross_error_pixels fixed_interior_goldens generated_fixture_count)
   string(JSON ${field} GET "${json}" ${field})
@@ -50,14 +51,17 @@ endforeach()
 string(JSON comparison_scope GET "${json}" comparison_scope)
 string(JSON full_page_native_raster GET "${json}" full_page_native_raster)
 string(JSON mean GET "${json}" masked_mean_rgb_error)
+string(JSON full_page_mean GET "${json}" full_page_mean_rgb_error)
 
 if(NOT result STREQUAL "passed"
    OR NOT document_id STREQUAL "texample.intersecting-rings-v1"
    OR NOT reference_oracle STREQUAL "original-pdfium"
    OR NOT original_source_pdfium_oracle STREQUAL "passed"
    OR NOT detached_c11_native_raster STREQUAL "passed"
-   OR NOT full_page_native_raster STREQUAL "rejected_unsupported_stroke_profile"
-   OR NOT comparison_scope STREQUAL "orange-fill-mask-excluding-source-strokes"
+   OR NOT full_page_native_raster STREQUAL "passed"
+   OR NOT full_page_repeat_rgba_identical
+   OR full_page_mean GREATER 1.0 OR full_page_gross_error_pixels GREATER 100
+   OR NOT comparison_scope STREQUAL "full-page-and-orange-fill-mask-control"
    OR NOT native_ir STREQUAL "lowered"
    OR NOT source_sha256 STREQUAL PINNED_SHA256
    OR NOT source_and_graph_released_before_raster
