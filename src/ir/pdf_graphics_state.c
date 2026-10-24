@@ -127,6 +127,10 @@ quantapdf_status quantapdf_pdf_graphics_evaluate_resolved(
         }
         if (is_terminator(op->opcode)) {
             quantapdf_pdf_path_record *record;
+            /* PDF n ends the current path without painting. With no current
+             * path it is a valid no-op (e.g. after a saved-state restore). */
+            if (!in_path && op->opcode == QUANTAPDF_PDF_OP_END_PATH)
+                continue;
             if (!in_path) { status = QUANTAPDF_ERROR_FORMAT; goto fail; }
             /* Source-PDF compatibility: PDFium leaves the current clipping
              * region unchanged for W/W* on a path with no constructors.

@@ -99,6 +99,24 @@ jobs:
       - name: Product conformance (Linux Release)
         run: ctest --preset linux-release-user -L conformance --output-on-failure
 
+      - name: Qualify licensed TeXample W-star original (Linux Release)
+        shell: bash
+        run: |
+          set -euo pipefail
+          original="$RUNNER_TEMP/texample-intersecting-rings.pdf"
+          curl --fail --show-error --silent --location --retry 3 --max-time 60 \
+            'https://texample.net/files/intersecting-rings.pdf' --output "$original"
+          printf '%s  %s\n' \
+            'f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284' \
+            "$original" | sha256sum --check -
+          LD_LIBRARY_PATH="$GITHUB_WORKSPACE/build/linux-gcc-release/_deps/pdfium-${PDFIUM_VERSION}-linux-x64/lib:${LD_LIBRARY_PATH:-}" \
+            cmake \
+              -DORACLE="$GITHUB_WORKSPACE/build/linux-gcc-release/tests/quantapdf_test_native_source_qq_oracle" \
+              -DSOURCE="$original" \
+              -DREPORT="$RUNNER_TEMP/texample-intersecting-rings-release.json" \
+              -DEXPECTED_SHA256='f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284' \
+              -P tests/check_external_tikz_wstar_candidate.cmake
+
       - name: Install static SDK
         run: cmake --build --preset install-linux-release-user --parallel 2
 
@@ -139,6 +157,32 @@ jobs:
 
       - name: Product conformance (Linux ASan/UBSan)
         run: ctest --preset linux-dev-user -L conformance --output-on-failure
+
+      - name: Qualify licensed TeXample W-star original (Linux ASan/UBSan)
+        shell: bash
+        run: |
+          set -euo pipefail
+          original="$RUNNER_TEMP/texample-intersecting-rings.pdf"
+          test -s "$original"
+          LD_LIBRARY_PATH="$GITHUB_WORKSPACE/build/linux-gcc-debug/_deps/pdfium-${PDFIUM_VERSION}-linux-x64/lib:${LD_LIBRARY_PATH:-}" \
+          ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+          UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+            cmake \
+              -DORACLE="$GITHUB_WORKSPACE/build/linux-gcc-debug/tests/quantapdf_test_native_source_qq_oracle" \
+              -DSOURCE="$original" \
+              -DREPORT="$RUNNER_TEMP/texample-intersecting-rings-asan-ubsan.json" \
+              -DEXPECTED_SHA256='f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284' \
+              -P tests/check_external_tikz_wstar_candidate.cmake
+
+      - name: Upload TeXample W-star candidate pixel reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: texample-intersecting-rings-pixel-qualification
+          path: |
+            ${{ runner.temp }}/texample-intersecting-rings-release.json
+            ${{ runner.temp }}/texample-intersecting-rings-asan-ubsan.json
+          if-no-files-found: error
+          retention-days: 7
 
       # Explicitly opted-in original; both actual Release and sanitizer
       # executables inspect the same unchanged file. JSON is the only artifact.

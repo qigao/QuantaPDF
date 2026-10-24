@@ -44,6 +44,17 @@ quantapdf_status quantapdf_pdf_path_lower_to_composer_mapped(
     const quantapdf_pdf_path_lower_limits *limits,
     quantapdf_ir *out_ir);
 
+/* Native-raster-only projection. Unlike the serialized Composer path,
+ * this admits finite in-range source coordinates rounded to float because
+ * the result is consumed directly by C11 raster and never writer-round-tripped.
+ * All path/resource budgets and unsupported-paint checks remain fail-closed. */
+quantapdf_status quantapdf_pdf_path_lower_to_composer_mapped_native_raster(
+    const quantapdf_pdf_page_semantics *page,
+    double canvas_width, double canvas_height,
+    const double page_transform[6],
+    const quantapdf_pdf_path_lower_limits *limits,
+    quantapdf_ir *out_ir);
+
 #ifdef __cplusplus
 }
 #endif
