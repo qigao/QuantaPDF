@@ -1,0 +1,95 @@
+name: Probe Commons logos and plots for W-star
+on:
+  push:
+    branches:
+      - probe/262-pgf-corpus
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned discovery-only parser
+        run: python3 -m pip install --disable-pip-version-check "pypdf==5.9.0"
+      - name: Download five unchanged licensed PDFs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/commons-logos-pdfs
+          curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/Harm%20Step%20Pot.pdf' \
+            --output '/tmp/commons-logos-pdfs/Harm Step Pot.pdf'
+          curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/Normal.pdf' \
+            --output '/tmp/commons-logos-pdfs/Normal.pdf'
+          curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/PAX%20Logo.pdf' \
+            --output '/tmp/commons-logos-pdfs/PAX Logo.pdf'
+          curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/MML-MPG%20Logo.pdf' \
+            --output '/tmp/commons-logos-pdfs/MML-MPG Logo.pdf'
+          curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/Al%20rifai%20logo.pdf' \
+            --output '/tmp/commons-logos-pdfs/Al rifai logo.pdf'
+          file /tmp/commons-logos-pdfs/*.pdf
+      - name: Scan decoded content and preserve exact source identities
+        run: |
+          python3 tools/qualification/probe_pgf_candidates.py \
+            --root /tmp/commons-logos-pdfs \
+            --output commons-logos-wstar-scan-report.json > commons-logos-wstar-scan.log
+      - name: Require every source to be accounted for
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          expected = {
+              "Harm Step Pot.pdf",
+              "Normal.pdf",
+              "PAX Logo.pdf",
+              "MML-MPG Logo.pdf",
+              "Al rifai logo.pdf",
+          }
+          report = json.loads(Path("commons-logos-wstar-scan-report.json").read_text())
+          results = report["results"]
+          assert report["files_scanned"] == len(expected), report["files_scanned"]
+          assert {Path(item["path"]).name for item in results} == expected
+          assert report["files_scanned"] == (
+              report["confirmed_no_wstar"] + report["wstar_found"] +
+              report["inconclusive"]
+          )
+          print(json.dumps({
+              key: report[key] for key in (
+                  "files_scanned", "confirmed_no_wstar", "wstar_found", "inconclusive"
+              )
+          }, indent=2))
+          for item in results:
+              print(json.dumps({
+                  "file": Path(item["path"]).name,
+                  "bytes": item["bytes"],
+                  "sha256": item["sha256"],
+                  "scan_status": item["scan_status"],
+                  "reason": item["reason"],
+                  "pages": item["page_count"],
+                  "page_content_wstar_count": item["page_content_wstar_count"],
+                  "form_wstar_count": item["form_wstar_count"],
+                  "page_text_operator_count": item["page_text_operator_count"],
+                  "native_raster_risks": sorted({
+                      risk for page in item["pages"]
+                      for risk in page["native_raster_risks"]
+                  }),
+                  "clip_evidence": [
+                      evidence for page in item["pages"]
+                      for evidence in page["clip_evidence"]
+                  ],
+              }, sort_keys=True))
+          PY
+      - name: Retain quarantined report and rights metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: commons-logos-wstar-scan
+          path: |
+            commons-logos-wstar-scan-report.json
+            commons-logos-wstar-scan.log
+            tests/external_wstar_candidates/commons-logos-source-metadata.json
+          retention-days: 7
