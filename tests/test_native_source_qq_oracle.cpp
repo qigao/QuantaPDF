@@ -5,6 +5,7 @@
 #include "document/page_composer_ir.h"
 #include "document/page_content_ir.h"
 #include "graph/graph_page_geometry.h"
+#include "graph/graph_extgstate.h"
 #include "ir/pdf_path_lowering.h"
 #include "snapshot/graph_snapshot.h"
 #include "render/ir_scoped_operations_v1.h"
@@ -3095,6 +3096,32 @@ static void dump_tikz_candidate_contents(
         if(status==QUANTAPDF_OK && data!=nullptr) {
             std::fwrite(data,1u,size,stderr);
             std::fputc('\n',stderr);
+            quantapdf_pdf_content_ir *parsed=nullptr;
+            quantapdf_status stage=quantapdf_pdf_content_parse(
+                data,size,&parse_limits,&parsed);
+            std::fprintf(stderr,"[texample-wstar-debug] content_parse=%d\n",(int)stage);
+            if(stage==QUANTAPDF_OK) {
+                quantapdf_pdf_extgstate_delta *deltas=nullptr;
+                size_t delta_count=0u;
+                stage=quantapdf_graph_resolve_page_extgstates(
+                    snapshot->graph,0u,decode_limits.max_direct_depth,
+                    parsed,&deltas,&delta_count);
+                std::fprintf(stderr,
+                    "[texample-wstar-debug] extgstate_resolve=%d deltas=%zu\n",
+                    (int)stage,delta_count);
+                if(stage==QUANTAPDF_OK) {
+                    quantapdf_pdf_graphics_ir *graphics=nullptr;
+                    stage=quantapdf_pdf_graphics_evaluate_resolved(
+                        parsed,&parse_limits,deltas,delta_count,&graphics);
+                    std::fprintf(stderr,
+                        "[texample-wstar-debug] graphics_evaluate=%d paths=%zu clips=%zu\n",
+                        (int)stage,graphics ? graphics->path_count : 0u,
+                        graphics ? graphics->clip_count : 0u);
+                    quantapdf_pdf_graphics_dispose(graphics);
+                }
+                std::free(deltas);
+            }
+            quantapdf_pdf_content_dispose(parsed);
         }
         quantapdf_free(data);
     }
