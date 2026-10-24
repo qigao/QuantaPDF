@@ -13,7 +13,11 @@ from pypdf.generic import (
 from probe_pgf_candidates import scan_pdf
 
 
-def ordinary_pdf(contents=None, forms=None, images=False, annotations=False) -> bytes:
+def ordinary_pdf(
+    contents=None, forms=None, images=False, annotations=False,
+    annotation_appearance: bytes = b"0 0 10 10 re f",
+    annotation_state_dictionary: bool = False,
+) -> bytes:
     writer = PdfWriter()
     page = writer.add_blank_page(width=100, height=100)
     streams = []
@@ -46,13 +50,32 @@ def ordinary_pdf(contents=None, forms=None, images=False, annotations=False) -> 
             NameObject("/XObject"): xobjs,
         })
     if annotations:
+        appearance = DecodedStreamObject()
+        appearance.set_data(annotation_appearance)
+        appearance[NameObject("/Type")] = NameObject("/XObject")
+        appearance[NameObject("/Subtype")] = NameObject("/Form")
+        appearance[NameObject("/BBox")] = ArrayObject([
+            NumberObject(0), NumberObject(0), NumberObject(10), NumberObject(10)
+        ])
+        appearance_ref = writer._add_object(appearance)
+        if annotation_state_dictionary:
+            normal_appearance = DictionaryObject({
+                NameObject("/On"): appearance_ref,
+            })
+        else:
+            normal_appearance = appearance_ref
         annot = DictionaryObject({
             NameObject("/Type"): NameObject("/Annot"),
             NameObject("/Subtype"): NameObject("/Text"),
             NameObject("/Rect"): ArrayObject([
                 NumberObject(0), NumberObject(0), NumberObject(10), NumberObject(10)
             ]),
+            NameObject("/AP"): DictionaryObject({
+                NameObject("/N"): normal_appearance,
+            }),
         })
+        if annotation_state_dictionary:
+            annot[NameObject("/AS")] = NameObject("/On")
         page[NameObject("/Annots")] = ArrayObject([writer._add_object(annot)])
     output = io.BytesIO()
     writer.write(output)
@@ -178,11 +201,46 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(result["form_wstar_count"], 1)
         self.assertIn("form_xobject", result["pages"][0]["native_raster_risks"])
 
-    def test_unscanned_annotation_appearance_is_inconclusive(self):
-        result = scan_pdf(ordinary_pdf([b"0 0 5 5 re f"], annotations=True))
+    def test_annotation_normal_appearance_is_traversed(self):
+        result = scan_pdf(ordinary_pdf(
+            [b"0 0 5 5 re f"], annotations=True,
+            annotation_appearance=b"0 0 10 10 re 2 2 4 4 re W* n",
+        ))
+        self.assertEqual(result["scan_status"], "wstar_found", result["reason"])
+        self.assertEqual(result["page_content_wstar_count"], 0)
+        self.assertEqual(result["form_wstar_count"], 0)
+        self.assertEqual(result["annotation_appearance_wstar_count"], 1)
+        self.assertEqual(result["effective_wstar_count"], 1)
+        self.assertEqual(
+            result["pages"][0]["clip_evidence"][0]["origin"],
+            "annotation[0]/AP/N",
+        )
+
+    def test_annotation_normal_appearance_state_dictionary_is_traversed(self):
+        result = scan_pdf(ordinary_pdf(
+            [], annotations=True, annotation_state_dictionary=True,
+            annotation_appearance=b"0 0 10 10 re 2 2 4 4 re W* n",
+        ))
+        self.assertEqual(result["scan_status"], "wstar_found", result["reason"])
+        self.assertEqual(result["annotation_appearance_wstar_count"], 1)
+
+    def test_annotation_state_dictionary_without_as_is_inconclusive(self):
+        source = ordinary_pdf(
+            [], annotations=True, annotation_state_dictionary=True,
+            annotation_appearance=b"0 0 10 10 re f",
+        )
+        # Remove /AS while preserving a structurally readable PDF.
+        reader = PdfWriter()
+        reader.append(io.BytesIO(source))
+        page = reader.pages[0]
+        annot = page["/Annots"][0].get_object()
+        del annot[NameObject("/AS")]
+        output = io.BytesIO()
+        reader.write(output)
+        result = scan_pdf(output.getvalue())
         self.assertEqual(result["scan_status"], "inconclusive")
         self.assertIsNone(result["effective_wstar_count"])
-        self.assertIn("annotations_not_scanned", result["reason"])
+        self.assertIn("missing normal appearance state", result["reason"])
 
     def test_image_does_not_invalidate_operator_count(self):
         result = scan_pdf(ordinary_pdf(
