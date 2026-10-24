@@ -151,7 +151,11 @@ class ProbeTests(unittest.TestCase):
         result = scan_pdf(ordinary_pdf([content]))
         self.assertEqual(result["scan_status"], "confirmed_no_wstar")
         self.assertEqual(result["effective_wstar_count"], 0)
-        self.assertIn("text", result["pages"][0]["native_raster_risks"])
+        page = result["pages"][0]
+        self.assertIn("text", page["native_raster_risks"])
+        self.assertEqual(page["operator_counts"]["Tj"], 1)
+        self.assertEqual(page["risk_operator_counts"]["Tj"], 1)
+        self.assertEqual(page["operator_counts"].get("W*", 0), 0)
 
     def test_split_contents_preserves_path(self):
         result = scan_pdf(ordinary_pdf([
@@ -185,7 +189,10 @@ class ProbeTests(unittest.TestCase):
             [b"/Im Do 0 0 20 20 re W* n"], images=True,
         ))
         self.assertEqual(result["scan_status"], "wstar_found")
-        self.assertIn("image_xobject", result["pages"][0]["native_raster_risks"])
+        page = result["pages"][0]
+        self.assertIn("image_xobject", page["native_raster_risks"])
+        self.assertEqual(page["operator_counts"]["W*"], 1)
+        self.assertEqual(page["risk_operator_counts"]["Do"], 1)
 
     def test_unknown_filter_cannot_be_claimed_zero(self):
         original = ordinary_pdf([b"W* n"])
