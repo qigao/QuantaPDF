@@ -1,109 +1,267 @@
 #!/usr/bin/env python3
-"""Quarantined local PDF scan for Issue #262 W* candidates. Discovery only."""
+"""Conservative Issue #262 W* discovery over unchanged, quarantined PDFs.
+
+Unlike the old byte-regex probe, this resolves xref/object streams, indirect
+/Contents, filters and nested Form XObjects. Results are discovery-only; formal
+admission still requires rights and original-PDFium/native-C11 pixel evidence.
+"""
 from __future__ import annotations
+
+import argparse
 import hashlib
+import io
 import json
-import re
-import zlib
+import logging
 from pathlib import Path
+from typing import Any
+
+from pypdf import PdfReader
+from pypdf.errors import PdfReadError
+from pypdf.generic import ArrayObject, ContentStream, DictionaryObject, StreamObject
 
 ROOT = Path("tests/external_wstar_candidates")
-WSTAR = re.compile(rb"(?<![A-Za-z0-9])W\*(?=\s|%|$)")
-TEXT_OP = re.compile(rb"(?<![A-Za-z0-9])(?:BT|ET|Tj|TJ|Tf|Td|TD|Tm|Tr)(?![A-Za-z0-9])")
-PATH_OP = re.compile(rb"(?<![A-Za-z0-9])(?:m|l|c|v|y|h|re)(?![A-Za-z0-9])")
-PATH_END = re.compile(rb"(?<![A-Za-z0-9])(?:S|s|f|F|B|B\*|b|b\*|n)(?![A-Za-z0-9])")
+MAX_BYTES = 20 * 1024 * 1024
+MAX_PAGES = 128
+MAX_FORM_DEPTH = 16
+MAX_OPERATIONS = 200_000
 
-def scan(data: bytes):
-    page_refs = set()
-    for match in re.finditer(rb"/Contents\s*(\[[^\]]*\]|\d+\s+\d+\s+R)", data):
-        page_refs.update(int(value) for value in re.findall(rb"(\d+)\s+\d+\s+R", match.group(1)))
-    direct_lengths = {
-        int(match.group(1)): int(match.group(2))
-        for match in re.finditer(rb"(?m)^\s*(\d+)\s+\d+\s+obj\s+(\d+)\s+endobj", data)
+PATH = {b"m", b"l", b"c", b"v", b"y", b"h", b"re"}
+END_PATH = {b"n", b"S", b"s", b"f", b"F", b"f*", b"B", b"B*", b"b", b"b*"}
+TEXT = {
+    b"BT", b"ET", b"Tc", b"Tw", b"Tz", b"TL", b"Tf", b"Tr", b"Ts",
+    b"Td", b"TD", b"Tm", b"T*", b"Tj", b"TJ", b"'", b'"',
+    b"d0", b"d1",
+}
+BASIC = PATH | END_PATH | {
+    b"W", b"W*", b"q", b"Q", b"cm", b"w", b"J", b"j", b"M", b"d",
+    b"ri", b"i", b"g", b"G", b"rg", b"RG", b"k", b"K", b"cs", b"CS",
+}
+
+
+class Incomplete(Exception):
+    """Incomplete parsing cannot be used as evidence of zero W* operators."""
+
+
+class WarningRecorder(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__(logging.WARNING)
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.name.startswith("pypdf"):
+            self.messages.append(record.getMessage()[:240])
+
+
+def resolved(item: Any) -> Any:
+    return item.get_object() if hasattr(item, "get_object") else item
+
+
+def require_dict(item: Any, context: str) -> DictionaryObject:
+    value = resolved(item)
+    if not isinstance(value, DictionaryObject):
+        raise Incomplete(f"{context}: expected dictionary, got {type(value).__name__}")
+    return value
+
+
+def source_identity(item: Any) -> str:
+    ref = getattr(item, "indirect_reference", None)
+    return f"{ref.idnum}:{ref.generation}" if ref else f"direct:{id(item)}"
+
+
+def path_evidence(path: list[bytes]) -> dict[str, Any]:
+    rectangles, moves = path.count(b"re"), path.count(b"m")
+    nonrect = any(x in path for x in (b"l", b"c", b"v", b"y"))
+    return {
+        "rectangles": rectangles,
+        "moves": moves,
+        "has_curves_or_lines": nonrect,
+        # Only a ranking heuristic, NEVER positive even-odd geometry proof.
+        "potential_evenodd_difference": rectangles + moves >= 2 or nonrect,
+        "requires_geometry_and_pixel_review": True,
     }
-    streams, page_text_ops = [], 0
-    for obj in re.finditer(rb"(?m)^(\d+)\s+\d+\s+obj\b", data):
-        object_id = int(obj.group(1))
-        body_start = obj.end()
-        marker = re.search(rb"stream\r?\n", data[body_start:])
-        if marker is None:
-            continue
-        marker_start = body_start + marker.start()
-        if data.find(b"endobj", body_start, marker_start) >= 0:
-            continue
-        dictionary = data[body_start:marker_start]
-        payload_start = body_start + marker.end()
-        length_match = re.search(rb"/Length\s+(\d+)(?:\s+\d+\s+R)?", dictionary)
-        length = int(length_match.group(1)) if length_match else None
-        if length_match and re.search(rb"/Length\s+\d+\s+\d+\s+R", dictionary):
-            length = direct_lengths.get(length)
-        payload_end = payload_start + length if length is not None and payload_start + length <= len(data) else data.find(b"endstream", payload_start)
-        if payload_end < payload_start:
-            continue
-        payload = data[payload_start:payload_end]
-        if payload.endswith(b"\r\n"):
-            payload = payload[:-2]
-        elif payload.endswith(b"\n"):
-            payload = payload[:-1]
-        decoded = payload
-        if b"/FlateDecode" in dictionary:
-            try:
-                decoded = zlib.decompress(payload)
-            except zlib.error:
-                continue
-        text_count = len(list(TEXT_OP.finditer(decoded)))
-        if object_id in page_refs:
-            page_text_ops += text_count
-        hits = list(WSTAR.finditer(decoded))
-        if not hits:
-            continue
-        clips = []
-        for hit in hits:
-            position = hit.start()
-            previous_path_ends = [m.end() for m in PATH_END.finditer(decoded[:position])]
-            segment_start = previous_path_ends[-1] if previous_path_ends else max(0, position - 500)
-            segment = decoded[segment_start:position]
-            tokens = [m.group().decode("ascii") for m in PATH_OP.finditer(segment)]
-            rectangles, moves = tokens.count("re"), tokens.count("m")
-            clips.append({
-                "rectangles_heuristic": rectangles,
-                "move_ops_heuristic": moves,
-                "nonrect_path_ops_heuristic": [token for token in tokens if token != "re"],
-                "context": decoded[max(0, position - 100):position + 25].decode("latin-1", errors="replace"),
-            })
-        streams.append({
-            "object": object_id,
-            "page_content_reference": object_id in page_refs,
-            "wstar_count": len(hits),
-            "stream_text_operator_count": text_count,
-            "clips": clips[:12],
-        })
-    page_wstar = sum(stream["wstar_count"] for stream in streams if stream["page_content_reference"])
-    return page_wstar, streams, page_text_ops
 
-def main():
-    results = []
-    for path in sorted(ROOT.glob("*.pdf")):
-        data = path.read_bytes()
-        page_wstar, streams, page_text = scan(data)
-        clips = [clip for stream in streams if stream["page_content_reference"] for clip in stream["clips"]]
-        meaningful = [clip for clip in clips if clip["nonrect_path_ops_heuristic"] or clip["rectangles_heuristic"] + clip["move_ops_heuristic"] >= 2]
-        results.append({
+
+def scan_pdf(data: bytes) -> dict[str, Any]:
+    """Fail closed on any undecodable or incompletely traversed page content."""
+    result: dict[str, Any] = {
+        "scan_status": "inconclusive",
+        "reason": None,
+        "page_count": None,
+        "page_content_wstar_count": None,
+        "form_wstar_count": None,
+        "effective_wstar_count": None,
+        "page_text_operator_count": None,
+        "native_subgraph_review_required": True,
+        "pages": [],
+    }
+    if len(data) > MAX_BYTES:
+        result["reason"] = "size_limit"
+        return result
+    recorder = WarningRecorder()
+    logger = logging.getLogger("pypdf")
+    logger.addHandler(recorder)
+    try:
+        reader = PdfReader(io.BytesIO(data), strict=True)
+        if reader.is_encrypted:
+            raise Incomplete("encrypted_document")
+        pages = reader.pages
+        count = len(pages)
+        if count > MAX_PAGES:
+            raise Incomplete("page_limit")
+        result["page_count"] = count
+        for index, page in enumerate(pages):
+            details: dict[str, Any] = {
+                "index": index,
+                "content_stream_wstar": 0,
+                "form_xobject_wstar": 0,
+                "text_operators": 0,
+                "inline_images": 0,
+                "image_xobject_calls": 0,
+                "clip_evidence": [],
+                "native_raster_risks": [],
+            }
+            result["pages"].append(details)
+            active_forms: set[str] = set()
+            used = [0]
+
+            def analyze(content: Any, resources: Any, origin: str, depth: int) -> None:
+                if depth > MAX_FORM_DEPTH:
+                    raise Incomplete("form_depth_limit")
+                res = require_dict(resources, "effective /Resources")
+                obj = resolved(content)
+                if not isinstance(obj, (StreamObject, ArrayObject)):
+                    raise Incomplete(f"{origin}: non-stream /Contents")
+                # ContentStream concatenates /Contents arrays and uses actual PDF
+                # syntax rather than matching operator-like bytes in strings.
+                parsed = ContentStream(obj, reader).operations
+                path: list[bytes] = []
+                for operands, operator in parsed:
+                    used[0] += 1
+                    if used[0] > MAX_OPERATIONS:
+                        raise Incomplete("operation_limit")
+                    if operator == b"W*":
+                        field = "content_stream_wstar" if depth == 0 else "form_xobject_wstar"
+                        details[field] += 1
+                        details["clip_evidence"].append({
+                            "origin": origin, "operator": "W*", **path_evidence(path)
+                        })
+                    elif operator in PATH:
+                        path.append(operator)
+                    elif operator in END_PATH:
+                        path.clear()
+                    elif operator in TEXT:
+                        details["text_operators"] += 1
+                        details["native_raster_risks"].append("text")
+                    elif operator == b"INLINE IMAGE":
+                        details["inline_images"] += 1
+                        details["native_raster_risks"].append("inline_image")
+                    elif operator == b"Do":
+                        if len(operands) != 1:
+                            raise Incomplete(f"{origin}: malformed Do")
+                        xobjects = require_dict(res.get("/XObject"), f"{origin}: /XObject")
+                        name = operands[0]
+                        if name not in xobjects:
+                            raise Incomplete(f"{origin}: missing XObject {name}")
+                        target_ref = xobjects.raw_get(name)
+                        target = resolved(target_ref)
+                        if not isinstance(target, StreamObject):
+                            raise Incomplete(f"{origin}: non-stream XObject")
+                        subtype = target.get("/Subtype")
+                        if subtype == "/Image":
+                            details["image_xobject_calls"] += 1
+                            details["native_raster_risks"].append("image_xobject")
+                        elif subtype == "/Form":
+                            identity = (f"{target_ref.idnum}:{target_ref.generation}"
+                                        if hasattr(target_ref, "idnum")
+                                        else source_identity(target))
+                            if identity in active_forms:
+                                raise Incomplete(f"{origin}: cyclic Form XObject")
+                            active_forms.add(identity)
+                            try:
+                                analyze(target, target.get("/Resources", res),
+                                        f"{origin}/Form({name})", depth + 1)
+                            finally:
+                                active_forms.remove(identity)
+                        else:
+                            raise Incomplete(f"{origin}: unknown XObject subtype {subtype}")
+                    elif operator == b"gs":
+                        details["native_raster_risks"].append("ext_gstate")
+                    elif operator in {b"sh", b"scn", b"SCN", b"MP", b"DP", b"BMC",
+                                      b"BDC", b"EMC", b"BX", b"EX"}:
+                        details["native_raster_risks"].append("other_graphics_operator")
+                    elif operator not in BASIC:
+                        details["native_raster_risks"].append("unrecognized_operator")
+
+            if "/Contents" in page:
+                # Missing page /Contents is valid blank content, but malformed
+                # explicitly present content must NOT become a zero hit.
+                analyze(page.raw_get("/Contents"),
+                        page.get("/Resources", DictionaryObject()), "page", 0)
+            if page.get("/Annots"):
+                # Appearances are not in the main page content traversal.
+                details["native_raster_risks"].append("annotations_not_scanned")
+            details["native_raster_risks"] = sorted(set(details["native_raster_risks"]))
+
+        if recorder.messages:
+            raise Incomplete("pypdf_parser_warning: " + recorder.messages[0])
+        result["page_content_wstar_count"] = sum(
+            x["content_stream_wstar"] for x in result["pages"]
+        )
+        result["form_wstar_count"] = sum(
+            x["form_xobject_wstar"] for x in result["pages"]
+        )
+        result["effective_wstar_count"] = (
+            result["page_content_wstar_count"] + result["form_wstar_count"]
+        )
+        result["page_text_operator_count"] = sum(
+            x["text_operators"] for x in result["pages"]
+        )
+        result["scan_status"] = (
+            "confirmed_no_wstar" if result["effective_wstar_count"] == 0
+            else "wstar_found"
+        )
+    except Exception as exc:
+        # This is a research scanner, not the native decoder. A failed parse
+        # must yield an explicit unknown classification rather than zero W*.
+        result["reason"] = f"{type(exc).__name__}: {str(exc)[:300]}"
+    finally:
+        logger.removeHandler(recorder)
+    return result
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, default=ROOT)
+    parser.add_argument("--output", type=Path, help="optional JSON report")
+    args = parser.parse_args()
+    records = []
+    for path in sorted(args.root.glob("*.pdf")):
+        raw = path.read_bytes()
+        records.append({
             "path": str(path),
-            "bytes": len(data),
-            "sha256": hashlib.sha256(data).hexdigest(),
-            "page_content_wstar_count": page_wstar,
-            "page_text_operator_count": page_text,
-            "vector_only_page_heuristic": page_text == 0,
-            "page_clip_count": len(clips),
-            "parity_discriminating_clip_heuristic_count": len(meaningful),
-            "streams": streams,
+            "bytes": len(raw),
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            **scan_pdf(raw),
         })
-    print(json.dumps({
-        "status": "discovery only; these candidates are not in the formal corpus",
-        "files_scanned": len(results),
-        "results": results,
-    }, indent=2, ensure_ascii=False))
+    output = {
+        "schema_version": 2,
+        "status": "discovery_only_not_official_corpus",
+        "files_scanned": len(records),
+        "confirmed_no_wstar": sum(
+            x["scan_status"] == "confirmed_no_wstar" for x in records
+        ),
+        "wstar_found": sum(x["scan_status"] == "wstar_found" for x in records),
+        "inconclusive": sum(
+            x["scan_status"] == "inconclusive" for x in records
+        ),
+        "results": records,
+    }
+    payload = json.dumps(output, indent=2, ensure_ascii=False) + "\n"
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(payload, encoding="utf-8")
+    print(payload, end="")
+
 
 if __name__ == "__main__":
     main()
