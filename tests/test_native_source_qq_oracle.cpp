@@ -9,6 +9,7 @@
 #include "ir/pdf_path_lowering.h"
 #include "snapshot/graph_snapshot.h"
 #include "render/ir_scoped_operations_v1.h"
+#include "render/ir_stroke_polyline_v1.h"
 #include "render/ir_clip_dag_v3.h"
 #include "render/ir_raster.h"
 #include "render/ir_raster_v1.h"
@@ -3258,6 +3259,30 @@ int test_external_tikz_wstar_pixels(const char *filename,
         page_numbers.media_box,page_numbers.crop_box,page_numbers.user_unit,
         page_numbers.rotation,72u,pixel_count,&device_plan));
     CHECK(device_plan.width==width && device_plan.height==height);
+
+    for(size_t op_index=0u;op_index<detached.operation_count;++op_index) {
+        const quantapdf_composer_operation *op=&detached.operations[op_index];
+        if(op->kind!=QUANTAPDF_COMPOSER_OPERATION_PATH ||
+           op->value.path.options.stroke!=1 ||
+           op->value.path.options.fill!=0) continue;
+        quantapdf_composer_path_operation outline{};
+        const quantapdf_status outline_status=
+            quantapdf_ir_stroke_polyline_outline_v1_planned(
+                &op->value.path,limits.max_edges,&device_plan,&outline);
+        std::fprintf(stderr,
+            "[texample-wstar-stroke-outline] op=%zu status=%d commands=%zu "
+            "width=%.6f cap=%d join=%d dash=%zu transform=%.6f,%.6f,%.6f,%.6f\n",
+            op_index,(int)outline_status,op->value.path.command_count,
+            op->value.path.options.stroke_width,
+            (int)op->value.path.options.line_cap,
+            (int)op->value.path.options.line_join,
+            op->value.path.dash_count,
+            op->value.path.options.transform.a,
+            op->value.path.options.transform.b,
+            op->value.path.options.transform.c,
+            op->value.path.options.transform.d);
+        quantapdf_ir_stroke_polyline_dispose_v1(&outline);
+    }
 
     /* Render the complete original page through the expanded, still bounded
        pure-C11 stroke profile. This source's two outline paths are cubic;
