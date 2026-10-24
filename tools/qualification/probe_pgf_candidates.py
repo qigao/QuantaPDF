@@ -82,7 +82,7 @@ def path_evidence(path: list[bytes]) -> dict[str, Any]:
     }
 
 
-def scan_pdf(data: bytes) -> dict[str, Any]:
+def scan_pdf(data: bytes, *, allow_nonzero_xref_warning: bool = False) -> dict[str, Any]:
     """Fail closed on any undecodable or incompletely traversed page content."""
     result: dict[str, Any] = {
         "scan_status": "inconclusive",
@@ -112,7 +112,10 @@ def scan_pdf(data: bytes) -> dict[str, Any]:
     logger = logging.getLogger("pypdf")
     logger.addHandler(recorder)
     try:
-        reader = PdfReader(io.BytesIO(data), strict=(header_offset == 0))
+        # The xref-repair exception is only for a separately qpdf-validated
+        # candidate workflow; default scans remain strict and fail closed.
+        reader = PdfReader(io.BytesIO(data),
+                           strict=(header_offset == 0 and not allow_nonzero_xref_warning))
         if reader.is_encrypted:
             raise Incomplete("encrypted_document")
         pages = reader.pages
@@ -222,7 +225,13 @@ def scan_pdf(data: bytes) -> dict[str, Any]:
                 all(message.lower().startswith("invalid pdf header:")
                     for message in recorder.messages)
             )
-            if not benign_header_warnings:
+            benign_validated_xref_repair = (
+                allow_nonzero_xref_warning and len(recorder.messages) == 1 and
+                recorder.messages[0].lower().startswith(
+                    "xref table not zero-indexed. id numbers for objects will be corrected."
+                )
+            )
+            if not (benign_header_warnings or benign_validated_xref_repair):
                 raise Incomplete("pypdf_parser_warning: " +
                                  " | ".join(recorder.messages[:3]))
         result["page_content_wstar_count"] = sum(
@@ -254,6 +263,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--output", type=Path, help="optional JSON report")
+    parser.add_argument(
+        "--allow-nonzero-xref-warning",
+        action="store_true",
+        help="allow only pypdf's xref-subsection repair warning; use only after qpdf --check passes",
+    )
     args = parser.parse_args()
     records = []
     for path in sorted(args.root.glob("*.pdf")):
@@ -262,7 +276,7 @@ def main() -> None:
             "path": str(path),
             "bytes": len(raw),
             "sha256": hashlib.sha256(raw).hexdigest(),
-            **scan_pdf(raw),
+            **scan_pdf(raw, allow_nonzero_xref_warning=args.allow_nonzero_xref_warning),
         })
     output = {
         "schema_version": 2,
