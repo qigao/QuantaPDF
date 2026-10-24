@@ -21,6 +21,16 @@
       "license_evidence": "The source page identifies the author and states Creative Commons Attribution-ShareAlike 4.0 International.",
       "source_description": "TikZ Olympic-rings example with even-odd fill paths; included as a comparison control, not assumed to contain W* clipping.",
       "formal_corpus": false
+    },
+    {
+      "file": "intersecting-rings.pdf",
+      "page_url": "https://texample.net/intersecting-rings/",
+      "download_url": "https://texample.net/files/intersecting-rings.pdf",
+      "author": "Dominique Wuertz",
+      "license": "CC BY-SA 4.0 International",
+      "license_evidence": "The source page identifies the author and states Creative Commons Attribution-ShareAlike 4.0 International.",
+      "source_description": "Explicit even-odd clipping example. The clipping path consists of two circles (outer and inner subpaths), and the drawing uses vector fills/strokes without intentional text or images.",
+      "formal_corpus": false
     }
   ]
 }
