@@ -75,7 +75,7 @@ def whitespace_prefixed_pdf(pdf: bytes, prefix: bytes = b"\n\n") -> bytes:
     data[xref_at:trailer_at] = b"".join(lines)
     startxref_at = data.rfind(b"startxref")
     number_start = data.find(b"\n", startxref_at) + 1
-    number_end = data.find(b"\\n", number_start)
+    number_end = data.find(b"\n", number_start)
     data[number_start:number_end] = str(
         int(data[number_start:number_end]) + len(prefix)
     ).encode()
