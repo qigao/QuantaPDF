@@ -63,6 +63,8 @@ jobs:
                   "pages": item["page_count"],
                   "page_content_wstar_count": item["page_content_wstar_count"],
                   "form_wstar_count": item["form_wstar_count"],
+                  "annotation_appearance_wstar_count": item["annotation_appearance_wstar_count"],
+                  "effective_wstar_count": item["effective_wstar_count"],
                   "page_text_operator_count": item["page_text_operator_count"],
                   "native_raster_risks": sorted({
                       risk for page in item["pages"]
