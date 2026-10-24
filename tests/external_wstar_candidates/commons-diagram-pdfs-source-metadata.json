@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "purpose": "Issue #262 discovery-only candidates from Wikimedia Commons. Original uploaded PDF bytes only; source/rights evidence is recorded, but neither file is a formal test-corpus entry.",
+  "candidates": [
+    {
+      "file": "Iron cycle3.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:Iron_cycle3.pdf",
+      "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Iron_cycle3.pdf",
+      "author": "BeccaMGM",
+      "source": "Own work",
+      "license": "CC BY-SA 4.0 International",
+      "license_evidence": "Wikimedia Commons file page identifies the author, own-work source, and CC BY-SA 4.0 license.",
+      "producer": "Microsoft PowerPoint for Office 365",
+      "reported_file_size": "1.36 MB",
+      "formal_corpus": false
+    },
+    {
+      "file": "School Voucher Diagram.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:School_Voucher_Diagram.pdf",
+      "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/School%20Voucher%20Diagram.pdf",
+      "author": "Daytona101",
+      "source": "Own work",
+      "license": "CC BY-SA 4.0 International",
+      "license_evidence": "Wikimedia Commons file page identifies the author, own-work source, and CC BY-SA 4.0 license.",
+      "producer": "PowerPoint; converted with macOS Quartz PDFContext",
+      "reported_file_size_bytes": 23000,
+      "formal_corpus": false
+    }
+  ]
+}
