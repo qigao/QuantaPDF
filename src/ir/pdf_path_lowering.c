@@ -310,14 +310,14 @@ static quantapdf_status commands_from_path(
             } else if (op->opcode == QUANTAPDF_PDF_OP_CURVE_V) {
                 if (op->argument_count != 4) return QUANTAPDF_ERROR_FORMAT;
                 p1 = current;
-                status = point(a[0], a[1], &p2);
+                status = point(a[0], a[1], &p2, native_float_geometry);
                 if (status != QUANTAPDF_OK) return status;
-                status = point(a[2], a[3], &p3);
+                status = point(a[2], a[3], &p3, native_float_geometry);
             } else {
                 if (op->argument_count != 4) return QUANTAPDF_ERROR_FORMAT;
                 status = point(a[0], a[1], &p1, native_float_geometry);
                 if (status != QUANTAPDF_OK) return status;
-                status = point(a[2], a[3], &p3);
+                status = point(a[2], a[3], &p3, native_float_geometry);
                 p2 = p3;
             }
             if (status != QUANTAPDF_OK) return status;
