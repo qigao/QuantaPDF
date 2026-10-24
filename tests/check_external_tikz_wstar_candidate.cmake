@@ -89,6 +89,6 @@ if(NOT before STREQUAL after)
   message(FATAL_ERROR "Original TeXample PDF bytes changed during pixel oracle")
 endif()
 message(STATUS "texample-wstar-original-pixel: passed; sha=${after} "
-  "page=${page_width}x${page_height} Wstar=${native_wstar_evenodd_clip_path_leaves} "
+  "page=${page_width}x${page_height} Wstar=${source_wstar_evenodd_clip_path_leaves} "
   "orange=${reference_orange_pixels}/${native_evenodd_orange_pixels} "
   "evenodd-vs-nonzero-diff=${evenodd_nonzero_diff_pixels}")
