@@ -3056,6 +3056,50 @@ int test_external_yworks_wstar_pixels(const char *filename,
 
 
 
+static void dump_tikz_candidate_contents(
+    const quantapdf_graph_snapshot *snapshot)
+{
+    if(snapshot==nullptr) return;
+    const quantapdf_graph_model *model=quantapdf_graph_view(snapshot->graph);
+    if(model==nullptr || model->page_count==0u) return;
+    const quantapdf_local_id page_id=
+        model->edges[model->page_offset].target;
+    const quantapdf_graph_edge *entry=
+        quantapdf_graph_find(model,page_id,"/Contents",9u);
+    if(entry==nullptr) {
+        std::fprintf(stderr,"[texample-wstar-stream] no /Contents entry\n");
+        return;
+    }
+    const quantapdf_graph_node *contents=
+        quantapdf_graph_node_at(model,entry->target);
+    if(contents==nullptr) return;
+    const bool array=contents->kind==QUANTAPDF_GRAPH_ARRAY;
+    const size_t count=array ? contents->edge_count :
+        (contents->kind==QUANTAPDF_GRAPH_STREAM ? 1u : 0u);
+    std::fprintf(stderr,"[texample-wstar-stream] kind=%d streams=%zu\n",
+        (int)contents->kind,count);
+    for(size_t i=0u;i<count;++i) {
+        const quantapdf_local_id id=array ?
+            model->edges[contents->edge_offset+i].target : entry->target;
+        quantapdf_graph_reference reference{};
+        quantapdf_status status=quantapdf_graph_reference_at(
+            snapshot->graph,id,&reference);
+        unsigned char *data=nullptr;
+        size_t size=0u;
+        if(status==QUANTAPDF_OK)
+            status=quantapdf_graph_snapshot_stream(
+                snapshot,&reference,&decode_limits,&data,&size);
+        std::fprintf(stderr,
+            "[texample-wstar-stream] index=%zu status=%d size=%zu\n",
+            i,(int)status,size);
+        if(status==QUANTAPDF_OK && data!=nullptr) {
+            std::fwrite(data,1u,size,stderr);
+            std::fputc('\n',stderr);
+        }
+        quantapdf_free(data);
+    }
+}
+
 int test_external_tikz_wstar_pixels(const char *filename,
                                     const char *report_path,
                                     const char *expected_sha256)
@@ -3129,6 +3173,7 @@ int test_external_tikz_wstar_pixels(const char *filename,
         lower_status=quantapdf_graph_snapshot_page_semantics(
             snap,0u,&decode_limits,&parse_limits,4u,&semantics);
         std::fprintf(stderr,"[texample-wstar-lowering] semantics=%d\n",(int)lower_status);
+        if(lower_status!=QUANTAPDF_OK) dump_tikz_candidate_contents(snap);
     }
     if(lower_status==QUANTAPDF_OK) {
         lower_status=quantapdf_pdf_path_lower_to_composer_mapped(
