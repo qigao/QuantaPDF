@@ -223,8 +223,12 @@ def scan_pdf(
                             raise Incomplete(f"{origin}: unknown XObject subtype {subtype}")
                     elif operator == b"gs":
                         record_risk(details, operator_name, "ext_gstate")
-                    elif operator in {b"sh", b"scn", b"SCN", b"MP", b"DP", b"BMC",
-                                      b"BDC", b"EMC", b"BX", b"EX"}:
+                    elif operator in {b"BMC", b"BDC", b"EMC", b"MP", b"DP",
+                                      b"BX", b"EX"}:
+                        # Marked-content tags and compatibility sections do not
+                        # paint pixels; they are metadata/control delimiters.
+                        pass
+                    elif operator in {b"sh", b"scn", b"SCN"}:
                         record_risk(details, operator_name, "other_graphics_operator")
                     elif operator not in BASIC:
                         record_risk(details, operator_name, "unrecognized_operator")
