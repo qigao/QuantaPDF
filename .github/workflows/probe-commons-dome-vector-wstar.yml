@@ -42,7 +42,18 @@ jobs:
           printf '%s\n' "$qpdf_rc" > qpdf-check-exit.txt
           cat qpdf-check.log
           printf 'qpdf_check_exit=%s\n' "$qpdf_rc"
-          if [ "$qpdf_rc" -eq 0 ]; then
+          # qpdf exit 3 is accepted only for the two known linearization-hint
+          # warnings observed on this exact SHA-pinned original. Any additional
+          # warning/error keeps the generic scanner in strict mode.
+          benign_linearization_warnings=0
+          if [ "$qpdf_rc" -eq 3 ] &&
+             grep -Fq 'qpdf: operation succeeded with warnings' qpdf-check.log &&
+             grep -Fq 'page 0 has shared identifier entries' qpdf-check.log &&
+             grep -Fq 'page 0: shared object 6: in hint table but not computed list' qpdf-check.log &&
+             [ "$(grep -c 'WARNING:' qpdf-check.log)" -eq 2 ]; then
+            benign_linearization_warnings=1
+          fi
+          if [ "$qpdf_rc" -eq 0 ] || [ "$benign_linearization_warnings" -eq 1 ]; then
             python3 tools/qualification/probe_pgf_candidates.py \
               --root /tmp/commons-dome-pdf \
               --allow-nonzero-xref-warning \
