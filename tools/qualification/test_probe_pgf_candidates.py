@@ -267,6 +267,13 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(result["scan_status"], "inconclusive")
         self.assertIsNone(result["effective_wstar_count"])
 
+    def test_operation_budget_is_bounded_and_fail_closed(self):
+        result = scan_pdf(ordinary_pdf([b"q Q q Q W* n"]), max_operations=3)
+        self.assertEqual(result["scan_status"], "inconclusive")
+        self.assertIsNone(result["effective_wstar_count"])
+        self.assertIn("operation_limit", result["reason"])
+
+
     def test_pdf_header_after_bounded_whitespace_is_scanned_unchanged(self):
         original = ordinary_pdf([b"0 0 10 10 re W* n"])
         source = whitespace_prefixed_pdf(original)
