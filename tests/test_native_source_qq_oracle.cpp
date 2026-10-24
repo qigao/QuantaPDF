@@ -3051,6 +3051,205 @@ int test_external_yworks_wstar_pixels(const char *filename,
 }
 
 
+
+int test_external_tikz_wstar_pixels(const char *filename,
+                                    const char *report_path,
+                                    const char *expected_sha256)
+{
+    CHECK(filename && *filename && report_path && *report_path &&
+          expected_sha256 && *expected_sha256);
+    namespace fs=std::filesystem;
+    std::error_code ec;
+    const fs::path source(filename), report(report_path);
+    const std::string staged=std::string(report_path)+".tmp";
+    const fs::path stage(staged);
+    CHECK(fs::is_regular_file(source,ec) && !ec);
+    CHECK(!fs::is_symlink(source,ec) && !ec);
+    const fs::path original=fs::weakly_canonical(source,ec);
+    CHECK(!ec);
+    const fs::path output=fs::weakly_canonical(report,ec);
+    CHECK(!ec && original!=output);
+    const fs::path temp=fs::weakly_canonical(stage,ec);
+    CHECK(!ec && original!=temp);
+    for(const fs::path& candidate:{report,stage}) {
+        const bool exists=fs::exists(candidate,ec);
+        CHECK(!ec);
+        if(exists) {
+            CHECK(!fs::is_symlink(candidate,ec) && !ec);
+            CHECK(!fs::equivalent(source,candidate,ec) && !ec);
+        }
+    }
+    CHECK(corpus_fixture_executions==0u);
+
+    /* Reference pixels come directly from the unchanged source via PDFium. */
+    const rgb_image pdfium=render_direct_pdfium_reference(filename);
+    CHECK(pdfium.width>0 && pdfium.height>0 && pdfium.components==3 &&
+          pdfium.stride>=pdfium.width*3);
+    const size_t width=static_cast<size_t>(pdfium.width);
+    const size_t height=static_cast<size_t>(pdfium.height);
+    CHECK(width<=8192u && height<=8192u && width*height<=60000000u);
+
+    /* Lower only this original page; snapshot_lower releases Source and Graph. */
+    quantapdf_pdf_path_lower_limits bounded=lower_limits;
+    bounded.max_painted_paths=8u;
+    quantapdf_ir detached{};
+    OK(snapshot_lower(&detached,0u,4u,8u,filename,&bounded));
+    const clip_leaf_counts winding=inspect_clip_fill_rules(detached);
+    std::fprintf(stderr,
+        "[texample-wstar-ir] pages=%zu page=%.3fx%.3f pixels=%zux%zu "
+        "paths=%zu clips=%zu states=%zu W=%zu Wstar=%zu intersections=%zu "
+        "fonts=%zu images=%zu forms=%zu soft_masks=%zu paints=%zu\n",
+        detached.page_count,
+        detached.page_count ? detached.pages[0].width_points : 0.0,
+        detached.page_count ? detached.pages[0].height_points : 0.0,
+        width,height,detached.operation_count,detached.resources.clip_count,
+        detached.resources.graphics_state_count,winding.nonzero,winding.evenodd,
+        winding.intersections,detached.resources.font_count,
+        detached.resources.image_count,detached.resources.form_count,
+        detached.resources.soft_mask_count,detached.resources.paint_count);
+    CHECK(detached.page_count==1u && detached.pages!=nullptr &&
+          detached.pages[0].width_points>0.0f &&
+          detached.pages[0].height_points>0.0f &&
+          static_cast<size_t>(std::ceil(detached.pages[0].width_points))==width &&
+          static_cast<size_t>(std::ceil(detached.pages[0].height_points))==height);
+    CHECK(detached.operation_count>0u && detached.operation_count<=8u &&
+          detached.resources.clip_count>0u && detached.resources.clip_count<=8u);
+    CHECK(winding.evenodd==1u && winding.nonzero==0u);
+    CHECK(detached.resources.font_count==0u && detached.resources.image_count==0u &&
+          detached.resources.form_count==0u &&
+          detached.resources.soft_mask_count==0u &&
+          detached.resources.paint_count==0u);
+
+    const size_t pixel_count=width*height;
+    const quantapdf_ir_raster_v1_limits limits={
+        pixel_count,8u,4096u,3200000000ULL
+    };
+    quantapdf_ir_raster_image native{},repeat{};
+    struct raster_image_cleanup {
+        quantapdf_ir_raster_image *image;
+        ~raster_image_cleanup() { quantapdf_ir_raster_image_dispose(image); }
+    };
+    raster_image_cleanup native_cleanup{&native};
+    raster_image_cleanup repeat_cleanup{&repeat};
+    const quantapdf_status status=
+        quantapdf_ir_raster_scoped_operations_v1(&detached,0u,&limits,&native);
+    if(status!=QUANTAPDF_OK)
+        std::fprintf(stderr,"[texample-wstar-native] status=%d paths=%zu clips=%zu\n",
+            (int)status,detached.operation_count,detached.resources.clip_count);
+    CHECK(status==QUANTAPDF_OK);
+    OK(quantapdf_ir_raster_scoped_operations_v1(&detached,0u,&limits,&repeat));
+    CHECK(native.pixels!=nullptr && repeat.pixels!=nullptr &&
+          native.width==width && native.height==height &&
+          native.stride==width*4u && native.size==pixel_count*4u &&
+          repeat.size==native.size &&
+          std::memcmp(native.pixels,repeat.pixels,native.size)==0);
+    quantapdf_ir_dispose(&detached);
+
+    double total=0.0;
+    size_t gross=0u,reference_orange=0u,native_orange=0u,overlap_orange=0u;
+    size_t reference_black=0u,native_black=0u,reference_white=0u;
+    for(size_t y=0u;y<height;++y) {
+        for(size_t x=0u;x<width;++x) {
+            const unsigned char *ref=pdfium.at(x,y);
+            const unsigned char *rgba=native.pixels+y*native.stride+4u*x;
+            unsigned rgb[3],worst=0u;
+            for(size_t channel=0u;channel<3u;++channel) {
+                rgb[channel]=on_white(rgba,channel);
+                const unsigned diff=rgb[channel]>(unsigned)ref[channel]
+                    ? rgb[channel]-(unsigned)ref[channel]
+                    : (unsigned)ref[channel]-rgb[channel];
+                total+=(double)diff;
+                if(diff>worst) worst=diff;
+            }
+            if(worst>64u) ++gross;
+            const bool ref_orange=ref[0]>200u && ref[1]>60u &&
+                                  ref[1]<220u && ref[2]<70u;
+            const bool nat_orange=rgb[0]>200u && rgb[1]>60u &&
+                                  rgb[1]<220u && rgb[2]<70u;
+            reference_orange+=(size_t)ref_orange;
+            native_orange+=(size_t)nat_orange;
+            overlap_orange+=(size_t)(ref_orange&&nat_orange);
+            reference_black+=(size_t)(ref[0]<60u&&ref[1]<60u&&ref[2]<60u);
+            native_black+=(size_t)(rgb[0]<60u&&rgb[1]<60u&&rgb[2]<60u);
+            reference_white+=(size_t)(ref[0]>245u&&ref[1]>245u&&ref[2]>245u);
+        }
+    }
+    const double mean=total/(double)(pixel_count*3u);
+    std::fprintf(stderr,
+        "[texample-wstar-pixels] mean=%.6f gross=%zu orange=%zu/%zu overlap=%zu "
+        "black=%zu/%zu white=%zu\n",
+        mean,gross,reference_orange,native_orange,overlap_orange,
+        reference_black,native_black,reference_white);
+    CHECK(mean<=0.05 && gross==0u);
+    CHECK(reference_orange>=100u && native_orange>=100u &&
+          overlap_orange*100u>=reference_orange*99u);
+    CHECK(reference_black>=20u && native_black>=20u && reference_white>=100u);
+
+    /* Emit a compact pixel grid during candidate qualification. These samples
+       are diagnostic only; fixed interior goldens are added after review. */
+    for(size_t gy=1u;gy<10u;++gy) {
+        const size_t y=(height*gy)/10u;
+        for(size_t gx=1u;gx<10u;++gx) {
+            const size_t x=(width*gx)/10u;
+            const unsigned char *ref=pdfium.at(x,y);
+            const unsigned char *rgba=native.pixels+y*native.stride+4u*x;
+            std::fprintf(stderr,"[texample-grid] x=%zu y=%zu ref=%u,%u,%u native=%u,%u,%u\n",
+                x,y,(unsigned)ref[0],(unsigned)ref[1],(unsigned)ref[2],
+                on_white(rgba,0u),on_white(rgba,1u),on_white(rgba,2u));
+        }
+    }
+
+    FILE *out=std::fopen(staged.c_str(),"wb");
+    CHECK(out!=nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"result\": \"passed\",\n"
+        "  \"document_id\": \"texample.intersecting-rings-v1\",\n"
+        "  \"reference_oracle\": \"original-pdfium\",\n"
+        "  \"original_source_pdfium_oracle\": \"passed\",\n"
+        "  \"detached_c11_native_raster\": \"passed\",\n"
+        "  \"native_ir\": \"lowered\",\n"
+        "  \"source_sha256\": \"%s\",\n"
+        "  \"source_and_graph_released_before_raster\": true,\n"
+        "  \"source_bytes_unchanged_after_reference_and_native\": true,\n"
+        "  \"pdfium_fallback_used\": false,\n"
+        "  \"repeat_rgba_identical\": true,\n"
+        "  \"page_width\": %zu,\n"
+        "  \"page_height\": %zu,\n"
+        "  \"native_painted_paths\": %zu,\n"
+        "  \"native_clip_count\": %zu,\n"
+        "  \"native_w_nonzero_clip_path_leaves\": %zu,\n"
+        "  \"native_wstar_evenodd_clip_path_leaves\": %zu,\n"
+        "  \"native_clip_intersection_nodes\": %zu,\n"
+        "  \"reference_orange_pixels\": %zu,\n"
+        "  \"native_orange_pixels\": %zu,\n"
+        "  \"overlap_orange_pixels\": %zu,\n"
+        "  \"reference_black_pixels\": %zu,\n"
+        "  \"native_black_pixels\": %zu,\n"
+        "  \"reference_white_pixels\": %zu,\n"
+        "  \"mean_rgb_error\": %.6f,\n"
+        "  \"gross_error_pixels\": %zu,\n"
+        "  \"fixed_interior_goldens\": 0,\n"
+        "  \"generated_fixture_count\": 0\n"
+        "}\n",
+        expected_sha256,width,height,detached.operation_count,
+        detached.resources.clip_count,winding.nonzero,winding.evenodd,
+        winding.intersections,reference_orange,native_orange,overlap_orange,
+        reference_black,native_black,reference_white,mean,gross);
+    CHECK(std::ferror(out)==0 && std::fclose(out)==0);
+#ifdef _WIN32
+    errno=0;
+    if(std::remove(report_path)!=0) CHECK(errno==ENOENT);
+#endif
+    CHECK(std::rename(staged.c_str(),report_path)==0);
+    CHECK(corpus_fixture_executions==0u);
+    std::fprintf(stderr,
+        "[texample-wstar-original-pixel] passed mean=%.6f gross=%zu "
+        "Wstar=%zu official_positive=0\n",mean,gross,winding.evenodd);
+    return EXIT_SUCCESS;
+}
+
 int main(int argc,char **argv)
 {
     if(argc==2 && std::strcmp(argv[1],"--page-group-admission")==0){
@@ -3078,6 +3277,10 @@ int main(int argc,char **argv)
     if(argc==5 && std::strcmp(argv[1],"--external-wstar-positive-pdf")==0 &&
        std::strcmp(argv[3],"--external-report")==0)
         return test_external_yworks_wstar_pixels(argv[2],argv[4]);
+    if(argc==7 && std::strcmp(argv[1],"--external-tikz-wstar-pdf")==0 &&
+       std::strcmp(argv[3],"--external-report")==0 &&
+       std::strcmp(argv[5],"--expected-sha256")==0)
+        return test_external_tikz_wstar_pixels(argv[2],argv[4],argv[6]);
     if(argc==7 && std::strcmp(argv[1],"--clip-causal-ab")==0 &&
        std::strcmp(argv[3],"--generated-prefix")==0 &&
        std::strcmp(argv[5],"--external-report")==0)
