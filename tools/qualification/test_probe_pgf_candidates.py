@@ -81,6 +81,24 @@ def whitespace_prefixed_pdf(pdf: bytes, prefix: bytes = b"\n\n") -> bytes:
     ).encode()
     return prefix + bytes(data)
 
+
+def nonzero_indexed_xref_pdf(pdf: bytes) -> bytes:
+    """Move a valid classic xref table from subsection 0..N to 1..N-1."""
+    data = bytearray(pdf)
+    xref_at = data.find(b"xref\\n")
+    if xref_at < 0:
+        raise ValueError("expected classic xref table")
+    header_start = xref_at + len(b"xref\\n")
+    header_end = data.find(b"\\n", header_start) + 1
+    start, count = map(int, bytes(data[header_start:header_end]).split())
+    if start != 0 or count < 2:
+        raise ValueError("unexpected xref subsection")
+    data[header_start:header_end] = f"1 {count - 1}\\n".encode()
+    free_entry_start = header_end
+    free_entry_end = data.find(b"\\n", free_entry_start) + 1
+    del data[free_entry_start:free_entry_end]
+    return bytes(data)
+
 def pdf15_object_stream() -> bytes:
     """A real PDF 1.5 xref stream with page object compressed into /ObjStm."""
     pdf = bytearray(b"%PDF-1.5\n%\xe2\xe3\xcf\xd3\n")
@@ -198,6 +216,22 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(result["scan_status"], "inconclusive")
         self.assertEqual(result["reason"], "invalid_pdf_header_prefix")
         self.assertIsNone(result["effective_wstar_count"])
+
+
+    def test_nonzero_indexed_xref_requires_independent_validation(self):
+        original = ordinary_pdf([b"0 0 10 10 re W* n"])
+        repaired_xref = nonzero_indexed_xref_pdf(original)
+        strict_result = scan_pdf(repaired_xref)
+        self.assertEqual(strict_result["scan_status"], "inconclusive")
+        self.assertIsNone(strict_result["effective_wstar_count"])
+        validated_result = scan_pdf(
+            repaired_xref, allow_nonzero_xref_warning=True
+        )
+        self.assertEqual(
+            validated_result["scan_status"], "wstar_found",
+            validated_result["reason"],
+        )
+        self.assertEqual(validated_result["effective_wstar_count"], 1)
 
     def test_pdf15_page_object_in_objstm(self):
         result = scan_pdf(pdf15_object_stream())
