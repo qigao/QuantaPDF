@@ -242,6 +242,20 @@ class ProbeTests(unittest.TestCase):
         self.assertIsNone(result["effective_wstar_count"])
         self.assertIn("missing normal appearance state", result["reason"])
 
+    def test_marked_content_and_compatibility_operators_are_non_painting(self):
+        result = scan_pdf(ordinary_pdf([
+            b"/Artifact BMC /Span << /MCID 1 >> BDC "
+            b"0 0 10 10 re f EMC EMC BX EX"
+        ]))
+        self.assertEqual(result["scan_status"], "confirmed_no_wstar")
+        page = result["pages"][0]
+        self.assertEqual(page["native_raster_risks"], [])
+        self.assertEqual(page["operator_counts"]["BMC"], 1)
+        self.assertEqual(page["operator_counts"]["BDC"], 1)
+        self.assertEqual(page["operator_counts"]["EMC"], 2)
+        self.assertEqual(page["operator_counts"]["BX"], 1)
+        self.assertEqual(page["operator_counts"]["EX"], 1)
+
     def test_image_does_not_invalidate_operator_count(self):
         result = scan_pdf(ordinary_pdf(
             [b"/Im Do 0 0 20 20 re W* n"], images=True,
