@@ -4,6 +4,7 @@ on:
     branches:
       - probe/262-pgf-corpus
     paths:
+      - '.github/workflows/probe-commons-diagram-pdfs-wstar.yml'
       - 'tests/external_wstar_candidates/commons-diagram-pdfs-source-metadata.json'
 permissions:
   contents: read
