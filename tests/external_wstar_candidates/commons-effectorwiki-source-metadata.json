@@ -14,7 +14,10 @@
       "reported_file_size_bytes": 402710,
       "reported_media_type": "application/pdf",
       "reported_sha1": "ffb709621b98630c20561c32ad368433c102b569",
-      "formal_corpus": false
+      "formal_corpus": false,
+      "observed_sha256": "e14d825ea4ea4ab5e3412950a23ae5d0435d0b6a76983c4a03c8f915636d848b",
+      "observed_size_bytes": 402710,
+      "scan_status": "confirmed_no_wstar"
     }
   ]
 }
