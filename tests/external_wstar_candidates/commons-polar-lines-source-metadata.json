@@ -13,6 +13,19 @@
       "producer": "Microsoft Office Visio 2007",
       "reported_file_size": "3 KB",
       "formal_corpus": false
+    },
+    {
+      "file": "Polar_coordinate.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:Polar_coordinate.pdf",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/b/b0/Polar_coordinate.pdf",
+      "author": "Renkexin",
+      "source": "Own work",
+      "license": "CC BY-SA 3.0 Unported",
+      "license_evidence": "Commons file page explicitly states CC BY-SA 3.0 Unported; file history shows the uploader's original upload on 13 September 2011.",
+      "producer": "Microsoft Office Visio 2007",
+      "reported_file_size_bytes": 3474,
+      "reported_sha1": "74210d8492c41c7dfa62abe6b831c0ba22add479",
+      "formal_corpus": false
     }
   ]
 }
