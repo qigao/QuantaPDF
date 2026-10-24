@@ -15,8 +15,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install pinned discovery-only parser
-        run: python3 -m pip install --disable-pip-version-check "pypdf==5.9.0"
+      - name: Install pinned parser and independent PDF validator
+        run: |
+          python3 -m pip install --disable-pip-version-check "pypdf==5.9.0"
+          sudo apt-get update
+          sudo apt-get install --yes qpdf
       - name: Download unchanged Commons original and verify source SHA-1
         shell: bash
         run: |
@@ -28,12 +31,29 @@ jobs:
           file '/tmp/commons-dome-pdf/Dome of the rock interior vector 02.pdf'
           actual="$(sha1sum '/tmp/commons-dome-pdf/Dome of the rock interior vector 02.pdf' | cut -d ' ' -f 1)"
           test "$actual" = "71d7f2fd82c5e6fdba601adda6fc05736de4ca11"
-      - name: Scan decoded content and preserve exact source identity
+      - name: Validate xref independently before allowing pypdf recovery
+        shell: bash
         run: |
-          python3 tools/qualification/probe_pgf_candidates.py \
-            --root /tmp/commons-dome-pdf \
-            --max-operations 500000 \
-            --output commons-dome-wstar-scan-report.json > commons-dome-wstar-scan.log
+          set -euo pipefail
+          set +e
+          qpdf --check '/tmp/commons-dome-pdf/Dome of the rock interior vector 02.pdf' > qpdf-check.log 2>&1
+          qpdf_rc=$?
+          set -e
+          printf '%s\n' "$qpdf_rc" > qpdf-check-exit.txt
+          cat qpdf-check.log
+          printf 'qpdf_check_exit=%s\n' "$qpdf_rc"
+          if [ "$qpdf_rc" -eq 0 ]; then
+            python3 tools/qualification/probe_pgf_candidates.py \
+              --root /tmp/commons-dome-pdf \
+              --allow-nonzero-xref-warning \
+              --max-operations 500000 \
+              --output commons-dome-wstar-scan-report.json > commons-dome-wstar-scan.log
+          else
+            python3 tools/qualification/probe_pgf_candidates.py \
+              --root /tmp/commons-dome-pdf \
+              --max-operations 500000 \
+              --output commons-dome-wstar-scan-report.json > commons-dome-wstar-scan.log
+          fi
       - name: Require the candidate to be accounted for
         run: |
           python3 - <<'PY'
@@ -80,5 +100,7 @@ jobs:
           path: |
             commons-dome-wstar-scan-report.json
             commons-dome-wstar-scan.log
+            qpdf-check.log
+            qpdf-check-exit.txt
             tests/external_wstar_candidates/commons-dome-vector-source-metadata.json
           retention-days: 7
