@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install pinned discovery-only parser
         run: python3 -m pip install --disable-pip-version-check "pypdf==5.9.0"
-      - name: Download five unchanged licensed PDFs
+      - name: Download eleven unchanged licensed PDFs
         shell: bash
         run: |
           set -euo pipefail
@@ -43,6 +43,18 @@ jobs:
           curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
             'https://commons.wikimedia.org/wiki/Special:Redirect/file/ISSU%20Logo.pdf' \
             --output '/tmp/commons-logos-pdfs/ISSU Logo.pdf'
+          curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/MapQuest%20Logo.pdf' \
+            --output '/tmp/commons-logos-pdfs/MapQuest Logo.pdf'
+          curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/Moco%20Biosynthetic%20Pathway.pdf' \
+            --output '/tmp/commons-logos-pdfs/Moco Biosynthetic Pathway.pdf'
+          curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/Fig2Simpson%27s%20solution.pdf' \
+            --output "/tmp/commons-logos-pdfs/Fig2Simpson's solution.pdf"
+          curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/Fig3Tellier%27s%20solution.pdf' \
+            --output "/tmp/commons-logos-pdfs/Fig3Tellier's solution.pdf"
           file /tmp/commons-logos-pdfs/*.pdf
       - name: Scan decoded content and preserve exact source identities
         run: |
@@ -62,6 +74,10 @@ jobs:
               "Al rifai logo.pdf",
               "H&BTMRR Oval Logo.pdf",
               "ISSU Logo.pdf",
+              "MapQuest Logo.pdf",
+              "Moco Biosynthetic Pathway.pdf",
+              "Fig2Simpson's solution.pdf",
+              "Fig3Tellier's solution.pdf",
           }
           report = json.loads(Path("commons-logos-wstar-scan-report.json").read_text())
           results = report["results"]
