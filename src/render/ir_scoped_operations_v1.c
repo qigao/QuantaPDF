@@ -17,6 +17,26 @@ static uint64_t scoped_component_weight(size_t count)
     return value == 0u ? 1u : value;
 }
 
+/* A cubic may flatten to many device-space segments under the fixed
+ * 1/8px curve tolerance. Charging one unit per authored CUBIC severely
+ * under-allocates sample work when another layer has already been expanded
+ * into thousands of straight stroke-outline commands. This conservative
+ * relative weight changes only the budget partition, never the global cap;
+ * every consumer still performs its exact bounded edge/sample preflight. */
+static uint64_t scoped_path_weight(
+    const quantapdf_composer_path_command *commands,size_t count)
+{
+    uint64_t total=0u;
+    if(commands==NULL) return scoped_component_weight(count);
+    for(size_t i=0u;i<count;++i) {
+        const uint64_t cost=commands[i].kind==QUANTAPDF_COMPOSER_PATH_CUBIC_TO
+            ? UINT64_C(32) : UINT64_C(1);
+        if(total>=UINT64_C(65536)-cost) return UINT64_C(65536);
+        total+=cost;
+    }
+    return scoped_component_weight((size_t)total);
+}
+
 static uint64_t scoped_operation_weight(
     const quantapdf_composer_operation *op)
 {
@@ -41,7 +61,7 @@ static uint64_t scoped_operation_weight(
         /* Rectangular Stroke expands to the outer/inner eight-edge ring. */
         return scoped_component_weight(8u);
     }
-    return scoped_component_weight(path->command_count);
+    return scoped_path_weight(path->commands,path->command_count);
 }
 
 static size_t scoped_proportional_budget(
@@ -307,7 +327,7 @@ static quantapdf_status scoped_operations_v1_impl(
                 status = QUANTAPDF_ERROR_UNSUPPORTED;
                 goto failure;
             }
-            weight += scoped_component_weight(clip->command_count);
+            weight += scoped_path_weight(clip->commands,clip->command_count);
         }
         operation_weights[i] = weight;
         total_weight += weight;
