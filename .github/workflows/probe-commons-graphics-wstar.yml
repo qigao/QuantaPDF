@@ -3,6 +3,11 @@ on:
   push:
     branches:
       - probe/262-pgf-corpus
+    paths:
+      - '.github/workflows/probe-commons-graphics-wstar.yml'
+      - 'tools/qualification/probe_pgf_candidates.py'
+      - 'tools/qualification/test_probe_pgf_candidates.py'
+      - 'tests/external_wstar_candidates/commons-graphics-source-metadata.json'
 permissions:
   contents: read
 jobs:
