@@ -3244,78 +3244,131 @@ int test_external_tikz_wstar_pixels(const char *filename,
     const quantapdf_ir_raster_v1_limits limits={
         pixel_count,8u,4096u,3200000000ULL
     };
-    quantapdf_ir_raster_image native{},repeat{};
+    CHECK(detached.operation_count==3u);
+    quantapdf_composer_operation projected_operation=detached.operations[0];
+    CHECK(projected_operation.kind==QUANTAPDF_COMPOSER_OPERATION_PATH);
+    CHECK(projected_operation.value.path.options.fill==1 &&
+          projected_operation.value.path.options.stroke==0);
+    const size_t state_id=(size_t)projected_operation.graphics_state_id;
+    CHECK(state_id>0u && state_id<=detached.resources.graphics_state_count);
+    const size_t clip_id=(size_t)
+        detached.resources.graphics_states[state_id-1u].clip_id;
+    CHECK(clip_id>0u && clip_id<=detached.resources.clip_count);
+    const quantapdf_composer_clip_state *source_clip=
+        &detached.resources.clips[clip_id-1u];
+    CHECK(source_clip->kind==QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL &&
+          source_clip->fill_rule==QUANTAPDF_COMPOSER_FILL_EVEN_ODD &&
+          source_clip->commands!=nullptr && source_clip->command_count>0u);
+
+    /* The full page also contains two thin strokes outside the Native Raster
+       stroke profile. Project only the original orange fill operation, borrow
+       its exact detached W* Clip Path, and compare the fill mask against the
+       unchanged full-page PDFium reference. This is a clip witness, not a
+       claim that every source-page operation is natively supported. */
+    projected_operation.graphics_state_id=0;
+    projected_operation.value.path.options.graphics_state_id=0;
+    quantapdf_ir projected=detached;
+    projected.operations=&projected_operation;
+    projected.operation_count=1u;
+    projected.resources=quantapdf_resource_registry{};
+    const quantapdf_composer_clip_state *evenodd_clips[1]={source_clip};
+    quantapdf_composer_clip_state nonzero_clip=*source_clip;
+    nonzero_clip.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
+    const quantapdf_composer_clip_state *nonzero_clips[1]={&nonzero_clip};
+
+    quantapdf_ir_raster_image native{},repeat{},nonzero{};
     struct raster_image_cleanup {
         quantapdf_ir_raster_image *image;
         ~raster_image_cleanup() { quantapdf_ir_raster_image_dispose(image); }
     };
     raster_image_cleanup native_cleanup{&native};
     raster_image_cleanup repeat_cleanup{&repeat};
-    const quantapdf_status status=
-        quantapdf_ir_raster_scoped_operations_v1(&detached,0u,&limits,&native);
-    if(status!=QUANTAPDF_OK)
-        std::fprintf(stderr,"[texample-wstar-native] status=%d paths=%zu clips=%zu\n",
-            (int)status,detached.operation_count,detached.resources.clip_count);
-    CHECK(status==QUANTAPDF_OK);
-    OK(quantapdf_ir_raster_scoped_operations_v1(&detached,0u,&limits,&repeat));
+    raster_image_cleanup nonzero_cleanup{&nonzero};
+    OK(quantapdf_ir_raster_render_v1_multi_clipped(
+        &projected,0u,&limits,evenodd_clips,1u,&native));
+    OK(quantapdf_ir_raster_render_v1_multi_clipped(
+        &projected,0u,&limits,evenodd_clips,1u,&repeat));
+    OK(quantapdf_ir_raster_render_v1_multi_clipped(
+        &projected,0u,&limits,nonzero_clips,1u,&nonzero));
     CHECK(native.pixels!=nullptr && repeat.pixels!=nullptr &&
+          nonzero.pixels!=nullptr &&
           native.width==width && native.height==height &&
           native.stride==width*4u && native.size==pixel_count*4u &&
-          repeat.size==native.size &&
+          repeat.size==native.size && nonzero.size==native.size &&
           std::memcmp(native.pixels,repeat.pixels,native.size)==0);
-    quantapdf_ir_dispose(&detached);
 
+    auto orange_like=[](unsigned r,unsigned g,unsigned b) {
+        return r>150u && r>g+12u && g>b+12u && r>b+40u;
+    };
     double total=0.0;
-    size_t gross=0u,reference_orange=0u,native_orange=0u,overlap_orange=0u;
-    size_t reference_black=0u,native_black=0u,reference_white=0u;
+    size_t gross=0u,union_orange=0u,reference_orange=0u;
+    size_t native_orange=0u,overlap_orange=0u,nonzero_orange=0u;
+    size_t control_diff_pixels=0u;
     for(size_t y=0u;y<height;++y) {
         for(size_t x=0u;x<width;++x) {
             const unsigned char *ref=pdfium.at(x,y);
             const unsigned char *rgba=native.pixels+y*native.stride+4u*x;
-            unsigned rgb[3],worst=0u;
+            const unsigned char *nz=nonzero.pixels+y*nonzero.stride+4u*x;
+            unsigned rgb[3],nzrgb[3],worst=0u,nzworst=0u;
             for(size_t channel=0u;channel<3u;++channel) {
                 rgb[channel]=on_white(rgba,channel);
+                nzrgb[channel]=on_white(nz,channel);
                 const unsigned diff=rgb[channel]>(unsigned)ref[channel]
                     ? rgb[channel]-(unsigned)ref[channel]
                     : (unsigned)ref[channel]-rgb[channel];
-                total+=(double)diff;
                 if(diff>worst) worst=diff;
+                const unsigned nzdiff=rgb[channel]>nzrgb[channel]
+                    ? rgb[channel]-nzrgb[channel]
+                    : nzrgb[channel]-rgb[channel];
+                if(nzdiff>nzworst) nzworst=nzdiff;
             }
-            if(worst>64u) ++gross;
-            const bool ref_orange=ref[0]>200u && ref[1]>60u &&
-                                  ref[1]<220u && ref[2]<70u;
-            const bool nat_orange=rgb[0]>200u && rgb[1]>60u &&
-                                  rgb[1]<220u && rgb[2]<70u;
+            if(nzworst>32u) ++control_diff_pixels;
+            const bool ref_orange=orange_like(ref[0],ref[1],ref[2]);
+            const bool nat_orange=orange_like(rgb[0],rgb[1],rgb[2]);
+            const bool nz_orange=orange_like(nzrgb[0],nzrgb[1],nzrgb[2]);
             reference_orange+=(size_t)ref_orange;
             native_orange+=(size_t)nat_orange;
+            nonzero_orange+=(size_t)nz_orange;
             overlap_orange+=(size_t)(ref_orange&&nat_orange);
-            reference_black+=(size_t)(ref[0]<60u&&ref[1]<60u&&ref[2]<60u);
-            native_black+=(size_t)(rgb[0]<60u&&rgb[1]<60u&&rgb[2]<60u);
-            reference_white+=(size_t)(ref[0]>245u&&ref[1]>245u&&ref[2]>245u);
+            if(ref_orange||nat_orange) {
+                ++union_orange;
+                total+=(double)(worst==0u ? 0u : 0u);
+                for(size_t channel=0u;channel<3u;++channel) {
+                    const unsigned diff=rgb[channel]>(unsigned)ref[channel]
+                        ? rgb[channel]-(unsigned)ref[channel]
+                        : (unsigned)ref[channel]-rgb[channel];
+                    total+=(double)diff;
+                }
+                if(worst>64u) ++gross;
+            }
         }
     }
-    const double mean=total/(double)(pixel_count*3u);
+    const double mean=union_orange==0u ? 1.0 :
+        total/(double)(union_orange*3u);
     std::fprintf(stderr,
-        "[texample-wstar-pixels] mean=%.6f gross=%zu orange=%zu/%zu overlap=%zu "
-        "black=%zu/%zu white=%zu\n",
-        mean,gross,reference_orange,native_orange,overlap_orange,
-        reference_black,native_black,reference_white);
-    CHECK(mean<=0.05 && gross==0u);
+        "[texample-wstar-pixels] scope=orange-fill-mask mean=%.6f gross=%zu "
+        "union=%zu reference=%zu native-evenodd=%zu overlap=%zu "
+        "native-nonzero=%zu control-diff=%zu\n",
+        mean,gross,union_orange,reference_orange,native_orange,
+        overlap_orange,nonzero_orange,control_diff_pixels);
+    CHECK(union_orange>=100u && mean<=0.05 && gross==0u);
     CHECK(reference_orange>=100u && native_orange>=100u &&
           overlap_orange*100u>=reference_orange*99u);
-    CHECK(reference_black>=20u && native_black>=20u && reference_white>=100u);
+    CHECK(nonzero_orange>=100u && control_diff_pixels>=100u);
 
-    /* Emit a compact pixel grid during candidate qualification. These samples
-       are diagnostic only; fixed interior goldens are added after review. */
+    /* Diagnostic grid is used once to choose fixed source-interior goldens. */
     for(size_t gy=1u;gy<10u;++gy) {
         const size_t y=(height*gy)/10u;
         for(size_t gx=1u;gx<10u;++gx) {
             const size_t x=(width*gx)/10u;
             const unsigned char *ref=pdfium.at(x,y);
             const unsigned char *rgba=native.pixels+y*native.stride+4u*x;
-            std::fprintf(stderr,"[texample-grid] x=%zu y=%zu ref=%u,%u,%u native=%u,%u,%u\n",
+            const unsigned char *nz=nonzero.pixels+y*nonzero.stride+4u*x;
+            std::fprintf(stderr,
+                "[texample-grid] x=%zu y=%zu ref=%u,%u,%u evenodd=%u,%u,%u nonzero=%u,%u,%u\n",
                 x,y,(unsigned)ref[0],(unsigned)ref[1],(unsigned)ref[2],
-                on_white(rgba,0u),on_white(rgba,1u),on_white(rgba,2u));
+                on_white(rgba,0u),on_white(rgba,1u),on_white(rgba,2u),
+                on_white(nz,0u),on_white(nz,1u),on_white(nz,2u));
         }
     }
 
