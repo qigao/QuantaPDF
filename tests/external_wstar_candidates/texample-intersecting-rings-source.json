@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "purpose": "Issue #262 candidate-only original PDF. The source page attributes the example to Dominique Wuertz and states CC BY-SA 4.0. The file is fetched unchanged at CI time and is not admitted to the formal corpus.",
+  "candidates": [
+    {
+      "id": "texample.intersecting-rings-v1",
+      "file": "intersecting-rings.pdf",
+      "page_url": "https://texample.net/intersecting-rings/",
+      "download_url": "https://texample.net/files/intersecting-rings.pdf",
+      "author": "Dominique Wuertz",
+      "license": "CC BY-SA 4.0 International",
+      "license_evidence": "The TeXample source page identifies the author and states Creative Commons Attribution-ShareAlike 4.0 International.",
+      "reported_size_bytes": 1396,
+      "observed_sha256": "f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284",
+      "scan_ci": "https://github.com/qigao/QuantaPDF/actions/runs/40098458232",
+      "scan_result": {
+        "qpdf_check": "exit 0",
+        "effective_wstar_count": 1,
+        "evenodd_clip_paths": 1,
+        "text_operators": 0,
+        "image_xobject_calls": 0,
+        "native_raster_risks": []
+      },
+      "qualification_status": "candidate_only_pixel_qualification_in_progress",
+      "formal_corpus": false
+    }
+  ]
+}
