@@ -29,6 +29,9 @@ jobs:
           curl --fail --location --retry 3 --retry-all-errors --max-time 90 \
             'https://texample.net/files/the-olympic-rings.pdf' \
             --output '/tmp/texample-pdfs/the-olympic-rings.pdf'
+          curl --fail --location --retry 3 --retry-all-errors --max-time 90 \
+            'https://texample.net/files/intersecting-rings.pdf' \
+            --output '/tmp/texample-pdfs/intersecting-rings.pdf'
           file /tmp/texample-pdfs/*.pdf
           sha256sum /tmp/texample-pdfs/*.pdf | tee source-sha256.txt
       - name: Independently validate originals and scan decoded operators
@@ -55,7 +58,7 @@ jobs:
           import json
           from pathlib import Path
           report = json.loads(Path("texample-wstar-scan-report.json").read_text())
-          expected = {"puzzle.pdf", "the-olympic-rings.pdf"}
+          expected = {"puzzle.pdf", "the-olympic-rings.pdf", "intersecting-rings.pdf"}
           assert report["files_scanned"] == len(expected), report["files_scanned"]
           assert {Path(item["path"]).name for item in report["results"]} == expected
           assert report["files_scanned"] == (
