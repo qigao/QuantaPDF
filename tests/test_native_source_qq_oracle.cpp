@@ -3258,6 +3258,25 @@ int test_external_tikz_wstar_pixels(const char *filename,
         page_numbers.media_box,page_numbers.crop_box,page_numbers.user_unit,
         page_numbers.rotation,72u,pixel_count,&device_plan));
     CHECK(device_plan.width==width && device_plan.height==height);
+
+    /* Try the complete original page first. The candidate includes two
+       authored thin strokes outside the current detached Native Raster
+       stroke profile, so this must reject atomically rather than silently
+       drop those operations. The qualified pixel oracle below is explicitly
+       scoped to the orange fill operation and its actual W* clip. */
+    quantapdf_ir_raster_image full_page_native{};
+    const quantapdf_status full_page_status=
+        quantapdf_ir_raster_scoped_operations_v1_planned(
+            &detached,0u,&limits,&device_plan,&full_page_native);
+    std::fprintf(stderr,
+        "[texample-wstar-full-page] status=%d pixels=%p size=%zu\n",
+        (int)full_page_status,(void*)full_page_native.pixels,
+        full_page_native.size);
+    CHECK(full_page_status==QUANTAPDF_ERROR_UNSUPPORTED &&
+          full_page_native.pixels==nullptr && full_page_native.size==0u &&
+          full_page_native.width==0u && full_page_native.height==0u &&
+          full_page_native.stride==0u);
+    quantapdf_ir_raster_image_dispose(&full_page_native);
     CHECK(detached.operation_count==3u);
     quantapdf_composer_operation projected_operation=detached.operations[0];
     CHECK(projected_operation.kind==QUANTAPDF_COMPOSER_OPERATION_PATH);
@@ -3379,20 +3398,48 @@ int test_external_tikz_wstar_pixels(const char *filename,
     CHECK(nonzero_orange>=100u && control_diff_pixels>=100u);
 
     /* Diagnostic grid is used once to choose fixed source-interior goldens. */
-    for(size_t gy=1u;gy<10u;++gy) {
-        const size_t y=(height*gy)/10u;
-        for(size_t gx=1u;gx<10u;++gx) {
-            const size_t x=(width*gx)/10u;
-            const unsigned char *ref=pdfium.at(x,y);
-            const unsigned char *rgba=native.pixels+y*native.stride+4u*x;
-            const unsigned char *nz=nonzero.pixels+y*nonzero.stride+4u*x;
-            std::fprintf(stderr,
-                "[texample-grid] x=%zu y=%zu ref=%u,%u,%u evenodd=%u,%u,%u nonzero=%u,%u,%u\n",
-                x,y,(unsigned)ref[0],(unsigned)ref[1],(unsigned)ref[2],
-                on_white(rgba,0u),on_white(rgba,1u),on_white(rgba,2u),
-                on_white(nz,0u),on_white(nz,1u),on_white(nz,2u));
+    struct parity_golden {
+        size_t x,y;
+        unsigned ref[3],evenodd[3],nonzero[3];
+    };
+    const parity_golden goldens[]={
+        /* A stable orange lobe, a stable overlap pixel excluded by W*, and
+           a background control. These coordinates are fixed independently
+           of the production affine and are not inferred from raster output. */
+        {119u,18u,{255u,128u,0u},{255u,128u,0u},{255u,128u,0u}},
+        {119u,90u,{255u,255u,255u},{255u,255u,255u},{255u,128u,0u}},
+        {23u,18u,{255u,255u,255u},{255u,255u,255u},{255u,255u,255u}}
+    };
+    for(const parity_golden& p:goldens) {
+        const unsigned char *ref=pdfium.at(p.x,p.y);
+        const unsigned char *eo=native.pixels+p.y*native.stride+4u*p.x;
+        const unsigned char *nz=nonzero.pixels+p.y*nonzero.stride+4u*p.x;
+        for(size_t channel=0u;channel<3u;++channel) {
+            const unsigned actual_ref=ref[channel];
+            const unsigned actual_eo=on_white(eo,channel);
+            const unsigned actual_nz=on_white(nz,channel);
+            if(std::abs((int)actual_ref-(int)p.ref[channel])>8 ||
+               std::abs((int)actual_eo-(int)p.evenodd[channel])>8 ||
+               std::abs((int)actual_nz-(int)p.nonzero[channel])>8) {
+                std::fprintf(stderr,
+                    "[texample-wstar-golden] x=%zu y=%zu channel=%zu "
+                    "ref=%u evenodd=%u nonzero=%u expected=%u/%u/%u\n",
+                    p.x,p.y,channel,actual_ref,actual_eo,actual_nz,
+                    p.ref[channel],p.evenodd[channel],p.nonzero[channel]);
+            }
+            CHECK(std::abs((int)actual_ref-(int)p.ref[channel])<=8 &&
+                  std::abs((int)actual_eo-(int)p.evenodd[channel])<=8 &&
+                  std::abs((int)actual_nz-(int)p.nonzero[channel])<=8);
         }
     }
+    const size_t fixed_interior_goldens=
+        sizeof(goldens)/sizeof(goldens[0]);
+    CHECK(fixed_interior_goldens==3u);
+
+    /* All raster consumers have finished and own independent pixel buffers.
+       Release the detached IR/resources explicitly; this is also exercised
+       under LeakSanitizer in the same-source CI gate. */
+    quantapdf_ir_dispose(&detached);
 
     FILE *out=std::fopen(staged.c_str(),"wb");
     CHECK(out!=nullptr);
@@ -3427,13 +3474,14 @@ int test_external_tikz_wstar_pixels(const char *filename,
         "  \"evenodd_nonzero_diff_pixels\": %zu,\n"
         "  \"masked_mean_rgb_error\": %.6f,\n"
         "  \"masked_gross_error_pixels\": %zu,\n"
-        "  \"fixed_interior_goldens\": 0,\n"
+        "  \"fixed_interior_goldens\": %zu,\n"
         "  \"generated_fixture_count\": 0\n"
         "}\n",
         expected_sha256,width,height,painted_count,
         clip_count,winding.nonzero,winding.evenodd,
         winding.intersections,union_orange,reference_orange,native_orange,
-        overlap_orange,nonzero_orange,control_diff_pixels,mean,gross);
+        overlap_orange,nonzero_orange,control_diff_pixels,mean,gross,
+        fixed_interior_goldens);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
