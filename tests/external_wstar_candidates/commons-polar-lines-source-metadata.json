@@ -12,7 +12,10 @@
       "license_evidence": "Commons file page explicitly states CC BY-SA 3.0 Unported; file history shows the uploader's original upload on 13 September 2011.",
       "producer": "Microsoft Office Visio 2007",
       "reported_file_size": "3 KB",
-      "formal_corpus": false
+      "formal_corpus": false,
+      "observed_sha256": "f4522f6317e70d564fe2e10738694b31b6327a754ae54b4e8ec78b8a8f346e96",
+      "observed_size_bytes": 3301,
+      "qpdf_check": "exit 0"
     },
     {
       "file": "Polar_coordinate.pdf",
@@ -25,7 +28,10 @@
       "producer": "Microsoft Office Visio 2007",
       "reported_file_size_bytes": 3474,
       "reported_sha1": "74210d8492c41c7dfa62abe6b831c0ba22add479",
-      "formal_corpus": false
+      "formal_corpus": false,
+      "observed_sha256": "7ca33f7729db6a9e5287fe0c123cb9f26eec7d578de84a7bd4cd88424af13280",
+      "observed_size_bytes": 3474,
+      "qpdf_check": "exit 0"
     }
   ]
 }
