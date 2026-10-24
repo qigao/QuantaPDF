@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "purpose": "Issue #262 discovery-only candidates. Each download is the original Wikimedia Commons PDF byte stream; no PDF is rewritten, and no result is formal corpus evidence without native-subset review and original-source PDFium/C11 pixel parity.",
+  "candidates": [
+    {
+      "file": "Complex Morse Lemma Illustration.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:Complex_Morse_Lemma_Illustration.pdf",
+      "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Complex%20Morse%20Lemma%20Illustration.pdf",
+      "author": "Denys Bondar",
+      "license": "CC BY-SA 3.0 Unported",
+      "license_evidence": "Commons page states CC BY-SA 3.0; description says uploaded as PDF containing only graphic data; metadata identifies PowerPoint and Quartz PDFContext.",
+      "formal_corpus": false
+    },
+    {
+      "file": "CEC concept.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:CEC_concept.pdf",
+      "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/CEC%20concept.pdf",
+      "author": "Kyle MoJo",
+      "license": "CC0 1.0 Universal",
+      "license_evidence": "Commons page explicitly states CC0; source is own work.",
+      "formal_corpus": false
+    },
+    {
+      "file": "CompositionMilk.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:CompositionMilk.pdf",
+      "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/CompositionMilk.pdf",
+      "author": "TLRapp",
+      "license": "CC0 1.0 Universal",
+      "license_evidence": "Commons page explicitly states CC0; source is own work.",
+      "formal_corpus": false
+    },
+    {
+      "file": "Annuity 0001.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:Annuity_0001.pdf",
+      "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Annuity%200001.pdf",
+      "author": "Joxemai",
+      "license": "CC BY-SA 3.0 Unported",
+      "license_evidence": "Commons page explicitly states CC BY-SA 3.0 and identifies the PDF as created with Inkscape.",
+      "formal_corpus": false
+    },
+    {
+      "file": "Fig1.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:Fig1.pdf",
+      "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Fig1.pdf",
+      "author": "Analepte",
+      "license": "CC BY-SA 3.0 Unported",
+      "license_evidence": "Commons page explicitly states CC BY-SA 3.0; metadata identifies Adobe Illustrator CS4 and Adobe PDF library 9.00.",
+      "formal_corpus": false
+    },
+    {
+      "file": "R1.3 Full Image.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:R1.3_Full_Image.pdf",
+      "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/R1.3%20Full%20Image.pdf",
+      "author": "Uploader on Wikimedia Commons",
+      "license": "CC BY-SA 4.0 International",
+      "license_evidence": "Commons page lists CC BY-SA 4.0; per-file author metadata is sparse and must be rechecked before admission.",
+      "formal_corpus": false
+    }
+  ]
+}
