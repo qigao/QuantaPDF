@@ -1,0 +1,85 @@
+name: Probe Commons maps for W-star
+on:
+  push:
+    branches:
+      - probe/262-pgf-corpus
+    paths:
+      - '.github/workflows/probe-commons-maps-wstar.yml'
+      - 'tools/qualification/probe_pgf_candidates.py'
+      - 'tools/qualification/test_probe_pgf_candidates.py'
+      - 'tests/external_wstar_candidates/commons-maps-source-metadata.json'
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned discovery-only parser
+        run: python3 -m pip install --disable-pip-version-check "pypdf==5.9.0"
+      - name: Download two unchanged CC0 PDFs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/commons-maps-pdfs
+          curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/OPEC%20Siege.pdf' \
+            --output '/tmp/commons-maps-pdfs/OPEC Siege.pdf'
+          curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/NfaMin1.pdf' \
+            --output '/tmp/commons-maps-pdfs/NfaMin1.pdf'
+          file /tmp/commons-maps-pdfs/*.pdf
+      - name: Scan decoded content and preserve exact source identities
+        run: |
+          python3 tools/qualification/probe_pgf_candidates.py \
+            --root /tmp/commons-maps-pdfs \
+            --output commons-maps-wstar-scan-report.json > commons-maps-wstar-scan.log
+      - name: Require every source to be accounted for
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          expected = {"OPEC Siege.pdf", "NfaMin1.pdf"}
+          report = json.loads(Path("commons-maps-wstar-scan-report.json").read_text())
+          results = report["results"]
+          assert report["files_scanned"] == len(expected), report["files_scanned"]
+          assert {Path(item["path"]).name for item in results} == expected
+          assert report["files_scanned"] == (
+              report["confirmed_no_wstar"] + report["wstar_found"] +
+              report["inconclusive"]
+          )
+          print(json.dumps({
+              key: report[key] for key in (
+                  "files_scanned", "confirmed_no_wstar", "wstar_found", "inconclusive"
+              )
+          }, indent=2))
+          for item in results:
+              print(json.dumps({
+                  "file": Path(item["path"]).name,
+                  "bytes": item["bytes"],
+                  "sha256": item["sha256"],
+                  "scan_status": item["scan_status"],
+                  "reason": item["reason"],
+                  "pages": item["page_count"],
+                  "page_content_wstar_count": item["page_content_wstar_count"],
+                  "form_wstar_count": item["form_wstar_count"],
+                  "page_text_operator_count": item["page_text_operator_count"],
+                  "native_raster_risks": sorted({
+                      risk for page in item["pages"]
+                      for risk in page["native_raster_risks"]
+                  }),
+                  "clip_evidence": [
+                      evidence for page in item["pages"]
+                      for evidence in page["clip_evidence"]
+                  ],
+              }, sort_keys=True))
+          PY
+      - name: Retain quarantined report and rights metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: commons-maps-wstar-scan
+          path: |
+            commons-maps-wstar-scan-report.json
+            commons-maps-wstar-scan.log
+            tests/external_wstar_candidates/commons-maps-source-metadata.json
+          retention-days: 7
