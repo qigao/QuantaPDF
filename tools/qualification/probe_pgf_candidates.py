@@ -36,6 +36,7 @@ BASIC = PATH | END_PATH | {
     b"W", b"W*", b"q", b"Q", b"cm", b"w", b"J", b"j", b"M", b"d",
     b"ri", b"i", b"g", b"G", b"rg", b"RG", b"k", b"K", b"cs", b"CS",
 }
+PDF_WHITESPACE = frozenset(b"\\x00\\t\\n\\f\\r ")
 
 
 class Incomplete(Exception):
@@ -86,6 +87,7 @@ def scan_pdf(data: bytes) -> dict[str, Any]:
     result: dict[str, Any] = {
         "scan_status": "inconclusive",
         "reason": None,
+        "pdf_header_offset_bytes": None,
         "page_count": None,
         "page_content_wstar_count": None,
         "form_wstar_count": None,
@@ -97,11 +99,20 @@ def scan_pdf(data: bytes) -> dict[str, Any]:
     if len(data) > MAX_BYTES:
         result["reason"] = "size_limit"
         return result
+    # Some published PDFs begin with PDF whitespace before the header. Preserve
+    # the original bytes and xref offsets; only permit a bounded whitespace
+    # prefix, then let pypdf parse non-strictly and audit every warning below.
+    header_offset = data.find(b"%PDF-")
+    result["pdf_header_offset_bytes"] = header_offset if header_offset >= 0 else None
+    if (header_offset < 0 or header_offset > 1024 or
+            any(byte not in PDF_WHITESPACE for byte in data[:header_offset])):
+        result["reason"] = "invalid_pdf_header_prefix"
+        return result
     recorder = WarningRecorder()
     logger = logging.getLogger("pypdf")
     logger.addHandler(recorder)
     try:
-        reader = PdfReader(io.BytesIO(data), strict=True)
+        reader = PdfReader(io.BytesIO(data), strict=(header_offset == 0))
         if reader.is_encrypted:
             raise Incomplete("encrypted_document")
         pages = reader.pages
@@ -206,7 +217,12 @@ def scan_pdf(data: bytes) -> dict[str, Any]:
             details["native_raster_risks"] = sorted(set(details["native_raster_risks"]))
 
         if recorder.messages:
-            raise Incomplete("pypdf_parser_warning: " + recorder.messages[0])
+            benign_header_warning = (
+                header_offset > 0 and len(recorder.messages) == 1 and
+                recorder.messages[0].lower().startswith("invalid pdf header:")
+            )
+            if not benign_header_warning:
+                raise Incomplete("pypdf_parser_warning: " + recorder.messages[0])
         result["page_content_wstar_count"] = sum(
             x["content_stream_wstar"] for x in result["pages"]
         )
