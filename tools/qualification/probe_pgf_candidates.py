@@ -82,6 +82,12 @@ def path_evidence(path: list[bytes]) -> dict[str, Any]:
     }
 
 
+def record_risk(details: dict[str, Any], operator_name: str, risk: str) -> None:
+    details["native_raster_risks"].append(risk)
+    counts = details["risk_operator_counts"]
+    counts[operator_name] = counts.get(operator_name, 0) + 1
+
+
 def scan_pdf(data: bytes, *, allow_nonzero_xref_warning: bool = False) -> dict[str, Any]:
     """Fail closed on any undecodable or incompletely traversed page content."""
     result: dict[str, Any] = {
@@ -133,6 +139,8 @@ def scan_pdf(data: bytes, *, allow_nonzero_xref_warning: bool = False) -> dict[s
                 "image_xobject_calls": 0,
                 "clip_evidence": [],
                 "native_raster_risks": [],
+                "operator_counts": {},
+                "risk_operator_counts": {},
             }
             result["pages"].append(details)
             active_forms: set[str] = set()
@@ -150,6 +158,9 @@ def scan_pdf(data: bytes, *, allow_nonzero_xref_warning: bool = False) -> dict[s
                 parsed = ContentStream(obj, reader).operations
                 path: list[bytes] = []
                 for operands, operator in parsed:
+                    operator_name = operator.decode("latin-1", errors="replace")
+                    counts = details["operator_counts"]
+                    counts[operator_name] = counts.get(operator_name, 0) + 1
                     used[0] += 1
                     if used[0] > MAX_OPERATIONS:
                         raise Incomplete("operation_limit")
@@ -165,10 +176,10 @@ def scan_pdf(data: bytes, *, allow_nonzero_xref_warning: bool = False) -> dict[s
                         path.clear()
                     elif operator in TEXT:
                         details["text_operators"] += 1
-                        details["native_raster_risks"].append("text")
+                        record_risk(details, operator_name, "text")
                     elif operator == b"INLINE IMAGE":
                         details["inline_images"] += 1
-                        details["native_raster_risks"].append("inline_image")
+                        record_risk(details, operator_name, "inline_image")
                     elif operator == b"Do":
                         if len(operands) != 1:
                             raise Incomplete(f"{origin}: malformed Do")
@@ -183,9 +194,9 @@ def scan_pdf(data: bytes, *, allow_nonzero_xref_warning: bool = False) -> dict[s
                         subtype = target.get("/Subtype")
                         if subtype == "/Image":
                             details["image_xobject_calls"] += 1
-                            details["native_raster_risks"].append("image_xobject")
+                            record_risk(details, operator_name, "image_xobject")
                         elif subtype == "/Form":
-                            details["native_raster_risks"].append("form_xobject")
+                            record_risk(details, operator_name, "form_xobject")
                             identity = (f"{target_ref.idnum}:{target_ref.generation}"
                                         if hasattr(target_ref, "idnum")
                                         else source_identity(target))
@@ -200,12 +211,12 @@ def scan_pdf(data: bytes, *, allow_nonzero_xref_warning: bool = False) -> dict[s
                         else:
                             raise Incomplete(f"{origin}: unknown XObject subtype {subtype}")
                     elif operator == b"gs":
-                        details["native_raster_risks"].append("ext_gstate")
+                        record_risk(details, operator_name, "ext_gstate")
                     elif operator in {b"sh", b"scn", b"SCN", b"MP", b"DP", b"BMC",
                                       b"BDC", b"EMC", b"BX", b"EX"}:
-                        details["native_raster_risks"].append("other_graphics_operator")
+                        record_risk(details, operator_name, "other_graphics_operator")
                     elif operator not in BASIC:
-                        details["native_raster_risks"].append("unrecognized_operator")
+                        record_risk(details, operator_name, "unrecognized_operator")
 
             if "/Contents" in page:
                 # Missing page /Contents is valid blank content, but malformed
@@ -218,6 +229,8 @@ def scan_pdf(data: bytes, *, allow_nonzero_xref_warning: bool = False) -> dict[s
                 # result for this document would be incomplete evidence.
                 raise Incomplete("annotations_not_scanned")
             details["native_raster_risks"] = sorted(set(details["native_raster_risks"]))
+            details["operator_counts"] = dict(sorted(details["operator_counts"].items()))
+            details["risk_operator_counts"] = dict(sorted(details["risk_operator_counts"].items()))
 
         if recorder.messages:
             benign_header_warnings = (
