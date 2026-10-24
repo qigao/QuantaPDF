@@ -3408,6 +3408,62 @@ int test_external_tikz_wstar_pixels(const char *filename,
             (unsigned)ref[2],on_white(rgba,0u),on_white(rgba,1u),
             on_white(rgba,2u));
     }
+    /* Diagnostic only: copies of the detached IR test whether the mismatch
+       comes from subpixel stroke width or the stroke sampling grid. No
+       altered-width output is eligible for the source-faithful report. */
+    for(double scale:{1.5,1.75,2.0}) {
+        std::vector<quantapdf_composer_operation> altered(
+            detached.operations,detached.operations+detached.operation_count);
+        for(auto& op:altered)
+            if(op.kind==QUANTAPDF_COMPOSER_OPERATION_PATH &&
+               op.value.path.options.stroke==1u)
+                op.value.path.options.stroke_width=
+                    (float)(op.value.path.options.stroke_width*scale);
+        quantapdf_ir alternate=detached;
+        alternate.operations=altered.data();
+        quantapdf_ir_raster_image trial{};
+        const quantapdf_status trial_status=
+            quantapdf_ir_raster_scoped_operations_v2_planned(
+                &alternate,0u,&limits,&device_plan,&trial);
+        double trial_total=0.0;
+        size_t trial_gross=0u,trial_gray=0u,trial_gray_overlap=0u;
+        if(trial_status==QUANTAPDF_OK) {
+            for(size_t y=0u;y<height;++y)for(size_t x=0u;x<width;++x) {
+                const unsigned char *ref=pdfium.at(x,y);
+                const unsigned char *px=
+                    trial.pixels+y*trial.stride+4u*x;
+                const unsigned nr=on_white(px,0u),
+                               ng=on_white(px,1u),
+                               nb=on_white(px,2u);
+                const bool dark=(nr<235u&&ng<235u&&nb<235u &&
+                    std::abs((int)nr-(int)ng)<8 &&
+                    std::abs((int)ng-(int)nb)<8);
+                const bool ref_dark=(ref[0]<235u&&ref[1]<235u&&ref[2]<235u &&
+                    std::abs((int)ref[0]-(int)ref[1])<8 &&
+                    std::abs((int)ref[1]-(int)ref[2])<8);
+                trial_gray+=(size_t)dark;
+                trial_gray_overlap+=(size_t)(dark&&ref_dark);
+                unsigned worst=0u;
+                for(size_t cc=0u;cc<3u;++cc) {
+                    const unsigned actual=on_white(px,cc);
+                    const unsigned delta=actual>(unsigned)ref[cc]
+                        ? actual-(unsigned)ref[cc]
+                        : (unsigned)ref[cc]-actual;
+                    trial_total+=(double)delta;
+                    if(delta>worst) worst=delta;
+                }
+                if(worst>64u) ++trial_gross;
+            }
+        }
+        std::fprintf(stderr,
+            "[texample-stroke-width-ab] scale=%.3f status=%d mean=%.6f "
+            "gross=%zu gray=%zu overlap=%zu\n",
+            scale,(int)trial_status,
+            trial_status==QUANTAPDF_OK ?
+                trial_total/(double)(pixel_count*3u) : -1.0,
+            trial_gross,trial_gray,trial_gray_overlap);
+        quantapdf_ir_raster_image_dispose(&trial);
+    }
     CHECK(full_page_mean<=1.0 && full_page_gross<=100u);
     CHECK(detached.operation_count==3u);
     quantapdf_composer_operation projected_operation=detached.operations[0];
