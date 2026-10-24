@@ -37,7 +37,8 @@ static quantapdf_status point(double x, double y,
     return QUANTAPDF_OK;
 }
 
-static quantapdf_status color(const double rgb[3], uint32_t *out)
+static quantapdf_status color(const double rgb[3], uint32_t *out,
+    int native_float_color)
 {
     uint32_t packed = UINT32_C(0xff000000);
     for (size_t i = 0; i < 3; ++i) {
@@ -48,7 +49,7 @@ static quantapdf_status color(const double rgb[3], uint32_t *out)
         channel = lround(component * 255.0);
         if (channel < 0 || channel > 255) return QUANTAPDF_ERROR_FORMAT;
         encoded = (double)channel / 255.0;
-        if (!decimal4(component, encoded))
+        if (!native_float_color && !decimal4(component, encoded))
             return QUANTAPDF_ERROR_UNSUPPORTED;
         packed |= (uint32_t)channel << (16u - 8u * (unsigned int)i);
     }
@@ -114,7 +115,7 @@ static quantapdf_status mapped_transform(
 
 static quantapdf_status paint_options(
     const quantapdf_pdf_path_record *path, float height,
-    const double page_transform[6],
+    const double page_transform[6], int native_float_color,
     quantapdf_composer_path_options *options)
 {
     quantapdf_pdf_content_opcode opcode = path->paint_opcode;
@@ -159,11 +160,13 @@ static quantapdf_status paint_options(
         options->stroke_width = (float)width;
         if (!decimal4(width, options->stroke_width))
             return QUANTAPDF_ERROR_UNSUPPORTED;
-        status = color(path->graphics.stroke_rgb, &options->stroke_argb);
+        status = color(path->graphics.stroke_rgb, &options->stroke_argb,
+            native_float_color);
         if (status != QUANTAPDF_OK) return status;
     }
     if (options->fill) {
-        status = color(path->graphics.fill_rgb, &options->fill_argb);
+        status = color(path->graphics.fill_rgb, &options->fill_argb,
+            native_float_color);
         if (status != QUANTAPDF_OK) return status;
     }
     return QUANTAPDF_OK;
@@ -578,7 +581,8 @@ static quantapdf_status path_lower_to_composer_mapped_impl(
             op->bounds = (quantapdf_rect){0, 0,
                 (float)canvas_width, (float)canvas_height};
             status = paint_options(path, (float)canvas_height,
-                page_transform, &op->value.path.options);
+                page_transform, native_float_geometry,
+                &op->value.path.options);
             if (status != QUANTAPDF_OK) goto fail;
             status = lower_commands(content, path, clip,
                 limits->max_path_commands - command_total, 0,
