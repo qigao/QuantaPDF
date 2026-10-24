@@ -46,6 +46,26 @@
       "license": "CC BY-SA 4.0 International",
       "license_evidence": "Commons file page explicitly states CC BY-SA 4.0; uploader's own work.",
       "formal_corpus": false
+    },
+    {
+      "file": "H&BTMRR Oval Logo.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:H%26BTMRR_Oval_Logo.pdf",
+      "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/H%26BTMRR%20Oval%20Logo.pdf",
+      "author": "Wjohns19",
+      "license": "CC BY-SA 4.0 International",
+      "license_evidence": "Commons file page explicitly states CC BY-SA 4.0; source is own work; metadata identifies Cairo 1.17.4 as PDF conversion program.",
+      "producer": "Cairo 1.17.4",
+      "formal_corpus": false
+    },
+    {
+      "file": "ISSU Logo.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:ISSU_Logo.pdf",
+      "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/ISSU%20Logo.pdf",
+      "author": "Irish Second-Level Students' Union",
+      "license": "CC BY-SA 3.0 Unported",
+      "license_evidence": "Commons file page explicitly states CC BY-SA 3.0; metadata identifies Adobe Illustrator CS4 and Adobe PDF library 9.00.",
+      "producer": "Adobe Illustrator CS4 / Adobe PDF library 9.00",
+      "formal_corpus": false
     }
   ]
 }
