@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "purpose": "Issue #262 discovery only. These are unchanged original PDFs with per-file Creative Commons licensing statements. No candidate is a formal corpus entry; scan evidence only ranks candidates and cannot replace rights review or PDFium/native-C11 pixel qualification.",
+  "candidates": [
+    {
+      "file": "Harm Step Pot.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:Harm_Step_Pot.pdf",
+      "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Harm%20Step%20Pot.pdf",
+      "author": "Timbo tui",
+      "license": "CC0 1.0 Universal",
+      "license_evidence": "Commons file page explicitly states CC0 1.0; uploader's own work; PDF metadata identifies Quartz PDFContext.",
+      "formal_corpus": false
+    },
+    {
+      "file": "Normal.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:Normal.pdf",
+      "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Normal.pdf",
+      "author": "Joxemai",
+      "license": "CC BY-SA 4.0 International",
+      "license_evidence": "Commons file page explicitly states CC BY-SA 4.0; uploader's own work.",
+      "formal_corpus": false
+    },
+    {
+      "file": "PAX Logo.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:PAX_Logo.pdf",
+      "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/PAX%20Logo.pdf",
+      "author": "Rikuswegman",
+      "license": "CC BY-SA 3.0 Unported",
+      "license_evidence": "Commons file page explicitly states CC BY-SA 3.0; uploader's own work; metadata identifies Adobe PDF library 9.00.",
+      "formal_corpus": false
+    },
+    {
+      "file": "MML-MPG Logo.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:MML-MPG_Logo.pdf",
+      "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/MML-MPG%20Logo.pdf",
+      "author": "Shahanadg",
+      "license": "CC BY-SA 4.0 International",
+      "license_evidence": "Commons file page explicitly states CC BY-SA 4.0; uploader's own work.",
+      "formal_corpus": false
+    },
+    {
+      "file": "Al rifai logo.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:Al_rifai_logo.pdf",
+      "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Al%20rifai%20logo.pdf",
+      "author": "Moussarif79",
+      "license": "CC BY-SA 4.0 International",
+      "license_evidence": "Commons file page explicitly states CC BY-SA 4.0; uploader's own work.",
+      "formal_corpus": false
+    }
+  ]
+}
