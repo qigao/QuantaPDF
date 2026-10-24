@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "purpose": "Issue #262 discovery only; downloaded PDFs are not formal corpus entries and may not be admitted without byte pinning, native-subset review and original-source pixel parity.",
+  "source": "LibreClipArt",
+  "license_claim": "Creative Commons Zero (CC0), stated on each source page; this is discovery evidence, not an automatic formal-admission decision.",
+  "candidates": [
+    {
+      "id": 851,
+      "name": "abstract-geometric-pattern",
+      "page_url": "https://libreclipart.org/en/vectors/shapes/abstract-geometric-pattern/851",
+      "download_url": "https://libreclipart.org/en/download/851/pdf/0",
+      "license_evidence_url": "https://libreclipart.org/en/vectors/shapes/abstract-geometric-pattern/851",
+      "published": "2025-12-14",
+      "formal_corpus": false
+    },
+    {
+      "id": 528,
+      "name": "abstract-technology-background",
+      "page_url": "https://libreclipart.org/en/vectors/backgrounds/abstract-technology-background/528",
+      "download_url": "https://libreclipart.org/en/download/528/pdf/0",
+      "license_evidence_url": "https://libreclipart.org/en/vectors/backgrounds/abstract-technology-background/528",
+      "published": "2025-03-30",
+      "formal_corpus": false
+    },
+    {
+      "id": 292,
+      "name": "halftone-dots-spiral-shape",
+      "page_url": "https://libreclipart.org/en/vectors/shapes/halftone-dots-spiral-shape/292",
+      "download_url": "https://libreclipart.org/en/download/292/pdf/0",
+      "license_evidence_url": "https://libreclipart.org/en/vectors/shapes/halftone-dots-spiral-shape/292",
+      "published": "2025-01-15",
+      "formal_corpus": false
+    },
+    {
+      "id": 836,
+      "name": "elephant-pattern",
+      "page_url": "https://libreclipart.org/en/vectors/pattern/elephant-pattern/836",
+      "download_url": "https://libreclipart.org/en/download/836/pdf/0",
+      "license_evidence_url": "https://libreclipart.org/en/vectors/pattern/elephant-pattern/836",
+      "published": "2025-12-03",
+      "formal_corpus": false
+    }
+  ]
+}
