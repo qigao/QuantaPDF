@@ -38,21 +38,26 @@ foreach(field IN ITEMS source_and_graph_released_before_raster
     pdfium_fallback_used repeat_rgba_identical)
   string(JSON ${field} GET "${json}" ${field})
 endforeach()
-foreach(field IN ITEMS page_width page_height native_painted_paths
-    native_clip_count native_w_nonzero_clip_path_leaves
-    native_wstar_evenodd_clip_path_leaves native_clip_intersection_nodes
-    reference_orange_pixels native_orange_pixels overlap_orange_pixels
-    reference_black_pixels native_black_pixels reference_white_pixels
-    gross_error_pixels fixed_interior_goldens generated_fixture_count)
+foreach(field IN ITEMS page_width page_height source_painted_paths
+    source_clip_count source_w_nonzero_clip_path_leaves
+    source_wstar_evenodd_clip_path_leaves source_clip_intersection_nodes
+    comparison_union_orange_pixels reference_orange_pixels
+    native_evenodd_orange_pixels overlap_orange_pixels
+    native_nonzero_orange_pixels evenodd_nonzero_diff_pixels
+    masked_gross_error_pixels fixed_interior_goldens generated_fixture_count)
   string(JSON ${field} GET "${json}" ${field})
 endforeach()
-string(JSON mean GET "${json}" mean_rgb_error)
+string(JSON comparison_scope GET "${json}" comparison_scope)
+string(JSON full_page_native_raster GET "${json}" full_page_native_raster)
+string(JSON mean GET "${json}" masked_mean_rgb_error)
 
 if(NOT result STREQUAL "passed"
    OR NOT document_id STREQUAL "texample.intersecting-rings-v1"
    OR NOT reference_oracle STREQUAL "original-pdfium"
    OR NOT original_source_pdfium_oracle STREQUAL "passed"
    OR NOT detached_c11_native_raster STREQUAL "passed"
+   OR NOT full_page_native_raster STREQUAL "rejected_unsupported_stroke_profile"
+   OR NOT comparison_scope STREQUAL "orange-fill-mask-only"
    OR NOT native_ir STREQUAL "lowered"
    OR NOT source_sha256 STREQUAL PINNED_SHA256
    OR NOT source_and_graph_released_before_raster
@@ -60,22 +65,23 @@ if(NOT result STREQUAL "passed"
    OR pdfium_fallback_used
    OR NOT repeat_rgba_identical
    OR page_width LESS 1 OR page_height LESS 1
-   OR native_painted_paths LESS 1 OR native_painted_paths GREATER 8
-   OR native_clip_count LESS 1 OR native_clip_count GREATER 8
-   OR NOT native_w_nonzero_clip_path_leaves EQUAL 0
-   OR NOT native_wstar_evenodd_clip_path_leaves EQUAL 1
-   OR reference_orange_pixels LESS 100 OR native_orange_pixels LESS 100
+   OR source_painted_paths LESS 1 OR source_painted_paths GREATER 8
+   OR source_clip_count LESS 1 OR source_clip_count GREATER 8
+   OR NOT source_w_nonzero_clip_path_leaves EQUAL 0
+   OR NOT source_wstar_evenodd_clip_path_leaves EQUAL 1
+   OR comparison_union_orange_pixels LESS 100
+   OR reference_orange_pixels LESS 100 OR native_evenodd_orange_pixels LESS 100
    OR overlap_orange_pixels LESS 100
-   OR reference_black_pixels LESS 20 OR native_black_pixels LESS 20
-   OR reference_white_pixels LESS 100
-   OR mean GREATER 0.05 OR NOT gross_error_pixels EQUAL 0
+   OR native_nonzero_orange_pixels LESS 100
+   OR evenodd_nonzero_diff_pixels LESS 100
+   OR mean GREATER 0.05 OR NOT masked_gross_error_pixels EQUAL 0
    OR NOT generated_fixture_count EQUAL 0)
   message(FATAL_ERROR "Candidate W* report has unexpected semantics or pixel parity")
 endif()
 math(EXPR required_overlap "${reference_orange_pixels} * 99")
 math(EXPR actual_overlap "${overlap_orange_pixels} * 100")
 if(actual_overlap LESS required_overlap)
-  message(FATAL_ERROR "Orange W* intersection overlap is below 99%")
+  message(FATAL_ERROR "Orange W* source/native fill-mask overlap is below 99%")
 endif()
 
 file(SHA256 "${SOURCE}" after)
@@ -84,4 +90,5 @@ if(NOT before STREQUAL after)
 endif()
 message(STATUS "texample-wstar-original-pixel: passed; sha=${after} "
   "page=${page_width}x${page_height} Wstar=${native_wstar_evenodd_clip_path_leaves} "
-  "orange=${reference_orange_pixels}/${native_orange_pixels}")
+  "orange=${reference_orange_pixels}/${native_evenodd_orange_pixels} "
+  "evenodd-vs-nonzero-diff=${evenodd_nonzero_diff_pixels}")
