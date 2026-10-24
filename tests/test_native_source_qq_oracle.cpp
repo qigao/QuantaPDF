@@ -3093,12 +3093,23 @@ int test_external_tikz_wstar_pixels(const char *filename,
     quantapdf_pdf_path_lower_limits bounded=lower_limits;
     bounded.max_painted_paths=8u;
     quantapdf_ir detached{};
-    const quantapdf_status lower_status=
-        snapshot_lower(&detached,0u,4u,8u,filename,&bounded);
-    if(lower_status!=QUANTAPDF_OK)
-        std::fprintf(stderr,
-            "[texample-wstar-lowering] status=%d page=%zux%zu\n",
-            (int)lower_status,width,height);
+    quantapdf_document *doc=nullptr;
+    quantapdf_graph_snapshot *snap=nullptr;
+    quantapdf_status lower_status=quantapdf_open(filename,nullptr,&doc);
+    std::fprintf(stderr,"[texample-wstar-lowering] open=%d\n",(int)lower_status);
+    if(lower_status==QUANTAPDF_OK) {
+        lower_status=quantapdf_document_capture_graph(doc,&graph_limits,&snap);
+        quantapdf_close(doc);
+        doc=nullptr;
+        std::fprintf(stderr,"[texample-wstar-lowering] capture=%d\n",(int)lower_status);
+    }
+    if(lower_status==QUANTAPDF_OK) {
+        lower_status=quantapdf_graph_snapshot_page_composer_ir(
+            snap,0u,8u,&decode_limits,&parse_limits,4u,&bounded,&detached);
+        std::fprintf(stderr,"[texample-wstar-lowering] page_ir=%d\n",(int)lower_status);
+    }
+    if(snap!=nullptr) quantapdf_graph_snapshot_drop(snap);
+    if(doc!=nullptr) quantapdf_close(doc);
     CHECK(lower_status==QUANTAPDF_OK);
     const clip_leaf_counts winding=inspect_clip_fill_rules(detached);
     const size_t painted_count=detached.operation_count;
