@@ -71,6 +71,10 @@ jobs:
                       risk for page in item["pages"]
                       for risk in page["native_raster_risks"]
                   }),
+                  "page_operator_counts": [
+                      {"page": page["index"], "operators": page["operator_counts"], "risk_operators": page["risk_operator_counts"]}
+                      for page in item["pages"]
+                  ],
                   "clip_evidence": [
                       evidence for page in item["pages"]
                       for evidence in page["clip_evidence"]
