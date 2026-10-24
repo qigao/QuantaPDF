@@ -1,0 +1,91 @@
+name: Probe CC0 vector PDFs for W-star
+on:
+  push:
+    branches:
+      - probe/262-pgf-corpus
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned discovery-only parser
+        run: python3 -m pip install --disable-pip-version-check "pypdf==5.9.0"
+      - name: Download four CC0 vector PDF candidates unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/libreclipart-pdfs
+          curl --fail --location --retry 3 --retry-all-errors --max-time 90 \
+            https://libreclipart.org/en/download/851/pdf/0 \
+            --output /tmp/libreclipart-pdfs/abstract-geometric-pattern.pdf
+          curl --fail --location --retry 3 --retry-all-errors --max-time 90 \
+            https://libreclipart.org/en/download/528/pdf/0 \
+            --output /tmp/libreclipart-pdfs/abstract-technology-background.pdf
+          curl --fail --location --retry 3 --retry-all-errors --max-time 90 \
+            https://libreclipart.org/en/download/292/pdf/0 \
+            --output /tmp/libreclipart-pdfs/halftone-dots-spiral-shape.pdf
+          curl --fail --location --retry 3 --retry-all-errors --max-time 90 \
+            https://libreclipart.org/en/download/836/pdf/0 \
+            --output /tmp/libreclipart-pdfs/elephant-pattern.pdf
+          file /tmp/libreclipart-pdfs/*.pdf
+      - name: Scan decoded PDF content and preserve source identities
+        run: |
+          python3 tools/qualification/probe_pgf_candidates.py \
+            --root /tmp/libreclipart-pdfs \
+            --output libreclipart-wstar-scan-report.json > libreclipart-wstar-scan.log
+      - name: Require complete scan and summarize candidate evidence
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          expected = {
+              "abstract-geometric-pattern.pdf",
+              "abstract-technology-background.pdf",
+              "halftone-dots-spiral-shape.pdf",
+              "elephant-pattern.pdf",
+          }
+          report = json.loads(Path("libreclipart-wstar-scan-report.json").read_text())
+          results = report["results"]
+          assert report["files_scanned"] == len(expected), report["files_scanned"]
+          assert {Path(item["path"]).name for item in results} == expected
+          assert report["files_scanned"] == (
+              report["confirmed_no_wstar"] + report["wstar_found"] +
+              report["inconclusive"]
+          )
+          print(json.dumps({
+              key: report[key] for key in (
+                  "files_scanned", "confirmed_no_wstar", "wstar_found", "inconclusive"
+              )
+          }, indent=2))
+          for item in results:
+              print(json.dumps({
+                  "file": Path(item["path"]).name,
+                  "bytes": item["bytes"],
+                  "sha256": item["sha256"],
+                  "scan_status": item["scan_status"],
+                  "reason": item["reason"],
+                  "page_content_wstar_count": item["page_content_wstar_count"],
+                  "form_wstar_count": item["form_wstar_count"],
+                  "page_text_operator_count": item["page_text_operator_count"],
+                  "pages": item["page_count"],
+                  "native_raster_risks": sorted({
+                      risk for page in item["pages"]
+                      for risk in page["native_raster_risks"]
+                  }),
+                  "clip_evidence": [
+                      evidence for page in item["pages"]
+                      for evidence in page["clip_evidence"]
+                  ],
+              }, sort_keys=True))
+          PY
+      - name: Retain discovery-only source and scan evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: libreclipart-cc0-wstar-scan
+          path: |
+            libreclipart-wstar-scan-report.json
+            libreclipart-wstar-scan.log
+            tests/external_wstar_candidates/libreclipart-cc0-source-metadata.json
+          retention-days: 7
