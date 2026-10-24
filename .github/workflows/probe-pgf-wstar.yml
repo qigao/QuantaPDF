@@ -10,5 +10,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Scan candidate PDFs
-        run: python3 tools/qualification/probe_pgf_candidates.py
+      - name: Install pinned discovery-only parser
+        run: python3 -m pip install --disable-pip-version-check "pypdf==5.9.0"
+      - name: Check decoded-page, object stream and fail-closed tests
+        run: python3 -m unittest discover -v -s tools/qualification -p test_probe_pgf_candidates.py
+      - name: Re-evaluate all unchanged candidates
+        run: python3 tools/qualification/probe_pgf_candidates.py --output pgf-wstar-scan-report.json > pgf-wstar-scan.log
+      - name: Summarize conclusive and inconclusive results
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("pgf-wstar-scan-report.json").read_text())
+          assert report["files_scanned"] == 7
+          assert report["files_scanned"] == (
+              report["confirmed_no_wstar"] + report["wstar_found"] +
+              report["inconclusive"]
+          )
+          print(json.dumps({
+              key: report[key] for key in (
+                  "files_scanned", "confirmed_no_wstar", "wstar_found", "inconclusive"
+              )
+          }, indent=2))
+          for item in report["results"]:
+              print(item["path"], item["scan_status"], item["reason"])
+          PY
+      - name: Retain quarantined evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: pgf-wstar-decoded-scan
+          path: |
+            pgf-wstar-scan-report.json
+            pgf-wstar-scan.log
+          retention-days: 7
