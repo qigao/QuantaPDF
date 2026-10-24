@@ -1,0 +1,99 @@
+name: Validate MML-MPG xref before W-star scan
+on:
+  push:
+    branches:
+      - probe/262-pgf-corpus
+    paths:
+      - '.github/workflows/probe-mml-mpg-xref-wstar.yml'
+      - 'tools/qualification/probe_pgf_candidates.py'
+      - 'tools/qualification/test_probe_pgf_candidates.py'
+      - 'tests/external_wstar_candidates/commons-logos-source-metadata.json'
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned parser and independent PDF validator
+        run: |
+          python3 -m pip install --disable-pip-version-check "pypdf==5.9.0"
+          sudo apt-get update
+          sudo apt-get install --yes qpdf
+      - name: Download unchanged MML-MPG original and verify byte identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/mml-mpg-pdf
+          curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/MML-MPG%20Logo.pdf' \
+            --output '/tmp/mml-mpg-pdf/MML-MPG Logo.pdf'
+          actual="$(sha256sum '/tmp/mml-mpg-pdf/MML-MPG Logo.pdf' | cut -d ' ' -f 1)"
+          test "$actual" = "cdc7b1914f4ea7b5c6789776a960aac2d2c2b0d0824544700d8f796a5727331c"
+          file '/tmp/mml-mpg-pdf/MML-MPG Logo.pdf'
+      - name: Validate xref independently before permitting pypdf recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          qpdf --check '/tmp/mml-mpg-pdf/MML-MPG Logo.pdf' > qpdf-check.log 2>&1
+          qpdf_rc=$?
+          set -e
+          printf '%s\n' "$qpdf_rc" > qpdf-check-exit.txt
+          cat qpdf-check.log
+          printf 'qpdf_check_exit=%s\n' "$qpdf_rc"
+          if [ "$qpdf_rc" -eq 0 ]; then
+            python3 tools/qualification/probe_pgf_candidates.py \
+              --root /tmp/mml-mpg-pdf \
+              --allow-nonzero-xref-warning \
+              --output mml-mpg-wstar-scan-report.json > mml-mpg-wstar-scan.log
+          else
+            # Do not downgrade independent-validator failures to a clean scan.
+            python3 tools/qualification/probe_pgf_candidates.py \
+              --root /tmp/mml-mpg-pdf \
+              --output mml-mpg-wstar-scan-report.json > mml-mpg-wstar-scan.log
+          fi
+      - name: Summarize source status and preserve validation outcome
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("mml-mpg-wstar-scan-report.json").read_text())
+          assert report["files_scanned"] == 1
+          assert report["files_scanned"] == (
+              report["confirmed_no_wstar"] + report["wstar_found"] +
+              report["inconclusive"]
+          )
+          item = report["results"][0]
+          print(json.dumps({
+              "qpdf_check_exit": Path("qpdf-check-exit.txt").read_text().strip(),
+              "file": Path(item["path"]).name,
+              "bytes": item["bytes"],
+              "sha256": item["sha256"],
+              "scan_status": item["scan_status"],
+              "reason": item["reason"],
+              "pages": item["page_count"],
+              "page_content_wstar_count": item["page_content_wstar_count"],
+              "form_wstar_count": item["form_wstar_count"],
+              "page_text_operator_count": item["page_text_operator_count"],
+              "native_raster_risks": sorted({
+                  risk for page in item["pages"]
+                  for risk in page["native_raster_risks"]
+              }),
+              "clip_evidence": [
+                  evidence for page in item["pages"]
+                  for evidence in page["clip_evidence"]
+              ],
+          }, sort_keys=True))
+          PY
+      - name: Retain quarantined source and independent validation evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: mml-mpg-qpdf-xref-validation
+          path: |
+            qpdf-check.log
+            qpdf-check-exit.txt
+            mml-mpg-wstar-scan-report.json
+            mml-mpg-wstar-scan.log
+            tests/external_wstar_candidates/commons-logos-source-metadata.json
+          retention-days: 7
