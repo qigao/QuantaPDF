@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "purpose": "Issue #262 discovery-only original PDFs from TeXample.net. Each page links the unchanged PDF download and explicitly states CC BY-SA 4.0; preserve attribution to the listed author. No formal corpus admission is implied.",
+  "candidates": [
+    {
+      "file": "puzzle.pdf",
+      "page_url": "https://texample.net/puzzle/",
+      "download_url": "https://texample.net/files/puzzle.pdf",
+      "author": "Marc van Dongen",
+      "license": "CC BY-SA 4.0 International",
+      "license_evidence": "The source page identifies the author and states Creative Commons Attribution-ShareAlike 4.0 International.",
+      "source_description": "TikZ puzzle-piece example; source uses an even-odd clipping scope and multiple subpaths in a clip path.",
+      "formal_corpus": false
+    },
+    {
+      "file": "the-olympic-rings.pdf",
+      "page_url": "https://texample.net/the-olympic-rings/",
+      "download_url": "https://texample.net/files/the-olympic-rings.pdf",
+      "author": "Paul Gaborit",
+      "license": "CC BY-SA 4.0 International",
+      "license_evidence": "The source page identifies the author and states Creative Commons Attribution-ShareAlike 4.0 International.",
+      "source_description": "TikZ Olympic-rings example with even-odd fill paths; included as a comparison control, not assumed to contain W* clipping.",
+      "formal_corpus": false
+    }
+  ]
+}
