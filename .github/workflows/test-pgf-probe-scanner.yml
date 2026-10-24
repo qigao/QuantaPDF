@@ -1,0 +1,19 @@
+name: Test PDF W-star discovery scanner
+on:
+  push:
+    branches:
+      - probe/262-pgf-corpus
+    paths:
+      - 'tools/qualification/probe_pgf_candidates.py'
+      - 'tools/qualification/test_probe_pgf_candidates.py'
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned parser
+        run: python3 -m pip install --disable-pip-version-check "pypdf==5.9.0"
+      - name: Run fail-closed scanner unit tests
+        run: python3 -m unittest discover -v -s tools/qualification -p test_probe_pgf_candidates.py

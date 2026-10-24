@@ -4,9 +4,6 @@ on:
     branches:
       - probe/262-pgf-corpus
     paths:
-      - '.github/workflows/probe-commons-dome-vector-wstar.yml'
-      - 'tools/qualification/probe_pgf_candidates.py'
-      - 'tools/qualification/test_probe_pgf_candidates.py'
       - 'tests/external_wstar_candidates/commons-dome-vector-source-metadata.json'
 permissions:
   contents: read
