@@ -3252,7 +3252,7 @@ int test_external_tikz_wstar_pixels(const char *filename,
 
     const size_t pixel_count=width*height;
     const quantapdf_ir_raster_v1_limits limits={
-        pixel_count,8u,4096u,3200000000ULL
+        pixel_count,8u,32768u,10000000000ULL
     };
     quantapdf_native_device_plan device_plan{};
     OK(quantapdf_native_device_plan_create(
@@ -3270,9 +3270,11 @@ int test_external_tikz_wstar_pixels(const char *filename,
             quantapdf_ir_stroke_polyline_outline_v1_planned(
                 &op->value.path,limits.max_edges,&device_plan,&outline);
         std::fprintf(stderr,
-            "[texample-wstar-stroke-outline] op=%zu status=%d commands=%zu "
+            "[texample-wstar-stroke-outline] op=%zu status=%d "
+            "input_commands=%zu output_commands=%zu "
             "width=%.6f cap=%d join=%d dash=%zu transform=%.6f,%.6f,%.6f,%.6f\n",
             op_index,(int)outline_status,op->value.path.command_count,
+            outline.command_count,
             op->value.path.options.stroke_width,
             (int)op->value.path.options.line_cap,
             (int)op->value.path.options.line_join,
