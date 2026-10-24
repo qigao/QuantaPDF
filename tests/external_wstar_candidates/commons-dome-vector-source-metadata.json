@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "purpose": "Issue #262 discovery-only candidate from Wikimedia Commons. Original PDF download remains unchanged; licensing metadata is recorded but pixel qualification is still required.",
+  "candidates": [
+    {
+      "file": "Dome of the rock interior vector 02.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:Dome_of_the_rock_interior_vector_02.pdf",
+      "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Dome%20of%20the%20rock%20interior%20vector%2002.pdf",
+      "author": "Seyyedalith",
+      "source": "Own work",
+      "license": "CC0 1.0 Universal",
+      "license_evidence": "Wikimedia Commons file page identifies the uploader as the author and explicitly lists CC0 1.0 Universal.",
+      "reported_file_size_bytes": 3287682,
+      "reported_media_type": "application/pdf",
+      "reported_sha1": "71d7f2fd82c5e6fdba601adda6fc05736de4ca11",
+      "formal_corpus": false
+    }
+  ]
+}
