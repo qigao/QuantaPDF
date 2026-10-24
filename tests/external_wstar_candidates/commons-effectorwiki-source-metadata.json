@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "purpose": "Issue #262 discovery-only original PDF. Commons page identifies this as the uploader's own work and explicitly licenses it CC BY-SA 3.0 Unported. No formal corpus admission is implied.",
+  "candidates": [
+    {
+      "file": "EffectorWiki.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:EffectorWiki.pdf",
+      "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/EffectorWiki.pdf",
+      "author": "SA (Wikimedia Commons username SA UBC)",
+      "source": "Own work",
+      "license": "CC BY-SA 3.0 Unported",
+      "license_evidence": "Commons file page explicitly identifies uploader as author and states CC BY-SA 3.0 Unported.",
+      "producer": "Adobe Illustrator CS6 (Macintosh), Adobe PDF library 10.01",
+      "reported_file_size_bytes": 402710,
+      "reported_media_type": "application/pdf",
+      "reported_sha1": "ffb709621b98630c20561c32ad368433c102b569",
+      "formal_corpus": false
+    }
+  ]
+}
