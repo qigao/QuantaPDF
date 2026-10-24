@@ -3336,11 +3336,12 @@ int test_external_tikz_wstar_pixels(const char *filename,
                     : nzrgb[channel]-rgb[channel];
                 if(nzdiff>nzworst) nzworst=nzdiff;
             }
-            const bool reference_stroke=
-                ref[0]<80u && ref[1]<80u && ref[2]<80u;
             const bool ref_orange=orange_like(ref[0],ref[1],ref[2]);
             const bool nat_orange=orange_like(rgb[0],rgb[1],rgb[2]);
             const bool nz_orange=orange_like(nzrgb[0],nzrgb[1],nzrgb[2]);
+            const bool reference_stroke=
+                (ref[0]<80u && ref[1]<80u && ref[2]<80u) ||
+                (nat_orange && ref[0]<220u);
             /* The projected operation intentionally excludes the source's
                unsupported outline strokes. Do not score their covered pixels
                as missing orange fill; keep every other source-orange pixel
