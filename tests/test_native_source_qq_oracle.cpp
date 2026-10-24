@@ -3350,7 +3350,8 @@ int test_external_tikz_wstar_pixels(const char *filename,
     CHECK(full_page_repeat_equal);
 
     double full_page_total=0.0;
-    size_t full_page_gross=0u;
+    size_t full_page_gross=0u,reference_gray_ink=0u,native_gray_ink=0u;
+    size_t common_gray_ink=0u,gross_near_gray_ink=0u;
     for(size_t y=0u;y<height;++y) {
         for(size_t x=0u;x<width;++x) {
             const unsigned char *ref=pdfium.at(x,y);
@@ -3365,14 +3366,48 @@ int test_external_tikz_wstar_pixels(const char *filename,
                 full_page_total+=(double)delta;
                 if(delta>worst) worst=delta;
             }
-            if(worst>64u) ++full_page_gross;
+            const unsigned rr=ref[0],rg=ref[1],rb=ref[2];
+            const unsigned nr=on_white(rgba,0u),ng=on_white(rgba,1u),
+                           nb=on_white(rgba,2u);
+            const bool reference_gray=(rr<235u && rg<235u && rb<235u &&
+                                       std::abs((int)rr-(int)rg)<8 &&
+                                       std::abs((int)rg-(int)rb)<8);
+            const bool native_gray=(nr<235u && ng<235u && nb<235u &&
+                                    std::abs((int)nr-(int)ng)<8 &&
+                                    std::abs((int)ng-(int)nb)<8);
+            reference_gray_ink+=(size_t)reference_gray;
+            native_gray_ink+=(size_t)native_gray;
+            common_gray_ink+=(size_t)(reference_gray&&native_gray);
+            if(worst>64u) {
+                ++full_page_gross;
+                gross_near_gray_ink+=(size_t)(reference_gray||native_gray);
+            }
         }
     }
     const double full_page_mean=
         full_page_total/(double)(pixel_count*3u);
     std::fprintf(stderr,
-        "[texample-wstar-full-page] mean=%.6f gross=%zu repeat-identical=%d\n",
-        full_page_mean,full_page_gross,(int)full_page_repeat_equal);
+        "[texample-wstar-full-page] mean=%.6f gross=%zu repeat-identical=%d "
+        "gray-source=%zu gray-native=%zu gray-overlap=%zu "
+        "gross-near-gray=%zu\n",
+        full_page_mean,full_page_gross,(int)full_page_repeat_equal,
+        reference_gray_ink,native_gray_ink,common_gray_ink,
+        gross_near_gray_ink);
+    const size_t probe_xy[][2]={
+        {23u,36u},{71u,36u},{119u,18u},
+        {166u,36u},{71u,144u},{119u,90u}
+    };
+    for(const auto& xy:probe_xy) {
+        const unsigned char *ref=pdfium.at(xy[0],xy[1]);
+        const unsigned char *rgba=full_page_native.pixels+
+            xy[1]*full_page_native.stride+4u*xy[0];
+        std::fprintf(stderr,
+            "[texample-wstar-full-page-sample] x=%zu y=%zu "
+            "ref=%u,%u,%u native=%u,%u,%u\n",
+            xy[0],xy[1],(unsigned)ref[0],(unsigned)ref[1],
+            (unsigned)ref[2],on_white(rgba,0u),on_white(rgba,1u),
+            on_white(rgba,2u));
+    }
     CHECK(full_page_mean<=1.0 && full_page_gross<=100u);
     CHECK(detached.operation_count==3u);
     quantapdf_composer_operation projected_operation=detached.operations[0];
