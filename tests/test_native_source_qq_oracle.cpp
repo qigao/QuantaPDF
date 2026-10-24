@@ -3203,7 +3203,7 @@ int test_external_tikz_wstar_pixels(const char *filename,
         if(lower_status!=QUANTAPDF_OK) dump_tikz_candidate_contents(snap);
     }
     if(lower_status==QUANTAPDF_OK) {
-        lower_status=quantapdf_pdf_path_lower_to_composer_mapped(
+        lower_status=quantapdf_pdf_path_lower_to_composer_mapped_native_raster(
             semantics,display.width_points,display.height_points,
             display.from_source,&bounded,&detached);
         std::fprintf(stderr,"[texample-wstar-lowering] path_lower=%d\n",(int)lower_status);
