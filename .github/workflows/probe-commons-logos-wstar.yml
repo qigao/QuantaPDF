@@ -37,6 +37,12 @@ jobs:
           curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
             'https://commons.wikimedia.org/wiki/Special:Redirect/file/Al%20rifai%20logo.pdf' \
             --output '/tmp/commons-logos-pdfs/Al rifai logo.pdf'
+          curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/H%26BTMRR%20Oval%20Logo.pdf' \
+            --output '/tmp/commons-logos-pdfs/H&BTMRR Oval Logo.pdf'
+          curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/ISSU%20Logo.pdf' \
+            --output '/tmp/commons-logos-pdfs/ISSU Logo.pdf'
           file /tmp/commons-logos-pdfs/*.pdf
       - name: Scan decoded content and preserve exact source identities
         run: |
@@ -54,6 +60,8 @@ jobs:
               "PAX Logo.pdf",
               "MML-MPG Logo.pdf",
               "Al rifai logo.pdf",
+              "H&BTMRR Oval Logo.pdf",
+              "ISSU Logo.pdf",
           }
           report = json.loads(Path("commons-logos-wstar-scan-report.json").read_text())
           results = report["results"]
