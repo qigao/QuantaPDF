@@ -9,7 +9,24 @@
       "author": "Denys Bondar",
       "license": "CC BY-SA 3.0 Unported",
       "license_evidence": "Commons page states CC BY-SA 3.0; description says uploaded as PDF containing only graphic data; metadata identifies PowerPoint and Quartz PDFContext.",
-      "formal_corpus": false
+      "formal_corpus": false,
+      "observed_sha256": "75ded7bfdc5f8307fcb633d55f68640321830e4acf1791cee332c99b0ccdca1e",
+      "observed_size_bytes": 1431208,
+      "scan_status": "confirmed_no_wstar",
+      "qualification_status": "rejected_no_wstar_text_and_images",
+      "scan_evidence": {
+        "page_content_wstar_count": 0,
+        "form_wstar_count": 0,
+        "annotation_appearance_wstar_count": 0,
+        "effective_wstar_count": 0,
+        "page_text_operator_count": 13615,
+        "image_xobject_calls": 6,
+        "native_raster_risks": [
+          "image_xobject",
+          "text",
+          "unrecognized_operator"
+        ]
+      }
     },
     {
       "file": "CEC concept.pdf",
@@ -18,7 +35,22 @@
       "author": "Kyle MoJo",
       "license": "CC0 1.0 Universal",
       "license_evidence": "Commons page explicitly states CC0; source is own work.",
-      "formal_corpus": false
+      "formal_corpus": false,
+      "observed_sha256": "8e6b7b2524669c510120804ac5c5a38e040bc4294877469ef6790ba2ae4280ef",
+      "observed_size_bytes": 44555,
+      "scan_status": "wstar_found",
+      "qualification_status": "rejected_rectangular_clip_and_text",
+      "scan_evidence": {
+        "page_content_wstar_count": 1,
+        "form_wstar_count": 0,
+        "annotation_appearance_wstar_count": 0,
+        "effective_wstar_count": 1,
+        "page_text_operator_count": 455,
+        "native_raster_risks": [
+          "text"
+        ],
+        "clip_geometry": "one rectangular subpath"
+      }
     },
     {
       "file": "CompositionMilk.pdf",
@@ -27,7 +59,24 @@
       "author": "TLRapp",
       "license": "CC0 1.0 Universal",
       "license_evidence": "Commons page explicitly states CC0; source is own work.",
-      "formal_corpus": false
+      "formal_corpus": false,
+      "observed_sha256": "a116ae1172d6faa9110b20ce0ca390e1bb939c964499bbfe829cf42a177c06dc",
+      "observed_size_bytes": 313411,
+      "scan_status": "wstar_found",
+      "qualification_status": "rejected_rectangular_clips_text_and_images",
+      "scan_evidence": {
+        "page_content_wstar_count": 18,
+        "form_wstar_count": 0,
+        "annotation_appearance_wstar_count": 0,
+        "effective_wstar_count": 18,
+        "page_text_operator_count": 49,
+        "image_xobject_calls": 8,
+        "native_raster_risks": [
+          "image_xobject",
+          "text"
+        ],
+        "clip_geometry": "all 18 W* clips are single rectangles"
+      }
     },
     {
       "file": "Annuity 0001.pdf",
@@ -54,7 +103,22 @@
       "author": "Uploader on Wikimedia Commons",
       "license": "CC BY-SA 4.0 International",
       "license_evidence": "Commons page lists CC BY-SA 4.0; per-file author metadata is sparse and must be rechecked before admission.",
-      "formal_corpus": false
+      "formal_corpus": false,
+      "observed_sha256": "fd65bbf13779c7ec39e660b74c7fdec89c610d97e3cc108c513579490b63205d",
+      "observed_size_bytes": 35372,
+      "scan_status": "confirmed_no_wstar",
+      "qualification_status": "rejected_no_wstar_and_image_xobject",
+      "scan_evidence": {
+        "page_content_wstar_count": 0,
+        "form_wstar_count": 0,
+        "annotation_appearance_wstar_count": 0,
+        "effective_wstar_count": 0,
+        "page_text_operator_count": 0,
+        "image_xobject_calls": 1,
+        "native_raster_risks": [
+          "image_xobject"
+        ]
+      }
     }
   ]
 }
