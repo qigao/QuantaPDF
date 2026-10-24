@@ -217,12 +217,14 @@ def scan_pdf(data: bytes) -> dict[str, Any]:
             details["native_raster_risks"] = sorted(set(details["native_raster_risks"]))
 
         if recorder.messages:
-            benign_header_warning = (
-                header_offset > 0 and len(recorder.messages) == 1 and
-                recorder.messages[0].lower().startswith("invalid pdf header:")
+            benign_header_warnings = (
+                header_offset > 0 and bool(recorder.messages) and
+                all(message.lower().startswith("invalid pdf header:")
+                    for message in recorder.messages)
             )
-            if not benign_header_warning:
-                raise Incomplete("pypdf_parser_warning: " + recorder.messages[0])
+            if not benign_header_warnings:
+                raise Incomplete("pypdf_parser_warning: " +
+                                 " | ".join(recorder.messages[:3]))
         result["page_content_wstar_count"] = sum(
             x["content_stream_wstar"] for x in result["pages"]
         )
