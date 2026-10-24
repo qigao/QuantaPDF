@@ -33,6 +33,16 @@ jobs:
           test "$bytes" -ge 1000
           test "$bytes" -le 20000
           sha256sum '/tmp/commons-polar-lines-pdf/Polar_coordinate_lines.pdf' | tee source-sha256.txt
+          curl --fail --location --retry 3 --retry-all-errors --max-time 90 \
+            'https://upload.wikimedia.org/wikipedia/commons/b/b0/Polar_coordinate.pdf' \
+            --output '/tmp/commons-polar-lines-pdf/Polar_coordinate.pdf'
+          file '/tmp/commons-polar-lines-pdf/Polar_coordinate.pdf'
+          bytes="$(wc -c < '/tmp/commons-polar-lines-pdf/Polar_coordinate.pdf')"
+          test "$bytes" -ge 1000
+          test "$bytes" -le 20000
+          actual="$(sha1sum '/tmp/commons-polar-lines-pdf/Polar_coordinate.pdf' | cut -d ' ' -f 1)"
+          test "$actual" = "74210d8492c41c7dfa62abe6b831c0ba22add479"
+          sha256sum '/tmp/commons-polar-lines-pdf/Polar_coordinate.pdf' | tee -a source-sha256.txt
       - name: Validate original independently before allowing pypdf recovery
         shell: bash
         run: |
@@ -62,39 +72,42 @@ jobs:
           import json
           from pathlib import Path
           report = json.loads(Path("polar-lines-wstar-scan-report.json").read_text())
-          assert report["files_scanned"] == 1, report["files_scanned"]
+          assert report["files_scanned"] == 2, report["files_scanned"]
+          assert {Path(item["path"]).name for item in report["results"]} == {
+              "Polar_coordinate_lines.pdf", "Polar_coordinate.pdf"
+          }
           assert report["files_scanned"] == (
               report["confirmed_no_wstar"] + report["wstar_found"] +
               report["inconclusive"]
           )
-          item = report["results"][0]
-          print(json.dumps({
-              "qpdf_check_exit": Path("qpdf-check-exit.txt").read_text().strip(),
-              "file": Path(item["path"]).name,
-              "bytes": item["bytes"],
-              "sha256": item["sha256"],
-              "scan_status": item["scan_status"],
-              "reason": item["reason"],
-              "pages": item["page_count"],
-              "page_content_wstar_count": item["page_content_wstar_count"],
-              "form_wstar_count": item["form_wstar_count"],
-              "annotation_appearance_wstar_count": item["annotation_appearance_wstar_count"],
-              "effective_wstar_count": item["effective_wstar_count"],
-              "page_text_operator_count": item["page_text_operator_count"],
-              "native_raster_risks": sorted({
-                  risk for page in item["pages"]
-                  for risk in page["native_raster_risks"]
-              }),
-              "page_operator_counts": [
-                  {"page": page["index"], "operators": page["operator_counts"],
-                   "risk_operators": page["risk_operator_counts"]}
-                  for page in item["pages"]
-              ],
-              "clip_evidence": [
-                  evidence for page in item["pages"]
-                  for evidence in page["clip_evidence"]
-              ],
-          }, sort_keys=True))
+          for item in report["results"]:
+              print(json.dumps({
+                  "qpdf_check_exit": Path("qpdf-check-exit.txt").read_text().strip(),
+                  "file": Path(item["path"]).name,
+                  "bytes": item["bytes"],
+                  "sha256": item["sha256"],
+                  "scan_status": item["scan_status"],
+                  "reason": item["reason"],
+                  "pages": item["page_count"],
+                  "page_content_wstar_count": item["page_content_wstar_count"],
+                  "form_wstar_count": item["form_wstar_count"],
+                  "annotation_appearance_wstar_count": item["annotation_appearance_wstar_count"],
+                  "effective_wstar_count": item["effective_wstar_count"],
+                  "page_text_operator_count": item["page_text_operator_count"],
+                  "native_raster_risks": sorted({
+                      risk for page in item["pages"]
+                      for risk in page["native_raster_risks"]
+                  }),
+                  "page_operator_counts": [
+                      {"page": page["index"], "operators": page["operator_counts"],
+                       "risk_operators": page["risk_operator_counts"]}
+                      for page in item["pages"]
+                  ],
+                  "clip_evidence": [
+                      evidence for page in item["pages"]
+                      for evidence in page["clip_evidence"]
+                  ],
+              }, sort_keys=True))
           PY
       - name: Retain quarantined scan evidence and source metadata
         uses: actions/upload-artifact@v4
