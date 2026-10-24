@@ -31,7 +31,7 @@ jobs:
             --output '/tmp/commons-diagram-pdfs/School Voucher Diagram.pdf'
           file /tmp/commons-diagram-pdfs/*.pdf
           sha256sum /tmp/commons-diagram-pdfs/*.pdf | tee source-sha256.txt
-      - name: Validate each source and scan only when qpdf is clean
+      - name: Validate each source and scan decoded operators
         shell: bash
         run: |
           set -euo pipefail
