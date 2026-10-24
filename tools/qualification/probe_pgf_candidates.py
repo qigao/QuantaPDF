@@ -171,6 +171,7 @@ def scan_pdf(data: bytes) -> dict[str, Any]:
                             details["image_xobject_calls"] += 1
                             details["native_raster_risks"].append("image_xobject")
                         elif subtype == "/Form":
+                            details["native_raster_risks"].append("form_xobject")
                             identity = (f"{target_ref.idnum}:{target_ref.generation}"
                                         if hasattr(target_ref, "idnum")
                                         else source_identity(target))
@@ -198,8 +199,10 @@ def scan_pdf(data: bytes) -> dict[str, Any]:
                 analyze(page.raw_get("/Contents"),
                         page.get("/Resources", DictionaryObject()), "page", 0)
             if page.get("/Annots"):
-                # Appearances are not in the main page content traversal.
-                details["native_raster_risks"].append("annotations_not_scanned")
+                # Annotation appearance streams can paint content and W* too.
+                # Until their appearance/resource graph is traversed, a zero-hit
+                # result for this document would be incomplete evidence.
+                raise Incomplete("annotations_not_scanned")
             details["native_raster_risks"] = sorted(set(details["native_raster_risks"]))
 
         if recorder.messages:
