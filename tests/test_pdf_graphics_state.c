@@ -86,6 +86,13 @@ static void test_fail_closed(void)
           QUANTAPDF_ERROR_UNSUPPORTED);
 }
 
+static void test_standalone_end_path_is_noop(void)
+{
+    quantapdf_pdf_graphics_ir *r=evaluate("n q 0 0 m 1 1 l S Q n");
+    CHECK(r->path_count==1 && r->clip_count==0);
+    quantapdf_pdf_graphics_dispose(r);
+}
+
 static void test_empty(void)
 {
     quantapdf_pdf_graphics_ir *r=evaluate("% comment\n ");
@@ -177,6 +184,7 @@ int main(void)
     test_ctm_and_saved_state();
     test_clip_deferred_and_restored();
     test_fail_closed();
+    test_standalone_end_path_is_noop();
     test_empty();
     return 0;
 }
