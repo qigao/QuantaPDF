@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "purpose": "Issue #262 discovery-only original PDF. Wikimedia Commons identifies this as the author's own work, licensed CC BY-SA 4.0, and records LibreOffice 6.1 as the PDF conversion program.",
+  "candidates": [
+    {
+      "file": "INTERPOLATION LINEAIRE.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:INTERPOLATION_LINEAIRE.pdf",
+      "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/INTERPOLATION%20LINEAIRE.pdf",
+      "author": "Bercier",
+      "source": "Own work",
+      "license": "CC BY-SA 4.0 International",
+      "license_evidence": "Commons file page explicitly states CC BY-SA 4.0 International; original upload dated 4 April 2020.",
+      "producer": "LibreOffice 6.1",
+      "reported_file_size_bytes": 49152,
+      "formal_corpus": false
+    }
+  ]
+}
