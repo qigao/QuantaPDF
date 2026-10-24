@@ -12,7 +12,21 @@
       "license": "CC BY-SA 3.0 Unported",
       "license_evidence": "Wikimedia Commons file page explicitly states CC BY-SA 3.0 Unported and grants share/adapt rights subject to attribution and share-alike.",
       "producer_note": "Vector drawing with Canvas; candidate for vector-only content but must be inspected for actual operators.",
-      "formal_corpus": false
+      "formal_corpus": false,
+      "observed_sha256": "dc455d21e1684514c110e5e5eb727ded248e851e845c25057e35dea39ce52074",
+      "observed_size_bytes": 132352,
+      "scan_status": "wstar_found",
+      "qualification_status": "rejected_unsupported_native_raster_operations",
+      "scan_evidence": {
+        "effective_wstar_count": 14,
+        "page_text_operator_count": 512,
+        "image_xobject_calls": 129,
+        "native_raster_risks": [
+          "image_xobject",
+          "text"
+        ],
+        "reason": "14 curved single-subpath W* clips; text/image operations block whole-page detached Native Raster comparison."
+      }
     },
     {
       "id": "commons-in-cc0",
@@ -24,7 +38,21 @@
       "license": "CC0 1.0 Universal",
       "license_evidence": "Wikimedia Commons file page explicitly states the copyright holder released the PDF under CC0.",
       "producer_note": "10-page libre art music score; likely text-heavy, included as a control candidate only.",
-      "formal_corpus": false
+      "formal_corpus": false,
+      "observed_sha256": "832345472b2aea7bed76beaadc1b3fd46b6f07d349744b9346113a00fa3ff446",
+      "observed_size_bytes": 261419,
+      "scan_status": "confirmed_no_wstar",
+      "qualification_status": "rejected_no_wstar_or_unsupported_content",
+      "scan_evidence": {
+        "effective_wstar_count": 0,
+        "page_text_operator_count": 4508,
+        "image_xobject_calls": 0,
+        "native_raster_risks": [
+          "ext_gstate",
+          "text"
+        ],
+        "reason": "No W*; multi-page music/text content exceeds native subset."
+      }
     },
     {
       "id": "commons-silhouette",
@@ -36,7 +64,22 @@
       "license": "CC BY-SA 4.0",
       "license_evidence": "Wikimedia Commons file page identifies CC BY-SA 4.0; attribution and share-alike required.",
       "producer_note": "Microsoft Print to PDF; likely outside native subset, retained as a control candidate.",
-      "formal_corpus": false
+      "formal_corpus": false,
+      "observed_sha256": "e435e0e32760b4f00bea173c9ae1b474b9104e0cabb2945e53fd65753ee1833e",
+      "observed_size_bytes": 523281,
+      "scan_status": "inconclusive",
+      "qualification_status": "inconclusive_not_counted_as_hit",
+      "scan_evidence": {
+        "effective_wstar_count": null,
+        "page_text_operator_count": null,
+        "image_xobject_calls": 10,
+        "native_raster_risks": [
+          "image_xobject",
+          "text"
+        ],
+        "reason": "Parser warning for superfluous whitespace in object headers; observed 5 W* per page before fail-closed classification. Must not be counted as a conclusive hit.",
+        "partial_observed_wstar_count": 10
+      }
     }
   ]
 }
