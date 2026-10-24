@@ -88,7 +88,10 @@ def record_risk(details: dict[str, Any], operator_name: str, risk: str) -> None:
     counts[operator_name] = counts.get(operator_name, 0) + 1
 
 
-def scan_pdf(data: bytes, *, allow_nonzero_xref_warning: bool = False) -> dict[str, Any]:
+def scan_pdf(
+    data: bytes, *, allow_nonzero_xref_warning: bool = False,
+    max_operations: int = MAX_OPERATIONS,
+) -> dict[str, Any]:
     """Fail closed on any undecodable or incompletely traversed page content."""
     result: dict[str, Any] = {
         "scan_status": "inconclusive",
@@ -167,7 +170,7 @@ def scan_pdf(data: bytes, *, allow_nonzero_xref_warning: bool = False) -> dict[s
                     counts = details["operator_counts"]
                     counts[operator_name] = counts.get(operator_name, 0) + 1
                     used[0] += 1
-                    if used[0] > MAX_OPERATIONS:
+                    if used[0] > max_operations:
                         raise Incomplete("operation_limit")
                     if operator == b"W*":
                         if context == "annotation":
@@ -328,7 +331,13 @@ def main() -> None:
         action="store_true",
         help="allow only pypdf's xref-subsection repair warning; use only after qpdf --check passes",
     )
+    parser.add_argument(
+        "--max-operations", type=int, default=MAX_OPERATIONS,
+        help=f"per-page decoded operator limit (default: {MAX_OPERATIONS}; hard max: 1000000)",
+    )
     args = parser.parse_args()
+    if args.max_operations < 1 or args.max_operations > 1_000_000:
+        parser.error("--max-operations must be between 1 and 1000000")
     records = []
     for path in sorted(args.root.glob("*.pdf")):
         raw = path.read_bytes()
@@ -336,7 +345,10 @@ def main() -> None:
             "path": str(path),
             "bytes": len(raw),
             "sha256": hashlib.sha256(raw).hexdigest(),
-            **scan_pdf(raw, allow_nonzero_xref_warning=args.allow_nonzero_xref_warning),
+            **scan_pdf(
+                raw, allow_nonzero_xref_warning=args.allow_nonzero_xref_warning,
+                max_operations=args.max_operations,
+            ),
         })
     output = {
         "schema_version": 2,
