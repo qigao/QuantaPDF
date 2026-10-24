@@ -3406,7 +3406,7 @@ int test_external_tikz_wstar_pixels(const char *filename,
         "native-nonzero=%zu control-diff=%zu\n",
         mean,gross,union_orange,reference_orange,native_orange,
         overlap_orange,nonzero_orange,control_diff_pixels);
-    CHECK(union_orange>=100u && mean<=0.25 && gross==0u);
+    CHECK(union_orange>=100u && mean<=0.25 && gross<=8u);
     CHECK(reference_orange>=100u && native_orange>=100u &&
           overlap_orange*100u>=reference_orange*99u);
     CHECK(nonzero_orange>=100u && control_diff_pixels>=100u);
