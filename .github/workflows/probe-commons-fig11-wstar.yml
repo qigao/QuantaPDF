@@ -1,0 +1,91 @@
+name: Probe licensed geometry figure PDF for W-star
+on:
+  push:
+    branches:
+      - probe/262-pgf-corpus
+    paths:
+      - '.github/workflows/probe-commons-fig11-wstar.yml'
+      - 'tests/external_wstar_candidates/commons-fig11-source-metadata.json'
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned parser and independent PDF validator
+        run: |
+          python3 -m pip install --disable-pip-version-check "pypdf==5.9.0"
+          sudo apt-get update
+          sudo apt-get install --yes qpdf
+      - name: Download unchanged original and record identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/commons-fig11-pdf
+          curl --fail --location --retry 3 --retry-all-errors --max-time 90 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/Fig1.1new.pdf' \
+            --output '/tmp/commons-fig11-pdf/Fig1.1new.pdf'
+          file '/tmp/commons-fig11-pdf/Fig1.1new.pdf'
+          sha256sum '/tmp/commons-fig11-pdf/Fig1.1new.pdf' | tee source-sha256.txt
+      - name: Independently validate and scan decoded operators
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          qpdf --check '/tmp/commons-fig11-pdf/Fig1.1new.pdf' > qpdf-check.log 2>&1
+          qpdf_rc=$?
+          set -e
+          printf '%s\n' "$qpdf_rc" > qpdf-check-exit.txt
+          cat qpdf-check.log
+          python3 tools/qualification/probe_pgf_candidates.py \
+            --root /tmp/commons-fig11-pdf \
+            --max-operations 500000 \
+            --output fig11-wstar-scan-report.json > fig11-wstar-scan.log
+      - name: Require the candidate to be accounted for
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("fig11-wstar-scan-report.json").read_text())
+          assert report["files_scanned"] == 1, report["files_scanned"]
+          assert report["files_scanned"] == (
+              report["confirmed_no_wstar"] + report["wstar_found"] +
+              report["inconclusive"]
+          )
+          item = report["results"][0]
+          print(json.dumps({
+              "qpdf_check_exit": Path("qpdf-check-exit.txt").read_text().strip(),
+              "file": Path(item["path"]).name,
+              "bytes": item["bytes"],
+              "sha256": item["sha256"],
+              "scan_status": item["scan_status"],
+              "reason": item["reason"],
+              "pages": item["page_count"],
+              "page_content_wstar_count": item["page_content_wstar_count"],
+              "form_wstar_count": item["form_wstar_count"],
+              "annotation_appearance_wstar_count": item["annotation_appearance_wstar_count"],
+              "effective_wstar_count": item["effective_wstar_count"],
+              "page_text_operator_count": item["page_text_operator_count"],
+              "native_raster_risks": sorted({
+                  risk for page in item["pages"]
+                  for risk in page["native_raster_risks"]
+              }),
+              "clip_evidence": [
+                  evidence for page in item["pages"]
+                  for evidence in page["clip_evidence"]
+              ],
+          }, sort_keys=True, indent=2))
+          PY
+      - name: Retain quarantined scan evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: fig11-wstar-scan
+          path: |
+            source-sha256.txt
+            qpdf-check.log
+            qpdf-check-exit.txt
+            fig11-wstar-scan-report.json
+            fig11-wstar-scan.log
+            tests/external_wstar_candidates/commons-fig11-source-metadata.json
+          retention-days: 7
