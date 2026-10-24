@@ -59,6 +59,28 @@ def ordinary_pdf(contents=None, forms=None, images=False, annotations=False) -> 
     return output.getvalue()
 
 
+
+def whitespace_prefixed_pdf(pdf: bytes, prefix: bytes = b"\\n\\n") -> bytes:
+    """Add a PDF-whitespace header prefix and adjust original xref offsets."""
+    data = bytearray(pdf)
+    xref_at = data.rfind(b"\\nxref\\n") + 1
+    trailer_at = data.find(b"trailer", xref_at)
+    if xref_at <= 0 or trailer_at < 0:
+        raise ValueError("expected classic xref table")
+    lines = bytes(data[xref_at:trailer_at]).splitlines(keepends=True)
+    for index in range(2, len(lines)):
+        line = lines[index]
+        if len(line) >= 18 and line[17:18] == b"n":
+            lines[index] = f"{int(line[:10]) + len(prefix):010d}".encode() + line[10:]
+    data[xref_at:trailer_at] = b"".join(lines)
+    startxref_at = data.rfind(b"startxref")
+    number_start = data.find(b"\\n", startxref_at) + 1
+    number_end = data.find(b"\\n", number_start)
+    data[number_start:number_end] = str(
+        int(data[number_start:number_end]) + len(prefix)
+    ).encode()
+    return prefix + bytes(data)
+
 def pdf15_object_stream() -> bytes:
     """A real PDF 1.5 xref stream with page object compressed into /ObjStm."""
     pdf = bytearray(b"%PDF-1.5\n%\xe2\xe3\xcf\xd3\n")
@@ -159,6 +181,22 @@ class ProbeTests(unittest.TestCase):
     def test_truncated_pdf_cannot_be_claimed_zero(self):
         result = scan_pdf(b"%PDF-1.5\n1 0 obj << /Contents 7 0 R")
         self.assertEqual(result["scan_status"], "inconclusive")
+        self.assertIsNone(result["effective_wstar_count"])
+
+    def test_pdf_header_after_bounded_whitespace_is_scanned_unchanged(self):
+        original = ordinary_pdf([b"0 0 10 10 re W* n"])
+        source = whitespace_prefixed_pdf(original)
+        result = scan_pdf(source)
+        self.assertEqual(source[:2], b"\\n\\n")
+        self.assertEqual(source[2:], source[2:])  # scanner must not rewrite source bytes
+        self.assertEqual(result["pdf_header_offset_bytes"], 2)
+        self.assertEqual(result["scan_status"], "wstar_found", result["reason"])
+        self.assertEqual(result["effective_wstar_count"], 1)
+
+    def test_nonwhitespace_before_pdf_header_is_inconclusive(self):
+        result = scan_pdf(b"not-a-pdf " + ordinary_pdf([b"W* n"]))
+        self.assertEqual(result["scan_status"], "inconclusive")
+        self.assertEqual(result["reason"], "invalid_pdf_header_prefix")
         self.assertIsNone(result["effective_wstar_count"])
 
     def test_pdf15_page_object_in_objstm(self):
