@@ -12,6 +12,7 @@
 #include "render/ir_clip_dag_v3.h"
 #include "render/ir_raster.h"
 #include "render/ir_raster_v1.h"
+#include "render/native_device_plan.h"
 
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFWriter.hh>
@@ -3173,6 +3174,7 @@ int test_external_tikz_wstar_pixels(const char *filename,
     quantapdf_graph_snapshot *snap=nullptr;
     quantapdf_pdf_page_semantics *semantics=nullptr;
     quantapdf_graph_page_geometry geometry{};
+    quantapdf_graph_page_source_numbers page_numbers{};
     quantapdf_graph_page_display display{};
     quantapdf_status lower_status=quantapdf_open(filename,nullptr,&doc);
     std::fprintf(stderr,"[texample-wstar-lowering] open=%d\n",(int)lower_status);
@@ -3186,6 +3188,12 @@ int test_external_tikz_wstar_pixels(const char *filename,
         lower_status=quantapdf_graph_query_page_geometry(
             snap->graph,0u,8u,&geometry);
         std::fprintf(stderr,"[texample-wstar-lowering] geometry=%d\n",(int)lower_status);
+    }
+    if(lower_status==QUANTAPDF_OK) {
+        lower_status=quantapdf_graph_query_page_source_numbers(
+            snap->graph,0u,8u,&page_numbers);
+        std::fprintf(stderr,"[texample-wstar-lowering] source_numbers=%d\n",
+            (int)lower_status);
     }
     if(lower_status==QUANTAPDF_OK) {
         lower_status=quantapdf_graph_page_display_map(&geometry,&display);
@@ -3245,6 +3253,11 @@ int test_external_tikz_wstar_pixels(const char *filename,
     const quantapdf_ir_raster_v1_limits limits={
         pixel_count,8u,4096u,3200000000ULL
     };
+    quantapdf_native_device_plan device_plan{};
+    OK(quantapdf_native_device_plan_create(
+        page_numbers.media_box,page_numbers.crop_box,page_numbers.user_unit,
+        page_numbers.rotation,72u,pixel_count,&device_plan));
+    CHECK(device_plan.width==width && device_plan.height==height);
     CHECK(detached.operation_count==3u);
     quantapdf_composer_operation projected_operation=detached.operations[0];
     CHECK(projected_operation.kind==QUANTAPDF_COMPOSER_OPERATION_PATH);
@@ -3285,12 +3298,12 @@ int test_external_tikz_wstar_pixels(const char *filename,
     raster_image_cleanup native_cleanup{&native};
     raster_image_cleanup repeat_cleanup{&repeat};
     raster_image_cleanup nonzero_cleanup{&nonzero};
-    OK(quantapdf_ir_raster_render_v1_multi_clipped(
-        &projected,0u,&limits,evenodd_clips,1u,&native));
-    OK(quantapdf_ir_raster_render_v1_multi_clipped(
-        &projected,0u,&limits,evenodd_clips,1u,&repeat));
-    OK(quantapdf_ir_raster_render_v1_multi_clipped(
-        &projected,0u,&limits,nonzero_clips,1u,&nonzero));
+    OK(quantapdf_ir_raster_render_v1_planned(
+        &projected,0u,&limits,&device_plan,evenodd_clips,1u,&native));
+    OK(quantapdf_ir_raster_render_v1_planned(
+        &projected,0u,&limits,&device_plan,evenodd_clips,1u,&repeat));
+    OK(quantapdf_ir_raster_render_v1_planned(
+        &projected,0u,&limits,&device_plan,nonzero_clips,1u,&nonzero));
     CHECK(native.pixels!=nullptr && repeat.pixels!=nullptr &&
           nonzero.pixels!=nullptr &&
           native.width==width && native.height==height &&
