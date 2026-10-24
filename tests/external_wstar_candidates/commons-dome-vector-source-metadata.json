@@ -16,7 +16,29 @@
       "formal_corpus": false,
       "observed_sha256": "31f9e1ecf54ea8a02b3fdac74699ef4333893480ee03539e7686d5692e5965d9",
       "observed_size_bytes": 3287682,
-      "scan_status": "confirmed_no_wstar"
+      "scan_status": "confirmed_no_wstar",
+      "qpdf_check": "exit 3 (only two known linearization hint warnings were allowlisted; strict xref scan remained inconclusive until independent validation)",
+      "qualification_status": "rejected_unsupported_native_raster_operations",
+      "scan_evidence": {
+        "page_content_wstar_count": 0,
+        "form_wstar_count": 0,
+        "annotation_appearance_wstar_count": 0,
+        "effective_wstar_count": 0,
+        "page_text_operator_count": 10,
+        "native_raster_risks": [
+          "ext_gstate",
+          "form_xobject",
+          "other_graphics_operator",
+          "text"
+        ],
+        "unsupported_operations": [
+          "scn",
+          "SCN",
+          "gs",
+          "Form XObject",
+          "text"
+        ]
+      }
     }
   ]
 }
