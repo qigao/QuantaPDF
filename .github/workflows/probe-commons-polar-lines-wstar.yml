@@ -48,13 +48,16 @@ jobs:
         run: |
           set -euo pipefail
           set +e
-          qpdf --check '/tmp/commons-polar-lines-pdf/Polar_coordinate_lines.pdf' > qpdf-check.log 2>&1
-          qpdf_rc=$?
+          qpdf --check '/tmp/commons-polar-lines-pdf/Polar_coordinate_lines.pdf' > qpdf-check-lines.log 2>&1
+          lines_rc=$?
+          qpdf --check '/tmp/commons-polar-lines-pdf/Polar_coordinate.pdf' > qpdf-check-polar.log 2>&1
+          polar_rc=$?
           set -e
-          printf '%s\n' "$qpdf_rc" > qpdf-check-exit.txt
-          cat qpdf-check.log
-          printf 'qpdf_check_exit=%s\n' "$qpdf_rc"
-          if [ "$qpdf_rc" -eq 0 ]; then
+          printf 'Polar_coordinate_lines.pdf=%s\nPolar_coordinate.pdf=%s\n' "$lines_rc" "$polar_rc" > qpdf-check-exit.txt
+          cat qpdf-check-lines.log
+          cat qpdf-check-polar.log
+          printf 'qpdf_lines_exit=%s qpdf_polar_exit=%s\n' "$lines_rc" "$polar_rc"
+          if [ "$lines_rc" -eq 0 ] && [ "$polar_rc" -eq 0 ]; then
             python3 tools/qualification/probe_pgf_candidates.py \
               --root /tmp/commons-polar-lines-pdf \
               --allow-nonzero-xref-warning \
@@ -114,7 +117,8 @@ jobs:
         with:
           name: polar-lines-wstar-scan
           path: |
-            qpdf-check.log
+            qpdf-check-lines.log
+            qpdf-check-polar.log
             qpdf-check-exit.txt
             source-sha256.txt
             polar-lines-wstar-scan-report.json
