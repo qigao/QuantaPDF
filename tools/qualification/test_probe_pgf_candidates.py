@@ -85,19 +85,20 @@ def whitespace_prefixed_pdf(pdf: bytes, prefix: bytes = b"\n\n") -> bytes:
 def nonzero_indexed_xref_pdf(pdf: bytes) -> bytes:
     """Move a valid classic xref table from subsection 0..N to 1..N-1."""
     data = bytearray(pdf)
-    xref_at = data.find(b"xref\\n")
+    xref_at = data.find(b"xref\n")
     if xref_at < 0:
         raise ValueError("expected classic xref table")
-    header_start = xref_at + len(b"xref\\n")
-    header_end = data.find(b"\\n", header_start) + 1
+    header_start = xref_at + len(b"xref\n")
+    header_end = data.find(b"\n", header_start) + 1
     start, count = map(int, bytes(data[header_start:header_end]).split())
     if start != 0 or count < 2:
         raise ValueError("unexpected xref subsection")
-    data[header_start:header_end] = f"1 {count - 1}\\n".encode()
+    data[header_start:header_end] = f"1 {count - 1}\n".encode()
     free_entry_start = header_end
-    free_entry_end = data.find(b"\\n", free_entry_start) + 1
+    free_entry_end = data.find(b"\n", free_entry_start) + 1
     del data[free_entry_start:free_entry_end]
     return bytes(data)
+
 
 def pdf15_object_stream() -> bytes:
     """A real PDF 1.5 xref stream with page object compressed into /ObjStm."""
