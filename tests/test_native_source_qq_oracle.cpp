@@ -11,6 +11,7 @@
 #include "render/ir_scoped_operations_v1.h"
 #include "render/ir_clip_dag_v3.h"
 #include "render/ir_raster.h"
+#include "render/ir_raster_v1.h"
 
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFWriter.hh>
@@ -3332,7 +3333,6 @@ int test_external_tikz_wstar_pixels(const char *filename,
             overlap_orange+=(size_t)(ref_orange&&nat_orange);
             if(ref_orange||nat_orange) {
                 ++union_orange;
-                total+=(double)(worst==0u ? 0u : 0u);
                 for(size_t channel=0u;channel<3u;++channel) {
                     const unsigned diff=rgb[channel]>(unsigned)ref[channel]
                         ? rgb[channel]-(unsigned)ref[channel]
@@ -3382,6 +3382,8 @@ int test_external_tikz_wstar_pixels(const char *filename,
         "  \"reference_oracle\": \"original-pdfium\",\n"
         "  \"original_source_pdfium_oracle\": \"passed\",\n"
         "  \"detached_c11_native_raster\": \"passed\",\n"
+        "  \"full_page_native_raster\": \"rejected_unsupported_stroke_profile\",\n"
+        "  \"comparison_scope\": \"orange-fill-mask-only\",\n"
         "  \"native_ir\": \"lowered\",\n"
         "  \"source_sha256\": \"%s\",\n"
         "  \"source_and_graph_released_before_raster\": true,\n"
@@ -3390,26 +3392,26 @@ int test_external_tikz_wstar_pixels(const char *filename,
         "  \"repeat_rgba_identical\": true,\n"
         "  \"page_width\": %zu,\n"
         "  \"page_height\": %zu,\n"
-        "  \"native_painted_paths\": %zu,\n"
-        "  \"native_clip_count\": %zu,\n"
-        "  \"native_w_nonzero_clip_path_leaves\": %zu,\n"
-        "  \"native_wstar_evenodd_clip_path_leaves\": %zu,\n"
-        "  \"native_clip_intersection_nodes\": %zu,\n"
+        "  \"source_painted_paths\": %zu,\n"
+        "  \"source_clip_count\": %zu,\n"
+        "  \"source_w_nonzero_clip_path_leaves\": %zu,\n"
+        "  \"source_wstar_evenodd_clip_path_leaves\": %zu,\n"
+        "  \"source_clip_intersection_nodes\": %zu,\n"
+        "  \"comparison_union_orange_pixels\": %zu,\n"
         "  \"reference_orange_pixels\": %zu,\n"
-        "  \"native_orange_pixels\": %zu,\n"
+        "  \"native_evenodd_orange_pixels\": %zu,\n"
         "  \"overlap_orange_pixels\": %zu,\n"
-        "  \"reference_black_pixels\": %zu,\n"
-        "  \"native_black_pixels\": %zu,\n"
-        "  \"reference_white_pixels\": %zu,\n"
-        "  \"mean_rgb_error\": %.6f,\n"
-        "  \"gross_error_pixels\": %zu,\n"
+        "  \"native_nonzero_orange_pixels\": %zu,\n"
+        "  \"evenodd_nonzero_diff_pixels\": %zu,\n"
+        "  \"masked_mean_rgb_error\": %.6f,\n"
+        "  \"masked_gross_error_pixels\": %zu,\n"
         "  \"fixed_interior_goldens\": 0,\n"
         "  \"generated_fixture_count\": 0\n"
         "}\n",
         expected_sha256,width,height,painted_count,
         clip_count,winding.nonzero,winding.evenodd,
-        winding.intersections,reference_orange,native_orange,overlap_orange,
-        reference_black,native_black,reference_white,mean,gross);
+        winding.intersections,union_orange,reference_orange,native_orange,
+        overlap_orange,nonzero_orange,control_diff_pixels,mean,gross);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
@@ -3418,8 +3420,9 @@ int test_external_tikz_wstar_pixels(const char *filename,
     CHECK(std::rename(staged.c_str(),report_path)==0);
     CHECK(corpus_fixture_executions==0u);
     std::fprintf(stderr,
-        "[texample-wstar-original-pixel] passed mean=%.6f gross=%zu "
-        "Wstar=%zu official_positive=0\n",mean,gross,winding.evenodd);
+        "[texample-wstar-fill-mask] passed mean=%.6f gross=%zu "
+        "evenodd=%zu nonzero=%zu control_diff=%zu official_positive=0\n",
+        mean,gross,native_orange,nonzero_orange,control_diff_pixels);
     return EXIT_SUCCESS;
 }
 
