@@ -9,7 +9,20 @@
       "author": "Timbo tui",
       "license": "CC0 1.0 Universal",
       "license_evidence": "Commons file page explicitly states CC0 1.0; uploader's own work; PDF metadata identifies Quartz PDFContext.",
-      "formal_corpus": false
+      "formal_corpus": false,
+      "observed_sha256": "1e5ac7a6a52b2d10e2d44218d7603b972ae605e4e65bc678a664ff074a4b1201",
+      "observed_size_bytes": 20260,
+      "scan_status": "confirmed_no_wstar",
+      "qualification_status": "rejected_no_wstar_or_unsupported_operators",
+      "scan_evidence": {
+        "effective_wstar_count": 0,
+        "page_text_operator_count": 42,
+        "native_raster_risks": [
+          "form_xobject",
+          "text",
+          "unrecognized_operator"
+        ]
+      }
     },
     {
       "file": "Normal.pdf",
@@ -18,7 +31,19 @@
       "author": "Joxemai",
       "license": "CC BY-SA 4.0 International",
       "license_evidence": "Commons file page explicitly states CC BY-SA 4.0; uploader's own work.",
-      "formal_corpus": false
+      "formal_corpus": false,
+      "observed_sha256": "cfde2717b010d061f6e750b07e0c7f225b8ca23b76cda13461109cd836823162",
+      "observed_size_bytes": 16665,
+      "scan_status": "confirmed_no_wstar",
+      "qualification_status": "rejected_no_wstar_or_unsupported_operators",
+      "scan_evidence": {
+        "effective_wstar_count": 0,
+        "page_text_operator_count": 0,
+        "native_raster_risks": [
+          "ext_gstate",
+          "image_xobject"
+        ]
+      }
     },
     {
       "file": "PAX Logo.pdf",
@@ -27,7 +52,19 @@
       "author": "Rikuswegman",
       "license": "CC BY-SA 3.0 Unported",
       "license_evidence": "Commons file page explicitly states CC BY-SA 3.0; uploader's own work; metadata identifies Adobe PDF library 9.00.",
-      "formal_corpus": false
+      "formal_corpus": false,
+      "observed_sha256": "68aa283f474e51d6f03d39bb51d90a48eb02b8032c0f9393d6d7ebb714cfe459",
+      "observed_size_bytes": 241073,
+      "scan_status": "confirmed_no_wstar",
+      "qualification_status": "rejected_no_wstar_or_unsupported_operators",
+      "scan_evidence": {
+        "effective_wstar_count": 0,
+        "page_text_operator_count": 0,
+        "native_raster_risks": [
+          "ext_gstate",
+          "other_graphics_operator"
+        ]
+      }
     },
     {
       "file": "MML-MPG Logo.pdf",
@@ -36,7 +73,19 @@
       "author": "Shahanadg",
       "license": "CC BY-SA 4.0 International",
       "license_evidence": "Commons file page explicitly states CC BY-SA 4.0; uploader's own work.",
-      "formal_corpus": false
+      "formal_corpus": false,
+      "observed_sha256": "cdc7b1914f4ea7b5c6789776a960aac2d2c2b0d0824544700d8f796a5727331c",
+      "observed_size_bytes": 422638,
+      "scan_status": "inconclusive_generic_scan",
+      "qualification_status": "requires_independent_xref_validation",
+      "scan_evidence": {
+        "effective_wstar_count": null,
+        "page_text_operator_count": null,
+        "native_raster_risks": [
+          "ext_gstate"
+        ]
+      },
+      "independent_validation": "qpdf-validated and separately scanned as zero W*"
     },
     {
       "file": "Al rifai logo.pdf",
@@ -45,7 +94,19 @@
       "author": "Moussarif79",
       "license": "CC BY-SA 4.0 International",
       "license_evidence": "Commons file page explicitly states CC BY-SA 4.0; uploader's own work.",
-      "formal_corpus": false
+      "formal_corpus": false,
+      "observed_sha256": "93bc153345e8c07fd7c24a6003e7263e4dbde4a72560c3da74f8841384f88e5f",
+      "observed_size_bytes": 302704,
+      "scan_status": "confirmed_no_wstar",
+      "qualification_status": "rejected_no_wstar_or_unsupported_operators",
+      "scan_evidence": {
+        "effective_wstar_count": 0,
+        "page_text_operator_count": 0,
+        "native_raster_risks": [
+          "ext_gstate",
+          "other_graphics_operator"
+        ]
+      }
     },
     {
       "file": "H&BTMRR Oval Logo.pdf",
@@ -55,7 +116,18 @@
       "license": "CC BY-SA 4.0 International",
       "license_evidence": "Commons file page explicitly states CC BY-SA 4.0; source is own work; metadata identifies Cairo 1.17.4 as PDF conversion program.",
       "producer": "Cairo 1.17.4",
-      "formal_corpus": false
+      "formal_corpus": false,
+      "observed_sha256": "ad5925541706c83b91b71cb94ffef2dbbd6601af4b1d37623ef83f844c72baf7",
+      "observed_size_bytes": 1689,
+      "scan_status": "confirmed_no_wstar",
+      "qualification_status": "rejected_no_wstar_or_unsupported_operators",
+      "scan_evidence": {
+        "effective_wstar_count": 0,
+        "page_text_operator_count": 0,
+        "native_raster_risks": [
+          "ext_gstate"
+        ]
+      }
     },
     {
       "file": "ISSU Logo.pdf",
@@ -65,7 +137,20 @@
       "license": "CC BY-SA 3.0 Unported",
       "license_evidence": "Commons file page explicitly states CC BY-SA 3.0; metadata identifies Adobe Illustrator CS4 and Adobe PDF library 9.00.",
       "producer": "Adobe Illustrator CS4 / Adobe PDF library 9.00",
-      "formal_corpus": false
+      "formal_corpus": false,
+      "observed_sha256": "9148a44d0c1b0fb976d55f5043aee59004dd72b83972ca02fc12b3fe73aa51de",
+      "observed_size_bytes": 831641,
+      "scan_status": "confirmed_no_wstar",
+      "qualification_status": "rejected_no_wstar_or_unsupported_operators",
+      "scan_evidence": {
+        "effective_wstar_count": 0,
+        "page_text_operator_count": 5,
+        "native_raster_risks": [
+          "ext_gstate",
+          "image_xobject",
+          "text"
+        ]
+      }
     }
   ]
 }
