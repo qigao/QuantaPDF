@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "purpose": "Issue #262 discovery-only original PDF. The Commons file page identifies the author and CC BY-SA 3.0 license; the original uploaded bytes are downloaded from the stable upload.wikimedia.org path and hashed by CI.",
+  "candidates": [
+    {
+      "file": "Polar_coordinate_lines.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:Polar_coordinate_lines.pdf",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/e/e7/Polar_coordinate_lines.pdf",
+      "author": "Renkexin",
+      "source": "Own work",
+      "license": "CC BY-SA 3.0 Unported",
+      "license_evidence": "Commons file page explicitly states CC BY-SA 3.0 Unported; file history shows the uploader's original upload on 13 September 2011.",
+      "producer": "Microsoft Office Visio 2007",
+      "reported_file_size": "3 KB",
+      "formal_corpus": false
+    }
+  ]
+}
