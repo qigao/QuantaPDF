@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "purpose": "Issue #262 discovery-only original PDF from Wikimedia Commons. The Commons page identifies the uploader and CC BY-SA 4.0 license; it remains quarantined until exact native-raster pixel evidence is qualified.",
+  "candidates": [
+    {
+      "file": "Fig1.1new.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:Fig1.1new.pdf",
+      "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Fig1.1new.pdf",
+      "author": "Kameliya.g",
+      "source": "Own work",
+      "license": "CC BY-SA 4.0 International",
+      "license_evidence": "Wikimedia Commons file page identifies the author, original upload, and CC BY-SA 4.0 license.",
+      "reported_file_size_bytes": 7549,
+      "reported_page_count": 1,
+      "formal_corpus": false
+    }
+  ]
+}
