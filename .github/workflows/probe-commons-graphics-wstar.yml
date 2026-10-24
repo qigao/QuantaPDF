@@ -1,0 +1,99 @@
+name: Probe Commons vector PDFs for W-star
+on:
+  push:
+    branches:
+      - probe/262-pgf-corpus
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned discovery-only parser
+        run: python3 -m pip install --disable-pip-version-check "pypdf==5.9.0"
+      - name: Download six unchanged Commons vector PDFs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/commons-graphics-pdfs
+          curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/Complex%20Morse%20Lemma%20Illustration.pdf' \
+            --output '/tmp/commons-graphics-pdfs/Complex Morse Lemma Illustration.pdf'
+          curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/CEC%20concept.pdf' \
+            --output '/tmp/commons-graphics-pdfs/CEC concept.pdf'
+          curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/CompositionMilk.pdf' \
+            --output '/tmp/commons-graphics-pdfs/CompositionMilk.pdf'
+          curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/Annuity%200001.pdf' \
+            --output '/tmp/commons-graphics-pdfs/Annuity 0001.pdf'
+          curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/Fig1.pdf' \
+            --output '/tmp/commons-graphics-pdfs/Fig1.pdf'
+          curl --fail --location --retry 3 --retry-all-errors --max-time 120 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/R1.3%20Full%20Image.pdf' \
+            --output '/tmp/commons-graphics-pdfs/R1.3 Full Image.pdf'
+          file /tmp/commons-graphics-pdfs/*.pdf
+      - name: Scan decoded content and preserve exact source identities
+        run: |
+          python3 tools/qualification/probe_pgf_candidates.py \
+            --root /tmp/commons-graphics-pdfs \
+            --output commons-graphics-wstar-scan-report.json > commons-graphics-wstar-scan.log
+      - name: Require every source to be accounted for
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          expected = {
+              "Complex Morse Lemma Illustration.pdf",
+              "CEC concept.pdf",
+              "CompositionMilk.pdf",
+              "Annuity 0001.pdf",
+              "Fig1.pdf",
+              "R1.3 Full Image.pdf",
+          }
+          report = json.loads(Path("commons-graphics-wstar-scan-report.json").read_text())
+          results = report["results"]
+          assert report["files_scanned"] == len(expected), report["files_scanned"]
+          assert {Path(item["path"]).name for item in results} == expected
+          assert report["files_scanned"] == (
+              report["confirmed_no_wstar"] + report["wstar_found"] +
+              report["inconclusive"]
+          )
+          print(json.dumps({
+              key: report[key] for key in (
+                  "files_scanned", "confirmed_no_wstar", "wstar_found", "inconclusive"
+              )
+          }, indent=2))
+          for item in results:
+              print(json.dumps({
+                  "file": Path(item["path"]).name,
+                  "bytes": item["bytes"],
+                  "sha256": item["sha256"],
+                  "scan_status": item["scan_status"],
+                  "reason": item["reason"],
+                  "pages": item["page_count"],
+                  "page_content_wstar_count": item["page_content_wstar_count"],
+                  "form_wstar_count": item["form_wstar_count"],
+                  "page_text_operator_count": item["page_text_operator_count"],
+                  "native_raster_risks": sorted({
+                      risk for page in item["pages"]
+                      for risk in page["native_raster_risks"]
+                  }),
+                  "clip_evidence": [
+                      evidence for page in item["pages"]
+                      for evidence in page["clip_evidence"]
+                  ],
+              }, sort_keys=True))
+          PY
+      - name: Retain quarantined report and rights metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: commons-graphics-wstar-scan
+          path: |
+            commons-graphics-wstar-scan-report.json
+            commons-graphics-wstar-scan.log
+            tests/external_wstar_candidates/commons-graphics-source-metadata.json
+          retention-days: 7
