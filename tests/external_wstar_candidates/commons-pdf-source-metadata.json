@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "purpose": "Issue #262 discovery only. These are unchanged originals from Wikimedia Commons, not formal corpus entries; rights metadata and operator scans do not substitute for native-subset review and original-source PDFium/native pixel parity.",
+  "candidates": [
+    {
+      "id": "commons-9chick-labyrinth1",
+      "file": "9chick_labyrinth1.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:9chick_labyrinth1.pdf",
+      "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/9chick_labyrinth1.pdf",
+      "author": "Cesar D. Fermin",
+      "source": "Own work",
+      "license": "CC BY-SA 3.0 Unported",
+      "license_evidence": "Wikimedia Commons file page explicitly states CC BY-SA 3.0 Unported and grants share/adapt rights subject to attribution and share-alike.",
+      "producer_note": "Vector drawing with Canvas; candidate for vector-only content but must be inspected for actual operators.",
+      "formal_corpus": false
+    },
+    {
+      "id": "commons-in-cc0",
+      "file": "In-CC0.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:In-CC0.pdf",
+      "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/In-CC0.pdf",
+      "author": "SZERVÁC Attila",
+      "source": "Own work",
+      "license": "CC0 1.0 Universal",
+      "license_evidence": "Wikimedia Commons file page explicitly states the copyright holder released the PDF under CC0.",
+      "producer_note": "10-page libre art music score; likely text-heavy, included as a control candidate only.",
+      "formal_corpus": false
+    },
+    {
+      "id": "commons-silhouette",
+      "file": "Silhouette.pdf",
+      "page_url": "https://commons.wikimedia.org/wiki/File:Silhouette.pdf",
+      "download_url": "https://commons.wikimedia.org/wiki/Special:Redirect/file/Silhouette.pdf",
+      "author": "Viktoria Ebner",
+      "source": "Own work",
+      "license": "CC BY-SA 4.0",
+      "license_evidence": "Wikimedia Commons file page identifies CC BY-SA 4.0; attribution and share-alike required.",
+      "producer_note": "Microsoft Print to PDF; likely outside native subset, retained as a control candidate.",
+      "formal_corpus": false
+    }
+  ]
+}
