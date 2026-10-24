@@ -1,0 +1,101 @@
+name: Probe additional Commons vector PDFs for W-star
+on:
+  push:
+    branches:
+      - probe/262-pgf-corpus
+    paths:
+      - '.github/workflows/probe-commons-extra-vectors-wstar.yml'
+      - 'tools/qualification/probe_pgf_candidates.py'
+      - 'tools/qualification/test_probe_pgf_candidates.py'
+      - 'tests/external_wstar_candidates/commons-extra-vectors-source-metadata.json'
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned discovery-only parser
+        run: python3 -m pip install --disable-pip-version-check "pypdf==5.9.0"
+      - name: Download four unchanged licensed PDFs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/commons-extra-vectors-pdfs
+          curl --fail --location --retry 2 --retry-all-errors --max-time 45 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/MapQuest%20Logo.pdf' \
+            --output '/tmp/commons-extra-vectors-pdfs/MapQuest Logo.pdf'
+          curl --fail --location --retry 2 --retry-all-errors --max-time 45 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/Moco%20Biosynthetic%20Pathway.pdf' \
+            --output '/tmp/commons-extra-vectors-pdfs/Moco Biosynthetic Pathway.pdf'
+          curl --fail --location --retry 2 --retry-all-errors --max-time 45 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/Fig2Simpson%27s%20solution.pdf' \
+            --output "/tmp/commons-extra-vectors-pdfs/Fig2Simpson's solution.pdf"
+          curl --fail --location --retry 2 --retry-all-errors --max-time 45 \
+            'https://commons.wikimedia.org/wiki/Special:Redirect/file/Fig3Tellier%27s%20solution.pdf' \
+            --output "/tmp/commons-extra-vectors-pdfs/Fig3Tellier's solution.pdf"
+          file /tmp/commons-extra-vectors-pdfs/*.pdf
+      - name: Scan decoded content and preserve exact source identities
+        run: |
+          python3 tools/qualification/probe_pgf_candidates.py \
+            --root /tmp/commons-extra-vectors-pdfs \
+            --output commons-extra-vectors-wstar-scan-report.json > commons-extra-vectors-wstar-scan.log
+      - name: Require every source to be accounted for
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          expected = {
+              "MapQuest Logo.pdf",
+              "Moco Biosynthetic Pathway.pdf",
+              "Fig2Simpson's solution.pdf",
+              "Fig3Tellier's solution.pdf",
+          }
+          report = json.loads(Path("commons-extra-vectors-wstar-scan-report.json").read_text())
+          results = report["results"]
+          assert report["files_scanned"] == len(expected), report["files_scanned"]
+          assert {Path(item["path"]).name for item in results} == expected
+          assert report["files_scanned"] == (
+              report["confirmed_no_wstar"] + report["wstar_found"] +
+              report["inconclusive"]
+          )
+          print(json.dumps({
+              key: report[key] for key in (
+                  "files_scanned", "confirmed_no_wstar", "wstar_found", "inconclusive"
+              )
+          }, indent=2))
+          for item in results:
+              print(json.dumps({
+                  "file": Path(item["path"]).name,
+                  "bytes": item["bytes"],
+                  "sha256": item["sha256"],
+                  "scan_status": item["scan_status"],
+                  "reason": item["reason"],
+                  "pages": item["page_count"],
+                  "page_content_wstar_count": item["page_content_wstar_count"],
+                  "form_wstar_count": item["form_wstar_count"],
+                  "page_text_operator_count": item["page_text_operator_count"],
+                  "native_raster_risks": sorted({
+                      risk for page in item["pages"]
+                      for risk in page["native_raster_risks"]
+                  }),
+                  "page_operator_counts": [
+                      {"page": page["index"], "operators": page["operator_counts"],
+                       "risk_operators": page["risk_operator_counts"]}
+                      for page in item["pages"]
+                  ],
+                  "clip_evidence": [
+                      evidence for page in item["pages"]
+                      for evidence in page["clip_evidence"]
+                  ],
+              }, sort_keys=True))
+          PY
+      - name: Retain quarantined report and rights metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: commons-extra-vectors-wstar-scan
+          path: |
+            commons-extra-vectors-wstar-scan-report.json
+            commons-extra-vectors-wstar-scan.log
+            tests/external_wstar_candidates/commons-extra-vectors-source-metadata.json
+          retention-days: 7
