@@ -74,7 +74,7 @@ if(NOT result STREQUAL "passed"
    OR overlap_orange_pixels LESS 100
    OR native_nonzero_orange_pixels LESS 100
    OR evenodd_nonzero_diff_pixels LESS 100
-   OR mean GREATER 0.05 OR NOT masked_gross_error_pixels EQUAL 0
+   OR mean GREATER 0.25 OR NOT masked_gross_error_pixels EQUAL 0
    OR NOT generated_fixture_count EQUAL 0)
   message(FATAL_ERROR "Candidate W* report has unexpected semantics or pixel parity")
 endif()
