@@ -43,10 +43,13 @@ The report has `schema_version: 2`, `corpus_id: native-source-pdf`,
 canonical `family_count=21` and `fixture_count=71` fields. The ordered
 `family_results` array preserves each ID, tags, outcome/oracle category,
 declared/observed canonical count and pass status. New `order_validation`
-records the fixed algorithm, two replay seeds, the ordered family IDs for
-all three runs, 142 replay executions and 213 total executions. All
-strings are JSON escaped; the exact orders are verified independently
-from the registry by `tests/test_native_source_corpus_report.py`.
+records the fixed algorithm, two replay seeds, ordered family IDs,
+**per-family observed counts in each order** and portable 64-bit order
+fingerprints for all three runs, plus 142 replay and 213 total executions.
+These are 71 distinct generated scenarios, not 213 independent originals.
+All strings are JSON escaped; exact orders, fingerprints and counts are
+independently verified against the registry by
+`tests/test_native_source_corpus_report.py`.
 
 The file contains no timestamps, runner paths, randomized identifiers or
 QPDF output-byte hashes. On a new invocation, any old JSON and temporary
@@ -55,8 +58,10 @@ published success JSON. The final JSON is renamed from a temporary file
 only after all three execution orders have passed, every family execution
 count matches its declaration, and the output is fully written. The
 separate Python gate depends on the source-oracle CTest and rejects stale
-schema-v1 reports, missing/malformed orders, incorrect fixed seeds,
-partial replay counts or duplicates.
+schema-v1 reports, extra/missing fields, duplicate JSON keys, incorrect
+fixed seeds, incorrect portable fingerprints, swapped family order and
+missing/incorrect per-family replay counts. Its negative self-tests
+tamper with synthesized reports to ensure corrupt evidence is refused.
 
 The **same** QuantaPDF CI workflow uploads platform-specific artifacts
 under `source-corpus-linux`, `source-corpus-macos`, and
@@ -66,6 +71,24 @@ successful job. These artifacts are machine-readable **family-coverage
 results**, not per-PDF pixels, externally sourced PDFs, or PDF file hashes.
 The fixed pixel thresholds and explicit unsupported contracts remain
 enforced by their existing executable tests.
+
+
+### Portable replay fingerprints
+
+The ordered 1-based family indices are encoded as 32-bit **little-endian**
+words and hashed with FNV1a-64 (fixed-width unsigned wraparound). Hashes
+pin execution order, **not** serialized QPDF/PDFium bytes.
+
+| Pass | Seed | Fingerprint |
+|---|---|---|
+| Canonical | none | `9a709ba916a42a24` |
+| Shuffled A | `0x4cf5ad11` | `751ffb460eeefe24` |
+| Shuffled B | `0x9e3779b9` | `8216820cf6c65524` |
+
+Adding a fixture family or changing its order requires a reviewed
+fingerprint update and exact-head cross-platform qualification. The
+independent CTest checks both hash and actual ID sequence, plus every
+family's observed count; a matching hash alone cannot prove coverage.
 
 ## Move-only Clip source qualification
 
