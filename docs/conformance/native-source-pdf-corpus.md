@@ -8,7 +8,7 @@ PDFium-free exit gate [#208](https://github.com/qigao/QuantaPDF/issues/208).
 ## Executable manifest
 
 The versioned registry at [`tests/native_source_corpus.def`](../../tests/native_source_corpus.def)
-is the single source of truth for **20 fixture families / 58
+is the single source of truth for **21 fixture families / 71
 generated source-PDF executions** following the Clip, resource-negative and
 independent resource-ancestry-budget qualifications. The original baseline was 14/36; these are generated fixtures,
 not additional licensed external originals. It carries a stable family ID, feature
@@ -19,16 +19,16 @@ The existing `quantapdf.native_source_qq_oracle` CTest binary compiles
 this registry and runs **every** listed family in three deliberately different
 orders: canonical manifest order and two fixed-seed Fisher–Yates
 permutations (`0x4cf5ad11` / `0x9e3779b9`, xorshift32-v1). Each order
-executes all 20 families and all 58 generated fixtures once. The runner
+executes all 21 families and all 71 generated fixtures once. The runner
 verifies an exact one-to-one family permutation, declared/observed
 per-family counts, absence of leftover temporary source PDF and matching
-repeat coverage after each order. Thus it performs **58 canonical + 116
-replayed = 174 actual fixture executions**, not 174 new or distinct
+repeat coverage after each order. Thus it performs **71 canonical + 142
+replayed = 213 actual fixture executions**, not 174 new or distinct
 documents. An independent Python CTest validates the JSON against the
 versioned registry, including the exact seed-derived orders. No second
 source oracle binary or GitHub Actions workflow is needed.
 
-This is an **in-repository generated corpus**, not a claim that 58
+This is an **in-repository generated corpus**, not a claim that 71
 independent external documents have been qualified. A family with two
 variations has two generated PDFs; a two-page fixture still counts as one
 generated PDF. The individual assertions within each family retain their
@@ -40,11 +40,11 @@ The existing CTest target invokes its test binary with
 `--corpus-report <build-directory>/tests/native-source-corpus.json`.
 The report has `schema_version: 2`, `corpus_id: native-source-pdf`,
 `fixture_kind: generated`, `result: passed`, and backward-compatible
-canonical `family_count=20` and `fixture_count=58` fields. The ordered
+canonical `family_count=21` and `fixture_count=71` fields. The ordered
 `family_results` array preserves each ID, tags, outcome/oracle category,
 declared/observed canonical count and pass status. New `order_validation`
 records the fixed algorithm, two replay seeds, the ordered family IDs for
-all three runs, 116 replay executions and 174 total executions. All
+all three runs, 142 replay executions and 213 total executions. All
 strings are JSON escaped; the exact orders are verified independently
 from the registry by `tests/test_native_source_corpus_report.py`.
 
@@ -130,6 +130,27 @@ rather than borrowing `decode_limits.max_direct_depth`, which remains a
 separate stream decoder bound. This is not a public API change or a
 permission to traverse arbitrary resource ancestry.
 
+## Mixed unsupported graphics operators after valid paint
+
+The new `operators.mixed_unsupported_recovery` family adds **12 generated
+negative source PDFs**: a valid painted PATH occurs before late
+unsupported text scope/font, XObject `Do`, shading `sh`, nonadmitted
+color space and CMYK operators, marked content and inline image operations.
+Each original source is independently opened twice with the outputs
+poisoned before lowering, and must return the exact unsupported status
+with no partially published Composer IR or borrowed graphics/Clip
+resources. One final **positive original-source PDFium versus detached
+Native C11** Path control verifies normal rendering, fixed interior
+goldens, whole-page parity and repeated byte identity after those
+12 failures.
+
+That is **13 new generated fixture executions** in one mixed family.
+Every fixture is rerun in both seeded orders, so source-session
+recovery and leftover-file checks are also order-independent. Unsupported
+text/image/XObject/shading are **not** newly implemented features; native
+admission remains fail-closed, and formally admitted external
+source PDFs remain **7/2**.
+
 ## Oracle and acceptance boundaries
 
 | Oracle label | Meaning |
@@ -175,8 +196,8 @@ Its initial *native* qualification was a strict **UNSUPPORTED** text
 rejection with original-source PDFium reference rendering. The external
 corpus has since been independently extended to **7 unchanged admitted PDFs
 / 2 W* original-source native-pixel positives** (see #262 and its
-post-merge master qualification). These are never included in the **58 canonical generated-source
-executions**, nor in the 116 verification replays. A failed test must never be converted to a
+post-merge master qualification). These are never included in the **71 canonical generated-source
+executions**, nor in the 142 verification replays. A failed test must never be converted to a
 pass by loosening pixel thresholds or silently redirecting to PDFium.
 
 The public QuantaPDF SDK remains PDFium-backed. Remove its PDFium
