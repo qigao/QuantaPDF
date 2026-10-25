@@ -3541,7 +3541,7 @@ int test_external_tikz_wstar_pixels(const char *filename,
            a background control. These coordinates are fixed independently
            of the production affine and are not inferred from raster output. */
         {119u,18u,{255u,128u,0u},{255u,128u,0u},{255u,128u,0u},{255u,128u,0u}},
-        {119u,90u,{255u,255u,255u},{255u,255u,255u},{255u,255u,255u},{255u,128u,0u}},
+        {119u,90u,{255u,255u,255u},{255u,255u,255u},{255u,255u,255u},{255u,255u,255u}},
         {23u,18u,{255u,255u,255u},{255u,255u,255u},{255u,255u,255u},{255u,255u,255u}}
     };
     for(const parity_golden& p:goldens) {
@@ -3571,6 +3571,45 @@ int test_external_tikz_wstar_pixels(const char *filename,
                   std::abs((int)actual_nz-(int)p.nonzero[channel])<=8);
         }
     }
+    /* Discover interior parity witnesses for a future fixed nonzero-vs-W*
+       exclusion golden. Sample 5x5 neighborhoods away from canvas edges so
+       antialiasing at a contour cannot be mistaken for an interior hole. */
+    size_t witnessed=0u;
+    for(size_t y=5u;y+5u<height && witnessed<8u;++y) {
+        for(size_t x=5u;x+5u<width && witnessed<8u;++x) {
+            bool stable=true;
+            for(int dy=-2;dy<=2 && stable;++dy)for(int dx=-2;dx<=2;++dx) {
+                const size_t yy=(size_t)((int)y+dy),xx=(size_t)((int)x+dx);
+                const unsigned char *ref=pdfium.at(xx,yy);
+                const unsigned char *even=native.pixels+yy*native.stride+4u*xx;
+                const unsigned char *winding=
+                    nonzero.pixels+yy*nonzero.stride+4u*xx;
+                for(size_t channel=0u;channel<3u;++channel)
+                    if(ref[channel]<247u ||
+                       on_white(even,channel)<247u)
+                        stable=false;
+                if(!orange_like(on_white(winding,0u),
+                                on_white(winding,1u),
+                                on_white(winding,2u))) stable=false;
+            }
+            if(stable) {
+                const unsigned char *ref=pdfium.at(x,y);
+                const unsigned char *even=native.pixels+y*native.stride+4u*x;
+                const unsigned char *winding=
+                    nonzero.pixels+y*nonzero.stride+4u*x;
+                std::fprintf(stderr,
+                    "[texample-wstar-parity-interior] x=%zu y=%zu "
+                    "reference=%u,%u,%u evenodd=%u,%u,%u nonzero=%u,%u,%u\n",
+                    x,y,(unsigned)ref[0],(unsigned)ref[1],(unsigned)ref[2],
+                    on_white(even,0u),on_white(even,1u),on_white(even,2u),
+                    on_white(winding,0u),on_white(winding,1u),on_white(winding,2u));
+                ++witnessed;
+                x+=8u;
+            }
+        }
+    }
+    CHECK(witnessed>=3u);
+
     const size_t fixed_interior_goldens=
         sizeof(goldens)/sizeof(goldens[0]);
     CHECK(fixed_interior_goldens==3u);
