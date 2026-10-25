@@ -44,7 +44,7 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
                  "source_revision":"sha256:"+TEXAMPLE_SHA256,
                  "source_url":"https://texample.net/files/intersecting-rings.pdf",
                  "license_spdx_declared":"CC-BY-SA-4.0",
-                 "license_url":"https://texample.net/intersecting-rings/",
+                 "license_url":"https://creativecommons.org/licenses/by-sa/4.0/",
                  "license_review_url":"https://github.com/qigao/QuantaPDF/issues/262",
                  "attribution":"Dominique Wuertz, see TEXAMPLE-CC-BY-SA-4.0-NOTICE.txt",
                  "feature_tags":["clip-evenodd","star-rule-difference"],
@@ -241,6 +241,13 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
     def test_second_original_manifest_hash_is_pinned(self):
         self.admission["documents"][-1]["sha256"]="0"*64
         with self.assertRaises(AssertionError): self.accept()
+
+    def test_second_original_license_url_is_pinned(self):
+        self.admission["documents"][-1]["license_url"] = (
+            "https://texample.net/intersecting-rings/"
+        )
+        with self.assertRaises(AssertionError):
+            self.accept()
 
     def test_second_original_license_review_is_pinned(self):
         self.admission["documents"][-1]["license_review_url"]="https://github.com/qigao/QuantaPDF/issues/233"

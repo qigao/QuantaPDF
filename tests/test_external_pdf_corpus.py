@@ -114,7 +114,7 @@ class ExternalPDFCorpusAdmissionTest(unittest.TestCase):
     def test_source_specific_cc_by_sa_is_permitted_with_attribution(self):
         self.fixture()
         self.doc["license_spdx"] = "CC-BY-SA-4.0"
-        self.doc["license_url"] = "https://texample.net/intersecting-rings/"
+        self.doc["license_url"] = "https://creativecommons.org/licenses/by-sa/4.0/"
         self.doc["license_review_url"] = "https://github.com/qigao/QuantaPDF/issues/262"
         self.doc["attribution"] = (
             "Dominique Wuertz; unchanged original; CC BY-SA 4.0; "
@@ -126,6 +126,8 @@ class ExternalPDFCorpusAdmissionTest(unittest.TestCase):
         result = verify_corpus(self.manifest, self.assets)
         self.assertEqual(result["documents"][0]["license_spdx_declared"],
                          "CC-BY-SA-4.0")
+        self.assertEqual(result["documents"][0]["license_url"],
+                         "https://creativecommons.org/licenses/by-sa/4.0/")
         self.assertEqual(result["native_conformance_passed_count"], 0)
 
     def test_supported_wstar_clip_outcome_is_admissible(self):

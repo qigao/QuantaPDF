@@ -411,6 +411,7 @@ retroactive promotion of the candidate-only report.
 | Retained Git blob | Stored at `tests/external_source_corpus/documents/texample.intersecting-rings-v1.pdf` |
 | Original bytes | 1,396; SHA-256 `f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284` |
 | License / author | CC BY-SA 4.0; Dominique Wuertz and TeXample.net |
+| Canonical license URL | https://creativecommons.org/licenses/by-sa/4.0/ (separate from publisher's attribution/source page) |
 | Attribution notice | `tests/external_source_corpus/TEXAMPLE-CC-BY-SA-4.0-NOTICE.txt` |
 | Rights review | [Issue #262](https://github.com/qigao/QuantaPDF/issues/262) |
 | Selected page | Page 0, 238×181 native FIT pixels at 72 DPI |

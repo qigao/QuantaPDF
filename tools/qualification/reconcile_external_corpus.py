@@ -99,7 +99,7 @@ def verify(admission, text, blank, path, clip, wstar, wstar_positive,
     assert tex["source_revision"]=="sha256:"+TEXAMPLE_SHA256
     assert tex["source_url"]=="https://texample.net/files/intersecting-rings.pdf"
     assert tex["license_spdx_declared"]=="CC-BY-SA-4.0"
-    assert tex["license_url"]=="https://texample.net/intersecting-rings/"
+    assert tex["license_url"]=="https://creativecommons.org/licenses/by-sa/4.0/"
     assert tex["license_review_url"]=="https://github.com/qigao/QuantaPDF/issues/262"
     assert tex["page_index"]==0
     assert "TEXAMPLE-CC-BY-SA-4.0-NOTICE.txt" in tex["attribution"]
