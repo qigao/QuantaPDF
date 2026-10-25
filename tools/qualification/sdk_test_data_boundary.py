@@ -16,6 +16,7 @@ import sys
 
 SOURCE_SHA256 = "f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284"
 SOURCE_FILENAME = "texample.intersecting-rings-v1.pdf"
+SOURCE_BYTES = 1396
 MAX_MANIFEST_BYTES = 1024 * 1024
 MAX_ENTRIES = 16384
 MAX_PDF_BYTES = 64 * 1024 * 1024
@@ -88,14 +89,16 @@ def check_install_manifest(manifest_path: Path) -> dict:
                 _reject("duplicate SDK project license")
             license_path = path
 
-        # Exact-byte guard still rejects the licensed original if somebody
-        # renames it to an unrelated PDF before adding it to the SDK install.
+        # Check all installed files, regardless of suffix. Renaming the
+        # unmodified PDF to .dat/.bin must not bypass the source exclusion.
+        # Hash only files with the exact known size to keep this bounded.
         if normalized.endswith(".pdf"):
             if path.is_symlink() or not path.is_file():
                 _reject("unreadable installed PDF: " + raw)
             if path.stat().st_size > MAX_PDF_BYTES:
                 _reject("installed PDF exceeds audit budget: " + raw)
             scanned_pdfs += 1
+        if path.is_file() and path.stat().st_size == SOURCE_BYTES:
             if _file_sha256(path) == SOURCE_SHA256:
                 _reject("renamed original TeXample PDF installed in SDK: " + raw)
 

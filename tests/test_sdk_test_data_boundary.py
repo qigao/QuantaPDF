@@ -66,6 +66,21 @@ class SDKTestDataBoundaryTests(unittest.TestCase):
         self.write_manifest(self.notice, self.license, renamed)
         self.rejects("renamed original")
 
+    def test_renamed_original_with_non_pdf_extension_rejected(self):
+        original = Path(__file__).parent / "external_source_corpus" / "documents" / (
+            "texample.intersecting-rings-v1.pdf"
+        )
+        renamed = self.installed / "source-data.bin"
+        renamed.write_bytes(original.read_bytes())
+        self.write_manifest(self.notice, self.license, renamed)
+        self.rejects("renamed original")
+
+    def test_non_pdf_file_with_same_length_does_not_false_positive(self):
+        blob = self.installed / "ordinary.dat"
+        blob.write_bytes(b"x" * 1396)
+        self.write_manifest(self.notice, self.license, blob)
+        check_install_manifest(self.manifest)
+
     def test_an_unrelated_pdf_may_be_installed(self):
         unrelated = self.installed / "other.pdf"
         unrelated.write_bytes(b"%PDF-1.4\n%%EOF\n")
