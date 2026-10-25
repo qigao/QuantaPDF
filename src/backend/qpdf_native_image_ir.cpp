@@ -161,12 +161,11 @@ struct admission {
               dict.getKey("/SMaskInData").isNull() &&
               dict.getKey("/Intent").isNull(),
               QUANTAPDF_ERROR_UNSUPPORTED);
+        /* Absent or explicit false both request nearest-sample semantics.
+         * Interpolation true, wrong type and unqualified filtering refuse. */
         Obj interpolation=dict.getKey("/Interpolate");
         admit(interpolation.isNull() ||
               (interpolation.isBool() && !interpolation.getBoolValue()),
-              QUANTAPDF_ERROR_UNSUPPORTED);
-        Obj interp=dict.getKey("/Interpolate");
-        admit(interp.isNull() || (interp.isBool() && !interp.getBoolValue()),
               QUANTAPDF_ERROR_UNSUPPORTED);
         Obj bits=dict.getKey("/BitsPerComponent");
         admit(bits.isInteger());
