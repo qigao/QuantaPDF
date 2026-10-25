@@ -632,3 +632,222 @@ extern "C" quantapdf_status quantapdf_qpdf_extract_images(
       catch (std::runtime_error const&) { return QUANTAPDF_ERROR_FORMAT; }
       catch (...) { return QUANTAPDF_ERROR_BACKEND; }
 }
+
+
+namespace {
+
+/* The common image-observation projection is allowed to ignore text and
+ * unrelated paint. This stricter entry point is the opposite: a renderable
+ * page may not silently omit any source operator or source resource. */
+Obj source_image_resources(Obj page, size_t max_parent_steps)
+{
+    std::set<QPDFObjGen> ancestors;
+    Obj current = page;
+    size_t count = 0u;
+    while (!current.isNull()) {
+        require(++count <= max_parent_steps &&
+            max_parent_steps <= 256u, QUANTAPDF_ERROR_UNSUPPORTED);
+        require(current.isDictionary() && current.isIndirect());
+        require(ancestors.insert(current.getObjGen()).second);
+        Obj resource = current.getKey("/Resources");
+        if (!resource.isNull()) {
+            require(resource.isDictionary());
+            return resource;
+        }
+        current = current.getKey("/Parent");
+    }
+    throw failure{QUANTAPDF_ERROR_FORMAT};
+}
+
+struct source_image_ir_holder {
+    quantapdf_ir ir = {};
+    ~source_image_ir_holder()
+    {
+        if (ir.resources.images != nullptr) {
+            for (size_t i = 0u; i < ir.resources.image_count; ++i) {
+                std::free(ir.resources.images[i].data);
+                std::free(ir.resources.images[i].alpha_data);
+            }
+        }
+        std::free(ir.resources.images);
+        std::free(ir.operations);
+        std::free(ir.pages);
+    }
+    quantapdf_ir release()
+    {
+        quantapdf_ir owned = ir;
+        ir = {};
+        return owned;
+    }
+};
+
+size_t source_image_integer(double input, size_t page_extent)
+{
+    require(std::isfinite(input) && input >= 0.0 &&
+        input <= static_cast<double>(page_extent),
+        QUANTAPDF_ERROR_UNSUPPORTED);
+    size_t result = static_cast<size_t>(input);
+    require(static_cast<double>(result) == input,
+        QUANTAPDF_ERROR_UNSUPPORTED);
+    return result;
+}
+
+void source_image_layer(const image_value& source,
+                        size_t page_width, size_t page_height,
+                        quantapdf_composer_operation *operation,
+                        quantapdf_composer_image_state *image,
+                        size_t image_index)
+{
+    const auto& quad = source.info.quad;
+    /* Rotation, mirroring, shear, shape deformation, and fractional
+     * placement are unsupported in this first original-Do bridge. */
+    require(quad.ul.y == quad.ur.y && quad.ll.y == quad.lr.y &&
+        quad.ul.x == quad.ll.x && quad.ur.x == quad.lr.x,
+        QUANTAPDF_ERROR_UNSUPPORTED);
+    const size_t x0 = source_image_integer(quad.ul.x, page_width);
+    const size_t x1 = source_image_integer(quad.ur.x, page_width);
+    const size_t y0 = source_image_integer(quad.ul.y, page_height);
+    const size_t y1 = source_image_integer(quad.ll.y, page_height);
+    require(x1 > x0 && y1 > y0, QUANTAPDF_ERROR_UNSUPPORTED);
+    require(source.info.pixel_width > 0 &&
+        source.info.pixel_height > 0 &&
+        source.info.pixel_components == 3 &&
+        (source.info.components == 1 || source.info.components == 3) &&
+        !source.info.has_alpha, QUANTAPDF_ERROR_UNSUPPORTED);
+    const size_t w = static_cast<size_t>(source.info.pixel_width);
+    const size_t h = static_cast<size_t>(source.info.pixel_height);
+    require(w <= SIZE_MAX / h && w * h <= SIZE_MAX / 3u &&
+        source.info.pixel_stride > 0 &&
+        static_cast<size_t>(source.info.pixel_stride) == w * 3u &&
+        source.pixels.size() == w * h * 3u &&
+        source.info.pixel_size == w * h * 3u,
+        QUANTAPDF_ERROR_UNSUPPORTED);
+
+    image->width = static_cast<uint32_t>(w);
+    image->height = static_cast<uint32_t>(h);
+    image->components = source.info.components;
+    image->format = QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW;
+    image->size = w * h * static_cast<size_t>(image->components);
+    image->data = static_cast<unsigned char *>(std::malloc(image->size));
+    require(image->data != nullptr, QUANTAPDF_ERROR_NOMEM);
+    if (image->components == 3) {
+        std::memcpy(image->data, source.pixels.data(), image->size);
+    } else {
+        for (size_t i = 0u; i < w * h; ++i) {
+            require(source.pixels[i * 3u] == source.pixels[i * 3u + 1u] &&
+                source.pixels[i * 3u] == source.pixels[i * 3u + 2u],
+                QUANTAPDF_ERROR_UNSUPPORTED);
+            image->data[i] = source.pixels[i * 3u];
+        }
+    }
+    operation->kind = QUANTAPDF_COMPOSER_OPERATION_IMAGE;
+    operation->page_index = 0u;
+    operation->graphics_state_id = 0u;
+    operation->bounds.x0 = static_cast<float>(x0);
+    operation->bounds.y0 = static_cast<float>(y0);
+    operation->bounds.x1 = static_cast<float>(x1);
+    operation->bounds.y1 = static_cast<float>(y1);
+    operation->value.image.image_id =
+        static_cast<quantapdf_composer_image_id>(image_index + 1u);
+    operation->value.image.options.struct_size =
+        QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE;
+    operation->value.image.options.fit =
+        QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
+}
+}
+
+extern "C" quantapdf_status quantapdf_qpdf_source_image_ir(
+    quantapdf_qpdf_document *document, int page_index,
+    const quantapdf_qpdf_source_image_ir_limits *limits,
+    quantapdf_ir *out_ir)
+{
+    if (out_ir != nullptr) std::memset(out_ir, 0, sizeof(*out_ir));
+    if (out_ir == nullptr || document == nullptr ||
+        document->pdf == nullptr || page_index < 0 ||
+        limits == nullptr || limits->max_operations == 0u ||
+        limits->max_page_pixels == 0u ||
+        limits->max_source_pixels == 0u ||
+        limits->max_parent_steps == 0u)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    try {
+        quantapdf_qpdf_page_geometry geometry = {};
+        auto status = quantapdf_qpdf_load_page_geometry(
+            *document->pdf, page_index, &geometry);
+        if (status != QUANTAPDF_OK) return status;
+        require(geometry.rotation == 0 && geometry.user_unit == 1.0 &&
+            geometry.media[0] == 0.0 && geometry.media[1] == 0.0 &&
+            geometry.crop[0] == geometry.media[0] &&
+            geometry.crop[1] == geometry.media[1] &&
+            geometry.crop[2] == geometry.media[2] &&
+            geometry.crop[3] == geometry.media[3] &&
+            geometry.right == geometry.media[2] &&
+            geometry.top == geometry.media[3],
+            QUANTAPDF_ERROR_UNSUPPORTED);
+        constexpr size_t hard_pixels = 4194304u, hard_images = 4u;
+        const size_t width = source_image_integer(
+            geometry.public_width, hard_pixels);
+        const size_t height = source_image_integer(
+            geometry.public_height, hard_pixels);
+        require(width > 0u && height > 0u &&
+            width <= hard_pixels / height &&
+            width * height <= limits->max_page_pixels,
+            QUANTAPDF_ERROR_UNSUPPORTED);
+        /* Even if source pixels were admissible, page annotations can
+         * contribute visible ink; never silently drop them from render. */
+        Obj annots = geometry.page.getKey("/Annots");
+        require(annots.isNull() || (annots.isArray() &&
+            annots.getArrayNItems() == 0), QUANTAPDF_ERROR_UNSUPPORTED);
+        require(geometry.page.getKey("/Group").isNull(),
+            QUANTAPDF_ERROR_UNSUPPORTED);
+        Obj resources = source_image_resources(
+            geometry.page, limits->max_parent_steps);
+        projection rendered(geometry, true);
+        rendered.content(geometry.page.getKey("/Contents"), resources,
+            image_graphics{}, 0u);
+        const size_t count = rendered.images.size();
+        require(count > 0u && count <= hard_images &&
+            count <= limits->max_operations,
+            QUANTAPDF_ERROR_UNSUPPORTED);
+
+        size_t total_source_pixels = 0u;
+        for (const image_value& val : rendered.images) {
+            require(val.info.pixel_width > 0 &&
+                val.info.pixel_height > 0, QUANTAPDF_ERROR_UNSUPPORTED);
+            const size_t w = static_cast<size_t>(val.info.pixel_width);
+            const size_t h = static_cast<size_t>(val.info.pixel_height);
+            require(w <= hard_pixels / h &&
+                w * h <= hard_pixels - total_source_pixels &&
+                w * h <= limits->max_source_pixels - total_source_pixels,
+                QUANTAPDF_ERROR_UNSUPPORTED);
+            total_source_pixels += w * h;
+        }
+
+        source_image_ir_holder owned;
+        owned.ir.pages = static_cast<quantapdf_composer_page_state *>(
+            std::calloc(1u, sizeof(quantapdf_composer_page_state)));
+        require(owned.ir.pages != nullptr, QUANTAPDF_ERROR_NOMEM);
+        owned.ir.page_count = 1u;
+        owned.ir.pages[0].width_points = static_cast<float>(width);
+        owned.ir.pages[0].height_points = static_cast<float>(height);
+        owned.ir.pages[0].background_argb = UINT32_C(0xffffffff);
+        owned.ir.operations = static_cast<quantapdf_composer_operation *>(
+            std::calloc(count, sizeof(quantapdf_composer_operation)));
+        require(owned.ir.operations != nullptr, QUANTAPDF_ERROR_NOMEM);
+        owned.ir.operation_count = count;
+        owned.ir.resources.images = static_cast<quantapdf_composer_image_state *>(
+            std::calloc(count, sizeof(quantapdf_composer_image_state)));
+        require(owned.ir.resources.images != nullptr, QUANTAPDF_ERROR_NOMEM);
+        owned.ir.resources.image_count = count;
+        owned.ir.resources.image_capacity = count;
+        for (size_t i = 0u; i < count; ++i)
+            source_image_layer(rendered.images[i], width, height,
+                &owned.ir.operations[i], &owned.ir.resources.images[i], i);
+        *out_ir = owned.release();
+        return QUANTAPDF_OK;
+    } catch (failure const& error) { return error.status; }
+      catch (std::bad_alloc const&) { return QUANTAPDF_ERROR_NOMEM; }
+      catch (std::length_error const&) { return QUANTAPDF_ERROR_UNSUPPORTED; }
+      catch (QPDFExc const&) { return QUANTAPDF_ERROR_FORMAT; }
+      catch (std::runtime_error const&) { return QUANTAPDF_ERROR_FORMAT; }
+      catch (...) { return QUANTAPDF_ERROR_BACKEND; }
+}
