@@ -3646,6 +3646,37 @@ int test_external_tikz_wstar_pixels(const char *filename,
     }
     CHECK(witnessed>=3u);
 
+    /* Fixed W* exclusion witnesses from the unchanged TeXample original,
+       observed identically on Linux, macOS and Windows. Each center and
+       surrounding 5x5 interior patch must be white under the original
+       PDFium oracle and Native even-odd clip, orange under nonzero winding.
+       A positive aggregate changed-pixel count alone is insufficient. */
+    static const struct { size_t x,y; } parity_holes[]={
+        {85u,37u},{94u,38u},{102u,39u}
+    };
+    const size_t fixed_parity_exclusion_goldens=
+        sizeof(parity_holes)/sizeof(parity_holes[0]);
+    CHECK(fixed_parity_exclusion_goldens==3u);
+    for(const auto& p:parity_holes) {
+        CHECK(p.x>=2u && p.y>=2u && p.x+2u<width && p.y+2u<height);
+        static const unsigned orange[3]={255u,128u,0u};
+        for(int dy=-2;dy<=2;++dy) for(int dx=-2;dx<=2;++dx) {
+            const size_t x=(size_t)((int)p.x+dx);
+            const size_t y=(size_t)((int)p.y+dy);
+            const unsigned char *reference=pdfium.at(x,y);
+            const unsigned char *evenodd=
+                native.pixels+y*native.stride+4u*x;
+            const unsigned char *winding=
+                nonzero.pixels+y*nonzero.stride+4u*x;
+            for(size_t channel=0u;channel<3u;++channel) {
+                CHECK(std::abs((int)reference[channel]-255)<=8);
+                CHECK(std::abs((int)on_white(evenodd,channel)-255)<=8);
+                CHECK(std::abs((int)on_white(winding,channel)-
+                               (int)orange[channel])<=8);
+            }
+        }
+    }
+
     const size_t fixed_interior_goldens=
         sizeof(goldens)/sizeof(goldens[0]);
     CHECK(fixed_interior_goldens==3u);
@@ -3711,6 +3742,7 @@ int test_external_tikz_wstar_pixels(const char *filename,
         "  \"masked_mean_rgb_error\": %.6f,\n"
         "  \"masked_gross_error_pixels\": %zu,\n"
         "  \"fixed_interior_goldens\": %zu,\n"
+        "  \"fixed_parity_exclusion_goldens\": %zu,\n"
         "  \"generated_fixture_count\": 0\n"
         "}\n",
         admit_original ? "external" : "quarantined-external-original",
@@ -3729,7 +3761,7 @@ int test_external_tikz_wstar_pixels(const char *filename,
         clip_count,winding.nonzero,winding.evenodd,
         winding.intersections,union_orange,reference_orange,native_orange,
         overlap_orange,nonzero_orange,control_diff_pixels,mean,gross,
-        fixed_interior_goldens);
+        fixed_interior_goldens,fixed_parity_exclusion_goldens);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;

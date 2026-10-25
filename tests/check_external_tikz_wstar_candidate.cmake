@@ -68,6 +68,7 @@ foreach(field IN ITEMS page_width page_height source_painted_paths
     reference_orange_pixels native_evenodd_orange_pixels overlap_orange_pixels
     native_nonzero_orange_pixels evenodd_nonzero_diff_pixels
     masked_gross_error_pixels fixed_interior_goldens
+    fixed_parity_exclusion_goldens
     external_wstar_pixel_supported_count generated_fixture_count)
   string(JSON ${field} GET "${json}" ${field})
 endforeach()
@@ -128,6 +129,7 @@ if(NOT result STREQUAL "passed"
    OR evenodd_nonzero_diff_pixels LESS 100
    OR mean GREATER 0.25 OR masked_gross_error_pixels GREATER 8
    OR NOT fixed_interior_goldens EQUAL 3
+   OR NOT fixed_parity_exclusion_goldens EQUAL 3
    OR NOT external_wstar_pixel_supported_count EQUAL 0
    OR NOT generated_fixture_count EQUAL 0)
   message(FATAL_ERROR "Candidate W* report has unexpected semantics or pixel parity")

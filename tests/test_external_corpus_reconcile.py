@@ -142,6 +142,7 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
             "pdfium_fallback_used":False,"page_width":238,"page_height":181,
             "source_painted_paths":3,"source_w_nonzero_clip_path_leaves":0,
             "source_wstar_evenodd_clip_path_leaves":1,"fixed_interior_goldens":3,
+            "fixed_parity_exclusion_goldens":3,
             "full_page_fixed_gray_golden_count":1,
             "full_page_gray_golden_original_rgb":"85,85,85",
             "full_page_gray_golden_native_rgb":"85,85,85",
@@ -221,6 +222,11 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
 
     def test_original_gray_pixel_requires_three_channels(self):
         self.texample["full_page_gray_golden_native_rgb"]="85,85"
+        with self.assertRaises(AssertionError):
+            self.accept()
+
+    def test_second_original_requires_fixed_parity_exclusion(self):
+        self.texample["fixed_parity_exclusion_goldens"]=0
         with self.assertRaises(AssertionError):
             self.accept()
 

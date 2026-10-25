@@ -194,7 +194,8 @@ def verify(admission, text, blank, path, clip, wstar, wstar_positive,
         "external_wstar_pixel_supported_count", "source_bytes",
         "page_width", "page_height", "source_painted_paths",
         "source_w_nonzero_clip_path_leaves", "source_wstar_evenodd_clip_path_leaves",
-        "fixed_interior_goldens", "full_page_fixed_gray_golden_count",
+        "fixed_interior_goldens", "fixed_parity_exclusion_goldens",
+        "full_page_fixed_gray_golden_count",
         "full_page_gross_error_pixels", "full_page_gray_reference_pixels",
         "full_page_gray_native_pixels", "full_page_gray_overlap_pixels",
         "reference_orange_pixels", "native_evenodd_orange_pixels",
@@ -229,6 +230,7 @@ def verify(admission, text, blank, path, clip, wstar, wstar_positive,
     assert texample_positive["source_w_nonzero_clip_path_leaves"]==0
     assert texample_positive["source_wstar_evenodd_clip_path_leaves"]==1
     assert texample_positive["fixed_interior_goldens"]==3
+    assert texample_positive["fixed_parity_exclusion_goldens"]==3
     assert texample_positive["full_page_fixed_gray_golden_count"]==1
     assert texample_positive["full_page_gray_golden_original_rgb"]=="85,85,85"
     assert texample_positive["full_page_gray_golden_native_rgb"] != ""

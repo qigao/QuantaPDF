@@ -428,7 +428,10 @@ goldens and full RGBA repeat equality. Its W* fill-mask is independently
 checked against a source-consistent stroke exclusion region, with an
 even-odd/nonzero counterfactual. The tested original has RGB mean
 0.842673, gross 0, gray overlap 2,814/2,974, and 3,089 counterfactual
-pixels in the current mask. Historical orange counts on different masks
+pixels in the current mask. Three parity-sensitive interior coordinates
+(85,37), (94,38) and (102,39) are now fixed with 5×5 neighborhood goldens:
+direct original PDFium and Native W* must remain white, while the Native
+nonzero-winding counterfactual must be orange RGB(255,128,0). Historical orange counts on different masks
 must **not** be compared. No universal pixel-identical PDFium claim follows.
 
 A second `external_texample_wstar_pixel_positive` CTest invokes the
