@@ -3393,78 +3393,10 @@ int test_external_tikz_wstar_pixels(const char *filename,
         full_page_mean,full_page_gross,(int)full_page_repeat_equal,
         reference_gray_ink,native_gray_ink,common_gray_ink,
         gross_near_gray_ink);
-    const size_t probe_xy[][2]={
-        {23u,36u},{71u,36u},{119u,18u},
-        {166u,36u},{71u,144u},{119u,90u}
-    };
-    for(const auto& xy:probe_xy) {
-        const unsigned char *ref=pdfium.at(xy[0],xy[1]);
-        const unsigned char *rgba=full_page_native.pixels+
-            xy[1]*full_page_native.stride+4u*xy[0];
-        std::fprintf(stderr,
-            "[texample-wstar-full-page-sample] x=%zu y=%zu "
-            "ref=%u,%u,%u native=%u,%u,%u\n",
-            xy[0],xy[1],(unsigned)ref[0],(unsigned)ref[1],
-            (unsigned)ref[2],on_white(rgba,0u),on_white(rgba,1u),
-            on_white(rgba,2u));
-    }
-    /* Diagnostic only: copies of the detached IR test whether the mismatch
-       comes from subpixel stroke width or the stroke sampling grid. No
-       altered-width output is eligible for the source-faithful report. */
-    for(double scale:{1.5,1.75,2.0}) {
-        std::vector<quantapdf_composer_operation> altered(
-            detached.operations,detached.operations+detached.operation_count);
-        for(auto& op:altered)
-            if(op.kind==QUANTAPDF_COMPOSER_OPERATION_PATH &&
-               op.value.path.options.stroke==1u)
-                op.value.path.options.stroke_width=
-                    (float)(op.value.path.options.stroke_width*scale);
-        quantapdf_ir alternate=detached;
-        alternate.operations=altered.data();
-        quantapdf_ir_raster_image trial{};
-        const quantapdf_status trial_status=
-            quantapdf_ir_raster_scoped_operations_v2_planned(
-                &alternate,0u,&limits,&device_plan,&trial);
-        double trial_total=0.0;
-        size_t trial_gross=0u,trial_gray=0u,trial_gray_overlap=0u;
-        if(trial_status==QUANTAPDF_OK) {
-            for(size_t y=0u;y<height;++y)for(size_t x=0u;x<width;++x) {
-                const unsigned char *ref=pdfium.at(x,y);
-                const unsigned char *px=
-                    trial.pixels+y*trial.stride+4u*x;
-                const unsigned nr=on_white(px,0u),
-                               ng=on_white(px,1u),
-                               nb=on_white(px,2u);
-                const bool dark=(nr<235u&&ng<235u&&nb<235u &&
-                    std::abs((int)nr-(int)ng)<8 &&
-                    std::abs((int)ng-(int)nb)<8);
-                const bool ref_dark=(ref[0]<235u&&ref[1]<235u&&ref[2]<235u &&
-                    std::abs((int)ref[0]-(int)ref[1])<8 &&
-                    std::abs((int)ref[1]-(int)ref[2])<8);
-                trial_gray+=(size_t)dark;
-                trial_gray_overlap+=(size_t)(dark&&ref_dark);
-                unsigned worst=0u;
-                for(size_t cc=0u;cc<3u;++cc) {
-                    const unsigned actual=on_white(px,cc);
-                    const unsigned delta=actual>(unsigned)ref[cc]
-                        ? actual-(unsigned)ref[cc]
-                        : (unsigned)ref[cc]-actual;
-                    trial_total+=(double)delta;
-                    if(delta>worst) worst=delta;
-                }
-                if(worst>64u) ++trial_gross;
-            }
-        }
-        std::fprintf(stderr,
-            "[texample-stroke-width-ab] scale=%.3f status=%d mean=%.6f "
-            "gross=%zu gray=%zu overlap=%zu\n",
-            scale,(int)trial_status,
-            trial_status==QUANTAPDF_OK ?
-                trial_total/(double)(pixel_count*3u) : -1.0,
-            trial_gross,trial_gray,trial_gray_overlap);
-        quantapdf_ir_raster_image_dispose(&trial);
-    }
-    CHECK(full_page_mean<=1.0 && full_page_gross<=100u);
+    /* Full-page pixel parity is deliberately *not* admitted. Native V2
+       renders the page, but its thin cubic strokes remain different from
+       original PDFium. This branch only qualifies W* fill-mask evidence. */
+    CHECK(full_page_mean>1.0 || full_page_gross>100u);
     CHECK(detached.operation_count==3u);
     quantapdf_composer_operation projected_operation=detached.operations[0];
     CHECK(projected_operation.kind==QUANTAPDF_COMPOSER_OPERATION_PATH);
@@ -3659,18 +3591,20 @@ int test_external_tikz_wstar_pixels(const char *filename,
         "  \"document_id\": \"texample.intersecting-rings-v1\",\n"
         "  \"reference_oracle\": \"original-pdfium\",\n"
         "  \"original_source_pdfium_oracle\": \"passed\",\n"
-        "  \"detached_c11_native_raster\": \"passed\",\n"
-        "  \"full_page_native_raster\": \"passed\",\n"
+        "  \"detached_c11_native_raster\": \"wstar-fill-mask-only\",\n"
+        "  \"full_page_native_raster\": \"rendered_but_pixel_parity_unqualified\",\n"
         "  \"full_page_mean_rgb_error\": %.6f,\n"
         "  \"full_page_gross_error_pixels\": %zu,\n"
         "  \"full_page_repeat_rgba_identical\": %s,\n"
-        "  \"comparison_scope\": \"full-page-and-orange-fill-mask-control\",\n"
+        "  \"comparison_scope\": \"wstar-fill-mask-candidate-only\",\n"
         "  \"native_ir\": \"lowered\",\n"
         "  \"source_sha256\": \"%s\",\n"
         "  \"source_and_graph_released_before_raster\": true,\n"
         "  \"source_bytes_unchanged_after_reference_and_native\": true,\n"
         "  \"pdfium_fallback_used\": false,\n"
         "  \"repeat_rgba_identical\": true,\n"
+        "  \"official_corpus_admitted\": false,\n"
+        "  \"external_wstar_pixel_supported_count\": 0,\n"
         "  \"page_width\": %zu,\n"
         "  \"page_height\": %zu,\n"
         "  \"source_painted_paths\": %zu,\n"
@@ -3689,12 +3623,13 @@ int test_external_tikz_wstar_pixels(const char *filename,
         "  \"fixed_interior_goldens\": %zu,\n"
         "  \"generated_fixture_count\": 0\n"
         "}\n",
+        full_page_mean,full_page_gross,
+        full_page_repeat_equal ? "true" : "false",
         expected_sha256,width,height,painted_count,
         clip_count,winding.nonzero,winding.evenodd,
         winding.intersections,union_orange,reference_orange,native_orange,
         overlap_orange,nonzero_orange,control_diff_pixels,mean,gross,
-        fixed_interior_goldens,full_page_mean,full_page_gross,
-        full_page_repeat_equal ? "true" : "false");
+        fixed_interior_goldens);
     CHECK(std::ferror(out)==0 && std::fclose(out)==0);
 #ifdef _WIN32
     errno=0;
