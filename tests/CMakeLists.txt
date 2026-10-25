@@ -1930,6 +1930,19 @@ add_test(NAME quantapdf.native_source_qq_oracle
     --corpus-report "${CMAKE_CURRENT_BINARY_DIR}/native-source-corpus.json")
 set_tests_properties(quantapdf.native_source_qq_oracle PROPERTIES
   TIMEOUT 40 LABELS "conformance;native-raster;source-pdf;source-corpus")
+# Independently parse the v2 receipt against the immutable generated-family
+# registry, pinned seeds and portable shuffle hashes. This runs after the
+# producer in the same CTest invocation and never invents corpus positives.
+if(Python3_Interpreter_FOUND)
+  add_test(NAME quantapdf.native_source_corpus_receipt
+    COMMAND "${Python3_EXECUTABLE}"
+      "${PROJECT_SOURCE_DIR}/tools/qualification/native_source_corpus_receipt.py"
+      --manifest "${PROJECT_SOURCE_DIR}/tests/native_source_corpus.def"
+      --report "${CMAKE_CURRENT_BINARY_DIR}/native-source-corpus.json")
+  set_tests_properties(quantapdf.native_source_corpus_receipt PROPERTIES
+    DEPENDS quantapdf.native_source_qq_oracle
+    TIMEOUT 20 LABELS "conformance;native-raster;source-pdf;source-corpus;receipt")
+endif()
 if(WIN32)
   set_property(TEST quantapdf.native_source_qq_oracle
     PROPERTY ENVIRONMENT_MODIFICATION
