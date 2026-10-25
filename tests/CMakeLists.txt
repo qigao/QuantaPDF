@@ -25,6 +25,30 @@ add_test(NAME quantapdf.native_device_raster COMMAND quantapdf_test_native_devic
 set_tests_properties(quantapdf.native_device_plan quantapdf.native_device_raster
   PROPERTIES TIMEOUT 30 LABELS "conformance;native-raster;device-map")
 
+# First test-only Native RAW Image drawing profile. The production public
+# raster still uses PDFium, but this C11 executable has NO qpdf/PDFium link,
+# no source reader and no platform bitmap backend dependency.
+add_executable(quantapdf_test_ir_raster_image_v1
+  test_ir_raster_image_v1.c
+  ../src/render/ir_raster_image_v1.c
+  ../src/render/ir_raster.c)
+target_include_directories(quantapdf_test_ir_raster_image_v1 PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_ir_raster_image_v1 PRIVATE c_std_11)
+if(MSVC)
+  target_compile_options(quantapdf_test_ir_raster_image_v1 PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_test_ir_raster_image_v1 PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+if(UNIX)
+  target_link_libraries(quantapdf_test_ir_raster_image_v1 PRIVATE m)
+endif()
+add_test(NAME quantapdf.native_ir_raw_images_v1
+  COMMAND quantapdf_test_ir_raster_image_v1)
+set_tests_properties(quantapdf.native_ir_raw_images_v1 PROPERTIES
+  TIMEOUT 20 LABELS "conformance;native-raster;raw-image;backend-free")
+
 # Actual original literal PDF -> selected Graph -> detached IR + owned plan.
 # PDFium is linked only here as an independent full-RGB FIT reference.
 add_executable(quantapdf_test_native_device_source
