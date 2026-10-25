@@ -100,7 +100,12 @@ std::vector<unsigned char> original_pdf(
     const unsigned char *ptr = buffer->getBuffer();
     CHECK(ptr != nullptr);
     std::vector<unsigned char> bytes(ptr,ptr+buffer->getSize());
-    FILE *f = std::fopen(NATIVE_SOURCE_IMAGE_PDF,"wb");
+    FILE *f = nullptr;
+#if defined(_MSC_VER)
+    CHECK(fopen_s(&f, NATIVE_SOURCE_IMAGE_PDF, "wb") == 0);
+#else
+    f = std::fopen(NATIVE_SOURCE_IMAGE_PDF, "wb");
+#endif
     CHECK(f != nullptr);
     CHECK(std::fwrite(bytes.data(),1,bytes.size(),f)==bytes.size());
     CHECK(std::fclose(f)==0);
