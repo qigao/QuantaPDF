@@ -159,7 +159,11 @@ void positive_original(const char *content, bool split)
 {
     const auto original=original_pdf(content,split);
     quantapdf_ir ir{};
-    OK(owned_image(original,&ir));
+    const quantapdf_status lower = owned_image(original,&ir);
+    if (lower != QUANTAPDF_OK)
+        std::fprintf(stderr,"[source-image-do] lowering rejected status=%d\n",
+            static_cast<int>(lower));
+    CHECK(lower == QUANTAPDF_OK);
     CHECK(ir.pages!=nullptr && ir.page_count==1u);
     CHECK(ir.operation_count>=1u && ir.operation_count<=4u);
     CHECK(ir.resources.image_count==ir.operation_count);
