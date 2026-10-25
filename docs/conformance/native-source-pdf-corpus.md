@@ -1,4 +1,4 @@
-# Native source-PDF conformance corpus: generated baseline v1
+# Native source-PDF conformance corpus: bounded generated fixtures
 
 Tracks [#233](https://github.com/qigao/QuantaPDF/issues/233),
 [#229](https://github.com/qigao/QuantaPDF/issues/229),
@@ -8,8 +8,10 @@ PDFium-free exit gate [#208](https://github.com/qigao/QuantaPDF/issues/208).
 ## Executable manifest
 
 The versioned registry at [`tests/native_source_corpus.def`](../../tests/native_source_corpus.def)
-is the single source of truth for the initial **14 fixture families / 36
-generated source-PDF executions**. It carries a stable family ID, feature
+is the single source of truth for **17 fixture families / 42
+generated source-PDF executions** after the move-only/degenerate Clip
+extension. The original baseline was 14/36; these are generated fixtures,
+not additional licensed external originals. It carries a stable family ID, feature
 tags, expected accepted/rejected/mixed outcome, oracle category, number of
 generated documents, and the test function bound to each row.
 
@@ -23,7 +25,7 @@ new family must update the executable registry; an expanded family must
 update its declared count and the aggregate gate. No second test binary or
 GitHub Actions workflow is needed.
 
-This is an **in-repository generated corpus**, not a claim that 36
+This is an **in-repository generated corpus**, not a claim that 42
 independent external documents have been qualified. A family with two
 variations has two generated PDFs; a two-page fixture still counts as one
 generated PDF. The individual assertions within each family retain their
@@ -55,6 +57,21 @@ successful job. These artifacts are machine-readable **family-coverage
 results**, not per-PDF pixels, externally sourced PDFs, or PDF file hashes.
 The fixed pixel thresholds and explicit unsupported contracts remain
 enforced by their existing executable tests.
+
+## Move-only Clip source qualification
+
+The three generated families `clip.move_only_source`,
+`clip.degenerate_line_source` and `clip.move_only_multistream` expand
+original-PDFium versus detached native C11 parity to source `m W n` /
+`m W* n`, `m h W n`, a coincident-point `l`, a definition-time CTM
+distinct from later painting, and a `W*`/ `n` operator split across two
+`/Contents` streams. The original source document and Graph snapshot are
+released before native rendering. Every generated source uses full-page
+RGB tolerance, fixed interior pixel goldens and exact repeat RGBA equality.
+The separate no-constructor `W n`/`W* n` behavior remains a no-op based on
+the existing PDFium-observed source test; a MOVE-only path is an actual
+zero-area clipping path. This is bounded path-only qualification, not a
+general original-PDF compatibility or production PDFium cutover.
 
 ## Oracle and acceptance boundaries
 
@@ -97,11 +114,13 @@ An independently tracked **external PDF** corpus now has an offline
 provenance/byte-integrity admission gate documented in
 [external-source-pdf-corpus.md](external-source-pdf-corpus.md). The manifest now lists **one independently published CC0 PDF**, admitted
 by exact SHA-256 and recorded document-level license evidence in [#250](https://github.com/qigao/QuantaPDF/issues/250).
-Its initial *native* qualification is a strict **UNSUPPORTED** text
-rejection with original-source PDFium reference rendering. It never adds to
-the 36 generated-source executions, and counts **zero** successful external
-native rendered pages; future supported pixel parity remains #233 work. A failed test must never be converted to a pass by loosening
-pixel thresholds or silently redirecting to PDFium.
+Its initial *native* qualification was a strict **UNSUPPORTED** text
+rejection with original-source PDFium reference rendering. The external
+corpus has since been independently extended to **7 unchanged admitted PDFs
+/ 2 W* original-source native-pixel positives** (see #262 and its
+post-merge master qualification). These are never included in the **42
+generated-source executions**. A failed test must never be converted to a
+pass by loosening pixel thresholds or silently redirecting to PDFium.
 
 The public QuantaPDF SDK remains PDFium-backed. Remove its PDFium
 link/install dependency only after the full independent compatibility

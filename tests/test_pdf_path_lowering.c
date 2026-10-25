@@ -116,7 +116,6 @@ static void test_close_and_color(void)
 
 static void test_fail_closed(void)
 {
-    rejects("0 0 m W n 0 0 10 10 re f", QUANTAPDF_ERROR_UNSUPPORTED);
     rejects("0 0 m 10 10 l n", QUANTAPDF_ERROR_UNSUPPORTED);
     rejects("0 0 m f", QUANTAPDF_ERROR_UNSUPPORTED);
     rejects("0.5 g 0 0 10 10 re f", QUANTAPDF_ERROR_UNSUPPORTED);
@@ -142,6 +141,33 @@ static void test_fail_closed(void)
         CHECK(ir.pages == NULL && ir.operations == NULL);
         dispose_page(&page);
     }
+}
+
+/* This used to be an unsupported source. #214/#419 qualifies MOVE-only
+ * W as a real empty Clip; the following painted PATH remains nondegenerate,
+ * and the source-owned clip must survive the source graphics disposal. */
+static void test_move_only_empty_clip_success(void)
+{
+    quantapdf_pdf_page_semantics page;
+    quantapdf_ir ir = {0};
+    quantapdf_pdf_path_lower_limits limits = lower_limits();
+    parse_page("0 0 m W n 0 0 10 10 re f", &page);
+    CHECK(page.graphics->path_count == 2u &&
+          page.graphics->clip_count == 1u);
+    OK(quantapdf_pdf_path_lower_to_composer(
+        &page,200,120,&limits,&ir));
+    CHECK(ir.operation_count == 1u &&
+          ir.resources.clip_count == 1u &&
+          ir.resources.graphics_state_count == 1u);
+    CHECK(ir.resources.clips[0].kind == QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL &&
+          ir.resources.clips[0].command_count == 1u &&
+          ir.resources.clips[0].commands[0].kind ==
+              QUANTAPDF_COMPOSER_PATH_MOVE_TO);
+    CHECK(ir.operations[0].graphics_state_id == 1u &&
+          ir.resources.graphics_states[0].clip_id == 1u);
+    dispose_page(&page);
+    CHECK(ir.resources.clips[0].commands[0].point1.x == 0.0f);
+    quantapdf_ir_dispose(&ir);
 }
 
 static void test_pdf_export_and_render(void)
@@ -388,6 +414,7 @@ int main(void)
     test_paths_and_curves();
     test_close_and_color();
     test_fail_closed();
+    test_move_only_empty_clip_success();
     test_pdf_export_and_render();
     return 0;
 }
