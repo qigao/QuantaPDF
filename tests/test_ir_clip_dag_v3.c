@@ -155,6 +155,48 @@ static int success_cases(void)
     return EXIT_SUCCESS;
 }
 
+
+/* Standalone V3 is also required to accept a syntactically valid but
+ * zero-area Clip leaf without turning an empty intersection into a refusal.
+ * The original IR and its owned leaf commands are borrowed, never mutated. */
+static int empty_intersection_cases(void)
+{
+    fixture f;
+    quantapdf_ir_raster_v1_limits limits = {64u,1u,64u,30000u};
+    quantapdf_ir_raster_image image = {0}, again = {0};
+    unsigned char saved[8u*8u*4u];
+    setup(&f);
+    f.clips[1].command_count = 1u; /* only a valid MOVE_TO command */
+    CHECK(f.paths[1][0].kind == QUANTAPDF_COMPOSER_PATH_MOVE_TO);
+    OK(quantapdf_ir_raster_clip_dag_v3(&f.ir,0u,&limits,&image));
+    CHECK(image.size == sizeof(saved));
+    CHECK(color(&image,3u,3u) == UINT32_C(0xffffffff));
+    CHECK(color(&image,4u,4u) == UINT32_C(0xffffffff));
+    memcpy(saved,image.pixels,sizeof(saved));
+    OK(quantapdf_ir_raster_clip_dag_v3(&f.ir,0u,&limits,&again));
+    CHECK(again.size == image.size &&
+          memcmp(saved,again.pixels,sizeof(saved)) == 0);
+    quantapdf_ir_raster_image_dispose(&image);
+    quantapdf_ir_raster_image_dispose(&again);
+
+    f.page.suppress_background = 1;
+    f.clips[1].fill_rule = QUANTAPDF_COMPOSER_FILL_EVEN_ODD;
+    OK(quantapdf_ir_raster_clip_dag_v3(&f.ir,0u,&limits,&image));
+    CHECK(color(&image,3u,3u) == UINT32_C(0x00000000));
+    CHECK(color(&image,4u,4u) == UINT32_C(0x00000000));
+    quantapdf_ir_raster_image_dispose(&image);
+
+    /* A missing pointer is not an empty Clip; reject and clear output. */
+    f.clips[1].commands = NULL;
+    image.pixels = (unsigned char *)(uintptr_t)1u;
+    image.width = image.height = image.stride = image.size = SIZE_MAX;
+    CHECK(quantapdf_ir_raster_clip_dag_v3(&f.ir,0u,&limits,&image) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(image.pixels == NULL && image.width == 0u && image.height == 0u &&
+          image.stride == 0u && image.size == 0u);
+    return EXIT_SUCCESS;
+}
+
 static int rejection_cases(void)
 {
     fixture f;
@@ -218,6 +260,7 @@ static int rejection_cases(void)
 int main(void)
 {
     CHECK(success_cases() == EXIT_SUCCESS);
+    CHECK(empty_intersection_cases() == EXIT_SUCCESS);
     CHECK(rejection_cases() == EXIT_SUCCESS);
     fprintf(stderr,"[quantapdf.native_clip_dag_v3] complete\n");
     return EXIT_SUCCESS;
