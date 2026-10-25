@@ -110,6 +110,83 @@ static void test_clip_uses_definition_ctm(void)
     drop(&page);
 }
 
+
+/* W/W* with a current MOVE-only path is a valid zero-area Clip node, not
+ * the no-constructor W n no-op. The detached IR retains the owned command
+ * and a later q/Q-restored paint cannot inherit the empty Clip. */
+static void test_move_only_clip_lowering(void)
+{
+    const char *source[] = {
+        "q 12 30 m W n 1 0 0 rg 0 0 120 120 re f Q "
+        "0 0 1 rg 20 20 40 40 re f",
+        "q 12 30 m W* n 1 0 0 rg 0 0 120 120 re f Q "
+        "0 0 1 rg 20 20 40 40 re f"
+    };
+    size_t variant;
+    for (variant = 0u; variant < 2u; ++variant) {
+        quantapdf_pdf_page_semantics page;
+        quantapdf_ir ir = {0};
+        quantapdf_pdf_path_lower_limits limit = lower_budget();
+        parse(source[variant], &page);
+        CHECK(page.graphics->path_count == 3u &&
+              page.graphics->clip_count == 1u);
+        OK(quantapdf_pdf_path_lower_to_composer(&page, 120, 120, &limit, &ir));
+        CHECK(ir.operation_count == 2u && ir.resources.clip_count == 1u &&
+              ir.resources.graphics_state_count == 1u);
+        CHECK(ir.resources.clips[0].kind == QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL &&
+              ir.resources.clips[0].command_count == 1u &&
+              ir.resources.clips[0].commands[0].kind ==
+                  QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
+              ir.resources.clips[0].fill_rule ==
+                  (variant ? QUANTAPDF_COMPOSER_FILL_EVEN_ODD :
+                             QUANTAPDF_COMPOSER_FILL_NONZERO));
+        CHECK(ir.operations[0].graphics_state_id == 1u &&
+              ir.resources.graphics_states[0].clip_id == 1u &&
+              ir.operations[1].graphics_state_id == 0u);
+        drop(&page);
+        CHECK(ir.resources.clips[0].commands[0].point1.x == 12.0f);
+        quantapdf_ir_dispose(&ir);
+    }
+
+    /* No current path remains the separately specified PDFium-observed
+     * W n no-op and must never turn into an empty clipping resource. */
+    {
+        quantapdf_pdf_page_semantics page;
+        quantapdf_ir ir = {0};
+        quantapdf_pdf_path_lower_limits limit = lower_budget();
+        parse("q W n 1 0 0 rg 0 0 120 120 re f Q", &page);
+        CHECK(page.graphics->clip_count == 0u &&
+              page.graphics->path_count == 1u);
+        OK(quantapdf_pdf_path_lower_to_composer(&page,120,120,&limit,&ir));
+        CHECK(ir.resources.clip_count == 0u &&
+              ir.operation_count == 1u &&
+              ir.operations[0].graphics_state_id == 0u);
+        quantapdf_ir_dispose(&ir);
+        drop(&page);
+    }
+
+    /* A no-segment Fill or W followed by no-segment Fill must not silently
+     * acquire the more permissive Clip-only admission contract. */
+    {
+        const char *negative[] = {
+            "12 30 m f",
+            "12 30 m W f"
+        };
+        for (variant = 0u; variant < 2u; ++variant) {
+            quantapdf_pdf_page_semantics page;
+            quantapdf_ir ir;
+            quantapdf_pdf_path_lower_limits limit = lower_budget();
+            parse(negative[variant], &page);
+            memset(&ir,0xab,sizeof(ir));
+            CHECK(quantapdf_pdf_path_lower_to_composer(
+                &page,120,120,&limit,&ir) == QUANTAPDF_ERROR_UNSUPPORTED);
+            CHECK(ir.pages == NULL && ir.operations == NULL &&
+                  ir.resources.clips == NULL && ir.operation_count == 0u);
+            drop(&page);
+        }
+    }
+}
+
 static void test_failfast(void)
 {
     quantapdf_pdf_page_semantics page;
@@ -167,6 +244,7 @@ int main(void)
     test_nested_clip_scope_and_restore();
     test_clip_delayed_after_paint();
     test_clip_uses_definition_ctm();
+    test_move_only_clip_lowering();
     test_failfast();
     return 0;
 }
