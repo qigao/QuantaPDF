@@ -244,7 +244,7 @@ int main()
         "q 20 1 0 20 4 20 cm /Im0 Do Q",
         "q 20 0 0 20 4.5 20 cm /Im0 Do Q",
         "q 20 0 0 20 50 20 cm /Im0 Do Q",
-        "q /Im0 Do Q",
+        "q 0 0 0 0 4 20 cm /Im0 Do Q",
         "q 20 0 0 20 4 20 cm /Im0 Do",
         "q 20 0 0 20 4 20 cm /Im0 Do Q "
             "BI /W 1 /H 1 /BPC 8 /CS /RGB ID x EI"
