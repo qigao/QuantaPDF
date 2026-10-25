@@ -234,6 +234,13 @@ int test_negative_and_recovery()
     negatives[7]=good;negatives[7].soft_mask=true;
     negatives[8]=good;negatives[8].wrong_color=true;
     negatives[9]=good;negatives[9].content_a+=" BI /W 1 /H 1 ID x EI";
+    const quantapdf_status expected_failure[]={
+        QUANTAPDF_ERROR_UNSUPPORTED, QUANTAPDF_ERROR_UNSUPPORTED,
+        QUANTAPDF_ERROR_FORMAT, QUANTAPDF_ERROR_UNSUPPORTED,
+        QUANTAPDF_ERROR_UNSUPPORTED, QUANTAPDF_ERROR_UNSUPPORTED,
+        QUANTAPDF_ERROR_FORMAT, QUANTAPDF_ERROR_UNSUPPORTED,
+        QUANTAPDF_ERROR_UNSUPPORTED, QUANTAPDF_ERROR_UNSUPPORTED
+    };
     for(size_t i=0;i<10u;++i) {
         auto pdf=make_original(negatives[i]);
         quantapdf_ir refused;
@@ -244,8 +251,11 @@ int test_negative_and_recovery()
             fprintf(stderr,"negative source case=%zu accepted unexpectedly\n",i);
             quantapdf_ir_dispose(&refused);
         }
-        CHECK(actual==QUANTAPDF_ERROR_UNSUPPORTED ||
-              actual==QUANTAPDF_ERROR_FORMAT);
+        if(actual!=expected_failure[i])
+            std::fprintf(stderr,
+                "[source-image-do] refused case=%zu expected=%d actual=%d\\n",
+                i,int(expected_failure[i]),int(actual));
+        CHECK(actual==expected_failure[i]);
         CHECK(refused.pages==nullptr && refused.page_count==0u &&
               refused.operations==nullptr && refused.operation_count==0u &&
               refused.resources.images==nullptr &&
