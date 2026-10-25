@@ -16,8 +16,10 @@ tags, expected accepted/rejected/mixed outcome, oracle category, number of
 generated documents, and the test function bound to each row.
 
 The existing `quantapdf.native_source_qq_oracle` CTest binary compiles
-this registry and runs **every** listed family. Each generation site records
-one fixture execution. The runner fails on duplicate/empty family IDs,
+this registry and runs **every** listed family in canonical order and in
+two fixed-seed shuffled rounds **in the same process**. Every generated
+fixture must pass each round; the corpus declares 58 distinct generated
+cases, but records all 174 repeated executions separately. The runner fails on duplicate/empty family IDs,
 unknown expectation/oracle categories, missing tests, wrong per-family
 counts, or incorrect aggregate coverage. It prints one stable
 `[source-corpus] PASS` log record per family and a completion total. A
@@ -35,19 +37,23 @@ exact status, budgets, deterministic repeated render and color checks.
 
 The existing CTest target invokes its test binary with
 `--corpus-report <build-directory>/tests/native-source-corpus.json`.
-The report has `schema_version: 1`, `corpus_id: native-source-pdf`,
+The report has `schema_version: 2`, `corpus_id: native-source-pdf`,
 `fixture_kind: generated`, `result: passed`, and aggregate
 `family_count` and `fixture_count`. The ordered `family_results` array
 contains the family ID, feature tags, expected outcome, oracle category,
-declared and **observed** fixture counts, and pass status. All string fields
-are JSON escaped.
+declared and **observed** fixture counts for the canonical round, and pass
+status. The additional `round_results` contains each round's exact ordered
+family IDs, fixed seed, portable order fingerprint and observed count.
+`fixture_count` remains **58** unique generated scenarios;
+`total_fixture_executions` is **174**. All strings are JSON escaped.
 
 The file contains no timestamps, runner paths, randomized identifiers or
 QPDF output-byte hashes. On a new invocation, any old JSON and temporary
 file are removed; a failing fixture or report write cannot leave a new
 published success JSON. The final JSON is renamed from a temporary file
-only after every test has passed, every family execution count matches its
-declaration, and the output is fully written.
+only after **all three rounds** pass, each family meets its declared
+fixture count in **every** round, all permutations pass integrity checks,
+no source fixture PDF leaks between families, and output is fully written.
 
 The **same** QuantaPDF CI workflow uploads platform-specific artifacts
 under `source-corpus-linux`, `source-corpus-macos`, and
@@ -57,6 +63,42 @@ successful job. These artifacts are machine-readable **family-coverage
 results**, not per-PDF pixels, externally sourced PDFs, or PDF file hashes.
 The fixed pixel thresholds and explicit unsupported contracts remain
 enforced by their existing executable tests.
+
+## Fixed-seed canonical and shuffled replay
+
+Each run of the source-oracle executable performs **three rounds within
+one process**: canonical manifest order and two deterministic Fisher–Yates
+permutations using unsigned-32 xorshift seeds `0x21423301` and
+`0x21423302`. It does not call `std::shuffle`, use an ambient RNG, alter
+the manifest, start parallel file writers or depend on the clock.
+
+The pinned `xorshift32-fisher-yates-v1` protocol uses these portable
+FNV1a-64 fingerprints of 1-based family indices encoded as little-endian
+32-bit integers:
+
+| Round | Seed | Fingerprint |
+|---|---|---|
+| Canonical | `00000000` | `7805220618c529f1` |
+| Shuffle A | `21423301` | `fa1b13a80bcce7c1` |
+| Shuffle B | `21423302` | `f69afd32dbf9e3a1` |
+
+All **20 families** must appear **once per round** and each must execute
+its declared number of source-PDF scenarios. The source fixture path must
+be absent before and after each family. A family leaving a source file
+behind cannot pass silently into a following family's run. Original source
+destruction, Graph lifetime, native pixel goldens and fail-closed checks
+inside each family are unchanged.
+
+Each round accounts for **58 fixture executions**; three rounds mean
+**174 executions of the same 58 scenarios**, not 174 new original PDFs.
+The v2 report exposes `round_count`, `round_results`, seeds, fingerprints
+and `total_fixture_executions` separately from `fixture_count`. A failed
+round never publishes a passing JSON artifact. Manifest edits require
+explicit fingerprint updates and renewed cross-platform qualification.
+
+This covers **family execution-order independence**, not intra-family
+reordering, randomized PDF bytes, fuzzing, or seed replay of the separate
+licensed external-original corpus. Those remain distinct #233 tasks.
 
 ## Move-only Clip source qualification
 
@@ -98,9 +140,8 @@ Two resource-specific generated families extend the fixture registry:
 The matrix is deliberately a **referenced** resource test, not blanket refusal
 of unknown but unused PDF resource dictionaries. It does not add a public
 renderer feature, expand the native capacity limits or affect the formally
-admitted external-source count, which stays at **7/2**. Tests are fixed-order
-and deterministic; separately seeded/shuffled execution is still an open
-follow-up under #233.
+admitted external-source count, which stays at **7/2**. Tests now execute in
+canonical and fixed-seed shuffled orders, not arbitrary resource profiles.
 
 ## Independent resource PageTree depth qualification
 
@@ -165,8 +206,8 @@ Its initial *native* qualification was a strict **UNSUPPORTED** text
 rejection with original-source PDFium reference rendering. The external
 corpus has since been independently extended to **7 unchanged admitted PDFs
 / 2 W* original-source native-pixel positives** (see #262 and its
-post-merge master qualification). These are never included in the **42
-generated-source executions**. A failed test must never be converted to a
+post-merge master qualification). These are never included in the **58 distinct
+generated-source cases** or their **174 repeated executions**. A failed test must never be converted to a
 pass by loosening pixel thresholds or silently redirecting to PDFium.
 
 The public QuantaPDF SDK remains PDFium-backed. Remove its PDFium
