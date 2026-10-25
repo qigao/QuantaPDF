@@ -171,10 +171,12 @@ int test_original_pixel_parity()
     CHECK(oracle.size()==static_cast<size_t>(W*H*3));
     CHECK(native.width==(size_t)W && native.height==(size_t)H &&
           native.stride==(size_t)W*4u);
-    const struct {int x,y;unsigned char r,g,b;} expected[]={
-        {4,4,255,0,0},{14,4,0,255,0},
-        {4,17,0,0,255},{14,17,255,255,0},
-        {23,9,0,0,255},{31,23,255,255,255}};
+    struct probe {int x,y;unsigned char r,g,b;};
+    const probe expected[]={
+        {4,11,255,0,0},{14,11,0,255,0},
+        {4,18,0,0,255},{14,18,255,255,0},
+        {23,13,0,0,255},{27,20,255,0,0},
+        {31,23,255,255,255}};
     for(const auto& c:expected) {
         const unsigned char *ref=oracle.data()+((size_t)c.y*W+c.x)*3u;
         const unsigned char *out=native.pixels+
