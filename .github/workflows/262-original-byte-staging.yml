@@ -1,0 +1,34 @@
+name: Source 262 immutable-byte staging
+
+on:
+  push:
+    branches:
+      - admit/262-texample-original
+    paths:
+      - .github/workflows/262-original-byte-staging.yml
+
+permissions:
+  contents: read
+
+jobs:
+  source-identity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Retrieve unmodified TeXample original and verify pinned bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          original="$RUNNER_TEMP/intersecting-rings.pdf"
+          curl --fail --silent --show-error --location --retry 3 --max-time 60 \
+            'https://texample.net/files/intersecting-rings.pdf' -o "$original"
+          test "$(wc -c < "$original")" -eq 1396
+          printf '%s  %s\n' \
+            'f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284' \
+            "$original" | sha256sum --check -
+          # Temporary staging transport only. The source is CC BY-SA 4.0
+          # (Dominique Wuertz, TeXample). The workflow will be deleted once
+          # the byte-identical original is committed to the admission branch.
+          echo 'SOURCE_262_PDF_BASE64_BEGIN'
+          base64 -w0 "$original"
+          echo
+          echo 'SOURCE_262_PDF_BASE64_END'
