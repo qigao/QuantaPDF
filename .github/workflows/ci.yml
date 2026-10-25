@@ -103,9 +103,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          original="$RUNNER_TEMP/texample-intersecting-rings.pdf"
-          curl --fail --show-error --silent --location --retry 3 --max-time 60 \
-            'https://texample.net/files/intersecting-rings.pdf' --output "$original"
+          # Validate the unchanged source already stored in the corpus.
+          # No network fetch is needed in this dependent admission PR.
+          original="$GITHUB_WORKSPACE/tests/external_source_corpus/documents/texample.intersecting-rings-v1.pdf"
+          test -s "$original"
           printf '%s  %s\n' \
             'f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284' \
             "$original" | sha256sum --check -
@@ -162,7 +163,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          original="$RUNNER_TEMP/texample-intersecting-rings.pdf"
+          original="$GITHUB_WORKSPACE/tests/external_source_corpus/documents/texample.intersecting-rings-v1.pdf"
           test -s "$original"
           LD_LIBRARY_PATH="$GITHUB_WORKSPACE/build/linux-gcc-debug/_deps/pdfium-${PDFIUM_VERSION}-linux-x64/lib:${LD_LIBRARY_PATH:-}" \
           ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
