@@ -311,6 +311,48 @@ int test_original_gray_flate()
     return EXIT_SUCCESS;
 }
 
+/* A real Flate RGB source, not a synthetic decompressed IR and not a
+ * PDFium-produced image resource. The independent PDFium oracle reads the
+ * unchanged original, then the Source/qpdf owner is discarded before C11. */
+int test_original_rgb_flate()
+{
+    scene sc;
+    sc.flate=true;
+    sc.content_a="q 12 0 0 12 8 4 cm /I Do Q";
+    auto source=make_original(sc);
+    auto reference=direct_pdfium(source);
+    CHECK(reference.size()==static_cast<size_t>(W*H*3));
+    quantapdf_ir ir{};
+    OK(quantapdf_qpdf_source_raw_images_to_ir(
+        source.data(),source.size(),&source_limits,&ir));
+    CHECK(ir.operation_count==1u && ir.resources.image_count==1u &&
+          ir.resources.images[0].components==3 &&
+          ir.resources.images[0].width==2u &&
+          ir.resources.images[0].height==2u &&
+          ir.resources.images[0].size==12u);
+    std::fill(source.begin(),source.end(),0u);
+    quantapdf_ir_raster_image painted{};
+    OK(quantapdf_ir_raster_raw_images_v1(
+        &ir,0,&raster_limits,&painted));
+    quantapdf_ir_dispose(&ir);
+    struct probe {int x,y;unsigned char r,g,b;};
+    const probe samples[]={
+        {10,10,255,0,0},{17,10,0,255,0},
+        {10,17,0,0,255},{17,17,255,255,0}
+    };
+    for(const auto& p:samples) {
+        const unsigned char *ref=reference.data()+
+            (static_cast<size_t>(p.y)*W+p.x)*3u;
+        const unsigned char *native=painted.pixels+
+            static_cast<size_t>(p.y)*painted.stride+
+            static_cast<size_t>(p.x)*4u;
+        const unsigned char expected[]={p.r,p.g,p.b};
+        CHECK(matches(ref,expected,10) && matches(native,expected,10));
+    }
+    quantapdf_ir_raster_image_dispose(&painted);
+    return EXIT_SUCCESS;
+}
+
 int test_inherited_source_resources()
 {
     scene sc;
@@ -378,7 +420,7 @@ int test_negative_and_recovery()
 {
     scene good;
     good.content_a="q 4 0 0 4 4 4 cm /I Do Q";
-    scene negatives[10];
+    scene negatives[16];
     negatives[0]=good;negatives[0].content_a+=" BT ET";
     negatives[1]=good;negatives[1].content_a+=" 0 0 10 10 re f";
     negatives[2]=good;negatives[2].content_a+=" /Unknown Do";
@@ -389,14 +431,24 @@ int test_negative_and_recovery()
     negatives[7]=good;negatives[7].soft_mask=true;
     negatives[8]=good;negatives[8].wrong_color=true;
     negatives[9]=good;negatives[9].content_a+=" BI /W 1 /H 1 ID x EI";
+    negatives[10]=good;negatives[10].optional_content=true;
+    negatives[11]=good;negatives[11].interpolate=true;
+    negatives[12]=good;negatives[12].image_intent=true;
+    negatives[13]=good;negatives[13].image_smask_data=true;
+    negatives[14]=good;negatives[14].default_rgb=true;
+    negatives[15]=good;negatives[15].valid_form=true;
+    negatives[15].content_a+=" /Fm Do";
     const quantapdf_status expected_failure[]={
         QUANTAPDF_ERROR_UNSUPPORTED, QUANTAPDF_ERROR_UNSUPPORTED,
         QUANTAPDF_ERROR_FORMAT, QUANTAPDF_ERROR_UNSUPPORTED,
         QUANTAPDF_ERROR_UNSUPPORTED, QUANTAPDF_ERROR_UNSUPPORTED,
         QUANTAPDF_ERROR_FORMAT, QUANTAPDF_ERROR_UNSUPPORTED,
+        QUANTAPDF_ERROR_UNSUPPORTED, QUANTAPDF_ERROR_UNSUPPORTED,
+        QUANTAPDF_ERROR_UNSUPPORTED, QUANTAPDF_ERROR_UNSUPPORTED,
+        QUANTAPDF_ERROR_UNSUPPORTED, QUANTAPDF_ERROR_UNSUPPORTED,
         QUANTAPDF_ERROR_UNSUPPORTED, QUANTAPDF_ERROR_UNSUPPORTED
     };
-    for(size_t i=0;i<10u;++i) {
+    for(size_t i=0;i<16u;++i) {
         auto pdf=make_original(negatives[i]);
         quantapdf_ir refused;
         memset(&refused,0xab,sizeof(refused));
@@ -443,6 +495,7 @@ int main()
 {
     if(test_original_pixel_parity()!=EXIT_SUCCESS ||
        test_original_gray_flate()!=EXIT_SUCCESS ||
+       test_original_rgb_flate()!=EXIT_SUCCESS ||
        test_inherited_source_resources()!=EXIT_SUCCESS ||
        test_negative_and_recovery()!=EXIT_SUCCESS) return EXIT_FAILURE;
     std::puts("Original PDF Image Do -> detached owned RAW IR -> "
