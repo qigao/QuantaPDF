@@ -432,7 +432,7 @@ static void test_page_semantics_arrays(void)
 
     /* Base version contains text; no silently incomplete path-only IR. */
     semantics = (quantapdf_pdf_page_semantics *)(uintptr_t)1;
-    CHECK(quantapdf_graph_snapshot_page_semantics(base, 0, &decode, &parse, 2,
+    CHECK(quantapdf_graph_snapshot_page_semantics(base, 0, 2u, &decode, &parse, 2,
         &semantics) == QUANTAPDF_ERROR_UNSUPPORTED);
     CHECK(semantics == NULL);
 
@@ -464,15 +464,21 @@ static void test_page_semantics_arrays(void)
     additions[1].data = NULL; additions[1].data_size = 0;
     OK(quantapdf_graph_snapshot_commit(base, &change, &budget, &empty, &report));
     small = parse; small.max_input_bytes = 1;
-    OK(quantapdf_graph_snapshot_page_semantics(empty, 0, &decode, &small, 2,
+    OK(quantapdf_graph_snapshot_page_semantics(empty, 0, 2u, &decode, &small, 2,
         &semantics));
     CHECK(semantics->content->count == 0 && semantics->graphics->path_count == 0);
     quantapdf_pdf_page_semantics_dispose(semantics); semantics = NULL;
     {
         quantapdf_graph_stream_limits invalid_decode = decode;
         invalid_decode.max_direct_depth = QUANTAPDF_GRAPH_MAX_DIRECT_DEPTH + 1;
-        CHECK(quantapdf_graph_snapshot_page_semantics(empty, 0, &invalid_decode,
+        CHECK(quantapdf_graph_snapshot_page_semantics(empty, 0, 2u, &invalid_decode,
             &parse, 2, &semantics) == QUANTAPDF_ERROR_ARGUMENT);
+        CHECK(semantics == NULL);
+        /* PageTree ancestry and decoded stream nesting are independent
+         * budgets: zero ancestry is never a valid source contract. */
+        CHECK(quantapdf_graph_snapshot_page_semantics(
+            empty, 0, 0u, &decode, &parse, 2, &semantics) ==
+            QUANTAPDF_ERROR_ARGUMENT);
         CHECK(semantics == NULL);
     }
     quantapdf_graph_snapshot_drop(empty);
@@ -480,17 +486,17 @@ static void test_page_semantics_arrays(void)
     CHECK(finalized == 0);
 
     semantics = (quantapdf_pdf_page_semantics *)(uintptr_t)1;
-    CHECK(quantapdf_graph_snapshot_page_semantics(next, 0, &decode, &parse, 1,
+    CHECK(quantapdf_graph_snapshot_page_semantics(next, 0, 2u, &decode, &parse, 1,
         &semantics) == QUANTAPDF_ERROR_UNSUPPORTED);
     CHECK(semantics == NULL);
     small = parse; small.max_input_bytes = 10;
-    CHECK(quantapdf_graph_snapshot_page_semantics(next, 0, &decode, &small, 2,
+    CHECK(quantapdf_graph_snapshot_page_semantics(next, 0, 2u, &decode, &small, 2,
         &semantics) == QUANTAPDF_ERROR_UNSUPPORTED);
     CHECK(semantics == NULL);
-    CHECK(quantapdf_graph_snapshot_page_semantics(next, 3, &decode, &parse, 2,
+    CHECK(quantapdf_graph_snapshot_page_semantics(next, 3, 2u, &decode, &parse, 2,
         &semantics) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(semantics == NULL);
-    OK(quantapdf_graph_snapshot_page_semantics(next, 0, &decode, &parse, 2,
+    OK(quantapdf_graph_snapshot_page_semantics(next, 0, 2u, &decode, &parse, 2,
         &semantics));
     CHECK(semantics->content != NULL && semantics->graphics != NULL);
     CHECK(semantics->content->count == 7 && semantics->graphics->path_count == 1);
