@@ -2944,6 +2944,93 @@ static const source_corpus_family source_corpus_families[] = {
 #undef QP_SOURCE_CORPUS_FAMILY
 };
 
+/* The 20-family registry is re-executed three times IN ONE process, so
+ * failures in fixture cleanup or cross-family Resource owners become visible.
+ * Count 58 distinct generated scenarios per round, never 174 new originals.
+ * Fixed protocol inputs and exact fingerprints avoid platform RNG drift. */
+static constexpr size_t QP_SOURCE_CORPUS_FAMILIES = 20u;
+static constexpr size_t QP_SOURCE_CORPUS_FIXTURES = 58u;
+static constexpr size_t QP_SOURCE_CORPUS_ROUNDS = 3u;
+static constexpr uint32_t QP_SOURCE_CORPUS_SEEDS[QP_SOURCE_CORPUS_ROUNDS] = {
+    UINT32_C(0), UINT32_C(0x21423301), UINT32_C(0x21423302)
+};
+static constexpr uint64_t QP_SOURCE_CORPUS_FINGERPRINTS[QP_SOURCE_CORPUS_ROUNDS] = {
+    UINT64_C(0x7805220618c529f1), UINT64_C(0xfa1b13a80bcce7c1),
+    UINT64_C(0xf69afd32dbf9e3a1)
+};
+
+struct source_corpus_receipt {
+    size_t order[QP_SOURCE_CORPUS_ROUNDS][QP_SOURCE_CORPUS_FAMILIES] = {};
+    size_t executed[QP_SOURCE_CORPUS_ROUNDS][QP_SOURCE_CORPUS_FAMILIES] = {};
+    size_t round_fixtures[QP_SOURCE_CORPUS_ROUNDS] = {};
+    uint64_t fingerprints[QP_SOURCE_CORPUS_ROUNDS] = {};
+};
+
+static uint32_t source_corpus_next(uint32_t *state)
+{
+    uint32_t x = *state;
+    CHECK(x != 0u);
+    x ^= x << 13u;
+    x ^= x >> 17u;
+    x ^= x << 5u;
+    *state = x;
+    return x;
+}
+
+/* Architecture-independent, little-endian FNV1a on 1-based family indices,
+ * not host-size size_t bytes or generated PDF/QPDF serialization. */
+static uint64_t source_corpus_order_fingerprint(const size_t *order, size_t n)
+{
+    uint64_t h = UINT64_C(0xcbf29ce484222325);
+    for (size_t i = 0u; i < n; ++i) {
+        CHECK(order[i] < QP_SOURCE_CORPUS_FAMILIES);
+        const uint32_t id = (uint32_t)(order[i] + 1u);
+        for (unsigned b = 0u; b < 4u; ++b) {
+            h ^= (id >> (8u * b)) & UINT32_C(255);
+            h *= UINT64_C(0x100000001b3);
+        }
+    }
+    return h;
+}
+
+static void source_corpus_schedule(source_corpus_receipt *receipt,
+                                   size_t round, size_t family_count)
+{
+    CHECK(receipt != nullptr && round < QP_SOURCE_CORPUS_ROUNDS &&
+          family_count == QP_SOURCE_CORPUS_FAMILIES);
+    size_t *order = receipt->order[round];
+    for (size_t i = 0u; i < family_count; ++i) order[i] = i;
+    uint32_t state = QP_SOURCE_CORPUS_SEEDS[round];
+    if (state != 0u) {
+        /* Portable 32-bit xorshift + Fisher-Yates: no std::shuffle RNG,
+         * time seed, implementation-defined distribution or heap state. */
+        for (size_t i = family_count - 1u; i > 0u; --i) {
+            const size_t j = (size_t)(source_corpus_next(&state) %
+                (uint32_t)(i + 1u));
+            std::swap(order[i], order[j]);
+        }
+    }
+    uint32_t visited = 0u;
+    for (size_t i = 0u; i < family_count; ++i) {
+        CHECK(order[i] < family_count);
+        const uint32_t bit = UINT32_C(1) << (unsigned)order[i];
+        CHECK((visited & bit) == 0u);
+        visited |= bit;
+    }
+    CHECK(visited == (UINT32_C(1) << (unsigned)family_count) - 1u);
+    receipt->fingerprints[round] =
+        source_corpus_order_fingerprint(order, family_count);
+    CHECK(receipt->fingerprints[round] == QP_SOURCE_CORPUS_FINGERPRINTS[round]);
+    if (round != 0u) {
+        CHECK(std::memcmp(order, receipt->order[0],
+            family_count * sizeof(*order)) != 0);
+        if (round > 1u) {
+            CHECK(std::memcmp(order, receipt->order[round - 1u],
+                family_count * sizeof(*order)) != 0);
+        }
+    }
+}
+
 /* Report bytes are stable across OSes and contain no time, host paths or
  * PDF writer binary hashes. The report is published only after every
  * generated fixture and all family cardinality assertions have passed. */
@@ -2969,21 +3056,45 @@ static std::string corpus_json_string(const char *value)
 }
 
 static void publish_corpus_report(const char *destination,
-                                  const size_t *executed,
-                                  size_t family_count,size_t fixture_count)
+                                  const source_corpus_receipt *receipt)
 {
+    CHECK(receipt != nullptr);
     const std::string staged = std::string(destination) + ".tmp";
     FILE *out = std::fopen(staged.c_str(),"wb");
     CHECK(out != nullptr);
     std::fprintf(out,
-        "{\n  \"schema_version\": 1,\n"
+        "{\n  \"schema_version\": 2,\n"
         "  \"corpus_id\": \"native-source-pdf\",\n"
         "  \"fixture_kind\": \"generated\",\n"
         "  \"result\": \"passed\",\n"
         "  \"family_count\": %zu,\n"
         "  \"fixture_count\": %zu,\n"
-        "  \"family_results\": [\n",family_count,fixture_count);
-    for(size_t i=0u;i<family_count;++i){
+        "  \"shuffle_protocol\": \"xorshift32-fisher-yates-v1\",\n"
+        "  \"round_count\": %zu,\n"
+        "  \"total_fixture_executions\": %zu,\n"
+        "  \"round_results\": [\n",
+        QP_SOURCE_CORPUS_FAMILIES, QP_SOURCE_CORPUS_FIXTURES,
+        QP_SOURCE_CORPUS_ROUNDS,
+        QP_SOURCE_CORPUS_ROUNDS * QP_SOURCE_CORPUS_FIXTURES);
+    for (size_t round = 0u; round < QP_SOURCE_CORPUS_ROUNDS; ++round) {
+        std::fprintf(out,
+            "    {\"order\": \"%s\", \"seed\": \"%08x\", "
+            "\"fingerprint_fnv64\": \"%016llx\", "
+            "\"observed_fixture_count\": %zu, \"family_order\": [",
+            round == 0u ? "canonical" : "seeded-shuffle",
+            (unsigned)QP_SOURCE_CORPUS_SEEDS[round],
+            (unsigned long long)receipt->fingerprints[round],
+            receipt->round_fixtures[round]);
+        for (size_t j = 0u; j < QP_SOURCE_CORPUS_FAMILIES; ++j) {
+            const size_t index = receipt->order[round][j];
+            const std::string id = corpus_json_string(source_corpus_families[index].id);
+            std::fprintf(out, "%s%s", j == 0u ? "" : ", ", id.c_str());
+        }
+        std::fprintf(out, "]}%s\n",
+            round + 1u == QP_SOURCE_CORPUS_ROUNDS ? "" : ",");
+    }
+    std::fprintf(out, "  ],\n  \"family_results\": [\n");
+    for(size_t i=0u;i<QP_SOURCE_CORPUS_FAMILIES;++i){
         const source_corpus_family& family=source_corpus_families[i];
         const std::string id=corpus_json_string(family.id);
         const std::string features=corpus_json_string(family.features);
@@ -2995,14 +3106,21 @@ static void publish_corpus_report(const char *destination,
             "\"declared_fixtures\": %zu, \"executed_fixtures\": %zu, "
             "\"result\": \"passed\"}%s\n",
             id.c_str(),features.c_str(),expected.c_str(),
-            oracle.c_str(),family.expected_fixtures,executed[i],
-            (i+1u==family_count) ? "" : ",");
+            oracle.c_str(),family.expected_fixtures,receipt->executed[0][i],
+            (i+1u==QP_SOURCE_CORPUS_FAMILIES) ? "" : ",");
     }
     std::fprintf(out,"  ]\n}\n");
     CHECK(std::ferror(out)==0);
     CHECK(std::fclose(out)==0);
+#ifdef _WIN32
+    errno=0;
+    if(std::remove(destination)!=0) CHECK(errno==ENOENT);
+#endif
     CHECK(std::rename(staged.c_str(),destination)==0);
-    std::fprintf(stderr,"[source-corpus] report=%s\n",destination);
+    std::fprintf(stderr,"[source-corpus] report=%s rounds=%zu "
+        "fixtures_per_round=%zu total_executions=%zu\n",
+        destination, QP_SOURCE_CORPUS_ROUNDS, QP_SOURCE_CORPUS_FIXTURES,
+        QP_SOURCE_CORPUS_ROUNDS * QP_SOURCE_CORPUS_FIXTURES);
 }
 
 struct clip_leaf_counts {
@@ -4316,42 +4434,61 @@ int main(int argc,char **argv)
         errno=0;
         if(std::remove(staged.c_str())!=0) CHECK(errno==ENOENT);
     }
-    constexpr size_t expected_families = 20u;
-    constexpr size_t expected_fixtures = 58u;
     const size_t families =
         sizeof(source_corpus_families)/sizeof(source_corpus_families[0]);
-    size_t fixture_total = 0u;
-    size_t executed[expected_families] = {};
-    CHECK(families == expected_families);
-    for(size_t i=0u;i<families;++i){
-        const source_corpus_family& entry=source_corpus_families[i];
-        CHECK(entry.id && *entry.id && entry.features && *entry.features &&
-              entry.expected && entry.oracle && entry.run);
-        CHECK(entry.expected_fixtures>0u && entry.expected_fixtures<=256u);
-        CHECK(std::strcmp(entry.expected,"accepted")==0 ||
-              std::strcmp(entry.expected,"rejected")==0 ||
-              std::strcmp(entry.expected,"mixed")==0);
-        CHECK(std::strcmp(entry.oracle,"original-pdfium")==0 ||
-              std::strcmp(entry.oracle,"native-only")==0 ||
-              std::strcmp(entry.oracle,"status-only")==0);
-        for(size_t j=0u;j<i;++j)
-            CHECK(std::strcmp(entry.id,source_corpus_families[j].id)!=0);
-        const size_t before=corpus_fixture_executions;
-        entry.run();
-        executed[i]=corpus_fixture_executions-before;
-        CHECK(executed[i]==entry.expected_fixtures);
-        fixture_total+=executed[i];
+    CHECK(families == QP_SOURCE_CORPUS_FAMILIES &&
+          QP_SOURCE_CORPUS_ROUNDS * QP_SOURCE_CORPUS_FIXTURES <= 256u);
+    source_corpus_receipt receipt{};
+    /* Clean up stale fixture output from a previous crashed invocation, but
+     * require every family to clean its OWN output before the next family. */
+    errno=0;
+    if (std::remove(SOURCE_QQ_PDF) != 0) CHECK(errno==ENOENT);
+    for (size_t round=0u; round<QP_SOURCE_CORPUS_ROUNDS; ++round) {
+        source_corpus_schedule(&receipt,round,families);
+        const size_t round_begin=corpus_fixture_executions;
+        for (size_t n=0u;n<families;++n) {
+            const size_t i=receipt.order[round][n];
+            const source_corpus_family& entry=source_corpus_families[i];
+            CHECK(entry.id && *entry.id && entry.features && *entry.features &&
+                  entry.expected && entry.oracle && entry.run);
+            CHECK(entry.expected_fixtures>0u && entry.expected_fixtures<=256u);
+            CHECK(std::strcmp(entry.expected,"accepted")==0 ||
+                  std::strcmp(entry.expected,"rejected")==0 ||
+                  std::strcmp(entry.expected,"mixed")==0);
+            CHECK(std::strcmp(entry.oracle,"original-pdfium")==0 ||
+                  std::strcmp(entry.oracle,"native-only")==0 ||
+                  std::strcmp(entry.oracle,"status-only")==0);
+            if (round==0u) for(size_t j=0u;j<i;++j)
+                CHECK(std::strcmp(entry.id,source_corpus_families[j].id)!=0);
+            CHECK(!std::filesystem::exists(SOURCE_QQ_PDF));
+            const size_t before=corpus_fixture_executions;
+            entry.run();
+            CHECK(!std::filesystem::exists(SOURCE_QQ_PDF));
+            receipt.executed[round][i]=corpus_fixture_executions-before;
+            CHECK(receipt.executed[round][i]==entry.expected_fixtures);
+            receipt.round_fixtures[round]+=receipt.executed[round][i];
+            std::fprintf(stderr,
+                "[source-corpus] PASS round=%zu id=%s expected=%s "
+                "oracle=%s fixtures=%zu tags=%s\n",
+                round,entry.id,entry.expected,entry.oracle,
+                entry.expected_fixtures,entry.features);
+        }
+        CHECK(receipt.round_fixtures[round]==QP_SOURCE_CORPUS_FIXTURES &&
+              corpus_fixture_executions-round_begin==QP_SOURCE_CORPUS_FIXTURES);
         std::fprintf(stderr,
-            "[source-corpus] PASS id=%s expected=%s oracle=%s fixtures=%zu tags=%s\n",
-            entry.id,entry.expected,entry.oracle,entry.expected_fixtures,
-            entry.features);
+            "[source-corpus] round=%zu seed=%08x fingerprint=%016llx "
+            "families=%zu fixtures=%zu\n",
+            round,(unsigned)QP_SOURCE_CORPUS_SEEDS[round],
+            (unsigned long long)receipt.fingerprints[round],
+            families,receipt.round_fixtures[round]);
     }
-    CHECK(fixture_total==expected_fixtures &&
-          corpus_fixture_executions==expected_fixtures);
+    CHECK(corpus_fixture_executions==
+        QP_SOURCE_CORPUS_ROUNDS*QP_SOURCE_CORPUS_FIXTURES);
     std::fprintf(stderr,
-        "[source-corpus] complete families=%zu fixtures=%zu\n",
-        families,fixture_total);
-    if(report_path)
-        publish_corpus_report(report_path,executed,families,fixture_total);
+        "[source-corpus] complete families=%zu unique_fixtures=%zu "
+        "rounds=%zu executions=%zu\n",
+        families,QP_SOURCE_CORPUS_FIXTURES,QP_SOURCE_CORPUS_ROUNDS,
+        corpus_fixture_executions);
+    if(report_path) publish_corpus_report(report_path,&receipt);
     return EXIT_SUCCESS;
 }
