@@ -34,3 +34,4 @@ QP_SOURCE_CORPUS_FAMILY("resources.invalid_graph_matrix", "Resources;ExtGState;m
 QP_SOURCE_CORPUS_FAMILY("resources.late_multistream_isolation", "Resources;indirect;parent-shadow;Contents-array;late-GS;page-isolation", "mixed", "original-pdfium", 1u, test_late_multistream_resource_override_isolation)
 QP_SOURCE_CORPUS_FAMILY("resources.parent_depth_budget", "PageTree;Resources;ExtGState;ancestry-limit;decode-limit;detached", "mixed", "original-pdfium", 1u, test_resource_parent_depth_independent_of_stream_depth)
 QP_SOURCE_CORPUS_FAMILY("operators.unsupported_text", "BT;ET;unsupported;fail-closed", "rejected", "status-only", 1u, test_unsupported_operator_fails_closed)
+QP_SOURCE_CORPUS_FAMILY("operators.mixed_unsupported_recovery", "BT;Do;sh;cs;CMYK;BMC;BDC;BI;late-rejection;recovery", "mixed", "original-pdfium", 13u, test_mixed_unsupported_operators_and_recovery)
