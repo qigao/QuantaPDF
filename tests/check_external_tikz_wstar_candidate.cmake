@@ -29,7 +29,14 @@ endif()
 
 # Surface a bounded number of source-page interior parity witnesses before
 # freezing their immutable coordinates as reviewer-approved goldens.
-string(REGEX MATCHALL "\\[texample-wstar-parity-interior\\][^\\n]*" parity_witnesses "${err}")
+# Preserve the complete RGB diagnostics; [^\\n] accidentally excludes the
+# literal letter n and truncated all witness records at "refere".
+string(REGEX MATCH "\\[texample-wstar-full-page\\][^\r\n]*" full_page_diagnostic "${err}")
+if(full_page_diagnostic STREQUAL "")
+  message(FATAL_ERROR "Missing whole-page source/PDFium stroke diagnostic")
+endif()
+message(STATUS "${full_page_diagnostic}")
+string(REGEX MATCHALL "\\[texample-wstar-parity-interior\\][^\r\n]*" parity_witnesses "${err}")
 list(LENGTH parity_witnesses parity_witness_count)
 if(parity_witness_count LESS 3 OR parity_witness_count GREATER 8)
   message(FATAL_ERROR "Unexpected interior parity witness count: ${parity_witness_count}")
