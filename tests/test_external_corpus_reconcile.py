@@ -173,6 +173,17 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
         self.assertEqual(report["native_wstar_clip_supported_count"],2)
         self.assertEqual(report["wstar_pixel_positive_document_count"],2)
 
+    def test_optimized_python_cannot_bypass_admission_assertions(self):
+        import subprocess
+        script=Path(__file__).resolve().parents[1]/"tools"/"qualification"/"reconcile_external_corpus.py"
+        result=subprocess.run(
+            [sys.executable,"-O",str(script),"--help"],
+            capture_output=True,text=True,timeout=15,
+            check=False,
+        )
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn("requires Python without -O",result.stderr)
+
     def test_duplicate_semantic_json_key_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "duplicate"):
             parse_evidence_json('{"result":"passed","result":"failed"}')

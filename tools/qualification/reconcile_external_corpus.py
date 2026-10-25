@@ -10,6 +10,12 @@ from pathlib import Path
 import re
 import sys
 
+# Semantic admission is a security/conformance gate: Python -O removes
+# every assert that verifies original-source identity and pixel evidence.
+# Refuse optimized execution instead of reporting a fabricated 7/2 success.
+if not __debug__:
+    raise SystemExit("external corpus reconciliation requires Python without -O")
+
 # Reports are separate untrusted evidence: reject duplicate JSON keys,
 # nonfinite numbers and unexpectedly large/symlinked records before counting.
 MAX_EVIDENCE_BYTES = 1024 * 1024
