@@ -3489,8 +3489,8 @@ int test_external_tikz_wstar_pixels(const char *filename,
                 for(int dx=-1;dx<=1;++dx) {
                     const int xx=(int)x+dx;
                     if(xx<0 || xx>=(int)width) continue;
-                    const unsigned char *near=pdfium.at((size_t)xx,(size_t)yy);
-                    if(near[0]<80u && near[1]<80u && near[2]<80u) {
+                    const unsigned char *adjacent=pdfium.at((size_t)xx,(size_t)yy);
+                    if(adjacent[0]<80u && adjacent[1]<80u && adjacent[2]<80u) {
                         reference_stroke=true;
                         break;
                     }

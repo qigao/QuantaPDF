@@ -31,7 +31,7 @@ endif()
 # freezing their immutable coordinates as reviewer-approved goldens.
 # Preserve the complete RGB diagnostics; [^\\n] accidentally excludes the
 # literal letter n and truncated all witness records at "refere".
-string(REGEX MATCH "\\[texample-wstar-full-page\\][^\r\n]*" full_page_diagnostic "${err}")
+string(REGEX MATCH "\\[texample-wstar-full-page\\] mean=[^\r\n]*" full_page_diagnostic "${err}")
 if(full_page_diagnostic STREQUAL "")
   message(FATAL_ERROR "Missing whole-page source/PDFium stroke diagnostic")
 endif()
