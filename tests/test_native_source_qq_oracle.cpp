@@ -1320,9 +1320,10 @@ void test_late_multistream_resource_override_isolation()
 
 
 /* An independently bounded three-level PageTree provides inherited GS
- * resources. The caller permits three ancestry nodes, while the stream
- * decoder permits only two direct nesting levels. Resource resolution must
- * use max_parent_steps, NOT the stream decoder's max_direct_depth. */
+ * resources. Its ancestry budget is independent of the stream decoder's
+ * direct replay depth: two ancestor nodes are insufficient even with ample
+ * decode depth; a shallow decoder cannot be bypassed by allowing three
+ * ancestor nodes. Never substitute one limit for the other. */
 void test_resource_parent_depth_independent_of_stream_depth()
 {
     track_corpus_fixture();
@@ -1369,11 +1370,12 @@ void test_resource_parent_depth_independent_of_stream_depth()
     quantapdf_graph_stream_limits shallow_decode=decode_limits;
     shallow_decode.max_direct_depth=2u;
 
-    /* Geometry and resource ancestry both need the same three nodes:
-     * 2 must refuse even though the stream's own budget is independently 2. */
+    /* Geometry and resource ancestry must both reach the third PageTree
+     * node. The larger decoder depth cannot bypass a shallow resource
+     * ancestry limit; the same limit must drive both layers. */
     quantapdf_ir refused{};
     CHECK(quantapdf_graph_snapshot_page_composer_ir(
-        snap,0u,2u,&shallow_decode,&parse_limits,1u,&lower_limits,
+        snap,0u,2u,&decode_limits,&parse_limits,1u,&lower_limits,
         &refused)==QUANTAPDF_ERROR_UNSUPPORTED);
     CHECK(refused.pages==nullptr && refused.page_count==0u &&
           refused.operations==nullptr && refused.operation_count==0u &&
@@ -1381,9 +1383,22 @@ void test_resource_parent_depth_independent_of_stream_depth()
           refused.resources.graphics_states==nullptr);
     quantapdf_ir_dispose(&refused);
 
+    /* This is the discriminating regression: direct semantic lowering used
+     * to borrow decoder.max_direct_depth and ignore the caller's resource
+     * parent limit. A generous decoder depth must not allow 2 ancestors. */
     quantapdf_pdf_page_semantics *page_semantics=nullptr;
+    CHECK(quantapdf_graph_snapshot_page_semantics(
+        snap,0u,2u,&decode_limits,&parse_limits,1u,&page_semantics)
+        == QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(page_semantics==nullptr);
+    /* Conversely, too-small stream replay depth fails independently even
+     * if ancestry itself is sufficient. No source objects may escape. */
+    CHECK(quantapdf_graph_snapshot_page_semantics(
+        snap,0u,3u,&shallow_decode,&parse_limits,1u,&page_semantics)
+        == QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(page_semantics==nullptr);
     OK(quantapdf_graph_snapshot_page_semantics(
-        snap,0u,3u,&shallow_decode,&parse_limits,1u,&page_semantics));
+        snap,0u,3u,&decode_limits,&parse_limits,1u,&page_semantics));
     CHECK(page_semantics!=nullptr &&
           page_semantics->graphics!=nullptr &&
           page_semantics->graphics->clip_count==1u);
@@ -1392,7 +1407,7 @@ void test_resource_parent_depth_independent_of_stream_depth()
 
     quantapdf_ir accepted{};
     OK(quantapdf_graph_snapshot_page_composer_ir(
-        snap,0u,3u,&shallow_decode,&parse_limits,1u,&lower_limits,
+        snap,0u,3u,&decode_limits,&parse_limits,1u,&lower_limits,
         &accepted));
     CHECK(accepted.page_count==1u && accepted.operation_count==3u &&
           accepted.resources.clip_count==1u);
