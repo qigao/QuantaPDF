@@ -3393,11 +3393,45 @@ int test_external_tikz_wstar_pixels(const char *filename,
         full_page_mean,full_page_gross,(int)full_page_repeat_equal,
         reference_gray_ink,native_gray_ink,common_gray_ink,
         gross_near_gray_ink);
-    /* Full-page pixel parity remains UNQUALIFIED. Do not assert a deliberate
-       mismatch: improving the stroke implementation must not invert this
-       diagnostic into a failing test. Independent positive whole-page gates
-       and cross-platform evidence are still required before admission. */
-    CHECK(std::isfinite(full_page_mean) && full_page_gross<=pixel_count);
+    /* Positive whole-original-page source/PDFium gate. These thresholds
+       apply only to the immutable 238x181, 72 DPI source, independently of
+       the separately scored even-odd orange fill. Formal admission is not
+       conferred by this per-platform test. */
+    const bool full_page_candidate_parity=
+        std::isfinite(full_page_mean) && full_page_mean<=1.0 &&
+        full_page_gross==0u && gross_near_gray_ink==0u &&
+        reference_gray_ink>=2500u && native_gray_ink>=2500u &&
+        common_gray_ink*100u>=reference_gray_ink*94u;
+    if(!full_page_candidate_parity)
+        std::fprintf(stderr,
+            "[texample-wstar-full-page-gate] FAILED mean=%.6f gross=%zu "
+            "reference-gray=%zu native-gray=%zu overlap=%zu\n",
+            full_page_mean,full_page_gross,reference_gray_ink,
+            native_gray_ink,common_gray_ink);
+    CHECK(full_page_candidate_parity);
+
+    /* Original-source gray outline golden; formerly PDFium RGB 85 and
+       Native RGB 159 at (71,36) before the device-width correction. */
+    const size_t gray_golden_x=71u,gray_golden_y=36u;
+    const unsigned char *gray_reference=
+        pdfium.at(gray_golden_x,gray_golden_y);
+    const unsigned char *gray_pixel=
+        full_page_native.pixels+gray_golden_y*full_page_native.stride+
+        gray_golden_x*4u;
+    unsigned gray_golden_native[3]={0u,0u,0u};
+    for(size_t channel=0u;channel<3u;++channel) {
+        gray_golden_native[channel]=on_white(gray_pixel,channel);
+        CHECK(gray_reference[channel]==85u);
+        CHECK(std::abs((int)gray_golden_native[channel]-
+                       (int)gray_reference[channel])<=64);
+    }
+    std::fprintf(stderr,
+        "[texample-wstar-gray-interior-golden] x=%zu y=%zu "
+        "reference=%u,%u,%u native=%u,%u,%u\n",
+        gray_golden_x,gray_golden_y,
+        (unsigned)gray_reference[0],(unsigned)gray_reference[1],
+        (unsigned)gray_reference[2],gray_golden_native[0],
+        gray_golden_native[1],gray_golden_native[2]);
     CHECK(detached.operation_count==3u);
     quantapdf_composer_operation projected_operation=detached.operations[0];
     CHECK(projected_operation.kind==QUANTAPDF_COMPOSER_OPERATION_PATH);
@@ -3632,11 +3666,18 @@ int test_external_tikz_wstar_pixels(const char *filename,
         "  \"reference_oracle\": \"original-pdfium\",\n"
         "  \"original_source_pdfium_oracle\": \"passed\",\n"
         "  \"detached_c11_native_raster\": \"wstar-fill-mask-only\",\n"
-        "  \"full_page_native_raster\": \"rendered_but_pixel_parity_unqualified\",\n"
+        "  \"full_page_native_raster\": \"candidate_whole_page_pixel_gate_passed_not_admitted\",\n"
         "  \"full_page_mean_rgb_error\": %.6f,\n"
         "  \"full_page_gross_error_pixels\": %zu,\n"
         "  \"full_page_repeat_rgba_identical\": %s,\n"
-        "  \"comparison_scope\": \"wstar-fill-mask-candidate-only\",\n"
+        "  \"full_page_candidate_pixel_gate_passed\": true,\n"
+        "  \"full_page_gray_reference_pixels\": %zu,\n"
+        "  \"full_page_gray_native_pixels\": %zu,\n"
+        "  \"full_page_gray_overlap_pixels\": %zu,\n"
+        "  \"full_page_fixed_gray_golden_count\": 1,\n"
+        "  \"full_page_gray_golden_original_rgb\": \"85,85,85\",\n"
+        "  \"full_page_gray_golden_native_rgb\": \"%u,%u,%u\",\n"
+        "  \"comparison_scope\": \"original-whole-page-and-wstar-fill-mask-candidate-only\",\n"
         "  \"native_ir\": \"lowered\",\n"
         "  \"source_sha256\": \"%s\",\n"
         "  \"source_and_graph_released_before_raster\": true,\n"
@@ -3665,6 +3706,8 @@ int test_external_tikz_wstar_pixels(const char *filename,
         "}\n",
         full_page_mean,full_page_gross,
         full_page_repeat_equal ? "true" : "false",
+        reference_gray_ink,native_gray_ink,common_gray_ink,
+        gray_golden_native[0],gray_golden_native[1],gray_golden_native[2],
         expected_sha256,width,height,painted_count,
         clip_count,winding.nonzero,winding.evenodd,
         winding.intersections,union_orange,reference_orange,native_orange,

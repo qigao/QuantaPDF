@@ -55,13 +55,16 @@ foreach(field IN ITEMS source_and_graph_released_before_raster
     source_bytes_unchanged_after_reference_and_native
     pdfium_fallback_used repeat_rgba_identical
     official_corpus_admitted
-    full_page_repeat_rgba_identical)
+    full_page_repeat_rgba_identical
+    full_page_candidate_pixel_gate_passed)
   string(JSON ${field} GET "${json}" ${field})
 endforeach()
 foreach(field IN ITEMS page_width page_height source_painted_paths
     source_clip_count source_w_nonzero_clip_path_leaves
     source_wstar_evenodd_clip_path_leaves source_clip_intersection_nodes
-    full_page_gross_error_pixels comparison_union_orange_pixels
+    full_page_gross_error_pixels full_page_gray_reference_pixels
+    full_page_gray_native_pixels full_page_gray_overlap_pixels
+    full_page_fixed_gray_golden_count comparison_union_orange_pixels
     reference_orange_pixels native_evenodd_orange_pixels overlap_orange_pixels
     native_nonzero_orange_pixels evenodd_nonzero_diff_pixels
     masked_gross_error_pixels fixed_interior_goldens
@@ -70,6 +73,8 @@ foreach(field IN ITEMS page_width page_height source_painted_paths
 endforeach()
 string(JSON comparison_scope GET "${json}" comparison_scope)
 string(JSON full_page_native_raster GET "${json}" full_page_native_raster)
+string(JSON gray_original GET "${json}" full_page_gray_golden_original_rgb)
+string(JSON gray_native GET "${json}" full_page_gray_golden_native_rgb)
 string(JSON mean GET "${json}" masked_mean_rgb_error)
 string(JSON full_page_mean GET "${json}" full_page_mean_rgb_error)
 
@@ -91,12 +96,19 @@ if(NOT result STREQUAL "passed"
    OR NOT reference_oracle STREQUAL "original-pdfium"
    OR NOT original_source_pdfium_oracle STREQUAL "passed"
    OR NOT detached_c11_native_raster STREQUAL "wstar-fill-mask-only"
-   OR NOT full_page_native_raster STREQUAL "rendered_but_pixel_parity_unqualified"
+   OR NOT full_page_native_raster STREQUAL "candidate_whole_page_pixel_gate_passed_not_admitted"
    OR NOT full_page_repeat_rgba_identical
-   OR full_page_mean LESS 0 OR full_page_mean GREATER 255
-   OR full_page_gross_error_pixels GREATER full_page_pixels
+   OR NOT full_page_candidate_pixel_gate_passed
+   OR full_page_mean LESS 0 OR full_page_mean GREATER 1.0
+   OR NOT full_page_gross_error_pixels EQUAL 0
+   OR full_page_gray_reference_pixels LESS 2500
+   OR full_page_gray_native_pixels LESS 2500
+   OR full_page_gray_overlap_pixels GREATER full_page_gray_reference_pixels
+   OR NOT full_page_fixed_gray_golden_count EQUAL 1
+   OR NOT gray_original STREQUAL "85,85,85"
+   OR gray_native STREQUAL ""
    OR NOT page_width EQUAL 238 OR NOT page_height EQUAL 181
-   OR NOT comparison_scope STREQUAL "wstar-fill-mask-candidate-only"
+   OR NOT comparison_scope STREQUAL "original-whole-page-and-wstar-fill-mask-candidate-only"
    OR NOT native_ir STREQUAL "lowered"
    OR NOT source_sha256 STREQUAL PINNED_SHA256
    OR NOT source_and_graph_released_before_raster
@@ -119,6 +131,11 @@ if(NOT result STREQUAL "passed"
    OR NOT external_wstar_pixel_supported_count EQUAL 0
    OR NOT generated_fixture_count EQUAL 0)
   message(FATAL_ERROR "Candidate W* report has unexpected semantics or pixel parity")
+endif()
+math(EXPR gray_required_overlap "${full_page_gray_reference_pixels} * 94")
+math(EXPR gray_actual_overlap "${full_page_gray_overlap_pixels} * 100")
+if(gray_actual_overlap LESS gray_required_overlap)
+  message(FATAL_ERROR "Original-page gray stroke overlap below 94%")
 endif()
 math(EXPR required_overlap "${reference_orange_pixels} * 99")
 math(EXPR actual_overlap "${overlap_orange_pixels} * 100")
