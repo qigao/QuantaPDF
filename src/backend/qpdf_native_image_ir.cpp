@@ -12,6 +12,7 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -257,6 +258,32 @@ private:
     std::vector<Obj> args;
 };
 
+/* Resolution of referenced resources is not a display-only observation.
+ * A malformed /Parent chain must never be accepted by the image-only
+ * renderer. Cap ancestry separately from content-stream/decode capacity. */
+Obj bounded_page_resources(Obj page, size_t max_parent_steps)
+{
+    std::set<QPDFObjGen> seen;
+    Obj current = page;
+    size_t depth = 0u;
+    while (!current.isNull()) {
+        admit(depth < max_parent_steps && depth < 256u,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        ++depth;
+        admit(current.isDictionary() && current.isIndirect(),
+              QUANTAPDF_ERROR_FORMAT);
+        admit(seen.insert(current.getObjGen()).second,
+              QUANTAPDF_ERROR_FORMAT);
+        Obj resources = current.getKey("/Resources");
+        if (!resources.isNull()) {
+            admit(resources.isDictionary(),QUANTAPDF_ERROR_FORMAT);
+            return resources;
+        }
+        current=current.getKey("/Parent");
+    }
+    throw rejected{QUANTAPDF_ERROR_FORMAT};
+}
+
 std::vector<unsigned char> page_streams(
     Obj streams,const quantapdf_qpdf_source_raw_image_limits& limits)
 {
@@ -345,7 +372,8 @@ extern "C" quantapdf_status quantapdf_qpdf_source_raw_images_to_ir(
        size==0u || limits->max_pdf_bytes==0u ||
        limits->max_content_bytes==0u || limits->max_content_streams==0u ||
        limits->max_operations==0u || limits->max_page_pixels==0u ||
-       limits->max_source_pixels==0u || limits->max_drawn_pixels==0u)
+       limits->max_source_pixels==0u || limits->max_drawn_pixels==0u ||
+       limits->max_parent_steps==0u)
         return QUANTAPDF_ERROR_ARGUMENT;
     if(size>hard_pdf_bytes || size>limits->max_pdf_bytes ||
        limits->max_content_bytes>hard_content_bytes)
@@ -375,8 +403,8 @@ extern "C" quantapdf_status quantapdf_qpdf_source_raw_images_to_ir(
         admit(geo.page.getKey("/Group").isNull() &&
               geo.page.getKey("/Annots").isNull(),
               QUANTAPDF_ERROR_UNSUPPORTED);
-        Obj resources=quantapdf_qpdf_inherited_value(geo.page,"/Resources");
-        admit(resources.isDictionary());
+        Obj resources=bounded_page_resources(
+            geo.page,limits->max_parent_steps);
         admission source{resources,*limits,page_w,page_h,0u,0u,0u,{}};
         auto contents=page_streams(geo.page.getKey("/Contents"),*limits);
         QPDF parser;
