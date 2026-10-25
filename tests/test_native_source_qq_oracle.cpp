@@ -1318,6 +1318,149 @@ void test_late_multistream_resource_override_isolation()
     CHECK(std::remove(SOURCE_QQ_PDF)==0);
 }
 
+
+/* An independently bounded three-level PageTree provides inherited GS
+ * resources. Its ancestry budget is independent of the stream decoder's
+ * direct replay depth: two ancestor nodes are insufficient even with ample
+ * decode depth; a shallow decoder cannot be bypassed by allowing three
+ * ancestor nodes. Never substitute one limit for the other. */
+void test_resource_parent_depth_independent_of_stream_depth()
+{
+    track_corpus_fixture();
+    auto pdf=QPDF::create();
+    pdf->emptyPDF();
+    auto root=pdf->getRoot().getKey("/Pages");
+    auto middle=pdf->makeIndirectObject(
+        QPDFObjectHandle::parse("<< /Type /Pages >>"));
+    auto page=pdf->makeIndirectObject(
+        QPDFObjectHandle::parse("<< /Type /Page >>"));
+    root.replaceKey("/Kids",QPDFObjectHandle::newArray({middle}));
+    root.replaceKey("/Count",QPDFObjectHandle::newInteger(1));
+    root.replaceKey("/MediaBox",QPDFObjectHandle::parse("[0 0 120 120]"));
+    middle.replaceKey("/Parent",root);
+    middle.replaceKey("/Kids",QPDFObjectHandle::newArray({page}));
+    middle.replaceKey("/Count",QPDFObjectHandle::newInteger(1));
+    page.replaceKey("/Parent",middle);
+    auto state=pdf->makeIndirectObject(QPDFObjectHandle::parse(
+        "<< /ca 1 /CA 1 /BM /Normal >>"));
+    auto group=pdf->makeIndirectObject(QPDFObjectHandle::newDictionary());
+    group.replaceKey("/GS",state);
+    auto resources=pdf->makeIndirectObject(QPDFObjectHandle::newDictionary());
+    resources.replaceKey("/ExtGState",group);
+    root.replaceKey("/Resources",resources);
+    page.replaceKey("/Contents",pdf->newStream(
+        "q /GS gs 10 10 80 80 re W n "
+        "1 0 0 rg 0 0 120 120 re f Q "
+        "0 0 1 rg 0 0 12 12 re f "
+        "0 1 0 rg 100 100 12 12 re f"));
+    QPDFWriter writer(*pdf);
+    writer.setOutputMemory();
+    writer.write();
+    auto blob=writer.getBufferSharedPointer();
+    FILE *f=std::fopen(SOURCE_QQ_PDF,"wb");
+    CHECK(f!=nullptr);
+    CHECK(std::fwrite(blob->getBuffer(),1,blob->getSize(),f)==blob->getSize());
+    CHECK(std::fclose(f)==0);
+
+    quantapdf_document *doc=nullptr;
+    quantapdf_graph_snapshot *snap=nullptr;
+    OK(quantapdf_open(SOURCE_QQ_PDF,nullptr,&doc));
+    OK(quantapdf_document_capture_graph(doc,&graph_limits,&snap));
+    quantapdf_close(doc); /* No active PDFium/provider document for native. */
+    quantapdf_graph_stream_limits shallow_decode=decode_limits;
+    shallow_decode.max_direct_depth=2u;
+
+    /* Geometry and resource ancestry must both reach the third PageTree
+     * node. The larger decoder depth cannot bypass a shallow resource
+     * ancestry limit; the same limit must drive both layers. */
+    quantapdf_ir refused{};
+    CHECK(quantapdf_graph_snapshot_page_composer_ir(
+        snap,0u,2u,&decode_limits,&parse_limits,1u,&lower_limits,
+        &refused)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(refused.pages==nullptr && refused.page_count==0u &&
+          refused.operations==nullptr && refused.operation_count==0u &&
+          refused.resources.clips==nullptr &&
+          refused.resources.graphics_states==nullptr);
+    quantapdf_ir_dispose(&refused);
+
+    /* This is the discriminating regression: direct semantic lowering used
+     * to borrow decoder.max_direct_depth and ignore the caller's resource
+     * parent limit. A generous decoder depth must not allow 2 ancestors. */
+    quantapdf_pdf_page_semantics *page_semantics=nullptr;
+    CHECK(quantapdf_graph_snapshot_page_semantics(
+        snap,0u,2u,&decode_limits,&parse_limits,1u,&page_semantics)
+        == QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(page_semantics==nullptr);
+    /* Conversely, too-small stream replay depth fails independently even
+     * if ancestry itself is sufficient. No source objects may escape. */
+    CHECK(quantapdf_graph_snapshot_page_semantics(
+        snap,0u,3u,&shallow_decode,&parse_limits,1u,&page_semantics)
+        == QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(page_semantics==nullptr);
+    OK(quantapdf_graph_snapshot_page_semantics(
+        snap,0u,3u,&decode_limits,&parse_limits,1u,&page_semantics));
+    CHECK(page_semantics!=nullptr &&
+          page_semantics->graphics!=nullptr &&
+          page_semantics->graphics->clip_count==1u);
+    quantapdf_pdf_page_semantics_dispose(page_semantics);
+    page_semantics=nullptr;
+
+    quantapdf_ir accepted{};
+    OK(quantapdf_graph_snapshot_page_composer_ir(
+        snap,0u,3u,&decode_limits,&parse_limits,1u,&lower_limits,
+        &accepted));
+    CHECK(accepted.page_count==1u && accepted.operation_count==3u &&
+          accepted.resources.clip_count==1u);
+    quantapdf_graph_snapshot_drop(snap); /* Detach before C11 raster. */
+
+    quantapdf_ir_raster_image image{},repeat{};
+    OK(quantapdf_ir_raster_scoped_operations_v1(
+        &accepted,0u,&raster_limits,&image));
+    OK(quantapdf_ir_raster_scoped_operations_v1(
+        &accepted,0u,&raster_limits,&repeat));
+    CHECK(image.width==PAGE && image.height==PAGE &&
+          image.size==PAGE*PAGE*4u && image.stride==PAGE*4u &&
+          repeat.size==image.size &&
+          std::memcmp(image.pixels,repeat.pixels,image.size)==0);
+    quantapdf_ir_raster_image_dispose(&repeat);
+    quantapdf_ir_dispose(&accepted);
+
+    rgb_image oracle=render_direct_pdfium_reference(SOURCE_QQ_PDF);
+    CHECK(oracle.width==(int)PAGE && oracle.height==(int)PAGE);
+    double error=0.0;
+    size_t gross=0u;
+    for(size_t y=0u;y<PAGE;++y)for(size_t x=0u;x<PAGE;++x) {
+        const unsigned char *a=image.pixels+y*image.stride+4u*x;
+        const unsigned char *b=oracle.at(x,y);
+        unsigned delta_max=0u;
+        for(size_t c=0u;c<3u;++c) {
+            unsigned lhs=on_white(a,c),rhs=b[c];
+            unsigned delta=lhs>rhs?lhs-rhs:rhs-lhs;
+            if(delta>delta_max) delta_max=delta;
+            error+=(double)delta;
+        }
+        if(delta_max>64u) ++gross;
+    }
+    CHECK(error/(double)(PAGE*PAGE*3u)<=10.0 &&
+          gross<=PAGE*PAGE/12u);
+    const probe goldens[]={
+        {30,30,255,0,0}, {5,5,0,0,255},
+        {105,105,0,255,0}, {95,35,255,255,255}
+    };
+    for(const auto& p:goldens) {
+        const size_t y=PAGE-1u-(size_t)p.y_pdf;
+        const unsigned char *a=image.pixels+y*image.stride+4u*(size_t)p.x;
+        const unsigned char *b=oracle.at((size_t)p.x,y);
+        const unsigned expected[]={p.r,p.g,p.b};
+        for(size_t c=0u;c<3u;++c) {
+            CHECK(std::abs((int)on_white(a,c)-(int)expected[c])<=3);
+            CHECK(std::abs((int)b[c]-(int)expected[c])<=3);
+        }
+    }
+    quantapdf_ir_raster_image_dispose(&image);
+    CHECK(std::remove(SOURCE_QQ_PDF)==0);
+}
+
 void test_inherited_extgstate_fail_closed()
 {
     struct scenario { const char *resources; quantapdf_status expected; };
@@ -3547,7 +3690,7 @@ int test_external_tikz_wstar_pixels(const char *filename,
     }
     if(lower_status==QUANTAPDF_OK) {
         lower_status=quantapdf_graph_snapshot_page_semantics(
-            snap,0u,&decode_limits,&parse_limits,4u,&semantics);
+            snap,0u,4u,&decode_limits,&parse_limits,4u,&semantics);
         std::fprintf(stderr,"[texample-wstar-lowering] semantics=%d\n",(int)lower_status);
         if(lower_status!=QUANTAPDF_OK) dump_tikz_candidate_contents(snap);
     }
@@ -4173,8 +4316,8 @@ int main(int argc,char **argv)
         errno=0;
         if(std::remove(staged.c_str())!=0) CHECK(errno==ENOENT);
     }
-    constexpr size_t expected_families = 19u;
-    constexpr size_t expected_fixtures = 57u;
+    constexpr size_t expected_families = 20u;
+    constexpr size_t expected_fixtures = 58u;
     const size_t families =
         sizeof(source_corpus_families)/sizeof(source_corpus_families[0]);
     size_t fixture_total = 0u;

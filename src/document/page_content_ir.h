@@ -16,10 +16,13 @@ extern "C" {
  * decoded from the selected immutable graph version in PDF array order.
  * A newline separates streams; operands, graphics state and path state
  * may span stream boundaries. All budgets, including max_streams, are
- * explicit. Unsupported resources/text/images fail atomically.
+ * explicit. The caller's max_parent_steps bounds inherited PageTree resource
+ * resolution independently from stream decoding max_direct_depth.
+ * Unsupported resources/text/images fail atomically.
  * Detached result retains no graph, stream, parser or context pointers. */
 quantapdf_status quantapdf_graph_snapshot_page_semantics(
     const quantapdf_graph_snapshot *snapshot, size_t page_index,
+    size_t max_parent_steps,
     const quantapdf_graph_stream_limits *decode_limits,
     const quantapdf_pdf_content_limits *parse_limits,
     size_t max_streams, quantapdf_pdf_page_semantics **out_page);

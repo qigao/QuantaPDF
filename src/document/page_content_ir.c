@@ -46,6 +46,7 @@ void quantapdf_pdf_page_semantics_dispose(quantapdf_pdf_page_semantics *page)
 
 quantapdf_status quantapdf_graph_snapshot_page_semantics(
     const quantapdf_graph_snapshot *snapshot, size_t page_index,
+    size_t max_parent_steps,
     const quantapdf_graph_stream_limits *decode_limits,
     const quantapdf_pdf_content_limits *parse_limits,
     size_t max_streams, quantapdf_pdf_page_semantics **out_page)
@@ -63,7 +64,7 @@ quantapdf_status quantapdf_graph_snapshot_page_semantics(
     int array = 0;
     if (out_page != NULL) *out_page = NULL;
     if (out_page == NULL || snapshot == NULL || decode_limits == NULL ||
-        parse_limits == NULL || max_streams == 0 ||
+        parse_limits == NULL || max_streams == 0 || max_parent_steps == 0 ||
         decode_limits->max_decoded_bytes == 0 ||
         decode_limits->max_direct_depth == 0 ||
         decode_limits->max_direct_depth > QUANTAPDF_GRAPH_MAX_DIRECT_DEPTH ||
@@ -129,7 +130,7 @@ quantapdf_status quantapdf_graph_snapshot_page_semantics(
         parse_limits, &page->content);
     if (status != QUANTAPDF_OK) goto fail;
     status = quantapdf_graph_resolve_page_extgstates(snapshot->graph,
-        page_index, decode_limits->max_direct_depth, page->content,
+        page_index, max_parent_steps, page->content,
         &deltas, &delta_count);
     if (status != QUANTAPDF_OK) goto fail;
     status = quantapdf_pdf_graphics_evaluate_resolved(page->content,
