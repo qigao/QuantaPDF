@@ -46,6 +46,12 @@ struct scene {
     bool flate=false;
     bool inherited_resources=false;
     bool malformed_leaf_resources=false;
+    bool optional_content=false;
+    bool interpolate=false;
+    bool image_intent=false;
+    bool image_smask_data=false;
+    bool default_rgb=false;
+    bool valid_form=false;
 };
 
 std::vector<unsigned char> make_original(const scene& sc)
@@ -63,10 +69,14 @@ std::vector<unsigned char> make_original(const scene& sc)
     const std::string first=sc.gray ?
         std::string("\0\x55\xaa\xff",4) :
         std::string("\xff\0\0\0\xff\0\0\0\xff\xff\xff\0",12);
-    /* Fixed Flate encoding of grayscale samples [0,85,170,255]. */
+    /* Fixed Flate encodings keep the original PDF independent from its
+     * Native decoder and avoid a test-only zlib runtime dependency. */
     const std::string gray_flate(
         "\x78\x9c\x63\x08\x5d\xf5\x1f\x00\x03\x56\x01\xff",12);
-    Obj img=pdf->newStream(sc.flate ? gray_flate : first);
+    const std::string rgb_flate(
+        "\x78\xda\xfb\xcf\xc0\xc0\xf0\x1f\x84\xff\xff\x67\x00\x00\x1c\xef\x04\xfc",18);
+    Obj img=pdf->newStream(sc.flate ?
+        (sc.gray ? gray_flate : rgb_flate) : first);
     if(sc.flate)img.getDict().replaceKey(
         "/Filter",Obj::newName("/FlateDecode"));
     img.getDict().replaceKey("/Type",Obj::newName("/XObject"));
@@ -79,7 +89,25 @@ std::vector<unsigned char> make_original(const scene& sc)
         sc.wrong_color?"/DeviceCMYK":(sc.gray?"/DeviceGray":"/DeviceRGB")));
     if(sc.soft_mask)
         img.getDict().replaceKey("/SMask",Obj::newName("/None"));
+    if(sc.optional_content)
+        img.getDict().replaceKey("/OC",pdf->makeIndirectObject(
+            Obj::parse("<< /Type /OCG /Name (Hidden) >>")));
+    if(sc.interpolate)
+        img.getDict().replaceKey("/Interpolate",Obj::newBool(true));
+    if(sc.image_intent)
+        img.getDict().replaceKey("/Intent",Obj::newName("/Perceptual"));
+    if(sc.image_smask_data)
+        img.getDict().replaceKey("/SMaskInData",Obj::newInteger(1));
     objects.replaceKey("/I",img);
+    if(sc.valid_form) {
+        /* A valid Form Do must refuse the entire mixed page; unlike the
+         * pre-existing wrong_subtype fixture it has its own proper BBox. */
+        Obj form=pdf->newStream(std::string("q Q"));
+        form.getDict().replaceKey("/Type",Obj::newName("/XObject"));
+        form.getDict().replaceKey("/Subtype",Obj::newName("/Form"));
+        form.getDict().replaceKey("/BBox",Obj::parse("[0 0 1 1]"));
+        objects.replaceKey("/Fm",form);
+    }
 
     const std::string second("\0\0\xff",3);
     Obj blue=pdf->newStream(second);
@@ -91,6 +119,9 @@ std::vector<unsigned char> make_original(const scene& sc)
     blue.getDict().replaceKey("/ColorSpace",Obj::newName("/DeviceRGB"));
     objects.replaceKey("/J",blue);
     resources.replaceKey("/XObject",objects);
+    if(sc.default_rgb)
+        resources.replaceKey("/ColorSpace",
+            Obj::parse("<< /DefaultRGB /DeviceGray >>"));
     if(!sc.remove_resources) {
         if (sc.inherited_resources)
             pages.replaceKey("/Resources",resources);
