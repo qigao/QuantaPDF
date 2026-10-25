@@ -8,9 +8,9 @@ PDFium-free exit gate [#208](https://github.com/qigao/QuantaPDF/issues/208).
 ## Executable manifest
 
 The versioned registry at [`tests/native_source_corpus.def`](../../tests/native_source_corpus.def)
-is the single source of truth for **17 fixture families / 42
-generated source-PDF executions** after the move-only/degenerate Clip
-extension. The original baseline was 14/36; these are generated fixtures,
+is the single source of truth for **19 fixture families / 57
+generated source-PDF executions** following the Clip and resource-negative
+extensions. The original baseline was 14/36; these are generated fixtures,
 not additional licensed external originals. It carries a stable family ID, feature
 tags, expected accepted/rejected/mixed outcome, oracle category, number of
 generated documents, and the test function bound to each row.
@@ -25,7 +25,7 @@ new family must update the executable registry; an expanded family must
 update its declared count and the aggregate gate. No second test binary or
 GitHub Actions workflow is needed.
 
-This is an **in-repository generated corpus**, not a claim that 42
+This is an **in-repository generated corpus**, not a claim that 57
 independent external documents have been qualified. A family with two
 variations has two generated PDFs; a two-page fixture still counts as one
 generated PDF. The individual assertions within each family retain their
@@ -72,6 +72,35 @@ The separate no-constructor `W n`/`W* n` behavior remains a no-op based on
 the existing PDFium-observed source test; a MOVE-only path is an actual
 zero-area clipping path. This is bounded path-only qualification, not a
 general original-PDF compatibility or production PDFium cutover.
+
+## Referenced graphics-resource negative admission
+
+Two resource-specific generated families extend the fixture registry:
+
+- `resources.invalid_graph_matrix` (14 generated source documents; status-only):
+  missing `/Resources`, absent or wrong-typed `/ExtGState`, unresolved `/GS`,
+  non-dictionary states, incorrect `/Type`, nonnumeric/out-of-range alpha,
+  unadmitted blend modes and soft masks, unknown `/OP`, and page-level
+  `/Resources` masking otherwise-valid ancestor resources. A valid PATH paint
+  precedes each invalid `gs` operator; parsing/lowering still must return the
+  exact expected error and publish **zero** detached output fields. Repeated
+  capture must not reuse failed resource or Graph state.
+- `resources.late_multistream_isolation` (one original, two selected pages;
+  mixed): a parent owns an indirect valid `/GS`, but the second page has an
+  independently indirect, unsupported `/GS` with the same name. The bad page
+  splits `/GS` from `gs` across two `/Contents` streams after an earlier
+  valid PATH. It fails atomically without fallback to the parent's definition.
+  The valid sibling is independently compared against **direct original
+  PDFium** on full-page RGB and fixed color probes, survives destruction of
+  source/Graph owners, and renders byte-identically before and after the
+  sibling's failures. The stream-count limit is separately enforced.
+
+The matrix is deliberately a **referenced** resource test, not blanket refusal
+of unknown but unused PDF resource dictionaries. It does not add a public
+renderer feature, expand the native capacity limits or affect the formally
+admitted external-source count, which stays at **7/2**. Tests are fixed-order
+and deterministic; separately seeded/shuffled execution is still an open
+follow-up under #233.
 
 ## Oracle and acceptance boundaries
 

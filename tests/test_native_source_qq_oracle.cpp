@@ -1081,6 +1081,243 @@ void test_indirect_resource_page_isolation()
     CHECK(std::remove(SOURCE_QQ_PDF)==0);
 }
 
+
+/* Resource lookup is scoped to the nearest page /Resources dictionary.
+ * A referenced GS that is missing, ill-typed, or unsupported must fail
+ * even after earlier valid PATH paints, without publishing partially owned
+ * detached IR. A leaf's /Resources never falls back to a valid parent GS. */
+void test_resource_dictionary_negative_matrix()
+{
+    struct scenario {
+        const char *name;
+        const char *inherited;
+        const char *local;
+        quantapdf_status expected;
+    };
+    const scenario cases[] = {
+        {"no_resources", nullptr, nullptr, QUANTAPDF_ERROR_FORMAT},
+        {"no_extgstate", "<< /Font << >> >>", nullptr, QUANTAPDF_ERROR_FORMAT},
+        {"resources_name", nullptr, "/Invalid", QUANTAPDF_ERROR_FORMAT},
+        {"extgstate_integer", "<< /ExtGState 4 >>", nullptr, QUANTAPDF_ERROR_FORMAT},
+        {"missing_gs_name",
+         "<< /ExtGState << /Other << /ca 1 >> >> >>",
+         nullptr, QUANTAPDF_ERROR_FORMAT},
+        {"gs_not_dictionary",
+         "<< /ExtGState << /GS 4 >> >>", nullptr, QUANTAPDF_ERROR_FORMAT},
+        {"gs_wrong_type",
+         "<< /ExtGState << /GS << /Type /Other >> >> >>",
+         nullptr, QUANTAPDF_ERROR_FORMAT},
+        {"gs_fill_alpha_out_of_range",
+         "<< /ExtGState << /GS << /ca 2 >> >> >>",
+         nullptr, QUANTAPDF_ERROR_FORMAT},
+        {"gs_stroke_alpha_wrong_type",
+         "<< /ExtGState << /GS << /CA /Opaque >> >> >>",
+         nullptr, QUANTAPDF_ERROR_FORMAT},
+        {"gs_unsupported_blend",
+         "<< /ExtGState << /GS << /BM /ColorDodge >> >> >>",
+         nullptr, QUANTAPDF_ERROR_UNSUPPORTED},
+        {"gs_unsupported_softmask",
+         "<< /ExtGState << /GS << /SMask /None >> >> >>",
+         nullptr, QUANTAPDF_ERROR_UNSUPPORTED},
+        {"gs_unsupported_overprint",
+         "<< /ExtGState << /GS << /OP true >> >> >>",
+         nullptr, QUANTAPDF_ERROR_UNSUPPORTED},
+        {"leaf_shadows_valid_parent",
+         "<< /ExtGState << /GS << /ca 1 /CA 1 /BM /Normal >> >> >>",
+         "<< /ExtGState << /Other << /ca 1 >> >> >>",
+         QUANTAPDF_ERROR_FORMAT},
+        {"malformed_leaf_shadows_valid_parent",
+         "<< /ExtGState << /GS << /ca 1 /CA 1 /BM /Normal >> >> >>",
+         "/Invalid", QUANTAPDF_ERROR_FORMAT}
+    };
+    CHECK(sizeof(cases)/sizeof(cases[0]) == 14u);
+    for(const auto& tc : cases) {
+        track_corpus_fixture();
+        auto pdf=QPDF::create();
+        pdf->emptyPDF();
+        auto root=pdf->getRoot().getKey("/Pages");
+        auto page=pdf->makeIndirectObject(
+            QPDFObjectHandle::parse("<< /Type /Page >>"));
+        root.replaceKey("/Kids",QPDFObjectHandle::newArray({page}));
+        root.replaceKey("/Count",QPDFObjectHandle::newInteger(1));
+        root.replaceKey("/MediaBox",QPDFObjectHandle::parse("[0 0 120 120]"));
+        page.replaceKey("/Parent",root);
+        if(tc.inherited)
+            root.replaceKey("/Resources",QPDFObjectHandle::parse(tc.inherited));
+        if(tc.local)
+            page.replaceKey("/Resources",QPDFObjectHandle::parse(tc.local));
+        /* A real paint precedes the bad resource use in stream order.
+         * Resource errors still invalidate the entire page atomically. */
+        page.replaceKey("/Contents",pdf->newStream(
+            "q 1 0 0 rg 0 0 120 120 re f Q "
+            "q /GS gs 10 10 80 80 re W n "
+            "0 0 1 rg 0 0 120 120 re f Q "
+            "0 1 0 rg 100 100 12 12 re f"));
+        QPDFWriter writer(*pdf);
+        writer.setOutputMemory();
+        writer.write();
+        auto blob=writer.getBufferSharedPointer();
+        FILE *f=std::fopen(SOURCE_QQ_PDF,"wb");
+        CHECK(f!=nullptr);
+        CHECK(std::fwrite(blob->getBuffer(),1,blob->getSize(),f)==blob->getSize());
+        CHECK(std::fclose(f)==0);
+        /* Retry the same saved original bytes to detect stale resources
+         * carried across independently captured document/Graph owners. */
+        for(int attempt=0;attempt!=2;++attempt) {
+            quantapdf_ir failed{};
+            const quantapdf_status actual=snapshot_lower(&failed);
+            if(actual!=tc.expected)
+                std::fprintf(stderr,
+                    "resource-negative %s attempt=%d expected=%d got=%d\n",
+                    tc.name,attempt,(int)tc.expected,(int)actual);
+            CHECK(actual==tc.expected);
+            CHECK(failed.pages==nullptr && failed.page_count==0u &&
+                  failed.operations==nullptr && failed.operation_count==0u &&
+                  failed.resources.clips==nullptr &&
+                  failed.resources.clip_count==0u &&
+                  failed.resources.graphics_states==nullptr &&
+                  failed.resources.graphics_state_count==0u);
+            quantapdf_ir_dispose(&failed);
+        }
+        CHECK(std::remove(SOURCE_QQ_PDF)==0);
+    }
+}
+
+/* Root owns a valid indirect GS, while a sibling leaf supplies an invalid
+ * GS under the *same* name. Do not inherit the root GS through an explicit
+ * leaf resource override. Across two /Contents streams, a late bad GS
+ * must invalidate the selected page even if an earlier paint was valid.
+ * The good sibling remains independently renderable after repeated failures. */
+void test_late_multistream_resource_override_isolation()
+{
+    track_corpus_fixture();
+    auto pdf=QPDF::create();
+    pdf->emptyPDF();
+    auto root=pdf->getRoot().getKey("/Pages");
+    auto good_page=pdf->makeIndirectObject(
+        QPDFObjectHandle::parse("<< /Type /Page >>"));
+    auto bad_page=pdf->makeIndirectObject(
+        QPDFObjectHandle::parse("<< /Type /Page >>"));
+    root.replaceKey("/Kids",QPDFObjectHandle::newArray({good_page,bad_page}));
+    root.replaceKey("/Count",QPDFObjectHandle::newInteger(2));
+    root.replaceKey("/MediaBox",QPDFObjectHandle::parse("[0 0 120 120]"));
+    good_page.replaceKey("/Parent",root);
+    bad_page.replaceKey("/Parent",root);
+
+    auto valid=pdf->makeIndirectObject(QPDFObjectHandle::parse(
+        "<< /ca 1 /CA 1 /BM /Normal >>"));
+    auto invalid=pdf->makeIndirectObject(QPDFObjectHandle::parse(
+        "<< /SMask /None >>"));
+    auto root_group=pdf->makeIndirectObject(QPDFObjectHandle::newDictionary());
+    root_group.replaceKey("/GS",valid);
+    auto leaf_group=pdf->makeIndirectObject(QPDFObjectHandle::newDictionary());
+    leaf_group.replaceKey("/GS",invalid);
+    auto inherited=pdf->makeIndirectObject(QPDFObjectHandle::newDictionary());
+    inherited.replaceKey("/ExtGState",root_group);
+    auto shadow=pdf->makeIndirectObject(QPDFObjectHandle::newDictionary());
+    shadow.replaceKey("/ExtGState",leaf_group);
+    root.replaceKey("/Resources",inherited);
+    bad_page.replaceKey("/Resources",shadow);
+
+    good_page.replaceKey("/Contents",pdf->newStream(
+        "q /GS gs 10 10 80 80 re W n "
+        "1 0 0 rg 0 0 120 120 re f Q "
+        "0 0 1 rg 0 0 12 12 re f "
+        "0 1 0 rg 100 100 12 12 re f"));
+    auto first_stream=pdf->newStream(
+        "q 1 0 0 rg 0 0 120 120 re f Q q /GS ");
+    auto second_stream=pdf->newStream(
+        "gs 10 10 80 80 re W n "
+        "0 0 1 rg 0 0 120 120 re f Q");
+    bad_page.replaceKey("/Contents",QPDFObjectHandle::newArray({
+        first_stream,second_stream
+    }));
+    QPDFWriter writer(*pdf);
+    writer.setOutputMemory();
+    writer.write();
+    auto blob=writer.getBufferSharedPointer();
+    FILE *f=std::fopen(SOURCE_QQ_PDF,"wb");
+    CHECK(f!=nullptr);
+    CHECK(std::fwrite(blob->getBuffer(),1,blob->getSize(),f)==blob->getSize());
+    CHECK(std::fclose(f)==0);
+
+    quantapdf_ir refused{};
+    CHECK(snapshot_lower(&refused,1u,1u)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(refused.pages==nullptr && refused.operations==nullptr &&
+          refused.resources.graphics_states==nullptr);
+    CHECK(snapshot_lower(&refused,1u,2u)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(refused.pages==nullptr && refused.page_count==0u &&
+          refused.operations==nullptr && refused.operation_count==0u &&
+          refused.resources.clips==nullptr &&
+          refused.resources.graphics_states==nullptr);
+    quantapdf_ir_dispose(&refused);
+
+    quantapdf_ir accepted{};
+    OK(snapshot_lower(&accepted,0u));
+    CHECK(accepted.page_count==1u && accepted.operation_count==3u &&
+          accepted.resources.clip_count==1u);
+    quantapdf_ir_raster_image first{}, repeated{};
+    OK(quantapdf_ir_raster_scoped_operations_v1(
+        &accepted,0u,&raster_limits,&first));
+    OK(quantapdf_ir_raster_scoped_operations_v1(
+        &accepted,0u,&raster_limits,&repeated));
+    CHECK(first.size==PAGE*PAGE*4u && repeated.size==first.size &&
+          std::memcmp(first.pixels,repeated.pixels,first.size)==0);
+    quantapdf_ir_raster_image_dispose(&repeated);
+    quantapdf_ir_dispose(&accepted); /* No source/Graph/IR owner in Raster. */
+
+    rgb_image pdfium=render_direct_pdfium_reference(SOURCE_QQ_PDF);
+    CHECK(pdfium.width==(int)PAGE && pdfium.height==(int)PAGE);
+    double total=0.0;
+    size_t gross=0u;
+    for(size_t y=0u;y<PAGE;++y)for(size_t x=0u;x<PAGE;++x) {
+        const unsigned char *a=first.pixels+y*first.stride+4u*x;
+        const unsigned char *b=pdfium.at(x,y);
+        unsigned max_error=0u;
+        for(size_t c=0u;c<3u;++c) {
+            unsigned actual=on_white(a,c),reference=b[c];
+            unsigned delta=actual>reference?actual-reference:reference-actual;
+            if(delta>max_error) max_error=delta;
+            total+=(double)delta;
+        }
+        if(max_error>64u) ++gross;
+    }
+    CHECK(total/(double)(PAGE*PAGE*3u)<=10.0 &&
+          gross<=PAGE*PAGE/12u);
+    const probe goldens[]={
+        {30,30,255,0,0}, {5,5,0,0,255},
+        {105,105,0,255,0}, {95,35,255,255,255}
+    };
+    for(const auto& p:goldens) {
+        size_t y=PAGE-1u-(size_t)p.y_pdf;
+        const unsigned char *a=first.pixels+y*first.stride+4u*(size_t)p.x;
+        const unsigned char *b=pdfium.at((size_t)p.x,y);
+        const unsigned want[]={p.r,p.g,p.b};
+        for(size_t c=0u;c<3u;++c) {
+            CHECK(std::abs((int)on_white(a,c)-(int)want[c])<=3);
+            CHECK(std::abs((int)b[c]-(int)want[c])<=3);
+        }
+    }
+
+    /* Bad -> good -> bad again must not mutate immutable resource IDs,
+     * leak per-page state, or reuse a stale successful raster result. */
+    quantapdf_ir bad_again{};
+    CHECK(snapshot_lower(&bad_again,1u,2u)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(bad_again.pages==nullptr && bad_again.operations==nullptr &&
+          bad_again.resources.graphics_states==nullptr);
+    quantapdf_ir_dispose(&bad_again);
+    quantapdf_ir again{};
+    OK(snapshot_lower(&again,0u));
+    OK(quantapdf_ir_raster_scoped_operations_v1(
+        &again,0u,&raster_limits,&repeated));
+    CHECK(repeated.size==first.size &&
+          std::memcmp(first.pixels,repeated.pixels,first.size)==0);
+    quantapdf_ir_dispose(&again);
+    quantapdf_ir_raster_image_dispose(&first);
+    quantapdf_ir_raster_image_dispose(&repeated);
+    CHECK(std::remove(SOURCE_QQ_PDF)==0);
+}
+
 void test_inherited_extgstate_fail_closed()
 {
     struct scenario { const char *resources; quantapdf_status expected; };
@@ -3936,8 +4173,8 @@ int main(int argc,char **argv)
         errno=0;
         if(std::remove(staged.c_str())!=0) CHECK(errno==ENOENT);
     }
-    constexpr size_t expected_families = 17u;
-    constexpr size_t expected_fixtures = 42u;
+    constexpr size_t expected_families = 19u;
+    constexpr size_t expected_fixtures = 57u;
     const size_t families =
         sizeof(source_corpus_families)/sizeof(source_corpus_families[0]);
     size_t fixture_total = 0u;
