@@ -52,7 +52,7 @@ std::vector<unsigned char> original_pdf(
     const char *page_key = nullptr, bool softmask = false,
     bool optional_content = false, bool external_file = false,
     bool default_rgb = false, bool flate = false,
-    bool inherited_resources = false)
+    bool inherited_resources = false, bool omit_resources = false)
 {
     QPDF pdf;
     pdf.emptyPDF();
@@ -89,19 +89,28 @@ std::vector<unsigned char> original_pdf(
     if (flate) gray.getDict().replaceKey(
         "/Filter",Obj::newName("/FlateDecode"));
     group.replaceKey("/Im1",gray);
-    if (extra_resource)
-        group.replaceKey("/Fm",pdf.newStream(std::string("q Q")));
+    if (extra_resource) {
+        /* A valid Form XObject is not an Image: strict page rendering must
+         * reject it even though the ordinary observer knows how to traverse
+         * Forms when extracting image occurrences. */
+        Obj form = pdf.newStream(std::string("q Q"));
+        form.getDict().replaceKey("/Type",Obj::newName("/XObject"));
+        form.getDict().replaceKey("/Subtype",Obj::newName("/Form"));
+        form.getDict().replaceKey("/BBox",Obj::parse("[0 0 1 1]"));
+        group.replaceKey("/Fm",form);
+    }
     Obj res = Obj::newDictionary();
     res.replaceKey("/XObject",group);
     if (default_rgb)
         res.replaceKey("/ColorSpace",
             Obj::parse("<< /DefaultRGB /DeviceGray >>"));
-    if (inherited_resources) {
-        /* A true PageTree inherited resource, not a duplicate dictionary
-         * written into the leaf. The native resolver must reach /Pages. */
-        pdf.getRoot().getKey("/Pages").replaceKey("/Resources",res);
-    } else {
-        page.replaceKey("/Resources",res);
+    if (!omit_resources) {
+        if (inherited_resources) {
+            /* A true PageTree inherited resource, not a copy in the leaf. */
+            pdf.getRoot().getKey("/Pages").replaceKey("/Resources",res);
+        } else {
+            page.replaceKey("/Resources",res);
+        }
     }
     if (page_key) {
         if (std::strcmp(page_key,"/Annots")==0)
@@ -254,10 +263,13 @@ void positive_original(const char *content, bool split,
 void rejected(const char *content, bool split=false,
               const char *key=nullptr,bool mask=false,
               bool optional_content=false,bool external_file=false,
-              bool default_rgb=false)
+              bool default_rgb=false,bool valid_form=false,
+              bool omit_resources=false)
 {
-    const auto original=original_pdf(content,split,nullptr,key,mask,
-        optional_content,external_file,default_rgb);
+    const auto original=original_pdf(content,split,
+        valid_form ? "form" : nullptr,key,mask,
+        optional_content,external_file,default_rgb,
+        false,false,omit_resources);
     for(int trial=0;trial<2;++trial) {
         quantapdf_ir failed;
         std::memset(&failed,0xa5,sizeof(failed));
@@ -309,6 +321,9 @@ int main()
     rejected(supported,false,nullptr,false,true);
     rejected(supported,false,nullptr,false,false,true);
     rejected(supported,false,nullptr,false,false,false,true);
+    const char *form = "q 20 0 0 20 4 20 cm /Im0 Do Q /Fm Do";
+    rejected(form,false,nullptr,false,false,false,false,true);
+    rejected(supported,false,nullptr,false,false,false,false,false,true);
     /* A selected original must fail fully on caller resource/pixel limits,
      * even when all original PDF commands are independently supported. */
     {
