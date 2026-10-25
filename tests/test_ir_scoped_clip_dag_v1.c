@@ -295,6 +295,109 @@ static int test_fractional_and_transparent(void)
     return EXIT_SUCCESS;
 }
 
+
+/* A clip with an admitted MOVE_TO but no nondegenerate edges is empty,
+ * not a corrupt Clip resource. No samples in the red nested scope may
+ * contribute ink; later, independently owned Q-restored states still paint.
+ * The standalone native path is provider-free and never uses PDFium. */
+static int test_empty_leaf_clip_and_restore(void)
+{
+    fixture f;
+    const quantapdf_ir_raster_v1_limits budget = {64u,3u,192u,120000u};
+    /* V2's expanded-path weighting conservatively reserves much more
+     * work for clip curves, even when this fixture contains only rectangles. */
+    const quantapdf_ir_raster_v1_limits v2_budget = {64u,3u,2048u,4000000u};
+    quantapdf_ir_raster_image image = {0}, repeated = {0};
+    unsigned char saved[8u*8u*4u];
+    initialize(&f);
+    CHECK(f.paths[1][0].kind == QUANTAPDF_COMPOSER_PATH_MOVE_TO);
+    f.clips[1].command_count = 1u; /* valid zero-area PATH, not missing data */
+    OK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&image));
+    CHECK(image.size == sizeof(saved) && image.width == 8u);
+    CHECK(rgba(&image,3,3) == UINT32_C(0xffffffff)); /* empty red scope */
+    CHECK(rgba(&image,4,4) == UINT32_C(0x0000ffff)); /* restored shared leaf */
+    CHECK(rgba(&image,6,6) == UINT32_C(0x0000ffff));
+    CHECK(rgba(&image,0,0) == UINT32_C(0x00ff00ff)); /* final un-clipped */
+    CHECK(rgba(&image,7,7) == UINT32_C(0xffffffff));
+    memcpy(saved,image.pixels,sizeof(saved));
+    OK(quantapdf_ir_raster_scoped_operations_v2(&f.ir,0u,&v2_budget,&repeated));
+    CHECK(repeated.size == image.size &&
+          memcmp(saved,repeated.pixels,sizeof(saved)) == 0);
+    quantapdf_ir_raster_image_dispose(&repeated);
+    OK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&repeated));
+    CHECK(repeated.size == image.size &&
+          memcmp(saved,repeated.pixels,sizeof(saved)) == 0);
+    quantapdf_ir_raster_image_dispose(&image);
+    quantapdf_ir_raster_image_dispose(&repeated);
+
+    f.clips[1].fill_rule = QUANTAPDF_COMPOSER_FILL_EVEN_ODD;
+    f.page.suppress_background = 1;
+    OK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&image));
+    CHECK(rgba(&image,3,3) == UINT32_C(0x00000000));
+    CHECK(rgba(&image,4,4) == UINT32_C(0x0000ffff));
+    CHECK(rgba(&image,0,0) == UINT32_C(0x00ff00ff));
+    quantapdf_ir_raster_image_dispose(&image);
+
+    /* Distinguish a valid empty geometry from absent or inconsistent Clip
+     * commands. Fail closed, fully reset every published image field. */
+    f.clips[1].commands = NULL;
+    image.pixels = (unsigned char *)(uintptr_t)1u;
+    image.width = image.height = image.stride = image.size = SIZE_MAX;
+    CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&image) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(image.pixels == NULL && image.width == 0u && image.height == 0u &&
+          image.stride == 0u && image.size == 0u);
+    f.clips[1].commands = f.paths[1];
+    f.clips[1].command_count = 0u;
+    CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&image) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(image.pixels == NULL && image.width == 0u && image.height == 0u &&
+          image.stride == 0u && image.size == 0u);
+    return EXIT_SUCCESS;
+}
+
+/* Definition-time Clip transforms stay frozen; paint transforms do not move
+ * shared Clip resources. A disjoint translated leaf is a supported empty
+ * intersection. A later unsupported operation must not publish red/blue. */
+static int test_clip_definition_ctm_disjoint_and_failure(void)
+{
+    fixture f;
+    const quantapdf_ir_raster_v1_limits budget = {64u,3u,192u,120000u};
+    quantapdf_ir_raster_image image = {0};
+    initialize(&f);
+    rectangle(f.shapes[1],0,6,8,8);
+    f.clips[3].transform.e = 1.0f; /* definition CTM: x=4..6 */
+    f.ops[0].value.path.options.transform.e = -2.0f; /* paint x=-2..6 */
+    f.ops[1].value.path.options.transform.e = 1.0f; /* paint x=1..9 */
+    OK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&image));
+    CHECK(rgba(&image,3,3) == UINT32_C(0xffffffff));
+    CHECK(rgba(&image,4,3) == UINT32_C(0xff0000ff));
+    CHECK(rgba(&image,5,3) == UINT32_C(0xff0000ff));
+    CHECK(rgba(&image,6,3) == UINT32_C(0xffffffff));
+    CHECK(rgba(&image,4,6) == UINT32_C(0x0000ffff));
+    CHECK(rgba(&image,7,6) == UINT32_C(0xffffffff));
+    CHECK(rgba(&image,0,0) == UINT32_C(0x00ff00ff));
+    quantapdf_ir_raster_image_dispose(&image);
+
+    f.clips[3].transform.e = 8.0f; /* empty, disjoint but valid CTM */
+    OK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&image));
+    CHECK(rgba(&image,4,3) == UINT32_C(0xffffffff));
+    CHECK(rgba(&image,4,6) == UINT32_C(0x0000ffff));
+    CHECK(rgba(&image,0,0) == UINT32_C(0x00ff00ff));
+    quantapdf_ir_raster_image_dispose(&image);
+
+    f.ops[2].value.path.options.fill = 0; /* late unsupported paint */
+    image.pixels = (unsigned char *)(uintptr_t)1u;
+    image.width = image.height = image.stride = image.size = SIZE_MAX;
+    CHECK(quantapdf_ir_raster_scoped_operations_v1(&f.ir,0u,&budget,&image) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(image.pixels == NULL && image.width == 0u && image.height == 0u &&
+          image.stride == 0u && image.size == 0u);
+    CHECK(f.clips[3].transform.e == 8.0f && f.states[1].clip_id == 1u &&
+          f.ops[0].value.path.options.transform.e == -2.0f);
+    return EXIT_SUCCESS;
+}
+
 static int test_rejection_and_atomicity(void)
 {
     fixture f;
@@ -437,6 +540,8 @@ int main(void)
     CHECK(test_clipped_one_pixel_stroke() == EXIT_SUCCESS);
     CHECK(test_scoped_dag() == EXIT_SUCCESS);
     CHECK(test_fractional_and_transparent() == EXIT_SUCCESS);
+    CHECK(test_empty_leaf_clip_and_restore() == EXIT_SUCCESS);
+    CHECK(test_clip_definition_ctm_disjoint_and_failure() == EXIT_SUCCESS);
     CHECK(test_rejection_and_atomicity() == EXIT_SUCCESS);
     fprintf(stderr,"[quantapdf.native_scoped_clip_dag_v1] complete\n");
     return EXIT_SUCCESS;
