@@ -14,8 +14,12 @@ owned Composer IMAGE IR** only when it understands **all** page content.
 - Source structure comes from the existing qpdf private provider. The
   original page tree, inherited `/Resources`, explicitly selected
   Image XObjects and ordered `/Contents` are used; no native IR export is
-  performed before the reference is rendered. The qpdf source owner
-  ends inside the function; a successful IR outlives all source objects.
+  performed before the reference is rendered. The referenced ancestor
+  chain is separately bounded by `max_parent_steps` (hard cap 256),
+  rejects cycles and malformed leaf overrides instead of falling back to
+  a valid ancestor, and is independent from Content Stream limits. The
+  qpdf source owner ends inside the function; a successful IR outlives
+  all source objects.
 - First accepted page geometry is the positive integer `[0 0 W H]`
   MediaBox/CropBox, rotation zero, UserUnit=1 and no group or annotations.
 - The **complete** content stream grammar is restricted to balanced
@@ -51,9 +55,11 @@ renders the **unchanged original bytes** through independent test-only
 PDFium for full-page RGB comparison with the Source→detached-IR→C11
 Native image, interior color/orientation goldens and repeated RGBA.
 The test also exercises nested `q/Q`, Content Stream boundaries,
-overlap, multiple/recurring XObject names, resource failure after earlier
-valid operations, malformed image states, late unsupported operators,
-poisoned out pointers, byte/geometry capacity and successful recovery.
+overlap, multiple/recurring XObject names, **parent-owned indirect
+/Resources** with insufficient/sufficient ancestry budgets, invalid leaf
+resource shadowing, resource failure after earlier valid operations,
+malformed image states, late unsupported operators, poisoned out pointers,
+byte/geometry capacity and successful recovery.
 It does **not** add the generated fixtures to the formally licensed
 external corpus, which stays at **7 originals/2 W* positive**.
 
