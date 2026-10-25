@@ -1930,6 +1930,18 @@ add_test(NAME quantapdf.native_source_qq_oracle
     --corpus-report "${CMAKE_CURRENT_BINARY_DIR}/native-source-corpus.json")
 set_tests_properties(quantapdf.native_source_qq_oracle PROPERTIES
   TIMEOUT 40 LABELS "conformance;native-raster;source-pdf;source-corpus")
+# Independent manifest/JSON audit. DEPENDS prevents checking a stale result
+# while the generated source oracle is still executing (including -j CTest).
+if(Python3_Interpreter_FOUND)
+  add_test(NAME quantapdf.native_source_corpus_order_report
+    COMMAND "${Python3_EXECUTABLE}"
+      "${PROJECT_SOURCE_DIR}/tests/test_native_source_corpus_report.py"
+      --report "${CMAKE_CURRENT_BINARY_DIR}/native-source-corpus.json"
+      --registry "${PROJECT_SOURCE_DIR}/tests/native_source_corpus.def")
+  set_tests_properties(quantapdf.native_source_corpus_order_report PROPERTIES
+    DEPENDS quantapdf.native_source_qq_oracle
+    TIMEOUT 20 LABELS "conformance;native-raster;source-pdf;source-corpus")
+endif()
 if(WIN32)
   set_property(TEST quantapdf.native_source_qq_oracle
     PROPERTY ENVIRONMENT_MODIFICATION
