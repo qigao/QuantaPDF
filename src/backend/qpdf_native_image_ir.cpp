@@ -586,7 +586,7 @@ static quantapdf_status source_raw_images_to_ir_impl(
               QUANTAPDF_ERROR_UNSUPPORTED);
         Obj resources=bounded_page_resources(
             geo.page,limits->max_parent_steps);
-        admission source{resources,*limits,page_w,page_h,0u,0u,0u,{}};
+        admission source{resources,*limits,page_w,page_h,0u,0u,0u,{},false,{},{}};
         source.mixed_mode=mixed_mode;
         auto contents=page_streams(geo.page.getKey("/Contents"),*limits);
         QPDF parser;
