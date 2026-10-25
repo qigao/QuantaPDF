@@ -212,15 +212,16 @@ unsigned on_white(const unsigned char *rgba, size_t channel)
 }
 
 void compare(const char *content, const probe *goldens,
-             size_t golden_count, size_t min_clip_resources)
+             size_t golden_count, size_t min_clip_resources,
+             size_t max_streams=1u)
 {
     track_corpus_fixture();
     quantapdf_ir ir{};
     quantapdf_ir_raster_image native{}, again{};
     size_t gross = 0u;
     double error=0.0;
-    make_source(content);
-    OK(snapshot_lower(&ir));
+    if (content != nullptr) make_source(content);
+    OK(snapshot_lower(&ir,0u,max_streams));
     CHECK(ir.page_count==1u && ir.operation_count==3u);
     CHECK(ir.pages[0].width_points==(float)PAGE &&
           ir.pages[0].height_points==(float)PAGE);
@@ -683,6 +684,106 @@ void test_zero_segment_clip_native_restore()
 /* Three-level Page Tree: leaf values shadow malformed ancestor values,
  * while inherited MediaBox remains resolved from the root Pages.
  * Strict Graph lowering must prefer the nearer wider CropBox. */
+
+/* Original-PDFium parity for source paths whose Clip constructor is
+ * present but whose raster geometry has zero area. The older W n/no-current-
+ * path case remains intentionally separate: PDFium preserves the prior
+ * clip in that distinct source case. This set must not be silently conflated
+ * with a syntactically valid MOVE-only Clip path. */
+void test_move_only_clip_original_source(void)
+{
+    const char *cases[] = {
+        "q 20 20 m W n "
+        "1 0 0 rg 0 0 120 120 re f "
+        "Q 0 0 1 rg 20 20 40 40 re f "
+        "0 1 0 rg 100 100 15 15 re f",
+        "q 20 20 m W* n "
+        "1 0 0 rg 0 0 120 120 re f "
+        "Q 0 0 1 rg 20 20 40 40 re f "
+        "0 1 0 rg 100 100 15 15 re f",
+        "q 20 20 m h W n "
+        "1 0 0 rg 0 0 120 120 re f "
+        "Q 0 0 1 rg 20 20 40 40 re f "
+        "0 1 0 rg 100 100 15 15 re f",
+        "q 1 0 0 1 20 0 cm 12 12 m W* n "
+        "1 0 0 1 -20 0 cm 1 0 0 rg 0 0 120 120 re f "
+        "Q 0 0 1 rg 20 20 40 40 re f "
+        "0 1 0 rg 100 100 15 15 re f"
+    };
+    const probe expected[]={
+        {30,30,0,0,255}, {50,50,0,0,255},
+        {105,105,0,255,0}, {5,5,255,255,255},
+        {80,80,255,255,255}, {70,40,255,255,255}
+    };
+    for(const char *content: cases)
+        compare(content,expected,sizeof(expected)/sizeof(expected[0]),1u);
+}
+
+/* A current path can also have explicit but coincident LINE endpoints.
+ * This is distinct from a purely MOVE-only path at source and stays a
+ * valid nested empty intersection with independently restored later paint. */
+void test_degenerate_line_clip_original_source(void)
+{
+    const char *content =
+        "q 10 10 80 80 re W n "
+        "q 25 25 m 25 25 l W* n "
+        "1 0 0 rg 0 0 120 120 re f "
+        "Q 0 0 1 rg 25 25 30 30 re f "
+        "Q 0 1 0 rg 100 100 15 15 re f";
+    const probe expected[]={
+        {30,30,0,0,255}, {50,50,0,0,255},
+        {105,105,0,255,0}, {5,5,255,255,255},
+        {80,80,255,255,255}, {70,40,255,255,255}
+    };
+    compare(content,expected,sizeof(expected)/sizeof(expected[0]),3u);
+}
+
+/* Two actual /Contents streams, with W* and n divided at the boundary.
+ * The inner MOVE-only W* persists to the first paint but is popped by Q;
+ * the independently saved outer W then clips blue, the final Q restores
+ * green on the full page. Both Graph and document are destroyed before
+ * private native C11 Raster; PDFium reads the original unexported PDF. */
+void test_move_only_clip_multistream_restoration(void)
+{
+    auto pdf=QPDF::create();
+    pdf->emptyPDF();
+    auto root=pdf->getRoot().getKey("/Pages");
+    auto page=pdf->makeIndirectObject(
+        QPDFObjectHandle::parse("<< /Type /Page >>"));
+    root.replaceKey("/Kids",QPDFObjectHandle::newArray({page}));
+    root.replaceKey("/Count",QPDFObjectHandle::newInteger(1));
+    root.replaceKey("/MediaBox",QPDFObjectHandle::parse("[0 0 120 120]"));
+    page.replaceKey("/Parent",root);
+    auto part_a=pdf->newStream(
+        "q 10 10 80 80 re W n q 25 25 m W* ");
+    auto part_b=pdf->newStream(
+        "n 1 0 0 rg 0 0 120 120 re f "
+        "Q 0 0 1 rg 20 20 50 50 re f "
+        "Q 0 1 0 rg 100 100 15 15 re f");
+    page.replaceKey("/Contents",QPDFObjectHandle::newArray({
+        part_a,part_b
+    }));
+    QPDFWriter writer(*pdf);
+    writer.setOutputMemory();
+    writer.write();
+    auto blob=writer.getBufferSharedPointer();
+    FILE *file=std::fopen(SOURCE_QQ_PDF,"wb");
+    CHECK(file != nullptr);
+    CHECK(std::fwrite(blob->getBuffer(),1,blob->getSize(),file)==
+          blob->getSize() && std::fclose(file)==0);
+
+    quantapdf_ir rejected{};
+    CHECK(snapshot_lower(&rejected,0u,1u)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(rejected.page_count==0u && rejected.pages==nullptr &&
+          rejected.operations==nullptr && rejected.resources.clips==nullptr);
+    const probe expected[]={
+        {30,30,0,0,255}, {60,60,0,0,255},
+        {105,105,0,255,0}, {5,5,255,255,255},
+        {80,80,255,255,255}, {95,95,255,255,255}
+    };
+    compare(nullptr,expected,sizeof(expected)/sizeof(expected[0]),3u,2u);
+}
+
 void test_multilevel_page_tree_override()
 {
     track_corpus_fixture();
@@ -3835,8 +3936,8 @@ int main(int argc,char **argv)
         errno=0;
         if(std::remove(staged.c_str())!=0) CHECK(errno==ENOENT);
     }
-    constexpr size_t expected_families = 14u;
-    constexpr size_t expected_fixtures = 36u;
+    constexpr size_t expected_families = 17u;
+    constexpr size_t expected_fixtures = 42u;
     const size_t families =
         sizeof(source_corpus_families)/sizeof(source_corpus_families[0]);
     size_t fixture_total = 0u;
