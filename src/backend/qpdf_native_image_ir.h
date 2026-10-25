@@ -37,6 +37,20 @@ quantapdf_status quantapdf_qpdf_source_raw_images_to_ir(
     const quantapdf_qpdf_source_raw_image_limits *limits,
     quantapdf_ir *out_ir);
 
+/* Private original-source mixed mode: one opaque filled m/l/h/re PATH and
+ * one strictly referenced RAW Image Do, in either source order. Reuses the
+ * Image-only parser's bounded q/Q, cm, page/resources/decoder admission;
+ * no unsupported page paint can be silently omitted. Path values are
+ * resolved into integer top-left pixel geometry under the current CTM;
+ * only exact 0/1 RGB channels and positive axis-aligned transforms are
+ * admitted initially. All source/qpdf owners are discarded before the
+ * caller passes the returned uniquely-owned Composer IR to the pure C11
+ * mixed Path/Image raster. This is NOT a public page renderer or API. */
+quantapdf_status quantapdf_qpdf_source_mixed_path_image_to_ir(
+    const unsigned char *original_pdf, size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,
+    quantapdf_ir *out_ir);
+
 #ifdef __cplusplus
 }
 #endif
