@@ -3547,7 +3547,7 @@ int test_external_tikz_wstar_pixels(const char *filename,
     }
     if(lower_status==QUANTAPDF_OK) {
         lower_status=quantapdf_graph_snapshot_page_semantics(
-            snap,0u,&decode_limits,&parse_limits,4u,&semantics);
+            snap,0u,4u,&decode_limits,&parse_limits,4u,&semantics);
         std::fprintf(stderr,"[texample-wstar-lowering] semantics=%d\n",(int)lower_status);
         if(lower_status!=QUANTAPDF_OK) dump_tikz_candidate_contents(snap);
     }
