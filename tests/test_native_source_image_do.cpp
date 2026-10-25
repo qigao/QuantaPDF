@@ -42,6 +42,8 @@ struct scene {
     bool wrong_subtype=false;
     bool soft_mask=false;
     bool wrong_color=false;
+    bool gray=false;
+    bool flate=false;
 };
 
 std::vector<unsigned char> make_original(const scene& sc)
@@ -56,9 +58,15 @@ std::vector<unsigned char> make_original(const scene& sc)
     page.replaceKey("/Parent",pages);
 
     Obj resources=Obj::newDictionary(),objects=Obj::newDictionary();
-    const std::string first(
-        "\xff\0\0\0\xff\0\0\0\xff\xff\xff\0",12);
-    Obj img=pdf->newStream(first);
+    const std::string first=sc.gray ?
+        std::string("\0\x55\xaa\xff",4) :
+        std::string("\xff\0\0\0\xff\0\0\0\xff\xff\xff\0",12);
+    /* Fixed Flate encoding of grayscale samples [0,85,170,255]. */
+    const std::string gray_flate(
+        "\x78\x9c\x63\x08\x5d\xf5\x1f\x00\x03\x56\x01\xff",12);
+    Obj img=pdf->newStream(sc.flate ? gray_flate : first);
+    if(sc.flate)img.getDict().replaceKey(
+        "/Filter",Obj::newName("/FlateDecode"));
     img.getDict().replaceKey("/Type",Obj::newName("/XObject"));
     img.getDict().replaceKey("/Subtype",Obj::newName(
         sc.wrong_subtype?"/Form":"/Image"));
@@ -66,7 +74,7 @@ std::vector<unsigned char> make_original(const scene& sc)
     img.getDict().replaceKey("/Height",Obj::newInteger(2));
     img.getDict().replaceKey("/BitsPerComponent",Obj::newInteger(8));
     img.getDict().replaceKey("/ColorSpace",Obj::newName(
-        sc.wrong_color?"/DeviceCMYK":"/DeviceRGB"));
+        sc.wrong_color?"/DeviceCMYK":(sc.gray?"/DeviceGray":"/DeviceRGB")));
     if(sc.soft_mask)
         img.getDict().replaceKey("/SMask",Obj::newName("/None"));
     objects.replaceKey("/I",img);
@@ -219,6 +227,50 @@ int test_original_pixel_parity()
     return EXIT_SUCCESS;
 }
 
+int test_original_gray_flate()
+{
+    scene sc;
+    sc.gray=true;
+    sc.flate=true;
+    sc.content_a="q 12 0 0 12 8 4 cm /I Do Q";
+    auto original=make_original(sc);
+    auto reference=direct_pdfium(original);
+    CHECK(reference.size()==static_cast<size_t>(W*H*3));
+    quantapdf_ir ir{};
+    OK(quantapdf_qpdf_source_raw_images_to_ir(
+        original.data(),original.size(),&source_limits,&ir));
+    CHECK(ir.operation_count==1u && ir.resources.image_count==1u &&
+          ir.resources.images[0].components==1 &&
+          ir.resources.images[0].width==2u &&
+          ir.resources.images[0].height==2u &&
+          ir.resources.images[0].size==4u);
+    std::fill(original.begin(),original.end(),0u);
+    quantapdf_ir_raster_image image{};
+    OK(quantapdf_ir_raster_raw_images_v1(&ir,0,&raster_limits,&image));
+    quantapdf_ir_dispose(&ir);
+    struct probe {int x,y;unsigned char gray;};
+    const probe samples[]={{10,10,0},{17,10,85},
+                           {10,17,170},{17,17,255}};
+    for(const auto& p:samples) {
+        const unsigned char *ref=reference.data()+
+            (static_cast<size_t>(p.y)*W+p.x)*3u;
+        const unsigned char *got=image.pixels+
+            static_cast<size_t>(p.y)*image.stride+
+            static_cast<size_t>(p.x)*4u;
+        const unsigned char expected[]={p.gray,p.gray,p.gray};
+        if(!matches(ref,expected,10) || !matches(got,expected,10))
+            std::fprintf(stderr,
+                "[source-image-do] gray Flate (%d,%d) expected=%u "
+                "PDFium=(%u,%u,%u) Native=(%u,%u,%u)\n",
+                p.x,p.y,unsigned(p.gray),
+                unsigned(ref[0]),unsigned(ref[1]),unsigned(ref[2]),
+                unsigned(got[0]),unsigned(got[1]),unsigned(got[2]));
+        CHECK(matches(ref,expected,10) && matches(got,expected,10));
+    }
+    quantapdf_ir_raster_image_dispose(&image);
+    return EXIT_SUCCESS;
+}
+
 int test_negative_and_recovery()
 {
     scene good;
@@ -287,6 +339,7 @@ int test_negative_and_recovery()
 int main()
 {
     if(test_original_pixel_parity()!=EXIT_SUCCESS ||
+       test_original_gray_flate()!=EXIT_SUCCESS ||
        test_negative_and_recovery()!=EXIT_SUCCESS) return EXIT_FAILURE;
     std::puts("Original PDF Image Do -> detached owned RAW IR -> "
               "provider-free C11 raster PASS");
