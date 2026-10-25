@@ -219,7 +219,7 @@ static int closing_paint(quantapdf_pdf_content_opcode code)
 static quantapdf_status count_commands(
     const quantapdf_pdf_content_ir *content,
     const quantapdf_pdf_path_record *path, size_t available,
-    size_t *out_count)
+    int for_clip, size_t *out_count)
 {
     size_t count = 0;
     int segment = 0;
@@ -255,9 +255,12 @@ static quantapdf_status count_commands(
         const int stroke =
             path->paint_opcode == QUANTAPDF_PDF_OP_STROKE ||
             path->paint_opcode == QUANTAPDF_PDF_OP_CLOSE_STROKE;
-        const int clip =
-            path->paint_opcode == QUANTAPDF_PDF_OP_CLIP ||
-            path->paint_opcode == QUANTAPDF_PDF_OP_CLIP_EVEN_ODD;
+        /* A path ending in W/W* may also be painted by the following
+         * terminal operator. Admit its zero-edge geometry only when
+         * lowering the Clip resource, never the painted operation. */
+        const int clip = for_clip &&
+            (path->paint_opcode == QUANTAPDF_PDF_OP_CLIP ||
+             path->paint_opcode == QUANTAPDF_PDF_OP_CLIP_EVEN_ODD);
         if ((!stroke && !clip) ||
             content->ops[path->path_first_operator].opcode !=
                 QUANTAPDF_PDF_OP_MOVE)
@@ -396,7 +399,8 @@ static quantapdf_status lower_commands(
             geometry.paint_opcode != QUANTAPDF_PDF_OP_CLIP_EVEN_ODD)
             return QUANTAPDF_ERROR_FORMAT;
     } else if (for_clip) return QUANTAPDF_ERROR_ARGUMENT;
-    status = count_commands(content, &geometry, available, &base_count);
+    status = count_commands(content, &geometry, available,
+        for_clip, &base_count);
     if (status != QUANTAPDF_OK) return status;
     if (clip != NULL && !for_clip && closing_paint(path->paint_opcode) &&
         content->ops[geometry.terminal_operator - 1].opcode !=
