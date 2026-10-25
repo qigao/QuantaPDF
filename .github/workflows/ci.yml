@@ -121,6 +121,14 @@ jobs:
       - name: Install static SDK
         run: cmake --build --preset install-linux-release-user --parallel 2
 
+      - name: Verify test-only licensed PDF is excluded from Linux SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p test_sdk_test_data_boundary.py
+          python3 tools/qualification/sdk_test_data_boundary.py \
+            --install-manifest build/linux-gcc-release/install_manifest.txt
+
       - name: Qualify CFF2 with Poppler
         shell: bash
         run: |
@@ -460,6 +468,14 @@ jobs:
       - name: Install SDK
         run: cmake --build --preset "install-$CMAKE_PRESET" --parallel 2
 
+      - name: Verify test-only licensed PDF is excluded from macOS SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p test_sdk_test_data_boundary.py
+          python3 tools/qualification/sdk_test_data_boundary.py \
+            --install-manifest build/macos-clang-release/install_manifest.txt
+
       - name: Qualify external PDF corpus admission (macOS)
         shell: bash
         run: |
@@ -708,6 +724,14 @@ jobs:
       - name: Install Release package
         shell: cmd
         run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && cmake --build --preset install-win-release-user
+
+      - name: Verify test-only licensed PDF is excluded from Windows SDK
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p test_sdk_test_data_boundary.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/qualification/sdk_test_data_boundary.py --install-manifest "build/Msvc-Release/install_manifest.txt"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Compile installed Composer consumer
         shell: cmd
