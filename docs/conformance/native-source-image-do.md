@@ -67,6 +67,28 @@ The standalone `quantapdf.native_ir_raw_images_v1` stays pure C11 with
 **zero qpdf/PDFium link dependency**. The new source-oracle test *may*
 link qpdf and PDFium because it is a test-only independent reference.
 
+## Strict visible-image semantics follow-up
+
+The original first-slice source Image admission also checks **image
+visibility and device-color interpretations**. An Image XObject carrying
+`/OC` optional-content membership may be intentionally hidden; an explicit
+`/Interpolate true` affects raster sampling; `/Intent` and
+`/SMaskInData` alter color/mask semantics. All are rejected in this
+bounded RAW path rather than omitted or rendered approximately. The
+effective inherited/local page `/Resources /ColorSpace` may redefine
+`/DeviceRGB` or `/DeviceGray` with `/DefaultRGB` / `/DefaultGray`:
+those overrides are also rejected before decoding content.
+
+Generated original-PDF tests independently prove these six fail-closed
+conditions including a **valid Form XObject Do**, while maintaining strict
+zero-output failure and recovery. A second positive image original uses
+an actual fixed zlib `/FlateDecode` **RGB** sample stream, alongside the
+existing grayscale Flate and unfiltered RGB/Gray goldens. Every positive
+compares directly against the unmodified original PDF in test-only
+PDFium; after Source IR creation the source object no longer needs to
+remain alive for the C11 raster. These tests do not add independently
+licensed external documents or change public PDFium production dispatch.
+
 ## Not yet supported
 
 This qualification is **qpdf-backed private source admission**, not
