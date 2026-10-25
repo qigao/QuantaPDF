@@ -377,7 +377,7 @@ extern "C" quantapdf_status quantapdf_qpdf_source_raw_images_to_ir(
               QUANTAPDF_ERROR_UNSUPPORTED);
         Obj resources=quantapdf_qpdf_inherited_value(geo.page,"/Resources");
         admit(resources.isDictionary());
-        admission source{resources,*limits,page_w,page_h};
+        admission source{resources,*limits,page_w,page_h,0u,0u,0u,{}};
         auto contents=page_streams(geo.page.getKey("/Contents"),*limits);
         QPDF parser;
         parser.emptyPDF();
