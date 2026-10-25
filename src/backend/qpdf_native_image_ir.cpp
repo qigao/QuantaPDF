@@ -153,7 +153,17 @@ struct admission {
               dict.getKey("/Decode").isNull() &&
               dict.getKey("/Alternates").isNull() &&
               dict.getKey("/OPI").isNull() &&
-              dict.getKey("/Matte").isNull(),
+              dict.getKey("/Matte").isNull() &&
+              /* /OC may hide the image; /SMaskInData and /Intent can
+               * alter visible source semantics. Never represent those as
+               * ordinary RAW pixels without a qualified interpreter. */
+              dict.getKey("/OC").isNull() &&
+              dict.getKey("/SMaskInData").isNull() &&
+              dict.getKey("/Intent").isNull(),
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        Obj interpolation=dict.getKey("/Interpolate");
+        admit(interpolation.isNull() ||
+              (interpolation.isBool() && !interpolation.getBoolValue()),
               QUANTAPDF_ERROR_UNSUPPORTED);
         Obj interp=dict.getKey("/Interpolate");
         admit(interp.isNull() || (interp.isBool() && !interp.getBoolValue()),
@@ -277,6 +287,17 @@ Obj bounded_page_resources(Obj page, size_t max_parent_steps)
         Obj resources = current.getKey("/Resources");
         if (!resources.isNull()) {
             admit(resources.isDictionary(),QUANTAPDF_ERROR_FORMAT);
+            /* /DefaultRGB or /DefaultGray in the effective page resource
+             * dictionary redefines how a Device* Image is interpreted.
+             * The first direct RAW source profile has no such color
+             * conversion; refuse instead of silently painting wrong RGB. */
+            Obj color_spaces=resources.getKey("/ColorSpace");
+            if (!color_spaces.isNull()) {
+                admit(color_spaces.isDictionary(),QUANTAPDF_ERROR_FORMAT);
+                admit(color_spaces.getKey("/DefaultRGB").isNull() &&
+                      color_spaces.getKey("/DefaultGray").isNull(),
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+            }
             return resources;
         }
         current=current.getKey("/Parent");
