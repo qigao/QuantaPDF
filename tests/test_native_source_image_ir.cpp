@@ -50,7 +50,8 @@ std::vector<unsigned char> original_pdf(
     const char *source_ops, bool split_contents,
     const char *extra_resource = nullptr,
     const char *page_key = nullptr, bool softmask = false,
-    bool optional_content = false, bool external_file = false)
+    bool optional_content = false, bool external_file = false,
+    bool default_rgb = false)
 {
     QPDF pdf;
     pdf.emptyPDF();
@@ -79,6 +80,9 @@ std::vector<unsigned char> original_pdf(
         group.replaceKey("/Fm",pdf.newStream(std::string("q Q")));
     Obj res = Obj::newDictionary();
     res.replaceKey("/XObject",group);
+    if (default_rgb)
+        res.replaceKey("/ColorSpace",
+            Obj::parse("<< /DefaultRGB /DeviceGray >>"));
     page.replaceKey("/Resources",res);
     if (page_key) {
         if (std::strcmp(page_key,"/Annots")==0)
@@ -227,10 +231,11 @@ void positive_original(const char *content, bool split, bool repeated = false)
 
 void rejected(const char *content, bool split=false,
               const char *key=nullptr,bool mask=false,
-              bool optional_content=false,bool external_file=false)
+              bool optional_content=false,bool external_file=false,
+              bool default_rgb=false)
 {
-    const auto original=original_pdf(
-        content,split,nullptr,key,mask,optional_content,external_file);
+    const auto original=original_pdf(content,split,nullptr,key,mask,
+        optional_content,external_file,default_rgb);
     for(int trial=0;trial<2;++trial) {
         quantapdf_ir failed;
         std::memset(&failed,0xa5,sizeof(failed));
@@ -279,6 +284,7 @@ int main()
      * PDF pixels. Strict source painting must not omit their semantics. */
     rejected(supported,false,nullptr,false,true);
     rejected(supported,false,nullptr,false,false,true);
+    rejected(supported,false,nullptr,false,false,false,true);
     /* A selected original must fail fully on caller resource/pixel limits,
      * even when all original PDF commands are independently supported. */
     {
