@@ -16,8 +16,21 @@ static uint64_t scoped_component_weight(size_t count)
     return value == 0u ? 1u : value;
 }
 
+/* In the expanded V2 stroke profile a small authored cubic path can
+ * flatten into many device-space edges, unlike already-expanded stroke
+ * outlines. Allocate a conservatively larger relative share by COUNT only.
+ * Do not dereference raw, not-yet-admitted command arrays for budgeting:
+ * fail-closed tests intentionally include bogus/oversized counts. The
+ * downstream raster's edge and sample accounting remains authoritative. */
+static uint64_t scoped_native_curve_weight(size_t count)
+{
+    const size_t cap=65536u, scale=32u;
+    if(count>cap/scale) return (uint64_t)cap;
+    return scoped_component_weight(count*scale);
+}
+
 static uint64_t scoped_operation_weight(
-    const quantapdf_composer_operation *op)
+    const quantapdf_composer_operation *op, int polyline_strokes)
 {
     const quantapdf_composer_path_operation *path = &op->value.path;
     const quantapdf_composer_path_options *opt = &path->options;
@@ -40,7 +53,9 @@ static uint64_t scoped_operation_weight(
         /* Rectangular Stroke expands to the outer/inner eight-edge ring. */
         return scoped_component_weight(8u);
     }
-    return scoped_component_weight(path->command_count);
+    return polyline_strokes ?
+        scoped_native_curve_weight(path->command_count) :
+        scoped_component_weight(path->command_count);
 }
 
 static size_t scoped_proportional_budget(
@@ -283,7 +298,8 @@ static quantapdf_status scoped_operations_v1_impl(
      * are capped, so their sum and proportional arithmetic remain bounded.
      * Each per-layer share is still a partition of the original global cap. */
     for (i = 0u; i < ir->operation_count; ++i) {
-        uint64_t weight = scoped_operation_weight(&ir->operations[i]);
+        uint64_t weight = scoped_operation_weight(
+            &ir->operations[i],polyline_strokes);
         if (polyline_strokes && ir->operations[i].value.path.options.stroke==1 &&
             ir->operations[i].value.path.options.fill==0) {
             quantapdf_composer_path_operation projected=ir->operations[i].value.path;
@@ -306,7 +322,9 @@ static quantapdf_status scoped_operations_v1_impl(
                 status = QUANTAPDF_ERROR_UNSUPPORTED;
                 goto failure;
             }
-            weight += scoped_component_weight(clip->command_count);
+            weight += polyline_strokes ?
+                scoped_native_curve_weight(clip->command_count) :
+                scoped_component_weight(clip->command_count);
         }
         operation_weights[i] = weight;
         total_weight += weight;
@@ -358,9 +376,8 @@ static quantapdf_status scoped_operations_v1_impl(
                 &local, 0u, &per_operation, active_clips[i],
                 active_counts[i], &layer);
         }
-        if (status != QUANTAPDF_OK) {
+        if (status != QUANTAPDF_OK)
             goto failure;
-        }
         if (layer.width != width || layer.height != height ||
             layer.stride != width * 4u || layer.size != bytes ||
             layer.pixels == NULL) {

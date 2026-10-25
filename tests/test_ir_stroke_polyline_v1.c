@@ -1045,6 +1045,181 @@ static void test_cubics(void)
     OK(quantapdf_ir_raster_render_v1(&ir,0,&curve_limits,&image)); CHECK(alpha(&image,16,7)==255);
     quantapdf_ir_raster_image_dispose(&image); quantapdf_ir_stroke_polyline_dispose_v1(&fill);
 }
+
+/* Issue #416: independent C11 device-width matrix (no PDFium linkage).
+ * Compare all emitted outline vertices, rather than trusting a single pixel
+ * that could accidentally be identical after 4x4 quantization. */
+static void check_same_device_outline(
+    const quantapdf_composer_path_operation *actual,
+    const quantapdf_composer_path_operation *expected)
+{
+    CHECK(actual->commands && expected->commands &&
+          actual->command_count==expected->command_count);
+    for(size_t i=0;i<actual->command_count;++i) {
+        const quantapdf_composer_path_command *a=&actual->commands[i],*b=&expected->commands[i];
+        CHECK(a->kind==b->kind);
+        if(a->kind!=QUANTAPDF_COMPOSER_PATH_CLOSE) {
+            CHECK(a->point1.x==b->point1.x &&
+                  a->point1.y==b->point1.y);
+        }
+    }
+}
+static void test_fractional_device_strokes(void)
+{
+    static const float widths[]={0.3f,0.4f,0.5f,0.8f,1.0f};
+    static const unsigned dpis[]={72u,144u};
+    quantapdf_native_device_plan plan={0};
+    quantapdf_composer_path_operation thin={0},reference={0};
+
+    const quantapdf_ir_raster_v1_limits fitted={4096u,2u,4096u,160000000u};
+    for(size_t di=0u;di<sizeof(dpis)/sizeof(dpis[0]);++di) {
+        const float floor_width=dpis[di]==72u ? 1.0f : 0.5f;
+        const size_t center=dpis[di]==72u ? 16u : 32u;
+        const size_t along=dpis[di]==72u ? 10u : 20u;
+        OK(quantapdf_native_device_plan_create("0 0 32 32",
+            "0 0 32 32","1",0,dpis[di],4096,&plan));
+        for(size_t wi=0u;wi<sizeof(widths)/sizeof(widths[0]);++wi)
+        for(size_t orientation=0u;orientation<2u;++orientation) {
+            quantapdf_ir_raster_image pixels={0},again={0};
+            init();
+            ops[0].value.path.command_count=2;
+            commands[0].point1=orientation ?
+                (quantapdf_point){16,4} : (quantapdf_point){4,16};
+            commands[1].point1=orientation ?
+                (quantapdf_point){16,28} : (quantapdf_point){28,16};
+            ops[0].value.path.options.stroke_width=widths[wi];
+            OK(quantapdf_ir_stroke_polyline_outline_v1_planned(
+                &ops[0].value.path,4096,&plan,&thin));
+            CHECK(ops[0].value.path.options.stroke_width==widths[wi]);
+            OK(quantapdf_ir_raster_scoped_operations_v2_planned(
+                &ir,0,&fitted,&plan,&pixels));
+            OK(quantapdf_ir_raster_scoped_operations_v2_planned(
+                &ir,0,&fitted,&plan,&again));
+            CHECK(pixels.width==plan.width && pixels.height==plan.height &&
+                  pixels.stride==plan.stride && pixels.size==plan.size &&
+                  again.size==pixels.size &&
+                  memcmp(pixels.pixels,again.pixels,pixels.size)==0);
+            /* One device-pixel stroke centered at an integral coordinate
+               has equal fractional coverage on either side, in BOTH
+               orientations and at either admitted DPI. */
+            if(widths[wi]<=floor_width) {
+                size_t xa=orientation ? center-1u : along;
+                size_t ya=orientation ? along : center-1u;
+                size_t xb=orientation ? center : along;
+                size_t yb=orientation ? along : center;
+                unsigned left=alpha(&pixels,xa,ya),right=alpha(&pixels,xb,yb);
+                CHECK(left>0u && left<255u && right==left);
+            }
+            quantapdf_ir_raster_image_dispose(&pixels);
+            quantapdf_ir_raster_image_dispose(&again);
+            ops[0].value.path.options.stroke_width=
+                fmaxf(widths[wi],floor_width);
+            OK(quantapdf_ir_stroke_polyline_outline_v1_planned(
+                &ops[0].value.path,4096,&plan,&reference));
+            check_same_device_outline(&thin,&reference);
+            quantapdf_ir_stroke_polyline_dispose_v1(&thin);
+            quantapdf_ir_stroke_polyline_dispose_v1(&reference);
+        }
+    }
+    /* Combined authored CTM and FIT: the device threshold is in source
+       units, not a multiplier applied to the whole PATH or Clip. */
+    OK(quantapdf_native_device_plan_create("0 0 32 32",
+        "0 0 32 32","1",0,72,4096,&plan));
+    init();
+    ops[0].value.path.command_count=2;
+    ops[0].value.path.options.transform=
+        (quantapdf_affine_transform){2,0,0,2,0,0};
+    ops[0].value.path.options.stroke_width=0.3f;
+    OK(quantapdf_ir_stroke_polyline_outline_v1_planned(
+        &ops[0].value.path,4096,&plan,&thin));
+    CHECK(ops[0].value.path.options.stroke_width==0.3f);
+    ops[0].value.path.options.stroke_width=0.5f;
+    OK(quantapdf_ir_stroke_polyline_outline_v1_planned(
+        &ops[0].value.path,4096,&plan,&reference));
+    check_same_device_outline(&thin,&reference);
+    quantapdf_ir_stroke_polyline_dispose_v1(&thin);
+    quantapdf_ir_stroke_polyline_dispose_v1(&reference);
+
+    /* Nonuniform/sheared transforms use the mean of transformed basis
+       lengths, not a guessed maximum axis scale. */
+    init();
+    ops[0].value.path.command_count=2;
+    ops[0].value.path.options.transform=
+        (quantapdf_affine_transform){2,0,0,0.5f,0,0};
+    ops[0].value.path.options.stroke_width=0.3f;
+    OK(quantapdf_ir_stroke_polyline_outline_v1_planned(
+        &ops[0].value.path,4096,&plan,&thin));
+    ops[0].value.path.options.stroke_width=0.8f;
+    OK(quantapdf_ir_stroke_polyline_outline_v1_planned(
+        &ops[0].value.path,4096,&plan,&reference));
+    check_same_device_outline(&thin,&reference);
+    quantapdf_ir_stroke_polyline_dispose_v1(&thin);
+    quantapdf_ir_stroke_polyline_dispose_v1(&reference);
+
+
+    /* The same floor applies to true cubic strips at multiple widths and
+       both FIT resolutions, not only to straight segment expansion. */
+    for(size_t di=0u;di<sizeof(dpis)/sizeof(dpis[0]);++di) {
+        const float floor_width=dpis[di]==72u ? 1.0f : 0.5f;
+        OK(quantapdf_native_device_plan_create("0 0 32 32",
+            "0 0 32 32","1",0,dpis[di],4096,&plan));
+        for(size_t wi=0u;wi<sizeof(widths)/sizeof(widths[0]);++wi) {
+            cubic_arch();
+            ops[0].value.path.options.stroke_width=widths[wi];
+            OK(quantapdf_ir_stroke_polyline_outline_v1_planned(
+                &ops[0].value.path,4096,&plan,&thin));
+            CHECK(ops[0].value.path.options.stroke_width==widths[wi]);
+            ops[0].value.path.options.stroke_width=
+                fmaxf(widths[wi],floor_width);
+            OK(quantapdf_ir_stroke_polyline_outline_v1_planned(
+                &ops[0].value.path,4096,&plan,&reference));
+            check_same_device_outline(&thin,&reference);
+            quantapdf_ir_stroke_polyline_dispose_v1(&thin);
+            quantapdf_ir_stroke_polyline_dispose_v1(&reference);
+        }
+    }
+    /* Restore identity FIT for the non-planned/invalid-CTM controls. */
+    OK(quantapdf_native_device_plan_create("0 0 32 32",
+        "0 0 32 32","1",0,72,4096,&plan));
+
+    /* Legacy non-planned semantics are untouched. Bad source widths and
+       invalid/degenerate CTMs must fail atomically even under the floor. */
+    init();
+    ops[0].value.path.command_count=2;
+    ops[0].value.path.options.stroke_width=0.3f;
+    OK(quantapdf_ir_stroke_polyline_outline_v1(
+        &ops[0].value.path,4096,&thin));
+    OK(quantapdf_ir_stroke_polyline_outline_v1_planned(
+        &ops[0].value.path,4096,&plan,&reference));
+    CHECK(thin.command_count==reference.command_count &&
+          thin.commands[0].point1.y!=reference.commands[0].point1.y);
+    quantapdf_ir_stroke_polyline_dispose_v1(&thin);
+    quantapdf_ir_stroke_polyline_dispose_v1(&reference);
+    ops[0].value.path.options.stroke_width=0;
+    memset(&thin,0x5a,sizeof(thin));
+    CHECK(quantapdf_ir_stroke_polyline_outline_v1_planned(
+        &ops[0].value.path,4096,&plan,&thin)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(!thin.commands && !thin.command_count);
+    ops[0].value.path.options.stroke_width=0.3f;
+    ops[0].value.path.options.transform=
+        (quantapdf_affine_transform){NAN,0,0,1,0,0};
+    memset(&thin,0x5a,sizeof(thin));
+    CHECK(quantapdf_ir_stroke_polyline_outline_v1_planned(
+        &ops[0].value.path,4096,&plan,&thin)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(!thin.commands && !thin.command_count);
+    ops[0].value.path.options.transform=
+        (quantapdf_affine_transform){0,0,0,1,0,0};
+    memset(&thin,0x5a,sizeof(thin));
+    CHECK(quantapdf_ir_stroke_polyline_outline_v1_planned(
+        &ops[0].value.path,4096,&plan,&thin)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(!thin.commands && !thin.command_count);
+    ops[0].value.path.options.transform=
+        (quantapdf_affine_transform){1,0,0,1,0,0};
+    CHECK(quantapdf_ir_stroke_polyline_outline_v1_planned(
+        &ops[0].value.path,1u,&plan,&thin)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(!thin.commands && !thin.command_count);
+}
+
 int main(void)
 {
     quantapdf_ir_raster_image image={0};
@@ -1116,6 +1291,7 @@ int main(void)
     CHECK(!image.pixels && !image.size);
     CHECK(quantapdf_ir_raster_scoped_operations_v2_planned(&ir,0,&limits,NULL,&image)==QUANTAPDF_ERROR_ARGUMENT);
     CHECK(!image.pixels && !image.size);
+    test_fractional_device_strokes();
     test_dashes();
     test_round();
     test_zero_dashes();

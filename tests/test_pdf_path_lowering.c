@@ -332,11 +332,59 @@ static void test_extgstate_to_composer_resources(void)
     dispose_page(&page);
 }
 
+
+static void test_native_float_projection_is_not_serialized_writer_admission(void)
+{
+    static const double identity[6] = {1,0,0,1,0,0};
+    const char *source=
+        "q 0.333333 0.5 0.833333 rg "
+        "0 0 80 40 re W* n "
+        "0.123456 5 m 50 5 l 50 15 l f Q";
+    quantapdf_pdf_page_semantics page;
+    quantapdf_pdf_path_lower_limits budget=lower_limits();
+    quantapdf_ir ir={0};
+    parse_page(source,&page);
+    CHECK(quantapdf_pdf_path_lower_to_composer_mapped(
+        &page,200,120,identity,&budget,&ir)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(ir.pages==NULL && ir.operations==NULL &&
+          ir.resources.clip_count==0);
+    OK(quantapdf_pdf_path_lower_to_composer_mapped_native_raster(
+        &page,200,120,identity,&budget,&ir));
+    CHECK(ir.page_count==1 && ir.operation_count==1 &&
+          ir.resources.clip_count==1 &&
+          ir.operations[0].value.path.options.fill==1 &&
+          ir.operations[0].value.path.options.stroke==0);
+    CHECK(ir.operations[0].value.path.options.fill_argb==UINT32_C(0xff5580d4));
+    CHECK(ir.operations[0].value.path.commands[0].kind==
+          QUANTAPDF_COMPOSER_PATH_MOVE_TO);
+    CHECK(ir.operations[0].value.path.commands[0].point1.x>0.12345f &&
+          ir.operations[0].value.path.commands[0].point1.x<0.12346f);
+    CHECK(ir.resources.clips[0].fill_rule==QUANTAPDF_COMPOSER_FILL_EVEN_ODD);
+    quantapdf_ir_dispose(&ir);
+    dispose_page(&page);
+
+    /* Native float admission remains bounded; it is not a general escape
+       from invalid/oversized geometry or unsupported alpha semantics. */
+    parse_page("65537 0 m 50 5 l S",&page);
+    CHECK(quantapdf_pdf_path_lower_to_composer_mapped_native_raster(
+        &page,200,120,identity,&budget,&ir)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(ir.operations==NULL && ir.resources.clips==NULL);
+    dispose_page(&page);
+
+    parse_page("0 0 20 20 re f",&page);
+    page.graphics->paths[0].graphics.fill_alpha=0.12345;
+    CHECK(quantapdf_pdf_path_lower_to_composer_mapped_native_raster(
+        &page,200,120,identity,&budget,&ir)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(ir.operations==NULL && ir.resources.graphics_states==NULL);
+    dispose_page(&page);
+}
+
 int main(void)
 {
     test_extgstate_to_composer_resources();
     test_stroke_style_lowering();
     test_bounded_clipped_origin_rebase();
+    test_native_float_projection_is_not_serialized_writer_admission();
     test_paths_and_curves();
     test_close_and_color();
     test_fail_closed();

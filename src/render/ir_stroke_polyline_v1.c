@@ -683,6 +683,48 @@ void quantapdf_ir_stroke_polyline_dispose_v1(quantapdf_composer_path_operation *
     if (!fill) return;
     free(fill->commands); memset(fill,0,sizeof(*fill));
 }
+
+/* Planned strokes have a device resolution. PDFium/AGG clamps subpixel
+ * stroke width after its transform decomposition. In the source-path space
+ * this threshold is 2 / (|M ex| + |M ey|), where M is the complete
+ * authored-transform -> FIT matrix. This applies to ALL eligible planned
+ * strokes; it never rewrites the authored options or the original PDF.
+ * Unknown/singular/out-of-range transforms stay fail-closed. */
+static quantapdf_status planned_stroke_options(
+    const quantapdf_composer_path_options *o, const double *device,
+    quantapdf_composer_path_options *effective)
+{
+    double a=1.0,b=0.0,c=0.0,d=1.0;
+    if (o->struct_size >= QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_MIN_SIZE) {
+        const quantapdf_affine_transform *t=&o->transform;
+        const int zero=t->a==0 && t->b==0 && t->c==0 &&
+            t->d==0 && t->e==0 && t->f==0;
+        if (!zero) {
+            a=t->a; b=t->b; c=t->c; d=t->d;
+        }
+    }
+    const double xa=a*device[0]+b*device[2];
+    const double xb=a*device[1]+b*device[3];
+    const double ya=c*device[0]+d*device[2];
+    const double yb=c*device[1]+d*device[3];
+    const double x_unit=hypot(xa,xb), y_unit=hypot(ya,yb);
+    const double sum=x_unit+y_unit;
+    if (!isfinite(x_unit) || !isfinite(y_unit) || !isfinite(sum) ||
+        sum <= 0.0 || !isfinite(xa*yb-xb*ya) ||
+        xa*yb-xb*ya == 0.0)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    const double width=fmax((double)o->stroke_width,2.0/sum);
+    if (!isfinite(width) || width <= 0.0 || width > 2048.0)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    *effective=*o;
+    effective->stroke_width=(float)width;
+    if (!isfinite(effective->stroke_width) ||
+        effective->stroke_width <= 0.0f ||
+        effective->stroke_width > 2048.0f)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    return QUANTAPDF_OK;
+}
+
 static quantapdf_status outline_impl(
     const quantapdf_composer_path_operation *source,size_t max_edges,const double *device,
     quantapdf_composer_path_operation *out_fill)
@@ -695,6 +737,7 @@ static quantapdf_status outline_impl(
     int zero_length_segment=0;
     quantapdf_status status=QUANTAPDF_ERROR_UNSUPPORTED;
     const quantapdf_composer_path_options *o;
+    quantapdf_composer_path_options effective_options={0};
     if (!out_fill) return QUANTAPDF_ERROR_ARGUMENT;
     memset(out_fill,0,sizeof(*out_fill));
     if (!source || max_edges==0u) return QUANTAPDF_ERROR_ARGUMENT;
@@ -721,6 +764,10 @@ static quantapdf_status outline_impl(
         (o->struct_size>=QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_MIN_SIZE &&
          (o->fill_paint_id!=0 || o->stroke_paint_id!=0)))
         return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (device != NULL) {
+        status=planned_stroke_options(o,device,&effective_options);
+        if (status!=QUANTAPDF_OK) return status;
+    }
     if(o->line_cap==QUANTAPDF_COMPOSER_LINE_CAP_ROUND || o->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_ROUND) {
         b.arc_scale=arc_scale(o,device);
         if(b.arc_scale<=0.0) return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -735,7 +782,7 @@ static quantapdf_status outline_impl(
     b.source=source;
     b.commands=calloc(QP_STROKE_COMMANDS,sizeof(*b.commands));
     if (!b.commands) return QUANTAPDF_ERROR_NOMEM;
-    b.max_edges=max_edges; b.options=o;
+    b.max_edges=max_edges; b.options=device ? &effective_options : o;
     for(size_t i=0;i<source->command_count;++i)
         if(source->commands[i].kind==QUANTAPDF_COMPOSER_PATH_CUBIC_TO) b.curve_mode=1;
     if(b.curve_mode && source->dash_count) {
@@ -745,7 +792,7 @@ static quantapdf_status outline_impl(
         source=&normalized;
         b.source=source;
         o=&source->options;
-        b.options=o;
+        b.options=device ? &effective_options : o;
         b.curve_mode=0;
     } else if(b.curve_mode) {
         b.arc_scale=arc_scale(o,device);

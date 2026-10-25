@@ -1906,6 +1906,9 @@ add_executable(quantapdf_test_native_source_qq_oracle
   ../src/core/context_lifetime.c
   ../src/core/output_lifetime.c
   ../src/snapshot/snapshot_owner.c
+  # Compile the test's private FIT planner directly. This avoids relying
+  # on a non-exported symbol from QuantaPDF.dll in Windows builds.
+  ../src/render/native_device_plan.c
   ../src/render/ir_scoped_operations_v1.c ../src/render/ir_stroke_polyline_v1.c
   ../src/render/ir_clip_dag_v3.c
   ../src/render/ir_raster_v1.c

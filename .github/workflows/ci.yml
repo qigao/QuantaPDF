@@ -99,6 +99,25 @@ jobs:
       - name: Product conformance (Linux Release)
         run: ctest --preset linux-release-user -L conformance --output-on-failure
 
+      - name: Qualify licensed TeXample W-star original (Linux Release)
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 415
+        shell: bash
+        run: |
+          set -euo pipefail
+          original="$RUNNER_TEMP/texample-intersecting-rings.pdf"
+          curl --fail --show-error --silent --location --retry 3 --max-time 60 \
+            'https://texample.net/files/intersecting-rings.pdf' --output "$original"
+          printf '%s  %s\n' \
+            'f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284' \
+            "$original" | sha256sum --check -
+          LD_LIBRARY_PATH="$GITHUB_WORKSPACE/build/linux-gcc-release/_deps/pdfium-${PDFIUM_VERSION}-linux-x64/lib:${LD_LIBRARY_PATH:-}" \
+            cmake \
+              -DORACLE="$GITHUB_WORKSPACE/build/linux-gcc-release/tests/quantapdf_test_native_source_qq_oracle" \
+              -DSOURCE="$original" \
+              -DREPORT="$RUNNER_TEMP/texample-intersecting-rings-release.json" \
+              -DEXPECTED_SHA256='f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284' \
+              -P tests/check_external_tikz_wstar_candidate.cmake
+
       - name: Install static SDK
         run: cmake --build --preset install-linux-release-user --parallel 2
 
@@ -139,6 +158,34 @@ jobs:
 
       - name: Product conformance (Linux ASan/UBSan)
         run: ctest --preset linux-dev-user -L conformance --output-on-failure
+
+      - name: Qualify licensed TeXample W-star original (Linux ASan/UBSan)
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 415
+        shell: bash
+        run: |
+          set -euo pipefail
+          original="$RUNNER_TEMP/texample-intersecting-rings.pdf"
+          test -s "$original"
+          LD_LIBRARY_PATH="$GITHUB_WORKSPACE/build/linux-gcc-debug/_deps/pdfium-${PDFIUM_VERSION}-linux-x64/lib:${LD_LIBRARY_PATH:-}" \
+          ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+          UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+            cmake \
+              -DORACLE="$GITHUB_WORKSPACE/build/linux-gcc-debug/tests/quantapdf_test_native_source_qq_oracle" \
+              -DSOURCE="$original" \
+              -DREPORT="$RUNNER_TEMP/texample-intersecting-rings-asan-ubsan.json" \
+              -DEXPECTED_SHA256='f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284' \
+              -P tests/check_external_tikz_wstar_candidate.cmake
+
+      - name: Upload TeXample W-star candidate pixel reports
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 415
+        uses: actions/upload-artifact@v4
+        with:
+          name: texample-intersecting-rings-pixel-qualification
+          path: |
+            ${{ runner.temp }}/texample-intersecting-rings-release.json
+            ${{ runner.temp }}/texample-intersecting-rings-asan-ubsan.json
+          if-no-files-found: error
+          retention-days: 7
 
       # Explicitly opted-in original; both actual Release and sanitizer
       # executables inspect the same unchanged file. JSON is the only artifact.
@@ -269,7 +316,8 @@ jobs:
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' &&
-       contains(github.event.pull_request.labels.*.name, 'full-ci'))
+       (contains(github.event.pull_request.labels.*.name, 'full-ci') ||
+        github.event.pull_request.number == 415))
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -354,6 +402,31 @@ jobs:
 
       - name: Product conformance (macOS)
         run: ctest --preset "$CMAKE_PRESET" -L conformance --output-on-failure
+
+      - name: Qualify licensed TeXample W-star original (macOS Release)
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 415
+        shell: bash
+        run: |
+          set -euo pipefail
+          original="$RUNNER_TEMP/texample-intersecting-rings.pdf"
+          curl --fail --show-error --silent --location --retry 3 --max-time 60 \
+            'https://texample.net/files/intersecting-rings.pdf' --output "$original"
+          export DYLD_LIBRARY_PATH="$GITHUB_WORKSPACE/build/macos-clang-release/_deps/pdfium-${PDFIUM_VERSION}-${PDFIUM_PLATFORM}/lib:${DYLD_LIBRARY_PATH:-}"
+          cmake \
+            -DORACLE="$GITHUB_WORKSPACE/build/macos-clang-release/tests/quantapdf_test_native_source_qq_oracle" \
+            -DSOURCE="$original" \
+            -DREPORT="$RUNNER_TEMP/texample-intersecting-rings-macos.json" \
+            -DEXPECTED_SHA256='f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284' \
+            -P tests/check_external_tikz_wstar_candidate.cmake
+
+      - name: Upload TeXample W-star pixel report (macOS)
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 415
+        uses: actions/upload-artifact@v4
+        with:
+          name: texample-intersecting-rings-pixel-qualification-macos
+          path: ${{ runner.temp }}/texample-intersecting-rings-macos.json
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Test original jsPDF Native qualification contract
         run: python3 tools/qualification/native_device_original.py --self-test
@@ -477,7 +550,8 @@ jobs:
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' &&
-       contains(github.event.pull_request.labels.*.name, 'full-ci'))
+       (contains(github.event.pull_request.labels.*.name, 'full-ci') ||
+        github.event.pull_request.number == 415))
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -565,6 +639,35 @@ jobs:
       - name: Product conformance (Windows)
         shell: cmd
         run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && ctest --preset win-release-user -L conformance --output-on-failure
+
+      - name: Qualify licensed TeXample W-star original (Windows Release)
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 415
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $original = Join-Path $env:RUNNER_TEMP 'texample-intersecting-rings.pdf'
+          try {
+            Invoke-WebRequest -Uri 'https://texample.net/files/intersecting-rings.pdf' -OutFile $original -MaximumRedirection 5
+            $built = Join-Path $env:GITHUB_WORKSPACE 'build\Msvc-Release'
+            $pdfium = Join-Path $built "_deps\pdfium-$env:PDFIUM_VERSION-win-x64\bin"
+            if (-not (Test-Path (Join-Path $pdfium 'pdfium.dll'))) { throw 'Pinned PDFium DLL missing' }
+            $env:PATH = "$built;$pdfium;$env:PATH"
+            $oracle = Join-Path $built 'tests\quantapdf_test_native_source_qq_oracle.exe'
+            $report = Join-Path $env:RUNNER_TEMP 'texample-intersecting-rings-windows.json'
+            & cmake "-DORACLE=$oracle" "-DSOURCE=$original" "-DREPORT=$report" "-DEXPECTED_SHA256=f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284" -P tests/check_external_tikz_wstar_candidate.cmake
+            if ($LASTEXITCODE -ne 0) { throw 'Original TeXample PDF qualification failed' }
+          } finally {
+            Remove-Item -LiteralPath $original -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Upload TeXample W-star pixel report (Windows)
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 415
+        uses: actions/upload-artifact@v4
+        with:
+          name: texample-intersecting-rings-pixel-qualification-windows
+          path: ${{ runner.temp }}/texample-intersecting-rings-windows.json
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Test original jsPDF Native qualification contract
         shell: pwsh

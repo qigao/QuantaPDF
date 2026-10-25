@@ -17,20 +17,28 @@ static int decimal4(double value, double writer_value)
         fabs(value - round(writer_value * 10000.0) / 10000.0) < 1e-9;
 }
 
-static quantapdf_status point(double x, double y, quantapdf_point *out)
+static quantapdf_status point(double x, double y,
+    quantapdf_point *out, int native_float_geometry)
 {
     float cx, cy;
     if (!isfinite(x) || !isfinite(y)) return QUANTAPDF_ERROR_FORMAT;
+    if (fabs(x) > 65536.0 || fabs(y) > 65536.0)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
     cx = (float)x;
     cy = (float)(-y);
-    if (!decimal4(x, (double)cx) ||
-        !decimal4(y, -(double)cy))
+    if (!isfinite(cx) || !isfinite(cy)) return QUANTAPDF_ERROR_UNSUPPORTED;
+    /* Serialized Composer output requires the writer's four-decimal grid.
+     * Direct C11 raster qualification consumes the owned float IR without
+     * serializing it, so finite in-range source coordinates may round to float. */
+    if (!native_float_geometry &&
+        (!decimal4(x, (double)cx) || !decimal4(y, -(double)cy)))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     out->x = cx; out->y = cy;
     return QUANTAPDF_OK;
 }
 
-static quantapdf_status color(const double rgb[3], uint32_t *out)
+static quantapdf_status color(const double rgb[3], uint32_t *out,
+    int native_float_color)
 {
     uint32_t packed = UINT32_C(0xff000000);
     for (size_t i = 0; i < 3; ++i) {
@@ -41,7 +49,7 @@ static quantapdf_status color(const double rgb[3], uint32_t *out)
         channel = lround(component * 255.0);
         if (channel < 0 || channel > 255) return QUANTAPDF_ERROR_FORMAT;
         encoded = (double)channel / 255.0;
-        if (!decimal4(component, encoded))
+        if (!native_float_color && !decimal4(component, encoded))
             return QUANTAPDF_ERROR_UNSUPPORTED;
         packed |= (uint32_t)channel << (16u - 8u * (unsigned int)i);
     }
@@ -107,7 +115,7 @@ static quantapdf_status mapped_transform(
 
 static quantapdf_status paint_options(
     const quantapdf_pdf_path_record *path, float height,
-    const double page_transform[6],
+    const double page_transform[6], int native_float_color,
     quantapdf_composer_path_options *options)
 {
     quantapdf_pdf_content_opcode opcode = path->paint_opcode;
@@ -152,11 +160,13 @@ static quantapdf_status paint_options(
         options->stroke_width = (float)width;
         if (!decimal4(width, options->stroke_width))
             return QUANTAPDF_ERROR_UNSUPPORTED;
-        status = color(path->graphics.stroke_rgb, &options->stroke_argb);
+        status = color(path->graphics.stroke_rgb, &options->stroke_argb,
+            native_float_color);
         if (status != QUANTAPDF_OK) return status;
     }
     if (options->fill) {
-        status = color(path->graphics.fill_rgb, &options->fill_argb);
+        status = color(path->graphics.fill_rgb, &options->fill_argb,
+            native_float_color);
         if (status != QUANTAPDF_OK) return status;
     }
     return QUANTAPDF_OK;
@@ -255,20 +265,21 @@ static quantapdf_status count_commands(
 static quantapdf_status commands_from_path(
     const quantapdf_pdf_content_ir *content,
     const quantapdf_pdf_path_record *path,
-    quantapdf_composer_path_command *commands, size_t expected)
+    quantapdf_composer_path_command *commands, size_t expected,
+    int native_float_geometry)
 {
     size_t count = 0;
     quantapdf_point current = {0}, start = {0}, target = {0};
     int have_current = 0;
     quantapdf_status status;
 #define EMIT_MOVE(X,Y) do { \
-    status = point((X), (Y), &target); \
+    status = point((X), (Y), &target, native_float_geometry); \
     if (status != QUANTAPDF_OK) return status; \
     commands[count].kind = QUANTAPDF_COMPOSER_PATH_MOVE_TO; \
     commands[count++].point1 = target; current = start = target; have_current = 1; \
 } while(0)
 #define EMIT_LINE(X,Y) do { \
-    status = point((X), (Y), &target); \
+    status = point((X), (Y), &target, native_float_geometry); \
     if (status != QUANTAPDF_OK) return status; \
     if (!have_current) return QUANTAPDF_ERROR_FORMAT; \
     commands[count].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO; \
@@ -294,22 +305,22 @@ static quantapdf_status commands_from_path(
             if (!have_current) return QUANTAPDF_ERROR_FORMAT;
             if (op->opcode == QUANTAPDF_PDF_OP_CURVE) {
                 if (op->argument_count != 6) return QUANTAPDF_ERROR_FORMAT;
-                status = point(a[0], a[1], &p1);
+                status = point(a[0], a[1], &p1, native_float_geometry);
                 if (status != QUANTAPDF_OK) return status;
-                status = point(a[2], a[3], &p2);
+                status = point(a[2], a[3], &p2, native_float_geometry);
                 if (status != QUANTAPDF_OK) return status;
-                status = point(a[4], a[5], &p3);
+                status = point(a[4], a[5], &p3, native_float_geometry);
             } else if (op->opcode == QUANTAPDF_PDF_OP_CURVE_V) {
                 if (op->argument_count != 4) return QUANTAPDF_ERROR_FORMAT;
                 p1 = current;
-                status = point(a[0], a[1], &p2);
+                status = point(a[0], a[1], &p2, native_float_geometry);
                 if (status != QUANTAPDF_OK) return status;
-                status = point(a[2], a[3], &p3);
+                status = point(a[2], a[3], &p3, native_float_geometry);
             } else {
                 if (op->argument_count != 4) return QUANTAPDF_ERROR_FORMAT;
-                status = point(a[0], a[1], &p1);
+                status = point(a[0], a[1], &p1, native_float_geometry);
                 if (status != QUANTAPDF_OK) return status;
-                status = point(a[2], a[3], &p3);
+                status = point(a[2], a[3], &p3, native_float_geometry);
                 p2 = p3;
             }
             if (status != QUANTAPDF_OK) return status;
@@ -355,7 +366,7 @@ static quantapdf_status lower_commands(
     const quantapdf_pdf_content_ir *content,
     const quantapdf_pdf_path_record *path,
     const quantapdf_pdf_clip_record *clip,
-    size_t available, int for_clip,
+    size_t available, int for_clip, int native_float_geometry,
     quantapdf_composer_path_command **out_commands, size_t *out_count)
 {
     quantapdf_pdf_path_record geometry = *path;
@@ -395,7 +406,7 @@ static quantapdf_status lower_commands(
         sizeof(*commands));
     if (commands == NULL) return QUANTAPDF_ERROR_NOMEM;
     status = commands_from_path(content, &geometry,
-        commands, base_count);
+        commands, base_count, native_float_geometry);
     if (status != QUANTAPDF_OK) {
         free(commands);
         return status;
@@ -480,11 +491,12 @@ static quantapdf_status intern_clip_chain(
         out_effective, &added_bytes);
 }
 
-quantapdf_status quantapdf_pdf_path_lower_to_composer_mapped(
+static quantapdf_status path_lower_to_composer_mapped_impl(
     const quantapdf_pdf_page_semantics *page,
     double canvas_width, double canvas_height,
     const double page_transform[6],
-    const quantapdf_pdf_path_lower_limits *limits, quantapdf_ir *out_ir)
+    const quantapdf_pdf_path_lower_limits *limits,
+    int native_float_geometry, quantapdf_ir *out_ir)
 {
     quantapdf_ir temporary = {0};
     const quantapdf_pdf_content_ir *content;
@@ -569,11 +581,13 @@ quantapdf_status quantapdf_pdf_path_lower_to_composer_mapped(
             op->bounds = (quantapdf_rect){0, 0,
                 (float)canvas_width, (float)canvas_height};
             status = paint_options(path, (float)canvas_height,
-                page_transform, &op->value.path.options);
+                page_transform, native_float_geometry,
+                &op->value.path.options);
             if (status != QUANTAPDF_OK) goto fail;
             status = lower_commands(content, path, clip,
                 limits->max_path_commands - command_total, 0,
-                &op->value.path.commands, &op->value.path.command_count);
+                native_float_geometry, &op->value.path.commands,
+                &op->value.path.command_count);
             if (status != QUANTAPDF_OK) goto fail;
             command_total += op->value.path.command_count;
             ++temporary.operation_count; /* No partially-owned record escapes. */
@@ -601,7 +615,7 @@ quantapdf_status quantapdf_pdf_path_lower_to_composer_mapped(
             if (status != QUANTAPDF_OK) goto fail;
             status = lower_commands(content, path, clip,
                 limits->max_path_commands - command_total, 1,
-                &candidate.commands, &count);
+                native_float_geometry, &candidate.commands, &count);
             if (status != QUANTAPDF_OK) goto fail;
             candidate.command_count = count;
             command_total += count;
@@ -623,6 +637,26 @@ fail:
     return status;
 }
 
+
+quantapdf_status quantapdf_pdf_path_lower_to_composer_mapped(
+    const quantapdf_pdf_page_semantics *page,
+    double canvas_width, double canvas_height,
+    const double page_transform[6],
+    const quantapdf_pdf_path_lower_limits *limits, quantapdf_ir *out_ir)
+{
+    return path_lower_to_composer_mapped_impl(page,canvas_width,canvas_height,
+        page_transform,limits,0,out_ir);
+}
+
+quantapdf_status quantapdf_pdf_path_lower_to_composer_mapped_native_raster(
+    const quantapdf_pdf_page_semantics *page,
+    double canvas_width, double canvas_height,
+    const double page_transform[6],
+    const quantapdf_pdf_path_lower_limits *limits, quantapdf_ir *out_ir)
+{
+    return path_lower_to_composer_mapped_impl(page,canvas_width,canvas_height,
+        page_transform,limits,1,out_ir);
+}
 
 quantapdf_status quantapdf_pdf_path_lower_to_composer(
     const quantapdf_pdf_page_semantics *page,

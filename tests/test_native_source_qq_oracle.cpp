@@ -3,9 +3,17 @@
  * -> private pure-C11 scoped Clip DAG raster. Never export IR to PDF as a
  * production rendering intermediate and never invoke a PDFium fallback. */
 #include "document/page_composer_ir.h"
+#include "document/page_content_ir.h"
+#include "graph/graph_page_geometry.h"
+#include "graph/graph_extgstate.h"
+#include "ir/pdf_path_lowering.h"
+#include "snapshot/graph_snapshot.h"
 #include "render/ir_scoped_operations_v1.h"
+#include "render/ir_stroke_polyline_v1.h"
 #include "render/ir_clip_dag_v3.h"
 #include "render/ir_raster.h"
+#include "render/ir_raster_v1.h"
+#include "render/native_device_plan.h"
 
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFWriter.hh>
@@ -3051,6 +3059,706 @@ int test_external_yworks_wstar_pixels(const char *filename,
 }
 
 
+
+static void dump_tikz_candidate_contents(
+    const quantapdf_graph_snapshot *snapshot)
+{
+    if(snapshot==nullptr) return;
+    const quantapdf_graph_model *model=quantapdf_graph_view(snapshot->graph);
+    if(model==nullptr || model->page_count==0u) return;
+    const quantapdf_local_id page_id=
+        model->edges[model->page_offset].target;
+    const quantapdf_graph_edge *entry=
+        quantapdf_graph_find(model,page_id,"/Contents",9u);
+    if(entry==nullptr) {
+        std::fprintf(stderr,"[texample-wstar-stream] no /Contents entry\n");
+        return;
+    }
+    const quantapdf_graph_node *contents=
+        quantapdf_graph_node_at(model,entry->target);
+    if(contents==nullptr) return;
+    const bool array=contents->kind==QUANTAPDF_GRAPH_ARRAY;
+    const size_t count=array ? contents->edge_count :
+        (contents->kind==QUANTAPDF_GRAPH_STREAM ? 1u : 0u);
+    std::fprintf(stderr,"[texample-wstar-stream] kind=%d streams=%zu\n",
+        (int)contents->kind,count);
+    for(size_t i=0u;i<count;++i) {
+        const quantapdf_local_id id=array ?
+            model->edges[contents->edge_offset+i].target : entry->target;
+        quantapdf_graph_reference reference{};
+        quantapdf_status status=quantapdf_graph_reference_at(
+            snapshot->graph,id,&reference);
+        unsigned char *data=nullptr;
+        size_t size=0u;
+        if(status==QUANTAPDF_OK)
+            status=quantapdf_graph_snapshot_stream(
+                snapshot,&reference,&decode_limits,&data,&size);
+        std::fprintf(stderr,
+            "[texample-wstar-stream] index=%zu status=%d size=%zu\n",
+            i,(int)status,size);
+        if(status==QUANTAPDF_OK && data!=nullptr) {
+            std::fwrite(data,1u,size,stderr);
+            std::fputc('\n',stderr);
+            quantapdf_pdf_content_ir *parsed=nullptr;
+            quantapdf_status stage=quantapdf_pdf_content_parse(
+                data,size,&parse_limits,&parsed);
+            std::fprintf(stderr,"[texample-wstar-debug] content_parse=%d\n",(int)stage);
+            if(stage==QUANTAPDF_OK) {
+                quantapdf_pdf_extgstate_delta *deltas=nullptr;
+                size_t delta_count=0u;
+                stage=quantapdf_graph_resolve_page_extgstates(
+                    snapshot->graph,0u,decode_limits.max_direct_depth,
+                    parsed,&deltas,&delta_count);
+                std::fprintf(stderr,
+                    "[texample-wstar-debug] extgstate_resolve=%d deltas=%zu\n",
+                    (int)stage,delta_count);
+                if(stage==QUANTAPDF_OK) {
+                    quantapdf_pdf_graphics_ir *graphics=nullptr;
+                    stage=quantapdf_pdf_graphics_evaluate_resolved(
+                        parsed,&parse_limits,deltas,delta_count,&graphics);
+                    std::fprintf(stderr,
+                        "[texample-wstar-debug] graphics_evaluate=%d paths=%zu clips=%zu\n",
+                        (int)stage,graphics ? graphics->path_count : 0u,
+                        graphics ? graphics->clip_count : 0u);
+                    quantapdf_pdf_graphics_dispose(graphics);
+                }
+                std::free(deltas);
+            }
+            quantapdf_pdf_content_dispose(parsed);
+        }
+        quantapdf_free(data);
+    }
+}
+
+int test_external_tikz_wstar_pixels(const char *filename,
+                                    const char *report_path,
+                                    const char *expected_sha256)
+{
+    CHECK(filename && *filename && report_path && *report_path &&
+          expected_sha256 && *expected_sha256);
+    namespace fs=std::filesystem;
+    std::error_code ec;
+    const fs::path source(filename), report(report_path);
+    const std::string staged=std::string(report_path)+".tmp";
+    const fs::path stage(staged);
+    CHECK(fs::is_regular_file(source,ec) && !ec);
+    CHECK(!fs::is_symlink(source,ec) && !ec);
+    const fs::path original=fs::weakly_canonical(source,ec);
+    CHECK(!ec);
+    const fs::path output=fs::weakly_canonical(report,ec);
+    CHECK(!ec && original!=output);
+    const fs::path temp=fs::weakly_canonical(stage,ec);
+    CHECK(!ec && original!=temp);
+    for(const fs::path& candidate:{report,stage}) {
+        const bool exists=fs::exists(candidate,ec);
+        CHECK(!ec);
+        if(exists) {
+            CHECK(!fs::is_symlink(candidate,ec) && !ec);
+            CHECK(!fs::equivalent(source,candidate,ec) && !ec);
+        }
+    }
+    CHECK(corpus_fixture_executions==0u);
+
+    /* Reference pixels come directly from the unchanged source via PDFium. */
+    const rgb_image pdfium=render_direct_pdfium_reference(filename);
+    CHECK(pdfium.width>0 && pdfium.height>0 && pdfium.components==3 &&
+          pdfium.stride>=pdfium.width*3);
+    const size_t width=static_cast<size_t>(pdfium.width);
+    const size_t height=static_cast<size_t>(pdfium.height);
+    CHECK(width<=8192u && height<=8192u && width*height<=60000000u);
+
+    /* Lower only this original page; snapshot_lower releases Source and Graph. */
+    quantapdf_pdf_path_lower_limits bounded=lower_limits;
+    bounded.max_painted_paths=8u;
+    quantapdf_ir detached{};
+    quantapdf_document *doc=nullptr;
+    quantapdf_graph_snapshot *snap=nullptr;
+    quantapdf_pdf_page_semantics *semantics=nullptr;
+    quantapdf_graph_page_geometry geometry{};
+    quantapdf_graph_page_source_numbers page_numbers{};
+    quantapdf_graph_page_display display{};
+    quantapdf_status lower_status=quantapdf_open(filename,nullptr,&doc);
+    std::fprintf(stderr,"[texample-wstar-lowering] open=%d\n",(int)lower_status);
+    if(lower_status==QUANTAPDF_OK) {
+        lower_status=quantapdf_document_capture_graph(doc,&graph_limits,&snap);
+        quantapdf_close(doc);
+        doc=nullptr;
+        std::fprintf(stderr,"[texample-wstar-lowering] capture=%d\n",(int)lower_status);
+    }
+    if(lower_status==QUANTAPDF_OK) {
+        lower_status=quantapdf_graph_query_page_geometry(
+            snap->graph,0u,8u,&geometry);
+        std::fprintf(stderr,"[texample-wstar-lowering] geometry=%d\n",(int)lower_status);
+    }
+    if(lower_status==QUANTAPDF_OK) {
+        lower_status=quantapdf_graph_query_page_source_numbers(
+            snap->graph,0u,8u,&page_numbers);
+        std::fprintf(stderr,"[texample-wstar-lowering] source_numbers=%d\n",
+            (int)lower_status);
+    }
+    if(lower_status==QUANTAPDF_OK) {
+        lower_status=quantapdf_graph_page_display_map(&geometry,&display);
+        std::fprintf(stderr,
+            "[texample-wstar-lowering] display=%d points=%.6fx%.6f\n",
+            (int)lower_status,display.width_points,display.height_points);
+    }
+    if(lower_status==QUANTAPDF_OK) {
+        lower_status=quantapdf_graph_admit_native_page_group(snap->graph,0u);
+        std::fprintf(stderr,"[texample-wstar-lowering] page_group=%d\n",(int)lower_status);
+    }
+    if(lower_status==QUANTAPDF_OK) {
+        lower_status=quantapdf_graph_snapshot_page_semantics(
+            snap,0u,&decode_limits,&parse_limits,4u,&semantics);
+        std::fprintf(stderr,"[texample-wstar-lowering] semantics=%d\n",(int)lower_status);
+        if(lower_status!=QUANTAPDF_OK) dump_tikz_candidate_contents(snap);
+    }
+    if(lower_status==QUANTAPDF_OK) {
+        lower_status=quantapdf_pdf_path_lower_to_composer_mapped_native_raster(
+            semantics,display.width_points,display.height_points,
+            display.from_source,&bounded,&detached);
+        std::fprintf(stderr,"[texample-wstar-lowering] path_lower=%d\n",(int)lower_status);
+    }
+    if(semantics!=nullptr) quantapdf_pdf_page_semantics_dispose(semantics);
+    if(snap!=nullptr) quantapdf_graph_snapshot_drop(snap);
+    if(doc!=nullptr) quantapdf_close(doc);
+    CHECK(lower_status==QUANTAPDF_OK);
+    const clip_leaf_counts winding=inspect_clip_fill_rules(detached);
+    const size_t painted_count=detached.operation_count;
+    const size_t clip_count=detached.resources.clip_count;
+    std::fprintf(stderr,
+        "[texample-wstar-ir] pages=%zu page=%.3fx%.3f pixels=%zux%zu "
+        "paths=%zu clips=%zu states=%zu W=%zu Wstar=%zu intersections=%zu "
+        "fonts=%zu images=%zu forms=%zu soft_masks=%zu paints=%zu\n",
+        detached.page_count,
+        detached.page_count ? detached.pages[0].width_points : 0.0,
+        detached.page_count ? detached.pages[0].height_points : 0.0,
+        width,height,detached.operation_count,detached.resources.clip_count,
+        detached.resources.graphics_state_count,winding.nonzero,winding.evenodd,
+        winding.intersections,detached.resources.font_count,
+        detached.resources.image_count,detached.resources.form_count,
+        detached.resources.soft_mask_count,detached.resources.paint_count);
+    CHECK(detached.page_count==1u && detached.pages!=nullptr &&
+          detached.pages[0].width_points>0.0f &&
+          detached.pages[0].height_points>0.0f &&
+          static_cast<size_t>(std::ceil(detached.pages[0].width_points))==width &&
+          static_cast<size_t>(std::ceil(detached.pages[0].height_points))==height);
+    CHECK(detached.operation_count>0u && detached.operation_count<=8u &&
+          detached.resources.clip_count>0u && detached.resources.clip_count<=8u);
+    CHECK(winding.evenodd==1u && winding.nonzero==0u);
+    CHECK(detached.resources.font_count==0u && detached.resources.image_count==0u &&
+          detached.resources.form_count==0u &&
+          detached.resources.soft_mask_count==0u &&
+          detached.resources.paint_count==0u);
+
+    const size_t pixel_count=width*height;
+    const quantapdf_ir_raster_v1_limits limits={
+        pixel_count,8u,32768u,10000000000ULL
+    };
+    quantapdf_native_device_plan device_plan{};
+    OK(quantapdf_native_device_plan_create(
+        page_numbers.media_box,page_numbers.crop_box,page_numbers.user_unit,
+        page_numbers.rotation,72u,pixel_count,&device_plan));
+    CHECK(device_plan.width==width && device_plan.height==height);
+
+    for(size_t op_index=0u;op_index<detached.operation_count;++op_index) {
+        const quantapdf_composer_operation *op=&detached.operations[op_index];
+        if(op->kind!=QUANTAPDF_COMPOSER_OPERATION_PATH ||
+           op->value.path.options.stroke!=1 ||
+           op->value.path.options.fill!=0) continue;
+        quantapdf_composer_path_operation outline{};
+        const quantapdf_status outline_status=
+            quantapdf_ir_stroke_polyline_outline_v1_planned(
+                &op->value.path,limits.max_edges,&device_plan,&outline);
+        std::fprintf(stderr,
+            "[texample-wstar-stroke-outline] op=%zu status=%d "
+            "input_commands=%zu output_commands=%zu "
+            "width=%.6f cap=%d join=%d dash=%zu transform=%.6f,%.6f,%.6f,%.6f\n",
+            op_index,(int)outline_status,op->value.path.command_count,
+            outline.command_count,
+            op->value.path.options.stroke_width,
+            (int)op->value.path.options.line_cap,
+            (int)op->value.path.options.line_join,
+            op->value.path.dash_count,
+            op->value.path.options.transform.a,
+            op->value.path.options.transform.b,
+            op->value.path.options.transform.c,
+            op->value.path.options.transform.d);
+        quantapdf_ir_stroke_polyline_dispose_v1(&outline);
+    }
+
+    /* Render the complete original page through the expanded, still bounded
+       pure-C11 stroke profile. This source's two outline paths are cubic;
+       V1 deliberately rejects them, while V2 has a separate, explicit
+       cubic-stroke profile. No operation is omitted from this whole-page pass. */
+    quantapdf_ir_raster_image full_page_native{},full_page_repeat{};
+    quantapdf_status full_page_status=
+        quantapdf_ir_raster_scoped_operations_v2_planned(
+            &detached,0u,&limits,&device_plan,&full_page_native);
+    std::fprintf(stderr,"[texample-wstar-full-page] status=%d pixels=%p size=%zu\n",
+        (int)full_page_status,(void*)full_page_native.pixels,
+        full_page_native.size);
+    if(full_page_status!=QUANTAPDF_OK) {
+        for(size_t oi=0u;oi<detached.operation_count;++oi) {
+            quantapdf_composer_operation one=detached.operations[oi];
+            quantapdf_composer_page_state page=detached.pages[0];
+            quantapdf_composer_path_operation stroke_outline{};
+            quantapdf_status outline_status=QUANTAPDF_OK;
+            if(one.value.path.options.stroke==1 &&
+               one.value.path.options.fill==0) {
+                one.value.path.options.graphics_state_id=0u;
+                outline_status=quantapdf_ir_stroke_polyline_outline_v1_planned(
+                    &one.value.path,limits.max_edges,&device_plan,&stroke_outline);
+                if(outline_status==QUANTAPDF_OK)
+                    one.value.path=stroke_outline;
+            }
+            one.graphics_state_id=0u;
+            one.value.path.options.graphics_state_id=0u;
+            quantapdf_ir single{};
+            single.pages=&page;
+            single.page_count=1u;
+            single.operations=&one;
+            single.operation_count=1u;
+            quantapdf_ir_raster_image result{};
+            quantapdf_status status=outline_status;
+            if(status==QUANTAPDF_OK &&
+               oi!=0u) status=quantapdf_ir_raster_render_v1_planned(
+                    &single,0u,&limits,&device_plan,nullptr,0u,&result);
+            std::fprintf(stderr,
+                "[texample-op-check] op=%zu original=%zu expanded=%zu "
+                "outline=%d raster=%d rgba_size=%zu\n",
+                oi,detached.operations[oi].value.path.command_count,
+                one.value.path.command_count,
+                (int)outline_status,(int)status,result.size);
+            quantapdf_ir_raster_image_dispose(&result);
+            quantapdf_ir_stroke_polyline_dispose_v1(&stroke_outline);
+        }
+    }
+    CHECK(full_page_status==QUANTAPDF_OK &&
+          full_page_native.pixels!=nullptr &&
+          full_page_native.width==width && full_page_native.height==height &&
+          full_page_native.stride==width*4u &&
+          full_page_native.size==pixel_count*4u);
+    OK(quantapdf_ir_raster_scoped_operations_v2_planned(
+        &detached,0u,&limits,&device_plan,&full_page_repeat));
+    const bool full_page_repeat_equal=
+        full_page_repeat.pixels!=nullptr &&
+        full_page_repeat.width==width && full_page_repeat.height==height &&
+        full_page_repeat.stride==full_page_native.stride &&
+        full_page_repeat.size==full_page_native.size &&
+        std::memcmp(full_page_native.pixels,full_page_repeat.pixels,
+                    full_page_native.size)==0;
+    CHECK(full_page_repeat_equal);
+
+    double full_page_total=0.0;
+    size_t full_page_gross=0u,reference_gray_ink=0u,native_gray_ink=0u;
+    size_t common_gray_ink=0u,gross_near_gray_ink=0u;
+    for(size_t y=0u;y<height;++y) {
+        for(size_t x=0u;x<width;++x) {
+            const unsigned char *ref=pdfium.at(x,y);
+            const unsigned char *rgba=
+                full_page_native.pixels+y*full_page_native.stride+4u*x;
+            unsigned worst=0u;
+            for(size_t channel=0u;channel<3u;++channel) {
+                const unsigned actual=on_white(rgba,channel);
+                const unsigned delta=actual>(unsigned)ref[channel]
+                    ? actual-(unsigned)ref[channel]
+                    : (unsigned)ref[channel]-actual;
+                full_page_total+=(double)delta;
+                if(delta>worst) worst=delta;
+            }
+            const unsigned rr=ref[0],rg=ref[1],rb=ref[2];
+            const unsigned nr=on_white(rgba,0u),ng=on_white(rgba,1u),
+                           nb=on_white(rgba,2u);
+            const bool reference_gray=(rr<235u && rg<235u && rb<235u &&
+                                       std::abs((int)rr-(int)rg)<8 &&
+                                       std::abs((int)rg-(int)rb)<8);
+            const bool native_gray=(nr<235u && ng<235u && nb<235u &&
+                                    std::abs((int)nr-(int)ng)<8 &&
+                                    std::abs((int)ng-(int)nb)<8);
+            reference_gray_ink+=(size_t)reference_gray;
+            native_gray_ink+=(size_t)native_gray;
+            common_gray_ink+=(size_t)(reference_gray&&native_gray);
+            if(worst>64u) {
+                ++full_page_gross;
+                gross_near_gray_ink+=(size_t)(reference_gray||native_gray);
+            }
+        }
+    }
+    const double full_page_mean=
+        full_page_total/(double)(pixel_count*3u);
+    std::fprintf(stderr,
+        "[texample-wstar-full-page] mean=%.6f gross=%zu repeat-identical=%d "
+        "gray-source=%zu gray-native=%zu gray-overlap=%zu "
+        "gross-near-gray=%zu\n",
+        full_page_mean,full_page_gross,(int)full_page_repeat_equal,
+        reference_gray_ink,native_gray_ink,common_gray_ink,
+        gross_near_gray_ink);
+    /* Positive whole-original-page source/PDFium gate. These thresholds
+       apply only to the immutable 238x181, 72 DPI source, independently of
+       the separately scored even-odd orange fill. Formal admission is not
+       conferred by this per-platform test. */
+    const bool full_page_candidate_parity=
+        std::isfinite(full_page_mean) && full_page_mean<=1.0 &&
+        full_page_gross==0u && gross_near_gray_ink==0u &&
+        reference_gray_ink>=2500u && native_gray_ink>=2500u &&
+        common_gray_ink*100u>=reference_gray_ink*94u;
+    if(!full_page_candidate_parity)
+        std::fprintf(stderr,
+            "[texample-wstar-full-page-gate] FAILED mean=%.6f gross=%zu "
+            "reference-gray=%zu native-gray=%zu overlap=%zu\n",
+            full_page_mean,full_page_gross,reference_gray_ink,
+            native_gray_ink,common_gray_ink);
+    CHECK(full_page_candidate_parity);
+
+    /* Original-source gray outline golden; formerly PDFium RGB 85 and
+       Native RGB 159 at (71,36) before the device-width correction. */
+    const size_t gray_golden_x=71u,gray_golden_y=36u;
+    const unsigned char *gray_reference=
+        pdfium.at(gray_golden_x,gray_golden_y);
+    const unsigned char *gray_pixel=
+        full_page_native.pixels+gray_golden_y*full_page_native.stride+
+        gray_golden_x*4u;
+    unsigned gray_golden_native[3]={0u,0u,0u};
+    for(size_t channel=0u;channel<3u;++channel) {
+        gray_golden_native[channel]=on_white(gray_pixel,channel);
+        CHECK(gray_reference[channel]==85u);
+        CHECK(std::abs((int)gray_golden_native[channel]-
+                       (int)gray_reference[channel])<=64);
+    }
+    std::fprintf(stderr,
+        "[texample-wstar-gray-interior-golden] x=%zu y=%zu "
+        "reference=%u,%u,%u native=%u,%u,%u\n",
+        gray_golden_x,gray_golden_y,
+        (unsigned)gray_reference[0],(unsigned)gray_reference[1],
+        (unsigned)gray_reference[2],gray_golden_native[0],
+        gray_golden_native[1],gray_golden_native[2]);
+    CHECK(detached.operation_count==3u);
+    quantapdf_composer_operation projected_operation=detached.operations[0];
+    CHECK(projected_operation.kind==QUANTAPDF_COMPOSER_OPERATION_PATH);
+    CHECK(projected_operation.value.path.options.fill==1 &&
+          projected_operation.value.path.options.stroke==0);
+    const size_t state_id=(size_t)projected_operation.graphics_state_id;
+    CHECK(state_id>0u && state_id<=detached.resources.graphics_state_count);
+    const size_t clip_id=(size_t)
+        detached.resources.graphics_states[state_id-1u].clip_id;
+    CHECK(clip_id>0u && clip_id<=detached.resources.clip_count);
+    const quantapdf_composer_clip_state *source_clip=
+        &detached.resources.clips[clip_id-1u];
+    CHECK(source_clip->kind==QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL &&
+          source_clip->fill_rule==QUANTAPDF_COMPOSER_FILL_EVEN_ODD &&
+          source_clip->commands!=nullptr && source_clip->command_count>0u);
+
+    /* The full page also contains two thin strokes outside the Native Raster
+       stroke profile. Project only the original orange fill operation, borrow
+       its exact detached W* Clip Path, and compare the fill mask against the
+       unchanged full-page PDFium reference. This is a clip witness, not a
+       claim that every source-page operation is natively supported. */
+    projected_operation.graphics_state_id=0;
+    projected_operation.value.path.options.graphics_state_id=0;
+    quantapdf_ir projected=detached;
+    projected.operations=&projected_operation;
+    projected.operation_count=1u;
+    projected.resources=quantapdf_resource_registry{};
+    const quantapdf_composer_clip_state *evenodd_clips[1]={source_clip};
+    quantapdf_composer_clip_state nonzero_clip=*source_clip;
+    nonzero_clip.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
+    const quantapdf_composer_clip_state *nonzero_clips[1]={&nonzero_clip};
+
+    quantapdf_ir_raster_image native{},repeat{},nonzero{};
+    struct raster_image_cleanup {
+        quantapdf_ir_raster_image *image;
+        ~raster_image_cleanup() { quantapdf_ir_raster_image_dispose(image); }
+    };
+    raster_image_cleanup native_cleanup{&native};
+    raster_image_cleanup repeat_cleanup{&repeat};
+    raster_image_cleanup nonzero_cleanup{&nonzero};
+    OK(quantapdf_ir_raster_render_v1_planned(
+        &projected,0u,&limits,&device_plan,evenodd_clips,1u,&native));
+    OK(quantapdf_ir_raster_render_v1_planned(
+        &projected,0u,&limits,&device_plan,evenodd_clips,1u,&repeat));
+    OK(quantapdf_ir_raster_render_v1_planned(
+        &projected,0u,&limits,&device_plan,nonzero_clips,1u,&nonzero));
+    CHECK(native.pixels!=nullptr && repeat.pixels!=nullptr &&
+          nonzero.pixels!=nullptr &&
+          native.width==width && native.height==height &&
+          native.stride==width*4u && native.size==pixel_count*4u &&
+          repeat.size==native.size && nonzero.size==native.size &&
+          std::memcmp(native.pixels,repeat.pixels,native.size)==0);
+
+    auto orange_like=[](unsigned r,unsigned g,unsigned b) {
+        return r>150u && r>g+12u && g>b+12u && r>b+40u;
+    };
+    double total=0.0;
+    size_t gross=0u,union_orange=0u,reference_orange=0u;
+    size_t native_orange=0u,overlap_orange=0u,nonzero_orange=0u;
+    size_t control_diff_pixels=0u;
+    for(size_t y=0u;y<height;++y) {
+        for(size_t x=0u;x<width;++x) {
+            const unsigned char *ref=pdfium.at(x,y);
+            const unsigned char *rgba=native.pixels+y*native.stride+4u*x;
+            const unsigned char *nz=nonzero.pixels+y*nonzero.stride+4u*x;
+            unsigned rgb[3],nzrgb[3],worst=0u,nzworst=0u;
+            for(size_t channel=0u;channel<3u;++channel) {
+                rgb[channel]=on_white(rgba,channel);
+                nzrgb[channel]=on_white(nz,channel);
+                const unsigned diff=rgb[channel]>(unsigned)ref[channel]
+                    ? rgb[channel]-(unsigned)ref[channel]
+                    : (unsigned)ref[channel]-rgb[channel];
+                if(diff>worst) worst=diff;
+                const unsigned nzdiff=rgb[channel]>nzrgb[channel]
+                    ? rgb[channel]-nzrgb[channel]
+                    : nzrgb[channel]-rgb[channel];
+                if(nzdiff>nzworst) nzworst=nzdiff;
+            }
+            const bool ref_orange=orange_like(ref[0],ref[1],ref[2]);
+            const bool nat_orange=orange_like(rgb[0],rgb[1],rgb[2]);
+            const bool nz_orange=orange_like(nzrgb[0],nzrgb[1],nzrgb[2]);
+            /* Mask only the source's dark authored outlines and a
+               one-pixel halo for their anti-aliased edge. The mask depends
+               exclusively on PDFium source pixels, never on Native output. */
+            bool reference_stroke=false;
+            for(int dy=-1;dy<=1 && !reference_stroke;++dy) {
+                const int yy=(int)y+dy;
+                if(yy<0 || yy>=(int)height) continue;
+                for(int dx=-1;dx<=1;++dx) {
+                    const int xx=(int)x+dx;
+                    if(xx<0 || xx>=(int)width) continue;
+                    const unsigned char *adjacent=pdfium.at((size_t)xx,(size_t)yy);
+                    if(adjacent[0]<80u && adjacent[1]<80u && adjacent[2]<80u) {
+                        reference_stroke=true;
+                        break;
+                    }
+                }
+            }
+            /* The projected operation intentionally excludes the source's
+               unsupported outline strokes. Do not score their covered pixels
+               as missing orange fill; keep every other source-orange pixel
+               and every unmatched native-orange pixel in the comparison. */
+            if(!reference_stroke) {
+                if(nzworst>32u) ++control_diff_pixels;
+                reference_orange+=(size_t)ref_orange;
+                native_orange+=(size_t)nat_orange;
+                nonzero_orange+=(size_t)nz_orange;
+                overlap_orange+=(size_t)(ref_orange&&nat_orange);
+                if(ref_orange||nat_orange) {
+                    ++union_orange;
+                    for(size_t channel=0u;channel<3u;++channel) {
+                        const unsigned diff=rgb[channel]>(unsigned)ref[channel]
+                            ? rgb[channel]-(unsigned)ref[channel]
+                            : (unsigned)ref[channel]-rgb[channel];
+                        total+=(double)diff;
+                    }
+                    if(worst>64u) ++gross;
+                }
+            }
+        }
+    }
+    const double mean=union_orange==0u ? 1.0 :
+        total/(double)(union_orange*3u);
+    std::fprintf(stderr,
+        "[texample-wstar-pixels] scope=orange-fill-mask mean=%.6f gross=%zu "
+        "union=%zu reference=%zu native-evenodd=%zu overlap=%zu "
+        "native-nonzero=%zu control-diff=%zu\n",
+        mean,gross,union_orange,reference_orange,native_orange,
+        overlap_orange,nonzero_orange,control_diff_pixels);
+    CHECK(union_orange>=100u && mean<=0.25 && gross<=8u);
+    CHECK(reference_orange>=100u && native_orange>=100u &&
+          overlap_orange*100u>=reference_orange*99u);
+    CHECK(nonzero_orange>=100u && control_diff_pixels>=100u);
+
+    /* Diagnostic grid is used once to choose fixed source-interior goldens. */
+    struct parity_golden {
+        size_t x,y;
+        unsigned ref[3],full_page[3],evenodd[3],nonzero[3];
+    };
+    const parity_golden goldens[]={
+        /* A stable orange lobe, a stable overlap pixel excluded by W*, and
+           a background control. These coordinates are fixed independently
+           of the production affine and are not inferred from raster output. */
+        {119u,18u,{255u,128u,0u},{255u,128u,0u},{255u,128u,0u},{255u,128u,0u}},
+        {119u,90u,{255u,255u,255u},{255u,255u,255u},{255u,255u,255u},{255u,255u,255u}},
+        {23u,18u,{255u,255u,255u},{255u,255u,255u},{255u,255u,255u},{255u,255u,255u}}
+    };
+    for(const parity_golden& p:goldens) {
+        const unsigned char *ref=pdfium.at(p.x,p.y);
+        const unsigned char *full=full_page_native.pixels+
+            p.y*full_page_native.stride+4u*p.x;
+        const unsigned char *eo=native.pixels+p.y*native.stride+4u*p.x;
+        const unsigned char *nz=nonzero.pixels+p.y*nonzero.stride+4u*p.x;
+        for(size_t channel=0u;channel<3u;++channel) {
+            const unsigned actual_ref=ref[channel];
+            const unsigned actual_full=on_white(full,channel);
+            const unsigned actual_eo=on_white(eo,channel);
+            const unsigned actual_nz=on_white(nz,channel);
+            if(std::abs((int)actual_ref-(int)p.ref[channel])>8 ||
+               std::abs((int)actual_full-(int)p.full_page[channel])>8 ||
+               std::abs((int)actual_eo-(int)p.evenodd[channel])>8 ||
+               std::abs((int)actual_nz-(int)p.nonzero[channel])>8) {
+                std::fprintf(stderr,
+                    "[texample-wstar-golden] x=%zu y=%zu channel=%zu "
+                    "ref=%u full=%u evenodd=%u nonzero=%u expected=%u/%u/%u/%u\n",
+                    p.x,p.y,channel,actual_ref,actual_full,actual_eo,actual_nz,
+                    p.ref[channel],p.full_page[channel],p.evenodd[channel],p.nonzero[channel]);
+            }
+            CHECK(std::abs((int)actual_ref-(int)p.ref[channel])<=8 &&
+                  std::abs((int)actual_full-(int)p.full_page[channel])<=8 &&
+                  std::abs((int)actual_eo-(int)p.evenodd[channel])<=8 &&
+                  std::abs((int)actual_nz-(int)p.nonzero[channel])<=8);
+        }
+    }
+    /* Discover interior parity witnesses for a future fixed nonzero-vs-W*
+       exclusion golden. Sample 5x5 neighborhoods away from canvas edges so
+       antialiasing at a contour cannot be mistaken for an interior hole. */
+    size_t witnessed=0u;
+    for(size_t y=5u;y+5u<height && witnessed<8u;++y) {
+        for(size_t x=5u;x+5u<width && witnessed<8u;++x) {
+            bool stable=true;
+            for(int dy=-2;dy<=2 && stable;++dy)for(int dx=-2;dx<=2;++dx) {
+                const size_t yy=(size_t)((int)y+dy),xx=(size_t)((int)x+dx);
+                const unsigned char *ref=pdfium.at(xx,yy);
+                const unsigned char *even=native.pixels+yy*native.stride+4u*xx;
+                const unsigned char *winding=
+                    nonzero.pixels+yy*nonzero.stride+4u*xx;
+                for(size_t channel=0u;channel<3u;++channel)
+                    if(ref[channel]<247u ||
+                       on_white(even,channel)<247u)
+                        stable=false;
+                if(!orange_like(on_white(winding,0u),
+                                on_white(winding,1u),
+                                on_white(winding,2u))) stable=false;
+            }
+            if(stable) {
+                const unsigned char *ref=pdfium.at(x,y);
+                const unsigned char *even=native.pixels+y*native.stride+4u*x;
+                const unsigned char *winding=
+                    nonzero.pixels+y*nonzero.stride+4u*x;
+                std::fprintf(stderr,
+                    "[texample-wstar-parity-interior] x=%zu y=%zu "
+                    "reference=%u,%u,%u evenodd=%u,%u,%u nonzero=%u,%u,%u\n",
+                    x,y,(unsigned)ref[0],(unsigned)ref[1],(unsigned)ref[2],
+                    on_white(even,0u),on_white(even,1u),on_white(even,2u),
+                    on_white(winding,0u),on_white(winding,1u),on_white(winding,2u));
+                ++witnessed;
+                x+=8u;
+            }
+        }
+    }
+    CHECK(witnessed>=3u);
+
+    /* Fixed W* exclusion witnesses from the unchanged TeXample original,
+       observed identically on Linux, macOS and Windows. Each center and
+       surrounding 5x5 interior patch must be white under the original
+       PDFium oracle and Native even-odd clip, orange under nonzero winding.
+       A positive aggregate changed-pixel count alone is insufficient. */
+    static const struct { size_t x,y; } parity_holes[]={
+        {85u,37u},{94u,38u},{102u,39u}
+    };
+    const size_t fixed_parity_exclusion_goldens=
+        sizeof(parity_holes)/sizeof(parity_holes[0]);
+    CHECK(fixed_parity_exclusion_goldens==3u);
+    for(const auto& p:parity_holes) {
+        CHECK(p.x>=2u && p.y>=2u && p.x+2u<width && p.y+2u<height);
+        static const unsigned orange[3]={255u,128u,0u};
+        for(int dy=-2;dy<=2;++dy) for(int dx=-2;dx<=2;++dx) {
+            const size_t x=(size_t)((int)p.x+dx);
+            const size_t y=(size_t)((int)p.y+dy);
+            const unsigned char *reference=pdfium.at(x,y);
+            const unsigned char *evenodd=
+                native.pixels+y*native.stride+4u*x;
+            const unsigned char *winding=
+                nonzero.pixels+y*nonzero.stride+4u*x;
+            for(size_t channel=0u;channel<3u;++channel) {
+                CHECK(std::abs((int)reference[channel]-255)<=8);
+                CHECK(std::abs((int)on_white(evenodd,channel)-255)<=8);
+                CHECK(std::abs((int)on_white(winding,channel)-
+                               (int)orange[channel])<=8);
+            }
+        }
+    }
+
+    const size_t fixed_interior_goldens=
+        sizeof(goldens)/sizeof(goldens[0]);
+    CHECK(fixed_interior_goldens==3u);
+    quantapdf_ir_raster_image_dispose(&full_page_repeat);
+    quantapdf_ir_raster_image_dispose(&full_page_native);
+
+    /* All raster consumers have finished and own independent pixel buffers.
+       Release the detached IR/resources explicitly; this is also exercised
+       under LeakSanitizer in the same-source CI gate. */
+    quantapdf_ir_dispose(&detached);
+
+    FILE *out=std::fopen(staged.c_str(),"wb");
+    CHECK(out!=nullptr);
+    std::fprintf(out,
+        "{\n"
+        "  \"schema_version\": 1,\n"
+        "  \"result\": \"passed\",\n"
+        "  \"document_id\": \"texample.intersecting-rings-v1\",\n"
+        "  \"reference_oracle\": \"original-pdfium\",\n"
+        "  \"original_source_pdfium_oracle\": \"passed\",\n"
+        "  \"detached_c11_native_raster\": \"wstar-fill-mask-only\",\n"
+        "  \"full_page_native_raster\": \"candidate_whole_page_pixel_gate_passed_not_admitted\",\n"
+        "  \"full_page_mean_rgb_error\": %.6f,\n"
+        "  \"full_page_gross_error_pixels\": %zu,\n"
+        "  \"full_page_repeat_rgba_identical\": %s,\n"
+        "  \"full_page_candidate_pixel_gate_passed\": true,\n"
+        "  \"full_page_gray_reference_pixels\": %zu,\n"
+        "  \"full_page_gray_native_pixels\": %zu,\n"
+        "  \"full_page_gray_overlap_pixels\": %zu,\n"
+        "  \"full_page_fixed_gray_golden_count\": 1,\n"
+        "  \"full_page_gray_golden_original_rgb\": \"85,85,85\",\n"
+        "  \"full_page_gray_golden_native_rgb\": \"%u,%u,%u\",\n"
+        "  \"comparison_scope\": \"original-whole-page-and-wstar-fill-mask-candidate-only\",\n"
+        "  \"native_ir\": \"lowered\",\n"
+        "  \"source_sha256\": \"%s\",\n"
+        "  \"source_and_graph_released_before_raster\": true,\n"
+        "  \"source_bytes_unchanged_after_reference_and_native\": true,\n"
+        "  \"pdfium_fallback_used\": false,\n"
+        "  \"repeat_rgba_identical\": true,\n"
+        "  \"official_corpus_admitted\": false,\n"
+        "  \"external_wstar_pixel_supported_count\": 0,\n"
+        "  \"page_width\": %zu,\n"
+        "  \"page_height\": %zu,\n"
+        "  \"source_painted_paths\": %zu,\n"
+        "  \"source_clip_count\": %zu,\n"
+        "  \"source_w_nonzero_clip_path_leaves\": %zu,\n"
+        "  \"source_wstar_evenodd_clip_path_leaves\": %zu,\n"
+        "  \"source_clip_intersection_nodes\": %zu,\n"
+        "  \"comparison_union_orange_pixels\": %zu,\n"
+        "  \"reference_orange_pixels\": %zu,\n"
+        "  \"native_evenodd_orange_pixels\": %zu,\n"
+        "  \"overlap_orange_pixels\": %zu,\n"
+        "  \"native_nonzero_orange_pixels\": %zu,\n"
+        "  \"evenodd_nonzero_diff_pixels\": %zu,\n"
+        "  \"masked_mean_rgb_error\": %.6f,\n"
+        "  \"masked_gross_error_pixels\": %zu,\n"
+        "  \"fixed_interior_goldens\": %zu,\n"
+        "  \"fixed_parity_exclusion_goldens\": %zu,\n"
+        "  \"generated_fixture_count\": 0\n"
+        "}\n",
+        full_page_mean,full_page_gross,
+        full_page_repeat_equal ? "true" : "false",
+        reference_gray_ink,native_gray_ink,common_gray_ink,
+        gray_golden_native[0],gray_golden_native[1],gray_golden_native[2],
+        expected_sha256,width,height,painted_count,
+        clip_count,winding.nonzero,winding.evenodd,
+        winding.intersections,union_orange,reference_orange,native_orange,
+        overlap_orange,nonzero_orange,control_diff_pixels,mean,gross,
+        fixed_interior_goldens,fixed_parity_exclusion_goldens);
+    CHECK(std::ferror(out)==0 && std::fclose(out)==0);
+#ifdef _WIN32
+    errno=0;
+    if(std::remove(report_path)!=0) CHECK(errno==ENOENT);
+#endif
+    CHECK(std::rename(staged.c_str(),report_path)==0);
+    CHECK(corpus_fixture_executions==0u);
+    std::fprintf(stderr,
+        "[texample-wstar-fill-mask] passed mean=%.6f gross=%zu "
+        "evenodd=%zu nonzero=%zu control_diff=%zu official_positive=0\n",
+        mean,gross,native_orange,nonzero_orange,control_diff_pixels);
+    return EXIT_SUCCESS;
+}
+
 int main(int argc,char **argv)
 {
     if(argc==2 && std::strcmp(argv[1],"--page-group-admission")==0){
@@ -3078,6 +3786,10 @@ int main(int argc,char **argv)
     if(argc==5 && std::strcmp(argv[1],"--external-wstar-positive-pdf")==0 &&
        std::strcmp(argv[3],"--external-report")==0)
         return test_external_yworks_wstar_pixels(argv[2],argv[4]);
+    if(argc==7 && std::strcmp(argv[1],"--external-tikz-wstar-pdf")==0 &&
+       std::strcmp(argv[3],"--external-report")==0 &&
+       std::strcmp(argv[5],"--expected-sha256")==0)
+        return test_external_tikz_wstar_pixels(argv[2],argv[4],argv[6]);
     if(argc==7 && std::strcmp(argv[1],"--clip-causal-ab")==0 &&
        std::strcmp(argv[3],"--generated-prefix")==0 &&
        std::strcmp(argv[5],"--external-report")==0)
