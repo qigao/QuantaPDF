@@ -244,52 +244,140 @@ struct admission {
 
 class image_content_reader final : public Obj::ParserCallbacks {
 public:
-    explicit image_content_reader(admission& a) : target(a) {}
+    explicit image_content_reader(admission& a,bool allow_path=false) :
+        target(a),mixed(allow_path) {}
+
     void handleObject(Obj item) override
     {
-        admit(++target.operators <= 512u,QUANTAPDF_ERROR_UNSUPPORTED);
+        admit(++target.operators<=512u,QUANTAPDF_ERROR_UNSUPPORTED);
         admit(!item.isInlineImage(),QUANTAPDF_ERROR_UNSUPPORTED);
-        if(!item.isOperator()) {
+        if (!item.isOperator()) {
             admit(args.size()<6u,QUANTAPDF_ERROR_UNSUPPORTED);
             args.push_back(item);
             return;
         }
         const std::string op=item.getOperatorValue();
-        if(op=="q") {
-            admit(args.empty());
+        if (op=="q") {
+            admit(args.empty() && pending_path.empty());
             admit(stack.size()<16u,QUANTAPDF_ERROR_UNSUPPORTED);
             stack.push_back(current);
+            fill_stack.push_back(fill_argb);
         } else if(op=="Q") {
-            admit(args.empty() && !stack.empty());
-            current=stack.back();
-            stack.pop_back();
+            admit(args.empty() && pending_path.empty() && !stack.empty());
+            current=stack.back();stack.pop_back();
+            fill_argb=fill_stack.back();fill_stack.pop_back();
         } else if(op=="cm") {
-            admit(args.size()==6u);
+            admit(args.size()==6u && pending_path.empty());
             matrix next;
-            for(size_t i=0;i<6u;++i)next[i]=finite_number(args[i]);
+            for(size_t i=0u;i<6u;++i)next[i]=finite_number(args[i]);
             current=concat(current,next);
         } else if(op=="Do") {
-            admit(args.size()==1u && args[0].isName());
+            admit(args.size()==1u && args[0].isName() &&
+                  pending_path.empty());
             admit(target.resources.isDictionary(),QUANTAPDF_ERROR_FORMAT);
             Obj xobjects=target.resources.getKey("/XObject");
             admit(xobjects.isDictionary(),QUANTAPDF_ERROR_FORMAT);
-            Obj target_name=xobjects.getKey(args[0].getName());
-            admit(!target_name.isNull(),QUANTAPDF_ERROR_FORMAT);
-            target.execute(target_name,current);
+            Obj named=xobjects.getKey(args[0].getName());
+            admit(!named.isNull(),QUANTAPDF_ERROR_FORMAT);
+            target.execute(named,current);
+        } else if(mixed && op=="rg") {
+            /* First profile permits only exact RGB channel 0/1 so there
+             * is no unqualified float-to-device color conversion. */
+            admit(args.size()==3u && pending_path.empty());
+            uint32_t rgb=0u;
+            for(size_t i=0u;i<3u;++i) {
+                const double channel=finite_number(args[i]);
+                admit(channel==0.0 || channel==1.0,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                rgb|=(uint32_t)(channel==1.0 ? 255u:0u) << (16u-8u*i);
+            }
+            fill_argb=UINT32_C(0xff000000)|rgb;
+        } else if(mixed && op=="m") {
+            admit(args.size()==2u && pending_path.empty(),
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            append_point(QUANTAPDF_COMPOSER_PATH_MOVE_TO,
+                         finite_number(args[0]),finite_number(args[1]));
+        } else if(mixed && op=="l") {
+            admit(args.size()==2u && !pending_path.empty() &&
+                  !closed && pending_path.size()<8u,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,
+                         finite_number(args[0]),finite_number(args[1]));
+        } else if(mixed && op=="h") {
+            admit(args.empty() && pending_path.size()>=3u &&
+                  !closed,QUANTAPDF_ERROR_UNSUPPORTED);
+            close_path();
+        } else if(mixed && op=="re") {
+            admit(args.size()==4u && pending_path.empty(),
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            const double x=finite_number(args[0]), y=finite_number(args[1]);
+            const double w=finite_number(args[2]), h=finite_number(args[3]);
+            admit(w>0.0 && h>0.0,QUANTAPDF_ERROR_UNSUPPORTED);
+            append_point(QUANTAPDF_COMPOSER_PATH_MOVE_TO,x,y);
+            append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x+w,y);
+            append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x+w,y+h);
+            append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x,y+h);
+            close_path();
+        } else if(mixed && (op=="f" || op=="f*")) {
+            admit(args.empty() && pending_path.size()>=3u,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            if (!closed) close_path();
+            target.paint_path(std::move(pending_path),fill_argb,
+                op=="f" ? QUANTAPDF_COMPOSER_FILL_NONZERO :
+                          QUANTAPDF_COMPOSER_FILL_EVEN_ODD);
+            pending_path.clear();
+            closed=false;
         } else {
-            /* Unlike the image-occurrence observer, a rendering source
-             * parser must reject ALL other operators, even when a valid
-             * image was drawn earlier. No silent skipped-page content. */
+            /* Parsing is COMPLETE, not image observation: unsupported
+             * paint/Text/Stroke/Clip/Form/group/mask/graphics operators
+             * invalidate the entire source page, including prior paints. */
             throw rejected{QUANTAPDF_ERROR_UNSUPPORTED};
         }
         args.clear();
     }
-    void handleEOF() override { admit(args.empty() && stack.empty()); }
+
+    void handleEOF() override
+    {
+        admit(args.empty() && stack.empty() && fill_stack.empty() &&
+              pending_path.empty());
+    }
 private:
+    void append_point(quantapdf_composer_path_command_kind kind,
+                      double x,double y)
+    {
+        /* Source coordinates/CTM are resolved at construction time.
+         * First mixed version excludes negative scale, shear and
+         * fractional pixel positions. No PDF writer round-trip. */
+        admit(current[0]>0.0 && current[3]>0.0 &&
+              current[1]==0.0 && current[2]==0.0,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        const size_t ix=whole(current[0]*x+current[4],target.page_w);
+        const size_t iy=whole(current[3]*y+current[5],target.page_h);
+        quantapdf_composer_path_command cmd={};
+        cmd.kind=kind;
+        cmd.point1.x=static_cast<float>(ix);
+        cmd.point1.y=static_cast<float>(target.page_h-iy);
+        pending_path.push_back(cmd);
+        admit(pending_path.size()<=8u,QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+    void close_path()
+    {
+        admit(pending_path.size()>=3u && !closed &&
+              pending_path.size()<9u,QUANTAPDF_ERROR_UNSUPPORTED);
+        quantapdf_composer_path_command cmd={};
+        cmd.kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+        pending_path.push_back(cmd);
+        closed=true;
+    }
     admission& target;
+    bool mixed=false;
     matrix current=identity;
+    uint32_t fill_argb=UINT32_C(0xff000000);
     std::vector<matrix> stack;
+    std::vector<uint32_t> fill_stack;
     std::vector<Obj> args;
+    std::vector<quantapdf_composer_path_command> pending_path;
+    bool closed=false;
 };
 
 /* Resolution of referenced resources is not a display-only observation.
