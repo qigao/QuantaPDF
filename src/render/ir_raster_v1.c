@@ -259,7 +259,8 @@ static quantapdf_status qp_expand_rect_stroke_ring(
 
 static quantapdf_status qp_admit_draw(
     const quantapdf_composer_operation *op, qp_flatten *flat,
-    const double *device, qp_raster_draw *out)
+    const double *device, qp_raster_draw *out,
+    int allow_empty_clip)
 {
     const quantapdf_composer_path_operation *path = &op->value.path;
     const quantapdf_composer_path_options *opt = &path->options;
@@ -426,7 +427,11 @@ static quantapdf_status qp_admit_draw(
             return status;
         }
     }
-    if (flat->count == first ||
+    /* A valid Clip PATH may contain only MOVE_TO or degenerate edges.
+     * Its geometric intersection is empty: accept it as a zero-edge Clip
+     * instead of treating it as a malformed resource. Painted paths must
+     * still contain geometry. Sample-wise winding of zero edges is false. */
+    if ((flat->count == first && !allow_empty_clip) ||
         (stroke && !rect_stroke &&
          flat->count - first != (open_line ? 1u : 3u)) ||
         (rect_stroke && flat->count - first != 8u))
@@ -701,7 +706,7 @@ static quantapdf_status qp_render_v1_impl(
             goto cleanup;
         }
         status = qp_admit_draw(op, &flatten,
-            plan == NULL ? NULL : plan->from_composer, &draws[draw_count]);
+            plan == NULL ? NULL : plan->from_composer, &draws[draw_count], 0);
         if (status != QUANTAPDF_OK) {
             goto cleanup;
         }
@@ -737,7 +742,7 @@ static quantapdf_status qp_render_v1_impl(
         options->fill_rule = clip->fill_rule;
         options->transform = clip->transform;
         status = qp_admit_draw(&clip_op, &flatten,
-            plan == NULL ? NULL : plan->from_composer, &clip_draws[ci]);
+            plan == NULL ? NULL : plan->from_composer, &clip_draws[ci], 1);
         if (status != QUANTAPDF_OK) {
             goto cleanup;
         }
