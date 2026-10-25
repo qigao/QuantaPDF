@@ -3090,6 +3090,12 @@ static void publish_corpus_report(const char *destination,
             const std::string id = corpus_json_string(source_corpus_families[index].id);
             std::fprintf(out, "%s%s", j == 0u ? "" : ", ", id.c_str());
         }
+        std::fprintf(out, "], \"observed_fixtures\": [");
+        for (size_t j = 0u; j < QP_SOURCE_CORPUS_FAMILIES; ++j) {
+            const size_t index = receipt->order[round][j];
+            std::fprintf(out, "%s%zu", j == 0u ? "" : ", ",
+                receipt->executed[round][index]);
+        }
         std::fprintf(out, "]}%s\n",
             round + 1u == QP_SOURCE_CORPUS_ROUNDS ? "" : ",");
     }
