@@ -66,6 +66,19 @@ string(JSON full_page_native_raster GET "${json}" full_page_native_raster)
 string(JSON mean GET "${json}" masked_mean_rgb_error)
 string(JSON full_page_mean GET "${json}" full_page_mean_rgb_error)
 
+# A better stroke implementation may improve whole-page parity. The checker
+# must not demand evidence of a mismatch (as the previous negative condition
+# did): qualification scope is encoded by the report and the separate
+# whole-page cross-platform gate, not by artificially requiring large error.
+# Guard the measurement's *validity*, without claiming whole-page parity.
+if(NOT full_page_mean MATCHES "^[0-9]+(\\.[0-9]+)?$")
+  message(FATAL_ERROR "Nonfinite/malformed full-page mean RGB error: ${full_page_mean}")
+endif()
+math(EXPR full_page_pixels "${page_width} * ${page_height}")
+message(STATUS "texample-wstar-whole-page-diagnostic: unqualified; "
+  "mean-rgb=${full_page_mean} gross=${full_page_gross_error_pixels} "
+  "page=${page_width}x${page_height}; W* fill-mask scored separately")
+
 if(NOT result STREQUAL "passed"
    OR NOT document_id STREQUAL "texample.intersecting-rings-v1"
    OR NOT reference_oracle STREQUAL "original-pdfium"
@@ -73,7 +86,9 @@ if(NOT result STREQUAL "passed"
    OR NOT detached_c11_native_raster STREQUAL "wstar-fill-mask-only"
    OR NOT full_page_native_raster STREQUAL "rendered_but_pixel_parity_unqualified"
    OR NOT full_page_repeat_rgba_identical
-   OR (full_page_mean LESS_EQUAL 1.0 AND full_page_gross_error_pixels LESS_EQUAL 100)
+   OR full_page_mean LESS 0 OR full_page_mean GREATER 255
+   OR full_page_gross_error_pixels GREATER full_page_pixels
+   OR NOT page_width EQUAL 238 OR NOT page_height EQUAL 181
    OR NOT comparison_scope STREQUAL "wstar-fill-mask-candidate-only"
    OR NOT native_ir STREQUAL "lowered"
    OR NOT source_sha256 STREQUAL PINNED_SHA256
