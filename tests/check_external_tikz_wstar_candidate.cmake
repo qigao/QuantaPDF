@@ -27,6 +27,17 @@ if(NOT "${rc}" STREQUAL "0")
   message(FATAL_ERROR "Original PDFium vs detached C11 W* pixel oracle failed: ${rc}: ${err}")
 endif()
 
+# Surface a bounded number of source-page interior parity witnesses before
+# freezing their immutable coordinates as reviewer-approved goldens.
+string(REGEX MATCHALL "\\[texample-wstar-parity-interior\\][^\\n]*" parity_witnesses "${err}")
+list(LENGTH parity_witnesses parity_witness_count)
+if(parity_witness_count LESS 3 OR parity_witness_count GREATER 8)
+  message(FATAL_ERROR "Unexpected interior parity witness count: ${parity_witness_count}")
+endif()
+foreach(witness IN LISTS parity_witnesses)
+  message(STATUS "${witness}")
+endforeach()
+
 file(READ "${REPORT}" json)
 foreach(field IN ITEMS result document_id reference_oracle
     original_source_pdfium_oracle detached_c11_native_raster native_ir
