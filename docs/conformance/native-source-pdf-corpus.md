@@ -16,14 +16,17 @@ tags, expected accepted/rejected/mixed outcome, oracle category, number of
 generated documents, and the test function bound to each row.
 
 The existing `quantapdf.native_source_qq_oracle` CTest binary compiles
-this registry and runs **every** listed family. Each generation site records
-one fixture execution. The runner fails on duplicate/empty family IDs,
-unknown expectation/oracle categories, missing tests, wrong per-family
-counts, or incorrect aggregate coverage. It prints one stable
-`[source-corpus] PASS` log record per family and a completion total. A
-new family must update the executable registry; an expanded family must
-update its declared count and the aggregate gate. No second test binary or
-GitHub Actions workflow is needed.
+this registry and runs **every** listed family in three deliberately different
+orders: canonical manifest order and two fixed-seed Fisher–Yates
+permutations (`0x4cf5ad11` / `0x9e3779b9`, xorshift32-v1). Each order
+executes all 20 families and all 58 generated fixtures once. The runner
+verifies an exact one-to-one family permutation, declared/observed
+per-family counts, absence of leftover temporary source PDF and matching
+repeat coverage after each order. Thus it performs **58 canonical + 116
+replayed = 174 actual fixture executions**, not 174 new or distinct
+documents. An independent Python CTest validates the JSON against the
+versioned registry, including the exact seed-derived orders. No second
+source oracle binary or GitHub Actions workflow is needed.
 
 This is an **in-repository generated corpus**, not a claim that 58
 independent external documents have been qualified. A family with two
@@ -35,19 +38,25 @@ exact status, budgets, deterministic repeated render and color checks.
 
 The existing CTest target invokes its test binary with
 `--corpus-report <build-directory>/tests/native-source-corpus.json`.
-The report has `schema_version: 1`, `corpus_id: native-source-pdf`,
-`fixture_kind: generated`, `result: passed`, and aggregate
-`family_count` and `fixture_count`. The ordered `family_results` array
-contains the family ID, feature tags, expected outcome, oracle category,
-declared and **observed** fixture counts, and pass status. All string fields
-are JSON escaped.
+The report has `schema_version: 2`, `corpus_id: native-source-pdf`,
+`fixture_kind: generated`, `result: passed`, and backward-compatible
+canonical `family_count=20` and `fixture_count=58` fields. The ordered
+`family_results` array preserves each ID, tags, outcome/oracle category,
+declared/observed canonical count and pass status. New `order_validation`
+records the fixed algorithm, two replay seeds, the ordered family IDs for
+all three runs, 116 replay executions and 174 total executions. All
+strings are JSON escaped; the exact orders are verified independently
+from the registry by `tests/test_native_source_corpus_report.py`.
 
 The file contains no timestamps, runner paths, randomized identifiers or
 QPDF output-byte hashes. On a new invocation, any old JSON and temporary
 file are removed; a failing fixture or report write cannot leave a new
 published success JSON. The final JSON is renamed from a temporary file
-only after every test has passed, every family execution count matches its
-declaration, and the output is fully written.
+only after all three execution orders have passed, every family execution
+count matches its declaration, and the output is fully written. The
+separate Python gate depends on the source-oracle CTest and rejects stale
+schema-v1 reports, missing/malformed orders, incorrect fixed seeds,
+partial replay counts or duplicates.
 
 The **same** QuantaPDF CI workflow uploads platform-specific artifacts
 under `source-corpus-linux`, `source-corpus-macos`, and
@@ -98,9 +107,10 @@ Two resource-specific generated families extend the fixture registry:
 The matrix is deliberately a **referenced** resource test, not blanket refusal
 of unknown but unused PDF resource dictionaries. It does not add a public
 renderer feature, expand the native capacity limits or affect the formally
-admitted external-source count, which stays at **7/2**. Tests are fixed-order
-and deterministic; separately seeded/shuffled execution is still an open
-follow-up under #233.
+admitted external-source count, which stays at **7/2**. The new seeded replay
+gate tests order independence deterministically, but does **not** imply
+random fuzzing, mutation campaigns or full multi-document lifetime proof;
+those remain scoped follow-ups under #233.
 
 ## Independent resource PageTree depth qualification
 
@@ -165,8 +175,8 @@ Its initial *native* qualification was a strict **UNSUPPORTED** text
 rejection with original-source PDFium reference rendering. The external
 corpus has since been independently extended to **7 unchanged admitted PDFs
 / 2 W* original-source native-pixel positives** (see #262 and its
-post-merge master qualification). These are never included in the **42
-generated-source executions**. A failed test must never be converted to a
+post-merge master qualification). These are never included in the **58 canonical generated-source
+executions**, nor in the 116 verification replays. A failed test must never be converted to a
 pass by loosening pixel thresholds or silently redirecting to PDFium.
 
 The public QuantaPDF SDK remains PDFium-backed. Remove its PDFium
