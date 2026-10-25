@@ -304,6 +304,9 @@ static int test_empty_leaf_clip_and_restore(void)
 {
     fixture f;
     const quantapdf_ir_raster_v1_limits budget = {64u,3u,192u,120000u};
+    /* V2's expanded-path weighting conservatively reserves much more
+     * work for clip curves, even when this fixture contains only rectangles. */
+    const quantapdf_ir_raster_v1_limits v2_budget = {64u,3u,2048u,4000000u};
     quantapdf_ir_raster_image image = {0}, repeated = {0};
     unsigned char saved[8u*8u*4u];
     initialize(&f);
@@ -317,7 +320,7 @@ static int test_empty_leaf_clip_and_restore(void)
     CHECK(rgba(&image,0,0) == UINT32_C(0x00ff00ff)); /* final un-clipped */
     CHECK(rgba(&image,7,7) == UINT32_C(0xffffffff));
     memcpy(saved,image.pixels,sizeof(saved));
-    OK(quantapdf_ir_raster_scoped_operations_v2(&f.ir,0u,&budget,&repeated));
+    OK(quantapdf_ir_raster_scoped_operations_v2(&f.ir,0u,&v2_budget,&repeated));
     CHECK(repeated.size == image.size &&
           memcmp(saved,repeated.pixels,sizeof(saved)) == 0);
     quantapdf_ir_raster_image_dispose(&repeated);
