@@ -36,7 +36,8 @@ static void image(quantapdf_composer_image_state *out,
     out->has_alpha = alpha != NULL;
 }
 
-static void draw(quantapdf_composer_operation *op, size_t image_id,
+static void draw(quantapdf_composer_operation *op,
+                 quantapdf_composer_image_id image_id,
                  float x0, float y0, float x1, float y1)
 {
     memset(op, 0, sizeof(*op));
