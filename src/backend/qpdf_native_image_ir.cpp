@@ -381,6 +381,10 @@ extern "C" quantapdf_status quantapdf_qpdf_source_raw_images_to_ir(
         return QUANTAPDF_ERROR_UNSUPPORTED;
     try {
         auto pdf=QPDF::create();
+        /* Match the production no-recovery source contract: a corrected
+         * or warning-bearing PDF must never become a native positive. */
+        pdf->setSuppressWarnings(true);
+        pdf->setAttemptRecovery(false);
         pdf->processMemoryFile("Native Image original",
             reinterpret_cast<const char *>(original_pdf),size,"");
         quantapdf_qpdf_page_geometry geo={};
@@ -414,7 +418,8 @@ extern "C" quantapdf_status quantapdf_qpdf_source_raw_images_to_ir(
         Obj parsed=parser.newStream(std::string(contents.begin(),contents.end()));
         image_content_reader reader(source);
         parsed.parseAsContents(&reader);
-        admit(!parser.anyWarnings());
+        admit(!parser.anyWarnings() && !pdf->anyWarnings(),
+              QUANTAPDF_ERROR_FORMAT);
         admit(!source.draws.empty(),QUANTAPDF_ERROR_UNSUPPORTED);
         *out_ir=materialize(source);
         return QUANTAPDF_OK;
