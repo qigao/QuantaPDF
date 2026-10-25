@@ -27,6 +27,9 @@ typedef struct quantapdf_qpdf_source_raw_image_limits {
     size_t max_page_pixels;
     size_t max_source_pixels;
     size_t max_drawn_pixels;
+    /* Maximum inherited PageTree nodes inspected for /Resources, including
+     * the selected leaf. Independent of decoder/stream and image budgets. */
+    size_t max_parent_steps;
 } quantapdf_qpdf_source_raw_image_limits;
 
 quantapdf_status quantapdf_qpdf_source_raw_images_to_ir(
