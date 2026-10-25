@@ -334,6 +334,7 @@ quantapdf_ir materialize(
         admit(ir.resources.images!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.operation_count=count;
         ir.resources.image_count=count;
+        ir.resources.image_capacity=count;
         for(size_t i=0u;i<count;++i) {
             const staged_image& staged=source.draws[i];
             auto& image=ir.resources.images[i];
