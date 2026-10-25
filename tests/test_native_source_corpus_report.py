@@ -15,8 +15,8 @@ REGISTRY_ROW = re.compile(
     r'"([^"]+)", "([^"]+)", (\d+)u, [a-zA-Z_][a-zA-Z0-9_]*\)$'
 )
 SEEDS = (0x4CF5AD11, 0x9E3779B9)
-EXPECTED_FAMILIES = 20
-EXPECTED_FIXTURES = 58
+EXPECTED_FAMILIES = 21
+EXPECTED_FIXTURES = 71
 
 
 def require(value: bool, why: str) -> None:
@@ -123,8 +123,10 @@ def main() -> int:
     except (ValueError, OSError, json.JSONDecodeError) as error:
         print(f"[source-corpus-order] FAIL: {error}", file=sys.stderr)
         return 1
-    print("[source-corpus-order] PASS families=20 canonical=58 "
-          "replays=116 total=174 seeds=0x4cf5ad11,0x9e3779b9")
+    print(f"[source-corpus-order] PASS families={EXPECTED_FAMILIES} "
+          f"canonical={EXPECTED_FIXTURES} replays={2 * EXPECTED_FIXTURES} "
+          f"total={3 * EXPECTED_FIXTURES} "
+          "seeds=0x4cf5ad11,0x9e3779b9")
     return 0
 
 

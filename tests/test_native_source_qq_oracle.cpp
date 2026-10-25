@@ -1504,6 +1504,74 @@ void test_inherited_extgstate_fail_closed()
     }
 }
 
+
+/* A successful earlier PATH paint is never publishable if later source
+ * syntax asks for an unsupported native graphics facility. This verifies
+ * the whole original-source -> Graph -> detached-IR failure boundary, not
+ * only an isolated unknown operator at the beginning of an empty page.
+ * A final valid original-PDFium/native page proves clean recovery. */
+void test_mixed_unsupported_operators_and_recovery()
+{
+    struct scenario { const char *id, *tail; };
+    const scenario cases[] = {
+        {"text_scope", "BT ET"},
+        {"text_font_show", "BT /F1 12 Tf (hello) Tj ET"},
+        {"xobject_do", "/Im0 Do"},
+        {"shading_sh", "/Sh1 sh"},
+        {"fill_colorspace", "/DeviceRGB cs"},
+        {"stroke_colorspace", "/DeviceRGB CS"},
+        {"pattern_colorspace", "/Pattern cs"},
+        {"cmyk_fill", "0 0 0 1 k"},
+        {"cmyk_stroke", "0 0 0 1 K"},
+        {"marked_content", "/Artifact BMC EMC"},
+        {"marked_content_props", "/Span << /Lang (en) >> BDC EMC"},
+        {"inline_image", "BI /W 1 /H 1 /BPC 8 /CS /RGB ID x EI"}
+    };
+    CHECK(sizeof(cases)/sizeof(cases[0])==12u);
+    for(const auto& tc:cases) {
+        track_corpus_fixture();
+        const std::string contents =
+            std::string("1 0 0 rg 10 10 80 80 re f ") +
+            tc.tail + " 0 0 1 rg 40 40 30 30 re f";
+        make_source(contents.c_str());
+        for(int attempt=0;attempt<2;++attempt) {
+            /* Poison the caller's output to detect non-atomic publication
+             * and stale owned graph/Clip state from prior source fixtures. */
+            quantapdf_ir refused;
+            std::memset(&refused,0xab,sizeof(refused));
+            const quantapdf_status actual=snapshot_lower(&refused);
+            if(actual!=QUANTAPDF_ERROR_UNSUPPORTED)
+                std::fprintf(stderr,
+                    "[mixed-unsupported] id=%s attempt=%d status=%d\n",
+                    tc.id,attempt,(int)actual);
+            CHECK(actual==QUANTAPDF_ERROR_UNSUPPORTED);
+            CHECK(refused.pages==nullptr && refused.page_count==0u &&
+                  refused.operations==nullptr && refused.operation_count==0u &&
+                  refused.resources.clips==nullptr &&
+                  refused.resources.clip_count==0u &&
+                  refused.resources.graphics_states==nullptr &&
+                  refused.resources.graphics_state_count==0u &&
+                  refused.resources.image_count==0u &&
+                  refused.resources.font_count==0u &&
+                  refused.links==nullptr && refused.outlines==nullptr);
+            quantapdf_ir_dispose(&refused);
+        }
+        CHECK(std::remove(SOURCE_QQ_PDF)==0);
+    }
+    /* A clean original after 12 rejected source sessions must not inherit
+     * stale resources, initial Clip scopes or suppressed output. */
+    const char *supported =
+        "1 0 0 rg 10 10 80 80 re f "
+        "0 0 1 rg 30 30 60 60 re f "
+        "0 1 0 rg 100 100 15 15 re f";
+    const probe goldens[]={
+        {20,20,255,0,0}, {40,40,0,0,255},
+        {105,105,0,255,0}, {5,5,255,255,255},
+        {95,95,255,255,255}
+    };
+    compare(supported,goldens,sizeof(goldens)/sizeof(goldens[0]),0u);
+}
+
 void test_unsupported_operator_fails_closed()
 {
     track_corpus_fixture();
@@ -4410,8 +4478,8 @@ int main(int argc,char **argv)
         errno=0;
         if(std::remove(staged.c_str())!=0) CHECK(errno==ENOENT);
     }
-    constexpr size_t expected_families=20u;
-    constexpr size_t expected_fixtures=58u;
+    constexpr size_t expected_families=21u;
+    constexpr size_t expected_fixtures=71u;
     const size_t families=
         sizeof(source_corpus_families)/sizeof(source_corpus_families[0]);
     CHECK(families==expected_families);
