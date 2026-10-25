@@ -1914,6 +1914,46 @@ else()
 endif()
 
 
+# Strict original Image XObject /Do -> detached owned RAW Composer IR ->
+# pure C11 Native Image Raster. qpdf resolves structure and only the test
+# oracle uses PDFium. Unsupported late image/page operators never get omitted.
+add_executable(quantapdf_test_native_source_image_ir
+  test_native_source_image_ir.cpp
+  ../src/render/ir_raster_image_v1.c
+  ../src/render/ir_raster.c
+  ../src/ir/ir.c ../src/resource/resource_registry.c)
+target_include_directories(quantapdf_test_native_source_image_ir PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_native_source_image_ir PRIVATE
+  QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium qpdf::libqpdf)
+target_compile_features(quantapdf_test_native_source_image_ir PRIVATE
+  c_std_11 cxx_std_20)
+target_compile_definitions(quantapdf_test_native_source_image_ir PRIVATE
+  NATIVE_SOURCE_IMAGE_PDF="${CMAKE_CURRENT_BINARY_DIR}/native-source-image.pdf")
+if(MSVC)
+  target_compile_options(quantapdf_test_native_source_image_ir PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_test_native_source_image_ir PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_source_image_ir
+  COMMAND quantapdf_test_native_source_image_ir)
+set_tests_properties(quantapdf.native_source_image_ir PROPERTIES
+  TIMEOUT 90 LABELS "conformance;native-raster;source-pdf;image-do")
+if(WIN32)
+  set_property(TEST quantapdf.native_source_image_ir
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_source_image_ir
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_source_image_ir
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
 # Original source-PDF q/Q/W/W* -> detached Graph/Composer IR -> pure native
 # scoped Clip DAG raster. PDFium is an independent TEST-ONLY original-PDF oracle.
 add_executable(quantapdf_test_native_source_qq_oracle
