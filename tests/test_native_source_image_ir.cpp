@@ -51,7 +51,7 @@ std::vector<unsigned char> original_pdf(
     const char *extra_resource = nullptr,
     const char *page_key = nullptr, bool softmask = false,
     bool optional_content = false, bool external_file = false,
-    bool default_rgb = false)
+    bool default_rgb = false, bool flate = false)
 {
     QPDF pdf;
     pdf.emptyPDF();
@@ -64,7 +64,15 @@ std::vector<unsigned char> original_pdf(
         0,0,static_cast<char>(255),
         static_cast<char>(255),static_cast<char>(255),0
     };
-    Obj color = make_image(pdf,rgb,2,2,"/DeviceRGB");
+    /* Fixed zlib-encoded bytes, computed from the above 12 raw RGB samples.
+     * These test an actual /FlateDecode original, rather than only claiming
+     * that lossless filtered sources should work. */
+    const std::string compressed_rgb(
+        "\x78\xda\xfb\xcf\xc0\xc0\xf0\x1f\x84\xff\xff\x67\x00\x00\x1c\xef\x04\xfc",18);
+    Obj color = make_image(pdf,flate ? compressed_rgb : rgb,
+                           2,2,"/DeviceRGB");
+    if (flate) color.getDict().replaceKey(
+        "/Filter",Obj::newName("/FlateDecode"));
     if (softmask) color.getDict().replaceKey(
         "/SMask",make_image(pdf,std::string(1,'\x80'),1,1,"/DeviceGray"));
     if (optional_content)
@@ -73,8 +81,12 @@ std::vector<unsigned char> original_pdf(
     if (external_file)
         color.getDict().replaceKey("/F",Obj::newString("external-image.dat"));
     group.replaceKey("/Im0",color);
-    Obj gray = make_image(pdf,std::string({0,static_cast<char>(255)}),
-                          2,1,"/DeviceGray");
+    const std::string compressed_gray(
+        "\x78\xda\x63\xf8\x0f\x00\x01\x01\x01\x00",10);
+    Obj gray = make_image(pdf,flate ? compressed_gray :
+        std::string({0,static_cast<char>(255)}),2,1,"/DeviceGray");
+    if (flate) gray.getDict().replaceKey(
+        "/Filter",Obj::newName("/FlateDecode"));
     group.replaceKey("/Im1",gray);
     if (extra_resource)
         group.replaceKey("/Fm",pdf.newStream(std::string("q Q")));
@@ -170,9 +182,11 @@ std::vector<unsigned char> reference_pdfium()
     return rgb;
 }
 
-void positive_original(const char *content, bool split, bool repeated = false)
+void positive_original(const char *content, bool split,
+                       bool repeated = false, bool flate = false)
 {
-    const auto original=original_pdf(content,split);
+    const auto original=original_pdf(content,split,nullptr,nullptr,
+        false,false,false,false,flate);
     quantapdf_ir ir{};
     const quantapdf_status lower = owned_image(original,&ir);
     if (lower != QUANTAPDF_OK)
@@ -259,6 +273,7 @@ int main()
         "q 16 0 0 8 30 10 cm /Im1 Do Q";
     positive_original(supported,false);
     positive_original(supported,true);
+    positive_original(supported,false,false,true);
     const char *repeated =
         "q 20 0 0 20 4 20 cm /Im0 Do Q "
         "q 16 0 0 8 30 10 cm /Im1 Do Q "
