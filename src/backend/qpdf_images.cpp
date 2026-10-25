@@ -408,6 +408,9 @@ struct projection {
     /* Image occurrence observation accepts unrelated paint. The separate
      * renderable source-IR path must admit every content operator instead. */
     bool strict_image_paint;
+    size_t strict_max_operations = 0u;
+    size_t strict_max_source_pixels = 0u;
+    size_t strict_source_pixels = 0u;
     explicit projection(quantapdf_qpdf_page_geometry const& value,
                         bool strict = false) :
         geometry(value), strict_image_paint(strict)
@@ -432,7 +435,16 @@ struct projection {
                 dict.getKey("/SMask").isNull() &&
                 dict.getKey("/Mask").isNull() &&
                 dict.getKey("/Alternates").isNull() &&
-                dict.getKey("/Intent").isNull(), QUANTAPDF_ERROR_UNSUPPORTED);
+                dict.getKey("/Intent").isNull() &&
+                /* Optional-content membership and external-file streams can
+                 * alter whether/how an Image paints. Never silently render
+                 * a hidden/externally supplied source as ordinary pixels. */
+                dict.getKey("/OC").isNull() &&
+                dict.getKey("/F").isNull() &&
+                dict.getKey("/FFilter").isNull() &&
+                dict.getKey("/FDecodeParms").isNull() &&
+                dict.getKey("/SMaskInData").isNull(),
+                QUANTAPDF_ERROR_UNSUPPORTED);
             Obj stencil = dict.getKey("/ImageMask");
             require(stencil.isNull() || (stencil.isBool() && !stencil.getBoolValue()),
                 QUANTAPDF_ERROR_UNSUPPORTED);
@@ -465,6 +477,20 @@ struct projection {
         require(type.getName() == "/Image", QUANTAPDF_ERROR_UNSUPPORTED);
         require(!graphics.external_mask && !graphics.transfer, QUANTAPDF_ERROR_UNSUPPORTED);
         require(images.size() < max_occurrences, QUANTAPDF_ERROR_UNSUPPORTED);
+        if (strict_image_paint) {
+            /* Enforce both caller budgets BEFORE image_samples() decodes or
+             * allocates. Previously the request-specific source budget was
+             * enforced only after building every decoded occurrence. */
+            require(images.size() < strict_max_operations &&
+                images.size() < 4u, QUANTAPDF_ERROR_UNSUPPORTED);
+            const size_t w = dimension(dict.getKey("/Width"));
+            const size_t h = dimension(dict.getKey("/Height"));
+            require(w <= 4194304u / h &&
+                w * h <= strict_max_source_pixels &&
+                strict_source_pixels <= strict_max_source_pixels - w * h,
+                QUANTAPDF_ERROR_UNSUPPORTED);
+            strict_source_pixels += w * h;
+        }
         auto image = decode_image(object, resources, limits, graphics.opacity);
         if (strict_image_paint) {
             require(graphics.opacity == 1.0 &&
@@ -804,6 +830,10 @@ extern "C" quantapdf_status quantapdf_qpdf_source_image_ir(
         Obj resources = source_image_resources(
             geometry.page, limits->max_parent_steps);
         projection rendered(geometry, true);
+        rendered.strict_max_operations =
+            std::min(limits->max_operations, hard_images);
+        rendered.strict_max_source_pixels =
+            std::min(limits->max_source_pixels, hard_pixels);
         rendered.content(geometry.page.getKey("/Contents"), resources,
             image_graphics{}, 0u);
         const size_t count = rendered.images.size();
