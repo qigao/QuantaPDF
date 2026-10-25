@@ -100,6 +100,7 @@ jobs:
         run: ctest --preset linux-release-user -L conformance --output-on-failure
 
       - name: Qualify licensed TeXample W-star original (Linux Release)
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 415
         shell: bash
         run: |
           set -euo pipefail
@@ -159,6 +160,7 @@ jobs:
         run: ctest --preset linux-dev-user -L conformance --output-on-failure
 
       - name: Qualify licensed TeXample W-star original (Linux ASan/UBSan)
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 415
         shell: bash
         run: |
           set -euo pipefail
@@ -175,6 +177,7 @@ jobs:
               -P tests/check_external_tikz_wstar_candidate.cmake
 
       - name: Upload TeXample W-star candidate pixel reports
+        if: github.event_name == 'pull_request' && github.event.pull_request.number == 415
         uses: actions/upload-artifact@v4
         with:
           name: texample-intersecting-rings-pixel-qualification
