@@ -120,6 +120,9 @@ class ExternalPDFCorpusAdmissionTest(unittest.TestCase):
             "Dominique Wuertz; unchanged original; CC BY-SA 4.0; "
             "retained license notice"
         )
+        # The fixture() helper wrote the original CC0 manifest. Re-serialize
+        # the mutated per-document rights record before offline validation.
+        self.write([self.doc])
         result = verify_corpus(self.manifest, self.assets)
         self.assertEqual(result["documents"][0]["license_spdx_declared"],
                          "CC-BY-SA-4.0")
