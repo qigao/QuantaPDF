@@ -7,7 +7,41 @@ Only exact, known and executed CTest semantic reports may increase a counter.
 import argparse
 import json
 from pathlib import Path
+import re
 import sys
+
+# Reports are separate untrusted evidence: reject duplicate JSON keys,
+# nonfinite numbers and unexpectedly large/symlinked records before counting.
+MAX_EVIDENCE_BYTES = 1024 * 1024
+
+def _unique_evidence_fields(pairs):
+    obj = {}
+    for key, value in pairs:
+        if key in obj:
+            raise ValueError("duplicate evidence JSON key: " + key)
+        obj[key] = value
+    return obj
+
+def _reject_nonfinite_token(token):
+    raise ValueError("nonfinite JSON evidence: " + token)
+
+def parse_evidence_json(contents):
+    result = json.loads(
+        contents,
+        object_pairs_hook=_unique_evidence_fields,
+        parse_constant=_reject_nonfinite_token,
+    )
+    if not isinstance(result, dict):
+        raise ValueError("evidence JSON root must be an object")
+    return result
+
+def load_evidence_file(path):
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("missing or symlinked source evidence: " + str(path))
+    size = path.stat().st_size
+    if not 0 < size <= MAX_EVIDENCE_BYTES:
+        raise ValueError("invalid evidence report size: " + str(path))
+    return parse_evidence_json(path.read_text(encoding="utf-8"))
 
 TEXT_ID="tinytoolkit.sample-1-page-v1"
 BLANK_ID="tinytoolkit.sample-blank-letter-v1"
@@ -147,6 +181,27 @@ def verify(admission, text, blank, path, clip, wstar, wstar_positive,
     assert 100*wstar_positive["overlap_red_pixels"]>=99*wstar_positive["reference_red_pixels"]
     assert wstar_positive["reference_blue_pixels"]>=2000 and wstar_positive["native_blue_pixels"]>=2000
     assert 100*wstar_positive["overlap_blue_pixels"]>=99*wstar_positive["reference_blue_pixels"]
+    # Exact types matter: bool is a subclass of int in Python, but must
+    # never qualify as a numeric C11 raster count or source-byte measurement.
+    tex_count_fields=(
+        "native_supported_passed_count", "native_wstar_clip_supported_count",
+        "external_wstar_pixel_supported_count", "source_bytes",
+        "page_width", "page_height", "source_painted_paths",
+        "source_w_nonzero_clip_path_leaves", "source_wstar_evenodd_clip_path_leaves",
+        "fixed_interior_goldens", "full_page_fixed_gray_golden_count",
+        "full_page_gross_error_pixels", "full_page_gray_reference_pixels",
+        "full_page_gray_native_pixels", "full_page_gray_overlap_pixels",
+        "reference_orange_pixels", "native_evenodd_orange_pixels",
+        "overlap_orange_pixels", "evenodd_nonzero_diff_pixels",
+        "masked_gross_error_pixels", "generated_fixture_count",
+    )
+    assert all(type(texample_positive[k]) is int for k in tex_count_fields)
+    # This is the printed original-source gray-stroke pixel, independent of
+    # the manifest's declarative 'supported' capability.
+    native_rgb=texample_positive["full_page_gray_golden_native_rgb"]
+    assert type(native_rgb) is str and re.fullmatch(r"[0-9]{1,3}(,[0-9]{1,3}){2}", native_rgb)
+    gray_channels=[int(part) for part in native_rgb.split(",")]
+    assert all(0<=ch<=255 and abs(ch-85)<=64 for ch in gray_channels)
     assert texample_positive["pdfium_result"]=="rendered_wstar_clip"
     assert texample_positive["native_ir"]=="lowered"
     assert texample_positive["original_source_pdfium_oracle"]=="passed"
@@ -216,7 +271,7 @@ def main():
         p.error("staged output symlink rejected")
     staged.unlink(missing_ok=True)
     try:
-        inputs=[json.loads(path.read_text(encoding="utf-8")) for path in
+        inputs=[load_evidence_file(path) for path in
                 (args.admission,args.text,args.blank,args.path,args.clip,args.wstar,args.wstar_positive,args.wstar_second_positive)]
         report=verify(*inputs)
         with staged.open("w",encoding="utf-8",newline="\n") as stream:

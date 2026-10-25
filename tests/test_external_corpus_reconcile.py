@@ -4,7 +4,8 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"tools"/"qualification"))
-from reconcile_external_corpus import (verify, TEXT_ID, BLANK_ID, PATH_ID, CLIP_ID,
+from reconcile_external_corpus import (verify, parse_evidence_json,
+    load_evidence_file, TEXT_ID, BLANK_ID, PATH_ID, CLIP_ID,
     WSTAR_ID, WSTAR_POSITIVE_ID, TEXAMPLE_ID, TEXAMPLE_SHA256)
 
 
@@ -171,6 +172,46 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
         self.assertEqual(report["external_wstar_late_text_rejection_passed"],1)
         self.assertEqual(report["native_wstar_clip_supported_count"],2)
         self.assertEqual(report["wstar_pixel_positive_document_count"],2)
+
+    def test_duplicate_semantic_json_key_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            parse_evidence_json('{"result":"passed","result":"failed"}')
+
+    def test_nonfinite_semantic_measurement_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "nonfinite"):
+            parse_evidence_json('{"full_page_mean_rgb_error":NaN}')
+
+    def test_evidence_root_requires_object(self):
+        with self.assertRaisesRegex(ValueError, "root"):
+            parse_evidence_json("[]")
+
+    def test_report_symlink_is_rejected(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as path:
+            target=Path(path)/"original.json"
+            alias=Path(path)/"alias.json"
+            target.write_text('{"result":"passed"}',encoding="utf-8")
+            try:
+                alias.symlink_to(target)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks unavailable")
+            with self.assertRaisesRegex(ValueError, "symlinked"):
+                load_evidence_file(alias)
+
+    def test_boolean_original_stroke_counts_are_not_integers(self):
+        self.texample["full_page_gray_reference_pixels"]=True
+        with self.assertRaises(AssertionError):
+            self.accept()
+
+    def test_out_of_range_original_gray_pixel_is_rejected(self):
+        self.texample["full_page_gray_golden_native_rgb"]="999,85,85"
+        with self.assertRaises(AssertionError):
+            self.accept()
+
+    def test_original_gray_pixel_requires_three_channels(self):
+        self.texample["full_page_gray_golden_native_rgb"]="85,85"
+        with self.assertRaises(AssertionError):
+            self.accept()
 
     def test_missing_second_original_wstar_report_rejects(self):
         self.texample["result"]="not_run"

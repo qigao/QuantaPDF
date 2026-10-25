@@ -344,12 +344,11 @@ render-support counter. This is not evidence of positive W* pixel parity.
 
 ## Current formal original W* positive — Issue #262 (2026-10-23)
 
-This PR proposes formal admission of the unchanged yWorks original
-`test/clippath/clippath-cliprule.pdf` as `yworks.clippath-cliprule-v1` after
-the source/rights review recorded in
-[#271](https://github.com/qigao/QuantaPDF/issues/271). Until this PR's exact-head
-CI and reconciliation pass and it is merged, master remains at five admitted
-originals and the official W* pixel-positive count remains zero.
+The unchanged yWorks original `test/clippath/clippath-cliprule.pdf` was
+admitted as `yworks.clippath-cliprule-v1` following the source/rights review
+recorded in [#271](https://github.com/qigao/QuantaPDF/issues/271).
+It is now the sixth admitted original and first official W* pixel-positive
+on master, separately from the proposed TeXample seventh source.
 The original bytes are checked in without rewrite at
 `tests/external_source_corpus/documents/yworks.clippath-cliprule-v1.pdf`;
 the retained MIT notice is `tests/external_source_corpus/YWORKS-MIT-NOTICE.txt`.
@@ -376,10 +375,11 @@ official evidence.
 
 At the qualifying exact head, mean RGB error was 0.006831, gross-error pixels
 were 0, red reference/native/overlap was 540/540/540, blue was 4770/4770/4770,
-and repeated RGBA was byte-identical. After this PR passes exact-head CI and merges, the formal denominator
-will increase from five to six admitted originals and the official W* pixel-
-positive numerator from zero to one. The existing W* late-text source remains
-a separate unsupported-operation rejection; it is not counted as a positive.
+and repeated RGBA was byte-identical. Its completed admission increased
+the formal denominator from five to six original PDFs and the official W*
+pixel-positive numerator from zero to one. The existing W* late-text
+source remains a separate unsupported-operation rejection; it is not
+counted as a positive.
 Generated 14 families / 36 executions remain separate from all six externally
 sourced originals.
 
