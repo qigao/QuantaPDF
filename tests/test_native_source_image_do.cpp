@@ -28,7 +28,7 @@ namespace {
 using Obj=QPDFObjectHandle;
 constexpr int W=32,H=24;
 const quantapdf_qpdf_source_raw_image_limits source_limits={
-    1048576u,16384u,3u,4u,4096u,4096u,4096u
+    1048576u,16384u,3u,4u,4096u,4096u,4096u,3u
 };
 const quantapdf_ir_raster_image_v1_limits raster_limits={
     4096u,4u,4096u,4096u
@@ -44,6 +44,8 @@ struct scene {
     bool wrong_color=false;
     bool gray=false;
     bool flate=false;
+    bool inherited_resources=false;
+    bool malformed_leaf_resources=false;
 };
 
 std::vector<unsigned char> make_original(const scene& sc)
@@ -89,7 +91,14 @@ std::vector<unsigned char> make_original(const scene& sc)
     blue.getDict().replaceKey("/ColorSpace",Obj::newName("/DeviceRGB"));
     objects.replaceKey("/J",blue);
     resources.replaceKey("/XObject",objects);
-    if(!sc.remove_resources) page.replaceKey("/Resources",resources);
+    if(!sc.remove_resources) {
+        if (sc.inherited_resources)
+            pages.replaceKey("/Resources",resources);
+        else
+            page.replaceKey("/Resources",resources);
+    }
+    if(sc.malformed_leaf_resources)
+        page.replaceKey("/Resources",Obj::newName("/InvalidResources"));
 
     if(sc.split)
         page.replaceKey("/Contents",Obj::newArray({
@@ -271,6 +280,69 @@ int test_original_gray_flate()
     return EXIT_SUCCESS;
 }
 
+int test_inherited_source_resources()
+{
+    scene sc;
+    sc.inherited_resources=true;
+    sc.split=true;
+    sc.content_a="q 12 0 0 12 4 4 cm /I ";
+    sc.content_b="Do Q";
+    auto source=make_original(sc);
+    auto reference=direct_pdfium(source);
+    CHECK(reference.size()==static_cast<size_t>(W*H*3));
+    auto shallow=source_limits;
+    shallow.max_parent_steps=1u;
+    quantapdf_ir refused;
+    std::memset(&refused,0xab,sizeof(refused));
+    CHECK(quantapdf_qpdf_source_raw_images_to_ir(
+        source.data(),source.size(),&shallow,&refused)==
+        QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(refused.pages==nullptr && refused.operations==nullptr &&
+          refused.resources.images==nullptr && refused.page_count==0u);
+    auto zero=source_limits;
+    zero.max_parent_steps=0u;
+    CHECK(quantapdf_qpdf_source_raw_images_to_ir(
+        source.data(),source.size(),&zero,&refused)==
+        QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(refused.pages==nullptr && refused.operations==nullptr);
+
+    quantapdf_ir admitted{};
+    auto enough=source_limits;
+    enough.max_parent_steps=2u;
+    OK(quantapdf_qpdf_source_raw_images_to_ir(
+        source.data(),source.size(),&enough,&admitted));
+    CHECK(admitted.page_count==1u &&
+          admitted.operation_count==1u &&
+          admitted.resources.image_count==1u);
+    quantapdf_ir_raster_image result{};
+    OK(quantapdf_ir_raster_raw_images_v1(
+        &admitted,0,&raster_limits,&result));
+    quantapdf_ir_dispose(&admitted);
+    CHECK(result.pixels!=nullptr);
+    const int x=6,y=8;
+    const auto *native=result.pixels+
+        static_cast<size_t>(y)*result.stride+
+        static_cast<size_t>(x)*4u;
+    const auto *oracle=reference.data()+
+        static_cast<size_t>(y*W+x)*3u;
+    const unsigned char red[]={255u,0u,0u};
+    CHECK(matches(native,red,10) && matches(oracle,red,10));
+    quantapdf_ir_raster_image_dispose(&result);
+
+    /* An explicit malformed child /Resources overrides the valid parent
+     * instead of silently falling back to its inherited /XObject names. */
+    sc.malformed_leaf_resources=true;
+    auto shadow=make_original(sc);
+    std::memset(&refused,0xab,sizeof(refused));
+    CHECK(quantapdf_qpdf_source_raw_images_to_ir(
+        shadow.data(),shadow.size(),&enough,&refused)==
+        QUANTAPDF_ERROR_FORMAT);
+    CHECK(refused.pages==nullptr && refused.page_count==0u &&
+          refused.operations==nullptr &&
+          refused.resources.images==nullptr);
+    return EXIT_SUCCESS;
+}
+
 int test_negative_and_recovery()
 {
     scene good;
@@ -316,7 +388,7 @@ int test_negative_and_recovery()
     }
     auto pdf=make_original(good);
     const auto short_budget=quantapdf_qpdf_source_raw_image_limits{
-        1048576u,16384u,3u,4u,4096u,4096u,8u};
+        1048576u,16384u,3u,4u,4096u,4096u,8u,3u};
     quantapdf_ir denied{};
     CHECK(quantapdf_qpdf_source_raw_images_to_ir(
         pdf.data(),pdf.size(),&short_budget,&denied)==
@@ -340,6 +412,7 @@ int main()
 {
     if(test_original_pixel_parity()!=EXIT_SUCCESS ||
        test_original_gray_flate()!=EXIT_SUCCESS ||
+       test_inherited_source_resources()!=EXIT_SUCCESS ||
        test_negative_and_recovery()!=EXIT_SUCCESS) return EXIT_FAILURE;
     std::puts("Original PDF Image Do -> detached owned RAW IR -> "
               "provider-free C11 raster PASS");
