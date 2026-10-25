@@ -4,14 +4,16 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"tools"/"qualification"))
-from reconcile_external_corpus import verify, TEXT_ID, BLANK_ID, PATH_ID, CLIP_ID, WSTAR_ID, WSTAR_POSITIVE_ID
+from reconcile_external_corpus import (verify, parse_evidence_json,
+    load_evidence_file, TEXT_ID, BLANK_ID, PATH_ID, CLIP_ID,
+    WSTAR_ID, WSTAR_POSITIVE_ID, TEXAMPLE_ID, TEXAMPLE_SHA256)
 
 
 class ExternalEvidenceReconciliation(unittest.TestCase):
     def setUp(self):
         self.admission={"schema_version":1,"corpus_id":"external-source-pdf",
             "fixture_kind":"external","result":"integrity_verified_only",
-            "document_count":6,"native_conformance_passed_count":0,
+            "document_count":7,"native_conformance_passed_count":0,
             "documents":[
                 {"id":TEXT_ID,"integrity":"verified","native_conformance":"not_run",
                  "expected_native_outcome":"unsupported"},
@@ -35,7 +37,18 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
                  "source_url":"https://github.com/yWorks/svg2pdf.js/blob/b564556f41b245893fbadd3a6c4f832455383dbe/test/clippath/clippath-cliprule.pdf",
                  "source_revision":"b564556f41b245893fbadd3a6c4f832455383dbe",
                  "page_index":0,"feature_tags":["clip-evenodd","clip-nonzero"],
-                 "attribution":"yWorks original PDF; see YWORKS-MIT-NOTICE.txt"}]}
+                 "attribution":"yWorks original PDF; see YWORKS-MIT-NOTICE.txt"},
+                {"id":TEXAMPLE_ID,"integrity":"verified","native_conformance":"not_run",
+                 "expected_native_outcome":"supported-wstar-clip",
+                 "sha256":TEXAMPLE_SHA256,"size_bytes":1396,
+                 "source_revision":"sha256:"+TEXAMPLE_SHA256,
+                 "source_url":"https://texample.net/files/intersecting-rings.pdf",
+                 "license_spdx_declared":"CC-BY-SA-4.0",
+                 "license_url":"https://creativecommons.org/licenses/by-sa/4.0/",
+                 "license_review_url":"https://github.com/qigao/QuantaPDF/issues/262",
+                 "attribution":"Dominique Wuertz, see TEXAMPLE-CC-BY-SA-4.0-NOTICE.txt",
+                 "feature_tags":["clip-evenodd","star-rule-difference"],
+                 "page_index":0}]}
         self.text={"schema_version":1,"corpus_id":"external-source-pdf",
             "fixture_kind":"external","document_id":TEXT_ID,
             "reference_oracle":"original-pdfium","generated_fixture_count":0,
@@ -110,18 +123,159 @@ class ExternalEvidenceReconciliation(unittest.TestCase):
             "mean_rgb_error":0.006831,"gross_error_pixels":0,
             "reference_red_pixels":540,"native_red_pixels":540,"overlap_red_pixels":540,
             "reference_blue_pixels":4770,"native_blue_pixels":4770,"overlap_blue_pixels":4770}
+        self.texample={"schema_version":1,"corpus_id":"external-source-pdf",
+            "fixture_kind":"external","document_id":TEXAMPLE_ID,
+            "reference_oracle":"original-pdfium","generated_fixture_count":0,
+            "result":"passed","native_expected_outcome":"supported-wstar-clip",
+            "native_observed_outcome":"supported-wstar-clip",
+            "pdfium_result":"rendered_wstar_clip","native_ir":"lowered",
+            "original_source_pdfium_oracle":"passed",
+            "detached_c11_native_raster":"wstar-fill-mask-only",
+            "full_page_native_raster":"admitted_whole_page_pixel_gate_passed",
+            "full_page_candidate_pixel_gate_passed":True,
+            "comparison_scope":"original-whole-page-and-wstar-fill-mask-admitted",
+            "native_supported_passed_count":1,"native_wstar_clip_supported_count":1,
+            "external_wstar_pixel_supported_count":1,"official_corpus_admitted":True,
+            "source_and_graph_released_before_raster":True,
+            "source_bytes":1396,"source_sha256":TEXAMPLE_SHA256,
+            "source_bytes_unchanged_after_reference_and_native":True,
+            "pdfium_fallback_used":False,"page_width":238,"page_height":181,
+            "source_painted_paths":3,"source_w_nonzero_clip_path_leaves":0,
+            "source_wstar_evenodd_clip_path_leaves":1,"fixed_interior_goldens":3,
+            "fixed_parity_exclusion_goldens":3,
+            "full_page_fixed_gray_golden_count":1,
+            "full_page_gray_golden_original_rgb":"85,85,85",
+            "full_page_gray_golden_native_rgb":"85,85,85",
+            "full_page_repeat_rgba_identical":True,
+            "repeat_rgba_identical":True,
+            "full_page_mean_rgb_error":0.842673,
+            "full_page_gross_error_pixels":0,
+            "full_page_gray_reference_pixels":2974,
+            "full_page_gray_native_pixels":2838,
+            "full_page_gray_overlap_pixels":2814,
+            "reference_orange_pixels":1758,
+            "native_evenodd_orange_pixels":1764,
+            "overlap_orange_pixels":1758,
+            "evenodd_nonzero_diff_pixels":3089,
+            "masked_mean_rgb_error":0.0,
+            "masked_gross_error_pixels":0}
+
     def accept(self):
-        return verify(self.admission,self.text,self.blank,self.path,self.clip,self.wstar,self.wstar_positive)
+        return verify(self.admission,self.text,self.blank,self.path,
+                      self.clip,self.wstar,self.wstar_positive,self.texample)
 
     def test_valid_evidence_remains_capability_scoped(self):
         report=self.accept()
         self.assertEqual(report["native_path_clip_supported"],2)
         self.assertEqual(report["native_clipped_path_supported"],1)
         self.assertEqual(report["native_blank_page_supported"],1)
-        self.assertEqual(report["admitted_documents"],6)
+        self.assertEqual(report["admitted_documents"],7)
         self.assertEqual(report["external_wstar_late_text_rejection_passed"],1)
-        self.assertEqual(report["native_wstar_clip_supported_count"],1)
-        self.assertEqual(report["wstar_pixel_positive_document_count"],1)
+        self.assertEqual(report["native_wstar_clip_supported_count"],2)
+        self.assertEqual(report["wstar_pixel_positive_document_count"],2)
+
+    def test_optimized_python_cannot_bypass_admission_assertions(self):
+        import subprocess
+        script=Path(__file__).resolve().parents[1]/"tools"/"qualification"/"reconcile_external_corpus.py"
+        result=subprocess.run(
+            [sys.executable,"-O",str(script),"--help"],
+            capture_output=True,text=True,timeout=15,
+            check=False,
+        )
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn("requires Python without -O",result.stderr)
+
+    def test_duplicate_semantic_json_key_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            parse_evidence_json('{"result":"passed","result":"failed"}')
+
+    def test_nonfinite_semantic_measurement_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "nonfinite"):
+            parse_evidence_json('{"full_page_mean_rgb_error":NaN}')
+
+    def test_evidence_root_requires_object(self):
+        with self.assertRaisesRegex(ValueError, "root"):
+            parse_evidence_json("[]")
+
+    def test_report_symlink_is_rejected(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as path:
+            target=Path(path)/"original.json"
+            alias=Path(path)/"alias.json"
+            target.write_text('{"result":"passed"}',encoding="utf-8")
+            try:
+                alias.symlink_to(target)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks unavailable")
+            with self.assertRaisesRegex(ValueError, "symlinked"):
+                load_evidence_file(alias)
+
+    def test_boolean_original_stroke_counts_are_not_integers(self):
+        self.texample["full_page_gray_reference_pixels"]=True
+        with self.assertRaises(AssertionError):
+            self.accept()
+
+    def test_out_of_range_original_gray_pixel_is_rejected(self):
+        self.texample["full_page_gray_golden_native_rgb"]="999,85,85"
+        with self.assertRaises(AssertionError):
+            self.accept()
+
+    def test_original_gray_pixel_requires_three_channels(self):
+        self.texample["full_page_gray_golden_native_rgb"]="85,85"
+        with self.assertRaises(AssertionError):
+            self.accept()
+
+    def test_second_original_requires_fixed_parity_exclusion(self):
+        self.texample["fixed_parity_exclusion_goldens"]=0
+        with self.assertRaises(AssertionError):
+            self.accept()
+
+    def test_missing_second_original_wstar_report_rejects(self):
+        self.texample["result"]="not_run"
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_second_original_has_exact_sha(self):
+        self.texample["source_sha256"]="0"*64
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_second_original_manifest_hash_is_pinned(self):
+        self.admission["documents"][-1]["sha256"]="0"*64
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_second_original_license_url_is_pinned(self):
+        self.admission["documents"][-1]["license_url"] = (
+            "https://texample.net/intersecting-rings/"
+        )
+        with self.assertRaises(AssertionError):
+            self.accept()
+
+    def test_second_original_license_review_is_pinned(self):
+        self.admission["documents"][-1]["license_review_url"]="https://github.com/qigao/QuantaPDF/issues/233"
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_second_original_is_not_counted_from_candidate_flag(self):
+        self.texample["official_corpus_admitted"]=False
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_second_original_requires_full_page_pixel_gate(self):
+        self.texample["full_page_candidate_pixel_gate_passed"]=False
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_second_original_requires_zero_severe_error(self):
+        self.texample["full_page_gross_error_pixels"]=1
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_second_original_requires_gray_overlap(self):
+        self.texample["full_page_gray_overlap_pixels"]=2700
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_second_original_requires_counterfactual_wstar(self):
+        self.texample["evenodd_nonzero_diff_pixels"]=0
+        with self.assertRaises(AssertionError): self.accept()
+
+    def test_second_original_refuses_generated_fixture_leakage(self):
+        self.texample["generated_fixture_count"]=36
+        with self.assertRaises(AssertionError): self.accept()
 
     def test_missing_qualified_document_rejects(self):
         self.admission["documents"].pop()

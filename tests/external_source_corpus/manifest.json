@@ -122,6 +122,28 @@
       ],
       "page_index": 0,
       "expected_native_outcome": "supported-wstar-clip"
+    },
+    {
+      "id": "texample.intersecting-rings-v1",
+      "source_url": "https://texample.net/files/intersecting-rings.pdf",
+      "source_revision": "sha256:f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284",
+      "sha256": "f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284",
+      "size_bytes": 1396,
+      "license_spdx": "CC-BY-SA-4.0",
+      "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "license_review_url": "https://github.com/qigao/QuantaPDF/issues/262",
+      "attribution": "Dominique Wuertz; unmodified TeXample.net Intersecting rings PDF; CC BY-SA 4.0; see TEXAMPLE-CC-BY-SA-4.0-NOTICE.txt",
+      "feature_tags": [
+        "external",
+        "clip-evenodd",
+        "evenodd-hole",
+        "star-rule-difference",
+        "cubic-stroke",
+        "fractional-width",
+        "positive"
+      ],
+      "page_index": 0,
+      "expected_native_outcome": "supported-wstar-clip"
     }
   ]
 }

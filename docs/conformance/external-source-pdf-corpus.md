@@ -344,12 +344,11 @@ render-support counter. This is not evidence of positive W* pixel parity.
 
 ## Current formal original W* positive — Issue #262 (2026-10-23)
 
-This PR proposes formal admission of the unchanged yWorks original
-`test/clippath/clippath-cliprule.pdf` as `yworks.clippath-cliprule-v1` after
-the source/rights review recorded in
-[#271](https://github.com/qigao/QuantaPDF/issues/271). Until this PR's exact-head
-CI and reconciliation pass and it is merged, master remains at five admitted
-originals and the official W* pixel-positive count remains zero.
+The unchanged yWorks original `test/clippath/clippath-cliprule.pdf` was
+admitted as `yworks.clippath-cliprule-v1` following the source/rights review
+recorded in [#271](https://github.com/qigao/QuantaPDF/issues/271).
+It is now the sixth admitted original and first official W* pixel-positive
+on master, separately from the proposed TeXample seventh source.
 The original bytes are checked in without rewrite at
 `tests/external_source_corpus/documents/yworks.clippath-cliprule-v1.pdf`;
 the retained MIT notice is `tests/external_source_corpus/YWORKS-MIT-NOTICE.txt`.
@@ -376,10 +375,11 @@ official evidence.
 
 At the qualifying exact head, mean RGB error was 0.006831, gross-error pixels
 were 0, red reference/native/overlap was 540/540/540, blue was 4770/4770/4770,
-and repeated RGBA was byte-identical. After this PR passes exact-head CI and merges, the formal denominator
-will increase from five to six admitted originals and the official W* pixel-
-positive numerator from zero to one. The existing W* late-text source remains
-a separate unsupported-operation rejection; it is not counted as a positive.
+and repeated RGBA was byte-identical. Its completed admission increased
+the formal denominator from five to six original PDFs and the official W*
+pixel-positive numerator from zero to one. The existing W* late-text
+source remains a separate unsupported-operation rejection; it is not
+counted as a positive.
 Generated 14 families / 36 executions remain separate from all six externally
 sourced originals.
 
@@ -390,3 +390,62 @@ unsupported-operator, runtime and PDFium SDK cutover gates remain open under
 [#214](https://github.com/qigao/QuantaPDF/issues/214),
 [#233](https://github.com/qigao/QuantaPDF/issues/233) and
 [#208](https://github.com/qigao/QuantaPDF/issues/208).
+
+## Independent-producer second W* source — Issue #262 (2026-10-25)
+
+The yWorks original above is the existing **sixth** admitted original and the
+first official W* pixel-positive. The candidate source in
+[PR #415](https://github.com/qigao/QuantaPDF/pull/415) is a distinct producer:
+[TeXample's "Intersecting rings"](https://texample.net/intersecting-rings/),
+attributed to **Dominique Wuertz**. The original TeXample page makes both
+the PDF file and CC BY-SA 4.0 license statement available. The unchanged
+source has a genuine parity-discriminating nonrectangular `W*`, orange
+even-odd fill and two cubic outline strokes, without text, image or Form
+operators. This is a **separate dependent admission review**, not a
+retroactive promotion of the candidate-only report.
+
+| Property | Immutable source / review |
+|---|---|
+| Original PDF URL | https://texample.net/files/intersecting-rings.pdf |
+| Source provenance | TeXample publisher page; original PDF identified by its SHA-256 (not an invented Git revision) |
+| Retained Git blob | Stored at `tests/external_source_corpus/documents/texample.intersecting-rings-v1.pdf` |
+| Original bytes | 1,396; SHA-256 `f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284` |
+| License / author | CC BY-SA 4.0; Dominique Wuertz and TeXample.net |
+| Canonical license URL | https://creativecommons.org/licenses/by-sa/4.0/ (separate from publisher's attribution/source page) |
+| Attribution notice | `tests/external_source_corpus/TEXAMPLE-CC-BY-SA-4.0-NOTICE.txt` |
+| Rights review | [Issue #262](https://github.com/qigao/QuantaPDF/issues/262) |
+| Selected page | Page 0, 238×181 native FIT pixels at 72 DPI |
+| Native outcome | `supported-wstar-clip` within the tested narrow C11 profile |
+
+The exact bytes were independently downloaded, length/cryptographic-hash
+verified, and then committed without rewriting by the **isolated admission
+branch**. The temporary transport workflow is not part of the reviewed
+change or a runtime dependency.
+
+The admitted witness is a **separately executed original-PDFium / detached
+pure-C11 Native Raster** test: complete original-page RGB mean ≤1.0,
+gross (>64) error zero, gray original/native overlap ≥94%, fixed interior
+goldens and full RGBA repeat equality. Its W* fill-mask is independently
+checked against a source-consistent stroke exclusion region, with an
+even-odd/nonzero counterfactual. The tested original has RGB mean
+0.842673, gross 0, gray overlap 2,814/2,974, and 3,089 counterfactual
+pixels in the current mask. Three parity-sensitive interior coordinates
+(85,37), (94,38) and (102,39) are now fixed with 5×5 neighborhood goldens:
+direct original PDFium and Native W* must remain white, while the Native
+nonzero-winding counterfactual must be orange RGB(255,128,0). Historical orange counts on different masks
+must **not** be compared. No universal pixel-identical PDFium claim follows.
+
+A second `external_texample_wstar_pixel_positive` CTest invokes the
+**formal** report mode, which differs from #415's candidate-only report.
+The offline admission checksum gate and strict reconciliation require
+**seven** exact original documents and **two** independently executed W*
+pixel-positive witnesses; both sources' original hashes, legal review
+links and actual pixel evidence must match. Missing, swapped, altered or
+forged evidence fails closed, and generated 14/36 scenarios never count.
+
+**Release boundary:** master remains **six** admitted original PDFs and
+**one** official W* pixel-positive until both PR #415 and this dependent
+admission PR have independent approvals, full Linux Release+ASan/UBSan,
+macOS/Windows installed SDK/reconciliation evidence, and are merged in
+dependency order. No production PDFium fallback, ABI extension or PDF
+rewriting is part of this source-admission change.

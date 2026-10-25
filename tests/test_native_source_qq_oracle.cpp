@@ -3132,10 +3132,11 @@ static void dump_tikz_candidate_contents(
 
 int test_external_tikz_wstar_pixels(const char *filename,
                                     const char *report_path,
-                                    const char *expected_sha256)
+                                    const char *expected_sha256, int admit_original)
 {
     CHECK(filename && *filename && report_path && *report_path &&
           expected_sha256 && *expected_sha256);
+    CHECK(admit_original==0 || admit_original==1);
     namespace fs=std::filesystem;
     std::error_code ec;
     const fs::path source(filename), report(report_path);
@@ -3693,11 +3694,18 @@ int test_external_tikz_wstar_pixels(const char *filename,
         "{\n"
         "  \"schema_version\": 1,\n"
         "  \"result\": \"passed\",\n"
+        "  \"corpus_id\": \"external-source-pdf\",\n"
+        "  \"fixture_kind\": \"%s\",\n"
         "  \"document_id\": \"texample.intersecting-rings-v1\",\n"
         "  \"reference_oracle\": \"original-pdfium\",\n"
+        "  \"native_expected_outcome\": \"supported-wstar-clip\",\n"
+        "  \"native_observed_outcome\": \"supported-wstar-clip\",\n"
+        "  \"pdfium_result\": \"rendered_wstar_clip\",\n"
+        "  \"native_supported_passed_count\": %u,\n"
+        "  \"native_wstar_clip_supported_count\": %u,\n"
         "  \"original_source_pdfium_oracle\": \"passed\",\n"
         "  \"detached_c11_native_raster\": \"wstar-fill-mask-only\",\n"
-        "  \"full_page_native_raster\": \"candidate_whole_page_pixel_gate_passed_not_admitted\",\n"
+        "  \"full_page_native_raster\": \"%s\",\n"
         "  \"full_page_mean_rgb_error\": %.6f,\n"
         "  \"full_page_gross_error_pixels\": %zu,\n"
         "  \"full_page_repeat_rgba_identical\": %s,\n"
@@ -3708,15 +3716,16 @@ int test_external_tikz_wstar_pixels(const char *filename,
         "  \"full_page_fixed_gray_golden_count\": 1,\n"
         "  \"full_page_gray_golden_original_rgb\": \"85,85,85\",\n"
         "  \"full_page_gray_golden_native_rgb\": \"%u,%u,%u\",\n"
-        "  \"comparison_scope\": \"original-whole-page-and-wstar-fill-mask-candidate-only\",\n"
+        "  \"comparison_scope\": \"%s\",\n"
         "  \"native_ir\": \"lowered\",\n"
         "  \"source_sha256\": \"%s\",\n"
         "  \"source_and_graph_released_before_raster\": true,\n"
         "  \"source_bytes_unchanged_after_reference_and_native\": true,\n"
         "  \"pdfium_fallback_used\": false,\n"
         "  \"repeat_rgba_identical\": true,\n"
-        "  \"official_corpus_admitted\": false,\n"
-        "  \"external_wstar_pixel_supported_count\": 0,\n"
+        "  \"official_corpus_admitted\": %s,\n"
+        "  \"external_wstar_pixel_supported_count\": %u,\n"
+        "  \"source_bytes\": 1396,\n"
         "  \"page_width\": %zu,\n"
         "  \"page_height\": %zu,\n"
         "  \"source_painted_paths\": %zu,\n"
@@ -3736,11 +3745,19 @@ int test_external_tikz_wstar_pixels(const char *filename,
         "  \"fixed_parity_exclusion_goldens\": %zu,\n"
         "  \"generated_fixture_count\": 0\n"
         "}\n",
+        admit_original ? "external" : "quarantined-external-original",
+        (unsigned)admit_original,(unsigned)admit_original,
+        admit_original ? "admitted_whole_page_pixel_gate_passed" :
+            "candidate_whole_page_pixel_gate_passed_not_admitted",
         full_page_mean,full_page_gross,
         full_page_repeat_equal ? "true" : "false",
         reference_gray_ink,native_gray_ink,common_gray_ink,
         gray_golden_native[0],gray_golden_native[1],gray_golden_native[2],
-        expected_sha256,width,height,painted_count,
+        admit_original ? "original-whole-page-and-wstar-fill-mask-admitted" :
+            "original-whole-page-and-wstar-fill-mask-candidate-only",
+        expected_sha256,
+        admit_original ? "true" : "false",(unsigned)admit_original,
+        width,height,painted_count,
         clip_count,winding.nonzero,winding.evenodd,
         winding.intersections,union_orange,reference_orange,native_orange,
         overlap_orange,nonzero_orange,control_diff_pixels,mean,gross,
@@ -3754,8 +3771,9 @@ int test_external_tikz_wstar_pixels(const char *filename,
     CHECK(corpus_fixture_executions==0u);
     std::fprintf(stderr,
         "[texample-wstar-fill-mask] passed mean=%.6f gross=%zu "
-        "evenodd=%zu nonzero=%zu control_diff=%zu official_positive=0\n",
-        mean,gross,native_orange,nonzero_orange,control_diff_pixels);
+        "evenodd=%zu nonzero=%zu control_diff=%zu official_positive=%u\n",
+        mean,gross,native_orange,nonzero_orange,control_diff_pixels,
+        (unsigned)admit_original);
     return EXIT_SUCCESS;
 }
 
@@ -3786,10 +3804,14 @@ int main(int argc,char **argv)
     if(argc==5 && std::strcmp(argv[1],"--external-wstar-positive-pdf")==0 &&
        std::strcmp(argv[3],"--external-report")==0)
         return test_external_yworks_wstar_pixels(argv[2],argv[4]);
-    if(argc==7 && std::strcmp(argv[1],"--external-tikz-wstar-pdf")==0 &&
+    if(argc==7 &&
+       (std::strcmp(argv[1],"--external-tikz-wstar-pdf")==0 ||
+        std::strcmp(argv[1],"--external-tikz-wstar-admitted-pdf")==0) &&
        std::strcmp(argv[3],"--external-report")==0 &&
        std::strcmp(argv[5],"--expected-sha256")==0)
-        return test_external_tikz_wstar_pixels(argv[2],argv[4],argv[6]);
+        return test_external_tikz_wstar_pixels(
+            argv[2],argv[4],argv[6],
+            std::strcmp(argv[1],"--external-tikz-wstar-admitted-pdf")==0);
     if(argc==7 && std::strcmp(argv[1],"--clip-causal-ab")==0 &&
        std::strcmp(argv[3],"--generated-prefix")==0 &&
        std::strcmp(argv[5],"--external-report")==0)

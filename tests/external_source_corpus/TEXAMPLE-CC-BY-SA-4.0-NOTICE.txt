@@ -1,0 +1,34 @@
+# TeXample original PDF — Attribution and license record
+
+Source example: **Intersecting rings** (TikZ/LaTeX diagram)
+Author: **Dominique Wuertz**
+Publisher/host: **TeXample.net**
+Source page: https://texample.net/intersecting-rings/
+Original PDF: https://texample.net/files/intersecting-rings.pdf
+License displayed on that original source page: **Creative Commons Attribution-ShareAlike 4.0 International**
+License text: https://creativecommons.org/licenses/by-sa/4.0/
+Copyright notice displayed by the host: © Copyright 2021 – TeXample.net
+
+The retained source file is **unchanged**: 1,396 bytes,
+SHA-256 `f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284`.
+
+GitHub corpus location:
+`tests/external_source_corpus/documents/texample.intersecting-rings-v1.pdf`
+
+The source page attributes the example to Dominique Wuertz and explicitly
+links both the source PDF and a CC BY-SA 4.0 license. This notice records
+that publisher-page evidence; it does not assert a separate upstream Git
+commit that was not published. The `source_revision` in the manifest is the
+SHA-256 identity of these exact bytes, not a claim about an upstream VCS tag.
+
+**Attribution requirements:** preserve author and original publisher names,
+the link to the source, the license link, and state whether modifications were
+made (none here). The PDF is not a QuantaPDF-authored test fixture. This
+document and the PDF are isolated to the *formal-admission review branch*
+until document-level rights and separate source-conformance approval.
+No PDF was re-rendered, normalized, recompressed or otherwise rewritten.
+
+Review record: https://github.com/qigao/QuantaPDF/issues/262
+Dependent candidate qualification: https://github.com/qigao/QuantaPDF/pull/415
+
+No endorsement by the author or TeXample.net is implied.

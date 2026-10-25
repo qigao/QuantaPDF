@@ -2132,6 +2132,36 @@ else()
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
 
+# Second independently produced rights-checked W* ORIGINAL, separate from
+# the draft's original-source candidate and the prior yWorks positive.
+# The PDF is checked into the offline corpus, byte-hashed independently by
+# the admission gate, and its full-page/direct-PDFium C11 result is separately
+# reconciled (never counted merely because the CTest is registered).
+add_test(NAME quantapdf.external_texample_wstar_pixel_positive
+  COMMAND "${CMAKE_COMMAND}"
+    "-DORACLE=$<TARGET_FILE:quantapdf_test_native_source_qq_oracle>"
+    "-DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/external_source_corpus/documents/texample.intersecting-rings-v1.pdf"
+    "-DREPORT=${CMAKE_CURRENT_BINARY_DIR}/external-texample-wstar-pixel-status.json"
+    "-DEXPECTED_SHA256=f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/check_external_tikz_wstar_admitted.cmake")
+set_tests_properties(quantapdf.external_texample_wstar_pixel_positive PROPERTIES
+  TIMEOUT 200
+  LABELS "conformance;external-corpus;native-raster;wstar-pixel-positive;issue-262"
+  PASS_REGULAR_EXPRESSION "texample-wstar-original-admitted: passed")
+if(WIN32)
+  set_property(TEST quantapdf.external_texample_wstar_pixel_positive
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.external_texample_wstar_pixel_positive
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.external_texample_wstar_pixel_positive
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
 # Independent original-PDFium causal A/B for Clip changes. Generated controls
 # share the same blue Stroke; unsupported cases must fail closed.
 add_test(NAME quantapdf.native_stroke_clip_causal_ab

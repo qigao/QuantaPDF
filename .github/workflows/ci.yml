@@ -100,13 +100,13 @@ jobs:
         run: ctest --preset linux-release-user -L conformance --output-on-failure
 
       - name: Qualify licensed TeXample W-star original (Linux Release)
-        if: github.event_name == 'pull_request' && github.event.pull_request.number == 415
         shell: bash
         run: |
           set -euo pipefail
-          original="$RUNNER_TEMP/texample-intersecting-rings.pdf"
-          curl --fail --show-error --silent --location --retry 3 --max-time 60 \
-            'https://texample.net/files/intersecting-rings.pdf' --output "$original"
+          # Validate the unchanged source already stored in the corpus.
+          # No network fetch is needed in this dependent admission PR.
+          original="$GITHUB_WORKSPACE/tests/external_source_corpus/documents/texample.intersecting-rings-v1.pdf"
+          test -s "$original"
           printf '%s  %s\n' \
             'f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284' \
             "$original" | sha256sum --check -
@@ -120,6 +120,14 @@ jobs:
 
       - name: Install static SDK
         run: cmake --build --preset install-linux-release-user --parallel 2
+
+      - name: Verify test-only licensed PDF is excluded from Linux SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p test_sdk_test_data_boundary.py
+          python3 tools/qualification/sdk_test_data_boundary.py \
+            --install-manifest build/linux-gcc-release/install_manifest.txt
 
       - name: Qualify CFF2 with Poppler
         shell: bash
@@ -160,11 +168,10 @@ jobs:
         run: ctest --preset linux-dev-user -L conformance --output-on-failure
 
       - name: Qualify licensed TeXample W-star original (Linux ASan/UBSan)
-        if: github.event_name == 'pull_request' && github.event.pull_request.number == 415
         shell: bash
         run: |
           set -euo pipefail
-          original="$RUNNER_TEMP/texample-intersecting-rings.pdf"
+          original="$GITHUB_WORKSPACE/tests/external_source_corpus/documents/texample.intersecting-rings-v1.pdf"
           test -s "$original"
           LD_LIBRARY_PATH="$GITHUB_WORKSPACE/build/linux-gcc-debug/_deps/pdfium-${PDFIUM_VERSION}-linux-x64/lib:${LD_LIBRARY_PATH:-}" \
           ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
@@ -177,7 +184,6 @@ jobs:
               -P tests/check_external_tikz_wstar_candidate.cmake
 
       - name: Upload TeXample W-star candidate pixel reports
-        if: github.event_name == 'pull_request' && github.event.pull_request.number == 415
         uses: actions/upload-artifact@v4
         with:
           name: texample-intersecting-rings-pixel-qualification
@@ -245,7 +251,7 @@ jobs:
         shell: bash
         run: |
           python3 -m unittest discover -s tests -p test_external_corpus_reconcile.py
-          python3 tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/linux-gcc-release/tests/external-cc0-text-status.json" --blank "build/linux-gcc-release/tests/external-cc0-blank-status.json" --path "build/linux-gcc-release/tests/external-pdfium-black-path-status.json" --clip "build/linux-gcc-release/tests/external-pdfium-clip-stroke-status.json" --wstar "build/linux-gcc-release/tests/external-pdfium-wstar-late-text-status.json" --wstar-positive "build/linux-gcc-release/tests/external-pdfium-wstar-pixel-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
+          python3 tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/linux-gcc-release/tests/external-cc0-text-status.json" --blank "build/linux-gcc-release/tests/external-cc0-blank-status.json" --path "build/linux-gcc-release/tests/external-pdfium-black-path-status.json" --clip "build/linux-gcc-release/tests/external-pdfium-clip-stroke-status.json" --wstar "build/linux-gcc-release/tests/external-pdfium-wstar-late-text-status.json" --wstar-positive "build/linux-gcc-release/tests/external-pdfium-wstar-pixel-status.json" --wstar-second-positive "build/linux-gcc-release/tests/external-texample-wstar-pixel-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
 
       - name: Upload reconciled external corpus (Linux)
         uses: actions/upload-artifact@v4
@@ -295,7 +301,9 @@ jobs:
             build/linux-gcc-release/tests/external-pdfium-wstar-late-text-status.json
             build/linux-gcc-debug/tests/external-pdfium-wstar-late-text-status.json
             build/linux-gcc-release/tests/external-pdfium-wstar-pixel-status.json
+            build/linux-gcc-release/tests/external-texample-wstar-pixel-status.json
             build/linux-gcc-debug/tests/external-pdfium-wstar-pixel-status.json
+            build/linux-gcc-debug/tests/external-texample-wstar-pixel-status.json
           if-no-files-found: error
           retention-days: 7
 
@@ -308,6 +316,7 @@ jobs:
             build/linux-gcc-debug/tests/native-source-corpus.json
             build/linux-gcc-release/tests/yworks-svg-w-candidate-pixel.json
             build/linux-gcc-release/tests/external-pdfium-wstar-pixel-status.json
+            build/linux-gcc-release/tests/external-texample-wstar-pixel-status.json
           if-no-files-found: error
           retention-days: 7
 
@@ -459,6 +468,14 @@ jobs:
       - name: Install SDK
         run: cmake --build --preset "install-$CMAKE_PRESET" --parallel 2
 
+      - name: Verify test-only licensed PDF is excluded from macOS SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p test_sdk_test_data_boundary.py
+          python3 tools/qualification/sdk_test_data_boundary.py \
+            --install-manifest build/macos-clang-release/install_manifest.txt
+
       - name: Qualify external PDF corpus admission (macOS)
         shell: bash
         run: |
@@ -480,7 +497,7 @@ jobs:
         shell: bash
         run: |
           python3 -m unittest discover -s tests -p test_external_corpus_reconcile.py
-          python3 tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/macos-clang-release/tests/external-cc0-text-status.json" --blank "build/macos-clang-release/tests/external-cc0-blank-status.json" --path "build/macos-clang-release/tests/external-pdfium-black-path-status.json" --clip "build/macos-clang-release/tests/external-pdfium-clip-stroke-status.json" --wstar "build/macos-clang-release/tests/external-pdfium-wstar-late-text-status.json" --wstar-positive "build/macos-clang-release/tests/external-pdfium-wstar-pixel-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
+          python3 tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/macos-clang-release/tests/external-cc0-text-status.json" --blank "build/macos-clang-release/tests/external-cc0-blank-status.json" --path "build/macos-clang-release/tests/external-pdfium-black-path-status.json" --clip "build/macos-clang-release/tests/external-pdfium-clip-stroke-status.json" --wstar "build/macos-clang-release/tests/external-pdfium-wstar-late-text-status.json" --wstar-positive "build/macos-clang-release/tests/external-pdfium-wstar-pixel-status.json" --wstar-second-positive "build/macos-clang-release/tests/external-texample-wstar-pixel-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
 
       - name: Upload reconciled external corpus (macOS)
         uses: actions/upload-artifact@v4
@@ -522,6 +539,7 @@ jobs:
             build/macos-clang-release/tests/external-cc0-text-status.json
             build/macos-clang-release/tests/external-pdfium-wstar-late-text-status.json
             build/macos-clang-release/tests/external-pdfium-wstar-pixel-status.json
+            build/macos-clang-release/tests/external-texample-wstar-pixel-status.json
           if-no-files-found: error
           retention-days: 7
 
@@ -533,6 +551,7 @@ jobs:
             build/macos-clang-release/tests/native-source-corpus.json
             build/macos-clang-release/tests/yworks-svg-w-candidate-pixel.json
             build/macos-clang-release/tests/external-pdfium-wstar-pixel-status.json
+            build/macos-clang-release/tests/external-texample-wstar-pixel-status.json
           if-no-files-found: error
           retention-days: 7
 
@@ -706,6 +725,14 @@ jobs:
         shell: cmd
         run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && cmake --build --preset install-win-release-user
 
+      - name: Verify test-only licensed PDF is excluded from Windows SDK
+        shell: pwsh
+        run: |
+          python -m unittest discover -s tests -p test_sdk_test_data_boundary.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/qualification/sdk_test_data_boundary.py --install-manifest "build/Msvc-Release/install_manifest.txt"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Compile installed Composer consumer
         shell: cmd
         run: |
@@ -743,7 +770,7 @@ jobs:
         shell: pwsh
         run: |
           python -m unittest discover -s tests -p test_external_corpus_reconcile.py
-          python tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/Msvc-Release/tests/external-cc0-text-status.json" --blank "build/Msvc-Release/tests/external-cc0-blank-status.json" --path "build/Msvc-Release/tests/external-pdfium-black-path-status.json" --clip "build/Msvc-Release/tests/external-pdfium-clip-stroke-status.json" --wstar "build/Msvc-Release/tests/external-pdfium-wstar-late-text-status.json" --wstar-positive "build/Msvc-Release/tests/external-pdfium-wstar-pixel-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
+          python tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/Msvc-Release/tests/external-cc0-text-status.json" --blank "build/Msvc-Release/tests/external-cc0-blank-status.json" --path "build/Msvc-Release/tests/external-pdfium-black-path-status.json" --clip "build/Msvc-Release/tests/external-pdfium-clip-stroke-status.json" --wstar "build/Msvc-Release/tests/external-pdfium-wstar-late-text-status.json" --wstar-positive "build/Msvc-Release/tests/external-pdfium-wstar-pixel-status.json" --wstar-second-positive "build/Msvc-Release/tests/external-texample-wstar-pixel-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
 
       - name: Upload reconciled external corpus (Windows)
         uses: actions/upload-artifact@v4
@@ -785,6 +812,7 @@ jobs:
             build/Msvc-Release/tests/external-cc0-text-status.json
             build/Msvc-Release/tests/external-pdfium-wstar-late-text-status.json
             build/Msvc-Release/tests/external-pdfium-wstar-pixel-status.json
+            build/Msvc-Release/tests/external-texample-wstar-pixel-status.json
           if-no-files-found: error
           retention-days: 7
 
@@ -796,5 +824,6 @@ jobs:
             build/Msvc-Release/tests/native-source-corpus.json
             build/Msvc-Release/tests/yworks-svg-w-candidate-pixel.json
             build/Msvc-Release/tests/external-pdfium-wstar-pixel-status.json
+            build/Msvc-Release/tests/external-texample-wstar-pixel-status.json
           if-no-files-found: error
           retention-days: 7

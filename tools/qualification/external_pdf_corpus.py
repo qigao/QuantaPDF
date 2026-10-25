@@ -23,7 +23,8 @@ ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,79}$")
 TAG_RE = re.compile(r"^[a-z0-9][a-z0-9_.+-]{1,63}$")
 HASH_RE = re.compile(r"^[a-f0-9]{64}$")
 SPDX_ALLOWLIST = frozenset({
-    "CC0-1.0", "CC-BY-4.0", "Apache-2.0", "BSD-3-Clause", "MIT"
+    "CC0-1.0", "CC-BY-4.0", "CC-BY-SA-4.0",
+    "Apache-2.0", "BSD-3-Clause", "MIT"
 })
 EXPECTED_NATIVE = frozenset({
     "supported-path-clip", "supported-clipped-stroke", "supported-blank-page",

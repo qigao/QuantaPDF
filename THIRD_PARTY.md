@@ -50,6 +50,33 @@ complete `licenses/` directory are the authoritative redistribution notices.
 The installed libjpeg-turbo copyright file is the authoritative notice for the
 JPEG codec boundary.
 
+## Test-only original-source PDF corpus (not installed in the native SDK)
+
+The external-source conformance suite stores third-party **original PDF files**
+under `tests/external_source_corpus/documents/`. These test data assets are
+not linked into QuantaPDF binaries, embedded in libraries, or packaged as
+native SDK runtime dependencies. Their individual licenses continue to apply
+to their original works; they do not relicense QuantaPDF's C11 code.
+
+- **TeXample — Intersecting rings** by **Dominique Wuertz**; CC BY-SA 4.0,
+  attributed at https://texample.net/intersecting-rings/ and licensed at
+  https://creativecommons.org/licenses/by-sa/4.0/. The stored original PDF
+  is unchanged; exact SHA-256
+  `f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284`.
+  The source, publisher copyright statement, no-modifications declaration,
+  and redistribution credit are preserved in
+  `tests/external_source_corpus/TEXAMPLE-CC-BY-SA-4.0-NOTICE.txt`.
+  This fixture remains subject to the separate #262 source-rights review
+  before its admission PR is merged.
+- The previously admitted **yWorks/svg2pdf.js** clip-rule original is
+  licensed under MIT; its provenance and retained notice are documented in
+  `tests/external_source_corpus/YWORKS-MIT-NOTICE.txt`.
+
+A rendered comparison image or a CI JSON measurement is not the licensed
+original PDF. The current admission work neither alters nor re-renders the
+original PDF for redistribution, and no endorsement by its author or publisher
+is implied.
+
 ## Adobe Core 14 font metrics
 
 - Source: Adobe Font Metrics files for the 14 PDF Core Fonts, distributed by
