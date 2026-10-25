@@ -256,8 +256,7 @@ int main()
         "q 20 0 0 20 50 20 cm /Im0 Do Q",
         "q 0 0 0 0 4 20 cm /Im0 Do Q",
         "q 20 0 0 20 4 20 cm /Im0 Do",
-        "q 20 0 0 20 4 20 cm /Im0 Do Q "
-            "BI /W 1 /H 1 /BPC 8 /CS /RGB ID x EI"
+        "q 20 0 0 20 4 20 cm /Im0 Do Q BI /W 1 /H 1 /BPC 8 /CS /RGB ID x EI"
     };
     for(const char *ops:negative)rejected(ops);
     rejected(supported,false,"/Group");
