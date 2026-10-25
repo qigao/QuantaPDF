@@ -51,7 +51,8 @@ std::vector<unsigned char> original_pdf(
     const char *extra_resource = nullptr,
     const char *page_key = nullptr, bool softmask = false,
     bool optional_content = false, bool external_file = false,
-    bool default_rgb = false, bool flate = false)
+    bool default_rgb = false, bool flate = false,
+    bool inherited_resources = false)
 {
     QPDF pdf;
     pdf.emptyPDF();
@@ -95,7 +96,13 @@ std::vector<unsigned char> original_pdf(
     if (default_rgb)
         res.replaceKey("/ColorSpace",
             Obj::parse("<< /DefaultRGB /DeviceGray >>"));
-    page.replaceKey("/Resources",res);
+    if (inherited_resources) {
+        /* A true PageTree inherited resource, not a duplicate dictionary
+         * written into the leaf. The native resolver must reach /Pages. */
+        pdf.getRoot().getKey("/Pages").replaceKey("/Resources",res);
+    } else {
+        page.replaceKey("/Resources",res);
+    }
     if (page_key) {
         if (std::strcmp(page_key,"/Annots")==0)
             page.replaceKey("/Annots",Obj::parse("[<< /Subtype /Text >>]"));
@@ -183,10 +190,11 @@ std::vector<unsigned char> reference_pdfium()
 }
 
 void positive_original(const char *content, bool split,
-                       bool repeated = false, bool flate = false)
+                       bool repeated = false, bool flate = false,
+                       bool inherited_resources = false)
 {
     const auto original=original_pdf(content,split,nullptr,nullptr,
-        false,false,false,false,flate);
+        false,false,false,false,flate,inherited_resources);
     quantapdf_ir ir{};
     const quantapdf_status lower = owned_image(original,&ir);
     if (lower != QUANTAPDF_OK)
@@ -274,6 +282,7 @@ int main()
     positive_original(supported,false);
     positive_original(supported,true);
     positive_original(supported,false,false,true);
+    positive_original(supported,false,false,false,true);
     const char *repeated =
         "q 20 0 0 20 4 20 cm /Im0 Do Q "
         "q 16 0 0 8 30 10 cm /Im1 Do Q "
