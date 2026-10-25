@@ -8,9 +8,9 @@ PDFium-free exit gate [#208](https://github.com/qigao/QuantaPDF/issues/208).
 ## Executable manifest
 
 The versioned registry at [`tests/native_source_corpus.def`](../../tests/native_source_corpus.def)
-is the single source of truth for **19 fixture families / 57
-generated source-PDF executions** following the Clip and resource-negative
-extensions. The original baseline was 14/36; these are generated fixtures,
+is the single source of truth for **20 fixture families / 58
+generated source-PDF executions** following the Clip, resource-negative and
+independent resource-ancestry-budget qualifications. The original baseline was 14/36; these are generated fixtures,
 not additional licensed external originals. It carries a stable family ID, feature
 tags, expected accepted/rejected/mixed outcome, oracle category, number of
 generated documents, and the test function bound to each row.
@@ -25,7 +25,7 @@ new family must update the executable registry; an expanded family must
 update its declared count and the aggregate gate. No second test binary or
 GitHub Actions workflow is needed.
 
-This is an **in-repository generated corpus**, not a claim that 57
+This is an **in-repository generated corpus**, not a claim that 58
 independent external documents have been qualified. A family with two
 variations has two generated PDFs; a two-page fixture still counts as one
 generated PDF. The individual assertions within each family retain their
@@ -101,6 +101,24 @@ renderer feature, expand the native capacity limits or affect the formally
 admitted external-source count, which stays at **7/2**. Tests are fixed-order
 and deterministic; separately seeded/shuffled execution is still an open
 follow-up under #233.
+
+## Independent resource PageTree depth qualification
+
+The `resources.parent_depth_budget` generated original uses a three-node
+`Page → Pages → root Pages` chain with a root-owned indirect `/Resources`
+and referenced `/ExtGState /GS`. The caller explicitly budgets three
+parent nodes, but separately limits decoded stream/direct nesting to two.
+The same `max_parent_steps` now bounds both geometry and resource ancestor
+lookup: a two-step page contract fails with empty output; the three-step
+contract admits the named GS, independently passes the direct semantics
+layer, and yields a detached native Path/Clip image matching original
+PDFium RGB/interior probes and repeated native RGBA bytes after
+Source/Graph destruction.
+
+The private page semantics API accepts `max_parent_steps` explicitly,
+rather than borrowing `decode_limits.max_direct_depth`, which remains a
+separate stream decoder bound. This is not a public API change or a
+permission to traverse arbitrary resource ancestry.
 
 ## Oracle and acceptance boundaries
 
