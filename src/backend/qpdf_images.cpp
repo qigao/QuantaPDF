@@ -680,6 +680,17 @@ Obj source_image_resources(Obj page, size_t max_parent_steps)
         Obj resource = current.getKey("/Resources");
         if (!resource.isNull()) {
             require(resource.isDictionary());
+            /* PDF /DefaultGray and /DefaultRGB can replace the meaning of
+             * seemingly device-color Image XObjects. Our normalized RAW
+             * decoder admits only the literal device models; page-level
+             * overrides must not silently change original-source pixels. */
+            Obj spaces = resource.getKey("/ColorSpace");
+            if (!spaces.isNull()) {
+                require(spaces.isDictionary());
+                require(spaces.getKey("/DefaultGray").isNull() &&
+                    spaces.getKey("/DefaultRGB").isNull(),
+                    QUANTAPDF_ERROR_UNSUPPORTED);
+            }
             return resource;
         }
         current = current.getKey("/Parent");
