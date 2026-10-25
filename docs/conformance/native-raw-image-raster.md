@@ -45,6 +45,42 @@ multiple layers, an independent alpha plane, opaque/transparent
 backgrounds, exact repeat images, detached result ownership, and
 malformed source/late-operation/budget rejection.
 
+## Original Image XObject Source bridge (qualified separately under #427)
+
+The private qpdf structure provider can now construct an **owned RAW IMAGE
+Composer IR** from complete original PDF page content, using the strict
+`quantapdf_qpdf_source_image_ir()` admission gate. Unlike ordinary image
+occurrence extraction, the source bridge refuses **every other page
+content operator**: a page containing paths, text, other graphics-state
+operations, unsupported images or Forms cannot be silently displayed as
+a partial image-only result.
+
+The initial original-source admission is limited to identity page rotation
+and UserUnit, a supported origin-aligned page box, bounded inherited
+XObject resources, and a content program containing only balanced `q/Q`,
+finite `cm` and named Image `Do`. Image XObjects must be 8-bit
+DeviceGray or DeviceRGB without masks/alpha/Decode overrides and with
+uncompressed or explicitly lossless Flate data. The caller explicitly
+limits operations, source pixels, page pixels and PageTree ancestry.
+Axis-aligned positive-scale **integer STRETCH** placements are admitted;
+shears, rotations, fractional bounds, unsupported filters, annotations,
+transparent page Groups, inline Images and Forms fail atomically.
+
+Test-only direct PDFium reads the **unchanged original source** independently
+and compares interior Gray/RGB color orientation and whole-page pixels with
+the detached C11 image result. The qpdf provider is destroyed before
+Native painting. Negative tests cover late unsupported operators,
+missing XObjects, unsupported page paint, resource/operation/work budgets,
+bad transforms and corrupted image masks. This is *not* an extension of
+the formal licensed external-original corpus: generated QPDF fixture
+documents remain test-only, and the accepted published corpus count is
+unchanged.
+
+The bridge is a qpdf-backed **structure/decode** adapter, not a qpdf raster
+backend and not an implicit fallback; the lower-level RAW image raster
+still builds and executes without qpdf or PDFium linkage. It is not wired
+into `quantapdf_render_page()`.
+
 ## Critical scope boundary
 
 This is the first **owned-IR image-paint primitive**, not evidence that
