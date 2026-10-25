@@ -155,7 +155,7 @@ std::vector<unsigned char> reference_pdfium()
     return rgb;
 }
 
-void positive_original(const char *content, bool split)
+void positive_original(const char *content, bool split, bool repeated = false)
 {
     const auto original=original_pdf(content,split);
     quantapdf_ir ir{};
@@ -165,8 +165,8 @@ void positive_original(const char *content, bool split)
             static_cast<int>(lower));
     CHECK(lower == QUANTAPDF_OK);
     CHECK(ir.pages!=nullptr && ir.page_count==1u);
-    CHECK(ir.operation_count>=1u && ir.operation_count<=4u);
-    CHECK(ir.resources.image_count==ir.operation_count);
+    CHECK(ir.operation_count==(repeated ? 3u : 2u) &&
+          ir.resources.image_count==ir.operation_count);
     quantapdf_ir_raster_image native{}, repeat{};
     OK(quantapdf_ir_raster_raw_images_v1(&ir,0,&RASTER_LIMITS,&native));
     OK(quantapdf_ir_raster_raw_images_v1(&ir,0,&RASTER_LIMITS,&repeat));
@@ -209,6 +209,7 @@ void positive_original(const char *content, bool split)
     sample(20,25,255,255,0);
     sample(32,31,0,0,0);
     sample(42,31,255,255,255);
+    if(repeated) sample(23,26,255,0,0); /* Repeat Do painted over yellow. */
     quantapdf_ir_raster_image_dispose(&native);
     quantapdf_ir_raster_image_dispose(&repeat);
 }
@@ -240,6 +241,11 @@ int main()
         "q 16 0 0 8 30 10 cm /Im1 Do Q";
     positive_original(supported,false);
     positive_original(supported,true);
+    const char *repeated =
+        "q 20 0 0 20 4 20 cm /Im0 Do Q "
+        "q 16 0 0 8 30 10 cm /Im1 Do Q "
+        "q 8 0 0 8 22 15 cm /Im0 Do Q";
+    positive_original(repeated,true,true);
     const char *negative[] = {
         "q 20 0 0 20 4 20 cm /Im0 Do Q 0 0 1 rg",
         "q 20 0 0 20 4 20 cm /Im0 Do Q BT ET",
@@ -257,6 +263,32 @@ int main()
     rejected(supported,false,"/Group");
     rejected(supported,false,"/Annots");
     rejected(supported,false,nullptr,true);
+    /* A selected original must fail fully on caller resource/pixel limits,
+     * even when all original PDF commands are independently supported. */
+    {
+        const auto original = original_pdf(supported,false);
+        const auto bad_limit = [&](quantapdf_qpdf_source_image_ir_limits limits,
+                                   quantapdf_status expect) {
+            quantapdf_ir refused;
+            std::memset(&refused,0xa5,sizeof(refused));
+            const quantapdf_status actual=owned_image(original,&refused,limits);
+            CHECK(actual==expect && refused.pages==nullptr &&
+                  refused.operations==nullptr && refused.resources.images==nullptr &&
+                  refused.operation_count==0u && refused.page_count==0u);
+        };
+        auto cap=SOURCE_LIMITS;
+        cap.max_operations=1u;
+        bad_limit(cap,QUANTAPDF_ERROR_UNSUPPORTED);
+        cap=SOURCE_LIMITS;
+        cap.max_source_pixels=5u;
+        bad_limit(cap,QUANTAPDF_ERROR_UNSUPPORTED);
+        cap=SOURCE_LIMITS;
+        cap.max_page_pixels=WIDTH*HEIGHT-1u;
+        bad_limit(cap,QUANTAPDF_ERROR_UNSUPPORTED);
+        cap=SOURCE_LIMITS;
+        cap.max_parent_steps=0u;
+        bad_limit(cap,QUANTAPDF_ERROR_ARGUMENT);
+    }
     // A successful source after failures cannot inherit stale state.
     positive_original(supported,true);
     CHECK(std::remove(NATIVE_SOURCE_IMAGE_PDF)==0);
