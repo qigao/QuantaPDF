@@ -126,17 +126,41 @@ struct staged_image {
     quantapdf_rect bounds={};
 };
 
+struct staged_path {
+    std::vector<quantapdf_composer_path_command> commands;
+    uint32_t fill_argb=UINT32_C(0xff000000);
+    quantapdf_composer_fill_rule fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
+};
+
 struct admission {
     Obj resources;
     const quantapdf_qpdf_source_raw_image_limits& limits;
     size_t page_w,page_h;
     size_t source_pixels=0,drawn_pixels=0,operators=0;
     std::vector<staged_image> draws;
+    bool mixed_mode=false;
+    staged_path painted_path;
+    std::vector<int> order; /* 1=PATH, 2=IMAGE, as originally painted */
+
+    void paint_path(std::vector<quantapdf_composer_path_command> commands,
+                    uint32_t color,quantapdf_composer_fill_rule rule)
+    {
+        admit(mixed_mode && painted_path.commands.empty() &&
+              commands.size()>=4u && commands.size()<=9u &&
+              order.size()<2u && limits.max_operations>=2u,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        painted_path.commands=std::move(commands);
+        painted_path.fill_argb=color;
+        painted_path.fill_rule=rule;
+        order.push_back(1);
+    }
 
     void execute(Obj image,const matrix& ctm)
     {
         admit(draws.size() < hard_operations &&
-              draws.size() < limits.max_operations,
+              draws.size() < limits.max_operations &&
+              (!mixed_mode || (draws.empty() && order.size()<2u &&
+                               limits.max_operations>=2u)),
               QUANTAPDF_ERROR_UNSUPPORTED);
         admit(image.isStream(),QUANTAPDF_ERROR_FORMAT);
         Obj dict = image.getDict(), subtype=dict.getKey("/Subtype");
@@ -214,6 +238,7 @@ struct admission {
         entry.bounds={static_cast<float>(x0),static_cast<float>(y0),
                       static_cast<float>(x1),static_cast<float>(y1)};
         draws.push_back(std::move(entry));
+        if (mixed_mode) order.push_back(2);
     }
 };
 
