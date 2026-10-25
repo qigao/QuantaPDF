@@ -143,7 +143,7 @@ int test_original_pixel_parity()
     sc.split=true;
     sc.content_a="q 16 0 0 12 2 3 cm /I";
     sc.content_b=" Do Q q 4 0 0 4 22 8 cm /J Do Q "
-                 "q 4 0 0 4 26 1 cm /I Do Q";
+                 "q 8 0 0 8 22 1 cm /I Do Q";
     auto original=make_original(sc);
     CHECK(!original.empty());
     auto independent=original;
@@ -175,7 +175,7 @@ int test_original_pixel_parity()
     const probe expected[]={
         {4,11,255,0,0},{14,11,0,255,0},
         {4,18,0,0,255},{14,18,255,255,0},
-        {23,13,0,0,255},{27,20,255,0,0},
+        {23,13,0,0,255},{24,17,255,0,0},
         {31,23,255,255,255}};
     for(const auto& c:expected) {
         const unsigned char *ref=oracle.data()+((size_t)c.y*W+c.x)*3u;
