@@ -33,6 +33,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -2968,15 +2969,94 @@ static std::string corpus_json_string(const char *value)
     return result;
 }
 
-static void publish_corpus_report(const char *destination,
-                                  const size_t *executed,
-                                  size_t family_count,size_t fixture_count)
+/* Stable, platform-independent order generator. These are fixed qualification
+ * seeds, not PDF entropy, output hashes, or platform-dependent std::shuffle.
+ * Every family executes once in each pass; no test data is silently skipped. */
+static std::vector<size_t> source_corpus_order(size_t count,
+                                             std::uint32_t seed)
 {
-    const std::string staged = std::string(destination) + ".tmp";
-    FILE *out = std::fopen(staged.c_str(),"wb");
-    CHECK(out != nullptr);
+    std::vector<size_t> result(count);
+    for(size_t i=0u;i<count;++i) result[i]=i;
+    CHECK(seed!=0u);
+    for(size_t i=count;i>1u;--i) {
+        seed^=seed<<13u;
+        seed^=seed>>17u;
+        seed^=seed<<5u;
+        std::swap(result[i-1u],result[(size_t)seed%i]);
+    }
+    return result;
+}
+
+static size_t source_corpus_run_order(
+    const std::vector<size_t>& order, const char *order_id,
+    size_t family_count, size_t *observed)
+{
+    std::vector<unsigned char> seen(family_count,0u);
+    size_t total=0u;
+    CHECK(order.size()==family_count && order_id && *order_id);
+    /* Reset the per-pass source fixture count; do not relabel replayed
+     * executions as newly admitted original PDFs or as new families. */
+    corpus_fixture_executions=0u;
+    CHECK(!std::filesystem::exists(SOURCE_QQ_PDF));
+    for(size_t ordinal=0u;ordinal<order.size();++ordinal) {
+        size_t i=order[ordinal];
+        CHECK(i<family_count && seen[i]==0u);
+        seen[i]=1u;
+        const source_corpus_family& entry=source_corpus_families[i];
+        const size_t before=corpus_fixture_executions;
+        entry.run();
+        CHECK(corpus_fixture_executions>=before);
+        const size_t count=corpus_fixture_executions-before;
+        CHECK(count==entry.expected_fixtures);
+        CHECK(!std::filesystem::exists(SOURCE_QQ_PDF));
+        observed[i]=count;
+        CHECK(count<=SIZE_MAX-total);
+        total+=count;
+        std::fprintf(stderr,
+            "[source-corpus] PASS order=%s ordinal=%zu id=%s "
+            "expected=%s oracle=%s fixtures=%zu tags=%s\n",
+            order_id,ordinal,entry.id,entry.expected,entry.oracle,
+            count,entry.features);
+    }
+    for(size_t i=0u;i<family_count;++i) CHECK(seen[i]==1u);
+    CHECK(corpus_fixture_executions==total);
+    std::fprintf(stderr,
+        "[source-corpus] complete order=%s families=%zu fixtures=%zu\n",
+        order_id,family_count,total);
+    return total;
+}
+
+static void source_corpus_write_order(
+    FILE *out,const char *name,const char *seed,
+    const std::vector<size_t>& order,size_t count,size_t fixtures,int last)
+{
+    CHECK(out!=nullptr && name!=nullptr && order.size()==count);
     std::fprintf(out,
-        "{\n  \"schema_version\": 1,\n"
+        "      {\"name\": %s, \"seed\": %s, "
+        "\"executed_fixtures\": %zu, \"family_order\": [",
+        corpus_json_string(name).c_str(),
+        seed==nullptr ? "null" : corpus_json_string(seed).c_str(),fixtures);
+    for(size_t i=0u;i<count;++i) {
+        CHECK(order[i]<count);
+        std::fprintf(out,"%s%s",i==0u?"":", ",
+            corpus_json_string(source_corpus_families[order[i]].id).c_str());
+    }
+    std::fprintf(out,"]}%s\n",last ? "" : ",");
+}
+
+static void publish_corpus_report(
+    const char *destination,const size_t *executed,
+    size_t family_count,size_t fixture_count,
+    const std::vector<size_t>& canonical,
+    const std::vector<size_t>& shuffled_a,
+    const std::vector<size_t>& shuffled_b)
+{
+    const std::string staged=std::string(destination)+".tmp";
+    FILE *out=std::fopen(staged.c_str(),"wb");
+    CHECK(out!=nullptr);
+    CHECK(fixture_count<=SIZE_MAX/3u);
+    std::fprintf(out,
+        "{\n  \"schema_version\": 2,\n"
         "  \"corpus_id\": \"native-source-pdf\",\n"
         "  \"fixture_kind\": \"generated\",\n"
         "  \"result\": \"passed\",\n"
@@ -2998,7 +3078,21 @@ static void publish_corpus_report(const char *destination,
             oracle.c_str(),family.expected_fixtures,executed[i],
             (i+1u==family_count) ? "" : ",");
     }
-    std::fprintf(out,"  ]\n}\n");
+    std::fprintf(out,
+        "  ],\n"
+        "  \"order_validation\": {\n"
+        "    \"algorithm\": \"xorshift32-fisher-yates-v1\",\n"
+        "    \"replay_passes\": 2,\n"
+        "    \"replay_fixture_executions\": %zu,\n"
+        "    \"total_fixture_executions\": %zu,\n"
+        "    \"passes\": [\n",fixture_count*2u,fixture_count*3u);
+    source_corpus_write_order(out,"canonical",nullptr,
+        canonical,family_count,fixture_count,0);
+    source_corpus_write_order(out,"shuffled-a","0x4cf5ad11",
+        shuffled_a,family_count,fixture_count,0);
+    source_corpus_write_order(out,"shuffled-b","0x9e3779b9",
+        shuffled_b,family_count,fixture_count,1);
+    std::fprintf(out,"    ]\n  }\n}\n");
     CHECK(std::ferror(out)==0);
     CHECK(std::fclose(out)==0);
     CHECK(std::rename(staged.c_str(),destination)==0);
@@ -4316,14 +4410,17 @@ int main(int argc,char **argv)
         errno=0;
         if(std::remove(staged.c_str())!=0) CHECK(errno==ENOENT);
     }
-    constexpr size_t expected_families = 20u;
-    constexpr size_t expected_fixtures = 58u;
-    const size_t families =
+    constexpr size_t expected_families=20u;
+    constexpr size_t expected_fixtures=58u;
+    const size_t families=
         sizeof(source_corpus_families)/sizeof(source_corpus_families[0]);
-    size_t fixture_total = 0u;
-    size_t executed[expected_families] = {};
-    CHECK(families == expected_families);
-    for(size_t i=0u;i<families;++i){
+    CHECK(families==expected_families);
+    size_t canonical_counts[expected_families]={};
+    size_t replay_a_counts[expected_families]={};
+    size_t replay_b_counts[expected_families]={};
+
+    /* Check the manifest contract before running even one source fixture. */
+    for(size_t i=0u;i<families;++i) {
         const source_corpus_family& entry=source_corpus_families[i];
         CHECK(entry.id && *entry.id && entry.features && *entry.features &&
               entry.expected && entry.oracle && entry.run);
@@ -4336,22 +4433,35 @@ int main(int argc,char **argv)
               std::strcmp(entry.oracle,"status-only")==0);
         for(size_t j=0u;j<i;++j)
             CHECK(std::strcmp(entry.id,source_corpus_families[j].id)!=0);
-        const size_t before=corpus_fixture_executions;
-        entry.run();
-        executed[i]=corpus_fixture_executions-before;
-        CHECK(executed[i]==entry.expected_fixtures);
-        fixture_total+=executed[i];
-        std::fprintf(stderr,
-            "[source-corpus] PASS id=%s expected=%s oracle=%s fixtures=%zu tags=%s\n",
-            entry.id,entry.expected,entry.oracle,entry.expected_fixtures,
-            entry.features);
     }
-    CHECK(fixture_total==expected_fixtures &&
-          corpus_fixture_executions==expected_fixtures);
+    std::vector<size_t> canonical(families);
+    for(size_t i=0u;i<families;++i)canonical[i]=i;
+    const auto shuffled_a=source_corpus_order(families,UINT32_C(0x4cf5ad11));
+    const auto shuffled_b=source_corpus_order(families,UINT32_C(0x9e3779b9));
+    CHECK(shuffled_a!=canonical && shuffled_b!=canonical &&
+          shuffled_a!=shuffled_b);
+
+    const size_t first=source_corpus_run_order(
+        canonical,"canonical",families,canonical_counts);
+    CHECK(first==expected_fixtures);
+    const size_t second=source_corpus_run_order(
+        shuffled_a,"shuffled-a",families,replay_a_counts);
+    CHECK(second==expected_fixtures);
+    const size_t third=source_corpus_run_order(
+        shuffled_b,"shuffled-b",families,replay_b_counts);
+    CHECK(third==expected_fixtures);
+    for(size_t i=0u;i<families;++i) {
+        CHECK(canonical_counts[i]==source_corpus_families[i].expected_fixtures &&
+              replay_a_counts[i]==canonical_counts[i] &&
+              replay_b_counts[i]==canonical_counts[i]);
+    }
+    CHECK(first<=SIZE_MAX/3u && first+second+third==3u*expected_fixtures);
     std::fprintf(stderr,
-        "[source-corpus] complete families=%zu fixtures=%zu\n",
-        families,fixture_total);
+        "[source-corpus] qualified families=%zu canonical=%zu "
+        "replays=%zu total_executions=%zu\n",
+        families,first,second+third,first+second+third);
     if(report_path)
-        publish_corpus_report(report_path,executed,families,fixture_total);
+        publish_corpus_report(report_path,canonical_counts,families,first,
+            canonical,shuffled_a,shuffled_b);
     return EXIT_SUCCESS;
 }
