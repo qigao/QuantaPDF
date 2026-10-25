@@ -48,9 +48,12 @@ struct scene {
     bool malformed_leaf_resources=false;
     bool optional_content=false;
     bool interpolate=false;
+    bool interpolate_false=false;
     bool image_intent=false;
     bool image_smask_data=false;
     bool default_rgb=false;
+    bool default_gray=false;
+    bool invalid_color_resources=false;
     bool valid_form=false;
 };
 
@@ -94,6 +97,8 @@ std::vector<unsigned char> make_original(const scene& sc)
             Obj::parse("<< /Type /OCG /Name (Hidden) >>")));
     if(sc.interpolate)
         img.getDict().replaceKey("/Interpolate",Obj::newBool(true));
+    if(sc.interpolate_false)
+        img.getDict().replaceKey("/Interpolate",Obj::newBool(false));
     if(sc.image_intent)
         img.getDict().replaceKey("/Intent",Obj::newName("/Perceptual"));
     if(sc.image_smask_data)
@@ -122,6 +127,11 @@ std::vector<unsigned char> make_original(const scene& sc)
     if(sc.default_rgb)
         resources.replaceKey("/ColorSpace",
             Obj::parse("<< /DefaultRGB /DeviceGray >>"));
+    if(sc.default_gray)
+        resources.replaceKey("/ColorSpace",
+            Obj::parse("<< /DefaultGray /DeviceRGB >>"));
+    if(sc.invalid_color_resources)
+        resources.replaceKey("/ColorSpace",Obj::newName("/Invalid"));
     if(!sc.remove_resources) {
         if (sc.inherited_resources)
             pages.replaceKey("/Resources",resources);
@@ -318,6 +328,7 @@ int test_original_rgb_flate()
 {
     scene sc;
     sc.flate=true;
+    sc.interpolate_false=true; /* Explicit PDF default must be admissible. */
     sc.content_a="q 12 0 0 12 8 4 cm /I Do Q";
     auto source=make_original(sc);
     auto reference=direct_pdfium(source);
@@ -420,7 +431,7 @@ int test_negative_and_recovery()
 {
     scene good;
     good.content_a="q 4 0 0 4 4 4 cm /I Do Q";
-    scene negatives[16];
+    scene negatives[18];
     negatives[0]=good;negatives[0].content_a+=" BT ET";
     negatives[1]=good;negatives[1].content_a+=" 0 0 10 10 re f";
     negatives[2]=good;negatives[2].content_a+=" /Unknown Do";
@@ -438,6 +449,9 @@ int test_negative_and_recovery()
     negatives[14]=good;negatives[14].default_rgb=true;
     negatives[15]=good;negatives[15].valid_form=true;
     negatives[15].content_a+=" /Fm Do";
+    negatives[16]=good;negatives[16].gray=true;
+    negatives[16].default_gray=true;
+    negatives[17]=good;negatives[17].invalid_color_resources=true;
     const quantapdf_status expected_failure[]={
         QUANTAPDF_ERROR_UNSUPPORTED, QUANTAPDF_ERROR_UNSUPPORTED,
         QUANTAPDF_ERROR_FORMAT, QUANTAPDF_ERROR_UNSUPPORTED,
@@ -446,9 +460,10 @@ int test_negative_and_recovery()
         QUANTAPDF_ERROR_UNSUPPORTED, QUANTAPDF_ERROR_UNSUPPORTED,
         QUANTAPDF_ERROR_UNSUPPORTED, QUANTAPDF_ERROR_UNSUPPORTED,
         QUANTAPDF_ERROR_UNSUPPORTED, QUANTAPDF_ERROR_UNSUPPORTED,
-        QUANTAPDF_ERROR_UNSUPPORTED, QUANTAPDF_ERROR_UNSUPPORTED
+        QUANTAPDF_ERROR_UNSUPPORTED, QUANTAPDF_ERROR_UNSUPPORTED,
+        QUANTAPDF_ERROR_UNSUPPORTED, QUANTAPDF_ERROR_FORMAT
     };
-    for(size_t i=0;i<16u;++i) {
+    for(size_t i=0;i<18u;++i) {
         auto pdf=make_original(negatives[i]);
         quantapdf_ir refused;
         memset(&refused,0xab,sizeof(refused));
