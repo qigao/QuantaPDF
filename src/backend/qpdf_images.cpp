@@ -1,4 +1,5 @@
 #include "qpdf_document_internal.h"
+#include "qpdf_image_ir.h"
 #include "qpdf_composer.h"
 #include "snapshot/image_snapshot.h"
 
@@ -404,7 +405,12 @@ struct projection {
     budget limits;
     std::set<QPDFObjGen> active_forms;
     std::vector<image_value> images;
-    explicit projection(quantapdf_qpdf_page_geometry const& value) : geometry(value)
+    /* Image occurrence observation accepts unrelated paint. The separate
+     * renderable source-IR path must admit every content operator instead. */
+    bool strict_image_paint;
+    explicit projection(quantapdf_qpdf_page_geometry const& value,
+                        bool strict = false) :
+        geometry(value), strict_image_paint(strict)
     { parser.emptyPDF(); parser.setSuppressWarnings(true); }
     void content(Obj streams, Obj resources, image_graphics const& initial, size_t depth);
     void draw(Obj object, Obj resources, image_graphics const& graphics, size_t depth)
@@ -413,6 +419,36 @@ struct projection {
         require(object.isStream());
         Obj dict = object.getDict(), type = dict.getKey("/Subtype");
         require(type.isName());
+        if (strict_image_paint) {
+            require(type.getName() == "/Image", QUANTAPDF_ERROR_UNSUPPORTED);
+            /* No source alpha/mask, interpolation, color-map, transfer,
+             * colorspace ambiguity or decoder guessing in first IR bridge.
+             * The observation projection remains independently broader. */
+            require(dict.getKey("/Filter").isNull() &&
+                dict.getKey("/Decode").isNull() &&
+                dict.getKey("/DecodeParms").isNull() &&
+                dict.getKey("/SMask").isNull() &&
+                dict.getKey("/Mask").isNull() &&
+                dict.getKey("/Alternates").isNull() &&
+                dict.getKey("/Intent").isNull(), QUANTAPDF_ERROR_UNSUPPORTED);
+            Obj stencil = dict.getKey("/ImageMask");
+            require(stencil.isNull() || (stencil.isBool() && !stencil.getBoolValue()),
+                QUANTAPDF_ERROR_UNSUPPORTED);
+            Obj interpolate = dict.getKey("/Interpolate");
+            require(interpolate.isNull() ||
+                (interpolate.isBool() && !interpolate.getBoolValue()),
+                QUANTAPDF_ERROR_UNSUPPORTED);
+            Obj bits = dict.getKey("/BitsPerComponent");
+            Obj color = dict.getKey("/ColorSpace");
+            require(bits.isInteger() && bits.getIntValue() == 8 &&
+                color.isName() &&
+                (color.getName() == "/DeviceGray" ||
+                 color.getName() == "/DeviceRGB"), QUANTAPDF_ERROR_UNSUPPORTED);
+            Obj type_value = dict.getKey("/Type");
+            require(type_value.isNull() ||
+                (type_value.isName() && type_value.getName() == "/XObject"),
+                QUANTAPDF_ERROR_UNSUPPORTED);
+        }
         if (type.getName() == "/Form") {
             require(depth < 32u, QUANTAPDF_ERROR_UNSUPPORTED);
             require(active_forms.insert(object.getObjGen()).second);
@@ -428,6 +464,12 @@ struct projection {
         require(!graphics.external_mask && !graphics.transfer, QUANTAPDF_ERROR_UNSUPPORTED);
         require(images.size() < max_occurrences, QUANTAPDF_ERROR_UNSUPPORTED);
         auto image = decode_image(object, resources, limits, graphics.opacity);
+        if (strict_image_paint) {
+            require(graphics.opacity == 1.0 &&
+                !image.info.has_alpha && image.info.pixel_components == 3 &&
+                (image.info.components == 1 || image.info.components == 3),
+                QUANTAPDF_ERROR_UNSUPPORTED);
+        }
         auto const& ctm = graphics.ctm;
         auto point = [&](double x, double y) {
             double px = 0, py = 0;
@@ -460,7 +502,8 @@ public:
         }
         std::string op = object.getOperatorValue();
         if (op == "q") {
-            require(args.empty()); require(stack.size() < 128u, QUANTAPDF_ERROR_UNSUPPORTED);
+            require(args.empty()); require(stack.size() <
+                (owner.strict_image_paint ? 16u : 128u), QUANTAPDF_ERROR_UNSUPPORTED);
             stack.push_back(graphics);
         } else if (op == "Q") {
             require(args.empty() && !stack.empty()); graphics = stack.back(); stack.pop_back();
@@ -474,6 +517,11 @@ public:
             Obj objects = resources.getKey("/XObject");
             require(objects.isDictionary());
             owner.draw(objects.getKey(args[0].getName()), resources, graphics, depth);
+        } else if (owner.strict_image_paint) {
+            /* The extraction observer may ignore unrelated graphics.
+             * Native page rendering never may. Even a late text/path/sh
+             * operator after an Image Do invalidates the whole page. */
+            require(false, QUANTAPDF_ERROR_UNSUPPORTED);
         } else if (op == "gs") {
             require(args.size() == 1u && args[0].isName() && resources.isDictionary());
             Obj states = resources.getKey("/ExtGState"); require(states.isDictionary());
