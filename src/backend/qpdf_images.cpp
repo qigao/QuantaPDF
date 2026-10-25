@@ -424,7 +424,9 @@ struct projection {
             /* No source alpha/mask, interpolation, color-map, transfer,
              * colorspace ambiguity or decoder guessing in first IR bridge.
              * The observation projection remains independently broader. */
-            require(dict.getKey("/Filter").isNull() &&
+            Obj filter = dict.getKey("/Filter");
+            require((filter.isNull() ||
+                (filter.isName() && filter.getName() == "/FlateDecode")) &&
                 dict.getKey("/Decode").isNull() &&
                 dict.getKey("/DecodeParms").isNull() &&
                 dict.getKey("/SMask").isNull() &&
