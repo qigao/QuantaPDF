@@ -49,7 +49,8 @@ Obj make_image(QPDF& pdf, const std::string& bytes,
 std::vector<unsigned char> original_pdf(
     const char *source_ops, bool split_contents,
     const char *extra_resource = nullptr,
-    const char *page_key = nullptr, bool softmask = false)
+    const char *page_key = nullptr, bool softmask = false,
+    bool optional_content = false, bool external_file = false)
 {
     QPDF pdf;
     pdf.emptyPDF();
@@ -65,6 +66,11 @@ std::vector<unsigned char> original_pdf(
     Obj color = make_image(pdf,rgb,2,2,"/DeviceRGB");
     if (softmask) color.getDict().replaceKey(
         "/SMask",make_image(pdf,std::string(1,'\x80'),1,1,"/DeviceGray"));
+    if (optional_content)
+        color.getDict().replaceKey("/OC",pdf.makeIndirectObject(
+            Obj::parse("<< /Type /OCG /Name (Hidden) >>")));
+    if (external_file)
+        color.getDict().replaceKey("/F",Obj::newString("external-image.dat"));
     group.replaceKey("/Im0",color);
     Obj gray = make_image(pdf,std::string({0,static_cast<char>(255)}),
                           2,1,"/DeviceGray");
@@ -220,9 +226,11 @@ void positive_original(const char *content, bool split, bool repeated = false)
 }
 
 void rejected(const char *content, bool split=false,
-              const char *key=nullptr,bool mask=false)
+              const char *key=nullptr,bool mask=false,
+              bool optional_content=false,bool external_file=false)
 {
-    const auto original=original_pdf(content,split,nullptr,key,mask);
+    const auto original=original_pdf(
+        content,split,nullptr,key,mask,optional_content,external_file);
     for(int trial=0;trial<2;++trial) {
         quantapdf_ir failed;
         std::memset(&failed,0xa5,sizeof(failed));
@@ -267,6 +275,10 @@ int main()
     rejected(supported,false,"/Group");
     rejected(supported,false,"/Annots");
     rejected(supported,false,nullptr,true);
+    /* Optional-content and external image streams can change the visible
+     * PDF pixels. Strict source painting must not omit their semantics. */
+    rejected(supported,false,nullptr,false,true);
+    rejected(supported,false,nullptr,false,false,true);
     /* A selected original must fail fully on caller resource/pixel limits,
      * even when all original PDF commands are independently supported. */
     {
