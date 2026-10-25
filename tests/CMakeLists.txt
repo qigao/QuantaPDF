@@ -101,7 +101,8 @@ endif()
 add_executable(quantapdf_test_native_source_image_do
   test_native_source_image_do.cpp
   ../src/render/ir_raster_image_v1.c
-  ../src/render/ir_raster.c)
+  ../src/render/ir_raster.c
+  ../src/ir/ir.c ../src/resource/resource_registry.c)
 target_include_directories(quantapdf_test_native_source_image_do PRIVATE
   "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
 target_compile_features(quantapdf_test_native_source_image_do
