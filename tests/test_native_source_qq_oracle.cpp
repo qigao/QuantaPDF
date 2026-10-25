@@ -3094,21 +3094,51 @@ static size_t source_corpus_run_order(
     return total;
 }
 
+static uint64_t source_corpus_fingerprint(const std::vector<size_t>& order)
+{
+    uint64_t hash=UINT64_C(0xcbf29ce484222325);
+    for(size_t index:order) {
+        CHECK(index<21u);
+        const uint32_t value=(uint32_t)(index+1u);
+        for(unsigned shift=0u;shift<32u;shift+=8u) {
+            hash^=(value>>shift)&UINT32_C(255);
+            hash*=UINT64_C(0x100000001b3);
+        }
+    }
+    return hash;
+}
+
 static void source_corpus_write_order(
     FILE *out,const char *name,const char *seed,
-    const std::vector<size_t>& order,size_t count,size_t fixtures,int last)
+    const std::vector<size_t>& order,size_t count,size_t fixtures,int last,
+    const size_t *observed,uint64_t expected_fingerprint)
 {
-    CHECK(out!=nullptr && name!=nullptr && order.size()==count);
+    CHECK(out!=nullptr && name!=nullptr && observed!=nullptr &&
+          order.size()==count);
+    const uint64_t fingerprint=source_corpus_fingerprint(order);
+    CHECK(fingerprint==expected_fingerprint);
     std::fprintf(out,
         "      {\"name\": %s, \"seed\": %s, "
-        "\"executed_fixtures\": %zu, \"family_order\": [",
+        "\"executed_fixtures\": %zu, \"fingerprint_fnv64\": \"%016llx\", "
+        "\"family_order\": [",
         corpus_json_string(name).c_str(),
-        seed==nullptr ? "null" : corpus_json_string(seed).c_str(),fixtures);
+        seed==nullptr ? "null" : corpus_json_string(seed).c_str(),fixtures,
+        (unsigned long long)fingerprint);
     for(size_t i=0u;i<count;++i) {
         CHECK(order[i]<count);
         std::fprintf(out,"%s%s",i==0u?"":", ",
             corpus_json_string(source_corpus_families[order[i]].id).c_str());
     }
+    std::fprintf(out,"], \"observed_fixtures\": [");
+    size_t sum=0u;
+    for(size_t i=0u;i<count;++i) {
+        const size_t index=order[i];
+        CHECK(observed[index]==source_corpus_families[index].expected_fixtures);
+        CHECK(observed[index]<=SIZE_MAX-sum);
+        sum+=observed[index];
+        std::fprintf(out,"%s%zu",i==0u?"":", ",observed[index]);
+    }
+    CHECK(sum==fixtures);
     std::fprintf(out,"]}%s\n",last ? "" : ",");
 }
 
@@ -3117,7 +3147,8 @@ static void publish_corpus_report(
     size_t family_count,size_t fixture_count,
     const std::vector<size_t>& canonical,
     const std::vector<size_t>& shuffled_a,
-    const std::vector<size_t>& shuffled_b)
+    const std::vector<size_t>& shuffled_b,
+    const size_t *replay_a_counts,const size_t *replay_b_counts)
 {
     const std::string staged=std::string(destination)+".tmp";
     FILE *out=std::fopen(staged.c_str(),"wb");
@@ -3155,11 +3186,14 @@ static void publish_corpus_report(
         "    \"total_fixture_executions\": %zu,\n"
         "    \"passes\": [\n",fixture_count*2u,fixture_count*3u);
     source_corpus_write_order(out,"canonical",nullptr,
-        canonical,family_count,fixture_count,0);
+        canonical,family_count,fixture_count,0,
+        executed,UINT64_C(0x9a709ba916a42a24));
     source_corpus_write_order(out,"shuffled-a","0x4cf5ad11",
-        shuffled_a,family_count,fixture_count,0);
+        shuffled_a,family_count,fixture_count,0,
+        replay_a_counts,UINT64_C(0x751ffb460eeefe24));
     source_corpus_write_order(out,"shuffled-b","0x9e3779b9",
-        shuffled_b,family_count,fixture_count,1);
+        shuffled_b,family_count,fixture_count,1,
+        replay_b_counts,UINT64_C(0x8216820cf6c65524));
     std::fprintf(out,"    ]\n  }\n}\n");
     CHECK(std::ferror(out)==0);
     CHECK(std::fclose(out)==0);
@@ -4530,6 +4564,6 @@ int main(int argc,char **argv)
         families,first,second+third,first+second+third);
     if(report_path)
         publish_corpus_report(report_path,canonical_counts,families,first,
-            canonical,shuffled_a,shuffled_b);
+            canonical,shuffled_a,shuffled_b,replay_a_counts,replay_b_counts);
     return EXIT_SUCCESS;
 }
