@@ -116,6 +116,16 @@ add_test(NAME quantapdf.native_source_image_do
   COMMAND quantapdf_test_native_source_image_do)
 set_tests_properties(quantapdf.native_source_image_do PROPERTIES
   TIMEOUT 40 LABELS "conformance;native-raster;source-pdf;image-do")
+if(WIN32)
+  set_property(TEST quantapdf.native_source_image_do PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_source_image_do PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_source_image_do PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
 
 # Selected Graph /Resources/ExtGState admission, partial opacity deltas,
 # q/Q, Clip, blend and source-vs-export PDFium pixel conformance.
