@@ -182,6 +182,13 @@ int test_original_pixel_parity()
         const unsigned char *out=native.pixels+
             (size_t)c.y*native.stride+(size_t)c.x*4u;
         const unsigned char want[]={c.r,c.g,c.b};
+        if(!matches(ref,want,10) || !matches(out,want,10))
+            std::fprintf(stderr,
+                "[source-image-do] probe=(%d,%d) expected=(%u,%u,%u) "
+                "PDFium=(%u,%u,%u) Native=(%u,%u,%u)\\n",
+                c.x,c.y,unsigned(c.r),unsigned(c.g),unsigned(c.b),
+                unsigned(ref[0]),unsigned(ref[1]),unsigned(ref[2]),
+                unsigned(out[0]),unsigned(out[1]),unsigned(out[2]));
         CHECK(matches(ref,want,10) && matches(out,want,10));
     }
     double error=0.0;size_t gross=0u;
