@@ -30,4 +30,6 @@ QP_SOURCE_CORPUS_FAMILY("geometry.invalid_metadata", "MediaBox;CropBox;Rotate;Us
 QP_SOURCE_CORPUS_FAMILY("resources.inherited_override", "Resources;ExtGState;leaf-override;opacity", "accepted", "original-pdfium", 2u, test_extgstate_inheritance_and_override)
 QP_SOURCE_CORPUS_FAMILY("resources.indirect_page_isolation", "Resources;ExtGState;indirect;SMask;page-isolation", "mixed", "original-pdfium", 1u, test_indirect_resource_page_isolation)
 QP_SOURCE_CORPUS_FAMILY("resources.inherited_gs_rejection", "Resources;ExtGState;missing-ref;SMask;fail-closed", "rejected", "status-only", 2u, test_inherited_extgstate_fail_closed)
+QP_SOURCE_CORPUS_FAMILY("resources.invalid_graph_matrix", "Resources;ExtGState;missing-ref;wrong-type;range;BM;SMask;parent-shadow;fail-closed", "rejected", "status-only", 14u, test_resource_dictionary_negative_matrix)
+QP_SOURCE_CORPUS_FAMILY("resources.late_multistream_isolation", "Resources;indirect;parent-shadow;Contents-array;late-GS;page-isolation", "mixed", "original-pdfium", 1u, test_late_multistream_resource_override_isolation)
 QP_SOURCE_CORPUS_FAMILY("operators.unsupported_text", "BT;ET;unsupported;fail-closed", "rejected", "status-only", 1u, test_unsupported_operator_fails_closed)
