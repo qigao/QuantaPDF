@@ -95,6 +95,38 @@ else()
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
 
+# First **original source** Image /Do strict lowering to owned RAW IMAGE IR
+# and backend-free pure-C11 paint. The QPDF/PDFium links are for the
+# original-source test and independent direct PDFium reference only.
+add_executable(quantapdf_test_native_source_image_do
+  test_native_source_image_do.cpp
+  ../src/render/ir_raster_image_v1.c
+  ../src/render/ir_raster.c
+  ../src/ir/ir.c ../src/resource/resource_registry.c)
+target_include_directories(quantapdf_test_native_source_image_do PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_native_source_image_do
+  PRIVATE c_std_11 cxx_std_20)
+target_link_libraries(quantapdf_test_native_source_image_do PRIVATE
+  QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium qpdf::libqpdf)
+if(MSVC)
+  target_compile_options(quantapdf_test_native_source_image_do PRIVATE /utf-8)
+endif()
+add_test(NAME quantapdf.native_source_image_do
+  COMMAND quantapdf_test_native_source_image_do)
+set_tests_properties(quantapdf.native_source_image_do PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native-raster;source-pdf;image-do")
+if(WIN32)
+  set_property(TEST quantapdf.native_source_image_do PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_source_image_do PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_source_image_do PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
 # Selected Graph /Resources/ExtGState admission, partial opacity deltas,
 # q/Q, Clip, blend and source-vs-export PDFium pixel conformance.
 add_executable(quantapdf_test_pdf_extgstate test_pdf_extgstate.cpp
