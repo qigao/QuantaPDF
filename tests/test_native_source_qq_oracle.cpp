@@ -3393,10 +3393,11 @@ int test_external_tikz_wstar_pixels(const char *filename,
         full_page_mean,full_page_gross,(int)full_page_repeat_equal,
         reference_gray_ink,native_gray_ink,common_gray_ink,
         gross_near_gray_ink);
-    /* Full-page pixel parity is deliberately *not* admitted. Native V2
-       renders the page, but its thin cubic strokes remain different from
-       original PDFium. This branch only qualifies W* fill-mask evidence. */
-    CHECK(full_page_mean>1.0 || full_page_gross>100u);
+    /* Full-page pixel parity remains UNQUALIFIED. Do not assert a deliberate
+       mismatch: improving the stroke implementation must not invert this
+       diagnostic into a failing test. Independent positive whole-page gates
+       and cross-platform evidence are still required before admission. */
+    CHECK(std::isfinite(full_page_mean) && full_page_gross<=pixel_count);
     CHECK(detached.operation_count==3u);
     quantapdf_composer_operation projected_operation=detached.operations[0];
     CHECK(projected_operation.kind==QUANTAPDF_COMPOSER_OPERATION_PATH);
