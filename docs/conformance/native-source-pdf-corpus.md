@@ -105,15 +105,15 @@ follow-up under #233.
 ## Independent resource PageTree depth qualification
 
 The `resources.parent_depth_budget` generated original uses a three-node
-`Page → Pages → root Pages` chain with a root-owned indirect `/Resources`
+`Page → Pages → root Pages` chain with root-owned indirect `/Resources`
 and referenced `/ExtGState /GS`. The caller explicitly budgets three
-parent nodes, but separately limits decoded stream/direct nesting to two.
-The same `max_parent_steps` now bounds both geometry and resource ancestor
-lookup: a two-step page contract fails with empty output; the three-step
-contract admits the named GS, independently passes the direct semantics
-layer, and yields a detached native Path/Clip image matching original
-PDFium RGB/interior probes and repeated native RGBA bytes after
-Source/Graph destruction.
+parent nodes, independently of decoded stream/direct nesting. The same
+`max_parent_steps` now bounds both geometry and resource ancestor
+lookup: a **two-step** ancestry limit refuses even if decoder depth is
+ample. Conversely, a **two-level decoder replay** refuses even when three
+ancestor nodes are admitted. Both sufficient budgets allow the named GS,
+a detached Native Path/Clip image and original-PDFium RGB/interior
+parity plus repeat-byte identity after Source/Graph destruction.
 
 The private page semantics API accepts `max_parent_steps` explicitly,
 rather than borrowing `decode_limits.max_direct_depth`, which remains a
