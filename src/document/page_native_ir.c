@@ -40,7 +40,7 @@ quantapdf_status quantapdf_graph_snapshot_page_native_ir(
     status = quantapdf_graph_admit_native_page_group(snapshot->graph, page_index);
     if (status != QUANTAPDF_OK) return status;
     status = quantapdf_graph_snapshot_page_semantics(snapshot, page_index,
-        decode_limits, content_limits, max_streams, &semantics);
+        max_parent_steps, decode_limits, content_limits, max_streams, &semantics);
     if (status != QUANTAPDF_OK) return status;
     status = quantapdf_pdf_path_lower_to_composer_mapped(semantics,
         plan.width_points, plan.height_points, plan.source_to_display,
