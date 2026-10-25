@@ -208,7 +208,7 @@ int test_original_pixel_parity()
         for(int c=0;c<3;++c) {
             const unsigned d=static_cast<unsigned>(
                 std::abs(int(ref[c])-int(out[c])));
-            error+=d;largest=std::max(largest,d);
+            error+=d;if(d>largest)largest=d;
         }
         if(largest>96u)++gross;
     }
