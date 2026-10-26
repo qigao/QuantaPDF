@@ -432,6 +432,14 @@ add_test(NAME quantapdf.native_builtin_page_owner_v1
 set_tests_properties(quantapdf.native_builtin_page_owner_v1 PROPERTIES
   TIMEOUT 40
   LABELS "conformance;source-pdf;native-raster;builtin-page;ownership")
+# Private Native opaque RGBA -> owned RGB backend-bitmap product contract.
+# Public PDFium rendering remains the independent comparison, not fallback.
+add_test(NAME quantapdf.native_builtin_backend_rgb_v1
+  COMMAND quantapdf_test_native_source_image_clip --builtin-native-rgb-only)
+set_tests_properties(quantapdf.native_builtin_backend_rgb_v1 PROPERTIES
+  TIMEOUT 40
+  LABELS "conformance;source-pdf;native-raster;builtin-page;rgb-layout")
+
 # Static-link closure gate: intentionally NO direct Raster OBJECTs and NO
 # explicit quantapdf_backend target. All private builtin->Source->Raster
 # references must resolve from the actual QuantaPDF static product target.
@@ -466,6 +474,7 @@ if(WIN32)
     quantapdf.native_source_profile_legacy_parity
     quantapdf.native_source_product_bridge_v1
     quantapdf.native_builtin_page_owner_v1
+    quantapdf.native_builtin_backend_rgb_v1
     PROPERTY ENVIRONMENT_MODIFICATION
     "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 elseif(APPLE)
@@ -476,6 +485,7 @@ elseif(APPLE)
     quantapdf.native_source_profile_legacy_parity
     quantapdf.native_source_product_bridge_v1
     quantapdf.native_builtin_page_owner_v1
+    quantapdf.native_builtin_backend_rgb_v1
     PROPERTY ENVIRONMENT_MODIFICATION
     "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 else()
@@ -486,6 +496,7 @@ else()
     quantapdf.native_source_profile_legacy_parity
     quantapdf.native_source_product_bridge_v1
     quantapdf.native_builtin_page_owner_v1
+    quantapdf.native_builtin_backend_rgb_v1
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
