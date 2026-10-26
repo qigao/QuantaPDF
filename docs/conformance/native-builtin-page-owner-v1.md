@@ -58,7 +58,7 @@ re-export participates in the Native path.
 
 Tests cover 2-, 3-, 4-operation source ordering, V7 normalized RGB,
 V8 DeviceGray, frozen W/W*, split Contents, Q restores, detached
-RGAB8/RGBA8 pixel and stride invariants, exact repeat after teardown,
+RGBA8 pixel and stride invariants, exact repeat after teardown,
 and rejected late text, extra Image Do, SMask, missing resources,
 operation/pixel budgets, invalid device/page flags and null page.
 After each negative, the same built-in page's bounds remain readable;
