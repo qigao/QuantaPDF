@@ -609,12 +609,12 @@ quantapdf_ir materialize_clipped_image(const admission& source,
                     clip.command_count*sizeof(*clip.commands));
         clip.transform={1.0f,0.0f,0.0f,1.0f,0.0f,0.0f};
         for(size_t i=0u;i<expected_images;++i) {
-            const quantapdf_composer_graphics_state_id state =
+            const quantapdf_composer_graphics_state_id state_id =
                 source.restore_second_image && i==1u ? 0u : 1u;
-            ir.operations[i].graphics_state_id=state;
+            ir.operations[i].graphics_state_id=state_id;
             ir.operations[i].value.image.options.struct_size=
                 QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
-            ir.operations[i].value.image.options.graphics_state_id=state;
+            ir.operations[i].value.image.options.graphics_state_id=state_id;
         }
         return ir;
     } catch(...) {
