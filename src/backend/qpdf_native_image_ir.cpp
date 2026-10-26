@@ -663,17 +663,23 @@ quantapdf_ir materialize_clipped_image(const admission& source,
  * V2 is 1 PATH + 2 IMAGEs, V3 is 2 PATHs + 2 IMAGEs. Neither QPDF
  * object owners nor PDFium handles are retained in the detached IR. */
 quantapdf_ir materialize_mixed(const admission& source,
-                               size_t mixed_operations)
+                                size_t mixed_operations,
+                                bool flexible=false)
 {
-    const size_t expected_paths=mixed_operations==4u ? 2u : 1u;
+    /* Old V1–V3 admit exact counts. V6 may independently admit 1–2
+     * Images and 1–2 Paths within the same conservative four-layer cap. */
+    const size_t expected_paths=flexible ? source.painted_paths.size() :
+        (mixed_operations==4u ? 2u : 1u);
     const size_t expected_images=mixed_operations-expected_paths;
     admit(source.mixed_mode &&
-          (mixed_operations==2u || mixed_operations==3u ||
-           mixed_operations==4u) &&
-          source.draws.size()==expected_images &&
-          source.painted_paths.size()==expected_paths &&
-          source.order.size()==mixed_operations,
-          QUANTAPDF_ERROR_UNSUPPORTED);
+           (mixed_operations==2u || mixed_operations==3u ||
+            mixed_operations==4u) &&
+           expected_paths>=1u && expected_paths<=2u &&
+           expected_images>=1u && expected_images<=2u &&
+           source.draws.size()==expected_images &&
+           source.painted_paths.size()==expected_paths &&
+           source.order.size()==mixed_operations,
+           QUANTAPDF_ERROR_UNSUPPORTED);
     size_t paths=0u,images=0u;
     for(int kind:source.order) {
         admit(kind==1 || kind==2,QUANTAPDF_ERROR_UNSUPPORTED);
@@ -730,34 +736,53 @@ quantapdf_ir materialize_mixed(const admission& source,
  * after Q restoration, with one PATH and one Image Do in each scope.
  * The generic four-layer renderer subsequently preserves every operation's
  * immutable GS identity; no previous V1–V4 source entry is broadened. */
-quantapdf_ir materialize_scoped_mixed_v5(const admission& source)
+quantapdf_ir materialize_scoped_mixed_v5(const admission& source,
+                                         bool flexible_v6=false)
 {
+    const size_t count=source.order.size();
     admit(source.mixed_scoped_mode && source.mixed_mode &&
           source.clipped_image_mode && source.clip_completed &&
-          source.saw_q_restore && source.draws.size()==2u &&
-          source.painted_paths.size()==2u && source.order.size()==4u &&
-          source.scoped_clip_membership.size()==4u &&
+          source.saw_q_restore && count>=2u && count<=4u &&
+          source.draws.size()>=1u && source.draws.size()<=2u &&
+          source.painted_paths.size()>=1u &&
+          source.painted_paths.size()<=2u &&
+          source.draws.size()+source.painted_paths.size()==count &&
+          source.scoped_clip_membership.size()==count &&
           source.clip.commands.size()>=4u &&
-          source.clip.commands.size()<=9u,
+          source.clip.commands.size()<=9u &&
+          (flexible_v6 || (count==4u && source.draws.size()==2u &&
+                           source.painted_paths.size()==2u)),
           QUANTAPDF_ERROR_UNSUPPORTED);
     unsigned inside_images=0u,inside_paths=0u;
     unsigned outside_images=0u,outside_paths=0u;
-    for(size_t i=0u;i<4u;++i) {
-        const unsigned char expected=i<2u ? 1u : 0u;
-        admit(source.scoped_clip_membership[i]==expected,
-              QUANTAPDF_ERROR_UNSUPPORTED);
-        if(expected==1u) {
+    bool saw_unclipped=false;
+    for(size_t i=0u;i<count;++i) {
+        const unsigned char active=source.scoped_clip_membership[i];
+        admit(active<=1u,QUANTAPDF_ERROR_UNSUPPORTED);
+        if(!flexible_v6)
+            admit(active==(i<2u ? 1u : 0u),QUANTAPDF_ERROR_UNSUPPORTED);
+        /* No unqualified Clip re-entry after a real Q restore. */
+        if(active==0u)saw_unclipped=true;
+        else admit(!saw_unclipped,QUANTAPDF_ERROR_UNSUPPORTED);
+        if(active) {
             if(source.order[i]==2)++inside_images;
             else if(source.order[i]==1)++inside_paths;
+            else throw rejected{QUANTAPDF_ERROR_UNSUPPORTED};
         } else {
             if(source.order[i]==2)++outside_images;
             else if(source.order[i]==1)++outside_paths;
+            else throw rejected{QUANTAPDF_ERROR_UNSUPPORTED};
         }
     }
-    admit(inside_images==1u && inside_paths==1u &&
-          outside_images==1u && outside_paths==1u,
-          QUANTAPDF_ERROR_UNSUPPORTED);
-    quantapdf_ir ir=materialize_mixed(source,4u);
+    if(flexible_v6)
+        admit(inside_images+inside_paths>=1u &&
+              outside_images+outside_paths>=1u,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+    else
+        admit(inside_images==1u && inside_paths==1u &&
+              outside_images==1u && outside_paths==1u,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+    quantapdf_ir ir=materialize_mixed(source,count,flexible_v6);
     try {
         ir.resources.graphics_states=
             static_cast<quantapdf_composer_graphics_state *>(
@@ -786,7 +811,7 @@ quantapdf_ir materialize_scoped_mixed_v5(const admission& source)
         std::memcpy(clip.commands,source.clip.commands.data(),
                     clip.command_count*sizeof(*clip.commands));
         clip.transform={1.0f,0.0f,0.0f,1.0f,0.0f,0.0f};
-        for(size_t i=0u;i<4u;++i) {
+        for(size_t i=0u;i<count;++i) {
             auto& op=ir.operations[i];
             const quantapdf_composer_graphics_state_id id=
                 source.scoped_clip_membership[i] ? 1u : 0u;
@@ -923,15 +948,15 @@ static quantapdf_status source_raw_images_to_ir_impl(
                          {},false,{},{},2u,false,false,{},
                          1u,false,false,false,{}};
         source.mixed_mode=(mixed_version>=1 && mixed_version<=3) ||
-            mixed_version==7 || mixed_version==8;
-        source.clipped_image_mode=mixed_version>=4 && mixed_version<=8;
+            mixed_version==7 || mixed_version==8 || mixed_version==9;
+        source.clipped_image_mode=mixed_version>=4 && mixed_version<=9;
         source.clipped_image_limit=(mixed_version==5 || mixed_version==6 ||
-            mixed_version==8) ? 2u : 1u;
+            mixed_version==8 || mixed_version==9) ? 2u : 1u;
         source.restore_second_image=mixed_version==6 || mixed_version==7;
         source.mixed_operation_limit=(mixed_version==3 ||
-            mixed_version==8) ? 4u :
+            mixed_version==8 || mixed_version==9) ? 4u :
             (mixed_version==2 ? 3u : 2u);
-        source.mixed_scoped_mode=mixed_version==8;
+        source.mixed_scoped_mode=mixed_version==8 || mixed_version==9;
         auto contents=page_streams(geo.page.getKey("/Contents"),*limits);
         QPDF parser;
         parser.emptyPDF();
@@ -942,28 +967,40 @@ static quantapdf_status source_raw_images_to_ir_impl(
         parsed.parseAsContents(&reader);
         admit(!parser.anyWarnings() && !pdf->anyWarnings(),
               QUANTAPDF_ERROR_FORMAT);
-        admit(!source.draws.empty() &&
-              (!source.mixed_mode ||
-               (source.draws.size()==(source.mixed_operation_limit==4u ?
-                       2u : source.mixed_operation_limit-1u) &&
-                source.painted_paths.size()==(source.mixed_operation_limit==4u ?
-                       2u : 1u) &&
-                source.order.size()==source.mixed_operation_limit)) &&
-              (!source.clipped_image_mode ||
-               (source.clip_completed &&
-                source.draws.size()==source.clipped_image_limit &&
-                 (!source.restore_second_image ||
-                  source.saw_q_restore))),
-              QUANTAPDF_ERROR_UNSUPPORTED);
-        *out_ir=mixed_version==8 ?
-            materialize_scoped_mixed_v5(source) :
-            (mixed_version==7 ?
-            materialize_restored_image_then_path(source) :
-            (source.clipped_image_mode ?
-                materialize_clipped_image(source,source.clipped_image_limit) :
-                (source.mixed_mode ?
-                    materialize_mixed(source,source.mixed_operation_limit) :
-                    materialize(source))));
+        const bool flexible_v6=mixed_version==9;
+        const bool qualified_mixed=!source.mixed_mode ||
+            (flexible_v6 ?
+                (source.draws.size()>=1u && source.draws.size()<=2u &&
+                 source.painted_paths.size()>=1u &&
+                 source.painted_paths.size()<=2u &&
+                 source.order.size()==source.draws.size()+
+                     source.painted_paths.size() &&
+                 source.order.size()>=2u && source.order.size()<=4u &&
+                 source.scoped_clip_membership.size()==source.order.size()) :
+                (source.draws.size()==(source.mixed_operation_limit==4u ?
+                        2u : source.mixed_operation_limit-1u) &&
+                 source.painted_paths.size()==(source.mixed_operation_limit==4u ?
+                        2u : 1u) &&
+                 source.order.size()==source.mixed_operation_limit));
+        admit(!source.draws.empty() && qualified_mixed &&
+               (!source.clipped_image_mode ||
+                (source.clip_completed &&
+                 (flexible_v6 ||
+                  source.draws.size()==source.clipped_image_limit) &&
+                 (!source.restore_second_image || source.saw_q_restore) &&
+                 (!flexible_v6 || source.saw_q_restore))),
+               QUANTAPDF_ERROR_UNSUPPORTED);
+        *out_ir=mixed_version==9 ?
+            materialize_scoped_mixed_v5(source,true) :
+            (mixed_version==8 ?
+             materialize_scoped_mixed_v5(source) :
+             (mixed_version==7 ?
+              materialize_restored_image_then_path(source) :
+              (source.clipped_image_mode ?
+               materialize_clipped_image(source,source.clipped_image_limit) :
+               (source.mixed_mode ?
+                materialize_mixed(source,source.mixed_operation_limit) :
+                materialize(source)))));
         return QUANTAPDF_OK;
     } catch(rejected const& e) {return e.status;}
       catch(std::bad_alloc const&) {return QUANTAPDF_ERROR_NOMEM;}
@@ -1064,4 +1101,17 @@ quantapdf_qpdf_source_scoped_mixed_v5_to_ir(
 {
     return source_raw_images_to_ir_impl(
         original_pdf,size,limits,out_ir,8);
+}
+
+/* Opt-in Source Scoped Mixed V6: one frozen W/W* leaf, a REAL Q restore,
+ * and 2–4 Path/Image paints. At least one of each kind, at least one
+ * clipped paint, and at least one later unclipped paint. The public source
+ * V5 signature remains exactly two Paths and two Images in fixed 2+2 scopes;
+ * this mode reuses the same renderer and has NO provider fallback. */
+extern "C" quantapdf_status
+quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
+{
+    return source_raw_images_to_ir_impl(original_pdf,size,limits,out_ir,9);
 }
