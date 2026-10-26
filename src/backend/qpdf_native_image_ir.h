@@ -63,6 +63,17 @@ quantapdf_status quantapdf_qpdf_source_mixed_path_two_images_to_ir_v2(
     const quantapdf_qpdf_source_raw_image_limits *limits,
     quantapdf_ir *out_ir);
 
+/* Strict original-source V3: EXACTLY two opaque PATH paints and two unique
+ * RAW Gray/RGB Image XObject Do paints in any of the six possible source
+ * interleavings. Each PATH owns its own geometry/color/winding and consumes
+ * a separate bounded raster share; both images own their decoded pixels.
+ * The previous V1/V2 signatures and admission stay unchanged.
+ * No external raster fallback or public PDFium rendering cutover. */
+quantapdf_status quantapdf_qpdf_source_mixed_two_paths_two_images_to_ir_v3(
+    const unsigned char *original_pdf, size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,
+    quantapdf_ir *out_ir);
+
 #ifdef __cplusplus
 }
 #endif
