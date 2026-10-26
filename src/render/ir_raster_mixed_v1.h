@@ -45,6 +45,17 @@ quantapdf_status quantapdf_ir_raster_mixed_path_two_images_v2(
     const quantapdf_ir_raster_mixed_v1_limits *limits,
     quantapdf_ir_raster_image *out_image);
 
+/* V3 private C11 extension: 2 opaque solid-filled PATH operations + 2
+ * uniquely referenced RAW Image paints, in any of the six source interleavings.
+ * Both PATHs share a conservatively partitioned aggregate edge/subpixel
+ * budget; both IMAGEs cumulatively charge source and destination pixels.
+ * Every source operation/resource must be admitted before any result is
+ * published. No Clip, GS, Form, Text, source raster fallback or public ABI. */
+quantapdf_status quantapdf_ir_raster_mixed_two_paths_two_images_v3(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_ir_raster_mixed_v1_limits *limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
