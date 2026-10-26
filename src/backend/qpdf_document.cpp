@@ -584,8 +584,11 @@ static quantapdf_rect quantapdf_qpdf_pdf_rectangle_to_public(
     quantapdf_qpdf_page_geometry const& geometry,
     double const raw[4])
 {
-    double x[4];
-    double y[4];
+    /* Geometry admission guarantees quarter turns. Initialize output
+     * coordinates explicitly so strict Linux GCC does not infer a possibly
+     * uninitialized point through the separate void helper. */
+    double x[4] = {};
+    double y[4] = {};
     quantapdf_qpdf_pdf_point_to_public(
         geometry, raw[0], raw[1], &x[0], &y[0]);
     quantapdf_qpdf_pdf_point_to_public(
