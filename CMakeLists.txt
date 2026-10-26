@@ -56,13 +56,32 @@ else()
     -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# Canonical provider-free C11 RGB output converter; reuse the exact
+# compiled object in the product, the standalone converter test and the
+# original-source oracle. No QPDF/PDFium library is linked to this target.
+add_library(quantapdf_native_rgb_objects OBJECT
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/render/native_backend_rgb_v1.c")
+target_compile_features(quantapdf_native_rgb_objects PRIVATE c_std_11)
+target_include_directories(quantapdf_native_rgb_objects PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/include"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src")
+set_target_properties(quantapdf_native_rgb_objects PROPERTIES
+  POSITION_INDEPENDENT_CODE ON)
+if(MSVC)
+  target_compile_options(quantapdf_native_rgb_objects PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_native_rgb_objects PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 # Native Source->IR->Raster and Page adapter belong to the product,
 # NOT the backend static archive: product -> backend is the only link
 # dependency. Reuse identical private OBJECT files in in-tree oracles
 # without exporting new SDK symbols or duplicating C11 render sources.
 add_library(quantapdf_native_bridge_objects OBJECT
   "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/native_source_raster_bridge_v1.c"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/builtin_native_page_v1.c")
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/builtin_native_page_v1.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/builtin_native_bitmap_v1.c")
 target_compile_features(quantapdf_native_bridge_objects PRIVATE c_std_11)
 target_include_directories(quantapdf_native_bridge_objects PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/include"
@@ -102,7 +121,8 @@ add_library(quantapdf)
 # Existing provider-backed rendering remains unchanged.
 target_sources(quantapdf PRIVATE
   $<TARGET_OBJECTS:quantapdf_native_raster_objects>
-  $<TARGET_OBJECTS:quantapdf_native_bridge_objects>)
+  $<TARGET_OBJECTS:quantapdf_native_bridge_objects>
+  $<TARGET_OBJECTS:quantapdf_native_rgb_objects>)
 add_subdirectory(src/core)
 add_subdirectory(src/document)
 add_subdirectory(src/snapshot)
