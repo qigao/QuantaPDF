@@ -34,6 +34,10 @@ int quantapdf_test_pdf_content_contains(
     size_t size,
     size_t page_index,
     const char *needle);
+/* Failure-only diagnostic: print bounded decoded original page content.
+ * Never alters PDF outputs or changes an acceptance condition. */
+void quantapdf_test_pdf_content_debug(
+    const unsigned char *data, size_t size, size_t page_index);
 int quantapdf_test_pdf_content_order(
     const unsigned char *data,
     size_t size,
