@@ -8,11 +8,13 @@
 #include <qpdf/QPDFObjectHandle.hh>
 #include <zlib.h>
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <locale>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -344,6 +346,54 @@ extern "C" void quantapdf_test_pdf_content_debug(
             content.size(), count, count, content.data());
     } catch(...) {
         std::fprintf(stderr,"[pdf-content] unable to decode source page\n");
+    }
+}
+
+extern "C" int quantapdf_test_pdf_form_transform_near(
+    unsigned char const* data, size_t size, size_t page_index,
+    size_t form_id, double const expected[6], double absolute_tolerance)
+{
+    /* Exact string comparisons are brittle for cancellations of finite SVG
+     * transforms (e.g. 0 vs 3.5527136788e-15). Parse only the six numeric
+     * coefficients directly preceding 'cm /FmN Do'; all other operators
+     * and PDF bytes remain unchanged. A real translation/scale regression
+     * beyond the explicit tolerance still fails the acceptance test. */
+    if (data == nullptr || expected == nullptr || form_id == 0u ||
+        !std::isfinite(absolute_tolerance) ||
+        absolute_tolerance < 0.0 || absolute_tolerance > 1e-9)
+        return 0;
+    try {
+        std::string const content=page_content(data,size,page_index);
+        if (content.size() > 65536u)
+            return 0;
+        std::istringstream stream(content);
+        stream.imbue(std::locale::classic());
+        std::vector<std::string> tokens;
+        std::string token;
+        while (stream >> token)
+            tokens.push_back(token);
+        std::string const resource="/Fm"+std::to_string(form_id);
+        size_t matches=0u;
+        for (size_t i=7u;i+1u<tokens.size();++i) {
+            if (tokens[i] != resource || tokens[i+1u] != "Do")
+                continue;
+            if (tokens[i-1u] != "cm")
+                return 0;
+            for (size_t field=0u;field<6u;++field) {
+                std::istringstream number_stream(tokens[i-7u+field]);
+                number_stream.imbue(std::locale::classic());
+                double actual=0.0;
+                char trailing=0;
+                if (!(number_stream >> actual) || (number_stream >> trailing) ||
+                    !std::isfinite(actual) || !std::isfinite(expected[field]) ||
+                    std::fabs(actual-expected[field])>absolute_tolerance)
+                    return 0;
+            }
+            ++matches;
+        }
+        return matches == 1u;
+    } catch (...) {
+        return 0;
     }
 }
 
