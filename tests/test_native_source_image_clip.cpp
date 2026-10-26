@@ -761,7 +761,7 @@ int source_scoped_mixed_v5_suite()
         {outer+"Q "+inner_image+inner_path+outer_image+outer_path},
         {outer+inner_image+"Q "+inner_path+outer_image+outer_path},
         {outer+inner_image+inner_path+"Q "+
-            outer_image+"q 2 2 2 2 re f Q"},
+            outer_image+"q 2 2 2 2 re S Q"}, /* unsupported Stroke */
         {outer+"q 16 1 0 12 8 3 cm /I Do Q "+
             inner_path+"Q "+outer_image+outer_path},
         {outer+inner_image+inner_path+"Q "+
