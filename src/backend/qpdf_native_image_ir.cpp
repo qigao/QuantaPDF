@@ -157,6 +157,9 @@ struct admission {
      * 1 means inside the original W/W* scope, 0 means Q-restored. */
     bool mixed_scoped_mode=false;
     std::vector<unsigned char> scoped_clip_membership;
+    /* Source V6 charges the actual 2–4 layers against max_operations,
+     * rather than the full hard capacity of four operations. */
+    bool variable_scoped_mode=false;
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule)
@@ -165,7 +168,9 @@ struct admission {
         admit(mixed_mode && painted_paths.size()<allowed_paths &&
               commands.size()>=4u && commands.size()<=9u &&
               order.size()<mixed_operation_limit &&
-              limits.max_operations>=mixed_operation_limit,
+              limits.max_operations>=
+                   (variable_scoped_mode ? order.size()+1u :
+                    mixed_operation_limit),
               QUANTAPDF_ERROR_UNSUPPORTED);
         staged_path item;
         item.commands=std::move(commands);
@@ -182,7 +187,9 @@ struct admission {
               (!mixed_mode ||
                (draws.size()<(mixed_operation_limit==4u ? 2u : mixed_operation_limit-1u) &&
                 order.size()<mixed_operation_limit &&
-                limits.max_operations>=mixed_operation_limit)),
+                limits.max_operations>=
+                   (variable_scoped_mode ? order.size()+1u :
+                    mixed_operation_limit))),
               QUANTAPDF_ERROR_UNSUPPORTED);
         admit(image.isStream(),QUANTAPDF_ERROR_FORMAT);
         Obj dict = image.getDict(), subtype=dict.getKey("/Subtype");
@@ -945,8 +952,8 @@ static quantapdf_status source_raw_images_to_ir_impl(
         /* Initialize ALL members explicitly. Some CI toolchains enable
          * -Werror=missing-field-initializers for aggregate additions. */
         admission source{resources,*limits,page_w,page_h,0u,0u,0u,
-                         {},false,{},{},2u,false,false,{},
-                         1u,false,false,false,{}};
+                          {},false,{},{},2u,false,false,{},
+                          1u,false,false,false,{},false};
         source.mixed_mode=(mixed_version>=1 && mixed_version<=3) ||
             mixed_version==7 || mixed_version==8 || mixed_version==9;
         source.clipped_image_mode=mixed_version>=4 && mixed_version<=9;
@@ -957,6 +964,7 @@ static quantapdf_status source_raw_images_to_ir_impl(
             mixed_version==8 || mixed_version==9) ? 4u :
             (mixed_version==2 ? 3u : 2u);
         source.mixed_scoped_mode=mixed_version==8 || mixed_version==9;
+        source.variable_scoped_mode=mixed_version==9;
         auto contents=page_streams(geo.page.getKey("/Contents"),*limits);
         QPDF parser;
         parser.emptyPDF();
@@ -976,6 +984,7 @@ static quantapdf_status source_raw_images_to_ir_impl(
                  source.order.size()==source.draws.size()+
                      source.painted_paths.size() &&
                  source.order.size()>=2u && source.order.size()<=4u &&
+                 source.order.size()<=source.limits.max_operations &&
                  source.scoped_clip_membership.size()==source.order.size()) :
                 (source.draws.size()==(source.mixed_operation_limit==4u ?
                         2u : source.mixed_operation_limit-1u) &&
