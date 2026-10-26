@@ -945,9 +945,23 @@ int source_scoped_mixed_v6_suite()
         masked,QUANTAPDF_ERROR_UNSUPPORTED,bounds)!=0)
         return EXIT_FAILURE;
     auto small=bounds;
-    small.max_operations=3u;
+    small.max_operations=1u;
     if(negative_scoped_mixed_v6(
         two_image_then_path,QUANTAPDF_ERROR_UNSUPPORTED,small)!=0)
+        return EXIT_FAILURE;
+    /* The flexible profile consumes the requested ACTUAL paint quota.
+     * Two paints under a two-operation budget succeed; three must refuse. */
+    small.max_operations=2u;
+    {
+        const auto original=original_pdf(two_path_then_image);
+        quantapdf_ir exact{};
+        OK(quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
+            original.data(),original.size(),&small,&exact));
+        CHECK(exact.operation_count==2u);
+        quantapdf_ir_dispose(&exact);
+    }
+    if(negative_scoped_mixed_v6(
+        three_clipped_image_path,QUANTAPDF_ERROR_UNSUPPORTED,small)!=0)
         return EXIT_FAILURE;
     small=bounds;
     small.max_source_pixels=3u;
