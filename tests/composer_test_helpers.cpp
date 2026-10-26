@@ -8,6 +8,7 @@
 #include <qpdf/QPDFObjectHandle.hh>
 #include <zlib.h>
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <locale>
@@ -330,6 +331,19 @@ extern "C" int quantapdf_test_pdf_content_contains(
                 std::string::npos;
     } catch (...) {
         return 0;
+    }
+}
+
+extern "C" void quantapdf_test_pdf_content_debug(
+    unsigned char const* data, size_t size, size_t page_index)
+{
+    try {
+        const std::string content=page_content(data,size,page_index);
+        const int count=(int)(content.size()<8192u?content.size():8192u);
+        std::fprintf(stderr,"[pdf-content] decoded %zu bytes; first %d: %.*s\n",
+            content.size(), count, count, content.data());
+    } catch(...) {
+        std::fprintf(stderr,"[pdf-content] unable to decode source page\n");
     }
 }
 
