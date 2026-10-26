@@ -1281,6 +1281,106 @@ int source_scoped_mixed_v8_suite()
     return EXIT_SUCCESS;
 }
 
+/* All twelve historical private Source signatures must remain exact.
+ * Pair each admitted original PDF with the next (strictly wider or
+ * mutually incompatible) profile, which must refuse the same bytes
+ * atomically instead of silently widening older source admission. */
+int source_profile_legacy_parity_suite()
+{
+    using source_fn=quantapdf_status (*)(
+        const unsigned char *,size_t,
+        const quantapdf_qpdf_source_raw_image_limits *,quantapdf_ir *);
+    const source_fn profiles[]={
+        quantapdf_qpdf_source_raw_images_to_ir,
+        quantapdf_qpdf_source_mixed_path_image_to_ir,
+        quantapdf_qpdf_source_mixed_path_two_images_to_ir_v2,
+        quantapdf_qpdf_source_mixed_two_paths_two_images_to_ir_v3,
+        quantapdf_qpdf_source_clipped_raw_image_to_ir_v1,
+        quantapdf_qpdf_source_two_clipped_raw_images_to_ir_v2,
+        quantapdf_qpdf_source_restored_clipped_raw_images_to_ir_v3,
+        quantapdf_qpdf_source_clipped_image_then_path_to_ir_v4,
+        quantapdf_qpdf_source_scoped_mixed_v5_to_ir,
+        quantapdf_qpdf_source_scoped_mixed_v6_to_ir,
+        quantapdf_qpdf_source_scoped_mixed_v7_to_ir,
+        quantapdf_qpdf_source_scoped_mixed_v8_to_ir
+    };
+    struct profile_case { std::string stream; size_t paints; };
+    const std::string image_in=
+        "q 16 0 0 12 8 3 cm /I Do Q ";
+    const std::string image_out=
+        "q 8 0 0 6 22 16 cm /I Do Q ";
+    const std::string image_clipped_second=
+        "q 8 0 0 6 12 7 cm /I Do Q ";
+    const std::string red_path=
+        "1 0 0 rg 24 17 5 3 re f ";
+    const std::string magenta_path=
+        "1 0 1 rg 12 6 4 4 re f ";
+    const std::string scope="q 12 6 8 9 re W n ";
+    const profile_case cases[]={
+        {image_in,1u},
+        {red_path+image_in,2u},
+        {red_path+image_in+image_out,3u},
+        {magenta_path+image_in+image_out+red_path,4u},
+        {scope+image_in+"Q ",1u},
+        {scope+image_in+image_clipped_second+"Q ",2u},
+        {scope+image_in+"Q "+image_out,2u},
+        {scope+image_in+"Q "+red_path,2u},
+        {scope+image_in+magenta_path+"Q "+image_out+red_path,4u},
+        {scope+magenta_path+"Q "+image_out,2u},
+        {scope+"0.25 0.5 0.75 rg 12 6 4 4 re f Q "+image_out,2u},
+        {scope+"0.25 g 12 6 4 4 re f Q "+image_out,2u}
+    };
+    constexpr size_t count=sizeof(profiles)/sizeof(profiles[0]);
+    static_assert(count==12u);
+    CHECK(sizeof(cases)/sizeof(cases[0])==count);
+    auto budgets=source_limits;
+    budgets.max_operations=4u;
+
+    for(size_t i=0u;i<count;++i) {
+        const auto accepted=original_pdf(fixture{cases[i].stream});
+        quantapdf_ir admitted;
+        std::memset(&admitted,0xa5,sizeof(admitted));
+        const quantapdf_status success=profiles[i](
+            accepted.data(),accepted.size(),&budgets,&admitted);
+        if(success!=QUANTAPDF_OK)
+            std::fprintf(stderr,
+                "Profile parity positive index=%zu status=%d\n",
+                i,(int)success);
+        CHECK(success==QUANTAPDF_OK);
+        CHECK(admitted.page_count==1u &&
+              admitted.operation_count==cases[i].paints &&
+              admitted.operations!=nullptr &&
+              admitted.pages!=nullptr);
+        quantapdf_ir_dispose(&admitted);
+        CHECK(admitted.pages==nullptr && admitted.operations==nullptr &&
+              admitted.resources.images==nullptr);
+
+        if(i+1u<count) {
+            const auto unexpected=original_pdf(fixture{cases[i+1u].stream});
+            for(int repeat=0;repeat<2;++repeat) {
+                quantapdf_ir refused;
+                std::memset(&refused,0xa5,sizeof(refused));
+                const quantapdf_status status=profiles[i](
+                    unexpected.data(),unexpected.size(),&budgets,&refused);
+                if(status!=QUANTAPDF_ERROR_UNSUPPORTED)
+                    std::fprintf(stderr,
+                        "Profile parity negative index=%zu status=%d\n",
+                        i,(int)status);
+                CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED);
+                CHECK(refused.pages==nullptr &&
+                      refused.page_count==0u &&
+                      refused.operations==nullptr &&
+                      refused.operation_count==0u &&
+                      refused.resources.images==nullptr &&
+                      refused.resources.graphics_states==nullptr &&
+                      refused.resources.clips==nullptr);
+                quantapdf_ir_dispose(&refused);
+            }
+        }
+    }
+    return EXIT_SUCCESS;
+}
+
 int source_scoped_mixed_v5_suite()
 {
     auto budgets=source_limits;
@@ -1392,6 +1492,8 @@ int main(int argc,char **argv)
         return source_scoped_mixed_v7_suite();
     if(argc==2 && std::strcmp(argv[1],"--scoped-v8-only")==0)
         return source_scoped_mixed_v8_suite();
+    if(argc==2 && std::strcmp(argv[1],"--profile-parity-only")==0)
+        return source_profile_legacy_parity_suite();
     if(argc!=1)return EXIT_FAILURE;
     fixture basic{};
     basic.a="q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q";
@@ -1682,6 +1784,8 @@ int main(int argc,char **argv)
     if(source_scoped_mixed_v7_suite()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
     if(source_scoped_mixed_v8_suite()!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    if(source_profile_legacy_parity_suite()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
 
     std::puts("Original Image Do under W/W*: independent PDFium RGB, "
