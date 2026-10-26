@@ -38,6 +38,12 @@ int quantapdf_test_pdf_content_contains(
  * Never alters PDF outputs or changes an acceptance condition. */
 void quantapdf_test_pdf_content_debug(
     const unsigned char *data, size_t size, size_t page_index);
+/* Inspect the decoded source page's named Form placement numerically.
+ * Reject a missing/duplicate name and require its six cm coefficients to
+ * match independently authored goldens within the explicit tolerance. */
+int quantapdf_test_pdf_form_transform_near(
+    const unsigned char *data, size_t size, size_t page_index,
+    size_t form_id, const double expected[6], double absolute_tolerance);
 int quantapdf_test_pdf_content_order(
     const unsigned char *data,
     size_t size,
