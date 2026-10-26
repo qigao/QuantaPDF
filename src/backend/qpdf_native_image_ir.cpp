@@ -366,6 +366,16 @@ public:
         } else if(mixed && (op=="f" || op=="f*")) {
             admit(args.empty() && pending_path.size()>=3u,
                   QUANTAPDF_ERROR_UNSUPPORTED);
+            if(clipped) {
+                /* V4 admits a source-order Image Do, real Q restoration,
+                 * then one opaque PATH paint outside the frozen Clip. */
+                admit(target.restore_second_image &&
+                      target.clip_completed &&
+                      target.draws.size()==1u &&
+                      target.saw_q_restore && !clip_active &&
+                      target.order.size()==1u && target.order[0]==2,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+            }
             if (!closed) close_path();
             target.paint_path(std::move(pending_path),fill_argb,
                 op=="f" ? QUANTAPDF_COMPOSER_FILL_NONZERO :
@@ -741,10 +751,12 @@ static quantapdf_status source_raw_images_to_ir_impl(
             geo.page,limits->max_parent_steps);
         admission source{resources,*limits,page_w,page_h,0u,0u,0u,
                          {},false,{},{},2u,false,false,{}};
-        source.mixed_mode=mixed_version>=1 && mixed_version<=3;
-        source.clipped_image_mode=mixed_version>=4 && mixed_version<=6;
-        source.clipped_image_limit=mixed_version>=5 ? 2u : 1u;
-        source.restore_second_image=mixed_version==6;
+        source.mixed_mode=(mixed_version>=1 && mixed_version<=3) ||
+            mixed_version==7;
+        source.clipped_image_mode=mixed_version>=4 && mixed_version<=7;
+        source.clipped_image_limit=(mixed_version==5 || mixed_version==6) ?
+            2u : 1u;
+        source.restore_second_image=mixed_version==6 || mixed_version==7;
         source.mixed_operation_limit=mixed_version==3 ? 4u :
             (mixed_version==2 ? 3u : 2u);
         auto contents=page_streams(geo.page.getKey("/Contents"),*limits);
@@ -770,11 +782,13 @@ static quantapdf_status source_raw_images_to_ir_impl(
                  (!source.restore_second_image ||
                   source.saw_q_restore))),
               QUANTAPDF_ERROR_UNSUPPORTED);
-        *out_ir=source.clipped_image_mode ?
-            materialize_clipped_image(source,source.clipped_image_limit) :
-            (source.mixed_mode ?
-                materialize_mixed(source,source.mixed_operation_limit) :
-                materialize(source));
+        *out_ir=mixed_version==7 ?
+            materialize_restored_image_then_path(source) :
+            (source.clipped_image_mode ?
+                materialize_clipped_image(source,source.clipped_image_limit) :
+                (source.mixed_mode ?
+                    materialize_mixed(source,source.mixed_operation_limit) :
+                    materialize(source)));
         return QUANTAPDF_OK;
     } catch(rejected const& e) {return e.status;}
       catch(std::bad_alloc const&) {return QUANTAPDF_ERROR_NOMEM;}
