@@ -3,6 +3,7 @@
  * is rendered by PDFium directly as a test-only independent oracle.
  * Native C11 raster receives uniquely-owned IR after qpdf source disposal. */
 #include "backend/qpdf_native_image_ir.h"
+#include "backend/native_source_raster_bridge_v1.h"
 #include "render/ir_raster_image_clip_v1.h"
 #include "render/ir_raster_image_clip_v2.h"
 #include "render/ir_raster_image_clip_v3.h"
@@ -1381,6 +1382,223 @@ int source_profile_legacy_parity_suite()
     return EXIT_SUCCESS;
 }
 
+/* Real private product-archive bridge: original bytes go through the
+ * production-linked QPDF Source V8 adapter and canonical C11 Raster
+ * objects. PDFium is invoked ONLY on the unchanged original bytes in this
+ * test binary, not by the bridge and never as its fallback. */
+int positive_native_source_bridge_v1(
+    const fixture& sample,const std::vector<v6_probe>& probes)
+{
+    auto original=original_pdf(sample);
+    CHECK(original.size()>100u);
+    const auto direct=pdfium_original_rgb(original);
+    CHECK(direct.size()==W*H*3u);
+    const quantapdf_native_source_raster_device_v1 device={
+        0u,72.0f,0.0f,0,0,0
+    };
+    quantapdf_native_source_raster_bridge_limits_v1 limits={
+        source_limits,{W*H,4u,512u,8000000u,16u,4096u}
+    };
+    limits.source.max_operations=4u;
+    quantapdf_ir_raster_image first{},second{};
+    OK(quantapdf_native_source_raster_bridge_v1(
+        original.data(),original.size(),&limits,&device,&first));
+
+    /* Reopen from independently owned original bytes. The source/QPDF
+     * owner used by the previous call is gone before the C11 sampling. */
+    auto duplicate=original;
+    std::fill(original.begin(),original.end(),0u);
+    original.clear();
+    OK(quantapdf_native_source_raster_bridge_v1(
+        duplicate.data(),duplicate.size(),&limits,&device,&second));
+    std::fill(duplicate.begin(),duplicate.end(),0u);
+    duplicate.clear();
+
+    CHECK(first.width==W && first.height==H &&
+          first.stride==W*4u && first.size==W*H*4u &&
+          first.pixels!=nullptr && second.pixels!=nullptr &&
+          second.size==first.size &&
+          std::memcmp(first.pixels,second.pixels,first.size)==0);
+    double total=0.0;
+    size_t gross=0u;
+    for(size_t y=0u;y<H;++y)for(size_t x=0u;x<W;++x) {
+        const auto *a=first.pixels+y*first.stride+x*4u;
+        const auto *b=direct.data()+(y*W+x)*3u;
+        CHECK(a[3]==255u);
+        unsigned peak=0u;
+        for(size_t c=0u;c<3u;++c) {
+            const unsigned delta=a[c]>b[c] ? a[c]-b[c] : b[c]-a[c];
+            total+=(double)delta;
+            if(delta>peak)peak=delta;
+        }
+        if(peak>64u)++gross;
+    }
+    CHECK(total/(double)(W*H*3u)<=8.0 && gross<=W*H/12u);
+    for(const auto& probe:probes) {
+        CHECK(probe.x<W && probe.y<H);
+        const auto *a=first.pixels+
+            probe.y*first.stride+probe.x*4u;
+        const auto *b=direct.data()+(probe.y*W+probe.x)*3u;
+        CHECK(rgb_match(a,probe.r,probe.g,probe.b,3u));
+        CHECK(rgb_match(b,probe.r,probe.g,probe.b,3u));
+    }
+    quantapdf_ir_raster_image_dispose(&first);
+    quantapdf_ir_raster_image_dispose(&second);
+    return EXIT_SUCCESS;
+}
+
+int negative_native_source_bridge_v1(
+    const fixture& sample,quantapdf_status expected,
+    const quantapdf_native_source_raster_bridge_limits_v1& limits,
+    const quantapdf_native_source_raster_device_v1& device)
+{
+    const auto original=original_pdf(sample);
+    for(int repeat=0;repeat<2;++repeat) {
+        quantapdf_ir_raster_image refused;
+        std::memset(&refused,0xa5,sizeof(refused));
+        const auto actual=quantapdf_native_source_raster_bridge_v1(
+            original.data(),original.size(),&limits,&device,&refused);
+        if(actual!=expected)
+            std::fprintf(stderr,
+                "Native product bridge refusal trial=%d want=%d got=%d\n",
+                repeat,(int)expected,(int)actual);
+        CHECK(actual==expected);
+        CHECK(refused.pixels==nullptr && refused.width==0u &&
+              refused.height==0u && refused.stride==0u &&
+              refused.size==0u);
+        quantapdf_ir_raster_image_dispose(&refused);
+    }
+    return EXIT_SUCCESS;
+}
+
+int native_source_product_bridge_v1_suite()
+{
+    const std::string scope="q 12 6 8 9 re W n ";
+    const std::string gray="0.25 g 12 6 4 4 re f ";
+    const std::string image_in="q 16 0 0 12 8 3 cm /I Do Q ";
+    const std::string image_out="q 8 0 0 6 22 16 cm /I Do Q ";
+    const std::string outside="0.875 g 24 17 5 3 re f ";
+
+    fixture two{};
+    two.a=scope+gray+"Q "+image_out;
+    if(positive_native_source_bridge_v1(two,
+        {{13u,16u,64u,64u,64u},{23u,3u,255u,0u,0u},
+         {28u,6u,255u,255u,0u}})!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    fixture three{};
+    three.a=scope+image_in+gray+"Q "+outside;
+    if(positive_native_source_bridge_v1(three,
+        {{13u,16u,64u,64u,64u},{13u,11u,255u,0u,0u},
+         {26u,5u,223u,223u,223u}})!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    fixture four{};
+    four.a=scope+gray+image_in+"Q "+image_out+outside;
+    if(positive_native_source_bridge_v1(four,
+        {{13u,16u,0u,0u,255u},{23u,3u,255u,0u,0u},
+         {26u,5u,223u,223u,223u}})!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    fixture rgb{};
+    rgb.a=scope+"0.25 0.5 0.75 rg 12 6 4 4 re f Q "+image_out;
+    if(positive_native_source_bridge_v1(rgb,
+        {{13u,16u,64u,128u,191u},{23u,3u,255u,0u,0u}})
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    fixture split{};
+    split.split=true;
+    split.a="q 1 0 0 1 2 0 cm 10 6 8 9 re W*";
+    split.b=" n 0.5 g 10 6 4 4 re f Q "+image_out;
+    if(positive_native_source_bridge_v1(split,
+        {{13u,16u,128u,128u,128u},{23u,3u,255u,0u,0u}})
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    quantapdf_native_source_raster_bridge_limits_v1 limits={
+        source_limits,{W*H,4u,512u,8000000u,16u,4096u}
+    };
+    limits.source.max_operations=4u;
+    const quantapdf_native_source_raster_device_v1 device={
+        0u,72.0f,0.0f,0,0,0
+    };
+    fixture late{};
+    late.a=three.a+" BT ET";
+    if(negative_native_source_bridge_v1(
+        late,QUANTAPDF_ERROR_UNSUPPORTED,limits,device)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    fixture excess{};
+    excess.a=four.a+image_out;
+    if(negative_native_source_bridge_v1(
+        excess,QUANTAPDF_ERROR_UNSUPPORTED,limits,device)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    fixture masked{};
+    masked.a=two.a;masked.mask=true;
+    if(negative_native_source_bridge_v1(
+        masked,QUANTAPDF_ERROR_UNSUPPORTED,limits,device)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    fixture missing{};
+    missing.a=two.a;missing.missing_resources=true;
+    if(negative_native_source_bridge_v1(
+        missing,QUANTAPDF_ERROR_FORMAT,limits,device)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+
+    auto constrained=limits;
+    constrained.source.max_operations=1u;
+    if(negative_native_source_bridge_v1(
+        two,QUANTAPDF_ERROR_UNSUPPORTED,constrained,device)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    constrained=limits;
+    constrained.raster.max_operations=1u;
+    if(negative_native_source_bridge_v1(
+        two,QUANTAPDF_ERROR_UNSUPPORTED,constrained,device)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    constrained=limits;
+    constrained.raster.max_pixels=W*H-1u;
+    if(negative_native_source_bridge_v1(
+        two,QUANTAPDF_ERROR_UNSUPPORTED,constrained,device)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+
+    auto unsupported_device=device;
+    unsupported_device.page_index=1u;
+    if(negative_native_source_bridge_v1(
+        two,QUANTAPDF_ERROR_UNSUPPORTED,limits,unsupported_device)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    unsupported_device=device;
+    unsupported_device.dpi=144.0f;
+    if(negative_native_source_bridge_v1(
+        two,QUANTAPDF_ERROR_UNSUPPORTED,limits,unsupported_device)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    unsupported_device=device;
+    unsupported_device.rotation_degrees=90.0f;
+    if(negative_native_source_bridge_v1(
+        two,QUANTAPDF_ERROR_UNSUPPORTED,limits,unsupported_device)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    unsupported_device=device;
+    unsupported_device.clip_enabled=1;
+    if(negative_native_source_bridge_v1(
+        two,QUANTAPDF_ERROR_UNSUPPORTED,limits,unsupported_device)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    unsupported_device=device;
+    unsupported_device.alpha=1;
+    if(negative_native_source_bridge_v1(
+        two,QUANTAPDF_ERROR_UNSUPPORTED,limits,unsupported_device)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    unsupported_device=device;
+    unsupported_device.thumbnail=1;
+    if(negative_native_source_bridge_v1(
+        two,QUANTAPDF_ERROR_UNSUPPORTED,limits,unsupported_device)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    unsupported_device=device;
+    unsupported_device.dpi=NAN;
+    if(negative_native_source_bridge_v1(
+        two,QUANTAPDF_ERROR_ARGUMENT,limits,unsupported_device)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    /* A valid original must still paint after all poisoned-output
+     * refusals, proving no retained QPDF/IR/raster state leaked. */
+    if(positive_native_source_bridge_v1(two,
+        {{13u,16u,64u,64u,64u},{23u,3u,255u,0u,0u}})
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    return EXIT_SUCCESS;
+}
+
 int source_scoped_mixed_v5_suite()
 {
     auto budgets=source_limits;
@@ -1494,6 +1712,8 @@ int main(int argc,char **argv)
         return source_scoped_mixed_v8_suite();
     if(argc==2 && std::strcmp(argv[1],"--profile-parity-only")==0)
         return source_profile_legacy_parity_suite();
+    if(argc==2 && std::strcmp(argv[1],"--native-product-bridge-only")==0)
+        return native_source_product_bridge_v1_suite();
     if(argc!=1)return EXIT_FAILURE;
     fixture basic{};
     basic.a="q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q";
@@ -1786,6 +2006,8 @@ int main(int argc,char **argv)
     if(source_scoped_mixed_v8_suite()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
     if(source_profile_legacy_parity_suite()!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    if(native_source_product_bridge_v1_suite()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
 
     std::puts("Original Image Do under W/W*: independent PDFium RGB, "

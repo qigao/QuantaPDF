@@ -36,6 +36,26 @@ if(NOT EXISTS "${QUANTAPDF_LIBJPEG_TURBO_COPYRIGHT}")
     "${QUANTAPDF_LIBJPEG_TURBO_COPYRIGHT}")
 endif()
 
+# Canonical private C11 Source mixed raster objects: compiled ONCE and
+# embedded in the product library or standalone original-source tests.
+# No qpdf/PDFium headers or runtime links, no installed/exported target.
+add_library(quantapdf_native_raster_objects OBJECT
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/render/ir_raster_scoped_mixed_v5.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/render/ir_raster_image_clip_v1.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/render/ir_raster_image_v1.c")
+target_compile_features(quantapdf_native_raster_objects PRIVATE c_std_11)
+target_include_directories(quantapdf_native_raster_objects PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/include"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src")
+set_target_properties(quantapdf_native_raster_objects PROPERTIES
+  POSITION_INDEPENDENT_CODE ON)
+if(MSVC)
+  target_compile_options(quantapdf_native_raster_objects PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_native_raster_objects PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 add_library(quantapdf_backend STATIC)
 add_subdirectory(src/backend)
 target_compile_features(quantapdf_backend PRIVATE c_std_11 cxx_std_20)
@@ -58,6 +78,10 @@ set_target_properties(quantapdf_backend PROPERTIES
   POSITION_INDEPENDENT_CODE ON)
 
 add_library(quantapdf)
+# Include the exact same qualified raster objects in the product target.
+# Existing provider-backed rendering remains unchanged.
+target_sources(quantapdf PRIVATE
+  $<TARGET_OBJECTS:quantapdf_native_raster_objects>)
 add_subdirectory(src/core)
 add_subdirectory(src/document)
 add_subdirectory(src/snapshot)

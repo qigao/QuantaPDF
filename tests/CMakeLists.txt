@@ -162,9 +162,8 @@ set_tests_properties(quantapdf.native_ir_raw_image_clip_path_v4 PROPERTIES
 # executable is provider-neutral and links no qpdf/PDFium runtime.
 add_executable(quantapdf_test_ir_raster_scoped_mixed_v5
   test_ir_raster_scoped_mixed_v5.c
-  ../src/render/ir_raster_scoped_mixed_v5.c
-  ../src/render/ir_raster_image_clip_v1.c
-  ../src/render/ir_raster_image_v1.c
+  # EXACT same qualified raster objects used by the shipped target.
+  $<TARGET_OBJECTS:quantapdf_native_raster_objects>
   ../src/render/ir_raster_v1.c
   ../src/render/ir_raster.c
   ../src/render/native_device_plan.c)
@@ -349,11 +348,10 @@ endif()
 # this test; the reused pure-C11 RAW Image Clip raster remains backend-free.
 add_executable(quantapdf_test_native_source_image_clip
   test_native_source_image_clip.cpp
-  ../src/render/ir_raster_image_clip_v1.c
+  # Bridge and C11 sampler use actual product-linked qualified objects.
+  $<TARGET_OBJECTS:quantapdf_native_raster_objects>
   ../src/render/ir_raster_image_clip_v2.c
   ../src/render/ir_raster_image_clip_path_v4.c
-  ../src/render/ir_raster_scoped_mixed_v5.c
-  ../src/render/ir_raster_image_v1.c
   ../src/render/ir_raster_v1.c
   ../src/render/ir_raster.c
   ../src/render/native_device_plan.c
@@ -399,12 +397,20 @@ add_test(NAME quantapdf.native_source_profile_legacy_parity
   COMMAND quantapdf_test_native_source_image_clip --profile-parity-only)
 set_tests_properties(quantapdf.native_source_profile_legacy_parity PROPERTIES
   TIMEOUT 40 LABELS "conformance;source-pdf;native-raster;profile-parity")
+# Actual private production-archive Source -> owned IR -> canonical C11
+# raster bridge. The original PDFium oracle is test-only and independent.
+add_test(NAME quantapdf.native_source_product_bridge_v1
+  COMMAND quantapdf_test_native_source_image_clip --native-product-bridge-only)
+set_tests_properties(quantapdf.native_source_product_bridge_v1 PROPERTIES
+  TIMEOUT 40
+  LABELS "conformance;source-pdf;native-raster;product-bridge;backend-free-raster")
 if(WIN32)
   set_property(TEST quantapdf.native_source_image_clip
     quantapdf.native_source_scoped_mixed_v6
     quantapdf.native_source_scoped_mixed_v7_rgb
     quantapdf.native_source_scoped_mixed_v8_gray
     quantapdf.native_source_profile_legacy_parity
+    quantapdf.native_source_product_bridge_v1
     PROPERTY ENVIRONMENT_MODIFICATION
     "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 elseif(APPLE)
@@ -413,6 +419,7 @@ elseif(APPLE)
     quantapdf.native_source_scoped_mixed_v7_rgb
     quantapdf.native_source_scoped_mixed_v8_gray
     quantapdf.native_source_profile_legacy_parity
+    quantapdf.native_source_product_bridge_v1
     PROPERTY ENVIRONMENT_MODIFICATION
     "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 else()
@@ -421,6 +428,7 @@ else()
     quantapdf.native_source_scoped_mixed_v7_rgb
     quantapdf.native_source_scoped_mixed_v8_gray
     quantapdf.native_source_profile_legacy_parity
+    quantapdf.native_source_product_bridge_v1
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
