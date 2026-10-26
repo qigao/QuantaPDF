@@ -554,6 +554,188 @@ int negative_three()
     return EXIT_SUCCESS;
 }
 
+
+/* Full ORIGINAL PDFium versus owned-IR Native parity for 2 PATHs + 2 Image
+ * XObjects in all six interleavings. No IR round-trip through PDFium. */
+const char *const second_path="q 1 1 0 rg 16 9 6 8 re f Q ";
+
+int positive_four(int order_index)
+{
+    static const int order[6][4]={
+        {0,1,2,3},{0,2,1,3},{0,2,3,1},
+        {2,0,1,3},{2,0,3,1},{2,3,0,1}
+    };
+    CHECK(order_index>=0 && order_index<6);
+    const std::string pieces[4]={path_rect,second_path,image_cm,green_cm};
+    three_scene sc;
+    for(int j=0;j<4;++j)sc.commands+=pieces[order[order_index][j]];
+    sc.split_streams=(order_index%2)==0;
+    auto original=make_three_original(sc);
+    CHECK(!original.empty());
+    const auto kept=original;
+    auto limits=source_limits;
+    limits.max_operations=4u;
+    quantapdf_ir ir{};
+    OK(quantapdf_qpdf_source_mixed_two_paths_two_images_to_ir_v3(
+        original.data(),original.size(),&limits,&ir));
+    CHECK(ir.page_count==1u && ir.operation_count==4u &&
+          ir.resources.image_count==2u &&
+          ir.resources.image_capacity==2u);
+    size_t paths=0u,images=0u;
+    for(size_t j=0u;j<4u;++j){
+        const auto& op=ir.operations[j];
+        const bool path=order[order_index][j]<2;
+        CHECK(op.kind==(path?QUANTAPDF_COMPOSER_OPERATION_PATH:
+                             QUANTAPDF_COMPOSER_OPERATION_IMAGE));
+        if(path){
+            ++paths;
+            CHECK(op.value.path.options.fill_argb==
+                  (paths==1u?UINT32_C(0xffff0000):UINT32_C(0xffffff00)));
+        }else{
+            ++images;
+            CHECK((size_t)op.value.image.image_id==images);
+        }
+    }
+    CHECK(paths==2u && images==2u);
+    /* Exact old profile stays narrow despite the newly admitted V3 mode. */
+    quantapdf_ir refused{};
+    CHECK(quantapdf_qpdf_source_mixed_path_two_images_to_ir_v2(
+        kept.data(),kept.size(),&limits,&refused)==
+        QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(refused.pages==nullptr && refused.operations==nullptr &&
+          refused.resources.images==nullptr);
+    quantapdf_ir_raster_image old{};
+    CHECK(quantapdf_ir_raster_mixed_path_two_images_v2(
+        &ir,0u,&raster_limits,&old)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(old.pixels==nullptr && old.size==0u);
+
+    std::fill(original.begin(),original.end(),0u);
+    quantapdf_ir_raster_image native{},repeat{};
+    OK(quantapdf_ir_raster_mixed_two_paths_two_images_v3(
+        &ir,0u,&raster_limits,&native));
+    OK(quantapdf_ir_raster_mixed_two_paths_two_images_v3(
+        &ir,0u,&raster_limits,&repeat));
+    CHECK(native.width==(size_t)W && native.height==(size_t)H &&
+          native.size==(size_t)W*H*4u && repeat.size==native.size &&
+          std::memcmp(native.pixels,repeat.pixels,native.size)==0);
+    quantapdf_ir_dispose(&ir);
+    const auto pdfium=original_pdfium(kept);
+    CHECK(pdfium.size()==(size_t)W*H*3u);
+    struct color {int x,y;unsigned r,g,b;};
+    const color checks[]={
+        {2,2,255,255,255},{9,10,0,0,255},{13,5,255,0,0},
+        {17,10,order_index==0?0u:255u,order_index==0?0u:255u,
+               order_index==0?255u:0u},
+        {20,10,(order_index==0||order_index==1||order_index==3)?0u:255u,
+               255u,0u},
+        {26,10,0,255,0},{30,22,255,255,255}
+    };
+    for(const auto& p:checks){
+        const size_t xy=(size_t)(p.y*W+p.x);
+        const auto *ref=pdfium.data()+xy*3u;
+        const auto *got=native.pixels+(size_t)p.y*native.stride+
+                        (size_t)p.x*4u;
+        const unsigned want[]={p.r,p.g,p.b};
+        for(int c=0;c<3;++c){
+            CHECK(std::abs(int(ref[c])-int(want[c]))<=3);
+            CHECK(std::abs(int(got[c])-int(want[c]))<=3);
+        }
+    }
+    double mae=0.0;size_t gross=0u;
+    for(int y=0;y<H;++y)for(int x=0;x<W;++x){
+        const size_t xy=(size_t)(y*W+x);
+        unsigned max_delta=0u;
+        for(int c=0;c<3;++c){
+            const unsigned d=(unsigned)std::abs(
+                int(pdfium[xy*3u+(size_t)c])-
+                int(native.pixels[(size_t)y*native.stride+(size_t)x*4u+
+                                  (size_t)c]));
+            mae+=d;
+            if(d>max_delta)max_delta=d;
+        }
+        if(max_delta>64u)++gross;
+    }
+    mae/=(double)(W*H*3);
+    std::fprintf(stderr,
+        "[source-mixed-v3] order=%d mae=%.3f gross=%zu\n",
+        order_index,mae,gross);
+    CHECK(mae<=10.0 && gross<=(size_t)(W*H/12));
+    quantapdf_ir anew{};
+    OK(quantapdf_qpdf_source_mixed_two_paths_two_images_to_ir_v3(
+        kept.data(),kept.size(),&limits,&anew));
+    quantapdf_ir_raster_image again{};
+    OK(quantapdf_ir_raster_mixed_two_paths_two_images_v3(
+        &anew,0u,&raster_limits,&again));
+    CHECK(again.size==native.size &&
+          std::memcmp(native.pixels,again.pixels,native.size)==0);
+    quantapdf_ir_dispose(&anew);
+    quantapdf_ir_raster_image_dispose(&native);
+    quantapdf_ir_raster_image_dispose(&repeat);
+    quantapdf_ir_raster_image_dispose(&again);
+    return EXIT_SUCCESS;
+}
+
+int negative_four()
+{
+    auto limits=source_limits;
+    limits.max_operations=4u;
+    const std::string complete=
+        std::string(path_rect)+image_cm+second_path+green_cm;
+    struct invalid {
+        const char *name;
+        std::string input;
+        quantapdf_status expected;
+        bool missing=false,form=false,interpolation=false;
+    };
+    const invalid cases[]={
+        {"late_text",complete+"BT ET",QUANTAPDF_ERROR_UNSUPPORTED},
+        {"late_clip",complete+"1 1 3 3 re W n",QUANTAPDF_ERROR_UNSUPPORTED},
+        {"fifth_image",complete+image_cm,QUANTAPDF_ERROR_UNSUPPORTED},
+        {"third_path",complete+second_path,QUANTAPDF_ERROR_UNSUPPORTED},
+        {"late_stroke",complete+"1 1 m 4 4 l S",QUANTAPDF_ERROR_UNSUPPORTED},
+        {"missing_j",complete,QUANTAPDF_ERROR_FORMAT,true},
+        {"form_j",complete,QUANTAPDF_ERROR_UNSUPPORTED,false,true},
+        {"interpolate_j",complete,QUANTAPDF_ERROR_UNSUPPORTED,false,false,true}
+    };
+    for(const auto& tc:cases){
+        three_scene sc;sc.commands=tc.input;
+        sc.missing_second=tc.missing;
+        sc.form_second=tc.form;
+        sc.interpolate_second=tc.interpolation;
+        const auto pdf=make_three_original(sc);
+        CHECK(!pdf.empty());
+        quantapdf_ir rejected;
+        std::memset(&rejected,0xab,sizeof(rejected));
+        const auto actual=quantapdf_qpdf_source_mixed_two_paths_two_images_to_ir_v3(
+            pdf.data(),pdf.size(),&limits,&rejected);
+        if(actual!=tc.expected)
+            std::fprintf(stderr,"[source-mixed-v3] %s expected=%d got=%d\n",
+                         tc.name,(int)tc.expected,(int)actual);
+        CHECK(actual==tc.expected);
+        CHECK(rejected.pages==nullptr && rejected.page_count==0u &&
+              rejected.operations==nullptr && rejected.operation_count==0u &&
+              rejected.resources.images==nullptr &&
+              rejected.resources.image_count==0u);
+        quantapdf_ir_dispose(&rejected);
+    }
+    {
+        three_scene sc;sc.commands=complete;
+        const auto pdf=make_three_original(sc);
+        quantapdf_ir ir{};
+        auto tight=limits;
+        tight.max_operations=3u;
+        CHECK(quantapdf_qpdf_source_mixed_two_paths_two_images_to_ir_v3(
+            pdf.data(),pdf.size(),&tight,&ir)==QUANTAPDF_ERROR_UNSUPPORTED);
+        tight=limits;
+        tight.max_source_pixels=1u;
+        CHECK(quantapdf_qpdf_source_mixed_two_paths_two_images_to_ir_v3(
+            pdf.data(),pdf.size(),&tight,&ir)==QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(ir.pages==nullptr && ir.operations==nullptr &&
+              ir.resources.images==nullptr);
+    }
+    return EXIT_SUCCESS;
+}
+
 int main()
 {
     if(positive(false,false,true,false)!=EXIT_SUCCESS ||
@@ -563,7 +745,14 @@ int main()
        positive_three(0,true)!=EXIT_SUCCESS ||
        positive_three(1,false)!=EXIT_SUCCESS ||
        positive_three(2,false)!=EXIT_SUCCESS ||
-       negative_three()!=EXIT_SUCCESS)
+       negative_three()!=EXIT_SUCCESS ||
+       positive_four(0)!=EXIT_SUCCESS ||
+       positive_four(1)!=EXIT_SUCCESS ||
+       positive_four(2)!=EXIT_SUCCESS ||
+       positive_four(3)!=EXIT_SUCCESS ||
+       positive_four(4)!=EXIT_SUCCESS ||
+       positive_four(5)!=EXIT_SUCCESS ||
+       negative_four()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
     std::puts("[source-mixed] original Path/Image Do source-order "
               "PDFium/native pixel & refusal PASS");
