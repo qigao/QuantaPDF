@@ -1,4 +1,5 @@
 #include "document_backend.h"
+#include "builtin_source_view_v1.h"
 #include "pdfium_document.h"
 #include "qpdf_document.h"
 #include "qpdf_graph_write.h"
@@ -110,6 +111,34 @@ static quantapdf_status builtin_page_bounds(
         return QUANTAPDF_ERROR_ARGUMENT;
     return quantapdf_qpdf_page_box_bounds(state->document->writer,
         state->page_index, QUANTAPDF_PAGE_BOX_CROP, out_bounds);
+}
+
+/* This is the ONLY built-in-struct-dependent native integration:
+ * borrow the already opened Page's immutable original source and index.
+ * Native admission/decoding/raster belong to the main product target,
+ * never this backend archive. The getter has no PDFium lazy-open call. */
+quantapdf_status quantapdf_builtin_page_source_view_v1(
+    void *builtin_page,
+    quantapdf_builtin_source_view_v1 *out_view)
+{
+    quantapdf_builtin_page *page = builtin_page;
+    quantapdf_builtin_document *document;
+
+    if (out_view == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_view = (quantapdf_builtin_source_view_v1){0};
+    if (page == NULL || page->document == NULL || page->page_index < 0)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    document = page->document;
+    if (document->writer == NULL || document->source_data == NULL ||
+        document->source_size == 0u)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    out_view->data = document->source_data;
+    out_view->size = document->source_size;
+    out_view->password = document->password;
+    out_view->page_index = (size_t)page->page_index;
+    return QUANTAPDF_OK;
 }
 
 static quantapdf_status builtin_ensure_legacy_page(quantapdf_builtin_page *page)

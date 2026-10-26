@@ -350,6 +350,7 @@ add_executable(quantapdf_test_native_source_image_clip
   test_native_source_image_clip.cpp
   # Bridge and C11 sampler use actual product-linked qualified objects.
   $<TARGET_OBJECTS:quantapdf_native_raster_objects>
+  $<TARGET_OBJECTS:quantapdf_native_bridge_objects>
   ../src/render/ir_raster_image_clip_v2.c
   ../src/render/ir_raster_image_clip_path_v4.c
   ../src/render/ir_raster_v1.c
@@ -404,6 +405,39 @@ add_test(NAME quantapdf.native_source_product_bridge_v1
 set_tests_properties(quantapdf.native_source_product_bridge_v1 PROPERTIES
   TIMEOUT 40
   LABELS "conformance;source-pdf;native-raster;product-bridge;backend-free-raster")
+# Private Native render through real built-in provider document/page lifetime.
+# Public render_page dispatch stays PDFium-backed and is not replaced.
+add_test(NAME quantapdf.native_builtin_page_owner_v1
+  COMMAND quantapdf_test_native_source_image_clip --builtin-native-page-only)
+set_tests_properties(quantapdf.native_builtin_page_owner_v1 PROPERTIES
+  TIMEOUT 40
+  LABELS "conformance;source-pdf;native-raster;builtin-page;ownership")
+# Static-link closure gate: intentionally NO direct Raster OBJECTs and NO
+# explicit quantapdf_backend target. All private builtin->Source->Raster
+# references must resolve from the actual QuantaPDF static product target.
+if(NOT BUILD_SHARED_LIBS)
+  add_executable(quantapdf_test_private_builtin_native_static_link
+    test_private_builtin_native_static_link.c)
+  target_include_directories(quantapdf_test_private_builtin_native_static_link
+    PRIVATE "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+  target_compile_features(quantapdf_test_private_builtin_native_static_link
+    PRIVATE c_std_11)
+  target_link_libraries(quantapdf_test_private_builtin_native_static_link
+    PRIVATE QuantaPDF::QuantaPDF)
+  if(MSVC)
+    target_compile_options(quantapdf_test_private_builtin_native_static_link
+      PRIVATE /W4 /WX)
+  else()
+    target_compile_options(quantapdf_test_private_builtin_native_static_link
+      PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME quantapdf.private_builtin_native_static_link
+    COMMAND quantapdf_test_private_builtin_native_static_link)
+  set_tests_properties(quantapdf.private_builtin_native_static_link PROPERTIES
+    TIMEOUT 20
+    LABELS "conformance;native-raster;builtin-page;static-link")
+endif()
+
 if(WIN32)
   set_property(TEST quantapdf.native_source_image_clip
     quantapdf.native_source_scoped_mixed_v6
@@ -411,6 +445,7 @@ if(WIN32)
     quantapdf.native_source_scoped_mixed_v8_gray
     quantapdf.native_source_profile_legacy_parity
     quantapdf.native_source_product_bridge_v1
+    quantapdf.native_builtin_page_owner_v1
     PROPERTY ENVIRONMENT_MODIFICATION
     "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 elseif(APPLE)
@@ -420,6 +455,7 @@ elseif(APPLE)
     quantapdf.native_source_scoped_mixed_v8_gray
     quantapdf.native_source_profile_legacy_parity
     quantapdf.native_source_product_bridge_v1
+    quantapdf.native_builtin_page_owner_v1
     PROPERTY ENVIRONMENT_MODIFICATION
     "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 else()
@@ -429,6 +465,7 @@ else()
     quantapdf.native_source_scoped_mixed_v8_gray
     quantapdf.native_source_profile_legacy_parity
     quantapdf.native_source_product_bridge_v1
+    quantapdf.native_builtin_page_owner_v1
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
