@@ -75,6 +75,33 @@ add_test(NAME quantapdf.native_ir_mixed_path_image_v1
 set_tests_properties(quantapdf.native_ir_mixed_path_image_v1 PROPERTIES
   TIMEOUT 30 LABELS "conformance;native-raster;mixed-paint;backend-free")
 
+# Independent C11 three-layer source-order contract: exactly one PATH,
+# two uniquely referenced normalized RAW IMAGE resources, cumulative pixel
+# budgets and whole-output refusal. Keep PDFium/qpdf absent from this target.
+add_executable(quantapdf_test_ir_raster_mixed_v2
+  test_ir_raster_mixed_v2.c
+  ../src/render/ir_raster_mixed_v1.c
+  ../src/render/ir_raster_v1.c
+  ../src/render/ir_raster_image_v1.c
+  ../src/render/ir_raster.c
+  ../src/render/native_device_plan.c)
+target_include_directories(quantapdf_test_ir_raster_mixed_v2 PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_ir_raster_mixed_v2 PRIVATE c_std_11)
+if(MSVC)
+  target_compile_options(quantapdf_test_ir_raster_mixed_v2 PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_test_ir_raster_mixed_v2 PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+if(UNIX)
+  target_link_libraries(quantapdf_test_ir_raster_mixed_v2 PRIVATE m)
+endif()
+add_test(NAME quantapdf.native_ir_mixed_path_two_images_v2
+  COMMAND quantapdf_test_ir_raster_mixed_v2)
+set_tests_properties(quantapdf.native_ir_mixed_path_two_images_v2 PROPERTIES
+  TIMEOUT 30 LABELS "conformance;native-raster;mixed-paint;backend-free")
+
 # Actual original literal PDF -> selected Graph -> detached IR + owned plan.
 # PDFium is linked only here as an independent full-RGB FIT reference.
 add_executable(quantapdf_test_native_device_source
