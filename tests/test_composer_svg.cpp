@@ -698,6 +698,12 @@ static int test_v2b2_symbol_use_form_reuse()
         first_size,
         0u,
         "2 0 0 2 140 180 cm /Fm1 Do"));
+    /* Preserve the exact source-transform admission. On failure emit the
+     * original decoded page content so a real SVG transform bug cannot be
+     * mistaken for a harmless numeric serialization difference. */
+    if (!quantapdf_test_pdf_content_contains(
+            first_data, first_size, 0u, "1.2 0 0 1.2 0 40 cm /Fm2 Do"))
+        quantapdf_test_pdf_content_debug(first_data,first_size,0u);
     CHECK(quantapdf_test_pdf_content_contains(
         first_data,
         first_size,
