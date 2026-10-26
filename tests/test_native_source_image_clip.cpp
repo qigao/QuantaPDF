@@ -1660,7 +1660,7 @@ int positive_builtin_native_page_v1(
         for(size_t c=0u;c<3u;++c){
             const unsigned d=a[c]>b[c]?a[c]-b[c]:b[c]-a[c];
             sum+=(double)d;
-            peak=std::max(peak,d);
+            if(d>peak)peak=d;
         }
         if(peak>64u)++gross;
     }
