@@ -154,6 +154,16 @@ quantapdf_status quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
     const unsigned char *original_pdf,size_t size,
     const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir);
 
+/* Opt-in Source V7: the private V6 bounded 2..4 scoped Path/Image mode,
+ * with finite [0,1] normalized /DeviceRGB nonstroking "rg" channels
+ * quantized to opaque 8-bit components via floor(channel*255 + 0.5).
+ * No implicit clamping, inherited DefaultRGB override, transparency,
+ * extra Clip, larger layer count or new C11 raster backend. V6 and all
+ * earlier original-source modes continue requiring exact RGB 0/1. */
+quantapdf_status quantapdf_qpdf_source_scoped_mixed_v7_to_ir(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir);
+
 #ifdef __cplusplus
 }
 #endif
