@@ -13,6 +13,7 @@
 #include <qpdf/QPDFWriter.hh>
 #include <fpdfview.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -922,7 +923,7 @@ int source_scoped_mixed_v6_suite()
         {outer+img_in+"Q "+path_out+img_out+img_out},
         {outer+path_in+path_in+"Q "+path_out+img_out},
         {outer+"q 16 1 0 12 8 3 cm /I Do Q Q "+path_out},
-        {outer+img_in+"Q "+path_out+" q /I Do Q"}
+        {outer+img_in+"Q "+path_out+" q 1 1 m 2 2 l S Q"}
     };
     for(const auto& sc:bad)
         if(negative_scoped_mixed_v6(
