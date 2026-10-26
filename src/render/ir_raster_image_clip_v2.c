@@ -1,4 +1,4 @@
-#include "render/ir_raster_image_clip_v2.h"
+#include "render/ir_raster_image_clip_v3.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -38,11 +38,14 @@ static void qp_over(unsigned char *dst,const unsigned char *src)
     dst[3]=(unsigned char)((out_a+127u)/255u);
 }
 
-quantapdf_status quantapdf_ir_raster_two_clipped_raw_images_v2(
+/* Shared admission keeps the original V2 (both clipped) distinct from
+ * opt-in V3 (second image after a Q-restored Clip), without making the
+ * existing V2 call accept a new source signature implicitly. */
+static quantapdf_status qp_two_image_impl(
     const quantapdf_ir *ir,size_t page_index,
     const quantapdf_ir_raster_image_v1_limits *image_limits,
     const quantapdf_ir_raster_v1_limits *clip_limits,
-    quantapdf_ir_raster_image *out_image)
+    quantapdf_ir_raster_image *out_image,int second_restored)
 {
     const quantapdf_composer_page_state *page;
     quantapdf_ir_raster_image layers[2]={{0},{0}};
@@ -108,13 +111,15 @@ quantapdf_status quantapdf_ir_raster_two_clipped_raw_images_v2(
         const quantapdf_composer_operation *op=&ir->operations[i];
         const quantapdf_composer_image_state *image=&ir->resources.images[i];
         size_t x0,y0,x1,y1,pixels,area;
+        const quantapdf_composer_graphics_state_id expected_state =
+            (second_restored && i==1u) ? 0u : 1u;
         if(op->kind!=QUANTAPDF_COMPOSER_OPERATION_IMAGE ||
            op->page_index!=0u ||
-           op->graphics_state_id!=1u ||
+           op->graphics_state_id!=expected_state ||
            op->value.image.image_id!=(quantapdf_composer_image_id)(i+1u) ||
            op->value.image.options.struct_size<
                QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_MIN_SIZE ||
-           op->value.image.options.graphics_state_id!=1u ||
+           op->value.image.options.graphics_state_id!=expected_state ||
            op->value.image.options.fit!=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH ||
            image->width==0u || image->height==0u ||
            (size_t)image->width>QP_V2_MAX_SOURCE/(size_t)image->height ||
@@ -139,13 +144,19 @@ quantapdf_status quantapdf_ir_raster_two_clipped_raw_images_v2(
 
     /* Divide global edge+sample work conservatively among layers. No
      * two full-budget V1 paints may silently double the caller's limit. */
-    if(clip_limits->max_edges<2u ||
-       clip_limits->max_sample_tests<2u)
+    /* Both clipped V2 layers divide their global Clip budget.
+     * V3 has exactly one Clip evaluation: the restored second layer must
+     * not burn any Clip edge/sample work or inherit the Clip resource. */
+    if(!second_restored &&
+       (clip_limits->max_edges<2u ||
+        clip_limits->max_sample_tests<2u))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     clip_per_layer=*clip_limits;
     clip_per_layer.max_operations=1u;
-    clip_per_layer.max_edges/=2u;
-    clip_per_layer.max_sample_tests/=2u;
+    if(!second_restored) {
+        clip_per_layer.max_edges/=2u;
+        clip_per_layer.max_sample_tests/=2u;
+    }
     image_per_layer=*image_limits;
     image_per_layer.max_operations=1u;
 
@@ -156,18 +167,29 @@ quantapdf_status quantapdf_ir_raster_two_clipped_raw_images_v2(
     projected.page_count=1u;
     projected.operations=&operation;
     projected.operation_count=1u;
-    projected.resources.graphics_states=ir->resources.graphics_states;
-    projected.resources.graphics_state_count=1u;
-    projected.resources.clips=ir->resources.clips;
-    projected.resources.clip_count=1u;
     projected.resources.image_count=1u;
 
     for(i=0u;i<2u;++i) {
         operation=ir->operations[i];
         operation.value.image.image_id=1u;
         projected.resources.images=&ir->resources.images[i];
-        status=quantapdf_ir_raster_clipped_raw_image_v1(
-            &projected,0u,&image_per_layer,&clip_per_layer,&layers[i]);
+        if(second_restored && i==1u) {
+            /* A true q/Q restore removes the prior Clip association:
+             * this layer is a RAW IMAGE, not a second masked Image. */
+            projected.resources.graphics_states=NULL;
+            projected.resources.graphics_state_count=0u;
+            projected.resources.clips=NULL;
+            projected.resources.clip_count=0u;
+            status=quantapdf_ir_raster_raw_images_v1(
+                &projected,0u,&image_per_layer,&layers[i]);
+        } else {
+            projected.resources.graphics_states=ir->resources.graphics_states;
+            projected.resources.graphics_state_count=1u;
+            projected.resources.clips=ir->resources.clips;
+            projected.resources.clip_count=1u;
+            status=quantapdf_ir_raster_clipped_raw_image_v1(
+                &projected,0u,&image_per_layer,&clip_per_layer,&layers[i]);
+        }
         if(status!=QUANTAPDF_OK)goto cleanup;
         if(layers[i].pixels==NULL || layers[i].width!=width ||
            layers[i].height!=height || layers[i].size!=bytes ||
@@ -204,4 +226,27 @@ cleanup:
     quantapdf_ir_raster_image_dispose(&layers[0]);
     quantapdf_ir_raster_image_dispose(&layers[1]);
     return status;
+}
+
+/* Original V2 contract is unchanged. */
+quantapdf_status quantapdf_ir_raster_two_clipped_raw_images_v2(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_image_v1_limits *image_limits,
+    const quantapdf_ir_raster_v1_limits *clip_limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_two_image_impl(
+        ir,page_index,image_limits,clip_limits,out_image,0);
+}
+
+/* Opt-in V3 requires a second image with NO Clip/Graphics State,
+ * modelling the source-level Q that restores the previous Clip scope. */
+quantapdf_status quantapdf_ir_raster_restored_raw_images_v3(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_image_v1_limits *image_limits,
+    const quantapdf_ir_raster_v1_limits *clip_limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_two_image_impl(
+        ir,page_index,image_limits,clip_limits,out_image,1);
 }
