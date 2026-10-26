@@ -162,9 +162,8 @@ set_tests_properties(quantapdf.native_ir_raw_image_clip_path_v4 PROPERTIES
 # executable is provider-neutral and links no qpdf/PDFium runtime.
 add_executable(quantapdf_test_ir_raster_scoped_mixed_v5
   test_ir_raster_scoped_mixed_v5.c
-  ../src/render/ir_raster_scoped_mixed_v5.c
-  ../src/render/ir_raster_image_clip_v1.c
-  ../src/render/ir_raster_image_v1.c
+  # EXACT same qualified raster objects used by the shipped target.
+  $<TARGET_OBJECTS:quantapdf_native_raster_objects>
   ../src/render/ir_raster_v1.c
   ../src/render/ir_raster.c
   ../src/render/native_device_plan.c)
@@ -349,11 +348,10 @@ endif()
 # this test; the reused pure-C11 RAW Image Clip raster remains backend-free.
 add_executable(quantapdf_test_native_source_image_clip
   test_native_source_image_clip.cpp
-  ../src/render/ir_raster_image_clip_v1.c
+  # Bridge and C11 sampler use actual product-linked qualified objects.
+  $<TARGET_OBJECTS:quantapdf_native_raster_objects>
   ../src/render/ir_raster_image_clip_v2.c
   ../src/render/ir_raster_image_clip_path_v4.c
-  ../src/render/ir_raster_scoped_mixed_v5.c
-  ../src/render/ir_raster_image_v1.c
   ../src/render/ir_raster_v1.c
   ../src/render/ir_raster.c
   ../src/render/native_device_plan.c
