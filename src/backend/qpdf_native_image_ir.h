@@ -164,6 +164,17 @@ quantapdf_status quantapdf_qpdf_source_scoped_mixed_v7_to_ir(
     const unsigned char *original_pdf,size_t size,
     const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir);
 
+/* Private Source Scoped Mixed V8: retain V7's finite normalized rg and
+ * bounded 2..4 opaque Path/Image + one W/W* + actual Q-restored paint,
+ * while admitting finite nonstroking DeviceGray "g" in [0,1].
+ * Deterministically quantize to RGB8 via floor(channel*255+0.5).
+ * Q restores the inherited fill state; V1–V7 still reject g, while
+ * V7 and V8 must paint their common rg source byte-identically.
+ * This does not introduce a public ABI or change the C11 Raster. */
+quantapdf_status quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir);
+
 #ifdef __cplusplus
 }
 #endif
