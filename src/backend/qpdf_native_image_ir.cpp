@@ -151,6 +151,8 @@ struct admission {
     bool clip_completed=false;
     staged_image_clip clip;
     size_t clipped_image_limit=1u;
+    bool restore_second_image=false;
+    bool saw_q_restore=false;
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule)
@@ -286,7 +288,11 @@ public:
             fill_argb=fill_stack.back();fill_stack.pop_back();
             if(clipped) {
                 admit(!clip_stack.empty());
+                const bool was_clipped=clip_active;
                 clip_active=clip_stack.back();clip_stack.pop_back();
+                if(target.restore_second_image && target.draws.size()==1u &&
+                   was_clipped && !clip_active)
+                    target.saw_q_restore=true;
             }
         } else if(op=="cm") {
             admit(args.size()==6u && pending_path.empty());
@@ -296,10 +302,23 @@ public:
         } else if(op=="Do") {
             admit(args.size()==1u && args[0].isName() &&
                   pending_path.empty() && !clip_pending);
-            if(clipped)
-                admit(clip_active && target.clip_completed &&
+            if(clipped) {
+                admit(target.clip_completed &&
                       target.draws.size()<target.clipped_image_limit,
                       QUANTAPDF_ERROR_UNSUPPORTED);
+                if(target.restore_second_image) {
+                    if(target.draws.empty()) {
+                        admit(clip_active,QUANTAPDF_ERROR_UNSUPPORTED);
+                    } else {
+                        /* A distinct Q must unwind the Clip before the
+                         * second Do; never retain its old mask implicitly. */
+                        admit(!clip_active && target.saw_q_restore,
+                              QUANTAPDF_ERROR_UNSUPPORTED);
+                    }
+                } else {
+                    admit(clip_active,QUANTAPDF_ERROR_UNSUPPORTED);
+                }
+            }
             admit(target.resources.isDictionary(),QUANTAPDF_ERROR_FORMAT);
             Obj xobjects=target.resources.getKey("/XObject");
             admit(xobjects.isDictionary(),QUANTAPDF_ERROR_FORMAT);
@@ -555,6 +574,8 @@ quantapdf_ir materialize_clipped_image(const admission& source,
     admit(source.clipped_image_mode && source.clip_completed &&
           (expected_images==1u || expected_images==2u) &&
           source.draws.size()==expected_images && !source.mixed_mode &&
+          (!source.restore_second_image ||
+           (expected_images==2u && source.saw_q_restore)) &&
           source.clip.commands.size()>=4u &&
           source.clip.commands.size()<=9u,
           QUANTAPDF_ERROR_UNSUPPORTED);
@@ -588,10 +609,12 @@ quantapdf_ir materialize_clipped_image(const admission& source,
                     clip.command_count*sizeof(*clip.commands));
         clip.transform={1.0f,0.0f,0.0f,1.0f,0.0f,0.0f};
         for(size_t i=0u;i<expected_images;++i) {
-            ir.operations[i].graphics_state_id=1u;
+            const quantapdf_composer_graphics_state_id state =
+                source.restore_second_image && i==1u ? 0u : 1u;
+            ir.operations[i].graphics_state_id=state;
             ir.operations[i].value.image.options.struct_size=
                 QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
-            ir.operations[i].value.image.options.graphics_state_id=1u;
+            ir.operations[i].value.image.options.graphics_state_id=state;
         }
         return ir;
     } catch(...) {
@@ -719,8 +742,9 @@ static quantapdf_status source_raw_images_to_ir_impl(
         admission source{resources,*limits,page_w,page_h,0u,0u,0u,
                          {},false,{},{},2u,false,false,{}};
         source.mixed_mode=mixed_version>=1 && mixed_version<=3;
-        source.clipped_image_mode=mixed_version==4 || mixed_version==5;
-        source.clipped_image_limit=mixed_version==5 ? 2u : 1u;
+        source.clipped_image_mode=mixed_version>=4 && mixed_version<=6;
+        source.clipped_image_limit=mixed_version>=5 ? 2u : 1u;
+        source.restore_second_image=mixed_version==6;
         source.mixed_operation_limit=mixed_version==3 ? 4u :
             (mixed_version==2 ? 3u : 2u);
         auto contents=page_streams(geo.page.getKey("/Contents"),*limits);
@@ -742,7 +766,9 @@ static quantapdf_status source_raw_images_to_ir_impl(
                 source.order.size()==source.mixed_operation_limit)) &&
               (!source.clipped_image_mode ||
                (source.clip_completed &&
-                source.draws.size()==source.clipped_image_limit)),
+                source.draws.size()==source.clipped_image_limit &&
+                 (!source.restore_second_image ||
+                  source.saw_q_restore))),
               QUANTAPDF_ERROR_UNSUPPORTED);
         *out_ir=source.clipped_image_mode ?
             materialize_clipped_image(source,source.clipped_image_limit) :
@@ -813,4 +839,15 @@ quantapdf_qpdf_source_two_clipped_raw_images_to_ir_v2(
     const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
 {
     return source_raw_images_to_ir_impl(original_pdf,size,limits,out_ir,5);
+}
+
+/* Source V3: an actual Q-restored second Image Do has NO Clip/GS ID.
+ * This must not widen either of the previous clipped-source signatures. */
+extern "C" quantapdf_status
+quantapdf_qpdf_source_restored_clipped_raw_images_to_ir_v3(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
+{
+    return source_raw_images_to_ir_impl(
+        original_pdf,size,limits,out_ir,6);
 }
