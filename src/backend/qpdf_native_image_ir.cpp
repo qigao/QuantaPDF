@@ -163,6 +163,9 @@ struct admission {
     /* Source V7 independently admits finite normalized DeviceRGB rg
      * channels. Earlier source signatures remain exact-binary only. */
     bool normalized_rgb_mode=false;
+    /* V8 adds a private nonstroking DeviceGray g admission, without
+     * changing earlier source color profiles or the C11 renderer. */
+    bool normalized_gray_mode=false;
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule)
@@ -372,6 +375,18 @@ public:
                 rgb|=component << (16u-8u*i);
             }
             fill_argb=UINT32_C(0xff000000)|rgb;
+        } else if(mixed && target.normalized_gray_mode && op=="g") {
+            /* V8-only single-channel DeviceGray fill: bound first, then
+             * quantize exactly like V7's normalized RGB components.
+             * Painting still uses the existing opaque 8-bit RGB IR. */
+            admit(args.size()==1u && pending_path.empty());
+            const double channel=finite_number(args[0]);
+            admit(channel>=0.0 && channel<=1.0,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            const uint32_t gray=static_cast<uint32_t>(
+                std::floor(channel*255.0+0.5));
+            fill_argb=UINT32_C(0xff000000) |
+                (gray<<16u) | (gray<<8u) | gray;
         } else if((mixed || clipped) && op=="m") {
             admit(args.size()==2u && pending_path.empty(),
                   QUANTAPDF_ERROR_UNSUPPORTED);
@@ -967,21 +982,25 @@ static quantapdf_status source_raw_images_to_ir_impl(
          * -Werror=missing-field-initializers for aggregate additions. */
         admission source{resources,*limits,page_w,page_h,0u,0u,0u,
                           {},false,{},{},2u,false,false,{},
-                          1u,false,false,false,{},false,false};
+                          1u,false,false,false,{},false,false,false};
         source.mixed_mode=(mixed_version>=1 && mixed_version<=3) ||
             mixed_version==7 || mixed_version==8 || mixed_version==9 ||
-            mixed_version==10;
-        source.clipped_image_mode=mixed_version>=4 && mixed_version<=10;
+            mixed_version==10 || mixed_version==11;
+        source.clipped_image_mode=mixed_version>=4 && mixed_version<=11;
         source.clipped_image_limit=(mixed_version==5 || mixed_version==6 ||
-            mixed_version==8 || mixed_version==9 || mixed_version==10) ? 2u : 1u;
+            mixed_version==8 || mixed_version==9 ||
+            mixed_version==10 || mixed_version==11) ? 2u : 1u;
         source.restore_second_image=mixed_version==6 || mixed_version==7;
         source.mixed_operation_limit=(mixed_version==3 ||
-            mixed_version==8 || mixed_version==9 || mixed_version==10) ? 4u :
+            mixed_version==8 || mixed_version==9 ||
+            mixed_version==10 || mixed_version==11) ? 4u :
             (mixed_version==2 ? 3u : 2u);
         source.mixed_scoped_mode=mixed_version==8 || mixed_version==9 ||
-            mixed_version==10;
-        source.variable_scoped_mode=mixed_version==9 || mixed_version==10;
-        source.normalized_rgb_mode=mixed_version==10;
+            mixed_version==10 || mixed_version==11;
+        source.variable_scoped_mode=mixed_version==9 ||
+            mixed_version==10 || mixed_version==11;
+        source.normalized_rgb_mode=mixed_version==10 || mixed_version==11;
+        source.normalized_gray_mode=mixed_version==11;
         auto contents=page_streams(geo.page.getKey("/Contents"),*limits);
         QPDF parser;
         parser.emptyPDF();
@@ -992,7 +1011,8 @@ static quantapdf_status source_raw_images_to_ir_impl(
         parsed.parseAsContents(&reader);
         admit(!parser.anyWarnings() && !pdf->anyWarnings(),
               QUANTAPDF_ERROR_FORMAT);
-        const bool flexible_scoped=mixed_version==9 || mixed_version==10;
+        const bool flexible_scoped=mixed_version==9 ||
+            mixed_version==10 || mixed_version==11;
         const bool qualified_mixed=!source.mixed_mode ||
             (flexible_scoped ?
                 (source.draws.size()>=1u && source.draws.size()<=2u &&
@@ -1016,7 +1036,8 @@ static quantapdf_status source_raw_images_to_ir_impl(
                  (!source.restore_second_image || source.saw_q_restore) &&
                  (!flexible_scoped || source.saw_q_restore))),
                QUANTAPDF_ERROR_UNSUPPORTED);
-        *out_ir=(mixed_version==9 || mixed_version==10) ?
+        *out_ir=(mixed_version==9 || mixed_version==10 ||
+                 mixed_version==11) ?
             materialize_scoped_mixed_v5(source,true) :
             (mixed_version==8 ?
              materialize_scoped_mixed_v5(source) :
@@ -1153,4 +1174,15 @@ quantapdf_qpdf_source_scoped_mixed_v7_to_ir(
 {
     return source_raw_images_to_ir_impl(
         original_pdf,size,limits,out_ir,10);
+}
+
+/* Opt-in Source Scoped Mixed V8: V7's bounded Path/Image, frozen W/W*
+ * and real Q scope admission with additional finite DeviceGray nonstroking
+ * g. Quantize gray to opaque RGB; no public ABI or C11 Raster expansion. */
+extern "C" quantapdf_status
+quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
+{
+    return source_raw_images_to_ir_impl(original_pdf,size,limits,out_ir,11);
 }

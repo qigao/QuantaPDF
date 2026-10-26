@@ -720,7 +720,7 @@ struct v6_probe {size_t x,y;unsigned r,g,b;};
 int positive_scoped_mixed_v6(
     const fixture& sc,size_t clipped_count,size_t paths,size_t images,
     const std::vector<v6_probe>& goldens,bool compare_legacy_v5=false,
-    bool normalized_v7=false)
+    bool normalized_v7=false,bool gray_v8=false)
 {
     auto original=original_pdf(sc);
     CHECK(original.size()>100u);
@@ -729,14 +729,29 @@ int positive_scoped_mixed_v6(
     auto bounded=source_limits;
     bounded.max_operations=4u;
     quantapdf_ir ir{};
-    const quantapdf_status accepted=normalized_v7 ?
-        quantapdf_qpdf_source_scoped_mixed_v7_to_ir(
+    const quantapdf_status accepted=gray_v8 ?
+        quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
             original.data(),original.size(),&bounded,&ir) :
-        quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
-            original.data(),original.size(),&bounded,&ir);
+        (normalized_v7 ?
+            quantapdf_qpdf_source_scoped_mixed_v7_to_ir(
+                original.data(),original.size(),&bounded,&ir) :
+            quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
+                original.data(),original.size(),&bounded,&ir));
     OK(accepted);
-    if(normalized_v7) {
-        /* The new normalized color mode must not silently widen V6. */
+    if(gray_v8) {
+        /* V7 has no nonstroking Gray operator; a successful V8 result
+         * must never silently widen an already-qualified V7 mode. */
+        quantapdf_ir old_gray;
+        std::memset(&old_gray,0xa5,sizeof(old_gray));
+        CHECK(quantapdf_qpdf_source_scoped_mixed_v7_to_ir(
+            original.data(),original.size(),&bounded,&old_gray)==
+            QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(old_gray.pages==nullptr && old_gray.operations==nullptr &&
+              old_gray.resources.images==nullptr);
+        quantapdf_ir_dispose(&old_gray);
+    }
+    if(normalized_v7 || gray_v8) {
+        /* Previous strict color modes must never inherit V8 Gray. */
         quantapdf_ir older_color;
         std::memset(&older_color,0xa5,sizeof(older_color));
         CHECK(quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
@@ -830,20 +845,23 @@ int positive_scoped_mixed_v6(
 int negative_scoped_mixed_v6(
     const fixture& sc,quantapdf_status expected,
     const quantapdf_qpdf_source_raw_image_limits& bounds,
-    bool normalized_v7=false)
+    bool normalized_v7=false,bool gray_v8=false)
 {
     const auto bytes=original_pdf(sc);
     for(int attempt=0;attempt<2;++attempt) {
         quantapdf_ir refused;
         std::memset(&refused,0xa5,sizeof(refused));
-        const quantapdf_status actual=normalized_v7 ?
-            quantapdf_qpdf_source_scoped_mixed_v7_to_ir(
+        const quantapdf_status actual=gray_v8 ?
+            quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
                 bytes.data(),bytes.size(),&bounds,&refused) :
-            quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
-                bytes.data(),bytes.size(),&bounds,&refused);
+            (normalized_v7 ?
+                quantapdf_qpdf_source_scoped_mixed_v7_to_ir(
+                    bytes.data(),bytes.size(),&bounds,&refused) :
+                quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
+                    bytes.data(),bytes.size(),&bounds,&refused));
         if(actual!=expected)
             std::fprintf(stderr,
-                "Scoped Mixed V6/V7 unexpected status trial=%d wanted=%d got=%d\n",
+                "Scoped Mixed V6/V7/V8 unexpected status trial=%d wanted=%d got=%d\n",
                 attempt,(int)expected,(int)actual);
         CHECK(actual==expected);
         CHECK(refused.pages==nullptr && refused.page_count==0u &&
@@ -1128,6 +1146,141 @@ int source_scoped_mixed_v7_suite()
     return EXIT_SUCCESS;
 }
 
+
+/* Opt-in V8: a single normalized /DeviceGray nonstroking g channel
+ * duplicates into opaque RGB on the existing Source V7 Path/Image and C11
+ * raster budget. V7 must fail closed for the very same g source bytes. */
+int source_scoped_mixed_v8_suite()
+{
+    auto bounds=source_limits;
+    bounds.max_operations=4u;
+    const std::string outer="q 12 6 8 9 re W n ";
+    const std::string inside="0.25 g 12 6 4 4 re f ";
+    const std::string outside="0.875 g 24 17 5 3 re f ";
+    const std::string image_in="q 16 0 0 12 8 3 cm /I Do Q ";
+    const std::string image_out="q 8 0 0 6 22 16 cm /I Do Q ";
+
+    fixture two_path_image{};
+    two_path_image.a=outer+inside+"Q "+image_out;
+    if(positive_scoped_mixed_v6(
+        two_path_image,1u,1u,1u,
+        {{13u,16u,64u,64u,64u},{23u,3u,255u,0u,0u},
+         {28u,6u,255u,255u,0u},{9u,12u,255u,255u,255u}},
+        false,true,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    fixture two_image_path{};
+    two_image_path.a=outer+image_in+"Q "+outside;
+    if(positive_scoped_mixed_v6(
+        two_image_path,1u,1u,1u,
+        {{13u,11u,255u,0u,0u},{13u,16u,0u,0u,255u},
+         {26u,5u,223u,223u,223u},{23u,3u,255u,255u,255u}},
+        false,true,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    fixture three{};
+    three.a=outer+image_in+inside+"Q "+outside;
+    if(positive_scoped_mixed_v6(
+        three,2u,2u,1u,
+        {{13u,16u,64u,64u,64u},{13u,11u,255u,0u,0u},
+         {26u,5u,223u,223u,223u}},
+        false,true,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    fixture four{};
+    four.a=outer+inside+image_in+"Q "+image_out+outside;
+    if(positive_scoped_mixed_v6(
+        four,2u,2u,2u,
+        {{13u,16u,0u,0u,255u},{23u,3u,255u,0u,0u},
+         {26u,5u,223u,223u,223u}},
+        false,true,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    fixture split{};
+    split.split=true;
+    split.a="q 1 0 0 1 2 0 cm 10 6 8 9 re W*";
+    split.b=" n 0.5 g 10 6 4 4 re f Q "+image_out;
+    if(positive_scoped_mixed_v6(
+        split,1u,1u,1u,
+        {{13u,16u,128u,128u,128u},{23u,3u,255u,0u,0u}},
+        false,true,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    fixture restored{};
+    restored.a=outer+"q "+inside+"Q Q "+image_out+
+        "24 17 5 3 re f ";
+    if(positive_scoped_mixed_v6(
+        restored,1u,2u,1u,
+        {{13u,16u,64u,64u,64u},{23u,3u,255u,0u,0u},
+         {26u,5u,0u,0u,0u}},
+        false,true,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    /* Late invalid color/graphics/resource operators must destroy ALL
+     * pre-staged paints and reset poisoned result slots on each repeat. */
+    const fixture invalid[]={
+        {outer+image_in+"Q -0.01 g 24 17 5 3 re f"},
+        {outer+image_in+"Q 1.001 g 24 17 5 3 re f"},
+        {outer+image_in+"Q 0.25 G 24 17 5 3 re f"},
+        {outer+image_in+"Q "+outside+" BT ET"},
+        {outer+inside+"Q "+image_out+" /I Do /I Do"}
+    };
+    for(const auto& bad:invalid)
+        if(negative_scoped_mixed_v6(
+            bad,QUANTAPDF_ERROR_UNSUPPORTED,bounds,true,true)!=EXIT_SUCCESS)
+            return EXIT_FAILURE;
+    /* A syntactically ill-formed operand count is FORMAT, not an
+     * otherwise valid but unqualified Gray color. */
+    if(negative_scoped_mixed_v6(
+        fixture{outer+image_in+"Q 0.25 0.5 g 24 17 5 3 re f"},
+        QUANTAPDF_ERROR_FORMAT,bounds,true,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    fixture masked{};
+    masked.a=two_image_path.a;masked.mask=true;
+    if(negative_scoped_mixed_v6(
+        masked,QUANTAPDF_ERROR_UNSUPPORTED,bounds,true,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    fixture missing{};
+    missing.a=two_image_path.a;missing.missing_resources=true;
+    if(negative_scoped_mixed_v6(
+        missing,QUANTAPDF_ERROR_FORMAT,bounds,true,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    auto constrained=bounds;
+    constrained.max_operations=2u;
+    if(negative_scoped_mixed_v6(
+        three,QUANTAPDF_ERROR_UNSUPPORTED,constrained,true,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    constrained=bounds;
+    constrained.max_source_pixels=3u;
+    if(negative_scoped_mixed_v6(
+        two_image_path,QUANTAPDF_ERROR_UNSUPPORTED,constrained,true,true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    /* The V7 RGB source grammar is a strict subset of V8; admission must
+     * be bit-exact on the old profile, not just visually close. */
+    const auto original=original_pdf(fixture{
+        outer+"0.25 0.5 0.75 rg 12 6 4 4 re f Q "+image_out});
+    quantapdf_ir old_ir{},new_ir{};
+    OK(quantapdf_qpdf_source_scoped_mixed_v7_to_ir(
+        original.data(),original.size(),&bounds,&old_ir));
+    OK(quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
+        original.data(),original.size(),&bounds,&new_ir));
+    const quantapdf_ir_raster_scoped_mixed_v5_limits raster_bounds={
+        W*H,4u,512u,8000000u,16u,4096u
+    };
+    quantapdf_ir_raster_image old_out{},new_out{};
+    OK(quantapdf_ir_raster_scoped_mixed_v5(
+        &old_ir,0u,&raster_bounds,&old_out));
+    OK(quantapdf_ir_raster_scoped_mixed_v5(
+        &new_ir,0u,&raster_bounds,&new_out));
+    CHECK(old_out.size==new_out.size &&
+          std::memcmp(old_out.pixels,new_out.pixels,old_out.size)==0);
+    quantapdf_ir_raster_image_dispose(&old_out);
+    quantapdf_ir_raster_image_dispose(&new_out);
+    quantapdf_ir_dispose(&old_ir);
+    quantapdf_ir_dispose(&new_ir);
+
+    if(positive_scoped_mixed_v6(
+        two_path_image,1u,1u,1u,
+        {{13u,16u,64u,64u,64u},{23u,3u,255u,0u,0u}},
+        false,true,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+    return EXIT_SUCCESS;
+}
+
 int source_scoped_mixed_v5_suite()
 {
     auto budgets=source_limits;
@@ -1237,6 +1390,8 @@ int main(int argc,char **argv)
         return source_scoped_mixed_v6_suite();
     if(argc==2 && std::strcmp(argv[1],"--scoped-v7-only")==0)
         return source_scoped_mixed_v7_suite();
+    if(argc==2 && std::strcmp(argv[1],"--scoped-v8-only")==0)
+        return source_scoped_mixed_v8_suite();
     if(argc!=1)return EXIT_FAILURE;
     fixture basic{};
     basic.a="q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q";
@@ -1525,6 +1680,8 @@ int main(int argc,char **argv)
     if(source_scoped_mixed_v6_suite()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
     if(source_scoped_mixed_v7_suite()!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    if(source_scoped_mixed_v8_suite()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
 
     std::puts("Original Image Do under W/W*: independent PDFium RGB, "

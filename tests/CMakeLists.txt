@@ -386,22 +386,31 @@ add_test(NAME quantapdf.native_source_scoped_mixed_v7_rgb
   COMMAND quantapdf_test_native_source_image_clip --scoped-v7-only)
 set_tests_properties(quantapdf.native_source_scoped_mixed_v7_rgb PROPERTIES
   TIMEOUT 40 LABELS "conformance;source-pdf;native-raster;image-do;clip;mixed;rgb")
+# Private Source V8 adds normalized DeviceGray g Path fill only, borrowing
+# the V5 C11 Raster. Test-only original PDFium stays isolated to this binary.
+add_test(NAME quantapdf.native_source_scoped_mixed_v8_gray
+  COMMAND quantapdf_test_native_source_image_clip --scoped-v8-only)
+set_tests_properties(quantapdf.native_source_scoped_mixed_v8_gray PROPERTIES
+  TIMEOUT 40 LABELS "conformance;source-pdf;native-raster;image-do;clip;mixed;gray")
 if(WIN32)
   set_property(TEST quantapdf.native_source_image_clip
     quantapdf.native_source_scoped_mixed_v6
     quantapdf.native_source_scoped_mixed_v7_rgb
+    quantapdf.native_source_scoped_mixed_v8_gray
     PROPERTY ENVIRONMENT_MODIFICATION
     "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 elseif(APPLE)
   set_property(TEST quantapdf.native_source_image_clip
     quantapdf.native_source_scoped_mixed_v6
     quantapdf.native_source_scoped_mixed_v7_rgb
+    quantapdf.native_source_scoped_mixed_v8_gray
     PROPERTY ENVIRONMENT_MODIFICATION
     "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 else()
   set_property(TEST quantapdf.native_source_image_clip
     quantapdf.native_source_scoped_mixed_v6
     quantapdf.native_source_scoped_mixed_v7_rgb
+    quantapdf.native_source_scoped_mixed_v8_gray
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
