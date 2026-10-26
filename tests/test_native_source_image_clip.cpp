@@ -1815,6 +1815,38 @@ int builtin_native_page_owner_v1_suite()
         two,QUANTAPDF_ERROR_ARGUMENT,limits,modified)!=EXIT_SUCCESS)
         return EXIT_FAILURE;
 
+    /* A password-bearing built-in session must not be rendered using the
+     * private password-unaware Source interpreter or retried with PDFium.
+     * QPDF opens the valid, unencrypted fixture even with an unused
+     * caller-provided password; native qualification explicitly refuses. */
+    {
+        const auto original=original_pdf(two);
+        const auto *backend=quantapdf_builtin_backend_ops();
+        void *document=nullptr,*page=nullptr;
+        OK(backend->open_memory(
+            original.data(),original.size(),
+            "unused-session-password",&document));
+        CHECK(document!=nullptr);
+        OK(backend->load_page(document,0,&page));
+        CHECK(page!=nullptr);
+        for(int attempt=0;attempt<2;++attempt) {
+            quantapdf_ir_raster_image refused;
+            std::memset(&refused,0xa5,sizeof(refused));
+            CHECK(quantapdf_builtin_native_qualify_page_v1(
+                page,&limits,&device,&refused)==
+                QUANTAPDF_ERROR_UNSUPPORTED);
+            CHECK(refused.pixels==nullptr && refused.width==0u &&
+                  refused.height==0u && refused.stride==0u &&
+                  refused.size==0u);
+            quantapdf_ir_raster_image_dispose(&refused);
+        }
+        quantapdf_rect bounds{};
+        OK(backend->page_bounds(page,&bounds));
+        CHECK(bounds.x1==(float)W && bounds.y1==(float)H);
+        backend->drop_page(page);
+        backend->close(document);
+    }
+
     /* No valid handle permits accidental publication through a bad API.
      * This must clear even an intentionally poisoned output. */
     quantapdf_ir_raster_image bad;
