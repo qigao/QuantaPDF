@@ -139,6 +139,21 @@ quantapdf_status quantapdf_qpdf_source_scoped_mixed_v5_to_ir(
     const unsigned char *original_pdf,size_t size,
     const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir);
 
+/* Opt-in Source Scoped Mixed V6: the same strict, fully decoded original
+ * PDF content grammar and ONE frozen W/W* Clip leaf as V5, but with
+ * 2..4 paints (at least one PATH and one Image Do), 1..2 of each kind.
+ * At least one paint occurs under the frozen Clip; a real Q must restore
+ * unclipped GS=0 before at least one later paint. Source ordering is kept
+ * exactly in the owned IR. No Clip reentry, Text, Stroke, Form, soft mask,
+ * fallback or partial publication. Consume with the EXISTING private C11
+ * quantapdf_ir_raster_scoped_mixed_v5() without changing its caps.
+ *
+ * The previous V5 function remains exactly four paints, one of each
+ * kind on either side of Q; older source modes stay narrower. */
+quantapdf_status quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir);
+
 #ifdef __cplusplus
 }
 #endif
