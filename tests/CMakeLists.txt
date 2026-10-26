@@ -397,12 +397,20 @@ add_test(NAME quantapdf.native_source_profile_legacy_parity
   COMMAND quantapdf_test_native_source_image_clip --profile-parity-only)
 set_tests_properties(quantapdf.native_source_profile_legacy_parity PROPERTIES
   TIMEOUT 40 LABELS "conformance;source-pdf;native-raster;profile-parity")
+# Actual private production-archive Source -> owned IR -> canonical C11
+# raster bridge. The original PDFium oracle is test-only and independent.
+add_test(NAME quantapdf.native_source_product_bridge_v1
+  COMMAND quantapdf_test_native_source_image_clip --native-product-bridge-only)
+set_tests_properties(quantapdf.native_source_product_bridge_v1 PROPERTIES
+  TIMEOUT 40
+  LABELS "conformance;source-pdf;native-raster;product-bridge;backend-free-raster")
 if(WIN32)
   set_property(TEST quantapdf.native_source_image_clip
     quantapdf.native_source_scoped_mixed_v6
     quantapdf.native_source_scoped_mixed_v7_rgb
     quantapdf.native_source_scoped_mixed_v8_gray
     quantapdf.native_source_profile_legacy_parity
+    quantapdf.native_source_product_bridge_v1
     PROPERTY ENVIRONMENT_MODIFICATION
     "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 elseif(APPLE)
@@ -411,6 +419,7 @@ elseif(APPLE)
     quantapdf.native_source_scoped_mixed_v7_rgb
     quantapdf.native_source_scoped_mixed_v8_gray
     quantapdf.native_source_profile_legacy_parity
+    quantapdf.native_source_product_bridge_v1
     PROPERTY ENVIRONMENT_MODIFICATION
     "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 else()
@@ -419,6 +428,7 @@ else()
     quantapdf.native_source_scoped_mixed_v7_rgb
     quantapdf.native_source_scoped_mixed_v8_gray
     quantapdf.native_source_profile_legacy_parity
+    quantapdf.native_source_product_bridge_v1
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
