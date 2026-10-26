@@ -255,12 +255,15 @@ int main()
         {"q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do /I Do Q Q"},
         {"q W n q 16 0 0 12 8 3 cm /I Do Q Q"},
         {"q 12 6 8 9 re W n q 1 1 0 1 8 3 cm /I Do Q Q"},
-        {"q 12 6 8 9 re W n q 16 0 0 12 8.5 3 cm /I Do Q Q"},
-        {"q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /Unknown Do Q Q"}
+        {"q 12 6 8 9 re W n q 16 0 0 12 8.5 3 cm /I Do Q Q"}
     };
     for(size_t i=0u;i<sizeof(unsupported)/sizeof(unsupported[0]);++i)
         if(negative(unsupported[i],QUANTAPDF_ERROR_UNSUPPORTED)!=EXIT_SUCCESS)
             return EXIT_FAILURE;
+    fixture unknown{};
+    unknown.a="q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /Unknown Do Q Q";
+    if(negative(unknown,QUANTAPDF_ERROR_FORMAT)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
     fixture wrong{};
     wrong.a=valid;
     wrong.wrong_subtype=true;
