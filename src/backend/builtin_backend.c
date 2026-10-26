@@ -1,4 +1,5 @@
 #include "document_backend.h"
+#include "builtin_native_page_v1.h"
 #include "pdfium_document.h"
 #include "qpdf_document.h"
 #include "qpdf_graph_write.h"
@@ -7,6 +8,7 @@
 #include "qpdf_edit.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 typedef struct quantapdf_builtin_document {
     quantapdf_pdfium_document *reader;
@@ -110,6 +112,47 @@ static quantapdf_status builtin_page_bounds(
         return QUANTAPDF_ERROR_ARGUMENT;
     return quantapdf_qpdf_page_box_bounds(state->document->writer,
         state->page_index, QUANTAPDF_PAGE_BOX_CROP, out_bounds);
+}
+
+/* Deliberately NOT part of builtin_ops.render_page. This private
+ * qualification consumes the existing provider page's borrowed source
+ * bytes, without loading/consulting any PDFium document/page reader.
+ * Source admission and native raster each own their independent limits. */
+quantapdf_status quantapdf_builtin_native_qualify_page_v1(
+    void *builtin_page,
+    const quantapdf_native_source_raster_bridge_limits_v1 *limits,
+    const quantapdf_native_source_raster_device_v1 *device,
+    quantapdf_ir_raster_image *out_image)
+{
+    quantapdf_builtin_page *page = builtin_page;
+    quantapdf_builtin_document *document;
+
+    if (out_image == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out_image, 0, sizeof(*out_image));
+    if (page == NULL || page->document == NULL ||
+        limits == NULL || device == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    document = page->document;
+    if (document->writer == NULL || document->source_data == NULL ||
+        document->source_size == 0u || page->page_index < 0)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    /* The private Source V8 renderer is qualified for selected page 0
+     * only; a mismatched real provider page or extra page selection
+     * must never be rendered as page zero accidentally. */
+    if ((size_t)page->page_index != device->page_index)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    /* The Source V8 admission is not a password-aware renderer. Native
+     * must fail closed rather than disregarding an authenticated source
+     * session or falling back to the lazy legacy PDFium reader. */
+    if (document->password != NULL && document->password[0] != '\0')
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    return quantapdf_native_source_raster_bridge_v1(
+        document->source_data, document->source_size,
+        limits, device, out_image);
 }
 
 static quantapdf_status builtin_ensure_legacy_page(quantapdf_builtin_page *page)
