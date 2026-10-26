@@ -5,6 +5,7 @@
 #include "backend/qpdf_native_image_ir.h"
 #include "render/ir_raster_image_clip_v1.h"
 #include "render/ir_raster_image_clip_v2.h"
+#include "render/ir_raster_image_clip_v3.h"
 
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFWriter.hh>
@@ -292,6 +293,96 @@ int positive_two(const fixture& source,quantapdf_composer_fill_rule rule)
     return EXIT_SUCCESS;
 }
 
+/* V3: first Image under the frozen Clip, Q restores its previous scope,
+ * second original Do must be visible OUTSIDE that Clip. V1/V2 source
+ * signatures must still reject the expanded q/Q semantics. */
+int positive_restored(const fixture& source,
+                      quantapdf_composer_fill_rule rule)
+{
+    auto original=original_pdf(source);
+    CHECK(original.size()>100u);
+    const auto direct=pdfium_original_rgb(original);
+    CHECK(direct.size()==W*H*3u);
+    quantapdf_ir old_api{};
+    CHECK(quantapdf_qpdf_source_two_clipped_raw_images_to_ir_v2(
+        original.data(),original.size(),&source_limits,&old_api)
+        ==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(old_api.pages==nullptr && old_api.operations==nullptr);
+    quantapdf_ir ir{};
+    OK(quantapdf_qpdf_source_restored_clipped_raw_images_to_ir_v3(
+        original.data(),original.size(),&source_limits,&ir));
+    CHECK(ir.page_count==1u && ir.operation_count==2u &&
+          ir.resources.image_count==2u && ir.resources.clip_count==1u &&
+          ir.resources.graphics_state_count==1u);
+    CHECK(ir.operations[0].kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE &&
+          ir.operations[1].kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE &&
+          ir.operations[0].graphics_state_id==1u &&
+          ir.operations[1].graphics_state_id==0u &&
+          ir.operations[0].value.image.options.graphics_state_id==1u &&
+          ir.operations[1].value.image.options.graphics_state_id==0u &&
+          ir.operations[0].value.image.image_id==1u &&
+          ir.operations[1].value.image.image_id==2u);
+    CHECK(ir.resources.graphics_states[0].clip_id==1u &&
+          ir.resources.clips[0].kind==
+              QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL &&
+          ir.resources.clips[0].fill_rule==rule &&
+          ir.resources.clips[0].command_count==5u);
+    original.clear();original.shrink_to_fit();
+
+    quantapdf_ir_raster_image native{},again{};
+    quantapdf_ir_raster_image_v1_limits img=image_limits;
+    quantapdf_ir_raster_v1_limits mask=clip_limits;
+    img.max_operations=2u;
+    mask.max_operations=2u;
+    OK(quantapdf_ir_raster_restored_raw_images_v3(
+        &ir,0u,&img,&mask,&native));
+    OK(quantapdf_ir_raster_restored_raw_images_v3(
+        &ir,0u,&img,&mask,&again));
+    CHECK(native.width==W && native.height==H &&
+          native.stride==W*4u && native.size==W*H*4u &&
+          native.size==again.size &&
+          std::memcmp(native.pixels,again.pixels,native.size)==0);
+    quantapdf_ir_dispose(&ir);
+    CHECK(ir.pages==nullptr && ir.operations==nullptr &&
+          ir.resources.images==nullptr && ir.resources.clips==nullptr);
+
+    double diff=0.0;
+    size_t gross=0u;
+    for(size_t y=0u;y<H;++y)for(size_t x=0u;x<W;++x) {
+        const auto *p=native.pixels+y*native.stride+x*4u;
+        const auto *q=direct.data()+(y*W+x)*3u;
+        unsigned worst=0u;
+        for(size_t c=0u;c<3u;++c) {
+            const unsigned n=(unsigned)p[c],d=(unsigned)q[c];
+            const unsigned delta=n>d?n-d:d-n;
+            if(delta>worst)worst=delta;
+            diff+=(double)delta;
+        }
+        if(worst>64u)++gross;
+    }
+    CHECK(diff/(double)(W*H*3u)<=8.0 && gross<=W*H/12u);
+    struct probe {size_t x,y;unsigned r,g,b;};
+    const probe pixels[]={
+        {1u,1u,255u,255u,255u},
+        {9u,11u,255u,255u,255u},
+        {21u,12u,255u,255u,255u},
+        {13u,10u,255u,0u,0u}, {19u,10u,0u,255u,0u},
+        {13u,16u,0u,0u,255u}, {19u,16u,255u,255u,0u},
+        /* These pixels are outside the Clip, and MUST appear after Q. */
+        {23u,12u,255u,0u,0u}, {27u,12u,0u,255u,0u},
+        {23u,15u,0u,0u,255u}, {27u,15u,255u,255u,0u}
+    };
+    for(const auto& v:pixels) {
+        const auto *p=native.pixels+v.y*native.stride+v.x*4u;
+        const auto *q=direct.data()+(v.y*W+v.x)*3u;
+        CHECK(rgb_match(p,v.r,v.g,v.b,3u));
+        CHECK(rgb_match(q,v.r,v.g,v.b,3u));
+    }
+    quantapdf_ir_raster_image_dispose(&native);
+    quantapdf_ir_raster_image_dispose(&again);
+    return EXIT_SUCCESS;
+}
+
 int negative_two(const fixture& source,quantapdf_status expected,
                  const quantapdf_qpdf_source_raw_image_limits& bounds)
 {
@@ -304,6 +395,31 @@ int negative_two(const fixture& source,quantapdf_status expected,
         if(status!=expected)
             std::fprintf(stderr,
                 "two Do source expected=%d actual=%d trial=%d\n",
+                (int)expected,(int)status,trial);
+        CHECK(status==expected);
+        CHECK(refused.pages==nullptr && refused.page_count==0u &&
+              refused.operations==nullptr && refused.operation_count==0u &&
+              refused.resources.images==nullptr &&
+              refused.resources.graphics_states==nullptr &&
+              refused.resources.clips==nullptr);
+        quantapdf_ir_dispose(&refused);
+    }
+    return EXIT_SUCCESS;
+}
+
+int negative_restored(const fixture& source,quantapdf_status expected,
+                      const quantapdf_qpdf_source_raw_image_limits& bounds)
+{
+    auto original=original_pdf(source);
+    for(int trial=0;trial<2;++trial) {
+        quantapdf_ir refused;
+        std::memset(&refused,0xa5,sizeof(refused));
+        const auto status=
+            quantapdf_qpdf_source_restored_clipped_raw_images_to_ir_v3(
+                original.data(),original.size(),&bounds,&refused);
+        if(status!=expected)
+            std::fprintf(stderr,
+                "Q-restored source expected=%d actual=%d trial=%d\n",
                 (int)expected,(int)status,trial);
         CHECK(status==expected);
         CHECK(refused.pages==nullptr && refused.page_count==0u &&
@@ -479,6 +595,78 @@ int main()
         !=EXIT_SUCCESS)return EXIT_FAILURE;
     if(positive_two(twin,QUANTAPDF_COMPOSER_FILL_NONZERO)!=EXIT_SUCCESS)
         return EXIT_FAILURE;
+
+    /* True q/Q restoration: first Image under W/W*, second Image wholly
+     * outside the frozen Clip but visible after pop. Old V2 rejects it. */
+    fixture restored{};
+    restored.a=
+        "q 12 6 8 9 re W n "
+        "q 16 0 0 12 8 3 cm /I Do Q Q "
+        "q 8 0 0 6 22 7 cm /I Do Q";
+    if(positive_restored(restored,QUANTAPDF_COMPOSER_FILL_NONZERO)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture restored_evenodd{};
+    restored_evenodd.split=true;
+    restored_evenodd.a="q 12 6 8 9 re W*";
+    restored_evenodd.b=
+        " n q 16 0 0 12 8 3 cm /I Do Q Q "
+        "q 8 0 0 6 22 7 cm /I Do Q";
+    if(positive_restored(restored_evenodd,QUANTAPDF_COMPOSER_FILL_EVEN_ODD)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture restored_definition{};
+    restored_definition.a=
+        "q 1 0 0 1 2 0 cm 10 6 8 9 re W n "
+        "q 16 0 0 12 6 3 cm /I Do Q Q "
+        "q 8 0 0 6 22 7 cm /I Do Q";
+    if(positive_restored(restored_definition,QUANTAPDF_COMPOSER_FILL_NONZERO)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    /* V3 must reject the old both-clipped V2 source, Q pops before
+     * the first Do, a missing Q before the second Do and any later
+     * unqualified page operation or malformed source operand. */
+    fixture invalid_restored[]={
+        {two},
+        {"q 12 6 8 9 re W n Q q 16 0 0 12 8 3 cm /I Do Q "
+         "q 8 0 0 6 22 7 cm /I Do Q"},
+        {"q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q "
+         "q 8 0 0 6 22 7 cm /I Do Q Q"},
+        {restored.a+" BT ET"},
+        {restored.a+" 1 0 0 rg"},
+        {restored.a+" q 3 3 2 2 re f Q"},
+        {"q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q "
+         "q 8 1 0 6 22 7 cm /I Do Q"},
+        {"q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q "
+         "q 8 0 0 6 22.5 7 cm /I Do Q"},
+        {restored.a+" q 1 0 0 1 0 0 cm /I Do Q"}
+    };
+    for(const auto& sample:invalid_restored)
+        if(negative_restored(sample,QUANTAPDF_ERROR_UNSUPPORTED,source_limits)
+           !=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    fixture missing_restored{};
+    missing_restored.a=restored.a;
+    missing_restored.missing_resources=true;
+    if(negative_restored(missing_restored,QUANTAPDF_ERROR_FORMAT,
+                         source_limits)!=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture masked_restored{};
+    masked_restored.a=restored.a;masked_restored.mask=true;
+    if(negative_restored(masked_restored,QUANTAPDF_ERROR_UNSUPPORTED,
+                         source_limits)!=EXIT_SUCCESS)return EXIT_FAILURE;
+    quantapdf_qpdf_source_raw_image_limits restricted=source_limits;
+    restricted.max_source_pixels=4u;
+    if(negative_restored(restored,QUANTAPDF_ERROR_UNSUPPORTED,restricted)
+       !=EXIT_SUCCESS)return EXIT_FAILURE;
+    restricted=source_limits;
+    restricted.max_drawn_pixels=192u;
+    if(negative_restored(restored,QUANTAPDF_ERROR_UNSUPPORTED,restricted)
+       !=EXIT_SUCCESS)return EXIT_FAILURE;
+    restricted=source_limits;
+    restricted.max_operations=1u;
+    if(negative_restored(restored,QUANTAPDF_ERROR_UNSUPPORTED,restricted)
+       !=EXIT_SUCCESS)return EXIT_FAILURE;
+    if(positive_restored(restored,QUANTAPDF_COMPOSER_FILL_NONZERO)
+       !=EXIT_SUCCESS)return EXIT_FAILURE;
+
     std::puts("Original Image Do under W/W*: independent PDFium RGB, "
               "detached C11 Clip/Image pixels and atomic negatives PASS");
     return EXIT_SUCCESS;
