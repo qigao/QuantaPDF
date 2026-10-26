@@ -745,9 +745,14 @@ int source_scoped_mixed_v5_suite()
         QUANTAPDF_COMPOSER_FILL_EVEN_ODD,false,false)!=EXIT_SUCCESS)
         return EXIT_FAILURE;
     fixture definition{};
+    /* Rebase BOTH Image and Path authored coordinates by -2 so Clip,
+     * paint and independently observed PDFium pixels stay identical,
+     * while validating definition-time CTM ownership. */
     definition.a=
-        "q 1 0 0 1 2 0 cm 10 6 8 9 re W n "+
-        inner_image+inner_path+"Q "+outer_image+outer_path;
+        "q 1 0 0 1 2 0 cm 10 6 8 9 re W n "
+        "q 16 0 0 12 6 3 cm /I Do Q "
+        "1 0 1 rg 10 6 4 4 re f "
+        "Q "+outer_image+outer_path;
     if(positive_scoped_mixed_v5(
         definition,QUANTAPDF_COMPOSER_FILL_NONZERO,false,false)
         !=EXIT_SUCCESS)return EXIT_FAILURE;
