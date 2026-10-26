@@ -6,7 +6,8 @@
 #include <string.h>
 
 #define QP_MIXED_MAX_PIXELS ((size_t)1048576u)
-#define QP_MIXED_MAX_LAYERS ((size_t)3u)
+#define QP_MIXED_MAX_LAYERS ((size_t)4u)
+#define QP_MIXED_MAX_IMAGE_WORK ((size_t)3u * QP_MIXED_MAX_PIXELS)
 #define QP_MIXED_MAX_SOURCE_PIXELS ((size_t)4194304u)
 
 /* All components remain straight alpha, matching the two existing native
@@ -30,9 +31,9 @@ static void qp_mixed_over(unsigned char *dst, const unsigned char *src)
     dst[3] = (unsigned char)((a + 127u) / 255u);
 }
 
-/* Private V1 and V2 share exactly the same source-order compositor.
- * V2 extends only the admitted count: one PATH plus two uniquely owned RAW
- * IMAGE resources, in any of the three possible source positions. */
+/* Private V1/V2/V3 share exactly the same source-order compositor. V3
+ * extends admission to two PATHs and two RAW IMAGE resources, while keeping
+ * earlier exact operation counts and strict output-reset behavior. */
 static int qp_mixed_coord(float value,size_t bound,size_t *out)
 {
     size_t v;
@@ -48,7 +49,8 @@ static int qp_mixed_coord(float value,size_t bound,size_t *out)
 static quantapdf_status qp_mixed_impl(
     const quantapdf_ir *ir, size_t page_index,
     const quantapdf_ir_raster_mixed_v1_limits *limits,
-    size_t expected_images, quantapdf_ir_raster_image *out_image)
+    size_t expected_paths, size_t expected_images,
+    quantapdf_ir_raster_image *out_image)
 {
     const quantapdf_composer_page_state *page;
     quantapdf_composer_page_state isolated_page;
@@ -60,7 +62,7 @@ static quantapdf_status qp_mixed_impl(
     unsigned char *result = NULL;
     size_t width, height, n, bytes, i, x, source_work=0u, image_draw_work=0u;
     unsigned path_count=0u, image_count=0u, images_used=0u;
-    const size_t total_operations=expected_images+1u;
+    const size_t total_operations=expected_paths+expected_images;
     quantapdf_status status = QUANTAPDF_ERROR_UNSUPPORTED;
 
     if (out_image == NULL)
@@ -73,7 +75,9 @@ static quantapdf_status qp_mixed_impl(
         limits->max_source_pixels == 0u ||
         limits->max_drawn_pixels == 0u)
         return QUANTAPDF_ERROR_ARGUMENT;
-    if ((expected_images != 1u && expected_images != 2u) ||
+    if (!((expected_paths == 1u && (expected_images == 1u || expected_images == 2u)) ||
+          (expected_paths == 2u && expected_images == 2u)) ||
+        total_operations > QP_MIXED_MAX_LAYERS ||
         ir->operation_count != total_operations ||
         ir->resources.images == NULL ||
         ir->resources.image_count != expected_images ||
@@ -116,7 +120,7 @@ static quantapdf_status qp_mixed_impl(
         case QUANTAPDF_COMPOSER_OPERATION_PATH: {
             const quantapdf_composer_path_operation *p = &op->value.path;
             const quantapdf_composer_path_options *opt = &p->options;
-            if (++path_count != 1u ||
+            if (++path_count > expected_paths ||
                 opt->struct_size < QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE ||
                 opt->fill != 1 || opt->stroke != 0 ||
                 (opt->fill_argb >> 24u) != 255u ||
@@ -161,7 +165,7 @@ static quantapdf_status qp_mixed_impl(
             draw_area=(x1-x0)*(y1-y0);
             if(draw_area>limits->max_drawn_pixels ||
                image_draw_work>limits->max_drawn_pixels-draw_area ||
-               image_draw_work>QP_MIXED_MAX_LAYERS*QP_MIXED_MAX_PIXELS-draw_area)
+               image_draw_work>QP_MIXED_MAX_IMAGE_WORK-draw_area)
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             image_draw_work+=draw_area;
             break;
@@ -170,7 +174,7 @@ static quantapdf_status qp_mixed_impl(
             return QUANTAPDF_ERROR_UNSUPPORTED;
         }
     }
-    if(path_count != 1u || image_count != expected_images ||
+    if(path_count != expected_paths || image_count != expected_images ||
        images_used!=((1u<<(unsigned)expected_images)-1u))
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
@@ -183,8 +187,13 @@ static quantapdf_status qp_mixed_impl(
     projected.operation_count = 1u;
     path_limits.max_pixels = limits->max_pixels;
     path_limits.max_operations = 1u;
-    path_limits.max_edges = limits->max_edges;
-    path_limits.max_sample_tests = limits->max_sample_tests;
+    /* Two PATH layers split the caller's global edge and sample quotas
+     * into conservative per-layer shares. V1/V2 use their exact original
+     * one-PATH budgets. No layer can spend the other's resource budget. */
+    path_limits.max_edges = limits->max_edges / expected_paths;
+    path_limits.max_sample_tests = limits->max_sample_tests / expected_paths;
+    if (path_limits.max_edges == 0u || path_limits.max_sample_tests == 0u)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
     image_limits.max_pixels = limits->max_pixels;
     image_limits.max_operations = 1u;
     image_limits.max_source_pixels = limits->max_source_pixels;
@@ -260,7 +269,7 @@ quantapdf_status quantapdf_ir_raster_mixed_path_image_v1(
     const quantapdf_ir_raster_mixed_v1_limits *limits,
     quantapdf_ir_raster_image *out_image)
 {
-    return qp_mixed_impl(ir,page_index,limits,1u,out_image);
+    return qp_mixed_impl(ir,page_index,limits,1u,1u,out_image);
 }
 
 quantapdf_status quantapdf_ir_raster_mixed_path_two_images_v2(
@@ -268,5 +277,15 @@ quantapdf_status quantapdf_ir_raster_mixed_path_two_images_v2(
     const quantapdf_ir_raster_mixed_v1_limits *limits,
     quantapdf_ir_raster_image *out_image)
 {
-    return qp_mixed_impl(ir,page_index,limits,2u,out_image);
+    return qp_mixed_impl(ir,page_index,limits,1u,2u,out_image);
+}
+
+/* V3 is an exact 2-PATH + 2-RAW-IMAGE profile; all other operation counts
+ * still reject without any partially published bitmap. */
+quantapdf_status quantapdf_ir_raster_mixed_two_paths_two_images_v3(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_ir_raster_mixed_v1_limits *limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_mixed_impl(ir,page_index,limits,2u,2u,out_image);
 }
