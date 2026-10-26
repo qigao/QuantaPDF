@@ -659,13 +659,16 @@ int positive_scoped_mixed_v5(const fixture& source,
         {1u,1u,255u,255u,255u},
         {13u,11u,255u,0u,0u},       /* clipped original top-left red */
         {18u,11u,0u,255u,0u},       /* clipped original top-right green */
-        {13u,16u,0u,0u,255u},       /* inner blue PATH, over original */
+        {13u,16u,path_first_inside ? 0u : 255u,0u,255u},
+                                        /* blue Image or magenta PATH */
         {18u,16u,255u,255u,0u},     /* clipped original bottom-right */
         {23u,3u,255u,0u,0u},        /* post-Q unclipped image red */
         {28u,3u,0u,255u,0u},        /* post-Q unclipped green */
         {23u,6u,0u,0u,255u},
-        {28u,6u,255u,255u,0u},
-        {2u,20u,255u,0u,0u},        /* post-Q unclipped red PATH */
+        {28u,6u,255u,path_first_outside ? 255u : 0u,0u},
+                                        /* yellow Image or red PATH */
+        {26u,5u,255u,path_first_outside ? 255u : 0u,0u},
+        {2u,20u,255u,255u,255u},  /* independent unpainted page */
         {9u,12u,255u,255u,255u},   /* outside frozen W Clip */
         {23u,12u,255u,255u,255u}
     };
@@ -693,7 +696,7 @@ int negative_scoped_mixed_v5(
                 bytes.data(),bytes.size(),&limits,&rejected);
         if(actual!=expected)
             std::fprintf(stderr,
-                "Source Scoped Mixed V5 expected=%d actual=%d trial=%d\\n",
+                "Source Scoped Mixed V5 expected=%d actual=%d trial=%d\n",
                 (int)expected,(int)actual,repeat);
         CHECK(actual==expected);
         CHECK(rejected.pages==nullptr && rejected.page_count==0u &&
@@ -713,9 +716,11 @@ int source_scoped_mixed_v5_suite()
     budgets.max_operations=4u;
     const std::string outer="q 12 6 8 9 re W n ";
     const std::string inner_image="q 16 0 0 12 8 3 cm /I Do Q ";
-    const std::string inner_path="0 0 1 rg 12 6 4 4 re f ";
+    /* Magenta PATH over blue source image tests source z-order. */
+    const std::string inner_path="1 0 1 rg 12 6 4 4 re f ";
     const std::string outer_image="q 8 0 0 6 22 16 cm /I Do Q ";
-    const std::string outer_path="1 0 0 rg 0 0 6 6 re f ";
+    /* Red PATH overlaps the Q-restored second Image; order must matter. */
+    const std::string outer_path="1 0 0 rg 24 17 5 3 re f ";
     for(int which=0;which<4;++which) {
         const bool path_first_inside=(which&1)!=0;
         const bool path_first_outside=(which&2)!=0;
