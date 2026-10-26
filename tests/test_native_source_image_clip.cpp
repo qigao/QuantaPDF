@@ -1215,7 +1215,6 @@ int source_scoped_mixed_v8_suite()
     const fixture invalid[]={
         {outer+image_in+"Q -0.01 g 24 17 5 3 re f"},
         {outer+image_in+"Q 1.001 g 24 17 5 3 re f"},
-        {outer+image_in+"Q 0.25 0.5 g 24 17 5 3 re f"},
         {outer+image_in+"Q 0.25 G 24 17 5 3 re f"},
         {outer+image_in+"Q "+outside+" BT ET"},
         {outer+inside+"Q "+image_out+" /I Do /I Do"}
@@ -1224,6 +1223,12 @@ int source_scoped_mixed_v8_suite()
         if(negative_scoped_mixed_v6(
             bad,QUANTAPDF_ERROR_UNSUPPORTED,bounds,true,true)!=EXIT_SUCCESS)
             return EXIT_FAILURE;
+    /* A syntactically ill-formed operand count is FORMAT, not an
+     * otherwise valid but unqualified Gray color. */
+    if(negative_scoped_mixed_v6(
+        fixture{outer+image_in+"Q 0.25 0.5 g 24 17 5 3 re f"},
+        QUANTAPDF_ERROR_FORMAT,bounds,true,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
     fixture masked{};
     masked.a=two_image_path.a;masked.mask=true;
     if(negative_scoped_mixed_v6(
