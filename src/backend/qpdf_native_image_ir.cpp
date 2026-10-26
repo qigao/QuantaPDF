@@ -137,6 +137,95 @@ struct staged_image_clip {
     quantapdf_composer_fill_rule rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
 };
 
+/* Canonical PRIVATE source-admission signatures. The enumerated IDs are
+ * stable only within this translation unit; they are not a public ABI.
+ * Each existing original-source entry point names exactly one contract.
+ * No parser branch or materializer should infer capabilities from the
+ * relative order of the legacy V1..V8 entry points. */
+enum class source_profile_id : unsigned char {
+    raw_images,
+    mixed_path_image_v1,
+    mixed_path_two_images_v2,
+    mixed_two_paths_two_images_v3,
+    clipped_image_v1,
+    two_clipped_images_v2,
+    restored_clipped_images_v3,
+    clipped_image_then_path_v4,
+    scoped_mixed_v5,
+    scoped_mixed_v6,
+    scoped_mixed_v7_rgb,
+    scoped_mixed_v8_gray,
+    count
+};
+
+enum class source_materialization : unsigned char {
+    raw_images,
+    mixed,
+    clipped_images,
+    clipped_image_then_path,
+    scoped_exact,
+    scoped_flexible
+};
+
+struct source_profile_contract {
+    bool mixed;
+    bool clipped;
+    size_t clip_image_limit;
+    bool restore_second_image;
+    size_t mixed_operation_limit;
+    bool frozen_scoped_membership;
+    bool variable_operations;
+    bool normalized_rgb;
+    bool normalized_gray;
+    source_materialization output;
+};
+
+/* One immutable row for each historical source entry, in enum order.
+ * The limits below are EXACT admission conditions, not advisory maximums;
+ * source count and q/Q checks additionally validate every parsed operator. */
+constexpr std::array<source_profile_contract,
+                     static_cast<size_t>(source_profile_id::count)>
+    source_profiles = {{
+        /* raw Image-only */          {false,false,1u,false,2u,false,false,false,false,source_materialization::raw_images},
+        /* Path + Image V1 */         {true, false,1u,false,2u,false,false,false,false,source_materialization::mixed},
+        /* Path + two Images V2 */    {true, false,1u,false,3u,false,false,false,false,source_materialization::mixed},
+        /* two Paths/Images V3 */     {true, false,1u,false,4u,false,false,false,false,source_materialization::mixed},
+        /* Clip + Image V1 */        {false,true, 1u,false,2u,false,false,false,false,source_materialization::clipped_images},
+        /* Clip + two Images V2 */   {false,true, 2u,false,2u,false,false,false,false,source_materialization::clipped_images},
+        /* Clip/Q two Images V3 */   {false,true, 2u,true, 2u,false,false,false,false,source_materialization::clipped_images},
+        /* Clip Image/Q Path V4 */   {true, true, 1u,true, 2u,false,false,false,false,source_materialization::clipped_image_then_path},
+        /* exact scoped V5 */        {true, true, 2u,false,4u,true, false,false,false,source_materialization::scoped_exact},
+        /* variable scoped V6 */     {true, true, 2u,false,4u,true, true, false,false,source_materialization::scoped_flexible},
+        /* normalized rg V7 */       {true, true, 2u,false,4u,true, true, true, false,source_materialization::scoped_flexible},
+        /* normalized rg + g V8 */   {true, true, 2u,false,4u,true, true, true, true, source_materialization::scoped_flexible}
+    }};
+
+constexpr bool source_profile_table_valid()
+{
+    for(const auto& profile:source_profiles) {
+        if(profile.mixed_operation_limit<2u ||
+           profile.mixed_operation_limit>hard_operations ||
+           profile.clip_image_limit<1u ||
+           profile.clip_image_limit>2u ||
+           (profile.normalized_gray && !profile.normalized_rgb) ||
+           (profile.variable_operations &&
+            (!profile.frozen_scoped_membership ||
+             profile.output!=source_materialization::scoped_flexible)) ||
+           (profile.frozen_scoped_membership && !profile.clipped))
+            return false;
+    }
+    return true;
+}
+static_assert(source_profile_table_valid(),
+              "The private original-source profile matrix is inconsistent");
+
+const source_profile_contract& source_profile_for(source_profile_id id)
+{
+    const size_t index=static_cast<size_t>(id);
+    admit(index<source_profiles.size(),QUANTAPDF_ERROR_UNSUPPORTED);
+    return source_profiles[index];
+}
+
 struct admission {
     Obj resources;
     const quantapdf_qpdf_source_raw_image_limits& limits;
@@ -934,7 +1023,7 @@ quantapdf_ir materialize_restored_image_then_path(const admission& source)
 static quantapdf_status source_raw_images_to_ir_impl(
     const unsigned char *original_pdf,size_t size,
     const quantapdf_qpdf_source_raw_image_limits *limits,
-    quantapdf_ir *out_ir,int mixed_version)
+    quantapdf_ir *out_ir,source_profile_id profile_id)
 {
     if(out_ir!=nullptr) std::memset(out_ir,0,sizeof(*out_ir));
     if(out_ir==nullptr || original_pdf==nullptr || limits==nullptr ||
@@ -983,24 +1072,16 @@ static quantapdf_status source_raw_images_to_ir_impl(
         admission source{resources,*limits,page_w,page_h,0u,0u,0u,
                           {},false,{},{},2u,false,false,{},
                           1u,false,false,false,{},false,false,false};
-        source.mixed_mode=(mixed_version>=1 && mixed_version<=3) ||
-            mixed_version==7 || mixed_version==8 || mixed_version==9 ||
-            mixed_version==10 || mixed_version==11;
-        source.clipped_image_mode=mixed_version>=4 && mixed_version<=11;
-        source.clipped_image_limit=(mixed_version==5 || mixed_version==6 ||
-            mixed_version==8 || mixed_version==9 ||
-            mixed_version==10 || mixed_version==11) ? 2u : 1u;
-        source.restore_second_image=mixed_version==6 || mixed_version==7;
-        source.mixed_operation_limit=(mixed_version==3 ||
-            mixed_version==8 || mixed_version==9 ||
-            mixed_version==10 || mixed_version==11) ? 4u :
-            (mixed_version==2 ? 3u : 2u);
-        source.mixed_scoped_mode=mixed_version==8 || mixed_version==9 ||
-            mixed_version==10 || mixed_version==11;
-        source.variable_scoped_mode=mixed_version==9 ||
-            mixed_version==10 || mixed_version==11;
-        source.normalized_rgb_mode=mixed_version==10 || mixed_version==11;
-        source.normalized_gray_mode=mixed_version==11;
+        const source_profile_contract& profile=source_profile_for(profile_id);
+        source.mixed_mode=profile.mixed;
+        source.clipped_image_mode=profile.clipped;
+        source.clipped_image_limit=profile.clip_image_limit;
+        source.restore_second_image=profile.restore_second_image;
+        source.mixed_operation_limit=profile.mixed_operation_limit;
+        source.mixed_scoped_mode=profile.frozen_scoped_membership;
+        source.variable_scoped_mode=profile.variable_operations;
+        source.normalized_rgb_mode=profile.normalized_rgb;
+        source.normalized_gray_mode=profile.normalized_gray;
         auto contents=page_streams(geo.page.getKey("/Contents"),*limits);
         QPDF parser;
         parser.emptyPDF();
@@ -1011,8 +1092,7 @@ static quantapdf_status source_raw_images_to_ir_impl(
         parsed.parseAsContents(&reader);
         admit(!parser.anyWarnings() && !pdf->anyWarnings(),
               QUANTAPDF_ERROR_FORMAT);
-        const bool flexible_scoped=mixed_version==9 ||
-            mixed_version==10 || mixed_version==11;
+        const bool flexible_scoped=profile.variable_operations;
         const bool qualified_mixed=!source.mixed_mode ||
             (flexible_scoped ?
                 (source.draws.size()>=1u && source.draws.size()<=2u &&
@@ -1036,18 +1116,31 @@ static quantapdf_status source_raw_images_to_ir_impl(
                  (!source.restore_second_image || source.saw_q_restore) &&
                  (!flexible_scoped || source.saw_q_restore))),
                QUANTAPDF_ERROR_UNSUPPORTED);
-        *out_ir=(mixed_version==9 || mixed_version==10 ||
-                 mixed_version==11) ?
-            materialize_scoped_mixed_v5(source,true) :
-            (mixed_version==8 ?
-             materialize_scoped_mixed_v5(source) :
-             (mixed_version==7 ?
-              materialize_restored_image_then_path(source) :
-              (source.clipped_image_mode ?
-               materialize_clipped_image(source,source.clipped_image_limit) :
-               (source.mixed_mode ?
-                materialize_mixed(source,source.mixed_operation_limit) :
-                materialize(source)))));
+        /* Materialization is selected by the SAME immutable contract
+         * that admitted the source operators and source-layer quota. */
+        switch(profile.output) {
+        case source_materialization::raw_images:
+            *out_ir=materialize(source);
+            break;
+        case source_materialization::mixed:
+            *out_ir=materialize_mixed(source,source.mixed_operation_limit);
+            break;
+        case source_materialization::clipped_images:
+            *out_ir=materialize_clipped_image(
+                source,source.clipped_image_limit);
+            break;
+        case source_materialization::clipped_image_then_path:
+            *out_ir=materialize_restored_image_then_path(source);
+            break;
+        case source_materialization::scoped_exact:
+            *out_ir=materialize_scoped_mixed_v5(source);
+            break;
+        case source_materialization::scoped_flexible:
+            *out_ir=materialize_scoped_mixed_v5(source,true);
+            break;
+        default:
+            throw rejected{QUANTAPDF_ERROR_UNSUPPORTED};
+        }
         return QUANTAPDF_OK;
     } catch(rejected const& e) {return e.status;}
       catch(std::bad_alloc const&) {return QUANTAPDF_ERROR_NOMEM;}
@@ -1062,7 +1155,7 @@ extern "C" quantapdf_status quantapdf_qpdf_source_raw_images_to_ir(
     const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
 {
     return source_raw_images_to_ir_impl(
-        original_pdf,size,limits,out_ir,0);
+        original_pdf,size,limits,out_ir,source_profile_id::raw_images);
 }
 
 extern "C" quantapdf_status quantapdf_qpdf_source_mixed_path_image_to_ir(
@@ -1070,7 +1163,7 @@ extern "C" quantapdf_status quantapdf_qpdf_source_mixed_path_image_to_ir(
     const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
 {
     return source_raw_images_to_ir_impl(
-        original_pdf,size,limits,out_ir,1);
+        original_pdf,size,limits,out_ir,source_profile_id::mixed_path_image_v1);
 }
 
 /* The three-layer variant is independently admitted; the previously
@@ -1080,7 +1173,7 @@ extern "C" quantapdf_status quantapdf_qpdf_source_mixed_path_two_images_to_ir_v2
     const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
 {
     return source_raw_images_to_ir_impl(
-        original_pdf,size,limits,out_ir,2);
+        original_pdf,size,limits,out_ir,source_profile_id::mixed_path_two_images_v2);
 }
 
 /* Opt-in four-paint source qualification: the earlier source signatures
@@ -1091,7 +1184,7 @@ quantapdf_qpdf_source_mixed_two_paths_two_images_to_ir_v3(
     const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
 {
     return source_raw_images_to_ir_impl(
-        original_pdf,size,limits,out_ir,3);
+        original_pdf,size,limits,out_ir,source_profile_id::mixed_two_paths_two_images_v3);
 }
 
 /* First original-source W/W* Clip + Image Do profile. Its C11 consumer
@@ -1101,7 +1194,7 @@ quantapdf_qpdf_source_clipped_raw_image_to_ir_v1(
     const unsigned char *original_pdf,size_t size,
     const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
 {
-    return source_raw_images_to_ir_impl(original_pdf,size,limits,out_ir,4);
+    return source_raw_images_to_ir_impl(original_pdf,size,limits,out_ir,source_profile_id::clipped_image_v1);
 }
 
 /* Source V2 admits TWO IMAGE Do operations while the same frozen W/W*
@@ -1111,7 +1204,7 @@ quantapdf_qpdf_source_two_clipped_raw_images_to_ir_v2(
     const unsigned char *original_pdf,size_t size,
     const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
 {
-    return source_raw_images_to_ir_impl(original_pdf,size,limits,out_ir,5);
+    return source_raw_images_to_ir_impl(original_pdf,size,limits,out_ir,source_profile_id::two_clipped_images_v2);
 }
 
 /* Source V3: an actual Q-restored second Image Do has NO Clip/GS ID.
@@ -1122,7 +1215,7 @@ quantapdf_qpdf_source_restored_clipped_raw_images_to_ir_v3(
     const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
 {
     return source_raw_images_to_ir_impl(
-        original_pdf,size,limits,out_ir,6);
+        original_pdf,size,limits,out_ir,source_profile_id::restored_clipped_images_v3);
 }
 
 /* V4 source Image under one W/W* Clip leaf followed by a Q-restored,
@@ -1133,7 +1226,7 @@ quantapdf_qpdf_source_clipped_image_then_path_to_ir_v4(
     const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
 {
     return source_raw_images_to_ir_impl(
-        original_pdf,size,limits,out_ir,7);
+        original_pdf,size,limits,out_ir,source_profile_id::clipped_image_then_path_v4);
 }
 
 /* Opt-in Source Scoped Mixed V5: one immutable W/W* Clip and exactly four
@@ -1147,7 +1240,7 @@ quantapdf_qpdf_source_scoped_mixed_v5_to_ir(
     const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
 {
     return source_raw_images_to_ir_impl(
-        original_pdf,size,limits,out_ir,8);
+        original_pdf,size,limits,out_ir,source_profile_id::scoped_mixed_v5);
 }
 
 /* Opt-in Source Scoped Mixed V6: one frozen W/W* leaf, a REAL Q restore,
@@ -1160,7 +1253,7 @@ quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
     const unsigned char *original_pdf,size_t size,
     const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
 {
-    return source_raw_images_to_ir_impl(original_pdf,size,limits,out_ir,9);
+    return source_raw_images_to_ir_impl(original_pdf,size,limits,out_ir,source_profile_id::scoped_mixed_v6);
 }
 
 /* Opt-in Source V7: keep V6's 2..4 bounded Path/Image and frozen W/W*
@@ -1173,7 +1266,7 @@ quantapdf_qpdf_source_scoped_mixed_v7_to_ir(
     const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
 {
     return source_raw_images_to_ir_impl(
-        original_pdf,size,limits,out_ir,10);
+        original_pdf,size,limits,out_ir,source_profile_id::scoped_mixed_v7_rgb);
 }
 
 /* Opt-in Source Scoped Mixed V8: V7's bounded Path/Image, frozen W/W*
@@ -1184,5 +1277,5 @@ quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
     const unsigned char *original_pdf,size_t size,
     const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
 {
-    return source_raw_images_to_ir_impl(original_pdf,size,limits,out_ir,11);
+    return source_raw_images_to_ir_impl(original_pdf,size,limits,out_ir,source_profile_id::scoped_mixed_v8_gray);
 }
