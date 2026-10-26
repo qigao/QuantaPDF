@@ -6,6 +6,7 @@
 #include "render/ir_raster_image_clip_v1.h"
 #include "render/ir_raster_image_clip_v2.h"
 #include "render/ir_raster_image_clip_v3.h"
+#include "render/ir_raster_image_clip_path_v4.h"
 
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFWriter.hh>
@@ -290,6 +291,120 @@ int positive_two(const fixture& source,quantapdf_composer_fill_rule rule)
     }
     quantapdf_ir_raster_image_dispose(&native);
     quantapdf_ir_raster_image_dispose(&again);
+    return EXIT_SUCCESS;
+}
+
+/* Original-source opt-in V4: an Image Do under a frozen W/W* leaf,
+ * a genuine Q restore, then an independent unclipped red PATH paint.
+ * Oracle loads the unchanged original PDF; Native only borrows copied IR. */
+int positive_image_then_path(const fixture& source,
+                             quantapdf_composer_fill_rule rule)
+{
+    auto original=original_pdf(source);
+    CHECK(original.size()>100u);
+    const auto direct=pdfium_original_rgb(original);
+    CHECK(direct.size()==W*H*3u);
+    quantapdf_ir old{};
+    CHECK(quantapdf_qpdf_source_restored_clipped_raw_images_to_ir_v3(
+        original.data(),original.size(),&source_limits,&old)
+        ==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(old.pages==nullptr && old.operations==nullptr);
+    quantapdf_ir ir{};
+    OK(quantapdf_qpdf_source_clipped_image_then_path_to_ir_v4(
+        original.data(),original.size(),&source_limits,&ir));
+    CHECK(ir.page_count==1u && ir.operation_count==2u &&
+          ir.resources.image_count==1u &&
+          ir.resources.graphics_state_count==1u &&
+          ir.resources.clip_count==1u);
+    CHECK(ir.operations[0].kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE &&
+          ir.operations[1].kind==QUANTAPDF_COMPOSER_OPERATION_PATH &&
+          ir.operations[0].graphics_state_id==1u &&
+          ir.operations[0].value.image.options.graphics_state_id==1u &&
+          ir.operations[0].value.image.image_id==1u &&
+          ir.operations[1].graphics_state_id==0u &&
+          ir.operations[1].value.path.options.fill==1 &&
+          ir.operations[1].value.path.options.stroke==0 &&
+          ir.operations[1].value.path.options.fill_argb==UINT32_C(0xffff0000) &&
+          ir.resources.graphics_states[0].clip_id==1u &&
+          ir.resources.clips[0].fill_rule==rule &&
+          ir.resources.clips[0].command_count==5u);
+    original.clear();original.shrink_to_fit();
+    auto img=image_limits;
+    auto edge=clip_limits;
+    img.max_operations=2u;
+    edge.max_operations=2u;
+    quantapdf_ir_raster_image native{},again{};
+    OK(quantapdf_ir_raster_clipped_image_then_path_v4(
+        &ir,0u,&img,&edge,&native));
+    OK(quantapdf_ir_raster_clipped_image_then_path_v4(
+        &ir,0u,&img,&edge,&again));
+    CHECK(native.width==W && native.height==H &&
+          native.stride==W*4u && native.size==W*H*4u &&
+          native.size==again.size &&
+          std::memcmp(native.pixels,again.pixels,native.size)==0);
+    quantapdf_ir_dispose(&ir);
+    CHECK(ir.pages==nullptr && ir.operations==nullptr &&
+          ir.resources.images==nullptr && ir.resources.clips==nullptr);
+    double diff=0.0;
+    size_t gross=0u;
+    for(size_t y=0u;y<H;++y)for(size_t x=0u;x<W;++x) {
+        const auto *p=native.pixels+y*native.stride+x*4u;
+        const auto *q=direct.data()+(y*W+x)*3u;
+        unsigned worst=0u;
+        for(size_t c=0u;c<3u;++c) {
+            const unsigned lhs=(unsigned)p[c],rhs=(unsigned)q[c];
+            const unsigned delta=lhs>rhs?lhs-rhs:rhs-lhs;
+            if(delta>worst)worst=delta;
+            diff+=(double)delta;
+        }
+        if(worst>64u)++gross;
+    }
+    CHECK(diff/(double)(W*H*3u)<=8.0 && gross<=W*H/12u);
+    struct probe {size_t x,y;unsigned r,g,b;};
+    const probe pixels[]={
+        {1u,1u,255u,255u,255u},
+        {13u,10u,255u,0u,0u},
+        {19u,10u,0u,255u,0u},
+        {13u,16u,0u,0u,255u},
+        {19u,16u,255u,255u,0u},
+        /* Red PATH is OUTSIDE the old Clip and must paint after Q. */
+        {23u,12u,255u,0u,0u},
+        {27u,15u,255u,0u,0u},
+        {22u,10u,255u,255u,255u},
+        {27u,19u,255u,255u,255u}
+    };
+    for(const auto& v:pixels) {
+        const auto *p=native.pixels+v.y*native.stride+v.x*4u;
+        const auto *q=direct.data()+(v.y*W+v.x)*3u;
+        CHECK(rgb_match(p,v.r,v.g,v.b,3u));
+        CHECK(rgb_match(q,v.r,v.g,v.b,3u));
+    }
+    quantapdf_ir_raster_image_dispose(&native);
+    quantapdf_ir_raster_image_dispose(&again);
+    return EXIT_SUCCESS;
+}
+int negative_image_then_path(const fixture& source,
+                             quantapdf_status expected,
+                             const quantapdf_qpdf_source_raw_image_limits& budget)
+{
+    const auto original=original_pdf(source);
+    for(int attempt=0;attempt!=2;++attempt) {
+        quantapdf_ir ir;
+        std::memset(&ir,0xa5,sizeof(ir));
+        const auto actual=quantapdf_qpdf_source_clipped_image_then_path_to_ir_v4(
+            original.data(),original.size(),&budget,&ir);
+        if(actual!=expected)
+            std::fprintf(stderr,
+                "Image/Q/Path V4 expected=%d actual=%d attempt=%d\n",
+                (int)expected,(int)actual,attempt);
+        CHECK(actual==expected);
+        CHECK(ir.pages==nullptr && ir.page_count==0u &&
+              ir.operations==nullptr && ir.operation_count==0u &&
+              ir.resources.images==nullptr &&
+              ir.resources.graphics_states==nullptr &&
+              ir.resources.clips==nullptr);
+        quantapdf_ir_dispose(&ir);
+    }
     return EXIT_SUCCESS;
 }
 
@@ -665,6 +780,79 @@ int main()
     if(negative_restored(restored,QUANTAPDF_ERROR_UNSUPPORTED,restricted)
        !=EXIT_SUCCESS)return EXIT_FAILURE;
     if(positive_restored(restored,QUANTAPDF_COMPOSER_FILL_NONZERO)
+       !=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    /* V4: Image Do under W/W*, Q restores, then one red PATH fill paints
+     * outside the old Clip. Complete-content source rules remain strict. */
+    fixture restored_path{};
+    restored_path.a=
+        "q 12 6 8 9 re W n "
+        "q 16 0 0 12 8 3 cm /I Do Q Q "
+        "1 0 0 rg 22 7 8 6 re f";
+    if(positive_image_then_path(restored_path,QUANTAPDF_COMPOSER_FILL_NONZERO)
+       !=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture evenodd_path{};
+    evenodd_path.split=true;
+    evenodd_path.a="q 12 6 8 9 re W*";
+    evenodd_path.b=
+        " n q 16 0 0 12 8 3 cm /I Do Q Q "
+        "1 0 0 rg 22 7 8 6 re f";
+    if(positive_image_then_path(evenodd_path,QUANTAPDF_COMPOSER_FILL_EVEN_ODD)
+       !=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture defined_path{};
+    defined_path.a=
+        "q 1 0 0 1 2 0 cm 10 6 8 9 re W n "
+        "q 16 0 0 12 6 3 cm /I Do Q Q "
+        "1 0 0 rg 22 7 8 6 re f";
+    if(positive_image_then_path(defined_path,QUANTAPDF_COMPOSER_FILL_NONZERO)
+       !=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture invalid_path[]={
+        {restored_path.a+" BT ET"},
+        {restored_path.a+" q 2 2 m 3 3 l S Q"},
+        {restored_path.a+" q 1 0 0 1 0 0 cm /I Do Q"},
+        {"q 12 6 8 9 re W n Q "
+         "q 16 0 0 12 8 3 cm /I Do Q "
+         "1 0 0 rg 22 7 8 6 re f"},
+        {"q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q "
+         "1 0 0 rg 22 7 8 6 re f Q"},
+        {"q 12 6 8 9 re W n "
+         "1 0 0 rg 22 7 8 6 re f "
+         "q 16 0 0 12 8 3 cm /I Do Q Q"},
+        {"q 12 6 8 9 re W n "
+         "q 16 0 0 12 8 3 cm /I Do Q Q "
+         "1 0 0 rg 22 7 8 6 re f "
+         "q 16 0 0 12 8 3 cm /I Do Q"},
+        {"q 12 6 8 9 re W n "
+         "q 16 1 0 12 8 3 cm /I Do Q Q "
+         "1 0 0 rg 22 7 8 6 re f"}
+    };
+    for(const auto& bad:invalid_path)
+        if(negative_image_then_path(bad,QUANTAPDF_ERROR_UNSUPPORTED,
+                                    source_limits)!=EXIT_SUCCESS)
+            return EXIT_FAILURE;
+    fixture missing_path{};
+    missing_path.a=restored_path.a;missing_path.missing_resources=true;
+    if(negative_image_then_path(missing_path,QUANTAPDF_ERROR_FORMAT,
+                                source_limits)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    fixture mask_path{};
+    mask_path.a=restored_path.a;mask_path.mask=true;
+    if(negative_image_then_path(mask_path,QUANTAPDF_ERROR_UNSUPPORTED,
+                                source_limits)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    auto limited=source_limits;
+    limited.max_source_pixels=3u;
+    if(negative_image_then_path(restored_path,QUANTAPDF_ERROR_UNSUPPORTED,
+                                limited)!=EXIT_SUCCESS)return EXIT_FAILURE;
+    limited=source_limits;
+    limited.max_drawn_pixels=100u;
+    if(negative_image_then_path(restored_path,QUANTAPDF_ERROR_UNSUPPORTED,
+                                limited)!=EXIT_SUCCESS)return EXIT_FAILURE;
+    limited=source_limits;
+    limited.max_operations=1u;
+    if(negative_image_then_path(restored_path,QUANTAPDF_ERROR_UNSUPPORTED,
+                                limited)!=EXIT_SUCCESS)return EXIT_FAILURE;
+    if(positive_image_then_path(restored_path,QUANTAPDF_COMPOSER_FILL_NONZERO)
        !=EXIT_SUCCESS)return EXIT_FAILURE;
 
     std::puts("Original Image Do under W/W*: independent PDFium RGB, "
