@@ -39,6 +39,10 @@ int main(void)
         255u,0u,0u,255u, 0u,255u,0u,255u,
         0u,0u,255u,255u, 128u,64u,32u,255u
     };
+    const unsigned char source_copy[]={
+        255u,0u,0u,255u, 0u,255u,0u,255u,
+        0u,0u,255u,255u, 128u,64u,32u,255u
+    };
     const unsigned char expected[]={
         255u,0u,0u, 0u,255u,0u,
         0u,0u,255u, 128u,64u,32u
@@ -64,10 +68,7 @@ int main(void)
     free(a.data);
     free(b.data);
 
-    memcpy(pixels,(unsigned char[]){
-        255u,0u,0u,255u, 0u,255u,0u,255u,
-        0u,0u,255u,255u, 128u,64u,32u,255u
-    },sizeof(pixels));
+    memcpy(pixels,source_copy,sizeof(pixels));
 
     CHECK(refused(&image,3u,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
     image.stride=9u;
