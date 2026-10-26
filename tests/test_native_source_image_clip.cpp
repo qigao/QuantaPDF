@@ -710,6 +710,256 @@ int negative_scoped_mixed_v5(
     return EXIT_SUCCESS;
 }
 
+
+/* V6 is the first original-source variable length scoped admission. Its
+ * original PDF is independently painted by PDFium; no Composer re-export
+ * participates. The existing C11 V5 consumes the detached owned result. */
+struct v6_probe {size_t x,y;unsigned r,g,b;};
+
+int positive_scoped_mixed_v6(
+    const fixture& sc,size_t clipped_count,size_t paths,size_t images,
+    const std::vector<v6_probe>& goldens,bool compare_legacy_v5=false)
+{
+    auto original=original_pdf(sc);
+    CHECK(original.size()>100u);
+    const auto oracle=pdfium_original_rgb(original);
+    CHECK(oracle.size()==W*H*3u);
+    auto bounded=source_limits;
+    bounded.max_operations=4u;
+    quantapdf_ir ir{};
+    OK(quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
+        original.data(),original.size(),&bounded,&ir));
+    CHECK(ir.page_count==1u && ir.operation_count==paths+images &&
+          ir.operation_count>=2u && ir.operation_count<=4u &&
+          ir.resources.image_count==images &&
+          ir.resources.graphics_state_count==1u &&
+          ir.resources.clip_count==1u &&
+          ir.resources.graphics_states[0].clip_id==1u);
+    size_t path_seen=0u,image_seen=0u;
+    for(size_t i=0u;i<ir.operation_count;++i) {
+        const size_t expected_scope=i<clipped_count?1u:0u;
+        const auto& op=ir.operations[i];
+        CHECK(op.graphics_state_id==expected_scope);
+        if(op.kind==QUANTAPDF_COMPOSER_OPERATION_PATH) {
+            ++path_seen;
+            CHECK(op.value.path.options.graphics_state_id==expected_scope);
+        } else {
+            CHECK(op.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE);
+            ++image_seen;
+            CHECK(op.value.image.options.graphics_state_id==expected_scope);
+        }
+    }
+    CHECK(path_seen==paths && image_seen==images);
+    /* The V5 admission stays four layers with one of each kind on both
+     * sides of Q. Never silently widen that older source signature. */
+    quantapdf_ir legacy{};
+    const quantapdf_status older=quantapdf_qpdf_source_scoped_mixed_v5_to_ir(
+        original.data(),original.size(),&bounded,&legacy);
+    CHECK(older==(compare_legacy_v5 ? QUANTAPDF_OK :
+                                     QUANTAPDF_ERROR_UNSUPPORTED));
+    CHECK(compare_legacy_v5 || (legacy.pages==nullptr &&
+          legacy.operations==nullptr && legacy.resources.images==nullptr));
+
+    std::fill(original.begin(),original.end(),0u);
+    original.clear();
+    const quantapdf_ir_raster_scoped_mixed_v5_limits budgets={
+        W*H,4u,512u,8000000u,16u,4096u
+    };
+    quantapdf_ir_raster_image native{},repeat{},prior{};
+    OK(quantapdf_ir_raster_scoped_mixed_v5(&ir,0u,&budgets,&native));
+    OK(quantapdf_ir_raster_scoped_mixed_v5(&ir,0u,&budgets,&repeat));
+    CHECK(native.width==W && native.height==H &&
+          native.stride==W*4u && native.size==W*H*4u &&
+          native.size==repeat.size &&
+          std::memcmp(native.pixels,repeat.pixels,native.size)==0);
+    if(compare_legacy_v5) {
+        OK(quantapdf_ir_raster_scoped_mixed_v5(&legacy,0u,&budgets,&prior));
+        CHECK(prior.size==native.size &&
+              std::memcmp(prior.pixels,native.pixels,native.size)==0);
+    }
+    quantapdf_ir_dispose(&legacy);
+    quantapdf_ir_dispose(&ir);
+    CHECK(ir.pages==nullptr && ir.operations==nullptr &&
+          ir.resources.images==nullptr && ir.resources.clips==nullptr);
+
+    double total=0.0;
+    size_t gross=0u;
+    for(size_t y=0u;y<H;++y)for(size_t x=0u;x<W;++x) {
+        const unsigned char *a=native.pixels+y*native.stride+x*4u;
+        const unsigned char *b=oracle.data()+(y*W+x)*3u;
+        unsigned peak=0u;
+        for(size_t c=0u;c<3u;++c) {
+            const unsigned delta=a[c]>b[c] ? a[c]-b[c] : b[c]-a[c];
+            total+=(double)delta;
+            if(delta>peak)peak=delta;
+        }
+        if(peak>64u)++gross;
+    }
+    CHECK(total/(double)(W*H*3u)<=8.0 && gross<=W*H/12u);
+    for(const auto& probe:goldens) {
+        CHECK(probe.x<W && probe.y<H);
+        const auto *a=native.pixels+probe.y*native.stride+probe.x*4u;
+        const auto *b=oracle.data()+(probe.y*W+probe.x)*3u;
+        CHECK(rgb_match(a,probe.r,probe.g,probe.b,3u));
+        CHECK(rgb_match(b,probe.r,probe.g,probe.b,3u));
+    }
+    quantapdf_ir_raster_image_dispose(&native);
+    quantapdf_ir_raster_image_dispose(&repeat);
+    quantapdf_ir_raster_image_dispose(&prior);
+    return EXIT_SUCCESS;
+}
+
+int negative_scoped_mixed_v6(
+    const fixture& sc,quantapdf_status expected,
+    const quantapdf_qpdf_source_raw_image_limits& bounds)
+{
+    const auto bytes=original_pdf(sc);
+    for(int attempt=0;attempt<2;++attempt) {
+        quantapdf_ir refused;
+        std::memset(&refused,0xa5,sizeof(refused));
+        const quantapdf_status actual=
+            quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
+                bytes.data(),bytes.size(),&bounds,&refused);
+        if(actual!=expected)
+            std::fprintf(stderr,
+                "Scoped Mixed V6 unexpected status trial=%d wanted=%d got=%d\n",
+                attempt,(int)expected,(int)actual);
+        CHECK(actual==expected);
+        CHECK(refused.pages==nullptr && refused.page_count==0u &&
+              refused.operations==nullptr && refused.operation_count==0u &&
+              refused.resources.images==nullptr &&
+              refused.resources.image_count==0u &&
+              refused.resources.graphics_states==nullptr &&
+              refused.resources.clips==nullptr);
+        quantapdf_ir_dispose(&refused);
+    }
+    return EXIT_SUCCESS;
+}
+
+int source_scoped_mixed_v6_suite()
+{
+    auto bounds=source_limits;
+    bounds.max_operations=4u;
+    const std::string outer="q 12 6 8 9 re W n ";
+    const std::string img_in="q 16 0 0 12 8 3 cm /I Do Q ";
+    const std::string path_in="1 0 1 rg 12 6 4 4 re f ";
+    const std::string img_out="q 8 0 0 6 22 16 cm /I Do Q ";
+    const std::string path_out="1 0 0 rg 24 17 5 3 re f ";
+    const v6_probe white[]={ {1u,1u,255u,255u,255u},
+                             {9u,12u,255u,255u,255u} };
+    (void)white;
+
+    fixture two_path_then_image{};
+    two_path_then_image.a=outer+path_in+"Q "+img_out;
+    if(positive_scoped_mixed_v6(
+        two_path_then_image,1u,1u,1u,
+        {{13u,16u,255u,0u,255u},{23u,3u,255u,0u,0u},
+         {28u,6u,255u,255u,0u},{9u,12u,255u,255u,255u}})!=0)
+        return EXIT_FAILURE;
+    fixture two_image_then_path{};
+    two_image_then_path.a=outer+img_in+"Q "+path_out;
+    if(positive_scoped_mixed_v6(
+        two_image_then_path,1u,1u,1u,
+        {{13u,11u,255u,0u,0u},{13u,16u,0u,0u,255u},
+         {26u,5u,255u,0u,0u},{23u,3u,255u,255u,255u}})!=0)
+        return EXIT_FAILURE;
+    fixture three_clipped_image_path{};
+    three_clipped_image_path.a=outer+img_in+path_in+"Q "+path_out;
+    if(positive_scoped_mixed_v6(
+        three_clipped_image_path,2u,2u,1u,
+        {{13u,16u,255u,0u,255u},{26u,5u,255u,0u,0u}})!=0)
+        return EXIT_FAILURE;
+    fixture three_outside_image_path{};
+    three_outside_image_path.a=outer+path_in+"Q "+img_out+path_out;
+    if(positive_scoped_mixed_v6(
+        three_outside_image_path,1u,2u,1u,
+        {{13u,16u,255u,0u,255u},{23u,3u,255u,0u,0u},
+         {28u,6u,255u,0u,0u}})!=0)
+        return EXIT_FAILURE;
+    fixture three_clipped_path_image{};
+    three_clipped_path_image.a=outer+path_in+img_in+"Q "+img_out;
+    if(positive_scoped_mixed_v6(
+        three_clipped_path_image,2u,1u,2u,
+        {{13u,16u,0u,0u,255u},{23u,3u,255u,0u,0u},
+         {28u,6u,255u,255u,0u}})!=0)
+        return EXIT_FAILURE;
+    fixture three_outside_image_path_extra{};
+    three_outside_image_path_extra.a=outer+img_in+"Q "+img_out+path_out;
+    if(positive_scoped_mixed_v6(
+        three_outside_image_path_extra,1u,1u,2u,
+        {{13u,16u,0u,0u,255u},{26u,5u,255u,0u,0u}})!=0)
+        return EXIT_FAILURE;
+    fixture three_clipped_path_image_last{};
+    three_clipped_path_image_last.a=outer+path_in+img_in+"Q "+path_out;
+    if(positive_scoped_mixed_v6(
+        three_clipped_path_image_last,2u,2u,1u,
+        {{13u,16u,0u,0u,255u},{26u,5u,255u,0u,0u}})!=0)
+        return EXIT_FAILURE;
+
+    fixture four{};
+    four.a=outer+img_in+path_in+"Q "+img_out+path_out;
+    if(positive_scoped_mixed_v6(
+        four,2u,2u,2u,
+        {{13u,16u,255u,0u,255u},{28u,6u,255u,0u,0u}},
+        true)!=0)return EXIT_FAILURE;
+
+    fixture split_evenodd{};
+    split_evenodd.split=true;
+    split_evenodd.a="q 1 0 0 1 2 0 cm 10 6 8 9 re W*";
+    split_evenodd.b=" n q 16 0 0 12 6 3 cm /I Do Q Q "+path_out;
+    if(positive_scoped_mixed_v6(
+        split_evenodd,1u,1u,1u,
+        {{13u,11u,255u,0u,0u},{13u,16u,0u,0u,255u},
+         {26u,5u,255u,0u,0u}})!=0)
+        return EXIT_FAILURE;
+
+    const fixture bad[]={
+        {outer+img_in+"Q "},                  /* only Image */
+        {outer+path_in+"Q "},                 /* only Path */
+        {outer+img_in+path_in+"Q "},          /* no unmasked layer */
+        {outer+"Q "+img_out+path_out},       /* no clipped layer */
+        {outer+img_in+"Q "+path_out+" BT ET"},/* late Text */
+        {outer+img_in+"Q "+path_out+img_out+img_out},
+        {outer+path_in+path_in+"Q "+path_out+img_out},
+        {outer+"q 16 1 0 12 8 3 cm /I Do Q Q "+path_out},
+        {outer+img_in+"Q "+path_out+" q /I Do Q"}
+    };
+    for(const auto& sc:bad)
+        if(negative_scoped_mixed_v6(
+            sc,QUANTAPDF_ERROR_UNSUPPORTED,bounds)!=0)
+            return EXIT_FAILURE;
+    fixture unbalanced{};
+    unbalanced.a=outer+img_in+path_out;
+    if(negative_scoped_mixed_v6(
+        unbalanced,QUANTAPDF_ERROR_FORMAT,bounds)!=0)
+        return EXIT_FAILURE;
+    fixture missing{};
+    missing.a=two_image_then_path.a;missing.missing_resources=true;
+    if(negative_scoped_mixed_v6(
+        missing,QUANTAPDF_ERROR_FORMAT,bounds)!=0)
+        return EXIT_FAILURE;
+    fixture masked{};
+    masked.a=two_image_then_path.a;masked.mask=true;
+    if(negative_scoped_mixed_v6(
+        masked,QUANTAPDF_ERROR_UNSUPPORTED,bounds)!=0)
+        return EXIT_FAILURE;
+    auto small=bounds;
+    small.max_operations=3u;
+    if(negative_scoped_mixed_v6(
+        two_image_then_path,QUANTAPDF_ERROR_UNSUPPORTED,small)!=0)
+        return EXIT_FAILURE;
+    small=bounds;
+    small.max_source_pixels=3u;
+    if(negative_scoped_mixed_v6(
+        two_image_then_path,QUANTAPDF_ERROR_UNSUPPORTED,small)!=0)
+        return EXIT_FAILURE;
+    if(positive_scoped_mixed_v6(
+        two_path_then_image,1u,1u,1u,
+        {{13u,16u,255u,0u,255u},{23u,3u,255u,0u,0u}})!=0)
+        return EXIT_FAILURE;
+    return EXIT_SUCCESS;
+}
+
 int source_scoped_mixed_v5_suite()
 {
     auto budgets=source_limits;
@@ -1098,6 +1348,8 @@ int main()
        !=EXIT_SUCCESS)return EXIT_FAILURE;
 
     if(source_scoped_mixed_v5_suite()!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    if(source_scoped_mixed_v6_suite()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
 
     std::puts("Original Image Do under W/W*: independent PDFium RGB, "
