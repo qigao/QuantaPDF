@@ -468,7 +468,7 @@ int positive_three(int ordering,bool split)
                 int(native.pixels[(size_t)y*native.stride+(size_t)x*4u+
                                   (size_t)c]));
             error+=delta;
-            max_error=std::max(max_error,delta);
+            if(delta>max_error)max_error=delta;
         }
         if(max_error>64u)++gross;
     }
