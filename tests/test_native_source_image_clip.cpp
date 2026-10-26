@@ -7,6 +7,7 @@
 #include "render/ir_raster_image_clip_v2.h"
 #include "render/ir_raster_image_clip_v3.h"
 #include "render/ir_raster_image_clip_path_v4.h"
+#include "render/ir_raster_scoped_mixed_v5.h"
 
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFWriter.hh>
@@ -333,15 +334,25 @@ int positive_image_then_path(const fixture& source,
     auto edge=clip_limits;
     img.max_operations=2u;
     edge.max_operations=2u;
-    quantapdf_ir_raster_image native{},again{};
+    quantapdf_ir_raster_image native{},again{},general{};
     OK(quantapdf_ir_raster_clipped_image_then_path_v4(
         &ir,0u,&img,&edge,&native));
     OK(quantapdf_ir_raster_clipped_image_then_path_v4(
         &ir,0u,&img,&edge,&again));
+    /* Both paths consume the same original-PDF-sourced, owned IR: a new
+     * generic V5 executor must reproduce the established strict V4 output. */
+    const quantapdf_ir_raster_scoped_mixed_v5_limits generic={
+        img.max_pixels,4u,edge.max_edges,edge.max_sample_tests,
+        img.max_source_pixels,img.max_drawn_pixels
+    };
+    OK(quantapdf_ir_raster_scoped_mixed_v5(
+        &ir,0u,&generic,&general));
     CHECK(native.width==W && native.height==H &&
           native.stride==W*4u && native.size==W*H*4u &&
-          native.size==again.size &&
-          std::memcmp(native.pixels,again.pixels,native.size)==0);
+          native.size==again.size && native.size==general.size &&
+          std::memcmp(native.pixels,again.pixels,native.size)==0 &&
+          std::memcmp(native.pixels,general.pixels,native.size)==0);
+    quantapdf_ir_raster_image_dispose(&general);
     quantapdf_ir_dispose(&ir);
     CHECK(ir.pages==nullptr && ir.operations==nullptr &&
           ir.resources.images==nullptr && ir.resources.clips==nullptr);
