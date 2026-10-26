@@ -917,8 +917,11 @@ static quantapdf_status source_raw_images_to_ir_impl(
               QUANTAPDF_ERROR_UNSUPPORTED);
         Obj resources=bounded_page_resources(
             geo.page,limits->max_parent_steps);
+        /* Initialize ALL members explicitly. Some CI toolchains enable
+         * -Werror=missing-field-initializers for aggregate additions. */
         admission source{resources,*limits,page_w,page_h,0u,0u,0u,
-                         {},false,{},{},2u,false,false,{}};
+                         {},false,{},{},2u,false,false,{},
+                         1u,false,false,false,{}};
         source.mixed_mode=(mixed_version>=1 && mixed_version<=3) ||
             mixed_version==7 || mixed_version==8;
         source.clipped_image_mode=mixed_version>=4 && mixed_version<=8;
