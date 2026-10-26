@@ -101,6 +101,21 @@ quantapdf_status quantapdf_qpdf_source_two_clipped_raw_images_to_ir_v2(
     const quantapdf_qpdf_source_raw_image_limits *limits,
     quantapdf_ir *out_ir);
 
+/* Strict original-source Clip restoration V3:
+ * Exactly one frozen W/W* Clip Path with a first Image Do while active,
+ * then a REAL Q pop of that Clip, then a second Image Do which MUST have
+ * no inherited Clip/Graphics State. Complete q/Q and all page operators
+ * are validated; missing Q, early Q, extra Do, masked/invalid resources,
+ * late unqualified painting and budgets reject atomically. Both images
+ * own their decoded RAW Gray/RGB bytes; qpdf/source owners are released
+ * before the C11 painter. Consume with
+ * quantapdf_ir_raster_restored_raw_images_v3(), not the production API.
+ * Existing V1/V2 clipped-source signatures remain strictly narrower. */
+quantapdf_status quantapdf_qpdf_source_restored_clipped_raw_images_to_ir_v3(
+    const unsigned char *original_pdf, size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,
+    quantapdf_ir *out_ir);
+
 #ifdef __cplusplus
 }
 #endif
