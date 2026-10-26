@@ -74,6 +74,22 @@ quantapdf_status quantapdf_qpdf_source_mixed_two_paths_two_images_to_ir_v3(
     const quantapdf_qpdf_source_raw_image_limits *limits,
     quantapdf_ir *out_ir);
 
+/* Strict opt-in original PDF source Clip+Image V1. Parse every decoded
+ * Content Stream operator. Admit exactly one W or W* leaf Path, terminated
+ * by n, and one named 8-bit Gray/RGB Image Do within that live q/Q Clip.
+ * CTM is frozen at Clip path construction; supported image placement is
+ * independently checked. No source, Graph or qpdf owner escapes.
+ *
+ * Returns one owned IMAGE operation, one RAW Image, one immutable Graphics
+ * State referencing exactly one Clip PATH leaf. All unsupported source
+ * text/Path painting/Color/Group/Form/extra Image operators or malformed
+ * scopes cause zero published output; no PDFium fallback. Consume the IR
+ * with quantapdf_ir_raster_clipped_raw_image_v1(), not the public render API. */
+quantapdf_status quantapdf_qpdf_source_clipped_raw_image_to_ir_v1(
+    const unsigned char *original_pdf, size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,
+    quantapdf_ir *out_ir);
+
 #ifdef __cplusplus
 }
 #endif

@@ -132,6 +132,11 @@ struct staged_path {
     quantapdf_composer_fill_rule fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
 };
 
+struct staged_image_clip {
+    std::vector<quantapdf_composer_path_command> commands;
+    quantapdf_composer_fill_rule rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
+};
+
 struct admission {
     Obj resources;
     const quantapdf_qpdf_source_raw_image_limits& limits;
@@ -142,6 +147,9 @@ struct admission {
     std::vector<staged_path> painted_paths;
     std::vector<int> order; /* 1=PATH, 2=IMAGE, as originally painted */
     size_t mixed_operation_limit=2u; /* exact 1+1, 1+2 or V3 2+2 */
+    bool clipped_image_mode=false;
+    bool clip_completed=false;
+    staged_image_clip clip;
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule)
@@ -251,8 +259,9 @@ struct admission {
 
 class image_content_reader final : public Obj::ParserCallbacks {
 public:
-    explicit image_content_reader(admission& a,bool allow_path=false) :
-        target(a),mixed(allow_path) {}
+    explicit image_content_reader(admission& a,bool allow_path=false,
+                                  bool image_clip=false) :
+        target(a),mixed(allow_path),clipped(image_clip) {}
 
     void handleObject(Obj item) override
     {
@@ -269,10 +278,15 @@ public:
             admit(stack.size()<16u,QUANTAPDF_ERROR_UNSUPPORTED);
             stack.push_back(current);
             fill_stack.push_back(fill_argb);
+            if(clipped)clip_stack.push_back(clip_active);
         } else if(op=="Q") {
             admit(args.empty() && pending_path.empty() && !stack.empty());
             current=stack.back();stack.pop_back();
             fill_argb=fill_stack.back();fill_stack.pop_back();
+            if(clipped) {
+                admit(!clip_stack.empty());
+                clip_active=clip_stack.back();clip_stack.pop_back();
+            }
         } else if(op=="cm") {
             admit(args.size()==6u && pending_path.empty());
             matrix next;
@@ -280,7 +294,10 @@ public:
             current=concat(current,next);
         } else if(op=="Do") {
             admit(args.size()==1u && args[0].isName() &&
-                  pending_path.empty());
+                  pending_path.empty() && !clip_pending);
+            if(clipped)
+                admit(clip_active && target.clip_completed &&
+                      target.draws.empty(),QUANTAPDF_ERROR_UNSUPPORTED);
             admit(target.resources.isDictionary(),QUANTAPDF_ERROR_FORMAT);
             Obj xobjects=target.resources.getKey("/XObject");
             admit(xobjects.isDictionary(),QUANTAPDF_ERROR_FORMAT);
@@ -299,22 +316,22 @@ public:
                 rgb|=(uint32_t)(channel==1.0 ? 255u:0u) << (16u-8u*i);
             }
             fill_argb=UINT32_C(0xff000000)|rgb;
-        } else if(mixed && op=="m") {
+        } else if((mixed || clipped) && op=="m") {
             admit(args.size()==2u && pending_path.empty(),
                   QUANTAPDF_ERROR_UNSUPPORTED);
             append_point(QUANTAPDF_COMPOSER_PATH_MOVE_TO,
                          finite_number(args[0]),finite_number(args[1]));
-        } else if(mixed && op=="l") {
+        } else if((mixed || clipped) && op=="l") {
             admit(args.size()==2u && !pending_path.empty() &&
                   !closed && pending_path.size()<8u,
                   QUANTAPDF_ERROR_UNSUPPORTED);
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,
                          finite_number(args[0]),finite_number(args[1]));
-        } else if(mixed && op=="h") {
+        } else if((mixed || clipped) && op=="h") {
             admit(args.empty() && pending_path.size()>=3u &&
                   !closed,QUANTAPDF_ERROR_UNSUPPORTED);
             close_path();
-        } else if(mixed && op=="re") {
+        } else if((mixed || clipped) && op=="re") {
             admit(args.size()==4u && pending_path.empty(),
                   QUANTAPDF_ERROR_UNSUPPORTED);
             const double x=finite_number(args[0]), y=finite_number(args[1]);
@@ -334,6 +351,25 @@ public:
                           QUANTAPDF_COMPOSER_FILL_EVEN_ODD);
             pending_path.clear();
             closed=false;
+        } else if(clipped && (op=="W" || op=="W*")) {
+            admit(args.empty() && pending_path.size()>=3u &&
+                  !clip_pending && !target.clip_completed,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            clip_rule=op=="W*" ? QUANTAPDF_COMPOSER_FILL_EVEN_ODD :
+                                 QUANTAPDF_COMPOSER_FILL_NONZERO;
+            clip_pending=true;
+        } else if(clipped && op=="n") {
+            admit(args.empty() && clip_pending &&
+                  !target.clip_completed && pending_path.size()>=3u,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            if(!closed)close_path();
+            target.clip.commands=std::move(pending_path);
+            target.clip.rule=clip_rule;
+            target.clip_completed=true;
+            clip_active=true;
+            clip_pending=false;
+            pending_path.clear();
+            closed=false;
         } else {
             /* Parsing is COMPLETE, not image observation: unsupported
              * paint/Text/Stroke/Clip/Form/group/mask/graphics operators
@@ -346,7 +382,8 @@ public:
     void handleEOF() override
     {
         admit(args.empty() && stack.empty() && fill_stack.empty() &&
-              pending_path.empty());
+              pending_path.empty() && !clip_pending &&
+              (!clipped || clip_stack.empty()));
     }
 private:
     void append_point(quantapdf_composer_path_command_kind kind,
@@ -378,10 +415,15 @@ private:
     }
     admission& target;
     bool mixed=false;
+    bool clipped=false;
+    bool clip_active=false;
+    bool clip_pending=false;
+    quantapdf_composer_fill_rule clip_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
     matrix current=identity;
     uint32_t fill_argb=UINT32_C(0xff000000);
     std::vector<matrix> stack;
     std::vector<uint32_t> fill_stack;
+    std::vector<bool> clip_stack;
     std::vector<Obj> args;
     std::vector<quantapdf_composer_path_command> pending_path;
     bool closed=false;
@@ -502,6 +544,56 @@ quantapdf_ir materialize(
     }
     return ir;
 }
+/* Image Do with one frozen source W/W* Clip Path. The old image-only
+ * and mixed Path/Image profiles stay deliberately narrower. Clip geometry
+ * is already transformed into page-display coordinates at definition time. */
+quantapdf_ir materialize_clipped_image(const admission& source)
+{
+    admit(source.clipped_image_mode && source.clip_completed &&
+          source.draws.size()==1u && !source.mixed_mode &&
+          source.clip.commands.size()>=4u &&
+          source.clip.commands.size()<=9u,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    quantapdf_ir ir=materialize(source);
+    try {
+        ir.resources.graphics_states=
+            static_cast<quantapdf_composer_graphics_state *>(
+                std::calloc(1u,sizeof(*ir.resources.graphics_states)));
+        admit(ir.resources.graphics_states!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        ir.resources.graphics_state_count=1u;
+        ir.resources.graphics_state_capacity=1u;
+        auto& state=ir.resources.graphics_states[0];
+        state.fill_alpha=1.0f;
+        state.stroke_alpha=1.0f;
+        state.blend_mode=QUANTAPDF_COMPOSER_BLEND_NORMAL;
+        state.clip_id=1u;
+
+        ir.resources.clips=static_cast<quantapdf_composer_clip_state *>(
+            std::calloc(1u,sizeof(*ir.resources.clips)));
+        admit(ir.resources.clips!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        ir.resources.clip_count=1u;
+        ir.resources.clip_capacity=1u;
+        auto& clip=ir.resources.clips[0];
+        clip.kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;
+        clip.fill_rule=source.clip.rule;
+        clip.command_count=source.clip.commands.size();
+        clip.commands=static_cast<quantapdf_composer_path_command *>(
+            std::malloc(clip.command_count*sizeof(*clip.commands)));
+        admit(clip.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        std::memcpy(clip.commands,source.clip.commands.data(),
+                    clip.command_count*sizeof(*clip.commands));
+        clip.transform={1.0f,0.0f,0.0f,1.0f,0.0f,0.0f};
+        ir.operations[0].graphics_state_id=1u;
+        ir.operations[0].value.image.options.struct_size=
+            QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+        ir.operations[0].value.image.options.graphics_state_id=1u;
+        return ir;
+    } catch(...) {
+        quantapdf_ir_dispose(&ir);
+        throw;
+    }
+}
+
 /* Exact, immutable mixed source admission: V1 is 1 PATH + 1 IMAGE,
  * V2 is 1 PATH + 2 IMAGEs, V3 is 2 PATHs + 2 IMAGEs. Neither QPDF
  * object owners nor PDFium handles are retained in the detached IR. */
@@ -619,8 +711,9 @@ static quantapdf_status source_raw_images_to_ir_impl(
         Obj resources=bounded_page_resources(
             geo.page,limits->max_parent_steps);
         admission source{resources,*limits,page_w,page_h,0u,0u,0u,
-                         {},false,{},{},2u};
-        source.mixed_mode=mixed_version!=0;
+                         {},false,{},{},2u,false,false,{}};
+        source.mixed_mode=mixed_version>=1 && mixed_version<=3;
+        source.clipped_image_mode=mixed_version==4;
         source.mixed_operation_limit=mixed_version==3 ? 4u :
             (mixed_version==2 ? 3u : 2u);
         auto contents=page_streams(geo.page.getKey("/Contents"),*limits);
@@ -628,21 +721,26 @@ static quantapdf_status source_raw_images_to_ir_impl(
         parser.emptyPDF();
         parser.setSuppressWarnings(true);
         Obj parsed=parser.newStream(std::string(contents.begin(),contents.end()));
-        image_content_reader reader(source,source.mixed_mode);
+        image_content_reader reader(source,source.mixed_mode,
+                                    source.clipped_image_mode);
         parsed.parseAsContents(&reader);
         admit(!parser.anyWarnings() && !pdf->anyWarnings(),
               QUANTAPDF_ERROR_FORMAT);
         admit(!source.draws.empty() &&
               (!source.mixed_mode ||
                (source.draws.size()==(source.mixed_operation_limit==4u ?
-                      2u : source.mixed_operation_limit-1u) &&
+                       2u : source.mixed_operation_limit-1u) &&
                 source.painted_paths.size()==(source.mixed_operation_limit==4u ?
-                      2u : 1u) &&
-                source.order.size()==source.mixed_operation_limit)),
+                       2u : 1u) &&
+                source.order.size()==source.mixed_operation_limit)) &&
+              (!source.clipped_image_mode ||
+               (source.clip_completed && source.draws.size()==1u)),
               QUANTAPDF_ERROR_UNSUPPORTED);
-        *out_ir=source.mixed_mode ?
-            materialize_mixed(source,source.mixed_operation_limit) :
-            materialize(source);
+        *out_ir=source.clipped_image_mode ?
+            materialize_clipped_image(source) :
+            (source.mixed_mode ?
+                materialize_mixed(source,source.mixed_operation_limit) :
+                materialize(source));
         return QUANTAPDF_OK;
     } catch(rejected const& e) {return e.status;}
       catch(std::bad_alloc const&) {return QUANTAPDF_ERROR_NOMEM;}
@@ -687,4 +785,14 @@ quantapdf_qpdf_source_mixed_two_paths_two_images_to_ir_v3(
 {
     return source_raw_images_to_ir_impl(
         original_pdf,size,limits,out_ir,3);
+}
+
+/* First original-source W/W* Clip + Image Do profile. Its C11 consumer
+ * requires exactly one Clip leaf, one GS and one uniquely owned Image. */
+extern "C" quantapdf_status
+quantapdf_qpdf_source_clipped_raw_image_to_ir_v1(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
+{
+    return source_raw_images_to_ir_impl(original_pdf,size,limits,out_ir,4);
 }

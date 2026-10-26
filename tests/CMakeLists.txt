@@ -234,6 +234,45 @@ else()
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
 
+# One original, unchanged Image Do with a q/Q-scoped W/W* Clip leaf.
+# Strict source parser (qpdf) and direct PDFium oracle are linked ONLY into
+# this test; the reused pure-C11 RAW Image Clip raster remains backend-free.
+add_executable(quantapdf_test_native_source_image_clip
+  test_native_source_image_clip.cpp
+  ../src/render/ir_raster_image_clip_v1.c
+  ../src/render/ir_raster_image_v1.c
+  ../src/render/ir_raster_v1.c
+  ../src/render/ir_raster.c
+  ../src/render/native_device_plan.c
+  ../src/ir/ir.c ../src/resource/resource_registry.c)
+target_include_directories(quantapdf_test_native_source_image_clip PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_native_source_image_clip
+  PRIVATE c_std_11 cxx_std_20)
+target_link_libraries(quantapdf_test_native_source_image_clip PRIVATE
+  QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium qpdf::libqpdf)
+if(MSVC)
+  target_compile_options(quantapdf_test_native_source_image_clip PRIVATE
+    /utf-8)
+endif()
+add_test(NAME quantapdf.native_source_image_clip
+  COMMAND quantapdf_test_native_source_image_clip)
+set_tests_properties(quantapdf.native_source_image_clip PROPERTIES
+  TIMEOUT 40 LABELS "conformance;source-pdf;native-raster;image-do;clip")
+if(WIN32)
+  set_property(TEST quantapdf.native_source_image_clip
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.native_source_image_clip
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.native_source_image_clip
+    PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
 # One original, unchanged PDF with exactly one Path Fill and one Image Do.
 # The source parser/QPDF + PDFium direct oracle are linked ONLY into this
 # source test. The standalone mixed pure-C11 Raster test stays backend-free.
