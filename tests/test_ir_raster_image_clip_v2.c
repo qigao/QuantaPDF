@@ -178,6 +178,11 @@ static int test_atomic_negatives(void)
     f.images[1].alpha_size=0u;
     CHECK(refused(&f,&il,&cl)==EXIT_SUCCESS);
     f.images[1].alpha_size=1u;
+    /* Valid first V1 layer followed by invalid second RAW payload:
+     * output must remain entirely empty even on a late intermediate fail. */
+    f.images[1].size=2u;
+    CHECK(refused(&f,&il,&cl)==EXIT_SUCCESS);
+    f.images[1].size=3u;
     f.gs.clip_id=0u;
     CHECK(refused(&f,&il,&cl)==EXIT_SUCCESS);
     f.gs.clip_id=1u;
@@ -190,6 +195,9 @@ static int test_atomic_negatives(void)
     f.clip.command_count=0u;
     CHECK(refused(&f,&il,&cl)==EXIT_SUCCESS);
     f.clip.command_count=5u;
+    f.page.width_points=1.0e30f; /* Reject before float->size_t conversion. */
+    CHECK(refused(&f,&il,&cl)==EXIT_SUCCESS);
+    f.page.width_points=8.0f;
 
     /* Failed second-layer preflight must not poison a later valid call. */
     OK(quantapdf_ir_raster_two_clipped_raw_images_v2(
