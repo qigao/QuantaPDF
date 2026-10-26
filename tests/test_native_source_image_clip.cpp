@@ -944,29 +944,29 @@ int source_scoped_mixed_v6_suite()
     if(negative_scoped_mixed_v6(
         masked,QUANTAPDF_ERROR_UNSUPPORTED,bounds)!=0)
         return EXIT_FAILURE;
-    auto small=bounds;
-    small.max_operations=1u;
+    auto limited_bounds=bounds;
+    limited_bounds.max_operations=1u;
     if(negative_scoped_mixed_v6(
-        two_image_then_path,QUANTAPDF_ERROR_UNSUPPORTED,small)!=0)
+        two_image_then_path,QUANTAPDF_ERROR_UNSUPPORTED,limited_bounds)!=0)
         return EXIT_FAILURE;
     /* The flexible profile consumes the requested ACTUAL paint quota.
      * Two paints under a two-operation budget succeed; three must refuse. */
-    small.max_operations=2u;
+    limited_bounds.max_operations=2u;
     {
         const auto original=original_pdf(two_path_then_image);
         quantapdf_ir exact{};
         OK(quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
-            original.data(),original.size(),&small,&exact));
+            original.data(),original.size(),&limited_bounds,&exact));
         CHECK(exact.operation_count==2u);
         quantapdf_ir_dispose(&exact);
     }
     if(negative_scoped_mixed_v6(
-        three_clipped_image_path,QUANTAPDF_ERROR_UNSUPPORTED,small)!=0)
+        three_clipped_image_path,QUANTAPDF_ERROR_UNSUPPORTED,limited_bounds)!=0)
         return EXIT_FAILURE;
-    small=bounds;
-    small.max_source_pixels=3u;
+    limited_bounds=bounds;
+    limited_bounds.max_source_pixels=3u;
     if(negative_scoped_mixed_v6(
-        two_image_then_path,QUANTAPDF_ERROR_UNSUPPORTED,small)!=0)
+        two_image_then_path,QUANTAPDF_ERROR_UNSUPPORTED,limited_bounds)!=0)
         return EXIT_FAILURE;
     if(positive_scoped_mixed_v6(
         two_path_then_image,1u,1u,1u,
