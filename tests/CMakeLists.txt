@@ -157,6 +157,34 @@ add_test(NAME quantapdf.native_ir_raw_image_clip_path_v4
 set_tests_properties(quantapdf.native_ir_raw_image_clip_path_v4 PROPERTIES
   TIMEOUT 20 LABELS "conformance;native-raster;raw-image;clip;restored-path;backend-free")
 
+# V5: reuse the existing C11 raster layers under one frozen per-operation
+# W/W* Clip membership; Q-restored operations have GS/Clip 0. The entire
+# executable is provider-neutral and links no qpdf/PDFium runtime.
+add_executable(quantapdf_test_ir_raster_scoped_mixed_v5
+  test_ir_raster_scoped_mixed_v5.c
+  ../src/render/ir_raster_scoped_mixed_v5.c
+  ../src/render/ir_raster_image_clip_v1.c
+  ../src/render/ir_raster_image_v1.c
+  ../src/render/ir_raster_v1.c
+  ../src/render/ir_raster.c
+  ../src/render/native_device_plan.c)
+target_include_directories(quantapdf_test_ir_raster_scoped_mixed_v5 PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_ir_raster_scoped_mixed_v5 PRIVATE c_std_11)
+if(MSVC)
+  target_compile_options(quantapdf_test_ir_raster_scoped_mixed_v5 PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_test_ir_raster_scoped_mixed_v5 PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+if(UNIX)
+  target_link_libraries(quantapdf_test_ir_raster_scoped_mixed_v5 PRIVATE m)
+endif()
+add_test(NAME quantapdf.native_ir_scoped_mixed_v5
+  COMMAND quantapdf_test_ir_raster_scoped_mixed_v5)
+set_tests_properties(quantapdf.native_ir_scoped_mixed_v5 PROPERTIES
+  TIMEOUT 25 LABELS "conformance;native-raster;mixed-paint;clip;backend-free")
+
 # Backend-independent mixed Path/RAW Image rendering in source order.
 # Keep this target strictly C11; no qpdf/PDFium library is linked.
 add_executable(quantapdf_test_ir_raster_mixed_v1
@@ -324,6 +352,7 @@ add_executable(quantapdf_test_native_source_image_clip
   ../src/render/ir_raster_image_clip_v1.c
   ../src/render/ir_raster_image_clip_v2.c
   ../src/render/ir_raster_image_clip_path_v4.c
+  ../src/render/ir_raster_scoped_mixed_v5.c
   ../src/render/ir_raster_image_v1.c
   ../src/render/ir_raster_v1.c
   ../src/render/ir_raster.c
