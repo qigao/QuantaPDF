@@ -211,7 +211,9 @@ static int negatives(void)
     f.page.width_points=1.0e30f;
     CHECK(expect_unsupported(&f,&limit)==0);
     setup(&f);
-    f.ir.resources.image_count=3u;
+    /* The borrowed backing array holds only two resources. Reducing the
+     * declared count is a safe missing-reference negative (no OOB access). */
+    f.ir.resources.image_count=1u;
     CHECK(expect_unsupported(&f,&limit)==0);
     setup(&f);
     limit.max_pixels=63u;
