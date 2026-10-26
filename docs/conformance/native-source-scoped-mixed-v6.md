@@ -30,6 +30,9 @@ new opcodes or widening older source interfaces:
   permitted positive axis-aligned CTMs, bounded bytes, page dimensions,
   content streams, four layers, independent decoded image source pixels
   and painted pixel work are checked without a provider fallback.
+  The caller's `max_operations` constrains the **actual** admitted
+  2–4 paints (two paints may use a limit of two); a third paint under
+  a two-operation limit is rejected atomically.
 - Image or Path count imbalance, unsupported Stroke/Text/Form/shading/
   mask/color, malformed or incomplete scopes, missing resources, invalid
   transforms and exhausted budgets fail **atomically**, with zero output.
