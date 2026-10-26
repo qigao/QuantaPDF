@@ -404,6 +404,13 @@ add_test(NAME quantapdf.native_source_product_bridge_v1
 set_tests_properties(quantapdf.native_source_product_bridge_v1 PROPERTIES
   TIMEOUT 40
   LABELS "conformance;source-pdf;native-raster;product-bridge;backend-free-raster")
+# Private Native render through real built-in provider document/page lifetime.
+# Public render_page dispatch stays PDFium-backed and is not replaced.
+add_test(NAME quantapdf.native_builtin_page_owner_v1
+  COMMAND quantapdf_test_native_source_image_clip --builtin-native-page-only)
+set_tests_properties(quantapdf.native_builtin_page_owner_v1 PROPERTIES
+  TIMEOUT 40
+  LABELS "conformance;source-pdf;native-raster;builtin-page;ownership")
 if(WIN32)
   set_property(TEST quantapdf.native_source_image_clip
     quantapdf.native_source_scoped_mixed_v6
@@ -411,6 +418,7 @@ if(WIN32)
     quantapdf.native_source_scoped_mixed_v8_gray
     quantapdf.native_source_profile_legacy_parity
     quantapdf.native_source_product_bridge_v1
+    quantapdf.native_builtin_page_owner_v1
     PROPERTY ENVIRONMENT_MODIFICATION
     "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 elseif(APPLE)
@@ -420,6 +428,7 @@ elseif(APPLE)
     quantapdf.native_source_scoped_mixed_v8_gray
     quantapdf.native_source_profile_legacy_parity
     quantapdf.native_source_product_bridge_v1
+    quantapdf.native_builtin_page_owner_v1
     PROPERTY ENVIRONMENT_MODIFICATION
     "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 else()
@@ -429,6 +438,7 @@ else()
     quantapdf.native_source_scoped_mixed_v8_gray
     quantapdf.native_source_profile_legacy_parity
     quantapdf.native_source_product_bridge_v1
+    quantapdf.native_builtin_page_owner_v1
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
