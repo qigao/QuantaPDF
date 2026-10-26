@@ -372,16 +372,26 @@ add_test(NAME quantapdf.native_source_image_clip
   COMMAND quantapdf_test_native_source_image_clip)
 set_tests_properties(quantapdf.native_source_image_clip PROPERTIES
   TIMEOUT 40 LABELS "conformance;source-pdf;native-raster;image-do;clip")
+# Separate V6 strict original-source 2–4 scoped mixed admission; reuse the
+# SAME binary and independent PDFium reference as the existing source Clip
+# qualification. The pure-C11 V5 raster continues to have zero PDFium link.
+add_test(NAME quantapdf.native_source_scoped_mixed_v6
+  COMMAND quantapdf_test_native_source_image_clip --scoped-v6-only)
+set_tests_properties(quantapdf.native_source_scoped_mixed_v6 PROPERTIES
+  TIMEOUT 40 LABELS "conformance;source-pdf;native-raster;image-do;clip;mixed")
 if(WIN32)
   set_property(TEST quantapdf.native_source_image_clip
+    quantapdf.native_source_scoped_mixed_v6
     PROPERTY ENVIRONMENT_MODIFICATION
     "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 elseif(APPLE)
   set_property(TEST quantapdf.native_source_image_clip
+    quantapdf.native_source_scoped_mixed_v6
     PROPERTY ENVIRONMENT_MODIFICATION
     "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 else()
   set_property(TEST quantapdf.native_source_image_clip
+    quantapdf.native_source_scoped_mixed_v6
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
