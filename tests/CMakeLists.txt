@@ -130,6 +130,33 @@ add_test(NAME quantapdf.native_ir_raw_image_clip_v3
 set_tests_properties(quantapdf.native_ir_raw_image_clip_v3 PROPERTIES
   TIMEOUT 20 LABELS "conformance;native-raster;raw-image;clip;restore;backend-free")
 
+# V4: one W/W* clipped source Image followed by a Q-restored opaque PATH.
+# Pure C11 standalone target with no qpdf/PDFium library dependencies.
+add_executable(quantapdf_test_ir_raster_image_clip_path_v4
+  test_ir_raster_image_clip_path_v4.c
+  ../src/render/ir_raster_image_clip_path_v4.c
+  ../src/render/ir_raster_image_clip_v1.c
+  ../src/render/ir_raster_image_v1.c
+  ../src/render/ir_raster_v1.c
+  ../src/render/ir_raster.c
+  ../src/render/native_device_plan.c)
+target_include_directories(quantapdf_test_ir_raster_image_clip_path_v4 PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_ir_raster_image_clip_path_v4 PRIVATE c_std_11)
+if(MSVC)
+  target_compile_options(quantapdf_test_ir_raster_image_clip_path_v4 PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_test_ir_raster_image_clip_path_v4 PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+if(UNIX)
+  target_link_libraries(quantapdf_test_ir_raster_image_clip_path_v4 PRIVATE m)
+endif()
+add_test(NAME quantapdf.native_ir_raw_image_clip_path_v4
+  COMMAND quantapdf_test_ir_raster_image_clip_path_v4)
+set_tests_properties(quantapdf.native_ir_raw_image_clip_path_v4 PROPERTIES
+  TIMEOUT 20 LABELS "conformance;native-raster;raw-image;clip;restored-path;backend-free")
+
 # Backend-independent mixed Path/RAW Image rendering in source order.
 # Keep this target strictly C11; no qpdf/PDFium library is linked.
 add_executable(quantapdf_test_ir_raster_mixed_v1
@@ -296,6 +323,7 @@ add_executable(quantapdf_test_native_source_image_clip
   test_native_source_image_clip.cpp
   ../src/render/ir_raster_image_clip_v1.c
   ../src/render/ir_raster_image_clip_v2.c
+  ../src/render/ir_raster_image_clip_path_v4.c
   ../src/render/ir_raster_image_v1.c
   ../src/render/ir_raster_v1.c
   ../src/render/ir_raster.c
