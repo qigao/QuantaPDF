@@ -56,6 +56,26 @@ else()
     -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# Native Source->IR->Raster and Page adapter belong to the product,
+# NOT the backend static archive: product -> backend is the only link
+# dependency. Reuse identical private OBJECT files in in-tree oracles
+# without exporting new SDK symbols or duplicating C11 render sources.
+add_library(quantapdf_native_bridge_objects OBJECT
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/native_source_raster_bridge_v1.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/builtin_native_page_v1.c")
+target_compile_features(quantapdf_native_bridge_objects PRIVATE c_std_11)
+target_include_directories(quantapdf_native_bridge_objects PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/include"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src")
+set_target_properties(quantapdf_native_bridge_objects PROPERTIES
+  POSITION_INDEPENDENT_CODE ON)
+if(MSVC)
+  target_compile_options(quantapdf_native_bridge_objects PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_native_bridge_objects PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 add_library(quantapdf_backend STATIC)
 add_subdirectory(src/backend)
 target_compile_features(quantapdf_backend PRIVATE c_std_11 cxx_std_20)
@@ -81,7 +101,8 @@ add_library(quantapdf)
 # Include the exact same qualified raster objects in the product target.
 # Existing provider-backed rendering remains unchanged.
 target_sources(quantapdf PRIVATE
-  $<TARGET_OBJECTS:quantapdf_native_raster_objects>)
+  $<TARGET_OBJECTS:quantapdf_native_raster_objects>
+  $<TARGET_OBJECTS:quantapdf_native_bridge_objects>)
 add_subdirectory(src/core)
 add_subdirectory(src/document)
 add_subdirectory(src/snapshot)
