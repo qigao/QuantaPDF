@@ -150,6 +150,7 @@ struct admission {
     bool clipped_image_mode=false;
     bool clip_completed=false;
     staged_image_clip clip;
+    size_t clipped_image_limit=1u;
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule)
@@ -297,7 +298,8 @@ public:
                   pending_path.empty() && !clip_pending);
             if(clipped)
                 admit(clip_active && target.clip_completed &&
-                      target.draws.empty(),QUANTAPDF_ERROR_UNSUPPORTED);
+                      target.draws.size()<target.clipped_image_limit,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
             admit(target.resources.isDictionary(),QUANTAPDF_ERROR_FORMAT);
             Obj xobjects=target.resources.getKey("/XObject");
             admit(xobjects.isDictionary(),QUANTAPDF_ERROR_FORMAT);
@@ -547,10 +549,12 @@ quantapdf_ir materialize(
 /* Image Do with one frozen source W/W* Clip Path. The old image-only
  * and mixed Path/Image profiles stay deliberately narrower. Clip geometry
  * is already transformed into page-display coordinates at definition time. */
-quantapdf_ir materialize_clipped_image(const admission& source)
+quantapdf_ir materialize_clipped_image(const admission& source,
+                                       size_t expected_images)
 {
     admit(source.clipped_image_mode && source.clip_completed &&
-          source.draws.size()==1u && !source.mixed_mode &&
+          (expected_images==1u || expected_images==2u) &&
+          source.draws.size()==expected_images && !source.mixed_mode &&
           source.clip.commands.size()>=4u &&
           source.clip.commands.size()<=9u,
           QUANTAPDF_ERROR_UNSUPPORTED);
@@ -583,10 +587,12 @@ quantapdf_ir materialize_clipped_image(const admission& source)
         std::memcpy(clip.commands,source.clip.commands.data(),
                     clip.command_count*sizeof(*clip.commands));
         clip.transform={1.0f,0.0f,0.0f,1.0f,0.0f,0.0f};
-        ir.operations[0].graphics_state_id=1u;
-        ir.operations[0].value.image.options.struct_size=
-            QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
-        ir.operations[0].value.image.options.graphics_state_id=1u;
+        for(size_t i=0u;i<expected_images;++i) {
+            ir.operations[i].graphics_state_id=1u;
+            ir.operations[i].value.image.options.struct_size=
+                QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+            ir.operations[i].value.image.options.graphics_state_id=1u;
+        }
         return ir;
     } catch(...) {
         quantapdf_ir_dispose(&ir);
@@ -713,7 +719,8 @@ static quantapdf_status source_raw_images_to_ir_impl(
         admission source{resources,*limits,page_w,page_h,0u,0u,0u,
                          {},false,{},{},2u,false,false,{}};
         source.mixed_mode=mixed_version>=1 && mixed_version<=3;
-        source.clipped_image_mode=mixed_version==4;
+        source.clipped_image_mode=mixed_version==4 || mixed_version==5;
+        source.clipped_image_limit=mixed_version==5 ? 2u : 1u;
         source.mixed_operation_limit=mixed_version==3 ? 4u :
             (mixed_version==2 ? 3u : 2u);
         auto contents=page_streams(geo.page.getKey("/Contents"),*limits);
@@ -734,10 +741,11 @@ static quantapdf_status source_raw_images_to_ir_impl(
                        2u : 1u) &&
                 source.order.size()==source.mixed_operation_limit)) &&
               (!source.clipped_image_mode ||
-               (source.clip_completed && source.draws.size()==1u)),
+               (source.clip_completed &&
+                source.draws.size()==source.clipped_image_limit)),
               QUANTAPDF_ERROR_UNSUPPORTED);
         *out_ir=source.clipped_image_mode ?
-            materialize_clipped_image(source) :
+            materialize_clipped_image(source,source.clipped_image_limit) :
             (source.mixed_mode ?
                 materialize_mixed(source,source.mixed_operation_limit) :
                 materialize(source));
@@ -795,4 +803,14 @@ quantapdf_qpdf_source_clipped_raw_image_to_ir_v1(
     const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
 {
     return source_raw_images_to_ir_impl(original_pdf,size,limits,out_ir,4);
+}
+
+/* Source V2 admits TWO IMAGE Do operations while the same frozen W/W*
+ * Clip leaf remains active across q/Q. V1 remains exactly one Do. */
+extern "C" quantapdf_status
+quantapdf_qpdf_source_two_clipped_raw_images_to_ir_v2(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
+{
+    return source_raw_images_to_ir_impl(original_pdf,size,limits,out_ir,5);
 }
