@@ -1940,7 +1940,7 @@ int positive_builtin_backend_rgb_v1(
                 native-prior : prior-native;
             error_oracle+=(double)delta;
             error_legacy+=(double)historical;
-            peak=std::max(peak,delta);
+            if(delta>peak)peak=delta;
         }
         if(peak>64u)++gross;
     }
