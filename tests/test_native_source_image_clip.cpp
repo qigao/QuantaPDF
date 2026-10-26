@@ -4,6 +4,7 @@
  * Native C11 raster receives uniquely-owned IR after qpdf source disposal. */
 #include "backend/qpdf_native_image_ir.h"
 #include "render/ir_raster_image_clip_v1.h"
+#include "render/ir_raster_image_clip_v2.h"
 
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFWriter.hh>
@@ -201,6 +202,120 @@ int positive(const fixture& source,quantapdf_composer_fill_rule rule,
     return EXIT_SUCCESS;
 }
 
+/* Original PDF V2: TWO Image Do draws, both under the SAME frozen W/W*
+ * source Clip. The second Image may overlap the first, but must not leave
+ * the Clip scope; the single-Do V1 API must reject this source. */
+int positive_two(const fixture& source,quantapdf_composer_fill_rule rule)
+{
+    auto original=original_pdf(source);
+    CHECK(original.size()>100u);
+    const auto direct=pdfium_original_rgb(original);
+    CHECK(direct.size()==W*H*3u);
+    quantapdf_ir old_api{};
+    CHECK(quantapdf_qpdf_source_clipped_raw_image_to_ir_v1(
+        original.data(),original.size(),&source_limits,&old_api)
+        ==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(old_api.pages==nullptr && old_api.operations==nullptr &&
+          old_api.resources.images==nullptr);
+
+    quantapdf_ir ir{};
+    OK(quantapdf_qpdf_source_two_clipped_raw_images_to_ir_v2(
+        original.data(),original.size(),&source_limits,&ir));
+    CHECK(ir.page_count==1u && ir.operation_count==2u &&
+          ir.resources.image_count==2u && ir.resources.clip_count==1u &&
+          ir.resources.graphics_state_count==1u);
+    for(size_t i=0u;i<2u;++i) {
+        CHECK(ir.operations[i].kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE &&
+              ir.operations[i].graphics_state_id==1u &&
+              ir.operations[i].value.image.options.graphics_state_id==1u &&
+              ir.operations[i].value.image.image_id==i+1u &&
+              ir.resources.images[i].format==QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW);
+    }
+    CHECK(ir.resources.graphics_states[0].clip_id==1u &&
+          ir.resources.clips[0].kind==
+              QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL &&
+          ir.resources.clips[0].fill_rule==rule &&
+          ir.resources.clips[0].command_count==5u);
+    original.clear();
+    original.shrink_to_fit();
+    quantapdf_ir_raster_image native{},again{};
+    quantapdf_ir_raster_image_v1_limits img=image_limits;
+    quantapdf_ir_raster_v1_limits mask=clip_limits;
+    img.max_operations=2u;
+    mask.max_operations=2u;
+    OK(quantapdf_ir_raster_two_clipped_raw_images_v2(
+        &ir,0u,&img,&mask,&native));
+    OK(quantapdf_ir_raster_two_clipped_raw_images_v2(
+        &ir,0u,&img,&mask,&again));
+    CHECK(native.width==W && native.height==H &&
+          native.size==W*H*4u && native.stride==W*4u &&
+          native.size==again.size &&
+          std::memcmp(native.pixels,again.pixels,native.size)==0);
+    quantapdf_ir_dispose(&ir);
+    CHECK(ir.pages==nullptr && ir.operations==nullptr &&
+          ir.resources.images==nullptr && ir.resources.clips==nullptr);
+
+    double diff=0.0;
+    size_t gross=0u;
+    for(size_t y=0u;y<H;++y)for(size_t x=0u;x<W;++x) {
+        const unsigned char *p=native.pixels+y*native.stride+x*4u;
+        const unsigned char *q=direct.data()+(y*W+x)*3u;
+        unsigned max_diff=0u;
+        for(size_t c=0u;c<3u;++c) {
+            const unsigned actual=(unsigned)p[c],expected=(unsigned)q[c];
+            const unsigned delta=actual>expected?
+                actual-expected:expected-actual;
+            if(delta>max_diff)max_diff=delta;
+            diff+=(double)delta;
+        }
+        if(max_diff>64u)++gross;
+    }
+    CHECK(diff/(double)(W*H*3u)<=8.0 && gross<=W*H/12u);
+    struct probe {size_t x,y;unsigned r,g,b;};
+    const probe expected[]={
+        {1u,1u,255u,255u,255u}, {9u,11u,255u,255u,255u},
+        {24u,12u,255u,255u,255u},
+        {13u,10u,255u,0u,0u}, {19u,10u,0u,255u,0u},
+        {13u,12u,255u,0u,0u}, {19u,12u,0u,255u,0u},
+        {13u,16u,0u,0u,255u}, {19u,16u,255u,255u,0u},
+        {13u,18u,255u,255u,255u}
+    };
+    for(const auto& v:expected) {
+        const unsigned char *p=native.pixels+
+            v.y*native.stride+v.x*4u;
+        const unsigned char *q=direct.data()+(v.y*W+v.x)*3u;
+        CHECK(rgb_match(p,v.r,v.g,v.b,3u));
+        CHECK(rgb_match(q,v.r,v.g,v.b,3u));
+    }
+    quantapdf_ir_raster_image_dispose(&native);
+    quantapdf_ir_raster_image_dispose(&again);
+    return EXIT_SUCCESS;
+}
+
+int negative_two(const fixture& source,quantapdf_status expected,
+                 const quantapdf_qpdf_source_raw_image_limits& bounds)
+{
+    auto original=original_pdf(source);
+    for(int trial=0;trial<2;++trial) {
+        quantapdf_ir refused;
+        std::memset(&refused,0xa5,sizeof(refused));
+        const auto status=quantapdf_qpdf_source_two_clipped_raw_images_to_ir_v2(
+            original.data(),original.size(),&bounds,&refused);
+        if(status!=expected)
+            std::fprintf(stderr,
+                "two Do source expected=%d actual=%d trial=%d\n",
+                (int)expected,(int)status,trial);
+        CHECK(status==expected);
+        CHECK(refused.pages==nullptr && refused.page_count==0u &&
+              refused.operations==nullptr && refused.operation_count==0u &&
+              refused.resources.images==nullptr &&
+              refused.resources.graphics_states==nullptr &&
+              refused.resources.clips==nullptr);
+        quantapdf_ir_dispose(&refused);
+    }
+    return EXIT_SUCCESS;
+}
+
 int negative(const fixture& src,quantapdf_status expected)
 {
     auto original=original_pdf(src);
@@ -292,6 +407,77 @@ int main()
         return EXIT_FAILURE;
 
     if(positive(basic,QUANTAPDF_COMPOSER_FILL_NONZERO,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+
+    /* Two ordered Image Do operations under one immutable W/W* source Clip. */
+    const std::string two =
+        "q 12 6 8 9 re W n "
+        "q 16 0 0 12 8 3 cm /I Do Q "
+        "q 8 0 0 6 12 7 cm /I Do Q Q";
+    fixture twin{};
+    twin.a=two;
+    if(positive_two(twin,QUANTAPDF_COMPOSER_FILL_NONZERO)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    fixture twin_evenodd{};
+    twin_evenodd.split=true;
+    twin_evenodd.a="q 12 6 8 9 re W*";
+    twin_evenodd.b=
+        " n q 16 0 0 12 8 3 cm /I Do Q "
+        "q 8 0 0 6 12 7 cm /I Do Q Q";
+    if(positive_two(twin_evenodd,QUANTAPDF_COMPOSER_FILL_EVEN_ODD)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture twin_definition{};
+    twin_definition.a=
+        "q 1 0 0 1 2 0 cm 10 6 8 9 re W n "
+        "q 16 0 0 12 6 3 cm /I Do Q "
+        "q 8 0 0 6 10 7 cm /I Do Q Q";
+    if(positive_two(twin_definition,QUANTAPDF_COMPOSER_FILL_NONZERO)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    const std::string first=
+        "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q ";
+    const fixture invalid[]={
+        {first+"Q q 8 0 0 6 12 7 cm /I Do Q"},
+        {first+"q 8 0 0 6 12 7 cm /I Do /I Do Q Q"},
+        {two+" BT ET"},
+        {two+" 1 0 0 rg"},
+        {two+" 5 5 3 3 re f"},
+        {first+"q 8 1 0 6 12 7 cm /I Do Q Q"},
+        {first+"q 8 0 0 6 12.5 7 cm /I Do Q Q"},
+        {first+"q 8 0 0 6 12 7 cm /Unknown Do Q Q"},
+        {first+"Q"}
+    };
+    for(size_t i=0u;i<sizeof(invalid)/sizeof(invalid[0]);++i) {
+        const auto status=i==7u ? QUANTAPDF_ERROR_FORMAT :
+            (i==8u ? QUANTAPDF_ERROR_UNSUPPORTED : QUANTAPDF_ERROR_UNSUPPORTED);
+        if(negative_two(invalid[i],status,source_limits)!=EXIT_SUCCESS)
+            return EXIT_FAILURE;
+    }
+    fixture lone{};
+    lone.a=first+"Q";
+    if(negative_two(lone,QUANTAPDF_ERROR_UNSUPPORTED,source_limits)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture missing_two{};
+    missing_two.a=two;missing_two.missing_resources=true;
+    if(negative_two(missing_two,QUANTAPDF_ERROR_FORMAT,source_limits)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture masked_two{};
+    masked_two.a=two;masked_two.mask=true;
+    if(negative_two(masked_two,QUANTAPDF_ERROR_UNSUPPORTED,source_limits)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    quantapdf_qpdf_source_raw_image_limits too_small=source_limits;
+    too_small.max_source_pixels=4u; /* First 2x2 accepted, second fails. */
+    if(negative_two(twin,QUANTAPDF_ERROR_UNSUPPORTED,too_small)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    too_small=source_limits;
+    too_small.max_drawn_pixels=192u; /* First draw admitted, second over cap. */
+    if(negative_two(twin,QUANTAPDF_ERROR_UNSUPPORTED,too_small)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    too_small=source_limits;
+    too_small.max_operations=1u;
+    if(negative_two(twin,QUANTAPDF_ERROR_UNSUPPORTED,too_small)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    if(positive_two(twin,QUANTAPDF_COMPOSER_FILL_NONZERO)!=EXIT_SUCCESS)
         return EXIT_FAILURE;
     std::puts("Original Image Do under W/W*: independent PDFium RGB, "
               "detached C11 Clip/Image pixels and atomic negatives PASS");
