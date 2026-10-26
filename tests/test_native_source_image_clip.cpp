@@ -1064,7 +1064,7 @@ int source_scoped_mixed_v7_suite()
         {outer+image_in+"Q 1.001 0.5 0.5 rg 24 17 5 3 re f"},
         {outer+image_in+"Q 0.5 0.5 0.5 RG 24 17 5 3 re f"},
         {outer+image_in+"Q "+outside+" BT ET"},
-        {outer+inside+"Q "+image_out+" /I Do"}
+        {outer+inside+"Q "+image_out+" /I Do /I Do"}
     };
     for(const auto& bad:invalid)
         if(negative_scoped_mixed_v6(
