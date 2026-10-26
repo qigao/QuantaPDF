@@ -45,6 +45,18 @@ quantapdf_status quantapdf_ir_raster_mixed_path_two_images_v2(
     const quantapdf_ir_raster_mixed_v1_limits *limits,
     quantapdf_ir_raster_image *out_image);
 
+/* V3 private C11: EXACTLY TWO opaque PATH fills plus TWO uniquely owned RAW
+ * images, in any of the six source-order interleavings (four operations).
+ * Sum of Path edges/sample work is conservatively bounded by splitting the
+ * provided budgets into two per-Path shares; cumulative Image input and
+ * painted destination work remain charged. No state, Clip, alpha Path, font,
+ * Form, special paint or PDFium fallback is admitted. V1/V2 counts remain
+ * unchanged; all layers are prevalidated and rasterized before publication. */
+quantapdf_status quantapdf_ir_raster_mixed_two_paths_two_images_v3(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_ir_raster_mixed_v1_limits *limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
