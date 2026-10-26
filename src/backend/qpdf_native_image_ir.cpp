@@ -153,6 +153,10 @@ struct admission {
     size_t clipped_image_limit=1u;
     bool restore_second_image=false;
     bool saw_q_restore=false;
+    /* Source V5 freezes a distinct Clip/GS identity for every paint.
+     * 1 means inside the original W/W* scope, 0 means Q-restored. */
+    bool mixed_scoped_mode=false;
+    std::vector<unsigned char> scoped_clip_membership;
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule)
@@ -290,8 +294,10 @@ public:
                 admit(!clip_stack.empty());
                 const bool was_clipped=clip_active;
                 clip_active=clip_stack.back();clip_stack.pop_back();
-                if(target.restore_second_image && target.draws.size()==1u &&
-                   was_clipped && !clip_active)
+                if((target.restore_second_image && target.draws.size()==1u &&
+                    was_clipped && !clip_active) ||
+                   (target.mixed_scoped_mode && target.clip_completed &&
+                    was_clipped && !clip_active))
                     target.saw_q_restore=true;
             }
         } else if(op=="cm") {
@@ -306,7 +312,13 @@ public:
                 admit(target.clip_completed &&
                       target.draws.size()<target.clipped_image_limit,
                       QUANTAPDF_ERROR_UNSUPPORTED);
-                if(target.restore_second_image) {
+                if(target.mixed_scoped_mode) {
+                    /* Every source operation gets an explicit frozen state;
+                     * a Q-restored Do must never inherit its old mask. */
+                    admit((clip_active && !target.saw_q_restore) ||
+                          (!clip_active && target.saw_q_restore),
+                          QUANTAPDF_ERROR_UNSUPPORTED);
+                } else if(target.restore_second_image) {
                     if(target.draws.empty()) {
                         admit(clip_active,QUANTAPDF_ERROR_UNSUPPORTED);
                     } else {
@@ -325,6 +337,8 @@ public:
             Obj named=xobjects.getKey(args[0].getName());
             admit(!named.isNull(),QUANTAPDF_ERROR_FORMAT);
             target.execute(named,current);
+            if(target.mixed_scoped_mode)
+                target.scoped_clip_membership.push_back(clip_active ? 1u : 0u);
         } else if(mixed && op=="rg") {
             /* First profile permits only exact RGB channel 0/1 so there
              * is no unqualified float-to-device color conversion. */
@@ -367,24 +381,36 @@ public:
             admit(args.empty() && pending_path.size()>=3u,
                   QUANTAPDF_ERROR_UNSUPPORTED);
             if(clipped) {
-                /* V4 admits a source-order Image Do, real Q restoration,
-                 * then one opaque PATH paint outside the frozen Clip. */
-                admit(target.restore_second_image &&
-                      target.clip_completed &&
-                      target.draws.size()==1u &&
-                      target.saw_q_restore && !clip_active &&
-                      target.order.size()==1u && target.order[0]==2,
-                      QUANTAPDF_ERROR_UNSUPPORTED);
+                if(target.mixed_scoped_mode) {
+                    /* V5 permits one Path/one Do in either order inside
+                     * the immutable Clip, then another Path/Do after Q. */
+                    admit(target.clip_completed &&
+                          ((clip_active && !target.saw_q_restore) ||
+                           (!clip_active && target.saw_q_restore)),
+                          QUANTAPDF_ERROR_UNSUPPORTED);
+                } else {
+                    /* V4 admits a source-order Image Do, real Q restoration,
+                     * then one opaque PATH paint outside the frozen Clip. */
+                    admit(target.restore_second_image &&
+                          target.clip_completed &&
+                          target.draws.size()==1u &&
+                          target.saw_q_restore && !clip_active &&
+                          target.order.size()==1u && target.order[0]==2,
+                          QUANTAPDF_ERROR_UNSUPPORTED);
+                }
             }
             if (!closed) close_path();
             target.paint_path(std::move(pending_path),fill_argb,
                 op=="f" ? QUANTAPDF_COMPOSER_FILL_NONZERO :
                           QUANTAPDF_COMPOSER_FILL_EVEN_ODD);
+            if(target.mixed_scoped_mode)
+                target.scoped_clip_membership.push_back(clip_active ? 1u : 0u);
             pending_path.clear();
             closed=false;
         } else if(clipped && (op=="W" || op=="W*")) {
             admit(args.empty() && pending_path.size()>=3u &&
-                  !clip_pending && !target.clip_completed,
+                  !clip_pending && !target.clip_completed &&
+                  (!target.mixed_scoped_mode || target.order.empty()),
                   QUANTAPDF_ERROR_UNSUPPORTED);
             clip_rule=op=="W*" ? QUANTAPDF_COMPOSER_FILL_EVEN_ODD :
                                  QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -700,6 +726,87 @@ quantapdf_ir materialize_mixed(const admission& source,
         throw;
     }
 }
+/* Strict Source V5: two paints under one frozen W/W* Clip and two
+ * after Q restoration, with one PATH and one Image Do in each scope.
+ * The generic four-layer renderer subsequently preserves every operation's
+ * immutable GS identity; no previous V1–V4 source entry is broadened. */
+quantapdf_ir materialize_scoped_mixed_v5(const admission& source)
+{
+    admit(source.mixed_scoped_mode && source.mixed_mode &&
+          source.clipped_image_mode && source.clip_completed &&
+          source.saw_q_restore && source.draws.size()==2u &&
+          source.painted_paths.size()==2u && source.order.size()==4u &&
+          source.scoped_clip_membership.size()==4u &&
+          source.clip.commands.size()>=4u &&
+          source.clip.commands.size()<=9u,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    unsigned inside_images=0u,inside_paths=0u;
+    unsigned outside_images=0u,outside_paths=0u;
+    for(size_t i=0u;i<4u;++i) {
+        const unsigned char expected=i<2u ? 1u : 0u;
+        admit(source.scoped_clip_membership[i]==expected,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        if(expected==1u) {
+            if(source.order[i]==2)++inside_images;
+            else if(source.order[i]==1)++inside_paths;
+        } else {
+            if(source.order[i]==2)++outside_images;
+            else if(source.order[i]==1)++outside_paths;
+        }
+    }
+    admit(inside_images==1u && inside_paths==1u &&
+          outside_images==1u && outside_paths==1u,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    quantapdf_ir ir=materialize_mixed(source,4u);
+    try {
+        ir.resources.graphics_states=
+            static_cast<quantapdf_composer_graphics_state *>(
+            std::calloc(1u,sizeof(*ir.resources.graphics_states)));
+        admit(ir.resources.graphics_states!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        ir.resources.graphics_state_count=1u;
+        ir.resources.graphics_state_capacity=1u;
+        auto& state=ir.resources.graphics_states[0];
+        state.fill_alpha=1.0f;
+        state.stroke_alpha=1.0f;
+        state.blend_mode=QUANTAPDF_COMPOSER_BLEND_NORMAL;
+        state.clip_id=1u;
+        ir.resources.clips=
+            static_cast<quantapdf_composer_clip_state *>(
+            std::calloc(1u,sizeof(*ir.resources.clips)));
+        admit(ir.resources.clips!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        ir.resources.clip_count=1u;
+        ir.resources.clip_capacity=1u;
+        auto& clip=ir.resources.clips[0];
+        clip.kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;
+        clip.fill_rule=source.clip.rule;
+        clip.command_count=source.clip.commands.size();
+        clip.commands=static_cast<quantapdf_composer_path_command *>(
+            std::malloc(clip.command_count*sizeof(*clip.commands)));
+        admit(clip.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        std::memcpy(clip.commands,source.clip.commands.data(),
+                    clip.command_count*sizeof(*clip.commands));
+        clip.transform={1.0f,0.0f,0.0f,1.0f,0.0f,0.0f};
+        for(size_t i=0u;i<4u;++i) {
+            auto& op=ir.operations[i];
+            const quantapdf_composer_graphics_state_id id=
+                source.scoped_clip_membership[i] ? 1u : 0u;
+            op.graphics_state_id=id;
+            if(op.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
+                op.value.image.options.struct_size=
+                    QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+                op.value.image.options.graphics_state_id=id;
+            } else {
+                admit(op.kind==QUANTAPDF_COMPOSER_OPERATION_PATH,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                op.value.path.options.graphics_state_id=id;
+            }
+        }
+        return ir;
+    } catch(...) {
+        quantapdf_ir_dispose(&ir);
+        throw;
+    }
+}
 /* Source V4 is image+PATH, unlike the earlier two-IMAGE restored V3.
  * Copy the complete ordered source into an owned 1 IMAGE+1 PATH IR, then
  * attach ONLY the first Image operation to the frozen Clip Graphics State. */
@@ -810,16 +917,21 @@ static quantapdf_status source_raw_images_to_ir_impl(
               QUANTAPDF_ERROR_UNSUPPORTED);
         Obj resources=bounded_page_resources(
             geo.page,limits->max_parent_steps);
+        /* Initialize ALL members explicitly. Some CI toolchains enable
+         * -Werror=missing-field-initializers for aggregate additions. */
         admission source{resources,*limits,page_w,page_h,0u,0u,0u,
-                         {},false,{},{},2u,false,false,{}};
+                         {},false,{},{},2u,false,false,{},
+                         1u,false,false,false,{}};
         source.mixed_mode=(mixed_version>=1 && mixed_version<=3) ||
-            mixed_version==7;
-        source.clipped_image_mode=mixed_version>=4 && mixed_version<=7;
-        source.clipped_image_limit=(mixed_version==5 || mixed_version==6) ?
-            2u : 1u;
+            mixed_version==7 || mixed_version==8;
+        source.clipped_image_mode=mixed_version>=4 && mixed_version<=8;
+        source.clipped_image_limit=(mixed_version==5 || mixed_version==6 ||
+            mixed_version==8) ? 2u : 1u;
         source.restore_second_image=mixed_version==6 || mixed_version==7;
-        source.mixed_operation_limit=mixed_version==3 ? 4u :
+        source.mixed_operation_limit=(mixed_version==3 ||
+            mixed_version==8) ? 4u :
             (mixed_version==2 ? 3u : 2u);
+        source.mixed_scoped_mode=mixed_version==8;
         auto contents=page_streams(geo.page.getKey("/Contents"),*limits);
         QPDF parser;
         parser.emptyPDF();
@@ -843,13 +955,15 @@ static quantapdf_status source_raw_images_to_ir_impl(
                  (!source.restore_second_image ||
                   source.saw_q_restore))),
               QUANTAPDF_ERROR_UNSUPPORTED);
-        *out_ir=mixed_version==7 ?
+        *out_ir=mixed_version==8 ?
+            materialize_scoped_mixed_v5(source) :
+            (mixed_version==7 ?
             materialize_restored_image_then_path(source) :
             (source.clipped_image_mode ?
                 materialize_clipped_image(source,source.clipped_image_limit) :
                 (source.mixed_mode ?
                     materialize_mixed(source,source.mixed_operation_limit) :
-                    materialize(source)));
+                    materialize(source))));
         return QUANTAPDF_OK;
     } catch(rejected const& e) {return e.status;}
       catch(std::bad_alloc const&) {return QUANTAPDF_ERROR_NOMEM;}
@@ -936,4 +1050,18 @@ quantapdf_qpdf_source_clipped_image_then_path_to_ir_v4(
 {
     return source_raw_images_to_ir_impl(
         original_pdf,size,limits,out_ir,7);
+}
+
+/* Opt-in Source Scoped Mixed V5: one immutable W/W* Clip and exactly four
+ * source-ordered paints, comprising one Image Do and one opaque PATH before
+ * the real Q pop, and one of each after restoration. Each operation owns
+ * its frozen GS/Clip membership. All previous V1–V4 signatures retain
+ * their stricter cardinality and operator admission. */
+extern "C" quantapdf_status
+quantapdf_qpdf_source_scoped_mixed_v5_to_ir(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
+{
+    return source_raw_images_to_ir_impl(
+        original_pdf,size,limits,out_ir,8);
 }
