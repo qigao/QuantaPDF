@@ -698,11 +698,18 @@ static int test_v2b2_symbol_use_form_reuse()
         first_size,
         0u,
         "2 0 0 2 140 180 cm /Fm1 Do"));
-    CHECK(quantapdf_test_pdf_content_contains(
-        first_data,
-        first_size,
-        0u,
-        "1.2 0 0 1.2 0 40 cm /Fm2 Do"));
+    /* Compare the actual decoded original Form transform, not a string
+     * representation of a floating-point cancellation near exact zero.
+     * The 1e-12 bound accepts machine rounding only; a meaningful shift
+     * remains a strict rejection. The source/PDF bytes are not changed. */
+    {
+        double const expected_form_matrix[6] = {1.2, 0, 0, 1.2, 0, 40};
+        double const shifted_form_matrix[6] = {1.2, 0, 0, 1.2, 0.01, 40};
+        CHECK(quantapdf_test_pdf_form_transform_near(
+            first_data, first_size, 0u, 2u, expected_form_matrix, 1e-12));
+        CHECK(!quantapdf_test_pdf_form_transform_near(
+            first_data, first_size, 0u, 2u, shifted_form_matrix, 1e-12));
+    }
     CHECK(quantapdf_test_pdf_content_contains(
         first_data,
         first_size,
