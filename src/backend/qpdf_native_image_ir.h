@@ -128,6 +128,17 @@ quantapdf_status quantapdf_qpdf_source_clipped_image_then_path_to_ir_v4(
     const unsigned char *original_pdf,size_t size,
     const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir);
 
+/* Source Scoped Mixed V5: exactly one frozen W/W* Clip, one PATH and one
+ * Image Do within its q/Q scope, then one PATH and one Image Do after
+ * a REAL Q unclip, each pair in either source order. Decode all contents;
+ * fail atomically for missing/extra operations, orphan/invalid resource or
+ * mismatched Clip/GS scope. Original source/qpdf ownership ends before the
+ * detached four-layer IR is returned. Consume only with the private
+ * quantapdf_ir_raster_scoped_mixed_v5(), not public PDFium rendering. */
+quantapdf_status quantapdf_qpdf_source_scoped_mixed_v5_to_ir(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir);
+
 #ifdef __cplusplus
 }
 #endif
