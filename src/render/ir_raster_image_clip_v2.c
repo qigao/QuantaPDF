@@ -83,6 +83,8 @@ quantapdf_status quantapdf_ir_raster_two_clipped_raw_images_v2(
     page=&ir->pages[0];
     if(!isfinite(page->width_points) || !isfinite(page->height_points) ||
        page->width_points<=0.0f || page->height_points<=0.0f ||
+       page->width_points>(float)QP_V2_MAX_OUTPUT ||
+       page->height_points>(float)QP_V2_MAX_OUTPUT ||
        (page->suppress_background!=0 && page->suppress_background!=1) ||
        (!page->suppress_background &&
         (page->background_argb>>24u)!=255u))
