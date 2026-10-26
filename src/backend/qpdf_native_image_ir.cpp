@@ -139,21 +139,25 @@ struct admission {
     size_t source_pixels=0,drawn_pixels=0,operators=0;
     std::vector<staged_image> draws;
     bool mixed_mode=false;
-    staged_path painted_path;
+    std::vector<staged_path> painted_paths;
     std::vector<int> order; /* 1=PATH, 2=IMAGE, as originally painted */
-    size_t mixed_operation_limit=2u; /* legacy 1+1 or qualified V2 1+2 */
+    size_t mixed_operation_limit=2u;
+    size_t mixed_path_limit=1u;
+    size_t mixed_image_limit=1u;
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule)
     {
-        admit(mixed_mode && painted_path.commands.empty() &&
+        admit(mixed_mode && painted_paths.size()<mixed_path_limit &&
               commands.size()>=4u && commands.size()<=9u &&
               order.size()<mixed_operation_limit &&
               limits.max_operations>=mixed_operation_limit,
               QUANTAPDF_ERROR_UNSUPPORTED);
-        painted_path.commands=std::move(commands);
-        painted_path.fill_argb=color;
-        painted_path.fill_rule=rule;
+        staged_path path;
+        path.commands=std::move(commands);
+        path.fill_argb=color;
+        path.fill_rule=rule;
+        painted_paths.push_back(std::move(path));
         order.push_back(1);
     }
 
@@ -162,7 +166,7 @@ struct admission {
         admit(draws.size() < hard_operations &&
               draws.size() < limits.max_operations &&
               (!mixed_mode ||
-               (draws.size()<mixed_operation_limit-1u &&
+               (draws.size()<mixed_image_limit &&
                 order.size()<mixed_operation_limit &&
                 limits.max_operations>=mixed_operation_limit)),
               QUANTAPDF_ERROR_UNSUPPORTED);
@@ -499,17 +503,18 @@ quantapdf_ir materialize(
     }
     return ir;
 }
-/* Reuse image-only strict resource decoding. Exactly one opaque PATH
- * can interleave with one (V1) or two (V2) independently owned RAW Images.
- * The source order is replayed into a new owned Composer IR without a
- * PDF writer, PDFium, hidden operator dropping or borrowed qpdf objects. */
+/* Reuse the image-only strict resource decoder. Independently admit
+ * V1 (1 PATH + 1 IMAGE), V2 (1 PATH + 2 IMAGEs) and V3 (2 PATHs + 2
+ * IMAGEs). The full source order is replayed into owned IR with no PDF
+ * writer, hidden dropped operator, PDFium fallback or borrowed qpdf object. */
 quantapdf_ir materialize_mixed(const admission& source,
                                size_t mixed_operations)
 {
     admit(source.mixed_mode && (mixed_operations==2u ||
-          mixed_operations==3u) &&
-          source.draws.size()==mixed_operations-1u &&
-          source.painted_path.commands.size()>=4u &&
+          mixed_operations==3u || mixed_operations==4u) &&
+          source.draws.size()==source.mixed_image_limit &&
+          source.painted_paths.size()==source.mixed_path_limit &&
+          source.mixed_image_limit+source.mixed_path_limit==mixed_operations &&
           source.order.size()==mixed_operations,
           QUANTAPDF_ERROR_UNSUPPORTED);
     size_t paths=0u,images=0u;
@@ -518,7 +523,8 @@ quantapdf_ir materialize_mixed(const admission& source,
         if(kind==1)++paths;
         else ++images;
     }
-    admit(paths==1u && images==mixed_operations-1u,
+    admit(paths==source.mixed_path_limit &&
+          images==source.mixed_image_limit,
           QUANTAPDF_ERROR_UNSUPPORTED);
     quantapdf_ir ir=materialize(source);
     try {
@@ -536,26 +542,32 @@ quantapdf_ir materialize_mixed(const admission& source,
         ir.operation_count=mixed_operations;
         size_t image_index=0u, path_index=0u;
         for(size_t i=0u;i<mixed_operations;++i) {
-            if(source.order[i]==2)
+            if(source.order[i]==2) {
+                admit(image_index<images,QUANTAPDF_ERROR_UNSUPPORTED);
                 ir.operations[i]=image_ops[image_index++];
-            else path_index=i;
+            } else {
+                admit(path_index<paths,QUANTAPDF_ERROR_UNSUPPORTED);
+                const staged_path& src_path=source.painted_paths[path_index++];
+                quantapdf_composer_operation& painted=ir.operations[i];
+                painted.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
+                painted.page_index=0u;
+                quantapdf_composer_path_operation& path=painted.value.path;
+                const size_t count=src_path.commands.size();
+                admit(count>=4u && count<=9u,QUANTAPDF_ERROR_UNSUPPORTED);
+                path.commands=static_cast<quantapdf_composer_path_command *>(
+                    std::malloc(count*sizeof(*path.commands)));
+                admit(path.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
+                path.command_count=count;
+                std::memcpy(path.commands,src_path.commands.data(),
+                            count*sizeof(*path.commands));
+                path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+                path.options.fill=1;
+                path.options.fill_argb=src_path.fill_argb;
+                path.options.fill_rule=src_path.fill_rule;
+            }
         }
-        admit(image_index==images,QUANTAPDF_ERROR_UNSUPPORTED);
-        quantapdf_composer_operation& painted=ir.operations[path_index];
-        painted.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
-        painted.page_index=0u;
-        quantapdf_composer_path_operation& path=painted.value.path;
-        const size_t count=source.painted_path.commands.size();
-        path.commands=static_cast<quantapdf_composer_path_command *>(
-            std::malloc(count*sizeof(*path.commands)));
-        admit(path.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
-        path.command_count=count;
-        std::memcpy(path.commands,source.painted_path.commands.data(),
-                    count*sizeof(*path.commands));
-        path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
-        path.options.fill=1;
-        path.options.fill_argb=source.painted_path.fill_argb;
-        path.options.fill_rule=source.painted_path.fill_rule;
+        admit(image_index==images && path_index==paths,
+              QUANTAPDF_ERROR_UNSUPPORTED);
         return ir;
     } catch(...) {
         quantapdf_ir_dispose(&ir);
@@ -612,9 +624,12 @@ static quantapdf_status source_raw_images_to_ir_impl(
         Obj resources=bounded_page_resources(
             geo.page,limits->max_parent_steps);
         admission source{resources,*limits,page_w,page_h,0u,0u,0u,
-                         {},false,{},{},2u};
+                         {},false,{},{},2u,1u,1u};
         source.mixed_mode=mixed_version!=0;
-        source.mixed_operation_limit=mixed_version==2 ? 3u : 2u;
+        source.mixed_operation_limit=mixed_version==3 ? 4u :
+            mixed_version==2 ? 3u : 2u;
+        source.mixed_path_limit=mixed_version==3 ? 2u : 1u;
+        source.mixed_image_limit=mixed_version>=2 ? 2u : 1u;
         auto contents=page_streams(geo.page.getKey("/Contents"),*limits);
         QPDF parser;
         parser.emptyPDF();
@@ -626,8 +641,8 @@ static quantapdf_status source_raw_images_to_ir_impl(
               QUANTAPDF_ERROR_FORMAT);
         admit(!source.draws.empty() &&
               (!source.mixed_mode ||
-               (source.draws.size()==source.mixed_operation_limit-1u &&
-                !source.painted_path.commands.empty() &&
+               (source.draws.size()==source.mixed_image_limit &&
+                source.painted_paths.size()==source.mixed_path_limit &&
                 source.order.size()==source.mixed_operation_limit)),
               QUANTAPDF_ERROR_UNSUPPORTED);
         *out_ir=source.mixed_mode ?
@@ -666,4 +681,15 @@ extern "C" quantapdf_status quantapdf_qpdf_source_mixed_path_two_images_to_ir_v2
 {
     return source_raw_images_to_ir_impl(
         original_pdf,size,limits,out_ir,2);
+}
+
+/* V3 is an independent four-operation source admission profile. The earlier
+ * source functions continue to refuse extra PATH or Image Do operators. */
+extern "C" quantapdf_status
+quantapdf_qpdf_source_mixed_two_paths_two_images_to_ir_v3(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
+{
+    return source_raw_images_to_ir_impl(
+        original_pdf,size,limits,out_ir,3);
 }
