@@ -90,6 +90,17 @@ quantapdf_status quantapdf_qpdf_source_clipped_raw_image_to_ir_v1(
     const quantapdf_qpdf_source_raw_image_limits *limits,
     quantapdf_ir *out_ir);
 
+/* Opt-in Source V2: exactly two Image Do paints in order, under the
+ * SAME live W/W* Clip scope. The once-defined Clip geometry and rule are
+ * frozen, while each Image has its own checked CTM, placement, and owned
+ * RAW resource. No partial IR for late/unknown operations, missing GS or
+ * a popped Clip. The original single-Do API above stays unchanged.
+ * Consume with quantapdf_ir_raster_two_clipped_raw_images_v2(). */
+quantapdf_status quantapdf_qpdf_source_two_clipped_raw_images_to_ir_v2(
+    const unsigned char *original_pdf, size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,
+    quantapdf_ir *out_ir);
+
 #ifdef __cplusplus
 }
 #endif
