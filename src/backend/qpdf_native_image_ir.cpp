@@ -141,13 +141,15 @@ struct admission {
     bool mixed_mode=false;
     staged_path painted_path;
     std::vector<int> order; /* 1=PATH, 2=IMAGE, as originally painted */
+    size_t mixed_operation_limit=2u; /* legacy 1+1 or qualified V2 1+2 */
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule)
     {
         admit(mixed_mode && painted_path.commands.empty() &&
               commands.size()>=4u && commands.size()<=9u &&
-              order.size()<2u && limits.max_operations>=2u,
+              order.size()<mixed_operation_limit &&
+              limits.max_operations>=mixed_operation_limit,
               QUANTAPDF_ERROR_UNSUPPORTED);
         painted_path.commands=std::move(commands);
         painted_path.fill_argb=color;
@@ -159,8 +161,10 @@ struct admission {
     {
         admit(draws.size() < hard_operations &&
               draws.size() < limits.max_operations &&
-              (!mixed_mode || (draws.empty() && order.size()<2u &&
-                               limits.max_operations>=2u)),
+              (!mixed_mode ||
+               (draws.size()<mixed_operation_limit-1u &&
+                order.size()<mixed_operation_limit &&
+                limits.max_operations>=mixed_operation_limit)),
               QUANTAPDF_ERROR_UNSUPPORTED);
         admit(image.isStream(),QUANTAPDF_ERROR_FORMAT);
         Obj dict = image.getDict(), subtype=dict.getKey("/Subtype");
@@ -495,27 +499,48 @@ quantapdf_ir materialize(
     }
     return ir;
 }
-/* Preserve the existing strict source-only Image Do routine unmodified in
- * behavior. Mixed mode reuses its exact source parsing and Image XObject
- * decoder, inserting only one canonical opaque PATH at the original order. */
-quantapdf_ir materialize_mixed(const admission& source)
+/* Reuse image-only strict resource decoding. Exactly one opaque PATH
+ * can interleave with one (V1) or two (V2) independently owned RAW Images.
+ * The source order is replayed into a new owned Composer IR without a
+ * PDF writer, PDFium, hidden operator dropping or borrowed qpdf objects. */
+quantapdf_ir materialize_mixed(const admission& source,
+                               size_t mixed_operations)
 {
-    admit(source.mixed_mode && source.draws.size()==1u &&
+    admit(source.mixed_mode && (mixed_operations==2u ||
+          mixed_operations==3u) &&
+          source.draws.size()==mixed_operations-1u &&
           source.painted_path.commands.size()>=4u &&
-          source.order.size()==2u && source.order[0]!=source.order[1],
+          source.order.size()==mixed_operations,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    size_t paths=0u,images=0u;
+    for(int kind:source.order) {
+        admit(kind==1 || kind==2,QUANTAPDF_ERROR_UNSUPPORTED);
+        if(kind==1)++paths;
+        else ++images;
+    }
+    admit(paths==1u && images==mixed_operations-1u,
           QUANTAPDF_ERROR_UNSUPPORTED);
     quantapdf_ir ir=materialize(source);
     try {
+        /* Save the prevalidated image operations before growing and
+         * rearranging the list; their referenced image IDs are immutable. */
+        quantapdf_composer_operation image_ops[2]={};
+        for(size_t i=0u;i<images;++i)image_ops[i]=ir.operations[i];
         quantapdf_composer_operation *expanded=
             static_cast<quantapdf_composer_operation *>(
-                std::realloc(ir.operations,2u*sizeof(*ir.operations)));
+                std::realloc(ir.operations,
+                    mixed_operations*sizeof(*ir.operations)));
         admit(expanded!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.operations=expanded;
-        const quantapdf_composer_operation image=expanded[0];
-        std::memset(expanded,0,2u*sizeof(*expanded));
-        ir.operation_count=2u;
-        const size_t path_index=source.order[0]==1 ? 0u : 1u;
-        ir.operations[1u-path_index]=image;
+        std::memset(expanded,0,mixed_operations*sizeof(*expanded));
+        ir.operation_count=mixed_operations;
+        size_t image_index=0u, path_index=0u;
+        for(size_t i=0u;i<mixed_operations;++i) {
+            if(source.order[i]==2)
+                ir.operations[i]=image_ops[image_index++];
+            else path_index=i;
+        }
+        admit(image_index==images,QUANTAPDF_ERROR_UNSUPPORTED);
         quantapdf_composer_operation& painted=ir.operations[path_index];
         painted.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
         painted.page_index=0u;
@@ -542,7 +567,7 @@ quantapdf_ir materialize_mixed(const admission& source)
 static quantapdf_status source_raw_images_to_ir_impl(
     const unsigned char *original_pdf,size_t size,
     const quantapdf_qpdf_source_raw_image_limits *limits,
-    quantapdf_ir *out_ir,bool mixed_mode)
+    quantapdf_ir *out_ir,int mixed_version)
 {
     if(out_ir!=nullptr) std::memset(out_ir,0,sizeof(*out_ir));
     if(out_ir==nullptr || original_pdf==nullptr || limits==nullptr ||
@@ -586,25 +611,28 @@ static quantapdf_status source_raw_images_to_ir_impl(
               QUANTAPDF_ERROR_UNSUPPORTED);
         Obj resources=bounded_page_resources(
             geo.page,limits->max_parent_steps);
-        admission source{resources,*limits,page_w,page_h,0u,0u,0u,{},false,{},{}};
-        source.mixed_mode=mixed_mode;
+        admission source{resources,*limits,page_w,page_h,0u,0u,0u,
+                         {},false,{},{},2u};
+        source.mixed_mode=mixed_version!=0;
+        source.mixed_operation_limit=mixed_version==2 ? 3u : 2u;
         auto contents=page_streams(geo.page.getKey("/Contents"),*limits);
         QPDF parser;
         parser.emptyPDF();
         parser.setSuppressWarnings(true);
         Obj parsed=parser.newStream(std::string(contents.begin(),contents.end()));
-        image_content_reader reader(source,mixed_mode);
+        image_content_reader reader(source,source.mixed_mode);
         parsed.parseAsContents(&reader);
         admit(!parser.anyWarnings() && !pdf->anyWarnings(),
               QUANTAPDF_ERROR_FORMAT);
         admit(!source.draws.empty() &&
-              (!mixed_mode ||
-               (source.draws.size()==1u &&
+              (!source.mixed_mode ||
+               (source.draws.size()==source.mixed_operation_limit-1u &&
                 !source.painted_path.commands.empty() &&
-                source.order.size()==2u &&
-                source.order[0]!=source.order[1])),
+                source.order.size()==source.mixed_operation_limit)),
               QUANTAPDF_ERROR_UNSUPPORTED);
-        *out_ir=mixed_mode ? materialize_mixed(source) : materialize(source);
+        *out_ir=source.mixed_mode ?
+            materialize_mixed(source,source.mixed_operation_limit) :
+            materialize(source);
         return QUANTAPDF_OK;
     } catch(rejected const& e) {return e.status;}
       catch(std::bad_alloc const&) {return QUANTAPDF_ERROR_NOMEM;}
@@ -619,7 +647,7 @@ extern "C" quantapdf_status quantapdf_qpdf_source_raw_images_to_ir(
     const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
 {
     return source_raw_images_to_ir_impl(
-        original_pdf,size,limits,out_ir,false);
+        original_pdf,size,limits,out_ir,0);
 }
 
 extern "C" quantapdf_status quantapdf_qpdf_source_mixed_path_image_to_ir(
@@ -627,5 +655,15 @@ extern "C" quantapdf_status quantapdf_qpdf_source_mixed_path_image_to_ir(
     const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
 {
     return source_raw_images_to_ir_impl(
-        original_pdf,size,limits,out_ir,true);
+        original_pdf,size,limits,out_ir,1);
+}
+
+/* The three-layer variant is independently admitted; the previously
+ * qualified V1 source function remains exactly one PATH plus one IMAGE. */
+extern "C" quantapdf_status quantapdf_qpdf_source_mixed_path_two_images_to_ir_v2(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
+{
+    return source_raw_images_to_ir_impl(
+        original_pdf,size,limits,out_ir,2);
 }

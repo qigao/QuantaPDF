@@ -51,6 +51,18 @@ quantapdf_status quantapdf_qpdf_source_mixed_path_image_to_ir(
     const quantapdf_qpdf_source_raw_image_limits *limits,
     quantapdf_ir *out_ir);
 
+/* Strict original-source V2 extension: EXACTLY one opaque PATH and TWO
+ * separately owned 8-bit Gray/RGB Image XObject Do paints, in any of the
+ * three source-order positions. Balanced q/Q and PageTree/decoder budgets
+ * are unchanged; every other operator is rejected, not skipped. All three
+ * image/path operations and two owned RAW resources must be published
+ * atomically; source/QPDF owners never escape the function. V1 above stays
+ * limited to one PATH and one IMAGE. */
+quantapdf_status quantapdf_qpdf_source_mixed_path_two_images_to_ir_v2(
+    const unsigned char *original_pdf, size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,
+    quantapdf_ir *out_ir);
+
 #ifdef __cplusplus
 }
 #endif

@@ -33,6 +33,18 @@ quantapdf_status quantapdf_ir_raster_mixed_path_image_v1(
     const quantapdf_ir_raster_mixed_v1_limits *limits,
     quantapdf_ir_raster_image *out_image);
 
+/* V2 private C11 extension: exactly one opaque solid PATH plus two
+ * uniquely referenced RAW images in ANY source order (3 operations total).
+ * Every resource must be referenced exactly once in this profile. Both
+ * image source-pixel and painted-destination-pixel budgets are charged
+ * cumulatively across the two Image operations. Unsupported late paints
+ * produce no partial output; V1's 1+1 contract remains unchanged.
+ * The caller still owns the detached RGBA output. */
+quantapdf_status quantapdf_ir_raster_mixed_path_two_images_v2(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_ir_raster_mixed_v1_limits *limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
