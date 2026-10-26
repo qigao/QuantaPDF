@@ -102,6 +102,34 @@ add_test(NAME quantapdf.native_ir_raw_image_clip_v2
 set_tests_properties(quantapdf.native_ir_raw_image_clip_v2 PROPERTIES
   TIMEOUT 20 LABELS "conformance;native-raster;raw-image;clip;backend-free")
 
+# Opt-in V3: first source Image is W/W* clipped, second is painted
+# after a real Q-restored graphics state without that Clip. The shared V2
+# implementation is compiled here as pure C11, with no PDFium/qpdf link.
+add_executable(quantapdf_test_ir_raster_image_clip_v3
+  test_ir_raster_image_clip_v3.c
+  ../src/render/ir_raster_image_clip_v2.c
+  ../src/render/ir_raster_image_clip_v1.c
+  ../src/render/ir_raster_image_v1.c
+  ../src/render/ir_raster_v1.c
+  ../src/render/ir_raster.c
+  ../src/render/native_device_plan.c)
+target_include_directories(quantapdf_test_ir_raster_image_clip_v3 PRIVATE
+  "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
+target_compile_features(quantapdf_test_ir_raster_image_clip_v3 PRIVATE c_std_11)
+if(MSVC)
+  target_compile_options(quantapdf_test_ir_raster_image_clip_v3 PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_test_ir_raster_image_clip_v3 PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+if(UNIX)
+  target_link_libraries(quantapdf_test_ir_raster_image_clip_v3 PRIVATE m)
+endif()
+add_test(NAME quantapdf.native_ir_raw_image_clip_v3
+  COMMAND quantapdf_test_ir_raster_image_clip_v3)
+set_tests_properties(quantapdf.native_ir_raw_image_clip_v3 PROPERTIES
+  TIMEOUT 20 LABELS "conformance;native-raster;raw-image;clip;restore;backend-free")
+
 # Backend-independent mixed Path/RAW Image rendering in source order.
 # Keep this target strictly C11; no qpdf/PDFium library is linked.
 add_executable(quantapdf_test_ir_raster_mixed_v1
