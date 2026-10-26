@@ -6,6 +6,7 @@
 #include "backend/native_source_raster_bridge_v1.h"
 #include "backend/builtin_native_page_v1.h"
 #include "backend/builtin_native_bitmap_v1.h"
+#include "backend/pdfium_runtime.h"
 #include "backend/document_backend.h"
 #include "render/ir_raster_image_clip_v1.h"
 #include "render/ir_raster_image_clip_v2.h"
@@ -93,7 +94,15 @@ std::vector<unsigned char> original_pdf(const fixture& sc)
 std::vector<unsigned char> pdfium_original_rgb(
     const std::vector<unsigned char>& original)
 {
-    FPDF_InitLibrary();
+    /* This test also renders through the unchanged production PDFium
+     * backend. The test-only direct original oracle must share PDFium's
+     * process-wide once-only initializer and lock: calling
+     * FPDF_DestroyLibrary independently invalidated the backend's
+     * once_flag and caused a second-render SegFault. */
+    if(quantapdf_pdfium_enter()!=QUANTAPDF_OK)return {};
+    struct runtime_guard {
+        ~runtime_guard(){quantapdf_pdfium_leave();}
+    } guard;
     FPDF_DOCUMENT doc=FPDF_LoadMemDocument(
         original.data(),static_cast<int>(original.size()),nullptr);
     if(!doc)return {};
@@ -116,7 +125,6 @@ std::vector<unsigned char> pdfium_original_rgb(
     FPDFBitmap_Destroy(bitmap);
     FPDF_ClosePage(page);
     FPDF_CloseDocument(doc);
-    FPDF_DestroyLibrary();
     return rgb;
 }
 
