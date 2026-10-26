@@ -1064,8 +1064,11 @@ int source_scoped_mixed_v5_suite()
 
 } // namespace
 
-int main()
+int main(int argc,char **argv)
 {
+    if(argc==2 && std::strcmp(argv[1],"--scoped-v6-only")==0)
+        return source_scoped_mixed_v6_suite();
+    if(argc!=1)return EXIT_FAILURE;
     fixture basic{};
     basic.a="q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q";
     if(positive(basic,QUANTAPDF_COMPOSER_FILL_NONZERO,true)!=EXIT_SUCCESS)
