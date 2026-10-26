@@ -63,6 +63,16 @@ quantapdf_status quantapdf_qpdf_source_mixed_path_two_images_to_ir_v2(
     const quantapdf_qpdf_source_raw_image_limits *limits,
     quantapdf_ir *out_ir);
 
+/* Private V3 original-source admission: exactly two independent filled
+ * PATH paints and two uniquely owned Image XObject Do paints, in arbitrary
+ * four-operation source order. Inherited/local resources, q/Q, bounds,
+ * supported operator set and hard source/paint budgets are unchanged.
+ * No implicit V1/V2 widening, skipped operator or PDFium fallback. */
+quantapdf_status quantapdf_qpdf_source_mixed_two_paths_two_images_to_ir_v3(
+    const unsigned char *original_pdf, size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,
+    quantapdf_ir *out_ir);
+
 #ifdef __cplusplus
 }
 #endif
