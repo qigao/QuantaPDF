@@ -379,19 +379,29 @@ add_test(NAME quantapdf.native_source_scoped_mixed_v6
   COMMAND quantapdf_test_native_source_image_clip --scoped-v6-only)
 set_tests_properties(quantapdf.native_source_scoped_mixed_v6 PROPERTIES
   TIMEOUT 40 LABELS "conformance;source-pdf;native-raster;image-do;clip;mixed")
+# V7 adds a separately qualified normalized /DeviceRGB source paint slice.
+# It uses the unchanged, backend-free C11 V5 raster and the original PDFium
+# only as an independent test-process oracle, not a production fallback.
+add_test(NAME quantapdf.native_source_scoped_mixed_v7_rgb
+  COMMAND quantapdf_test_native_source_image_clip --scoped-v7-only)
+set_tests_properties(quantapdf.native_source_scoped_mixed_v7_rgb PROPERTIES
+  TIMEOUT 40 LABELS "conformance;source-pdf;native-raster;image-do;clip;mixed;rgb")
 if(WIN32)
   set_property(TEST quantapdf.native_source_image_clip
     quantapdf.native_source_scoped_mixed_v6
+    quantapdf.native_source_scoped_mixed_v7_rgb
     PROPERTY ENVIRONMENT_MODIFICATION
     "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 elseif(APPLE)
   set_property(TEST quantapdf.native_source_image_clip
     quantapdf.native_source_scoped_mixed_v6
+    quantapdf.native_source_scoped_mixed_v7_rgb
     PROPERTY ENVIRONMENT_MODIFICATION
     "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 else()
   set_property(TEST quantapdf.native_source_image_clip
     quantapdf.native_source_scoped_mixed_v6
+    quantapdf.native_source_scoped_mixed_v7_rgb
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()
