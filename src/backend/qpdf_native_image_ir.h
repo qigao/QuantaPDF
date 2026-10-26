@@ -116,6 +116,18 @@ quantapdf_status quantapdf_qpdf_source_restored_clipped_raw_images_to_ir_v3(
     const quantapdf_qpdf_source_raw_image_limits *limits,
     quantapdf_ir *out_ir);
 
+/* New opt-in V4: exactly one original W/W* Clip PATH leaf and one
+ * Image XObject Do painted while it is active; then a REAL Q restores
+ * the prior unclipped state, and an opaque PATH fill paints outside it.
+ * Strict complete content admission, inherited resource and source work
+ * budgets and owned IR publication are preserved. Neither V3 two-Do nor
+ * V1/V2 mixed Path/Image signatures admit this profile implicitly.
+ * Consume with quantapdf_ir_raster_clipped_image_then_path_v4(), never
+ * with production quantapdf_render_page(). */
+quantapdf_status quantapdf_qpdf_source_clipped_image_then_path_to_ir_v4(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir);
+
 #ifdef __cplusplus
 }
 #endif
