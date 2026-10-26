@@ -132,6 +132,11 @@ struct staged_path {
     quantapdf_composer_fill_rule fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
 };
 
+struct staged_image_clip {
+    std::vector<quantapdf_composer_path_command> commands;
+    quantapdf_composer_fill_rule rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
+};
+
 struct admission {
     Obj resources;
     const quantapdf_qpdf_source_raw_image_limits& limits;
@@ -142,6 +147,9 @@ struct admission {
     std::vector<staged_path> painted_paths;
     std::vector<int> order; /* 1=PATH, 2=IMAGE, as originally painted */
     size_t mixed_operation_limit=2u; /* exact 1+1, 1+2 or V3 2+2 */
+    bool clipped_image_mode=false;
+    bool clip_completed=false;
+    staged_image_clip clip;
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule)
@@ -251,8 +259,9 @@ struct admission {
 
 class image_content_reader final : public Obj::ParserCallbacks {
 public:
-    explicit image_content_reader(admission& a,bool allow_path=false) :
-        target(a),mixed(allow_path) {}
+    explicit image_content_reader(admission& a,bool allow_path=false,
+                                  bool image_clip=false) :
+        target(a),mixed(allow_path),clipped(image_clip) {}
 
     void handleObject(Obj item) override
     {
@@ -269,10 +278,15 @@ public:
             admit(stack.size()<16u,QUANTAPDF_ERROR_UNSUPPORTED);
             stack.push_back(current);
             fill_stack.push_back(fill_argb);
+            if(clipped)clip_stack.push_back(clip_active);
         } else if(op=="Q") {
             admit(args.empty() && pending_path.empty() && !stack.empty());
             current=stack.back();stack.pop_back();
             fill_argb=fill_stack.back();fill_stack.pop_back();
+            if(clipped) {
+                admit(!clip_stack.empty());
+                clip_active=clip_stack.back();clip_stack.pop_back();
+            }
         } else if(op=="cm") {
             admit(args.size()==6u && pending_path.empty());
             matrix next;
@@ -280,7 +294,10 @@ public:
             current=concat(current,next);
         } else if(op=="Do") {
             admit(args.size()==1u && args[0].isName() &&
-                  pending_path.empty());
+                  pending_path.empty() && !clip_pending);
+            if(clipped)
+                admit(clip_active && target.clip_completed &&
+                      target.draws.empty(),QUANTAPDF_ERROR_UNSUPPORTED);
             admit(target.resources.isDictionary(),QUANTAPDF_ERROR_FORMAT);
             Obj xobjects=target.resources.getKey("/XObject");
             admit(xobjects.isDictionary(),QUANTAPDF_ERROR_FORMAT);
@@ -299,22 +316,22 @@ public:
                 rgb|=(uint32_t)(channel==1.0 ? 255u:0u) << (16u-8u*i);
             }
             fill_argb=UINT32_C(0xff000000)|rgb;
-        } else if(mixed && op=="m") {
+        } else if((mixed || clipped) && op=="m") {
             admit(args.size()==2u && pending_path.empty(),
                   QUANTAPDF_ERROR_UNSUPPORTED);
             append_point(QUANTAPDF_COMPOSER_PATH_MOVE_TO,
                          finite_number(args[0]),finite_number(args[1]));
-        } else if(mixed && op=="l") {
+        } else if((mixed || clipped) && op=="l") {
             admit(args.size()==2u && !pending_path.empty() &&
                   !closed && pending_path.size()<8u,
                   QUANTAPDF_ERROR_UNSUPPORTED);
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,
                          finite_number(args[0]),finite_number(args[1]));
-        } else if(mixed && op=="h") {
+        } else if((mixed || clipped) && op=="h") {
             admit(args.empty() && pending_path.size()>=3u &&
                   !closed,QUANTAPDF_ERROR_UNSUPPORTED);
             close_path();
-        } else if(mixed && op=="re") {
+        } else if((mixed || clipped) && op=="re") {
             admit(args.size()==4u && pending_path.empty(),
                   QUANTAPDF_ERROR_UNSUPPORTED);
             const double x=finite_number(args[0]), y=finite_number(args[1]);
@@ -334,6 +351,25 @@ public:
                           QUANTAPDF_COMPOSER_FILL_EVEN_ODD);
             pending_path.clear();
             closed=false;
+        } else if(clipped && (op=="W" || op=="W*")) {
+            admit(args.empty() && pending_path.size()>=3u &&
+                  !clip_pending && !target.clip_completed,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            clip_rule=op=="W*" ? QUANTAPDF_COMPOSER_FILL_EVEN_ODD :
+                                 QUANTAPDF_COMPOSER_FILL_NONZERO;
+            clip_pending=true;
+        } else if(clipped && op=="n") {
+            admit(args.empty() && clip_pending &&
+                  !target.clip_completed && pending_path.size()>=3u,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            if(!closed)close_path();
+            target.clip.commands=std::move(pending_path);
+            target.clip.rule=clip_rule;
+            target.clip_completed=true;
+            clip_active=true;
+            clip_pending=false;
+            pending_path.clear();
+            closed=false;
         } else {
             /* Parsing is COMPLETE, not image observation: unsupported
              * paint/Text/Stroke/Clip/Form/group/mask/graphics operators
@@ -346,7 +382,8 @@ public:
     void handleEOF() override
     {
         admit(args.empty() && stack.empty() && fill_stack.empty() &&
-              pending_path.empty());
+              pending_path.empty() && !clip_pending &&
+              (!clipped || clip_stack.empty()));
     }
 private:
     void append_point(quantapdf_composer_path_command_kind kind,
@@ -378,10 +415,15 @@ private:
     }
     admission& target;
     bool mixed=false;
+    bool clipped=false;
+    bool clip_active=false;
+    bool clip_pending=false;
+    quantapdf_composer_fill_rule clip_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
     matrix current=identity;
     uint32_t fill_argb=UINT32_C(0xff000000);
     std::vector<matrix> stack;
     std::vector<uint32_t> fill_stack;
+    std::vector<bool> clip_stack;
     std::vector<Obj> args;
     std::vector<quantapdf_composer_path_command> pending_path;
     bool closed=false;
