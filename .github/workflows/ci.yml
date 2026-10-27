@@ -50,7 +50,8 @@ jobs:
           echo "PROJECT_ROOT=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Install qpdf
         shell: bash
-        run: "$VCPKG_ROOT/vcpkg" install --triplet x64-linux
+        run: |
+          "$VCPKG_ROOT/vcpkg" install --triplet x64-linux
       - name: Save vcpkg binary cache
         if: steps.vcpkg-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
@@ -122,7 +123,8 @@ jobs:
           esac
       - name: Install qpdf
         shell: bash
-        run: "$VCPKG_ROOT/vcpkg" install --triplet "$VCPKG_TRIPLET"
+        run: |
+          "$VCPKG_ROOT/vcpkg" install --triplet "$VCPKG_TRIPLET"
       - name: Save vcpkg binary cache
         if: steps.vcpkg-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
