@@ -3146,7 +3146,12 @@ static uint64_t source_corpus_fingerprint(const std::vector<size_t>& order)
 {
     uint64_t hash=UINT64_C(0xcbf29ce484222325);
     for(size_t index:order) {
-        CHECK(index<21u);
+        /* The registry is authoritative. Never pin an older fixture
+         * family count inside the FNV64 reporter; a new family must
+         * still be bounded to the actual versioned registry. */
+        CHECK(index<sizeof(source_corpus_families)/
+                     sizeof(source_corpus_families[0]) &&
+              index<(size_t)UINT32_MAX);
         const uint32_t value=(uint32_t)(index+1u);
         for(unsigned shift=0u;shift<32u;shift+=8u) {
             hash^=(value>>shift)&UINT32_C(255);
@@ -3235,13 +3240,13 @@ static void publish_corpus_report(
         "    \"passes\": [\n",fixture_count*2u,fixture_count*3u);
     source_corpus_write_order(out,"canonical",nullptr,
         canonical,family_count,fixture_count,0,
-        executed,UINT64_C(0x9a709ba916a42a24));
+        executed,UINT64_C(0x7804171fea529e52));
     source_corpus_write_order(out,"shuffled-a","0x4cf5ad11",
         shuffled_a,family_count,fixture_count,0,
-        replay_a_counts,UINT64_C(0x751ffb460eeefe24));
+        replay_a_counts,UINT64_C(0x685d706895285ca2));
     source_corpus_write_order(out,"shuffled-b","0x9e3779b9",
         shuffled_b,family_count,fixture_count,1,
-        replay_b_counts,UINT64_C(0x8216820cf6c65524));
+        replay_b_counts,UINT64_C(0xb57eda0d6f4bd672));
     std::fprintf(out,"    ]\n  }\n}\n");
     CHECK(std::ferror(out)==0);
     CHECK(std::fclose(out)==0);
