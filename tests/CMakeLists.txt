@@ -429,6 +429,13 @@ add_test(NAME quantapdf.native_source_scoped_mixed_v9_decode
 set_tests_properties(quantapdf.native_source_scoped_mixed_v9_decode PROPERTIES
   TIMEOUT 40
   LABELS "conformance;source-pdf;native-raster;image-do;clip;mixed;decode")
+# Private opt-in V10: validate TIFF/PNG Predictor dictionaries BEFORE
+# bounded QPDF Flate decoding, with unchanged V9 /Decode normalization.
+add_test(NAME quantapdf.native_source_scoped_mixed_v10_predictor
+  COMMAND quantapdf_test_native_source_image_clip --scoped-v10-predictor-only)
+set_tests_properties(quantapdf.native_source_scoped_mixed_v10_predictor PROPERTIES
+  TIMEOUT 40
+  LABELS "conformance;source-pdf;native-raster;image-do;clip;predictor")
 # Exact compatibility matrix for the twelve private original-PDF source
 # signatures; every legacy admission must accept its old positive bytes
 # and refuse the next source profile atomically.
@@ -505,6 +512,7 @@ if(WIN32)
     quantapdf.native_source_scoped_mixed_v7_rgb
     quantapdf.native_source_scoped_mixed_v8_gray
     quantapdf.native_source_scoped_mixed_v9_decode
+    quantapdf.native_source_scoped_mixed_v10_predictor
     quantapdf.native_source_profile_legacy_parity
     quantapdf.native_source_product_bridge_v1
     quantapdf.native_builtin_page_owner_v1
@@ -519,6 +527,7 @@ elseif(APPLE)
     quantapdf.native_source_scoped_mixed_v7_rgb
     quantapdf.native_source_scoped_mixed_v8_gray
     quantapdf.native_source_scoped_mixed_v9_decode
+    quantapdf.native_source_scoped_mixed_v10_predictor
     quantapdf.native_source_profile_legacy_parity
     quantapdf.native_source_product_bridge_v1
     quantapdf.native_builtin_page_owner_v1
@@ -533,6 +542,7 @@ else()
     quantapdf.native_source_scoped_mixed_v7_rgb
     quantapdf.native_source_scoped_mixed_v8_gray
     quantapdf.native_source_scoped_mixed_v9_decode
+    quantapdf.native_source_scoped_mixed_v10_predictor
     quantapdf.native_source_profile_legacy_parity
     quantapdf.native_source_product_bridge_v1
     quantapdf.native_builtin_page_owner_v1

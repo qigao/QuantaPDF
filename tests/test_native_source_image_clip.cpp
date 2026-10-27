@@ -2749,6 +2749,168 @@ int private_native_facade_bitmap_v9_suite()
         {{13u,11u,0u,255u,255u},{26u,5u,223u,223u,223u}},true);
 }
 
+/* Independent Source V10 original-PDF QPDF writer / test-only PDFium
+ * oracle; all Flate PNG/TIFF predictor decoding is owned by the existing
+ * QPDF stream pipeline, not a new native raster implementation. */
+int source_scoped_mixed_v10_flate_predictor_suite()
+{
+    const std::string clip="q 12 6 8 9 re W n ";
+    const std::string image_in="q 16 0 0 12 8 3 cm /I Do Q ";
+    const std::string path_in="0.25 g 12 6 4 4 re f ";
+    const std::string path_out="0.875 g 24 17 5 3 re f ";
+    auto bounds=source_limits;
+    bounds.max_operations=4u;
+
+    /* 1=identity, 2=TIFF horizontal, PNG 10..14 fixed row algorithm,
+     * 15=adaptive Sub/Paeth mixed rows (tag byte on EVERY row). */
+    const int modes[]={1,2,10,11,12,13,14,15};
+    for(const int pred:modes) {
+        fixture sample{};
+        sample.a=clip+image_in+"Q "+path_out;
+        sample.image_predictor=pred;
+        sample.image_decode_parms=test_predictor_parms(pred,3);
+        if(positive_scoped_mixed_v6(sample,1u,1u,1u,
+            {{13u,11u,255u,0u,0u},{18u,11u,0u,255u,0u},
+             {13u,16u,0u,0u,255u},{18u,16u,255u,255u,0u},
+             {26u,5u,223u,223u,223u}},
+            false,false,false,false,true)!=EXIT_SUCCESS)
+            return EXIT_FAILURE;
+    }
+
+    /* Reconstruction MUST happen before the exact V9 /Decode polarity
+     * mapping. R and B invert independently, G remains unchanged. */
+    fixture inverted{};
+    inverted.a=clip+image_in+"Q "+path_out;
+    inverted.image_predictor=15;
+    inverted.image_decode_parms=test_predictor_parms(15,3);
+    inverted.image_decode="[1 0 0 1 1 0]";
+    if(positive_scoped_mixed_v6(inverted,1u,1u,1u,
+        {{13u,11u,0u,0u,255u},{18u,11u,255u,255u,255u},
+         {13u,16u,255u,0u,0u},{18u,16u,0u,255u,255u}},
+        false,false,false,false,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+
+    for(const int pred:{2,12}) {
+        fixture gray=inverted;
+        gray.gray_image=true;
+        gray.image_predictor=pred;
+        gray.image_decode_parms=test_predictor_parms(pred,1);
+        gray.image_decode="[1 0]";
+        if(positive_scoped_mixed_v6(gray,1u,1u,1u,
+            {{13u,11u,255u,255u,255u},
+             {18u,11u,170u,170u,170u},
+             {13u,16u,85u,85u,85u},
+             {18u,16u,0u,0u,0u}},
+            false,false,false,false,true)!=EXIT_SUCCESS)
+            return EXIT_FAILURE;
+    }
+
+    fixture three=inverted;
+    three.a=clip+image_in+path_in+"Q "+path_out;
+    if(positive_scoped_mixed_v6(three,2u,2u,1u,
+        {{13u,16u,64u,64u,64u},{18u,11u,255u,255u,255u},
+         {26u,5u,223u,223u,223u}},
+        false,false,false,false,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+
+    /* Two independent Image XObject dictionaries with different Flate
+     * predictors and Decode polarity after actual Q clip restore. */
+    fixture dual=inverted;
+    dual.second_image=true;
+    dual.second_image_gray=true;
+    dual.second_image_predictor=2;
+    dual.second_image_decode_parms=test_predictor_parms(2,1);
+    dual.second_image_decode="[1 0]";
+    dual.a=clip+path_in+image_in+"Q "+
+        "q 8 0 0 6 22 16 cm /J Do Q "+path_out;
+    if(positive_scoped_mixed_v6(dual,2u,2u,2u,
+        {{13u,11u,0u,0u,255u},{13u,16u,255u,0u,0u},
+         {23u,3u,255u,255u,255u},{27u,3u,170u,170u,170u},
+         {23u,6u,85u,85u,85u},{26u,5u,223u,223u,223u}},
+        false,false,false,false,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+
+    /* Original W* token is split across Contents streams. Definition
+     * and paint CTM are distinct; Q restores the unmasked outside path. */
+    fixture split=inverted;
+    split.split=true;
+    split.a="q 1 0 0 1 2 0 cm 10 6 8 9 re W*";
+    split.b=" n q 16 0 0 12 6 3 cm /I Do Q Q "+path_out;
+    if(positive_scoped_mixed_v6(split,1u,1u,1u,
+        {{13u,11u,0u,0u,255u},{13u,16u,255u,0u,0u},
+         {26u,5u,223u,223u,223u}},
+        false,false,false,false,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+
+    /* Dictionary shape, row count and channel metadata are independently
+     * validated BEFORE QPDF may construct its predictor row buffer. */
+    const std::string bad_parms[]={
+        "42",
+        "[]",
+        "<< >>",
+        "<< /Predictor 99 /Colors 3 /Columns 2 /BitsPerComponent 8 >>",
+        "<< /Predictor 9 /Colors 3 /Columns 2 /BitsPerComponent 8 >>",
+        "<< /Predictor 12 /Colors 1 /Columns 2 /BitsPerComponent 8 >>",
+        "<< /Predictor 12 /Colors 3 /Columns 1 /BitsPerComponent 8 >>",
+        "<< /Predictor 12 /Colors 3 /Columns -1 /BitsPerComponent 8 >>",
+        "<< /Predictor 12 /Colors 3 /Columns 2 /BitsPerComponent 16 >>",
+        "<< /Predictor /Up /Colors 3 /Columns 2 /BitsPerComponent 8 >>",
+        "<< /Predictor 12 /Colors 3 /Columns 2 /BitsPerComponent 8 /EarlyChange 1 >>",
+        "<< /Predictor 12 /Colors 3 /Columns 4194305 /BitsPerComponent 8 >>"
+    };
+    for(const auto& invalid:bad_parms) {
+        fixture bad=inverted;
+        bad.image_decode_parms=invalid;
+        if(negative_scoped_mixed_v6(bad,
+            QUANTAPDF_ERROR_UNSUPPORTED,bounds,false,false,false,true)
+            !=EXIT_SUCCESS)return EXIT_FAILURE;
+    }
+    /* The SECOND Image/Gray resource must not evade preflight because
+     * the first Image was valid. No partially published output. */
+    fixture secondary_bad=dual;
+    secondary_bad.second_image_decode_parms=test_predictor_parms(12,3);
+    if(negative_scoped_mixed_v6(secondary_bad,
+        QUANTAPDF_ERROR_UNSUPPORTED,bounds,false,false,false,true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture raw_parms=inverted;
+    raw_parms.image_predictor=0;
+    if(negative_scoped_mixed_v6(raw_parms,
+        QUANTAPDF_ERROR_UNSUPPORTED,bounds,false,false,false,true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture masked=inverted;
+    masked.mask=true;
+    if(negative_scoped_mixed_v6(masked,
+        QUANTAPDF_ERROR_UNSUPPORTED,bounds,false,false,false,true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture late=inverted;
+    late.a+=" BT ET";
+    if(negative_scoped_mixed_v6(late,
+        QUANTAPDF_ERROR_UNSUPPORTED,bounds,false,false,false,true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture missing=inverted;
+    missing.missing_resources=true;
+    if(negative_scoped_mixed_v6(missing,
+        QUANTAPDF_ERROR_FORMAT,bounds,false,false,false,true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    auto reduced=bounds;
+    reduced.max_source_pixels=3u;
+    if(negative_scoped_mixed_v6(inverted,
+        QUANTAPDF_ERROR_UNSUPPORTED,reduced,false,false,false,true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    reduced=bounds;
+    reduced.max_operations=1u;
+    if(negative_scoped_mixed_v6(inverted,
+        QUANTAPDF_ERROR_UNSUPPORTED,reduced,false,false,false,true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    /* Recovery after failed second-image admission uses the same strict
+     * decoder and owner pipeline with the complete original PDF. */
+    return positive_scoped_mixed_v6(dual,2u,2u,2u,
+        {{13u,11u,0u,0u,255u},{23u,3u,255u,255u,255u},
+         {26u,5u,223u,223u,223u}},
+        false,false,false,false,true);
+}
+
 /* Private V9 qualifies explicit 8-bit Image /Decode per channel:
  * each pair is EXACT [0 1] or [1 0]. Real original PDF /Decode
  * semantics are compared with independent direct-PDFium pixels;
@@ -3111,6 +3273,8 @@ int main(int argc,char **argv)
         return source_scoped_mixed_v8_suite();
     if(argc==2 && std::strcmp(argv[1],"--scoped-v9-decode-only")==0)
         return source_scoped_mixed_v9_image_decode_suite();
+    if(argc==2 && std::strcmp(argv[1],"--scoped-v10-predictor-only")==0)
+        return source_scoped_mixed_v10_flate_predictor_suite();
     if(argc==2 && std::strcmp(argv[1],"--profile-parity-only")==0)
         return source_profile_legacy_parity_suite();
     if(argc==2 && std::strcmp(argv[1],"--native-product-bridge-only")==0)
@@ -3415,6 +3579,8 @@ int main(int argc,char **argv)
     if(source_scoped_mixed_v8_suite()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
     if(source_scoped_mixed_v9_image_decode_suite()!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    if(source_scoped_mixed_v10_flate_predictor_suite()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
     if(source_profile_legacy_parity_suite()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
