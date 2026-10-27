@@ -5,6 +5,7 @@
  * This test never changes public render dispatch and has no PDFium fallback. */
 #include "backend/builtin_native_page_v1.h"
 #include "backend/builtin_native_bitmap_v1.h"
+#include "document/private_native_facade_bitmap_v1.h"
 #include "render/native_backend_rgb_v1.h"
 #include <stdlib.h>
 #include <stdint.h>
@@ -54,6 +55,16 @@ int main(void)
            rgb.width!=0 || rgb.height!=0 ||
            rgb.stride!=0 || rgb.components!=0)
             return 5;
+    }
+    {
+        /* The PRIVATE facade function must also resolve from the
+         * installed product archive dependency closure, without direct
+         * backend targets, duplicated native OBJECT files, or exports. */
+        quantapdf_bitmap *facade=(quantapdf_bitmap *)(uintptr_t)1u;
+        status=quantapdf_render_page_native_qualified_v1(
+            NULL,NULL,NULL,&facade);
+        if(status!=QUANTAPDF_ERROR_ARGUMENT || facade!=NULL)
+            return 6;
     }
     return 0;
 }
