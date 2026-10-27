@@ -197,6 +197,58 @@ static int empty_intersection_cases(void)
     return EXIT_SUCCESS;
 }
 
+/* Clip V3 semantics: disjoint but otherwise well-formed W/W* leaves
+ * are a VALID empty intersection. Do not confuse their zero coverage
+ * with malformed geometry, a missing resource or an unsupported DAG.
+ * This is a provider-free C11 test; source-PDF Q restoration remains a
+ * separate test under the broader Clip V3 milestone. */
+static int disjoint_intersection_cases(void)
+{
+    fixture f;
+    quantapdf_ir_raster_v1_limits limits = {64u,1u,64u,30000u};
+    quantapdf_ir_raster_image image = {0}, again = {0};
+    unsigned char saved[8u*8u*4u];
+    size_t x,y;
+
+    setup(&f);
+    /* Third leaf is [3,5] x [3,5]. Move the second leaf to [6,8] x
+     * [6,8] so every object is structurally valid but the shared
+     * intersection is geometrically empty with a positive gap. */
+    rectangle(f.paths[1],6,6,8,8);
+    OK(quantapdf_ir_raster_clip_dag_v3(&f.ir,0u,&limits,&image));
+    CHECK(image.size == sizeof(saved) &&
+          image.width == 8u && image.height == 8u &&
+          image.stride == 8u*4u);
+    for (y = 0u; y < 8u; ++y)
+        for (x = 0u; x < 8u; ++x)
+            CHECK(color(&image,x,y) == UINT32_C(0xffffffff));
+    memcpy(saved,image.pixels,sizeof(saved));
+    OK(quantapdf_ir_raster_clip_dag_v3(&f.ir,0u,&limits,&again));
+    CHECK(again.size == image.size &&
+          memcmp(saved,again.pixels,sizeof(saved)) == 0);
+    quantapdf_ir_raster_image_dispose(&image);
+    quantapdf_ir_raster_image_dispose(&again);
+
+    /* Transparency changes the page background, not Clip validity.
+     * Even a full-page red Path cannot leak through empty coverage. */
+    f.page.suppress_background = 1;
+    OK(quantapdf_ir_raster_clip_dag_v3(&f.ir,0u,&limits,&image));
+    for (y = 0u; y < 8u; ++y)
+        for (x = 0u; x < 8u; ++x)
+            CHECK(color(&image,x,y) == UINT32_C(0x00000000));
+    quantapdf_ir_raster_image_dispose(&image);
+
+    /* Preserve the original borrowed geometry: restoring its second
+     * leaf should recover the exact red interior without a new owner. */
+    f.page.suppress_background = 0;
+    rectangle(f.paths[1],2,2,6,6);
+    OK(quantapdf_ir_raster_clip_dag_v3(&f.ir,0u,&limits,&image));
+    CHECK(color(&image,3u,3u) == UINT32_C(0xff0000ff));
+    CHECK(color(&image,2u,2u) == UINT32_C(0xffffffff));
+    quantapdf_ir_raster_image_dispose(&image);
+    return EXIT_SUCCESS;
+}
+
 static int rejection_cases(void)
 {
     fixture f;
@@ -261,6 +313,7 @@ int main(void)
 {
     CHECK(success_cases() == EXIT_SUCCESS);
     CHECK(empty_intersection_cases() == EXIT_SUCCESS);
+    CHECK(disjoint_intersection_cases() == EXIT_SUCCESS);
     CHECK(rejection_cases() == EXIT_SUCCESS);
     fprintf(stderr,"[quantapdf.native_clip_dag_v3] complete\n");
     return EXIT_SUCCESS;
