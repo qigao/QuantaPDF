@@ -339,6 +339,54 @@ void test_disjoint_clip_restoration()
 /* A duplicated closed contour has zero even-odd interior everywhere.
  * Restore the outer rectangular clip before blue paint and then restore
  * the page before green paint. PDFium compares the original PDF, not IR. */
+
+/* Source /Contents continuity: W* at the END of the first content
+ * stream is completed by n in the second. The Clip is defined with a
+ * cumulative +100 X CTM and is disjoint from the parent Clip (+10).
+ * The red paint has zero coverage; the first Q must restore the outer
+ * Clip AND its +10 CTM for blue, and the second Q must restore the page
+ * identity CTM for green. This probes source lowering and native C11
+ * scoped Raster against PDFium's UNCHANGED original source bytes. */
+void test_disjoint_clip_multistream_ctm_restoration()
+{
+    auto pdf=QPDF::create();
+    pdf->emptyPDF();
+    auto pages=pdf->getRoot().getKey("/Pages");
+    auto page=pdf->makeIndirectObject(
+        QPDFObjectHandle::parse("<< /Type /Page >>"));
+    pages.replaceKey("/Kids",QPDFObjectHandle::newArray({page}));
+    pages.replaceKey("/Count",QPDFObjectHandle::newInteger(1));
+    pages.replaceKey("/MediaBox",QPDFObjectHandle::parse("[0 0 120 120]"));
+    page.replaceKey("/Parent",pages);
+    auto first=pdf->newStream(
+        "q 1 0 0 1 10 0 cm 0 10 60 60 re W n "
+        "q 1 0 0 1 90 0 cm 0 90 20 20 re W*");
+    auto second=pdf->newStream(
+        " n 1 0 0 rg 0 0 120 120 re f "
+        "Q 0 0 1 rg 20 20 40 40 re f "
+        "Q 0 1 0 rg 100 100 15 15 re f");
+    page.replaceKey("/Contents",QPDFObjectHandle::newArray({first,second}));
+    QPDFWriter writer(*pdf);
+    writer.setMinimumPDFVersion("1.6");
+    writer.setOutputMemory();
+    writer.write();
+    const auto bytes=writer.getBufferSharedPointer();
+    CHECK(bytes!=nullptr && bytes->getSize()>100u);
+    FILE *file=std::fopen(SOURCE_QQ_PDF,"wb");
+    CHECK(file!=nullptr);
+    CHECK(std::fwrite(bytes->getBuffer(),1u,bytes->getSize(),file)==
+          bytes->getSize());
+    CHECK(std::fclose(file)==0);
+
+    const probe points[]={
+        {40,40,0,0,255}, {60,50,0,0,255},
+        {100,100,0,255,0}, {110,110,0,255,0},
+        {80,80,255,255,255}, {5,5,255,255,255},
+        {20,40,255,255,255}, {100,80,255,255,255}
+    };
+    compare(nullptr,points,sizeof(points)/sizeof(points[0]),3u,2u);
+}
+
 void test_evenodd_cancelled_clip_restore()
 {
     const char *content =
@@ -4512,8 +4560,8 @@ int main(int argc,char **argv)
         errno=0;
         if(std::remove(staged.c_str())!=0) CHECK(errno==ENOENT);
     }
-    constexpr size_t expected_families=21u;
-    constexpr size_t expected_fixtures=71u;
+    constexpr size_t expected_families=22u;
+    constexpr size_t expected_fixtures=72u;
     const size_t families=
         sizeof(source_corpus_families)/sizeof(source_corpus_families[0]);
     CHECK(families==expected_families);

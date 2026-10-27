@@ -16,6 +16,7 @@
 #endif
 QP_SOURCE_CORPUS_FAMILY("clip.nested_q_restore", "q/Q;W;n;restoration", "accepted", "original-pdfium", 1u, test_nested_restore)
 QP_SOURCE_CORPUS_FAMILY("clip.disjoint_intersection", "nested-clips;disjoint;restoration", "accepted", "original-pdfium", 1u, test_disjoint_clip_restoration)
+QP_SOURCE_CORPUS_FAMILY("clip.disjoint_multistream_ctm", "W*;CTM;Contents-array;disjoint;restoration", "accepted", "original-pdfium", 1u, test_disjoint_clip_multistream_ctm_restoration)
 QP_SOURCE_CORPUS_FAMILY("clip.evenodd_cancelled", "W*;evenodd;empty-intersection", "accepted", "original-pdfium", 1u, test_evenodd_cancelled_clip_restore)
 QP_SOURCE_CORPUS_FAMILY("clip.evenodd_hole", "W*;evenodd;hole;restoration", "accepted", "original-pdfium", 1u, test_evenodd_restore)
 QP_SOURCE_CORPUS_FAMILY("clip.definition_ctm", "W;CTM;clip-definition;restoration", "accepted", "original-pdfium", 1u, test_clip_definition_ctm)
