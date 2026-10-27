@@ -592,8 +592,11 @@ int main()
         const auto result=quantapdf_render_page(image_page,&rendered);
         const bool clipped=mode==5 || mode==9 || mode==11;
         if(mode>=4 && !clipped) {
-            const auto rejection=mode==14 ? QUANTAPDF_ERROR_FORMAT :
-                                              QUANTAPDF_ERROR_UNSUPPORTED;
+            /* Unknown /J is an invalid resource; an unmatched Q is
+             * malformed original-PDF graphics-stack syntax. Both are
+             * FORMAT failures, not ordinary unsupported features. */
+            const auto rejection=(mode==14 || mode==15) ?
+                QUANTAPDF_ERROR_FORMAT : QUANTAPDF_ERROR_UNSUPPORTED;
             if(result!=rejection || rendered!=nullptr)
                 std::fprintf(stderr,
                     "[native-two-image] refused mode=%d got=%d expected=%d bitmap=%p\n",
