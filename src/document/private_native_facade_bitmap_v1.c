@@ -14,7 +14,7 @@ static quantapdf_status native_facade_bitmap_impl(
     const quantapdf_native_source_raster_bridge_limits_v1 *limits,
     const quantapdf_native_source_raster_device_v1 *device,
     quantapdf_bitmap **out_bitmap,
-    int decode_v9)
+    quantapdf_private_native_source_profile source_profile)
 {
     quantapdf_bitmap *bitmap;
     quantapdf_backend_bitmap rendered = {0};
@@ -63,12 +63,25 @@ static quantapdf_status native_facade_bitmap_impl(
          * only. Neither scale nor device-option approximation is legal. */
         if (!isfinite(unit) || unit != 1.0)
             status = QUANTAPDF_ERROR_UNSUPPORTED;
-        else
-            status = decode_v9 ?
-                quantapdf_builtin_native_qualify_bitmap_v9(
-                    page->backend, limits, device, &rendered) :
-                quantapdf_builtin_native_qualify_bitmap_v1(
+        else {
+            switch (source_profile) {
+            case QUANTAPDF_PRIVATE_NATIVE_SOURCE_V8:
+                status = quantapdf_builtin_native_qualify_bitmap_v1(
                     page->backend, limits, device, &rendered);
+                break;
+            case QUANTAPDF_PRIVATE_NATIVE_SOURCE_V9:
+                status = quantapdf_builtin_native_qualify_bitmap_v9(
+                    page->backend, limits, device, &rendered);
+                break;
+            case QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10:
+                status = quantapdf_builtin_native_qualify_bitmap_v10(
+                    page->backend, limits, device, &rendered);
+                break;
+            default:
+                status = QUANTAPDF_ERROR_UNSUPPORTED;
+                break;
+            }
+        }
     }
 
     if (status != QUANTAPDF_OK) {
@@ -96,7 +109,8 @@ quantapdf_status quantapdf_render_page_native_qualified_v1(
     quantapdf_bitmap **out_bitmap)
 {
     return native_facade_bitmap_impl(
-        page, limits, device, out_bitmap, 0);
+        page, limits, device, out_bitmap,
+        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V8);
 }
 
 quantapdf_status quantapdf_render_page_native_qualified_v9(
@@ -106,5 +120,16 @@ quantapdf_status quantapdf_render_page_native_qualified_v9(
     quantapdf_bitmap **out_bitmap)
 {
     return native_facade_bitmap_impl(
-        page, limits, device, out_bitmap, 1);
+        page, limits, device, out_bitmap,
+        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V9);
+}
+quantapdf_status quantapdf_render_page_native_qualified_v10(
+    quantapdf_page *page,
+    const quantapdf_native_source_raster_bridge_limits_v1 *limits,
+    const quantapdf_native_source_raster_device_v1 *device,
+    quantapdf_bitmap **out_bitmap)
+{
+    return native_facade_bitmap_impl(
+        page, limits, device, out_bitmap,
+        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10);
 }
