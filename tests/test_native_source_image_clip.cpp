@@ -8,6 +8,7 @@
 #include "backend/builtin_native_bitmap_v1.h"
 #include "document/private_native_facade_bitmap_v1.h"
 #include "core/context_internal.h"
+#include "core/bitmap_internal.h"
 #include "backend/pdfium_runtime.h"
 #include "backend/document_backend.h"
 #include "render/ir_raster_image_clip_v1.h"
