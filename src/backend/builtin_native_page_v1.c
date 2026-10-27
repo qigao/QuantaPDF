@@ -8,11 +8,12 @@
  * Source admission and QPDF decoding resolves in the product target.
  * This preserves one-way product -> backend archive linkage, with no
  * reversed reference from backend to private C11 raster symbols. */
-quantapdf_status quantapdf_builtin_native_qualify_page_v1(
+static quantapdf_status builtin_native_page_impl(
     void *builtin_page,
     const quantapdf_native_source_raster_bridge_limits_v1 *limits,
     const quantapdf_native_source_raster_device_v1 *device,
-    quantapdf_ir_raster_image *out_image)
+    quantapdf_ir_raster_image *out_image,
+    int decode_v9)
 {
     quantapdf_builtin_source_view_v1 view = {0};
     quantapdf_status status;
@@ -40,6 +41,29 @@ quantapdf_status quantapdf_builtin_native_qualify_page_v1(
     if (view.password != NULL && view.password[0] != '\0')
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
-    return quantapdf_native_source_raster_bridge_v1(
-        view.data,view.size,limits,device,out_image);
+    return decode_v9 ?
+        quantapdf_native_source_raster_bridge_v9(
+            view.data,view.size,limits,device,out_image) :
+        quantapdf_native_source_raster_bridge_v1(
+            view.data,view.size,limits,device,out_image);
+}
+
+quantapdf_status quantapdf_builtin_native_qualify_page_v1(
+    void *builtin_page,
+    const quantapdf_native_source_raster_bridge_limits_v1 *limits,
+    const quantapdf_native_source_raster_device_v1 *device,
+    quantapdf_ir_raster_image *out_image)
+{
+    return builtin_native_page_impl(
+        builtin_page, limits, device, out_image, 0);
+}
+
+quantapdf_status quantapdf_builtin_native_qualify_page_v9(
+    void *builtin_page,
+    const quantapdf_native_source_raster_bridge_limits_v1 *limits,
+    const quantapdf_native_source_raster_device_v1 *device,
+    quantapdf_ir_raster_image *out_image)
+{
+    return builtin_native_page_impl(
+        builtin_page, limits, device, out_image, 1);
 }

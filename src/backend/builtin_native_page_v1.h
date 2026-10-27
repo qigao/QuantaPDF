@@ -22,6 +22,14 @@ quantapdf_status quantapdf_builtin_native_qualify_page_v1(
     const quantapdf_native_source_raster_device_v1 *device,
     quantapdf_ir_raster_image *out_image);
 
+/* Same private borrowed Page admission, but Source V9 is explicitly
+ * selected. A failure publishes no pixels and never calls PDFium. */
+quantapdf_status quantapdf_builtin_native_qualify_page_v9(
+    void *builtin_page,
+    const quantapdf_native_source_raster_bridge_limits_v1 *limits,
+    const quantapdf_native_source_raster_device_v1 *device,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

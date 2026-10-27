@@ -9,11 +9,12 @@
 
 /* Same lifetime transfer as public render.c, but a strictly separate
  * private Native producer. Never changes page->document->ops->render_page. */
-quantapdf_status quantapdf_render_page_native_qualified_v1(
+static quantapdf_status native_facade_bitmap_impl(
     quantapdf_page *page,
     const quantapdf_native_source_raster_bridge_limits_v1 *limits,
     const quantapdf_native_source_raster_device_v1 *device,
-    quantapdf_bitmap **out_bitmap)
+    quantapdf_bitmap **out_bitmap,
+    int decode_v9)
 {
     quantapdf_bitmap *bitmap;
     quantapdf_backend_bitmap rendered = {0};
@@ -63,8 +64,11 @@ quantapdf_status quantapdf_render_page_native_qualified_v1(
         if (!isfinite(unit) || unit != 1.0)
             status = QUANTAPDF_ERROR_UNSUPPORTED;
         else
-            status = quantapdf_builtin_native_qualify_bitmap_v1(
-                page->backend, limits, device, &rendered);
+            status = decode_v9 ?
+                quantapdf_builtin_native_qualify_bitmap_v9(
+                    page->backend, limits, device, &rendered) :
+                quantapdf_builtin_native_qualify_bitmap_v1(
+                    page->backend, limits, device, &rendered);
     }
 
     if (status != QUANTAPDF_OK) {
@@ -83,4 +87,24 @@ quantapdf_status quantapdf_render_page_native_qualified_v1(
 
     *out_bitmap = bitmap;
     return QUANTAPDF_OK;
+}
+
+quantapdf_status quantapdf_render_page_native_qualified_v1(
+    quantapdf_page *page,
+    const quantapdf_native_source_raster_bridge_limits_v1 *limits,
+    const quantapdf_native_source_raster_device_v1 *device,
+    quantapdf_bitmap **out_bitmap)
+{
+    return native_facade_bitmap_impl(
+        page, limits, device, out_bitmap, 0);
+}
+
+quantapdf_status quantapdf_render_page_native_qualified_v9(
+    quantapdf_page *page,
+    const quantapdf_native_source_raster_bridge_limits_v1 *limits,
+    const quantapdf_native_source_raster_device_v1 *device,
+    quantapdf_bitmap **out_bitmap)
+{
+    return native_facade_bitmap_impl(
+        page, limits, device, out_bitmap, 1);
 }
