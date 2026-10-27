@@ -5,6 +5,8 @@
 #include "backend/qpdf_native_image_ir.h"
 #include "backend/native_source_raster_bridge_v1.h"
 #include "backend/builtin_native_page_v1.h"
+#include "backend/builtin_native_bitmap_v1.h"
+#include "backend/pdfium_runtime.h"
 #include "backend/document_backend.h"
 #include "render/ir_raster_image_clip_v1.h"
 #include "render/ir_raster_image_clip_v2.h"
@@ -92,7 +94,15 @@ std::vector<unsigned char> original_pdf(const fixture& sc)
 std::vector<unsigned char> pdfium_original_rgb(
     const std::vector<unsigned char>& original)
 {
-    FPDF_InitLibrary();
+    /* This test also renders through the unchanged production PDFium
+     * backend. The test-only direct original oracle must share PDFium's
+     * process-wide once-only initializer and lock: calling
+     * FPDF_DestroyLibrary independently invalidated the backend's
+     * once_flag and caused a second-render SegFault. */
+    if(quantapdf_pdfium_enter()!=QUANTAPDF_OK)return {};
+    struct runtime_guard {
+        ~runtime_guard(){quantapdf_pdfium_leave();}
+    } guard;
     FPDF_DOCUMENT doc=FPDF_LoadMemDocument(
         original.data(),static_cast<int>(original.size()),nullptr);
     if(!doc)return {};
@@ -115,7 +125,6 @@ std::vector<unsigned char> pdfium_original_rgb(
     FPDFBitmap_Destroy(bitmap);
     FPDF_ClosePage(page);
     FPDF_CloseDocument(doc);
-    FPDF_DestroyLibrary();
     return rgb;
 }
 
@@ -1864,6 +1873,226 @@ int builtin_native_page_owner_v1_suite()
     return EXIT_SUCCESS;
 }
 
+/* Production-private RGB bitmap output qualification: real provider
+ * page owner + complete Source V8 + detached C11 Raster + C11 RGB layout.
+ * Compare both independently rendered ORIGINAL PDFium bytes and the
+ * legacy backend RGB shape; no public dispatch is modified. */
+int positive_builtin_backend_rgb_v1(
+    const fixture& sample,const std::vector<v6_probe>& probes)
+{
+    auto original=original_pdf(sample);
+    CHECK(original.size()>100u);
+    const auto oracle=pdfium_original_rgb(original);
+    CHECK(oracle.size()==W*H*3u);
+    const auto *backend=quantapdf_builtin_backend_ops();
+    CHECK(backend!=nullptr);
+    const quantapdf_native_source_raster_bridge_limits_v1 budgets={
+        {source_limits.max_pdf_bytes,source_limits.max_content_bytes,
+         source_limits.max_content_streams,4u,source_limits.max_page_pixels,
+         source_limits.max_source_pixels,source_limits.max_drawn_pixels,
+         source_limits.max_parent_steps},
+        {W*H,4u,512u,8000000u,16u,4096u}
+    };
+    const quantapdf_native_source_raster_device_v1 device={
+        0u,72.0f,0.0f,0,0,0
+    };
+    quantapdf_backend_bitmap first{},again{},legacy{};
+    void *document=nullptr,*page=nullptr;
+    OK(backend->open_memory(
+        original.data(),original.size(),nullptr,&document));
+    CHECK(document!=nullptr);
+    int count=0;
+    OK(backend->page_count(document,&count));
+    CHECK(count==1);
+    OK(backend->load_page(document,0,&page));
+    CHECK(page!=nullptr);
+
+    OK(quantapdf_builtin_native_qualify_bitmap_v1(
+        page,&budgets,&device,&first));
+    OK(quantapdf_builtin_native_qualify_bitmap_v1(
+        page,&budgets,&device,&again));
+    CHECK(first.data!=nullptr && again.data!=nullptr &&
+          first.data!=again.data &&
+          first.width==(int)W && first.height==(int)H &&
+          first.components==3 && first.stride==(int)(W*3u) &&
+          first.size==W*H*3u && again.size==first.size &&
+          std::memcmp(first.data,again.data,first.size)==0);
+
+    /* Existing public backend dispatch is intentionally still PDFium.
+     * Invoking it here is for independent metadata/visual comparison,
+     * not a fallback within the private Native call. */
+    OK(backend->render_page(
+        page,72.0f,0.0f,nullptr,1.0,0,&legacy));
+    CHECK(legacy.data!=nullptr && legacy.width==(int)W &&
+          legacy.height==(int)H && legacy.components==3 &&
+          legacy.stride==(int)(W*3u) && legacy.size==first.size);
+
+    backend->drop_page(page);
+    backend->close(document);
+    std::fill(original.begin(),original.end(),0u);
+    original.clear();
+    CHECK(std::memcmp(first.data,again.data,first.size)==0);
+
+    double error_oracle=0.0,error_legacy=0.0;
+    size_t gross=0u;
+    for(size_t i=0u;i<W*H;++i) {
+        unsigned peak=0u;
+        for(size_t c=0u;c<3u;++c) {
+            const size_t at=i*3u+c;
+            const unsigned native=first.data[at];
+            const unsigned reference=oracle[at];
+            const unsigned prior=legacy.data[at];
+            const unsigned delta=native>reference ?
+                native-reference : reference-native;
+            const unsigned historical=native>prior ?
+                native-prior : prior-native;
+            error_oracle+=(double)delta;
+            error_legacy+=(double)historical;
+            if(delta>peak)peak=delta;
+        }
+        if(peak>64u)++gross;
+    }
+    CHECK(error_oracle/(double)(W*H*3u)<=8.0 &&
+          error_legacy/(double)(W*H*3u)<=8.0 &&
+          gross<=W*H/12u);
+    for(const auto& probe:probes) {
+        CHECK(probe.x<W && probe.y<H);
+        const size_t at=(probe.y*W+probe.x)*3u;
+        CHECK(rgb_match(first.data+at,probe.r,probe.g,probe.b,3u));
+        CHECK(rgb_match(oracle.data()+at,probe.r,probe.g,probe.b,3u));
+        CHECK(rgb_match(legacy.data+at,probe.r,probe.g,probe.b,3u));
+    }
+    std::free(first.data);
+    std::free(again.data);
+    std::free(legacy.data);
+    return EXIT_SUCCESS;
+}
+
+int negative_builtin_backend_rgb_v1(
+    const fixture& sample,quantapdf_status expected,
+    const quantapdf_native_source_raster_bridge_limits_v1& limits,
+    const quantapdf_native_source_raster_device_v1& device)
+{
+    const auto original=original_pdf(sample);
+    const auto *backend=quantapdf_builtin_backend_ops();
+    void *document=nullptr,*page=nullptr;
+    OK(backend->open_memory(
+        original.data(),original.size(),nullptr,&document));
+    OK(backend->load_page(document,0,&page));
+    for(int trial=0;trial<2;++trial) {
+        quantapdf_backend_bitmap refused;
+        std::memset(&refused,0xa5,sizeof(refused));
+        const auto status=quantapdf_builtin_native_qualify_bitmap_v1(
+            page,&limits,&device,&refused);
+        if(status!=expected)std::fprintf(stderr,
+            "Native owned RGB refusal trial=%d expected=%d actual=%d\n",
+            trial,(int)expected,(int)status);
+        CHECK(status==expected);
+        CHECK(refused.data==nullptr && refused.size==0u &&
+              refused.width==0 && refused.height==0 &&
+              refused.stride==0 && refused.components==0);
+        quantapdf_rect bounds{};
+        OK(backend->page_bounds(page,&bounds));
+        CHECK(bounds.x1==(float)W && bounds.y1==(float)H);
+    }
+    backend->drop_page(page);
+    backend->close(document);
+    return EXIT_SUCCESS;
+}
+
+int builtin_native_backend_rgb_v1_suite()
+{
+    const std::string scope="q 12 6 8 9 re W n ";
+    const std::string gray="0.25 g 12 6 4 4 re f ";
+    const std::string image_in="q 16 0 0 12 8 3 cm /I Do Q ";
+    const std::string image_out="q 8 0 0 6 22 16 cm /I Do Q ";
+    const std::string outside="0.875 g 24 17 5 3 re f ";
+    fixture two{},three{},four{},rgb{},split{};
+    two.a=scope+gray+"Q "+image_out;
+    three.a=scope+image_in+gray+"Q "+outside;
+    four.a=scope+gray+image_in+"Q "+image_out+outside;
+    rgb.a=scope+"0.25 0.5 0.75 rg 12 6 4 4 re f Q "+image_out;
+    split.split=true;
+    split.a="q 1 0 0 1 2 0 cm 10 6 8 9 re W*";
+    split.b=" n 0.5 g 10 6 4 4 re f Q "+image_out;
+
+    if(positive_builtin_backend_rgb_v1(two,
+        {{13u,16u,64u,64u,64u},{23u,3u,255u,0u,0u}})
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    if(positive_builtin_backend_rgb_v1(three,
+        {{13u,16u,64u,64u,64u},{13u,11u,255u,0u,0u},
+         {26u,5u,223u,223u,223u}})!=EXIT_SUCCESS)return EXIT_FAILURE;
+    if(positive_builtin_backend_rgb_v1(four,
+        {{13u,16u,0u,0u,255u},{26u,5u,223u,223u,223u}})
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    if(positive_builtin_backend_rgb_v1(rgb,
+        {{13u,16u,64u,128u,191u},{23u,3u,255u,0u,0u}})
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    if(positive_builtin_backend_rgb_v1(split,
+        {{13u,16u,128u,128u,128u},{23u,3u,255u,0u,0u}})
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    const quantapdf_native_source_raster_bridge_limits_v1 limits={
+        {source_limits.max_pdf_bytes,source_limits.max_content_bytes,
+         source_limits.max_content_streams,4u,source_limits.max_page_pixels,
+         source_limits.max_source_pixels,source_limits.max_drawn_pixels,
+         source_limits.max_parent_steps},
+        {W*H,4u,512u,8000000u,16u,4096u}
+    };
+    const quantapdf_native_source_raster_device_v1 device={
+        0u,72.0f,0.0f,0,0,0
+    };
+    fixture late{},masked{},missing{};
+    late.a=two.a+" BT ET";
+    masked.a=two.a;masked.mask=true;
+    missing.a=two.a;missing.missing_resources=true;
+    if(negative_builtin_backend_rgb_v1(
+        late,QUANTAPDF_ERROR_UNSUPPORTED,limits,device)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    if(negative_builtin_backend_rgb_v1(
+        masked,QUANTAPDF_ERROR_UNSUPPORTED,limits,device)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    if(negative_builtin_backend_rgb_v1(
+        missing,QUANTAPDF_ERROR_FORMAT,limits,device)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+
+    auto reduced=limits;
+    reduced.source.max_operations=1u;
+    if(negative_builtin_backend_rgb_v1(
+        two,QUANTAPDF_ERROR_UNSUPPORTED,reduced,device)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    reduced=limits;
+    reduced.raster.max_pixels=W*H-1u;
+    if(negative_builtin_backend_rgb_v1(
+        two,QUANTAPDF_ERROR_UNSUPPORTED,reduced,device)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    auto wrong=device;
+    wrong.dpi=144.0f;
+    if(negative_builtin_backend_rgb_v1(
+        two,QUANTAPDF_ERROR_UNSUPPORTED,limits,wrong)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    wrong=device;wrong.alpha=1;
+    if(negative_builtin_backend_rgb_v1(
+        two,QUANTAPDF_ERROR_UNSUPPORTED,limits,wrong)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    wrong=device;wrong.page_index=1u;
+    if(negative_builtin_backend_rgb_v1(
+        two,QUANTAPDF_ERROR_UNSUPPORTED,limits,wrong)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    quantapdf_backend_bitmap poisoned;
+    std::memset(&poisoned,0xa5,sizeof(poisoned));
+    CHECK(quantapdf_builtin_native_qualify_bitmap_v1(
+        nullptr,&limits,&device,&poisoned)==QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(poisoned.data==nullptr && poisoned.size==0u &&
+          poisoned.width==0 && poisoned.height==0 &&
+          poisoned.stride==0 && poisoned.components==0);
+
+    if(positive_builtin_backend_rgb_v1(two,
+        {{13u,16u,64u,64u,64u},{23u,3u,255u,0u,0u}})
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    return EXIT_SUCCESS;
+}
+
 int source_scoped_mixed_v5_suite()
 {
     auto budgets=source_limits;
@@ -1981,6 +2210,8 @@ int main(int argc,char **argv)
         return native_source_product_bridge_v1_suite();
     if(argc==2 && std::strcmp(argv[1],"--builtin-native-page-only")==0)
         return builtin_native_page_owner_v1_suite();
+    if(argc==2 && std::strcmp(argv[1],"--builtin-native-rgb-only")==0)
+        return builtin_native_backend_rgb_v1_suite();
     if(argc!=1)return EXIT_FAILURE;
     fixture basic{};
     basic.a="q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q";
@@ -2277,6 +2508,8 @@ int main(int argc,char **argv)
     if(native_source_product_bridge_v1_suite()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
     if(builtin_native_page_owner_v1_suite()!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    if(builtin_native_backend_rgb_v1_suite()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
 
     std::puts("Original Image Do under W/W*: independent PDFium RGB, "
