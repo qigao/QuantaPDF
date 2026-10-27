@@ -555,14 +555,16 @@ static int unclipped_mixed_cases(void)
 }
 
 
-/* Public native V10: exactly ONE real clipped IMAGE, not a fake PATH.
- * Use the existing clipping sampler and reject hidden or second
- * resources before any output bytes are committed. */
+/* Public native V10: one/two source-ordered Images under one genuine
+ * frozen W/W* Clip, never a fake PATH. The same clipped C11 sampler
+ * evaluates each layer; malformed resource/membership rejects before
+ * any output bytes are committed. */
 static void clipped_image_only_setup(fixture *f)
 {
     setup(f);
     f->ir.operation_count=1u;
     f->ir.resources.image_count=1u;
+    f->ir.resources.image_capacity=1u;
     f->ir.resources.graphics_state_capacity=1u;
     f->ir.resources.clip_capacity=1u;
 }
@@ -591,6 +593,61 @@ static int clipped_image_only_cases(void)
     CHECK(color(&a,3u,3u)==UINT32_C(0xff000080));
     quantapdf_ir_raster_image_dispose(&a);
 
+    /* The second FULLY opaque green RAW Image covers only the RIGHT
+     * half of the clip, above half-alpha red. Source paint order must
+     * preserve red at x=3, replace red by green at x=5 and leave x=7
+     * white; neither layer is permitted to escape the same Clip. */
+    clipped_image_only_setup(&f);
+    f.ir.resources.image_count=2u;
+    f.ir.resources.image_capacity=2u;
+    f.ir.operation_count=2u;
+    f.ops[1]=f.ops[2]; /* second green Image originally outside Q */
+    f.ops[1].graphics_state_id=1u;
+    f.ops[1].value.image.options.graphics_state_id=1u;
+    OK(quantapdf_ir_raster_scoped_mixed_v5(&f.ir,0u,&limit,&a));
+    CHECK(color(&a,0u,0u)==UINT32_C(0xffffffff));
+    CHECK(color(&a,3u,3u)==UINT32_C(0xff7f7fff));
+    CHECK(color(&a,5u,3u)==UINT32_C(0x00ff00ff));
+    CHECK(color(&a,7u,3u)==UINT32_C(0xffffffff));
+    OK(quantapdf_ir_raster_scoped_mixed_v5(&f.ir,0u,&limit,&b));
+    CHECK(b.size==a.size && memcmp(a.pixels,b.pixels,a.size)==0);
+    quantapdf_ir_raster_image_dispose(&b);
+    quantapdf_ir_raster_image_dispose(&a);
+    f.page.suppress_background=1;
+    OK(quantapdf_ir_raster_scoped_mixed_v5(&f.ir,0u,&limit,&a));
+    CHECK(color(&a,0u,0u)==UINT32_C(0x00000000));
+    CHECK(color(&a,3u,3u)==UINT32_C(0xff000080));
+    CHECK(color(&a,5u,3u)==UINT32_C(0x00ff00ff));
+    quantapdf_ir_raster_image_dispose(&a);
+
+    /* All two-paint membership/owner/budget refusals must reset output.
+     * The second Image cannot be a bare un-clipped Q-restored paint. */
+    clipped_image_only_setup(&f);
+    f.ir.resources.image_count=2u;
+    f.ir.resources.image_capacity=2u;
+    f.ir.operation_count=2u;
+    f.ops[1]=f.ops[2];
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    f.ops[1].graphics_state_id=1u;
+    f.ops[1].value.image.options.graphics_state_id=1u;
+    f.ops[1].value.image.image_id=3u;
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    f.ops[1].value.image.image_id=2u;
+    f.ir.resources.image_capacity=3u; /* hidden extra resource slot */
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    f.ir.resources.image_capacity=2u;
+    f.ir.operation_count=3u; /* third clipped paint is out of scope */
+    f.ops[2]=f.ops[1];
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    f.ir.operation_count=2u;
+    limit=budgets;
+    limit.max_drawn_pixels=64u; /* two full/partial input images cost 96 */
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    limit=budgets;
+    limit.max_source_pixels=1u; /* two unique 1px decoded resources */
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    limit=budgets;
+
     clipped_image_only_setup(&f);
     f.gs.clip_id=2u;
     CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
@@ -602,7 +659,7 @@ static int clipped_image_only_cases(void)
     CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
     clipped_image_only_setup(&f);
     f.ir.operation_count=2u;
-    f.ops[1]=f.ops[0]; /* second clipped Image is NOT admitted yet */
+    f.ops[1]=f.ops[0]; /* second Do but only one owned Image resource */
     CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
     clipped_image_only_setup(&f);
     f.ops[0].value.image.image_id=2u; /* invalid Image resource ID */

@@ -277,10 +277,11 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5(
             return QUANTAPDF_ERROR_UNSUPPORTED;
         }
     }
-    /* IMAGE-only admission: either 1..2 with NO Clip, or exactly ONE
-     * qualified Image under ONE owned GS/Clip leaf. The same V5 painter
-     * projects the latter through the existing C11 clipped RAW raster.
-     * All hidden source/graphics resources must reject before paint. */
+    /* IMAGE-only admission: 1..2 un-clipped images or exactly 1..2
+     * images referencing the SAME owned GS/Clip leaf. All member IDs
+     * and resource capacity must be exact; a second Image outside the
+     * Clip cannot silently paint as if it were inside. The existing
+     * C11 clipped-image raster is reused for each ordered layer. */
     if(path_count==0u) {
         const quantapdf_resource_registry *r=&ir->resources;
         const int unclipped=
@@ -289,19 +290,30 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5(
             r->graphics_state_capacity==0u &&
             r->clips==NULL && r->clip_count==0u &&
             r->clip_capacity==0u;
-        const int single_clipped=
-            image_count==1u && ir->operation_count==1u &&
+        int bounded_clipped=
+            image_count>=1u && image_count<=2u &&
+            ir->operation_count==image_count &&
+            r->image_capacity==image_count &&
             r->graphics_states!=NULL &&
             r->graphics_state_count==1u &&
             r->graphics_state_capacity==1u &&
             r->clips!=NULL && r->clip_count==1u &&
-            r->clip_capacity==1u &&
-            ir->operations[0].kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE &&
-            ir->operations[0].graphics_state_id==1u &&
-            ir->operations[0].value.image.options.graphics_state_id==1u;
+            r->clip_capacity==1u;
+        if(bounded_clipped)
+            for(size_t k=0u;k<ir->operation_count;++k) {
+                const quantapdf_composer_operation *paint=&ir->operations[k];
+                if(paint->kind!=QUANTAPDF_COMPOSER_OPERATION_IMAGE ||
+                   paint->graphics_state_id!=1u ||
+                   paint->value.image.options.struct_size<
+                       QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE ||
+                   paint->value.image.options.graphics_state_id!=1u) {
+                    bounded_clipped=0;
+                    break;
+                }
+            }
         if(image_count==0u || image_count>2u ||
            ir->operation_count!=image_count ||
-           (!unclipped && !single_clipped) ||
+           (!unclipped && !bounded_clipped) ||
            r->fonts!=NULL || r->font_count!=0u ||
            r->font_capacity!=0u ||
            r->forms!=NULL || r->form_count!=0u ||

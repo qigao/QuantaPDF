@@ -33,10 +33,12 @@ partially paint or select a fallback.
 - Exactly one unclipped Image and one opaque solid PATH Fill, in **either
   original source order**, are also admitted through the same V10 Source
   and C11 layered Raster; pixel overlap follows source order.
-- A SINGLE Image-only paint under ONE genuine frozen W/W* Clip leaf,
-  with balanced q/Q and no extra PATH paint, uses the already shared
-  C11 clipped RAW Image raster. All drawing outside that Clip remains
-  white, and no hidden GS/Clip or second Image is silently accepted.
+- One or **two source-ordered Image-only Do paints** under the SAME
+  genuine frozen W/W* Clip leaf, with balanced q/Q and no extra PATH
+  paint, use the existing C11 clipped RAW Image raster for each layer.
+  Ordered overlapping pixels use the exact alpha source-over painter.
+  All drawing outside that Clip stays white; a third Image, a second
+  Clip or a post-Q unclipped Image is rejected, not silently painted.
 - The homogeneous and two-operation unclipped mixed subsets do not imply
   support for Stroke, Text, arbitrary Clip or a third paint.
 - One frozen W/W* Clip, correct Q restoring scopes, 2–4 source-ordered
