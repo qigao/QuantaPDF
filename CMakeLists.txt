@@ -95,6 +95,35 @@ else()
     -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+# Two PRIVATE product C11 owner implementation units are also embedded in
+# the in-tree original-PDF oracle. A Windows shared DLL must not export
+# private facade/Context lifecycle functions just to test them; the exact
+# same PIC OBJECTs are linked into product and test, once per executable.
+# No additional installed/EXPORT target or reverse backend archive edge.
+add_library(quantapdf_context_lifetime_objects OBJECT
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/core/context_lifetime.c")
+add_library(quantapdf_native_facade_objects OBJECT
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/document/private_native_facade_bitmap_v1.c")
+foreach(_owner_target IN ITEMS
+    quantapdf_context_lifetime_objects quantapdf_native_facade_objects)
+  target_compile_features(${_owner_target} PRIVATE c_std_11)
+  target_include_directories(${_owner_target} PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src")
+  set_target_properties(${_owner_target} PROPERTIES
+    POSITION_INDEPENDENT_CODE ON)
+  if(QUANTAPDF_BUILD_TESTS)
+    target_compile_definitions(${_owner_target}
+      PRIVATE QUANTAPDF_TESTING=1)
+  endif()
+  if(MSVC)
+    target_compile_options(${_owner_target} PRIVATE /W4 /WX)
+  else()
+    target_compile_options(${_owner_target} PRIVATE
+      -Wall -Wextra -Wpedantic -Werror)
+  endif()
+endforeach()
+
 add_library(quantapdf_backend STATIC)
 add_subdirectory(src/backend)
 target_compile_features(quantapdf_backend PRIVATE c_std_11 cxx_std_20)
@@ -122,7 +151,9 @@ add_library(quantapdf)
 target_sources(quantapdf PRIVATE
   $<TARGET_OBJECTS:quantapdf_native_raster_objects>
   $<TARGET_OBJECTS:quantapdf_native_bridge_objects>
-  $<TARGET_OBJECTS:quantapdf_native_rgb_objects>)
+  $<TARGET_OBJECTS:quantapdf_native_rgb_objects>
+  $<TARGET_OBJECTS:quantapdf_context_lifetime_objects>
+  $<TARGET_OBJECTS:quantapdf_native_facade_objects>)
 add_subdirectory(src/core)
 add_subdirectory(src/document)
 add_subdirectory(src/snapshot)
