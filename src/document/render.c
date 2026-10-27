@@ -4,6 +4,7 @@
 
 #include <math.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 
 static quantapdf_status quantapdf_render_page_transformed(
@@ -166,48 +167,125 @@ quantapdf_status quantapdf_render_page_with_options(
         out_bitmap);
 }
 
+/* Deterministic RGB area resampling for an ALREADY fully admitted native
+ * page. Bound work by the original Source V10 max one-million pixels.
+ * Integer numerator intersections avoid floating accumulation, precision
+ * drift and a second imaging provider. The Bitmap keeps its single Context
+ * reference; on failure the caller drops the original complete bitmap. */
+static quantapdf_status quantapdf_native_thumbnail_reduce(
+    quantapdf_bitmap *bitmap, size_t max_width, size_t max_height)
+{
+    size_t sw, sh, source_stride, tw, th, target_stride, target_size;
+    uint64_t denominator;
+    unsigned char *dst;
+
+    if(bitmap==NULL || bitmap->data==NULL ||
+       bitmap->width<=0 || bitmap->height<=0 ||
+       bitmap->stride<=0 || bitmap->components!=3 ||
+       max_width==0u || max_height==0u)
+        return QUANTAPDF_ERROR_BACKEND;
+    sw=(size_t)bitmap->width;
+    sh=(size_t)bitmap->height;
+    if(sw>SIZE_MAX/3u || sh>SIZE_MAX/sw ||
+       sw*sh>1000000u || bitmap->stride!=(int)(sw*3u))
+        return QUANTAPDF_ERROR_BACKEND;
+    source_stride=sw*3u;
+    if(sh>SIZE_MAX/source_stride ||
+       bitmap->size!=sh*source_stride)
+        return QUANTAPDF_ERROR_BACKEND;
+
+    /* Existing fit-without-upscaling behavior, but the input image is
+     * ALWAYS Native Source V10; we do not ask any backend to rescale. */
+    if(sw<=max_width && sh<=max_height)
+        return QUANTAPDF_OK;
+    if((uint64_t)max_width*(uint64_t)sh <=
+       (uint64_t)max_height*(uint64_t)sw) {
+        tw=max_width;
+        th=(size_t)((uint64_t)sh*(uint64_t)tw/(uint64_t)sw);
+    } else {
+        th=max_height;
+        tw=(size_t)((uint64_t)sw*(uint64_t)th/(uint64_t)sh);
+    }
+    if(tw==0u)tw=1u;
+    if(th==0u)th=1u;
+    if(tw>max_width || th>max_height ||
+       tw>sw || th>sh || tw>SIZE_MAX/3u ||
+       th>SIZE_MAX/(tw*3u))
+        return QUANTAPDF_ERROR_BACKEND;
+    target_stride=tw*3u;
+    target_size=target_stride*th;
+    dst=(unsigned char *)malloc(target_size);
+    if(dst==NULL)return QUANTAPDF_ERROR_NOMEM;
+    denominator=(uint64_t)sw*(uint64_t)sh;
+
+    for(size_t y=0u;y<th;++y) {
+        const uint64_t y0=(uint64_t)y*(uint64_t)sh;
+        const uint64_t y1=(uint64_t)(y+1u)*(uint64_t)sh;
+        const size_t sy_start=(size_t)(y0/(uint64_t)th);
+        const size_t sy_end=(size_t)((y1+(uint64_t)th-1u)/(uint64_t)th);
+        for(size_t x=0u;x<tw;++x) {
+            const uint64_t x0=(uint64_t)x*(uint64_t)sw;
+            const uint64_t x1=(uint64_t)(x+1u)*(uint64_t)sw;
+            const size_t sx_start=(size_t)(x0/(uint64_t)tw);
+            const size_t sx_end=(size_t)((x1+(uint64_t)tw-1u)/(uint64_t)tw);
+            uint64_t sums[3]={0u,0u,0u};
+            for(size_t sy=sy_start;sy<sy_end;++sy) {
+                const uint64_t ay=(uint64_t)sy*(uint64_t)th;
+                const uint64_t by=(uint64_t)(sy+1u)*(uint64_t)th;
+                const uint64_t low=y0>ay?y0:ay;
+                const uint64_t high=y1<by?y1:by;
+                const uint64_t wy=high-low;
+                for(size_t sx=sx_start;sx<sx_end;++sx) {
+                    const uint64_t ax=(uint64_t)sx*(uint64_t)tw;
+                    const uint64_t bx=(uint64_t)(sx+1u)*(uint64_t)tw;
+                    const uint64_t left=x0>ax?x0:ax;
+                    const uint64_t right=x1<bx?x1:bx;
+                    const uint64_t weight=(right-left)*wy;
+                    const unsigned char *const pixel=
+                        bitmap->data+sy*source_stride+sx*3u;
+                    for(size_t channel=0u;channel<3u;++channel)
+                        sums[channel]+=weight*(uint64_t)pixel[channel];
+                }
+            }
+            for(size_t channel=0u;channel<3u;++channel)
+                dst[y*target_stride+x*3u+channel]=
+                    (unsigned char)((sums[channel]+denominator/2u)/
+                                    denominator);
+        }
+    }
+    free(bitmap->data);
+    bitmap->data=dst;
+    bitmap->size=target_size;
+    bitmap->width=(int)tw;
+    bitmap->height=(int)th;
+    bitmap->stride=(int)target_stride;
+    return QUANTAPDF_OK;
+}
+
 quantapdf_status quantapdf_render_thumbnail(
     quantapdf_page *page,
     int max_width,
     int max_height,
     quantapdf_bitmap **out_bitmap)
 {
-    quantapdf_rect bounds;
+    quantapdf_bitmap *complete=NULL;
     quantapdf_status status;
-    float page_width;
-    float page_height;
-    float scale_x;
-    float scale_y;
-    float scale;
-
-    if (out_bitmap == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    *out_bitmap = NULL;
-
-    if (page == NULL || max_width <= 0 || max_height <= 0)
+    if(out_bitmap==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    *out_bitmap=NULL;
+    if(page==NULL || max_width<=0 || max_height<=0)
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    status = quantapdf_page_bounds(page, &bounds);
-    if (status != QUANTAPDF_OK)
+    /* Only the full native page is allowed to paint source content.
+     * Missing glyph/form/color/clip features still refuse atomically,
+     * rather than silently omitting them from a smaller output. */
+    status=quantapdf_render_page(page,&complete);
+    if(status!=QUANTAPDF_OK)return status;
+    status=quantapdf_native_thumbnail_reduce(
+        complete,(size_t)max_width,(size_t)max_height);
+    if(status!=QUANTAPDF_OK){
+        quantapdf_drop_bitmap(complete);
         return status;
-
-    page_width = bounds.x1 - bounds.x0;
-    page_height = bounds.y1 - bounds.y0;
-    if (!isfinite(page_width) || !isfinite(page_height) ||
-        page_width <= 0.0f || page_height <= 0.0f)
-        return QUANTAPDF_ERROR_FORMAT;
-
-    scale_x = (float)max_width / page_width;
-    scale_y = (float)max_height / page_height;
-    scale = scale_x < scale_y ? scale_x : scale_y;
-    if (scale > 1.0f)
-        scale = 1.0f;
-
-    return quantapdf_render_page_transformed(
-        page,
-        72.0f * scale,
-        0.0f,
-        NULL,
-        0,
-        out_bitmap);
+    }
+    *out_bitmap=complete;
+    return QUANTAPDF_OK;
 }

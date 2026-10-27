@@ -86,7 +86,7 @@ int main()
     quantapdf_context *context=nullptr;
     quantapdf_document *document=nullptr;
     quantapdf_page *page=nullptr;
-    quantapdf_bitmap *bitmap=nullptr,*second=nullptr;
+    quantapdf_bitmap *bitmap=nullptr,*second=nullptr,*thumbnail=nullptr;
     OK(quantapdf_context_create(&context));
     OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
     CHECK(std::remove(filename.c_str())==0);
@@ -127,9 +127,63 @@ int main()
     second=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
     CHECK(quantapdf_render_page_with_options(page,&opts,&second)==
           QUANTAPDF_ERROR_UNSUPPORTED && second==nullptr);
+    /* A native 72-DPI image is the sole source for bounded thumbnail
+     * area resampling; every 2x2 RGB box has an exact arithmetic mean,
+     * with no PDFium or rescaling-specific source traversal. */
+    OK(quantapdf_render_thumbnail(page,16,12,&thumbnail));
+    CHECK(thumbnail!=nullptr);
+    int tw=0,th=0,ts=0,tc=0;
+    const unsigned char *tp=nullptr;
+    size_t tn=0u;
+    OK(quantapdf_bitmap_dimensions(thumbnail,&tw,&th,&ts,&tc));
+    OK(quantapdf_bitmap_data(thumbnail,&tp,&tn));
+    CHECK(tw==16 && th==12 && ts==48 && tc==3 &&
+          tn==16u*12u*3u && tp!=nullptr);
+    for(int y=0;y<12;++y)for(int x=0;x<16;++x)
+        for(int channel=0;channel<3;++channel) {
+            unsigned sum=0u;
+            for(int dy=0;dy<2;++dy)for(int dx=0;dx<2;++dx)
+                sum+=data[(size_t)(2*y+dy)*(size_t)stride+
+                          (size_t)(2*x+dx)*3u+(size_t)channel];
+            CHECK(tp[(size_t)y*(size_t)ts+(size_t)x*3u+
+                     (size_t)channel]==(sum+2u)/4u);
+        }
+    /* Scale to the limiting height using an uneven fractional ratio. */
+    OK(quantapdf_render_thumbnail(page,7,5,&second));
+    OK(quantapdf_bitmap_dimensions(second,&tw,&th,&ts,&tc));
+    CHECK(tw==6 && th==5 && ts==18 && tc==3);
+    OK(quantapdf_bitmap_data(second,&tp,&tn));
+    CHECK(tp!=nullptr && tn==6u*5u*3u &&
+          probe_rgb(tp,ts,0,0,255u,255u,255u));
+    quantapdf_drop_bitmap(second);second=nullptr;
+
+    /* Exact 1x1 area mean must account for ALL original image pixels. */
+    OK(quantapdf_render_thumbnail(page,1,1,&second));
+    OK(quantapdf_bitmap_dimensions(second,&tw,&th,&ts,&tc));
+    CHECK(tw==1 && th==1 && ts==3 && tc==3);
+    OK(quantapdf_bitmap_data(second,&tp,&tn));
+    CHECK(tp!=nullptr && tn==3u);
+    for(int channel=0;channel<3;++channel) {
+        unsigned sum=0u;
+        for(int y=0;y<height;++y)for(int x=0;x<width;++x)
+            sum+=data[(size_t)y*(size_t)stride+
+                      (size_t)x*3u+(size_t)channel];
+        CHECK(tp[channel]==(sum+(unsigned)(width*height)/2u)/
+                           (unsigned)(width*height));
+    }
+    quantapdf_drop_bitmap(second);second=nullptr;
+
+    /* A larger bound never upscales, returns byte-identical Native RGB. */
+    OK(quantapdf_render_thumbnail(page,64,64,&second));
+    OK(quantapdf_bitmap_dimensions(second,&tw,&th,&ts,&tc));
+    CHECK(tw==32 && th==24 && ts==96 && tc==3);
+    OK(quantapdf_bitmap_data(second,&tp,&tn));
+    CHECK(tn==size && std::memcmp(tp,data,size)==0);
+    quantapdf_drop_bitmap(second);second=nullptr;
+
     second=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-    CHECK(quantapdf_render_thumbnail(page,16,12,&second)==
-          QUANTAPDF_ERROR_UNSUPPORTED && second==nullptr);
+    CHECK(quantapdf_render_thumbnail(page,0,12,&second)==
+          QUANTAPDF_ERROR_ARGUMENT && second==nullptr);
 
     /* The output owns its detached native bytes and retains Context.
      * Only the returned Bitmap remains after the source owners go away. */
@@ -139,6 +193,10 @@ int main()
     data=nullptr;size=0;
     OK(quantapdf_bitmap_data(bitmap,&data,&size));
     CHECK(probe_rgb(data,stride,13,11,255u,0u,0u));
+    OK(quantapdf_bitmap_data(thumbnail,&tp,&tn));
+    CHECK(tp!=nullptr && tn==16u*12u*3u &&
+          probe_rgb(tp,48,1,1,255u,255u,255u));
+    quantapdf_drop_bitmap(thumbnail);
     quantapdf_drop_bitmap(bitmap);
 
     CHECK(write_pdf(filename,create_source(true)));
@@ -149,6 +207,9 @@ int main()
     second=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
     CHECK(quantapdf_render_page(page,&second)==QUANTAPDF_ERROR_UNSUPPORTED);
     CHECK(second==nullptr); /* no raster fallback / partial publication */
+    second=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+    CHECK(quantapdf_render_thumbnail(page,16,12,&second)==
+          QUANTAPDF_ERROR_UNSUPPORTED && second==nullptr);
     quantapdf_drop_page(page);
     quantapdf_close(document);
     std::puts("[native-public-render] source path/image and strict refusal passed");

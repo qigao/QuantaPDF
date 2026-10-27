@@ -12,7 +12,11 @@ partially paint or select a fallback.
 ## Currently implemented native rendering subset
 
 - One original, unencrypted page at index zero, exact 72 DPI, no rotation,
-  region clip, alpha-mode changes or thumbnail rescaling; UserUnit 1.
+  region clip or alpha-mode changes; UserUnit 1.
+- Public thumbnails now use the SAME fully validated native 72-DPI page
+  bitmap and bounded deterministic RGB area downsampling, preserving
+  aspect ratio with no upscaling and no second PDF parser/provider. All
+  unsupported original content still fails closed before resizing.
 - One frozen W/W* Clip, correct Q restoring scopes, 2–4 source-ordered
   8-bit Gray/RGB Image and opaque Path Fill operations, strictly bounded
   to at least one operation of each type.

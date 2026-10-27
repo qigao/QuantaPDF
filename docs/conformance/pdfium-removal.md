@@ -16,9 +16,12 @@ This is an explicit breaking feature-coverage change:
   2–4 Path+Image paints, one frozen W/W* Clip and actual Q restoration.
 - 8-bit DeviceGray/RGB RAW or bounded Flate TIFF/PNG Predictor values
   and per-channel exact Decode inversion are the admitted image subset.
+- Native thumbnails for admitted 72-DPI pages are available through
+  bounded area-averaged RGB reduction, with no upscaling or fallback.
+  Their output retains the original Bitmap Context lifecycle.
 - General fonts/text, complex Clip/Stroke, forms, masks, transparency,
-  annotations appearances, arbitrary nonzero pages and device scale/
-  rotations/thumbnails remain **UNSUPPORTED** until implemented.
+  annotation appearances, arbitrary nonzero pages, DPI/rotation/device
+  scale modes remain **UNSUPPORTED** until implemented.
 - Unsupported content returns `QUANTAPDF_ERROR_UNSUPPORTED`, not an
   incomplete bitmap or any legacy/reference renderer fallback.
 
