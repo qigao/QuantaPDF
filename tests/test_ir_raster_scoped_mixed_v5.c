@@ -18,7 +18,8 @@ typedef struct fixture {
     quantapdf_composer_image_state images[2];
     quantapdf_composer_graphics_state gs;
     quantapdf_composer_clip_state clip;
-    quantapdf_composer_path_command mask[5],blue[5],yellow[5];
+    quantapdf_composer_path_command
+        mask[5],blue[5],yellow[5],green_fill[5],red_fill[5];
     unsigned char red[3],green[3],red_alpha;
 } fixture;
 
@@ -378,6 +379,80 @@ static int path_only_cases(void)
 }
 
 
+/* No new renderer: fill all four existing C11 V5 layer slots with
+ * ordered, opaque, resource-free PATHs. 3/4 layers use the SAME per-op
+ * raster and global edge/sample budget, with no unqualified Clip/GS. */
+static int path_only_four_layer_cases(void)
+{
+    fixture f;
+    quantapdf_ir_raster_image image={0},again={0};
+    quantapdf_ir_raster_scoped_mixed_v5_limits limit=budgets;
+    path_only_setup(&f);
+    f.ops[1]=f.ops[0];
+    f.ops[1].value.path.commands=f.green_fill;
+    f.ops[1].value.path.options.fill_argb=UINT32_C(0xff00ff00);
+    rect(f.green_fill,2.0f,2.0f,6.0f,6.0f);
+    f.ops[2]=f.ops[0];
+    f.ops[2].value.path.commands=f.red_fill;
+    f.ops[2].value.path.options.fill_argb=UINT32_C(0xffff0000);
+    rect(f.red_fill,3.0f,3.0f,7.0f,7.0f);
+    f.ir.operation_count=3u;
+    OK(quantapdf_ir_raster_scoped_mixed_v5(&f.ir,0u,&limit,&image));
+    CHECK(image.width==8u && image.height==8u &&
+          image.stride==32u && image.size==256u);
+    CHECK(color(&image,1u,1u)==UINT32_C(0x0000ffff));
+    CHECK(color(&image,2u,2u)==UINT32_C(0x00ff00ff));
+    CHECK(color(&image,3u,3u)==UINT32_C(0xff0000ff));
+    CHECK(color(&image,4u,4u)==UINT32_C(0xff0000ff));
+    CHECK(color(&image,7u,7u)==UINT32_C(0xffffffff));
+    quantapdf_ir_raster_image_dispose(&image);
+
+    f.ops[3]=f.ops[0];
+    f.ops[3].value.path.commands=f.yellow;
+    f.ops[3].value.path.options.fill_argb=UINT32_C(0xffffff00);
+    rect(f.yellow,4.0f,4.0f,8.0f,8.0f);
+    f.ir.operation_count=4u;
+    OK(quantapdf_ir_raster_scoped_mixed_v5(&f.ir,0u,&limit,&image));
+    CHECK(color(&image,1u,1u)==UINT32_C(0x0000ffff));
+    CHECK(color(&image,2u,2u)==UINT32_C(0x00ff00ff));
+    CHECK(color(&image,3u,3u)==UINT32_C(0xff0000ff));
+    CHECK(color(&image,4u,4u)==UINT32_C(0xffff00ff));
+    CHECK(color(&image,7u,7u)==UINT32_C(0xffff00ff));
+    CHECK(color(&image,0u,7u)==UINT32_C(0xffffffff));
+    OK(quantapdf_ir_raster_scoped_mixed_v5(&f.ir,0u,&limit,&again));
+    CHECK(again.size==image.size &&
+          memcmp(again.pixels,image.pixels,image.size)==0);
+    quantapdf_ir_raster_image_dispose(&again);
+    quantapdf_ir_raster_image_dispose(&image);
+
+    f.page.suppress_background=1;
+    OK(quantapdf_ir_raster_scoped_mixed_v5(&f.ir,0u,&limit,&image));
+    CHECK(color(&image,0u,7u)==UINT32_C(0x00000000));
+    CHECK(color(&image,4u,4u)==UINT32_C(0xffff00ff));
+    quantapdf_ir_raster_image_dispose(&image);
+    f.page.suppress_background=0;
+
+    /* All failures reset the poisoned caller output; the fifth layer
+     * is refused before any attempt to index beyond the four-op array. */
+    f.ir.operation_count=5u;
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    f.ir.operation_count=4u;
+    limit.max_operations=3u;
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    limit=budgets;limit.max_edges=3u;
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    limit=budgets;limit.max_sample_tests=3u;
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    limit=budgets;
+    f.ir.resources.graphics_states=&f.gs; /* count=0 hidden pointer */
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    f.ir.resources.graphics_states=NULL;
+    OK(quantapdf_ir_raster_scoped_mixed_v5(&f.ir,0u,&limit,&image));
+    CHECK(color(&image,4u,4u)==UINT32_C(0xffff00ff));
+    quantapdf_ir_raster_image_dispose(&image);
+    return EXIT_SUCCESS;
+}
+
 /* Image-only native pages use exact same bounded RAW Image painter
  * without the legacy mixed PATH/Clip precondition. Pixel ownership,
  * source/draw work and nonempty resource admission remain strict. */
@@ -731,6 +806,7 @@ int main(void)
        unclipped_mixed_cases()!=EXIT_SUCCESS ||
        image_only_cases()!=EXIT_SUCCESS ||
        path_only_cases()!=EXIT_SUCCESS ||
+       path_only_four_layer_cases()!=EXIT_SUCCESS ||
        blank_page_cases()!=EXIT_SUCCESS ||
        positive()!=EXIT_SUCCESS || negatives()!=EXIT_SUCCESS)
         return EXIT_FAILURE;

@@ -21,10 +21,14 @@ partially paint or select a fallback.
   balanced q/Q and transform-only content) produce owned opaque white
   bitmaps; text, page annotations and unsupported operations never
   become silent blank output.
-- One or two **unclipped, opaque Path Fill** operations with finite
-  integer source geometry and exact normalized RGB/Gray solid colors now
+- One to **four unclipped, opaque Path Fill** operations with finite
+  integer source geometry and exact normalized RGB/Gray solid colors
   render directly through the SAME Source V10 → uniquely owned IR →
-  pure C11 Raster/Context Bitmap path. No Image resource is invented.
+  pure C11 Raster/Context Bitmap path. This uses the pre-existing
+  four-layer C11 limit, checks bounded global edge/sample work and
+  original source order, and never invents an Image/Clip resource. A
+  fifth PATH, late unsupported command or hidden resource refuses
+  with an empty public Bitmap and thumbnail.
 - One or two **unclipped Image XObject Do** paints (without PATH) are
   admitted through the same V10 reader, bounded RAW/Flate Predictor and
   exact DeviceRGB/Gray Decode, uniquely owned IR, canonical C11 Raster
@@ -43,9 +47,10 @@ partially paint or select a fallback.
   order beneath the SAME frozen W/W* Clip also render via the existing
   C11 source-over compositor and Context Bitmap. A third all-clipped
   paint or second Clip refuses atomically; no PDFium-based approximation.
-- The homogeneous and two-operation unclipped mixed subsets do not imply
-  support for Stroke, Text, arbitrary Clip or a third paint outside
-  these separately qualified bounded profiles.
+- Four-layer PATH-only admission does not broaden IMAGE-only or
+  unclipped IMAGE+PATH mixed cardinality, which remain separate exact
+  one/two-operation profiles. It does not imply support for Stroke,
+  Text, arbitrary Clip, or an additional mixed/clipped operation.
 - One frozen W/W* Clip, correct Q restoring scopes, 2–4 source-ordered
   8-bit Gray/RGB Image and opaque Path Fill operations, strictly bounded
   to at least one operation of each type for that **mixed** subset.
