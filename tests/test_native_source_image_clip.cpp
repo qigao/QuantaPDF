@@ -2161,6 +2161,22 @@ int positive_private_native_facade_v1(
     const quantapdf_native_source_raster_device_v1 device={
         0u,72.0f,0.0f,0,0,0
     };
+#if defined(QUANTAPDF_TESTING)
+    /* Fault injection belongs to a VALID source, page and device: an
+     * unqualified page is rightly rejected before allocation and
+     * must not be mislabeled as NOMEM. On this valid input the one-shot
+     * Context allocator failure must not retain or publish anything. */
+    {
+        const size_t refs=context->references;
+        quantapdf_bitmap *refused=reinterpret_cast<quantapdf_bitmap *>(
+            static_cast<uintptr_t>(1u));
+        context->test_fail_allocation=1;
+        CHECK(quantapdf_render_page_native_qualified_v1(
+            page,&bounds,&device,&refused)==QUANTAPDF_ERROR_NOMEM);
+        CHECK(refused==nullptr && context->references==refs &&
+              context->test_fail_allocation==0);
+    }
+#endif
     OK(quantapdf_render_page_native_qualified_v1(
         page,&bounds,&device,&native));
     CHECK(native!=nullptr && context->references==4u);
@@ -2255,16 +2271,6 @@ int negative_private_native_facade_v1(
         OK(quantapdf_page_bounds(page,&bounds));
         CHECK(bounds.x1==(float)W && bounds.y1==(float)H);
     }
-#if defined(QUANTAPDF_TESTING)
-    context->test_fail_allocation=1;
-    {
-        quantapdf_bitmap *out=reinterpret_cast<quantapdf_bitmap *>(
-            static_cast<uintptr_t>(1u));
-        CHECK(quantapdf_render_page_native_qualified_v1(
-            page,&limits,&device,&out)==QUANTAPDF_ERROR_NOMEM);
-        CHECK(out==nullptr && context->references==prior);
-    }
-#endif
     quantapdf_drop_page(page);
     quantapdf_close(document);
     quantapdf_drop_context(context);
