@@ -188,7 +188,14 @@ static std::string create_image_only_source(int mode)
         content+=" q 8 0 0 6 24 0 cm /I Do Q";
     if(mode==4)content+=" BT ET";
     if(mode==5)content=
-        "q 8 3 16 12 re W n q 16 0 0 12 8 3 cm /I Do Q Q";
+        "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q";
+    if(mode==9)content=
+        "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q "
+        "q 8 0 0 6 24 0 cm /I Do Q Q";
+    if(mode==10)content=
+        "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q BT ET";
+    if(mode==11)content=
+        "q 12 6 8 9 re W* n q 16 0 0 12 8 3 cm /I Do Q Q";
     if(mode==6)content+=
         " q 8 0 0 6 24 0 cm /I Do Q q 8 0 0 6 0 0 cm /I Do Q";
     page.replaceKey("/Contents",pdf->newStream(content));
@@ -555,7 +562,7 @@ int main()
     /* Original Image-only native Source V10: fixed expected RGB, no
      * reference engine or hidden PATH/Clip fallback. Existing RAW/Flate
      * decode and area-resized thumbnail share the ordinary Bitmap owner. */
-    for(int mode=0;mode<9;++mode) {
+    for(int mode=0;mode<12;++mode) {
         CHECK(write_pdf(filename,create_image_only_source(mode)));
         quantapdf_context *image_context=nullptr;
         quantapdf_document *image_doc=nullptr;
@@ -568,7 +575,8 @@ int main()
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(image_doc,0,&image_page));
         const auto result=quantapdf_render_page(image_page,&rendered);
-        if(mode>=4) {
+        const bool clipped=mode==5 || mode==11;
+        if(mode>=4 && !clipped) {
             CHECK(result==QUANTAPDF_ERROR_UNSUPPORTED && rendered==nullptr);
             small=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
             CHECK(quantapdf_render_thumbnail(image_page,16,12,&small)==
@@ -583,15 +591,28 @@ int main()
             CHECK(w==32 && h==24 && s==96 && c==3 &&
                   bytes==32u*24u*3u && pixels!=nullptr);
             const bool gray=mode==2 || mode==3;
-            CHECK(probe_rgb(pixels,s,13,11,
-                255u,gray?255u:0u,gray?255u:0u));
-            CHECK(probe_rgb(pixels,s,20,11,
-                gray?170u:0u,gray?170u:255u,gray?170u:0u));
-            CHECK(probe_rgb(pixels,s,13,16,
-                gray?85u:0u,gray?85u:0u,255u*(unsigned)!gray+
-                    (gray?85u:0u)));
-            CHECK(probe_rgb(pixels,s,20,16,
-                gray?0u:255u,gray?0u:255u,0u));
+            if(clipped) {
+                /* The Clip is x=[12,20), page y=[6,15):
+                 * original four RAW quadrants are partially visible.
+                 * Full image outside this real Clip must remain WHITE. */
+                CHECK(probe_rgb(pixels,s,13,11,255u,0u,0u));
+                CHECK(probe_rgb(pixels,s,18,11,0u,255u,0u));
+                CHECK(probe_rgb(pixels,s,13,16,0u,0u,255u));
+                CHECK(probe_rgb(pixels,s,18,16,255u,255u,0u));
+                CHECK(probe_rgb(pixels,s,20,11,255u,255u,255u));
+                CHECK(probe_rgb(pixels,s,10,11,255u,255u,255u));
+                CHECK(probe_rgb(pixels,s,13,19,255u,255u,255u));
+            } else {
+                CHECK(probe_rgb(pixels,s,13,11,
+                    255u,gray?255u:0u,gray?255u:0u));
+                CHECK(probe_rgb(pixels,s,20,11,
+                    gray?170u:0u,gray?170u:255u,gray?170u:0u));
+                CHECK(probe_rgb(pixels,s,13,16,
+                    gray?85u:0u,gray?85u:0u,255u*(unsigned)!gray+
+                        (gray?85u:0u)));
+                CHECK(probe_rgb(pixels,s,20,16,
+                    gray?0u:255u,gray?0u:255u,0u));
+            }
             CHECK(probe_rgb(pixels,s,2,2,255u,255u,255u));
             if(mode==1) {
                 CHECK(probe_rgb(pixels,s,26,19,255u,0u,0u));
@@ -609,6 +630,10 @@ int main()
                   repeat_size==16u*12u*3u && repeat!=nullptr);
             CHECK(probe_rgb(repeat,s,6,5,
                 255u,gray?255u:0u,gray?255u:0u));
+            if(clipped) {
+                CHECK(probe_rgb(repeat,s,5,5,255u,255u,255u));
+                CHECK(probe_rgb(repeat,s,9,5,0u,255u,0u));
+            }
         }
         quantapdf_drop_page(image_page);
         quantapdf_close(image_doc);
@@ -717,6 +742,6 @@ int main()
         quantapdf_drop_bitmap(rendered);
     }
 
-    std::puts("[native-public-render] mixed PATH+IMAGE / IMAGE-only / PATH-only / blank, native refusal passed");
+    std::puts("[native-public-render] clipped IMAGE / mixed PATH+IMAGE / IMAGE-only / PATH-only / blank, native refusal passed");
     return EXIT_SUCCESS;
 }
