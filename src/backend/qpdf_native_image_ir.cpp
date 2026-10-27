@@ -345,9 +345,10 @@ struct admission {
     bool explicit_image_decode_mode=false;
     /* V10 only: strict Flate TIFF/PNG predictor DecodeParms. */
     bool explicit_image_predictor_mode=false;
-    /* V10 public-native only: fully parsed one/two opaque PATH paints
-     * WITHOUT W/W*, Image Do or any borrowed clip/resource. */
-    bool native_path_only_mode=false;
+    /* V10 public-native only: one/two fully parsed, unclipped,
+     * homogeneous opaque PATH or RAW/Flate IMAGE paints. The older
+     * mixed W/Q Path+Image profiles retain their exact admission. */
+    bool native_unclipped_mode=false;
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule)
@@ -547,26 +548,36 @@ public:
             admit(args.size()==1u && args[0].isName() &&
                   pending_path.empty() && !clip_pending);
             if(clipped) {
-                admit(target.clip_completed &&
-                      target.draws.size()<target.clipped_image_limit,
-                      QUANTAPDF_ERROR_UNSUPPORTED);
-                if(target.mixed_scoped_mode) {
-                    /* Every source operation gets an explicit frozen state;
-                     * a Q-restored Do must never inherit its old mask. */
-                    admit((clip_active && !target.saw_q_restore) ||
-                          (!clip_active && target.saw_q_restore),
+                if(target.native_unclipped_mode &&
+                   !target.clip_completed) {
+                    /* Only V10 admits Image-only original PDFs without
+                     * inventing W/GS/Path resources. Once a PATH is
+                     * painted, no mixed unclipped fallback is possible.
+                     * Read the WHOLE page before materialization. */
+                    admit(!clip_active && !target.saw_q_restore &&
+                          target.painted_paths.empty() &&
+                          target.draws.size()<2u &&
+                          target.order.size()==target.draws.size(),
                           QUANTAPDF_ERROR_UNSUPPORTED);
-                } else if(target.restore_second_image) {
-                    if(target.draws.empty()) {
-                        admit(clip_active,QUANTAPDF_ERROR_UNSUPPORTED);
-                    } else {
-                        /* A distinct Q must unwind the Clip before the
-                         * second Do; never retain its old mask implicitly. */
-                        admit(!clip_active && target.saw_q_restore,
-                              QUANTAPDF_ERROR_UNSUPPORTED);
-                    }
                 } else {
-                    admit(clip_active,QUANTAPDF_ERROR_UNSUPPORTED);
+                    admit(target.clip_completed &&
+                          target.draws.size()<target.clipped_image_limit,
+                          QUANTAPDF_ERROR_UNSUPPORTED);
+                    if(target.mixed_scoped_mode) {
+                        /* Frozen original W/Q Clip membership per paint. */
+                        admit((clip_active && !target.saw_q_restore) ||
+                              (!clip_active && target.saw_q_restore),
+                              QUANTAPDF_ERROR_UNSUPPORTED);
+                    } else if(target.restore_second_image) {
+                        if(target.draws.empty()) {
+                            admit(clip_active,QUANTAPDF_ERROR_UNSUPPORTED);
+                        } else {
+                            admit(!clip_active && target.saw_q_restore,
+                                  QUANTAPDF_ERROR_UNSUPPORTED);
+                        }
+                    } else {
+                        admit(clip_active,QUANTAPDF_ERROR_UNSUPPORTED);
+                    }
                 }
             }
             admit(target.resources.isDictionary(),QUANTAPDF_ERROR_FORMAT);
@@ -642,7 +653,7 @@ public:
             admit(args.empty() && pending_path.size()>=3u,
                   QUANTAPDF_ERROR_UNSUPPORTED);
             if(clipped) {
-                if(target.native_path_only_mode &&
+                if(target.native_unclipped_mode &&
                    !target.clip_completed) {
                     /* Only V10 may admit a fully parsed PATH-only page.
                      * W/W* and Image Do remain strictly scoped; a partial
@@ -849,7 +860,7 @@ quantapdf_ir materialize_blank_page(const admission& source)
 quantapdf_ir materialize_path_only(const admission& source)
 {
     const size_t n=source.order.size();
-    admit(source.native_path_only_mode &&
+    admit(source.native_unclipped_mode &&
           source.mixed_mode && source.mixed_scoped_mode &&
           n>=1u && n<=2u && n<=source.limits.max_operations &&
           source.draws.empty() && source.painted_paths.size()==n &&
@@ -946,6 +957,30 @@ quantapdf_ir materialize(
     }
     return ir;
 }
+/* Public-native V10 1–2 Image-only original paints are already
+ * decoded by the existing bounded Source reader. This branch only
+ * confirms complete source order/ownership and reuses the canonical
+ * image IR materializer; no different raster or provider is created. */
+quantapdf_ir materialize_image_only(const admission& source)
+{
+    const size_t count=source.order.size();
+    admit(source.native_unclipped_mode &&
+          source.mixed_mode && source.mixed_scoped_mode &&
+          count>=1u && count<=2u &&
+          count<=source.limits.max_operations &&
+          source.draws.size()==count &&
+          source.painted_paths.empty() &&
+          source.scoped_clip_membership.size()==count &&
+          !source.clip_completed && source.clip.commands.empty() &&
+          !source.saw_q_restore,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    for(size_t i=0u;i<count;++i)
+        admit(source.order[i]==2 &&
+              source.scoped_clip_membership[i]==0u,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+    return materialize(source);
+}
+
 /* Image Do with one frozen source W/W* Clip Path. The old image-only
  * and mixed Path/Image profiles stay deliberately narrower. Clip geometry
  * is already transformed into page-display coordinates at definition time. */
@@ -1311,7 +1346,7 @@ static quantapdf_status source_raw_images_to_ir_impl(
         source.explicit_image_decode_mode=profile.explicit_image_decode;
         source.explicit_image_predictor_mode=
             profile.explicit_image_predictor;
-        source.native_path_only_mode=native_v10;
+        source.native_unclipped_mode=native_v10;
         Obj raw_contents=geo.page.getKey("/Contents");
         const bool empty_contents=native_v10 &&
             (raw_contents.isNull() ||
@@ -1348,6 +1383,12 @@ static quantapdf_status source_raw_images_to_ir_impl(
            !source.clip_completed && source.clip.commands.empty() &&
            !source.saw_q_restore) {
             *out_ir=materialize_path_only(source);
+            return QUANTAPDF_OK;
+        }
+        if(native_v10 && source.painted_paths.empty() &&
+           !source.draws.empty() && !source.clip_completed &&
+           source.clip.commands.empty() && !source.saw_q_restore) {
+            *out_ir=materialize_image_only(source);
             return QUANTAPDF_OK;
         }
         const bool flexible_scoped=profile.variable_operations;
