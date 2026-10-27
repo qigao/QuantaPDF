@@ -79,7 +79,10 @@ public:
 };
 
 std::vector<unsigned char> stream_data(Obj stream, size_t limit,
-                                      bool image)
+                                      bool image,
+                                      bool allow_predictor=false,
+                                      size_t image_columns=0u,
+                                      int image_channels=0)
 {
     admit(stream.isStream());
     Obj dict = stream.getDict();
@@ -90,10 +93,48 @@ std::vector<unsigned char> stream_data(Obj stream, size_t limit,
     const bool flate = filter.isName() &&
         filter.getName() == "/FlateDecode";
     admit(filter.isNull() || flate, QUANTAPDF_ERROR_UNSUPPORTED);
-    /* First source milestone: only raw and Flate streams, no predictor,
-     * crypt filters or unexpected transformation chains. */
-    admit(dict.getKey("/DecodeParms").isNull(),
-        QUANTAPDF_ERROR_UNSUPPORTED);
+    /* V1–V9 must still refuse *all* DecodeParms before decompression.
+     * The separately opted-in Source V10 performs strict preflight of
+     * every TIFF/PNG predictor parameter before invoking QPDF's existing
+     * Flate+predictor pipeline; do not duplicate those codecs here.
+     *
+     * Require explicit matching rows/channels/8-bit samples. This bounds
+     * QPDF's predictor row allocation and forbids arrays, extra keys,
+     * filter chains, guessed defaults and arbitrary predictor ranges.
+     * The downstream sink caps the fully decoded byte count. */
+    Obj parms=dict.getKey("/DecodeParms");
+    admit(parms.isNull() || (image && allow_predictor && flate),
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    if(!parms.isNull()) {
+        admit(parms.isDictionary() && image_columns>0u &&
+              image_columns<=hard_image_pixels &&
+              (image_channels==1 || image_channels==3),
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        for(const auto& key:parms.getKeys())
+            admit(key=="/Predictor" || key=="/Colors" ||
+                  key=="/Columns" || key=="/BitsPerComponent",
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+        Obj predictor=parms.getKey("/Predictor");
+        Obj colors=parms.getKey("/Colors");
+        Obj columns=parms.getKey("/Columns");
+        Obj bits=parms.getKey("/BitsPerComponent");
+        admit(predictor.isInteger() && colors.isInteger() &&
+              columns.isInteger() && bits.isInteger(),
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        const auto code=predictor.getIntValue();
+        admit(code==1 || code==2 || (code>=10 && code<=15),
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        admit(colors.getIntValue()==image_channels &&
+              bits.getIntValue()==8,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        const auto cols=columns.getIntValue();
+        admit(cols>0 &&
+              static_cast<uint64_t>(cols)==
+                  static_cast<uint64_t>(image_columns) &&
+              image_columns<=hard_image_pixels/
+                  static_cast<size_t>(image_channels),
+              QUANTAPDF_ERROR_UNSUPPORTED);
+    }
     auto level = flate ? qpdf_dl_specialized : qpdf_dl_none;
     bounded_sink sink(limit);
     bool filtered = false;
@@ -156,6 +197,7 @@ enum class source_profile_id : unsigned char {
     scoped_mixed_v7_rgb,
     scoped_mixed_v8_gray,
     scoped_mixed_v9_image_decode,
+    scoped_mixed_v10_flate_predictor,
     count
 };
 
@@ -180,6 +222,8 @@ struct source_profile_contract {
     bool normalized_gray;
     /* Image /Decode endpoint admission is independently opt-in. */
     bool explicit_image_decode;
+    /* Source V10 only: strict 8-bit TIFF/PNG Flate DecodeParms. */
+    bool explicit_image_predictor;
     source_materialization output;
 };
 
@@ -190,43 +234,46 @@ constexpr std::array<source_profile_contract,
                      static_cast<size_t>(source_profile_id::count)>
     source_profiles = {{
         /*  0: Image only */
-        {false,false,1u,false,2u,false,false,false,false,false,
+        {false,false,1u,false,2u,false,false,false,false,false,false,
          source_materialization::raw_images},
         /*  1: mixed V1 */
-        {true,false,1u,false,2u,false,false,false,false,false,
+        {true,false,1u,false,2u,false,false,false,false,false,false,
          source_materialization::mixed},
         /*  2: mixed V2 */
-        {true,false,1u,false,3u,false,false,false,false,false,
+        {true,false,1u,false,3u,false,false,false,false,false,false,
          source_materialization::mixed},
         /*  3: mixed V3 */
-        {true,false,1u,false,4u,false,false,false,false,false,
+        {true,false,1u,false,4u,false,false,false,false,false,false,
          source_materialization::mixed},
         /*  4: Image Clip V1 */
-        {false,true,1u,false,2u,false,false,false,false,false,
+        {false,true,1u,false,2u,false,false,false,false,false,false,
          source_materialization::clipped_images},
         /*  5: Image Clip V2 */
-        {false,true,2u,false,2u,false,false,false,false,false,
+        {false,true,2u,false,2u,false,false,false,false,false,false,
          source_materialization::clipped_images},
         /*  6: Image Clip V3 */
-        {false,true,2u,true,2u,false,false,false,false,false,
+        {false,true,2u,true,2u,false,false,false,false,false,false,
          source_materialization::clipped_images},
         /*  7: Image/Path V4 */
-        {true,true,1u,true,2u,false,false,false,false,false,
+        {true,true,1u,true,2u,false,false,false,false,false,false,
          source_materialization::clipped_image_then_path},
         /*  8: exact scoped V5 */
-        {true,true,2u,false,4u,true,false,false,false,false,
+        {true,true,2u,false,4u,true,false,false,false,false,false,
          source_materialization::scoped_exact},
         /*  9: variable scoped V6 */
-        {true,true,2u,false,4u,true,true,false,false,false,
+        {true,true,2u,false,4u,true,true,false,false,false,false,
          source_materialization::scoped_flexible},
         /* 10: fractional RGB V7 */
-        {true,true,2u,false,4u,true,true,true,false,false,
+        {true,true,2u,false,4u,true,true,true,false,false,false,
          source_materialization::scoped_flexible},
         /* 11: DeviceGray V8 */
-        {true,true,2u,false,4u,true,true,true,true,false,
+        {true,true,2u,false,4u,true,true,true,true,false,false,
          source_materialization::scoped_flexible},
         /* 12: explicit per-channel /Decode identity/inversion V9 */
-        {true,true,2u,false,4u,true,true,true,true,true,
+        {true,true,2u,false,4u,true,true,true,true,true,false,
+         source_materialization::scoped_flexible},
+        /* 13: V9 plus strictly validated Flate PNG/TIFF DecodeParms */
+        {true,true,2u,false,4u,true,true,true,true,true,true,
          source_materialization::scoped_flexible}
     }};
 
@@ -240,6 +287,11 @@ constexpr bool source_profile_table_valid()
            (profile.normalized_gray && !profile.normalized_rgb) ||
            (profile.explicit_image_decode &&
             (!profile.normalized_gray ||
+             !profile.variable_operations ||
+             profile.output!=source_materialization::scoped_flexible)) ||
+           (profile.explicit_image_predictor &&
+            (!profile.explicit_image_decode ||
+             !profile.normalized_gray ||
              !profile.variable_operations ||
              profile.output!=source_materialization::scoped_flexible)) ||
            (profile.variable_operations &&
@@ -289,8 +341,10 @@ struct admission {
     /* V8 adds a private nonstroking DeviceGray g admission, without
      * changing earlier source color profiles or the C11 renderer. */
     bool normalized_gray_mode=false;
-    /* V9 only: explicit Image /Decode [0 1]/[1 0] per channel. */
+    /* V9 onward: explicit Image /Decode [0 1]/[1 0] per channel. */
     bool explicit_image_decode_mode=false;
+    /* V10 only: strict Flate TIFF/PNG predictor DecodeParms. */
+    bool explicit_image_predictor_mode=false;
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule)
@@ -398,7 +452,8 @@ struct admission {
               QUANTAPDF_ERROR_UNSUPPORTED);
         admit(pixels<=SIZE_MAX/(size_t)channels,QUANTAPDF_ERROR_UNSUPPORTED);
         const size_t size=pixels*(size_t)channels;
-        auto decoded=stream_data(image,size,true);
+        auto decoded=stream_data(
+            image,size,true,explicit_image_predictor_mode,w,channels);
         admit(decoded.size()==size);
         /* Only after full Decode admission and bounded stream decode
          * normalize the original color samples to owned RAW bytes.
@@ -1149,7 +1204,8 @@ static quantapdf_status source_raw_images_to_ir_impl(
          * -Werror=missing-field-initializers for aggregate additions. */
         admission source{resources,*limits,page_w,page_h,0u,0u,0u,
                           {},false,{},{},2u,false,false,{},
-                          1u,false,false,false,{},false,false,false,false};
+                          1u,false,false,false,{},false,false,false,
+                          false,false};
         const source_profile_contract& profile=source_profile_for(profile_id);
         source.mixed_mode=profile.mixed;
         source.clipped_image_mode=profile.clipped;
@@ -1161,6 +1217,8 @@ static quantapdf_status source_raw_images_to_ir_impl(
         source.normalized_rgb_mode=profile.normalized_rgb;
         source.normalized_gray_mode=profile.normalized_gray;
         source.explicit_image_decode_mode=profile.explicit_image_decode;
+        source.explicit_image_predictor_mode=
+            profile.explicit_image_predictor;
         auto contents=page_streams(geo.page.getKey("/Contents"),*limits);
         QPDF parser;
         parser.emptyPDF();
@@ -1384,4 +1442,18 @@ quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir(
     return source_raw_images_to_ir_impl(
         original_pdf,size,limits,out_ir,
         source_profile_id::scoped_mixed_v9_image_decode);
+}
+
+/* Private Source V10: keep V9's exact Decode and scoped Path/Image
+ * semantics; opt in to strictly validated 8-bit Flate PNG/TIFF predictors
+ * on each Image XObject. No public backend, C11 Raster or V1–V9 change. */
+extern "C" quantapdf_status
+quantapdf_qpdf_source_scoped_mixed_v10_flate_predictor_to_ir(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,
+    quantapdf_ir *out_ir)
+{
+    return source_raw_images_to_ir_impl(
+        original_pdf,size,limits,out_ir,
+        source_profile_id::scoped_mixed_v10_flate_predictor);
 }

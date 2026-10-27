@@ -192,6 +192,19 @@ quantapdf_status quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir(
     const quantapdf_qpdf_source_raw_image_limits *limits,
     quantapdf_ir *out_ir);
 
+/* Private Source V10: keep the V9 strict 2..4 Path/Image/Clip/Q profile
+ * and independently opt in to /Filter /FlateDecode with one dictionary
+ * /DecodeParms: explicit integer Predictor 1/2/10..15, Colors matching
+ * 8-bit DeviceGray or DeviceRGB, Columns matching image Width, and
+ * BitsPerComponent exactly 8. No extra keys/filter chains. QPDF's
+ * existing TIFF/PNG predictor decoder is invoked only after metadata
+ * and work-bounded preflight; older V1–V9 signatures still refuse
+ * /DecodeParms. Private only, not a public renderer or new ABI. */
+quantapdf_status quantapdf_qpdf_source_scoped_mixed_v10_flate_predictor_to_ir(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,
+    quantapdf_ir *out_ir);
+
 #ifdef __cplusplus
 }
 #endif
