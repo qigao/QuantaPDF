@@ -743,9 +743,10 @@ int main()
     }
 
 
-    /* Public Source V10 now admits only an EXACT two-paint, unclipped
-     * IMAGE+PATH original in either source order. A third or late
-     * unsupported paint poisons BOTH public full/thumbnail handles. */
+    /* Public Source V10 admits two-paint IMAGE+PATH in either order.
+     * Mode 3 also qualifies both paints under ONE frozen W Clip after
+     * the same-Clip feature was introduced. Remaining negative modes
+     * still must poison both public full/thumbnail handles. */
     for(int mode=0;mode<9;++mode) {
         CHECK(write_pdf(filename,create_unclipped_mixed_source(mode)));
         quantapdf_context *mixed_context=nullptr;
@@ -759,11 +760,15 @@ int main()
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(mixed_doc,0,&mixed_page));
         const auto status=quantapdf_render_page(mixed_page,&rendered);
-        const bool valid=mode==0 || mode==1 || mode==8;
+        const bool valid=mode==0 || mode==1 || mode==3 || mode==8;
         if(!valid) {
-            CHECK(status==(mode==6?QUANTAPDF_ERROR_FORMAT:
-                                       QUANTAPDF_ERROR_UNSUPPORTED) &&
-                  rendered==nullptr);
+            const auto expected_status=mode==6 ?
+                QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED;
+            if(status!=expected_status || rendered!=nullptr)
+                std::fprintf(stderr,
+                    "[native-mixed] mode=%d expected=%d got=%d bitmap=%p\n",
+                    mode,(int)expected_status,(int)status,(void*)rendered);
+            CHECK(status==expected_status && rendered==nullptr);
             small=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
             CHECK(quantapdf_render_thumbnail(mixed_page,16,12,&small)==
                   (mode==6?QUANTAPDF_ERROR_FORMAT:
@@ -779,23 +784,37 @@ int main()
             OK(quantapdf_bitmap_data(rendered,&pixels,&bytes));
             CHECK(w==32 && h==24 && s==96 && c==3 &&
                   bytes==32u*24u*3u && pixels!=nullptr);
-            /* At (10,16), blue source Image and green PATH overlap.
-             * At (6,16), only PATH paints. The other four probes are
-             * independent original Image sample quadrants. */
-            CHECK(probe_rgb(pixels,s,10,16,
-                image_last?(gray?85u:0u):0u,
-                image_last?(gray?85u:0u):255u,
-                image_last?(gray?85u:255u):0u));
-            CHECK(probe_rgb(pixels,s,6,16,0u,255u,0u));
-            CHECK(probe_rgb(pixels,s,13,11,255u,
-                gray?255u:0u,gray?255u:0u));
-            CHECK(probe_rgb(pixels,s,20,11,
-                gray?170u:0u,gray?170u:255u,gray?170u:0u));
-            CHECK(probe_rgb(pixels,s,13,16,
-                gray?85u:0u,gray?85u:0u,gray?85u:255u));
-            CHECK(probe_rgb(pixels,s,20,16,
-                gray?0u:255u,gray?0u:255u,0u));
-            CHECK(probe_rgb(pixels,s,2,2,255u,255u,255u));
+            if(mode==3) {
+                /* New qualified single W clip x=[4,12), bitmap y=[14,20).
+                 * IMAGE paints first, then green PATH covers the clipped
+                 * overlap. Any original image pixels OUTSIDE the Clip
+                 * must remain white; this is never a fallback. */
+                CHECK(probe_rgb(pixels,s,10,16,0u,255u,0u));
+                CHECK(probe_rgb(pixels,s,6,16,0u,255u,0u));
+                CHECK(probe_rgb(pixels,s,10,13,255u,255u,255u));
+                CHECK(probe_rgb(pixels,s,13,11,255u,255u,255u));
+                CHECK(probe_rgb(pixels,s,13,16,255u,255u,255u));
+                CHECK(probe_rgb(pixels,s,20,16,255u,255u,255u));
+                CHECK(probe_rgb(pixels,s,2,2,255u,255u,255u));
+            } else {
+                /* At (10,16), source Image and green PATH overlap.
+                 * At (6,16), only PATH paints. The other probes are
+                 * independent Image sample quadrants. */
+                CHECK(probe_rgb(pixels,s,10,16,
+                    image_last?(gray?85u:0u):0u,
+                    image_last?(gray?85u:0u):255u,
+                    image_last?(gray?85u:255u):0u));
+                CHECK(probe_rgb(pixels,s,6,16,0u,255u,0u));
+                CHECK(probe_rgb(pixels,s,13,11,255u,
+                    gray?255u:0u,gray?255u:0u));
+                CHECK(probe_rgb(pixels,s,20,11,
+                    gray?170u:0u,gray?170u:255u,gray?170u:0u));
+                CHECK(probe_rgb(pixels,s,13,16,
+                    gray?85u:0u,gray?85u:0u,gray?85u:255u));
+                CHECK(probe_rgb(pixels,s,20,16,
+                    gray?0u:255u,gray?0u:255u,0u));
+                CHECK(probe_rgb(pixels,s,2,2,255u,255u,255u));
+            }
             OK(quantapdf_render_page(mixed_page,&again));
             OK(quantapdf_bitmap_data(again,&repeat,&repeat_size));
             CHECK(repeat!=nullptr && repeat_size==bytes &&
@@ -806,11 +825,17 @@ int main()
             OK(quantapdf_bitmap_data(small,&repeat,&repeat_size));
             CHECK(w==16 && h==12 && s==48 && c==3 &&
                   repeat!=nullptr && repeat_size==16u*12u*3u);
-            CHECK(probe_rgb(repeat,s,5,8,
-                image_last?(gray?85u:0u):0u,
-                image_last?(gray?85u:0u):255u,
-                image_last?(gray?85u:255u):0u));
-            CHECK(probe_rgb(repeat,s,3,8,0u,255u,0u));
+            if(mode==3) {
+                CHECK(probe_rgb(repeat,s,5,8,0u,255u,0u));
+                CHECK(probe_rgb(repeat,s,3,8,0u,255u,0u));
+                CHECK(probe_rgb(repeat,s,5,6,255u,255u,255u));
+            } else {
+                CHECK(probe_rgb(repeat,s,5,8,
+                    image_last?(gray?85u:0u):0u,
+                    image_last?(gray?85u:0u):255u,
+                    image_last?(gray?85u:255u):0u));
+                CHECK(probe_rgb(repeat,s,3,8,0u,255u,0u));
+            }
         }
         quantapdf_drop_page(mixed_page);
         quantapdf_close(mixed_doc);
@@ -840,62 +865,62 @@ int main()
         CHECK(write_pdf(filename,create_clipped_mixed_source(mode)));
         quantapdf_context *ctx=nullptr;
         quantapdf_document *doc=nullptr;
-        quantapdf_page *page=nullptr;
+        quantapdf_page *clipped_page=nullptr;
         quantapdf_bitmap *filled=reinterpret_cast<quantapdf_bitmap*>(
             uintptr_t(1)),*again=nullptr,*small=nullptr;
         OK(quantapdf_context_create(&ctx));
         OK(quantapdf_open_with_context(
             ctx,filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
-        OK(quantapdf_load_page(doc,0,&page));
-        const auto st=quantapdf_render_page(page,&filled);
+        OK(quantapdf_load_page(doc,0,&clipped_page));
+        const auto st=quantapdf_render_page(clipped_page,&filled);
         if(mode>=2) {
             const auto rejection=(mode==4 || mode==5)?
                 QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED;
             CHECK(st==rejection && filled==nullptr);
             small=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-            CHECK(quantapdf_render_thumbnail(page,16,12,&small)==
+            CHECK(quantapdf_render_thumbnail(clipped_page,16,12,&small)==
                   rejection && small==nullptr);
         } else {
             CHECK(st==QUANTAPDF_OK && filled!=nullptr);
-            int w=0,h=0,stride=0,channels=0;
-            size_t count=0u,other_count=0u;
+            int w=0,h=0,clipped_stride=0,channels=0;
+            size_t clipped_count=0u,other_count=0u;
             const unsigned char *bytes=nullptr,*other=nullptr;
             OK(quantapdf_bitmap_dimensions(
-                filled,&w,&h,&stride,&channels));
-            OK(quantapdf_bitmap_data(filled,&bytes,&count));
-            CHECK(w==32 && h==24 && stride==96 && channels==3 &&
-                  count==32u*24u*3u && bytes!=nullptr);
+                filled,&w,&h,&clipped_stride,&channels));
+            OK(quantapdf_bitmap_data(filled,&bytes,&clipped_count));
+            CHECK(w==32 && h==24 && clipped_stride==96 && channels==3 &&
+                  clipped_count==32u*24u*3u && bytes!=nullptr);
             /* Clip x=[12,20), y=[9,18). The Image paints on its
              * left half, while the blue PATH covers the whole Clip. */
-            CHECK(probe_rgb(bytes,stride,13,11,
+            CHECK(probe_rgb(bytes,clipped_stride,13,11,
                 0u,mode==1?255u:0u,mode==1?0u:255u));
-            CHECK(probe_rgb(bytes,stride,13,16,
+            CHECK(probe_rgb(bytes,clipped_stride,13,16,
                 mode==1?255u:0u,mode==1?255u:0u,mode==1?0u:255u));
-            CHECK(probe_rgb(bytes,stride,18,11,0u,0u,255u));
-            CHECK(probe_rgb(bytes,stride,18,16,0u,0u,255u));
-            CHECK(probe_rgb(bytes,stride,11,11,255u,255u,255u));
-            CHECK(probe_rgb(bytes,stride,20,11,255u,255u,255u));
-            CHECK(probe_rgb(bytes,stride,13,19,255u,255u,255u));
-            OK(quantapdf_render_page(page,&again));
+            CHECK(probe_rgb(bytes,clipped_stride,18,11,0u,0u,255u));
+            CHECK(probe_rgb(bytes,clipped_stride,18,16,0u,0u,255u));
+            CHECK(probe_rgb(bytes,clipped_stride,11,11,255u,255u,255u));
+            CHECK(probe_rgb(bytes,clipped_stride,20,11,255u,255u,255u));
+            CHECK(probe_rgb(bytes,clipped_stride,13,19,255u,255u,255u));
+            OK(quantapdf_render_page(clipped_page,&again));
             OK(quantapdf_bitmap_data(again,&other,&other_count));
-            CHECK(other!=nullptr && other_count==count &&
-                  std::memcmp(bytes,other,count)==0);
+            CHECK(other!=nullptr && other_count==clipped_count &&
+                  std::memcmp(bytes,other,clipped_count)==0);
             quantapdf_drop_bitmap(again);again=nullptr;
-            OK(quantapdf_render_thumbnail(page,16,12,&small));
+            OK(quantapdf_render_thumbnail(clipped_page,16,12,&small));
             OK(quantapdf_bitmap_dimensions(
-                small,&w,&h,&stride,&channels));
+                small,&w,&h,&clipped_stride,&channels));
             OK(quantapdf_bitmap_data(small,&other,&other_count));
-            CHECK(w==16 && h==12 && stride==48 && channels==3 &&
+            CHECK(w==16 && h==12 && clipped_stride==48 && channels==3 &&
                   other_count==16u*12u*3u && other!=nullptr);
-            CHECK(probe_rgb(other,stride,6,5,
+            CHECK(probe_rgb(other,clipped_stride,6,5,
                 0u,mode==1?255u:0u,mode==1?0u:255u));
-            CHECK(probe_rgb(other,stride,6,8,
+            CHECK(probe_rgb(other,clipped_stride,6,8,
                 mode==1?255u:0u,mode==1?255u:0u,mode==1?0u:255u));
-            CHECK(probe_rgb(other,stride,9,5,0u,0u,255u));
-            CHECK(probe_rgb(other,stride,5,5,255u,255u,255u));
+            CHECK(probe_rgb(other,clipped_stride,9,5,0u,0u,255u));
+            CHECK(probe_rgb(other,clipped_stride,5,5,255u,255u,255u));
         }
-        quantapdf_drop_page(page);
+        quantapdf_drop_page(clipped_page);
         quantapdf_close(doc);
         quantapdf_drop_context(ctx);
         if(filled!=nullptr) {
