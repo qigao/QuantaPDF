@@ -464,6 +464,13 @@ add_test(NAME quantapdf.private_native_facade_bitmap_v1
 set_tests_properties(quantapdf.private_native_facade_bitmap_v1 PROPERTIES
   TIMEOUT 40
   LABELS "conformance;native-raster;source-pdf;facade;context;ownership")
+# V9 must flow through the REAL private C facade owner and ordinary bitmap,
+# not just the isolated original-PDF Source/IR/raster test binary.
+add_test(NAME quantapdf.private_native_facade_bitmap_v9_decode
+  COMMAND quantapdf_test_native_source_image_clip --native-facade-decode-v9-only)
+set_tests_properties(quantapdf.private_native_facade_bitmap_v9_decode PROPERTIES
+  TIMEOUT 40
+  LABELS "conformance;source-pdf;native-raster;facade;context;ownership;decode")
 
 # Static-link closure gate: intentionally NO direct Raster OBJECTs and NO
 # explicit quantapdf_backend target. All private builtin->Source->Raster
@@ -502,6 +509,7 @@ if(WIN32)
     quantapdf.native_builtin_page_owner_v1
     quantapdf.native_builtin_backend_rgb_v1
     quantapdf.private_native_facade_bitmap_v1
+    quantapdf.private_native_facade_bitmap_v9_decode
     PROPERTY ENVIRONMENT_MODIFICATION
     "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 elseif(APPLE)
@@ -515,6 +523,7 @@ elseif(APPLE)
     quantapdf.native_builtin_page_owner_v1
     quantapdf.native_builtin_backend_rgb_v1
     quantapdf.private_native_facade_bitmap_v1
+    quantapdf.private_native_facade_bitmap_v9_decode
     PROPERTY ENVIRONMENT_MODIFICATION
     "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 else()
@@ -528,6 +537,7 @@ else()
     quantapdf.native_builtin_page_owner_v1
     quantapdf.native_builtin_backend_rgb_v1
     quantapdf.private_native_facade_bitmap_v1
+    quantapdf.private_native_facade_bitmap_v9_decode
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()

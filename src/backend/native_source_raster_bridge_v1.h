@@ -42,6 +42,16 @@ quantapdf_status quantapdf_native_source_raster_bridge_v1(
     const quantapdf_native_source_raster_device_v1 *device,
     quantapdf_ir_raster_image *out_image);
 
+/* Private explicit Source V9 entry. V8 above preserves its exact legacy
+ * rejection of every explicit Image /Decode. Neither entry changes the
+ * public renderer or the C11 raster implementation/caps. */
+quantapdf_status quantapdf_native_source_raster_bridge_v9(
+    const unsigned char *original_pdf,
+    size_t original_size,
+    const quantapdf_native_source_raster_bridge_limits_v1 *limits,
+    const quantapdf_native_source_raster_device_v1 *device,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

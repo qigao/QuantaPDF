@@ -18,6 +18,14 @@ quantapdf_status quantapdf_builtin_native_qualify_bitmap_v1(
     const quantapdf_native_source_raster_device_v1 *device,
     quantapdf_backend_bitmap *out_bitmap);
 
+/* Private V9 source selection through the same malloc-owned RGB8
+ * conversion; the V8 public/private bridge stays strict. */
+quantapdf_status quantapdf_builtin_native_qualify_bitmap_v9(
+    void *builtin_page,
+    const quantapdf_native_source_raster_bridge_limits_v1 *limits,
+    const quantapdf_native_source_raster_device_v1 *device,
+    quantapdf_backend_bitmap *out_bitmap);
+
 #ifdef __cplusplus
 }
 #endif
