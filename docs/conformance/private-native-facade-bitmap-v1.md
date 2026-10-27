@@ -24,9 +24,15 @@ quantapdf_open_with_context -> quantapdf_load_page
   -> quantapdf_drop_bitmap
 ```
 
-The private facade function is compiled once into the product's
-`quantapdf` library via `src/document/CMakeLists.txt` and is
-declared only in a **non-installed private header**. There is **no
+The private facade function is compiled into canonical PIC
+`quantapdf_native_facade_objects` in the top-level CMake and embedded
+into the product's `quantapdf` library. Likewise the existing Context
+retain/allocator helpers use `quantapdf_context_lifetime_objects`.
+Those **same object files**, with matching test-mode Context layout,
+are also linked directly into the in-tree Windows original-source oracle.
+This ensures that internal tests exercise the actual production code
+without exporting hidden facade or Context helper symbols from the
+shared DLL. Both private headers are **non-installed**. There is **no
 public ABI/export** or C11 SDK function declaration added. The normal
 public `quantapdf_render_page`, `quantapdf_render_page_with_options`
 and `quantapdf_render_thumbnail` are unchanged and still invoke
@@ -78,6 +84,15 @@ Drop Page and Document and the caller's original Context reference
 Validate both still have live exactly-counted Context owners, exact
 RGB metadata and pixel values, then dispose them with the ordinary
 public bitmap destructor.
+
+In tests linked against the Windows DLL, the page's real immutable
+Context and Document provider-table pointers are compared **to each
+other** rather than to a duplicated static backend table from another
+module. UserUnit is obtained using the already-bound `page_user_unit`
+provider callback. Both are equivalent to the existing facade's
+built-in owner contract for admitted pages, without exporting private
+symbols. The full provider remains fixed at Context creation; this
+does not authorize an alternate backend or public Native dispatch.
 
 The test additionally repeats late unsupported Text, SMask/missing
 resource, source and raster quota exhaustion, incorrect page index,
