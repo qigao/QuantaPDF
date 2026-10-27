@@ -233,7 +233,9 @@ static std::string create_unclipped_mixed_source(int mode)
         encoded.resize(static_cast<size_t>(cap));
     }
     auto image=pdf->newStream(encoded);
-    auto& dict=image.getDict();
+    /* QPDFObjectHandle is a shared object handle returned by value;
+     * do not bind a non-const reference to a temporary getDict(). */
+    auto dict=image.getDict();
     dict.replaceKey("/Type",Obj::newName("/XObject"));
     dict.replaceKey("/Subtype",Obj::newName("/Image"));
     dict.replaceKey("/Width",Obj::newInteger(2));
