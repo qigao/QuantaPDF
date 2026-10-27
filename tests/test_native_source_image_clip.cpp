@@ -58,6 +58,8 @@ struct fixture {
     std::string a,b;
     bool split=false,wrong_subtype=false,missing_resources=false;
     bool mask=false,invalid_color=false;
+    bool gray_image=false;
+    std::string image_decode;
 };
 
 std::vector<unsigned char> original_pdf(const fixture& sc)
@@ -72,7 +74,8 @@ std::vector<unsigned char> original_pdf(const fixture& sc)
     page.replaceKey("/Parent",pages);
 
     const std::string raw("\xff\0\0\0\xff\0\0\0\xff\xff\xff\0",12);
-    Obj img=pdf->newStream(raw);
+    Obj img=pdf->newStream(sc.gray_image ?
+        std::string("\x00\x55\xaa\xff",4) : raw);
     img.getDict().replaceKey("/Type",Obj::newName("/XObject"));
     img.getDict().replaceKey("/Subtype",
         Obj::newName(sc.wrong_subtype?"/Form":"/Image"));
@@ -80,7 +83,10 @@ std::vector<unsigned char> original_pdf(const fixture& sc)
     img.getDict().replaceKey("/Height",Obj::newInteger(2));
     img.getDict().replaceKey("/BitsPerComponent",Obj::newInteger(8));
     img.getDict().replaceKey("/ColorSpace",
-        Obj::newName(sc.invalid_color?"/DeviceCMYK":"/DeviceRGB"));
+        Obj::newName(sc.invalid_color?"/DeviceCMYK":
+                     (sc.gray_image?"/DeviceGray":"/DeviceRGB")));
+    if(!sc.image_decode.empty())
+        img.getDict().replaceKey("/Decode",Obj::parse(sc.image_decode));
     if(sc.mask)img.getDict().replaceKey("/SMask",
         Obj::newName("/None"));
     Obj resources=Obj::newDictionary(),objects=Obj::newDictionary();
@@ -740,7 +746,8 @@ struct v6_probe {size_t x,y;unsigned r,g,b;};
 int positive_scoped_mixed_v6(
     const fixture& sc,size_t clipped_count,size_t paths,size_t images,
     const std::vector<v6_probe>& goldens,bool compare_legacy_v5=false,
-    bool normalized_v7=false,bool gray_v8=false)
+    bool normalized_v7=false,bool gray_v8=false,
+    bool image_decode_v9=false)
 {
     auto original=original_pdf(sc);
     CHECK(original.size()>100u);
@@ -749,15 +756,30 @@ int positive_scoped_mixed_v6(
     auto bounded=source_limits;
     bounded.max_operations=4u;
     quantapdf_ir ir{};
-    const quantapdf_status accepted=gray_v8 ?
-        quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
+    const quantapdf_status accepted=image_decode_v9 ?
+        quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir(
             original.data(),original.size(),&bounded,&ir) :
-        (normalized_v7 ?
-            quantapdf_qpdf_source_scoped_mixed_v7_to_ir(
+        (gray_v8 ?
+            quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
                 original.data(),original.size(),&bounded,&ir) :
-            quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
-                original.data(),original.size(),&bounded,&ir));
+            (normalized_v7 ?
+                quantapdf_qpdf_source_scoped_mixed_v7_to_ir(
+                    original.data(),original.size(),&bounded,&ir) :
+                quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
+                    original.data(),original.size(),&bounded,&ir)));
     OK(accepted);
+    if(image_decode_v9 && !sc.image_decode.empty()) {
+        /* Existing V8 MUST still refuse an explicit /Decode even when
+         * the V9 Source conversion would yield exactly the same colors. */
+        quantapdf_ir old_decode;
+        std::memset(&old_decode,0xa5,sizeof(old_decode));
+        CHECK(quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
+            original.data(),original.size(),&bounded,&old_decode)==
+            QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(old_decode.pages==nullptr && old_decode.operations==nullptr &&
+              old_decode.resources.images==nullptr);
+        quantapdf_ir_dispose(&old_decode);
+    }
     if(gray_v8) {
         /* V7 has no nonstroking Gray operator; a successful V8 result
          * must never silently widen an already-qualified V7 mode. */
@@ -865,23 +887,27 @@ int positive_scoped_mixed_v6(
 int negative_scoped_mixed_v6(
     const fixture& sc,quantapdf_status expected,
     const quantapdf_qpdf_source_raw_image_limits& bounds,
-    bool normalized_v7=false,bool gray_v8=false)
+    bool normalized_v7=false,bool gray_v8=false,
+    bool image_decode_v9=false)
 {
     const auto bytes=original_pdf(sc);
     for(int attempt=0;attempt<2;++attempt) {
         quantapdf_ir refused;
         std::memset(&refused,0xa5,sizeof(refused));
-        const quantapdf_status actual=gray_v8 ?
-            quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
+        const quantapdf_status actual=image_decode_v9 ?
+            quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir(
                 bytes.data(),bytes.size(),&bounds,&refused) :
-            (normalized_v7 ?
-                quantapdf_qpdf_source_scoped_mixed_v7_to_ir(
+            (gray_v8 ?
+                quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
                     bytes.data(),bytes.size(),&bounds,&refused) :
-                quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
-                    bytes.data(),bytes.size(),&bounds,&refused));
+                (normalized_v7 ?
+                    quantapdf_qpdf_source_scoped_mixed_v7_to_ir(
+                        bytes.data(),bytes.size(),&bounds,&refused) :
+                    quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
+                        bytes.data(),bytes.size(),&bounds,&refused)));
         if(actual!=expected)
             std::fprintf(stderr,
-                "Scoped Mixed V6/V7/V8 unexpected status trial=%d wanted=%d got=%d\n",
+                "Scoped Mixed V6/V7/V8/V9 unexpected status trial=%d wanted=%d got=%d\n",
                 attempt,(int)expected,(int)actual);
         CHECK(actual==expected);
         CHECK(refused.pages==nullptr && refused.page_count==0u &&
