@@ -238,6 +238,10 @@ constexpr bool source_profile_table_valid()
            profile.clip_image_limit<1u ||
            profile.clip_image_limit>2u ||
            (profile.normalized_gray && !profile.normalized_rgb) ||
+           (profile.explicit_image_decode &&
+            (!profile.normalized_gray ||
+             !profile.variable_operations ||
+             profile.output!=source_materialization::scoped_flexible)) ||
            (profile.variable_operations &&
             (!profile.frozen_scoped_membership ||
              profile.output!=source_materialization::scoped_flexible)) ||
