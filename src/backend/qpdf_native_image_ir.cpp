@@ -155,6 +155,7 @@ enum class source_profile_id : unsigned char {
     scoped_mixed_v6,
     scoped_mixed_v7_rgb,
     scoped_mixed_v8_gray,
+    scoped_mixed_v9_image_decode,
     count
 };
 
@@ -177,6 +178,8 @@ struct source_profile_contract {
     bool variable_operations;
     bool normalized_rgb;
     bool normalized_gray;
+    /* Image /Decode endpoint admission is independently opt-in. */
+    bool explicit_image_decode;
     source_materialization output;
 };
 
@@ -187,40 +190,43 @@ constexpr std::array<source_profile_contract,
                      static_cast<size_t>(source_profile_id::count)>
     source_profiles = {{
         /*  0: Image only */
-        {false,false,1u,false,2u,false,false,false,false,
+        {false,false,1u,false,2u,false,false,false,false,false,
          source_materialization::raw_images},
         /*  1: mixed V1 */
-        {true,false,1u,false,2u,false,false,false,false,
+        {true,false,1u,false,2u,false,false,false,false,false,
          source_materialization::mixed},
         /*  2: mixed V2 */
-        {true,false,1u,false,3u,false,false,false,false,
+        {true,false,1u,false,3u,false,false,false,false,false,
          source_materialization::mixed},
         /*  3: mixed V3 */
-        {true,false,1u,false,4u,false,false,false,false,
+        {true,false,1u,false,4u,false,false,false,false,false,
          source_materialization::mixed},
         /*  4: Image Clip V1 */
-        {false,true,1u,false,2u,false,false,false,false,
+        {false,true,1u,false,2u,false,false,false,false,false,
          source_materialization::clipped_images},
         /*  5: Image Clip V2 */
-        {false,true,2u,false,2u,false,false,false,false,
+        {false,true,2u,false,2u,false,false,false,false,false,
          source_materialization::clipped_images},
         /*  6: Image Clip V3 */
-        {false,true,2u,true,2u,false,false,false,false,
+        {false,true,2u,true,2u,false,false,false,false,false,
          source_materialization::clipped_images},
         /*  7: Image/Path V4 */
-        {true,true,1u,true,2u,false,false,false,false,
+        {true,true,1u,true,2u,false,false,false,false,false,
          source_materialization::clipped_image_then_path},
         /*  8: exact scoped V5 */
-        {true,true,2u,false,4u,true,false,false,false,
+        {true,true,2u,false,4u,true,false,false,false,false,
          source_materialization::scoped_exact},
         /*  9: variable scoped V6 */
-        {true,true,2u,false,4u,true,true,false,false,
+        {true,true,2u,false,4u,true,true,false,false,false,
          source_materialization::scoped_flexible},
         /* 10: fractional RGB V7 */
-        {true,true,2u,false,4u,true,true,true,false,
+        {true,true,2u,false,4u,true,true,true,false,false,
          source_materialization::scoped_flexible},
         /* 11: DeviceGray V8 */
-        {true,true,2u,false,4u,true,true,true,true,
+        {true,true,2u,false,4u,true,true,true,true,false,
+         source_materialization::scoped_flexible},
+        /* 12: explicit per-channel /Decode identity/inversion V9 */
+        {true,true,2u,false,4u,true,true,true,true,true,
          source_materialization::scoped_flexible}
     }};
 
@@ -232,6 +238,10 @@ constexpr bool source_profile_table_valid()
            profile.clip_image_limit<1u ||
            profile.clip_image_limit>2u ||
            (profile.normalized_gray && !profile.normalized_rgb) ||
+           (profile.explicit_image_decode &&
+            (!profile.normalized_gray ||
+             !profile.variable_operations ||
+             profile.output!=source_materialization::scoped_flexible)) ||
            (profile.variable_operations &&
             (!profile.frozen_scoped_membership ||
              profile.output!=source_materialization::scoped_flexible)) ||
@@ -279,6 +289,8 @@ struct admission {
     /* V8 adds a private nonstroking DeviceGray g admission, without
      * changing earlier source color profiles or the C11 renderer. */
     bool normalized_gray_mode=false;
+    /* V9 only: explicit Image /Decode [0 1]/[1 0] per channel. */
+    bool explicit_image_decode_mode=false;
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule)
@@ -322,7 +334,6 @@ struct admission {
               QUANTAPDF_ERROR_UNSUPPORTED);
         admit(dict.getKey("/SMask").isNull() &&
               dict.getKey("/Mask").isNull() &&
-              dict.getKey("/Decode").isNull() &&
               dict.getKey("/Alternates").isNull() &&
               dict.getKey("/OPI").isNull() &&
               dict.getKey("/Matte").isNull() &&
@@ -348,6 +359,35 @@ struct admission {
             (colorspace.getName()=="/DeviceRGB" ? 3 : 0);
         admit(channels != 0,QUANTAPDF_ERROR_UNSUPPORTED);
 
+        /* V9 image Decode is a SOURCE admission and must be checked
+         * BEFORE potentially expensive decompression. In V1–V8 this
+         * preserves the old immediate fail-closed /Decode refusal. */
+        Obj decode=dict.getKey("/Decode");
+        admit(decode.isNull() || explicit_image_decode_mode,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        std::array<bool,3u> invert={false,false,false};
+        bool any_inversion=false;
+        if(!decode.isNull()) {
+            admit(decode.isArray() &&
+                  decode.getArrayNItems()==2*channels,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            for(int c=0;c<channels;++c) {
+                Obj lower=decode.getArrayItem(c*2);
+                Obj upper=decode.getArrayItem(c*2+1);
+                admit(lower.isNumber() && upper.isNumber(),
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                const double a=lower.getNumericValue();
+                const double b=upper.getNumericValue();
+                admit(std::isfinite(a) && std::isfinite(b) &&
+                      ((a==0.0 && b==1.0) ||
+                       (a==1.0 && b==0.0)),
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                invert[static_cast<size_t>(c)]=a==1.0;
+                any_inversion=any_inversion ||
+                    invert[static_cast<size_t>(c)];
+            }
+        }
+
         const size_t w=integer(dict.getKey("/Width"),hard_image_pixels);
         const size_t h=integer(dict.getKey("/Height"),hard_image_pixels);
         admit(w<=hard_image_pixels/h,QUANTAPDF_ERROR_UNSUPPORTED);
@@ -360,6 +400,20 @@ struct admission {
         const size_t size=pixels*(size_t)channels;
         auto decoded=stream_data(image,size,true);
         admit(decoded.size()==size);
+        /* Only after full Decode admission and bounded stream decode
+         * normalize the original color samples to owned RAW bytes.
+         * A fully identity /Decode is zero-copy/zero-work here; otherwise
+         * traverse pixel channels without a modulo for every sample. */
+        if(any_inversion)
+            for(size_t pixel=0u;pixel<pixels;++pixel) {
+                const size_t base=pixel*static_cast<size_t>(channels);
+                for(int c=0;c<channels;++c)
+                    if(invert[static_cast<size_t>(c)]) {
+                        const size_t byte=base+static_cast<size_t>(c);
+                        decoded[byte]=static_cast<unsigned char>(
+                            255u-decoded[byte]);
+                    }
+            }
         source_pixels+=pixels;
 
         admit(ctm[1]==0.0 && ctm[2]==0.0 &&
@@ -1095,7 +1149,7 @@ static quantapdf_status source_raw_images_to_ir_impl(
          * -Werror=missing-field-initializers for aggregate additions. */
         admission source{resources,*limits,page_w,page_h,0u,0u,0u,
                           {},false,{},{},2u,false,false,{},
-                          1u,false,false,false,{},false,false,false};
+                          1u,false,false,false,{},false,false,false,false};
         const source_profile_contract& profile=source_profile_for(profile_id);
         source.mixed_mode=profile.mixed;
         source.clipped_image_mode=profile.clipped;
@@ -1106,6 +1160,7 @@ static quantapdf_status source_raw_images_to_ir_impl(
         source.variable_scoped_mode=profile.variable_operations;
         source.normalized_rgb_mode=profile.normalized_rgb;
         source.normalized_gray_mode=profile.normalized_gray;
+        source.explicit_image_decode_mode=profile.explicit_image_decode;
         auto contents=page_streams(geo.page.getKey("/Contents"),*limits);
         QPDF parser;
         parser.emptyPDF();
@@ -1314,4 +1369,19 @@ quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
 {
     return source_raw_images_to_ir_impl(original_pdf,size,limits,out_ir,
         source_profile_id::scoped_mixed_v8_gray);
+}
+
+/* Private Source V9: strict V8 2..4 scoped Path/RAW Image paints with
+ * independent, explicit Image /Decode identity or inversion admission.
+ * Earlier source entry points, C11 Raster and public PDFium renderer
+ * remain strictly unchanged. */
+extern "C" quantapdf_status
+quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,
+    quantapdf_ir *out_ir)
+{
+    return source_raw_images_to_ir_impl(
+        original_pdf,size,limits,out_ir,
+        source_profile_id::scoped_mixed_v9_image_decode);
 }

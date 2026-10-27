@@ -421,6 +421,13 @@ add_test(NAME quantapdf.native_source_scoped_mixed_v8_gray
   COMMAND quantapdf_test_native_source_image_clip --scoped-v8-only)
 set_tests_properties(quantapdf.native_source_scoped_mixed_v8_gray PROPERTIES
   TIMEOUT 40 LABELS "conformance;source-pdf;native-raster;image-do;clip;mixed;gray")
+# Private V9 expands *Image XObject* source semantics (not the C11 Raster).
+# Direct PDFium independently renders the unchanged original /Decode PDF.
+add_test(NAME quantapdf.native_source_scoped_mixed_v9_decode
+  COMMAND quantapdf_test_native_source_image_clip --scoped-v9-decode-only)
+set_tests_properties(quantapdf.native_source_scoped_mixed_v9_decode PROPERTIES
+  TIMEOUT 40
+  LABELS "conformance;source-pdf;native-raster;image-do;clip;mixed;decode")
 # Exact compatibility matrix for the twelve private original-PDF source
 # signatures; every legacy admission must accept its old positive bytes
 # and refuse the next source profile atomically.
@@ -489,6 +496,7 @@ if(WIN32)
     quantapdf.native_source_scoped_mixed_v6
     quantapdf.native_source_scoped_mixed_v7_rgb
     quantapdf.native_source_scoped_mixed_v8_gray
+    quantapdf.native_source_scoped_mixed_v9_decode
     quantapdf.native_source_profile_legacy_parity
     quantapdf.native_source_product_bridge_v1
     quantapdf.native_builtin_page_owner_v1
@@ -501,6 +509,7 @@ elseif(APPLE)
     quantapdf.native_source_scoped_mixed_v6
     quantapdf.native_source_scoped_mixed_v7_rgb
     quantapdf.native_source_scoped_mixed_v8_gray
+    quantapdf.native_source_scoped_mixed_v9_decode
     quantapdf.native_source_profile_legacy_parity
     quantapdf.native_source_product_bridge_v1
     quantapdf.native_builtin_page_owner_v1
@@ -513,6 +522,7 @@ else()
     quantapdf.native_source_scoped_mixed_v6
     quantapdf.native_source_scoped_mixed_v7_rgb
     quantapdf.native_source_scoped_mixed_v8_gray
+    quantapdf.native_source_scoped_mixed_v9_decode
     quantapdf.native_source_profile_legacy_parity
     quantapdf.native_source_product_bridge_v1
     quantapdf.native_builtin_page_owner_v1

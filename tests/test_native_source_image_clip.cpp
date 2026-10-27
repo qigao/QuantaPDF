@@ -58,6 +58,10 @@ struct fixture {
     std::string a,b;
     bool split=false,wrong_subtype=false,missing_resources=false;
     bool mask=false,invalid_color=false;
+    bool gray_image=false;
+    std::string image_decode;
+    bool second_image=false,second_image_gray=false;
+    std::string second_image_decode;
 };
 
 std::vector<unsigned char> original_pdf(const fixture& sc)
@@ -72,7 +76,8 @@ std::vector<unsigned char> original_pdf(const fixture& sc)
     page.replaceKey("/Parent",pages);
 
     const std::string raw("\xff\0\0\0\xff\0\0\0\xff\xff\xff\0",12);
-    Obj img=pdf->newStream(raw);
+    Obj img=pdf->newStream(sc.gray_image ?
+        std::string("\x00\x55\xaa\xff",4) : raw);
     img.getDict().replaceKey("/Type",Obj::newName("/XObject"));
     img.getDict().replaceKey("/Subtype",
         Obj::newName(sc.wrong_subtype?"/Form":"/Image"));
@@ -80,11 +85,32 @@ std::vector<unsigned char> original_pdf(const fixture& sc)
     img.getDict().replaceKey("/Height",Obj::newInteger(2));
     img.getDict().replaceKey("/BitsPerComponent",Obj::newInteger(8));
     img.getDict().replaceKey("/ColorSpace",
-        Obj::newName(sc.invalid_color?"/DeviceCMYK":"/DeviceRGB"));
+        Obj::newName(sc.invalid_color?"/DeviceCMYK":
+                     (sc.gray_image?"/DeviceGray":"/DeviceRGB")));
+    if(!sc.image_decode.empty())
+        img.getDict().replaceKey("/Decode",Obj::parse(sc.image_decode));
     if(sc.mask)img.getDict().replaceKey("/SMask",
         Obj::newName("/None"));
     Obj resources=Obj::newDictionary(),objects=Obj::newDictionary();
     objects.replaceKey("/I",img);
+    /* Optional distinct /J resource: two Do operations are not merely
+     * repeated references to one /I image. V9 must normalize each
+     * image dictionary's own Decode and preserve its pixel ownership. */
+    if(sc.second_image) {
+        Obj second=pdf->newStream(sc.second_image_gray ?
+            std::string("\x00\x55\xaa\xff",4) : raw);
+        second.getDict().replaceKey("/Type",Obj::newName("/XObject"));
+        second.getDict().replaceKey("/Subtype",Obj::newName("/Image"));
+        second.getDict().replaceKey("/Width",Obj::newInteger(2));
+        second.getDict().replaceKey("/Height",Obj::newInteger(2));
+        second.getDict().replaceKey("/BitsPerComponent",Obj::newInteger(8));
+        second.getDict().replaceKey("/ColorSpace",
+            Obj::newName(sc.second_image_gray?"/DeviceGray":"/DeviceRGB"));
+        if(!sc.second_image_decode.empty())
+            second.getDict().replaceKey("/Decode",
+                Obj::parse(sc.second_image_decode));
+        objects.replaceKey("/J",second);
+    }
     resources.replaceKey("/XObject",objects);
     if(!sc.missing_resources)page.replaceKey("/Resources",resources);
     if(sc.split)
@@ -740,7 +766,8 @@ struct v6_probe {size_t x,y;unsigned r,g,b;};
 int positive_scoped_mixed_v6(
     const fixture& sc,size_t clipped_count,size_t paths,size_t images,
     const std::vector<v6_probe>& goldens,bool compare_legacy_v5=false,
-    bool normalized_v7=false,bool gray_v8=false)
+    bool normalized_v7=false,bool gray_v8=false,
+    bool image_decode_v9=false)
 {
     auto original=original_pdf(sc);
     CHECK(original.size()>100u);
@@ -749,15 +776,31 @@ int positive_scoped_mixed_v6(
     auto bounded=source_limits;
     bounded.max_operations=4u;
     quantapdf_ir ir{};
-    const quantapdf_status accepted=gray_v8 ?
-        quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
+    const quantapdf_status accepted=image_decode_v9 ?
+        quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir(
             original.data(),original.size(),&bounded,&ir) :
-        (normalized_v7 ?
-            quantapdf_qpdf_source_scoped_mixed_v7_to_ir(
+        (gray_v8 ?
+            quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
                 original.data(),original.size(),&bounded,&ir) :
-            quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
-                original.data(),original.size(),&bounded,&ir));
+            (normalized_v7 ?
+                quantapdf_qpdf_source_scoped_mixed_v7_to_ir(
+                    original.data(),original.size(),&bounded,&ir) :
+                quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
+                    original.data(),original.size(),&bounded,&ir)));
     OK(accepted);
+    if(image_decode_v9 &&
+       (!sc.image_decode.empty() || !sc.second_image_decode.empty())) {
+        /* Existing V8 MUST still refuse an explicit /Decode even when
+         * the V9 Source conversion would yield exactly the same colors. */
+        quantapdf_ir old_decode;
+        std::memset(&old_decode,0xa5,sizeof(old_decode));
+        CHECK(quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
+            original.data(),original.size(),&bounded,&old_decode)==
+            QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(old_decode.pages==nullptr && old_decode.operations==nullptr &&
+              old_decode.resources.images==nullptr);
+        quantapdf_ir_dispose(&old_decode);
+    }
     if(gray_v8) {
         /* V7 has no nonstroking Gray operator; a successful V8 result
          * must never silently widen an already-qualified V7 mode. */
@@ -865,23 +908,27 @@ int positive_scoped_mixed_v6(
 int negative_scoped_mixed_v6(
     const fixture& sc,quantapdf_status expected,
     const quantapdf_qpdf_source_raw_image_limits& bounds,
-    bool normalized_v7=false,bool gray_v8=false)
+    bool normalized_v7=false,bool gray_v8=false,
+    bool image_decode_v9=false)
 {
     const auto bytes=original_pdf(sc);
     for(int attempt=0;attempt<2;++attempt) {
         quantapdf_ir refused;
         std::memset(&refused,0xa5,sizeof(refused));
-        const quantapdf_status actual=gray_v8 ?
-            quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
+        const quantapdf_status actual=image_decode_v9 ?
+            quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir(
                 bytes.data(),bytes.size(),&bounds,&refused) :
-            (normalized_v7 ?
-                quantapdf_qpdf_source_scoped_mixed_v7_to_ir(
+            (gray_v8 ?
+                quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
                     bytes.data(),bytes.size(),&bounds,&refused) :
-                quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
-                    bytes.data(),bytes.size(),&bounds,&refused));
+                (normalized_v7 ?
+                    quantapdf_qpdf_source_scoped_mixed_v7_to_ir(
+                        bytes.data(),bytes.size(),&bounds,&refused) :
+                    quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
+                        bytes.data(),bytes.size(),&bounds,&refused)));
         if(actual!=expected)
             std::fprintf(stderr,
-                "Scoped Mixed V6/V7/V8 unexpected status trial=%d wanted=%d got=%d\n",
+                "Scoped Mixed V6/V7/V8/V9 unexpected status trial=%d wanted=%d got=%d\n",
                 attempt,(int)expected,(int)actual);
         CHECK(actual==expected);
         CHECK(refused.pages==nullptr && refused.page_count==0u &&
@@ -2364,6 +2411,255 @@ int private_native_facade_bitmap_v1_suite()
         {{13u,16u,64u,64u,64u},{23u,3u,255u,0u,0u}});
 }
 
+/* Private V9 qualifies explicit 8-bit Image /Decode per channel:
+ * each pair is EXACT [0 1] or [1 0]. Real original PDF /Decode
+ * semantics are compared with independent direct-PDFium pixels;
+ * normalization produces only owned canonical RAW Gray/RGB bytes. */
+int source_scoped_mixed_v9_image_decode_suite()
+{
+    auto bounds=source_limits;
+    bounds.max_operations=4u;
+    const std::string clip="q 12 6 8 9 re W n ";
+    const std::string image_inside="q 16 0 0 12 8 3 cm /I Do Q ";
+    const std::string image_outside="q 8 0 0 6 22 16 cm /I Do Q ";
+    const std::string path_inside="0.25 g 12 6 4 4 re f ";
+    const std::string path_outside="0.875 g 24 17 5 3 re f ";
+
+    /* Invert all 3 RGB channels: RED -> CYAN, GREEN -> MAGENTA,
+     * BLUE -> YELLOW, YELLOW -> BLUE. The original image dictionary
+     * retains /Decode and PDFium receives the unchanged original. */
+    fixture inverted{};
+    inverted.a=clip+image_inside+"Q "+path_outside;
+    inverted.image_decode="[1 0 1 0 1 0]";
+    if(positive_scoped_mixed_v6(inverted,1u,1u,1u,
+        {{13u,11u,0u,255u,255u},{18u,11u,255u,0u,255u},
+         {13u,16u,255u,255u,0u},{18u,16u,0u,0u,255u},
+         {26u,5u,223u,223u,223u},{23u,3u,255u,255u,255u}},
+        false,false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    /* Identity array is NOT ignored by legacy source V8, even though
+     * correctly normalized V9 pixels equal an absent Decode array. */
+    fixture identity=inverted;
+    identity.image_decode="[0 1 0 1 0 1]";
+    if(positive_scoped_mixed_v6(identity,1u,1u,1u,
+        {{13u,11u,255u,0u,0u},{18u,11u,0u,255u,0u},
+         {13u,16u,0u,0u,255u},{18u,16u,255u,255u,0u},
+         {26u,5u,223u,223u,223u}},
+        false,false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    /* Independent RGB channel pair decisions, not a whole-RGB invert:
+     * R and B inverted, G left unchanged. */
+    fixture selected=inverted;
+    selected.image_decode="[1 0 0 1 1 0]";
+    if(positive_scoped_mixed_v6(selected,1u,1u,1u,
+        {{13u,11u,0u,0u,255u},{18u,11u,255u,255u,255u},
+         {13u,16u,255u,0u,0u},{18u,16u,0u,255u,255u}},
+        false,false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    /* Exercise all remaining RGB inversion bitmasks independently.
+     * Channel positions, not a whole-image invert switch, determine
+     * the output. PDFium receives each unchanged original /Decode. */
+    struct decode_pattern {
+        const char *decode;
+        std::vector<v6_probe> probes;
+    };
+    const decode_pattern remaining_patterns[]={
+        {"[1 0 0 1 0 1]",
+         {{13u,11u,0u,0u,0u},{18u,11u,255u,255u,0u},
+          {13u,16u,255u,0u,255u},{18u,16u,0u,255u,0u}}},
+        {"[0 1 1 0 0 1]",
+         {{13u,11u,255u,255u,0u},{18u,11u,0u,0u,0u},
+          {13u,16u,0u,255u,255u},{18u,16u,255u,0u,0u}}},
+        {"[0 1 0 1 1 0]",
+         {{13u,11u,255u,0u,255u},{18u,11u,0u,255u,255u},
+          {13u,16u,0u,0u,0u},{18u,16u,255u,255u,255u}}},
+        {"[1 0 1 0 0 1]",
+         {{13u,11u,0u,255u,0u},{18u,11u,255u,0u,0u},
+          {13u,16u,255u,255u,255u},{18u,16u,0u,0u,0u}}},
+        {"[0 1 1 0 1 0]",
+         {{13u,11u,255u,255u,255u},{18u,11u,0u,0u,255u},
+          {13u,16u,0u,255u,0u},{18u,16u,255u,0u,255u}}}
+    };
+    for(const auto& pattern:remaining_patterns) {
+        fixture variant=inverted;
+        variant.image_decode=pattern.decode;
+        if(positive_scoped_mixed_v6(variant,1u,1u,1u,pattern.probes,
+            false,false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+    }
+
+    /* Integer and real PDF number spellings with identical numeric
+     * endpoints must decode identically, without fuzzy acceptance. */
+    fixture decimal_identity=identity;
+    decimal_identity.image_decode="[0.0 1.0 0 1.0 0 1]";
+    if(positive_scoped_mixed_v6(decimal_identity,1u,1u,1u,
+        {{13u,11u,255u,0u,0u},{18u,11u,0u,255u,0u},
+         {13u,16u,0u,0u,255u},{18u,16u,255u,255u,0u}},
+        false,false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    /* The same normalized Image Do participates in strict ordered
+     * three/four layer mixes, with overpainted Path/RAW samples. */
+    fixture three=inverted;
+    three.a=clip+image_inside+path_inside+"Q "+path_outside;
+    if(positive_scoped_mixed_v6(three,2u,2u,1u,
+        {{13u,16u,64u,64u,64u},{18u,11u,255u,0u,255u},
+         {26u,5u,223u,223u,223u}},
+        false,false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    fixture four=inverted;
+    four.a=clip+path_inside+image_inside+"Q "+
+        image_outside+path_outside;
+    if(positive_scoped_mixed_v6(four,2u,2u,2u,
+        {{13u,11u,0u,255u,255u},{13u,16u,255u,255u,0u},
+         {23u,3u,0u,255u,255u},{26u,5u,223u,223u,223u}},
+        false,false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    /* A different Image XObject /J has its OWN Decode and sample layout.
+     * Source order is: clipped Path, clipped /I RGB, restored /J Gray,
+     * restored Path. This detects accidental sharing of the /I mapping
+     * across the /J dictionary, not just repeated Do on one resource. */
+    fixture heterogeneous=four;
+    heterogeneous.second_image=true;
+    heterogeneous.second_image_gray=true;
+    heterogeneous.second_image_decode="[0 1]";
+    heterogeneous.a=clip+path_inside+image_inside+"Q "+
+        "q 8 0 0 6 22 16 cm /J Do Q "+path_outside;
+    if(positive_scoped_mixed_v6(heterogeneous,2u,2u,2u,
+        {{13u,11u,0u,255u,255u},{13u,16u,255u,255u,0u},
+         {23u,3u,0u,0u,0u},{27u,3u,85u,85u,85u},
+         {23u,6u,170u,170u,170u},{26u,5u,223u,223u,223u}},
+        false,false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    /* Inversion only on /J must still reject the whole source in V8,
+     * while V9 retains implicit identity on /I. */
+    fixture secondary_only=heterogeneous;
+    secondary_only.image_decode.clear();
+    secondary_only.second_image_decode="[1 0]";
+    if(positive_scoped_mixed_v6(secondary_only,2u,2u,2u,
+        {{13u,11u,255u,0u,0u},{13u,16u,0u,0u,255u},
+         {23u,3u,255u,255u,255u},{27u,3u,170u,170u,170u},
+         {23u,6u,85u,85u,85u},{26u,5u,223u,223u,223u}},
+        false,false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    /* DeviceGray is one component, with a separate 2-number mapping.
+     * 2x2 RAW samples [0,85,170,255] become [255,170,85,0]. */
+    fixture gray=inverted;
+    gray.gray_image=true;
+    gray.image_decode="[1 0]";
+    if(positive_scoped_mixed_v6(gray,1u,1u,1u,
+        {{13u,11u,255u,255u,255u},{18u,11u,170u,170u,170u},
+         {13u,16u,85u,85u,85u},{18u,16u,0u,0u,0u},
+         {26u,5u,223u,223u,223u}},
+        false,false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+    gray.image_decode="[0 1]";
+    if(positive_scoped_mixed_v6(gray,1u,1u,1u,
+        {{13u,11u,0u,0u,0u},{18u,11u,85u,85u,85u},
+         {13u,16u,170u,170u,170u},{18u,16u,255u,255u,255u}},
+        false,false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    /* Even/odd original W* with definition-time translation, Content
+     * tokens split across streams and a genuine Q unclip. */
+    fixture split=inverted;
+    split.split=true;
+    split.a="q 1 0 0 1 2 0 cm 10 6 8 9 re W*";
+    split.b=" n q 16 0 0 12 6 3 cm /I Do Q Q "+path_outside;
+    if(positive_scoped_mixed_v6(split,1u,1u,1u,
+        {{13u,11u,0u,255u,255u},{13u,16u,255u,255u,0u},
+         {26u,5u,223u,223u,223u}},
+        false,false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    /* Explicit identity /Decode and omitted /Decode must produce byte-
+     * identical native RGBA while the old V8 identity still refuses. */
+    fixture absent=identity;
+    absent.image_decode.clear();
+    const auto src8=original_pdf(absent),src9=original_pdf(identity);
+    quantapdf_ir ir8{},ir9{};
+    OK(quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
+        src8.data(),src8.size(),&bounds,&ir8));
+    OK(quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir(
+        src9.data(),src9.size(),&bounds,&ir9));
+    const quantapdf_ir_raster_scoped_mixed_v5_limits raster_limits={
+        W*H,4u,512u,8000000u,16u,4096u
+    };
+    quantapdf_ir_raster_image render8{},render9{};
+    OK(quantapdf_ir_raster_scoped_mixed_v5(
+        &ir8,0u,&raster_limits,&render8));
+    OK(quantapdf_ir_raster_scoped_mixed_v5(
+        &ir9,0u,&raster_limits,&render9));
+    CHECK(render8.size==render9.size && render8.size==W*H*4u &&
+          std::memcmp(render8.pixels,render9.pixels,render8.size)==0);
+    quantapdf_ir_raster_image_dispose(&render8);
+    quantapdf_ir_raster_image_dispose(&render9);
+    quantapdf_ir_dispose(&ir8);
+    quantapdf_ir_dispose(&ir9);
+
+    /* Strict refusals AFTER a source image would otherwise be accepted.
+     * No implicit interpolation, clamping, nonbinary ramp, bad cardinality,
+     * missing resource, alpha/mask, or post-image text is allowed. */
+    const std::string bad_decode[]={
+        "true",            /* a present scalar cannot substitute for array */
+        "[]",              /* empty array is not implicit identity */
+        "[0 1 0 1 0 1.0001]", /* near-one must not be rounded */
+        "[0 1 0 1 0]",      /* wrong RGB channel count */
+        "[0 1 0 1 0 1 0 1]",
+        "[0 1 0 1 0 0.5]",  /* unsupported fractional ramp */
+        "[1 1 0 1 0 1]",    /* constant channel */
+        "[-1 1 0 1 0 1]",  /* out of range */
+        "[0 1 0 1 0 /None]", /* nonnumeric */
+        "42"               /* nonarray */
+    };
+    for(const auto& d:bad_decode) {
+        fixture bad=inverted;
+        bad.image_decode=d;
+        if(negative_scoped_mixed_v6(
+            bad,QUANTAPDF_ERROR_UNSUPPORTED,bounds,
+            false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+    }
+    /* A malformed SECOND image must atomically discard earlier
+     * accepted /I and Path operations, even after their decoded bytes
+     * were staged. */
+    fixture wrong_second=heterogeneous;
+    wrong_second.second_image_decode="[0 1 0 1 0 1]";
+    if(negative_scoped_mixed_v6(
+        wrong_second,QUANTAPDF_ERROR_UNSUPPORTED,bounds,
+        false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture wrong_gray=gray;
+    wrong_gray.image_decode="[0 1 0 1 0 1]";
+    if(negative_scoped_mixed_v6(
+        wrong_gray,QUANTAPDF_ERROR_UNSUPPORTED,bounds,
+        false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture late=inverted;
+    late.a+=" BT ET";
+    if(negative_scoped_mixed_v6(
+        late,QUANTAPDF_ERROR_UNSUPPORTED,bounds,
+        false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture masked=inverted;
+    masked.mask=true;
+    if(negative_scoped_mixed_v6(
+        masked,QUANTAPDF_ERROR_UNSUPPORTED,bounds,
+        false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture missing=inverted;
+    missing.missing_resources=true;
+    if(negative_scoped_mixed_v6(
+        missing,QUANTAPDF_ERROR_FORMAT,bounds,
+        false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+    auto reduced=bounds;
+    reduced.max_source_pixels=3u;
+    if(negative_scoped_mixed_v6(
+        inverted,QUANTAPDF_ERROR_UNSUPPORTED,reduced,
+        false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+    reduced=bounds;
+    reduced.max_operations=1u;
+    if(negative_scoped_mixed_v6(
+        inverted,QUANTAPDF_ERROR_UNSUPPORTED,reduced,
+        false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    /* Post-failure source reader and raster remain reusable. */
+    if(positive_scoped_mixed_v6(inverted,1u,1u,1u,
+        {{13u,11u,0u,255u,255u},{26u,5u,223u,223u,223u}},
+        false,false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+    return EXIT_SUCCESS;
+}
+
 int source_scoped_mixed_v5_suite()
 {
     auto budgets=source_limits;
@@ -2475,6 +2771,8 @@ int main(int argc,char **argv)
         return source_scoped_mixed_v7_suite();
     if(argc==2 && std::strcmp(argv[1],"--scoped-v8-only")==0)
         return source_scoped_mixed_v8_suite();
+    if(argc==2 && std::strcmp(argv[1],"--scoped-v9-decode-only")==0)
+        return source_scoped_mixed_v9_image_decode_suite();
     if(argc==2 && std::strcmp(argv[1],"--profile-parity-only")==0)
         return source_profile_legacy_parity_suite();
     if(argc==2 && std::strcmp(argv[1],"--native-product-bridge-only")==0)
@@ -2775,6 +3073,8 @@ int main(int argc,char **argv)
     if(source_scoped_mixed_v7_suite()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
     if(source_scoped_mixed_v8_suite()!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    if(source_scoped_mixed_v9_image_decode_suite()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
     if(source_profile_legacy_parity_suite()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
