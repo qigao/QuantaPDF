@@ -47,7 +47,7 @@ quantapdf_native_test(quantapdf_native_raw_images
 add_executable(quantapdf_native_public_render test_public_native_render.cpp)
 target_compile_features(quantapdf_native_public_render PRIVATE cxx_std_20)
 target_link_libraries(quantapdf_native_public_render PRIVATE
-  QuantaPDF::QuantaPDF qpdf::libqpdf)
+  QuantaPDF::QuantaPDF qpdf::libqpdf ZLIB::ZLIB)
 if(MSVC)
   target_compile_options(quantapdf_native_public_render PRIVATE /W4 /WX /utf-8)
 else()

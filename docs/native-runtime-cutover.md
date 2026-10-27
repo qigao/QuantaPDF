@@ -24,8 +24,14 @@ partially paint or select a fallback.
 - One or two **unclipped, opaque Path Fill** operations with finite
   integer source geometry and exact normalized RGB/Gray solid colors now
   render directly through the SAME Source V10 → uniquely owned IR →
-  pure C11 Raster/Context Bitmap path. No Image resource is invented,
-  no silent support for Clip, Stroke, Text or a third Path, and no fallback.
+  pure C11 Raster/Context Bitmap path. No Image resource is invented.
+- One or two **unclipped Image XObject Do** paints (without PATH) are
+  admitted through the same V10 reader, bounded RAW/Flate Predictor and
+  exact DeviceRGB/Gray Decode, uniquely owned IR, canonical C11 Raster
+  and public Bitmap/thumbnail. Source order and every Image/draw budget
+  remain enforced; no synthetic PATH/GS/Clip or fallback.
+- The above homogeneous subsets do not imply support for Stroke,
+  Text, arbitrary Clip or a third paint.
 - One frozen W/W* Clip, correct Q restoring scopes, 2–4 source-ordered
   8-bit Gray/RGB Image and opaque Path Fill operations, strictly bounded
   to at least one operation of each type for that **mixed** subset.

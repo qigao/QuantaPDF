@@ -12,6 +12,8 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <stdexcept>
+#include <zlib.h>
 
 #define CHECK(expr) do { if (!(expr)) { \
     std::fprintf(stderr,"native public render failed at %d: %s\n",__LINE__,#expr); \
@@ -124,6 +126,78 @@ static std::string create_path_only_source(int mode)
     const auto blob=writer.getBufferSharedPointer();
     return std::string(
         reinterpret_cast<const char*>(blob->getBuffer()),blob->getSize());
+}
+
+
+/* One/two original Image-only Do draws, no Clip or PATH. QPDF authors
+ * the original and only native C11 goldens are checked. For mode 3,
+ * the TIFF-2 Gray stream bytes are compressed independently with zlib
+ * and preserved exactly by the QPDF writer. */
+static std::string create_image_only_source(int mode)
+{
+    auto pdf=QPDF::create();
+    pdf->emptyPDF();
+    auto root=pdf->getRoot().getKey("/Pages");
+    auto page=pdf->makeIndirectObject(
+        Obj::parse("<< /Type /Page /MediaBox [0 0 32 24] >>"));
+    root.replaceKey("/Kids",Obj::newArray({page}));
+    root.replaceKey("/Count",Obj::newInteger(1));
+    page.replaceKey("/Parent",root);
+    const bool gray=mode==2 || mode==3;
+    const std::string rgb("\xff\0\0\0\xff\0\0\0\xff\xff\xff\0",12);
+    const std::string samples=gray ?
+        std::string("\0\x55\xaa\xff",4) : rgb;
+    std::string encoded=samples;
+    if(mode==3) {
+        const std::string tiff("\0\x55\xaa\x55",4);
+        uLongf cap=compressBound(static_cast<uLong>(tiff.size()));
+        encoded.assign(static_cast<size_t>(cap),'\0');
+        const int result=compress2(
+            reinterpret_cast<Bytef *>(encoded.data()),&cap,
+            reinterpret_cast<const Bytef *>(tiff.data()),
+            static_cast<uLong>(tiff.size()),Z_BEST_COMPRESSION);
+        if(result!=Z_OK)
+            throw std::runtime_error("test-only TIFF Flate encode");
+        encoded.resize(static_cast<size_t>(cap));
+    }
+    auto image=pdf->newStream(encoded);
+    image.getDict().replaceKey("/Type",Obj::newName("/XObject"));
+    image.getDict().replaceKey("/Subtype",Obj::newName("/Image"));
+    image.getDict().replaceKey("/Width",Obj::newInteger(2));
+    image.getDict().replaceKey("/Height",Obj::newInteger(2));
+    image.getDict().replaceKey("/BitsPerComponent",Obj::newInteger(8));
+    image.getDict().replaceKey("/ColorSpace",
+        Obj::newName(mode==7?"/DeviceCMYK":
+                     (gray?"/DeviceGray":"/DeviceRGB")));
+    if(gray)
+        image.getDict().replaceKey("/Decode",Obj::parse("[1 0]"));
+    if(mode==3) {
+        image.getDict().replaceKey("/Filter",Obj::newName("/FlateDecode"));
+        image.getDict().replaceKey("/DecodeParms",Obj::parse(
+            "<< /Predictor 2 /Colors 1 /Columns 2 /BitsPerComponent 8 >>"));
+        image.setFilterOnWrite(false);
+    }
+    if(mode==8)
+        image.getDict().replaceKey("/ImageMask",Obj::newBool(true));
+    auto objects=Obj::newDictionary(),resources=Obj::newDictionary();
+    objects.replaceKey("/I",image);
+    resources.replaceKey("/XObject",objects);
+    page.replaceKey("/Resources",resources);
+    std::string content="q 16 0 0 12 8 3 cm /I Do Q";
+    if(mode==1)
+        content+=" q 8 0 0 6 24 0 cm /I Do Q";
+    if(mode==4)content+=" BT ET";
+    if(mode==5)content=
+        "q 8 3 16 12 re W n q 16 0 0 12 8 3 cm /I Do Q Q";
+    if(mode==6)content+=
+        " q 8 0 0 6 24 0 cm /I Do Q q 8 0 0 6 0 0 cm /I Do Q";
+    page.replaceKey("/Contents",pdf->newStream(content));
+    QPDFWriter writer(*pdf);
+    writer.setOutputMemory();
+    writer.write();
+    const auto blob=writer.getBufferSharedPointer();
+    return std::string(
+        reinterpret_cast<const char *>(blob->getBuffer()),blob->getSize());
 }
 
 static bool write_pdf(const std::string& filename,const std::string& content)
@@ -404,6 +478,81 @@ int main()
         quantapdf_drop_bitmap(filled);
     }
 
-    std::puts("[native-public-render] PATH-only fills, Path/Image, blank pages and strict refusal passed");
+
+    /* Original Image-only native Source V10: fixed expected RGB, no
+     * reference engine or hidden PATH/Clip fallback. Existing RAW/Flate
+     * decode and area-resized thumbnail share the ordinary Bitmap owner. */
+    for(int mode=0;mode<9;++mode) {
+        CHECK(write_pdf(filename,create_image_only_source(mode)));
+        quantapdf_context *image_context=nullptr;
+        quantapdf_document *image_doc=nullptr;
+        quantapdf_page *image_page=nullptr;
+        quantapdf_bitmap *rendered=reinterpret_cast<quantapdf_bitmap*>(
+            uintptr_t(1)),*again=nullptr,*small=nullptr;
+        OK(quantapdf_context_create(&image_context));
+        OK(quantapdf_open_with_context(
+            image_context,filename.c_str(),nullptr,&image_doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(image_doc,0,&image_page));
+        const auto result=quantapdf_render_page(image_page,&rendered);
+        if(mode>=4) {
+            CHECK(result==QUANTAPDF_ERROR_UNSUPPORTED && rendered==nullptr);
+            small=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+            CHECK(quantapdf_render_thumbnail(image_page,16,12,&small)==
+                  QUANTAPDF_ERROR_UNSUPPORTED && small==nullptr);
+        } else {
+            CHECK(result==QUANTAPDF_OK && rendered!=nullptr);
+            int w=0,h=0,s=0,c=0;
+            const unsigned char *pixels=nullptr,*repeat=nullptr;
+            size_t bytes=0u,repeat_size=0u;
+            OK(quantapdf_bitmap_dimensions(rendered,&w,&h,&s,&c));
+            OK(quantapdf_bitmap_data(rendered,&pixels,&bytes));
+            CHECK(w==32 && h==24 && s==96 && c==3 &&
+                  bytes==32u*24u*3u && pixels!=nullptr);
+            const bool gray=mode==2 || mode==3;
+            CHECK(probe_rgb(pixels,s,13,11,
+                255u,gray?255u:0u,gray?255u:0u));
+            CHECK(probe_rgb(pixels,s,20,11,
+                gray?170u:0u,gray?170u:255u,gray?170u:0u));
+            CHECK(probe_rgb(pixels,s,13,16,
+                gray?85u:0u,gray?85u:0u,255u*(unsigned)!gray+
+                    (gray?85u:0u)));
+            CHECK(probe_rgb(pixels,s,20,16,
+                gray?0u:255u,gray?0u:255u,0u));
+            CHECK(probe_rgb(pixels,s,2,2,255u,255u,255u));
+            if(mode==1) {
+                CHECK(probe_rgb(pixels,s,26,19,255u,0u,0u));
+                CHECK(probe_rgb(pixels,s,30,19,0u,255u,0u));
+            }
+            OK(quantapdf_render_page(image_page,&again));
+            OK(quantapdf_bitmap_data(again,&repeat,&repeat_size));
+            CHECK(repeat_size==bytes && repeat!=nullptr &&
+                  std::memcmp(pixels,repeat,bytes)==0);
+            quantapdf_drop_bitmap(again);again=nullptr;
+            OK(quantapdf_render_thumbnail(image_page,16,12,&small));
+            OK(quantapdf_bitmap_dimensions(small,&w,&h,&s,&c));
+            OK(quantapdf_bitmap_data(small,&repeat,&repeat_size));
+            CHECK(w==16 && h==12 && s==48 && c==3 &&
+                  repeat_size==16u*12u*3u && repeat!=nullptr);
+            CHECK(probe_rgb(repeat,s,6,5,
+                255u,gray?255u:0u,gray?255u:0u));
+        }
+        quantapdf_drop_page(image_page);
+        quantapdf_close(image_doc);
+        quantapdf_drop_context(image_context);
+        if(rendered!=nullptr) {
+            const unsigned char *owner=nullptr;
+            size_t bytes=0u;
+            OK(quantapdf_bitmap_data(rendered,&owner,&bytes));
+            CHECK(owner!=nullptr && bytes==32u*24u*3u &&
+                  probe_rgb(owner,96,13,11,255u,
+                    (mode==2 || mode==3)?255u:0u,
+                    (mode==2 || mode==3)?255u:0u));
+        }
+        quantapdf_drop_bitmap(small);
+        quantapdf_drop_bitmap(rendered);
+    }
+
+    std::puts("[native-public-render] IMAGE-only/Path-only/mixed, blank pages and strict refusal passed");
     return EXIT_SUCCESS;
 }
