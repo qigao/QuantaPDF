@@ -156,9 +156,13 @@ std::vector<unsigned char> original_pdf(const fixture& sc)
     Obj img=pdf->newStream(primary_encoded);
     if(sc.image_predictor!=0)
         img.getDict().replaceKey("/Filter",Obj::newName("/FlateDecode"));
-    if(!sc.image_decode_parms.empty())
+    if(!sc.image_decode_parms.empty()) {
         img.getDict().replaceKey("/DecodeParms",
             Obj::parse(sc.image_decode_parms));
+        /* Preserve EXACT original Filter/DecodeParms and encoded stream
+         * bytes, without any writer-side decoding or re-encoding. */
+        img.setFilterOnWrite(false);
+    }
     img.getDict().replaceKey("/Type",Obj::newName("/XObject"));
     img.getDict().replaceKey("/Subtype",
         Obj::newName(sc.wrong_subtype?"/Form":"/Image"));
@@ -188,9 +192,11 @@ std::vector<unsigned char> original_pdf(const fixture& sc)
         if(sc.second_image_predictor!=0)
             second.getDict().replaceKey("/Filter",
                 Obj::newName("/FlateDecode"));
-        if(!sc.second_image_decode_parms.empty())
+        if(!sc.second_image_decode_parms.empty()) {
             second.getDict().replaceKey("/DecodeParms",
                 Obj::parse(sc.second_image_decode_parms));
+            second.setFilterOnWrite(false);
+        }
         second.getDict().replaceKey("/Type",Obj::newName("/XObject"));
         second.getDict().replaceKey("/Subtype",Obj::newName("/Image"));
         second.getDict().replaceKey("/Width",Obj::newInteger(2));
@@ -211,13 +217,9 @@ std::vector<unsigned char> original_pdf(const fixture& sc)
     else
         page.replaceKey("/Contents",pdf->newStream(sc.a+sc.b));
     QPDFWriter writer(*pdf);
-    /* An original-PDF fixture with explicit DecodeParms must preserve
-     * the authored stream's exact /Filter contract. Auto compression
-     * could synthesize /FlateDecode on a deliberately RAW negative,
-     * turning "parameters without Flate" into a different input. */
-    if(!sc.image_decode_parms.empty() ||
-       !sc.second_image_decode_parms.empty())
-        writer.setCompressStreams(false);
+    /* Specific Image streams above disable write-time filtering; the
+     * rest of the unchanged-original test PDF retains normal writing
+     * policy. In particular, a RAW + DecodeParms negative stays RAW. */
     writer.setOutputMemory();
     writer.write();
     auto bytes=writer.getBufferSharedPointer();
