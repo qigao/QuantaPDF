@@ -295,6 +295,60 @@ static std::string create_unclipped_mixed_source(int mode)
         reinterpret_cast<const char *>(buffer->getBuffer()),buffer->getSize());
 }
 
+/* One original 8-bit RGB Do and one opaque blue PATH Fill under the
+ * SAME authorial W/W* Clip, in both PDF source orders. No PDFium oracle.
+ * Negative originals poison the full Native Bitmap/thumbnail. */
+static std::string create_clipped_mixed_source(int mode)
+{
+    auto pdf=QPDF::create();
+    pdf->emptyPDF();
+    auto root=pdf->getRoot().getKey("/Pages");
+    auto page=pdf->makeIndirectObject(
+        Obj::parse("<< /Type /Page /MediaBox [0 0 32 24] >>"));
+    root.replaceKey("/Kids",Obj::newArray({page}));
+    root.replaceKey("/Count",Obj::newInteger(1));
+    page.replaceKey("/Parent",root);
+    const std::string raw("\xff\0\0\0\xff\0\0\0\xff\xff\xff\0",12);
+    auto image=pdf->newStream(raw);
+    auto dict=image.getDict();
+    dict.replaceKey("/Type",Obj::newName("/XObject"));
+    dict.replaceKey("/Subtype",Obj::newName("/Image"));
+    dict.replaceKey("/Width",Obj::newInteger(2));
+    dict.replaceKey("/Height",Obj::newInteger(2));
+    dict.replaceKey("/BitsPerComponent",Obj::newInteger(8));
+    dict.replaceKey("/ColorSpace",Obj::newName("/DeviceRGB"));
+    auto images=Obj::newDictionary(),resources=Obj::newDictionary();
+    images.replaceKey("/I",image);
+    resources.replaceKey("/XObject",images);
+    page.replaceKey("/Resources",resources);
+    const std::string outer=std::string("q 12 6 8 9 re ")+
+        (mode==1?"W* n ":"W n ");
+    const std::string paint_image="q 8 0 0 12 8 3 cm /I Do Q ";
+    const std::string paint_path="0 0 1 rg 12 6 8 9 re f ";
+    std::string content=outer+
+        (mode==1?paint_path+paint_image:paint_image+paint_path)+"Q";
+    if(mode==2)
+        content=outer+paint_image+paint_path+
+            "1 0 0 rg 12 6 8 9 re f Q"; /* third all-clipped */
+    if(mode==3)
+        content=outer+paint_image+
+            "q 12 6 8 9 re W* n "+paint_path+"Q Q"; /* second W* */
+    if(mode==4)
+        content+=" Q"; /* graphics stack underflow = FORMAT */
+    if(mode==5)
+        content=outer+"q 8 0 0 12 8 3 cm /J Do Q "+
+            paint_path+"Q"; /* missing Image XObject = FORMAT */
+    if(mode==6)
+        content+=" BT ET"; /* late unsupported Text */
+    page.replaceKey("/Contents",pdf->newStream(content));
+    QPDFWriter writer(*pdf);
+    writer.setOutputMemory();
+    writer.write();
+    const auto blob=writer.getBufferSharedPointer();
+    return std::string(
+        reinterpret_cast<const char *>(blob->getBuffer()),blob->getSize());
+}
+
 static bool write_pdf(const std::string& filename,const std::string& content)
 {
     FILE *f=nullptr;
@@ -779,6 +833,82 @@ int main()
         quantapdf_drop_bitmap(rendered);
     }
 
-    std::puts("[native-public-render] clipped IMAGE / mixed PATH+IMAGE / IMAGE-only / PATH-only / blank, native refusal passed");
+    /* Public native Source V10: exactly one opaque PATH Fill and one
+     * Image Do in either source order under one SAME W/W* Clip. Native
+     * fixed RGB/thumbnail probes are independent of any second renderer. */
+    for(int mode=0;mode<7;++mode) {
+        CHECK(write_pdf(filename,create_clipped_mixed_source(mode)));
+        quantapdf_context *ctx=nullptr;
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        quantapdf_bitmap *filled=reinterpret_cast<quantapdf_bitmap*>(
+            uintptr_t(1)),*again=nullptr,*small=nullptr;
+        OK(quantapdf_context_create(&ctx));
+        OK(quantapdf_open_with_context(
+            ctx,filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        const auto st=quantapdf_render_page(page,&filled);
+        if(mode>=2) {
+            const auto rejection=(mode==4 || mode==5)?
+                QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED;
+            CHECK(st==rejection && filled==nullptr);
+            small=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+            CHECK(quantapdf_render_thumbnail(page,16,12,&small)==
+                  rejection && small==nullptr);
+        } else {
+            CHECK(st==QUANTAPDF_OK && filled!=nullptr);
+            int w=0,h=0,stride=0,channels=0;
+            size_t count=0u,other_count=0u;
+            const unsigned char *bytes=nullptr,*other=nullptr;
+            OK(quantapdf_bitmap_dimensions(
+                filled,&w,&h,&stride,&channels));
+            OK(quantapdf_bitmap_data(filled,&bytes,&count));
+            CHECK(w==32 && h==24 && stride==96 && channels==3 &&
+                  count==32u*24u*3u && bytes!=nullptr);
+            /* Clip x=[12,20), y=[9,18). The Image paints on its
+             * left half, while the blue PATH covers the whole Clip. */
+            CHECK(probe_rgb(bytes,stride,13,11,
+                mode==1?0u:0u,mode==1?255u:0u,mode==1?0u:255u));
+            CHECK(probe_rgb(bytes,stride,13,16,
+                mode==1?255u:0u,mode==1?255u:0u,mode==1?0u:255u));
+            CHECK(probe_rgb(bytes,stride,18,11,0u,0u,255u));
+            CHECK(probe_rgb(bytes,stride,18,16,0u,0u,255u));
+            CHECK(probe_rgb(bytes,stride,11,11,255u,255u,255u));
+            CHECK(probe_rgb(bytes,stride,20,11,255u,255u,255u));
+            CHECK(probe_rgb(bytes,stride,13,19,255u,255u,255u));
+            OK(quantapdf_render_page(page,&again));
+            OK(quantapdf_bitmap_data(again,&other,&other_count));
+            CHECK(other!=nullptr && other_count==count &&
+                  std::memcmp(bytes,other,count)==0);
+            quantapdf_drop_bitmap(again);again=nullptr;
+            OK(quantapdf_render_thumbnail(page,16,12,&small));
+            OK(quantapdf_bitmap_dimensions(
+                small,&w,&h,&stride,&channels));
+            OK(quantapdf_bitmap_data(small,&other,&other_count));
+            CHECK(w==16 && h==12 && stride==48 && channels==3 &&
+                  other_count==16u*12u*3u && other!=nullptr);
+            CHECK(probe_rgb(other,stride,6,5,
+                0u,mode==1?255u:0u,mode==1?0u:255u));
+            CHECK(probe_rgb(other,stride,6,8,
+                mode==1?255u:0u,mode==1?255u:0u,mode==1?0u:255u));
+            CHECK(probe_rgb(other,stride,9,5,0u,0u,255u));
+            CHECK(probe_rgb(other,stride,5,5,255u,255u,255u));
+        }
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+        quantapdf_drop_context(ctx);
+        if(filled!=nullptr) {
+            const unsigned char *detached=nullptr;
+            size_t n=0u;
+            OK(quantapdf_bitmap_data(filled,&detached,&n));
+            CHECK(detached!=nullptr && n==32u*24u*3u &&
+                  probe_rgb(detached,96,18,11,0u,0u,255u));
+        }
+        quantapdf_drop_bitmap(small);
+        quantapdf_drop_bitmap(filled);
+    }
+
+    std::puts("[native-public-render] same-Clip PATH+IMAGE / clipped IMAGE / mixed PATH+IMAGE / IMAGE-only / PATH-only / blank, native refusal passed");
     return EXIT_SUCCESS;
 }
