@@ -2176,7 +2176,8 @@ int write_facade_original(const std::vector<unsigned char>& bytes)
 }
 
 int positive_private_native_facade_v1(
-    const fixture& sample,const std::vector<v6_probe>& probes)
+    const fixture& sample,const std::vector<v6_probe>& probes,
+    bool decode_v9=false)
 {
     auto original=original_pdf(sample);
     CHECK(original.size()>100u);
@@ -2187,7 +2188,7 @@ int positive_private_native_facade_v1(
     quantapdf_context *context=nullptr;
     quantapdf_document *document=nullptr;
     quantapdf_page *page=nullptr;
-    quantapdf_bitmap *native=nullptr,*pdfium=nullptr;
+    quantapdf_bitmap *native=nullptr,*pdfium=nullptr,*legacy_native=nullptr;
     OK(quantapdf_context_create(&context));
     CHECK(context!=nullptr && context->references==1u);
     OK(quantapdf_open_with_context(
@@ -2208,6 +2209,17 @@ int positive_private_native_facade_v1(
     const quantapdf_native_source_raster_device_v1 device={
         0u,72.0f,0.0f,0,0,0
     };
+    /* The product-linked V8 path must still fail closed when EITHER
+     * independent XObject carries an explicit /Decode. */
+    if(decode_v9 &&
+       (!sample.image_decode.empty() ||
+        !sample.second_image_decode.empty())) {
+        quantapdf_bitmap *old=reinterpret_cast<quantapdf_bitmap *>(
+            static_cast<uintptr_t>(1u));
+        CHECK(quantapdf_render_page_native_qualified_v1(
+            page,&bounds,&device,&old)==QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(old==nullptr && context->references==3u);
+    }
 #if defined(QUANTAPDF_TESTING)
     /* Fault injection belongs to a VALID source, page and device: an
      * unqualified page is rightly rejected before allocation and
@@ -2218,19 +2230,36 @@ int positive_private_native_facade_v1(
         quantapdf_bitmap *refused=reinterpret_cast<quantapdf_bitmap *>(
             static_cast<uintptr_t>(1u));
         context->test_fail_allocation=1;
-        CHECK(quantapdf_render_page_native_qualified_v1(
-            page,&bounds,&device,&refused)==QUANTAPDF_ERROR_NOMEM);
+        const quantapdf_status refused_status=decode_v9 ?
+            quantapdf_render_page_native_qualified_v9(
+                page,&bounds,&device,&refused) :
+            quantapdf_render_page_native_qualified_v1(
+                page,&bounds,&device,&refused);
+        CHECK(refused_status==QUANTAPDF_ERROR_NOMEM);
         CHECK(refused==nullptr && context->references==refs &&
               context->test_fail_allocation==0);
     }
 #endif
-    OK(quantapdf_render_page_native_qualified_v1(
-        page,&bounds,&device,&native));
+    const quantapdf_status accepted=decode_v9 ?
+        quantapdf_render_page_native_qualified_v9(
+            page,&bounds,&device,&native) :
+        quantapdf_render_page_native_qualified_v1(
+            page,&bounds,&device,&native);
+    OK(accepted);
     CHECK(native!=nullptr && context->references==4u);
+    /* Absent /Decode is byte-identical through the ORIGINAL V8 path
+     * and V9; both bitmaps outlive Page, Document, and caller Context. */
+    if(decode_v9 && sample.image_decode.empty() &&
+       sample.second_image_decode.empty()) {
+        OK(quantapdf_render_page_native_qualified_v1(
+            page,&bounds,&device,&legacy_native));
+        CHECK(legacy_native!=nullptr && context->references==5u);
+    }
     /* Existing public facade is STILL PDFium-backed, independent of
      * the opt-in native qualification and pixel comparison. */
     OK(quantapdf_render_page(page,&pdfium));
-    CHECK(pdfium!=nullptr && context->references==5u);
+    CHECK(pdfium!=nullptr && context->references==
+          (legacy_native==nullptr ? 5u : 6u));
 
     /* Teardown the complete facade-owned source tree and the caller's
      * Context reference BEFORE consuming the two detached bitmaps. */
@@ -2240,7 +2269,8 @@ int positive_private_native_facade_v1(
     original.assign(original.size(),0u);
     original.clear();
     CHECK(native->context==pdfium->context &&
-          native->context->references==2u);
+          native->context->references==
+              (legacy_native==nullptr ? 2u : 3u));
     int w=0,h=0,stride=0,components=0;
     OK(quantapdf_bitmap_dimensions(
         native,&w,&h,&stride,&components));
@@ -2256,6 +2286,17 @@ int positive_private_native_facade_v1(
     OK(quantapdf_bitmap_data(pdfium,&legacy,&legacy_size));
     CHECK(pixels!=nullptr && legacy!=nullptr &&
           size==W*H*3u && legacy_size==size);
+    if(legacy_native!=nullptr) {
+        int pw=0,ph=0,ps=0,pc=0;
+        const unsigned char *prior=nullptr;
+        size_t prior_size=0u;
+        OK(quantapdf_bitmap_dimensions(
+            legacy_native,&pw,&ph,&ps,&pc));
+        OK(quantapdf_bitmap_data(legacy_native,&prior,&prior_size));
+        CHECK(pw==w && ph==h && ps==stride && pc==components &&
+              prior!=nullptr && prior_size==size &&
+              std::memcmp(prior,pixels,size)==0);
+    }
     double native_error=0.0,legacy_error=0.0;
     size_t gross=0u;
     for(size_t i=0u;i<W*H;++i) {
@@ -2282,7 +2323,12 @@ int positive_private_native_facade_v1(
         CHECK(rgb_match(direct.data()+at,p.r,p.g,p.b,3u));
     }
     quantapdf_drop_bitmap(pdfium);
-    CHECK(native->context->references==1u);
+    CHECK(native->context->references==
+          (legacy_native==nullptr ? 1u : 2u));
+    if(legacy_native!=nullptr) {
+        quantapdf_drop_bitmap(legacy_native);
+        CHECK(native->context->references==1u);
+    }
     quantapdf_drop_bitmap(native);
     return EXIT_SUCCESS;
 }
@@ -2290,7 +2336,8 @@ int positive_private_native_facade_v1(
 int negative_private_native_facade_v1(
     const fixture& source,quantapdf_status expected,
     const quantapdf_native_source_raster_bridge_limits_v1& limits,
-    const quantapdf_native_source_raster_device_v1& device)
+    const quantapdf_native_source_raster_device_v1& device,
+    bool decode_v9=false)
 {
     const auto bytes=original_pdf(source);
     CHECK(write_facade_original(bytes)==EXIT_SUCCESS);
@@ -2306,8 +2353,11 @@ int negative_private_native_facade_v1(
     for(int n=0;n<2;++n) {
         quantapdf_bitmap *out=reinterpret_cast<quantapdf_bitmap *>(
             static_cast<uintptr_t>(1u));
-        const auto actual=quantapdf_render_page_native_qualified_v1(
-            page,&limits,&device,&out);
+        const auto actual=decode_v9 ?
+            quantapdf_render_page_native_qualified_v9(
+                page,&limits,&device,&out) :
+            quantapdf_render_page_native_qualified_v1(
+                page,&limits,&device,&out);
         if(actual!=expected)
             std::fprintf(stderr,
                 "Native facade refusal trial=%d expected=%d got=%d\n",
@@ -2409,6 +2459,184 @@ int private_native_facade_bitmap_v1_suite()
         nullptr,&limits,&device,nullptr)==QUANTAPDF_ERROR_ARGUMENT);
     return positive_private_native_facade_v1(two,
         {{13u,16u,64u,64u,64u},{23u,3u,255u,0u,0u}});
+}
+
+
+/* ISSUE #459 — the REAL product-linked private Context/Page/Bitmap path.
+ * This is not the Source-only oracle: each original is opened through
+ * quantapdf_open_with_context, and PDFium runs independently only as a
+ * test oracle / unchanged public render dispatch. */
+int private_native_facade_bitmap_v9_suite()
+{
+    const std::string clip="q 12 6 8 9 re W n ";
+    const std::string image_in="q 16 0 0 12 8 3 cm /I Do Q ";
+    const std::string image_out="q 8 0 0 6 22 16 cm /I Do Q ";
+    const std::string gray_path="0.25 g 12 6 4 4 re f ";
+    const std::string restored_path="0.875 g 24 17 5 3 re f ";
+
+    fixture inverted{};
+    inverted.a=clip+image_in+"Q "+restored_path;
+    inverted.image_decode="[1 0 1 0 1 0]";
+    if(positive_private_native_facade_v1(inverted,
+        {{13u,11u,0u,255u,255u},{18u,11u,255u,0u,255u},
+         {13u,16u,255u,255u,0u},{18u,16u,0u,0u,255u},
+         {26u,5u,223u,223u,223u}},true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+
+    fixture selective=inverted;
+    selective.image_decode="[1 0 0 1 1 0]";
+    if(positive_private_native_facade_v1(selective,
+        {{13u,11u,0u,0u,255u},{18u,11u,255u,255u,255u},
+         {13u,16u,255u,0u,0u},{18u,16u,0u,255u,255u}},true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    fixture explicit_identity=inverted;
+    explicit_identity.image_decode="[0 1 0 1 0 1]";
+    if(positive_private_native_facade_v1(explicit_identity,
+        {{13u,11u,255u,0u,0u},{18u,11u,0u,255u,0u},
+         {13u,16u,0u,0u,255u},{18u,16u,255u,255u,0u}},true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    /* No explicit Decode: V8 and V9 actual Context-owned bitmaps must
+     * compare byte-for-byte AFTER all original source owners are gone. */
+    fixture implicit_identity=explicit_identity;
+    implicit_identity.image_decode.clear();
+    if(positive_private_native_facade_v1(implicit_identity,
+        {{13u,11u,255u,0u,0u},{18u,11u,0u,255u,0u},
+         {13u,16u,0u,0u,255u}},true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+
+    fixture gray=inverted;
+    gray.gray_image=true;
+    gray.image_decode="[1 0]";
+    if(positive_private_native_facade_v1(gray,
+        {{13u,11u,255u,255u,255u},{18u,11u,170u,170u,170u},
+         {13u,16u,85u,85u,85u},{18u,16u,0u,0u,0u}},true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    gray.image_decode="[0 1]";
+    if(positive_private_native_facade_v1(gray,
+        {{13u,11u,0u,0u,0u},{18u,11u,85u,85u,85u},
+         {13u,16u,170u,170u,170u},{18u,16u,255u,255u,255u}},true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    fixture three=inverted;
+    three.a=clip+image_in+gray_path+"Q "+restored_path;
+    if(positive_private_native_facade_v1(three,
+        {{13u,16u,64u,64u,64u},{18u,11u,255u,0u,255u},
+         {26u,5u,223u,223u,223u}},true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+
+    /* Two ACTUALLY DISTINCT image dictionaries, source order and
+     * independent Decode semantics across a real Q clip restore. */
+    fixture heterogeneous=inverted;
+    heterogeneous.second_image=true;
+    heterogeneous.second_image_gray=true;
+    heterogeneous.second_image_decode="[0 1]";
+    heterogeneous.a=clip+gray_path+image_in+"Q "+
+        "q 8 0 0 6 22 16 cm /J Do Q "+restored_path;
+    if(positive_private_native_facade_v1(heterogeneous,
+        {{13u,11u,0u,255u,255u},{13u,16u,255u,255u,0u},
+         {23u,3u,0u,0u,0u},{27u,3u,85u,85u,85u},
+         {23u,6u,170u,170u,170u},{26u,5u,223u,223u,223u}},
+        true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    /* Explicit inversion only in /J, while /I remains implicit identity.
+     * V8 must fail despite earlier valid Path and /I paints. */
+    fixture second_only=heterogeneous;
+    second_only.image_decode.clear();
+    second_only.second_image_decode="[1 0]";
+    if(positive_private_native_facade_v1(second_only,
+        {{13u,11u,255u,0u,0u},{13u,16u,0u,0u,255u},
+         {23u,3u,255u,255u,255u},{27u,3u,170u,170u,170u},
+         {23u,6u,85u,85u,85u},{26u,5u,223u,223u,223u}},
+        true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    /* A real W* token split across Contents with translated Clip
+     * definition and Q restoration (independent original oracle). */
+    fixture split=inverted;
+    split.split=true;
+    split.a="q 1 0 0 1 2 0 cm 10 6 8 9 re W*";
+    split.b=" n q 16 0 0 12 6 3 cm /I Do Q Q "+restored_path;
+    if(positive_private_native_facade_v1(split,
+        {{13u,11u,0u,255u,255u},{13u,16u,255u,255u,0u},
+         {26u,5u,223u,223u,223u}},true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+
+    const quantapdf_native_source_raster_bridge_limits_v1 limits={
+        {source_limits.max_pdf_bytes,source_limits.max_content_bytes,
+         source_limits.max_content_streams,4u,source_limits.max_page_pixels,
+         source_limits.max_source_pixels,source_limits.max_drawn_pixels,
+         source_limits.max_parent_steps},
+        {W*H,4u,512u,8000000u,16u,4096u}
+    };
+    const quantapdf_native_source_raster_device_v1 device={
+        0u,72.0f,0.0f,0,0,0
+    };
+    fixture wrong_second=heterogeneous;
+    wrong_second.second_image_decode="[0 1 0 1 0 1]";
+    if(negative_private_native_facade_v1(wrong_second,
+        QUANTAPDF_ERROR_UNSUPPORTED,limits,device,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    fixture malformed=inverted;
+    malformed.image_decode="[0 1 0 1 0 1.0001]";
+    if(negative_private_native_facade_v1(malformed,
+        QUANTAPDF_ERROR_UNSUPPORTED,limits,device,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    fixture masked=inverted;
+    masked.mask=true;
+    if(negative_private_native_facade_v1(masked,
+        QUANTAPDF_ERROR_UNSUPPORTED,limits,device,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    fixture missing=inverted;
+    missing.missing_resources=true;
+    if(negative_private_native_facade_v1(missing,
+        QUANTAPDF_ERROR_FORMAT,limits,device,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    fixture late=inverted;
+    late.a+=" BT ET";
+    if(negative_private_native_facade_v1(late,
+        QUANTAPDF_ERROR_UNSUPPORTED,limits,device,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    auto reduced=limits;
+    reduced.source.max_source_pixels=3u;
+    if(negative_private_native_facade_v1(inverted,
+        QUANTAPDF_ERROR_UNSUPPORTED,reduced,device,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    reduced=limits;
+    reduced.source.max_operations=1u;
+    if(negative_private_native_facade_v1(inverted,
+        QUANTAPDF_ERROR_UNSUPPORTED,reduced,device,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    reduced=limits;
+    reduced.raster.max_pixels=W*H-1u;
+    if(negative_private_native_facade_v1(inverted,
+        QUANTAPDF_ERROR_UNSUPPORTED,reduced,device,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    auto wrong_device=device;
+    wrong_device.dpi=144.0f;
+    if(negative_private_native_facade_v1(inverted,
+        QUANTAPDF_ERROR_UNSUPPORTED,limits,wrong_device,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    wrong_device=device;wrong_device.alpha=1;
+    if(negative_private_native_facade_v1(inverted,
+        QUANTAPDF_ERROR_UNSUPPORTED,limits,wrong_device,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    wrong_device=device;wrong_device.page_index=1u;
+    if(negative_private_native_facade_v1(inverted,
+        QUANTAPDF_ERROR_UNSUPPORTED,limits,wrong_device,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+
+    quantapdf_bitmap *poison=reinterpret_cast<quantapdf_bitmap *>(
+        static_cast<uintptr_t>(1u));
+    CHECK(quantapdf_render_page_native_qualified_v9(
+        nullptr,&limits,&device,&poison)==QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(poison==nullptr);
+    CHECK(quantapdf_render_page_native_qualified_v9(
+        nullptr,&limits,&device,nullptr)==QUANTAPDF_ERROR_ARGUMENT);
+
+    /* Post-refusal recovery: valid V9 input still renders identically. */
+    return positive_private_native_facade_v1(inverted,
+        {{13u,11u,0u,255u,255u},{26u,5u,223u,223u,223u}},true);
 }
 
 /* Private V9 qualifies explicit 8-bit Image /Decode per channel:
@@ -2783,6 +3011,8 @@ int main(int argc,char **argv)
         return builtin_native_backend_rgb_v1_suite();
     if(argc==2 && std::strcmp(argv[1],"--native-facade-bitmap-only")==0)
         return private_native_facade_bitmap_v1_suite();
+    if(argc==2 && std::strcmp(argv[1],"--native-facade-decode-v9-only")==0)
+        return private_native_facade_bitmap_v9_suite();
     if(argc!=1)return EXIT_FAILURE;
     fixture basic{};
     basic.a="q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q";
@@ -3085,6 +3315,8 @@ int main(int argc,char **argv)
     if(builtin_native_backend_rgb_v1_suite()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
     if(private_native_facade_bitmap_v1_suite()!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    if(private_native_facade_bitmap_v9_suite()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
 
     std::puts("Original Image Do under W/W*: independent PDFium RGB, "

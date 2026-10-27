@@ -66,5 +66,37 @@ int main(void)
         if(status!=QUANTAPDF_ERROR_ARGUMENT || facade!=NULL)
             return 6;
     }
+    /* No test-local copies of the private V9 path may satisfy this
+     * installed static product/archive link-only closure. */
+    {
+        quantapdf_ir_raster_image v9 = {0};
+        v9.pixels=(unsigned char *)(uintptr_t)1u;
+        v9.size=123u;
+        status=quantapdf_native_source_raster_bridge_v9(
+            NULL,0u,NULL,NULL,&v9);
+        if(status!=QUANTAPDF_ERROR_ARGUMENT ||
+           v9.pixels!=NULL || v9.size!=0u)
+            return 7;
+        v9.pixels=(unsigned char *)(uintptr_t)1u;
+        v9.size=123u;
+        status=quantapdf_builtin_native_qualify_page_v9(
+            NULL,NULL,NULL,&v9);
+        if(status!=QUANTAPDF_ERROR_ARGUMENT ||
+           v9.pixels!=NULL || v9.size!=0u)
+            return 8;
+        quantapdf_backend_bitmap rgb={0};
+        rgb.data=(unsigned char *)(uintptr_t)1u;
+        rgb.size=123u;
+        status=quantapdf_builtin_native_qualify_bitmap_v9(
+            NULL,NULL,NULL,&rgb);
+        if(status!=QUANTAPDF_ERROR_ARGUMENT ||
+           rgb.data!=NULL || rgb.size!=0u)
+            return 9;
+        quantapdf_bitmap *facade=(quantapdf_bitmap *)(uintptr_t)1u;
+        status=quantapdf_render_page_native_qualified_v9(
+            NULL,NULL,NULL,&facade);
+        if(status!=QUANTAPDF_ERROR_ARGUMENT || facade!=NULL)
+            return 10;
+    }
     return 0;
 }
