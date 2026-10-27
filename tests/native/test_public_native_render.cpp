@@ -72,12 +72,12 @@ static std::string create_blank_source(int mode)
     root.replaceKey("/Count",Obj::newInteger(1));
     page.replaceKey("/Parent",root);
     if(mode==1)page.replaceKey("/Contents",pdf->newStream(""));
-    if(mode==2)page.replaceKey("/Contents",Obj::newArray({}));
+    if(mode==2)page.replaceKey("/Contents",Obj::parse("[]"));
     if(mode==3)page.replaceKey("/Contents",
         pdf->newStream("q 1 0 0 1 10 0 cm Q"));
     if(mode==4)page.replaceKey("/Contents",
         pdf->newStream("BT ET"));
-    if(mode==5)page.replaceKey("/Annots",Obj::newArray({}));
+    if(mode==5)page.replaceKey("/Annots",Obj::parse("[]"));
     QPDFWriter writer(*pdf);
     writer.setOutputMemory();
     writer.write();
