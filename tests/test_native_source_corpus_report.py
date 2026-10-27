@@ -2,7 +2,7 @@
 """Strict offline validation of the generated source-PDF replay receipt.
 
 Test-only: no external PDF is fetched, modified, counted or admitted here.
-The report must prove 20 families, 58 distinct fixture scenarios and three
+The report must prove 22 families, 72 distinct fixture scenarios and three
 separately verified executions. Corruption self-tests guard this checker.
 """
 
@@ -18,10 +18,10 @@ REGISTRY_ROW = re.compile(
     r'"([^"]+)", "([^"]+)", (\d+)u, [a-zA-Z_][a-zA-Z0-9_]*\)$'
 )
 SEEDS = (0x4CF5AD11, 0x9E3779B9)
-FINGERPRINTS = ("9a709ba916a42a24", "751ffb460eeefe24",
-                "8216820cf6c65524")
-EXPECTED_FAMILIES = 21
-EXPECTED_FIXTURES = 71
+FINGERPRINTS = ("7804171fea529e52", "685d706895285ca2",
+                "b57eda0d6f4bd672")
+EXPECTED_FAMILIES = 22
+EXPECTED_FIXTURES = 72
 MASK32 = (1 << 32) - 1
 MASK64 = (1 << 64) - 1
 

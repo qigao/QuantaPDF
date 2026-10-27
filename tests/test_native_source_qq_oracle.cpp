@@ -339,6 +339,54 @@ void test_disjoint_clip_restoration()
 /* A duplicated closed contour has zero even-odd interior everywhere.
  * Restore the outer rectangular clip before blue paint and then restore
  * the page before green paint. PDFium compares the original PDF, not IR. */
+
+/* Source /Contents continuity: W* at the END of the first content
+ * stream is completed by n in the second. The Clip is defined with a
+ * cumulative +100 X CTM and is disjoint from the parent Clip (+10).
+ * The red paint has zero coverage; the first Q must restore the outer
+ * Clip AND its +10 CTM for blue, and the second Q must restore the page
+ * identity CTM for green. This probes source lowering and native C11
+ * scoped Raster against PDFium's UNCHANGED original source bytes. */
+void test_disjoint_clip_multistream_ctm_restoration()
+{
+    auto pdf=QPDF::create();
+    pdf->emptyPDF();
+    auto pages=pdf->getRoot().getKey("/Pages");
+    auto page=pdf->makeIndirectObject(
+        QPDFObjectHandle::parse("<< /Type /Page >>"));
+    pages.replaceKey("/Kids",QPDFObjectHandle::newArray({page}));
+    pages.replaceKey("/Count",QPDFObjectHandle::newInteger(1));
+    pages.replaceKey("/MediaBox",QPDFObjectHandle::parse("[0 0 120 120]"));
+    page.replaceKey("/Parent",pages);
+    auto first=pdf->newStream(
+        "q 1 0 0 1 10 0 cm 0 10 60 60 re W n "
+        "q 1 0 0 1 90 0 cm 0 90 20 20 re W*");
+    auto second=pdf->newStream(
+        " n 1 0 0 rg 0 0 120 120 re f "
+        "Q 0 0 1 rg 20 20 40 40 re f "
+        "Q 0 1 0 rg 100 100 15 15 re f");
+    page.replaceKey("/Contents",QPDFObjectHandle::newArray({first,second}));
+    QPDFWriter writer(*pdf);
+    writer.setMinimumPDFVersion("1.6");
+    writer.setOutputMemory();
+    writer.write();
+    const auto bytes=writer.getBufferSharedPointer();
+    CHECK(bytes!=nullptr && bytes->getSize()>100u);
+    FILE *file=std::fopen(SOURCE_QQ_PDF,"wb");
+    CHECK(file!=nullptr);
+    CHECK(std::fwrite(bytes->getBuffer(),1u,bytes->getSize(),file)==
+          bytes->getSize());
+    CHECK(std::fclose(file)==0);
+
+    const probe points[]={
+        {40,40,0,0,255}, {60,50,0,0,255},
+        {100,100,0,255,0}, {110,110,0,255,0},
+        {80,80,255,255,255}, {5,5,255,255,255},
+        {20,40,255,255,255}, {100,80,255,255,255}
+    };
+    compare(nullptr,points,sizeof(points)/sizeof(points[0]),3u,2u);
+}
+
 void test_evenodd_cancelled_clip_restore()
 {
     const char *content =
@@ -3098,7 +3146,12 @@ static uint64_t source_corpus_fingerprint(const std::vector<size_t>& order)
 {
     uint64_t hash=UINT64_C(0xcbf29ce484222325);
     for(size_t index:order) {
-        CHECK(index<21u);
+        /* The registry is authoritative. Never pin an older fixture
+         * family count inside the FNV64 reporter; a new family must
+         * still be bounded to the actual versioned registry. */
+        CHECK(index<sizeof(source_corpus_families)/
+                     sizeof(source_corpus_families[0]) &&
+              index<(size_t)UINT32_MAX);
         const uint32_t value=(uint32_t)(index+1u);
         for(unsigned shift=0u;shift<32u;shift+=8u) {
             hash^=(value>>shift)&UINT32_C(255);
@@ -3187,13 +3240,13 @@ static void publish_corpus_report(
         "    \"passes\": [\n",fixture_count*2u,fixture_count*3u);
     source_corpus_write_order(out,"canonical",nullptr,
         canonical,family_count,fixture_count,0,
-        executed,UINT64_C(0x9a709ba916a42a24));
+        executed,UINT64_C(0x7804171fea529e52));
     source_corpus_write_order(out,"shuffled-a","0x4cf5ad11",
         shuffled_a,family_count,fixture_count,0,
-        replay_a_counts,UINT64_C(0x751ffb460eeefe24));
+        replay_a_counts,UINT64_C(0x685d706895285ca2));
     source_corpus_write_order(out,"shuffled-b","0x9e3779b9",
         shuffled_b,family_count,fixture_count,1,
-        replay_b_counts,UINT64_C(0x8216820cf6c65524));
+        replay_b_counts,UINT64_C(0xb57eda0d6f4bd672));
     std::fprintf(out,"    ]\n  }\n}\n");
     CHECK(std::ferror(out)==0);
     CHECK(std::fclose(out)==0);
@@ -4512,8 +4565,8 @@ int main(int argc,char **argv)
         errno=0;
         if(std::remove(staged.c_str())!=0) CHECK(errno==ENOENT);
     }
-    constexpr size_t expected_families=21u;
-    constexpr size_t expected_fixtures=71u;
+    constexpr size_t expected_families=22u;
+    constexpr size_t expected_fixtures=72u;
     const size_t families=
         sizeof(source_corpus_families)/sizeof(source_corpus_families[0]);
     CHECK(families==expected_families);
