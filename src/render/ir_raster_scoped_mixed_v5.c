@@ -119,11 +119,12 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5(
     if(ir->operation_count==0u)
         return v5_render_blank(ir,limits,out_image);
 
-    if(ir->operation_count<2u || ir->operation_count>QP_V5_MAX_LAYERS ||
+    if(ir->operation_count>QP_V5_MAX_LAYERS ||
        ir->operation_count>limits->max_operations ||
-       ir->resources.image_count==0u ||
-       ir->resources.image_count>QP_V5_MAX_LAYERS ||
-       ir->resources.images==NULL ||
+       (ir->resources.image_count!=0u &&
+        (ir->operation_count<2u ||
+         ir->resources.image_count>QP_V5_MAX_LAYERS ||
+         ir->resources.images==NULL)) ||
        ir->resources.graphics_state_count>1u ||
        ir->resources.clip_count!=ir->resources.graphics_state_count ||
        (ir->resources.graphics_state_count!=0u &&
@@ -134,6 +135,28 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5(
        ir->resources.paint_count!=0u ||
        ir->link_count!=0u || ir->outline_count!=0u)
         return QUANTAPDF_ERROR_UNSUPPORTED;
+    /* Exact one/two PATHs with zero Images are a separately admitted
+     * native-only profile, not an unvalidated partial mixed Image page.
+     * Refuse ALL resource pointers, capacities and counts so no hidden
+     * Image/Clip/GS/Font can be discarded by the fast path. */
+    if(ir->resources.image_count==0u) {
+        const quantapdf_resource_registry *r=&ir->resources;
+        if(ir->operation_count==0u || ir->operation_count>2u ||
+           r->images!=NULL || r->image_capacity!=0u ||
+           r->graphics_states!=NULL || r->graphics_state_count!=0u ||
+           r->graphics_state_capacity!=0u ||
+           r->clips!=NULL || r->clip_count!=0u ||
+           r->clip_capacity!=0u ||
+           r->fonts!=NULL || r->font_count!=0u ||
+           r->font_capacity!=0u ||
+           r->forms!=NULL || r->form_count!=0u ||
+           r->form_capacity!=0u ||
+           r->soft_masks!=NULL || r->soft_mask_count!=0u ||
+           r->soft_mask_capacity!=0u ||
+           r->paints!=NULL || r->paint_count!=0u ||
+           r->paint_capacity!=0u)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
     page=&ir->pages[0];
     if(!isfinite(page->width_points) || !isfinite(page->height_points) ||
        page->width_points<=0.0f || page->height_points<=0.0f ||
@@ -255,7 +278,9 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5(
             return QUANTAPDF_ERROR_UNSUPPORTED;
         }
     }
-    if(path_count==0u || image_count==0u ||
+    if(path_count==0u ||
+       (ir->resources.image_count!=0u && image_count==0u) ||
+       (ir->resources.image_count==0u && image_count!=0u) ||
        image_used!=((1u<<(unsigned)ir->resources.image_count)-1u) ||
        clip_used!=ir->resources.clip_count ||
        edge_layers==0u ||

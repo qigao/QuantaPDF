@@ -345,6 +345,9 @@ struct admission {
     bool explicit_image_decode_mode=false;
     /* V10 only: strict Flate TIFF/PNG predictor DecodeParms. */
     bool explicit_image_predictor_mode=false;
+    /* V10 public-native only: fully parsed one/two opaque PATH paints
+     * WITHOUT W/W*, Image Do or any borrowed clip/resource. */
+    bool native_path_only_mode=false;
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule)
@@ -639,7 +642,17 @@ public:
             admit(args.empty() && pending_path.size()>=3u,
                   QUANTAPDF_ERROR_UNSUPPORTED);
             if(clipped) {
-                if(target.mixed_scoped_mode) {
+                if(target.native_path_only_mode &&
+                   !target.clip_completed) {
+                    /* Only V10 may admit a fully parsed PATH-only page.
+                     * W/W* and Image Do remain strictly scoped; a partial
+                     * clip or a previously admitted Image cannot sneak
+                     * through this separate no-Clip path. */
+                    admit(!clip_active && !clip_pending &&
+                          target.draws.empty() &&
+                          !target.saw_q_restore,
+                          QUANTAPDF_ERROR_UNSUPPORTED);
+                } else if(target.mixed_scoped_mode) {
                     /* V5 permits one Path/one Do in either order inside
                      * the immutable Clip, then another Path/Do after Q. */
                     admit(target.clip_completed &&
@@ -827,6 +840,59 @@ quantapdf_ir materialize_blank_page(const admission& source)
     ir.pages[0].height_points=static_cast<float>(source.page_h);
     ir.pages[0].background_argb=UINT32_C(0xffffffff);
     return ir;
+}
+
+/* Public-native Source V10 PATH-only subset: never invent an Image
+ * resource to satisfy the legacy mixed Source cardinality. The Page,
+ * complete ordered PATH commands and their colors are copied to uniquely
+ * owned IR. Existing pure-C11 V5 Raster handles actual geometry. */
+quantapdf_ir materialize_path_only(const admission& source)
+{
+    const size_t n=source.order.size();
+    admit(source.native_path_only_mode &&
+          source.mixed_mode && source.mixed_scoped_mode &&
+          n>=1u && n<=2u && n<=source.limits.max_operations &&
+          source.draws.empty() && source.painted_paths.size()==n &&
+          source.scoped_clip_membership.size()==n &&
+          !source.clip_completed && source.clip.commands.empty() &&
+          !source.saw_q_restore,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    for(size_t i=0u;i<n;++i)
+        admit(source.order[i]==1 &&
+              source.scoped_clip_membership[i]==0u,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+
+    quantapdf_ir ir=materialize_blank_page(source);
+    try {
+        ir.operations=static_cast<quantapdf_composer_operation *>(
+            std::calloc(n,sizeof(*ir.operations)));
+        admit(ir.operations!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        ir.operation_count=n;
+        for(size_t i=0u;i<n;++i) {
+            const staged_path& staged=source.painted_paths[i];
+            admit(staged.commands.size()>=4u &&
+                  staged.commands.size()<=9u,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            auto& op=ir.operations[i];
+            op.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
+            op.page_index=0u;
+            auto& path=op.value.path;
+            path.command_count=staged.commands.size();
+            path.commands=static_cast<quantapdf_composer_path_command *>(
+                std::malloc(path.command_count*sizeof(*path.commands)));
+            admit(path.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
+            std::memcpy(path.commands,staged.commands.data(),
+                path.command_count*sizeof(*path.commands));
+            path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+            path.options.fill=1;
+            path.options.fill_argb=staged.fill_argb;
+            path.options.fill_rule=staged.fill_rule;
+        }
+        return ir;
+    } catch (...) {
+        quantapdf_ir_dispose(&ir);
+        throw;
+    }
 }
 
 quantapdf_ir materialize(
@@ -1231,7 +1297,7 @@ static quantapdf_status source_raw_images_to_ir_impl(
         admission source{resources,*limits,page_w,page_h,0u,0u,0u,
                           {},false,{},{},2u,false,false,{},
                           1u,false,false,false,{},false,false,false,
-                          false,false};
+                          false,false,false};
         const source_profile_contract& profile=source_profile_for(profile_id);
         source.mixed_mode=profile.mixed;
         source.clipped_image_mode=profile.clipped;
@@ -1245,6 +1311,7 @@ static quantapdf_status source_raw_images_to_ir_impl(
         source.explicit_image_decode_mode=profile.explicit_image_decode;
         source.explicit_image_predictor_mode=
             profile.explicit_image_predictor;
+        source.native_path_only_mode=native_v10;
         Obj raw_contents=geo.page.getKey("/Contents");
         const bool empty_contents=native_v10 &&
             (raw_contents.isNull() ||
@@ -1270,6 +1337,17 @@ static quantapdf_status source_raw_images_to_ir_impl(
            source.scoped_clip_membership.empty() &&
            !source.clip_completed && !source.saw_q_restore) {
             *out_ir=materialize_blank_page(source);
+            return QUANTAPDF_OK;
+        }
+        /* A one/two PATH original without Image or W/W* now uses the
+         * SAME V10 Source reader and canonical C11 Raster. No silent
+         * omission is possible: qpdf parsed complete source and EOF;
+         * the path-only IR has no Image/GS/Clip allocations. */
+        if(native_v10 && source.draws.empty() &&
+           !source.painted_paths.empty() &&
+           !source.clip_completed && source.clip.commands.empty() &&
+           !source.saw_q_restore) {
+            *out_ir=materialize_path_only(source);
             return QUANTAPDF_OK;
         }
         const bool flexible_scoped=profile.variable_operations;
