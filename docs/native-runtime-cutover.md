@@ -39,8 +39,13 @@ partially paint or select a fallback.
   Ordered overlapping pixels use the exact alpha source-over painter.
   All drawing outside that Clip stays white; a third Image, a second
   Clip or a post-Q unclipped Image is rejected, not silently painted.
+- One opaque solid PATH Fill and one decoded Image Do in EITHER authorial
+  order beneath the SAME frozen W/W* Clip also render via the existing
+  C11 source-over compositor and Context Bitmap. A third all-clipped
+  paint or second Clip refuses atomically; no PDFium-based approximation.
 - The homogeneous and two-operation unclipped mixed subsets do not imply
-  support for Stroke, Text, arbitrary Clip or a third paint.
+  support for Stroke, Text, arbitrary Clip or a third paint outside
+  these separately qualified bounded profiles.
 - One frozen W/W* Clip, correct Q restoring scopes, 2–4 source-ordered
   8-bit Gray/RGB Image and opaque Path Fill operations, strictly bounded
   to at least one operation of each type for that **mixed** subset.

@@ -681,9 +681,53 @@ static int clipped_image_only_cases(void)
     return EXIT_SUCCESS;
 }
 
+/* A qualified public V10 Image + opaque PATH Fill can share the
+ * SAME frozen W/W* Clip in either source paint order. Native C11
+ * composes real operations without inventing a second Clip/painter. */
+static int clipped_image_path_cases(void)
+{
+    fixture f;
+    quantapdf_ir_raster_image a={0},b={0};
+    const quantapdf_ir_raster_scoped_mixed_v5_limits limit=budgets;
+    for(int path_first=0;path_first<=1;++path_first) {
+        quantapdf_composer_operation image,path;
+        setup(&f);
+        image=f.ops[0];path=f.ops[1];
+        f.ir.operation_count=2u;
+        f.ir.resources.image_count=1u;
+        f.ir.resources.image_capacity=1u;
+        f.ir.resources.graphics_state_capacity=1u;
+        f.ir.resources.clip_capacity=1u;
+        f.ops[0]=path_first?path:image;
+        f.ops[1]=path_first?image:path;
+        OK(quantapdf_ir_raster_scoped_mixed_v5(&f.ir,0u,&limit,&a));
+        CHECK(a.size==8u*8u*4u && a.stride==8u*4u &&
+              color(&a,7u,3u)==UINT32_C(0xffffffff) &&
+              color(&a,5u,3u)==UINT32_C(0xff7f7fff) &&
+              color(&a,3u,3u)==
+                  (path_first?UINT32_C(0x80007fff):
+                              UINT32_C(0x0000ffff)));
+        OK(quantapdf_ir_raster_scoped_mixed_v5(&f.ir,0u,&limit,&b));
+        CHECK(b.size==a.size &&
+              memcmp(a.pixels,b.pixels,a.size)==0);
+        quantapdf_ir_raster_image_dispose(&b);
+        quantapdf_ir_raster_image_dispose(&a);
+
+        f.page.suppress_background=1;
+        OK(quantapdf_ir_raster_scoped_mixed_v5(&f.ir,0u,&limit,&a));
+        CHECK(color(&a,7u,3u)==UINT32_C(0x00000000) &&
+              color(&a,3u,3u)==
+                  (path_first?UINT32_C(0x80007fff):
+                              UINT32_C(0x0000ffff)));
+        quantapdf_ir_raster_image_dispose(&a);
+    }
+    return EXIT_SUCCESS;
+}
+
 int main(void)
 {
-    if(clipped_image_only_cases()!=EXIT_SUCCESS ||
+    if(clipped_image_path_cases()!=EXIT_SUCCESS ||
+       clipped_image_only_cases()!=EXIT_SUCCESS ||
        unclipped_mixed_cases()!=EXIT_SUCCESS ||
        image_only_cases()!=EXIT_SUCCESS ||
        path_only_cases()!=EXIT_SUCCESS ||
