@@ -869,7 +869,7 @@ int main()
             /* Clip x=[12,20), y=[9,18). The Image paints on its
              * left half, while the blue PATH covers the whole Clip. */
             CHECK(probe_rgb(bytes,stride,13,11,
-                mode==1?0u:0u,mode==1?255u:0u,mode==1?0u:255u));
+                0u,mode==1?255u:0u,mode==1?0u:255u));
             CHECK(probe_rgb(bytes,stride,13,16,
                 mode==1?255u:0u,mode==1?255u:0u,mode==1?0u:255u));
             CHECK(probe_rgb(bytes,stride,18,11,0u,0u,255u));
