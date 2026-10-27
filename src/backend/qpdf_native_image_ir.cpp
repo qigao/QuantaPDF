@@ -998,11 +998,24 @@ quantapdf_ir materialize_image_only(const admission& source)
 quantapdf_ir materialize_clipped_image(const admission& source,
                                        size_t expected_images)
 {
+    /* Native public V10 alone may own a SINGLE Image under a genuine
+     * frozen W/W* Clip without inventing an opaque PATH operation.
+     * The older exact clipped-image profiles remain immutable, and
+     * a post-paint balanced Q does not require a second paint. */
+    const bool native_single=source.native_unclipped_mode &&
+        source.mixed_mode && source.mixed_scoped_mode &&
+        expected_images==1u &&
+        source.painted_paths.empty() &&
+        source.order.size()==1u && source.order[0]==2 &&
+        source.scoped_clip_membership.size()==1u &&
+        source.scoped_clip_membership[0]==1u;
+    const bool legacy=!source.mixed_mode &&
+        (!source.restore_second_image ||
+         (expected_images==2u && source.saw_q_restore));
     admit(source.clipped_image_mode && source.clip_completed &&
           (expected_images==1u || expected_images==2u) &&
-          source.draws.size()==expected_images && !source.mixed_mode &&
-          (!source.restore_second_image ||
-           (expected_images==2u && source.saw_q_restore)) &&
+          source.draws.size()==expected_images &&
+          (native_single || legacy) &&
           source.clip.commands.size()>=4u &&
           source.clip.commands.size()<=9u,
           QUANTAPDF_ERROR_UNSUPPORTED);
@@ -1435,6 +1448,18 @@ static quantapdf_status source_raw_images_to_ir_impl(
            !source.clip_completed && source.clip.commands.empty() &&
            !source.saw_q_restore) {
             *out_ir=materialize_unclipped_mixed(source);
+            return QUANTAPDF_OK;
+        }
+        /* A single qualified Image-only paint under one frozen W/W*
+         * Clip is distinct from both the homogeneous no-Clip fast path
+         * and the older mixed PATH+IMAGE requiring a post-Q paint. */
+        if(native_v10 && source.draws.size()==1u &&
+           source.painted_paths.empty() &&
+           source.clip_completed &&
+           source.order.size()==1u &&
+           source.scoped_clip_membership.size()==1u &&
+           source.scoped_clip_membership[0]==1u) {
+            *out_ir=materialize_clipped_image(source,1u);
             return QUANTAPDF_OK;
         }
         const bool flexible_scoped=profile.variable_operations;

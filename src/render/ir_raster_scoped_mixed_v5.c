@@ -277,17 +277,31 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5(
             return QUANTAPDF_ERROR_UNSUPPORTED;
         }
     }
-    /* Pure IMAGE uses the same bounded RAW Image painter. Require
-     * precisely one/two unclipped IMAGEs and refuse every hidden Clip,
-     * GS or unrelated resource pointer/capacity before output allocation. */
+    /* IMAGE-only admission: either 1..2 with NO Clip, or exactly ONE
+     * qualified Image under ONE owned GS/Clip leaf. The same V5 painter
+     * projects the latter through the existing C11 clipped RAW raster.
+     * All hidden source/graphics resources must reject before paint. */
     if(path_count==0u) {
         const quantapdf_resource_registry *r=&ir->resources;
+        const int unclipped=
+            r->graphics_states==NULL &&
+            r->graphics_state_count==0u &&
+            r->graphics_state_capacity==0u &&
+            r->clips==NULL && r->clip_count==0u &&
+            r->clip_capacity==0u;
+        const int single_clipped=
+            image_count==1u && ir->operation_count==1u &&
+            r->graphics_states!=NULL &&
+            r->graphics_state_count==1u &&
+            r->graphics_state_capacity==1u &&
+            r->clips!=NULL && r->clip_count==1u &&
+            r->clip_capacity==1u &&
+            ir->operations[0].kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE &&
+            ir->operations[0].graphics_state_id==1u &&
+            ir->operations[0].value.image.options.graphics_state_id==1u;
         if(image_count==0u || image_count>2u ||
            ir->operation_count!=image_count ||
-           r->graphics_states!=NULL || r->graphics_state_count!=0u ||
-           r->graphics_state_capacity!=0u ||
-           r->clips!=NULL || r->clip_count!=0u ||
-           r->clip_capacity!=0u ||
+           (!unclipped && !single_clipped) ||
            r->fonts!=NULL || r->font_count!=0u ||
            r->font_capacity!=0u ||
            r->forms!=NULL || r->form_count!=0u ||
@@ -295,7 +309,8 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5(
            r->soft_masks!=NULL || r->soft_mask_count!=0u ||
            r->soft_mask_capacity!=0u ||
            r->paints!=NULL || r->paint_count!=0u ||
-           r->paint_capacity!=0u)
+           r->paint_capacity!=0u ||
+           ir->links!=NULL || ir->outlines!=NULL)
             return QUANTAPDF_ERROR_UNSUPPORTED;
     }
     /* Unclipped IMAGE + PATH uses the existing layered painter, but
