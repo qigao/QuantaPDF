@@ -89,8 +89,9 @@ static std::string create_blank_source(int mode)
 }
 
 
-/* Native-only Path Fill originals with no /Resources or Image XObjects:
- * 1 PATH, 2 ordered PATHs, grayscale, and complete-source failures. */
+/* Native-only opaque Path Fill originals with no /Resources or Image:
+ * 1..4 source-ordered PATHs, grayscale, exact overlap and atomic
+ * fifth PATH / late Text / Stroke / Clip refusals. */
 static std::string create_path_only_source(int mode)
 {
     auto pdf=QPDF::create();
@@ -115,10 +116,16 @@ static std::string create_path_only_source(int mode)
         source="1 0 0 rg 4 4 8 6 re f 4 4 8 6 re S";
     if(mode==5)
         source="q 4 4 8 6 re W n 1 0 0 rg 4 4 8 6 re f Q";
-    if(mode==6)
+    if(mode>=6 && mode<=9) {
+        /* Three source-ordered opaque fills; the fourth covers part of
+         * green without changing the blue or red-only sample regions. */
         source="1 0 0 rg 4 4 8 6 re f "
                "0 0 1 rg 12 10 7 5 re f "
-               "0 1 0 rg 20 3 4 4 re f";
+               "0 1 0 rg 8 4 8 8 re f";
+        if(mode>=7)source+=" 1 1 0 rg 10 7 6 5 re f";
+        if(mode==8)source+=" 0 0 0 rg 1 1 2 2 re f"; /* fifth */
+        if(mode==9)source+=" BT ET"; /* unsupported late Text */
+    }
     page.replaceKey("/Contents",pdf->newStream(source));
     QPDFWriter writer(*pdf);
     writer.setOutputMemory();
@@ -559,7 +566,7 @@ int main()
     /* One or two opaque PATHs, no Image/Clip resources. Compare fixed
      * independently declared RGB goldens, NOT any PDFium oracle. Later
      * unsupported Text/Stroke/Clip/third PATH must refuse completely. */
-    for(int mode=0;mode<7;++mode) {
+    for(int mode=0;mode<10;++mode) {
         CHECK(write_pdf(filename,create_path_only_source(mode)));
         quantapdf_context *path_context=nullptr;
         quantapdf_document *path_document=nullptr;
@@ -572,7 +579,8 @@ int main()
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(path_document,0,&path_page));
         const auto st=quantapdf_render_page(path_page,&filled);
-        if(mode>=3) {
+        const bool valid=mode<=2 || mode==6 || mode==7;
+        if(!valid) {
             CHECK(st==QUANTAPDF_ERROR_UNSUPPORTED && filled==nullptr);
             small=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
             CHECK(quantapdf_render_thumbnail(path_page,16,12,&small)==
@@ -591,10 +599,21 @@ int main()
             const unsigned blue=mode==2 ? 128u : 0u;
             CHECK(probe_rgb(px,s,6,17,red,green,blue));
             CHECK(probe_rgb(px,s,1,1,255u,255u,255u));
-            CHECK(probe_rgb(px,s,14,11,
-                mode==1?0u:255u,
-                mode==1?0u:255u,
-                255u));
+            if(mode>=6) {
+                CHECK(probe_rgb(px,s,10,18,0u,255u,0u));
+                CHECK(probe_rgb(px,s,14,11,0u,0u,255u));
+                CHECK(probe_rgb(px,s,14,13,
+                    mode==7?255u:0u,255u,0u));
+                CHECK(probe_rgb(px,s,11,15,
+                    mode==7?255u:0u,255u,0u));
+                CHECK(probe_rgb(px,s,18,12,0u,0u,255u));
+                CHECK(probe_rgb(px,s,22,12,255u,255u,255u));
+            } else {
+                CHECK(probe_rgb(px,s,14,11,
+                    mode==1?0u:255u,
+                    mode==1?0u:255u,
+                    255u));
+            }
             OK(quantapdf_render_page(path_page,&repeated));
             OK(quantapdf_bitmap_data(repeated,&rp,&rn));
             CHECK(rn==n && rp!=nullptr && std::memcmp(px,rp,n)==0);
@@ -605,10 +624,17 @@ int main()
             CHECK(w==16 && h==12 && s==48 && c==3 &&
                   rn==16u*12u*3u && rp!=nullptr);
             CHECK(probe_rgb(rp,s,3,8,red,green,blue));
-            CHECK(probe_rgb(rp,s,7,5,
-                mode==1?0u:255u,
-                mode==1?0u:255u,
-                255u));
+            if(mode>=6) {
+                CHECK(probe_rgb(rp,s,5,9,0u,255u,0u));
+                CHECK(probe_rgb(rp,s,7,5,0u,0u,255u));
+                CHECK(probe_rgb(rp,s,6,7,
+                    mode==7?255u:0u,255u,0u));
+            } else {
+                CHECK(probe_rgb(rp,s,7,5,
+                    mode==1?0u:255u,
+                    mode==1?0u:255u,
+                    255u));
+            }
         }
         quantapdf_drop_page(path_page);
         quantapdf_close(path_document);
