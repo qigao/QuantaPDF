@@ -58,6 +58,34 @@ static std::string create_source(bool late_text)
                        blob->getSize());
 }
 
+/* Legitimate native zero-paint pages: Contents absent, an exact
+ * empty stream, an empty Contents array, or balanced no-ink q/Q.
+ * Unsupported text and even an empty /Annots key still refuse. */
+static std::string create_blank_source(int mode)
+{
+    auto pdf=QPDF::create();
+    pdf->emptyPDF();
+    auto root=pdf->getRoot().getKey("/Pages");
+    auto page=pdf->makeIndirectObject(
+        Obj::parse("<< /Type /Page /MediaBox [0 0 32 24] >>"));
+    root.replaceKey("/Kids",Obj::newArray({page}));
+    root.replaceKey("/Count",Obj::newInteger(1));
+    page.replaceKey("/Parent",root);
+    if(mode==1)page.replaceKey("/Contents",pdf->newStream(""));
+    if(mode==2)page.replaceKey("/Contents",Obj::parse("[]"));
+    if(mode==3)page.replaceKey("/Contents",
+        pdf->newStream("q 1 0 0 1 10 0 cm Q"));
+    if(mode==4)page.replaceKey("/Contents",
+        pdf->newStream("BT ET"));
+    if(mode==5)page.replaceKey("/Annots",Obj::parse("[]"));
+    QPDFWriter writer(*pdf);
+    writer.setOutputMemory();
+    writer.write();
+    const auto blob=writer.getBufferSharedPointer();
+    return std::string(
+        reinterpret_cast<const char *>(blob->getBuffer()),blob->getSize());
+}
+
 static bool write_pdf(const std::string& filename,const std::string& content)
 {
     FILE *f=nullptr;
@@ -212,6 +240,58 @@ int main()
           QUANTAPDF_ERROR_UNSUPPORTED && second==nullptr);
     quantapdf_drop_page(page);
     quantapdf_close(document);
-    std::puts("[native-public-render] source path/image and strict refusal passed");
+    /* The PDF structure may legitimately have no painting. Native V10
+     * must return an opaque white page, not a failed Source profile or
+     * a guessed incomplete white page after unsupported operators. */
+    for(int mode=0;mode<6;++mode) {
+        CHECK(write_pdf(filename,create_blank_source(mode)));
+        quantapdf_context *blank_context=nullptr;
+        quantapdf_document *blank_document=nullptr;
+        quantapdf_page *blank_page=nullptr;
+        quantapdf_bitmap *blank=nullptr,*small=nullptr;
+        OK(quantapdf_context_create(&blank_context));
+        OK(quantapdf_open_with_context(
+            blank_context,filename.c_str(),nullptr,&blank_document));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(blank_document,0,&blank_page));
+        const quantapdf_status st=quantapdf_render_page(
+            blank_page,&blank);
+        if(mode>=4) {
+            CHECK(st==QUANTAPDF_ERROR_UNSUPPORTED && blank==nullptr);
+            small=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+            CHECK(quantapdf_render_thumbnail(blank_page,16,12,&small)==
+                  QUANTAPDF_ERROR_UNSUPPORTED && small==nullptr);
+        } else {
+            CHECK(st==QUANTAPDF_OK && blank!=nullptr);
+            int w=0,h=0,s=0,c=0;
+            const unsigned char *buffer=nullptr;
+            size_t n=0u;
+            OK(quantapdf_bitmap_dimensions(blank,&w,&h,&s,&c));
+            OK(quantapdf_bitmap_data(blank,&buffer,&n));
+            CHECK(w==32 && h==24 && s==96 && c==3 &&
+                  n==32u*24u*3u && buffer!=nullptr);
+            for(size_t i=0u;i<n;++i)CHECK(buffer[i]==255u);
+            OK(quantapdf_render_thumbnail(blank_page,16,12,&small));
+            OK(quantapdf_bitmap_dimensions(small,&w,&h,&s,&c));
+            OK(quantapdf_bitmap_data(small,&buffer,&n));
+            CHECK(w==16 && h==12 && s==48 && c==3 &&
+                  n==16u*12u*3u);
+            for(size_t i=0u;i<n;++i)CHECK(buffer[i]==255u);
+        }
+        quantapdf_drop_page(blank_page);
+        quantapdf_close(blank_document);
+        quantapdf_drop_context(blank_context);
+        if(blank!=nullptr) {
+            const unsigned char *bytes=nullptr;
+            size_t length=0u;
+            OK(quantapdf_bitmap_data(blank,&bytes,&length));
+            CHECK(bytes!=nullptr && length==32u*24u*3u &&
+                  bytes[0]==255u && bytes[length-1u]==255u);
+        }
+        quantapdf_drop_bitmap(small);
+        quantapdf_drop_bitmap(blank);
+    }
+
+    std::puts("[native-public-render] source Path/Image, blank pages, strict refusal passed");
     return EXIT_SUCCESS;
 }
