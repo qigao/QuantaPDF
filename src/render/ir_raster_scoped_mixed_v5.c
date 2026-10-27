@@ -122,8 +122,7 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5(
     if(ir->operation_count>QP_V5_MAX_LAYERS ||
        ir->operation_count>limits->max_operations ||
        (ir->resources.image_count!=0u &&
-        (ir->operation_count<2u ||
-         ir->resources.image_count>QP_V5_MAX_LAYERS ||
+        (ir->resources.image_count>QP_V5_MAX_LAYERS ||
          ir->resources.images==NULL)) ||
        ir->resources.graphics_state_count>1u ||
        ir->resources.clip_count!=ir->resources.graphics_state_count ||
@@ -278,20 +277,43 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5(
             return QUANTAPDF_ERROR_UNSUPPORTED;
         }
     }
-    if(path_count==0u ||
+    /* Pure IMAGE uses the same bounded RAW Image painter. Require
+     * precisely one/two unclipped IMAGEs and refuse every hidden Clip,
+     * GS or unrelated resource pointer/capacity before output allocation. */
+    if(path_count==0u) {
+        const quantapdf_resource_registry *r=&ir->resources;
+        if(image_count==0u || image_count>2u ||
+           ir->operation_count!=image_count ||
+           r->graphics_states!=NULL || r->graphics_state_count!=0u ||
+           r->graphics_state_capacity!=0u ||
+           r->clips!=NULL || r->clip_count!=0u ||
+           r->clip_capacity!=0u ||
+           r->fonts!=NULL || r->font_count!=0u ||
+           r->font_capacity!=0u ||
+           r->forms!=NULL || r->form_count!=0u ||
+           r->form_capacity!=0u ||
+           r->soft_masks!=NULL || r->soft_mask_count!=0u ||
+           r->soft_mask_capacity!=0u ||
+           r->paints!=NULL || r->paint_count!=0u ||
+           r->paint_capacity!=0u)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    if((path_count==0u && image_count==0u) ||
        (ir->resources.image_count!=0u && image_count==0u) ||
        (ir->resources.image_count==0u && image_count!=0u) ||
        image_used!=((1u<<(unsigned)ir->resources.image_count)-1u) ||
        clip_used!=ir->resources.clip_count ||
-       edge_layers==0u ||
-       limits->max_edges/edge_layers==0u ||
-       limits->max_sample_tests/edge_layers==0u)
+       (edge_layers!=0u &&
+        (limits->max_edges/edge_layers==0u ||
+         limits->max_sample_tests/edge_layers==0u)))
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
     geometry_limits.max_pixels=limits->max_pixels;
     geometry_limits.max_operations=1u;
-    geometry_limits.max_edges=limits->max_edges/edge_layers;
-    geometry_limits.max_sample_tests=limits->max_sample_tests/edge_layers;
+    geometry_limits.max_edges=limits->max_edges/
+        (edge_layers==0u?1u:edge_layers);
+    geometry_limits.max_sample_tests=limits->max_sample_tests/
+        (edge_layers==0u?1u:edge_layers);
     image_limits.max_pixels=limits->max_pixels;
     image_limits.max_operations=1u;
     image_limits.max_source_pixels=limits->max_source_pixels;
