@@ -298,6 +298,26 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5(
            r->paint_capacity!=0u)
             return QUANTAPDF_ERROR_UNSUPPORTED;
     }
+    /* Unclipped IMAGE + PATH uses the existing layered painter, but
+     * MUST reject hidden unused graphics/clip/font/paint resources
+     * before allocating any output. A zero count with a non-NULL
+     * pointer is NOT an empty resource registry. */
+    if(path_count!=0u && image_count!=0u &&
+       ir->resources.graphics_state_count==0u) {
+        const quantapdf_resource_registry *reg=&ir->resources;
+        if(reg->graphics_states!=NULL ||
+           reg->graphics_state_capacity!=0u ||
+           reg->clips!=NULL || reg->clip_capacity!=0u ||
+           reg->fonts!=NULL || reg->font_count!=0u ||
+           reg->font_capacity!=0u ||
+           reg->forms!=NULL || reg->form_count!=0u ||
+           reg->form_capacity!=0u ||
+           reg->soft_masks!=NULL || reg->soft_mask_count!=0u ||
+           reg->soft_mask_capacity!=0u ||
+           reg->paints!=NULL || reg->paint_count!=0u ||
+           reg->paint_capacity!=0u)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
     if((path_count==0u && image_count==0u) ||
        (ir->resources.image_count!=0u && image_count==0u) ||
        (ir->resources.image_count==0u && image_count!=0u) ||

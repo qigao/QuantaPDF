@@ -30,8 +30,12 @@ partially paint or select a fallback.
   exact DeviceRGB/Gray Decode, uniquely owned IR, canonical C11 Raster
   and public Bitmap/thumbnail. Source order and every Image/draw budget
   remain enforced; no synthetic PATH/GS/Clip or fallback.
-- The above homogeneous subsets do not imply support for Stroke,
-  Text, arbitrary Clip or a third paint.
+- Exactly one unclipped Image and one opaque solid PATH Fill, in **either
+  original source order**, are also admitted through the same V10 Source
+  and C11 layered Raster; pixel overlap follows source order. No Clip,
+  hidden GS, arbitrary third layer or fallback is introduced.
+- The homogeneous and two-operation unclipped mixed subsets do not imply
+  support for Stroke, Text, arbitrary Clip or a third paint.
 - One frozen W/W* Clip, correct Q restoring scopes, 2–4 source-ordered
   8-bit Gray/RGB Image and opaque Path Fill operations, strictly bounded
   to at least one operation of each type for that **mixed** subset.
