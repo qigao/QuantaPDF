@@ -237,9 +237,65 @@ static int negatives(void)
     return EXIT_SUCCESS;
 }
 
+/* No Image or Path paint is required to render a legal blank PDF
+ * page. This must use the SAME bounded C11 raster and reject resources
+ * that could conceal dropped or silently ignored source operations. */
+static int blank_page_cases(void)
+{
+    quantapdf_ir ir={0};
+    quantapdf_composer_page_state page={0};
+    quantapdf_ir_raster_image rendered={0},again={0};
+    quantapdf_ir_raster_scoped_mixed_v5_limits limit=budgets;
+    unsigned char expected[8u*8u*4u];
+    memset(expected,255,sizeof(expected));
+    page.width_points=8.0f;
+    page.height_points=8.0f;
+    page.background_argb=UINT32_C(0xffffffff);
+    ir.pages=&page;
+    ir.page_count=1u;
+    OK(quantapdf_ir_raster_scoped_mixed_v5(&ir,0u,&limit,&rendered));
+    CHECK(rendered.pixels!=NULL && rendered.width==8u &&
+          rendered.height==8u && rendered.stride==32u &&
+          rendered.size==sizeof(expected) &&
+          memcmp(rendered.pixels,expected,sizeof(expected))==0);
+    OK(quantapdf_ir_raster_scoped_mixed_v5(&ir,0u,&limit,&again));
+    CHECK(again.size==rendered.size &&
+          memcmp(rendered.pixels,again.pixels,rendered.size)==0);
+    quantapdf_ir_raster_image_dispose(&again);
+    quantapdf_ir_raster_image_dispose(&rendered);
+
+    page.suppress_background=1;
+    CHECK(quantapdf_ir_raster_scoped_mixed_v5(&ir,0u,&limit,&rendered)
+          ==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(rendered.pixels==NULL && rendered.size==0u);
+    page.suppress_background=0;
+    page.background_argb=UINT32_C(0xff000000);
+    CHECK(quantapdf_ir_raster_scoped_mixed_v5(&ir,0u,&limit,&rendered)
+          ==QUANTAPDF_ERROR_UNSUPPORTED);
+    page.background_argb=UINT32_C(0xffffffff);
+
+    ir.resources.image_count=1u;
+    CHECK(quantapdf_ir_raster_scoped_mixed_v5(&ir,0u,&limit,&rendered)
+          ==QUANTAPDF_ERROR_UNSUPPORTED);
+    ir.resources.image_count=0u;
+    page.width_points=8.5f;
+    CHECK(quantapdf_ir_raster_scoped_mixed_v5(&ir,0u,&limit,&rendered)
+          ==QUANTAPDF_ERROR_UNSUPPORTED);
+    page.width_points=8.0f;
+    limit.max_pixels=63u;
+    CHECK(quantapdf_ir_raster_scoped_mixed_v5(&ir,0u,&limit,&rendered)
+          ==QUANTAPDF_ERROR_UNSUPPORTED);
+    limit=budgets;
+    OK(quantapdf_ir_raster_scoped_mixed_v5(&ir,0u,&limit,&rendered));
+    CHECK(color(&rendered,4u,4u)==UINT32_C(0xffffffff));
+    quantapdf_ir_raster_image_dispose(&rendered);
+    return EXIT_SUCCESS;
+}
+
 int main(void)
 {
-    if(positive()!=EXIT_SUCCESS || negatives()!=EXIT_SUCCESS)
+    if(blank_page_cases()!=EXIT_SUCCESS ||
+       positive()!=EXIT_SUCCESS || negatives()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
     puts("Scoped mixed V5: ordered clipped Path/Image and Q-restored "
          "source-over, bounded resources/atomic refusal/detached RGBA PASS");

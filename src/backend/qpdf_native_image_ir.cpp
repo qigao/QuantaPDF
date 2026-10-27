@@ -747,7 +747,8 @@ private:
 /* Resolution of referenced resources is not a display-only observation.
  * A malformed /Parent chain must never be accepted by the image-only
  * renderer. Cap ancestry separately from content-stream/decode capacity. */
-Obj bounded_page_resources(Obj page, size_t max_parent_steps)
+Obj bounded_page_resources(Obj page, size_t max_parent_steps,
+                           bool allow_absent=false)
 {
     std::set<QPDFObjGen> seen;
     Obj current = page;
@@ -778,6 +779,10 @@ Obj bounded_page_resources(Obj page, size_t max_parent_steps)
         }
         current=current.getKey("/Parent");
     }
+    /* A valid blank PDF page does not need a Resources dictionary.
+     * Only the V10 native-only profile opts in; if any resource is
+     * present, its type and inherited parent chain were still checked. */
+    if(allow_absent)return Obj::newDictionary();
     throw rejected{QUANTAPDF_ERROR_FORMAT};
 }
 
@@ -806,6 +811,22 @@ std::vector<unsigned char> page_streams(
         append(streams);
     }
     return bytes;
+}
+
+/* A strictly parsed zero-paint page owns a valid Page IR with no
+ * operations or resources. The SINGLE C11 raster handles white page
+ * materialization; no PDFium, backend image or alternate parser path. */
+quantapdf_ir materialize_blank_page(const admission& source)
+{
+    quantapdf_ir ir={};
+    ir.pages=static_cast<quantapdf_composer_page_state *>(
+        std::calloc(1u,sizeof(*ir.pages)));
+    admit(ir.pages!=nullptr,QUANTAPDF_ERROR_NOMEM);
+    ir.page_count=1u;
+    ir.pages[0].width_points=static_cast<float>(source.page_w);
+    ir.pages[0].height_points=static_cast<float>(source.page_h);
+    ir.pages[0].background_argb=UINT32_C(0xffffffff);
+    return ir;
 }
 
 quantapdf_ir materialize(
@@ -1198,8 +1219,13 @@ static quantapdf_status source_raw_images_to_ir_impl(
         admit(geo.page.getKey("/Group").isNull() &&
               geo.page.getKey("/Annots").isNull(),
               QUANTAPDF_ERROR_UNSUPPORTED);
+        /* An unpainted page may omit both Contents and Resources under
+         * Source V10. Earlier fixed source profile contracts stay strict.
+         * Any existing inherited Resources is still type-checked. */
+        const bool native_v10=
+            profile_id==source_profile_id::scoped_mixed_v10_flate_predictor;
         Obj resources=bounded_page_resources(
-            geo.page,limits->max_parent_steps);
+            geo.page,limits->max_parent_steps,native_v10);
         /* Initialize ALL members explicitly. Some CI toolchains enable
          * -Werror=missing-field-initializers for aggregate additions. */
         admission source{resources,*limits,page_w,page_h,0u,0u,0u,
@@ -1219,7 +1245,14 @@ static quantapdf_status source_raw_images_to_ir_impl(
         source.explicit_image_decode_mode=profile.explicit_image_decode;
         source.explicit_image_predictor_mode=
             profile.explicit_image_predictor;
-        auto contents=page_streams(geo.page.getKey("/Contents"),*limits);
+        Obj raw_contents=geo.page.getKey("/Contents");
+        const bool empty_contents=native_v10 &&
+            (raw_contents.isNull() ||
+             (raw_contents.isArray() &&
+              raw_contents.getArrayNItems()==0));
+        auto contents=empty_contents ?
+            std::vector<unsigned char>{} :
+            page_streams(raw_contents,*limits);
         QPDF parser;
         parser.emptyPDF();
         parser.setSuppressWarnings(true);
@@ -1229,6 +1262,16 @@ static quantapdf_status source_raw_images_to_ir_impl(
         parsed.parseAsContents(&reader);
         admit(!parser.anyWarnings() && !pdf->anyWarnings(),
               QUANTAPDF_ERROR_FORMAT);
+        /* This is NOT a recovery after unsupported content: the entire
+         * page stream was parsed, EOF validated q/Q and pending-path
+         * ownership, and zero paint/clip operations were admitted. */
+        if(native_v10 && source.draws.empty() &&
+           source.painted_paths.empty() && source.order.empty() &&
+           source.scoped_clip_membership.empty() &&
+           !source.clip_completed && !source.saw_q_restore) {
+            *out_ir=materialize_blank_page(source);
+            return QUANTAPDF_OK;
+        }
         const bool flexible_scoped=profile.variable_operations;
         const bool qualified_mixed=!source.mixed_mode ||
             (flexible_scoped ?

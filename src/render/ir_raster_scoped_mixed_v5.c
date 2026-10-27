@@ -34,6 +34,57 @@ static void v5_over(unsigned char *dst,const unsigned char *src)
     dst[3]=(unsigned char)((alpha+127u)/255u);
 }
 
+/* Zero-operation is a legitimate opaque blank page, not a partially
+ * published or failed Image/Path source. Admit only an exact empty
+ * registry and integer bounded geometry; all other IR profiles retain
+ * the existing strict V5 painted operation contract. */
+static quantapdf_status v5_render_blank(
+    const quantapdf_ir *ir,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    const quantapdf_composer_page_state *page=&ir->pages[0];
+    const quantapdf_resource_registry *r=&ir->resources;
+    size_t width,height,pixels,bytes;
+    unsigned char *white;
+    if(ir->page_count!=1u || ir->operations!=NULL ||
+       ir->operation_count!=0u || ir->links!=NULL ||
+       ir->link_count!=0u || ir->outlines!=NULL ||
+       ir->outline_count!=0u || r->images!=NULL ||
+       r->image_count!=0u || r->image_capacity!=0u ||
+       r->fonts!=NULL || r->font_count!=0u ||
+       r->font_capacity!=0u || r->graphics_states!=NULL ||
+       r->graphics_state_count!=0u ||
+       r->graphics_state_capacity!=0u || r->soft_masks!=NULL ||
+       r->soft_mask_count!=0u || r->soft_mask_capacity!=0u ||
+       r->clips!=NULL || r->clip_count!=0u ||
+       r->clip_capacity!=0u || r->paints!=NULL ||
+       r->paint_count!=0u || r->paint_capacity!=0u ||
+       r->forms!=NULL || r->form_count!=0u ||
+       r->form_capacity!=0u ||
+       page->background_argb!=UINT32_C(0xffffffff) ||
+       page->suppress_background!=0 ||
+       !v5_integer(page->width_points,QP_V5_MAX_PIXELS,&width) ||
+       !v5_integer(page->height_points,QP_V5_MAX_PIXELS,&height) ||
+       width==0u || height==0u ||
+       width>QP_V5_MAX_PIXELS/height)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    pixels=width*height;
+    if(pixels>limits->max_pixels ||
+       pixels>SIZE_MAX/4u)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    bytes=pixels*4u;
+    white=(unsigned char *)malloc(bytes);
+    if(white==NULL)return QUANTAPDF_ERROR_NOMEM;
+    memset(white,255,bytes);
+    out_image->pixels=white;
+    out_image->size=bytes;
+    out_image->width=width;
+    out_image->height=height;
+    out_image->stride=width*4u;
+    return QUANTAPDF_OK;
+}
+
 /* The source operation is immutable. Project a single borrowed resource
  * and normalize only stack-local ID copies to the single-layer profiles. */
 quantapdf_status quantapdf_ir_raster_scoped_mixed_v5(
@@ -58,11 +109,15 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5(
     if(out_image==NULL)return QUANTAPDF_ERROR_ARGUMENT;
     memset(out_image,0,sizeof(*out_image));
     if(ir==NULL || limits==NULL || ir->pages==NULL ||
-       ir->operations==NULL || ir->page_count!=1u || page_index!=0u ||
+       (ir->operations==NULL && ir->operation_count!=0u) ||
+       ir->page_count!=1u || page_index!=0u ||
        limits->max_pixels==0u || limits->max_operations==0u ||
        limits->max_edges==0u || limits->max_sample_tests==0u ||
        limits->max_source_pixels==0u || limits->max_drawn_pixels==0u)
         return QUANTAPDF_ERROR_ARGUMENT;
+
+    if(ir->operation_count==0u)
+        return v5_render_blank(ir,limits,out_image);
 
     if(ir->operation_count<2u || ir->operation_count>QP_V5_MAX_LAYERS ||
        ir->operation_count>limits->max_operations ||
