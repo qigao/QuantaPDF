@@ -2788,6 +2788,202 @@ int private_native_facade_bitmap_v9_suite()
         {{13u,11u,0u,255u,255u},{26u,5u,223u,223u,223u}},true);
 }
 
+
+/* Issue #464: V10 Flate TIFF/PNG Predictor on a REAL built-in
+ * Page/Context and ordinary retained RGB facade Bitmap. Original
+ * QPDF image bytes are preserved by setFilterOnWrite(false), and direct
+ * independent PDFium sees the exact unchanged original source. */
+int private_native_facade_bitmap_v10_suite()
+{
+    const std::string scope="q 12 6 8 9 re W n ";
+    const std::string inside="q 16 0 0 12 8 3 cm /I Do Q ";
+    const std::string gray_path="0.25 g 12 6 4 4 re f ";
+    const std::string outside="0.875 g 24 17 5 3 re f ";
+
+    const int modes[]={1,2,10,11,12,13,14,15};
+    for(const int predictor:modes) {
+        fixture rgb{};
+        rgb.a=scope+inside+"Q "+outside;
+        rgb.image_predictor=predictor;
+        rgb.image_decode_parms=test_predictor_parms(predictor,3);
+        if(positive_private_native_facade_v1(rgb,
+            {{13u,11u,255u,0u,0u},{18u,11u,0u,255u,0u},
+             {13u,16u,0u,0u,255u},{18u,16u,255u,255u,0u},
+             {26u,5u,223u,223u,223u}},false,true)!=EXIT_SUCCESS)
+            return EXIT_FAILURE;
+    }
+
+    fixture inverted{};
+    inverted.a=scope+inside+"Q "+outside;
+    inverted.image_predictor=15;
+    inverted.image_decode_parms=test_predictor_parms(15,3);
+    inverted.image_decode="[1 0 0 1 1 0]";
+    if(positive_private_native_facade_v1(inverted,
+        {{13u,11u,0u,0u,255u},{18u,11u,255u,255u,255u},
+         {13u,16u,255u,0u,0u},{18u,16u,0u,255u,255u}},
+        false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    /* Same originally authored Image /Decode and scoped paints but no
+     * explicit Predictor: true V9 and V10 retained product-owned
+     * Bitmaps must be byte-identical after their source owners drop. */
+    fixture implicit_predictor=inverted;
+    implicit_predictor.image_predictor=0;
+    implicit_predictor.image_decode_parms.clear();
+    if(positive_private_native_facade_v1(implicit_predictor,
+        {{13u,11u,0u,0u,255u},{18u,11u,255u,255u,255u},
+         {13u,16u,255u,0u,0u},{18u,16u,0u,255u,255u}},
+        false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    for(const int predictor:{2,12}) {
+        fixture gray=inverted;
+        gray.gray_image=true;
+        gray.image_predictor=predictor;
+        gray.image_decode_parms=test_predictor_parms(predictor,1);
+        gray.image_decode="[1 0]";
+        if(positive_private_native_facade_v1(gray,
+            {{13u,11u,255u,255u,255u},
+             {18u,11u,170u,170u,170u},
+             {13u,16u,85u,85u,85u},
+             {18u,16u,0u,0u,0u}},false,true)!=EXIT_SUCCESS)
+            return EXIT_FAILURE;
+    }
+
+    fixture three=inverted;
+    three.a=scope+inside+gray_path+"Q "+outside;
+    if(positive_private_native_facade_v1(three,
+        {{13u,16u,64u,64u,64u},{18u,11u,255u,255u,255u},
+         {26u,5u,223u,223u,223u}},false,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+
+    /* Two independently encoded Filter/DecodeParms resources. Gray /J
+     * renders AFTER genuine Q restore; neither /I's Predictor nor its
+     * RGB Decode policy may bleed into /J. */
+    fixture distinct=inverted;
+    distinct.second_image=true;
+    distinct.second_image_gray=true;
+    distinct.second_image_predictor=2;
+    distinct.second_image_decode_parms=test_predictor_parms(2,1);
+    distinct.second_image_decode="[1 0]";
+    distinct.a=scope+gray_path+inside+"Q "+
+        "q 8 0 0 6 22 16 cm /J Do Q "+outside;
+    if(positive_private_native_facade_v1(distinct,
+        {{13u,11u,0u,0u,255u},{13u,16u,255u,0u,0u},
+         {23u,3u,255u,255u,255u},{27u,3u,170u,170u,170u},
+         {23u,6u,85u,85u,85u},{26u,5u,223u,223u,223u}},
+        false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    /* A V10-only predictor on the secondary resource while /I remains
+     * implicit still forces V9's private *facade* to refuse atomically. */
+    fixture secondary_only=distinct;
+    secondary_only.image_predictor=0;
+    secondary_only.image_decode_parms.clear();
+    if(positive_private_native_facade_v1(secondary_only,
+        {{13u,11u,0u,0u,255u},{13u,16u,255u,0u,0u},
+         {23u,3u,255u,255u,255u},{27u,3u,170u,170u,170u},
+         {23u,6u,85u,85u,85u}},false,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+
+    fixture split=inverted;
+    split.split=true;
+    split.a="q 1 0 0 1 2 0 cm 10 6 8 9 re W*";
+    split.b=" n q 16 0 0 12 6 3 cm /I Do Q Q "+outside;
+    if(positive_private_native_facade_v1(split,
+        {{13u,11u,0u,0u,255u},{13u,16u,255u,0u,0u},
+         {26u,5u,223u,223u,223u}},false,true)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+
+    const quantapdf_native_source_raster_bridge_limits_v1 bounds={
+        {source_limits.max_pdf_bytes,source_limits.max_content_bytes,
+         source_limits.max_content_streams,4u,source_limits.max_page_pixels,
+         source_limits.max_source_pixels,source_limits.max_drawn_pixels,
+         source_limits.max_parent_steps},
+        {W*H,4u,512u,8000000u,16u,4096u}
+    };
+    const quantapdf_native_source_raster_device_v1 device={
+        0u,72.0f,0.0f,0,0,0
+    };
+
+    /* Fail *after* /I and Path were accepted: the malformed Gray /J
+     * predictor must not publish an RGB image or retain the Context. */
+    fixture bad_second=distinct;
+    bad_second.second_image_decode_parms=test_predictor_parms(12,3);
+    if(negative_private_native_facade_v1(
+        bad_second,QUANTAPDF_ERROR_UNSUPPORTED,bounds,device,false,true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture wrong_columns=inverted;
+    wrong_columns.image_decode_parms=test_predictor_parms(15,3,3);
+    if(negative_private_native_facade_v1(
+        wrong_columns,QUANTAPDF_ERROR_UNSUPPORTED,bounds,device,false,true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture wrong_depth=inverted;
+    wrong_depth.image_decode_parms=test_predictor_parms(15,3,2,16);
+    if(negative_private_native_facade_v1(
+        wrong_depth,QUANTAPDF_ERROR_UNSUPPORTED,bounds,device,false,true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture wrong_predictor=inverted;
+    wrong_predictor.image_decode_parms=test_predictor_parms(99,3);
+    if(negative_private_native_facade_v1(
+        wrong_predictor,QUANTAPDF_ERROR_UNSUPPORTED,bounds,device,false,true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture masked=inverted;
+    masked.mask=true;
+    if(negative_private_native_facade_v1(
+        masked,QUANTAPDF_ERROR_UNSUPPORTED,bounds,device,false,true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture missing=inverted;
+    missing.missing_resources=true;
+    if(negative_private_native_facade_v1(
+        missing,QUANTAPDF_ERROR_FORMAT,bounds,device,false,true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    fixture late=inverted;
+    late.a+=" BT ET";
+    if(negative_private_native_facade_v1(
+        late,QUANTAPDF_ERROR_UNSUPPORTED,bounds,device,false,true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    auto low=bounds;
+    low.source.max_source_pixels=3u;
+    if(negative_private_native_facade_v1(
+        inverted,QUANTAPDF_ERROR_UNSUPPORTED,low,device,false,true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    low=bounds;
+    low.source.max_operations=1u;
+    if(negative_private_native_facade_v1(
+        inverted,QUANTAPDF_ERROR_UNSUPPORTED,low,device,false,true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    low=bounds;
+    low.raster.max_pixels=W*H-1u;
+    if(negative_private_native_facade_v1(
+        inverted,QUANTAPDF_ERROR_UNSUPPORTED,low,device,false,true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    auto altered=device;
+    altered.dpi=144.0f;
+    if(negative_private_native_facade_v1(
+        inverted,QUANTAPDF_ERROR_UNSUPPORTED,bounds,altered,false,true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    altered=device;altered.alpha=1;
+    if(negative_private_native_facade_v1(
+        inverted,QUANTAPDF_ERROR_UNSUPPORTED,bounds,altered,false,true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    altered=device;altered.page_index=1u;
+    if(negative_private_native_facade_v1(
+        inverted,QUANTAPDF_ERROR_UNSUPPORTED,bounds,altered,false,true)
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    quantapdf_bitmap *poison=reinterpret_cast<quantapdf_bitmap *>(
+        static_cast<uintptr_t>(1u));
+    CHECK(quantapdf_render_page_native_qualified_v10(
+        nullptr,&bounds,&device,&poison)==QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(poison==nullptr);
+    CHECK(quantapdf_render_page_native_qualified_v10(
+        nullptr,&bounds,&device,nullptr)==QUANTAPDF_ERROR_ARGUMENT);
+
+    /* A valid native source still succeeds after all prior refusals,
+     * and its Bitmap still survives source/Page/Document/Context drops. */
+    return positive_private_native_facade_v1(distinct,
+        {{13u,11u,0u,0u,255u},{23u,3u,255u,255u,255u},
+         {26u,5u,223u,223u,223u}},false,true);
+}
+
 /* Independent Source V10 original-PDF QPDF writer / test-only PDFium
  * oracle; all Flate PNG/TIFF predictor decoding is owned by the existing
  * QPDF stream pipeline, not a new native raster implementation. */
@@ -3326,6 +3522,8 @@ int main(int argc,char **argv)
         return private_native_facade_bitmap_v1_suite();
     if(argc==2 && std::strcmp(argv[1],"--native-facade-decode-v9-only")==0)
         return private_native_facade_bitmap_v9_suite();
+    if(argc==2 && std::strcmp(argv[1],"--native-facade-predictor-v10-only")==0)
+        return private_native_facade_bitmap_v10_suite();
     if(argc!=1)return EXIT_FAILURE;
     fixture basic{};
     basic.a="q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q";
@@ -3632,6 +3830,8 @@ int main(int argc,char **argv)
     if(private_native_facade_bitmap_v1_suite()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
     if(private_native_facade_bitmap_v9_suite()!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    if(private_native_facade_bitmap_v10_suite()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
 
     std::puts("Original Image Do under W/W*: independent PDFium RGB, "
