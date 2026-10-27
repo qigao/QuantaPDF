@@ -60,7 +60,12 @@ static std::string create_source(bool late_text)
 
 static bool write_pdf(const std::string& filename,const std::string& content)
 {
-    FILE *f=std::fopen(filename.c_str(),"wb");
+    FILE *f=nullptr;
+#ifdef _WIN32
+    if(fopen_s(&f,filename.c_str(),"wb")!=0)return false;
+#else
+    f=std::fopen(filename.c_str(),"wb");
+#endif
     if(!f)return false;
     const bool good=std::fwrite(content.data(),1u,content.size(),f)==content.size();
     return std::fclose(f)==0 && good;
