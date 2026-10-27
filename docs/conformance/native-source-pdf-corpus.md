@@ -8,7 +8,7 @@ PDFium-free exit gate [#208](https://github.com/qigao/QuantaPDF/issues/208).
 ## Executable manifest
 
 The versioned registry at [`tests/native_source_corpus.def`](../../tests/native_source_corpus.def)
-is the single source of truth for **21 fixture families / 71
+is the single source of truth for **22 fixture families / 72
 generated source-PDF executions** following the Clip, resource-negative and
 independent resource-ancestry-budget qualifications. The original baseline was 14/36; these are generated fixtures,
 not additional licensed external originals. It carries a stable family ID, feature
@@ -19,16 +19,16 @@ The existing `quantapdf.native_source_qq_oracle` CTest binary compiles
 this registry and runs **every** listed family in three deliberately different
 orders: canonical manifest order and two fixed-seed Fisher–Yates
 permutations (`0x4cf5ad11` / `0x9e3779b9`, xorshift32-v1). Each order
-executes all 21 families and all 71 generated fixtures once. The runner
+executes all 22 families and all 72 generated fixtures once. The runner
 verifies an exact one-to-one family permutation, declared/observed
 per-family counts, absence of leftover temporary source PDF and matching
-repeat coverage after each order. Thus it performs **71 canonical + 142
-replayed = 213 actual fixture executions**, not 174 new or distinct
+repeat coverage after each order. Thus it performs **72 canonical + 144
+replayed = 216 actual fixture executions**, not 174 new or distinct
 documents. An independent Python CTest validates the JSON against the
 versioned registry, including the exact seed-derived orders. No second
 source oracle binary or GitHub Actions workflow is needed.
 
-This is an **in-repository generated corpus**, not a claim that 71
+This is an **in-repository generated corpus**, not a claim that 72
 independent external documents have been qualified. A family with two
 variations has two generated PDFs; a two-page fixture still counts as one
 generated PDF. The individual assertions within each family retain their
@@ -40,13 +40,13 @@ The existing CTest target invokes its test binary with
 `--corpus-report <build-directory>/tests/native-source-corpus.json`.
 The report has `schema_version: 2`, `corpus_id: native-source-pdf`,
 `fixture_kind: generated`, `result: passed`, and backward-compatible
-canonical `family_count=21` and `fixture_count=71` fields. The ordered
+canonical `family_count=22` and `fixture_count=72` fields. The ordered
 `family_results` array preserves each ID, tags, outcome/oracle category,
 declared/observed canonical count and pass status. New `order_validation`
 records the fixed algorithm, two replay seeds, ordered family IDs,
 **per-family observed counts in each order** and portable 64-bit order
-fingerprints for all three runs, plus 142 replay and 213 total executions.
-These are 71 distinct generated scenarios, not 213 independent originals.
+fingerprints for all three runs, plus 144 replay and 216 total executions.
+These are 72 distinct generated scenarios, not 216 independent originals.
 All strings are JSON escaped; exact orders, fingerprints and counts are
 independently verified against the registry by
 `tests/test_native_source_corpus_report.py`.
@@ -81,9 +81,9 @@ pin execution order, **not** serialized QPDF/PDFium bytes.
 
 | Pass | Seed | Fingerprint |
 |---|---|---|
-| Canonical | none | `9a709ba916a42a24` |
-| Shuffled A | `0x4cf5ad11` | `751ffb460eeefe24` |
-| Shuffled B | `0x9e3779b9` | `8216820cf6c65524` |
+| Canonical | none | `7804171fea529e52` |
+| Shuffled A | `0x4cf5ad11` | `685d706895285ca2` |
+| Shuffled B | `0x9e3779b9` | `b57eda0d6f4bd672` |
 
 Adding a fixture family or changing its order requires a reviewed
 fingerprint update and exact-head cross-platform qualification. The
@@ -104,6 +104,27 @@ The separate no-constructor `W n`/`W* n` behavior remains a no-op based on
 the existing PDFium-observed source test; a MOVE-only path is an actual
 zero-area clipping path. This is bounded path-only qualification, not a
 general original-PDF compatibility or production PDFium cutover.
+
+## Disjoint source Clip with independent CTMs and two Contents streams
+
+The generated `clip.disjoint_multistream_ctm` family exercises a source
+PDF with **two real Contents streams** split between `W*` and `n`.
+A parent `W` is defined under a +10 X CTM, while a nested `W*` is
+defined under an additional +90 X CTM; their nonempty geometries do not
+intersect. An otherwise full-page red fill therefore has **zero ink**.
+The first `Q` restores the original parent Clip and its +10 X CTM
+for blue paint, and the second `Q` restores the page's identity CTM
+for green paint. Eight fixed interior RGB probes distinguish incorrect
+Clip/transform restoration and leaked red paint.
+
+The existing native source corpus runner compares the **unchanged
+QPDF-authored original** through PDFium against detached C11 Raster,
+then independently confirms byte-identical repeated Native output
+after original Document/Graph disposal. This new case is a single
+test-owned generated PDF, **not** a licensed external corpus addition
+and not a public render cutover. The separate provider-free C11 DAG
+no-intersection regression was merged under #466; both are bounded
+Clip semantics checks, not general PDFium removal.
 
 ## Referenced graphics-resource negative admission
 
@@ -219,8 +240,8 @@ Its initial *native* qualification was a strict **UNSUPPORTED** text
 rejection with original-source PDFium reference rendering. The external
 corpus has since been independently extended to **7 unchanged admitted PDFs
 / 2 W* original-source native-pixel positives** (see #262 and its
-post-merge master qualification). These are never included in the **71 canonical generated-source
-executions**, nor in the 142 verification replays. A failed test must never be converted to a
+post-merge master qualification). These are never included in the **72 canonical generated-source
+executions**, nor in the 144 verification replays. A failed test must never be converted to a
 pass by loosening pixel thresholds or silently redirecting to PDFium.
 
 The public QuantaPDF SDK remains PDFium-backed. Remove its PDFium
