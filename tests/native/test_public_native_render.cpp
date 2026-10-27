@@ -594,10 +594,19 @@ int main()
         if(mode>=4 && !clipped) {
             const auto rejection=mode==14 ? QUANTAPDF_ERROR_FORMAT :
                                               QUANTAPDF_ERROR_UNSUPPORTED;
+            if(result!=rejection || rendered!=nullptr)
+                std::fprintf(stderr,
+                    "[native-two-image] refused mode=%d got=%d expected=%d bitmap=%p\n",
+                    mode,(int)result,(int)rejection,(void*)rendered);
             CHECK(result==rejection && rendered==nullptr);
             small=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-            CHECK(quantapdf_render_thumbnail(image_page,16,12,&small)==
-                  rejection && small==nullptr);
+            const auto thumb_status=
+                quantapdf_render_thumbnail(image_page,16,12,&small);
+            if(thumb_status!=rejection || small!=nullptr)
+                std::fprintf(stderr,
+                    "[native-two-image] thumbnail mode=%d got=%d expected=%d bitmap=%p\n",
+                    mode,(int)thumb_status,(int)rejection,(void*)small);
+            CHECK(thumb_status==rejection && small==nullptr);
         } else {
             CHECK(result==QUANTAPDF_OK && rendered!=nullptr);
             int w=0,h=0,s=0,c=0;
