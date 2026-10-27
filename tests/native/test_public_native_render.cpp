@@ -191,11 +191,26 @@ static std::string create_image_only_source(int mode)
         "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q";
     if(mode==9)content=
         "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q "
-        "q 8 0 0 6 24 0 cm /I Do Q Q";
+        "q 8 0 0 6 12 9 cm /I Do Q Q";
     if(mode==10)content=
         "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q BT ET";
     if(mode==11)content=
         "q 12 6 8 9 re W* n q 16 0 0 12 8 3 cm /I Do Q Q";
+    if(mode==12)content=
+        "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q "
+        "q 8 0 0 6 12 9 cm /I Do Q "
+        "q 4 0 0 4 12 9 cm /I Do Q Q"; /* third Image */
+    if(mode==13)content=
+        "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q "
+        "q 8 0 0 6 24 0 cm /I Do Q"; /* second outside Clip */
+    if(mode==14)content=
+        "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q "
+        "q 8 0 0 6 12 9 cm /J Do Q Q"; /* missing resource */
+    if(mode==15)content=
+        "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q Q";
+    if(mode==16)content=
+        "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q "
+        "q 12 6 8 9 re W* n /I Do Q Q"; /* second Clip */
     if(mode==6)content+=
         " q 8 0 0 6 24 0 cm /I Do Q q 8 0 0 6 0 0 cm /I Do Q";
     page.replaceKey("/Contents",pdf->newStream(content));
@@ -562,7 +577,7 @@ int main()
     /* Original Image-only native Source V10: fixed expected RGB, no
      * reference engine or hidden PATH/Clip fallback. Existing RAW/Flate
      * decode and area-resized thumbnail share the ordinary Bitmap owner. */
-    for(int mode=0;mode<12;++mode) {
+    for(int mode=0;mode<17;++mode) {
         CHECK(write_pdf(filename,create_image_only_source(mode)));
         quantapdf_context *image_context=nullptr;
         quantapdf_document *image_doc=nullptr;
@@ -575,12 +590,14 @@ int main()
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(image_doc,0,&image_page));
         const auto result=quantapdf_render_page(image_page,&rendered);
-        const bool clipped=mode==5 || mode==11;
+        const bool clipped=mode==5 || mode==9 || mode==11;
         if(mode>=4 && !clipped) {
-            CHECK(result==QUANTAPDF_ERROR_UNSUPPORTED && rendered==nullptr);
+            const auto rejection=mode==14 ? QUANTAPDF_ERROR_FORMAT :
+                                              QUANTAPDF_ERROR_UNSUPPORTED;
+            CHECK(result==rejection && rendered==nullptr);
             small=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
             CHECK(quantapdf_render_thumbnail(image_page,16,12,&small)==
-                  QUANTAPDF_ERROR_UNSUPPORTED && small==nullptr);
+                  rejection && small==nullptr);
         } else {
             CHECK(result==QUANTAPDF_OK && rendered!=nullptr);
             int w=0,h=0,s=0,c=0;
@@ -602,6 +619,12 @@ int main()
                 CHECK(probe_rgb(pixels,s,20,11,255u,255u,255u));
                 CHECK(probe_rgb(pixels,s,10,11,255u,255u,255u));
                 CHECK(probe_rgb(pixels,s,13,19,255u,255u,255u));
+                if(mode==9) {
+                    /* Second source Do paints top half of the Clip:
+                     * its bottom image row overwrites first top row. */
+                    CHECK(probe_rgb(pixels,s,13,13,0u,0u,255u));
+                    CHECK(probe_rgb(pixels,s,18,13,255u,255u,0u));
+                }
             } else {
                 CHECK(probe_rgb(pixels,s,13,11,
                     255u,gray?255u:0u,gray?255u:0u));
@@ -633,6 +656,8 @@ int main()
             if(clipped) {
                 CHECK(probe_rgb(repeat,s,5,5,255u,255u,255u));
                 CHECK(probe_rgb(repeat,s,9,5,0u,255u,0u));
+                if(mode==9)
+                    CHECK(probe_rgb(repeat,s,6,6,0u,0u,255u));
             }
         }
         quantapdf_drop_page(image_page);
