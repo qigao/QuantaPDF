@@ -6,6 +6,8 @@
 #include "backend/native_source_raster_bridge_v1.h"
 #include "backend/builtin_native_page_v1.h"
 #include "backend/builtin_native_bitmap_v1.h"
+#include "document/private_native_facade_bitmap_v1.h"
+#include "core/context_internal.h"
 #include "backend/pdfium_runtime.h"
 #include "backend/document_backend.h"
 #include "render/ir_raster_image_clip_v1.h"
@@ -2093,6 +2095,249 @@ int builtin_native_backend_rgb_v1_suite()
     return EXIT_SUCCESS;
 }
 
+/* True C facade Context+Page+Bitmap lifecycle, not a synthetic
+ * backend-only handle and not a public native renderer cutover. */
+int write_facade_original(const std::vector<unsigned char>& bytes)
+{
+    const char *name="quantapdf-private-native-facade-v1.pdf";
+    std::FILE *file=std::fopen(name,"wb");
+    if(!file)return EXIT_FAILURE;
+    const size_t written=std::fwrite(bytes.data(),1,bytes.size(),file);
+    const int closed=std::fclose(file);
+    return written==bytes.size() && closed==0 ?
+        EXIT_SUCCESS : EXIT_FAILURE;
+}
+
+int positive_private_native_facade_v1(
+    const fixture& sample,const std::vector<v6_probe>& probes)
+{
+    auto original=original_pdf(sample);
+    CHECK(original.size()>100u);
+    const auto direct=pdfium_original_rgb(original);
+    CHECK(direct.size()==W*H*3u);
+    CHECK(write_facade_original(original)==EXIT_SUCCESS);
+
+    quantapdf_context *context=nullptr;
+    quantapdf_document *document=nullptr;
+    quantapdf_page *page=nullptr;
+    quantapdf_bitmap *native=nullptr,*pdfium=nullptr;
+    OK(quantapdf_context_create(&context));
+    CHECK(context!=nullptr && context->references==1u);
+    OK(quantapdf_open_with_context(
+        context,"quantapdf-private-native-facade-v1.pdf",
+        nullptr,&document));
+    std::remove("quantapdf-private-native-facade-v1.pdf");
+    CHECK(document!=nullptr && context->references==2u);
+    OK(quantapdf_load_page(document,0,&page));
+    CHECK(page!=nullptr && context->references==3u);
+
+    const quantapdf_native_source_raster_bridge_limits_v1 bounds={
+        {source_limits.max_pdf_bytes,source_limits.max_content_bytes,
+         source_limits.max_content_streams,4u,source_limits.max_page_pixels,
+         source_limits.max_source_pixels,source_limits.max_drawn_pixels,
+         source_limits.max_parent_steps},
+        {W*H,4u,512u,8000000u,16u,4096u}
+    };
+    const quantapdf_native_source_raster_device_v1 device={
+        0u,72.0f,0.0f,0,0,0
+    };
+    OK(quantapdf_render_page_native_qualified_v1(
+        page,&bounds,&device,&native));
+    CHECK(native!=nullptr && context->references==4u);
+    /* Existing public facade is STILL PDFium-backed, independent of
+     * the opt-in native qualification and pixel comparison. */
+    OK(quantapdf_render_page(page,&pdfium));
+    CHECK(pdfium!=nullptr && context->references==5u);
+
+    /* Teardown the complete facade-owned source tree and the caller's
+     * Context reference BEFORE consuming the two detached bitmaps. */
+    quantapdf_drop_page(page);
+    quantapdf_close(document);
+    quantapdf_drop_context(context);
+    original.assign(original.size(),0u);
+    original.clear();
+    CHECK(native->context==pdfium->context &&
+          native->context->references==2u);
+    int w=0,h=0,stride=0,components=0;
+    OK(quantapdf_bitmap_dimensions(
+        native,&w,&h,&stride,&components));
+    CHECK(w==(int)W && h==(int)H &&
+          components==3 && stride==(int)(W*3u));
+    int lw=0,lh=0,ls=0,lc=0;
+    OK(quantapdf_bitmap_dimensions(
+        pdfium,&lw,&lh,&ls,&lc));
+    CHECK(lw==w && lh==h && ls==stride && lc==components);
+    const unsigned char *pixels=nullptr,*legacy=nullptr;
+    size_t size=0,legacy_size=0;
+    OK(quantapdf_bitmap_data(native,&pixels,&size));
+    OK(quantapdf_bitmap_data(pdfium,&legacy,&legacy_size));
+    CHECK(pixels!=nullptr && legacy!=nullptr &&
+          size==W*H*3u && legacy_size==size);
+    double native_error=0.0,legacy_error=0.0;
+    size_t gross=0u;
+    for(size_t i=0u;i<W*H;++i) {
+        unsigned peak=0u;
+        for(size_t c=0u;c<3u;++c) {
+            const size_t at=i*3u+c;
+            const unsigned a=pixels[at],b=direct[at],d=legacy[at];
+            const unsigned diff=a>b?a-b:b-a;
+            const unsigned old=a>d?a-d:d-a;
+            native_error+=(double)diff;
+            legacy_error+=(double)old;
+            if(diff>peak)peak=diff;
+        }
+        if(peak>64u)++gross;
+    }
+    CHECK(native_error/(double)(W*H*3u)<=8.0 &&
+          legacy_error/(double)(W*H*3u)<=8.0 &&
+          gross<=W*H/12u);
+    for(const auto& p:probes){
+        CHECK(p.x<W && p.y<H);
+        const size_t at=(p.y*W+p.x)*3u;
+        CHECK(rgb_match(pixels+at,p.r,p.g,p.b,3u));
+        CHECK(rgb_match(legacy+at,p.r,p.g,p.b,3u));
+        CHECK(rgb_match(direct.data()+at,p.r,p.g,p.b,3u));
+    }
+    quantapdf_drop_bitmap(pdfium);
+    CHECK(native->context->references==1u);
+    quantapdf_drop_bitmap(native);
+    return EXIT_SUCCESS;
+}
+
+int negative_private_native_facade_v1(
+    const fixture& source,quantapdf_status expected,
+    const quantapdf_native_source_raster_bridge_limits_v1& limits,
+    const quantapdf_native_source_raster_device_v1& device)
+{
+    const auto bytes=original_pdf(source);
+    CHECK(write_facade_original(bytes)==EXIT_SUCCESS);
+    quantapdf_context *context=nullptr;
+    quantapdf_document *document=nullptr;
+    quantapdf_page *page=nullptr;
+    OK(quantapdf_context_create(&context));
+    OK(quantapdf_open_with_context(context,
+        "quantapdf-private-native-facade-v1.pdf",nullptr,&document));
+    std::remove("quantapdf-private-native-facade-v1.pdf");
+    OK(quantapdf_load_page(document,0,&page));
+    const size_t prior=context->references;
+    for(int n=0;n<2;++n) {
+        quantapdf_bitmap *out=reinterpret_cast<quantapdf_bitmap *>(
+            static_cast<uintptr_t>(1u));
+        const auto actual=quantapdf_render_page_native_qualified_v1(
+            page,&limits,&device,&out);
+        if(actual!=expected)
+            std::fprintf(stderr,
+                "Native facade refusal trial=%d expected=%d got=%d\n",
+                n,(int)expected,(int)actual);
+        CHECK(actual==expected && out==nullptr &&
+              context->references==prior);
+        quantapdf_rect bounds{};
+        OK(quantapdf_page_bounds(page,&bounds));
+        CHECK(bounds.x1==(float)W && bounds.y1==(float)H);
+    }
+#if defined(QUANTAPDF_TESTING)
+    context->test_fail_allocation=1;
+    {
+        quantapdf_bitmap *out=reinterpret_cast<quantapdf_bitmap *>(
+            static_cast<uintptr_t>(1u));
+        CHECK(quantapdf_render_page_native_qualified_v1(
+            page,&limits,&device,&out)==QUANTAPDF_ERROR_NOMEM);
+        CHECK(out==nullptr && context->references==prior);
+    }
+#endif
+    quantapdf_drop_page(page);
+    quantapdf_close(document);
+    quantapdf_drop_context(context);
+    return EXIT_SUCCESS;
+}
+
+int private_native_facade_bitmap_v1_suite()
+{
+    const std::string scope="q 12 6 8 9 re W n ";
+    const std::string gray="0.25 g 12 6 4 4 re f ";
+    const std::string img_inside="q 16 0 0 12 8 3 cm /I Do Q ";
+    const std::string img_outside="q 8 0 0 6 22 16 cm /I Do Q ";
+    const std::string outside="0.875 g 24 17 5 3 re f ";
+    fixture two{},three{},four{},rgb{},split{};
+    two.a=scope+gray+"Q "+img_outside;
+    three.a=scope+img_inside+gray+"Q "+outside;
+    four.a=scope+gray+img_inside+"Q "+img_outside+outside;
+    rgb.a=scope+"0.25 0.5 0.75 rg 12 6 4 4 re f Q "+img_outside;
+    split.split=true;
+    split.a="q 1 0 0 1 2 0 cm 10 6 8 9 re W*";
+    split.b=" n 0.5 g 10 6 4 4 re f Q "+img_outside;
+    if(positive_private_native_facade_v1(two,
+        {{13u,16u,64u,64u,64u},{23u,3u,255u,0u,0u}})
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    if(positive_private_native_facade_v1(three,
+        {{13u,16u,64u,64u,64u},{13u,11u,255u,0u,0u},
+         {26u,5u,223u,223u,223u}})!=EXIT_SUCCESS)return EXIT_FAILURE;
+    if(positive_private_native_facade_v1(four,
+        {{13u,16u,0u,0u,255u},{26u,5u,223u,223u,223u}})
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    if(positive_private_native_facade_v1(rgb,
+        {{13u,16u,64u,128u,191u},{23u,3u,255u,0u,0u}})
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+    if(positive_private_native_facade_v1(split,
+        {{13u,16u,128u,128u,128u},{23u,3u,255u,0u,0u}})
+        !=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    const quantapdf_native_source_raster_bridge_limits_v1 limits={
+        {source_limits.max_pdf_bytes,source_limits.max_content_bytes,
+         source_limits.max_content_streams,4u,source_limits.max_page_pixels,
+         source_limits.max_source_pixels,source_limits.max_drawn_pixels,
+         source_limits.max_parent_steps},
+        {W*H,4u,512u,8000000u,16u,4096u}
+    };
+    const quantapdf_native_source_raster_device_v1 device={
+        0u,72.0f,0.0f,0,0,0
+    };
+    fixture late{},masked{},missing{};
+    late.a=two.a+" BT ET";
+    masked.a=two.a;masked.mask=true;
+    missing.a=two.a;missing.missing_resources=true;
+    if(negative_private_native_facade_v1(
+        late,QUANTAPDF_ERROR_UNSUPPORTED,limits,device)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    if(negative_private_native_facade_v1(
+        masked,QUANTAPDF_ERROR_UNSUPPORTED,limits,device)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    if(negative_private_native_facade_v1(
+        missing,QUANTAPDF_ERROR_FORMAT,limits,device)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    auto narrow=limits;
+    narrow.source.max_operations=1u;
+    if(negative_private_native_facade_v1(
+        two,QUANTAPDF_ERROR_UNSUPPORTED,narrow,device)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    narrow=limits;narrow.raster.max_pixels=W*H-1u;
+    if(negative_private_native_facade_v1(
+        two,QUANTAPDF_ERROR_UNSUPPORTED,narrow,device)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    auto altered=device;
+    altered.dpi=144.0f;
+    if(negative_private_native_facade_v1(
+        two,QUANTAPDF_ERROR_UNSUPPORTED,limits,altered)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    altered=device;altered.alpha=1;
+    if(negative_private_native_facade_v1(
+        two,QUANTAPDF_ERROR_UNSUPPORTED,limits,altered)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    altered=device;altered.page_index=1u;
+    if(negative_private_native_facade_v1(
+        two,QUANTAPDF_ERROR_UNSUPPORTED,limits,altered)!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    quantapdf_bitmap *out=reinterpret_cast<quantapdf_bitmap *>(
+        static_cast<uintptr_t>(1u));
+    CHECK(quantapdf_render_page_native_qualified_v1(
+        nullptr,&limits,&device,&out)==QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(out==nullptr);
+    CHECK(quantapdf_render_page_native_qualified_v1(
+        nullptr,&limits,&device,nullptr)==QUANTAPDF_ERROR_ARGUMENT);
+    return positive_private_native_facade_v1(two,
+        {{13u,16u,64u,64u,64u},{23u,3u,255u,0u,0u}});
+}
+
 int source_scoped_mixed_v5_suite()
 {
     auto budgets=source_limits;
@@ -2212,6 +2457,8 @@ int main(int argc,char **argv)
         return builtin_native_page_owner_v1_suite();
     if(argc==2 && std::strcmp(argv[1],"--builtin-native-rgb-only")==0)
         return builtin_native_backend_rgb_v1_suite();
+    if(argc==2 && std::strcmp(argv[1],"--native-facade-bitmap-only")==0)
+        return private_native_facade_bitmap_v1_suite();
     if(argc!=1)return EXIT_FAILURE;
     fixture basic{};
     basic.a="q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q";
@@ -2510,6 +2757,8 @@ int main(int argc,char **argv)
     if(builtin_native_page_owner_v1_suite()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
     if(builtin_native_backend_rgb_v1_suite()!=EXIT_SUCCESS)
+        return EXIT_FAILURE;
+    if(private_native_facade_bitmap_v1_suite()!=EXIT_SUCCESS)
         return EXIT_FAILURE;
 
     std::puts("Original Image Do under W/W*: independent PDFium RGB, "
