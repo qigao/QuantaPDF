@@ -194,6 +194,8 @@ static std::string create_image_only_source(int mode)
         "q 8 0 0 6 24 0 cm /I Do Q Q";
     if(mode==10)content=
         "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q BT ET";
+    if(mode==11)content=
+        "q 12 6 8 9 re W* n q 16 0 0 12 8 3 cm /I Do Q Q";
     if(mode==6)content+=
         " q 8 0 0 6 24 0 cm /I Do Q q 8 0 0 6 0 0 cm /I Do Q";
     page.replaceKey("/Contents",pdf->newStream(content));
@@ -560,7 +562,7 @@ int main()
     /* Original Image-only native Source V10: fixed expected RGB, no
      * reference engine or hidden PATH/Clip fallback. Existing RAW/Flate
      * decode and area-resized thumbnail share the ordinary Bitmap owner. */
-    for(int mode=0;mode<11;++mode) {
+    for(int mode=0;mode<12;++mode) {
         CHECK(write_pdf(filename,create_image_only_source(mode)));
         quantapdf_context *image_context=nullptr;
         quantapdf_document *image_doc=nullptr;
@@ -573,7 +575,7 @@ int main()
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(image_doc,0,&image_page));
         const auto result=quantapdf_render_page(image_page,&rendered);
-        const bool clipped=mode==5;
+        const bool clipped=mode==5 || mode==11;
         if(mode>=4 && !clipped) {
             CHECK(result==QUANTAPDF_ERROR_UNSUPPORTED && rendered==nullptr);
             small=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
