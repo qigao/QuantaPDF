@@ -998,24 +998,30 @@ quantapdf_ir materialize_image_only(const admission& source)
 quantapdf_ir materialize_clipped_image(const admission& source,
                                        size_t expected_images)
 {
-    /* Native public V10 alone may own a SINGLE Image under a genuine
-     * frozen W/W* Clip without inventing an opaque PATH operation.
-     * The older exact clipped-image profiles remain immutable, and
-     * a post-paint balanced Q does not require a second paint. */
-    const bool native_single=source.native_unclipped_mode &&
+    /* Native public V10 alone accepts exactly one or two original
+     * Image Do paints inside the SAME frozen W/W* Clip. Every staged
+     * operation has an explicit clipped membership; a second draw after
+     * Q restoration is not this contract. The old source signatures
+     * and their legacy clipped-image cardinalities remain unchanged. */
+    const bool native_bounded=source.native_unclipped_mode &&
         source.mixed_mode && source.mixed_scoped_mode &&
-        expected_images==1u &&
+        expected_images>=1u && expected_images<=2u &&
+        expected_images<=source.limits.max_operations &&
         source.painted_paths.empty() &&
-        source.order.size()==1u && source.order[0]==2 &&
-        source.scoped_clip_membership.size()==1u &&
-        source.scoped_clip_membership[0]==1u;
+        source.order.size()==expected_images &&
+        source.scoped_clip_membership.size()==expected_images &&
+        std::all_of(source.order.begin(),source.order.end(),
+                    [](int kind){return kind==2;}) &&
+        std::all_of(source.scoped_clip_membership.begin(),
+                    source.scoped_clip_membership.end(),
+                    [](unsigned char member){return member==1u;});
     const bool legacy=!source.mixed_mode &&
         (!source.restore_second_image ||
          (expected_images==2u && source.saw_q_restore));
     admit(source.clipped_image_mode && source.clip_completed &&
           (expected_images==1u || expected_images==2u) &&
           source.draws.size()==expected_images &&
-          (native_single || legacy) &&
+          (native_bounded || legacy) &&
           source.clip.commands.size()>=4u &&
           source.clip.commands.size()<=9u,
           QUANTAPDF_ERROR_UNSUPPORTED);
@@ -1450,16 +1456,18 @@ static quantapdf_status source_raw_images_to_ir_impl(
             *out_ir=materialize_unclipped_mixed(source);
             return QUANTAPDF_OK;
         }
-        /* A single qualified Image-only paint under one frozen W/W*
-         * Clip is distinct from both the homogeneous no-Clip fast path
-         * and the older mixed PATH+IMAGE requiring a post-Q paint. */
-        if(native_v10 && source.draws.size()==1u &&
+        /* One/two original Image Do paints under ONE frozen W/W* Clip
+         * are a separate homogeneous Source V10 profile. Exact
+         * membership preflight is repeated inside the materializer
+         * before publishing owned IR. No PATH operation is invented. */
+        if(native_v10 && !source.draws.empty() &&
+           source.draws.size()<=2u &&
            source.painted_paths.empty() &&
            source.clip_completed &&
-           source.order.size()==1u &&
-           source.scoped_clip_membership.size()==1u &&
-           source.scoped_clip_membership[0]==1u) {
-            *out_ir=materialize_clipped_image(source,1u);
+           source.order.size()==source.draws.size() &&
+           source.scoped_clip_membership.size()==source.draws.size()) {
+            *out_ir=materialize_clipped_image(
+                source,source.draws.size());
             return QUANTAPDF_OK;
         }
         const bool flexible_scoped=profile.variable_operations;
