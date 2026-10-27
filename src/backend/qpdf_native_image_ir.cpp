@@ -1210,9 +1210,21 @@ quantapdf_ir materialize_scoped_mixed_v5(const admission& source,
             else throw rejected{QUANTAPDF_ERROR_UNSUPPORTED};
         }
     }
+    /* The public native-only V10 profile also admits exactly one
+     * Image Do and one opaque Path Fill within the SAME frozen W/W*
+     * Clip, in either authored paint order. This never broadens V5–V9
+     * private Source signatures, and three all-clipped paints still
+     * refuse atomically rather than silently dropping an operation. */
+    const bool native_two_inside=source.native_unclipped_mode &&
+        flexible_v6 && count==2u &&
+        source.draws.size()==1u &&
+        source.painted_paths.size()==1u &&
+        source.scoped_clip_membership.size()==2u &&
+        source.scoped_clip_membership[0]==1u &&
+        source.scoped_clip_membership[1]==1u;
     if(flexible_v6)
         admit(inside_images+inside_paths>=1u &&
-              outside_images+outside_paths>=1u,
+              (outside_images+outside_paths>=1u || native_two_inside),
               QUANTAPDF_ERROR_UNSUPPORTED);
     else
         admit(inside_images==1u && inside_paths==1u &&
