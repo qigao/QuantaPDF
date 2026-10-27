@@ -68,6 +68,13 @@ Contents split before `n`; real Q restoration; whole-page MAE and
 gross-error thresholds unchanged from V6–V8; exact fixed interior
 red/cyan/blue/yellow/gray/white probes.
 
+A separate original-PDF fixture uses **two distinct XObject resources**
+(`/I` RGB and `/J` Gray), with independent per-resource Decode pairs
+and source-ordered clipping/Q restore. It verifies both an explicit
+RGB invert with a Gray identity and an implicit RGB identity with a
+Gray invert, plus a malformed **second** Decode after earlier admitted
+paints (all-or-nothing output zero).
+
 Both old V8 on exact implicit identity and new V9 on explicit identity
 must yield **byte-identical** Native RGBA buffers. New V9-positive
 sources must still be rejected atomically by V8. Negative tests cover

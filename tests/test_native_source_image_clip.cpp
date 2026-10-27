@@ -60,6 +60,8 @@ struct fixture {
     bool mask=false,invalid_color=false;
     bool gray_image=false;
     std::string image_decode;
+    bool second_image=false,second_image_gray=false;
+    std::string second_image_decode;
 };
 
 std::vector<unsigned char> original_pdf(const fixture& sc)
@@ -91,6 +93,24 @@ std::vector<unsigned char> original_pdf(const fixture& sc)
         Obj::newName("/None"));
     Obj resources=Obj::newDictionary(),objects=Obj::newDictionary();
     objects.replaceKey("/I",img);
+    /* Optional distinct /J resource: two Do operations are not merely
+     * repeated references to one /I image. V9 must normalize each
+     * image dictionary's own Decode and preserve its pixel ownership. */
+    if(sc.second_image) {
+        Obj second=pdf->newStream(sc.second_image_gray ?
+            std::string("\x00\x55\xaa\xff",4) : raw);
+        second.getDict().replaceKey("/Type",Obj::newName("/XObject"));
+        second.getDict().replaceKey("/Subtype",Obj::newName("/Image"));
+        second.getDict().replaceKey("/Width",Obj::newInteger(2));
+        second.getDict().replaceKey("/Height",Obj::newInteger(2));
+        second.getDict().replaceKey("/BitsPerComponent",Obj::newInteger(8));
+        second.getDict().replaceKey("/ColorSpace",
+            Obj::newName(sc.second_image_gray?"/DeviceGray":"/DeviceRGB"));
+        if(!sc.second_image_decode.empty())
+            second.getDict().replaceKey("/Decode",
+                Obj::parse(sc.second_image_decode));
+        objects.replaceKey("/J",second);
+    }
     resources.replaceKey("/XObject",objects);
     if(!sc.missing_resources)page.replaceKey("/Resources",resources);
     if(sc.split)
@@ -768,7 +788,8 @@ int positive_scoped_mixed_v6(
                 quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
                     original.data(),original.size(),&bounded,&ir)));
     OK(accepted);
-    if(image_decode_v9 && !sc.image_decode.empty()) {
+    if(image_decode_v9 &&
+       (!sc.image_decode.empty() || !sc.second_image_decode.empty())) {
         /* Existing V8 MUST still refuse an explicit /Decode even when
          * the V9 Source conversion would yield exactly the same colors. */
         quantapdf_ir old_decode;
@@ -2492,6 +2513,33 @@ int source_scoped_mixed_v9_image_decode_suite()
          {23u,3u,0u,255u,255u},{26u,5u,223u,223u,223u}},
         false,false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
 
+    /* A different Image XObject /J has its OWN Decode and sample layout.
+     * Source order is: clipped Path, clipped /I RGB, restored /J Gray,
+     * restored Path. This detects accidental sharing of the /I mapping
+     * across the /J dictionary, not just repeated Do on one resource. */
+    fixture heterogeneous=four;
+    heterogeneous.second_image=true;
+    heterogeneous.second_image_gray=true;
+    heterogeneous.second_image_decode="[0 1]";
+    heterogeneous.a=clip+path_inside+image_inside+"Q "+
+        "q 8 0 0 6 22 16 cm /J Do Q "+path_outside;
+    if(positive_scoped_mixed_v6(heterogeneous,2u,2u,2u,
+        {{13u,11u,0u,255u,255u},{13u,16u,255u,255u,0u},
+         {23u,3u,0u,0u,0u},{27u,3u,85u,85u,85u},
+         {23u,6u,170u,170u,170u},{26u,5u,223u,223u,223u}},
+        false,false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
+    /* Inversion only on /J must still reject the whole source in V8,
+     * while V9 retains implicit identity on /I. */
+    fixture secondary_only=heterogeneous;
+    secondary_only.image_decode.clear();
+    secondary_only.second_image_decode="[1 0]";
+    if(positive_scoped_mixed_v6(secondary_only,2u,2u,2u,
+        {{13u,11u,255u,0u,0u},{13u,16u,0u,0u,255u},
+         {23u,3u,255u,255u,255u},{27u,3u,170u,170u,170u},
+         {23u,6u,85u,85u,85u},{26u,5u,223u,223u,223u}},
+        false,false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
     /* DeviceGray is one component, with a separate 2-number mapping.
      * 2x2 RAW samples [0,85,170,255] become [255,170,85,0]. */
     fixture gray=inverted;
@@ -2566,6 +2614,14 @@ int source_scoped_mixed_v9_image_decode_suite()
             bad,QUANTAPDF_ERROR_UNSUPPORTED,bounds,
             false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
     }
+    /* A malformed SECOND image must atomically discard earlier
+     * accepted /I and Path operations, even after their decoded bytes
+     * were staged. */
+    fixture wrong_second=heterogeneous;
+    wrong_second.second_image_decode="[0 1 0 1 0 1]";
+    if(negative_scoped_mixed_v6(
+        wrong_second,QUANTAPDF_ERROR_UNSUPPORTED,bounds,
+        false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
     fixture wrong_gray=gray;
     wrong_gray.image_decode="[0 1 0 1 0 1]";
     if(negative_scoped_mixed_v6(
