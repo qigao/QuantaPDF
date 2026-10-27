@@ -5,6 +5,7 @@
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFExc.hh>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
