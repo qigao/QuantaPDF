@@ -30,7 +30,12 @@ quantapdf_status quantapdf_render_page_native_qualified_v1(
         page->backend == NULL || page->page_index < 0)
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    if (page->document->ops != quantapdf_builtin_backend_ops() ||
+    /* The Context's provider is immutable and originates in the actual
+     * product. Compare its bound ops with the Page/Document owner rather
+     * than comparing addresses of backend tables duplicated by a test
+     * executable and the Windows DLL. No dynamic provider substitution. */
+    if (page->context->ops == NULL ||
+        page->document->ops != page->context->ops ||
         (size_t)page->page_index != device->page_index)
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
@@ -46,8 +51,12 @@ quantapdf_status quantapdf_render_page_native_qualified_v1(
     }
     bitmap->context = page->context;
 
-    status = quantapdf_document_page_user_unit(
-        page->document, page->page_index, &unit);
+    /* Equivalent to the established facade's private user-unit
+     * wrapper, but use the live owner-bound provider callback directly.
+     * This also keeps the private object usable by an in-tree Windows
+     * DLL test without exporting document.c's private symbol. */
+    status = page->document->ops->page_user_unit(
+        page->document->backend, page->page_index, &unit);
     if (status == QUANTAPDF_OK) {
         /* Source V8's integer-pixel, one-page producer is UserUnit=1
          * only. Neither scale nor device-option approximation is legal. */
