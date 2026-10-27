@@ -134,13 +134,15 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5(
        ir->resources.paint_count!=0u ||
        ir->link_count!=0u || ir->outline_count!=0u)
         return QUANTAPDF_ERROR_UNSUPPORTED;
-    /* Exact one/two PATHs with zero Images are a separately admitted
-     * native-only profile, not an unvalidated partial mixed Image page.
+    /* Exact one..four PATHs with zero Images are a separately admitted
+     * native-only profile, using the existing four-layer ceiling rather
+     * than accepting unvalidated mixed/Clip resource state.
      * Refuse ALL resource pointers, capacities and counts so no hidden
      * Image/Clip/GS/Font can be discarded by the fast path. */
     if(ir->resources.image_count==0u) {
         const quantapdf_resource_registry *r=&ir->resources;
-        if(ir->operation_count==0u || ir->operation_count>2u ||
+        if(ir->operation_count==0u ||
+           ir->operation_count>QP_V5_MAX_LAYERS ||
            r->images!=NULL || r->image_capacity!=0u ||
            r->graphics_states!=NULL || r->graphics_state_count!=0u ||
            r->graphics_state_capacity!=0u ||

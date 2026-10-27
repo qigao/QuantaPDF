@@ -354,7 +354,14 @@ struct admission {
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule)
     {
-        const size_t allowed_paths=mixed_operation_limit==4u ? 2u : 1u;
+        /* Public V10 PATH-only pages may consume the EXISTING four
+         * canonical C11 raster layers. A page with a frozen W/W* Clip
+         * or any Image retains the independently qualified strict
+         * one/two PATH admission: no implicit mixed/Clip expansion. */
+        const size_t allowed_paths=
+            native_unclipped_mode && !clip_completed && draws.empty() ?
+                hard_operations :
+                (mixed_operation_limit==4u ? 2u : 1u);
         admit(mixed_mode && painted_paths.size()<allowed_paths &&
               commands.size()>=4u && commands.size()<=9u &&
               order.size()<mixed_operation_limit &&
@@ -865,16 +872,18 @@ quantapdf_ir materialize_blank_page(const admission& source)
     return ir;
 }
 
-/* Public-native Source V10 PATH-only subset: never invent an Image
- * resource to satisfy the legacy mixed Source cardinality. The Page,
- * complete ordered PATH commands and their colors are copied to uniquely
- * owned IR. Existing pure-C11 V5 Raster handles actual geometry. */
+/* Public-native Source V10 bounded 1..4 PATH-only fills: never invent
+ * an Image or Clip resource to satisfy the legacy mixed cardinality.
+ * This stays inside the EXISTING four-layer global C11 Raster limit.
+ * Exact source order, budget, EOF and complete ownership are validated
+ * before publishing uniquely owned IR. */
 quantapdf_ir materialize_path_only(const admission& source)
 {
     const size_t n=source.order.size();
     admit(source.native_unclipped_mode &&
           source.mixed_mode && source.mixed_scoped_mode &&
-          n>=1u && n<=2u && n<=source.limits.max_operations &&
+          n>=1u && n<=hard_operations &&
+          n<=source.limits.max_operations &&
           source.draws.empty() && source.painted_paths.size()==n &&
           source.scoped_clip_membership.size()==n &&
           !source.clip_completed && source.clip.commands.empty() &&
