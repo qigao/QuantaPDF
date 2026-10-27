@@ -1,6 +1,6 @@
 @PACKAGE_INIT@
 
-# Production exports contain no PDFium binary, imported target or fallback.
+# Native-only package exports the installed C11 target and QPDF link closure.
 # qpdf remains the private PDF structure/editing and source-decoding library.
 if(NOT "@BUILD_SHARED_LIBS@")
   include(CMakeFindDependencyMacro)
