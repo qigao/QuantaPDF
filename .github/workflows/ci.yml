@@ -1,4 +1,4 @@
-name: QuantaPDF CI
+name: QuantaPDF Native CI
 
 on:
   push:
@@ -16,41 +16,28 @@ permissions:
   contents: read
 
 concurrency:
-  group: quantapdf-${{ github.head_ref || github.ref_name }}
+  group: native-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
   VCPKG_COMMIT: f74a2eade17a628413746557d04db25ccf6e76f9
-  PDFIUM_RELEASE: chromium-8021
-  PDFIUM_VERSION: 154.0.8021.0
 
 jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Restore pinned PDFium archive
-        uses: actions/cache@v4
-        with:
-          path: build/**/_deps/downloads/pdfium-*.tgz
-          key: pdfium-${{ runner.os }}-${{ runner.arch }}-${{ env.PDFIUM_RELEASE }}
-
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/vcpkg-binary-cache
-          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
-          restore-keys: |
-            vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
-
+          key: vcpkg-native-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
       - name: Configure vcpkg binary cache
         shell: bash
         run: |
-          mkdir -p "${{ runner.temp }}/vcpkg-binary-cache"
-          echo "VCPKG_DEFAULT_BINARY_CACHE=${{ runner.temp }}/vcpkg-binary-cache" >> "$GITHUB_ENV"
-
+          mkdir -p "$RUNNER_TEMP/vcpkg-binary-cache"
+          echo "VCPKG_DEFAULT_BINARY_CACHE=$RUNNER_TEMP/vcpkg-binary-cache" >> "$GITHUB_ENV"
       - name: Bootstrap pinned vcpkg
         shell: bash
         run: |
@@ -61,297 +48,58 @@ jobs:
           "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
           echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
           echo "PROJECT_ROOT=$RUNNER_TEMP" >> "$GITHUB_ENV"
-
-      - name: Install qpdf with vcpkg
+      - name: Install qpdf
         shell: bash
-        run: |
-          "$VCPKG_ROOT/vcpkg" install --triplet x64-linux
-
+        run: "$VCPKG_ROOT/vcpkg" install --triplet x64-linux
       - name: Save vcpkg binary cache
         if: steps.vcpkg-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
-
-      - name: Configure static build
-        shell: bash
+      - name: Native Release configure
         run: cmake --fresh --preset linux-release-user
-
-      - name: Audit pinned PDFium artifact
-        shell: bash
-        run: |
-          root="build/linux-gcc-release/_deps/pdfium-${PDFIUM_VERSION}-linux-x64"
-          grep -Fxq 'pdf_enable_v8 = false' "$root/args.gn"
-          grep -Fxq 'pdf_enable_xfa = false' "$root/args.gn"
-          grep -Fxq 'pdf_use_partition_alloc = false' "$root/args.gn"
-          grep -Fxq 'MAJOR=154' "$root/VERSION"
-          grep -Fxq 'MINOR=0' "$root/VERSION"
-          grep -Fxq 'BUILD=8021' "$root/VERSION"
-          grep -Fxq 'PATCH=0' "$root/VERSION"
-
-      - name: Build static library and tests
+      - name: Native Release build
         run: cmake --build --preset linux-release-user --parallel 2
-
-      - name: Test static build
+      - name: Native Release tests
         run: ctest --preset linux-release-user
-
-      - name: Product conformance (Linux Release)
-        run: ctest --preset linux-release-user -L conformance --output-on-failure
-
-      - name: Qualify licensed TeXample W-star original (Linux Release)
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Validate the unchanged source already stored in the corpus.
-          # No network fetch is needed in this dependent admission PR.
-          original="$GITHUB_WORKSPACE/tests/external_source_corpus/documents/texample.intersecting-rings-v1.pdf"
-          test -s "$original"
-          printf '%s  %s\n' \
-            'f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284' \
-            "$original" | sha256sum --check -
-          LD_LIBRARY_PATH="$GITHUB_WORKSPACE/build/linux-gcc-release/_deps/pdfium-${PDFIUM_VERSION}-linux-x64/lib:${LD_LIBRARY_PATH:-}" \
-            cmake \
-              -DORACLE="$GITHUB_WORKSPACE/build/linux-gcc-release/tests/quantapdf_test_native_source_qq_oracle" \
-              -DSOURCE="$original" \
-              -DREPORT="$RUNNER_TEMP/texample-intersecting-rings-release.json" \
-              -DEXPECTED_SHA256='f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284' \
-              -P tests/check_external_tikz_wstar_candidate.cmake
-
-      - name: Install static SDK
+      - name: Install native SDK
         run: cmake --build --preset install-linux-release-user --parallel 2
-
-      - name: Verify test-only licensed PDF is excluded from Linux SDK
+      - name: Assert no PDFium installation
         shell: bash
         run: |
-          set -euo pipefail
-          python3 -m unittest discover -s tests -p test_sdk_test_data_boundary.py
-          python3 tools/qualification/sdk_test_data_boundary.py \
-            --install-manifest build/linux-gcc-release/install_manifest.txt
-
-      - name: Qualify CFF2 with Poppler
-        shell: bash
-        run: |
-          if ! command -v pdftotext >/dev/null 2>&1 || ! command -v pdffonts >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y poppler-utils
+          prefix="$RUNNER_TEMP/external/pkgs/quantapdf/release"
+          test -f "$prefix/lib/cmake/QuantaPDF/QuantaPDFConfig.cmake"
+          if grep -Ri -E '(libpdfium|_PDFium|quantapdf_pdfium)' "$prefix/lib/cmake/QuantaPDF"; then
+            echo "PDFium consumer linkage remains in the exported CMake package" >&2
+            exit 1
           fi
-          pdf="$(find build/linux-gcc-release -name composer-cff2-output.pdf -print -quit)"
-          test -n "$pdf"
-          test -s "$pdf"
-          pdffonts "$pdf" | tee "$RUNNER_TEMP/cff2-pdffonts.txt"
-          grep -Fq "SourceSans" "$RUNNER_TEMP/cff2-pdffonts.txt"
-          pdftotext "$pdf" "$RUNNER_TEMP/cff2-poppler.txt"
-          grep -Fq "CFF Caf" "$RUNNER_TEMP/cff2-poppler.txt"
-          grep -Fq "AV" "$RUNNER_TEMP/cff2-poppler.txt"
-
-      - name: Configure sanitizer build
-        shell: bash
+          if find "$prefix" -type f -iname '*pdfium*' | grep .; then
+            echo "PDFium binary or license artifact installed" >&2
+            exit 1
+          fi
+      - name: Native ASan/UBSan configure
         run: cmake --fresh --preset linux-dev-user
-
-      - name: Audit sanitizer PDFium artifact
-        shell: bash
-        run: |
-          root="build/linux-gcc-debug/_deps/pdfium-${PDFIUM_VERSION}-linux-x64"
-          grep -Fxq 'pdf_enable_v8 = false' "$root/args.gn"
-          grep -Fxq 'pdf_enable_xfa = false' "$root/args.gn"
-          grep -Fxq 'pdf_use_partition_alloc = false' "$root/args.gn"
-          grep -Fxq 'BUILD=8021' "$root/VERSION"
-
-      - name: Build sanitizer configuration
+      - name: Native ASan/UBSan build
         run: cmake --build --preset linux-dev-user --parallel 2
-
-      - name: Test sanitizer configuration
+      - name: Native ASan/UBSan tests
         run: ctest --preset linux-dev-user
 
-      - name: Product conformance (Linux ASan/UBSan)
-        run: ctest --preset linux-dev-user -L conformance --output-on-failure
-
-      - name: Qualify licensed TeXample W-star original (Linux ASan/UBSan)
-        shell: bash
-        run: |
-          set -euo pipefail
-          original="$GITHUB_WORKSPACE/tests/external_source_corpus/documents/texample.intersecting-rings-v1.pdf"
-          test -s "$original"
-          LD_LIBRARY_PATH="$GITHUB_WORKSPACE/build/linux-gcc-debug/_deps/pdfium-${PDFIUM_VERSION}-linux-x64/lib:${LD_LIBRARY_PATH:-}" \
-          ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
-          UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
-            cmake \
-              -DORACLE="$GITHUB_WORKSPACE/build/linux-gcc-debug/tests/quantapdf_test_native_source_qq_oracle" \
-              -DSOURCE="$original" \
-              -DREPORT="$RUNNER_TEMP/texample-intersecting-rings-asan-ubsan.json" \
-              -DEXPECTED_SHA256='f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284' \
-              -P tests/check_external_tikz_wstar_candidate.cmake
-
-      - name: Upload TeXample W-star candidate pixel reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: texample-intersecting-rings-pixel-qualification
-          path: |
-            ${{ runner.temp }}/texample-intersecting-rings-release.json
-            ${{ runner.temp }}/texample-intersecting-rings-asan-ubsan.json
-          if-no-files-found: error
-          retention-days: 7
-
-      # Explicitly opted-in original; both actual Release and sanitizer
-      # executables inspect the same unchanged file. JSON is the only artifact.
-      - name: Test original jsPDF Native qualification contract
-        run: python3 tools/qualification/native_device_original.py --self-test
-
-      - name: Qualify original jsPDF Native-positive observation (Linux Release and ASan/UBSan)
-        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
-        shell: bash
-        run: |
-          set -euo pipefail
-          original="$RUNNER_TEMP/qp-m2-jspdf-original.pdf"
-          trap 'rm -f "$original"' EXIT
-          curl --fail --show-error --silent --location --retry 3 --max-time 60 \
-            'https://raw.githubusercontent.com/parallax/jsPDF/20d32998267745aa5336e299baa65d4f45916fb5/test/reference/w3s_clip.pdf' \
-            --output "$original"
-          for configuration in release debug; do
-            build="build/linux-gcc-$configuration"
-            LD_LIBRARY_PATH="$GITHUB_WORKSPACE/$build/_deps/pdfium-${PDFIUM_VERSION}-linux-x64/lib:${LD_LIBRARY_PATH:-}" \
-            ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
-            UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
-            python3 tools/qualification/native_device_original.py \
-              --source "$original" \
-              --executable "$build/tests/quantapdf_test_native_device_source" \
-              --report "$RUNNER_TEMP/qp-m2-original-$configuration.json"
-          done
-
-      - name: Upload original jsPDF Native observation (Linux)
-        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-device-original-linux
-          path: |
-            ${{ runner.temp }}/qp-m2-original-release.json
-            ${{ runner.temp }}/qp-m2-original-debug.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Qualify external PDF corpus admission (Linux)
-        shell: bash
-        run: |
-          python3 -m unittest discover -s tests -p test_external_pdf_corpus.py
-          python3 tools/qualification/external_pdf_corpus.py \
-            --manifest tests/external_source_corpus/manifest.json \
-            --assets tests/external_source_corpus/documents \
-            --report "${{ runner.temp }}/external-pdf-corpus.json"
-
-      - name: Upload external PDF corpus admission (Linux)
-        uses: actions/upload-artifact@v4
-        with:
-          name: external-corpus-admission-linux
-          path: ${{ runner.temp }}/external-pdf-corpus.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Reconcile external source conformance (Linux)
-        shell: bash
-        run: |
-          python3 -m unittest discover -s tests -p test_external_corpus_reconcile.py
-          python3 tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/linux-gcc-release/tests/external-cc0-text-status.json" --blank "build/linux-gcc-release/tests/external-cc0-blank-status.json" --path "build/linux-gcc-release/tests/external-pdfium-black-path-status.json" --clip "build/linux-gcc-release/tests/external-pdfium-clip-stroke-status.json" --wstar "build/linux-gcc-release/tests/external-pdfium-wstar-late-text-status.json" --wstar-positive "build/linux-gcc-release/tests/external-pdfium-wstar-pixel-status.json" --wstar-second-positive "build/linux-gcc-release/tests/external-texample-wstar-pixel-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
-
-      - name: Upload reconciled external corpus (Linux)
-        uses: actions/upload-artifact@v4
-        with:
-          name: external-corpus-reconciled-linux
-          path: ${{ runner.temp }}/external-corpus-reconciled.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload external W Clip + stroke native oracle (Linux)
-        uses: actions/upload-artifact@v4
-        with:
-          name: external-clipped-stroke-native-linux
-          path: |
-            build/linux-gcc-release/tests/external-pdfium-clip-stroke-status.json
-            build/linux-gcc-debug/tests/external-pdfium-clip-stroke-status.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload external opaque PATH native oracle (Linux)
-        uses: actions/upload-artifact@v4
-        with:
-          name: external-opaque-path-native-linux
-          path: |
-            build/linux-gcc-release/tests/external-pdfium-black-path-status.json
-            build/linux-gcc-debug/tests/external-pdfium-black-path-status.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload external blank-page native oracle (Linux)
-        uses: actions/upload-artifact@v4
-        with:
-          name: external-blank-native-linux
-          path: |
-            build/linux-gcc-release/tests/external-cc0-blank-status.json
-            build/linux-gcc-debug/tests/external-cc0-blank-status.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload external CC0 semantic report (Linux)
-        uses: actions/upload-artifact@v4
-        with:
-          name: external-source-semantic-and-wstar-linux
-          path: |
-            build/linux-gcc-release/tests/external-cc0-text-status.json
-            build/linux-gcc-debug/tests/external-cc0-text-status.json
-            build/linux-gcc-release/tests/external-pdfium-wstar-late-text-status.json
-            build/linux-gcc-debug/tests/external-pdfium-wstar-late-text-status.json
-            build/linux-gcc-release/tests/external-pdfium-wstar-pixel-status.json
-            build/linux-gcc-release/tests/external-texample-wstar-pixel-status.json
-            build/linux-gcc-debug/tests/external-pdfium-wstar-pixel-status.json
-            build/linux-gcc-debug/tests/external-texample-wstar-pixel-status.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload source-PDF corpus reports (Linux)
-        uses: actions/upload-artifact@v4
-        with:
-          name: source-corpus-linux
-          path: |
-            build/linux-gcc-release/tests/native-source-corpus.json
-            build/linux-gcc-debug/tests/native-source-corpus.json
-            build/linux-gcc-release/tests/yworks-svg-w-candidate-pixel.json
-            build/linux-gcc-release/tests/external-pdfium-wstar-pixel-status.json
-            build/linux-gcc-release/tests/external-texample-wstar-pixel-status.json
-          if-no-files-found: error
-          retention-days: 7
-
   macos:
-    if: >-
-      github.event_name == 'push' ||
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' &&
-       (contains(github.event.pull_request.labels.*.name, 'full-ci') ||
-        github.event.pull_request.number == 415))
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Restore pinned PDFium archive
-        uses: actions/cache@v4
-        with:
-          path: build/**/_deps/downloads/pdfium-*.tgz
-          key: pdfium-${{ runner.os }}-${{ runner.arch }}-${{ env.PDFIUM_RELEASE }}
-
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/vcpkg-binary-cache
-          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
-          restore-keys: |
-            vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
-
-      - name: Configure vcpkg binary cache
+          key: vcpkg-native-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
+      - name: Configure cache
         shell: bash
         run: |
-          mkdir -p "${{ runner.temp }}/vcpkg-binary-cache"
-          echo "VCPKG_DEFAULT_BINARY_CACHE=${{ runner.temp }}/vcpkg-binary-cache" >> "$GITHUB_ENV"
-
+          mkdir -p "$RUNNER_TEMP/vcpkg-binary-cache"
+          echo "VCPKG_DEFAULT_BINARY_CACHE=$RUNNER_TEMP/vcpkg-binary-cache" >> "$GITHUB_ENV"
       - name: Bootstrap pinned vcpkg
         shell: bash
         run: |
@@ -362,241 +110,60 @@ jobs:
           "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
           echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
           echo "PROJECT_ROOT=$RUNNER_TEMP" >> "$GITHUB_ENV"
-
-      - name: Select vcpkg triplet
+      - name: Select native preset
         shell: bash
         run: |
           case "$(uname -m)" in
-            arm64) triplet=arm64-osx; preset=macos-arm64-release-user; pdfium=mac-arm64 ;;
-            x86_64) triplet=x64-osx; preset=macos-x64-release-user; pdfium=mac-x64 ;;
-            *) echo "Unsupported macOS architecture: $(uname -m)" >&2; exit 1 ;;
+            arm64) echo 'VCPKG_TRIPLET=arm64-osx' >> "$GITHUB_ENV"
+                   echo 'NATIVE_PRESET=macos-arm64-release-user' >> "$GITHUB_ENV" ;;
+            x86_64) echo 'VCPKG_TRIPLET=x64-osx' >> "$GITHUB_ENV"
+                    echo 'NATIVE_PRESET=macos-x64-release-user' >> "$GITHUB_ENV" ;;
+            *) exit 1 ;;
           esac
-          echo "VCPKG_TRIPLET=$triplet" >> "$GITHUB_ENV"
-          echo "CMAKE_PRESET=$preset" >> "$GITHUB_ENV"
-          echo "PDFIUM_PLATFORM=$pdfium" >> "$GITHUB_ENV"
-
-      - name: Install qpdf with vcpkg
+      - name: Install qpdf
         shell: bash
-        run: |
-          "$VCPKG_ROOT/vcpkg" install --triplet "$VCPKG_TRIPLET"
-
+        run: "$VCPKG_ROOT/vcpkg" install --triplet "$VCPKG_TRIPLET"
       - name: Save vcpkg binary cache
         if: steps.vcpkg-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
-
       - name: Configure
-        shell: bash
-        run: cmake --fresh --preset "$CMAKE_PRESET"
-
-      - name: Audit pinned PDFium artifact
-        shell: bash
-        run: |
-          root="build/macos-clang-release/_deps/pdfium-${PDFIUM_VERSION}-${PDFIUM_PLATFORM}"
-          grep -Fxq 'pdf_enable_v8 = false' "$root/args.gn"
-          grep -Fxq 'pdf_enable_xfa = false' "$root/args.gn"
-          grep -Fxq 'pdf_use_partition_alloc = false' "$root/args.gn"
-          grep -Fxq 'MAJOR=154' "$root/VERSION"
-          grep -Fxq 'MINOR=0' "$root/VERSION"
-          grep -Fxq 'BUILD=8021' "$root/VERSION"
-          grep -Fxq 'PATCH=0' "$root/VERSION"
-
+        run: cmake --fresh --preset "$NATIVE_PRESET"
       - name: Build
-        run: cmake --build --preset "$CMAKE_PRESET" --parallel 2
-
-      - name: Test
-        run: ctest --preset "$CMAKE_PRESET"
-
-      - name: Product conformance (macOS)
-        run: ctest --preset "$CMAKE_PRESET" -L conformance --output-on-failure
-
-      - name: Qualify licensed TeXample W-star original (macOS Release)
-        if: github.event_name == 'pull_request' && github.event.pull_request.number == 415
+        run: cmake --build --preset "$NATIVE_PRESET" --parallel 2
+      - name: Native tests
+        run: ctest --preset "$NATIVE_PRESET"
+      - name: Install native SDK and audit
         shell: bash
         run: |
-          set -euo pipefail
-          original="$RUNNER_TEMP/texample-intersecting-rings.pdf"
-          curl --fail --show-error --silent --location --retry 3 --max-time 60 \
-            'https://texample.net/files/intersecting-rings.pdf' --output "$original"
-          export DYLD_LIBRARY_PATH="$GITHUB_WORKSPACE/build/macos-clang-release/_deps/pdfium-${PDFIUM_VERSION}-${PDFIUM_PLATFORM}/lib:${DYLD_LIBRARY_PATH:-}"
-          cmake \
-            -DORACLE="$GITHUB_WORKSPACE/build/macos-clang-release/tests/quantapdf_test_native_source_qq_oracle" \
-            -DSOURCE="$original" \
-            -DREPORT="$RUNNER_TEMP/texample-intersecting-rings-macos.json" \
-            -DEXPECTED_SHA256='f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284' \
-            -P tests/check_external_tikz_wstar_candidate.cmake
-
-      - name: Upload TeXample W-star pixel report (macOS)
-        if: github.event_name == 'pull_request' && github.event.pull_request.number == 415
-        uses: actions/upload-artifact@v4
-        with:
-          name: texample-intersecting-rings-pixel-qualification-macos
-          path: ${{ runner.temp }}/texample-intersecting-rings-macos.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Test original jsPDF Native qualification contract
-        run: python3 tools/qualification/native_device_original.py --self-test
-
-      - name: Qualify original jsPDF Native-positive observation (macOS)
-        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
-        shell: bash
-        run: |
-          set -euo pipefail
-          original="$RUNNER_TEMP/qp-m2-jspdf-original.pdf"
-          trap 'rm -f "$original"' EXIT
-          curl --fail --show-error --silent --location --retry 3 --max-time 60 \
-            'https://raw.githubusercontent.com/parallax/jsPDF/20d32998267745aa5336e299baa65d4f45916fb5/test/reference/w3s_clip.pdf' \
-            --output "$original"
-          export DYLD_LIBRARY_PATH="$GITHUB_WORKSPACE/build/macos-clang-release/_deps/pdfium-${PDFIUM_VERSION}-${PDFIUM_PLATFORM}/lib:${DYLD_LIBRARY_PATH:-}"
-          python3 tools/qualification/native_device_original.py \
-            --source "$original" \
-            --executable build/macos-clang-release/tests/quantapdf_test_native_device_source \
-            --report "$RUNNER_TEMP/qp-m2-original-release.json"
-
-      - name: Upload original jsPDF Native observation (macOS)
-        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-device-original-macos
-          path: ${{ runner.temp }}/qp-m2-original-release.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Install SDK
-        run: cmake --build --preset "install-$CMAKE_PRESET" --parallel 2
-
-      - name: Verify test-only licensed PDF is excluded from macOS SDK
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 -m unittest discover -s tests -p test_sdk_test_data_boundary.py
-          python3 tools/qualification/sdk_test_data_boundary.py \
-            --install-manifest build/macos-clang-release/install_manifest.txt
-
-      - name: Qualify external PDF corpus admission (macOS)
-        shell: bash
-        run: |
-          python3 -m unittest discover -s tests -p test_external_pdf_corpus.py
-          python3 tools/qualification/external_pdf_corpus.py \
-            --manifest tests/external_source_corpus/manifest.json \
-            --assets tests/external_source_corpus/documents \
-            --report "${{ runner.temp }}/external-pdf-corpus.json"
-
-      - name: Upload external PDF corpus admission (macOS)
-        uses: actions/upload-artifact@v4
-        with:
-          name: external-corpus-admission-macos
-          path: ${{ runner.temp }}/external-pdf-corpus.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Reconcile external source conformance (macOS)
-        shell: bash
-        run: |
-          python3 -m unittest discover -s tests -p test_external_corpus_reconcile.py
-          python3 tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/macos-clang-release/tests/external-cc0-text-status.json" --blank "build/macos-clang-release/tests/external-cc0-blank-status.json" --path "build/macos-clang-release/tests/external-pdfium-black-path-status.json" --clip "build/macos-clang-release/tests/external-pdfium-clip-stroke-status.json" --wstar "build/macos-clang-release/tests/external-pdfium-wstar-late-text-status.json" --wstar-positive "build/macos-clang-release/tests/external-pdfium-wstar-pixel-status.json" --wstar-second-positive "build/macos-clang-release/tests/external-texample-wstar-pixel-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
-
-      - name: Upload reconciled external corpus (macOS)
-        uses: actions/upload-artifact@v4
-        with:
-          name: external-corpus-reconciled-macos
-          path: ${{ runner.temp }}/external-corpus-reconciled.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload external W Clip + stroke native oracle (macOS)
-        uses: actions/upload-artifact@v4
-        with:
-          name: external-clipped-stroke-native-macos
-          path: build/macos-clang-release/tests/external-pdfium-clip-stroke-status.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload external opaque PATH native oracle (macOS)
-        uses: actions/upload-artifact@v4
-        with:
-          name: external-opaque-path-native-macos
-          path: build/macos-clang-release/tests/external-pdfium-black-path-status.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload external blank-page native oracle (macOS)
-        uses: actions/upload-artifact@v4
-        with:
-          name: external-blank-native-macos
-          path: build/macos-clang-release/tests/external-cc0-blank-status.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload external CC0 semantic report (macOS)
-        uses: actions/upload-artifact@v4
-        with:
-          name: external-source-semantic-and-wstar-macos
-          path: |
-            build/macos-clang-release/tests/external-cc0-text-status.json
-            build/macos-clang-release/tests/external-pdfium-wstar-late-text-status.json
-            build/macos-clang-release/tests/external-pdfium-wstar-pixel-status.json
-            build/macos-clang-release/tests/external-texample-wstar-pixel-status.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload source-PDF corpus report (macOS)
-        uses: actions/upload-artifact@v4
-        with:
-          name: source-corpus-macos
-          path: |
-            build/macos-clang-release/tests/native-source-corpus.json
-            build/macos-clang-release/tests/yworks-svg-w-candidate-pixel.json
-            build/macos-clang-release/tests/external-pdfium-wstar-pixel-status.json
-            build/macos-clang-release/tests/external-texample-wstar-pixel-status.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload failed poster output
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-poster-split-output
-          path: build/macos-clang-release/poster-split-output.pdf
-          if-no-files-found: error
-          retention-days: 1
+          cmake --install build/macos-clang-release
+          prefix="$RUNNER_TEMP/external/pkgs/quantapdf/release"
+          test -f "$prefix/lib/cmake/QuantaPDF/QuantaPDFConfig.cmake"
+          if grep -Ri -E '(libpdfium|_PDFium|quantapdf_pdfium)' "$prefix/lib/cmake/QuantaPDF"; then
+            exit 1
+          fi
+          if find "$prefix" -type f -iname '*pdfium*' | grep .; then
+            exit 1
+          fi
 
   windows:
-    if: >-
-      github.event_name == 'push' ||
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' &&
-       (contains(github.event.pull_request.labels.*.name, 'full-ci') ||
-        github.event.pull_request.number == 415))
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Restore pinned PDFium archive
-        uses: actions/cache@v4
-        with:
-          path: build/**/_deps/downloads/pdfium-*.tgz
-          key: pdfium-${{ runner.os }}-${{ runner.arch }}-${{ env.PDFIUM_RELEASE }}
-
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/vcpkg-binary-cache
-          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
-          restore-keys: |
-            vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
-
+          key: vcpkg-native-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
       - name: Configure vcpkg binary cache
         shell: pwsh
         run: |
           $cache = Join-Path $env:RUNNER_TEMP "vcpkg-binary-cache"
           New-Item -ItemType Directory -Force -Path $cache | Out-Null
           "VCPKG_DEFAULT_BINARY_CACHE=$cache" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
       - name: Bootstrap pinned vcpkg
         shell: pwsh
         run: |
@@ -608,222 +175,41 @@ jobs:
           & "$root\bootstrap-vcpkg.bat" -disableMetrics
           "VCPKG_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "PROJECT_ROOT=$env:RUNNER_TEMP" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Install qpdf with vcpkg
+      - name: Install qpdf
         shell: pwsh
-        run: |
-          & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x64-windows-static-md
-
+        run: '& "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x64-windows-static-md'
       - name: Save vcpkg binary cache
         if: steps.vcpkg-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
-
-      - name: Locate Visual Studio developer environment
+      - name: Locate Visual Studio environment
         shell: pwsh
         run: |
           $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
           $installation = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          if (-not $installation) { throw "Visual Studio C++ toolchain not found" }
+          if (-not $installation) { throw "MSVC toolchain not found" }
           $vsdev = Join-Path $installation "Common7\Tools\VsDevCmd.bat"
           "VSDEVCMD=$vsdev" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Configure QuantaPDF DLL
+      - name: Configure native DLL
         shell: cmd
-        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && cmake --fresh --preset win-release-user
-
-      - name: Audit pinned PDFium artifact
+        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && cmake --fresh --preset win-release-user
+      - name: Build native DLL
+        shell: cmd
+        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && cmake --build --preset win-release-user --parallel 2
+      - name: Native CTest
+        shell: cmd
+        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && ctest --preset win-release-user
+      - name: Install native SDK
+        shell: cmd
+        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && cmake --build --preset install-win-release-user
+      - name: Audit no PDFium artifacts
         shell: pwsh
         run: |
-          $root = Join-Path $env:GITHUB_WORKSPACE "build\Msvc-Release\_deps\pdfium-$env:PDFIUM_VERSION-win-x64"
-          $args = Get-Content (Join-Path $root "args.gn")
-          $version = Get-Content (Join-Path $root "VERSION")
-          foreach ($line in @("pdf_enable_v8 = false", "pdf_enable_xfa = false", "pdf_use_partition_alloc = false")) {
-            if ($args -notcontains $line) { throw "PDFium build audit failed: $line" }
-          }
-          foreach ($line in @("MAJOR=154", "MINOR=0", "BUILD=8021", "PATCH=0")) {
-            if ($version -notcontains $line) { throw "PDFium version audit failed: $line" }
-          }
-
-      - name: Build
-        shell: cmd
-        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && cmake --build --preset win-release-user
-
-      - name: Test
-        shell: cmd
-        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && ctest --preset win-release-user
-
-      - name: Product conformance (Windows)
-        shell: cmd
-        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && ctest --preset win-release-user -L conformance --output-on-failure
-
-      - name: Qualify licensed TeXample W-star original (Windows Release)
-        if: github.event_name == 'pull_request' && github.event.pull_request.number == 415
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $original = Join-Path $env:RUNNER_TEMP 'texample-intersecting-rings.pdf'
-          try {
-            Invoke-WebRequest -Uri 'https://texample.net/files/intersecting-rings.pdf' -OutFile $original -MaximumRedirection 5
-            $built = Join-Path $env:GITHUB_WORKSPACE 'build\Msvc-Release'
-            $pdfium = Join-Path $built "_deps\pdfium-$env:PDFIUM_VERSION-win-x64\bin"
-            if (-not (Test-Path (Join-Path $pdfium 'pdfium.dll'))) { throw 'Pinned PDFium DLL missing' }
-            $env:PATH = "$built;$pdfium;$env:PATH"
-            $oracle = Join-Path $built 'tests\quantapdf_test_native_source_qq_oracle.exe'
-            $report = Join-Path $env:RUNNER_TEMP 'texample-intersecting-rings-windows.json'
-            & cmake "-DORACLE=$oracle" "-DSOURCE=$original" "-DREPORT=$report" "-DEXPECTED_SHA256=f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284" -P tests/check_external_tikz_wstar_candidate.cmake
-            if ($LASTEXITCODE -ne 0) { throw 'Original TeXample PDF qualification failed' }
-          } finally {
-            Remove-Item -LiteralPath $original -Force -ErrorAction SilentlyContinue
-          }
-
-      - name: Upload TeXample W-star pixel report (Windows)
-        if: github.event_name == 'pull_request' && github.event.pull_request.number == 415
-        uses: actions/upload-artifact@v4
-        with:
-          name: texample-intersecting-rings-pixel-qualification-windows
-          path: ${{ runner.temp }}/texample-intersecting-rings-windows.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Test original jsPDF Native qualification contract
-        shell: pwsh
-        run: python tools/qualification/native_device_original.py --self-test
-
-      - name: Qualify original jsPDF Native-positive observation (Windows)
-        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $original = Join-Path $env:RUNNER_TEMP 'qp-m2-jspdf-original.pdf'
-          try {
-            Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/parallax/jsPDF/20d32998267745aa5336e299baa65d4f45916fb5/test/reference/w3s_clip.pdf' -OutFile $original -MaximumRedirection 5
-            $built = Join-Path $env:GITHUB_WORKSPACE 'build\Msvc-Release'
-            $pdfium = Join-Path $built "_deps\pdfium-$env:PDFIUM_VERSION-win-x64\bin"
-            if (-not (Test-Path (Join-Path $pdfium 'pdfium.dll'))) { throw 'Pinned PDFium DLL missing' }
-            $env:PATH = "$built;$pdfium;$env:PATH"
-            $executable = Join-Path $built 'tests\quantapdf_test_native_device_source.exe'
-            $report = Join-Path $env:RUNNER_TEMP 'qp-m2-original-release.json'
-            python tools/qualification/native_device_original.py --source $original --executable $executable --report $report
-            if ($LASTEXITCODE -ne 0) { throw 'Original M1 device plan qualification failed' }
-          } finally {
-            Remove-Item -LiteralPath $original -Force -ErrorAction SilentlyContinue
-          }
-
-      - name: Upload original jsPDF Native observation (Windows)
-        if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'upstream-original-geometry')
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-device-original-windows
-          path: ${{ runner.temp }}/qp-m2-original-release.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Install Release package
-        shell: cmd
-        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && cmake --build --preset install-win-release-user
-
-      - name: Verify test-only licensed PDF is excluded from Windows SDK
-        shell: pwsh
-        run: |
-          python -m unittest discover -s tests -p test_sdk_test_data_boundary.py
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python tools/qualification/sdk_test_data_boundary.py --install-manifest "build/Msvc-Release/install_manifest.txt"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Compile installed Composer consumer
-        shell: cmd
-        run: |
-          call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul
-          set "QP_PREFIX=%RUNNER_TEMP%\external\pkgs\quantapdf\release"
-          cl /nologo /W4 /WX /std:c11 /TC tests\installed_composer_consumer.c /I"%QP_PREFIX%\include" /Fe:"%RUNNER_TEMP%\quantapdf-installed-consumer.exe" /link /LIBPATH:"%QP_PREFIX%\lib" quantapdf.lib
-
-      - name: Run installed Composer consumer
-        shell: cmd
-        run: |
-          set "QP_PREFIX=%RUNNER_TEMP%\external\pkgs\quantapdf\release"
-          set "PATH=%QP_PREFIX%\bin;%PATH%"
-          "%RUNNER_TEMP%\quantapdf-installed-consumer.exe" "tests\fixtures\fonts\Roboto-Regular.ttf" "%RUNNER_TEMP%\installed-composer-smoke-ttf.pdf"
-          if not exist "%RUNNER_TEMP%\installed-composer-smoke-ttf.pdf" exit /b 1
-          "%RUNNER_TEMP%\quantapdf-installed-consumer.exe" "tests\fixtures\fonts\SourceSans3-Regular.otf" "%RUNNER_TEMP%\installed-composer-smoke-cff.pdf"
-          if not exist "%RUNNER_TEMP%\installed-composer-smoke-cff.pdf" exit /b 1
-          "%RUNNER_TEMP%\quantapdf-installed-consumer.exe" "tests\fixtures\fonts\SourceSans3VF-Upright.otf" "%RUNNER_TEMP%\installed-composer-smoke-cff2.pdf"
-          if not exist "%RUNNER_TEMP%\installed-composer-smoke-cff2.pdf" exit /b 1
-
-      - name: Qualify external PDF corpus admission (Windows)
-        shell: pwsh
-        run: |
-          python -m unittest discover -s tests -p test_external_pdf_corpus.py
-          python tools/qualification/external_pdf_corpus.py --manifest tests/external_source_corpus/manifest.json --assets tests/external_source_corpus/documents --report "$env:RUNNER_TEMP/external-pdf-corpus.json"
-
-      - name: Upload external PDF corpus admission (Windows)
-        uses: actions/upload-artifact@v4
-        with:
-          name: external-corpus-admission-windows
-          path: ${{ runner.temp }}/external-pdf-corpus.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Reconcile external source conformance (Windows)
-        shell: pwsh
-        run: |
-          python -m unittest discover -s tests -p test_external_corpus_reconcile.py
-          python tools/qualification/reconcile_external_corpus.py --admission "${{ runner.temp }}/external-pdf-corpus.json" --text "build/Msvc-Release/tests/external-cc0-text-status.json" --blank "build/Msvc-Release/tests/external-cc0-blank-status.json" --path "build/Msvc-Release/tests/external-pdfium-black-path-status.json" --clip "build/Msvc-Release/tests/external-pdfium-clip-stroke-status.json" --wstar "build/Msvc-Release/tests/external-pdfium-wstar-late-text-status.json" --wstar-positive "build/Msvc-Release/tests/external-pdfium-wstar-pixel-status.json" --wstar-second-positive "build/Msvc-Release/tests/external-texample-wstar-pixel-status.json" --output "${{ runner.temp }}/external-corpus-reconciled.json"
-
-      - name: Upload reconciled external corpus (Windows)
-        uses: actions/upload-artifact@v4
-        with:
-          name: external-corpus-reconciled-windows
-          path: ${{ runner.temp }}/external-corpus-reconciled.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload external W Clip + stroke native oracle (Windows)
-        uses: actions/upload-artifact@v4
-        with:
-          name: external-clipped-stroke-native-windows
-          path: build/Msvc-Release/tests/external-pdfium-clip-stroke-status.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload external opaque PATH native oracle (Windows)
-        uses: actions/upload-artifact@v4
-        with:
-          name: external-opaque-path-native-windows
-          path: build/Msvc-Release/tests/external-pdfium-black-path-status.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload external blank-page native oracle (Windows)
-        uses: actions/upload-artifact@v4
-        with:
-          name: external-blank-native-windows
-          path: build/Msvc-Release/tests/external-cc0-blank-status.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload external CC0 semantic report (Windows)
-        uses: actions/upload-artifact@v4
-        with:
-          name: external-source-semantic-and-wstar-windows
-          path: |
-            build/Msvc-Release/tests/external-cc0-text-status.json
-            build/Msvc-Release/tests/external-pdfium-wstar-late-text-status.json
-            build/Msvc-Release/tests/external-pdfium-wstar-pixel-status.json
-            build/Msvc-Release/tests/external-texample-wstar-pixel-status.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload source-PDF corpus report (Windows)
-        uses: actions/upload-artifact@v4
-        with:
-          name: source-corpus-windows
-          path: |
-            build/Msvc-Release/tests/native-source-corpus.json
-            build/Msvc-Release/tests/yworks-svg-w-candidate-pixel.json
-            build/Msvc-Release/tests/external-pdfium-wstar-pixel-status.json
-            build/Msvc-Release/tests/external-texample-wstar-pixel-status.json
-          if-no-files-found: error
-          retention-days: 7
+          $prefix = Join-Path $env:RUNNER_TEMP 'external\pkgs\quantapdf\release'
+          $config = Join-Path $prefix 'lib\cmake\QuantaPDF\QuantaPDFConfig.cmake'
+          if (-not (Test-Path $config)) { throw 'Missing native CMake package' }
+          if (Select-String -Path $config -Pattern 'PDFium|quantapdf_pdfium') { throw 'PDFium target is exported' }
+          $files = @(Get-ChildItem -Path $prefix -Recurse -File | Where-Object { $_.Name -match '(?i)pdfium' })
+          if ($files.Count -ne 0) { throw 'PDFium binary installed' }

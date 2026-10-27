@@ -48,7 +48,7 @@ sanitizer and Release installations separate. The install tree contains:
 | Location (GNUInstallDirs names) | Contract |
 | --- | --- |
 | `include/quantapdf/quantapdf.h` | Sole public header. |
-| `bin/` and/or `lib/` | QuantaPDF library, Windows import library when shared, and bundled PDFium runtime. Static SDKs also include the private backend archive and, on Windows, PDFium's import library. |
+| `bin/` and/or `lib/` | QuantaPDF native library and Windows import library when shared. Static SDKs also include the private QPDF backend archive, with no PDFium binaries. |
 | `lib/cmake/QuantaPDF/` | Relocatable package config, version config and exported targets. |
 | `share/quantapdf/` | Project notices, dependency license material and this contract. |
 
@@ -68,31 +68,16 @@ are private package implementation details. No package components are currently
 defined. Moving the complete installation preserves its internal paths; moving
 individual libraries without their headers, config and runtime is not relocation.
 
-Shared consumers do not need qpdf/PDFium development headers or qpdf CMake
-packages. Static consumers resolve qpdf 12.4.0, ZLIB and JPEG through their
-existing vcpkg manifest/toolchain; enable both C and CXX in the consumer project
-even when its own sources are C. Those dependencies remain private API details
-but are necessary link inputs. The package preserves the producer's qpdf 12.4
-static-dependency target normalization. PDFium remains a shared runtime in both
-profiles. Its headers are not installed as part of the QuantaPDF API.
+Shared consumers need only the installed QuantaPDF library and its native
+runtime link closure; static consumers resolve qpdf 12.4.0, ZLIB and JPEG
+from their pinned vcpkg toolchain. The package contains **no PDFium target,
+DLL/dylib/so, import library or license installation**.
 
-The bundled PDFium runtime stays beside the shared library on Unix platforms;
-the installed QuantaPDF library uses a relative loader path. On Windows deploy
-the installed runtime DLLs through the application's normal DLL search setup.
-An application linking the static SDK owns its executable deployment and loader
-paths. The package does not download dependencies, copy DLLs into consumer
-projects, install language bindings or choose a global SDK location.
-
-PDFium removal is tracked in the
-[migration inventory](https://github.com/qigao/QuantaPDF/blob/master/docs/conformance/pdfium-removal.md).
-Document opening, page count/geometry, links and admitted image snapshots now
-use the structure provider directly. See the
-[native image contract](https://github.com/qigao/QuantaPDF/blob/master/docs/conformance/native-images.md)
-for supported sample/mask/placement cases and explicit refusals. Plain text uses
-[native font/ToUnicode interpretation](https://github.com/qigao/QuantaPDF/blob/master/docs/conformance/native-text.md).
-[Structured text and search](https://github.com/qigao/QuantaPDF/blob/master/docs/conformance/native-structured-text.md)
-also use native detached font-metric selection cells. Rendering still loads
-PDFium when requested, so the SDK dependency remains.
+Public rendering uses only the bounded Native Source V10→IR→C11 Raster
+pipeline. See [native-runtime-cutover.md](native-runtime-cutover.md) for the
+currently admitted rendering features and explicitly unsupported modes.
+Feature gaps are filled in native code; no reference-renderer comparison or
+fallback is part of the SDK acceptance contract.
 
 ## Ownership and deterministic cleanup
 
