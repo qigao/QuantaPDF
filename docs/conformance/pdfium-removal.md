@@ -1,86 +1,35 @@
-# PDFium removal
+# PDFium production removal — native-only architecture
 
-The target in #208 is a production SDK with no PDFium runtime, link, download
-or installed-package dependency. qpdf remains a private structure/writer
-dependency. PDFium may be used by independent test oracles after cutover.
+Implemented in [PR #468](https://github.com/qigao/QuantaPDF/pull/468).
+The objective is **deletion before feature parity**, not keeping PDFium
+until comparisons are good enough.
 
-## Document observations increment
+Production now uses only QPDF for document structure/decoding, a uniquely
+owned internal IR for admitted Source operations, pure-C11 native Raster,
+and Context-owned RGB public Bitmap output. The pinned PDFium provider
+files, CMake downloader/import target, runtime and SDK installation were
+removed. Public `render_page` invokes the V10 native path.
 
-The production built-in provider now opens the immutable source with qpdf.
-Counting pages, creating/dropping page handles, reading page bounds/boxes,
-and extracting links do not initialize or open PDFium. Page counting and
-destination lookup traverse the original page tree without qpdf's repairing
-`getAllPages()` enumeration: invalid annotation attributes must remain visible
-to the observation that validates them.
+This is an explicit breaking feature-coverage change:
+- Native source currently admits one unencrypted page-zero with UserUnit
+  1, 72dpi, opaque/zero rotation/zero region option, source-ordered
+  2–4 Path+Image paints, one frozen W/W* Clip and actual Q restoration.
+- 8-bit DeviceGray/RGB RAW or bounded Flate TIFF/PNG Predictor values
+  and per-channel exact Decode inversion are the admitted image subset.
+- General fonts/text, complex Clip/Stroke, forms, masks, transparency,
+  annotations appearances, arbitrary nonzero pages and device scale/
+  rotations/thumbnails remain **UNSUPPORTED** until implemented.
+- Unsupported content returns `QUANTAPDF_ERROR_UNSUPPORTED`, not an
+  incomplete bitmap or any legacy/reference renderer fallback.
 
-Links are copied from page annotations. Supported observations include URI,
-explicit and named internal destinations, GoTo, XYZ nullable coordinates and
-the existing point-only representation of fit destinations. Old `/Dests` and
-`/Names/Dests` name trees are supported. Source and target geometry use their
-own visible MediaBox/CropBox intersection, inherited quarter rotation and
-leaf UserUnit. The C facade applies each UserUnit once. Non-XYZ destinations
-retain a zero target point because the public record has no fit/zoom fields.
+The new CI compiles and tests solely native C11 Raster/Clip/Device/Bitmap
+and the real **public** native renderer against fixed RGB goldens. It
+does not use PDFium binaries, downloaded oracle archives or cross-engine
+visual comparisons. The installed package is audited for no PDFium link,
+library, runtime or imported targets.
 
-The projection rejects malformed annotations/destinations, unknown actions,
-cyclic name trees, traversal exhaustion, more than 16,384 links or more than
-1 MiB of aggregate URI bytes. Rejection publishes no partial snapshot. Name
-tree depth is limited to 64, page-tree depth to 256, and traversal work uses
-the existing source-size work budget. Copied snapshots outlive page/document
-owners. Source bytes and password remain owned by the existing facade.
-
-`quantapdf.native_document` compiles the actual production facade and structure
-sources with no PDFium headers, sources or link target. Aborting tripwires
-stand in for the remaining legacy operations: invoking one fails the test.
-This is a dependency-isolation test, not a second SDK/backend configuration.
-It covers all quarter rotations, differing source/target UserUnits, inherited
-boxes, URI/GoTo/named links, nullable XYZ, fit destinations, encrypted inputs,
-detached lifetimes and atomic malformed/unsupported/budget rejection.
-It also exercises metadata, an edit session and lossless rewriting without
-loading the legacy reader. Image observations now use the bounded
-[native image projection](native-images.md), with detached sample/quad
-coverage in the same no-PDFium executable.
-Plain text now uses [native source text interpretation](native-text.md),
-including bounded ToUnicode, text state and Form resources.
-[Structured text and search](native-structured-text.md) now share that native
-interpreter with detached font-metric selection cells and source styles.
-
-The private [linear Stroke V2 profile](native-polyline-stroke.md) now adds
-bounded multi-segment/subpath butt/square/round and miter/bevel/round outlines,
-nonnegative dash arrays with directed zero-length caps and odd repetition/phase,
-device-error-bounded round
-sectors and solid cubic normal strips with true endpoint tangents, user-space widths and affine transforms to the native rendering prerequisites. The
-original V1/M2 profile and external corpus accounting remain unchanged.
-
-## Remaining production dependency
-
-| Surface | Current implementation | Required replacement |
-| --- | --- | --- |
-| Page rendering and thumbnails | PDFium, loaded only when requested | Native source interpretation, general paint/Stroke/Clip, text/fonts, images, forms, transparency, device transforms and annotations |
-| Plain text | Native bounded font encodings/ToUnicode, text state and Forms | Expand remaining encodings/ActualText/vertical cases; no PDFium caller remains for this API |
-| Structured text and search | Native detached font-metric selection cells, styles and line-oriented search | Expand remaining encodings, color spaces, ActualText, bidi/reading order and vertical writing |
-| Image occurrences and decoded bitmap snapshots | Native bounded placement/Gray/RGB/Indexed/JPEG/masks | Expand remaining inline/stencil/complex-color/mask coverage; no PDFium caller remains for this API |
-| Reader lifecycle for rendering | PDFium adapter/runtime | Remove after the remaining renderer migrates |
-| CMake, installed SDK and license packaging | PDFium remains required | Remove production import, transitive linkage, runtime copying and package targets; isolate oracle setup to tests |
-
-The former PDFium link, image, plain and structured text projections are deleted. PDFium page-count/bounds helper
-functions remain for the direct legacy-adapter test, not built-in dispatch.
-The legacy adapter's source-rewrite compatibility path is still confined to
-unmigrated observations and disappears with that adapter; it is not part of
-the native interpretation contract.
-
-## Next implementation sequence
-
-1. Expand remaining native image formats and native text encodings/geometry
-   coverage, reusing the selected Graph/resource model.
-2. Feed those admitted resources to the native renderer; complete general
-   Stroke/Clip, paint, form/transparency and device-option coverage. Keep
-   unsupported publication atomic, without a retry or fallback renderer.
-3. Route public rendering to the native implementation, then
-   delete the PDFium reader/runtime and all production package dependencies.
-4. Verify shared/static installed C11 consumers without PDFium present, all
-   platforms/sanitizers, and representative original-source documents. Use
-   bounded visual-quality comparisons and semantic tests; do not require
-   identical antialiasing to declare usable native rendering.
-
-Each increment needs behavior and ownership evidence. The corpus intake
-tasks remain distinct from implementing these production replacements.
+**Next work:** native feature implementation, prioritizing blank and
+PATH-only pages, source geometry and device rotation/DPI, text/font
+painting, general images and masks, complex Clip/strokes, Forms,
+transparency and annotations. Each has strict deterministic pixel and
+error/ownership/budget gates. Track in #208.

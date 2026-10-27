@@ -1,24 +1,8 @@
 # Third-party components
 
-QuantaPDF's backend stack pins the following components. Release
-packages install these notices alongside the library; floating "latest" assets
-and unverified system PDFium installations are not accepted.
-
-## PDFium
-
-- Version: `154.0.8021.0`, release `chromium/8021`
-- Binary distributor: <https://github.com/bblanchon/pdfium-binaries>
-- Upstream: <https://pdfium.googlesource.com/pdfium/>
-- License: BSD-style terms plus the notices shipped in the artifact's complete
-  `licenses/` directory
-- Build boundary: V8 disabled, XFA disabled, partition allocator disabled
-
-| Platform | SHA-256 |
-|---|---|
-| Windows x64 | `adac8ce034015427b5daa81f8eeddfcc8e84bc2a9f036f007890ff18bd4388c4` |
-| Linux x64 | `685f7930cd184ea22cd77afe707c1cf53b173d18118b6e16cb213c9277d7cdc3` |
-| macOS x64 | `0e770fda56c6726a08fab84c6306ad91eceb10589020ce3a407fad3ebcbe7bb2` |
-| macOS arm64 | `994600fa28974ce09a1c51c35039e808a6bc8ea3839050322c101ab229ad5c96` |
+The installed native runtime depends on pinned qpdf, ZLIB and JPEG codec
+packages. Release SDKs redistribute their applicable notices. There is no
+PDFium library, import target, renderer download or runtime.
 
 ## qpdf
 
@@ -45,37 +29,18 @@ and unverified system PDFium installations are not accepted.
   `share/quantapdf/licenses/libjpeg-turbo/copyright`, including the required
   IJG acknowledgement
 
-The qpdf package's installed copyright file and PDFium's root `LICENSE` plus
-complete `licenses/` directory are the authoritative redistribution notices.
-The installed libjpeg-turbo copyright file is the authoritative notice for the
-JPEG codec boundary.
+The qpdf and installed libjpeg-turbo copyright files are the authoritative
+redistribution notices for these private dependencies. No PDFium license
+or binary is installed.
 
-## Test-only original-source PDF corpus (not installed in the native SDK)
+## Historical non-production source fixtures
 
-The external-source conformance suite stores third-party **original PDF files**
-under `tests/external_source_corpus/documents/`. These test data assets are
-not linked into QuantaPDF binaries, embedded in libraries, or packaged as
-native SDK runtime dependencies. Their individual licenses continue to apply
-to their original works; they do not relicense QuantaPDF's C11 code.
-
-- **TeXample — Intersecting rings** by **Dominique Wuertz**; CC BY-SA 4.0,
-  attributed at https://texample.net/intersecting-rings/ and licensed at
-  https://creativecommons.org/licenses/by-sa/4.0/. The stored original PDF
-  is unchanged; exact SHA-256
-  `f691ff46e64353ad285a5ddf24c82b956de67b5a6b3ed7d244167a301f36a284`.
-  The source, publisher copyright statement, no-modifications declaration,
-  and redistribution credit are preserved in
-  `tests/external_source_corpus/TEXAMPLE-CC-BY-SA-4.0-NOTICE.txt`.
-  This fixture remains subject to the separate #262 source-rights review
-  before its admission PR is merged.
-- The previously admitted **yWorks/svg2pdf.js** clip-rule original is
-  licensed under MIT; its provenance and retained notice are documented in
-  `tests/external_source_corpus/YWORKS-MIT-NOTICE.txt`.
-
-A rendered comparison image or a CI JSON measurement is not the licensed
-original PDF. The current admission work neither alters nor re-renders the
-original PDF for redistribution, and no endorsement by its author or publisher
-is implied.
+Legacy third-party original PDFs in the repository are archival test
+assets only, not part of the newly registered native CI or distributed
+SDK. Their original publishers' licenses and attribution notices still
+apply to those source files. They are not PDFium runtime dependencies.
+Feature acceptance uses new deterministic native-only fixtures and
+negative tests; no external/reference renderer comparison is performed.
 
 ## Adobe Core 14 font metrics
 
