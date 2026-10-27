@@ -86,6 +86,46 @@ static std::string create_blank_source(int mode)
         reinterpret_cast<const char *>(blob->getBuffer()),blob->getSize());
 }
 
+
+/* Native-only Path Fill originals with no /Resources or Image XObjects:
+ * 1 PATH, 2 ordered PATHs, grayscale, and complete-source failures. */
+static std::string create_path_only_source(int mode)
+{
+    auto pdf=QPDF::create();
+    pdf->emptyPDF();
+    auto root=pdf->getRoot().getKey("/Pages");
+    auto page=pdf->makeIndirectObject(
+        Obj::parse("<< /Type /Page /MediaBox [0 0 32 24] >>"));
+    root.replaceKey("/Kids",Obj::newArray({page}));
+    root.replaceKey("/Count",Obj::newInteger(1));
+    page.replaceKey("/Parent",root);
+    std::string source;
+    if(mode==0)
+        source="1 0 0 rg 4 4 8 6 re f";
+    if(mode==1)
+        source="q 1 0 0 rg 4 4 8 6 re f Q "
+               "0 0 1 rg 12 10 7 5 re f";
+    if(mode==2)
+        source="0.5 g 4 4 8 6 re f";
+    if(mode==3)
+        source="1 0 0 rg 4 4 8 6 re f BT ET";
+    if(mode==4)
+        source="1 0 0 rg 4 4 8 6 re f 4 4 8 6 re S";
+    if(mode==5)
+        source="q 4 4 8 6 re W n 1 0 0 rg 4 4 8 6 re f Q";
+    if(mode==6)
+        source="1 0 0 rg 4 4 8 6 re f "
+               "0 0 1 rg 12 10 7 5 re f "
+               "0 1 0 rg 20 3 4 4 re f";
+    page.replaceKey("/Contents",pdf->newStream(source));
+    QPDFWriter writer(*pdf);
+    writer.setOutputMemory();
+    writer.write();
+    const auto blob=writer.getBufferSharedPointer();
+    return std::string(
+        reinterpret_cast<const char*>(blob->getBuffer()),blob->getSize());
+}
+
 static bool write_pdf(const std::string& filename,const std::string& content)
 {
     FILE *f=nullptr;
@@ -292,6 +332,78 @@ int main()
         quantapdf_drop_bitmap(blank);
     }
 
-    std::puts("[native-public-render] source Path/Image, blank pages, strict refusal passed");
+
+    /* One or two opaque PATHs, no Image/Clip resources. Compare fixed
+     * independently declared RGB goldens, NOT any PDFium oracle. Later
+     * unsupported Text/Stroke/Clip/third PATH must refuse completely. */
+    for(int mode=0;mode<7;++mode) {
+        CHECK(write_pdf(filename,create_path_only_source(mode)));
+        quantapdf_context *path_context=nullptr;
+        quantapdf_document *path_document=nullptr;
+        quantapdf_page *path_page=nullptr;
+        quantapdf_bitmap *filled=reinterpret_cast<quantapdf_bitmap*>(
+            uintptr_t(1)),*repeated=nullptr,*small=nullptr;
+        OK(quantapdf_context_create(&path_context));
+        OK(quantapdf_open_with_context(
+            path_context,filename.c_str(),nullptr,&path_document));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(path_document,0,&path_page));
+        const auto st=quantapdf_render_page(path_page,&filled);
+        if(mode>=3) {
+            CHECK(st==QUANTAPDF_ERROR_UNSUPPORTED && filled==nullptr);
+            small=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+            CHECK(quantapdf_render_thumbnail(path_page,16,12,&small)==
+                  QUANTAPDF_ERROR_UNSUPPORTED && small==nullptr);
+        } else {
+            CHECK(st==QUANTAPDF_OK && filled!=nullptr);
+            int w=0,h=0,s=0,c=0;
+            const unsigned char *px=nullptr,*rp=nullptr;
+            size_t n=0u,rn=0u;
+            OK(quantapdf_bitmap_dimensions(filled,&w,&h,&s,&c));
+            OK(quantapdf_bitmap_data(filled,&px,&n));
+            CHECK(w==32 && h==24 && s==96 && c==3 &&
+                  n==32u*24u*3u && px!=nullptr);
+            const unsigned red=mode==2 ? 128u : 255u;
+            const unsigned green=mode==2 ? 128u : 0u;
+            const unsigned blue=mode==2 ? 128u : 0u;
+            CHECK(probe_rgb(px,s,6,17,red,green,blue));
+            CHECK(probe_rgb(px,s,1,1,255u,255u,255u));
+            CHECK(probe_rgb(px,s,14,11,
+                mode==1?0u:255u,
+                mode==1?0u:255u,
+                255u));
+            OK(quantapdf_render_page(path_page,&repeated));
+            OK(quantapdf_bitmap_data(repeated,&rp,&rn));
+            CHECK(rn==n && rp!=nullptr && std::memcmp(px,rp,n)==0);
+            quantapdf_drop_bitmap(repeated);repeated=nullptr;
+            OK(quantapdf_render_thumbnail(path_page,16,12,&small));
+            OK(quantapdf_bitmap_dimensions(small,&w,&h,&s,&c));
+            OK(quantapdf_bitmap_data(small,&rp,&rn));
+            CHECK(w==16 && h==12 && s==48 && c==3 &&
+                  rn==16u*12u*3u && rp!=nullptr);
+            CHECK(probe_rgb(rp,s,3,8,red,green,blue));
+            CHECK(probe_rgb(rp,s,7,5,
+                mode==1?0u:255u,
+                mode==1?0u:255u,
+                255u));
+        }
+        quantapdf_drop_page(path_page);
+        quantapdf_close(path_document);
+        quantapdf_drop_context(path_context);
+        if(filled!=nullptr) {
+            const unsigned char *owned=nullptr;
+            size_t bytes=0u;
+            OK(quantapdf_bitmap_data(filled,&owned,&bytes));
+            CHECK(owned!=nullptr && bytes==32u*24u*3u &&
+                  probe_rgb(owned,96,6,17,
+                            mode==2?128u:255u,
+                            mode==2?128u:0u,
+                            mode==2?128u:0u));
+        }
+        quantapdf_drop_bitmap(small);
+        quantapdf_drop_bitmap(filled);
+    }
+
+    std::puts("[native-public-render] PATH-only fills, Path/Image, blank pages and strict refusal passed");
     return EXIT_SUCCESS;
 }

@@ -16,6 +16,10 @@ This is an explicit breaking feature-coverage change:
   2–4 Path+Image paints, one frozen W/W* Clip and actual Q restoration.
 - Valid no-paint source pages now produce white RGB through the same
   V10→IR→C11 Raster→Context Bitmap pipeline, with no fallback.
+- One or two unclipped, opaque solid PATH Fill operations with no Image
+  now use the same V10 Source/Raster/Context owner, without creating a
+  synthetic Image or broadening mixed Clip/Image admission. Unsupported
+  Stroke/Clip/Text or excess PATH count still fails closed.
 - 8-bit DeviceGray/RGB RAW or bounded Flate TIFF/PNG Predictor values
   and per-channel exact Decode inversion are the admitted image subset.
 - Native thumbnails for admitted 72-DPI pages are available through
