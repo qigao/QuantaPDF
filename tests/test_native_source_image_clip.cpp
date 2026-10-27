@@ -20,6 +20,7 @@
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFWriter.hh>
 #include <fpdfview.h>
+#include <zlib.h>
 
 #include <algorithm>
 #include <cmath>
@@ -27,6 +28,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 #if defined(_WIN32)
@@ -62,7 +64,77 @@ struct fixture {
     std::string image_decode;
     bool second_image=false,second_image_gray=false;
     std::string second_image_decode;
+    /* Test-only encoded samples: 0=RAW, otherwise Flate with
+     * Predictor 1/2/10..15, independently for the two XObjects. */
+    int image_predictor=0,second_image_predictor=0;
+    std::string image_decode_parms,second_image_decode_parms;
 };
+
+/* Independent test-side encoder, deliberately separate from the
+ * QPDF decoder selected by the product Source V10 implementation. */
+std::string test_flate(std::string const& raw)
+{
+    uLongf cap=compressBound(static_cast<uLong>(raw.size()));
+    std::string out(static_cast<size_t>(cap),'\0');
+    const int status=compress2(
+        reinterpret_cast<Bytef *>(out.data()),&cap,
+        reinterpret_cast<Bytef const *>(raw.data()),
+        static_cast<uLong>(raw.size()),Z_BEST_COMPRESSION);
+    if(status!=Z_OK)throw std::runtime_error("test Flate encode");
+    out.resize(static_cast<size_t>(cap));
+    return out;
+}
+int test_paeth(int a,int b,int c)
+{
+    const int p=a+b-c;
+    const int da=std::abs(p-a),db=std::abs(p-b),dc=std::abs(p-c);
+    if(da<=db && da<=dc)return a;
+    return db<=dc ? b : c;
+}
+std::string test_predictor_encode(std::string const& raw,
+                                  size_t colors,int predictor)
+{
+    if((colors!=1u && colors!=3u) || raw.size()!=4u*colors)
+        throw std::runtime_error("test predictor input");
+    if(predictor==1)return raw;
+    const size_t stride=2u*colors;
+    std::string encoded;
+    encoded.reserve(raw.size()+(predictor>=10?2u:0u));
+    for(size_t row=0;row<2u;++row) {
+        const int filter=predictor==15?(row==0u?1:4):
+                         (predictor>=10 && predictor<=14?predictor-10:-1);
+        if(predictor!=2 && (filter<0 || filter>4))
+            throw std::runtime_error("test predictor code");
+        if(predictor!=2)
+            encoded.push_back(static_cast<char>(filter));
+        for(size_t col=0;col<stride;++col) {
+            const size_t pos=row*stride+col;
+            const int pixel=static_cast<unsigned char>(raw[pos]);
+            const int left=col>=colors?
+                static_cast<unsigned char>(raw[pos-colors]):0;
+            const int up=row!=0u?
+                static_cast<unsigned char>(raw[pos-stride]):0;
+            const int upper_left=(row!=0u && col>=colors)?
+                static_cast<unsigned char>(raw[pos-stride-colors]):0;
+            int prediction=0;
+            if(predictor==2 || filter==1)prediction=left;
+            else if(filter==2)prediction=up;
+            else if(filter==3)prediction=(left+up)/2;
+            else if(filter==4)prediction=test_paeth(left,up,upper_left);
+            encoded.push_back(static_cast<char>(
+                static_cast<unsigned char>(pixel-prediction)));
+        }
+    }
+    return encoded;
+}
+std::string test_predictor_parms(int predictor,int colors,
+                                 int columns=2,int bits=8)
+{
+    return "<< /Predictor "+std::to_string(predictor)+
+           " /Colors "+std::to_string(colors)+
+           " /Columns "+std::to_string(columns)+
+           " /BitsPerComponent "+std::to_string(bits)+" >>";
+}
 
 std::vector<unsigned char> original_pdf(const fixture& sc)
 {
@@ -76,8 +148,17 @@ std::vector<unsigned char> original_pdf(const fixture& sc)
     page.replaceKey("/Parent",pages);
 
     const std::string raw("\xff\0\0\0\xff\0\0\0\xff\xff\xff\0",12);
-    Obj img=pdf->newStream(sc.gray_image ?
-        std::string("\x00\x55\xaa\xff",4) : raw);
+    const std::string primary_samples=sc.gray_image ?
+        std::string("\x00\x55\xaa\xff",4) : raw;
+    const std::string primary_encoded=sc.image_predictor!=0 ?
+        test_flate(test_predictor_encode(primary_samples,
+            sc.gray_image?1u:3u,sc.image_predictor)) : primary_samples;
+    Obj img=pdf->newStream(primary_encoded);
+    if(sc.image_predictor!=0)
+        img.getDict().replaceKey("/Filter",Obj::newName("/FlateDecode"));
+    if(!sc.image_decode_parms.empty())
+        img.getDict().replaceKey("/DecodeParms",
+            Obj::parse(sc.image_decode_parms));
     img.getDict().replaceKey("/Type",Obj::newName("/XObject"));
     img.getDict().replaceKey("/Subtype",
         Obj::newName(sc.wrong_subtype?"/Form":"/Image"));
@@ -97,8 +178,19 @@ std::vector<unsigned char> original_pdf(const fixture& sc)
      * repeated references to one /I image. V9 must normalize each
      * image dictionary's own Decode and preserve its pixel ownership. */
     if(sc.second_image) {
-        Obj second=pdf->newStream(sc.second_image_gray ?
-            std::string("\x00\x55\xaa\xff",4) : raw);
+        const std::string second_samples=sc.second_image_gray ?
+            std::string("\x00\x55\xaa\xff",4) : raw;
+        const std::string second_encoded=sc.second_image_predictor!=0 ?
+            test_flate(test_predictor_encode(second_samples,
+                sc.second_image_gray?1u:3u,sc.second_image_predictor)) :
+            second_samples;
+        Obj second=pdf->newStream(second_encoded);
+        if(sc.second_image_predictor!=0)
+            second.getDict().replaceKey("/Filter",
+                Obj::newName("/FlateDecode"));
+        if(!sc.second_image_decode_parms.empty())
+            second.getDict().replaceKey("/DecodeParms",
+                Obj::parse(sc.second_image_decode_parms));
         second.getDict().replaceKey("/Type",Obj::newName("/XObject"));
         second.getDict().replaceKey("/Subtype",Obj::newName("/Image"));
         second.getDict().replaceKey("/Width",Obj::newInteger(2));
@@ -767,7 +859,7 @@ int positive_scoped_mixed_v6(
     const fixture& sc,size_t clipped_count,size_t paths,size_t images,
     const std::vector<v6_probe>& goldens,bool compare_legacy_v5=false,
     bool normalized_v7=false,bool gray_v8=false,
-    bool image_decode_v9=false)
+    bool image_decode_v9=false,bool predictor_v10=false)
 {
     auto original=original_pdf(sc);
     CHECK(original.size()>100u);
@@ -776,9 +868,12 @@ int positive_scoped_mixed_v6(
     auto bounded=source_limits;
     bounded.max_operations=4u;
     quantapdf_ir ir{};
-    const quantapdf_status accepted=image_decode_v9 ?
-        quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir(
+    const quantapdf_status accepted=predictor_v10 ?
+        quantapdf_qpdf_source_scoped_mixed_v10_flate_predictor_to_ir(
             original.data(),original.size(),&bounded,&ir) :
+        (image_decode_v9 ?
+            quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir(
+                original.data(),original.size(),&bounded,&ir) :
         (gray_v8 ?
             quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
                 original.data(),original.size(),&bounded,&ir) :
@@ -786,8 +881,20 @@ int positive_scoped_mixed_v6(
                 quantapdf_qpdf_source_scoped_mixed_v7_to_ir(
                     original.data(),original.size(),&bounded,&ir) :
                 quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
-                    original.data(),original.size(),&bounded,&ir)));
+                    original.data(),original.size(),&bounded,&ir))));
     OK(accepted);
+    if(predictor_v10 &&
+       (!sc.image_decode_parms.empty() ||
+        !sc.second_image_decode_parms.empty())) {
+        quantapdf_ir old;
+        std::memset(&old,0xa5,sizeof(old));
+        CHECK(quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir(
+            original.data(),original.size(),&bounded,&old)==
+            QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(old.pages==nullptr && old.operations==nullptr &&
+              old.resources.images==nullptr);
+        quantapdf_ir_dispose(&old);
+    }
     if(image_decode_v9 &&
        (!sc.image_decode.empty() || !sc.second_image_decode.empty())) {
         /* Existing V8 MUST still refuse an explicit /Decode even when
@@ -909,15 +1016,18 @@ int negative_scoped_mixed_v6(
     const fixture& sc,quantapdf_status expected,
     const quantapdf_qpdf_source_raw_image_limits& bounds,
     bool normalized_v7=false,bool gray_v8=false,
-    bool image_decode_v9=false)
+    bool image_decode_v9=false,bool predictor_v10=false)
 {
     const auto bytes=original_pdf(sc);
     for(int attempt=0;attempt<2;++attempt) {
         quantapdf_ir refused;
         std::memset(&refused,0xa5,sizeof(refused));
-        const quantapdf_status actual=image_decode_v9 ?
-            quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir(
+        const quantapdf_status actual=predictor_v10 ?
+            quantapdf_qpdf_source_scoped_mixed_v10_flate_predictor_to_ir(
                 bytes.data(),bytes.size(),&bounds,&refused) :
+            (image_decode_v9 ?
+                quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir(
+                    bytes.data(),bytes.size(),&bounds,&refused) :
             (gray_v8 ?
                 quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
                     bytes.data(),bytes.size(),&bounds,&refused) :
@@ -925,7 +1035,7 @@ int negative_scoped_mixed_v6(
                     quantapdf_qpdf_source_scoped_mixed_v7_to_ir(
                         bytes.data(),bytes.size(),&bounds,&refused) :
                     quantapdf_qpdf_source_scoped_mixed_v6_to_ir(
-                        bytes.data(),bytes.size(),&bounds,&refused)));
+                        bytes.data(),bytes.size(),&bounds,&refused))));
         if(actual!=expected)
             std::fprintf(stderr,
                 "Scoped Mixed V6/V7/V8/V9 unexpected status trial=%d wanted=%d got=%d\n",

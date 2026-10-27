@@ -392,7 +392,8 @@ target_compile_features(quantapdf_test_native_source_image_clip
 target_compile_definitions(quantapdf_test_native_source_image_clip
   PRIVATE QUANTAPDF_TESTING=1)
 target_link_libraries(quantapdf_test_native_source_image_clip PRIVATE
-  QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium qpdf::libqpdf)
+  QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium
+  qpdf::libqpdf ZLIB::ZLIB)
 if(MSVC)
   target_compile_options(quantapdf_test_native_source_image_clip PRIVATE
     /utf-8)
