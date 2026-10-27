@@ -29,6 +29,11 @@
 #include <memory>
 #include <string>
 #include <vector>
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 
 #define CHECK(e) do { if(!(e)) { \
     std::fprintf(stderr,"%s:%d: original Image Clip: %s\n", \
@@ -2098,10 +2103,24 @@ int builtin_native_backend_rgb_v1_suite()
 
 /* True C facade Context+Page+Bitmap lifecycle, not a synthetic
  * backend-only handle and not a public native renderer cutover. */
+/* Default source-conformance CTest and the dedicated Facade CTest
+ * may execute in parallel in the SAME build directory. Use a PID-scoped
+ * path so separate processes never overwrite each other's original PDF. */
+std::string facade_fixture_path()
+{
+#if defined(_WIN32)
+    const unsigned long process=static_cast<unsigned long>(_getpid());
+#else
+    const unsigned long process=static_cast<unsigned long>(getpid());
+#endif
+    return "quantapdf-private-native-facade-v1-"+
+        std::to_string(process)+".pdf";
+}
+
 int write_facade_original(const std::vector<unsigned char>& bytes)
 {
-    const char *name="quantapdf-private-native-facade-v1.pdf";
-    std::FILE *file=std::fopen(name,"wb");
+    const std::string name=facade_fixture_path();
+    std::FILE *file=std::fopen(name.c_str(),"wb");
     if(!file)return EXIT_FAILURE;
     const size_t written=std::fwrite(bytes.data(),1,bytes.size(),file);
     const int closed=std::fclose(file);
@@ -2125,9 +2144,9 @@ int positive_private_native_facade_v1(
     OK(quantapdf_context_create(&context));
     CHECK(context!=nullptr && context->references==1u);
     OK(quantapdf_open_with_context(
-        context,"quantapdf-private-native-facade-v1.pdf",
+        context,facade_fixture_path().c_str(),
         nullptr,&document));
-    std::remove("quantapdf-private-native-facade-v1.pdf");
+    std::remove(facade_fixture_path().c_str());
     CHECK(document!=nullptr && context->references==2u);
     OK(quantapdf_load_page(document,0,&page));
     CHECK(page!=nullptr && context->references==3u);
@@ -2217,8 +2236,8 @@ int negative_private_native_facade_v1(
     quantapdf_page *page=nullptr;
     OK(quantapdf_context_create(&context));
     OK(quantapdf_open_with_context(context,
-        "quantapdf-private-native-facade-v1.pdf",nullptr,&document));
-    std::remove("quantapdf-private-native-facade-v1.pdf");
+        facade_fixture_path().c_str(),nullptr,&document));
+    std::remove(facade_fixture_path().c_str());
     OK(quantapdf_load_page(document,0,&page));
     const size_t prior=context->references;
     for(int n=0;n<2;++n) {
