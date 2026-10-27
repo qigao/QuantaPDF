@@ -211,6 +211,13 @@ std::vector<unsigned char> original_pdf(const fixture& sc)
     else
         page.replaceKey("/Contents",pdf->newStream(sc.a+sc.b));
     QPDFWriter writer(*pdf);
+    /* An original-PDF fixture with explicit DecodeParms must preserve
+     * the authored stream's exact /Filter contract. Auto compression
+     * could synthesize /FlateDecode on a deliberately RAW negative,
+     * turning "parameters without Flate" into a different input. */
+    if(!sc.image_decode_parms.empty() ||
+       !sc.second_image_decode_parms.empty())
+        writer.setCompressStreams(false);
     writer.setOutputMemory();
     writer.write();
     auto bytes=writer.getBufferSharedPointer();
@@ -1038,8 +1045,11 @@ int negative_scoped_mixed_v6(
                         bytes.data(),bytes.size(),&bounds,&refused))));
         if(actual!=expected)
             std::fprintf(stderr,
-                "Scoped Mixed V6/V7/V8/V9 unexpected status trial=%d wanted=%d got=%d\n",
-                attempt,(int)expected,(int)actual);
+                "Scoped Mixed V6–V10 refusal trial=%d wanted=%d got=%d primary_predictor=%d primary_parms='%s' second_predictor=%d second_parms='%s'\n",
+                attempt,(int)expected,(int)actual,
+                sc.image_predictor,sc.image_decode_parms.c_str(),
+                sc.second_image_predictor,
+                sc.second_image_decode_parms.c_str());
         CHECK(actual==expected);
         CHECK(refused.pages==nullptr && refused.page_count==0u &&
               refused.operations==nullptr && refused.operation_count==0u &&
