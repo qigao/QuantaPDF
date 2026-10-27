@@ -467,9 +467,97 @@ static int image_only_cases(void)
     return EXIT_SUCCESS;
 }
 
+
+/* Native public two-paint PATH+IMAGE without any Clip/GS: paint order
+ * must change a known overlap pixel, while nonoverlap and background
+ * remain deterministic. The C11 painter itself must reject hidden
+ * resource pointers and extra operations before publishing bytes. */
+static void unclipped_mixed_setup(fixture *f,int path_first)
+{
+    quantapdf_composer_operation image,path;
+    setup(f);
+    image=f->ops[0];
+    path=f->ops[1];
+    f->ir.resources.image_count=1u;
+    f->ir.resources.graphics_states=NULL;
+    f->ir.resources.graphics_state_count=0u;
+    f->ir.resources.clips=NULL;
+    f->ir.resources.clip_count=0u;
+    f->ir.operation_count=2u;
+    f->ops[0]=path_first?path:image;
+    f->ops[1]=path_first?image:path;
+    f->ops[0].graphics_state_id=0u;
+    f->ops[1].graphics_state_id=0u;
+    for(size_t i=0u;i<2u;++i) {
+        if(f->ops[i].kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE)
+            f->ops[i].value.image.options.graphics_state_id=0u;
+        else
+            f->ops[i].value.path.options.graphics_state_id=0u;
+    }
+}
+
+static int unclipped_mixed_cases(void)
+{
+    fixture f;
+    quantapdf_ir_raster_image output={0},repeat={0};
+    quantapdf_ir_raster_scoped_mixed_v5_limits limit=budgets;
+    for(int path_first=0;path_first<=1;++path_first) {
+        unclipped_mixed_setup(&f,path_first);
+        OK(quantapdf_ir_raster_scoped_mixed_v5(&f.ir,0u,&limit,&output));
+        OK(quantapdf_ir_raster_scoped_mixed_v5(&f.ir,0u,&limit,&repeat));
+        CHECK(output.size==256u && output.width==8u &&
+              output.height==8u && output.stride==32u &&
+              repeat.size==output.size &&
+              memcmp(output.pixels,repeat.pixels,output.size)==0);
+        CHECK(color(&output,2u,2u)==
+              (path_first?UINT32_C(0x80007fff):
+                          UINT32_C(0x0000ffff)));
+        CHECK(color(&output,6u,6u)==UINT32_C(0xff7f7fff));
+        quantapdf_ir_raster_image_dispose(&output);
+        quantapdf_ir_raster_image_dispose(&repeat);
+    }
+    unclipped_mixed_setup(&f,1);
+    f.page.suppress_background=1;
+    f.ops[1].bounds=(quantapdf_rect){2,2,6,6};
+    OK(quantapdf_ir_raster_scoped_mixed_v5(&f.ir,0u,&limit,&output));
+    CHECK(color(&output,7u,7u)==UINT32_C(0x00000000));
+    CHECK(color(&output,2u,2u)==UINT32_C(0x80007fff));
+    quantapdf_ir_raster_image_dispose(&output);
+
+    unclipped_mixed_setup(&f,0);
+    f.ir.resources.graphics_states=&f.gs; /* count zero, hidden GS */
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    unclipped_mixed_setup(&f,1);
+    f.ir.resources.graphics_state_capacity=1u;
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    unclipped_mixed_setup(&f,0);
+    f.ir.resources.clips=&f.clip; /* hidden valid Clip pointer */
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    unclipped_mixed_setup(&f,1);
+    f.ir.resources.font_count=1u;
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    unclipped_mixed_setup(&f,1);
+    f.ops[1].value.image.image_id=2u; /* only one RAW resource */
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    unclipped_mixed_setup(&f,0);
+    f.ir.operation_count=3u;
+    f.ops[2].kind=QUANTAPDF_COMPOSER_OPERATION_TEXT;
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    unclipped_mixed_setup(&f,1);
+    limit.max_drawn_pixels=63u;
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    unclipped_mixed_setup(&f,0);
+    limit=budgets;
+    OK(quantapdf_ir_raster_scoped_mixed_v5(&f.ir,0u,&limit,&output));
+    CHECK(color(&output,2u,2u)==UINT32_C(0x0000ffff));
+    quantapdf_ir_raster_image_dispose(&output);
+    return EXIT_SUCCESS;
+}
+
 int main(void)
 {
-    if(image_only_cases()!=EXIT_SUCCESS ||
+    if(unclipped_mixed_cases()!=EXIT_SUCCESS ||
+       image_only_cases()!=EXIT_SUCCESS ||
        path_only_cases()!=EXIT_SUCCESS ||
        blank_page_cases()!=EXIT_SUCCESS ||
        positive()!=EXIT_SUCCESS || negatives()!=EXIT_SUCCESS)
