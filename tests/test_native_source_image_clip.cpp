@@ -2299,7 +2299,7 @@ int write_facade_original(const std::vector<unsigned char>& bytes)
 
 int positive_private_native_facade_v1(
     const fixture& sample,const std::vector<v6_probe>& probes,
-    bool decode_v9=false)
+    bool decode_v9=false,bool predictor_v10=false)
 {
     auto original=original_pdf(sample);
     CHECK(original.size()>100u);
@@ -2333,12 +2333,23 @@ int positive_private_native_facade_v1(
     };
     /* The product-linked V8 path must still fail closed when EITHER
      * independent XObject carries an explicit /Decode. */
-    if(decode_v9 &&
+    if((decode_v9 || predictor_v10) &&
        (!sample.image_decode.empty() ||
         !sample.second_image_decode.empty())) {
         quantapdf_bitmap *old=reinterpret_cast<quantapdf_bitmap *>(
             static_cast<uintptr_t>(1u));
         CHECK(quantapdf_render_page_native_qualified_v1(
+            page,&bounds,&device,&old)==QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(old==nullptr && context->references==3u);
+    }
+    if(predictor_v10 &&
+       (!sample.image_decode_parms.empty() ||
+        !sample.second_image_decode_parms.empty())) {
+        /* No V9 predictor admission even on the SECOND Image after
+         * earlier qualified paints. The real facade output stays NULL. */
+        quantapdf_bitmap *old=reinterpret_cast<quantapdf_bitmap *>(
+            static_cast<uintptr_t>(1u));
+        CHECK(quantapdf_render_page_native_qualified_v9(
             page,&bounds,&device,&old)==QUANTAPDF_ERROR_UNSUPPORTED);
         CHECK(old==nullptr && context->references==3u);
     }
@@ -2352,27 +2363,40 @@ int positive_private_native_facade_v1(
         quantapdf_bitmap *refused=reinterpret_cast<quantapdf_bitmap *>(
             static_cast<uintptr_t>(1u));
         context->test_fail_allocation=1;
-        const quantapdf_status refused_status=decode_v9 ?
-            quantapdf_render_page_native_qualified_v9(
+        const quantapdf_status refused_status=predictor_v10 ?
+            quantapdf_render_page_native_qualified_v10(
                 page,&bounds,&device,&refused) :
-            quantapdf_render_page_native_qualified_v1(
-                page,&bounds,&device,&refused);
+            (decode_v9 ?
+                quantapdf_render_page_native_qualified_v9(
+                    page,&bounds,&device,&refused) :
+                quantapdf_render_page_native_qualified_v1(
+                    page,&bounds,&device,&refused));
         CHECK(refused_status==QUANTAPDF_ERROR_NOMEM);
         CHECK(refused==nullptr && context->references==refs &&
               context->test_fail_allocation==0);
     }
 #endif
-    const quantapdf_status accepted=decode_v9 ?
-        quantapdf_render_page_native_qualified_v9(
+    const quantapdf_status accepted=predictor_v10 ?
+        quantapdf_render_page_native_qualified_v10(
             page,&bounds,&device,&native) :
-        quantapdf_render_page_native_qualified_v1(
-            page,&bounds,&device,&native);
+        (decode_v9 ?
+            quantapdf_render_page_native_qualified_v9(
+                page,&bounds,&device,&native) :
+            quantapdf_render_page_native_qualified_v1(
+                page,&bounds,&device,&native));
     OK(accepted);
     CHECK(native!=nullptr && context->references==4u);
     /* Absent /Decode is byte-identical through the ORIGINAL V8 path
      * and V9; both bitmaps outlive Page, Document, and caller Context. */
-    if(decode_v9 && sample.image_decode.empty() &&
-       sample.second_image_decode.empty()) {
+    if(predictor_v10 && sample.image_decode_parms.empty() &&
+       sample.second_image_decode_parms.empty()) {
+        /* Complete Source V9 and V10 product-owned path parity, even
+         * if an explicit Image /Decode is present. */
+        OK(quantapdf_render_page_native_qualified_v9(
+            page,&bounds,&device,&legacy_native));
+        CHECK(legacy_native!=nullptr && context->references==5u);
+    } else if(decode_v9 && sample.image_decode.empty() &&
+              sample.second_image_decode.empty()) {
         OK(quantapdf_render_page_native_qualified_v1(
             page,&bounds,&device,&legacy_native));
         CHECK(legacy_native!=nullptr && context->references==5u);
@@ -2459,7 +2483,7 @@ int negative_private_native_facade_v1(
     const fixture& source,quantapdf_status expected,
     const quantapdf_native_source_raster_bridge_limits_v1& limits,
     const quantapdf_native_source_raster_device_v1& device,
-    bool decode_v9=false)
+    bool decode_v9=false,bool predictor_v10=false)
 {
     const auto bytes=original_pdf(source);
     CHECK(write_facade_original(bytes)==EXIT_SUCCESS);
@@ -2475,11 +2499,14 @@ int negative_private_native_facade_v1(
     for(int n=0;n<2;++n) {
         quantapdf_bitmap *out=reinterpret_cast<quantapdf_bitmap *>(
             static_cast<uintptr_t>(1u));
-        const auto actual=decode_v9 ?
-            quantapdf_render_page_native_qualified_v9(
+        const auto actual=predictor_v10 ?
+            quantapdf_render_page_native_qualified_v10(
                 page,&limits,&device,&out) :
-            quantapdf_render_page_native_qualified_v1(
-                page,&limits,&device,&out);
+            (decode_v9 ?
+                quantapdf_render_page_native_qualified_v9(
+                    page,&limits,&device,&out) :
+                quantapdf_render_page_native_qualified_v1(
+                    page,&limits,&device,&out));
         if(actual!=expected)
             std::fprintf(stderr,
                 "Native facade refusal trial=%d expected=%d got=%d\n",
