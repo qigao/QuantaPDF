@@ -359,32 +359,17 @@ struct admission {
             (colorspace.getName()=="/DeviceRGB" ? 3 : 0);
         admit(channels != 0,QUANTAPDF_ERROR_UNSUPPORTED);
 
-        const size_t w=integer(dict.getKey("/Width"),hard_image_pixels);
-        const size_t h=integer(dict.getKey("/Height"),hard_image_pixels);
-        admit(w<=hard_image_pixels/h,QUANTAPDF_ERROR_UNSUPPORTED);
-        const size_t pixels=w*h;
-        admit(pixels <= limits.max_source_pixels &&
-              source_pixels <= limits.max_source_pixels-pixels &&
-              source_pixels <= hard_image_pixels-pixels,
-              QUANTAPDF_ERROR_UNSUPPORTED);
-        admit(pixels<=SIZE_MAX/(size_t)channels,QUANTAPDF_ERROR_UNSUPPORTED);
-        const size_t size=pixels*(size_t)channels;
-        auto decoded=stream_data(image,size,true);
-        admit(decoded.size()==size);
-        /* V9: PDF /Decode maps each normalized component to an
-         * independent color-space range. Only the EXACT identity
-         * endpoints [0 1] or inverted endpoints [1 0] are qualified,
-         * in 8-bit DeviceGray/RGB. Convert to canonical opaque RAW
-         * samples BEFORE uniquely owned IR materialization; none of
-         * the existing C11 Raster or earlier source profiles changes. */
+        /* V9 image Decode is a SOURCE admission and must be checked
+         * BEFORE potentially expensive decompression. In V1–V8 this
+         * preserves the old immediate fail-closed /Decode refusal. */
         Obj decode=dict.getKey("/Decode");
+        admit(decode.isNull() || explicit_image_decode_mode,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        std::array<bool,3u> invert={false,false,false};
         if(!decode.isNull()) {
-            admit(explicit_image_decode_mode,
-                  QUANTAPDF_ERROR_UNSUPPORTED);
             admit(decode.isArray() &&
                   decode.getArrayNItems()==2*channels,
                   QUANTAPDF_ERROR_UNSUPPORTED);
-            std::array<bool,3u> invert={false,false,false};
             for(int c=0;c<channels;++c) {
                 Obj lower=decode.getArrayItem(c*2);
                 Obj upper=decode.getArrayItem(c*2+1);
@@ -398,11 +383,28 @@ struct admission {
                       QUANTAPDF_ERROR_UNSUPPORTED);
                 invert[static_cast<size_t>(c)]=a==1.0;
             }
+        }
+
+        const size_t w=integer(dict.getKey("/Width"),hard_image_pixels);
+        const size_t h=integer(dict.getKey("/Height"),hard_image_pixels);
+        admit(w<=hard_image_pixels/h,QUANTAPDF_ERROR_UNSUPPORTED);
+        const size_t pixels=w*h;
+        admit(pixels <= limits.max_source_pixels &&
+              source_pixels <= limits.max_source_pixels-pixels &&
+              source_pixels <= hard_image_pixels-pixels,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        admit(pixels<=SIZE_MAX/(size_t)channels,QUANTAPDF_ERROR_UNSUPPORTED);
+        const size_t size=pixels*(size_t)channels;
+        auto decoded=stream_data(image,size,true);
+        admit(decoded.size()==size);
+        /* Only after full Decode admission and bounded stream decode
+         * normalize the original color samples to owned RAW bytes.
+         * Identity does no conversion; inversion is exact 255 - byte. */
+        if(!decode.isNull())
             for(size_t byte=0u;byte<size;++byte)
                 if(invert[byte % static_cast<size_t>(channels)])
                     decoded[byte]=static_cast<unsigned char>(
                         255u-decoded[byte]);
-        }
         source_pixels+=pixels;
 
         admit(ctm[1]==0.0 && ctm[2]==0.0 &&
