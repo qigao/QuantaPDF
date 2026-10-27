@@ -24,7 +24,6 @@ target_sources(quantapdf PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/pdf_security_rewrite.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/pdf_trim.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/render.c"
-  "${CMAKE_CURRENT_SOURCE_DIR}/private_native_facade_bitmap_v1.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/private_native_facade_bitmap_v1.h")
 target_sources(quantapdf PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/page_native_ir.c"
