@@ -366,6 +366,7 @@ struct admission {
         admit(decode.isNull() || explicit_image_decode_mode,
               QUANTAPDF_ERROR_UNSUPPORTED);
         std::array<bool,3u> invert={false,false,false};
+        bool any_inversion=false;
         if(!decode.isNull()) {
             admit(decode.isArray() &&
                   decode.getArrayNItems()==2*channels,
@@ -382,6 +383,8 @@ struct admission {
                        (a==1.0 && b==0.0)),
                       QUANTAPDF_ERROR_UNSUPPORTED);
                 invert[static_cast<size_t>(c)]=a==1.0;
+                any_inversion=any_inversion ||
+                    invert[static_cast<size_t>(c)];
             }
         }
 
@@ -399,12 +402,18 @@ struct admission {
         admit(decoded.size()==size);
         /* Only after full Decode admission and bounded stream decode
          * normalize the original color samples to owned RAW bytes.
-         * Identity does no conversion; inversion is exact 255 - byte. */
-        if(!decode.isNull())
-            for(size_t byte=0u;byte<size;++byte)
-                if(invert[byte % static_cast<size_t>(channels)])
-                    decoded[byte]=static_cast<unsigned char>(
-                        255u-decoded[byte]);
+         * A fully identity /Decode is zero-copy/zero-work here; otherwise
+         * traverse pixel channels without a modulo for every sample. */
+        if(any_inversion)
+            for(size_t pixel=0u;pixel<pixels;++pixel) {
+                const size_t base=pixel*static_cast<size_t>(channels);
+                for(int c=0;c<channels;++c)
+                    if(invert[static_cast<size_t>(c)]) {
+                        const size_t byte=base+static_cast<size_t>(c);
+                        decoded[byte]=static_cast<unsigned char>(
+                            255u-decoded[byte]);
+                    }
+            }
         source_pixels+=pixels;
 
         admit(ctm[1]==0.0 && ctm[2]==0.0 &&

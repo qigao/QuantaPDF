@@ -2435,6 +2435,46 @@ int source_scoped_mixed_v9_image_decode_suite()
          {13u,16u,255u,0u,0u},{18u,16u,0u,255u,255u}},
         false,false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
 
+    /* Exercise all remaining RGB inversion bitmasks independently.
+     * Channel positions, not a whole-image invert switch, determine
+     * the output. PDFium receives each unchanged original /Decode. */
+    struct decode_pattern {
+        const char *decode;
+        std::vector<v6_probe> probes;
+    };
+    const decode_pattern remaining_patterns[]={
+        {"[1 0 0 1 0 1]",
+         {{13u,11u,0u,0u,0u},{18u,11u,255u,255u,0u},
+          {13u,16u,255u,0u,255u},{18u,16u,0u,255u,0u}}},
+        {"[0 1 1 0 0 1]",
+         {{13u,11u,255u,255u,0u},{18u,11u,0u,0u,0u},
+          {13u,16u,0u,255u,255u},{18u,16u,255u,0u,0u}}},
+        {"[0 1 0 1 1 0]",
+         {{13u,11u,255u,0u,255u},{18u,11u,0u,255u,255u},
+          {13u,16u,0u,0u,0u},{18u,16u,255u,255u,255u}}},
+        {"[1 0 1 0 0 1]",
+         {{13u,11u,0u,255u,0u},{18u,11u,255u,0u,0u},
+          {13u,16u,255u,255u,255u},{18u,16u,0u,0u,0u}}},
+        {"[0 1 1 0 1 0]",
+         {{13u,11u,255u,255u,255u},{18u,11u,0u,0u,255u},
+          {13u,16u,0u,255u,0u},{18u,16u,255u,0u,255u}}}
+    };
+    for(const auto& pattern:remaining_patterns) {
+        fixture variant=inverted;
+        variant.image_decode=pattern.decode;
+        if(positive_scoped_mixed_v6(variant,1u,1u,1u,pattern.probes,
+            false,false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+    }
+
+    /* Integer and real PDF number spellings with identical numeric
+     * endpoints must decode identically, without fuzzy acceptance. */
+    fixture decimal_identity=identity;
+    decimal_identity.image_decode="[0.0 1.0 0 1.0 0 1]";
+    if(positive_scoped_mixed_v6(decimal_identity,1u,1u,1u,
+        {{13u,11u,255u,0u,0u},{18u,11u,0u,255u,0u},
+         {13u,16u,0u,0u,255u},{18u,16u,255u,255u,0u}},
+        false,false,false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
+
     /* The same normalized Image Do participates in strict ordered
      * three/four layer mixes, with overpainted Path/RAW samples. */
     fixture three=inverted;
@@ -2508,6 +2548,9 @@ int source_scoped_mixed_v9_image_decode_suite()
      * No implicit interpolation, clamping, nonbinary ramp, bad cardinality,
      * missing resource, alpha/mask, or post-image text is allowed. */
     const std::string bad_decode[]={
+        "true",            /* a present scalar cannot substitute for array */
+        "[]",              /* empty array is not implicit identity */
+        "[0 1 0 1 0 1.0001]", /* near-one must not be rounded */
         "[0 1 0 1 0]",      /* wrong RGB channel count */
         "[0 1 0 1 0 1 0 1]",
         "[0 1 0 1 0 0.5]",  /* unsupported fractional ramp */

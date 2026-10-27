@@ -29,6 +29,9 @@ linear mapping and explicitly demonstrates DeviceGray [1 0].
   DeviceGray or **2 × 3** entries for DeviceRGB. Every value must
   be numeric, finite and exactly zero or one; each component must
   specify exactly [0 1] or [1 0].
+- By PDF dictionary semantics, a `null` value is equivalent to an
+  omitted key (QPDF also treats it as absent), not a malformed present
+  array. Numeric endpoint spellings `0.0`/`1.0` remain exact.
 - Sample normalization uses exact 8-bit integer arithmetic:
   identity passes through, inversion is `255 - raw_sample`.
   Different RGB components may choose independent identity/invert
@@ -58,8 +61,8 @@ the actual QPDF fixture writer and embeds explicit `/Decode`
 dictionaries in the **unchanged original PDF** sent to PDFium.
 
 Its direct-original PDFium and backend-free Native pixel comparisons
-include: RGB fully inverted, identity, independently inverted
-R/B channels; DeviceGray inverted and identity; source-order 2, 3,
+include: all 8 independent RGB inversion bitmasks, numeric real-form
+identity; DeviceGray inverted and identity; source-order 2, 3,
 4 mixed Path/Image cases; W* with definition-time translation and
 Contents split before `n`; real Q restoration; whole-page MAE and
 gross-error thresholds unchanged from V6–V8; exact fixed interior
