@@ -175,6 +175,23 @@ quantapdf_status quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
     const unsigned char *original_pdf,size_t size,
     const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir);
 
+/* Private Source V9: the existing strict V8 scoped mixed Path+Image
+ * profile (2..4 paints, 1..2 of each, exactly one frozen W/W* Clip and
+ * a real Q restore) with independent opt-in interpretation of an Image
+ * XObject's explicit /Decode. For only 8-bit DeviceGray or DeviceRGB,
+ * admit one finite [0 1] (identity) or [1 0] (inversion) per channel,
+ * exactly 2*components values. Normalize to canonical owned RAW bytes
+ * before the unchanged pure-C11 Raster consumes them.
+ *
+ * All earlier V1–V8 entry points still reject explicit /Decode.
+ * Reject arbitrary numeric ramps, alternate/ICC/CMYK, masks, filters,
+ * unsupported groups, and malformed Decode arrays atomically. This is
+ * NOT a public API, backend switch, or increased four-layer Raster cap. */
+quantapdf_status quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,
+    quantapdf_ir *out_ir);
+
 #ifdef __cplusplus
 }
 #endif
