@@ -550,14 +550,21 @@ public:
             if(clipped) {
                 if(target.native_unclipped_mode &&
                    !target.clip_completed) {
-                    /* Only V10 admits Image-only original PDFs without
-                     * inventing W/GS/Path resources. Once a PATH is
-                     * painted, no mixed unclipped fallback is possible.
-                     * Read the WHOLE page before materialization. */
+                    /* Public Source V10: homogeneous IMAGE-only, or
+                     * exactly one PATH followed by one IMAGE, both with
+                     * no W/GS/Clip. Older clipped Source profiles retain
+                     * their original admission. Never admit a third
+                     * layer or an unsupported late paint. */
+                    const bool image_only=
+                        target.painted_paths.empty() &&
+                        target.draws.size()<2u &&
+                        target.order.size()==target.draws.size();
+                    const bool path_then_image=
+                        target.painted_paths.size()==1u &&
+                        target.draws.empty() && target.order.size()==1u &&
+                        target.order[0]==1;
                     admit(!clip_active && !target.saw_q_restore &&
-                          target.painted_paths.empty() &&
-                          target.draws.size()<2u &&
-                          target.order.size()==target.draws.size(),
+                          (image_only || path_then_image),
                           QUANTAPDF_ERROR_UNSUPPORTED);
                 } else {
                     admit(target.clip_completed &&
@@ -655,13 +662,17 @@ public:
             if(clipped) {
                 if(target.native_unclipped_mode &&
                    !target.clip_completed) {
-                    /* Only V10 may admit a fully parsed PATH-only page.
-                     * W/W* and Image Do remain strictly scoped; a partial
-                     * clip or a previously admitted Image cannot sneak
-                     * through this separate no-Clip path. */
+                    /* V10 permits PATH-only or precisely IMAGE then
+                     * one opaque PATH without W/W*; a second PATH after
+                     * an IMAGE, or any hidden Clip, still fails closed. */
+                    const bool path_only=target.draws.empty();
+                    const bool image_then_path=
+                        target.draws.size()==1u &&
+                        target.painted_paths.empty() &&
+                        target.order.size()==1u && target.order[0]==2;
                     admit(!clip_active && !clip_pending &&
-                          target.draws.empty() &&
-                          !target.saw_q_restore,
+                          !target.saw_q_restore &&
+                          (path_only || image_then_path),
                           QUANTAPDF_ERROR_UNSUPPORTED);
                 } else if(target.mixed_scoped_mode) {
                     /* V5 permits one Path/one Do in either order inside
@@ -1112,6 +1123,31 @@ quantapdf_ir materialize_mixed(const admission& source,
         throw;
     }
 }
+/* Native-only public unclipped mixed subset: one opaque PATH fill and
+ * one qualified decoded IMAGE in EITHER source order. The existing
+ * mixed materializer copies all Image bytes and PATH commands into an
+ * entirely owned IR, without manufacturing Clip/GS nodes. No other
+ * source profile or C11 painter is added. */
+quantapdf_ir materialize_unclipped_mixed(const admission& source)
+{
+    admit(source.native_unclipped_mode &&
+          source.mixed_mode && source.mixed_scoped_mode &&
+          !source.clip_completed && source.clip.commands.empty() &&
+          !source.saw_q_restore &&
+          source.draws.size()==1u &&
+          source.painted_paths.size()==1u &&
+          source.order.size()==2u &&
+          source.scoped_clip_membership.size()==2u &&
+          source.scoped_clip_membership[0]==0u &&
+          source.scoped_clip_membership[1]==0u &&
+          source.limits.max_operations>=2u,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    admit((source.order[0]==1 && source.order[1]==2) ||
+          (source.order[0]==2 && source.order[1]==1),
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    return materialize_mixed(source,2u,true);
+}
+
 /* Strict Source V5: two paints under one frozen W/W* Clip and two
  * after Q restoration, with one PATH and one Image Do in each scope.
  * The generic four-layer renderer subsequently preserves every operation's
@@ -1389,6 +1425,16 @@ static quantapdf_status source_raw_images_to_ir_impl(
            !source.draws.empty() && !source.clip_completed &&
            source.clip.commands.empty() && !source.saw_q_restore) {
             *out_ir=materialize_image_only(source);
+            return QUANTAPDF_OK;
+        }
+        /* The full original PDF has been parsed and every q/Q, CTM,
+         * image and PATH admitted. Only now publish the qualified,
+         * zero-Clip/GS owned two-operation output. */
+        if(native_v10 && source.draws.size()==1u &&
+           source.painted_paths.size()==1u &&
+           !source.clip_completed && source.clip.commands.empty() &&
+           !source.saw_q_restore) {
+            *out_ir=materialize_unclipped_mixed(source);
             return QUANTAPDF_OK;
         }
         const bool flexible_scoped=profile.variable_operations;
