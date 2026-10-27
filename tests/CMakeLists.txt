@@ -479,6 +479,14 @@ add_test(NAME quantapdf.private_native_facade_bitmap_v9_decode
 set_tests_properties(quantapdf.private_native_facade_bitmap_v9_decode PROPERTIES
   TIMEOUT 40
   LABELS "conformance;source-pdf;native-raster;facade;context;ownership;decode")
+# A real private V10 Page/Context-owned Bitmap, not a disconnected Source
+# function call; unchanged original-PDF direct PDFium remains test-only.
+add_test(NAME quantapdf.private_native_facade_bitmap_v10_predictor
+  COMMAND quantapdf_test_native_source_image_clip
+          --native-facade-predictor-v10-only)
+set_tests_properties(quantapdf.private_native_facade_bitmap_v10_predictor
+  PROPERTIES TIMEOUT 40
+  LABELS "conformance;source-pdf;native-raster;facade;context;ownership;predictor")
 
 # Static-link closure gate: intentionally NO direct Raster OBJECTs and NO
 # explicit quantapdf_backend target. All private builtin->Source->Raster
@@ -519,6 +527,7 @@ if(WIN32)
     quantapdf.native_builtin_backend_rgb_v1
     quantapdf.private_native_facade_bitmap_v1
     quantapdf.private_native_facade_bitmap_v9_decode
+    quantapdf.private_native_facade_bitmap_v10_predictor
     PROPERTY ENVIRONMENT_MODIFICATION
     "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 elseif(APPLE)
@@ -534,6 +543,7 @@ elseif(APPLE)
     quantapdf.native_builtin_backend_rgb_v1
     quantapdf.private_native_facade_bitmap_v1
     quantapdf.private_native_facade_bitmap_v9_decode
+    quantapdf.private_native_facade_bitmap_v10_predictor
     PROPERTY ENVIRONMENT_MODIFICATION
     "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 else()
@@ -549,6 +559,7 @@ else()
     quantapdf.native_builtin_backend_rgb_v1
     quantapdf.private_native_facade_bitmap_v1
     quantapdf.private_native_facade_bitmap_v9_decode
+    quantapdf.private_native_facade_bitmap_v10_predictor
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()

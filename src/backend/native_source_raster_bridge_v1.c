@@ -12,7 +12,7 @@ static quantapdf_status native_source_bridge_impl(
     const quantapdf_native_source_raster_bridge_limits_v1 *limits,
     const quantapdf_native_source_raster_device_v1 *device,
     quantapdf_ir_raster_image *out_image,
-    int decode_v9)
+    quantapdf_private_native_source_profile source_profile)
 {
     quantapdf_status status;
     quantapdf_ir ir = {0};
@@ -35,13 +35,24 @@ static quantapdf_status native_source_bridge_impl(
         device->alpha || device->thumbnail)
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
-    /* Select the exact immutable Source profile; sharing this bridge
-     * must never relax V8 or create a second raster implementation. */
-    status = decode_v9 ?
-        quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir(
-            original_pdf, original_size, &limits->source, &ir) :
-        quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
+    /* Each version preserves an independent immutable Source contract.
+     * No fallback and no duplicate qpdf/C11 raster implementation. */
+    switch (source_profile) {
+    case QUANTAPDF_PRIVATE_NATIVE_SOURCE_V8:
+        status = quantapdf_qpdf_source_scoped_mixed_v8_to_ir(
             original_pdf, original_size, &limits->source, &ir);
+        break;
+    case QUANTAPDF_PRIVATE_NATIVE_SOURCE_V9:
+        status = quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir(
+            original_pdf, original_size, &limits->source, &ir);
+        break;
+    case QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10:
+        status = quantapdf_qpdf_source_scoped_mixed_v10_flate_predictor_to_ir(
+            original_pdf, original_size, &limits->source, &ir);
+        break;
+    default:
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
     if (status != QUANTAPDF_OK) {
         /* Source refuses the entire page, without partial IR publication.
          * Dispose defensively even if source failed before materializing. */
@@ -62,7 +73,8 @@ quantapdf_status quantapdf_native_source_raster_bridge_v1(
     quantapdf_ir_raster_image *out_image)
 {
     return native_source_bridge_impl(
-        original_pdf, original_size, limits, device, out_image, 0);
+        original_pdf, original_size, limits, device, out_image,
+        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V8);
 }
 
 quantapdf_status quantapdf_native_source_raster_bridge_v9(
@@ -72,5 +84,16 @@ quantapdf_status quantapdf_native_source_raster_bridge_v9(
     quantapdf_ir_raster_image *out_image)
 {
     return native_source_bridge_impl(
-        original_pdf, original_size, limits, device, out_image, 1);
+        original_pdf, original_size, limits, device, out_image,
+        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V9);
+}
+quantapdf_status quantapdf_native_source_raster_bridge_v10(
+    const unsigned char *original_pdf, size_t original_size,
+    const quantapdf_native_source_raster_bridge_limits_v1 *limits,
+    const quantapdf_native_source_raster_device_v1 *device,
+    quantapdf_ir_raster_image *out_image)
+{
+    return native_source_bridge_impl(
+        original_pdf, original_size, limits, device, out_image,
+        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10);
 }

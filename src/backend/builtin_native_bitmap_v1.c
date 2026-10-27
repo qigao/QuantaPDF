@@ -11,7 +11,7 @@ static quantapdf_status builtin_native_bitmap_impl(
     const quantapdf_native_source_raster_bridge_limits_v1 *limits,
     const quantapdf_native_source_raster_device_v1 *device,
     quantapdf_backend_bitmap *out_bitmap,
-    int decode_v9)
+    quantapdf_private_native_source_profile source_profile)
 {
     quantapdf_status status;
     quantapdf_ir_raster_image native = {0};
@@ -22,11 +22,22 @@ static quantapdf_status builtin_native_bitmap_impl(
     if (limits == NULL || device == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    status = decode_v9 ?
-        quantapdf_builtin_native_qualify_page_v9(
-            builtin_page, limits, device, &native) :
-        quantapdf_builtin_native_qualify_page_v1(
+    switch (source_profile) {
+    case QUANTAPDF_PRIVATE_NATIVE_SOURCE_V8:
+        status = quantapdf_builtin_native_qualify_page_v1(
             builtin_page, limits, device, &native);
+        break;
+    case QUANTAPDF_PRIVATE_NATIVE_SOURCE_V9:
+        status = quantapdf_builtin_native_qualify_page_v9(
+            builtin_page, limits, device, &native);
+        break;
+    case QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10:
+        status = quantapdf_builtin_native_qualify_page_v10(
+            builtin_page, limits, device, &native);
+        break;
+    default:
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
     if (status == QUANTAPDF_OK)
         status = quantapdf_native_rgba_to_backend_rgb_v1(
             &native, limits->raster.max_pixels, out_bitmap);
@@ -41,7 +52,8 @@ quantapdf_status quantapdf_builtin_native_qualify_bitmap_v1(
     quantapdf_backend_bitmap *out_bitmap)
 {
     return builtin_native_bitmap_impl(
-        builtin_page, limits, device, out_bitmap, 0);
+        builtin_page, limits, device, out_bitmap,
+        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V8);
 }
 
 quantapdf_status quantapdf_builtin_native_qualify_bitmap_v9(
@@ -51,5 +63,16 @@ quantapdf_status quantapdf_builtin_native_qualify_bitmap_v9(
     quantapdf_backend_bitmap *out_bitmap)
 {
     return builtin_native_bitmap_impl(
-        builtin_page, limits, device, out_bitmap, 1);
+        builtin_page, limits, device, out_bitmap,
+        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V9);
+}
+quantapdf_status quantapdf_builtin_native_qualify_bitmap_v10(
+    void *builtin_page,
+    const quantapdf_native_source_raster_bridge_limits_v1 *limits,
+    const quantapdf_native_source_raster_device_v1 *device,
+    quantapdf_backend_bitmap *out_bitmap)
+{
+    return builtin_native_bitmap_impl(
+        builtin_page, limits, device, out_bitmap,
+        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10);
 }

@@ -98,5 +98,38 @@ int main(void)
         if(status!=QUANTAPDF_ERROR_ARGUMENT || facade!=NULL)
             return 10;
     }
+    /* Force every new V10 private entry point to resolve from the
+     * INSTALLED product static archive, with no test-side Raster OBJ
+     * substitution, duplicated backend or new DLL public export. */
+    {
+        quantapdf_ir_raster_image v10={0};
+        v10.pixels=(unsigned char *)(uintptr_t)1u;
+        v10.size=123u;
+        status=quantapdf_native_source_raster_bridge_v10(
+            NULL,0u,NULL,NULL,&v10);
+        if(status!=QUANTAPDF_ERROR_ARGUMENT ||
+           v10.pixels!=NULL || v10.size!=0u)
+            return 11;
+        v10.pixels=(unsigned char *)(uintptr_t)1u;
+        v10.size=123u;
+        status=quantapdf_builtin_native_qualify_page_v10(
+            NULL,NULL,NULL,&v10);
+        if(status!=QUANTAPDF_ERROR_ARGUMENT ||
+           v10.pixels!=NULL || v10.size!=0u)
+            return 12;
+        quantapdf_backend_bitmap rgb={0};
+        rgb.data=(unsigned char *)(uintptr_t)1u;
+        rgb.size=123u;
+        status=quantapdf_builtin_native_qualify_bitmap_v10(
+            NULL,NULL,NULL,&rgb);
+        if(status!=QUANTAPDF_ERROR_ARGUMENT ||
+           rgb.data!=NULL || rgb.size!=0u)
+            return 13;
+        quantapdf_bitmap *facade=(quantapdf_bitmap *)(uintptr_t)1u;
+        status=quantapdf_render_page_native_qualified_v10(
+            NULL,NULL,NULL,&facade);
+        if(status!=QUANTAPDF_ERROR_ARGUMENT || facade!=NULL)
+            return 14;
+    }
     return 0;
 }

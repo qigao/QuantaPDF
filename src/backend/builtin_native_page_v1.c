@@ -13,7 +13,7 @@ static quantapdf_status builtin_native_page_impl(
     const quantapdf_native_source_raster_bridge_limits_v1 *limits,
     const quantapdf_native_source_raster_device_v1 *device,
     quantapdf_ir_raster_image *out_image,
-    int decode_v9)
+    quantapdf_private_native_source_profile source_profile)
 {
     quantapdf_builtin_source_view_v1 view = {0};
     quantapdf_status status;
@@ -41,11 +41,19 @@ static quantapdf_status builtin_native_page_impl(
     if (view.password != NULL && view.password[0] != '\0')
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
-    return decode_v9 ?
-        quantapdf_native_source_raster_bridge_v9(
-            view.data,view.size,limits,device,out_image) :
-        quantapdf_native_source_raster_bridge_v1(
-            view.data,view.size,limits,device,out_image);
+    switch (source_profile) {
+    case QUANTAPDF_PRIVATE_NATIVE_SOURCE_V8:
+        return quantapdf_native_source_raster_bridge_v1(
+            view.data, view.size, limits, device, out_image);
+    case QUANTAPDF_PRIVATE_NATIVE_SOURCE_V9:
+        return quantapdf_native_source_raster_bridge_v9(
+            view.data, view.size, limits, device, out_image);
+    case QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10:
+        return quantapdf_native_source_raster_bridge_v10(
+            view.data, view.size, limits, device, out_image);
+    default:
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
 }
 
 quantapdf_status quantapdf_builtin_native_qualify_page_v1(
@@ -55,7 +63,8 @@ quantapdf_status quantapdf_builtin_native_qualify_page_v1(
     quantapdf_ir_raster_image *out_image)
 {
     return builtin_native_page_impl(
-        builtin_page, limits, device, out_image, 0);
+        builtin_page, limits, device, out_image,
+        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V8);
 }
 
 quantapdf_status quantapdf_builtin_native_qualify_page_v9(
@@ -65,5 +74,16 @@ quantapdf_status quantapdf_builtin_native_qualify_page_v9(
     quantapdf_ir_raster_image *out_image)
 {
     return builtin_native_page_impl(
-        builtin_page, limits, device, out_image, 1);
+        builtin_page, limits, device, out_image,
+        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V9);
+}
+quantapdf_status quantapdf_builtin_native_qualify_page_v10(
+    void *builtin_page,
+    const quantapdf_native_source_raster_bridge_limits_v1 *limits,
+    const quantapdf_native_source_raster_device_v1 *device,
+    quantapdf_ir_raster_image *out_image)
+{
+    return builtin_native_page_impl(
+        builtin_page, limits, device, out_image,
+        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10);
 }

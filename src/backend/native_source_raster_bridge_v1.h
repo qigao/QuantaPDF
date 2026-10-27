@@ -8,6 +8,15 @@
 extern "C" {
 #endif
 
+/* PRIVATE, explicit Source profile selection across one product-owned
+ * pipeline. Never persist this enum, export it, or silently select an
+ * earlier profile for an unknown value. */
+typedef enum quantapdf_private_native_source_profile {
+    QUANTAPDF_PRIVATE_NATIVE_SOURCE_V8 = 0,
+    QUANTAPDF_PRIVATE_NATIVE_SOURCE_V9 = 1,
+    QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10 = 2
+} quantapdf_private_native_source_profile;
+
 /* Private only. No public C11 ABI, SDK header or provider fallback.
  * Source limits and C11 raster limits remain separately bounded. */
 typedef struct quantapdf_native_source_raster_bridge_limits_v1 {
@@ -46,6 +55,15 @@ quantapdf_status quantapdf_native_source_raster_bridge_v1(
  * rejection of every explicit Image /Decode. Neither entry changes the
  * public renderer or the C11 raster implementation/caps. */
 quantapdf_status quantapdf_native_source_raster_bridge_v9(
+    const unsigned char *original_pdf,
+    size_t original_size,
+    const quantapdf_native_source_raster_bridge_limits_v1 *limits,
+    const quantapdf_native_source_raster_device_v1 *device,
+    quantapdf_ir_raster_image *out_image);
+
+/* Source V10 adds strictly preflighted 8-bit TIFF/PNG Predictor
+ * DecodeParms to V9. One shared C11 Raster and unchanged work budgets. */
+quantapdf_status quantapdf_native_source_raster_bridge_v10(
     const unsigned char *original_pdf,
     size_t original_size,
     const quantapdf_native_source_raster_bridge_limits_v1 *limits,

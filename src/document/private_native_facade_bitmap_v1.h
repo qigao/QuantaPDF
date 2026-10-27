@@ -32,6 +32,14 @@ quantapdf_status quantapdf_render_page_native_qualified_v9(
     const quantapdf_native_source_raster_device_v1 *device,
     quantapdf_bitmap **out_bitmap);
 
+/* Opt-in private Source V10 through an ordinary Context-retained
+ * facade bitmap. Never exported as a public SDK API or renderer mode. */
+quantapdf_status quantapdf_render_page_native_qualified_v10(
+    quantapdf_page *page,
+    const quantapdf_native_source_raster_bridge_limits_v1 *limits,
+    const quantapdf_native_source_raster_device_v1 *device,
+    quantapdf_bitmap **out_bitmap);
+
 #ifdef __cplusplus
 }
 #endif
