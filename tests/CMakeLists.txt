@@ -381,6 +381,11 @@ target_include_directories(quantapdf_test_native_source_image_clip PRIVATE
   "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
 target_compile_features(quantapdf_test_native_source_image_clip
   PRIVATE c_std_11 cxx_std_20)
+# The product is built with QUANTAPDF_TESTING for this CI configuration.
+# Match its private Context layout and enable the one-shot allocation fault
+# in the actual Native facade bitmap qualification (no public ABI change).
+target_compile_definitions(quantapdf_test_native_source_image_clip
+  PRIVATE QUANTAPDF_TESTING=1)
 target_link_libraries(quantapdf_test_native_source_image_clip PRIVATE
   QuantaPDF::QuantaPDF quantapdf_backend QuantaPDF::PDFium qpdf::libqpdf)
 if(MSVC)
