@@ -1,35 +1,15 @@
 @PACKAGE_INIT@
 
-# Resolve our relocatable paths before find_dependency(), which can change
-# PACKAGE_PREFIX_DIR with consumer CMake versions older than 3.30.
-set_and_check(_quantapdf_pdfium_runtime
-  "@PACKAGE_QUANTAPDF_PDFIUM_INSTALL_DIR@/@QUANTAPDF_PDFIUM_RUNTIME_NAME@")
-
+# Native-only package exports the installed C11 target and QPDF link closure.
+# qpdf remains the private PDF structure/editing and source-decoding library.
 if(NOT "@BUILD_SHARED_LIBS@")
-  if("@WIN32@")
-    set_and_check(_quantapdf_pdfium_import
-      "@PACKAGE_CMAKE_INSTALL_LIBDIR@/@QUANTAPDF_PDFIUM_IMPORT_NAME@")
-  endif()
   include(CMakeFindDependencyMacro)
   find_dependency(qpdf 12.4.0 EXACT CONFIG)
   find_dependency(ZLIB)
   find_dependency(JPEG)
-  # Match the producer's qpdf 12.4 static-dependency normalization.
   set_property(TARGET qpdf::libqpdf PROPERTY INTERFACE_LINK_LIBRARIES
     "ZLIB::ZLIB;JPEG::JPEG")
-
-  if(NOT TARGET QuantaPDF::_PDFium)
-    add_library(QuantaPDF::_PDFium SHARED IMPORTED)
-    set_target_properties(QuantaPDF::_PDFium PROPERTIES
-      IMPORTED_LOCATION "${_quantapdf_pdfium_runtime}")
-    if("@WIN32@")
-      set_target_properties(QuantaPDF::_PDFium PROPERTIES
-        IMPORTED_IMPLIB "${_quantapdf_pdfium_import}")
-    endif()
-  endif()
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/QuantaPDFTargets.cmake")
 check_required_components(QuantaPDF)
-unset(_quantapdf_pdfium_runtime)
-unset(_quantapdf_pdfium_import)

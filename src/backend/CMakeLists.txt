@@ -15,6 +15,4 @@ target_sources(quantapdf_backend PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/ttf_font.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/secure_random.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/jpeg_validator.c"
-  "${CMAKE_CURRENT_SOURCE_DIR}/jpeg_encoder.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/pdfium_document.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/pdfium_runtime.cpp")
+  "${CMAKE_CURRENT_SOURCE_DIR}/jpeg_encoder.cpp")

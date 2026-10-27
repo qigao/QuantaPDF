@@ -1,6 +1,5 @@
 #include "document_backend.h"
 #include "builtin_source_view_v1.h"
-#include "pdfium_document.h"
 #include "qpdf_document.h"
 #include "qpdf_graph_write.h"
 #include "qpdf_graph_stream.h"
@@ -10,10 +9,9 @@
 #include <stdlib.h>
 
 typedef struct quantapdf_builtin_document {
-    quantapdf_pdfium_document *reader;
     quantapdf_qpdf_document *writer;
-    /* Borrowed from the immutable facade document until close. Only the
-     * remaining render/text operations need the legacy reader. */
+    /* Borrowed from the immutable facade document through its Page lease.
+     * Native Source copies and seals IR before any Raster work. */
     const unsigned char *source_data;
     size_t source_size;
     const char *password;
@@ -22,7 +20,6 @@ typedef struct quantapdf_builtin_document {
 typedef struct quantapdf_builtin_page {
     quantapdf_builtin_document *document;
     int page_index;
-    quantapdf_pdfium_page *reader;
 } quantapdf_builtin_page;
 
 static void builtin_close(void *document)
@@ -30,8 +27,6 @@ static void builtin_close(void *document)
     quantapdf_builtin_document *state = document;
     if (state == NULL)
         return;
-    if (state->reader != NULL)
-        quantapdf_pdfium_close(state->reader);
     quantapdf_qpdf_close(state->writer);
     free(state);
 }
@@ -141,46 +136,6 @@ quantapdf_status quantapdf_builtin_page_source_view_v1(
     return QUANTAPDF_OK;
 }
 
-static quantapdf_status builtin_ensure_legacy_page(quantapdf_builtin_page *page)
-{
-    quantapdf_builtin_document *document;
-    quantapdf_status status;
-    if (page == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    if (page->reader != NULL)
-        return QUANTAPDF_OK;
-    document = page->document;
-    if (document->reader == NULL) {
-        status = quantapdf_pdfium_open_memory(document->source_data,
-            document->source_size, document->password, &document->reader);
-        if (status != QUANTAPDF_OK)
-            return status;
-    }
-    return quantapdf_pdfium_load_page(document->reader,
-        page->page_index, &page->reader);
-}
-
-static quantapdf_status builtin_pdfium_render_page(
-    void *page,
-    float dpi,
-    float rotation_degrees,
-    const quantapdf_rect *clip,
-    double user_unit,
-    int alpha,
-    quantapdf_backend_bitmap *out_bitmap)
-{
-    quantapdf_builtin_page *state = page;
-    quantapdf_status status;
-    if (out_bitmap == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    *out_bitmap = (quantapdf_backend_bitmap){0};
-    status = builtin_ensure_legacy_page(state);
-    if (status != QUANTAPDF_OK)
-        return status;
-    return quantapdf_pdfium_render_page(
-        state->reader, dpi, rotation_degrees, clip, user_unit, alpha, out_bitmap);
-}
-
 static quantapdf_status builtin_qpdf_extract_text(
     void *page, char **out_utf8, size_t *out_size)
 {
@@ -242,8 +197,6 @@ static void builtin_drop_page(
     quantapdf_builtin_page *state = page;
     if (state == NULL)
         return;
-    if (state->reader != NULL)
-        quantapdf_pdfium_drop_page(state->reader);
     free(state);
 }
 
@@ -581,7 +534,6 @@ static const quantapdf_backend_ops builtin_ops = {
     .page_count = builtin_page_count,
     .load_page = builtin_load_page,
     .page_bounds = builtin_page_bounds,
-    .render_page = builtin_pdfium_render_page,
     .extract_text = builtin_qpdf_extract_text,
     .extract_structured_text = builtin_qpdf_extract_structured_text,
     .extract_images = builtin_extract_images,

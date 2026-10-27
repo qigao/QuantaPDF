@@ -1,5 +1,6 @@
 #include "core/bitmap_internal.h"
 #include "document/document_internal.h"
+#include "backend/builtin_native_bitmap_v1.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -17,14 +18,37 @@ static quantapdf_status quantapdf_render_page_transformed(
     quantapdf_backend_bitmap rendered = {0};
     quantapdf_status status;
     double user_unit;
+    const quantapdf_native_source_raster_bridge_limits_v1 limits = {
+        /* Strict complete-page Source V10 admission. The numeric caps
+         * are below the existing independent decoder and Raster maxima. */
+        {2u*1024u*1024u,65536u,4u,4u,1000000u,1000000u,
+         4000000u,8u},
+        {1000000u,4u,512u,8000000u,1000000u,4000000u}
+    };
+    quantapdf_native_source_raster_device_v1 device = {0};
 
     if (out_bitmap == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_bitmap = NULL;
 
-    if (page == NULL || !isfinite(dpi) || dpi <= 0.0f ||
+    if (page == NULL || page->document == NULL || page->backend == NULL ||
+        page->context == NULL || page->document->context != page->context ||
+        !isfinite(dpi) || dpi <= 0.0f ||
         !isfinite(rotation_degrees) || (alpha != 0 && alpha != 1))
         return QUANTAPDF_ERROR_ARGUMENT;
+
+    /* Public page/options/thumbnail now have exactly ONE native producer.
+     * Do not approximate DPI/rotated/region/alpha modes. Unsupported
+     * rendering requests, pages and full-PDF features are explicit errors
+     * and NEVER open a legacy provider or retry on another renderer. */
+    if (page->page_index != 0 || dpi != 72.0f ||
+        rotation_degrees != 0.0f || clip != NULL || alpha != 0)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    device.page_index = (size_t)page->page_index;
+    device.dpi = dpi;
+    device.rotation_degrees = rotation_degrees;
+    device.clip_enabled = clip != NULL;
+    device.alpha = alpha;
 
     status = quantapdf_context_retain_internal(page->context);
     if (status != QUANTAPDF_OK)
@@ -40,9 +64,11 @@ static quantapdf_status quantapdf_render_page_transformed(
     status = quantapdf_document_page_user_unit(
         page->document, page->page_index, &user_unit);
     if (status == QUANTAPDF_OK) {
-        status = page->document->ops->render_page(
-            page->backend, dpi, rotation_degrees, clip, user_unit,
-            alpha, &rendered);
+        if (!isfinite(user_unit) || user_unit != 1.0)
+            status = QUANTAPDF_ERROR_UNSUPPORTED;
+        else
+            status = quantapdf_builtin_native_qualify_bitmap_v10(
+                page->backend, &limits, &device, &rendered);
     }
     if (status != QUANTAPDF_OK) {
         free(bitmap);

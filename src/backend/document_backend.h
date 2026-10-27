@@ -125,14 +125,6 @@ typedef struct quantapdf_backend_ops {
     quantapdf_status (*page_bounds)(
         void *page,
         quantapdf_rect *out_bounds);
-    quantapdf_status (*render_page)(
-        void *page,
-        float dpi,
-        float rotation_degrees,
-        const quantapdf_rect *clip,
-        double user_unit,
-        int alpha,
-        quantapdf_backend_bitmap *out_bitmap);
     quantapdf_status (*extract_text)(
         void *page,
         char **out_utf8,
@@ -263,7 +255,7 @@ typedef struct quantapdf_backend_ops {
         unsigned char **out_data, size_t *out_size);
 } quantapdf_backend_ops;
 
-/* Explicit built-in PDFium/qpdf composition; no mutable provider registry. */
+/* One built-in QPDF structure provider; public Raster uses owned native IR. */
 const quantapdf_backend_ops *quantapdf_builtin_backend_ops(void);
 
 #ifdef __cplusplus

@@ -5,9 +5,10 @@
 QuantaPDF is a compact native PDF kernel with a versioned C11 ABI suitable for
 native callers and .NET P/Invoke.
 
-> **Backends:** QuantaPDF uses pinned PDFium `154.0.8021.0` for document
-> inspection, rendering, and extraction, plus qpdf `12.4.0` for structural
-> transforms and editing. Both remain private implementation dependencies.
+> **Native-only runtime:** QuantaPDF uses qpdf `12.4.0` for PDF structure,
+> decode and editing, and its own pure-C11 Raster for public rendering.
+> There is **no PDFium build/runtime, imported target or render fallback**.
+> Unsupported PDF rendering features return `QUANTAPDF_ERROR_UNSUPPORTED`.
 
 ## Current v2 ABI
 
@@ -49,31 +50,21 @@ if (quantapdf_load_page(doc, 0, &page) == QUANTAPDF_OK) {
 }
 ```
 
-The current supported surface includes:
+The stable public API includes document/page lifecycle, text and image
+observations, annotations, forms, links, metadata, image rewriting, security,
+page editing, PDF composition and the native Bitmap interface. **Rendering
+support is deliberately narrower than structural/editing support**: the
+initial PDFium-free pixel path admits one 72-DPI unencrypted page-zero,
+opaque 2–4 ordered bounded Path/Image paints, exact W/W* Clip and Q
+restoration, 8-bit Gray/RGB RAW or Flate Predictors 1/2/10..15, and solid
+fills. Text/glyph rendering, arbitrary Forms, transparency/groups, general
+Stroke/Clip, nonqualified images, rotation/DPI variants, region clipping
+and thumbnail scaling return `QUANTAPDF_ERROR_UNSUPPORTED` rather than
+silently dropping contents or using a fallback.
 
-- document open / password authentication / page count / close
-- opaque page load / drop
-- page bounds plus MediaBox/CropBox bounds
-- RGB and RGBA page rendering
-- DPI/zoom, rotation, and page-space clipping
-- aspect-preserving thumbnail rendering
-- bitmap dimensions and borrowed sample access
-- plain UTF-8 text extraction
-- immutable structured-text snapshots and geometric text search
-- page-image enumeration and image bitmap rendering
-- URI/internal links, annotations, document metadata, and outlines
-- immutable AcroForm snapshots and isolated PDF edit sessions
-- page export/range export, output merging, and file saving
-- catalog-reachable document security audit and immutable policy sanitization
-- explicit AES-256 encrypt, authenticated decrypt, and re-encrypt transforms
-- immutable CropBox crop, MediaBox trim, poster-split, interactive-content
-  flattening, lossless rewrite/GC, and selective image recompression transforms
-- deterministic PDF composition from Base-14 text, direct-cmap embedded
-  fonts, caller-shaped positioned glyph runs, JPEG/PNG images, opaque
-  stroked/filled vector paths, a bounded static SVG subset, vector
-  Code 128B/Code 39/EAN-13/UPC-A/EAN-8/UPC-E/QR barcodes, URI/internal links,
-  and hierarchical outlines
-- stable status strings and one allocator-matched `quantapdf_free()` entry point
+Feature work now expands native Source→owned IR→C11 Raster and device
+planning directly. See [native-runtime-cutover.md](docs/native-runtime-cutover.md)
+for capability and acceptance rules. No cross-renderer parity is required.
 
 ## Native SDK package
 
@@ -91,11 +82,9 @@ Go and C# callers. Language-specific binding packages remain separate work.
 - Backend handles and C++ exceptions remain private to the library.
 - Document, page, extraction, transform, and edit calls use a
   [private backend operation boundary](docs/superpowers/specs/2026-10-11-quantapdf-backend-abstraction-design.md)
-  with the existing built-in PDFium/qpdf composition.
+  with one qpdf structure provider and one native C11 Raster pipeline.
 - `quantapdf_page` and `quantapdf_bitmap` borrow their parent document. The document must outlive all derived page and bitmap handles.
 - A bitmap does not borrow its source page after rendering, so the page may be dropped before the bitmap, provided the document remains alive.
-- PDFium process state is private, initialized once, and serialized by the
-  backend runtime because PDFium's public API is not thread-safe.
 - Input paths are UTF-8.
 - `password == NULL` means no password was supplied.
 - Missing or incorrect passwords return `QUANTAPDF_ERROR_PASSWORD`.
@@ -158,8 +147,7 @@ Context retention preserves the existing document-borrowing rules for pages,
 bitmaps and image snapshots. Raw `char **` results still use `quantapdf_free()`.
 Cross-context output merge borrows serialized inputs and owns its result in the
 chosen destination domain. All calls, including those on distinct contexts,
-remain externally serialized. The private PDFium process runtime is initialized
-once; releasing a context never destroys it. See the
+remain externally serialized. There is no global PDFium runtime; the native Context owns its own handles. See the
 [context ownership design](docs/superpowers/specs/2026-10-11-quantapdf-context-runtime-owner-design.md)
 for publication, rollback and future allocator/runtime boundaries.
 
@@ -811,25 +799,21 @@ Output is deterministic and idempotent.
 
 ## Dependency model
 
-The backend foundation has two pinned dependency paths:
-
-- `cmake/QuantaPDFPdfium.cmake` downloads the exact platform PDFium artifact,
-  verifies its SHA-256, version, disabled V8/XFA settings, and license payload,
-  and rejects unsupported platforms.
-- `vcpkg.json` resolves qpdf `12.4.0` from the pinned registry baseline with
-  optional OpenSSL, GnuTLS, and Zopfli features disabled.
-- PDFium and qpdf remain private implementation dependencies; only the
-  `quantapdf_*` C ABI is public.
-
-The target architecture is:
+The installed native SDK contains the QuantaPDF C11 API and its C/C++
+implementation, with private qpdf 12.4.0 structure/decode/editor support,
+JPEG and ZLIB dependencies. Native rasterization is our own deterministic,
+bounded C11 code. The repo no longer imports, downloads, packages, links
+or invokes PDFium. No renderer fallback exists.
 
 ```text
-PDFium public C API ----+
-                       +--> QuantaPDF private adapters --> quantapdf_* C ABI
-qpdf C++ object graph --+
+Original PDF → QPDF structural Source → uniquely owned typed IR
+                                       → pure-C11 Native Raster
+                                       → RGB Bitmap / public C11 ABI
 ```
 
-Only the `quantapdf_*` ABI is exported by the wrapper.
+Unsupported content is a feature gap, not a request to select another
+rendering engine; it returns `QUANTAPDF_ERROR_UNSUPPORTED` with no partial
+Bitmap. Track gap implementation in [#208](https://github.com/qigao/QuantaPDF/issues/208).
 
 The proposed [document intelligence extension boundary](docs/superpowers/specs/2026-10-11-quantapdf-document-intelligence-design.md)
 keeps external analysis above the native SDK, using immutable observations and
@@ -881,25 +865,29 @@ The test build stages `quantapdf.dll` beside every Windows test executable. Cons
 
 ## Tests
 
-CTest covers the document lifecycle plus Page + Render contracts, including invalid arguments, page geometry, MediaBox/CropBox coordinates, RGB/RGBA output, versioned render options, DPI, rotation, clipping, thumbnails, encrypted PDFs, malformed input, repeated lifecycle stress, interleaved handles, UTF-8 paths, deterministic lossless rewrite/GC, and strict interactive-content flattening.
+The registered native-only CTest suite exercises C11 device planning,
+Clip intersections, source-ordered mixed Path/Image Raster, RGB conversion,
+RAW Image painting and public `render_page()` on an original qpdf-authored
+PDF with **fixed native RGB goldens**, repeated bitmap bytes, Context
+ownership and explicit unsupported/error output reset. It does not compile
+PDFium, download a reference renderer or compare two rasterizers.
 
-Linux additionally runs AddressSanitizer and UndefinedBehaviorSanitizer.
+The deleted reference-backed test registration is not counted as passing
+native functionality. Extend the native suite as each missing feature is
+implemented. Linux CI also runs ASan/UBSan.
 
 ## CI
 
-Normal pull-request updates use Linux as the fast development loop. Windows and macOS are reserved for explicit `full-ci` checkpoints, manual workflow dispatch, and pushes to `master`.
-
-The workflow persists vcpkg binary packages and the exact hash-verified PDFium
-archive. Cache identities include OS/architecture, the pinned vcpkg commit,
-manifest content, and literal PDFium release `chromium-8021`.
-
-A feature is not considered cross-platform complete until Linux, macOS, and Windows pass on the same exact head SHA. Older green runs do not satisfy acceptance for a newer head.
+All pull-request and master builds run Linux Release/ASan+UBSan,
+macOS and Windows with qpdf/vcpkg. SDK installation is audited for
+**zero PDFium runtime/import/library artifacts**. A feature is complete
+only after its exact HEAD passes the native tests and installed package
+checks on all platforms.
 
 ## License
 
 QuantaPDF source is distributed under the **Apache License 2.0**. See
 `LICENSE` and `THIRD_PARTY.md`.
 
-The PDFium and qpdf backend dependencies use permissive licenses. Their pinned
-license payloads and redistribution notices are installed with QuantaPDF; see
-`THIRD_PARTY.md` for details.
+QuantaPDF redistributes the applicable qpdf and JPEG codec notices,
+not PDFium binaries or runtime licenses. See `THIRD_PARTY.md`.
