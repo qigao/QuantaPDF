@@ -371,6 +371,11 @@ add_executable(quantapdf_test_native_source_image_clip
   $<TARGET_OBJECTS:quantapdf_native_raster_objects>
   $<TARGET_OBJECTS:quantapdf_native_bridge_objects>
   $<TARGET_OBJECTS:quantapdf_native_rgb_objects>
+  # Product's exact private C facade + Context owner objects: Windows
+  # shared DLL intentionally hides these symbols, so test them without
+  # modifying the public ABI or compiling a separate implementation.
+  $<TARGET_OBJECTS:quantapdf_context_lifetime_objects>
+  $<TARGET_OBJECTS:quantapdf_native_facade_objects>
   ../src/render/ir_raster_image_clip_v2.c
   ../src/render/ir_raster_image_clip_path_v4.c
   ../src/render/ir_raster_v1.c
