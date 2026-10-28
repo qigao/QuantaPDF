@@ -2702,6 +2702,72 @@ static int native_original_userunit_cases(const std::string& filename)
         quantapdf_close(doc);
     }
 
+    /* ISO 32000-1 7.3.9: a dictionary entry valued null is equivalent
+     * to omitting that entry. Source V10 must accept a genuine authorial
+     * /UserUnit null at the PAGE leaf as default 1, without treating
+     * it as an invalid numeric factor or inheriting any parent value.
+     * Compare complete RGB byte streams across three native DPIs. */
+    {
+        const std::string original=create_source(false);
+        const int dpis[]={72,96,144};
+        std::vector<unsigned char> reference[3];
+        for(bool explicit_null:{false,true}) {
+            auto pdf=QPDF::create();
+            pdf->setSuppressWarnings(true);
+            pdf->setAttemptRecovery(false);
+            pdf->processMemoryFile("null dictionary UserUnit",
+                original.data(),original.size(),"");
+            auto leaf=pdf->getRoot().getKey("/Pages")
+                .getKey("/Kids").getArrayItem(0);
+            if(explicit_null) {
+                leaf.replaceKey("/UserUnit",Obj::newNull());
+                CHECK(leaf.hasKey("/UserUnit"));
+            }
+            QPDFWriter writer(*pdf);
+            writer.setOutputMemory();
+            writer.write();
+            const auto blob=writer.getBufferSharedPointer();
+            const std::string bytes(
+                reinterpret_cast<const char*>(blob->getBuffer()),
+                blob->getSize());
+            for(size_t i=0u;i<3u;++i) {
+                CHECK(write_pdf(filename,bytes));
+                quantapdf_document *doc=nullptr;
+                quantapdf_page *page=nullptr;
+                quantapdf_bitmap *bitmap=nullptr;
+                OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+                CHECK(std::remove(filename.c_str())==0);
+                OK(quantapdf_load_page(doc,0,&page));
+                quantapdf_render_options opts{};
+                opts.struct_size=sizeof(opts);
+                opts.dpi=(float)dpis[i];
+                OK(quantapdf_render_page_with_options(page,&opts,&bitmap));
+                int w=0,h=0,stride=0,channels=0;
+                const unsigned char *rgb=nullptr;
+                size_t count=0u;
+                OK(quantapdf_bitmap_dimensions(
+                    bitmap,&w,&h,&stride,&channels));
+                OK(quantapdf_bitmap_data(bitmap,&rgb,&count));
+                const int expected_w=dpis[i]==72?32:dpis[i]==96?43:64;
+                const int expected_h=dpis[i]==72?24:dpis[i]==96?32:48;
+                CHECK(w==expected_w && h==expected_h &&
+                      stride==3*w && channels==3 &&
+                      count==(size_t)stride*(size_t)h && rgb!=nullptr);
+                if(!explicit_null)reference[i].assign(rgb,rgb+count);
+                else CHECK(reference[i].size()==count &&
+                           std::memcmp(reference[i].data(),rgb,count)==0);
+                quantapdf_drop_page(page);
+                quantapdf_close(doc);
+                const unsigned char *owned=nullptr;
+                size_t owned_size=0u;
+                OK(quantapdf_bitmap_data(bitmap,&owned,&owned_size));
+                CHECK(owned_size==count && owned!=nullptr &&
+                      std::memcmp(rgb,owned,count)==0);
+                quantapdf_drop_bitmap(bitmap);
+            }
+        }
+    }
+
     /* Actual invalid original source factors must have NULL Bitmap;
      * do not treat malformed /UserUnit as a silent blank or fallback. */
     const std::string invalid_units[]={
