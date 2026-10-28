@@ -100,7 +100,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1(
     if(source==NULL || source->pages==NULL || limits==NULL ||
        limits->max_pixels==0u)
         return QUANTAPDF_ERROR_ARGUMENT;
-    if((dpi!=96u && dpi!=144u) || source->page_count!=1u ||
+    if((dpi!=72u && dpi!=96u && dpi!=144u) || source->page_count!=1u ||
        source->operation_count>QP_DPI_MAX_OPS ||
        (source->operation_count!=0u && source->operations==NULL) ||
        source->resources.clip_count>1u ||
@@ -111,13 +111,24 @@ quantapdf_status quantapdf_native_device_ir_render_v1(
        source->pages[0].width_points>1000000.0f ||
        source->pages[0].height_points>1000000.0f)
         return QUANTAPDF_ERROR_UNSUPPORTED;
-    source_width=(size_t)source->pages[0].width_points;
-    source_height=(size_t)source->pages[0].height_points;
-    if((float)source_width!=source->pages[0].width_points ||
-       (float)source_height!=source->pages[0].height_points)
-        return QUANTAPDF_ERROR_UNSUPPORTED;
-    printed=snprintf(box,sizeof(box),"0 0 %zu %zu",
-                     source_width,source_height);
+    /* QPDF admitted original signed quarter-point spans; recover
+     * exact quarters from the binary-representable projected local
+     * Page extent and pass decimal quarters to the existing C11
+     * quotient/remainder device geometry planner. */
+    {
+        const double qw=(double)source->pages[0].width_points*4.0;
+        const double qh=(double)source->pages[0].height_points*4.0;
+        if(!isfinite(qw) || !isfinite(qh) || qw<=0.0 || qh<=0.0 ||
+           qw>4000000.0 || qh>4000000.0 ||
+           floor(qw)!=qw || floor(qh)!=qh)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        source_width=(size_t)qw;
+        source_height=(size_t)qh;
+    }
+    printed=snprintf(box,sizeof(box),
+        "0 0 %zu.%02u %zu.%02u",
+        source_width/4u,(unsigned)(source_width%4u)*25u,
+        source_height/4u,(unsigned)(source_height%4u)*25u);
     if(printed<0 || (size_t)printed>=sizeof(box))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     status=quantapdf_native_device_plan_create(
@@ -178,6 +189,9 @@ quantapdf_status quantapdf_native_device_ir_render_v1(
      * integer placements still use the identical V5 RAW layer; only
      * off-viewport or fractional bounds require the C11 4x4 mask.
      * No 72-DPI bitmap upscale or second pixel producer. */
-    return quantapdf_ir_raster_scoped_mixed_v5_device(
-        &projected,0u,limits,out_image);
+    return quantapdf_ir_raster_scoped_mixed_v5_device_viewport(
+        &projected,0u,limits,
+        (double)source_width*(double)dpi/288.0,
+        (double)source_height*(double)dpi/288.0,
+        out_image);
 }
