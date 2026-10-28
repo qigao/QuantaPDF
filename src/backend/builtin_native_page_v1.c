@@ -28,9 +28,9 @@ static quantapdf_status builtin_native_page_impl(
     if (status != QUANTAPDF_OK)
         return status;
 
-    /* The first Native Source V8 profile is page-zero only. Do not
-     * accidentally render the wrong page when the caller requests
-     * another otherwise-valid built-in provider page. */
+    /* The borrowed backend Page lease and requested source index
+     * MUST match, including nonzero public V10 pages. Earlier V8/V9
+     * have a separate explicit page-zero gate in the Source bridge. */
     if (view.page_index != device->page_index)
         return QUANTAPDF_ERROR_UNSUPPORTED;
 

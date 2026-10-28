@@ -2,6 +2,7 @@
 #include "render/native_device_ir_v1.h"
 
 #include <math.h>
+#include <limits.h>
 #include <string.h>
 
 /* No PDFium/qpdf handles reach this bridge. The private source reader
@@ -31,7 +32,9 @@ static quantapdf_status native_source_bridge_impl(
         (device->thumbnail != 0 && device->thumbnail != 1))
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    if (device->page_index != 0u ||
+    if ((source_profile!=QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10 &&
+         device->page_index!=0u) ||
+        device->page_index>(size_t)INT_MAX ||
         (device->dpi != 72.0f &&
          !(source_profile==QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10 &&
            (device->dpi==96.0f || device->dpi==144.0f))) ||
@@ -51,8 +54,9 @@ static quantapdf_status native_source_bridge_impl(
             original_pdf, original_size, &limits->source, &ir);
         break;
     case QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10:
-        status = quantapdf_qpdf_source_scoped_mixed_v10_flate_predictor_to_ir(
-            original_pdf, original_size, &limits->source, &ir);
+        status = quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            original_pdf, original_size, &limits->source,
+            device->page_index, &ir);
         break;
     default:
         return QUANTAPDF_ERROR_UNSUPPORTED;

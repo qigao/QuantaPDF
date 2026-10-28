@@ -207,6 +207,16 @@ quantapdf_status quantapdf_qpdf_source_scoped_mixed_v10_flate_predictor_to_ir(
     const quantapdf_qpdf_source_raw_image_limits *limits,
     quantapdf_ir *out_ir);
 
+/* V10-only strict original PDF page-index selection. The selected Page
+ * and all of its inherited state must be validated under bounded PageTree
+ * work. This publishes a local one-page IR using page slot zero solely
+ * for canonical C11 raster admission, not as a substituted PDF leaf.
+ * Earlier Source entry points retain exact page-zero semantics. */
+quantapdf_status quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,
+    size_t selected_page_index,quantapdf_ir *out_ir);
+
 #ifdef __cplusplus
 }
 #endif
