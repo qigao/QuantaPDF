@@ -2702,34 +2702,50 @@ static int native_original_userunit_cases(const std::string& filename)
         quantapdf_close(doc);
     }
 
-    /* ISO 32000-1 7.3.9: a dictionary entry valued null is equivalent
-     * to omitting that entry. Source V10 must accept a genuine authorial
-     * /UserUnit null at the PAGE leaf as default 1, without treating
-     * it as an invalid numeric factor or inheriting any parent value.
-     * Compare complete RGB byte streams across three native DPIs. */
+    /* PDF ISO 32000-1 7.3.9: /UserUnit null is equivalent to a
+     * missing dictionary entry, not an invalid numeric factor. QPDF
+     * replaceKey(newNull) canonicalizes it away before writing, so
+     * author an independent ORIGINAL PDF with the literal /UserUnit
+     * null token and correct xref offsets, no recovery/second renderer.
+     * Its native pixels must equal a QPDF-authored omitted-key page. */
     {
-        const std::string original=create_source(false);
+        const std::string omitted=create_path_only_source(0);
+        const std::string explicit_null=[]() {
+            std::string pdf="%PDF-1.7\n";
+            size_t offsets[5]={};
+            const auto object=[&](size_t index,const std::string& value) {
+                offsets[index]=pdf.size();
+                pdf+=std::to_string(index)+" 0 obj\n"+
+                     value+"\nendobj\n";
+            };
+            object(1u,"<< /Type /Catalog /Pages 2 0 R >>");
+            object(2u,"<< /Type /Pages /Count 1 /Kids [3 0 R] >>");
+            object(3u,"<< /Type /Page /Parent 2 0 R "
+                "/MediaBox [0 0 32 24] /UserUnit null "
+                "/Contents 4 0 R >>");
+            const std::string paint="1 0 0 rg 4 4 8 6 re f\n";
+            object(4u,"<< /Length "+std::to_string(paint.size())+
+                " >>\nstream\n"+paint+"endstream");
+            const size_t xref=pdf.size();
+            pdf+="xref\n0 5\n0000000000 65535 f \n";
+            for(size_t index=1u;index<=4u;++index) {
+                char record[32]={0};
+                const int count=std::snprintf(
+                    record,sizeof(record),"%010zu 00000 n \n",
+                    offsets[index]);
+                if(count!=20)throw std::runtime_error(
+                    "invalid original PDF xref fixture");
+                pdf.append(record,(size_t)count);
+            }
+            pdf+="trailer\n<< /Root 1 0 R /Size 5 >>\n"
+                 "startxref\n"+std::to_string(xref)+"\n%%EOF\n";
+            return pdf;
+        }();
+        CHECK(explicit_null.find("/UserUnit null")!=std::string::npos);
         const int dpis[]={72,96,144};
         std::vector<unsigned char> reference[3];
-        for(bool explicit_null:{false,true}) {
-            auto pdf=QPDF::create();
-            pdf->setSuppressWarnings(true);
-            pdf->setAttemptRecovery(false);
-            pdf->processMemoryFile("null dictionary UserUnit",
-                original.data(),original.size(),"");
-            auto leaf=pdf->getRoot().getKey("/Pages")
-                .getKey("/Kids").getArrayItem(0);
-            if(explicit_null) {
-                leaf.replaceKey("/UserUnit",Obj::newNull());
-                CHECK(leaf.hasKey("/UserUnit"));
-            }
-            QPDFWriter writer(*pdf);
-            writer.setOutputMemory();
-            writer.write();
-            const auto blob=writer.getBufferSharedPointer();
-            const std::string bytes(
-                reinterpret_cast<const char*>(blob->getBuffer()),
-                blob->getSize());
+        for(bool with_null:{false,true}) {
+            const std::string& bytes=with_null?explicit_null:omitted;
             for(size_t i=0u;i<3u;++i) {
                 CHECK(write_pdf(filename,bytes));
                 quantapdf_document *doc=nullptr;
@@ -2753,7 +2769,7 @@ static int native_original_userunit_cases(const std::string& filename)
                 CHECK(w==expected_w && h==expected_h &&
                       stride==3*w && channels==3 &&
                       count==(size_t)stride*(size_t)h && rgb!=nullptr);
-                if(!explicit_null)reference[i].assign(rgb,rgb+count);
+                if(!with_null)reference[i].assign(rgb,rgb+count);
                 else CHECK(reference[i].size()==count &&
                            std::memcmp(reference[i].data(),rgb,count)==0);
                 quantapdf_drop_page(page);
