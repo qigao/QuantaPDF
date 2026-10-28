@@ -2053,8 +2053,9 @@ static int native_fractional_quarter_cases(const std::string& filename)
               owned[0]==px[0]);
         quantapdf_drop_bitmap(bm);
     }
-    /* Strict fractional SPAN and non-quarter decimal refusal: the
-     * canonical integer-span C11 painter must NOT silently round. */
+    /* Old M0 rejects fractional SPANS; M1 must admit their real
+     * physical ceil dimensions and SOURCE Image coverage. A decimal
+     * outside the quarter lattice still fails atomically. */
     for(int fixture=4;fixture<=7;++fixture) {
         CHECK(write_pdf(filename,original_quarter_box_pdf(
             originals[2],fixture,0)));
@@ -2065,8 +2066,34 @@ static int native_fractional_quarter_cases(const std::string& filename)
         OK(quantapdf_open(filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
-        CHECK(quantapdf_render_page(page,&bitmap)==
-              QUANTAPDF_ERROR_UNSUPPORTED && bitmap==nullptr);
+        const auto status=quantapdf_render_page(page,&bitmap);
+        if(fixture<=5) {
+            CHECK(status==QUANTAPDF_OK && bitmap!=nullptr);
+            int w=0,h=0,stride=0,channels=0;
+            const unsigned char *rgb=nullptr;
+            size_t bytes=0u;
+            OK(quantapdf_bitmap_dimensions(
+                bitmap,&w,&h,&stride,&channels));
+            OK(quantapdf_bitmap_data(bitmap,&rgb,&bytes));
+            const int width=fixture==4?17:32;
+            const int height=fixture==4?16:24;
+            CHECK(w==width && h==height && stride==3*w &&
+                  channels==3 && rgb!=nullptr &&
+                  bytes==(size_t)stride*(size_t)height);
+            if(fixture==4) {
+                CHECK(probe_rgb(rgb,stride,2,7,255u,0u,0u));
+                CHECK(probe_rgb(rgb,stride,11,7,0u,255u,0u));
+                CHECK(probe_rgb(rgb,stride,15,7,64u,255u,64u));
+                CHECK(probe_rgb(rgb,stride,16,7,255u,255u,255u));
+            } else {
+                CHECK(probe_rgb(rgb,stride,10,11,255u,0u,0u));
+                CHECK(probe_rgb(rgb,stride,20,11,0u,255u,0u));
+                CHECK(probe_rgb(rgb,stride,31,11,255u,255u,255u));
+            }
+            quantapdf_drop_bitmap(bitmap);
+        } else
+            CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED &&
+                  bitmap==nullptr);
         quantapdf_drop_page(page);
         quantapdf_close(doc);
     }
