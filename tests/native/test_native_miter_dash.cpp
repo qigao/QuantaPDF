@@ -212,8 +212,7 @@ static int negative()
         "1 0 0 rg 4 4 8 6 re f [0 0] 0 d",
         "q 16 0 0 12 8 3 cm /I Do Q [1 -1] 0 d",
         "q 16 0 0 12 8 3 cm /I Do Q 1000001 M",
-        "q 12 6 8 9 re W n "
-        "q 16 0 0 12 8 3 cm /I Do Q Q [0 0] 0 d"
+        "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q [0 0] 0 d"
     };
     for(const char *ops:bad)
     for(int dpi:{72,96,144}) {
