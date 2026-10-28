@@ -198,8 +198,8 @@ static int negative(void)
         "1 0 0 rg 12 4 -8 6 re f BT ET",
         "1 0 0 rg 12 4 -8 6 re f 4 4 8 6 re S",
         "1 0 0 rg 12 4 -8 6 re f Q",
-        "q 20 6 -8 9 re W n "
-            "q 16 0 0 12 8 3 cm /Missing Do Q Q"
+        ("q 20 6 -8 9 re W n "
+         "q 16 0 0 12 8 3 cm /Missing Do Q Q")
     };
     for(const char *content:invalid)
     for(int dpi:{72,96,144}) {
