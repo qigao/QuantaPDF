@@ -811,17 +811,29 @@ public:
                                  QUANTAPDF_COMPOSER_FILL_NONZERO;
             clip_pending=true;
         } else if(clipped && op=="n") {
-            admit(args.empty() && clip_pending &&
-                  !target.clip_completed && pending_path.size()>=3u,
-                  QUANTAPDF_ERROR_UNSUPPORTED);
-            if(!closed)close_path();
-            target.clip.commands=std::move(pending_path);
-            target.clip.rule=clip_rule;
-            target.clip_completed=true;
-            clip_active=true;
-            clip_pending=false;
-            pending_path.clear();
-            closed=false;
+            admit(args.empty(),QUANTAPDF_ERROR_UNSUPPORTED);
+            if(target.native_unclipped_mode && !clip_pending) {
+                /* PDF n ends a path WITHOUT paint or Clip. Native V10
+                 * discards only the already bounded source commands;
+                 * it does not spend a C11 layer, create IR resources,
+                 * or change the current graphics state. In particular
+                 * W/W* followed by n must use the existing branch below.
+                 * Older private Source profiles remain unchanged. */
+                pending_path.clear();
+                closed=false;
+            } else {
+                admit(clip_pending && !target.clip_completed &&
+                      pending_path.size()>=3u,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                if(!closed)close_path();
+                target.clip.commands=std::move(pending_path);
+                target.clip.rule=clip_rule;
+                target.clip_completed=true;
+                clip_active=true;
+                clip_pending=false;
+                pending_path.clear();
+                closed=false;
+            }
         } else {
             /* Parsing is COMPLETE, not image observation: unsupported
              * paint/Text/Stroke/Clip/Form/group/mask/graphics operators
