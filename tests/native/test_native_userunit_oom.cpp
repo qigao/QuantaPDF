@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -39,12 +40,12 @@ static bool author_original_pdf(const char *filename,int quarters)
     writer.setOutputMemory();
     writer.write();
     const auto blob=writer.getBufferSharedPointer();
-    std::FILE *out=std::fopen(filename,"wb");
-    if(out==nullptr)return false;
-    const bool good=std::fwrite(
-        blob->getBuffer(),1u,blob->getSize(),out)==blob->getSize();
-    const bool closed=std::fclose(out)==0;
-    return good&&closed;
+    std::ofstream out(filename,std::ios::binary);
+    if(!out)return false;
+    out.write(reinterpret_cast<const char*>(blob->getBuffer()),
+              static_cast<std::streamsize>(blob->getSize()));
+    out.close();
+    return out.good();
 }
 
 int main()
