@@ -1500,7 +1500,10 @@ static std::string crop_viewport_original(
             std::to_string(dy+20)+"]";
     if(mode==3)crop="/NotABox";
     if(mode==4)
-        crop="["+std::to_string(dx+8)+".5 "+
+        /* Negative coordinates need NUMERICAL +0.5. Concatenating
+         * -3 and ".5" would incorrectly serialize -3.5, changing
+         * the original CropBox span from 15.5 to 16.5. */
+        crop="["+std::to_string((double)(dx+8)+0.5)+" "+
             std::to_string(dy+4)+" "+
             std::to_string(dx+24)+" "+
             std::to_string(dy+20)+"]";
@@ -2295,8 +2298,8 @@ static int native_fractional_span_cases(const std::string& filename)
         OK(quantapdf_bitmap_dimensions(
             bitmap,&w,&h,&stride,&ch));
         OK(quantapdf_bitmap_data(bitmap,&pixels,&size));
-        const int expected_w=mode<=1 ?
-            (dpi==72?17:dpi==96?22:33):
+        const int expected_w=mode==4 ?
+            (dpi==72?17:dpi==96?23:34):
             (dpi==72?17:dpi==96?22:33);
         const int expected_h=mode<=3 ?
             (dpi==72?13:dpi==96?17:25):
