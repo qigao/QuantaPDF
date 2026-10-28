@@ -1414,8 +1414,8 @@ static int native_media_origin_cases(const std::string& filename)
             quantapdf_drop_bitmap(bitmap);
         }
     }
-    /* Different CropBox view, fractional or huge origin and unsupported
-     * late Text must never be silently interpreted as full-page ink. */
+    /* An explicit non-full integer CropBox is now a real native
+     * viewport. Fractional/huge origins and late Text STILL refuse. */
     for(int mode=2;mode<=5;++mode) {
         const auto original=mode==5 ?
             create_source(true):create_source(false);
@@ -1431,7 +1431,25 @@ static int native_media_origin_cases(const std::string& filename)
         quantapdf_bitmap *result=reinterpret_cast<quantapdf_bitmap*>(
             uintptr_t(1));
         const auto status=quantapdf_render_page(page,&result);
-        CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED && result==nullptr);
+        if(mode==2) {
+            /* Mode 2 CropBox removes one MediaBox column from the left:
+             * actual output is 31x24, with red source at (12,11)
+             * and gray post-Q PATH at (25,5), not a 32x24 crop of
+             * a generated result or a provider fallback. */
+            CHECK(status==QUANTAPDF_OK && result!=nullptr);
+            int w=0,h=0,stride=0,channels=0;
+            const unsigned char *rgb=nullptr;
+            size_t n=0u;
+            OK(quantapdf_bitmap_dimensions(
+                result,&w,&h,&stride,&channels));
+            OK(quantapdf_bitmap_data(result,&rgb,&n));
+            CHECK(w==31 && h==24 && stride==93 && channels==3 &&
+                  n==31u*24u*3u && rgb!=nullptr);
+            CHECK(probe_rgb(rgb,stride,12,11,255u,0u,0u));
+            CHECK(probe_rgb(rgb,stride,25,5,223u,223u,223u));
+            quantapdf_drop_bitmap(result);result=nullptr;
+        } else
+            CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED && result==nullptr);
         quantapdf_drop_page(page);
         quantapdf_close(doc);
     }
