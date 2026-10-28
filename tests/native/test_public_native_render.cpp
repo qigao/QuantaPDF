@@ -640,8 +640,10 @@ static int high_dpi_cases(const std::string& filename)
 /* A second original-PDF source fixture writer ONLY changes page tree
  * /Rotate. QPDF authors the actual page and resource graph, not a mock IR.
  * Modes: 0 leaf; 1 inherited; 2 leaf overrides inherited 90;
- * 3 malformed name; 4 real instead of integer; 5 non-quarter; 6 malformed
- * inherited name. Every Source result must remain fail-closed. */
+ * 3 malformed name; 4 real instead of integer; 5 non-quarter;
+ * 6 malformed inherited name; 7 over-depth Pages ancestry;
+ * 8 explicit unsupported CropBox; 9 unsupported UserUnit.
+ * Every Source refusal must leave an empty Bitmap. */
 static std::string original_pdf_with_rotate(
     const std::string& original,int degrees,int mode)
 {
@@ -665,7 +667,28 @@ static std::string original_pdf_with_rotate(
         page.replaceKey("/Rotate",Obj::newInteger(45));
     else if(mode==6)
         pages.replaceKey("/Rotate",Obj::newName("/Ninety"));
-    else
+    else if(mode==7) {
+        /* QPDF's geometry reader can navigate this valid page tree,
+         * but Native Source V10 independently caps its /Parent lease
+         * at max_parent_steps=8, including the page and root. */
+        Obj parent=pages;
+        for(int depth=0;depth<9;++depth) {
+            auto node=pdf->makeIndirectObject(
+                Obj::parse("<< /Type /Pages /Count 1 /Kids [] >>"));
+            node.replaceKey("/Parent",parent);
+            parent.replaceKey("/Kids",Obj::newArray({node}));
+            parent=node;
+        }
+        parent.replaceKey("/Kids",Obj::newArray({page}));
+        page.replaceKey("/Parent",parent);
+        page.replaceKey("/Rotate",Obj::newInteger(degrees));
+    } else if(mode==8) {
+        page.replaceKey("/Rotate",Obj::newInteger(degrees));
+        page.replaceKey("/CropBox",Obj::parse("[0 0 31 24]"));
+    } else if(mode==9) {
+        page.replaceKey("/Rotate",Obj::newInteger(degrees));
+        page.replaceKey("/UserUnit",Obj::newInteger(2));
+    } else
         page.replaceKey("/Rotate",Obj::newInteger(degrees));
     QPDFWriter writer(*pdf);
     writer.setOutputMemory();
@@ -848,7 +871,7 @@ static int original_source_rotation_cases(const std::string& filename)
 
     /* Strict inherited /Rotate acceptance; no unqualified output from
      * bad numeric types, non-quarter values or unsupported late Text. */
-    for(int mode=3;mode<=6;++mode) {
+    for(int mode=3;mode<=9;++mode) {
         const auto bad=original_pdf_with_rotate(
             create_source(false),90,mode);
         CHECK(write_pdf(filename,bad));
@@ -860,7 +883,13 @@ static int original_source_rotation_cases(const std::string& filename)
         quantapdf_bitmap *failed=reinterpret_cast<quantapdf_bitmap*>(
             uintptr_t(1));
         const auto status=quantapdf_render_page(page,&failed);
-        CHECK(status==QUANTAPDF_ERROR_FORMAT && failed==nullptr);
+        const auto expected=mode<=6 ?
+            QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED;
+        if(status!=expected || failed!=nullptr)
+            std::fprintf(stderr,
+                "original Rotate rejected mode=%d actual=%d expected=%d output=%p\n",
+                mode,(int)status,(int)expected,(void*)failed);
+        CHECK(status==expected && failed==nullptr);
         quantapdf_drop_page(page);
         quantapdf_close(doc);
     }
