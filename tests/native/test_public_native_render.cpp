@@ -1238,13 +1238,13 @@ static std::string shifted_media_original(
                  std::to_string(shift_y+24)+"]"));
     }
     /* Deliberately use a REAL source CTM translation, not a bitmap
-     * coordinate offset. V10 must interpret this before freeze/IR. */
-    if(mode!=5) {
-        const std::string translate=
-            "q 1 0 0 1 "+std::to_string(shift_x)+" "+
-             std::to_string(shift_y)+" cm "+paint+" Q";
-        page.replaceKey("/Contents",pdf->newStream(translate));
-    }
+     * coordinate offset. The late-Text negative must fail because
+     * of unsupported Text, not merely an unrelated out-of-box CTM. */
+    const std::string translate=
+        "q 1 0 0 1 "+std::to_string(shift_x)+" "+
+         std::to_string(shift_y)+" cm "+paint+
+         (mode==5?" BT ET":"")+" Q";
+    page.replaceKey("/Contents",pdf->newStream(translate));
     QPDFWriter writer(*pdf);
     writer.setOutputMemory();
     writer.write();
