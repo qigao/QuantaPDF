@@ -2699,7 +2699,8 @@ static int native_original_userunit_cases(const std::string& filename)
     /* Actual invalid original source factors must have NULL Bitmap;
      * do not treat malformed /UserUnit as a silent blank or fallback. */
     const std::string invalid_units[]={
-        "0","-1","/Bad","1.1","0.125","5","75000"
+        "0","-0","-0.0","-1","true","/Bad",
+        "1.1","0.125","0.2499","4.25","5","75000"
     };
     for(const auto& raw:invalid_units) {
         auto pdf=QPDF::create();
@@ -2741,6 +2742,96 @@ static int native_original_userunit_cases(const std::string& filename)
     return EXIT_SUCCESS;
 }
 
+/* Original Source V10 budgets must be independently charged before
+ * Bitmap publication. A tiny visible CropBox cannot hide either a
+ * physically oversized complete MediaBox or a huge off-crop IMAGE
+ * placement when /UserUnit multiplies the original geometry. Both
+ * authoring modes are independently renderable at UserUnit 1. */
+static std::string native_userunit_budget_original(int mode,int unit)
+{
+    const std::string original=mode==0?
+        create_blank_source(0):create_image_only_source(0);
+    auto pdf=QPDF::create();
+    pdf->setSuppressWarnings(true);
+    pdf->setAttemptRecovery(false);
+    pdf->processMemoryFile("Native physical work original",
+        original.data(),original.size(),"");
+    auto page=pdf->getRoot().getKey("/Pages")
+        .getKey("/Kids").getArrayItem(0);
+    if(mode==0) {
+        /* Original full Media work: 600*600=360000 <= 1M;
+         * physical Unit4 Media: 2400*2400=5.76M > 1M. */
+        page.replaceKey("/MediaBox",Obj::parse("[0 0 600 600]"));
+    } else {
+        /* Original off-crop IMAGE: 520*520=270400 <= 4M;
+         * physical Unit4 IMAGE: 2080*2080=4326400 > 4M.
+         * RAW RGB source data is unchanged and independently bounded. */
+        page.replaceKey("/Contents",pdf->newStream(
+            "q 520 0 0 520 0 0 cm /I Do Q"));
+    }
+    page.replaceKey("/CropBox",Obj::parse("[0 0 16 12]"));
+    page.replaceKey("/UserUnit",Obj::newInteger(unit));
+    QPDFWriter writer(*pdf);
+    writer.setOutputMemory();
+    writer.write();
+    const auto blob=writer.getBufferSharedPointer();
+    return std::string(
+        reinterpret_cast<const char*>(blob->getBuffer()),
+        blob->getSize());
+}
+
+static int native_userunit_physical_budget_cases(
+    const std::string& filename)
+{
+    const int dpis[]={72,96,144};
+    for(int mode=0;mode<2;++mode)
+    for(int unit:{1,4}) {
+        CHECK(write_pdf(filename,
+            native_userunit_budget_original(mode,unit)));
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        quantapdf_rect bounds{};
+        OK(quantapdf_page_bounds(page,&bounds));
+        CHECK(bounds.x0==0.0f && bounds.y0==0.0f &&
+              bounds.x1==(unit==1?16.0f:64.0f) &&
+              bounds.y1==(unit==1?12.0f:48.0f));
+        for(int dpi:dpis) {
+            /* A successful baseline at 72 DPI proves the source
+             * is otherwise admissible. Unit4 MUST fail before pixels
+             * regardless of device DPI, without raising any quota. */
+            if(unit==1 && dpi!=72)continue;
+            quantapdf_render_options opts{};
+            opts.struct_size=sizeof(opts);
+            opts.dpi=(float)dpi;
+            quantapdf_bitmap *bitmap=
+                reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+            const auto status=quantapdf_render_page_with_options(
+                page,&opts,&bitmap);
+            if(unit==4) {
+                CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED &&
+                      bitmap==nullptr);
+            } else {
+                CHECK(status==QUANTAPDF_OK && bitmap!=nullptr);
+                int w=0,h=0,stride=0,channels=0;
+                const unsigned char *bytes=nullptr;
+                size_t count=0u;
+                OK(quantapdf_bitmap_dimensions(
+                    bitmap,&w,&h,&stride,&channels));
+                OK(quantapdf_bitmap_data(bitmap,&bytes,&count));
+                CHECK(w==16 && h==12 && stride==48 && channels==3 &&
+                      count==576u && bytes!=nullptr);
+                quantapdf_drop_bitmap(bitmap);
+            }
+        }
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+    }
+    return EXIT_SUCCESS;
+}
+
 int main()
 {
     const std::string filename="native-standalone-smoke.pdf";
@@ -2753,6 +2844,7 @@ int main()
     CHECK(native_fractional_quarter_rotation_cases(filename)==EXIT_SUCCESS);
     CHECK(native_fractional_span_cases(filename)==EXIT_SUCCESS);
     CHECK(native_original_userunit_cases(filename)==EXIT_SUCCESS);
+    CHECK(native_userunit_physical_budget_cases(filename)==EXIT_SUCCESS);
     CHECK(write_pdf(filename,create_source(false)));
 
     quantapdf_context *context=nullptr;
