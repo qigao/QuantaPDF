@@ -883,10 +883,11 @@ static int original_source_rotation_cases(const std::string& filename)
         quantapdf_bitmap *failed=reinterpret_cast<quantapdf_bitmap*>(
             uintptr_t(1));
         const auto status=quantapdf_render_page(page,&failed);
-        if(mode==8) {
-            /* An originally cropped [0 0 31 24] Source with
-             * /Rotate90 is now a QUALIFIED native 24x31 viewport,
-             * not a discarded or scaled 32x24 PDFium image. */
+        if(mode==8 || mode==9) {
+            /* A nonfull original CropBox (mode8), and now a genuine
+             * original page-leaf /UserUnit2 (mode9), compose with
+             * original PDF /Rotate90 BEFORE the same C11 raster.
+             * Physical 48x64 pixels are not a 24x32 bitmap upscale. */
             CHECK(status==QUANTAPDF_OK && failed!=nullptr);
             int w=0,h=0,stride=0,channels=0;
             const unsigned char *rgb=nullptr;
@@ -894,10 +895,17 @@ static int original_source_rotation_cases(const std::string& filename)
             OK(quantapdf_bitmap_dimensions(
                 failed,&w,&h,&stride,&channels));
             OK(quantapdf_bitmap_data(failed,&rgb,&size));
-            CHECK(w==24 && h==31 && stride==72 && channels==3 &&
-                  size==24u*31u*3u && rgb!=nullptr);
-            CHECK(probe_rgb(rgb,stride,12,13,255u,0u,0u));
-            CHECK(probe_rgb(rgb,stride,18,26,223u,223u,223u));
+            const int expected_w=mode==8?24:48;
+            const int expected_h=mode==8?31:64;
+            CHECK(w==expected_w && h==expected_h &&
+                  stride==3*w && channels==3 &&
+                  size==(size_t)stride*(size_t)h && rgb!=nullptr);
+            CHECK(probe_rgb(rgb,stride,
+                mode==8?12:24,mode==8?13:26,
+                255u,0u,0u));
+            CHECK(probe_rgb(rgb,stride,
+                mode==8?18:36,mode==8?26:52,
+                223u,223u,223u));
             quantapdf_drop_bitmap(failed);
         } else {
             const auto expected=mode<=6 ?
