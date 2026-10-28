@@ -2465,6 +2465,16 @@ static std::string original_unit_source_or_physical_reference(
             std::to_string((double)unit_width/4.0)+" "+
             std::to_string((double)unit_height/4.0)+"]";
         page.replaceKey("/MediaBox",Obj::parse(bbox));
+        /* Reference PDF deliberately uses the ALREADY qualified
+         * Media∩Crop viewport path for fractional authored CTM. Its
+         * CropBox extends 0.25 outside the Media lower-left corner,
+         * so the visible physical viewport is EXACTLY identical to
+         * source /UserUnit, without relaxing integer-only full-Media
+         * Source admission just for a differential-test oracle. */
+        const std::string physical_crop="[-0.25 -0.25 "+
+            std::to_string((double)unit_width/4.0)+" "+
+            std::to_string((double)unit_height/4.0)+"]";
+        page.replaceKey("/CropBox",Obj::parse(physical_crop));
         page.removeKey("/UserUnit");
         static const char *const content[]={
             "",
