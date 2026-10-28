@@ -2475,8 +2475,12 @@ static std::string original_unit_source_or_physical_reference(
             "Q 0.875 g 24 17 5 3 re f"
         };
         if(kind>0) {
-            const std::string physical="q "+unit+
-                " 0 0 "+unit+" 0 0 cm "+content[kind]+" Q";
+            /* A physical reference is an independently AUTHORED
+             * original CTM, not an extra q/Q wrapper: adding q/Q
+             * changes the strict PATH-only Source profile's scoped
+             * operation-state identity and is not a neutral oracle. */
+            const std::string physical=unit+
+                " 0 0 "+unit+" 0 0 cm "+content[kind];
             page.replaceKey("/Contents",pdf->newStream(physical));
         }
     } else {
@@ -2521,8 +2525,13 @@ static int native_original_userunit_cases(const std::string& filename)
         quantapdf_render_options opts{};
         opts.struct_size=sizeof(opts);
         opts.dpi=(float)dpi;
-        OK(quantapdf_render_page_with_options(
-            page,&opts,&bitmap));
+        const auto reference_status=
+            quantapdf_render_page_with_options(page,&opts,&bitmap);
+        if(reference_status!=QUANTAPDF_OK)
+            std::fprintf(stderr,
+                "UserUnit independently authored physical reference rejected kind=%zu qu=%d dpi=%d rotate=%d status=%d\n",
+                kind,qu,dpi,original_turn,(int)reference_status);
+        CHECK(reference_status==QUANTAPDF_OK && bitmap!=nullptr);
         int bw=0,bh=0,bs=0,bc=0;
         const unsigned char *base=nullptr;
         size_t base_size=0u;
