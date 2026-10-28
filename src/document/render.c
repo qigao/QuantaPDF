@@ -149,7 +149,12 @@ static quantapdf_status quantapdf_render_page_transformed(
     status = quantapdf_document_page_user_unit(
         page->document, page->page_index, &user_unit);
     if (status == QUANTAPDF_OK) {
-        if (!isfinite(user_unit) || user_unit != 1.0)
+        /* Final original token/quarter-lattice admission is still
+         * owned by Source V10. This public gate only bounds the
+         * physical page lease before the unique Source/C11 provider.
+         * /UserUnit does NOT select an alternate renderer. */
+        if (!isfinite(user_unit) || user_unit<0.25 ||
+            user_unit>4.0)
             status = QUANTAPDF_ERROR_UNSUPPORTED;
         else {
             status = quantapdf_builtin_native_qualify_bitmap_v10(

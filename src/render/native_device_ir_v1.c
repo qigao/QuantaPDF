@@ -116,19 +116,23 @@ quantapdf_status quantapdf_native_device_ir_render_v1(
      * Page extent and pass decimal quarters to the existing C11
      * quotient/remainder device geometry planner. */
     {
-        const double qw=(double)source->pages[0].width_points*4.0;
-        const double qh=(double)source->pages[0].height_points*4.0;
+        /* Original quarter-point box multiplied by original
+         * quarter-point /UserUnit has up to a SIXTEENTH-point physical
+         * span. These values are exact in binary32 under the source
+         * and physical pixel caps; no binary64->text recovery. */
+        const double qw=(double)source->pages[0].width_points*16.0;
+        const double qh=(double)source->pages[0].height_points*16.0;
         if(!isfinite(qw) || !isfinite(qh) || qw<=0.0 || qh<=0.0 ||
-           qw>4000000.0 || qh>4000000.0 ||
+           qw>16000000.0 || qh>16000000.0 ||
            floor(qw)!=qw || floor(qh)!=qh)
             return QUANTAPDF_ERROR_UNSUPPORTED;
         source_width=(size_t)qw;
         source_height=(size_t)qh;
     }
     printed=snprintf(box,sizeof(box),
-        "0 0 %zu.%02u %zu.%02u",
-        source_width/4u,(unsigned)(source_width%4u)*25u,
-        source_height/4u,(unsigned)(source_height%4u)*25u);
+        "0 0 %zu.%04u %zu.%04u",
+        source_width/16u,(unsigned)(source_width%16u)*625u,
+        source_height/16u,(unsigned)(source_height%16u)*625u);
     if(printed<0 || (size_t)printed>=sizeof(box))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     status=quantapdf_native_device_plan_create(
@@ -191,7 +195,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1(
      * No 72-DPI bitmap upscale or second pixel producer. */
     return quantapdf_ir_raster_scoped_mixed_v5_device_viewport(
         &projected,0u,limits,
-        (double)source_width*(double)dpi/288.0,
-        (double)source_height*(double)dpi/288.0,
+        (double)source_width*(double)dpi/1152.0,
+        (double)source_height*(double)dpi/1152.0,
         out_image);
 }

@@ -12,7 +12,15 @@ partially paint or select a fallback.
 ## Currently implemented native rendering subset
 
 - One caller-selected, original, unencrypted page with strict bounded
-  PageTree index/ancestor validation, exact 72/96/144 DPI and UserUnit 1.
+  PageTree index/ancestor validation, exact 72/96/144 DPI and
+  Source V10 original /UserUnit factor on a strictly validated
+  1/4-factor lattice from 0.25 to 4. Its leaf numeric token is
+  checked independently of QPDF geometry, and after full Content EOF
+  admission it scales frozen PATH/W Clip/RAW Image positions (not RAW
+  samples) into physical 1/16-point geometry before the unique C11
+  native DPI projection. All Media/Crop and full IMAGE work are
+  independently charged after physical scaling, with no bitmap
+  resampling or alternate provider.
   Nonzero page indices select their true original Page/Contents/Resources,
   never silently substitute the first page. The Source V10 M0 subset
   also accepts bounded integer signed MediaBox lower-left origins, with
