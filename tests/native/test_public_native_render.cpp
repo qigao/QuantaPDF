@@ -883,13 +883,31 @@ static int original_source_rotation_cases(const std::string& filename)
         quantapdf_bitmap *failed=reinterpret_cast<quantapdf_bitmap*>(
             uintptr_t(1));
         const auto status=quantapdf_render_page(page,&failed);
-        const auto expected=mode<=6 ?
-            QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED;
-        if(status!=expected || failed!=nullptr)
-            std::fprintf(stderr,
-                "original Rotate rejected mode=%d actual=%d expected=%d output=%p\n",
-                mode,(int)status,(int)expected,(void*)failed);
-        CHECK(status==expected && failed==nullptr);
+        if(mode==8) {
+            /* An originally cropped [0 0 31 24] Source with
+             * /Rotate90 is now a QUALIFIED native 24x31 viewport,
+             * not a discarded or scaled 32x24 PDFium image. */
+            CHECK(status==QUANTAPDF_OK && failed!=nullptr);
+            int w=0,h=0,stride=0,channels=0;
+            const unsigned char *rgb=nullptr;
+            size_t size=0u;
+            OK(quantapdf_bitmap_dimensions(
+                failed,&w,&h,&stride,&channels));
+            OK(quantapdf_bitmap_data(failed,&rgb,&size));
+            CHECK(w==24 && h==31 && stride==72 && channels==3 &&
+                  size==24u*31u*3u && rgb!=nullptr);
+            CHECK(probe_rgb(rgb,stride,12,13,255u,0u,0u));
+            CHECK(probe_rgb(rgb,stride,18,26,223u,223u,223u));
+            quantapdf_drop_bitmap(failed);
+        } else {
+            const auto expected=mode<=6 ?
+                QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED;
+            if(status!=expected || failed!=nullptr)
+                std::fprintf(stderr,
+                    "original Rotate rejected mode=%d actual=%d expected=%d output=%p\n",
+                    mode,(int)status,(int)expected,(void*)failed);
+            CHECK(status==expected && failed==nullptr);
+        }
         quantapdf_drop_page(page);
         quantapdf_close(doc);
     }
