@@ -2520,7 +2520,12 @@ static int native_original_userunit_cases(const std::string& filename)
     const int factors[]={1,2,3,5,8,16};
     const int dpis[]={72,96,144};
     const int rotations[]={0,90,180,270};
-    for(size_t kind=0u;kind<4u;++kind)
+    /* Exercise all SIX authored original source profiles; the last
+     * two (Gray inverted /Decode and W* Clip IMAGE) were previously
+     * present in originals[] but accidentally skipped by kind<4.
+     * Compare true UserUnit vs independently scaled original PDF in
+     * full RGB at each native DPI and original quarter rotation. */
+    for(size_t kind=0u;kind<6u;++kind)
     for(int qu:factors)
     for(int dpi:dpis)
     for(int original_turn:rotations) {
