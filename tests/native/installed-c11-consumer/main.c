@@ -85,7 +85,17 @@ static int write_multi_pdf(const char *path,int shifted_origin)
         /* The installed standalone C11 consumer independently creates
          * a selected page with a true negative MediaBox origin, not a
          * test-only in-tree fixture or an altered library header. */
-        const char *body=(shifted_origin>=4 && i==5) ?
+        const char *body=(shifted_origin==6 && i==5) ?
+            "<< /Type /Page /Parent 2 0 R"
+            " /MediaBox [0 0 32 24] /CropBox [0 0 16.5 12.25]"
+            " /UserUnit 2 /Rotate 90"
+            " /Contents 6 0 R /Resources << >> >>" :
+            (shifted_origin==7 && i==5) ?
+            "<< /Type /Page /Parent 2 0 R"
+            " /MediaBox [0 0 32 24] /CropBox [0 0 16.5 12.25]"
+            " /UserUnit 0.5"
+            " /Contents 6 0 R /Resources << >> >>" :
+            (shifted_origin>=4 && i==5) ?
             (shifted_origin==5 ?
              "<< /Type /Page /Parent 2 0 R"
              " /MediaBox [0 0 32 24]"
@@ -658,6 +668,104 @@ int main(void)
         if(status!=QUANTAPDF_OK || pixels==NULL ||
            size!=(size_t)stride*(size_t)h)goto fail;
         if(pixels[4u*(size_t)stride+4u*3u+1u]!=0u)goto fail;
+        quantapdf_drop_bitmap(bitmap);bitmap=NULL;
+    }
+
+    /* Independent installed public C11 consumer authors a true
+     * THIRD PAGE (index=2) with original /UserUnit 2 + /Rotate90 or
+     * /UserUnit 0.5. Its existing fractional [0 0 16.5 12.25]
+     * Crop has a differently sized physical viewport; full oversize
+     * red PDF PATH paints exactly inside the implicit last-pixel
+     * C11 viewport mask, never via 72 DPI post-bitmap scaling. */
+    for(int unit_mode=6;unit_mode<=7;++unit_mode) {
+        const int large=unit_mode==6;
+        if(!write_multi_pdf(filename,unit_mode))goto done;
+        status=quantapdf_context_create(&context);
+        if(status!=QUANTAPDF_OK || context==NULL)goto fail;
+        status=quantapdf_open_with_context(
+            context,filename,NULL,&document);
+        if(status!=QUANTAPDF_OK || document==NULL)goto fail;
+        status=quantapdf_page_count(document,&pages);
+        if(status!=QUANTAPDF_OK || pages!=3)goto fail;
+        status=quantapdf_load_page(document,2,&page);
+        if(status!=QUANTAPDF_OK || page==NULL)goto fail;
+        {
+            quantapdf_rect bounds={0};
+            status=quantapdf_page_bounds(page,&bounds);
+            if(status!=QUANTAPDF_OK || bounds.x0!=0.0f ||
+               bounds.y0!=0.0f ||
+               bounds.x1!=(large?24.5f:8.25f) ||
+               bounds.y1!=(large?33.0f:6.125f))goto fail;
+        }
+        const int dpis[3]={72,96,144};
+        for(size_t k=0u;k<3u;++k) {
+            quantapdf_render_options opts={0};
+            opts.struct_size=sizeof(opts);
+            opts.dpi=(float)dpis[k];
+            status=quantapdf_render_page_with_options(
+                page,&opts,&device_bitmap);
+            if(status!=QUANTAPDF_OK || device_bitmap==NULL)goto fail;
+            const int width=large?
+                (dpis[k]==72?25:dpis[k]==96?33:49):
+                (dpis[k]==72?9:dpis[k]==96?11:17);
+            const int height=large?
+                (dpis[k]==72?33:dpis[k]==96?44:66):
+                (dpis[k]==72?7:dpis[k]==96?9:13);
+            status=quantapdf_bitmap_dimensions(
+                device_bitmap,&w,&h,&stride,&channels);
+            if(status!=QUANTAPDF_OK || w!=width || h!=height ||
+               stride!=3*w || channels!=3)goto fail;
+            status=quantapdf_bitmap_data(
+                device_bitmap,&pixels,&size);
+            if(status!=QUANTAPDF_OK || pixels==NULL ||
+               size!=(size_t)stride*(size_t)h)goto fail;
+            const unsigned char *inside=pixels+
+                2u*(size_t)stride+2u*3u;
+            if(inside[0]!=255u || inside[1]!=0u || inside[2]!=0u)
+                goto fail;
+            if(dpis[k]==72) {
+                const unsigned char *edge=pixels+
+                    2u*(size_t)stride+(size_t)(w-1)*3u;
+                const unsigned char *bottom=pixels+
+                    (size_t)(h-1)*(size_t)stride+2u*3u;
+                if(edge[0]!=255u || edge[2]!=edge[1] ||
+                   edge[1]!=(large?127u:191u) ||
+                   bottom[1]!=(large?0u:255u))goto fail;
+            } else if(dpis[k]==96) {
+                const unsigned char *right=pixels+
+                    2u*(size_t)stride+(size_t)(w-1)*3u;
+                const unsigned char *bottom=pixels+
+                    (size_t)(h-1)*(size_t)stride+2u*3u;
+                if(right[1]!=(large?64u:0u) ||
+                   bottom[1]!=(large?0u:191u))goto fail;
+            } else {
+                const unsigned char *right=pixels+
+                    2u*(size_t)stride+(size_t)(w-1)*3u;
+                const unsigned char *bottom=pixels+
+                    (size_t)(h-1)*(size_t)stride+2u*3u;
+                const unsigned char *corner=pixels+
+                    (size_t)(h-1)*(size_t)stride+
+                    (size_t)(w-1)*3u;
+                if(right[1]!=(large?0u:127u) ||
+                   bottom[1]!=(large?0u:191u) ||
+                   corner[1]!=(large?0u:223u))goto fail;
+            }
+            quantapdf_drop_bitmap(device_bitmap);device_bitmap=NULL;
+        }
+        status=quantapdf_render_page(page,&bitmap);
+        if(status!=QUANTAPDF_OK || bitmap==NULL)goto fail;
+        quantapdf_drop_page(page);page=NULL;
+        quantapdf_close(document);document=NULL;
+        quantapdf_drop_context(context);context=NULL;
+        status=quantapdf_bitmap_dimensions(
+            bitmap,&w,&h,&stride,&channels);
+        if(status!=QUANTAPDF_OK ||
+           w!=(large?25:9) || h!=(large?33:7) ||
+           stride!=w*3 || channels!=3)goto fail;
+        status=quantapdf_bitmap_data(bitmap,&pixels,&size);
+        if(status!=QUANTAPDF_OK || pixels==NULL ||
+           size!=(size_t)stride*(size_t)h)goto fail;
+        if(pixels[2u*(size_t)stride+2u*3u+1u]!=0u)goto fail;
         quantapdf_drop_bitmap(bitmap);bitmap=NULL;
     }
     result=EXIT_SUCCESS;

@@ -20,6 +20,25 @@
 #include <utility>
 #include <vector>
 
+/* Test-only, compile-time-elided allocation arming at actual SOURCE-owned
+ * std::vector sites. The normal backend has no probe or extra symbols. */
+#ifdef QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST
+extern "C" void quantapdf_source_stage_oom_arm(unsigned) noexcept;
+extern "C" bool quantapdf_source_ir_oom_fail_c_allocation() noexcept;
+#define QP_SOURCE_STAGE_ARM(n) quantapdf_source_stage_oom_arm(n)
+#define QP_SOURCE_C_CALLOC(n,s) \
+    (quantapdf_source_ir_oom_fail_c_allocation()?nullptr:std::calloc((n),(s)))
+#define QP_SOURCE_C_MALLOC(n) \
+    (quantapdf_source_ir_oom_fail_c_allocation()?nullptr:std::malloc(n))
+#define QP_SOURCE_C_REALLOC(p,n) \
+    (quantapdf_source_ir_oom_fail_c_allocation()?nullptr:std::realloc((p),(n)))
+#else
+#define QP_SOURCE_STAGE_ARM(n) ((void)0)
+#define QP_SOURCE_C_CALLOC(n,s) std::calloc((n),(s))
+#define QP_SOURCE_C_MALLOC(n) std::malloc(n)
+#define QP_SOURCE_C_REALLOC(p,n) std::realloc((p),(n))
+#endif
+
 namespace {
 using Obj = QPDFObjectHandle;
 constexpr size_t hard_pdf_bytes = 2u * 1024u * 1024u;
@@ -399,7 +418,9 @@ struct admission {
         item.commands=std::move(commands);
         item.fill_argb=color;
         item.fill_rule=rule;
+        QP_SOURCE_STAGE_ARM(3u);
         painted_paths.push_back(std::move(item));
+        QP_SOURCE_STAGE_ARM(4u);
         order.push_back(1);
     }
 
@@ -571,8 +592,12 @@ struct admission {
                       static_cast<float>(canvas_h-top),
                       static_cast<float>(x1),
                       static_cast<float>(canvas_h-bottom)};
+        QP_SOURCE_STAGE_ARM(1u);
         draws.push_back(std::move(entry));
-        if (mixed_mode) order.push_back(2);
+        if (mixed_mode) {
+            QP_SOURCE_STAGE_ARM(2u);
+            order.push_back(2);
+        }
     }
 };
 
@@ -666,8 +691,10 @@ public:
             Obj named=xobjects.getKey(args[0].getName());
             admit(!named.isNull(),QUANTAPDF_ERROR_FORMAT);
             target.execute(named,current);
-            if(target.mixed_scoped_mode)
+            if(target.mixed_scoped_mode) {
+                QP_SOURCE_STAGE_ARM(6u);
                 target.scoped_clip_membership.push_back(clip_active ? 1u : 0u);
+            }
         } else if(mixed && op=="rg") {
             /* The V7-only normalized RGB profile converts finite channels
              * to opaque 8-bit RGB with a deterministic nearest-integer
@@ -769,8 +796,10 @@ public:
             target.paint_path(std::move(pending_path),fill_argb,
                 op=="f" ? QUANTAPDF_COMPOSER_FILL_NONZERO :
                           QUANTAPDF_COMPOSER_FILL_EVEN_ODD);
-            if(target.mixed_scoped_mode)
+            if(target.mixed_scoped_mode) {
+                QP_SOURCE_STAGE_ARM(7u);
                 target.scoped_clip_membership.push_back(clip_active ? 1u : 0u);
+            }
             pending_path.clear();
             closed=false;
         } else if(clipped && (op=="W" || op=="W*")) {
@@ -961,6 +990,7 @@ void original_turn_image(staged_image& image,
           QUANTAPDF_ERROR_UNSUPPORTED);
     const size_t new_width=rotation==180?w:h;
     const size_t new_height=rotation==180?h:w;
+    QP_SOURCE_STAGE_ARM(5u);
     std::vector<unsigned char> turned(image.pixels.size());
     for(size_t y=0u;y<h;++y)
         for(size_t x=0u;x<w;++x) {
@@ -1078,7 +1108,7 @@ quantapdf_ir materialize_blank_page(const admission& source)
 {
     quantapdf_ir ir={};
     ir.pages=static_cast<quantapdf_composer_page_state *>(
-        std::calloc(1u,sizeof(*ir.pages)));
+        QP_SOURCE_C_CALLOC(1u,sizeof(*ir.pages)));
     admit(ir.pages!=nullptr,QUANTAPDF_ERROR_NOMEM);
     ir.page_count=1u;
     ir.pages[0].width_points=static_cast<float>(
@@ -1114,7 +1144,7 @@ quantapdf_ir materialize_path_only(const admission& source)
     quantapdf_ir ir=materialize_blank_page(source);
     try {
         ir.operations=static_cast<quantapdf_composer_operation *>(
-            std::calloc(n,sizeof(*ir.operations)));
+            QP_SOURCE_C_CALLOC(n,sizeof(*ir.operations)));
         admit(ir.operations!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.operation_count=n;
         for(size_t i=0u;i<n;++i) {
@@ -1128,7 +1158,7 @@ quantapdf_ir materialize_path_only(const admission& source)
             auto& path=op.value.path;
             path.command_count=staged.commands.size();
             path.commands=static_cast<quantapdf_composer_path_command *>(
-                std::malloc(path.command_count*sizeof(*path.commands)));
+                QP_SOURCE_C_MALLOC(path.command_count*sizeof(*path.commands)));
             admit(path.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
             std::memcpy(path.commands,staged.commands.data(),
                 path.command_count*sizeof(*path.commands));
@@ -1150,7 +1180,7 @@ quantapdf_ir materialize(
     quantapdf_ir ir={};
     try {
         ir.pages=static_cast<quantapdf_composer_page_state *>(
-            std::calloc(1u,sizeof(*ir.pages)));
+            QP_SOURCE_C_CALLOC(1u,sizeof(*ir.pages)));
         admit(ir.pages!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.page_count=1u;
         ir.pages[0].width_points=static_cast<float>(
@@ -1162,10 +1192,10 @@ quantapdf_ir materialize(
         const size_t count=source.draws.size();
         admit(count>0u && count<=hard_operations,QUANTAPDF_ERROR_UNSUPPORTED);
         ir.operations=static_cast<quantapdf_composer_operation *>(
-            std::calloc(count,sizeof(*ir.operations)));
+            QP_SOURCE_C_CALLOC(count,sizeof(*ir.operations)));
         admit(ir.operations!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.resources.images=static_cast<quantapdf_composer_image_state *>(
-            std::calloc(count,sizeof(*ir.resources.images)));
+            QP_SOURCE_C_CALLOC(count,sizeof(*ir.resources.images)));
         admit(ir.resources.images!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.operation_count=count;
         ir.resources.image_count=count;
@@ -1173,7 +1203,7 @@ quantapdf_ir materialize(
         for(size_t i=0u;i<count;++i) {
             const staged_image& staged=source.draws[i];
             auto& image=ir.resources.images[i];
-            image.data=static_cast<unsigned char *>(std::malloc(staged.pixels.size()));
+            image.data=static_cast<unsigned char *>(QP_SOURCE_C_MALLOC(staged.pixels.size()));
             admit(image.data!=nullptr,QUANTAPDF_ERROR_NOMEM);
             std::memcpy(image.data,staged.pixels.data(),staged.pixels.size());
             image.width=staged.width;
@@ -1259,7 +1289,7 @@ quantapdf_ir materialize_clipped_image(const admission& source,
     try {
         ir.resources.graphics_states=
             static_cast<quantapdf_composer_graphics_state *>(
-                std::calloc(1u,sizeof(*ir.resources.graphics_states)));
+                QP_SOURCE_C_CALLOC(1u,sizeof(*ir.resources.graphics_states)));
         admit(ir.resources.graphics_states!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.resources.graphics_state_count=1u;
         ir.resources.graphics_state_capacity=1u;
@@ -1270,7 +1300,7 @@ quantapdf_ir materialize_clipped_image(const admission& source,
         state.clip_id=1u;
 
         ir.resources.clips=static_cast<quantapdf_composer_clip_state *>(
-            std::calloc(1u,sizeof(*ir.resources.clips)));
+            QP_SOURCE_C_CALLOC(1u,sizeof(*ir.resources.clips)));
         admit(ir.resources.clips!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.resources.clip_count=1u;
         ir.resources.clip_capacity=1u;
@@ -1279,7 +1309,7 @@ quantapdf_ir materialize_clipped_image(const admission& source,
         clip.fill_rule=source.clip.rule;
         clip.command_count=source.clip.commands.size();
         clip.commands=static_cast<quantapdf_composer_path_command *>(
-            std::malloc(clip.command_count*sizeof(*clip.commands)));
+            QP_SOURCE_C_MALLOC(clip.command_count*sizeof(*clip.commands)));
         admit(clip.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
         std::memcpy(clip.commands,source.clip.commands.data(),
                     clip.command_count*sizeof(*clip.commands));
@@ -1335,7 +1365,7 @@ quantapdf_ir materialize_mixed(const admission& source,
         for(size_t i=0u;i<images;++i)image_ops[i]=ir.operations[i];
         quantapdf_composer_operation *expanded=
             static_cast<quantapdf_composer_operation *>(
-                std::realloc(ir.operations,
+                QP_SOURCE_C_REALLOC(ir.operations,
                     mixed_operations*sizeof(*ir.operations)));
         admit(expanded!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.operations=expanded;
@@ -1354,7 +1384,7 @@ quantapdf_ir materialize_mixed(const admission& source,
             quantapdf_composer_path_operation& path=painted.value.path;
             const size_t count=staged.commands.size();
             path.commands=static_cast<quantapdf_composer_path_command *>(
-                std::malloc(count*sizeof(*path.commands)));
+                QP_SOURCE_C_MALLOC(count*sizeof(*path.commands)));
             admit(path.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
             path.command_count=count;
             std::memcpy(path.commands,staged.commands.data(),
@@ -1463,7 +1493,7 @@ quantapdf_ir materialize_scoped_mixed_v5(const admission& source,
     try {
         ir.resources.graphics_states=
             static_cast<quantapdf_composer_graphics_state *>(
-            std::calloc(1u,sizeof(*ir.resources.graphics_states)));
+            QP_SOURCE_C_CALLOC(1u,sizeof(*ir.resources.graphics_states)));
         admit(ir.resources.graphics_states!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.resources.graphics_state_count=1u;
         ir.resources.graphics_state_capacity=1u;
@@ -1474,7 +1504,7 @@ quantapdf_ir materialize_scoped_mixed_v5(const admission& source,
         state.clip_id=1u;
         ir.resources.clips=
             static_cast<quantapdf_composer_clip_state *>(
-            std::calloc(1u,sizeof(*ir.resources.clips)));
+            QP_SOURCE_C_CALLOC(1u,sizeof(*ir.resources.clips)));
         admit(ir.resources.clips!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.resources.clip_count=1u;
         ir.resources.clip_capacity=1u;
@@ -1483,7 +1513,7 @@ quantapdf_ir materialize_scoped_mixed_v5(const admission& source,
         clip.fill_rule=source.clip.rule;
         clip.command_count=source.clip.commands.size();
         clip.commands=static_cast<quantapdf_composer_path_command *>(
-            std::malloc(clip.command_count*sizeof(*clip.commands)));
+            QP_SOURCE_C_MALLOC(clip.command_count*sizeof(*clip.commands)));
         admit(clip.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
         std::memcpy(clip.commands,source.clip.commands.data(),
                     clip.command_count*sizeof(*clip.commands));
@@ -1530,7 +1560,7 @@ quantapdf_ir materialize_restored_image_then_path(const admission& source)
               QUANTAPDF_ERROR_UNSUPPORTED);
         ir.resources.graphics_states=
             static_cast<quantapdf_composer_graphics_state *>(
-                std::calloc(1u,sizeof(*ir.resources.graphics_states)));
+                QP_SOURCE_C_CALLOC(1u,sizeof(*ir.resources.graphics_states)));
         admit(ir.resources.graphics_states!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.resources.graphics_state_count=1u;
         ir.resources.graphics_state_capacity=1u;
@@ -1542,7 +1572,7 @@ quantapdf_ir materialize_restored_image_then_path(const admission& source)
 
         ir.resources.clips=
             static_cast<quantapdf_composer_clip_state *>(
-                std::calloc(1u,sizeof(*ir.resources.clips)));
+                QP_SOURCE_C_CALLOC(1u,sizeof(*ir.resources.clips)));
         admit(ir.resources.clips!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.resources.clip_count=1u;
         ir.resources.clip_capacity=1u;
@@ -1551,7 +1581,7 @@ quantapdf_ir materialize_restored_image_then_path(const admission& source)
         clip.fill_rule=source.clip.rule;
         clip.command_count=source.clip.commands.size();
         clip.commands=static_cast<quantapdf_composer_path_command *>(
-            std::malloc(clip.command_count*sizeof(*clip.commands)));
+            QP_SOURCE_C_MALLOC(clip.command_count*sizeof(*clip.commands)));
         admit(clip.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
         std::memcpy(clip.commands,source.clip.commands.data(),
                     clip.command_count*sizeof(*clip.commands));
@@ -1759,6 +1789,103 @@ source_v10_exact_boxes source_v10_quarter_geometry(
     return {m,c,view};
 }
 
+/* Strict V10-only original /UserUnit is a PAGE leaf number, not an
+ * inheritable PageTree property. PDF box coordinates and authorial
+ * CTM are admitted in their own original units before this physical
+ * scale is applied. Original Quarter source * Quarter UserUnit is an
+ * exact SIXTEENTH-point device-space coordinate. */
+unsigned checked_source_v10_userunit(Obj page,double geometry_unit)
+{
+    const Obj raw=page.getKey("/UserUnit");
+    const int64_t quarters=raw.isNull()?4ll:source_v10_quarters(raw);
+    admit(quarters>=1ll && quarters<=16ll &&
+          geometry_unit==(double)quarters/4.0,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    return (unsigned)quarters;
+}
+
+/* Scale bounded originals in their DETACHED staging, AFTER all
+ * q/Q operators and the original source /Rotate were accepted and
+ * BEFORE any uniquely-owned IR is published. This is purely source
+ * geometry; original RAW Gray/RGB XObject bytes and orientation
+ * remain exactly the same, with one nearest-neighbor C11 producer. */
+void scale_source_userunit(admission& source,unsigned quarters)
+{
+    if(quarters==4u)return;
+    admit(quarters>=1u && quarters<=16u,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    const double unit=(double)quarters/4.0;
+    const double pw=source.exact_page_w*unit;
+    const double ph=source.exact_page_h*unit;
+    admit(std::isfinite(pw) && std::isfinite(ph) &&
+          pw>=1.0 && ph>=1.0 &&
+          pw<=1000000.0 && ph<=1000000.0 &&
+          std::floor(pw*16.0)==pw*16.0 &&
+          std::floor(ph*16.0)==ph*16.0,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    const size_t w=(size_t)std::ceil(pw);
+    const size_t h=(size_t)std::ceil(ph);
+    admit(w!=0u && h!=0u && 
+          w<=hard_page_pixels/h &&
+          w*h<=source.limits.max_page_pixels,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    const auto point=[unit](quantapdf_point& p) {
+        const double x=(double)p.x*unit;
+        const double y=(double)p.y*unit;
+        admit(std::isfinite(x) && std::isfinite(y) &&
+              x>=-1000000.0 && x<=1000000.0 &&
+              y>=-1000000.0 && y<=1000000.0,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        p.x=(float)x;
+        p.y=(float)y;
+    };
+    const auto commands=[&point](
+        std::vector<quantapdf_composer_path_command>& v) {
+        for(auto& c:v) {
+            if(c.kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
+               c.kind==QUANTAPDF_COMPOSER_PATH_LINE_TO)
+                point(c.point1);
+            else
+                admit(c.kind==QUANTAPDF_COMPOSER_PATH_CLOSE,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+        }
+    };
+    for(auto& p:source.painted_paths)
+        commands(p.commands);
+    commands(source.clip.commands);
+    size_t physical_draw=0u;
+    for(auto& image:source.draws) {
+        const double x0=(double)image.bounds.x0*unit;
+        const double x1=(double)image.bounds.x1*unit;
+        const double y0=(double)image.bounds.y0*unit;
+        const double y1=(double)image.bounds.y1*unit;
+        admit(std::isfinite(x0) && std::isfinite(x1) &&
+              std::isfinite(y0) && std::isfinite(y1) &&
+              x0>=-1000000.0 && x1<=1000000.0 &&
+              y0>=-1000000.0 && y1<=1000000.0 &&
+              x1>x0 && y1>y0,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        /* Even an IMAGE wholly outside the visible CropBox is billed
+         * at its FULL physically scaled authorial placement, not a
+         * tiny visible fragment. The C11 raster recharges its own
+         * device-space work independently. */
+        const size_t area_w=(size_t)std::ceil(x1-x0);
+        const size_t area_h=(size_t)std::ceil(y1-y0);
+        admit(area_w>0u && area_h>0u &&
+              area_w<=hard_draw_work/area_h &&
+              area_w*area_h<=source.limits.max_drawn_pixels &&
+              physical_draw<=
+                  source.limits.max_drawn_pixels-area_w*area_h &&
+              physical_draw<=hard_draw_work-area_w*area_h,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        physical_draw+=area_w*area_h;
+        image.bounds.x0=(float)x0;image.bounds.x1=(float)x1;
+        image.bounds.y0=(float)y0;image.bounds.y1=(float)y1;
+    }
+    source.page_w=w;source.page_h=h;
+    source.exact_page_w=pw;source.exact_page_h=ph;
+}
+
 /* The exact source-number bounds admit one integer-ceiled pixel canvas
  * without any rounding of the ORIGINAL source geometry. */
 size_t source_quarter_ceil(int64_t lo,int64_t hi,size_t cap)
@@ -1822,6 +1949,8 @@ static quantapdf_status source_raw_images_to_ir_impl(
             source_v10_quarter_geometry(
                 geo.page,limits->max_parent_steps,geo):
             source_v10_exact_boxes{};
+        const unsigned user_quarters=native_v10?
+            checked_source_v10_userunit(geo.page,geo.user_unit):4u;
         const bool full_media=
             geo.left==geo.media[0] &&
             geo.bottom==geo.media[1] &&
@@ -1834,7 +1963,6 @@ static quantapdf_status source_raw_images_to_ir_impl(
                (native_v10 && (geo.rotation==90 ||
                                 geo.rotation==180 ||
                                 geo.rotation==270))) &&
-              geo.user_unit==1.0 &&
               (native_v10 ||
                (full_media &&
                 geo.left==0.0 && geo.bottom==0.0 &&
@@ -1850,6 +1978,17 @@ static quantapdf_status source_raw_images_to_ir_impl(
                 exact.media[1],exact.media[3],hard_page_pixels);
             admit(mw!=0u && mh!=0u &&
                   mw<=limits->max_page_pixels/mh,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            const uint64_t mw16=(uint64_t)(
+                exact.media[2]-exact.media[0])*(uint64_t)user_quarters;
+            const uint64_t mh16=(uint64_t)(
+                exact.media[3]-exact.media[1])*(uint64_t)user_quarters;
+            const size_t device_mw=(size_t)(mw16/16u+
+                (mw16%16u!=0u));
+            const size_t device_mh=(size_t)(mh16/16u+
+                (mh16%16u!=0u));
+            admit(device_mw!=0u && device_mh!=0u &&
+                  device_mw<=limits->max_page_pixels/device_mh,
                   QUANTAPDF_ERROR_UNSUPPORTED);
         }
         /* Source operators use the UNROTATED original media canvas.
@@ -1934,7 +2073,10 @@ static quantapdf_status source_raw_images_to_ir_impl(
         parsed.parseAsContents(&reader);
         admit(!parser.anyWarnings() && !pdf->anyWarnings(),
               QUANTAPDF_ERROR_FORMAT);
-        if(native_v10)original_turn_staging(source,geo.rotation);
+        if(native_v10) {
+            original_turn_staging(source,geo.rotation);
+            scale_source_userunit(source,user_quarters);
+        }
         /* This is NOT a recovery after unsupported content: the entire
          * page stream was parsed, EOF validated q/Q and pending-path
          * ownership, and zero paint/clip operations were admitted. */

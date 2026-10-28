@@ -15,7 +15,8 @@ extern "C" {
  * A name's repeated Do invocation counts separately toward source/draw
  * budgets. Existing source signatures require quarter rotation zero;
  * public V10 alone admits normalized page-tree /Rotate 0/90/180/270,
- * UserUnit=1, [0,0,W,H] Media/Crop, no page group/annotations,
+ * leaf-only /UserUnit absent/null = 1 or exact quarter factor 0.25..4,
+ * quarter-grid original Media/Crop intersection, no page group/annotations,
  * balanced q/Q and axis-aligned
  * positive integer placement cm; named /Image Do; 8-bit DeviceGray/DeviceRGB
  * tightly decoded RAW streams, at most 4 draws. Unsupported operations or
