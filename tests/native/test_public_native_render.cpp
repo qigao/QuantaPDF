@@ -2142,7 +2142,7 @@ static int native_fractional_quarter_rotation_cases(const std::string& filename)
     pdf->setAttemptRecovery(false);
     pdf->processMemoryFile("selected original quarter Crop",
         seven.data(),seven.size(),"");
-    const auto branch=pdf->getRoot().getKey("/Pages")
+    auto branch=pdf->getRoot().getKey("/Pages")
         .getKey("/Kids").getArrayItem(6);
     branch.replaceKey("/MediaBox",
         Obj::parse("[0.25 0.5 32.25 24.5]"));
