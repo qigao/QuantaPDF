@@ -1150,6 +1150,46 @@ static int selected_page_v10_cases(const std::string& filename)
         }
         quantapdf_drop_bitmap(bitmap);
     }
+    /* Invalid structure or selected Resource must be refused on the
+     * actual multi-page original. A bad later sibling invalidates even
+     * a request for blank page zero; source V10 walks the FULL bounded
+     * PageTree before accepting a selected page. Never return another
+     * (usually blank) page after any structural failure. */
+    for(int mode=1;mode<=5;++mode) {
+        const std::string bad=selected_page_original_pdf(mode);
+        CHECK(write_pdf(filename,bad));
+        quantapdf_context *ctx=nullptr;
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        quantapdf_bitmap *bitmap=reinterpret_cast<quantapdf_bitmap*>(
+            uintptr_t(1));
+        OK(quantapdf_context_create(&ctx));
+        const auto opened=quantapdf_open_with_context(
+            ctx,filename.c_str(),nullptr,&doc);
+        CHECK(std::remove(filename.c_str())==0);
+        if(opened!=QUANTAPDF_OK) {
+            CHECK(doc==nullptr);
+            quantapdf_drop_context(ctx);
+            continue; /* malformed input refused at document open */
+        }
+        const int selected=mode==5?2:0;
+        const auto loaded=quantapdf_load_page(doc,selected,&page);
+        if(loaded!=QUANTAPDF_OK) {
+            CHECK(page==nullptr);
+            quantapdf_close(doc);
+            quantapdf_drop_context(ctx);
+            continue; /* malformed input refused at Page lease */
+        }
+        const auto rendered=quantapdf_render_page(page,&bitmap);
+        if(rendered!=QUANTAPDF_ERROR_FORMAT || bitmap!=nullptr)
+            std::fprintf(stderr,
+                "bad multi page-tree mode=%d selected=%d status=%d bitmap=%p\n",
+                mode,selected,(int)rendered,(void*)bitmap);
+        CHECK(rendered==QUANTAPDF_ERROR_FORMAT && bitmap==nullptr);
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+        quantapdf_drop_context(ctx);
+    }
     return EXIT_SUCCESS;
 }
 
