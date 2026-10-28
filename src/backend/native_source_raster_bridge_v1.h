@@ -24,9 +24,10 @@ typedef struct quantapdf_native_source_raster_bridge_limits_v1 {
     quantapdf_ir_raster_scoped_mixed_v5_limits raster;
 } quantapdf_native_source_raster_bridge_limits_v1;
 
-/* Fail-closed device gate: only one original integer-pixel 72-DPI page,
- * no rotation, region Clip, transparent page or thumbnail semantics.
- * All other settings are refused, not approximated by the first slice. */
+/* Fail-closed private device gate: original page zero, zero source
+ * rotation/region/alpha/thumbnail controls. Historical V8/V9 Source
+ * profiles remain exact 72 DPI; only public Source V10 admits 96/144
+ * through bounded pre-raster device IR projection. Other DPI refuses. */
 typedef struct quantapdf_native_source_raster_device_v1 {
     size_t page_index;
     float dpi;
@@ -42,8 +43,9 @@ typedef struct quantapdf_native_source_raster_device_v1 {
  * Published pixels are owned by the caller, who must dispose them with
  * quantapdf_ir_raster_image_dispose(). All failure paths reset output.
  *
- * This private function does NOT reroute public quantapdf_render_page(),
- * render options, or thumbnail calls; production remains PDFium-backed. */
+ * Historical V8 Source admission is still private and 72-DPI-only;
+ * public page/option/thumbnail callbacks use the V10 bridge below,
+ * with one pure C11 Raster and no reference renderer or fallback. */
 quantapdf_status quantapdf_native_source_raster_bridge_v1(
     const unsigned char *original_pdf,
     size_t original_size,
@@ -61,8 +63,9 @@ quantapdf_status quantapdf_native_source_raster_bridge_v9(
     const quantapdf_native_source_raster_device_v1 *device,
     quantapdf_ir_raster_image *out_image);
 
-/* Source V10 adds strictly preflighted 8-bit TIFF/PNG Predictor
- * DecodeParms to V9. One shared C11 Raster and unchanged work budgets. */
+/* Public Source V10: strict 8-bit TIFF/PNG Predictor /DecodeParms,
+ * exact 72-DPI Native or qualified direct 96/144-DPI device-space
+ * projection. Same C11 V5 Raster, distinct global output/source budgets. */
 quantapdf_status quantapdf_native_source_raster_bridge_v10(
     const unsigned char *original_pdf,
     size_t original_size,

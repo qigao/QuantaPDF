@@ -34,10 +34,9 @@ static quantapdf_status builtin_native_page_impl(
     if (view.page_index != device->page_index)
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
-    /* Authentication is owned by the current document provider.
-     * The Source V8 bridge does not admit password-bearing sessions;
-     * it must refuse rather than misrepresent decrypted source or
-     * silently hand the request to the PDFium fallback. */
+    /* Authentication belongs to document open. These bounded Source
+     * profiles refuse password-bearing render views rather than
+     * misrepresent a decrypted original or silently omit content. */
     if (view.password != NULL && view.password[0] != '\0')
         return QUANTAPDF_ERROR_UNSUPPORTED;
 

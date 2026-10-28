@@ -3,9 +3,10 @@
 
 #include <string.h>
 
-/* The provider's private Page lease is borrowed, not retained. This
- * entry is deliberately separate from builtin_ops.render_page: the
- * product/public callbacks continue to render through PDFium. */
+/* The document backend supplies a borrowed read-only Page lease.
+ * Product/public V10 uses this exact Source -> owned IR -> C11 Raster
+ * -> independently malloc-owned RGB path; no alternative pixel producer
+ * or provider retry is retained. */
 static quantapdf_status builtin_native_bitmap_impl(
     void *builtin_page,
     const quantapdf_native_source_raster_bridge_limits_v1 *limits,
