@@ -759,10 +759,26 @@ int main()
     second=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
     CHECK(quantapdf_render_page_with_options(page,&opts,&second)==
           QUANTAPDF_ERROR_UNSUPPORTED && second==nullptr);
+    /* A W-Clipped Image followed by a Q-restored Gray PATH uses the
+     * genuine 96-DPI source/device grid BEFORE its lossless 90-degree
+     * RGB orientation. This was an obsolete unsupported test. */
     opts.rotation_degrees=90.0f;opts.dpi=96.0f;
-    second=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-    CHECK(quantapdf_render_page_with_options(page,&opts,&second)==
-          QUANTAPDF_ERROR_UNSUPPORTED && second==nullptr);
+    OK(quantapdf_render_page_with_options(page,&opts,&second));
+    CHECK(second!=nullptr);
+    {
+        int rw=0,rh=0,rs=0,rc=0;
+        const unsigned char *rgb=nullptr;
+        size_t n=0u;
+        OK(quantapdf_bitmap_dimensions(second,&rw,&rh,&rs,&rc));
+        OK(quantapdf_bitmap_data(second,&rgb,&n));
+        CHECK(rw==32 && rh==43 && rs==96 && rc==3 &&
+              rgb!=nullptr && n==32u*43u*3u);
+        /* Unrotated device samples (18,16) RED and (35,7)
+         * 223-Gray become (15,18) and (24,35) after 90 degrees. */
+        CHECK(probe_rgb(rgb,rs,15,18,255u,0u,0u));
+        CHECK(probe_rgb(rgb,rs,24,35,223u,223u,223u));
+    }
+    quantapdf_drop_bitmap(second);second=nullptr;
     opts.dpi=72.0f;opts.rotation_degrees=0.0f;
     /* A native 72-DPI image is the sole source for bounded thumbnail
      * area resampling; every 2x2 RGB box has an exact arithmetic mean,
