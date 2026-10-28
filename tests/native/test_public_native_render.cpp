@@ -1230,10 +1230,13 @@ static std::string shifted_media_original(
     auto page=pages.getKey("/Kids").getArrayItem(0);
     std::string box;
     if(mode==3) {
-        box="["+std::to_string(shift_x)+".5 "+
-             std::to_string(shift_y)+".5 "+
-             std::to_string(shift_x+32)+".5 "+
-             std::to_string(shift_y+24)+".5]";
+        /* Numerical +0.5: concatenating "-7" and ".5" makes -7.5
+         * instead of the intended -6.5 and changes the page height!
+         * QPDF serializes these finite binary-exact quarter endpoints. */
+        box="["+std::to_string((double)shift_x+0.5)+" "+
+             std::to_string((double)shift_y+0.5)+" "+
+             std::to_string((double)(shift_x+32)+0.5)+" "+
+             std::to_string((double)(shift_y+24)+0.5)+"]";
     } else {
         box="["+std::to_string(shift_x)+" "+
             std::to_string(shift_y)+" "+
