@@ -2487,8 +2487,7 @@ static std::string original_unit_source_or_physical_reference(
              * nearest-source samples under the physical reference CTM. */
             "q 16 0 0 12 8 3 cm /I Do Q",
             /* Both QPDF originals use W* Clip; no post-render mask. */
-            "q 12 6 8 9 re W* n "
-            "q 16 0 0 12 8 3 cm /I Do Q Q"
+            "q 12 6 8 9 re W* n q 16 0 0 12 8 3 cm /I Do Q Q"
         };
         if(kind>0) {
             /* A physical reference is an independently AUTHORED
