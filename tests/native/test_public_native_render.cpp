@@ -2482,7 +2482,13 @@ static std::string original_unit_source_or_physical_reference(
             "q 16 0 0 12 8 3 cm /I Do Q",
             "q 12 6 8 9 re W n "
             "q 16 0 0 12 8 3 cm /I Do Q "
-            "Q 0.875 g 24 17 5 3 re f"
+            "Q 0.875 g 24 17 5 3 re f",
+            /* Original RAW Gray /Decode inversion with unchanged
+             * nearest-source samples under the physical reference CTM. */
+            "q 16 0 0 12 8 3 cm /I Do Q",
+            /* Both QPDF originals use W* Clip; no post-render mask. */
+            "q 12 6 8 9 re W* n "
+            "q 16 0 0 12 8 3 cm /I Do Q Q"
         };
         if(kind>0) {
             /* A physical reference is an independently AUTHORED
@@ -2509,7 +2515,8 @@ static int native_original_userunit_cases(const std::string& filename)
 {
     const std::string originals[]={
         create_blank_source(0),create_path_only_source(0),
-        create_image_only_source(0),create_source(false)
+        create_image_only_source(0),create_source(false),
+        create_image_only_source(2),create_image_only_source(11)
     };
     const int factors[]={1,2,3,5,8,16};
     const int dpis[]={72,96,144};
@@ -2832,6 +2839,127 @@ static int native_userunit_physical_budget_cases(
     return EXIT_SUCCESS;
 }
 
+/* True selected seventh leaf: original /Resources, Media/Crop and
+ * /Rotate270 all come from the nested PageTree node, while /UserUnit2
+ * belongs ONLY to the selected PAGE. Its ancestor deliberately contains
+ * an unrelated /UserUnit4 which must NEVER be inherited. An independent
+ * QPDF-authored physical reference doubles the original Media, Crop and
+ * IMAGE CTM, without copying pixels or exercising a second renderer. */
+static std::string native_seventh_userunit_original(bool physical)
+{
+    const std::string original=selected_page_original_pdf();
+    auto pdf=QPDF::create();
+    pdf->setSuppressWarnings(true);
+    pdf->setAttemptRecovery(false);
+    pdf->processMemoryFile("Native seventh UserUnit original",
+        original.data(),original.size(),"");
+    auto branch=pdf->getRoot().getKey("/Pages")
+        .getKey("/Kids").getArrayItem(6);
+    auto leaf=branch.getKey("/Kids").getArrayItem(0);
+    branch.replaceKey("/UserUnit",Obj::newInteger(4));
+    branch.replaceKey("/CropBox",Obj::parse(
+        physical?"[16 8 48 40]":"[8 4 24 20]"));
+    if(physical) {
+        branch.replaceKey("/MediaBox",Obj::parse("[0 0 64 48]"));
+        leaf.replaceKey("/Contents",pdf->newStream(
+            "q 32 0 0 24 16 6 cm /I Do Q"));
+    } else {
+        leaf.replaceKey("/UserUnit",Obj::newInteger(2));
+    }
+    QPDFWriter writer(*pdf);
+    writer.setOutputMemory();
+    writer.write();
+    const auto blob=writer.getBufferSharedPointer();
+    return std::string(
+        reinterpret_cast<const char*>(blob->getBuffer()),
+        blob->getSize());
+}
+
+static int native_seventh_userunit_cases(const std::string& filename)
+{
+    const int dpis[]={72,96,144};
+    for(int dpi:dpis) {
+        std::vector<unsigned char> physical_golden;
+        for(bool physical:{true,false}) {
+            CHECK(write_pdf(filename,
+                native_seventh_userunit_original(physical)));
+            quantapdf_context *ctx=nullptr;
+            quantapdf_document *doc=nullptr;
+            quantapdf_page *page=nullptr;
+            quantapdf_bitmap *bitmap=nullptr;
+            OK(quantapdf_context_create(&ctx));
+            OK(quantapdf_open_with_context(
+                ctx,filename.c_str(),nullptr,&doc));
+            CHECK(std::remove(filename.c_str())==0);
+            int pages=0;
+            OK(quantapdf_page_count(doc,&pages));
+            CHECK(pages==7);
+            OK(quantapdf_load_page(doc,6,&page));
+            quantapdf_rect bounds{};
+            OK(quantapdf_page_bounds(page,&bounds));
+            CHECK(bounds.x0==0.0f && bounds.y0==0.0f &&
+                  bounds.x1==32.0f && bounds.y1==32.0f);
+            quantapdf_render_options opts{};
+            opts.struct_size=sizeof(opts);
+            opts.dpi=(float)dpi;
+            OK(quantapdf_render_page_with_options(page,&opts,&bitmap));
+            int w=0,h=0,stride=0,channels=0;
+            const unsigned char *pixels=nullptr;
+            size_t n=0u;
+            OK(quantapdf_bitmap_dimensions(
+                bitmap,&w,&h,&stride,&channels));
+            OK(quantapdf_bitmap_data(bitmap,&pixels,&n));
+            const int extent=dpi==72?32:dpi==96?43:64;
+            CHECK(w==extent && h==extent && stride==w*3 &&
+                  channels==3 && n==(size_t)stride*(size_t)h &&
+                  pixels!=nullptr);
+            bool has_ink=false;
+            for(size_t i=0u;i<n;i+=3u) {
+                if(pixels[i]!=255u || pixels[i+1u]!=255u ||
+                   pixels[i+2u]!=255u) {has_ink=true;break;}
+            }
+            CHECK(has_ink);
+            if(physical) {
+                physical_golden.assign(pixels,pixels+n);
+            } else {
+                CHECK(physical_golden.size()==n &&
+                      std::memcmp(pixels,physical_golden.data(),n)==0);
+                quantapdf_bitmap *turned=nullptr;
+                opts.rotation_degrees=90.0f;
+                OK(quantapdf_render_page_with_options(
+                    page,&opts,&turned));
+                int rw=0,rh=0,rs=0,rc=0;
+                const unsigned char *rp=nullptr;
+                size_t rn=0u;
+                OK(quantapdf_bitmap_dimensions(
+                    turned,&rw,&rh,&rs,&rc));
+                OK(quantapdf_bitmap_data(turned,&rp,&rn));
+                CHECK(rw==h && rh==w && rs==rw*3 && rc==3 &&
+                      rn==n && rp!=nullptr);
+                for(int y=0;y<h;++y)for(int x=0;x<w;++x) {
+                    const unsigned char *src=physical_golden.data()+
+                        (size_t)y*(size_t)stride+(size_t)x*3u;
+                    const unsigned char *dst=rp+
+                        (size_t)x*(size_t)rs+(size_t)(h-1-y)*3u;
+                    CHECK(std::memcmp(src,dst,3u)==0);
+                }
+                quantapdf_drop_bitmap(turned);
+            }
+            quantapdf_drop_page(page);
+            quantapdf_close(doc);
+            quantapdf_drop_context(ctx);
+            const unsigned char *retained=nullptr;
+            size_t count=0u;
+            OK(quantapdf_bitmap_data(bitmap,&retained,&count));
+            CHECK(retained!=nullptr && count==n &&
+                  (physical ||
+                   std::memcmp(retained,physical_golden.data(),n)==0));
+            quantapdf_drop_bitmap(bitmap);
+        }
+    }
+    return EXIT_SUCCESS;
+}
+
 int main()
 {
     const std::string filename="native-standalone-smoke.pdf";
@@ -2845,6 +2973,7 @@ int main()
     CHECK(native_fractional_span_cases(filename)==EXIT_SUCCESS);
     CHECK(native_original_userunit_cases(filename)==EXIT_SUCCESS);
     CHECK(native_userunit_physical_budget_cases(filename)==EXIT_SUCCESS);
+    CHECK(native_seventh_userunit_cases(filename)==EXIT_SUCCESS);
     CHECK(write_pdf(filename,create_source(false)));
 
     quantapdf_context *context=nullptr;
