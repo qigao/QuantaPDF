@@ -430,10 +430,71 @@ int main()
     second=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
     CHECK(quantapdf_render_page_with_options(page,&opts,&second)==
           QUANTAPDF_ERROR_UNSUPPORTED && second==nullptr);
-    opts.dpi=72.0f;opts.rotation_degrees=90.0f;
+    opts.dpi=72.0f;
+    /* Exact 72-DPI quarter turns are pure row/column permutations of
+     * the qualified original native bitmap, including clipped pixels and
+     * PATH+IMAGE source order. The planner swaps dimensions at 90/270,
+     * while the 180 transform preserves them. No cross-engine oracle. */
+    quantapdf_bitmap *rotated_retained=nullptr;
+    const int angles[3]={90,180,270};
+    for(int angle:angles) {
+        opts.rotation_degrees=(float)angle;
+        OK(quantapdf_render_page_with_options(page,&opts,&second));
+        CHECK(second!=nullptr);
+        int rw=0,rh=0,rs=0,rc=0;
+        const unsigned char *rotated=nullptr;
+        size_t rotated_size=0u;
+        OK(quantapdf_bitmap_dimensions(second,&rw,&rh,&rs,&rc));
+        OK(quantapdf_bitmap_data(second,&rotated,&rotated_size));
+        const int expected_w=angle==180?width:height;
+        const int expected_h=angle==180?height:width;
+        CHECK(rw==expected_w && rh==expected_h && rc==3 &&
+              rs==rw*3 && rotated_size==size && rotated!=nullptr);
+        for(int y=0;y<height;++y)for(int x=0;x<width;++x) {
+            const int dx=angle==90?height-1-y:
+                         angle==180?width-1-x:y;
+            const int dy=angle==90?x:
+                         angle==180?height-1-y:width-1-x;
+            const unsigned char *from=data+(size_t)y*(size_t)stride+
+                                      (size_t)x*3u;
+            const unsigned char *to=rotated+(size_t)dy*(size_t)rs+
+                                      (size_t)dx*3u;
+            CHECK(std::memcmp(from,to,3u)==0);
+        }
+        const int red_x=angle==90?height-1-11:
+                        angle==180?width-1-13:11;
+        const int red_y=angle==90?13:
+                        angle==180?height-1-11:width-1-13;
+        CHECK(probe_rgb(rotated,rs,red_x,red_y,255u,0u,0u));
+        quantapdf_bitmap *repeat=nullptr;
+        OK(quantapdf_render_page_with_options(page,&opts,&repeat));
+        const unsigned char *bytes_again=nullptr;
+        size_t repeated_size=0u;
+        OK(quantapdf_bitmap_data(repeat,&bytes_again,&repeated_size));
+        CHECK(bytes_again!=nullptr && repeated_size==rotated_size &&
+              std::memcmp(bytes_again,rotated,rotated_size)==0);
+        quantapdf_drop_bitmap(repeat);
+        if(angle==270)rotated_retained=second;
+        else quantapdf_drop_bitmap(second);
+        second=nullptr;
+    }
+    opts.rotation_degrees=45.0f;
     second=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
     CHECK(quantapdf_render_page_with_options(page,&opts,&second)==
           QUANTAPDF_ERROR_UNSUPPORTED && second==nullptr);
+    opts.rotation_degrees=360.0f;
+    second=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+    CHECK(quantapdf_render_page_with_options(page,&opts,&second)==
+          QUANTAPDF_ERROR_UNSUPPORTED && second==nullptr);
+    opts.rotation_degrees=-90.0f;
+    second=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+    CHECK(quantapdf_render_page_with_options(page,&opts,&second)==
+          QUANTAPDF_ERROR_UNSUPPORTED && second==nullptr);
+    opts.rotation_degrees=90.0f;opts.dpi=96.0f;
+    second=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+    CHECK(quantapdf_render_page_with_options(page,&opts,&second)==
+          QUANTAPDF_ERROR_UNSUPPORTED && second==nullptr);
+    opts.dpi=72.0f;opts.rotation_degrees=0.0f;
     /* A native 72-DPI image is the sole source for bounded thumbnail
      * area resampling; every 2x2 RGB box has an exact arithmetic mean,
      * with no PDFium or rescaling-specific source traversal. */
@@ -497,6 +558,17 @@ int main()
     quantapdf_drop_page(page);
     quantapdf_close(document);
     quantapdf_drop_context(context);
+    const unsigned char *retained_rotated=nullptr;
+    size_t retained_rotated_size=0u;
+    int retained_w=0,retained_h=0,retained_stride=0,retained_components=0;
+    OK(quantapdf_bitmap_dimensions(rotated_retained,
+        &retained_w,&retained_h,&retained_stride,&retained_components));
+    OK(quantapdf_bitmap_data(rotated_retained,
+        &retained_rotated,&retained_rotated_size));
+    CHECK(retained_w==24 && retained_h==32 && retained_stride==72 &&
+          retained_components==3 && retained_rotated_size==size &&
+          probe_rgb(retained_rotated,retained_stride,11,18,255u,0u,0u));
+    quantapdf_drop_bitmap(rotated_retained);
     data=nullptr;size=0;
     OK(quantapdf_bitmap_data(bitmap,&data,&size));
     CHECK(probe_rgb(data,stride,13,11,255u,0u,0u));

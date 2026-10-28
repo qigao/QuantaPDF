@@ -11,8 +11,13 @@ partially paint or select a fallback.
 
 ## Currently implemented native rendering subset
 
-- One original, unencrypted page at index zero, exact 72 DPI, no rotation,
-  region clip or alpha-mode changes; UserUnit 1.
+- One original, unencrypted page at index zero, exact 72 DPI and UserUnit 1.
+  A public render-option quarter turn of **0/90/180/270 degrees** is
+  admitted at 72 DPI using a lossless RGB pixel permutation after the
+  complete Source V10/C11 Raster output, with the existing C11 device
+  planner validating rotated dimensions and the one-million-pixel budget.
+  Original PDF /Rotate must still be zero; 96/144 DPI, arbitrary display
+  angles, region clip and alpha-mode changes remain unsupported.
 - Public thumbnails now use the SAME fully validated native 72-DPI page
   bitmap and bounded deterministic RGB area downsampling, preserving
   aspect ratio with no upscaling and no second PDF parser/provider. All
@@ -29,7 +34,7 @@ partially paint or select a fallback.
   original source order, and never invents an Image/Clip resource. A
   fifth PATH, late unsupported command or hidden resource refuses
   with an empty public Bitmap and thumbnail.
-- One or two **unclipped Image XObject Do** paints (without PATH) are
+- One to four **unclipped Image XObject Do** paints (without PATH) are
   admitted through the same V10 reader, bounded RAW/Flate Predictor and
   exact DeviceRGB/Gray Decode, uniquely owned IR, canonical C11 Raster
   and public Bitmap/thumbnail. Source order and every Image/draw budget
@@ -47,10 +52,10 @@ partially paint or select a fallback.
   order beneath the SAME frozen W/W* Clip also render via the existing
   C11 source-over compositor and Context Bitmap. A third all-clipped
   paint or second Clip refuses atomically; no PDFium-based approximation.
-- Four-layer PATH-only admission does not broaden IMAGE-only or
-  unclipped IMAGE+PATH mixed cardinality, which remain separate exact
-  one/two-operation profiles. It does not imply support for Stroke,
-  Text, arbitrary Clip, or an additional mixed/clipped operation.
+- Four-layer homogeneous PATH-only and IMAGE-only admission remains
+  distinct from the **one IMAGE + one PATH** unclipped mixed profile and
+  the narrower W/W* clipped IMAGE profiles. None of these modes imply
+  source Stroke, Text, arbitrary Clip or extra mixed/clipped operations.
 - One frozen W/W* Clip, correct Q restoring scopes, 2–4 source-ordered
   8-bit Gray/RGB Image and opaque Path Fill operations, strictly bounded
   to at least one operation of each type for that **mixed** subset.
