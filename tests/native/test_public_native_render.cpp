@@ -233,6 +233,13 @@ static std::string create_image_only_source(int mode)
         content+=" q 8 0 0 6 16 9 cm /I Do Q"; /* fourth overlaps */
     if(mode==22)
         content="q 12 0 0 9 3 3 cm /I Do Q"; /* 96-DPI exact bounds */
+    if(mode==23 || mode==24 || mode==25) {
+        content="q 9 0 0 9 5 2 cm /I Do Q";
+        if(mode==24)
+            content="q 5 2 9 9 re W n "
+                    "q 9 0 0 9 5 2 cm /I Do Q Q";
+        if(mode==25)content+=" BT ET"; /* late unsupported */
+    }
     page.replaceKey("/Contents",pdf->newStream(content));
     QPDFWriter writer(*pdf);
     writer.setOutputMemory();
@@ -389,20 +396,27 @@ static int probe_rgb(const unsigned char *data,int stride,int x,int y,
     return px[0]==red && px[1]==green && px[2]==blue;
 }
 
-/* Device-space source original goldens: a 96-DPI rectangle has an
- * actual fractional 4/3 left edge; the raw Image footprints must be
- * exact on the target grid. No reference engine or 72-DPI upscale. */
+/* Native original-PDF goldens use the true 96-DPI 4/3 device
+ * sampling grid, including fractional image/Clip intersections and
+ * already-qualified integer-image and 144-DPI profiles.
+ * No PDFium oracle or 72-DPI bitmap upscaling. */
 static int high_dpi_cases(const std::string& filename)
 {
     struct entry {int kind,mode,dpi;bool success;};
     const entry cases[]={
         {0,0,96,true},{0,0,144,true},
         {1,0,96,true},{1,0,144,true},
-        {2,22,96,true},{2,0,96,false},
+        {2,22,96,true},{2,0,96,true},
+        {2,23,96,true},{2,24,96,true},
+        {2,5,96,true},{2,9,96,true},
+        {3,0,96,true},{3,1,96,true},
+        {2,17,96,true},
         {2,0,144,true},{2,5,144,true},
         {3,0,144,true},{2,17,144,true},
+        {2,25,96,false},{2,7,96,false},
         {2,4,144,false},{0,6,96,false},{0,6,144,false}
     };
+    std::vector<unsigned char> full_fractional_image;
     for(const auto& c:cases) {
         const std::string original=c.kind==0?
             create_blank_source(c.mode):
@@ -424,6 +438,12 @@ static int high_dpi_cases(const std::string& filename)
         const auto result=quantapdf_render_page_with_options(page,&opts,&im);
         if(!c.success) {
             CHECK(result==QUANTAPDF_ERROR_UNSUPPORTED && im==nullptr);
+            if(c.kind==2 && c.mode==25) {
+                quantapdf_bitmap *small=reinterpret_cast<quantapdf_bitmap*>(
+                    uintptr_t(1));
+                CHECK(quantapdf_render_thumbnail(page,16,12,&small)==
+                      QUANTAPDF_ERROR_UNSUPPORTED && small==nullptr);
+            }
         } else {
             CHECK(result==QUANTAPDF_OK && im!=nullptr);
             int w=0,h=0,s=0,nc=0;
@@ -452,6 +472,23 @@ static int high_dpi_cases(const std::string& filename)
                 CHECK(probe_rgb(px,s,6,25,0,0,255));
                 CHECK(probe_rgb(px,s,17,25,255,255,0));
             }
+            if(c.kind==2 && c.mode==0 && c.dpi==96) {
+                CHECK(probe_rgb(px,s,10,15,255,191,191));
+                CHECK(probe_rgb(px,s,11,15,255,0,0));
+                CHECK(probe_rgb(px,s,24,15,0,255,0));
+                CHECK(probe_rgb(px,s,10,22,191,191,255));
+            }
+            if(c.kind==2 && (c.mode==23 || c.mode==24)) {
+                /* Both fractional image edges AND the W Clip use
+                 * one 16-sample intersection (3/16 at x=6,y=17). */
+                CHECK(probe_rgb(px,s,6,17,255,207,207));
+                CHECK(probe_rgb(px,s,7,18,255,0,0));
+                CHECK(probe_rgb(px,s,6,16,255,255,255));
+                if(c.mode==23)full_fractional_image.assign(px,px+count);
+                else CHECK(full_fractional_image.size()==count &&
+                           std::memcmp(px,full_fractional_image.data(),
+                                       count)==0);
+            }
             if(c.kind==2 && c.mode==0 && c.dpi==144) {
                 CHECK(probe_rgb(px,s,18,20,255,0,0));
                 CHECK(probe_rgb(px,s,44,20,0,255,0));
@@ -459,20 +496,42 @@ static int high_dpi_cases(const std::string& filename)
                 CHECK(probe_rgb(px,s,44,40,255,255,0));
             }
             if(c.kind==2 && c.mode==5) {
-                CHECK(probe_rgb(px,s,26,22,255,0,0));
-                CHECK(probe_rgb(px,s,36,22,0,255,0));
-                CHECK(probe_rgb(px,s,26,32,0,0,255));
-                CHECK(probe_rgb(px,s,36,32,255,255,0));
-                CHECK(probe_rgb(px,s,20,24,255,255,255));
+                if(c.dpi==144) {
+                    CHECK(probe_rgb(px,s,26,22,255,0,0));
+                    CHECK(probe_rgb(px,s,36,22,0,255,0));
+                    CHECK(probe_rgb(px,s,26,32,0,0,255));
+                    CHECK(probe_rgb(px,s,36,32,255,255,0));
+                    CHECK(probe_rgb(px,s,20,24,255,255,255));
+                } else {
+                    CHECK(probe_rgb(px,s,18,16,255,0,0));
+                    CHECK(probe_rgb(px,s,24,16,0,255,0));
+                    CHECK(probe_rgb(px,s,18,22,0,0,255));
+                    CHECK(probe_rgb(px,s,24,22,255,255,0));
+                    CHECK(probe_rgb(px,s,15,16,255,255,255));
+                }
+            }
+            if(c.kind==2 && c.mode==9 && c.dpi==96) {
+                CHECK(probe_rgb(px,s,18,17,0,0,255));
+                CHECK(probe_rgb(px,s,24,17,255,255,0));
             }
             if(c.kind==3) {
-                CHECK(probe_rgb(px,s,20,32,0,255,0));
-                CHECK(probe_rgb(px,s,36,22,0,255,0));
+                if(c.dpi==144) {
+                    CHECK(probe_rgb(px,s,20,32,0,255,0));
+                    CHECK(probe_rgb(px,s,36,22,0,255,0));
+                } else {
+                    CHECK(probe_rgb(px,s,12,19,
+                        c.mode==0?0u:255u,c.mode==0?255u:0u,0u));
+                }
             }
             if(c.kind==2 && c.mode==17) {
-                CHECK(probe_rgb(px,s,50,16,255,0,0));
-                CHECK(probe_rgb(px,s,60,16,0,255,0));
-                CHECK(probe_rgb(px,s,50,40,255,0,0));
+                if(c.dpi==144) {
+                    CHECK(probe_rgb(px,s,50,16,255,0,0));
+                    CHECK(probe_rgb(px,s,60,16,0,255,0));
+                    CHECK(probe_rgb(px,s,50,40,255,0,0));
+                } else {
+                    CHECK(probe_rgb(px,s,35,10,255,0,0));
+                    CHECK(probe_rgb(px,s,40,10,0,255,0));
+                }
             }
             quantapdf_bitmap *again=nullptr;
             OK(quantapdf_render_page_with_options(page,&opts,&again));
