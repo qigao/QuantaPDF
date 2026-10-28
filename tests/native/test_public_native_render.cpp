@@ -2986,8 +2986,7 @@ static int native_seventh_userunit_late_refusal_cases(
 {
     const char *const bad_contents[]={
         "q 16 0 0 12 8 3 cm /I Do Q BT ET",
-        "q 16 0 0 12 8 3 cm /I Do Q "
-        "0 0 0 rg 4 4 8 6 re S",
+        "q 16 0 0 12 8 3 cm /I Do Q 0 0 0 rg 4 4 8 6 re S",
         "q 16 0 0 12 8 3 cm /I Do Q Q"
     };
     for(int quarters:{2,5,8,16})
