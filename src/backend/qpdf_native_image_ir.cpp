@@ -691,8 +691,10 @@ public:
             Obj named=xobjects.getKey(args[0].getName());
             admit(!named.isNull(),QUANTAPDF_ERROR_FORMAT);
             target.execute(named,current);
-            if(target.mixed_scoped_mode)
+            if(target.mixed_scoped_mode) {
+                QP_SOURCE_STAGE_ARM(6u);
                 target.scoped_clip_membership.push_back(clip_active ? 1u : 0u);
+            }
         } else if(mixed && op=="rg") {
             /* The V7-only normalized RGB profile converts finite channels
              * to opaque 8-bit RGB with a deterministic nearest-integer
@@ -794,8 +796,10 @@ public:
             target.paint_path(std::move(pending_path),fill_argb,
                 op=="f" ? QUANTAPDF_COMPOSER_FILL_NONZERO :
                           QUANTAPDF_COMPOSER_FILL_EVEN_ODD);
-            if(target.mixed_scoped_mode)
+            if(target.mixed_scoped_mode) {
+                QP_SOURCE_STAGE_ARM(7u);
                 target.scoped_clip_membership.push_back(clip_active ? 1u : 0u);
+            }
             pending_path.clear();
             closed=false;
         } else if(clipped && (op=="W" || op=="W*")) {

@@ -1,5 +1,5 @@
 /* Real Source V10 std::vector new failures. The EXACT production QPDF
- * Source unit is compiled independently with five isolated test-only
+ * Source unit is compiled independently with seven isolated test-only
  * pre-allocation arming points, not with a replacement source/provider.
  * QPDF authors the original PDF; PDFium is never linked. */
 #include "backend/qpdf_native_image_ir.h"
@@ -163,8 +163,9 @@ int main()
         2u*1024u*1024u,65536u,4u,4u,1000000u,1000000u,4000000u,8u
     };
     /* Stages: 1 RAW Image, 2 IMAGE order, 3 PATH ownership,
-     * 4 PATH order after an Image, 5 original rotated RAW bytes. */
-    for(unsigned phase=0u;phase<=5u;++phase) {
+     * 4 PATH order after Image, 5 rotated RAW bytes, 6 IMAGE Clip
+     * membership, 7 PATH Clip membership (second push/growth). */
+    for(unsigned phase=0u;phase<=7u;++phase) {
         quantapdf_ir ir;
         std::memset(&ir,0xA5,sizeof(ir));
         target=phase; observed=0u; faults=0u; armed=false;
