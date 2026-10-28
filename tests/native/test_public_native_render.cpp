@@ -2522,6 +2522,35 @@ static int native_original_userunit_cases(const std::string& filename)
             originals[kind],(int)kind,qu,original_turn,true);
         const auto unit_pdf=original_unit_source_or_physical_reference(
             originals[kind],(int)kind,qu,original_turn,false);
+        if(kind==3u && qu==16 && dpi>=96) {
+            /* Native work quota is device-space: at UserUnit4,
+             * 96/144 DPI, this 32x24 mixed PATH+W Clip source
+             * requires more than the existing 8M sampled edge
+             * budget. Both equivalent original PDFs must refuse,
+             * without partial output, not raise production limits. */
+            for(const auto& denied_pdf:{reference,unit_pdf}) {
+                CHECK(write_pdf(filename,denied_pdf));
+                quantapdf_document *d=nullptr;
+                quantapdf_page *p=nullptr;
+                quantapdf_bitmap *out=
+                    reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+                OK(quantapdf_open(
+                    filename.c_str(),nullptr,&d));
+                CHECK(std::remove(filename.c_str())==0);
+                OK(quantapdf_load_page(d,0,&p));
+                quantapdf_render_options costly_options{};
+                costly_options.struct_size=sizeof(costly_options);
+                costly_options.dpi=(float)dpi;
+                const auto denied_status=
+                    quantapdf_render_page_with_options(
+                        p,&costly_options,&out);
+                CHECK(denied_status==QUANTAPDF_ERROR_UNSUPPORTED &&
+                      out==nullptr);
+                quantapdf_drop_page(p);
+                quantapdf_close(d);
+            }
+            continue;
+        }
         CHECK(write_pdf(filename,reference));
         quantapdf_context *ctx=nullptr;
         quantapdf_document *doc=nullptr;
