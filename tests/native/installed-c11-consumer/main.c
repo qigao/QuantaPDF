@@ -100,6 +100,24 @@ int main(void)
                 if(samples[i]!=255u)goto fail;
             quantapdf_drop_bitmap(device_bitmap);
             device_bitmap=NULL;
+            options.rotation_degrees=90.0f;
+            status=quantapdf_render_page_with_options(
+                page,&options,&device_bitmap);
+            if(status!=QUANTAPDF_OK || device_bitmap==NULL)goto fail;
+            status=quantapdf_bitmap_dimensions(
+                device_bitmap,&dw,&dh,&ds,&dc);
+            if(status!=QUANTAPDF_OK ||
+               dw!=(dpis[k]==96?11:16) ||
+               dh!=(dpis[k]==96?11:16) ||
+               ds!=dw*3 || dc!=3)goto fail;
+            status=quantapdf_bitmap_data(
+                device_bitmap,&samples,&count);
+            if(status!=QUANTAPDF_OK || samples==NULL ||
+               count!=(size_t)dw*(size_t)dh*3u)goto fail;
+            for(size_t i=0u;i<count;++i)
+                if(samples[i]!=255u)goto fail;
+            quantapdf_drop_bitmap(device_bitmap);
+            device_bitmap=NULL;
         }
     }
 

@@ -11,12 +11,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* 72-DPI quarter turns are a lossless permutation of the SAME fully
- * admitted native RGB canvas, never a second rasterizer or resampling
- * path. The canonical C11 device plan validates the rotated dimensions
- * and global pixel ceiling before any allocation. This deliberately does
- * NOT admit the PDF page's /Rotate, higher DPI or arbitrary angles. */
-static quantapdf_status quantapdf_native_rotate_rgb_72(
+/* Public 72/96/144 DPI quarter turns permute the COMPLETE native RGB
+ * output at the same already-qualified target DPI, never a 72-DPI
+ * upscaler or second source renderer. This private 72-unit pixel-space
+ * C11 device plan validates the image's discrete width/height and
+ * one-million-pixel ceiling before swapping rows/columns. The actual
+ * source raster has already been generated at the requested DPI.
+ * Source PDF /Rotate and non-orthogonal angles remain unsupported. */
+static quantapdf_status quantapdf_native_rotate_rgb_device(
     quantapdf_backend_bitmap *bitmap, int rotation)
 {
     quantapdf_native_device_plan plan={0};
@@ -113,14 +115,12 @@ static quantapdf_status quantapdf_render_page_transformed(
         !isfinite(rotation_degrees) || (alpha != 0 && alpha != 1))
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    /* The same V10 -> owned IR -> C11 raster qualifies full source.
-     * 96/144 DPI projects owned geometry to the actual device grid
-     * BEFORE sampling; 72-DPI orthogonal display rotations remain
-     * a separate lossless post-raster permutation. No scaled 72-DPI
-     * bitmap, source /Rotate, arbitrary rotation, region or fallback. */
+    /* Complete Source V10 -> immutable IR -> one C11 Raster at the
+     * actual 72/96/144-DPI grid BEFORE lossless display orientation.
+     * No 72-DPI upscale, source /Rotate, arbitrary angle, region Clip
+     * or alternative provider on any failed source/device control. */
     if (page->page_index != 0 ||
         (dpi != 72.0f && dpi != 96.0f && dpi != 144.0f) ||
-        (dpi != 72.0f && rotation_degrees != 0.0f) ||
         (rotation_degrees != 0.0f &&
          rotation_degrees != 90.0f &&
          rotation_degrees != 180.0f &&
@@ -155,7 +155,7 @@ static quantapdf_status quantapdf_render_page_transformed(
             status = quantapdf_builtin_native_qualify_bitmap_v10(
                 page->backend, &limits, &device, &rendered);
             if (status == QUANTAPDF_OK && rotation_degrees != 0.0f)
-                status = quantapdf_native_rotate_rgb_72(
+                status = quantapdf_native_rotate_rgb_device(
                     &rendered, (int)rotation_degrees);
         }
     }

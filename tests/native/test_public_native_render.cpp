@@ -418,6 +418,7 @@ static int high_dpi_cases(const std::string& filename)
     };
     std::vector<unsigned char> full_fractional_image;
     for(const auto& c:cases) {
+        quantapdf_bitmap *retained_rotation=nullptr;
         const std::string original=c.kind==0?
             create_blank_source(c.mode):
             c.kind==1?create_path_only_source(c.mode):
@@ -539,11 +540,73 @@ static int high_dpi_cases(const std::string& filename)
             CHECK(repeated!=nullptr && repeated_size==count &&
                   std::memcmp(repeated,px,count)==0);
             quantapdf_drop_bitmap(again);
-            /* Higher DPI + rotation remains unqualified, no fallback. */
-            opts.rotation_degrees=90.0f;
-            again=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-            CHECK(quantapdf_render_page_with_options(page,&opts,&again)==
-                  QUANTAPDF_ERROR_UNSUPPORTED && again==nullptr);
+            /* Full raster is produced at requested 96/144 DPI FIRST;
+             * 90/180/270 are then exact lossless permutations of that
+             * target grid. Neither source coordinates nor 4x4 Image/Clip
+             * sampling may be reinterpreted as 72-DPI pixels. */
+            const int rotations[3]={90,180,270};
+            for(int angle:rotations) {
+                opts.rotation_degrees=(float)angle;
+                quantapdf_bitmap *rotated=nullptr;
+                OK(quantapdf_render_page_with_options(page,&opts,&rotated));
+                CHECK(rotated!=nullptr);
+                int rw=0,rh=0,rs=0,rc=0;
+                const unsigned char *rotated_bytes=nullptr;
+                size_t rn=0u;
+                OK(quantapdf_bitmap_dimensions(
+                    rotated,&rw,&rh,&rs,&rc));
+                OK(quantapdf_bitmap_data(rotated,&rotated_bytes,&rn));
+                CHECK(rw==(angle==180?w:h) &&
+                      rh==(angle==180?h:w) &&
+                      rs==rw*3 && rc==3 && rn==count &&
+                      rotated_bytes!=nullptr);
+                for(int y=0;y<h;++y)for(int x=0;x<w;++x) {
+                    const int dx=angle==90?h-1-y:
+                                 angle==180?w-1-x:y;
+                    const int dy=angle==90?x:
+                                 angle==180?h-1-y:w-1-x;
+                    const unsigned char *src=px+
+                        (size_t)y*(size_t)s+(size_t)x*3u;
+                    const unsigned char *dst=rotated_bytes+
+                        (size_t)dy*(size_t)rs+(size_t)dx*3u;
+                    CHECK(std::memcmp(src,dst,3u)==0);
+                }
+                quantapdf_bitmap *repeat_rotated=nullptr;
+                OK(quantapdf_render_page_with_options(
+                    page,&opts,&repeat_rotated));
+                const unsigned char *repeat_rotated_bytes=nullptr;
+                size_t repeat_rotated_size=0u;
+                OK(quantapdf_bitmap_data(
+                    repeat_rotated,&repeat_rotated_bytes,
+                    &repeat_rotated_size));
+                CHECK(repeat_rotated_bytes!=nullptr &&
+                      repeat_rotated_size==rn &&
+                      std::memcmp(rotated_bytes,repeat_rotated_bytes,rn)==0);
+                quantapdf_drop_bitmap(repeat_rotated);
+                if(angle==270)retained_rotation=rotated;
+                else quantapdf_drop_bitmap(rotated);
+            }
+            opts.rotation_degrees=45.0f;
+            quantapdf_bitmap *invalid=reinterpret_cast<quantapdf_bitmap*>(
+                uintptr_t(1));
+            CHECK(quantapdf_render_page_with_options(page,&opts,&invalid)==
+                  QUANTAPDF_ERROR_UNSUPPORTED && invalid==nullptr);
+            opts.rotation_degrees=360.0f;
+            invalid=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+            CHECK(quantapdf_render_page_with_options(page,&opts,&invalid)==
+                  QUANTAPDF_ERROR_UNSUPPORTED && invalid==nullptr);
+            opts.rotation_degrees=0.0f;
+            opts.alpha=1;
+            invalid=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+            CHECK(quantapdf_render_page_with_options(page,&opts,&invalid)==
+                  QUANTAPDF_ERROR_UNSUPPORTED && invalid==nullptr);
+            opts.alpha=0;
+            opts.clip_enabled=1;
+            opts.clip={0.0f,0.0f,4.0f,4.0f};
+            invalid=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+            CHECK(quantapdf_render_page_with_options(page,&opts,&invalid)==
+                  QUANTAPDF_ERROR_UNSUPPORTED && invalid==nullptr);
+            opts.clip_enabled=0;
         }
         quantapdf_drop_page(page);
         quantapdf_close(doc);
@@ -554,7 +617,21 @@ static int high_dpi_cases(const std::string& filename)
             OK(quantapdf_bitmap_data(im,&owner,&bytes));
             CHECK(owner!=nullptr && bytes!=0u &&
                   probe_rgb(owner,(c.dpi==96?43:64)*3,0,0,255,255,255));
+            int rw=0,rh=0,rs=0,rc=0;
+            const unsigned char *rotated_owner=nullptr;
+            size_t rotated_bytes=0u;
+            OK(quantapdf_bitmap_dimensions(
+                retained_rotation,&rw,&rh,&rs,&rc));
+            OK(quantapdf_bitmap_data(
+                retained_rotation,&rotated_owner,&rotated_bytes));
+            CHECK(rw==(c.dpi==96?32:48) &&
+                  rh==(c.dpi==96?43:64) &&
+                  rs==rw*3 && rc==3 && rotated_bytes==bytes &&
+                  rotated_owner!=nullptr);
+            CHECK(probe_rgb(rotated_owner,rs,0,rh-1,
+                            owner[0],owner[1],owner[2]));
         }
+        quantapdf_drop_bitmap(retained_rotation);
         quantapdf_drop_bitmap(im);
     }
     return EXIT_SUCCESS;
@@ -682,10 +759,26 @@ int main()
     second=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
     CHECK(quantapdf_render_page_with_options(page,&opts,&second)==
           QUANTAPDF_ERROR_UNSUPPORTED && second==nullptr);
+    /* A W-Clipped Image followed by a Q-restored Gray PATH uses the
+     * genuine 96-DPI source/device grid BEFORE its lossless 90-degree
+     * RGB orientation. This was an obsolete unsupported test. */
     opts.rotation_degrees=90.0f;opts.dpi=96.0f;
-    second=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-    CHECK(quantapdf_render_page_with_options(page,&opts,&second)==
-          QUANTAPDF_ERROR_UNSUPPORTED && second==nullptr);
+    OK(quantapdf_render_page_with_options(page,&opts,&second));
+    CHECK(second!=nullptr);
+    {
+        int rw=0,rh=0,rs=0,rc=0;
+        const unsigned char *rgb=nullptr;
+        size_t n=0u;
+        OK(quantapdf_bitmap_dimensions(second,&rw,&rh,&rs,&rc));
+        OK(quantapdf_bitmap_data(second,&rgb,&n));
+        CHECK(rw==32 && rh==43 && rs==96 && rc==3 &&
+              rgb!=nullptr && n==32u*43u*3u);
+        /* Unrotated device samples (18,16) RED and (35,7)
+         * 223-Gray become (15,18) and (24,35) after 90 degrees. */
+        CHECK(probe_rgb(rgb,rs,15,18,255u,0u,0u));
+        CHECK(probe_rgb(rgb,rs,24,35,223u,223u,223u));
+    }
+    quantapdf_drop_bitmap(second);second=nullptr;
     opts.dpi=72.0f;opts.rotation_degrees=0.0f;
     /* A native 72-DPI image is the sole source for bounded thumbnail
      * area resampling; every 2x2 RGB box has an exact arithmetic mean,

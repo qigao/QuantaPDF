@@ -6,10 +6,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Private, bounded pure-C11 device geometry planner. Public 72-DPI
- * quarter turns and the native V10 96/144-DPI device-space IR projection
- * use its exact target dimensions and pixel budgets. It never paints,
- * selects providers, decodes images or changes the public ABI. */
+/* Private, bounded pure-C11 device geometry planner. Public 72/96/144
+ * DPI orthogonal display turns and the native V10 96/144-DPI
+ * device-space IR projection reuse exact dimensions and pixel budgets.
+ * It never paints, selects providers, decodes or changes the public ABI. */
 #define QUANTAPDF_NATIVE_DEVICE_FIT_V1 1u
 #define QUANTAPDF_NATIVE_DEVICE_MAX_PIXELS ((size_t)1000000u)
 
