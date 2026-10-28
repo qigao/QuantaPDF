@@ -1193,12 +1193,240 @@ static int selected_page_v10_cases(const std::string& filename)
     return EXIT_SUCCESS;
 }
 
+/* An ORIGINAL QPDF-authored PDF with moved MediaBox and absolute
+ * authorial CTM. The same content is not re-exported as an IR or passed
+ * through a second pixel engine; the expected result is based on the
+ * independent zero-origin original plus fixed RGB source goldens.
+ * 0 exact page Media, 1 inherited Media; negatives 2 CropBox mismatch,
+ * 3 fractional origin, 4 bound overflow, 5 content NOT translated. */
+static std::string shifted_media_original(
+    const std::string& original,const std::string& paint,
+    int shift_x,int shift_y,int source_rotation,int mode)
+{
+    auto pdf=QPDF::create();
+    pdf->setSuppressWarnings(true);
+    pdf->setAttemptRecovery(false);
+    pdf->processMemoryFile("native shifted MediaBox",
+        original.data(),original.size(),"");
+    auto pages=pdf->getRoot().getKey("/Pages");
+    auto page=pages.getKey("/Kids").getArrayItem(0);
+    std::string box;
+    if(mode==3) {
+        box="["+std::to_string(shift_x)+".5 "+
+             std::to_string(shift_y)+".5 "+
+             std::to_string(shift_x+32)+".5 "+
+             std::to_string(shift_y+24)+".5]";
+    } else {
+        box="["+std::to_string(shift_x)+" "+
+            std::to_string(shift_y)+" "+
+            std::to_string(shift_x+32)+" "+
+            std::to_string(shift_y+24)+"]";
+    }
+    if(mode==1) {
+        page.removeKey("/MediaBox");
+        pages.replaceKey("/MediaBox",Obj::parse(box));
+        pages.replaceKey("/Rotate",Obj::newInteger(source_rotation));
+    } else {
+        page.replaceKey("/MediaBox",Obj::parse(box));
+        page.replaceKey("/Rotate",Obj::newInteger(source_rotation));
+    }
+    if(mode==2) {
+        page.replaceKey("/CropBox",Obj::parse(
+            "["+std::to_string(shift_x+1)+" "+
+                 std::to_string(shift_y)+" "+
+                 std::to_string(shift_x+32)+" "+
+                 std::to_string(shift_y+24)+"]"));
+    }
+    /* Deliberately use a REAL source CTM translation, not a bitmap
+     * coordinate offset. V10 must interpret this before freeze/IR. */
+    if(mode!=5) {
+        const std::string translate=
+            "q 1 0 0 1 "+std::to_string(shift_x)+" "+
+             std::to_string(shift_y)+" cm "+paint+" Q";
+        page.replaceKey("/Contents",pdf->newStream(translate));
+    }
+    QPDFWriter writer(*pdf);
+    writer.setOutputMemory();
+    writer.write();
+    const auto blob=writer.getBufferSharedPointer();
+    return std::string(
+        reinterpret_cast<const char*>(blob->getBuffer()),blob->getSize());
+}
+
+static int native_media_origin_cases(const std::string& filename)
+{
+    const std::string originals[]={
+        create_blank_source(0),create_path_only_source(0),
+        create_image_only_source(0),create_source(false),
+        create_image_only_source(5)
+    };
+    const std::string contents[]={
+        "",
+        "1 0 0 rg 4 4 8 6 re f",
+        "q 16 0 0 12 8 3 cm /I Do Q",
+        "q 12 6 8 9 re W n "
+        "q 16 0 0 12 8 3 cm /I Do Q "
+        "Q 0.875 g 24 17 5 3 re f",
+        "q 12 6 8 9 re W n "
+        "q 16 0 0 12 8 3 cm /I Do Q Q"
+    };
+    const struct {int x,y;} origins[]={
+        {-13,-7},{15,11},{0,-9},{8,0}
+    };
+    const int rotations[]={0,90,180,270};
+    const int dpis[]={72,96,144};
+    for(size_t k=0u;k<5u;++k)
+    for(int angle:rotations)
+    for(int dpi:dpis) {
+        const auto base=original_pdf_with_rotate(
+            originals[k],angle,0);
+        CHECK(write_pdf(filename,base));
+        quantapdf_context *ctx=nullptr;
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        quantapdf_bitmap *bitmap=nullptr;
+        OK(quantapdf_context_create(&ctx));
+        OK(quantapdf_open_with_context(
+            ctx,filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        quantapdf_render_options opts{};
+        opts.struct_size=sizeof(opts);opts.dpi=(float)dpi;
+        OK(quantapdf_render_page_with_options(page,&opts,&bitmap));
+        int w=0,h=0,stride=0,channels=0;
+        const unsigned char *pixels=nullptr;
+        size_t n=0u;
+        OK(quantapdf_bitmap_dimensions(
+            bitmap,&w,&h,&stride,&channels));
+        OK(quantapdf_bitmap_data(bitmap,&pixels,&n));
+        const std::vector<unsigned char> golden(pixels,pixels+n);
+        quantapdf_drop_bitmap(bitmap);
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+        quantapdf_drop_context(ctx);
+        for(const auto& origin:origins)
+        for(int inherited=0;inherited<=1;++inherited) {
+            const auto shifted=shifted_media_original(
+                originals[k],contents[k],
+                origin.x,origin.y,angle,inherited);
+            CHECK(write_pdf(filename,shifted));
+            ctx=nullptr;doc=nullptr;page=nullptr;bitmap=nullptr;
+            OK(quantapdf_context_create(&ctx));
+            OK(quantapdf_open_with_context(
+                ctx,filename.c_str(),nullptr,&doc));
+            CHECK(std::remove(filename.c_str())==0);
+            OK(quantapdf_load_page(doc,0,&page));
+            quantapdf_rect rect={};
+            OK(quantapdf_page_bounds(page,&rect));
+            CHECK(rect.x0==0.0f && rect.y0==0.0f &&
+                  rect.x1==(float)(angle==90||angle==270?24:32) &&
+                  rect.y1==(float)(angle==90||angle==270?32:24));
+            OK(quantapdf_render_page_with_options(
+                page,&opts,&bitmap));
+            int rw=0,rh=0,rs=0,rc=0;
+            const unsigned char *sample=nullptr;
+            size_t sz=0u;
+            OK(quantapdf_bitmap_dimensions(
+                bitmap,&rw,&rh,&rs,&rc));
+            OK(quantapdf_bitmap_data(bitmap,&sample,&sz));
+            if(rw!=w || rh!=h || rs!=stride || rc!=channels ||
+               sz!=golden.size() || sample==nullptr ||
+               std::memcmp(sample,golden.data(),sz)!=0)
+                std::fprintf(stderr,
+                    "Media M0 mismatch kind=%zu angle=%d dpi=%d origin=(%d,%d) inherited=%d\n",
+                    k,angle,dpi,origin.x,origin.y,inherited);
+            CHECK(rw==w && rh==h && rs==stride && rc==channels &&
+                  sz==golden.size() && sample!=nullptr &&
+                  std::memcmp(sample,golden.data(),sz)==0);
+            if(k==1u) {
+                /* Real SOURCE red PATH survives negative/positive
+                 * PDF absolute origins without moving in display. */
+                int sx=angle==90||angle==270?7:6;
+                int sy=angle==90||angle==270?6:16;
+                if(dpi!=72) {
+                    sx=dpi==96?(angle==90||angle==270?10:8):
+                       (angle==90||angle==270?15:12);
+                    sy=dpi==96?(angle==90||angle==270?8:21):
+                       (angle==90||angle==270?12:32);
+                }
+                /* Fixed red goldens for unrotated and 90-degree PDF
+                 * originals. Other angles use exact full RGB map. */
+                if(angle==0 || angle==90)
+                    CHECK(probe_rgb(sample,rs,sx,sy,255u,0u,0u));
+            }
+            quantapdf_bitmap *again=nullptr,*display=nullptr;
+            OK(quantapdf_render_page_with_options(
+                page,&opts,&again));
+            const unsigned char *same=nullptr;
+            size_t same_size=0u;
+            OK(quantapdf_bitmap_data(again,&same,&same_size));
+            CHECK(same_size==sz && same!=nullptr &&
+                  std::memcmp(sample,same,sz)==0);
+            quantapdf_drop_bitmap(again);
+            opts.rotation_degrees=90.0f;
+            OK(quantapdf_render_page_with_options(
+                page,&opts,&display));
+            int dw=0,dh=0,ds=0,dc=0;
+            const unsigned char *turned=nullptr;
+            size_t turned_size=0u;
+            OK(quantapdf_bitmap_dimensions(
+                display,&dw,&dh,&ds,&dc));
+            OK(quantapdf_bitmap_data(
+                display,&turned,&turned_size));
+            CHECK(dw==rh && dh==rw && ds==dw*3 && dc==3 &&
+                  turned_size==sz && turned!=nullptr);
+            for(int y=0;y<rh;++y)for(int x=0;x<rw;++x) {
+                const unsigned char *from=sample+
+                    (size_t)y*(size_t)rs+(size_t)x*3u;
+                const unsigned char *to=turned+
+                    (size_t)x*(size_t)ds+(size_t)(rh-1-y)*3u;
+                CHECK(std::memcmp(from,to,3u)==0);
+            }
+            quantapdf_drop_bitmap(display);
+            opts.rotation_degrees=0.0f;
+            quantapdf_drop_page(page);
+            quantapdf_close(doc);
+            quantapdf_drop_context(ctx);
+            const unsigned char *retained=nullptr;
+            size_t retained_size=0u;
+            OK(quantapdf_bitmap_data(
+                bitmap,&retained,&retained_size));
+            CHECK(retained_size==sz && retained!=nullptr &&
+                  std::memcmp(retained,golden.data(),sz)==0);
+            quantapdf_drop_bitmap(bitmap);
+        }
+    }
+    /* Different CropBox view, fractional or huge origin and unsupported
+     * late Text must never be silently interpreted as full-page ink. */
+    for(int mode=2;mode<=5;++mode) {
+        const auto original=mode==5 ?
+            create_source(true):create_source(false);
+        const auto malformed=shifted_media_original(
+            original,contents[3],
+            mode==4?1000001:15,mode==4?1000001:-7,0,mode);
+        CHECK(write_pdf(filename,malformed));
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        quantapdf_bitmap *result=reinterpret_cast<quantapdf_bitmap*>(
+            uintptr_t(1));
+        const auto status=quantapdf_render_page(page,&result);
+        CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED && result==nullptr);
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+    }
+    return EXIT_SUCCESS;
+}
+
 int main()
 {
     const std::string filename="native-standalone-smoke.pdf";
     CHECK(high_dpi_cases(filename)==EXIT_SUCCESS);
     CHECK(original_source_rotation_cases(filename)==EXIT_SUCCESS);
     CHECK(selected_page_v10_cases(filename)==EXIT_SUCCESS);
+    CHECK(native_media_origin_cases(filename)==EXIT_SUCCESS);
     CHECK(write_pdf(filename,create_source(false)));
 
     quantapdf_context *context=nullptr;
