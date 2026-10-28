@@ -2975,6 +2975,68 @@ static int native_seventh_userunit_cases(const std::string& filename)
     return EXIT_SUCCESS;
 }
 
+/* A genuine seventh selected leaf has already admitted its inherited
+ * Media/Crop/Resources/Rotate and strict quarter /UserUnit. After an
+ * otherwise supported RAW Image, unsupported trailing operators must
+ * refuse the WHOLE render: never expose an incomplete public Bitmap.
+ * The malformed bytes are in QPDF-authored original page Contents,
+ * not a synthetic local IR fixture or a PDFium oracle. */
+static int native_seventh_userunit_late_refusal_cases(
+    const std::string& filename)
+{
+    const char *const bad_contents[]={
+        "q 16 0 0 12 8 3 cm /I Do Q BT ET",
+        "q 16 0 0 12 8 3 cm /I Do Q "
+        "0 0 0 rg 4 4 8 6 re S",
+        "q 16 0 0 12 8 3 cm /I Do Q Q"
+    };
+    for(int quarters:{2,5,8,16})
+    for(const auto *source:bad_contents) {
+        const auto original=native_seventh_userunit_original(false,quarters);
+        auto pdf=QPDF::create();
+        pdf->setSuppressWarnings(true);
+        pdf->setAttemptRecovery(false);
+        pdf->processMemoryFile("seventh UserUnit late refusal",
+            original.data(),original.size(),"");
+        auto branch=pdf->getRoot().getKey("/Pages")
+            .getKey("/Kids").getArrayItem(6);
+        auto leaf=branch.getKey("/Kids").getArrayItem(0);
+        leaf.replaceKey("/Contents",pdf->newStream(source));
+        QPDFWriter writer(*pdf);
+        writer.setOutputMemory();
+        writer.write();
+        const auto blob=writer.getBufferSharedPointer();
+        CHECK(write_pdf(filename,std::string(
+            reinterpret_cast<const char*>(blob->getBuffer()),
+            blob->getSize())));
+        quantapdf_context *ctx=nullptr;
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        OK(quantapdf_context_create(&ctx));
+        OK(quantapdf_open_with_context(
+            ctx,filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        int pages=0;
+        OK(quantapdf_page_count(doc,&pages));
+        CHECK(pages==7);
+        OK(quantapdf_load_page(doc,6,&page));
+        for(int dpi:{72,96,144}) {
+            quantapdf_render_options opts{};
+            opts.struct_size=sizeof(opts);
+            opts.dpi=(float)dpi;
+            quantapdf_bitmap *bitmap=reinterpret_cast<quantapdf_bitmap*>(
+                uintptr_t(1));
+            const auto status=quantapdf_render_page_with_options(
+                page,&opts,&bitmap);
+            CHECK(status!=QUANTAPDF_OK && bitmap==nullptr);
+        }
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+        quantapdf_drop_context(ctx);
+    }
+    return EXIT_SUCCESS;
+}
+
 int main()
 {
     const std::string filename="native-standalone-smoke.pdf";
@@ -2989,6 +3051,7 @@ int main()
     CHECK(native_original_userunit_cases(filename)==EXIT_SUCCESS);
     CHECK(native_userunit_physical_budget_cases(filename)==EXIT_SUCCESS);
     CHECK(native_seventh_userunit_cases(filename)==EXIT_SUCCESS);
+    CHECK(native_seventh_userunit_late_refusal_cases(filename)==EXIT_SUCCESS);
     CHECK(write_pdf(filename,create_source(false)));
 
     quantapdf_context *context=nullptr;
