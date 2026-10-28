@@ -19,11 +19,14 @@ partially paint or select a fallback.
   Original PDF /Rotate must still be zero. At render-option 96/144 DPI
   with zero display rotation, owned Source V10 IR is projected directly
   into the real target-resolution C11 Raster grid. 144 DPI uses exact
-  twofold geometry; 96 DPI samples fractional 4/3 PATH/Clip edges but
-  admits IMAGE placements only when all four device bounds are EXACT
-  integers. Fractional IMAGE bounds refuse atomically, never round or
-  upscale a 72-DPI result. High-DPI rotations, arbitrary display angles,
-  region clip and alpha-mode changes remain unsupported.
+  twofold geometry; 96 DPI samples fractional 4/3 PATH/Clip and IMAGE
+  edges in the SAME 4x4 native device sample grid. The IMAGE footprint
+  and W/W* Clip use one sample-intersection mask, rather than multiplying
+  separately averaged coverage. RAW image colors use pixel-center
+  nearest-neighbor sampling with clamping at fractional edges; optional
+  source alpha is multiplied by that one geometric coverage. High-DPI
+  rotations, arbitrary display angles, region clip and alpha-mode
+  changes remain unsupported.
 - Public thumbnails now use the SAME fully validated native 72-DPI page
   bitmap and bounded deterministic RGB area downsampling, preserving
   aspect ratio with no upscaling and no second PDF parser/provider. All

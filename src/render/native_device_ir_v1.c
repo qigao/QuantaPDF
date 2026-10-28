@@ -66,12 +66,9 @@ static int qp_image_bounds(
        x1<=x0 || y1<=y0 ||
        (double)x1>(double)width || (double)y1>(double)height)
         return 0;
-    /* The existing one-layer RAW Image raster requires integer
-     * footprints. Refuse fractional 96-DPI image edges without
-     * changing its established nearest-sample and Clip contracts. */
-    if(x0!=(float)(size_t)x0 || x1!=(float)(size_t)x1 ||
-       y0!=(float)(size_t)y0 || y1!=(float)(size_t)y1)
-        return 0;
+    /* Fractional 96-DPI Image footprints are retained exactly and
+     * charged by their enclosing device-pixel box in the V5 renderer.
+     * Original integer Source geometry and lifetime are unchanged. */
     rect->x0=x0;rect->y0=y0;rect->x1=x1;rect->y1=y1;
     return 1;
 }
@@ -174,10 +171,12 @@ quantapdf_status quantapdf_native_device_ir_render_v1(
         clip.commands=clip_commands;
         projected.resources.clips=&clip;
     }
-    /* Canonical preflight/raster owns all pixel allocation. PATH and
-     * Clip edges are now at the target grid (including fractional 4/3
-     * edges); IMAGE placement is checked to integer target bounds.
-     * Never render a 72-DPI bitmap and upscale. */
-    return quantapdf_ir_raster_scoped_mixed_v5(
-        &projected,0u,limits,out_image);
+    /* Only 96 DPI opts into same-sample 4x4 fractional IMAGE/Clip
+     * intersection. All other callers keep the integer Source profile;
+     * nobody renders a 72-DPI bitmap and upscales it. */
+    return dpi==96u ?
+        quantapdf_ir_raster_scoped_mixed_v5_device(
+            &projected,0u,limits,out_image) :
+        quantapdf_ir_raster_scoped_mixed_v5(
+            &projected,0u,limits,out_image);
 }
