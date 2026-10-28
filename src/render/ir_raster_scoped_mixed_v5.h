@@ -7,12 +7,14 @@
 extern "C" {
 #endif
 
-/* Private, reusable bounded C11 Path/RAW Image composer.
+/* Private, reusable bounded C11 Path/RAW Image compositor.
  *
- * Admits one integer-size page with 2..4 source-ordered operations, at
- * least one opaque PATH Fill and at least one normalized RAW Gray/RGB Image.
- * There may be one frozen Clip PATH leaf and a single GS (full alpha,
- * Normal blend, no soft-mask), each used by any subset of operations.
+ * Admits one integer-size page with 1..4 source-ordered opaque PATH
+ * fills and/or normalized RAW Gray/RGB Images. Homogeneous IMAGE-only
+ * pages may use four layers only without Clip or GS. The older clipped
+ * IMAGE-only profile permits at most two paints under one frozen Clip
+ * PATH leaf and a single GS (full alpha, Normal blend, no soft-mask).
+ * Mixed PATH/IMAGE keeps its independent strict admission.
  * Per-operation GS identity is immutable; 0 means Q restored no Clip.
  *
  * Every resource must be reachable, all image input, destination sampling
