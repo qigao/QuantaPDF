@@ -78,6 +78,7 @@ endif()
 # without exporting new SDK symbols or duplicating C11 render sources.
 add_library(quantapdf_native_bridge_objects OBJECT
   "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/native_source_raster_bridge_v1.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/render/native_device_ir_v1.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/builtin_native_page_v1.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/builtin_native_bitmap_v1.c")
 target_compile_features(quantapdf_native_bridge_objects PRIVATE c_std_11)

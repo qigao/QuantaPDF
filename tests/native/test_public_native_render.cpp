@@ -80,6 +80,8 @@ static std::string create_blank_source(int mode)
     if(mode==4)page.replaceKey("/Contents",
         pdf->newStream("BT ET"));
     if(mode==5)page.replaceKey("/Annots",Obj::parse("[]"));
+    if(mode==6)page.replaceKey("/MediaBox",
+        Obj::parse("[0 0 1000 1000]"));
     QPDFWriter writer(*pdf);
     writer.setOutputMemory();
     writer.write();
@@ -229,6 +231,8 @@ static std::string create_image_only_source(int mode)
         content+=" BT ET"; /* late unsupported: discard all four */
     if(mode==21)
         content+=" q 8 0 0 6 16 9 cm /I Do Q"; /* fourth overlaps */
+    if(mode==22)
+        content="q 12 0 0 9 3 3 cm /I Do Q"; /* 96-DPI exact bounds */
     page.replaceKey("/Contents",pdf->newStream(content));
     QPDFWriter writer(*pdf);
     writer.setOutputMemory();
@@ -385,9 +389,122 @@ static int probe_rgb(const unsigned char *data,int stride,int x,int y,
     return px[0]==red && px[1]==green && px[2]==blue;
 }
 
+/* Device-space source original goldens: a 96-DPI rectangle has an
+ * actual fractional 4/3 left edge; the raw Image footprints must be
+ * exact on the target grid. No reference engine or 72-DPI upscale. */
+static int high_dpi_cases(const std::string& filename)
+{
+    struct entry {int kind,mode,dpi;bool success;};
+    const entry cases[]={
+        {0,0,96,true},{0,0,144,true},
+        {1,0,96,true},{1,0,144,true},
+        {2,22,96,true},{2,0,96,false},
+        {2,0,144,true},{2,5,144,true},
+        {3,0,144,true},{2,17,144,true},
+        {2,4,144,false},{0,6,96,false},{0,6,144,false}
+    };
+    for(const auto& c:cases) {
+        const std::string original=c.kind==0?
+            create_blank_source(c.mode):
+            c.kind==1?create_path_only_source(c.mode):
+            c.kind==2?create_image_only_source(c.mode):
+                      create_unclipped_mixed_source(c.mode);
+        CHECK(write_pdf(filename,original));
+        quantapdf_context *ctx=nullptr;
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        quantapdf_bitmap *im=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+        OK(quantapdf_context_create(&ctx));
+        OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        quantapdf_render_options opts{};
+        opts.struct_size=sizeof(opts);
+        opts.dpi=(float)c.dpi;
+        const auto result=quantapdf_render_page_with_options(page,&opts,&im);
+        if(!c.success) {
+            CHECK(result==QUANTAPDF_ERROR_UNSUPPORTED && im==nullptr);
+        } else {
+            CHECK(result==QUANTAPDF_OK && im!=nullptr);
+            int w=0,h=0,s=0,nc=0;
+            const unsigned char *px=nullptr,*repeated=nullptr;
+            size_t count=0u,repeated_size=0u;
+            OK(quantapdf_bitmap_dimensions(im,&w,&h,&s,&nc));
+            OK(quantapdf_bitmap_data(im,&px,&count));
+            CHECK(w==(c.dpi==96?43:64) && h==(c.dpi==96?32:48) &&
+                  s==w*3 && nc==3 && px!=nullptr &&
+                  count==(size_t)w*(size_t)h*3u);
+            if(c.kind==0)
+                for(size_t i=0u;i<count;++i)CHECK(px[i]==255u);
+            if(c.kind==1 && c.dpi==96) {
+                CHECK(probe_rgb(px,s,4,20,255,255,255));
+                CHECK(probe_rgb(px,s,5,20,255,64,64));
+                CHECK(probe_rgb(px,s,6,20,255,0,0));
+                CHECK(probe_rgb(px,s,16,20,255,255,255));
+            }
+            if(c.kind==1 && c.dpi==144) {
+                CHECK(probe_rgb(px,s,8,30,255,0,0));
+                CHECK(probe_rgb(px,s,24,30,255,255,255));
+            }
+            if(c.kind==2 && c.mode==22) {
+                CHECK(probe_rgb(px,s,6,17,255,0,0));
+                CHECK(probe_rgb(px,s,17,17,0,255,0));
+                CHECK(probe_rgb(px,s,6,25,0,0,255));
+                CHECK(probe_rgb(px,s,17,25,255,255,0));
+            }
+            if(c.kind==2 && c.mode==0 && c.dpi==144) {
+                CHECK(probe_rgb(px,s,18,20,255,0,0));
+                CHECK(probe_rgb(px,s,44,20,0,255,0));
+                CHECK(probe_rgb(px,s,18,40,0,0,255));
+                CHECK(probe_rgb(px,s,44,40,255,255,0));
+            }
+            if(c.kind==2 && c.mode==5) {
+                CHECK(probe_rgb(px,s,26,22,255,0,0));
+                CHECK(probe_rgb(px,s,36,22,0,255,0));
+                CHECK(probe_rgb(px,s,26,32,0,0,255));
+                CHECK(probe_rgb(px,s,36,32,255,255,0));
+                CHECK(probe_rgb(px,s,20,24,255,255,255));
+            }
+            if(c.kind==3) {
+                CHECK(probe_rgb(px,s,20,32,0,255,0));
+                CHECK(probe_rgb(px,s,36,22,0,255,0));
+            }
+            if(c.kind==2 && c.mode==17) {
+                CHECK(probe_rgb(px,s,50,16,255,0,0));
+                CHECK(probe_rgb(px,s,60,16,0,255,0));
+                CHECK(probe_rgb(px,s,50,40,255,0,0));
+            }
+            quantapdf_bitmap *again=nullptr;
+            OK(quantapdf_render_page_with_options(page,&opts,&again));
+            OK(quantapdf_bitmap_data(again,&repeated,&repeated_size));
+            CHECK(repeated!=nullptr && repeated_size==count &&
+                  std::memcmp(repeated,px,count)==0);
+            quantapdf_drop_bitmap(again);
+            /* Higher DPI + rotation remains unqualified, no fallback. */
+            opts.rotation_degrees=90.0f;
+            again=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+            CHECK(quantapdf_render_page_with_options(page,&opts,&again)==
+                  QUANTAPDF_ERROR_UNSUPPORTED && again==nullptr);
+        }
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+        quantapdf_drop_context(ctx);
+        if(im!=nullptr) {
+            const unsigned char *owner=nullptr;
+            size_t bytes=0u;
+            OK(quantapdf_bitmap_data(im,&owner,&bytes));
+            CHECK(owner!=nullptr && bytes!=0u &&
+                  probe_rgb(owner,(c.dpi==96?43:64)*3,0,0,255,255,255));
+        }
+        quantapdf_drop_bitmap(im);
+    }
+    return EXIT_SUCCESS;
+}
+
 int main()
 {
     const std::string filename="native-standalone-smoke.pdf";
+    CHECK(high_dpi_cases(filename)==EXIT_SUCCESS);
     CHECK(write_pdf(filename,create_source(false)));
 
     quantapdf_context *context=nullptr;

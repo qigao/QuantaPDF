@@ -113,11 +113,14 @@ static quantapdf_status quantapdf_render_page_transformed(
         !isfinite(rotation_degrees) || (alpha != 0 && alpha != 1))
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    /* The same native Source V10 -> owned IR -> C11 raster qualifies
-     * every input. Only exact 72-DPI orthogonal display rotations are
-     * added as lossless post-raster pixel permutations; no PDF /Rotate,
-     * 96/144-DPI interpolation, region, alpha or provider fallback. */
-    if (page->page_index != 0 || dpi != 72.0f ||
+    /* The same V10 -> owned IR -> C11 raster qualifies full source.
+     * 96/144 DPI projects owned geometry to the actual device grid
+     * BEFORE sampling; 72-DPI orthogonal display rotations remain
+     * a separate lossless post-raster permutation. No scaled 72-DPI
+     * bitmap, source /Rotate, arbitrary rotation, region or fallback. */
+    if (page->page_index != 0 ||
+        (dpi != 72.0f && dpi != 96.0f && dpi != 144.0f) ||
+        (dpi != 72.0f && rotation_degrees != 0.0f) ||
         (rotation_degrees != 0.0f &&
          rotation_degrees != 90.0f &&
          rotation_degrees != 180.0f &&
