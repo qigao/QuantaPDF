@@ -158,7 +158,10 @@ static const case_data cases[]={
     {"1 0 0 rg 4 4 8 6 re f "
      "q 16 0 0 12 8 3 cm /I Do Q",
      "1 M [] 0 d 1 0 0 rg 4 4 8 6 re f "
-     "q 10 M [2 1] 0 d 16 0 0 12 8 3 cm /I Do Q",true,false}
+     "q 10 M [2 1] 0 d 16 0 0 12 8 3 cm /I Do Q",true,false},
+    {"1 0 0 rg 4 4 8 6 re f",
+     "1000000 M [0 1000000] 1000000 d "
+     "1 0 0 rg 4 4 8 6 re f",false,false}
 };
 
 static int positive()
@@ -202,11 +205,20 @@ static int negative()
         "1 M BT ET",
         "[] 0 d Q",
         "1 M /Missing Do",
-        "q 12 6 8 9 re W 1 M n Q"
+        "q 12 6 8 9 re W 1 M n Q",
+        "1000000.25 M","[1000000 0.25] 0 d",
+        "[1] 1000000.25 d",
+        "1 0 0 rg 4 4 8 6 re f 0 M",
+        "1 0 0 rg 4 4 8 6 re f [0 0] 0 d",
+        "q 16 0 0 12 8 3 cm /I Do Q [1 -1] 0 d",
+        "q 16 0 0 12 8 3 cm /I Do Q 1000001 M",
+        "q 12 6 8 9 re W n "
+        "q 16 0 0 12 8 3 cm /I Do Q Q [0 0] 0 d"
     };
     for(const char *ops:bad)
     for(int dpi:{72,96,144}) {
-        CHECK(write_pdf(original(ops,false,4,0)));
+        const bool with_image=std::strstr(ops,"/I Do")!=nullptr;
+        CHECK(write_pdf(original(ops,with_image,4,0)));
         quantapdf_document *doc=nullptr;
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bitmap=
