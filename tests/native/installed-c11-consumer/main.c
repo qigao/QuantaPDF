@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 static int write_blank_pdf(const char *path,int inherited_rotation)
 {
@@ -73,7 +74,7 @@ static int write_multi_pdf(const char *path,int shifted_origin)
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 5 7]"
         " /Resources << >> >>"
     };
-    long offsets[6]={0,0,0,0,0,0};
+    long offsets[7]={0,0,0,0,0,0,0};
     long xref=0;
     int ok=0;
     FILE *file=fopen(path,"wb");
@@ -84,22 +85,41 @@ static int write_multi_pdf(const char *path,int shifted_origin)
         /* The installed standalone C11 consumer independently creates
          * a selected page with a true negative MediaBox origin, not a
          * test-only in-tree fixture or an altered library header. */
-        const char *body=(shifted_origin && i==5) ?
+        const char *body=(shifted_origin==2 && i==5) ?
+            "<< /Type /Page /Parent 2 0 R /MediaBox [-9 5 23 29]"
+            " /CropBox [-1 9 15 25] /Rotate 90"
+            " /Contents 6 0 R /Resources << >> >>" :
+            ((shifted_origin && i==5) ?
             "<< /Type /Page /Parent 2 0 R /MediaBox [-9 5 -4 12]"
-            " /Resources << >> >>" : object_text[i];
+            " /Resources << >> >>" : object_text[i]);
         if(offsets[i]<0 ||
            fprintf(file,"%d 0 obj\n%s\nendobj\n",
                    i,body)<0)goto done;
     }
+    if(shifted_origin==2) {
+        /* Original selected third page's opaque red PATH crosses
+         * the negative-origin CropBox boundary x=-1. These are
+         * actual PDF content operators, not a bitmap fixture. */
+        static const char paint[]="1 0 0 rg -5 10 12 7 re f\n";
+        offsets[6]=ftell(file);
+        if(offsets[6]<0 ||
+           fprintf(file,"6 0 obj\n<< /Length %zu >>\nstream\n",
+                   strlen(paint))<0 ||
+           fputs(paint,file)==EOF ||
+           fputs("endstream\nendobj\n",file)==EOF)
+            goto done;
+    }
     xref=ftell(file);
-    if(xref<0 || fputs(
-        "xref\n0 6\n0000000000 65535 f \n",file)==EOF)goto done;
-    for(int i=1;i<=5;++i)
+    const int objects=shifted_origin==2?7:6;
+    if(xref<0 || fprintf(file,
+        "xref\n0 %d\n0000000000 65535 f \n",objects)<0)
+        goto done;
+    for(int i=1;i<objects;++i)
         if(fprintf(file,"%010ld 00000 n \n",offsets[i])<0)
             goto done;
     if(fprintf(file,
-        "trailer\n<< /Size 6 /Root 1 0 R >>\n"
-        "startxref\n%ld\n%%%%EOF\n",xref)<0)goto done;
+        "trailer\n<< /Size %d /Root 1 0 R >>\n"
+        "startxref\n%ld\n%%%%EOF\n",objects,xref)<0)goto done;
     ok=1;
 done:
     if(fclose(file)!=0)ok=0;
@@ -364,6 +384,80 @@ int main(void)
     if(status!=QUANTAPDF_OK || pixels==NULL || size!=105u)goto fail;
     for(size_t i=0u;i<size;++i)
         if(pixels[i]!=255u)goto fail;
+
+    /* A fully independent INSTALLED C11 SDK consumer authors a PDF
+     * with selected index 2, signed nonzero MediaBox, non-full CropBox
+     * and original /Rotate90. A real red PATH crosses the crop left
+     * edge. Source coordinates must be interpreted BEFORE C11 paint. */
+    quantapdf_drop_bitmap(bitmap);bitmap=NULL;
+    if(!write_multi_pdf(filename,2))goto done;
+    status=quantapdf_context_create(&context);
+    if(status!=QUANTAPDF_OK || context==NULL)goto fail;
+    status=quantapdf_open_with_context(
+        context,filename,NULL,&document);
+    if(status!=QUANTAPDF_OK || document==NULL)goto fail;
+    status=quantapdf_page_count(document,&pages);
+    if(status!=QUANTAPDF_OK || pages!=3)goto fail;
+    status=quantapdf_load_page(document,2,&page);
+    if(status!=QUANTAPDF_OK || page==NULL)goto fail;
+    {
+        quantapdf_rect crop={0};
+        status=quantapdf_page_bounds(page,&crop);
+        if(status!=QUANTAPDF_OK || crop.x0!=0.0f ||
+           crop.y0!=0.0f || crop.x1!=16.0f ||
+           crop.y1!=16.0f)goto fail;
+    }
+    status=quantapdf_render_page(page,&bitmap);
+    if(status!=QUANTAPDF_OK || bitmap==NULL)goto fail;
+    status=quantapdf_bitmap_dimensions(
+        bitmap,&w,&h,&stride,&channels);
+    if(status!=QUANTAPDF_OK || w!=16 || h!=16 ||
+       stride!=48 || channels!=3)goto fail;
+    status=quantapdf_bitmap_data(bitmap,&pixels,&size);
+    if(status!=QUANTAPDF_OK || pixels==NULL ||
+       size!=768u)goto fail;
+    {
+        const unsigned char *red=pixels+2u*48u+5u*3u;
+        const unsigned char *white=pixels+12u*48u+12u*3u;
+        if(red[0]!=255u || red[1]!=0u || red[2]!=0u ||
+           white[0]!=255u || white[1]!=255u || white[2]!=255u)
+            goto fail;
+    }
+    {
+        const int dpis[2]={96,144};
+        for(size_t k=0u;k<2u;++k) {
+            quantapdf_render_options opts={0};
+            opts.struct_size=sizeof(opts);
+            opts.dpi=(float)dpis[k];
+            status=quantapdf_render_page_with_options(
+                page,&opts,&device_bitmap);
+            if(status!=QUANTAPDF_OK || device_bitmap==NULL)goto fail;
+            status=quantapdf_bitmap_dimensions(
+                device_bitmap,&w,&h,&stride,&channels);
+            if(status!=QUANTAPDF_OK ||
+               w!=(dpis[k]==96?22:32) || h!=w ||
+               stride!=w*3 || channels!=3)goto fail;
+            status=quantapdf_bitmap_data(
+                device_bitmap,&pixels,&size);
+            if(status!=QUANTAPDF_OK || pixels==NULL ||
+               size!=(size_t)w*(size_t)h*3u)goto fail;
+            {
+                const size_t x=dpis[k]==96?6u:11u;
+                const size_t y=4u;
+                const unsigned char *red=pixels+
+                    y*(size_t)stride+x*3u;
+                if(red[0]!=255u || red[1]!=0u || red[2]!=0u)
+                    goto fail;
+            }
+            quantapdf_drop_bitmap(device_bitmap);device_bitmap=NULL;
+        }
+    }
+    quantapdf_drop_page(page);page=NULL;
+    quantapdf_close(document);document=NULL;
+    quantapdf_drop_context(context);context=NULL;
+    status=quantapdf_bitmap_data(bitmap,&pixels,&size);
+    if(status!=QUANTAPDF_OK || pixels==NULL || size!=768u)goto fail;
+    if(pixels[2u*48u+5u*3u+1u]!=0u)goto fail;
     result=EXIT_SUCCESS;
     goto done;
 fail:
