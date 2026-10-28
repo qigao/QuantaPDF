@@ -2703,6 +2703,126 @@ static int native_decimal_number_cases(const std::string& filename)
     return EXIT_SUCCESS;
 }
 
+/* A real CropBox is NOT equal to MediaBox: signed source offsets,
+ * original viewport masking and fractional final-pixel coverage must
+ * all survive semantically redundant decimal zeros in PAGE-local and
+ * inherited CropBox nodes. Compare original bytes through the single
+ * native Source->IR->C11 Raster, not via a second raster/oracle. */
+static int native_decimal_cropped_viewport_cases(
+    const std::string& filename)
+{
+    const char *const canonical_units[]={"0.25","1","1.25","4"};
+    const char *const padded_units[]={
+        "0.250000000000000000","1.000000000000000000",
+        "1.250000000000000000","4.000000000000000000"
+    };
+    const int quarters[]={1,4,5,16};
+    const std::string media="[0.25 0.5 32.25 24.5]";
+    const std::string padded_media=
+        "[0.250000000000000000 0.500000000000000000 "
+        "32.25000000000000000 24.50000000000000000]";
+    const std::string crop="[8.25 4.5 24.25 20.5]";
+    const auto pad20=[](const std::string& number) {
+        if(number.size()>20u)
+            throw std::runtime_error("invalid padded number");
+        return number+std::string(20u-number.size(),'0');
+    };
+    const std::string padded_crop="["+pad20("8.25")+" "+
+        pad20("4.5")+" "+pad20("24.25")+" "+
+        pad20("20.5")+"]";
+    for(size_t i=0u;i<4u;++i)
+    for(int dpi:{72,96,144}) {
+        std::vector<unsigned char> reference;
+        for(bool padded:{false,true})
+        for(bool inherited:{false,true}) {
+            const std::string original=native_original_decimal_number_pdf(
+                padded?padded_units[i]:canonical_units[i],
+                padded?padded_media:media,
+                padded?padded_crop:crop,inherited);
+            CHECK(write_pdf(filename,original));
+            quantapdf_document *doc=nullptr;
+            quantapdf_page *page=nullptr;
+            quantapdf_bitmap *bitmap=nullptr;
+            OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+            CHECK(std::remove(filename.c_str())==0);
+            OK(quantapdf_load_page(doc,0,&page));
+            quantapdf_rect bounds{};
+            OK(quantapdf_page_bounds(page,&bounds));
+            const float extent=(float)(4*quarters[i]);
+            CHECK(bounds.x0==0.0f && bounds.y0==0.0f &&
+                  bounds.x1==extent && bounds.y1==extent);
+            quantapdf_render_options options{};
+            options.struct_size=sizeof(options);
+            options.dpi=(float)dpi;
+            const auto result=quantapdf_render_page_with_options(
+                page,&options,&bitmap);
+            if(result!=QUANTAPDF_OK)
+                std::fprintf(stderr,
+                    "cropped quarter refused factor=%zu dpi=%d "
+                    "padded=%d inherited=%d status=%d\n",
+                    i,dpi,padded?1:0,inherited?1:0,(int)result);
+            CHECK(result==QUANTAPDF_OK && bitmap!=nullptr);
+            int w=0,h=0,stride=0,channels=0;
+            const unsigned char *rgb=nullptr;
+            size_t bytes=0u;
+            OK(quantapdf_bitmap_dimensions(
+                bitmap,&w,&h,&stride,&channels));
+            OK(quantapdf_bitmap_data(bitmap,&rgb,&bytes));
+            const int target=(16*quarters[i]*dpi+287)/288;
+            CHECK(w==target && h==target && stride==w*3 &&
+                  channels==3 && rgb!=nullptr &&
+                  bytes==(size_t)stride*(size_t)h);
+            bool has_ink=false,has_white=false;
+            for(size_t b=0u;b<bytes;b+=3u) {
+                const bool white=rgb[b]==255u &&
+                    rgb[b+1u]==255u && rgb[b+2u]==255u;
+                has_ink|=!white;has_white|=white;
+            }
+            /* The authored red PATH intersects only the lower-left
+             * part of this *actual* CropBox, unlike a full-Media page. */
+            CHECK(has_ink && has_white);
+            if(!padded && !inherited)
+                reference.assign(rgb,rgb+bytes);
+            else CHECK(reference.size()==bytes &&
+                       std::memcmp(reference.data(),rgb,bytes)==0);
+            quantapdf_drop_page(page);
+            quantapdf_close(doc);
+            const unsigned char *owned=nullptr;
+            size_t retained_size=0u;
+            OK(quantapdf_bitmap_data(bitmap,&owned,&retained_size));
+            CHECK(owned!=nullptr && retained_size==reference.size() &&
+                  std::memcmp(owned,reference.data(),retained_size)==0);
+            quantapdf_drop_bitmap(bitmap);
+        }
+    }
+    /* The CropBox remains active and strictly quarter-valued even
+     * when its nonquarter source token would be rounded by a double
+     * observer. Inheritance must never bypass Source grammar. */
+    const std::string bad_crop=
+        "[8.250000000000001 4.5 24.25 20.5]";
+    for(bool inherited:{false,true})
+    for(int dpi:{72,96,144}) {
+        CHECK(write_pdf(filename,native_original_decimal_number_pdf(
+            "1.25",media,bad_crop,inherited)));
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        quantapdf_bitmap *bitmap=
+            reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        quantapdf_render_options options{};
+        options.struct_size=sizeof(options);
+        options.dpi=(float)dpi;
+        CHECK(quantapdf_render_page_with_options(
+            page,&options,&bitmap)==QUANTAPDF_ERROR_UNSUPPORTED &&
+            bitmap==nullptr);
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+    }
+    return EXIT_SUCCESS;
+}
+
 static int native_original_userunit_cases(const std::string& filename)
 {
     const std::string originals[]={
@@ -3334,6 +3454,7 @@ int main()
     CHECK(native_fractional_span_cases(filename)==EXIT_SUCCESS);
     CHECK(native_original_userunit_cases(filename)==EXIT_SUCCESS);
     CHECK(native_decimal_number_cases(filename)==EXIT_SUCCESS);
+    CHECK(native_decimal_cropped_viewport_cases(filename)==EXIT_SUCCESS);
     CHECK(native_userunit_physical_budget_cases(filename)==EXIT_SUCCESS);
     CHECK(native_seventh_userunit_cases(filename)==EXIT_SUCCESS);
     CHECK(native_seventh_userunit_late_refusal_cases(filename)==EXIT_SUCCESS);
