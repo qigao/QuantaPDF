@@ -1875,7 +1875,15 @@ static quantapdf_status source_raw_images_to_ir_impl(
         source.native_unclipped_mode=native_v10;
         source.media_left=native_v10?geo.left:0.0;
         source.media_bottom=native_v10?geo.bottom:0.0;
-        source.crop_viewport=native_v10 && !full_media;
+        /* The opt-in signed/quarter-aware SOURCE staging is required
+         * for nonzero fractional origins EVEN when CropBox==MediaBox.
+         * The inherited strict integer branch remains unchanged for
+         * ordinary page-zero integer-origin Source profiles. */
+        const bool fractional_origin=
+            geo.left!=std::trunc(geo.left) ||
+            geo.bottom!=std::trunc(geo.bottom);
+        source.crop_viewport=native_v10 &&
+            (!full_media || fractional_origin);
         Obj raw_contents=geo.page.getKey("/Contents");
         const bool empty_contents=native_v10 &&
             (raw_contents.isNull() ||
