@@ -1,11 +1,86 @@
 #include "core/bitmap_internal.h"
 #include "document/document_internal.h"
 #include "backend/builtin_native_bitmap_v1.h"
+#include "render/native_device_plan.h"
 
+#include <limits.h>
 #include <math.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+
+/* 72-DPI quarter turns are a lossless permutation of the SAME fully
+ * admitted native RGB canvas, never a second rasterizer or resampling
+ * path. The canonical C11 device plan validates the rotated dimensions
+ * and global pixel ceiling before any allocation. This deliberately does
+ * NOT admit the PDF page's /Rotate, higher DPI or arbitrary angles. */
+static quantapdf_status quantapdf_native_rotate_rgb_72(
+    quantapdf_backend_bitmap *bitmap, int rotation)
+{
+    quantapdf_native_device_plan plan={0};
+    char canonical_box[64];
+    size_t sw,sh,pixels,src_stride,dst_stride,bytes;
+    unsigned char *turned;
+    quantapdf_status status;
+    int printed;
+    if(bitmap==NULL || bitmap->data==NULL ||
+       bitmap->width<=0 || bitmap->height<=0 ||
+       bitmap->components!=3 ||
+       (rotation!=90 && rotation!=180 && rotation!=270))
+        return QUANTAPDF_ERROR_BACKEND;
+    sw=(size_t)bitmap->width;
+    sh=(size_t)bitmap->height;
+    if(sw>(size_t)INT_MAX/3u ||
+       sh>QUANTAPDF_NATIVE_DEVICE_MAX_PIXELS ||
+       sw>QUANTAPDF_NATIVE_DEVICE_MAX_PIXELS/sh)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    pixels=sw*sh;
+    src_stride=sw*3u;
+    bytes=pixels*3u;
+    if(bitmap->stride!=(int)src_stride || bitmap->size!=bytes)
+        return QUANTAPDF_ERROR_BACKEND;
+    printed=snprintf(canonical_box,sizeof(canonical_box),
+                     "0 0 %d %d",bitmap->width,bitmap->height);
+    if(printed<0 || (size_t)printed>=sizeof(canonical_box))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    status=quantapdf_native_device_plan_create(
+        canonical_box,canonical_box,"1",rotation,72u,
+        QUANTAPDF_NATIVE_DEVICE_MAX_PIXELS,&plan);
+    if(status!=QUANTAPDF_OK)return status;
+    if(plan.width!=(rotation==180?sw:sh) ||
+       plan.height!=(rotation==180?sh:sw) ||
+       plan.width>(size_t)INT_MAX/3u ||
+       plan.height>(size_t)INT_MAX ||
+       plan.width*plan.height!=pixels ||
+       plan.stride!=plan.width*4u ||
+       plan.size!=pixels*4u)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    dst_stride=plan.width*3u;
+    turned=(unsigned char *)malloc(bytes);
+    if(turned==NULL)return QUANTAPDF_ERROR_NOMEM;
+    for(size_t sy=0u;sy<sh;++sy)
+        for(size_t sx=0u;sx<sw;++sx) {
+            size_t dx,dy;
+            if(rotation==90) {
+                dx=sh-1u-sy;dy=sx;
+            } else if(rotation==180) {
+                dx=sw-1u-sx;dy=sh-1u-sy;
+            } else {
+                dx=sy;dy=sw-1u-sx;
+            }
+            memcpy(turned+dy*dst_stride+dx*3u,
+                   bitmap->data+sy*src_stride+sx*3u,3u);
+        }
+    free(bitmap->data);
+    bitmap->data=turned;
+    bitmap->width=(int)plan.width;
+    bitmap->height=(int)plan.height;
+    bitmap->stride=(int)dst_stride;
+    bitmap->size=bytes;
+    return QUANTAPDF_OK;
+}
 
 static quantapdf_status quantapdf_render_page_transformed(
     quantapdf_page *page,
@@ -38,16 +113,22 @@ static quantapdf_status quantapdf_render_page_transformed(
         !isfinite(rotation_degrees) || (alpha != 0 && alpha != 1))
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    /* Public page/options/thumbnail now have exactly ONE native producer.
-     * Do not approximate DPI/rotated/region/alpha modes. Unsupported
-     * rendering requests, pages and full-PDF features are explicit errors
-     * and NEVER open a legacy provider or retry on another renderer. */
+    /* The same native Source V10 -> owned IR -> C11 raster qualifies
+     * every input. Only exact 72-DPI orthogonal display rotations are
+     * added as lossless post-raster pixel permutations; no PDF /Rotate,
+     * 96/144-DPI interpolation, region, alpha or provider fallback. */
     if (page->page_index != 0 || dpi != 72.0f ||
-        rotation_degrees != 0.0f || clip != NULL || alpha != 0)
+        (rotation_degrees != 0.0f &&
+         rotation_degrees != 90.0f &&
+         rotation_degrees != 180.0f &&
+         rotation_degrees != 270.0f) ||
+        clip != NULL || alpha != 0)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     device.page_index = (size_t)page->page_index;
     device.dpi = dpi;
-    device.rotation_degrees = rotation_degrees;
+    /* The source producer always draws a complete unrotated page;
+     * its already validated pixels are then oriented by the plan. */
+    device.rotation_degrees = 0.0f;
     device.clip_enabled = clip != NULL;
     device.alpha = alpha;
 
@@ -67,11 +148,16 @@ static quantapdf_status quantapdf_render_page_transformed(
     if (status == QUANTAPDF_OK) {
         if (!isfinite(user_unit) || user_unit != 1.0)
             status = QUANTAPDF_ERROR_UNSUPPORTED;
-        else
+        else {
             status = quantapdf_builtin_native_qualify_bitmap_v10(
                 page->backend, &limits, &device, &rendered);
+            if (status == QUANTAPDF_OK && rotation_degrees != 0.0f)
+                status = quantapdf_native_rotate_rgb_72(
+                    &rendered, (int)rotation_degrees);
+        }
     }
     if (status != QUANTAPDF_OK) {
+        free(rendered.data);
         free(bitmap);
         quantapdf_drop_context(page->context);
         return status;
