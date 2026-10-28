@@ -567,7 +567,7 @@ static int image_only_four_layer_cases(void)
     f.images[3].data=yellow;
     for(size_t i=0u;i<4u;++i) {
         f.ops[i]=f.ops[0];
-        f.ops[i].value.image.image_id=i+1u;
+        f.ops[i].value.image.image_id=(quantapdf_composer_image_id)(i+1u);
         f.ops[i].bounds=positions[i];
     }
     limit.max_source_pixels=4u;

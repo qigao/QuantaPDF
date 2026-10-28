@@ -785,9 +785,16 @@ int main()
                 if(mode==9)
                     CHECK(probe_rgb(repeat,s,6,6,0u,0u,255u));
             }
-            if(mode==17 || mode==20)
-                CHECK(probe_rgb(repeat,s,15,4,
+            if(mode==17 || mode==20) {
+                /* 16x12 thumbnail at x=15 spans full x=[30,32).
+                 * Row y=3 samples only the fourth IMAGE top row;
+                 * y=4 straddles its green/yellow (or 170/0 Gray)
+                 * boundary, requiring exact native area averaging. */
+                CHECK(probe_rgb(repeat,s,15,3,
                     gray?170u:0u,gray?170u:255u,gray?170u:0u));
+                CHECK(probe_rgb(repeat,s,15,4,
+                    gray?85u:128u,gray?85u:255u,gray?85u:0u));
+            }
             if(mode==21)
                 CHECK(probe_rgb(repeat,s,9,5,255u,0u,0u));
         }
