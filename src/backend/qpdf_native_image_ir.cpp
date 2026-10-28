@@ -379,10 +379,21 @@ struct admission {
 
     void execute(Obj image,const matrix& ctm)
     {
+        /* Only the public Source V10 IMAGE-only, zero-Clip/zero-PATH
+         * profile may consume all four EXISTING C11 Raster layers.
+         * Mixed PATH/IMAGE and all W/W* Clip profiles keep their
+         * independently qualified lower IMAGE cardinalities. */
+        const bool public_image_only =
+            native_unclipped_mode && !clip_completed &&
+            clip.commands.empty() && painted_paths.empty() &&
+            !saw_q_restore;
+        const size_t admitted_image_layers=public_image_only ?
+            hard_operations :
+            (mixed_operation_limit==4u ? 2u : mixed_operation_limit-1u);
         admit(draws.size() < hard_operations &&
               draws.size() < limits.max_operations &&
               (!mixed_mode ||
-               (draws.size()<(mixed_operation_limit==4u ? 2u : mixed_operation_limit-1u) &&
+               (draws.size()<admitted_image_layers &&
                 order.size()<mixed_operation_limit &&
                 limits.max_operations>=
                    (variable_scoped_mode ? order.size()+1u :
@@ -558,14 +569,14 @@ public:
             if(clipped) {
                 if(target.native_unclipped_mode &&
                    !target.clip_completed) {
-                    /* Public Source V10: homogeneous IMAGE-only, or
-                     * exactly one PATH followed by one IMAGE, both with
-                     * no W/GS/Clip. Older clipped Source profiles retain
-                     * their original admission. Never admit a third
-                     * layer or an unsupported late paint. */
+                    /* Public Source V10: up to four homogeneous IMAGE
+                     * layers without W/GS/Clip, or exactly one PATH
+                     * followed by one IMAGE. A fifth IMAGE, a late PATH,
+                     * Text or any unqualified resource fails atomically.
+                     * Older clipped Source versions stay unchanged. */
                     const bool image_only=
                         target.painted_paths.empty() &&
-                        target.draws.size()<2u &&
+                        target.draws.size()<hard_operations &&
                         target.order.size()==target.draws.size();
                     const bool path_then_image=
                         target.painted_paths.size()==1u &&
@@ -978,16 +989,17 @@ quantapdf_ir materialize(
     }
     return ir;
 }
-/* Public-native V10 1–2 Image-only original paints are already
+/* Public-native V10 1–4 Image-only original paints are already
  * decoded by the existing bounded Source reader. This branch only
  * confirms complete source order/ownership and reuses the canonical
- * image IR materializer; no different raster or provider is created. */
+ * image IR materializer and four-layer C11 Raster; no provider or
+ * renderer is added. Old mixed and clipped profiles stay narrower. */
 quantapdf_ir materialize_image_only(const admission& source)
 {
     const size_t count=source.order.size();
     admit(source.native_unclipped_mode &&
           source.mixed_mode && source.mixed_scoped_mode &&
-          count>=1u && count<=2u &&
+          count>=1u && count<=hard_operations &&
           count<=source.limits.max_operations &&
           source.draws.size()==count &&
           source.painted_paths.empty() &&
@@ -1451,7 +1463,7 @@ static quantapdf_status source_raw_images_to_ir_impl(
             *out_ir=materialize_blank_page(source);
             return QUANTAPDF_OK;
         }
-        /* A one/two PATH original without Image or W/W* now uses the
+        /* A one-to-four PATH original without Image or W/W* uses the
          * SAME V10 Source reader and canonical C11 Raster. No silent
          * omission is possible: qpdf parsed complete source and EOF;
          * the path-only IR has no Image/GS/Clip allocations. */
@@ -1462,6 +1474,9 @@ static quantapdf_status source_raw_images_to_ir_impl(
             *out_ir=materialize_path_only(source);
             return QUANTAPDF_OK;
         }
+        /* This path alone may use 1–4 homogeneous IMAGE layers,
+         * bounded by the exact four-operation Source/Raster contract.
+         * No Clip, PATH, Font or hidden graphics state is inferred. */
         if(native_v10 && source.painted_paths.empty() &&
            !source.draws.empty() && !source.clip_completed &&
            source.clip.commands.empty() && !source.saw_q_restore) {
