@@ -11,22 +11,23 @@ partially paint or select a fallback.
 
 ## Currently implemented native rendering subset
 
-- One original, unencrypted page at index zero, exact 72 DPI and UserUnit 1.
-  A public render-option quarter turn of **0/90/180/270 degrees** is
-  admitted at 72 DPI using a lossless RGB pixel permutation after the
-  complete Source V10/C11 Raster output, with the existing C11 device
-  planner validating rotated dimensions and the one-million-pixel budget.
-  Original PDF /Rotate must still be zero. At render-option 96/144 DPI
-  with zero display rotation, owned Source V10 IR is projected directly
-  into the real target-resolution C11 Raster grid. 144 DPI uses exact
-  twofold geometry; 96 DPI samples fractional 4/3 PATH/Clip and IMAGE
-  edges in the SAME 4x4 native device sample grid. The IMAGE footprint
+- One original, unencrypted page at index zero, exact 72/96/144 DPI
+  and UserUnit 1. Public render-option quarter turns of
+  **0/90/180/270 degrees** are admitted at each of these DPIs, after
+  full original Source V10/C11 Raster admission on the requested target
+  grid. The existing C11 device planner validates rotation dimensions
+  and the one-million-pixel quota before an exact row/column RGB
+  permutation. Original PDF /Rotate must still be zero. At 96/144 DPI,
+  owned Source V10 IR is projected directly into the target-resolution
+  C11 Raster grid before rotation. 144 DPI uses exact twofold geometry;
+  96 DPI samples fractional 4/3 PATH/Clip and IMAGE edges in the SAME
+  4x4 native device sample grid. The IMAGE footprint
   and W/W* Clip use one sample-intersection mask, rather than multiplying
   separately averaged coverage. RAW image colors use pixel-center
   nearest-neighbor sampling with clamping at fractional edges; optional
-  source alpha is multiplied by that one geometric coverage. High-DPI
-  rotations, arbitrary display angles, region clip and alpha-mode
-  changes remain unsupported.
+  source alpha is multiplied by that one geometric coverage.
+  Nonorthogonal angles, region clip and alpha-mode changes remain
+  unsupported.
 - Public thumbnails now use the SAME fully validated native 72-DPI page
   bitmap and bounded deterministic RGB area downsampling, preserving
   aspect ratio with no upscaling and no second PDF parser/provider. All
