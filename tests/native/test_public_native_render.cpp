@@ -602,10 +602,26 @@ int main()
     CHECK(size2==size && std::memcmp(data,bytes2,size)==0);
     quantapdf_drop_bitmap(second);second=nullptr;
 
+    /* The original W-Clipped RGB Image plus Q-restored Gray PATH is
+     * now qualified in TRUE 96-DPI device space. This is not an
+     * interpolated 72-DPI bitmap: sample each geometry on 43x32. */
     opts.dpi=96.0f;
-    second=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-    CHECK(quantapdf_render_page_with_options(page,&opts,&second)==
-          QUANTAPDF_ERROR_UNSUPPORTED && second==nullptr);
+    OK(quantapdf_render_page_with_options(page,&opts,&second));
+    CHECK(second!=nullptr);
+    {
+        int dw=0,dh=0,ds=0,dc=0;
+        const unsigned char *dp=nullptr;
+        size_t dn=0u;
+        OK(quantapdf_bitmap_dimensions(second,&dw,&dh,&ds,&dc));
+        OK(quantapdf_bitmap_data(second,&dp,&dn));
+        CHECK(dw==43 && dh==32 && ds==129 && dc==3 &&
+              dn==43u*32u*3u && dp!=nullptr);
+        CHECK(probe_rgb(dp,ds,18,16,255u,0u,0u));
+        CHECK(probe_rgb(dp,ds,24,16,0u,255u,0u));
+        CHECK(probe_rgb(dp,ds,15,16,255u,255u,255u));
+        CHECK(probe_rgb(dp,ds,35,7,223u,223u,223u));
+    }
+    quantapdf_drop_bitmap(second);second=nullptr;
     opts.dpi=72.0f;
     /* Exact 72-DPI quarter turns are pure row/column permutations of
      * the qualified original native bitmap, including clipped pixels and
