@@ -1800,10 +1800,9 @@ static quantapdf_status source_raw_images_to_ir_impl(
          * approximated by reformatting binary64. M0 admits fractional
          * endpoints only when visible and full Media spans stay integer.
          * This protects the C11 Raster's canonical integer page grid. */
-        const auto exact=native_v10 ?
-            source_v10_quarter_geometry(
-                geo.page,limits->max_parent_steps,geo) :
-            source_v10_exact_boxes{};
+        if(native_v10)
+            (void)source_v10_quarter_geometry(
+                geo.page,limits->max_parent_steps,geo);
         const bool full_media=
             geo.left==geo.media[0] &&
             geo.bottom==geo.media[1] &&
