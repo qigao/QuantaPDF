@@ -33,6 +33,13 @@ quantapdf_native_test(quantapdf_native_scoped_mixed
   "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
   "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
   "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
+quantapdf_native_test(quantapdf_native_device_ir
+  test_native_device_ir_v1.c
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_ir_v1.c"
+  $<TARGET_OBJECTS:quantapdf_native_raster_objects>
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
 quantapdf_native_test(quantapdf_native_rgb
   test_native_backend_rgb_v1.c
   $<TARGET_OBJECTS:quantapdf_native_rgb_objects>)
