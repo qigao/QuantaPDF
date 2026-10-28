@@ -90,6 +90,7 @@ static quantapdf_status v5_fractional_image_layer(
     const quantapdf_rect *bounds,
     const quantapdf_composer_image_state *source,
     const quantapdf_composer_clip_state *clip,
+    const quantapdf_composer_clip_state *viewport_clip,
     const quantapdf_ir_raster_v1_limits *geometry_limits,
     quantapdf_ir_raster_image *out)
 {
@@ -127,11 +128,21 @@ static quantapdf_status v5_fractional_image_layer(
     v5_point(&rectangle[3],QUANTAPDF_COMPOSER_PATH_LINE_TO,
              bounds->x0,bounds->y1);
     v5_point(&rectangle[4],QUANTAPDF_COMPOSER_PATH_CLOSE,0.0f,0.0f);
-    status=clip==NULL ?
-        quantapdf_ir_raster_render_v1(
-            &geometry,0u,geometry_limits,&layer) :
-        quantapdf_ir_raster_render_v1_clipped(
-            &geometry,0u,geometry_limits,clip,&layer);
+    if(viewport_clip!=NULL) {
+        const quantapdf_composer_clip_state *all[2]={
+            viewport_clip,clip
+        };
+        /* One 4x4 sample intersection: original Image rectangle,
+         * frozen W/W* Clip and actual partial-page viewport. */
+        status=quantapdf_ir_raster_render_v1_multi_clipped(
+            &geometry,0u,geometry_limits,all,
+            clip!=NULL?2u:1u,&layer);
+    } else
+        status=clip==NULL ?
+            quantapdf_ir_raster_render_v1(
+                &geometry,0u,geometry_limits,&layer) :
+            quantapdf_ir_raster_render_v1_clipped(
+                &geometry,0u,geometry_limits,clip,&layer);
     if(status!=QUANTAPDF_OK) {
         quantapdf_ir_raster_image_dispose(&layer);
         return status;
@@ -245,12 +256,16 @@ static quantapdf_status v5_render_impl(
     const quantapdf_ir *ir,size_t page_index,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     int fractional_images,
+    double viewport_width,double viewport_height,
     quantapdf_ir_raster_image *out_image)
 {
     quantapdf_ir projected={0};
     quantapdf_composer_page_state transparent={0};
     quantapdf_composer_operation operation={0};
     quantapdf_ir_raster_image layers[QP_V5_MAX_LAYERS]={{0}};
+    quantapdf_composer_clip_state viewport={0};
+    quantapdf_composer_path_command viewport_commands[5]={{0}};
+    const quantapdf_composer_clip_state *viewport_ptr=NULL;
     quantapdf_ir_raster_v1_limits geometry_limits;
     quantapdf_ir_raster_image_v1_limits image_limits;
     unsigned char *result=NULL;
@@ -271,8 +286,18 @@ static quantapdf_status v5_render_impl(
        limits->max_source_pixels==0u || limits->max_drawn_pixels==0u)
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    if(ir->operation_count==0u)
+    if(!isfinite(viewport_width) || !isfinite(viewport_height) ||
+       viewport_width<=0.0 || viewport_height<=0.0 ||
+       viewport_width>1000000.0 || viewport_height>1000000.0)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if(ir->operation_count==0u) {
+        const double w=(double)ir->pages[0].width_points;
+        const double h=(double)ir->pages[0].height_points;
+        if(viewport_width>w || viewport_height>h ||
+           w-viewport_width>=1.0 || h-viewport_height>=1.0)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
         return v5_render_blank(ir,limits,out_image);
+    }
 
     if(ir->operation_count>QP_V5_MAX_LAYERS ||
        ir->operation_count>limits->max_operations ||
@@ -330,8 +355,39 @@ static quantapdf_status v5_render_impl(
        width>QP_V5_MAX_PIXELS/height)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     pixels=width*height;
-    if(pixels>limits->max_pixels)return QUANTAPDF_ERROR_UNSUPPORTED;
+    if(pixels>limits->max_pixels ||
+       viewport_width>(double)width ||
+       viewport_height>(double)height ||
+       (double)width-viewport_width>=1.0 ||
+       (double)height-viewport_height>=1.0)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
     bytes=pixels*4u;
+    if(viewport_width!=(double)width ||
+       viewport_height!=(double)height) {
+        /* Original page physical bounds are a borrowed standard Clip,
+         * not a mask averaged apart from PATH/Image/W Clip coverage. */
+        viewport.kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;
+        viewport.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
+        viewport.transform=(quantapdf_affine_transform){
+            1.0f,0.0f,0.0f,1.0f,0.0f,0.0f
+        };
+        viewport.commands=viewport_commands;
+        viewport.command_count=5u;
+        v5_point(&viewport_commands[0],
+                 QUANTAPDF_COMPOSER_PATH_MOVE_TO,0.0f,0.0f);
+        v5_point(&viewport_commands[1],
+                 QUANTAPDF_COMPOSER_PATH_LINE_TO,
+                 (float)viewport_width,0.0f);
+        v5_point(&viewport_commands[2],
+                 QUANTAPDF_COMPOSER_PATH_LINE_TO,
+                 (float)viewport_width,(float)viewport_height);
+        v5_point(&viewport_commands[3],
+                 QUANTAPDF_COMPOSER_PATH_LINE_TO,
+                 0.0f,(float)viewport_height);
+        v5_point(&viewport_commands[4],
+                 QUANTAPDF_COMPOSER_PATH_CLOSE,0.0f,0.0f);
+        viewport_ptr=&viewport;
+    }
 
     if(ir->resources.graphics_state_count==1u) {
         const quantapdf_composer_graphics_state *gs=
@@ -428,6 +484,10 @@ static quantapdf_status v5_render_impl(
             draw_work+=area;
             image_used|=1u<<(unsigned)(id-1u);
             ++image_count;
+            if(viewport_ptr!=NULL &&
+               ((double)op->bounds.x1>viewport_width ||
+                (double)op->bounds.y1>viewport_height))
+                has_fraction=1;
             if(has_fraction)fractional_mask|=1u<<(unsigned)i;
             /* A fractional IMAGE rectangle requires the same bounded
              * geometry-mask sampling as an existing clipped IMAGE. */
@@ -543,11 +603,20 @@ static quantapdf_status v5_render_impl(
         if(op->kind==QUANTAPDF_COMPOSER_OPERATION_PATH) {
             operation.graphics_state_id=0u;
             operation.value.path.options.graphics_state_id=0u;
-            status=state==0u ?
-                quantapdf_ir_raster_render_v1(&projected,0u,
-                    &geometry_limits,&layers[i]) :
-                quantapdf_ir_raster_render_v1_clipped(&projected,0u,
-                    &geometry_limits,&ir->resources.clips[0],&layers[i]);
+            if(viewport_ptr!=NULL) {
+                const quantapdf_composer_clip_state *both[2]={
+                    viewport_ptr,
+                    state!=0u?&ir->resources.clips[0]:NULL
+                };
+                status=quantapdf_ir_raster_render_v1_multi_clipped(
+                    &projected,0u,&geometry_limits,both,
+                    state!=0u?2u:1u,&layers[i]);
+            } else
+                status=state==0u ?
+                    quantapdf_ir_raster_render_v1(&projected,0u,
+                        &geometry_limits,&layers[i]) :
+                    quantapdf_ir_raster_render_v1_clipped(&projected,0u,
+                        &geometry_limits,&ir->resources.clips[0],&layers[i]);
         } else {
             const size_t id=(size_t)op->value.image.image_id;
             projected.resources.images=&ir->resources.images[id-1u];
@@ -557,7 +626,7 @@ static quantapdf_status v5_render_impl(
                 status=v5_fractional_image_layer(
                     page,&op->bounds,&ir->resources.images[id-1u],
                     state!=0u?&ir->resources.clips[0]:NULL,
-                    &geometry_limits,&layers[i]);
+                    viewport_ptr,&geometry_limits,&layers[i]);
             } else if(state!=0u) {
                 projected.resources.graphics_states=
                     ir->resources.graphics_states;
@@ -617,7 +686,12 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5(
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image)
 {
-    return v5_render_impl(ir,page_index,limits,0,out_image);
+    return v5_render_impl(ir,page_index,limits,0,
+        ir!=NULL && ir->pages!=NULL?
+            (double)ir->pages[0].width_points:0.0,
+        ir!=NULL && ir->pages!=NULL?
+            (double)ir->pages[0].height_points:0.0,
+        out_image);
 }
 
 quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_device(
@@ -625,5 +699,22 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_device(
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image)
 {
-    return v5_render_impl(ir,page_index,limits,1,out_image);
+    return v5_render_impl(ir,page_index,limits,1,
+        ir!=NULL && ir->pages!=NULL?
+            (double)ir->pages[0].width_points:0.0,
+        ir!=NULL && ir->pages!=NULL?
+            (double)ir->pages[0].height_points:0.0,
+        out_image);
+}
+
+/* V10 ONLY: original unrounded physical viewport on the same C11 V5
+ * sample grid, not post-raster clipping nor a parallel pixel painter. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image)
+{
+    return v5_render_impl(ir,page_index,limits,1,
+        viewport_width,viewport_height,out_image);
 }

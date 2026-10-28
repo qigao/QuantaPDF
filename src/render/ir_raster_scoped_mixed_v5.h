@@ -44,6 +44,15 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_device(
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image);
 
+/* V10 original fractional physical page width/height. Integer canvas
+ * ceil is separately checked by the original native C11 device plan.
+ * Internal Clip shares the existing 4x4 PATH/W Clip/RAW Image sample. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
