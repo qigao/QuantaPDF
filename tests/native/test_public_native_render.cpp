@@ -911,11 +911,254 @@ static int original_source_rotation_cases(const std::string& filename)
     return EXIT_SUCCESS;
 }
 
+
+/* Seven actual PDF page-tree leaves; no IR re-export or PDFium oracle.
+ * 0 blank, 1 red PATH, 2 distinct RAW image, 3 image/W Clip/gray PATH,
+ * 4 late unsupported Text, 5 direct original /Rotate 90 PATH,
+ * 6 nested inherited /MediaBox + /Rotate 270 + /Resources Image.
+ * A duplicate/unreachable page must never be substituted for the
+ * loaded Page lease's true original index. */
+static std::string selected_page_original_pdf(int bad_mode=0)
+{
+    auto pdf=QPDF::create();
+    pdf->emptyPDF();
+    auto root=pdf->getRoot().getKey("/Pages");
+    const std::string raw("\xff\0\0\0\xff\0\0\0\xff\xff\xff\0",12);
+    auto image=pdf->newStream(raw);
+    auto dict=image.getDict();
+    dict.replaceKey("/Type",Obj::newName("/XObject"));
+    dict.replaceKey("/Subtype",Obj::newName("/Image"));
+    dict.replaceKey("/Width",Obj::newInteger(2));
+    dict.replaceKey("/Height",Obj::newInteger(2));
+    dict.replaceKey("/BitsPerComponent",Obj::newInteger(8));
+    dict.replaceKey("/ColorSpace",Obj::newName("/DeviceRGB"));
+    auto xobjects=Obj::newDictionary();
+    xobjects.replaceKey("/I",image);
+    auto resources=Obj::newDictionary();
+    resources.replaceKey("/XObject",xobjects);
+
+    auto make_page=[&](const std::string& contents) {
+        auto p=pdf->makeIndirectObject(
+            Obj::parse("<< /Type /Page /MediaBox [0 0 32 24] >>"));
+        p.replaceKey("/Parent",root);
+        if(!contents.empty())
+            p.replaceKey("/Contents",pdf->newStream(contents));
+        return p;
+    };
+    const std::string fill="1 0 0 rg 4 4 8 6 re f";
+    const std::string paint="q 16 0 0 12 8 3 cm /I Do Q";
+    const std::string scoped="q 12 6 8 9 re W n "+paint+
+                             " Q 0.875 g 24 17 5 3 re f";
+    auto p0=make_page("");
+    auto p1=make_page(fill);
+    auto p2=make_page(paint);
+    auto p3=make_page(scoped);
+    auto p4=make_page("BT ET");
+    auto p5=make_page(fill);
+    p2.replaceKey("/Resources",resources);
+    p3.replaceKey("/Resources",resources);
+    p5.replaceKey("/Rotate",Obj::newInteger(90));
+
+    auto branch=pdf->makeIndirectObject(
+        Obj::parse("<< /Type /Pages /Count 1 /MediaBox [0 0 32 24]"
+                   " /Rotate 270 >>"));
+    branch.replaceKey("/Parent",root);
+    branch.replaceKey("/Resources",resources);
+    auto p6=pdf->makeIndirectObject(Obj::parse("<< /Type /Page >>"));
+    p6.replaceKey("/Parent",branch);
+    p6.replaceKey("/Contents",pdf->newStream(paint));
+    branch.replaceKey("/Kids",Obj::newArray({p6}));
+    root.replaceKey("/Kids",
+        Obj::newArray({p0,p1,p2,p3,p4,p5,branch}));
+    root.replaceKey("/Count",Obj::newInteger(7));
+
+    /* Invalid trees should not become renderable even if the selected
+     * leaf appears before the defect. Deliberately author malformed
+     * structure without altering the selected contents. */
+    if(bad_mode==1)
+        root.replaceKey("/Count",Obj::newInteger(6));
+    if(bad_mode==2)
+        branch.replaceKey("/Kids",Obj::newArray({p2}));
+    if(bad_mode==3)
+        p1.replaceKey("/Parent",branch);
+    if(bad_mode==4)
+        branch.replaceKey("/Count",Obj::newInteger(2));
+    if(bad_mode==5)
+        p2.replaceKey("/Resources",Obj::newInteger(3));
+
+    QPDFWriter writer(*pdf);
+    writer.setOutputMemory();
+    writer.write();
+    const auto blob=writer.getBufferSharedPointer();
+    return std::string(
+        reinterpret_cast<const char*>(blob->getBuffer()),blob->getSize());
+}
+
+static int selected_page_v10_cases(const std::string& filename)
+{
+    const std::string original=selected_page_original_pdf();
+    const int dpis[]={72,96,144};
+    for(int dpi:dpis)for(int selected=0;selected<7;++selected) {
+        CHECK(write_pdf(filename,original));
+        quantapdf_context *ctx=nullptr;
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr,*invalid=nullptr;
+        quantapdf_bitmap *bitmap=nullptr,*repeat=nullptr,*thumb=nullptr;
+        OK(quantapdf_context_create(&ctx));
+        OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        int count=0;
+        OK(quantapdf_page_count(doc,&count));
+        CHECK(count==7);
+        CHECK(quantapdf_load_page(doc,-1,&invalid)==
+              QUANTAPDF_ERROR_ARGUMENT && invalid==nullptr);
+        if(selected==0) {
+            invalid=reinterpret_cast<quantapdf_page*>(uintptr_t(1));
+            CHECK(quantapdf_load_page(doc,7,&invalid)!=QUANTAPDF_OK &&
+                  invalid==nullptr);
+        }
+        OK(quantapdf_load_page(doc,selected,&page));
+        const bool source_rotated=(selected==5 || selected==6);
+        const int pdf_width=source_rotated?24:32;
+        const int pdf_height=source_rotated?32:24;
+        quantapdf_rect page_bounds{};
+        OK(quantapdf_page_bounds(page,&page_bounds));
+        CHECK(page_bounds.x0==0.0f && page_bounds.y0==0.0f &&
+              page_bounds.x1==(float)pdf_width &&
+              page_bounds.y1==(float)pdf_height);
+        quantapdf_render_options opts{};
+        opts.struct_size=sizeof(opts);opts.dpi=(float)dpi;
+        const auto status=quantapdf_render_page_with_options(
+            page,&opts,&bitmap);
+        if(selected==4) {
+            CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED &&
+                  bitmap==nullptr);
+            thumb=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+            CHECK(quantapdf_render_thumbnail(
+                page,16,16,&thumb)==QUANTAPDF_ERROR_UNSUPPORTED &&
+                  thumb==nullptr);
+        } else {
+            CHECK(status==QUANTAPDF_OK && bitmap!=nullptr);
+            int w=0,h=0,stride=0,channels=0;
+            const unsigned char *pixels=nullptr,*again=nullptr;
+            size_t size=0u,again_size=0u;
+            OK(quantapdf_bitmap_dimensions(
+                bitmap,&w,&h,&stride,&channels));
+            OK(quantapdf_bitmap_data(bitmap,&pixels,&size));
+            const int expected_w=source_rotated?
+                (dpi==72?24:dpi==96?32:48):
+                (dpi==72?32:dpi==96?43:64);
+            const int expected_h=source_rotated?
+                (dpi==72?32:dpi==96?43:64):
+                (dpi==72?24:dpi==96?32:48);
+            CHECK(w==expected_w && h==expected_h &&
+                  stride==w*3 && channels==3 &&
+                  size==(size_t)stride*(size_t)h &&
+                  pixels!=nullptr);
+            CHECK(probe_rgb(pixels,stride,0,0,255u,255u,255u));
+            if(selected==0)
+                for(size_t i=0u;i<size;++i)CHECK(pixels[i]==255u);
+            if(selected==1) {
+                const int x=dpi==72?6:dpi==96?8:12;
+                const int y=dpi==72?16:dpi==96?21:32;
+                CHECK(probe_rgb(pixels,stride,x,y,255u,0u,0u));
+                CHECK(probe_rgb(pixels,stride,w-2,2,255u,255u,255u));
+            }
+            if(selected==2 || selected==3) {
+                const int x=dpi==72?13:dpi==96?18:26;
+                const int y=dpi==72?11:dpi==96?16:22;
+                CHECK(probe_rgb(pixels,stride,x,y,255u,0u,0u));
+                if(selected==2) {
+                    CHECK(probe_rgb(pixels,stride,
+                        dpi==72?20:dpi==96?27:40,y,0u,255u,0u));
+                } else {
+                    CHECK(probe_rgb(pixels,stride,
+                        dpi==72?26:dpi==96?35:52,
+                        dpi==72?5:dpi==96?7:10,
+                        223u,223u,223u));
+                }
+            }
+            if(selected==5) {
+                const int x=dpi==72?7:dpi==96?10:15;
+                const int y=dpi==72?6:dpi==96?8:12;
+                CHECK(probe_rgb(pixels,stride,x,y,255u,0u,0u));
+            }
+            if(selected==6) {
+                const int x=dpi==72?11:dpi==96?16:22;
+                const int y=dpi==72?18:dpi==96?24:37;
+                CHECK(probe_rgb(pixels,stride,x,y,255u,0u,0u));
+            }
+            OK(quantapdf_render_page_with_options(
+                page,&opts,&repeat));
+            OK(quantapdf_bitmap_data(repeat,&again,&again_size));
+            CHECK(again_size==size && again!=nullptr &&
+                  std::memcmp(again,pixels,size)==0);
+            quantapdf_drop_bitmap(repeat);repeat=nullptr;
+
+            /* Public 90-degree display option is applied AFTER the
+             * specific original selected page's Source rotation and
+             * true-DPI native raster. Check every byte, not geometry
+             * alone, even on fractional 96-DPI image edges. */
+            opts.rotation_degrees=90.0f;
+            OK(quantapdf_render_page_with_options(
+                page,&opts,&repeat));
+            int rw=0,rh=0,rs=0,rc=0;
+            const unsigned char *rotated=nullptr;
+            size_t rn=0u;
+            OK(quantapdf_bitmap_dimensions(
+                repeat,&rw,&rh,&rs,&rc));
+            OK(quantapdf_bitmap_data(repeat,&rotated,&rn));
+            CHECK(rw==h && rh==w && rs==rw*3 && rc==3 &&
+                  rn==size && rotated!=nullptr);
+            for(int y=0;y<h;++y)for(int x=0;x<w;++x) {
+                const unsigned char *from=pixels+
+                    (size_t)y*(size_t)stride+(size_t)x*3u;
+                const unsigned char *to=rotated+
+                    (size_t)x*(size_t)rs+(size_t)(h-1-y)*3u;
+                CHECK(std::memcmp(from,to,3u)==0);
+            }
+            quantapdf_drop_bitmap(repeat);repeat=nullptr;
+
+            if(dpi==72) {
+                OK(quantapdf_render_thumbnail(
+                    page,16,16,&thumb));
+                int tw=0,th=0,ts=0,tc=0;
+                OK(quantapdf_bitmap_dimensions(
+                    thumb,&tw,&th,&ts,&tc));
+                CHECK(tw==(source_rotated?12:16) &&
+                      th==(source_rotated?16:12) &&
+                      ts==tw*3 && tc==3);
+                if(selected==1) {
+                    const unsigned char *small=nullptr;
+                    size_t small_size=0u;
+                    OK(quantapdf_bitmap_data(
+                        thumb,&small,&small_size));
+                    CHECK(probe_rgb(small,ts,3,8,255u,0u,0u));
+                }
+            }
+            quantapdf_drop_bitmap(thumb);thumb=nullptr;
+        }
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+        quantapdf_drop_context(ctx);
+        if(bitmap!=nullptr) {
+            const unsigned char *retained=nullptr;
+            size_t n=0u;
+            OK(quantapdf_bitmap_data(bitmap,&retained,&n));
+            CHECK(retained!=nullptr && n!=0u &&
+                  retained[0]==255u && retained[1]==255u);
+        }
+        quantapdf_drop_bitmap(bitmap);
+    }
+    return EXIT_SUCCESS;
+}
+
 int main()
 {
     const std::string filename="native-standalone-smoke.pdf";
     CHECK(high_dpi_cases(filename)==EXIT_SUCCESS);
     CHECK(original_source_rotation_cases(filename)==EXIT_SUCCESS);
+    CHECK(selected_page_v10_cases(filename)==EXIT_SUCCESS);
     CHECK(write_pdf(filename,create_source(false)));
 
     quantapdf_context *context=nullptr;
