@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static int write_blank_pdf(const char *path)
+static int write_blank_pdf(const char *path,int inherited_rotation)
 {
     FILE *file=fopen(path,"wb");
     long offsets[4]={0,0,0,0};
@@ -19,16 +19,27 @@ static int write_blank_pdf(const char *path)
         "<< /Type /Catalog /Pages 2 0 R >>\n"
         "endobj\n",file)==EOF)goto done;
     offsets[2]=ftell(file);
-    if(offsets[2]<0 || fputs(
-        "2 0 obj\n"
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>\n"
-        "endobj\n",file)==EOF)goto done;
+    if(offsets[2]<0 || (inherited_rotation ?
+        fputs(
+            "2 0 obj\n"
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /Rotate 90 >>\n"
+            "endobj\n",file) :
+        fputs(
+            "2 0 obj\n"
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>\n"
+            "endobj\n",file))==EOF)goto done;
     offsets[3]=ftell(file);
-    if(offsets[3]<0 || fputs(
-        "3 0 obj\n"
-        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 8 8]"
-        " /Resources << >> >>\n"
-        "endobj\n",file)==EOF)goto done;
+    if(offsets[3]<0 || (inherited_rotation ?
+        fputs(
+            "3 0 obj\n"
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 8 6]"
+            " /Resources << >> >>\n"
+            "endobj\n",file) :
+        fputs(
+            "3 0 obj\n"
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 8 8]"
+            " /Resources << >> >>\n"
+            "endobj\n",file))==EOF)goto done;
     xref=ftell(file);
     if(xref<0 || fputs(
         "xref\n0 4\n"
@@ -59,7 +70,7 @@ int main(void)
     int result=EXIT_FAILURE;
     quantapdf_status status=QUANTAPDF_OK;
 
-    if(!write_blank_pdf(filename)) {
+    if(!write_blank_pdf(filename,0)) {
         fputs("installed C11 consumer: failed to write original PDF\n",stderr);
         goto done;
     }
@@ -139,6 +150,63 @@ int main(void)
             goto done;
         }
     }
+    /* The installed consumer generates a second ORIGINAL PDF with
+     * inherited page-tree /Rotate 90, not an option-only rotation.
+     * /MediaBox is 8x6; effective native page is 6x8. The same
+     * instance of the installed public API must honor both rotations. */
+    quantapdf_drop_bitmap(bitmap);bitmap=NULL;
+    if(!write_blank_pdf(filename,1))goto done;
+    status=quantapdf_context_create(&context);
+    if(status!=QUANTAPDF_OK || context==NULL)goto fail;
+    status=quantapdf_open_with_context(
+        context,filename,NULL,&document);
+    if(status!=QUANTAPDF_OK || document==NULL)goto fail;
+    status=quantapdf_load_page(document,0,&page);
+    if(status!=QUANTAPDF_OK || page==NULL)goto fail;
+    {
+        quantapdf_rect bounds={0};
+        status=quantapdf_page_bounds(page,&bounds);
+        if(status!=QUANTAPDF_OK || bounds.x0!=0.0f ||
+           bounds.y0!=0.0f || bounds.x1!=6.0f ||
+           bounds.y1!=8.0f)goto fail;
+        status=quantapdf_render_page(page,&bitmap);
+        if(status!=QUANTAPDF_OK || bitmap==NULL)goto fail;
+        status=quantapdf_bitmap_dimensions(
+            bitmap,&w,&h,&stride,&channels);
+        if(status!=QUANTAPDF_OK || w!=6 || h!=8 ||
+           stride!=18 || channels!=3)goto fail;
+        const int dpis[2]={96,144};
+        for(size_t k=0u;k<2u;++k) {
+            quantapdf_render_options options={0};
+            options.struct_size=sizeof(options);
+            options.dpi=(float)dpis[k];
+            options.rotation_degrees=90.0f;
+            status=quantapdf_render_page_with_options(
+                page,&options,&device_bitmap);
+            if(status!=QUANTAPDF_OK || device_bitmap==NULL)goto fail;
+            status=quantapdf_bitmap_dimensions(
+                device_bitmap,&w,&h,&stride,&channels);
+            if(status!=QUANTAPDF_OK ||
+               w!=(dpis[k]==96?11:16) ||
+               h!=(dpis[k]==96?8:12) ||
+               stride!=w*3 || channels!=3)goto fail;
+            status=quantapdf_bitmap_data(
+                device_bitmap,&pixels,&size);
+            if(status!=QUANTAPDF_OK || pixels==NULL ||
+               size!=(size_t)w*(size_t)h*3u)goto fail;
+            for(size_t i=0u;i<size;++i)
+                if(pixels[i]!=255u)goto fail;
+            quantapdf_drop_bitmap(device_bitmap);device_bitmap=NULL;
+        }
+    }
+    quantapdf_drop_page(page);page=NULL;
+    quantapdf_close(document);document=NULL;
+    quantapdf_drop_context(context);context=NULL;
+    status=quantapdf_bitmap_data(bitmap,&pixels,&size);
+    if(status!=QUANTAPDF_OK || pixels==NULL || size!=144u)
+        goto fail;
+    for(size_t i=0u;i<size;++i)
+        if(pixels[i]!=255u)goto fail;
     result=EXIT_SUCCESS;
     goto done;
 fail:
