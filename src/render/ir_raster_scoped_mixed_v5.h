@@ -36,6 +36,14 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5(
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image);
 
+/* Explicit opt-in for device-projected Source V10 96-DPI IMAGE bounds.
+ * Uses the same V5 compositor and 4x4 PATH/Clip sampler. Original
+ * integer-only callers retain their exact rejection and ownership. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_device(
+    const quantapdf_ir *ir, size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
