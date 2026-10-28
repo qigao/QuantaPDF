@@ -55,6 +55,15 @@ double finite_number(Obj x)
     return result;
 }
 
+double whole_signed_source(double value)
+{
+    admit(std::isfinite(value) && value>=-1000000.0 &&
+          value<=1000000.0 &&
+          std::trunc(value)==value,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    return value;
+}
+
 size_t whole(double value, size_t max)
 {
     admit(std::isfinite(value));
@@ -356,6 +365,11 @@ struct admission {
      * private source signatures always use zero offsets. */
     double media_left=0.0;
     double media_bottom=0.0;
+    /* Source V10 only: true effective Media∩Crop viewport. Stage all
+     * original operations including ones extending beyond the viewport,
+     * but bill full authored IMAGE placement and clamp only in the
+     * ONE C11 viewport sample consumer, never by clipping source bytes. */
+    bool crop_viewport=false;
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule)
@@ -507,13 +521,33 @@ struct admission {
          * MediaBox has nonzero origin. Subtract the fully admitted
          * original lower-left corner BEFORE bounds, texture sampling
          * work and RGB/Clip compositing. Never alter the original CTM. */
-        const size_t x0=whole(ctm[4]-media_left,page_w),
-                     x1=whole(ctm[4]+ctm[0]-media_left,page_w);
-        const size_t bottom=whole(ctm[5]-media_bottom,page_h),
-                     top=whole(ctm[5]+ctm[3]-media_bottom,page_h);
+        const double ax0=ctm[4]-media_left;
+        const double ax1=ctm[4]+ctm[0]-media_left;
+        const double ay0=ctm[5]-media_bottom;
+        const double ay1=ctm[5]+ctm[3]-media_bottom;
+        /* A cropped original IMAGE still owns its complete XObject
+         * sample footprint. Its off-canvas edges are not clipped or
+         * rescaled before nearest-sample lookup. The viewport C11
+         * sampler intersects the full source footprint at 4x4 samples.
+         * Legacy integer page grammar still rejects outside placements. */
+        const double x0=crop_viewport ?
+            whole_signed_source(ax0) :
+            (double)whole(ax0,page_w);
+        const double x1=crop_viewport ?
+            whole_signed_source(ax1) :
+            (double)whole(ax1,page_w);
+        const double bottom=crop_viewport ?
+            whole_signed_source(ay0) :
+            (double)whole(ay0,page_h);
+        const double top=crop_viewport ?
+            whole_signed_source(ay1) :
+            (double)whole(ay1,page_h);
         admit(x1>x0 && top>bottom,QUANTAPDF_ERROR_UNSUPPORTED);
-        const size_t y0=page_h-top, y1=page_h-bottom;
-        const size_t draw_area=(x1-x0)*(y1-y0);
+        const size_t draw_width=whole(x1-x0,hard_draw_work);
+        const size_t draw_height=whole(top-bottom,hard_draw_work);
+        admit(draw_width<=hard_draw_work/draw_height,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        const size_t draw_area=draw_width*draw_height;
         admit(draw_area<=limits.max_drawn_pixels &&
               drawn_pixels<=limits.max_drawn_pixels-draw_area &&
               drawn_pixels<=hard_draw_work-draw_area,
@@ -525,8 +559,10 @@ struct admission {
         entry.width=static_cast<uint32_t>(w);
         entry.height=static_cast<uint32_t>(h);
         entry.components=channels;
-        entry.bounds={static_cast<float>(x0),static_cast<float>(y0),
-                      static_cast<float>(x1),static_cast<float>(y1)};
+        entry.bounds={static_cast<float>(x0),
+                      static_cast<float>((double)page_h-top),
+                      static_cast<float>(x1),
+                      static_cast<float>((double)page_h-bottom)};
         draws.push_back(std::move(entry));
         if (mixed_mode) order.push_back(2);
     }
@@ -777,14 +813,23 @@ private:
         /* Original PATH / W Clip share the identical Source viewport
          * translation with IMAGE placements. No post-raster cropping
          * and no altered q/Q / authored content transformation. */
-        const size_t ix=whole(
-            current[0]*x+current[4]-target.media_left,target.page_w);
-        const size_t iy=whole(
-            current[3]*y+current[5]-target.media_bottom,target.page_h);
+        const double absolute_x=
+            current[0]*x+current[4]-target.media_left;
+        const double absolute_y=
+            current[3]*y+current[5]-target.media_bottom;
+        /* For a non-full CropBox the authorial PATH/W Clip can cross
+         * the viewport boundary. Keep its complete bounded geometry
+         * and let the same C11 raster sample only the visible canvas. */
+        const double ix=target.crop_viewport?
+            whole_signed_source(absolute_x):
+            (double)whole(absolute_x,target.page_w);
+        const double iy=target.crop_viewport?
+            whole_signed_source(absolute_y):
+            (double)whole(absolute_y,target.page_h);
         quantapdf_composer_path_command cmd={};
         cmd.kind=kind;
         cmd.point1.x=static_cast<float>(ix);
-        cmd.point1.y=static_cast<float>(target.page_h-iy);
+        cmd.point1.y=static_cast<float>((double)target.page_h-iy);
         pending_path.push_back(cmd);
         admit(pending_path.size()<=8u,QUANTAPDF_ERROR_UNSUPPORTED);
     }
@@ -847,8 +892,14 @@ quantapdf_point original_turn_point(quantapdf_point p,
     size_t w,size_t h,int rotation)
 {
     const double x=p.x,y=p.y;
-    admit(std::isfinite(x) && std::isfinite(y) && x>=0.0 && y>=0.0 &&
-          x<=(double)w && y<=(double)h,
+    /* Cropped Source geometry may extend outside the visible local
+     * page, but no source point can exceed the bounded C11 coordinate
+     * envelope even when its original /Rotate is nonzero. Full-Media
+     * profiles still admit inside-page points at Source parse time. */
+    admit(std::isfinite(x) && std::isfinite(y) &&
+          x>=-1000000.0 && x<=1000000.0 &&
+          y>=-1000000.0 && y<=1000000.0 &&
+          w<=1000000u && h<=1000000u,
           QUANTAPDF_ERROR_UNSUPPORTED);
     switch(rotation) {
     case 90:  return {static_cast<float>((double)h-y),
@@ -1626,10 +1677,11 @@ static quantapdf_status source_raw_images_to_ir_impl(
         if(native_v10)
             admit(geo.page.isSameObjectAs(selected),
                   QUANTAPDF_ERROR_FORMAT);
-        /* M0 Source V10: admit a finite INTEGER original MediaBox
-         * offset in either direction, but only with a full-page crop
-         * viewport. A distinct/intersecting CropBox is M1 and must
-         * continue to refuse rather than silently truncate paint. */
+        /* Source V10 M1: honor the ACTUAL Media∩Crop viewport in PDF
+         * coordinates. All exposed viewport endpoints must be exact
+         * bounded integers in this slice. Distinct /CropBox can extend
+         * outside Media, but the intersection must be nonempty.
+         * Do not silently convert it to a full-page MediaBox. */
         const bool qualified_origin=native_v10 &&
             std::isfinite(geo.media[0]) &&
             std::isfinite(geo.media[1]) &&
@@ -1639,22 +1691,47 @@ static quantapdf_status source_raw_images_to_ir_impl(
             geo.media[1]<=1000000.0 &&
             std::trunc(geo.media[0])==geo.media[0] &&
             std::trunc(geo.media[1])==geo.media[1];
+        const bool qualified_viewport=native_v10 &&
+            std::isfinite(geo.left) && std::isfinite(geo.right) &&
+            std::isfinite(geo.bottom) && std::isfinite(geo.top) &&
+            geo.left>=-1000000.0 && geo.left<=1000000.0 &&
+            geo.right>=-1000000.0 && geo.right<=1000000.0 &&
+            geo.bottom>=-1000000.0 && geo.bottom<=1000000.0 &&
+            geo.top>=-1000000.0 && geo.top<=1000000.0 &&
+            std::trunc(geo.left)==geo.left &&
+            std::trunc(geo.right)==geo.right &&
+            std::trunc(geo.bottom)==geo.bottom &&
+            std::trunc(geo.top)==geo.top;
+        const bool full_media=
+            geo.left==geo.media[0] &&
+            geo.bottom==geo.media[1] &&
+            geo.right==geo.media[2] && geo.top==geo.media[3] &&
+            geo.crop[0]==geo.media[0] &&
+            geo.crop[1]==geo.media[1] &&
+            geo.crop[2]==geo.media[2] &&
+            geo.crop[3]==geo.media[3];
         admit((geo.rotation==0 ||
                (native_v10 && (geo.rotation==90 ||
                                 geo.rotation==180 ||
                                 geo.rotation==270))) &&
               geo.user_unit==1.0 &&
-              (qualified_origin ||
-               (geo.left==0.0 && geo.bottom==0.0 &&
-                geo.media[0]==0.0 && geo.media[1]==0.0)) &&
-              geo.left==geo.media[0] &&
-              geo.bottom==geo.media[1] &&
-              geo.right==geo.media[2] && geo.top==geo.media[3] &&
-              geo.crop[0]==geo.media[0] &&
-              geo.crop[1]==geo.media[1] &&
-              geo.crop[2]==geo.media[2] &&
-              geo.crop[3]==geo.media[3],
+              ((qualified_origin && qualified_viewport) ||
+               (!native_v10 && full_media &&
+                geo.left==0.0 && geo.bottom==0.0 &&
+                geo.media[0]==0.0 && geo.media[1]==0.0)),
               QUANTAPDF_ERROR_UNSUPPORTED);
+        if(native_v10) {
+            /* Even a tiny CropBox cannot make an unbounded original
+             * MediaBox an inexpensive source: budget the WHOLE media
+             * before admitting bounded outside-crop paint geometry. */
+            const size_t mw=whole(
+                geo.media[2]-geo.media[0],hard_page_pixels);
+            const size_t mh=whole(
+                geo.media[3]-geo.media[1],hard_page_pixels);
+            admit(mw!=0u && mh!=0u &&
+                  mw<=limits->max_page_pixels/mh,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+        }
         /* Source operators use the UNROTATED original media canvas.
          * The completely admitted staging will acquire the page-tree
          * orientation before publication, with no extra pixel producer. */
@@ -1695,8 +1772,9 @@ static quantapdf_status source_raw_images_to_ir_impl(
         source.explicit_image_predictor_mode=
             profile.explicit_image_predictor;
         source.native_unclipped_mode=native_v10;
-        source.media_left=native_v10?geo.media[0]:0.0;
-        source.media_bottom=native_v10?geo.media[1]:0.0;
+        source.media_left=native_v10?geo.left:0.0;
+        source.media_bottom=native_v10?geo.bottom:0.0;
+        source.crop_viewport=native_v10 && !full_media;
         Obj raw_contents=geo.page.getKey("/Contents");
         const bool empty_contents=native_v10 &&
             (raw_contents.isNull() ||

@@ -62,10 +62,12 @@ static int qp_image_bounds(
        !qp_device_float(rect->x1,scale,&x1) ||
        !qp_device_float(rect->y0,scale,&y0) ||
        !qp_device_float(rect->y1,scale,&y1) ||
-       x0<0.0f || y0<0.0f ||
        x1<=x0 || y1<=y0 ||
-       (double)x1>(double)width || (double)y1>(double)height)
+       width==0u || height==0u)
         return 0;
+    /* Full authored IMAGE placement may cross the actual CropBox
+     * viewport. Source V10 bounded it; C11 V5 device sampler clips
+     * it at the SAME 4x4 geometric grid, without changing colors. */
     /* Fractional 96-DPI Image footprints are retained exactly and
      * charged by their enclosing device-pixel box in the V5 renderer.
      * Original integer Source geometry and lifetime are unchanged. */
@@ -171,12 +173,11 @@ quantapdf_status quantapdf_native_device_ir_render_v1(
         clip.commands=clip_commands;
         projected.resources.clips=&clip;
     }
-    /* Only 96 DPI opts into same-sample 4x4 fractional IMAGE/Clip
-     * intersection. All other callers keep the integer Source profile;
-     * nobody renders a 72-DPI bitmap and upscales it. */
-    return dpi==96u ?
-        quantapdf_ir_raster_scoped_mixed_v5_device(
-            &projected,0u,limits,out_image) :
-        quantapdf_ir_raster_scoped_mixed_v5(
-            &projected,0u,limits,out_image);
+    /* All public V10 true-DPI pages use the canonical device opt-in
+     * for original IMAGE/Crop viewport intersection. Existing 72/144
+     * integer placements still use the identical V5 RAW layer; only
+     * off-viewport or fractional bounds require the C11 4x4 mask.
+     * No 72-DPI bitmap upscale or second pixel producer. */
+    return quantapdf_ir_raster_scoped_mixed_v5_device(
+        &projected,0u,limits,out_image);
 }
