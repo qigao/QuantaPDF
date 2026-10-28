@@ -2546,15 +2546,16 @@ static std::string native_original_decimal_number_pdf(
 static int native_decimal_number_cases(const std::string& filename)
 {
     const char *const standard[]={"0.25","1","1.25","4"};
+    /* Test the exact original 20-byte token ceiling itself. */
     const char *const padded[]={
-        "0.250000000000000","1.000000000000000",
-        "1.250000000000000","4.000000000000000"
+        "0.250000000000000000","1.000000000000000000",
+        "1.250000000000000000","4.000000000000000000"
     };
     const int unit_quarters[]={1,4,5,16};
     const std::string box="[0.25 0.5 32.25 24.5]";
     const std::string padded_box=
-        "[0.250000000000000 0.500000000000000 "
-        "32.250000000000000 24.500000000000000]";
+        "[0.250000000000000000 0.500000000000000000 "
+        "32.25000000000000000 24.50000000000000000]";
     for(size_t factor=0u;factor<4u;++factor)
     for(int decimal_dpi:{72,96,144}) {
         std::vector<unsigned char> reference;
@@ -2617,7 +2618,8 @@ static int native_decimal_number_cases(const std::string& filename)
      * entire original page; never approximate to the nearest quarter. */
     const char *const invalid_units[]={
         "0.250000000000001","1.000000000000001",
-        "4.000000000000001"
+        "4.000000000000001",
+        "0.2500000000000000000" /* >20 token: still unsupported */
     };
     for(const char *invalid:invalid_units)
     for(int decimal_dpi:{72,96,144}) {
@@ -2634,7 +2636,8 @@ static int native_decimal_number_cases(const std::string& filename)
         opts.struct_size=sizeof(opts);
         opts.dpi=(float)decimal_dpi;
         CHECK(quantapdf_render_page_with_options(
-            page,&opts,&bitmap)!=QUANTAPDF_OK && bitmap==nullptr);
+            page,&opts,&bitmap)==QUANTAPDF_ERROR_UNSUPPORTED &&
+            bitmap==nullptr);
         quantapdf_drop_page(page);
         quantapdf_close(doc);
     }
@@ -2654,7 +2657,8 @@ static int native_decimal_number_cases(const std::string& filename)
         opts.struct_size=sizeof(opts);
         opts.dpi=(float)decimal_dpi;
         CHECK(quantapdf_render_page_with_options(
-            page,&opts,&bitmap)!=QUANTAPDF_OK && bitmap==nullptr);
+            page,&opts,&bitmap)==QUANTAPDF_ERROR_UNSUPPORTED &&
+            bitmap==nullptr);
         quantapdf_drop_page(page);
         quantapdf_close(doc);
     }
