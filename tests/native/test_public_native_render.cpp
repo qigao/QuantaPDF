@@ -2510,6 +2510,157 @@ static std::string original_unit_source_or_physical_reference(
         result->getSize());
 }
 
+/* Test the unchanged original PDF NUMBER tokens. A QPDF writer may
+ * canonicalize number spelling, so use genuine PDF bytes/xref to
+ * compare semantically identical but long zero-padded decimal values. */
+static std::string native_original_decimal_number_pdf(
+    const std::string& unit,const std::string& media)
+{
+    std::string bytes="%PDF-1.7\n";
+    size_t offsets[5]={};
+    const auto object=[&](size_t id,const std::string& content) {
+        offsets[id]=bytes.size();
+        bytes+=std::to_string(id)+" 0 obj\n"+content+"\nendobj\n";
+    };
+    object(1u,"<< /Type /Catalog /Pages 2 0 R >>");
+    object(2u,"<< /Type /Pages /Count 1 /Kids [3 0 R] >>");
+    object(3u,"<< /Type /Page /Parent 2 0 R /MediaBox "+
+        media+" /UserUnit "+unit+" /Contents 4 0 R >>");
+    const std::string paint="1 0 0 rg 4 4 8 6 re f\n";
+    object(4u,"<< /Length "+std::to_string(paint.size())+
+        " >>\nstream\n"+paint+"endstream");
+    const size_t xref=bytes.size();
+    bytes+="xref\n0 5\n0000000000 65535 f \n";
+    for(size_t id=1u;id<=4u;++id) {
+        char record[32]={0};
+        const int n=std::snprintf(record,sizeof(record),
+            "%010zu 00000 n \n",offsets[id]);
+        if(n!=20)throw std::runtime_error("invalid decimal PDF xref");
+        bytes.append(record,(size_t)n);
+    }
+    bytes+="trailer\n<< /Root 1 0 R /Size 5 >>\nstartxref\n"+
+        std::to_string(xref)+"\n%%EOF\n";
+    return bytes;
+}
+
+static int native_decimal_number_cases(const std::string& filename)
+{
+    const char *const standard[]={"0.25","1","1.25","4"};
+    const char *const padded[]={
+        "0.250000000000000","1.000000000000000",
+        "1.250000000000000","4.000000000000000"
+    };
+    const int unit_quarters[]={1,4,5,16};
+    const std::string box="[0.25 0.5 32.25 24.5]";
+    const std::string padded_box=
+        "[0.250000000000000 0.500000000000000 "
+        "32.250000000000000 24.500000000000000]";
+    for(size_t factor=0u;factor<4u;++factor)
+    for(int decimal_dpi:{72,96,144}) {
+        std::vector<unsigned char> reference;
+        for(bool pad_unit:{false,true})
+        for(bool pad_box:{false,true}) {
+            const std::string original=native_original_decimal_number_pdf(
+                pad_unit?padded[factor]:standard[factor],
+                pad_box?padded_box:box);
+            CHECK(write_pdf(filename,original));
+            quantapdf_document *doc=nullptr;
+            quantapdf_page *page=nullptr;
+            quantapdf_bitmap *bitmap=nullptr;
+            OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+            CHECK(std::remove(filename.c_str())==0);
+            OK(quantapdf_load_page(doc,0,&page));
+            quantapdf_render_options opts{};
+            opts.struct_size=sizeof(opts);
+            opts.dpi=(float)decimal_dpi;
+            const auto status=quantapdf_render_page_with_options(
+                page,&opts,&bitmap);
+            if(status!=QUANTAPDF_OK)
+                std::fprintf(stderr,
+                    "original decimal refused factor=%zu dpi=%d"
+                    " pad_unit=%d pad_box=%d status=%d\n",
+                    factor,decimal_dpi,pad_unit?1:0,pad_box?1:0,
+                    (int)status);
+            CHECK(status==QUANTAPDF_OK && bitmap!=nullptr);
+            int w=0,h=0,stride=0,channels=0;
+            const unsigned char *pixels=nullptr;
+            size_t size=0u;
+            OK(quantapdf_bitmap_dimensions(bitmap,&w,&h,
+                                            &stride,&channels));
+            OK(quantapdf_bitmap_data(bitmap,&pixels,&size));
+            const int expected_w=(32*unit_quarters[factor]*
+                                  decimal_dpi+287)/288;
+            const int expected_h=(24*unit_quarters[factor]*
+                                  decimal_dpi+287)/288;
+            CHECK(w==expected_w && h==expected_h &&
+                  stride==w*3 && channels==3 &&
+                  pixels!=nullptr && size==(size_t)stride*(size_t)h);
+            bool painted=false;
+            for(size_t j=0u;j<size;j+=3u)
+                if(pixels[j]==255u && pixels[j+1u]==0u &&
+                   pixels[j+2u]==0u) {painted=true;break;}
+            CHECK(painted);
+            if(!pad_unit && !pad_box)reference.assign(pixels,pixels+size);
+            else CHECK(reference.size()==size &&
+                       std::memcmp(reference.data(),pixels,size)==0);
+            quantapdf_drop_page(page);
+            quantapdf_close(doc);
+            const unsigned char *retained=nullptr;
+            size_t count=0u;
+            OK(quantapdf_bitmap_data(bitmap,&retained,&count));
+            CHECK(count==reference.size() && retained!=nullptr &&
+                  std::memcmp(reference.data(),retained,count)==0);
+            quantapdf_drop_bitmap(bitmap);
+        }
+    }
+    /* A late NONZERO digit must remain significant and refuse the
+     * entire original page; never approximate to the nearest quarter. */
+    const char *const invalid_units[]={
+        "0.250000000000001","1.000000000000001",
+        "4.000000000000001"
+    };
+    for(const char *invalid:invalid_units)
+    for(int decimal_dpi:{72,96,144}) {
+        CHECK(write_pdf(filename,
+            native_original_decimal_number_pdf(invalid,box)));
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        quantapdf_bitmap *bitmap=
+            reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        quantapdf_render_options opts{};
+        opts.struct_size=sizeof(opts);
+        opts.dpi=(float)decimal_dpi;
+        CHECK(quantapdf_render_page_with_options(
+            page,&opts,&bitmap)!=QUANTAPDF_OK && bitmap==nullptr);
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+    }
+    const std::string invalid_box=
+        "[0.250000000000001 0.5 32.25 24.5]";
+    for(int decimal_dpi:{72,96,144}) {
+        CHECK(write_pdf(filename,
+            native_original_decimal_number_pdf("1.25",invalid_box)));
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        quantapdf_bitmap *bitmap=
+            reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        quantapdf_render_options opts{};
+        opts.struct_size=sizeof(opts);
+        opts.dpi=(float)decimal_dpi;
+        CHECK(quantapdf_render_page_with_options(
+            page,&opts,&bitmap)!=QUANTAPDF_OK && bitmap==nullptr);
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+    }
+    return EXIT_SUCCESS;
+}
+
 static int native_original_userunit_cases(const std::string& filename)
 {
     const std::string originals[]={
@@ -3140,6 +3291,7 @@ int main()
     CHECK(native_fractional_quarter_rotation_cases(filename)==EXIT_SUCCESS);
     CHECK(native_fractional_span_cases(filename)==EXIT_SUCCESS);
     CHECK(native_original_userunit_cases(filename)==EXIT_SUCCESS);
+    CHECK(native_decimal_number_cases(filename)==EXIT_SUCCESS);
     CHECK(native_userunit_physical_budget_cases(filename)==EXIT_SUCCESS);
     CHECK(native_seventh_userunit_cases(filename)==EXIT_SUCCESS);
     CHECK(native_seventh_userunit_late_refusal_cases(filename)==EXIT_SUCCESS);
