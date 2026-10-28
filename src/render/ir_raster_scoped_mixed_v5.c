@@ -21,38 +21,50 @@ static int v5_integer(float v,size_t max,size_t *out)
 }
 
 
-/* 96-DPI IMAGE bounds are finite device-space rectangles. The borrowed
- * Source IR never loses its fractional bounds. Work is billed against
- * the enclosing integer grid so budget checks cannot undercount edge ink. */
+/* Native device IMAGE bounds are the full authorial source placement.
+ * The V10 opt-in permits a rectangle partially or fully outside the
+ * CropBox viewport, and bills only its enclosing visible pixel grid;
+ * the SOURCE parser already billed full XObject/placement work.
+ * Same 4x4 C11 mask/Clip intersection, no new image renderer. */
 static int v5_image_bounds(const quantapdf_rect *b,size_t width,size_t height,
                            int fractional_allowed,size_t *x0,size_t *x1,
                            size_t *y0,size_t *y1,int *fractional)
 {
     if(!isfinite(b->x0) || !isfinite(b->x1) ||
        !isfinite(b->y0) || !isfinite(b->y1) ||
-       b->x0<0.0f || b->y0<0.0f ||
-       b->x1<=b->x0 || b->y1<=b->y0 ||
-       (double)b->x1>(double)width ||
-       (double)b->y1>(double)height)
+       b->x1<=b->x0 || b->y1<=b->y0)
         return 0;
     if(!fractional_allowed) {
         if(!v5_integer(b->x0,width,x0) ||
            !v5_integer(b->x1,width,x1) ||
            !v5_integer(b->y0,height,y0) ||
-           !v5_integer(b->y1,height,y1))
+           !v5_integer(b->y1,height,y1) ||
+           *x1<=*x0 || *y1<=*y0)
             return 0;
         *fractional=0;
     } else {
-        *x0=(size_t)floor((double)b->x0);
-        *y0=(size_t)floor((double)b->y0);
-        *x1=(size_t)ceil((double)b->x1);
-        *y1=(size_t)ceil((double)b->y1);
+        /* Clamp only the *work/accounting* rectangle into the finite
+         * output viewport. The actual unclipped original bounds remain
+         * immutable in borrowed IR, consumed by the SAME 4x4 C11
+         * geometry/Clip mask. A wholly outside IMAGE is valid zero ink. */
+        if(b->x0< -1000000.0f || b->x1>1000000.0f ||
+           b->y0< -1000000.0f || b->y1>1000000.0f)
+            return 0;
+        *x0=(size_t)fmin((double)width,
+             fmax(0.0,floor((double)b->x0)));
+        *y0=(size_t)fmin((double)height,
+             fmax(0.0,floor((double)b->y0)));
+        *x1=(size_t)fmin((double)width,
+             fmax(0.0,ceil((double)b->x1)));
+        *y1=(size_t)fmin((double)height,
+             fmax(0.0,ceil((double)b->y1)));
+        if(*x1<*x0)*x1=*x0;
+        if(*y1<*y0)*y1=*y0;
         *fractional=
             b->x0!=(float)(*x0) || b->x1!=(float)(*x1) ||
             b->y0!=(float)(*y0) || b->y1!=(float)(*y1);
     }
-    return *x1>*x0 && *y1>*y0 &&
-           *x1<=width && *y1<=height;
+    return *x1<=width && *y1<=height;
 }
 
 static void v5_point(quantapdf_composer_path_command *p,
