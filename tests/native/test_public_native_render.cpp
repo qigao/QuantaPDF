@@ -2970,9 +2970,12 @@ static std::string native_seventh_userunit_original(bool physical,int quarters)
 static int native_seventh_userunit_cases(const std::string& filename)
 {
     const int dpis[]={72,96,144};
-    /* Four positive factors on the actual seventh leaf, with
-     * noninherited ancestor /UserUnit=4 on every original PDF. */
-    for(int quarters:{2,5,8,16})
+    /* Every positive quarter lattice factor 0.25..4 (16 total) on
+     * the actual seventh leaf, with noninherited ancestor /UserUnit=4.
+     * Both independently authored originals must have identical RGB
+     * at 72/96/144 DPI, including original Rotate270 and later
+     * caller display rotation, with retained Bitmap ownership. */
+    for(int quarters=1;quarters<=16;++quarters)
     for(int dpi:dpis) {
         std::vector<unsigned char> physical_golden;
         for(bool physical:{true,false}) {
@@ -3071,7 +3074,9 @@ static int native_seventh_userunit_late_refusal_cases(
         "q 16 0 0 12 8 3 cm /I Do Q 0 0 0 rg 4 4 8 6 re S",
         "q 16 0 0 12 8 3 cm /I Do Q Q"
     };
-    for(int quarters:{2,5,8,16})
+    /* All 16 legal factors must still reject unsupported trailing
+     * TEXT/STROKE/unbalanced Q atomically at every native DPI. */
+    for(int quarters=1;quarters<=16;++quarters)
     for(const auto *source:bad_contents) {
         const auto original=native_seventh_userunit_original(false,quarters);
         auto pdf=QPDF::create();
