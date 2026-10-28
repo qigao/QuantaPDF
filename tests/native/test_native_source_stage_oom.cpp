@@ -89,6 +89,68 @@ static std::string original_pdf()
     return std::string(reinterpret_cast<const char*>(bytes->getBuffer()),
                        bytes->getSize());
 }
+
+/* Exercise all five distinct V10 Source materializers, not only the
+ * original W Clip + Image + PATH case. Index 2 is a true third
+ * PageTree leaf; its preceding sibling has unsupported Text, proving
+ * Source does not accidentally select or render a different page. */
+static std::string original_pdf_variant(
+    int kind,int quarters,size_t selected_index)
+{
+    auto pdf=QPDF::create();
+    pdf->emptyPDF();
+    auto root=pdf->getRoot().getKey("/Pages");
+    auto selected=pdf->makeIndirectObject(Obj::parse(
+        "<< /Type /Page /MediaBox [0 0 32 24] /Rotate 90 >>"));
+    selected.replaceKey("/Parent",root);
+    selected.replaceKey("/UserUnit",
+        Obj::parse(std::to_string((double)quarters/4.0)));
+    if(selected_index==2u) {
+        auto first=pdf->makeIndirectObject(Obj::parse(
+            "<< /Type /Page /MediaBox [0 0 32 24] >>"));
+        auto second=pdf->makeIndirectObject(Obj::parse(
+            "<< /Type /Page /MediaBox [0 0 32 24] >>"));
+        first.replaceKey("/Parent",root);
+        second.replaceKey("/Parent",root);
+        second.replaceKey("/Contents",pdf->newStream("BT ET"));
+        root.replaceKey("/Kids",Obj::newArray({first,second,selected}));
+        root.replaceKey("/Count",Obj::newInteger(3));
+    } else {
+        root.replaceKey("/Kids",Obj::newArray({selected}));
+        root.replaceKey("/Count",Obj::newInteger(1));
+    }
+    const char *const content[]={
+        "", /* 0: Blank -> materialize_blank_page */
+        "1 0 0 rg 4 4 8 6 re f", /* 1: PATH only */
+        "q 16 0 0 12 8 3 cm /I Do Q", /* 2: IMAGE only */
+        "q 12 6 8 9 re W* n q 16 0 0 12 8 3 cm /I Do Q Q",
+        "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q "
+        "Q 0.875 g 24 17 5 3 re f" /* 4: scoped mixed */
+    };
+    if(kind>0)selected.replaceKey("/Contents",pdf->newStream(content[kind]));
+    if(kind>=2) {
+        const std::string raw("\xff\0\0\0\xff\0\0\0\xff\xff\xff\0",12);
+        auto image=pdf->newStream(raw);
+        auto& dict=image.getDict();
+        dict.replaceKey("/Type",Obj::newName("/XObject"));
+        dict.replaceKey("/Subtype",Obj::newName("/Image"));
+        dict.replaceKey("/Width",Obj::newInteger(2));
+        dict.replaceKey("/Height",Obj::newInteger(2));
+        dict.replaceKey("/BitsPerComponent",Obj::newInteger(8));
+        dict.replaceKey("/ColorSpace",Obj::newName("/DeviceRGB"));
+        auto xobjects=Obj::newDictionary(),resources=Obj::newDictionary();
+        xobjects.replaceKey("/I",image);
+        resources.replaceKey("/XObject",xobjects);
+        selected.replaceKey("/Resources",resources);
+    }
+    QPDFWriter writer(*pdf);
+    writer.setOutputMemory();
+    writer.write();
+    const auto bytes=writer.getBufferSharedPointer();
+    return std::string(reinterpret_cast<const char*>(bytes->getBuffer()),
+                       bytes->getSize());
+}
+
 static bool cleared(const quantapdf_ir& ir)
 {
     const auto *bytes=reinterpret_cast<const unsigned char*>(&ir);
@@ -147,57 +209,91 @@ int main()
             CHECK(cleared(recovery));
         }
     }
-    /* The same REAL materializer allocates C-owned pages, operations,
-     * RAW Image bytes, PATH commands, Clip and Graphics State. Probe the
-     * baseline allocation count, then force each allocation individually
-     * to return NULL. Every partial owned IR must be disposed internally
-     * and no output IR may escape, including realloc of ordered layers. */
-    size_t expected_allocations=0u;
-    {
-        quantapdf_ir clean{};
-        track_c_allocation=true;
-        c_fail_index=0u;c_allocations=0u;c_faults=0u;
-        const auto result=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
-            reinterpret_cast<const unsigned char*>(pdf.data()),
-            pdf.size(),&limits,0u,&clean);
-        expected_allocations=c_allocations;
-        track_c_allocation=false;
-        CHECK(result==QUANTAPDF_OK && expected_allocations>=7u &&
-              expected_allocations<=32u && c_faults==0u &&
-              clean.page_count==1u && clean.operation_count==2u &&
-              clean.resources.image_count==1u);
-        quantapdf_ir_dispose(&clean);
-        CHECK(cleared(clean));
-    }
-    for(size_t failure_index=1u;failure_index<=expected_allocations;
-        ++failure_index) {
-        quantapdf_ir denied;
-        std::memset(&denied,0xA5,sizeof(denied));
-        track_c_allocation=true;
-        c_fail_index=failure_index;
-        c_allocations=0u;c_faults=0u;
-        const auto result=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
-            reinterpret_cast<const unsigned char*>(pdf.data()),
-            pdf.size(),&limits,0u,&denied);
-        const size_t allocations=c_allocations,failures=c_faults;
-        track_c_allocation=false;c_fail_index=0u;
-        if(result!=QUANTAPDF_ERROR_NOMEM || !cleared(denied) ||
-           failures!=1u || allocations!=failure_index) {
-            std::fprintf(stderr,
-                "Source IR allocation %zu/%zu status=%d fired=%zu seen=%zu\n",
-                failure_index,expected_allocations,(int)result,
-                failures,allocations);
-            return EXIT_FAILURE;
+    /* Full C-owned materialization failure matrix. Each profile takes
+     * a DIFFERENT accepted Source V10 publish/rollback path, with both
+     * small and large quarter UserUnit and first/third selected leaf. */
+    const size_t minimum_allocations[]={1u,3u,4u,7u,9u};
+    for(int kind=0;kind<=4;++kind)
+    for(int quarters:{2,16})
+    for(size_t selected_index:{0u,2u}) {
+        const std::string original=
+            original_pdf_variant(kind,quarters,selected_index);
+        const size_t expected_ops=kind==0?0u:kind==4?2u:1u;
+        const size_t expected_images=kind>=2?1u:0u;
+        const size_t expected_clips=kind>=3?1u:0u;
+        const float physical_width=(float)(6*quarters);
+        const float physical_height=(float)(8*quarters);
+        const auto accepted=[&](const quantapdf_ir& ir) {
+            return ir.pages!=nullptr && ir.page_count==1u &&
+                ir.pages[0].width_points==physical_width &&
+                ir.pages[0].height_points==physical_height &&
+                ir.operation_count==expected_ops &&
+                ir.resources.image_count==expected_images &&
+                ir.resources.clip_count==expected_clips;
+        };
+        size_t expected_allocations=0u;
+        {
+            quantapdf_ir clean{};
+            track_c_allocation=true;
+            c_fail_index=0u;c_allocations=0u;c_faults=0u;
+            const auto status=
+                quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+                    reinterpret_cast<const unsigned char*>(original.data()),
+                    original.size(),&limits,selected_index,&clean);
+            expected_allocations=c_allocations;
+            track_c_allocation=false;
+            if(status!=QUANTAPDF_OK || !accepted(clean) ||
+               expected_allocations<minimum_allocations[kind] ||
+               expected_allocations>32u || c_faults!=0u) {
+                std::fprintf(stderr,
+                    "Source profile=%d unit_quarters=%d index=%zu"
+                    " baseline status=%d allocs=%zu image=%zu ops=%zu clips=%zu\n",
+                    kind,quarters,selected_index,(int)status,
+                    expected_allocations,clean.resources.image_count,
+                    clean.operation_count,clean.resources.clip_count);
+                quantapdf_ir_dispose(&clean);
+                return EXIT_FAILURE;
+            }
+            quantapdf_ir_dispose(&clean);
+            CHECK(cleared(clean));
         }
-        quantapdf_ir retry{};
-        const auto good=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
-            reinterpret_cast<const unsigned char*>(pdf.data()),
-            pdf.size(),&limits,0u,&retry);
-        CHECK(good==QUANTAPDF_OK && retry.page_count==1u &&
-              retry.operation_count==2u &&
-              retry.resources.image_count==1u);
-        quantapdf_ir_dispose(&retry);
-        CHECK(cleared(retry));
+        for(size_t fail=1u;fail<=expected_allocations;++fail) {
+            quantapdf_ir denied;
+            std::memset(&denied,0xA5,sizeof(denied));
+            track_c_allocation=true;
+            c_fail_index=fail;c_allocations=0u;c_faults=0u;
+            const auto status=
+                quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+                    reinterpret_cast<const unsigned char*>(original.data()),
+                    original.size(),&limits,selected_index,&denied);
+            const size_t count=c_allocations,failures=c_faults;
+            track_c_allocation=false;c_fail_index=0u;
+            if(status!=QUANTAPDF_ERROR_NOMEM || !cleared(denied) ||
+               failures!=1u || count!=fail) {
+                std::fprintf(stderr,
+                    "Source profile=%d unit_quarters=%d index=%zu"
+                    " allocation=%zu/%zu status=%d fired=%zu seen=%zu\n",
+                    kind,quarters,selected_index,fail,expected_allocations,
+                    (int)status,failures,count);
+                quantapdf_ir_dispose(&denied);
+                return EXIT_FAILURE;
+            }
+            quantapdf_ir retry{};
+            const auto recovered=
+                quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+                    reinterpret_cast<const unsigned char*>(original.data()),
+                    original.size(),&limits,selected_index,&retry);
+            if(recovered!=QUANTAPDF_OK || !accepted(retry)) {
+                std::fprintf(stderr,
+                    "Source profile=%d unit_quarters=%d index=%zu"
+                    " postfault retry=%d failure_index=%zu\n",
+                    kind,quarters,selected_index,(int)recovered,fail);
+                quantapdf_ir_dispose(&retry);
+                return EXIT_FAILURE;
+            }
+            quantapdf_ir_dispose(&retry);
+            CHECK(cleared(retry));
+        }
     }
     return EXIT_SUCCESS;
 }
