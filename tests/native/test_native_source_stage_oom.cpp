@@ -124,14 +124,13 @@ static std::string original_pdf_variant(
         "1 0 0 rg 4 4 8 6 re f", /* 1: PATH only */
         "q 16 0 0 12 8 3 cm /I Do Q", /* 2: IMAGE only */
         "q 12 6 8 9 re W* n q 16 0 0 12 8 3 cm /I Do Q Q",
-        "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q "
-        "Q 0.875 g 24 17 5 3 re f" /* 4: scoped mixed */
+        "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q 0.875 g 24 17 5 3 re f" /* 4: scoped mixed */
     };
     if(kind>0)selected.replaceKey("/Contents",pdf->newStream(content[kind]));
     if(kind>=2) {
         const std::string raw("\xff\0\0\0\xff\0\0\0\xff\xff\xff\0",12);
         auto image=pdf->newStream(raw);
-        auto& dict=image.getDict();
+        auto dict=image.getDict();
         dict.replaceKey("/Type",Obj::newName("/XObject"));
         dict.replaceKey("/Subtype",Obj::newName("/Image"));
         dict.replaceKey("/Width",Obj::newInteger(2));
