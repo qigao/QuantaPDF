@@ -8,7 +8,7 @@ extern "C" {
 #endif
 
 /* Private C11, no provider. Borrow a fully Source-admitted immutable IR
- * and directly raster its source geometry in 96/144-DPI device pixels.
+ * and directly raster its source geometry in 72/96/144-DPI device pixels.
  * The only raster implementation remains scoped_mixed_v5. The projected
  * IR and path/clip commands live on this call's stack, never persist.
  *

@@ -375,6 +375,7 @@ struct admission {
      * but bill full authored IMAGE placement and clamp only in the
      * ONE C11 viewport sample consumer, never by clipping source bytes. */
     bool crop_viewport=false;
+    double exact_page_w=0.0,exact_page_h=0.0; /* V10 1/4-point spans */
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule)
@@ -564,10 +565,12 @@ struct admission {
         entry.width=static_cast<uint32_t>(w);
         entry.height=static_cast<uint32_t>(h);
         entry.components=channels;
+        const double canvas_h=exact_page_h>0.0?
+            exact_page_h:(double)page_h;
         entry.bounds={static_cast<float>(x0),
-                      static_cast<float>((double)page_h-top),
+                      static_cast<float>(canvas_h-top),
                       static_cast<float>(x1),
-                      static_cast<float>((double)page_h-bottom)};
+                      static_cast<float>(canvas_h-bottom)};
         draws.push_back(std::move(entry));
         if (mixed_mode) order.push_back(2);
     }
@@ -834,7 +837,9 @@ private:
         quantapdf_composer_path_command cmd={};
         cmd.kind=kind;
         cmd.point1.x=static_cast<float>(ix);
-        cmd.point1.y=static_cast<float>((double)target.page_h-iy);
+        cmd.point1.y=static_cast<float>(
+            (target.exact_page_h>0.0?
+                target.exact_page_h:(double)target.page_h)-iy);
         pending_path.push_back(cmd);
         admit(pending_path.size()<=8u,QUANTAPDF_ERROR_UNSUPPORTED);
     }
@@ -894,7 +899,7 @@ void checked_original_rotation(Obj page,size_t max_steps,int effective)
 }
 
 quantapdf_point original_turn_point(quantapdf_point p,
-    size_t w,size_t h,int rotation)
+    double w,double h,int rotation)
 {
     const double x=p.x,y=p.y;
     /* Cropped Source geometry may extend outside the visible local
@@ -919,7 +924,7 @@ quantapdf_point original_turn_point(quantapdf_point p,
 
 void original_turn_commands(
     std::vector<quantapdf_composer_path_command>& commands,
-    size_t w,size_t h,int rotation)
+    double w,double h,int rotation)
 {
     for(auto& c:commands) {
         if(c.kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
@@ -932,7 +937,7 @@ void original_turn_commands(
 }
 
 void original_turn_image(staged_image& image,
-    size_t page_w,size_t page_h,int rotation)
+    double page_w,double page_h,int rotation)
 {
     const quantapdf_rect b=image.bounds;
     const quantapdf_point p0=original_turn_point(
@@ -982,15 +987,18 @@ void original_turn_staging(admission& source,int rotation)
     if(rotation==0)return;
     admit(rotation==90 || rotation==180 || rotation==270,
           QUANTAPDF_ERROR_UNSUPPORTED);
-    const size_t w=source.page_w,h=source.page_h;
+    const double w=source.exact_page_w>0.0?
+        source.exact_page_w:(double)source.page_w;
+    const double h=source.exact_page_h>0.0?
+        source.exact_page_h:(double)source.page_h;
     for(auto& path:source.painted_paths)
         original_turn_commands(path.commands,w,h,rotation);
     original_turn_commands(source.clip.commands,w,h,rotation);
     for(auto& image:source.draws)
         original_turn_image(image,w,h,rotation);
     if(rotation==90 || rotation==270) {
-        source.page_w=h;
-        source.page_h=w;
+        std::swap(source.page_w,source.page_h);
+        std::swap(source.exact_page_w,source.exact_page_h);
     }
 }
 
@@ -1073,8 +1081,10 @@ quantapdf_ir materialize_blank_page(const admission& source)
         std::calloc(1u,sizeof(*ir.pages)));
     admit(ir.pages!=nullptr,QUANTAPDF_ERROR_NOMEM);
     ir.page_count=1u;
-    ir.pages[0].width_points=static_cast<float>(source.page_w);
-    ir.pages[0].height_points=static_cast<float>(source.page_h);
+    ir.pages[0].width_points=static_cast<float>(
+        source.exact_page_w>0.0?source.exact_page_w:(double)source.page_w);
+    ir.pages[0].height_points=static_cast<float>(
+        source.exact_page_h>0.0?source.exact_page_h:(double)source.page_h);
     ir.pages[0].background_argb=UINT32_C(0xffffffff);
     return ir;
 }
@@ -1143,8 +1153,10 @@ quantapdf_ir materialize(
             std::calloc(1u,sizeof(*ir.pages)));
         admit(ir.pages!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.page_count=1u;
-        ir.pages[0].width_points=static_cast<float>(source.page_w);
-        ir.pages[0].height_points=static_cast<float>(source.page_h);
+        ir.pages[0].width_points=static_cast<float>(
+            source.exact_page_w>0.0?source.exact_page_w:(double)source.page_w);
+        ir.pages[0].height_points=static_cast<float>(
+            source.exact_page_h>0.0?source.exact_page_h:(double)source.page_h);
         ir.pages[0].background_argb=UINT32_C(0xffffffff);
 
         const size_t count=source.draws.size();
@@ -1742,15 +1754,21 @@ source_v10_exact_boxes source_v10_quarter_geometry(
           geo.right==(double)view[2]/4.0 &&
           geo.top==(double)view[3]/4.0,
           QUANTAPDF_ERROR_FORMAT);
-    /* M0: effective widths must stay EXACT integers. The C11 V5
-     * Raster cannot yet represent partial last-pixel page extents;
-     * rejecting here is safer than inventing an integer viewport. */
-    admit((view[2]-view[0])%4ll==0ll &&
-          (view[3]-view[1])%4ll==0ll &&
-          (m[2]-m[0])%4ll==0ll &&
-          (m[3]-m[1])%4ll==0ll,
-          QUANTAPDF_ERROR_UNSUPPORTED);
+    /* Complete exact source quarter boxes; the C11 viewport sampler
+     * now owns fractional final-column/row geometric coverage. */
     return {m,c,view};
+}
+
+/* The exact source-number bounds admit one integer-ceiled pixel canvas
+ * without any rounding of the ORIGINAL source geometry. */
+size_t source_quarter_ceil(int64_t lo,int64_t hi,size_t cap)
+{
+    admit(hi>lo && cap!=0u,QUANTAPDF_ERROR_UNSUPPORTED);
+    const uint64_t n=(uint64_t)(hi-lo);
+    const uint64_t pixels=n/4u+(n%4u!=0u);
+    admit(pixels>0u && pixels<=(uint64_t)cap,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    return (size_t)pixels;
 }
 
 static quantapdf_status source_raw_images_to_ir_impl(
@@ -1800,9 +1818,10 @@ static quantapdf_status source_raw_images_to_ir_impl(
          * approximated by reformatting binary64. M0 admits fractional
          * endpoints only when visible and full Media spans stay integer.
          * This protects the C11 Raster's canonical integer page grid. */
-        if(native_v10)
-            (void)source_v10_quarter_geometry(
-                geo.page,limits->max_parent_steps,geo);
+        const source_v10_exact_boxes exact=native_v10?
+            source_v10_quarter_geometry(
+                geo.page,limits->max_parent_steps,geo):
+            source_v10_exact_boxes{};
         const bool full_media=
             geo.left==geo.media[0] &&
             geo.bottom==geo.media[1] &&
@@ -1825,10 +1844,10 @@ static quantapdf_status source_raw_images_to_ir_impl(
             /* Even a tiny CropBox cannot make an unbounded original
              * MediaBox an inexpensive source: budget the WHOLE media
              * before admitting bounded outside-crop paint geometry. */
-            const size_t mw=whole(
-                geo.media[2]-geo.media[0],hard_page_pixels);
-            const size_t mh=whole(
-                geo.media[3]-geo.media[1],hard_page_pixels);
+            const size_t mw=source_quarter_ceil(
+                exact.media[0],exact.media[2],hard_page_pixels);
+            const size_t mh=source_quarter_ceil(
+                exact.media[1],exact.media[3],hard_page_pixels);
             admit(mw!=0u && mh!=0u &&
                   mw<=limits->max_page_pixels/mh,
                   QUANTAPDF_ERROR_UNSUPPORTED);
@@ -1836,8 +1855,14 @@ static quantapdf_status source_raw_images_to_ir_impl(
         /* Source operators use the UNROTATED original media canvas.
          * The completely admitted staging will acquire the page-tree
          * orientation before publication, with no extra pixel producer. */
-        const size_t page_w=whole(geo.right-geo.left,hard_page_pixels);
-        const size_t page_h=whole(geo.top-geo.bottom,hard_page_pixels);
+        const size_t page_w=native_v10?
+            source_quarter_ceil(
+                exact.visible[0],exact.visible[2],hard_page_pixels):
+            whole(geo.right-geo.left,hard_page_pixels);
+        const size_t page_h=native_v10?
+            source_quarter_ceil(
+                exact.visible[1],exact.visible[3],hard_page_pixels):
+            whole(geo.top-geo.bottom,hard_page_pixels);
         if(native_v10)
             checked_original_rotation(
                 geo.page,limits->max_parent_steps,geo.rotation);
@@ -1873,17 +1898,25 @@ static quantapdf_status source_raw_images_to_ir_impl(
         source.explicit_image_predictor_mode=
             profile.explicit_image_predictor;
         source.native_unclipped_mode=native_v10;
+        source.exact_page_w=native_v10?
+            (double)(exact.visible[2]-exact.visible[0])/4.0:0.0;
+        source.exact_page_h=native_v10?
+            (double)(exact.visible[3]-exact.visible[1])/4.0:0.0;
         source.media_left=native_v10?geo.left:0.0;
         source.media_bottom=native_v10?geo.bottom:0.0;
         /* The opt-in signed/quarter-aware SOURCE staging is required
          * for nonzero fractional origins EVEN when CropBox==MediaBox.
          * The inherited strict integer branch remains unchanged for
          * ordinary page-zero integer-origin Source profiles. */
-        const bool fractional_origin=
+        const bool fractional_geometry=
             geo.left!=std::trunc(geo.left) ||
-            geo.bottom!=std::trunc(geo.bottom);
+            geo.bottom!=std::trunc(geo.bottom) ||
+            geo.right!=std::trunc(geo.right) ||
+            geo.top!=std::trunc(geo.top) ||
+            source.exact_page_w!=(double)page_w ||
+            source.exact_page_h!=(double)page_h;
         source.crop_viewport=native_v10 &&
-            (!full_media || fractional_origin);
+            (!full_media || fractional_geometry);
         Obj raw_contents=geo.page.getKey("/Contents");
         const bool empty_contents=native_v10 &&
             (raw_contents.isNull() ||

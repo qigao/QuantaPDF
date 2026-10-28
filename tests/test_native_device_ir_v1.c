@@ -66,7 +66,40 @@ int main(void) {
           at(&out,8u,2u)==UINT32_C(0xffffffff));
     quantapdf_ir_raster_image_dispose(&out);
     lim.max_pixels=100u;CHECK(denied(&ir,96u,&lim)==0);
-    lim.max_pixels=512u;CHECK(denied(&ir,72u,&lim)==0);
+    lim.max_pixels=512u;
+    /* Source V10's device projection now includes REAL 72 DPI.
+     * The legacy integer-only V5 entry remains unchanged. */
+    OK(quantapdf_native_device_ir_render_v1(&ir,72u,&lim,&out));
+    CHECK(out.width==8u && out.height==8u &&
+          at(&out,0u,0u)==UINT32_C(0x0000ffff) &&
+          at(&out,4u,4u)==UINT32_C(0xffffffff));
+    quantapdf_ir_raster_image_dispose(&out);
+    /* A 1/4-point ORIGINAL page span produces a CEIL device bitmap
+     * with exact partial right/bottom pixel coverage, not FIT scaling
+     * or post-raster crop. Reuse the same fill and C11 V5 renderer. */
+    page.width_points=8.5f;page.height_points=8.25f;
+    commands[1].point1.x=9.0f;
+    commands[2].point1.x=9.0f;commands[2].point1.y=9.0f;
+    commands[3].point1.y=9.0f;
+    OK(quantapdf_native_device_ir_render_v1(&ir,72u,&lim,&out));
+    CHECK(out.width==9u && out.height==9u &&
+          at(&out,8u,4u)==UINT32_C(0x7f7fffff) &&
+          at(&out,4u,8u)==UINT32_C(0xbfbfffff) &&
+          at(&out,8u,8u)==UINT32_C(0xdfdfffff));
+    quantapdf_ir_raster_image_dispose(&out);
+    OK(quantapdf_native_device_ir_render_v1(&ir,96u,&lim,&out));
+    CHECK(out.width==12u && out.height==11u &&
+          at(&out,11u,4u)==UINT32_C(0xbfbfffff) &&
+          at(&out,6u,10u)==UINT32_C(0x0000ffff));
+    quantapdf_ir_raster_image_dispose(&out);
+    OK(quantapdf_native_device_ir_render_v1(&ir,144u,&lim,&out));
+    CHECK(out.width==17u && out.height==17u &&
+          at(&out,6u,16u)==UINT32_C(0x7f7fffff));
+    quantapdf_ir_raster_image_dispose(&out);
+    page.width_points=8.0f;page.height_points=8.0f;
+    commands[1].point1.x=4.0f;
+    commands[2].point1.x=4.0f;commands[2].point1.y=4.0f;
+    commands[3].point1.y=4.0f;
     /* RAW image source is re-sampled on true target grid. */
     op=(quantapdf_composer_operation){0};
     op.kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;

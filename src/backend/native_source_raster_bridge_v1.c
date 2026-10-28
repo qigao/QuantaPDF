@@ -71,15 +71,12 @@ static quantapdf_status native_source_bridge_impl(
     /* Only V10 opts into device-space pixels. Earlier private Source
      * signatures remain exact 72 DPI. This is a projection into the
      * SINGLE C11 V5 raster, not a second renderer or image rescaler. */
-    if(device->dpi==72.0f)
-        status=source_profile==QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10 ?
-            quantapdf_ir_raster_scoped_mixed_v5_device(
-                &ir,0u,&limits->raster,out_image) :
-            quantapdf_ir_raster_scoped_mixed_v5(
-                &ir,0u,&limits->raster,out_image);
-    else
+    if(source_profile==QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10)
         status=quantapdf_native_device_ir_render_v1(
             &ir,(unsigned)device->dpi,&limits->raster,out_image);
+    else
+        status=quantapdf_ir_raster_scoped_mixed_v5(
+            &ir,0u,&limits->raster,out_image);
     quantapdf_ir_dispose(&ir);
     return status;
 }

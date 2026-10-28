@@ -18,11 +18,11 @@ partially paint or select a fallback.
   also accepts bounded integer signed MediaBox lower-left origins, with
   a full-page or a distinct CropBox. Source V10 now also admits
   ORIGINAL decimal Media/Crop endpoints on a strict 1/4-point lattice,
-  when both full Media and the effective Media∩Crop viewport spans
-  are exact integers. Number tokens are checked in original QPDF
-  syntax rather than reprinted from binary64; a fractional page SPAN
-  is still rejected until the Raster can account for its partial
-  terminal row/column. Inherited Crop and Crop partly outside Media
+  including fractional Media∩Crop viewport SPANS. The checked original
+  quarter-point source intervals feed exact 72/96/144 DPI integer-ceiled
+  device dimensions. Original unrounded physical viewport boundaries
+  are sampled as a borrowed implicit Clip in the SAME C11 V5 4x4 grid
+  as PATH/W Clip/IMAGE. No fit/stretch, post-raster crop or fallback. Inherited Crop and Crop partly outside Media
   remain supported. Original CTM/PATH/W Clip/IMAGE
   coordinates are translated to this visible viewport before IR
   publication; the complete original PATH/Clip geometry and RAW image
