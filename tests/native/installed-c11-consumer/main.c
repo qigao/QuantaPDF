@@ -52,7 +52,7 @@ int main(void)
     quantapdf_context *context=NULL;
     quantapdf_document *document=NULL;
     quantapdf_page *page=NULL;
-    quantapdf_bitmap *bitmap=NULL;
+    quantapdf_bitmap *bitmap=NULL,*device_bitmap=NULL;
     const unsigned char *pixels=NULL;
     size_t size=0u;
     int pages=0,w=0,h=0,stride=0,channels=0;
@@ -73,6 +73,35 @@ int main(void)
     if(status!=QUANTAPDF_OK || page==NULL)goto fail;
     status=quantapdf_render_page(page,&bitmap);
     if(status!=QUANTAPDF_OK || bitmap==NULL)goto fail;
+    /* Standalone installed C11 consumer checks real native 96/144-DPI
+     * device canvas through only exported API and CMake targets. */
+    {
+        const int dpis[2]={96,144};
+        for(size_t k=0u;k<2u;++k) {
+            int dw=0,dh=0,ds=0,dc=0;
+            const unsigned char *samples=NULL;
+            size_t count=0u;
+            quantapdf_render_options options={0};
+            options.struct_size=sizeof(options);
+            options.dpi=(float)dpis[k];
+            status=quantapdf_render_page_with_options(
+                page,&options,&device_bitmap);
+            if(status!=QUANTAPDF_OK || device_bitmap==NULL)goto fail;
+            status=quantapdf_bitmap_dimensions(
+                device_bitmap,&dw,&dh,&ds,&dc);
+            if(status!=QUANTAPDF_OK ||
+               dw!=(dpis[k]==96?11:16) ||
+               dh!=(dpis[k]==96?11:16) ||
+               ds!=dw*3 || dc!=3)goto fail;
+            status=quantapdf_bitmap_data(device_bitmap,&samples,&count);
+            if(status!=QUANTAPDF_OK || samples==NULL ||
+               count!=(size_t)dw*(size_t)dh*3u)goto fail;
+            for(size_t i=0u;i<count;++i)
+                if(samples[i]!=255u)goto fail;
+            quantapdf_drop_bitmap(device_bitmap);
+            device_bitmap=NULL;
+        }
+    }
 
     /* The successful Bitmap retains its Context. No document, page or
      * source fixture remains live while the public C11 pixel view is used. */
@@ -98,6 +127,7 @@ fail:
     fprintf(stderr,"installed C11 consumer: status %d (%s)\n",
         (int)status,quantapdf_status_string(status));
 done:
+    quantapdf_drop_bitmap(device_bitmap);
     quantapdf_drop_bitmap(bitmap);
     quantapdf_drop_page(page);
     quantapdf_close(document);
