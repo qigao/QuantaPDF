@@ -2844,7 +2844,7 @@ static int native_userunit_physical_budget_cases(
  * an unrelated /UserUnit4 which must NEVER be inherited. An independent
  * QPDF-authored physical reference doubles the original Media, Crop and
  * IMAGE CTM, without copying pixels or exercising a second renderer. */
-static std::string native_seventh_userunit_original(bool physical)
+static std::string native_seventh_userunit_original(bool physical,int quarters)
 {
     const std::string original=selected_page_original_pdf();
     auto pdf=QPDF::create();
@@ -2855,15 +2855,26 @@ static std::string native_seventh_userunit_original(bool physical)
     auto branch=pdf->getRoot().getKey("/Pages")
         .getKey("/Kids").getArrayItem(6);
     auto leaf=branch.getKey("/Kids").getArrayItem(0);
+    const double factor=(double)quarters/4.0;
+    const auto scaled=[factor](int value) {
+        return std::to_string((double)value*factor);
+    };
     branch.replaceKey("/UserUnit",Obj::newInteger(4));
+    const std::string physical_crop="["+scaled(8)+" "+
+        scaled(4)+" "+scaled(24)+" "+scaled(20)+"]";
     branch.replaceKey("/CropBox",Obj::parse(
-        physical?"[16 8 48 40]":"[8 4 24 20]"));
+        physical?physical_crop:"[8 4 24 20]"));
     if(physical) {
-        branch.replaceKey("/MediaBox",Obj::parse("[0 0 64 48]"));
-        leaf.replaceKey("/Contents",pdf->newStream(
-            "q 32 0 0 24 16 6 cm /I Do Q"));
+        const std::string media="[0 0 "+scaled(32)+" "+
+            scaled(24)+"]";
+        branch.replaceKey("/MediaBox",Obj::parse(media));
+        /* Independent original authorial CTM at the physical
+         * scale, not an image or output-bitmap enlargement. */
+        const std::string image="q "+scaled(16)+" 0 0 "+
+            scaled(12)+" "+scaled(8)+" "+scaled(3)+" cm /I Do Q";
+        leaf.replaceKey("/Contents",pdf->newStream(image));
     } else {
-        leaf.replaceKey("/UserUnit",Obj::newInteger(2));
+        leaf.replaceKey("/UserUnit",Obj::parse(scaled(1)));
     }
     QPDFWriter writer(*pdf);
     writer.setOutputMemory();
@@ -2877,11 +2888,14 @@ static std::string native_seventh_userunit_original(bool physical)
 static int native_seventh_userunit_cases(const std::string& filename)
 {
     const int dpis[]={72,96,144};
+    /* Four positive factors on the actual seventh leaf, with
+     * noninherited ancestor /UserUnit=4 on every original PDF. */
+    for(int quarters:{2,5,8,16})
     for(int dpi:dpis) {
         std::vector<unsigned char> physical_golden;
         for(bool physical:{true,false}) {
             CHECK(write_pdf(filename,
-                native_seventh_userunit_original(physical)));
+                native_seventh_userunit_original(physical,quarters)));
             quantapdf_context *ctx=nullptr;
             quantapdf_document *doc=nullptr;
             quantapdf_page *page=nullptr;
@@ -2896,8 +2910,9 @@ static int native_seventh_userunit_cases(const std::string& filename)
             OK(quantapdf_load_page(doc,6,&page));
             quantapdf_rect bounds{};
             OK(quantapdf_page_bounds(page,&bounds));
+            const int span=quarters*4;
             CHECK(bounds.x0==0.0f && bounds.y0==0.0f &&
-                  bounds.x1==32.0f && bounds.y1==32.0f);
+                  bounds.x1==(float)span && bounds.y1==(float)span);
             quantapdf_render_options opts{};
             opts.struct_size=sizeof(opts);
             opts.dpi=(float)dpi;
@@ -2908,7 +2923,8 @@ static int native_seventh_userunit_cases(const std::string& filename)
             OK(quantapdf_bitmap_dimensions(
                 bitmap,&w,&h,&stride,&channels));
             OK(quantapdf_bitmap_data(bitmap,&pixels,&n));
-            const int extent=dpi==72?32:dpi==96?43:64;
+            const int extent=dpi==72?span:
+                dpi==96?(span*4+2)/3:span*2;
             CHECK(w==extent && h==extent && stride==w*3 &&
                   channels==3 && n==(size_t)stride*(size_t)h &&
                   pixels!=nullptr);
