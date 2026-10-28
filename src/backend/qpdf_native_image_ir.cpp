@@ -798,6 +798,131 @@ private:
     bool closed=false;
 };
 
+/* Resolve Source V10's actual page-tree /Rotate under its own bounded
+ * ancestry lease, independently of any early /Resources lookup. QPDF's
+ * geometry reader already checked the inherited numeric value; verify
+ * the nearest entry against it and reject malformed/cyclic parents. */
+void checked_original_rotation(Obj page,size_t max_steps,int effective)
+{
+    std::set<QPDFObjGen> seen;
+    size_t depth=0u;
+    bool chosen=false;
+    for(Obj node=page;!node.isNull();node=node.getKey("/Parent")) {
+        admit(depth++<max_steps && depth<=256u,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        admit(node.isIndirect() && node.isDictionary(),
+              QUANTAPDF_ERROR_FORMAT);
+        admit(seen.insert(node.getObjGen()).second,
+              QUANTAPDF_ERROR_FORMAT);
+        const Obj raw=node.getKey("/Rotate");
+        if(!chosen && !raw.isNull()) {
+            admit(raw.isInteger(),QUANTAPDF_ERROR_FORMAT);
+            const long long degrees=raw.getIntValue();
+            admit(degrees%90ll==0ll,QUANTAPDF_ERROR_FORMAT);
+            int normalized=static_cast<int>(degrees%360ll);
+            if(normalized<0)normalized+=360;
+            admit(normalized==effective,QUANTAPDF_ERROR_FORMAT);
+            chosen=true;
+        }
+    }
+    admit(chosen || effective==0,QUANTAPDF_ERROR_FORMAT);
+}
+
+quantapdf_point original_turn_point(quantapdf_point p,
+    size_t w,size_t h,int rotation)
+{
+    const double x=p.x,y=p.y;
+    admit(std::isfinite(x) && std::isfinite(y) && x>=0.0 && y>=0.0 &&
+          x<=(double)w && y<=(double)h,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    switch(rotation) {
+    case 90:  return {static_cast<float>((double)h-y),
+                      static_cast<float>(x)};
+    case 180: return {static_cast<float>((double)w-x),
+                      static_cast<float>((double)h-y)};
+    case 270: return {static_cast<float>(y),
+                      static_cast<float>((double)w-x)};
+    default: throw rejected{QUANTAPDF_ERROR_UNSUPPORTED};
+    }
+}
+
+void original_turn_commands(
+    std::vector<quantapdf_composer_path_command>& commands,
+    size_t w,size_t h,int rotation)
+{
+    for(auto& c:commands) {
+        if(c.kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
+           c.kind==QUANTAPDF_COMPOSER_PATH_LINE_TO)
+            c.point1=original_turn_point(c.point1,w,h,rotation);
+        else
+            admit(c.kind==QUANTAPDF_COMPOSER_PATH_CLOSE,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+}
+
+void original_turn_image(staged_image& image,
+    size_t page_w,size_t page_h,int rotation)
+{
+    const quantapdf_rect b=image.bounds;
+    const quantapdf_point p0=original_turn_point(
+        {b.x0,b.y0},page_w,page_h,rotation);
+    const quantapdf_point p1=original_turn_point(
+        {b.x1,b.y1},page_w,page_h,rotation);
+    const quantapdf_point p2=original_turn_point(
+        {b.x1,b.y0},page_w,page_h,rotation);
+    const quantapdf_point p3=original_turn_point(
+        {b.x0,b.y1},page_w,page_h,rotation);
+    image.bounds.x0=std::min({p0.x,p1.x,p2.x,p3.x});
+    image.bounds.x1=std::max({p0.x,p1.x,p2.x,p3.x});
+    image.bounds.y0=std::min({p0.y,p1.y,p2.y,p3.y});
+    image.bounds.y1=std::max({p0.y,p1.y,p2.y,p3.y});
+
+    const size_t w=(size_t)image.width,h=(size_t)image.height;
+    const size_t channels=(size_t)image.components;
+    admit(w!=0u && h!=0u && (channels==1u || channels==3u) &&
+          w<=hard_image_pixels/h && w*h<=SIZE_MAX/channels &&
+          image.pixels.size()==w*h*channels,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    const size_t new_width=rotation==180?w:h;
+    const size_t new_height=rotation==180?h:w;
+    std::vector<unsigned char> turned(image.pixels.size());
+    for(size_t y=0u;y<h;++y)
+        for(size_t x=0u;x<w;++x) {
+            size_t dx=0u,dy=0u;
+            if(rotation==90) {dx=h-1u-y;dy=x;}
+            else if(rotation==180) {dx=w-1u-x;dy=h-1u-y;}
+            else if(rotation==270) {dx=y;dy=w-1u-x;}
+            else throw rejected{QUANTAPDF_ERROR_UNSUPPORTED};
+            std::memcpy(
+                turned.data()+(dy*new_width+dx)*channels,
+                image.pixels.data()+(y*w+x)*channels,channels);
+        }
+    image.pixels.swap(turned);
+    image.width=static_cast<uint32_t>(new_width);
+    image.height=static_cast<uint32_t>(new_height);
+}
+
+/* Consume complete q/Q, CTM and operator admission first; only then
+ * orient SOURCE-staged PATH/Clip points and uniquely owned RAW Image
+ * samples before emitting the one canonical Composer IR. The source
+ * quotas and image-work accounting are invariant under quarter turns. */
+void original_turn_staging(admission& source,int rotation)
+{
+    if(rotation==0)return;
+    admit(rotation==90 || rotation==180 || rotation==270,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    const size_t w=source.page_w,h=source.page_h;
+    for(auto& path:source.painted_paths)
+        original_turn_commands(path.commands,w,h,rotation);
+    original_turn_commands(source.clip.commands,w,h,rotation);
+    for(auto& image:source.draws)
+        original_turn_image(image,w,h,rotation);
+    if(rotation==90 || rotation==270) {
+        source.page_w=h;
+        source.page_h=w;
+    }
+}
+
 /* Resolution of referenced resources is not a display-only observation.
  * A malformed /Parent chain must never be accepted by the image-only
  * renderer. Cap ancestry separately from content-stream/decode capacity. */
@@ -1391,7 +1516,13 @@ static quantapdf_status source_raw_images_to_ir_impl(
         quantapdf_qpdf_page_geometry geo={};
         auto status=quantapdf_qpdf_load_page_geometry(*pdf,0,&geo);
         if(status!=QUANTAPDF_OK)return status;
-        admit(geo.rotation==0 && geo.user_unit==1.0 &&
+        const bool native_v10=
+            profile_id==source_profile_id::scoped_mixed_v10_flate_predictor;
+        admit((geo.rotation==0 ||
+               (native_v10 && (geo.rotation==90 ||
+                                geo.rotation==180 ||
+                                geo.rotation==270))) &&
+              geo.user_unit==1.0 &&
               geo.left==0.0 && geo.bottom==0.0 &&
               geo.media[0]==0.0 && geo.media[1]==0.0 &&
               geo.right==geo.media[2] && geo.top==geo.media[3] &&
@@ -1400,8 +1531,14 @@ static quantapdf_status source_raw_images_to_ir_impl(
               geo.crop[2]==geo.media[2] &&
               geo.crop[3]==geo.media[3],
               QUANTAPDF_ERROR_UNSUPPORTED);
-        const size_t page_w=whole(geo.public_width,hard_page_pixels);
-        const size_t page_h=whole(geo.public_height,hard_page_pixels);
+        /* Source operators use the UNROTATED original media canvas.
+         * The completely admitted staging will acquire the page-tree
+         * orientation before publication, with no extra pixel producer. */
+        const size_t page_w=whole(geo.right-geo.left,hard_page_pixels);
+        const size_t page_h=whole(geo.top-geo.bottom,hard_page_pixels);
+        if(native_v10)
+            checked_original_rotation(
+                geo.page,limits->max_parent_steps,geo.rotation);
         admit(page_w!=0u && page_h!=0u &&
               page_w<=hard_page_pixels/page_h &&
               page_w*page_h<=limits->max_page_pixels,
@@ -1412,8 +1549,6 @@ static quantapdf_status source_raw_images_to_ir_impl(
         /* An unpainted page may omit both Contents and Resources under
          * Source V10. Earlier fixed source profile contracts stay strict.
          * Any existing inherited Resources is still type-checked. */
-        const bool native_v10=
-            profile_id==source_profile_id::scoped_mixed_v10_flate_predictor;
         Obj resources=bounded_page_resources(
             geo.page,limits->max_parent_steps,native_v10);
         /* Initialize ALL members explicitly. Some CI toolchains enable
@@ -1453,6 +1588,7 @@ static quantapdf_status source_raw_images_to_ir_impl(
         parsed.parseAsContents(&reader);
         admit(!parser.anyWarnings() && !pdf->anyWarnings(),
               QUANTAPDF_ERROR_FORMAT);
+        if(native_v10)original_turn_staging(source,geo.rotation);
         /* This is NOT a recovery after unsupported content: the entire
          * page stream was parsed, EOF validated q/Q and pending-path
          * ownership, and zero paint/clip operations were admitted. */

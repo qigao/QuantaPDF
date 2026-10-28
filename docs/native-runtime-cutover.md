@@ -17,9 +17,15 @@ partially paint or select a fallback.
   full original Source V10/C11 Raster admission on the requested target
   grid. The existing C11 device planner validates rotation dimensions
   and the one-million-pixel quota before an exact row/column RGB
-  permutation. Original PDF /Rotate must still be zero. At 96/144 DPI,
-  owned Source V10 IR is projected directly into the target-resolution
-  C11 Raster grid before rotation. 144 DPI uses exact twofold geometry;
+  permutation. Original PDF page-tree /Rotate 0/90/180/270 is also
+  admitted independently: Source V10 validates the effective inherited
+  quarter turn under a bounded ancestry quota, completely parses the
+  unrotated original content, and only then rotates staged PATH/Clip
+  points, Image bounds and owned RAW samples before IR publication.
+  Render-option display rotation remains a separate operation after
+  native C11 Raster. At 96/144 DPI, owned Source V10 IR is projected
+  directly into the target-resolution C11 Raster grid before display
+  rotation. 144 DPI uses exact twofold geometry;
   96 DPI samples fractional 4/3 PATH/Clip and IMAGE edges in the SAME
   4x4 native device sample grid. The IMAGE footprint
   and W/W* Clip use one sample-intersection mask, rather than multiplying

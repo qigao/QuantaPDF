@@ -637,10 +637,285 @@ static int high_dpi_cases(const std::string& filename)
     return EXIT_SUCCESS;
 }
 
+/* A second original-PDF source fixture writer ONLY changes page tree
+ * /Rotate. QPDF authors the actual page and resource graph, not a mock IR.
+ * Modes: 0 leaf; 1 inherited; 2 leaf overrides inherited 90;
+ * 3 malformed name; 4 real instead of integer; 5 non-quarter;
+ * 6 malformed inherited name; 7 over-depth Pages ancestry;
+ * 8 explicit unsupported CropBox; 9 unsupported UserUnit.
+ * Every Source refusal must leave an empty Bitmap. */
+static std::string original_pdf_with_rotate(
+    const std::string& original,int degrees,int mode)
+{
+    auto pdf=QPDF::create();
+    pdf->setSuppressWarnings(true);
+    pdf->setAttemptRecovery(false);
+    pdf->processMemoryFile("native original Rotate",
+        original.data(),original.size(),"");
+    auto pages=pdf->getRoot().getKey("/Pages");
+    auto page=pages.getKey("/Kids").getArrayItem(0);
+    if(mode==1)
+        pages.replaceKey("/Rotate",Obj::newInteger(degrees));
+    else if(mode==2) {
+        pages.replaceKey("/Rotate",Obj::newInteger(90));
+        page.replaceKey("/Rotate",Obj::newInteger(degrees));
+    } else if(mode==3)
+        page.replaceKey("/Rotate",Obj::newName("/Ninety"));
+    else if(mode==4)
+        page.replaceKey("/Rotate",Obj::parse("90.5"));
+    else if(mode==5)
+        page.replaceKey("/Rotate",Obj::newInteger(45));
+    else if(mode==6)
+        pages.replaceKey("/Rotate",Obj::newName("/Ninety"));
+    else if(mode==7) {
+        /* QPDF's geometry reader can navigate this valid page tree,
+         * but Native Source V10 independently caps its /Parent lease
+         * at max_parent_steps=8, including the page and root. */
+        Obj parent=pages;
+        for(int depth=0;depth<9;++depth) {
+            auto node=pdf->makeIndirectObject(
+                Obj::parse("<< /Type /Pages /Count 1 /Kids [] >>"));
+            node.replaceKey("/Parent",parent);
+            parent.replaceKey("/Kids",Obj::newArray({node}));
+            parent=node;
+        }
+        parent.replaceKey("/Kids",Obj::newArray({page}));
+        page.replaceKey("/Parent",parent);
+        page.replaceKey("/Rotate",Obj::newInteger(degrees));
+    } else if(mode==8) {
+        page.replaceKey("/Rotate",Obj::newInteger(degrees));
+        page.replaceKey("/CropBox",Obj::parse("[0 0 31 24]"));
+    } else if(mode==9) {
+        page.replaceKey("/Rotate",Obj::newInteger(degrees));
+        page.replaceKey("/UserUnit",Obj::newInteger(2));
+    } else
+        page.replaceKey("/Rotate",Obj::newInteger(degrees));
+    QPDFWriter writer(*pdf);
+    writer.setOutputMemory();
+    writer.write();
+    const auto buffer=writer.getBufferSharedPointer();
+    return std::string(
+        reinterpret_cast<const char *>(buffer->getBuffer()),buffer->getSize());
+}
+
+static int rotated_xy(int x,int y,int w,int h,int angle,int *dx,int *dy)
+{
+    switch(angle) {
+    case 0:*dx=x;*dy=y;return 1;
+    case 90:*dx=h-1-y;*dy=x;return 1;
+    case 180:*dx=w-1-x;*dy=h-1-y;return 1;
+    case 270:*dx=y;*dy=w-1-x;return 1;
+    default:return 0;
+    }
+}
+
+static int original_source_rotation_cases(const std::string& filename)
+{
+    const std::string originals[]={
+        create_source(false),create_blank_source(0),
+        create_path_only_source(0),create_image_only_source(0),
+        create_image_only_source(17),create_clipped_mixed_source(0)
+    };
+    const int dpis[]={72,96,144};
+    const int source_angles[]={90,180,270};
+    const int display_angles[]={0,90,180,270};
+
+    for(size_t kind=0u;kind<sizeof(originals)/sizeof(originals[0]);++kind)
+    for(int dpi:dpis) {
+        CHECK(write_pdf(filename,originals[kind]));
+        quantapdf_context *base_ctx=nullptr;
+        quantapdf_document *base_doc=nullptr;
+        quantapdf_page *base_page=nullptr;
+        quantapdf_bitmap *base_bitmap=nullptr;
+        OK(quantapdf_context_create(&base_ctx));
+        OK(quantapdf_open_with_context(
+            base_ctx,filename.c_str(),nullptr,&base_doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(base_doc,0,&base_page));
+        quantapdf_render_options opts{};
+        opts.struct_size=sizeof(opts);opts.dpi=(float)dpi;
+        OK(quantapdf_render_page_with_options(
+            base_page,&opts,&base_bitmap));
+        int bw=0,bh=0,bs=0,bc=0;
+        const unsigned char *base_pixels=nullptr;
+        size_t base_size=0u;
+        OK(quantapdf_bitmap_dimensions(
+            base_bitmap,&bw,&bh,&bs,&bc));
+        OK(quantapdf_bitmap_data(base_bitmap,&base_pixels,&base_size));
+        CHECK(bw==(dpi==72?32:dpi==96?43:64) &&
+              bh==(dpi==72?24:dpi==96?32:48) &&
+              bs==bw*3 && bc==3 && base_size==(size_t)bs*(size_t)bh);
+        const std::vector<unsigned char> baseline(
+            base_pixels,base_pixels+base_size);
+        quantapdf_drop_bitmap(base_bitmap);
+        quantapdf_drop_page(base_page);
+        quantapdf_close(base_doc);
+        quantapdf_drop_context(base_ctx);
+
+        for(int angle:source_angles) {
+            std::vector<unsigned char> direct_pixels;
+            for(int source_mode=0;source_mode<3;++source_mode) {
+                if(source_mode==2 && angle!=180)continue;
+                const std::string rotated_pdf=original_pdf_with_rotate(
+                    originals[kind],angle,source_mode);
+                CHECK(write_pdf(filename,rotated_pdf));
+                quantapdf_context *ctx=nullptr;
+                quantapdf_document *doc=nullptr;
+                quantapdf_page *page=nullptr;
+                quantapdf_bitmap *bitmap=nullptr;
+                OK(quantapdf_context_create(&ctx));
+                OK(quantapdf_open_with_context(
+                    ctx,filename.c_str(),nullptr,&doc));
+                CHECK(std::remove(filename.c_str())==0);
+                OK(quantapdf_load_page(doc,0,&page));
+                quantapdf_rect bounds{};
+                OK(quantapdf_page_bounds(page,&bounds));
+                const int source_width=(angle==180?32:24);
+                const int source_height=(angle==180?24:32);
+                CHECK(bounds.x0==0.0f && bounds.y0==0.0f &&
+                      bounds.x1==(float)source_width &&
+                      bounds.y1==(float)source_height);
+                OK(quantapdf_render_page_with_options(
+                    page,&opts,&bitmap));
+                int sw=0,sh=0,ss=0,sc=0;
+                const unsigned char *pixels=nullptr;
+                size_t size=0u;
+                OK(quantapdf_bitmap_dimensions(
+                    bitmap,&sw,&sh,&ss,&sc));
+                OK(quantapdf_bitmap_data(bitmap,&pixels,&size));
+                const int expected_w=angle==180?bw:bh;
+                const int expected_h=angle==180?bh:bw;
+                CHECK(sw==expected_w && sh==expected_h &&
+                      ss==sw*3 && sc==3 &&
+                      size==(size_t)ss*(size_t)sh && pixels!=nullptr);
+                /* Exact per-pixel equivalence is warranted for the 72
+                 * and 144 DPI device lattices, where the page corners
+                 * and every authored source point map to integral
+                 * destination pixels. 96 DPI's 4/3 page edge has a
+                 * distinct ceil-lattice; below we check independent
+                 * deep-inside source RGB goldens and exact repeat. */
+                if(dpi!=96)
+                    for(int y=0;y<bh;++y)
+                        for(int x=0;x<bw;++x) {
+                            int rx=0,ry=0;
+                            CHECK(rotated_xy(
+                                x,y,bw,bh,angle,&rx,&ry));
+                            const unsigned char *from=baseline.data()+
+                                (size_t)y*(size_t)bs+(size_t)x*3u;
+                            const unsigned char *to=pixels+
+                                (size_t)ry*(size_t)ss+(size_t)rx*3u;
+                            CHECK(std::memcmp(from,to,3u)==0);
+                        }
+
+                if(kind==0u) {
+                    const int red_x=dpi==72?13:dpi==96?18:26;
+                    const int red_y=dpi==72?11:dpi==96?16:22;
+                    const int gray_x=dpi==72?26:dpi==96?35:52;
+                    const int gray_y=dpi==72?5:dpi==96?7:10;
+                    int rx=0,ry=0,gx=0,gy=0;
+                    CHECK(rotated_xy(
+                        red_x,red_y,bw,bh,angle,&rx,&ry));
+                    CHECK(rotated_xy(
+                        gray_x,gray_y,bw,bh,angle,&gx,&gy));
+                    CHECK(probe_rgb(pixels,ss,rx,ry,255u,0u,0u));
+                    CHECK(probe_rgb(pixels,ss,gx,gy,223u,223u,223u));
+                }
+                const std::vector<unsigned char> stable(pixels,pixels+size);
+                if(source_mode==0)direct_pixels=stable;
+                else CHECK(direct_pixels==stable);
+                if(kind==0u) {
+                    /* Public display turn is a separate post-raster
+                     * permutation of the fully source-rotated page;
+                     * validate every pixel at every DPI, including 4/3. */
+                    for(int display:display_angles) {
+                        opts.rotation_degrees=(float)display;
+                        quantapdf_bitmap *turned=nullptr;
+                        OK(quantapdf_render_page_with_options(
+                            page,&opts,&turned));
+                        int tw=0,th=0,ts=0,tc=0;
+                        const unsigned char *tp=nullptr;
+                        size_t tn=0u;
+                        OK(quantapdf_bitmap_dimensions(
+                            turned,&tw,&th,&ts,&tc));
+                        OK(quantapdf_bitmap_data(turned,&tp,&tn));
+                        CHECK(tw==(display==90||display==270?sh:sw) &&
+                              th==(display==90||display==270?sw:sh) &&
+                              ts==tw*3 && tc==3 && tn==size && tp!=nullptr);
+                        for(int y=0;y<sh;++y)
+                            for(int x=0;x<sw;++x) {
+                                int dx=0,dy=0;
+                                CHECK(rotated_xy(x,y,sw,sh,display,&dx,&dy));
+                                const unsigned char *from=stable.data()+
+                                    (size_t)y*(size_t)ss+(size_t)x*3u;
+                                const unsigned char *to=tp+
+                                    (size_t)dy*(size_t)ts+(size_t)dx*3u;
+                                CHECK(std::memcmp(from,to,3u)==0);
+                            }
+                        quantapdf_drop_bitmap(turned);
+                    }
+                    opts.rotation_degrees=0.0f;
+                }
+                quantapdf_drop_page(page);
+                quantapdf_close(doc);
+                quantapdf_drop_context(ctx);
+                const unsigned char *retained=nullptr;
+                size_t retained_size=0u;
+                OK(quantapdf_bitmap_data(
+                    bitmap,&retained,&retained_size));
+                CHECK(retained!=nullptr && retained_size==size &&
+                      std::memcmp(retained,stable.data(),size)==0);
+                quantapdf_drop_bitmap(bitmap);
+            }
+        }
+    }
+
+    /* Strict inherited /Rotate acceptance; no unqualified output from
+     * bad numeric types, non-quarter values or unsupported late Text. */
+    for(int mode=3;mode<=9;++mode) {
+        const auto bad=original_pdf_with_rotate(
+            create_source(false),90,mode);
+        CHECK(write_pdf(filename,bad));
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        quantapdf_bitmap *failed=reinterpret_cast<quantapdf_bitmap*>(
+            uintptr_t(1));
+        const auto status=quantapdf_render_page(page,&failed);
+        const auto expected=mode<=6 ?
+            QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED;
+        if(status!=expected || failed!=nullptr)
+            std::fprintf(stderr,
+                "original Rotate rejected mode=%d actual=%d expected=%d output=%p\n",
+                mode,(int)status,(int)expected,(void*)failed);
+        CHECK(status==expected && failed==nullptr);
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+    }
+    CHECK(write_pdf(filename,original_pdf_with_rotate(
+        create_source(true),90,1)));
+    {
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        quantapdf_bitmap *out=reinterpret_cast<quantapdf_bitmap*>(
+            uintptr_t(1));
+        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        CHECK(quantapdf_render_page(page,&out)==
+              QUANTAPDF_ERROR_UNSUPPORTED && out==nullptr);
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+    }
+    return EXIT_SUCCESS;
+}
+
 int main()
 {
     const std::string filename="native-standalone-smoke.pdf";
     CHECK(high_dpi_cases(filename)==EXIT_SUCCESS);
+    CHECK(original_source_rotation_cases(filename)==EXIT_SUCCESS);
     CHECK(write_pdf(filename,create_source(false)));
 
     quantapdf_context *context=nullptr;
