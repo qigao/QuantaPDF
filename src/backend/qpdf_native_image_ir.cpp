@@ -24,9 +24,19 @@
  * std::vector sites. The normal backend has no probe or extra symbols. */
 #ifdef QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST
 extern "C" void quantapdf_source_stage_oom_arm(unsigned) noexcept;
+extern "C" bool quantapdf_source_ir_oom_fail_c_allocation() noexcept;
 #define QP_SOURCE_STAGE_ARM(n) quantapdf_source_stage_oom_arm(n)
+#define QP_SOURCE_C_CALLOC(n,s) \
+    (quantapdf_source_ir_oom_fail_c_allocation()?nullptr:std::calloc((n),(s)))
+#define QP_SOURCE_C_MALLOC(n) \
+    (quantapdf_source_ir_oom_fail_c_allocation()?nullptr:std::malloc(n))
+#define QP_SOURCE_C_REALLOC(p,n) \
+    (quantapdf_source_ir_oom_fail_c_allocation()?nullptr:std::realloc((p),(n)))
 #else
 #define QP_SOURCE_STAGE_ARM(n) ((void)0)
+#define QP_SOURCE_C_CALLOC(n,s) std::calloc((n),(s))
+#define QP_SOURCE_C_MALLOC(n) std::malloc(n)
+#define QP_SOURCE_C_REALLOC(p,n) std::realloc((p),(n))
 #endif
 
 namespace {
@@ -1094,7 +1104,7 @@ quantapdf_ir materialize_blank_page(const admission& source)
 {
     quantapdf_ir ir={};
     ir.pages=static_cast<quantapdf_composer_page_state *>(
-        std::calloc(1u,sizeof(*ir.pages)));
+        QP_SOURCE_C_CALLOC(1u,sizeof(*ir.pages)));
     admit(ir.pages!=nullptr,QUANTAPDF_ERROR_NOMEM);
     ir.page_count=1u;
     ir.pages[0].width_points=static_cast<float>(
@@ -1130,7 +1140,7 @@ quantapdf_ir materialize_path_only(const admission& source)
     quantapdf_ir ir=materialize_blank_page(source);
     try {
         ir.operations=static_cast<quantapdf_composer_operation *>(
-            std::calloc(n,sizeof(*ir.operations)));
+            QP_SOURCE_C_CALLOC(n,sizeof(*ir.operations)));
         admit(ir.operations!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.operation_count=n;
         for(size_t i=0u;i<n;++i) {
@@ -1144,7 +1154,7 @@ quantapdf_ir materialize_path_only(const admission& source)
             auto& path=op.value.path;
             path.command_count=staged.commands.size();
             path.commands=static_cast<quantapdf_composer_path_command *>(
-                std::malloc(path.command_count*sizeof(*path.commands)));
+                QP_SOURCE_C_MALLOC(path.command_count*sizeof(*path.commands)));
             admit(path.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
             std::memcpy(path.commands,staged.commands.data(),
                 path.command_count*sizeof(*path.commands));
@@ -1166,7 +1176,7 @@ quantapdf_ir materialize(
     quantapdf_ir ir={};
     try {
         ir.pages=static_cast<quantapdf_composer_page_state *>(
-            std::calloc(1u,sizeof(*ir.pages)));
+            QP_SOURCE_C_CALLOC(1u,sizeof(*ir.pages)));
         admit(ir.pages!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.page_count=1u;
         ir.pages[0].width_points=static_cast<float>(
@@ -1178,10 +1188,10 @@ quantapdf_ir materialize(
         const size_t count=source.draws.size();
         admit(count>0u && count<=hard_operations,QUANTAPDF_ERROR_UNSUPPORTED);
         ir.operations=static_cast<quantapdf_composer_operation *>(
-            std::calloc(count,sizeof(*ir.operations)));
+            QP_SOURCE_C_CALLOC(count,sizeof(*ir.operations)));
         admit(ir.operations!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.resources.images=static_cast<quantapdf_composer_image_state *>(
-            std::calloc(count,sizeof(*ir.resources.images)));
+            QP_SOURCE_C_CALLOC(count,sizeof(*ir.resources.images)));
         admit(ir.resources.images!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.operation_count=count;
         ir.resources.image_count=count;
@@ -1189,7 +1199,7 @@ quantapdf_ir materialize(
         for(size_t i=0u;i<count;++i) {
             const staged_image& staged=source.draws[i];
             auto& image=ir.resources.images[i];
-            image.data=static_cast<unsigned char *>(std::malloc(staged.pixels.size()));
+            image.data=static_cast<unsigned char *>(QP_SOURCE_C_MALLOC(staged.pixels.size()));
             admit(image.data!=nullptr,QUANTAPDF_ERROR_NOMEM);
             std::memcpy(image.data,staged.pixels.data(),staged.pixels.size());
             image.width=staged.width;
@@ -1275,7 +1285,7 @@ quantapdf_ir materialize_clipped_image(const admission& source,
     try {
         ir.resources.graphics_states=
             static_cast<quantapdf_composer_graphics_state *>(
-                std::calloc(1u,sizeof(*ir.resources.graphics_states)));
+                QP_SOURCE_C_CALLOC(1u,sizeof(*ir.resources.graphics_states)));
         admit(ir.resources.graphics_states!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.resources.graphics_state_count=1u;
         ir.resources.graphics_state_capacity=1u;
@@ -1286,7 +1296,7 @@ quantapdf_ir materialize_clipped_image(const admission& source,
         state.clip_id=1u;
 
         ir.resources.clips=static_cast<quantapdf_composer_clip_state *>(
-            std::calloc(1u,sizeof(*ir.resources.clips)));
+            QP_SOURCE_C_CALLOC(1u,sizeof(*ir.resources.clips)));
         admit(ir.resources.clips!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.resources.clip_count=1u;
         ir.resources.clip_capacity=1u;
@@ -1295,7 +1305,7 @@ quantapdf_ir materialize_clipped_image(const admission& source,
         clip.fill_rule=source.clip.rule;
         clip.command_count=source.clip.commands.size();
         clip.commands=static_cast<quantapdf_composer_path_command *>(
-            std::malloc(clip.command_count*sizeof(*clip.commands)));
+            QP_SOURCE_C_MALLOC(clip.command_count*sizeof(*clip.commands)));
         admit(clip.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
         std::memcpy(clip.commands,source.clip.commands.data(),
                     clip.command_count*sizeof(*clip.commands));
@@ -1351,7 +1361,7 @@ quantapdf_ir materialize_mixed(const admission& source,
         for(size_t i=0u;i<images;++i)image_ops[i]=ir.operations[i];
         quantapdf_composer_operation *expanded=
             static_cast<quantapdf_composer_operation *>(
-                std::realloc(ir.operations,
+                QP_SOURCE_C_REALLOC(ir.operations,
                     mixed_operations*sizeof(*ir.operations)));
         admit(expanded!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.operations=expanded;
@@ -1370,7 +1380,7 @@ quantapdf_ir materialize_mixed(const admission& source,
             quantapdf_composer_path_operation& path=painted.value.path;
             const size_t count=staged.commands.size();
             path.commands=static_cast<quantapdf_composer_path_command *>(
-                std::malloc(count*sizeof(*path.commands)));
+                QP_SOURCE_C_MALLOC(count*sizeof(*path.commands)));
             admit(path.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
             path.command_count=count;
             std::memcpy(path.commands,staged.commands.data(),
@@ -1479,7 +1489,7 @@ quantapdf_ir materialize_scoped_mixed_v5(const admission& source,
     try {
         ir.resources.graphics_states=
             static_cast<quantapdf_composer_graphics_state *>(
-            std::calloc(1u,sizeof(*ir.resources.graphics_states)));
+            QP_SOURCE_C_CALLOC(1u,sizeof(*ir.resources.graphics_states)));
         admit(ir.resources.graphics_states!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.resources.graphics_state_count=1u;
         ir.resources.graphics_state_capacity=1u;
@@ -1490,7 +1500,7 @@ quantapdf_ir materialize_scoped_mixed_v5(const admission& source,
         state.clip_id=1u;
         ir.resources.clips=
             static_cast<quantapdf_composer_clip_state *>(
-            std::calloc(1u,sizeof(*ir.resources.clips)));
+            QP_SOURCE_C_CALLOC(1u,sizeof(*ir.resources.clips)));
         admit(ir.resources.clips!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.resources.clip_count=1u;
         ir.resources.clip_capacity=1u;
@@ -1499,7 +1509,7 @@ quantapdf_ir materialize_scoped_mixed_v5(const admission& source,
         clip.fill_rule=source.clip.rule;
         clip.command_count=source.clip.commands.size();
         clip.commands=static_cast<quantapdf_composer_path_command *>(
-            std::malloc(clip.command_count*sizeof(*clip.commands)));
+            QP_SOURCE_C_MALLOC(clip.command_count*sizeof(*clip.commands)));
         admit(clip.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
         std::memcpy(clip.commands,source.clip.commands.data(),
                     clip.command_count*sizeof(*clip.commands));
@@ -1546,7 +1556,7 @@ quantapdf_ir materialize_restored_image_then_path(const admission& source)
               QUANTAPDF_ERROR_UNSUPPORTED);
         ir.resources.graphics_states=
             static_cast<quantapdf_composer_graphics_state *>(
-                std::calloc(1u,sizeof(*ir.resources.graphics_states)));
+                QP_SOURCE_C_CALLOC(1u,sizeof(*ir.resources.graphics_states)));
         admit(ir.resources.graphics_states!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.resources.graphics_state_count=1u;
         ir.resources.graphics_state_capacity=1u;
@@ -1558,7 +1568,7 @@ quantapdf_ir materialize_restored_image_then_path(const admission& source)
 
         ir.resources.clips=
             static_cast<quantapdf_composer_clip_state *>(
-                std::calloc(1u,sizeof(*ir.resources.clips)));
+                QP_SOURCE_C_CALLOC(1u,sizeof(*ir.resources.clips)));
         admit(ir.resources.clips!=nullptr,QUANTAPDF_ERROR_NOMEM);
         ir.resources.clip_count=1u;
         ir.resources.clip_capacity=1u;
@@ -1567,7 +1577,7 @@ quantapdf_ir materialize_restored_image_then_path(const admission& source)
         clip.fill_rule=source.clip.rule;
         clip.command_count=source.clip.commands.size();
         clip.commands=static_cast<quantapdf_composer_path_command *>(
-            std::malloc(clip.command_count*sizeof(*clip.commands)));
+            QP_SOURCE_C_MALLOC(clip.command_count*sizeof(*clip.commands)));
         admit(clip.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
         std::memcpy(clip.commands,source.clip.commands.data(),
                     clip.command_count*sizeof(*clip.commands));
