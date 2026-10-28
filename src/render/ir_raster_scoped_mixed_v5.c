@@ -279,11 +279,11 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5(
             return QUANTAPDF_ERROR_UNSUPPORTED;
         }
     }
-    /* IMAGE-only admission: 1..2 un-clipped images or exactly 1..2
-     * images referencing the SAME owned GS/Clip leaf. All member IDs
-     * and resource capacity must be exact; a second Image outside the
-     * Clip cannot silently paint as if it were inside. The existing
-     * C11 clipped-image raster is reused for each ordered layer. */
+    /* IMAGE-only admission: 1..4 unclipped images using the already
+     * bounded four-layer C11 compositor, or exactly 1..2 images under
+     * the SAME owned GS/Clip leaf. The new 3/4-image profile requires
+     * exact resource capacity. Mixed and clipped profiles retain their
+     * independently narrower admission; no hidden state is inferred. */
     if(path_count==0u) {
         const quantapdf_resource_registry *r=&ir->resources;
         const int unclipped=
@@ -313,9 +313,12 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5(
                     break;
                 }
             }
-        if(image_count==0u || image_count>2u ||
+        if(image_count==0u ||
+           image_count>(unclipped ? QP_V5_MAX_LAYERS : 2u) ||
            ir->operation_count!=image_count ||
            (!unclipped && !bounded_clipped) ||
+           (unclipped && image_count>2u &&
+            r->image_capacity!=image_count) ||
            r->fonts!=NULL || r->font_count!=0u ||
            r->font_capacity!=0u ||
            r->forms!=NULL || r->form_count!=0u ||

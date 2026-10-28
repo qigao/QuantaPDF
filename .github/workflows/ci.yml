@@ -79,6 +79,20 @@ jobs:
             echo "PDFium binary or license artifact installed" >&2
             exit 1
           fi
+      - name: Installed C11 native render consumer
+        shell: bash
+        run: |
+          prefix="$RUNNER_TEMP/external/pkgs/quantapdf/release"
+          cmake -S tests/native/installed-c11-consumer \
+            -B build/installed-c11-consumer -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            "-DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            "-DVCPKG_INSTALLED_DIR=$GITHUB_WORKSPACE/vcpkg_installed" \
+            "-DVCPKG_TARGET_TRIPLET=x64-linux" \
+            "-DCMAKE_PREFIX_PATH=$GITHUB_WORKSPACE/vcpkg_installed/x64-linux" \
+            "-DQuantaPDF_DIR=$prefix/lib/cmake/QuantaPDF"
+          cmake --build build/installed-c11-consumer --parallel 2
+          ctest --test-dir build/installed-c11-consumer --output-on-failure
       - name: Native ASan/UBSan configure
         run: cmake --fresh --preset linux-dev-user
       - name: Native ASan/UBSan build
@@ -149,6 +163,20 @@ jobs:
           if find "$prefix" -type f -iname '*pdfium*' | grep .; then
             exit 1
           fi
+      - name: Installed C11 native render consumer
+        shell: bash
+        run: |
+          prefix="$RUNNER_TEMP/external/pkgs/quantapdf/release"
+          cmake -S tests/native/installed-c11-consumer \
+            -B build/installed-c11-consumer -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            "-DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            "-DVCPKG_INSTALLED_DIR=$GITHUB_WORKSPACE/vcpkg_installed" \
+            "-DVCPKG_TARGET_TRIPLET=$VCPKG_TRIPLET" \
+            "-DCMAKE_PREFIX_PATH=$GITHUB_WORKSPACE/vcpkg_installed/$VCPKG_TRIPLET" \
+            "-DQuantaPDF_DIR=$prefix/lib/cmake/QuantaPDF"
+          cmake --build build/installed-c11-consumer --parallel 2
+          ctest --test-dir build/installed-c11-consumer --output-on-failure
 
   windows:
     runs-on: windows-latest
@@ -215,3 +243,11 @@ jobs:
           if (Select-String -Path $config -Pattern 'PDFium|quantapdf_pdfium') { throw 'PDFium target is exported' }
           $files = @(Get-ChildItem -Path $prefix -Recurse -File | Where-Object { $_.Name -match '(?i)pdfium' })
           if ($files.Count -ne 0) { throw 'PDFium binary installed' }
+      - name: Verify exact Windows DLL export ABI
+        shell: cmd
+        run: |
+          call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && cmake "-DQUANTAPDF_DUMPBIN=dumpbin" "-DQUANTAPDF_LIBRARY=%CD%/build/Msvc-Release/quantapdf.dll" "-DQUANTAPDF_EXPORT_BASELINE=%CD%/abi/quantapdf-v2.exports" -P cmake/CheckQuantaPDFExports.cmake
+      - name: Installed C11 native render consumer
+        shell: cmd
+        run: |
+          call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && cmake -S tests/native/installed-c11-consumer -B build/installed-c11-consumer -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%/scripts/buildsystems/vcpkg.cmake" "-DVCPKG_INSTALLED_DIR=%CD%/vcpkg_installed" -DVCPKG_TARGET_TRIPLET=x64-windows-static-md "-DCMAKE_PREFIX_PATH=%CD%/vcpkg_installed/x64-windows-static-md" "-DQuantaPDF_DIR=%RUNNER_TEMP%/external/pkgs/quantapdf/release/lib/cmake/QuantaPDF" && cmake --build build/installed-c11-consumer --parallel 2 && set "PATH=%RUNNER_TEMP%\external\pkgs\quantapdf\release\bin;%PATH%" && ctest --test-dir build/installed-c11-consumer --output-on-failure

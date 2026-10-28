@@ -150,12 +150,12 @@ static std::string create_image_only_source(int mode)
     root.replaceKey("/Kids",Obj::newArray({page}));
     root.replaceKey("/Count",Obj::newInteger(1));
     page.replaceKey("/Parent",root);
-    const bool gray=mode==2 || mode==3;
+    const bool gray=mode==2 || mode==3 || mode==20;
     const std::string rgb("\xff\0\0\0\xff\0\0\0\xff\xff\xff\0",12);
     const std::string samples=gray ?
         std::string("\0\x55\xaa\xff",4) : rgb;
     std::string encoded=samples;
-    if(mode==3) {
+    if(mode==3 || mode==20) {
         const std::string tiff("\0\x55\xaa\x55",4);
         uLongf cap=compressBound(static_cast<uLong>(tiff.size()));
         encoded.assign(static_cast<size_t>(cap),'\0');
@@ -178,7 +178,7 @@ static std::string create_image_only_source(int mode)
                      (gray?"/DeviceGray":"/DeviceRGB")));
     if(gray)
         image.getDict().replaceKey("/Decode",Obj::parse("[1 0]"));
-    if(mode==3) {
+    if(mode==3 || mode==20) {
         image.getDict().replaceKey("/Filter",Obj::newName("/FlateDecode"));
         image.getDict().replaceKey("/DecodeParms",Obj::parse(
             "<< /Predictor 2 /Colors 1 /Columns 2 /BitsPerComponent 8 >>"));
@@ -218,8 +218,17 @@ static std::string create_image_only_source(int mode)
     if(mode==16)content=
         "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q "
         "q 12 6 8 9 re W* n /I Do Q Q"; /* second Clip */
-    if(mode==6)content+=
-        " q 8 0 0 6 24 0 cm /I Do Q q 8 0 0 6 0 0 cm /I Do Q";
+    if(mode==6 || (mode>=17 && mode<=21))
+        content+=" q 8 0 0 6 24 0 cm /I Do Q"
+                 " q 8 0 0 6 0 0 cm /I Do Q";
+    if(mode>=17 && mode<=20)
+        content+=" q 8 0 0 6 24 12 cm /I Do Q"; /* fourth */
+    if(mode==18)
+        content+=" q 4 0 0 4 12 19 cm /I Do Q"; /* fifth: reject */
+    if(mode==19)
+        content+=" BT ET"; /* late unsupported: discard all four */
+    if(mode==21)
+        content+=" q 8 0 0 6 16 9 cm /I Do Q"; /* fourth overlaps */
     page.replaceKey("/Contents",pdf->newStream(content));
     QPDFWriter writer(*pdf);
     writer.setOutputMemory();
@@ -654,10 +663,11 @@ int main()
     }
 
 
-    /* Original Image-only native Source V10: fixed expected RGB, no
-     * reference engine or hidden PATH/Clip fallback. Existing RAW/Flate
-     * decode and area-resized thumbnail share the ordinary Bitmap owner. */
-    for(int mode=0;mode<17;++mode) {
+    /* One-to-four native IMAGE layers with deterministic independent
+     * RGB goldens. Fifth IMAGE / late Text rejects atomically; original
+     * RAW/TIFF Predictor image bytes, thumbnail, no fallback and actual
+     * Context Bitmap ownership stay under the existing C11 budget. */
+    for(int mode=0;mode<22;++mode) {
         CHECK(write_pdf(filename,create_image_only_source(mode)));
         quantapdf_context *image_context=nullptr;
         quantapdf_document *image_doc=nullptr;
@@ -671,7 +681,9 @@ int main()
         OK(quantapdf_load_page(image_doc,0,&image_page));
         const auto result=quantapdf_render_page(image_page,&rendered);
         const bool clipped=mode==5 || mode==9 || mode==11;
-        if(mode>=4 && !clipped) {
+        const bool image_only_four=mode==6 || mode==17 ||
+                                   mode==20 || mode==21;
+        if(mode>=4 && !clipped && !image_only_four) {
             /* Unknown /J is an invalid resource; an unmatched Q is
              * malformed original-PDF graphics-stack syntax. Both are
              * FORMAT failures, not ordinary unsupported features. */
@@ -699,7 +711,7 @@ int main()
             OK(quantapdf_bitmap_data(rendered,&pixels,&bytes));
             CHECK(w==32 && h==24 && s==96 && c==3 &&
                   bytes==32u*24u*3u && pixels!=nullptr);
-            const bool gray=mode==2 || mode==3;
+            const bool gray=mode==2 || mode==3 || mode==20;
             if(clipped) {
                 /* The Clip is x=[12,20), page y=[6,15):
                  * original four RAW quadrants are partially visible.
@@ -729,9 +741,31 @@ int main()
                     gray?0u:255u,gray?0u:255u,0u));
             }
             CHECK(probe_rgb(pixels,s,2,2,255u,255u,255u));
-            if(mode==1) {
-                CHECK(probe_rgb(pixels,s,26,19,255u,0u,0u));
-                CHECK(probe_rgb(pixels,s,30,19,0u,255u,0u));
+            if(mode==1 || image_only_four) {
+                CHECK(probe_rgb(pixels,s,26,19,
+                    255u,gray?255u:0u,gray?255u:0u));
+                CHECK(probe_rgb(pixels,s,30,19,
+                    gray?170u:0u,gray?170u:255u,gray?170u:0u));
+            }
+            if(image_only_four) {
+                CHECK(probe_rgb(pixels,s,2,19,
+                    255u,gray?255u:0u,gray?255u:0u));
+                CHECK(probe_rgb(pixels,s,6,19,
+                    gray?170u:0u,gray?170u:255u,gray?170u:0u));
+            }
+            if(mode==17 || mode==20) {
+                CHECK(probe_rgb(pixels,s,26,8,
+                    255u,gray?255u:0u,gray?255u:0u));
+                CHECK(probe_rgb(pixels,s,30,8,
+                    gray?170u:0u,gray?170u:255u,gray?170u:0u));
+                CHECK(probe_rgb(pixels,s,26,13,255u,255u,255u));
+            }
+            if(mode==21) {
+                /* Four paints, final /I overlays prior GREEN with RED
+                 * but leaves the preceding bottom-row YELLOW untouched. */
+                CHECK(probe_rgb(pixels,s,18,11,255u,0u,0u));
+                CHECK(probe_rgb(pixels,s,22,11,0u,255u,0u));
+                CHECK(probe_rgb(pixels,s,18,16,255u,255u,0u));
             }
             OK(quantapdf_render_page(image_page,&again));
             OK(quantapdf_bitmap_data(again,&repeat,&repeat_size));
@@ -751,6 +785,18 @@ int main()
                 if(mode==9)
                     CHECK(probe_rgb(repeat,s,6,6,0u,0u,255u));
             }
+            if(mode==17 || mode==20) {
+                /* 16x12 thumbnail at x=15 spans full x=[30,32).
+                 * Row y=3 samples only the fourth IMAGE top row;
+                 * y=4 straddles its green/yellow (or 170/0 Gray)
+                 * boundary, requiring exact native area averaging. */
+                CHECK(probe_rgb(repeat,s,15,3,
+                    gray?170u:0u,gray?170u:255u,gray?170u:0u));
+                CHECK(probe_rgb(repeat,s,15,4,
+                    gray?85u:128u,gray?85u:255u,gray?85u:0u));
+            }
+            if(mode==21)
+                CHECK(probe_rgb(repeat,s,9,5,255u,0u,0u));
         }
         quantapdf_drop_page(image_page);
         quantapdf_close(image_doc);
@@ -761,8 +807,8 @@ int main()
             OK(quantapdf_bitmap_data(rendered,&owner,&bytes));
             CHECK(owner!=nullptr && bytes==32u*24u*3u &&
                   probe_rgb(owner,96,13,11,255u,
-                    (mode==2 || mode==3)?255u:0u,
-                    (mode==2 || mode==3)?255u:0u));
+                    (mode==2 || mode==3 || mode==20)?255u:0u,
+                    (mode==2 || mode==3 || mode==20)?255u:0u));
         }
         quantapdf_drop_bitmap(small);
         quantapdf_drop_bitmap(rendered);

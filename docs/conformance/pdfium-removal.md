@@ -22,6 +22,10 @@ This is an explicit breaking feature-coverage change:
   Stroke/Clip/Text or excess PATH count still fails closed.
 - 8-bit DeviceGray/RGB RAW or bounded Flate TIFF/PNG Predictor values
   and per-channel exact Decode inversion are the admitted image subset.
+  For unclipped Image-only pages, 1–4 source-ordered `Do` paints now share
+  the existing four-layer C11 Raster limit; the fifth image or late
+  unsupported Text fails atomically. Mixed PATH/IMAGE and W/W* clipped
+  image profiles retain their separately qualified, narrower limits.
 - Native thumbnails for admitted 72-DPI pages are available through
   bounded area-averaged RGB reduction, with no upscaling or fallback.
   Their output retains the original Bitmap Context lifecycle.

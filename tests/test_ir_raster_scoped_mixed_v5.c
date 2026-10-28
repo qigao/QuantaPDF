@@ -15,7 +15,7 @@ typedef struct fixture {
     quantapdf_ir ir;
     quantapdf_composer_page_state page;
     quantapdf_composer_operation ops[4];
-    quantapdf_composer_image_state images[2];
+    quantapdf_composer_image_state images[4];
     quantapdf_composer_graphics_state gs;
     quantapdf_composer_clip_state clip;
     quantapdf_composer_path_command
@@ -543,6 +543,99 @@ static int image_only_cases(void)
 }
 
 
+/* Native-only C11 regression for the public Source V10 four-image
+ * materializer: render three and four separate RAW resources, test
+ * last-Do order, exact repeat, explicit work/resource budgets and
+ * fail-closed hidden state. Existing clipped two-image caps stay intact. */
+static int image_only_four_layer_cases(void)
+{
+    fixture f;
+    quantapdf_ir_raster_image out={0},again={0};
+    quantapdf_ir_raster_scoped_mixed_v5_limits limit=budgets;
+    unsigned char blue[3]={0u,0u,255u};
+    unsigned char yellow[3]={255u,255u,0u};
+    const quantapdf_rect positions[4]={
+        {0,0,4,4},{4,0,8,4},{0,4,4,8},{4,4,8,8}
+    };
+    image_only_setup(&f);
+    f.images[0].has_alpha=0;
+    f.images[0].alpha_data=NULL;
+    f.images[0].alpha_size=0u;
+    f.images[2]=f.images[1];
+    f.images[2].data=blue;
+    f.images[3]=f.images[1];
+    f.images[3].data=yellow;
+    for(size_t i=0u;i<4u;++i) {
+        f.ops[i]=f.ops[0];
+        f.ops[i].value.image.image_id=(quantapdf_composer_image_id)(i+1u);
+        f.ops[i].bounds=positions[i];
+    }
+    limit.max_source_pixels=4u;
+    limit.max_drawn_pixels=64u;
+    f.ir.resources.image_count=3u;
+    f.ir.resources.image_capacity=3u;
+    f.ir.operation_count=3u;
+    OK(quantapdf_ir_raster_scoped_mixed_v5(&f.ir,0u,&limit,&out));
+    CHECK(color(&out,1u,1u)==UINT32_C(0xff0000ff));
+    CHECK(color(&out,5u,1u)==UINT32_C(0x00ff00ff));
+    CHECK(color(&out,1u,5u)==UINT32_C(0x0000ffff));
+    CHECK(color(&out,5u,5u)==UINT32_C(0xffffffff));
+    quantapdf_ir_raster_image_dispose(&out);
+
+    f.ir.resources.image_count=4u;
+    f.ir.resources.image_capacity=4u;
+    f.ir.operation_count=4u;
+    OK(quantapdf_ir_raster_scoped_mixed_v5(&f.ir,0u,&limit,&out));
+    OK(quantapdf_ir_raster_scoped_mixed_v5(&f.ir,0u,&limit,&again));
+    CHECK(out.width==8u && out.height==8u && out.stride==32u &&
+          out.size==256u && again.size==out.size &&
+          memcmp(out.pixels,again.pixels,out.size)==0);
+    CHECK(color(&out,5u,5u)==UINT32_C(0xffff00ff));
+    CHECK(color(&out,7u,1u)==UINT32_C(0x00ff00ff));
+    quantapdf_ir_raster_image_dispose(&again);
+    quantapdf_ir_raster_image_dispose(&out);
+
+    /* The fourth paint overwrites an earlier green pixel; a green
+     * pixel outside its new bounds must survive the same source order. */
+    f.images[3].data=f.red;
+    f.ops[3].bounds=(quantapdf_rect){4,0,6,4};
+    OK(quantapdf_ir_raster_scoped_mixed_v5(&f.ir,0u,&limit,&out));
+    CHECK(color(&out,5u,1u)==UINT32_C(0xff0000ff));
+    CHECK(color(&out,7u,1u)==UINT32_C(0x00ff00ff));
+    CHECK(color(&out,1u,5u)==UINT32_C(0x0000ffff));
+    f.red[0]=0u; /* previously published raster owns its own pixels */
+    CHECK(color(&out,5u,1u)==UINT32_C(0xff0000ff));
+    f.red[0]=255u;
+    quantapdf_ir_raster_image_dispose(&out);
+
+    f.ir.operation_count=5u;
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    f.ir.operation_count=4u;
+    limit.max_operations=3u;
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    limit.max_operations=4u;
+    limit.max_source_pixels=3u;
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    limit.max_source_pixels=4u;
+    limit.max_drawn_pixels=63u; /* 3*16 + 8 pixels last paint */
+    f.ops[3].bounds=positions[3]; /* four 16-pixel draws cost 64 */
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    limit.max_drawn_pixels=64u;
+    f.ir.resources.image_capacity=3u; /* hidden/insufficient slot */
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    f.ir.resources.image_capacity=4u;
+    f.ir.resources.graphics_states=&f.gs; /* hidden GS, count is zero */
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    f.ir.resources.graphics_states=NULL;
+    f.images[3].size=2u; /* malformed fourth resource */
+    CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
+    f.images[3].size=3u;
+    OK(quantapdf_ir_raster_scoped_mixed_v5(&f.ir,0u,&limit,&out));
+    CHECK(color(&out,7u,7u)==UINT32_C(0xff0000ff));
+    quantapdf_ir_raster_image_dispose(&out);
+    return EXIT_SUCCESS;
+}
+
 /* Native public two-paint PATH+IMAGE without any Clip/GS: paint order
  * must change a known overlap pixel, while nonoverlap and background
  * remain deterministic. The C11 painter itself must reject hidden
@@ -805,6 +898,7 @@ int main(void)
        clipped_image_only_cases()!=EXIT_SUCCESS ||
        unclipped_mixed_cases()!=EXIT_SUCCESS ||
        image_only_cases()!=EXIT_SUCCESS ||
+       image_only_four_layer_cases()!=EXIT_SUCCESS ||
        path_only_cases()!=EXIT_SUCCESS ||
        path_only_four_layer_cases()!=EXIT_SUCCESS ||
        blank_page_cases()!=EXIT_SUCCESS ||
