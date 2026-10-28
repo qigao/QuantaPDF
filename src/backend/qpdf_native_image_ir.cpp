@@ -730,6 +730,21 @@ public:
                 std::floor(channel*255.0+0.5));
             fill_argb=UINT32_C(0xff000000) |
                 (gray<<16u) | (gray<<8u) | gray;
+        } else if(target.native_unclipped_mode &&
+                  (op=="G" || op=="RG" || op=="K")) {
+            /* Stroking-only DeviceGray/RGB/CMYK. Public Source V10
+             * admits no actual Stroke. Validate the original typed
+             * operands and drop the unobservable stroke colour, not
+             * paint, IR, owner, renderer or resource budget. */
+            admit(pending_path.empty() && !clip_pending,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            const size_t count=op=="G"?1u:(op=="RG"?3u:4u);
+            admit(args.size()==count,QUANTAPDF_ERROR_UNSUPPORTED);
+            for(size_t i=0u;i<count;++i) {
+                const double component=finite_number(args[i]);
+                admit(component>=0.0 && component<=1.0,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+            }
         } else if((mixed || clipped) && op=="m") {
             admit(args.size()==2u && pending_path.empty(),
                   QUANTAPDF_ERROR_UNSUPPORTED);

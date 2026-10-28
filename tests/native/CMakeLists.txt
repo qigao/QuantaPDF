@@ -117,3 +117,18 @@ add_test(NAME quantapdf.native_source_stage_oom
   COMMAND quantapdf_native_source_stage_oom)
 set_tests_properties(quantapdf.native_source_stage_oom PROPERTIES
   TIMEOUT 40 LABELS "conformance;native;no-pdfium;source-staging;oom")
+# Public Source V10 stroking-only DeviceGray/RGB/CMYK state.
+# One source producer, one C11 raster, no fallback or PDFium.
+add_executable(quantapdf_native_stroke_color test_native_stroke_color.cpp)
+target_compile_features(quantapdf_native_stroke_color PRIVATE cxx_std_20)
+target_link_libraries(quantapdf_native_stroke_color PRIVATE
+  QuantaPDF::QuantaPDF qpdf::libqpdf)
+if(MSVC)
+  target_compile_options(quantapdf_native_stroke_color PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_stroke_color PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_stroke_color COMMAND quantapdf_native_stroke_color)
+set_tests_properties(quantapdf.native_stroke_color PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;graphics-state")
