@@ -2660,9 +2660,9 @@ static int native_original_userunit_cases(const std::string& filename)
         pdf->setSuppressWarnings(true);
         pdf->processMemoryFile("unqualified UserUnit",
             original.data(),original.size(),"");
-        auto page=pdf->getRoot().getKey("/Pages")
+        auto pdf_leaf=pdf->getRoot().getKey("/Pages")
             .getKey("/Kids").getArrayItem(0);
-        page.replaceKey("/UserUnit",Obj::parse(raw));
+        pdf_leaf.replaceKey("/UserUnit",Obj::parse(raw));
         QPDFWriter writer(*pdf);
         writer.setOutputMemory();
         writer.write();
