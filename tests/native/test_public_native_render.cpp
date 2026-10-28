@@ -1919,7 +1919,13 @@ static int native_fractional_quarter_cases(const std::string& filename)
         quantapdf_render_options opts{};
         opts.struct_size=sizeof(opts);
         opts.dpi=(float)dpi;
-        OK(quantapdf_render_page_with_options(page,&opts,&bm));
+        const auto render_status=
+            quantapdf_render_page_with_options(page,&opts,&bm);
+        if(render_status!=QUANTAPDF_OK)
+            std::fprintf(stderr,
+                "fractional quarter Source rejected kind=%zu dpi=%d fixture=%d status=%d bitmap=%p\n",
+                kind,dpi,fixture,(int)render_status,(void*)bm);
+        CHECK(render_status==QUANTAPDF_OK && bm!=nullptr);
         int w=0,h=0,s=0,ch=0;
         const unsigned char *px=nullptr;
         size_t bytes=0u;
