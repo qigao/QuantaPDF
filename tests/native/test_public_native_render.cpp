@@ -1230,10 +1230,13 @@ static std::string shifted_media_original(
     auto page=pages.getKey("/Kids").getArrayItem(0);
     std::string box;
     if(mode==3) {
-        box="["+std::to_string(shift_x)+".5 "+
-             std::to_string(shift_y)+".5 "+
-             std::to_string(shift_x+32)+".5 "+
-             std::to_string(shift_y+24)+".5]";
+        /* Numerical +0.5: concatenating "-7" and ".5" makes -7.5
+         * instead of the intended -6.5 and changes the page height!
+         * QPDF serializes these finite binary-exact quarter endpoints. */
+        box="["+std::to_string((double)shift_x+0.5)+" "+
+             std::to_string((double)shift_y+0.5)+" "+
+             std::to_string((double)(shift_x+32)+0.5)+" "+
+             std::to_string((double)(shift_y+24)+0.5)+"]";
     } else {
         box="["+std::to_string(shift_x)+" "+
             std::to_string(shift_y)+" "+
@@ -1431,11 +1434,16 @@ static int native_media_origin_cases(const std::string& filename)
         quantapdf_bitmap *result=reinterpret_cast<quantapdf_bitmap*>(
             uintptr_t(1));
         const auto status=quantapdf_render_page(page,&result);
-        if(mode==2) {
-            /* Mode 2 CropBox removes one MediaBox column from the left:
-             * actual output is 31x24, with red source at (12,11)
-             * and gray post-Q PATH at (25,5), not a 32x24 crop of
-             * a generated result or a provider fallback. */
+        if(mode==2 || mode==3) {
+            /* Mode 2 is an actual 31x24 crop viewport. Mode 3 uses a
+             * separately admitted original quarter-point full Media
+             * origin: [15.5 -6.5 47.5 17.5], with a real authorial
+             * integer CTM. Neither can be treated as a 72-DPI crop
+             * or silently refused after full source admission. */
+            if(status!=QUANTAPDF_OK || result==nullptr)
+                std::fprintf(stderr,
+                    "origin legacy positive mode=%d status=%d output=%p\n",
+                    mode,(int)status,(void*)result);
             CHECK(status==QUANTAPDF_OK && result!=nullptr);
             int w=0,h=0,stride=0,channels=0;
             const unsigned char *rgb=nullptr;
@@ -1443,10 +1451,14 @@ static int native_media_origin_cases(const std::string& filename)
             OK(quantapdf_bitmap_dimensions(
                 result,&w,&h,&stride,&channels));
             OK(quantapdf_bitmap_data(result,&rgb,&n));
-            CHECK(w==31 && h==24 && stride==93 && channels==3 &&
-                  n==31u*24u*3u && rgb!=nullptr);
-            CHECK(probe_rgb(rgb,stride,12,11,255u,0u,0u));
-            CHECK(probe_rgb(rgb,stride,25,5,223u,223u,223u));
+            const int expected_w=mode==2?31:32;
+            CHECK(w==expected_w && h==24 &&
+                  stride==expected_w*3 && channels==3 &&
+                  n==(size_t)expected_w*24u*3u && rgb!=nullptr);
+            CHECK(probe_rgb(rgb,stride,
+                mode==2?12:13,11,255u,0u,0u));
+            CHECK(probe_rgb(rgb,stride,
+                mode==2?25:26,5,223u,223u,223u));
             quantapdf_drop_bitmap(result);result=nullptr;
         } else
             CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED && result==nullptr);
@@ -1848,6 +1860,345 @@ static int cropped_source_v10_cases(const std::string& filename)
     return EXIT_SUCCESS;
 }
 
+/* QPDF-authored original fractional Media/Crop endpoint fixtures.
+ * One valid M0 viewport has an EXACT integer span but quarter-point
+ * signed origin. No QPDF rendering or second raster oracle.
+ * Case 0: Media[.25 .5 32.25 24.5] / no Crop.
+ * Case 1: Media[-7.25 -.5 24.75 23.5] / no Crop.
+ * Case 2: Media[.25 .5 32.25 24.5], Crop[8.25 4.5 24.25 20.5].
+ * Case 3: same as case 2 but inherited Media/Crop on root /Pages.
+ * Negative 4/5: cropped spans 16.5/Media span 31.5,
+ * 6: decimal .1 (not quarter), 7: decimal .125 (not quarter). */
+static std::string original_quarter_box_pdf(
+    const std::string& original,int fixture,int source_rotation)
+{
+    auto pdf=QPDF::create();
+    pdf->setSuppressWarnings(true);
+    pdf->setAttemptRecovery(false);
+    pdf->processMemoryFile("original fractional quarter PDF",
+        original.data(),original.size(),"");
+    auto root=pdf->getRoot().getKey("/Pages");
+    auto page=root.getKey("/Kids").getArrayItem(0);
+    std::string media="[0.25 0.5 32.25 24.5]";
+    std::string crop;
+    if(fixture==1)media="[-7.25 -0.5 24.75 23.5]";
+    if(fixture==2 || fixture==3)
+        crop="[8.25 4.5 24.25 20.5]";
+    if(fixture==4)
+        crop="[8.25 4.5 24.75 20.5]";
+    if(fixture==5)
+        media="[0.25 0.5 31.75 24.5]";
+    if(fixture==6)
+        media="[0.1 0.5 32.1 24.5]";
+    if(fixture==7)
+        media="[-7.125 0.5 24.875 24.5]";
+    if(fixture==3) {
+        page.removeKey("/MediaBox");
+        root.replaceKey("/MediaBox",Obj::parse(media));
+        root.replaceKey("/CropBox",Obj::parse(crop));
+        root.replaceKey("/Rotate",Obj::newInteger(source_rotation));
+    } else {
+        page.replaceKey("/MediaBox",Obj::parse(media));
+        if(!crop.empty())page.replaceKey("/CropBox",Obj::parse(crop));
+        page.replaceKey("/Rotate",Obj::newInteger(source_rotation));
+    }
+    QPDFWriter writer(*pdf);
+    writer.setOutputMemory();
+    writer.write();
+    const auto blob=writer.getBufferSharedPointer();
+    return std::string(
+        reinterpret_cast<const char*>(blob->getBuffer()),blob->getSize());
+}
+
+static int native_fractional_quarter_cases(const std::string& filename)
+{
+    const std::string originals[]={
+        create_blank_source(0),create_path_only_source(0),
+        create_image_only_source(0),create_image_only_source(5)
+    };
+    const int dpis[]={72,96,144};
+    for(size_t kind=0u;kind<4u;++kind)
+    for(int dpi:dpis)
+    for(int fixture=0;fixture<=3;++fixture) {
+        CHECK(write_pdf(filename,original_quarter_box_pdf(
+            originals[kind],fixture,0)));
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        quantapdf_bitmap *bm=nullptr;
+        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        quantapdf_render_options opts{};
+        opts.struct_size=sizeof(opts);
+        opts.dpi=(float)dpi;
+        const auto render_status=
+            quantapdf_render_page_with_options(page,&opts,&bm);
+        if(render_status!=QUANTAPDF_OK)
+            std::fprintf(stderr,
+                "fractional quarter Source rejected kind=%zu dpi=%d fixture=%d status=%d bitmap=%p\n",
+                kind,dpi,fixture,(int)render_status,(void*)bm);
+        CHECK(render_status==QUANTAPDF_OK && bm!=nullptr);
+        int w=0,h=0,s=0,ch=0;
+        const unsigned char *px=nullptr;
+        size_t bytes=0u;
+        OK(quantapdf_bitmap_dimensions(bm,&w,&h,&s,&ch));
+        OK(quantapdf_bitmap_data(bm,&px,&bytes));
+        const int expected_w=fixture>=2 ?
+            (dpi==72?16:dpi==96?22:32):
+            (dpi==72?32:dpi==96?43:64);
+        const int expected_h=fixture>=2 ?
+            (dpi==72?16:dpi==96?22:32):
+            (dpi==72?24:dpi==96?32:48);
+        CHECK(w==expected_w && h==expected_h &&
+              s==3*w && ch==3 &&
+              bytes==(size_t)w*(size_t)h*3u && px!=nullptr);
+        if(kind==0u)
+            for(size_t i=0u;i<bytes;++i)CHECK(px[i]==255u);
+        if(fixture==0 && kind==1u) {
+            /* PATH from x=4, Media left=.25 -> x=3.75 at 72,
+             * x=5.0 at 96 and x=7.5 at 144. Single native grid,
+             * independent 16-sample geometric coverage RGB. */
+            if(dpi==72) {
+                CHECK(probe_rgb(px,s,3,16,255u,191u,191u));
+                CHECK(probe_rgb(px,s,4,16,255u,0u,0u));
+            } else if(dpi==96) {
+                CHECK(probe_rgb(px,s,4,22,255u,255u,255u));
+                CHECK(probe_rgb(px,s,5,22,255u,0u,0u));
+            } else {
+                CHECK(probe_rgb(px,s,7,32,255u,127u,127u));
+                CHECK(probe_rgb(px,s,8,32,255u,0u,0u));
+            }
+        }
+        if(fixture==0 && kind==2u) {
+            /* IMAGE right edge: 23.75 source device units, so 3/4
+             * coverage at 72 and 96, half at 144. Green quadrant
+             * source channel remains nearest-neighbor from FULL RAW. */
+            if(dpi==72) {
+                CHECK(probe_rgb(px,s,23,12,64u,255u,64u));
+                CHECK(probe_rgb(px,s,8,12,255u,0u,0u));
+            } else if(dpi==96) {
+                CHECK(probe_rgb(px,s,31,16,64u,255u,64u));
+                CHECK(probe_rgb(px,s,11,16,255u,0u,0u));
+            } else {
+                CHECK(probe_rgb(px,s,47,24,127u,255u,127u));
+                CHECK(probe_rgb(px,s,17,24,255u,0u,0u));
+            }
+        }
+        if(fixture>=2 && kind==2u) {
+            if(dpi==72) {
+                CHECK(probe_rgb(px,s,14,7,0u,255u,0u));
+                CHECK(probe_rgb(px,s,15,7,64u,255u,64u));
+            } else if(dpi==96) {
+                CHECK(probe_rgb(px,s,20,10,0u,255u,0u));
+                CHECK(probe_rgb(px,s,21,10,255u,255u,255u));
+            } else {
+                CHECK(probe_rgb(px,s,30,14,0u,255u,0u));
+                CHECK(probe_rgb(px,s,31,14,127u,255u,127u));
+            }
+        }
+        if(fixture>=2 && kind==3u)
+            CHECK(probe_rgb(px,s,1,1,255u,255u,255u));
+        quantapdf_bitmap *again=nullptr,*rotated=nullptr;
+        OK(quantapdf_render_page_with_options(page,&opts,&again));
+        const unsigned char *same=nullptr;
+        size_t same_size=0u;
+        OK(quantapdf_bitmap_data(again,&same,&same_size));
+        CHECK(same_size==bytes && same!=nullptr &&
+              std::memcmp(same,px,bytes)==0);
+        quantapdf_drop_bitmap(again);
+        opts.rotation_degrees=90.0f;
+        OK(quantapdf_render_page_with_options(page,&opts,&rotated));
+        const unsigned char *turned=nullptr;
+        size_t turned_bytes=0u;
+        int rw=0,rh=0,rs=0,rc=0;
+        OK(quantapdf_bitmap_dimensions(
+            rotated,&rw,&rh,&rs,&rc));
+        OK(quantapdf_bitmap_data(
+            rotated,&turned,&turned_bytes));
+        CHECK(rw==h && rh==w && rs==rw*3 && rc==3 &&
+              turned_bytes==bytes && turned!=nullptr);
+        for(int y=0;y<h;++y)for(int x=0;x<w;++x) {
+            const unsigned char *before=px+
+                (size_t)y*(size_t)s+(size_t)x*3u;
+            const unsigned char *after=turned+
+                (size_t)x*(size_t)rs+(size_t)(h-1-y)*3u;
+            CHECK(std::memcmp(before,after,3u)==0);
+        }
+        quantapdf_drop_bitmap(rotated);
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+        const unsigned char *owned=nullptr;
+        size_t owned_size=0u;
+        OK(quantapdf_bitmap_data(bm,&owned,&owned_size));
+        CHECK(owned!=nullptr && owned_size==bytes &&
+              owned[0]==px[0]);
+        quantapdf_drop_bitmap(bm);
+    }
+    /* Strict fractional SPAN and non-quarter decimal refusal: the
+     * canonical integer-span C11 painter must NOT silently round. */
+    for(int fixture=4;fixture<=7;++fixture) {
+        CHECK(write_pdf(filename,original_quarter_box_pdf(
+            originals[2],fixture,0)));
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        quantapdf_bitmap *bitmap=reinterpret_cast<quantapdf_bitmap*>(
+            uintptr_t(1));
+        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        CHECK(quantapdf_render_page(page,&bitmap)==
+              QUANTAPDF_ERROR_UNSUPPORTED && bitmap==nullptr);
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+    }
+    return EXIT_SUCCESS;
+}
+
+/* Exact original PDF /Rotate in a quarter-point MediaBox, plus
+ * the REAL seventh selected PageTree leaf inheriting a quarter-point
+ * Crop and /Rotate270 from /Pages. These authored sources are NOT
+ * synthetic Composer IR and do not call an external pixel renderer. */
+static int native_fractional_quarter_rotation_cases(const std::string& filename)
+{
+    const int dpis[]={72,96,144};
+    for(int dpi:dpis)
+    for(int angle: {90,180,270}) {
+        const auto original=original_quarter_box_pdf(
+            create_image_only_source(0),0,angle);
+        CHECK(write_pdf(filename,original));
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        quantapdf_bitmap *bm=nullptr;
+        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        quantapdf_render_options opts{};
+        opts.struct_size=sizeof(opts);opts.dpi=(float)dpi;
+        OK(quantapdf_render_page_with_options(page,&opts,&bm));
+        int w=0,h=0,s=0,nc=0;
+        const unsigned char *px=nullptr;
+        size_t n=0u;
+        OK(quantapdf_bitmap_dimensions(bm,&w,&h,&s,&nc));
+        OK(quantapdf_bitmap_data(bm,&px,&n));
+        const int canonical_w=dpi==72?32:dpi==96?43:64;
+        const int canonical_h=dpi==72?24:dpi==96?32:48;
+        const bool quarter=angle==90||angle==270;
+        CHECK(w==(quarter?canonical_h:canonical_w) &&
+              h==(quarter?canonical_w:canonical_h) &&
+              s==w*3 && nc==3 && n==(size_t)s*(size_t)h &&
+              px!=nullptr);
+        int rx=0,ry=0,gx=0,gy=0,bx=0,by=0,yx=0,yy=0;
+        if(angle==90) {
+            rx=12;ry=12;gx=12;gy=20;
+            bx=6;by=12;yx=6;yy=20;
+        } else if(angle==180) {
+            rx=20;ry=12;gx=12;gy=12;
+            bx=20;by=6;yx=12;yy=6;
+        } else {
+            rx=12;ry=20;gx=12;gy=12;
+            bx=18;by=20;yx=18;yy=12;
+        }
+        const auto device=[&](int value) {
+            return dpi==72?value:
+                   dpi==96?(value*4+1)/3:value*2;
+        };
+        CHECK(probe_rgb(px,s,device(rx),device(ry),255u,0u,0u));
+        CHECK(probe_rgb(px,s,device(gx),device(gy),0u,255u,0u));
+        CHECK(probe_rgb(px,s,device(bx),device(by),0u,0u,255u));
+        CHECK(probe_rgb(px,s,device(yx),device(yy),255u,255u,0u));
+        const std::vector<unsigned char> stable(px,px+n);
+        quantapdf_bitmap *turned=nullptr;
+        opts.rotation_degrees=90.0f;
+        OK(quantapdf_render_page_with_options(page,&opts,&turned));
+        int tw=0,th=0,ts=0,tc=0;
+        const unsigned char *tp=nullptr;
+        size_t tn=0u;
+        OK(quantapdf_bitmap_dimensions(
+            turned,&tw,&th,&ts,&tc));
+        OK(quantapdf_bitmap_data(turned,&tp,&tn));
+        CHECK(tw==h && th==w && ts==tw*3 && tc==3 &&
+              tn==n && tp!=nullptr);
+        for(int y=0;y<h;++y)for(int x=0;x<w;++x) {
+            const unsigned char *from=stable.data()+
+                (size_t)y*(size_t)s+(size_t)x*3u;
+            const unsigned char *to=tp+
+                (size_t)x*(size_t)ts+(size_t)(h-1-y)*3u;
+            CHECK(std::memcmp(from,to,3u)==0);
+        }
+        quantapdf_drop_bitmap(turned);
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+        const unsigned char *owner=nullptr;
+        size_t owner_size=0u;
+        OK(quantapdf_bitmap_data(bm,&owner,&owner_size));
+        CHECK(owner_size==n && owner!=nullptr &&
+              std::memcmp(owner,stable.data(),n)==0);
+        quantapdf_drop_bitmap(bm);
+    }
+
+    const auto seven=selected_page_original_pdf();
+    auto pdf=QPDF::create();
+    pdf->setSuppressWarnings(true);
+    pdf->setAttemptRecovery(false);
+    pdf->processMemoryFile("selected original quarter Crop",
+        seven.data(),seven.size(),"");
+    auto branch=pdf->getRoot().getKey("/Pages")
+        .getKey("/Kids").getArrayItem(6);
+    branch.replaceKey("/MediaBox",
+        Obj::parse("[0.25 0.5 32.25 24.5]"));
+    branch.replaceKey("/CropBox",
+        Obj::parse("[8.25 4.5 24.25 20.5]"));
+    QPDFWriter writer(*pdf);
+    writer.setOutputMemory();
+    writer.write();
+    const auto blob=writer.getBufferSharedPointer();
+    const std::string selected_original(
+        reinterpret_cast<const char*>(blob->getBuffer()),blob->getSize());
+    for(int dpi:dpis) {
+        CHECK(write_pdf(filename,selected_original));
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        quantapdf_bitmap *bm=nullptr;
+        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        int count=0;
+        OK(quantapdf_page_count(doc,&count));
+        CHECK(count==7);
+        OK(quantapdf_load_page(doc,6,&page));
+        quantapdf_rect bounds{};
+        OK(quantapdf_page_bounds(page,&bounds));
+        CHECK(bounds.x0==0.0f && bounds.y0==0.0f &&
+              bounds.x1==16.0f && bounds.y1==16.0f);
+        quantapdf_render_options opts{};
+        opts.struct_size=sizeof(opts);opts.dpi=(float)dpi;
+        OK(quantapdf_render_page_with_options(page,&opts,&bm));
+        int w=0,h=0,s=0,ch=0;
+        const unsigned char *px=nullptr;
+        size_t n=0u;
+        OK(quantapdf_bitmap_dimensions(bm,&w,&h,&s,&ch));
+        OK(quantapdf_bitmap_data(bm,&px,&n));
+        const int edge=dpi==72?16:dpi==96?22:32;
+        CHECK(w==edge && h==edge && s==w*3 && ch==3 &&
+              n==(size_t)s*(size_t)h && px!=nullptr);
+        const auto pixel=[&](int v) {
+            return dpi==72?v:dpi==96?(v*4+1)/3:v*2;
+        };
+        CHECK(probe_rgb(px,s,pixel(8),pixel(13),255u,0u,0u));
+        CHECK(probe_rgb(px,s,pixel(8),pixel(4),0u,255u,0u));
+        CHECK(probe_rgb(px,s,pixel(13),pixel(13),0u,0u,255u));
+        CHECK(probe_rgb(px,s,pixel(13),pixel(4),255u,255u,0u));
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+        const unsigned char *retained=nullptr;
+        size_t sz=0u;
+        OK(quantapdf_bitmap_data(bm,&retained,&sz));
+        CHECK(retained!=nullptr && sz==n &&
+              retained[0]==px[0]);
+        quantapdf_drop_bitmap(bm);
+    }
+    return EXIT_SUCCESS;
+}
+
 int main()
 {
     const std::string filename="native-standalone-smoke.pdf";
@@ -1856,6 +2207,8 @@ int main()
     CHECK(selected_page_v10_cases(filename)==EXIT_SUCCESS);
     CHECK(native_media_origin_cases(filename)==EXIT_SUCCESS);
     CHECK(cropped_source_v10_cases(filename)==EXIT_SUCCESS);
+    CHECK(native_fractional_quarter_cases(filename)==EXIT_SUCCESS);
+    CHECK(native_fractional_quarter_rotation_cases(filename)==EXIT_SUCCESS);
     CHECK(write_pdf(filename,create_source(false)));
 
     quantapdf_context *context=nullptr;

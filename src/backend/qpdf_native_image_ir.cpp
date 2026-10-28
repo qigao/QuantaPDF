@@ -57,9 +57,14 @@ double finite_number(Obj x)
 
 double whole_signed_source(double value)
 {
+    /* Source V10 accepts quarter-point coordinates from a proven
+     * exact-lattice page viewport. For the legacy integer boxes this
+     * also admits a *fractional source CTM* only when its transformed
+     * geometry is representable on the same 4x4 sample grid.
+     * Work and absolute source range remain independently bounded. */
     admit(std::isfinite(value) && value>=-1000000.0 &&
           value<=1000000.0 &&
-          std::trunc(value)==value,
+          std::trunc(value*4.0)==value*4.0,
           QUANTAPDF_ERROR_UNSUPPORTED);
     return value;
 }
@@ -1635,6 +1640,119 @@ Obj source_v10_selected_page(QPDF& pdf,size_t selected_index,
     return selected;
 }
 
+/* Exact quarter-point M0 Source box parser. Use the original QPDF
+ * NUMBER token, not double->snprintf (which can change decimal bounds).
+ * This deliberately admits only the 1/4-point lattice. A fractional
+ * viewport SPAN is a separate M1 gate: do not silently ceil, round,
+ * stretch, or lose a partial final row/column in the current Raster. */
+int64_t source_v10_quarters(Obj number)
+{
+    admit(number.isNumber(),QUANTAPDF_ERROR_FORMAT);
+    const std::string raw=number.unparse();
+    admit(!raw.empty() && raw.size()<=20u,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    size_t i=0u;
+    const bool negative=raw[i]=='-';
+    if(raw[i]=='-' || raw[i]=='+')++i;
+    admit(i<raw.size(),QUANTAPDF_ERROR_UNSUPPORTED);
+    int64_t integer_part=0,decimal_part=0,denominator=1;
+    bool seen_digit=false,point=false;
+    for(;i<raw.size();++i) {
+        const char c=raw[i];
+        if(c=='.' && !point) {point=true;continue;}
+        admit(c>='0' && c<='9',QUANTAPDF_ERROR_UNSUPPORTED);
+        const int64_t d=(int64_t)(c-'0');
+        if(!point) {
+            admit(integer_part<=1000000ll/10ll,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            integer_part=integer_part*10ll+d;
+            admit(integer_part<=1000000ll,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+        } else {
+            admit(denominator<=100000000ll,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            decimal_part=decimal_part*10ll+d;
+            denominator*=10ll;
+        }
+        seen_digit=true;
+    }
+    admit(seen_digit && (decimal_part*4ll)%denominator==0ll,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    const int64_t quarters=integer_part*4ll+
+        decimal_part*4ll/denominator;
+    admit(quarters<=4000000ll,QUANTAPDF_ERROR_UNSUPPORTED);
+    return negative?-quarters:quarters;
+}
+
+std::array<int64_t,4> source_v10_quarter_box(Obj box)
+{
+    admit(box.isArray() && box.getArrayNItems()==4,
+          QUANTAPDF_ERROR_FORMAT);
+    std::array<int64_t,4> q={};
+    for(size_t i=0u;i<4u;++i)
+        q[i]=source_v10_quarters(box.getArrayItem((int)i));
+    if(q[0]>q[2])std::swap(q[0],q[2]);
+    if(q[1]>q[3])std::swap(q[1],q[3]);
+    admit(q[2]>q[0] && q[3]>q[1],QUANTAPDF_ERROR_FORMAT);
+    return q;
+}
+
+struct source_v10_exact_boxes {
+    std::array<int64_t,4> media;
+    std::array<int64_t,4> crop;
+    std::array<int64_t,4> visible;
+};
+
+source_v10_exact_boxes source_v10_quarter_geometry(
+    Obj selected,size_t max_parent_steps,
+    const quantapdf_qpdf_page_geometry& geo)
+{
+    Obj media=Obj::newNull(),crop=Obj::newNull();
+    std::set<QPDFObjGen> seen;
+    size_t steps=0u;
+    for(Obj p=selected;!p.isNull();p=p.getKey("/Parent")) {
+        admit(steps++<max_parent_steps && steps<=256u,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        admit(p.isIndirect() && p.isDictionary(),
+              QUANTAPDF_ERROR_FORMAT);
+        admit(seen.insert(p.getObjGen()).second,
+              QUANTAPDF_ERROR_FORMAT);
+        if(media.isNull())media=p.getKey("/MediaBox");
+        if(crop.isNull())crop=p.getKey("/CropBox");
+    }
+    admit(!media.isNull(),QUANTAPDF_ERROR_FORMAT);
+    const auto m=source_v10_quarter_box(media);
+    const auto c=crop.isNull()?m:source_v10_quarter_box(crop);
+    std::array<int64_t,4> view={
+        std::max(m[0],c[0]),std::max(m[1],c[1]),
+        std::min(m[2],c[2]),std::min(m[3],c[3])
+    };
+    admit(view[2]>view[0] && view[3]>view[1],
+          QUANTAPDF_ERROR_FORMAT);
+    /* The independent, existing QPDF page geometry reader must agree
+     * with the exact selected original numbers. For admitted quarters,
+     * binary64 representation and comparison are exact. */
+    for(size_t i=0u;i<4u;++i) {
+        admit(geo.media[i]==(double)m[i]/4.0 &&
+              geo.crop[i]==(double)c[i]/4.0,
+              QUANTAPDF_ERROR_FORMAT);
+    }
+    admit(geo.left==(double)view[0]/4.0 &&
+          geo.bottom==(double)view[1]/4.0 &&
+          geo.right==(double)view[2]/4.0 &&
+          geo.top==(double)view[3]/4.0,
+          QUANTAPDF_ERROR_FORMAT);
+    /* M0: effective widths must stay EXACT integers. The C11 V5
+     * Raster cannot yet represent partial last-pixel page extents;
+     * rejecting here is safer than inventing an integer viewport. */
+    admit((view[2]-view[0])%4ll==0ll &&
+          (view[3]-view[1])%4ll==0ll &&
+          (m[2]-m[0])%4ll==0ll &&
+          (m[3]-m[1])%4ll==0ll,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    return {m,c,view};
+}
+
 static quantapdf_status source_raw_images_to_ir_impl(
     const unsigned char *original_pdf,size_t size,
     const quantapdf_qpdf_source_raw_image_limits *limits,
@@ -1677,31 +1795,14 @@ static quantapdf_status source_raw_images_to_ir_impl(
         if(native_v10)
             admit(geo.page.isSameObjectAs(selected),
                   QUANTAPDF_ERROR_FORMAT);
-        /* Source V10 M1: honor the ACTUAL Media∩Crop viewport in PDF
-         * coordinates. All exposed viewport endpoints must be exact
-         * bounded integers in this slice. Distinct /CropBox can extend
-         * outside Media, but the intersection must be nonempty.
-         * Do not silently convert it to a full-page MediaBox. */
-        const bool qualified_origin=native_v10 &&
-            std::isfinite(geo.media[0]) &&
-            std::isfinite(geo.media[1]) &&
-            geo.media[0]>=-1000000.0 &&
-            geo.media[0]<=1000000.0 &&
-            geo.media[1]>=-1000000.0 &&
-            geo.media[1]<=1000000.0 &&
-            std::trunc(geo.media[0])==geo.media[0] &&
-            std::trunc(geo.media[1])==geo.media[1];
-        const bool qualified_viewport=native_v10 &&
-            std::isfinite(geo.left) && std::isfinite(geo.right) &&
-            std::isfinite(geo.bottom) && std::isfinite(geo.top) &&
-            geo.left>=-1000000.0 && geo.left<=1000000.0 &&
-            geo.right>=-1000000.0 && geo.right<=1000000.0 &&
-            geo.bottom>=-1000000.0 && geo.bottom<=1000000.0 &&
-            geo.top>=-1000000.0 && geo.top<=1000000.0 &&
-            std::trunc(geo.left)==geo.left &&
-            std::trunc(geo.right)==geo.right &&
-            std::trunc(geo.bottom)==geo.bottom &&
-            std::trunc(geo.top)==geo.top;
+        /* Quarters of a source point are parsed from the ORIGINAL QPDF
+         * numeric token under independent source ancestry bounds, not
+         * approximated by reformatting binary64. M0 admits fractional
+         * endpoints only when visible and full Media spans stay integer.
+         * This protects the C11 Raster's canonical integer page grid. */
+        if(native_v10)
+            (void)source_v10_quarter_geometry(
+                geo.page,limits->max_parent_steps,geo);
         const bool full_media=
             geo.left==geo.media[0] &&
             geo.bottom==geo.media[1] &&
@@ -1715,8 +1816,8 @@ static quantapdf_status source_raw_images_to_ir_impl(
                                 geo.rotation==180 ||
                                 geo.rotation==270))) &&
               geo.user_unit==1.0 &&
-              ((qualified_origin && qualified_viewport) ||
-               (!native_v10 && full_media &&
+              (native_v10 ||
+               (full_media &&
                 geo.left==0.0 && geo.bottom==0.0 &&
                 geo.media[0]==0.0 && geo.media[1]==0.0)),
               QUANTAPDF_ERROR_UNSUPPORTED);
@@ -1774,7 +1875,15 @@ static quantapdf_status source_raw_images_to_ir_impl(
         source.native_unclipped_mode=native_v10;
         source.media_left=native_v10?geo.left:0.0;
         source.media_bottom=native_v10?geo.bottom:0.0;
-        source.crop_viewport=native_v10 && !full_media;
+        /* The opt-in signed/quarter-aware SOURCE staging is required
+         * for nonzero fractional origins EVEN when CropBox==MediaBox.
+         * The inherited strict integer branch remains unchanged for
+         * ordinary page-zero integer-origin Source profiles. */
+        const bool fractional_origin=
+            geo.left!=std::trunc(geo.left) ||
+            geo.bottom!=std::trunc(geo.bottom);
+        source.crop_viewport=native_v10 &&
+            (!full_media || fractional_origin);
         Obj raw_contents=geo.page.getKey("/Contents");
         const bool empty_contents=native_v10 &&
             (raw_contents.isNull() ||

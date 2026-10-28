@@ -85,22 +85,29 @@ static int write_multi_pdf(const char *path,int shifted_origin)
         /* The installed standalone C11 consumer independently creates
          * a selected page with a true negative MediaBox origin, not a
          * test-only in-tree fixture or an altered library header. */
-        const char *body=(shifted_origin==2 && i==5) ?
+        const char *body=(shifted_origin==3 && i==5) ?
+            "<< /Type /Page /Parent 2 0 R"
+            " /MediaBox [0.25 0.5 32.25 24.5]"
+            " /CropBox [8.25 4.5 24.25 20.5]"
+            " /Contents 6 0 R /Resources << >> >>" :
+            ((shifted_origin==2 && i==5) ?
             "<< /Type /Page /Parent 2 0 R /MediaBox [-9 5 23 29]"
             " /CropBox [-1 9 15 25] /Rotate 90"
             " /Contents 6 0 R /Resources << >> >>" :
             ((shifted_origin && i==5) ?
             "<< /Type /Page /Parent 2 0 R /MediaBox [-9 5 -4 12]"
-            " /Resources << >> >>" : object_text[i]);
+            " /Resources << >> >>" : object_text[i]));
         if(offsets[i]<0 ||
            fprintf(file,"%d 0 obj\n%s\nendobj\n",
                    i,body)<0)goto done;
     }
-    if(shifted_origin==2) {
-        /* Original selected third page's opaque red PATH crosses
-         * the negative-origin CropBox boundary x=-1. These are
-         * actual PDF content operators, not a bitmap fixture. */
-        static const char paint[]="1 0 0 rg -5 10 12 7 re f\n";
+    if(shifted_origin==2 || shifted_origin==3) {
+        /* The installed consumer authors REAL PDF PATH operators
+         * crossing either the exact integer or quarter-point CropBox.
+         * No synthetic IR input or copied provider-produced pixels. */
+        static const char integer_paint[]="1 0 0 rg -5 10 12 7 re f\n";
+        static const char quarter_paint[]="1 0 0 rg 7.5 4.5 12 7 re f\n";
+        const char *paint=shifted_origin==3?quarter_paint:integer_paint;
         offsets[6]=ftell(file);
         if(offsets[6]<0 ||
            fprintf(file,"6 0 obj\n<< /Length %zu >>\nstream\n",
@@ -110,7 +117,7 @@ static int write_multi_pdf(const char *path,int shifted_origin)
             goto done;
     }
     xref=ftell(file);
-    const int objects=shifted_origin==2?7:6;
+    const int objects=shifted_origin==2 || shifted_origin==3?7:6;
     if(xref<0 || fprintf(file,
         "xref\n0 %d\n0000000000 65535 f \n",objects)<0)
         goto done;
@@ -458,6 +465,84 @@ int main(void)
     status=quantapdf_bitmap_data(bitmap,&pixels,&size);
     if(status!=QUANTAPDF_OK || pixels==NULL || size!=768u)goto fail;
     if(pixels[2u*48u+5u*3u+1u]!=0u)goto fail;
+
+    /* Strictly independent installed C11 consumer: ORIGINAL quarter
+     * Media/Crop endpoints on a true selected page index 2. Visible
+     * extent is exact 16x16, but authored red PATH crosses the Crop
+     * right at x=11.25: fixed 4x4 C11 source-over edge at (11,11)
+     * is (255,191,191), never a rounded whole-pixel rectangle. */
+    quantapdf_drop_bitmap(bitmap);bitmap=NULL;
+    if(!write_multi_pdf(filename,3))goto done;
+    status=quantapdf_context_create(&context);
+    if(status!=QUANTAPDF_OK || context==NULL)goto fail;
+    status=quantapdf_open_with_context(
+        context,filename,NULL,&document);
+    if(status!=QUANTAPDF_OK || document==NULL)goto fail;
+    status=quantapdf_page_count(document,&pages);
+    if(status!=QUANTAPDF_OK || pages!=3)goto fail;
+    status=quantapdf_load_page(document,2,&page);
+    if(status!=QUANTAPDF_OK || page==NULL)goto fail;
+    {
+        quantapdf_rect bounds={0};
+        status=quantapdf_page_bounds(page,&bounds);
+        if(status!=QUANTAPDF_OK || bounds.x0!=0.0f ||
+           bounds.y0!=0.0f || bounds.x1!=16.0f ||
+           bounds.y1!=16.0f)goto fail;
+    }
+    status=quantapdf_render_page(page,&bitmap);
+    if(status!=QUANTAPDF_OK || bitmap==NULL)goto fail;
+    status=quantapdf_bitmap_dimensions(
+        bitmap,&w,&h,&stride,&channels);
+    if(status!=QUANTAPDF_OK || w!=16 || h!=16 ||
+       stride!=48 || channels!=3)goto fail;
+    status=quantapdf_bitmap_data(bitmap,&pixels,&size);
+    if(status!=QUANTAPDF_OK || pixels==NULL || size!=768u)goto fail;
+    {
+        const unsigned char *red=pixels+11u*48u+2u*3u;
+        const unsigned char *edge=pixels+11u*48u+11u*3u;
+        const unsigned char *white=pixels+11u*48u+12u*3u;
+        if(red[0]!=255u || red[1]!=0u || red[2]!=0u ||
+           edge[0]!=255u || edge[1]!=191u || edge[2]!=191u ||
+           white[0]!=255u || white[1]!=255u || white[2]!=255u)
+            goto fail;
+    }
+    {
+        const int dpis[2]={96,144};
+        for(size_t k=0u;k<2u;++k) {
+            quantapdf_render_options opts={0};
+            opts.struct_size=sizeof(opts);
+            opts.dpi=(float)dpis[k];
+            status=quantapdf_render_page_with_options(
+                page,&opts,&device_bitmap);
+            if(status!=QUANTAPDF_OK || device_bitmap==NULL)goto fail;
+            status=quantapdf_bitmap_dimensions(
+                device_bitmap,&w,&h,&stride,&channels);
+            if(status!=QUANTAPDF_OK ||
+               w!=(dpis[k]==96?22:32) || h!=w ||
+               stride!=w*3 || channels!=3)goto fail;
+            status=quantapdf_bitmap_data(
+                device_bitmap,&pixels,&size);
+            if(status!=QUANTAPDF_OK || pixels==NULL ||
+               size!=(size_t)w*(size_t)h*3u)goto fail;
+            {
+                const size_t x=dpis[k]==96?14u:22u;
+                const size_t y=dpis[k]==96?15u:23u;
+                const unsigned char *sample=pixels+
+                    y*(size_t)stride+x*3u;
+                if(sample[0]!=255u ||
+                   sample[1]!=(dpis[k]==96?0u:127u) ||
+                   sample[2]!=(dpis[k]==96?0u:127u))
+                    goto fail;
+            }
+            quantapdf_drop_bitmap(device_bitmap);device_bitmap=NULL;
+        }
+    }
+    quantapdf_drop_page(page);page=NULL;
+    quantapdf_close(document);document=NULL;
+    quantapdf_drop_context(context);context=NULL;
+    status=quantapdf_bitmap_data(bitmap,&pixels,&size);
+    if(status!=QUANTAPDF_OK || pixels==NULL || size!=768u)goto fail;
+    if(pixels[11u*48u+11u*3u+1u]!=191u)goto fail;
     result=EXIT_SUCCESS;
     goto done;
 fail:
