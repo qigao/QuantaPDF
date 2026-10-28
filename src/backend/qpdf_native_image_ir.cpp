@@ -1796,8 +1796,12 @@ source_v10_exact_boxes source_v10_quarter_geometry(
  * exact SIXTEENTH-point device-space coordinate. */
 unsigned checked_source_v10_userunit(Obj page,double geometry_unit)
 {
+    /* An omitted key defaults to one. An EXPLICIT /UserUnit null is
+     * present but not a number and must fail closed, never silently
+     * acquire the default or an ancestor's noninherited value. */
+    const bool present=page.hasKey("/UserUnit");
     const Obj raw=page.getKey("/UserUnit");
-    const int64_t quarters=raw.isNull()?4ll:source_v10_quarters(raw);
+    const int64_t quarters=present?source_v10_quarters(raw):4ll;
     admit(quarters>=1ll && quarters<=16ll &&
           geometry_unit==(double)quarters/4.0,
           QUANTAPDF_ERROR_UNSUPPORTED);
