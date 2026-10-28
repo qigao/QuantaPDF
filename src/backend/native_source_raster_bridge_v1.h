@@ -24,10 +24,11 @@ typedef struct quantapdf_native_source_raster_bridge_limits_v1 {
     quantapdf_ir_raster_scoped_mixed_v5_limits raster;
 } quantapdf_native_source_raster_bridge_limits_v1;
 
-/* Fail-closed private device gate: original page zero, zero source
- * rotation/region/alpha/thumbnail controls. Historical V8/V9 Source
- * profiles remain exact 72 DPI; only public Source V10 admits 96/144
- * through bounded pre-raster device IR projection. Other DPI refuses. */
+/* Original PDF page index belongs to the borrowed backend Page lease,
+ * NOT to the single-page C11 IR slot. Historical V8/V9 require index
+ * zero/72 DPI; public V10 alone resolves a bounded selected original
+ * PageTree leaf, at 72/96/144 DPI. Region/alpha/thumbnail controls
+ * remain strictly rejected; caller display turns are post-raster. */
 typedef struct quantapdf_native_source_raster_device_v1 {
     size_t page_index;
     float dpi;

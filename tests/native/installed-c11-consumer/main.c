@@ -57,6 +57,50 @@ done:
     return good;
 }
 
+/* Independent installed-C11 original with THREE actual PageTree leaves.
+ * Distinct sizes and a direct original /Rotate 90 on page index one
+ * detect any unqualified substitution with page index zero. */
+static int write_multi_pdf(const char *path)
+{
+    static const char *const object_text[6]={
+        "",
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 8 8]"
+        " /Resources << >> >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 8 6]"
+        " /Rotate 90 /Resources << >> >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 5 7]"
+        " /Resources << >> >>"
+    };
+    long offsets[6]={0,0,0,0,0,0};
+    long xref=0;
+    int ok=0;
+    FILE *file=fopen(path,"wb");
+    if(file==NULL)return 0;
+    if(fputs("%PDF-1.4\n",file)==EOF)goto done;
+    for(int i=1;i<=5;++i) {
+        offsets[i]=ftell(file);
+        if(offsets[i]<0 ||
+           fprintf(file,"%d 0 obj\n%s\nendobj\n",
+                   i,object_text[i])<0)goto done;
+    }
+    xref=ftell(file);
+    if(xref<0 || fputs(
+        "xref\n0 6\n0000000000 65535 f \n",file)==EOF)goto done;
+    for(int i=1;i<=5;++i)
+        if(fprintf(file,"%010ld 00000 n \n",offsets[i])<0)
+            goto done;
+    if(fprintf(file,
+        "trailer\n<< /Size 6 /Root 1 0 R >>\n"
+        "startxref\n%ld\n%%%%EOF\n",xref)<0)goto done;
+    ok=1;
+done:
+    if(fclose(file)!=0)ok=0;
+    if(!ok)remove(path);
+    return ok;
+}
+
 int main(void)
 {
     const char *filename="quantapdf_installed_c11_smoke.pdf";
@@ -205,6 +249,80 @@ int main(void)
     status=quantapdf_bitmap_data(bitmap,&pixels,&size);
     if(status!=QUANTAPDF_OK || pixels==NULL || size!=144u)
         goto fail;
+    for(size_t i=0u;i<size;++i)
+        if(pixels[i]!=255u)goto fail;
+    /* Standalone C11 multi-page selection test with truly distinct
+     * PDF leaf dimensions, inherited-free original rotation and
+     * display options on the selected (not first) backend Page lease. */
+    quantapdf_drop_bitmap(bitmap);bitmap=NULL;
+    if(!write_multi_pdf(filename))goto done;
+    status=quantapdf_context_create(&context);
+    if(status!=QUANTAPDF_OK || context==NULL)goto fail;
+    status=quantapdf_open_with_context(
+        context,filename,NULL,&document);
+    if(status!=QUANTAPDF_OK || document==NULL)goto fail;
+    status=quantapdf_page_count(document,&pages);
+    if(status!=QUANTAPDF_OK || pages!=3)goto fail;
+    {
+        quantapdf_page *invalid=(quantapdf_page *)(uintptr_t)1u;
+        status=quantapdf_load_page(document,3,&invalid);
+        if(status==QUANTAPDF_OK || invalid!=NULL)goto fail;
+        status=quantapdf_load_page(document,-1,&invalid);
+        if(status!=QUANTAPDF_ERROR_ARGUMENT || invalid!=NULL)goto fail;
+    }
+    status=quantapdf_load_page(document,2,&page);
+    if(status!=QUANTAPDF_OK || page==NULL)goto fail;
+    status=quantapdf_render_page(page,&bitmap);
+    if(status!=QUANTAPDF_OK || bitmap==NULL)goto fail;
+    status=quantapdf_bitmap_dimensions(
+        bitmap,&w,&h,&stride,&channels);
+    if(status!=QUANTAPDF_OK ||
+       w!=5 || h!=7 || stride!=15 || channels!=3)goto fail;
+    quantapdf_drop_page(page);page=NULL;
+    quantapdf_drop_bitmap(bitmap);bitmap=NULL;
+    status=quantapdf_load_page(document,1,&page);
+    if(status!=QUANTAPDF_OK || page==NULL)goto fail;
+    {
+        quantapdf_rect bounds={0};
+        status=quantapdf_page_bounds(page,&bounds);
+        if(status!=QUANTAPDF_OK || bounds.x0!=0.0f ||
+           bounds.y0!=0.0f || bounds.x1!=6.0f ||
+           bounds.y1!=8.0f)goto fail;
+        const int dpis[2]={96,144};
+        for(size_t k=0u;k<2u;++k) {
+            quantapdf_render_options options={0};
+            options.struct_size=sizeof(options);
+            options.dpi=(float)dpis[k];
+            options.rotation_degrees=90.0f;
+            status=quantapdf_render_page_with_options(
+                page,&options,&device_bitmap);
+            if(status!=QUANTAPDF_OK || device_bitmap==NULL)goto fail;
+            status=quantapdf_bitmap_dimensions(
+                device_bitmap,&w,&h,&stride,&channels);
+            if(status!=QUANTAPDF_OK ||
+               w!=(dpis[k]==96?11:16) ||
+               h!=(dpis[k]==96?8:12) ||
+               stride!=w*3 || channels!=3)goto fail;
+            status=quantapdf_bitmap_data(
+                device_bitmap,&pixels,&size);
+            if(status!=QUANTAPDF_OK || pixels==NULL ||
+               size!=(size_t)w*(size_t)h*3u)goto fail;
+            for(size_t i=0u;i<size;++i)
+                if(pixels[i]!=255u)goto fail;
+            quantapdf_drop_bitmap(device_bitmap);device_bitmap=NULL;
+        }
+    }
+    status=quantapdf_render_page(page,&bitmap);
+    if(status!=QUANTAPDF_OK || bitmap==NULL)goto fail;
+    quantapdf_drop_page(page);page=NULL;
+    quantapdf_close(document);document=NULL;
+    quantapdf_drop_context(context);context=NULL;
+    status=quantapdf_bitmap_dimensions(
+        bitmap,&w,&h,&stride,&channels);
+    if(status!=QUANTAPDF_OK || w!=6 || h!=8 ||
+       stride!=18 || channels!=3)goto fail;
+    status=quantapdf_bitmap_data(bitmap,&pixels,&size);
+    if(status!=QUANTAPDF_OK || size!=144u || pixels==NULL)goto fail;
     for(size_t i=0u;i<size;++i)
         if(pixels[i]!=255u)goto fail;
     result=EXIT_SUCCESS;

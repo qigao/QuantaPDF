@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <climits>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -1489,10 +1490,91 @@ quantapdf_ir materialize_restored_image_then_path(const admission& source)
 }
 } // namespace
 
+/* Source V10 only: bind the original page index to its actual Page
+ * leaf under a completely checked, bounded PageTree, never merely to
+ * the first leaf or an unverified /Count shortcut. Visit the entire
+ * tree (not just the requested prefix) so malformed later Kids,
+ * duplicate leaves, cycles and contradictory Count cannot disappear
+ * behind a successful early match. This is QPDF structure admission,
+ * NOT a second content parser, renderer or provider fallback. */
+constexpr size_t source_v10_max_tree_nodes=128u;
+size_t source_v10_walk_pages(
+    Obj node,Obj expected_parent,size_t depth,size_t max_depth,
+    std::set<QPDFObjGen>& seen,size_t& nodes,size_t& leaf_index,
+    size_t target,Obj& selected)
+{
+    admit(depth<=max_depth && depth<=256u &&
+          nodes<source_v10_max_tree_nodes,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    ++nodes;
+    admit(node.isIndirect() && node.isDictionary(),
+          QUANTAPDF_ERROR_FORMAT);
+    admit(seen.insert(node.getObjGen()).second,
+          QUANTAPDF_ERROR_FORMAT);
+    const Obj parent=node.getKey("/Parent");
+    admit((expected_parent.isNull() && parent.isNull()) ||
+          (!expected_parent.isNull() && !parent.isNull() &&
+           parent.isSameObjectAs(expected_parent)),
+          QUANTAPDF_ERROR_FORMAT);
+    const Obj type=node.getKey("/Type");
+    admit(type.isName(),QUANTAPDF_ERROR_FORMAT);
+    if(type.getName()=="/Page") {
+        admit(node.getKey("/Kids").isNull() &&
+              node.getKey("/Count").isNull(),
+              QUANTAPDF_ERROR_FORMAT);
+        if(leaf_index==target)selected=node;
+        admit(leaf_index<source_v10_max_tree_nodes,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        ++leaf_index;
+        return 1u;
+    }
+    admit(type.getName()=="/Pages",QUANTAPDF_ERROR_FORMAT);
+    const Obj kids=node.getKey("/Kids");
+    const Obj declared=node.getKey("/Count");
+    admit(kids.isArray() && declared.isInteger(),
+          QUANTAPDF_ERROR_FORMAT);
+    const auto count=declared.getIntValue();
+    admit(count>0ll &&
+          static_cast<uint64_t>(count)<=source_v10_max_tree_nodes,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    const int n=kids.getArrayNItems();
+    admit(n>0 && static_cast<size_t>(n)<=source_v10_max_tree_nodes,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    size_t subtotal=0u;
+    for(int i=0;i<n;++i) {
+        const size_t children=source_v10_walk_pages(
+            kids.getArrayItem(i),node,depth+1u,max_depth,
+            seen,nodes,leaf_index,target,selected);
+        admit(subtotal<=source_v10_max_tree_nodes-children,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        subtotal+=children;
+    }
+    admit(subtotal==static_cast<size_t>(count),
+          QUANTAPDF_ERROR_FORMAT);
+    return subtotal;
+}
+
+Obj source_v10_selected_page(QPDF& pdf,size_t selected_index,
+                             size_t max_parent_steps)
+{
+    admit(selected_index<=static_cast<size_t>(INT_MAX) &&
+          max_parent_steps!=0u,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    std::set<QPDFObjGen> seen;
+    size_t visited=0u,leaves=0u;
+    Obj selected=Obj::newNull();
+    const Obj root=pdf.getRoot().getKey("/Pages");
+    source_v10_walk_pages(root,Obj::newNull(),1u,max_parent_steps,
+                          seen,visited,leaves,selected_index,selected);
+    admit(!selected.isNull(),QUANTAPDF_ERROR_UNSUPPORTED);
+    return selected;
+}
+
 static quantapdf_status source_raw_images_to_ir_impl(
     const unsigned char *original_pdf,size_t size,
     const quantapdf_qpdf_source_raw_image_limits *limits,
-    quantapdf_ir *out_ir,source_profile_id profile_id)
+    quantapdf_ir *out_ir,source_profile_id profile_id,
+    size_t selected_page_index=0u)
 {
     if(out_ir!=nullptr) std::memset(out_ir,0,sizeof(*out_ir));
     if(out_ir==nullptr || original_pdf==nullptr || limits==nullptr ||
@@ -1513,11 +1595,23 @@ static quantapdf_status source_raw_images_to_ir_impl(
         pdf->setAttemptRecovery(false);
         pdf->processMemoryFile("Native Image original",
             reinterpret_cast<const char *>(original_pdf),size,"");
-        quantapdf_qpdf_page_geometry geo={};
-        auto status=quantapdf_qpdf_load_page_geometry(*pdf,0,&geo);
-        if(status!=QUANTAPDF_OK)return status;
         const bool native_v10=
             profile_id==source_profile_id::scoped_mixed_v10_flate_predictor;
+        /* Old private source profiles remain explicitly page zero.
+         * Only public V10 may resolve a caller-selected original page. */
+        admit(native_v10 || selected_page_index==0u,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        Obj selected=Obj::newNull();
+        if(native_v10)
+            selected=source_v10_selected_page(
+                *pdf,selected_page_index,limits->max_parent_steps);
+        quantapdf_qpdf_page_geometry geo={};
+        const auto status=quantapdf_qpdf_load_page_geometry(
+            *pdf,static_cast<int>(selected_page_index),&geo);
+        if(status!=QUANTAPDF_OK)return status;
+        if(native_v10)
+            admit(geo.page.isSameObjectAs(selected),
+                  QUANTAPDF_ERROR_FORMAT);
         admit((geo.rotation==0 ||
                (native_v10 && (geo.rotation==90 ||
                                 geo.rotation==180 ||
@@ -1859,8 +1953,9 @@ quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir(
 }
 
 /* Private Source V10: keep V9's exact Decode and scoped Path/Image
- * semantics; opt in to strictly validated 8-bit Flate PNG/TIFF predictors
- * on each Image XObject. No public backend, C11 Raster or V1–V9 change. */
+ * semantics; opt in to strictly validated 8-bit Flate PNG/TIFF predictors.
+ * Historical signature stays fixed to original page index zero.
+ * Public selection is a separate private V10-only API below. */
 extern "C" quantapdf_status
 quantapdf_qpdf_source_scoped_mixed_v10_flate_predictor_to_ir(
     const unsigned char *original_pdf,size_t size,
@@ -1870,4 +1965,20 @@ quantapdf_qpdf_source_scoped_mixed_v10_flate_predictor_to_ir(
     return source_raw_images_to_ir_impl(
         original_pdf,size,limits,out_ir,
         source_profile_id::scoped_mixed_v10_flate_predictor);
+}
+
+/* This private ONLY V10 entry binds the original caller-selected index
+ * to the checked page-tree leaf and publishes a ONE-PAGE local IR whose
+ * operations remain index zero for the canonical V5 C11 renderer.
+ * No earlier Source signature changes its selected page contract. */
+extern "C" quantapdf_status
+quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,
+    size_t selected_page_index,quantapdf_ir *out_ir)
+{
+    return source_raw_images_to_ir_impl(
+        original_pdf,size,limits,out_ir,
+        source_profile_id::scoped_mixed_v10_flate_predictor,
+        selected_page_index);
 }

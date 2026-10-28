@@ -115,11 +115,11 @@ static quantapdf_status quantapdf_render_page_transformed(
         !isfinite(rotation_degrees) || (alpha != 0 && alpha != 1))
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    /* Complete Source V10 -> immutable IR -> one C11 Raster at the
-     * actual 72/96/144-DPI grid BEFORE lossless display orientation.
-     * No 72-DPI upscale, source /Rotate, arbitrary angle, region Clip
-     * or alternative provider on any failed source/device control. */
-    if (page->page_index != 0 ||
+    /* Complete caller-selected original PageTree leaf -> Source V10
+     * -> owned one-page local IR -> one C11 Raster at actual DPI.
+     * The local IR slot zero never changes which original page is read.
+     * No 72-DPI upscale, alternative provider or fallback. */
+    if (page->page_index < 0 ||
         (dpi != 72.0f && dpi != 96.0f && dpi != 144.0f) ||
         (rotation_degrees != 0.0f &&
          rotation_degrees != 90.0f &&
