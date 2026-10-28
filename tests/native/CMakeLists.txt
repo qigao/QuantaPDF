@@ -65,3 +65,26 @@ add_test(NAME quantapdf.native_public_render
   COMMAND quantapdf_native_public_render)
 set_tests_properties(quantapdf.native_public_render PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api")
+
+
+# TEST-ONLY Context OOM hook for the real Native V10 public Bitmap handoff.
+# QPDF creates only the ORIGINAL source; no PDFium, second raster or SDK ABI.
+# The independent installed C11 consumer remains public-header-only.
+add_executable(quantapdf_native_userunit_oom test_native_userunit_oom.cpp)
+target_compile_features(quantapdf_native_userunit_oom PRIVATE cxx_std_20)
+target_include_directories(quantapdf_native_userunit_oom PRIVATE
+  "${PROJECT_SOURCE_DIR}/src")
+target_compile_definitions(quantapdf_native_userunit_oom PRIVATE
+  QUANTAPDF_TESTING=1)
+target_link_libraries(quantapdf_native_userunit_oom PRIVATE
+  QuantaPDF::QuantaPDF qpdf::libqpdf)
+if(MSVC)
+  target_compile_options(quantapdf_native_userunit_oom PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_userunit_oom PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_userunit_oom
+  COMMAND quantapdf_native_userunit_oom)
+set_tests_properties(quantapdf.native_userunit_oom PROPERTIES
+  TIMEOUT 30 LABELS "conformance;native;no-pdfium;oom;private-test-hook")
