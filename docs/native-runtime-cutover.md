@@ -16,17 +16,22 @@ partially paint or select a fallback.
   Nonzero page indices select their true original Page/Contents/Resources,
   never silently substitute the first page. The Source V10 M0 subset
   also accepts bounded integer signed MediaBox lower-left origins, with
-  a full-page or a distinct integer-bounded CropBox. The effective
-  viewport is the actual MediaBox∩CropBox, including an inherited Crop
-  and a CropBox partly outside Media. Original CTM/PATH/W Clip/IMAGE
+  a full-page or a distinct CropBox. Source V10 now also admits
+  ORIGINAL decimal Media/Crop endpoints on a strict 1/4-point lattice,
+  when both full Media and the effective Media∩Crop viewport spans
+  are exact integers. Number tokens are checked in original QPDF
+  syntax rather than reprinted from binary64; a fractional page SPAN
+  is still rejected until the Raster can account for its partial
+  terminal row/column. Inherited Crop and Crop partly outside Media
+  remain supported. Original CTM/PATH/W Clip/IMAGE
   coordinates are translated to this visible viewport before IR
   publication; the complete original PATH/Clip geometry and RAW image
   placement (including negative/outer edges) are still preserved.
   The canonical C11 4x4 mask samples true IMAGE rectangle∩W/W* Clip
   at the viewport boundary, retaining the full original XObject
   nearest-neighbor sampling coordinates and original layer order.
-  No post-raster bitmap crop or rescales. Fractional original CropBox
-  intersections and UserUnit≠1 remain unsupported. Only the selected,
+  No post-raster bitmap crop or rescales. Fractional original viewport
+  spans (not merely fractional origins) and UserUnit≠1 remain unsupported. Only the selected,
   fully qualified source is rebased to the native local one-page IR slot
   zero for the same C11 V5 Raster. Public render-option quarter turns of
   **0/90/180/270 degrees** are admitted at each of these DPIs, after
