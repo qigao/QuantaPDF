@@ -1431,11 +1431,16 @@ static int native_media_origin_cases(const std::string& filename)
         quantapdf_bitmap *result=reinterpret_cast<quantapdf_bitmap*>(
             uintptr_t(1));
         const auto status=quantapdf_render_page(page,&result);
-        if(mode==2) {
-            /* Mode 2 CropBox removes one MediaBox column from the left:
-             * actual output is 31x24, with red source at (12,11)
-             * and gray post-Q PATH at (25,5), not a 32x24 crop of
-             * a generated result or a provider fallback. */
+        if(mode==2 || mode==3) {
+            /* Mode 2 is an actual 31x24 crop viewport. Mode 3 uses a
+             * separately admitted original quarter-point full Media
+             * origin: [15.5 -6.5 47.5 17.5], with a real authorial
+             * integer CTM. Neither can be treated as a 72-DPI crop
+             * or silently refused after full source admission. */
+            if(status!=QUANTAPDF_OK || result==nullptr)
+                std::fprintf(stderr,
+                    "origin legacy positive mode=%d status=%d output=%p\n",
+                    mode,(int)status,(void*)result);
             CHECK(status==QUANTAPDF_OK && result!=nullptr);
             int w=0,h=0,stride=0,channels=0;
             const unsigned char *rgb=nullptr;
@@ -1443,10 +1448,14 @@ static int native_media_origin_cases(const std::string& filename)
             OK(quantapdf_bitmap_dimensions(
                 result,&w,&h,&stride,&channels));
             OK(quantapdf_bitmap_data(result,&rgb,&n));
-            CHECK(w==31 && h==24 && stride==93 && channels==3 &&
-                  n==31u*24u*3u && rgb!=nullptr);
-            CHECK(probe_rgb(rgb,stride,12,11,255u,0u,0u));
-            CHECK(probe_rgb(rgb,stride,25,5,223u,223u,223u));
+            const int expected_w=mode==2?31:32;
+            CHECK(w==expected_w && h==24 &&
+                  stride==expected_w*3 && channels==3 &&
+                  n==(size_t)expected_w*24u*3u && rgb!=nullptr);
+            CHECK(probe_rgb(rgb,stride,
+                mode==2?12:13,11,255u,0u,0u));
+            CHECK(probe_rgb(rgb,stride,
+                mode==2?25:26,5,223u,223u,223u));
             quantapdf_drop_bitmap(result);result=nullptr;
         } else
             CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED && result==nullptr);
