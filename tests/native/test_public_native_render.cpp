@@ -2429,6 +2429,262 @@ static int native_fractional_span_cases(const std::string& filename)
     return EXIT_SUCCESS;
 }
 
+/* /UserUnit is defined on the original PAGE, independently of its
+ * inherited Media/Crop/Resources/Rotate. Both compared pages are
+ * genuine independently QPDF-authored originals, never an IR export
+ * or external pixel renderer. A physical reference uses an original
+ * UserUnit=1 page with correspondingly transformed original content
+ * and physical MediaBox; source uses unchanged authored content with
+ * a nonunit original leaf /UserUnit. Same C11 renderer must produce
+ * byte-identical RGB at every native DPI. */
+static std::string original_unit_source_or_physical_reference(
+    const std::string& input,int kind,int quarter_unit,
+    int rotation,bool reference)
+{
+    auto pdf=QPDF::create();
+    pdf->setSuppressWarnings(true);
+    pdf->setAttemptRecovery(false);
+    pdf->processMemoryFile("source original UserUnit",
+        input.data(),input.size(),"");
+    auto root=pdf->getRoot().getKey("/Pages");
+    auto page=root.getKey("/Kids").getArrayItem(0);
+    const std::string unit=std::to_string((double)quarter_unit/4.0);
+    page.replaceKey("/Rotate",Obj::newInteger(rotation));
+    if(reference) {
+        const int unit_width=32*quarter_unit;
+        const int unit_height=24*quarter_unit;
+        const std::string bbox="[0 0 "+
+            std::to_string((double)unit_width/4.0)+" "+
+            std::to_string((double)unit_height/4.0)+"]";
+        page.replaceKey("/MediaBox",Obj::parse(bbox));
+        page.removeKey("/UserUnit");
+        static const char *const content[]={
+            "",
+            "1 0 0 rg 4 4 8 6 re f",
+            "q 16 0 0 12 8 3 cm /I Do Q",
+            "q 12 6 8 9 re W n "
+            "q 16 0 0 12 8 3 cm /I Do Q "
+            "Q 0.875 g 24 17 5 3 re f"
+        };
+        if(kind>0) {
+            const std::string physical="q "+unit+
+                " 0 0 "+unit+" 0 0 cm "+content[kind]+" Q";
+            page.replaceKey("/Contents",pdf->newStream(physical));
+        }
+    } else {
+        page.replaceKey("/UserUnit",Obj::parse(unit));
+    }
+    QPDFWriter writer(*pdf);
+    writer.setOutputMemory();
+    writer.write();
+    const auto result=writer.getBufferSharedPointer();
+    return std::string(
+        reinterpret_cast<const char*>(result->getBuffer()),
+        result->getSize());
+}
+
+static int native_original_userunit_cases(const std::string& filename)
+{
+    const std::string originals[]={
+        create_blank_source(0),create_path_only_source(0),
+        create_image_only_source(0),create_source(false)
+    };
+    const int factors[]={1,2,3,5,8,16};
+    const int dpis[]={72,96,144};
+    const int rotations[]={0,90,180,270};
+    for(size_t kind=0u;kind<4u;++kind)
+    for(int qu:factors)
+    for(int dpi:dpis)
+    for(int original_turn:rotations) {
+        const auto reference=original_unit_source_or_physical_reference(
+            originals[kind],(int)kind,qu,original_turn,true);
+        const auto unit_pdf=original_unit_source_or_physical_reference(
+            originals[kind],(int)kind,qu,original_turn,false);
+        CHECK(write_pdf(filename,reference));
+        quantapdf_context *ctx=nullptr;
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        quantapdf_bitmap *bitmap=nullptr;
+        OK(quantapdf_context_create(&ctx));
+        OK(quantapdf_open_with_context(
+            ctx,filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        quantapdf_render_options opts{};
+        opts.struct_size=sizeof(opts);
+        opts.dpi=(float)dpi;
+        OK(quantapdf_render_page_with_options(
+            page,&opts,&bitmap));
+        int bw=0,bh=0,bs=0,bc=0;
+        const unsigned char *base=nullptr;
+        size_t base_size=0u;
+        OK(quantapdf_bitmap_dimensions(
+            bitmap,&bw,&bh,&bs,&bc));
+        OK(quantapdf_bitmap_data(
+            bitmap,&base,&base_size));
+        const std::vector<unsigned char> golden(
+            base,base+base_size);
+        quantapdf_drop_bitmap(bitmap);
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+        quantapdf_drop_context(ctx);
+
+        CHECK(write_pdf(filename,unit_pdf));
+        ctx=nullptr;doc=nullptr;page=nullptr;bitmap=nullptr;
+        OK(quantapdf_context_create(&ctx));
+        OK(quantapdf_open_with_context(
+            ctx,filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        quantapdf_rect box{};
+        OK(quantapdf_page_bounds(page,&box));
+        const float physical_w=32.0f*(float)qu/4.0f;
+        const float physical_h=24.0f*(float)qu/4.0f;
+        CHECK(box.x0==0.0f && box.y0==0.0f &&
+              box.x1==(original_turn==90||original_turn==270?
+                         physical_h:physical_w) &&
+              box.y1==(original_turn==90||original_turn==270?
+                         physical_w:physical_h));
+        const auto status=quantapdf_render_page_with_options(
+            page,&opts,&bitmap);
+        if(status!=QUANTAPDF_OK)
+            std::fprintf(stderr,
+                "Source UserUnit rejected kind=%zu qu=%d dpi=%d rotate=%d status=%d\n",
+                kind,qu,dpi,original_turn,(int)status);
+        CHECK(status==QUANTAPDF_OK && bitmap!=nullptr);
+        int w=0,h=0,stride=0,channels=0;
+        const unsigned char *pixels=nullptr;
+        size_t size=0u;
+        OK(quantapdf_bitmap_dimensions(
+            bitmap,&w,&h,&stride,&channels));
+        OK(quantapdf_bitmap_data(bitmap,&pixels,&size));
+        if(w!=bw || h!=bh || stride!=bs || channels!=bc ||
+           size!=golden.size() || pixels==nullptr ||
+           std::memcmp(pixels,golden.data(),golden.size())!=0)
+            std::fprintf(stderr,
+                "Source UserUnit RGB mismatch kind=%zu qu=%d dpi=%d rotate=%d actual=%dx%d ref=%dx%d\n",
+                kind,qu,dpi,original_turn,w,h,bw,bh);
+        CHECK(w==bw && h==bh && stride==bs && channels==bc &&
+              size==golden.size() && pixels!=nullptr &&
+              std::memcmp(pixels,golden.data(),size)==0);
+        quantapdf_bitmap *repeat=nullptr,*turned=nullptr;
+        OK(quantapdf_render_page_with_options(
+            page,&opts,&repeat));
+        const unsigned char *rp=nullptr;size_t rn=0u;
+        OK(quantapdf_bitmap_data(repeat,&rp,&rn));
+        CHECK(rp!=nullptr && rn==size &&
+              std::memcmp(rp,golden.data(),size)==0);
+        quantapdf_drop_bitmap(repeat);
+        opts.rotation_degrees=90.0f;
+        OK(quantapdf_render_page_with_options(
+            page,&opts,&turned));
+        int tw=0,th=0,ts=0,tc=0;
+        const unsigned char *rotated=nullptr;
+        size_t rotated_size=0u;
+        OK(quantapdf_bitmap_dimensions(
+            turned,&tw,&th,&ts,&tc));
+        OK(quantapdf_bitmap_data(
+            turned,&rotated,&rotated_size));
+        CHECK(tw==h && th==w && ts==tw*3 && tc==3 &&
+              rotated_size==size && rotated!=nullptr);
+        for(int y=0;y<h;++y)for(int x=0;x<w;++x) {
+            const unsigned char *from=golden.data()+
+                (size_t)y*(size_t)stride+(size_t)x*3u;
+            const unsigned char *to=rotated+
+                (size_t)x*(size_t)ts+
+                (size_t)(h-1-y)*3u;
+            CHECK(std::memcmp(from,to,3u)==0);
+        }
+        quantapdf_drop_bitmap(turned);
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+        quantapdf_drop_context(ctx);
+        const unsigned char *owner=nullptr;size_t owner_size=0u;
+        OK(quantapdf_bitmap_data(bitmap,&owner,&owner_size));
+        CHECK(owner_size==size && owner!=nullptr &&
+              std::memcmp(owner,golden.data(),size)==0);
+        quantapdf_drop_bitmap(bitmap);
+    }
+
+    /* The same original page's /UserUnit does not inherit from /Pages.
+     * A parent-only /UserUnit must not change source pixel identity. */
+    {
+        auto pdf=QPDF::create();
+        const std::string original=create_path_only_source(0);
+        pdf->setAttemptRecovery(false);
+        pdf->setSuppressWarnings(true);
+        pdf->processMemoryFile("noninherited UserUnit",
+            original.data(),original.size(),"");
+        auto root=pdf->getRoot().getKey("/Pages");
+        root.replaceKey("/UserUnit",Obj::newInteger(2));
+        QPDFWriter writer(*pdf);
+        writer.setOutputMemory();
+        writer.write();
+        auto buf=writer.getBufferSharedPointer();
+        CHECK(write_pdf(filename,std::string(
+            reinterpret_cast<const char*>(buf->getBuffer()),
+            buf->getSize())));
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        quantapdf_bitmap *bitmap=nullptr;
+        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        OK(quantapdf_render_page(page,&bitmap));
+        int w=0,h=0,stride=0,channels=0;
+        OK(quantapdf_bitmap_dimensions(
+            bitmap,&w,&h,&stride,&channels));
+        CHECK(w==32 && h==24 && stride==96 && channels==3);
+        quantapdf_drop_bitmap(bitmap);
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+    }
+
+    /* Actual invalid original source factors must have NULL Bitmap;
+     * do not treat malformed /UserUnit as a silent blank or fallback. */
+    const std::string invalid_units[]={
+        "0","-1","/Bad","1.1","0.125","5","75000"
+    };
+    for(const auto& raw:invalid_units) {
+        auto pdf=QPDF::create();
+        const std::string original=create_source(false);
+        pdf->setAttemptRecovery(false);
+        pdf->setSuppressWarnings(true);
+        pdf->processMemoryFile("unqualified UserUnit",
+            original.data(),original.size(),"");
+        auto page=pdf->getRoot().getKey("/Pages")
+            .getKey("/Kids").getArrayItem(0);
+        page.replaceKey("/UserUnit",Obj::parse(raw));
+        QPDFWriter writer(*pdf);
+        writer.setOutputMemory();
+        writer.write();
+        auto b=writer.getBufferSharedPointer();
+        CHECK(write_pdf(filename,std::string(
+            reinterpret_cast<const char*>(b->getBuffer()),
+            b->getSize())));
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        const auto opened=quantapdf_open(
+            filename.c_str(),nullptr,&doc);
+        CHECK(std::remove(filename.c_str())==0);
+        if(opened!=QUANTAPDF_OK) {
+            CHECK(doc==nullptr);continue;
+        }
+        const auto loaded=quantapdf_load_page(doc,0,&page);
+        if(loaded!=QUANTAPDF_OK) {
+            CHECK(page==nullptr);
+            quantapdf_close(doc);continue;
+        }
+        quantapdf_bitmap *bitmap=
+            reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+        const auto result=quantapdf_render_page(page,&bitmap);
+        CHECK(result!=QUANTAPDF_OK && bitmap==nullptr);
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+    }
+    return EXIT_SUCCESS;
+}
+
 int main()
 {
     const std::string filename="native-standalone-smoke.pdf";
@@ -2440,6 +2696,7 @@ int main()
     CHECK(native_fractional_quarter_cases(filename)==EXIT_SUCCESS);
     CHECK(native_fractional_quarter_rotation_cases(filename)==EXIT_SUCCESS);
     CHECK(native_fractional_span_cases(filename)==EXIT_SUCCESS);
+    CHECK(native_original_userunit_cases(filename)==EXIT_SUCCESS);
     CHECK(write_pdf(filename,create_source(false)));
 
     quantapdf_context *context=nullptr;
