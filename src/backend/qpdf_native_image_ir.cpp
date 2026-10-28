@@ -20,6 +20,15 @@
 #include <utility>
 #include <vector>
 
+/* Test-only, compile-time-elided allocation arming at actual SOURCE-owned
+ * std::vector sites. The normal backend has no probe or extra symbols. */
+#ifdef QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST
+extern "C" void quantapdf_source_stage_oom_arm(unsigned) noexcept;
+#define QP_SOURCE_STAGE_ARM(n) quantapdf_source_stage_oom_arm(n)
+#else
+#define QP_SOURCE_STAGE_ARM(n) ((void)0)
+#endif
+
 namespace {
 using Obj = QPDFObjectHandle;
 constexpr size_t hard_pdf_bytes = 2u * 1024u * 1024u;
@@ -399,7 +408,9 @@ struct admission {
         item.commands=std::move(commands);
         item.fill_argb=color;
         item.fill_rule=rule;
+        QP_SOURCE_STAGE_ARM(3u);
         painted_paths.push_back(std::move(item));
+        QP_SOURCE_STAGE_ARM(4u);
         order.push_back(1);
     }
 
@@ -571,8 +582,12 @@ struct admission {
                       static_cast<float>(canvas_h-top),
                       static_cast<float>(x1),
                       static_cast<float>(canvas_h-bottom)};
+        QP_SOURCE_STAGE_ARM(1u);
         draws.push_back(std::move(entry));
-        if (mixed_mode) order.push_back(2);
+        if (mixed_mode) {
+            QP_SOURCE_STAGE_ARM(2u);
+            order.push_back(2);
+        }
     }
 };
 
@@ -961,6 +976,7 @@ void original_turn_image(staged_image& image,
           QUANTAPDF_ERROR_UNSUPPORTED);
     const size_t new_width=rotation==180?w:h;
     const size_t new_height=rotation==180?h:w;
+    QP_SOURCE_STAGE_ARM(5u);
     std::vector<unsigned char> turned(image.pixels.size());
     for(size_t y=0u;y<h;++y)
         for(size_t x=0u;x<w;++x) {
