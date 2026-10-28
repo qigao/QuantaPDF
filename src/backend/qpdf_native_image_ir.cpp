@@ -351,6 +351,11 @@ struct admission {
      * homogeneous opaque PATH or RAW/Flate IMAGE paints. The older
      * mixed W/Q Path+Image profiles retain their exact admission. */
     bool native_unclipped_mode=false;
+    /* Public Source V10 alone normalizes the original PDF MediaBox
+     * origin before deterministic Y-down Stage/IR projection. Older
+     * private source signatures always use zero offsets. */
+    double media_left=0.0;
+    double media_bottom=0.0;
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule)
@@ -498,10 +503,14 @@ struct admission {
         admit(ctm[1]==0.0 && ctm[2]==0.0 &&
               ctm[0]>0.0 && ctm[3]>0.0,
               QUANTAPDF_ERROR_UNSUPPORTED);
-        const size_t x0=whole(ctm[4],page_w),
-                     x1=whole(ctm[4]+ctm[0],page_w);
-        const size_t bottom=whole(ctm[5],page_h),
-                     top=whole(ctm[5]+ctm[3],page_h);
+        /* SOURCE PDF absolute coordinates are not page-local when
+         * MediaBox has nonzero origin. Subtract the fully admitted
+         * original lower-left corner BEFORE bounds, texture sampling
+         * work and RGB/Clip compositing. Never alter the original CTM. */
+        const size_t x0=whole(ctm[4]-media_left,page_w),
+                     x1=whole(ctm[4]+ctm[0]-media_left,page_w);
+        const size_t bottom=whole(ctm[5]-media_bottom,page_h),
+                     top=whole(ctm[5]+ctm[3]-media_bottom,page_h);
         admit(x1>x0 && top>bottom,QUANTAPDF_ERROR_UNSUPPORTED);
         const size_t y0=page_h-top, y1=page_h-bottom;
         const size_t draw_area=(x1-x0)*(y1-y0);
@@ -765,8 +774,13 @@ private:
         admit(current[0]>0.0 && current[3]>0.0 &&
               current[1]==0.0 && current[2]==0.0,
               QUANTAPDF_ERROR_UNSUPPORTED);
-        const size_t ix=whole(current[0]*x+current[4],target.page_w);
-        const size_t iy=whole(current[3]*y+current[5],target.page_h);
+        /* Original PATH / W Clip share the identical Source viewport
+         * translation with IMAGE placements. No post-raster cropping
+         * and no altered q/Q / authored content transformation. */
+        const size_t ix=whole(
+            current[0]*x+current[4]-target.media_left,target.page_w);
+        const size_t iy=whole(
+            current[3]*y+current[5]-target.media_bottom,target.page_h);
         quantapdf_composer_path_command cmd={};
         cmd.kind=kind;
         cmd.point1.x=static_cast<float>(ix);
@@ -1612,13 +1626,29 @@ static quantapdf_status source_raw_images_to_ir_impl(
         if(native_v10)
             admit(geo.page.isSameObjectAs(selected),
                   QUANTAPDF_ERROR_FORMAT);
+        /* M0 Source V10: admit a finite INTEGER original MediaBox
+         * offset in either direction, but only with a full-page crop
+         * viewport. A distinct/intersecting CropBox is M1 and must
+         * continue to refuse rather than silently truncate paint. */
+        const bool qualified_origin=native_v10 &&
+            std::isfinite(geo.media[0]) &&
+            std::isfinite(geo.media[1]) &&
+            geo.media[0]>=-1000000.0 &&
+            geo.media[0]<=1000000.0 &&
+            geo.media[1]>=-1000000.0 &&
+            geo.media[1]<=1000000.0 &&
+            std::trunc(geo.media[0])==geo.media[0] &&
+            std::trunc(geo.media[1])==geo.media[1];
         admit((geo.rotation==0 ||
                (native_v10 && (geo.rotation==90 ||
                                 geo.rotation==180 ||
                                 geo.rotation==270))) &&
               geo.user_unit==1.0 &&
-              geo.left==0.0 && geo.bottom==0.0 &&
-              geo.media[0]==0.0 && geo.media[1]==0.0 &&
+              (qualified_origin ||
+               (geo.left==0.0 && geo.bottom==0.0 &&
+                geo.media[0]==0.0 && geo.media[1]==0.0)) &&
+              geo.left==geo.media[0] &&
+              geo.bottom==geo.media[1] &&
               geo.right==geo.media[2] && geo.top==geo.media[3] &&
               geo.crop[0]==geo.media[0] &&
               geo.crop[1]==geo.media[1] &&
@@ -1665,6 +1695,8 @@ static quantapdf_status source_raw_images_to_ir_impl(
         source.explicit_image_predictor_mode=
             profile.explicit_image_predictor;
         source.native_unclipped_mode=native_v10;
+        source.media_left=native_v10?geo.media[0]:0.0;
+        source.media_bottom=native_v10?geo.media[1]:0.0;
         Obj raw_contents=geo.page.getKey("/Contents");
         const bool empty_contents=native_v10 &&
             (raw_contents.isNull() ||

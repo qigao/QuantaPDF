@@ -14,7 +14,12 @@ partially paint or select a fallback.
 - One caller-selected, original, unencrypted page with strict bounded
   PageTree index/ancestor validation, exact 72/96/144 DPI and UserUnit 1.
   Nonzero page indices select their true original Page/Contents/Resources,
-  never silently substitute the first page. Only the selected,
+  never silently substitute the first page. The Source V10 M0 subset
+  also accepts bounded integer signed MediaBox lower-left origins, with
+  an unchanged full-page CropBox. Original PDF CTM/PATH/W Clip/IMAGE
+  coordinates are translated to page-local space before IR publication
+  and the same C11 Raster; different/intersecting CropBox viewports
+  continue to fail closed pending independent qualification. Only the selected,
   fully qualified source is rebased to the native local one-page IR slot
   zero for the same C11 V5 Raster. Public render-option quarter turns of
   **0/90/180/270 degrees** are admitted at each of these DPIs, after

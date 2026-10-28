@@ -60,7 +60,7 @@ done:
 /* Independent installed-C11 original with THREE actual PageTree leaves.
  * Distinct sizes and a direct original /Rotate 90 on page index one
  * detect any unqualified substitution with page index zero. */
-static int write_multi_pdf(const char *path)
+static int write_multi_pdf(const char *path,int shifted_origin)
 {
     static const char *const object_text[6]={
         "",
@@ -81,9 +81,15 @@ static int write_multi_pdf(const char *path)
     if(fputs("%PDF-1.4\n",file)==EOF)goto done;
     for(int i=1;i<=5;++i) {
         offsets[i]=ftell(file);
+        /* The installed standalone C11 consumer independently creates
+         * a selected page with a true negative MediaBox origin, not a
+         * test-only in-tree fixture or an altered library header. */
+        const char *body=(shifted_origin && i==5) ?
+            "<< /Type /Page /Parent 2 0 R /MediaBox [-9 5 -4 12]"
+            " /Resources << >> >>" : object_text[i];
         if(offsets[i]<0 ||
            fprintf(file,"%d 0 obj\n%s\nendobj\n",
-                   i,object_text[i])<0)goto done;
+                   i,body)<0)goto done;
     }
     xref=ftell(file);
     if(xref<0 || fputs(
@@ -255,7 +261,7 @@ int main(void)
      * PDF leaf dimensions, inherited-free original rotation and
      * display options on the selected (not first) backend Page lease. */
     quantapdf_drop_bitmap(bitmap);bitmap=NULL;
-    if(!write_multi_pdf(filename))goto done;
+    if(!write_multi_pdf(filename,0))goto done;
     status=quantapdf_context_create(&context);
     if(status!=QUANTAPDF_OK || context==NULL)goto fail;
     status=quantapdf_open_with_context(
@@ -323,6 +329,39 @@ int main(void)
        stride!=18 || channels!=3)goto fail;
     status=quantapdf_bitmap_data(bitmap,&pixels,&size);
     if(status!=QUANTAPDF_OK || size!=144u || pixels==NULL)goto fail;
+    for(size_t i=0u;i<size;++i)
+        if(pixels[i]!=255u)goto fail;
+
+    /* Negative nonzero MediaBox offset at a REAL nonzero selected Page:
+     * the page remains 5x7 and its all-white RGB Bitmap is retained
+     * after the independently installed C11 SDK owner chain drops. */
+    quantapdf_drop_bitmap(bitmap);bitmap=NULL;
+    if(!write_multi_pdf(filename,1))goto done;
+    status=quantapdf_context_create(&context);
+    if(status!=QUANTAPDF_OK || context==NULL)goto fail;
+    status=quantapdf_open_with_context(
+        context,filename,NULL,&document);
+    if(status!=QUANTAPDF_OK || document==NULL)goto fail;
+    status=quantapdf_load_page(document,2,&page);
+    if(status!=QUANTAPDF_OK || page==NULL)goto fail;
+    {
+        quantapdf_rect bounds={0};
+        status=quantapdf_page_bounds(page,&bounds);
+        if(status!=QUANTAPDF_OK ||
+           bounds.x0!=0.0f || bounds.y0!=0.0f ||
+           bounds.x1!=5.0f || bounds.y1!=7.0f)goto fail;
+    }
+    status=quantapdf_render_page(page,&bitmap);
+    if(status!=QUANTAPDF_OK || bitmap==NULL)goto fail;
+    status=quantapdf_bitmap_dimensions(
+        bitmap,&w,&h,&stride,&channels);
+    if(status!=QUANTAPDF_OK || w!=5 || h!=7 ||
+       stride!=15 || channels!=3)goto fail;
+    quantapdf_drop_page(page);page=NULL;
+    quantapdf_close(document);document=NULL;
+    quantapdf_drop_context(context);context=NULL;
+    status=quantapdf_bitmap_data(bitmap,&pixels,&size);
+    if(status!=QUANTAPDF_OK || pixels==NULL || size!=105u)goto fail;
     for(size_t i=0u;i<size;++i)
         if(pixels[i]!=255u)goto fail;
     result=EXIT_SUCCESS;
