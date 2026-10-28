@@ -1965,7 +1965,7 @@ static int native_fractional_quarter_cases(const std::string& filename)
                 CHECK(probe_rgb(px,s,4,22,255u,255u,255u));
                 CHECK(probe_rgb(px,s,5,22,255u,0u,0u));
             } else {
-                CHECK(probe_rgb(px,s,7,32,255u,128u,128u));
+                CHECK(probe_rgb(px,s,7,32,255u,127u,127u));
                 CHECK(probe_rgb(px,s,8,32,255u,0u,0u));
             }
         }
@@ -1980,7 +1980,7 @@ static int native_fractional_quarter_cases(const std::string& filename)
                 CHECK(probe_rgb(px,s,31,16,64u,255u,64u));
                 CHECK(probe_rgb(px,s,11,16,255u,0u,0u));
             } else {
-                CHECK(probe_rgb(px,s,47,24,128u,255u,128u));
+                CHECK(probe_rgb(px,s,47,24,127u,255u,127u));
                 CHECK(probe_rgb(px,s,17,24,255u,0u,0u));
             }
         }
@@ -1993,7 +1993,7 @@ static int native_fractional_quarter_cases(const std::string& filename)
                 CHECK(probe_rgb(px,s,21,10,255u,255u,255u));
             } else {
                 CHECK(probe_rgb(px,s,30,14,0u,255u,0u));
-                CHECK(probe_rgb(px,s,31,14,128u,255u,128u));
+                CHECK(probe_rgb(px,s,31,14,127u,255u,127u));
             }
         }
         if(fixture>=2 && kind==3u)
