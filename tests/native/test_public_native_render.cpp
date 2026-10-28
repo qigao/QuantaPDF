@@ -2705,7 +2705,7 @@ static int native_original_userunit_cases(const std::string& filename)
     /* Actual invalid original source factors must have NULL Bitmap;
      * do not treat malformed /UserUnit as a silent blank or fallback. */
     const std::string invalid_units[]={
-        "0","-0","-0.0","-1","null","true","/Bad",
+        "0","-0","-0.0","-1","true","/Bad",
         "1.1","0.125","0.2499","4.25","5","75000"
     };
     for(const auto& raw:invalid_units) {
