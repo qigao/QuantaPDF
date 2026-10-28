@@ -617,7 +617,42 @@ public:
             return;
         }
         const std::string op=item.getOperatorValue();
-        if (op=="q") {
+        if(target.native_unclipped_mode &&
+                  (op=="M" || op=="d")) {
+            /* Public V10 has no admitted Stroke paint. Its M/d state
+             * cannot affect opaque Fill/RAW Image output. Validate
+             * ORIGINAL typed PDF operands and bounded pattern metadata;
+             * do not introduce a dash engine, state owner or IR layer.
+             * The historical private Source profiles stay strict. */
+            admit(pending_path.empty() && !clip_pending,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            if(op=="M") {
+                admit(args.size()==1u,QUANTAPDF_ERROR_UNSUPPORTED);
+                const double miter=finite_number(args[0]);
+                admit(miter>=1.0 && miter<=1000000.0,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+            } else {
+                admit(args.size()==2u && args[0].isArray(),
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                const int count=args[0].getArrayNItems();
+                admit(count>=0 && count<=16,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                const double phase=finite_number(args[1]);
+                admit(phase>=0.0 && phase<=1000000.0,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                double sum=0.0;
+                for(int i=0;i<count;++i) {
+                    const double length=
+                        finite_number(args[0].getArrayItem(i));
+                    admit(length>=0.0 && length<=1000000.0 &&
+                          sum<=1000000.0-length,
+                          QUANTAPDF_ERROR_UNSUPPORTED);
+                    sum+=length;
+                }
+                admit(count==0 || sum>0.0,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+            }
+        } else if (op=="q") {
             admit(args.empty() && pending_path.empty());
             admit(stack.size()<16u,QUANTAPDF_ERROR_UNSUPPORTED);
             stack.push_back(current);
@@ -642,6 +677,27 @@ public:
             matrix next;
             for(size_t i=0u;i<6u;++i)next[i]=finite_number(args[i]);
             current=concat(current,next);
+        } else if(target.native_unclipped_mode &&
+                  (op=="w" || op=="J" || op=="j")) {
+            /* Stroking-only graphics-state parameters have no effect
+             * on any painting supported by public Source V10: all
+             * Stroke/Text operators STILL reject the complete page.
+             * Admit strictly typed bounded originals, but allocate
+             * no GS/Clip resource and no hidden paint layer. A q/Q
+             * scope needs no stroke-state retainer until real Stroke
+             * is implemented. Old private Source profiles refuse. */
+            admit(args.size()==1u && pending_path.empty() &&
+                  !clip_pending,QUANTAPDF_ERROR_UNSUPPORTED);
+            if(op=="w") {
+                const double width=finite_number(args[0]);
+                admit(width>=0.0 && width<=1000000.0,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+            } else {
+                admit(args[0].isInteger(),QUANTAPDF_ERROR_UNSUPPORTED);
+                const auto style=args[0].getIntValue();
+                admit(style>=0ll && style<=2ll,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+            }
         } else if(op=="Do") {
             admit(args.size()==1u && args[0].isName() &&
                   pending_path.empty() && !clip_pending);
