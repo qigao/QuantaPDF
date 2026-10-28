@@ -2514,7 +2514,8 @@ static std::string original_unit_source_or_physical_reference(
  * canonicalize number spelling, so use genuine PDF bytes/xref to
  * compare semantically identical but long zero-padded decimal values. */
 static std::string native_original_decimal_number_pdf(
-    const std::string& unit,const std::string& media)
+    const std::string& unit,const std::string& media,
+    const std::string& crop={},bool inherited_crop=false)
 {
     std::string bytes="%PDF-1.7\n";
     size_t offsets[5]={};
@@ -2523,9 +2524,14 @@ static std::string native_original_decimal_number_pdf(
         bytes+=std::to_string(id)+" 0 obj\n"+content+"\nendobj\n";
     };
     object(1u,"<< /Type /Catalog /Pages 2 0 R >>");
-    object(2u,"<< /Type /Pages /Count 1 /Kids [3 0 R] >>");
+    const std::string parent_crop=(!crop.empty() && inherited_crop)?
+        " /CropBox "+crop:std::string();
+    const std::string leaf_crop=(!crop.empty() && !inherited_crop)?
+        " /CropBox "+crop:std::string();
+    object(2u,"<< /Type /Pages /Count 1 /Kids [3 0 R]"+
+        parent_crop+" >>");
     object(3u,"<< /Type /Page /Parent 2 0 R /MediaBox "+
-        media+" /UserUnit "+unit+" /Contents 4 0 R >>");
+        media+leaf_crop+" /UserUnit "+unit+" /Contents 4 0 R >>");
     const std::string paint="1 0 0 rg 4 4 8 6 re f\n";
     object(4u,"<< /Length "+std::to_string(paint.size())+
         " >>\nstream\n"+paint+"endstream");
@@ -2560,10 +2566,15 @@ static int native_decimal_number_cases(const std::string& filename)
     for(int decimal_dpi:{72,96,144}) {
         std::vector<unsigned char> reference;
         for(bool pad_unit:{false,true})
-        for(bool pad_box:{false,true}) {
+        for(bool pad_box:{false,true})
+        for(int crop_mode=0;crop_mode<=2;++crop_mode) {
+            /* 0 absent; 1 PAGE-local; 2 inherited /Pages. Both
+             * present values exactly match Media geometry, so they
+             * must preserve the independent baseline RGB. */
+            const std::string media=pad_box?padded_box:box;
             const std::string original=native_original_decimal_number_pdf(
                 pad_unit?padded[factor]:standard[factor],
-                pad_box?padded_box:box);
+                media,crop_mode!=0?media:std::string(),crop_mode==2);
             CHECK(write_pdf(filename,original));
             quantapdf_document *doc=nullptr;
             quantapdf_page *page=nullptr;
@@ -2579,9 +2590,9 @@ static int native_decimal_number_cases(const std::string& filename)
             if(status!=QUANTAPDF_OK)
                 std::fprintf(stderr,
                     "original decimal refused factor=%zu dpi=%d"
-                    " pad_unit=%d pad_box=%d status=%d\n",
+                    " pad_unit=%d pad_box=%d crop=%d status=%d\n",
                     factor,decimal_dpi,pad_unit?1:0,pad_box?1:0,
-                    (int)status);
+                    crop_mode,(int)status);
             CHECK(status==QUANTAPDF_OK && bitmap!=nullptr);
             int w=0,h=0,stride=0,channels=0;
             const unsigned char *pixels=nullptr;
@@ -2601,7 +2612,8 @@ static int native_decimal_number_cases(const std::string& filename)
                 if(pixels[j]==255u && pixels[j+1u]==0u &&
                    pixels[j+2u]==0u) {painted=true;break;}
             CHECK(painted);
-            if(!pad_unit && !pad_box)reference.assign(pixels,pixels+size);
+            if(!pad_unit && !pad_box && crop_mode==0)
+                reference.assign(pixels,pixels+size);
             else CHECK(reference.size()==size &&
                        std::memcmp(reference.data(),pixels,size)==0);
             quantapdf_drop_page(page);
@@ -2646,6 +2658,32 @@ static int native_decimal_number_cases(const std::string& filename)
     for(int decimal_dpi:{72,96,144}) {
         CHECK(write_pdf(filename,
             native_original_decimal_number_pdf("1.25",invalid_box)));
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        quantapdf_bitmap *bitmap=
+            reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        quantapdf_render_options opts{};
+        opts.struct_size=sizeof(opts);
+        opts.dpi=(float)decimal_dpi;
+        CHECK(quantapdf_render_page_with_options(
+            page,&opts,&bitmap)==QUANTAPDF_ERROR_UNSUPPORTED &&
+            bitmap==nullptr);
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+    }
+    /* Neither a leaf-local nor inherited CropBox may silently round
+     * a late nonzero decimal to a quarter. QPDF's double observation
+     * may equal 0.25; the original Source token must still reject. */
+    const std::string invalid_crop=
+        "[0.250000000000001 0.5 32.25 24.5]";
+    for(bool inherited:{false,true})
+    for(int decimal_dpi:{72,96,144}) {
+        CHECK(write_pdf(filename,
+            native_original_decimal_number_pdf(
+                "1.25",box,invalid_crop,inherited)));
         quantapdf_document *doc=nullptr;
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bitmap=
