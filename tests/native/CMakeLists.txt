@@ -117,3 +117,20 @@ add_test(NAME quantapdf.native_source_stage_oom
   COMMAND quantapdf_native_source_stage_oom)
 set_tests_properties(quantapdf.native_source_stage_oom PROPERTIES
   TIMEOUT 40 LABELS "conformance;native;no-pdfium;source-staging;oom")
+
+# Original PDF re signed dimensions; immutable Source m/l/l/l/h winding
+# and one pure-C11 V5 raster. No PDFium and no source provider fallback.
+add_executable(quantapdf_native_signed_re test_native_signed_re.cpp)
+target_compile_features(quantapdf_native_signed_re PRIVATE cxx_std_20)
+target_link_libraries(quantapdf_native_signed_re PRIVATE
+  QuantaPDF::QuantaPDF qpdf::libqpdf)
+if(MSVC)
+  target_compile_options(quantapdf_native_signed_re PRIVATE
+    /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_signed_re PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_signed_re COMMAND quantapdf_native_signed_re)
+set_tests_properties(quantapdf.native_signed_re PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;path")

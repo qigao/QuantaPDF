@@ -750,7 +750,17 @@ public:
                   QUANTAPDF_ERROR_UNSUPPORTED);
             const double x=finite_number(args[0]), y=finite_number(args[1]);
             const double w=finite_number(args[2]), h=finite_number(args[3]);
-            admit(w>0.0 && h>0.0,QUANTAPDF_ERROR_UNSUPPORTED);
+            /* PDF re defines an AUTHORED corner sequence, not an
+             * automatically normalized positive rectangle. Only
+             * public Source V10 opts into negative nonzero dimensions;
+             * old private signatures keep their narrower admission.
+             * Every actual transformed corner is subsequently checked
+             * by append_point against the original source viewport,
+             * precision lattice and bounded coordinate envelope. */
+            admit((w>0.0 && h>0.0) ||
+                  (target.native_unclipped_mode &&
+                   w!=0.0 && h!=0.0),
+                  QUANTAPDF_ERROR_UNSUPPORTED);
             append_point(QUANTAPDF_COMPOSER_PATH_MOVE_TO,x,y);
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x+w,y);
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x+w,y+h);
