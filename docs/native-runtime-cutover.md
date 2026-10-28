@@ -16,8 +16,14 @@ partially paint or select a fallback.
   admitted at 72 DPI using a lossless RGB pixel permutation after the
   complete Source V10/C11 Raster output, with the existing C11 device
   planner validating rotated dimensions and the one-million-pixel budget.
-  Original PDF /Rotate must still be zero; 96/144 DPI, arbitrary display
-  angles, region clip and alpha-mode changes remain unsupported.
+  Original PDF /Rotate must still be zero. At render-option 96/144 DPI
+  with zero display rotation, owned Source V10 IR is projected directly
+  into the real target-resolution C11 Raster grid. 144 DPI uses exact
+  twofold geometry; 96 DPI samples fractional 4/3 PATH/Clip edges but
+  admits IMAGE placements only when all four device bounds are EXACT
+  integers. Fractional IMAGE bounds refuse atomically, never round or
+  upscale a 72-DPI result. High-DPI rotations, arbitrary display angles,
+  region clip and alpha-mode changes remain unsupported.
 - Public thumbnails now use the SAME fully validated native 72-DPI page
   bitmap and bounded deterministic RGB area downsampling, preserving
   aspect ratio with no upscaling and no second PDF parser/provider. All
@@ -62,6 +68,10 @@ partially paint or select a fallback.
 - Direct Image XObject RAW/Flate, explicit Decode identity/inversion,
   Predictor 1/2/10..15 with checked Colors/Columns/BitsPerComponent.
 - Finite normalized RGB/Gray solid fill colors and exact owned RGB output.
+- Direct 96/144 DPI target painting retains existing source/image/work
+  quotas and four-operation limit. Source pixels are never mutated and
+  projected PATH/Clip commands are borrowed only for the synchronous
+  C11 raster call; no new provider or public ABI is introduced.
 - Unsupported text, annotations drawing, font glyphs, forms, soft masks,
   gradients, advanced strokes, transparency, alternative Image formats,
   general page geometry and unsupported render options fail closed.

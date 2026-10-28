@@ -1,4 +1,5 @@
 #include "backend/native_source_raster_bridge_v1.h"
+#include "render/native_device_ir_v1.h"
 
 #include <math.h>
 #include <string.h>
@@ -30,7 +31,10 @@ static quantapdf_status native_source_bridge_impl(
         (device->thumbnail != 0 && device->thumbnail != 1))
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    if (device->page_index != 0u || device->dpi != 72.0f ||
+    if (device->page_index != 0u ||
+        (device->dpi != 72.0f &&
+         !(source_profile==QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10 &&
+           (device->dpi==96.0f || device->dpi==144.0f))) ||
         device->rotation_degrees != 0.0f || device->clip_enabled ||
         device->alpha || device->thumbnail)
         return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -60,8 +64,15 @@ static quantapdf_status native_source_bridge_impl(
         return status;
     }
 
-    status = quantapdf_ir_raster_scoped_mixed_v5(
-        &ir, 0u, &limits->raster, out_image);
+    /* Only V10 opts into device-space pixels. Earlier private Source
+     * signatures remain exact 72 DPI. This is a projection into the
+     * SINGLE C11 V5 raster, not a second renderer or image rescaler. */
+    if(device->dpi==72.0f)
+        status=quantapdf_ir_raster_scoped_mixed_v5(
+            &ir,0u,&limits->raster,out_image);
+    else
+        status=quantapdf_native_device_ir_render_v1(
+            &ir,(unsigned)device->dpi,&limits->raster,out_image);
     quantapdf_ir_dispose(&ir);
     return status;
 }
