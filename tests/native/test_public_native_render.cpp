@@ -2742,7 +2742,7 @@ static int native_original_userunit_cases(const std::string& filename)
             return pdf;
         }();
         CHECK(explicit_null.find("/UserUnit null")!=std::string::npos);
-        const int dpis[]={72,96,144};
+        const int null_dpis[]={72,96,144};
         std::vector<unsigned char> reference[3];
         for(bool with_null:{false,true}) {
             const std::string& bytes=with_null?explicit_null:omitted;
@@ -2756,7 +2756,7 @@ static int native_original_userunit_cases(const std::string& filename)
                 OK(quantapdf_load_page(doc,0,&page));
                 quantapdf_render_options opts{};
                 opts.struct_size=sizeof(opts);
-                opts.dpi=(float)dpis[i];
+                opts.dpi=(float)null_dpis[i];
                 OK(quantapdf_render_page_with_options(page,&opts,&bitmap));
                 int w=0,h=0,stride=0,channels=0;
                 const unsigned char *rgb=nullptr;
@@ -2764,8 +2764,8 @@ static int native_original_userunit_cases(const std::string& filename)
                 OK(quantapdf_bitmap_dimensions(
                     bitmap,&w,&h,&stride,&channels));
                 OK(quantapdf_bitmap_data(bitmap,&rgb,&count));
-                const int expected_w=dpis[i]==72?32:dpis[i]==96?43:64;
-                const int expected_h=dpis[i]==72?24:dpis[i]==96?32:48;
+                const int expected_w=null_dpis[i]==72?32:null_dpis[i]==96?43:64;
+                const int expected_h=null_dpis[i]==72?24:null_dpis[i]==96?32:48;
                 CHECK(w==expected_w && h==expected_h &&
                       stride==3*w && channels==3 &&
                       count==(size_t)stride*(size_t)h && rgb!=nullptr);
