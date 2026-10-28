@@ -617,32 +617,7 @@ public:
             return;
         }
         const std::string op=item.getOperatorValue();
-        if (op=="q") {
-            admit(args.empty() && pending_path.empty());
-            admit(stack.size()<16u,QUANTAPDF_ERROR_UNSUPPORTED);
-            stack.push_back(current);
-            fill_stack.push_back(fill_argb);
-            if(clipped)clip_stack.push_back(clip_active);
-        } else if(op=="Q") {
-            admit(args.empty() && pending_path.empty() && !stack.empty());
-            current=stack.back();stack.pop_back();
-            fill_argb=fill_stack.back();fill_stack.pop_back();
-            if(clipped) {
-                admit(!clip_stack.empty());
-                const bool was_clipped=clip_active;
-                clip_active=clip_stack.back();clip_stack.pop_back();
-                if((target.restore_second_image && target.draws.size()==1u &&
-                    was_clipped && !clip_active) ||
-                   (target.mixed_scoped_mode && target.clip_completed &&
-                    was_clipped && !clip_active))
-                    target.saw_q_restore=true;
-            }
-        } else if(op=="cm") {
-            admit(args.size()==6u && pending_path.empty());
-            matrix next;
-            for(size_t i=0u;i<6u;++i)next[i]=finite_number(args[i]);
-            current=concat(current,next);
-        } else if(target.native_unclipped_mode &&
+        if(target.native_unclipped_mode &&
                   (op=="M" || op=="d")) {
             /* Public V10 has no admitted Stroke paint. Its M/d state
              * cannot affect opaque Fill/RAW Image output. Validate
@@ -677,6 +652,31 @@ public:
                 admit(count==0 || sum>0.0,
                       QUANTAPDF_ERROR_UNSUPPORTED);
             }
+        } else if (op=="q") {
+            admit(args.empty() && pending_path.empty());
+            admit(stack.size()<16u,QUANTAPDF_ERROR_UNSUPPORTED);
+            stack.push_back(current);
+            fill_stack.push_back(fill_argb);
+            if(clipped)clip_stack.push_back(clip_active);
+        } else if(op=="Q") {
+            admit(args.empty() && pending_path.empty() && !stack.empty());
+            current=stack.back();stack.pop_back();
+            fill_argb=fill_stack.back();fill_stack.pop_back();
+            if(clipped) {
+                admit(!clip_stack.empty());
+                const bool was_clipped=clip_active;
+                clip_active=clip_stack.back();clip_stack.pop_back();
+                if((target.restore_second_image && target.draws.size()==1u &&
+                    was_clipped && !clip_active) ||
+                   (target.mixed_scoped_mode && target.clip_completed &&
+                    was_clipped && !clip_active))
+                    target.saw_q_restore=true;
+            }
+        } else if(op=="cm") {
+            admit(args.size()==6u && pending_path.empty());
+            matrix next;
+            for(size_t i=0u;i<6u;++i)next[i]=finite_number(args[i]);
+            current=concat(current,next);
         } else if(op=="Do") {
             admit(args.size()==1u && args[0].isName() &&
                   pending_path.empty() && !clip_pending);
