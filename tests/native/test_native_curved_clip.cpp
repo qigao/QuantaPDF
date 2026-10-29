@@ -153,6 +153,12 @@ static int rejected(const std::string& contents,
     options.dpi=static_cast<float>(dpi);
     const auto status=quantapdf_render_page_with_options(
         page,&options,&bitmap);
+    if(status==QUANTAPDF_OK || bitmap!=nullptr)
+        std::fprintf(stderr,
+            "unexpected curved-Clip negative: status=%d bitmap=%p "
+            "dpi=%d crop=%d content=%s\n",
+            static_cast<int>(status),static_cast<void*>(bitmap),
+            dpi,crop_mode,contents.c_str());
     CHECK(status!=QUANTAPDF_OK && bitmap==nullptr);
     quantapdf_drop_page(page);
     quantapdf_close(doc);
