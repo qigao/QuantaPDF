@@ -236,3 +236,12 @@ endif()
 add_test(NAME quantapdf.native_cubic_fill COMMAND quantapdf_native_cubic_fill)
 set_tests_properties(quantapdf.native_cubic_fill PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;cubic-fill")
+
+# Private C11 V5 two-owned-Clip Image/PATH opt-in; no public Source,
+# second raster, PDFium, fallback or loosened work budgets.
+quantapdf_native_test(quantapdf_native_two_owned_clip_v5
+  native/test_native_two_owned_clip_v5.c
+  $<TARGET_OBJECTS:quantapdf_native_raster_objects>
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
