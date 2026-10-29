@@ -368,7 +368,12 @@ static int independent_topologies()
         else CHECK(ink_and_white(path));
         if(type==0 && dpi==72) {
             CHECK(pixel(path,4,7)==UINT32_C(0xff0000));
-            CHECK(pixel(path,8,7)==(even?UINT32_C(0xffffff):
+            CHECK(pixel(path,8,8)==(even?UINT32_C(0xffffff):
+                                      UINT32_C(0xff0000)));
+            /* Pixel (8,7) spans source x=8..9,y=4..5 and crosses the
+             * overlap edge 2x+y=22. Exactly four of its sixteen
+             * samples lie in the XOR region; it is not all white. */
+            CHECK(pixel(path,8,7)==(even?UINT32_C(0xffbfbf):
                                       UINT32_C(0xff0000)));
             CHECK(pixel(path,0,0)==UINT32_C(0xffffff));
         }

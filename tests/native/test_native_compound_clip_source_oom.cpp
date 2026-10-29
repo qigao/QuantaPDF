@@ -716,8 +716,7 @@ static bool malformed_failures()
         "2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l W n",
         /* Two re contours spend ten commands, beyond the shared nine. */
         "2 2 10 7 re 4 3 3 2 re W n",
-        "2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h "
-            "8 3 m 8 4 l 9 3 l h W n",
+        "2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h 8 3 m 8 4 l 9 3 l h W n",
         /* Compound geometry is only a Clip admission, not painted PATH
          * or a plain-n path-discard extension. */
         "2 2 10 7 re 4 3 m 7 3 l 4 6 l h f",
