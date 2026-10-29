@@ -118,6 +118,43 @@ add_test(NAME quantapdf.native_source_stage_oom
 set_tests_properties(quantapdf.native_source_stage_oom PROPERTIES
   TIMEOUT 40 LABELS "conformance;native;no-pdfium;source-staging;oom")
 
+# Public Source V10 standard PDF 'n': discard a bounded path without
+# ink, Clip or a new C11 layer. Original QPDF PDFs, no provider fallback
+# and unchanged private V8/V9 source contracts.
+add_executable(quantapdf_native_unpainted_n
+  test_native_unpainted_n.cpp)
+target_compile_features(quantapdf_native_unpainted_n PRIVATE cxx_std_20)
+target_link_libraries(quantapdf_native_unpainted_n PRIVATE
+  QuantaPDF::QuantaPDF qpdf::libqpdf)
+if(MSVC)
+  target_compile_options(quantapdf_native_unpainted_n PRIVATE
+    /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_unpainted_n PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_unpainted_n
+  COMMAND quantapdf_native_unpainted_n)
+set_tests_properties(quantapdf.native_unpainted_n PROPERTIES
+  TIMEOUT 35 LABELS "conformance;native;no-pdfium;public-api;path")
+
+# Original PDF re signed dimensions; immutable Source m/l/l/l/h winding
+# and one pure-C11 V5 raster. No PDFium and no source provider fallback.
+add_executable(quantapdf_native_signed_re test_native_signed_re.cpp)
+target_compile_features(quantapdf_native_signed_re PRIVATE cxx_std_20)
+target_link_libraries(quantapdf_native_signed_re PRIVATE
+  QuantaPDF::QuantaPDF qpdf::libqpdf)
+if(MSVC)
+  target_compile_options(quantapdf_native_signed_re PRIVATE
+    /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_signed_re PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_signed_re COMMAND quantapdf_native_signed_re)
+set_tests_properties(quantapdf.native_signed_re PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;path")
+
 # Strict stroking-only w/J/j source graphics state on public V10 Fill/
 # RAW Image pages: no invisible Stroke painter, PDFium or second raster.
 add_executable(quantapdf_native_stroke_state test_native_stroke_state.cpp)

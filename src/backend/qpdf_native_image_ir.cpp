@@ -771,7 +771,17 @@ public:
                   QUANTAPDF_ERROR_UNSUPPORTED);
             const double x=finite_number(args[0]), y=finite_number(args[1]);
             const double w=finite_number(args[2]), h=finite_number(args[3]);
-            admit(w>0.0 && h>0.0,QUANTAPDF_ERROR_UNSUPPORTED);
+            /* PDF re defines an AUTHORED corner sequence, not an
+             * automatically normalized positive rectangle. Only
+             * public Source V10 opts into negative nonzero dimensions;
+             * old private signatures keep their narrower admission.
+             * Every actual transformed corner is subsequently checked
+             * by append_point against the original source viewport,
+             * precision lattice and bounded coordinate envelope. */
+            admit((w>0.0 && h>0.0) ||
+                  (target.native_unclipped_mode &&
+                   w!=0.0 && h!=0.0),
+                  QUANTAPDF_ERROR_UNSUPPORTED);
             append_point(QUANTAPDF_COMPOSER_PATH_MOVE_TO,x,y);
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x+w,y);
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x+w,y+h);
@@ -832,17 +842,29 @@ public:
                                  QUANTAPDF_COMPOSER_FILL_NONZERO;
             clip_pending=true;
         } else if(clipped && op=="n") {
-            admit(args.empty() && clip_pending &&
-                  !target.clip_completed && pending_path.size()>=3u,
-                  QUANTAPDF_ERROR_UNSUPPORTED);
-            if(!closed)close_path();
-            target.clip.commands=std::move(pending_path);
-            target.clip.rule=clip_rule;
-            target.clip_completed=true;
-            clip_active=true;
-            clip_pending=false;
-            pending_path.clear();
-            closed=false;
+            admit(args.empty(),QUANTAPDF_ERROR_UNSUPPORTED);
+            if(target.native_unclipped_mode && !clip_pending) {
+                /* PDF n ends a path WITHOUT paint or Clip. Native V10
+                 * discards only the already bounded source commands;
+                 * it does not spend a C11 layer, create IR resources,
+                 * or change the current graphics state. In particular
+                 * W/W* followed by n must use the existing branch below.
+                 * Older private Source profiles remain unchanged. */
+                pending_path.clear();
+                closed=false;
+            } else {
+                admit(clip_pending && !target.clip_completed &&
+                      pending_path.size()>=3u,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                if(!closed)close_path();
+                target.clip.commands=std::move(pending_path);
+                target.clip.rule=clip_rule;
+                target.clip_completed=true;
+                clip_active=true;
+                clip_pending=false;
+                pending_path.clear();
+                closed=false;
+            }
         } else {
             /* Parsing is COMPLETE, not image observation: unsupported
              * paint/Text/Stroke/Clip/Form/group/mask/graphics operators
@@ -1718,6 +1740,16 @@ int64_t source_v10_quarters(Obj number)
     const bool negative=raw[i]=='-';
     if(raw[i]=='-' || raw[i]=='+')++i;
     admit(i<raw.size(),QUANTAPDF_ERROR_UNSUPPORTED);
+    /* The original token, including its 20-byte cap, is unchanged.
+     * Trailing fractional zeros carry no precision and must not
+     * consume the fixed-size exact-quarter integer accumulator.
+     * Still validate EVERY input byte below; a late nonzero digit
+     * remains significant and must be rejected if nonquarter. */
+    size_t significant_end=raw.size();
+    const size_t dot=raw.find('.');
+    if(dot!=std::string::npos)
+        while(significant_end>dot+1u && raw[significant_end-1u]=='0')
+            --significant_end;
     int64_t integer_part=0,decimal_part=0,denominator=1;
     bool seen_digit=false,point=false;
     for(;i<raw.size();++i) {
@@ -1731,7 +1763,7 @@ int64_t source_v10_quarters(Obj number)
             integer_part=integer_part*10ll+d;
             admit(integer_part<=1000000ll,
                   QUANTAPDF_ERROR_UNSUPPORTED);
-        } else {
+        } else if(i<significant_end) {
             admit(denominator<=100000000ll,
                   QUANTAPDF_ERROR_UNSUPPORTED);
             decimal_part=decimal_part*10ll+d;
