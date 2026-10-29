@@ -507,7 +507,7 @@ static int empty_or_disjoint_q_restoration()
             white|=is_white(expected,i);
         }
         CHECK(ink && white);
-        for(const std::string& path:{"","25 18 3 3 re"})
+        for(const std::string path:{"","25 18 3 3 re"})
         for(bool even:{false,true}) {
             const auto pdf=original(
                 "q "+path+(even?" W* n ":" W n ")+
