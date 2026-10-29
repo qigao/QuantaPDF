@@ -763,3 +763,62 @@ add_test(NAME quantapdf.native_source_pagetree_contract
 set_tests_properties(quantapdf.native_source_pagetree_contract PROPERTIES
   TIMEOUT 60
   LABELS "conformance;native;no-pdfium;source;public-api;page-tree")
+
+# Deterministic generated original-PDF corpus, distinct from the external
+# provenance/licensing corpus and the historical PDFium source oracles.
+# A Python integrity gate SHA-256 qualifies bytes before ANY native render.
+# Separate C++ public-ABI execution and strict receipt reconciliation
+# prove cross-document isolation in three seeded orders at three DPIs.
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(_native_v10_corpus_script
+  "${PROJECT_SOURCE_DIR}/tools/qualification/native_v10_corpus.py")
+set(_native_v10_corpus_manifest
+  "${PROJECT_SOURCE_DIR}/tests/native/corpus_v10_manifest.json")
+set(_native_v10_corpus_assets
+  "${CMAKE_CURRENT_BINARY_DIR}/native-v10-cross-document-assets")
+set(_native_v10_corpus_receipt
+  "${CMAKE_CURRENT_BINARY_DIR}/native-v10-cross-document-receipt.json")
+
+add_test(NAME quantapdf.native_v10_corpus_integrity
+  COMMAND "${Python3_EXECUTABLE}" "${_native_v10_corpus_script}"
+    --mode prepare
+    --manifest "${_native_v10_corpus_manifest}"
+    --assets "${_native_v10_corpus_assets}"
+    --report "${_native_v10_corpus_receipt}")
+set_tests_properties(quantapdf.native_v10_corpus_integrity PROPERTIES
+  TIMEOUT 20
+  LABELS "conformance;native;no-pdfium;source;corpus;sha256"
+  FIXTURES_SETUP native_v10_corpus_prepared)
+
+add_executable(quantapdf_native_v10_corpus_replay
+  test_native_v10_corpus_replay.cpp)
+target_compile_features(quantapdf_native_v10_corpus_replay PRIVATE
+  cxx_std_20)
+target_link_libraries(quantapdf_native_v10_corpus_replay PRIVATE
+  QuantaPDF::QuantaPDF)
+if(MSVC)
+  target_compile_options(quantapdf_native_v10_corpus_replay PRIVATE
+    /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_v10_corpus_replay PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_v10_corpus_replay
+  COMMAND quantapdf_native_v10_corpus_replay
+    "${_native_v10_corpus_assets}" "${_native_v10_corpus_receipt}")
+set_tests_properties(quantapdf.native_v10_corpus_replay PROPERTIES
+  TIMEOUT 60
+  LABELS "conformance;native;no-pdfium;public-api;corpus;replay"
+  FIXTURES_REQUIRED native_v10_corpus_prepared
+  FIXTURES_SETUP native_v10_corpus_replayed)
+
+add_test(NAME quantapdf.native_v10_corpus_reconcile
+  COMMAND "${Python3_EXECUTABLE}" "${_native_v10_corpus_script}"
+    --mode reconcile
+    --manifest "${_native_v10_corpus_manifest}"
+    --assets "${_native_v10_corpus_assets}"
+    --report "${_native_v10_corpus_receipt}")
+set_tests_properties(quantapdf.native_v10_corpus_reconcile PROPERTIES
+  TIMEOUT 20
+  LABELS "conformance;native;no-pdfium;source;corpus;reconcile"
+  FIXTURES_REQUIRED native_v10_corpus_replayed)
