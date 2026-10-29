@@ -86,7 +86,8 @@ static std::string original(const std::string& operators,
  * renderer. All stream lengths and xref offsets are exact. */
 static std::string literal_original(
     const std::string& unit,const std::string& box,int crop_mode,
-    int rotation,const std::string& operators,bool with_image)
+    int rotation,const std::string& operators,bool with_image,
+    const std::string& visible_crop={})
 {
     std::string bytes="%PDF-1.7\n";
     size_t offsets[6]={};
@@ -95,10 +96,11 @@ static std::string literal_original(
         bytes+=std::to_string(id)+" 0 obj\n"+contents+"\nendobj\n";
     };
     object(1u,"<< /Type /Catalog /Pages 2 0 R >>");
+    const std::string& crop=visible_crop.empty()?box:visible_crop;
     const std::string inherited=crop_mode==2?
-        " /CropBox "+box:std::string();
+        " /CropBox "+crop:std::string();
     const std::string local=crop_mode==1?
-        " /CropBox "+box:std::string();
+        " /CropBox "+crop:std::string();
     object(2u,"<< /Type /Pages /Count 1 /Kids [3 0 R]"+
         inherited+" >>");
     object(3u,"<< /Type /Page /Parent 2 0 R /MediaBox "+box+
@@ -137,7 +139,8 @@ static std::string literal_original(
 }
 
 static int render(const std::string& bytes,int quarters,int rotation,
-                  int dpi,std::vector<unsigned char>& rgb)
+                  int dpi,std::vector<unsigned char>& rgb,
+    int visible_w=32,int visible_h=24)
 {
     CHECK(write_pdf(bytes));
     quantapdf_context *context=nullptr;
@@ -160,8 +163,8 @@ static int render(const std::string& bytes,int quarters,int rotation,
     OK(quantapdf_bitmap_dimensions(
         bitmap,&width,&height,&stride,&channels));
     OK(quantapdf_bitmap_data(bitmap,&pixels,&bytes_count));
-    const int sw=(rotation==90)?24:32;
-    const int sh=(rotation==90)?32:24;
+    const int sw=(rotation==90)?visible_h:visible_w;
+    const int sh=(rotation==90)?visible_w:visible_h;
     const int expected_w=(sw*quarters*dpi+287)/288;
     const int expected_h=(sh*quarters*dpi+287)/288;
     CHECK(width==expected_w && height==expected_h &&
@@ -387,11 +390,138 @@ static int lexical_rejection_cases()
     return EXIT_SUCCESS;
 }
 
+
+/* An equal-to-Media CropBox cannot qualify clipping semantics.
+ * These ORIGINAL PDFs deliberately shrink the visible page to 16x16:
+ * clipped RAW images, authored negative-width re and Q-restored
+ * nonstroking Fill can cross the viewport boundary. Verify that the
+ * same single C11 renderer preserves all paint and owner semantics
+ * with local/inherited, canonically spelled or padded CropBox values. */
+static int active_crop_original_cases()
+{
+    const char *const canonical_units[]={"0.25","1","1.25","4"};
+    const char *const padded_units[]={
+        "0.250000000000000000","1.000000000000000000",
+        "1.250000000000000000","4.000000000000000000"
+    };
+    const int quarters[]={1,4,5,16};
+    const std::string box="[0 0 32 24]";
+    const std::string padded_box="[0.000000000000000000 0.000000000000000000 32.00000000000000000 24.00000000000000000]";
+    const std::string crop="[8 4 24 20]";
+    const std::string padded_crop="[8.000000000000000000 4.000000000000000000 24.00000000000000000 20.00000000000000000]";
+    const case_data active[]={
+        {"1 0 0 rg 4 4 8 6 re f",
+         "0 w 2 J 1 j 3 M [1 2] 0 d 0 G 1 0 1 RG 0 0 0 1 K 2 2 3 3 re n 1 0 0 rg 12 10 -8 -6 re f",false,false},
+        {"q 12 6 8 9 re W* n q 16 0 0 12 8 3 cm /I Do Q Q",
+         "0 w 2 J 1 j 3 M [1 2] 0 d 0 G 1 0 1 RG 0 0 0 1 K 2 2 3 3 re n q 20 15 -8 -9 re W* n q 16 0 0 12 8 3 cm /I Do Q Q",true,false},
+        {"q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q 0.875 g 18 17 5 3 re f",
+         "q 0 w 2 J 1 j 3 M [1 2] 0 d 0 G 1 0 1 RG 0 0 0 1 K 20 15 -8 -9 re W n q 16 0 0 12 8 3 cm /I Do Q Q 0.875 g 23 20 -5 -3 re f",true,false},
+        {"q 16 0 0 12 8 3 cm /I Do Q 1 0 0 rg 4 4 8 6 re f",
+         "0 w 2 J 1 j 3 M [1 2] 0 d 0 G 1 0 1 RG 0 0 0 1 K 2 2 3 3 re n q 16 0 0 12 8 3 cm /I Do Q 1 0 0 rg 12 10 -8 -6 re f",true,false}
+    };
+    for(const auto& item:active)
+    for(size_t factor=0u;factor<4u;++factor)
+    for(int rotation:{0,90})
+    for(int dpi:{72,96,144})
+    for(int crop_mode:{1,2}) {
+        std::vector<unsigned char> reference;
+        const auto baseline=literal_original(
+            canonical_units[factor],box,crop_mode,rotation,
+            item.plain,item.image,crop);
+        CHECK(render(baseline,quarters[factor],rotation,dpi,
+                     reference,16,16)==EXIT_SUCCESS);
+        bool has_ink=false,has_white=false;
+        for(size_t i=0u;i<reference.size();i+=3u) {
+            const bool white=reference[i]==255u &&
+                reference[i+1u]==255u && reference[i+2u]==255u;
+            has_ink|=!white;
+            has_white|=white;
+        }
+        CHECK(has_ink && has_white);
+        for(bool pad_unit:{false,true})
+        for(bool pad_media:{false,true})
+        for(bool pad_crop:{false,true}) {
+            const auto original_bytes=literal_original(
+                pad_unit?padded_units[factor]:canonical_units[factor],
+                pad_media?padded_box:box,crop_mode,rotation,
+                item.decorated,item.image,
+                pad_crop?padded_crop:crop);
+            if(pad_unit)
+                CHECK(original_bytes.find(padded_units[factor])!=
+                      std::string::npos);
+            if(pad_media)
+                CHECK(original_bytes.find("/MediaBox "+padded_box)!=
+                      std::string::npos);
+            if(pad_crop)
+                CHECK(original_bytes.find("/CropBox "+padded_crop)!=
+                      std::string::npos);
+            std::vector<unsigned char> got;
+            CHECK(render(original_bytes,quarters[factor],rotation,dpi,
+                         got,16,16)==EXIT_SUCCESS);
+            CHECK(got.size()==reference.size() &&
+                  std::memcmp(reference.data(),got.data(),got.size())==0);
+        }
+    }
+    return EXIT_SUCCESS;
+}
+
+/* A reduced original CropBox must not turn invalid precision, late
+ * Stroke/GS, invalid path or unclosed Clip into partially painted
+ * pixels. Both local and inherited CropBoxes are tested at real DPI. */
+static int active_crop_rejection_cases()
+{
+    const std::string box="[0 0 32 24]";
+    const std::string crop="[8 4 24 20]";
+    const std::string bad_crop="[8 4 24.00000000000000001 20]";
+    const std::string painted=
+        "0 w 0 J 0 j 2 M [1 2] 0 d 0 G 0 0 0 RG 0 0 0 1 K "
+        "1 0 0 rg 12 10 -8 -6 re f";
+    const std::string clipped=
+        "q 20 15 -8 -9 re W* n q 16 0 0 12 8 3 cm /I Do Q Q";
+    for(int crop_mode:{1,2}) {
+        const std::vector<std::string> invalid={
+            literal_original("1.25",box,crop_mode,0,painted,false,bad_crop),
+            literal_original("1.250000000000000001",box,crop_mode,0,painted,false,crop),
+            literal_original("1.2500000000000000000",box,crop_mode,0,painted,false,crop),
+            literal_original("1.25",box,crop_mode,0,painted+" S",false,crop),
+            literal_original("1.25",box,crop_mode,0,painted+" 2 G",false,crop),
+            literal_original("1.25",box,crop_mode,0,painted+" 1 n",false,crop),
+            literal_original("1.25",box,crop_mode,0,painted+" 12 10 -0 -6 re f",false,crop),
+            literal_original("1.25",box,crop_mode,0,painted+" 0 1 1 0 k",false,crop),
+            literal_original("1.25",box,crop_mode,0,painted+" [0 0] 0 d",false,crop),
+            literal_original("1.25",box,crop_mode,0,clipped+" 1 M S",true,crop)
+        };
+        for(const auto& source:invalid)
+        for(int dpi:{72,96,144}) {
+            CHECK(write_pdf(source));
+            quantapdf_document *doc=nullptr;
+            quantapdf_page *page=nullptr;
+            quantapdf_bitmap *bitmap=
+                reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+            OK(quantapdf_open(filename,nullptr,&doc));
+            CHECK(std::remove(filename)==0);
+            OK(quantapdf_load_page(doc,0,&page));
+            quantapdf_render_options opts{};
+            opts.struct_size=sizeof(opts);
+            opts.dpi=static_cast<float>(dpi);
+            const auto status=quantapdf_render_page_with_options(
+                page,&opts,&bitmap);
+            CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED &&
+                  bitmap==nullptr);
+            quantapdf_drop_page(page);
+            quantapdf_close(doc);
+        }
+    }
+    return EXIT_SUCCESS;
+}
+
 int main()
 {
     CHECK(positive()==EXIT_SUCCESS);
     CHECK(negative()==EXIT_SUCCESS);
     CHECK(lexical_original_cases()==EXIT_SUCCESS);
     CHECK(lexical_rejection_cases()==EXIT_SUCCESS);
+    CHECK(active_crop_original_cases()==EXIT_SUCCESS);
+    CHECK(active_crop_rejection_cases()==EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }
