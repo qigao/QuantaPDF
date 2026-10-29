@@ -742,7 +742,9 @@ set_tests_properties(quantapdf.native_page_geometry_ancestry PROPERTIES
 # Validate complete original Source V10 PageTree traversal, not a
 # PDF-writer-corrected graph. Public facade must also fail closed.
 add_executable(quantapdf_native_source_pagetree_contract
-  test_native_source_pagetree_contract.cpp)
+  test_native_source_pagetree_contract.cpp
+  "${PROJECT_SOURCE_DIR}/src/ir/ir.c"
+  "${PROJECT_SOURCE_DIR}/src/resource/resource_registry.c")
 target_include_directories(quantapdf_native_source_pagetree_contract PRIVATE
   "${PROJECT_SOURCE_DIR}/src" "${PROJECT_SOURCE_DIR}/include")
 target_compile_features(quantapdf_native_source_pagetree_contract PRIVATE
