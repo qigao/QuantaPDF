@@ -72,10 +72,14 @@ static quantapdf_status native_source_bridge_impl(
      * signatures remain exact 72 DPI. This is a projection into the
      * SINGLE C11 V5 raster, not a second renderer or image rescaler. */
     if(source_profile==QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10) {
-        /* Select the complete owned state shape once. Two distinct GS
-         * identities preserve first-leaf/intersection/Q membership for
-         * every paint; the older one-GS profiles keep their entrypoints. */
-        if(ir.resources.graphics_state_count!=0u &&
+        /* Select the complete owned state shape once. Two independent
+         * leaves/GS are sibling scopes; three Clip records include an
+         * intersection root. Every paint retains its exact membership. */
+        if(ir.resources.graphics_state_count==2u &&
+           ir.resources.clip_count==2u)
+            status=quantapdf_native_device_ir_render_v1_sibling_clips(
+                &ir,(unsigned)device->dpi,&limits->raster,out_image);
+        else if(ir.resources.graphics_state_count!=0u &&
            ir.operation_count!=0u && ir.operations!=NULL &&
            ir.operations[0].graphics_state_id==0u)
             status=quantapdf_native_device_ir_render_v1_unclipped_prefix(

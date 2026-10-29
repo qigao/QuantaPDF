@@ -222,10 +222,11 @@ quantapdf_status quantapdf_qpdf_source_scoped_mixed_v10_flate_predictor_to_ir(
  * ordinary rectangles require ten commands and remain unsupported.
  * Painted PATHs and paths ended by plain n retain their existing
  * grammar. The first definition may follow a bounded GS0 paint prefix;
- * the second may follow first-leaf paints.
+ * the second may follow first-leaf paints or real Q restoration to GS0.
  * Empty, MOVE-only and open MOVE+LINE operands use the same four-command
  * zero-edge encoding in either position. Both definition-time paths and
- * winding rules are retained: owned Clip IDs 1/2 and owned flat root 3.
+ * winding rules are retained: owned Clip IDs 1/2 and, for intersecting
+ * scopes only, owned flat root 3.
  * Original Rotate and UserUnit apply to both leaves. Simple rectangle
  * pairs retain their exact one-leaf reduction only when no earlier
  * paint or saved q can observe the original first leaf.
@@ -247,6 +248,14 @@ quantapdf_status quantapdf_qpdf_source_scoped_mixed_v10_flate_predictor_to_ir(
  * fit those limits. A later GS0 suffix still requires real Q; initial
  * GS0 paints neither restore nor discard a Clip. All original owners,
  * paint order, definition CTMs and work quotas are retained.
+ *
+ * An independent second Clip after Q uses two owned leaves and two GS
+ * records mapping GS1 to leaf 1 and GS2 to leaf 2, with no root or
+ * rectangle reduction. Complete-page order is 0* 1+ 0* 2+ 0*: both
+ * identities must be painted, each GS0 transition requires real Q,
+ * and the second scope may stay live at EOF. Prefix staging, total
+ * layers, Image/mixed cardinalities and all quotas remain unchanged.
+ * Unused sibling leaves and any third Clip definition still refuse.
  *
  * The existing one-GS V10 profile admits 1..4 opaque PATH-only f/f*
  * paints with its Clip graph and no Image resources. Without a prefix,
