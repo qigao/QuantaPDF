@@ -86,7 +86,8 @@ static int qp_image_bounds(
 static quantapdf_status qp_native_device_ir_render(
     const quantapdf_ir *source,unsigned dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
-    quantapdf_ir_raster_image *out_image,int two_clip_optin)
+    quantapdf_ir_raster_image *out_image,int two_clip_optin,
+    int clipped_paths_optin)
 {
     quantapdf_native_device_plan plan={0};
     quantapdf_ir projected={0};
@@ -121,23 +122,26 @@ static quantapdf_status qp_native_device_ir_render(
        source->pages[0].width_points>1000000.0f ||
        source->pages[0].height_points>1000000.0f)
         return QUANTAPDF_ERROR_UNSUPPORTED;
-    if(two_clip_optin) {
+    if(two_clip_optin || clipped_paths_optin) {
         const quantapdf_resource_registry *r=&source->resources;
         const quantapdf_composer_clip_state *root;
         /* Establish the bounded storage shape before indexing any
          * Clip record or member. The V5 consumer separately validates
          * every preserved resource and per-operation GS relationship. */
-        if(r->clips==NULL || r->clip_capacity!=3u ||
+        if(r->clips==NULL || r->clip_count!=(two_clip_optin?3u:1u) ||
+           r->clip_capacity!=r->clip_count ||
            r->graphics_states==NULL || r->graphics_state_count!=1u ||
            r->graphics_state_capacity!=1u)
             return QUANTAPDF_ERROR_UNSUPPORTED;
-        root=&r->clips[2];
-        if(root->kind!=QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL ||
-           root->commands!=NULL || root->command_count!=0u ||
-           root->members==NULL || root->member_count!=2u ||
-           !((root->members[0]==1u && root->members[1]==2u) ||
-             (root->members[0]==2u && root->members[1]==1u)))
-            return QUANTAPDF_ERROR_UNSUPPORTED;
+        if(two_clip_optin) {
+            root=&r->clips[2];
+            if(root->kind!=QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL ||
+               root->commands!=NULL || root->command_count!=0u ||
+               root->members==NULL || root->member_count!=2u ||
+               !((root->members[0]==1u && root->members[1]==2u) ||
+                 (root->members[0]==2u && root->members[1]==1u)))
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+        }
     }
     /* QPDF admitted original signed quarter-point spans; recover
      * exact quarters from the binary-representable projected local
@@ -184,13 +188,17 @@ static quantapdf_status qp_native_device_ir_render(
     for(size_t i=0u;i<source->operation_count;++i) {
         const quantapdf_composer_operation *original=&source->operations[i];
         operations[i]=*original;
+        if(clipped_paths_optin &&
+           original->kind!=QUANTAPDF_COMPOSER_OPERATION_PATH)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
         if(original->kind==QUANTAPDF_COMPOSER_OPERATION_PATH) {
             const quantapdf_composer_path_operation *path=&original->value.path;
             const quantapdf_affine_transform *t=&path->options.transform;
             const int zero=(t->a==0.0f && t->b==0.0f &&
                 t->c==0.0f && t->d==0.0f &&
                 t->e==0.0f && t->f==0.0f);
-            if(!zero || !qp_device_commands(paths[i],path->commands,
+            if(!zero || (clipped_paths_optin && path->command_count<4u) ||
+               !qp_device_commands(paths[i],path->commands,
                                              path->command_count,scale,1))
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             operations[i].value.path.commands=paths[i];
@@ -215,6 +223,7 @@ static quantapdf_status qp_native_device_ir_render(
                old->transform.a!=1.0f || old->transform.b!=0.0f ||
                old->transform.c!=0.0f || old->transform.d!=1.0f ||
                old->transform.e!=0.0f || old->transform.f!=0.0f ||
+               (clipped_paths_optin && old->command_count<4u) ||
                !qp_device_commands(clip_commands[i],old->commands,
                                    old->command_count,scale,1))
                 return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -234,6 +243,12 @@ static quantapdf_status qp_native_device_ir_render(
      * integer placements still use the identical V5 RAW layer; only
      * off-viewport or fractional bounds require the C11 4x4 mask.
      * No 72-DPI bitmap upscale or second pixel producer. */
+    if(clipped_paths_optin)
+        return quantapdf_ir_raster_scoped_mixed_v5_clipped_paths_device_viewport(
+            &projected,0u,limits,
+            (double)source_width*(double)dpi/1152.0,
+            (double)source_height*(double)dpi/1152.0,
+            out_image);
     if(two_clip_optin)
         return quantapdf_ir_raster_scoped_mixed_v5_two_clip_device_viewport(
             &projected,0u,limits,
@@ -252,7 +267,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1(
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image)
 {
-    return qp_native_device_ir_render(source,dpi,limits,out_image,0);
+    return qp_native_device_ir_render(source,dpi,limits,out_image,0,0);
 }
 
 quantapdf_status quantapdf_native_device_ir_render_v1_two_clip(
@@ -260,5 +275,14 @@ quantapdf_status quantapdf_native_device_ir_render_v1_two_clip(
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image)
 {
-    return qp_native_device_ir_render(source,dpi,limits,out_image,1);
+    return qp_native_device_ir_render(source,dpi,limits,out_image,1,0);
+}
+
+quantapdf_status quantapdf_native_device_ir_render_v1_clipped_paths(
+    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    const int two=source!=NULL && source->resources.clip_count==3u;
+    return qp_native_device_ir_render(source,dpi,limits,out_image,two,1);
 }

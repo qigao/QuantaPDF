@@ -319,3 +319,65 @@ add_test(NAME quantapdf.native_two_clip_source_oom
   COMMAND quantapdf_native_two_clip_source_oom)
 set_tests_properties(quantapdf.native_two_clip_source_oom PROPERTIES
   TIMEOUT 60 LABELS "conformance;native;no-pdfium;source;two-clip;oom")
+
+# Explicit PATH-only Clip projection reuses the canonical bounded C11
+# sampler while preserving older device and V5 admission contracts.
+quantapdf_native_test(quantapdf_native_clipped_path_device
+  native/test_native_clipped_path_device.c
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_ir_v1.c"
+  $<TARGET_OBJECTS:quantapdf_native_raster_objects>
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
+
+# Original PDFs containing only bounded opaque PATH fills under Clip.
+add_executable(quantapdf_native_clipped_path_source
+  test_native_clipped_path_source.cpp)
+target_compile_features(quantapdf_native_clipped_path_source PRIVATE cxx_std_20)
+target_link_libraries(quantapdf_native_clipped_path_source PRIVATE
+  QuantaPDF::QuantaPDF qpdf::libqpdf)
+if(MSVC)
+  target_compile_options(quantapdf_native_clipped_path_source PRIVATE
+    /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_clipped_path_source PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_clipped_path_source
+  COMMAND quantapdf_native_clipped_path_source)
+set_tests_properties(quantapdf.native_clipped_path_source PROPERTIES
+  TIMEOUT 60 LABELS "conformance;native;no-pdfium;public-api;clipped-path")
+
+# Exercise the actual Source owner at every PATH/GS/Clip C allocation.
+add_executable(quantapdf_native_clipped_path_source_oom
+  test_native_clipped_path_source_oom.cpp
+  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_native_image_ir.cpp"
+  "${PROJECT_SOURCE_DIR}/src/ir/ir.c"
+  "${PROJECT_SOURCE_DIR}/src/resource/resource_registry.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_ir_v1.c"
+  $<TARGET_OBJECTS:quantapdf_native_raster_objects>
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
+target_compile_definitions(quantapdf_native_clipped_path_source_oom PRIVATE
+  QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST=1)
+target_include_directories(quantapdf_native_clipped_path_source_oom PRIVATE
+  "${PROJECT_SOURCE_DIR}/src" "${PROJECT_SOURCE_DIR}/include")
+target_compile_features(quantapdf_native_clipped_path_source_oom PRIVATE
+  c_std_11 cxx_std_20)
+target_link_libraries(quantapdf_native_clipped_path_source_oom PRIVATE
+  quantapdf_backend QuantaPDF::QuantaPDF qpdf::libqpdf)
+if(UNIX)
+  target_link_libraries(quantapdf_native_clipped_path_source_oom PRIVATE m)
+endif()
+if(MSVC)
+  target_compile_options(quantapdf_native_clipped_path_source_oom PRIVATE
+    /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_clipped_path_source_oom PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_clipped_path_source_oom
+  COMMAND quantapdf_native_clipped_path_source_oom)
+set_tests_properties(quantapdf.native_clipped_path_source_oom PROPERTIES
+  TIMEOUT 60 LABELS "conformance;native;no-pdfium;source;clipped-path;oom")

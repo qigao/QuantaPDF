@@ -72,10 +72,15 @@ static quantapdf_status native_source_bridge_impl(
      * signatures remain exact 72 DPI. This is a projection into the
      * SINGLE C11 V5 raster, not a second renderer or image rescaler. */
     if(source_profile==QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10) {
-        /* Fully admitted Source owns zero/one leaf or exactly two
-         * leaves plus their Intersection root. Select that immutable
+        /* Fully admitted homogeneous PATHs use their explicit Clip
+         * contract. Image/mixed profiles retain their existing zero,
+         * one-leaf or two-leaf graph entrypoints. Select the owned IR
          * shape before rendering; never retry after raster refusal. */
-        if(ir.resources.clip_count==3u)
+        if(ir.resources.image_count==0u &&
+           ir.resources.graphics_state_count==1u)
+            status=quantapdf_native_device_ir_render_v1_clipped_paths(
+                &ir,(unsigned)device->dpi,&limits->raster,out_image);
+        else if(ir.resources.clip_count==3u)
             status=quantapdf_native_device_ir_render_v1_two_clip(
                 &ir,(unsigned)device->dpi,&limits->raster,out_image);
         else

@@ -592,9 +592,14 @@ static int atomic_refusals()
         prefix+image_draw+" "+image_draw+" "+image_draw+" Q",
         /* Three all-clipped paints remain outside the mixed profile. */
         prefix+image_draw+" "+path_fill+image_draw+" Q",
+        /* Widened PATH-only staging must not admit a late first Image
+         * after three PATHs through the unchanged mixed preflight. */
+        prefix+path_fill+path_fill+path_fill+image_draw+" Q",
         prefix+image_draw+" "+path_fill+" Q "+image_draw+" "+
             path_fill+path_fill,
-        prefix+path_fill+" Q",
+        /* PATH-only under the final Clip is now qualified separately;
+         * a fifth opaque PATH still exceeds the fixed layer ceiling. */
+        prefix+path_fill+path_fill+path_fill+path_fill+path_fill+" Q",
         ready+" q "+curve_a+" W n "+image_draw+" Q",
         prefix+curve_a+" W 1 n "+image_draw+" Q"
     };

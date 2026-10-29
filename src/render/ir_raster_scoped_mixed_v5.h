@@ -65,6 +65,19 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_two_clip_device_viewport(
     double viewport_width,double viewport_height,
     quantapdf_ir_raster_image *out_image);
 
+/* Explicit bounded PATH-only profile: one..four opaque PATH paints,
+ * no Image or hidden resources, and exactly one GS naming one frozen
+ * Clip leaf or two leaves plus their flat Intersection root. All paints
+ * start in GS=1; an optional Q-restored GS=0 suffix is final. PATH and
+ * Clip commands contain four..nine elements. The same V1 sampler tests
+ * PATH, Clip leaves and fractional viewport at each shared subpixel.
+ * Legacy entrypoints retain their refusal of clipped PATH-only input. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_clipped_paths_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
