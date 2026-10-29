@@ -180,7 +180,7 @@ static bool expected(const rendered& r,size_t index,int dpi)
     const uint32_t white=UINT32_C(0xffffff);
     const bool clipped=index==0u || index==1u || index==5u;
     if(pixel(r,r.width/2,r.height/2)!=color ||
-       pixel(r,2,2)!=(clipped?white:color))
+       pixel(r,1,1)!=(clipped?white:color))
         return false;
     if(clipped) {
         if(pixel(r,0,0)!=white || pixel(r,r.width-2,1)!=white)
