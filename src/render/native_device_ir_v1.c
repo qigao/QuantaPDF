@@ -32,7 +32,7 @@ static int qp_device_point(quantapdf_point *point,double scale)
 static int qp_device_commands(
     quantapdf_composer_path_command *dst,
     const quantapdf_composer_path_command *src,
-    size_t count,double scale,int allow_cubic_fill)
+    size_t count,double scale,int allow_cubic)
 {
     if(src==NULL || count==0u || count>QP_DPI_MAX_PATH_COMMANDS)
         return 0;
@@ -44,11 +44,10 @@ static int qp_device_commands(
             if(!qp_device_point(&dst[i].point1,scale))return 0;
             break;
         case QUANTAPDF_COMPOSER_PATH_CUBIC_TO:
-            /* Only original Source V10 opaque Fill may project this
-             * existing cubic command. Stage all three scaled points
-             * through the same bounded finite native device policy;
-             * curved W/W* Clip stays explicitly unqualified. */
-            if(!allow_cubic_fill ||
+            /* Opaque Fill and the private two-Clip opt-in project all
+             * three points with the same bounded finite device policy.
+             * The original single-Clip route still refuses cubics. */
+            if(!allow_cubic ||
                !qp_device_point(&dst[i].point1,scale) ||
                !qp_device_point(&dst[i].point2,scale) ||
                !qp_device_point(&dst[i].point3,scale))
@@ -85,10 +84,10 @@ static int qp_image_bounds(
     return 1;
 }
 
-quantapdf_status quantapdf_native_device_ir_render_v1(
+static quantapdf_status qp_native_device_ir_render(
     const quantapdf_ir *source,unsigned dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
-    quantapdf_ir_raster_image *out_image)
+    quantapdf_ir_raster_image *out_image,int two_clip_optin)
 {
     quantapdf_native_device_plan plan={0};
     quantapdf_ir projected={0};
@@ -96,9 +95,10 @@ quantapdf_status quantapdf_native_device_ir_render_v1(
     quantapdf_composer_operation operations[QP_DPI_MAX_OPS]={{0}};
     quantapdf_composer_path_command paths[QP_DPI_MAX_OPS]
         [QP_DPI_MAX_PATH_COMMANDS]={{{0}}};
-    quantapdf_composer_clip_state clip={0};
+    quantapdf_composer_clip_state clips[3]={{0}};
     quantapdf_composer_path_command
-        clip_commands[QP_DPI_MAX_PATH_COMMANDS]={{0}};
+        clip_commands[2][QP_DPI_MAX_PATH_COMMANDS]={{{0}}};
+    quantapdf_composer_clip_id clip_members[2]={0u,0u};
     char box[80];
     size_t source_width,source_height;
     int printed;
@@ -113,7 +113,8 @@ quantapdf_status quantapdf_native_device_ir_render_v1(
     if((dpi!=72u && dpi!=96u && dpi!=144u) || source->page_count!=1u ||
        source->operation_count>QP_DPI_MAX_OPS ||
        (source->operation_count!=0u && source->operations==NULL) ||
-       source->resources.clip_count>1u ||
+       (two_clip_optin ? source->resources.clip_count!=3u :
+                        source->resources.clip_count>1u) ||
        !isfinite(source->pages[0].width_points) ||
        !isfinite(source->pages[0].height_points) ||
        source->pages[0].width_points<1.0f ||
@@ -121,6 +122,24 @@ quantapdf_status quantapdf_native_device_ir_render_v1(
        source->pages[0].width_points>1000000.0f ||
        source->pages[0].height_points>1000000.0f)
         return QUANTAPDF_ERROR_UNSUPPORTED;
+    if(two_clip_optin) {
+        const quantapdf_resource_registry *r=&source->resources;
+        const quantapdf_composer_clip_state *root;
+        /* Establish the bounded storage shape before indexing any
+         * Clip record or member. The V5 consumer separately validates
+         * every preserved resource and per-operation GS relationship. */
+        if(r->clips==NULL || r->clip_capacity!=3u ||
+           r->graphics_states==NULL || r->graphics_state_count!=1u ||
+           r->graphics_state_capacity!=1u)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        root=&r->clips[2];
+        if(root->kind!=QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL ||
+           root->commands!=NULL || root->command_count!=0u ||
+           root->members==NULL || root->member_count!=2u ||
+           !((root->members[0]==1u && root->members[1]==2u) ||
+             (root->members[0]==2u && root->members[1]==1u)))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
     /* QPDF admitted original signed quarter-point spans; recover
      * exact quarters from the binary-representable projected local
      * Page extent and pass decimal quarters to the existing C11
@@ -184,28 +203,63 @@ quantapdf_status quantapdf_native_device_ir_render_v1(
             return QUANTAPDF_ERROR_UNSUPPORTED;
         }
     }
-    if(source->resources.clip_count==1u) {
-        const quantapdf_composer_clip_state *old=source->resources.clips;
-        if(old==NULL ||
-           old->kind!=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL ||
-           old->transform.a!=1.0f || old->transform.b!=0.0f ||
-           old->transform.c!=0.0f || old->transform.d!=1.0f ||
-           old->transform.e!=0.0f || old->transform.f!=0.0f ||
-           !qp_device_commands(clip_commands,old->commands,
-                               old->command_count,scale,0))
+    if(source->resources.clip_count!=0u) {
+        const size_t leaf_count=two_clip_optin?2u:1u;
+        if(source->resources.clips==NULL)
             return QUANTAPDF_ERROR_UNSUPPORTED;
-        clip=*old;
-        clip.commands=clip_commands;
-        projected.resources.clips=&clip;
+        for(size_t i=0u;i<leaf_count;++i) {
+            const quantapdf_composer_clip_state *old=&source->resources.clips[i];
+            /* Source has already frozen definition-time CTM in the
+             * commands. Do not scale an unfrozen transform a second
+             * time or allow it to escape device-coordinate bounds. */
+            if(old->kind!=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL ||
+               old->transform.a!=1.0f || old->transform.b!=0.0f ||
+               old->transform.c!=0.0f || old->transform.d!=1.0f ||
+               old->transform.e!=0.0f || old->transform.f!=0.0f ||
+               !qp_device_commands(clip_commands[i],old->commands,
+                                   old->command_count,scale,two_clip_optin))
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+            clips[i]=*old;
+            clips[i].commands=clip_commands[i];
+        }
+        if(two_clip_optin) {
+            clips[2]=source->resources.clips[2];
+            clip_members[0]=clips[2].members[0];
+            clip_members[1]=clips[2].members[1];
+            clips[2].members=clip_members;
+        }
+        projected.resources.clips=clips;
     }
     /* All public V10 true-DPI pages use the canonical device opt-in
      * for original IMAGE/Crop viewport intersection. Existing 72/144
      * integer placements still use the identical V5 RAW layer; only
      * off-viewport or fractional bounds require the C11 4x4 mask.
      * No 72-DPI bitmap upscale or second pixel producer. */
+    if(two_clip_optin)
+        return quantapdf_ir_raster_scoped_mixed_v5_two_clip_device_viewport(
+            &projected,0u,limits,
+            (double)source_width*(double)dpi/1152.0,
+            (double)source_height*(double)dpi/1152.0,
+            out_image);
     return quantapdf_ir_raster_scoped_mixed_v5_device_viewport(
         &projected,0u,limits,
         (double)source_width*(double)dpi/1152.0,
         (double)source_height*(double)dpi/1152.0,
         out_image);
+}
+
+quantapdf_status quantapdf_native_device_ir_render_v1(
+    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_native_device_ir_render(source,dpi,limits,out_image,0);
+}
+
+quantapdf_status quantapdf_native_device_ir_render_v1_two_clip(
+    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_native_device_ir_render(source,dpi,limits,out_image,1);
 }

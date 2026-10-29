@@ -245,3 +245,13 @@ quantapdf_native_test(quantapdf_native_two_owned_clip_v5
   "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
   "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
   "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
+
+# Private two-owned-Clip true-DPI projection into the same V5 raster.
+# Public Source dispatch retains its qualified zero/one-Clip profile.
+quantapdf_native_test(quantapdf_native_two_clip_device
+  native/test_native_two_clip_device.c
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_ir_v1.c"
+  $<TARGET_OBJECTS:quantapdf_native_raster_objects>
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")

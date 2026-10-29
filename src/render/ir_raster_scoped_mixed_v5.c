@@ -369,6 +369,21 @@ static quantapdf_status v5_render_impl(
        ir->resources.paint_count!=0u ||
        ir->link_count!=0u || ir->outline_count!=0u)
         return QUANTAPDF_ERROR_UNSUPPORTED;
+    if(two_clip_optin) {
+        const quantapdf_resource_registry *r=&ir->resources;
+        /* The opt-in borrows the complete owned graph. Per-layer
+         * projection must not hide unregistered payloads or capacities
+         * just because their resource counts happen to be zero. */
+        if(r->image_capacity!=r->image_count ||
+           r->fonts!=NULL || r->font_capacity!=0u ||
+           r->forms!=NULL || r->form_capacity!=0u ||
+           r->soft_masks!=NULL || r->soft_mask_capacity!=0u ||
+           r->paints!=NULL || r->paint_capacity!=0u ||
+           ir->links!=NULL || ir->outlines!=NULL ||
+           !v5_two_clip_leaves(r,clip_leaves))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        clip_leaf_count=2u;
+    }
     /* Exact one..four PATHs with zero Images are a separately admitted
      * native-only profile, using the existing four-layer ceiling rather
      * than accepting unvalidated mixed/Clip resource state.
@@ -453,11 +468,7 @@ static quantapdf_status v5_render_impl(
            gs->clip_id!=(two_clip_optin?3u:1u) ||
            gs->soft_mask_id!=0u)
             return QUANTAPDF_ERROR_UNSUPPORTED;
-        if(two_clip_optin) {
-            if(!v5_two_clip_leaves(&ir->resources,clip_leaves))
-                return QUANTAPDF_ERROR_UNSUPPORTED;
-            clip_leaf_count=2u;
-        } else {
+        if(!two_clip_optin) {
             if(clip->kind!=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL ||
                clip->commands==NULL || clip->command_count==0u ||
                clip->command_count>9u ||

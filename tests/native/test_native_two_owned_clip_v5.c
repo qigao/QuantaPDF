@@ -203,6 +203,44 @@ static int image_only_empty_and_viewport(void)
   quantapdf_ir_raster_image_dispose(&b);
   return EXIT_SUCCESS;
 }
+static int image_same_sample_intersection(void)
+{
+  fixture f,saved;
+  quantapdf_ir_raster_image both={0},single={0};
+  setup(&f);f.ir.operation_count=1u;
+  /* Two collinear-cubic rectangles meet at x=3.5. Each covers eight
+   * of pixel (3,3)'s sixteen samples, but they cover DIFFERENT samples.
+   * Multiplying averaged masks would leave red ink; geometric AND is
+   * empty. Verify this at the actual RAW Image composition entry. */
+  rectangle(f.shapes[0],0,0,3.5f,8);
+  rectangle(f.shapes[1],3.5f,0,8,8);
+  for(size_t i=0u;i<2u;++i) {
+    const float right=i==0u?3.5f:8.0f;
+    point(&f.shapes[i][2],QUANTAPDF_COMPOSER_PATH_CUBIC_TO,right,2);
+    f.shapes[i][2].point2=(quantapdf_point){right,6};
+    f.shapes[i][2].point3=(quantapdf_point){right,8};
+  }
+  saved=f;
+  OK(draw(&f,&budget,8,8,&both));
+  for(size_t y=0u;y<8u;++y)
+    for(size_t x=0u;x<8u;++x)
+      CHECK(rgba(&both,x,y)==UINT32_C(0xffffffff));
+  for(size_t i=0u;i<2u;++i) {
+    quantapdf_ir one=f.ir;
+    quantapdf_composer_graphics_state gs=f.gs;
+    gs.clip_id=1u;
+    one.resources.graphics_states=&gs;
+    one.resources.clips=&f.clips[i];
+    one.resources.clip_count=one.resources.clip_capacity=1u;
+    OK(quantapdf_ir_raster_scoped_mixed_v5_device_viewport(
+        &one,0u,&budget,8,8,&single));
+    CHECK(rgba(&single,3,3)==UINT32_C(0xff7f7fff));
+    quantapdf_ir_raster_image_dispose(&single);
+  }
+  CHECK(memcmp(&f,&saved,sizeof(f))==0);
+  quantapdf_ir_raster_image_dispose(&both);
+  return EXIT_SUCCESS;
+}
 static int refused(fixture *f,
   const quantapdf_ir_raster_scoped_mixed_v5_limits *limit,int legacy)
 {
@@ -255,11 +293,47 @@ static int malformed_and_budgets(void)
   CHECK(refused(&f,&budget,0)==EXIT_SUCCESS);
   return EXIT_SUCCESS;
 }
+static int hidden_resources(void)
+{
+  fixture f;
+  quantapdf_composer_font_state font={0};
+  quantapdf_composer_form_state form={0};
+  quantapdf_composer_paint_state paint={0};
+  quantapdf_composer_soft_mask_state soft_mask={0};
+  setup(&f);f.ir.resources.image_capacity=0u;
+  CHECK(refused(&f,&budget,0)==EXIT_SUCCESS);
+  setup(&f);f.ir.resources.image_capacity=2u;
+  CHECK(refused(&f,&budget,0)==EXIT_SUCCESS);
+  setup(&f);f.ir.resources.fonts=&font;
+  CHECK(refused(&f,&budget,0)==EXIT_SUCCESS);
+  setup(&f);f.ir.resources.font_capacity=1u;
+  CHECK(refused(&f,&budget,0)==EXIT_SUCCESS);
+  setup(&f);f.ir.resources.forms=&form;
+  CHECK(refused(&f,&budget,0)==EXIT_SUCCESS);
+  setup(&f);f.ir.resources.form_capacity=1u;
+  CHECK(refused(&f,&budget,0)==EXIT_SUCCESS);
+  setup(&f);f.ir.resources.paints=&paint;
+  CHECK(refused(&f,&budget,0)==EXIT_SUCCESS);
+  setup(&f);f.ir.resources.paint_capacity=1u;
+  CHECK(refused(&f,&budget,0)==EXIT_SUCCESS);
+  setup(&f);f.ir.resources.soft_masks=&soft_mask;
+  CHECK(refused(&f,&budget,0)==EXIT_SUCCESS);
+  setup(&f);f.ir.resources.soft_mask_capacity=1u;
+  CHECK(refused(&f,&budget,0)==EXIT_SUCCESS);
+  /* Counts remain zero: these pointers must be rejected without reads. */
+  setup(&f);f.ir.links=(void *)(uintptr_t)1u;
+  CHECK(refused(&f,&budget,0)==EXIT_SUCCESS);
+  setup(&f);f.ir.outlines=(void *)(uintptr_t)1u;
+  CHECK(refused(&f,&budget,0)==EXIT_SUCCESS);
+  return EXIT_SUCCESS;
+}
 int main(void)
 {
   CHECK(ordered_mixed_and_borrow()==EXIT_SUCCESS);
   CHECK(image_only_empty_and_viewport()==EXIT_SUCCESS);
+  CHECK(image_same_sample_intersection()==EXIT_SUCCESS);
   CHECK(malformed_and_budgets()==EXIT_SUCCESS);
+  CHECK(hidden_resources()==EXIT_SUCCESS);
   fprintf(stderr,"[native.two_owned_clip_v5] completed\n");
   return EXIT_SUCCESS;
 }
