@@ -725,6 +725,11 @@ static int two_rectangle_atomic_refusals()
     const std::string second="12 6 12 12 re";
     const std::string image="q 16 0 0 12 8 3 cm /I Do Q Q";
     const std::vector<std::string> bad={
+        /* First W precedes q. After the second W and Image, Q
+         * restores the FIRST Clip, not an unclipped state. A final Do
+         * must not silently reuse the collapsed intersection leaf. */
+        first+" W n q "+second+" W* n "+image+
+            " q 16 0 0 12 8 3 cm /I Do Q",
         "q "+first+" W n "+second+" W* "+image,
         "q "+first+" W n "+second+" W* W n "+image,
         "q "+first+" W n "+second+" W* n "+second+

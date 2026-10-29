@@ -928,9 +928,14 @@ public:
                   QUANTAPDF_ERROR_UNSUPPORTED);
             if(target.native_unclipped_mode && target.clip_completed) {
                 std::array<float,4u> first{},next{};
+                /* The collapsed IR owns only one Clip identity. The
+                 * saved q state must therefore be unclipped: a Q that
+                 * restores the first leaf needs a distinct retained
+                 * Clip/GS, which this Source subset cannot publish. */
                 admit(!second_clip_used && !second_clip_pending &&
                       clip_active && !target.saw_q_restore &&
-                      clip_stack.size()==1u && target.order.empty() &&
+                      clip_stack.size()==1u && !clip_stack.back() &&
+                      target.order.empty() &&
                       target.draws.empty() && target.painted_paths.empty() &&
                       closed && read_strict_rect(target.clip.commands,first) &&
                       read_strict_rect(pending_path,next),
@@ -959,7 +964,7 @@ public:
                       target.clip_completed && clip_active &&
                       !second_clip_used && clip_pending &&
                       closed && target.order.empty() &&
-                      clip_stack.size()==1u &&
+                      clip_stack.size()==1u && !clip_stack.back() &&
                       read_strict_rect(target.clip.commands,first) &&
                       read_strict_rect(pending_path,next),
                       QUANTAPDF_ERROR_UNSUPPORTED);
