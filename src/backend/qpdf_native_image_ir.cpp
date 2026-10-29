@@ -916,23 +916,77 @@ public:
             pending_path.clear();
             closed=false;
         } else if(clipped && (op=="W" || op=="W*")) {
-            /* Original V10 c/v/y controls are already frozen at the
-             * definition-time CTM into bounded, uniquely owned PATH
-             * commands. The SAME existing C11 cubic flattener samples
-             * this one W/W* Clip leaf (nonzero or even-odd). All older
-             * private source signatures still reject cubic operators;
-             * second Clip definitions and unsupported content fail. */
-            admit(args.empty() &&
-                  (pending_path.size()>=3u || trivial_zero_area_clip()) &&
-                  !clip_pending && !target.clip_completed &&
+            /* Two simple axis-aligned rectangles with no intervening
+             * paint may be intersected EXACTLY in already transformed
+             * Source coordinates. The single resulting owned Clip is
+             * consumed by the existing C11 V5 raster; no second Clip
+             * DAG, mask averaging, PDFium or renderer is introduced.
+             * Curves/empty leaves, third W, q reentry and all older
+             * private Source profiles retain their strict rejection. */
+            admit(args.empty() && !clip_pending &&
                   (!target.mixed_scoped_mode || target.order.empty()),
                   QUANTAPDF_ERROR_UNSUPPORTED);
+            if(target.native_unclipped_mode && target.clip_completed) {
+                std::array<float,4u> first{},next{};
+                admit(!second_clip_used && !second_clip_pending &&
+                      clip_active && !target.saw_q_restore &&
+                      clip_stack.size()==1u && target.order.empty() &&
+                      target.draws.empty() && target.painted_paths.empty() &&
+                      closed && read_strict_rect(target.clip.commands,first) &&
+                      read_strict_rect(pending_path,next),
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                second_clip_pending=true;
+            } else {
+                admit((pending_path.size()>=3u ||
+                       trivial_zero_area_clip()) &&
+                      !target.clip_completed,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+            }
             clip_rule=op=="W*" ? QUANTAPDF_COMPOSER_FILL_EVEN_ODD :
                                  QUANTAPDF_COMPOSER_FILL_NONZERO;
             clip_pending=true;
         } else if(clipped && op=="n") {
             admit(args.empty(),QUANTAPDF_ERROR_UNSUPPORTED);
-            if(target.native_unclipped_mode && !clip_pending) {
+            if(second_clip_pending) {
+                /* Both original W/W* operands were separately parsed,
+                 * billed and frozen at their own CTM. For two simple
+                 * closed rectangles their geometric intersection is
+                 * exactly another rectangle (or zero area). Preserve
+                 * one existing uniquely owned Clip/GS resource and
+                 * the one pure-C11 subpixel winding consumer. */
+                std::array<float,4u> first{},next{};
+                admit(target.native_unclipped_mode &&
+                      target.clip_completed && clip_active &&
+                      !second_clip_used && clip_pending &&
+                      closed && target.order.empty() &&
+                      clip_stack.size()==1u &&
+                      read_strict_rect(target.clip.commands,first) &&
+                      read_strict_rect(pending_path,next),
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                const float left=std::max(first[0],next[0]);
+                const float top=std::max(first[1],next[1]);
+                const float right=std::min(first[2],next[2]);
+                const float bottom=std::min(first[3],next[3]);
+                const bool nonempty=right>left && bottom>top;
+                const float x0=nonempty?left:0.0f;
+                const float y0=nonempty?top:0.0f;
+                const float x1=nonempty?right:0.0f;
+                const float y1=nonempty?bottom:0.0f;
+                const quantapdf_point corners[4]={
+                    {x0,y0},{x1,y0},{x1,y1},{x0,y1}
+                };
+                for(size_t i=0u;i<4u;++i)
+                    target.clip.commands[i].point1=corners[i];
+                /* Both accepted rectangular leaves have exactly one
+                 * contour. W and W* denote the same rectangle set;
+                 * the canonical one-contour intersection is NONZERO. */
+                target.clip.rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
+                second_clip_pending=false;
+                second_clip_used=true;
+                clip_pending=false;
+                pending_path.clear();
+                closed=false;
+            } else if(target.native_unclipped_mode && !clip_pending) {
                 /* PDF n ends a path WITHOUT paint or Clip. Native V10
                  * discards only the already bounded source commands;
                  * it does not spend a C11 layer, create IR resources,
@@ -990,6 +1044,35 @@ public:
               (!clipped || clip_stack.empty()));
     }
 private:
+    static bool read_strict_rect(
+        const std::vector<quantapdf_composer_path_command>& path,
+        std::array<float,4u>& bounds)
+    {
+        /* This subset requires the exact authored re corner order,
+         * including its signed-dimension reversals. Neither a curve
+         * nor an arbitrary/rotated quad may be silently simplified. */
+        if(path.size()!=5u ||
+           path[0].kind!=QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
+           path[1].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+           path[2].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+           path[3].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+           path[4].kind!=QUANTAPDF_COMPOSER_PATH_CLOSE)
+            return false;
+        const auto& a=path[0].point1;
+        const auto& b=path[1].point1;
+        const auto& c=path[2].point1;
+        const auto& d=path[3].point1;
+        if(!std::isfinite(a.x) || !std::isfinite(a.y) ||
+           !std::isfinite(b.x) || !std::isfinite(b.y) ||
+           !std::isfinite(c.x) || !std::isfinite(c.y) ||
+           !std::isfinite(d.x) || !std::isfinite(d.y) ||
+           a.y!=b.y || b.x!=c.x || c.y!=d.y || d.x!=a.x ||
+           a.x==b.x || a.y==d.y)
+            return false;
+        bounds={std::min(a.x,b.x),std::min(a.y,d.y),
+                std::max(a.x,b.x),std::max(a.y,d.y)};
+        return true;
+    }
     bool trivial_zero_area_clip() const
     {
         if(!target.native_unclipped_mode)return false;
@@ -1092,6 +1175,8 @@ private:
     bool clipped=false;
     bool clip_active=false;
     bool clip_pending=false;
+    bool second_clip_pending=false;
+    bool second_clip_used=false;
     quantapdf_composer_fill_rule clip_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
     matrix current=identity;
     uint32_t fill_argb=UINT32_C(0xff000000);
