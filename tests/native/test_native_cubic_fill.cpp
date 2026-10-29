@@ -242,9 +242,121 @@ static int negative(void)
     }
     return EXIT_SUCCESS;
 }
+
+/* v: first cubic control equals the authored current point.
+ * y: second cubic control equals the authored endpoint. Source
+ * already owns the current endpoint even when the predecessor is c.
+ * Compare complete RGB of two independently QPDF-authored originals,
+ * without a second raster provider or IR re-export. */
+static int shorthand_positive(void)
+{
+    struct pair {
+        const char *explicit_c;
+        const char *short_c;
+        bool image;
+    };
+    const pair shapes[]={
+        {"1 0 0 rg 4 5 m 4 5 20 18 20 5 c 20 4 l 4 4 l h",
+         "1 0 0 rg 4 5 m 20 18 20 5 v 20 4 l 4 4 l h",false},
+        {"1 0 0 rg 4 5 m 4 18 20 5 20 5 c 20 4 l 4 4 l h",
+         "1 0 0 rg 4 5 m 4 18 20 5 y 20 4 l 4 4 l h",false},
+        {"1 0 0 rg 4 5 m 4 15 12 17 12 5 c "
+         "12 5 20 17 20 5 c 20 4 l 4 4 l h",
+         "1 0 0 rg 4 5 m 4 15 12 17 12 5 c "
+         "20 17 20 5 v 20 4 l 4 4 l h",false},
+        {"1 0 0 rg 4 5 m 4 15 12 17 12 5 c "
+         "14 14 20 5 20 5 c 20 4 l 4 4 l h",
+         "1 0 0 rg 4 5 m 4 15 12 17 12 5 c "
+         "14 14 20 5 y 20 4 l 4 4 l h",false},
+        {"q 16 0 0 12 8 3 cm /I Do Q "
+         "1 0 0 rg 4 5 m 4 5 20 18 20 5 c 20 4 l 4 4 l h",
+         "q 16 0 0 12 8 3 cm /I Do Q "
+         "1 0 0 rg 4 5 m 20 18 20 5 v 20 4 l 4 4 l h",true},
+        {"q 1 w 2 J 0 j 3 M [1 2] 0 d 0 G 1 0 1 RG "
+         "0 0 0 1 K Q 1 0 0 rg 4 5 m "
+         "4 18 20 5 20 5 c 20 4 l 4 4 l h",
+         "q 1 w 2 J 0 j 3 M [1 2] 0 d 0 G 1 0 1 RG "
+         "0 0 0 1 K Q 1 0 0 rg 4 5 m "
+         "4 18 20 5 y 20 4 l 4 4 l h",false}
+    };
+    for(const auto& item:shapes)
+    for(bool even_odd:{false,true})
+    for(int quarters:{4,5})
+    for(int rotation:{0,90})
+    for(int dpi:{72,96,144}) {
+        const std::string paint=even_odd?" f*":" f";
+        const auto expanded=original(
+            std::string(item.explicit_c)+paint,item.image,
+            quarters,rotation);
+        const auto abbreviated=original(
+            std::string(item.short_c)+paint,item.image,
+            quarters,rotation);
+        std::vector<unsigned char> reference,got;
+        CHECK(rendered_rgb(expanded,quarters,rotation,dpi,reference)
+              ==EXIT_SUCCESS);
+        CHECK(rendered_rgb(abbreviated,quarters,rotation,dpi,got)
+              ==EXIT_SUCCESS);
+        CHECK(reference.size()==got.size() &&
+              std::memcmp(reference.data(),got.data(),got.size())==0);
+        bool ink=false,white=false;
+        for(size_t i=0u;i<got.size();i+=3u) {
+            const bool blank=got[i]==255u &&
+                got[i+1u]==255u && got[i+2u]==255u;
+            ink|=!blank;white|=blank;
+        }
+        CHECK(ink && white);
+    }
+    return EXIT_SUCCESS;
+}
+
+static int shorthand_negative(void)
+{
+    const char *const bad[]={
+        "20 18 20 5 v 20 4 l 4 4 l h f",
+        "4 18 20 5 y 20 4 l 4 4 l h f",
+        "4 5 m v",
+        "4 5 m 20 18 20 v 20 4 l 4 4 l h f",
+        "4 5 m 4 18 20 5 0 y 20 4 l 4 4 l h f",
+        "4 5 m /Bad 18 20 5 v 20 4 l 4 4 l h f",
+        "4 5 m 20.125 18 20 5 v 20 4 l 4 4 l h f",
+        "4 5 m 4 -1 20 5 y 20 4 l 4 4 l h f",
+        "4 5 m 20 18 20 5 v 20 4 l 4 4 l h W n",
+        "4 5 m 4 18 20 5 y 20 4 l 4 4 l h W* n",
+        "4 5 m 20 18 20 5 v 20 4 l 4 4 l h S",
+        "4 5 m 4 18 20 5 y 20 4 l 4 4 l h B",
+        "1 0 0 rg 4 5 m 20 18 20 5 v 20 4 l 4 4 l h f "
+        "4 5 m 4 18 20 5 y S",
+        "q 16 0 0 12 8 3 cm /I Do Q 1 0 0 rg "
+        "4 5 m 20 18 20 5 v 20 4 l 4 4 l h f BT ET"
+    };
+    for(const char *content:bad)
+    for(int dpi:{72,96,144}) {
+        const bool has_image=std::strstr(content,"/I Do")!=nullptr;
+        CHECK(write_pdf(original(content,has_image,4,0)));
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        quantapdf_bitmap *bitmap=
+            reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+        OK(quantapdf_open(filename,nullptr,&doc));
+        CHECK(std::remove(filename)==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        quantapdf_render_options options{};
+        options.struct_size=sizeof(options);
+        options.dpi=(float)dpi;
+        const auto status=quantapdf_render_page_with_options(
+            page,&options,&bitmap);
+        CHECK(status!=QUANTAPDF_OK && bitmap==nullptr);
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+    }
+    return EXIT_SUCCESS;
+}
+
 int main()
 {
     CHECK(positive()==EXIT_SUCCESS);
     CHECK(negative()==EXIT_SUCCESS);
+    CHECK(shorthand_positive()==EXIT_SUCCESS);
+    CHECK(shorthand_negative()==EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }
