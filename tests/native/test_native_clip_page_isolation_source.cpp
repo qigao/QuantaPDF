@@ -125,7 +125,18 @@ static bool expected(const rendered& r,int index,int dpi)
        r.rgb.size()!=static_cast<size_t>(r.width)*
                      static_cast<size_t>(r.height)*3u)
         return false;
-    if(index==1)return solid(r,UINT32_C(0x00ff00));
+    if(index==1) {
+        if(dpi!=96)return solid(r,UINT32_C(0x00ff00));
+        /* At 96 DPI 16pt becomes 21+1/3 physical pixels. The last
+         * device column is necessarily partially covered by the
+         * original MediaBox viewport, not solid green. */
+        for(int y=0;y<r.height;++y)
+            for(int x=0;x<r.width-1;++x)
+                if(pixel(r,x,y)!=UINT32_C(0x00ff00))return false;
+        const uint32_t edge=pixel(r,r.width-1,r.height/2);
+        const unsigned a=(edge>>16u)&255u,g=(edge>>8u)&255u,b=edge&255u;
+        return a>0u && a<255u && g==255u && b==a;
+    }
     if(index==3 || index==4)return solid(r,UINT32_C(0xffffff));
     if(index!=0 && index!=5)return false;
     if(dpi==72) {
@@ -186,7 +197,18 @@ static int page_isolation()
                       count==static_cast<size_t>(stride)*
                              static_cast<size_t>(current.height));
                 current.rgb.assign(data,data+count);
-                CHECK(expected(current,index,dpi));
+                if(!expected(current,index,dpi)) {
+                    const uint32_t middle=pixel(current,
+                        current.width/2,current.height/2);
+                    const uint32_t edge=pixel(current,
+                        current.width-1,current.height/2);
+                    std::fprintf(stderr,"page pixel mismatch: index=%d "
+                        "dpi=%d dims=%dx%d middle=%06x edge=%06x\n",
+                        index,dpi,current.width,current.height,
+                        static_cast<unsigned>(middle),
+                        static_cast<unsigned>(edge));
+                    CHECK(false);
+                }
                 if(visited[static_cast<size_t>(index)])
                     CHECK(earlier[static_cast<size_t>(index)].width==
                           current.width &&
