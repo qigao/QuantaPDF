@@ -1697,6 +1697,16 @@ int64_t source_v10_quarters(Obj number)
     const bool negative=raw[i]=='-';
     if(raw[i]=='-' || raw[i]=='+')++i;
     admit(i<raw.size(),QUANTAPDF_ERROR_UNSUPPORTED);
+    /* The original token, including its 20-byte cap, is unchanged.
+     * Trailing fractional zeros carry no precision and must not
+     * consume the fixed-size exact-quarter integer accumulator.
+     * Still validate EVERY input byte below; a late nonzero digit
+     * remains significant and must be rejected if nonquarter. */
+    size_t significant_end=raw.size();
+    const size_t dot=raw.find('.');
+    if(dot!=std::string::npos)
+        while(significant_end>dot+1u && raw[significant_end-1u]=='0')
+            --significant_end;
     int64_t integer_part=0,decimal_part=0,denominator=1;
     bool seen_digit=false,point=false;
     for(;i<raw.size();++i) {
@@ -1710,7 +1720,7 @@ int64_t source_v10_quarters(Obj number)
             integer_part=integer_part*10ll+d;
             admit(integer_part<=1000000ll,
                   QUANTAPDF_ERROR_UNSUPPORTED);
-        } else {
+        } else if(i<significant_end) {
             admit(denominator<=100000000ll,
                   QUANTAPDF_ERROR_UNSUPPORTED);
             decimal_part=decimal_part*10ll+d;
