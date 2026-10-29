@@ -617,7 +617,42 @@ public:
             return;
         }
         const std::string op=item.getOperatorValue();
-        if (op=="q") {
+        if(target.native_unclipped_mode &&
+                  (op=="M" || op=="d")) {
+            /* Public V10 has no admitted Stroke paint. Its M/d state
+             * cannot affect opaque Fill/RAW Image output. Validate
+             * ORIGINAL typed PDF operands and bounded pattern metadata;
+             * do not introduce a dash engine, state owner or IR layer.
+             * The historical private Source profiles stay strict. */
+            admit(pending_path.empty() && !clip_pending,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            if(op=="M") {
+                admit(args.size()==1u,QUANTAPDF_ERROR_UNSUPPORTED);
+                const double miter=finite_number(args[0]);
+                admit(miter>=1.0 && miter<=1000000.0,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+            } else {
+                admit(args.size()==2u && args[0].isArray(),
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                const int count=args[0].getArrayNItems();
+                admit(count>=0 && count<=16,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                const double phase=finite_number(args[1]);
+                admit(phase>=0.0 && phase<=1000000.0,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                double sum=0.0;
+                for(int i=0;i<count;++i) {
+                    const double length=
+                        finite_number(args[0].getArrayItem(i));
+                    admit(length>=0.0 && length<=1000000.0 &&
+                          sum<=1000000.0-length,
+                          QUANTAPDF_ERROR_UNSUPPORTED);
+                    sum+=length;
+                }
+                admit(count==0 || sum>0.0,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+            }
+        } else if (op=="q") {
             admit(args.empty() && pending_path.empty());
             admit(stack.size()<16u,QUANTAPDF_ERROR_UNSUPPORTED);
             stack.push_back(current);
