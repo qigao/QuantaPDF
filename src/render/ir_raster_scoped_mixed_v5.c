@@ -79,8 +79,8 @@ static int v5_closed_contour(
     return 1;
 }
 
-/* Only the compound two-GS wrapper selects this Clip grammar. Contour
- * separators stay inside one leaf's winding calculation and budget. */
+/* Explicit compound/two-GS and unclipped-prefix profiles share this
+ * Clip grammar. Contours stay in one winding calculation and budget. */
 static int v5_closed_clip_contours(
     const quantapdf_composer_path_command *commands,size_t count)
 {
@@ -355,6 +355,7 @@ static quantapdf_status v5_render_impl(
     int fractional_images,
     double viewport_width,double viewport_height,int two_clip_optin,
     int clipped_paths_optin,int clip_states_optin,int compound_clips_optin,
+    int unclipped_prefix_optin,
     quantapdf_ir_raster_image *out_image)
 {
     quantapdf_ir projected={0};
@@ -396,6 +397,11 @@ static quantapdf_status v5_render_impl(
         return QUANTAPDF_ERROR_UNSUPPORTED;
     if(clip_states_optin && ir->operation_count<2u)
         return QUANTAPDF_ERROR_UNSUPPORTED;
+    if(unclipped_prefix_optin &&
+       (ir->operation_count<2u ||
+        ir->operations[0].graphics_state_id!=0u ||
+        (clip_states_optin && !two_clip_optin)))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
     if(ir->operation_count==0u) {
         const double w=(double)ir->pages[0].width_points;
         const double h=(double)ir->pages[0].height_points;
@@ -408,7 +414,8 @@ static quantapdf_status v5_render_impl(
     if(ir->operation_count>QP_V5_MAX_LAYERS ||
        ir->operation_count>limits->max_operations ||
        (ir->resources.image_count!=0u &&
-        (ir->resources.image_count>(clip_states_optin?2u:QP_V5_MAX_LAYERS) ||
+        (ir->resources.image_count>
+            ((clip_states_optin || unclipped_prefix_optin)?2u:QP_V5_MAX_LAYERS) ||
          ir->resources.images==NULL)) ||
        ir->resources.graphics_state_count>(clip_states_optin?2u:1u) ||
        ir->resources.clip_count!=
@@ -421,7 +428,7 @@ static quantapdf_status v5_render_impl(
        ir->resources.paint_count!=0u ||
        ir->link_count!=0u || ir->outline_count!=0u)
         return QUANTAPDF_ERROR_UNSUPPORTED;
-    if(two_clip_optin || clipped_paths_optin) {
+    if(two_clip_optin || clipped_paths_optin || unclipped_prefix_optin) {
         const quantapdf_resource_registry *r=&ir->resources;
         /* The opt-in borrows the complete owned graph. Per-layer
          * projection must not hide unregistered payloads or capacities
@@ -438,7 +445,15 @@ static quantapdf_status v5_render_impl(
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             clip_leaf_count=2u;
         }
-        if(clip_states_optin && r->image_count==0u && r->images!=NULL)
+        if(unclipped_prefix_optin &&
+           (r->graphics_states==NULL ||
+            r->graphics_state_count!=(clip_states_optin?2u:1u) ||
+            r->graphics_state_capacity!=r->graphics_state_count ||
+            r->clips==NULL || r->clip_count!=(two_clip_optin?3u:1u) ||
+            r->clip_capacity!=r->clip_count))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        if((clip_states_optin || unclipped_prefix_optin) &&
+           r->image_count==0u && r->images!=NULL)
             return QUANTAPDF_ERROR_UNSUPPORTED;
         if(clipped_paths_optin &&
            (r->images!=NULL || r->image_count!=0u ||
@@ -455,7 +470,7 @@ static quantapdf_status v5_render_impl(
      * Refuse ALL resource pointers, capacities and counts so no hidden
      * Image/Clip/GS/Font can be discarded by the fast path. */
     if(ir->resources.image_count==0u &&
-       !clipped_paths_optin && !clip_states_optin) {
+       !clipped_paths_optin && !clip_states_optin && !unclipped_prefix_optin) {
         const quantapdf_resource_registry *r=&ir->resources;
         if(ir->operation_count==0u ||
            ir->operation_count>QP_V5_MAX_LAYERS ||
@@ -568,6 +583,15 @@ static quantapdf_status v5_render_impl(
         for(i=0u;i<clip_leaf_count;++i)
             if(clip_leaves[i]->command_count<4u)
                 return QUANTAPDF_ERROR_UNSUPPORTED;
+    if(unclipped_prefix_optin && !clip_states_optin)
+        for(i=0u;i<clip_leaf_count;++i) {
+            const quantapdf_affine_transform *t=&clip_leaves[i]->transform;
+            if(t->a!=1.0f || t->b!=0.0f || t->c!=0.0f ||
+               t->d!=1.0f || t->e!=0.0f || t->f!=0.0f ||
+               !v5_closed_clip_contours(clip_leaves[i]->commands,
+                                       clip_leaves[i]->command_count))
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+        }
     /* Charge unique registered RAW inputs once. Repeated Do may reuse the
      * same owned resource, but its destination work is charged each time. */
     for(i=0u;i<ir->resources.image_count;++i) {
@@ -614,11 +638,17 @@ static quantapdf_status v5_render_impl(
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             if(state==0u)path_clip_restored=1;
         }
-        if(clip_states_optin) {
+        if(clip_states_optin || unclipped_prefix_optin) {
             /* Exact 1* 2+ 1* 0*: GS1 means the original first leaf,
              * GS2 its frozen intersection. After either restoration,
-             * no later operation may reenter the discarded state. */
-            if(state==0u)clip_state_phase=3u;
+             * no later operation may reenter the discarded state.
+             * The explicit prefix entry alone permits initial zeroes
+             * before any nonzero identity has actually been painted.
+             * With one GS this reduces to 0+ 1+ 0*. */
+            if(state==0u) {
+                if(!unclipped_prefix_optin || clip_used!=0u)
+                    clip_state_phase=3u;
+            }
             else if(state==1u) {
                 if(clip_state_phase==3u)return QUANTAPDF_ERROR_UNSUPPORTED;
                 if(clip_state_phase==1u)clip_state_phase=2u;
@@ -637,10 +667,10 @@ static quantapdf_status v5_render_impl(
                (opt->fill_argb>>24u)!=255u ||
                p->commands==NULL || p->command_count==0u ||
                p->command_count>10240u ||
-               ((clipped_paths_optin || clip_states_optin) &&
+               ((clipped_paths_optin || clip_states_optin || unclipped_prefix_optin) &&
                 (p->command_count<4u || p->command_count>9u ||
                  opt->struct_size<QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE)) ||
-               (clip_states_optin &&
+               ((clip_states_optin || unclipped_prefix_optin) &&
                 !v5_closed_contour(p->commands,p->command_count)) ||
                p->dash_count!=0u || p->dash_lengths!=NULL ||
                (state!=0u &&
@@ -658,7 +688,7 @@ static quantapdf_status v5_render_impl(
             int has_fraction=0;
             if(opt->struct_size<QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_MIN_SIZE ||
                opt->fit!=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH ||
-               (clip_states_optin &&
+               ((clip_states_optin || unclipped_prefix_optin) &&
                 opt->struct_size<QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_MIN_SIZE) ||
                (state!=0u &&
                 opt->struct_size<QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_MIN_SIZE) ||
@@ -696,7 +726,7 @@ static quantapdf_status v5_render_impl(
      * the SAME owned GS/Clip leaf. The new 3/4-image profile requires
      * exact resource capacity. Mixed and clipped profiles retain their
      * independently narrower admission; no hidden state is inferred. */
-    if(clip_states_optin) {
+    if(clip_states_optin || unclipped_prefix_optin) {
         /* The new scope model does not enlarge any mixed/Image layer
          * limit. Homogeneous PATHs alone may use all four layers. */
         if((path_count==0u && image_count!=2u) ||
@@ -899,7 +929,7 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5(
         ir!=NULL && ir->pages!=NULL?
             (double)ir->pages[0].width_points:0.0,
         ir!=NULL && ir->pages!=NULL?
-            (double)ir->pages[0].height_points:0.0,0,0,0,0,
+            (double)ir->pages[0].height_points:0.0,0,0,0,0,0,
         out_image);
 }
 
@@ -912,7 +942,7 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_device(
         ir!=NULL && ir->pages!=NULL?
             (double)ir->pages[0].width_points:0.0,
         ir!=NULL && ir->pages!=NULL?
-            (double)ir->pages[0].height_points:0.0,0,0,0,0,
+            (double)ir->pages[0].height_points:0.0,0,0,0,0,0,
         out_image);
 }
 
@@ -925,7 +955,7 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_device_viewport(
     quantapdf_ir_raster_image *out_image)
 {
     return v5_render_impl(ir,page_index,limits,1,
-        viewport_width,viewport_height,0,0,0,0,out_image);
+        viewport_width,viewport_height,0,0,0,0,0,out_image);
 }
 
 /* PRIVATE opt-in for independently owned two-leaf Intersection root.
@@ -937,7 +967,7 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_two_clip_device_viewport(
     quantapdf_ir_raster_image *out_image)
 {
     return v5_render_impl(ir,page_index,limits,1,
-        viewport_width,viewport_height,1,0,0,0,out_image);
+        viewport_width,viewport_height,1,0,0,0,0,out_image);
 }
 
 /* Only this explicit profile admits PATH-only paint under frozen Clip.
@@ -950,7 +980,7 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_clipped_paths_device_viewpo
 {
     const int two=ir!=NULL && ir->resources.clip_count==3u;
     return v5_render_impl(ir,page_index,limits,1,
-        viewport_width,viewport_height,two,1,0,0,out_image);
+        viewport_width,viewport_height,two,1,0,0,0,out_image);
 }
 
 /* Original two-GS entry retains strictly single-contour Clip leaves. */
@@ -961,7 +991,7 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_clip_states_device_viewport
     quantapdf_ir_raster_image *out_image)
 {
     return v5_render_impl(ir,page_index,limits,1,
-        viewport_width,viewport_height,1,0,1,0,out_image);
+        viewport_width,viewport_height,1,0,1,0,0,out_image);
 }
 
 /* Compound leaves use the same V1 edge list and winding calculation,
@@ -973,5 +1003,19 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_compound_clip_states_device
     quantapdf_ir_raster_image *out_image)
 {
     return v5_render_impl(ir,page_index,limits,1,
-        viewport_width,viewport_height,1,0,1,1,out_image);
+        viewport_width,viewport_height,1,0,1,1,0,out_image);
+}
+
+/* Prefix is a distinct admission, never an implicit widening of any
+ * older mixed, PATH-only or two-GS wrapper. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_unclipped_prefix_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image)
+{
+    const int two=ir!=NULL && ir->resources.clip_count==3u;
+    const int states=ir!=NULL && ir->resources.graphics_state_count==2u;
+    return v5_render_impl(ir,page_index,limits,1,
+        viewport_width,viewport_height,two,0,states,1,1,out_image);
 }

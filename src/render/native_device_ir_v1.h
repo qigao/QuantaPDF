@@ -75,6 +75,21 @@ quantapdf_status quantapdf_native_device_ir_render_v1_compound_clip_states(
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image);
 
+/* Explicit paint-before-W profile: an actual nonempty GS0 prefix, then
+ * one GS in order 0+ 1+ 0*, or two GS in order 0+ 1* 2+ 1* 0* with both
+ * nonzero identities painted. One GS selects a single frozen Clip leaf
+ * or the flat two-leaf root; two GS select leaf 1 and root 3 as above.
+ * Exact capacities, two..four total paints, at most two Images and two
+ * PATHs when mixed. PATH-only may use four; Image-only exactly two, so
+ * it cannot also use both nonzero GS identities. Clip leaves keep one
+ * or two closed contours/four..nine commands; painted PATHs stay one
+ * closed contour. All older entrypoints retain their own admission.
+ * Budgets, immutable stack projection and detached output are shared. */
+quantapdf_status quantapdf_native_device_ir_render_v1_unclipped_prefix(
+    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

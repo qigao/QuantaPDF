@@ -734,7 +734,8 @@ static int atomic_refusals()
         prefix+full_red+compound+" W n Q", /* unused second Clip */
         prefix+full_red+compound+" W n "+full_blue+compound+" W n Q",
         ready+" "+one_prefix(compound)+full_red+"Q", /* reentry after 0 */
-        full_red+prefix+full_red+"Q", /* paint before first Clip */
+        /* The prefix qualifies; three later paints would make five. */
+        full_red+prefix+full_red+"Q "+full_red+full_red+full_red,
         prefix+full_red+full_red+full_red+full_red+full_red+"Q",
         prefix+red_image+red_image+red_image+"Q",
         prefix+full_red+full_red+full_red+red_image+"Q",

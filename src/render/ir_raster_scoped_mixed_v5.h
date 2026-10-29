@@ -106,6 +106,21 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_compound_clip_states_device
     double viewport_width,double viewport_height,
     quantapdf_ir_raster_image *out_image);
 
+/* Explicit actual GS0 paint prefix before W/W*. One GS follows
+ * 0+ 1+ 0*; two GS follow 0+ 1* 2+ 1* 0*, with every nonzero identity
+ * used. Graphs remain one Clip or two leaves plus their flat root,
+ * with exact resource capacities. Two..four total operations, at most
+ * two Images and two PATHs when mixed; PATH-only may use four and
+ * Image-only exactly two. Each Clip has one/two closed contours within
+ * four..nine commands, and painted PATHs remain single-contour.
+ * Prefix paints participate in the unchanged source/draw/edge budgets
+ * and shared viewport sampler. All older wrappers remain unchanged. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_unclipped_prefix_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

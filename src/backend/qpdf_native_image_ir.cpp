@@ -993,13 +993,14 @@ public:
             }
             clear_path();
         } else if(clipped && (op=="W" || op=="W*")) {
-            /* Native V10 keeps the first leaf's identity across paint
-             * and nested q/Q. A second definition intersects that leaf;
+            /* Native V10 keeps an already admitted GS0 paint prefix,
+             * then the first leaf's identity across paint and nested
+             * q/Q. A second definition intersects that leaf;
              * it cannot redefine a restored/unclipped scope or add a
              * third leaf. Older Source signatures stay single-Clip. */
             admit(args.empty() && !clip_pending &&
                   (!target.mixed_scoped_mode || target.order.empty() ||
-                   (target.native_unclipped_mode && target.clip_completed)),
+                   target.native_unclipped_mode),
                   QUANTAPDF_ERROR_UNSUPPORTED);
             if(target.native_unclipped_mode && target.clip_completed) {
                 admit(!second_clip_used && !second_clip_pending &&
@@ -2048,6 +2049,109 @@ quantapdf_ir materialize_clip_states(const admission& source)
     }
 }
 
+/* Native V10 prefix profile, selected only after complete parsing and
+ * root-only identity normalization. Leading GS0 paints retain their
+ * original owners and order; only a later GS0 suffix requires real Q.
+ * The earlier materializers keep their narrower admission unchanged. */
+quantapdf_ir materialize_unclipped_prefix(const admission& source,
+                                         bool first_and_root)
+{
+    const size_t count=source.order.size();
+    const size_t paths=source.painted_paths.size();
+    const size_t images=source.draws.size();
+    admit(source.native_unclipped_mode && source.mixed_mode &&
+          source.mixed_scoped_mode && source.clipped_image_mode &&
+          source.clip_completed && count>=2u && count<=hard_operations &&
+          count<=source.limits.max_operations && paths+images==count &&
+          source.scoped_clip_membership.size()==count &&
+          source.scoped_clip_membership[0]==0u &&
+          bounded_clip_path(source.clip.commands) &&
+          (!first_and_root || source.two_owned_clips) &&
+          (source.two_owned_clips ?
+             qualified_owned_clip_pair(source.clip.commands,
+                                       source.second_clip.commands) :
+             source.second_clip.commands.empty()) &&
+          ((images==0u && paths>=2u && paths<=hard_operations) ||
+           (paths==0u && images==2u && !first_and_root) ||
+           (paths>=1u && paths<=2u && images>=1u && images<=2u)),
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    bool first_used=false,root_used=false,first_restored=false;
+    bool suffix=false;
+    size_t path_index=0u,image_count=0u;
+    for(size_t i=0u;i<count;++i) {
+        const unsigned char state=source.scoped_clip_membership[i];
+        admit(state<=(first_and_root?2u:1u),QUANTAPDF_ERROR_UNSUPPORTED);
+        if(state==0u) {
+            if(first_used || root_used) {
+                admit(!first_and_root || root_used,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                suffix=true;
+            }
+        } else {
+            admit(!suffix,QUANTAPDF_ERROR_UNSUPPORTED);
+            if(state==1u) {
+                first_used=true;
+                if(root_used)first_restored=true;
+            } else {
+                admit(!first_restored,QUANTAPDF_ERROR_UNSUPPORTED);
+                root_used=true;
+            }
+        }
+        if(source.order[i]==1) {
+            admit(path_index<paths &&
+                  bounded_clip_contour(source.painted_paths[path_index].commands),
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            ++path_index;
+        } else {
+            admit(source.order[i]==2,QUANTAPDF_ERROR_UNSUPPORTED);
+            ++image_count;
+        }
+    }
+    admit(first_used && (!first_and_root || root_used) &&
+          path_index==paths && image_count==images &&
+          (!suffix || source.saw_q_restore),
+          QUANTAPDF_ERROR_UNSUPPORTED);
+
+    quantapdf_ir ir=images==0u ? materialize_owned_paths(source) :
+        paths==0u ? materialize(source) :
+                    materialize_mixed(source,count,true);
+    try {
+        const size_t states=first_and_root?2u:1u;
+        ir.resources.graphics_states=
+            static_cast<quantapdf_composer_graphics_state *>(
+                QP_SOURCE_C_CALLOC(states,sizeof(*ir.resources.graphics_states)));
+        admit(ir.resources.graphics_states!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        ir.resources.graphics_state_count=states;
+        ir.resources.graphics_state_capacity=states;
+        const quantapdf_composer_clip_id root=
+            materialize_source_clip_graph(ir,source);
+        for(size_t i=0u;i<states;++i) {
+            auto& state=ir.resources.graphics_states[i];
+            state.fill_alpha=1.0f;
+            state.stroke_alpha=1.0f;
+            state.blend_mode=QUANTAPDF_COMPOSER_BLEND_NORMAL;
+            state.clip_id=first_and_root && i==0u?1u:root;
+        }
+        for(size_t i=0u;i<count;++i) {
+            auto& op=ir.operations[i];
+            const quantapdf_composer_graphics_state_id id=
+                source.scoped_clip_membership[i];
+            op.graphics_state_id=id;
+            if(op.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
+                op.value.image.options.struct_size=
+                    QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+                op.value.image.options.graphics_state_id=id;
+            } else {
+                op.value.path.options.graphics_state_id=id;
+            }
+        }
+        return ir;
+    } catch(...) {
+        quantapdf_ir_dispose(&ir);
+        throw;
+    }
+}
+
 /* Native-only public unclipped mixed subset: one opaque PATH fill and
  * one qualified decoded IMAGE in EITHER source order. The existing
  * mixed materializer copies all Image bytes and PATH commands into an
@@ -2723,6 +2827,16 @@ static quantapdf_status source_raw_images_to_ir_impl(
         if(native_v10) {
             original_turn_staging(source,geo.rotation);
             scale_source_userunit(source,user_quarters);
+        }
+        /* A real GS0 prefix is a separate complete-page admission.
+         * Preserve the existing unclipped staging grammar and select
+         * its exact owned Clip state shape once, without retrying an
+         * older producer or manufacturing a Q-restored suffix. */
+        if(native_v10 && source.clip_completed &&
+           !source.scoped_clip_membership.empty() &&
+           source.scoped_clip_membership[0]==0u) {
+            *out_ir=materialize_unclipped_prefix(source,clip_states);
+            return QUANTAPDF_OK;
         }
         if(clip_states) {
             *out_ir=materialize_clip_states(source);
