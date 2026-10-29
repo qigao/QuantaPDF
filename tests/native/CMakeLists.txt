@@ -172,3 +172,19 @@ add_test(NAME quantapdf.native_stroke_state
   COMMAND quantapdf_native_stroke_state)
 set_tests_properties(quantapdf.native_stroke_state PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;graphics-state")
+
+# Strict original PDF M/d (stroke-only) metadata on public Native V10
+# Fill/RAW Image pages; no stroke producer or fallback.
+add_executable(quantapdf_native_miter_dash test_native_miter_dash.cpp)
+target_compile_features(quantapdf_native_miter_dash PRIVATE cxx_std_20)
+target_link_libraries(quantapdf_native_miter_dash PRIVATE
+  QuantaPDF::QuantaPDF qpdf::libqpdf)
+if(MSVC)
+  target_compile_options(quantapdf_native_miter_dash PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_miter_dash PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_miter_dash COMMAND quantapdf_native_miter_dash)
+set_tests_properties(quantapdf.native_miter_dash PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;graphics-state")
