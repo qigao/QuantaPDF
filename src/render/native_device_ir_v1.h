@@ -22,6 +22,20 @@ quantapdf_status quantapdf_native_device_ir_render_v1(
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image);
 
+/* Private explicit opt-in: project exactly two frozen identity-space
+ * Clip PATH leaves (IDs 1 and 2) and their flat Intersection root (ID 3).
+ * Both bounded command arrays, the three descriptors and two member IDs
+ * are staged on this call's stack; image data and GS resources remain
+ * immutable borrows. A single GS must name root 3. Cubic Clip commands
+ * use the existing 72/96/144-DPI point projection and V5 two-Clip sampler.
+ * Source V10 selects this entry only after publishing the exact three-node
+ * graph; the original function above still refuses multi-Clip input.
+ * Failure clears every output field. */
+quantapdf_status quantapdf_native_device_ir_render_v1_two_clip(
+    const quantapdf_ir *source, unsigned dpi,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
