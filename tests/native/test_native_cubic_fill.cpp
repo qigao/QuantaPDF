@@ -59,8 +59,8 @@ static std::string operators(int kind,bool even_odd)
     if(kind==7)return "q 1 0 0 1 2 1 cm 1 0 0 rg "+
         arch+paint+" Q";
     if(kind==8)return "1 0 0 rg 4 5 m "
-        "4 11.5 8 14.75 12 14.75 c "
-        "16 14.75 20 11.5 20 5 c "
+        "4 15 8 17 12 17 c "
+        "16 17 20 15 20 5 c "
         "20 4 l 4 4 l h"+paint;
     return {};
 }
