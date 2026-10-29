@@ -675,3 +675,24 @@ add_test(NAME quantapdf.native_sibling_clip_source_oom
   COMMAND quantapdf_native_sibling_clip_source_oom)
 set_tests_properties(quantapdf.native_sibling_clip_source_oom PROPERTIES
   TIMEOUT 60 LABELS "conformance;native;no-pdfium;source;sibling-clip;oom")
+
+# One original multi-page PDF: sibling/empty/disjoint/blank Clip state never
+# leaks across sequential page loads, refusals, or split /Contents streams.
+add_executable(quantapdf_native_clip_page_isolation_source
+  test_native_clip_page_isolation_source.cpp)
+target_compile_features(quantapdf_native_clip_page_isolation_source PRIVATE
+  cxx_std_20)
+target_link_libraries(quantapdf_native_clip_page_isolation_source PRIVATE
+  QuantaPDF::QuantaPDF qpdf::libqpdf)
+if(MSVC)
+  target_compile_options(quantapdf_native_clip_page_isolation_source PRIVATE
+    /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_clip_page_isolation_source PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_clip_page_isolation_source
+  COMMAND quantapdf_native_clip_page_isolation_source)
+set_tests_properties(quantapdf.native_clip_page_isolation_source PROPERTIES
+  TIMEOUT 60
+  LABELS "conformance;native;no-pdfium;public-api;clip-page-isolation")
