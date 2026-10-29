@@ -217,14 +217,28 @@ static int test_source()
             ++negative;
         }
     }
-    const std::array<std::array<size_t,2u>,3u> budgets={{
-        {{0u,2u}},{{3u,8u}},{{0u,0u}}
+    struct bound_case {
+        size_t page_index;
+        size_t max_parent_steps;
+        quantapdf_status status;
+    };
+    const std::array<bound_case,3u> budgets={{
+        {0u,2u,QUANTAPDF_ERROR_UNSUPPORTED},
+        {3u,8u,QUANTAPDF_ERROR_UNSUPPORTED},
+        {0u,0u,QUANTAPDF_ERROR_ARGUMENT}
     }};
     for(const auto& b:budgets) {
         quantapdf_ir ir{};
         std::memset(&ir,0xa5,sizeof(ir));
-        CHECK(parse(good,b[0],b[1],&ir)==QUANTAPDF_ERROR_UNSUPPORTED &&
-              zero_ir(ir));
+        const auto status=parse(good,b.page_index,b.max_parent_steps,&ir);
+        if(status!=b.status || !zero_ir(ir)) {
+            std::fprintf(stderr,"PageTree limit page=%zu bound=%zu "
+                "status=%d expected=%d zero=%d\n",b.page_index,
+                b.max_parent_steps,static_cast<int>(status),
+                static_cast<int>(b.status),zero_ir(ir)?1:0);
+            if(status==QUANTAPDF_OK)quantapdf_ir_dispose(&ir);
+            CHECK(false);
+        }
         ++negative;
     }
     CHECK(positive==3u && negative==60u);
