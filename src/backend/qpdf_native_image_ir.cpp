@@ -910,14 +910,12 @@ public:
             pending_path.clear();
             closed=false;
         } else if(clipped && (op=="W" || op=="W*")) {
-            /* The V10 C11 Fill is cubic-aware, but curved Clip is
-             * not part of this SOURCE admission. Refuse rather than
-             * assuming the already-qualified polygon Clip profile. */
-            if(target.native_unclipped_mode)
-                admit(std::none_of(pending_path.begin(),pending_path.end(),
-                      [](const auto& c) {
-                          return c.kind==QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
-                      }),QUANTAPDF_ERROR_UNSUPPORTED);
+            /* Original V10 c/v/y controls are already frozen at the
+             * definition-time CTM into bounded, uniquely owned PATH
+             * commands. The SAME existing C11 cubic flattener samples
+             * this one W/W* Clip leaf (nonzero or even-odd). All older
+             * private source signatures still reject cubic operators;
+             * second Clip definitions and unsupported content fail. */
             admit(args.empty() && pending_path.size()>=3u &&
                   !clip_pending && !target.clip_completed &&
                   (!target.mixed_scoped_mode || target.order.empty()),

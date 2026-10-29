@@ -32,7 +32,7 @@ static int qp_device_point(quantapdf_point *point,double scale)
 static int qp_device_commands(
     quantapdf_composer_path_command *dst,
     const quantapdf_composer_path_command *src,
-    size_t count,double scale,int allow_cubic_fill)
+    size_t count,double scale,int allow_cubic_path)
 {
     if(src==NULL || count==0u || count>QP_DPI_MAX_PATH_COMMANDS)
         return 0;
@@ -44,11 +44,11 @@ static int qp_device_commands(
             if(!qp_device_point(&dst[i].point1,scale))return 0;
             break;
         case QUANTAPDF_COMPOSER_PATH_CUBIC_TO:
-            /* Only original Source V10 opaque Fill may project this
-             * existing cubic command. Stage all three scaled points
-             * through the same bounded finite native device policy;
-             * curved W/W* Clip stays explicitly unqualified. */
-            if(!allow_cubic_fill ||
+            /* Source V10 alone admits bounded authored c/v/y for
+             * opaque Fill and one frozen W/W* Clip. Reuse the SAME
+             * finite device-point projection for all three controls.
+             * No second curve engine, unchecked command or budget. */
+            if(!allow_cubic_path ||
                !qp_device_point(&dst[i].point1,scale) ||
                !qp_device_point(&dst[i].point2,scale) ||
                !qp_device_point(&dst[i].point3,scale))
@@ -192,7 +192,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1(
            old->transform.c!=0.0f || old->transform.d!=1.0f ||
            old->transform.e!=0.0f || old->transform.f!=0.0f ||
            !qp_device_commands(clip_commands,old->commands,
-                               old->command_count,scale,0))
+                               old->command_count,scale,1))
             return QUANTAPDF_ERROR_UNSUPPORTED;
         clip=*old;
         clip.commands=clip_commands;
