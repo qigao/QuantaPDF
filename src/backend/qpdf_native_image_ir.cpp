@@ -825,6 +825,19 @@ public:
             for(size_t i=0u;i<6u;++i)
                 xy[i]=finite_number(args[i]);
             append_cubic(xy);
+        } else if(target.native_unclipped_mode &&
+                  (op=="v" || op=="y")) {
+            /* Original PDF cubic shorthand: v uses the current point
+             * as control #1; y repeats its endpoint as control #2.
+             * Expand into the SAME staged CUBIC_TO command; do not
+             * introduce a second curve interpreter or renderer. */
+            admit(args.size()==4u && !pending_path.empty() &&
+                  !closed && !clip_pending && pending_path.size()<8u,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            std::array<double,4u> xy{};
+            for(size_t i=0u;i<4u;++i)
+                xy[i]=finite_number(args[i]);
+            append_cubic_shorthand(op,xy);
         } else if((mixed || clipped) && op=="h") {
             admit(args.empty() && pending_path.size()>=3u &&
                   !closed,QUANTAPDF_ERROR_UNSUPPORTED);
@@ -995,6 +1008,35 @@ private:
         cmd.point1=stage_point(xy[0],xy[1]);
         cmd.point2=stage_point(xy[2],xy[3]);
         cmd.point3=stage_point(xy[4],xy[5]);
+        pending_path.push_back(cmd);
+    }
+    void append_cubic_shorthand(const std::string& op,
+                                const std::array<double,4u>& xy)
+    {
+        admit(!pending_path.empty() && !closed && !clip_pending &&
+              pending_path.size()<8u &&
+              (op=="v" || op=="y"),QUANTAPDF_ERROR_UNSUPPORTED);
+        const auto& previous=pending_path.back();
+        quantapdf_point current_point{};
+        if(previous.kind==QUANTAPDF_COMPOSER_PATH_CUBIC_TO)
+            current_point=previous.point3;
+        else {
+            admit(previous.kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
+                  previous.kind==QUANTAPDF_COMPOSER_PATH_LINE_TO,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            current_point=previous.point1;
+        }
+        /* A shorthand's implicit control inherits the exact staged
+         * CURRENT point. In particular, preceding cubic commands use
+         * point3, never their first Bezier control. All authored new
+         * controls still pass the original bounded CTM/grid checks. */
+        quantapdf_composer_path_command cmd={};
+        cmd.kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
+        const auto first=stage_point(xy[0],xy[1]);
+        const auto endpoint=stage_point(xy[2],xy[3]);
+        cmd.point1=op=="v"?current_point:first;
+        cmd.point2=op=="v"?first:endpoint;
+        cmd.point3=endpoint;
         pending_path.push_back(cmd);
     }
     void close_path()
