@@ -154,3 +154,21 @@ endif()
 add_test(NAME quantapdf.native_signed_re COMMAND quantapdf_native_signed_re)
 set_tests_properties(quantapdf.native_signed_re PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;path")
+
+# Strict stroking-only w/J/j source graphics state on public V10 Fill/
+# RAW Image pages: no invisible Stroke painter, PDFium or second raster.
+add_executable(quantapdf_native_stroke_state test_native_stroke_state.cpp)
+target_compile_features(quantapdf_native_stroke_state PRIVATE cxx_std_20)
+target_link_libraries(quantapdf_native_stroke_state PRIVATE
+  QuantaPDF::QuantaPDF qpdf::libqpdf)
+if(MSVC)
+  target_compile_options(quantapdf_native_stroke_state PRIVATE
+    /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_stroke_state PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_stroke_state
+  COMMAND quantapdf_native_stroke_state)
+set_tests_properties(quantapdf.native_stroke_state PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;graphics-state")
