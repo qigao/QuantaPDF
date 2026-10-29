@@ -341,7 +341,10 @@ static int atomic_rejections()
         ready+" q",
         "q 4 5 m 4.125 18 20 18 20 5 c 20 4 l 4 4 l h W n "
           "q 16 0 0 12 8 3 cm /I Do Q Q",
-        "q 4 5 m 4 -1 20 18 20 5 c 20 4 l 4 4 l h W* n "
+        /* Cropped source legitimately admits geometry outside the CropBox;
+         * the actual strict SOURCE +/-1,000,000 coordinate cap must fail
+         * for both full-Media and reduced-CropBox original pages. */
+        "q 4 5 m 4 -1000001 20 18 20 5 c 20 4 l 4 4 l h W* n "
           "q 16 0 0 12 8 3 cm /I Do Q Q",
         "q 4 5 m 4 18 20 18 20 c 20 4 l 4 4 l h W n "
           "q 16 0 0 12 8 3 cm /I Do Q Q",
