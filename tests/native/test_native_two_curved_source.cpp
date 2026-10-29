@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -168,8 +169,8 @@ static int render(const std::string& bytes,const configuration& cfg,
     quantapdf_drop_page(page);
     quantapdf_close(doc);
     quantapdf_drop_context(context);
-    /* Every positive also exercises Bitmap lifetime after its original
-     * bytes, Page, Document and Context owners have all retired. */
+    /* Every positive also exercises Bitmap lifetime after the source
+     * file, Page, Document and Context owners have all retired. */
     const unsigned char *retained=nullptr;
     size_t retained_count=0u;
     OK(quantapdf_bitmap_data(bitmap,&retained,&retained_count));
@@ -180,7 +181,8 @@ static int render(const std::string& bytes,const configuration& cfg,
     return EXIT_SUCCESS;
 }
 
-static int rejected(const std::string& content,const configuration& cfg)
+static int rejected(const std::string& content,const configuration& cfg,
+                    std::optional<quantapdf_status> expected_status={})
 {
     CHECK(write_pdf(original(content,cfg)));
     quantapdf_document *doc=nullptr;
@@ -201,6 +203,7 @@ static int rejected(const std::string& content,const configuration& cfg)
             cfg.dpi,cfg.crop,static_cast<int>(status),
             static_cast<void *>(bitmap),content.c_str());
     CHECK(status!=QUANTAPDF_OK && bitmap==nullptr);
+    if(expected_status)CHECK(status==*expected_status);
     quantapdf_drop_page(page);
     quantapdf_close(doc);
     ++negative_calls;
@@ -437,6 +440,19 @@ static int frozen_ctms_and_order()
         cfg.selected=rotation==270?2:0;
         const std::string paints=image_draw+" "+blue+restored;
         const std::string tail="n 1 0 0 1 -4 0 cm "+paints;
+        if(dpi==144 && rotation==270 && quarters==5 && cfg.crop==0) {
+            /* The fixed 8,000,000 sample-test budget is divided among
+             * three layers: 2,666,666 each. At 2.5x scale the full
+             * 60x80 canvas and two 35-edge leaves charge each clipped
+             * layer (4+35+35)*16*4800 = 5,683,200 tests. Preserve its
+             * exact UNSUPPORTED/null-Bitmap result, then qualify the
+             * same geometry and source order through the fractional
+             * viewport: (4+4+35+35)*16*42*42 = 2,201,472 per layer. */
+            CHECK(rejected(pair_prefix(explicit_a,curve_b,false,true)+
+                           paints,cfg,QUANTAPDF_ERROR_UNSUPPORTED)
+                  ==EXIT_SUCCESS);
+            cfg.crop=3;
+        }
         rendered reference,actual,split;
         CHECK(render(original(pair_prefix(explicit_a,curve_b,false,true)+
                               paints,cfg),cfg,reference)==EXIT_SUCCESS);
