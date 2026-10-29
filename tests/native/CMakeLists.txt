@@ -381,3 +381,55 @@ add_test(NAME quantapdf.native_clipped_path_source_oom
   COMMAND quantapdf_native_clipped_path_source_oom)
 set_tests_properties(quantapdf.native_clipped_path_source_oom PROPERTIES
   TIMEOUT 60 LABELS "conformance;native;no-pdfium;source;clipped-path;oom")
+
+# Original bounded LINE/CUBIC/empty Clip pairs with the same C11 sampler.
+add_executable(quantapdf_native_bounded_clip_pairs
+  test_native_bounded_clip_pairs.cpp)
+target_compile_features(quantapdf_native_bounded_clip_pairs PRIVATE cxx_std_20)
+target_link_libraries(quantapdf_native_bounded_clip_pairs PRIVATE
+  QuantaPDF::QuantaPDF qpdf::libqpdf)
+if(MSVC)
+  target_compile_options(quantapdf_native_bounded_clip_pairs PRIVATE
+    /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_bounded_clip_pairs PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_bounded_clip_pairs
+  COMMAND quantapdf_native_bounded_clip_pairs)
+set_tests_properties(quantapdf.native_bounded_clip_pairs PROPERTIES
+  TIMEOUT 60 LABELS "conformance;native;no-pdfium;public-api;two-clip")
+
+# Exact original Source ownership and rollback for line/empty Clip pairs.
+add_executable(quantapdf_native_bounded_clip_pairs_oom
+  test_native_bounded_clip_pairs_oom.cpp
+  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_native_image_ir.cpp"
+  "${PROJECT_SOURCE_DIR}/src/ir/ir.c"
+  "${PROJECT_SOURCE_DIR}/src/resource/resource_registry.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_ir_v1.c"
+  $<TARGET_OBJECTS:quantapdf_native_raster_objects>
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
+target_compile_definitions(quantapdf_native_bounded_clip_pairs_oom PRIVATE
+  QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST=1)
+target_include_directories(quantapdf_native_bounded_clip_pairs_oom PRIVATE
+  "${PROJECT_SOURCE_DIR}/src" "${PROJECT_SOURCE_DIR}/include")
+target_compile_features(quantapdf_native_bounded_clip_pairs_oom PRIVATE
+  c_std_11 cxx_std_20)
+target_link_libraries(quantapdf_native_bounded_clip_pairs_oom PRIVATE
+  quantapdf_backend QuantaPDF::QuantaPDF qpdf::libqpdf)
+if(UNIX)
+  target_link_libraries(quantapdf_native_bounded_clip_pairs_oom PRIVATE m)
+endif()
+if(MSVC)
+  target_compile_options(quantapdf_native_bounded_clip_pairs_oom PRIVATE
+    /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_bounded_clip_pairs_oom PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_bounded_clip_pairs_oom
+  COMMAND quantapdf_native_bounded_clip_pairs_oom)
+set_tests_properties(quantapdf.native_bounded_clip_pairs_oom PROPERTIES
+  TIMEOUT 60 LABELS "conformance;native;no-pdfium;source;two-clip;oom")

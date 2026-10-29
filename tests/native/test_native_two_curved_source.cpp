@@ -568,12 +568,17 @@ static int atomic_refusals()
         curve_a+" W n q "+curve_b+" W n "+image_draw+" Q "+image_draw,
         "q "+curve_a+" W n Q q "+curve_b+" W n "+image_draw+" Q",
         "q "+curve_a+" W n q "+curve_b+" W n "+image_draw+" Q Q",
-        "q "+curve_a+" W n W* n "+image_draw+" Q",
-        "q W n 8 4 12 12 re W* n "+image_draw+" Q",
-        "q 4 4 m 20 4 l 16 16 l 4 12 l h W n "
+        /* Empty second leaves and empty+rectangle now qualify; malformed
+         * n operands and zero-width original re still fail atomically. */
+        "q "+curve_a+" W n W* 1 n "+image_draw+" Q",
+        "q W n 8 4 0 12 re W* n "+image_draw+" Q",
+        /* Straight pairs now qualify, but l cannot follow a closed h. */
+        "q 4 4 m 20 4 l 16 16 l 4 12 l h 8 8 l W n "
             "8 4 12 12 re W* n "+image_draw+" Q",
+        /* Implicit closing does not enlarge the nine-command ceiling. */
         "q "+curve_a+" W n 12 5 m 12 18 28 18 28 5 c "
-            "28 4 l 12 4 l W n "+image_draw+" Q",
+            "28 4 l 26 4 l 24 4 l 22 4 l 20 4 l 18 4 l 12 4 l "
+            "W n "+image_draw+" Q",
         "q "+curve_a+" W n 12 5 m 12 18 28 18 28 c "
             "28 4 l 12 4 l h W n "+image_draw+" Q",
         "q "+curve_a+" W n 12 5 m 12.125 18 28 18 28 5 c "

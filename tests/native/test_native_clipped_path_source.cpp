@@ -651,14 +651,15 @@ static int atomic_refusals()
         full_red+one_prefix(curve_a)+full_red+"Q",
         prefix+curve_a+" W n "+full_red+"Q",
         ready+" "+one_prefix(curve_a)+full_red+"Q",
-        one_prefix(curve_a)+"W* n "+full_red+"Q",
-        "q W n 4 3 8 4 re W* n "+full_red+"Q",
+        one_prefix(curve_a)+"W* 1 n "+full_red+"Q",
+        "q W n 4 3 8 4 re W* n W n "+full_red+"Q",
         "q 2 2 m 10 2 l 8 9 l 2 8 l h W n "
-            "4 3 8 4 re W* n "+full_red+"Q",
+            "4 3 8 4 re W* n "+full_red+"Q S",
         "q "+curve_a+" W "+full_red+"Q",
         "q "+curve_a+" W 1 n "+full_red+"Q",
         one_prefix(curve_a)+"6 3 m 6 11 14 11 14 3 c "
-            "14 2 l 6 2 l W n "+full_red+"Q",
+            "14 2 l 13 2 l 12 2 l 11 2 l 10 2 l 9 2 l 6 2 l "
+            "W n "+full_red+"Q",
         prefix+"1 0 0 rg 2 3 m 2 11 10 11 10 c "
             "10 2 l 2 2 l h f Q",
         prefix+"1 0 0 rg 2 3 m 2.125 11 10 11 10 3 c "

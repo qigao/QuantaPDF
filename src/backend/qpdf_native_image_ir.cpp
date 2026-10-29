@@ -213,39 +213,34 @@ struct staged_image_clip {
     quantapdf_composer_fill_rule rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
 };
 
-bool closed_clip_path(
-    const std::vector<quantapdf_composer_path_command>& commands)
+bool bounded_clip_contour(
+    const std::vector<quantapdf_composer_path_command>& commands,
+    bool allow_implicit_close=false)
 {
-    if(commands.size()<4u || commands.size()>9u ||
+    if(commands.empty() || commands.size()>9u)return false;
+    const bool closed=
+        commands.back().kind==QUANTAPDF_COMPOSER_PATH_CLOSE;
+    const size_t final_count=commands.size()+(closed?0u:1u);
+    if(final_count<4u || final_count>9u ||
        commands.front().kind!=QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
-       commands.back().kind!=QUANTAPDF_COMPOSER_PATH_CLOSE)
+       (!closed && !allow_implicit_close))
         return false;
-    for(size_t i=1u;i+1u<commands.size();++i)
+    const size_t end=commands.size()-(closed?1u:0u);
+    for(size_t i=1u;i<end;++i)
         if(commands[i].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO &&
            commands[i].kind!=QUANTAPDF_COMPOSER_PATH_CUBIC_TO)
             return false;
     return true;
 }
 
-bool has_cubic_clip_command(
-    const std::vector<quantapdf_composer_path_command>& commands)
-{
-    return std::any_of(commands.begin(),commands.end(),
-        [](const quantapdf_composer_path_command& command) {
-            return command.kind==QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
-        });
-}
-
 bool qualified_owned_clip_pair(
     const std::vector<quantapdf_composer_path_command>& first,
     const std::vector<quantapdf_composer_path_command>& second)
 {
-    /* The new Source profile retains a curve rather than reducing it
-     * to bounds. All-line non-rectangular and empty+rectangle pairs
-     * retain their previous refusal; simple rectangle pairs keep the
-     * separately qualified exact reduction. */
-    return closed_clip_path(first) && closed_clip_path(second) &&
-        (has_cubic_clip_command(first) || has_cubic_clip_command(second));
+    /* Both bounded contours retain their exact geometry and winding
+     * rule, including straight polygons and canonical zero-edge leaves.
+     * Only two proven simple rectangles use the separate reduction. */
+    return bounded_clip_contour(first) && bounded_clip_contour(second);
 }
 
 /* Canonical PRIVATE source-admission signatures. The enumerated IDs are
@@ -657,7 +652,7 @@ public:
             return;
         }
         const std::string op=item.getOperatorValue();
-        /* Source V10's single W/W* must be immediately followed by
+        /* Each Source V10 W/W* must be immediately followed by
          * path-ending n. An empty original path cannot silently grow
          * new operators while its Clip is pending. Older private
          * profiles retain their earlier source admission contracts. */
@@ -959,14 +954,13 @@ public:
         } else if(clipped && (op=="W" || op=="W*")) {
             /* Two qualified leaves have no intervening paint and one
              * outer q that saved an unclipped state. Simple rectangles
-             * retain their exact one-Clip reduction. A pair containing
-             * a curve keeps BOTH frozen paths and rules for the same
+             * retain their exact one-Clip reduction. Other pairs keep
+             * BOTH frozen paths and rules for the same
              * C11 per-sample intersection, without mask averaging. */
             admit(args.empty() && !clip_pending &&
                   (!target.mixed_scoped_mode || target.order.empty()),
                   QUANTAPDF_ERROR_UNSUPPORTED);
             if(target.native_unclipped_mode && target.clip_completed) {
-                std::array<float,4u> first{},next{};
                 /* All clipped paints name the final root. Restoring
                  * the first leaf would need a second GS identity, so
                  * the saved outer q state must remain unclipped. */
@@ -975,11 +969,7 @@ public:
                       clip_stack.size()==1u && !clip_stack.back() &&
                       target.order.empty() &&
                       target.draws.empty() && target.painted_paths.empty() &&
-                      closed &&
-                      ((read_strict_rect(target.clip.commands,first) &&
-                        read_strict_rect(pending_path,next)) ||
-                       qualified_owned_clip_pair(target.clip.commands,
-                                                 pending_path)),
+                      pending_second_clip_contour(),
                       QUANTAPDF_ERROR_UNSUPPORTED);
                 second_clip_pending=true;
             } else {
@@ -997,18 +987,19 @@ public:
                 /* Both original operands were separately parsed,
                  * billed and frozen at their definition-time CTM.
                  * Only two proven rectangles may replace the first
-                 * geometry. Curves retain two distinct owned leaves. */
+                 * geometry. Other contours retain two owned leaves. */
                 std::array<float,4u> first{},next{};
                 admit(target.native_unclipped_mode &&
                       target.clip_completed && clip_active &&
                       !second_clip_used && !target.two_owned_clips &&
                       target.second_clip.commands.empty() && clip_pending &&
-                      closed && target.order.empty() &&
+                      target.order.empty() &&
                       clip_stack.size()==1u && !clip_stack.back() &&
-                      ((read_strict_rect(target.clip.commands,first) &&
-                        read_strict_rect(pending_path,next)) ||
-                       qualified_owned_clip_pair(target.clip.commands,
-                                                 pending_path)),
+                      pending_second_clip_contour(),
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                complete_clip_contour();
+                admit(qualified_owned_clip_pair(target.clip.commands,
+                                                pending_path),
                       QUANTAPDF_ERROR_UNSUPPORTED);
                 if(read_strict_rect(target.clip.commands,first) &&
                    read_strict_rect(pending_path,next)) {
@@ -1053,26 +1044,7 @@ public:
                       (pending_path.size()>=3u ||
                        trivial_zero_area_clip()),
                       QUANTAPDF_ERROR_UNSUPPORTED);
-                if(trivial_zero_area_clip()) {
-                    /* Empty original W, MOVE-only, and open MOVE+LINE
-                     * have exactly zero Fill area under both winding
-                     * rules. Encode one uniquely owned, bounded
-                     * four-command zero-EDGE typed Clip for the
-                     * existing C11 allow_empty_clip sampler.
-                     * Never invent covered pixels or another raster. */
-                    pending_path.assign(
-                        4u,quantapdf_composer_path_command{});
-                    pending_path[0].kind=
-                        QUANTAPDF_COMPOSER_PATH_MOVE_TO;
-                    pending_path[1].kind=
-                        QUANTAPDF_COMPOSER_PATH_LINE_TO;
-                    pending_path[2].kind=
-                        QUANTAPDF_COMPOSER_PATH_LINE_TO;
-                    pending_path[3].kind=
-                        QUANTAPDF_COMPOSER_PATH_CLOSE;
-                    closed=true;
-                }
-                if(!closed)close_path();
+                complete_clip_contour();
                 target.clip.commands=std::move(pending_path);
                 target.clip.rule=clip_rule;
                 target.clip_completed=true;
@@ -1139,6 +1111,32 @@ private:
                 QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
             pending_path[1].kind==
                 QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    }
+    bool pending_second_clip_contour() const
+    {
+        /* Test the bounded shape without allocating or changing it at
+         * W. The mandatory n performs the same implicit closure/empty
+         * normalization as the first Clip, then revalidates the result. */
+        return bounded_clip_contour(target.clip.commands) &&
+            (trivial_zero_area_clip() ||
+             bounded_clip_contour(pending_path,true));
+    }
+    void complete_clip_contour()
+    {
+        if(trivial_zero_area_clip()) {
+            /* Empty original W, MOVE-only, and open MOVE+LINE have zero
+             * Fill area under both rules. Preserve the existing owned
+             * four-command zero-edge encoding for either operand; its
+             * definition-time coordinates cannot add covered pixels. */
+            if(pending_path.capacity()<4u)QP_SOURCE_STAGE_ARM(8u);
+            pending_path.assign(4u,quantapdf_composer_path_command{});
+            pending_path[0].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+            pending_path[1].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+            pending_path[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+            pending_path[3].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+            closed=true;
+        }
+        if(!closed)close_path();
     }
     quantapdf_point stage_point(double x,double y) const
     {
