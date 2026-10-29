@@ -259,6 +259,13 @@ static bool ink_and_white(const rendered& image)
     }
     return ink && white;
 }
+static bool no_white_pixels(const rendered& image)
+{
+    for(size_t i=0u;i<image.rgb.size();i+=3u)
+        if(image.rgb[i]==255u && image.rgb[i+1u]==255u &&
+           image.rgb[i+2u]==255u)return false;
+    return !image.rgb.empty();
+}
 
 static const std::string full_red="1 0 0 rg 0 0 16 12 re f ";
 static const std::string full_blue="0 0 1 rg 0 0 16 12 re f* ";
@@ -365,6 +372,12 @@ static int independent_topologies()
                      cfg,image)==EXIT_SUCCESS);
         CHECK(equal(path,reference) && equal(image,reference));
         if(expected.empty())CHECK(all_white(path));
+        else if(expected==outer_rectangle && (cfg.crop==1 || cfg.crop==2)) {
+            /* The same-winding double-negative re fills the entire
+             * [3 2 13 10] CropBox at all three DPIs. Fractional output
+             * edges may be antialiased, but no pixel is fully white. */
+            CHECK(no_white_pixels(path));
+        }
         else CHECK(ink_and_white(path));
         if(type==0 && dpi==72) {
             CHECK(pixel(path,4,7)==UINT32_C(0xff0000));
