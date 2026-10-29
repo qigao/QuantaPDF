@@ -317,6 +317,54 @@ static int split_original_contents()
     return EXIT_SUCCESS;
 }
 
+/* The strict full-Media profile excludes authored negative controls,
+ * but a truly reduced original CropBox may contain a curve whose
+ * control extends outside BOTH Crop and Media. Those source points
+ * are bounded but must not be artificially clamped or rejected:
+ * the single C11 raster clips visible samples after geometry staging.
+ * Compare local/inherited CropBox and W/W* byte-for-byte, while
+ * preserving full-Media fail-closed behavior for the same original. */
+static int bounded_control_outside_crop()
+{
+    const std::string path=
+        "4 5 m -1 18 20 18 20 5 c 20 4 l 4 4 l h";
+    const std::string draw=
+        "n q 16 0 0 12 8 3 cm /I Do Q Q";
+    for(int quarters:{4,5})
+    for(int rotation:{0,90})
+    for(int dpi:{72,96,144}) {
+        std::vector<unsigned char> reference;
+        for(int crop_mode:{1,2})
+        for(bool even:{false,true}) {
+            const auto content="q "+path+
+                (even?" W* ":" W ")+draw;
+            const auto bytes=original(content,true,quarters,
+                                      rotation,crop_mode);
+            std::vector<unsigned char> got;
+            CHECK(render(bytes,quarters,rotation,dpi,crop_mode,got)
+                  ==EXIT_SUCCESS);
+            bool ink=false,white=false;
+            for(size_t i=0u;i<got.size();i+=3u) {
+                ink|=!is_white(got,i);
+                white|=is_white(got,i);
+            }
+            CHECK(ink && white);
+            if(reference.empty())reference=got;
+            else CHECK(reference.size()==got.size() &&
+                 std::memcmp(reference.data(),got.data(),got.size())==0);
+        }
+    }
+    /* With no effective CropBox the older full-Media original-
+     * geometry contract must still reject the negative x control
+     * atomically, regardless of W versus W* and actual DPI. */
+    for(bool even:{false,true})
+    for(int dpi:{72,96,144}) {
+        const auto content="q "+path+(even?" W* ":" W ")+draw;
+        CHECK(rejected(content,true,dpi,0)==EXIT_SUCCESS);
+    }
+    return EXIT_SUCCESS;
+}
+
 /* Unsupported and malformed Source MUST refuse the ENTIRE page,
  * even if a clipped Image has already been staged, never return
  * partially painted RGB. Both W and W* are checked at real DPI. */
@@ -374,6 +422,7 @@ int main()
     CHECK(q_restoration()==EXIT_SUCCESS);
     CHECK(definition_time_ctm()==EXIT_SUCCESS);
     CHECK(split_original_contents()==EXIT_SUCCESS);
+    CHECK(bounded_control_outside_crop()==EXIT_SUCCESS);
     CHECK(atomic_rejections()==EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }
