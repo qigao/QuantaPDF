@@ -214,9 +214,15 @@ quantapdf_status quantapdf_qpdf_source_scoped_mixed_v10_flate_predictor_to_ir(
  * for canonical C11 raster admission, not as a substituted PDF leaf.
  * Earlier Source entry points retain exact page-zero semantics.
  *
- * The native V10 Clip profile admits two bounded 4..9-command leaves,
- * with LINE/CUBIC edges and explicit or implicit closure. The first
- * definition precedes paint; the second may follow first-leaf paints.
+ * The native V10 Clip profile admits one or two independent leaves,
+ * each with 4..9 total commands and one aggregate W/W* winding rule.
+ * A leaf may contain one or two contours, each with MOVE, at least two
+ * LINE/CUBIC edges, and CLOSE. The first contour must close explicitly
+ * before a second m/re; the last may close implicitly at W/n. Two
+ * ordinary rectangles require ten commands and remain unsupported.
+ * Painted PATHs and paths ended by plain n retain their existing
+ * grammar. The first definition precedes paint; the second may follow
+ * first-leaf paints.
  * Empty, MOVE-only and open MOVE+LINE operands use the same four-command
  * zero-edge encoding in either position. Both definition-time paths and
  * winding rules are retained: owned Clip IDs 1/2 and owned flat root 3.

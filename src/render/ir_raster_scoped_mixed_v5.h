@@ -93,6 +93,19 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_clip_states_device_viewport
     double viewport_width,double viewport_height,
     quantapdf_ir_raster_image *out_image);
 
+/* Explicit compound-Clip variant of the two-GS device profile. Each
+ * leaf contains one or two closed contours within four..nine total
+ * commands; each contour is MOVE, at least two LINE/CUBIC commands,
+ * CLOSE. Every contour contributes to that leaf's common W/W* winding
+ * calculation at the existing shared 4x4 samples. Painted PATHs remain
+ * single-contour, and the original clip_states entry remains strict.
+ * No state, layer, resource, ownership or work budget is enlarged. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_compound_clip_states_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

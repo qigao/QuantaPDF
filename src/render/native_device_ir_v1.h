@@ -54,11 +54,23 @@ quantapdf_status quantapdf_native_device_ir_render_v1_clipped_paths(
  * its intersection, Q-restoring the first leaf, and finally no Clip.
  * PATH-only permits two..four fills, IMAGE-only exactly two paints,
  * mixed one..two of each, within the unchanged four-layer ceiling.
- * All PATH/Clip contours are closed with four..nine commands. This
- * wrapper alone admits two GS records; older entrypoints still refuse
- * them. Projection is stack-only, all borrows immutable, output owned
+ * Each PATH/Clip is one closed contour with four..nine commands. The
+ * older entrypoints still refuse two GS records. Projection is
+ * stack-only, all borrows immutable, output owned
  * and detached on success and zeroed on failure. */
 quantapdf_status quantapdf_native_device_ir_render_v1_clip_states(
+    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    quantapdf_ir_raster_image *out_image);
+
+/* Explicit compound-Clip extension of the exact two-GS profile above.
+ * Each Clip leaf contains one or two closed contours, four..nine total
+ * commands. Every contour is MOVE, at least two LINE/CUBIC commands,
+ * CLOSE. Original single-contour inputs remain a subset; painted PATHs
+ * still contain exactly one contour. The old clip_states entry keeps
+ * rejecting compound leaves. State order, resource cardinalities,
+ * budgets, immutable stack projection and output ownership are shared. */
+quantapdf_status quantapdf_native_device_ir_render_v1_compound_clip_states(
     const quantapdf_ir *source,unsigned dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image);
