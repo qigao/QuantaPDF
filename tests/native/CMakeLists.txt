@@ -717,3 +717,24 @@ add_test(NAME quantapdf.native_source_resource_ancestry
 set_tests_properties(quantapdf.native_source_resource_ancestry PROPERTIES
   TIMEOUT 60
   LABELS "conformance;native;no-pdfium;public-api;resources;page-tree")
+
+# One 20-page original: inherited/local quarter-boxes, negative origins,
+# fractional CropBoxes, strict malformed geometry and surviving bitmaps.
+add_executable(quantapdf_native_page_geometry_ancestry
+  test_native_page_geometry_ancestry.cpp)
+target_compile_features(quantapdf_native_page_geometry_ancestry PRIVATE
+  cxx_std_20)
+target_link_libraries(quantapdf_native_page_geometry_ancestry PRIVATE
+  QuantaPDF::QuantaPDF qpdf::libqpdf)
+if(MSVC)
+  target_compile_options(quantapdf_native_page_geometry_ancestry PRIVATE
+    /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_page_geometry_ancestry PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_page_geometry_ancestry
+  COMMAND quantapdf_native_page_geometry_ancestry)
+set_tests_properties(quantapdf.native_page_geometry_ancestry PROPERTIES
+  TIMEOUT 60
+  LABELS "conformance;native;no-pdfium;public-api;page-tree;geometry")
