@@ -822,3 +822,64 @@ set_tests_properties(quantapdf.native_v10_corpus_reconcile PROPERTIES
   TIMEOUT 20
   LABELS "conformance;native;no-pdfium;source;corpus;reconcile"
   FIXTURES_REQUIRED native_v10_corpus_replayed)
+
+# External original-PDF Native V10 conformance is strictly separate from
+# both the historical PDFium oracles and the generated 12-document corpus.
+# First verify ALL seven already provenance-reviewed originals and SHA-256
+# through the existing external admission verifier (native pass count=0).
+# Only then may the public C11 renderer qualify the three explicit V10
+# page/status cases; recheck originals and reconcile actual execution.
+set(_native_ext_v10_manifest
+  "${PROJECT_SOURCE_DIR}/tests/external_source_corpus/manifest.json")
+set(_native_ext_v10_assets
+  "${PROJECT_SOURCE_DIR}/tests/external_source_corpus/documents")
+set(_native_ext_v10_integrity
+  "${CMAKE_CURRENT_BINARY_DIR}/native-v10-external-integrity.json")
+set(_native_ext_v10_receipt
+  "${CMAKE_CURRENT_BINARY_DIR}/native-v10-external-replay.json")
+set(_native_ext_v10_checker
+  "${PROJECT_SOURCE_DIR}/tools/qualification/native_v10_external_reconcile.py")
+
+add_test(NAME quantapdf.native_v10_external_integrity
+  COMMAND "${Python3_EXECUTABLE}"
+    "${PROJECT_SOURCE_DIR}/tools/qualification/external_pdf_corpus.py"
+    --manifest "${_native_ext_v10_manifest}"
+    --assets "${_native_ext_v10_assets}"
+    --report "${_native_ext_v10_integrity}")
+set_tests_properties(quantapdf.native_v10_external_integrity PROPERTIES
+  TIMEOUT 30
+  LABELS "conformance;native;no-pdfium;external;sha256;provenance"
+  FIXTURES_SETUP native_v10_external_verified)
+
+add_executable(quantapdf_native_v10_external_replay
+  test_native_v10_external_replay.cpp)
+target_compile_features(quantapdf_native_v10_external_replay PRIVATE
+  cxx_std_20)
+target_link_libraries(quantapdf_native_v10_external_replay PRIVATE
+  QuantaPDF::QuantaPDF)
+if(MSVC)
+  target_compile_options(quantapdf_native_v10_external_replay PRIVATE
+    /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_v10_external_replay PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_v10_external_replay
+  COMMAND quantapdf_native_v10_external_replay
+    "${_native_ext_v10_assets}" "${_native_ext_v10_receipt}")
+set_tests_properties(quantapdf.native_v10_external_replay PROPERTIES
+  TIMEOUT 40
+  LABELS "conformance;native;no-pdfium;external;public-api;replay"
+  FIXTURES_REQUIRED native_v10_external_verified
+  FIXTURES_SETUP native_v10_external_replayed)
+
+add_test(NAME quantapdf.native_v10_external_reconcile
+  COMMAND "${Python3_EXECUTABLE}" "${_native_ext_v10_checker}"
+    --manifest "${_native_ext_v10_manifest}"
+    --assets "${_native_ext_v10_assets}"
+    --integrity "${_native_ext_v10_integrity}"
+    --receipt "${_native_ext_v10_receipt}")
+set_tests_properties(quantapdf.native_v10_external_reconcile PROPERTIES
+  TIMEOUT 30
+  LABELS "conformance;native;no-pdfium;external;reconcile"
+  FIXTURES_REQUIRED native_v10_external_replayed)
