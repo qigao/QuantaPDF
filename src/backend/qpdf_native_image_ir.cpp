@@ -812,6 +812,32 @@ public:
                   QUANTAPDF_ERROR_UNSUPPORTED);
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,
                          finite_number(args[0]),finite_number(args[1]));
+        } else if(target.native_unclipped_mode && op=="c") {
+            /* Public original PDF c: six finite control/endpoint
+             * coordinates, staged in the SAME Composer CUBIC_TO kind
+             * already handled by the single bounded C11 Fill raster.
+             * No fallback, new paint engine or private-profile change.
+             * Curved W/W* Clip and Stroke stay explicitly unsupported. */
+            admit(args.size()==6u && !pending_path.empty() &&
+                  !closed && !clip_pending && pending_path.size()<8u,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            std::array<double,6u> xy{};
+            for(size_t i=0u;i<6u;++i)
+                xy[i]=finite_number(args[i]);
+            append_cubic(xy);
+        } else if(target.native_unclipped_mode &&
+                  (op=="v" || op=="y")) {
+            /* Original PDF cubic shorthand: v uses the current point
+             * as control #1; y repeats its endpoint as control #2.
+             * Expand into the SAME staged CUBIC_TO command; do not
+             * introduce a second curve interpreter or renderer. */
+            admit(args.size()==4u && !pending_path.empty() &&
+                  !closed && !clip_pending && pending_path.size()<8u,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            std::array<double,4u> xy{};
+            for(size_t i=0u;i<4u;++i)
+                xy[i]=finite_number(args[i]);
+            append_cubic_shorthand(op,xy);
         } else if((mixed || clipped) && op=="h") {
             admit(args.empty() && pending_path.size()>=3u &&
                   !closed,QUANTAPDF_ERROR_UNSUPPORTED);
@@ -884,6 +910,14 @@ public:
             pending_path.clear();
             closed=false;
         } else if(clipped && (op=="W" || op=="W*")) {
+            /* The V10 C11 Fill is cubic-aware, but curved Clip is
+             * not part of this SOURCE admission. Refuse rather than
+             * assuming the already-qualified polygon Clip profile. */
+            if(target.native_unclipped_mode)
+                admit(std::none_of(pending_path.begin(),pending_path.end(),
+                      [](const auto& c) {
+                          return c.kind==QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
+                      }),QUANTAPDF_ERROR_UNSUPPORTED);
             admit(args.empty() && pending_path.size()>=3u &&
                   !clip_pending && !target.clip_completed &&
                   (!target.mixed_scoped_mode || target.order.empty()),
@@ -931,39 +965,79 @@ public:
               (!clipped || clip_stack.empty()));
     }
 private:
-    void append_point(quantapdf_composer_path_command_kind kind,
-                      double x,double y)
+    quantapdf_point stage_point(double x,double y) const
     {
         /* Source coordinates/CTM are resolved at construction time.
-         * First mixed version excludes negative scale, shear and
-         * fractional pixel positions. No PDF writer round-trip. */
+         * Existing strict scale/shear and exact quarter-viewport
+         * policies apply IDENTICALLY to every cubic control/end
+         * point, not merely to its final visible endpoint. */
         admit(current[0]>0.0 && current[3]>0.0 &&
               current[1]==0.0 && current[2]==0.0,
               QUANTAPDF_ERROR_UNSUPPORTED);
-        /* Original PATH / W Clip share the identical Source viewport
-         * translation with IMAGE placements. No post-raster cropping
-         * and no altered q/Q / authored content transformation. */
         const double absolute_x=
             current[0]*x+current[4]-target.media_left;
         const double absolute_y=
             current[3]*y+current[5]-target.media_bottom;
-        /* For a non-full CropBox the authorial PATH/W Clip can cross
-         * the viewport boundary. Keep its complete bounded geometry
-         * and let the same C11 raster sample only the visible canvas. */
         const double ix=target.crop_viewport?
             whole_signed_source(absolute_x):
             (double)whole(absolute_x,target.page_w);
         const double iy=target.crop_viewport?
             whole_signed_source(absolute_y):
             (double)whole(absolute_y,target.page_h);
+        return {static_cast<float>(ix),static_cast<float>(
+            (target.exact_page_h>0.0?
+                target.exact_page_h:(double)target.page_h)-iy)};
+    }
+    void append_point(quantapdf_composer_path_command_kind kind,
+                      double x,double y)
+    {
         quantapdf_composer_path_command cmd={};
         cmd.kind=kind;
-        cmd.point1.x=static_cast<float>(ix);
-        cmd.point1.y=static_cast<float>(
-            (target.exact_page_h>0.0?
-                target.exact_page_h:(double)target.page_h)-iy);
+        cmd.point1=stage_point(x,y);
         pending_path.push_back(cmd);
         admit(pending_path.size()<=8u,QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+    void append_cubic(const std::array<double,6u>& xy)
+    {
+        /* Do not publish a partially admitted cubic command. All
+         * three individually transformed points must pass first. */
+        admit(!pending_path.empty() && !closed && !clip_pending &&
+              pending_path.size()<8u,QUANTAPDF_ERROR_UNSUPPORTED);
+        quantapdf_composer_path_command cmd={};
+        cmd.kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
+        cmd.point1=stage_point(xy[0],xy[1]);
+        cmd.point2=stage_point(xy[2],xy[3]);
+        cmd.point3=stage_point(xy[4],xy[5]);
+        pending_path.push_back(cmd);
+    }
+    void append_cubic_shorthand(const std::string& op,
+                                const std::array<double,4u>& xy)
+    {
+        admit(!pending_path.empty() && !closed && !clip_pending &&
+              pending_path.size()<8u &&
+              (op=="v" || op=="y"),QUANTAPDF_ERROR_UNSUPPORTED);
+        const auto& previous=pending_path.back();
+        quantapdf_point current_point{};
+        if(previous.kind==QUANTAPDF_COMPOSER_PATH_CUBIC_TO)
+            current_point=previous.point3;
+        else {
+            admit(previous.kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
+                  previous.kind==QUANTAPDF_COMPOSER_PATH_LINE_TO,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            current_point=previous.point1;
+        }
+        /* A shorthand's implicit control inherits the exact staged
+         * CURRENT point. In particular, preceding cubic commands use
+         * point3, never their first Bezier control. All authored new
+         * controls still pass the original bounded CTM/grid checks. */
+        quantapdf_composer_path_command cmd={};
+        cmd.kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
+        const auto first=stage_point(xy[0],xy[1]);
+        const auto endpoint=stage_point(xy[2],xy[3]);
+        cmd.point1=op=="v"?current_point:first;
+        cmd.point2=op=="v"?first:endpoint;
+        cmd.point3=endpoint;
+        pending_path.push_back(cmd);
     }
     void close_path()
     {
@@ -1052,7 +1126,11 @@ void original_turn_commands(
         if(c.kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
            c.kind==QUANTAPDF_COMPOSER_PATH_LINE_TO)
             c.point1=original_turn_point(c.point1,w,h,rotation);
-        else
+        else if(c.kind==QUANTAPDF_COMPOSER_PATH_CUBIC_TO) {
+            c.point1=original_turn_point(c.point1,w,h,rotation);
+            c.point2=original_turn_point(c.point2,w,h,rotation);
+            c.point3=original_turn_point(c.point3,w,h,rotation);
+        } else
             admit(c.kind==QUANTAPDF_COMPOSER_PATH_CLOSE,
                   QUANTAPDF_ERROR_UNSUPPORTED);
     }
@@ -1948,7 +2026,11 @@ void scale_source_userunit(admission& source,unsigned quarters)
             if(c.kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
                c.kind==QUANTAPDF_COMPOSER_PATH_LINE_TO)
                 point(c.point1);
-            else
+            else if(c.kind==QUANTAPDF_COMPOSER_PATH_CUBIC_TO) {
+                point(c.point1);
+                point(c.point2);
+                point(c.point3);
+            } else
                 admit(c.kind==QUANTAPDF_COMPOSER_PATH_CLOSE,
                       QUANTAPDF_ERROR_UNSUPPORTED);
         }
