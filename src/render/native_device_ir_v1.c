@@ -32,7 +32,7 @@ static int qp_device_point(quantapdf_point *point,double scale)
 static int qp_device_commands(
     quantapdf_composer_path_command *dst,
     const quantapdf_composer_path_command *src,
-    size_t count,double scale)
+    size_t count,double scale,int allow_cubic_fill)
 {
     if(src==NULL || count==0u || count>QP_DPI_MAX_PATH_COMMANDS)
         return 0;
@@ -43,11 +43,21 @@ static int qp_device_commands(
         case QUANTAPDF_COMPOSER_PATH_LINE_TO:
             if(!qp_device_point(&dst[i].point1,scale))return 0;
             break;
+        case QUANTAPDF_COMPOSER_PATH_CUBIC_TO:
+            /* Only original Source V10 opaque Fill may project this
+             * existing cubic command. Stage all three scaled points
+             * through the same bounded finite native device policy;
+             * curved W/W* Clip stays explicitly unqualified. */
+            if(!allow_cubic_fill ||
+               !qp_device_point(&dst[i].point1,scale) ||
+               !qp_device_point(&dst[i].point2,scale) ||
+               !qp_device_point(&dst[i].point3,scale))
+                return 0;
+            break;
         case QUANTAPDF_COMPOSER_PATH_CLOSE:
             break;
         default:
-            /* No unqualified CUBIC/stroke command can be translated
-             * without explicitly qualified Source V10 semantics. */
+            /* All unqualified PATH operators still fail closed. */
             return 0;
         }
     }
@@ -163,7 +173,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1(
                 t->c==0.0f && t->d==0.0f &&
                 t->e==0.0f && t->f==0.0f);
             if(!zero || !qp_device_commands(paths[i],path->commands,
-                                             path->command_count,scale))
+                                             path->command_count,scale,1))
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             operations[i].value.path.commands=paths[i];
         } else if(original->kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
@@ -182,7 +192,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1(
            old->transform.c!=0.0f || old->transform.d!=1.0f ||
            old->transform.e!=0.0f || old->transform.f!=0.0f ||
            !qp_device_commands(clip_commands,old->commands,
-                               old->command_count,scale))
+                               old->command_count,scale,0))
             return QUANTAPDF_ERROR_UNSUPPORTED;
         clip=*old;
         clip.commands=clip_commands;
