@@ -260,7 +260,6 @@ static bool ink_and_white(const rendered& image)
     return ink && white;
 }
 
-static const std::string box="0 0 16 12 re";
 static const std::string green_box="3 3 2 2 re";
 static const std::string yellow_box="12 8 3 2 re";
 static const std::string rectangle_a="2 2 10 8 re";
