@@ -47,6 +47,22 @@ quantapdf_status quantapdf_native_device_ir_render_v1_clipped_paths(
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image);
 
+/* Private exact two-GS profile. IDs 1/2 are owned frozen Clip PATH
+ * leaves, ID 3 their flat Intersection. GS 1 names leaf 1 and GS 2
+ * names root 3; both are full-alpha Normal and both must be painted.
+ * Two..four operations follow 1* 2+ 1* 0*: painting the first leaf,
+ * its intersection, Q-restoring the first leaf, and finally no Clip.
+ * PATH-only permits two..four fills, IMAGE-only exactly two paints,
+ * mixed one..two of each, within the unchanged four-layer ceiling.
+ * All PATH/Clip contours are closed with four..nine commands. This
+ * wrapper alone admits two GS records; older entrypoints still refuse
+ * them. Projection is stack-only, all borrows immutable, output owned
+ * and detached on success and zeroed on failure. */
+quantapdf_status quantapdf_native_device_ir_render_v1_clip_states(
+    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

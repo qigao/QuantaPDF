@@ -78,6 +78,21 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_clipped_paths_device_viewpo
     double viewport_width,double viewport_height,
     quantapdf_ir_raster_image *out_image);
 
+/* Explicit two-GS device profile: exact Clip leaves 1/2 and flat root
+ * 3={1,2}; full-alpha Normal GS 1 selects leaf 1, GS 2 selects root 3.
+ * Both GS identities must occur in the paint order 1* 2+ 1* 0*.
+ * Two..four PATHs, exactly two IMAGEs, or one..two of each (total<=4).
+ * PATH/Clip contours are closed and contain four..nine commands;
+ * leaf transforms are frozen identity. The same 4x4 sampler tests the
+ * applicable leaf/leaves and physical viewport at each subpixel.
+ * Source, per-draw and geometry budgets, immutable borrows and detached
+ * output follow V5 unchanged. Every older entrypoint refuses two GS. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_clip_states_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

@@ -644,10 +644,15 @@ static int atomic_refusals()
         prefix+"Q "+full_red,
         ready+" BT ET",
         ready+" 2 2 m 10 8 l S",
-        curve_a+" W n q "+curve_b+" W* n "+full_red+"Q "+full_red,
+        /* Root then restored-first painting is admitted, but a fifth
+         * PATH still exceeds the unchanged four-layer ceiling. */
+        curve_a+" W n q "+curve_b+" W* n "+full_red+"Q "+
+            full_red+full_red+full_red+full_red,
         one_prefix(curve_a)+"Q "+one_prefix(curve_b)+full_red+"Q",
-        one_prefix(curve_a)+"q "+curve_b+" W n "+full_red+"Q Q",
-        one_prefix(curve_a)+full_red+curve_b+" W n "+full_red+"Q",
+        one_prefix(curve_a)+"q "+curve_b+" W n "+full_red+
+            "Q "+curve_a+" W n Q", /* third Clip after Q to leaf 1 */
+        one_prefix(curve_a)+full_red+curve_b+" W n "+full_red+
+            "Q "+one_prefix(curve_a)+full_red+"Q", /* redefinition after Q to 0 */
         full_red+one_prefix(curve_a)+full_red+"Q",
         prefix+curve_a+" W n "+full_red+"Q",
         ready+" "+one_prefix(curve_a)+full_red+"Q",

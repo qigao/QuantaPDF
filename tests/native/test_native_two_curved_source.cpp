@@ -563,11 +563,17 @@ static int atomic_refusals()
         "q "+curve_a+" W n "+curve_b+" W* W n "+image_draw+" Q",
         prefix+curve_a+" W n "+image_draw+" Q",
         "q "+curve_a+" W n "+image_draw+" "+curve_b+" W n Q",
-        "q "+curve_a+" W n "+path_fill+curve_b+" W n "+image_draw+" Q",
-        /* Q would restore the first Clip, requiring a second GS identity. */
-        curve_a+" W n q "+curve_b+" W n "+image_draw+" Q "+image_draw,
+        /* Painting before the second W now qualifies; three PATHs
+         * plus one Image still exceed the retained mixed PATH limit. */
+        "q "+curve_a+" W n "+path_fill+curve_b+" W n "+image_draw+" "+
+            path_fill+path_fill+"Q",
+        /* Two Images in states 2,1 qualify; the third remains outside
+         * the Image-only limit even after restoring the first Clip. */
+        curve_a+" W n q "+curve_b+" W n "+image_draw+" Q "+
+            image_draw+" "+image_draw,
         "q "+curve_a+" W n Q q "+curve_b+" W n "+image_draw+" Q",
-        "q "+curve_a+" W n q "+curve_b+" W n "+image_draw+" Q Q",
+        "q "+curve_a+" W n q "+curve_b+" W n "+image_draw+
+            " Q "+curve_a+" W n Q", /* third definition after Q to leaf 1 */
         /* Empty second leaves and empty+rectangle now qualify; malformed
          * n operands and zero-width original re still fail atomically. */
         "q "+curve_a+" W n W* 1 n "+image_draw+" Q",
