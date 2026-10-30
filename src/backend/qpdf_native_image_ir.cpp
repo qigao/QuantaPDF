@@ -2115,6 +2115,8 @@ quantapdf_ir materialize_clipped_path_only(const admission& source)
             ir.operations[i].graphics_state_id=id;
             ir.operations[i].value.path.options.graphics_state_id=id;
         }
+        if(source.clip.commands.size()==10u)
+            std::fprintf(stderr,"TEN trace: owned source IR committed\\n");
         return ir;
     } catch(...) {
         quantapdf_ir_dispose(&ir);
