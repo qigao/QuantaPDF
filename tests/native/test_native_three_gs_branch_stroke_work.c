@@ -252,7 +252,7 @@ static int negative_cases(void)
     setup(&f);f.operations[0].value.path.options.stroke_argb=
         UINT32_C(0x80ff0000);
     CHECK(rejects_atomically(&f,&limit)==EXIT_SUCCESS);
-    setup(&f);f.operations[0].value.path.options.dash_count=1u;
+    setup(&f);f.operations[0].value.path.dash_count=1u;
     CHECK(rejects_atomically(&f,&limit)==EXIT_SUCCESS);
     setup(&f);f.red[1].point1.y=41.0f; /* no diagonal stroke */
     CHECK(rejects_atomically(&f,&limit)==EXIT_SUCCESS);
