@@ -267,12 +267,12 @@ static int replay(const std::filesystem::path& root,
     std::ofstream out(receipt,std::ios::binary|std::ios::trunc);
     CHECK(out.good());
     out<<"{\"schema_version\":1,\"corpus_id\":\"external-source-pdf\","
-       <<"\"qualification\":\"native-v10-remaining-fail-closed\","
+       <<"\"qualification\":\"native-v10-yworks-rgb-texample-refused\","
        <<"\"reference_oracle\":\"none\",\"result\":\"passed\","
-       <<"\"manifest_document_count\":7,\"negative_document_count\":2,"
+       <<"\"manifest_document_count\":7,\"negative_document_count\":1,"
        <<"\"recovery_document_id\":\""<<blank_id<<"\","
-       <<"\"dpi\":72,\"execution_count\":12,\"positive_count\":6,"
-       <<"\"refusal_count\":6,\"passes\":[";
+       <<"\"dpi\":72,\"execution_count\":12,\"positive_count\":9,"
+       <<"\"refusal_count\":3,\"passes\":[";
     for(size_t p=0u;p<orders.size();++p) {
         if(p)out<<',';
         out<<"{\"name\":\""<<names[p]<<"\",\"seed\":\""<<labels[p]
@@ -282,24 +282,26 @@ static int replay(const std::filesystem::path& root,
             if(i)out<<',';
             out<<'\"'<<ids[orders[p][i]]<<'\"';
         }
-        out<<"],\"refused\":2,\"recovered\":2}";
+        out<<"],\"refused\":1,\"accepted_rgb\":1,\"recovered\":2}";
     }
     out<<"],\"documents\":[";
     for(size_t i=0u;i<ids.size();++i) {
         if(i)out<<',';
         out<<"{\"id\":\""<<ids[i]
-           <<"\",\"observed_status\":\"UNSUPPORTED\","
-           <<"\"executions\":"<<observed[i]
-           <<",\"atomic_null_bitmap\":true}";
+           <<"\",\"observed_status\":\""<<(i==0u?"OK":"UNSUPPORTED")
+           <<"\",\"executions\":"<<observed[i]
+           <<",\"exact_rgb_pixels\":"<<(i==0u?"true":"false")
+           <<",\"atomic_null_bitmap\":"<<(i==0u?"false":"true")
+           <<"}";
     }
     out<<"],\"recovery\":{\"id\":\""<<blank_id
        <<"\",\"observed_status\":\"OK\",\"executions\":6,"
        <<"\"all_white\":true,\"bitmap_survived_context\":true}}\n";
     out.flush();
     CHECK(out.good());
-    std::printf("Native V10 remaining external: 2 originals x 3 passes,"
-                " 6 atomic UNSUPPORTED refusals and 6 separately"
-                " reopened blank recovery renders\n");
+    std::printf("Native V10 complex originals: unchanged yWorks RGB 3x,"
+                " TeXample atomic UNSUPPORTED 3x,"
+                " independent blank recovery 6x\n");
     return EXIT_SUCCESS;
 }
 int main(int argc,char **argv)
