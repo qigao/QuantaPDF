@@ -102,8 +102,9 @@ quantapdf_status quantapdf_ir_raster_render_v1_multi_clipped_fractional_stroke_v
     quantapdf_ir_raster_image *out_image);
 
 /* PRIVATE M4a: one original black 0.3985pt closed TWO-RING Bézier
- * Stroke after source M3 has owned its complete 32-cubic W*/ /* Clip
- * and f*/ /* + 2 S original paint order. Source's actual closed
+ * Stroke after Source M3 has owned its complete original
+ * 32-cubic W-star Clip / even-odd Fill / two Stroke paint order.
+ * Source's actual closed
  * 12-command stroke PATH is borrowed without any replacement curves.
  * Only a 238x181 unscaled *private physical sample grid* qualifies;
  * this is NOT the public fractional-page device plan. Exactly two
