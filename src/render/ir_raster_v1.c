@@ -1152,6 +1152,16 @@ quantapdf_status quantapdf_ir_raster_render_v1_multi_clipped_fractional_stroke_v
  * using the same V1 cubic de Casteljau flattener, 4x4 winding sampler
  * and *unchanged* max_edges/max_sample_tests accounting. It does NOT
  * admit a Source PDF or a curved Stroke. */
+static int qp_v1_original_decimal_equal(double a,double b)
+{
+    /* PDF authored the original ring to FIVE decimal places.
+     * Binary32 representation after the exact original translation
+     * can differ by a few ULPs. This 0.0001pt tolerance is ONLY for
+     * validating cardinal-ring topology; it never changes samples,
+     * edge positions, winding or raster quota. */
+    return isfinite(a) && isfinite(b) && fabs(a-b)<=0.0001;
+}
+
 static int qp_v1_cubic_cardinal_ring(
     const quantapdf_composer_path_command *p,
     double *cx,double *cy,double *rx,double *ry)
@@ -1178,11 +1188,12 @@ static int qp_v1_cubic_cardinal_ring(
     *rx=(double)r.x-*cx;
     *ry=(double)bottom.y-*cy;
     if(*rx<=0.0 || *ry<=0.0 ||
-       (double)top.y!=*cy-*ry ||
-       (double)left.x!=*cx-*rx || (double)left.y!=*cy ||
-       (double)bottom.x!=*cx ||
-       (double)end.x!=(double)r.x ||
-       (double)end.y!=*cy)
+       !qp_v1_original_decimal_equal((double)top.y,*cy-*ry) ||
+       !qp_v1_original_decimal_equal((double)left.x,*cx-*rx) ||
+       !qp_v1_original_decimal_equal((double)left.y,*cy) ||
+       !qp_v1_original_decimal_equal((double)bottom.x,*cx) ||
+       !qp_v1_original_decimal_equal((double)end.x,(double)r.x) ||
+       !qp_v1_original_decimal_equal((double)end.y,*cy))
         return 0;
     /* All cubic controls must stay in the bounded original contour
      * rectangle. This is an exact SOURCE geometry invariant, not a
@@ -1192,8 +1203,10 @@ static int qp_v1_cubic_cardinal_ring(
         for(size_t j=0u;j<2u;++j) {
             const quantapdf_point q=controls[j];
             if(!qp_valid_coordinate(q.x) || !qp_valid_coordinate(q.y) ||
-               (double)q.x<*cx-*rx || (double)q.x>*cx+*rx ||
-               (double)q.y<*cy-*ry || (double)q.y>*cy+*ry)
+               (double)q.x<*cx-*rx-0.0001 ||
+               (double)q.x>*cx+*rx+0.0001 ||
+               (double)q.y<*cy-*ry-0.0001 ||
+               (double)q.y>*cy+*ry+0.0001)
                 return 0;
         }
     }
@@ -1221,7 +1234,9 @@ quantapdf_status quantapdf_ir_raster_render_v1_two_cubic_ring_wstar_visible_work
        clip->members!=NULL || clip->member_count!=0u ||
        !qp_v1_cubic_cardinal_ring(clip->commands,&ix,&iy,&irx,&iry) ||
        !qp_v1_cubic_cardinal_ring(clip->commands+6u,&ox,&oy,&orx,&ory) ||
-       ix!=ox || iy!=oy || irx>=orx || iry>=ory)
+       !qp_v1_original_decimal_equal(ix,ox) ||
+       !qp_v1_original_decimal_equal(iy,oy) ||
+       irx+0.0001>=orx || iry+0.0001>=ory)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     one[0]=clip;
     return qp_render_v1_impl(ir,page_index,limits,NULL,one,1u,1,out_image);
