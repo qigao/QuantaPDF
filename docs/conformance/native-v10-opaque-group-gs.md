@@ -46,6 +46,29 @@ existing external SHA/license admission still verifies all seven files;
 the real opaque-black positive has its own public V10 pixel evidence.
 Older V1–V9 Source signatures and the private C11 renderer remain unchanged.
 
+## Work budget: no raised limits
+
+The existing pure C11 V1 PATH sampler conservatively charged all four
+edges at each of the 16 antialias samples. The original 612×792 full-page
+black rectangle therefore required 31,021,056 edge checks and refused the
+public 8,000,000 maximum even after correct Source admission.
+
+The **same** C11 raster now recognizes a full-device rectangle only from
+its actual flattened, exactly connected, four distinct axis-aligned
+corner edges with no Clip and normal opaque fill. The geometry proves
+that all 16 samples of every device pixel lie inside under both
+nonzero and even-odd winding. It uses the existing RGBA blending code
+with 16/16 coverage, charging the unchanged limit a conservative **one
+coverage decision per original sample**: 612×792×16 = 7,755,264.
+
+Any partial rectangle, diagonal/self-crossing path, Clip, generic curve
+or Stroke retains full generic edge work accounting. A one-less
+max_sample_tests still fails atomically; even a larger true full-page
+rectangle still refuses if 16×pixels exceeds 8,000,000. A standalone
+pure-C11 CTest verifies the exact black pixels, winding parity, repeated
+pixels and every negative limit/geometry case. There is no second raster
+or provider retry.
+
 ## Integration
 
 Do not modify `tests/external_source_corpus/manifest.json`:

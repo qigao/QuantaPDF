@@ -956,3 +956,12 @@ set_tests_properties(quantapdf.native_v10_opaque_gs PROPERTIES
   TIMEOUT 75
   LABELS "conformance;native;no-pdfium;public-api;external;opaque;gs;group"
   FIXTURES_REQUIRED native_v10_external_verified)
+
+# Existing pure C11 raster: prove exact full-device rectangle topology
+# before using one conservative sample test instead of four redundant
+# winding-edge tests; same 8m work limit and fail-closed partial shapes.
+quantapdf_native_test(quantapdf_native_full_canvas_rect_budget
+  native/test_native_full_canvas_rect_budget.c
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
