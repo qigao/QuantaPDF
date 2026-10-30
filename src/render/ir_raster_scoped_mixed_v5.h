@@ -155,6 +155,19 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_three_gs_branch_visible_wor
     double viewport_width,double viewport_height,
     quantapdf_ir_raster_image *out_image);
 
+/* Private first 1px horizontal/vertical opaque butt Stroke under
+ * shared outer W + compound inner W* Clip, then two Fill layers under
+ * independent roots. Exactly 3 GS, 4 owned leaves, 3 intersections;
+ * only the first inner W* may use exactly ten closed PATH commands.
+ * Existing V1 sampler bills stroke +/-0.5px and all intersecting W/W*
+ * geometry work, with 3 strict conservative shares of unchanged 8M cap.
+ * Not public Source V10 admission or general Stroke. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_three_gs_branch_stroke_visible_work_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
 /* Explicit actual GS0 paint prefix before W/W*. One GS follows
  * 0+ 1+ 0*; two GS follow 0+ 1* 2+ 1* 0*, with every nonzero identity
  * used. Graphs remain one Clip or two leaves plus their flat root,
