@@ -2294,7 +2294,9 @@ quantapdf_ir materialize_owned_paths(const admission& source)
           QUANTAPDF_ERROR_UNSUPPORTED);
     for(size_t i=0u;i<n;++i)
         admit(source.order[i]==1 &&
-              ((source.three_branch_candidate && i==0u &&
+              ((source.texample_private_m3 &&
+                source.painted_paths[i].commands.size()==12u) ||
+               (source.three_branch_candidate && i==0u &&
                 source.painted_paths[0].stroke &&
                 source.painted_paths[0].commands.size()==2u) ||
                (source.painted_paths[i].commands.size()>=4u &&
@@ -2326,7 +2328,7 @@ quantapdf_ir materialize_owned_paths(const admission& source)
             path.options.fill_rule=staged.fill_rule;
             if(staged.stroke) {
                 path.options.stroke_argb=staged.stroke_argb;
-                path.options.stroke_width=1.0f;
+                path.options.stroke_width=staged.stroke_width;
                 path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
                 path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_MITER;
                 path.options.miter_limit=10.0f;
@@ -2492,6 +2494,101 @@ quantapdf_composer_clip_id materialize_source_clip_graph(
         root.members[1]=2u;
     }
     return static_cast<quantapdf_composer_clip_id>(count);
+}
+
+/* Full ORIGINAL TeXample geometry is admitted only by the named
+ * private V10 Source API. Public Source still rejects this decimal
+ * painted page. The SAME existing owned PATH producer preserves
+ * source order, then adds the one real W* Clip and one scoped GS. */
+quantapdf_ir materialize_texample_m3(const admission& s)
+{
+    admit(s.texample_private_m3 && s.native_unclipped_mode &&
+          s.clip_completed && s.clip.rule==
+              QUANTAPDF_COMPOSER_FILL_EVEN_ODD &&
+          s.clip.commands.size()==12u &&
+          s.texample_stage==4u && s.order.size()==3u &&
+          s.painted_paths.size()==3u && s.draws.empty() &&
+          s.scoped_clip_membership.size()==3u &&
+          s.scoped_clip_membership[0]==1u &&
+          s.scoped_clip_membership[1]==0u &&
+          s.scoped_clip_membership[2]==0u &&
+          s.texample_moves==24u && s.texample_cubics==32u &&
+          s.texample_closes==8u && s.texample_zero_moves==16u &&
+          s.texample_q_count==4u && s.texample_Q_count==4u &&
+          s.texample_cm_count==1u && s.texample_gray_count==1u &&
+          s.texample_stroke_gray_count==1u &&
+          s.texample_width_count==1u && s.texample_orange_count==1u &&
+          s.texample_terminal_n==1u && !s.two_owned_clips &&
+          !s.sibling_clip_scopes && s.second_clip.commands.empty() &&
+          s.exact_page_w==237.133 && s.exact_page_h==180.44,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    for(size_t i=0u;i<4u;++i) {
+        const auto& p=i==0u?s.clip.commands:
+                              s.painted_paths[i-1u].commands;
+        /* Four source groups, each exactly two M+4C+CLOSE contours.
+         * M coordinates and all 32 cubic controls are preserved in
+         * the borrowed Source coordinates after the original CTM. */
+        const double first[4]={146.9128,203.60642,146.9128,203.60642};
+        const double second[4]={175.25962,231.95324,175.25962,231.95324};
+        admit(p.size()==12u &&
+              p[0].kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
+              p[6].kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
+              p[5].kind==QUANTAPDF_COMPOSER_PATH_CLOSE &&
+              p[11].kind==QUANTAPDF_COMPOSER_PATH_CLOSE &&
+              std::fabs((double)p[0].point1.x-first[i])<0.0001 &&
+              std::fabs((double)p[6].point1.x-second[i])<0.0001 &&
+              std::fabs((double)p[0].point1.y-90.22)<0.0001 &&
+              std::fabs((double)p[6].point1.y-90.22)<0.0001,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        for(size_t j=0u;j<12u;++j)
+            if(j!=0u && j!=5u && j!=6u && j!=11u)
+                admit(p[j].kind==QUANTAPDF_COMPOSER_PATH_CUBIC_TO,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+    for(size_t i=0u;i<3u;++i) {
+        const auto& p=s.painted_paths[i];
+        admit(s.order[i]==1 &&
+              (i==0u ?
+               (!p.stroke && p.fill_argb==UINT32_C(0xffff8000) &&
+                p.fill_rule==QUANTAPDF_COMPOSER_FILL_EVEN_ODD) :
+               (p.stroke && p.stroke_argb==UINT32_C(0xff000000) &&
+                p.stroke_width==0.3985f)),
+              QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+    quantapdf_ir ir=materialize_owned_paths(s);
+    try {
+        ir.resources.clips=static_cast<quantapdf_composer_clip_state *>(
+            QP_SOURCE_C_CALLOC(1u,sizeof(*ir.resources.clips)));
+        admit(ir.resources.clips!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        ir.resources.clip_count=ir.resources.clip_capacity=1u;
+        auto& leaf=ir.resources.clips[0];
+        leaf.kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;
+        leaf.fill_rule=QUANTAPDF_COMPOSER_FILL_EVEN_ODD;
+        leaf.command_count=12u;
+        leaf.commands=static_cast<quantapdf_composer_path_command *>(
+            QP_SOURCE_C_MALLOC(12u*sizeof(*leaf.commands)));
+        admit(leaf.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        std::memcpy(leaf.commands,s.clip.commands.data(),
+                    12u*sizeof(*leaf.commands));
+        leaf.transform={1.0f,0.0f,0.0f,1.0f,0.0f,0.0f};
+
+        ir.resources.graphics_states=
+            static_cast<quantapdf_composer_graphics_state *>(
+                QP_SOURCE_C_CALLOC(1u,sizeof(*ir.resources.graphics_states)));
+        admit(ir.resources.graphics_states!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        ir.resources.graphics_state_count=
+            ir.resources.graphics_state_capacity=1u;
+        auto& gs=ir.resources.graphics_states[0];
+        gs.fill_alpha=1.0f;gs.stroke_alpha=1.0f;
+        gs.blend_mode=QUANTAPDF_COMPOSER_BLEND_NORMAL;
+        gs.clip_id=1u;
+        ir.operations[0].graphics_state_id=1u;
+        ir.operations[0].value.path.options.graphics_state_id=1u;
+        return ir;
+    } catch(...) {
+        quantapdf_ir_dispose(&ir);
+        throw;
+    }
 }
 
 /* Original Source V10 three independently restored branches, never a
@@ -2799,7 +2896,7 @@ quantapdf_ir materialize_mixed(const admission& source,
             path.options.fill_rule=staged.fill_rule;
             if(staged.stroke) {
                 path.options.stroke_argb=staged.stroke_argb;
-                path.options.stroke_width=1.0f;
+                path.options.stroke_width=staged.stroke_width;
                 path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
                 path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_MITER;
                 path.options.miter_limit=10.0f;
@@ -3638,7 +3735,7 @@ static quantapdf_status source_raw_images_to_ir_impl(
     const unsigned char *original_pdf,size_t size,
     const quantapdf_qpdf_source_raw_image_limits *limits,
     quantapdf_ir *out_ir,source_profile_id profile_id,
-    size_t selected_page_index=0u)
+    size_t selected_page_index=0u,bool private_texample_m3=false)
 {
     if(out_ir!=nullptr) std::memset(out_ir,0,sizeof(*out_ir));
     if(out_ir==nullptr || original_pdf==nullptr || limits==nullptr ||
@@ -3815,6 +3912,11 @@ static quantapdf_status source_raw_images_to_ir_impl(
         source.explicit_image_predictor_mode=
             profile.explicit_image_predictor;
         source.native_unclipped_mode=native_v10;
+        admit(!private_texample_m3 ||
+              (native_v10 && exact.ticks_per_point==1000u &&
+               full_media && geo.rotation==0 && user_quarters==4u),
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        source.texample_private_m3=private_texample_m3;
         source.exact_page_w=native_v10?
             (double)(exact.visible[2]-exact.visible[0])/
                 (double)exact.ticks_per_point:0.0;
@@ -3854,6 +3956,7 @@ static quantapdf_status source_raw_images_to_ir_impl(
         admit(!parser.anyWarnings() && !pdf->anyWarnings(),
               QUANTAPDF_ERROR_FORMAT);
         const bool clip_states=native_v10 &&
+            !source.texample_private_m3 &&
             !source.three_branch_candidate &&
             !source.sibling_clip_scopes &&
             prepare_native_clip_membership(source);
@@ -3864,6 +3967,10 @@ static quantapdf_status source_raw_images_to_ir_impl(
         if(native_v10) {
             original_turn_staging(source,geo.rotation);
             scale_source_userunit(source,user_quarters);
+        }
+        if(native_v10 && source.texample_private_m3) {
+            *out_ir=materialize_texample_m3(source);
+            return QUANTAPDF_OK;
         }
         if(native_v10 && exact.ticks_per_point==1000u) {
             /* M2 SOURCE GEOMETRY only. A page whose original bounds
@@ -4215,4 +4322,18 @@ quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
         original_pdf,size,limits,out_ir,
         source_profile_id::scoped_mixed_v10_flate_predictor,
         selected_page_index);
+}
+
+/* Private original TeXample M3, never selected by the public bridge.
+ * The SAME V10 QPDF ParserCallbacks consume every 32 original cubic
+ * operator and 24 original m; C-owned IR may only publish at EOF. */
+extern "C" quantapdf_status
+quantapdf_qpdf_source_texample_m3_stage_to_ir(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,
+    quantapdf_ir *out_ir)
+{
+    return source_raw_images_to_ir_impl(
+        original_pdf,size,limits,out_ir,
+        source_profile_id::scoped_mixed_v10_flate_predictor,0u,true);
 }
