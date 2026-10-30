@@ -883,3 +883,46 @@ set_tests_properties(quantapdf.native_v10_external_reconcile PROPERTIES
   TIMEOUT 30
   LABELS "conformance;native;no-pdfium;external;reconcile"
   FIXTURES_REQUIRED native_v10_external_replayed)
+
+# Four additional already provenance-reviewed external original PDFs are
+# current PUBLIC Native V10 fail-closed profiles, not renderer positives.
+# Reuse the seven-source SHA/license gate from the preceding CTests.
+# Every refused original is followed by an independent reopened/retired
+# reviewed blank original with exact RGB and Bitmap lifetime checks.
+set(_native_ext_v10_remaining_receipt
+  "${CMAKE_CURRENT_BINARY_DIR}/native-v10-external-remaining-replay.json")
+
+add_executable(quantapdf_native_v10_external_remaining
+  test_native_v10_external_remaining.cpp)
+target_compile_features(quantapdf_native_v10_external_remaining PRIVATE
+  cxx_std_20)
+target_link_libraries(quantapdf_native_v10_external_remaining PRIVATE
+  QuantaPDF::QuantaPDF)
+if(MSVC)
+  target_compile_options(quantapdf_native_v10_external_remaining PRIVATE
+    /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_v10_external_remaining PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_v10_external_remaining
+  COMMAND quantapdf_native_v10_external_remaining
+    "${_native_ext_v10_assets}" "${_native_ext_v10_remaining_receipt}")
+set_tests_properties(quantapdf.native_v10_external_remaining PROPERTIES
+  TIMEOUT 60
+  LABELS "conformance;native;no-pdfium;external;public-api;fail-closed"
+  FIXTURES_REQUIRED native_v10_external_verified
+  FIXTURES_SETUP native_v10_external_remaining_replayed)
+
+add_test(NAME quantapdf.native_v10_external_remaining_reconcile
+  COMMAND "${Python3_EXECUTABLE}"
+    "${PROJECT_SOURCE_DIR}/tools/qualification/native_v10_external_remaining.py"
+    --manifest "${_native_ext_v10_manifest}"
+    --assets "${_native_ext_v10_assets}"
+    --integrity "${_native_ext_v10_integrity}"
+    --receipt "${_native_ext_v10_remaining_receipt}")
+set_tests_properties(
+  quantapdf.native_v10_external_remaining_reconcile PROPERTIES
+  TIMEOUT 30
+  LABELS "conformance;native;no-pdfium;external;status;reconcile"
+  FIXTURES_REQUIRED native_v10_external_remaining_replayed)
