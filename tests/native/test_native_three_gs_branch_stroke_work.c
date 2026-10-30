@@ -178,8 +178,8 @@ static int acceptance(void)
     CHECK(rgba(&a,5u,5u)==UINT32_C(0xffffffff));
     CHECK(rgba(&a,15u,15u)==UINT32_C(0x0000ffff)); /* GS2 blue */
     CHECK(rgba(&a,44u,16u)==UINT32_C(0x00ff00ff)); /* GS3 green */
-    CHECK(rgba(&a,40u,40u)==UINT32_C(0xff8080ff)); /* GS1 half-width */
-    CHECK(rgba(&a,160u,40u)==UINT32_C(0xff8080ff)); /* beyond W* hole */
+    CHECK(rgba(&a,40u,40u)==UINT32_C(0xff7f7fff)); /* GS1 half-width */
+    CHECK(rgba(&a,160u,40u)==UINT32_C(0xff7f7fff)); /* beyond W* hole */
     CHECK(rgba(&a,100u,40u)==UINT32_C(0xffffffff)); /* W* hole empty */
     CHECK(rgba(&a,20u,40u)==UINT32_C(0xffffffff)); /* outside W* */
     CHECK(rgba(&a,599u,599u)==UINT32_C(0xffffffff));
@@ -188,7 +188,7 @@ static int acceptance(void)
     quantapdf_ir_raster_image_dispose(&b);
     f.clips[1].fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
     OK(render(&f,&limit,&changed));
-    CHECK(rgba(&changed,100u,40u)==UINT32_C(0xff8080ff));
+    CHECK(rgba(&changed,100u,40u)==UINT32_C(0xff7f7fff));
     quantapdf_ir_raster_image_dispose(&changed);
     f.clips[1].fill_rule=QUANTAPDF_COMPOSER_FILL_EVEN_ODD;
     f.states[2].clip_id=6u;

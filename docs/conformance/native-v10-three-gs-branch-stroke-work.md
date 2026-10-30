@@ -29,7 +29,7 @@ Second and third synthetic Fill controls charge 69,120 and
 57,600. The unchanged aggregate 8,000,000 quota is partitioned into
 three fixed shares with no unspent-work transfer:
 **461,760** admits while **461,759** rejects atomically.
-First red Stroke has analytically half-red/half-white pixel `ff8080`
+First red Stroke has analytically half-red/half-white pixel `ff7f7f` (V1 alpha 128 composed by V5 over white)
 at x40/y40; inside its W* hole is white, while switching to
 nonzero winding gives the same half-red there.
 
