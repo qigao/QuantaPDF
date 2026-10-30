@@ -242,7 +242,7 @@ static int negative_cases(void)
     CHECK(rejects_atomically(&f,&limit)==EXIT_SUCCESS);
     setup(&f);limit.max_pixels=359999u;
     CHECK(rejects_atomically(&f,&limit)==EXIT_SUCCESS);
-    setup(&f);limit=budgets;limit.max_edges=60u;
+    setup(&f);limit=budgets;limit.max_edges=39u; /* floor(39/3)=13 < first layer's 14 */
     CHECK(rejects_atomically(&f,&limit)==EXIT_SUCCESS);
     setup(&f);limit=budgets;
     {
