@@ -1132,7 +1132,7 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5(
             (double)ir->pages[0].width_points:0.0,
         ir!=NULL && ir->pages!=NULL?
             (double)ir->pages[0].height_points:0.0,0,0,0,0,0,0,
-        0,out_image);
+        0,0,out_image);
 }
 
 quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_device(
@@ -1145,7 +1145,7 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_device(
             (double)ir->pages[0].width_points:0.0,
         ir!=NULL && ir->pages!=NULL?
             (double)ir->pages[0].height_points:0.0,0,0,0,0,0,0,
-        0,out_image);
+        0,0,out_image);
 }
 
 /* V10 ONLY: original unrounded physical viewport on the same C11 V5
