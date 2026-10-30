@@ -1043,3 +1043,12 @@ quantapdf_native_test(quantapdf_native_three_gs_visible_budget
   "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
   "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
   "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
+
+# Private 3-GS branch q/Q proof: four frozen Clip leaves, three independent
+# intersections (5={1,2}; 6={1,3}; 7={1,4}), no Source ABI change.
+quantapdf_native_test(quantapdf_native_three_gs_branch_budget
+  native/test_native_three_gs_branch_budget.c
+  $<TARGET_OBJECTS:quantapdf_native_raster_objects>
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
