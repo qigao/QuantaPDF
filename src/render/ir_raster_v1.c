@@ -1321,6 +1321,89 @@ static int qp_v1_cubic_cardinal_ring(
     return 1;
 }
 
+/* At each authored original cardinal knot the neighboring cubic
+ * tangents must meet in the SAME direction. This profile does not
+ * claim arbitrary discontinuous miter joins, caps, dashes or widths.
+ * Existing .125px de Casteljau flattening still controls the
+ * intermediate segment approximation and 4x4 sampled coverage. */
+static int qp_v1_smooth_closed_cardinal_ring(
+    const quantapdf_composer_path_command *p)
+{
+    for(size_t k=1u;k<=4u;++k) {
+        const size_t next=k==4u?1u:k+1u;
+        const double x=(double)p[k].point3.x;
+        const double y=(double)p[k].point3.y;
+        const double ax=x-(double)p[k].point2.x;
+        const double ay=y-(double)p[k].point2.y;
+        const double bx=(double)p[next].point1.x-x;
+        const double by=(double)p[next].point1.y-y;
+        const double a2=ax*ax+ay*ay,b2=bx*bx+by*by;
+        const double cross=ax*by-ay*bx;
+        if(!isfinite(cross) || a2<=1e-8 || b2<=1e-8 ||
+           ax*bx+ay*by<=0.0 ||
+           cross*cross>1e-6*a2*b2)
+            return 0;
+    }
+    return 1;
+}
+
+/* PRIVATE TeXample M4a: ONE of the TWO original 0.3985pt black S
+ * operations, borrowed from a complete Source M3 graph. The original
+ * double-contour PATH must be exactly 12 authored Composer commands,
+ * each with four cubic segments and a closed, smooth cardinal ring;
+ * both concentric rings are nondegenerate and strictly nested. The
+ * original page is projected to a bounded 238x181 *private physical
+ * point grid* with unscaled Source M3 coordinates. This is NOT yet
+ * a qualified decimal public page plan or final real PDF RGB.
+ *
+ * One identical existing V1 4x4 distance/winding/source-over kernel
+ * is used. Mode 4 bills EVERY possible inflated-edge candidate
+ * distance test before pixel allocation, preserving the global cap.
+ * This entry never touches or widens a public Native Source mode. */
+quantapdf_status quantapdf_ir_raster_render_v1_texample_closed_cubic_stroke_work(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    double ix,iy,irx,iry,ox,oy,orx,ory;
+    const quantapdf_composer_operation *op;
+    const quantapdf_composer_path_operation *path;
+    const quantapdf_composer_path_options *opt;
+    if(out_image==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out_image,0,sizeof(*out_image));
+    if(ir==NULL || ir->pages==NULL || ir->page_count!=1u ||
+       page_index!=0u || ir->pages[0].width_points!=238.0f ||
+       ir->pages[0].height_points!=181.0f ||
+       ir->operation_count!=1u || ir->operations==NULL ||
+       limits==NULL || limits->max_edges>256u ||
+       limits->max_sample_tests>8000000u)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    op=&ir->operations[0];
+    path=&op->value.path;
+    opt=&path->options;
+    if(op->kind!=QUANTAPDF_COMPOSER_OPERATION_PATH ||
+       op->page_index!=0u || op->graphics_state_id!=0u ||
+       path->command_count!=12u || path->commands==NULL ||
+       opt->struct_size<QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE ||
+       opt->graphics_state_id!=0u ||
+       opt->fill!=0 || opt->stroke!=1 ||
+       opt->stroke_argb!=UINT32_C(0xff000000) ||
+       opt->stroke_width!=0.3985f ||
+       opt->line_cap!=QUANTAPDF_COMPOSER_LINE_CAP_BUTT ||
+       opt->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_MITER ||
+       opt->miter_limit!=10.0f ||
+       path->dash_count!=0u ||
+       !qp_v1_cubic_cardinal_ring(path->commands,&ix,&iy,&irx,&iry) ||
+       !qp_v1_cubic_cardinal_ring(path->commands+6u,&ox,&oy,&orx,&ory) ||
+       !qp_v1_smooth_closed_cardinal_ring(path->commands) ||
+       !qp_v1_smooth_closed_cardinal_ring(path->commands+6u) ||
+       !qp_v1_original_decimal_equal(ix,ox) ||
+       !qp_v1_original_decimal_equal(iy,oy) ||
+       irx+0.0001>=orx || iry+0.0001>=ory)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    return qp_render_v1_impl(ir,page_index,limits,NULL,NULL,0u,4,out_image);
+}
+
 quantapdf_status quantapdf_ir_raster_render_v1_two_cubic_ring_wstar_visible_work(
     const quantapdf_ir *ir,size_t page_index,
     const quantapdf_ir_raster_v1_limits *limits,
