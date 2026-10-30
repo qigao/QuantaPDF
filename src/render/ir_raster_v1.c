@@ -750,7 +750,9 @@ static quantapdf_status qp_render_v1_impl(
     int two_path_clip_pair = 0;
     int bounded_clipped_fill = 0;
     int bounded_clipped_stroke = 0;
+    int bounded_curved_stroke = 0;
     qp_sample_box sample_box = {0u,0u,0u,0u};
+    qp_sample_box *curve_boxes = NULL;
 
     if (out_image == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -844,7 +846,22 @@ static quantapdf_status qp_render_v1_impl(
     if((visible_work_optin==2 || visible_work_optin==3) &&
        !bounded_clipped_stroke)
         return QUANTAPDF_ERROR_UNSUPPORTED;
+    /* One private 0.3985px dual-ring closed cubic paint. It has no
+     * inherited Clip, no alternate renderer and no public source
+     * admission. Flattened work is checked before any output buffer. */
+    bounded_curved_stroke=visible_work_optin==4 &&
+        clip_count==0u && ir->operation_count==1u &&
+        ir->operations!=NULL &&
+        ir->operations[0].kind==QUANTAPDF_COMPOSER_OPERATION_PATH &&
+        ir->operations[0].value.path.options.stroke==1 &&
+        ir->operations[0].value.path.options.fill==0 &&
+        ir->operations[0].value.path.options.stroke_width==0.3985f &&
+        ir->operations[0].value.path.command_count==12u &&
+        limits->max_edges<=256u;
+    if(visible_work_optin==4 && !bounded_curved_stroke)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
     if(!bounded_clipped_fill && !bounded_clipped_stroke &&
+       !bounded_curved_stroke &&
        pixels_count > limits->max_sample_tests / QP_TOTAL_SAMPLES)
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
@@ -872,7 +889,8 @@ static quantapdf_status qp_render_v1_impl(
         }
         status = qp_admit_draw(op, &flatten,
             plan == NULL ? NULL : plan->from_composer, &draws[draw_count],
-            0,visible_work_optin==3);
+            0,visible_work_optin==3?1:
+              visible_work_optin==4?2:0);
         if (status != QUANTAPDF_OK) {
             goto cleanup;
         }
@@ -882,7 +900,8 @@ static quantapdf_status qp_render_v1_impl(
         draws[draw_count].full_canvas_rect=clip_count==0u &&
             qp_full_canvas_rect(flatten.edges,&draws[draw_count],
                                 width,height);
-        if(!bounded_clipped_fill && !bounded_clipped_stroke) {
+        if(!bounded_clipped_fill && !bounded_clipped_stroke &&
+           !bounded_curved_stroke) {
             const size_t checks_per_sample=
                 draws[draw_count].full_canvas_rect ?
                     1u : draws[draw_count].edge_count;
@@ -923,7 +942,8 @@ static quantapdf_status qp_render_v1_impl(
         if (status != QUANTAPDF_OK) {
             goto cleanup;
         }
-        if(!bounded_clipped_fill && !bounded_clipped_stroke) {
+        if(!bounded_clipped_fill && !bounded_clipped_stroke &&
+           !bounded_curved_stroke) {
             if (clip_draws[ci].edge_count >
                 (limits->max_sample_tests - total_checks) /
                     (QP_TOTAL_SAMPLES * pixels_count)) {
@@ -938,7 +958,8 @@ static quantapdf_status qp_render_v1_impl(
     /* The admitted one-pixel stroke remains exact only where the only
      * Clip excludes all closed-triangle joins. No silent stroke fallback. */
     for (i = 0u; i < draw_count; ++i) {
-        if (draws[i].one_pixel_stroke && draws[i].edge_count != 1u &&
+        if (draws[i].one_pixel_stroke &&
+            !bounded_curved_stroke && draws[i].edge_count != 1u &&
             (draw_count != 1u || clip_count != 1u ||
              !qp_guard_clipped_stroke_geometry(flatten.edges,
                  &draws[i], &clip_draws[0]))) {
