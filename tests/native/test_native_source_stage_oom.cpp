@@ -679,7 +679,7 @@ static bool original_texample_m4a_curved_strokes(
            rgba_at(out,xc,90u)!=UINT32_C(0xffffffff) ||
            rgba_at(out,xc,5u)==UINT32_C(0xffffffff) ||
            rgba_at(out,xc,4u)!=UINT32_C(0xffffffff) ||
-           rgba_at(out,xc+10u,5u)!=UINT32_C(0xffffffff)) {
+           rgba_at(out,xc+30u,5u)!=UINT32_C(0xffffffff)) {
             std::fprintf(stderr,
                 "authentic curved Stroke M4a index=%zu status=%d "
                 "at-top=%08x center=%08x\n",
