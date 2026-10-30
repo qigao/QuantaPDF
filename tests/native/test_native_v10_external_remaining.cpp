@@ -1,5 +1,5 @@
 /* Original, provenance-reviewed PDF files: public Native V10 fail-closed
- * qualification of the two complex W*/cubic originals still unsupported in V10.
+ * qualification of the two complex W-star and cubic originals still unsupported in V10.
  * This is not a PDFium parity test and grants no capability by itself.
  *
  * Every negative Document is immediately followed by the same reviewed
