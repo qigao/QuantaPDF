@@ -514,7 +514,7 @@ typedef struct qp_sample_box {
 
 static int qp_edges_sample_box(const qp_edge *edges,
     const qp_raster_draw *draw,size_t width,size_t height,
-    qp_sample_box *out)
+    double inflate,qp_sample_box *out)
 {
     double minx,maxx,miny,maxy;
     size_t i;
@@ -537,6 +537,13 @@ static int qp_edges_sample_box(const qp_edge *edges,
             if(p[j].y>maxy)maxy=p[j].y;
         }
     }
+    /* Opted-in 1px butt stroke must include the half-pixel
+     * coverage on BOTH sides of its flattened line center. A Fill
+     * and every Clip pass inflate=0 and retain the previous envelope.
+     * Exact endpoint comparisons remain conservative for antialias. */
+    if(inflate<0.0 || inflate>0.5 || !isfinite(inflate))return 0;
+    minx-=inflate;maxx+=inflate;
+    miny-=inflate;maxy+=inflate;
     if(maxx<=0.0 || maxy<=0.0 ||
        minx>=(double)width || miny>=(double)height)
         return 1;
@@ -711,6 +718,7 @@ static quantapdf_status qp_render_v1_impl(
     const quantapdf_composer_page_state *page;
     int two_path_clip_pair = 0;
     int bounded_clipped_fill = 0;
+    int bounded_clipped_stroke = 0;
     qp_sample_box sample_box = {0u,0u,0u,0u};
 
     if (out_image == NULL)
@@ -783,13 +791,25 @@ static quantapdf_status qp_render_v1_impl(
     /* One source-owned clipped Fill is allowed to establish its
      * VISITED sample area from actual flattened geometry below. All
      * other callers keep the old all-page minimum work admission. */
-    bounded_clipped_fill=visible_work_optin &&
+    bounded_clipped_fill=visible_work_optin==1 &&
         clip_count!=0u && ir->operation_count==1u &&
         ir->operations!=NULL &&
         ir->operations[0].kind==QUANTAPDF_COMPOSER_OPERATION_PATH &&
         ir->operations[0].value.path.options.fill==1 &&
         ir->operations[0].value.path.options.stroke==0;
-    if(!bounded_clipped_fill &&
+    /* Separate strict opt-in. The centerline is exactly one open
+     * two-command segment, not a triangle/closed stroke, and both
+     * W/W* Clip leaves are supplied by a qualified V5 owner. */
+    bounded_clipped_stroke=visible_work_optin==2 &&
+        clip_count==2u && ir->operation_count==1u &&
+        ir->operations!=NULL &&
+        ir->operations[0].kind==QUANTAPDF_COMPOSER_OPERATION_PATH &&
+        ir->operations[0].value.path.options.fill==0 &&
+        ir->operations[0].value.path.options.stroke==1 &&
+        ir->operations[0].value.path.command_count==2u;
+    if(visible_work_optin==2 && !bounded_clipped_stroke)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if(!bounded_clipped_fill && !bounded_clipped_stroke &&
        pixels_count > limits->max_sample_tests / QP_TOTAL_SAMPLES)
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
@@ -826,7 +846,7 @@ static quantapdf_status qp_render_v1_impl(
         draws[draw_count].full_canvas_rect=clip_count==0u &&
             qp_full_canvas_rect(flatten.edges,&draws[draw_count],
                                 width,height);
-        if(!bounded_clipped_fill) {
+        if(!bounded_clipped_fill && !bounded_clipped_stroke) {
             const size_t checks_per_sample=
                 draws[draw_count].full_canvas_rect ?
                     1u : draws[draw_count].edge_count;
@@ -867,7 +887,7 @@ static quantapdf_status qp_render_v1_impl(
         if (status != QUANTAPDF_OK) {
             goto cleanup;
         }
-        if(!bounded_clipped_fill) {
+        if(!bounded_clipped_fill && !bounded_clipped_stroke) {
             if (clip_draws[ci].edge_count >
                 (limits->max_sample_tests - total_checks) /
                     (QP_TOTAL_SAMPLES * pixels_count)) {
@@ -891,19 +911,23 @@ static quantapdf_status qp_render_v1_impl(
         }
     }
 
-    if(bounded_clipped_fill) {
+    if(bounded_clipped_fill || bounded_clipped_stroke) {
         size_t sample_pixels,edges_per_sample;
         qp_sample_box clip_box;
         if(draw_count!=1u ||
+           (bounded_clipped_stroke &&
+            (!draws[0].one_pixel_stroke ||
+             draws[0].edge_count!=1u)) ||
            !qp_edges_sample_box(flatten.edges,&draws[0],
-                                width,height,&sample_box)) {
+                  width,height,bounded_clipped_stroke?0.5:0.0,
+                  &sample_box)) {
             status=QUANTAPDF_ERROR_UNSUPPORTED;
             goto cleanup;
         }
         edges_per_sample=draws[0].edge_count;
         for(ci=0u;ci<clip_count;++ci) {
             if(!qp_edges_sample_box(flatten.edges,&clip_draws[ci],
-                                    width,height,&clip_box)) {
+                                    width,height,0.0,&clip_box)) {
                 status=QUANTAPDF_ERROR_UNSUPPORTED;
                 goto cleanup;
             }
@@ -915,6 +939,10 @@ static quantapdf_status qp_render_v1_impl(
         }
         sample_pixels=(sample_box.x1-sample_box.x0)*
                       (sample_box.y1-sample_box.y0);
+        if(sample_pixels>SIZE_MAX/QP_TOTAL_SAMPLES) {
+            status=QUANTAPDF_ERROR_UNSUPPORTED;
+            goto cleanup;
+        }
         /* Upper-bound all winding edges for every VISITED subpixel.
          * Checked division prevents overflow; max_sample_tests itself
          * is unchanged. Empty geometric intersection is a valid
@@ -956,7 +984,7 @@ static quantapdf_status qp_render_v1_impl(
                  * the intersection of flattened draw and Clip bounds.
                  * Avoid those per-edge checks only after the complete
                  * bounded-work admission above. */
-                if(bounded_clipped_fill &&
+                if((bounded_clipped_fill || bounded_clipped_stroke) &&
                    (x<sample_box.x0 || x>=sample_box.x1 ||
                     y<sample_box.y0 || y>=sample_box.y1))
                     continue;
@@ -1052,6 +1080,28 @@ quantapdf_status quantapdf_ir_raster_render_v1_multi_clipped_visible_work(
     }
     return qp_render_v1_impl(ir,page_index,limits,NULL,
                               clips,clip_count,1,out_image);
+}
+
+/* Dedicated PRIVATE one-open-segment opaque 1px Stroke under
+ * exactly two owned Clip PATH leaves. Uses the same 4x4 sampler and
+ * preflight as all other V1 paints, but conservatively expands the
+ * Stroke's flattened bounding box by half a device pixel before
+ * intersecting Clip bounds. Old visible Fill and legacy V1 entries
+ * retain their original strict work limits and refusal behavior.
+ * Source V10 cannot select this private function without full
+ * original PDF materialization and its independent acceptance. */
+quantapdf_status quantapdf_ir_raster_render_v1_multi_clipped_stroke_visible_work(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_composer_clip_state *const *clips,size_t clip_count,
+    quantapdf_ir_raster_image *out_image)
+{
+    if(clip_count!=2u || clips==NULL) {
+        if(out_image!=NULL)memset(out_image,0,sizeof(*out_image));
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    return qp_render_v1_impl(ir,page_index,limits,NULL,
+                             clips,clip_count,2,out_image);
 }
 
 quantapdf_status quantapdf_ir_raster_render_v1_planned(
