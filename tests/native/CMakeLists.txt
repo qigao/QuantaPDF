@@ -1012,3 +1012,13 @@ add_test(NAME quantapdf.native_v10_wstar_compound
 set_tests_properties(quantapdf.native_v10_wstar_compound PROPERTIES
   TIMEOUT 70
   LABELS "conformance;native;no-pdfium;public-api;wstar;two-contour;strict")
+
+# One fully admitted clipped C11 Fill on a 600x600 page: prove the
+# actual draw/Clip edge bounding intersection pays every visited
+# 4x4 sample and rejects at one below the SAME original work budget.
+# No PDFium, qpdf output, raster fallback or second sampler.
+quantapdf_native_test(quantapdf_native_clipped_region_budget
+  native/test_native_clipped_region_budget.c
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")

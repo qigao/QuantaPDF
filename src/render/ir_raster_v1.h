@@ -9,7 +9,12 @@ extern "C" {
 #endif
 
 /* Additional explicit limits; every sampled edge test is charged before
- * allocating the output buffer. Sampling uses a fixed 4 x 4 grid. */
+ * allocating the output buffer. Sampling uses a fixed 4 x 4 grid.
+ * Exactly one opaque clipped Fill can conservatively bound its work
+ * to the intersection of the actual flattened draw and Clip edges.
+ * This is a visited-sample optimization INSIDE this same C11 raster:
+ * the numeric cap, sample grid, untouched paths and atomic refusal
+ * contract are unchanged. */
 typedef struct quantapdf_ir_raster_v1_limits {
     size_t max_pixels;
     size_t max_operations;
