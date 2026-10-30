@@ -130,7 +130,8 @@ static int check(const std::filesystem::path& assets)
         {"unsafe-clip-near-joins","",QUANTAPDF_ERROR_UNSUPPORTED},
         {"scaled-centerline-width","",QUANTAPDF_ERROR_UNSUPPORTED},
         {"scaled-original-UserUnit","",QUANTAPDF_ERROR_UNSUPPORTED},
-        {"nonisometric-96-dpi","",QUANTAPDF_ERROR_UNSUPPORTED}
+        {"nonisometric-96-dpi","",QUANTAPDF_ERROR_UNSUPPORTED},
+        {"late-clip-definition","",QUANTAPDF_ERROR_UNSUPPORTED}
     };
 
     for(size_t case_index=0u;case_index<sizeof(tests)/sizeof(tests[0]);
@@ -159,6 +160,8 @@ static int check(const std::filesystem::path& assets)
                 contents=rect_clip+"0.5 0 0 0.5 0 0 cm "+blue_triangle;
             else if(case_index==16u || case_index==17u)
                 contents=original_ops;
+            else if(case_index==18u)
+                contents=original_ops+rect_clip;
             else
                 contents=rect_clip+test.source+blue_triangle;
             CHECK(write_pdf(authored(contents,case_index==16u)));
@@ -238,9 +241,9 @@ static int check(const std::filesystem::path& assets)
     CHECK(still!=nullptr && size==copy.size() &&
           std::memcmp(still,copy.data(),size)==0);
     quantapdf_drop_bitmap(retained);
-    CHECK(accepted==2u && refused==16u);
+    CHECK(accepted==2u && refused==17u);
     std::printf("Original public V10 clipped Stroke: 2 100x50 blue on white "
-                "positives, 16 exact atomic source/C11 refusals\n");
+                "positives, 17 exact atomic source/C11 refusals\n");
     return EXIT_SUCCESS;
 }
 int main(int argc,char** argv)

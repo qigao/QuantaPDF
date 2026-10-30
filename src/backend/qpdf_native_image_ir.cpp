@@ -774,6 +774,16 @@ public:
             return;
         }
         const std::string op=item.getOperatorValue();
+        /* This first Source Stroke profile qualifies one complete final
+         * clipped paint only. Do not silently accept a second Clip,
+         * state change or unrecognized operator after the Stroke. A
+         * newer comprehensive Stroke profile may prove richer ordering
+         * separately; the original public V10 defaults fail closed. */
+        if(target.native_unclipped_mode &&
+           std::any_of(target.painted_paths.begin(),
+                       target.painted_paths.end(),
+                       [](const staged_path& p){return p.stroke;}))
+            throw rejected{QUANTAPDF_ERROR_UNSUPPORTED};
         /* Each Source V10 W/W* must be immediately followed by
          * path-ending n. An empty original path cannot silently grow
          * new operators while its Clip is pending. Older private
