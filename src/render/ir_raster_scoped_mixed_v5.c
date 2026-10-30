@@ -140,8 +140,7 @@ static int v5_three_gs_clips(const quantapdf_resource_registry *r,
            m->a!=1.0f || m->b!=0.0f || m->c!=0.0f ||
            m->d!=1.0f || m->e!=0.0f || m->f!=0.0f ||
            !(stroke_first && i==1u ?
-              (p->fill_rule==QUANTAPDF_COMPOSER_FILL_EVEN_ODD &&
-               p->command_count==10u &&
+              (p->command_count==10u &&
                v5_closed_clip_contours_limit(p->commands,
                                               p->command_count,10u)) :
                v5_closed_clip_contours(p->commands,p->command_count)))

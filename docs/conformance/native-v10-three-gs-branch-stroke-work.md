@@ -31,7 +31,9 @@ three fixed shares with no unspent-work transfer:
 **461,760** admits while **461,759** rejects atomically.
 First red Stroke has analytically half-red/half-white pixel `ff7f7f` (V1 alpha 128 composed by V5 over white)
 at x40/y40; inside its W* hole is white, while switching to
-nonzero winding gives the same half-red there.
+nonzero winding gives the same half-red there. Both W and W* remain strictly within
+the identical ten-command, two-closed-contour lease; invalid winding
+identifiers fail closed.
 
 Acceptance includes exact RGBA pixels (red half-width / W* hole,
 blue and green independent branch Fill controls), byte-exact repeat,

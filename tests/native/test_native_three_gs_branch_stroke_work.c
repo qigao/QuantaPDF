@@ -261,7 +261,8 @@ static int negative_cases(void)
     CHECK(rejects_atomically(&f,&limit)==EXIT_SUCCESS);
     setup(&f);f.operations[0].value.path.options.fill=1;
     CHECK(rejects_atomically(&f,&limit)==EXIT_SUCCESS);
-    setup(&f);f.clips[1].fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
+    setup(&f);f.clips[1].fill_rule=
+        (quantapdf_composer_fill_rule)0; /* neither W nor W* */
     CHECK(rejects_atomically(&f,&limit)==EXIT_SUCCESS);
     setup(&f);f.clips[1].commands[4].kind=
         QUANTAPDF_COMPOSER_PATH_LINE_TO;
