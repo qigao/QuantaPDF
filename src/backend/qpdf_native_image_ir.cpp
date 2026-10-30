@@ -3559,7 +3559,7 @@ static quantapdf_status source_raw_images_to_ir_impl(
              * A complete, genuinely blank original page remains a
              * valid, uniquely-owned source IR with its EXACT physical
              * 237.133x180.44 MediaBox stored as binary32 numbers.
-             * The original TeXample f*/S/S must still fail atomically. */
+             * The original TeXample even-odd Fill and two Stroke paints must fail atomically. */
             admit(geo.rotation==0 && user_quarters==4u &&
                   full_media && source.draws.empty() &&
                   source.painted_paths.empty() && source.order.empty() &&
