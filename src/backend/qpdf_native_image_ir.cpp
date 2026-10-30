@@ -2087,7 +2087,6 @@ quantapdf_ir materialize_clipped_path_only(const admission& source)
     admit(!saw_unclipped || source.saw_q_restore,
           QUANTAPDF_ERROR_UNSUPPORTED);
 
-    if(source.clip.commands.size()==10u)
     quantapdf_ir ir=materialize_owned_paths(source);
     try {
         ir.resources.graphics_states=
