@@ -849,6 +849,16 @@ public:
             return;
         }
         const std::string op=item.getOperatorValue();
+        if(target.texample_private_m3) {
+            /* The exact original M3 is a PRIVATE complete-source
+             * profile. Reject an extra original operator rather than
+             * omitting it while still publishing the first 3 paints. */
+            const bool recognized=op=="cm" || op=="q" || op=="Q" ||
+                op=="G" || op=="g" || op=="w" || op=="m" ||
+                op=="c" || op=="h" || op=="W*" || op=="n" ||
+                op=="rg" || op=="f*" || op=="S";
+            admit(recognized,QUANTAPDF_ERROR_UNSUPPORTED);
+        }
         /* This first Source Stroke profile qualifies one complete final
          * clipped paint only. Do not silently accept a second Clip,
          * state change or unrecognized operator after the Stroke. A
@@ -912,6 +922,16 @@ public:
             }
         } else if (op=="q") {
             admit(args.empty() && pending_path.empty());
+            if(target.texample_private_m3) {
+                admit(texample_original_ctm && texample_qdepth<4u &&
+                      ((target.texample_stage==0u &&
+                        texample_qdepth<3u) ||
+                       (target.texample_stage==1u &&
+                        texample_qdepth==3u)),
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                ++texample_qdepth;
+                ++target.texample_q_count;
+            }
             /* Save/restore of Stroke state is outside the first
              * exact clipped-triangle Source profile. */
             if(target.native_unclipped_mode)saw_saved_scope=true;
@@ -921,6 +941,16 @@ public:
             if(clipped)clip_stack.push_back(clip_active);
         } else if(op=="Q") {
             admit(args.empty() && pending_path.empty() && !stack.empty());
+            if(target.texample_private_m3) {
+                admit(texample_qdepth>0u &&
+                      ((target.texample_stage==2u &&
+                        texample_qdepth>=3u) ||
+                       (target.texample_stage==4u &&
+                        texample_qdepth==1u)),
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                --texample_qdepth;
+                ++target.texample_Q_count;
+            }
             current=stack.back();stack.pop_back();
             fill_argb=fill_stack.back();fill_stack.pop_back();
             if(clipped) {
@@ -938,6 +968,20 @@ public:
             matrix next;
             for(size_t i=0u;i<6u;++i)next[i]=finite_number(args[i]);
             current=concat(current,next);
+            if(target.texample_private_m3) {
+                /* Exact authored original 1/1000pt translation.
+                 * No general fractional-CTM Source bypass exists. */
+                admit(!texample_original_ctm &&
+                      target.texample_cm_count==0u &&
+                      texample_qdepth==0u &&
+                      next[0]==1.0 && next[1]==0.0 &&
+                      next[2]==0.0 && next[3]==1.0 &&
+                      next[4]==118.566 && next[5]==90.22 &&
+                      current==next,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                texample_original_ctm=true;
+                ++target.texample_cm_count;
+            }
             /* An exact page-height negative-Y authoring CTM selects
              * only the *candidate*. It does NOT make a page paintable;
              * the complete original 3GS/7Clip shape is still mandatory. */
@@ -967,6 +1011,15 @@ public:
                 admit(width>=0.0 && width<=1000000.0,
                       QUANTAPDF_ERROR_UNSUPPORTED);
                 stroke_width=width;
+                if(target.texample_private_m3) {
+                    admit(texample_original_ctm &&
+                          texample_qdepth==1u &&
+                          target.texample_stage==0u &&
+                          target.texample_width_count==0u &&
+                          width==0.3985,
+                          QUANTAPDF_ERROR_UNSUPPORTED);
+                    ++target.texample_width_count;
+                }
             } else {
                 admit(args[0].isInteger(),QUANTAPDF_ERROR_UNSUPPORTED);
                 const auto style=args[0].getIntValue();
@@ -1063,6 +1116,15 @@ public:
                 rgb|=component << (16u-8u*i);
             }
             fill_argb=UINT32_C(0xff000000)|rgb;
+            if(target.texample_private_m3) {
+                admit(texample_original_ctm &&
+                      texample_qdepth==4u &&
+                      target.texample_stage==1u &&
+                      target.texample_orange_count==0u &&
+                      fill_argb==UINT32_C(0xffff8000),
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                ++target.texample_orange_count;
+            }
         } else if(mixed && target.normalized_gray_mode && op=="g") {
             /* V8-only single-channel DeviceGray fill: bound first, then
              * quantize exactly like V7's normalized RGB components.
@@ -1075,6 +1137,13 @@ public:
                 std::floor(channel*255.0+0.5));
             fill_argb=UINT32_C(0xff000000) |
                 (gray<<16u) | (gray<<8u) | gray;
+            if(target.texample_private_m3) {
+                admit(target.texample_stage==0u &&
+                      texample_qdepth==1u &&
+                      target.texample_gray_count==0u &&
+                      gray==0u,QUANTAPDF_ERROR_UNSUPPORTED);
+                ++target.texample_gray_count;
+            }
         } else if(target.native_unclipped_mode &&
                   (op=="G" || op=="RG" || op=="K")) {
             /* Stroking-only DeviceGray/RGB/CMYK. Public Source V10
@@ -1098,6 +1167,18 @@ public:
             }
             /* G/K remain ignored for Fill-only pages, but a future
              * clipped Stroke cannot silently reuse an old RGB color. */
+            stroke_rgb_exact=exact;
+            if(target.texample_private_m3) {
+                admit(op=="G" && args.size()==1u &&
+                      finite_number(args[0])==0.0 &&
+                      texample_qdepth==1u &&
+                      target.texample_stage==0u &&
+                      target.texample_stroke_gray_count==0u,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                exact=true;
+                rgb=0u;
+                ++target.texample_stroke_gray_count;
+            }
             stroke_rgb_exact=exact;
             if(exact)stroke_argb=UINT32_C(0xff000000)|rgb;
         } else if((mixed || clipped) && op=="m") {
