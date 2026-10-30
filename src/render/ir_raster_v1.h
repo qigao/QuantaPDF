@@ -101,6 +101,22 @@ quantapdf_status quantapdf_ir_raster_render_v1_multi_clipped_fractional_stroke_v
     const quantapdf_composer_clip_state *const *clips,size_t clip_count,
     quantapdf_ir_raster_image *out_image);
 
+/* PRIVATE M4a: one original black 0.3985pt closed TWO-RING Bézier
+ * Stroke after source M3 has owned its complete 32-cubic W*/ /* Clip
+ * and f*/ /* + 2 S original paint order. Source's actual closed
+ * 12-command stroke PATH is borrowed without any replacement curves.
+ * Only a 238x181 unscaled *private physical sample grid* qualifies;
+ * this is NOT the public fractional-page device plan. Exactly two
+ * smooth cardinal rings, 4 cubic segments per ring, miter join,
+ * solid butt cap, opaque black and original width are mandatory.
+ * Uses the SAME V1 4x4 kernel, per-segment inflated pixel domains and
+ * the unchanged global max_sample_tests cap. Unqualified generalized
+ * joins/curves/public original RGB remain independent gates. */
+quantapdf_status quantapdf_ir_raster_render_v1_texample_closed_cubic_stroke_work(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    quantapdf_ir_raster_image *out_image);
+
 /* PRIVATE original TeXample-type two-ring Bézier W*: exactly
  * two nested cardinal ring contours, each MOVE+4 CUBIC+CLOSE,
  * with no discarded source edges or unbounded extra subpaths.
