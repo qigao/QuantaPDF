@@ -441,10 +441,12 @@ static quantapdf_status v5_render_impl(
            ir->resources.images!=NULL ||
            ir->resources.image_capacity!=0u)
             return QUANTAPDF_ERROR_UNSUPPORTED;
-        for(size_t j=0u;j<2u;++j) {
-            const quantapdf_composer_operation *op=&ir->operations[j];
+        for(size_t admission_index=0u;admission_index<2u;
+            ++admission_index) {
+            const quantapdf_composer_operation *op=
+                &ir->operations[admission_index];
             if(op->kind!=QUANTAPDF_COMPOSER_OPERATION_PATH ||
-               op->graphics_state_id!=j+1u ||
+               op->graphics_state_id!=admission_index+1u ||
                op->value.path.options.fill!=1 ||
                op->value.path.options.stroke!=0)
                 return QUANTAPDF_ERROR_UNSUPPORTED;
