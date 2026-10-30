@@ -1159,6 +1159,33 @@ public:
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x+w,y+h);
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x,y+h);
             close_path();
+        } else if(target.native_unclipped_mode && op=="S") {
+            /* Source V10 original 600x600 negative-Y profile only.
+             * The first authored PAINT is one open width-one solid
+             * butt-capped horizontal red Stroke under W intersect W*.
+             * The C11 V1 4x4 sampler independently proves visible work. */
+            admit(args.empty() && target.three_branch_candidate &&
+                  target.three_branch_count==1u && clip_active==2u &&
+                  !clip_pending && pending_path.size()==2u &&
+                  contour_count==1u && !closed &&
+                  target.painted_paths.empty() && target.order.empty() &&
+                  target.draws.empty() &&
+                  pending_path[0].kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
+                  pending_path[1].kind==QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+                  pending_path[0].point1.y==pending_path[1].point1.y &&
+                  pending_path[0].point1.x!=pending_path[1].point1.x &&
+                  stroke_rgb_exact &&
+                  stroke_argb==UINT32_C(0xffff0000) &&
+                  stroke_width==1.0 && stroke_cap==0 && stroke_join==0 &&
+                  stroke_miter==10.0 && stroke_default_dash &&
+                  current[0]==1.0 && current[1]==0.0 &&
+                  current[2]==0.0 && current[3]==-1.0,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            target.paint_path(std::move(pending_path),fill_argb,
+                QUANTAPDF_COMPOSER_FILL_NONZERO,true,stroke_argb);
+            QP_SOURCE_STAGE_ARM(7u);
+            target.scoped_clip_membership.push_back(clip_active);
+            clear_path();
         } else if(target.native_unclipped_mode && op=="s") {
             /* PDF s implicitly closes then strokes a single triangle.
              * Only one actual W/n Clip, 1px butt/miter/solid and an
@@ -1193,6 +1220,15 @@ public:
             admit(args.empty() && pending_path.size()>=3u &&
                   contour_count==1u,
                   QUANTAPDF_ERROR_UNSUPPORTED);
+            if(target.three_branch_candidate)
+                admit(op=="f" && target.painted_paths.size()>=1u &&
+                      target.painted_paths.size()<=2u &&
+                      target.painted_paths[0].stroke &&
+                      target.three_branch_count==
+                          target.painted_paths.size()+1u &&
+                      clip_active==target.three_branch_count+1u &&
+                      fill_argb==UINT32_C(0xff0000ff),
+                      QUANTAPDF_ERROR_UNSUPPORTED);
             if(clipped) {
                 if(target.native_unclipped_mode &&
                    !target.clip_completed) {
@@ -1248,7 +1284,24 @@ public:
                   (!target.mixed_scoped_mode || target.order.empty() ||
                    target.native_unclipped_mode),
                   QUANTAPDF_ERROR_UNSUPPORTED);
-            if(target.native_unclipped_mode && target.clip_completed) {
+            if(target.three_branch_candidate && target.clip_completed) {
+                /* Each nested W/W* is defined AFTER a genuine Q has
+                 * restored the common outer W. No active inner Clip
+                 * may be inherited by another branch. */
+                admit(clip_active==1u &&
+                      target.three_branch_count<3u &&
+                      target.order.size()==target.three_branch_count &&
+                      target.three_branch_count==
+                          target.painted_paths.size() &&
+                      (target.three_branch_count==0u ?
+                       (op=="W*" && ten_wstar_candidate &&
+                        v10_nested_rects(pending_path)) :
+                       (pending_path.size()==6u &&
+                        bounded_clip_path(pending_path,true) &&
+                        op==(target.three_branch_count==1u?"W":"W*"))),
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                three_branch_clip_pending=true;
+            } else if(target.native_unclipped_mode && target.clip_completed) {
                 const bool sibling=clip_active==0u && target.saw_q_restore;
                 admit(!second_clip_used && !second_clip_pending &&
                       ((clip_active==1u && !target.saw_q_restore) ||
@@ -1274,7 +1327,32 @@ public:
             clip_pending=true;
         } else if(clipped && op=="n") {
             admit(args.empty(),QUANTAPDF_ERROR_UNSUPPORTED);
-            if(second_clip_pending) {
+            if(three_branch_clip_pending) {
+                admit(target.three_branch_candidate &&
+                      target.three_branch_count<3u &&
+                      clip_active==1u && clip_pending,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                complete_clip_contour();
+                const size_t index=target.three_branch_count;
+                admit(index==0u ?
+                    (clip_rule==QUANTAPDF_COMPOSER_FILL_EVEN_ODD &&
+                     v10_nested_rects(pending_path)) :
+                    (pending_path.size()==6u &&
+                     bounded_clip_path(pending_path) &&
+                     clip_rule==(index==1u?
+                         QUANTAPDF_COMPOSER_FILL_NONZERO:
+                         QUANTAPDF_COMPOSER_FILL_EVEN_ODD)),
+                    QUANTAPDF_ERROR_UNSUPPORTED);
+                target.three_branch_leaves[index].commands=
+                    std::move(pending_path);
+                target.three_branch_leaves[index].rule=clip_rule;
+                ++target.three_branch_count;
+                clip_active=static_cast<unsigned char>(
+                    target.three_branch_count+1u);
+                clip_pending=false;
+                three_branch_clip_pending=false;
+                clear_path();
+            } else if(second_clip_pending) {
                 /* Both original operands were separately parsed,
                  * billed and frozen at their definition-time CTM.
                  * Independent scopes always retain both leaves. An
@@ -1632,6 +1710,7 @@ private:
     size_t contour_start=0u,contour_count=0u;
     bool closed=false;
     bool ten_wstar_candidate=false;
+    bool three_branch_clip_pending=false;
 };
 
 /* Complete-page selection, before any C owner is published. A root-only
