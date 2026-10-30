@@ -932,11 +932,16 @@ set_tests_properties(
 # This target links the existing public C11 API and QPDF TEST-ONLY input
 # author; no PDFium reference pixels, second raster or SDK ABI expansion.
 add_executable(quantapdf_native_v10_opaque_gs
-  test_native_v10_opaque_gs.cpp)
+  test_native_v10_opaque_gs.cpp
+  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_native_image_ir.cpp"
+  "${PROJECT_SOURCE_DIR}/src/ir/ir.c"
+  "${PROJECT_SOURCE_DIR}/src/resource/resource_registry.c")
+target_include_directories(quantapdf_native_v10_opaque_gs PRIVATE
+  "${PROJECT_SOURCE_DIR}/src" "${PROJECT_SOURCE_DIR}/include")
 target_compile_features(quantapdf_native_v10_opaque_gs PRIVATE
-  cxx_std_20)
+  c_std_11 cxx_std_20)
 target_link_libraries(quantapdf_native_v10_opaque_gs PRIVATE
-  QuantaPDF::QuantaPDF qpdf::libqpdf)
+  quantapdf_backend QuantaPDF::QuantaPDF qpdf::libqpdf)
 if(MSVC)
   target_compile_options(quantapdf_native_v10_opaque_gs PRIVATE
     /W4 /WX /utf-8)

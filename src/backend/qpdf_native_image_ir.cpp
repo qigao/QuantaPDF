@@ -687,10 +687,14 @@ void validate_v10_opaque_gs(Obj resources,Obj name)
     admit(resources.isDictionary() && name.isName(),
           QUANTAPDF_ERROR_FORMAT);
     Obj ext=resources.getKey("/ExtGState");
-    admit(ext.isDictionary(),QUANTAPDF_ERROR_FORMAT);
+    /* Preserve the historical fail-closed Source/OOM contract for an
+     * undeclared gs operator: it is an unqualified semantic feature,
+     * not a malformed dictionary. Wrong-type declared states remain
+     * FORMAT. No IR allocations may occur on either refusal. */
+    admit(ext.isDictionary(),QUANTAPDF_ERROR_UNSUPPORTED);
     Obj entry=ext.getKey(name.getName());
-    admit(!entry.isNull() && entry.isDictionary(),
-          QUANTAPDF_ERROR_FORMAT);
+    admit(!entry.isNull(),QUANTAPDF_ERROR_UNSUPPORTED);
+    admit(entry.isDictionary(),QUANTAPDF_ERROR_FORMAT);
     admit(entry.getKeys().size()<=8u,QUANTAPDF_ERROR_UNSUPPORTED);
     for(const auto& key:entry.getKeys())
         admit(key=="/Type" || key=="/CA" || key=="/ca" ||

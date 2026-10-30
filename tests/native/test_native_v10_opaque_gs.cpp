@@ -5,6 +5,7 @@
  * independently, including late unsupported operators and NULL Bitmap.
  */
 #include <quantapdf/quantapdf.h>
+#include "backend/qpdf_native_image_ir.h"
 #include <qpdf/Pipeline.hh>
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFObjectHandle.hh>
@@ -15,6 +16,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -73,6 +76,33 @@ static void dump_original(const std::string& filename)
         }
     } catch(const std::exception& e) {
         std::fprintf(stderr,"opaque Source diagnostic: %s\n",e.what());
+    }
+}
+
+
+/* PRIVATE diagnostic: test builds the exact production Source function
+ * independently just like the established in-tree OOM tests. It is not
+ * linked into, exported from, or substituted for the public DLL. */
+static void dump_source_status(const std::string& filename)
+{
+    try {
+        std::ifstream stream(filename,std::ios::binary);
+        std::vector<char> bytes((std::istreambuf_iterator<char>(stream)),
+                                std::istreambuf_iterator<char>());
+        const quantapdf_qpdf_source_raw_image_limits limits={
+            2u*1024u*1024u,65536u,4u,4u,1000000u,1000000u,4000000u,8u
+        };
+        quantapdf_ir ir{};
+        const auto status=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            reinterpret_cast<const unsigned char*>(bytes.data()),bytes.size(),
+            &limits,0u,&ir);
+        std::fprintf(stderr,"opaque exact production Source status=%d "
+            "page_count=%zu operation_count=%zu source_bytes=%zu\n",
+            static_cast<int>(status),ir.page_count,ir.operation_count,
+            bytes.size());
+        quantapdf_ir_dispose(&ir);
+    } catch(const std::exception& e) {
+        std::fprintf(stderr,"opaque Source direct diagnostic: %s\n",e.what());
     }
 }
 
@@ -167,7 +197,7 @@ static const scenario cases[]={
         "<< /Type /Other /S /Transparency /I true /CS /DeviceRGB >>",
         opaque_state,black_paint,QUANTAPDF_ERROR_UNSUPPORTED,false},
     {"gs-missing",nullptr,nullptr,
-        black_paint,QUANTAPDF_ERROR_FORMAT,false},
+        black_paint,QUANTAPDF_ERROR_UNSUPPORTED,false},
     {"gs-wrong-type",nullptr,"12",
         black_paint,QUANTAPDF_ERROR_FORMAT,false},
     {"gs-partial-opacity",opaque_group,"<< /CA 1 /ca 0.5 >>",
@@ -234,7 +264,10 @@ static int run(const std::string& original)
                 "opaque-source case=%s got=%d expected=%d bitmap=%p\n",
                 name,static_cast<int>(status),static_cast<int>(want),
                 static_cast<void*>(bitmap));
-            if(external)dump_original(filename);
+            if(external) {
+                dump_original(filename);
+                dump_source_status(filename);
+            }
             if(status==QUANTAPDF_OK && bitmap!=nullptr)
                 quantapdf_drop_bitmap(bitmap);
             quantapdf_drop_page(page);
