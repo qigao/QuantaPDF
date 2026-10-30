@@ -22,7 +22,7 @@ enum { W=600, H=600, EDGE_LEASE=8000000 };
  * receives <= floor(total/2); the sums never exceed total. */
 static const size_t first_cost=(4u+4u)*16u*40u*40u;
 static const size_t second_cost=(4u+4u+6u)*16u*26u*28u;
-static const size_t acceptance_cap=2u*first_cost;
+static const size_t acceptance_cap=409600u; /* checked against 2*first_cost below */
 
 typedef struct fixture {
     quantapdf_ir ir;
