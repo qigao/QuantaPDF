@@ -1288,15 +1288,24 @@ private:
             contour_count=1u;
             contour_start=0u;
         } else {
-            /* V10 Clip construction alone may start a second contour.
-             * The earlier contour must already be explicitly closed;
-             * enough of the unchanged nine-command lease must remain.
-             * f/f* and plain n separately retain one-contour admission. */
+            /* PDF m/re starts a fresh subpath: a previous open contour
+             * participates in W/W* as if closed, even without authored h.
+             * Only native V10's TWO-contour Clip grammar may normalize
+             * this implicit closure. Older signatures, unpainted paths,
+             * third contours and Clip-pending input keep strict refusal.
+             *
+             * Reserve the exact SAME nine-command ceiling, including
+             * BOTH future CLOSE commands and the minimum next contour,
+             * BEFORE appending anything to borrowed Source staging. */
             admit(target.native_unclipped_mode && !clip_pending &&
-                  closed && contour_count==1u &&
-                  bounded_clip_contour(pending_path) &&
-                  pending_path.size()<=9u-minimum_commands,
+                  contour_count==1u &&
+                  bounded_clip_contour(pending_path,!closed) &&
+                  minimum_commands<=9u &&
+                  pending_path.size()<=9u-minimum_commands &&
+                  (closed ||
+                   pending_path.size()<9u-minimum_commands),
                   QUANTAPDF_ERROR_UNSUPPORTED);
+            if(!closed)close_path();
             contour_count=2u;
             contour_start=pending_path.size();
         }
