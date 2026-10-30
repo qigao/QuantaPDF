@@ -523,10 +523,10 @@ static bool original_texample_decimal_source_m2(
         quantapdf_ir denied;
         std::memset(&denied,0xa5,sizeof(denied));
         const auto status=native(negatives[i],denied);
-        /* An unbalanced q is structurally malformed: prior Source
-         * semantics require FORMAT, not feature UNSUPPORTED. Both
-         * error classes must leave a completely zeroed IR. */
-        const auto expected=i==7u ? QUANTAPDF_ERROR_FORMAT :
+        /* Structurally malformed q scopes and missing named XObject
+         * resources are FORMAT, not unsupported graphic features.
+         * No Source error class may leak any partially owned IR. */
+        const auto expected=i>=7u ? QUANTAPDF_ERROR_FORMAT :
                                      QUANTAPDF_ERROR_UNSUPPORTED;
         if(status!=expected || !cleared(denied)) {
             std::fprintf(stderr,
