@@ -1014,6 +1014,55 @@ static quantapdf_status qp_render_v1_impl(
         total_checks=sample_pixels*QP_TOTAL_SAMPLES*edges_per_sample;
     }
 
+    if(bounded_curved_stroke) {
+        /* One unchanged C11 4x4 sampler. Before allocating pixels,
+         * compute a conservative candidate domain for EACH flattened
+         * authored cubic edge, inflated by exact source half-width.
+         * Every cell in each domain is charged 16 potential segment
+         * distance tests, even if later covered by an earlier edge.
+         * This is a strict upper bound on the work actually sampled,
+         * without any increase to the original global 8M limit. */
+        const qp_raster_draw *draw=&draws[0];
+        if(draw_count!=1u || draw->edge_count<64u ||
+           draw->edge_count>256u || draw->stroke_half_width<=0.0) {
+            status=QUANTAPDF_ERROR_UNSUPPORTED;
+            goto cleanup;
+        }
+        curve_boxes=(qp_sample_box *)malloc(
+            draw->edge_count*sizeof(*curve_boxes));
+        if(curve_boxes==NULL) {
+            status=QUANTAPDF_ERROR_NOMEM;
+            goto cleanup;
+        }
+        for(size_t k=0u;k<draw->edge_count;++k) {
+            qp_raster_draw single=*draw;
+            const qp_sample_box *box;
+            size_t cols,rows,cells;
+            single.first_edge=draw->first_edge+k;
+            single.edge_count=1u;
+            if(!qp_edges_sample_box(flatten.edges,&single,
+                   width,height,draw->stroke_half_width,
+                   &curve_boxes[k])) {
+                status=QUANTAPDF_ERROR_UNSUPPORTED;
+                goto cleanup;
+            }
+            box=&curve_boxes[k];
+            cols=box->x1-box->x0;
+            rows=box->y1-box->y0;
+            if(rows!=0u && cols>SIZE_MAX/rows) {
+                status=QUANTAPDF_ERROR_UNSUPPORTED;
+                goto cleanup;
+            }
+            cells=cols*rows;
+            if(cells>(limits->max_sample_tests-total_checks)/
+                    QP_TOTAL_SAMPLES) {
+                status=QUANTAPDF_ERROR_UNSUPPORTED;
+                goto cleanup;
+            }
+            total_checks+=cells*QP_TOTAL_SAMPLES;
+        }
+    }
+
     pixels = (unsigned char *)malloc(pixels_count * 4u);
     if (pixels == NULL) {
         status = QUANTAPDF_ERROR_NOMEM;
@@ -1038,6 +1087,21 @@ static quantapdf_status qp_render_v1_impl(
         for (y = 0u; y < height; ++y) {
             for (x = 0u; x < width; ++x) {
                 unsigned sx, sy, covered = 0u;
+                size_t candidates[256], candidate_count=0u;
+                if(bounded_curved_stroke) {
+                    /* Find the only segments that can cover this
+                     * pixel's 16 sample points; do this once per pixel,
+                     * never re-scan all flattened edges per subpixel.
+                     * The above admission has charged every candidate
+                     * distance test whether or not it finds a hit. */
+                    for(size_t k=0u;k<draw->edge_count;++k) {
+                        const qp_sample_box *box=&curve_boxes[k];
+                        if(x>=box->x0 && x<box->x1 &&
+                           y>=box->y0 && y<box->y1)
+                            candidates[candidate_count++]=k;
+                    }
+                    if(candidate_count==0u)continue;
+                }
                 /* The old winding computation is exactly zero outside
                  * the intersection of flattened draw and Clip bounds.
                  * Avoid those per-edge checks only after the complete
@@ -1052,9 +1116,12 @@ static quantapdf_status qp_render_v1_impl(
                     for (sx = 0u; sx < QP_SAMPLES; ++sx) {
                         double px = (double)x +
                             ((double)sx + 0.5) / (double)QP_SAMPLES;
-                        int visible = draw->one_pixel_stroke ?
-                            qp_stroke_inside(flatten.edges, draw, px, py) :
-                            qp_inside(flatten.edges, draw, px, py);
+                        int visible = bounded_curved_stroke ?
+                            qp_stroke_inside_candidates(flatten.edges,draw,
+                                px,py,candidates,candidate_count) :
+                            (draw->one_pixel_stroke ?
+                             qp_stroke_inside(flatten.edges,draw,px,py) :
+                             qp_inside(flatten.edges,draw,px,py));
                         for (ci = 0u; visible && ci < clip_count; ++ci)
                             visible = qp_inside(
                                 flatten.edges, &clip_draws[ci], px, py);
@@ -1076,6 +1143,7 @@ static quantapdf_status qp_render_v1_impl(
     status = QUANTAPDF_OK;
 cleanup:
     free(pixels);
+    free(curve_boxes);
     free(draws);
     free(flatten.edges);
     return status;
