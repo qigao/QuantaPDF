@@ -130,6 +130,18 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_two_gs_visible_work_device_
     double viewport_width,double viewport_height,
     quantapdf_ir_raster_image *out_image);
 
+
+/* Private strict C11 proof: three opaque PATH Fills in GS order 1,2,3;
+ * four owned frozen W/W* Clip leaves plus three intersections
+ * 5={1,2}, 6={3,4}, 7={5,6}, with GS Clip IDs 1,5,7.
+ * Integer physical viewport, same V5->V1 4x4 sampler, three equal
+ * shares of unchanged 8M sample cap; no public Source/SDK expansion. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_three_gs_visible_work_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
 /* Explicit actual GS0 paint prefix before W/W*. One GS follows
  * 0+ 1+ 0*; two GS follow 0+ 1* 2+ 1* 0*, with every nonzero identity
  * used. Graphs remain one Clip or two leaves plus their flat root,
