@@ -174,6 +174,20 @@ static int replay(const std::filesystem::path& root,
                 }
                 std::vector<unsigned char> rgb;
                 CHECK(yworks_bitmap(bitmap,rgb));
+                /* Physical width-one S has no qualified 96/144-DPI
+                 * source width expansion. Public V10 must atomically
+                 * reject both settings rather than rescaling 72-DPI
+                 * output or falling back to PDFium. */
+                for(const float dpi:{96.0f,144.0f}) {
+                    options.dpi=dpi;
+                    quantapdf_bitmap *invalid=
+                        reinterpret_cast<quantapdf_bitmap *>(uintptr_t(1));
+                    const auto denied=quantapdf_render_page_with_options(
+                        page,&options,&invalid);
+                    CHECK(denied==QUANTAPDF_ERROR_UNSUPPORTED &&
+                          invalid==nullptr);
+                }
+                options.dpi=72.0f;
                 if(held_yworks==nullptr) {
                     held_yworks=bitmap;
                     retained_yworks=rgb;
