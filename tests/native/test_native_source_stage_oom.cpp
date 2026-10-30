@@ -402,6 +402,141 @@ static bool original_three_branch_source_oom(
     return true;
 }
 
+
+/* Exact original decimal MediaBox admission is a SOURCE-only M2
+ * milestone. The same original production V10 parser, selected PageTree,
+ * QPDF number tokens and C-owned IR are used here, not a second parser
+ * or a public native bitmap bypass. Any original painted content still
+ * refuses until fractional viewport and full cubic ring work qualify. */
+static std::string original_decimal_source(
+    const std::string& box,const std::string& operators,
+    const std::string& page_extra={})
+{
+    auto pdf=QPDF::create();
+    pdf->emptyPDF();
+    auto root=pdf->getRoot().getKey("/Pages");
+    auto page=pdf->makeIndirectObject(Obj::parse(
+        "<< /Type /Page /MediaBox "+box+" "+page_extra+" >>"));
+    page.replaceKey("/Parent",root);
+    root.replaceKey("/Kids",Obj::newArray({page}));
+    root.replaceKey("/Count",Obj::newInteger(1));
+    if(!operators.empty())
+        page.replaceKey("/Contents",pdf->newStream(operators));
+    QPDFWriter writer(*pdf);
+    writer.setOutputMemory();
+    writer.write();
+    const auto bytes=writer.getBufferSharedPointer();
+    return std::string(
+        reinterpret_cast<const char*>(bytes->getBuffer()),
+        bytes->getSize());
+}
+static bool exact_decimal_page_ir(const quantapdf_ir& ir)
+{
+    return ir.page_count==1u && ir.pages!=nullptr &&
+           ir.pages[0].width_points==static_cast<float>(237.133) &&
+           ir.pages[0].height_points==static_cast<float>(180.44) &&
+           ir.pages[0].background_argb==UINT32_C(0xffffffff) &&
+           ir.operations==nullptr && ir.operation_count==0u &&
+           ir.resources.images==nullptr && ir.resources.image_count==0u &&
+           ir.resources.graphics_states==nullptr &&
+           ir.resources.graphics_state_count==0u &&
+           ir.resources.clips==nullptr && ir.resources.clip_count==0u;
+}
+static bool original_texample_decimal_source_m2(
+    const quantapdf_qpdf_source_raw_image_limits& limits)
+{
+    constexpr const char *real_box="[0 0 237.133 180.44]";
+    const auto native=[&](const std::string& original,quantapdf_ir& out) {
+        return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            reinterpret_cast<const unsigned char*>(original.data()),
+            original.size(),&limits,0u,&out);
+    };
+    const std::string positives[]={
+        /* The page's original exact rational 237133/1000 and
+         * 180440/1000 must survive Source-IR ownership. */
+        original_decimal_source(real_box,""),
+        original_decimal_source(real_box,
+            "q 1 0 0 1 118.566 90.22 cm Q"),
+        original_decimal_source(real_box,
+            "q 1 0 0 1 118.566 90.22 cm Q",
+            "/CropBox [0 0 237.133 180.44]")
+    };
+    for(const auto& pdf:positives) {
+        quantapdf_ir ir{};
+        if(native(pdf,ir)!=QUANTAPDF_OK ||
+           !exact_decimal_page_ir(ir)) {
+            quantapdf_ir_dispose(&ir);
+            return false;
+        }
+        quantapdf_ir_dispose(&ir);
+        if(!cleared(ir))return false;
+    }
+    /* A single real C-owner allocation fault must leave a null IR
+     * and NOT poison a following exact original-geometry Source. */
+    {
+        quantapdf_ir denied;
+        std::memset(&denied,0xa5,sizeof(denied));
+        track_c_allocation=true;
+        c_fail_index=1u;c_allocations=0u;c_faults=0u;
+        const auto status=native(positives[1],denied);
+        const size_t fail_count=c_faults,observed=c_allocations;
+        track_c_allocation=false;c_fail_index=0u;
+        if(status!=QUANTAPDF_ERROR_NOMEM || !cleared(denied) ||
+           fail_count!=1u || observed!=1u) {
+            quantapdf_ir_dispose(&denied);
+            std::fprintf(stderr,
+                "exact TeXample decimal Source OOM status=%d "
+                "faults=%zu allocations=%zu\n",
+                (int)status,fail_count,observed);
+            return false;
+        }
+        quantapdf_ir recovery{};
+        const auto again=native(positives[1],recovery);
+        const bool accepted=again==QUANTAPDF_OK &&
+                            exact_decimal_page_ir(recovery);
+        quantapdf_ir_dispose(&recovery);
+        if(!accepted || !cleared(recovery))return false;
+    }
+    /* This M2 gate admits NO painted original decimal page yet.
+     * Neither near-miss decimals, cropped/rotated/nondefault-Unit
+     * originals, Text/Do/Fill, nor unbalanced sources may be treated
+     * as an empty white Bitmap. There is no 238x181 rescaled output
+     * and no special public V10 render branch. */
+    const std::string negatives[]={
+        original_decimal_source("[0 0 237.134 180.44]",""),
+        original_decimal_source("[0 0 237.133 180.45]",""),
+        original_decimal_source(real_box,"",
+            "/CropBox [0 0 237.133 180]"),
+        original_decimal_source(real_box,"",
+            "/UserUnit 1.25"),
+        original_decimal_source(real_box,"",
+            "/Rotate 90"),
+        original_decimal_source(real_box,
+            "q 1 0 0 1 118.566 90.22 cm 4 4 8 6 re f Q"),
+        original_decimal_source(real_box,
+            "1 0 0 1 118.566 90.22 cm BT ET"),
+        original_decimal_source(real_box,
+            "q 1 0 0 1 118.566 90.22 cm"),
+        original_decimal_source(real_box,"/Missing Do")
+    };
+    for(size_t i=0u;i<sizeof(negatives)/sizeof(negatives[0]);++i) {
+        quantapdf_ir denied;
+        std::memset(&denied,0xa5,sizeof(denied));
+        const auto status=native(negatives[i],denied);
+        if(status!=QUANTAPDF_ERROR_UNSUPPORTED || !cleared(denied)) {
+            std::fprintf(stderr,
+                "exact TeXample decimal Source negative=%zu status=%d\n",
+                i,(int)status);
+            quantapdf_ir_dispose(&denied);
+            return false;
+        }
+    }
+    std::printf("Original TeXample Source M2: exact "
+                "237133/1000 x 180440/1000 MediaBox in owned blank IR, "
+                "3 positives / 9 atomic negatives / C OOM recovery\n");
+    return true;
+}
+
 int main(int argc,char **argv)
 {
     const std::string pdf=original_pdf();
@@ -542,6 +677,8 @@ int main(int argc,char **argv)
         }
     }
     if(argc!=2 || !original_three_branch_source_oom(argv[1],limits))
+        return EXIT_FAILURE;
+    if(!original_texample_decimal_source_m2(limits))
         return EXIT_FAILURE;
     return EXIT_SUCCESS;
 }
