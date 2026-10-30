@@ -4,7 +4,6 @@
 #include <math.h>
 #include <limits.h>
 #include <string.h>
-#include <stdio.h>
 
 /* No PDFium/qpdf handles reach this bridge. The private source reader
  * validates the COMPLETE original page and returns detached owned IR;
@@ -69,9 +68,6 @@ static quantapdf_status native_source_bridge_impl(
         return status;
     }
 
-    if(ir.resources.clip_count==1u && ir.resources.clips!=NULL &&
-       ir.resources.clips[0].command_count==10u)
-        fprintf(stderr,"TEN trace: bridge got detached IR\\n");
     /* Only V10 opts into device-space pixels. Earlier private Source
      * signatures remain exact 72 DPI. This is a projection into the
      * SINGLE C11 V5 raster, not a second renderer or image rescaler. */
@@ -104,9 +100,6 @@ static quantapdf_status native_source_bridge_impl(
     } else
         status=quantapdf_ir_raster_scoped_mixed_v5(
             &ir,0u,&limits->raster,out_image);
-    if(ir.resources.clip_count==1u && ir.resources.clips!=NULL &&
-       ir.resources.clips[0].command_count==10u)
-        fprintf(stderr,"TEN trace: device/V5 status=%d\\n",(int)status);
     quantapdf_ir_dispose(&ir);
     return status;
 }

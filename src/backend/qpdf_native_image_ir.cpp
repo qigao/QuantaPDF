@@ -9,7 +9,6 @@
 #include <array>
 #include <climits>
 #include <cmath>
-#include <cstdio>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -1104,7 +1103,6 @@ public:
                 closed=true;
                 admit(v10_nested_rects(pending_path),
                       QUANTAPDF_ERROR_UNSUPPORTED);
-                std::fprintf(stderr,"TEN trace: second return + h accepted\\n");
             } else close_path();
         } else if((mixed || clipped) && op=="re") {
             admit(args.size()==4u && !clip_pending,
@@ -1238,8 +1236,6 @@ public:
                         bounded_clip_path(pending_path,true))),
                       QUANTAPDF_ERROR_UNSUPPORTED);
             }
-            if(ten_wstar_candidate)
-                std::fprintf(stderr,"TEN trace: W-star admission accepted\\n");
             clip_rule=op=="W*" ? QUANTAPDF_COMPOSER_FILL_EVEN_ODD :
                                  QUANTAPDF_COMPOSER_FILL_NONZERO;
             clip_pending=true;
@@ -1325,8 +1321,6 @@ public:
                         v10_nested_rects(pending_path)) :
                        bounded_clip_path(pending_path)),
                       QUANTAPDF_ERROR_UNSUPPORTED);
-                if(ten_wstar_candidate)
-                    std::fprintf(stderr,"TEN trace: n admitted\\n");
                 target.clip.commands=std::move(pending_path);
                 target.clip.rule=clip_rule;
                 target.clip_completed=true;
@@ -1394,7 +1388,6 @@ private:
                 pending_path.back().kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
                 closed=true;
                 ten_wstar_candidate=true;
-                std::fprintf(stderr,"TEN trace: first return accepted\\n");
             } else {
                 admit(target.native_unclipped_mode && !clip_pending &&
                       contour_count==1u && (closed || original_return) &&
@@ -2095,7 +2088,6 @@ quantapdf_ir materialize_clipped_path_only(const admission& source)
           QUANTAPDF_ERROR_UNSUPPORTED);
 
     if(source.clip.commands.size()==10u)
-        std::fprintf(stderr,"TEN trace: materialize clipped path\\n");
     quantapdf_ir ir=materialize_owned_paths(source);
     try {
         ir.resources.graphics_states=
@@ -2115,8 +2107,6 @@ quantapdf_ir materialize_clipped_path_only(const admission& source)
             ir.operations[i].graphics_state_id=id;
             ir.operations[i].value.path.options.graphics_state_id=id;
         }
-        if(source.clip.commands.size()==10u)
-            std::fprintf(stderr,"TEN trace: owned source IR committed\\n");
         return ir;
     } catch(...) {
         quantapdf_ir_dispose(&ir);
