@@ -711,9 +711,29 @@ static quantapdf_status v5_render_impl(
         if(op->kind==QUANTAPDF_COMPOSER_OPERATION_PATH) {
             const quantapdf_composer_path_operation *p=&op->value.path;
             const quantapdf_composer_path_options *opt=&p->options;
+            /* ONLY the Source V10 explicit clipped-PATH entry can
+             * carry one opaque, width-1, solid closed-triangle Stroke
+             * to the existing C11 V1 clipped path sampler. All private
+             * and unclipped V5 profiles remain fill-only. */
+            const int clipped_triangle_stroke=
+                clipped_paths_optin && ir->operation_count==1u &&
+                state==1u && ir->resources.clip_count==1u &&
+                p->command_count==4u &&
+                p->commands!=NULL &&
+                p->commands[0].kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
+                p->commands[1].kind==QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+                p->commands[2].kind==QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+                p->commands[3].kind==QUANTAPDF_COMPOSER_PATH_CLOSE &&
+                opt->fill==0 && opt->stroke==1 &&
+                opt->stroke_width==1.0f &&
+                opt->line_cap==QUANTAPDF_COMPOSER_LINE_CAP_BUTT &&
+                opt->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_MITER &&
+                opt->miter_limit==10.0f;
             if(opt->struct_size<QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE ||
-               opt->fill!=1 || opt->stroke!=0 ||
-               (opt->fill_argb>>24u)!=255u ||
+               !(clipped_triangle_stroke ||
+                 (opt->fill==1 && opt->stroke==0)) ||
+               ((clipped_triangle_stroke?opt->stroke_argb:
+                  opt->fill_argb)>>24u)!=255u ||
                p->commands==NULL || p->command_count==0u ||
                p->command_count>10240u ||
                ((clipped_paths_optin || two_states || unclipped_prefix_optin) &&

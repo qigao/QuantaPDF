@@ -965,3 +965,27 @@ quantapdf_native_test(quantapdf_native_full_canvas_rect_budget
   "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
   "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
   "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
+
+# First unchanged externally sourced original W/n Clip + width-1
+# closed triangle Stroke under PUBLIC Source V10. QPDF is linked only
+# for TEST-ONLY authored negative PDFs; production has one C11 raster.
+add_executable(quantapdf_native_v10_external_clip_stroke
+  test_native_v10_external_clip_stroke.cpp)
+target_compile_features(quantapdf_native_v10_external_clip_stroke PRIVATE
+  cxx_std_20)
+target_link_libraries(quantapdf_native_v10_external_clip_stroke PRIVATE
+  QuantaPDF::QuantaPDF qpdf::libqpdf)
+if(MSVC)
+  target_compile_options(quantapdf_native_v10_external_clip_stroke PRIVATE
+    /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_v10_external_clip_stroke PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_v10_external_clip_stroke
+  COMMAND quantapdf_native_v10_external_clip_stroke
+    "${_native_ext_v10_assets}")
+set_tests_properties(quantapdf.native_v10_external_clip_stroke PROPERTIES
+  TIMEOUT 70
+  LABELS "conformance;native;no-pdfium;external;public-api;clipped-stroke"
+  FIXTURES_REQUIRED native_v10_external_verified)
