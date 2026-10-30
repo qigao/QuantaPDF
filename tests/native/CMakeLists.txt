@@ -1022,3 +1022,14 @@ quantapdf_native_test(quantapdf_native_clipped_region_budget
   "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
   "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
   "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
+
+# Exact PRIVATE V10 two-GS (leaf1 then frozen intersection) visible-work
+# lease on a 600x600 C11 source page. Two independent opaque Fill layers
+# each receive <= half of the unchanged sample cap; the old two-GS
+# wrapper MUST still refuse the identical full-page-cost fixture.
+quantapdf_native_test(quantapdf_native_two_gs_visible_budget
+  native/test_native_two_gs_visible_budget.c
+  $<TARGET_OBJECTS:quantapdf_native_raster_objects>
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")

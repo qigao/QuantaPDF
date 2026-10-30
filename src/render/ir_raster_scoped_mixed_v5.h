@@ -117,6 +117,19 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_compound_clip_states_device
     double viewport_width,double viewport_height,
     quantapdf_ir_raster_image *out_image);
 
+/* Explicit PRIVATE V10 preflight of TWO owned clipped PATH Fills:
+ * GS1 selects Clip leaf1, GS2 selects root {leaf1, leaf2}.
+ * Two Clip leaves may each contain 1..2 closed contours (<=9 commands).
+ * The SAME V5/V1 4x4 painter charges a strict half-share of the
+ * unchanged total sample cap to each operation. Old compound/two-GS
+ * wrappers retain the previous full-page work billing and refusals.
+ * Not a general GS, DAG, PDFium or additional renderer interface. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_two_gs_visible_work_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
 /* Explicit actual GS0 paint prefix before W/W*. One GS follows
  * 0+ 1+ 0*; two GS follow 0+ 1* 2+ 1* 0*, with every nonzero identity
  * used. Graphs remain one Clip or two leaves plus their flat root,
