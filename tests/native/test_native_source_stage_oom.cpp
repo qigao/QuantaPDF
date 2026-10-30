@@ -479,15 +479,15 @@ static bool original_texample_decimal_source_m2(
         track_c_allocation=true;
         c_fail_index=1u;c_allocations=0u;c_faults=0u;
         const auto status=native(positives[1],denied);
-        const size_t fail_count=c_faults,observed=c_allocations;
+        const size_t fail_count=c_faults,actual_allocations=c_allocations;
         track_c_allocation=false;c_fail_index=0u;
         if(status!=QUANTAPDF_ERROR_NOMEM || !cleared(denied) ||
-           fail_count!=1u || observed!=1u) {
+           fail_count!=1u || actual_allocations!=1u) {
             quantapdf_ir_dispose(&denied);
             std::fprintf(stderr,
                 "exact TeXample decimal Source OOM status=%d "
                 "faults=%zu allocations=%zu\n",
-                (int)status,fail_count,observed);
+                (int)status,fail_count,actual_allocations);
             return false;
         }
         quantapdf_ir recovery{};
