@@ -1,5 +1,5 @@
 /* Original, provenance-reviewed PDF files: public Native V10 fail-closed
- * qualification of the four external originals NOT accepted in PR #544.
+ * qualification of the three Stroke/Clip originals still unsupported in V10.
  * This is not a PDFium parity test and grants no capability by itself.
  *
  * Every negative Document is immediately followed by the same reviewed
@@ -24,8 +24,7 @@
 } } while(0)
 #define OK(e) CHECK((e)==QUANTAPDF_OK)
 
-static constexpr std::array<const char*,4u> ids={{
-    "pdfium.black-original-v1",
+static constexpr std::array<const char*,3u> ids={{
     "pdfium.clip-path-v1",
     "yworks.clippath-cliprule-v1",
     "texample.intersecting-rings-v1"
@@ -44,9 +43,9 @@ static uint32_t xorshift(uint32_t x)
     x^=x<<5u;
     return x;
 }
-static std::array<unsigned,4u> order_for(size_t pass)
+static std::array<unsigned,3u> order_for(size_t pass)
 {
-    std::array<unsigned,4u> order={{0u,1u,2u,3u}};
+    std::array<unsigned,3u> order={{0u,1u,2u}};
     if(pass==0u)return order;
     uint32_t x=seeds[pass];
     for(size_t n=order.size();n>1u;--n) {
@@ -57,7 +56,7 @@ static std::array<unsigned,4u> order_for(size_t pass)
     }
     return order;
 }
-static std::string fingerprint(const std::array<unsigned,4u>& order)
+static std::string fingerprint(const std::array<unsigned,3u>& order)
 {
     uint64_t hash=UINT64_C(0xcbf29ce484222325);
     for(unsigned idx:order) {
@@ -95,8 +94,8 @@ static int replay(const std::filesystem::path& root,
     quantapdf_context *ctx=nullptr;
     quantapdf_bitmap *held=nullptr;
     std::vector<unsigned char> retained;
-    std::array<unsigned,4u> observed={{0u,0u,0u,0u}};
-    std::array<std::array<unsigned,4u>,3u> orders{};
+    std::array<unsigned,3u> observed={{0u,0u,0u}};
+    std::array<std::array<unsigned,3u>,3u> orders{};
     std::array<std::string,3u> fingerprints{};
     size_t accepted=0u,refused=0u;
     OK(quantapdf_context_create(&ctx));
@@ -190,7 +189,7 @@ static int replay(const std::filesystem::path& root,
     CHECK(live!=nullptr && size==retained.size() &&
           std::memcmp(live,retained.data(),size)==0);
     quantapdf_drop_bitmap(held);
-    CHECK(refused==12u && accepted==12u);
+    CHECK(refused==9u && accepted==9u);
     for(unsigned n:observed)CHECK(n==3u);
 
     std::ofstream out(receipt,std::ios::binary|std::ios::trunc);
@@ -198,10 +197,10 @@ static int replay(const std::filesystem::path& root,
     out<<"{\"schema_version\":1,\"corpus_id\":\"external-source-pdf\","
        <<"\"qualification\":\"native-v10-remaining-fail-closed\","
        <<"\"reference_oracle\":\"none\",\"result\":\"passed\","
-       <<"\"manifest_document_count\":7,\"negative_document_count\":4,"
+       <<"\"manifest_document_count\":7,\"negative_document_count\":3,"
        <<"\"recovery_document_id\":\""<<blank_id<<"\","
-       <<"\"dpi\":72,\"execution_count\":24,\"positive_count\":12,"
-       <<"\"refusal_count\":12,\"passes\":[";
+       <<"\"dpi\":72,\"execution_count\":18,\"positive_count\":9,"
+       <<"\"refusal_count\":9,\"passes\":[";
     for(size_t p=0u;p<orders.size();++p) {
         if(p)out<<',';
         out<<"{\"name\":\""<<names[p]<<"\",\"seed\":\""<<labels[p]
@@ -211,7 +210,7 @@ static int replay(const std::filesystem::path& root,
             if(i)out<<',';
             out<<'\"'<<ids[orders[p][i]]<<'\"';
         }
-        out<<"],\"refused\":4,\"recovered\":4}";
+        out<<"],\"refused\":3,\"recovered\":3}";
     }
     out<<"],\"documents\":[";
     for(size_t i=0u;i<ids.size();++i) {
@@ -222,12 +221,12 @@ static int replay(const std::filesystem::path& root,
            <<",\"atomic_null_bitmap\":true}";
     }
     out<<"],\"recovery\":{\"id\":\""<<blank_id
-       <<"\",\"observed_status\":\"OK\",\"executions\":12,"
+       <<"\",\"observed_status\":\"OK\",\"executions\":9,"
        <<"\"all_white\":true,\"bitmap_survived_context\":true}}\n";
     out.flush();
     CHECK(out.good());
-    std::printf("Native V10 remaining external: 4 originals x 3 orders,"
-                " 12 atomic UNSUPPORTED refusals and 12 separately"
+    std::printf("Native V10 remaining external: 3 originals x 3 orders,"
+                " 9 atomic UNSUPPORTED refusals and 9 separately"
                 " reopened blank recovery renders\n");
     return EXIT_SUCCESS;
 }

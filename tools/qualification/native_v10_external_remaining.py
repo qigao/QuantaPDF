@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Audit strict public Native V10 refusal of four reviewed external originals.
+"""Audit strict public Native V10 refusal of three Stroke/Clip external originals.
 
 The *existing* external_pdf_corpus admission verifier independently rehashes
 all seven originals and checks their license/source records. This gate never
 uses the historical PDFium/private-IR "supported" metadata as proof of public
-Native V10 pixel capability. The four current public rejects are tracked as
+Native V10 pixel capability. The three remaining public rejects are tracked as
 feature gaps, not falsely renamed into externally supported products.
 """
 from __future__ import annotations
@@ -18,13 +18,11 @@ import sys
 from external_pdf_corpus import verify_corpus, CorpusAdmissionError
 
 IDS = (
-    "pdfium.black-original-v1",
     "pdfium.clip-path-v1",
     "yworks.clippath-cliprule-v1",
     "texample.intersecting-rings-v1",
 )
 PRIOR_OUTCOMES = (
-    "supported-path-clip",
     "supported-clipped-stroke",
     "supported-wstar-clip",
     "supported-wstar-clip",
@@ -32,9 +30,9 @@ PRIOR_OUTCOMES = (
 BLANK = "tinytoolkit.sample-blank-letter-v1"
 SEEDS = (0x4CF5AD11, 0x9E3779B9)
 FINGERPRINTS = (
-    "84c39a079fc08121",
-    "020edd79a25a4111",
-    "2070bb31cdfd0d11",
+    "fd1f0f4381eb0395",
+    "abb05270b835c595",
+    "7ff945097187cf45",
 )
 MASK32 = (1 << 32) - 1
 MASK64 = (1 << 64) - 1
@@ -133,11 +131,11 @@ def validate_native(report: dict) -> None:
             "invalid qualification / oracle")
     for key, value in (
         ("manifest_document_count", 7),
-        ("negative_document_count", 4),
+        ("negative_document_count", 3),
         ("dpi", 72),
-        ("execution_count", 24),
-        ("positive_count", 12),
-        ("refusal_count", 12),
+        ("execution_count", 18),
+        ("positive_count", 9),
+        ("refusal_count", 9),
     ):
         exact_int(report[key], value, key)
 
@@ -159,11 +157,11 @@ def validate_native(report: dict) -> None:
                 and given["fingerprint_fnv64"] == fingerprint(expected)
                 and given["fingerprint_fnv64"] == FINGERPRINTS[i],
                 "invalid replay seed/order/fingerprint")
-        exact_int(given["refused"], 4, "per-pass refusals")
-        exact_int(given["recovered"], 4, "per-pass recovery")
+        exact_int(given["refused"], 3, "per-pass refusals")
+        exact_int(given["recovered"], 3, "per-pass recovery")
 
     rows = report["documents"]
-    require(type(rows) is list and len(rows) == 4, "per-document result count")
+    require(type(rows) is list and len(rows) == 3, "per-document result count")
     for row, name in zip(rows, IDS):
         require(type(row) is dict and set(row) == {
             "id", "observed_status", "executions", "atomic_null_bitmap"
@@ -181,7 +179,7 @@ def validate_native(report: dict) -> None:
             and blank["all_white"] is True
             and blank["bitmap_survived_context"] is True,
             "missing true native blank recovery")
-    exact_int(blank["executions"], 12, "recovery executions")
+    exact_int(blank["executions"], 9, "recovery executions")
 
 
 def synthetic_report() -> dict:
@@ -191,15 +189,15 @@ def synthetic_report() -> dict:
         "schema_version": 1, "corpus_id": "external-source-pdf",
         "qualification": "native-v10-remaining-fail-closed",
         "reference_oracle": "none", "result": "passed",
-        "manifest_document_count": 7, "negative_document_count": 4,
+        "manifest_document_count": 7, "negative_document_count": 3,
         "recovery_document_id": BLANK, "dpi": 72,
-        "execution_count": 24, "positive_count": 12,
-        "refusal_count": 12,
+        "execution_count": 18, "positive_count": 9,
+        "refusal_count": 9,
         "passes": [
             {"name": ("canonical", "shuffled-a", "shuffled-b")[i],
              "seed": ("none", "0x4cf5ad11", "0x9e3779b9")[i],
              "fingerprint_fnv64": fingerprint(order), "ids": order,
-             "refused": 4, "recovered": 4}
+             "refused": 3, "recovered": 3}
             for i, order in enumerate(orders)
         ],
         "documents": [
@@ -207,7 +205,7 @@ def synthetic_report() -> dict:
              "executions": 3, "atomic_null_bitmap": True} for id_ in IDS
         ],
         "recovery": {
-            "id": BLANK, "observed_status": "OK", "executions": 12,
+            "id": BLANK, "observed_status": "OK", "executions": 9,
             "all_white": True, "bitmap_survived_context": True
         }
     }
@@ -218,7 +216,7 @@ def negative_self_tests() -> None:
     validate_native(valid)
     edits = (
         lambda r: r.update(reference_oracle="original-pdfium"),
-        lambda r: r.update(positive_count=13),
+        lambda r: r.update(positive_count=10),
         lambda r: r["documents"][1].update(observed_status="FORMAT"),
         lambda r: r["documents"][0].update(atomic_null_bitmap=False),
         lambda r: r["passes"][1].update(seed="0xdeadbeef"),
@@ -268,8 +266,8 @@ def main() -> int:
               file=sys.stderr)
         return 1
     print("[native-external-remainder] PASS 7 SHA-reviewed originals; "
-          "four separately qualified current V10 unsupported originals, "
-          "12 exact atomic refusals and 12 all-white recovery renders")
+          "three separately qualified current V10 unsupported originals, "
+          "9 exact atomic refusals and 9 all-white recovery renders")
     return 0
 
 
