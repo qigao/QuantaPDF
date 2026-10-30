@@ -1074,6 +1074,12 @@ public:
                   pending_path[1].kind==QUANTAPDF_COMPOSER_PATH_LINE_TO &&
                   pending_path[2].kind==QUANTAPDF_COMPOSER_PATH_LINE_TO &&
                   bounded_clip_path(target.clip.commands) &&
+                  /* Original CTM must preserve physical line width:
+                   * stage_point transforms the centerline, but the
+                   * existing 1px C11 stroke sampler does not scale
+                   * its half-width. Translation alone is harmless. */
+                  current[0]==1.0 && current[1]==0.0 &&
+                  current[2]==0.0 && current[3]==1.0 &&
                   stroke_rgb_exact && stroke_width==1.0 &&
                   stroke_cap==0 && stroke_join==0 &&
                   stroke_miter==10.0 && stroke_default_dash,
@@ -2821,6 +2827,16 @@ unsigned checked_source_v10_userunit(Obj page,double geometry_unit)
  * remain exactly the same, with one nearest-neighbor C11 producer. */
 void scale_source_userunit(admission& source,unsigned quarters)
 {
+    /* A nondefault /UserUnit scales true PDF Stroke width, while the
+     * single C11 clipped-triangle sampler models exactly one device
+     * pixel. Refuse before publishing IR rather than painting an
+     * incorrectly thin or thick Stroke. All prior Fill/Image profiles
+     * retain their existing fractional /UserUnit support. */
+    if(quarters!=4u)
+        admit(std::none_of(source.painted_paths.begin(),
+                          source.painted_paths.end(),
+                          [](const staged_path& p){return p.stroke;}),
+              QUANTAPDF_ERROR_UNSUPPORTED);
     if(quarters==4u)return;
     admit(quarters>=1u && quarters<=16u,
           QUANTAPDF_ERROR_UNSUPPORTED);

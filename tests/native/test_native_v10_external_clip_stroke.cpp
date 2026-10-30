@@ -45,7 +45,8 @@ static bool write_pdf(const std::string& bytes)
     const bool ok=std::fwrite(bytes.data(),1u,bytes.size(),f)==bytes.size();
     return std::fclose(f)==0 && ok;
 }
-static std::string authored(const std::string& content)
+static std::string authored(const std::string& content,
+                            bool scaled_userunit=false)
 {
     auto pdf=QPDF::create();
     pdf->emptyPDF();
@@ -54,6 +55,8 @@ static std::string authored(const std::string& content)
         "<< /Type /Page /MediaBox [0 0 100 50] >>"));
     page.replaceKey("/Parent",root);
     page.replaceKey("/Contents",pdf->newStream(content));
+    if(scaled_userunit)
+        page.replaceKey("/UserUnit",Obj::parse("1.25"));
     root.replaceKey("/Kids",Obj::newArray({page}));
     root.replaceKey("/Count",Obj::newInteger(1));
     root.replaceKey("/Resources",Obj::newDictionary());
@@ -124,7 +127,10 @@ static int check(const std::filesystem::path& assets)
         {"late-stroke","",QUANTAPDF_ERROR_UNSUPPORTED}, /* special */
         {"no-clip","",QUANTAPDF_ERROR_UNSUPPORTED}, /* special */
         {"open-stroke","",QUANTAPDF_ERROR_UNSUPPORTED}, /* special */
-        {"unsafe-clip-near-joins","",QUANTAPDF_ERROR_UNSUPPORTED} /* special */
+        {"unsafe-clip-near-joins","",QUANTAPDF_ERROR_UNSUPPORTED},
+        {"scaled-centerline-width","",QUANTAPDF_ERROR_UNSUPPORTED},
+        {"scaled-original-UserUnit","",QUANTAPDF_ERROR_UNSUPPORTED},
+        {"nonisometric-96-dpi","",QUANTAPDF_ERROR_UNSUPPORTED}
     };
 
     for(size_t case_index=0u;case_index<sizeof(tests)/sizeof(tests[0]);
@@ -149,9 +155,13 @@ static int check(const std::filesystem::path& assets)
                 contents=rect_clip+"0 0 1 RG 10 10 m 25 40 l 40 10 l S";
             else if(case_index==14u)
                 contents="5 5 m 45 5 l 45 45 l 5 45 l W n "+blue_triangle;
+            else if(case_index==15u)
+                contents=rect_clip+"0.5 0 0 0.5 0 0 cm "+blue_triangle;
+            else if(case_index==16u || case_index==17u)
+                contents=original_ops;
             else
                 contents=rect_clip+test.source+blue_triangle;
-            CHECK(write_pdf(authored(contents)));
+            CHECK(write_pdf(authored(contents,case_index==16u)));
         }
         const std::string filename=exact_external?original:
             std::string(temporary);
@@ -166,7 +176,8 @@ static int check(const std::filesystem::path& assets)
         OK(quantapdf_load_page(doc,0,&page));
         CHECK(page!=nullptr);
         quantapdf_render_options opts{};
-        opts.struct_size=sizeof(opts);opts.dpi=72.0f;
+        opts.struct_size=sizeof(opts);
+        opts.dpi=case_index==17u?96.0f:72.0f;
         const auto status=quantapdf_render_page_with_options(
             page,&opts,&bitmap);
         if(status!=test.expected ||
@@ -227,9 +238,9 @@ static int check(const std::filesystem::path& assets)
     CHECK(still!=nullptr && size==copy.size() &&
           std::memcmp(still,copy.data(),size)==0);
     quantapdf_drop_bitmap(retained);
-    CHECK(accepted==2u && refused==13u);
+    CHECK(accepted==2u && refused==16u);
     std::printf("Original public V10 clipped Stroke: 2 100x50 blue on white "
-                "positives, 13 exact atomic source/C11 refusals\n");
+                "positives, 16 exact atomic source/C11 refusals\n");
     return EXIT_SUCCESS;
 }
 int main(int argc,char** argv)

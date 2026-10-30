@@ -40,7 +40,8 @@ actual Source graphics state must have exact DeviceRGB channels,
 pattern and no observed `q/Q` Stroke-state scope. Original
 `G`/`K` setters cannot masquerade as a retained old `RG`
 color; unknown CMYK, hairline, round caps, bevel joins, dashes,
-unclipped, open, additional and late Text/Stroke operators still
+non-unit CTM, non-1 /UserUnit, nonisometric device DPI, unclipped,
+open, additional and late Text/Stroke operators still
 fail with NULL Bitmap.
 
 No Stroke state object, new renderer or Source fallback is created.
