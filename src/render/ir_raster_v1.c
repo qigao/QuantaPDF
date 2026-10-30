@@ -300,6 +300,12 @@ static quantapdf_status qp_admit_draw(
      * TeXample's curved ring path is NOT qualified by this opt-in. */
     const int fractional_line = fractional_stroke_optin && open_line &&
         opt->stroke_width == 0.3985f;
+    /* The same bounded cubic flattener/segment-distance kernel is
+     * re-used for exactly two closed 4-cubic original ring contours.
+     * The one named private entry verifies their whole geometry. */
+    const int fractional_closed = fractional_stroke_optin==2 &&
+        stroke && opt->stroke_width==0.3985f &&
+        path->command_count==12u && path->commands!=NULL;
     const int triangle_stroke = stroke && path->command_count == 4u &&
         path->commands != NULL &&
         path->commands[0].kind == QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
@@ -311,11 +317,12 @@ static quantapdf_status qp_admit_draw(
         !(stroke || (opt->fill == 1 && opt->stroke == 0)) ||
         ((stroke ? opt->stroke_argb : opt->fill_argb) >> 24u) != 255u ||
         (stroke && ((opt->stroke_width != 1.0f &&
-                      !fractional_line) ||
+                      !fractional_line && !fractional_closed) ||
             opt->line_cap != QUANTAPDF_COMPOSER_LINE_CAP_BUTT ||
             opt->line_join != QUANTAPDF_COMPOSER_LINE_JOIN_MITER ||
             opt->miter_limit != 10.0f ||
-            !(rect_stroke || triangle_stroke || open_line))) ||
+            !(rect_stroke || triangle_stroke || open_line ||
+              fractional_closed))) ||
         (opt->fill_rule != QUANTAPDF_COMPOSER_FILL_NONZERO &&
          opt->fill_rule != QUANTAPDF_COMPOSER_FILL_EVEN_ODD) ||
         (opt->struct_size >= QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE &&
@@ -446,7 +453,9 @@ static quantapdf_status qp_admit_draw(
      * still contain geometry. Sample-wise winding of zero edges is false. */
     if ((flat->count == first && !allow_empty_clip) ||
         (stroke && !rect_stroke &&
-         flat->count - first != (open_line ? 1u : 3u)) ||
+         !(fractional_closed ?
+           (flat->count-first>=64u && flat->count-first<=256u) :
+           (flat->count-first==(open_line?1u:3u)))) ||
         (rect_stroke && flat->count - first != 8u))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     out->first_edge = first;
@@ -454,7 +463,7 @@ static quantapdf_status qp_admit_draw(
     out->color = stroke ? opt->stroke_argb : opt->fill_argb;
     out->rule = rect_stroke ? QUANTAPDF_COMPOSER_FILL_EVEN_ODD : opt->fill_rule;
     out->one_pixel_stroke = stroke && !rect_stroke;
-    out->stroke_half_width=fractional_line ?
+    out->stroke_half_width=(fractional_line || fractional_closed) ?
         (double)opt->stroke_width*0.5 : 0.5;
     out->full_canvas_rect = 0;
     return QUANTAPDF_OK;
@@ -584,11 +593,16 @@ static void qp_intersect_sample_box(qp_sample_box *a,
  * lies within half a device-space pixel of one open segment or three closed
  * triangle segments. Unsupported widths, caps, joins, dashes and transforms are
  * rejected by qp_admit_draw; this cannot silently approximate general strokes. */
-static int qp_stroke_inside(const qp_edge *edges,
-    const qp_raster_draw *draw, double x, double y)
+/* One unchanged segment-distance kernel; candidate list is only a
+ * visited-work optimisation for the exact original closed-cubic case. */
+static int qp_stroke_inside_candidates(const qp_edge *edges,
+    const qp_raster_draw *draw,double x,double y,
+    const size_t *indexes,size_t count)
 {
-    for (size_t i = 0u; i < draw->edge_count; ++i) {
-        const qp_edge *edge = &edges[draw->first_edge + i];
+    const size_t n=indexes==NULL?draw->edge_count:count;
+    for(size_t i=0u;i<n;++i) {
+        const size_t local=indexes==NULL?i:indexes[i];
+        const qp_edge *edge=&edges[draw->first_edge+local];
         const double dx = edge->to.x - edge->from.x;
         const double dy = edge->to.y - edge->from.y;
         const double squared = dx * dx + dy * dy;
@@ -607,6 +621,11 @@ static int qp_stroke_inside(const qp_edge *edges,
             return 1;
     }
     return 0;
+}
+static int qp_stroke_inside(const qp_edge *edges,
+    const qp_raster_draw *draw,double x,double y)
+{
+    return qp_stroke_inside_candidates(edges,draw,x,y,NULL,0u);
 }
 
 /* Straight-alpha source-over with coverage n/16 and opaque source color.
