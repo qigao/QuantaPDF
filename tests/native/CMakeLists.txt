@@ -1052,3 +1052,12 @@ quantapdf_native_test(quantapdf_native_three_gs_branch_budget
   "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
   "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
   "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
+
+# PRIVATE exact Stroke-first 3GS original-like branch proof.
+# Existing native C11 runner only; no installer, consumer or extra CI.
+quantapdf_native_test(quantapdf_native_three_gs_branch_stroke_work
+  native/test_native_three_gs_branch_stroke_work.c
+  $<TARGET_OBJECTS:quantapdf_native_raster_objects>
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
