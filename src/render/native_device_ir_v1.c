@@ -7,7 +7,10 @@
 #include <string.h>
 
 #define QP_DPI_MAX_OPS 4u
-#define QP_DPI_MAX_PATH_COMMANDS 9u
+/* Source/V5 independently admit only the exact canonical 10-command
+ * pair of nested rectangles. Other profiles retain their old shapes
+ * and hard nine-command source limits. */
+#define QP_DPI_MAX_PATH_COMMANDS 10u
 
 static int qp_device_float(float source, double scale, float *out)
 {

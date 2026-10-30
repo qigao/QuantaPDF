@@ -115,6 +115,47 @@ static int v5_closed_clip_contours(
     return v5_closed_clip_contours_limit(commands,count,9u);
 }
 
+
+/* The *only* qualified ten-command compound W* Clip leaf: two
+ * axis-aligned rectangles with strict inner containment. A return
+ * to the contour's origin is represented by its CLOSE (same edge).
+ * Legacy generic compound Clip validation retains max nine commands. */
+static int v5_source_ten_rectangles(
+    const quantapdf_composer_clip_state *clip)
+{
+    const quantapdf_composer_path_command *p;
+    const quantapdf_point *a,*b,*c,*d,*e,*f,*g,*h;
+    float x0,x1,y0,y1,u0,u1,v0,v1;
+    if(clip==NULL || clip->commands==NULL ||
+       clip->command_count!=10u ||
+       clip->fill_rule!=QUANTAPDF_COMPOSER_FILL_EVEN_ODD ||
+       clip->kind!=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL ||
+       clip->members!=NULL || clip->member_count!=0u)
+        return 0;
+    p=clip->commands;
+    if(p[0].kind!=QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
+       p[1].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+       p[2].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+       p[3].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+       p[4].kind!=QUANTAPDF_COMPOSER_PATH_CLOSE ||
+       p[5].kind!=QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
+       p[6].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+       p[7].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+       p[8].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+       p[9].kind!=QUANTAPDF_COMPOSER_PATH_CLOSE)return 0;
+    a=&p[0].point1;b=&p[1].point1;c=&p[2].point1;d=&p[3].point1;
+    e=&p[5].point1;f=&p[6].point1;g=&p[7].point1;h=&p[8].point1;
+    if(a->x==b->x || a->y==d->y || e->x==f->x || e->y==h->y ||
+       a->y!=b->y || b->x!=c->x || c->y!=d->y || d->x!=a->x ||
+       e->y!=f->y || f->x!=g->x || g->y!=h->y || h->x!=e->x)
+        return 0;
+    x0=fminf(a->x,b->x);x1=fmaxf(a->x,b->x);
+    y0=fminf(a->y,d->y);y1=fmaxf(a->y,d->y);
+    u0=fminf(e->x,f->x);u1=fmaxf(e->x,f->x);
+    v0=fminf(e->y,h->y);v1=fmaxf(e->y,h->y);
+    return u0>x0 && u1<x1 && v0>y0 && v1<y1;
+}
+
 /* Strict private 7-node Graph: four Clip leaves, three roots. */
 static int v5_three_gs_clips(const quantapdf_resource_registry *r,
     const quantapdf_composer_clip_state *out[4],
@@ -740,7 +781,9 @@ static quantapdf_status v5_render_impl(
         if(!two_clip_optin) {
             if(clip->kind!=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL ||
                clip->commands==NULL || clip->command_count==0u ||
-               clip->command_count>9u ||
+               (clip->command_count>9u &&
+                !(compound_clips_optin && clipped_paths_optin &&
+                  v5_source_ten_rectangles(clip))) ||
                clip->member_count!=0u || clip->members!=NULL ||
                (clip->fill_rule!=QUANTAPDF_COMPOSER_FILL_NONZERO &&
                 clip->fill_rule!=QUANTAPDF_COMPOSER_FILL_EVEN_ODD))
@@ -751,8 +794,10 @@ static quantapdf_status v5_render_impl(
              * BEFORE any output allocation; no fallback or alternate
              * clip sampling engine. */
             if(compound_clips_optin && clipped_paths_optin &&
-               !v5_closed_clip_contours(clip->commands,
-                                        clip->command_count))
+               !((clip->command_count==10u &&
+                  v5_source_ten_rectangles(clip)) ||
+                 v5_closed_clip_contours(clip->commands,
+                                         clip->command_count)))
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             clip_leaves[0]=clip;
             clip_leaf_count=1u;
