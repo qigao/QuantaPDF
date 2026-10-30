@@ -11,6 +11,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <iterator>
 #include <new>
 #include <string>
 
@@ -156,7 +158,136 @@ static bool cleared(const quantapdf_ir& ir)
     for(size_t i=0u;i<sizeof(ir);++i)if(bytes[i]!=0u)return false;
     return true;
 }
-int main()
+
+/* The ORIGINAL, unmodified checked-in 3,747-byte yWorks document is
+ * qualified as an owned Source graph BEFORE public C11 dispatch changes.
+ * Do not manufacture IR geometry or modify its content streams.
+ * Compile the existing production parser with test-only C allocation
+ * hooks; there is no second source parser or consumer project. */
+static bool original_three_branch_graph(const quantapdf_ir& ir)
+{
+    if(ir.page_count!=1u || ir.pages==nullptr ||
+       ir.pages[0].width_points!=600.0f ||
+       ir.pages[0].height_points!=600.0f ||
+       ir.operation_count!=3u || ir.operations==nullptr ||
+       ir.resources.graphics_state_count!=3u ||
+       ir.resources.graphics_state_capacity!=3u ||
+       ir.resources.graphics_states==nullptr ||
+       ir.resources.clip_count!=7u ||
+       ir.resources.clip_capacity!=7u ||
+       ir.resources.clips==nullptr ||
+       ir.resources.image_count!=0u)
+        return false;
+    const size_t expected_commands[4]={5u,10u,6u,6u};
+    for(size_t i=0u;i<4u;++i) {
+        const auto& clip=ir.resources.clips[i];
+        if(clip.kind!=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL ||
+           clip.commands==nullptr ||
+           clip.command_count!=expected_commands[i] ||
+           clip.members!=nullptr || clip.member_count!=0u ||
+           clip.fill_rule!=(i==1u || i==3u ?
+              QUANTAPDF_COMPOSER_FILL_EVEN_ODD:
+              QUANTAPDF_COMPOSER_FILL_NONZERO))
+            return false;
+    }
+    for(size_t i=0u;i<3u;++i) {
+        const auto& root=ir.resources.clips[i+4u];
+        const auto& gs=ir.resources.graphics_states[i];
+        const auto& op=ir.operations[i];
+        if(root.kind!=QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL ||
+           root.members==nullptr || root.member_count!=2u ||
+           root.members[0]!=1u || root.members[1]!=i+2u ||
+           gs.clip_id!=i+5u || gs.fill_alpha!=1.0f ||
+           gs.stroke_alpha!=1.0f ||
+           gs.blend_mode!=QUANTAPDF_COMPOSER_BLEND_NORMAL ||
+           op.kind!=QUANTAPDF_COMPOSER_OPERATION_PATH ||
+           op.page_index!=0u || op.graphics_state_id!=i+1u ||
+           op.value.path.options.graphics_state_id!=i+1u ||
+           op.value.path.command_count!=(i==0u?2u:5u) ||
+           op.value.path.commands==nullptr ||
+           (i==0u ?
+             (op.value.path.options.stroke!=1 ||
+              op.value.path.options.fill!=0 ||
+              op.value.path.options.stroke_width!=1.0f ||
+              op.value.path.options.stroke_argb!=UINT32_C(0xffff0000)):
+             (op.value.path.options.stroke!=0 ||
+              op.value.path.options.fill!=1 ||
+              op.value.path.options.fill_argb!=UINT32_C(0xff0000ff))))
+            return false;
+    }
+    return true;
+}
+static bool original_three_branch_source_oom(
+    const char *filename,
+    const quantapdf_qpdf_source_raw_image_limits& limits)
+{
+    if(filename==nullptr)return false;
+    std::ifstream input(filename,std::ios::binary);
+    if(!input.good())return false;
+    const std::string bytes{std::istreambuf_iterator<char>(input),
+                            std::istreambuf_iterator<char>()};
+    if(bytes.size()!=3747u || bytes.compare(0u,5u,"%PDF-")!=0)
+        return false;
+    size_t allocations=0u;
+    {
+        quantapdf_ir ir{};
+        track_c_allocation=true;
+        c_fail_index=0u;c_allocations=0u;c_faults=0u;
+        const auto status=
+            quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+                reinterpret_cast<const unsigned char*>(bytes.data()),
+                bytes.size(),&limits,0u,&ir);
+        allocations=c_allocations;
+        track_c_allocation=false;
+        if(status!=QUANTAPDF_OK || !original_three_branch_graph(ir) ||
+           c_faults!=0u || allocations<10u || allocations>40u) {
+            std::fprintf(stderr,
+                "original 3GS Source status=%d count=%zu clips=%zu "
+                "gs=%zu paints=%zu\n",(int)status,allocations,
+                ir.resources.clip_count,ir.resources.graphics_state_count,
+                ir.operation_count);
+            quantapdf_ir_dispose(&ir);
+            return false;
+        }
+        quantapdf_ir_dispose(&ir);
+        if(!cleared(ir))return false;
+    }
+    for(size_t fail=1u;fail<=allocations;++fail) {
+        quantapdf_ir ir;
+        std::memset(&ir,0xa5,sizeof(ir));
+        track_c_allocation=true;
+        c_fail_index=fail;c_allocations=0u;c_faults=0u;
+        const auto status=
+            quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+                reinterpret_cast<const unsigned char*>(bytes.data()),
+                bytes.size(),&limits,0u,&ir);
+        const size_t seen=c_allocations,fired=c_faults;
+        track_c_allocation=false;c_fail_index=0u;
+        if(status!=QUANTAPDF_ERROR_NOMEM || !cleared(ir) ||
+           seen!=fail || fired!=1u) {
+            std::fprintf(stderr,
+                "original 3GS Source OOM %zu/%zu status=%d seen=%zu "
+                "fired=%zu\n",fail,allocations,(int)status,seen,fired);
+            quantapdf_ir_dispose(&ir);
+            return false;
+        }
+        quantapdf_ir recovery{};
+        const auto success=
+            quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+                reinterpret_cast<const unsigned char*>(bytes.data()),
+                bytes.size(),&limits,0u,&recovery);
+        const bool restored=success==QUANTAPDF_OK &&
+                            original_three_branch_graph(recovery);
+        quantapdf_ir_dispose(&recovery);
+        if(!restored || !cleared(recovery))return false;
+    }
+    std::printf("Native original yWorks Source: 3 paints, 4 Clip leaves, "
+                "3 independent roots, 3 GS, %zu faulted C allocations\n",
+                allocations);
+    return true;
+}
+
+int main(int argc,char **argv)
 {
     const std::string pdf=original_pdf();
     const quantapdf_qpdf_source_raw_image_limits limits={
@@ -295,5 +426,7 @@ int main()
             CHECK(cleared(retry));
         }
     }
+    if(argc!=2 || !original_three_branch_source_oom(argv[1],limits))
+        return EXIT_FAILURE;
     return EXIT_SUCCESS;
 }
