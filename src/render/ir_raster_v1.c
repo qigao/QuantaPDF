@@ -699,7 +699,7 @@ static quantapdf_status qp_render_v1_impl(
     const quantapdf_ir_raster_v1_limits *limits,
     const quantapdf_native_device_plan *plan,
     const quantapdf_composer_clip_state *const *clips, size_t clip_count,
-    quantapdf_ir_raster_image *out_image)
+    int visible_work_optin,quantapdf_ir_raster_image *out_image)
 {
     size_t width, height, pixels_count, total_checks = 0u;
     size_t i, draw_count = 0u, x, y, ci;
@@ -783,8 +783,8 @@ static quantapdf_status qp_render_v1_impl(
     /* One source-owned clipped Fill is allowed to establish its
      * VISITED sample area from actual flattened geometry below. All
      * other callers keep the old all-page minimum work admission. */
-    bounded_clipped_fill=clip_count!=0u &&
-        ir->operation_count==1u &&
+    bounded_clipped_fill=visible_work_optin &&
+        clip_count!=0u && ir->operation_count==1u &&
         ir->operations!=NULL &&
         ir->operations[0].kind==QUANTAPDF_COMPOSER_OPERATION_PATH &&
         ir->operations[0].value.path.options.fill==1 &&
@@ -1000,7 +1000,7 @@ quantapdf_status quantapdf_ir_raster_render_v1(
     const quantapdf_ir_raster_v1_limits *limits,
     quantapdf_ir_raster_image *out_image)
 {
-    return qp_render_v1_impl(ir, page_index, limits, NULL, NULL, 0u, out_image);
+    return qp_render_v1_impl(ir, page_index, limits, NULL, NULL, 0u, 0, out_image);
 }
 
 quantapdf_status quantapdf_ir_raster_render_v1_clipped(
@@ -1016,7 +1016,7 @@ quantapdf_status quantapdf_ir_raster_render_v1_clipped(
     }
     {
         const quantapdf_composer_clip_state *one[1] = {clip};
-        return qp_render_v1_impl(ir, page_index, limits, NULL, one, 1u, out_image);
+        return qp_render_v1_impl(ir, page_index, limits, NULL, one, 1u, 0, out_image);
     }
 }
 
@@ -1032,7 +1032,26 @@ quantapdf_status quantapdf_ir_raster_render_v1_multi_clipped(
         return QUANTAPDF_ERROR_ARGUMENT;
     }
     return qp_render_v1_impl(
-        ir, page_index, limits, NULL, clips, clip_count, out_image);
+        ir, page_index, limits, NULL, clips, clip_count, 0, out_image);
+}
+
+
+/* Explicit PRIVATE V10 work admission in the SAME qp_render_v1_impl.
+ * Only a fully validated single clipped opaque Fill may bound its
+ * visited 4x4 subpixels by the actual flattened edge intersection.
+ * All old V1 entrypoints above preserve the full-page work lease. */
+quantapdf_status quantapdf_ir_raster_render_v1_multi_clipped_visible_work(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_composer_clip_state *const *clips,size_t clip_count,
+    quantapdf_ir_raster_image *out_image)
+{
+    if(clip_count==0u || clips==NULL) {
+        if(out_image!=NULL)memset(out_image,0,sizeof(*out_image));
+        return QUANTAPDF_ERROR_ARGUMENT;
+    }
+    return qp_render_v1_impl(ir,page_index,limits,NULL,
+                              clips,clip_count,1,out_image);
 }
 
 quantapdf_status quantapdf_ir_raster_render_v1_planned(
@@ -1048,5 +1067,5 @@ quantapdf_status quantapdf_ir_raster_render_v1_planned(
         return QUANTAPDF_ERROR_ARGUMENT;
     }
     return qp_render_v1_impl(
-        ir, page_index, limits, plan, clips, clip_count, out_image);
+        ir, page_index, limits, plan, clips, clip_count, 0, out_image);
 }

@@ -18,8 +18,11 @@ An ordinary 4-edge Fill plus six Clip edges incurred
 
 ## Exact production change
 
-Only a single already validated, opaque **Fill** operation with at least
-one already admitted Clip leaf may use the visible-region work bounds.
+Only an **explicitly selected private Source V10 compound-Clip
+entrypoint** may activate visible-region work accounting, and only
+for a single already validated opaque **Fill** under at least one
+already admitted Clip leaf. All existing V1 public-to-internal
+functions retain their original full-page preflight unchanged.
 This is the existing unique `ir_raster_v1.c` renderer, not a new
 raster, fallback, new source parser, or QPDF/PDFium use.
 
@@ -54,10 +57,18 @@ RGB at the white center hole, red outer lobe and untouched page
 corners, deterministic repeated output, and nonzero vs even-odd
 interior behavior. It also requires refusal and zero output when
 `max_sample_tests = 255,999`, acceptance at exactly 256,000,
-and **unchanged refusal of the same unclipped Fill** under 8M.
+and **unchanged refusal of both the same unclipped Fill AND the
+same clipped Fill through the historical V1 API** under 8M.
+That legacy no-optimization guarantee is tested explicitly, not
+asserted merely because the new low-budget case is green.
 
 This increments the Native suite **54 → 55 CTests** without a second
-renderer or a changed public ABI.
+renderer or a changed public ABI. The first candidate accidentally
+changed the historical V1 admission and triggered **twelve real
+existing Source budget regression failures** on Linux/macOS while the
+new geometry test itself passed. That is why this increment must
+retain a separate explicitly selected V10 entrypoint, still within
+the SAME C11 sampling function; no historical tests are modified.
 
 ## Explicit non-claims
 

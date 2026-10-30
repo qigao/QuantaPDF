@@ -934,8 +934,15 @@ static quantapdf_status v5_render_impl(
                 status=n==0u?
                     quantapdf_ir_raster_render_v1(
                         &projected,0u,&geometry_limits,&layers[i]) :
-                    quantapdf_ir_raster_render_v1_multi_clipped(
-                        &projected,0u,&geometry_limits,all,n,&layers[i]);
+                    (compound_clips_optin && clipped_paths_optin ?
+                     quantapdf_ir_raster_render_v1_multi_clipped_visible_work(
+                        &projected,0u,&geometry_limits,all,n,&layers[i]) :
+                     quantapdf_ir_raster_render_v1_multi_clipped(
+                        &projected,0u,&geometry_limits,all,n,&layers[i]));
+                /* Only the already-qualified public V10 one-GS,
+                 * one-compound-Clip Fill opts into visible-work billing.
+                 * All historical C11 Source/Clip entries keep the
+                 * legacy full-page admission and rejection contract. */
             }
         } else {
             const size_t id=(size_t)op->value.image.image_id;

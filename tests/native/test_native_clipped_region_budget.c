@@ -60,6 +60,7 @@ static int run(void)
     quantapdf_composer_page_state page={0};
     quantapdf_composer_operation op={0};
     quantapdf_composer_clip_state clip={0};
+    const quantapdf_composer_clip_state *clip_leaves[1]={&clip};
     quantapdf_ir ir={0};
     quantapdf_ir_raster_v1_limits limits={0};
     quantapdf_ir_raster_image image={0},repeat={0};
@@ -96,8 +97,8 @@ static int run(void)
     /* The former all-page precharge was
      * (4+6) * 16 * 600 * 600 = 57,600,000; now the actual sampled
      * 40x40 intersection needs at most 256,000 edge checks. */
-    OK(quantapdf_ir_raster_render_v1_clipped(
-        &ir,0u,&limits,&clip,&image));
+    OK(quantapdf_ir_raster_render_v1_multi_clipped_visible_work(
+        &ir,0u,&limits,clip_leaves,1u,&image));
     CHECK(image.pixels!=NULL && image.width==(size_t)W &&
           image.height==(size_t)H &&
           image.stride==(size_t)W*4u &&
@@ -110,16 +111,16 @@ static int run(void)
     ++positives;
 
     /* Same Clip winding, same source, identical output bytes and owner. */
-    OK(quantapdf_ir_raster_render_v1_clipped(
-        &ir,0u,&limits,&clip,&repeat));
+    OK(quantapdf_ir_raster_render_v1_multi_clipped_visible_work(
+        &ir,0u,&limits,clip_leaves,1u,&repeat));
     CHECK(repeat.pixels!=NULL && repeat.size==image.size &&
           memcmp(repeat.pixels,image.pixels,image.size)==0);
     quantapdf_ir_raster_image_dispose(&repeat);
     ++positives;
 
     clip.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
-    OK(quantapdf_ir_raster_render_v1_clipped(
-        &ir,0u,&limits,&clip,&repeat));
+    OK(quantapdf_ir_raster_render_v1_multi_clipped_visible_work(
+        &ir,0u,&limits,clip_leaves,1u,&repeat));
     CHECK(pixel(&repeat,30u,20u)==UINT32_C(0xff0000) &&
           pixel(&repeat,30u,35u)==UINT32_C(0xff0000));
     quantapdf_ir_raster_image_dispose(&repeat);
@@ -131,18 +132,28 @@ static int run(void)
      * with a fully cleared, unowned output. */
     limits.max_sample_tests=exact_upper_bound-1u;
     memset(&repeat,0xa5,sizeof(repeat));
-    CHECK(quantapdf_ir_raster_render_v1_clipped(
-        &ir,0u,&limits,&clip,&repeat)==QUANTAPDF_ERROR_UNSUPPORTED &&
+    CHECK(quantapdf_ir_raster_render_v1_multi_clipped_visible_work(
+        &ir,0u,&limits,clip_leaves,1u,&repeat)==QUANTAPDF_ERROR_UNSUPPORTED &&
           repeat.pixels==NULL && repeat.size==0u &&
           repeat.width==0u && repeat.height==0u);
     ++refusals;
     limits.max_sample_tests=exact_upper_bound;
-    OK(quantapdf_ir_raster_render_v1_clipped(
-        &ir,0u,&limits,&clip,&repeat));
+    OK(quantapdf_ir_raster_render_v1_multi_clipped_visible_work(
+        &ir,0u,&limits,clip_leaves,1u,&repeat));
     CHECK(repeat.pixels!=NULL && repeat.size==image.size &&
           memcmp(repeat.pixels,image.pixels,image.size)==0);
     quantapdf_ir_raster_image_dispose(&repeat);
     ++positives;
+
+    /* The historical clipped V1 entrypoint also retains the OLD
+     * full-page precharge, even with an identical borrowed Clip.
+     * This regression prevents weakening prior Source/OOM gates. */
+    limits.max_sample_tests=8000000u;
+    memset(&repeat,0xa5,sizeof(repeat));
+    CHECK(quantapdf_ir_raster_render_v1_clipped(
+        &ir,0u,&limits,&clip,&repeat)==QUANTAPDF_ERROR_UNSUPPORTED &&
+          repeat.pixels==NULL && repeat.size==0u);
+    ++refusals;
 
     /* No-Clip input keeps the OLD full-canvas admission, not the
      * clipped-region discount. One 40x40 Fill on 600x600 still
@@ -157,9 +168,9 @@ static int run(void)
     /* The original full-page rectangle and Stroke budget/refusal
      * contracts are independently exercised by existing tests. */
     quantapdf_ir_raster_image_dispose(&image);
-    CHECK(positives==4u && refusals==2u);
+    CHECK(positives==4u && refusals==3u);
     printf("Native C11 600x600 clipped winding: 4 exact RGB positives, "
-           "2 atomic budget/profile refusals, 8m ceiling unchanged\n");
+           "3 atomic budget/profile refusals, 8m ceiling unchanged\n");
     return EXIT_SUCCESS;
 }
 int main(void) { return run(); }
