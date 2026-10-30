@@ -292,7 +292,8 @@ static quantapdf_status qp_native_device_ir_render(
                old->transform.c!=0.0f || old->transform.d!=1.0f ||
                old->transform.e!=0.0f || old->transform.f!=0.0f ||
                (clipped_paths_optin && old->command_count<4u) ||
-               ((two_states || unclipped_prefix_optin) &&
+               ((two_states || unclipped_prefix_optin ||
+                 (clipped_paths_optin && compound_clips_optin)) &&
                 !(compound_clips_optin ?
                     qp_device_closed_clip_contours(old->commands,old->command_count) :
                     qp_device_closed_contour(old->commands,old->command_count))) ||
@@ -324,6 +325,12 @@ static quantapdf_status qp_native_device_ir_render(
             out_image);
     if(unclipped_prefix_optin)
         return quantapdf_ir_raster_scoped_mixed_v5_unclipped_prefix_device_viewport(
+            &projected,0u,limits,
+            (double)source_width*(double)dpi/1152.0,
+            (double)source_height*(double)dpi/1152.0,
+            out_image);
+    if(compound_clips_optin && clipped_paths_optin)
+        return quantapdf_ir_raster_scoped_mixed_v5_compound_clipped_paths_device_viewport(
             &projected,0u,limits,
             (double)source_width*(double)dpi/1152.0,
             (double)source_height*(double)dpi/1152.0,
@@ -381,7 +388,26 @@ quantapdf_status quantapdf_native_device_ir_render_v1_clipped_paths(
     quantapdf_ir_raster_image *out_image)
 {
     const int two=source!=NULL && source->resources.clip_count==3u;
-    return qp_native_device_ir_render(source,dpi,limits,out_image,two,1,0,0,0,0);
+    int compound=0;
+    /* Public V10 alone may opt a SINGLE already owned Clip leaf with
+     * two authored closed contours into the SAME C11 sampler. Other
+     * one-Clip paths keep their exact old C11 profile. Two-leaf DAGs
+     * retain the independent existing intersection contract. */
+    if(!two && source!=NULL &&
+       source->resources.clip_count==1u &&
+       source->resources.clips!=NULL) {
+        const quantapdf_composer_clip_state *clip=
+            &source->resources.clips[0];
+        if(clip->commands!=NULL && clip->command_count<=9u)
+            for(size_t i=1u;i<clip->command_count;++i)
+                if(clip->commands[i].kind==
+                    QUANTAPDF_COMPOSER_PATH_MOVE_TO) {
+                    compound=1;
+                    break;
+                }
+    }
+    return qp_native_device_ir_render(
+        source,dpi,limits,out_image,two,1,0,compound,0,0);
 }
 
 quantapdf_status quantapdf_native_device_ir_render_v1_clip_states(

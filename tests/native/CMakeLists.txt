@@ -989,3 +989,26 @@ set_tests_properties(quantapdf.native_v10_external_clip_stroke PROPERTIES
   TIMEOUT 70
   LABELS "conformance;native;no-pdfium;external;public-api;clipped-stroke"
   FIXTURES_REQUIRED native_v10_external_verified)
+
+# One W/W* Clip leaf with two original closed contours under the same
+# frozen GS, bounded to nine source commands. This test authors only
+# ORIGINAL INPUT PDFs; the existing public Native C11 renderer alone
+# produces RGB and proves the even-odd hole/nonzero center difference.
+add_executable(quantapdf_native_v10_wstar_compound
+  test_native_v10_wstar_compound.cpp)
+target_compile_features(quantapdf_native_v10_wstar_compound PRIVATE
+  cxx_std_20)
+target_link_libraries(quantapdf_native_v10_wstar_compound PRIVATE
+  QuantaPDF::QuantaPDF qpdf::libqpdf)
+if(MSVC)
+  target_compile_options(quantapdf_native_v10_wstar_compound PRIVATE
+    /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_v10_wstar_compound PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_v10_wstar_compound
+  COMMAND quantapdf_native_v10_wstar_compound)
+set_tests_properties(quantapdf.native_v10_wstar_compound PROPERTIES
+  TIMEOUT 70
+  LABELS "conformance;native;no-pdfium;public-api;wstar;two-contour;strict")

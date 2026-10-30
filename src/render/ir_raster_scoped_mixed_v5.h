@@ -78,6 +78,17 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_clipped_paths_device_viewpo
     double viewport_width,double viewport_height,
     quantapdf_ir_raster_image *out_image);
 
+/* Public Source V10 only: one fully owned Clip leaf with one/two
+ * bounded closed contours and a single selected opaque PATH/GS.
+ * All W/W* contours participate in the same original-rule winding
+ * test on the SAME V1 4x4 antialias samples. No new sampler, no
+ * bigger source/sample budgets, no second raster or provider. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_compound_clipped_paths_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
 /* Explicit two-GS device profile: exact Clip leaves 1/2 and flat root
  * 3={1,2}; full-alpha Normal GS 1 selects leaf 1, GS 2 selects root 3.
  * Both GS identities must occur in the paint order 1* 2+ 1* 0*.

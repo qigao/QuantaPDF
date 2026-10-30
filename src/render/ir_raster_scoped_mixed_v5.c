@@ -607,6 +607,15 @@ static quantapdf_status v5_render_impl(
                (clip->fill_rule!=QUANTAPDF_COMPOSER_FILL_NONZERO &&
                 clip->fill_rule!=QUANTAPDF_COMPOSER_FILL_EVEN_ODD))
                 return QUANTAPDF_ERROR_UNSUPPORTED;
+            /* One public V10 clipped-PATH compound leaf must preserve
+             * a single even-odd/nonzero winding calculation across
+             * exactly one or two closed contours. The test is done
+             * BEFORE any output allocation; no fallback or alternate
+             * clip sampling engine. */
+            if(compound_clips_optin && clipped_paths_optin &&
+               !v5_closed_clip_contours(clip->commands,
+                                        clip->command_count))
+                return QUANTAPDF_ERROR_UNSUPPORTED;
             clip_leaves[0]=clip;
             clip_leaf_count=1u;
         }
@@ -1058,6 +1067,25 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_clipped_paths_device_viewpo
 }
 
 /* Original two-GS entry retains strictly single-contour Clip leaves. */
+/* Only public Source V10's ONE owned Clip/GS leaf containing two
+ * closed authored contours. The original 1..4 clipped PATH fills and
+ * invariant budgets are consumed by the SAME V5->V1 sampler and
+ * physical viewport. Older one-contour and two-GS entrypoints stay
+ * independently strict; no resource or ownership is synthesized. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_compound_clipped_paths_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image)
+{
+    if(ir==NULL || ir->resources.clip_count!=1u) {
+        if(out_image!=NULL)memset(out_image,0,sizeof(*out_image));
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    return v5_render_impl(ir,page_index,limits,1,
+        viewport_width,viewport_height,0,1,0,1,0,0,out_image);
+}
+
 quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_clip_states_device_viewport(
     const quantapdf_ir *ir,size_t page_index,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
