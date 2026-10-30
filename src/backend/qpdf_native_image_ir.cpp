@@ -1475,6 +1475,88 @@ public:
               (!clipped || clip_stack.empty()));
     }
 private:
+    /* The SAME QPDF operator callbacks account for every original m:
+     * an unconsumed MOVE has zero winding edges, and retiring it is
+     * allowed ONLY when a subsequent original m replaces it or the
+     * complete paint/Clip operation terminates. */
+    void texample_move(double x,double y)
+    {
+        admit(!clip_pending && (pending_path.empty() || closed ||
+              texample_pending_move) && texample_group_moves<6u,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        const quantapdf_point p=stage_point(x,y);
+        if(texample_pending_move) {
+            ++texample_group_empty;
+            ++target.texample_zero_moves;
+        }
+        texample_pending_move=true;
+        texample_move_point=p;
+        ++texample_group_moves;
+        ++target.texample_moves;
+    }
+    void texample_cubic(const std::array<double,6u>& xy)
+    {
+        admit(!clip_pending && texample_group_cubics<8u &&
+              pending_path.size()<12u,QUANTAPDF_ERROR_UNSUPPORTED);
+        if(texample_pending_move) {
+            admit(texample_contours<2u &&
+                  (pending_path.empty() || closed),
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            quantapdf_composer_path_command cmd={};
+            cmd.kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+            cmd.point1=texample_move_point;
+            contour_start=pending_path.size();
+            pending_path.push_back(cmd);
+            texample_pending_move=false;
+            ++texample_contours;
+            closed=false;
+        }
+        admit(!closed && texample_contours>0u &&
+              pending_path.size()>=contour_start+1u &&
+              pending_path.size()<=contour_start+4u,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        append_cubic(xy);
+        ++texample_group_cubics;
+        ++target.texample_cubics;
+    }
+    void texample_close()
+    {
+        admit(!texample_pending_move && !clip_pending &&
+              texample_contours>0u && !closed &&
+              pending_path.size()==contour_start+5u &&
+              texample_group_closes<2u,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        close_path();
+        ++texample_group_closes;
+        ++target.texample_closes;
+    }
+    void texample_complete_group()
+    {
+        /* Four groups of 6 m, 8 c, 2 h: two anchored closed curves,
+         * four truly zero-edge original m subpaths per group. */
+        admit(texample_pending_move &&
+              texample_contours==2u &&
+              texample_group_moves==6u &&
+              texample_group_cubics==8u &&
+              texample_group_closes==2u &&
+              texample_group_empty==3u &&
+              pending_path.size()==12u && closed,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        ++texample_group_empty;
+        ++target.texample_zero_moves;
+        texample_pending_move=false;
+        admit(texample_group_empty==4u,QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+    void texample_clear_group()
+    {
+        clear_path();
+        texample_pending_move=false;
+        texample_group_moves=0u;
+        texample_group_cubics=0u;
+        texample_group_closes=0u;
+        texample_group_empty=0u;
+        texample_contours=0u;
+    }
     void begin_contour(size_t minimum_commands)
     {
         if(pending_path.empty()) {
@@ -1660,7 +1742,8 @@ private:
         /* Do not publish a partially admitted cubic command. All
          * three individually transformed points must pass first. */
         admit(!pending_path.empty() && !closed && !clip_pending &&
-              pending_path.size()<8u,QUANTAPDF_ERROR_UNSUPPORTED);
+              pending_path.size()<(target.texample_private_m3?12u:8u),
+              QUANTAPDF_ERROR_UNSUPPORTED);
         quantapdf_composer_path_command cmd={};
         cmd.kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
         cmd.point1=stage_point(xy[0],xy[1]);
@@ -1700,7 +1783,8 @@ private:
     void close_path()
     {
         admit(pending_path.size()>=contour_start+3u && !closed &&
-              pending_path.size()<9u,QUANTAPDF_ERROR_UNSUPPORTED);
+              pending_path.size()<(target.texample_private_m3?12u:9u),
+              QUANTAPDF_ERROR_UNSUPPORTED);
         quantapdf_composer_path_command cmd={};
         cmd.kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
         pending_path.push_back(cmd);
@@ -1731,6 +1815,11 @@ private:
     bool closed=false;
     bool ten_wstar_candidate=false;
     bool three_branch_clip_pending=false;
+    bool texample_pending_move=false,texample_original_ctm=false;
+    quantapdf_point texample_move_point{};
+    size_t texample_group_moves=0u,texample_group_cubics=0u;
+    size_t texample_group_closes=0u,texample_group_empty=0u;
+    size_t texample_qdepth=0u,texample_contours=0u;
 };
 
 /* Complete-page selection, before any C owner is published. A root-only
