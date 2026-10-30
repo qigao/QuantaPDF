@@ -505,6 +505,13 @@ struct admission {
      * or RAW/Flate IMAGE paints and independently qualified Clip
      * profiles. Older mixed W/Q Path+Image modes stay narrower. */
     bool native_unclipped_mode=false;
+    /* Only a completely qualified negative-Y, original 600x600,
+     * three-paint Source V10 is allowed to publish this new graph.
+     * Four independent Clip leaves remain in source-owned staging
+     * until all q/Q, paint and full-page limits are validated. */
+    bool three_branch_candidate=false;
+    std::array<staged_image_clip,3u> three_branch_leaves{};
+    size_t three_branch_count=0u;
     /* Public Source V10 alone normalizes the original PDF MediaBox
      * origin before deterministic Y-down Stage/IR projection. Older
      * private source signatures always use zero offsets. */
@@ -524,13 +531,19 @@ struct admission {
         /* A public V10 Stroke may be the ONLY paint in the original
          * selected page. Late paints cannot silently escape the sole
          * C11 clipped-triangle qualification. */
-        admit(std::none_of(painted_paths.begin(),painted_paths.end(),
-                  [](const staged_path& p){return p.stroke;}) &&
-              (!is_stroke ||
-               (native_unclipped_mode && clipped_image_mode &&
-                clip_completed && draws.empty() && painted_paths.empty() &&
-                order.empty() && scoped_clip_membership.empty() &&
-                !saw_q_restore)),QUANTAPDF_ERROR_UNSUPPORTED);
+        const bool three_path=three_branch_candidate && draws.empty() &&
+            (is_stroke ?
+                (painted_paths.empty() && three_branch_count==1u) :
+                (!painted_paths.empty() && painted_paths[0].stroke &&
+                 painted_paths.size()<3u));
+        admit(three_path ||
+              (std::none_of(painted_paths.begin(),painted_paths.end(),
+                   [](const staged_path& p){return p.stroke;}) &&
+               (!is_stroke ||
+                (native_unclipped_mode && clipped_image_mode &&
+                 clip_completed && draws.empty() && painted_paths.empty() &&
+                 order.empty() && scoped_clip_membership.empty() &&
+                 !saw_q_restore))),QUANTAPDF_ERROR_UNSUPPORTED);
         /* Public V10 PATH-only pages, with or without a frozen Clip,
          * may consume the EXISTING four canonical C11 raster layers.
          * A later Image still faces the complete mixed preflight's
@@ -540,7 +553,8 @@ struct admission {
                 hard_operations :
                 (mixed_operation_limit==4u ? 2u : 1u);
         admit(mixed_mode && painted_paths.size()<allowed_paths &&
-              commands.size()>=4u && commands.size()<=9u &&
+              ((three_path && is_stroke && commands.size()==2u) ||
+               (commands.size()>=4u && commands.size()<=9u)) &&
               order.size()<mixed_operation_limit &&
               limits.max_operations>=
                    (variable_scoped_mode ? order.size()+1u :
@@ -822,9 +836,15 @@ public:
          * newer comprehensive Stroke profile may prove richer ordering
          * separately; the original public V10 defaults fail closed. */
         if(target.native_unclipped_mode &&
+           !target.three_branch_candidate &&
            std::any_of(target.painted_paths.begin(),
                        target.painted_paths.end(),
                        [](const staged_path& p){return p.stroke;}))
+            throw rejected{QUANTAPDF_ERROR_UNSUPPORTED};
+        /* After precisely three paints, only original Q pops may
+         * occur. Unsupported late resources must not be suppressed. */
+        if(target.three_branch_candidate &&
+           target.painted_paths.size()==3u && op!="Q")
             throw rejected{QUANTAPDF_ERROR_UNSUPPORTED};
         /* Each Source V10 W/W* must be immediately followed by
          * path-ending n. An empty original path cannot silently grow
@@ -898,6 +918,19 @@ public:
             matrix next;
             for(size_t i=0u;i<6u;++i)next[i]=finite_number(args[i]);
             current=concat(current,next);
+            /* An exact page-height negative-Y authoring CTM selects
+             * only the *candidate*. It does NOT make a page paintable;
+             * the complete original 3GS/7Clip shape is still mandatory. */
+            if(target.native_unclipped_mode &&
+               !target.three_branch_candidate && !target.clip_completed &&
+               target.order.empty() && target.draws.empty() &&
+               target.exact_page_w==600.0 &&
+               target.exact_page_h==600.0 &&
+               target.media_left==0.0 && target.media_bottom==0.0 &&
+               current[0]==1.0 && current[1]==0.0 &&
+               current[2]==0.0 && current[3]==-1.0 &&
+               current[4]==0.0 && current[5]==600.0)
+                target.three_branch_candidate=true;
         } else if(target.native_unclipped_mode &&
                   (op=="w" || op=="J" || op=="j")) {
             /* Stroking-only graphics-state parameters have no effect
@@ -1380,7 +1413,10 @@ private:
              * CLOSE replaces the SAME geometric edge, keeping five
              * commands and reserving room for the next rectangle. */
             const bool special=target.native_unclipped_mode &&
-                !target.clip_completed && !clip_pending &&
+                (!target.clip_completed ||
+                 (target.three_branch_candidate &&
+                  target.three_branch_count==0u &&
+                  clip_active==1u)) && !clip_pending &&
                 contour_count==1u && minimum_commands==4u &&
                 !closed && pending_path.size()==5u &&
                 v10_return_rect(pending_path,0u);
@@ -1489,8 +1525,13 @@ private:
          * Existing strict scale/shear and exact quarter-viewport
          * policies apply IDENTICALLY to every cubic control/end
          * point, not merely to its final visible endpoint. */
-        admit(current[0]>0.0 && current[3]>0.0 &&
-              current[1]==0.0 && current[2]==0.0,
+        const bool y_inverse=target.three_branch_candidate &&
+            current[0]==1.0 && current[1]==0.0 &&
+            current[2]==0.0 && current[3]==-1.0 &&
+            current[4]==0.0 && current[5]==600.0;
+        admit(y_inverse ||
+              (current[0]>0.0 && current[3]>0.0 &&
+               current[1]==0.0 && current[2]==0.0),
               QUANTAPDF_ERROR_UNSUPPORTED);
         const double absolute_x=
             current[0]*x+current[4]-target.media_left;
