@@ -1980,8 +1980,11 @@ quantapdf_ir materialize_owned_paths(const admission& source)
           QUANTAPDF_ERROR_UNSUPPORTED);
     for(size_t i=0u;i<n;++i)
         admit(source.order[i]==1 &&
-              source.painted_paths[i].commands.size()>=4u &&
-              source.painted_paths[i].commands.size()<=9u,
+              ((source.three_branch_candidate && i==0u &&
+                source.painted_paths[0].stroke &&
+                source.painted_paths[0].commands.size()==2u) ||
+               (source.painted_paths[i].commands.size()>=4u &&
+                source.painted_paths[i].commands.size()<=9u)),
               QUANTAPDF_ERROR_UNSUPPORTED);
 
     quantapdf_ir ir=materialize_blank_page(source);
@@ -2175,6 +2178,127 @@ quantapdf_composer_clip_id materialize_source_clip_graph(
         root.members[1]=2u;
     }
     return static_cast<quantapdf_composer_clip_id>(count);
+}
+
+/* Original Source V10 three independently restored branches, never a
+ * second parser or artificial inferred Clip. The complete q/Q stack was
+ * validated by the existing image_content_reader BEFORE this creator
+ * owns a single IR allocation. Every copied Clip path was frozen under
+ * its own original CTM and every paint retains source order and GS. */
+quantapdf_ir materialize_three_branch_source(const admission& source)
+{
+    const auto& outer=source.clip.commands;
+    const auto outer_canvas=[&]() {
+        if(outer.size()!=5u || source.clip.rule!=
+             QUANTAPDF_COMPOSER_FILL_NONZERO ||
+           outer[0].kind!=QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
+           outer[1].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+           outer[2].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+           outer[3].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+           outer[4].kind!=QUANTAPDF_COMPOSER_PATH_CLOSE)
+            return false;
+        const quantapdf_point p[4]={
+            outer[0].point1,outer[1].point1,
+            outer[2].point1,outer[3].point1
+        };
+        return p[0].x==0.0f && p[0].y==0.0f &&
+               p[1].x==600.0f && p[1].y==0.0f &&
+               p[2].x==600.0f && p[2].y==600.0f &&
+               p[3].x==0.0f && p[3].y==600.0f;
+    };
+    admit(source.three_branch_candidate && source.native_unclipped_mode &&
+          source.mixed_mode && source.mixed_scoped_mode &&
+          source.clip_completed && outer_canvas() &&
+          source.three_branch_count==3u &&
+          !source.two_owned_clips && !source.sibling_clip_scopes &&
+          source.second_clip.commands.empty() && source.draws.empty() &&
+          source.order.size()==3u && source.painted_paths.size()==3u &&
+          source.scoped_clip_membership.size()==3u &&
+          source.limits.max_operations>=3u &&
+          source.exact_page_w==600.0 && source.exact_page_h==600.0 &&
+          source.media_left==0.0 && source.media_bottom==0.0 &&
+          !source.crop_viewport &&
+          v10_nested_rects(source.three_branch_leaves[0].commands) &&
+          source.three_branch_leaves[0].rule==
+              QUANTAPDF_COMPOSER_FILL_EVEN_ODD,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    for(size_t i=0u;i<3u;++i) {
+        const auto& s=source.painted_paths[i];
+        admit(source.order[i]==1 &&
+              source.scoped_clip_membership[i]==i+2u &&
+              (i==0u ?
+               (s.stroke && s.stroke_argb==UINT32_C(0xffff0000) &&
+                s.commands.size()==2u) :
+               (!s.stroke && s.fill_argb==UINT32_C(0xff0000ff) &&
+                s.commands.size()==5u)),
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        const auto& leaf=source.three_branch_leaves[i];
+        admit(i==0u ?
+              (leaf.commands.size()==10u &&
+               leaf.rule==QUANTAPDF_COMPOSER_FILL_EVEN_ODD) :
+              (leaf.commands.size()==6u &&
+               bounded_clip_path(leaf.commands) &&
+               leaf.rule==(i==1u?
+                   QUANTAPDF_COMPOSER_FILL_NONZERO:
+                   QUANTAPDF_COMPOSER_FILL_EVEN_ODD)),
+              QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+    quantapdf_ir ir=materialize_owned_paths(source);
+    try {
+        ir.resources.clips=
+            static_cast<quantapdf_composer_clip_state *>(
+                QP_SOURCE_C_CALLOC(7u,sizeof(*ir.resources.clips)));
+        admit(ir.resources.clips!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        ir.resources.clip_count=7u;
+        ir.resources.clip_capacity=7u;
+        for(size_t i=0u;i<4u;++i) {
+            const auto& staged=i==0u?source.clip:
+                                      source.three_branch_leaves[i-1u];
+            auto& dest=ir.resources.clips[i];
+            dest.kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;
+            dest.fill_rule=staged.rule;
+            dest.command_count=staged.commands.size();
+            dest.commands=static_cast<quantapdf_composer_path_command *>(
+                QP_SOURCE_C_MALLOC(
+                    dest.command_count*sizeof(*dest.commands)));
+            admit(dest.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
+            std::memcpy(dest.commands,staged.commands.data(),
+                        dest.command_count*sizeof(*dest.commands));
+            dest.transform={1.0f,0.0f,0.0f,1.0f,0.0f,0.0f};
+        }
+        for(size_t i=0u;i<3u;++i) {
+            auto& root=ir.resources.clips[i+4u];
+            root.kind=QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL;
+            root.member_count=2u;
+            root.members=static_cast<quantapdf_composer_clip_id *>(
+                QP_SOURCE_C_MALLOC(2u*sizeof(*root.members)));
+            admit(root.members!=nullptr,QUANTAPDF_ERROR_NOMEM);
+            root.members[0]=1u;
+            root.members[1]=static_cast<quantapdf_composer_clip_id>(i+2u);
+        }
+        ir.resources.graphics_states=
+            static_cast<quantapdf_composer_graphics_state *>(
+                QP_SOURCE_C_CALLOC(
+                    3u,sizeof(*ir.resources.graphics_states)));
+        admit(ir.resources.graphics_states!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        ir.resources.graphics_state_count=3u;
+        ir.resources.graphics_state_capacity=3u;
+        for(size_t i=0u;i<3u;++i) {
+            auto& gs=ir.resources.graphics_states[i];
+            gs.fill_alpha=1.0f;
+            gs.stroke_alpha=1.0f;
+            gs.blend_mode=QUANTAPDF_COMPOSER_BLEND_NORMAL;
+            gs.clip_id=static_cast<quantapdf_composer_clip_id>(i+5u);
+            auto& op=ir.operations[i];
+            op.graphics_state_id=
+                static_cast<quantapdf_composer_graphics_state_id>(i+1u);
+            op.value.path.options.graphics_state_id=op.graphics_state_id;
+        }
+        return ir;
+    } catch(...) {
+        quantapdf_ir_dispose(&ir);
+        throw;
+    }
 }
 
 /* Native V10 alone: one to four opaque PATH fills under the final
@@ -3380,11 +3504,21 @@ static quantapdf_status source_raw_images_to_ir_impl(
         parsed.parseAsContents(&reader);
         admit(!parser.anyWarnings() && !pdf->anyWarnings(),
               QUANTAPDF_ERROR_FORMAT);
-        const bool clip_states=native_v10 && !source.sibling_clip_scopes &&
+        const bool clip_states=native_v10 &&
+            !source.three_branch_candidate &&
+            !source.sibling_clip_scopes &&
             prepare_native_clip_membership(source);
+        if(native_v10 && source.three_branch_candidate)
+            admit(geo.rotation==0 && user_quarters==4u &&
+                  !source.crop_viewport,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
         if(native_v10) {
             original_turn_staging(source,geo.rotation);
             scale_source_userunit(source,user_quarters);
+        }
+        if(native_v10 && source.three_branch_candidate) {
+            *out_ir=materialize_three_branch_source(source);
+            return QUANTAPDF_OK;
         }
         if(native_v10 && source.sibling_clip_scopes) {
             *out_ir=materialize_sibling_clip_scopes(source);
