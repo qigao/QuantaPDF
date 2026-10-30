@@ -209,6 +209,7 @@ struct staged_path {
     /* Explicit public Source V10 clipped Stroke only. */
     bool stroke=false;
     uint32_t stroke_argb=UINT32_C(0xff000000);
+    float stroke_width=1.0f; /* only private TeXample may vary */
 };
 
 struct staged_image_clip {
@@ -522,11 +523,22 @@ struct admission {
      * but bill full authored IMAGE placement and clamp only in the
      * ONE C11 viewport sample consumer, never by clipping source bytes. */
     bool crop_viewport=false;
-    double exact_page_w=0.0,exact_page_h=0.0; /* V10 1/4-point spans */
+    double exact_page_w=0.0,exact_page_h=0.0; /* exact V10 spans */
+    /* Private ONLY: complete TeXample 4 path groups = 8 rings/32c.
+     * The original public selected Source call never sets this bit. */
+    bool texample_private_m3=false;
+    unsigned texample_stage=0u;
+    size_t texample_moves=0u,texample_cubics=0u;
+    size_t texample_closes=0u,texample_zero_moves=0u;
+    size_t texample_q_count=0u,texample_Q_count=0u;
+    size_t texample_cm_count=0u,texample_gray_count=0u;
+    size_t texample_stroke_gray_count=0u,texample_width_count=0u;
+    size_t texample_orange_count=0u,texample_terminal_n=0u;
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule,
-                    bool is_stroke=false,uint32_t stroke_rgb=UINT32_C(0xff000000))
+                    bool is_stroke=false,uint32_t stroke_rgb=UINT32_C(0xff000000),
+                    float width=1.0f)
     {
         /* A public V10 Stroke may be the ONLY paint in the original
          * selected page. Late paints cannot silently escape the sole
@@ -536,7 +548,12 @@ struct admission {
                 (painted_paths.empty() && three_branch_count==1u) :
                 (!painted_paths.empty() && painted_paths[0].stroke &&
                  painted_paths.size()<3u));
-        admit(three_path ||
+        const bool texample_path=texample_private_m3 &&
+            draws.empty() && clip_completed &&
+            commands.size()==12u && painted_paths.size()<3u &&
+            (is_stroke ? painted_paths.size()>=1u :
+                         painted_paths.empty());
+        admit(texample_path || three_path ||
               (std::none_of(painted_paths.begin(),painted_paths.end(),
                    [](const staged_path& p){return p.stroke;}) &&
                (!is_stroke ||
@@ -553,7 +570,8 @@ struct admission {
                 hard_operations :
                 (mixed_operation_limit==4u ? 2u : 1u);
         admit(mixed_mode && painted_paths.size()<allowed_paths &&
-              ((three_path && is_stroke && commands.size()==2u) ||
+              (texample_path ||
+               (three_path && is_stroke && commands.size()==2u) ||
                (commands.size()>=4u && commands.size()<=9u)) &&
               order.size()<mixed_operation_limit &&
               limits.max_operations>=
@@ -566,6 +584,7 @@ struct admission {
         item.fill_rule=rule;
         item.stroke=is_stroke;
         item.stroke_argb=stroke_rgb;
+        item.stroke_width=width;
         QP_SOURCE_STAGE_ARM(3u);
         painted_paths.push_back(std::move(item));
         QP_SOURCE_STAGE_ARM(4u);
@@ -837,6 +856,7 @@ public:
          * separately; the original public V10 defaults fail closed. */
         if(target.native_unclipped_mode &&
            !target.three_branch_candidate &&
+           !target.texample_private_m3 &&
            std::any_of(target.painted_paths.begin(),
                        target.painted_paths.end(),
                        [](const staged_path& p){return p.stroke;}))
