@@ -3,6 +3,7 @@
  * pre-allocation arming points, not with a replacement source/provider.
  * QPDF authors the original PDF; PDFium is never linked. */
 #include "backend/qpdf_native_image_ir.h"
+#include "render/native_device_ir_v1.h"
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFObjectHandle.hh>
 #include <qpdf/QPDFWriter.hh>
@@ -217,6 +218,107 @@ static bool original_three_branch_graph(const quantapdf_ir& ir)
     }
     return true;
 }
+
+/* The true yWorks original is the ONLY test input. These RGB controls
+ * are analytical original-geometry goldens, independent of C11 pixel
+ * output: red 1px centerline y40 under W* nested rectangles; first
+ * star nonzero (center winding 2), second star even-odd (center
+ * winding 2 -> HOLE). No PDFium oracle, generated substitute image,
+ * second raster, 72-DPI upscaling or source loss. */
+static uint32_t rgba_at(
+    const quantapdf_ir_raster_image& img,size_t x,size_t y)
+{
+    const unsigned char *p=img.pixels+y*img.stride+4u*x;
+    return ((uint32_t)p[0]<<24u)|((uint32_t)p[1]<<16u)|
+           ((uint32_t)p[2]<<8u)|(uint32_t)p[3];
+}
+static bool zero_bitmap(const quantapdf_ir_raster_image& img)
+{
+    return img.pixels==nullptr && img.width==0u &&
+           img.height==0u && img.stride==0u && img.size==0u;
+}
+static bool original_three_branch_pixels(
+    const quantapdf_ir& ir, quantapdf_ir_raster_image& held)
+{
+    const quantapdf_ir_raster_scoped_mixed_v5_limits default_limits={
+        400000u,3u,96u,8000000u,1u,1u
+    };
+    auto limits=default_limits;
+    quantapdf_ir_raster_image second{};
+    const auto render=[&](unsigned dpi,
+        const quantapdf_ir_raster_scoped_mixed_v5_limits& budget,
+        quantapdf_ir_raster_image& img) {
+        return quantapdf_native_device_ir_render_v1_three_gs_original(
+            &ir,dpi,&budget,&img);
+    };
+    const auto fail=[&](const char *label,int status) {
+        std::fprintf(stderr,"yWorks real Source RGB: %s status=%d\n",
+                     label,status);
+        quantapdf_ir_raster_image_dispose(&held);
+        quantapdf_ir_raster_image_dispose(&second);
+        return false;
+    };
+    auto status=render(72u,limits,held);
+    if(status!=QUANTAPDF_OK || held.pixels==nullptr ||
+       held.width!=600u || held.height!=600u ||
+       held.stride!=2400u || held.size!=1440000u)
+        return fail("72dpi authentic source paint",status);
+    /* Original first red S under shared W and nested W* shell/hole. */
+    if(rgba_at(held,20u,40u)!=UINT32_C(0xffffffff) ||
+       rgba_at(held,40u,39u)!=UINT32_C(0xff7f7fff) ||
+       rgba_at(held,40u,40u)!=UINT32_C(0xff7f7fff) ||
+       rgba_at(held,100u,40u)!=UINT32_C(0xffffffff) ||
+       rgba_at(held,180u,40u)!=UINT32_C(0xff7f7fff) ||
+       rgba_at(held,400u,40u)!=UINT32_C(0xffffffff))
+        return fail("first red half-width Stroke and W* hole",status);
+    /* The first star W keeps its central winding-two region blue,
+     * while the third independent star W* cuts the central hole. */
+    if(rgba_at(held,80u,125u)!=UINT32_C(0x0000ffff) ||
+       rgba_at(held,160u,125u)!=UINT32_C(0x0000ffff) ||
+       rgba_at(held,180u,125u)!=UINT32_C(0xffffffff) ||
+       rgba_at(held,250u,125u)!=UINT32_C(0xffffffff) ||
+       rgba_at(held,500u,500u)!=UINT32_C(0xffffffff))
+        return fail("independent W/W* blue star winding",status);
+    status=render(72u,limits,second);
+    if(status!=QUANTAPDF_OK || second.size!=held.size ||
+       second.pixels==nullptr ||
+       std::memcmp(second.pixels,held.pixels,held.size)!=0)
+        return fail("repeat complete image exact bytes",status);
+    quantapdf_ir_raster_image_dispose(&second);
+
+    /* A flat rectangle fill is 4 edges; outer full canvas W=4,
+     * each star=5. Both blue stars occupy x=96 by y=90 VISITED
+     * pixels: 96*90*16*(4+4+5)=1,797,120 conservative checks,
+     * with exactly three independent work partitions (no transfer).
+     * Original max sample budget stays 8,000,000. */
+    limits.max_sample_tests=5391360u; /* 3 * 1,797,120 */
+    status=render(72u,limits,second);
+    if(status!=QUANTAPDF_OK || second.size!=held.size ||
+       second.pixels==nullptr ||
+       std::memcmp(second.pixels,held.pixels,held.size)!=0)
+        return fail("conservative boundary exact admission",status);
+    quantapdf_ir_raster_image_dispose(&second);
+    limits.max_sample_tests=5391359u;
+    std::memset(&second,0xa5,sizeof(second));
+    status=render(72u,limits,second);
+    if(status!=QUANTAPDF_ERROR_UNSUPPORTED || !zero_bitmap(second))
+        return fail("one-below aggregate work rejection",status);
+    limits=default_limits;
+    limits.max_edges=38u; /* floor(38/3)=12 below each 13 edges */
+    std::memset(&second,0xa5,sizeof(second));
+    status=render(72u,limits,second);
+    if(status!=QUANTAPDF_ERROR_UNSUPPORTED || !zero_bitmap(second))
+        return fail("one-below flattened edge quota",status);
+    limits=default_limits;
+    for(const unsigned dpi:{96u,144u}) {
+        std::memset(&second,0xa5,sizeof(second));
+        status=render(dpi,limits,second);
+        if(status!=QUANTAPDF_ERROR_UNSUPPORTED || !zero_bitmap(second))
+            return fail("unqualified non-72dpi Stroke refusal",status);
+    }
+    return true;
+}
+
 static bool original_three_branch_source_oom(
     const char *filename,
     const quantapdf_qpdf_source_raw_image_limits& limits)
@@ -249,8 +351,21 @@ static bool original_three_branch_source_oom(
             quantapdf_ir_dispose(&ir);
             return false;
         }
+        quantapdf_ir_raster_image held{};
+        if(!original_three_branch_pixels(ir,held)) {
+            quantapdf_ir_dispose(&ir);
+            return false;
+        }
+        /* The independently owned C11 output must survive destruction
+         * of every original QPDF, Source and Composer IR owner. */
+        const uint32_t detached_red=rgba_at(held,40u,40u);
+        const uint32_t detached_blue=rgba_at(held,80u,125u);
         quantapdf_ir_dispose(&ir);
-        if(!cleared(ir))return false;
+        const bool detached=cleared(ir) &&
+            rgba_at(held,40u,40u)==detached_red &&
+            rgba_at(held,80u,125u)==detached_blue;
+        quantapdf_ir_raster_image_dispose(&held);
+        if(!detached)return false;
     }
     for(size_t fail=1u;fail<=allocations;++fail) {
         quantapdf_ir ir;
