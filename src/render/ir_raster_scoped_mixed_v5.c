@@ -292,8 +292,8 @@ static quantapdf_status v5_fractional_image_layer(
              bounds->x0,bounds->y1);
     v5_point(&rectangle[4],QUANTAPDF_COMPOSER_PATH_CLOSE,0.0f,0.0f);
     {
-        const quantapdf_composer_clip_state *all[5]={
-                    NULL,NULL,NULL,NULL,NULL};
+        const quantapdf_composer_clip_state *all[3]={
+                    NULL,NULL,NULL};
         size_t n=0u,k;
         /* ONE 4x4 sample for Image bounds, physical viewport and both
          * frozen Clips: no product of alpha-averaged masks. */
@@ -1033,8 +1033,8 @@ static quantapdf_status v5_render_impl(
             operation.graphics_state_id=0u;
             operation.value.path.options.graphics_state_id=0u;
             {
-                const quantapdf_composer_clip_state *all[3]={
-                    NULL,NULL,NULL
+                const quantapdf_composer_clip_state *all[5]={
+                    NULL,NULL,NULL,NULL,NULL
                 };
                 size_t n=0u,k;
                 if(viewport_ptr!=NULL)all[n++]=viewport_ptr;
@@ -1049,12 +1049,11 @@ static quantapdf_status v5_render_impl(
                         &projected,0u,&geometry_limits,all,n,&layers[i]) :
                      quantapdf_ir_raster_render_v1_multi_clipped(
                         &projected,0u,&geometry_limits,all,n,&layers[i]));
-                /* ONLY explicit qualified V10 one-GS compound or
-                 * exact two-GS / two-Fill shapes select bounded work.
-                 * edge_layers divides the immutable total sample cap:
-                 * each of two layers gets <= floor(total / 2).
-                 * Sum cannot exceed the original 8m global quota.
-                 * All older V1/V5 profiles retain full-page billing. */
+                /* Only explicit, independently admitted V10 compound,
+                 * two-GS and three-GS shapes select bounded work.
+                 * edge_layers partitions the unchanged aggregate cap:
+                 * the third profile has three equal conservative shares,
+                 * no transfer or higher 8M global quota. */
             }
         } else {
             const size_t id=(size_t)op->value.image.image_id;
