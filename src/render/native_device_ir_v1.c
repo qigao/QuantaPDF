@@ -176,6 +176,15 @@ static quantapdf_status qp_native_device_ir_render(
         source->operations[0].graphics_state_id!=0u ||
         (clip_states_optin && !two_clip_optin)))
         return QUANTAPDF_ERROR_UNSUPPORTED;
+    /* The sole native V1 triangle Stroke models one DEVICE pixel. At
+     * 96/144 DPI its original width-one source Stroke would require a
+     * physically wider sampler, which is not qualified. Reject before
+     * raster projection; Fill/Image use their established DPI paths. */
+    if(dpi!=72u)
+        for(size_t i=0u;i<source->operation_count;++i)
+            if(source->operations[i].kind==QUANTAPDF_COMPOSER_OPERATION_PATH &&
+               source->operations[i].value.path.options.stroke!=0)
+                return QUANTAPDF_ERROR_UNSUPPORTED;
     if(two_clip_optin || clipped_paths_optin || unclipped_prefix_optin ||
        sibling_clips_optin) {
         const quantapdf_resource_registry *r=&source->resources;
