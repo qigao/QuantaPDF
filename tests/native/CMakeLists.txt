@@ -897,11 +897,13 @@ set_tests_properties(quantapdf.native_v10_external_reconcile PROPERTIES
   LABELS "conformance;native;no-pdfium;external;reconcile"
   FIXTURES_REQUIRED native_v10_external_replayed)
 
-# Four additional already provenance-reviewed external original PDFs are
-# current PUBLIC Native V10 fail-closed profiles, not renderer positives.
-# Reuse the seven-source SHA/license gate from the preceding CTests.
-# Every refused original is followed by an independent reopened/retired
-# reviewed blank original with exact RGB and Bitmap lifetime checks.
+# Additional independently sourced complex original PDF outcomes:
+# unchanged yWorks has now qualified exact public 72-DPI Native C11 RGB,
+# TeXample remains strictly UNSUPPORTED/null Bitmap. Reuse the full
+# seven-source SHA/license verifier without modifying any original.
+# Every original is independently reopened, followed by the reviewed
+# white blank recovery; both yWorks and blank Bitmap owners outlive
+# their Documents, Page leases and the shared Context.
 set(_native_ext_v10_remaining_receipt
   "${CMAKE_CURRENT_BINARY_DIR}/native-v10-external-remaining-replay.json")
 
@@ -923,7 +925,7 @@ add_test(NAME quantapdf.native_v10_external_remaining
     "${_native_ext_v10_assets}" "${_native_ext_v10_remaining_receipt}")
 set_tests_properties(quantapdf.native_v10_external_remaining PROPERTIES
   TIMEOUT 60
-  LABELS "conformance;native;no-pdfium;external;public-api;fail-closed"
+  LABELS "conformance;native;no-pdfium;external;public-api;wstar;rgb;refusal"
   FIXTURES_REQUIRED native_v10_external_verified
   FIXTURES_SETUP native_v10_external_remaining_replayed)
 
@@ -937,7 +939,7 @@ add_test(NAME quantapdf.native_v10_external_remaining_reconcile
 set_tests_properties(
   quantapdf.native_v10_external_remaining_reconcile PROPERTIES
   TIMEOUT 30
-  LABELS "conformance;native;no-pdfium;external;status;reconcile"
+  LABELS "conformance;native;no-pdfium;external;rgb;status;reconcile"
   FIXTURES_REQUIRED native_v10_external_remaining_replayed)
 
 # The reviewed ORIGINAL PDFium/Cairo 923-byte black PATH is the first
