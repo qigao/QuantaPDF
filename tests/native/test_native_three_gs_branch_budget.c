@@ -98,7 +98,7 @@ static void setup(fixture *f)
     f->members[0][0]=1u;
     f->members[0][1]=2u;
     f->members[1][0]=1u;
-    f->members[1][1]=4u;
+    f->members[1][1]=3u;
     f->members[2][0]=1u;
     f->members[2][1]=4u;
     for(i=0u;i<3u;++i) {
