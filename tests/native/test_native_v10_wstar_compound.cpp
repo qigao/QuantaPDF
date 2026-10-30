@@ -124,32 +124,40 @@ static std::vector<case_entry> make_cases()
             UINT32_C(0xff0000),UINT32_C(0xff0000),false},
         {"evenodd-hole-repeat",two+"W* n "+fill_red,QUANTAPDF_OK,
             UINT32_C(0xffffff),UINT32_C(0xff0000),false},
-        /* The first contour has no h: second m/re triggers the PDF's
-         * implicit closure; sampling must equal the explicitly
-         * authored original reference, including both W and W*. */
-        {"implicit-m-evenodd-hole",outer_implicit+inner+"W* n "+fill_red,
-            QUANTAPDF_OK,UINT32_C(0xffffff),UINT32_C(0xff0000),false},
-        {"implicit-m-nonzero-blue",outer_implicit+inner+"W n "+fill_blue,
-            QUANTAPDF_OK,UINT32_C(0x0000ff),UINT32_C(0x0000ff),true},
+        /* Only a COMPLETE first contour with a source LINE returning
+         * to the exact initial MOVE point is newly admitted. Arbitrary
+         * open first contours remain a historical negative contract. */
         {"return-to-m-evenodd-hole",
             outer_return_start+inner+"W* n "+fill_red,
             QUANTAPDF_OK,UINT32_C(0xffffff),UINT32_C(0xff0000),false},
+        {"return-to-m-nonzero-blue",
+            outer_return_start+inner+"W n "+fill_blue,
+            QUANTAPDF_OK,UINT32_C(0x0000ff),UINT32_C(0x0000ff),true},
         {"return-to-m-reversed-nonzero",
             outer_return_start+inner_reverse+"W n "+fill_blue,
             QUANTAPDF_OK,UINT32_C(0xffffff),UINT32_C(0x0000ff),true},
-        {"implicit-re-evenodd-hole",
-            outer_implicit+"12 10 8 12 re W* n "+fill_red,
+        {"return-to-m-reversed-evenodd",
+            outer_return_start+inner_reverse+"W* n "+fill_red,
             QUANTAPDF_OK,UINT32_C(0xffffff),UINT32_C(0xff0000),false},
+        {"return-to-m-final-implicit",
+            outer_return_start+"12 10 m 20 10 l 16 18 l W* n "+fill_red,
+            QUANTAPDF_OK,UINT32_C(0xffffff),UINT32_C(0xff0000),false},
+        {"reject-arbitrary-open-first",
+            outer_implicit+inner+"W* n "+fill_red,
+            QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
         {"reject-short-implicit-first",too_short+inner+"W* n "+fill_red,
             QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
         {"reject-unqualified-ten-command",
             outer_too_large+inner+"W* n "+fill_red,
             QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
-        {"reject-third-after-implicit",
-            outer_implicit+inner+third+"W* n "+fill_red,
+        {"reject-re-after-return-over-quota",
+            outer_return_start+"12 10 8 12 re W* n "+fill_red,
             QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
-        {"reject-late-text-after-implicit",
-            outer_implicit+inner+"W* n "+fill_red+"BT ET ",
+        {"reject-third-after-return",
+            outer_return_start+inner+third+"W* n "+fill_red,
+            QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
+        {"reject-late-text-after-return",
+            outer_return_start+inner+"W* n "+fill_red+"BT ET ",
             QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
         {"reject-third-contour",outer+inner+third+"W* n "+fill_red,
             QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
@@ -263,9 +271,9 @@ static int test()
     CHECK(bytes!=nullptr && size==held_copy.size() &&
           std::memcmp(bytes,held_copy.data(),size)==0);
     quantapdf_drop_bitmap(held);
-    CHECK(positives==11u && negatives==11u);
+    CHECK(positives==11u && negatives==13u);
     std::printf("Original generated W/W* two-contour: 11 exact RGB "
-                "positives (5 implicit-closure), 11 atomic negatives, "
+                "positives (5 return-to-start closures), 13 atomic negatives, "
                 "single C11 renderer\n");
     return EXIT_SUCCESS;
 }

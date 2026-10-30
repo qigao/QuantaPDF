@@ -1290,15 +1290,32 @@ private:
         } else {
             /* PDF m/re starts a fresh subpath: a previous open contour
              * participates in W/W* as if closed, even without authored h.
-             * Only native V10's TWO-contour Clip grammar may normalize
-             * this implicit closure. Older signatures, unpainted paths,
-             * third contours and Clip-pending input keep strict refusal.
+             * Only an explicitly authored return-to-start LINE is
+             * newly qualified here. Unreturned contours, older private
+             * signatures, third contours and Clip-pending input remain
+             * strict refusals.
              *
              * Reserve the exact SAME nine-command ceiling, including
              * BOTH future CLOSE commands and the minimum next contour,
              * BEFORE appending anything to borrowed Source staging. */
+            /* Preserve the historical Source contract: an arbitrary
+             * open contour followed by m/re is still unqualified.
+             * The first independent increment handles ONLY a complete
+             * authored LINE_TO returning exactly to that contour's
+             * MOVE_TO. CLOSE then replaces no painted geometry and
+             * cannot hide an unsupported open first contour. */
+            const bool original_return=
+                !closed && pending_path.size()>=contour_start+4u &&
+                pending_path[contour_start].kind==
+                    QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
+                pending_path.back().kind==
+                    QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+                pending_path.back().point1.x==
+                    pending_path[contour_start].point1.x &&
+                pending_path.back().point1.y==
+                    pending_path[contour_start].point1.y;
             admit(target.native_unclipped_mode && !clip_pending &&
-                  contour_count==1u &&
+                  contour_count==1u && (closed || original_return) &&
                   bounded_clip_contour(pending_path,!closed) &&
                   minimum_commands<=9u &&
                   pending_path.size()<=9u-minimum_commands &&
