@@ -1275,6 +1275,27 @@ public:
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x,y+h);
             close_path();
         } else if(target.native_unclipped_mode && op=="S") {
+            if(target.texample_private_m3) {
+                admit(args.empty() &&
+                      (target.texample_stage==2u ||
+                       target.texample_stage==3u) &&
+                      texample_qdepth==2u && clip_active==0u &&
+                      target.clip_completed && !clip_pending &&
+                      stroke_rgb_exact &&
+                      stroke_argb==UINT32_C(0xff000000) &&
+                      stroke_width==0.3985 &&
+                      stroke_cap==0 && stroke_join==0 &&
+                      stroke_miter==10.0 && stroke_default_dash,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                texample_complete_group();
+                target.paint_path(std::move(pending_path),
+                    fill_argb,QUANTAPDF_COMPOSER_FILL_NONZERO,
+                    true,stroke_argb,0.3985f);
+                QP_SOURCE_STAGE_ARM(7u);
+                target.scoped_clip_membership.push_back(0u);
+                ++target.texample_stage;
+                texample_clear_group();
+            } else {
             /* Source V10 original 600x600 negative-Y profile only.
              * The first authored PAINT is one open width-one solid
              * butt-capped horizontal red Stroke under W intersect W*.
@@ -1301,6 +1322,7 @@ public:
             QP_SOURCE_STAGE_ARM(7u);
             target.scoped_clip_membership.push_back(clip_active);
             clear_path();
+            }
         } else if(target.native_unclipped_mode && op=="s") {
             /* PDF s implicitly closes then strokes a single triangle.
              * Only one actual W/n Clip, 1px butt/miter/solid and an
@@ -1332,6 +1354,23 @@ public:
             target.scoped_clip_membership.push_back(clip_active);
             clear_path();
         } else if(mixed && (op=="f" || op=="f*")) {
+            if(target.texample_private_m3) {
+                admit(op=="f*" && args.empty() &&
+                      target.texample_stage==1u &&
+                      texample_qdepth==4u && clip_active==1u &&
+                      target.clip_completed && !clip_pending &&
+                      fill_argb==UINT32_C(0xffff8000) &&
+                      target.draws.empty() &&
+                      target.painted_paths.empty(),
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                texample_complete_group();
+                target.paint_path(std::move(pending_path),fill_argb,
+                    QUANTAPDF_COMPOSER_FILL_EVEN_ODD);
+                QP_SOURCE_STAGE_ARM(7u);
+                target.scoped_clip_membership.push_back(1u);
+                target.texample_stage=2u;
+                texample_clear_group();
+            } else {
             admit(args.empty() && pending_path.size()>=3u &&
                   contour_count==1u,
                   QUANTAPDF_ERROR_UNSUPPORTED);
@@ -1389,6 +1428,7 @@ public:
                 target.scoped_clip_membership.push_back(clip_active);
             }
             clear_path();
+            }
         } else if(clipped && (op=="W" || op=="W*")) {
             /* Native V10 preserves the first leaf across paint and
              * nested q/Q. A second definition intersects that live
@@ -1399,7 +1439,14 @@ public:
                   (!target.mixed_scoped_mode || target.order.empty() ||
                    target.native_unclipped_mode),
                   QUANTAPDF_ERROR_UNSUPPORTED);
-            if(target.three_branch_candidate && target.clip_completed) {
+            if(target.texample_private_m3) {
+                admit(op=="W*" && target.texample_stage==0u &&
+                      texample_qdepth==3u &&
+                      !target.clip_completed && !clip_pending,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                texample_complete_group();
+            } else if(target.three_branch_candidate &&
+                      target.clip_completed) {
                 /* Each nested W/W* is defined AFTER a genuine Q has
                  * restored the common outer W. No active inner Clip
                  * may be inherited by another branch. */
@@ -1442,7 +1489,32 @@ public:
             clip_pending=true;
         } else if(clipped && op=="n") {
             admit(args.empty(),QUANTAPDF_ERROR_UNSUPPORTED);
-            if(three_branch_clip_pending) {
+            if(target.texample_private_m3) {
+                if(target.texample_stage==0u &&
+                   texample_qdepth==3u && clip_pending &&
+                   clip_rule==QUANTAPDF_COMPOSER_FILL_EVEN_ODD) {
+                    admit(pending_path.size()==12u &&
+                          texample_contours==2u && closed &&
+                          !texample_pending_move &&
+                          !target.clip_completed,
+                          QUANTAPDF_ERROR_UNSUPPORTED);
+                    target.clip.commands=std::move(pending_path);
+                    target.clip.rule=clip_rule;
+                    target.clip_completed=true;
+                    clip_active=1u;
+                    clip_pending=false;
+                    target.texample_stage=1u;
+                    texample_clear_group();
+                } else {
+                    admit(target.texample_stage==4u &&
+                          texample_qdepth==1u &&
+                          target.texample_terminal_n==0u &&
+                          !clip_pending && !texample_pending_move &&
+                          pending_path.empty(),
+                          QUANTAPDF_ERROR_UNSUPPORTED);
+                    ++target.texample_terminal_n;
+                }
+            } else if(three_branch_clip_pending) {
                 admit(target.three_branch_candidate &&
                       target.three_branch_count<3u &&
                       clip_active==1u && clip_pending,
