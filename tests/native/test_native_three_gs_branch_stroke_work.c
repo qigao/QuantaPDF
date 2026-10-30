@@ -3,6 +3,7 @@
  * V1 4x4 sampler only; this is NOT public original-PDF admission. */
 #include "ir/ir.h"
 #include "render/ir_raster_scoped_mixed_v5.h"
+#include "render/ir_raster_v1.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -291,9 +292,114 @@ static int negative_cases(void)
     printf("Native 3GS open Stroke+two Fill, W/W* hole, 1px half-width, quotas\n");
     return EXIT_SUCCESS;
 }
+
+/* TeXample original WIDTH 0.3985, but a single 2-command horizontal
+ * segment under two real frozen W/W* Clip leaves. This standalone C11
+ * proof does NOT claim TeXample's many cubic ring paths and 2 strokes.
+ * The same 4x4 V1 distance test uses radius .3985/2, whereas the
+ * original one-pixel entry must still refuse this exact fractional width.
+ * No extra target/consumer/CI file, second parser or fallback. */
+static int fractional_width_line(void)
+{
+    fixture f;
+    quantapdf_ir ir={0};
+    quantapdf_composer_operation operation;
+    const quantapdf_composer_clip_state *clips[2];
+    const quantapdf_ir_raster_v1_limits original={
+        400000u,1u,96u,8000000u
+    };
+    quantapdf_ir_raster_v1_limits cap=original;
+    quantapdf_ir_raster_image a={0},b={0};
+    quantapdf_ir_raster_image refused;
+    setup(&f);
+    operation=f.operations[0];
+    operation.graphics_state_id=0u;
+    operation.value.path.options.graphics_state_id=0u;
+    operation.value.path.options.stroke_width=0.3985f;
+    ir.pages=&f.page;
+    ir.page_count=1u;
+    ir.operations=&operation;
+    ir.operation_count=1u;
+    clips[0]=&f.clips[0]; /* unchanged 600x600 physical outer W */
+    clips[1]=&f.clips[1]; /* ten-command nested W* hole */
+    const size_t required=153920u; /* 370*2*16*(1+4+8) */
+    cap.max_sample_tests=required;
+    OK(quantapdf_ir_raster_render_v1_multi_clipped_fractional_stroke_visible_work(
+        &ir,0u,&cap,clips,2u,&a));
+    CHECK(a.pixels!=NULL && a.width==600u && a.height==600u &&
+          a.stride==2400u && a.size==1440000u);
+    CHECK(rgba(&a,40u,39u)==UINT32_C(0xffbfbfff));
+    CHECK(rgba(&a,40u,40u)==UINT32_C(0xffbfbfff));
+    CHECK(rgba(&a,160u,40u)==UINT32_C(0xffbfbfff));
+    CHECK(rgba(&a,40u,38u)==UINT32_C(0xffffffff));
+    CHECK(rgba(&a,100u,40u)==UINT32_C(0xffffffff));
+    CHECK(rgba(&a,20u,40u)==UINT32_C(0xffffffff));
+    CHECK(rgba(&a,400u,40u)==UINT32_C(0xffffffff));
+    OK(quantapdf_ir_raster_render_v1_multi_clipped_fractional_stroke_visible_work(
+        &ir,0u,&cap,clips,2u,&b));
+    CHECK(b.size==a.size && memcmp(a.pixels,b.pixels,a.size)==0);
+    quantapdf_ir_raster_image_dispose(&b);
+    /* Geometry is borrowed; even mutation afterward cannot modify
+     * the independent already published RGBA image. */
+    f.red[0].point1.x=5.0f;
+    CHECK(rgba(&a,40u,40u)==UINT32_C(0xffbfbfff));
+    quantapdf_ir_raster_image_dispose(&a);
+    setup(&f);
+
+    cap.max_sample_tests=required-1u;
+    memset(&refused,0xa5,sizeof(refused));
+    CHECK(quantapdf_ir_raster_render_v1_multi_clipped_fractional_stroke_visible_work(
+        &ir,0u,&cap,clips,2u,&refused)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(refused.pixels==NULL && refused.width==0u &&
+          refused.height==0u && refused.size==0u);
+    cap=original;cap.max_edges=12u; /* 1+4+8 flattened edges */
+    memset(&refused,0xa5,sizeof(refused));
+    CHECK(quantapdf_ir_raster_render_v1_multi_clipped_fractional_stroke_visible_work(
+        &ir,0u,&cap,clips,2u,&refused)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(refused.pixels==NULL && refused.size==0u);
+    cap=original;
+    /* The old 1px Stroke entry MUST NOT be widened by this opt-in. */
+    memset(&refused,0xa5,sizeof(refused));
+    CHECK(quantapdf_ir_raster_render_v1_multi_clipped_stroke_visible_work(
+        &ir,0u,&cap,clips,2u,&refused)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(refused.pixels==NULL && refused.size==0u);
+    /* A missing second leaf must never mean a successful unclipped
+     * or cheaper single-Clip approximation. */
+    memset(&refused,0xa5,sizeof(refused));
+    CHECK(quantapdf_ir_raster_render_v1_multi_clipped_fractional_stroke_visible_work(
+        &ir,0u,&cap,clips,1u,&refused)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(refused.pixels==NULL && refused.size==0u);
+    const float invalid_widths[]={0.3984f,0.0f,-0.3985f,1.0f,2.0f};
+    for(size_t j=0u;j<sizeof(invalid_widths)/sizeof(invalid_widths[0]);++j) {
+        operation.value.path.options.stroke_width=invalid_widths[j];
+        memset(&refused,0xa5,sizeof(refused));
+        CHECK(quantapdf_ir_raster_render_v1_multi_clipped_fractional_stroke_visible_work(
+            &ir,0u,&cap,clips,2u,&refused)==QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(refused.pixels==NULL && refused.size==0u);
+    }
+    operation.value.path.options.stroke_width=0.3985f;
+    operation.value.path.options.line_cap=
+        QUANTAPDF_COMPOSER_LINE_CAP_ROUND;
+    memset(&refused,0xa5,sizeof(refused));
+    CHECK(quantapdf_ir_raster_render_v1_multi_clipped_fractional_stroke_visible_work(
+        &ir,0u,&cap,clips,2u,&refused)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(refused.pixels==NULL && refused.size==0u);
+    operation.value.path.options.line_cap=
+        QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
+    f.red[1].point1.y=41.0f;
+    memset(&refused,0xa5,sizeof(refused));
+    CHECK(quantapdf_ir_raster_render_v1_multi_clipped_fractional_stroke_visible_work(
+        &ir,0u,&cap,clips,2u,&refused)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(refused.pixels==NULL && refused.size==0u);
+    printf("Native TeXample 0.3985px width-only proof: "
+           "two frozen W/W* Clip leaves, exact 4x4 RGB, "
+           "153920 quota boundary, old 1px entry still strict\n");
+    return EXIT_SUCCESS;
+}
 int main(void)
 {
     CHECK(acceptance()==EXIT_SUCCESS);
     CHECK(negative_cases()==EXIT_SUCCESS);
+    CHECK(fractional_width_line()==EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }
