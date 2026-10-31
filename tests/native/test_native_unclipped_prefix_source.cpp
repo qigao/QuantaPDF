@@ -631,7 +631,8 @@ static int atomic_refusals()
         full_red+first+"Q", /* prefix does not qualify an unused Clip */
         red_image+first+"Q",
         full_red+first+"Q "+full_blue,
-        ready+" "+one_prefix(rectangle_b)+full_blue+"Q", /* reentry */
+        ready+" "+one_prefix(rectangle_b)+full_blue+"Q "+
+            one_prefix(rectangle_a)+full_blue+"Q", /* third definition */
         full_red+first+full_green+second+full_blue+
             rectangle_b+" W n Q Q", /* third definition */
         full_red+first+full_green+second+"Q Q", /* second Clip unused */

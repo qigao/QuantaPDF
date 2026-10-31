@@ -121,6 +121,21 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_unclipped_prefix_device_vie
     double viewport_width,double viewport_height,
     quantapdf_ir_raster_image *out_image);
 
+/* Explicit independent sibling scopes: exactly two owned Clip PATH
+ * leaves, exactly two full-alpha Normal GS mapping 1->1 and 2->2,
+ * and no intersection root or member storage. Both nonzero identities
+ * occur in order 0* 1+ 0* 2+ 0*, within two..four total operations.
+ * PATH-only permits four, Image-only exactly two, mixed at most two of
+ * each. Clip leaves contain one/two closed contours/four..nine total
+ * commands; painted PATHs stay single-contour. Frozen identity leaves
+ * are sampled independently with the same viewport, source/draw/edge
+ * quotas and detached output. Older wrappers retain their contracts. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_sibling_clips_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

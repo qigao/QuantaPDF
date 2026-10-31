@@ -90,6 +90,22 @@ quantapdf_status quantapdf_native_device_ir_render_v1_unclipped_prefix(
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image);
 
+/* Explicit sibling scopes: exactly two separately owned Clip PATH
+ * leaves and two Normal/full-alpha GS, mapping 1->1 and 2->2. No root
+ * or member list exists. Both identities must be painted in order
+ * 0* 1+ 0* 2+ 0*: optional unclipped prefix, gap and final suffix.
+ * Each nonzero paint selects only its own frozen leaf. Two..four PATH
+ * fills, exactly two Images, or at most two of each kind within four
+ * total operations. Clip leaves admit one/two closed contours within
+ * four..nine commands; painted PATHs remain single-contour. Exact
+ * capacities, unchanged budgets, stack projection, immutable borrows
+ * and detached/zeroed output follow the existing device contracts.
+ * All earlier entrypoints continue to refuse this two-leaf/no-root IR. */
+quantapdf_status quantapdf_native_device_ir_render_v1_sibling_clips(
+    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

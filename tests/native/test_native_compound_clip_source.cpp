@@ -733,7 +733,8 @@ static int atomic_refusals()
         one_prefix(outer_rectangle)+compound+" n "+full_red+"Q",
         prefix+full_red+compound+" W n Q", /* unused second Clip */
         prefix+full_red+compound+" W n "+full_blue+compound+" W n Q",
-        ready+" "+one_prefix(compound)+full_red+"Q", /* reentry after 0 */
+        ready+" "+one_prefix(compound)+full_red+"Q "+
+            one_prefix(compound,true)+full_red+"Q", /* third definition */
         /* The prefix qualifies; three later paints would make five. */
         full_red+prefix+full_red+"Q "+full_red+full_red+full_red,
         prefix+full_red+full_red+full_red+full_red+full_red+"Q",

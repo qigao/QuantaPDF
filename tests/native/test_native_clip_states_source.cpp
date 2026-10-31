@@ -598,8 +598,8 @@ static int fixed_sample_budget()
     return EXIT_SUCCESS;
 }
 
-/* New scope transitions do not permit a third definition, reentry
- * after restored state 0, an unused second Clip,
+/* New scope transitions do not permit a third definition, an unused
+ * scoped leaf, late unsupported operators,
  * malformed paths, or widened Image/mixed/path and work budgets. */
 static int atomic_refusals()
 {
@@ -609,7 +609,7 @@ static int atomic_refusals()
     const std::vector<std::string> bad={
         a+full_red+b+full_blue+rectangle_a+" W n Q Q",
         a+full_red+b+full_blue+"Q "+rectangle_a+" W n "+full_red+"Q",
-        a+full_red+"Q "+b+full_blue+"Q",
+        a+full_red+"Q "+b+full_blue+"Q "+a+full_red+"Q", /* third leaf */
         /* Prefix, first, intersection, restored first, and suffix are
          * five paints, beyond the unchanged four-layer ceiling. */
         full_red+a+full_red+b+full_blue+"Q "+full_red+"Q "+full_red,

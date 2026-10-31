@@ -795,7 +795,7 @@ static bool bounded_prefix_refusals()
     const std::vector<std::string> bad={
         p+a+"Q", /* first Clip unused */
         p+a+p+b+"Q Q", /* second Clip unused */
-        p+a+p+"Q "+a+p+"Q", /* reentry after GS0 */
+        p+a+p+"Q "+a+p+"Q BT ET", /* late Text after valid sibling scopes */
         p+a+b+p+"Q "+clip+"W n Q", /* third definition after restored first */
         p+p+p+a+p+p+"Q", /* fifth PATH */
         i+a+i+i+"Q", /* third Image */
