@@ -696,3 +696,24 @@ add_test(NAME quantapdf.native_clip_page_isolation_source
 set_tests_properties(quantapdf.native_clip_page_isolation_source PROPERTIES
   TIMEOUT 60
   LABELS "conformance;native;no-pdfium;public-api;clip-page-isolation")
+
+# One 12-page original PDF: nearest inherited/local /Resources resolution,
+# shared indirect XObjects and exact fail-closed missing/invalid references.
+add_executable(quantapdf_native_source_resource_ancestry
+  test_native_source_resource_ancestry.cpp)
+target_compile_features(quantapdf_native_source_resource_ancestry PRIVATE
+  cxx_std_20)
+target_link_libraries(quantapdf_native_source_resource_ancestry PRIVATE
+  QuantaPDF::QuantaPDF qpdf::libqpdf)
+if(MSVC)
+  target_compile_options(quantapdf_native_source_resource_ancestry PRIVATE
+    /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_source_resource_ancestry PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_source_resource_ancestry
+  COMMAND quantapdf_native_source_resource_ancestry)
+set_tests_properties(quantapdf.native_source_resource_ancestry PROPERTIES
+  TIMEOUT 60
+  LABELS "conformance;native;no-pdfium;public-api;resources;page-tree")
