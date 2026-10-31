@@ -106,6 +106,20 @@ quantapdf_status quantapdf_native_device_ir_render_v1_sibling_clips(
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image);
 
+
+/* PRIVATE authentic-source 3GS/7Clip viewport projection and raster.
+ * This named entry requires exactly three original Source-painted PATHs
+ * (1px open butt Stroke then two Fills), four frozen leaf Clip PATHs,
+ * three independent intersection roots {1,2}/{1,3}/{1,4} and three
+ * opaque Normal GS; only 72-DPI width-one Stroke is admitted.
+ * Source owns the graph. This function borrows it and projects
+ * commands/Clip roots on its stack into the ONE existing V5->V1 C11
+ * 4x4 sampler with no fallback. Exact budget refusal has zero output. */
+quantapdf_status quantapdf_native_device_ir_render_v1_three_gs_original(
+    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

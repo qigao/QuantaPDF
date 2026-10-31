@@ -93,11 +93,20 @@ set_tests_properties(quantapdf.native_userunit_oom PROPERTIES
 # Exact production C++ Source parser, independently compiled ONLY in
 # this in-tree fault test. Its guarded stage probes are elided from
 # the normal library and installed SDK. No PDFium or fallback.
+# Keep this the SAME in-tree Source/OOM target, not an installed
+# SDK/consumer project. Private C11 device/raster symbols are not
+# public DLL exports, so exercise the real production implementation
+# as test-linked objects, exactly like the existing native Clip tests.
 add_executable(quantapdf_native_source_stage_oom
   test_native_source_stage_oom.cpp
   "${PROJECT_SOURCE_DIR}/src/backend/qpdf_native_image_ir.cpp"
   "${PROJECT_SOURCE_DIR}/src/ir/ir.c"
-  "${PROJECT_SOURCE_DIR}/src/resource/resource_registry.c")
+  "${PROJECT_SOURCE_DIR}/src/resource/resource_registry.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_ir_v1.c"
+  $<TARGET_OBJECTS:quantapdf_native_raster_objects>
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
 target_compile_definitions(quantapdf_native_source_stage_oom PRIVATE
   QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST=1)
 target_include_directories(quantapdf_native_source_stage_oom PRIVATE
@@ -106,6 +115,9 @@ target_compile_features(quantapdf_native_source_stage_oom PRIVATE
   c_std_11 cxx_std_20)
 target_link_libraries(quantapdf_native_source_stage_oom PRIVATE
   quantapdf_backend QuantaPDF::QuantaPDF qpdf::libqpdf)
+if(UNIX)
+  target_link_libraries(quantapdf_native_source_stage_oom PRIVATE m)
+endif()
 if(MSVC)
   target_compile_options(quantapdf_native_source_stage_oom PRIVATE
     /W4 /WX /utf-8)
