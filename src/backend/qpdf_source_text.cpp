@@ -282,8 +282,12 @@ struct font {
             Obj descriptor=metrics.getKey("/FontDescriptor");need(descriptor.isDictionary());
             Obj file=descriptor.getKey("/FontFile2");supported(file.isStream() &&
                 descriptor.getKey("/FontFile").isNull() && descriptor.getKey("/FontFile3").isNull());
+            Obj length=file.getDict().getKey("/Length1");
+            need(length.isInteger() && length.getIntValue()>0);
+            supported(length.getIntValue()<=2*1024*1024);
             outline_bytes=decode(file,2u*1024u*1024u);
-            const auto status=quantapdf::detail::ttf_font_face::parse(
+            need(static_cast<size_t>(length.getIntValue())==outline_bytes.size());
+            const auto status=quantapdf::detail::ttf_font_face::parse_cid(
                 reinterpret_cast<const unsigned char*>(outline_bytes.data()),outline_bytes.size(),&outline_face);
             need(status==QUANTAPDF_OK,status);
             supported(outline_face.outline_kind==quantapdf::detail::sfnt_outline_kind::true_type);

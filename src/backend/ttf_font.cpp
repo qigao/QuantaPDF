@@ -900,10 +900,20 @@ quantapdf_status build_subset_sfnt(
 
 } // namespace
 
-quantapdf_status ttf_font_face::parse(
-    unsigned char const* bytes,
-    size_t byte_count,
-    ttf_font_face* out)
+quantapdf_status ttf_font_face::parse(unsigned char const* bytes,
+    size_t byte_count,ttf_font_face* out)
+{ return parse_program(bytes,byte_count,out,true); }
+
+quantapdf_status ttf_font_face::parse_cid(unsigned char const* bytes,
+    size_t byte_count,ttf_font_face* out)
+{
+    const auto status=parse_program(bytes,byte_count,out,false);
+    return status==QUANTAPDF_OK && out->outline_kind!=sfnt_outline_kind::true_type?
+        QUANTAPDF_ERROR_UNSUPPORTED:status;
+}
+
+quantapdf_status ttf_font_face::parse_program(unsigned char const* bytes,
+    size_t byte_count,ttf_font_face* out,bool require_unicode_cmap)
 {
     if (bytes == nullptr || out == nullptr || byte_count < 12u)
         return QUANTAPDF_ERROR_FORMAT;
@@ -941,7 +951,7 @@ quantapdf_status ttf_font_face::parse(
         return QUANTAPDF_ERROR_FORMAT;
     if (!head.found || head.size < 54u ||
         !hhea.found || hhea.size < 36u ||
-        !hmtx.found || !cmap.found ||
+        !hmtx.found || (require_unicode_cmap && !cmap.found) ||
         !maxp.found || maxp.size < 6u)
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
@@ -997,7 +1007,7 @@ quantapdf_status ttf_font_face::parse(
     result.hmtx_offset = hmtx.offset;
     result.hmtx_size = hmtx.size;
 
-    if (!select_cmap(
+    if (require_unicode_cmap && !select_cmap(
             bytes, cmap, &result.cmap_offset, &result.cmap_size,
             &result.cmap_format))
         return QUANTAPDF_ERROR_UNSUPPORTED;

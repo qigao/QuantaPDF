@@ -3453,7 +3453,7 @@ static int native_ttf_public_cases(const std::string& filename)
     quantapdf_context *ctx=nullptr;OK(quantapdf_context_create(&ctx));
     /* Each positive is a fresh ORIGINAL; this restores real text observation
      * coverage in the existing native-only public target as well. */
-    for(int mode=0;mode<=29;++mode) {
+    for(int mode=0;mode<=31;++mode) {
         const bool positive=mode<=9;
         const auto original=native_ttf_fixture(mode);
         CHECK(write_pdf(filename,original));
@@ -3484,7 +3484,7 @@ static int native_ttf_public_cases(const std::string& filename)
             const auto status=quantapdf_render_page_with_options(page,&options,&bitmap);
             if(!positive) {
                 CHECK(status!=QUANTAPDF_OK && bitmap==nullptr);
-                CHECK(status==(mode==13 || mode==17 || mode==18 || mode==27?QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED));
+                CHECK(status==(mode==13 || mode==17 || mode==18 || mode==27 || mode==30 || mode==31?QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED));
                 continue;
             }
             CHECK(status==QUANTAPDF_OK && bitmap!=nullptr);

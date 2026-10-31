@@ -10,6 +10,48 @@
 #include <iterator>
 #include <stdexcept>
 #include <string>
+#include <cstdint>
+#include <vector>
+
+
+/* Test-author sfnt packaging only: copy every original table byte except
+ * cmap/DSIG, rebuild directory offsets/search fields and whole-font checksum.
+ * No outlines or metrics are decoded or changed. ISO 32000-1 9.9 requires
+ * cmap omission for embedded CID fonts; original PDF CIDToGIDMap selects GIDs. */
+inline std::string native_cid_font_program(const std::string& original)
+{
+    const auto u16=[&](size_t at) {return (unsigned char)original.at(at)*256u+(unsigned char)original.at(at+1u);};
+    const auto u32=[&](size_t at) {return (uint32_t)u16(at)*65536u+u16(at+2u);};
+    struct table {size_t entry;uint32_t offset,length;};std::vector<table> tables;
+    for(unsigned i=0u;i<u16(4u);++i) {
+        const size_t at=12u+16u*i;const auto tag=original.substr(at,4u);
+        if(tag!="cmap" && tag!="DSIG")tables.push_back({at,u32(at+8u),u32(at+12u)});
+    }
+    std::string out=original.substr(0u,12u);out.resize(12u+16u*tables.size(),'\0');
+    const auto put16=[&](size_t at,unsigned v) {out.at(at)=char(v>>8u);out.at(at+1u)=char(v);};
+    const auto put32=[&](size_t at,uint32_t v) {
+        for(unsigned j=0u;j<4u;++j)out.at(at+j)=char(v>>(24u-8u*j));
+    };
+    unsigned power=1u,selector=0u;
+    while(power*2u<=tables.size()) {power*=2u;++selector;}
+    put16(4u,(unsigned)tables.size());put16(6u,power*16u);
+    put16(8u,selector);put16(10u,(unsigned)tables.size()*16u-power*16u);
+    size_t head=0u;
+    for(size_t i=0u;i<tables.size();++i) {
+        const auto& t=tables[i];const size_t at=12u+16u*i,offset=out.size();
+        out.replace(at,8u,original,t.entry,8u);put32(at+8u,(uint32_t)offset);put32(at+12u,t.length);
+        out.append(original,t.offset,t.length);
+        while(out.size()%4u!=0u)out+='\0';
+        if(original.compare(t.entry,4u,"head")==0)head=offset;
+    }
+    if(head==0u)throw std::runtime_error("missing original head");
+    put32(head+8u,0u);uint32_t sum=0u;
+    for(size_t at=0u;at<out.size();at+=4u) {
+        uint32_t word=0u;for(unsigned j=0u;j<4u;++j)word=(word<<8u)|(unsigned char)out[at+j];
+        sum+=word;
+    }
+    put32(head+8u,UINT32_C(0xb1b0afba)-sum);return out;
+}
 
 inline std::string native_ttf_fixture(int mode=0)
 {
@@ -33,6 +75,7 @@ inline std::string native_ttf_fixture(int mode=0)
         if(mode==27) {bytes.at(glyph+12u)=char(0x09);bytes.at(glyph+13u)=char(0x0d);} // cycle
         if(mode==28)bytes.at(glyph+11u)=char((unsigned char)bytes.at(glyph+11u)&~2u); // point attachment
     }
+    bytes=native_cid_font_program(bytes);
     if(mode==17)bytes.resize(24u);
     auto pdf=QPDF::create();pdf->emptyPDF();
     auto root=pdf->getRoot().getKey("/Pages");
@@ -43,7 +86,11 @@ inline std::string native_ttf_fixture(int mode=0)
         "<< /Type /FontDescriptor /FontName /Roboto-Regular /Flags 32 "
         "/FontBBox [-1509 -555 2352 2163] /ItalicAngle 0 /Ascent 928 "
         "/Descent -244 /CapHeight 711 /StemV 80 >>"));
-    if(mode!=15)desc.replaceKey("/FontFile2",pdf->newStream(bytes));
+    if(mode!=15) {
+        auto program=pdf->newStream(bytes);
+        if(mode!=30)program.getDict().replaceKey("/Length1",O::newInteger(static_cast<long long>(bytes.size())+(mode==31?1:0)));
+        desc.replaceKey("/FontFile2",program);
+    }
     if(mode==21)desc.replaceKey("/FontFile3",pdf->newStream("CFF"));
     auto cid=pdf->makeIndirectObject(O::parse(
         "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Roboto-Regular "

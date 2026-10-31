@@ -48,12 +48,18 @@ struct ttf_font_face {
         size_t size,
         ttf_font_face* out);
 
+    /* CIDFontType2 uses PDF CIDToGIDMap, not an sfnt Unicode cmap. */
+    static quantapdf_status parse_cid(unsigned char const* data,
+        size_t size,ttf_font_face* out);
     uint16_t glyph_for(uint32_t codepoint) const;
     int width_for(uint16_t glyph) const;
     /* Unhinted glyf outlines, with bounded XY-positioned composite expansion.
      * No font bytecode, system-font lookup or replacement outline is used. */
     quantapdf_status outline_for(uint16_t glyph,
         std::vector<ttf_outline_contour> *out,size_t max_points=8192u) const;
+private:
+    static quantapdf_status parse_program(unsigned char const* data,
+        size_t size,ttf_font_face* out,bool require_unicode_cmap);
 };
 
 quantapdf_status decode_utf8_codepoints(

@@ -11,7 +11,7 @@ substitution, font bytecode execution, provider image or fallback renderer.
 | Part | Initial scope |
 | --- | --- |
 | Page | Text only; integer, zero-origin full MediaBox; Rotate 0; UserUnit 1 |
-| Font | One embedded Type0 Identity-H CIDFontType2 with FontFile2 TrueType glyf/loca and ToUnicode |
+| Font | One embedded Type0 Identity-H CIDFontType2 with FontFile2 TrueType glyf/loca (no sfnt cmap required), decoded Length1 and ToUnicode |
 | Mapping | Identity or bounded explicit CIDToGIDMap; original PDF DW/W advances |
 | State | Positive axis-aligned text/CTM scale, spacing, rise, Tm/Td/TD/T*, Tj/TJ and quote operators, balanced q/Q |
 | Paint | Fill text (Tr 0), opaque DeviceGray/DeviceRGB, original order; maximum four text-show operators |
@@ -26,6 +26,11 @@ bound; it does not widen the four original paint limit for paths/images.
 Spaces still count as source glyphs and advance using original PDF metrics.
 Empty glyphs emit no ink. Each nonempty glyph remains a separate paint:
 merging glyph contours changes antialiased overlap, even for one Tj.
+
+The same SFNT parser retains mandatory Unicode cmap for existing Composer/font
+consumers; its explicit CID entry uses only PDF CIDToGIDMap. Test authors omit
+cmap (ISO 32000-1 9.9), rebuild the directory/checksum and set FontFile2 Length1.
+Every remaining table payload is copied without geometry changes.
 
 The existing font table reader now decodes bounded simple and composite glyf
 outlines. The source interpreter resolves implied on-curve points, splits
@@ -60,7 +65,7 @@ all three DPIs. CI uses the bytes without a fontTools dependency.
 The existing public native test compares every RGB byte, checks explicit
 CID mapping, text matrices, rise, both quote operators, spaces, repeat and
 thumbnail rendering, post-Document/Context Bitmap ownership, and text
-extraction/structured spans/search. Twenty malformed/unsupported originals
+extraction/structured spans/search. Twenty-two malformed/unsupported originals
 refuse at all three DPIs and through thumbnails; a good original reopens on
 the same Context afterward.
 
