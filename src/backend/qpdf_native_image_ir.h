@@ -212,11 +212,81 @@ quantapdf_status quantapdf_qpdf_source_scoped_mixed_v10_flate_predictor_to_ir(
  * and all of its inherited state must be validated under bounded PageTree
  * work. This publishes a local one-page IR using page slot zero solely
  * for canonical C11 raster admission, not as a substituted PDF leaf.
- * Earlier Source entry points retain exact page-zero semantics. */
+ * Earlier Source entry points retain exact page-zero semantics.
+ *
+ * The native V10 Clip profile admits one or two independent leaves,
+ * each with 4..9 total commands and one aggregate W/W* winding rule.
+ * A leaf may contain one or two contours, each with MOVE, at least two
+ * LINE/CUBIC edges, and CLOSE. The first contour must close explicitly
+ * before a second m/re; the last may close implicitly at W/n. Two
+ * ordinary rectangles require ten commands and remain unsupported.
+ * Painted PATHs and paths ended by plain n retain their existing
+ * grammar. The first definition may follow a bounded GS0 paint prefix;
+ * the second may follow first-leaf paints or real Q restoration to GS0.
+ * Empty, MOVE-only and open MOVE+LINE operands use the same four-command
+ * zero-edge encoding in either position. Both definition-time paths and
+ * winding rules are retained: owned Clip IDs 1/2 and, for intersecting
+ * scopes only, owned flat root 3.
+ * Original Rotate and UserUnit apply to both leaves. Simple rectangle
+ * pairs retain their exact one-leaf reduction only when no earlier
+ * paint or saved q can observe the original first leaf.
+ *
+ * Paint before the second definition and Q restoration to the first
+ * leaf use two owned GS records: GS1 names leaf 1; GS2 names root 3.
+ * Both must be painted, in order 1* 2+ 1* 0*, within 2..4 total layers.
+ * PATH-only admits 2..4 paints, Image-only two, and mixed profiles
+ * 1..2 of each kind. A root-only page remaps to the existing one-GS
+ * representation. Third definitions, unused intersections and reentry
+ * remain unsupported.
+ *
+ * A nonempty GS0 prefix uses a separate native-only admission with
+ * state order 0+ 1+ 0* for one GS or 0+ 1* 2+ 1* 0* for two GS.
+ * Each published nonzero identity must be painted. Prefix staging
+ * retains the existing homogeneous PATH/IMAGE or one-of-each grammar;
+ * total paints remain at most four, Images at most two, and mixed
+ * profiles at most two of each kind. A two-GS Image-only prefix cannot
+ * fit those limits. A later GS0 suffix still requires real Q; initial
+ * GS0 paints neither restore nor discard a Clip. All original owners,
+ * paint order, definition CTMs and work quotas are retained.
+ *
+ * An independent second Clip after Q uses two owned leaves and two GS
+ * records mapping GS1 to leaf 1 and GS2 to leaf 2, with no root or
+ * rectangle reduction. Complete-page order is 0* 1+ 0* 2+ 0*: both
+ * identities must be painted, each GS0 transition requires real Q,
+ * and the second scope may stay live at EOF. Prefix staging, total
+ * layers, Image/mixed cardinalities and all quotas remain unchanged.
+ * Unused sibling leaves and any third Clip definition still refuse.
+ *
+ * The existing one-GS V10 profile admits 1..4 opaque PATH-only f/f*
+ * paints with its Clip graph and no Image resources. Without a prefix,
+ * the first paint uses GS=1; real Q may restore GS=0 for a suffix. No
+ * Clip reentry or extra layer is admitted by the one-GS profile.
+ * Older Source signatures and one-GS mixed/Image limits are unchanged.
+ * The exact 237.133 x 180.44 original decimal page additionally admits
+ * its complete 24-m/32-c/8-h Clip/Fill/Stroke/Stroke profile, selected during the same
+ * operator pass at the first m after the strict original nonpainting
+ * prefix. All three paints/Clip scopes must validate at EOF; prior
+ * blank decimal pages retain their old contract. Raster admission and
+ * physical 72-DPI work limits remain independently enforced.
+ * All payloads publish atomically and are released by
+ * quantapdf_ir_dispose, including partial OOM cleanup. */
 quantapdf_status quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
     const unsigned char *original_pdf,size_t size,
     const quantapdf_qpdf_source_raw_image_limits *limits,
     size_t selected_page_index,quantapdf_ir *out_ir);
+
+/* Retained internal original TeXample M3 Source-only entry. It uses
+ * the SAME V10 QPDF parser/materializer as the public selected reader.
+ * Public V10 selects this complete profile within its operator pass;
+ * this private entry independently enforces the historical full profile.
+ * It can publish 3 owned ordered PATH operations (f*, S, S), one
+ * frozen two-ring W* leaf and a single opaque Normal GS, only after
+ * validating all 24 m, 32 c, 8 h and actual q/Q operator positions.
+ * Not a public renderer, installed SDK ABI or second parser. */
+quantapdf_status quantapdf_qpdf_source_texample_m3_stage_to_ir(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,
+    quantapdf_ir *out_ir);
 
 #ifdef __cplusplus
 }

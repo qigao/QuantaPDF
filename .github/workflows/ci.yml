@@ -223,11 +223,10 @@ jobs:
           $vsdev = Join-Path $installation "Common7\Tools\VsDevCmd.bat"
           "VSDEVCMD=$vsdev" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Configure native DLL
+        # Dependencies use the static-md triplet. Avoid concurrent
+        # z-applocal copies of the native test executables (file locks).
+        # The installed DLL consumer and exact ABI checks still run.
         shell: cmd
-        # The x64-windows-static-md dependencies have no vcpkg DLLs to
-        # deploy. Disable default post-link z-applocal for this static
-        # triplet: concurrent Ninja links otherwise race on Windows
-        # sharing locks. Keep actual native DLL/ABI/consumer checks.
         run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && cmake --fresh --preset win-release-user -DVCPKG_APPLOCAL_DEPS=OFF
       - name: Build native DLL
         shell: cmd

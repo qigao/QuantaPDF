@@ -14,6 +14,7 @@
 #include <vector>
 #include <stdexcept>
 #include <zlib.h>
+#include "native_ttf_fixture.h"
 
 #define CHECK(expr) do { if (!(expr)) { \
     std::fprintf(stderr,"native public render failed at %d: %s\n",__LINE__,#expr); \
@@ -93,7 +94,7 @@ static std::string create_blank_source(int mode)
 
 /* Native-only opaque Path Fill originals with no /Resources or Image:
  * 1..4 source-ordered PATHs, grayscale, exact overlap and atomic
- * fifth PATH / late Text / Stroke / Clip refusals. */
+ * fifth PATH / late Text / Stroke refusals, including after a Clip. */
 static std::string create_path_only_source(int mode)
 {
     auto pdf=QPDF::create();
@@ -117,7 +118,10 @@ static std::string create_path_only_source(int mode)
     if(mode==4)
         source="1 0 0 rg 4 4 8 6 re f 4 4 8 6 re S";
     if(mode==5)
-        source="q 4 4 8 6 re W n 1 0 0 rg 4 4 8 6 re f Q";
+        /* The unclipped prefix now qualifies; late Text still poisons
+         * the complete original and its public thumbnail. */
+        source="1 0 0 rg 4 4 8 6 re f "
+               "q 4 4 8 6 re W n 0 0 1 rg 4 4 8 6 re f Q BT ET";
     if(mode>=6 && mode<=9) {
         /* Three source-ordered opaque fills; the fourth covers part of
          * green without changing the blue or red-only sample regions. */
@@ -219,7 +223,7 @@ static std::string create_image_only_source(int mode)
         "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q Q";
     if(mode==16)content=
         "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q "
-        "q 12 6 8 9 re W* n /I Do Q Q"; /* second Clip */
+        "q 12 6 8 9 re W* n /I Do 12 6 8 9 re W n Q Q"; /* third Clip */
     if(mode==6 || (mode>=17 && mode<=21))
         content+=" q 8 0 0 6 24 0 cm /I Do Q"
                  " q 8 0 0 6 0 0 cm /I Do Q";
@@ -359,7 +363,8 @@ static std::string create_clipped_mixed_source(int mode)
             "1 0 0 rg 12 6 8 9 re f Q"; /* third all-clipped */
     if(mode==3)
         content=outer+paint_image+
-            "q 12 6 8 9 re W* n "+paint_path+"Q Q"; /* second W* */
+            "q 12 6 8 9 re W* n "+paint_path+
+            "Q 12 6 8 9 re W n Q"; /* third W after restoring first Clip */
     if(mode==4)
         content+=" Q"; /* graphics stack underflow = FORMAT */
     if(mode==5)
@@ -3441,9 +3446,13 @@ static int native_seventh_userunit_late_refusal_cases(
     return EXIT_SUCCESS;
 }
 
+
+#include "native_ttf_public_cases.h"
+
 int main()
 {
     const std::string filename="native-standalone-smoke.pdf";
+    CHECK(native_ttf_public_cases(filename)==EXIT_SUCCESS);
     CHECK(high_dpi_cases(filename)==EXIT_SUCCESS);
     CHECK(original_source_rotation_cases(filename)==EXIT_SUCCESS);
     CHECK(selected_page_v10_cases(filename)==EXIT_SUCCESS);
@@ -3746,9 +3755,9 @@ int main()
     }
 
 
-    /* One or two opaque PATHs, no Image/Clip resources. Compare fixed
+    /* One to four opaque PATHs, no Image/Clip resources. Compare fixed
      * independently declared RGB goldens, NOT any PDFium oracle. Later
-     * unsupported Text/Stroke/Clip/third PATH must refuse completely. */
+     * Text/Stroke/fifth PATH refuse completely, including after a Clip. */
     for(int mode=0;mode<10;++mode) {
         CHECK(write_pdf(filename,create_path_only_source(mode)));
         quantapdf_context *path_context=nullptr;

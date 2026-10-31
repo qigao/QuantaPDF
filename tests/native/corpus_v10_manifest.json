@@ -1,0 +1,206 @@
+{
+  "schema_version": 1,
+  "corpus_id": "native-v10-cross-document-v1",
+  "fixture_kind": "generated-test-owned",
+  "documents": [
+    {
+      "id": "path-red",
+      "sha256": "d029f773903447dab4fc6b57f296f2bacaf4d35d316f0ba657ebd6eced4b7688",
+      "size_bytes": 476,
+      "source_provenance": "QuantaPDF-test-authored-original-bytes-v1",
+      "feature_tags": [
+        "path",
+        "red"
+      ],
+      "page_index": 0,
+      "expected_status": "OK",
+      "expected_center_rgb": "ff0000",
+      "width_points": 16,
+      "height_points": 12,
+      "reference_oracle": "none"
+    },
+    {
+      "id": "path-blue",
+      "sha256": "eddb020ab24be991704609c02d3c21f6d67399cbc56f7641c3b8f517a1ff8ed9",
+      "size_bytes": 476,
+      "source_provenance": "QuantaPDF-test-authored-original-bytes-v1",
+      "feature_tags": [
+        "path",
+        "blue"
+      ],
+      "page_index": 0,
+      "expected_status": "OK",
+      "expected_center_rgb": "0000ff",
+      "width_points": 16,
+      "height_points": 12,
+      "reference_oracle": "none"
+    },
+    {
+      "id": "image-red",
+      "sha256": "607e86bb0c5cade2b9713e547fecfb27344480d14e3bf4a7842fc7d3fbddb0b3",
+      "size_bytes": 668,
+      "source_provenance": "QuantaPDF-test-authored-original-bytes-v1",
+      "feature_tags": [
+        "image",
+        "resource-name-i",
+        "red"
+      ],
+      "page_index": 0,
+      "expected_status": "OK",
+      "expected_center_rgb": "ff0000",
+      "width_points": 16,
+      "height_points": 12,
+      "reference_oracle": "none"
+    },
+    {
+      "id": "image-green",
+      "sha256": "ecfed48d6a51882f0e99ce71f8dc0826dfa21a702c53ec50aa3384a5e173ea52",
+      "size_bytes": 668,
+      "source_provenance": "QuantaPDF-test-authored-original-bytes-v1",
+      "feature_tags": [
+        "image",
+        "resource-name-i",
+        "green"
+      ],
+      "page_index": 0,
+      "expected_status": "OK",
+      "expected_center_rgb": "00ff00",
+      "width_points": 16,
+      "height_points": 12,
+      "reference_oracle": "none"
+    },
+    {
+      "id": "image-clipped-blue",
+      "sha256": "81f75e6d9e713a731ae69337baa4bf2680bc26462e0f993954ad63a7bbf5c87c",
+      "size_bytes": 688,
+      "source_provenance": "QuantaPDF-test-authored-original-bytes-v1",
+      "feature_tags": [
+        "image",
+        "clip-w",
+        "blue"
+      ],
+      "page_index": 0,
+      "expected_status": "OK",
+      "expected_center_rgb": "0000ff",
+      "width_points": 16,
+      "height_points": 12,
+      "reference_oracle": "none"
+    },
+    {
+      "id": "blank-page",
+      "sha256": "5c7399c31344b497bf79e7cd51de5319b102c95f51a829641b04c91543ae933f",
+      "size_bytes": 451,
+      "source_provenance": "QuantaPDF-test-authored-original-bytes-v1",
+      "feature_tags": [
+        "blank",
+        "white"
+      ],
+      "page_index": 0,
+      "expected_status": "OK",
+      "expected_center_rgb": "ffffff",
+      "width_points": 16,
+      "height_points": 12,
+      "reference_oracle": "none"
+    },
+    {
+      "id": "reject-late-text",
+      "sha256": "3a4cfe208bc20ec10798359ac1ccba66dc375ea7af9e28a49690d6df9f3c8edb",
+      "size_bytes": 482,
+      "source_provenance": "QuantaPDF-test-authored-original-bytes-v1",
+      "feature_tags": [
+        "path",
+        "text",
+        "late-rejection"
+      ],
+      "page_index": 0,
+      "expected_status": "UNSUPPORTED",
+      "expected_center_rgb": null,
+      "width_points": 16,
+      "height_points": 12,
+      "reference_oracle": "none"
+    },
+    {
+      "id": "reject-missing-name",
+      "sha256": "77b0dd24b3077dbc76851c253e7e177fb1e551d405b443d6da65ef844771e546",
+      "size_bytes": 674,
+      "source_provenance": "QuantaPDF-test-authored-original-bytes-v1",
+      "feature_tags": [
+        "image",
+        "missing-name",
+        "atomic"
+      ],
+      "page_index": 0,
+      "expected_status": "FORMAT",
+      "expected_center_rgb": null,
+      "width_points": 16,
+      "height_points": 12,
+      "reference_oracle": "none"
+    },
+    {
+      "id": "reject-form-xobject",
+      "sha256": "4172cd48f0d389e058adf217d09f9a684436de931ddd40873355e465e3ff4943",
+      "size_bytes": 635,
+      "source_provenance": "QuantaPDF-test-authored-original-bytes-v1",
+      "feature_tags": [
+        "form-xobject",
+        "atomic"
+      ],
+      "page_index": 0,
+      "expected_status": "UNSUPPORTED",
+      "expected_center_rgb": null,
+      "width_points": 16,
+      "height_points": 12,
+      "reference_oracle": "none"
+    },
+    {
+      "id": "reject-default-rgb",
+      "sha256": "4355f7e706d200aafcb25ed418fb56ab6928a9fc7d196ddaae43e7361e6ce2f2",
+      "size_bytes": 710,
+      "source_provenance": "QuantaPDF-test-authored-original-bytes-v1",
+      "feature_tags": [
+        "default-rgb",
+        "atomic"
+      ],
+      "page_index": 0,
+      "expected_status": "UNSUPPORTED",
+      "expected_center_rgb": null,
+      "width_points": 16,
+      "height_points": 12,
+      "reference_oracle": "none"
+    },
+    {
+      "id": "reject-image-late-text",
+      "sha256": "264807f0d6a9409bdfb9173de75859781e50d241aff44cf1ee1dcac01fe017d8",
+      "size_bytes": 674,
+      "source_provenance": "QuantaPDF-test-authored-original-bytes-v1",
+      "feature_tags": [
+        "image",
+        "late-text",
+        "atomic"
+      ],
+      "page_index": 0,
+      "expected_status": "UNSUPPORTED",
+      "expected_center_rgb": null,
+      "width_points": 16,
+      "height_points": 12,
+      "reference_oracle": "none"
+    },
+    {
+      "id": "reject-cmyk-image",
+      "sha256": "535a5c610e973dbb5df685dd1304ceca2e036d08d52909313831895da12e3735",
+      "size_bytes": 670,
+      "source_provenance": "QuantaPDF-test-authored-original-bytes-v1",
+      "feature_tags": [
+        "image",
+        "cmyk",
+        "atomic"
+      ],
+      "page_index": 0,
+      "expected_status": "UNSUPPORTED",
+      "expected_center_rgb": null,
+      "width_points": 16,
+      "height_points": 12,
+      "reference_oracle": "none"
+    }
+  ]
+}

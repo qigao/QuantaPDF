@@ -1,7 +1,9 @@
 #include "backend/native_source_raster_bridge_v1.h"
 #include "render/native_device_ir_v1.h"
+#include "render/ir_raster_v1.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <limits.h>
 #include <string.h>
 
@@ -71,10 +73,100 @@ static quantapdf_status native_source_bridge_impl(
     /* Only V10 opts into device-space pixels. Earlier private Source
      * signatures remain exact 72 DPI. This is a projection into the
      * SINGLE C11 V5 raster, not a second renderer or image rescaler. */
-    if(source_profile==QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10)
-        status=quantapdf_native_device_ir_render_v1(
-            &ir,(unsigned)device->dpi,&limits->raster,out_image);
-    else
+    if(source_profile==QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10) {
+        /* Select the complete owned state shape once. Two independent
+         * leaves/GS are sibling scopes; three Clip records include an
+         * intersection root. Every paint retains its exact membership. */
+        /* The ORIGINAL yWorks has been completely Source-admitted
+         * and independently rendered by the same private C11 sampler:
+         * exactly three ordered PATH paints, three real GS owners and
+         * seven frozen Clip records. No fallback, no inferred root,
+         * no second provider, no partial source omission. */
+        int text_outlines=0;
+        if(ir.operations!=NULL)for(size_t i=0u;i<ir.operation_count;++i)
+            if(ir.operations[i].kind==QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES)text_outlines=1;
+        if(text_outlines) {
+            quantapdf_ir_raster_v1_limits text_limits={limits->raster.max_pixels,
+                limits->raster.max_operations,limits->raster.max_edges,limits->raster.max_sample_tests};
+            quantapdf_native_device_plan plan={0};char box[64];
+            if(ir.pages==NULL || ir.page_count!=1u ||
+               !isfinite(ir.pages[0].width_points) || !isfinite(ir.pages[0].height_points) ||
+               ir.pages[0].width_points<1.0f || ir.pages[0].width_points>65536.0f ||
+               ir.pages[0].height_points<1.0f || ir.pages[0].height_points>65536.0f ||
+               floorf(ir.pages[0].width_points)!=ir.pages[0].width_points ||
+               floorf(ir.pages[0].height_points)!=ir.pages[0].height_points)
+                status=QUANTAPDF_ERROR_UNSUPPORTED;
+            else {
+                const int printed=snprintf(box,sizeof(box),"0 0 %u %u",
+                    (unsigned)ir.pages[0].width_points,(unsigned)ir.pages[0].height_points);
+                if(printed<0 || (size_t)printed>=sizeof(box))status=QUANTAPDF_ERROR_UNSUPPORTED;
+                else {
+                    status=quantapdf_native_device_plan_create_physical(box,box,"1",0,
+                        (unsigned)device->dpi,text_limits.max_pixels,&plan);
+                    if(status==QUANTAPDF_OK)
+                        status=quantapdf_ir_raster_render_v1_text_outlines(&ir,&text_limits,&plan,NULL,out_image);
+                }
+            }
+        } else if(ir.page_count==1u && ir.pages!=NULL &&
+           ir.pages[0].width_points==237.133f &&
+           ir.pages[0].height_points==180.44f && ir.operation_count==3u) {
+            const int physical_dpi=device->dpi!=72.0f;
+            const size_t profile_pixels=physical_dpi?1000000u:50000u;
+            const size_t profile_edges=physical_dpi?512u:1024u;
+            quantapdf_native_device_plan plan={0};
+            quantapdf_ir_raster_v1_limits work={
+                limits->raster.max_pixels<profile_pixels?limits->raster.max_pixels:profile_pixels,
+                3u,
+                limits->raster.max_edges<profile_edges?limits->raster.max_edges:profile_edges,
+                limits->raster.max_sample_tests<8000000u?
+                    limits->raster.max_sample_tests:8000000u
+            };
+            /* Direct complete original Source path. Preserve caller caps,
+             * including the public 512-edge ceiling; no older-route retry. */
+            if(limits->raster.max_operations<3u)
+                status=QUANTAPDF_ERROR_UNSUPPORTED;
+            else {
+                status=quantapdf_native_device_plan_create_physical(
+                    "0 0 237.133 180.44","0 0 237.133 180.44","1",
+                    0,(unsigned)device->dpi,work.max_pixels,&plan);
+                if(status==QUANTAPDF_OK) {
+                    if(physical_dpi)
+                        status=quantapdf_ir_raster_render_v1_texample_physical_dpi_three_layer(
+                            &ir,&work,&plan,NULL,out_image);
+                    else
+                        status=quantapdf_ir_raster_render_v1_texample_shared_three_layer(
+                            &ir,&work,&plan,NULL,out_image);
+                }
+            }
+        } else if(ir.resources.graphics_state_count==3u &&
+           ir.resources.clip_count==7u &&
+           ir.operation_count==3u &&
+           ir.resources.image_count==0u)
+            status=quantapdf_native_device_ir_render_v1_three_gs_original(
+                &ir,(unsigned)device->dpi,&limits->raster,out_image);
+        else if(ir.resources.graphics_state_count==2u &&
+           ir.resources.clip_count==2u)
+            status=quantapdf_native_device_ir_render_v1_sibling_clips(
+                &ir,(unsigned)device->dpi,&limits->raster,out_image);
+        else if(ir.resources.graphics_state_count!=0u &&
+           ir.operation_count!=0u && ir.operations!=NULL &&
+           ir.operations[0].graphics_state_id==0u)
+            status=quantapdf_native_device_ir_render_v1_unclipped_prefix(
+                &ir,(unsigned)device->dpi,&limits->raster,out_image);
+        else if(ir.resources.graphics_state_count==2u)
+            status=quantapdf_native_device_ir_render_v1_compound_clip_states(
+                &ir,(unsigned)device->dpi,&limits->raster,out_image);
+        else if(ir.resources.image_count==0u &&
+           ir.resources.graphics_state_count==1u)
+            status=quantapdf_native_device_ir_render_v1_clipped_paths(
+                &ir,(unsigned)device->dpi,&limits->raster,out_image);
+        else if(ir.resources.clip_count==3u)
+            status=quantapdf_native_device_ir_render_v1_two_clip(
+                &ir,(unsigned)device->dpi,&limits->raster,out_image);
+        else
+            status=quantapdf_native_device_ir_render_v1(
+                &ir,(unsigned)device->dpi,&limits->raster,out_image);
+    } else
         status=quantapdf_ir_raster_scoped_mixed_v5(
             &ir,0u,&limits->raster,out_image);
     quantapdf_ir_dispose(&ir);

@@ -53,6 +53,151 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_device_viewport(
     double viewport_width,double viewport_height,
     quantapdf_ir_raster_image *out_image);
 
+
+/* PRIVATE opt-in: two owned bounded Clip Path leaves plus one flat
+ * Intersection root, one Normal/full-alpha GS (clip_id=3). Same 4x4
+ * C11 sampler for original PATH/RAW Image and physical viewport.
+ * Native Source V10 selects this graph after bounded two-leaf admission;
+ * all older V5 entrypoints retain their original one-Clip contract. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_two_clip_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
+/* Explicit bounded PATH-only profile: one..four opaque PATH paints,
+ * no Image or hidden resources, and exactly one GS naming one frozen
+ * Clip leaf or two leaves plus their flat Intersection root. All paints
+ * start in GS=1; an optional Q-restored GS=0 suffix is final. PATH and
+ * Clip commands contain four..nine elements. The same V1 sampler tests
+ * PATH, Clip leaves and fractional viewport at each shared subpixel.
+ * Legacy entrypoints retain their refusal of clipped PATH-only input. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_clipped_paths_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
+/* Public Source V10 only: one fully owned Clip leaf with one/two
+ * bounded closed contours and a single selected opaque PATH/GS.
+ * All W/W* contours participate in the same original-rule winding
+ * test on the SAME V1 4x4 antialias samples. No new sampler, no
+ * bigger source/sample budgets, no second raster or provider. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_compound_clipped_paths_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
+/* Explicit two-GS device profile: exact Clip leaves 1/2 and flat root
+ * 3={1,2}; full-alpha Normal GS 1 selects leaf 1, GS 2 selects root 3.
+ * Both GS identities must occur in the paint order 1* 2+ 1* 0*.
+ * Two..four PATHs, exactly two IMAGEs, or one..two of each (total<=4).
+ * PATH/Clip contours are closed and contain four..nine commands;
+ * leaf transforms are frozen identity. The same 4x4 sampler tests the
+ * applicable leaf/leaves and physical viewport at each subpixel.
+ * Source, per-draw and geometry budgets, immutable borrows and detached
+ * output follow V5 unchanged. Every older entrypoint refuses two GS. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_clip_states_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
+/* Explicit compound-Clip variant of the two-GS device profile. Each
+ * leaf contains one or two closed contours within four..nine total
+ * commands; each contour is MOVE, at least two LINE/CUBIC commands,
+ * CLOSE. Every contour contributes to that leaf's common W/W* winding
+ * calculation at the existing shared 4x4 samples. Painted PATHs remain
+ * single-contour, and the original clip_states entry remains strict.
+ * No state, layer, resource, ownership or work budget is enlarged. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_compound_clip_states_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
+/* Explicit PRIVATE V10 preflight of TWO owned clipped PATH Fills:
+ * GS1 selects Clip leaf1, GS2 selects root {leaf1, leaf2}.
+ * Two Clip leaves may each contain 1..2 closed contours (<=9 commands).
+ * The SAME V5/V1 4x4 painter charges a strict half-share of the
+ * unchanged total sample cap to each operation. Old compound/two-GS
+ * wrappers retain the previous full-page work billing and refusals.
+ * Not a general GS, DAG, PDFium or additional renderer interface. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_two_gs_visible_work_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
+
+/* Private strict C11 proof: three opaque PATH Fills in GS order 1,2,3;
+ * four owned frozen W/W* Clip leaves plus three intersections
+ * 5={1,2}, 6={3,4}, 7={5,6}, with GS Clip IDs 1,5,7.
+ * Integer physical viewport, same V5->V1 4x4 sampler, three equal
+ * shares of unchanged 8M sample cap; no public Source/SDK expansion. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_three_gs_visible_work_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
+
+/* Private source-graph branch proof: four frozen Clip PATH leaves,
+ * roots 5={1,2}, 6={1,3}, 7={1,4}, GS 1/2/3 select roots 5/6/7.
+ * Three opaque Fill-only operations, each billed <= floor(total/3)
+ * against unchanged 8M original sample cap and same C11 V1 sampler.
+ * Original yWorks source (Stroke+two Fills) remains unsupported.
+ * Legacy and cumulative three-GS profiles keep their strict admission. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_three_gs_branch_visible_work_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
+/* Private first 1px horizontal/vertical opaque butt Stroke under
+ * shared outer W + compound inner W* Clip, then two Fill layers under
+ * independent roots. Exactly 3 GS, 4 owned leaves, 3 intersections;
+ * only the first inner W* may use exactly ten closed PATH commands.
+ * Existing V1 sampler bills stroke +/-0.5px and all intersecting W/W*
+ * geometry work, with 3 strict conservative shares of unchanged 8M cap.
+ * Not public Source V10 admission or general Stroke. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_three_gs_branch_stroke_visible_work_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
+/* Explicit actual GS0 paint prefix before W/W*. One GS follows
+ * 0+ 1+ 0*; two GS follow 0+ 1* 2+ 1* 0*, with every nonzero identity
+ * used. Graphs remain one Clip or two leaves plus their flat root,
+ * with exact resource capacities. Two..four total operations, at most
+ * two Images and two PATHs when mixed; PATH-only may use four and
+ * Image-only exactly two. Each Clip has one/two closed contours within
+ * four..nine commands, and painted PATHs remain single-contour.
+ * Prefix paints participate in the unchanged source/draw/edge budgets
+ * and shared viewport sampler. All older wrappers remain unchanged. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_unclipped_prefix_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
+/* Explicit independent sibling scopes: exactly two owned Clip PATH
+ * leaves, exactly two full-alpha Normal GS mapping 1->1 and 2->2,
+ * and no intersection root or member storage. Both nonzero identities
+ * occur in order 0* 1+ 0* 2+ 0*, within two..four total operations.
+ * PATH-only permits four, Image-only exactly two, mixed at most two of
+ * each. Clip leaves contain one/two closed contours/four..nine total
+ * commands; painted PATHs stay single-contour. Frozen identity leaves
+ * are sampled independently with the same viewport, source/draw/edge
+ * quotas and detached output. Older wrappers retain their contracts. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_sibling_clips_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
