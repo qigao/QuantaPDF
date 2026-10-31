@@ -1077,3 +1077,27 @@ quantapdf_native_test(quantapdf_native_three_gs_branch_stroke_work
   "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
   "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
   "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
+
+# Private production-C11 two curved-Clip subpixel acceptance (#528).
+# Compile the SAME shipped C11 sampler, no alternate painter/QPDF/PDFium.
+add_executable(quantapdf_native_two_curved_clip_c11
+  test_native_two_curved_clip_c11.c
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
+target_include_directories(quantapdf_native_two_curved_clip_c11 PRIVATE
+  "${PROJECT_SOURCE_DIR}/src" "${PROJECT_SOURCE_DIR}/include")
+target_compile_features(quantapdf_native_two_curved_clip_c11 PRIVATE c_std_11)
+if(MSVC)
+  target_compile_options(quantapdf_native_two_curved_clip_c11 PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_native_two_curved_clip_c11 PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+if(UNIX)
+  target_link_libraries(quantapdf_native_two_curved_clip_c11 PRIVATE m)
+endif()
+add_test(NAME quantapdf.native_two_curved_clip_c11
+  COMMAND quantapdf_native_two_curved_clip_c11)
+set_tests_properties(quantapdf.native_two_curved_clip_c11 PROPERTIES
+  TIMEOUT 30 LABELS "conformance;native;no-pdfium;c11;curved-clip;ownership")
