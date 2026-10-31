@@ -66,7 +66,10 @@ quantapdf_status quantapdf_native_source_raster_bridge_v9(
 
 /* Public Source V10: strict 8-bit TIFF/PNG Predictor /DecodeParms,
  * exact 72-DPI Native or qualified direct 96/144-DPI device-space
- * projection. Same C11 V5 Raster, distinct global output/source budgets. */
+ * projection. The complete original decimal TeXample uses the physical
+ * 72-DPI shared-geometry path under unchanged 512-edge/8M caller limits;
+ * its 96/144 DPI still reject. Same C11 raster, distinct output/source
+ * budgets and no provider or earlier-route retry. */
 quantapdf_status quantapdf_native_source_raster_bridge_v10(
     const unsigned char *original_pdf,
     size_t original_size,

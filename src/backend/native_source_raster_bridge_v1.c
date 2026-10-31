@@ -1,5 +1,6 @@
 #include "backend/native_source_raster_bridge_v1.h"
 #include "render/native_device_ir_v1.h"
+#include "render/ir_raster_v1.h"
 
 #include <math.h>
 #include <limits.h>
@@ -80,7 +81,30 @@ static quantapdf_status native_source_bridge_impl(
          * exactly three ordered PATH paints, three real GS owners and
          * seven frozen Clip records. No fallback, no inferred root,
          * no second provider, no partial source omission. */
-        if(ir.resources.graphics_state_count==3u &&
+        if(ir.page_count==1u && ir.pages!=NULL &&
+           ir.pages[0].width_points==237.133f &&
+           ir.pages[0].height_points==180.44f && ir.operation_count==3u) {
+            quantapdf_native_device_plan plan={0};
+            quantapdf_ir_raster_v1_limits work={
+                limits->raster.max_pixels<50000u?limits->raster.max_pixels:50000u,
+                3u,
+                limits->raster.max_edges<1024u?limits->raster.max_edges:1024u,
+                limits->raster.max_sample_tests<8000000u?
+                    limits->raster.max_sample_tests:8000000u
+            };
+            /* Direct complete original Source path. Preserve caller caps,
+             * including the public 512-edge ceiling; no older-route retry. */
+            if(device->dpi!=72.0f || limits->raster.max_operations<3u)
+                status=QUANTAPDF_ERROR_UNSUPPORTED;
+            else {
+                status=quantapdf_native_device_plan_create_physical(
+                    "0 0 237.133 180.44","0 0 237.133 180.44","1",
+                    0,72u,work.max_pixels,&plan);
+                if(status==QUANTAPDF_OK)
+                    status=quantapdf_ir_raster_render_v1_texample_shared_three_layer(
+                        &ir,&work,&plan,NULL,out_image);
+            }
+        } else if(ir.resources.graphics_state_count==3u &&
            ir.resources.clip_count==7u &&
            ir.operation_count==3u &&
            ir.resources.image_count==0u)

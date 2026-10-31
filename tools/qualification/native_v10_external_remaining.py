@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Reconcile unchanged original yWorks PUBLIC C11 RGB and TeXample refusal.
+"""Reconcile unchanged original yWorks and TeXample PUBLIC C11 RGB.
 
-The existing external_pdf_corpus verifier checks all seven source file hashes,
-license provenance and byte lengths before this in-tree public V10 replay.
-Original historical supported-W* metadata is NOT proof of public rendering:
-this independent gate requires exact RGB, source-owner lifetime and 3 seeded
-real yWorks success renders while original TeXample must still fail atomically.
+The existing verifier checks all seven source hashes, licenses and byte lengths.
+This separate gate requires real public 72-DPI RGB across independent owners,
+the frozen original-decimal TeXample reference, atomic 96/144-DPI refusals, and
+retained bitmaps after Page, Document and Context destruction. Historical corpus
+metadata and synthetic schema controls never count as native rendering evidence.
 """
 from __future__ import annotations
 
 import argparse
 import copy
 import json
+import hashlib
 from pathlib import Path
 import sys
 
@@ -32,6 +33,7 @@ FINGERPRINTS = (
     "46c2da3be7c31176",
     "c9c28939c99668c6",
 )
+TEXAMPLE_RGBA_SHA256 = "51e36fcf3a39e93724e1a3176286944883378df9b39c942147d52827607f957e"
 MASK32 = (1 << 32) - 1
 MASK64 = (1 << 64) - 1
 
@@ -118,22 +120,24 @@ def validate_native(report: dict) -> None:
         "schema_version", "corpus_id", "qualification", "reference_oracle",
         "result", "manifest_document_count", "negative_document_count",
         "recovery_document_id", "dpi", "execution_count", "positive_count",
-        "refusal_count", "passes", "documents", "recovery"
+        "refusal_count", "passes", "documents", "recovery",
+        "texample_rgba_reference_sha256"
     }, "unknown/absent public Native evidence fields")
     exact_int(report["schema_version"], 1, "schema_version")
     require(report["corpus_id"] == "external-source-pdf" and
-            report["qualification"] == "native-v10-yworks-rgb-texample-refused" and
+            report["qualification"] == "native-v10-yworks-texample-rgb" and
             report["reference_oracle"] == "none" and
+            report["texample_rgba_reference_sha256"] == TEXAMPLE_RGBA_SHA256 and
             report["result"] == "passed" and
             report["recovery_document_id"] == BLANK,
             "invalid qualification / oracle")
     for key, value in (
         ("manifest_document_count", 7),
-        ("negative_document_count", 1),
+        ("negative_document_count", 0),
         ("dpi", 72),
-        ("execution_count", 12),
-        ("positive_count", 9),
-        ("refusal_count", 3),
+        ("execution_count", 24),
+        ("positive_count", 12),
+        ("refusal_count", 12),
     ):
         exact_int(report[key], value, key)
 
@@ -156,23 +160,26 @@ def validate_native(report: dict) -> None:
                 and given["fingerprint_fnv64"] == fingerprint(expected)
                 and given["fingerprint_fnv64"] == FINGERPRINTS[i],
                 "invalid replay seed/order/fingerprint")
-        exact_int(given["refused"], 1, "per-pass TeXample refusal")
-        exact_int(given["accepted_rgb"], 1, "per-pass exact yWorks RGB")
+        exact_int(given["refused"], 4, "per-pass actual DPI refusals")
+        exact_int(given["accepted_rgb"], 2, "per-pass exact original RGB")
         exact_int(given["recovered"], 2, "per-pass blank recovery")
 
     rows = report["documents"]
     require(type(rows) is list and len(rows) == 2, "per-document result count")
-    for i, (row, name) in enumerate(zip(rows, IDS)):
+    for row, name in zip(rows, IDS):
         require(type(row) is dict and set(row) == {
             "id", "observed_status", "executions",
-            "exact_rgb_pixels", "atomic_null_bitmap"
+            "exact_rgb_pixels", "atomic_null_bitmap", "unsupported_dpi_executions",
+            "unsupported_dpi_atomic_null_bitmap", "bitmap_survived_context"
         }, "invalid per-document fields")
-        expected = "OK" if i == 0 else "UNSUPPORTED"
-        require(row["id"] == name and row["observed_status"] == expected
-                and row["exact_rgb_pixels"] is (i == 0)
-                and row["atomic_null_bitmap"] is (i != 0),
-                "wrong authentic yWorks RGB or TeXample refusal for " + name)
+        require(row["id"] == name and row["observed_status"] == "OK"
+                and row["exact_rgb_pixels"] is True
+                and row["atomic_null_bitmap"] is False
+                and row["unsupported_dpi_atomic_null_bitmap"] is True
+                and row["bitmap_survived_context"] is True,
+                "wrong authentic original RGB or owner lifetime for " + name)
         exact_int(row["executions"], 3, "per-document calls")
+        exact_int(row["unsupported_dpi_executions"], 6, "per-document DPI refusals")
     blank = report["recovery"]
     require(type(blank) is dict and set(blank) == {
         "id", "observed_status", "executions",
@@ -190,23 +197,26 @@ def synthetic_report() -> dict:
     orders = (ids, shuffled(ids, SEEDS[0]), shuffled(ids, SEEDS[1]))
     return {
         "schema_version": 1, "corpus_id": "external-source-pdf",
-        "qualification": "native-v10-yworks-rgb-texample-refused",
+        "qualification": "native-v10-yworks-texample-rgb",
         "reference_oracle": "none", "result": "passed",
-        "manifest_document_count": 7, "negative_document_count": 1,
+        "texample_rgba_reference_sha256": TEXAMPLE_RGBA_SHA256,
+        "manifest_document_count": 7, "negative_document_count": 0,
         "recovery_document_id": BLANK, "dpi": 72,
-        "execution_count": 12, "positive_count": 9,
-        "refusal_count": 3,
+        "execution_count": 24, "positive_count": 12,
+        "refusal_count": 12,
         "passes": [
             {"name": ("canonical", "shuffled-a", "shuffled-b")[i],
              "seed": ("none", "0x4cf5ad11", "0x9e3779b9")[i],
              "fingerprint_fnv64": fingerprint(order), "ids": order,
-             "refused": 1, "accepted_rgb": 1, "recovered": 2}
+             "refused": 4, "accepted_rgb": 2, "recovered": 2}
             for i, order in enumerate(orders)
         ],
         "documents": [
-            {"id": id_, "observed_status": "OK" if i == 0 else "UNSUPPORTED",
-             "executions": 3, "exact_rgb_pixels": i == 0,
-             "atomic_null_bitmap": i != 0} for i, id_ in enumerate(IDS)
+            {"id": id_, "observed_status": "OK",
+             "executions": 3, "exact_rgb_pixels": True,
+             "atomic_null_bitmap": False, "unsupported_dpi_executions": 6,
+             "unsupported_dpi_atomic_null_bitmap": True,
+             "bitmap_survived_context": True} for id_ in IDS
         ],
         "recovery": {
             "id": BLANK, "observed_status": "OK", "executions": 6,
@@ -224,7 +234,13 @@ def negative_self_tests() -> None:
         lambda r: r["documents"][1].update(observed_status="FORMAT"),
         lambda r: r["documents"][0].update(atomic_null_bitmap=True),
         lambda r: r["documents"][0].update(exact_rgb_pixels=False),
-        lambda r: r["documents"][1].update(observed_status="OK"),
+        lambda r: r["documents"][1].update(observed_status="UNSUPPORTED"),
+        lambda r: r.update(qualification="native-v10-yworks-rgb-texample-refused"),
+        lambda r: r.update(execution_count=12, positive_count=9, refusal_count=3),
+        lambda r: r.update(texample_rgba_reference_sha256="0" * 64),
+        lambda r: r["documents"][1].update(unsupported_dpi_executions=0),
+        lambda r: r["documents"][1].update(unsupported_dpi_atomic_null_bitmap=False),
+        lambda r: r["documents"][1].update(bitmap_survived_context=False),
         lambda r: r["passes"][0].update(accepted_rgb=0),
         lambda r: r["passes"][1].update(seed="0xdeadbeef"),
         lambda r: r["passes"][2]["ids"].reverse(),
@@ -266,6 +282,11 @@ def main() -> int:
                 "stale/mismatched external integrity-only report")
         validate_integrity(verified)
         negative_self_tests()
+        reference = args.assets.parent.parent / "native" / "goldens" / "texample72-m4b.rgba"
+        require(reference.is_file() and not reference.is_symlink() and
+                reference.stat().st_size == 172312, "missing/unsafe original-decimal reference")
+        require(hashlib.sha256(reference.read_bytes()).hexdigest() == TEXAMPLE_RGBA_SHA256,
+                "original-decimal reference hash changed")
         validate_native(read_json(args.receipt))
     except (ValueError, OSError, UnicodeError, KeyError, TypeError,
             json.JSONDecodeError, CorpusAdmissionError) as exc:
@@ -273,8 +294,8 @@ def main() -> int:
               file=sys.stderr)
         return 1
     print("[native-external-remainder] PASS 7 SHA-reviewed originals; "
-          "unchanged yWorks public 72-DPI RGB x3, TeXample exact atomic "
-          "UNSUPPORTED x3, blank independently reopened recovery x6")
+          "unchanged yWorks + full TeXample public 72-DPI RGB x3 each, "
+          "96/144-DPI atomic refusals x12, blank recovery x6")
     return 0
 
 

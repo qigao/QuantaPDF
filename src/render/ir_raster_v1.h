@@ -153,6 +153,16 @@ quantapdf_status quantapdf_ir_raster_render_v1_texample_physical_three_layer(
     const quantapdf_native_device_plan *plan,size_t *out_sample_tests,
     quantapdf_ir_raster_image *out_image);
 
+/* Same complete original proof as above, preserving Clip/paint identities
+ * and sharing immutable geometry only after exact equality checks. The
+ * repeated groups require 384 unique edges. The historical entry above
+ * retains its 768-edge contract. Public V10 uses this entry under the
+ * unchanged 512-edge/8M caller budgets; no sampler or pixel fallback. */
+quantapdf_status quantapdf_ir_raster_render_v1_texample_shared_three_layer(
+    const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,size_t *out_sample_tests,
+    quantapdf_ir_raster_image *out_image);
+
 /* PRIVATE original TeXample-type two-ring Bézier W*: exactly
  * two nested cardinal ring contours, each MOVE+4 CUBIC+CLOSE,
  * with no discarded source edges or unbounded extra subpaths.

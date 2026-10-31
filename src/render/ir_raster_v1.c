@@ -1015,7 +1015,8 @@ static quantapdf_status qp_render_v1_impl(
     qp_sample_box sample_box = {0u,0u,0u,0u};
     qp_sample_box *curve_boxes = NULL;
     uint16_t *exact_masks = NULL;
-    const int exact_texample=visible_work_optin==7;
+    const int shared_texample=visible_work_optin==8;
+    const int exact_texample=visible_work_optin==7 || shared_texample;
 
     if (out_sample_tests != NULL)*out_sample_tests=0u;
     if (out_image == NULL)
@@ -1159,10 +1160,23 @@ static quantapdf_status qp_render_v1_impl(
             status = QUANTAPDF_ERROR_UNSUPPORTED;
             goto cleanup;
         }
-        status = qp_admit_draw(op, &flatten,
-            plan == NULL ? NULL : plan->from_composer, &draws[draw_count],
-            0,visible_work_optin==3?1:
-              (bounded_curved_stroke || exact_texample)?2:0);
+        if(shared_texample && i==2u) {
+            /* Fill == second S is proved before resource projection.
+             * Share only immutable geometry; preserve this paint's own
+             * black Stroke options and Q-restored GS0 identity. */
+            draws[draw_count]=draws[0];
+            draws[draw_count].color=op->value.path.options.stroke_argb;
+            draws[draw_count].rule=op->value.path.options.fill_rule;
+            draws[draw_count].one_pixel_stroke=1;
+            draws[draw_count].stroke_half_width=
+                0.5*(double)op->value.path.options.stroke_width;
+            status=QUANTAPDF_OK;
+        } else {
+            status = qp_admit_draw(op, &flatten,
+                plan == NULL ? NULL : plan->from_composer, &draws[draw_count],
+                0,visible_work_optin==3?1:
+                  (bounded_curved_stroke || exact_texample)?2:0);
+        }
         if (status != QUANTAPDF_OK) {
             goto cleanup;
         }
@@ -1209,8 +1223,18 @@ static quantapdf_status qp_render_v1_impl(
         options->fill_argb = UINT32_C(0xff000000);
         options->fill_rule = clip->fill_rule;
         options->transform = clip->transform;
-        status = qp_admit_draw(&clip_op, &flatten,
-            plan == NULL ? NULL : plan->from_composer, &clip_draws[ci],1,0);
+        if(shared_texample) {
+            /* Clip == first S is proved before resource projection.
+             * The Clip keeps its independent even-odd predicate and
+             * identity; shared centreline storage cannot merge scopes. */
+            clip_draws[ci]=draws[1];
+            clip_draws[ci].rule=clip->fill_rule;
+            clip_draws[ci].one_pixel_stroke=0;
+            status=QUANTAPDF_OK;
+        } else {
+            status = qp_admit_draw(&clip_op, &flatten,
+                plan == NULL ? NULL : plan->from_composer, &clip_draws[ci],1,0);
+        }
         if (status != QUANTAPDF_OK) {
             goto cleanup;
         }
@@ -1791,10 +1815,10 @@ static int qp_exact_smooth_monotone(const quantapdf_composer_path_command *p)
     return 1;
 }
 
-quantapdf_status quantapdf_ir_raster_render_v1_texample_physical_three_layer(
+static quantapdf_status qp_texample_three_layer(
     const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
     const quantapdf_native_device_plan *plan,size_t *out_sample_tests,
-    quantapdf_ir_raster_image *out_image)
+    quantapdf_ir_raster_image *out_image,int shared_geometry)
 {
     quantapdf_ir ir={0},slice={0};
     quantapdf_composer_operation ops[3]={{0}};
@@ -1852,6 +1876,9 @@ quantapdf_status quantapdf_ir_raster_render_v1_texample_physical_three_layer(
            op->graphics_state_id!=(i==0u?1u:0u) ||
            o->struct_size!=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE ||
            o->graphics_state_id!=op->graphics_state_id ||
+           o->fill_paint_id!=0u || o->stroke_paint_id!=0u ||
+           (o->fill_rule!=QUANTAPDF_COMPOSER_FILL_NONZERO &&
+            o->fill_rule!=QUANTAPDF_COMPOSER_FILL_EVEN_ODD) ||
            !qp_exact_identity(o->transform) ||
            op->value.path.dash_lengths!=NULL || op->value.path.dash_count!=0u ||
            op->value.path.dash_phase!=0.0f ||
@@ -1895,7 +1922,24 @@ quantapdf_status quantapdf_ir_raster_render_v1_texample_physical_three_layer(
         return QUANTAPDF_ERROR_UNSUPPORTED;
     ir.pages=source->pages;ir.page_count=1u;ir.operations=ops;ir.operation_count=3u;
     clips[0]=clip;
-    return qp_render_v1_impl(&ir,0u,limits,plan,clips,1u,7,out_image,out_sample_tests);
+    return qp_render_v1_impl(&ir,0u,limits,plan,clips,1u,
+        shared_geometry?8:7,out_image,out_sample_tests);
+}
+
+quantapdf_status quantapdf_ir_raster_render_v1_texample_physical_three_layer(
+    const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,size_t *out_sample_tests,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_texample_three_layer(source,limits,plan,out_sample_tests,out_image,0);
+}
+
+quantapdf_status quantapdf_ir_raster_render_v1_texample_shared_three_layer(
+    const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,size_t *out_sample_tests,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_texample_three_layer(source,limits,plan,out_sample_tests,out_image,1);
 }
 
 quantapdf_status quantapdf_ir_raster_render_v1_two_cubic_ring_wstar_visible_work(
