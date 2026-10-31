@@ -3,7 +3,6 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <stdio.h>
 #include <string.h>
 
 #define QP_SAMPLES 4u
@@ -2218,16 +2217,16 @@ quantapdf_status quantapdf_ir_raster_render_v1_texample_physical_dpi_three_layer
 }
 
 quantapdf_status quantapdf_ir_raster_render_v1_text_outlines(
-    const quantapdf_ir *source,unsigned dpi,const quantapdf_ir_raster_v1_limits *limits,
-    size_t *out_sample_tests,quantapdf_ir_raster_image *out_image)
+    const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,size_t *out_sample_tests,quantapdf_ir_raster_image *out_image)
 {
     quantapdf_ir projected={0};quantapdf_composer_operation paths[64]={{0}};
-    quantapdf_native_device_plan plan={0};quantapdf_ir_raster_v1_limits work;
-    size_t n=0u,commands=0u;char box[64];
+    quantapdf_ir_raster_v1_limits work;
+    size_t n=0u,commands=0u;
     if(out_sample_tests!=NULL)*out_sample_tests=0u;
     if(out_image==NULL)return QUANTAPDF_ERROR_ARGUMENT;
     memset(out_image,0,sizeof(*out_image));
-    if(source==NULL || limits==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    if(source==NULL || limits==NULL || plan==NULL)return QUANTAPDF_ERROR_ARGUMENT;
     if(source->pages==NULL || source->page_count!=1u || source->operations==NULL ||
        source->operation_count==0u || source->operation_count>limits->max_operations ||
        source->operation_count>4u || source->links!=NULL || source->link_count!=0u ||
@@ -2259,18 +2258,12 @@ quantapdf_status quantapdf_ir_raster_render_v1_text_outlines(
             opt->fill=1;opt->fill_argb=text->argb;opt->fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;++n;
         }
     }
-    const int printed=snprintf(box,sizeof(box),"0 0 %u %u",(unsigned)source->pages[0].width_points,
-                              (unsigned)source->pages[0].height_points);
-    if(printed<0 || (size_t)printed>=sizeof(box))return QUANTAPDF_ERROR_UNSUPPORTED;
-    quantapdf_status status=quantapdf_native_device_plan_create_physical(box,box,"1",0,dpi,
-        limits->max_pixels,&plan);
-    if(status!=QUANTAPDF_OK)return status;
     projected.pages=source->pages;projected.page_count=1u;projected.operations=paths;projected.operation_count=n;
     work=*limits;work.max_operations=n==0u?1u:n;
     /* Four original text-show paints remain the caller admission limit.
      * Only the separately bounded (64) internal glyph expansion uses this
      * synchronous borrowed PATH view. No global operation limit is widened. */
-    return qp_render_v1_impl(&projected,0u,&work,&plan,NULL,0u,10,out_image,out_sample_tests);
+    return qp_render_v1_impl(&projected,0u,&work,plan,NULL,0u,10,out_image,out_sample_tests);
 }
 
 quantapdf_status quantapdf_ir_raster_render_v1_two_cubic_ring_wstar_visible_work(

@@ -1469,12 +1469,14 @@ static int native_ttf_source_and_raster_contracts(
           ir.operations[2].value.text_outlines.glyph_count==1u);
     const auto snapshot=text_ir_snapshot(ir);
     const auto goldens=std::filesystem::path(__FILE__).parent_path()/"goldens";
-    quantapdf_ir_raster_image held{};
+    quantapdf_ir_raster_image held{};std::vector<unsigned char> held_bytes;
     for(unsigned dpi:{72u,96u,144u}) {
+        quantapdf_native_device_plan plan{};
+        CHECK(quantapdf_native_device_plan_create_physical("0 0 128 64","0 0 128 64","1",0,dpi,1000000u,&plan)==QUANTAPDF_OK);
         quantapdf_ir_raster_v1_limits limits={1000000u,4u,512u,8000000u};
         size_t work=0u;quantapdf_ir_raster_image full{};
         track_c_allocation=true;c_fail_index=0u;c_allocations=0u;c_faults=0u;
-        const auto status=quantapdf_ir_raster_render_v1_text_outlines(&ir,dpi,&limits,&work,&full);
+        const auto status=quantapdf_ir_raster_render_v1_text_outlines(&ir,&limits,&plan,&work,&full);
         track_c_allocation=false;
         CHECK(status==QUANTAPDF_OK && c_allocations==4u && work>0u && work<8000000u);
         std::ifstream file(goldens/("roboto-layers-"+std::to_string(dpi)+"-m0.rgba"),std::ios::binary);
@@ -1483,7 +1485,7 @@ static int native_ttf_source_and_raster_contracts(
         const auto retry=[&](const quantapdf_ir_raster_v1_limits& budget,quantapdf_status want,size_t fail_index=0u) {
             quantapdf_ir_raster_image result;std::memset(&result,0xa5,sizeof(result));size_t seen=999u;
             track_c_allocation=fail_index!=0u;c_fail_index=fail_index;c_allocations=0u;c_faults=0u;
-            const auto got=quantapdf_ir_raster_render_v1_text_outlines(&ir,dpi,&budget,&seen,&result);
+            const auto got=quantapdf_ir_raster_render_v1_text_outlines(&ir,&budget,&plan,&seen,&result);
             track_c_allocation=false;c_fail_index=0u;
             bool ok=got==want && text_ir_snapshot(ir)==snapshot;
             if(want==QUANTAPDF_OK)ok=ok && seen==work && result.size==full.size &&
@@ -1498,7 +1500,7 @@ static int native_ttf_source_and_raster_contracts(
         while(lo<hi) {
             const size_t mid=lo+(hi-lo)/2u;auto budget=limits;budget.max_edges=mid;
             quantapdf_ir_raster_image probe{};
-            const auto st=quantapdf_ir_raster_render_v1_text_outlines(&ir,dpi,&budget,nullptr,&probe);
+            const auto st=quantapdf_ir_raster_render_v1_text_outlines(&ir,&budget,&plan,nullptr,&probe);
             quantapdf_ir_raster_image_dispose(&probe);
             CHECK(st==QUANTAPDF_OK || st==QUANTAPDF_ERROR_UNSUPPORTED);
             if(st==QUANTAPDF_OK)hi=mid;else lo=mid+1u;
@@ -1511,16 +1513,24 @@ static int native_ttf_source_and_raster_contracts(
             CHECK(retry(limits,QUANTAPDF_ERROR_NOMEM,fail));CHECK(retry(limits,QUANTAPDF_OK));
         }
         std::printf("TTF layers physical %u: edges=%zu work=%zu all RGBA, N/N-1, four OOMs/recovery\n",dpi,lo,work);
-        if(dpi==96u)held=full;else quantapdf_ir_raster_image_dispose(&full);
+        if(dpi==96u) {held=full;held_bytes.assign(full.pixels,full.pixels+full.size);}
+        else quantapdf_ir_raster_image_dispose(&full);
     }
     CHECK(text_ir_snapshot(ir)==snapshot);quantapdf_ir_dispose(&ir);CHECK(cleared(ir));
-    CHECK(held.pixels!=nullptr && held.size==58824u);quantapdf_ir_raster_image_dispose(&held);
+    CHECK(held.pixels!=nullptr && held.size==58824u &&
+          held.size==held_bytes.size() && std::memcmp(held.pixels,held_bytes.data(),held.size)==0);quantapdf_ir_raster_image_dispose(&held);
     for(size_t fail=1u;fail<=source_allocations;++fail) {
         std::memset(&denied,0xa5,sizeof(denied));
         track_c_allocation=true;c_fail_index=fail;c_allocations=0u;c_faults=0u;
         const auto status=read(denied);track_c_allocation=false;c_fail_index=0u;
         CHECK(status==QUANTAPDF_ERROR_NOMEM && cleared(denied) && c_allocations==fail && c_faults==1u);
-        CHECK(read(ir)==QUANTAPDF_OK && text_ir_snapshot(ir).size()==snapshot.size());quantapdf_ir_dispose(&ir);
+        CHECK(read(ir)==QUANTAPDF_OK && text_ir_snapshot(ir).size()==snapshot.size());
+        const quantapdf_ir_raster_v1_limits recovery_limits={1000000u,4u,512u,8000000u};
+        quantapdf_ir_raster_image recovery{};quantapdf_native_device_plan plan{};
+        CHECK(quantapdf_native_device_plan_create_physical("0 0 128 64","0 0 128 64","1",0,96u,1000000u,&plan)==QUANTAPDF_OK);
+        CHECK(quantapdf_ir_raster_render_v1_text_outlines(&ir,&recovery_limits,&plan,nullptr,&recovery)==QUANTAPDF_OK);
+        CHECK(recovery.size==held_bytes.size() && std::memcmp(recovery.pixels,held_bytes.data(),recovery.size)==0);
+        quantapdf_ir_raster_image_dispose(&recovery);quantapdf_ir_dispose(&ir);
     }
     return EXIT_SUCCESS;
 }

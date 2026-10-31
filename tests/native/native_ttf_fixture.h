@@ -74,8 +74,8 @@ inline std::string native_ttf_fixture(int mode=0)
     auto fonts=O::newDictionary(),resources=O::newDictionary();fonts.replaceKey("/F",font);
     resources.replaceKey("/Font",fonts);page.replaceKey("/Resources",resources);
     std::string text="q BT /F 24 Tf 12 20 Td <002d004a005100510054> Tj ET Q";
-    if(mode==1)text="q BT /F 24 Tf 1 0 0 rg 1 0 0 1 18 20 Tm <004a0054> Tj "
-        "0 0 1 rg 1 0 0 1 24 20 Tm <090d> Tj "
+    if(mode==1)text="q BT /F 24 Tf -8 Tc 1 0 0 rg 1 0 0 1 18 20 Tm <004a0054> Tj "
+        "0 Tc 0 0 1 rg 1 0 0 1 24 20 Tm <090d> Tj "
         "0 g 1 0 0 1 28 20 Tm <002d> Tj ET Q";
     if(mode==2)text="q BT /F 24 Tf 12 20 Td [<002d004a> 120 <0051> -120 <00510054>] TJ ET Q";
     if(mode==3)text="q BT /F 24 Tf 12 20 Td <00050005> Tj ET Q";

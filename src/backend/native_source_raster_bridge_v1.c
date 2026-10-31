@@ -3,6 +3,7 @@
 #include "render/ir_raster_v1.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <limits.h>
 #include <string.h>
 
@@ -85,8 +86,25 @@ static quantapdf_status native_source_bridge_impl(
            ir.operations[0].kind==QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES) {
             quantapdf_ir_raster_v1_limits text_limits={limits->raster.max_pixels,
                 limits->raster.max_operations,limits->raster.max_edges,limits->raster.max_sample_tests};
-            status=quantapdf_ir_raster_render_v1_text_outlines(&ir,(unsigned)device->dpi,
-                &text_limits,NULL,out_image);
+            quantapdf_native_device_plan plan={0};char box[64];
+            if(ir.pages==NULL || ir.page_count!=1u ||
+               !isfinite(ir.pages[0].width_points) || !isfinite(ir.pages[0].height_points) ||
+               ir.pages[0].width_points<1.0f || ir.pages[0].width_points>65536.0f ||
+               ir.pages[0].height_points<1.0f || ir.pages[0].height_points>65536.0f ||
+               floorf(ir.pages[0].width_points)!=ir.pages[0].width_points ||
+               floorf(ir.pages[0].height_points)!=ir.pages[0].height_points)
+                status=QUANTAPDF_ERROR_UNSUPPORTED;
+            else {
+                const int printed=snprintf(box,sizeof(box),"0 0 %u %u",
+                    (unsigned)ir.pages[0].width_points,(unsigned)ir.pages[0].height_points);
+                if(printed<0 || (size_t)printed>=sizeof(box))status=QUANTAPDF_ERROR_UNSUPPORTED;
+                else {
+                    status=quantapdf_native_device_plan_create_physical(box,box,"1",0,
+                        (unsigned)device->dpi,text_limits.max_pixels,&plan);
+                    if(status==QUANTAPDF_OK)
+                        status=quantapdf_ir_raster_render_v1_text_outlines(&ir,&text_limits,&plan,NULL,out_image);
+                }
+            }
         } else if(ir.page_count==1u && ir.pages!=NULL &&
            ir.pages[0].width_points==237.133f &&
            ir.pages[0].height_points==180.44f && ir.operation_count==3u) {

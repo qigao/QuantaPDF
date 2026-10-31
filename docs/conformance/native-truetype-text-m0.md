@@ -54,7 +54,7 @@ original quadratic glyf contours; 60-digit Decimal quadratic roots classify
 physical samples directly. It does not import the SDK, convert quadratics to
 production cubics, flatten edges or reuse production pixels. Checked-in RGBA
 references cover Hello, three overlapping colored shows including composite
-é, TJ displacements and text crossing right/bottom physical page edges at
+é and same-Tj negative-character-spacing overlap, TJ displacements and text crossing right/bottom physical page edges at
 all three DPIs. CI uses the bytes without a fontTools dependency.
 
 The existing public native test compares every RGB byte, checks explicit

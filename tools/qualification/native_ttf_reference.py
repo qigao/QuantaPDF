@@ -94,6 +94,8 @@ def fixture(case, font):
             glyphs[font.getBestCmap()[ord(c)]].draw(pen)
             yield pen.edges, color
             x += D(widths[c])*24/1000
+            if case == 'layers' and text == 'eo':
+                x -= 8  # same-Tj overlap: preserve each original glyph paint
 
 
 def render(case, dpi, font):
