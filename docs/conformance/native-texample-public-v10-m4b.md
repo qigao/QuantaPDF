@@ -14,7 +14,7 @@ The bridge directly selects the complete original physical-page renderer at 72 D
 
 The public facade retains its existing **512-edge / 8,000,000-work** ceilings. Before sharing storage the complete renderer validates all four owned original paths, options, scopes, exactly smooth axial joins and the two geometry equalities (Clip = first S, Fill = second S). Only duplicate immutable admission geometry shares storage; paint order, masks, colors, resource owners and predicates stay distinct. Two unique 192-edge preflights total **384**: 384 succeeds, 383 refuses. The old private API still consumes 768 and refuses 767. Neither route approximates accepted coverage with those segments: the same original-cubic interval/ray classifier generates all three masks.
 
-Full composition still charges **N = 4,684,463** aggregate units. N succeeds, N-1 clears both image and work outputs. Each of four real native raster allocations is individually failed and recovered against the complete original-decimal reference. Public Source allocation failures use the exact production Source unit in the existing fault target, without instrumenting the installed SDK or claiming injected full-facade malloc coverage.
+Full composition still charges **N = 4,684,463** aggregate units. N succeeds, N-1 clears both image and work outputs. Each of four real native raster allocations is individually failed and recovered against the complete original-decimal reference. Every public Source C allocation is failed in the exact production Source unit, followed by complete original reference equality on fresh recovery in the existing fault target, without instrumenting the installed SDK or claiming injected full-facade malloc coverage.
 
 ## Public RGB, refusal, lifetime and corpus gates
 
