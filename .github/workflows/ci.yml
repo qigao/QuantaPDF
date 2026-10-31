@@ -223,8 +223,11 @@ jobs:
           $vsdev = Join-Path $installation "Common7\Tools\VsDevCmd.bat"
           "VSDEVCMD=$vsdev" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Configure native DLL
+        # Dependencies use the static-md triplet. Avoid concurrent
+        # z-applocal copies of the native test executables (file locks).
+        # The installed DLL consumer and exact ABI checks still run.
         shell: cmd
-        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && cmake --fresh --preset win-release-user
+        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && cmake --fresh --preset win-release-user -DVCPKG_APPLOCAL_DEPS=OFF
       - name: Build native DLL
         shell: cmd
         run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && cmake --build --preset win-release-user --parallel 2
@@ -250,4 +253,4 @@ jobs:
       - name: Installed C11 native render consumer
         shell: cmd
         run: |
-          call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && cmake -S tests/native/installed-c11-consumer -B build/installed-c11-consumer -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%/scripts/buildsystems/vcpkg.cmake" "-DVCPKG_INSTALLED_DIR=%CD%/vcpkg_installed" -DVCPKG_TARGET_TRIPLET=x64-windows-static-md "-DCMAKE_PREFIX_PATH=%CD%/vcpkg_installed/x64-windows-static-md" "-DQuantaPDF_DIR=%RUNNER_TEMP%/external/pkgs/quantapdf/release/lib/cmake/QuantaPDF" && cmake --build build/installed-c11-consumer --parallel 2 && set "PATH=%RUNNER_TEMP%\external\pkgs\quantapdf\release\bin;%PATH%" && ctest --test-dir build/installed-c11-consumer --output-on-failure
+          call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && cmake -S tests/native/installed-c11-consumer -B build/installed-c11-consumer -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%/scripts/buildsystems/vcpkg.cmake" "-DVCPKG_INSTALLED_DIR=%CD%/vcpkg_installed" -DVCPKG_TARGET_TRIPLET=x64-windows-static-md -DVCPKG_APPLOCAL_DEPS=OFF "-DCMAKE_PREFIX_PATH=%CD%/vcpkg_installed/x64-windows-static-md" "-DQuantaPDF_DIR=%RUNNER_TEMP%/external/pkgs/quantapdf/release/lib/cmake/QuantaPDF" && cmake --build build/installed-c11-consumer --parallel 2 && set "PATH=%RUNNER_TEMP%\external\pkgs\quantapdf\release\bin;%PATH%" && ctest --test-dir build/installed-c11-consumer --output-on-failure

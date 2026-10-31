@@ -550,6 +550,219 @@ static int empty_clip_atomic_refusals()
     return EXIT_SUCCESS;
 }
 
+
+/* Two authored rectangular W/W* definitions in one original q scope,
+ * before ANY paint, have the same exact 4x4 sample membership as
+ * their rectangle intersection. Only that strictly qualified subset
+ * is collapsed by Source into ONE owned Clip for the existing C11
+ * renderer. The reference is a separate real PDF, not a second
+ * renderer or a Composer IR re-export. */
+static int two_rectangle_clip_intersections()
+{
+    struct pair {
+        const char *first;
+        const char *second;
+        const char *intersection;
+        const char *before_second;
+        const char *after_second;
+        bool empty;
+    };
+    const pair shapes[]={
+        {"8 4 12 12 re","12 6 12 12 re",
+         "12 6 8 10 re","","",false},
+        {"12 6 12 12 re","8 4 12 12 re",
+         "12 6 8 10 re","","",false},
+        {"4 4 24 16 re","12 6 8 10 re",
+         "12 6 8 10 re","","",false},
+        {"20 16 -12 -12 re","24 18 -12 -12 re",
+         "12 6 8 10 re","","",false},
+        {"8 4 12 12 re","8 6 12 12 re",
+         "12 6 8 10 re",
+         "1 0 0 1 4 0 cm ","1 0 0 1 -4 0 cm ",false},
+        {"4 4 8 6 re","18 14 8 6 re",
+         "","","",true},
+        {"4 4 8 8 re","12 6 8 10 re",
+         "","","",true},
+        {"8 4 12 8 re","12 12 8 8 re",
+         "","","",true}
+    };
+    const std::string image="q 16 0 0 12 8 3 cm /I Do Q Q";
+    for(const auto& shape:shapes)
+    for(int quarters:{4,5})
+    for(int rotation:{0,90})
+    for(int dpi:{72,96,144})
+    for(int crop:{0,1,2}) {
+        const auto expected=original(
+            std::string("q ")+shape.intersection+
+            (shape.empty?"W n ":" W n ")+image,
+            true,quarters,rotation,crop);
+        std::vector<unsigned char> reference;
+        CHECK(render(expected,quarters,rotation,dpi,crop,reference)
+              ==EXIT_SUCCESS);
+        bool has_ink=false,white=false;
+        for(size_t p=0u;p<reference.size();p+=3u) {
+            has_ink|=!is_white(reference,p);
+            white|=is_white(reference,p);
+        }
+        CHECK(white);
+        if(shape.empty)CHECK(!has_ink);
+        else CHECK(has_ink);
+        for(bool first_even:{false,true})
+        for(bool second_even:{false,true}) {
+            const std::string input=
+                std::string("q ")+shape.first+
+                (first_even?" W* n ":" W n ")+
+                shape.before_second+shape.second+
+                (second_even?" W* n ":" W n ")+
+                shape.after_second+image;
+            std::vector<unsigned char> got;
+            CHECK(render(original(input,true,quarters,rotation,crop),
+                         quarters,rotation,dpi,crop,got)==EXIT_SUCCESS);
+            CHECK(reference.size()==got.size() &&
+                  std::memcmp(reference.data(),got.data(),
+                              got.size())==0);
+            if(!shape.empty && quarters==4 && rotation==0 &&
+               dpi==72 && crop==0) {
+                CHECK(!is_white(got,(14u*32u+14u)*3u));
+                CHECK(is_white(got,(14u*32u+10u)*3u));
+            }
+        }
+    }
+    return EXIT_SUCCESS;
+}
+
+/* A disjoint or merely touching 2-W intersection cannot leak image
+ * pixels, but a REAL Q must restore the outer unmasked graphics
+ * state. Independent original PATH-only bytes are the RGB oracle. */
+static int two_rectangle_q_restoration()
+{
+    const std::string image="q 16 0 0 12 8 3 cm /I Do Q Q";
+    const std::string fill="1 0 0 rg 8 6 8 6 re f";
+    const char *const pair_shapes[][2]={
+        {"8 4 12 12 re","12 6 12 12 re"},
+        {"4 4 8 6 re","18 14 8 6 re"},
+        {"4 4 8 8 re","12 6 8 10 re"}
+    };
+    for(int quarters:{4,5})
+    for(int rotation:{0,90})
+    for(int dpi:{72,96,144})
+    for(int crop:{0,1,2}) {
+        std::vector<unsigned char> path_only;
+        CHECK(render(original(fill,false,quarters,rotation,crop),
+                     quarters,rotation,dpi,crop,path_only)
+              ==EXIT_SUCCESS);
+        bool ink=false,white=false;
+        for(size_t i=0u;i<path_only.size();i+=3u) {
+            ink|=!is_white(path_only,i);
+            white|=is_white(path_only,i);
+        }
+        CHECK(ink && white);
+        for(size_t k=0u;k<3u;++k)
+        for(bool even_a:{false,true})
+        for(bool even_b:{false,true}) {
+            const std::string input=std::string("q ")+
+                pair_shapes[k][0]+(even_a?" W* n ":" W n ")+
+                pair_shapes[k][1]+(even_b?" W* n ":" W n ")+
+                image+" "+fill;
+            std::vector<unsigned char> got;
+            CHECK(render(original(input,true,quarters,rotation,crop),
+                         quarters,rotation,dpi,crop,got)==EXIT_SUCCESS);
+            if(k!=0u) {
+                /* Empty intersection: Q-restored fill must be the
+                 * only visible paint, byte-identical to the original
+                 * PATH-only PDF with no Image or Clip resources. */
+                CHECK(got.size()==path_only.size() &&
+                      std::memcmp(got.data(),path_only.data(),
+                                  got.size())==0);
+            } else {
+                /* A nonempty intersected Image must not be erased
+                 * by the out-of-Clip subsequent red Fill either. */
+                bool has_nonred=false;
+                for(size_t i=0u;i<got.size();i+=3u)
+                    has_nonred|=!is_white(got,i) &&
+                        !(got[i]==255u && got[i+1u]==0u &&
+                          got[i+2u]==0u);
+                CHECK(has_nonred);
+            }
+        }
+    }
+    return EXIT_SUCCESS;
+}
+
+/* Split a REAL /Contents array between the second original W and its
+ * n. The parser's bounded whole-page lease, pending-Clip ownership,
+ * q/Q and source operator quota must never restart at the boundary. */
+static int two_rectangle_split_contents()
+{
+    const std::string first="q 8 4 12 12 re W n 12 6 12 12 re W*";
+    const std::string second="n q 16 0 0 12 8 3 cm /I Do Q Q";
+    for(int quarters:{4,5})
+    for(int rotation:{0,90})
+    for(int dpi:{72,96,144})
+    for(int crop:{0,1,2}) {
+        const auto plain=original(first+" "+second,true,
+                                  quarters,rotation,crop);
+        const auto split=original(first,true,quarters,rotation,
+                                  crop,second);
+        std::vector<unsigned char> reference,got;
+        CHECK(render(plain,quarters,rotation,dpi,crop,reference)
+              ==EXIT_SUCCESS);
+        CHECK(render(split,quarters,rotation,dpi,crop,got)
+              ==EXIT_SUCCESS);
+        CHECK(reference.size()==got.size() &&
+              std::memcmp(reference.data(),got.data(),got.size())==0);
+    }
+    return EXIT_SUCCESS;
+}
+
+/* All extra W definitions remain fully parsed/billed, but only
+ * two strict, already Source-staged rectangles with no earlier
+ * paint and one q scope may collapse into one owned Clip.
+ * Anything else refuses the entire page (NULL Bitmap). */
+static int two_rectangle_atomic_refusals()
+{
+    const std::string first="8 4 12 12 re";
+    const std::string second="12 6 12 12 re";
+    const std::string image="q 16 0 0 12 8 3 cm /I Do Q Q";
+    const std::vector<std::string> bad={
+        /* First W precedes q. After the second W and Image, Q
+         * restores the FIRST Clip, not an unclipped state. A final Do
+         * must not silently reuse the collapsed intersection leaf. */
+        first+" W n q "+second+" W* n "+image+
+            " q 16 0 0 12 8 3 cm /I Do Q",
+        "q "+first+" W n "+second+" W* "+image,
+        "q "+first+" W n "+second+" W* W n "+image,
+        "q "+first+" W n "+second+" W* n "+second+
+            " W n "+image,
+        "q "+first+" W n q "+second+" W* n "+
+            "q 16 0 0 12 8 3 cm /I Do Q Q Q",
+        "q "+first+" W n Q q "+second+" W* n "+image,
+        "q "+first+" W n q 16 0 0 12 8 3 cm /I Do Q "+
+            second+" W* n Q",
+        "q "+first+" W n 4 5 m 4 18 20 18 20 5 c "+
+            "20 4 l 4 4 l h W n "+image,
+        "q "+first+" W n 12 6 m 12 16 l 20 16 l "+
+            "20 6 l h W* n "+image,
+        "q W n "+second+" W* n "+image,
+        "q "+first+" W n W* n "+image,
+        "q "+first+" W n "+second+" W n "+
+            "q 16 0 0 12 8 3 cm /Missing Do Q Q",
+        "q "+first+" W n "+second+" W* n "+image+" BT ET",
+        "q "+first+" W n "+second+" W n "+image+" S",
+        "q "+first+" W n "+second+" W n "+image+" Q",
+        "q "+first+" W n 12.125 6 12 12 re W n "+image,
+        "q "+first+" W n 12 6 0 12 re W n "+image
+    };
+    for(const auto& input:bad)
+    for(int crop:{0,1})
+    for(int dpi:{72,96,144}) {
+        const bool with_image=input.find("/I Do")!=std::string::npos ||
+             input.find("/Missing Do")!=std::string::npos;
+        CHECK(rejected(input,with_image,dpi,crop)==EXIT_SUCCESS);
+    }
+    return EXIT_SUCCESS;
+}
+
 int main()
 {
     CHECK(equivalent_original_clips()==EXIT_SUCCESS);
@@ -562,5 +775,9 @@ int main()
     CHECK(disjoint_clip_and_unclipped_image()==EXIT_SUCCESS);
     CHECK(empty_or_disjoint_q_restoration()==EXIT_SUCCESS);
     CHECK(empty_clip_atomic_refusals()==EXIT_SUCCESS);
+    CHECK(two_rectangle_clip_intersections()==EXIT_SUCCESS);
+    CHECK(two_rectangle_q_restoration()==EXIT_SUCCESS);
+    CHECK(two_rectangle_split_contents()==EXIT_SUCCESS);
+    CHECK(two_rectangle_atomic_refusals()==EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }
