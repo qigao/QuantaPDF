@@ -8,7 +8,12 @@ zero-origin pages at physical 72/96/144 DPI. Original coordinates still
 scale by DPI/72, with the same physical fractional fringe intersection.
 
 Before the first BT, the existing Source path interpreter qualifies actual
-closed axis rectangles. Those owned commands/colors enter the existing
+closed axis rectangles. Identity-CTM rectangle prefixes may additionally
+stage exact eighth-point original tokens, required by the opposite-order
+case's 25.125 edge; raw decimal parsing rejects a near-eighth token even if
+binary64 rounds it onto the grid. This staging is provisional until a valid
+text show is seen. Without text, EOF retains the old PATH-only rejection.
+Those owned commands/colors enter the existing
 text interpreter as an ordered prefix. After BT, that same interpreter
 handles a single pending re, terminated by f/f* or discarded with n;
 rectangle geometry freezes its definition CTM. Positive dimensions and

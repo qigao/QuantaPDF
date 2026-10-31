@@ -70,6 +70,8 @@ static int native_ttf_public_cases(const std::string& filename,int first=0,int l
                 CHECK(status==(mode==13 || mode==17 || mode==18 || mode==27 || mode==30 || mode==31 || mode==39?QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED));
                 continue;
             }
+            if(status!=QUANTAPDF_OK || bitmap==nullptr)
+                std::fprintf(stderr,"TTF public mode=%d dpi=%d status=%d bitmap=%p\n",mode,dpi,(int)status,(void*)bitmap);
             CHECK(status==QUANTAPDF_OK && bitmap!=nullptr);
             int w=0,h=0,stride=0,components=0;const unsigned char *pixels=nullptr;size_t n=0u;
             OK(quantapdf_bitmap_dimensions(bitmap,&w,&h,&stride,&components));
