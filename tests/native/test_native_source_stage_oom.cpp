@@ -78,7 +78,7 @@ QP_FAULT_NOINLINE void operator delete[](void *p,std::size_t) noexcept {std::fre
 } } while(0)
 using Obj=QPDFObjectHandle;
 
-static std::string original_pdf()
+static std::string original_pdf(bool legacy=false)
 {
     auto pdf=QPDF::create();
     pdf->emptyPDF();
@@ -86,6 +86,7 @@ static std::string original_pdf()
     auto page=pdf->makeIndirectObject(Obj::parse(
         "<< /Type /Page /MediaBox [0 0 32 24]"
         " /UserUnit 2 /Rotate 90 >>"));
+    if(legacy) {page.removeKey("/UserUnit");page.removeKey("/Rotate");}
     root.replaceKey("/Kids",Obj::newArray({page}));
     root.replaceKey("/Count",Obj::newInteger(1));
     page.replaceKey("/Parent",root);
@@ -106,6 +107,7 @@ static std::string original_pdf()
         "Q 0.875 g 24 17 5 3 re f"));
     QPDFWriter writer(*pdf);
     writer.setOutputMemory();
+    if(legacy)writer.setCompressStreams(false);
     writer.write();
     const auto bytes=writer.getBufferSharedPointer();
     return std::string(reinterpret_cast<const char*>(bytes->getBuffer()),
@@ -1713,6 +1715,32 @@ static int native_ttf_subset_contracts()
 }
 /* End M0 SFNT contracts. */
 
+static int legacy_prepared_contracts(const quantapdf_qpdf_source_raw_image_limits& source_limits)
+{
+    const auto original=original_pdf(true);
+    const quantapdf_ir_raster_scoped_mixed_v5_limits caps={1000000u,4u,512u,8000000u,1000000u,4000000u};
+    for(const auto profile:{QUANTAPDF_PRIVATE_NATIVE_SOURCE_V8,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V9}) {
+        quantapdf_ir ir{};
+        const auto reader=profile==QUANTAPDF_PRIVATE_NATIVE_SOURCE_V8?
+            quantapdf_qpdf_source_scoped_mixed_v8_to_ir:quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir;
+        CHECK(reader(reinterpret_cast<const unsigned char*>(original.data()),original.size(),&source_limits,&ir)==QUANTAPDF_OK);
+        quantapdf_native_source_raster_device_v1 device{};device.dpi=72.0f;
+        quantapdf_native_prepared_page_v1 prepared{};
+        CHECK(quantapdf_native_prepare_page_v1(&ir,&caps,&device,profile,&prepared)==QUANTAPDF_OK);
+        CHECK(prepared.route==QP_NATIVE_PREPARED_LEGACY && prepared.usage.images_used==1u);
+        quantapdf_ir_raster_image baseline{},got{};
+        CHECK(quantapdf_ir_raster_scoped_mixed_v5(&ir,0u,&caps,&baseline)==QUANTAPDF_OK);
+        CHECK(quantapdf_native_execute_page_v1(&prepared,nullptr,&got)==QUANTAPDF_OK);
+        CHECK(got.size==baseline.size && std::memcmp(got.pixels,baseline.pixels,got.size)==0);
+        quantapdf_ir_raster_image_dispose(&baseline);quantapdf_ir_raster_image_dispose(&got);
+        device.dpi=96.0f;
+        CHECK(quantapdf_native_prepare_page_v1(&ir,&caps,&device,profile,&prepared)==QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(prepared.source==nullptr && prepared.route==QP_NATIVE_PREPARED_NONE);
+        quantapdf_ir_dispose(&ir);
+    }
+    return EXIT_SUCCESS;
+}
+
 int main(int argc,char **argv)
 {
     CHECK(native_ttf_subset_contracts()==EXIT_SUCCESS);
@@ -1720,6 +1748,7 @@ int main(int argc,char **argv)
     const quantapdf_qpdf_source_raw_image_limits limits={
         2u*1024u*1024u,65536u,4u,4u,1000000u,1000000u,4000000u,8u
     };
+    CHECK(legacy_prepared_contracts(limits)==EXIT_SUCCESS);
     CHECK(native_ttf_source_and_raster_contracts(limits)==EXIT_SUCCESS);
     CHECK(native_ttf_source_and_raster_contracts(limits,32)==EXIT_SUCCESS);
     /* Stages: 1 RAW Image, 2 IMAGE order, 3 PATH ownership,
