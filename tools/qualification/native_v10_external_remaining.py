@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Audit strict public Native V10 refusal of two complex Clip/W* external originals.
+"""Reconcile unchanged original yWorks PUBLIC C11 RGB and TeXample refusal.
 
-The *existing* external_pdf_corpus admission verifier independently rehashes
-all seven originals and checks their license/source records. This gate never
-uses the historical PDFium/private-IR "supported" metadata as proof of public
-Native V10 pixel capability. The two remaining public rejects are tracked as
-feature gaps, not falsely renamed into externally supported products.
+The existing external_pdf_corpus verifier checks all seven source file hashes,
+license provenance and byte lengths before this in-tree public V10 replay.
+Original historical supported-W* metadata is NOT proof of public rendering:
+this independent gate requires exact RGB, source-owner lifetime and 3 seeded
+real yWorks success renders while original TeXample must still fail atomically.
 """
 from __future__ import annotations
 
@@ -122,18 +122,18 @@ def validate_native(report: dict) -> None:
     }, "unknown/absent public Native evidence fields")
     exact_int(report["schema_version"], 1, "schema_version")
     require(report["corpus_id"] == "external-source-pdf" and
-            report["qualification"] == "native-v10-remaining-fail-closed" and
+            report["qualification"] == "native-v10-yworks-rgb-texample-refused" and
             report["reference_oracle"] == "none" and
             report["result"] == "passed" and
             report["recovery_document_id"] == BLANK,
             "invalid qualification / oracle")
     for key, value in (
         ("manifest_document_count", 7),
-        ("negative_document_count", 2),
+        ("negative_document_count", 1),
         ("dpi", 72),
         ("execution_count", 12),
-        ("positive_count", 6),
-        ("refusal_count", 6),
+        ("positive_count", 9),
+        ("refusal_count", 3),
     ):
         exact_int(report[key], value, key)
 
@@ -147,7 +147,8 @@ def validate_native(report: dict) -> None:
     require(type(passes) is list and len(passes) == 3, "replay pass count")
     for i, (given, expected) in enumerate(zip(passes, expected_orders)):
         require(type(given) is dict and set(given) == {
-            "name", "seed", "fingerprint_fnv64", "ids", "refused", "recovered"
+            "name", "seed", "fingerprint_fnv64", "ids",
+            "refused", "accepted_rgb", "recovered"
         }, "unknown/missing pass fields")
         require(given["name"] == ("canonical", "shuffled-a", "shuffled-b")[i]
                 and given["seed"] == ("none", "0x4cf5ad11", "0x9e3779b9")[i]
@@ -155,18 +156,22 @@ def validate_native(report: dict) -> None:
                 and given["fingerprint_fnv64"] == fingerprint(expected)
                 and given["fingerprint_fnv64"] == FINGERPRINTS[i],
                 "invalid replay seed/order/fingerprint")
-        exact_int(given["refused"], 2, "per-pass refusals")
-        exact_int(given["recovered"], 2, "per-pass recovery")
+        exact_int(given["refused"], 1, "per-pass TeXample refusal")
+        exact_int(given["accepted_rgb"], 1, "per-pass exact yWorks RGB")
+        exact_int(given["recovered"], 2, "per-pass blank recovery")
 
     rows = report["documents"]
     require(type(rows) is list and len(rows) == 2, "per-document result count")
-    for row, name in zip(rows, IDS):
+    for i, (row, name) in enumerate(zip(rows, IDS)):
         require(type(row) is dict and set(row) == {
-            "id", "observed_status", "executions", "atomic_null_bitmap"
+            "id", "observed_status", "executions",
+            "exact_rgb_pixels", "atomic_null_bitmap"
         }, "invalid per-document fields")
-        require(row["id"] == name and row["observed_status"] == "UNSUPPORTED"
-                and row["atomic_null_bitmap"] is True,
-                "invalid exact public Source rejection for " + name)
+        expected = "OK" if i == 0 else "UNSUPPORTED"
+        require(row["id"] == name and row["observed_status"] == expected
+                and row["exact_rgb_pixels"] is (i == 0)
+                and row["atomic_null_bitmap"] is (i != 0),
+                "wrong authentic yWorks RGB or TeXample refusal for " + name)
         exact_int(row["executions"], 3, "per-document calls")
     blank = report["recovery"]
     require(type(blank) is dict and set(blank) == {
@@ -185,22 +190,23 @@ def synthetic_report() -> dict:
     orders = (ids, shuffled(ids, SEEDS[0]), shuffled(ids, SEEDS[1]))
     return {
         "schema_version": 1, "corpus_id": "external-source-pdf",
-        "qualification": "native-v10-remaining-fail-closed",
+        "qualification": "native-v10-yworks-rgb-texample-refused",
         "reference_oracle": "none", "result": "passed",
-        "manifest_document_count": 7, "negative_document_count": 2,
+        "manifest_document_count": 7, "negative_document_count": 1,
         "recovery_document_id": BLANK, "dpi": 72,
-        "execution_count": 12, "positive_count": 6,
-        "refusal_count": 6,
+        "execution_count": 12, "positive_count": 9,
+        "refusal_count": 3,
         "passes": [
             {"name": ("canonical", "shuffled-a", "shuffled-b")[i],
              "seed": ("none", "0x4cf5ad11", "0x9e3779b9")[i],
              "fingerprint_fnv64": fingerprint(order), "ids": order,
-             "refused": 2, "recovered": 2}
+             "refused": 1, "accepted_rgb": 1, "recovered": 2}
             for i, order in enumerate(orders)
         ],
         "documents": [
-            {"id": id_, "observed_status": "UNSUPPORTED",
-             "executions": 3, "atomic_null_bitmap": True} for id_ in IDS
+            {"id": id_, "observed_status": "OK" if i == 0 else "UNSUPPORTED",
+             "executions": 3, "exact_rgb_pixels": i == 0,
+             "atomic_null_bitmap": i != 0} for i, id_ in enumerate(IDS)
         ],
         "recovery": {
             "id": BLANK, "observed_status": "OK", "executions": 6,
@@ -214,9 +220,12 @@ def negative_self_tests() -> None:
     validate_native(valid)
     edits = (
         lambda r: r.update(reference_oracle="original-pdfium"),
-        lambda r: r.update(positive_count=7),
+        lambda r: r.update(positive_count=10),
         lambda r: r["documents"][1].update(observed_status="FORMAT"),
-        lambda r: r["documents"][0].update(atomic_null_bitmap=False),
+        lambda r: r["documents"][0].update(atomic_null_bitmap=True),
+        lambda r: r["documents"][0].update(exact_rgb_pixels=False),
+        lambda r: r["documents"][1].update(observed_status="OK"),
+        lambda r: r["passes"][0].update(accepted_rgb=0),
         lambda r: r["passes"][1].update(seed="0xdeadbeef"),
         lambda r: r["passes"][2]["ids"].reverse(),
         lambda r: r["passes"][0].update(fingerprint_fnv64="0" * 16),
@@ -264,8 +273,8 @@ def main() -> int:
               file=sys.stderr)
         return 1
     print("[native-external-remainder] PASS 7 SHA-reviewed originals; "
-          "two separately qualified current V10 unsupported originals, "
-          "6 exact atomic refusals and 6 all-white recovery renders")
+          "unchanged yWorks public 72-DPI RGB x3, TeXample exact atomic "
+          "UNSUPPORTED x3, blank independently reopened recovery x6")
     return 0
 
 

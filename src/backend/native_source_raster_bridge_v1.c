@@ -75,7 +75,18 @@ static quantapdf_status native_source_bridge_impl(
         /* Select the complete owned state shape once. Two independent
          * leaves/GS are sibling scopes; three Clip records include an
          * intersection root. Every paint retains its exact membership. */
-        if(ir.resources.graphics_state_count==2u &&
+        /* The ORIGINAL yWorks has been completely Source-admitted
+         * and independently rendered by the same private C11 sampler:
+         * exactly three ordered PATH paints, three real GS owners and
+         * seven frozen Clip records. No fallback, no inferred root,
+         * no second provider, no partial source omission. */
+        if(ir.resources.graphics_state_count==3u &&
+           ir.resources.clip_count==7u &&
+           ir.operation_count==3u &&
+           ir.resources.image_count==0u)
+            status=quantapdf_native_device_ir_render_v1_three_gs_original(
+                &ir,(unsigned)device->dpi,&limits->raster,out_image);
+        else if(ir.resources.graphics_state_count==2u &&
            ir.resources.clip_count==2u)
             status=quantapdf_native_device_ir_render_v1_sibling_clips(
                 &ir,(unsigned)device->dpi,&limits->raster,out_image);

@@ -1,12 +1,8 @@
-/* Original, provenance-reviewed PDF files: public Native V10 fail-closed
- * qualification of the two complex W-star and cubic originals still unsupported in V10.
- * This is not a PDFium parity test and grants no capability by itself.
- *
- * Every negative Document is immediately followed by the same reviewed
- * blank external PDF. One Context spans the whole seeded replay, but each
- * original is opened and retired independently. The first blank Bitmap
- * remains owned and readable after every negative and Context retirement.
- */
+/* Actual unchanged provenance-reviewed external originals: public
+ * Source V10 72-DPI yWorks RGB + strict TeXample UNSUPPORTED/null Bitmap.
+ * Both are replayed across original independent Document lifetimes and
+ * followed by the already qualified external blank recovery PDF.
+ * No PDFium oracle, replacement source file or second renderer. */
 #include <quantapdf/quantapdf.h>
 #include <array>
 #include <cstdint>
@@ -87,12 +83,52 @@ static bool white_bitmap(quantapdf_bitmap *bitmap,
     rgb.assign(bytes,bytes+count);
     return true;
 }
+/* Exact analytical sample controls from the ORIGINAL PDF's two
+ * nested returned rectangles, red one-pixel S, blue nonzero-W star
+ * and blue even-odd-W* star. No PDFium or separate pixel renderer. */
+static uint32_t color(const std::vector<unsigned char>& rgb,
+                      int width,int x,int y)
+{
+    const size_t p=(static_cast<size_t>(y)*
+        static_cast<size_t>(width)+static_cast<size_t>(x))*3u;
+    return (static_cast<uint32_t>(rgb[p])<<16u)|
+           (static_cast<uint32_t>(rgb[p+1u])<<8u)|
+            static_cast<uint32_t>(rgb[p+2u]);
+}
+static bool yworks_bitmap(quantapdf_bitmap *bmp,
+                         std::vector<unsigned char>& rgb)
+{
+    int w=0,h=0,stride=0,channels=0;
+    const unsigned char *data=nullptr;
+    size_t count=0u;
+    if(quantapdf_bitmap_dimensions(bmp,&w,&h,&stride,&channels)!=
+       QUANTAPDF_OK ||
+       quantapdf_bitmap_data(bmp,&data,&count)!=QUANTAPDF_OK ||
+       w!=600 || h!=600 || stride!=1800 || channels!=3 ||
+       data==nullptr || count!=1080000u)
+        return false;
+    rgb.assign(data,data+count);
+    return color(rgb,w,20,40)==UINT32_C(0xffffff) &&
+           color(rgb,w,40,39)==UINT32_C(0xff7f7f) &&
+           color(rgb,w,40,40)==UINT32_C(0xff7f7f) &&
+           color(rgb,w,100,40)==UINT32_C(0xffffff) &&
+           color(rgb,w,180,40)==UINT32_C(0xff7f7f) &&
+           color(rgb,w,400,40)==UINT32_C(0xffffff) &&
+           color(rgb,w,80,125)==UINT32_C(0x0000ff) &&
+           color(rgb,w,160,125)==UINT32_C(0x0000ff) &&
+           color(rgb,w,180,125)==UINT32_C(0xffffff) &&
+           color(rgb,w,250,125)==UINT32_C(0xffffff) &&
+           color(rgb,w,500,500)==UINT32_C(0xffffff);
+}
+
 static int replay(const std::filesystem::path& root,
                   const std::filesystem::path& receipt)
 {
     quantapdf_context *ctx=nullptr;
     quantapdf_bitmap *held=nullptr;
+    quantapdf_bitmap *held_yworks=nullptr;
     std::vector<unsigned char> retained;
+    std::vector<unsigned char> retained_yworks;
     std::array<unsigned,2u> observed={{0u,0u}};
     std::array<std::array<unsigned,2u>,3u> orders{};
     std::array<std::string,3u> fingerprints{};
@@ -128,19 +164,53 @@ static int replay(const std::filesystem::path& root,
             options.dpi=72.0f;
             const quantapdf_status status=
                 quantapdf_render_page_with_options(page,&options,&bitmap);
-            if(status!=QUANTAPDF_ERROR_UNSUPPORTED || bitmap!=nullptr) {
-                std::fprintf(stderr,"external public V10 case=%s pass=%zu "
-                    "actual_status=%d expected_UNSUPPORTED=%d bitmap=%p\n",
-                    id,pass,static_cast<int>(status),
-                    static_cast<int>(QUANTAPDF_ERROR_UNSUPPORTED),
-                    static_cast<void *>(bitmap));
-                if(status==QUANTAPDF_OK && bitmap!=nullptr)
+            if(index==0u) {
+                /* Original yWorks: positively qualified public RGB. */
+                if(status!=QUANTAPDF_OK || bitmap==nullptr) {
+                    std::fprintf(stderr,
+                        "yWorks public C11 status=%d pass=%zu\n",
+                        static_cast<int>(status),pass);
+                    CHECK(false);
+                }
+                std::vector<unsigned char> rgb;
+                CHECK(yworks_bitmap(bitmap,rgb));
+                /* Physical width-one S has no qualified 96/144-DPI
+                 * source width expansion. Public V10 must atomically
+                 * reject both settings rather than rescaling 72-DPI
+                 * output or falling back to PDFium. */
+                for(const float dpi:{96.0f,144.0f}) {
+                    options.dpi=dpi;
+                    quantapdf_bitmap *invalid=
+                        reinterpret_cast<quantapdf_bitmap *>(uintptr_t(1));
+                    const auto denied=quantapdf_render_page_with_options(
+                        page,&options,&invalid);
+                    CHECK(denied==QUANTAPDF_ERROR_UNSUPPORTED &&
+                          invalid==nullptr);
+                }
+                options.dpi=72.0f;
+                if(held_yworks==nullptr) {
+                    held_yworks=bitmap;
+                    retained_yworks=rgb;
+                } else {
+                    CHECK(rgb==retained_yworks);
                     quantapdf_drop_bitmap(bitmap);
-                quantapdf_drop_page(page);
-                quantapdf_close(doc);
-                CHECK(false);
+                }
+                ++accepted;
+            } else {
+                /* Unqualified original TeXample cubic remains atomic. */
+                if(status!=QUANTAPDF_ERROR_UNSUPPORTED ||
+                   bitmap!=nullptr) {
+                    std::fprintf(stderr,
+                        "TeXample public status=%d pass=%zu bitmap=%p\n",
+                        static_cast<int>(status),pass,
+                        static_cast<void *>(bitmap));
+                    if(status==QUANTAPDF_OK && bitmap!=nullptr)
+                        quantapdf_drop_bitmap(bitmap);
+                    CHECK(false);
+                }
+                ++refused;
             }
-            ++observed[index];++refused;
+            ++observed[index];
             quantapdf_drop_page(page);
             quantapdf_close(doc);
 
@@ -178,6 +248,16 @@ static int replay(const std::filesystem::path& root,
             OK(quantapdf_bitmap_data(held,&live,&size));
             CHECK(live!=nullptr && size==retained.size() &&
                   std::memcmp(live,retained.data(),size)==0);
+            if(held_yworks!=nullptr) {
+                const unsigned char *source_bytes=nullptr;
+                size_t source_size=0u;
+                OK(quantapdf_bitmap_data(held_yworks,
+                                         &source_bytes,&source_size));
+                CHECK(source_bytes!=nullptr &&
+                      source_size==retained_yworks.size() &&
+                      std::memcmp(source_bytes,retained_yworks.data(),
+                                  source_size)==0);
+            }
         }
     }
     quantapdf_drop_context(ctx);
@@ -188,18 +268,25 @@ static int replay(const std::filesystem::path& root,
     CHECK(live!=nullptr && size==retained.size() &&
           std::memcmp(live,retained.data(),size)==0);
     quantapdf_drop_bitmap(held);
-    CHECK(refused==6u && accepted==6u);
+    CHECK(held_yworks!=nullptr);
+    const unsigned char *source_live=nullptr;
+    size_t source_size=0u;
+    OK(quantapdf_bitmap_data(held_yworks,&source_live,&source_size));
+    CHECK(source_live!=nullptr && source_size==retained_yworks.size() &&
+          std::memcmp(source_live,retained_yworks.data(),source_size)==0);
+    quantapdf_drop_bitmap(held_yworks);
+    CHECK(refused==3u && accepted==9u);
     for(unsigned n:observed)CHECK(n==3u);
 
     std::ofstream out(receipt,std::ios::binary|std::ios::trunc);
     CHECK(out.good());
     out<<"{\"schema_version\":1,\"corpus_id\":\"external-source-pdf\","
-       <<"\"qualification\":\"native-v10-remaining-fail-closed\","
+       <<"\"qualification\":\"native-v10-yworks-rgb-texample-refused\","
        <<"\"reference_oracle\":\"none\",\"result\":\"passed\","
-       <<"\"manifest_document_count\":7,\"negative_document_count\":2,"
+       <<"\"manifest_document_count\":7,\"negative_document_count\":1,"
        <<"\"recovery_document_id\":\""<<blank_id<<"\","
-       <<"\"dpi\":72,\"execution_count\":12,\"positive_count\":6,"
-       <<"\"refusal_count\":6,\"passes\":[";
+       <<"\"dpi\":72,\"execution_count\":12,\"positive_count\":9,"
+       <<"\"refusal_count\":3,\"passes\":[";
     for(size_t p=0u;p<orders.size();++p) {
         if(p)out<<',';
         out<<"{\"name\":\""<<names[p]<<"\",\"seed\":\""<<labels[p]
@@ -209,24 +296,26 @@ static int replay(const std::filesystem::path& root,
             if(i)out<<',';
             out<<'\"'<<ids[orders[p][i]]<<'\"';
         }
-        out<<"],\"refused\":2,\"recovered\":2}";
+        out<<"],\"refused\":1,\"accepted_rgb\":1,\"recovered\":2}";
     }
     out<<"],\"documents\":[";
     for(size_t i=0u;i<ids.size();++i) {
         if(i)out<<',';
         out<<"{\"id\":\""<<ids[i]
-           <<"\",\"observed_status\":\"UNSUPPORTED\","
-           <<"\"executions\":"<<observed[i]
-           <<",\"atomic_null_bitmap\":true}";
+           <<"\",\"observed_status\":\""<<(i==0u?"OK":"UNSUPPORTED")
+           <<"\",\"executions\":"<<observed[i]
+           <<",\"exact_rgb_pixels\":"<<(i==0u?"true":"false")
+           <<",\"atomic_null_bitmap\":"<<(i==0u?"false":"true")
+           <<"}";
     }
     out<<"],\"recovery\":{\"id\":\""<<blank_id
        <<"\",\"observed_status\":\"OK\",\"executions\":6,"
        <<"\"all_white\":true,\"bitmap_survived_context\":true}}\n";
     out.flush();
     CHECK(out.good());
-    std::printf("Native V10 remaining external: 2 originals x 3 passes,"
-                " 6 atomic UNSUPPORTED refusals and 6 separately"
-                " reopened blank recovery renders\n");
+    std::printf("Native V10 complex originals: unchanged yWorks RGB 3x,"
+                " TeXample atomic UNSUPPORTED 3x,"
+                " independent blank recovery 6x\n");
     return EXIT_SUCCESS;
 }
 int main(int argc,char **argv)
