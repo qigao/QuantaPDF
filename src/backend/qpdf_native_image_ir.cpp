@@ -539,7 +539,7 @@ struct admission {
     size_t texample_orange_count=0u,texample_terminal_n=0u;
     bool texample_public_eligible=false;
     bool text_outlines_eligible=false;
-    std::vector<quantapdf::detail::source_outline_paint> text_outline_paints;
+    std::vector<quantapdf::detail::source_outline_paint> text_outline_paints={};
     bool text_outlines_complete=false;
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,

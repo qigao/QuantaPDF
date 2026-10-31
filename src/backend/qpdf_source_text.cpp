@@ -12,6 +12,7 @@
 #include <cstring>
 #include <map>
 #include <limits>
+#include <iterator>
 #include <set>
 #include <stdexcept>
 #include <string>
