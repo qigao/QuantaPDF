@@ -236,3 +236,19 @@ endif()
 add_test(NAME quantapdf.native_cubic_fill COMMAND quantapdf_native_cubic_fill)
 set_tests_properties(quantapdf.native_cubic_fill PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;cubic-fill")
+
+# Stacked Source V10 native authored cubic c/v/y one-W/W* Clip
+# geometry via the SAME C11 V5 raster; no PDFium/alternate pixel path.
+add_executable(quantapdf_native_curved_clip test_native_curved_clip.cpp)
+target_compile_features(quantapdf_native_curved_clip PRIVATE cxx_std_20)
+target_link_libraries(quantapdf_native_curved_clip PRIVATE
+  QuantaPDF::QuantaPDF qpdf::libqpdf)
+if(MSVC)
+  target_compile_options(quantapdf_native_curved_clip PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_curved_clip PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_curved_clip COMMAND quantapdf_native_curved_clip)
+set_tests_properties(quantapdf.native_curved_clip PROPERTIES
+  TIMEOUT 60 LABELS "conformance;native;no-pdfium;public-api;curved-clip")
