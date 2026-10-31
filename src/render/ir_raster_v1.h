@@ -140,6 +140,19 @@ quantapdf_status quantapdf_ir_raster_render_v1_physical_planned(
     const quantapdf_composer_clip_state *const *clips,size_t clip_count,
     quantapdf_ir_raster_image *out_image);
 
+/* PRIVATE full original Source M3 graph, physical 72-DPI grid: orange
+ * even-odd Fill under its actual W* Clip, then both Q-restored black S.
+ * Exact smooth authored tangents; interval cubic distance/ray classification
+ * introduces no subdivision joins. One aggregate <=8M lease covers all
+ * classification nodes and sample/ray tests before output publication.
+ * On success out_sample_tests (optional) reports the exact deterministic
+ * charged work; all failures reset it and the complete output. No public
+ * Source cutover or alternate renderer. Inputs/outputs must not alias. */
+quantapdf_status quantapdf_ir_raster_render_v1_texample_physical_three_layer(
+    const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,size_t *out_sample_tests,
+    quantapdf_ir_raster_image *out_image);
+
 /* PRIVATE original TeXample-type two-ring Bézier W*: exactly
  * two nested cardinal ring contours, each MOVE+4 CUBIC+CLOSE,
  * with no discarded source edges or unbounded extra subpaths.

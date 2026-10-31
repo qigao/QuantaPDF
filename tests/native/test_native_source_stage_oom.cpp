@@ -16,6 +16,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <filesystem>
 #include <iterator>
 #include <new>
 #include <string>
@@ -922,6 +923,164 @@ static bool physical_texample_page_fringe()
     return true;
 }
 
+/* The SAME untouched PDF, fully owned Source M3 graph and three source
+ * operations. The independent authored-decimal reference uses polynomial
+ * ray roots + all quintic stationary-distance roots, never native pixels. */
+static bool original_texample_three_layer(const quantapdf_ir& source,
+    const char *original_filename,quantapdf_ir_raster_image& detached)
+{
+    if(!exact_texample_private_ir(source))return false;
+    const auto filename=std::filesystem::path(original_filename).parent_path()
+        .parent_path().parent_path()/"native"/"goldens"/"texample72-m4b.rgba";
+    std::ifstream input(filename,std::ios::binary);
+    const std::string expected{std::istreambuf_iterator<char>(input),
+                               std::istreambuf_iterator<char>()};
+    if(expected.size()!=238u*181u*4u)return false;
+    quantapdf_native_device_plan plan{};
+    const quantapdf_ir_raster_v1_limits limits={50000u,3u,1024u,8000000u};
+    if(quantapdf_native_device_plan_create_physical("0 0 237.133 180.44",
+        "0 0 237.133 180.44","1",0,72u,limits.max_pixels,&plan)!=QUANTAPDF_OK)
+        return false;
+    auto zero=[](const quantapdf_ir_raster_image& x) {
+        return x.pixels==nullptr && x.width==0u && x.height==0u &&
+               x.stride==0u && x.size==0u;
+    };
+    auto equal=[&](const quantapdf_ir_raster_image& x) {
+        return x.pixels!=nullptr && x.width==238u && x.height==181u &&
+            x.stride==238u*4u && x.size==expected.size() &&
+            std::memcmp(x.pixels,expected.data(),expected.size())==0;
+    };
+    auto snapshot=[&]() {
+        std::string bytes;
+        auto append=[&](const void *p,size_t size) {
+            bytes.append(static_cast<const char *>(p),size);
+        };
+        append(source.pages,sizeof(*source.pages));
+        append(source.operations,3u*sizeof(*source.operations));
+        append(source.resources.clips,sizeof(*source.resources.clips));
+        append(source.resources.graphics_states,sizeof(*source.resources.graphics_states));
+        append(source.resources.clips[0].commands,12u*sizeof(quantapdf_composer_path_command));
+        for(size_t i=0u;i<3u;++i)
+            append(source.operations[i].value.path.commands,
+                   12u*sizeof(quantapdf_composer_path_command));
+        return bytes;
+    };
+    const std::string frozen=snapshot();
+    quantapdf_ir_raster_image full{};
+    size_t work=0u,allocations=0u;
+    track_c_allocation=true;c_fail_index=0u;c_allocations=0u;c_faults=0u;
+    const auto status=quantapdf_ir_raster_render_v1_texample_physical_three_layer(
+        &source,&limits,&plan,&work,&full);
+    allocations=c_allocations;track_c_allocation=false;
+    if(status!=QUANTAPDF_OK || !equal(full) || allocations!=4u ||
+       c_faults!=0u || work==0u || work>=limits.max_sample_tests ||
+       rgba_at(full,146u,87u)!=UINT32_C(0xbfbfbfff) ||
+       rgba_at(full,118u,20u)!=UINT32_C(0xff8000ff) ||
+       rgba_at(full,118u,90u)!=UINT32_C(0xffffffff)) {
+        std::fprintf(stderr,"original three-layer status=%d work=%zu allocations=%zu "
+            "known pixel=%08x reference match=%d\n",(int)status,work,allocations,
+            full.pixels?rgba_at(full,146u,87u):0u,equal(full)?1:0);
+        quantapdf_ir_raster_image_dispose(&full);return false;
+    }
+    auto exact=limits;exact.max_sample_tests=work;
+    quantapdf_ir_raster_image repeat{};
+    size_t repeat_work=0u;
+    if(quantapdf_ir_raster_render_v1_texample_physical_three_layer(&source,
+        &exact,&plan,&repeat_work,&repeat)!=QUANTAPDF_OK ||
+       repeat_work!=work || !equal(repeat)) {
+        quantapdf_ir_raster_image_dispose(&repeat);
+        quantapdf_ir_raster_image_dispose(&full);return false;
+    }
+    quantapdf_ir_raster_image_dispose(&repeat);
+    exact.max_sample_tests=work-1u;
+    std::memset(&repeat,0xa5,sizeof(repeat));repeat_work=999u;
+    if(quantapdf_ir_raster_render_v1_texample_physical_three_layer(&source,
+        &exact,&plan,&repeat_work,&repeat)!=QUANTAPDF_ERROR_UNSUPPORTED ||
+       repeat_work!=0u || !zero(repeat)) {
+        quantapdf_ir_raster_image_dispose(&full);return false;
+    }
+    /* Every real temporary/output malloc fails once; complete reset and
+     * fresh original golden equality prove cleanup and recovery. */
+    for(size_t fail=1u;fail<=allocations;++fail) {
+        std::memset(&repeat,0xa5,sizeof(repeat));repeat_work=999u;
+        track_c_allocation=true;c_fail_index=fail;c_allocations=0u;c_faults=0u;
+        const auto ret=quantapdf_ir_raster_render_v1_texample_physical_three_layer(
+            &source,&limits,&plan,&repeat_work,&repeat);
+        track_c_allocation=false;c_fail_index=0u;
+        if(ret!=QUANTAPDF_ERROR_NOMEM || !zero(repeat) || repeat_work!=0u ||
+           c_faults!=1u || c_allocations!=fail) {
+            std::fprintf(stderr,"three-layer OOM fail=%zu status=%d seen=%zu\n",
+                fail,(int)ret,c_allocations);
+            quantapdf_ir_raster_image_dispose(&full);return false;
+        }
+        if(quantapdf_ir_raster_render_v1_texample_physical_three_layer(&source,
+            &limits,&plan,&repeat_work,&repeat)!=QUANTAPDF_OK ||
+           repeat_work!=work || !equal(repeat)) {
+            quantapdf_ir_raster_image_dispose(&repeat);
+            quantapdf_ir_raster_image_dispose(&full);return false;
+        }
+        quantapdf_ir_raster_image_dispose(&repeat);
+    }
+    for(unsigned which=0u;which<23u;++which) {
+        auto bad=source;
+        auto page=source.pages[0];
+        auto gs=source.resources.graphics_states[0];
+        auto clip=source.resources.clips[0];
+        quantapdf_composer_font_state hidden_font{};
+        quantapdf_composer_operation ops[4]{};
+        for(size_t i=0u;i<3u;++i)ops[i]=source.operations[i];
+        quantapdf_composer_path_command cmds[12];
+        std::memcpy(cmds,source.operations[1].value.path.commands,sizeof(cmds));
+        auto budget=limits;auto device=plan;
+        bad.pages=&page;bad.operations=ops;
+        bad.resources.graphics_states=&gs;bad.resources.clips=&clip;
+        switch(which) {
+        case 0:budget.max_sample_tests=8000001u;break;
+        case 1:budget.max_edges=767u;break;
+        case 2:budget.max_pixels=43077u;break;
+        case 3:budget.max_operations=4u;break;
+        case 4:bad.operation_count=4u;ops[3]=ops[0];break;
+        case 5:ops[0].graphics_state_id=0u;
+               ops[0].value.path.options.graphics_state_id=0u;break;
+        case 6:ops[1].graphics_state_id=1u;
+               ops[1].value.path.options.graphics_state_id=1u;break;
+        case 7:clip.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;break;
+        case 8:gs.fill_alpha=0.5f;break;
+        case 9:gs.clip_id=0u;break;
+        case 10:gs.soft_mask_id=1u;break;
+        case 11:bad.resources.fonts=&hidden_font;bad.resources.font_capacity=1u;break;
+        case 12:clip.commands=nullptr;break;
+        case 13:ops[0].value.path.options.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;break;
+        case 14:ops[2].value.path.options.stroke_width=0.4f;break;
+        case 15:ops[2].value.path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND;break;
+        case 16:ops[1].value.path.options.transform.e=1.0f;break;
+        case 17:cmds[1].point2.y+=0.001f;
+                ops[1].value.path.commands=cmds;break;
+        case 18:cmds[4].point3.y+=0.00001f;
+                ops[1].value.path.commands=cmds;break;
+        case 19:ops[1]=source.operations[2];ops[2]=source.operations[1];break;
+        case 20:device.from_composer[0]=238.0/237.133;break;
+        case 21:device.mode=QUANTAPDF_NATIVE_DEVICE_FIT_V1;break;
+        case 22:page.height_points=181.0f;break;
+        }
+        std::memset(&repeat,0xa5,sizeof(repeat));repeat_work=999u;
+        const auto ret=quantapdf_ir_raster_render_v1_texample_physical_three_layer(
+            &bad,&budget,&device,&repeat_work,&repeat);
+        if(ret!=QUANTAPDF_ERROR_UNSUPPORTED || !zero(repeat) || repeat_work!=0u) {
+            std::fprintf(stderr,"three-layer negative=%u status=%d\n",which,(int)ret);
+            quantapdf_ir_raster_image_dispose(&full);return false;
+        }
+    }
+    if(snapshot()!=frozen) {
+        quantapdf_ir_raster_image_dispose(&full);return false;
+    }
+    std::printf("Original TeXample three-layer: 172312 authored-decimal reference "
+        "bytes identical; work N=%zu, N-1 atomic refusal, four malloc faults "
+        "and recovery, 23 malformed/scope/quota refusals\n",work);
+    detached=full;
+    return true;
+}
+
 static bool authentic_texample_source_m3(
     const char *filename,
     const quantapdf_qpdf_source_raw_image_limits& limits)
@@ -997,6 +1156,14 @@ static bool authentic_texample_source_m3(
             quantapdf_ir_raster_image_dispose(&physical_held);
             quantapdf_ir_dispose(&ir);return false;
         }
+        quantapdf_ir_raster_image three_layer_held{};
+        if(!original_texample_three_layer(ir,filename,three_layer_held) ||
+           !exact_texample_private_ir(ir)) {
+            quantapdf_ir_raster_image_dispose(&held);
+            quantapdf_ir_raster_image_dispose(&physical_held);
+            quantapdf_ir_raster_image_dispose(&three_layer_held);
+            quantapdf_ir_dispose(&ir);return false;
+        }
         const uint32_t physical_top=rgba_at(physical_held,90u,5u);
         /* A true raster pixel owner must outlive ALL original QPDF
          * Source, Clip, PAINT and IR allocations. */
@@ -1010,8 +1177,12 @@ static bool authentic_texample_source_m3(
             rgba_at(physical_held,90u,5u)==physical_top &&
             rgba_at(physical_held,90u,90u)==UINT32_C(0xffffffff);
         quantapdf_ir_raster_image_dispose(&held);
+        const bool three_detached_ok=three_layer_held.pixels!=nullptr &&
+            rgba_at(three_layer_held,146u,87u)==UINT32_C(0xbfbfbfff) &&
+            rgba_at(three_layer_held,118u,20u)==UINT32_C(0xff8000ff);
         quantapdf_ir_raster_image_dispose(&physical_held);
-        if(!detached_ok || !physical_detached_ok || curved_cap==0u ||
+        quantapdf_ir_raster_image_dispose(&three_layer_held);
+        if(!three_detached_ok || !detached_ok || !physical_detached_ok || curved_cap==0u ||
            physical_cap==0u)return false;
     }
     for(size_t fail=1u;fail<=allocs;++fail) {
