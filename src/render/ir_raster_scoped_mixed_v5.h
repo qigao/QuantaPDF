@@ -142,6 +142,19 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_three_gs_visible_work_devic
     double viewport_width,double viewport_height,
     quantapdf_ir_raster_image *out_image);
 
+
+/* Private source-graph branch proof: four frozen Clip PATH leaves,
+ * roots 5={1,2}, 6={1,3}, 7={1,4}, GS 1/2/3 select roots 5/6/7.
+ * Three opaque Fill-only operations, each billed <= floor(total/3)
+ * against unchanged 8M original sample cap and same C11 V1 sampler.
+ * Original yWorks source (Stroke+two Fills) remains unsupported.
+ * Legacy and cumulative three-GS profiles keep their strict admission. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_three_gs_branch_visible_work_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
 /* Explicit actual GS0 paint prefix before W/W*. One GS follows
  * 0+ 1+ 0*; two GS follow 0+ 1* 2+ 1* 0*, with every nonzero identity
  * used. Graphs remain one Clip or two leaves plus their flat root,

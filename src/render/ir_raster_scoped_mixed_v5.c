@@ -111,10 +111,13 @@ static int v5_closed_clip_contours(
 
 /* Strict private 7-node Graph: four Clip leaves, three roots. */
 static int v5_three_gs_clips(const quantapdf_resource_registry *r,
-    const quantapdf_composer_clip_state *out[4])
+    const quantapdf_composer_clip_state *out[4],int branches)
 {
-    static const quantapdf_composer_clip_id pairs[3][2]={
+    static const quantapdf_composer_clip_id cumulative_pairs[3][2]={
         {1u,2u},{3u,4u},{5u,6u}
+    };
+    static const quantapdf_composer_clip_id branch_pairs[3][2]={
+        {1u,2u},{1u,3u},{1u,4u}
     };
     size_t i,j;
     if(r->clips==NULL || r->clip_count!=7u || r->clip_capacity!=7u ||
@@ -143,7 +146,8 @@ static int v5_three_gs_clips(const quantapdf_resource_registry *r,
              (m->a==1.0f && m->b==0.0f && m->c==0.0f &&
               m->d==1.0f && m->e==0.0f && m->f==0.0f)))return 0;
         for(j=0u;j<2u;++j)
-            if(p->members[j]!=pairs[i][j])return 0;
+            if(p->members[j]!=(branches?
+                branch_pairs[i][j]:cumulative_pairs[i][j]))return 0;
     }
     return 1;
 }
@@ -425,7 +429,10 @@ static quantapdf_status v5_render_impl(
     quantapdf_ir_raster_image *out_image)
 {
     const int two_states=clip_states_optin || sibling_clips_optin;
-    const int three_states=visible_three_gs_optin;
+    /* 1=previous cumulative proof; 2=independent q/Q branches.
+     * All existing V5 wrappers still explicitly pass 0/1. */
+    const int three_states=visible_three_gs_optin!=0;
+    const int branch_three_states=visible_three_gs_optin==2;
     quantapdf_ir projected={0};
     quantapdf_composer_page_state transparent={0};
     quantapdf_composer_operation operation={0};
@@ -568,7 +575,7 @@ static quantapdf_status v5_render_impl(
             clip_leaf_count=2u;
         }
         if(three_states) {
-            if(!v5_three_gs_clips(r,clip_leaves))
+            if(!v5_three_gs_clips(r,clip_leaves,branch_three_states))
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             clip_leaf_count=4u;
         }
@@ -669,13 +676,20 @@ static quantapdf_status v5_render_impl(
     }
 
     if(three_states) {
-        static const quantapdf_composer_clip_id ids[3]={1u,5u,7u};
+        static const quantapdf_composer_clip_id cumulative_ids[3]={
+            1u,5u,7u
+        };
+        static const quantapdf_composer_clip_id branch_ids[3]={
+            5u,6u,7u
+        };
         for(i=0u;i<3u;++i) {
             const quantapdf_composer_graphics_state *s=
                 &ir->resources.graphics_states[i];
             if(s->fill_alpha!=1.0f || s->stroke_alpha!=1.0f ||
                s->blend_mode!=QUANTAPDF_COMPOSER_BLEND_NORMAL ||
-               s->clip_id!=ids[i] || s->soft_mask_id!=0u)
+               s->clip_id!=(branch_three_states?
+                   branch_ids[i]:cumulative_ids[i]) ||
+               s->soft_mask_id!=0u)
                 return QUANTAPDF_ERROR_UNSUPPORTED;
         }
     } else if(two_states) {
@@ -1021,8 +1035,17 @@ static quantapdf_status v5_render_impl(
         size_t active_leaves=state==0u?0u:
             (clip_states_optin && state==1u?1u:clip_leaf_count);
         const quantapdf_composer_clip_state *const *active_clips=clip_leaves;
+        const quantapdf_composer_clip_state *branch_clips[2]={
+            NULL,NULL
+        };
         if(three_states && state!=0u)
             active_leaves=state==1u?1u:state==2u?2u:4u;
+        if(branch_three_states && state!=0u) {
+            branch_clips[0]=clip_leaves[0];
+            branch_clips[1]=clip_leaves[state];
+            active_clips=branch_clips;
+            active_leaves=2u;
+        }
         if(sibling_clips_optin && state!=0u) {
             active_clips=&clip_leaves[state-1u];
             active_leaves=1u;
@@ -1250,6 +1273,20 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_three_gs_visible_work_devic
 {
     return v5_render_impl(ir,page_index,limits,1,
         viewport_width,viewport_height,0,0,0,0,0,0,0,1,out_image);
+}
+
+
+/* Private three independent q/Q branch intersections. The unchanged
+ * original yWorks first Stroke remains unsupported by this Fill-only
+ * IR capability; no Source V10 profile selects this entrypoint yet. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_three_gs_branch_visible_work_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image)
+{
+    return v5_render_impl(ir,page_index,limits,1,
+        viewport_width,viewport_height,0,0,0,0,0,0,0,2,out_image);
 }
 
 /* Prefix is a distinct admission, never an implicit widening of any
