@@ -2,6 +2,7 @@
 #define QUANTAPDF_IR_RASTER_IMAGE_V1_H
 
 #include "render/ir_raster.h"
+#include "render/native_raster_memory_v1.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,6 +34,14 @@ quantapdf_status quantapdf_ir_raster_raw_images_v1(
     const quantapdf_ir *ir, size_t page_index,
     const quantapdf_ir_raster_image_v1_limits *limits,
     quantapdf_ir_raster_image *out_image);
+
+/* V5 child: the complete parent's unique-source/placement inventory already
+ * owns the pixel bill. Revalidate the same local caps, but charge only this
+ * malloc-owned output's bytes to the parent. NULL retains legacy allocation. */
+quantapdf_status quantapdf_ir_raster_raw_images_v1_borrowed(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_image_v1_limits *limits,
+    quantapdf_native_work_ledger_v1 *ledger,quantapdf_ir_raster_image *out_image);
 
 #ifdef __cplusplus
 }

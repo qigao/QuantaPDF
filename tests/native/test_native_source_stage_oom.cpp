@@ -988,6 +988,7 @@ static bool original_texample_three_layer(const quantapdf_ir& source,
         quantapdf_ir_raster_render_v1_texample_physical_dpi_three_layer:shared?
         quantapdf_ir_raster_render_v1_texample_shared_three_layer:
         quantapdf_ir_raster_render_v1_texample_physical_three_layer;
+    size_t memory_cap=0u;
     const auto render=[&](const quantapdf_ir *ir,const quantapdf_ir_raster_v1_limits *budget,
         const quantapdf_native_device_plan *device,size_t *observed_work,quantapdf_ir_raster_image *out) {
         /* Keep legacy and explicitly malformed private-plan tests on their
@@ -1005,6 +1006,7 @@ static bool original_texample_three_layer(const quantapdf_ir& source,
             QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&prepared);
         if(result!=QUANTAPDF_OK)return result;
         if(prepared.route!=QP_NATIVE_PREPARED_EXACT_CUBICS)return QUANTAPDF_ERROR_BACKEND;
+        if(memory_cap!=0u)prepared.resource_limits.max_live_bytes=memory_cap;
         quantapdf_native_execution_receipt_v1 receipt{};
         result=quantapdf_native_execute_page_v1(&prepared,&receipt,out);
         if(result==QUANTAPDF_OK && (!receipt.sample_tests_exact ||
@@ -1012,10 +1014,23 @@ static bool original_texample_three_layer(const quantapdf_ir& source,
            receipt.compiled_edges==0u || receipt.compiled_edges>budget->max_edges ||
            receipt.completed_leases!=1u ||
            receipt.peak_reserved_sample_work!=budget->max_sample_tests ||
-           receipt.peak_reserved_edges!=budget->max_edges))return QUANTAPDF_ERROR_BACKEND;
+           receipt.peak_reserved_edges!=budget->max_edges ||
+           receipt.source_pixels!=0u || receipt.drawn_pixels!=0u ||
+           receipt.retained_bytes!=prepared.usage.retained_bytes || receipt.output_bytes!=out->size ||
+           receipt.peak_live_bytes<receipt.retained_bytes+receipt.output_bytes ||
+           receipt.peak_live_bytes>prepared.resource_limits.max_live_bytes))return QUANTAPDF_ERROR_BACKEND;
+        if(result==QUANTAPDF_OK) {
+            /* Reuse existing N/N-1/edge/OOM runs at the observed exact byte
+             * peak; no additional expensive original-PDF render is added. */
+            if(memory_cap==0u)memory_cap=receipt.peak_live_bytes;
+            else if(budget->max_edges==limits.max_edges && receipt.peak_live_bytes!=memory_cap)
+                return QUANTAPDF_ERROR_BACKEND;
+        }
         if(result!=QUANTAPDF_OK && (receipt.charged_sample_work!=0u ||
            receipt.compiled_edges!=0u || receipt.completed_leases!=0u ||
-           receipt.peak_reserved_sample_work!=0u || receipt.peak_reserved_edges!=0u))
+           receipt.peak_reserved_sample_work!=0u || receipt.peak_reserved_edges!=0u ||
+           receipt.source_pixels!=0u || receipt.drawn_pixels!=0u || receipt.retained_bytes!=0u ||
+           receipt.output_bytes!=0u || receipt.peak_live_bytes!=0u))
             return QUANTAPDF_ERROR_BACKEND;
         if(observed_work!=nullptr)*observed_work=receipt.sample_tests;
         return result;
@@ -1530,14 +1545,17 @@ static int native_ttf_source_and_raster_contracts(
         quantapdf_native_device_plan plan{};
         CHECK(quantapdf_native_device_plan_create_physical("0 0 128 64","0 0 128 64","1",0,dpi,1000000u,&plan)==QUANTAPDF_OK);
         quantapdf_ir_raster_v1_limits limits={1000000u,4u,512u,8000000u};
+        size_t memory_cap=0u;
         const auto prepare=[&](const quantapdf_ir_raster_v1_limits& budget,
                                quantapdf_native_prepared_page_v1& out) {
             const quantapdf_ir_raster_scoped_mixed_v5_limits caps={budget.max_pixels,
                 budget.max_operations,budget.max_edges,budget.max_sample_tests,
                 source_limits.max_source_pixels,source_limits.max_drawn_pixels};
             quantapdf_native_source_raster_device_v1 device{};device.dpi=(float)dpi;
-            return quantapdf_native_prepare_page_v1(&ir,&caps,&device,
+            const auto status=quantapdf_native_prepare_page_v1(&ir,&caps,&device,
                 QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&out);
+            if(status==QUANTAPDF_OK && memory_cap!=0u)out.resource_limits.max_live_bytes=memory_cap;
+            return status;
         };
         quantapdf_native_prepared_page_v1 prepared{};
         track_c_allocation=true;c_fail_index=0u;c_allocations=0u;armed=true;
@@ -1558,7 +1576,11 @@ static int native_ttf_source_and_raster_contracts(
         CHECK(receipt.charged_sample_work==work && receipt.compiled_edges>0u &&
               receipt.compiled_edges<=limits.max_edges && receipt.completed_leases==1u &&
               receipt.peak_reserved_sample_work==limits.max_sample_tests &&
-              receipt.peak_reserved_edges==limits.max_edges);
+              receipt.peak_reserved_edges==limits.max_edges && receipt.source_pixels==0u &&
+              receipt.drawn_pixels==0u && receipt.retained_bytes==prepared.usage.retained_bytes &&
+              receipt.output_bytes==full.size && receipt.peak_live_bytes>=receipt.retained_bytes+full.size &&
+              receipt.peak_live_bytes<=prepared.resource_limits.max_live_bytes);
+        memory_cap=receipt.peak_live_bytes;
         std::ifstream file(goldens/(std::string(mode==1?"roboto-layers-":"roboto-mixed-")+std::to_string(dpi)+(mode==1?"-m0.rgba":"-m1.rgba")),std::ios::binary);
         const std::vector<unsigned char> expected{std::istreambuf_iterator<char>(file),{}};
         CHECK(expected.size()==full.size && std::memcmp(expected.data(),full.pixels,full.size)==0);
@@ -1575,11 +1597,16 @@ static int native_ttf_source_and_raster_contracts(
                 if(got==QUANTAPDF_OK)got=quantapdf_native_execute_page_v1(&retry_plan,&retry_receipt,&result);
                 else std::memset(&result,0,sizeof(result));
                 seen=retry_receipt.sample_tests;
-                if(got==QUANTAPDF_OK && !retry_receipt.sample_tests_exact)got=QUANTAPDF_ERROR_BACKEND;
+                if(got==QUANTAPDF_OK && (!retry_receipt.sample_tests_exact ||
+                   retry_receipt.peak_live_bytes>memory_cap || retry_receipt.output_bytes!=result.size ||
+                   (budget.max_edges==limits.max_edges && retry_receipt.peak_live_bytes!=memory_cap)))
+                    got=QUANTAPDF_ERROR_BACKEND;
                 if(got!=QUANTAPDF_OK && (retry_receipt.charged_sample_work!=0u ||
                    retry_receipt.compiled_edges!=0u || retry_receipt.completed_leases!=0u ||
                    retry_receipt.peak_reserved_sample_work!=0u ||
-                   retry_receipt.peak_reserved_edges!=0u))got=QUANTAPDF_ERROR_BACKEND;
+                   retry_receipt.peak_reserved_edges!=0u || retry_receipt.source_pixels!=0u ||
+                   retry_receipt.drawn_pixels!=0u || retry_receipt.retained_bytes!=0u ||
+                   retry_receipt.output_bytes!=0u || retry_receipt.peak_live_bytes!=0u))got=QUANTAPDF_ERROR_BACKEND;
             }
             track_c_allocation=false;c_fail_index=0u;
             bool ok=got==want && text_ir_snapshot(ir)==snapshot;
@@ -1747,7 +1774,12 @@ static int legacy_prepared_contracts(const quantapdf_qpdf_source_raw_image_limit
         CHECK(prepared.route==QP_NATIVE_PREPARED_LEGACY && prepared.usage.images_used==1u);
         quantapdf_ir_raster_image baseline{},got{};
         CHECK(quantapdf_ir_raster_scoped_mixed_v5(&ir,0u,&caps,&baseline)==QUANTAPDF_OK);
-        CHECK(quantapdf_native_execute_page_v1(&prepared,nullptr,&got)==QUANTAPDF_OK);
+        quantapdf_native_execution_receipt_v1 receipt{};
+        CHECK(quantapdf_native_execute_page_v1(&prepared,&receipt,&got)==QUANTAPDF_OK);
+        CHECK(receipt.source_pixels==prepared.usage.image_pixels && receipt.drawn_pixels>0u &&
+              receipt.retained_bytes==prepared.usage.retained_bytes && receipt.output_bytes==got.size &&
+              receipt.peak_live_bytes>=receipt.retained_bytes+got.size &&
+              receipt.peak_live_bytes<=prepared.resource_limits.max_live_bytes);
         CHECK(got.size==baseline.size && std::memcmp(got.pixels,baseline.pixels,got.size)==0);
         quantapdf_ir_raster_image_dispose(&baseline);quantapdf_ir_raster_image_dispose(&got);
         device.dpi=96.0f;

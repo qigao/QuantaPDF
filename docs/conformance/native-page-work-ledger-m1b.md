@@ -64,11 +64,13 @@ No test target, workflow, CMake, installer or consumer project is added.
 
 ## Remaining M1 work
 
+[M1b.2a resource accounting](native-page-resources-m1b.md) subsequently moves
+the Source/placement pixel inventory and requested C11 heap bytes into this
+same page ledger. The remaining geometry preparation boundary stays open.
+
 M1 stays **open**. Per-primitive geometry compilation still occurs inside the
-existing kernels; prepared plans do not yet own compiled geometry. Source and
-drawn Image pixel counters and retained/temporary byte reservations have not
-been migrated into this common ledger. Those are M1b.2 work, before M2 opaque
-Text/Image/Fill/Clip composition. This increment changes no Source syntax,
+existing kernels; prepared plans do not yet own compiled geometry. That is
+M1b.2b work, before M2 opaque Text/Image/Fill/Clip composition. This increment changes no Source syntax,
 public ABI, original PDF/reference image, corpus-positive count, physical page
 mapping, error recovery policy or numerical quota. TeXample remains qualified
 at physical 72/96/144 DPI; yWorks remains qualified at 72 DPI only.

@@ -360,7 +360,7 @@ static quantapdf_status v5_fractional_image_layer(
             &geometry,0u,geometry_limits,all,n,QP_NATIVE_WORK_FULL,ledger,&layer);
     }
     if(status!=QUANTAPDF_OK) {
-        quantapdf_ir_raster_image_dispose(&layer);
+        quantapdf_native_raster_image_dispose_v1(ledger,&layer);
         return status;
     }
     if(layer.pixels==NULL ||
@@ -368,7 +368,7 @@ static quantapdf_status v5_fractional_image_layer(
        layer.height!=(size_t)page->height_points ||
        layer.stride!=layer.width*4u ||
        layer.size!=layer.stride*layer.height) {
-        quantapdf_ir_raster_image_dispose(&layer);
+        quantapdf_native_raster_image_dispose_v1(ledger,&layer);
         return QUANTAPDF_ERROR_UNSUPPORTED;
     }
     for(size_t y=0u;y<layer.height;++y) {
@@ -422,12 +422,13 @@ static void v5_over(unsigned char *dst,const unsigned char *src)
 static quantapdf_status v5_render_blank(
     const quantapdf_ir *ir,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
-    quantapdf_ir_raster_image *out_image)
+    quantapdf_native_work_ledger_v1 *ledger,quantapdf_ir_raster_image *out_image)
 {
     const quantapdf_composer_page_state *page=&ir->pages[0];
     const quantapdf_resource_registry *r=&ir->resources;
     size_t width,height,pixels,bytes;
     unsigned char *white;
+    quantapdf_status status=QUANTAPDF_OK;
     if(ir->page_count!=1u || ir->operations!=NULL ||
        ir->operation_count!=0u || ir->links!=NULL ||
        ir->link_count!=0u || ir->outlines!=NULL ||
@@ -455,8 +456,8 @@ static quantapdf_status v5_render_blank(
        pixels>SIZE_MAX/4u)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     bytes=pixels*4u;
-    white=(unsigned char *)malloc(bytes);
-    if(white==NULL)return QUANTAPDF_ERROR_NOMEM;
+    white=(unsigned char *)quantapdf_native_raster_malloc_v1(ledger,bytes,&status);
+    if(white==NULL)return status;
     memset(white,255,bytes);
     out_image->pixels=white;
     out_image->size=bytes;
@@ -591,7 +592,7 @@ static quantapdf_status v5_render_impl(
         if(viewport_width>w || viewport_height>h ||
            w-viewport_width>=1.0 || h-viewport_height>=1.0)
             return QUANTAPDF_ERROR_UNSUPPORTED;
-        return v5_render_blank(ir,limits,out_image);
+        return v5_render_blank(ir,limits,ledger,out_image);
     }
 
     if(ir->operation_count>QP_V5_MAX_LAYERS ||
@@ -1093,6 +1094,11 @@ static quantapdf_status v5_render_impl(
          limits->max_sample_tests/edge_layers==0u)))
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
+    /* Complete immutable inventory, charged once before any child allocates.
+     * Local counters retain the established hard/shape admission; this commit
+     * is the common page quota, shared even across accounted invocations. */
+    if(!quantapdf_native_pixels_charge_v1(ledger,source_work,draw_work))goto cleanup;
+
     geometry_limits.max_pixels=limits->max_pixels;
     geometry_limits.max_operations=1u;
     geometry_limits.max_edges=limits->max_edges/
@@ -1180,8 +1186,8 @@ static quantapdf_status v5_render_impl(
                     &projected,0u,&image_limits,
                     &geometry_limits,ledger,&layers[i]);
             } else {
-                status=quantapdf_ir_raster_raw_images_v1(
-                    &projected,0u,&image_limits,&layers[i]);
+                status=quantapdf_ir_raster_raw_images_v1_borrowed(
+                    &projected,0u,&image_limits,ledger,&layers[i]);
             }
         }
         if(status!=QUANTAPDF_OK)goto cleanup;
@@ -1193,8 +1199,8 @@ static quantapdf_status v5_render_impl(
         }
     }
 
-    result=(unsigned char *)malloc(bytes);
-    if(result==NULL){status=QUANTAPDF_ERROR_NOMEM;goto cleanup;}
+    result=(unsigned char *)quantapdf_native_raster_malloc_v1(ledger,bytes,&status);
+    if(result==NULL)goto cleanup;
     for(j=0u;j<pixels;++j) {
         unsigned char *p=result+j*4u;
         const uint32_t bg=page->background_argb;
@@ -1217,9 +1223,9 @@ static quantapdf_status v5_render_impl(
     status=QUANTAPDF_OK;
 cleanup:
     if(status!=QUANTAPDF_OK)ledger->failed=1;
-    free(result);
+    quantapdf_native_raster_free_v1(ledger,result,bytes);
     for(i=0u;i<QP_V5_MAX_LAYERS;++i)
-        quantapdf_ir_raster_image_dispose(&layers[i]);
+        quantapdf_native_raster_image_dispose_v1(ledger,&layers[i]);
     return status;
 }
 

@@ -80,10 +80,10 @@ static void qp_source_over(unsigned char *dst, const unsigned char *src,
     dst[3] = (unsigned char)((out_a + 127u) / 255u);
 }
 
-quantapdf_status quantapdf_ir_raster_raw_images_v1(
+static quantapdf_status qp_raw_images(
     const quantapdf_ir *ir, size_t page_index,
     const quantapdf_ir_raster_image_v1_limits *limits,
-    quantapdf_ir_raster_image *out_image)
+    quantapdf_ir_raster_image *out_image,quantapdf_native_work_ledger_v1 *ledger)
 {
     qp_image_layer layers[QP_RAW_IMAGE_MAX_OPERATIONS] = {{0}};
     const quantapdf_composer_page_state *page;
@@ -91,6 +91,7 @@ quantapdf_status quantapdf_ir_raster_raw_images_v1(
     size_t width, height, pixel_count, image_pixels = 0u, drawn = 0u;
     size_t i, x, y, component;
     unsigned used = 0u;
+    quantapdf_status allocation_status=QUANTAPDF_OK;
     if (out_image == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     memset(out_image, 0, sizeof(*out_image));
@@ -179,9 +180,9 @@ quantapdf_status quantapdf_ir_raster_raw_images_v1(
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
     /* All state/geometry/source budget checks precede output allocation. */
-    pixels = (unsigned char *)malloc(pixel_count * 4u);
+    pixels = (unsigned char *)quantapdf_native_raster_malloc_v1(ledger,pixel_count*4u,&allocation_status);
     if (pixels == NULL)
-        return QUANTAPDF_ERROR_NOMEM;
+        return allocation_status;
     for (i = 0u; i < pixel_count; ++i) {
         unsigned char *dst = pixels + 4u * i;
         uint32_t argb = page->background_argb;
@@ -224,4 +225,19 @@ quantapdf_status quantapdf_ir_raster_raw_images_v1(
     out_image->height = height;
     out_image->stride = width * 4u;
     return QUANTAPDF_OK;
+}
+
+quantapdf_status quantapdf_ir_raster_raw_images_v1(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_image_v1_limits *limits,quantapdf_ir_raster_image *out)
+{
+    return qp_raw_images(ir,page_index,limits,out,NULL);
+}
+
+quantapdf_status quantapdf_ir_raster_raw_images_v1_borrowed(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_image_v1_limits *limits,
+    quantapdf_native_work_ledger_v1 *ledger,quantapdf_ir_raster_image *out)
+{
+    return qp_raw_images(ir,page_index,limits,out,ledger);
 }
