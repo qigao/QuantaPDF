@@ -233,14 +233,52 @@ bool bounded_clip_contour(
     return true;
 }
 
+/* A compound Clip keeps one aggregate winding rule over one or two
+ * closed contours. The TOTAL command allowance stays at nine; every
+ * contour still spends MOVE, at least two edges, and CLOSE. Only the
+ * last contour may await the original W/n implicit closure. Painted
+ * PATHs retain the separate single-contour predicate above. */
+bool bounded_clip_path(
+    const std::vector<quantapdf_composer_path_command>& commands,
+    bool allow_implicit_close=false)
+{
+    if(commands.empty() || commands.size()>9u)return false;
+    size_t contours=0u,start=0u;
+    bool active=false;
+    for(size_t i=0u;i<commands.size();++i) {
+        switch(commands[i].kind) {
+        case QUANTAPDF_COMPOSER_PATH_MOVE_TO:
+            if(active || contours==2u)return false;
+            ++contours;
+            start=i;
+            active=true;
+            break;
+        case QUANTAPDF_COMPOSER_PATH_LINE_TO:
+        case QUANTAPDF_COMPOSER_PATH_CUBIC_TO:
+            if(!active)return false;
+            break;
+        case QUANTAPDF_COMPOSER_PATH_CLOSE:
+            if(!active || i-start<3u)return false;
+            active=false;
+            break;
+        default:
+            return false;
+        }
+    }
+    if(active)
+        return allow_implicit_close && commands.size()-start>=3u &&
+            commands.size()<9u;
+    return contours!=0u && commands.size()>=4u;
+}
+
 bool qualified_owned_clip_pair(
     const std::vector<quantapdf_composer_path_command>& first,
     const std::vector<quantapdf_composer_path_command>& second)
 {
-    /* Both bounded contours retain their exact geometry and winding
-     * rule, including straight polygons and canonical zero-edge leaves.
+    /* Both bounded leaves retain their exact geometry and winding
+     * rule, including compound contours and canonical zero-edge leaves.
      * Only two proven simple rectangles use the separate reduction. */
-    return bounded_clip_contour(first) && bounded_clip_contour(second);
+    return bounded_clip_path(first) && bounded_clip_path(second);
 }
 
 /* Canonical PRIVATE source-admission signatures. The enumerated IDs are
@@ -844,8 +882,9 @@ public:
                       QUANTAPDF_ERROR_UNSUPPORTED);
             }
         } else if((mixed || clipped) && op=="m") {
-            admit(args.size()==2u && pending_path.empty(),
+            admit(args.size()==2u && !clip_pending,
                   QUANTAPDF_ERROR_UNSUPPORTED);
+            begin_contour(4u);
             append_point(QUANTAPDF_COMPOSER_PATH_MOVE_TO,
                          finite_number(args[0]),finite_number(args[1]));
         } else if((mixed || clipped) && op=="l") {
@@ -882,12 +921,13 @@ public:
                 xy[i]=finite_number(args[i]);
             append_cubic_shorthand(op,xy);
         } else if((mixed || clipped) && op=="h") {
-            admit(args.empty() && pending_path.size()>=3u &&
+            admit(args.empty() && pending_path.size()>=contour_start+3u &&
                   !closed,QUANTAPDF_ERROR_UNSUPPORTED);
             close_path();
         } else if((mixed || clipped) && op=="re") {
-            admit(args.size()==4u && pending_path.empty(),
+            admit(args.size()==4u && !clip_pending,
                   QUANTAPDF_ERROR_UNSUPPORTED);
+            begin_contour(5u);
             const double x=finite_number(args[0]), y=finite_number(args[1]);
             const double w=finite_number(args[2]), h=finite_number(args[3]);
             /* PDF re defines an AUTHORED corner sequence, not an
@@ -907,7 +947,8 @@ public:
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x,y+h);
             close_path();
         } else if(mixed && (op=="f" || op=="f*")) {
-            admit(args.empty() && pending_path.size()>=3u,
+            admit(args.empty() && pending_path.size()>=3u &&
+                  contour_count==1u,
                   QUANTAPDF_ERROR_UNSUPPORTED);
             if(clipped) {
                 if(target.native_unclipped_mode &&
@@ -950,8 +991,7 @@ public:
                 QP_SOURCE_STAGE_ARM(7u);
                 target.scoped_clip_membership.push_back(clip_active);
             }
-            pending_path.clear();
-            closed=false;
+            clear_path();
         } else if(clipped && (op=="W" || op=="W*")) {
             /* Native V10 keeps the first leaf's identity across paint
              * and nested q/Q. A second definition intersects that leaf;
@@ -970,7 +1010,10 @@ public:
             } else {
                 admit((pending_path.size()>=3u ||
                        trivial_zero_area_clip()) &&
-                      !target.clip_completed,
+                      !target.clip_completed &&
+                      (!target.native_unclipped_mode ||
+                       trivial_zero_area_clip() ||
+                       bounded_clip_path(pending_path,true)),
                       QUANTAPDF_ERROR_UNSUPPORTED);
             }
             clip_rule=op=="W*" ? QUANTAPDF_COMPOSER_FILL_EVEN_ODD :
@@ -1029,8 +1072,7 @@ public:
                 second_clip_used=true;
                 clip_active=2u;
                 clip_pending=false;
-                pending_path.clear();
-                closed=false;
+                clear_path();
             } else if(target.native_unclipped_mode && !clip_pending) {
                 /* PDF n ends a path WITHOUT paint or Clip. Native V10
                  * discards only the already bounded source commands;
@@ -1038,21 +1080,24 @@ public:
                  * or change the current graphics state. In particular
                  * W/W* followed by n must use the existing branch below.
                  * Older private Source profiles remain unchanged. */
-                pending_path.clear();
-                closed=false;
+                admit(pending_path.empty() || contour_count==1u,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                clear_path();
             } else {
                 admit(clip_pending && !target.clip_completed &&
                       (pending_path.size()>=3u ||
                        trivial_zero_area_clip()),
                       QUANTAPDF_ERROR_UNSUPPORTED);
                 complete_clip_contour();
+                admit(!target.native_unclipped_mode ||
+                      bounded_clip_path(pending_path),
+                      QUANTAPDF_ERROR_UNSUPPORTED);
                 target.clip.commands=std::move(pending_path);
                 target.clip.rule=clip_rule;
                 target.clip_completed=true;
                 clip_active=1u;
                 clip_pending=false;
-                pending_path.clear();
-                closed=false;
+                clear_path();
             }
         } else {
             /* Parsing is COMPLETE, not image observation: unsupported
@@ -1070,6 +1115,33 @@ public:
               (!clipped || clip_stack.empty()));
     }
 private:
+    void begin_contour(size_t minimum_commands)
+    {
+        if(pending_path.empty()) {
+            contour_count=1u;
+            contour_start=0u;
+        } else {
+            /* V10 Clip construction alone may start a second contour.
+             * The earlier contour must already be explicitly closed;
+             * enough of the unchanged nine-command lease must remain.
+             * f/f* and plain n separately retain one-contour admission. */
+            admit(target.native_unclipped_mode && !clip_pending &&
+                  closed && contour_count==1u &&
+                  bounded_clip_contour(pending_path) &&
+                  pending_path.size()<=9u-minimum_commands,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            contour_count=2u;
+            contour_start=pending_path.size();
+        }
+        closed=false;
+    }
+    void clear_path()
+    {
+        pending_path.clear();
+        contour_start=0u;
+        contour_count=0u;
+        closed=false;
+    }
     static bool read_strict_rect(
         const std::vector<quantapdf_composer_path_command>& path,
         std::array<float,4u>& bounds)
@@ -1118,9 +1190,9 @@ private:
         /* Test the bounded shape without allocating or changing it at
          * W. The mandatory n performs the same implicit closure/empty
          * normalization as the first Clip, then revalidates the result. */
-        return bounded_clip_contour(target.clip.commands) &&
+        return bounded_clip_path(target.clip.commands) &&
             (trivial_zero_area_clip() ||
-             bounded_clip_contour(pending_path,true));
+             bounded_clip_path(pending_path,true));
     }
     void complete_clip_contour()
     {
@@ -1135,6 +1207,8 @@ private:
             pending_path[1].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
             pending_path[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
             pending_path[3].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+            contour_count=1u;
+            contour_start=0u;
             closed=true;
         }
         if(!closed)close_path();
@@ -1215,7 +1289,7 @@ private:
     }
     void close_path()
     {
-        admit(pending_path.size()>=3u && !closed &&
+        admit(pending_path.size()>=contour_start+3u && !closed &&
               pending_path.size()<9u,QUANTAPDF_ERROR_UNSUPPORTED);
         quantapdf_composer_path_command cmd={};
         cmd.kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
@@ -1237,6 +1311,7 @@ private:
     std::vector<unsigned char> clip_stack;
     std::vector<Obj> args;
     std::vector<quantapdf_composer_path_command> pending_path;
+    size_t contour_start=0u,contour_count=0u;
     bool closed=false;
 };
 

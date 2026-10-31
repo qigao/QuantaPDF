@@ -62,9 +62,8 @@ static int v5_two_clip_leaves(const quantapdf_resource_registry *r,
     return 1;
 }
 
-/* Source publishes one closed bounded contour, including its canonical
- * zero-edge encoding. This stricter check belongs only to the new
- * two-GS profile; older private callers keep their existing grammar. */
+/* Painted PATHs and the original two-GS profile keep one closed bounded
+ * contour, including the canonical zero-edge Clip encoding. */
 static int v5_closed_contour(
     const quantapdf_composer_path_command *commands,size_t count)
 {
@@ -78,6 +77,35 @@ static int v5_closed_contour(
            commands[i].kind!=QUANTAPDF_COMPOSER_PATH_CUBIC_TO)
             return 0;
     return 1;
+}
+
+/* Only the compound two-GS wrapper selects this Clip grammar. Contour
+ * separators stay inside one leaf's winding calculation and budget. */
+static int v5_closed_clip_contours(
+    const quantapdf_composer_path_command *commands,size_t count)
+{
+    size_t i,contours=0u,segments=0u;
+    int active=0;
+    if(commands==NULL || count<4u || count>9u)return 0;
+    for(i=0u;i<count;++i) {
+        switch(commands[i].kind) {
+        case QUANTAPDF_COMPOSER_PATH_MOVE_TO:
+            if(active || contours==2u)return 0;
+            active=1;segments=0u;
+            break;
+        case QUANTAPDF_COMPOSER_PATH_LINE_TO:
+        case QUANTAPDF_COMPOSER_PATH_CUBIC_TO:
+            if(!active)return 0;
+            ++segments;
+            break;
+        case QUANTAPDF_COMPOSER_PATH_CLOSE:
+            if(!active || segments<2u)return 0;
+            active=0;++contours;
+            break;
+        default:return 0;
+        }
+    }
+    return !active && contours!=0u;
 }
 
 static int v5_integer(float v,size_t max,size_t *out)
@@ -326,7 +354,7 @@ static quantapdf_status v5_render_impl(
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     int fractional_images,
     double viewport_width,double viewport_height,int two_clip_optin,
-    int clipped_paths_optin,int clip_states_optin,
+    int clipped_paths_optin,int clip_states_optin,int compound_clips_optin,
     quantapdf_ir_raster_image *out_image)
 {
     quantapdf_ir projected={0};
@@ -507,8 +535,11 @@ static quantapdf_status v5_render_impl(
                gs->clip_id!=(i==0u?1u:3u) || gs->soft_mask_id!=0u ||
                t->a!=1.0f || t->b!=0.0f || t->c!=0.0f ||
                t->d!=1.0f || t->e!=0.0f || t->f!=0.0f ||
-               !v5_closed_contour(clip_leaves[i]->commands,
-                                  clip_leaves[i]->command_count))
+               !(compound_clips_optin ?
+                   v5_closed_clip_contours(clip_leaves[i]->commands,
+                                           clip_leaves[i]->command_count) :
+                   v5_closed_contour(clip_leaves[i]->commands,
+                                     clip_leaves[i]->command_count)))
                 return QUANTAPDF_ERROR_UNSUPPORTED;
         }
     } else if(ir->resources.graphics_state_count==1u) {
@@ -868,7 +899,7 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5(
         ir!=NULL && ir->pages!=NULL?
             (double)ir->pages[0].width_points:0.0,
         ir!=NULL && ir->pages!=NULL?
-            (double)ir->pages[0].height_points:0.0,0,0,0,
+            (double)ir->pages[0].height_points:0.0,0,0,0,0,
         out_image);
 }
 
@@ -881,7 +912,7 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_device(
         ir!=NULL && ir->pages!=NULL?
             (double)ir->pages[0].width_points:0.0,
         ir!=NULL && ir->pages!=NULL?
-            (double)ir->pages[0].height_points:0.0,0,0,0,
+            (double)ir->pages[0].height_points:0.0,0,0,0,0,
         out_image);
 }
 
@@ -894,7 +925,7 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_device_viewport(
     quantapdf_ir_raster_image *out_image)
 {
     return v5_render_impl(ir,page_index,limits,1,
-        viewport_width,viewport_height,0,0,0,out_image);
+        viewport_width,viewport_height,0,0,0,0,out_image);
 }
 
 /* PRIVATE opt-in for independently owned two-leaf Intersection root.
@@ -906,7 +937,7 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_two_clip_device_viewport(
     quantapdf_ir_raster_image *out_image)
 {
     return v5_render_impl(ir,page_index,limits,1,
-        viewport_width,viewport_height,1,0,0,out_image);
+        viewport_width,viewport_height,1,0,0,0,out_image);
 }
 
 /* Only this explicit profile admits PATH-only paint under frozen Clip.
@@ -919,12 +950,10 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_clipped_paths_device_viewpo
 {
     const int two=ir!=NULL && ir->resources.clip_count==3u;
     return v5_render_impl(ir,page_index,limits,1,
-        viewport_width,viewport_height,two,1,0,out_image);
+        viewport_width,viewport_height,two,1,0,0,out_image);
 }
 
-/* First-leaf and intersection identities are explicit in owned Source
- * IR. This wrapper alone admits two GS records; it shares all sampling,
- * destination work accounting and detached composition with V5. */
+/* Original two-GS entry retains strictly single-contour Clip leaves. */
 quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_clip_states_device_viewport(
     const quantapdf_ir *ir,size_t page_index,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
@@ -932,5 +961,17 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_clip_states_device_viewport
     quantapdf_ir_raster_image *out_image)
 {
     return v5_render_impl(ir,page_index,limits,1,
-        viewport_width,viewport_height,1,0,1,out_image);
+        viewport_width,viewport_height,1,0,1,0,out_image);
+}
+
+/* Compound leaves use the same V1 edge list and winding calculation,
+ * not independently averaged contour masks or extra composition layers. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_compound_clip_states_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image)
+{
+    return v5_render_impl(ir,page_index,limits,1,
+        viewport_width,viewport_height,1,0,1,1,out_image);
 }

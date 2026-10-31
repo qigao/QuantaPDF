@@ -76,7 +76,7 @@ static quantapdf_status native_source_bridge_impl(
          * identities preserve first-leaf/intersection/Q membership for
          * every paint; the older one-GS profiles keep their entrypoints. */
         if(ir.resources.graphics_state_count==2u)
-            status=quantapdf_native_device_ir_render_v1_clip_states(
+            status=quantapdf_native_device_ir_render_v1_compound_clip_states(
                 &ir,(unsigned)device->dpi,&limits->raster,out_image);
         else if(ir.resources.image_count==0u &&
            ir.resources.graphics_state_count==1u)
