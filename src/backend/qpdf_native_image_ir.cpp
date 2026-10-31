@@ -206,6 +206,9 @@ struct staged_path {
     std::vector<quantapdf_composer_path_command> commands;
     uint32_t fill_argb=UINT32_C(0xff000000);
     quantapdf_composer_fill_rule fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
+    /* Explicit public Source V10 clipped Stroke only. */
+    bool stroke=false;
+    uint32_t stroke_argb=UINT32_C(0xff000000);
 };
 
 struct staged_image_clip {
@@ -473,8 +476,19 @@ struct admission {
     double exact_page_w=0.0,exact_page_h=0.0; /* V10 1/4-point spans */
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
-                    uint32_t color,quantapdf_composer_fill_rule rule)
+                    uint32_t color,quantapdf_composer_fill_rule rule,
+                    bool is_stroke=false,uint32_t stroke_rgb=UINT32_C(0xff000000))
     {
+        /* A public V10 Stroke may be the ONLY paint in the original
+         * selected page. Late paints cannot silently escape the sole
+         * C11 clipped-triangle qualification. */
+        admit(std::none_of(painted_paths.begin(),painted_paths.end(),
+                  [](const staged_path& p){return p.stroke;}) &&
+              (!is_stroke ||
+               (native_unclipped_mode && clipped_image_mode &&
+                clip_completed && draws.empty() && painted_paths.empty() &&
+                order.empty() && scoped_clip_membership.empty() &&
+                !saw_q_restore)),QUANTAPDF_ERROR_UNSUPPORTED);
         /* Public V10 PATH-only pages, with or without a frozen Clip,
          * may consume the EXISTING four canonical C11 raster layers.
          * A later Image still faces the complete mixed preflight's
@@ -494,6 +508,8 @@ struct admission {
         item.commands=std::move(commands);
         item.fill_argb=color;
         item.fill_rule=rule;
+        item.stroke=is_stroke;
+        item.stroke_argb=stroke_rgb;
         QP_SOURCE_STAGE_ARM(3u);
         painted_paths.push_back(std::move(item));
         QP_SOURCE_STAGE_ARM(4u);
@@ -506,6 +522,9 @@ struct admission {
          * profile may consume all four EXISTING C11 Raster layers.
          * Mixed PATH/IMAGE and all W/W* Clip profiles keep their
          * independently qualified lower IMAGE cardinalities. */
+        admit(std::none_of(painted_paths.begin(),painted_paths.end(),
+                  [](const staged_path& p){return p.stroke;}),
+              QUANTAPDF_ERROR_UNSUPPORTED);
         const bool public_image_only =
             native_unclipped_mode && !clip_completed &&
             clip.commands.empty() && painted_paths.empty() &&
@@ -755,6 +774,16 @@ public:
             return;
         }
         const std::string op=item.getOperatorValue();
+        /* This first Source Stroke profile qualifies one complete final
+         * clipped paint only. Do not silently accept a second Clip,
+         * state change or unrecognized operator after the Stroke. A
+         * newer comprehensive Stroke profile may prove richer ordering
+         * separately; the original public V10 defaults fail closed. */
+        if(target.native_unclipped_mode &&
+           std::any_of(target.painted_paths.begin(),
+                       target.painted_paths.end(),
+                       [](const staged_path& p){return p.stroke;}))
+            throw rejected{QUANTAPDF_ERROR_UNSUPPORTED};
         /* Each Source V10 W/W* must be immediately followed by
          * path-ending n. An empty original path cannot silently grow
          * new operators while its Clip is pending. Older private
@@ -775,6 +804,7 @@ public:
                 const double miter=finite_number(args[0]);
                 admit(miter>=1.0 && miter<=1000000.0,
                       QUANTAPDF_ERROR_UNSUPPORTED);
+                if(target.native_unclipped_mode)stroke_miter=miter;
             } else {
                 admit(args.size()==2u && args[0].isArray(),
                       QUANTAPDF_ERROR_UNSUPPORTED);
@@ -795,9 +825,14 @@ public:
                 }
                 admit(count==0 || sum>0.0,
                       QUANTAPDF_ERROR_UNSUPPORTED);
+                if(target.native_unclipped_mode)
+                    stroke_default_dash=count==0 && phase==0.0;
             }
         } else if (op=="q") {
             admit(args.empty() && pending_path.empty());
+            /* Save/restore of Stroke state is outside the first
+             * exact clipped-triangle Source profile. */
+            if(target.native_unclipped_mode)saw_saved_scope=true;
             admit(stack.size()<16u,QUANTAPDF_ERROR_UNSUPPORTED);
             stack.push_back(current);
             fill_stack.push_back(fill_argb);
@@ -836,11 +871,14 @@ public:
                 const double width=finite_number(args[0]);
                 admit(width>=0.0 && width<=1000000.0,
                       QUANTAPDF_ERROR_UNSUPPORTED);
+                stroke_width=width;
             } else {
                 admit(args[0].isInteger(),QUANTAPDF_ERROR_UNSUPPORTED);
                 const auto style=args[0].getIntValue();
                 admit(style>=0ll && style<=2ll,
                       QUANTAPDF_ERROR_UNSUPPORTED);
+                if(op=="J")stroke_cap=static_cast<int>(style);
+                else stroke_join=static_cast<int>(style);
             }
         } else if(target.native_unclipped_mode && op=="gs") {
             /* Resolve a named, bounded *opaque no-op* graphics-state
@@ -952,11 +990,21 @@ public:
                   QUANTAPDF_ERROR_UNSUPPORTED);
             const size_t count=op=="G"?1u:(op=="RG"?3u:4u);
             admit(args.size()==count,QUANTAPDF_ERROR_UNSUPPORTED);
+            uint32_t rgb=0u;
+            bool exact=op=="RG";
             for(size_t i=0u;i<count;++i) {
                 const double component=finite_number(args[i]);
                 admit(component>=0.0 && component<=1.0,
                       QUANTAPDF_ERROR_UNSUPPORTED);
+                if(op=="RG") {
+                    exact=exact && (component==0.0 || component==1.0);
+                    rgb|=(component==1.0?255u:0u) << (16u-8u*i);
+                }
             }
+            /* G/K remain ignored for Fill-only pages, but a future
+             * clipped Stroke cannot silently reuse an old RGB color. */
+            stroke_rgb_exact=exact;
+            if(exact)stroke_argb=UINT32_C(0xff000000)|rgb;
         } else if((mixed || clipped) && op=="m") {
             admit(args.size()==2u && !clip_pending,
                   QUANTAPDF_ERROR_UNSUPPORTED);
@@ -1022,6 +1070,36 @@ public:
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x+w,y+h);
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x,y+h);
             close_path();
+        } else if(target.native_unclipped_mode && op=="s") {
+            /* PDF s implicitly closes then strokes a single triangle.
+             * Only one actual W/n Clip, 1px butt/miter/solid and an
+             * exact DeviceRGB color can be passed to the EXISTING C11
+             * bounded clipped-Stroke sampler. All other cases refuse. */
+            admit(args.empty() && clipped && target.clip_completed &&
+                  clip_active==1u && !clip_pending &&
+                  !target.two_owned_clips && !target.saw_q_restore &&
+                  !saw_saved_scope && pending_path.size()==3u &&
+                  contour_count==1u && !closed &&
+                  pending_path[0].kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
+                  pending_path[1].kind==QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+                  pending_path[2].kind==QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+                  bounded_clip_path(target.clip.commands) &&
+                  /* Original CTM must preserve physical line width:
+                   * stage_point transforms the centerline, but the
+                   * existing 1px C11 stroke sampler does not scale
+                   * its half-width. Translation alone is harmless. */
+                  current[0]==1.0 && current[1]==0.0 &&
+                  current[2]==0.0 && current[3]==1.0 &&
+                  stroke_rgb_exact && stroke_width==1.0 &&
+                  stroke_cap==0 && stroke_join==0 &&
+                  stroke_miter==10.0 && stroke_default_dash,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            close_path();
+            target.paint_path(std::move(pending_path),fill_argb,
+                QUANTAPDF_COMPOSER_FILL_NONZERO,true,stroke_argb);
+            QP_SOURCE_STAGE_ARM(7u);
+            target.scoped_clip_membership.push_back(clip_active);
+            clear_path();
         } else if(mixed && (op=="f" || op=="f*")) {
             admit(args.empty() && pending_path.size()>=3u &&
                   contour_count==1u,
@@ -1396,6 +1474,11 @@ private:
     quantapdf_composer_fill_rule clip_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
     matrix current=identity;
     uint32_t fill_argb=UINT32_C(0xff000000);
+    uint32_t stroke_argb=UINT32_C(0xff000000);
+    double stroke_width=1.0,stroke_miter=10.0;
+    int stroke_cap=0,stroke_join=0;
+    bool stroke_default_dash=true,stroke_rgb_exact=true;
+    bool saw_saved_scope=false;
     std::vector<matrix> stack;
     std::vector<uint32_t> fill_stack;
     std::vector<unsigned char> clip_stack;
@@ -1695,9 +1778,17 @@ quantapdf_ir materialize_owned_paths(const admission& source)
             std::memcpy(path.commands,staged.commands.data(),
                 path.command_count*sizeof(*path.commands));
             path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
-            path.options.fill=1;
+            path.options.fill=staged.stroke?0:1;
+            path.options.stroke=staged.stroke?1:0;
             path.options.fill_argb=staged.fill_argb;
             path.options.fill_rule=staged.fill_rule;
+            if(staged.stroke) {
+                path.options.stroke_argb=staged.stroke_argb;
+                path.options.stroke_width=1.0f;
+                path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
+                path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_MITER;
+                path.options.miter_limit=10.0f;
+            }
         }
         return ir;
     } catch (...) {
@@ -2034,9 +2125,17 @@ quantapdf_ir materialize_mixed(const admission& source,
             std::memcpy(path.commands,staged.commands.data(),
                         count*sizeof(*path.commands));
             path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
-            path.options.fill=1;
+            path.options.fill=staged.stroke?0:1;
+            path.options.stroke=staged.stroke?1:0;
             path.options.fill_argb=staged.fill_argb;
             path.options.fill_rule=staged.fill_rule;
+            if(staged.stroke) {
+                path.options.stroke_argb=staged.stroke_argb;
+                path.options.stroke_width=1.0f;
+                path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
+                path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_MITER;
+                path.options.miter_limit=10.0f;
+            }
         }
         admit(image_index==expected_images && path_index==expected_paths,
               QUANTAPDF_ERROR_UNSUPPORTED);
@@ -2738,6 +2837,16 @@ unsigned checked_source_v10_userunit(Obj page,double geometry_unit)
  * remain exactly the same, with one nearest-neighbor C11 producer. */
 void scale_source_userunit(admission& source,unsigned quarters)
 {
+    /* A nondefault /UserUnit scales true PDF Stroke width, while the
+     * single C11 clipped-triangle sampler models exactly one device
+     * pixel. Refuse before publishing IR rather than painting an
+     * incorrectly thin or thick Stroke. All prior Fill/Image profiles
+     * retain their existing fractional /UserUnit support. */
+    if(quarters!=4u)
+        admit(std::none_of(source.painted_paths.begin(),
+                          source.painted_paths.end(),
+                          [](const staged_path& p){return p.stroke;}),
+              QUANTAPDF_ERROR_UNSUPPORTED);
     if(quarters==4u)return;
     admit(quarters>=1u && quarters<=16u,
           QUANTAPDF_ERROR_UNSUPPORTED);
