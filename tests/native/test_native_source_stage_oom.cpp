@@ -4,6 +4,7 @@
  * QPDF authors the original PDF; PDFium is never linked. */
 #include <quantapdf/quantapdf.h>
 #include "backend/qpdf_native_image_ir.h"
+#include "backend/ttf_font.h"
 #include "render/native_device_ir_v1.h"
 #include "render/ir_raster_v1.h"
 #include <qpdf/QPDF.hh>
@@ -1560,8 +1561,106 @@ static int native_ttf_source_and_raster_contracts(
     return EXIT_SUCCESS;
 }
 
+/* M0: exercise the actual shared SFNT subset writer, independently of PDF
+ * serialization. These are format/mapping/outline and real allocation gates. */
+static int native_ttf_subset_contracts()
+{
+    using namespace quantapdf::detail;
+    const auto filename=std::filesystem::path(__FILE__).parent_path().parent_path()/
+        "fixtures"/"fonts"/"Roboto-Regular.ttf";
+    std::ifstream file(filename,std::ios::binary);
+    const std::vector<unsigned char> original{std::istreambuf_iterator<char>(file),{}};
+    ttf_font_face face;
+    CHECK(ttf_font_face::parse(original.data(),original.size(),&face)==QUANTAPDF_OK);
+    const auto inspect=[](const std::vector<unsigned char>& bytes,bool has_cmap) {
+        if(bytes.size()<12u || bytes.size()%4u!=0u)return false;
+        const auto u16=[&](size_t at) {return (unsigned)bytes.at(at)*256u+bytes.at(at+1u);};
+        const auto u32=[&](size_t at) {return (uint32_t)u16(at)*65536u+u16(at+2u);};
+        const size_t count=u16(4u),directory=12u+16u*count;
+        if(count==0u || directory>bytes.size())return false;
+        size_t power=1u;unsigned selector=0u;
+        while(power*2u<=count) {power*=2u;++selector;}
+        if(u16(6u)!=power*16u || u16(8u)!=selector ||
+           u16(10u)!=count*16u-power*16u)return false;
+        std::map<std::string,std::pair<size_t,size_t>> tables;
+        size_t end=directory;
+        for(size_t i=0u;i<count;++i) {
+            const size_t at=12u+16u*i;
+            const std::string tag(reinterpret_cast<const char*>(bytes.data()+at),4u);
+            const size_t offset=u32(at+8u),length=u32(at+12u);
+            if(offset%4u!=0u || offset<end || offset>bytes.size() ||
+               length>bytes.size()-offset || !tables.emplace(tag,std::make_pair(offset,length)).second)
+                return false;
+            uint32_t sum=0u;
+            for(size_t p=0u;p<length;p+=4u) {
+                uint32_t word=0u;
+                for(size_t j=0u;j<4u;++j) {
+                    const size_t k=p+j;
+                    word=(word<<8u)|(k<length && !(tag=="head" && k>=8u && k<12u)?
+                        bytes[offset+k]:0u);
+                }
+                sum+=word;
+            }
+            if(sum!=u32(at+4u))return false;
+            end=offset+length;
+        }
+        for(const char *tag:{"head","hhea","hmtx","loca","maxp","glyf"})
+            if(!tables.count(tag))return false;
+        if((tables.count("cmap")!=0u)!=has_cmap || tables.count("DSIG"))return false;
+        uint32_t sum=0u;
+        for(size_t at=0u;at<bytes.size();at+=4u)sum+=u32(at);
+        return sum==UINT32_C(0xb1b0afba);
+    };
+    std::map<uint16_t,uint32_t> used;
+    for(uint32_t code:{72u,101u,233u}) {
+        const auto gid=face.glyph_for(code);CHECK(gid!=0u);used.emplace(gid,code);
+    }
+    std::vector<unsigned char> unicode,explicit_unicode,cid;
+    CHECK(subset_true_type_font(face,used,&unicode)==QUANTAPDF_OK);
+    CHECK(subset_true_type_font(face,used,&explicit_unicode,ttf_subset_purpose::unicode)==QUANTAPDF_OK);
+    CHECK(unicode==explicit_unicode && inspect(unicode,true));
+    CHECK(subset_true_type_font(face,used,&cid,ttf_subset_purpose::cid_font_file2)==QUANTAPDF_OK);
+    CHECK(inspect(cid,false));
+    ttf_font_face unicode_face,cid_face,rejected;
+    CHECK(ttf_font_face::parse(unicode.data(),unicode.size(),&unicode_face)==QUANTAPDF_OK);
+    CHECK(ttf_font_face::parse_cid(cid.data(),cid.size(),&cid_face)==QUANTAPDF_OK);
+    CHECK(ttf_font_face::parse(cid.data(),cid.size(),&rejected)!=QUANTAPDF_OK);
+    used.emplace(0u,0u); /* .notdef and an accented composite retain closure. */
+    for(const auto& entry:used) {
+        const auto gid=entry.first;
+        if(gid!=0u)CHECK(unicode_face.glyph_for(entry.second)==gid);
+        CHECK(cid_face.width_for(gid)==face.width_for(gid));
+        std::vector<ttf_outline_contour> a,b;
+        CHECK(face.outline_for(gid,&a)==QUANTAPDF_OK);
+        CHECK(cid_face.outline_for(gid,&b)==QUANTAPDF_OK);
+        CHECK(a.size()==b.size());
+        for(size_t i=0u;i<a.size();++i) {
+            CHECK(a[i].size()==b[i].size());
+            for(size_t j=0u;j<a[i].size();++j)
+                CHECK(a[i][j].x==b[i][j].x && a[i][j].y==b[i][j].y &&
+                      a[i][j].on_curve==b[i][j].on_curve);
+        }
+    }
+    cid.assign(1u,42u);
+    CHECK(subset_true_type_font(face,used,&cid,static_cast<ttf_subset_purpose>(255))==QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(cid.empty());
+    const std::map<uint16_t,uint32_t> bad{{face.num_glyphs,72u}};
+    cid.assign(1u,42u);
+    CHECK(subset_true_type_font(face,bad,&cid,ttf_subset_purpose::cid_font_file2)==QUANTAPDF_ERROR_FORMAT);
+    CHECK(cid.empty());
+    cid.assign(1u,42u);faults=0u;armed=true;
+    const auto status=subset_true_type_font(face,used,&cid,ttf_subset_purpose::cid_font_file2);
+    CHECK(status==QUANTAPDF_ERROR_NOMEM && cid.empty() && faults==1u && !armed);
+    CHECK(subset_true_type_font(face,used,&cid,ttf_subset_purpose::cid_font_file2)==QUANTAPDF_OK);
+    CHECK(inspect(cid,false));
+    std::puts("CID FontFile2: cmap-free checksums, Unicode mapping, composite closure and OOM recovery passed");
+    return EXIT_SUCCESS;
+}
+/* End M0 SFNT contracts. */
+
 int main(int argc,char **argv)
 {
+    CHECK(native_ttf_subset_contracts()==EXIT_SUCCESS);
     const std::string pdf=original_pdf();
     const quantapdf_qpdf_source_raw_image_limits limits={
         2u*1024u*1024u,65536u,4u,4u,1000000u,1000000u,4000000u,8u

@@ -666,7 +666,8 @@ bool copy_subset_safe_table(std::string const& tag)
 quantapdf_status build_subset_sfnt(
     ttf_font_face const& face,
     std::map<uint16_t, uint32_t> const& used_glyphs,
-    std::vector<unsigned char>* out)
+    std::vector<unsigned char>* out,
+    ttf_subset_purpose purpose)
 {
     std::map<std::string, table_view> source_tables;
     if (!read_table_directory(
@@ -777,7 +778,8 @@ quantapdf_status build_subset_sfnt(
     tables["glyf"] = std::move(glyf);
     tables["loca"] = std::move(loca_table);
     tables["hmtx"] = std::move(hmtx);
-    tables["cmap"] = build_subset_cmap(used_glyphs, glyph_count);
+    if (purpose == ttf_subset_purpose::unicode)
+        tables["cmap"] = build_subset_cmap(used_glyphs, glyph_count);
 
     {
         auto const& source = head_it->second;
@@ -1220,15 +1222,19 @@ quantapdf_status ttf_font_face::outline_for(uint16_t glyph,
 quantapdf_status subset_true_type_font(
     ttf_font_face const& face,
     std::map<uint16_t, uint32_t> const& used_glyphs,
-    std::vector<unsigned char>* out_font)
+    std::vector<unsigned char>* out_font,
+    ttf_subset_purpose purpose)
 {
     if (out_font == nullptr)
         return QUANTAPDF_ERROR_ARGUMENT;
     if (face.outline_kind != sfnt_outline_kind::true_type)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     out_font->clear();
+    if (purpose != ttf_subset_purpose::unicode &&
+        purpose != ttf_subset_purpose::cid_font_file2)
+        return QUANTAPDF_ERROR_ARGUMENT;
     try {
-        return build_subset_sfnt(face, used_glyphs, out_font);
+        return build_subset_sfnt(face, used_glyphs, out_font, purpose);
     } catch (std::bad_alloc const&) {
         out_font->clear();
         return QUANTAPDF_ERROR_NOMEM;

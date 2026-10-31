@@ -636,6 +636,23 @@ void collect_embedded_font_usage(
     }
 }
 
+struct font_program_failure { quantapdf_status status; };
+
+std::vector<unsigned char> make_cid_font_program(
+    quantapdf::detail::ttf_font_face const& face,
+    std::map<uint16_t, uint32_t> const& used_glyphs)
+{
+    std::vector<unsigned char> program;
+    auto const status = quantapdf::detail::subset_true_type_font(
+        face, used_glyphs, &program,
+        quantapdf::detail::ttf_subset_purpose::cid_font_file2);
+    if (status != QUANTAPDF_OK)
+        throw font_program_failure{status};
+    if (program.empty())
+        throw font_program_failure{QUANTAPDF_ERROR_BACKEND};
+    return program;
+}
+
 QPDFObjectHandle make_embedded_font(
     QPDF& pdf,
     quantapdf_composer_font_state const& state,
@@ -649,14 +666,9 @@ QPDFObjectHandle make_embedded_font(
     unsigned char const* embedded_data = state.data;
     size_t embedded_size = state.size;
     if (true_type) {
-        quantapdf_status const subset_status =
-            quantapdf::detail::subset_true_type_font(
-                face, usage.glyph_to_unicode, &subset);
-        if (subset_status == QUANTAPDF_OK &&
-            !subset.empty() && subset.size() < state.size) {
-            embedded_data = subset.data();
-            embedded_size = subset.size();
-        }
+        subset = make_cid_font_program(face, usage.glyph_to_unicode);
+        embedded_data = subset.data();
+        embedded_size = subset.size();
     }
 
     auto font_file = pdf.newStream(std::string(
@@ -998,14 +1010,9 @@ QPDFObjectHandle make_glyph_run_font(
     unsigned char const* embedded_data = state.data;
     size_t embedded_size = state.size;
     if (true_type) {
-        quantapdf_status const subset_status =
-            quantapdf::detail::subset_true_type_font(
-                face, usage.subset_glyphs, &subset);
-        if (subset_status == QUANTAPDF_OK &&
-            !subset.empty() && subset.size() < state.size) {
-            embedded_data = subset.data();
-            embedded_size = subset.size();
-        }
+        subset = make_cid_font_program(face, usage.subset_glyphs);
+        embedded_data = subset.data();
+        embedded_size = subset.size();
     }
 
     auto font_file = pdf.newStream(std::string(
@@ -2446,6 +2453,8 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
         *out_data = copied;
         *out_size = buffer->getSize();
         return QUANTAPDF_OK;
+    } catch (font_program_failure const& failure) {
+        return failure.status;
     } catch (std::invalid_argument const&) {
         return QUANTAPDF_ERROR_FORMAT;
     } catch (std::length_error const&) {
