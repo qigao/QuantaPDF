@@ -262,6 +262,12 @@ quantapdf_status quantapdf_qpdf_source_scoped_mixed_v10_flate_predictor_to_ir(
  * the first paint uses GS=1; real Q may restore GS=0 for a suffix. No
  * Clip reentry or extra layer is admitted by the one-GS profile.
  * Older Source signatures and one-GS mixed/Image limits are unchanged.
+ * The exact 237.133 x 180.44 original decimal page additionally admits
+ * its complete 24-m/32-c/8-h Clip/Fill/Stroke/Stroke profile, selected during the same
+ * operator pass at the first m after the strict original nonpainting
+ * prefix. All three paints/Clip scopes must validate at EOF; prior
+ * blank decimal pages retain their old contract. Raster admission and
+ * physical 72-DPI work limits remain independently enforced.
  * All payloads publish atomically and are released by
  * quantapdf_ir_dispose, including partial OOM cleanup. */
 quantapdf_status quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
@@ -269,9 +275,10 @@ quantapdf_status quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
     const quantapdf_qpdf_source_raw_image_limits *limits,
     size_t selected_page_index,quantapdf_ir *out_ir);
 
-/* Internal original TeXample M3 Source-only admission. This uses
- * exactly the SAME V10 QPDF parser as the public selected reader,
- * but is independently opted in only by this private Source test.
+/* Retained internal original TeXample M3 Source-only entry. It uses
+ * the SAME V10 QPDF parser/materializer as the public selected reader.
+ * Public V10 selects this complete profile within its operator pass;
+ * this private entry independently enforces the historical full profile.
  * It can publish 3 owned ordered PATH operations (f*, S, S), one
  * frozen two-ring W* leaf and a single opaque Normal GS, only after
  * validating all 24 m, 32 c, 8 h and actual q/Q operator positions.
