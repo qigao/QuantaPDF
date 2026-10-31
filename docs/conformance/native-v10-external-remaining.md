@@ -1,57 +1,43 @@
-# Native V10 external remaining-source negative intake (Issue #233)
+# Current public Native V10: remaining external negative sources
 
-This increment tests the **four other already-reviewed external original
-PDFs** after the three-public-document qualification in PR #544. It does not
-add any new PDF bytes or modify `tests/external_source_corpus/manifest.json`.
-The original external integrity gate must first reverify **all seven files**,
-their SHA-256, source revision, declared SPDX licenses and review records.
+This test contract follows the source-positive work on the
+unchanged reviewed `pdfium.black-original-v1` opaque PATH with inert
+`/a0 gs` and isolated DeviceRGB Page Group. The former negative intake
+also covered black.pdf; that status **must be updated in the staged tests**
+when black becomes a production V10 positive. Do not erase prior PR #545's
+exact-HEAD historical negative results; they describe the earlier parser.
 
-## Current V10 public API contract under test
+The remaining reviewed originals and current strict public V10 expectations:
 
-| Reviewed external original | Historical manifest profile | Current Native V10 test expectation |
+| External PDF | Historical private Graph/Composer expectation | Public V10 |
 | --- | --- | --- |
-| `pdfium.black-original-v1` | supported-path-clip (private Graph/IR) | UNSUPPORTED + NULL Bitmap |
-| `pdfium.clip-path-v1` | supported-clipped-stroke (private raster) | UNSUPPORTED + NULL Bitmap |
-| `yworks.clippath-cliprule-v1` | supported-wstar-clip (historical oracle) | UNSUPPORTED + NULL Bitmap |
-| `texample.intersecting-rings-v1` | supported-wstar-clip (historical oracle) | UNSUPPORTED + NULL Bitmap |
+| `pdfium.clip-path-v1` | supported-clipped-stroke | UNSUPPORTED, null Bitmap |
+| `yworks.clippath-cliprule-v1` | supported-wstar-clip | UNSUPPORTED, null Bitmap |
+| `texample.intersecting-rings-v1` | supported-wstar-clip | UNSUPPORTED, null Bitmap |
 
-**Do not rewrite historical manifest outcomes.** They describe previously
-qualified, different rendering paths, not current public Source V10 support.
-The new independent negative report is scoped to the *current public*
-`quantapdf_render_page_with_options` API, without PDFium or Graph fallback.
+The unchanged **seven-file** external corpus manifest and license/source
+reviews, hashes and notices remain the prerequisite. A separate opaque-black
+positive CTest now owns the public V10 black pixels, not this negative test.
 
-The four originals run at 72 DPI in canonical order and two fixed-seed
-`xorshift32-fisher-yates-v1` shuffles. After each rejected original,
-the verified `tinytoolkit.sample-blank-letter-v1` is opened in a new
-Document using the **same Context**. All 12 negative attempts must return
-precisely UNSUPPORTED and publish **NULL Bitmap**; all 12 blank recovery
-renders must have exact 612×792 white RGB8. The first blank Bitmap
-must remain byte-identical through every intervening negative,
-Document disposal and final Context retirement.
+The three remaining originals run at 72 DPI in canonical and
+`0x4cf5ad11` / `0x9e3779b9` shuffled order: **9 strict
+UNSUPPORTED/null-Bitmap refusals**. Each refused independent Document is
+followed by a newly opened and retired verified external
+`tinytoolkit.sample-blank-letter-v1`: **9 exact 612×792 all-white
+RGB8 recovery outputs**. One Context persists across all requests and
+a retained Bitmap survives all other original source Documents and final
+Context retirement.
 
-`quantapdf.native_v10_external_remaining` writes an actual-execution
-receipt only after all assertions pass; the independent
-`native_v10_external_remaining.py` gate rehashes the seven unchanged
-external originals, validates the integrity-only record, exact statuses,
-per-document counts, recovery observations, shuffled orders and fingerprints,
-and requires corrupted-report self-tests to be rejected.
+The test writes an actual-execution receipt only after all checks pass.
+The independent `native_v10_external_remaining.py` gate rehashes the
+seven originals using the existing external verification code, checks the
+unchanged integrity-only report and then reconciles exact per-original
+statuses, fixed-seed order fingerprints, output counts, recovery and
+synthetic corruption-rejection controls.
 
-## Remaining production gap
-
-The source-wide *Stroke* family remains unsupported in Source V10. This
-directly prevents current public qualification for Stroke-dependent
-originals, regardless of historical private Composer/Graph render evidence.
-Other cases may require qualified Source operator/graphics-state semantics,
-larger document geometry or independently audited Clip work. Their precise
-causes should be addressed by narrow production feature PRs with original
-source proof, **not** by modifying tests to claim unimplemented pixels.
-
-The original `pdfium.black-original-v1` has a historical 612×792
-opaque-black private C11 oracle. That evidence is useful as a future
-independent source visual expectation but does **not** justify bypassing
-public V10 operator admission or relaxing the current 8M sample budget.
-
-This increment changes only tests, receipt checking and documentation.
-The unique Native C11 renderer, public ABI, deterministic quotas and
-no-PDFium/no-fallback policy remain unchanged. PRs #538 onward stay
-Draft/unmerged until dependency/integration gates are fulfilled.
+These three strict refusals do not cancel previous private/C11 positive
+evidence; they identify missing **public Source V10** features. Complete
+source Stroke/Clip integration under #213/#214 and additional genuine
+external PDF pixel acceptance remain open under #233. The single C11
+renderer, no-PDFium/fallback policy, resource limits and public ABI remain
+unchanged. The stacked feature and test PRs stay Draft/unmerged.

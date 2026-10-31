@@ -24,6 +24,10 @@ typedef struct qp_raster_draw {
     uint32_t color;
     quantapdf_composer_fill_rule rule;
     int one_pixel_stroke;
+    /* Proven full-device rectangle: conservative one coverage decision
+     * per 4x4 sample, not four redundant flattened-edge intersections.
+     * Stays in the canonical C11 raster and its existing work quota. */
+    int full_canvas_rect;
 } qp_raster_draw;
 
 typedef struct qp_flatten {
@@ -441,6 +445,7 @@ static quantapdf_status qp_admit_draw(
     out->color = stroke ? opt->stroke_argb : opt->fill_argb;
     out->rule = rect_stroke ? QUANTAPDF_COMPOSER_FILL_EVEN_ODD : opt->fill_rule;
     out->one_pixel_stroke = stroke && !rect_stroke;
+    out->full_canvas_rect = 0;
     return QUANTAPDF_OK;
 }
 
@@ -462,6 +467,38 @@ static int qp_inside(
     if (draw->rule == QUANTAPDF_COMPOSER_FILL_EVEN_ODD)
         return (winding % 2) != 0;
     return winding != 0;
+}
+
+/* Recognize the actual four-edge full-canvas PATH, never infer a
+ * rectangle from a bounding box. Every edge must be axis aligned,
+ * connect exactly to the next and visit all four distinct corners.
+ * On this exact geometry, nonzero/evenodd both cover all 4x4 samples.
+ * Clipped, disconnected, self-crossing and partial PATHs cannot opt in. */
+static int qp_full_canvas_rect(const qp_edge *edges,
+    const qp_raster_draw *draw,size_t width,size_t height)
+{
+    const double right=(double)width,bottom=(double)height;
+    unsigned corners=0u;
+    if(draw->one_pixel_stroke || draw->edge_count!=4u ||
+       width==0u || height==0u)
+        return 0;
+    for(size_t i=0u;i<4u;++i) {
+        const qp_edge *e=&edges[draw->first_edge+i];
+        const qp_edge *next=&edges[draw->first_edge+(i+1u)%4u];
+        const qp_point_d a=e->from,b=e->to;
+        unsigned corner;
+        if(!qp_point_equal(b,next->from) ||
+           (a.x!=0.0 && a.x!=right) ||
+           (b.x!=0.0 && b.x!=right) ||
+           (a.y!=0.0 && a.y!=bottom) ||
+           (b.y!=0.0 && b.y!=bottom) ||
+           ((a.x==b.x)==(a.y==b.y)))
+            return 0;
+        corner=(unsigned)(a.x==right)+2u*(unsigned)(a.y==bottom);
+        if((corners & (1u<<corner))!=0u)return 0;
+        corners|=1u<<corner;
+    }
+    return corners==15u;
 }
 
 /* Bounded one-pixel path stroke. Each antialias sample is covered iff it
@@ -710,14 +747,25 @@ static quantapdf_status qp_render_v1_impl(
         if (status != QUANTAPDF_OK) {
             goto cleanup;
         }
-        if (draws[draw_count].edge_count >
-            (limits->max_sample_tests - total_checks) /
-                (QP_TOTAL_SAMPLES * pixels_count)) {
-            status = QUANTAPDF_ERROR_UNSUPPORTED;
-            goto cleanup;
+        /* Keep the SAME 4x4 sample-work cap. A fully proven unclipped
+         * device rectangle uses one conservative coverage decision per
+         * sample; all other draws retain the full per-edge work bill. */
+        draws[draw_count].full_canvas_rect=clip_count==0u &&
+            qp_full_canvas_rect(flatten.edges,&draws[draw_count],
+                                width,height);
+        {
+            const size_t checks_per_sample=
+                draws[draw_count].full_canvas_rect ?
+                    1u : draws[draw_count].edge_count;
+            if(checks_per_sample >
+                (limits->max_sample_tests - total_checks) /
+                    (QP_TOTAL_SAMPLES * pixels_count)) {
+                status=QUANTAPDF_ERROR_UNSUPPORTED;
+                goto cleanup;
+            }
+            total_checks+=checks_per_sample*
+                          (QP_TOTAL_SAMPLES*pixels_count);
         }
-        total_checks += draws[draw_count].edge_count *
-                        (QP_TOTAL_SAMPLES * pixels_count);
         ++draw_count;
     }
 
@@ -780,6 +828,15 @@ static quantapdf_status qp_render_v1_impl(
 
     for (i = 0u; i < draw_count; ++i) {
         const qp_raster_draw *draw = &draws[i];
+        if(draw->full_canvas_rect) {
+            /* Proven same 16/16 coverage as the ordinary winding scan:
+             * use its SAME blend and output owner without extra work. */
+            for(y=0u;y<height;++y)
+                for(x=0u;x<width;++x)
+                    qp_blend_pixel(pixels+4u*(y*width+x),
+                                   draw->color,QP_TOTAL_SAMPLES);
+            continue;
+        }
         for (y = 0u; y < height; ++y) {
             for (x = 0u; x < width; ++x) {
                 unsigned sx, sy, covered = 0u;

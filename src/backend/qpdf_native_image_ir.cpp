@@ -677,6 +677,68 @@ struct admission {
     }
 };
 
+/* Public Source V10 only: an original PDF /ExtGState named by gs is
+ * observationally inert for this strictly opaque Normal Fill/RAW Image
+ * profile ONLY if every original member is explicitly safe. No state
+ * caching, owner, page-wide retry, transparent raster, or shadow policy.
+ * Previous private source signatures never admit gs. */
+void validate_v10_opaque_gs(Obj resources,Obj name)
+{
+    admit(resources.isDictionary() && name.isName(),
+          QUANTAPDF_ERROR_FORMAT);
+    Obj ext=resources.getKey("/ExtGState");
+    /* Preserve the historical fail-closed Source/OOM contract for an
+     * undeclared gs operator: it is an unqualified semantic feature,
+     * not a malformed dictionary. Wrong-type declared states remain
+     * FORMAT. No IR allocations may occur on either refusal. */
+    admit(ext.isDictionary(),QUANTAPDF_ERROR_UNSUPPORTED);
+    Obj entry=ext.getKey(name.getName());
+    admit(!entry.isNull(),QUANTAPDF_ERROR_UNSUPPORTED);
+    admit(entry.isDictionary(),QUANTAPDF_ERROR_FORMAT);
+    admit(entry.getKeys().size()<=8u,QUANTAPDF_ERROR_UNSUPPORTED);
+    for(const auto& key:entry.getKeys())
+        admit(key=="/Type" || key=="/CA" || key=="/ca" ||
+              key=="/BM" || key=="/SMask" || key=="/AIS" ||
+              key=="/OP" || key=="/op" || key=="/OPM",
+              QUANTAPDF_ERROR_UNSUPPORTED);
+    Obj type=entry.getKey("/Type");
+    if(!type.isNull()) {
+        admit(type.isName(),QUANTAPDF_ERROR_FORMAT);
+        admit(type.getName()=="/ExtGState",QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+    for(const char *key:{"/CA","/ca"}) {
+        Obj alpha=entry.getKey(key);
+        if(!alpha.isNull()) {
+            admit(alpha.isNumber(),QUANTAPDF_ERROR_FORMAT);
+            admit(std::isfinite(alpha.getNumericValue()) &&
+                  alpha.getNumericValue()==1.0,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+        }
+    }
+    Obj bm=entry.getKey("/BM");
+    if(!bm.isNull()) {
+        admit(bm.isName(),QUANTAPDF_ERROR_FORMAT);
+        admit(bm.getName()=="/Normal",QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+    Obj smask=entry.getKey("/SMask");
+    if(!smask.isNull()) {
+        admit(smask.isName(),QUANTAPDF_ERROR_UNSUPPORTED);
+        admit(smask.getName()=="/None",QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+    for(const char *key:{"/AIS","/OP","/op"}) {
+        Obj value=entry.getKey(key);
+        if(!value.isNull()) {
+            admit(value.isBool(),QUANTAPDF_ERROR_FORMAT);
+            admit(!value.getBoolValue(),QUANTAPDF_ERROR_UNSUPPORTED);
+        }
+    }
+    Obj opm=entry.getKey("/OPM");
+    if(!opm.isNull()) {
+        admit(opm.isInteger(),QUANTAPDF_ERROR_FORMAT);
+        admit(opm.getIntValue()==0,QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+}
+
 class image_content_reader final : public Obj::ParserCallbacks {
 public:
     explicit image_content_reader(admission& a,bool allow_path=false,
@@ -780,6 +842,15 @@ public:
                 admit(style>=0ll && style<=2ll,
                       QUANTAPDF_ERROR_UNSUPPORTED);
             }
+        } else if(target.native_unclipped_mode && op=="gs") {
+            /* Resolve a named, bounded *opaque no-op* graphics-state
+             * resource at the actual operator position. A missing or
+             * unsupported state rejects the COMPLETE original page;
+             * never continue painting only the visible black Path. */
+            admit(args.size()==1u && args[0].isName() &&
+                  pending_path.empty() && !clip_pending,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            validate_v10_opaque_gs(target.resources,args[0]);
         } else if(op=="Do") {
             admit(args.size()==1u && args[0].isName() &&
                   pending_path.empty() && !clip_pending);
@@ -2870,8 +2941,44 @@ static quantapdf_status source_raw_images_to_ir_impl(
               page_w<=hard_page_pixels/page_h &&
               page_w*page_h<=limits->max_page_pixels,
               QUANTAPDF_ERROR_UNSUPPORTED);
-        admit(geo.page.getKey("/Group").isNull() &&
-              geo.page.getKey("/Annots").isNull(),
+        /* A source Page transparency /Group can be ignored ONLY when
+         * its exactly validated isolated, non-knockout DeviceRGB
+         * semantics are identical to the already restricted opaque
+         * Normal C11 paint. Reject every unknown key, other blend,
+         * unqualified color space and malformed value *before*
+         * publishing any IR. Historical private Source profiles keep
+         * their original group-refusal contract. */
+        Obj group=geo.page.getKey("/Group");
+        if(!group.isNull()) {
+            admit(native_v10,QUANTAPDF_ERROR_UNSUPPORTED);
+            admit(group.isDictionary(),QUANTAPDF_ERROR_FORMAT);
+            admit(group.getKeys().size()<=5u,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            for(const auto& key:group.getKeys())
+                admit(key=="/Type" || key=="/S" || key=="/I" ||
+                      key=="/K" || key=="/CS",
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+            Obj type=group.getKey("/Type");
+            if(!type.isNull()) {
+                admit(type.isName(),QUANTAPDF_ERROR_FORMAT);
+                admit(type.getName()=="/Group",
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+            }
+            Obj subtype=group.getKey("/S");
+            Obj isolated=group.getKey("/I");
+            Obj knockout=group.getKey("/K");
+            Obj space=group.getKey("/CS");
+            admit(subtype.isName() && isolated.isBool() &&
+                  space.isName() &&
+                  (knockout.isNull() || knockout.isBool()),
+                  QUANTAPDF_ERROR_FORMAT);
+            admit(subtype.getName()=="/Transparency" &&
+                  isolated.getBoolValue() &&
+                  (knockout.isNull() || !knockout.getBoolValue()) &&
+                  space.getName()=="/DeviceRGB",
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+        }
+        admit(geo.page.getKey("/Annots").isNull(),
               QUANTAPDF_ERROR_UNSUPPORTED);
         /* An unpainted page may omit both Contents and Resources under
          * Source V10. Earlier fixed source profile contracts stay strict.

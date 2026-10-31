@@ -926,3 +926,42 @@ set_tests_properties(
   TIMEOUT 30
   LABELS "conformance;native;no-pdfium;external;status;reconcile"
   FIXTURES_REQUIRED native_v10_external_remaining_replayed)
+
+# The reviewed ORIGINAL PDFium/Cairo 923-byte black PATH is the first
+# external opaque gs and isolated DeviceRGB Page Group native-positive.
+# This target links the existing public C11 API and QPDF TEST-ONLY input
+# author; no PDFium reference pixels, second raster or SDK ABI expansion.
+add_executable(quantapdf_native_v10_opaque_gs
+  test_native_v10_opaque_gs.cpp
+  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_native_image_ir.cpp"
+  "${PROJECT_SOURCE_DIR}/src/ir/ir.c"
+  "${PROJECT_SOURCE_DIR}/src/resource/resource_registry.c")
+target_include_directories(quantapdf_native_v10_opaque_gs PRIVATE
+  "${PROJECT_SOURCE_DIR}/src" "${PROJECT_SOURCE_DIR}/include")
+target_compile_features(quantapdf_native_v10_opaque_gs PRIVATE
+  c_std_11 cxx_std_20)
+target_link_libraries(quantapdf_native_v10_opaque_gs PRIVATE
+  quantapdf_backend QuantaPDF::QuantaPDF qpdf::libqpdf)
+if(MSVC)
+  target_compile_options(quantapdf_native_v10_opaque_gs PRIVATE
+    /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_v10_opaque_gs PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_v10_opaque_gs
+  COMMAND quantapdf_native_v10_opaque_gs
+    "${_native_ext_v10_assets}")
+set_tests_properties(quantapdf.native_v10_opaque_gs PROPERTIES
+  TIMEOUT 75
+  LABELS "conformance;native;no-pdfium;public-api;external;opaque;gs;group"
+  FIXTURES_REQUIRED native_v10_external_verified)
+
+# Existing pure C11 raster: prove exact full-device rectangle topology
+# before using one conservative sample test instead of four redundant
+# winding-edge tests; same 8m work limit and fail-closed partial shapes.
+quantapdf_native_test(quantapdf_native_full_canvas_rect_budget
+  native/test_native_full_canvas_rect_budget.c
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
