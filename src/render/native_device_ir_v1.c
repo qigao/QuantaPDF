@@ -7,7 +7,10 @@
 #include <string.h>
 
 #define QP_DPI_MAX_OPS 4u
-#define QP_DPI_MAX_PATH_COMMANDS 9u
+/* Source/V5 independently admit only the exact canonical 10-command
+ * pair of nested rectangles. Other profiles retain their old shapes
+ * and hard nine-command source limits. */
+#define QP_DPI_MAX_PATH_COMMANDS 10u
 
 static int qp_device_float(float source, double scale, float *out)
 {
@@ -398,7 +401,15 @@ quantapdf_status quantapdf_native_device_ir_render_v1_clipped_paths(
        source->resources.clips!=NULL) {
         const quantapdf_composer_clip_state *clip=
             &source->resources.clips[0];
-        if(clip->commands!=NULL && clip->command_count<=9u)
+        /* The exact canonical W* nested-rectangle Source leaf
+         * is the sole ten-command compound exception. Its complete
+         * geometry and original owner are revalidated in V5. */
+        if(clip->commands!=NULL &&
+           (clip->command_count<=9u ||
+            (clip->command_count==10u &&
+             clip->fill_rule==QUANTAPDF_COMPOSER_FILL_EVEN_ODD &&
+             qp_device_closed_clip_contours(
+                 clip->commands,clip->command_count))))
             for(size_t i=1u;i<clip->command_count;++i)
                 if(clip->commands[i].kind==
                     QUANTAPDF_COMPOSER_PATH_MOVE_TO) {

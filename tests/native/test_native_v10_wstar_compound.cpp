@@ -142,6 +142,35 @@ static std::vector<case_entry> make_cases()
         {"return-to-m-final-implicit",
             outer_return_start+"12 10 m 20 10 l 16 18 l W* n "+fill_red,
             QUANTAPDF_OK,UINT32_C(0xffffff),UINT32_C(0xff0000),false},
+        /* Actual eleven authored PDF path commands can be normalized
+         * losslessly to two 5-command rectangles for the sole W* leaf. */
+        {"yworks-returned-rectangles-wstar",
+            "4 4 m 28 4 l 28 28 l 4 28 l 4 4 l "
+            "12 10 m 20 10 l 20 18 l 12 18 l 12 10 l h W* n "+
+            fill_red,QUANTAPDF_OK,
+            UINT32_C(0xffffff),UINT32_C(0xff0000),false},
+        {"yworks-shifted-hole-wstar",
+            "4 4 m 28 4 l 28 28 l 4 28 l 4 4 l "
+            "18 10 m 25 10 l 25 18 l 18 18 l 18 10 l h W* n "+
+            fill_blue,QUANTAPDF_OK,
+            UINT32_C(0x0000ff),UINT32_C(0x0000ff),true},
+        {"reject-wide-rectangles-nonzero",
+            "4 4 m 28 4 l 28 28 l 4 28 l 4 4 l "
+            "12 10 m 20 10 l 20 18 l 12 18 l 12 10 l h W n "+
+            fill_red,QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
+        {"reject-wide-rectangles-third",
+            "4 4 m 28 4 l 28 28 l 4 28 l 4 4 l "
+            "12 10 m 20 10 l 20 18 l 12 18 l 12 10 l h "+
+            third+"W* n "+fill_red,QUANTAPDF_ERROR_UNSUPPORTED,
+            0u,0u,false},
+        {"reject-wide-rectangles-not-nested",
+            "4 4 m 28 4 l 28 28 l 4 28 l 4 4 l "
+            "22 10 m 31 10 l 31 18 l 22 18 l 22 10 l h W* n "+
+            fill_red,QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
+        {"reject-wide-rectangles-late-text",
+            "4 4 m 28 4 l 28 28 l 4 28 l 4 4 l "
+            "12 10 m 20 10 l 20 18 l 12 18 l 12 10 l h W* n "+
+            fill_red+"BT ET",QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
         {"reject-arbitrary-open-first",
             outer_implicit+inner+"W* n "+fill_red,
             QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
@@ -271,10 +300,10 @@ static int test()
     CHECK(bytes!=nullptr && size==held_copy.size() &&
           std::memcmp(bytes,held_copy.data(),size)==0);
     quantapdf_drop_bitmap(held);
-    CHECK(positives==11u && negatives==13u);
-    std::printf("Original generated W/W* two-contour: 11 exact RGB "
-                "positives (5 return-to-start closures), 13 atomic negatives, "
-                "single C11 renderer\n");
+    CHECK(positives==13u && negatives==17u);
+    std::printf("Original generated W/W* two-contour: 13 exact RGB "
+                "positives (2 nested returned-rectangle W*), "
+                "17 atomic negatives, single C11 renderer\n");
     return EXIT_SUCCESS;
 }
 int main()
