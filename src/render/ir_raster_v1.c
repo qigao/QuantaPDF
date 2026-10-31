@@ -777,8 +777,12 @@ static quantapdf_status qp_render_v1_impl(
         (double)page->height_points > (double)limits->max_pixels)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     if (plan != NULL) {
-        if (!quantapdf_native_device_plan_matches_page(plan,
-                page->width_points, page->height_points, limits->max_pixels))
+        const int physical = visible_work_optin == 5 || visible_work_optin == 6;
+        if (!(physical ?
+                quantapdf_native_device_plan_matches_physical_page(plan,
+                    page->width_points, page->height_points, limits->max_pixels) :
+                quantapdf_native_device_plan_matches_page(plan,
+                    page->width_points, page->height_points, limits->max_pixels)))
             return QUANTAPDF_ERROR_UNSUPPORTED;
         width = plan->width;
         height = plan->height;
@@ -849,7 +853,7 @@ static quantapdf_status qp_render_v1_impl(
     /* One private 0.3985px dual-ring closed cubic paint. It has no
      * inherited Clip, no alternate renderer and no public source
      * admission. Flattened work is checked before any output buffer. */
-    bounded_curved_stroke=visible_work_optin==4 &&
+    bounded_curved_stroke=(visible_work_optin==4 || visible_work_optin==5) &&
         clip_count==0u && ir->operation_count==1u &&
         ir->operations!=NULL &&
         ir->operations[0].kind==QUANTAPDF_COMPOSER_OPERATION_PATH &&
@@ -858,7 +862,8 @@ static quantapdf_status qp_render_v1_impl(
         ir->operations[0].value.path.options.stroke_width==0.3985f &&
         ir->operations[0].value.path.command_count==12u &&
         limits->max_edges<=256u;
-    if(visible_work_optin==4 && !bounded_curved_stroke)
+    if((visible_work_optin==4 || visible_work_optin==5) &&
+       !bounded_curved_stroke)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     if(!bounded_clipped_fill && !bounded_clipped_stroke &&
        !bounded_curved_stroke &&
@@ -890,7 +895,7 @@ static quantapdf_status qp_render_v1_impl(
         status = qp_admit_draw(op, &flatten,
             plan == NULL ? NULL : plan->from_composer, &draws[draw_count],
             0,visible_work_optin==3?1:
-              visible_work_optin==4?2:0);
+              bounded_curved_stroke?2:0);
         if (status != QUANTAPDF_OK) {
             goto cleanup;
         }
@@ -1116,6 +1121,14 @@ static quantapdf_status qp_render_v1_impl(
                     for (sx = 0u; sx < QP_SAMPLES; ++sx) {
                         double px = (double)x +
                             ((double)sx + 0.5) / (double)QP_SAMPLES;
+                        /* The integer buffer encloses the physical page. A
+                         * sample in its right/bottom fringe must never paint,
+                         * even when authored geometry crosses the page edge. */
+                        if (plan != NULL &&
+                            plan->mode == QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1 &&
+                            (px >= plan->width_points * ((double)plan->dpi / 72.0) ||
+                             py >= plan->height_points * ((double)plan->dpi / 72.0)))
+                            continue;
                         int visible = bounded_curved_stroke ?
                             qp_stroke_inside_candidates(flatten.edges,draw,
                                 px,py,candidates,candidate_count) :
@@ -1360,24 +1373,23 @@ static int qp_v1_smooth_closed_cardinal_ring(
  * is used. Mode 4 bills EVERY possible inflated-edge candidate
  * distance test before pixel allocation, preserving the global cap.
  * This entry never touches or widens a public Native Source mode. */
-quantapdf_status quantapdf_ir_raster_render_v1_texample_closed_cubic_stroke_work(
+static int qp_v1_texample_closed_cubic_stroke_shape(
     const quantapdf_ir *ir,size_t page_index,
     const quantapdf_ir_raster_v1_limits *limits,
-    quantapdf_ir_raster_image *out_image)
+    int physical)
 {
     double ix,iy,irx,iry,ox,oy,orx,ory;
     const quantapdf_composer_operation *op;
     const quantapdf_composer_path_operation *path;
     const quantapdf_composer_path_options *opt;
-    if(out_image==NULL)return QUANTAPDF_ERROR_ARGUMENT;
-    memset(out_image,0,sizeof(*out_image));
     if(ir==NULL || ir->pages==NULL || ir->page_count!=1u ||
-       page_index!=0u || ir->pages[0].width_points!=238.0f ||
-       ir->pages[0].height_points!=181.0f ||
+       page_index!=0u ||
+       ir->pages[0].width_points!=(physical?237.133f:238.0f) ||
+       ir->pages[0].height_points!=(physical?180.44f:181.0f) ||
        ir->operation_count!=1u || ir->operations==NULL ||
        limits==NULL || limits->max_edges>256u ||
        limits->max_sample_tests>8000000u)
-        return QUANTAPDF_ERROR_UNSUPPORTED;
+        return 0;
     op=&ir->operations[0];
     path=&op->value.path;
     opt=&path->options;
@@ -1400,8 +1412,66 @@ quantapdf_status quantapdf_ir_raster_render_v1_texample_closed_cubic_stroke_work
        !qp_v1_original_decimal_equal(ix,ox) ||
        !qp_v1_original_decimal_equal(iy,oy) ||
        irx+0.0001>=orx || iry+0.0001>=ory)
+        return 0;
+    return 1;
+}
+
+quantapdf_status quantapdf_ir_raster_render_v1_texample_closed_cubic_stroke_work(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    if(out_image==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out_image,0,sizeof(*out_image));
+    if(!qp_v1_texample_closed_cubic_stroke_shape(ir,page_index,limits,0))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     return qp_render_v1_impl(ir,page_index,limits,NULL,NULL,0u,4,out_image);
+}
+
+quantapdf_status quantapdf_ir_raster_render_v1_texample_physical_cubic_stroke_work(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,
+    quantapdf_ir_raster_image *out_image)
+{
+    if(out_image==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out_image,0,sizeof(*out_image));
+    if(!qp_v1_texample_closed_cubic_stroke_shape(ir,page_index,limits,1) ||
+       plan==NULL || plan->mode!=QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1 ||
+       plan->dpi!=72u || plan->width!=238u || plan->height!=181u ||
+       plan->width_points!=237.133 || plan->height_points!=180.44 ||
+       plan->source_to_display[0]!=1.0 ||
+       plan->source_to_display[1]!=0.0 ||
+       plan->source_to_display[2]!=0.0 ||
+       plan->source_to_display[3]!=1.0 ||
+       plan->source_to_display[4]!=0.0 ||
+       plan->source_to_display[5]!=0.0)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    return qp_render_v1_impl(ir,page_index,limits,plan,NULL,0u,5,out_image);
+}
+
+/* Physical page-fringe qualification for ordinary opaque Fill geometry.
+ * Curved Stroke has its separately guarded private entry above. The public
+ * bridge and all earlier FIT/integer raster contracts remain unchanged. */
+quantapdf_status quantapdf_ir_raster_render_v1_physical_planned(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,
+    const quantapdf_composer_clip_state *const *clips,size_t clip_count,
+    quantapdf_ir_raster_image *out_image)
+{
+    if(out_image==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out_image,0,sizeof(*out_image));
+    if(ir==NULL || plan==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    if(plan->mode!=QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1 ||
+       (ir->operation_count!=0u && ir->operations==NULL))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    for(size_t i=0u;i<ir->operation_count;++i)
+        if(ir->operations[i].kind!=QUANTAPDF_COMPOSER_OPERATION_PATH ||
+           ir->operations[i].value.path.options.fill!=1 ||
+           ir->operations[i].value.path.options.stroke!=0)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+    return qp_render_v1_impl(ir,page_index,limits,plan,clips,clip_count,6,out_image);
 }
 
 quantapdf_status quantapdf_ir_raster_render_v1_two_cubic_ring_wstar_visible_work(
@@ -1448,3 +1518,4 @@ quantapdf_status quantapdf_ir_raster_render_v1_planned(
     return qp_render_v1_impl(
         ir, page_index, limits, plan, clips, clip_count, 0, out_image);
 }
+

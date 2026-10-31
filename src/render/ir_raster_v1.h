@@ -118,6 +118,28 @@ quantapdf_status quantapdf_ir_raster_render_v1_texample_closed_cubic_stroke_work
     const quantapdf_ir_raster_v1_limits *limits,
     quantapdf_ir_raster_image *out_image);
 
+/* PRIVATE M4b physical-map qualification: same original closed Stroke
+ * shape and same candidate-edge budget as M4a, retaining the real decimal
+ * page and an explicit physical 72-DPI plan. No public Source cutover or
+ * claim of full miter/three-layer parity is implied. */
+quantapdf_status quantapdf_ir_raster_render_v1_texample_physical_cubic_stroke_work(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,
+    quantapdf_ir_raster_image *out_image);
+
+/* Same V1 Fill/Clip sample kernel, with DPI-defined geometry and the
+ * physical page rectangle intersected at each 4x4 sample. Input coordinates
+ * are already Source-staged Y-down around the exact decimal height. Samples beyond
+ * the right/bottom decimal edge retain the initialized background. FIT
+ * plans and every Stroke refuse; the special original above is separate. */
+quantapdf_status quantapdf_ir_raster_render_v1_physical_planned(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,
+    const quantapdf_composer_clip_state *const *clips,size_t clip_count,
+    quantapdf_ir_raster_image *out_image);
+
 /* PRIVATE original TeXample-type two-ring Bézier W*: exactly
  * two nested cardinal ring contours, each MOVE+4 CUBIC+CLOSE,
  * with no discarded source edges or unbounded extra subpaths.
@@ -148,3 +170,4 @@ quantapdf_status quantapdf_ir_raster_render_v1_planned(
 #endif
 
 #endif
+

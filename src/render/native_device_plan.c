@@ -166,10 +166,10 @@ static double qp_decimal_to_double(qp_fixed_decimal value)
     return value.negative ? -number : number;
 }
 
-quantapdf_status quantapdf_native_device_plan_create(
+static quantapdf_status qp_device_plan_create(
     const char *media_ascii, const char *crop_ascii, const char *unit_ascii,
     int rotation, unsigned dpi, size_t max_pixels,
-    quantapdf_native_device_plan *out)
+    unsigned mode, quantapdf_native_device_plan *out)
 {
     qp_fixed_decimal media[4] = {{0}}, crop[4] = {{0}}, unit = {0};
     qp_exact_span x = {0}, y = {0}, temporary;
@@ -207,7 +207,7 @@ quantapdf_status quantapdf_native_device_plan_create(
     result.stride = result.width * 4u;
     result.size = result.stride * result.height;
     result.dpi = dpi;
-    result.mode = QUANTAPDF_NATIVE_DEVICE_FIT_V1;
+    result.mode = mode;
     /* The exact acceptance decision is complete. Floating conversion is
      * solely for the explicitly bounded geometric sample mapping. */
     result.width_points = (double)x.numerator / (double)x.denominator;
@@ -240,8 +240,10 @@ quantapdf_status quantapdf_native_device_plan_create(
     default:
         return QUANTAPDF_ERROR_UNSUPPORTED;
     }
-    sx = (double)result.width / result.width_points;
-    sy = (double)result.height / result.height_points;
+    sx = mode == QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1 ?
+        (double)dpi / 72.0 : (double)result.width / result.width_points;
+    sy = mode == QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1 ?
+        (double)dpi / 72.0 : (double)result.height / result.height_points;
     result.source_to_device[0] = result.source_to_display[0] * sx;
     result.source_to_device[1] = -result.source_to_display[1] * sy;
     result.source_to_device[2] = result.source_to_display[2] * sx;
@@ -251,13 +253,36 @@ quantapdf_status quantapdf_native_device_plan_create(
         (result.height_points - result.source_to_display[5]) * sy;
     result.from_composer[0] = sx;
     result.from_composer[3] = sy;
-    /* Semantic lowering flips Y around the FLOAT Composer canvas height.
-     * Restore the precise semantic anchor before fitting the integer grid. */
-    result.from_composer[5] =
-        (result.height_points - (double)(float)result.height_points) * sy;
-    if (!quantapdf_native_device_plan_matches_page(&result,
+    /* Legacy Composer lowering uses its FLOAT canvas height. Physical
+     * Source IR already flips Y around the EXACT decimal height; preserve
+     * those coordinates instead of applying the float-height correction
+     * twice. Physical consumers explicitly require this source convention. */
+    result.from_composer[5] = mode == QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1 ?
+        0.0 : (result.height_points - (double)(float)result.height_points) * sy;
+    if (!quantapdf_native_device_plan_matches_page_mode(&result, mode,
             (float)result.width_points, (float)result.height_points, max_pixels))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     *out = result;
     return QUANTAPDF_OK;
+}
+
+
+/* Keep FIT callers on their qualified historical mapping. Physical DPI is
+ * an explicit private entry: only buffer allocation uses decimal ceil. */
+quantapdf_status quantapdf_native_device_plan_create(
+    const char *media_ascii, const char *crop_ascii, const char *unit_ascii,
+    int rotation, unsigned dpi, size_t max_pixels,
+    quantapdf_native_device_plan *out)
+{
+    return qp_device_plan_create(media_ascii, crop_ascii, unit_ascii,
+        rotation, dpi, max_pixels, QUANTAPDF_NATIVE_DEVICE_FIT_V1, out);
+}
+
+quantapdf_status quantapdf_native_device_plan_create_physical(
+    const char *media_ascii, const char *crop_ascii, const char *unit_ascii,
+    int rotation, unsigned dpi, size_t max_pixels,
+    quantapdf_native_device_plan *out)
+{
+    return qp_device_plan_create(media_ascii, crop_ascii, unit_ascii,
+        rotation, dpi, max_pixels, QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1, out);
 }
