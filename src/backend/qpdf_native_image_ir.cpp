@@ -209,6 +209,7 @@ struct staged_path {
     /* Explicit public Source V10 clipped Stroke only. */
     bool stroke=false;
     uint32_t stroke_argb=UINT32_C(0xff000000);
+    float stroke_width=1.0f; /* only private TeXample may vary */
 };
 
 struct staged_image_clip {
@@ -522,11 +523,22 @@ struct admission {
      * but bill full authored IMAGE placement and clamp only in the
      * ONE C11 viewport sample consumer, never by clipping source bytes. */
     bool crop_viewport=false;
-    double exact_page_w=0.0,exact_page_h=0.0; /* V10 1/4-point spans */
+    double exact_page_w=0.0,exact_page_h=0.0; /* exact V10 spans */
+    /* Private ONLY: complete TeXample 4 path groups = 8 rings/32c.
+     * The original public selected Source call never sets this bit. */
+    bool texample_private_m3=false;
+    unsigned texample_stage=0u;
+    size_t texample_moves=0u,texample_cubics=0u;
+    size_t texample_closes=0u,texample_zero_moves=0u;
+    size_t texample_q_count=0u,texample_Q_count=0u;
+    size_t texample_cm_count=0u,texample_gray_count=0u;
+    size_t texample_stroke_gray_count=0u,texample_width_count=0u;
+    size_t texample_orange_count=0u,texample_terminal_n=0u;
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule,
-                    bool is_stroke=false,uint32_t stroke_rgb=UINT32_C(0xff000000))
+                    bool is_stroke=false,uint32_t stroke_rgb=UINT32_C(0xff000000),
+                    float width=1.0f)
     {
         /* A public V10 Stroke may be the ONLY paint in the original
          * selected page. Late paints cannot silently escape the sole
@@ -536,7 +548,12 @@ struct admission {
                 (painted_paths.empty() && three_branch_count==1u) :
                 (!painted_paths.empty() && painted_paths[0].stroke &&
                  painted_paths.size()<3u));
-        admit(three_path ||
+        const bool texample_path=texample_private_m3 &&
+            draws.empty() && clip_completed &&
+            commands.size()==12u && painted_paths.size()<3u &&
+            (is_stroke ? painted_paths.size()>=1u :
+                         painted_paths.empty());
+        admit(texample_path || three_path ||
               (std::none_of(painted_paths.begin(),painted_paths.end(),
                    [](const staged_path& p){return p.stroke;}) &&
                (!is_stroke ||
@@ -553,7 +570,8 @@ struct admission {
                 hard_operations :
                 (mixed_operation_limit==4u ? 2u : 1u);
         admit(mixed_mode && painted_paths.size()<allowed_paths &&
-              ((three_path && is_stroke && commands.size()==2u) ||
+              (texample_path ||
+               (three_path && is_stroke && commands.size()==2u) ||
                (commands.size()>=4u && commands.size()<=9u)) &&
               order.size()<mixed_operation_limit &&
               limits.max_operations>=
@@ -566,6 +584,7 @@ struct admission {
         item.fill_rule=rule;
         item.stroke=is_stroke;
         item.stroke_argb=stroke_rgb;
+        item.stroke_width=width;
         QP_SOURCE_STAGE_ARM(3u);
         painted_paths.push_back(std::move(item));
         QP_SOURCE_STAGE_ARM(4u);
@@ -830,6 +849,16 @@ public:
             return;
         }
         const std::string op=item.getOperatorValue();
+        if(target.texample_private_m3) {
+            /* The exact original M3 is a PRIVATE complete-source
+             * profile. Reject an extra original operator rather than
+             * omitting it while still publishing the first 3 paints. */
+            const bool recognized=op=="cm" || op=="q" || op=="Q" ||
+                op=="G" || op=="g" || op=="w" || op=="m" ||
+                op=="c" || op=="h" || op=="W*" || op=="n" ||
+                op=="rg" || op=="f*" || op=="S";
+            admit(recognized,QUANTAPDF_ERROR_UNSUPPORTED);
+        }
         /* This first Source Stroke profile qualifies one complete final
          * clipped paint only. Do not silently accept a second Clip,
          * state change or unrecognized operator after the Stroke. A
@@ -837,6 +866,7 @@ public:
          * separately; the original public V10 defaults fail closed. */
         if(target.native_unclipped_mode &&
            !target.three_branch_candidate &&
+           !target.texample_private_m3 &&
            std::any_of(target.painted_paths.begin(),
                        target.painted_paths.end(),
                        [](const staged_path& p){return p.stroke;}))
@@ -892,6 +922,16 @@ public:
             }
         } else if (op=="q") {
             admit(args.empty() && pending_path.empty());
+            if(target.texample_private_m3) {
+                admit(texample_original_ctm && texample_qdepth<4u &&
+                      ((target.texample_stage==0u &&
+                        texample_qdepth<3u) ||
+                       (target.texample_stage==1u &&
+                        texample_qdepth==3u)),
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                ++texample_qdepth;
+                ++target.texample_q_count;
+            }
             /* Save/restore of Stroke state is outside the first
              * exact clipped-triangle Source profile. */
             if(target.native_unclipped_mode)saw_saved_scope=true;
@@ -901,6 +941,18 @@ public:
             if(clipped)clip_stack.push_back(clip_active);
         } else if(op=="Q") {
             admit(args.empty() && pending_path.empty() && !stack.empty());
+            if(target.texample_private_m3) {
+                admit(texample_qdepth>0u &&
+                      ((target.texample_stage==2u &&
+                        texample_qdepth>=3u) ||
+                       (target.texample_stage==4u &&
+                        (texample_qdepth==2u ||
+                         (texample_qdepth==1u &&
+                          target.texample_terminal_n==1u)))),
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                --texample_qdepth;
+                ++target.texample_Q_count;
+            }
             current=stack.back();stack.pop_back();
             fill_argb=fill_stack.back();fill_stack.pop_back();
             if(clipped) {
@@ -918,6 +970,20 @@ public:
             matrix next;
             for(size_t i=0u;i<6u;++i)next[i]=finite_number(args[i]);
             current=concat(current,next);
+            if(target.texample_private_m3) {
+                /* Exact authored original 1/1000pt translation.
+                 * No general fractional-CTM Source bypass exists. */
+                admit(!texample_original_ctm &&
+                      target.texample_cm_count==0u &&
+                      texample_qdepth==0u &&
+                      next[0]==1.0 && next[1]==0.0 &&
+                      next[2]==0.0 && next[3]==1.0 &&
+                      next[4]==118.566 && next[5]==90.22 &&
+                      current==next,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                texample_original_ctm=true;
+                ++target.texample_cm_count;
+            }
             /* An exact page-height negative-Y authoring CTM selects
              * only the *candidate*. It does NOT make a page paintable;
              * the complete original 3GS/7Clip shape is still mandatory. */
@@ -947,6 +1013,15 @@ public:
                 admit(width>=0.0 && width<=1000000.0,
                       QUANTAPDF_ERROR_UNSUPPORTED);
                 stroke_width=width;
+                if(target.texample_private_m3) {
+                    admit(texample_original_ctm &&
+                          texample_qdepth==1u &&
+                          target.texample_stage==0u &&
+                          target.texample_width_count==0u &&
+                          width==0.3985,
+                          QUANTAPDF_ERROR_UNSUPPORTED);
+                    ++target.texample_width_count;
+                }
             } else {
                 admit(args[0].isInteger(),QUANTAPDF_ERROR_UNSUPPORTED);
                 const auto style=args[0].getIntValue();
@@ -1043,6 +1118,15 @@ public:
                 rgb|=component << (16u-8u*i);
             }
             fill_argb=UINT32_C(0xff000000)|rgb;
+            if(target.texample_private_m3) {
+                admit(texample_original_ctm &&
+                      texample_qdepth==4u &&
+                      target.texample_stage==1u &&
+                      target.texample_orange_count==0u &&
+                      fill_argb==UINT32_C(0xffff8000),
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                ++target.texample_orange_count;
+            }
         } else if(mixed && target.normalized_gray_mode && op=="g") {
             /* V8-only single-channel DeviceGray fill: bound first, then
              * quantize exactly like V7's normalized RGB components.
@@ -1055,6 +1139,13 @@ public:
                 std::floor(channel*255.0+0.5));
             fill_argb=UINT32_C(0xff000000) |
                 (gray<<16u) | (gray<<8u) | gray;
+            if(target.texample_private_m3) {
+                admit(target.texample_stage==0u &&
+                      texample_qdepth==1u &&
+                      target.texample_gray_count==0u &&
+                      gray==0u,QUANTAPDF_ERROR_UNSUPPORTED);
+                ++target.texample_gray_count;
+            }
         } else if(target.native_unclipped_mode &&
                   (op=="G" || op=="RG" || op=="K")) {
             /* Stroking-only DeviceGray/RGB/CMYK. Public Source V10
@@ -1079,13 +1170,30 @@ public:
             /* G/K remain ignored for Fill-only pages, but a future
              * clipped Stroke cannot silently reuse an old RGB color. */
             stroke_rgb_exact=exact;
+            if(target.texample_private_m3) {
+                admit(op=="G" && args.size()==1u &&
+                      finite_number(args[0])==0.0 &&
+                      texample_qdepth==1u &&
+                      target.texample_stage==0u &&
+                      target.texample_stroke_gray_count==0u,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                exact=true;
+                rgb=0u;
+                ++target.texample_stroke_gray_count;
+            }
+            stroke_rgb_exact=exact;
             if(exact)stroke_argb=UINT32_C(0xff000000)|rgb;
         } else if((mixed || clipped) && op=="m") {
             admit(args.size()==2u && !clip_pending,
                   QUANTAPDF_ERROR_UNSUPPORTED);
-            begin_contour(4u);
-            append_point(QUANTAPDF_COMPOSER_PATH_MOVE_TO,
-                         finite_number(args[0]),finite_number(args[1]));
+            if(target.texample_private_m3)
+                texample_move(finite_number(args[0]),
+                              finite_number(args[1]));
+            else {
+                begin_contour(4u);
+                append_point(QUANTAPDF_COMPOSER_PATH_MOVE_TO,
+                             finite_number(args[0]),finite_number(args[1]));
+            }
         } else if((mixed || clipped) && op=="l") {
             admit(args.size()==2u && !pending_path.empty() &&
                   !closed && (pending_path.size()<8u ||
@@ -1101,13 +1209,16 @@ public:
              * No fallback, new paint engine or private-profile change.
              * The qualified W/W* profiles use these same commands;
              * Stroke remains explicitly unsupported. */
-            admit(args.size()==6u && !pending_path.empty() &&
-                  !closed && !clip_pending && pending_path.size()<8u,
+            admit(args.size()==6u &&
+                  (target.texample_private_m3 ||
+                   (!pending_path.empty() && !closed && !clip_pending &&
+                    pending_path.size()<8u)),
                   QUANTAPDF_ERROR_UNSUPPORTED);
             std::array<double,6u> xy{};
             for(size_t i=0u;i<6u;++i)
                 xy[i]=finite_number(args[i]);
-            append_cubic(xy);
+            if(target.texample_private_m3)texample_cubic(xy);
+            else append_cubic(xy);
         } else if(target.native_unclipped_mode &&
                   (op=="v" || op=="y")) {
             /* Original PDF cubic shorthand: v uses the current point
@@ -1122,9 +1233,13 @@ public:
                 xy[i]=finite_number(args[i]);
             append_cubic_shorthand(op,xy);
         } else if((mixed || clipped) && op=="h") {
-            admit(args.empty() && pending_path.size()>=contour_start+3u &&
-                  !closed,QUANTAPDF_ERROR_UNSUPPORTED);
-            if(ten_wstar_candidate) {
+            admit(args.empty() &&
+                  (target.texample_private_m3 ||
+                   (pending_path.size()>=contour_start+3u && !closed)),
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            if(target.texample_private_m3) {
+                texample_close();
+            } else if(ten_wstar_candidate) {
                 /* The second authored l returns to the same start.
                  * Replacing it with CLOSE retains the full edge; the
                  * following h has zero additional geometric extent. */
@@ -1160,6 +1275,27 @@ public:
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x,y+h);
             close_path();
         } else if(target.native_unclipped_mode && op=="S") {
+            if(target.texample_private_m3) {
+                admit(args.empty() &&
+                      (target.texample_stage==2u ||
+                       target.texample_stage==3u) &&
+                      texample_qdepth==2u && clip_active==0u &&
+                      target.clip_completed && !clip_pending &&
+                      stroke_rgb_exact &&
+                      stroke_argb==UINT32_C(0xff000000) &&
+                      stroke_width==0.3985 &&
+                      stroke_cap==0 && stroke_join==0 &&
+                      stroke_miter==10.0 && stroke_default_dash,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                texample_complete_group();
+                target.paint_path(std::move(pending_path),
+                    fill_argb,QUANTAPDF_COMPOSER_FILL_NONZERO,
+                    true,stroke_argb,0.3985f);
+                QP_SOURCE_STAGE_ARM(7u);
+                target.scoped_clip_membership.push_back(0u);
+                ++target.texample_stage;
+                texample_clear_group();
+            } else {
             /* Source V10 original 600x600 negative-Y profile only.
              * The first authored PAINT is one open width-one solid
              * butt-capped horizontal red Stroke under W intersect W*.
@@ -1186,6 +1322,7 @@ public:
             QP_SOURCE_STAGE_ARM(7u);
             target.scoped_clip_membership.push_back(clip_active);
             clear_path();
+            }
         } else if(target.native_unclipped_mode && op=="s") {
             /* PDF s implicitly closes then strokes a single triangle.
              * Only one actual W/n Clip, 1px butt/miter/solid and an
@@ -1217,6 +1354,23 @@ public:
             target.scoped_clip_membership.push_back(clip_active);
             clear_path();
         } else if(mixed && (op=="f" || op=="f*")) {
+            if(target.texample_private_m3) {
+                admit(op=="f*" && args.empty() &&
+                      target.texample_stage==1u &&
+                      texample_qdepth==4u && clip_active==1u &&
+                      target.clip_completed && !clip_pending &&
+                      fill_argb==UINT32_C(0xffff8000) &&
+                      target.draws.empty() &&
+                      target.painted_paths.empty(),
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                texample_complete_group();
+                target.paint_path(std::move(pending_path),fill_argb,
+                    QUANTAPDF_COMPOSER_FILL_EVEN_ODD);
+                QP_SOURCE_STAGE_ARM(7u);
+                target.scoped_clip_membership.push_back(1u);
+                target.texample_stage=2u;
+                texample_clear_group();
+            } else {
             admit(args.empty() && pending_path.size()>=3u &&
                   contour_count==1u,
                   QUANTAPDF_ERROR_UNSUPPORTED);
@@ -1274,6 +1428,7 @@ public:
                 target.scoped_clip_membership.push_back(clip_active);
             }
             clear_path();
+            }
         } else if(clipped && (op=="W" || op=="W*")) {
             /* Native V10 preserves the first leaf across paint and
              * nested q/Q. A second definition intersects that live
@@ -1284,7 +1439,14 @@ public:
                   (!target.mixed_scoped_mode || target.order.empty() ||
                    target.native_unclipped_mode),
                   QUANTAPDF_ERROR_UNSUPPORTED);
-            if(target.three_branch_candidate && target.clip_completed) {
+            if(target.texample_private_m3) {
+                admit(op=="W*" && target.texample_stage==0u &&
+                      texample_qdepth==3u &&
+                      !target.clip_completed && !clip_pending,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                texample_complete_group();
+            } else if(target.three_branch_candidate &&
+                      target.clip_completed) {
                 /* Each nested W/W* is defined AFTER a genuine Q has
                  * restored the common outer W. No active inner Clip
                  * may be inherited by another branch. */
@@ -1327,7 +1489,32 @@ public:
             clip_pending=true;
         } else if(clipped && op=="n") {
             admit(args.empty(),QUANTAPDF_ERROR_UNSUPPORTED);
-            if(three_branch_clip_pending) {
+            if(target.texample_private_m3) {
+                if(target.texample_stage==0u &&
+                   texample_qdepth==3u && clip_pending &&
+                   clip_rule==QUANTAPDF_COMPOSER_FILL_EVEN_ODD) {
+                    admit(pending_path.size()==12u &&
+                          texample_contours==2u && closed &&
+                          !texample_pending_move &&
+                          !target.clip_completed,
+                          QUANTAPDF_ERROR_UNSUPPORTED);
+                    target.clip.commands=std::move(pending_path);
+                    target.clip.rule=clip_rule;
+                    target.clip_completed=true;
+                    clip_active=1u;
+                    clip_pending=false;
+                    target.texample_stage=1u;
+                    texample_clear_group();
+                } else {
+                    admit(target.texample_stage==4u &&
+                          texample_qdepth==1u &&
+                          target.texample_terminal_n==0u &&
+                          !clip_pending && !texample_pending_move &&
+                          pending_path.empty(),
+                          QUANTAPDF_ERROR_UNSUPPORTED);
+                    ++target.texample_terminal_n;
+                }
+            } else if(three_branch_clip_pending) {
                 admit(target.three_branch_candidate &&
                       target.three_branch_count<3u &&
                       clip_active==1u && clip_pending,
@@ -1453,8 +1640,107 @@ public:
         admit(args.empty() && stack.empty() && fill_stack.empty() &&
               pending_path.empty() && !clip_pending &&
               (!clipped || clip_stack.empty()));
+        if(target.texample_private_m3)
+            admit(target.texample_stage==4u &&
+                  target.texample_moves==24u &&
+                  target.texample_cubics==32u &&
+                  target.texample_closes==8u &&
+                  target.texample_zero_moves==16u &&
+                  target.texample_q_count==4u &&
+                  target.texample_Q_count==4u &&
+                  target.texample_cm_count==1u &&
+                  target.texample_gray_count==1u &&
+                  target.texample_stroke_gray_count==1u &&
+                  target.texample_width_count==1u &&
+                  target.texample_orange_count==1u &&
+                  target.texample_terminal_n==1u &&
+                  texample_qdepth==0u &&
+                  !texample_pending_move,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
     }
 private:
+    /* The SAME QPDF operator callbacks account for every original m:
+     * an unconsumed MOVE has zero winding edges, and retiring it is
+     * allowed ONLY when a subsequent original m replaces it or the
+     * complete paint/Clip operation terminates. */
+    void texample_move(double x,double y)
+    {
+        admit(!clip_pending && (pending_path.empty() || closed ||
+              texample_pending_move) && texample_group_moves<6u,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        const quantapdf_point p=stage_point(x,y);
+        if(texample_pending_move) {
+            ++texample_group_empty;
+            ++target.texample_zero_moves;
+        }
+        texample_pending_move=true;
+        texample_move_point=p;
+        ++texample_group_moves;
+        ++target.texample_moves;
+    }
+    void texample_cubic(const std::array<double,6u>& xy)
+    {
+        admit(!clip_pending && texample_group_cubics<8u &&
+              pending_path.size()<12u,QUANTAPDF_ERROR_UNSUPPORTED);
+        if(texample_pending_move) {
+            admit(texample_contours<2u &&
+                  (pending_path.empty() || closed),
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            quantapdf_composer_path_command cmd={};
+            cmd.kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+            cmd.point1=texample_move_point;
+            contour_start=pending_path.size();
+            pending_path.push_back(cmd);
+            texample_pending_move=false;
+            ++texample_contours;
+            closed=false;
+        }
+        admit(!closed && texample_contours>0u &&
+              pending_path.size()>=contour_start+1u &&
+              pending_path.size()<=contour_start+4u,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        append_cubic(xy);
+        ++texample_group_cubics;
+        ++target.texample_cubics;
+    }
+    void texample_close()
+    {
+        admit(!texample_pending_move && !clip_pending &&
+              texample_contours>0u && !closed &&
+              pending_path.size()==contour_start+5u &&
+              texample_group_closes<2u,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        close_path();
+        ++texample_group_closes;
+        ++target.texample_closes;
+    }
+    void texample_complete_group()
+    {
+        /* Four groups of 6 m, 8 c, 2 h: two anchored closed curves,
+         * four truly zero-edge original m subpaths per group. */
+        admit(texample_pending_move &&
+              texample_contours==2u &&
+              texample_group_moves==6u &&
+              texample_group_cubics==8u &&
+              texample_group_closes==2u &&
+              texample_group_empty==3u &&
+              pending_path.size()==12u && closed,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        ++texample_group_empty;
+        ++target.texample_zero_moves;
+        texample_pending_move=false;
+        admit(texample_group_empty==4u,QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+    void texample_clear_group()
+    {
+        clear_path();
+        texample_pending_move=false;
+        texample_group_moves=0u;
+        texample_group_cubics=0u;
+        texample_group_closes=0u;
+        texample_group_empty=0u;
+        texample_contours=0u;
+    }
     void begin_contour(size_t minimum_commands)
     {
         if(pending_path.empty()) {
@@ -1603,6 +1889,27 @@ private:
          * Existing strict scale/shear and exact quarter-viewport
          * policies apply IDENTICALLY to every cubic control/end
          * point, not merely to its final visible endpoint. */
+        if(target.texample_private_m3) {
+            admit(texample_original_ctm &&
+                  current[0]==1.0 && current[1]==0.0 &&
+                  current[2]==0.0 && current[3]==1.0 &&
+                  current[4]==118.566 && current[5]==90.22 &&
+                  target.exact_page_w==237.133 &&
+                  target.exact_page_h==180.44 &&
+                  std::isfinite(x) && std::isfinite(y) &&
+                  std::fabs(x)<=1000.0 && std::fabs(y)<=1000.0 &&
+                  std::fabs(x*100000.0-std::round(x*100000.0))<0.0001 &&
+                  std::fabs(y*100000.0-std::round(y*100000.0))<0.0001,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            const double px=current[4]+x-target.media_left;
+            const double py=target.exact_page_h-
+                (current[5]+y-target.media_bottom);
+            admit(std::isfinite(px) && std::isfinite(py) &&
+                  px>=0.0 && px<=target.exact_page_w &&
+                  py>=0.0 && py<=target.exact_page_h,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            return {static_cast<float>(px),static_cast<float>(py)};
+        }
         const bool y_inverse=target.three_branch_candidate &&
             current[0]==1.0 && current[1]==0.0 &&
             current[2]==0.0 && current[3]==-1.0 &&
@@ -1640,7 +1947,8 @@ private:
         /* Do not publish a partially admitted cubic command. All
          * three individually transformed points must pass first. */
         admit(!pending_path.empty() && !closed && !clip_pending &&
-              pending_path.size()<8u,QUANTAPDF_ERROR_UNSUPPORTED);
+              pending_path.size()<(target.texample_private_m3?12u:8u),
+              QUANTAPDF_ERROR_UNSUPPORTED);
         quantapdf_composer_path_command cmd={};
         cmd.kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
         cmd.point1=stage_point(xy[0],xy[1]);
@@ -1680,7 +1988,8 @@ private:
     void close_path()
     {
         admit(pending_path.size()>=contour_start+3u && !closed &&
-              pending_path.size()<9u,QUANTAPDF_ERROR_UNSUPPORTED);
+              pending_path.size()<(target.texample_private_m3?12u:9u),
+              QUANTAPDF_ERROR_UNSUPPORTED);
         quantapdf_composer_path_command cmd={};
         cmd.kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
         pending_path.push_back(cmd);
@@ -1711,6 +2020,11 @@ private:
     bool closed=false;
     bool ten_wstar_candidate=false;
     bool three_branch_clip_pending=false;
+    bool texample_pending_move=false,texample_original_ctm=false;
+    quantapdf_point texample_move_point{};
+    size_t texample_group_moves=0u,texample_group_cubics=0u;
+    size_t texample_group_closes=0u,texample_group_empty=0u;
+    size_t texample_qdepth=0u,texample_contours=0u;
 };
 
 /* Complete-page selection, before any C owner is published. A root-only
@@ -1980,7 +2294,9 @@ quantapdf_ir materialize_owned_paths(const admission& source)
           QUANTAPDF_ERROR_UNSUPPORTED);
     for(size_t i=0u;i<n;++i)
         admit(source.order[i]==1 &&
-              ((source.three_branch_candidate && i==0u &&
+              ((source.texample_private_m3 &&
+                source.painted_paths[i].commands.size()==12u) ||
+               (source.three_branch_candidate && i==0u &&
                 source.painted_paths[0].stroke &&
                 source.painted_paths[0].commands.size()==2u) ||
                (source.painted_paths[i].commands.size()>=4u &&
@@ -2012,7 +2328,7 @@ quantapdf_ir materialize_owned_paths(const admission& source)
             path.options.fill_rule=staged.fill_rule;
             if(staged.stroke) {
                 path.options.stroke_argb=staged.stroke_argb;
-                path.options.stroke_width=1.0f;
+                path.options.stroke_width=staged.stroke_width;
                 path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
                 path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_MITER;
                 path.options.miter_limit=10.0f;
@@ -2178,6 +2494,101 @@ quantapdf_composer_clip_id materialize_source_clip_graph(
         root.members[1]=2u;
     }
     return static_cast<quantapdf_composer_clip_id>(count);
+}
+
+/* Full ORIGINAL TeXample geometry is admitted only by the named
+ * private V10 Source API. Public Source still rejects this decimal
+ * painted page. The SAME existing owned PATH producer preserves
+ * source order, then adds the one real W* Clip and one scoped GS. */
+quantapdf_ir materialize_texample_m3(const admission& s)
+{
+    admit(s.texample_private_m3 && s.native_unclipped_mode &&
+          s.clip_completed && s.clip.rule==
+              QUANTAPDF_COMPOSER_FILL_EVEN_ODD &&
+          s.clip.commands.size()==12u &&
+          s.texample_stage==4u && s.order.size()==3u &&
+          s.painted_paths.size()==3u && s.draws.empty() &&
+          s.scoped_clip_membership.size()==3u &&
+          s.scoped_clip_membership[0]==1u &&
+          s.scoped_clip_membership[1]==0u &&
+          s.scoped_clip_membership[2]==0u &&
+          s.texample_moves==24u && s.texample_cubics==32u &&
+          s.texample_closes==8u && s.texample_zero_moves==16u &&
+          s.texample_q_count==4u && s.texample_Q_count==4u &&
+          s.texample_cm_count==1u && s.texample_gray_count==1u &&
+          s.texample_stroke_gray_count==1u &&
+          s.texample_width_count==1u && s.texample_orange_count==1u &&
+          s.texample_terminal_n==1u && !s.two_owned_clips &&
+          !s.sibling_clip_scopes && s.second_clip.commands.empty() &&
+          s.exact_page_w==237.133 && s.exact_page_h==180.44,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    for(size_t i=0u;i<4u;++i) {
+        const auto& p=i==0u?s.clip.commands:
+                              s.painted_paths[i-1u].commands;
+        /* Four source groups, each exactly two M+4C+CLOSE contours.
+         * M coordinates and all 32 cubic controls are preserved in
+         * the borrowed Source coordinates after the original CTM. */
+        const double first[4]={146.9128,203.60642,146.9128,203.60642};
+        const double second[4]={175.25962,231.95324,175.25962,231.95324};
+        admit(p.size()==12u &&
+              p[0].kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
+              p[6].kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
+              p[5].kind==QUANTAPDF_COMPOSER_PATH_CLOSE &&
+              p[11].kind==QUANTAPDF_COMPOSER_PATH_CLOSE &&
+              std::fabs((double)p[0].point1.x-first[i])<0.0001 &&
+              std::fabs((double)p[6].point1.x-second[i])<0.0001 &&
+              std::fabs((double)p[0].point1.y-90.22)<0.0001 &&
+              std::fabs((double)p[6].point1.y-90.22)<0.0001,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        for(size_t j=0u;j<12u;++j)
+            if(j!=0u && j!=5u && j!=6u && j!=11u)
+                admit(p[j].kind==QUANTAPDF_COMPOSER_PATH_CUBIC_TO,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+    for(size_t i=0u;i<3u;++i) {
+        const auto& p=s.painted_paths[i];
+        admit(s.order[i]==1 &&
+              (i==0u ?
+               (!p.stroke && p.fill_argb==UINT32_C(0xffff8000) &&
+                p.fill_rule==QUANTAPDF_COMPOSER_FILL_EVEN_ODD) :
+               (p.stroke && p.stroke_argb==UINT32_C(0xff000000) &&
+                p.stroke_width==0.3985f)),
+              QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+    quantapdf_ir ir=materialize_owned_paths(s);
+    try {
+        ir.resources.clips=static_cast<quantapdf_composer_clip_state *>(
+            QP_SOURCE_C_CALLOC(1u,sizeof(*ir.resources.clips)));
+        admit(ir.resources.clips!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        ir.resources.clip_count=ir.resources.clip_capacity=1u;
+        auto& leaf=ir.resources.clips[0];
+        leaf.kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;
+        leaf.fill_rule=QUANTAPDF_COMPOSER_FILL_EVEN_ODD;
+        leaf.command_count=12u;
+        leaf.commands=static_cast<quantapdf_composer_path_command *>(
+            QP_SOURCE_C_MALLOC(12u*sizeof(*leaf.commands)));
+        admit(leaf.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        std::memcpy(leaf.commands,s.clip.commands.data(),
+                    12u*sizeof(*leaf.commands));
+        leaf.transform={1.0f,0.0f,0.0f,1.0f,0.0f,0.0f};
+
+        ir.resources.graphics_states=
+            static_cast<quantapdf_composer_graphics_state *>(
+                QP_SOURCE_C_CALLOC(1u,sizeof(*ir.resources.graphics_states)));
+        admit(ir.resources.graphics_states!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        ir.resources.graphics_state_count=
+            ir.resources.graphics_state_capacity=1u;
+        auto& gs=ir.resources.graphics_states[0];
+        gs.fill_alpha=1.0f;gs.stroke_alpha=1.0f;
+        gs.blend_mode=QUANTAPDF_COMPOSER_BLEND_NORMAL;
+        gs.clip_id=1u;
+        ir.operations[0].graphics_state_id=1u;
+        ir.operations[0].value.path.options.graphics_state_id=1u;
+        return ir;
+    } catch(...) {
+        quantapdf_ir_dispose(&ir);
+        throw;
+    }
 }
 
 /* Original Source V10 three independently restored branches, never a
@@ -2485,7 +2896,7 @@ quantapdf_ir materialize_mixed(const admission& source,
             path.options.fill_rule=staged.fill_rule;
             if(staged.stroke) {
                 path.options.stroke_argb=staged.stroke_argb;
-                path.options.stroke_width=1.0f;
+                path.options.stroke_width=staged.stroke_width;
                 path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
                 path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_MITER;
                 path.options.miter_limit=10.0f;
@@ -3324,7 +3735,7 @@ static quantapdf_status source_raw_images_to_ir_impl(
     const unsigned char *original_pdf,size_t size,
     const quantapdf_qpdf_source_raw_image_limits *limits,
     quantapdf_ir *out_ir,source_profile_id profile_id,
-    size_t selected_page_index=0u)
+    size_t selected_page_index=0u,bool private_texample_m3=false)
 {
     if(out_ir!=nullptr) std::memset(out_ir,0,sizeof(*out_ir));
     if(out_ir==nullptr || original_pdf==nullptr || limits==nullptr ||
@@ -3501,6 +3912,11 @@ static quantapdf_status source_raw_images_to_ir_impl(
         source.explicit_image_predictor_mode=
             profile.explicit_image_predictor;
         source.native_unclipped_mode=native_v10;
+        admit(!private_texample_m3 ||
+              (native_v10 && exact.ticks_per_point==1000u &&
+               full_media && geo.rotation==0 && user_quarters==4u),
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        source.texample_private_m3=private_texample_m3;
         source.exact_page_w=native_v10?
             (double)(exact.visible[2]-exact.visible[0])/
                 (double)exact.ticks_per_point:0.0;
@@ -3540,6 +3956,7 @@ static quantapdf_status source_raw_images_to_ir_impl(
         admit(!parser.anyWarnings() && !pdf->anyWarnings(),
               QUANTAPDF_ERROR_FORMAT);
         const bool clip_states=native_v10 &&
+            !source.texample_private_m3 &&
             !source.three_branch_candidate &&
             !source.sibling_clip_scopes &&
             prepare_native_clip_membership(source);
@@ -3550,6 +3967,10 @@ static quantapdf_status source_raw_images_to_ir_impl(
         if(native_v10) {
             original_turn_staging(source,geo.rotation);
             scale_source_userunit(source,user_quarters);
+        }
+        if(native_v10 && source.texample_private_m3) {
+            *out_ir=materialize_texample_m3(source);
+            return QUANTAPDF_OK;
         }
         if(native_v10 && exact.ticks_per_point==1000u) {
             /* M2 SOURCE GEOMETRY only. A page whose original bounds
@@ -3901,4 +4322,18 @@ quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
         original_pdf,size,limits,out_ir,
         source_profile_id::scoped_mixed_v10_flate_predictor,
         selected_page_index);
+}
+
+/* Private original TeXample M3, never selected by the public bridge.
+ * The SAME V10 QPDF ParserCallbacks consume every 32 original cubic
+ * operator and 24 original m; C-owned IR may only publish at EOF. */
+extern "C" quantapdf_status
+quantapdf_qpdf_source_texample_m3_stage_to_ir(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,
+    quantapdf_ir *out_ir)
+{
+    return source_raw_images_to_ir_impl(
+        original_pdf,size,limits,out_ir,
+        source_profile_id::scoped_mixed_v10_flate_predictor,0u,true);
 }

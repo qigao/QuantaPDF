@@ -9,6 +9,8 @@
 #include <qpdf/QPDFWriter.hh>
 #include <cstddef>
 #include <cstdint>
+#include <cmath>
+#include <utility>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -542,6 +544,183 @@ static bool original_texample_decimal_source_m2(
     return true;
 }
 
+
+/* The UNMODIFIED 1,396-byte TeXample original. Private Source M3
+ * admission proves all original 24 MOVE / 32 CUBIC / 8 CLOSE tokens
+ * are represented by FOUR owned 12-command M+4C+H double-ring
+ * resource/paint paths; sixteen zero-edge MOVEs are discharged only
+ * under the proven original operator sequence. No C11 rendering
+ * or public PDF positive is asserted here. */
+static bool exact_texample_private_ir(const quantapdf_ir& ir)
+{
+    if(ir.page_count!=1u || ir.pages==nullptr ||
+       ir.pages[0].width_points!=static_cast<float>(237.133) ||
+       ir.pages[0].height_points!=static_cast<float>(180.44) ||
+       ir.pages[0].background_argb!=UINT32_C(0xffffffff) ||
+       ir.operation_count!=3u || ir.operations==nullptr ||
+       ir.resources.image_count!=0u || ir.resources.images!=nullptr ||
+       ir.resources.clip_count!=1u || ir.resources.clip_capacity!=1u ||
+       ir.resources.clips==nullptr ||
+       ir.resources.graphics_state_count!=1u ||
+       ir.resources.graphics_state_capacity!=1u ||
+       ir.resources.graphics_states==nullptr)
+        return false;
+    const auto& clip=ir.resources.clips[0];
+    const auto& gs=ir.resources.graphics_states[0];
+    if(clip.kind!=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL ||
+       clip.fill_rule!=QUANTAPDF_COMPOSER_FILL_EVEN_ODD ||
+       clip.command_count!=12u || clip.commands==nullptr ||
+       clip.members!=nullptr || clip.member_count!=0u ||
+       gs.clip_id!=1u || gs.fill_alpha!=1.0f ||
+       gs.stroke_alpha!=1.0f ||
+       gs.blend_mode!=QUANTAPDF_COMPOSER_BLEND_NORMAL)
+        return false;
+    for(size_t i=0u;i<4u;++i) {
+        const quantapdf_composer_path_command *cmds=
+            i==0u?clip.commands:ir.operations[i-1u].value.path.commands;
+        if(cmds==nullptr ||
+           cmds[0].kind!=QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
+           cmds[1].kind!=QUANTAPDF_COMPOSER_PATH_CUBIC_TO ||
+           cmds[2].kind!=QUANTAPDF_COMPOSER_PATH_CUBIC_TO ||
+           cmds[3].kind!=QUANTAPDF_COMPOSER_PATH_CUBIC_TO ||
+           cmds[4].kind!=QUANTAPDF_COMPOSER_PATH_CUBIC_TO ||
+           cmds[5].kind!=QUANTAPDF_COMPOSER_PATH_CLOSE ||
+           cmds[6].kind!=QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
+           cmds[7].kind!=QUANTAPDF_COMPOSER_PATH_CUBIC_TO ||
+           cmds[8].kind!=QUANTAPDF_COMPOSER_PATH_CUBIC_TO ||
+           cmds[9].kind!=QUANTAPDF_COMPOSER_PATH_CUBIC_TO ||
+           cmds[10].kind!=QUANTAPDF_COMPOSER_PATH_CUBIC_TO ||
+           cmds[11].kind!=QUANTAPDF_COMPOSER_PATH_CLOSE)
+            return false;
+        /* Original translated and Y-flipped endpoints, no synthetic
+         * ring inferred from a path's bounding rectangle. */
+        const double x0=(i==0u || i==2u)?146.9128:203.60642;
+        const double x1=(i==0u || i==2u)?175.25962:231.95324;
+        for(const auto &p : {std::pair<size_t,double>{0u,x0},
+                             std::pair<size_t,double>{6u,x1}})
+            if(std::fabs((double)cmds[p.first].point1.x-p.second)>0.0001 ||
+               std::fabs((double)cmds[p.first].point1.y-90.22)>0.0001)
+                return false;
+        for(size_t k=1u;k<=10u;++k) {
+            if(k==5u || k==6u)continue;
+            if(!std::isfinite(cmds[k].point1.x) ||
+               !std::isfinite(cmds[k].point2.x) ||
+               !std::isfinite(cmds[k].point3.x) ||
+               cmds[k].point3.x<0.0f ||
+               cmds[k].point3.x>237.133f ||
+               cmds[k].point3.y<0.0f ||
+               cmds[k].point3.y>180.44f)
+                return false;
+        }
+    }
+    for(size_t i=0u;i<3u;++i) {
+        const auto& op=ir.operations[i];
+        if(op.kind!=QUANTAPDF_COMPOSER_OPERATION_PATH ||
+           op.page_index!=0u ||
+           op.value.path.command_count!=12u ||
+           op.graphics_state_id!=(i==0u?1u:0u) ||
+           op.value.path.options.graphics_state_id!=(i==0u?1u:0u) ||
+           op.value.path.options.struct_size<
+               QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE ||
+           (i==0u ?
+             (op.value.path.options.fill!=1 ||
+              op.value.path.options.stroke!=0 ||
+              op.value.path.options.fill_rule!=
+                  QUANTAPDF_COMPOSER_FILL_EVEN_ODD ||
+              op.value.path.options.fill_argb!=UINT32_C(0xffff8000)) :
+             (op.value.path.options.fill!=0 ||
+              op.value.path.options.stroke!=1 ||
+              op.value.path.options.stroke_argb!=UINT32_C(0xff000000) ||
+              op.value.path.options.stroke_width!=0.3985f)))
+            return false;
+    }
+    return true;
+}
+static bool authentic_texample_source_m3(
+    const char *filename,
+    const quantapdf_qpdf_source_raw_image_limits& limits)
+{
+    if(filename==nullptr)return false;
+    std::ifstream input(filename,std::ios::binary);
+    if(!input.good())return false;
+    const std::string original(std::istreambuf_iterator<char>{input},
+                               std::istreambuf_iterator<char>{});
+    if(original.size()!=1396u ||
+       original.compare(0u,5u,"%PDF-")!=0)
+        return false;
+    const auto private_read=[&](quantapdf_ir& out) {
+        return quantapdf_qpdf_source_texample_m3_stage_to_ir(
+            reinterpret_cast<const unsigned char*>(original.data()),
+            original.size(),&limits,&out);
+    };
+    /* The ordinary Source V10 is NOT widened. Even a successful
+     * private original Source IR must never produce partial public
+     * TeXample content through the existing bridge. */
+    {
+        quantapdf_ir reject;
+        std::memset(&reject,0xa5,sizeof(reject));
+        const auto status=
+            quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+                reinterpret_cast<const unsigned char*>(original.data()),
+                original.size(),&limits,0u,&reject);
+        if(status!=QUANTAPDF_ERROR_UNSUPPORTED || !cleared(reject)) {
+            std::fprintf(stderr,"original TeXample public Source=%d\n",
+                         (int)status);
+            quantapdf_ir_dispose(&reject);
+            return false;
+        }
+    }
+    size_t allocs=0u;
+    {
+        quantapdf_ir ir{};
+        track_c_allocation=true;
+        c_fail_index=0u;c_allocations=0u;c_faults=0u;
+        const auto status=private_read(ir);
+        allocs=c_allocations;
+        track_c_allocation=false;
+        if(status!=QUANTAPDF_OK || !exact_texample_private_ir(ir) ||
+           allocs<7u || allocs>32u || c_faults!=0u) {
+            std::fprintf(stderr,
+                "TeXample private Source M3 status=%d, allocs=%zu, "
+                "paint=%zu, clip=%zu, GS=%zu\n",
+                (int)status,allocs,ir.operation_count,
+                ir.resources.clip_count,ir.resources.graphics_state_count);
+            quantapdf_ir_dispose(&ir);
+            return false;
+        }
+        quantapdf_ir_dispose(&ir);
+        if(!cleared(ir))return false;
+    }
+    for(size_t fail=1u;fail<=allocs;++fail) {
+        quantapdf_ir denied;
+        std::memset(&denied,0xa5,sizeof(denied));
+        track_c_allocation=true;
+        c_fail_index=fail;c_allocations=0u;c_faults=0u;
+        const auto status=private_read(denied);
+        const auto seen=c_allocations,fired=c_faults;
+        track_c_allocation=false;c_fail_index=0u;
+        if(status!=QUANTAPDF_ERROR_NOMEM || !cleared(denied) ||
+           seen!=fail || fired!=1u) {
+            std::fprintf(stderr,
+                "TeXample original Source allocation %zu/%zu, "
+                "status=%d, seen=%zu, fired=%zu\n",
+                fail,allocs,(int)status,seen,fired);
+            quantapdf_ir_dispose(&denied);
+            return false;
+        }
+        quantapdf_ir recovery{};
+        const auto again=private_read(recovery);
+        const bool restored=again==QUANTAPDF_OK &&
+                            exact_texample_private_ir(recovery);
+        quantapdf_ir_dispose(&recovery);
+        if(!restored || !cleared(recovery))return false;
+    }
+    std::printf("Original TeXample Source M3: 24 m/32 c/8 h, "
+                "16 empty moves, 4 x 12 commands, 3 paints, "
+                "1 frozen W*, %zu faulted C allocations\n",allocs);
+    return true;
+}
+
 int main(int argc,char **argv)
 {
     const std::string pdf=original_pdf();
@@ -681,9 +860,11 @@ int main(int argc,char **argv)
             CHECK(cleared(retry));
         }
     }
-    if(argc!=2 || !original_three_branch_source_oom(argv[1],limits))
+    if(argc!=3 || !original_three_branch_source_oom(argv[1],limits))
         return EXIT_FAILURE;
     if(!original_texample_decimal_source_m2(limits))
+        return EXIT_FAILURE;
+    if(!authentic_texample_source_m3(argv[2],limits))
         return EXIT_FAILURE;
     return EXIT_SUCCESS;
 }

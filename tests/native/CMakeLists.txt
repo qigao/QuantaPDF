@@ -127,7 +127,8 @@ else()
 endif()
 add_test(NAME quantapdf.native_source_stage_oom
   COMMAND quantapdf_native_source_stage_oom
-  "${PROJECT_SOURCE_DIR}/tests/external_source_corpus/documents/yworks.clippath-cliprule-v1.pdf")
+  "${PROJECT_SOURCE_DIR}/tests/external_source_corpus/documents/yworks.clippath-cliprule-v1.pdf"
+  "${PROJECT_SOURCE_DIR}/tests/external_source_corpus/documents/texample.intersecting-rings-v1.pdf")
 set_tests_properties(quantapdf.native_source_stage_oom PROPERTIES
   TIMEOUT 40 LABELS "conformance;native;no-pdfium;source-staging;oom")
 

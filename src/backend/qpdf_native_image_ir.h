@@ -269,6 +269,18 @@ quantapdf_status quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
     const quantapdf_qpdf_source_raw_image_limits *limits,
     size_t selected_page_index,quantapdf_ir *out_ir);
 
+/* Internal original TeXample M3 Source-only admission. This uses
+ * exactly the SAME V10 QPDF parser as the public selected reader,
+ * but is independently opted in only by this private Source test.
+ * It can publish 3 owned ordered PATH operations (f*, S, S), one
+ * frozen two-ring W* leaf and a single opaque Normal GS, only after
+ * validating all 24 m, 32 c, 8 h and actual q/Q operator positions.
+ * Not a public renderer, installed SDK ABI or second parser. */
+quantapdf_status quantapdf_qpdf_source_texample_m3_stage_to_ir(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,
+    quantapdf_ir *out_ir);
+
 #ifdef __cplusplus
 }
 #endif
