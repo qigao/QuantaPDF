@@ -420,9 +420,9 @@ struct admission {
     bool explicit_image_decode_mode=false;
     /* V10 only: strict Flate TIFF/PNG predictor DecodeParms. */
     bool explicit_image_predictor_mode=false;
-    /* V10 public-native only: one/two fully parsed, unclipped,
-     * homogeneous opaque PATH or RAW/Flate IMAGE paints. The older
-     * mixed W/Q Path+Image profiles retain their exact admission. */
+    /* V10 public-native only: fully parsed homogeneous opaque PATH
+     * or RAW/Flate IMAGE paints and independently qualified Clip
+     * profiles. Older mixed W/Q Path+Image modes stay narrower. */
     bool native_unclipped_mode=false;
     /* Public Source V10 alone normalizes the original PDF MediaBox
      * origin before deterministic Y-down Stage/IR projection. Older
@@ -439,12 +439,12 @@ struct admission {
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule)
     {
-        /* Public V10 PATH-only pages may consume the EXISTING four
-         * canonical C11 raster layers. A page with a frozen W/W* Clip
-         * or any Image retains the independently qualified strict
-         * one/two PATH admission: no implicit mixed/Clip expansion. */
+        /* Public V10 PATH-only pages, with or without a frozen Clip,
+         * may consume the EXISTING four canonical C11 raster layers.
+         * A later Image still faces the complete mixed preflight's
+         * independent one/two PATH limit before any IR is published. */
         const size_t allowed_paths=
-            native_unclipped_mode && !clip_completed && draws.empty() ?
+            native_unclipped_mode && draws.empty() ?
                 hard_operations :
                 (mixed_operation_limit==4u ? 2u : 1u);
         admit(mixed_mode && painted_paths.size()<allowed_paths &&
@@ -1468,26 +1468,21 @@ quantapdf_ir materialize_blank_page(const admission& source)
     return ir;
 }
 
-/* Public-native Source V10 bounded 1..4 PATH-only fills: never invent
- * an Image or Clip resource to satisfy the legacy mixed cardinality.
- * This stays inside the EXISTING four-layer global C11 Raster limit.
- * Exact source order, budget, EOF and complete ownership are validated
- * before publishing uniquely owned IR. */
-quantapdf_ir materialize_path_only(const admission& source)
+/* One owned PATH producer for the independently qualified native
+ * homogeneous profiles. Scope/Clip admission belongs to their wrappers;
+ * source order, commands and the four-layer budget are shared here.
+ * The unclipped profile retains its exact C allocation sequence. */
+quantapdf_ir materialize_owned_paths(const admission& source)
 {
     const size_t n=source.order.size();
-    admit(source.native_unclipped_mode &&
-          source.mixed_mode && source.mixed_scoped_mode &&
-          n>=1u && n<=hard_operations &&
+    admit(n>=1u && n<=hard_operations &&
           n<=source.limits.max_operations &&
-          source.draws.empty() && source.painted_paths.size()==n &&
-          source.scoped_clip_membership.size()==n &&
-          !source.clip_completed && source.clip.commands.empty() &&
-          !source.saw_q_restore,
+          source.draws.empty() && source.painted_paths.size()==n,
           QUANTAPDF_ERROR_UNSUPPORTED);
     for(size_t i=0u;i<n;++i)
         admit(source.order[i]==1 &&
-              source.scoped_clip_membership[i]==0u,
+              source.painted_paths[i].commands.size()>=4u &&
+              source.painted_paths[i].commands.size()<=9u,
               QUANTAPDF_ERROR_UNSUPPORTED);
 
     quantapdf_ir ir=materialize_blank_page(source);
@@ -1498,9 +1493,6 @@ quantapdf_ir materialize_path_only(const admission& source)
         ir.operation_count=n;
         for(size_t i=0u;i<n;++i) {
             const staged_path& staged=source.painted_paths[i];
-            admit(staged.commands.size()>=4u &&
-                  staged.commands.size()<=9u,
-                  QUANTAPDF_ERROR_UNSUPPORTED);
             auto& op=ir.operations[i];
             op.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
             op.page_index=0u;
@@ -1521,6 +1513,27 @@ quantapdf_ir materialize_path_only(const admission& source)
         quantapdf_ir_dispose(&ir);
         throw;
     }
+}
+
+/* Public-native Source V10 bounded 1..4 unclipped PATH-only fills.
+ * No Image, Clip or GS is manufactured for legacy mixed cardinality. */
+quantapdf_ir materialize_path_only(const admission& source)
+{
+    const size_t n=source.order.size();
+    admit(source.native_unclipped_mode &&
+          source.mixed_mode && source.mixed_scoped_mode &&
+          n>=1u && n<=hard_operations &&
+          n<=source.limits.max_operations &&
+          source.draws.empty() && source.painted_paths.size()==n &&
+          source.scoped_clip_membership.size()==n &&
+          !source.clip_completed && source.clip.commands.empty() &&
+          !source.saw_q_restore,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    for(size_t i=0u;i<n;++i)
+        admit(source.order[i]==1 &&
+              source.scoped_clip_membership[i]==0u,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+    return materialize_owned_paths(source);
 }
 
 quantapdf_ir materialize(
@@ -1601,7 +1614,7 @@ quantapdf_ir materialize_image_only(const admission& source)
     return materialize(source);
 }
 
-/* Publish the same detached Clip payload shape in IMAGE-only and mixed
+/* Publish the same detached Clip payload shape in homogeneous and mixed
  * materializers. The caller's existing catch/dispose owns every slot
  * immediately, including partial leaf/root allocation failures. The old
  * one-leaf path keeps its allocation order and count unchanged. */
@@ -1651,6 +1664,60 @@ quantapdf_composer_clip_id materialize_source_clip_graph(
         root.members[1]=2u;
     }
     return two?3u:1u;
+}
+
+/* Native V10 alone: one to four opaque PATH fills under the final
+ * frozen Clip, optionally followed by PATH fills after a real Q
+ * restoration. Every paint owns only its original PATH; the existing
+ * Clip publisher supplies one leaf or the qualified two-leaf root. */
+quantapdf_ir materialize_clipped_path_only(const admission& source)
+{
+    const size_t n=source.order.size();
+    admit(source.native_unclipped_mode && source.mixed_mode &&
+          source.mixed_scoped_mode && source.clipped_image_mode &&
+          source.clip_completed && n>=1u && n<=hard_operations &&
+          n<=source.limits.max_operations &&
+          source.draws.empty() && source.painted_paths.size()==n &&
+          source.scoped_clip_membership.size()==n &&
+          source.scoped_clip_membership[0]==1u &&
+          source.clip.commands.size()>=4u &&
+          source.clip.commands.size()<=9u,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    bool saw_unclipped=false;
+    for(size_t i=0u;i<n;++i) {
+        const unsigned char active=source.scoped_clip_membership[i];
+        admit(source.order[i]==1 && active<=1u,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        if(active==0u)saw_unclipped=true;
+        else admit(!saw_unclipped,QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+    admit(!saw_unclipped || source.saw_q_restore,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+
+    quantapdf_ir ir=materialize_owned_paths(source);
+    try {
+        ir.resources.graphics_states=
+            static_cast<quantapdf_composer_graphics_state *>(
+                QP_SOURCE_C_CALLOC(1u,sizeof(*ir.resources.graphics_states)));
+        admit(ir.resources.graphics_states!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        ir.resources.graphics_state_count=1u;
+        ir.resources.graphics_state_capacity=1u;
+        auto& state=ir.resources.graphics_states[0];
+        state.fill_alpha=1.0f;
+        state.stroke_alpha=1.0f;
+        state.blend_mode=QUANTAPDF_COMPOSER_BLEND_NORMAL;
+        state.clip_id=materialize_source_clip_graph(ir,source);
+        for(size_t i=0u;i<n;++i) {
+            const quantapdf_composer_graphics_state_id id=
+                source.scoped_clip_membership[i] ? 1u : 0u;
+            ir.operations[i].graphics_state_id=id;
+            ir.operations[i].value.path.options.graphics_state_id=id;
+        }
+        return ir;
+    } catch(...) {
+        quantapdf_ir_dispose(&ir);
+        throw;
+    }
 }
 
 /* Image Do with frozen source W/W* Clip geometry. The original profiles
@@ -2480,6 +2547,14 @@ static quantapdf_status source_raw_images_to_ir_impl(
            !source.clip_completed && source.clip.commands.empty() &&
            !source.saw_q_restore) {
             *out_ir=materialize_path_only(source);
+            return QUANTAPDF_OK;
+        }
+        /* The complete native PATH-only source may use the existing
+         * frozen Clip graph and an optional real Q-restored suffix.
+         * This branch never supplies a fake Image to mixed profiles. */
+        if(native_v10 && source.draws.empty() &&
+           !source.painted_paths.empty() && source.clip_completed) {
+            *out_ir=materialize_clipped_path_only(source);
             return QUANTAPDF_OK;
         }
         /* This path alone may use 1–4 homogeneous IMAGE layers,

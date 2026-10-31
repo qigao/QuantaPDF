@@ -221,8 +221,15 @@ quantapdf_status quantapdf_qpdf_source_scoped_mixed_v10_flate_predictor_to_ir(
  * and one GS naming root 3. Q restores GS=0; paints under a separately
  * restored first leaf remain unsupported. Original Rotate and UserUnit
  * apply to both leaves. Simple rectangle pairs retain their exact
- * one-leaf intersection reduction. All payloads publish atomically and
- * are released by quantapdf_ir_dispose, including partial OOM cleanup. */
+ * one-leaf intersection reduction.
+ *
+ * Native V10 also admits 1..4 opaque PATH-only f/f* paints with this
+ * existing Clip graph and no Image resources. At least the first paint
+ * uses GS=1; a real Q may restore GS=0 for a contiguous suffix. No
+ * Clip reentry, first-leaf restoration or extra layer is admitted.
+ * Older Source signatures and mixed/Image cardinalities are unchanged.
+ * All payloads publish atomically and are released by
+ * quantapdf_ir_dispose, including partial OOM cleanup. */
 quantapdf_status quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
     const unsigned char *original_pdf,size_t size,
     const quantapdf_qpdf_source_raw_image_limits *limits,

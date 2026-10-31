@@ -36,6 +36,17 @@ quantapdf_status quantapdf_native_device_ir_render_v1_two_clip(
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image);
 
+/* Source V10 PATH-only Clip admission. One..four bounded PATH fills,
+ * one frozen identity-space Clip or two leaves plus their flat root,
+ * and a single GS=1 prefix followed by an optional GS=0 suffix. All
+ * commands have four..nine elements; no Image resources are admitted.
+ * Reuses the same bounded stack projection and V5 subpixel sampler.
+ * Older device entrypoints still refuse clipped PATH-only input. */
+quantapdf_status quantapdf_native_device_ir_render_v1_clipped_paths(
+    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif
