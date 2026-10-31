@@ -3,6 +3,7 @@
 
 #include "render/ir_raster.h"
 #include "render/native_device_plan.h"
+#include "render/native_work_ledger_v1.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,6 +23,30 @@ typedef struct quantapdf_ir_raster_v1_limits {
     size_t max_edges;
     size_t max_sample_tests;
 } quantapdf_ir_raster_v1_limits;
+
+/* Same existing admission modes, with a reservation in the owning page's
+ * ledger before entering the sampler. Conservative sample-work charges are
+ * explicitly distinguished from the exact Text/cubic classifier counts. */
+typedef enum quantapdf_native_work_mode_v1 {
+    QP_NATIVE_WORK_FULL=0,
+    QP_NATIVE_WORK_VISIBLE_FILL=1,
+    QP_NATIVE_WORK_VISIBLE_STROKE=2
+} quantapdf_native_work_mode_v1;
+quantapdf_status quantapdf_ir_raster_render_v1_accounted(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_composer_clip_state *const *clips,size_t clip_count,
+    quantapdf_native_work_mode_v1 mode,quantapdf_native_work_ledger_v1 *ledger,
+    quantapdf_ir_raster_image *out_image);
+
+quantapdf_status quantapdf_ir_raster_render_v1_texample_accounted(
+    const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,quantapdf_native_work_ledger_v1 *ledger,
+    quantapdf_ir_raster_image *out_image);
+quantapdf_status quantapdf_ir_raster_render_v1_text_outlines_accounted(
+    const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,quantapdf_native_work_ledger_v1 *ledger,
+    quantapdf_ir_raster_image *out_image);
 
 /* Private C11 API: general opaque solid-filled paths with MOVE/LINE/CUBIC/
  * CLOSE, affine transforms, implicit closing, even-odd/nonzero winding and

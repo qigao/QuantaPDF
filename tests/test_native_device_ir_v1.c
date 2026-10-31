@@ -61,6 +61,11 @@ static int prepared_contracts(quantapdf_ir *ir,
         memset(&a,0,sizeof(a));memset(&b,0,sizeof(b));memset(&receipt,0xa5,sizeof(receipt));
         OK(quantapdf_native_execute_page_v1(&plan,&receipt,&a));
         CHECK(receipt.sample_tests==0u && receipt.sample_tests_exact==0);
+        CHECK(receipt.charged_sample_work>0u &&
+              receipt.charged_sample_work<=raster->max_sample_tests &&
+              receipt.compiled_edges>0u && receipt.compiled_edges<=raster->max_edges &&
+              receipt.peak_reserved_sample_work==raster->max_sample_tests &&
+              receipt.peak_reserved_edges==raster->max_edges && receipt.completed_leases==1u);
         limits.raster=*raster;
         OK(quantapdf_native_device_ir_render_v1(ir,dpi,raster,&b));
         CHECK(a.size==b.size && memcmp(a.pixels,b.pixels,a.size)==0 &&
@@ -120,6 +125,95 @@ static int prepared_contracts(quantapdf_ir *ir,
     puts("Prepared page: frozen budgets, complete Clip/GS closure and same C11 pixels passed");
     return 0;
 }
+
+/* A 4x4 rectangle on an 8x8 page bills 4 edges * 16 samples * 64 pixels.
+ * These limits are intentionally exact; resetting a child/page ledger would
+ * incorrectly accept the third draw or the second half of a short page cap. */
+static int work_ledger_contracts(const quantapdf_ir *source)
+{
+    const size_t cost=4096u;
+    quantapdf_native_work_ledger_v1 ledger;
+    quantapdf_native_work_lease_v1 a={0},b={0},c={0};
+    quantapdf_ir_raster_v1_limits primitive={64u,1u,4u,4096u};
+    quantapdf_ir_raster_scoped_mixed_v5_limits limits={64u,2u,8u,8192u,1u,1u};
+    quantapdf_ir_raster_image out={0},reference={0};
+    quantapdf_composer_operation ops[2]={source->operations[0],source->operations[0]};
+    quantapdf_composer_path_command bad[5];
+    quantapdf_ir page=*source;
+    ops[1].value.path.options.fill_argb=UINT32_C(0xffff0000);
+    page.operations=ops;page.operation_count=2u;
+
+    quantapdf_native_work_init_v1(&ledger,2u*cost,8u);
+    CHECK(quantapdf_native_work_reserve_v1(&ledger,cost,4u,&a));
+    CHECK(quantapdf_native_work_reserve_v1(&ledger,cost,4u,&b));
+    CHECK(!quantapdf_native_work_reserve_v1(&ledger,1u,0u,&c));
+    CHECK(!quantapdf_native_work_reserve_v1(&ledger,0u,1u,&c));
+    CHECK(ledger.used.sample_work==0u && ledger.reserved.sample_work==2u*cost &&
+          ledger.peak_reserved.edges==8u);
+    CHECK(quantapdf_native_work_settle_v1(&a,1u,1u,1));
+    CHECK(quantapdf_native_work_settle_v1(&b,2u,2u,0));
+    CHECK(ledger.used.sample_work==3u && ledger.used.edges==3u &&
+          ledger.reserved.sample_work==0u && ledger.reserved.edges==0u &&
+          ledger.completed_leases==2u && !ledger.samples_exact);
+    CHECK(!quantapdf_native_work_settle_v1(&a,0u,0u,1));
+
+    /* Checked arithmetic at SIZE_MAX, independently for both dimensions. */
+    quantapdf_native_work_init_v1(&ledger,SIZE_MAX,SIZE_MAX);
+    CHECK(quantapdf_native_work_reserve_v1(&ledger,SIZE_MAX,SIZE_MAX,&a));
+    CHECK(!quantapdf_native_work_reserve_v1(&ledger,1u,0u,&b));
+    CHECK(!quantapdf_native_work_reserve_v1(&ledger,0u,1u,&b));
+    CHECK(quantapdf_native_work_settle_v1(&a,SIZE_MAX,SIZE_MAX,1));
+    CHECK(!quantapdf_native_work_reserve_v1(&ledger,1u,1u,&b));
+    quantapdf_native_work_init_v1(&ledger,4u,4u);
+    CHECK(quantapdf_native_work_reserve_v1(&ledger,2u,2u,&a));
+    CHECK(!quantapdf_native_work_settle_v1(&a,3u,1u,1));
+    CHECK(ledger.failed && ledger.used.sample_work==2u && ledger.used.edges==2u &&
+          !quantapdf_native_work_reserve_v1(&ledger,0u,0u,&b));
+
+    quantapdf_native_work_init_v1(&ledger,2u*cost,8u);
+    for(unsigned i=0u;i<2u;++i) {
+        OK(quantapdf_ir_raster_render_v1_accounted(source,0u,&primitive,NULL,0u,
+            QP_NATIVE_WORK_FULL,&ledger,&out));
+        CHECK(ledger.used.sample_work==(i+1u)*cost && ledger.used.edges==(i+1u)*4u);
+        CHECK(at(&out,1u,1u)==UINT32_C(0x0000ffff) &&
+              at(&out,5u,5u)==UINT32_C(0xffffffff));
+        quantapdf_ir_raster_image_dispose(&out);
+    }
+    memset(&out,0xa5,sizeof(out));
+    CHECK(quantapdf_ir_raster_render_v1_accounted(source,0u,&primitive,NULL,0u,
+        QP_NATIVE_WORK_FULL,&ledger,&out)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(out.pixels==NULL && out.size==0u && ledger.completed_leases==2u);
+
+    /* Actual two-layer compositor: same bytes and one aggregate receipt. */
+    OK(quantapdf_ir_raster_scoped_mixed_v5(&page,0u,&limits,&reference));
+    quantapdf_native_work_init_v1(&ledger,2u*cost,8u);
+    OK(quantapdf_ir_raster_scoped_mixed_v5_accounted(&page,0u,&limits,8.0,8.0,
+        QP_SCOPED_LEGACY,&ledger,&out));
+    CHECK(out.size==reference.size && memcmp(out.pixels,reference.pixels,out.size)==0 &&
+          at(&out,1u,1u)==UINT32_C(0xff0000ff) && ledger.used.sample_work==2u*cost &&
+          ledger.used.edges==8u && ledger.completed_leases==2u && !ledger.samples_exact &&
+          ledger.reserved.sample_work==0u && ledger.reserved.edges==0u);
+    quantapdf_ir_raster_image_dispose(&out);quantapdf_ir_raster_image_dispose(&reference);
+    for(unsigned dimension=0u;dimension<2u;++dimension) {
+        quantapdf_native_work_init_v1(&ledger,2u*cost-(dimension==0u),8u-(dimension==1u));
+        CHECK(quantapdf_ir_raster_scoped_mixed_v5_accounted(&page,0u,&limits,8.0,8.0,
+            QP_SCOPED_LEGACY,&ledger,&out)==QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(out.pixels==NULL && out.size==0u && ledger.failed &&
+              ledger.completed_leases==1u && ledger.used.sample_work==cost &&
+              ledger.used.edges==4u && ledger.reserved.sample_work==0u);
+    }
+    memcpy(bad,ops[1].value.path.commands,sizeof(bad));
+    bad[4].kind=(quantapdf_composer_path_command_kind)99;
+    ops[1].value.path.commands=bad;
+    quantapdf_native_work_init_v1(&ledger,2u*cost,8u);
+    CHECK(quantapdf_ir_raster_scoped_mixed_v5_accounted(&page,0u,&limits,8.0,8.0,
+        QP_SCOPED_LEGACY,&ledger,&out)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(out.pixels==NULL && out.size==0u && ledger.failed &&
+          !quantapdf_native_work_reserve_v1(&ledger,0u,0u,&a));
+    puts("Page ledger: exact aggregate limits, held reservations, late refusal and overflow passed");
+    return 0;
+}
+
 int main(void) {
     quantapdf_composer_page_state page={0};
     quantapdf_composer_path_command commands[5]={{0}};
@@ -151,6 +245,7 @@ int main(void) {
     commands[3].point1.y=4.0f;
     commands[4].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
     CHECK(prepared_contracts(&ir,&lim)==0);
+    CHECK(work_ledger_contracts(&ir)==0);
     /* True 4/3-device-space subpixel edge, not 72-DPI enlargement. */
     OK(quantapdf_native_device_ir_render_v1(&ir,96u,&lim,&out));
     CHECK(out.width==11u && out.height==11u && out.size==484u);
