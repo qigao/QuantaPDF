@@ -303,7 +303,7 @@ static quantapdf_status qp_admit_draw(
     /* The same bounded cubic flattener/segment-distance kernel is
      * re-used for exactly two closed 4-cubic original ring contours.
      * The one named private entry verifies their whole geometry. */
-    const int fractional_closed = fractional_stroke_optin==2 &&
+    const int fractional_closed = (fractional_stroke_optin==2 || fractional_stroke_optin==3) &&
         stroke && opt->stroke_width==0.3985f &&
         path->command_count==12u && path->commands!=NULL;
     const int triangle_stroke = stroke && path->command_count == 4u &&
@@ -384,7 +384,7 @@ static quantapdf_status qp_admit_draw(
         if (!isfinite(det) || det == 0.0)
             return QUANTAPDF_ERROR_UNSUPPORTED;
     }
-    if (stroke && !rect_stroke) {
+    if (stroke && !rect_stroke && fractional_stroke_optin!=3) {
         /* The original triangle sampler remains restricted to an isometry. */
         const double x2 = flat->a * flat->a + flat->b * flat->b;
         const double y2 = flat->c * flat->c + flat->d * flat->d;
@@ -464,7 +464,8 @@ static quantapdf_status qp_admit_draw(
     out->rule = rect_stroke ? QUANTAPDF_COMPOSER_FILL_EVEN_ODD : opt->fill_rule;
     out->one_pixel_stroke = stroke && !rect_stroke;
     out->stroke_half_width=(fractional_line || fractional_closed) ?
-        (double)opt->stroke_width*0.5 : 0.5;
+        (double)opt->stroke_width*0.5*
+            (fractional_stroke_optin==3?flat->a:1.0) : 0.5;
     out->full_canvas_rect = 0;
     return QUANTAPDF_OK;
 }
@@ -790,6 +791,20 @@ static qp_cubic_cell qp_source_cubic(quantapdf_point start,
         qp_interval_source(cmd->point3)}};
     return r;
 }
+/* Positive physical DPI scale acts on intervals, never a float command
+ * buffer or an integer-canvas fit. Legacy 72-DPI intervals are unchanged. */
+static qp_cubic_cell qp_exact_device_cubic(quantapdf_point start,
+    const quantapdf_composer_path_command *cmd,double scale)
+{
+    qp_cubic_cell c=qp_source_cubic(start,cmd);
+    if(scale!=1.0)for(unsigned i=0u;i<4u;++i) {
+        const double lo=qp_down(scale),hi=qp_up(scale);
+        const double x=c.p[i].x.lo,y=c.p[i].y.lo;
+        c.p[i].x=(qp_interval){qp_down(x*(x<0.0?hi:lo)),qp_up(x*(x<0.0?lo:hi))};
+        c.p[i].y=(qp_interval){qp_down(y*(y<0.0?hi:lo)),qp_up(y*(y<0.0?lo:hi))};
+    }
+    return c;
+}
 static void qp_exact_split(const qp_cubic_cell *p,
     qp_cubic_cell *left,qp_cubic_cell *right)
 {
@@ -878,16 +893,19 @@ static int qp_exact_ray(qp_cubic_cell cell,double y,size_t width,
 }
 static int qp_exact_crossings(const quantapdf_composer_path_command *p,
     double y,size_t width,size_t thresholds[8],size_t *count,
-    size_t *work,size_t cap)
+    size_t *work,size_t cap,double scale)
 {
     *count=0u;
     for(size_t ring=0u;ring<12u;ring+=6u) {
         quantapdf_point start=p[ring].point1;
         for(size_t k=ring+1u;k<ring+5u;++k) {
-            const double y0=start.y,y1=p[k].point3.y;
+            const qp_cubic_cell c=qp_exact_device_cubic(start,&p[k],scale);
+            const qp_interval a=c.p[0].y,b=c.p[3].y;
             if(!qp_exact_charge(work,1u,cap))return 0;
-            if((y0<=y && y1>y) || (y1<=y && y0>y)) {
-                const qp_cubic_cell c=qp_source_cubic(start,&p[k]);
+            /* Endpoint rounding must not decide a row's half-open side. */
+            if(scale!=1.0 && ((y>=a.lo && y<=a.hi) ||
+                             (y>=b.lo && y<=b.hi)))return 0;
+            if((a.hi<=y && b.lo>y) || (b.hi<=y && a.lo>y)) {
                 if(!qp_exact_ray(c,y,width,&thresholds[*count],work,cap))return 0;
                 ++*count;
             }
@@ -919,6 +937,46 @@ static void qp_exact_cell_box(const qp_cubic_cell *p,double radius,
     out->x0=(size_t)floor(xl);out->x1=(size_t)ceil(xh);
     out->y0=(size_t)floor(yl);out->y1=(size_t)ceil(yh);
 }
+/* At most eight certified crossings define each even-odd row. Sort and
+ * intersect the two bounded lists in sample-column space. Every crossing
+ * comparison and every written sample is billed; no per-pixel ray tests
+ * are skipped while still being performed. Duplicate crossings toggle
+ * parity together. There is no threshold/image resampling or cache owner. */
+static int qp_exact_fill_spans(uint16_t *mask,size_t width,size_t row,
+    unsigned sy,size_t cross[2][8],const size_t count[2],size_t columns,
+    size_t *work,size_t cap)
+{
+    size_t at[2]={0u,0u},first=0u;
+    unsigned parity[2]={(unsigned)(count[0]&1u),(unsigned)(count[1]&1u)};
+    for(size_t g=0u;g<2u;++g)for(size_t i=1u;i<count[g];++i) {
+        const size_t value=cross[g][i];size_t j=i;
+        while(j>0u) {
+            if(!qp_exact_charge(work,1u,cap))return 0;
+            if(cross[g][j-1u]<=value)break;
+            cross[g][j]=cross[g][j-1u];--j;
+        }
+        cross[g][j]=value;
+    }
+    while(first<columns) {
+        size_t end=columns;
+        for(size_t g=0u;g<2u;++g)if(at[g]<count[g]) {
+            if(!qp_exact_charge(work,1u,cap))return 0;
+            if(cross[g][at[g]]<end)end=cross[g][at[g]];
+        }
+        if(end<first)return 0;
+        if(parity[0] && parity[1])for(size_t col=first;col<end;++col) {
+            if(!qp_exact_charge(work,1u,cap))return 0;
+            mask[row*width+col/4u]|=(uint16_t)(1u<<(4u*sy+col%4u));
+        }
+        for(size_t g=0u;g<2u;++g)while(at[g]<count[g]) {
+            if(!qp_exact_charge(work,1u,cap))return 0;
+            if(cross[g][at[g]]!=end)break;
+            parity[g]^=1u;++at[g];
+        }
+        first=end;
+    }
+    return 1;
+}
 /* Three 16-bit coverage masks are bounded temporary owners. All original
  * Clip/Fill/Stroke work is completed under ONE aggregate lease before the
  * existing output allocator and existing ordered source-over are entered. */
@@ -926,30 +984,44 @@ static quantapdf_status qp_exact_texample_masks(const quantapdf_ir *ir,
     const quantapdf_composer_clip_state *clip,
     const quantapdf_native_device_plan *plan,
     const quantapdf_ir_raster_v1_limits *limits,uint16_t **out_masks,
-    size_t *out_work)
+    size_t *out_work,int physical_dpi)
 {
     const size_t width=plan->width,height=plan->height,area=width*height;
+    const double scale=physical_dpi?(double)plan->dpi/72.0:1.0;
+    const double page_width=plan->width_points*scale;
+    const double page_height=plan->height_points*scale;
     qp_cubic_cell cells[QP_EXACT_CELLS];
     uint16_t *masks=(uint16_t *)qp_exact_malloc(area*3u*sizeof(*masks),1);
     size_t work=0u;
-    const double radius=0.5*(double)ir->operations[1].value.path.options.stroke_width;
-    const qp_interval radius2={qp_down(radius*radius),qp_up(radius*radius)};
+    const double source_radius=0.5*(double)ir->operations[1].value.path.options.stroke_width;
+    const double radius=source_radius*scale;
+    const double radius_lo=physical_dpi?qp_down(source_radius*qp_down(scale)):radius;
+    const double radius_hi=physical_dpi?qp_up(source_radius*qp_up(scale)):radius;
+    const qp_interval radius2={qp_down(radius_lo*radius_lo),qp_up(radius_hi*radius_hi)};
     *out_masks=NULL;*out_work=0u;
     if(masks==NULL)return QUANTAPDF_ERROR_NOMEM;
     memset(masks,0,area*3u*sizeof(*masks));
     for(size_t y=0u;y<height;++y)for(unsigned sy=0u;sy<4u;++sy) {
         const double py=(double)y+((double)sy+0.5)/4.0;
         size_t cross[2][8],count[2];
-        if(py>=plan->height_points)continue;
+        if(py>=page_height)continue;
         if(!qp_exact_crossings(ir->operations[0].value.path.commands,py,width,
-                cross[0],&count[0],&work,limits->max_sample_tests) ||
+                cross[0],&count[0],&work,limits->max_sample_tests,scale) ||
            !qp_exact_crossings(clip->commands,py,width,
-                cross[1],&count[1],&work,limits->max_sample_tests))goto unsupported;
+                cross[1],&count[1],&work,limits->max_sample_tests,scale))goto unsupported;
+        if(physical_dpi) {
+            /* Samples satisfy col+1/2 < 4*physical_width exactly; page
+             * admission fixed the rational ceil independently of floats. */
+            const size_t columns=(size_t)ceil(page_width*4.0-0.5);
+            if(columns>width*4u || !qp_exact_fill_spans(masks,width,y,sy,
+                cross,count,columns,&work,limits->max_sample_tests))goto unsupported;
+            continue;
+        }
         for(size_t x=0u;x<width;++x)for(unsigned sx=0u;sx<4u;++sx) {
             const double px=(double)x+((double)sx+0.5)/4.0;
             const size_t column=x*4u+sx;
             unsigned hit[2]={0u,0u};
-            if(px>=plan->width_points)continue;
+            if(px>=page_width)continue;
             if(!qp_exact_charge(&work,count[0]+count[1],limits->max_sample_tests))
                 goto unsupported;
             for(size_t c=0u;c<2u;++c)
@@ -963,7 +1035,7 @@ static quantapdf_status qp_exact_texample_masks(const quantapdf_ir *ir,
         for(size_t ring=0u;ring<12u;ring+=6u) {
             quantapdf_point start=p[ring].point1;
             for(size_t k=ring+1u;k<ring+5u;++k) {
-                const qp_cubic_cell cell=qp_source_cubic(start,&p[k]);
+                const qp_cubic_cell cell=qp_exact_device_cubic(start,&p[k],scale);
                 qp_exact_cells(cells,&n,&cell,5u);
                 start=p[k].point3;
             }
@@ -971,13 +1043,13 @@ static quantapdf_status qp_exact_texample_masks(const quantapdf_ir *ir,
         if(n!=QP_EXACT_CELLS)goto unsupported;
         for(size_t k=0u;k<n;++k) {
             qp_sample_box box;
-            qp_exact_cell_box(&cells[k],radius,width,height,&box);
+            qp_exact_cell_box(&cells[k],radius_hi,width,height,&box);
             for(size_t y=box.y0;y<box.y1;++y)for(size_t x=box.x0;x<box.x1;++x)
             for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
                 const double px=(double)x+((double)sx+0.5)/4.0;
                 const double py=(double)y+((double)sy+0.5)/4.0;
                 int hit;
-                if(px>=plan->width_points || py>=plan->height_points)continue;
+                if(px>=page_width || py>=page_height)continue;
                 hit=qp_exact_distance(&cells[k],px,py,radius2,0u,
                                       &work,limits->max_sample_tests);
                 if(hit<0)goto unsupported;
@@ -1015,7 +1087,8 @@ static quantapdf_status qp_render_v1_impl(
     qp_sample_box sample_box = {0u,0u,0u,0u};
     qp_sample_box *curve_boxes = NULL;
     uint16_t *exact_masks = NULL;
-    const int shared_texample=visible_work_optin==8;
+    const int physical_dpi=visible_work_optin==9;
+    const int shared_texample=visible_work_optin==8 || physical_dpi;
     const int exact_texample=visible_work_optin==7 || shared_texample;
 
     if (out_sample_tests != NULL)*out_sample_tests=0u;
@@ -1175,7 +1248,7 @@ static quantapdf_status qp_render_v1_impl(
             status = qp_admit_draw(op, &flatten,
                 plan == NULL ? NULL : plan->from_composer, &draws[draw_count],
                 0,visible_work_optin==3?1:
-                  (bounded_curved_stroke || exact_texample)?2:0);
+                  (physical_dpi?3:(bounded_curved_stroke || exact_texample)?2:0));
         }
         if (status != QUANTAPDF_OK) {
             goto cleanup;
@@ -1360,7 +1433,7 @@ static quantapdf_status qp_render_v1_impl(
     }
 
     if(exact_texample) {
-        status=qp_exact_texample_masks(ir,clips[0],plan,limits,&exact_masks,&total_checks);
+        status=qp_exact_texample_masks(ir,clips[0],plan,limits,&exact_masks,&total_checks,physical_dpi);
         if(status!=QUANTAPDF_OK)goto cleanup;
     }
     pixels = (unsigned char *)qp_exact_malloc(pixels_count * 4u,exact_texample);
@@ -1385,12 +1458,26 @@ static quantapdf_status qp_render_v1_impl(
             continue;
         }
         if(draw->full_canvas_rect) {
-            /* Proven same 16/16 coverage as the ordinary winding scan:
-             * use its SAME blend and output owner without extra work. */
+            /* The PATH covers the complete integer buffer. Physical
+             * pages still intersect that proof with their fractional
+             * viewport at the same 4x4 sample grid. The preflight's
+             * sixteen sample decisions per pixel remain conservative. */
             for(y=0u;y<height;++y)
-                for(x=0u;x<width;++x)
-                    qp_blend_pixel(pixels+4u*(y*width+x),
-                                   draw->color,QP_TOTAL_SAMPLES);
+                for(x=0u;x<width;++x) {
+                    unsigned covered=QP_TOTAL_SAMPLES;
+                    if(plan!=NULL && plan->mode==QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1) {
+                        unsigned nx=0u,ny=0u;
+                        const double scale=(double)plan->dpi/72.0;
+                        for(unsigned k=0u;k<QP_SAMPLES;++k) {
+                            nx+=(unsigned)((double)x+((double)k+0.5)/QP_SAMPLES<
+                                           plan->width_points*scale);
+                            ny+=(unsigned)((double)y+((double)k+0.5)/QP_SAMPLES<
+                                           plan->height_points*scale);
+                        }
+                        covered=nx*ny;
+                    }
+                    qp_blend_pixel(pixels+4u*(y*width+x),draw->color,covered);
+                }
             continue;
         }
         for (y = 0u; y < height; ++y) {
@@ -1820,6 +1907,7 @@ static quantapdf_status qp_texample_three_layer(
     const quantapdf_native_device_plan *plan,size_t *out_sample_tests,
     quantapdf_ir_raster_image *out_image,int shared_geometry)
 {
+    const int physical_dpi=shared_geometry==2;
     quantapdf_ir ir={0},slice={0};
     quantapdf_composer_operation ops[3]={{0}};
     quantapdf_ir_raster_v1_limits shape_limits;
@@ -1838,9 +1926,11 @@ static quantapdf_status qp_texample_three_layer(
        source->operations==NULL || source->operation_count!=3u ||
        source->links!=NULL || source->link_count!=0u ||
        source->outlines!=NULL || source->outline_count!=0u ||
-       limits->max_pixels>50000u || limits->max_operations!=3u ||
-       limits->max_edges>1024u || limits->max_sample_tests>8000000u ||
-       plan->dpi!=72u || plan->width!=238u || plan->height!=181u ||
+       limits->max_pixels>(physical_dpi?1000000u:50000u) || limits->max_operations!=3u ||
+       limits->max_edges>(physical_dpi?512u:1024u) || limits->max_sample_tests>8000000u ||
+       (physical_dpi?(plan->dpi!=96u && plan->dpi!=144u):plan->dpi!=72u) ||
+       plan->width!=(physical_dpi?(plan->dpi==96u?317u:475u):238u) ||
+       plan->height!=(physical_dpi?(plan->dpi==96u?241u:361u):181u) ||
        plan->width_points!=237.133 || plan->height_points!=180.44 ||
        !quantapdf_native_device_plan_matches_physical_page(plan,
             237.133f,180.44f,limits->max_pixels) ||
@@ -1923,7 +2013,7 @@ static quantapdf_status qp_texample_three_layer(
     ir.pages=source->pages;ir.page_count=1u;ir.operations=ops;ir.operation_count=3u;
     clips[0]=clip;
     return qp_render_v1_impl(&ir,0u,limits,plan,clips,1u,
-        shared_geometry?8:7,out_image,out_sample_tests);
+        physical_dpi?9:shared_geometry?8:7,out_image,out_sample_tests);
 }
 
 quantapdf_status quantapdf_ir_raster_render_v1_texample_physical_three_layer(
@@ -1940,6 +2030,14 @@ quantapdf_status quantapdf_ir_raster_render_v1_texample_shared_three_layer(
     quantapdf_ir_raster_image *out_image)
 {
     return qp_texample_three_layer(source,limits,plan,out_sample_tests,out_image,1);
+}
+
+quantapdf_status quantapdf_ir_raster_render_v1_texample_physical_dpi_three_layer(
+    const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,size_t *out_sample_tests,
+    quantapdf_ir_raster_image *out_image)
+{
+    return qp_texample_three_layer(source,limits,plan,out_sample_tests,out_image,2);
 }
 
 quantapdf_status quantapdf_ir_raster_render_v1_two_cubic_ring_wstar_visible_work(

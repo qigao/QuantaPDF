@@ -163,6 +163,15 @@ quantapdf_status quantapdf_ir_raster_render_v1_texample_shared_three_layer(
     const quantapdf_native_device_plan *plan,size_t *out_sample_tests,
     quantapdf_ir_raster_image *out_image);
 
+/* Complete original at physical 96/144 DPI. Same cubic classifier,
+ * actual DPI-scaled width, bounded certified Fill/Clip row intersection,
+ * shared immutable admission geometry, unchanged public 512 edges/8M cap.
+ * Historical 72-DPI entries and their exact work accounting stay unchanged. */
+quantapdf_status quantapdf_ir_raster_render_v1_texample_physical_dpi_three_layer(
+    const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,size_t *out_sample_tests,
+    quantapdf_ir_raster_image *out_image);
+
 /* PRIVATE original TeXample-type two-ring Bézier W*: exactly
  * two nested cardinal ring contours, each MOVE+4 CUBIC+CLOSE,
  * with no discarded source edges or unbounded extra subpaths.

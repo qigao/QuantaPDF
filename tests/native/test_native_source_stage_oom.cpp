@@ -837,7 +837,7 @@ static bool original_texample_m4a_curved_strokes(
 /* Independent rectangular controls qualify only physical page coverage,
  * never substitute for the original PDF. Geometry crosses all page edges,
  * so clipping must happen at each 4x4 sample rather than by whole pixels. */
-static bool physical_texample_page_fringe()
+static bool physical_texample_page_fringe(unsigned dpi=72u,bool buffer_rect=false)
 {
     quantapdf_composer_page_state page{237.133f,180.44f,UINT32_C(0xffffffff),0};
     quantapdf_composer_path_command commands[5]{};
@@ -864,24 +864,39 @@ static bool physical_texample_page_fringe()
     clip.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
     const quantapdf_composer_clip_state *clips[1]={&clip};
     quantapdf_native_device_plan plan{};
-    const quantapdf_ir_raster_v1_limits limit={50000u,1u,16u,8000000u};
+    const quantapdf_ir_raster_v1_limits limit={dpi==72u?50000u:1000000u,1u,16u,8000000u};
     if(quantapdf_native_device_plan_create_physical(
-        "0 0 237.133 180.44","0 0 237.133 180.44","1",0,72u,
+        "0 0 237.133 180.44","0 0 237.133 180.44","1",0,dpi,
         limit.max_pixels,&plan)!=QUANTAPDF_OK)return false;
+    if(dpi!=72u || buffer_rect) {
+        /* Exact synthetic quarter/half-point rectangle extends past the
+         * true decimal right/bottom edges and maps to full buffer bounds.
+         * It is a fringe control only, never replacement original paths. */
+        const float right=dpi==72u?238.0f:dpi==96u?237.75f:237.5f;
+        const float bottom=dpi==72u?181.0f:dpi==96u?180.75f:180.5f;
+        commands[0].point1={0.0f,0.0f};
+        commands[1].point1={right,0.0f};
+        commands[2].point1={right,bottom};
+        commands[3].point1={0.0f,bottom};
+    }
     for(int transparent:{0,1})for(size_t count:{0u,1u}) {
+        /* The legacy clipped full-page rectangle's exhaustive quota is
+         * independently strict; higher-DPI fringe controls use its exact
+         * full-canvas Fill fast path within the same 8M cap. */
+        if(dpi!=72u && count!=0u)continue;
         page.suppress_background=transparent;
         quantapdf_ir_raster_image out{};
         if(quantapdf_ir_raster_render_v1_physical_planned(
             &ir,0u,&limit,&plan,count?clips:nullptr,count,&out)!=QUANTAPDF_OK ||
-           out.pixels==nullptr || out.width!=238u || out.height!=181u)
+           out.pixels==nullptr || out.width!=plan.width || out.height!=plan.height)
             return false;
-        for(size_t y=0u;y<181u;++y)for(size_t x=0u;x<238u;++x) {
+        for(size_t y=0u;y<plan.height;++y)for(size_t x=0u;x<plan.width;++x) {
             /* Exact decimal arithmetic reference: sample (8*x+2*s+1)/8
              * lies inside iff numerator*1000 < page_millipoints*8. */
             unsigned nx=0u,ny=0u;
             for(unsigned k=0u;k<4u;++k) {
-                nx+=((8u*x+2u*k+1u)*1000u<237133u*8u);
-                ny+=((8u*y+2u*k+1u)*1000u<180440u*8u);
+                nx+=((8u*x+2u*k+1u)*UINT64_C(72000)<UINT64_C(237133)*8u*dpi);
+                ny+=((8u*y+2u*k+1u)*UINT64_C(72000)<UINT64_C(180440)*8u*dpi);
             }
             const unsigned n=nx*ny;
             const unsigned alpha=transparent?(255u*n+8u)/16u:255u;
@@ -909,7 +924,7 @@ static bool physical_texample_page_fringe()
     if(quantapdf_ir_raster_render_v1_planned(&ir,0u,&limit,&plan,nullptr,0u,
         &denied)!=QUANTAPDF_ERROR_UNSUPPORTED || !zero(denied))return false;
     if(quantapdf_native_device_plan_create("0 0 237.133 180.44",
-        "0 0 237.133 180.44","1",0,72u,limit.max_pixels,&plan)!=QUANTAPDF_OK)
+        "0 0 237.133 180.44","1",0,dpi,limit.max_pixels,&plan)!=QUANTAPDF_OK)
         return false;
     for(int retag:{0,1}) {
         if(retag)plan.mode=QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1;
@@ -923,8 +938,9 @@ static bool physical_texample_page_fringe()
     if(quantapdf_ir_raster_render_v1_physical_planned(&ir,0u,&limit,&plan,
         nullptr,0u,&denied)!=QUANTAPDF_ERROR_UNSUPPORTED || !zero(denied))
         return false;
-    std::puts("Physical 72 DPI fringe: every RGBA pixel matches exact decimal "
-              "sample counts, opaque/transparent, with/without Clip");
+    std::printf("Physical %u DPI fringe: every RGBA pixel matches exact rational "
+                "sample counts, opaque/transparent%s\n",dpi,
+                dpi==72u?", with/without Clip":"");
     return true;
 }
 
@@ -932,21 +948,28 @@ static bool physical_texample_page_fringe()
  * operations. The independent authored-decimal reference uses polynomial
  * ray roots + all quintic stationary-distance roots, never native pixels. */
 static bool original_texample_three_layer(const quantapdf_ir& source,
-    const char *original_filename,quantapdf_ir_raster_image& detached,bool shared=false)
+    const char *original_filename,quantapdf_ir_raster_image& detached,bool shared=false,unsigned dpi=72u)
 {
-    if(!exact_texample_private_ir(source))return false;
+    if(!exact_texample_private_ir(source) ||
+       (dpi!=72u && dpi!=96u && dpi!=144u) || (!shared && dpi!=72u))return false;
+    const bool physical_dpi=dpi!=72u;
+    const size_t width=dpi==72u?238u:dpi==96u?317u:475u;
+    const size_t height=dpi==72u?181u:dpi==96u?241u:361u;
+    const size_t minimum_edges=physical_dpi?(dpi==96u?416u:512u):shared?384u:768u;
     const auto filename=std::filesystem::path(original_filename).parent_path()
-        .parent_path().parent_path()/"native"/"goldens"/"texample72-m4b.rgba";
+        .parent_path().parent_path()/"native"/"goldens"/("texample"+std::to_string(dpi)+
+            (physical_dpi?"-m4c.rgba":"-m4b.rgba"));
     std::ifstream input(filename,std::ios::binary);
     const std::string expected{std::istreambuf_iterator<char>(input),
                                std::istreambuf_iterator<char>()};
-    if(expected.size()!=238u*181u*4u)return false;
+    if(expected.size()!=width*height*4u)return false;
     quantapdf_native_device_plan plan{};
-    const quantapdf_ir_raster_v1_limits limits={50000u,3u,shared?512u:1024u,8000000u};
+    const quantapdf_ir_raster_v1_limits limits={physical_dpi?1000000u:50000u,3u,shared?512u:1024u,8000000u};
     if(quantapdf_native_device_plan_create_physical("0 0 237.133 180.44",
-        "0 0 237.133 180.44","1",0,72u,limits.max_pixels,&plan)!=QUANTAPDF_OK)
+        "0 0 237.133 180.44","1",0,dpi,limits.max_pixels,&plan)!=QUANTAPDF_OK)
         return false;
-    const auto render=shared?
+    const auto render=physical_dpi?
+        quantapdf_ir_raster_render_v1_texample_physical_dpi_three_layer:shared?
         quantapdf_ir_raster_render_v1_texample_shared_three_layer:
         quantapdf_ir_raster_render_v1_texample_physical_three_layer;
     auto zero=[](const quantapdf_ir_raster_image& x) {
@@ -954,8 +977,8 @@ static bool original_texample_three_layer(const quantapdf_ir& source,
                x.stride==0u && x.size==0u;
     };
     auto equal=[&](const quantapdf_ir_raster_image& x) {
-        return x.pixels!=nullptr && x.width==238u && x.height==181u &&
-            x.stride==238u*4u && x.size==expected.size() &&
+        return x.pixels!=nullptr && x.width==width && x.height==height &&
+            x.stride==width*4u && x.size==expected.size() &&
             std::memcmp(x.pixels,expected.data(),expected.size())==0;
     };
     auto snapshot=[&]() {
@@ -982,9 +1005,9 @@ static bool original_texample_three_layer(const quantapdf_ir& source,
     allocations=c_allocations;track_c_allocation=false;
     if(status!=QUANTAPDF_OK || !equal(full) || allocations!=4u ||
        c_faults!=0u || work==0u || work>=limits.max_sample_tests ||
-       rgba_at(full,146u,87u)!=UINT32_C(0xbfbfbfff) ||
-       rgba_at(full,118u,20u)!=UINT32_C(0xff8000ff) ||
-       rgba_at(full,118u,90u)!=UINT32_C(0xffffffff)) {
+       (!physical_dpi && (rgba_at(full,146u,87u)!=UINT32_C(0xbfbfbfff) ||
+        rgba_at(full,118u,20u)!=UINT32_C(0xff8000ff) ||
+        rgba_at(full,118u,90u)!=UINT32_C(0xffffffff)))) {
         std::fprintf(stderr,"original three-layer status=%d work=%zu allocations=%zu "
             "known pixel=%08x reference match=%d\n",(int)status,work,allocations,
             full.pixels?rgba_at(full,146u,87u):0u,equal(full)?1:0);
@@ -1001,7 +1024,7 @@ static bool original_texample_three_layer(const quantapdf_ir& source,
     }
     quantapdf_ir_raster_image_dispose(&repeat);
     if(shared) {
-        auto edges=limits;edges.max_edges=384u;
+        auto edges=limits;edges.max_edges=minimum_edges;
         if(render(&source,&edges,&plan,&repeat_work,&repeat)!=QUANTAPDF_OK ||
            repeat_work!=work || !equal(repeat)) {
             quantapdf_ir_raster_image_dispose(&repeat);
@@ -1038,7 +1061,7 @@ static bool original_texample_three_layer(const quantapdf_ir& source,
         }
         quantapdf_ir_raster_image_dispose(&repeat);
     }
-    for(unsigned which=0u;which<25u;++which) {
+    for(unsigned which=0u;which<(physical_dpi?27u:25u);++which) {
         auto bad=source;
         auto page=source.pages[0];
         auto gs=source.resources.graphics_states[0];
@@ -1053,8 +1076,8 @@ static bool original_texample_three_layer(const quantapdf_ir& source,
         bad.resources.graphics_states=&gs;bad.resources.clips=&clip;
         switch(which) {
         case 0:budget.max_sample_tests=8000001u;break;
-        case 1:budget.max_edges=shared?383u:767u;break;
-        case 2:budget.max_pixels=43077u;break;
+        case 1:budget.max_edges=minimum_edges-1u;break;
+        case 2:budget.max_pixels=width*height-1u;break;
         case 3:budget.max_operations=4u;break;
         case 4:bad.operation_count=4u;ops[3]=ops[0];break;
         case 5:ops[0].graphics_state_id=0u;
@@ -1081,6 +1104,8 @@ static bool original_texample_three_layer(const quantapdf_ir& source,
         case 22:page.height_points=181.0f;break;
         case 23:ops[2].value.path.options.stroke_paint_id=1u;break;
         case 24:ops[2].value.path.options.fill_paint_id=1u;break;
+        case 25:device.dpi=72u;break;
+        case 26:device.dpi=120u;break;
         }
         std::memset(&repeat,0xa5,sizeof(repeat));repeat_work=999u;
         const auto ret=render(
@@ -1093,9 +1118,11 @@ static bool original_texample_three_layer(const quantapdf_ir& source,
     if(snapshot()!=frozen) {
         quantapdf_ir_raster_image_dispose(&full);return false;
     }
-    std::printf("Original TeXample %s three-layer: 172312 authored-decimal reference "
+    std::printf("Original TeXample %u DPI %s three-layer: %zu authored-decimal reference "
         "bytes identical; work N=%zu, N-1 atomic refusal, four malloc faults "
-        "and recovery, 25 malformed/scope/quota refusals\n",shared?"shared-geometry":"legacy",work);
+        "and recovery, %u malformed/scope/quota refusals, %zu/%zu edge boundary\n",
+        dpi,shared?"shared-geometry":"legacy",expected.size(),work,
+        physical_dpi?27u:25u,minimum_edges,minimum_edges-1u);
     detached=full;
     return true;
 }
@@ -1140,8 +1167,26 @@ static bool authentic_texample_source_m3(
         if(!original_texample_three_layer(ir,filename,shared,true)) {
             quantapdf_ir_dispose(&ir);return false;
         }
+        quantapdf_ir_raster_image high_dpi[2]{};
+        std::string high_bytes[2];
+        for(size_t i=0u;i<2u;++i) {
+            if(!original_texample_three_layer(ir,filename,high_dpi[i],true,
+                i==0u?96u:144u)) {
+                for(auto& image:high_dpi)quantapdf_ir_raster_image_dispose(&image);
+                quantapdf_ir_raster_image_dispose(&shared);
+                quantapdf_ir_dispose(&ir);return false;
+            }
+            high_bytes[i].assign(reinterpret_cast<const char*>(high_dpi[i].pixels),
+                                 high_dpi[i].size);
+        }
         quantapdf_ir_dispose(&ir);
-        const bool detached=cleared(ir) && shared.pixels!=nullptr &&
+        bool high_detached=true;
+        for(size_t i=0u;i<2u;++i) {
+            high_detached=high_detached && high_dpi[i].pixels!=nullptr &&
+                std::memcmp(high_dpi[i].pixels,high_bytes[i].data(),high_bytes[i].size())==0;
+            quantapdf_ir_raster_image_dispose(&high_dpi[i]);
+        }
+        const bool detached=high_detached && cleared(ir) && shared.pixels!=nullptr &&
             rgba_at(shared,146u,87u)==UINT32_C(0xbfbfbfff);
         const std::string reference(reinterpret_cast<const char*>(shared.pixels),
                                     shared.size);
@@ -1526,7 +1571,9 @@ int main(int argc,char **argv)
         return EXIT_FAILURE;
     if(!original_texample_decimal_source_m2(limits))
         return EXIT_FAILURE;
-    if(!physical_texample_page_fringe())return EXIT_FAILURE;
+    for(unsigned dpi:{72u,96u,144u})
+        if(!physical_texample_page_fringe(dpi))return EXIT_FAILURE;
+    if(!physical_texample_page_fringe(72u,true))return EXIT_FAILURE;
     if(!authentic_texample_source_m3(argv[2],limits))
         return EXIT_FAILURE;
     if(!public_texample_complete_page(argv[2]))return EXIT_FAILURE;
