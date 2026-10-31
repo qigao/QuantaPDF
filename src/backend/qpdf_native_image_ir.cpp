@@ -3123,6 +3123,11 @@ struct source_v10_exact_boxes {
     std::array<int64_t,4> media;
     std::array<int64_t,4> crop;
     std::array<int64_t,4> visible;
+    /* Existing source profiles use 1/4pt ticks. The ONLY newly
+     * qualified source decimal page is the original TeXample
+     * 237.133 x 180.44 MediaBox (1/1000pt ticks). Never coerce it
+     * onto the older quarter-point grid or round it to 238x181pt. */
+    uint32_t ticks_per_point=4u;
 };
 
 source_v10_exact_boxes source_v10_quarter_geometry(
@@ -3143,30 +3148,49 @@ source_v10_exact_boxes source_v10_quarter_geometry(
         if(crop.isNull())crop=p.getKey("/CropBox");
     }
     admit(!media.isNull(),QUANTAPDF_ERROR_FORMAT);
-    const auto m=source_v10_quarter_box(media);
-    const auto c=crop.isNull()?m:source_v10_quarter_box(crop);
+    /* Recognize EXACT original numeric PDF operands, not rounded
+     * getNumericValue()/snprintf reparsing. This is a bounded one-page
+     * TeXample geometry exception; the normal quarter grammar and
+     * all other original MediaBox profiles remain untouched.
+     * An independent cropped decimal viewport is NOT admitted. */
+    const auto exact_texample_box=[](Obj box) {
+        return box.isArray() && box.getArrayNItems()==4 &&
+            box.getArrayItem(0).unparse()=="0" &&
+            box.getArrayItem(1).unparse()=="0" &&
+            box.getArrayItem(2).unparse()=="237.133" &&
+            box.getArrayItem(3).unparse()=="180.44";
+    };
+    const bool teexample_decimal=exact_texample_box(media);
+    if(teexample_decimal)
+        admit(crop.isNull() || exact_texample_box(crop),
+              QUANTAPDF_ERROR_UNSUPPORTED);
+    const auto m=teexample_decimal ?
+        std::array<int64_t,4>{0,0,237133,180440} :
+        source_v10_quarter_box(media);
+    const auto c=teexample_decimal ? m :
+        crop.isNull()?m:source_v10_quarter_box(crop);
+    const uint32_t denominator=teexample_decimal?1000u:4u;
     std::array<int64_t,4> view={
         std::max(m[0],c[0]),std::max(m[1],c[1]),
         std::min(m[2],c[2]),std::min(m[3],c[3])
     };
     admit(view[2]>view[0] && view[3]>view[1],
           QUANTAPDF_ERROR_FORMAT);
-    /* The independent, existing QPDF page geometry reader must agree
-     * with the exact selected original numbers. For admitted quarters,
-     * binary64 representation and comparison are exact. */
+    /* Cross-check the independently loaded original PageTree geometry.
+     * For quarter ticks these are binary-exact; for the original
+     * decimal box the exact rational is converted to double ONCE
+     * solely for the existing QPDF comparison, not for admission. */
     for(size_t i=0u;i<4u;++i) {
-        admit(geo.media[i]==(double)m[i]/4.0 &&
-              geo.crop[i]==(double)c[i]/4.0,
+        admit(geo.media[i]==(double)m[i]/(double)denominator &&
+              geo.crop[i]==(double)c[i]/(double)denominator,
               QUANTAPDF_ERROR_FORMAT);
     }
-    admit(geo.left==(double)view[0]/4.0 &&
-          geo.bottom==(double)view[1]/4.0 &&
-          geo.right==(double)view[2]/4.0 &&
-          geo.top==(double)view[3]/4.0,
+    admit(geo.left==(double)view[0]/(double)denominator &&
+          geo.bottom==(double)view[1]/(double)denominator &&
+          geo.right==(double)view[2]/(double)denominator &&
+          geo.top==(double)view[3]/(double)denominator,
           QUANTAPDF_ERROR_FORMAT);
-    /* Complete exact source quarter boxes; the C11 viewport sampler
-     * now owns fractional final-column/row geometric coverage. */
-    return {m,c,view};
+    return {m,c,view,denominator};
 }
 
 /* Strict V10-only original /UserUnit is a PAGE leaf number, not an
@@ -3283,11 +3307,14 @@ void scale_source_userunit(admission& source,unsigned quarters)
 
 /* The exact source-number bounds admit one integer-ceiled pixel canvas
  * without any rounding of the ORIGINAL source geometry. */
-size_t source_quarter_ceil(int64_t lo,int64_t hi,size_t cap)
+size_t source_exact_tick_ceil(
+    int64_t lo,int64_t hi,uint32_t ticks_per_point,size_t cap)
 {
-    admit(hi>lo && cap!=0u,QUANTAPDF_ERROR_UNSUPPORTED);
-    const uint64_t n=(uint64_t)(hi-lo);
-    const uint64_t pixels=n/4u+(n%4u!=0u);
+    admit(hi>lo && cap!=0u &&
+          (ticks_per_point==4u || ticks_per_point==1000u),
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    const uint64_t n=(uint64_t)(hi-lo),ticks=ticks_per_point;
+    const uint64_t pixels=n/ticks+(n%ticks!=0u);
     admit(pixels>0u && pixels<=(uint64_t)cap,
           QUANTAPDF_ERROR_UNSUPPORTED);
     return (size_t)pixels;
@@ -3367,10 +3394,12 @@ static quantapdf_status source_raw_images_to_ir_impl(
             /* Even a tiny CropBox cannot make an unbounded original
              * MediaBox an inexpensive source: budget the WHOLE media
              * before admitting bounded outside-crop paint geometry. */
-            const size_t mw=source_quarter_ceil(
-                exact.media[0],exact.media[2],hard_page_pixels);
-            const size_t mh=source_quarter_ceil(
-                exact.media[1],exact.media[3],hard_page_pixels);
+            const size_t mw=source_exact_tick_ceil(
+                exact.media[0],exact.media[2],
+                exact.ticks_per_point,hard_page_pixels);
+            const size_t mh=source_exact_tick_ceil(
+                exact.media[1],exact.media[3],
+                exact.ticks_per_point,hard_page_pixels);
             admit(mw!=0u && mh!=0u &&
                   mw<=limits->max_page_pixels/mh,
                   QUANTAPDF_ERROR_UNSUPPORTED);
@@ -3378,10 +3407,12 @@ static quantapdf_status source_raw_images_to_ir_impl(
                 exact.media[2]-exact.media[0])*(uint64_t)user_quarters;
             const uint64_t mh16=(uint64_t)(
                 exact.media[3]-exact.media[1])*(uint64_t)user_quarters;
-            const size_t device_mw=(size_t)(mw16/16u+
-                (mw16%16u!=0u));
-            const size_t device_mh=(size_t)(mh16/16u+
-                (mh16%16u!=0u));
+            const uint64_t physical_ticks=
+                (uint64_t)exact.ticks_per_point*4u;
+            const size_t device_mw=(size_t)(mw16/physical_ticks+
+                (mw16%physical_ticks!=0u));
+            const size_t device_mh=(size_t)(mh16/physical_ticks+
+                (mh16%physical_ticks!=0u));
             admit(device_mw!=0u && device_mh!=0u &&
                   device_mw<=limits->max_page_pixels/device_mh,
                   QUANTAPDF_ERROR_UNSUPPORTED);
@@ -3390,12 +3421,14 @@ static quantapdf_status source_raw_images_to_ir_impl(
          * The completely admitted staging will acquire the page-tree
          * orientation before publication, with no extra pixel producer. */
         const size_t page_w=native_v10?
-            source_quarter_ceil(
-                exact.visible[0],exact.visible[2],hard_page_pixels):
+            source_exact_tick_ceil(
+                exact.visible[0],exact.visible[2],
+                exact.ticks_per_point,hard_page_pixels):
             whole(geo.right-geo.left,hard_page_pixels);
         const size_t page_h=native_v10?
-            source_quarter_ceil(
-                exact.visible[1],exact.visible[3],hard_page_pixels):
+            source_exact_tick_ceil(
+                exact.visible[1],exact.visible[3],
+                exact.ticks_per_point,hard_page_pixels):
             whole(geo.top-geo.bottom,hard_page_pixels);
         if(native_v10)
             checked_original_rotation(
@@ -3469,9 +3502,11 @@ static quantapdf_status source_raw_images_to_ir_impl(
             profile.explicit_image_predictor;
         source.native_unclipped_mode=native_v10;
         source.exact_page_w=native_v10?
-            (double)(exact.visible[2]-exact.visible[0])/4.0:0.0;
+            (double)(exact.visible[2]-exact.visible[0])/
+                (double)exact.ticks_per_point:0.0;
         source.exact_page_h=native_v10?
-            (double)(exact.visible[3]-exact.visible[1])/4.0:0.0;
+            (double)(exact.visible[3]-exact.visible[1])/
+                (double)exact.ticks_per_point:0.0;
         source.media_left=native_v10?geo.left:0.0;
         source.media_bottom=native_v10?geo.bottom:0.0;
         /* The opt-in signed/quarter-aware SOURCE staging is required
@@ -3515,6 +3550,28 @@ static quantapdf_status source_raw_images_to_ir_impl(
         if(native_v10) {
             original_turn_staging(source,geo.rotation);
             scale_source_userunit(source,user_quarters);
+        }
+        if(native_v10 && exact.ticks_per_point==1000u) {
+            /* M2 SOURCE GEOMETRY only. A page whose original bounds
+             * are not quarter-representable may publish NO paint yet:
+             * no 238x181 integer impostor may enter the existing
+             * V1 Raster through an incorrect zero/partial viewport.
+             * A complete, genuinely blank original page remains a
+             * valid, uniquely-owned source IR with its EXACT physical
+             * 237.133x180.44 MediaBox stored as binary32 numbers.
+             * The original TeXample even-odd Fill and two Stroke paints must fail atomically. */
+            admit(geo.rotation==0 && user_quarters==4u &&
+                  full_media && source.draws.empty() &&
+                  source.painted_paths.empty() && source.order.empty() &&
+                  source.scoped_clip_membership.empty() &&
+                  !source.clip_completed &&
+                  source.clip.commands.empty() &&
+                  source.second_clip.commands.empty() &&
+                  !source.saw_q_restore &&
+                  !source.three_branch_candidate,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            *out_ir=materialize_blank_page(source);
+            return QUANTAPDF_OK;
         }
         if(native_v10 && source.three_branch_candidate) {
             *out_ir=materialize_three_branch_source(source);
