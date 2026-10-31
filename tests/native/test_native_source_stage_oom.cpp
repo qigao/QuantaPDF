@@ -645,9 +645,13 @@ static bool exact_texample_private_ir(const quantapdf_ir& ir)
  * qualified. All lifetime and error semantics remain C-owned. */
 static bool original_texample_m4a_curved_strokes(
     const quantapdf_ir& source,quantapdf_ir_raster_image& detached,
-    size_t& proven_sample_cap)
+    size_t& proven_sample_cap,bool physical=false)
 {
     if(!exact_texample_private_ir(source))return false;
+    quantapdf_native_device_plan plan{};
+    if(physical && quantapdf_native_device_plan_create_physical(
+        "0 0 237.133 180.44","0 0 237.133 180.44","1",0,72u,50000u,
+        &plan)!=QUANTAPDF_OK)return false;
     const quantapdf_ir_raster_v1_limits base={
         50000u,1u,256u,8000000u
     };
@@ -660,8 +664,10 @@ static bool original_texample_m4a_curved_strokes(
         auto op=source.operations[which];
         quantapdf_ir slice{};
         quantapdf_ir_raster_image out{},repeat{};
-        page.width_points=238.0f;
-        page.height_points=181.0f;
+        if(!physical) {
+            page.width_points=238.0f;
+            page.height_points=181.0f;
+        }
         op.graphics_state_id=0u;
         op.value.path.options.graphics_state_id=0u;
         slice.pages=&page;slice.page_count=1u;
@@ -669,8 +675,11 @@ static bool original_texample_m4a_curved_strokes(
         const size_t xc=which==1u?90u:146u;
         auto render=[&](const quantapdf_ir_raster_v1_limits& limit,
                          quantapdf_ir_raster_image& image) {
-            return quantapdf_ir_raster_render_v1_texample_closed_cubic_stroke_work(
-                &slice,0u,&limit,&image);
+            return physical ?
+                quantapdf_ir_raster_render_v1_texample_physical_cubic_stroke_work(
+                    &slice,0u,&limit,&plan,&image) :
+                quantapdf_ir_raster_render_v1_texample_closed_cubic_stroke_work(
+                    &slice,0u,&limit,&image);
         };
         auto status=render(base,out);
         if(status!=QUANTAPDF_OK || out.pixels==nullptr ||
@@ -781,13 +790,135 @@ static bool original_texample_m4a_curved_strokes(
             }
             slice.operations=&op;
         }
+        if(physical) {
+            /* No original artwork reaches the fractional page fringe. */
+            for(size_t y=0u;y<out.height;++y)
+                if(rgba_at(out,237u,y)!=UINT32_C(0xffffffff)) {
+                    quantapdf_ir_raster_image_dispose(&out);return false;
+                }
+            for(size_t x=0u;x<out.width;++x)
+                if(rgba_at(out,x,180u)!=UINT32_C(0xffffffff)) {
+                    quantapdf_ir_raster_image_dispose(&out);return false;
+                }
+            const auto valid=plan;
+            quantapdf_ir_raster_image denied;
+            if(quantapdf_native_device_plan_create(
+                "0 0 237.133 180.44","0 0 237.133 180.44","1",0,72u,
+                50000u,&plan)!=QUANTAPDF_OK)return false;
+            std::memset(&denied,0xa5,sizeof(denied));
+            if(render(base,denied)!=QUANTAPDF_ERROR_UNSUPPORTED || !is_zero(denied)) {
+                quantapdf_ir_raster_image_dispose(&out);return false;
+            }
+            plan=valid;
+            plan.from_composer[0]=238.0/237.133;
+            std::memset(&denied,0xa5,sizeof(denied));
+            if(render(base,denied)!=QUANTAPDF_ERROR_UNSUPPORTED || !is_zero(denied)) {
+                quantapdf_ir_raster_image_dispose(&out);return false;
+            }
+            plan=valid;
+        }
         if(which==1u)detached=out;
         else quantapdf_ir_raster_image_dispose(&out);
     }
-    std::printf("TeXample M4a: original both closed 0.3985 cubic S "
-                "sampled on private unscaled 238x181, first curved "
+    std::printf("TeXample %s: original both closed 0.3985 cubic S "
+                "sampled without fit stretch, first curved "
                 "Stroke sampled-edge cap=%zu, N-1 denied\n",
+                physical?"M4b physical 237.133x180.44":"M4a private 238x181",
                 proven_sample_cap);
+    return true;
+}
+
+/* Independent rectangular controls qualify only physical page coverage,
+ * never substitute for the original PDF. Geometry crosses all page edges,
+ * so clipping must happen at each 4x4 sample rather than by whole pixels. */
+static bool physical_texample_page_fringe()
+{
+    quantapdf_composer_page_state page{237.133f,180.44f,UINT32_C(0xffffffff),0};
+    quantapdf_composer_path_command commands[5]{};
+    commands[0].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+    commands[1].kind=commands[2].kind=commands[3].kind=
+        QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    commands[4].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+    commands[0].point1={-1.0f,-1.0f};
+    commands[1].point1={239.0f,-1.0f};
+    commands[2].point1={239.0f,182.0f};
+    commands[3].point1={-1.0f,182.0f};
+    quantapdf_composer_operation op{};
+    op.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
+    op.value.path.commands=commands;op.value.path.command_count=5u;
+    auto& opt=op.value.path.options;
+    opt.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+    opt.fill=1;opt.fill_argb=UINT32_C(0xffff0000);
+    opt.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
+    quantapdf_ir ir{};
+    ir.pages=&page;ir.page_count=1u;ir.operations=&op;ir.operation_count=1u;
+    quantapdf_composer_clip_state clip{};
+    clip.kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;
+    clip.commands=commands;clip.command_count=5u;
+    clip.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
+    const quantapdf_composer_clip_state *clips[1]={&clip};
+    quantapdf_native_device_plan plan{};
+    const quantapdf_ir_raster_v1_limits limit={50000u,1u,16u,8000000u};
+    if(quantapdf_native_device_plan_create_physical(
+        "0 0 237.133 180.44","0 0 237.133 180.44","1",0,72u,
+        limit.max_pixels,&plan)!=QUANTAPDF_OK)return false;
+    for(int transparent:{0,1})for(size_t count:{0u,1u}) {
+        page.suppress_background=transparent;
+        quantapdf_ir_raster_image out{};
+        if(quantapdf_ir_raster_render_v1_physical_planned(
+            &ir,0u,&limit,&plan,count?clips:nullptr,count,&out)!=QUANTAPDF_OK ||
+           out.pixels==nullptr || out.width!=238u || out.height!=181u)
+            return false;
+        for(size_t y=0u;y<181u;++y)for(size_t x=0u;x<238u;++x) {
+            /* Exact decimal arithmetic reference: sample (8*x+2*s+1)/8
+             * lies inside iff numerator*1000 < page_millipoints*8. */
+            unsigned nx=0u,ny=0u;
+            for(unsigned k=0u;k<4u;++k) {
+                nx+=((8u*x+2u*k+1u)*1000u<237133u*8u);
+                ny+=((8u*y+2u*k+1u)*1000u<180440u*8u);
+            }
+            const unsigned n=nx*ny;
+            const unsigned alpha=transparent?(255u*n+8u)/16u:255u;
+            const unsigned gb=transparent?0u:(255u*(16u-n)+8u)/16u;
+            const uint32_t expected=(UINT32_C(0xff)<<24u)|(gb<<16u)|
+                                    (gb<<8u)|alpha;
+            if(rgba_at(out,x,y)!=expected) {
+                std::fprintf(stderr,"physical fringe (%zu,%zu) alpha=%d clip=%zu "
+                    "actual=%08x expected=%08x\n",x,y,transparent,count,
+                    rgba_at(out,x,y),expected);
+                quantapdf_ir_raster_image_dispose(&out);return false;
+            }
+        }
+        quantapdf_ir_raster_image_dispose(&out);
+    }
+    /* A FIT plan or a missing physical anchor cannot opt into physical
+     * rendering by changing its mode tag. Legacy planned entry stays FIT. */
+    quantapdf_ir_raster_image denied;
+    const auto valid=plan;
+    auto zero=[](const quantapdf_ir_raster_image& image) {
+        return image.pixels==nullptr && image.width==0u && image.height==0u &&
+               image.stride==0u && image.size==0u;
+    };
+    std::memset(&denied,0xa5,sizeof(denied));
+    if(quantapdf_ir_raster_render_v1_planned(&ir,0u,&limit,&plan,nullptr,0u,
+        &denied)!=QUANTAPDF_ERROR_UNSUPPORTED || !zero(denied))return false;
+    if(quantapdf_native_device_plan_create("0 0 237.133 180.44",
+        "0 0 237.133 180.44","1",0,72u,limit.max_pixels,&plan)!=QUANTAPDF_OK)
+        return false;
+    for(int retag:{0,1}) {
+        if(retag)plan.mode=QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1;
+        std::memset(&denied,0xa5,sizeof(denied));
+        if(quantapdf_ir_raster_render_v1_physical_planned(&ir,0u,&limit,&plan,
+            nullptr,0u,&denied)!=QUANTAPDF_ERROR_UNSUPPORTED || !zero(denied))
+            return false;
+    }
+    plan=valid;plan.from_composer[5]=0.0;
+    std::memset(&denied,0xa5,sizeof(denied));
+    if(quantapdf_ir_raster_render_v1_physical_planned(&ir,0u,&limit,&plan,
+        nullptr,0u,&denied)!=QUANTAPDF_ERROR_UNSUPPORTED || !zero(denied))
+        return false;
+    std::puts("Physical 72 DPI fringe: every RGBA pixel matches exact decimal "
+              "sample counts, opaque/transparent, with/without Clip");
     return true;
 }
 
@@ -849,6 +980,15 @@ static bool authentic_texample_source_m3(
             quantapdf_ir_dispose(&ir);
             return false;
         }
+        quantapdf_ir_raster_image physical_held{};
+        size_t physical_cap=0u;
+        if(!original_texample_m4a_curved_strokes(ir,physical_held,
+                physical_cap,true) || !exact_texample_private_ir(ir)) {
+            quantapdf_ir_raster_image_dispose(&held);
+            quantapdf_ir_raster_image_dispose(&physical_held);
+            quantapdf_ir_dispose(&ir);return false;
+        }
+        const uint32_t physical_top=rgba_at(physical_held,90u,5u);
         /* A true raster pixel owner must outlive ALL original QPDF
          * Source, Clip, PAINT and IR allocations. */
         const uint32_t original_top=rgba_at(held,90u,5u);
@@ -857,8 +997,13 @@ static bool authentic_texample_source_m3(
             held.pixels!=nullptr &&
             rgba_at(held,90u,5u)==original_top &&
             rgba_at(held,90u,90u)==UINT32_C(0xffffffff);
+        const bool physical_detached_ok=physical_held.pixels!=nullptr &&
+            rgba_at(physical_held,90u,5u)==physical_top &&
+            rgba_at(physical_held,90u,90u)==UINT32_C(0xffffffff);
         quantapdf_ir_raster_image_dispose(&held);
-        if(!detached_ok || curved_cap==0u)return false;
+        quantapdf_ir_raster_image_dispose(&physical_held);
+        if(!detached_ok || !physical_detached_ok || curved_cap==0u ||
+           physical_cap==0u)return false;
     }
     for(size_t fail=1u;fail<=allocs;++fail) {
         quantapdf_ir denied;
@@ -1033,7 +1178,9 @@ int main(int argc,char **argv)
         return EXIT_FAILURE;
     if(!original_texample_decimal_source_m2(limits))
         return EXIT_FAILURE;
+    if(!physical_texample_page_fringe())return EXIT_FAILURE;
     if(!authentic_texample_source_m3(argv[2],limits))
         return EXIT_FAILURE;
     return EXIT_SUCCESS;
 }
+

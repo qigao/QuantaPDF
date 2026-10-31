@@ -149,6 +149,86 @@ static int test_crop_rotation_and_samples(void)
     return 0;
 }
 
+/* Independent physical-DPI references: geometry never depends on the
+ * enclosing integer allocation. Include original decimal TeXample, signed
+ * Crop origins, every quarter-turn, UserUnit and all three supported DPIs. */
+static int test_physical_grid(void)
+{
+    const unsigned dpis[3]={72u,96u,144u};
+    const size_t widths[3]={238u,317u,475u};
+    const size_t heights[3]={181u,241u,361u};
+    for(size_t d=0u;d<3u;++d) {
+        const double scale=(double)dpis[d]/72.0;
+        for(int rotation=0;rotation<360;rotation+=90) {
+            quantapdf_native_device_plan p;
+            const int swap=rotation==90 || rotation==270;
+            double x,y,cx,cy;
+            OK(quantapdf_native_device_plan_create_physical(
+                "0 0 237.133 180.44","0 0 237.133 180.44","1",
+                rotation,dpis[d],1000000u,&p));
+            CHECK(p.mode==QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1);
+            CHECK(p.width==(swap?heights[d]:widths[d]));
+            CHECK(p.height==(swap?widths[d]:heights[d]));
+            CHECK(p.from_composer[0]==scale && p.from_composer[3]==scale);
+            CHECK(quantapdf_native_device_plan_matches_physical_page(&p,
+                (float)p.width_points,(float)p.height_points,1000000u));
+            CHECK(!quantapdf_native_device_plan_matches_page(&p,
+                (float)p.width_points,(float)p.height_points,1000000u));
+            map(p.source_to_device,118.5665,90.22,&x,&y);
+            CHECK(near(x,p.width_points*scale/2.0));
+            CHECK(near(y,p.height_points*scale/2.0));
+            map(p.from_composer,p.width_points/2.0,
+                (double)(float)p.height_points-p.height_points/2.0,&cx,&cy);
+            CHECK(near(cx,x) && near(cy,y));
+            /* Last-buffer sample can lie outside the physical page. It
+             * must not be pulled inside by a FIT inverse mapping. */
+            CHECK((double)p.width>p.width_points*scale);
+            CHECK((double)p.height>p.height_points*scale);
+            if(d==0u) {
+                CHECK((double)p.width-0.125>p.width_points*scale);
+                CHECK((double)p.height-0.125>p.height_points*scale);
+            }
+        }
+    }
+    for(int rotation=0;rotation<360;rotation+=90) {
+        quantapdf_native_device_plan p;
+        const int swap=rotation==90 || rotation==270;
+        double x,y;
+        OK(quantapdf_native_device_plan_create_physical(
+            "-20 -20 20 20","-6.1 -3.1 3.9 4.9","1.25",
+            rotation,96u,1000000u,&p));
+        CHECK(p.width==(swap?14u:17u) && p.height==(swap?17u:14u));
+        map(p.source_to_device,-1.1,0.9,&x,&y);
+        CHECK(near(x,p.width_points*2.0/3.0));
+        CHECK(near(y,p.height_points*2.0/3.0));
+    }
+    {
+        quantapdf_native_device_plan p,fit,bad;
+        OK(quantapdf_native_device_plan_create_physical(
+            "0 0 237.133 180.44","0 0 237.133 180.44","1",
+            0,72u,43078u,&p));
+        CHECK(p.width==238u && p.height==181u);
+        CHECK(p.source_to_device[0]==1.0 && p.source_to_device[3]==-1.0);
+        CHECK(p.source_to_device[5]==180.44);
+        OK(quantapdf_native_device_plan_create(
+            "0 0 237.133 180.44","0 0 237.133 180.44","1",
+            0,72u,43078u,&fit));
+        CHECK(!quantapdf_native_device_plan_matches_physical_page(&fit,
+            237.133f,180.44f,43078u));
+        bad=fit;bad.mode=QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1;
+        CHECK(!quantapdf_native_device_plan_matches_physical_page(&bad,
+            237.133f,180.44f,43078u));
+        bad=p;bad.from_composer[5]=0.0;
+        CHECK(!quantapdf_native_device_plan_matches_physical_page(&bad,
+            237.133f,180.44f,43078u));
+        memset(&p,0xa5,sizeof(p));
+        CHECK(quantapdf_native_device_plan_create_physical(
+            "0 0 237.133 180.44","0 0 237.133 180.44","1",
+            0,72u,43077u,&p)==QUANTAPDF_ERROR_UNSUPPORTED && zero_plan(&p));
+    }
+    return 0;
+}
+
 static int test_fail_closed(void)
 {
     static const struct {
@@ -186,6 +266,18 @@ static int test_fail_closed(void)
             bad[i].unit, bad[i].rotation, bad[i].dpi, bad[i].cap, &p) ==
             QUANTAPDF_ERROR_UNSUPPORTED);
         CHECK(zero_plan(&p));
+        memset(&p, 0xa5, sizeof(p));
+        /* A tiny positive physical span needs no huge FIT scale. The
+         * legacy final negative is therefore a valid one-pixel buffer. */
+        if(i+1u==sizeof(bad)/sizeof(bad[0])) {
+            OK(quantapdf_native_device_plan_create_physical(bad[i].media,
+                bad[i].crop,bad[i].unit,bad[i].rotation,bad[i].dpi,bad[i].cap,&p));
+            CHECK(p.width==1u && p.height==1u && p.from_composer[0]==1.0);
+        } else {
+            CHECK(quantapdf_native_device_plan_create_physical(bad[i].media,
+                bad[i].crop,bad[i].unit,bad[i].rotation,bad[i].dpi,bad[i].cap,&p)==
+                QUANTAPDF_ERROR_UNSUPPORTED && zero_plan(&p));
+        }
     }
     memset(&p, 0xa5, sizeof(p));
     CHECK(quantapdf_native_device_plan_create(NULL, "0 0 10 8", "1",
@@ -217,8 +309,9 @@ static int test_fail_closed(void)
 int main(void)
 {
     if (test_exact_grid_and_unit() || test_crop_rotation_and_samples() ||
-        test_fail_closed())
+        test_physical_grid() || test_fail_closed())
         return EXIT_FAILURE;
-    puts("native device FIT plan: exact grids, source maps and refusal contracts passed");
+    puts("native device FIT/physical plans: exact grids, source maps and refusal contracts passed");
     return EXIT_SUCCESS;
 }
+

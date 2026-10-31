@@ -11,6 +11,7 @@
  * device-space IR projection reuse exact dimensions and pixel budgets.
  * It never paints, selects providers, decodes or changes the public ABI. */
 #define QUANTAPDF_NATIVE_DEVICE_FIT_V1 1u
+#define QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1 2u
 #define QUANTAPDF_NATIVE_DEVICE_MAX_PIXELS ((size_t)1000000u)
 
 /* A completed plan owns every value. There are no Graph, source, IR or
@@ -43,6 +44,15 @@ quantapdf_status quantapdf_native_device_plan_create(
     int rotation, unsigned dpi, size_t max_pixels,
     quantapdf_native_device_plan *out);
 
+/* Physical grid: exact decimal ceil determines allocation, while DPI/72
+ * determines geometry. The displayed page begins at device (0,0); any
+ * right/bottom fractional fringe must be clipped at the SAME sample grid.
+ * It is never stretched to the enclosing integer buffer. */
+quantapdf_status quantapdf_native_device_plan_create_physical(
+    const char *media_ascii, const char *crop_ascii, const char *unit_ascii,
+    int rotation, unsigned dpi, size_t max_pixels,
+    quantapdf_native_device_plan *out);
+
 #ifdef __cplusplus
 }
 #endif
@@ -51,14 +61,16 @@ quantapdf_status quantapdf_native_device_plan_create(
  * raster tests independent of a planner link dependency. This validates a
  * completed plan, not a new floating-point ceil decision. In particular,
  * output dimensions are never recovered from the float Composer page. */
-static inline int quantapdf_native_device_plan_matches_page(
-    const quantapdf_native_device_plan *p, float width_points,
+static inline int quantapdf_native_device_plan_matches_page_mode(
+    const quantapdf_native_device_plan *p, unsigned mode, float width_points,
     float height_points, size_t max_pixels)
 {
     double sx, sy, unit;
     const double *s;
     size_t i;
-    if (p == NULL || p->mode != QUANTAPDF_NATIVE_DEVICE_FIT_V1 ||
+    if (p == NULL || p->mode != mode ||
+        (mode != QUANTAPDF_NATIVE_DEVICE_FIT_V1 &&
+         mode != QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1) ||
         (p->dpi != 72u && p->dpi != 96u && p->dpi != 144u) ||
         max_pixels == 0u || p->width == 0u || p->height == 0u ||
         p->width > QUANTAPDF_NATIVE_DEVICE_MAX_PIXELS ||
@@ -77,8 +89,10 @@ static inline int quantapdf_native_device_plan_matches_page(
         width_points != (float)p->width_points ||
         height_points != (float)p->height_points)
         return 0;
-    sx = (double)p->width / p->width_points;
-    sy = (double)p->height / p->height_points;
+    sx = mode == QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1 ?
+        (double)p->dpi / 72.0 : (double)p->width / p->width_points;
+    sy = mode == QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1 ?
+        (double)p->dpi / 72.0 : (double)p->height / p->height_points;
     if (!isfinite(sx) || !isfinite(sy) ||
         sx <= 0.0 || sy <= 0.0 || sx > 1000000.0 || sy > 1000000.0)
         return 0;
@@ -116,4 +130,22 @@ static inline int quantapdf_native_device_plan_matches_page(
     return 1;
 }
 
+static inline int quantapdf_native_device_plan_matches_page(
+    const quantapdf_native_device_plan *p, float width_points,
+    float height_points, size_t max_pixels)
+{
+    return quantapdf_native_device_plan_matches_page_mode(p,
+        QUANTAPDF_NATIVE_DEVICE_FIT_V1, width_points, height_points, max_pixels);
+}
+
+static inline int quantapdf_native_device_plan_matches_physical_page(
+    const quantapdf_native_device_plan *p, float width_points,
+    float height_points, size_t max_pixels)
+{
+    return quantapdf_native_device_plan_matches_page_mode(p,
+        QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1, width_points, height_points,
+        max_pixels);
+}
+
 #endif
+
