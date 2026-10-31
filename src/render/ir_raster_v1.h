@@ -101,6 +101,18 @@ quantapdf_status quantapdf_ir_raster_render_v1_multi_clipped_fractional_stroke_v
     const quantapdf_composer_clip_state *const *clips,size_t clip_count,
     quantapdf_ir_raster_image *out_image);
 
+/* PRIVATE original TeXample-type two-ring Bézier W*: exactly
+ * two nested cardinal ring contours, each MOVE+4 CUBIC+CLOSE,
+ * with no discarded source edges or unbounded extra subpaths.
+ * One borrowed, FULLY admitted opaque PATH Fill; the SAME C11 V1
+ * 4x4 winding engine and strict visible-sample/flattened-edge
+ * limits supply every output pixel. Not general Source admission. */
+quantapdf_status quantapdf_ir_raster_render_v1_two_cubic_ring_wstar_visible_work(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_composer_clip_state *clip,
+    quantapdf_ir_raster_image *out_image);
+
 /* Explicit private FIT device-grid consumer. The immutable plan is appended
  * AFTER the semantic operation transform, identically for paint and frozen
  * Clip paths, before device-space curve flattening. Zero clips is valid.

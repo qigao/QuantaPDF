@@ -396,10 +396,172 @@ static int fractional_width_line(void)
            "153920 quota boundary, old 1px entry still strict\n");
     return EXIT_SUCCESS;
 }
+
+/* TeXample's ACTUAL original first W* contours, transposed only by
+ * its exact source authoring translation (118.566,90.22) and page
+ * Y-down orientation. Eight genuine 'c' commands, two genuine 'h',
+ * no bbox approximations or pretend line-to curves. Original PDF
+ * contains 8 such four-cubic contours in all = 32 'c' tokens; this
+ * private slice qualifies ONLY the first two as one W* Clip. */
+static void original_cubic(
+    quantapdf_composer_path_command *p,
+    float x1,float y1,float x2,float y2,float x3,float y3)
+{
+    const float tx=118.566f,cy=90.22f;
+    memset(p,0,sizeof(*p));
+    p->kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
+    p->point1=(quantapdf_point){tx+x1,cy-y1};
+    p->point2=(quantapdf_point){tx+x2,cy-y2};
+    p->point3=(quantapdf_point){tx+x3,cy-y3};
+}
+static void original_wstar_cubic_rings(
+    quantapdf_composer_path_command p[12])
+{
+    const float tx=118.566f,cy=90.22f;
+    point(&p[0],QUANTAPDF_COMPOSER_PATH_MOVE_TO,tx+28.3468f,cy);
+    original_cubic(&p[1],28.3468f,31.46452f,
+                    3.11772f,56.69362f,-28.3468f,56.69362f);
+    original_cubic(&p[2],-59.81134f,56.69362f,
+                    -85.04042f,31.46452f,-85.04042f,0.0f);
+    original_cubic(&p[3],-85.04042f,-31.46452f,
+                    -59.81134f,-56.69362f,-28.3468f,-56.69362f);
+    original_cubic(&p[4],3.11772f,-56.69362f,
+                    28.3468f,-31.46452f,28.3468f,0.0f);
+    point(&p[5],QUANTAPDF_COMPOSER_PATH_CLOSE,0.0f,0.0f);
+    point(&p[6],QUANTAPDF_COMPOSER_PATH_MOVE_TO,tx+56.69362f,cy);
+    original_cubic(&p[7],56.69362f,47.1968f,
+                    18.84999f,85.04042f,-28.3468f,85.04042f);
+    original_cubic(&p[8],-75.54361f,85.04042f,
+                    -113.38724f,47.1968f,-113.38724f,0.0f);
+    original_cubic(&p[9],-113.38724f,-47.1968f,
+                    -75.54361f,-85.04042f,-28.3468f,-85.04042f);
+    original_cubic(&p[10],18.84999f,-85.04042f,
+                    56.69362f,-47.1968f,56.69362f,0.0f);
+    point(&p[11],QUANTAPDF_COMPOSER_PATH_CLOSE,0.0f,0.0f);
+}
+static quantapdf_status original_cubic_clip_render(
+    const quantapdf_ir *ir,
+    const quantapdf_ir_raster_v1_limits *quota,
+    const quantapdf_composer_clip_state *clip,
+    quantapdf_ir_raster_image *out)
+{
+    return quantapdf_ir_raster_render_v1_two_cubic_ring_wstar_visible_work(
+        ir,0u,quota,clip,out);
+}
+static int original_texample_cubic_wstar(void)
+{
+    quantapdf_composer_page_state page={0};
+    quantapdf_composer_operation paint={0};
+    quantapdf_composer_path_command fill[5]={{0}};
+    quantapdf_composer_path_command rings[12]={{0}};
+    quantapdf_composer_clip_state clip={0};
+    quantapdf_ir ir={0};
+    quantapdf_ir_raster_v1_limits quota={
+        70000u,1u,256u,8000000u
+    };
+    quantapdf_ir_raster_image a={0},b={0},denied;
+    /* Device grid is ONLY an independent private 238x181 CEIL
+     * fixture for the original decimal 237.133x180.44 MediaBox.
+     * This does not qualify the original Source/page planner. */
+    page.width_points=238.0f;
+    page.height_points=181.0f;
+    page.background_argb=UINT32_C(0xffffffff);
+    ir.pages=&page;ir.page_count=1u;
+    ir.operations=&paint;ir.operation_count=1u;
+    rect(fill,85.0f,0.0f,96.0f,181.0f);
+    paint.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
+    paint.page_index=0u;
+    paint.value.path.commands=fill;
+    paint.value.path.command_count=5u;
+    paint.value.path.options.struct_size=
+        QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+    paint.value.path.options.fill=1;
+    paint.value.path.options.fill_argb=UINT32_C(0xff0000ff);
+    paint.value.path.options.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
+    original_wstar_cubic_rings(rings);
+    clip.kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;
+    clip.fill_rule=QUANTAPDF_COMPOSER_FILL_EVEN_ODD;
+    clip.commands=rings;clip.command_count=12u;
+    clip.transform=(quantapdf_affine_transform){1,0,0,1,0,0};
+
+    OK(original_cubic_clip_render(&ir,&quota,&clip,&a));
+    CHECK(a.pixels!=NULL && a.width==238u && a.height==181u &&
+          a.stride==238u*4u && a.size==238u*181u*4u);
+    CHECK(rgba(&a,90u,20u)==UINT32_C(0x0000ffff)); /* annulus above */
+    CHECK(rgba(&a,90u,160u)==UINT32_C(0x0000ffff)); /* annulus below */
+    CHECK(rgba(&a,90u,90u)==UINT32_C(0xffffffff)); /* W* inner hole */
+    CHECK(rgba(&a,90u,35u)==UINT32_C(0xffffffff)); /* inside inner */
+    CHECK(rgba(&a,90u,4u)==UINT32_C(0xffffffff)); /* outside outer */
+    CHECK(rgba(&a,100u,20u)==UINT32_C(0xffffffff)); /* outside draw */
+    OK(original_cubic_clip_render(&ir,&quota,&clip,&b));
+    CHECK(a.size==b.size && b.pixels!=NULL &&
+          memcmp(a.pixels,b.pixels,a.size)==0);
+    quantapdf_ir_raster_image_dispose(&b);
+    rings[0].point1.x+=5.0f;
+    CHECK(rgba(&a,90u,20u)==UINT32_C(0x0000ffff));
+    quantapdf_ir_raster_image_dispose(&a);
+    original_wstar_cubic_rings(rings);
+
+    /* De Casteljau tolerance .125px yields 16 pieces for each of
+     * the four inner quadrants, 32 for each outer quadrant. This
+     * original gives 192 Clip edges plus 4 draw edges, and its
+     * 11x171 visible bbox conservatively bills 11*171*16*196. */
+    const size_t exact_work=5898816u;
+    quota.max_sample_tests=exact_work;
+    OK(original_cubic_clip_render(&ir,&quota,&clip,&a));
+    CHECK(rgba(&a,90u,20u)==UINT32_C(0x0000ffff));
+    quantapdf_ir_raster_image_dispose(&a);
+    quota.max_sample_tests=exact_work-1u;
+    memset(&denied,0xa5,sizeof(denied));
+    CHECK(original_cubic_clip_render(&ir,&quota,&clip,&denied)==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(denied.pixels==NULL && denied.width==0u && denied.size==0u);
+    quota.max_sample_tests=8000000u;
+    quota.max_edges=195u;
+    memset(&denied,0xa5,sizeof(denied));
+    CHECK(original_cubic_clip_render(&ir,&quota,&clip,&denied)==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(denied.pixels==NULL && denied.width==0u && denied.size==0u);
+    quota.max_edges=256u;
+
+    clip.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
+    memset(&denied,0xa5,sizeof(denied));
+    CHECK(original_cubic_clip_render(&ir,&quota,&clip,&denied)==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(denied.pixels==NULL && denied.size==0u);
+    clip.fill_rule=QUANTAPDF_COMPOSER_FILL_EVEN_ODD;
+    clip.command_count=13u;
+    memset(&denied,0xa5,sizeof(denied));
+    CHECK(original_cubic_clip_render(&ir,&quota,&clip,&denied)==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(denied.pixels==NULL && denied.size==0u);
+    clip.command_count=12u;
+    rings[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    memset(&denied,0xa5,sizeof(denied));
+    CHECK(original_cubic_clip_render(&ir,&quota,&clip,&denied)==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(denied.pixels==NULL && denied.size==0u);
+    rings[2].kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
+    rings[6].point1.x+=1.0f; /* nested ring center mismatch */
+    memset(&denied,0xa5,sizeof(denied));
+    CHECK(original_cubic_clip_render(&ir,&quota,&clip,&denied)==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(denied.pixels==NULL && denied.size==0u);
+    original_wstar_cubic_rings(rings);
+    clip.member_count=1u; /* cannot smuggle a DAG in a leaf */
+    memset(&denied,0xa5,sizeof(denied));
+    CHECK(original_cubic_clip_render(&ir,&quota,&clip,&denied)==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(denied.pixels==NULL && denied.size==0u);
+    printf("Native original TeXample 2x4 cubic W* ring: same C11 "
+           "4x4 winding, 5898816 accepted / 5898815 rejected\n");
+    return EXIT_SUCCESS;
+}
 int main(void)
 {
     CHECK(acceptance()==EXIT_SUCCESS);
     CHECK(negative_cases()==EXIT_SUCCESS);
     CHECK(fractional_width_line()==EXIT_SUCCESS);
+    CHECK(original_texample_cubic_wstar()==EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }

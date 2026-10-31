@@ -1140,6 +1140,108 @@ quantapdf_status quantapdf_ir_raster_render_v1_multi_clipped_fractional_stroke_v
                              clips,clip_count,3,out_image);
 }
 
+
+/* Exact bounded 2-ring cubic W* clipping. Each of the two rings is
+ * [MOVE, CUBIC, CUBIC, CUBIC, CUBIC, CLOSE], and all four cubic
+ * ENDPOINTS are respectively top/left/bottom/right of a shared
+ * source-space center. The first ring is STRICTLY contained in the
+ * second in both radii. No source-empty MOVE can silently become a
+ * painted edge, and no general 12-command Clip grammar is opened.
+ *
+ * This PRIVATE profile proves the original TeXample W* clip topology
+ * using the same V1 cubic de Casteljau flattener, 4x4 winding sampler
+ * and *unchanged* max_edges/max_sample_tests accounting. It does NOT
+ * admit a Source PDF or a curved Stroke. */
+static int qp_v1_original_decimal_equal(double a,double b)
+{
+    /* PDF authored the original ring to FIVE decimal places.
+     * Binary32 representation after the exact original translation
+     * can differ by a few ULPs. This 0.0001pt tolerance is ONLY for
+     * validating cardinal-ring topology; it never changes samples,
+     * edge positions, winding or raster quota. */
+    return isfinite(a) && isfinite(b) && fabs(a-b)<=0.0001;
+}
+
+static int qp_v1_cubic_cardinal_ring(
+    const quantapdf_composer_path_command *p,
+    double *cx,double *cy,double *rx,double *ry)
+{
+    const quantapdf_point r=p[0].point1;
+    const quantapdf_point top=p[1].point3;
+    const quantapdf_point left=p[2].point3;
+    const quantapdf_point bottom=p[3].point3;
+    const quantapdf_point end=p[4].point3;
+    if(p[0].kind!=QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
+       p[1].kind!=QUANTAPDF_COMPOSER_PATH_CUBIC_TO ||
+       p[2].kind!=QUANTAPDF_COMPOSER_PATH_CUBIC_TO ||
+       p[3].kind!=QUANTAPDF_COMPOSER_PATH_CUBIC_TO ||
+       p[4].kind!=QUANTAPDF_COMPOSER_PATH_CUBIC_TO ||
+       p[5].kind!=QUANTAPDF_COMPOSER_PATH_CLOSE ||
+       !qp_valid_coordinate(r.x) || !qp_valid_coordinate(r.y) ||
+       !qp_valid_coordinate(top.x) || !qp_valid_coordinate(top.y) ||
+       !qp_valid_coordinate(left.x) || !qp_valid_coordinate(left.y) ||
+       !qp_valid_coordinate(bottom.x) || !qp_valid_coordinate(bottom.y) ||
+       !qp_valid_coordinate(end.x) || !qp_valid_coordinate(end.y))
+        return 0;
+    *cx=(double)top.x;
+    *cy=(double)r.y;
+    *rx=(double)r.x-*cx;
+    *ry=(double)bottom.y-*cy;
+    if(*rx<=0.0 || *ry<=0.0 ||
+       !qp_v1_original_decimal_equal((double)top.y,*cy-*ry) ||
+       !qp_v1_original_decimal_equal((double)left.x,*cx-*rx) ||
+       !qp_v1_original_decimal_equal((double)left.y,*cy) ||
+       !qp_v1_original_decimal_equal((double)bottom.x,*cx) ||
+       !qp_v1_original_decimal_equal((double)end.x,(double)r.x) ||
+       !qp_v1_original_decimal_equal((double)end.y,*cy))
+        return 0;
+    /* All cubic controls must stay in the bounded original contour
+     * rectangle. This is an exact SOURCE geometry invariant, not a
+     * point-dropping or curve-flattening approximation. */
+    for(size_t i=1u;i<=4u;++i) {
+        const quantapdf_point controls[2]={p[i].point1,p[i].point2};
+        for(size_t j=0u;j<2u;++j) {
+            const quantapdf_point q=controls[j];
+            if(!qp_valid_coordinate(q.x) || !qp_valid_coordinate(q.y) ||
+               (double)q.x<*cx-*rx-0.0001 ||
+               (double)q.x>*cx+*rx+0.0001 ||
+               (double)q.y<*cy-*ry-0.0001 ||
+               (double)q.y>*cy+*ry+0.0001)
+                return 0;
+        }
+    }
+    return 1;
+}
+
+quantapdf_status quantapdf_ir_raster_render_v1_two_cubic_ring_wstar_visible_work(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_composer_clip_state *clip,
+    quantapdf_ir_raster_image *out_image)
+{
+    const quantapdf_composer_clip_state *one[1];
+    double ix,iy,irx,iry,ox,oy,orx,ory;
+    if(out_image==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out_image,0,sizeof(*out_image));
+    if(ir==NULL || ir->operations==NULL ||
+       ir->operation_count!=1u ||
+       ir->operations[0].kind!=QUANTAPDF_COMPOSER_OPERATION_PATH ||
+       ir->operations[0].value.path.options.fill!=1 ||
+       ir->operations[0].value.path.options.stroke!=0 ||
+       clip==NULL || clip->kind!=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL ||
+       clip->fill_rule!=QUANTAPDF_COMPOSER_FILL_EVEN_ODD ||
+       clip->commands==NULL || clip->command_count!=12u ||
+       clip->members!=NULL || clip->member_count!=0u ||
+       !qp_v1_cubic_cardinal_ring(clip->commands,&ix,&iy,&irx,&iry) ||
+       !qp_v1_cubic_cardinal_ring(clip->commands+6u,&ox,&oy,&orx,&ory) ||
+       !qp_v1_original_decimal_equal(ix,ox) ||
+       !qp_v1_original_decimal_equal(iy,oy) ||
+       irx+0.0001>=orx || iry+0.0001>=ory)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    one[0]=clip;
+    return qp_render_v1_impl(ir,page_index,limits,NULL,one,1u,1,out_image);
+}
+
 quantapdf_status quantapdf_ir_raster_render_v1_planned(
     const quantapdf_ir *ir, size_t page_index,
     const quantapdf_ir_raster_v1_limits *limits,
