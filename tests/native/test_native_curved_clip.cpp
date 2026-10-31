@@ -718,8 +718,8 @@ static int two_rectangle_split_contents()
 }
 
 /* The rectangle reduction keeps its original q/paint/precision gates.
- * Curved pairs are now qualified separately, but malformed controls,
- * all-LINE noncanonical pairs and a third W still refuse atomically. */
+ * Bounded line/curve/empty pairs are qualified separately. Malformed
+ * pending operands and third definitions still refuse atomically. */
 static int two_rectangle_atomic_refusals()
 {
     const std::string first="8 4 12 12 re";
@@ -745,9 +745,9 @@ static int two_rectangle_atomic_refusals()
         "q "+first+" W n 4 5 m 4.125 18 20 18 20 5 c "+
             "20 4 l 4 4 l h W n "+image,
         "q "+first+" W n 12 6 m 12 16 l 20 16 l "+
-            "20 6 l h W* n "+image,
-        "q W n "+second+" W* n "+image,
-        "q "+first+" W n W* n "+image,
+            "20 6 l h W* n W n "+image,
+        "q W n "+second+" W* n W n "+image,
+        "q "+first+" W n W* 1 n "+image,
         "q "+first+" W n "+second+" W n "+
             "q 16 0 0 12 8 3 cm /Missing Do Q Q",
         "q "+first+" W n "+second+" W* n "+image+" BT ET",
