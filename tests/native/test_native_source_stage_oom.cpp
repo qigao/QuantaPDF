@@ -1,5 +1,5 @@
 /* Real Source V10 std::vector new failures. The EXACT production QPDF
- * Source unit is compiled independently with seven isolated test-only
+ * Source unit is compiled independently with eight isolated test-only
  * pre-allocation arming points, not with a replacement source/provider.
  * QPDF authors the original PDF; PDFium is never linked. */
 #include <quantapdf/quantapdf.h>
@@ -21,6 +21,8 @@
 #include <iterator>
 #include <new>
 #include <string>
+#include "native_ttf_fixture.h"
+#include <vector>
 
 namespace {
 thread_local unsigned target=0u, observed=0u, faults=0u;
@@ -46,18 +48,28 @@ extern "C" bool quantapdf_source_ir_oom_fail_c_allocation() noexcept
     return false;
 }
 /* The arming callback runs immediately before a genuine allocating
- * std::vector call, and the next C++ allocation fails once. */
-void *operator new(std::size_t bytes)
+ * Source step (vector growth or text-reader creation), and the next
+ * C++ allocation fails once. */
+/* Keep actual fault-injection calls observable and prevent optimizers
+ * from treating these replacement new/delete pairs as the default heap.
+ * The matching allocator/deallocator both use malloc/free. */
+#if defined(_MSC_VER)
+#define QP_FAULT_NOINLINE __declspec(noinline)
+#else
+#define QP_FAULT_NOINLINE __attribute__((noinline))
+#endif
+QP_FAULT_NOINLINE void *operator new(std::size_t bytes)
 {
     if(armed) {armed=false; ++faults; throw std::bad_alloc();}
     if(void *p=std::malloc(bytes?bytes:1u))return p;
     throw std::bad_alloc();
 }
-void *operator new[](std::size_t bytes) {return ::operator new(bytes);}
-void operator delete(void *p) noexcept {std::free(p);}
-void operator delete[](void *p) noexcept {std::free(p);}
-void operator delete(void *p,std::size_t) noexcept {std::free(p);}
-void operator delete[](void *p,std::size_t) noexcept {std::free(p);}
+QP_FAULT_NOINLINE void *operator new[](std::size_t bytes) {return ::operator new(bytes);}
+QP_FAULT_NOINLINE void operator delete(void *p) noexcept {std::free(p);}
+QP_FAULT_NOINLINE void operator delete[](void *p) noexcept {std::free(p);}
+QP_FAULT_NOINLINE void operator delete(void *p,std::size_t) noexcept {std::free(p);}
+QP_FAULT_NOINLINE void operator delete[](void *p,std::size_t) noexcept {std::free(p);}
+#undef QP_FAULT_NOINLINE
 #define CHECK(x) do {if(!(x)) { \
     std::fprintf(stderr,"Source staging OOM line %d: %s\n",__LINE__,#x); \
     return EXIT_FAILURE; \
@@ -1428,12 +1440,123 @@ static bool public_texample_complete_page(const char *filename)
     return true;
 }
 
+
+static std::vector<unsigned char> text_ir_snapshot(const quantapdf_ir& ir)
+{
+    std::vector<unsigned char> result;
+    const auto append=[&](const void *p,size_t n) {
+        const auto b=static_cast<const unsigned char*>(p);result.insert(result.end(),b,b+n);
+    };
+    append(&ir,sizeof(ir));append(ir.pages,ir.page_count*sizeof(*ir.pages));
+    append(ir.operations,ir.operation_count*sizeof(*ir.operations));
+    for(size_t i=0u;i<ir.operation_count;++i) {
+        const auto& text=ir.operations[i].value.text_outlines;
+        append(text.glyphs,text.glyph_count*sizeof(*text.glyphs));
+        for(size_t g=0u;g<text.glyph_count;++g)
+            append(text.glyphs[g].commands,text.glyphs[g].command_count*sizeof(*text.glyphs[g].commands));
+    }
+    return result;
+}
+static int native_ttf_source_and_raster_contracts(
+    const quantapdf_qpdf_source_raw_image_limits& source_limits)
+{
+    const auto original=native_ttf_fixture(1);
+    const auto read=[&](quantapdf_ir& ir) {
+        return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            reinterpret_cast<const unsigned char*>(original.data()),original.size(),&source_limits,0u,&ir);
+    };
+    target=8u;armed=false;observed=0u;faults=0u;
+    quantapdf_ir denied;std::memset(&denied,0xa5,sizeof(denied));
+    const auto staged=read(denied);
+    const bool fired=observed==8u && faults==1u && !armed;
+    target=0u;armed=false;CHECK(staged==QUANTAPDF_ERROR_NOMEM && fired && cleared(denied));
+    quantapdf_ir ir{};track_c_allocation=true;c_fail_index=0u;c_allocations=0u;c_faults=0u;
+    const auto accepted=read(ir);const size_t source_allocations=c_allocations;track_c_allocation=false;
+    CHECK(accepted==QUANTAPDF_OK && source_allocations==9u && ir.operation_count==3u);
+    for(size_t i=0u;i<3u;++i)CHECK(ir.operations[i].kind==QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES);
+    CHECK(ir.operations[0].value.text_outlines.glyph_count==2u &&
+          ir.operations[1].value.text_outlines.glyph_count==1u &&
+          ir.operations[2].value.text_outlines.glyph_count==1u);
+    const auto snapshot=text_ir_snapshot(ir);
+    const auto goldens=std::filesystem::path(__FILE__).parent_path()/"goldens";
+    quantapdf_ir_raster_image held{};std::vector<unsigned char> held_bytes;
+    for(unsigned dpi:{72u,96u,144u}) {
+        quantapdf_native_device_plan plan{};
+        CHECK(quantapdf_native_device_plan_create_physical("0 0 128 64","0 0 128 64","1",0,dpi,1000000u,&plan)==QUANTAPDF_OK);
+        quantapdf_ir_raster_v1_limits limits={1000000u,4u,512u,8000000u};
+        size_t work=0u;quantapdf_ir_raster_image full{};
+        track_c_allocation=true;c_fail_index=0u;c_allocations=0u;c_faults=0u;
+        const auto status=quantapdf_ir_raster_render_v1_text_outlines(&ir,&limits,&plan,&work,&full);
+        track_c_allocation=false;
+        CHECK(status==QUANTAPDF_OK && c_allocations==4u && work>0u && work<8000000u);
+        std::ifstream file(goldens/("roboto-layers-"+std::to_string(dpi)+"-m0.rgba"),std::ios::binary);
+        const std::vector<unsigned char> expected{std::istreambuf_iterator<char>(file),{}};
+        CHECK(expected.size()==full.size && std::memcmp(expected.data(),full.pixels,full.size)==0);
+        const auto retry=[&](const quantapdf_ir_raster_v1_limits& budget,quantapdf_status want,size_t fail_index=0u) {
+            quantapdf_ir_raster_image result;std::memset(&result,0xa5,sizeof(result));size_t seen=999u;
+            track_c_allocation=fail_index!=0u;c_fail_index=fail_index;c_allocations=0u;c_faults=0u;
+            const auto got=quantapdf_ir_raster_render_v1_text_outlines(&ir,&budget,&plan,&seen,&result);
+            track_c_allocation=false;c_fail_index=0u;
+            bool ok=got==want && text_ir_snapshot(ir)==snapshot;
+            if(want==QUANTAPDF_OK)ok=ok && seen==work && result.size==full.size &&
+                std::memcmp(result.pixels,full.pixels,full.size)==0;
+            else ok=ok && zero_bitmap(result) && seen==0u;
+            if(fail_index)ok=ok && c_allocations==fail_index && c_faults==1u;
+            quantapdf_ir_raster_image_dispose(&result);return ok;
+        };
+        const auto original_plan=plan;
+        plan.width_points+=0.000001;CHECK(retry(limits,QUANTAPDF_ERROR_UNSUPPORTED));plan=original_plan;
+        plan.height_points+=0.000001;
+        plan.source_to_device[5]=plan.height_points*((double)dpi/72.0);
+        CHECK(retry(limits,QUANTAPDF_ERROR_UNSUPPORTED));plan=original_plan;
+        auto exact=limits;exact.max_sample_tests=work;CHECK(retry(exact,QUANTAPDF_OK));
+        exact.max_sample_tests=work-1u;CHECK(retry(exact,QUANTAPDF_ERROR_UNSUPPORTED));
+        size_t lo=1u,hi=512u;
+        while(lo<hi) {
+            const size_t mid=lo+(hi-lo)/2u;auto budget=limits;budget.max_edges=mid;
+            quantapdf_ir_raster_image probe{};
+            const auto st=quantapdf_ir_raster_render_v1_text_outlines(&ir,&budget,&plan,nullptr,&probe);
+            quantapdf_ir_raster_image_dispose(&probe);
+            CHECK(st==QUANTAPDF_OK || st==QUANTAPDF_ERROR_UNSUPPORTED);
+            if(st==QUANTAPDF_OK)hi=mid;else lo=mid+1u;
+        }
+        exact=limits;exact.max_edges=lo;CHECK(retry(exact,QUANTAPDF_OK));
+        CHECK(lo>1u);exact.max_edges=lo-1u;CHECK(retry(exact,QUANTAPDF_ERROR_UNSUPPORTED));
+        exact=limits;exact.max_pixels=full.width*full.height-1u;CHECK(retry(exact,QUANTAPDF_ERROR_UNSUPPORTED));
+        exact=limits;exact.max_operations=2u;CHECK(retry(exact,QUANTAPDF_ERROR_UNSUPPORTED));
+        for(size_t fail=1u;fail<=4u;++fail) {
+            CHECK(retry(limits,QUANTAPDF_ERROR_NOMEM,fail));CHECK(retry(limits,QUANTAPDF_OK));
+        }
+        std::printf("TTF layers physical %u: edges=%zu work=%zu all RGBA, N/N-1, four OOMs/recovery\n",dpi,lo,work);
+        if(dpi==96u) {held=full;held_bytes.assign(full.pixels,full.pixels+full.size);}
+        else quantapdf_ir_raster_image_dispose(&full);
+    }
+    CHECK(text_ir_snapshot(ir)==snapshot);quantapdf_ir_dispose(&ir);CHECK(cleared(ir));
+    CHECK(held.pixels!=nullptr && held.size==58824u &&
+          held.size==held_bytes.size() && std::memcmp(held.pixels,held_bytes.data(),held.size)==0);quantapdf_ir_raster_image_dispose(&held);
+    for(size_t fail=1u;fail<=source_allocations;++fail) {
+        std::memset(&denied,0xa5,sizeof(denied));
+        track_c_allocation=true;c_fail_index=fail;c_allocations=0u;c_faults=0u;
+        const auto status=read(denied);track_c_allocation=false;c_fail_index=0u;
+        CHECK(status==QUANTAPDF_ERROR_NOMEM && cleared(denied) && c_allocations==fail && c_faults==1u);
+        CHECK(read(ir)==QUANTAPDF_OK && text_ir_snapshot(ir).size()==snapshot.size());
+        const quantapdf_ir_raster_v1_limits recovery_limits={1000000u,4u,512u,8000000u};
+        quantapdf_ir_raster_image recovery{};quantapdf_native_device_plan plan{};
+        CHECK(quantapdf_native_device_plan_create_physical("0 0 128 64","0 0 128 64","1",0,96u,1000000u,&plan)==QUANTAPDF_OK);
+        CHECK(quantapdf_ir_raster_render_v1_text_outlines(&ir,&recovery_limits,&plan,nullptr,&recovery)==QUANTAPDF_OK);
+        CHECK(recovery.size==held_bytes.size() && std::memcmp(recovery.pixels,held_bytes.data(),recovery.size)==0);
+        quantapdf_ir_raster_image_dispose(&recovery);quantapdf_ir_dispose(&ir);
+    }
+    return EXIT_SUCCESS;
+}
+
 int main(int argc,char **argv)
 {
     const std::string pdf=original_pdf();
     const quantapdf_qpdf_source_raw_image_limits limits={
         2u*1024u*1024u,65536u,4u,4u,1000000u,1000000u,4000000u,8u
     };
+    CHECK(native_ttf_source_and_raster_contracts(limits)==EXIT_SUCCESS);
     /* Stages: 1 RAW Image, 2 IMAGE order, 3 PATH ownership,
      * 4 PATH order after Image, 5 rotated RAW bytes, 6 IMAGE Clip
      * membership, 7 PATH Clip membership (second push/growth). */

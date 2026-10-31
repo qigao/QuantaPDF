@@ -1,5 +1,7 @@
 #include "qpdf_document_internal.h"
 #include "base14_metrics.h"
+#include "qpdf_text.h"
+#include "ttf_font.h"
 #include "snapshot/text_snapshot.h"
 #include <qpdf/Pipeline.hh>
 #include <qpdf/QPDFExc.hh>
@@ -10,6 +12,7 @@
 #include <cstring>
 #include <map>
 #include <limits>
+#include <iterator>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -214,7 +217,10 @@ struct font {
     bool has_cmap=false, ansi=false, standard=true, base14=false, cid=false;
     double default_width=0, ascent=0, descent=0;
     quantapdf_composer_font base=QUANTAPDF_COMPOSER_FONT_HELVETICA;
-    explicit font(Obj object, bool geometry)
+    std::string outline_bytes;
+    quantapdf::detail::ttf_font_face outline_face;
+    std::vector<uint16_t> cid_to_gid;
+    explicit font(Obj object, bool geometry,bool outlines=false)
     {
         need(object.isDictionary()); Obj subtype=object.getKey("/Subtype"); need(subtype.isName());
         std::string type=subtype.getName(); supported(type=="/Type1" || type=="/TrueType" || type=="/Type0");
@@ -271,6 +277,29 @@ struct font {
             if (!descriptor.isNull()) { need(descriptor.isDictionary()); Obj missing=descriptor.getKey("/MissingWidth"); if(!missing.isNull()) default_width=number(missing); }
         }
         need(default_width>=0);
+        if(outlines) {
+            supported(cid && metrics.getKey("/Subtype").isNameAndEquals("/CIDFontType2"));
+            Obj descriptor=metrics.getKey("/FontDescriptor");need(descriptor.isDictionary());
+            Obj file=descriptor.getKey("/FontFile2");supported(file.isStream() &&
+                descriptor.getKey("/FontFile").isNull() && descriptor.getKey("/FontFile3").isNull());
+            Obj length=file.getDict().getKey("/Length1");
+            need(length.isInteger() && length.getIntValue()>0);
+            supported(length.getIntValue()<=2*1024*1024);
+            outline_bytes=decode(file,2u*1024u*1024u);
+            need(static_cast<size_t>(length.getIntValue())==outline_bytes.size());
+            const auto status=quantapdf::detail::ttf_font_face::parse_cid(
+                reinterpret_cast<const unsigned char*>(outline_bytes.data()),outline_bytes.size(),&outline_face);
+            need(status==QUANTAPDF_OK,status);
+            supported(outline_face.outline_kind==quantapdf::detail::sfnt_outline_kind::true_type);
+            Obj map=metrics.getKey("/CIDToGIDMap");
+            if(!map.isNull() && !map.isNameAndEquals("/Identity")) {
+                supported(map.isStream());const auto bytes=decode(map,131072u);need(bytes.size()%2u==0u);
+                for(size_t i=0u;i<bytes.size();i+=2u)
+                    cid_to_gid.push_back(static_cast<uint16_t>(
+                        static_cast<unsigned char>(bytes[i])*256u+static_cast<unsigned char>(bytes[i+1u])));
+                supported(!cid_to_gid.empty());
+            }
+        }
         if (geometry) {
             Obj descriptor=metrics.getKey("/FontDescriptor");
             if (descriptor.isNull()) {
@@ -345,6 +374,10 @@ struct projection {
     quantapdf_qpdf_page_geometry const *geometry;
     std::vector<character_value> characters;
     bool pending_break=false;
+    bool outline_mode=false;
+    double outline_height=0.0;
+    size_t outline_glyphs=0u,outline_commands=0u;
+    std::vector<quantapdf::detail::source_outline_paint> outline_paints;
     // Direct dictionaries have no ObjGen identity. Cache the handle identity
     // instead; heap ownership keeps font pointers stable across vector growth.
     std::vector<std::pair<Obj,std::unique_ptr<font>>> fonts;
@@ -362,10 +395,10 @@ struct projection {
         need(object.isDictionary());
         for (auto const& cached:fonts)
             if (cached.first.isSameObjectAs(object)) return cached.second.get();
-        supported(fonts.size()<256u);
+        supported(fonts.size()<(outline_mode?1u:256u));
         Obj cmap=object.getKey("/ToUnicode");
         if(cmap.isStream()) { auto bytes=decode(cmap,1024u*1024u); supported(bytes.size()<=byte_limit-font_bytes); font_bytes+=bytes.size(); }
-        auto decoded=std::make_unique<font>(object,geometry!=nullptr);
+        auto decoded=std::make_unique<font>(object,geometry!=nullptr,outline_mode);
         size_t entries=decoded->mapping.size()+decoded->widths.size();
         supported(entries<=131072u-font_entries); font_entries+=entries;
         font *result=decoded.get(); fonts.emplace_back(object,std::move(decoded));
@@ -424,12 +457,90 @@ struct projection {
             pending_break=false; characters.push_back(prototype);
         }
     }
+    void begin_outline_paint(graphics const& g)
+    {
+        supported(outline_paints.size()<4u && g.opacity==1.0 && g.color_supported);
+        auto channel=[](double v) {supported(v>=0.0&&v<=1.0);return static_cast<uint32_t>(v*255.0+0.5);};
+        outline_paints.push_back({{},UINT32_C(0xff000000)|(channel(g.fill[0])<<16u)|
+            (channel(g.fill[1])<<8u)|channel(g.fill[2])});
+    }
+    void outline(font const& face,unsigned code,graphics const& g,matrix const& m)
+    {
+        supported(++outline_glyphs<=64u && !outline_paints.empty());
+        supported(g.size>0.0 && g.scale>0.0 && m[0]>0.0 && m[3]>0.0 &&
+                  m[1]==0.0 && m[2]==0.0);
+        unsigned gid=code;
+        if(!face.cid_to_gid.empty()) {supported(code<face.cid_to_gid.size());gid=face.cid_to_gid[code];}
+        supported(gid<face.outline_face.num_glyphs && (gid!=0u || code==0u));
+        std::vector<quantapdf::detail::ttf_outline_contour> contours;
+        const auto status=face.outline_face.outline_for(static_cast<uint16_t>(gid),&contours);
+        need(status==QUANTAPDF_OK,status);
+        using point=quantapdf::detail::ttf_outline_point;
+        quantapdf::detail::source_outline_glyph glyph;
+        auto transform=[&](point p) {
+            const double x=p.x*g.size*g.scale/face.outline_face.units_per_em;
+            const double y=p.y*g.size/face.outline_face.units_per_em+g.rise;
+            const double px=m[0]*x+m[4],py=outline_height-(m[3]*y+m[5]);
+            supported(std::isfinite(px)&&std::isfinite(py)&&std::abs(px)<=1000000.0&&std::abs(py)<=1000000.0);
+            return quantapdf_point{static_cast<float>(px),static_cast<float>(py)};
+        };
+        auto append=[&](quantapdf_composer_path_command c) {
+            supported(++outline_commands<=4096u);glyph.commands.push_back(c);
+        };
+        auto midpoint=[](point a,point b) {return point{(a.x+b.x)/2,(a.y+b.y)/2,true};};
+        auto cubic=[&](point a,point q,point b) {
+            quantapdf_composer_path_command c{};c.kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
+            c.point1=transform({a.x+(q.x-a.x)*2/3,a.y+(q.y-a.y)*2/3,true});
+            c.point2=transform({b.x+(q.x-b.x)*2/3,b.y+(q.y-b.y)*2/3,true});
+            c.point3=transform(b);append(c);
+        };
+        auto quadratic=[&](point a,point q,point b) {
+            const double denominator=a.y-2*q.y+b.y;
+            const double t=denominator!=0.0?(a.y-q.y)/denominator:0.0;
+            if(t>0.0 && t<1.0) {
+                point u{a.x+(q.x-a.x)*t,a.y+(q.y-a.y)*t,true};
+                point v{q.x+(b.x-q.x)*t,q.y+(b.y-q.y)*t,true};
+                point p{u.x+(v.x-u.x)*t,u.y+(v.y-u.y)*t,true};
+                /* At the exact quadratic Y extremum both incident controls
+                 * share that height; retain the common analytic value. */
+                u.y=v.y=p.y;
+                cubic(a,u,p);cubic(p,v,b);
+            } else cubic(a,q,b);
+        };
+        for(auto contour:contours) {
+            if(contour.empty())continue;
+            if(!contour.front().on_curve) {
+                if(contour.back().on_curve) {const auto last=contour.back();contour.pop_back();contour.insert(contour.begin(),last);}
+                else contour.insert(contour.begin(),midpoint(contour.back(),contour.front()));
+            }
+            const point first=contour.front();contour.push_back(first);
+            quantapdf_composer_path_command move{};move.kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+            move.point1=transform(first);append(move);point current=first;
+            for(size_t i=1u;i<contour.size();) {
+                if(contour[i].on_curve) {
+                    if(current.x!=contour[i].x || current.y!=contour[i].y) {
+                        quantapdf_composer_path_command line{};line.kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+                        line.point1=transform(contour[i]);append(line);
+                    }
+                    current=contour[i++];
+                } else {
+                    need(i+1u<contour.size());const point control=contour[i];
+                    const bool on=contour[i+1u].on_curve;
+                    const point end=on?contour[i+1u]:midpoint(control,contour[i+1u]);
+                    quadratic(current,control,end);current=end;i+=on?2u:1u;
+                }
+            }
+            quantapdf_composer_path_command close{};close.kind=QUANTAPDF_COMPOSER_PATH_CLOSE;append(close);
+        }
+        if(!glyph.commands.empty())outline_paints.back().glyphs.push_back(std::move(glyph));
+    }
     void show(std::string const& bytes,graphics const& g,matrix& text)
     {
         need(g.face!=nullptr); need(bytes.size()%g.face->width==0);
         for(size_t i=0;i<bytes.size();i+=g.face->width) {
             step(); unsigned c=static_cast<unsigned char>(bytes[i]); if(g.face->width==2u) c=c*256u+static_cast<unsigned char>(bytes[i+1u]);
             auto value=g.face->text(c); matrix m=concat(g.ctm,text);
+            if(outline_mode)outline(*g.face,c,g,m);
             double x=m[4]+m[2]*g.rise,y=m[5]+m[3]*g.rise;
             need(std::isfinite(x) && std::isfinite(y));
             double len=std::hypot(m[0],m[1]); need(std::isfinite(len) && len>0);
@@ -472,11 +583,14 @@ struct projection {
 };
 class reader final : public Obj::ParserCallbacks {
 public:
-    reader(projection& p,Obj resources,graphics initial,size_t depth) : p(p),resources(resources),g(initial),depth(depth) {}
+    reader(projection& p,Obj resources,graphics initial,size_t depth,
+           std::vector<graphics> saved={}) : p(p),resources(resources),g(initial),depth(depth),stack(std::move(saved)) {}
     void count(size_t n) { need(args.size()==n); }
     void inside() { need(in_text); }
     void move(double x,double y) { inside(); line=concat(line,matrix{1,0,0,1,x,y}); text=line; }
-    void show(Obj v) { inside(); need(v.isString()); p.show(v.getStringValue(),g,text); }
+    void show(Obj v,bool begin_paint=true) { inside(); need(v.isString());
+        if(p.outline_mode && begin_paint)p.begin_outline_paint(g);
+        p.show(v.getStringValue(),g,text); }
     Obj resource(char const *category,Obj name) { need(name.isName() && resources.isDictionary()); Obj dict=resources.getKey(category); need(dict.isDictionary()); return dict.getKey(name.getName()); }
     void color_space(Obj value)
     {
@@ -506,6 +620,10 @@ public:
         p.step(); supported(!object.isInlineImage());
         if(!object.isOperator()) { supported(args.size()<64u); args.push_back(object); return; }
         auto op=object.getOperatorValue();
+        if(p.outline_mode) {
+            static const char *allowed[]={"q","Q","cm","BT","ET","Tf","Tc","Tw","Tz","TL","Ts","Tr","Tm","Td","TD","T*","Tj","TJ","'","\"","g","rg"};
+            supported(std::any_of(std::begin(allowed),std::end(allowed),[&](const char *s){return op==s;}));
+        }
         if(op=="q") { count(0); supported(stack.size()<128u); stack.push_back(g); }
         else if(op=="Q") { count(0); need(!stack.empty()); g=stack.back(); stack.pop_back(); }
         else if(op=="cm") { count(6); matrix m; for(size_t i=0;i<6u;++i) m[i]=number(args[i]); g.ctm=concat(g.ctm,m); }
@@ -516,13 +634,15 @@ public:
             count(1); double n=number(args[0]);
             if(op=="Tc") g.character=n; else if(op=="Tw") g.word=n; else if(op=="Tz") g.scale=n/100; else if(op=="TL") g.leading=n; else g.rise=n;
         } else if(op=="Tr") { count(1); need(args[0].isInteger() && args[0].getIntValue()>=0 && args[0].getIntValue()<=7);
+            if(p.outline_mode)supported(args[0].getIntValue()==0);
         } else if(op=="Tm") { count(6); inside(); for(size_t i=0;i<6u;++i) text[i]=number(args[i]); line=text; }
         else if(op=="Td" || op=="TD") { count(2); double x=number(args[0]),y=number(args[1]); if(op=="TD") g.leading=-y; move(x,y); }
         else if(op=="T*") { count(0); move(0,-g.leading); }
         else if(op=="Tj") { count(1); show(args[0]); }
         else if(op=="TJ") {
             count(1); inside(); need(args[0].isArray()); supported(args[0].getArrayNItems()<=100000);
-            for(int i=0;i<args[0].getArrayNItems();++i) { p.step(); Obj v=args[0].getArrayItem(i); if(v.isString()) show(v); else text=concat(text,matrix{1,0,0,1,-number(v)*g.size*g.scale/1000.0,0}); }
+            if(p.outline_mode)p.begin_outline_paint(g);
+            for(int i=0;i<args[0].getArrayNItems();++i) { p.step(); Obj v=args[0].getArrayItem(i); if(v.isString()) show(v,false); else text=concat(text,matrix{1,0,0,1,-number(v)*g.size*g.scale/1000.0,0}); }
         } else if(op=="'" || op=="\"") {
             count(op=="'"?1u:3u); if(op=="\"") { g.word=number(args[0]); g.character=number(args[1]); } move(0,-g.leading); show(args.back());
         } else if(op=="Do") { count(1); p.draw(resource("/XObject",args[0]),resources,g,depth); }
@@ -530,7 +650,7 @@ public:
             count(1); Obj state=resource("/ExtGState",args[0]); need(state.isDictionary()); Obj f=state.getKey("/Font");
             if(!f.isNull()) { need(f.isArray() && f.getArrayNItems()==2); g.face=p.get_font(f.getArrayItem(0)); g.size=number(f.getArrayItem(1)); }
             if(p.geometry) { Obj alpha=state.getKey("/ca"); if(!alpha.isNull()) g.opacity=std::clamp(number(alpha),0.0,1.0); }
-        } else if(p.geometry && (op=="g" || op=="rg" || op=="k" || op=="cs" || op=="sc" || op=="scn")) {
+        } else if((p.geometry || p.outline_mode) && (op=="g" || op=="rg" || op=="k" || op=="cs" || op=="sc" || op=="scn")) {
             if(op=="g") { fill(1); g.fill_space=1; }
             else if(op=="rg") { fill(3); g.fill_space=3; }
             else if(op=="k") { count(4); for(auto v:args) (void)number(v); g.color_supported=false; g.fill_space=0; }
@@ -649,6 +769,45 @@ quantapdf_text_page *publish(projection const& p)
 }
 
 }
+namespace quantapdf::detail {
+namespace {
+graphics outline_graphics(source_text_seed const& seed)
+{
+    graphics g;g.ctm=seed.ctm;
+    g.fill={static_cast<double>((seed.argb>>16u)&255u)/255,
+            static_cast<double>((seed.argb>>8u)&255u)/255,
+            static_cast<double>(seed.argb&255u)/255};
+    return g;
+}
+class source_outline_reader final : public source_text_outlines {
+    projection p;
+    reader tokens;
+    template<class F> quantapdf_status invoke(F f) {
+        try {f();return QUANTAPDF_OK;}
+        catch(failure const& e){return e.status;}
+        catch(std::bad_alloc const&){return QUANTAPDF_ERROR_NOMEM;}
+        catch(std::length_error const&){return QUANTAPDF_ERROR_UNSUPPORTED;}
+        catch(...){return QUANTAPDF_ERROR_FORMAT;}
+    }
+    static std::vector<graphics> saved_graphics(const std::vector<source_text_seed>& saved)
+    {std::vector<graphics> result;for(auto const& g:saved)result.push_back(outline_graphics(g));return result;}
+public:
+    source_outline_reader(Obj resources,double height,source_text_seed seed,
+                          const std::vector<source_text_seed>& saved) :
+        p(),tokens(p,resources,outline_graphics(seed),0u,saved_graphics(saved))
+    {p.outline_mode=true;p.outline_height=height;}
+    quantapdf_status consume(Obj object) override {return invoke([&]{tokens.handleObject(object);});}
+    quantapdf_status finish() override {return invoke([&]{tokens.handleEOF();
+        supported(!p.fonts.empty() && !p.outline_paints.empty());});}
+    const std::vector<source_outline_paint>& paints() const override {return p.outline_paints;}
+};
+}
+std::unique_ptr<source_text_outlines> make_source_text_outlines(
+    QPDFObjectHandle resources,double height,source_text_seed seed,
+    const std::vector<source_text_seed>& saved)
+{return std::make_unique<source_outline_reader>(resources,height,seed,saved);}
+}
+
 extern "C" quantapdf_status quantapdf_qpdf_extract_text(quantapdf_qpdf_document *document,int page_index,char **out_utf8,size_t *out_size)
 {
     if(out_utf8) *out_utf8=nullptr;

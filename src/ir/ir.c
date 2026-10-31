@@ -16,6 +16,12 @@ void quantapdf_ir_dispose(quantapdf_ir *ir)
             free(ir->operations[i].value.path.dash_lengths);
             free(ir->operations[i].value.path.commands);
         }
+        else if (ir->operations[i].kind == QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES) {
+            quantapdf_text_outline_operation *text=&ir->operations[i].value.text_outlines;
+            if(text->glyphs!=NULL)for(size_t g=0u;g<text->glyph_count;++g)
+                free(text->glyphs[g].commands);
+            free(text->glyphs);
+        }
         else if (ir->operations[i].kind ==
                  QUANTAPDF_COMPOSER_OPERATION_EMBEDDED_TEXT)
             free(ir->operations[i].value.embedded_text.text_utf8);

@@ -49,3 +49,19 @@ Authored minimum squared-distance/ray margins are respectively
 `1.08539427591e-06 / 1.36524327952e-05` (144 DPI), above the tool's unchanged
 1e-10 ambiguity refusal. Native tests compare full RGBA; the real public API
 compares every RGB byte after independently checking reference opacity.
+
+
+## Embedded TrueType text M0
+
+`roboto-{hello,layers,tj,fringe}-{72,96,144}-m0.rgba` are independent
+unhinted original-quadratic 4×4 references, including ordered glyph overlap,
+composite é and physical page fringe. Reproduce offline with fontTools:
+
+```sh
+python tools/qualification/native_ttf_reference.py --output-dir /tmp/ttf-reference
+```
+
+The tool pins the existing Roboto fixture SHA-256 and uses 60-digit Decimal
+quadratic roots. CI compares complete public RGB and native RGBA images;
+fontTools is not a production or CI runtime dependency. See
+`docs/conformance/native-truetype-text-m0.md` for scope and failure gates.

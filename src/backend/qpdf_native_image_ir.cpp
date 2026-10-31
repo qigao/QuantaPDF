@@ -1,4 +1,5 @@
 #include "backend/qpdf_native_image_ir.h"
+#include "backend/qpdf_text.h"
 #include "backend/qpdf_document_internal.h"
 
 #include <qpdf/Pipeline.hh>
@@ -537,6 +538,9 @@ struct admission {
     size_t texample_stroke_gray_count=0u,texample_width_count=0u;
     size_t texample_orange_count=0u,texample_terminal_n=0u;
     bool texample_public_eligible=false;
+    bool text_outlines_eligible=false;
+    std::vector<quantapdf::detail::source_outline_paint> text_outline_paints={};
+    bool text_outlines_complete=false;
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule,
@@ -846,12 +850,30 @@ public:
     {
         admit(++target.operators<=512u,QUANTAPDF_ERROR_UNSUPPORTED);
         admit(!item.isInlineImage(),QUANTAPDF_ERROR_UNSUPPORTED);
+        if(outline_reader) {
+            const auto status=outline_reader->consume(item);
+            admit(status==QUANTAPDF_OK,status);return;
+        }
         if (!item.isOperator()) {
             admit(args.size()<6u,QUANTAPDF_ERROR_UNSUPPORTED);
             args.push_back(item);
             return;
         }
         const std::string op=item.getOperatorValue();
+        if(target.text_outlines_eligible && op=="BT") {
+            admit(args.empty() && pending_path.empty() && !clip_pending &&
+                !target.clip_completed && target.order.empty() && target.draws.empty() &&
+                target.painted_paths.empty() && stack.size()==fill_stack.size() &&
+                std::all_of(clip_stack.begin(),clip_stack.end(),[](size_t id){return id==0u;}),
+                QUANTAPDF_ERROR_UNSUPPORTED);
+            std::vector<quantapdf::detail::source_text_seed> saved;
+            for(size_t i=0u;i<stack.size();++i)saved.push_back({stack[i],fill_stack[i]});
+            QP_SOURCE_STAGE_ARM(8u);
+            outline_reader=quantapdf::detail::make_source_text_outlines(
+                target.resources,target.exact_page_h,{current,fill_argb},saved);
+            const auto status=outline_reader->consume(item);
+            admit(status==QUANTAPDF_OK,status);return;
+        }
         /* A single-pass feature selection, not a second token parser or
          * source retry. Leave every prior blank-page/state-only contract
          * untouched: select ONLY when the first actual m follows the
@@ -1670,6 +1692,11 @@ public:
 
     void handleEOF() override
     {
+        if(outline_reader) {
+            const auto status=outline_reader->finish();admit(status==QUANTAPDF_OK,status);
+            target.text_outline_paints=outline_reader->paints();
+            target.text_outlines_complete=true;return;
+        }
         admit(args.empty() && stack.empty() && fill_stack.empty() &&
               pending_path.empty() && !clip_pending &&
               (!clipped || clip_stack.empty()));
@@ -2054,6 +2081,7 @@ private:
     bool ten_wstar_candidate=false;
     bool three_branch_clip_pending=false;
     bool texample_pending_move=false,texample_original_ctm=false;
+    std::unique_ptr<quantapdf::detail::source_text_outlines> outline_reader;
     bool texample_prefix_possible=true;
     size_t texample_prefix_index=0u;
     quantapdf_point texample_move_point{};
@@ -2314,6 +2342,41 @@ quantapdf_ir materialize_blank_page(const admission& source)
         source.exact_page_h>0.0?source.exact_page_h:(double)source.page_h);
     ir.pages[0].background_argb=UINT32_C(0xffffffff);
     return ir;
+}
+
+/* Source text owns every glyph contour. Fonts/QPDF/observation cells are
+ * never published; glyph order and text-show grouping remain explicit. */
+quantapdf_ir materialize_text_outlines(const admission& source)
+{
+    const size_t n=source.text_outline_paints.size();
+    admit(source.text_outlines_complete && n<=4u && n<=source.limits.max_operations,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    quantapdf_ir ir=materialize_blank_page(source);
+    if(n==0u)return ir;
+    try {
+        ir.operations=static_cast<quantapdf_composer_operation *>(QP_SOURCE_C_CALLOC(n,sizeof(*ir.operations)));
+        admit(ir.operations!=nullptr,QUANTAPDF_ERROR_NOMEM);ir.operation_count=n;
+        size_t glyphs=0u,commands=0u;
+        for(size_t i=0u;i<n;++i) {
+            const auto& paint=source.text_outline_paints[i];
+            auto& op=ir.operations[i];op.kind=QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES;
+            auto& text=op.value.text_outlines;text.argb=paint.argb;
+            admit(paint.glyphs.size()<=64u-glyphs,QUANTAPDF_ERROR_UNSUPPORTED);
+            glyphs+=paint.glyphs.size();text.glyph_count=paint.glyphs.size();
+            if(text.glyph_count==0u)continue;
+            text.glyphs=static_cast<quantapdf_outline_glyph *>(QP_SOURCE_C_CALLOC(text.glyph_count,sizeof(*text.glyphs)));
+            admit(text.glyphs!=nullptr,QUANTAPDF_ERROR_NOMEM);
+            for(size_t g=0u;g<text.glyph_count;++g) {
+                auto& out=text.glyphs[g];const auto& in=paint.glyphs[g].commands;
+                admit(!in.empty() && in.size()<=4096u-commands,QUANTAPDF_ERROR_UNSUPPORTED);
+                commands+=in.size();out.command_count=in.size();
+                out.commands=static_cast<quantapdf_composer_path_command *>(QP_SOURCE_C_MALLOC(in.size()*sizeof(*out.commands)));
+                admit(out.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
+                std::memcpy(out.commands,in.data(),in.size()*sizeof(*out.commands));
+            }
+        }
+        return ir;
+    } catch(...) {quantapdf_ir_dispose(&ir);throw;}
 }
 
 /* One owned PATH producer for the independently qualified native
@@ -3956,6 +4019,9 @@ static quantapdf_status source_raw_images_to_ir_impl(
         source.texample_public_eligible=native_v10 && !private_texample_m3 &&
             exact.ticks_per_point==1000u && full_media &&
             geo.rotation==0 && user_quarters==4u;
+        source.text_outlines_eligible=native_v10 && !private_texample_m3 && full_media &&
+            geo.rotation==0 && user_quarters==4u && geo.left==0.0 && geo.bottom==0.0 &&
+            geo.right==std::trunc(geo.right) && geo.top==std::trunc(geo.top);
         source.exact_page_w=native_v10?
             (double)(exact.visible[2]-exact.visible[0])/
                 (double)exact.ticks_per_point:0.0;
@@ -3994,6 +4060,9 @@ static quantapdf_status source_raw_images_to_ir_impl(
         parsed.parseAsContents(&reader);
         admit(!parser.anyWarnings() && !pdf->anyWarnings(),
               QUANTAPDF_ERROR_FORMAT);
+        if(source.text_outlines_complete) {
+            *out_ir=materialize_text_outlines(source);return QUANTAPDF_OK;
+        }
         const bool clip_states=native_v10 &&
             !source.texample_original_profile &&
             !source.three_branch_candidate &&

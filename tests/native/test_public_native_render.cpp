@@ -14,6 +14,7 @@
 #include <vector>
 #include <stdexcept>
 #include <zlib.h>
+#include "native_ttf_fixture.h"
 
 #define CHECK(expr) do { if (!(expr)) { \
     std::fprintf(stderr,"native public render failed at %d: %s\n",__LINE__,#expr); \
@@ -3445,9 +3446,102 @@ static int native_seventh_userunit_late_refusal_cases(
     return EXIT_SUCCESS;
 }
 
+
+static int native_ttf_public_cases(const std::string& filename)
+{
+    const auto goldens=std::filesystem::path(__FILE__).parent_path()/"goldens";
+    quantapdf_context *ctx=nullptr;OK(quantapdf_context_create(&ctx));
+    /* Each positive is a fresh ORIGINAL; this restores real text observation
+     * coverage in the existing native-only public target as well. */
+    for(int mode=0;mode<=31;++mode) {
+        const bool positive=mode<=9;
+        const auto original=native_ttf_fixture(mode);
+        CHECK(write_pdf(filename,original));
+        quantapdf_document *doc=nullptr;quantapdf_page *page=nullptr;
+        OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        quantapdf_text_page *text=nullptr;
+        if(mode==0 || mode==4) {
+            char *utf8=nullptr;size_t size=0u;
+            OK(quantapdf_extract_text(page,&utf8,&size));
+            CHECK(utf8!=nullptr && std::string(utf8,size)=="Hello");
+            quantapdf_free(utf8);
+            OK(quantapdf_extract_structured_text(page,&text));
+            size_t count=0u;OK(quantapdf_text_block_count(text,&count));CHECK(count==1u);
+            OK(quantapdf_text_line_count(text,0u,&count));CHECK(count==1u);
+            OK(quantapdf_text_span_count(text,0u,0u,&count));CHECK(count==1u);
+            const char *span=nullptr;size_t n=0u;
+            OK(quantapdf_text_span_text(text,0u,0u,0u,&span,&n));
+            CHECK(span!=nullptr && std::string(span,n)=="Hello");
+            quantapdf_search_result hit{};hit.struct_size=sizeof(hit);
+            OK(quantapdf_text_search(text,"ell",&hit,1u,&count));CHECK(count==1u);
+        }
+        quantapdf_bitmap *held=nullptr;std::vector<unsigned char> retained;
+        for(int dpi:{72,96,144}) {
+            quantapdf_render_options options{};options.struct_size=sizeof(options);options.dpi=(float)dpi;
+            quantapdf_bitmap *bitmap=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+            const auto status=quantapdf_render_page_with_options(page,&options,&bitmap);
+            if(!positive) {
+                CHECK(status!=QUANTAPDF_OK && bitmap==nullptr);
+                CHECK(status==(mode==13 || mode==17 || mode==18 || mode==27 || mode==30 || mode==31?QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED));
+                continue;
+            }
+            CHECK(status==QUANTAPDF_OK && bitmap!=nullptr);
+            int w=0,h=0,stride=0,components=0;const unsigned char *pixels=nullptr;size_t n=0u;
+            OK(quantapdf_bitmap_dimensions(bitmap,&w,&h,&stride,&components));
+            OK(quantapdf_bitmap_data(bitmap,&pixels,&n));
+            CHECK(w==(128*dpi+71)/72 && h==(64*dpi+71)/72 && stride==w*3 && components==3 && n==(size_t)stride*(size_t)h);
+            if(mode==3) {for(size_t i=0u;i<n;++i)CHECK(pixels[i]==255u);}
+            else {
+                const char *name=mode==1?"layers":mode==2?"tj":mode==5?"fringe":"hello";
+                std::ifstream file(goldens/(std::string("roboto-")+name+"-"+std::to_string(dpi)+"-m0.rgba"),std::ios::binary);
+                const std::vector<unsigned char> expected{std::istreambuf_iterator<char>(file),{}};
+                CHECK(expected.size()==(size_t)w*(size_t)h*4u);
+                for(size_t i=0u;i<(size_t)w*(size_t)h;++i) {
+                    if(std::memcmp(pixels+3u*i,expected.data()+4u*i,3u)!=0) {
+                        std::fprintf(stderr,"TTF RGB mismatch mode=%d dpi=%d pixel=%zu\n",mode,dpi,i);return EXIT_FAILURE;
+                    }
+                }
+            }
+            quantapdf_bitmap *repeat=nullptr;OK(quantapdf_render_page_with_options(page,&options,&repeat));
+            const unsigned char *again=nullptr;size_t again_n=0u;
+            OK(quantapdf_bitmap_data(repeat,&again,&again_n));
+            CHECK(again_n==n && std::memcmp(again,pixels,n)==0);quantapdf_drop_bitmap(repeat);
+            if(dpi==96) {held=bitmap;retained.assign(pixels,pixels+n);}else quantapdf_drop_bitmap(bitmap);
+        }
+        quantapdf_bitmap *small=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+        const auto thumb=quantapdf_render_thumbnail(page,64,32,&small);
+        if(positive) {CHECK(thumb==QUANTAPDF_OK && small!=nullptr);quantapdf_drop_bitmap(small);}
+        else CHECK(thumb!=QUANTAPDF_OK && small==nullptr);
+        quantapdf_drop_page(page);quantapdf_close(doc);
+        if(text!=nullptr) {
+            size_t count=0u;OK(quantapdf_text_search(text,"Hello",nullptr,0u,&count));CHECK(count==1u);
+            quantapdf_drop_text_page(text);
+        }
+        if(held!=nullptr) {
+            const unsigned char *pixels=nullptr;size_t n=0u;OK(quantapdf_bitmap_data(held,&pixels,&n));
+            CHECK(n==retained.size() && std::memcmp(pixels,retained.data(),n)==0);
+            quantapdf_drop_bitmap(held);
+        }
+    }
+    /* A refused text page cannot poison a reopened good original on the
+     * same Context. Its final Bitmap also outlives that Context. */
+    CHECK(write_pdf(filename,native_ttf_fixture()));
+    quantapdf_document *doc=nullptr;quantapdf_page *page=nullptr;quantapdf_bitmap *bm=nullptr;
+    OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&doc));
+    CHECK(std::remove(filename.c_str())==0);OK(quantapdf_load_page(doc,0,&page));OK(quantapdf_render_page(page,&bm));
+    const unsigned char *pixels=nullptr;size_t n=0u;OK(quantapdf_bitmap_data(bm,&pixels,&n));
+    const std::vector<unsigned char> stable(pixels,pixels+n);
+    quantapdf_drop_page(page);quantapdf_close(doc);quantapdf_drop_context(ctx);
+    OK(quantapdf_bitmap_data(bm,&pixels,&n));CHECK(n==stable.size() && std::memcmp(pixels,stable.data(),n)==0);
+    quantapdf_drop_bitmap(bm);return EXIT_SUCCESS;
+}
+
 int main()
 {
     const std::string filename="native-standalone-smoke.pdf";
+    CHECK(native_ttf_public_cases(filename)==EXIT_SUCCESS);
     CHECK(high_dpi_cases(filename)==EXIT_SUCCESS);
     CHECK(original_source_rotation_cases(filename)==EXIT_SUCCESS);
     CHECK(selected_page_v10_cases(filename)==EXIT_SUCCESS);
