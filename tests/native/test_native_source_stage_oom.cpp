@@ -1450,6 +1450,10 @@ static std::vector<unsigned char> text_ir_snapshot(const quantapdf_ir& ir)
     append(&ir,sizeof(ir));append(ir.pages,ir.page_count*sizeof(*ir.pages));
     append(ir.operations,ir.operation_count*sizeof(*ir.operations));
     for(size_t i=0u;i<ir.operation_count;++i) {
+        if(ir.operations[i].kind==QUANTAPDF_COMPOSER_OPERATION_PATH) {
+            const auto& path=ir.operations[i].value.path;
+            append(path.commands,path.command_count*sizeof(*path.commands));continue;
+        }
         const auto& text=ir.operations[i].value.text_outlines;
         append(text.glyphs,text.glyph_count*sizeof(*text.glyphs));
         for(size_t g=0u;g<text.glyph_count;++g)
@@ -1458,9 +1462,9 @@ static std::vector<unsigned char> text_ir_snapshot(const quantapdf_ir& ir)
     return result;
 }
 static int native_ttf_source_and_raster_contracts(
-    const quantapdf_qpdf_source_raw_image_limits& source_limits)
+    const quantapdf_qpdf_source_raw_image_limits& source_limits,int mode=1)
 {
-    const auto original=native_ttf_fixture(1);
+    const auto original=native_ttf_fixture(mode);
     const auto read=[&](quantapdf_ir& ir) {
         return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
             reinterpret_cast<const unsigned char*>(original.data()),original.size(),&source_limits,0u,&ir);
@@ -1472,11 +1476,17 @@ static int native_ttf_source_and_raster_contracts(
     target=0u;armed=false;CHECK(staged==QUANTAPDF_ERROR_NOMEM && fired && cleared(denied));
     quantapdf_ir ir{};track_c_allocation=true;c_fail_index=0u;c_allocations=0u;c_faults=0u;
     const auto accepted=read(ir);const size_t source_allocations=c_allocations;track_c_allocation=false;
-    CHECK(accepted==QUANTAPDF_OK && source_allocations==9u && ir.operation_count==3u);
+    CHECK(accepted==QUANTAPDF_OK && source_allocations==(mode==1?9u:12u) && ir.operation_count==(mode==1?3u:4u));
+    if(mode==1) {
     for(size_t i=0u;i<3u;++i)CHECK(ir.operations[i].kind==QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES);
     CHECK(ir.operations[0].value.text_outlines.glyph_count==2u &&
           ir.operations[1].value.text_outlines.glyph_count==1u &&
           ir.operations[2].value.text_outlines.glyph_count==1u);
+    } else {
+        CHECK(ir.operations[0].kind==QUANTAPDF_COMPOSER_OPERATION_PATH && ir.operations[2].kind==QUANTAPDF_COMPOSER_OPERATION_PATH);
+        CHECK(ir.operations[1].kind==QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES && ir.operations[1].value.text_outlines.glyph_count==5u);
+        CHECK(ir.operations[3].kind==QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES && ir.operations[3].value.text_outlines.glyph_count==1u);
+    }
     const auto snapshot=text_ir_snapshot(ir);
     const auto goldens=std::filesystem::path(__FILE__).parent_path()/"goldens";
     quantapdf_ir_raster_image held{};std::vector<unsigned char> held_bytes;
@@ -1489,7 +1499,7 @@ static int native_ttf_source_and_raster_contracts(
         const auto status=quantapdf_ir_raster_render_v1_text_outlines(&ir,&limits,&plan,&work,&full);
         track_c_allocation=false;
         CHECK(status==QUANTAPDF_OK && c_allocations==4u && work>0u && work<8000000u);
-        std::ifstream file(goldens/("roboto-layers-"+std::to_string(dpi)+"-m0.rgba"),std::ios::binary);
+        std::ifstream file(goldens/(std::string(mode==1?"roboto-layers-":"roboto-mixed-")+std::to_string(dpi)+(mode==1?"-m0.rgba":"-m1.rgba")),std::ios::binary);
         const std::vector<unsigned char> expected{std::istreambuf_iterator<char>(file),{}};
         CHECK(expected.size()==full.size && std::memcmp(expected.data(),full.pixels,full.size)==0);
         const auto retry=[&](const quantapdf_ir_raster_v1_limits& budget,quantapdf_status want,size_t fail_index=0u) {
@@ -1557,6 +1567,7 @@ int main(int argc,char **argv)
         2u*1024u*1024u,65536u,4u,4u,1000000u,1000000u,4000000u,8u
     };
     CHECK(native_ttf_source_and_raster_contracts(limits)==EXIT_SUCCESS);
+    CHECK(native_ttf_source_and_raster_contracts(limits,32)==EXIT_SUCCESS);
     /* Stages: 1 RAW Image, 2 IMAGE order, 3 PATH ownership,
      * 4 PATH order after Image, 5 rotated RAW bytes, 6 IMAGE Clip
      * membership, 7 PATH Clip membership (second push/growth). */

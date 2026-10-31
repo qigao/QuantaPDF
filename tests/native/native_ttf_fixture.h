@@ -147,6 +147,25 @@ inline std::string native_ttf_fixture(int mode=0)
     if(mode==27 || mode==28)text="BT /F 24 Tf 12 20 Td <090d> Tj ET";
     if(mode==29)font.removeKey("/ToUnicode");
     if(mode==26)page.replaceKey("/MediaBox",O::parse("[0 0 128.5 64]"));
+    if(mode>=32 && mode<=46) {
+        const std::string background="q 0.875 g 0 0 128 64 re f Q ";
+        const std::string hello="q BT /F 24 Tf 12 20 Td <002d004a005100510054> Tj ET Q ";
+        const std::string blue="q 0 0 1 rg 25.125 18.25 12.5 9.5 re f* Q ";
+        const std::string accent="q 1 0 0 rg BT /F 24 Tf 24 20 Td <090d> Tj ET Q";
+        text=background+(mode==33?blue+hello:hello+blue)+accent;
+        if(mode==34)text=background+hello;
+        if(mode==35)text+=" 0 0 1 rg 1 1 2 2 re f"; // fifth logical paint
+        if(mode==36)text+=" /Missing Do";
+        if(mode==37)text+=" 1 1 2 2 re W n";
+        if(mode==38)text+=" 1 1 2 2 re S";
+        if(mode==39)text+=" 1 1 2 2 re"; // unfinished path
+        if(mode==40)text+=" 1 1 m 2 3 l 3 1 l h f"; // nonrectangle
+        if(mode==41)text=hello+"q 1 0.25 0 1 0 0 cm 1 1 2 2 re f Q";
+        if(mode==42)text=hello+"BT 1 1 2 2 re f ET"; // path inside text
+        if(mode==43)text=hello+"1 1 2 2 re q f Q";
+        if(mode==45)text="0 0 1 rg 1 1 m 2 3 l 3 1 l h f "+hello;
+        if(mode==46)text=background+blue+"0 g 1 1 2 2 re f 3 3 2 2 re f "+hello; // interrupted rect
+    }
     page.replaceKey("/Contents",pdf->newStream(text));
     QPDFWriter writer(*pdf);writer.setOutputMemory();writer.write();
     auto blob=writer.getBufferSharedPointer();
