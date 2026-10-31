@@ -253,10 +253,12 @@ static quantapdf_status qp_device_plan_create(
         (result.height_points - result.source_to_display[5]) * sy;
     result.from_composer[0] = sx;
     result.from_composer[3] = sy;
-    /* Semantic lowering flips Y around the FLOAT Composer canvas height.
-     * Restore the precise semantic anchor before fitting the integer grid. */
-    result.from_composer[5] =
-        (result.height_points - (double)(float)result.height_points) * sy;
+    /* Legacy Composer lowering uses its FLOAT canvas height. Physical
+     * Source IR already flips Y around the EXACT decimal height; preserve
+     * those coordinates instead of applying the float-height correction
+     * twice. Physical consumers explicitly require this source convention. */
+    result.from_composer[5] = mode == QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1 ?
+        0.0 : (result.height_points - (double)(float)result.height_points) * sy;
     if (!quantapdf_native_device_plan_matches_page_mode(&result, mode,
             (float)result.width_points, (float)result.height_points, max_pixels))
         return QUANTAPDF_ERROR_UNSUPPORTED;

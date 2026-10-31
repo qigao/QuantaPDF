@@ -912,7 +912,7 @@ static bool physical_texample_page_fringe()
             nullptr,0u,&denied)!=QUANTAPDF_ERROR_UNSUPPORTED || !zero(denied))
             return false;
     }
-    plan=valid;plan.from_composer[5]=0.0;
+    plan=valid;plan.from_composer[5]=0.25;
     std::memset(&denied,0xa5,sizeof(denied));
     if(quantapdf_ir_raster_render_v1_physical_planned(&ir,0u,&limit,&plan,
         nullptr,0u,&denied)!=QUANTAPDF_ERROR_UNSUPPORTED || !zero(denied))
@@ -984,6 +984,15 @@ static bool authentic_texample_source_m3(
         size_t physical_cap=0u;
         if(!original_texample_m4a_curved_strokes(ir,physical_held,
                 physical_cap,true) || !exact_texample_private_ir(ir)) {
+            quantapdf_ir_raster_image_dispose(&held);
+            quantapdf_ir_raster_image_dispose(&physical_held);
+            quantapdf_ir_dispose(&ir);return false;
+        }
+        /* The Source M3 producer already used the EXACT decimal Y
+         * anchor. No path is near the page fringe, so the real physical
+         * mapping must preserve every original M4a sample byte here. */
+        if(physical_held.size!=held.size ||
+           std::memcmp(physical_held.pixels,held.pixels,held.size)!=0) {
             quantapdf_ir_raster_image_dispose(&held);
             quantapdf_ir_raster_image_dispose(&physical_held);
             quantapdf_ir_dispose(&ir);return false;

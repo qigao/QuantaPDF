@@ -47,7 +47,9 @@ quantapdf_status quantapdf_native_device_plan_create(
 /* Physical grid: exact decimal ceil determines allocation, while DPI/72
  * determines geometry. The displayed page begins at device (0,0); any
  * right/bottom fractional fringe must be clipped at the SAME sample grid.
- * It is never stretched to the enclosing integer buffer. */
+ * It is never stretched to the enclosing integer buffer. The input IR is
+ * Source-staged Y-down around the EXACT displayed page height, not a
+ * Composer semantic path flipped around its binary32 canvas height. */
 quantapdf_status quantapdf_native_device_plan_create_physical(
     const char *media_ascii, const char *crop_ascii, const char *unit_ascii,
     int rotation, unsigned dpi, size_t max_pixels,
@@ -125,7 +127,8 @@ static inline int quantapdf_native_device_plan_matches_page_mode(
         p->from_composer[2] != 0.0 || p->from_composer[3] != sy ||
         p->from_composer[4] != 0.0 ||
         p->from_composer[5] !=
-            (p->height_points - (double)height_points) * sy)
+            (mode == QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1 ? 0.0 :
+                (p->height_points - (double)height_points) * sy))
         return 0;
     return 1;
 }

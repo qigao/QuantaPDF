@@ -178,7 +178,7 @@ static int test_physical_grid(void)
             CHECK(near(x,p.width_points*scale/2.0));
             CHECK(near(y,p.height_points*scale/2.0));
             map(p.from_composer,p.width_points/2.0,
-                (double)(float)p.height_points-p.height_points/2.0,&cx,&cy);
+                p.height_points/2.0,&cx,&cy);
             CHECK(near(cx,x) && near(cy,y));
             /* Last-buffer sample can lie outside the physical page. It
              * must not be pulled inside by a FIT inverse mapping. */
@@ -210,6 +210,7 @@ static int test_physical_grid(void)
         CHECK(p.width==238u && p.height==181u);
         CHECK(p.source_to_device[0]==1.0 && p.source_to_device[3]==-1.0);
         CHECK(p.source_to_device[5]==180.44);
+        CHECK(p.from_composer[5]==0.0);
         OK(quantapdf_native_device_plan_create(
             "0 0 237.133 180.44","0 0 237.133 180.44","1",
             0,72u,43078u,&fit));
@@ -218,7 +219,7 @@ static int test_physical_grid(void)
         bad=fit;bad.mode=QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1;
         CHECK(!quantapdf_native_device_plan_matches_physical_page(&bad,
             237.133f,180.44f,43078u));
-        bad=p;bad.from_composer[5]=0.0;
+        bad=p;bad.from_composer[5]=0.25;
         CHECK(!quantapdf_native_device_plan_matches_physical_page(&bad,
             237.133f,180.44f,43078u));
         memset(&p,0xa5,sizeof(p));

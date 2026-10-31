@@ -129,7 +129,8 @@ quantapdf_status quantapdf_ir_raster_render_v1_texample_physical_cubic_stroke_wo
     quantapdf_ir_raster_image *out_image);
 
 /* Same V1 Fill/Clip sample kernel, with DPI-defined geometry and the
- * physical page rectangle intersected at each 4x4 sample. Samples beyond
+ * physical page rectangle intersected at each 4x4 sample. Input coordinates
+ * are already Source-staged Y-down around the exact decimal height. Samples beyond
  * the right/bottom decimal edge retain the initialized background. FIT
  * plans and every Stroke refuse; the special original above is separate. */
 quantapdf_status quantapdf_ir_raster_render_v1_physical_planned(
