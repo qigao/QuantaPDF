@@ -66,10 +66,15 @@ quantapdf_status decode_utf8_codepoints(
     char const* text,
     std::vector<uint32_t>* out);
 
+/* Standalone Unicode programs need cmap; PDF CIDFontType2 FontFile2
+ * programs obtain character mapping from the PDF and must omit cmap. */
+enum class ttf_subset_purpose { unicode, cid_font_file2 };
+
 quantapdf_status subset_true_type_font(
     ttf_font_face const& face,
     std::map<uint16_t, uint32_t> const& used_glyphs,
-    std::vector<unsigned char>* out_font);
+    std::vector<unsigned char>* out_font,
+    ttf_subset_purpose purpose = ttf_subset_purpose::unicode);
 
 
 } // namespace quantapdf::detail
