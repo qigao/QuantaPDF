@@ -50,7 +50,7 @@ static quantapdf_status qp_clipped_raw_image(
     quantapdf_ir_raster_image raw={0},mask={0};
     unsigned char *pixels=NULL;
     quantapdf_status status=QUANTAPDF_ERROR_UNSUPPORTED;
-    size_t width,height,pixel_count,bytes,i;
+    size_t width,height,pixel_count,bytes=0u,i;
     if(out_image==NULL) return QUANTAPDF_ERROR_ARGUMENT;
     memset(out_image,0,sizeof(*out_image));
     if(ir==NULL || image_limits==NULL || clip_limits==NULL ||
@@ -108,8 +108,8 @@ static quantapdf_status qp_clipped_raw_image(
     projected_image=*image_op;
     projected_image.graphics_state_id=0u;
     projected_image.value.image.options.graphics_state_id=0u;
-    status=quantapdf_ir_raster_raw_images_v1(
-        &projected,0u,image_limits,&raw);
+    status=quantapdf_ir_raster_raw_images_v1_borrowed(
+        &projected,0u,image_limits,ledger,&raw);
     if(status!=QUANTAPDF_OK) goto cleanup;
     width=raw.width;
     height=raw.height;
@@ -160,11 +160,8 @@ static quantapdf_status qp_clipped_raw_image(
     /* Allocate and publish only after BOTH independent painters succeed.
      * This blends the effective source alpha multiplied by 4x4 Clip
      * membership, never multiplies two already averaged RGB masks. */
-    pixels=(unsigned char *)malloc(bytes);
-    if(pixels==NULL) {
-        status=QUANTAPDF_ERROR_NOMEM;
-        goto cleanup;
-    }
+    pixels=(unsigned char *)quantapdf_native_raster_malloc_v1(ledger,bytes,&status);
+    if(pixels==NULL)goto cleanup;
     for(i=0u;i<pixel_count;++i) {
         const uint32_t bg=ir->pages[0].background_argb;
         unsigned char *dst=pixels+4u*i;
@@ -188,9 +185,9 @@ static quantapdf_status qp_clipped_raw_image(
     pixels=NULL;
     status=QUANTAPDF_OK;
 cleanup:
-    free(pixels);
-    quantapdf_ir_raster_image_dispose(&mask);
-    quantapdf_ir_raster_image_dispose(&raw);
+    quantapdf_native_raster_free_v1(ledger,pixels,bytes);
+    quantapdf_native_raster_image_dispose_v1(ledger,&mask);
+    quantapdf_native_raster_image_dispose_v1(ledger,&raw);
     return status;
 }
 

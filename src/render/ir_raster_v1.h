@@ -3,7 +3,7 @@
 
 #include "render/ir_raster.h"
 #include "render/native_device_plan.h"
-#include "render/native_work_ledger_v1.h"
+#include "render/native_raster_memory_v1.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,6 +23,11 @@ typedef struct quantapdf_ir_raster_v1_limits {
     size_t max_edges;
     size_t max_sample_tests;
 } quantapdf_ir_raster_v1_limits;
+
+/* Checked allocation-capacity envelope using the kernel's real private
+ * types. Pixel/mask surfaces and borrowed Source bytes are added by prepare. */
+int quantapdf_native_geometry_allocation_bound_v1(
+    size_t max_edges,size_t max_draws,size_t *out_bytes);
 
 /* Same existing admission modes, with a reservation in the owning page's
  * ledger before entering the sampler. Conservative sample-work charges are

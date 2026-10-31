@@ -27,6 +27,7 @@ typedef struct quantapdf_native_prepared_page_v1 {
     quantapdf_ir_raster_v1_limits physical_limits;
     quantapdf_native_device_plan physical;
     quantapdf_native_prepared_usage_v1 usage;
+    quantapdf_native_resource_limits_v1 resource_limits;
 } quantapdf_native_prepared_page_v1;
 
 /* Exact classifier counts remain separate from conservative charged work.
@@ -37,6 +38,7 @@ typedef struct quantapdf_native_execution_receipt_v1 {
     int sample_tests_exact;
     size_t charged_sample_work,compiled_edges;
     size_t peak_reserved_sample_work,peak_reserved_edges,completed_leases;
+    size_t source_pixels,drawn_pixels,retained_bytes,output_bytes,peak_live_bytes;
 } quantapdf_native_execution_receipt_v1;
 
 static inline quantapdf_status quantapdf_native_source_device_validate_v1(
@@ -289,6 +291,21 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
             source->resources.graphics_state_count==1u)p.route=QP_NATIVE_PREPARED_CLIPPED_PATHS;
     else if(source->resources.clip_count==3u)p.route=QP_NATIVE_PREPARED_TWO_CLIP;
     else p.route=QP_NATIVE_PREPARED_DEVICE;
+    {
+        size_t geometry=0u,bytes=p.usage.retained_bytes;
+        const size_t draws=p.usage.expanded_paints==0u?1u:p.usage.expanded_paints;
+        /* The existing four-layer ceiling needs at most six simultaneous
+         * RGBA surfaces (three earlier layers plus raw/mask/composite).
+         * Exact Text/cubic masks fit inside that surface envelope. Geometry
+         * uses the real kernel type sizes, including optional edge boxes. */
+        if(!quantapdf_native_geometry_allocation_bound_v1(limits->max_edges,draws,&geometry) ||
+           !qp_prepared_bytes(&bytes,limits->max_pixels,24u) ||
+           !qp_prepared_charge(&bytes,geometry,SIZE_MAX))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        p.resource_limits.max_source_pixels=limits->max_source_pixels;
+        p.resource_limits.max_drawn_pixels=limits->max_drawn_pixels;
+        p.resource_limits.max_live_bytes=bytes;
+    }
     *out=p;return QUANTAPDF_OK;
 }
 
@@ -306,6 +323,8 @@ static inline quantapdf_status quantapdf_native_execute_page_v1(
     memset(out,0,sizeof(*out));
     if(p==NULL || p->source==NULL)return QUANTAPDF_ERROR_ARGUMENT;
     quantapdf_native_work_init_v1(&ledger,p->limits.max_sample_tests,p->limits.max_edges);
+    if(!quantapdf_native_resources_init_v1(&ledger,&p->resource_limits,p->usage.retained_bytes))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
     switch(p->route) {
     case QP_NATIVE_PREPARED_LEGACY:
     case QP_NATIVE_PREPARED_DEVICE:
@@ -330,7 +349,18 @@ static inline quantapdf_status quantapdf_native_execute_page_v1(
     }
     if(status==QUANTAPDF_OK && (ledger.failed ||
        ledger.reserved.sample_work!=0u || ledger.reserved.edges!=0u)) {
-        quantapdf_ir_raster_image_dispose(out);return QUANTAPDF_ERROR_UNSUPPORTED;
+        quantapdf_native_raster_image_dispose_v1(&ledger,out);return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    {
+        size_t live=p->usage.retained_bytes;
+        if((status==QUANTAPDF_OK &&
+            (out->pixels==NULL || out->size==0u ||
+             ledger.resources.source_pixels!=p->usage.image_pixels ||
+             !qp_prepared_charge(&live,out->size,ledger.resources.limit.max_live_bytes))) ||
+           ledger.resources.live_bytes!=live) {
+            quantapdf_native_raster_image_dispose_v1(&ledger,out);
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        }
     }
     if(status==QUANTAPDF_OK && receipt!=NULL) {
         receipt->sample_tests=ledger.samples_exact?ledger.used.sample_work:0u;
@@ -340,6 +370,11 @@ static inline quantapdf_status quantapdf_native_execute_page_v1(
         receipt->peak_reserved_sample_work=ledger.peak_reserved.sample_work;
         receipt->peak_reserved_edges=ledger.peak_reserved.edges;
         receipt->completed_leases=ledger.completed_leases;
+        receipt->source_pixels=ledger.resources.source_pixels;
+        receipt->drawn_pixels=ledger.resources.drawn_pixels;
+        receipt->retained_bytes=ledger.resources.borrowed_bytes;
+        receipt->output_bytes=out->size;
+        receipt->peak_live_bytes=ledger.resources.peak_live_bytes;
     }
     return status;
 }
