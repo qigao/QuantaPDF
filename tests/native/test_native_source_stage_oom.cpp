@@ -4,6 +4,7 @@
  * QPDF authors the original PDF; PDFium is never linked. */
 #include <quantapdf/quantapdf.h>
 #include "backend/qpdf_native_image_ir.h"
+#include "backend/native_prepared_page_v1.h"
 #include "backend/ttf_font.h"
 #include "render/native_device_ir_v1.h"
 #include "render/ir_raster_v1.h"
@@ -77,7 +78,7 @@ QP_FAULT_NOINLINE void operator delete[](void *p,std::size_t) noexcept {std::fre
 } } while(0)
 using Obj=QPDFObjectHandle;
 
-static std::string original_pdf()
+static std::string original_pdf(bool legacy=false)
 {
     auto pdf=QPDF::create();
     pdf->emptyPDF();
@@ -85,6 +86,7 @@ static std::string original_pdf()
     auto page=pdf->makeIndirectObject(Obj::parse(
         "<< /Type /Page /MediaBox [0 0 32 24]"
         " /UserUnit 2 /Rotate 90 >>"));
+    if(legacy) {page.removeKey("/UserUnit");page.removeKey("/Rotate");}
     root.replaceKey("/Kids",Obj::newArray({page}));
     root.replaceKey("/Count",Obj::newInteger(1));
     page.replaceKey("/Parent",root);
@@ -105,6 +107,7 @@ static std::string original_pdf()
         "Q 0.875 g 24 17 5 3 re f"));
     QPDFWriter writer(*pdf);
     writer.setOutputMemory();
+    if(legacy)writer.setCompressStreams(false);
     writer.write();
     const auto bytes=writer.getBufferSharedPointer();
     return std::string(reinterpret_cast<const char*>(bytes->getBuffer()),
@@ -981,10 +984,33 @@ static bool original_texample_three_layer(const quantapdf_ir& source,
     if(quantapdf_native_device_plan_create_physical("0 0 237.133 180.44",
         "0 0 237.133 180.44","1",0,dpi,limits.max_pixels,&plan)!=QUANTAPDF_OK)
         return false;
-    const auto render=physical_dpi?
+    const auto kernel=physical_dpi?
         quantapdf_ir_raster_render_v1_texample_physical_dpi_three_layer:shared?
         quantapdf_ir_raster_render_v1_texample_shared_three_layer:
         quantapdf_ir_raster_render_v1_texample_physical_three_layer;
+    const auto render=[&](const quantapdf_ir *ir,const quantapdf_ir_raster_v1_limits *budget,
+        const quantapdf_native_device_plan *device,size_t *observed_work,quantapdf_ir_raster_image *out) {
+        /* Keep legacy and explicitly malformed private-plan tests on their
+         * original entry. Public-shaped shared execution uses preparation,
+         * including its exact N/N-1 and every real malloc fault/recovery. */
+        if(!shared || ir!=&source || std::memcmp(device,&plan,sizeof(plan))!=0)
+            return kernel(ir,budget,device,observed_work,out);
+        if(observed_work!=nullptr)*observed_work=0u;
+        std::memset(out,0,sizeof(*out));
+        const quantapdf_ir_raster_scoped_mixed_v5_limits caps={budget->max_pixels,
+            budget->max_operations,budget->max_edges,budget->max_sample_tests,1000000u,4000000u};
+        quantapdf_native_source_raster_device_v1 request{};request.dpi=(float)dpi;
+        quantapdf_native_prepared_page_v1 prepared{};
+        auto result=quantapdf_native_prepare_page_v1(ir,&caps,&request,
+            QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&prepared);
+        if(result!=QUANTAPDF_OK)return result;
+        if(prepared.route!=QP_NATIVE_PREPARED_EXACT_CUBICS)return QUANTAPDF_ERROR_BACKEND;
+        quantapdf_native_execution_receipt_v1 receipt{};
+        result=quantapdf_native_execute_page_v1(&prepared,&receipt,out);
+        if(result==QUANTAPDF_OK && !receipt.sample_tests_exact)return QUANTAPDF_ERROR_BACKEND;
+        if(observed_work!=nullptr)*observed_work=receipt.sample_tests;
+        return result;
+    };
     auto zero=[](const quantapdf_ir_raster_image& x) {
         return x.pixels==nullptr && x.width==0u && x.height==0u &&
                x.stride==0u && x.size==0u;
@@ -1495,18 +1521,49 @@ static int native_ttf_source_and_raster_contracts(
         quantapdf_native_device_plan plan{};
         CHECK(quantapdf_native_device_plan_create_physical("0 0 128 64","0 0 128 64","1",0,dpi,1000000u,&plan)==QUANTAPDF_OK);
         quantapdf_ir_raster_v1_limits limits={1000000u,4u,512u,8000000u};
+        const auto prepare=[&](const quantapdf_ir_raster_v1_limits& budget,
+                               quantapdf_native_prepared_page_v1& out) {
+            const quantapdf_ir_raster_scoped_mixed_v5_limits caps={budget.max_pixels,
+                budget.max_operations,budget.max_edges,budget.max_sample_tests,
+                source_limits.max_source_pixels,source_limits.max_drawn_pixels};
+            quantapdf_native_source_raster_device_v1 device{};device.dpi=(float)dpi;
+            return quantapdf_native_prepare_page_v1(&ir,&caps,&device,
+                QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&out);
+        };
+        quantapdf_native_prepared_page_v1 prepared{};
+        track_c_allocation=true;c_fail_index=0u;c_allocations=0u;armed=true;
+        const auto preparation=prepare(limits,prepared);
+        const bool no_new=armed;armed=false;track_c_allocation=false;
+        CHECK(preparation==QUANTAPDF_OK && no_new && c_allocations==0u &&
+              prepared.source==&ir && prepared.route==QP_NATIVE_PREPARED_TEXT &&
+              prepared.usage.operations==ir.operation_count &&
+              prepared.usage.glyphs==(mode==1?4u:6u) &&
+              prepared.usage.expanded_paints==(mode==1?4u:8u));
         size_t work=0u;quantapdf_ir_raster_image full{};
+        quantapdf_native_execution_receipt_v1 receipt{};
         track_c_allocation=true;c_fail_index=0u;c_allocations=0u;c_faults=0u;
-        const auto status=quantapdf_ir_raster_render_v1_text_outlines(&ir,&limits,&plan,&work,&full);
+        const auto status=quantapdf_native_execute_page_v1(&prepared,&receipt,&full);
+        work=receipt.sample_tests;
         track_c_allocation=false;
-        CHECK(status==QUANTAPDF_OK && c_allocations==4u && work>0u && work<8000000u);
+        CHECK(status==QUANTAPDF_OK && receipt.sample_tests_exact && c_allocations==4u && work>0u && work<8000000u);
         std::ifstream file(goldens/(std::string(mode==1?"roboto-layers-":"roboto-mixed-")+std::to_string(dpi)+(mode==1?"-m0.rgba":"-m1.rgba")),std::ios::binary);
         const std::vector<unsigned char> expected{std::istreambuf_iterator<char>(file),{}};
         CHECK(expected.size()==full.size && std::memcmp(expected.data(),full.pixels,full.size)==0);
         const auto retry=[&](const quantapdf_ir_raster_v1_limits& budget,quantapdf_status want,size_t fail_index=0u) {
             quantapdf_ir_raster_image result;std::memset(&result,0xa5,sizeof(result));size_t seen=999u;
             track_c_allocation=fail_index!=0u;c_fail_index=fail_index;c_allocations=0u;c_faults=0u;
-            const auto got=quantapdf_ir_raster_render_v1_text_outlines(&ir,&budget,&plan,&seen,&result);
+            quantapdf_status got;
+            if(std::memcmp(&plan,&prepared.physical,sizeof(plan))!=0)
+                got=quantapdf_ir_raster_render_v1_text_outlines(&ir,&budget,&plan,&seen,&result);
+            else {
+                quantapdf_native_prepared_page_v1 retry_plan{};
+                quantapdf_native_execution_receipt_v1 retry_receipt{};
+                got=prepare(budget,retry_plan);
+                if(got==QUANTAPDF_OK)got=quantapdf_native_execute_page_v1(&retry_plan,&retry_receipt,&result);
+                else std::memset(&result,0,sizeof(result));
+                seen=retry_receipt.sample_tests;
+                if(got==QUANTAPDF_OK && !retry_receipt.sample_tests_exact)got=QUANTAPDF_ERROR_BACKEND;
+            }
             track_c_allocation=false;c_fail_index=0u;
             bool ok=got==want && text_ir_snapshot(ir)==snapshot;
             if(want==QUANTAPDF_OK)ok=ok && seen==work && result.size==full.size &&
@@ -1658,6 +1715,32 @@ static int native_ttf_subset_contracts()
 }
 /* End M0 SFNT contracts. */
 
+static int legacy_prepared_contracts(const quantapdf_qpdf_source_raw_image_limits& source_limits)
+{
+    const auto original=original_pdf(true);
+    const quantapdf_ir_raster_scoped_mixed_v5_limits caps={1000000u,4u,512u,8000000u,1000000u,4000000u};
+    for(const auto profile:{QUANTAPDF_PRIVATE_NATIVE_SOURCE_V8,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V9}) {
+        quantapdf_ir ir{};
+        const auto reader=profile==QUANTAPDF_PRIVATE_NATIVE_SOURCE_V8?
+            quantapdf_qpdf_source_scoped_mixed_v8_to_ir:quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir;
+        CHECK(reader(reinterpret_cast<const unsigned char*>(original.data()),original.size(),&source_limits,&ir)==QUANTAPDF_OK);
+        quantapdf_native_source_raster_device_v1 device{};device.dpi=72.0f;
+        quantapdf_native_prepared_page_v1 prepared{};
+        CHECK(quantapdf_native_prepare_page_v1(&ir,&caps,&device,profile,&prepared)==QUANTAPDF_OK);
+        CHECK(prepared.route==QP_NATIVE_PREPARED_LEGACY && prepared.usage.images_used==1u);
+        quantapdf_ir_raster_image baseline{},got{};
+        CHECK(quantapdf_ir_raster_scoped_mixed_v5(&ir,0u,&caps,&baseline)==QUANTAPDF_OK);
+        CHECK(quantapdf_native_execute_page_v1(&prepared,nullptr,&got)==QUANTAPDF_OK);
+        CHECK(got.size==baseline.size && std::memcmp(got.pixels,baseline.pixels,got.size)==0);
+        quantapdf_ir_raster_image_dispose(&baseline);quantapdf_ir_raster_image_dispose(&got);
+        device.dpi=96.0f;
+        CHECK(quantapdf_native_prepare_page_v1(&ir,&caps,&device,profile,&prepared)==QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(prepared.source==nullptr && prepared.route==QP_NATIVE_PREPARED_NONE);
+        quantapdf_ir_dispose(&ir);
+    }
+    return EXIT_SUCCESS;
+}
+
 int main(int argc,char **argv)
 {
     CHECK(native_ttf_subset_contracts()==EXIT_SUCCESS);
@@ -1665,6 +1748,7 @@ int main(int argc,char **argv)
     const quantapdf_qpdf_source_raw_image_limits limits={
         2u*1024u*1024u,65536u,4u,4u,1000000u,1000000u,4000000u,8u
     };
+    CHECK(legacy_prepared_contracts(limits)==EXIT_SUCCESS);
     CHECK(native_ttf_source_and_raster_contracts(limits)==EXIT_SUCCESS);
     CHECK(native_ttf_source_and_raster_contracts(limits,32)==EXIT_SUCCESS);
     /* Stages: 1 RAW Image, 2 IMAGE order, 3 PATH ownership,
