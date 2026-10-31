@@ -53,6 +53,18 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_device_viewport(
     double viewport_width,double viewport_height,
     quantapdf_ir_raster_image *out_image);
 
+
+/* PRIVATE opt-in: two owned bounded Clip Path leaves plus one flat
+ * Intersection root, one Normal/full-alpha GS (clip_id=3). Same 4x4
+ * C11 sampler for original PATH/RAW Image and physical viewport.
+ * Native Source V10 selects this graph after bounded two-leaf admission;
+ * all older V5 entrypoints retain their original one-Clip contract. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_two_clip_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

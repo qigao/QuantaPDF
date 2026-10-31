@@ -213,6 +213,41 @@ struct staged_image_clip {
     quantapdf_composer_fill_rule rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
 };
 
+bool closed_clip_path(
+    const std::vector<quantapdf_composer_path_command>& commands)
+{
+    if(commands.size()<4u || commands.size()>9u ||
+       commands.front().kind!=QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
+       commands.back().kind!=QUANTAPDF_COMPOSER_PATH_CLOSE)
+        return false;
+    for(size_t i=1u;i+1u<commands.size();++i)
+        if(commands[i].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+           commands[i].kind!=QUANTAPDF_COMPOSER_PATH_CUBIC_TO)
+            return false;
+    return true;
+}
+
+bool has_cubic_clip_command(
+    const std::vector<quantapdf_composer_path_command>& commands)
+{
+    return std::any_of(commands.begin(),commands.end(),
+        [](const quantapdf_composer_path_command& command) {
+            return command.kind==QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
+        });
+}
+
+bool qualified_owned_clip_pair(
+    const std::vector<quantapdf_composer_path_command>& first,
+    const std::vector<quantapdf_composer_path_command>& second)
+{
+    /* The new Source profile retains a curve rather than reducing it
+     * to bounds. All-line non-rectangular and empty+rectangle pairs
+     * retain their previous refusal; simple rectangle pairs keep the
+     * separately qualified exact reduction. */
+    return closed_clip_path(first) && closed_clip_path(second) &&
+        (has_cubic_clip_command(first) || has_cubic_clip_command(second));
+}
+
 /* Canonical PRIVATE source-admission signatures. The enumerated IDs are
  * stable only within this translation unit; they are not a public ABI.
  * Each existing original-source entry point names exactly one contract.
@@ -360,6 +395,11 @@ struct admission {
     bool clipped_image_mode=false;
     bool clip_completed=false;
     staged_image_clip clip;
+    /* Native V10 only: two independently frozen leaves, kept until
+     * owned IR publication as Clip IDs 1/2 plus Intersection root 3.
+     * Per-paint membership 1 denotes this root, never the first leaf. */
+    staged_image_clip second_clip;
+    bool two_owned_clips=false;
     size_t clipped_image_limit=1u;
     bool restore_second_image=false;
     bool saw_q_restore=false;
@@ -823,7 +863,8 @@ public:
              * coordinates, staged in the SAME Composer CUBIC_TO kind
              * already handled by the single bounded C11 Fill raster.
              * No fallback, new paint engine or private-profile change.
-             * Curved W/W* Clip and Stroke stay explicitly unsupported. */
+             * The qualified W/W* profiles use these same commands;
+             * Stroke remains explicitly unsupported. */
             admit(args.size()==6u && !pending_path.empty() &&
                   !closed && !clip_pending && pending_path.size()<8u,
                   QUANTAPDF_ERROR_UNSUPPORTED);
@@ -916,29 +957,29 @@ public:
             pending_path.clear();
             closed=false;
         } else if(clipped && (op=="W" || op=="W*")) {
-            /* Two simple axis-aligned rectangles with no intervening
-             * paint may be intersected EXACTLY in already transformed
-             * Source coordinates. The single resulting owned Clip is
-             * consumed by the existing C11 V5 raster; no second Clip
-             * DAG, mask averaging, PDFium or renderer is introduced.
-             * Curves/empty leaves, third W, q reentry and all older
-             * private Source profiles retain their strict rejection. */
+            /* Two qualified leaves have no intervening paint and one
+             * outer q that saved an unclipped state. Simple rectangles
+             * retain their exact one-Clip reduction. A pair containing
+             * a curve keeps BOTH frozen paths and rules for the same
+             * C11 per-sample intersection, without mask averaging. */
             admit(args.empty() && !clip_pending &&
                   (!target.mixed_scoped_mode || target.order.empty()),
                   QUANTAPDF_ERROR_UNSUPPORTED);
             if(target.native_unclipped_mode && target.clip_completed) {
                 std::array<float,4u> first{},next{};
-                /* The collapsed IR owns only one Clip identity. The
-                 * saved q state must therefore be unclipped: a Q that
-                 * restores the first leaf needs a distinct retained
-                 * Clip/GS, which this Source subset cannot publish. */
+                /* All clipped paints name the final root. Restoring
+                 * the first leaf would need a second GS identity, so
+                 * the saved outer q state must remain unclipped. */
                 admit(!second_clip_used && !second_clip_pending &&
                       clip_active && !target.saw_q_restore &&
                       clip_stack.size()==1u && !clip_stack.back() &&
                       target.order.empty() &&
                       target.draws.empty() && target.painted_paths.empty() &&
-                      closed && read_strict_rect(target.clip.commands,first) &&
-                      read_strict_rect(pending_path,next),
+                      closed &&
+                      ((read_strict_rect(target.clip.commands,first) &&
+                        read_strict_rect(pending_path,next)) ||
+                       qualified_owned_clip_pair(target.clip.commands,
+                                                 pending_path)),
                       QUANTAPDF_ERROR_UNSUPPORTED);
                 second_clip_pending=true;
             } else {
@@ -953,39 +994,46 @@ public:
         } else if(clipped && op=="n") {
             admit(args.empty(),QUANTAPDF_ERROR_UNSUPPORTED);
             if(second_clip_pending) {
-                /* Both original W/W* operands were separately parsed,
-                 * billed and frozen at their own CTM. For two simple
-                 * closed rectangles their geometric intersection is
-                 * exactly another rectangle (or zero area). Preserve
-                 * one existing uniquely owned Clip/GS resource and
-                 * the one pure-C11 subpixel winding consumer. */
+                /* Both original operands were separately parsed,
+                 * billed and frozen at their definition-time CTM.
+                 * Only two proven rectangles may replace the first
+                 * geometry. Curves retain two distinct owned leaves. */
                 std::array<float,4u> first{},next{};
                 admit(target.native_unclipped_mode &&
                       target.clip_completed && clip_active &&
-                      !second_clip_used && clip_pending &&
+                      !second_clip_used && !target.two_owned_clips &&
+                      target.second_clip.commands.empty() && clip_pending &&
                       closed && target.order.empty() &&
                       clip_stack.size()==1u && !clip_stack.back() &&
-                      read_strict_rect(target.clip.commands,first) &&
-                      read_strict_rect(pending_path,next),
+                      ((read_strict_rect(target.clip.commands,first) &&
+                        read_strict_rect(pending_path,next)) ||
+                       qualified_owned_clip_pair(target.clip.commands,
+                                                 pending_path)),
                       QUANTAPDF_ERROR_UNSUPPORTED);
-                const float left=std::max(first[0],next[0]);
-                const float top=std::max(first[1],next[1]);
-                const float right=std::min(first[2],next[2]);
-                const float bottom=std::min(first[3],next[3]);
-                const bool nonempty=right>left && bottom>top;
-                const float x0=nonempty?left:0.0f;
-                const float y0=nonempty?top:0.0f;
-                const float x1=nonempty?right:0.0f;
-                const float y1=nonempty?bottom:0.0f;
-                const quantapdf_point corners[4]={
-                    {x0,y0},{x1,y0},{x1,y1},{x0,y1}
-                };
-                for(size_t i=0u;i<4u;++i)
-                    target.clip.commands[i].point1=corners[i];
-                /* Both accepted rectangular leaves have exactly one
-                 * contour. W and W* denote the same rectangle set;
-                 * the canonical one-contour intersection is NONZERO. */
-                target.clip.rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
+                if(read_strict_rect(target.clip.commands,first) &&
+                   read_strict_rect(pending_path,next)) {
+                    const float left=std::max(first[0],next[0]);
+                    const float top=std::max(first[1],next[1]);
+                    const float right=std::min(first[2],next[2]);
+                    const float bottom=std::min(first[3],next[3]);
+                    const bool nonempty=right>left && bottom>top;
+                    const float x0=nonempty?left:0.0f;
+                    const float y0=nonempty?top:0.0f;
+                    const float x1=nonempty?right:0.0f;
+                    const float y1=nonempty?bottom:0.0f;
+                    const quantapdf_point corners[4]={
+                        {x0,y0},{x1,y0},{x1,y1},{x0,y1}
+                    };
+                    for(size_t i=0u;i<4u;++i)
+                        target.clip.commands[i].point1=corners[i];
+                    /* Both simple rectangles denote the same set for
+                     * W and W*. The reduced contour is NONZERO. */
+                    target.clip.rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
+                } else {
+                    target.second_clip.commands=std::move(pending_path);
+                    target.second_clip.rule=clip_rule;
+                    target.two_owned_clips=true;
+                }
                 second_clip_pending=false;
                 second_clip_used=true;
                 clip_pending=false;
@@ -1324,6 +1372,7 @@ void original_turn_staging(admission& source,int rotation)
     for(auto& path:source.painted_paths)
         original_turn_commands(path.commands,w,h,rotation);
     original_turn_commands(source.clip.commands,w,h,rotation);
+    original_turn_commands(source.second_clip.commands,w,h,rotation);
     for(auto& image:source.draws)
         original_turn_image(image,w,h,rotation);
     if(rotation==90 || rotation==270) {
@@ -1552,14 +1601,66 @@ quantapdf_ir materialize_image_only(const admission& source)
     return materialize(source);
 }
 
-/* Image Do with one frozen source W/W* Clip Path. The old image-only
- * and mixed Path/Image profiles stay deliberately narrower. Clip geometry
- * is already transformed into page-display coordinates at definition time. */
+/* Publish the same detached Clip payload shape in IMAGE-only and mixed
+ * materializers. The caller's existing catch/dispose owns every slot
+ * immediately, including partial leaf/root allocation failures. The old
+ * one-leaf path keeps its allocation order and count unchanged. */
+quantapdf_composer_clip_id materialize_source_clip_graph(
+    quantapdf_ir& ir,const admission& source)
+{
+    const bool two=source.two_owned_clips;
+    admit(source.clip_completed &&
+          source.clip.commands.size()>=4u &&
+          source.clip.commands.size()<=9u &&
+          ir.resources.clips==nullptr &&
+          ir.resources.clip_count==0u && ir.resources.clip_capacity==0u &&
+          (two ?
+             (source.native_unclipped_mode &&
+              qualified_owned_clip_pair(source.clip.commands,
+                                        source.second_clip.commands)) :
+             source.second_clip.commands.empty()),
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    const size_t count=two?3u:1u;
+    const size_t leaves=two?2u:1u;
+    ir.resources.clips=static_cast<quantapdf_composer_clip_state *>(
+        QP_SOURCE_C_CALLOC(count,sizeof(*ir.resources.clips)));
+    admit(ir.resources.clips!=nullptr,QUANTAPDF_ERROR_NOMEM);
+    ir.resources.clip_count=count;
+    ir.resources.clip_capacity=count;
+    for(size_t i=0u;i<leaves;++i) {
+        const staged_image_clip& staged=i==0u?source.clip:source.second_clip;
+        auto& clip=ir.resources.clips[i];
+        clip.kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;
+        clip.fill_rule=staged.rule;
+        clip.command_count=staged.commands.size();
+        clip.commands=static_cast<quantapdf_composer_path_command *>(
+            QP_SOURCE_C_MALLOC(clip.command_count*sizeof(*clip.commands)));
+        admit(clip.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        std::memcpy(clip.commands,staged.commands.data(),
+                    clip.command_count*sizeof(*clip.commands));
+        clip.transform={1.0f,0.0f,0.0f,1.0f,0.0f,0.0f};
+    }
+    if(two) {
+        auto& root=ir.resources.clips[2];
+        root.kind=QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL;
+        root.member_count=2u;
+        root.members=static_cast<quantapdf_composer_clip_id *>(
+            QP_SOURCE_C_MALLOC(root.member_count*sizeof(*root.members)));
+        admit(root.members!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        root.members[0]=1u;
+        root.members[1]=2u;
+    }
+    return two?3u:1u;
+}
+
+/* Image Do with frozen source W/W* Clip geometry. The original profiles
+ * keep one leaf. Native V10 alone may retain two qualified leaves and
+ * one exact Intersection root. Every point was frozen at definition time. */
 quantapdf_ir materialize_clipped_image(const admission& source,
                                        size_t expected_images)
 {
     /* Native public V10 alone accepts exactly one or two original
-     * Image Do paints inside the SAME frozen W/W* Clip. Every staged
+     * Image Do paints inside the same final frozen Clip. Every staged
      * operation has an explicit clipped membership; a second draw after
      * Q restoration is not this contract. The old source signatures
      * and their legacy clipped-image cardinalities remain unchanged. */
@@ -1597,23 +1698,7 @@ quantapdf_ir materialize_clipped_image(const admission& source,
         state.fill_alpha=1.0f;
         state.stroke_alpha=1.0f;
         state.blend_mode=QUANTAPDF_COMPOSER_BLEND_NORMAL;
-        state.clip_id=1u;
-
-        ir.resources.clips=static_cast<quantapdf_composer_clip_state *>(
-            QP_SOURCE_C_CALLOC(1u,sizeof(*ir.resources.clips)));
-        admit(ir.resources.clips!=nullptr,QUANTAPDF_ERROR_NOMEM);
-        ir.resources.clip_count=1u;
-        ir.resources.clip_capacity=1u;
-        auto& clip=ir.resources.clips[0];
-        clip.kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;
-        clip.fill_rule=source.clip.rule;
-        clip.command_count=source.clip.commands.size();
-        clip.commands=static_cast<quantapdf_composer_path_command *>(
-            QP_SOURCE_C_MALLOC(clip.command_count*sizeof(*clip.commands)));
-        admit(clip.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
-        std::memcpy(clip.commands,source.clip.commands.data(),
-                    clip.command_count*sizeof(*clip.commands));
-        clip.transform={1.0f,0.0f,0.0f,1.0f,0.0f,0.0f};
+        state.clip_id=materialize_source_clip_graph(ir,source);
         for(size_t i=0u;i<expected_images;++i) {
             const quantapdf_composer_graphics_state_id state_id =
                 source.restore_second_image && i==1u ? 0u : 1u;
@@ -1770,7 +1855,7 @@ quantapdf_ir materialize_scoped_mixed_v5(const admission& source,
         }
     }
     /* The public native-only V10 profile also admits exactly one
-     * Image Do and one opaque Path Fill within the SAME frozen W/W*
+     * Image Do and one opaque Path Fill within the same final frozen
      * Clip, in either authored paint order. This never broadens V5–V9
      * private Source signatures, and three all-clipped paints still
      * refuse atomically rather than silently dropping an operation. */
@@ -1801,23 +1886,7 @@ quantapdf_ir materialize_scoped_mixed_v5(const admission& source,
         state.fill_alpha=1.0f;
         state.stroke_alpha=1.0f;
         state.blend_mode=QUANTAPDF_COMPOSER_BLEND_NORMAL;
-        state.clip_id=1u;
-        ir.resources.clips=
-            static_cast<quantapdf_composer_clip_state *>(
-            QP_SOURCE_C_CALLOC(1u,sizeof(*ir.resources.clips)));
-        admit(ir.resources.clips!=nullptr,QUANTAPDF_ERROR_NOMEM);
-        ir.resources.clip_count=1u;
-        ir.resources.clip_capacity=1u;
-        auto& clip=ir.resources.clips[0];
-        clip.kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;
-        clip.fill_rule=source.clip.rule;
-        clip.command_count=source.clip.commands.size();
-        clip.commands=static_cast<quantapdf_composer_path_command *>(
-            QP_SOURCE_C_MALLOC(clip.command_count*sizeof(*clip.commands)));
-        admit(clip.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
-        std::memcpy(clip.commands,source.clip.commands.data(),
-                    clip.command_count*sizeof(*clip.commands));
-        clip.transform={1.0f,0.0f,0.0f,1.0f,0.0f,0.0f};
+        state.clip_id=materialize_source_clip_graph(ir,source);
         for(size_t i=0u;i<count;++i) {
             auto& op=ir.operations[i];
             const quantapdf_composer_graphics_state_id id=
@@ -2167,6 +2236,7 @@ void scale_source_userunit(admission& source,unsigned quarters)
     for(auto& p:source.painted_paths)
         commands(p.commands);
     commands(source.clip.commands);
+    commands(source.second_clip.commands);
     size_t physical_draw=0u;
     for(auto& image:source.draws) {
         const double x0=(double)image.bounds.x0*unit;
@@ -2334,7 +2404,7 @@ static quantapdf_status source_raw_images_to_ir_impl(
         /* Initialize ALL members explicitly. Some CI toolchains enable
          * -Werror=missing-field-initializers for aggregate additions. */
         admission source{resources,*limits,page_w,page_h,0u,0u,0u,
-                          {},false,{},{},2u,false,false,{},
+                          {},false,{},{},2u,false,false,{},{},false,
                           1u,false,false,false,{},false,false,false,
                           false,false,false};
         const source_profile_contract& profile=source_profile_for(profile_id);
@@ -2431,7 +2501,7 @@ static quantapdf_status source_raw_images_to_ir_impl(
             *out_ir=materialize_unclipped_mixed(source);
             return QUANTAPDF_OK;
         }
-        /* One/two original Image Do paints under ONE frozen W/W* Clip
+        /* One/two original Image Do paints under the final frozen Clip
          * are a separate homogeneous Source V10 profile. Exact
          * membership preflight is repeated inside the materializer
          * before publishing owned IR. No PATH operation is invented. */

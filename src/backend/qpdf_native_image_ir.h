@@ -212,7 +212,17 @@ quantapdf_status quantapdf_qpdf_source_scoped_mixed_v10_flate_predictor_to_ir(
  * and all of its inherited state must be validated under bounded PageTree
  * work. This publishes a local one-page IR using page slot zero solely
  * for canonical C11 raster admission, not as a substituted PDF leaf.
- * Earlier Source entry points retain exact page-zero semantics. */
+ * Earlier Source entry points retain exact page-zero semantics.
+ *
+ * The native V10 Clip profile admits two closed 4..9-command leaves,
+ * at least one containing a cubic, before any paint in one outer q
+ * scope that saved an unclipped state. Both definition-time paths and
+ * winding rules are retained: owned Clip IDs 1/2, owned flat root 3,
+ * and one GS naming root 3. Q restores GS=0; paints under a separately
+ * restored first leaf remain unsupported. Original Rotate and UserUnit
+ * apply to both leaves. Simple rectangle pairs retain their exact
+ * one-leaf intersection reduction. All payloads publish atomically and
+ * are released by quantapdf_ir_dispose, including partial OOM cleanup. */
 quantapdf_status quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
     const unsigned char *original_pdf,size_t size,
     const quantapdf_qpdf_source_raw_image_limits *limits,

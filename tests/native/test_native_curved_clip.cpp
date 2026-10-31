@@ -376,7 +376,9 @@ static int atomic_rejections()
         " W n q 16 0 0 12 8 3 cm /I Do Q Q";
     const std::vector<std::string> bad={
         "q "+path+" W q 16 0 0 12 8 3 cm /I Do Q Q",
-        "q "+path+" W n "+path+" W* n "
+        /* Two identical owned curved leaves are now qualified; a third
+         * definition must still reject the complete original page. */
+        "q "+path+" W n "+path+" W* n "+path+" W n "
            "q 16 0 0 12 8 3 cm /I Do Q Q",
         "q "+path+" W* n q 16 0 0 12 8 3 cm /Missing Do Q Q",
         ready+" S",
@@ -715,10 +717,9 @@ static int two_rectangle_split_contents()
     return EXIT_SUCCESS;
 }
 
-/* All extra W definitions remain fully parsed/billed, but only
- * two strict, already Source-staged rectangles with no earlier
- * paint and one q scope may collapse into one owned Clip.
- * Anything else refuses the entire page (NULL Bitmap). */
+/* The rectangle reduction keeps its original q/paint/precision gates.
+ * Curved pairs are now qualified separately, but malformed controls,
+ * all-LINE noncanonical pairs and a third W still refuse atomically. */
 static int two_rectangle_atomic_refusals()
 {
     const std::string first="8 4 12 12 re";
@@ -739,7 +740,9 @@ static int two_rectangle_atomic_refusals()
         "q "+first+" W n Q q "+second+" W* n "+image,
         "q "+first+" W n q 16 0 0 12 8 3 cm /I Do Q "+
             second+" W* n Q",
-        "q "+first+" W n 4 5 m 4 18 20 18 20 5 c "+
+        /* A rectangle plus a valid cubic now has positive coverage in
+         * test_native_two_curved_source; off-quarter controls do not. */
+        "q "+first+" W n 4 5 m 4.125 18 20 18 20 5 c "+
             "20 4 l 4 4 l h W n "+image,
         "q "+first+" W n 12 6 m 12 16 l 20 16 l "+
             "20 6 l h W* n "+image,
