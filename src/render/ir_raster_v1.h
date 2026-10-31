@@ -75,6 +75,19 @@ quantapdf_status quantapdf_ir_raster_render_v1_multi_clipped_visible_work(
     const quantapdf_composer_clip_state *const *clips,size_t clip_count,
     quantapdf_ir_raster_image *out_image);
 
+/* Explicit PRIVATE 1px axis-aligned open butt Stroke under exactly
+ * two Clip Path leaves, within the original V1 4x4 sampler and cap.
+ * Its visit envelope is the flattened segment endpoints expanded by
+ * 0.5 device pixel (BOTH axes), then intersected with each frozen
+ * Clip envelope. Counts every visited stroke and Clip edge test.
+ * Fully separate from the prior clipped Fill work entry; not public
+ * Source admission, general Stroke or additional raster. */
+quantapdf_status quantapdf_ir_raster_render_v1_multi_clipped_stroke_visible_work(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_composer_clip_state *const *clips,size_t clip_count,
+    quantapdf_ir_raster_image *out_image);
+
 /* Explicit private FIT device-grid consumer. The immutable plan is appended
  * AFTER the semantic operation transform, identically for paint and frozen
  * Clip paths, before device-space curve flattening. Zero clips is valid.

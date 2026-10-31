@@ -81,12 +81,13 @@ static int v5_closed_contour(
 
 /* Explicit compound/two-GS and unclipped-prefix profiles share this
  * Clip grammar. Contours stay in one winding calculation and budget. */
-static int v5_closed_clip_contours(
-    const quantapdf_composer_path_command *commands,size_t count)
+static int v5_closed_clip_contours_limit(
+    const quantapdf_composer_path_command *commands,size_t count,
+    size_t max_count)
 {
     size_t i,contours=0u,segments=0u;
     int active=0;
-    if(commands==NULL || count<4u || count>9u)return 0;
+    if(commands==NULL || count<4u || count>max_count)return 0;
     for(i=0u;i<count;++i) {
         switch(commands[i].kind) {
         case QUANTAPDF_COMPOSER_PATH_MOVE_TO:
@@ -108,10 +109,16 @@ static int v5_closed_clip_contours(
     return !active && contours!=0u;
 }
 
+static int v5_closed_clip_contours(
+    const quantapdf_composer_path_command *commands,size_t count)
+{
+    return v5_closed_clip_contours_limit(commands,count,9u);
+}
 
 /* Strict private 7-node Graph: four Clip leaves, three roots. */
 static int v5_three_gs_clips(const quantapdf_resource_registry *r,
-    const quantapdf_composer_clip_state *out[4],int branches)
+    const quantapdf_composer_clip_state *out[4],
+    int branches,int stroke_first)
 {
     static const quantapdf_composer_clip_id cumulative_pairs[3][2]={
         {1u,2u},{3u,4u},{5u,6u}
@@ -132,7 +139,12 @@ static int v5_three_gs_clips(const quantapdf_resource_registry *r,
             p->fill_rule!=QUANTAPDF_COMPOSER_FILL_NONZERO) ||
            m->a!=1.0f || m->b!=0.0f || m->c!=0.0f ||
            m->d!=1.0f || m->e!=0.0f || m->f!=0.0f ||
-           !v5_closed_clip_contours(p->commands,p->command_count))return 0;
+           !(stroke_first && i==1u ?
+              (p->command_count==10u &&
+               v5_closed_clip_contours_limit(p->commands,
+                                              p->command_count,10u)) :
+               v5_closed_clip_contours(p->commands,p->command_count)))
+            return 0;
         out[i]=p;
     }
     for(i=0u;i<3u;++i) {
@@ -432,7 +444,8 @@ static quantapdf_status v5_render_impl(
     /* 1=previous cumulative proof; 2=independent q/Q branches.
      * All existing V5 wrappers still explicitly pass 0/1. */
     const int three_states=visible_three_gs_optin!=0;
-    const int branch_three_states=visible_three_gs_optin==2;
+    const int branch_three_states=visible_three_gs_optin>=2;
+    const int stroke_three_states=visible_three_gs_optin==3;
     quantapdf_ir projected={0};
     quantapdf_composer_page_state transparent={0};
     quantapdf_composer_operation operation={0};
@@ -519,8 +532,12 @@ static quantapdf_status v5_render_impl(
             const quantapdf_composer_operation *op=&ir->operations[k];
             if(op->kind!=QUANTAPDF_COMPOSER_OPERATION_PATH ||
                (size_t)op->graphics_state_id!=k+1u ||
-               op->value.path.options.fill!=1 ||
-               op->value.path.options.stroke!=0)
+               (stroke_three_states && k==0u ?
+                 (op->value.path.options.fill!=0 ||
+                  op->value.path.options.stroke!=1 ||
+                  op->value.path.command_count!=2u) :
+                 (op->value.path.options.fill!=1 ||
+                  op->value.path.options.stroke!=0)))
                 return QUANTAPDF_ERROR_UNSUPPORTED;
         }
     }
@@ -575,7 +592,8 @@ static quantapdf_status v5_render_impl(
             clip_leaf_count=2u;
         }
         if(three_states) {
-            if(!v5_three_gs_clips(r,clip_leaves,branch_three_states))
+            if(!v5_three_gs_clips(r,clip_leaves,
+                                  branch_three_states,stroke_three_states))
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             clip_leaf_count=4u;
         }
@@ -858,18 +876,34 @@ static quantapdf_status v5_render_impl(
                 opt->line_cap==QUANTAPDF_COMPOSER_LINE_CAP_BUTT &&
                 opt->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_MITER &&
                 opt->miter_limit==10.0f;
+            /* The only new source-like Stroke is the FIRST of exactly
+             * three frozen branch paints, one open axis-aligned segment.
+             * Isometry/width and actual work are still revalidated by
+             * the SAME canonical V1 stroke sampler. */
+            const int branch_open_stroke=
+                stroke_three_states && i==0u && state==1u &&
+                p->command_count==2u && p->commands!=NULL &&
+                p->commands[0].kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
+                p->commands[1].kind==QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+                opt->fill==0 && opt->stroke==1 &&
+                opt->stroke_width==1.0f &&
+                opt->line_cap==QUANTAPDF_COMPOSER_LINE_CAP_BUTT &&
+                opt->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_MITER &&
+                opt->miter_limit==10.0f;
             if(opt->struct_size<QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE ||
-               !(clipped_triangle_stroke ||
+               !(clipped_triangle_stroke || branch_open_stroke ||
                  (opt->fill==1 && opt->stroke==0)) ||
-               ((clipped_triangle_stroke?opt->stroke_argb:
-                  opt->fill_argb)>>24u)!=255u ||
+               (((clipped_triangle_stroke || branch_open_stroke)?
+                  opt->stroke_argb:opt->fill_argb)>>24u)!=255u ||
                p->commands==NULL || p->command_count==0u ||
                p->command_count>10240u ||
                ((clipped_paths_optin || two_states || three_states ||
                  unclipped_prefix_optin) &&
-                (p->command_count<4u || p->command_count>9u ||
+                ((!branch_open_stroke &&
+                  (p->command_count<4u || p->command_count>9u)) ||
                  opt->struct_size<QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE)) ||
                ((two_states || three_states || unclipped_prefix_optin) &&
+                !branch_open_stroke &&
                 !v5_closed_contour(p->commands,p->command_count)) ||
                p->dash_count!=0u || p->dash_lengths!=NULL ||
                (state!=0u &&
@@ -1066,12 +1100,15 @@ static quantapdf_status v5_render_impl(
                 status=n==0u?
                     quantapdf_ir_raster_render_v1(
                         &projected,0u,&geometry_limits,&layers[i]) :
+                    (stroke_three_states && i==0u ?
+                     quantapdf_ir_raster_render_v1_multi_clipped_stroke_visible_work(
+                         &projected,0u,&geometry_limits,all,n,&layers[i]) :
                     ((compound_clips_optin && clipped_paths_optin) ||
                      visible_two_gs_optin || visible_three_gs_optin ?
                      quantapdf_ir_raster_render_v1_multi_clipped_visible_work(
                         &projected,0u,&geometry_limits,all,n,&layers[i]) :
                      quantapdf_ir_raster_render_v1_multi_clipped(
-                        &projected,0u,&geometry_limits,all,n,&layers[i]));
+                        &projected,0u,&geometry_limits,all,n,&layers[i])));
                 /* Only explicit, independently admitted V10 compound,
                  * two-GS and three-GS shapes select bounded work.
                  * edge_layers partitions the unchanged aggregate cap:
@@ -1287,6 +1324,21 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_three_gs_branch_visible_wor
 {
     return v5_render_impl(ir,page_index,limits,1,
         viewport_width,viewport_height,0,0,0,0,0,0,0,2,out_image);
+}
+
+
+/* PRIVATE source-shaped 3GS subset: original one-pixel horizontal
+ * butt Stroke in first frozen W/W* branch, followed by two opaque
+ * PATH Fills. The source reader still rejects the authentic original
+ * PDF until its actual q/Q, CTM and Clip ownership are qualified. */
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_three_gs_branch_stroke_visible_work_device_viewport(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,
+    quantapdf_ir_raster_image *out_image)
+{
+    return v5_render_impl(ir,page_index,limits,1,
+        viewport_width,viewport_height,0,0,0,0,0,0,0,3,out_image);
 }
 
 /* Prefix is a distinct admission, never an implicit widening of any
