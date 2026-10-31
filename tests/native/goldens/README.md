@@ -13,3 +13,39 @@ The measured minimum squared-distance margin is `1.36743984063e-06`; the minimum
 Physical sample positions are `(x + (sx + 0.5)/4, y + (sy + 0.5)/4)` inside the original 237.133 x 180.44 point page, at 72 DPI. Source scale is exactly one; 238 x 181 is only the enclosing allocation. The original orange even-odd Fill is intersected geometrically with the original W* Clip at shared samples, then followed by the two Q-restored black closed Strokes. Each layer uses the existing V1 integer opaque source-over/coverage resolution, in source order.
 
 To reproduce, compile the reference source directly with a C++20 compiler and pass an output `.rgba` path; compare its bytes and SHA256 to this fixture. No CMake project, installed SDK consumer, CI workflow or second production renderer is involved.
+
+## Original physical 96/144-DPI TeXample (M4c)
+
+The SAME unchanged 1396-byte source and frozen authored-decimal cubic table
+produce the higher-DPI references below. Scale coordinates and original 0.3985
+Stroke width by **DPI/72**; exact rational ceil determines only storage. These
+files are mathematical outputs, never captured QuantaPDF or renderer images.
+The existing 72-DPI reference and its SHA256 remain unchanged.
+
+| DPI | Size | RGBA bytes | SHA256 |
+| --- | --- | --- | --- |
+| 96 | 317 x 241 | 305588 | `b5ed960392f23222c4f90f6e40a1aecd370cb71b99e50a8870b45fa2a1089d4a` |
+| 144 | 475 x 361 | 685900 | `19c7350ffc8e41d073c6172e421a535826735c171389c33cf84034f0b82c1edc` |
+
+Regenerate with the existing standalone C++20 reference tool (no new target):
+
+```sh
+c++ -std=c++20 -O2 tools/qualification/texample_original_reference.cpp -o /tmp/texample-reference
+/tmp/texample-reference /tmp/texample96.rgba 96 authored /tmp/texample96.masks
+/tmp/texample-reference /tmp/texample96-source.rgba 96 source-binary32 /tmp/texample96-source.masks
+/tmp/texample-reference /tmp/texample144.rgba 144 authored /tmp/texample144.masks
+/tmp/texample-reference /tmp/texample144-source.rgba 144 source-binary32 /tmp/texample144-source.masks
+```
+
+Both storage modes have identical **every-layer, every-subsample** masks and
+complete RGBA output at each DPI. Optional mask serialization is explicitly
+little endian, with original Fill/first-S/second-S layers in that order.
+96-DPI masks: 458382 bytes, SHA256
+`a7c1de9cd3513f9c4997d348dc4c73c0f2ab988a03dc13cbaf35891de9b6191f`.
+144-DPI masks: 1028850 bytes, SHA256
+`7ab38566303d32f44ca5180cc20ecbbdd85e01ddf2a97fa6c7044b59baf4f057`.
+Authored minimum squared-distance/ray margins are respectively
+`3.46860111069e-06 / 2.49920883902e-05` (96 DPI) and
+`1.08539427591e-06 / 1.36524327952e-05` (144 DPI), above the tool's unchanged
+1e-10 ambiguity refusal. Native tests compare full RGBA; the real public API
+compares every RGB byte after independently checking reference opacity.

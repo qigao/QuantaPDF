@@ -1,5 +1,5 @@
 /* Actual unchanged provenance-reviewed external originals: public
- * Source V10 72-DPI yWorks + full original TeXample RGB.
+ * Source V10 72-DPI yWorks + 72/96/144-DPI original TeXample RGB.
  * Both are replayed across original independent Document lifetimes and
  * followed by the already qualified external blank recovery PDF.
  * No PDFium oracle, replacement source file or second renderer. */
@@ -125,14 +125,17 @@ static bool yworks_bitmap(quantapdf_bitmap *bmp,
 /* Original-decimal polynomial reference is frozen independently of Source
  * float conversion and the production raster. Compare EVERY public RGB byte. */
 static bool texample_bitmap(quantapdf_bitmap *bmp,
-    const std::vector<unsigned char>& expected,std::vector<unsigned char>& rgb)
+    const std::vector<unsigned char>& expected,std::vector<unsigned char>& rgb,
+    unsigned dpi=72u)
 {
     int w=0,h=0,stride=0,channels=0;
     const unsigned char *data=nullptr;
     size_t count=0u;
     if(quantapdf_bitmap_dimensions(bmp,&w,&h,&stride,&channels)!=QUANTAPDF_OK ||
        quantapdf_bitmap_data(bmp,&data,&count)!=QUANTAPDF_OK ||
-       w!=238 || h!=181 || stride!=714 || channels!=3 || data==nullptr ||
+       w!=(dpi==72u?238:dpi==96u?317:475) ||
+       h!=(dpi==72u?181:dpi==96u?241:361) || stride!=w*3 ||
+       channels!=3 || data==nullptr ||
        count!=expected.size() || std::memcmp(data,expected.data(),count)!=0)
         return false;
     rgb.assign(data,data+count);
@@ -150,21 +153,28 @@ static bool retained_bitmap(quantapdf_bitmap *bmp,
 static int replay(const std::filesystem::path& root,
                   const std::filesystem::path& receipt)
 {
-    const auto reference=root.parent_path().parent_path()/"native"/"goldens"/
-        "texample72-m4b.rgba";
-    std::ifstream input(reference,std::ios::binary);
-    const std::vector<unsigned char> rgba{std::istreambuf_iterator<char>(input),
-                                         std::istreambuf_iterator<char>()};
-    CHECK(rgba.size()==238u*181u*4u);
-    std::vector<unsigned char> expected;
-    expected.reserve(238u*181u*3u);
-    for(size_t i=0u;i<rgba.size();i+=4u) {
-        CHECK(rgba[i+3u]==255u);
-        for(size_t c=0u;c<3u;++c)expected.push_back(rgba[i+c]);
+    const auto golden_root=root.parent_path().parent_path()/"native"/"goldens";
+    std::array<std::vector<unsigned char>,3u> expected;
+    const unsigned dpis[3]={72u,96u,144u};
+    const size_t areas[3]={238u*181u,317u*241u,475u*361u};
+    for(size_t index=0u;index<3u;++index) {
+        std::ifstream input(golden_root/("texample"+std::to_string(dpis[index])+
+            (index==0u?"-m4b.rgba":"-m4c.rgba")),std::ios::binary);
+        const std::vector<unsigned char> rgba{std::istreambuf_iterator<char>(input),
+                                             std::istreambuf_iterator<char>()};
+        CHECK(rgba.size()==areas[index]*4u);
+        expected[index].reserve(areas[index]*3u);
+        for(size_t i=0u;i<rgba.size();i+=4u) {
+            CHECK(rgba[i+3u]==255u);
+            for(size_t c=0u;c<3u;++c)expected[index].push_back(rgba[i+c]);
+        }
     }
     quantapdf_context *ctx=nullptr;
     quantapdf_bitmap *held=nullptr;
     std::array<quantapdf_bitmap*,2u> original_held={{nullptr,nullptr}};
+    std::array<quantapdf_bitmap*,2u> high_held={{nullptr,nullptr}};
+    std::array<std::vector<unsigned char>,2u> high_retained;
+    std::array<unsigned,2u> high_observed={{0u,0u}};
     std::vector<unsigned char> retained;
     std::array<std::vector<unsigned char>,2u> original_retained;
     std::array<unsigned,2u> observed={{0u,0u}},dpi_refused={{0u,0u}};
@@ -198,22 +208,35 @@ static int replay(const std::filesystem::path& root,
                 CHECK(false);
             }
             std::vector<unsigned char> rgb;
-            CHECK(index==0u?yworks_bitmap(bitmap,rgb):texample_bitmap(bitmap,expected,rgb));
+            CHECK(index==0u?yworks_bitmap(bitmap,rgb):texample_bitmap(bitmap,expected[0],rgb));
             if(original_held[index]==nullptr) {
                 original_held[index]=bitmap;original_retained[index]=rgb;
             } else {
                 CHECK(rgb==original_retained[index]);quantapdf_drop_bitmap(bitmap);
             }
             ++observed[index];++accepted;++pass_rgb[pass];
-            /* Qualified physical Stroke coverage is 72 DPI only. Every
-             * actual 96/144-DPI refusal belongs in the runtime receipt. */
-            for(const float dpi:{96.0f,144.0f}) {
-                options.dpi=dpi;
-                quantapdf_bitmap *invalid=
-                    reinterpret_cast<quantapdf_bitmap *>(uintptr_t(1));
-                const auto denied=quantapdf_render_page_with_options(page,&options,&invalid);
-                CHECK(denied==QUANTAPDF_ERROR_UNSUPPORTED && invalid==nullptr);
-                ++dpi_refused[index];++refused;++pass_refused[pass];
+            /* yWorks retains its qualified 72-DPI Stroke contract.
+             * TeXample classifies original cubics directly at each actual
+             * target DPI, not by resizing the 72-DPI bitmap. */
+            for(size_t slot=0u;slot<2u;++slot) {
+                const unsigned dpi=dpis[slot+1u];
+                options.dpi=static_cast<float>(dpi);
+                quantapdf_bitmap *next=reinterpret_cast<quantapdf_bitmap *>(uintptr_t(1));
+                const auto rendered=quantapdf_render_page_with_options(page,&options,&next);
+                if(index==0u) {
+                    CHECK(rendered==QUANTAPDF_ERROR_UNSUPPORTED && next==nullptr);
+                    ++dpi_refused[index];++refused;++pass_refused[pass];
+                } else {
+                    CHECK(rendered==QUANTAPDF_OK && next!=nullptr);
+                    std::vector<unsigned char> high;
+                    CHECK(texample_bitmap(next,expected[slot+1u],high,dpi));
+                    if(high_held[slot]==nullptr) {
+                        high_held[slot]=next;high_retained[slot]=high;
+                    } else {
+                        CHECK(high==high_retained[slot]);quantapdf_drop_bitmap(next);
+                    }
+                    ++high_observed[slot];++accepted;++pass_rgb[pass];
+                }
             }
             options.dpi=72.0f;
             quantapdf_drop_page(page);quantapdf_close(doc);
@@ -232,6 +255,9 @@ static int replay(const std::filesystem::path& root,
             ++accepted;++pass_recovery[pass];
             quantapdf_drop_page(page);quantapdf_close(doc);
             CHECK(retained_bitmap(held,retained));
+            for(size_t i=0u;i<high_held.size();++i)
+                if(high_held[i]!=nullptr)
+                    CHECK(retained_bitmap(high_held[i],high_retained[i]));
             for(size_t i=0u;i<ids.size();++i)
                 if(original_held[i]!=nullptr)
                     CHECK(retained_bitmap(original_held[i],original_retained[i]));
@@ -242,15 +268,22 @@ static int replay(const std::filesystem::path& root,
     for(size_t i=0u;i<ids.size();++i) {
         CHECK(retained_bitmap(original_held[i],original_retained[i]));
         quantapdf_drop_bitmap(original_held[i]);
-        CHECK(observed[i]==3u && dpi_refused[i]==6u);
+        CHECK(observed[i]==3u && dpi_refused[i]==(i==0u?6u:0u));
+        CHECK(high_observed[i]==3u && retained_bitmap(high_held[i],high_retained[i]));
+        quantapdf_drop_bitmap(high_held[i]);
     }
-    CHECK(refused==12u && accepted==12u);
+    CHECK(refused==6u && accepted==18u);
     std::ofstream out(receipt,std::ios::binary|std::ios::trunc);CHECK(out.good());
-    out<<"{\"schema_version\":1,\"corpus_id\":\"external-source-pdf\","
-       <<"\"qualification\":\"native-v10-yworks-texample-rgb\","
+    out<<"{\"schema_version\":2,\"corpus_id\":\"external-source-pdf\","
+       <<"\"qualification\":\"native-v10-yworks-texample-physical-dpi\","
        <<"\"reference_oracle\":\"none\",\"result\":\"passed\","
        <<"\"texample_rgba_reference_sha256\":\""
        <<"51e36fcf3a39e93724e1a3176286944883378df9b39c942147d52827607f957e\","
+       <<"\"texample_dpi_references\":["
+       <<"{\"dpi\":96,\"width\":317,\"height\":241,\"sha256\":\""
+       <<"b5ed960392f23222c4f90f6e40a1aecd370cb71b99e50a8870b45fa2a1089d4a\"},"
+       <<"{\"dpi\":144,\"width\":475,\"height\":361,\"sha256\":\""
+       <<"19c7350ffc8e41d073c6172e421a535826735c171389c33cf84034f0b82c1edc\"}],"
        <<"\"manifest_document_count\":7,\"negative_document_count\":0,"
        <<"\"recovery_document_id\":\""<<blank_id<<"\","
        <<"\"dpi\":72,\"execution_count\":"<<(accepted+refused)
@@ -273,14 +306,19 @@ static int replay(const std::filesystem::path& root,
         out<<"{\"id\":\""<<ids[i]<<"\",\"observed_status\":\"OK\",\"executions\":"
            <<observed[i]<<",\"exact_rgb_pixels\":true,\"atomic_null_bitmap\":false,"
            <<"\"unsupported_dpi_executions\":"<<dpi_refused[i]
-           <<",\"unsupported_dpi_atomic_null_bitmap\":true,\"bitmap_survived_context\":true}";
+           <<",\"unsupported_dpi_atomic_null_bitmap\":"<<(i==0u?"true":"false")
+           <<",\"qualified_dpis\":"<<(i==0u?"[72]":"[72,96,144]")
+           <<",\"exact_rgb_executions\":"<<(observed[i]+(i==0u?0u:
+                high_observed[0]+high_observed[1]))
+           <<",\"bitmap_survived_context\":true}";
     }
     out<<"],\"recovery\":{\"id\":\""<<blank_id
        <<"\",\"observed_status\":\"OK\",\"executions\":6,"
        <<"\"all_white\":true,\"bitmap_survived_context\":true}}\n";
     out.flush();CHECK(out.good());
-    std::printf("Native V10 complex originals: unchanged yWorks and TeXample RGB 3x each, "
-                "96/144-DPI atomic refusals 12x, independent blank recovery 6x\n");
+    std::printf("Native V10 complex originals: unchanged yWorks 72-DPI RGB 3x, "
+                "TeXample 72/96/144-DPI RGB 3x each, yWorks DPI refusals 6x, "
+                "independent blank recovery 6x\n");
     return EXIT_SUCCESS;
 }
 int main(int argc,char **argv)

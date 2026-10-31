@@ -11,7 +11,8 @@
  * segment distances or a renderer oracle. A second-derivative interpolation
  * bound builds only a conservative query index, never the reference coverage.
  *
- * Build directly with C++20, then pass an output .rgba path. The whole-page
+ * Build with C++20: output.rgba [72|96|144 [authored|source-binary32
+ * [output.masks]]]. Historical output.rgba alone remains authored 72 DPI. The whole-page
  * 4x4 masks are resolved with independent opaque integer source-over in the
  * original orange Fill, black Stroke, black Stroke order on white. Fail on near-boundary
  * numerical ambiguity. No image is obtained from a running QuantaPDF build.
@@ -22,12 +23,13 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 #include <vector>
 using Real=long double;
 struct Point { Real x,y; };
 struct Curve { std::array<Point,4> p; };
-static const std::array<std::array<Curve,8>,4> authored={{
+static const std::array<std::array<Curve,8>,4> original_authored={{
   {{
     Curve{{{{146.91280L,90.22000L},{146.91280L,58.75548L},{121.68372L,33.52638L},{90.21920L,33.52638L}}}},
     Curve{{{{90.21920L,33.52638L},{58.75466L,33.52638L},{33.52558L,58.75548L},{33.52558L,90.22000L}}}},
@@ -69,7 +71,9 @@ static const std::array<std::array<Curve,8>,4> authored={{
     Curve{{{{146.91280L,175.26042L},{194.10961L,175.26042L},{231.95324L,137.41680L},{231.95324L,90.22000L}}}}
   }}
 }};
-static constexpr std::size_t W=238,H=181,A=W*H;
+static auto authored=original_authored;
+static std::size_t W=238,H=181,A=W*H;
+static Real scale=1,stroke_width=0.3985L;
 static Real distance_margin=std::numeric_limits<Real>::infinity();
 static Real crossing_margin=std::numeric_limits<Real>::infinity();
 static Point power_eval(const Curve& c,Real t)
@@ -136,7 +140,7 @@ static std::vector<uint16_t> stroke(const std::array<Curve,8>& path)
     std::vector<uint8_t> candidates(A*16u,0u);
     std::vector<uint16_t> mask(A,0u);
     constexpr unsigned N=1024u;
-    const Real radius=0.3985L/2;
+    const Real radius=stroke_width*scale/2;
     for(unsigned k=0u;k<8u;++k) {
         const auto& c=path[k];
         const Real ex=6*std::max(std::fabs(c.p[2].x-2*c.p[1].x+c.p[0].x),
@@ -162,7 +166,7 @@ static std::vector<uint16_t> stroke(const std::array<Curve,8>& path)
     for(std::size_t y=0;y<H;++y)for(std::size_t x=0;x<W;++x)
     for(unsigned sy=0;sy<4;++sy)for(unsigned sx=0;sx<4;++sx) {
         const Point p={(Real)x+((Real)sx+0.5L)/4,(Real)y+((Real)sy+0.5L)/4};
-        if(p.x>=237133.0L/1000 || p.y>=180440.0L/1000)continue;
+        if(p.x>=237133.0L/1000*scale || p.y>=180440.0L/1000*scale)continue;
         const auto bits=candidates[(y*W+x)*16u+4u*sy+sx];
         bool hit=false;
         for(unsigned k=0u;k<8u;++k)if(bits&(1u<<k)) {
@@ -181,7 +185,7 @@ static std::vector<uint16_t> clipped_fill()
     for(std::size_t y=0u;y<H;++y)for(unsigned sy=0;sy<4;++sy) {
         const Real py=(Real)y+((Real)sy+0.5L)/4;
         std::vector<Real> crossings[2];
-        if(py>=180440.0L/1000)continue;
+        if(py>=180440.0L/1000*scale)continue;
         for(unsigned g=0;g<2;++g)for(const auto& curve:authored[g]) {
             const Real a=curve.p[0].y,b=curve.p[3].y;
             if(!((a<=py && b>py) || (b<=py && a>py)))continue;
@@ -200,7 +204,7 @@ static std::vector<uint16_t> clipped_fill()
         }
         for(std::size_t x=0u;x<W;++x)for(unsigned sx=0;sx<4;++sx) {
             const Real px=(Real)x+((Real)sx+0.5L)/4;
-            if(px>=237133.0L/1000)continue;
+            if(px>=237133.0L/1000*scale)continue;
             unsigned parity[2]={0u,0u};
             for(unsigned g=0;g<2;++g)for(Real cx:crossings[g])parity[g]^=(unsigned)(cx>px);
             if(parity[0] && parity[1])mask[y*W+x]|=(uint16_t)(1u<<(4u*sy+sx));
@@ -210,9 +214,42 @@ static std::vector<uint16_t> clipped_fill()
 }
 int main(int argc,char **argv)
 {
-    if(argc!=2)return 2;
+    if(argc<2 || argc>5)return 2;
+    unsigned dpi=72u;
+    if(argc>=3) {
+        if(std::strcmp(argv[2],"72")==0)dpi=72u;
+        else if(std::strcmp(argv[2],"96")==0)dpi=96u;
+        else if(std::strcmp(argv[2],"144")==0)dpi=144u;
+        else return 2;
+    }
+    bool binary=false;
+    if(argc>=4) {
+        binary=std::strcmp(argv[3],"source-binary32")==0;
+        if(!binary && std::strcmp(argv[3],"authored")!=0)return 2;
+    }
+    scale=(Real)dpi/72;
+    /* Exact rational ceil independently determines storage. Geometry
+     * uses DPI/72 throughout and never fits to that integer buffer. */
+    W=(237133u*dpi+71999u)/72000u;
+    H=(180440u*dpi+71999u)/72000u;A=W*H;
+    if(binary)stroke_width=(Real)(float)stroke_width;
+    for(auto& path:authored)for(auto& c:path)for(auto& p:c.p) {
+        if(binary) {p.x=(Real)(float)p.x;p.y=(Real)(float)p.y;}
+        p.x*=scale;p.y*=scale;
+    }
     const std::array<std::vector<uint16_t>,3> masks={
         clipped_fill(),stroke(authored[2]),stroke(authored[3])};
+    if(argc==5) {
+        auto *mask_file=std::fopen(argv[4],"wb");
+        if(!mask_file)return 7;
+        bool ok=true;
+        for(const auto& mask:masks)for(uint16_t sample:mask) {
+            const unsigned char bytes[2]={(unsigned char)(sample&255u),
+                                         (unsigned char)(sample>>8u)};
+            if(std::fwrite(bytes,1u,2u,mask_file)!=2u)ok=false;
+        }
+        if(std::fclose(mask_file)!=0 || !ok)return 8;
+    }
     std::vector<unsigned char> rgba(A*4u,255u);
     const unsigned rgb[3][3]={{255u,128u,0u},{0u,0u,0u},{0u,0u,0u}};
     for(std::size_t layer=0u;layer<3u;++layer)for(std::size_t i=0u;i<A;++i) {
