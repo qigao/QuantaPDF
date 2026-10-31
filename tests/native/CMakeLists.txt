@@ -1033,3 +1033,13 @@ quantapdf_native_test(quantapdf_native_two_gs_visible_budget
   "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
   "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
   "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
+
+# Exact private 3-GS / seven-Clip / three-Fill C11 acceptance.
+# Reuse the existing standalone native test runner; no new consumer
+# or installer project is introduced.
+quantapdf_native_test(quantapdf_native_three_gs_visible_budget
+  native/test_native_three_gs_visible_budget.c
+  $<TARGET_OBJECTS:quantapdf_native_raster_objects>
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
