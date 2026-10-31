@@ -743,10 +743,12 @@ typedef struct qp_cubic_cell { qp_interval_point p[4]; } qp_cubic_cell;
 #define QP_EXACT_CURVE_DEPTH 32u
 #define QP_EXACT_CELLS 256u
 
+#ifdef QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST
+extern _Bool quantapdf_source_ir_oom_fail_c_allocation(void);
+#endif
 static void *qp_exact_malloc(size_t bytes,int exact)
 {
 #ifdef QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST
-    extern _Bool quantapdf_source_ir_oom_fail_c_allocation(void);
     if(exact && quantapdf_source_ir_oom_fail_c_allocation())return NULL;
 #else
     (void)exact;
