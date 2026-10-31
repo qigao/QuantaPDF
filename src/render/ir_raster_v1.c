@@ -501,6 +501,67 @@ static int qp_full_canvas_rect(const qp_edge *edges,
     return corners==15u;
 }
 
+/* Work preflight for a SINGLE fully admitted clipped Fill PATH.
+ * The flattened draw and clip edges define conservative Cartesian
+ * pixel envelopes: winding is identically zero outside their
+ * intersection. This proof is made AFTER the entire source/geometry
+ * and every Clip is admitted, BEFORE output allocation. No fallback
+ * or second raster. Stroke and multiple-PATH callers stay on the old
+ * full-page work lease, including their existing refusal thresholds. */
+typedef struct qp_sample_box {
+    size_t x0,y0,x1,y1;
+} qp_sample_box;
+
+static int qp_edges_sample_box(const qp_edge *edges,
+    const qp_raster_draw *draw,size_t width,size_t height,
+    qp_sample_box *out)
+{
+    double minx,maxx,miny,maxy;
+    size_t i;
+    if(out==NULL || edges==NULL || draw==NULL)return 0;
+    *out=(qp_sample_box){0u,0u,0u,0u};
+    if(draw->edge_count==0u)return 1;
+    minx=maxx=edges[draw->first_edge].from.x;
+    miny=maxy=edges[draw->first_edge].from.y;
+    for(i=0u;i<draw->edge_count;++i) {
+        const qp_edge *edge=&edges[draw->first_edge+i];
+        const qp_point_d p[2]={edge->from,edge->to};
+        size_t j;
+        for(j=0u;j<2u;++j) {
+            if(!qp_valid_coordinate(p[j].x) ||
+               !qp_valid_coordinate(p[j].y))
+                return 0;
+            if(p[j].x<minx)minx=p[j].x;
+            if(p[j].x>maxx)maxx=p[j].x;
+            if(p[j].y<miny)miny=p[j].y;
+            if(p[j].y>maxy)maxy=p[j].y;
+        }
+    }
+    if(maxx<=0.0 || maxy<=0.0 ||
+       minx>=(double)width || miny>=(double)height)
+        return 1;
+    if(minx<0.0)minx=0.0;
+    if(miny<0.0)miny=0.0;
+    if(maxx>(double)width)maxx=(double)width;
+    if(maxy>(double)height)maxy=(double)height;
+    out->x0=(size_t)floor(minx);
+    out->y0=(size_t)floor(miny);
+    out->x1=(size_t)ceil(maxx);
+    out->y1=(size_t)ceil(maxy);
+    return 1;
+}
+
+static void qp_intersect_sample_box(qp_sample_box *a,
+                                   const qp_sample_box *b)
+{
+    if(a->x0<b->x0)a->x0=b->x0;
+    if(a->y0<b->y0)a->y0=b->y0;
+    if(a->x1>b->x1)a->x1=b->x1;
+    if(a->y1>b->y1)a->y1=b->y1;
+    if(a->x1<a->x0)a->x1=a->x0;
+    if(a->y1<a->y0)a->y1=a->y0;
+}
+
 /* Bounded one-pixel path stroke. Each antialias sample is covered iff it
  * lies within half a device-space pixel of one open segment or three closed
  * triangle segments. Unsupported widths, caps, joins, dashes and transforms are
@@ -638,7 +699,7 @@ static quantapdf_status qp_render_v1_impl(
     const quantapdf_ir_raster_v1_limits *limits,
     const quantapdf_native_device_plan *plan,
     const quantapdf_composer_clip_state *const *clips, size_t clip_count,
-    quantapdf_ir_raster_image *out_image)
+    int visible_work_optin,quantapdf_ir_raster_image *out_image)
 {
     size_t width, height, pixels_count, total_checks = 0u;
     size_t i, draw_count = 0u, x, y, ci;
@@ -649,6 +710,8 @@ static quantapdf_status qp_render_v1_impl(
     quantapdf_status status = QUANTAPDF_ERROR_ARGUMENT;
     const quantapdf_composer_page_state *page;
     int two_path_clip_pair = 0;
+    int bounded_clipped_fill = 0;
+    qp_sample_box sample_box = {0u,0u,0u,0u};
 
     if (out_image == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -717,7 +780,17 @@ static quantapdf_status qp_render_v1_impl(
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
     pixels_count = width * height;
-    if (pixels_count > limits->max_sample_tests / QP_TOTAL_SAMPLES)
+    /* One source-owned clipped Fill is allowed to establish its
+     * VISITED sample area from actual flattened geometry below. All
+     * other callers keep the old all-page minimum work admission. */
+    bounded_clipped_fill=visible_work_optin &&
+        clip_count!=0u && ir->operation_count==1u &&
+        ir->operations!=NULL &&
+        ir->operations[0].kind==QUANTAPDF_COMPOSER_OPERATION_PATH &&
+        ir->operations[0].value.path.options.fill==1 &&
+        ir->operations[0].value.path.options.stroke==0;
+    if(!bounded_clipped_fill &&
+       pixels_count > limits->max_sample_tests / QP_TOTAL_SAMPLES)
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
     flatten.capacity = limits->max_edges;
@@ -753,7 +826,7 @@ static quantapdf_status qp_render_v1_impl(
         draws[draw_count].full_canvas_rect=clip_count==0u &&
             qp_full_canvas_rect(flatten.edges,&draws[draw_count],
                                 width,height);
-        {
+        if(!bounded_clipped_fill) {
             const size_t checks_per_sample=
                 draws[draw_count].full_canvas_rect ?
                     1u : draws[draw_count].edge_count;
@@ -794,14 +867,16 @@ static quantapdf_status qp_render_v1_impl(
         if (status != QUANTAPDF_OK) {
             goto cleanup;
         }
-        if (clip_draws[ci].edge_count >
-            (limits->max_sample_tests - total_checks) /
-                (QP_TOTAL_SAMPLES * pixels_count)) {
-            status = QUANTAPDF_ERROR_UNSUPPORTED;
-            goto cleanup;
+        if(!bounded_clipped_fill) {
+            if (clip_draws[ci].edge_count >
+                (limits->max_sample_tests - total_checks) /
+                    (QP_TOTAL_SAMPLES * pixels_count)) {
+                status = QUANTAPDF_ERROR_UNSUPPORTED;
+                goto cleanup;
+            }
+            total_checks += clip_draws[ci].edge_count *
+                            (QP_TOTAL_SAMPLES * pixels_count);
         }
-        total_checks += clip_draws[ci].edge_count *
-                        (QP_TOTAL_SAMPLES * pixels_count);
     }
 
     /* The admitted one-pixel stroke remains exact only where the only
@@ -814,6 +889,43 @@ static quantapdf_status qp_render_v1_impl(
             status = QUANTAPDF_ERROR_UNSUPPORTED;
             goto cleanup;
         }
+    }
+
+    if(bounded_clipped_fill) {
+        size_t sample_pixels,edges_per_sample;
+        qp_sample_box clip_box;
+        if(draw_count!=1u ||
+           !qp_edges_sample_box(flatten.edges,&draws[0],
+                                width,height,&sample_box)) {
+            status=QUANTAPDF_ERROR_UNSUPPORTED;
+            goto cleanup;
+        }
+        edges_per_sample=draws[0].edge_count;
+        for(ci=0u;ci<clip_count;++ci) {
+            if(!qp_edges_sample_box(flatten.edges,&clip_draws[ci],
+                                    width,height,&clip_box)) {
+                status=QUANTAPDF_ERROR_UNSUPPORTED;
+                goto cleanup;
+            }
+            qp_intersect_sample_box(&sample_box,&clip_box);
+            /* The entire flattened Clip edge list is still billed,
+             * including portions outside the visible intersection.
+             * Only provably unvisited samples disappear from cost. */
+            edges_per_sample+=clip_draws[ci].edge_count;
+        }
+        sample_pixels=(sample_box.x1-sample_box.x0)*
+                      (sample_box.y1-sample_box.y0);
+        /* Upper-bound all winding edges for every VISITED subpixel.
+         * Checked division prevents overflow; max_sample_tests itself
+         * is unchanged. Empty geometric intersection is a valid
+         * transparent draw, not a failure or skipped source parse. */
+        if(sample_pixels!=0u &&
+           edges_per_sample > limits->max_sample_tests /
+                  (QP_TOTAL_SAMPLES*sample_pixels)) {
+            status=QUANTAPDF_ERROR_UNSUPPORTED;
+            goto cleanup;
+        }
+        total_checks=sample_pixels*QP_TOTAL_SAMPLES*edges_per_sample;
     }
 
     pixels = (unsigned char *)malloc(pixels_count * 4u);
@@ -840,6 +952,14 @@ static quantapdf_status qp_render_v1_impl(
         for (y = 0u; y < height; ++y) {
             for (x = 0u; x < width; ++x) {
                 unsigned sx, sy, covered = 0u;
+                /* The old winding computation is exactly zero outside
+                 * the intersection of flattened draw and Clip bounds.
+                 * Avoid those per-edge checks only after the complete
+                 * bounded-work admission above. */
+                if(bounded_clipped_fill &&
+                   (x<sample_box.x0 || x>=sample_box.x1 ||
+                    y<sample_box.y0 || y>=sample_box.y1))
+                    continue;
                 for (sy = 0u; sy < QP_SAMPLES; ++sy) {
                     double py = (double)y +
                         ((double)sy + 0.5) / (double)QP_SAMPLES;
@@ -880,7 +1000,7 @@ quantapdf_status quantapdf_ir_raster_render_v1(
     const quantapdf_ir_raster_v1_limits *limits,
     quantapdf_ir_raster_image *out_image)
 {
-    return qp_render_v1_impl(ir, page_index, limits, NULL, NULL, 0u, out_image);
+    return qp_render_v1_impl(ir, page_index, limits, NULL, NULL, 0u, 0, out_image);
 }
 
 quantapdf_status quantapdf_ir_raster_render_v1_clipped(
@@ -896,7 +1016,7 @@ quantapdf_status quantapdf_ir_raster_render_v1_clipped(
     }
     {
         const quantapdf_composer_clip_state *one[1] = {clip};
-        return qp_render_v1_impl(ir, page_index, limits, NULL, one, 1u, out_image);
+        return qp_render_v1_impl(ir, page_index, limits, NULL, one, 1u, 0, out_image);
     }
 }
 
@@ -912,7 +1032,26 @@ quantapdf_status quantapdf_ir_raster_render_v1_multi_clipped(
         return QUANTAPDF_ERROR_ARGUMENT;
     }
     return qp_render_v1_impl(
-        ir, page_index, limits, NULL, clips, clip_count, out_image);
+        ir, page_index, limits, NULL, clips, clip_count, 0, out_image);
+}
+
+
+/* Explicit PRIVATE V10 work admission in the SAME qp_render_v1_impl.
+ * Only a fully validated single clipped opaque Fill may bound its
+ * visited 4x4 subpixels by the actual flattened edge intersection.
+ * All old V1 entrypoints above preserve the full-page work lease. */
+quantapdf_status quantapdf_ir_raster_render_v1_multi_clipped_visible_work(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_composer_clip_state *const *clips,size_t clip_count,
+    quantapdf_ir_raster_image *out_image)
+{
+    if(clip_count==0u || clips==NULL) {
+        if(out_image!=NULL)memset(out_image,0,sizeof(*out_image));
+        return QUANTAPDF_ERROR_ARGUMENT;
+    }
+    return qp_render_v1_impl(ir,page_index,limits,NULL,
+                              clips,clip_count,1,out_image);
 }
 
 quantapdf_status quantapdf_ir_raster_render_v1_planned(
@@ -928,5 +1067,5 @@ quantapdf_status quantapdf_ir_raster_render_v1_planned(
         return QUANTAPDF_ERROR_ARGUMENT;
     }
     return qp_render_v1_impl(
-        ir, page_index, limits, plan, clips, clip_count, out_image);
+        ir, page_index, limits, plan, clips, clip_count, 0, out_image);
 }

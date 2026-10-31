@@ -9,7 +9,12 @@ extern "C" {
 #endif
 
 /* Additional explicit limits; every sampled edge test is charged before
- * allocating the output buffer. Sampling uses a fixed 4 x 4 grid. */
+ * allocating the output buffer. Sampling uses a fixed 4 x 4 grid.
+ * Exactly one opaque clipped Fill can conservatively bound its work
+ * to the intersection of the actual flattened draw and Clip edges.
+ * This is a visited-sample optimization INSIDE this same C11 raster:
+ * the numeric cap, sample grid, untouched paths and atomic refusal
+ * contract are unchanged. */
 typedef struct quantapdf_ir_raster_v1_limits {
     size_t max_pixels;
     size_t max_operations;
@@ -56,6 +61,18 @@ quantapdf_status quantapdf_ir_raster_render_v1_multi_clipped(
     const quantapdf_ir *ir, size_t page_index,
     const quantapdf_ir_raster_v1_limits *limits,
     const quantapdf_composer_clip_state *const *clips, size_t clip_count,
+    quantapdf_ir_raster_image *out_image);
+
+/* Explicit PRIVATE Source V10 visible-work admission: the same
+ * V1 winding/4x4 raster as above, but one fully admitted clipped Fill
+ * may conservatively bound VISITED sample work by flattened draw and
+ * Clip envelopes. This named entry is not a second raster or a
+ * public SDK export. All legacy V1 functions above retain their
+ * complete full-page budget/refusal contract. */
+quantapdf_status quantapdf_ir_raster_render_v1_multi_clipped_visible_work(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_composer_clip_state *const *clips,size_t clip_count,
     quantapdf_ir_raster_image *out_image);
 
 /* Explicit private FIT device-grid consumer. The immutable plan is appended
