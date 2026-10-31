@@ -524,8 +524,8 @@ static int empty_or_disjoint_q_restoration()
 }
 
 /* Malformed or unsupported content, even AFTER a correctly suppressed
- * Image, must not publish partial RGB. A second W and W without n
- * remain outside this single-Clip profile, without a fallback. */
+ * Image, must not publish partial RGB. Clip redefinition after Q restores
+ * no Clip, and W without n, remain unsupported without a fallback. */
 static int empty_clip_atomic_refusals()
 {
     const std::string draw="q 16 0 0 12 8 3 cm /I Do Q Q";
@@ -717,26 +717,28 @@ static int two_rectangle_split_contents()
     return EXIT_SUCCESS;
 }
 
-/* The rectangle reduction keeps its original q/paint/precision gates.
- * Bounded line/curve/empty pairs are qualified separately. Malformed
- * pending operands and third definitions still refuse atomically. */
+/* Observed first leaves retain their owned identity instead of rectangle
+ * reduction. Image cardinality, malformed pending operands and third
+ * definitions still refuse atomically after the admitted states. */
 static int two_rectangle_atomic_refusals()
 {
     const std::string first="8 4 12 12 re";
     const std::string second="12 6 12 12 re";
     const std::string image="q 16 0 0 12 8 3 cm /I Do Q Q";
     const std::vector<std::string> bad={
-        /* First W precedes q. After the second W and Image, Q
-         * restores the FIRST Clip, not an unclipped state. A final Do
-         * must not silently reuse the collapsed intersection leaf. */
+        /* First W outside q and two Images in states 2,1 now qualify.
+         * A third Image after that real restoration still refuses. */
         first+" W n q "+second+" W* n "+image+
+            " q 16 0 0 12 8 3 cm /I Do Q"
             " q 16 0 0 12 8 3 cm /I Do Q",
         "q "+first+" W n "+second+" W* "+image,
         "q "+first+" W n "+second+" W* W n "+image,
         "q "+first+" W n "+second+" W* n "+second+
             " W n "+image,
+        /* Nested q with root-only paint now qualifies; redefining a
+         * third Clip after Q restores leaf 1 still does not. */
         "q "+first+" W n q "+second+" W* n "+
-            "q 16 0 0 12 8 3 cm /I Do Q Q Q",
+            "q 16 0 0 12 8 3 cm /I Do Q Q "+first+" W n Q",
         "q "+first+" W n Q q "+second+" W* n "+image,
         "q "+first+" W n q 16 0 0 12 8 3 cm /I Do Q "+
             second+" W* n Q",

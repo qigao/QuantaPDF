@@ -392,14 +392,15 @@ struct admission {
     staged_image_clip clip;
     /* Native V10 only: two independently frozen leaves, kept until
      * owned IR publication as Clip IDs 1/2 plus Intersection root 3.
-     * Per-paint membership 1 denotes this root, never the first leaf. */
+     * Native staging retains 1=first leaf and 2=intersection. Only a
+     * complete page with no first-leaf paint may remap 2 to old GS1. */
     staged_image_clip second_clip;
     bool two_owned_clips=false;
     size_t clipped_image_limit=1u;
     bool restore_second_image=false;
     bool saw_q_restore=false;
-    /* Source V5 freezes a distinct Clip/GS identity for every paint.
-     * 1 means inside the original W/W* scope, 0 means Q-restored. */
+    /* Source V5 freezes Clip/GS membership per paint: 1=inside, 0=Q.
+     * Native V10 additionally preserves the second intersection as 2. */
     bool mixed_scoped_mode=false;
     std::vector<unsigned char> scoped_clip_membership;
     /* Source V6 charges the actual 2–4 layers against max_operations,
@@ -705,7 +706,7 @@ public:
             fill_argb=fill_stack.back();fill_stack.pop_back();
             if(clipped) {
                 admit(!clip_stack.empty());
-                const bool was_clipped=clip_active;
+                const bool was_clipped=clip_active!=0u;
                 clip_active=clip_stack.back();clip_stack.pop_back();
                 if((target.restore_second_image && target.draws.size()==1u &&
                     was_clipped && !clip_active) ||
@@ -772,13 +773,13 @@ public:
                               QUANTAPDF_ERROR_UNSUPPORTED);
                     } else if(target.restore_second_image) {
                         if(target.draws.empty()) {
-                            admit(clip_active,QUANTAPDF_ERROR_UNSUPPORTED);
+                            admit(clip_active!=0u,QUANTAPDF_ERROR_UNSUPPORTED);
                         } else {
                             admit(!clip_active && target.saw_q_restore,
                                   QUANTAPDF_ERROR_UNSUPPORTED);
                         }
                     } else {
-                        admit(clip_active,QUANTAPDF_ERROR_UNSUPPORTED);
+                        admit(clip_active!=0u,QUANTAPDF_ERROR_UNSUPPORTED);
                     }
                 }
             }
@@ -790,7 +791,7 @@ public:
             target.execute(named,current);
             if(target.mixed_scoped_mode) {
                 QP_SOURCE_STAGE_ARM(6u);
-                target.scoped_clip_membership.push_back(clip_active ? 1u : 0u);
+                target.scoped_clip_membership.push_back(clip_active);
             }
         } else if(mixed && op=="rg") {
             /* The V7-only normalized RGB profile converts finite channels
@@ -947,28 +948,22 @@ public:
                           QUANTAPDF_COMPOSER_FILL_EVEN_ODD);
             if(target.mixed_scoped_mode) {
                 QP_SOURCE_STAGE_ARM(7u);
-                target.scoped_clip_membership.push_back(clip_active ? 1u : 0u);
+                target.scoped_clip_membership.push_back(clip_active);
             }
             pending_path.clear();
             closed=false;
         } else if(clipped && (op=="W" || op=="W*")) {
-            /* Two qualified leaves have no intervening paint and one
-             * outer q that saved an unclipped state. Simple rectangles
-             * retain their exact one-Clip reduction. Other pairs keep
-             * BOTH frozen paths and rules for the same
-             * C11 per-sample intersection, without mask averaging. */
+            /* Native V10 keeps the first leaf's identity across paint
+             * and nested q/Q. A second definition intersects that leaf;
+             * it cannot redefine a restored/unclipped scope or add a
+             * third leaf. Older Source signatures stay single-Clip. */
             admit(args.empty() && !clip_pending &&
-                  (!target.mixed_scoped_mode || target.order.empty()),
+                  (!target.mixed_scoped_mode || target.order.empty() ||
+                   (target.native_unclipped_mode && target.clip_completed)),
                   QUANTAPDF_ERROR_UNSUPPORTED);
             if(target.native_unclipped_mode && target.clip_completed) {
-                /* All clipped paints name the final root. Restoring
-                 * the first leaf would need a second GS identity, so
-                 * the saved outer q state must remain unclipped. */
                 admit(!second_clip_used && !second_clip_pending &&
-                      clip_active && !target.saw_q_restore &&
-                      clip_stack.size()==1u && !clip_stack.back() &&
-                      target.order.empty() &&
-                      target.draws.empty() && target.painted_paths.empty() &&
+                      clip_active==1u && !target.saw_q_restore &&
                       pending_second_clip_contour(),
                       QUANTAPDF_ERROR_UNSUPPORTED);
                 second_clip_pending=true;
@@ -986,22 +981,27 @@ public:
             if(second_clip_pending) {
                 /* Both original operands were separately parsed,
                  * billed and frozen at their definition-time CTM.
-                 * Only two proven rectangles may replace the first
-                 * geometry. Other contours retain two owned leaves. */
+                 * A rectangle reduction is safe only if no earlier
+                 * paint or saved q can observe the original first leaf. */
                 std::array<float,4u> first{},next{};
                 admit(target.native_unclipped_mode &&
-                      target.clip_completed && clip_active &&
+                      target.clip_completed && clip_active==1u &&
                       !second_clip_used && !target.two_owned_clips &&
                       target.second_clip.commands.empty() && clip_pending &&
-                      target.order.empty() &&
-                      clip_stack.size()==1u && !clip_stack.back() &&
                       pending_second_clip_contour(),
                       QUANTAPDF_ERROR_UNSUPPORTED);
                 complete_clip_contour();
                 admit(qualified_owned_clip_pair(target.clip.commands,
                                                 pending_path),
                       QUANTAPDF_ERROR_UNSUPPORTED);
-                if(read_strict_rect(target.clip.commands,first) &&
+                const bool first_observable=
+                    std::find(target.scoped_clip_membership.begin(),
+                              target.scoped_clip_membership.end(),1u)!=
+                        target.scoped_clip_membership.end() ||
+                    std::find(clip_stack.begin(),clip_stack.end(),1u)!=
+                        clip_stack.end();
+                if(!first_observable &&
+                   read_strict_rect(target.clip.commands,first) &&
                    read_strict_rect(pending_path,next)) {
                     const float left=std::max(first[0],next[0]);
                     const float top=std::max(first[1],next[1]);
@@ -1027,6 +1027,7 @@ public:
                 }
                 second_clip_pending=false;
                 second_clip_used=true;
+                clip_active=2u;
                 clip_pending=false;
                 pending_path.clear();
                 closed=false;
@@ -1048,7 +1049,7 @@ public:
                 target.clip.commands=std::move(pending_path);
                 target.clip.rule=clip_rule;
                 target.clip_completed=true;
-                clip_active=true;
+                clip_active=1u;
                 clip_pending=false;
                 pending_path.clear();
                 closed=false;
@@ -1224,7 +1225,7 @@ private:
     admission& target;
     bool mixed=false;
     bool clipped=false;
-    bool clip_active=false;
+    unsigned char clip_active=0u;
     bool clip_pending=false;
     bool second_clip_pending=false;
     bool second_clip_used=false;
@@ -1233,11 +1234,38 @@ private:
     uint32_t fill_argb=UINT32_C(0xff000000);
     std::vector<matrix> stack;
     std::vector<uint32_t> fill_stack;
-    std::vector<bool> clip_stack;
+    std::vector<unsigned char> clip_stack;
     std::vector<Obj> args;
     std::vector<quantapdf_composer_path_command> pending_path;
     bool closed=false;
 };
+
+/* Complete-page selection, before any C owner is published. A root-only
+ * source keeps the previously qualified one-GS representation. When
+ * either earlier paint or Q restoration observes the first leaf, its
+ * distinct identity must remain in every original operation. */
+bool prepare_native_clip_membership(admission& source)
+{
+    bool first=false,root=false;
+    for(unsigned char state:source.scoped_clip_membership) {
+        admit(state<=2u,QUANTAPDF_ERROR_UNSUPPORTED);
+        first=first || state==1u;
+        root=root || state==2u;
+    }
+    if(!root) {
+        /* A second owned definition with no paint under its intersection
+         * is outside this bounded profile, even if leaf 1 was painted. */
+        admit(!source.two_owned_clips,QUANTAPDF_ERROR_UNSUPPORTED);
+        return false;
+    }
+    if(first) {
+        admit(source.two_owned_clips,QUANTAPDF_ERROR_UNSUPPORTED);
+        return true;
+    }
+    for(auto& state:source.scoped_clip_membership)
+        if(state==2u)state=1u;
+    return false;
+}
 
 /* Resolve Source V10's actual page-tree /Rotate under its own bounded
  * ancestry lease, independently of any early /Resources lookup. QPDF's
@@ -1852,6 +1880,99 @@ quantapdf_ir materialize_mixed(const admission& source,
         throw;
     }
 }
+/* Native two-state Clip profile. GS1 names the original first leaf;
+ * GS2 names the intersection. The bounded original sequence is
+ * first* / intersection+ / restored-first* / unmasked*, with BOTH
+ * nonzero states used. Existing one-GS materializers remain unchanged. */
+quantapdf_ir materialize_clip_states(const admission& source)
+{
+    const size_t count=source.order.size();
+    const size_t paths=source.painted_paths.size();
+    const size_t images=source.draws.size();
+    admit(source.native_unclipped_mode && source.mixed_mode &&
+          source.mixed_scoped_mode && source.clipped_image_mode &&
+          source.clip_completed && source.two_owned_clips &&
+          qualified_owned_clip_pair(source.clip.commands,
+                                    source.second_clip.commands) &&
+          count>=2u && count<=hard_operations &&
+          count<=source.limits.max_operations && paths+images==count &&
+          source.scoped_clip_membership.size()==count &&
+          ((images==0u && paths>=2u && paths<=hard_operations) ||
+           (paths==0u && images==2u) ||
+           (paths>=1u && paths<=2u && images>=1u && images<=2u)),
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    bool first_used=false,root_used=false,first_restored=false;
+    bool unmasked=false;
+    size_t path_index=0u,image_count=0u;
+    for(size_t i=0u;i<count;++i) {
+        const unsigned char state=source.scoped_clip_membership[i];
+        admit(state<=2u,QUANTAPDF_ERROR_UNSUPPORTED);
+        if(state==0u) {
+            admit(root_used,QUANTAPDF_ERROR_UNSUPPORTED);
+            unmasked=true;
+        } else {
+            admit(!unmasked,QUANTAPDF_ERROR_UNSUPPORTED);
+            if(state==1u) {
+                first_used=true;
+                if(root_used)first_restored=true;
+            } else {
+                admit(!first_restored,QUANTAPDF_ERROR_UNSUPPORTED);
+                root_used=true;
+            }
+        }
+        if(source.order[i]==1) {
+            admit(path_index<paths &&
+                  bounded_clip_contour(source.painted_paths[path_index].commands),
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            ++path_index;
+        } else {
+            admit(source.order[i]==2,QUANTAPDF_ERROR_UNSUPPORTED);
+            ++image_count;
+        }
+    }
+    admit(first_used && root_used && path_index==paths &&
+          image_count==images && (!unmasked || source.saw_q_restore),
+          QUANTAPDF_ERROR_UNSUPPORTED);
+
+    quantapdf_ir ir=images==0u ? materialize_owned_paths(source) :
+        paths==0u ? materialize(source) :
+                    materialize_mixed(source,count,true);
+    try {
+        ir.resources.graphics_states=
+            static_cast<quantapdf_composer_graphics_state *>(
+                QP_SOURCE_C_CALLOC(2u,sizeof(*ir.resources.graphics_states)));
+        admit(ir.resources.graphics_states!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        ir.resources.graphics_state_count=2u;
+        ir.resources.graphics_state_capacity=2u;
+        const quantapdf_composer_clip_id root=
+            materialize_source_clip_graph(ir,source);
+        for(size_t i=0u;i<2u;++i) {
+            auto& state=ir.resources.graphics_states[i];
+            state.fill_alpha=1.0f;
+            state.stroke_alpha=1.0f;
+            state.blend_mode=QUANTAPDF_COMPOSER_BLEND_NORMAL;
+            state.clip_id=i==0u?1u:root;
+        }
+        for(size_t i=0u;i<count;++i) {
+            auto& op=ir.operations[i];
+            const quantapdf_composer_graphics_state_id id=
+                source.scoped_clip_membership[i];
+            op.graphics_state_id=id;
+            if(op.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
+                op.value.image.options.struct_size=
+                    QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+                op.value.image.options.graphics_state_id=id;
+            } else {
+                op.value.path.options.graphics_state_id=id;
+            }
+        }
+        return ir;
+    } catch(...) {
+        quantapdf_ir_dispose(&ir);
+        throw;
+    }
+}
+
 /* Native-only public unclipped mixed subset: one opaque PATH fill and
  * one qualified decoded IMAGE in EITHER source order. The existing
  * mixed materializer copies all Image bytes and PATH commands into an
@@ -2522,9 +2643,15 @@ static quantapdf_status source_raw_images_to_ir_impl(
         parsed.parseAsContents(&reader);
         admit(!parser.anyWarnings() && !pdf->anyWarnings(),
               QUANTAPDF_ERROR_FORMAT);
+        const bool clip_states=native_v10 &&
+            prepare_native_clip_membership(source);
         if(native_v10) {
             original_turn_staging(source,geo.rotation);
             scale_source_userunit(source,user_quarters);
+        }
+        if(clip_states) {
+            *out_ir=materialize_clip_states(source);
+            return QUANTAPDF_OK;
         }
         /* This is NOT a recovery after unsupported content: the entire
          * page stream was parsed, EOF validated q/Q and pending-path

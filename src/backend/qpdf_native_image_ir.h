@@ -215,21 +215,28 @@ quantapdf_status quantapdf_qpdf_source_scoped_mixed_v10_flate_predictor_to_ir(
  * Earlier Source entry points retain exact page-zero semantics.
  *
  * The native V10 Clip profile admits two bounded 4..9-command leaves,
- * with LINE/CUBIC edges and explicit or implicit closure, before any
- * paint in one outer q scope that saved an unclipped state. Empty,
- * MOVE-only and open MOVE+LINE operands use the same four-command
+ * with LINE/CUBIC edges and explicit or implicit closure. The first
+ * definition precedes paint; the second may follow first-leaf paints.
+ * Empty, MOVE-only and open MOVE+LINE operands use the same four-command
  * zero-edge encoding in either position. Both definition-time paths and
- * winding rules are retained: owned Clip IDs 1/2, owned flat root 3,
- * and one GS naming root 3. Q restores GS=0; paints under a separately
- * restored first leaf remain unsupported. Original Rotate and UserUnit
- * apply to both leaves. Simple rectangle pairs retain their exact
- * one-leaf intersection reduction.
+ * winding rules are retained: owned Clip IDs 1/2 and owned flat root 3.
+ * Original Rotate and UserUnit apply to both leaves. Simple rectangle
+ * pairs retain their exact one-leaf reduction only when no earlier
+ * paint or saved q can observe the original first leaf.
  *
- * Native V10 also admits 1..4 opaque PATH-only f/f* paints with this
- * existing Clip graph and no Image resources. At least the first paint
+ * Paint before the second definition and Q restoration to the first
+ * leaf use two owned GS records: GS1 names leaf 1; GS2 names root 3.
+ * Both must be painted, in order 1* 2+ 1* 0*, within 2..4 total layers.
+ * PATH-only admits 2..4 paints, Image-only two, and mixed profiles
+ * 1..2 of each kind. A root-only page remaps to the existing one-GS
+ * representation. Third definitions, unused intersections, reentry
+ * and paint before the first Clip definition remain unsupported.
+ *
+ * The existing one-GS V10 profile admits 1..4 opaque PATH-only f/f*
+ * paints with its Clip graph and no Image resources. The first paint
  * uses GS=1; a real Q may restore GS=0 for a contiguous suffix. No
- * Clip reentry, first-leaf restoration or extra layer is admitted.
- * Older Source signatures and mixed/Image cardinalities are unchanged.
+ * Clip reentry or extra layer is admitted by the one-GS profile.
+ * Older Source signatures and one-GS mixed/Image limits are unchanged.
  * All payloads publish atomically and are released by
  * quantapdf_ir_dispose, including partial OOM cleanup. */
 quantapdf_status quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(

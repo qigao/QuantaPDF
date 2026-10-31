@@ -608,11 +608,16 @@ static int atomic_refusals()
         "q "+triangle_a+" W n "+triangle_b+" W* W n "+full_red+"Q",
         prefix+"W n "+full_red+"Q",
         prefix+triangle_a+" W n "+full_red+"Q",
-        one_prefix(triangle_a)+full_red+triangle_b+" W n "+full_red+"Q",
+        /* Paint between definitions now qualifies; a fifth PATH in
+         * the resulting two-state page still exceeds the layer cap. */
+        one_prefix(triangle_a)+full_red+triangle_b+" W n "+
+            full_red+full_red+full_red+full_red+"Q",
         one_prefix(triangle_a)+image_draw+triangle_b+" W n Q",
-        triangle_a+" W n q "+triangle_b+" W n "+full_red+"Q "+full_red,
+        triangle_a+" W n q "+triangle_b+" W n "+full_red+"Q "+
+            full_red+triangle_a+" W n", /* third Clip after restored-first paint */
         one_prefix(triangle_a)+"Q "+one_prefix(triangle_b)+full_red+"Q",
-        one_prefix(triangle_a)+"q "+triangle_b+" W n "+full_red+"Q Q",
+        one_prefix(triangle_a)+"q "+triangle_b+" W n "+full_red+
+            "Q "+triangle_b+" W* n Q", /* third Clip after nested Q */
         ready+" "+one_prefix(triangle_a)+full_red+"Q",
         prefix+"Q",
         prefix+"Q "+full_red,

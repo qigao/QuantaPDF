@@ -93,7 +93,7 @@ static std::string create_blank_source(int mode)
 
 /* Native-only opaque Path Fill originals with no /Resources or Image:
  * 1..4 source-ordered PATHs, grayscale, exact overlap and atomic
- * fifth PATH / late Text / Stroke / Clip-after-paint refusals. */
+ * fifth PATH / late Text / Stroke / first-Clip-after-paint refusals. */
 static std::string create_path_only_source(int mode)
 {
     auto pdf=QPDF::create();
@@ -118,7 +118,7 @@ static std::string create_path_only_source(int mode)
         source="1 0 0 rg 4 4 8 6 re f 4 4 8 6 re S";
     if(mode==5)
         /* Initial Clip + PATH now has its own positive conformance.
-         * A Clip definition after an earlier paint still refuses. */
+         * A first Clip after earlier unclipped paint still refuses. */
         source="1 0 0 rg 4 4 8 6 re f "
                "q 4 4 8 6 re W n 0 0 1 rg 4 4 8 6 re f Q";
     if(mode>=6 && mode<=9) {
@@ -222,7 +222,7 @@ static std::string create_image_only_source(int mode)
         "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q Q";
     if(mode==16)content=
         "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q "
-        "q 12 6 8 9 re W* n /I Do Q Q"; /* second Clip */
+        "q 12 6 8 9 re W* n /I Do 12 6 8 9 re W n Q Q"; /* third Clip */
     if(mode==6 || (mode>=17 && mode<=21))
         content+=" q 8 0 0 6 24 0 cm /I Do Q"
                  " q 8 0 0 6 0 0 cm /I Do Q";
@@ -362,7 +362,8 @@ static std::string create_clipped_mixed_source(int mode)
             "1 0 0 rg 12 6 8 9 re f Q"; /* third all-clipped */
     if(mode==3)
         content=outer+paint_image+
-            "q 12 6 8 9 re W* n "+paint_path+"Q Q"; /* second W* */
+            "q 12 6 8 9 re W* n "+paint_path+
+            "Q 12 6 8 9 re W n Q"; /* third W after restoring first Clip */
     if(mode==4)
         content+=" Q"; /* graphics stack underflow = FORMAT */
     if(mode==5)
@@ -3751,7 +3752,7 @@ int main()
 
     /* One to four opaque PATHs, no Image/Clip resources. Compare fixed
      * independently declared RGB goldens, NOT any PDFium oracle. Later
-     * Text/Stroke/Clip-after-paint/fifth PATH must refuse completely. */
+     * Text/Stroke/first-Clip-after-paint/fifth PATH refuse completely. */
     for(int mode=0;mode<10;++mode) {
         CHECK(write_pdf(filename,create_path_only_source(mode)));
         quantapdf_context *path_context=nullptr;
