@@ -1,5 +1,5 @@
 /* Real Source V10 std::vector new failures. The EXACT production QPDF
- * Source unit is compiled independently with seven isolated test-only
+ * Source unit is compiled independently with eight isolated test-only
  * pre-allocation arming points, not with a replacement source/provider.
  * QPDF authors the original PDF; PDFium is never linked. */
 #include <quantapdf/quantapdf.h>
@@ -48,18 +48,28 @@ extern "C" bool quantapdf_source_ir_oom_fail_c_allocation() noexcept
     return false;
 }
 /* The arming callback runs immediately before a genuine allocating
- * std::vector call, and the next C++ allocation fails once. */
-void *operator new(std::size_t bytes)
+ * Source step (vector growth or text-reader creation), and the next
+ * C++ allocation fails once. */
+/* Keep actual fault-injection calls observable and prevent optimizers
+ * from treating these replacement new/delete pairs as the default heap.
+ * The matching allocator/deallocator both use malloc/free. */
+#if defined(_MSC_VER)
+#define QP_FAULT_NOINLINE __declspec(noinline)
+#else
+#define QP_FAULT_NOINLINE __attribute__((noinline))
+#endif
+QP_FAULT_NOINLINE void *operator new(std::size_t bytes)
 {
     if(armed) {armed=false; ++faults; throw std::bad_alloc();}
     if(void *p=std::malloc(bytes?bytes:1u))return p;
     throw std::bad_alloc();
 }
-void *operator new[](std::size_t bytes) {return ::operator new(bytes);}
-void operator delete(void *p) noexcept {std::free(p);}
-void operator delete[](void *p) noexcept {std::free(p);}
-void operator delete(void *p,std::size_t) noexcept {std::free(p);}
-void operator delete[](void *p,std::size_t) noexcept {std::free(p);}
+QP_FAULT_NOINLINE void *operator new[](std::size_t bytes) {return ::operator new(bytes);}
+QP_FAULT_NOINLINE void operator delete(void *p) noexcept {std::free(p);}
+QP_FAULT_NOINLINE void operator delete[](void *p) noexcept {std::free(p);}
+QP_FAULT_NOINLINE void operator delete(void *p,std::size_t) noexcept {std::free(p);}
+QP_FAULT_NOINLINE void operator delete[](void *p,std::size_t) noexcept {std::free(p);}
+#undef QP_FAULT_NOINLINE
 #define CHECK(x) do {if(!(x)) { \
     std::fprintf(stderr,"Source staging OOM line %d: %s\n",__LINE__,#x); \
     return EXIT_FAILURE; \
