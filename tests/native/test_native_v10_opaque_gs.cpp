@@ -316,8 +316,11 @@ static int run(const std::string& original)
                 "5 generated black positives, 18 exact atomic refusals\n");
     return EXIT_SUCCESS;
 }
+#include "native_ttf_public_cases.h"
+
 int main(int argc,char **argv)
 {
+    CHECK(native_ttf_public_cases("native-mixed-ttf-input.pdf",32,48)==EXIT_SUCCESS);
     if(argc!=2 || argv[1]==nullptr)return EXIT_FAILURE;
     const auto external=std::filesystem::path(argv[1])/
         "pdfium.black-original-v1.pdf";

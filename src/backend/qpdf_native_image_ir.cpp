@@ -75,6 +75,56 @@ double finite_number(Obj x)
     return result;
 }
 
+int64_t source_v10_lattice(Obj number,int64_t ticks)
+{
+    admit(number.isNumber(),QUANTAPDF_ERROR_FORMAT);
+    const std::string raw=number.unparse();
+    admit(!raw.empty() && raw.size()<=20u,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    size_t i=0u;
+    const bool negative=raw[i]=='-';
+    if(raw[i]=='-' || raw[i]=='+')++i;
+    admit(i<raw.size(),QUANTAPDF_ERROR_UNSUPPORTED);
+    /* The original token, including its 20-byte cap, is unchanged.
+     * Trailing fractional zeros carry no precision and must not
+     * consume the fixed-size exact-quarter integer accumulator.
+     * Still validate EVERY input byte below; a late nonzero digit
+     * remains significant and must be rejected if nonquarter. */
+    size_t significant_end=raw.size();
+    const size_t dot=raw.find('.');
+    if(dot!=std::string::npos)
+        while(significant_end>dot+1u && raw[significant_end-1u]=='0')
+            --significant_end;
+    int64_t integer_part=0,decimal_part=0,denominator=1;
+    bool seen_digit=false,point=false;
+    for(;i<raw.size();++i) {
+        const char c=raw[i];
+        if(c=='.' && !point) {point=true;continue;}
+        admit(c>='0' && c<='9',QUANTAPDF_ERROR_UNSUPPORTED);
+        const int64_t d=(int64_t)(c-'0');
+        if(!point) {
+            admit(integer_part<=1000000ll/10ll,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            integer_part=integer_part*10ll+d;
+            admit(integer_part<=1000000ll,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+        } else if(i<significant_end) {
+            admit(denominator<=100000000ll,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            decimal_part=decimal_part*10ll+d;
+            denominator*=10ll;
+        }
+        seen_digit=true;
+    }
+    admit(seen_digit && (decimal_part*ticks)%denominator==0ll,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    const int64_t quarters=integer_part*ticks+
+        decimal_part*ticks/denominator;
+    admit(quarters<=1000000ll*ticks,QUANTAPDF_ERROR_UNSUPPORTED);
+    return negative?-quarters:quarters;
+}
+
+
 double whole_signed_source(double value)
 {
     /* Source V10 accepts quarter-point coordinates from a proven
@@ -541,6 +591,7 @@ struct admission {
     bool text_outlines_eligible=false;
     std::vector<quantapdf::detail::source_outline_paint> text_outline_paints={};
     bool text_outlines_complete=false;
+    bool text_prefix_precision=false;
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule,
@@ -862,15 +913,24 @@ public:
         const std::string op=item.getOperatorValue();
         if(target.text_outlines_eligible && op=="BT") {
             admit(args.empty() && pending_path.empty() && !clip_pending &&
-                !target.clip_completed && target.order.empty() && target.draws.empty() &&
-                target.painted_paths.empty() && stack.size()==fill_stack.size() &&
+                !target.clip_completed && target.draws.empty() &&
+                target.order.size()==target.painted_paths.size() && stack.size()==fill_stack.size() &&
                 std::all_of(clip_stack.begin(),clip_stack.end(),[](size_t id){return id==0u;}),
                 QUANTAPDF_ERROR_UNSUPPORTED);
             std::vector<quantapdf::detail::source_text_seed> saved;
             for(size_t i=0u;i<stack.size();++i)saved.push_back({stack[i],fill_stack[i]});
+            std::vector<quantapdf::detail::source_outline_paint> prefix;
+            for(size_t i=0u;i<target.painted_paths.size();++i) {
+                const auto& path=target.painted_paths[i];
+                admit(target.order[i]==1 && !path.stroke &&
+                      quantapdf::detail::source_outline_is_rectangle(path.commands),QUANTAPDF_ERROR_UNSUPPORTED);
+                quantapdf::detail::source_outline_paint paint{{},path.fill_argb};
+                paint.rectangle=path.commands;paint.rule=path.fill_rule;prefix.push_back(std::move(paint));
+            }
+            admit(prefix.size()<4u,QUANTAPDF_ERROR_UNSUPPORTED);
             QP_SOURCE_STAGE_ARM(8u);
             outline_reader=quantapdf::detail::make_source_text_outlines(
-                target.resources,target.exact_page_h,{current,fill_argb},saved);
+                target.resources,target.exact_page_h,{current,fill_argb},saved,prefix);
             const auto status=outline_reader->consume(item);
             admit(status==QUANTAPDF_OK,status);return;
         }
@@ -1324,11 +1384,15 @@ public:
                   (target.native_unclipped_mode &&
                    w!=0.0 && h!=0.0),
                   QUANTAPDF_ERROR_UNSUPPORTED);
+            text_rect_staging=target.text_outlines_eligible && !target.clip_completed &&
+                target.draws.empty() && current==identity &&
+                (std::trunc(x)!=x || std::trunc(y)!=y || std::trunc(w)!=w || std::trunc(h)!=h);
+            if(text_rect_staging)for(const auto& value:args)(void)source_v10_lattice(value,8ll);
             append_point(QUANTAPDF_COMPOSER_PATH_MOVE_TO,x,y);
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x+w,y);
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x+w,y+h);
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x,y+h);
-            close_path();
+            close_path();text_rect_staging=false;
         } else if(target.native_unclipped_mode && op=="S") {
             if(target.texample_original_profile) {
                 admit(args.empty() &&
@@ -1697,6 +1761,7 @@ public:
             target.text_outline_paints=outline_reader->paints();
             target.text_outlines_complete=true;return;
         }
+        admit(!target.text_prefix_precision,QUANTAPDF_ERROR_UNSUPPORTED);
         admit(args.empty() && stack.empty() && fill_stack.empty() &&
               pending_path.empty() && !clip_pending &&
               (!clipped || clip_stack.empty()));
@@ -1982,6 +2047,15 @@ private:
             current[0]*x+current[4]-target.media_left;
         const double absolute_y=
             current[3]*y+current[5]-target.media_bottom;
+        if(text_rect_staging) {
+            const double py=target.exact_page_h-absolute_y;
+            admit(std::isfinite(absolute_x) && std::isfinite(py) &&
+                  std::abs(absolute_x)<=1000000.0 && std::abs(py)<=1000000.0 &&
+                  std::trunc(absolute_x*8.0)==absolute_x*8.0 && std::trunc(py*8.0)==py*8.0,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            target.text_prefix_precision=true;
+            return {static_cast<float>(absolute_x),static_cast<float>(py)};
+        }
         const double ix=target.crop_viewport?
             whole_signed_source(absolute_x):
             (double)whole(absolute_x,target.page_w);
@@ -2082,6 +2156,7 @@ private:
     bool three_branch_clip_pending=false;
     bool texample_pending_move=false,texample_original_ctm=false;
     std::unique_ptr<quantapdf::detail::source_text_outlines> outline_reader;
+    bool text_rect_staging=false;
     bool texample_prefix_possible=true;
     size_t texample_prefix_index=0u;
     quantapdf_point texample_move_point{};
@@ -2359,7 +2434,19 @@ quantapdf_ir materialize_text_outlines(const admission& source)
         size_t glyphs=0u,commands=0u;
         for(size_t i=0u;i<n;++i) {
             const auto& paint=source.text_outline_paints[i];
-            auto& op=ir.operations[i];op.kind=QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES;
+            auto& op=ir.operations[i];
+            if(!paint.rectangle.empty()) {
+                admit(paint.glyphs.empty() && quantapdf::detail::source_outline_is_rectangle(paint.rectangle) &&
+                      paint.rectangle.size()<=4096u-commands,QUANTAPDF_ERROR_UNSUPPORTED);
+                commands+=paint.rectangle.size();op.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
+                auto& path=op.value.path;path.command_count=paint.rectangle.size();
+                path.commands=static_cast<quantapdf_composer_path_command *>(QP_SOURCE_C_MALLOC(path.command_count*sizeof(*path.commands)));
+                admit(path.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
+                std::memcpy(path.commands,paint.rectangle.data(),path.command_count*sizeof(*path.commands));
+                path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+                path.options.fill=1;path.options.fill_argb=paint.argb;path.options.fill_rule=paint.rule;continue;
+            }
+            op.kind=QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES;
             auto& text=op.value.text_outlines;text.argb=paint.argb;
             admit(paint.glyphs.size()<=64u-glyphs,QUANTAPDF_ERROR_UNSUPPORTED);
             glyphs+=paint.glyphs.size();text.glyph_count=paint.glyphs.size();
@@ -3568,53 +3655,7 @@ Obj source_v10_selected_page(QPDF& pdf,size_t selected_index,
  * viewport SPAN is a separate M1 gate: do not silently ceil, round,
  * stretch, or lose a partial final row/column in the current Raster. */
 int64_t source_v10_quarters(Obj number)
-{
-    admit(number.isNumber(),QUANTAPDF_ERROR_FORMAT);
-    const std::string raw=number.unparse();
-    admit(!raw.empty() && raw.size()<=20u,
-          QUANTAPDF_ERROR_UNSUPPORTED);
-    size_t i=0u;
-    const bool negative=raw[i]=='-';
-    if(raw[i]=='-' || raw[i]=='+')++i;
-    admit(i<raw.size(),QUANTAPDF_ERROR_UNSUPPORTED);
-    /* The original token, including its 20-byte cap, is unchanged.
-     * Trailing fractional zeros carry no precision and must not
-     * consume the fixed-size exact-quarter integer accumulator.
-     * Still validate EVERY input byte below; a late nonzero digit
-     * remains significant and must be rejected if nonquarter. */
-    size_t significant_end=raw.size();
-    const size_t dot=raw.find('.');
-    if(dot!=std::string::npos)
-        while(significant_end>dot+1u && raw[significant_end-1u]=='0')
-            --significant_end;
-    int64_t integer_part=0,decimal_part=0,denominator=1;
-    bool seen_digit=false,point=false;
-    for(;i<raw.size();++i) {
-        const char c=raw[i];
-        if(c=='.' && !point) {point=true;continue;}
-        admit(c>='0' && c<='9',QUANTAPDF_ERROR_UNSUPPORTED);
-        const int64_t d=(int64_t)(c-'0');
-        if(!point) {
-            admit(integer_part<=1000000ll/10ll,
-                  QUANTAPDF_ERROR_UNSUPPORTED);
-            integer_part=integer_part*10ll+d;
-            admit(integer_part<=1000000ll,
-                  QUANTAPDF_ERROR_UNSUPPORTED);
-        } else if(i<significant_end) {
-            admit(denominator<=100000000ll,
-                  QUANTAPDF_ERROR_UNSUPPORTED);
-            decimal_part=decimal_part*10ll+d;
-            denominator*=10ll;
-        }
-        seen_digit=true;
-    }
-    admit(seen_digit && (decimal_part*4ll)%denominator==0ll,
-          QUANTAPDF_ERROR_UNSUPPORTED);
-    const int64_t quarters=integer_part*4ll+
-        decimal_part*4ll/denominator;
-    admit(quarters<=4000000ll,QUANTAPDF_ERROR_UNSUPPORTED);
-    return negative?-quarters:quarters;
-}
+{ return source_v10_lattice(number,4ll); }
 
 std::array<int64_t,4> source_v10_quarter_box(Obj box)
 {

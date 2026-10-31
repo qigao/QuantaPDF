@@ -65,3 +65,13 @@ The tool pins the existing Roboto fixture SHA-256 and uses 60-digit Decimal
 quadratic roots. CI compares complete public RGB and native RGBA images;
 fontTools is not a production or CI runtime dependency. See
 `docs/conformance/native-truetype-text-m0.md` for scope and failure gates.
+
+
+## Rectangle and TrueType M1
+
+`roboto-{mixed,reverse,background,late}-{72,96,144}-m1.rgba` use the same
+independent original-quadratic reference, with exact Decimal rectangle
+edges and original paint order. The background golden also qualifies
+actual public Composer → serialized PDF → Source → native RGB output.
+Regenerate with the existing `native_ttf_reference.py` command above.
+M0 files remain byte-identical. No reference tool runs in production/CI.

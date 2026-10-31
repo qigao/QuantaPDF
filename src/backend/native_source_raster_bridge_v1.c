@@ -82,8 +82,10 @@ static quantapdf_status native_source_bridge_impl(
          * exactly three ordered PATH paints, three real GS owners and
          * seven frozen Clip records. No fallback, no inferred root,
          * no second provider, no partial source omission. */
-        if(ir.operation_count>0u && ir.operations!=NULL &&
-           ir.operations[0].kind==QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES) {
+        int text_outlines=0;
+        if(ir.operations!=NULL)for(size_t i=0u;i<ir.operation_count;++i)
+            if(ir.operations[i].kind==QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES)text_outlines=1;
+        if(text_outlines) {
             quantapdf_ir_raster_v1_limits text_limits={limits->raster.max_pixels,
                 limits->raster.max_operations,limits->raster.max_edges,limits->raster.max_sample_tests};
             quantapdf_native_device_plan plan={0};char box[64];

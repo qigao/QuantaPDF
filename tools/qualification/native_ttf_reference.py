@@ -73,6 +73,20 @@ def crossing(edge, y):
 
 
 def fixture(case, font):
+    def rect(x,y,w,h,color):
+        x,y,w,h=map(D,(x,y,w,h));a=(x,64-y);b=(x+w,64-y);c=(x+w,64-y-h);d=(x,64-y-h)
+        return [(a,b),(b,c),(c,d),(d,a)],color
+    if case in ('mixed','reverse','background'):
+        yield rect('0','0','128','64',(223,223,223))
+        if case=='reverse':yield rect('25.125','18.25','12.5','9.5',(0,0,255))
+        yield from fixture('hello',font)
+        if case!='background':
+            if case=='mixed':yield rect('25.125','18.25','12.5','9.5',(0,0,255))
+            glyphs=font.getGlyphSet();pen=Pen(glyphs,D(24),D(20),font['head'].unitsPerEm)
+            glyphs[font.getBestCmap()[233]].draw(pen);yield pen.edges,(255,0,0)
+        return
+    if case=='late':
+        yield from fixture('hello',font);yield rect('1','1','2','2',(0,0,0));return
     widths = {c: (font['hmtx'][font.getBestCmap()[ord(c)]][0]*1000+
                   font['head'].unitsPerEm//2)//font['head'].unitsPerEm for c in 'Heloé'}
     if case == 'layers':
@@ -129,10 +143,10 @@ def main():
     assert hashlib.sha256(FONT.read_bytes()).hexdigest() == SHA
     font = TTFont(FONT)
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    for case in ('hello', 'layers', 'tj', 'fringe'):
+    for case in ('hello', 'layers', 'tj', 'fringe', 'mixed', 'reverse', 'background', 'late'):
         for dpi in (72, 96, 144):
             data = render(case, dpi, font)
-            out = args.output_dir / f'roboto-{case}-{dpi}-m0.rgba'
+            out = args.output_dir / f'roboto-{case}-{dpi}-m{1 if case in ("mixed","reverse","background","late") else 0}.rgba'
             out.write_bytes(data)
             print(out.name, len(data), hashlib.sha256(data).hexdigest())
 

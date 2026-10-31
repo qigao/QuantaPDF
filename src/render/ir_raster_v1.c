@@ -2220,9 +2220,9 @@ quantapdf_status quantapdf_ir_raster_render_v1_text_outlines(
     const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
     const quantapdf_native_device_plan *plan,size_t *out_sample_tests,quantapdf_ir_raster_image *out_image)
 {
-    quantapdf_ir projected={0};quantapdf_composer_operation paths[64]={{0}};
+    quantapdf_ir projected={0};quantapdf_composer_operation paths[68]={{0}};
     quantapdf_ir_raster_v1_limits work;
-    size_t n=0u,commands=0u;
+    size_t n=0u,commands=0u,glyphs=0u,shows=0u;
     if(out_sample_tests!=NULL)*out_sample_tests=0u;
     if(out_image==NULL)return QUANTAPDF_ERROR_ARGUMENT;
     memset(out_image,0,sizeof(*out_image));
@@ -2243,11 +2243,31 @@ quantapdf_status quantapdf_ir_raster_render_v1_text_outlines(
         return QUANTAPDF_ERROR_UNSUPPORTED;
     for(size_t i=0u;i<source->operation_count;++i) {
         const quantapdf_composer_operation *op=&source->operations[i];
+        if(op->kind==QUANTAPDF_COMPOSER_OPERATION_PATH) {
+            const quantapdf_composer_path_operation *path=&op->value.path;
+            const quantapdf_composer_path_options *opt=&path->options;
+            if(op->page_index!=0u || op->graphics_state_id!=0u || path->commands==NULL ||
+               path->command_count!=5u || commands>4091u || path->dash_count!=0u || path->dash_lengths!=NULL || path->dash_phase!=0.0f ||
+               opt->struct_size!=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE || opt->fill!=1 || opt->stroke!=0 ||
+               (opt->fill_argb>>24u)!=255u || opt->graphics_state_id!=0u || opt->fill_paint_id!=0u || opt->stroke_paint_id!=0u ||
+               (opt->fill_rule!=QUANTAPDF_COMPOSER_FILL_NONZERO && opt->fill_rule!=QUANTAPDF_COMPOSER_FILL_EVEN_ODD) ||
+               opt->transform.a!=0 || opt->transform.b!=0 || opt->transform.c!=0 || opt->transform.d!=0 ||
+               opt->transform.e!=0 || opt->transform.f!=0)return QUANTAPDF_ERROR_UNSUPPORTED;
+            const quantapdf_composer_path_command *c=path->commands;
+            if(c[0].kind!=QUANTAPDF_COMPOSER_PATH_MOVE_TO || c[1].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+               c[2].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO || c[3].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+               c[4].kind!=QUANTAPDF_COMPOSER_PATH_CLOSE)return QUANTAPDF_ERROR_UNSUPPORTED;
+            const quantapdf_point a=c[0].point1,b=c[1].point1,d=c[2].point1,e=c[3].point1;
+            if(!((a.x==e.x&&b.x==d.x&&a.y==b.y&&d.y==e.y&&a.x!=b.x&&a.y!=e.y) ||
+                 (a.x==b.x&&d.x==e.x&&a.y==e.y&&b.y==d.y&&a.x!=e.x&&a.y!=b.y)))return QUANTAPDF_ERROR_UNSUPPORTED;
+            paths[n++]=*op;commands+=5u;continue;
+        }
         const quantapdf_text_outline_operation *text=&op->value.text_outlines;
         if(op->kind!=QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES || op->page_index!=0u ||
            op->graphics_state_id!=0u || (text->argb>>24u)!=255u ||
-           text->glyph_count>64u-n || ((text->glyph_count==0u)!=(text->glyphs==NULL)))
+           text->glyph_count>64u-glyphs || ((text->glyph_count==0u)!=(text->glyphs==NULL)))
             return QUANTAPDF_ERROR_UNSUPPORTED;
+        ++shows;glyphs+=text->glyph_count;
         for(size_t g=0u;g<text->glyph_count;++g) {
             const quantapdf_outline_glyph *glyph=&text->glyphs[g];
             quantapdf_composer_path_options *opt=&paths[n].value.path.options;
@@ -2260,10 +2280,11 @@ quantapdf_status quantapdf_ir_raster_render_v1_text_outlines(
             opt->fill=1;opt->fill_argb=text->argb;opt->fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;++n;
         }
     }
+    if(shows==0u)return QUANTAPDF_ERROR_UNSUPPORTED;
     projected.pages=source->pages;projected.page_count=1u;projected.operations=paths;projected.operation_count=n;
     work=*limits;work.max_operations=n==0u?1u:n;
-    /* Four original text-show paints remain the caller admission limit.
-     * Only the separately bounded (64) internal glyph expansion uses this
+    /* Four original rectangle/text paints remain the caller admission limit.
+     * Only the separately bounded (64 glyphs + at most 3 rectangles) expansion uses this
      * synchronous borrowed PATH view. No global operation limit is widened. */
     return qp_render_v1_impl(&projected,0u,&work,plan,NULL,0u,10,out_image,out_sample_tests);
 }
