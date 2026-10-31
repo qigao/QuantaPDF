@@ -27,7 +27,8 @@ ToUnicode and decoded Length1 remain unchanged in meaning.
   glyph-run is reopened, extracted/searched and rendered at physical
   72/96/144 DPI, with repeats, thumbnails and detached lifetimes. Its complete
   expected image uses the independently authored H part of the existing
-  Hello/background reference plus gray elsewhere: the original H right edge
+  Hello/background reference plus gray with exact rational physical viewport
+  coverage elsewhere (including partial 96-DPI fringes): the H right edge
   is before x=29pt and the following e starts after x=29pt.
 - Cyclic composite glyphs must fail Composer finish with FORMAT/NULL Output
   on both embedded-text and glyph-run routes. Previously subset rejection

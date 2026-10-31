@@ -157,9 +157,20 @@ static int native_ttf_public_cases(const std::string& filename,int first=0,int l
                 CHECK(expected.size()==(size_t)w*(size_t)h*4u);
                 for(size_t i=0u;i<(size_t)w*(size_t)h;++i) {
                     /* H ends before x=29pt; e starts after it. Reuse the
-                     * independently authored H region, with gray elsewhere. */
+                     * independently authored H region. Elsewhere the gray
+                     * rectangle still has the original physical viewport's
+                     * fractional right/bottom coverage, notably at 96 DPI. */
                     if(mode==49 && i%(size_t)w>=(size_t)(29*dpi/72)) {
-                        CHECK(pixels[3u*i]==0xdfu && pixels[3u*i+1u]==0xdfu && pixels[3u*i+2u]==0xdfu);
+                        const size_t x=i%(size_t)w,y=i/(size_t)w;
+                        unsigned covered=0u;
+                        for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx)
+                            if((8u*x+2u*sx+1u)*72u<(size_t)8u*128u*(size_t)dpi &&
+                               (8u*y+2u*sy+1u)*72u<(size_t)8u*64u*(size_t)dpi)++covered;
+                        const unsigned gray=(0xdfu*covered+255u*(16u-covered)+8u)/16u;
+                        if(pixels[3u*i]!=gray || pixels[3u*i+1u]!=gray || pixels[3u*i+2u]!=gray)
+                            std::fprintf(stderr,"glyph-run background dpi=%d pixel=%zu expected=%u RGB=%u/%u/%u\n",
+                                dpi,i,gray,(unsigned)pixels[3u*i],(unsigned)pixels[3u*i+1u],(unsigned)pixels[3u*i+2u]);
+                        CHECK(pixels[3u*i]==gray && pixels[3u*i+1u]==gray && pixels[3u*i+2u]==gray);
                         continue;
                     }
                     if(std::memcmp(pixels+3u*i,expected.data()+4u*i,3u)!=0) {
