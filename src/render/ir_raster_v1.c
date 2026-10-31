@@ -2237,7 +2237,9 @@ quantapdf_status quantapdf_ir_raster_render_v1_text_outlines(
        source->pages[0].height_points<1.0f || source->pages[0].height_points>65536.0f ||
        source->pages[0].width_points!=floorf(source->pages[0].width_points) ||
        source->pages[0].height_points!=floorf(source->pages[0].height_points) ||
-       source->pages[0].background_argb!=UINT32_C(0xffffffff) || source->pages[0].suppress_background!=0)
+       source->pages[0].background_argb!=UINT32_C(0xffffffff) || source->pages[0].suppress_background!=0 ||
+       plan->width_points!=(double)source->pages[0].width_points ||
+       plan->height_points!=(double)source->pages[0].height_points)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     for(size_t i=0u;i<source->operation_count;++i) {
         const quantapdf_composer_operation *op=&source->operations[i];

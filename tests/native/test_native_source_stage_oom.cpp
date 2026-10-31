@@ -1504,6 +1504,11 @@ static int native_ttf_source_and_raster_contracts(
             if(fail_index)ok=ok && c_allocations==fail_index && c_faults==1u;
             quantapdf_ir_raster_image_dispose(&result);return ok;
         };
+        const auto original_plan=plan;
+        plan.width_points+=0.000001;CHECK(retry(limits,QUANTAPDF_ERROR_UNSUPPORTED));plan=original_plan;
+        plan.height_points+=0.000001;
+        plan.source_to_device[5]=plan.height_points*((double)dpi/72.0);
+        CHECK(retry(limits,QUANTAPDF_ERROR_UNSUPPORTED));plan=original_plan;
         auto exact=limits;exact.max_sample_tests=work;CHECK(retry(exact,QUANTAPDF_OK));
         exact.max_sample_tests=work-1u;CHECK(retry(exact,QUANTAPDF_ERROR_UNSUPPORTED));
         size_t lo=1u,hi=512u;
