@@ -42,7 +42,6 @@ extern "C" bool quantapdf_source_ir_oom_fail_c_allocation() noexcept;
 
 namespace {
 using Obj = QPDFObjectHandle;
-int64_t source_v10_lattice(Obj,int64_t);
 constexpr size_t hard_pdf_bytes = 2u * 1024u * 1024u;
 constexpr size_t hard_content_bytes = 65536u;
 constexpr size_t hard_image_pixels = 4194304u;
@@ -75,6 +74,56 @@ double finite_number(Obj x)
     admit(std::isfinite(result));
     return result;
 }
+
+int64_t source_v10_lattice(Obj number,int64_t ticks)
+{
+    admit(number.isNumber(),QUANTAPDF_ERROR_FORMAT);
+    const std::string raw=number.unparse();
+    admit(!raw.empty() && raw.size()<=20u,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    size_t i=0u;
+    const bool negative=raw[i]=='-';
+    if(raw[i]=='-' || raw[i]=='+')++i;
+    admit(i<raw.size(),QUANTAPDF_ERROR_UNSUPPORTED);
+    /* The original token, including its 20-byte cap, is unchanged.
+     * Trailing fractional zeros carry no precision and must not
+     * consume the fixed-size exact-quarter integer accumulator.
+     * Still validate EVERY input byte below; a late nonzero digit
+     * remains significant and must be rejected if nonquarter. */
+    size_t significant_end=raw.size();
+    const size_t dot=raw.find('.');
+    if(dot!=std::string::npos)
+        while(significant_end>dot+1u && raw[significant_end-1u]=='0')
+            --significant_end;
+    int64_t integer_part=0,decimal_part=0,denominator=1;
+    bool seen_digit=false,point=false;
+    for(;i<raw.size();++i) {
+        const char c=raw[i];
+        if(c=='.' && !point) {point=true;continue;}
+        admit(c>='0' && c<='9',QUANTAPDF_ERROR_UNSUPPORTED);
+        const int64_t d=(int64_t)(c-'0');
+        if(!point) {
+            admit(integer_part<=1000000ll/10ll,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            integer_part=integer_part*10ll+d;
+            admit(integer_part<=1000000ll,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+        } else if(i<significant_end) {
+            admit(denominator<=100000000ll,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            decimal_part=decimal_part*10ll+d;
+            denominator*=10ll;
+        }
+        seen_digit=true;
+    }
+    admit(seen_digit && (decimal_part*ticks)%denominator==0ll,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    const int64_t quarters=integer_part*ticks+
+        decimal_part*ticks/denominator;
+    admit(quarters<=1000000ll*ticks,QUANTAPDF_ERROR_UNSUPPORTED);
+    return negative?-quarters:quarters;
+}
+
 
 double whole_signed_source(double value)
 {
@@ -3605,55 +3654,6 @@ Obj source_v10_selected_page(QPDF& pdf,size_t selected_index,
  * This deliberately admits only the 1/4-point lattice. A fractional
  * viewport SPAN is a separate M1 gate: do not silently ceil, round,
  * stretch, or lose a partial final row/column in the current Raster. */
-int64_t source_v10_lattice(Obj number,int64_t ticks)
-{
-    admit(number.isNumber(),QUANTAPDF_ERROR_FORMAT);
-    const std::string raw=number.unparse();
-    admit(!raw.empty() && raw.size()<=20u,
-          QUANTAPDF_ERROR_UNSUPPORTED);
-    size_t i=0u;
-    const bool negative=raw[i]=='-';
-    if(raw[i]=='-' || raw[i]=='+')++i;
-    admit(i<raw.size(),QUANTAPDF_ERROR_UNSUPPORTED);
-    /* The original token, including its 20-byte cap, is unchanged.
-     * Trailing fractional zeros carry no precision and must not
-     * consume the fixed-size exact-quarter integer accumulator.
-     * Still validate EVERY input byte below; a late nonzero digit
-     * remains significant and must be rejected if nonquarter. */
-    size_t significant_end=raw.size();
-    const size_t dot=raw.find('.');
-    if(dot!=std::string::npos)
-        while(significant_end>dot+1u && raw[significant_end-1u]=='0')
-            --significant_end;
-    int64_t integer_part=0,decimal_part=0,denominator=1;
-    bool seen_digit=false,point=false;
-    for(;i<raw.size();++i) {
-        const char c=raw[i];
-        if(c=='.' && !point) {point=true;continue;}
-        admit(c>='0' && c<='9',QUANTAPDF_ERROR_UNSUPPORTED);
-        const int64_t d=(int64_t)(c-'0');
-        if(!point) {
-            admit(integer_part<=1000000ll/10ll,
-                  QUANTAPDF_ERROR_UNSUPPORTED);
-            integer_part=integer_part*10ll+d;
-            admit(integer_part<=1000000ll,
-                  QUANTAPDF_ERROR_UNSUPPORTED);
-        } else if(i<significant_end) {
-            admit(denominator<=100000000ll,
-                  QUANTAPDF_ERROR_UNSUPPORTED);
-            decimal_part=decimal_part*10ll+d;
-            denominator*=10ll;
-        }
-        seen_digit=true;
-    }
-    admit(seen_digit && (decimal_part*ticks)%denominator==0ll,
-          QUANTAPDF_ERROR_UNSUPPORTED);
-    const int64_t quarters=integer_part*ticks+
-        decimal_part*ticks/denominator;
-    admit(quarters<=1000000ll*ticks,QUANTAPDF_ERROR_UNSUPPORTED);
-    return negative?-quarters:quarters;
-}
-
 int64_t source_v10_quarters(Obj number)
 { return source_v10_lattice(number,4ll); }
 
