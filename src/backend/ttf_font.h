@@ -19,6 +19,9 @@ enum class sfnt_outline_kind {
     cff2
 };
 
+struct ttf_outline_point { double x,y; bool on_curve; };
+using ttf_outline_contour=std::vector<ttf_outline_point>;
+
 struct ttf_font_face {
     unsigned char const* data = nullptr;
     sfnt_outline_kind outline_kind = sfnt_outline_kind::true_type;
@@ -47,6 +50,10 @@ struct ttf_font_face {
 
     uint16_t glyph_for(uint32_t codepoint) const;
     int width_for(uint16_t glyph) const;
+    /* Unhinted glyf outlines, with bounded XY-positioned composite expansion.
+     * No font bytecode, system-font lookup or replacement outline is used. */
+    quantapdf_status outline_for(uint16_t glyph,
+        std::vector<ttf_outline_contour> *out,size_t max_points=8192u) const;
 };
 
 quantapdf_status decode_utf8_codepoints(

@@ -3,6 +3,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 #define QP_SAMPLES 4u
@@ -1064,6 +1065,169 @@ unsupported:
     return QUANTAPDF_ERROR_UNSUPPORTED;
 }
 
+/* Exact sign of the line/ray determinant. Float source coordinates and
+ * integer sample/DPI factors are exact doubles; fma residuals and two-sum
+ * expansions retain every product/sum bit, including boundary equality. */
+static void qp_text_grow(double e[16],size_t *n,double term)
+{
+    double next[16],q=term;size_t used=0u;
+    for(size_t i=0u;i<*n;++i) {
+        const double sum=q+e[i],b=sum-q;
+        const double error=(q-(sum-b))+(e[i]-b);
+        if(error!=0.0)next[used++]=error;
+        q=sum;
+    }
+    if(q!=0.0 || used==0u)next[used++]=q;
+    memcpy(e,next,used*sizeof(*e));*n=used;
+}
+static int qp_text_line_side(quantapdf_point a,quantapdf_point b,
+    size_t column,size_t row,unsigned dpi)
+{
+    const double k=8.0*(double)dpi;
+    const double py=72.0*(double)(2u*row+1u),px=72.0*(double)(2u*column+1u);
+    const double u[6]={k*a.x,-k*b.x,py,-py,-px,px};
+    const double v[6]={b.y,a.y,b.x,a.x,b.y,a.y};
+    double expansion[16]={0};size_t count=0u;
+    for(unsigned i=0u;i<6u;++i) {
+        const double product=u[i]*v[i];
+        qp_text_grow(expansion,&count,fma(u[i],v[i],-product));
+        qp_text_grow(expansion,&count,product);
+    }
+    const double sign=expansion[count-1u];
+    return sign>0.0?1:sign<0.0?-1:0;
+}
+static int qp_text_line_ray(quantapdf_point a,quantapdf_point b,
+    size_t row,unsigned dpi,size_t width,size_t *threshold,size_t *work,size_t cap)
+{
+    size_t lo=0u,hi=width*4u;
+    while(lo<hi) {
+        const size_t mid=lo+(hi-lo)/2u;
+        if(!qp_exact_charge(work,1u,cap))return 0;
+        const int sign=qp_text_line_side(a,b,mid,row,dpi);
+        const int left=b.y>a.y?sign>0:sign<0;
+        if(left)lo=mid+1u;else hi=mid;
+    }
+    *threshold=lo;return 1;
+}
+/* Monotone curve root enclosure can retain BOTH children around an
+ * interval-valued shared endpoint. No guessed side or line approximation. */
+static int qp_text_curve_ray(qp_cubic_cell root,double y,size_t width,
+    size_t *threshold,size_t *work,size_t cap)
+{
+    qp_cubic_cell current[16],next[16];size_t count=1u;current[0]=root;
+    for(unsigned depth=0u;depth<=QP_EXACT_CURVE_DEPTH;++depth) {
+        double lo=INFINITY,hi=-INFINITY;
+        for(size_t i=0u;i<count;++i) {
+            double xl,xh,yl,yh;
+            if(!qp_exact_charge(work,1u,cap))return 0;
+            qp_exact_hull(&current[i],&xl,&xh,&yl,&yh);
+            if(xl<lo)lo=xl;
+            if(xh>hi)hi=xh;
+        }
+        lo=fmax(0.0,fmin((double)(width*4u),ceil(qp_down(qp_down(lo*4.0)-0.5))));
+        hi=fmax(0.0,fmin((double)(width*4u),ceil(qp_up(qp_up(hi*4.0)-0.5))));
+        if(lo==hi){*threshold=(size_t)lo;return 1;}
+        if(depth==QP_EXACT_CURVE_DEPTH)return 0;
+        size_t n=0u;
+        for(size_t i=0u;i<count;++i) {
+            qp_cubic_cell pair[2];qp_exact_split(&current[i],&pair[0],&pair[1]);
+            for(unsigned j=0u;j<2u;++j) {
+                double xl,xh,yl,yh;qp_exact_hull(&pair[j],&xl,&xh,&yl,&yh);
+                if(y<yl || y>yh)continue;
+                if(n==16u)return 0;
+                next[n++]=pair[j];
+            }
+        }
+        if(n==0u)return 0;
+        memcpy(current,next,n*sizeof(*next));count=n;
+    }
+    return 0;
+}
+static int qp_text_crossing(quantapdf_point a,
+    const quantapdf_composer_path_command *c,int line,size_t row,unsigned dpi,
+    size_t width,size_t *threshold,int *delta,size_t *work,size_t cap)
+{
+    const quantapdf_point b=line?c->point1:c->point3;
+    const double py=72.0*(double)(2u*row+1u);
+    const double y0=8.0*(double)dpi*a.y,y1=8.0*(double)dpi*b.y;
+    if(!((y0<=py&&y1>py)||(y1<=py&&y0>py)))return 2;
+    *delta=b.y>a.y?1:-1;
+    if(line)return qp_text_line_ray(a,b,row,dpi,width,threshold,work,cap);
+    if(py==y0 || py==y1) {
+        const double x=8.0*(double)dpi*(py==y0?a.x:b.x);
+        size_t lo=0u,hi=width*4u;
+        while(lo<hi) {
+            if(!qp_exact_charge(work,1u,cap))return 0;
+            const size_t mid=lo+(hi-lo)/2u;
+            if(72.0*(double)(2u*mid+1u)<x)lo=mid+1u;else hi=mid;
+        }
+        *threshold=lo;return 1;
+    }
+    const int increasing=b.y>a.y;
+    if(increasing?!(a.y<=c->point1.y&&c->point1.y<=c->point2.y&&c->point2.y<=b.y):
+                   !(a.y>=c->point1.y&&c->point1.y>=c->point2.y&&c->point2.y>=b.y))return 0;
+    const qp_cubic_cell cell=qp_exact_device_cubic(a,c,(double)dpi/72.0);
+    return qp_text_curve_ray(cell,(double)(2u*row+1u)/8.0,width,threshold,work,cap);
+}
+static int qp_text_glyph_mask(const quantapdf_composer_path_operation *path,
+    const quantapdf_native_device_plan *plan,uint16_t *mask,size_t *work,size_t cap)
+{
+    const size_t width=plan->width,height=plan->height;
+    const uint64_t physical_x=8u*(uint64_t)plan->dpi*(uint64_t)plan->width_points;
+    const uint64_t physical_y=8u*(uint64_t)plan->dpi*(uint64_t)plan->height_points;
+    memset(mask,0,width*height*sizeof(*mask));
+    for(size_t y=0u;y<height;++y)for(unsigned sy=0u;sy<4u;++sy) {
+        if(72u*(uint64_t)(2u*(y*4u+sy)+1u)>=physical_y)continue;
+        size_t thresholds[1024],count=0u;int deltas[1024],winding=0;
+        quantapdf_point current={0,0},start={0,0};int active=0;
+        for(size_t k=0u;k<path->command_count;++k) {
+            const quantapdf_composer_path_command *c=&path->commands[k];
+            quantapdf_composer_path_command closing={0};int line=0;
+            if(!qp_exact_charge(work,1u,cap))return 0;
+            if(c->kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO) {
+                if(active)return 0;
+                current=start=c->point1;active=1;continue;
+            }
+            if(!active)return 0;
+            if(c->kind==QUANTAPDF_COMPOSER_PATH_CLOSE) {
+                closing.kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;closing.point1=start;
+                c=&closing;line=1;active=0;
+            } else if(c->kind==QUANTAPDF_COMPOSER_PATH_LINE_TO)line=1;
+            else if(c->kind!=QUANTAPDF_COMPOSER_PATH_CUBIC_TO)return 0;
+            if(count==1024u)return 0;
+            const int result=qp_text_crossing(current,c,line,y*4u+sy,plan->dpi,width,
+                &thresholds[count],&deltas[count],work,cap);
+            if(result==0)return 0;
+            if(result==1){winding+=deltas[count];++count;}
+            current=line?c->point1:c->point3;
+        }
+        if(active || winding!=0)return 0;
+        for(size_t i=1u;i<count;++i) {
+            const size_t value=thresholds[i];const int delta=deltas[i];size_t j=i;
+            while(j>0u) {
+                if(!qp_exact_charge(work,1u,cap))return 0;
+                if(thresholds[j-1u]<=value)break;
+                thresholds[j]=thresholds[j-1u];deltas[j]=deltas[j-1u];--j;
+            }
+            thresholds[j]=value;deltas[j]=delta;
+        }
+        size_t first=0u;
+        for(size_t i=0u;i<count;) {
+            const size_t end=thresholds[i];
+            if(winding!=0)for(size_t col=first;col<end;++col) {
+                if(!qp_exact_charge(work,1u,cap))return 0;
+                if(72u*(uint64_t)(2u*col+1u)<physical_x)
+                    mask[y*width+col/4u]|=(uint16_t)(1u<<(4u*sy+col%4u));
+            }
+            do {winding-=deltas[i++];if(!qp_exact_charge(work,1u,cap))return 0;}
+            while(i<count && thresholds[i]==end);
+            first=end;
+        }
+        if(winding!=0)return 0;
+    }
+    return 1;
+}
+
 static quantapdf_status qp_render_v1_impl(
     const quantapdf_ir *ir, size_t page_index,
     const quantapdf_ir_raster_v1_limits *limits,
@@ -1087,9 +1251,11 @@ static quantapdf_status qp_render_v1_impl(
     qp_sample_box sample_box = {0u,0u,0u,0u};
     qp_sample_box *curve_boxes = NULL;
     uint16_t *exact_masks = NULL;
+    const int exact_text=visible_work_optin==10;
     const int physical_dpi=visible_work_optin==9;
     const int shared_texample=visible_work_optin==8 || physical_dpi;
     const int exact_texample=visible_work_optin==7 || shared_texample;
+    const int exact_native=exact_texample || exact_text;
 
     if (out_sample_tests != NULL)*out_sample_tests=0u;
     if (out_image == NULL)
@@ -1115,7 +1281,7 @@ static quantapdf_status qp_render_v1_impl(
         (double)page->height_points > (double)limits->max_pixels)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     if (plan != NULL) {
-        const int physical = visible_work_optin == 5 || visible_work_optin == 6 || exact_texample;
+        const int physical = visible_work_optin == 5 || visible_work_optin == 6 || exact_native;
         if (!(physical ?
                 quantapdf_native_device_plan_matches_physical_page(plan,
                     page->width_points, page->height_points, limits->max_pixels) :
@@ -1159,7 +1325,7 @@ static quantapdf_status qp_render_v1_impl(
     if (clip_count > 0u &&
         !(ir->operation_count == 1u &&
           ir->operations[0].page_index == page_index) &&
-        !two_path_clip_pair && !exact_texample)
+        !two_path_clip_pair && !exact_native)
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
     pixels_count = width * height;
@@ -1204,23 +1370,24 @@ static quantapdf_status qp_render_v1_impl(
        !bounded_curved_stroke)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     if(!bounded_clipped_fill && !bounded_clipped_stroke &&
-       !bounded_curved_stroke && !exact_texample &&
+       !bounded_curved_stroke && !exact_native &&
        pixels_count > limits->max_sample_tests / QP_TOTAL_SAMPLES)
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
     flatten.capacity = limits->max_edges;
-    flatten.edges = (qp_edge *)qp_exact_malloc(flatten.capacity * sizeof(qp_edge),exact_texample);
-    if(exact_texample && flatten.edges==NULL) {
+    flatten.edges = (qp_edge *)qp_exact_malloc(flatten.capacity * sizeof(qp_edge),exact_native);
+    if(exact_native && flatten.edges==NULL) {
         status=QUANTAPDF_ERROR_NOMEM;goto cleanup;
     }
-    draws = (qp_raster_draw *)qp_exact_malloc(limits->max_operations * sizeof(qp_raster_draw),exact_texample);
+    draws = (qp_raster_draw *)qp_exact_malloc(limits->max_operations * sizeof(qp_raster_draw),exact_native);
     if (flatten.edges == NULL || draws == NULL) {
         status = QUANTAPDF_ERROR_NOMEM;
         goto cleanup;
     }
 
-    /* Whole-page admission and complexity billing precede output allocation.
-     * No content from an unsupported selected-page operation may be skipped. */
+    /* Whole-page shape/edge admission precedes output allocation. Exact text
+     * bills coverage while painting private pixels and publishes only after
+     * every glyph succeeds. No selected operation may be skipped. */
     for (i = 0u; i < ir->operation_count; ++i) {
         const quantapdf_composer_operation *op = &ir->operations[i];
         if (op->page_index >= ir->page_count) {
@@ -1247,7 +1414,7 @@ static quantapdf_status qp_render_v1_impl(
         } else {
             status = qp_admit_draw(op, &flatten,
                 plan == NULL ? NULL : plan->from_composer, &draws[draw_count],
-                0,visible_work_optin==3?1:
+                exact_text?1:0,visible_work_optin==3?1:
                   (physical_dpi?3:(bounded_curved_stroke || exact_texample)?2:0));
         }
         if (status != QUANTAPDF_OK) {
@@ -1260,7 +1427,7 @@ static quantapdf_status qp_render_v1_impl(
             qp_full_canvas_rect(flatten.edges,&draws[draw_count],
                                 width,height);
         if(!bounded_clipped_fill && !bounded_clipped_stroke &&
-           !bounded_curved_stroke && !exact_texample) {
+           !bounded_curved_stroke && !exact_native) {
             const size_t checks_per_sample=
                 draws[draw_count].full_canvas_rect ?
                     1u : draws[draw_count].edge_count;
@@ -1312,7 +1479,7 @@ static quantapdf_status qp_render_v1_impl(
             goto cleanup;
         }
         if(!bounded_clipped_fill && !bounded_clipped_stroke &&
-           !bounded_curved_stroke && !exact_texample) {
+           !bounded_curved_stroke && !exact_native) {
             if (clip_draws[ci].edge_count >
                 (limits->max_sample_tests - total_checks) /
                     (QP_TOTAL_SAMPLES * pixels_count)) {
@@ -1328,7 +1495,7 @@ static quantapdf_status qp_render_v1_impl(
      * Clip excludes all closed-triangle joins. No silent stroke fallback. */
     for (i = 0u; i < draw_count; ++i) {
         if (draws[i].one_pixel_stroke &&
-            !bounded_curved_stroke && !exact_texample && draws[i].edge_count != 1u &&
+            !bounded_curved_stroke && !exact_native && draws[i].edge_count != 1u &&
             (draw_count != 1u || clip_count != 1u ||
              !qp_guard_clipped_stroke_geometry(flatten.edges,
                  &draws[i], &clip_draws[0]))) {
@@ -1436,7 +1603,11 @@ static quantapdf_status qp_render_v1_impl(
         status=qp_exact_texample_masks(ir,clips[0],plan,limits,&exact_masks,&total_checks,physical_dpi);
         if(status!=QUANTAPDF_OK)goto cleanup;
     }
-    pixels = (unsigned char *)qp_exact_malloc(pixels_count * 4u,exact_texample);
+    if(exact_text) {
+        exact_masks=(uint16_t *)qp_exact_malloc(pixels_count*sizeof(*exact_masks),1);
+        if(exact_masks==NULL){status=QUANTAPDF_ERROR_NOMEM;goto cleanup;}
+    }
+    pixels = (unsigned char *)qp_exact_malloc(pixels_count * 4u,exact_native);
     if (pixels == NULL) {
         status = QUANTAPDF_ERROR_NOMEM;
         goto cleanup;
@@ -1448,10 +1619,16 @@ static quantapdf_status qp_render_v1_impl(
 
     for (i = 0u; i < draw_count; ++i) {
         const qp_raster_draw *draw = &draws[i];
-        if(exact_texample) {
+        if(exact_text) {
+            if(!qp_text_glyph_mask(&ir->operations[i].value.path,plan,exact_masks,
+                                  &total_checks,limits->max_sample_tests)) {
+                status=QUANTAPDF_ERROR_UNSUPPORTED;goto cleanup;
+            }
+        }
+        if(exact_native) {
             for(y=0u;y<height;++y)for(x=0u;x<width;++x) {
                 unsigned covered=0u;
-                uint16_t mask=exact_masks[i*pixels_count+y*width+x];
+                uint16_t mask=exact_masks[(exact_text?0u:i)*pixels_count+y*width+x];
                 for(unsigned k=0u;k<16u;++k)covered+=(unsigned)((mask>>k)&1u);
                 qp_blend_pixel(pixels+4u*(y*width+x),draw->color,covered);
             }
@@ -2038,6 +2215,62 @@ quantapdf_status quantapdf_ir_raster_render_v1_texample_physical_dpi_three_layer
     quantapdf_ir_raster_image *out_image)
 {
     return qp_texample_three_layer(source,limits,plan,out_sample_tests,out_image,2);
+}
+
+quantapdf_status quantapdf_ir_raster_render_v1_text_outlines(
+    const quantapdf_ir *source,unsigned dpi,const quantapdf_ir_raster_v1_limits *limits,
+    size_t *out_sample_tests,quantapdf_ir_raster_image *out_image)
+{
+    quantapdf_ir projected={0};quantapdf_composer_operation paths[64]={{0}};
+    quantapdf_native_device_plan plan={0};quantapdf_ir_raster_v1_limits work;
+    size_t n=0u,commands=0u;char box[64];
+    if(out_sample_tests!=NULL)*out_sample_tests=0u;
+    if(out_image==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out_image,0,sizeof(*out_image));
+    if(source==NULL || limits==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    if(source->pages==NULL || source->page_count!=1u || source->operations==NULL ||
+       source->operation_count==0u || source->operation_count>limits->max_operations ||
+       source->operation_count>4u || source->links!=NULL || source->link_count!=0u ||
+       source->outlines!=NULL || source->outline_count!=0u || !qp_no_resources(source) ||
+       limits->max_pixels>1000000u || limits->max_operations>4u ||
+       limits->max_edges>512u || limits->max_sample_tests>8000000u ||
+       source->pages[0].width_points<1.0f || source->pages[0].width_points>65536.0f ||
+       source->pages[0].height_points<1.0f || source->pages[0].height_points>65536.0f ||
+       source->pages[0].width_points!=floorf(source->pages[0].width_points) ||
+       source->pages[0].height_points!=floorf(source->pages[0].height_points) ||
+       source->pages[0].background_argb!=UINT32_C(0xffffffff) || source->pages[0].suppress_background!=0)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    for(size_t i=0u;i<source->operation_count;++i) {
+        const quantapdf_composer_operation *op=&source->operations[i];
+        const quantapdf_text_outline_operation *text=&op->value.text_outlines;
+        if(op->kind!=QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES || op->page_index!=0u ||
+           op->graphics_state_id!=0u || (text->argb>>24u)!=255u ||
+           text->glyph_count>64u-n || ((text->glyph_count==0u)!=(text->glyphs==NULL)))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        for(size_t g=0u;g<text->glyph_count;++g) {
+            const quantapdf_outline_glyph *glyph=&text->glyphs[g];
+            quantapdf_composer_path_options *opt=&paths[n].value.path.options;
+            if(glyph->commands==NULL || glyph->command_count==0u || glyph->command_count>4096u-commands)
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+            commands+=glyph->command_count;
+            paths[n].kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
+            paths[n].value.path.commands=glyph->commands;paths[n].value.path.command_count=glyph->command_count;
+            opt->struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+            opt->fill=1;opt->fill_argb=text->argb;opt->fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;++n;
+        }
+    }
+    const int printed=snprintf(box,sizeof(box),"0 0 %u %u",(unsigned)source->pages[0].width_points,
+                              (unsigned)source->pages[0].height_points);
+    if(printed<0 || (size_t)printed>=sizeof(box))return QUANTAPDF_ERROR_UNSUPPORTED;
+    quantapdf_status status=quantapdf_native_device_plan_create_physical(box,box,"1",0,dpi,
+        limits->max_pixels,&plan);
+    if(status!=QUANTAPDF_OK)return status;
+    projected.pages=source->pages;projected.page_count=1u;projected.operations=paths;projected.operation_count=n;
+    work=*limits;work.max_operations=n==0u?1u:n;
+    /* Four original text-show paints remain the caller admission limit.
+     * Only the separately bounded (64) internal glyph expansion uses this
+     * synchronous borrowed PATH view. No global operation limit is widened. */
+    return qp_render_v1_impl(&projected,0u,&work,&plan,NULL,0u,10,out_image,out_sample_tests);
 }
 
 quantapdf_status quantapdf_ir_raster_render_v1_two_cubic_ring_wstar_visible_work(

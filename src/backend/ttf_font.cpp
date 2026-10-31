@@ -1,6 +1,8 @@
 #include "ttf_font.h"
 
 #include <algorithm>
+#include <array>
+#include <stdexcept>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -1077,6 +1079,133 @@ int ttf_font_face::width_for(uint16_t glyph) const
         units_per_em);
 }
 
+
+namespace {
+struct outline_failure { quantapdf_status status; };
+void outline_require(bool ok,quantapdf_status status=QUANTAPDF_ERROR_FORMAT)
+{ if(!ok)throw outline_failure{status}; }
+void decode_outline(ttf_font_face const& face,table_view glyf,
+    std::vector<uint32_t> const& offsets,uint16_t glyph,unsigned depth,
+    std::vector<uint16_t>& active,size_t& points,size_t& visits,size_t cap,
+    std::array<double,6> const& matrix,std::vector<ttf_outline_contour>& out)
+{
+    outline_require(++visits<=128u,QUANTAPDF_ERROR_UNSUPPORTED);
+    outline_require(glyph<face.num_glyphs);
+    outline_require(depth<16u && active.size()<16u,QUANTAPDF_ERROR_UNSUPPORTED);
+    outline_require(std::find(active.begin(),active.end(),glyph)==active.end());
+    const size_t begin=offsets[glyph],end=offsets[static_cast<size_t>(glyph)+1u];
+    if(begin==end)return;
+    outline_require(end>=begin && end<=glyf.size && end-begin>=10u);
+    auto b=face.data+glyf.offset+begin;const size_t size=end-begin;
+    size_t at=10u;
+    auto byte=[&]() {outline_require(at<size);return b[at++];};
+    auto word=[&]() {outline_require(at<=size && size-at>=2u);
+        const uint16_t value=be16(b+at);at+=2u;return value;};
+    auto signed_word=[&]() {return static_cast<int16_t>(word());};
+    const int contours=bes16(b);
+    active.push_back(glyph);
+    if(contours>=0) {
+        outline_require(contours<=128,QUANTAPDF_ERROR_UNSUPPORTED);
+        std::vector<uint16_t> ends;
+        for(int i=0;i<contours;++i) {
+            const uint16_t last=word();
+            outline_require(ends.empty() || last>ends.back());ends.push_back(last);
+        }
+        const size_t n=ends.empty()?0u:static_cast<size_t>(ends.back())+1u;
+        outline_require(n<=cap-points,QUANTAPDF_ERROR_UNSUPPORTED);points+=n;
+        const size_t instructions=word();outline_require(instructions<=size-at);at+=instructions;
+        std::vector<unsigned char> flags;flags.reserve(n);
+        while(flags.size()<n) {
+            const unsigned char flag=byte();outline_require((flag&0x80u)==0u);
+            size_t repeat=1u;if((flag&8u)!=0u)repeat+=byte();
+            outline_require(repeat<=n-flags.size());flags.insert(flags.end(),repeat,flag);
+        }
+        std::vector<double> xs(n),ys(n);
+        for(unsigned axis=0u;axis<2u;++axis) {
+            int32_t value=0;
+            for(size_t i=0u;i<n;++i) {
+                const unsigned short_bit=axis==0u?2u:4u,same_bit=axis==0u?16u:32u;
+                int delta=0;
+                if((flags[i]&short_bit)!=0u) {delta=byte();if((flags[i]&same_bit)==0u)delta=-delta;}
+                else if((flags[i]&same_bit)==0u)delta=signed_word();
+                value+=delta;outline_require(value>=-32768 && value<=32767);
+                (axis==0u?xs:ys)[i]=value;
+            }
+        }
+        size_t first=0u;
+        for(uint16_t last:ends) {
+            ttf_outline_contour contour;
+            for(size_t i=first;i<=last;++i) {
+                const double x=matrix[0]*xs[i]+matrix[2]*ys[i]+matrix[4];
+                const double y=matrix[1]*xs[i]+matrix[3]*ys[i]+matrix[5];
+                outline_require(std::isfinite(x)&&std::isfinite(y)&&
+                    std::abs(x)<=1000000.0&&std::abs(y)<=1000000.0,
+                    QUANTAPDF_ERROR_UNSUPPORTED);
+                contour.push_back({x,y,(flags[i]&1u)!=0u});
+            }
+            out.push_back(std::move(contour));first=static_cast<size_t>(last)+1u;
+        }
+    } else {
+        outline_require(contours==-1);
+        uint16_t flags=0u;unsigned components=0u;bool instructions=false;
+        do {
+            outline_require(++components<=32u,QUANTAPDF_ERROR_UNSUPPORTED);
+            flags=word();const uint16_t component=word();
+            outline_require((flags&2u)!=0u &&
+                (flags&0xe010u)==0u && (flags&0x1800u)!=0x1800u,
+                QUANTAPDF_ERROR_UNSUPPORTED);
+            /* Unhinted geometry keeps fractional component offsets. The
+             * ROUND_XY_TO_GRID device hint applies only to grid fitting. */
+            double x=0,y=0;
+            if((flags&1u)!=0u) {x=signed_word();y=signed_word();}
+            else {x=static_cast<int8_t>(byte());y=static_cast<int8_t>(byte());}
+            std::array<double,6> local={1,0,0,1,x,y};
+            const unsigned transforms=((flags&8u)!=0u?1u:0u)+((flags&64u)!=0u?1u:0u)+((flags&128u)!=0u?1u:0u);
+            outline_require(transforms<=1u);
+            auto f2dot14=[&]() {return static_cast<double>(signed_word())/16384.0;};
+            if((flags&8u)!=0u)local[0]=local[3]=f2dot14();
+            else if((flags&64u)!=0u) {local[0]=f2dot14();local[3]=f2dot14();}
+            else if((flags&128u)!=0u) {local[0]=f2dot14();local[1]=f2dot14();local[2]=f2dot14();local[3]=f2dot14();}
+            if((flags&0x800u)!=0u) {
+                local[4]=local[0]*x+local[2]*y;local[5]=local[1]*x+local[3]*y;
+            } else if(transforms!=0u && (x!=0.0 || y!=0.0))
+                outline_require((flags&0x1000u)!=0u,QUANTAPDF_ERROR_UNSUPPORTED);
+            std::array<double,6> m={
+                matrix[0]*local[0]+matrix[2]*local[1],matrix[1]*local[0]+matrix[3]*local[1],
+                matrix[0]*local[2]+matrix[2]*local[3],matrix[1]*local[2]+matrix[3]*local[3],
+                matrix[0]*local[4]+matrix[2]*local[5]+matrix[4],
+                matrix[1]*local[4]+matrix[3]*local[5]+matrix[5]};
+            decode_outline(face,glyf,offsets,component,depth+1u,active,points,visits,cap,m,out);
+            instructions=instructions || (flags&0x100u)!=0u;
+        } while((flags&32u)!=0u);
+        if(instructions) {const size_t n=word();outline_require(n<=size-at);at+=n;}
+    }
+    active.pop_back();
+}
+}
+quantapdf_status ttf_font_face::outline_for(uint16_t glyph,
+    std::vector<ttf_outline_contour> *out,size_t max_points) const
+{
+    if(out==nullptr)return QUANTAPDF_ERROR_ARGUMENT;
+    out->clear();
+    if(outline_kind!=sfnt_outline_kind::true_type || max_points==0u || max_points>8192u)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    try {
+        std::map<std::string,table_view> tables;
+        if(!read_table_directory(data,size,&tables))return QUANTAPDF_ERROR_FORMAT;
+        if(tables.count("fvar") || tables.count("gvar"))return QUANTAPDF_ERROR_UNSUPPORTED;
+        std::vector<uint32_t> offsets;
+        if(!read_loca_offsets(*this,tables,&offsets))return QUANTAPDF_ERROR_FORMAT;
+        std::vector<uint16_t> active;size_t points=0u,visits=0u;
+        std::vector<ttf_outline_contour> result;
+        decode_outline(*this,tables.at("glyf"),offsets,glyph,0u,active,points,visits,max_points,
+            std::array<double,6>{1,0,0,1,0,0},result);
+        *out=std::move(result);return QUANTAPDF_OK;
+    } catch(outline_failure const& e) {return e.status;}
+      catch(std::bad_alloc const&) {return QUANTAPDF_ERROR_NOMEM;}
+      catch(std::length_error const&) {return QUANTAPDF_ERROR_UNSUPPORTED;}
+      catch(...) {return QUANTAPDF_ERROR_FORMAT;}
+}
 
 quantapdf_status subset_true_type_font(
     ttf_font_face const& face,

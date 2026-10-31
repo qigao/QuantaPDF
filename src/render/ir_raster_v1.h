@@ -9,7 +9,8 @@ extern "C" {
 #endif
 
 /* Additional explicit limits; every sampled edge test is charged before
- * allocating the output buffer. Sampling uses a fixed 4 x 4 grid.
+ * publishing pixels. Sampling uses a fixed 4 x 4 grid. Exact text may
+ * classify into a private temporary image which is discarded on failure.
  * Exactly one opaque clipped Fill can conservatively bound its work
  * to the intersection of the actual flattened draw and Clip edges.
  * This is a visited-sample optimization INSIDE this same C11 raster:
@@ -171,6 +172,13 @@ quantapdf_status quantapdf_ir_raster_render_v1_texample_physical_dpi_three_layer
     const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
     const quantapdf_native_device_plan *plan,size_t *out_sample_tests,
     quantapdf_ir_raster_image *out_image);
+
+/* Source-owned TrueType glyph contours, preserved in text-show/glyph
+ * order. Four source paints, 64 expanded glyphs, 4096 commands, and the
+ * existing 512-edge/8M/1M-pixel limits. Atomic output even on a late glyph. */
+quantapdf_status quantapdf_ir_raster_render_v1_text_outlines(
+    const quantapdf_ir *source,unsigned dpi,const quantapdf_ir_raster_v1_limits *limits,
+    size_t *out_sample_tests,quantapdf_ir_raster_image *out_image);
 
 /* PRIVATE original TeXample-type two-ring Bézier W*: exactly
  * two nested cardinal ring contours, each MOVE+4 CUBIC+CLOSE,

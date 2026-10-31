@@ -16,7 +16,8 @@ typedef enum quantapdf_composer_operation_kind {
     QUANTAPDF_COMPOSER_OPERATION_PATH = 3,
     QUANTAPDF_COMPOSER_OPERATION_EMBEDDED_TEXT = 4,
     QUANTAPDF_COMPOSER_OPERATION_GLYPH_RUN = 5,
-    QUANTAPDF_COMPOSER_OPERATION_FORM = 6
+    QUANTAPDF_COMPOSER_OPERATION_FORM = 6,
+    QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES = 7
 } quantapdf_composer_operation_kind;
 
 typedef struct quantapdf_composer_text_operation {
@@ -61,6 +62,16 @@ typedef struct quantapdf_composer_form_operation {
     quantapdf_composer_form_draw_options options;
 } quantapdf_composer_form_operation;
 
+typedef struct quantapdf_outline_glyph {
+    quantapdf_composer_path_command *commands;
+    size_t command_count;
+} quantapdf_outline_glyph;
+typedef struct quantapdf_text_outline_operation {
+    quantapdf_outline_glyph *glyphs;
+    size_t glyph_count;
+    uint32_t argb;
+} quantapdf_text_outline_operation;
+
 typedef struct quantapdf_composer_operation {
     quantapdf_composer_operation_kind kind;
     size_t page_index;
@@ -73,6 +84,7 @@ typedef struct quantapdf_composer_operation {
         quantapdf_composer_embedded_text_operation embedded_text;
         quantapdf_composer_glyph_run_operation glyph_run;
         quantapdf_composer_form_operation form;
+        quantapdf_text_outline_operation text_outlines;
     } value;
 } quantapdf_composer_operation;
 
