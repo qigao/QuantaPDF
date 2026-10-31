@@ -300,6 +300,12 @@ static quantapdf_status qp_admit_draw(
      * TeXample's curved ring path is NOT qualified by this opt-in. */
     const int fractional_line = fractional_stroke_optin && open_line &&
         opt->stroke_width == 0.3985f;
+    /* The same bounded cubic flattener/segment-distance kernel is
+     * re-used for exactly two closed 4-cubic original ring contours.
+     * The one named private entry verifies their whole geometry. */
+    const int fractional_closed = fractional_stroke_optin==2 &&
+        stroke && opt->stroke_width==0.3985f &&
+        path->command_count==12u && path->commands!=NULL;
     const int triangle_stroke = stroke && path->command_count == 4u &&
         path->commands != NULL &&
         path->commands[0].kind == QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
@@ -311,11 +317,12 @@ static quantapdf_status qp_admit_draw(
         !(stroke || (opt->fill == 1 && opt->stroke == 0)) ||
         ((stroke ? opt->stroke_argb : opt->fill_argb) >> 24u) != 255u ||
         (stroke && ((opt->stroke_width != 1.0f &&
-                      !fractional_line) ||
+                      !fractional_line && !fractional_closed) ||
             opt->line_cap != QUANTAPDF_COMPOSER_LINE_CAP_BUTT ||
             opt->line_join != QUANTAPDF_COMPOSER_LINE_JOIN_MITER ||
             opt->miter_limit != 10.0f ||
-            !(rect_stroke || triangle_stroke || open_line))) ||
+            !(rect_stroke || triangle_stroke || open_line ||
+              fractional_closed))) ||
         (opt->fill_rule != QUANTAPDF_COMPOSER_FILL_NONZERO &&
          opt->fill_rule != QUANTAPDF_COMPOSER_FILL_EVEN_ODD) ||
         (opt->struct_size >= QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE &&
@@ -446,7 +453,9 @@ static quantapdf_status qp_admit_draw(
      * still contain geometry. Sample-wise winding of zero edges is false. */
     if ((flat->count == first && !allow_empty_clip) ||
         (stroke && !rect_stroke &&
-         flat->count - first != (open_line ? 1u : 3u)) ||
+         !(fractional_closed ?
+           (flat->count-first>=64u && flat->count-first<=256u) :
+           (flat->count-first==(open_line?1u:3u)))) ||
         (rect_stroke && flat->count - first != 8u))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     out->first_edge = first;
@@ -454,7 +463,7 @@ static quantapdf_status qp_admit_draw(
     out->color = stroke ? opt->stroke_argb : opt->fill_argb;
     out->rule = rect_stroke ? QUANTAPDF_COMPOSER_FILL_EVEN_ODD : opt->fill_rule;
     out->one_pixel_stroke = stroke && !rect_stroke;
-    out->stroke_half_width=fractional_line ?
+    out->stroke_half_width=(fractional_line || fractional_closed) ?
         (double)opt->stroke_width*0.5 : 0.5;
     out->full_canvas_rect = 0;
     return QUANTAPDF_OK;
@@ -584,11 +593,16 @@ static void qp_intersect_sample_box(qp_sample_box *a,
  * lies within half a device-space pixel of one open segment or three closed
  * triangle segments. Unsupported widths, caps, joins, dashes and transforms are
  * rejected by qp_admit_draw; this cannot silently approximate general strokes. */
-static int qp_stroke_inside(const qp_edge *edges,
-    const qp_raster_draw *draw, double x, double y)
+/* One unchanged segment-distance kernel; candidate list is only a
+ * visited-work optimisation for the exact original closed-cubic case. */
+static int qp_stroke_inside_candidates(const qp_edge *edges,
+    const qp_raster_draw *draw,double x,double y,
+    const size_t *indexes,size_t count)
 {
-    for (size_t i = 0u; i < draw->edge_count; ++i) {
-        const qp_edge *edge = &edges[draw->first_edge + i];
+    const size_t n=indexes==NULL?draw->edge_count:count;
+    for(size_t i=0u;i<n;++i) {
+        const size_t local=indexes==NULL?i:indexes[i];
+        const qp_edge *edge=&edges[draw->first_edge+local];
         const double dx = edge->to.x - edge->from.x;
         const double dy = edge->to.y - edge->from.y;
         const double squared = dx * dx + dy * dy;
@@ -607,6 +621,11 @@ static int qp_stroke_inside(const qp_edge *edges,
             return 1;
     }
     return 0;
+}
+static int qp_stroke_inside(const qp_edge *edges,
+    const qp_raster_draw *draw,double x,double y)
+{
+    return qp_stroke_inside_candidates(edges,draw,x,y,NULL,0u);
 }
 
 /* Straight-alpha source-over with coverage n/16 and opaque source color.
@@ -731,7 +750,9 @@ static quantapdf_status qp_render_v1_impl(
     int two_path_clip_pair = 0;
     int bounded_clipped_fill = 0;
     int bounded_clipped_stroke = 0;
+    int bounded_curved_stroke = 0;
     qp_sample_box sample_box = {0u,0u,0u,0u};
+    qp_sample_box *curve_boxes = NULL;
 
     if (out_image == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -825,7 +846,22 @@ static quantapdf_status qp_render_v1_impl(
     if((visible_work_optin==2 || visible_work_optin==3) &&
        !bounded_clipped_stroke)
         return QUANTAPDF_ERROR_UNSUPPORTED;
+    /* One private 0.3985px dual-ring closed cubic paint. It has no
+     * inherited Clip, no alternate renderer and no public source
+     * admission. Flattened work is checked before any output buffer. */
+    bounded_curved_stroke=visible_work_optin==4 &&
+        clip_count==0u && ir->operation_count==1u &&
+        ir->operations!=NULL &&
+        ir->operations[0].kind==QUANTAPDF_COMPOSER_OPERATION_PATH &&
+        ir->operations[0].value.path.options.stroke==1 &&
+        ir->operations[0].value.path.options.fill==0 &&
+        ir->operations[0].value.path.options.stroke_width==0.3985f &&
+        ir->operations[0].value.path.command_count==12u &&
+        limits->max_edges<=256u;
+    if(visible_work_optin==4 && !bounded_curved_stroke)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
     if(!bounded_clipped_fill && !bounded_clipped_stroke &&
+       !bounded_curved_stroke &&
        pixels_count > limits->max_sample_tests / QP_TOTAL_SAMPLES)
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
@@ -853,7 +889,8 @@ static quantapdf_status qp_render_v1_impl(
         }
         status = qp_admit_draw(op, &flatten,
             plan == NULL ? NULL : plan->from_composer, &draws[draw_count],
-            0,visible_work_optin==3);
+            0,visible_work_optin==3?1:
+              visible_work_optin==4?2:0);
         if (status != QUANTAPDF_OK) {
             goto cleanup;
         }
@@ -863,7 +900,8 @@ static quantapdf_status qp_render_v1_impl(
         draws[draw_count].full_canvas_rect=clip_count==0u &&
             qp_full_canvas_rect(flatten.edges,&draws[draw_count],
                                 width,height);
-        if(!bounded_clipped_fill && !bounded_clipped_stroke) {
+        if(!bounded_clipped_fill && !bounded_clipped_stroke &&
+           !bounded_curved_stroke) {
             const size_t checks_per_sample=
                 draws[draw_count].full_canvas_rect ?
                     1u : draws[draw_count].edge_count;
@@ -904,7 +942,8 @@ static quantapdf_status qp_render_v1_impl(
         if (status != QUANTAPDF_OK) {
             goto cleanup;
         }
-        if(!bounded_clipped_fill && !bounded_clipped_stroke) {
+        if(!bounded_clipped_fill && !bounded_clipped_stroke &&
+           !bounded_curved_stroke) {
             if (clip_draws[ci].edge_count >
                 (limits->max_sample_tests - total_checks) /
                     (QP_TOTAL_SAMPLES * pixels_count)) {
@@ -919,7 +958,8 @@ static quantapdf_status qp_render_v1_impl(
     /* The admitted one-pixel stroke remains exact only where the only
      * Clip excludes all closed-triangle joins. No silent stroke fallback. */
     for (i = 0u; i < draw_count; ++i) {
-        if (draws[i].one_pixel_stroke && draws[i].edge_count != 1u &&
+        if (draws[i].one_pixel_stroke &&
+            !bounded_curved_stroke && draws[i].edge_count != 1u &&
             (draw_count != 1u || clip_count != 1u ||
              !qp_guard_clipped_stroke_geometry(flatten.edges,
                  &draws[i], &clip_draws[0]))) {
@@ -974,6 +1014,55 @@ static quantapdf_status qp_render_v1_impl(
         total_checks=sample_pixels*QP_TOTAL_SAMPLES*edges_per_sample;
     }
 
+    if(bounded_curved_stroke) {
+        /* One unchanged C11 4x4 sampler. Before allocating pixels,
+         * compute a conservative candidate domain for EACH flattened
+         * authored cubic edge, inflated by exact source half-width.
+         * Every cell in each domain is charged 16 potential segment
+         * distance tests, even if later covered by an earlier edge.
+         * This is a strict upper bound on the work actually sampled,
+         * without any increase to the original global 8M limit. */
+        const qp_raster_draw *draw=&draws[0];
+        if(draw_count!=1u || draw->edge_count<64u ||
+           draw->edge_count>256u || draw->stroke_half_width<=0.0) {
+            status=QUANTAPDF_ERROR_UNSUPPORTED;
+            goto cleanup;
+        }
+        curve_boxes=(qp_sample_box *)malloc(
+            draw->edge_count*sizeof(*curve_boxes));
+        if(curve_boxes==NULL) {
+            status=QUANTAPDF_ERROR_NOMEM;
+            goto cleanup;
+        }
+        for(size_t k=0u;k<draw->edge_count;++k) {
+            qp_raster_draw single=*draw;
+            const qp_sample_box *box;
+            size_t cols,rows,cells;
+            single.first_edge=draw->first_edge+k;
+            single.edge_count=1u;
+            if(!qp_edges_sample_box(flatten.edges,&single,
+                   width,height,draw->stroke_half_width,
+                   &curve_boxes[k])) {
+                status=QUANTAPDF_ERROR_UNSUPPORTED;
+                goto cleanup;
+            }
+            box=&curve_boxes[k];
+            cols=box->x1-box->x0;
+            rows=box->y1-box->y0;
+            if(rows!=0u && cols>SIZE_MAX/rows) {
+                status=QUANTAPDF_ERROR_UNSUPPORTED;
+                goto cleanup;
+            }
+            cells=cols*rows;
+            if(cells>(limits->max_sample_tests-total_checks)/
+                    QP_TOTAL_SAMPLES) {
+                status=QUANTAPDF_ERROR_UNSUPPORTED;
+                goto cleanup;
+            }
+            total_checks+=cells*QP_TOTAL_SAMPLES;
+        }
+    }
+
     pixels = (unsigned char *)malloc(pixels_count * 4u);
     if (pixels == NULL) {
         status = QUANTAPDF_ERROR_NOMEM;
@@ -998,6 +1087,21 @@ static quantapdf_status qp_render_v1_impl(
         for (y = 0u; y < height; ++y) {
             for (x = 0u; x < width; ++x) {
                 unsigned sx, sy, covered = 0u;
+                size_t candidates[256], candidate_count=0u;
+                if(bounded_curved_stroke) {
+                    /* Find the only segments that can cover this
+                     * pixel's 16 sample points; do this once per pixel,
+                     * never re-scan all flattened edges per subpixel.
+                     * The above admission has charged every candidate
+                     * distance test whether or not it finds a hit. */
+                    for(size_t k=0u;k<draw->edge_count;++k) {
+                        const qp_sample_box *box=&curve_boxes[k];
+                        if(x>=box->x0 && x<box->x1 &&
+                           y>=box->y0 && y<box->y1)
+                            candidates[candidate_count++]=k;
+                    }
+                    if(candidate_count==0u)continue;
+                }
                 /* The old winding computation is exactly zero outside
                  * the intersection of flattened draw and Clip bounds.
                  * Avoid those per-edge checks only after the complete
@@ -1012,9 +1116,12 @@ static quantapdf_status qp_render_v1_impl(
                     for (sx = 0u; sx < QP_SAMPLES; ++sx) {
                         double px = (double)x +
                             ((double)sx + 0.5) / (double)QP_SAMPLES;
-                        int visible = draw->one_pixel_stroke ?
-                            qp_stroke_inside(flatten.edges, draw, px, py) :
-                            qp_inside(flatten.edges, draw, px, py);
+                        int visible = bounded_curved_stroke ?
+                            qp_stroke_inside_candidates(flatten.edges,draw,
+                                px,py,candidates,candidate_count) :
+                            (draw->one_pixel_stroke ?
+                             qp_stroke_inside(flatten.edges,draw,px,py) :
+                             qp_inside(flatten.edges,draw,px,py));
                         for (ci = 0u; visible && ci < clip_count; ++ci)
                             visible = qp_inside(
                                 flatten.edges, &clip_draws[ci], px, py);
@@ -1036,6 +1143,7 @@ static quantapdf_status qp_render_v1_impl(
     status = QUANTAPDF_OK;
 cleanup:
     free(pixels);
+    free(curve_boxes);
     free(draws);
     free(flatten.edges);
     return status;
@@ -1211,6 +1319,89 @@ static int qp_v1_cubic_cardinal_ring(
         }
     }
     return 1;
+}
+
+/* At each authored original cardinal knot the neighboring cubic
+ * tangents must meet in the SAME direction. This profile does not
+ * claim arbitrary discontinuous miter joins, caps, dashes or widths.
+ * Existing .125px de Casteljau flattening still controls the
+ * intermediate segment approximation and 4x4 sampled coverage. */
+static int qp_v1_smooth_closed_cardinal_ring(
+    const quantapdf_composer_path_command *p)
+{
+    for(size_t k=1u;k<=4u;++k) {
+        const size_t next=k==4u?1u:k+1u;
+        const double x=(double)p[k].point3.x;
+        const double y=(double)p[k].point3.y;
+        const double ax=x-(double)p[k].point2.x;
+        const double ay=y-(double)p[k].point2.y;
+        const double bx=(double)p[next].point1.x-x;
+        const double by=(double)p[next].point1.y-y;
+        const double a2=ax*ax+ay*ay,b2=bx*bx+by*by;
+        const double cross=ax*by-ay*bx;
+        if(!isfinite(cross) || a2<=1e-8 || b2<=1e-8 ||
+           ax*bx+ay*by<=0.0 ||
+           cross*cross>1e-6*a2*b2)
+            return 0;
+    }
+    return 1;
+}
+
+/* PRIVATE TeXample M4a: ONE of the TWO original 0.3985pt black S
+ * operations, borrowed from a complete Source M3 graph. The original
+ * double-contour PATH must be exactly 12 authored Composer commands,
+ * each with four cubic segments and a closed, smooth cardinal ring;
+ * both concentric rings are nondegenerate and strictly nested. The
+ * original page is projected to a bounded 238x181 *private physical
+ * point grid* with unscaled Source M3 coordinates. This is NOT yet
+ * a qualified decimal public page plan or final real PDF RGB.
+ *
+ * One identical existing V1 4x4 distance/winding/source-over kernel
+ * is used. Mode 4 bills EVERY possible inflated-edge candidate
+ * distance test before pixel allocation, preserving the global cap.
+ * This entry never touches or widens a public Native Source mode. */
+quantapdf_status quantapdf_ir_raster_render_v1_texample_closed_cubic_stroke_work(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    quantapdf_ir_raster_image *out_image)
+{
+    double ix,iy,irx,iry,ox,oy,orx,ory;
+    const quantapdf_composer_operation *op;
+    const quantapdf_composer_path_operation *path;
+    const quantapdf_composer_path_options *opt;
+    if(out_image==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out_image,0,sizeof(*out_image));
+    if(ir==NULL || ir->pages==NULL || ir->page_count!=1u ||
+       page_index!=0u || ir->pages[0].width_points!=238.0f ||
+       ir->pages[0].height_points!=181.0f ||
+       ir->operation_count!=1u || ir->operations==NULL ||
+       limits==NULL || limits->max_edges>256u ||
+       limits->max_sample_tests>8000000u)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    op=&ir->operations[0];
+    path=&op->value.path;
+    opt=&path->options;
+    if(op->kind!=QUANTAPDF_COMPOSER_OPERATION_PATH ||
+       op->page_index!=0u || op->graphics_state_id!=0u ||
+       path->command_count!=12u || path->commands==NULL ||
+       opt->struct_size<QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE ||
+       opt->graphics_state_id!=0u ||
+       opt->fill!=0 || opt->stroke!=1 ||
+       opt->stroke_argb!=UINT32_C(0xff000000) ||
+       opt->stroke_width!=0.3985f ||
+       opt->line_cap!=QUANTAPDF_COMPOSER_LINE_CAP_BUTT ||
+       opt->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_MITER ||
+       opt->miter_limit!=10.0f ||
+       path->dash_count!=0u ||
+       !qp_v1_cubic_cardinal_ring(path->commands,&ix,&iy,&irx,&iry) ||
+       !qp_v1_cubic_cardinal_ring(path->commands+6u,&ox,&oy,&orx,&ory) ||
+       !qp_v1_smooth_closed_cardinal_ring(path->commands) ||
+       !qp_v1_smooth_closed_cardinal_ring(path->commands+6u) ||
+       !qp_v1_original_decimal_equal(ix,ox) ||
+       !qp_v1_original_decimal_equal(iy,oy) ||
+       irx+0.0001>=orx || iry+0.0001>=ory)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    return qp_render_v1_impl(ir,page_index,limits,NULL,NULL,0u,4,out_image);
 }
 
 quantapdf_status quantapdf_ir_raster_render_v1_two_cubic_ring_wstar_visible_work(

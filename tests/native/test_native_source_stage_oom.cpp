@@ -4,6 +4,7 @@
  * QPDF authors the original PDF; PDFium is never linked. */
 #include "backend/qpdf_native_image_ir.h"
 #include "render/native_device_ir_v1.h"
+#include "render/ir_raster_v1.h"
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFObjectHandle.hh>
 #include <qpdf/QPDFWriter.hh>
@@ -636,6 +637,160 @@ static bool exact_texample_private_ir(const quantapdf_ir& ir)
     }
     return true;
 }
+/* Existing original TeXample Source/OOM CTest, no generated PDF and
+ * no second test target: borrow EACH exact closed 4-cubic-by-2 black
+ * original S from the full owned Source M3 IR. The private 238x181
+ * physical sample grid does NOT rescale the original 237.133x180.44
+ * Source coordinates, nor does it make public decimal-page rendering
+ * qualified. All lifetime and error semantics remain C-owned. */
+static bool original_texample_m4a_curved_strokes(
+    const quantapdf_ir& source,quantapdf_ir_raster_image& detached,
+    size_t& proven_sample_cap)
+{
+    if(!exact_texample_private_ir(source))return false;
+    const quantapdf_ir_raster_v1_limits base={
+        50000u,1u,256u,8000000u
+    };
+    const auto is_zero=[](const quantapdf_ir_raster_image& x) {
+        return x.pixels==nullptr && x.width==0u &&
+               x.height==0u && x.stride==0u && x.size==0u;
+    };
+    for(size_t which=1u;which<=2u;++which) {
+        auto page=source.pages[0];
+        auto op=source.operations[which];
+        quantapdf_ir slice{};
+        quantapdf_ir_raster_image out{},repeat{};
+        page.width_points=238.0f;
+        page.height_points=181.0f;
+        op.graphics_state_id=0u;
+        op.value.path.options.graphics_state_id=0u;
+        slice.pages=&page;slice.page_count=1u;
+        slice.operations=&op;slice.operation_count=1u;
+        const size_t xc=which==1u?90u:146u;
+        auto render=[&](const quantapdf_ir_raster_v1_limits& limit,
+                         quantapdf_ir_raster_image& image) {
+            return quantapdf_ir_raster_render_v1_texample_closed_cubic_stroke_work(
+                &slice,0u,&limit,&image);
+        };
+        auto status=render(base,out);
+        if(status!=QUANTAPDF_OK || out.pixels==nullptr ||
+           out.width!=238u || out.height!=181u ||
+           out.stride!=238u*4u || out.size!=238u*181u*4u ||
+           rgba_at(out,xc,90u)!=UINT32_C(0xffffffff) ||
+           rgba_at(out,xc,5u)==UINT32_C(0xffffffff) ||
+           rgba_at(out,xc,4u)!=UINT32_C(0xffffffff) ||
+           rgba_at(out,xc+30u,5u)!=UINT32_C(0xffffffff)) {
+            std::fprintf(stderr,
+                "authentic curved Stroke M4a index=%zu status=%d "
+                "at-top=%08x center=%08x\n",
+                which,(int)status,
+                out.pixels?rgba_at(out,xc,5u):0u,
+                out.pixels?rgba_at(out,xc,90u):0u);
+            quantapdf_ir_raster_image_dispose(&out);
+            return false;
+        }
+        status=render(base,repeat);
+        if(status!=QUANTAPDF_OK || repeat.pixels==nullptr ||
+           repeat.size!=out.size ||
+           std::memcmp(out.pixels,repeat.pixels,out.size)!=0) {
+            quantapdf_ir_raster_image_dispose(&out);
+            quantapdf_ir_raster_image_dispose(&repeat);
+            return false;
+        }
+        quantapdf_ir_raster_image_dispose(&repeat);
+        /* The exact admissible conservative bill is computed from
+         * the source's ORIGINAL flattened candidate-edge envelopes,
+         * not guessed from a synthetic circle or a full-page 192-edge
+         * bill. Binary search verifies monotonicity and N−1 refusal. */
+        if(which==1u) {
+            size_t lo=1u,hi=base.max_sample_tests;
+            while(lo+1u<hi) {
+                const size_t mid=lo+(hi-lo)/2u;
+                auto budget=base;budget.max_sample_tests=mid;
+                quantapdf_ir_raster_image trial{};
+                const auto ret=render(budget,trial);
+                if(ret==QUANTAPDF_OK) {
+                    if(trial.size!=out.size || trial.pixels==nullptr ||
+                       std::memcmp(trial.pixels,out.pixels,out.size)!=0) {
+                        quantapdf_ir_raster_image_dispose(&trial);
+                        quantapdf_ir_raster_image_dispose(&out);
+                        return false;
+                    }
+                    hi=mid;
+                    quantapdf_ir_raster_image_dispose(&trial);
+                } else if(ret==QUANTAPDF_ERROR_UNSUPPORTED &&
+                          is_zero(trial)) {
+                    lo=mid;
+                } else {
+                    quantapdf_ir_raster_image_dispose(&trial);
+                    quantapdf_ir_raster_image_dispose(&out);
+                    return false;
+                }
+            }
+            if(hi<16u || hi>=base.max_sample_tests) {
+                quantapdf_ir_raster_image_dispose(&out);
+                return false;
+            }
+            auto cap=base;cap.max_sample_tests=hi;
+            quantapdf_ir_raster_image at_cap{};
+            if(render(cap,at_cap)!=QUANTAPDF_OK ||
+               at_cap.size!=out.size || at_cap.pixels==nullptr ||
+               std::memcmp(at_cap.pixels,out.pixels,out.size)!=0) {
+                quantapdf_ir_raster_image_dispose(&at_cap);
+                quantapdf_ir_raster_image_dispose(&out);
+                return false;
+            }
+            quantapdf_ir_raster_image_dispose(&at_cap);
+            cap.max_sample_tests=hi-1u;
+            quantapdf_ir_raster_image denied;
+            std::memset(&denied,0xa5,sizeof(denied));
+            if(render(cap,denied)!=QUANTAPDF_ERROR_UNSUPPORTED ||
+               !is_zero(denied)) {
+                quantapdf_ir_raster_image_dispose(&denied);
+                quantapdf_ir_raster_image_dispose(&out);
+                return false;
+            }
+            proven_sample_cap=hi;
+            auto under_edges=base;under_edges.max_edges=191u;
+            std::memset(&denied,0xa5,sizeof(denied));
+            if(render(under_edges,denied)!=QUANTAPDF_ERROR_UNSUPPORTED ||
+               !is_zero(denied)) {
+                quantapdf_ir_raster_image_dispose(&denied);
+                quantapdf_ir_raster_image_dispose(&out);
+                return false;
+            }
+            auto bad_op=op;
+            bad_op.value.path.options.stroke_width=0.4f;
+            slice.operations=&bad_op;
+            std::memset(&denied,0xa5,sizeof(denied));
+            if(render(base,denied)!=QUANTAPDF_ERROR_UNSUPPORTED ||
+               !is_zero(denied)) {
+                quantapdf_ir_raster_image_dispose(&denied);
+                quantapdf_ir_raster_image_dispose(&out);
+                return false;
+            }
+            bad_op=op;
+            bad_op.value.path.options.line_join=
+                QUANTAPDF_COMPOSER_LINE_JOIN_ROUND;
+            std::memset(&denied,0xa5,sizeof(denied));
+            if(render(base,denied)!=QUANTAPDF_ERROR_UNSUPPORTED ||
+               !is_zero(denied)) {
+                quantapdf_ir_raster_image_dispose(&denied);
+                quantapdf_ir_raster_image_dispose(&out);
+                return false;
+            }
+            slice.operations=&op;
+        }
+        if(which==1u)detached=out;
+        else quantapdf_ir_raster_image_dispose(&out);
+    }
+    std::printf("TeXample M4a: original both closed 0.3985 cubic S "
+                "sampled on private unscaled 238x181, first curved "
+                "Stroke sampled-edge cap=%zu, N-1 denied\n",
+                proven_sample_cap);
+    return true;
+}
+
 static bool authentic_texample_source_m3(
     const char *filename,
     const quantapdf_qpdf_source_raw_image_limits& limits)
@@ -688,8 +843,22 @@ static bool authentic_texample_source_m3(
             quantapdf_ir_dispose(&ir);
             return false;
         }
+        quantapdf_ir_raster_image held{};
+        size_t curved_cap=0u;
+        if(!original_texample_m4a_curved_strokes(ir,held,curved_cap)) {
+            quantapdf_ir_dispose(&ir);
+            return false;
+        }
+        /* A true raster pixel owner must outlive ALL original QPDF
+         * Source, Clip, PAINT and IR allocations. */
+        const uint32_t original_top=rgba_at(held,90u,5u);
         quantapdf_ir_dispose(&ir);
-        if(!cleared(ir))return false;
+        const bool detached_ok=cleared(ir) &&
+            held.pixels!=nullptr &&
+            rgba_at(held,90u,5u)==original_top &&
+            rgba_at(held,90u,90u)==UINT32_C(0xffffffff);
+        quantapdf_ir_raster_image_dispose(&held);
+        if(!detached_ok || curved_cap==0u)return false;
     }
     for(size_t fail=1u;fail<=allocs;++fail) {
         quantapdf_ir denied;
