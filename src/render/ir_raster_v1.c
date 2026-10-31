@@ -24,6 +24,10 @@ typedef struct qp_raster_draw {
     uint32_t color;
     quantapdf_composer_fill_rule rule;
     int one_pixel_stroke;
+    /* DEVICE-space half-width: all old one-pixel stroke users remain
+     * exactly 0.5; only a separate fractional opt-in can change it.
+     * No new rendering engine, implicit source width or cap increase. */
+    double stroke_half_width;
     /* Proven full-device rectangle: conservative one coverage decision
      * per 4x4 sample, not four redundant flattened-edge intersections.
      * Stays in the canonical C11 raster and its existing work quota. */
@@ -264,7 +268,7 @@ static quantapdf_status qp_expand_rect_stroke_ring(
 static quantapdf_status qp_admit_draw(
     const quantapdf_composer_operation *op, qp_flatten *flat,
     const double *device, qp_raster_draw *out,
-    int allow_empty_clip)
+    int allow_empty_clip,int fractional_stroke_optin)
 {
     const quantapdf_composer_path_operation *path = &op->value.path;
     const quantapdf_composer_path_options *opt = &path->options;
@@ -292,6 +296,10 @@ static quantapdf_status qp_admit_draw(
         path->commands != NULL &&
         path->commands[0].kind == QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
         path->commands[1].kind == QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    /* Explicit Source-shaped 0.3985px narrow LINE profile only.
+     * TeXample's curved ring path is NOT qualified by this opt-in. */
+    const int fractional_line = fractional_stroke_optin && open_line &&
+        opt->stroke_width == 0.3985f;
     const int triangle_stroke = stroke && path->command_count == 4u &&
         path->commands != NULL &&
         path->commands[0].kind == QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
@@ -302,7 +310,8 @@ static quantapdf_status qp_admit_draw(
         opt->struct_size < QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE ||
         !(stroke || (opt->fill == 1 && opt->stroke == 0)) ||
         ((stroke ? opt->stroke_argb : opt->fill_argb) >> 24u) != 255u ||
-        (stroke && (opt->stroke_width != 1.0f ||
+        (stroke && ((opt->stroke_width != 1.0f &&
+                      !fractional_line) ||
             opt->line_cap != QUANTAPDF_COMPOSER_LINE_CAP_BUTT ||
             opt->line_join != QUANTAPDF_COMPOSER_LINE_JOIN_MITER ||
             opt->miter_limit != 10.0f ||
@@ -445,6 +454,8 @@ static quantapdf_status qp_admit_draw(
     out->color = stroke ? opt->stroke_argb : opt->fill_argb;
     out->rule = rect_stroke ? QUANTAPDF_COMPOSER_FILL_EVEN_ODD : opt->fill_rule;
     out->one_pixel_stroke = stroke && !rect_stroke;
+    out->stroke_half_width=fractional_line ?
+        (double)opt->stroke_width*0.5 : 0.5;
     out->full_canvas_rect = 0;
     return QUANTAPDF_OK;
 }
@@ -591,7 +602,8 @@ static int qp_stroke_inside(const qp_edge *edges,
         const double px = edge->from.x + t * dx;
         const double py = edge->from.y + t * dy;
         const double ux = x - px, uy = y - py;
-        if (ux * ux + uy * uy <= 0.25)
+        if (ux * ux + uy * uy <=
+            draw->stroke_half_width*draw->stroke_half_width)
             return 1;
     }
     return 0;
@@ -800,14 +812,18 @@ static quantapdf_status qp_render_v1_impl(
     /* Separate strict opt-in. The centerline is exactly one open
      * two-command segment, not a triangle/closed stroke, and both
      * W/W* Clip leaves are supplied by a qualified V5 owner. */
-    bounded_clipped_stroke=visible_work_optin==2 &&
+    bounded_clipped_stroke=(visible_work_optin==2 ||
+        visible_work_optin==3) &&
         clip_count==2u && ir->operation_count==1u &&
         ir->operations!=NULL &&
         ir->operations[0].kind==QUANTAPDF_COMPOSER_OPERATION_PATH &&
         ir->operations[0].value.path.options.fill==0 &&
         ir->operations[0].value.path.options.stroke==1 &&
-        ir->operations[0].value.path.command_count==2u;
-    if(visible_work_optin==2 && !bounded_clipped_stroke)
+        ir->operations[0].value.path.command_count==2u &&
+        (visible_work_optin!=3 ||
+         ir->operations[0].value.path.options.stroke_width==0.3985f);
+    if((visible_work_optin==2 || visible_work_optin==3) &&
+       !bounded_clipped_stroke)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     if(!bounded_clipped_fill && !bounded_clipped_stroke &&
        pixels_count > limits->max_sample_tests / QP_TOTAL_SAMPLES)
@@ -836,7 +852,8 @@ static quantapdf_status qp_render_v1_impl(
             goto cleanup;
         }
         status = qp_admit_draw(op, &flatten,
-            plan == NULL ? NULL : plan->from_composer, &draws[draw_count], 0);
+            plan == NULL ? NULL : plan->from_composer, &draws[draw_count],
+            0,visible_work_optin==3);
         if (status != QUANTAPDF_OK) {
             goto cleanup;
         }
@@ -883,7 +900,7 @@ static quantapdf_status qp_render_v1_impl(
         options->fill_rule = clip->fill_rule;
         options->transform = clip->transform;
         status = qp_admit_draw(&clip_op, &flatten,
-            plan == NULL ? NULL : plan->from_composer, &clip_draws[ci], 1);
+            plan == NULL ? NULL : plan->from_composer, &clip_draws[ci],1,0);
         if (status != QUANTAPDF_OK) {
             goto cleanup;
         }
@@ -919,7 +936,8 @@ static quantapdf_status qp_render_v1_impl(
             (!draws[0].one_pixel_stroke ||
              draws[0].edge_count!=1u)) ||
            !qp_edges_sample_box(flatten.edges,&draws[0],
-                  width,height,bounded_clipped_stroke?0.5:0.0,
+                  width,height,bounded_clipped_stroke?
+                      draws[0].stroke_half_width:0.0,
                   &sample_box)) {
             status=QUANTAPDF_ERROR_UNSUPPORTED;
             goto cleanup;
@@ -1102,6 +1120,24 @@ quantapdf_status quantapdf_ir_raster_render_v1_multi_clipped_stroke_visible_work
     }
     return qp_render_v1_impl(ir,page_index,limits,NULL,
                              clips,clip_count,2,out_image);
+}
+
+/* PRIVATE exact TeXample WIDTH 0.3985px under TWO qualified
+ * Clip leaves, but ONLY for one open axis-aligned butt-capped solid
+ * segment. This is the same V1 4x4 distance sampler, not general
+ * cubic ring Stroke/Source support. The old 1px entry stays strict. */
+quantapdf_status quantapdf_ir_raster_render_v1_multi_clipped_fractional_stroke_visible_work(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_composer_clip_state *const *clips,size_t clip_count,
+    quantapdf_ir_raster_image *out_image)
+{
+    if(clip_count!=2u || clips==NULL) {
+        if(out_image!=NULL)memset(out_image,0,sizeof(*out_image));
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    return qp_render_v1_impl(ir,page_index,limits,NULL,
+                             clips,clip_count,3,out_image);
 }
 
 quantapdf_status quantapdf_ir_raster_render_v1_planned(

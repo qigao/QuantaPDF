@@ -88,6 +88,19 @@ quantapdf_status quantapdf_ir_raster_render_v1_multi_clipped_stroke_visible_work
     const quantapdf_composer_clip_state *const *clips,size_t clip_count,
     quantapdf_ir_raster_image *out_image);
 
+/* Exact original TeXample 0.3985px stroke WIDTH isolated as a
+ * private, bounded *single* open horizontal/vertical butt-capped
+ * line under two independently owned Clip leaves. Uses the SAME
+ * 4x4 V1 distance/coverage sampler and per-visited-edge quota.
+ * Its bounding box expands by HALF the actual source width in both
+ * device axes. Not a curved ring Stroke or Source admission, and
+ * previous 1px signatures retain their strict width policy. */
+quantapdf_status quantapdf_ir_raster_render_v1_multi_clipped_fractional_stroke_visible_work(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_composer_clip_state *const *clips,size_t clip_count,
+    quantapdf_ir_raster_image *out_image);
+
 /* Explicit private FIT device-grid consumer. The immutable plan is appended
  * AFTER the semantic operation transform, identically for paint and frozen
  * Clip paths, before device-space curve flattening. Zero clips is valid.
