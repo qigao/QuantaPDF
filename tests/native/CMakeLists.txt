@@ -555,3 +555,63 @@ add_test(NAME quantapdf.native_compound_clip_source_oom
   COMMAND quantapdf_native_compound_clip_source_oom)
 set_tests_properties(quantapdf.native_compound_clip_source_oom PROPERTIES
   TIMEOUT 60 LABELS "conformance;native;no-pdfium;source;compound-clip;oom")
+
+quantapdf_native_test(quantapdf_native_unclipped_prefix_device
+  native/test_native_unclipped_prefix_device.c
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_ir_v1.c"
+  $<TARGET_OBJECTS:quantapdf_native_raster_objects>
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
+
+# Original GS0 paint prefixes before one/two bounded W/W* scopes.
+add_executable(quantapdf_native_unclipped_prefix_source
+  test_native_unclipped_prefix_source.cpp)
+target_compile_features(quantapdf_native_unclipped_prefix_source PRIVATE cxx_std_20)
+target_link_libraries(quantapdf_native_unclipped_prefix_source PRIVATE
+  QuantaPDF::QuantaPDF qpdf::libqpdf)
+if(MSVC)
+  target_compile_options(quantapdf_native_unclipped_prefix_source PRIVATE
+    /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_unclipped_prefix_source PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_unclipped_prefix_source
+  COMMAND quantapdf_native_unclipped_prefix_source)
+set_tests_properties(quantapdf.native_unclipped_prefix_source PROPERTIES
+  TIMEOUT 60 LABELS "conformance;native;no-pdfium;public-api;unclipped-prefix")
+
+# Exact prefix ownership, frozen memberships and allocation rollback.
+add_executable(quantapdf_native_unclipped_prefix_source_oom
+  test_native_unclipped_prefix_source_oom.cpp
+  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_native_image_ir.cpp"
+  "${PROJECT_SOURCE_DIR}/src/ir/ir.c"
+  "${PROJECT_SOURCE_DIR}/src/resource/resource_registry.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_ir_v1.c"
+  $<TARGET_OBJECTS:quantapdf_native_raster_objects>
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster_v1.c"
+  "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
+  "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
+target_compile_definitions(quantapdf_native_unclipped_prefix_source_oom PRIVATE
+  QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST=1)
+target_include_directories(quantapdf_native_unclipped_prefix_source_oom PRIVATE
+  "${PROJECT_SOURCE_DIR}/src" "${PROJECT_SOURCE_DIR}/include")
+target_compile_features(quantapdf_native_unclipped_prefix_source_oom PRIVATE
+  c_std_11 cxx_std_20)
+target_link_libraries(quantapdf_native_unclipped_prefix_source_oom PRIVATE
+  quantapdf_backend QuantaPDF::QuantaPDF qpdf::libqpdf)
+if(UNIX)
+  target_link_libraries(quantapdf_native_unclipped_prefix_source_oom PRIVATE m)
+endif()
+if(MSVC)
+  target_compile_options(quantapdf_native_unclipped_prefix_source_oom PRIVATE
+    /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_unclipped_prefix_source_oom PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_unclipped_prefix_source_oom
+  COMMAND quantapdf_native_unclipped_prefix_source_oom)
+set_tests_properties(quantapdf.native_unclipped_prefix_source_oom PROPERTIES
+  TIMEOUT 60 LABELS "conformance;native;no-pdfium;source;unclipped-prefix;oom")

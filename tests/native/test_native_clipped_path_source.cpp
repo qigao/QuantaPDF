@@ -653,7 +653,8 @@ static int atomic_refusals()
             "Q "+curve_a+" W n Q", /* third Clip after Q to leaf 1 */
         one_prefix(curve_a)+full_red+curve_b+" W n "+full_red+
             "Q "+one_prefix(curve_a)+full_red+"Q", /* redefinition after Q to 0 */
-        full_red+one_prefix(curve_a)+full_red+"Q",
+        /* Prefix plus clipped PATH is admitted; late Text still fails. */
+        full_red+one_prefix(curve_a)+full_red+"Q BT ET",
         prefix+curve_a+" W n "+full_red+"Q",
         ready+" "+one_prefix(curve_a)+full_red+"Q",
         one_prefix(curve_a)+"W* 1 n "+full_red+"Q",

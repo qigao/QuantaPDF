@@ -75,7 +75,12 @@ static quantapdf_status native_source_bridge_impl(
         /* Select the complete owned state shape once. Two distinct GS
          * identities preserve first-leaf/intersection/Q membership for
          * every paint; the older one-GS profiles keep their entrypoints. */
-        if(ir.resources.graphics_state_count==2u)
+        if(ir.resources.graphics_state_count!=0u &&
+           ir.operation_count!=0u && ir.operations!=NULL &&
+           ir.operations[0].graphics_state_id==0u)
+            status=quantapdf_native_device_ir_render_v1_unclipped_prefix(
+                &ir,(unsigned)device->dpi,&limits->raster,out_image);
+        else if(ir.resources.graphics_state_count==2u)
             status=quantapdf_native_device_ir_render_v1_compound_clip_states(
                 &ir,(unsigned)device->dpi,&limits->raster,out_image);
         else if(ir.resources.image_count==0u &&

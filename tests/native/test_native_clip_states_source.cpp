@@ -599,7 +599,7 @@ static int fixed_sample_budget()
 }
 
 /* New scope transitions do not permit a third definition, reentry
- * after state 0, paint before the first Clip, an unused second Clip,
+ * after restored state 0, an unused second Clip,
  * malformed paths, or widened Image/mixed/path and work budgets. */
 static int atomic_refusals()
 {
@@ -610,7 +610,9 @@ static int atomic_refusals()
         a+full_red+b+full_blue+rectangle_a+" W n Q Q",
         a+full_red+b+full_blue+"Q "+rectangle_a+" W n "+full_red+"Q",
         a+full_red+"Q "+b+full_blue+"Q",
-        full_red+a+full_red+b+full_blue+"Q Q",
+        /* Prefix, first, intersection, restored first, and suffix are
+         * five paints, beyond the unchanged four-layer ceiling. */
+        full_red+a+full_red+b+full_blue+"Q "+full_red+"Q "+full_red,
         a+full_red+b+"Q "+full_red+"Q", /* second Clip never painted */
         a+full_red+"q W n Q "+full_red+"Q", /* empty second still unused */
         a+rectangle_b+" W n Q", /* no paint in either Clip */

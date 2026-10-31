@@ -93,7 +93,7 @@ static std::string create_blank_source(int mode)
 
 /* Native-only opaque Path Fill originals with no /Resources or Image:
  * 1..4 source-ordered PATHs, grayscale, exact overlap and atomic
- * fifth PATH / late Text / Stroke / first-Clip-after-paint refusals. */
+ * fifth PATH / late Text / Stroke refusals, including after a Clip. */
 static std::string create_path_only_source(int mode)
 {
     auto pdf=QPDF::create();
@@ -117,10 +117,10 @@ static std::string create_path_only_source(int mode)
     if(mode==4)
         source="1 0 0 rg 4 4 8 6 re f 4 4 8 6 re S";
     if(mode==5)
-        /* Initial Clip + PATH now has its own positive conformance.
-         * A first Clip after earlier unclipped paint still refuses. */
+        /* The unclipped prefix now qualifies; late Text still poisons
+         * the complete original and its public thumbnail. */
         source="1 0 0 rg 4 4 8 6 re f "
-               "q 4 4 8 6 re W n 0 0 1 rg 4 4 8 6 re f Q";
+               "q 4 4 8 6 re W n 0 0 1 rg 4 4 8 6 re f Q BT ET";
     if(mode>=6 && mode<=9) {
         /* Three source-ordered opaque fills; the fourth covers part of
          * green without changing the blue or red-only sample regions. */
@@ -3752,7 +3752,7 @@ int main()
 
     /* One to four opaque PATHs, no Image/Clip resources. Compare fixed
      * independently declared RGB goldens, NOT any PDFium oracle. Later
-     * Text/Stroke/first-Clip-after-paint/fifth PATH refuse completely. */
+     * Text/Stroke/fifth PATH refuse completely, including after a Clip. */
     for(int mode=0;mode<10;++mode) {
         CHECK(write_pdf(filename,create_path_only_source(mode)));
         quantapdf_context *path_context=nullptr;

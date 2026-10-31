@@ -221,8 +221,8 @@ quantapdf_status quantapdf_qpdf_source_scoped_mixed_v10_flate_predictor_to_ir(
  * before a second m/re; the last may close implicitly at W/n. Two
  * ordinary rectangles require ten commands and remain unsupported.
  * Painted PATHs and paths ended by plain n retain their existing
- * grammar. The first definition precedes paint; the second may follow
- * first-leaf paints.
+ * grammar. The first definition may follow a bounded GS0 paint prefix;
+ * the second may follow first-leaf paints.
  * Empty, MOVE-only and open MOVE+LINE operands use the same four-command
  * zero-edge encoding in either position. Both definition-time paths and
  * winding rules are retained: owned Clip IDs 1/2 and owned flat root 3.
@@ -235,12 +235,22 @@ quantapdf_status quantapdf_qpdf_source_scoped_mixed_v10_flate_predictor_to_ir(
  * Both must be painted, in order 1* 2+ 1* 0*, within 2..4 total layers.
  * PATH-only admits 2..4 paints, Image-only two, and mixed profiles
  * 1..2 of each kind. A root-only page remaps to the existing one-GS
- * representation. Third definitions, unused intersections, reentry
- * and paint before the first Clip definition remain unsupported.
+ * representation. Third definitions, unused intersections and reentry
+ * remain unsupported.
+ *
+ * A nonempty GS0 prefix uses a separate native-only admission with
+ * state order 0+ 1+ 0* for one GS or 0+ 1* 2+ 1* 0* for two GS.
+ * Each published nonzero identity must be painted. Prefix staging
+ * retains the existing homogeneous PATH/IMAGE or one-of-each grammar;
+ * total paints remain at most four, Images at most two, and mixed
+ * profiles at most two of each kind. A two-GS Image-only prefix cannot
+ * fit those limits. A later GS0 suffix still requires real Q; initial
+ * GS0 paints neither restore nor discard a Clip. All original owners,
+ * paint order, definition CTMs and work quotas are retained.
  *
  * The existing one-GS V10 profile admits 1..4 opaque PATH-only f/f*
- * paints with its Clip graph and no Image resources. The first paint
- * uses GS=1; a real Q may restore GS=0 for a contiguous suffix. No
+ * paints with its Clip graph and no Image resources. Without a prefix,
+ * the first paint uses GS=1; real Q may restore GS=0 for a suffix. No
  * Clip reentry or extra layer is admitted by the one-GS profile.
  * Older Source signatures and one-GS mixed/Image limits are unchanged.
  * All payloads publish atomically and are released by
