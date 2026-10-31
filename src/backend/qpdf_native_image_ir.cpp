@@ -617,6 +617,12 @@ public:
             return;
         }
         const std::string op=item.getOperatorValue();
+        /* Source V10's single W/W* must be immediately followed by
+         * path-ending n. An empty original path cannot silently grow
+         * new operators while its Clip is pending. Older private
+         * profiles retain their earlier source admission contracts. */
+        if(target.native_unclipped_mode && clip_pending && op!="n")
+            throw rejected{QUANTAPDF_ERROR_UNSUPPORTED};
         if(target.native_unclipped_mode &&
                   (op=="M" || op=="d")) {
             /* Public V10 has no admitted Stroke paint. Its M/d state
@@ -916,7 +922,8 @@ public:
              * this one W/W* Clip leaf (nonzero or even-odd). All older
              * private source signatures still reject cubic operators;
              * second Clip definitions and unsupported content fail. */
-            admit(args.empty() && pending_path.size()>=3u &&
+            admit(args.empty() &&
+                  (pending_path.size()>=3u || trivial_zero_area_clip()) &&
                   !clip_pending && !target.clip_completed &&
                   (!target.mixed_scoped_mode || target.order.empty()),
                   QUANTAPDF_ERROR_UNSUPPORTED);
@@ -936,8 +943,28 @@ public:
                 closed=false;
             } else {
                 admit(clip_pending && !target.clip_completed &&
-                      pending_path.size()>=3u,
+                      (pending_path.size()>=3u ||
+                       trivial_zero_area_clip()),
                       QUANTAPDF_ERROR_UNSUPPORTED);
+                if(trivial_zero_area_clip()) {
+                    /* Empty original W, MOVE-only, and open MOVE+LINE
+                     * have exactly zero Fill area under both winding
+                     * rules. Encode one uniquely owned, bounded
+                     * four-command zero-EDGE typed Clip for the
+                     * existing C11 allow_empty_clip sampler.
+                     * Never invent covered pixels or another raster. */
+                    pending_path.assign(
+                        4u,quantapdf_composer_path_command{});
+                    pending_path[0].kind=
+                        QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+                    pending_path[1].kind=
+                        QUANTAPDF_COMPOSER_PATH_LINE_TO;
+                    pending_path[2].kind=
+                        QUANTAPDF_COMPOSER_PATH_LINE_TO;
+                    pending_path[3].kind=
+                        QUANTAPDF_COMPOSER_PATH_CLOSE;
+                    closed=true;
+                }
                 if(!closed)close_path();
                 target.clip.commands=std::move(pending_path);
                 target.clip.rule=clip_rule;
@@ -963,6 +990,20 @@ public:
               (!clipped || clip_stack.empty()));
     }
 private:
+    bool trivial_zero_area_clip() const
+    {
+        if(!target.native_unclipped_mode)return false;
+        if(pending_path.empty())return true;
+        if(pending_path.size()==1u)
+            return pending_path[0].kind==
+                QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+        /* The implicit return segment cancels an open single line. */
+        return pending_path.size()==2u &&
+            pending_path[0].kind==
+                QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
+            pending_path[1].kind==
+                QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    }
     quantapdf_point stage_point(double x,double y) const
     {
         /* Source coordinates/CTM are resolved at construction time.

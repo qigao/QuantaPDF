@@ -416,6 +416,140 @@ static int atomic_rejections()
     return EXIT_SUCCESS;
 }
 
+
+/* Original empty W/W*: zero filled area under both winding rules.
+ * The C11 Clip consumer's zero-edge region must suppress every Image
+ * sample. The real original stream is written by QPDF, not IR export. */
+static int empty_clip_pixels()
+{
+    const std::string empty_shapes[]={
+        "", "4 5 m", "4 5 m 20 15 l",
+        "4 5 m 4 5 l 4 5 l",
+        "4 5 m 4 5 4 5 4 5 c 4 5 l"
+    };
+    const std::string draw="q 16 0 0 12 8 3 cm /I Do Q Q";
+    for(int quarters:{4,5})
+    for(int rotation:{0,90})
+    for(int dpi:{72,96,144})
+    for(int crop:{0,1,2}) {
+        std::vector<unsigned char> reference;
+        for(const auto& shape:empty_shapes)
+        for(bool even:{false,true}) {
+            const auto pdf=original(
+                "q "+shape+(even?" W* n ":" W n ")+draw,
+                true,quarters,rotation,crop);
+            std::vector<unsigned char> got;
+            CHECK(render(pdf,quarters,rotation,dpi,crop,got)==EXIT_SUCCESS);
+            CHECK(!got.empty() && got.size()%3u==0u);
+            for(size_t i=0u;i<got.size();i+=3u)
+                CHECK(is_white(got,i));
+            if(reference.empty())reference=got;
+            else CHECK(reference.size()==got.size() &&
+                std::memcmp(reference.data(),got.data(),got.size())==0);
+        }
+    }
+    return EXIT_SUCCESS;
+}
+
+/* A real nonempty Clip may also have an empty INTERSECTION with the
+ * Image/visible CropBox. An unrelated unpainted n with NO W must not
+ * suppress Image ink. Byte-level baseline and all-white checks. */
+static int disjoint_clip_and_unclipped_image()
+{
+    const std::string draw="q 16 0 0 12 8 3 cm /I Do Q";
+    for(int quarters:{4,5})
+    for(int rotation:{0,90})
+    for(int dpi:{72,96,144})
+    for(int crop:{0,1,2}) {
+        std::vector<unsigned char> expected,got;
+        CHECK(render(original(draw,true,quarters,rotation,crop),
+                     quarters,rotation,dpi,crop,expected)==EXIT_SUCCESS);
+        CHECK(render(original("q 4 5 m n "+draw+" Q",
+                              true,quarters,rotation,crop),
+                     quarters,rotation,dpi,crop,got)==EXIT_SUCCESS);
+        CHECK(expected.size()==got.size() &&
+              std::memcmp(expected.data(),got.data(),got.size())==0);
+        bool ink=false,white=false;
+        for(size_t i=0u;i<got.size();i+=3u) {
+            ink|=!is_white(got,i);
+            white|=is_white(got,i);
+        }
+        CHECK(ink && white);
+        for(bool even:{false,true}) {
+            const auto pdf=original(
+                "q 25 18 3 3 re "+std::string(even?"W*":"W")+
+                " n "+draw+" Q",true,quarters,rotation,crop);
+            CHECK(render(pdf,quarters,rotation,dpi,crop,got)==EXIT_SUCCESS);
+            for(size_t i=0u;i<got.size();i+=3u)
+                CHECK(is_white(got,i));
+        }
+    }
+    return EXIT_SUCCESS;
+}
+
+/* Real Q restores unmasked painting after an Image suppressed by
+ * either an original empty W or non-overlapping nonempty W.
+ * The exact RGB must equal the independently authored PATH-only PDF. */
+static int empty_or_disjoint_q_restoration()
+{
+    const std::string draw="q 16 0 0 12 8 3 cm /I Do Q Q";
+    const std::string fill="1 0 0 rg 8 6 8 6 re f";
+    for(int quarters:{4,5})
+    for(int rotation:{0,90})
+    for(int dpi:{72,96,144})
+    for(int crop:{0,1,2}) {
+        std::vector<unsigned char> expected;
+        CHECK(render(original(fill,false,quarters,rotation,crop),
+                     quarters,rotation,dpi,crop,expected)==EXIT_SUCCESS);
+        bool ink=false,white=false;
+        for(size_t i=0u;i<expected.size();i+=3u) {
+            ink|=!is_white(expected,i);
+            white|=is_white(expected,i);
+        }
+        CHECK(ink && white);
+        for(const std::string path:{"","25 18 3 3 re"})
+        for(bool even:{false,true}) {
+            const auto pdf=original(
+                "q "+path+(even?" W* n ":" W n ")+
+                draw+" "+fill,true,quarters,rotation,crop);
+            std::vector<unsigned char> got;
+            CHECK(render(pdf,quarters,rotation,dpi,crop,got)==EXIT_SUCCESS);
+            CHECK(expected.size()==got.size() &&
+                  std::memcmp(expected.data(),got.data(),got.size())==0);
+        }
+    }
+    return EXIT_SUCCESS;
+}
+
+/* Malformed or unsupported content, even AFTER a correctly suppressed
+ * Image, must not publish partial RGB. A second W and W without n
+ * remain outside this single-Clip profile, without a fallback. */
+static int empty_clip_atomic_refusals()
+{
+    const std::string draw="q 16 0 0 12 8 3 cm /I Do Q Q";
+    const std::vector<std::string> bad={
+        "q W "+draw,
+        "q W* q 16 0 0 12 8 3 cm /I Do Q Q",
+        "q W 4 5 m n "+draw,
+        "q W 1 n "+draw,
+        "q W n q 16 0 0 12 8 3 cm /I Do Q",
+        "q W n "+draw+" Q",
+        "q W n q 16 0 0 12 8 3 cm /Missing Do Q Q",
+        "q W n "+draw+" BT ET",
+        "q W* n "+draw+" 4 4 m S",
+        "q W n "+draw+" q 4 4 8 6 re W* n Q",
+        "q W n "+draw+" 1 0 0 rg 8 6 8 6 re f BT ET",
+        "q 4 5 m 4 18 20 18 20 5 c W n "+draw,
+        "q W n "+draw+" 1 0 0 rg 8 6 8 6 re f "
+            "q 4 4 8 6 re W n Q"
+    };
+    for(const auto& content:bad)
+    for(int crop:{0,1})
+    for(int dpi:{72,96,144})
+        CHECK(rejected(content,true,dpi,crop)==EXIT_SUCCESS);
+    return EXIT_SUCCESS;
+}
+
 int main()
 {
     CHECK(equivalent_original_clips()==EXIT_SUCCESS);
@@ -424,5 +558,9 @@ int main()
     CHECK(split_original_contents()==EXIT_SUCCESS);
     CHECK(bounded_control_outside_crop()==EXIT_SUCCESS);
     CHECK(atomic_rejections()==EXIT_SUCCESS);
+    CHECK(empty_clip_pixels()==EXIT_SUCCESS);
+    CHECK(disjoint_clip_and_unclipped_image()==EXIT_SUCCESS);
+    CHECK(empty_or_disjoint_q_restoration()==EXIT_SUCCESS);
+    CHECK(empty_clip_atomic_refusals()==EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }
