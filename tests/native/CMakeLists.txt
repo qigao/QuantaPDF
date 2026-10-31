@@ -738,3 +738,28 @@ add_test(NAME quantapdf.native_page_geometry_ancestry
 set_tests_properties(quantapdf.native_page_geometry_ancestry PROPERTIES
   TIMEOUT 60
   LABELS "conformance;native;no-pdfium;public-api;page-tree;geometry")
+
+# Validate complete original Source V10 PageTree traversal, not a
+# PDF-writer-corrected graph. Public facade must also fail closed.
+add_executable(quantapdf_native_source_pagetree_contract
+  test_native_source_pagetree_contract.cpp
+  "${PROJECT_SOURCE_DIR}/src/ir/ir.c"
+  "${PROJECT_SOURCE_DIR}/src/resource/resource_registry.c")
+target_include_directories(quantapdf_native_source_pagetree_contract PRIVATE
+  "${PROJECT_SOURCE_DIR}/src" "${PROJECT_SOURCE_DIR}/include")
+target_compile_features(quantapdf_native_source_pagetree_contract PRIVATE
+  c_std_11 cxx_std_20)
+target_link_libraries(quantapdf_native_source_pagetree_contract PRIVATE
+  quantapdf_backend QuantaPDF::QuantaPDF qpdf::libqpdf)
+if(MSVC)
+  target_compile_options(quantapdf_native_source_pagetree_contract PRIVATE
+    /W4 /WX /utf-8)
+else()
+  target_compile_options(quantapdf_native_source_pagetree_contract PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.native_source_pagetree_contract
+  COMMAND quantapdf_native_source_pagetree_contract)
+set_tests_properties(quantapdf.native_source_pagetree_contract PROPERTIES
+  TIMEOUT 60
+  LABELS "conformance;native;no-pdfium;source;public-api;page-tree")
