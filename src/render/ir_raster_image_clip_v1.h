@@ -26,6 +26,14 @@ quantapdf_status quantapdf_ir_raster_clipped_raw_image_v1(
     const quantapdf_ir_raster_v1_limits *clip_limits,
     quantapdf_ir_raster_image *out_image);
 
+/* Same image/mask path; only the mask's existing V1 work is leased from
+ * the shared page ledger. Source/destination pixel quotas are unchanged. */
+quantapdf_status quantapdf_ir_raster_clipped_raw_image_v1_accounted(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_image_v1_limits *image_limits,
+    const quantapdf_ir_raster_v1_limits *clip_limits,
+    quantapdf_native_work_ledger_v1 *ledger,quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

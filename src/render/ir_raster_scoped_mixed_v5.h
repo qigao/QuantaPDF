@@ -31,6 +31,20 @@ typedef struct quantapdf_ir_raster_scoped_mixed_v5_limits {
     size_t max_drawn_pixels;
 } quantapdf_ir_raster_scoped_mixed_v5_limits;
 
+/* These are existing admission profiles, selected before painting. The
+ * accounted entry does not add a new grammar or retry another profile. */
+typedef enum quantapdf_native_scoped_profile_v5 {
+    QP_SCOPED_LEGACY=0,QP_SCOPED_DEVICE,QP_SCOPED_TWO_CLIP,
+    QP_SCOPED_CLIPPED_PATHS,QP_SCOPED_COMPOUND_PATHS,
+    QP_SCOPED_CLIP_STATES,QP_SCOPED_COMPOUND_STATES,
+    QP_SCOPED_PREFIX,QP_SCOPED_SIBLINGS,QP_SCOPED_THREE_GS
+} quantapdf_native_scoped_profile_v5;
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_accounted(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,quantapdf_native_scoped_profile_v5 profile,
+    quantapdf_native_work_ledger_v1 *ledger,quantapdf_ir_raster_image *out_image);
+
 quantapdf_status quantapdf_ir_raster_scoped_mixed_v5(
     const quantapdf_ir *ir, size_t page_index,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,

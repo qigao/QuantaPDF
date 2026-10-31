@@ -7,6 +7,27 @@
 extern "C" {
 #endif
 
+typedef enum quantapdf_native_prepared_route_v1 {
+    QP_NATIVE_PREPARED_NONE=0,
+    QP_NATIVE_PREPARED_LEGACY,
+    QP_NATIVE_PREPARED_DEVICE,
+    QP_NATIVE_PREPARED_TWO_CLIP,
+    QP_NATIVE_PREPARED_CLIPPED_PATHS,
+    QP_NATIVE_PREPARED_CLIP_STATES,
+    QP_NATIVE_PREPARED_PREFIX,
+    QP_NATIVE_PREPARED_SIBLINGS,
+    QP_NATIVE_PREPARED_THREE_GS,
+    QP_NATIVE_PREPARED_TEXT,
+    QP_NATIVE_PREPARED_EXACT_CUBICS
+} quantapdf_native_prepared_route_v1;
+
+/* Page-owned ledger; same route-specific validators and stack projection. */
+quantapdf_status quantapdf_native_device_ir_render_v1_accounted(
+    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    quantapdf_native_prepared_route_v1 route,quantapdf_native_work_ledger_v1 *ledger,
+    quantapdf_ir_raster_image *out_image);
+
 /* Private C11, no provider. Borrow a fully Source-admitted immutable IR
  * and directly raster its source geometry in 72/96/144-DPI device pixels.
  * The only raster implementation remains scoped_mixed_v5. The projected

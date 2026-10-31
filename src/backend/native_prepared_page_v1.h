@@ -14,20 +14,6 @@
 /* PRIVATE synchronous borrow. Source retains the sole IR owner until execute
  * returns. Preparation allocates nothing and never paints. The completed plan
  * and every reachable input must remain immutable for that borrow. */
-typedef enum quantapdf_native_prepared_route_v1 {
-    QP_NATIVE_PREPARED_NONE=0,
-    QP_NATIVE_PREPARED_LEGACY,
-    QP_NATIVE_PREPARED_DEVICE,
-    QP_NATIVE_PREPARED_TWO_CLIP,
-    QP_NATIVE_PREPARED_CLIPPED_PATHS,
-    QP_NATIVE_PREPARED_CLIP_STATES,
-    QP_NATIVE_PREPARED_PREFIX,
-    QP_NATIVE_PREPARED_SIBLINGS,
-    QP_NATIVE_PREPARED_THREE_GS,
-    QP_NATIVE_PREPARED_TEXT,
-    QP_NATIVE_PREPARED_EXACT_CUBICS
-} quantapdf_native_prepared_route_v1;
-
 typedef struct quantapdf_native_prepared_usage_v1 {
     size_t operations,expanded_paints,glyphs,commands,image_pixels,retained_bytes;
     unsigned images_used,states_used,clips_used;
@@ -43,12 +29,14 @@ typedef struct quantapdf_native_prepared_page_v1 {
     quantapdf_native_prepared_usage_v1 usage;
 } quantapdf_native_prepared_page_v1;
 
-/* Existing Text/exact-cubic consumers expose actual sampled work. Other
- * consumers retain their conservative partitions; zero is not a measurement
- * unless sample_tests_exact is set. Failed execution clears this receipt. */
+/* Exact classifier counts remain separate from conservative charged work.
+ * Every production route reports its common page ledger, including actual
+ * retained flattened edges and reservation peaks. Failure clears everything. */
 typedef struct quantapdf_native_execution_receipt_v1 {
     size_t sample_tests;
     int sample_tests_exact;
+    size_t charged_sample_work,compiled_edges;
+    size_t peak_reserved_sample_work,peak_reserved_edges,completed_leases;
 } quantapdf_native_execution_receipt_v1;
 
 static inline quantapdf_status quantapdf_native_source_device_validate_v1(
@@ -304,50 +292,55 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
     *out=p;return QUANTAPDF_OK;
 }
 
-/* Executes exactly one selected existing consumer with the frozen page cap.
- * Its established shared/partitioned raster counters stay unchanged. This
- * inventory is not an invented measurement of actual sampled-edge work. */
+/* The immutable plan can be executed repeatedly. Each execution owns one
+ * mutable ledger; every child shares it and keeps its historical local cap.
+ * No layer, Clip mask or glyph starts a fresh page-wide budget. */
 static inline quantapdf_status quantapdf_native_execute_page_v1(
     const quantapdf_native_prepared_page_v1 *p,
     quantapdf_native_execution_receipt_v1 *receipt,quantapdf_ir_raster_image *out)
 {
     quantapdf_status status;
-    size_t measured=0u;
+    quantapdf_native_work_ledger_v1 ledger;
     if(receipt!=NULL)memset(receipt,0,sizeof(*receipt));
     if(out==NULL)return QUANTAPDF_ERROR_ARGUMENT;
     memset(out,0,sizeof(*out));
     if(p==NULL || p->source==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    quantapdf_native_work_init_v1(&ledger,p->limits.max_sample_tests,p->limits.max_edges);
     switch(p->route) {
     case QP_NATIVE_PREPARED_LEGACY:
-        return quantapdf_ir_raster_scoped_mixed_v5(p->source,0u,&p->limits,out);
     case QP_NATIVE_PREPARED_DEVICE:
-        return quantapdf_native_device_ir_render_v1(p->source,p->dpi,&p->limits,out);
     case QP_NATIVE_PREPARED_TWO_CLIP:
-        return quantapdf_native_device_ir_render_v1_two_clip(p->source,p->dpi,&p->limits,out);
     case QP_NATIVE_PREPARED_CLIPPED_PATHS:
-        return quantapdf_native_device_ir_render_v1_clipped_paths(p->source,p->dpi,&p->limits,out);
     case QP_NATIVE_PREPARED_CLIP_STATES:
-        return quantapdf_native_device_ir_render_v1_compound_clip_states(p->source,p->dpi,&p->limits,out);
     case QP_NATIVE_PREPARED_PREFIX:
-        return quantapdf_native_device_ir_render_v1_unclipped_prefix(p->source,p->dpi,&p->limits,out);
     case QP_NATIVE_PREPARED_SIBLINGS:
-        return quantapdf_native_device_ir_render_v1_sibling_clips(p->source,p->dpi,&p->limits,out);
     case QP_NATIVE_PREPARED_THREE_GS:
-        return quantapdf_native_device_ir_render_v1_three_gs_original(p->source,p->dpi,&p->limits,out);
+        status=quantapdf_native_device_ir_render_v1_accounted(
+            p->source,p->dpi,&p->limits,p->route,&ledger,out);
+        break;
     case QP_NATIVE_PREPARED_TEXT:
-        status=quantapdf_ir_raster_render_v1_text_outlines(p->source,&p->physical_limits,&p->physical,&measured,out);
+        status=quantapdf_ir_raster_render_v1_text_outlines_accounted(
+            p->source,&p->physical_limits,&p->physical,&ledger,out);
         break;
     case QP_NATIVE_PREPARED_EXACT_CUBICS:
-        status=p->dpi==72u?
-            quantapdf_ir_raster_render_v1_texample_shared_three_layer(p->source,&p->physical_limits,&p->physical,&measured,out):
-            quantapdf_ir_raster_render_v1_texample_physical_dpi_three_layer(p->source,&p->physical_limits,&p->physical,&measured,out);
+        status=quantapdf_ir_raster_render_v1_texample_accounted(
+            p->source,&p->physical_limits,&p->physical,&ledger,out);
         break;
     default:return QUANTAPDF_ERROR_UNSUPPORTED;
     }
+    if(status==QUANTAPDF_OK && (ledger.failed ||
+       ledger.reserved.sample_work!=0u || ledger.reserved.edges!=0u)) {
+        quantapdf_ir_raster_image_dispose(out);return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
     if(status==QUANTAPDF_OK && receipt!=NULL) {
-        receipt->sample_tests=measured;receipt->sample_tests_exact=1;
+        receipt->sample_tests=ledger.samples_exact?ledger.used.sample_work:0u;
+        receipt->sample_tests_exact=ledger.samples_exact;
+        receipt->charged_sample_work=ledger.used.sample_work;
+        receipt->compiled_edges=ledger.used.edges;
+        receipt->peak_reserved_sample_work=ledger.peak_reserved.sample_work;
+        receipt->peak_reserved_edges=ledger.peak_reserved.edges;
+        receipt->completed_leases=ledger.completed_leases;
     }
     return status;
 }
 #endif
-

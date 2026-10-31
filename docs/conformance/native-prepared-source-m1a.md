@@ -29,6 +29,10 @@ Preparation success alone is not public rendering acceptance.
 
 ## Execution and work evidence
 
+The later [M1b.1 sample/edge ledger](native-page-work-ledger-m1b.md)
+extends execution receipts to every production route. The paragraphs below
+describe the M1a boundary; resource/geometry preparation remains incomplete.
+
 The immutable plan passes the same frozen page caps to exactly one existing
 C11 consumer. Existing conservative child partitions remain unchanged.
 Text/exact-cubic consumers return an actual sampled-work receipt; other

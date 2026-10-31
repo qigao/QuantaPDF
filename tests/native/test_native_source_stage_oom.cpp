@@ -1007,7 +1007,16 @@ static bool original_texample_three_layer(const quantapdf_ir& source,
         if(prepared.route!=QP_NATIVE_PREPARED_EXACT_CUBICS)return QUANTAPDF_ERROR_BACKEND;
         quantapdf_native_execution_receipt_v1 receipt{};
         result=quantapdf_native_execute_page_v1(&prepared,&receipt,out);
-        if(result==QUANTAPDF_OK && !receipt.sample_tests_exact)return QUANTAPDF_ERROR_BACKEND;
+        if(result==QUANTAPDF_OK && (!receipt.sample_tests_exact ||
+           receipt.charged_sample_work!=receipt.sample_tests ||
+           receipt.compiled_edges==0u || receipt.compiled_edges>budget->max_edges ||
+           receipt.completed_leases!=1u ||
+           receipt.peak_reserved_sample_work!=budget->max_sample_tests ||
+           receipt.peak_reserved_edges!=budget->max_edges))return QUANTAPDF_ERROR_BACKEND;
+        if(result!=QUANTAPDF_OK && (receipt.charged_sample_work!=0u ||
+           receipt.compiled_edges!=0u || receipt.completed_leases!=0u ||
+           receipt.peak_reserved_sample_work!=0u || receipt.peak_reserved_edges!=0u))
+            return QUANTAPDF_ERROR_BACKEND;
         if(observed_work!=nullptr)*observed_work=receipt.sample_tests;
         return result;
     };
@@ -1546,6 +1555,10 @@ static int native_ttf_source_and_raster_contracts(
         work=receipt.sample_tests;
         track_c_allocation=false;
         CHECK(status==QUANTAPDF_OK && receipt.sample_tests_exact && c_allocations==4u && work>0u && work<8000000u);
+        CHECK(receipt.charged_sample_work==work && receipt.compiled_edges>0u &&
+              receipt.compiled_edges<=limits.max_edges && receipt.completed_leases==1u &&
+              receipt.peak_reserved_sample_work==limits.max_sample_tests &&
+              receipt.peak_reserved_edges==limits.max_edges);
         std::ifstream file(goldens/(std::string(mode==1?"roboto-layers-":"roboto-mixed-")+std::to_string(dpi)+(mode==1?"-m0.rgba":"-m1.rgba")),std::ios::binary);
         const std::vector<unsigned char> expected{std::istreambuf_iterator<char>(file),{}};
         CHECK(expected.size()==full.size && std::memcmp(expected.data(),full.pixels,full.size)==0);
@@ -1563,6 +1576,10 @@ static int native_ttf_source_and_raster_contracts(
                 else std::memset(&result,0,sizeof(result));
                 seen=retry_receipt.sample_tests;
                 if(got==QUANTAPDF_OK && !retry_receipt.sample_tests_exact)got=QUANTAPDF_ERROR_BACKEND;
+                if(got!=QUANTAPDF_OK && (retry_receipt.charged_sample_work!=0u ||
+                   retry_receipt.compiled_edges!=0u || retry_receipt.completed_leases!=0u ||
+                   retry_receipt.peak_reserved_sample_work!=0u ||
+                   retry_receipt.peak_reserved_edges!=0u))got=QUANTAPDF_ERROR_BACKEND;
             }
             track_c_allocation=false;c_fail_index=0u;
             bool ok=got==want && text_ir_snapshot(ir)==snapshot;
