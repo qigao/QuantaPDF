@@ -253,7 +253,10 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
            floorf(page->width_points)!=page->width_points ||
            floorf(page->height_points)!=page->height_points)
             return QUANTAPDF_ERROR_UNSUPPORTED;
-        p.route=QP_NATIVE_PREPARED_TEXT;
+        /* Explicit M2a mixed route only for fully admitted one-Text/
+         * one-Image Source. Prior Text-only mode remains byte-identical. */
+        p.route=source->resources.image_count==1u?
+            QP_NATIVE_PREPARED_M2A_TEXT_IMAGE:QP_NATIVE_PREPARED_TEXT;
         printed=snprintf(box,sizeof(box),"0 0 %u %u",
             (unsigned)page->width_points,(unsigned)page->height_points);
         if(printed<0 || (size_t)printed>=sizeof(box))return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -355,6 +358,9 @@ static inline quantapdf_status quantapdf_native_compiled_page_compile_v1(
     if(metadata->route==QP_NATIVE_PREPARED_TEXT)
         status=quantapdf_native_geometry_prepare_text_v1(metadata->source,
             &metadata->physical_limits,&metadata->physical,&out->ledger,&out->exact);
+    else if(metadata->route==QP_NATIVE_PREPARED_M2A_TEXT_IMAGE)
+        status=quantapdf_native_scoped_prepare_m2a_text_image_v1(metadata->source,
+            &metadata->limits,&metadata->physical,&out->ledger,&out->scoped);
     else if(metadata->route==QP_NATIVE_PREPARED_EXACT_CUBICS)
         status=quantapdf_native_geometry_prepare_texample_v1(metadata->source,
             &metadata->physical_limits,&metadata->physical,&out->ledger,&out->exact);
