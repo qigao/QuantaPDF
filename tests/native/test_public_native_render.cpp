@@ -509,10 +509,13 @@ static int native_m2a_public_text_image_cases(const std::string& filename)
         quantapdf_drop_page(page);
         quantapdf_close(doc);
     }
-    /* A valid Text+Image prefix may not hide late unsupported paint
-     * or unused original resources. Exercise the SAME public Bitmap
-     * entry; check no partial pixels and same-Context recovery. */
-    for(int mode=51;mode<=63;++mode) {
+    /* All thirteen late-source cases are exhaustively exercised in
+     * the EXISTING Source/OOM test. A six-case representative subset
+     * also checks public Bitmap atomic refusal and same-Context
+     * recovery. Avoid thirteen redundant full TTF public renders:
+     * the existing ASan CTest has an immutable 45-second ceiling. */
+    constexpr int public_m2a_refusals[]={51,52,53,54,60,63};
+    for(int mode:public_m2a_refusals) {
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         quantapdf_document *denied_doc=nullptr;
         quantapdf_page *denied_page=nullptr;

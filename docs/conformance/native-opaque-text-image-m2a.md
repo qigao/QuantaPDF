@@ -2,7 +2,7 @@
 
 Tracking: [Issue #578](https://github.com/qigao/QuantaPDF/issues/578), [parent #570](https://github.com/qigao/QuantaPDF/issues/570) and [broader #208](https://github.com/qigao/QuantaPDF/issues/208).
 
-**Status: Draft implementation and conformance.** The first mixed renderer and independent full-image reference passed [Native CI #2298](https://github.com/qigao/QuantaPDF/actions/runs/41304403199), exact HEAD `c2ce69e5db3e7b01ed405eab21ccddf19c45a141` (Linux Release/ASan-UBSan, Windows and macOS, 60/60 and installed consumers 1/1). Later budget/OOM and source-resource-closure work has its own exact HEAD CI and is **not automatically accepted by #2298**. Keep #579 Draft; M2 as a whole is not complete.
+**Status: M2a candidate, Draft until final exact-HEAD acceptance.** Original RAW/Flate Text/Image in both paint orders and independent 72/96/144-DPI whole-image RGB comparisons, all bounded resource/work N/N−1, actual six C11 allocation faults, all Source C allocation positions and thirteen malformed/late original Source refusals passed [Native CI #2305](https://github.com/qigao/QuantaPDF/actions/runs/41325875610), exact HEAD `4d6f6e16eee97a7ad6a64de8b04f807db67fc3d3` (Linux Release/ASan-UBSan, Windows and macOS, 60/60 each; installed consumers 1/1). The final runtime-documentation + test-duration optimization candidate requires its own CI before merge. M2b and the complete M2 milestone remain open.
 
 ## M1 immutable baseline
 
@@ -10,12 +10,14 @@ Merged [#577](https://github.com/qigao/QuantaPDF/pull/577): master `cfb93d382b97
 
 ## Current bounded first M2a capability
 
-Two actual, independently QPDF-authored original PDFs share a **genuine embedded CID TTF (Roboto) and 2×2 RAW RGB Image XObject** with overlapping ink. Both orderings are required:
+Four actual, independently QPDF-authored original PDFs share a **genuine embedded CID TTF (Roboto) and 2×2 RAW or FlateDecode RGB Image XObject** with overlapping ink. Both orders and both image encodings are required:
 
 | Fixture | Original content order | Evidence |
 | --- | --- | --- |
 | `native_ttf_fixture(49)` | Text show → Image Do | Complete Source IR, common C11 compiled page and public RGB |
 | `native_ttf_fixture(50)` | Image Do → Text show | Complete Source IR, common C11 compiled page and public RGB |
+| `native_ttf_fixture(64)` | Text → FlateDecode Image | Same independent 72/96/144-DPI RGB |
+| `native_ttf_fixture(65)` | FlateDecode Image → Text | Same independent 72/96/144-DPI RGB |
 | `native_ttf_fixture(51)` | Text → Image with an unused original ExtGState | Atomic public UNSUPPORTED; no hidden resource dropped |
 
 This first capability supports **one opaque black embedded-TTF Text show** and **one decoded, opaque, qualified RAW/Flate Gray/RGB image** on the existing exact 72/96/144-DPI physical grid, with the Source-admitted CTM bounds, real q/Q and no Clip/Stroke/Fill paint. Text other than this explicitly admitted black run, multiple fonts, additional paints, general mixed clipping, arbitrary transforms/gradients, Form, alpha, masks, groups and public Composer rendering are **not** qualified; refuse atomically. More colors/font resources and Clip/Fill are subsequent M2 subgates, not implied by these tests.
@@ -31,10 +33,10 @@ This first capability supports **one opaque black embedded-TTF Text show** and *
 
 - [x] Both actual original Source orders survive complete parser/owned IR and use the same C11 native V5 compiled page.
 - [x] Independent full-image RGB references for **both orders, all 72/96/144 DPI**. The oracle is the **previously reviewed** original Text-only RGBA reference plus independently evaluated 4×4 Image footprint, pixel-center nearest-neighbor source samples and opaque source-over in source order. Every RGB pixel is compared exactly, including overlapping regions, never with M2a's output as a new reference. Accepted at #2298.
-- [ ] Candidate exact-HEAD **M2a Source C-allocation fault** controls; four actual TTF geometry/mask/raster malloc failures and same-Context recovery.
-- [ ] M2a sample/edge/pixel, original/expanded operation, unique source/placement pixels and requested-byte N/N−1 quotas; output receipt and retained-owner balances.
-- [x] Source/public originals: 13 deliberately invalid late Do/Fill/Clip/Tr, incorrect CTM, unbalanced q/Q/ET, duplicate Do, unused Font/XObject/ExtGState and image SMask. Both source IR and public Bitmap must remain empty, followed by successful original Source recovery. Exact-HEAD CI required.
-- [ ] Every remaining new Image/final-composite allocation failure and mixed-page lifetime/rollback under sanitizer.
+- [x] **Every actual Source C allocation position** fault-injected on one original page, all return NOMEM with empty IR; original source successfully re-read at first/middle/last indices and after the negative matrix. Existing four real Text C11 malloc failures retain their original ordering.
+- [x] M2a sample/edge/pixel, original/expanded operation, unique source/placement pixels and requested-byte N/N−1 quotas; output receipt and retained-owner balances at CI #2305.
+- [x] All **13** original invalid late Do/Fill/Clip/Tr, wrong CTM, q/Q/ET, duplicate Do, unused Font/XObject/ExtGState and SMask cases refuse with empty Source IR. Six representative modes (51,52,53,54,60,63) also prove **public Bitmap** atomic refusal, retaining same-Context recovery. Full Source coverage is preserved while avoiding redundant full-font public replays at the fixed 45s sanitizer limit.
+- [x] Both additional **real RAW Image and final composite C11 malloc** sites 5/6 are fault-injected via the unique private page ledger; empty output/receipt and exact same-IR recovery under sanitizer, without altering the historical first four locations.
 - [ ] Current candidate's own Linux Release/ASan-UBSan, Windows and macOS Native CI; installed consumers and exact exports, no PDFium. Existing Source/OOM 40-second gate and Context/OOM 30-second gate remain.
 - [ ] Only after candidate acceptance, consider merging #579 and independently rerun actual production master CI; even then **M2b Text/Image/Fill/Clip is still open**.
 
@@ -42,7 +44,7 @@ No new test project, installer/consumer project, probe workflow/CMake, public AB
 
 ## New M2a failure matrix (candidate)
 
-Existing native Source/OOM and public render tests now exercise 13 full original PDF variants (51–63) for unused graphics/font/image resources; late unsupported Do, Fill, W Clip, text render mode, second Do, bad shear, unbalanced q/Q/ET, and unqualified Image SMask. Each must reject the **whole original page** without an owned IR/Bitmap; the same Source can subsequently recover on a known good page. Test-only per-page ledger injection now reaches *all six actual C11 allocations* of the M2a compilation/execution, including the fifth RAW Image layer RGBA and sixth final composite RGBA; it does not change the old four test-malloc sites, public ABI or CI/CMake.
+Existing native Source/OOM tests cover all 13 full original PDF variants (51–63) for unused graphics/font/image resources; late unsupported Do, Fill, W Clip, text render mode, second Do, bad shear, unbalanced q/Q/ET, and unqualified Image SMask. Six representative originals also run through public Bitmap/Context, without duplicating full TTF rendering thirteen times. All source candidates must reject the **whole original page** without owned IR, and public cases must return no Bitmap; the Source then recovers on a known good page. Test-only per-page ledger injection now reaches *all six actual C11 allocations* of the M2a compilation/execution, including the fifth RAW Image layer RGBA and sixth final composite RGBA; it does not change the old four test-malloc sites, public ABI or CI/CMake.
 
 ## Original compressed Image parity (next candidate)
 
@@ -50,4 +52,8 @@ Modes 64 and 65 use **original QPDF-authored FlateDecode RGB stream bytes** (tes
 
 ## Exhaustive owned Source C-allocation rollback (candidate)
 
-For the one real mode-49 Source, enumerate every **actual C allocation position** observed during whole-page owned IR materialization, including the page/operations/images arrays, image payload, `realloc`, TTF glyph record array and all command arrays (bounded 5–32 actual sites). Inject a single NOMEM at **each** position, assert zero owned IR and the untouched live original IR; then re-read the SAME original source successfully before proceeding. This is independent of the six actual C11 geometry/RAW/final RGBA injection positions. No new source parser, test project, CI or CMake has been introduced.
+For the one real mode-49 Source, enumerate every **actual C allocation position** observed during whole-page owned IR materialization, including the page/operations/images arrays, image payload, `realloc`, TTF glyph record array and all command arrays (bounded 5–32 actual sites). Inject one NOMEM at **each** position and assert zero owned IR and untouched live original IR. Recover the SAME original on first/mid/last checkpoints and again after the full late-invalid matrix, rather than performing expensive redundant positive parses after every failed position. This is independent of the six actual C11 geometry/RAW/final RGBA injection positions. No new source parser, test project, CI or CMake has been introduced.
+
+## Immutable CI duration discipline
+
+Linux ASan on #2305 passed but approached the historical hard timeout: public render **44.78s/45s**, Source/OOM **37.23s/40s**. The current final candidate preserves **all** 13 original Source negatives and every source allocation fault, while using six representative public Bitmap negatives and first/middle/last Source recovery checkpoints to avoid repeated 515kB TTF parsing. The source/raster logic, failure semantics, original goldens and every numeric limit remain unchanged; this test-duration adjustment requires a new exact-HEAD CI before merge.
