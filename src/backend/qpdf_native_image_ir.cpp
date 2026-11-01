@@ -2521,6 +2521,10 @@ quantapdf_ir materialize_text_outlines(const admission& source)
     } catch(...) {quantapdf_ir_dispose(&ir);throw;}
 }
 
+/* Existing image materializer is defined below the prior owned PATH
+ * specializations. M2a shares it without copying decoder/allocation logic. */
+quantapdf_ir materialize(const admission& source);
+
 /* M2a complete owned Source graph: one embedded-TTF show and one
  * original RAW/Flate RGB/Gray Image, in either original paint order.
  * Existing decoder/font interpreter remain the ONLY providers. All
