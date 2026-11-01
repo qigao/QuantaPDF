@@ -81,10 +81,11 @@ image, original PDF, workflow, CMake target or consumer/installer project change
 
 ## Remaining M1 work
 
-**M1 remains open.** The outer Source metadata plan is still a synchronous
-complete-IR borrow. V5 owns its prepared primitive collection within each
-execution; the metadata object does not retain a compiled page or adopt Source
-IR between calls. A common outer page owner/admission representation remains
-before the planned M2 composition expansion. Original TeXample 72/96/144-DPI
-and yWorks 72-DPI evidence and corpus counts are unchanged. Exact HEAD/tree and
-actual platform CI results are recorded in the PR and #570.
+The subsequent [owned Source-page integration](native-owned-source-page-m1b.md)
+now retains V5 compilation, adopts complete Source IR after successful prepare
+and embeds the stable ledger in a private unique owner. The metadata-only API
+remains a synchronous compatibility borrow. **M1 remains open** for broader
+Context-retained public prepared-page/Composer integration before the planned M2
+composition expansion. Original TeXample 72/96/144-DPI and yWorks 72-DPI evidence
+and corpus counts are unchanged. Exact HEAD/tree and actual platform CI results
+are recorded in the PR and #570.

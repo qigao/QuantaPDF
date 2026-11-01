@@ -39,6 +39,30 @@ typedef enum quantapdf_native_scoped_profile_v5 {
     QP_SCOPED_CLIP_STATES,QP_SCOPED_COMPOUND_STATES,
     QP_SCOPED_PREFIX,QP_SCOPED_SIBLINGS,QP_SCOPED_THREE_GS
 } quantapdf_native_scoped_profile_v5;
+/* PRIVATE address-stable unique compiled collection. Geometry owns every
+ * command/Clip value. RAW payloads borrow the parent IR owner, which must
+ * outlive this collection. No live handle may be copied or its ledger reset. */
+typedef struct quantapdf_native_scoped_page_v5 {
+    quantapdf_native_work_ledger_v1 *ledger;
+    quantapdf_composer_page_state page;
+    quantapdf_ir_raster_v1_limits geometry_limits;
+    quantapdf_ir_raster_image_v1_limits image_limits;
+    quantapdf_native_geometry_v1 geometry[4];
+    quantapdf_composer_operation images[4];
+    quantapdf_composer_image_state resources[4];
+    unsigned char modes[4]; /* 0 PATH, 1 RAW, 2 fractional mask, 3 integer Clip */
+    size_t width,height,pixels,bytes,count,drawn_pixels;
+    int ready,executed;
+} quantapdf_native_scoped_page_v5;
+quantapdf_status quantapdf_native_scoped_prepare_v5(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double viewport_width,double viewport_height,quantapdf_native_scoped_profile_v5 profile,
+    quantapdf_native_work_ledger_v1 *ledger,quantapdf_native_scoped_page_v5 *out);
+quantapdf_status quantapdf_native_scoped_execute_v5(
+    quantapdf_native_scoped_page_v5 *page,quantapdf_ir_raster_image *out);
+void quantapdf_native_scoped_dispose_v5(quantapdf_native_scoped_page_v5 *page);
+
 quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_accounted(
     const quantapdf_ir *ir,size_t page_index,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,

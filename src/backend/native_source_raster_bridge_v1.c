@@ -14,7 +14,7 @@ static quantapdf_status native_source_bridge_impl(
 {
     quantapdf_status status;
     quantapdf_ir ir = {0};
-    quantapdf_native_prepared_page_v1 prepared;
+    quantapdf_native_source_page_v1 prepared={0};
 
     if (out_image == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -51,9 +51,10 @@ static quantapdf_status native_source_bridge_impl(
         return status;
     }
 
-    status=quantapdf_native_prepare_page_v1(&ir,&limits->raster,device,source_profile,&prepared);
+    status=quantapdf_native_source_page_prepare_v1(&ir,&limits->raster,device,source_profile,&prepared);
     if(status==QUANTAPDF_OK)
-        status=quantapdf_native_execute_page_v1(&prepared,NULL,out_image);
+        status=quantapdf_native_source_page_execute_v1(&prepared,NULL,out_image);
+    quantapdf_native_source_page_dispose_v1(&prepared);
     quantapdf_ir_dispose(&ir);
     return status;
 }

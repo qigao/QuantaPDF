@@ -371,16 +371,14 @@ static void v5_over(unsigned char *dst,const unsigned char *src)
  * published or failed Image/Path source. Admit only an exact empty
  * registry and integer bounded geometry; all other IR profiles retain
  * the existing strict V5 painted operation contract. */
-static quantapdf_status v5_render_blank(
+static quantapdf_status v5_prepare_blank(
     const quantapdf_ir *ir,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
-    quantapdf_native_work_ledger_v1 *ledger,quantapdf_ir_raster_image *out_image)
+    quantapdf_native_work_ledger_v1 *ledger,quantapdf_native_scoped_page_v5 *out)
 {
     const quantapdf_composer_page_state *page=&ir->pages[0];
     const quantapdf_resource_registry *r=&ir->resources;
     size_t width,height,pixels,bytes;
-    unsigned char *white;
-    quantapdf_status status=QUANTAPDF_OK;
     if(ir->page_count!=1u || ir->operations!=NULL ||
        ir->operation_count!=0u || ir->links!=NULL ||
        ir->link_count!=0u || ir->outlines!=NULL ||
@@ -408,20 +406,15 @@ static quantapdf_status v5_render_blank(
        pixels>SIZE_MAX/4u)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     bytes=pixels*4u;
-    white=(unsigned char *)quantapdf_native_raster_malloc_v1(ledger,bytes,&status);
-    if(white==NULL)return status;
-    memset(white,255,bytes);
-    out_image->pixels=white;
-    out_image->size=bytes;
-    out_image->width=width;
-    out_image->height=height;
-    out_image->stride=width*4u;
+    out->ledger=ledger;out->page=*page;
+    out->width=width;out->height=height;out->pixels=pixels;out->bytes=bytes;
+    out->ready=1;
     return QUANTAPDF_OK;
 }
 
 /* The source operation is immutable. Project a single borrowed resource
  * and normalize only stack-local ID copies to the single-layer profiles. */
-static quantapdf_status v5_render_impl(
+static quantapdf_status v5_prepare_impl(
     const quantapdf_ir *ir,size_t page_index,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     int fractional_images,
@@ -429,9 +422,8 @@ static quantapdf_status v5_render_impl(
     int clipped_paths_optin,int clip_states_optin,int compound_clips_optin,
     int unclipped_prefix_optin,int sibling_clips_optin,
     int visible_two_gs_optin,int visible_three_gs_optin,
-    quantapdf_native_work_ledger_v1 *ledger,quantapdf_ir_raster_image *out_image)
+    quantapdf_native_work_ledger_v1 *ledger,quantapdf_native_scoped_page_v5 *out)
 {
-    quantapdf_native_work_ledger_v1 local_ledger;
     const int two_states=clip_states_optin || sibling_clips_optin;
     /* 1=previous cumulative proof; 2=independent q/Q branches.
      * All existing V5 wrappers still explicitly pass 0/1. */
@@ -441,15 +433,13 @@ static quantapdf_status v5_render_impl(
     quantapdf_ir projected={0};
     quantapdf_composer_page_state transparent={0};
     quantapdf_composer_operation operation={0};
-    quantapdf_ir_raster_image layers[QP_V5_MAX_LAYERS]={{0}};
-    quantapdf_native_geometry_v1 geometry[QP_V5_MAX_LAYERS]={{0}};
+    quantapdf_native_geometry_v1 *geometry;
     quantapdf_composer_clip_state viewport={0};
     quantapdf_composer_path_command viewport_commands[5]={{0}};
     const quantapdf_composer_clip_state *viewport_ptr=NULL;
     quantapdf_ir_raster_v1_limits geometry_limits;
     quantapdf_ir_raster_image_v1_limits image_limits;
-    unsigned char *result=NULL;
-    size_t width,height,pixels,bytes,i,j;
+    size_t width,height,pixels,bytes,i;
     size_t edge_layers=0u,source_work=0u,draw_work=0u;
     unsigned image_used=0u,clip_used=0u,fractional_mask=0u;
     size_t path_count=0u,image_count=0u;
@@ -460,8 +450,9 @@ static quantapdf_status v5_render_impl(
     unsigned clip_state_phase=0u;
     const quantapdf_composer_page_state *page;
 
-    if(out_image==NULL)return QUANTAPDF_ERROR_ARGUMENT;
-    memset(out_image,0,sizeof(*out_image));
+    if(out==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out,0,sizeof(*out));geometry=out->geometry;
+    if(ledger==NULL)return QUANTAPDF_ERROR_ARGUMENT;
     if(ir==NULL || limits==NULL || ir->pages==NULL ||
        (ir->operations==NULL && ir->operation_count!=0u) ||
        ir->page_count!=1u || page_index!=0u ||
@@ -469,10 +460,6 @@ static quantapdf_status v5_render_impl(
        limits->max_edges==0u || limits->max_sample_tests==0u ||
        limits->max_source_pixels==0u || limits->max_drawn_pixels==0u)
         return QUANTAPDF_ERROR_ARGUMENT;
-    if(ledger==NULL) {
-        quantapdf_native_work_init_v1(&local_ledger,limits->max_sample_tests,limits->max_edges);
-        ledger=&local_ledger;
-    }
     if(ledger->failed)return QUANTAPDF_ERROR_UNSUPPORTED;
 
     if(!isfinite(viewport_width) || !isfinite(viewport_height) ||
@@ -545,7 +532,7 @@ static quantapdf_status v5_render_impl(
         if(viewport_width>w || viewport_height>h ||
            w-viewport_width>=1.0 || h-viewport_height>=1.0)
             return QUANTAPDF_ERROR_UNSUPPORTED;
-        return v5_render_blank(ir,limits,ledger,out_image);
+        return v5_prepare_blank(ir,limits,ledger,out);
     }
 
     if(ir->operation_count>QP_V5_MAX_LAYERS ||
@@ -1123,70 +1110,123 @@ static quantapdf_status v5_render_impl(
         if(status!=QUANTAPDF_OK)goto cleanup;
     }
 
-    /* Every selected geometry owner and its reservation is complete before
-     * the first layer pixel allocation. No execute call reads temporary PATH
-     * projections or compiles another primitive. Old fixed shares remain. */
-    for(i=0u;i<ir->operation_count;++i) {
+    out->ledger=ledger;out->page=*page;out->geometry_limits=geometry_limits;
+    out->image_limits=image_limits;out->width=width;out->height=height;
+    out->pixels=pixels;out->bytes=bytes;out->count=ir->operation_count;
+    out->drawn_pixels=draw_work;
+    for(i=0u;i<out->count;++i) {
         const quantapdf_composer_operation *op=&ir->operations[i];
-        const size_t state=(size_t)op->graphics_state_id;
-        operation=*op;memset(&projected.resources,0,sizeof(projected.resources));
-        if(op->kind==QUANTAPDF_COMPOSER_OPERATION_PATH) {
-            status=quantapdf_native_geometry_execute_v1(&geometry[i],NULL,&layers[i]);
+        if(op->kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
+            out->images[i]=*op;out->images[i].value.image.image_id=1u;
+            out->resources[i]=ir->resources.images[(size_t)op->value.image.image_id-1u];
+            out->modes[i]=(fractional_mask & (1u<<(unsigned)i))!=0u ||
+                ((two_clip_optin || sibling_clips_optin) && op->graphics_state_id!=0u)?2u:
+                op->graphics_state_id!=0u?3u:1u;
+        }
+    }
+    out->ready=1;
+    return QUANTAPDF_OK;
+cleanup:
+    ledger->failed=1;
+    quantapdf_native_scoped_dispose_v5(out);
+    return status;
+}
+
+void quantapdf_native_scoped_dispose_v5(quantapdf_native_scoped_page_v5 *page)
+{
+    if(page==NULL)return;
+    for(size_t i=0u;i<QP_V5_MAX_LAYERS;++i)
+        quantapdf_native_geometry_dispose_v1(&page->geometry[i]);
+    memset(page,0,sizeof(*page));
+}
+
+quantapdf_status quantapdf_native_scoped_execute_v5(
+    quantapdf_native_scoped_page_v5 *page,quantapdf_ir_raster_image *out)
+{
+    quantapdf_ir_raster_image layers[QP_V5_MAX_LAYERS]={{0}};
+    quantapdf_native_work_ledger_v1 *ledger;
+    quantapdf_composer_page_state transparent;
+    quantapdf_status status=QUANTAPDF_ERROR_UNSUPPORTED;
+    unsigned char *result=NULL;
+    size_t i,j;
+    if(out==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out,0,sizeof(*out));
+    if(page==NULL || !page->ready || page->ledger==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    ledger=page->ledger;
+    if(ledger->failed)return QUANTAPDF_ERROR_UNSUPPORTED;
+    /* All repeated placement and fixed sample shares are admitted before the
+     * first pixel. Unique Source pixels and retained edges stay charged once. */
+    if(page->executed && !quantapdf_native_pixels_charge_v1(ledger,0u,page->drawn_pixels))goto cleanup;
+    for(i=0u;i<page->count;++i)
+        if(page->geometry[i].data!=NULL &&
+           quantapdf_native_geometry_reserve_v1(&page->geometry[i])!=QUANTAPDF_OK)goto cleanup;
+    transparent=page->page;transparent.background_argb=0u;transparent.suppress_background=1;
+    for(i=0u;i<page->count;++i) {
+        if(page->modes[i]==0u) {
+            status=quantapdf_native_geometry_execute_v1(&page->geometry[i],NULL,&layers[i]);
+        } else if(page->modes[i]==2u) {
+            status=v5_fractional_image_layer(&transparent,&page->images[i].bounds,&page->resources[i],
+                                             &page->geometry[i],ledger,&layers[i]);
+        } else if(page->modes[i]==3u) {
+            status=quantapdf_native_clipped_raw_execute_v1(&transparent,&page->images[i],
+                &page->resources[i],&page->image_limits,&page->geometry_limits,
+                ledger,&page->geometry[i],&layers[i]);
         } else {
-            const size_t id=(size_t)op->value.image.image_id;
-            projected.resources.images=&ir->resources.images[id-1u];projected.resources.image_count=1u;
-            operation.value.image.image_id=1u;
-            if((fractional_mask & (1u<<(unsigned)i))!=0u ||
-               ((two_clip_optin || sibling_clips_optin) && state!=0u)) {
-                status=v5_fractional_image_layer(page,&op->bounds,&ir->resources.images[id-1u],
-                                                 &geometry[i],ledger,&layers[i]);
-            } else if(state!=0u) {
-                projected.resources.graphics_states=ir->resources.graphics_states;
-                projected.resources.graphics_state_count=1u;
-                projected.resources.clips=ir->resources.clips;projected.resources.clip_count=1u;
-                status=quantapdf_ir_raster_clipped_raw_image_v1_prepared(&projected,0u,&image_limits,
-                    &geometry_limits,ledger,&geometry[i],&layers[i]);
-            } else {
-                status=quantapdf_ir_raster_raw_images_v1_borrowed(&projected,0u,&image_limits,ledger,&layers[i]);
-            }
+            quantapdf_ir projected={0};quantapdf_composer_operation operation=page->images[i];
+            operation.graphics_state_id=0u;operation.value.image.options.graphics_state_id=0u;
+            projected.pages=&transparent;projected.page_count=1u;
+            projected.operations=&operation;projected.operation_count=1u;
+            projected.resources.images=&page->resources[i];projected.resources.image_count=1u;
+            status=quantapdf_ir_raster_raw_images_v1_borrowed(&projected,0u,&page->image_limits,ledger,&layers[i]);
         }
         if(status!=QUANTAPDF_OK)goto cleanup;
-        quantapdf_native_geometry_dispose_v1(&geometry[i]);
-        if(layers[i].pixels==NULL || layers[i].width!=width || layers[i].height!=height ||
-           layers[i].stride!=width*4u || layers[i].size!=bytes) {
+        if(layers[i].pixels==NULL || layers[i].width!=page->width || layers[i].height!=page->height ||
+           layers[i].stride!=page->width*4u || layers[i].size!=page->bytes) {
             status=QUANTAPDF_ERROR_UNSUPPORTED;goto cleanup;
         }
     }
-
-    result=(unsigned char *)quantapdf_native_raster_malloc_v1(ledger,bytes,&status);
+    result=(unsigned char *)quantapdf_native_raster_malloc_v1(ledger,page->bytes,&status);
     if(result==NULL)goto cleanup;
-    for(j=0u;j<pixels;++j) {
-        unsigned char *p=result+j*4u;
-        const uint32_t bg=page->background_argb;
-        p[0]=page->suppress_background?0u:
-            (unsigned char)((bg>>16u)&255u);
-        p[1]=page->suppress_background?0u:
-            (unsigned char)((bg>>8u)&255u);
-        p[2]=page->suppress_background?0u:
-            (unsigned char)(bg&255u);
-        p[3]=page->suppress_background?0u:255u;
-        for(i=0u;i<ir->operation_count;++i)
-            v5_over(p,layers[i].pixels+j*4u);
+    for(j=0u;j<page->pixels;++j) {
+        unsigned char *pixel=result+j*4u;
+        const uint32_t bg=page->page.background_argb;
+        pixel[0]=page->page.suppress_background?0u:(unsigned char)((bg>>16u)&255u);
+        pixel[1]=page->page.suppress_background?0u:(unsigned char)((bg>>8u)&255u);
+        pixel[2]=page->page.suppress_background?0u:(unsigned char)(bg&255u);
+        pixel[3]=page->page.suppress_background?0u:255u;
+        for(i=0u;i<page->count;++i)v5_over(pixel,layers[i].pixels+j*4u);
     }
-    out_image->pixels=result;
-    out_image->size=bytes;
-    out_image->width=width;
-    out_image->height=height;
-    out_image->stride=width*4u;
-    result=NULL;
-    status=QUANTAPDF_OK;
+    out->pixels=result;out->size=page->bytes;out->width=page->width;
+    out->height=page->height;out->stride=page->width*4u;
+    result=NULL;page->executed=1;status=QUANTAPDF_OK;
 cleanup:
     if(status!=QUANTAPDF_OK)ledger->failed=1;
-    quantapdf_native_raster_free_v1(ledger,result,bytes);
-    for(i=0u;i<QP_V5_MAX_LAYERS;++i) {
+    quantapdf_native_raster_free_v1(ledger,result,page->bytes);
+    for(i=0u;i<QP_V5_MAX_LAYERS;++i)
         quantapdf_native_raster_image_dispose_v1(ledger,&layers[i]);
-        quantapdf_native_geometry_dispose_v1(&geometry[i]);
+    return status;
+}
+
+/* Historical one-shot wrappers use precisely the same compiler and painter. */
+static quantapdf_status v5_render_impl(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    int fractional_images,double vw,double vh,int two_clip,int clipped_paths,
+    int clip_states,int compound_clips,int prefix,int siblings,int visible_two,int visible_three,
+    quantapdf_native_work_ledger_v1 *ledger,quantapdf_ir_raster_image *out)
+{
+    quantapdf_native_work_ledger_v1 local;
+    quantapdf_native_scoped_page_v5 prepared={0};quantapdf_status status;
+    if(out==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out,0,sizeof(*out));
+    if(limits==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    if(ledger==NULL) {
+        quantapdf_native_work_init_v1(&local,limits->max_sample_tests,limits->max_edges);ledger=&local;
     }
+    status=v5_prepare_impl(ir,page_index,limits,fractional_images,vw,vh,two_clip,clipped_paths,
+        clip_states,compound_clips,prefix,siblings,visible_two,visible_three,ledger,&prepared);
+    if(status==QUANTAPDF_OK)status=quantapdf_native_scoped_execute_v5(&prepared,out);
+    quantapdf_native_scoped_dispose_v5(&prepared);
     return status;
 }
 
@@ -1378,40 +1418,54 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_sibling_clips_device_viewpo
 
 /* Accounted access to exactly the production profiles. Legacy wrappers
  * above use a local ledger; the prepared bridge supplies the page owner. */
-quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_accounted(
+quantapdf_status quantapdf_native_scoped_prepare_v5(
     const quantapdf_ir *ir,size_t page_index,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     double vw,double vh,quantapdf_native_scoped_profile_v5 profile,
-    quantapdf_native_work_ledger_v1 *ledger,quantapdf_ir_raster_image *out)
+    quantapdf_native_work_ledger_v1 *ledger,quantapdf_native_scoped_page_v5 *out)
 {
     if(out==NULL)return QUANTAPDF_ERROR_ARGUMENT;
     memset(out,0,sizeof(*out));
     if(ledger==NULL)return QUANTAPDF_ERROR_ARGUMENT;
     switch(profile) {
     case QP_SCOPED_LEGACY:
-        return v5_render_impl(ir,page_index,limits,0,vw,vh,0,0,0,0,0,0,0,0,ledger,out);
+        return v5_prepare_impl(ir,page_index,limits,0,vw,vh,0,0,0,0,0,0,0,0,ledger,out);
     case QP_SCOPED_DEVICE:
-        return v5_render_impl(ir,page_index,limits,1,vw,vh,0,0,0,0,0,0,0,0,ledger,out);
+        return v5_prepare_impl(ir,page_index,limits,1,vw,vh,0,0,0,0,0,0,0,0,ledger,out);
     case QP_SCOPED_TWO_CLIP:
-        return v5_render_impl(ir,page_index,limits,1,vw,vh,1,0,0,0,0,0,0,0,ledger,out);
+        return v5_prepare_impl(ir,page_index,limits,1,vw,vh,1,0,0,0,0,0,0,0,ledger,out);
     case QP_SCOPED_CLIPPED_PATHS:
-        return v5_render_impl(ir,page_index,limits,1,vw,vh,
+        return v5_prepare_impl(ir,page_index,limits,1,vw,vh,
             ir!=NULL && ir->resources.clip_count==3u,1,0,0,0,0,0,0,ledger,out);
     case QP_SCOPED_COMPOUND_PATHS:
         if(ir==NULL || ir->resources.clip_count!=1u)return QUANTAPDF_ERROR_UNSUPPORTED;
-        return v5_render_impl(ir,page_index,limits,1,vw,vh,0,1,0,1,0,0,0,0,ledger,out);
+        return v5_prepare_impl(ir,page_index,limits,1,vw,vh,0,1,0,1,0,0,0,0,ledger,out);
     case QP_SCOPED_CLIP_STATES:
-        return v5_render_impl(ir,page_index,limits,1,vw,vh,1,0,1,0,0,0,0,0,ledger,out);
+        return v5_prepare_impl(ir,page_index,limits,1,vw,vh,1,0,1,0,0,0,0,0,ledger,out);
     case QP_SCOPED_COMPOUND_STATES:
-        return v5_render_impl(ir,page_index,limits,1,vw,vh,1,0,1,1,0,0,0,0,ledger,out);
+        return v5_prepare_impl(ir,page_index,limits,1,vw,vh,1,0,1,1,0,0,0,0,ledger,out);
     case QP_SCOPED_PREFIX:
-        return v5_render_impl(ir,page_index,limits,1,vw,vh,
+        return v5_prepare_impl(ir,page_index,limits,1,vw,vh,
             ir!=NULL && ir->resources.clip_count==3u,0,
             ir!=NULL && ir->resources.graphics_state_count==2u,1,1,0,0,0,ledger,out);
     case QP_SCOPED_SIBLINGS:
-        return v5_render_impl(ir,page_index,limits,1,vw,vh,0,0,0,1,0,1,0,0,ledger,out);
+        return v5_prepare_impl(ir,page_index,limits,1,vw,vh,0,0,0,1,0,1,0,0,ledger,out);
     case QP_SCOPED_THREE_GS:
-        return v5_render_impl(ir,page_index,limits,1,vw,vh,0,0,0,0,0,0,0,3,ledger,out);
+        return v5_prepare_impl(ir,page_index,limits,1,vw,vh,0,0,0,0,0,0,0,3,ledger,out);
     default:return QUANTAPDF_ERROR_UNSUPPORTED;
     }
+}
+
+quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_accounted(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    double vw,double vh,quantapdf_native_scoped_profile_v5 profile,
+    quantapdf_native_work_ledger_v1 *ledger,quantapdf_ir_raster_image *out)
+{
+    quantapdf_native_scoped_page_v5 prepared={0};quantapdf_status status;
+    if(out==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out,0,sizeof(*out));
+    status=quantapdf_native_scoped_prepare_v5(ir,page_index,limits,vw,vh,profile,ledger,&prepared);
+    if(status==QUANTAPDF_OK)status=quantapdf_native_scoped_execute_v5(&prepared,out);
+    quantapdf_native_scoped_dispose_v5(&prepared);return status;
 }
