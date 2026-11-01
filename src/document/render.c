@@ -94,6 +94,7 @@ static quantapdf_status quantapdf_render_page_transformed(
 {
     quantapdf_bitmap *bitmap;
     quantapdf_backend_bitmap rendered = {0};
+    quantapdf_context_lease_internal prepared_domain={0};
     quantapdf_status status;
     double user_unit;
     const quantapdf_native_source_raster_bridge_limits_v1 limits = {
@@ -145,6 +146,11 @@ static quantapdf_status quantapdf_render_page_transformed(
         return QUANTAPDF_ERROR_NOMEM;
     }
     bitmap->context = page->context;
+    status=quantapdf_context_lease_acquire_internal(page->context,&prepared_domain);
+    if(status!=QUANTAPDF_OK) {
+        free(bitmap);quantapdf_drop_context(page->context);return status;
+    }
+
 
     status = quantapdf_document_page_user_unit(
         page->document, page->page_index, &user_unit);
@@ -157,13 +163,15 @@ static quantapdf_status quantapdf_render_page_transformed(
             user_unit>4.0)
             status = QUANTAPDF_ERROR_UNSUPPORTED;
         else {
-            status = quantapdf_builtin_native_qualify_bitmap_v10(
-                page->backend, &limits, &device, &rendered);
+            status = quantapdf_builtin_native_qualify_bitmap_context_v1(
+                page->backend,&limits,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,
+                &prepared_domain,&rendered);
             if (status == QUANTAPDF_OK && rotation_degrees != 0.0f)
                 status = quantapdf_native_rotate_rgb_device(
                     &rendered, (int)rotation_degrees);
         }
     }
+    quantapdf_context_lease_drop_internal(&prepared_domain);
     if (status != QUANTAPDF_OK) {
         free(rendered.data);
         free(bitmap);

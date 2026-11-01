@@ -38,6 +38,12 @@ quantapdf_status quantapdf_builtin_native_qualify_page_v10(
     const quantapdf_native_source_raster_device_v1 *device,
     quantapdf_ir_raster_image *out_image);
 
+quantapdf_status quantapdf_builtin_native_qualify_page_context_v1(
+    void *builtin_page,const quantapdf_native_source_raster_bridge_limits_v1 *limits,
+    const quantapdf_native_source_raster_device_v1 *device,
+    quantapdf_private_native_source_profile profile,quantapdf_context_lease_internal *lease,
+    quantapdf_ir_raster_image *out);
+
 #ifdef __cplusplus
 }
 #endif

@@ -83,9 +83,12 @@ fixture ownership is moved back only after compiled disposal. No additional
 expensive original render is added. Earlier command-destruction checks remain; all four real malloc failures now
 exercise the adoption lifecycle, followed by the existing recovery renders.
 
-This is a private Source ownership increment. **M1 remains open** for the broader
-Context-retained public prepared-page/Composer integration; no public retained
-page ABI or cross-call cache is introduced. M2 opaque Text/Image/Fill/Clip
-composition remains future work. Existing Source profiles, original TeXample
-72/96/144-DPI and yWorks 72-DPI evidence and corpus counts remain unchanged.
-Exact HEAD/tree and real platform qualification are recorded in the PR and #570.
+The subsequent [Context/Composer integration](native-context-preparation-m1c.md)
+binds the production Source owner to an existing Core Context reference and
+provides an explicitly synchronous Composer adapter into the common compiler.
+M1 acceptance is recorded only after exact-HEAD and final production CI; the
+bounded foundation does not introduce a public retained-page ABI or cross-call
+cache. M2 opaque Text/Image/Fill/Clip composition remains separate. Existing
+Source profiles, original TeXample 72/96/144-DPI and yWorks 72-DPI evidence and
+corpus counts remain unchanged. Exact HEAD/tree and real platform qualification
+are recorded in the PR and #570.

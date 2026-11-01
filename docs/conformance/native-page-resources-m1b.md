@@ -75,12 +75,13 @@ original 40-second Source/OOM gate remain intact. No workflow, CMake target,
 installer or consumer project is added. Exact HEAD/tree and actual CI results
 are recorded in the associated PR and #570.
 
-## Remaining M1 work
+## Subsequent integration
 
-[M1b.2b owned geometry](native-owned-geometry-m1b.md) adds a separate compiler,
-sampler and unique geometry owner, including page-wide V5 geometry preflight.
-**M1 stays open:** the outer Source metadata plan still borrows its complete IR
-synchronously, and does not retain a compiled page between executions. Common
-outer page/IR ownership and M2 opaque Text/Image/Fill/Clip remain subsequent work.
-Original TeXample physical 72/96/144-DPI and yWorks 72-DPI evidence, original
-PDFs/reference images and corpus-positive counts remain unchanged.
+The [owned Source-page increment](native-owned-source-page-m1b.md) retains
+compilation and adopts Source IR. The subsequent
+[Context/Composer integration](native-context-preparation-m1c.md) adds the Core
+Context lifetime binding and a synchronous Composer adapter. Composer spare
+array capacity is charged in the retained-byte floor; Source's existing numeric
+caps and exact allocation/pixel behavior remain unchanged. M1 qualification is
+recorded after exact-HEAD and final production CI; M2 composition and broader
+PDF capability gates remain separate.

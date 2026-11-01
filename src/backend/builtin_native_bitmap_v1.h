@@ -34,6 +34,12 @@ quantapdf_status quantapdf_builtin_native_qualify_bitmap_v10(
     const quantapdf_native_source_raster_device_v1 *device,
     quantapdf_backend_bitmap *out_bitmap);
 
+quantapdf_status quantapdf_builtin_native_qualify_bitmap_context_v1(
+    void *builtin_page,const quantapdf_native_source_raster_bridge_limits_v1 *limits,
+    const quantapdf_native_source_raster_device_v1 *device,
+    quantapdf_private_native_source_profile profile,quantapdf_context_lease_internal *lease,
+    quantapdf_backend_bitmap *out);
+
 #ifdef __cplusplus
 }
 #endif
