@@ -47,3 +47,13 @@ resources: there is **no new public C11 Bitmap positive yet**. The tests now
 require complete original-owned IR in both orders and explicitly verify this
 compiled-page refusal. Pixel/edge/operation quotas and existing M1 cases
 are unchanged; the new mixed painter is a separate qualification gate.
+
+## First compiled-page increment (under test)
+
+The M2a route now selects `QP_NATIVE_PREPARED_M2A_TEXT_IMAGE` only after
+the common closure and physical-plan checks. One owned TTF geometry layer
+and one qualified RAW image layer join the **existing V5 source-over painter**
+and **one retained page ledger**. Text-only compilation and existing four-malloc
+raster routes are unchanged. The current Source/OOM test attempts both original
+orders at 72 DPI with ownership and ledger checks. This is a candidate, not
+independent full-image 72/96/144 qualification; keep Draft and M2 unchecked.

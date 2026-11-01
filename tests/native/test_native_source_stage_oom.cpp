@@ -1676,14 +1676,26 @@ static int m2a_ordered_text_image_source_contract(
         };
         quantapdf_native_prepared_page_v1 metadata{};
         CHECK(quantapdf_native_prepare_page_v1(&ir,&caps,&device,
-              QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&metadata)==QUANTAPDF_OK);
+              QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&metadata)==QUANTAPDF_OK &&
+              metadata.route==QP_NATIVE_PREPARED_M2A_TEXT_IMAGE);
         quantapdf_native_source_page_v1 owned{};
         CHECK(quantapdf_native_source_page_prepare_v1(&ir,&caps,&device,
-              QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&owned)==QUANTAPDF_ERROR_UNSUPPORTED);
+              QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&owned)==QUANTAPDF_OK &&
+              cleared(ir));
+        quantapdf_native_execution_receipt_v1 receipt{};
+        quantapdf_ir_raster_image rendered{};
+        CHECK(quantapdf_native_source_page_execute_v1(
+                  &owned,&receipt,&rendered)==QUANTAPDF_OK &&
+              rendered.width==128u && rendered.height==64u &&
+              rendered.size==128u*64u*4u &&
+              receipt.source_pixels==4u && receipt.drawn_pixels==192u &&
+              receipt.completed_leases>=1u &&
+              rgba_at(rendered,0u,0u)==UINT32_C(0xffffffff));
         quantapdf_native_source_page_dispose_v1(&owned);
-        quantapdf_ir_dispose(&ir);CHECK(cleared(ir));
+        quantapdf_ir_raster_image_dispose(&rendered);
+        CHECK(cleared(ir));
     }
-    std::puts("M2a: Text/Image + Image/Text full owned Source IR, C11 mixed route still refused");
+    std::puts("M2a: ordered Text/Image and Image/Text owned Source IR + one compiled C11 V5 page; whole-image oracle pending");
     return EXIT_SUCCESS;
 }
 
