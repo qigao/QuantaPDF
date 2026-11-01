@@ -378,6 +378,7 @@ struct projection {
     double outline_height=0.0;
     size_t outline_glyphs=0u,outline_commands=0u,outline_shows=0u;
     std::vector<quantapdf::detail::source_outline_paint> outline_paints;
+    quantapdf::detail::source_mixed_callbacks source_mixed={};
     // Direct dictionaries have no ObjGen identity. Cache the handle identity
     // instead; heap ownership keeps font pointers stable across vector growth.
     std::vector<std::pair<Obj,std::unique_ptr<font>>> fonts;
@@ -460,6 +461,10 @@ struct projection {
     void begin_outline_paint(graphics const& g,bool text=true)
     {
         supported(outline_paints.size()<4u && g.opacity==1.0 && g.color_supported);
+        if(text && source_mixed.on_text) {
+            const auto result=source_mixed.on_text(source_mixed.user);
+            need(result==QUANTAPDF_OK,result);
+        }
         if(text)++outline_shows;
         auto channel=[](double v) {supported(v>=0.0&&v<=1.0);return static_cast<uint32_t>(v*255.0+0.5);};
         outline_paints.push_back({{},UINT32_C(0xff000000)|(channel(g.fill[0])<<16u)|
@@ -644,7 +649,7 @@ public:
         auto op=object.getOperatorValue();
         if(p.outline_mode) {
             if(!pending_rectangle.empty())supported(op=="f" || op=="f*" || op=="n");
-            static const char *allowed[]={"q","Q","cm","BT","ET","Tf","Tc","Tw","Tz","TL","Ts","Tr","Tm","Td","TD","T*","Tj","TJ","'","\"","g","rg","re","f","f*","n"};
+            static const char *allowed[]={"q","Q","cm","BT","ET","Tf","Tc","Tw","Tz","TL","Ts","Tr","Tm","Td","TD","T*","Tj","TJ","'","\"","g","rg","re","f","f*","n","Do"};
             supported(std::any_of(std::begin(allowed),std::end(allowed),[&](const char *s){return op==s;}));
         }
         if(p.outline_mode && op=="re") {
@@ -675,6 +680,11 @@ public:
             for(int i=0;i<args[0].getArrayNItems();++i) { p.step(); Obj v=args[0].getArrayItem(i); if(v.isString()) show(v,false); else text=concat(text,matrix{1,0,0,1,-number(v)*g.size*g.scale/1000.0,0}); }
         } else if(op=="'" || op=="\"") {
             count(op=="'"?1u:3u); if(op=="\"") { g.word=number(args[0]); g.character=number(args[1]); } move(0,-g.leading); show(args.back());
+        } else if(op=="Do" && p.outline_mode) {
+            count(1);supported(!in_text && p.source_mixed.on_image!=nullptr);
+            const Obj image=resource("/XObject",args[0]);
+            const auto result=p.source_mixed.on_image(p.source_mixed.user,image,g.ctm);
+            need(result==QUANTAPDF_OK,result);
         } else if(op=="Do") { count(1); p.draw(resource("/XObject",args[0]),resources,g,depth); }
         else if(op=="gs") {
             count(1); Obj state=resource("/ExtGState",args[0]); need(state.isDictionary()); Obj f=state.getKey("/Font");
@@ -834,9 +844,11 @@ class source_outline_reader final : public source_text_outlines {
     {std::vector<graphics> result;for(auto const& g:saved)result.push_back(outline_graphics(g));return result;}
 public:
     source_outline_reader(Obj resources,double height,source_text_seed seed,
-                          const std::vector<source_text_seed>& saved,const std::vector<source_outline_paint>& prefix) :
+                          const std::vector<source_text_seed>& saved,
+                          const std::vector<source_outline_paint>& prefix,
+                          source_mixed_callbacks callbacks) :
         p(),tokens(p,resources,outline_graphics(seed),0u,saved_graphics(saved))
-    {p.outline_mode=true;p.outline_height=height;
+    {p.outline_mode=true;p.outline_height=height;p.source_mixed=callbacks;
         supported(prefix.size()<4u);p.outline_paints=prefix;
         for(const auto& paint:prefix) {supported(source_outline_is_rectangle(paint.rectangle));p.outline_commands+=paint.rectangle.size();}
     }
@@ -848,8 +860,9 @@ public:
 }
 std::unique_ptr<source_text_outlines> make_source_text_outlines(
     QPDFObjectHandle resources,double height,source_text_seed seed,
-    const std::vector<source_text_seed>& saved,const std::vector<source_outline_paint>& prefix)
-{return std::make_unique<source_outline_reader>(resources,height,seed,saved,prefix);}
+    const std::vector<source_text_seed>& saved,const std::vector<source_outline_paint>& prefix,
+    source_mixed_callbacks callbacks)
+{return std::make_unique<source_outline_reader>(resources,height,seed,saved,prefix,callbacks);}
 }
 
 extern "C" quantapdf_status quantapdf_qpdf_extract_text(quantapdf_qpdf_document *document,int page_index,char **out_utf8,size_t *out_size)
