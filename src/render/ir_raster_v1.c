@@ -1937,6 +1937,17 @@ quantapdf_status quantapdf_native_geometry_info_get_v1(
     return QUANTAPDF_OK;
 }
 
+quantapdf_status quantapdf_native_geometry_reserve_v1(quantapdf_native_geometry_v1 *owner)
+{
+    const qp_compiled_geometry *g;
+    if(owner==NULL || owner->data==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    g=(const qp_compiled_geometry *)owner->data;
+    if(owner->ledger!=NULL && (owner->ledger->failed ||
+       (owner->lease.owner==NULL && !quantapdf_native_work_reserve_v1(owner->ledger,
+          g->limits.max_sample_tests,0u,&owner->lease))))return QUANTAPDF_ERROR_UNSUPPORTED;
+    return QUANTAPDF_OK;
+}
+
 quantapdf_status quantapdf_native_geometry_execute_v1(
     quantapdf_native_geometry_v1 *owner,size_t *out_sample_tests,quantapdf_ir_raster_image *out)
 {
@@ -1946,11 +1957,8 @@ quantapdf_status quantapdf_native_geometry_execute_v1(
     memset(out,0,sizeof(*out));
     if(owner==NULL || owner->data==NULL)return QUANTAPDF_ERROR_ARGUMENT;
     g=(const qp_compiled_geometry *)owner->data;
-    if(owner->ledger!=NULL) {
-        if(owner->ledger->failed)return QUANTAPDF_ERROR_UNSUPPORTED;
-        if(owner->lease.owner==NULL && !quantapdf_native_work_reserve_v1(owner->ledger,
-              g->limits.max_sample_tests,0u,&owner->lease))return QUANTAPDF_ERROR_UNSUPPORTED;
-    }
+    status=quantapdf_native_geometry_reserve_v1(owner);
+    if(status!=QUANTAPDF_OK)return status;
     status=qp_geometry_sample(g,owner->ledger,&work,out);
     if(status!=QUANTAPDF_OK) {
         if(owner->lease.owner!=NULL)quantapdf_native_work_abort_v1(&owner->lease);

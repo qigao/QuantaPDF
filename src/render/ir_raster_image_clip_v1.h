@@ -48,6 +48,14 @@ quantapdf_status quantapdf_ir_raster_clipped_raw_image_v1_prepared(
     quantapdf_native_work_ledger_v1 *ledger,quantapdf_native_geometry_v1 *mask,
     quantapdf_ir_raster_image *out_image);
 
+quantapdf_status quantapdf_native_clipped_raw_execute_v1(
+    const quantapdf_composer_page_state *page,const quantapdf_composer_operation *operation,
+    const quantapdf_composer_image_state *image,
+    const quantapdf_ir_raster_image_v1_limits *image_limits,
+    const quantapdf_ir_raster_v1_limits *geometry_limits,
+    quantapdf_native_work_ledger_v1 *ledger,quantapdf_native_geometry_v1 *mask,
+    quantapdf_ir_raster_image *out);
+
 #ifdef __cplusplus
 }
 #endif

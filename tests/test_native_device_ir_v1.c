@@ -434,6 +434,60 @@ static int owned_geometry_contracts(const quantapdf_ir *source)
     return 0;
 }
 
+/* Full compiled page contains no projected PATH/Clip/GS/IR descriptor borrow. */
+static int compiled_page_contracts(const quantapdf_ir *fixture)
+{
+    for(unsigned mode=0u;mode<3u;++mode) {
+        quantapdf_ir ir=*fixture;
+        quantapdf_composer_page_state page=fixture->pages[0];
+        quantapdf_composer_operation op=fixture->operations[0];
+        quantapdf_composer_path_command commands[5];
+        quantapdf_composer_clip_state clip={0};quantapdf_composer_graphics_state gs={0};
+        quantapdf_composer_image_state image={0};unsigned char red[3]={255u,0u,0u};
+        quantapdf_ir_raster_scoped_mixed_v5_limits limits={512u,4u,512u,8000000u,1u,128u};
+        quantapdf_native_source_raster_device_v1 device={0};device.dpi=mode==2u?96.0f:72.0f;
+        quantapdf_native_prepared_page_v1 metadata;
+        quantapdf_native_compiled_page_v1 compiled,zero;
+        quantapdf_native_execution_receipt_v1 receipt;quantapdf_ir_raster_image out={0},denied={0};
+        memcpy(commands,op.value.path.commands,sizeof(commands));
+        ir.pages=&page;ir.operations=&op;op.value.path.commands=commands;
+        if(mode!=0u) {
+            memset(&op,0,sizeof(op));op.kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;
+            op.bounds.x1=op.bounds.y1=8.0f;op.graphics_state_id=1u;
+            op.value.image.image_id=1u;op.value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+            op.value.image.options.graphics_state_id=1u;
+            op.value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
+            image.data=red;image.size=3u;image.width=image.height=1u;image.components=3;
+            image.format=QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW;
+            clip.kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;clip.commands=commands;clip.command_count=5u;
+            clip.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;clip.transform.a=clip.transform.d=1.0f;
+            gs.clip_id=1u;gs.fill_alpha=gs.stroke_alpha=1.0f;gs.blend_mode=QUANTAPDF_COMPOSER_BLEND_NORMAL;
+            ir.resources.images=&image;ir.resources.image_count=ir.resources.image_capacity=1u;
+            ir.resources.clips=&clip;ir.resources.clip_count=ir.resources.clip_capacity=1u;
+            ir.resources.graphics_states=&gs;ir.resources.graphics_state_count=ir.resources.graphics_state_capacity=1u;
+        }
+        OK(quantapdf_native_prepare_page_v1(&ir,&limits,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&metadata));
+        OK(quantapdf_native_compiled_page_compile_v1(&metadata,&compiled));
+        CHECK(compiled.metadata.source==NULL && compiled.ledger.completed_leases==0u);
+        memset(&ir,0xa5,sizeof(ir));memset(&page,0xa5,sizeof(page));memset(&op,0xa5,sizeof(op));
+        memset(commands,0xa5,sizeof(commands));memset(&clip,0xa5,sizeof(clip));memset(&gs,0xa5,sizeof(gs));
+        memset(&image,0xa5,sizeof(image));memset(&device,0xa5,sizeof(device));
+        memset(&limits,0xa5,sizeof(limits));memset(&metadata,0xa5,sizeof(metadata));
+        OK(quantapdf_native_compiled_page_execute_v1(&compiled,&receipt,&out));
+        CHECK(at(&out,1u,1u)==(mode==0u?UINT32_C(0x0000ffff):UINT32_C(0xff0000ff)));
+        CHECK(receipt.completed_leases==1u && receipt.compiled_edges>0u &&
+              compiled.ledger.resources.live_bytes==receipt.retained_bytes+qp_compiled_retained_bytes(&compiled));
+        CHECK(quantapdf_native_compiled_page_execute_v1(&compiled,&receipt,&denied)==QUANTAPDF_ERROR_UNSUPPORTED);
+        CHECK(denied.pixels==NULL && receipt.output_bytes==0u && compiled.ledger.failed);
+        quantapdf_native_compiled_page_dispose_v1(&compiled);memset(&zero,0,sizeof(zero));
+        CHECK(memcmp(&compiled,&zero,sizeof(zero))==0);
+        CHECK(at(&out,1u,1u)==(mode==0u?UINT32_C(0x0000ffff):UINT32_C(0xff0000ff)));
+        quantapdf_ir_raster_image_dispose(&out);
+    }
+    puts("Compiled page: frozen PATH/RAW/Clip projection, cumulative refusal and independent output passed");
+    return 0;
+}
+
 int main(void) {
     quantapdf_composer_page_state page={0};
     quantapdf_composer_path_command commands[5]={{0}};
@@ -468,6 +522,7 @@ int main(void) {
     CHECK(work_ledger_contracts(&ir)==0);
     CHECK(resource_ledger_contracts(&ir)==0);
     CHECK(owned_geometry_contracts(&ir)==0);
+    CHECK(compiled_page_contracts(&ir)==0);
     /* True 4/3-device-space subpixel edge, not 72-DPI enlargement. */
     OK(quantapdf_native_device_ir_render_v1(&ir,96u,&lim,&out));
     CHECK(out.width==11u && out.height==11u && out.size==484u);

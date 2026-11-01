@@ -310,73 +310,181 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
     *out=p;return QUANTAPDF_OK;
 }
 
-/* The immutable plan can be executed repeatedly. Each execution owns one
- * mutable ledger; every child shares it and keeps its historical local cap.
- * No layer, Clip mask or glyph starts a fresh page-wide budget. */
-static inline quantapdf_status quantapdf_native_execute_page_v1(
-    const quantapdf_native_prepared_page_v1 *p,
+/* PRIVATE address-stable compiled page. One page lifetime owns one ledger;
+ * repeated execution never resets work, image-placement or memory accounting.
+ * The immutable metadata copy retains no IR pointer. RAW views are protected
+ * by the enclosing Source owner (or the old synchronous borrowed wrapper). */
+typedef struct quantapdf_native_compiled_page_v1 {
+    quantapdf_native_work_ledger_v1 ledger;
+    quantapdf_native_prepared_page_v1 metadata;
+    quantapdf_native_scoped_page_v5 scoped;
+    quantapdf_native_geometry_v1 exact;
+    int ready;
+} quantapdf_native_compiled_page_v1;
+
+typedef struct quantapdf_native_source_page_v1 {
+    quantapdf_native_compiled_page_v1 compiled;
+    quantapdf_ir ir;
+    int owns_ir;
+} quantapdf_native_source_page_v1;
+
+static inline void quantapdf_native_compiled_page_dispose_v1(
+    quantapdf_native_compiled_page_v1 *p)
+{
+    if(p==NULL)return;
+    quantapdf_native_geometry_dispose_v1(&p->exact);
+    quantapdf_native_scoped_dispose_v5(&p->scoped);
+    memset(p,0,sizeof(*p));
+}
+
+static inline quantapdf_status quantapdf_native_compiled_page_compile_v1(
+    const quantapdf_native_prepared_page_v1 *metadata,
+    quantapdf_native_compiled_page_v1 *out)
+{
+    quantapdf_status status;
+    if(out==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out,0,sizeof(*out));
+    if(metadata==NULL || metadata->source==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    out->metadata=*metadata;out->metadata.source=NULL;
+    quantapdf_native_work_init_v1(&out->ledger,metadata->limits.max_sample_tests,metadata->limits.max_edges);
+    if(!quantapdf_native_resources_init_v1(&out->ledger,&metadata->resource_limits,
+                                          metadata->usage.retained_bytes)) {
+        quantapdf_native_compiled_page_dispose_v1(out);return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    if(metadata->route==QP_NATIVE_PREPARED_TEXT)
+        status=quantapdf_native_geometry_prepare_text_v1(metadata->source,
+            &metadata->physical_limits,&metadata->physical,&out->ledger,&out->exact);
+    else if(metadata->route==QP_NATIVE_PREPARED_EXACT_CUBICS)
+        status=quantapdf_native_geometry_prepare_texample_v1(metadata->source,
+            &metadata->physical_limits,&metadata->physical,&out->ledger,&out->exact);
+    else
+        status=quantapdf_native_device_ir_prepare_v1(metadata->source,metadata->dpi,
+            &metadata->limits,metadata->route,&out->ledger,&out->scoped);
+    if(status!=QUANTAPDF_OK) {quantapdf_native_compiled_page_dispose_v1(out);return status;}
+    out->ready=1;return QUANTAPDF_OK;
+}
+
+static inline size_t qp_compiled_retained_bytes(const quantapdf_native_compiled_page_v1 *p)
+{
+    quantapdf_native_geometry_info_v1 info;
+    size_t bytes=0u;
+    if(p->exact.data!=NULL && quantapdf_native_geometry_info_get_v1(&p->exact,&info)==QUANTAPDF_OK)
+        bytes=info.retained_bytes;
+    for(size_t i=0u;i<4u;++i)
+        if(p->scoped.geometry[i].data!=NULL &&
+           quantapdf_native_geometry_info_get_v1(&p->scoped.geometry[i],&info)==QUANTAPDF_OK &&
+           !qp_prepared_charge(&bytes,info.retained_bytes,SIZE_MAX))return SIZE_MAX;
+    return bytes;
+}
+
+/* A successful publication transfers output bytes out of the private page
+ * ledger. The caller owns the detached image and uses ordinary image dispose;
+ * it survives both later executions and Source-page disposal. Receipt counters
+ * are cumulative for this compiled page; each old one-shot wrapper starts its
+ * own new page lifetime, preserving historical receipts and recovery. */
+static inline quantapdf_status quantapdf_native_compiled_page_execute_v1(
+    quantapdf_native_compiled_page_v1 *p,
     quantapdf_native_execution_receipt_v1 *receipt,quantapdf_ir_raster_image *out)
 {
     quantapdf_status status;
-    quantapdf_native_work_ledger_v1 ledger;
+    quantapdf_native_work_ledger_v1 *ledger;
+    size_t live;
     if(receipt!=NULL)memset(receipt,0,sizeof(*receipt));
     if(out==NULL)return QUANTAPDF_ERROR_ARGUMENT;
     memset(out,0,sizeof(*out));
-    if(p==NULL || p->source==NULL)return QUANTAPDF_ERROR_ARGUMENT;
-    quantapdf_native_work_init_v1(&ledger,p->limits.max_sample_tests,p->limits.max_edges);
-    if(!quantapdf_native_resources_init_v1(&ledger,&p->resource_limits,p->usage.retained_bytes))
-        return QUANTAPDF_ERROR_UNSUPPORTED;
-    switch(p->route) {
-    case QP_NATIVE_PREPARED_LEGACY:
-    case QP_NATIVE_PREPARED_DEVICE:
-    case QP_NATIVE_PREPARED_TWO_CLIP:
-    case QP_NATIVE_PREPARED_CLIPPED_PATHS:
-    case QP_NATIVE_PREPARED_CLIP_STATES:
-    case QP_NATIVE_PREPARED_PREFIX:
-    case QP_NATIVE_PREPARED_SIBLINGS:
-    case QP_NATIVE_PREPARED_THREE_GS:
-        status=quantapdf_native_device_ir_render_v1_accounted(
-            p->source,p->dpi,&p->limits,p->route,&ledger,out);
-        break;
-    case QP_NATIVE_PREPARED_TEXT:
-        status=quantapdf_ir_raster_render_v1_text_outlines_accounted(
-            p->source,&p->physical_limits,&p->physical,&ledger,out);
-        break;
-    case QP_NATIVE_PREPARED_EXACT_CUBICS:
-        status=quantapdf_ir_raster_render_v1_texample_accounted(
-            p->source,&p->physical_limits,&p->physical,&ledger,out);
-        break;
-    default:return QUANTAPDF_ERROR_UNSUPPORTED;
+    if(p==NULL || !p->ready)return QUANTAPDF_ERROR_ARGUMENT;
+    ledger=&p->ledger;
+    if(ledger->failed)return QUANTAPDF_ERROR_UNSUPPORTED;
+    status=p->exact.data!=NULL?quantapdf_native_geometry_execute_v1(&p->exact,NULL,out):
+        quantapdf_native_scoped_execute_v5(&p->scoped,out);
+    live=p->metadata.usage.retained_bytes;
+    if(!qp_prepared_charge(&live,qp_compiled_retained_bytes(p),ledger->resources.limit.max_live_bytes) ||
+       (status==QUANTAPDF_OK &&
+        (ledger->failed || ledger->reserved.sample_work!=0u || ledger->reserved.edges!=0u ||
+         out->pixels==NULL || out->size==0u ||
+         ledger->resources.source_pixels!=p->metadata.usage.image_pixels ||
+         !qp_prepared_charge(&live,out->size,ledger->resources.limit.max_live_bytes))) ||
+       ledger->resources.live_bytes!=live)status=QUANTAPDF_ERROR_UNSUPPORTED;
+    if(status!=QUANTAPDF_OK) {
+        ledger->failed=1;quantapdf_native_raster_image_dispose_v1(ledger,out);return status;
     }
-    if(status==QUANTAPDF_OK && (ledger.failed ||
-       ledger.reserved.sample_work!=0u || ledger.reserved.edges!=0u)) {
-        quantapdf_native_raster_image_dispose_v1(&ledger,out);return QUANTAPDF_ERROR_UNSUPPORTED;
-    }
-    {
-        size_t live=p->usage.retained_bytes;
-        if((status==QUANTAPDF_OK &&
-            (out->pixels==NULL || out->size==0u ||
-             ledger.resources.source_pixels!=p->usage.image_pixels ||
-             !qp_prepared_charge(&live,out->size,ledger.resources.limit.max_live_bytes))) ||
-           ledger.resources.live_bytes!=live) {
-            quantapdf_native_raster_image_dispose_v1(&ledger,out);
-            return QUANTAPDF_ERROR_UNSUPPORTED;
-        }
-    }
-    if(status==QUANTAPDF_OK && receipt!=NULL) {
-        receipt->sample_tests=ledger.samples_exact?ledger.used.sample_work:0u;
-        receipt->sample_tests_exact=ledger.samples_exact;
-        receipt->charged_sample_work=ledger.used.sample_work;
-        receipt->compiled_edges=ledger.used.edges;
-        receipt->peak_reserved_sample_work=ledger.peak_reserved.sample_work;
-        receipt->peak_reserved_edges=ledger.peak_reserved.edges;
-        receipt->completed_leases=ledger.completed_leases;
-        receipt->source_pixels=ledger.resources.source_pixels;
-        receipt->drawn_pixels=ledger.resources.drawn_pixels;
-        receipt->retained_bytes=ledger.resources.borrowed_bytes;
+    if(receipt!=NULL) {
+        receipt->sample_tests=ledger->samples_exact?ledger->used.sample_work:0u;
+        receipt->sample_tests_exact=ledger->samples_exact;
+        receipt->charged_sample_work=ledger->used.sample_work;
+        receipt->compiled_edges=ledger->used.edges;
+        receipt->peak_reserved_sample_work=ledger->peak_reserved.sample_work;
+        receipt->peak_reserved_edges=ledger->peak_reserved.edges;
+        receipt->completed_leases=ledger->completed_leases;
+        receipt->source_pixels=ledger->resources.source_pixels;
+        receipt->drawn_pixels=ledger->resources.drawn_pixels;
+        receipt->retained_bytes=ledger->resources.borrowed_bytes;
         receipt->output_bytes=out->size;
-        receipt->peak_live_bytes=ledger.resources.peak_live_bytes;
+        receipt->peak_live_bytes=ledger->resources.peak_live_bytes;
     }
+    if(!quantapdf_native_memory_give_v1(ledger,out->size)) {
+        if(receipt!=NULL)memset(receipt,0,sizeof(*receipt));
+        /* This unreachable accounting failure still releases actual pixels. */
+        quantapdf_ir_raster_image_dispose(out);return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    return QUANTAPDF_OK;
+}
+
+/* Unique zero-initialized handle: never copy or move it while live. Commit
+ * adopts Source payloads only AFTER full preparation, then clears the input.
+ * Every failed preparation leaves the caller's IR untouched and output empty. */
+static inline quantapdf_status quantapdf_native_source_page_prepare_v1(
+    quantapdf_ir *source,const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    const quantapdf_native_source_raster_device_v1 *device,
+    quantapdf_private_native_source_profile profile,quantapdf_native_source_page_v1 *out)
+{
+    quantapdf_native_prepared_page_v1 metadata;
+    quantapdf_status status;
+    if(out==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out,0,sizeof(*out));
+    status=quantapdf_native_prepare_page_v1(source,limits,device,profile,&metadata);
+    if(status!=QUANTAPDF_OK)return status;
+    status=quantapdf_native_compiled_page_compile_v1(&metadata,&out->compiled);
+    if(status!=QUANTAPDF_OK) {memset(out,0,sizeof(*out));return status;}
+    out->ir=*source;memset(source,0,sizeof(*source));out->owns_ir=1;
+    return QUANTAPDF_OK;
+}
+
+static inline quantapdf_status quantapdf_native_source_page_execute_v1(
+    quantapdf_native_source_page_v1 *page,
+    quantapdf_native_execution_receipt_v1 *receipt,quantapdf_ir_raster_image *out)
+{
+    if(page==NULL || !page->owns_ir) {
+        if(receipt!=NULL)memset(receipt,0,sizeof(*receipt));
+        if(out!=NULL)memset(out,0,sizeof(*out));
+        return QUANTAPDF_ERROR_ARGUMENT;
+    }
+    return quantapdf_native_compiled_page_execute_v1(&page->compiled,receipt,out);
+}
+
+static inline void quantapdf_native_source_page_dispose_v1(quantapdf_native_source_page_v1 *page)
+{
+    if(page==NULL)return;
+    quantapdf_native_compiled_page_dispose_v1(&page->compiled);
+    if(page->owns_ir)quantapdf_ir_dispose(&page->ir);
+    memset(page,0,sizeof(*page));
+}
+
+/* Historical synchronous metadata borrow: same common compiled-page path,
+ * disposed after one execution. No route revalidation or geometry compilation
+ * occurs inside the compiled executor. */
+static inline quantapdf_status quantapdf_native_execute_page_v1(
+    const quantapdf_native_prepared_page_v1 *metadata,
+    quantapdf_native_execution_receipt_v1 *receipt,quantapdf_ir_raster_image *out)
+{
+    quantapdf_native_compiled_page_v1 compiled;
+    quantapdf_status status;
+    if(receipt!=NULL)memset(receipt,0,sizeof(*receipt));
+    if(out==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out,0,sizeof(*out));
+    status=quantapdf_native_compiled_page_compile_v1(metadata,&compiled);
+    if(status==QUANTAPDF_OK)status=quantapdf_native_compiled_page_execute_v1(&compiled,receipt,out);
+    quantapdf_native_compiled_page_dispose_v1(&compiled);
     return status;
 }
 #endif

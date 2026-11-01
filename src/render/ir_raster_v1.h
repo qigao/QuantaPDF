@@ -63,6 +63,8 @@ quantapdf_status quantapdf_native_geometry_prepare_v1(
     const quantapdf_composer_clip_state *const *clips,size_t clip_count,
     quantapdf_native_work_mode_v1 mode,quantapdf_native_work_ledger_v1 *ledger,
     quantapdf_native_geometry_v1 *out);
+/* Reserve the existing fixed sample share before any sibling paints. */
+quantapdf_status quantapdf_native_geometry_reserve_v1(quantapdf_native_geometry_v1 *geometry);
 quantapdf_status quantapdf_native_geometry_execute_v1(
     quantapdf_native_geometry_v1 *geometry,size_t *out_sample_tests,
     quantapdf_ir_raster_image *out);

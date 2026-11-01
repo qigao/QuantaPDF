@@ -21,6 +21,14 @@ typedef enum quantapdf_native_prepared_route_v1 {
     QP_NATIVE_PREPARED_EXACT_CUBICS
 } quantapdf_native_prepared_route_v1;
 
+/* Compile the same stack projection into retained geometry/value records.
+ * No projected descriptor/command pointer escapes this synchronous call. */
+quantapdf_status quantapdf_native_device_ir_prepare_v1(
+    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    quantapdf_native_prepared_route_v1 route,quantapdf_native_work_ledger_v1 *ledger,
+    quantapdf_native_scoped_page_v5 *out);
+
 /* Page-owned ledger; same route-specific validators and stack projection. */
 quantapdf_status quantapdf_native_device_ir_render_v1_accounted(
     const quantapdf_ir *source,unsigned dpi,
