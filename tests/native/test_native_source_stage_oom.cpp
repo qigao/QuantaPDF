@@ -1636,20 +1636,54 @@ static std::vector<unsigned char> text_ir_snapshot(const quantapdf_ir& ir)
  * They must not turn into a successful partial Text-only/Image-only page.
  * Replace this refusal baseline with independent 72/96/144-DPI whole-image
  * positives ONLY when the new shared mixed compiled route is qualified. */
-static int m2a_ordered_text_image_refusal_baseline(
+/* #578 M2a Stage S: actual original PDFs contain a CID TTF show and
+ * decoded Image in both orders. One complete C-owned Source graph must
+ * preserve both paints; the separate compiled C11 mixed route is not yet
+ * admitted. This gate cannot be mistaken for public render capability. */
+static int m2a_ordered_text_image_source_contract(
     const quantapdf_qpdf_source_raw_image_limits& limits)
 {
     target=0u;armed=false;track_c_allocation=false;c_fail_index=0u;
     for(int mode:{49,50}) {
         const std::string original=native_ttf_fixture(mode);
-        quantapdf_ir ir;
-        std::memset(&ir,0xa5,sizeof(ir));
-        const auto status=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
-            reinterpret_cast<const unsigned char*>(original.data()),
-            original.size(),&limits,0u,&ir);
-        CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED && cleared(ir));
+        const auto read=[&](quantapdf_ir& ir) {
+            return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+                reinterpret_cast<const unsigned char*>(original.data()),
+                original.size(),&limits,0u,&ir);
+        };
+        quantapdf_ir ir{};
+        CHECK(read(ir)==QUANTAPDF_OK &&
+              ir.page_count==1u && ir.operation_count==2u &&
+              ir.resources.image_count==1u && ir.resources.images!=nullptr &&
+              ir.resources.images[0].size==12u && ir.pages!=nullptr &&
+              ir.pages[0].width_points==128.0f &&
+              ir.pages[0].height_points==64.0f);
+        const auto& img=ir.operations[mode==49?1u:0u];
+        const auto& txt=ir.operations[mode==49?0u:1u];
+        CHECK(img.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE &&
+              img.value.image.image_id==1u &&
+              txt.kind==QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES &&
+              txt.value.text_outlines.glyph_count==5u &&
+              txt.value.text_outlines.glyphs!=nullptr);
+        for(size_t g=0u;g<txt.value.text_outlines.glyph_count;++g)
+            CHECK(txt.value.text_outlines.glyphs[g].commands!=nullptr &&
+                  txt.value.text_outlines.glyphs[g].command_count>0u);
+        quantapdf_native_source_raster_device_v1 device{};
+        device.dpi=72.0f;
+        const quantapdf_ir_raster_scoped_mixed_v5_limits caps{
+            1000000u,4u,512u,8000000u,
+            limits.max_source_pixels,limits.max_drawn_pixels
+        };
+        quantapdf_native_prepared_page_v1 metadata{};
+        CHECK(quantapdf_native_prepare_page_v1(&ir,&caps,&device,
+              QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&metadata)==QUANTAPDF_OK);
+        quantapdf_native_source_page_v1 owned{};
+        CHECK(quantapdf_native_source_page_prepare_v1(&ir,&caps,&device,
+              QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&owned)==QUANTAPDF_ERROR_UNSUPPORTED);
+        quantapdf_native_source_page_dispose_v1(&owned);
+        quantapdf_ir_dispose(&ir);CHECK(cleared(ir));
     }
-    std::puts("M2a pre-admission: complete Text/Image and Image/Text original PDFs refuse atomically");
+    std::puts("M2a: Text/Image + Image/Text full owned Source IR, C11 mixed route still refused");
     return EXIT_SUCCESS;
 }
 
@@ -2229,7 +2263,7 @@ int main(int argc,char **argv)
     CHECK(owned_page_contracts()==EXIT_SUCCESS);
     CHECK(composer_preparation_contracts()==EXIT_SUCCESS);
     CHECK(legacy_prepared_contracts(limits)==EXIT_SUCCESS);
-    CHECK(m2a_ordered_text_image_refusal_baseline(limits)==EXIT_SUCCESS);
+    CHECK(m2a_ordered_text_image_source_contract(limits)==EXIT_SUCCESS);
     CHECK(native_ttf_source_and_raster_contracts(limits)==EXIT_SUCCESS);
     CHECK(native_ttf_source_and_raster_contracts(limits,32)==EXIT_SUCCESS);
     /* Stages: 1 RAW Image, 2 IMAGE order, 3 PATH ownership,

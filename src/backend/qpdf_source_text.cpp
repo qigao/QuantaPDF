@@ -682,6 +682,9 @@ public:
             count(op=="'"?1u:3u); if(op=="\"") { g.word=number(args[0]); g.character=number(args[1]); } move(0,-g.leading); show(args.back());
         } else if(op=="Do" && p.outline_mode) {
             count(1);supported(!in_text && p.source_mixed.on_image!=nullptr);
+            supported(args[0].isName() && resources.isDictionary() &&
+                      resources.getKey("/XObject").isDictionary() &&
+                      !resources.getKey("/XObject").getKey(args[0].getName()).isNull());
             const Obj image=resource("/XObject",args[0]);
             const auto result=p.source_mixed.on_image(p.source_mixed.user,image,g.ctm);
             need(result==QUANTAPDF_OK,result);

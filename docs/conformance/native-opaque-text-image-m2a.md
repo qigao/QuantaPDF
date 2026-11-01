@@ -35,3 +35,15 @@ M2a must make **both** orders positive together. A one-way specialization is not
 - [ ] Exact HEAD, tree, existing Native CI all Linux Release/ASan-UBSan/Windows/macOS and installed consumer checks before merge; independent production master-push CI after merge.
 
 The checked-in pre-admission test documents the **real current refusal** only; it is not an implementation or passing M2 capability. The parent M2 checkbox remains unchecked until M2b is separately accepted.
+
+## Stage S — ordered original Source IR
+
+This intermediate implementation sends the existing TTF outline interpreter
+the same Source parser callbacks and reports one completed Text show plus one
+qualified Image Do into the existing Source staging, in either source order.
+Each materialized result uniquely owns every glyph outline and decoded Image
+payload. The production prepared-page text route still refuses mixed Image
+resources: there is **no new public C11 Bitmap positive yet**. The tests now
+require complete original-owned IR in both orders and explicitly verify this
+compiled-page refusal. Pixel/edge/operation quotas and existing M1 cases
+are unchanged; the new mixed painter is a separate qualification gate.
