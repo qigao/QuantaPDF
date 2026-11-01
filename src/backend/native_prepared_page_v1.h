@@ -298,7 +298,8 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
          * RGBA surfaces (three earlier layers plus raw/mask/composite).
          * Exact Text/cubic masks fit inside that surface envelope. Geometry
          * uses the real kernel type sizes, including optional edge boxes. */
-        if(!quantapdf_native_geometry_allocation_bound_v1(limits->max_edges,draws,&geometry) ||
+        if(!quantapdf_native_owned_geometry_bound_v1(limits->max_edges,draws,p.usage.commands,
+                source->operation_count==0u?1u:source->operation_count,&geometry) ||
            !qp_prepared_bytes(&bytes,limits->max_pixels,24u) ||
            !qp_prepared_charge(&bytes,geometry,SIZE_MAX))
             return QUANTAPDF_ERROR_UNSUPPORTED;

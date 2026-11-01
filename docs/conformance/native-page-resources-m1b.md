@@ -77,8 +77,10 @@ are recorded in the associated PR and #570.
 
 ## Remaining M1 work
 
-**M1 stays open.** Per-primitive geometry is still compiled inside the existing
-kernels; the outer prepared plan does not yet own compiled geometry. That is
-M1b.2b. M2 opaque Text/Image/Fill/Clip composition remains subsequent work.
+[M1b.2b owned geometry](native-owned-geometry-m1b.md) adds a separate compiler,
+sampler and unique geometry owner, including page-wide V5 geometry preflight.
+**M1 stays open:** the outer Source metadata plan still borrows its complete IR
+synchronously, and does not retain a compiled page between executions. Common
+outer page/IR ownership and M2 opaque Text/Image/Fill/Clip remain subsequent work.
 Original TeXample physical 72/96/144-DPI and yWorks 72-DPI evidence, original
 PDFs/reference images and corpus-positive counts remain unchanged.

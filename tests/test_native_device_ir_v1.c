@@ -192,6 +192,7 @@ static int work_ledger_contracts(const quantapdf_ir *source)
     CHECK(out.size==reference.size && memcmp(out.pixels,reference.pixels,out.size)==0 &&
           at(&out,1u,1u)==UINT32_C(0xff0000ff) && ledger.used.sample_work==2u*cost &&
           ledger.used.edges==8u && ledger.completed_leases==2u && !ledger.samples_exact &&
+          ledger.peak_reserved.sample_work==2u*cost && ledger.peak_reserved.edges==8u &&
           ledger.reserved.sample_work==0u && ledger.reserved.edges==0u);
     quantapdf_ir_raster_image_dispose(&out);quantapdf_ir_raster_image_dispose(&reference);
     for(unsigned dimension=0u;dimension<2u;++dimension) {
@@ -199,7 +200,7 @@ static int work_ledger_contracts(const quantapdf_ir *source)
         CHECK(quantapdf_ir_raster_scoped_mixed_v5_accounted(&page,0u,&limits,8.0,8.0,
             QP_SCOPED_LEGACY,&ledger,&out)==QUANTAPDF_ERROR_UNSUPPORTED);
         CHECK(out.pixels==NULL && out.size==0u && ledger.failed &&
-              ledger.completed_leases==1u && ledger.used.sample_work==cost &&
+              ledger.completed_leases==0u && ledger.used.sample_work==cost &&
               ledger.used.edges==4u && ledger.reserved.sample_work==0u);
     }
     memcpy(bad,ops[1].value.path.commands,sizeof(bad));
@@ -337,6 +338,102 @@ static int resource_ledger_contracts(const quantapdf_ir *source)
     return 0;
 }
 
+static int owned_geometry_contracts(const quantapdf_ir *source)
+{
+    quantapdf_ir ir=*source;
+    quantapdf_composer_page_state page=source->pages[0];
+    quantapdf_composer_operation op=source->operations[0];
+    quantapdf_composer_path_command path[5],clip_path[5];
+    quantapdf_composer_clip_state clip={0};
+    const quantapdf_composer_clip_state *clips[1]={&clip};
+    quantapdf_native_device_plan plan;
+    quantapdf_native_geometry_v1 owner={0};
+    quantapdf_native_geometry_info_v1 info,after;
+    quantapdf_native_work_ledger_v1 ledger;
+    quantapdf_native_resource_limits_v1 resources={0u,0u,100000u};
+    quantapdf_ir_raster_v1_limits limits={64u,1u,8u,8192u};
+    quantapdf_ir_raster_image a={0},b={0},refused;
+    size_t work=0u;
+    memcpy(path,op.value.path.commands,sizeof(path));memcpy(clip_path,path,sizeof(path));
+    for(size_t i=0u;i<4u;++i) {clip_path[i].point1.x+=2.0f;clip_path[i].point1.y+=2.0f;}
+    op.value.path.commands=path;ir.pages=&page;ir.operations=&op;
+    clip.kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;clip.commands=clip_path;clip.command_count=5u;
+    clip.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;clip.transform.a=clip.transform.d=1.0f;
+    OK(quantapdf_native_device_plan_create("0 0 8 8","0 0 8 8","1",0,72u,64u,&plan));
+    quantapdf_native_work_init_v1(&ledger,16384u,8u);
+    CHECK(quantapdf_native_resources_init_v1(&ledger,&resources,0u));
+    OK(quantapdf_native_geometry_prepare_v1(&ir,0u,&limits,&plan,clips,1u,
+        QP_NATIVE_WORK_FULL,&ledger,&owner));
+    OK(quantapdf_native_geometry_info_get_v1(&owner,&info));
+    CHECK(info.width==8u && info.height==8u && info.draws==1u && info.clips==1u &&
+          info.edges==8u && info.commands==0u && info.retained_bytes==ledger.resources.live_bytes &&
+          ledger.reserved.sample_work==8192u && ledger.reserved.edges==8u && ledger.used.edges==0u);
+    /* Destroy every borrowed descriptor, command array, budget and plan.
+     * The two later samplings must use only the owned compiled payload. */
+    memset(path,0xa5,sizeof(path));memset(clip_path,0xa5,sizeof(clip_path));
+    memset(&op,0xa5,sizeof(op));memset(&page,0xa5,sizeof(page));memset(&clip,0xa5,sizeof(clip));
+    memset(&ir,0xa5,sizeof(ir));memset(&plan,0xa5,sizeof(plan));memset(&limits,0xa5,sizeof(limits));
+    OK(quantapdf_native_geometry_execute_v1(&owner,&work,&a));
+    CHECK(work==8192u && at(&a,3u,3u)==UINT32_C(0x0000ffff) &&
+          at(&a,1u,1u)==UINT32_C(0xffffffff) && ledger.used.edges==8u);
+    OK(quantapdf_native_geometry_execute_v1(&owner,&work,&b));
+    CHECK(work==8192u && a.pixels!=b.pixels && a.size==b.size &&
+          memcmp(a.pixels,b.pixels,a.size)==0 && ledger.used.sample_work==16384u &&
+          ledger.used.edges==8u && ledger.completed_leases==2u);
+    OK(quantapdf_native_geometry_info_get_v1(&owner,&after));
+    CHECK(memcmp(&info,&after,sizeof(info))==0);
+    memset(&refused,0xa5,sizeof(refused));work=999u;
+    CHECK(quantapdf_native_geometry_execute_v1(&owner,&work,&refused)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(refused.pixels==NULL && refused.size==0u && work==0u && ledger.used.edges==8u);
+    quantapdf_native_geometry_dispose_v1(&owner);
+    CHECK(owner.data==NULL && ledger.resources.live_bytes==a.size+b.size);
+    a.pixels[0]=17u;CHECK(b.pixels[0]!=17u);
+    quantapdf_native_raster_image_dispose_v1(&ledger,&a);
+    quantapdf_native_raster_image_dispose_v1(&ledger,&b);
+    CHECK(ledger.resources.live_bytes==0u && ledger.reserved.sample_work==0u);
+    quantapdf_native_geometry_dispose_v1(&owner);
+
+    limits=(quantapdf_ir_raster_v1_limits){64u,1u,4u,4096u};
+    quantapdf_native_work_init_v1(&ledger,4096u,4u);
+    CHECK(quantapdf_native_resources_init_v1(&ledger,&resources,0u));
+    OK(quantapdf_native_geometry_prepare_v1(source,0u,&limits,NULL,NULL,0u,
+        QP_NATIVE_WORK_FULL,&ledger,&owner));
+    quantapdf_native_geometry_dispose_v1(&owner);
+    CHECK(ledger.failed && ledger.resources.live_bytes==0u && ledger.reserved.sample_work==0u);
+    quantapdf_native_work_init_v1(&ledger,4096u,4u);resources.max_live_bytes=1u;
+    CHECK(quantapdf_native_resources_init_v1(&ledger,&resources,0u));
+    memset(&owner,0xa5,sizeof(owner));
+    CHECK(quantapdf_native_geometry_prepare_v1(source,0u,&limits,NULL,NULL,0u,
+        QP_NATIVE_WORK_FULL,&ledger,&owner)==QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(owner.data==NULL && owner.ledger==NULL && owner.lease.owner==NULL &&
+          ledger.failed && ledger.resources.live_bytes==0u && ledger.reserved.sample_work==0u);
+
+    /* Source-shaped exact Text also snapshots canonical operands and the
+     * physical plan: the 4/3-pixel boundary stays 1/4 covered, not FIT. */
+    ir=*source;page=source->pages[0];op=(quantapdf_composer_operation){0};
+    quantapdf_outline_glyph glyph={0};memcpy(path,source->operations[0].value.path.commands,sizeof(path));
+    glyph.commands=path;glyph.command_count=5u;
+    op.kind=QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES;
+    op.value.text_outlines.glyphs=&glyph;op.value.text_outlines.glyph_count=1u;
+    op.value.text_outlines.argb=UINT32_C(0xff0000ff);ir.operations=&op;ir.pages=&page;
+    limits=(quantapdf_ir_raster_v1_limits){121u,1u,512u,8000000u};
+    OK(quantapdf_native_device_plan_create_physical("0 0 8 8","0 0 8 8","1",0,96u,121u,&plan));
+    quantapdf_native_work_init_v1(&ledger,8000000u,512u);resources.max_live_bytes=100000u;
+    CHECK(quantapdf_native_resources_init_v1(&ledger,&resources,0u));
+    OK(quantapdf_native_geometry_prepare_text_v1(&ir,&limits,&plan,&ledger,&owner));
+    OK(quantapdf_native_geometry_info_get_v1(&owner,&info));CHECK(info.commands==5u);
+    memset(path,0xa5,sizeof(path));memset(&glyph,0xa5,sizeof(glyph));memset(&op,0xa5,sizeof(op));
+    memset(&ir,0xa5,sizeof(ir));memset(&page,0xa5,sizeof(page));memset(&plan,0xa5,sizeof(plan));
+    OK(quantapdf_native_geometry_execute_v1(&owner,&work,&a));
+    CHECK(a.width==11u && a.height==11u && at(&a,2u,2u)==UINT32_C(0x0000ffff) &&
+          at(&a,5u,2u)==UINT32_C(0xbfbfffff) && at(&a,6u,2u)==UINT32_C(0xffffffff) &&
+          work>0u && ledger.samples_exact && ledger.used.edges==info.edges);
+    quantapdf_native_geometry_dispose_v1(&owner);
+    quantapdf_native_raster_image_dispose_v1(&ledger,&a);CHECK(ledger.resources.live_bytes==0u);
+    puts("Owned geometry: detached PATH/Clip/Text operands, replay quotas and release passed");
+    return 0;
+}
+
 int main(void) {
     quantapdf_composer_page_state page={0};
     quantapdf_composer_path_command commands[5]={{0}};
@@ -370,6 +467,7 @@ int main(void) {
     CHECK(prepared_contracts(&ir,&lim)==0);
     CHECK(work_ledger_contracts(&ir)==0);
     CHECK(resource_ledger_contracts(&ir)==0);
+    CHECK(owned_geometry_contracts(&ir)==0);
     /* True 4/3-device-space subpixel edge, not 72-DPI enlargement. */
     OK(quantapdf_native_device_ir_render_v1(&ir,96u,&lim,&out));
     CHECK(out.width==11u && out.height==11u && out.size==484u);

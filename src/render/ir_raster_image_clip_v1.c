@@ -38,7 +38,8 @@ static quantapdf_status qp_clipped_raw_image(
     const quantapdf_ir *ir, size_t page_index,
     const quantapdf_ir_raster_image_v1_limits *image_limits,
     const quantapdf_ir_raster_v1_limits *clip_limits,
-    quantapdf_ir_raster_image *out_image,quantapdf_native_work_ledger_v1 *ledger)
+    quantapdf_ir_raster_image *out_image,quantapdf_native_work_ledger_v1 *ledger,
+    quantapdf_native_geometry_v1 *prepared_mask)
 {
     const quantapdf_composer_operation *image_op;
     const quantapdf_composer_graphics_state *gs;
@@ -140,7 +141,9 @@ static quantapdf_status qp_clipped_raw_image(
     masked_path.value.path.options.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
     projected.operations=&masked_path;
     memset(&projected.resources,0,sizeof(projected.resources));
-    if(ledger!=NULL) {
+    if(prepared_mask!=NULL) {
+        status=quantapdf_native_geometry_execute_v1(prepared_mask,NULL,&mask);
+    } else if(ledger!=NULL) {
         const quantapdf_composer_clip_state *one[1]={clip};
         status=quantapdf_ir_raster_render_v1_accounted(
             &projected,0u,clip_limits,one,1u,QP_NATIVE_WORK_FULL,ledger,&mask);
@@ -197,7 +200,7 @@ quantapdf_status quantapdf_ir_raster_clipped_raw_image_v1(
     const quantapdf_ir_raster_v1_limits *clip_limits,
     quantapdf_ir_raster_image *out)
 {
-    return qp_clipped_raw_image(ir,page_index,image_limits,clip_limits,out,NULL);
+    return qp_clipped_raw_image(ir,page_index,image_limits,clip_limits,out,NULL,NULL);
 }
 
 quantapdf_status quantapdf_ir_raster_clipped_raw_image_v1_accounted(
@@ -210,5 +213,49 @@ quantapdf_status quantapdf_ir_raster_clipped_raw_image_v1_accounted(
         if(out!=NULL)memset(out,0,sizeof(*out));
         return QUANTAPDF_ERROR_ARGUMENT;
     }
-    return qp_clipped_raw_image(ir,page_index,image_limits,clip_limits,out,ledger);
+    return qp_clipped_raw_image(ir,page_index,image_limits,clip_limits,out,ledger,NULL);
+}
+
+quantapdf_status quantapdf_native_image_mask_prepare_v1(
+    const quantapdf_composer_page_state *page,const quantapdf_rect *bounds,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_composer_clip_state *const *clips,size_t clip_count,
+    quantapdf_native_work_ledger_v1 *ledger,quantapdf_native_geometry_v1 *out)
+{
+    quantapdf_ir ir={0};quantapdf_composer_page_state transparent;
+    quantapdf_composer_operation paint={0};quantapdf_composer_path_command rectangle[5]={{0}};
+    if(out==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out,0,sizeof(*out));
+    if(page==NULL || bounds==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    if(!isfinite(bounds->x0) || !isfinite(bounds->x1) ||
+       !isfinite(bounds->y0) || !isfinite(bounds->y1) ||
+       bounds->x1<=bounds->x0 || bounds->y1<=bounds->y0)return QUANTAPDF_ERROR_UNSUPPORTED;
+    transparent=*page;transparent.suppress_background=1;transparent.background_argb=0u;
+    ir.pages=&transparent;ir.page_count=1u;ir.operations=&paint;ir.operation_count=1u;
+    paint.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
+    paint.value.path.commands=rectangle;paint.value.path.command_count=5u;
+    paint.value.path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+    paint.value.path.options.fill=1;paint.value.path.options.fill_argb=UINT32_C(0xffffffff);
+    paint.value.path.options.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
+    qp_point(&rectangle[0],QUANTAPDF_COMPOSER_PATH_MOVE_TO,bounds->x0,bounds->y0);
+    qp_point(&rectangle[1],QUANTAPDF_COMPOSER_PATH_LINE_TO,bounds->x1,bounds->y0);
+    qp_point(&rectangle[2],QUANTAPDF_COMPOSER_PATH_LINE_TO,bounds->x1,bounds->y1);
+    qp_point(&rectangle[3],QUANTAPDF_COMPOSER_PATH_LINE_TO,bounds->x0,bounds->y1);
+    qp_point(&rectangle[4],QUANTAPDF_COMPOSER_PATH_CLOSE,0.0f,0.0f);
+    return quantapdf_native_geometry_prepare_v1(&ir,0u,limits,NULL,clips,clip_count,
+                                                QP_NATIVE_WORK_FULL,ledger,out);
+}
+
+quantapdf_status quantapdf_ir_raster_clipped_raw_image_v1_prepared(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_image_v1_limits *image_limits,
+    const quantapdf_ir_raster_v1_limits *clip_limits,
+    quantapdf_native_work_ledger_v1 *ledger,quantapdf_native_geometry_v1 *mask,
+    quantapdf_ir_raster_image *out)
+{
+    if(mask==NULL || ledger==NULL) {
+        if(out!=NULL)memset(out,0,sizeof(*out));
+        return QUANTAPDF_ERROR_ARGUMENT;
+    }
+    return qp_clipped_raw_image(ir,page_index,image_limits,clip_limits,out,ledger,mask);
 }
