@@ -1796,7 +1796,13 @@ static int m2a_ordered_text_image_source_contract(
             /* Unreachable/hidden resource storage is never hidden by
              * selecting only the one Image or first Text show. */
             ++ir.resources.font_count;
-            CHECK(retry(caps,0u,QUANTAPDF_ERROR_UNSUPPORTED));
+            const quantapdf_ir malformed=ir;
+            quantapdf_native_prepared_page_v1 rejected{};
+            CHECK(quantapdf_native_prepare_page_v1(
+                  &ir,&caps,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,
+                  &rejected)==QUANTAPDF_ERROR_UNSUPPORTED &&
+                  std::memcmp(&ir,&malformed,sizeof(ir))==0 &&
+                  rejected.source==nullptr);
             --ir.resources.font_count;
             CHECK(std::memcmp(&ir,&saved,sizeof(ir))==0);
         }
