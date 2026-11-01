@@ -1781,7 +1781,8 @@ static int m2a_ordered_text_image_source_contract(
              * actual C-malloc failures, without another renderer or a
              * CPU-expensive full external font parse per retry. */
             CHECK(source_allocations>=5u && source_allocations<=32u);
-            for(size_t fail:{1u,source_allocations/2u,source_allocations}) {
+            const size_t faults_to_test[]={1u,source_allocations/2u,source_allocations};
+            for(size_t fail:faults_to_test) {
                 quantapdf_ir denied{};
                 track_c_allocation=true;c_fail_index=fail;
                 c_allocations=0u;c_faults=0u;
