@@ -168,10 +168,10 @@ inline std::string native_ttf_fixture(int mode=0)
         if(mode==47)text=blue; // no text: retain the old integer PATH-only gate
         if(mode==48)text="q 0 0 1 rg 25.1250000000000001 18.25 12.5 9.5 re f Q "+hello; // interrupted rect
     }
-    /* #578 M2a original Source order fixtures. Both are expected to
-     * refuse until the SAME compiled C11 page admits Text+Image. Test
-     * source authoring keeps the embedded TTF and genuine RAW XObject. */
-    if(mode==49 || mode==50 || mode==51) {
+    /* #578 M2a: fully original QPDF-authored embedded CID TTF + RAW
+     * Image in both orders, followed by late invalid operators/resources.
+     * These are genuine Source admission cases, not constructed IR. */
+    if(mode>=49 && mode<=63) {
         const std::string pixels("\xff\0\0\0\xff\0\0\0\xff\xff\xff\0",12);
         auto image=pdf->newStream(pixels);
         auto dict=image.getDict();
@@ -181,8 +181,14 @@ inline std::string native_ttf_fixture(int mode=0)
         dict.replaceKey("/Height",O::newInteger(2));
         dict.replaceKey("/BitsPerComponent",O::newInteger(8));
         dict.replaceKey("/ColorSpace",O::newName("/DeviceRGB"));
+        if(mode==60)
+            dict.replaceKey("/SMask",O::newName("/None")); /* bad SMask */
         auto xobjects=O::newDictionary();
         xobjects.replaceKey("/I",image);
+        if(mode==57)
+            xobjects.replaceKey("/J",image); /* unused XObject */
+        if(mode==58)
+            fonts.replaceKey("/G",font); /* unused Font alias */
         resources.replaceKey("/XObject",xobjects);
         if(mode==51) {
             /* The fully parsed original has an UNUSED graphics resource.
@@ -191,8 +197,18 @@ inline std::string native_ttf_fixture(int mode=0)
         }
         const std::string show=
             "q BT /F 24 Tf 12 20 Td <002d004a005100510054> Tj ET Q";
-        const std::string draw="q 16 0 0 12 10 15 cm /I Do Q";
-        text=mode==50 ? draw+" "+show : show+" "+draw;
+        const std::string draw=mode==56 ?
+            "q 16 1 0 12 10 15 cm /I Do Q" : /* unsupported shear */
+            "q 16 0 0 12 10 15 cm /I Do Q";
+        text=(mode==50 || mode==63) ?
+            draw+" "+show : show+" "+draw;
+        if(mode==52 || mode==63)text+=" /Missing Do";
+        if(mode==53)text+=" 0 0 1 rg 1 1 2 2 re f"; /* late Fill */
+        if(mode==54)text+=" q 1 1 2 2 re W n Q"; /* late Clip */
+        if(mode==55)text+=" BT /F 24 Tf 1 Tr 12 20 Td <002d> Tj ET";
+        if(mode==59)text+=" Q"; /* unbalanced restore */
+        if(mode==61)text+=" "+draw; /* second original Image Do */
+        if(mode==62)text+=" BT /F 24 Tf 12 20 Td <002d> Tj"; /* no ET */
     }
     page.replaceKey("/Contents",pdf->newStream(text));
     QPDFWriter writer(*pdf);writer.setOutputMemory();writer.write();

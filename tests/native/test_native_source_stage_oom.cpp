@@ -1887,7 +1887,36 @@ static int m2a_ordered_text_image_source_contract(
         quantapdf_ir_raster_image_dispose(&baseline);
         quantapdf_drop_composer(composer_guard);
     }
-    std::puts("M2a: both original orders, exact N/N-1 pixel/edge/work/bytes, Text malloc 1-4, RAW/Image and final output malloc 5-6, Context adoption/recovery");
+    /* Even after a completely valid first paint, the single original
+     * PDF reader must reject the ENTIRE page on a late unsupported
+     * Do/Fill/W/Tr, broken matrix/qQ/ET, duplicate Do, extra resource
+     * or SMask. No partial owned IR may escape, then a good original
+     * must still prepare normally. */
+    for(int mode=51;mode<=63;++mode) {
+        const std::string original=native_ttf_fixture(mode);
+        quantapdf_ir denied;
+        std::memset(&denied,0xa5,sizeof(denied));
+        const auto status=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            reinterpret_cast<const unsigned char*>(original.data()),
+            original.size(),&limits,0u,&denied);
+        if(status!=QUANTAPDF_ERROR_UNSUPPORTED &&
+           status!=QUANTAPDF_ERROR_FORMAT)
+            std::fprintf(stderr,"M2a negative original mode=%d status=%d\\n",mode,(int)status);
+        CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED ||
+               status==QUANTAPDF_ERROR_FORMAT) && cleared(denied));
+    }
+    {
+        const std::string original=native_ttf_fixture(49);
+        quantapdf_ir recovered{};
+        CHECK(quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            reinterpret_cast<const unsigned char*>(original.data()),
+            original.size(),&limits,0u,&recovered)==QUANTAPDF_OK &&
+            recovered.operation_count==2u &&
+            recovered.resources.image_count==1u);
+        quantapdf_ir_dispose(&recovered);
+        CHECK(cleared(recovered));
+    }
+    std::puts("M2a: original dual-order pixels, 13 late-invalid source refusals, N/N-1 budgets, actual six malloc faults, Context recovery");
     return EXIT_SUCCESS;
 }
 

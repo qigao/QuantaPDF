@@ -33,9 +33,13 @@ This first capability supports **one opaque black embedded-TTF Text show** and *
 - [x] Independent full-image RGB references for **both orders, all 72/96/144 DPI**. The oracle is the **previously reviewed** original Text-only RGBA reference plus independently evaluated 4×4 Image footprint, pixel-center nearest-neighbor source samples and opaque source-over in source order. Every RGB pixel is compared exactly, including overlapping regions, never with M2a's output as a new reference. Accepted at #2298.
 - [ ] Candidate exact-HEAD **M2a Source C-allocation fault** controls; four actual TTF geometry/mask/raster malloc failures and same-Context recovery.
 - [ ] M2a sample/edge/pixel, original/expanded operation, unique source/placement pixels and requested-byte N/N−1 quotas; output receipt and retained-owner balances.
-- [ ] Public original unused-/Resources fail-closed negative, plus late unsupported/malformed/unqualified Text/Image/Clip/PATH matrix and full recovery.
+- [x] Source/public originals: 13 deliberately invalid late Do/Fill/Clip/Tr, incorrect CTM, unbalanced q/Q/ET, duplicate Do, unused Font/XObject/ExtGState and image SMask. Both source IR and public Bitmap must remain empty, followed by successful original Source recovery. Exact-HEAD CI required.
 - [ ] Every remaining new Image/final-composite allocation failure and mixed-page lifetime/rollback under sanitizer.
 - [ ] Current candidate's own Linux Release/ASan-UBSan, Windows and macOS Native CI; installed consumers and exact exports, no PDFium. Existing Source/OOM 40-second gate and Context/OOM 30-second gate remain.
 - [ ] Only after candidate acceptance, consider merging #579 and independently rerun actual production master CI; even then **M2b Text/Image/Fill/Clip is still open**.
 
 No new test project, installer/consumer project, probe workflow/CMake, public ABI/provider or PDFium dependency has been introduced. Do not update the accepted original corpus count or label M2 complete until separately demonstrated.
+
+## New M2a failure matrix (candidate)
+
+Existing native Source/OOM and public render tests now exercise 13 full original PDF variants (51–63) for unused graphics/font/image resources; late unsupported Do, Fill, W Clip, text render mode, second Do, bad shear, unbalanced q/Q/ET, and unqualified Image SMask. Each must reject the **whole original page** without an owned IR/Bitmap; the same Source can subsequently recover on a known good page. Test-only per-page ledger injection now reaches *all six actual C11 allocations* of the M2a compilation/execution, including the fifth RAW Image layer RGBA and sixth final composite RGBA; it does not change the old four test-malloc sites, public ABI or CI/CMake.
