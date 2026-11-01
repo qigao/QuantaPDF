@@ -903,7 +903,8 @@ quantapdf_status source_m2a_text(void *user)
               source.text_outlines_eligible &&
               source.order.size()<hard_operations &&
               source.order.size()<source.limits.max_operations &&
-              source.painted_paths.empty() &&
+              /* Existing Text-only PATH-prefix profiles remain admitted.
+               * Mixed Image materialization independently rejects PATH. */
               !source.clip_completed &&
               source.clip.commands.empty() &&
               source.second_clip.commands.empty(),
