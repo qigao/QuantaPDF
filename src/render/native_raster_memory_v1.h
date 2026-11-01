@@ -5,6 +5,23 @@
 #include "render/native_work_ledger_v1.h"
 #include <stdlib.h>
 
+/* The fault callback is an optional PRIVATE synchronous failure injection
+ * at the actual charged allocation site. It never allocates or resets work.
+ * Restore the memory debit and return NOMEM exactly as a failed malloc.
+ * The default NULL callback keeps every historical production allocation. */
+static inline int quantapdf_native_malloc_refused_v1(
+    quantapdf_native_work_ledger_v1 *ledger,size_t bytes,
+    quantapdf_status *status)
+{
+    if(ledger!=NULL && ledger->malloc_fault.reject!=NULL &&
+       ledger->malloc_fault.reject(ledger->malloc_fault.owner,bytes)) {
+        (void)quantapdf_native_memory_give_v1(ledger,bytes);
+        *status=QUANTAPDF_ERROR_NOMEM;
+        return 1;
+    }
+    return 0;
+}
+
 /* No allocation header or new allocator: reserve before the SAME malloc,
  * and return exactly that requested byte count on failure/free. */
 static inline void *quantapdf_native_raster_malloc_v1(
@@ -14,6 +31,8 @@ static inline void *quantapdf_native_raster_malloc_v1(
     if(!quantapdf_native_memory_take_v1(ledger,bytes)) {
         *status=QUANTAPDF_ERROR_UNSUPPORTED;return NULL;
     }
+    if(quantapdf_native_malloc_refused_v1(ledger,bytes,status))
+        return NULL;
     p=malloc(bytes);
     if(p==NULL) {
         (void)quantapdf_native_memory_give_v1(ledger,bytes);

@@ -1631,6 +1631,24 @@ static std::vector<unsigned char> text_ir_snapshot(const quantapdf_ir& ir)
     }
     return result;
 }
+/* The M2a-only page-owned allocation callback observes the real, charged
+ * C11 malloc sequence for Text geometry, RAW Image and final RGBA output.
+ * It is explicitly not a global malloc override or a separate renderer. */
+struct m2a_malloc_fault_state {
+    size_t attempts=0u,fail_on=0u,failures=0u;
+};
+static int m2a_malloc_fault_callback(void *owner,size_t bytes)
+{
+    auto *state=static_cast<m2a_malloc_fault_state *>(owner);
+    if(state==nullptr || bytes==0u)return 0;
+    ++state->attempts;
+    if(state->fail_on!=0u && state->attempts==state->fail_on) {
+        ++state->failures;
+        return 1;
+    }
+    return 0;
+}
+
 /* M2a: the SAME two original QPDF PDFs now carry one owned embedded
  * CID-TTF show plus a RAW Image, in both original orders. Test the real
  * Common Source -> IR -> C11 compiled page and error/lifetime boundaries.
@@ -1725,8 +1743,9 @@ static int m2a_ordered_text_image_source_contract(
         const auto retry=[&](
             quantapdf_ir_raster_scoped_mixed_v5_limits bound,
             size_t memory_limit,quantapdf_status wanted,
-            size_t fault_index=0u) {
+            size_t fault_index=0u,size_t layer_fault_index=0u) {
             quantapdf_native_prepared_page_v1 prepared{};
+            m2a_malloc_fault_state layer_fault{};
             quantapdf_native_execution_receipt_v1 receipt{};
             quantapdf_ir_raster_image result{};
             quantapdf_status status=quantapdf_native_prepare_page_v1(
@@ -1735,6 +1754,11 @@ static int m2a_ordered_text_image_source_contract(
             if(status==QUANTAPDF_OK) {
                 if(memory_limit!=0u)
                     prepared.resource_limits.max_live_bytes=memory_limit;
+                if(layer_fault_index!=0u) {
+                    layer_fault.fail_on=layer_fault_index;
+                    prepared.m2a_malloc_fault.owner=&layer_fault;
+                    prepared.m2a_malloc_fault.reject=m2a_malloc_fault_callback;
+                }
                 track_c_allocation=fault_index!=0u;
                 c_fail_index=fault_index;c_allocations=0u;c_faults=0u;
                 status=quantapdf_native_execute_page_v1(
@@ -1751,6 +1775,9 @@ static int m2a_ordered_text_image_source_contract(
             else ok=ok && empty(result) && cleared_receipt(receipt);
             if(fault_index!=0u)
                 ok=ok && c_allocations==fault_index && c_faults==1u;
+            if(layer_fault_index!=0u)
+                ok=ok && layer_fault.attempts==layer_fault_index &&
+                   layer_fault.failures==1u;
             quantapdf_ir_raster_image_dispose(&result);
             return ok;
         };
@@ -1783,6 +1810,16 @@ static int m2a_ordered_text_image_source_contract(
                 CHECK(retry(caps,0u,QUANTAPDF_ERROR_NOMEM,fail));
                 CHECK(retry(caps,0u,QUANTAPDF_OK));
             }
+            /* Original exact TTF allocation sites 1..4 above are
+             * unchanged. Fault-inject the two additional real sites:
+             * #5 is the owned RAW Image RGBA layer and #6 is the
+             * final V5 composite RGBA output, both through the same
+             * private page ledger; neither failure may publish output
+             * or reset the resource balance. Recover on this same IR. */
+            CHECK(retry(caps,0u,QUANTAPDF_ERROR_NOMEM,0u,5u));
+            CHECK(retry(caps,0u,QUANTAPDF_OK));
+            CHECK(retry(caps,0u,QUANTAPDF_ERROR_NOMEM,0u,6u));
+            CHECK(retry(caps,0u,QUANTAPDF_OK));
             /* Source materialization: representative first/mid/last
              * actual C-malloc failures, without another renderer or a
              * CPU-expensive full external font parse per retry. */
@@ -1850,7 +1887,7 @@ static int m2a_ordered_text_image_source_contract(
         quantapdf_ir_raster_image_dispose(&baseline);
         quantapdf_drop_composer(composer_guard);
     }
-    std::puts("M2a: both original orders, exact N/N-1 pixel/edge/work/bytes, real Text malloc faults, Context adoption/recovery");
+    std::puts("M2a: both original orders, exact N/N-1 pixel/edge/work/bytes, Text malloc 1-4, RAW/Image and final output malloc 5-6, Context adoption/recovery");
     return EXIT_SUCCESS;
 }
 

@@ -28,6 +28,9 @@ typedef struct quantapdf_native_prepared_page_v1 {
     quantapdf_native_device_plan physical;
     quantapdf_native_prepared_usage_v1 usage;
     quantapdf_native_resource_limits_v1 resource_limits;
+    /* PRIVATE M2a test-only option. Production prepare always leaves
+     * this empty; existing routes ignore it and retain old malloc order. */
+    quantapdf_native_malloc_fault_v1 m2a_malloc_fault;
 } quantapdf_native_prepared_page_v1;
 
 /* Exact classifier counts remain separate from conservative charged work.
@@ -351,6 +354,8 @@ static inline quantapdf_status quantapdf_native_compiled_page_compile_v1(
     if(metadata==NULL || metadata->source==NULL)return QUANTAPDF_ERROR_ARGUMENT;
     out->metadata=*metadata;out->metadata.source=NULL;
     quantapdf_native_work_init_v1(&out->ledger,metadata->limits.max_sample_tests,metadata->limits.max_edges);
+    if(metadata->route==QP_NATIVE_PREPARED_M2A_TEXT_IMAGE)
+        out->ledger.malloc_fault=metadata->m2a_malloc_fault;
     if(!quantapdf_native_resources_init_v1(&out->ledger,&metadata->resource_limits,
                                           metadata->usage.retained_bytes)) {
         quantapdf_native_compiled_page_dispose_v1(out);return QUANTAPDF_ERROR_UNSUPPORTED;

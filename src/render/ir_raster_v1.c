@@ -813,6 +813,8 @@ static void *qp_exact_malloc(size_t bytes,int exact,
 #else
     (void)exact;
 #endif
+    if(quantapdf_native_malloc_refused_v1(ledger,bytes,status))
+        return NULL;
     p=malloc(bytes);
     if(p==NULL) {
         (void)quantapdf_native_memory_give_v1(ledger,bytes);
