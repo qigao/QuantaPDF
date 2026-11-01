@@ -1631,19 +1631,16 @@ static std::vector<unsigned char> text_ir_snapshot(const quantapdf_ir& ir)
     }
     return result;
 }
-/* #578 M2a pre-admission gate. These are TWO complete, actual original
- * PDFs with embedded CID TTF and a RAW Image XObject in opposite orders.
- * They must not turn into a successful partial Text-only/Image-only page.
- * Replace this refusal baseline with independent 72/96/144-DPI whole-image
- * positives ONLY when the new shared mixed compiled route is qualified. */
-/* #578 M2a Stage S: actual original PDFs contain a CID TTF show and
- * decoded Image in both orders. One complete C-owned Source graph must
- * preserve both paints; the separate compiled C11 mixed route is not yet
- * admitted. This gate cannot be mistaken for public render capability. */
+/* M2a: the SAME two original QPDF PDFs now carry one owned embedded
+ * CID-TTF show plus a RAW Image, in both original orders. Test the real
+ * Common Source -> IR -> C11 compiled page and error/lifetime boundaries.
+ * Keep this compact: the existing 40s Source/OOM gate is unchanged. */
 static int m2a_ordered_text_image_source_contract(
     const quantapdf_qpdf_source_raw_image_limits& limits)
 {
     target=0u;armed=false;track_c_allocation=false;c_fail_index=0u;
+    quantapdf_context *context=nullptr;
+    CHECK(quantapdf_context_create(&context)==QUANTAPDF_OK);
     for(int mode:{49,50}) {
         const std::string original=native_ttf_fixture(mode);
         const auto read=[&](quantapdf_ir& ir) {
@@ -1652,7 +1649,14 @@ static int m2a_ordered_text_image_source_contract(
                 original.size(),&limits,0u,&ir);
         };
         quantapdf_ir ir{};
-        CHECK(read(ir)==QUANTAPDF_OK &&
+        if(mode==49) {
+            track_c_allocation=true;c_fail_index=0u;
+            c_allocations=0u;c_faults=0u;
+        }
+        const auto read_status=read(ir);
+        const size_t source_allocations=c_allocations;
+        track_c_allocation=false;
+        CHECK(read_status==QUANTAPDF_OK &&
               ir.page_count==1u && ir.operation_count==2u &&
               ir.resources.image_count==1u && ir.resources.images!=nullptr &&
               ir.resources.images[0].size==12u && ir.pages!=nullptr &&
@@ -1668,6 +1672,7 @@ static int m2a_ordered_text_image_source_contract(
         for(size_t g=0u;g<txt.value.text_outlines.glyph_count;++g)
             CHECK(txt.value.text_outlines.glyphs[g].commands!=nullptr &&
                   txt.value.text_outlines.glyphs[g].command_count>0u);
+        const quantapdf_ir saved=ir;
         quantapdf_native_source_raster_device_v1 device{};
         device.dpi=72.0f;
         const quantapdf_ir_raster_scoped_mixed_v5_limits caps{
@@ -1677,25 +1682,164 @@ static int m2a_ordered_text_image_source_contract(
         quantapdf_native_prepared_page_v1 metadata{};
         CHECK(quantapdf_native_prepare_page_v1(&ir,&caps,&device,
               QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&metadata)==QUANTAPDF_OK &&
-              metadata.route==QP_NATIVE_PREPARED_M2A_TEXT_IMAGE);
+              metadata.route==QP_NATIVE_PREPARED_M2A_TEXT_IMAGE &&
+              metadata.usage.operations==2u &&
+              metadata.usage.glyphs==5u &&
+              metadata.usage.expanded_paints==6u &&
+              metadata.usage.image_pixels==4u);
+
+        /* One real render fixes sample, edge, memory and placement charges.
+         * Its published RGBA must survive independent page/IR teardown. */
+        quantapdf_native_execution_receipt_v1 normal{};
+        quantapdf_ir_raster_image baseline{};
+        CHECK(quantapdf_native_execute_page_v1(&metadata,&normal,&baseline)==QUANTAPDF_OK &&
+              normal.sample_tests_exact &&
+              normal.sample_tests==normal.charged_sample_work &&
+              normal.charged_sample_work>1u &&
+              normal.compiled_edges>1u &&
+              normal.compiled_edges<=caps.max_edges &&
+              normal.source_pixels==4u && normal.drawn_pixels==192u &&
+              normal.retained_bytes==metadata.usage.retained_bytes &&
+              normal.peak_live_bytes<=metadata.resource_limits.max_live_bytes &&
+              normal.output_bytes==128u*64u*4u &&
+              normal.completed_leases>=1u &&
+              baseline.width==128u && baseline.height==64u &&
+              baseline.size==normal.output_bytes &&
+              rgba_at(baseline,0u,0u)==UINT32_C(0xffffffff));
+        const auto empty=[&](const quantapdf_ir_raster_image& image) {
+            return image.pixels==nullptr && image.width==0u &&
+                image.height==0u && image.stride==0u && image.size==0u;
+        };
+        const auto cleared_receipt=[&](const quantapdf_native_execution_receipt_v1& r) {
+            return r.sample_tests==0u && r.charged_sample_work==0u &&
+                   r.compiled_edges==0u && r.completed_leases==0u &&
+                   r.source_pixels==0u && r.drawn_pixels==0u &&
+                   r.output_bytes==0u && r.peak_live_bytes==0u;
+        };
+        const auto retry=[&](
+            quantapdf_ir_raster_scoped_mixed_v5_limits bound,
+            size_t memory_limit,quantapdf_status wanted,
+            size_t fault_index=0u) {
+            quantapdf_native_prepared_page_v1 prepared{};
+            quantapdf_native_execution_receipt_v1 receipt{};
+            quantapdf_ir_raster_image result{};
+            quantapdf_status status=quantapdf_native_prepare_page_v1(
+                &ir,&bound,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,
+                &prepared);
+            if(status==QUANTAPDF_OK) {
+                if(memory_limit!=0u)
+                    prepared.resource_limits.max_live_bytes=memory_limit;
+                track_c_allocation=fault_index!=0u;
+                c_fail_index=fault_index;c_allocations=0u;c_faults=0u;
+                status=quantapdf_native_execute_page_v1(
+                    &prepared,&receipt,&result);
+                track_c_allocation=false;c_fail_index=0u;
+            }
+            bool ok=status==wanted &&
+                std::memcmp(&ir,&saved,sizeof(ir))==0 &&
+                context->references==1u;
+            if(wanted==QUANTAPDF_OK)
+                ok=ok && result.size==baseline.size &&
+                    std::memcmp(result.pixels,baseline.pixels,result.size)==0 &&
+                    receipt.source_pixels==4u && receipt.drawn_pixels==192u;
+            else ok=ok && empty(result) && cleared_receipt(receipt);
+            if(fault_index!=0u)
+                ok=ok && c_allocations==fault_index && c_faults==1u;
+            quantapdf_ir_raster_image_dispose(&result);
+            return ok;
+        };
+        if(mode==49) {
+            /* Tightest exact quotas and one-below refusals; all operate
+             * on this identical, immutable original owned IR. */
+            auto bound=caps;
+            bound.max_sample_tests=normal.charged_sample_work;
+            CHECK(retry(bound,0u,QUANTAPDF_OK));
+            bound.max_sample_tests--;
+            CHECK(retry(bound,0u,QUANTAPDF_ERROR_UNSUPPORTED));
+            bound=caps;bound.max_edges=normal.compiled_edges;
+            CHECK(retry(bound,0u,QUANTAPDF_OK));
+            bound.max_edges--;
+            CHECK(retry(bound,0u,QUANTAPDF_ERROR_UNSUPPORTED));
+            bound=caps;bound.max_pixels=8191u;
+            CHECK(retry(bound,0u,QUANTAPDF_ERROR_UNSUPPORTED));
+            bound=caps;bound.max_source_pixels=3u;
+            CHECK(retry(bound,0u,QUANTAPDF_ERROR_UNSUPPORTED));
+            bound=caps;bound.max_drawn_pixels=191u;
+            CHECK(retry(bound,0u,QUANTAPDF_ERROR_UNSUPPORTED));
+            bound=caps;bound.max_operations=1u;
+            CHECK(retry(bound,0u,QUANTAPDF_ERROR_UNSUPPORTED));
+            CHECK(retry(caps,normal.peak_live_bytes,QUANTAPDF_OK));
+            CHECK(normal.peak_live_bytes>metadata.usage.retained_bytes);
+            CHECK(retry(caps,normal.peak_live_bytes-1u,QUANTAPDF_ERROR_UNSUPPORTED));
+            /* All 4 actual original Text geometry/mask/raster malloc
+             * faults remain real C11 faults; each permits clean retry. */
+            for(size_t fail=1u;fail<=4u;++fail) {
+                CHECK(retry(caps,0u,QUANTAPDF_ERROR_NOMEM,fail));
+                CHECK(retry(caps,0u,QUANTAPDF_OK));
+            }
+            /* Source materialization: representative first/mid/last
+             * actual C-malloc failures, without another renderer or a
+             * CPU-expensive full external font parse per retry. */
+            CHECK(source_allocations>=5u && source_allocations<=32u);
+            for(size_t fail:{1u,source_allocations/2u,source_allocations}) {
+                quantapdf_ir denied{};
+                track_c_allocation=true;c_fail_index=fail;
+                c_allocations=0u;c_faults=0u;
+                const auto denied_status=read(denied);
+                track_c_allocation=false;c_fail_index=0u;
+                CHECK(denied_status==QUANTAPDF_ERROR_NOMEM &&
+                      c_allocations==fail && c_faults==1u &&
+                      cleared(denied) &&
+                      std::memcmp(&ir,&saved,sizeof(ir))==0);
+            }
+            /* Unreachable/hidden resource storage is never hidden by
+             * selecting only the one Image or first Text show. */
+            ++ir.resources.font_count;
+            CHECK(retry(caps,0u,QUANTAPDF_ERROR_UNSUPPORTED));
+            --ir.resources.font_count;
+            CHECK(std::memcmp(&ir,&saved,sizeof(ir))==0);
+        }
+        /* Explicit same-Context failure leaves caller-owned IR/lease
+         * untouched; successful adoption moves the same retained guard.
+         * The detached output survives page and Context-reference drops. */
+        quantapdf_context_lease_internal lease{};
+        CHECK(quantapdf_context_lease_acquire_internal(context,&lease)==QUANTAPDF_OK &&
+              context->references==2u);
+        auto too_small=caps;too_small.max_source_pixels=3u;
+        quantapdf_native_source_page_v1 refused{};
+        CHECK(quantapdf_native_source_page_prepare_context_v1(
+                  &ir,&too_small,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,
+                  &lease,&refused)==QUANTAPDF_ERROR_UNSUPPORTED &&
+              std::memcmp(&ir,&saved,sizeof(ir))==0 &&
+              lease.context==context && context->references==2u &&
+              refused.owns_ir==0 && refused.compiled.ready==0);
+        quantapdf_context_lease_drop_internal(&lease);
+        CHECK(context->references==1u);
+        CHECK(quantapdf_context_lease_acquire_internal(context,&lease)==QUANTAPDF_OK);
         quantapdf_native_source_page_v1 owned{};
-        CHECK(quantapdf_native_source_page_prepare_v1(&ir,&caps,&device,
-              QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&owned)==QUANTAPDF_OK &&
-              cleared(ir));
+        CHECK(quantapdf_native_source_page_prepare_context_v1(
+                  &ir,&caps,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,
+                  &lease,&owned)==QUANTAPDF_OK &&
+              cleared(ir) && lease.context==nullptr && owned.owns_ir &&
+              owned.domain.context==context && context->references==2u);
         quantapdf_native_execution_receipt_v1 receipt{};
         quantapdf_ir_raster_image rendered{};
         CHECK(quantapdf_native_source_page_execute_v1(
                   &owned,&receipt,&rendered)==QUANTAPDF_OK &&
-              rendered.width==128u && rendered.height==64u &&
-              rendered.size==128u*64u*4u &&
+              rendered.size==baseline.size &&
+              receipt.charged_sample_work==normal.charged_sample_work &&
               receipt.source_pixels==4u && receipt.drawn_pixels==192u &&
-              receipt.completed_leases>=1u &&
-              rgba_at(rendered,0u,0u)==UINT32_C(0xffffffff));
+              std::memcmp(rendered.pixels,baseline.pixels,baseline.size)==0);
         quantapdf_native_source_page_dispose_v1(&owned);
+        CHECK(context->references==1u && cleared(ir) &&
+              rendered.size==baseline.size &&
+              std::memcmp(rendered.pixels,baseline.pixels,baseline.size)==0);
         quantapdf_ir_raster_image_dispose(&rendered);
-        CHECK(cleared(ir));
+        quantapdf_ir_raster_image_dispose(&baseline);
     }
-    std::puts("M2a: ordered Text/Image and Image/Text owned Source IR + one compiled C11 V5 page; whole-image oracle pending");
+    CHECK(context->references==1u);
+    quantapdf_drop_context(context);
+    std::puts("M2a: both original orders, exact N/N-1 pixel/edge/work/bytes, real Text malloc faults, Context adoption/recovery");
     return EXIT_SUCCESS;
 }
 
