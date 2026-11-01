@@ -47,3 +47,7 @@ Existing native Source/OOM and public render tests now exercise 13 full original
 ## Original compressed Image parity (next candidate)
 
 Modes 64 and 65 use **original QPDF-authored FlateDecode RGB stream bytes** (test-only zlib encoding; QPDF explicitly preserves the chosen Filter), with the *same* 2×2 decoded source samples and Text/Image or Image/Text original order. The unchanged independent per-pixel 72/96/144-DPI oracle compares both compressed originals against the pre-M2a Roboto baseline and analytic Image coverage; Source/OOM validates the same unique RAW 12-byte owned IR and the previously qualified page-ledger budget. This is an extra candidate requiring fresh exact-HEAD CI, not evidence inherited from #2304.
+
+## Exhaustive owned Source C-allocation rollback (candidate)
+
+For the one real mode-49 Source, enumerate every **actual C allocation position** observed during whole-page owned IR materialization, including the page/operations/images arrays, image payload, `realloc`, TTF glyph record array and all command arrays (bounded 5–32 actual sites). Inject a single NOMEM at **each** position, assert zero owned IR and the untouched live original IR; then re-read the SAME original source successfully before proceeding. This is independent of the six actual C11 geometry/RAW/final RGBA injection positions. No new source parser, test project, CI or CMake has been introduced.

@@ -1821,12 +1821,13 @@ static int m2a_ordered_text_image_source_contract(
             CHECK(retry(caps,0u,QUANTAPDF_OK));
             CHECK(retry(caps,0u,QUANTAPDF_ERROR_NOMEM,0u,6u));
             CHECK(retry(caps,0u,QUANTAPDF_OK));
-            /* Source materialization: representative first/mid/last
-             * actual C-malloc failures, without another renderer or a
-             * CPU-expensive full external font parse per retry. */
+            /* Exhaustively fault-inject EVERY actual C-owned Source
+             * materialization allocation (including realloc and all
+             * detached TTF glyph command arrays) in this original
+             * page. Each failed admission must recover on the same
+             * immutable original bytes before trying the next index. */
             CHECK(source_allocations>=5u && source_allocations<=32u);
-            const size_t faults_to_test[]={1u,source_allocations/2u,source_allocations};
-            for(size_t fail:faults_to_test) {
+            for(size_t fail=1u;fail<=source_allocations;++fail) {
                 quantapdf_ir denied{};
                 track_c_allocation=true;c_fail_index=fail;
                 c_allocations=0u;c_faults=0u;
@@ -1836,6 +1837,12 @@ static int m2a_ordered_text_image_source_contract(
                       c_allocations==fail && c_faults==1u &&
                       cleared(denied) &&
                       std::memcmp(&ir,&saved,sizeof(ir))==0);
+                quantapdf_ir recovery{};
+                CHECK(read(recovery)==QUANTAPDF_OK &&
+                      recovery.operation_count==2u &&
+                      recovery.resources.image_count==1u);
+                quantapdf_ir_dispose(&recovery);
+                CHECK(cleared(recovery));
             }
             /* Unreachable/hidden resource storage is never hidden by
              * selecting only the one Image or first Text show. */
@@ -1917,7 +1924,7 @@ static int m2a_ordered_text_image_source_contract(
         quantapdf_ir_dispose(&recovered);
         CHECK(cleared(recovered));
     }
-    std::puts("M2a: original RAW/Flate both orders, 13 late-invalid refusals, N/N-1 quotas, six malloc faults, Context recovery");
+    std::puts("M2a: RAW/Flate both orders, 13 late-invalid refusals, N/N-1 quotas, all Source C-malloc faults, six C11 malloc faults and Context recovery");
     return EXIT_SUCCESS;
 }
 
