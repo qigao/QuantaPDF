@@ -126,6 +126,15 @@ context reference. The parent and child retain the domain throughout the call.
 Foreign exceptions or panics must not unwind through a C callback; translate
 failure to a `quantapdf_status` within the binding's callback boundary.
 
+The native Source preparation owner also holds an existing Core Context
+reference. Complete preparation moves its detached IR and the temporary Context
+lease together; cleanup releases geometry and IR before the Context reference.
+This is separate from the returned Bitmap's established Context reference.
+Composer input to the private common compiler remains a synchronous immutable
+borrow under the same Context guard, with allocated capacity bytes charged.
+These internal [M1 preparation rules](https://github.com/qigao/QuantaPDF/blob/master/docs/conformance/native-context-preparation-m1c.md)
+do not add a public prepared-page handle, cache or new Source capability.
+
 ## Foreign type and string mapping
 
 | C declaration | C++ | Rust FFI | Go/cgo | C# interop |

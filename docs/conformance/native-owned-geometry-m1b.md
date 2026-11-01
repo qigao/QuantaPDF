@@ -79,13 +79,14 @@ render is added. Remaining original positives, N/N-1/edge checks and all four
 malloc-failure/recovery paths still exercise the production bridge. No reference
 image, original PDF, workflow, CMake target or consumer/installer project changes.
 
-## Remaining M1 work
+## Subsequent integration
 
-The subsequent [owned Source-page integration](native-owned-source-page-m1b.md)
-now retains V5 compilation, adopts complete Source IR after successful prepare
-and embeds the stable ledger in a private unique owner. The metadata-only API
-remains a synchronous compatibility borrow. **M1 remains open** for broader
-Context-retained public prepared-page/Composer integration before the planned M2
-composition expansion. Original TeXample 72/96/144-DPI and yWorks 72-DPI evidence
-and corpus counts are unchanged. Exact HEAD/tree and actual platform CI results
-are recorded in the PR and #570.
+The [owned Source-page integration](native-owned-source-page-m1b.md) retains V5
+compilation and adopts Source IR with a stable ledger. The subsequent
+[Context/Composer integration](native-context-preparation-m1c.md) binds production
+Source preparation to Core lifetime and supplies a synchronous Composer adapter
+into the same compiler. Metadata-only preparation remains a compatibility borrow.
+M1 acceptance is recorded after exact-HEAD and production CI; M2 capability
+expansion remains separate. Original TeXample 72/96/144-DPI and yWorks 72-DPI
+evidence/corpus counts are unchanged. Exact HEAD/tree and actual platform CI
+results are recorded in the PR and #570.

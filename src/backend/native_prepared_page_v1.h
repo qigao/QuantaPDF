@@ -326,6 +326,7 @@ typedef struct quantapdf_native_source_page_v1 {
     quantapdf_native_compiled_page_v1 compiled;
     quantapdf_ir ir;
     int owns_ir;
+    quantapdf_context_lease_internal domain;
 } quantapdf_native_source_page_v1;
 
 static inline void quantapdf_native_compiled_page_dispose_v1(
@@ -433,21 +434,35 @@ static inline quantapdf_status quantapdf_native_compiled_page_execute_v1(
 /* Unique zero-initialized handle: never copy or move it while live. Commit
  * adopts Source payloads only AFTER full preparation, then clears the input.
  * Every failed preparation leaves the caller's IR untouched and output empty. */
-static inline quantapdf_status quantapdf_native_source_page_prepare_v1(
+static inline quantapdf_status quantapdf_native_source_page_prepare_context_v1(
     quantapdf_ir *source,const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     const quantapdf_native_source_raster_device_v1 *device,
-    quantapdf_private_native_source_profile profile,quantapdf_native_source_page_v1 *out)
+    quantapdf_private_native_source_profile profile,quantapdf_context_lease_internal *lease,
+    quantapdf_native_source_page_v1 *out)
 {
     quantapdf_native_prepared_page_v1 metadata;
     quantapdf_status status;
     if(out==NULL)return QUANTAPDF_ERROR_ARGUMENT;
     memset(out,0,sizeof(*out));
+    if(lease!=NULL && !quantapdf_context_lease_valid_internal(lease))return QUANTAPDF_ERROR_ARGUMENT;
     status=quantapdf_native_prepare_page_v1(source,limits,device,profile,&metadata);
     if(status!=QUANTAPDF_OK)return status;
     status=quantapdf_native_compiled_page_compile_v1(&metadata,&out->compiled);
     if(status!=QUANTAPDF_OK) {memset(out,0,sizeof(*out));return status;}
+    if(lease!=NULL && !quantapdf_context_lease_move_internal(&out->domain,lease)) {
+        quantapdf_native_compiled_page_dispose_v1(&out->compiled);
+        memset(out,0,sizeof(*out));return QUANTAPDF_ERROR_ARGUMENT;
+    }
     out->ir=*source;memset(source,0,sizeof(*source));out->owns_ir=1;
     return QUANTAPDF_OK;
+}
+
+static inline quantapdf_status quantapdf_native_source_page_prepare_v1(
+    quantapdf_ir *source,const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    const quantapdf_native_source_raster_device_v1 *device,
+    quantapdf_private_native_source_profile profile,quantapdf_native_source_page_v1 *out)
+{
+    return quantapdf_native_source_page_prepare_context_v1(source,limits,device,profile,NULL,out);
 }
 
 static inline quantapdf_status quantapdf_native_source_page_execute_v1(
@@ -464,10 +479,13 @@ static inline quantapdf_status quantapdf_native_source_page_execute_v1(
 
 static inline void quantapdf_native_source_page_dispose_v1(quantapdf_native_source_page_v1 *page)
 {
+    quantapdf_context_lease_internal domain;
     if(page==NULL)return;
+    domain=page->domain;
     quantapdf_native_compiled_page_dispose_v1(&page->compiled);
     if(page->owns_ir)quantapdf_ir_dispose(&page->ir);
     memset(page,0,sizeof(*page));
+    quantapdf_context_lease_drop_internal(&domain);
 }
 
 /* Historical synchronous metadata borrow: same common compiled-page path,

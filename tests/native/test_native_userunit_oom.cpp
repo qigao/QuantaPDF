@@ -70,6 +70,13 @@ int main()
             quantapdf_render_options options{};
             options.struct_size=sizeof(options);
             options.dpi=(float)dpi;
+            context->references=SIZE_MAX-1u;
+            quantapdf_bitmap *overflow=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+            const auto overflow_status=quantapdf_render_page_with_options(page,&options,&overflow);
+            const bool balanced=overflow_status==QUANTAPDF_ERROR_UNSUPPORTED && overflow==nullptr &&
+                context->references==SIZE_MAX-1u && finalizations==0u;
+            context->references=baseline_references;
+            CHECK(balanced);
             context->test_fail_allocation=1;
             quantapdf_bitmap *denied=
                 reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));

@@ -10,7 +10,7 @@ static quantapdf_status native_source_bridge_impl(
     const quantapdf_native_source_raster_bridge_limits_v1 *limits,
     const quantapdf_native_source_raster_device_v1 *device,
     quantapdf_ir_raster_image *out_image,
-    quantapdf_private_native_source_profile source_profile)
+    quantapdf_private_native_source_profile source_profile,quantapdf_context_lease_internal *lease)
 {
     quantapdf_status status;
     quantapdf_ir ir = {0};
@@ -51,7 +51,7 @@ static quantapdf_status native_source_bridge_impl(
         return status;
     }
 
-    status=quantapdf_native_source_page_prepare_v1(&ir,&limits->raster,device,source_profile,&prepared);
+    status=quantapdf_native_source_page_prepare_context_v1(&ir,&limits->raster,device,source_profile,lease,&prepared);
     if(status==QUANTAPDF_OK)
         status=quantapdf_native_source_page_execute_v1(&prepared,NULL,out_image);
     quantapdf_native_source_page_dispose_v1(&prepared);
@@ -67,7 +67,7 @@ quantapdf_status quantapdf_native_source_raster_bridge_v1(
 {
     return native_source_bridge_impl(
         original_pdf, original_size, limits, device, out_image,
-        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V8);
+        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V8,NULL);
 }
 
 quantapdf_status quantapdf_native_source_raster_bridge_v9(
@@ -78,7 +78,7 @@ quantapdf_status quantapdf_native_source_raster_bridge_v9(
 {
     return native_source_bridge_impl(
         original_pdf, original_size, limits, device, out_image,
-        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V9);
+        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V9,NULL);
 }
 quantapdf_status quantapdf_native_source_raster_bridge_v10(
     const unsigned char *original_pdf, size_t original_size,
@@ -88,5 +88,19 @@ quantapdf_status quantapdf_native_source_raster_bridge_v10(
 {
     return native_source_bridge_impl(
         original_pdf, original_size, limits, device, out_image,
-        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10);
+        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,NULL);
+}
+
+quantapdf_status quantapdf_native_source_raster_bridge_context_v1(
+    const unsigned char *original_pdf,size_t original_size,
+    const quantapdf_native_source_raster_bridge_limits_v1 *limits,
+    const quantapdf_native_source_raster_device_v1 *device,
+    quantapdf_private_native_source_profile profile,quantapdf_context_lease_internal *lease,
+    quantapdf_ir_raster_image *out)
+{
+    if(!quantapdf_context_lease_valid_internal(lease)) {
+        if(out!=NULL)memset(out,0,sizeof(*out));
+        return QUANTAPDF_ERROR_ARGUMENT;
+    }
+    return native_source_bridge_impl(original_pdf,original_size,limits,device,out,profile,lease);
 }

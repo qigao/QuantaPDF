@@ -18,6 +18,7 @@ static quantapdf_status native_facade_bitmap_impl(
 {
     quantapdf_bitmap *bitmap;
     quantapdf_backend_bitmap rendered = {0};
+    quantapdf_context_lease_internal prepared_domain={0};
     quantapdf_status status;
     double unit;
 
@@ -51,6 +52,11 @@ static quantapdf_status native_facade_bitmap_impl(
         return QUANTAPDF_ERROR_NOMEM;
     }
     bitmap->context = page->context;
+    status=quantapdf_context_lease_acquire_internal(page->context,&prepared_domain);
+    if(status!=QUANTAPDF_OK) {
+        free(bitmap);quantapdf_drop_context(page->context);return status;
+    }
+
 
     /* Equivalent to the established facade's private user-unit
      * wrapper, but use the live owner-bound provider callback directly.
@@ -64,26 +70,12 @@ static quantapdf_status native_facade_bitmap_impl(
         if (!isfinite(unit) || unit != 1.0)
             status = QUANTAPDF_ERROR_UNSUPPORTED;
         else {
-            switch (source_profile) {
-            case QUANTAPDF_PRIVATE_NATIVE_SOURCE_V8:
-                status = quantapdf_builtin_native_qualify_bitmap_v1(
-                    page->backend, limits, device, &rendered);
-                break;
-            case QUANTAPDF_PRIVATE_NATIVE_SOURCE_V9:
-                status = quantapdf_builtin_native_qualify_bitmap_v9(
-                    page->backend, limits, device, &rendered);
-                break;
-            case QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10:
-                status = quantapdf_builtin_native_qualify_bitmap_v10(
-                    page->backend, limits, device, &rendered);
-                break;
-            default:
-                status = QUANTAPDF_ERROR_UNSUPPORTED;
-                break;
-            }
+            status=quantapdf_builtin_native_qualify_bitmap_context_v1(
+                page->backend,limits,device,source_profile,&prepared_domain,&rendered);
         }
     }
 
+    quantapdf_context_lease_drop_internal(&prepared_domain);
     if (status != QUANTAPDF_OK) {
         free(rendered.data);
         free(bitmap);

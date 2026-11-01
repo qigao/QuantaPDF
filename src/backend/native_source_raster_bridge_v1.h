@@ -2,6 +2,7 @@
 #define QUANTAPDF_NATIVE_SOURCE_RASTER_BRIDGE_V1_H
 
 #include "backend/qpdf_native_image_ir.h"
+#include "core/context_lease_internal.h"
 #include "render/ir_raster_scoped_mixed_v5.h"
 
 #ifdef __cplusplus
@@ -37,6 +38,15 @@ typedef struct quantapdf_native_source_raster_device_v1 {
     int alpha;
     int thumbnail;
 } quantapdf_native_source_raster_device_v1;
+
+/* Product Context guard: adopted only after complete IR/geometry preparation.
+ * Failure before adoption leaves the caller's reference untouched. */
+quantapdf_status quantapdf_native_source_raster_bridge_context_v1(
+    const unsigned char *original_pdf,size_t original_size,
+    const quantapdf_native_source_raster_bridge_limits_v1 *limits,
+    const quantapdf_native_source_raster_device_v1 *device,
+    quantapdf_private_native_source_profile profile,quantapdf_context_lease_internal *lease,
+    quantapdf_ir_raster_image *out_image);
 
 /* Original bytes -> complete strict Source V8 admission -> uniquely owned
  * detached Composer IR -> provider-free C11 mixed Raster RGBA.
