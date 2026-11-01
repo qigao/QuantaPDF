@@ -1631,6 +1631,28 @@ static std::vector<unsigned char> text_ir_snapshot(const quantapdf_ir& ir)
     }
     return result;
 }
+/* #578 M2a pre-admission gate. These are TWO complete, actual original
+ * PDFs with embedded CID TTF and a RAW Image XObject in opposite orders.
+ * They must not turn into a successful partial Text-only/Image-only page.
+ * Replace this refusal baseline with independent 72/96/144-DPI whole-image
+ * positives ONLY when the new shared mixed compiled route is qualified. */
+static int m2a_ordered_text_image_refusal_baseline(
+    const quantapdf_qpdf_source_raw_image_limits& limits)
+{
+    target=0u;armed=false;track_c_allocation=false;c_fail_index=0u;
+    for(int mode:{49,50}) {
+        const std::string original=native_ttf_fixture(mode);
+        quantapdf_ir ir;
+        std::memset(&ir,0xa5,sizeof(ir));
+        const auto status=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            reinterpret_cast<const unsigned char*>(original.data()),
+            original.size(),&limits,0u,&ir);
+        CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED && cleared(ir));
+    }
+    std::puts("M2a pre-admission: complete Text/Image and Image/Text original PDFs refuse atomically");
+    return EXIT_SUCCESS;
+}
+
 static int native_ttf_source_and_raster_contracts(
     const quantapdf_qpdf_source_raw_image_limits& source_limits,int mode=1)
 {
@@ -2207,6 +2229,7 @@ int main(int argc,char **argv)
     CHECK(owned_page_contracts()==EXIT_SUCCESS);
     CHECK(composer_preparation_contracts()==EXIT_SUCCESS);
     CHECK(legacy_prepared_contracts(limits)==EXIT_SUCCESS);
+    CHECK(m2a_ordered_text_image_refusal_baseline(limits)==EXIT_SUCCESS);
     CHECK(native_ttf_source_and_raster_contracts(limits)==EXIT_SUCCESS);
     CHECK(native_ttf_source_and_raster_contracts(limits,32)==EXIT_SUCCESS);
     /* Stages: 1 RAW Image, 2 IMAGE order, 3 PATH ownership,

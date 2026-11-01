@@ -168,6 +168,27 @@ inline std::string native_ttf_fixture(int mode=0)
         if(mode==47)text=blue; // no text: retain the old integer PATH-only gate
         if(mode==48)text="q 0 0 1 rg 25.1250000000000001 18.25 12.5 9.5 re f Q "+hello; // interrupted rect
     }
+    /* #578 M2a original Source order fixtures. Both are expected to
+     * refuse until the SAME compiled C11 page admits Text+Image. Test
+     * source authoring keeps the embedded TTF and genuine RAW XObject. */
+    if(mode==49 || mode==50) {
+        const std::string pixels("\xff\0\0\0\xff\0\0\0\xff\xff\xff\0",12);
+        auto image=pdf->newStream(pixels);
+        auto dict=image.getDict();
+        dict.replaceKey("/Type",O::newName("/XObject"));
+        dict.replaceKey("/Subtype",O::newName("/Image"));
+        dict.replaceKey("/Width",O::newInteger(2));
+        dict.replaceKey("/Height",O::newInteger(2));
+        dict.replaceKey("/BitsPerComponent",O::newInteger(8));
+        dict.replaceKey("/ColorSpace",O::newName("/DeviceRGB"));
+        auto xobjects=O::newDictionary();
+        xobjects.replaceKey("/I",image);
+        resources.replaceKey("/XObject",xobjects);
+        const std::string show=
+            "q BT /F 24 Tf 12 20 Td <002d004a005100510054> Tj ET Q";
+        const std::string draw="q 16 0 0 12 10 15 cm /I Do Q";
+        text=mode==49 ? show+" "+draw : draw+" "+show;
+    }
     page.replaceKey("/Contents",pdf->newStream(text));
     QPDFWriter writer(*pdf);writer.setOutputMemory();writer.write();
     auto blob=writer.getBufferSharedPointer();
