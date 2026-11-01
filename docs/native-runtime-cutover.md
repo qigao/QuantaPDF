@@ -69,8 +69,9 @@ partially paint or select a fallback.
   unsupported original content still fails closed before resizing.
 - Native blank pages with no painting (missing/empty Contents or
   balanced q/Q and transform-only content) produce owned opaque white
-  bitmaps; text, page annotations and unsupported operations never
-  become silent blank output.
+  bitmaps; **unsupported** Text, page annotations and unknown operations
+  never become silent blank output. Qualified embedded-TTF Text is a
+  separate original Source V10 paint profile with actual glyph contours.
 - One to **four unclipped, opaque Path Fill** operations with finite
   integer source geometry and exact normalized RGB/Gray solid colors
   render directly through the SAME Source V10 → uniquely owned IR →
@@ -87,6 +88,27 @@ partially paint or select a fallback.
 - Exactly one unclipped Image and one opaque solid PATH Fill, in **either
   original source order**, are also admitted through the same V10 Source
   and C11 layered Raster; pixel overlap follows source order.
+- **M2a — independently qualified opaque Text/Image:** exactly one
+  embedded CIDFontType2 FontFile2 TrueType show with **black, opaque
+  glyph outlines** and one bounded opaque DeviceRGB/Gray RAW or
+  FlateDecode Image XObject Do, in **either original paint order**.
+  Source V10 parses the complete original page once, retains no QPDF/font
+  owner in the detached IR, and admits only the sole referenced /Font
+  and /XObject resource categories. The one Source-owned compiled C11
+  V5 page executes its existing exact-Text contour geometry and image
+  layer on the same physical 72/96/144-DPI grid, one original source
+  order and one aggregate work/edge/source-pixel/drawn-pixel/byte
+  ledger. The black glyph coverage derived **in-place** from the
+  pre-existing exact opaque Text-on-white result preserves historical
+  edge rounding before V5's existing source-over compositor. No new
+  parser, raster, installed public API, interim full-page renderer or
+  PDFium fallback is added. After both successful paints, a late
+  unknown Do/Fill/W Clip/Tr/CTM, extra /Resources, SMask or unbalanced
+  source state refuses the **entire** page with empty output, never a
+  partially painted Bitmap. In this **M2a** profile, more than one
+  Text/Image paint, colored Text, arbitrary fonts, PATH Fill/Clip,
+  general graphics-state scopes and alpha remain unsupported; those
+  are separately tracked by M2b [#580](https://github.com/qigao/QuantaPDF/issues/580).
 - One or **two source-ordered Image-only Do paints** under the SAME
   genuine frozen W/W* Clip leaf, with balanced q/Q and no extra PATH
   paint, use the existing C11 clipped RAW Image raster for each layer.
@@ -99,8 +121,10 @@ partially paint or select a fallback.
   paint or second Clip refuses atomically; no PDFium-based approximation.
 - Four-layer homogeneous PATH-only and IMAGE-only admission remains
   distinct from the **one IMAGE + one PATH** unclipped mixed profile and
-  the narrower W/W* clipped IMAGE profiles. None of these modes imply
-  source Stroke, Text, arbitrary Clip or extra mixed/clipped operations.
+  the narrower W/W* clipped IMAGE profiles. These **PATH/Image-only**
+  contracts do not independently imply arbitrary source Stroke, Text,
+  Clip or extra mixed/clipped operations; the explicit M2a Text/Image
+  profile above is separate and narrower.
 - One frozen W/W* Clip, correct Q restoring scopes, 2–4 source-ordered
   8-bit Gray/RGB Image and opaque Path Fill operations, strictly bounded
   to at least one operation of each type for that **mixed** subset.
@@ -111,22 +135,37 @@ partially paint or select a fallback.
   quotas and four-operation limit. Source pixels are never mutated and
   projected PATH/Clip commands are borrowed only for the synchronous
   C11 raster call; no new provider or public ABI is introduced.
-- Unsupported text, annotations drawing, font glyphs, forms, soft masks,
-  gradients, advanced strokes, transparency, alternative Image formats,
-  general page geometry and unsupported render options fail closed.
+- Unqualified text (including arbitrary font formats, multiple fonts
+  and unsupported embedded glyph transforms), annotation drawing,
+  forms, soft masks, gradients, advanced strokes, transparency,
+  alternative Image formats, general page geometry and unqualified
+  render options fail closed. Qualified CID TrueType glyph outlines
+  and the bounded opaque Text/Image case above are not rejected.
 
 ## Native feature development and test gate
 
 The native-only suite checks deterministic fixed RGB goldens, exact repeated
 bitmaps, source-document ownership teardown, invalid-device and late-source
 error reset, pure C11 Clip/Raw Image/scoped mixed Raster and device planning.
-There is no reference renderer comparison, downloaded PDFium binary or
-differential pixel oracle in the build/CI.
+The M2a original embedded-TTF/RAW and embedded-TTF/Flate checks use
+**pre-M2a reviewed Roboto RGBA goldens** plus an independently authored
+4×4 Image-coverage, center-nearest RGB and source-over oracle for every
+72/96/144-DPI pixel in both paint orders. Further independent tests cover
+all actual Source C-allocations, original C11 exact-Text malloc 1–4,
+additional RAW Image and final compositor malloc 5–6, bounded N/N−1
+ledger quotas and late unsupported original-resource refusals. No
+reference PDF renderer comparison, downloaded PDFium binary, differential
+renderer or self-generated mixed-image golden is used in build/CI.
 
-Next native implementation tasks should extend the **source grammar, owned IR,
-raster painter and device pipeline** directly, gated by feature-specific
-fixed fixtures and negative work/quota/ownership tests. Do not restore a
-PDFium fallback to fill any gap.
+Next [M2b #580](https://github.com/qigao/QuantaPDF/issues/580)
+extends ordered Text/Image/Fill and scoped W/W* Clip with true
+**correlated 4×4 glyph ∩ Clip sample intersection** and frozen q/Q
+graphics-state semantics; premultiplied/double-rounded alpha-mask
+multiplication is not an acceptable substitute. Preserve the unchanged
+C11 work/resource limits and independent whole-image references. Further
+native features must extend the **same** source grammar, owned IR,
+raster painter and device pipeline with explicit negative budget,
+ownership and original-source tests. Do not restore a PDFium fallback.
 
 The public C11 ABI remains unchanged. The SDK is a C ABI backed by C/C++
 implementation; qpdf 12.4, ZLIB and JPEG remain private structure/codec
