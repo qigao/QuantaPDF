@@ -59,6 +59,14 @@ quantapdf_status quantapdf_native_scoped_prepare_v5(
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     double viewport_width,double viewport_height,quantapdf_native_scoped_profile_v5 profile,
     quantapdf_native_work_ledger_v1 *ledger,quantapdf_native_scoped_page_v5 *out);
+/* M2a unique ordered Text/Image original Source: prepare the existing
+ * TTF geometry as one transparent V5 layer and the RAW image as another.
+ * The same V5 pixel compositor and one execution ledger own both. */
+quantapdf_status quantapdf_native_scoped_prepare_m2a_text_image_v1(
+    const quantapdf_ir *ir,const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    const quantapdf_native_device_plan *physical,
+    quantapdf_native_work_ledger_v1 *ledger,
+    quantapdf_native_scoped_page_v5 *out);
 quantapdf_status quantapdf_native_scoped_execute_v5(
     quantapdf_native_scoped_page_v5 *page,quantapdf_ir_raster_image *out);
 void quantapdf_native_scoped_dispose_v5(quantapdf_native_scoped_page_v5 *page);

@@ -28,6 +28,9 @@ typedef struct quantapdf_native_prepared_page_v1 {
     quantapdf_native_device_plan physical;
     quantapdf_native_prepared_usage_v1 usage;
     quantapdf_native_resource_limits_v1 resource_limits;
+    /* PRIVATE M2a test-only option. Production prepare always leaves
+     * this empty; existing routes ignore it and retain old malloc order. */
+    quantapdf_native_malloc_fault_v1 m2a_malloc_fault;
 } quantapdf_native_prepared_page_v1;
 
 /* Exact classifier counts remain separate from conservative charged work.
@@ -253,7 +256,10 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
            floorf(page->width_points)!=page->width_points ||
            floorf(page->height_points)!=page->height_points)
             return QUANTAPDF_ERROR_UNSUPPORTED;
-        p.route=QP_NATIVE_PREPARED_TEXT;
+        /* Explicit M2a mixed route only for fully admitted one-Text/
+         * one-Image Source. Prior Text-only mode remains byte-identical. */
+        p.route=source->resources.image_count==1u?
+            QP_NATIVE_PREPARED_M2A_TEXT_IMAGE:QP_NATIVE_PREPARED_TEXT;
         printed=snprintf(box,sizeof(box),"0 0 %u %u",
             (unsigned)page->width_points,(unsigned)page->height_points);
         if(printed<0 || (size_t)printed>=sizeof(box))return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -348,6 +354,8 @@ static inline quantapdf_status quantapdf_native_compiled_page_compile_v1(
     if(metadata==NULL || metadata->source==NULL)return QUANTAPDF_ERROR_ARGUMENT;
     out->metadata=*metadata;out->metadata.source=NULL;
     quantapdf_native_work_init_v1(&out->ledger,metadata->limits.max_sample_tests,metadata->limits.max_edges);
+    if(metadata->route==QP_NATIVE_PREPARED_M2A_TEXT_IMAGE)
+        out->ledger.malloc_fault=metadata->m2a_malloc_fault;
     if(!quantapdf_native_resources_init_v1(&out->ledger,&metadata->resource_limits,
                                           metadata->usage.retained_bytes)) {
         quantapdf_native_compiled_page_dispose_v1(out);return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -355,6 +363,9 @@ static inline quantapdf_status quantapdf_native_compiled_page_compile_v1(
     if(metadata->route==QP_NATIVE_PREPARED_TEXT)
         status=quantapdf_native_geometry_prepare_text_v1(metadata->source,
             &metadata->physical_limits,&metadata->physical,&out->ledger,&out->exact);
+    else if(metadata->route==QP_NATIVE_PREPARED_M2A_TEXT_IMAGE)
+        status=quantapdf_native_scoped_prepare_m2a_text_image_v1(metadata->source,
+            &metadata->limits,&metadata->physical,&out->ledger,&out->scoped);
     else if(metadata->route==QP_NATIVE_PREPARED_EXACT_CUBICS)
         status=quantapdf_native_geometry_prepare_texample_v1(metadata->source,
             &metadata->physical_limits,&metadata->physical,&out->ledger,&out->exact);

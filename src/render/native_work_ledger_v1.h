@@ -23,11 +23,21 @@ typedef struct quantapdf_native_resource_usage_v1 {
     int enabled;
 } quantapdf_native_resource_usage_v1;
 
+/* PRIVATE synchronous allocation-fault gate. Only the existing native
+ * OOM test sets this for M2a, after Source admission. A NULL callback
+ * changes neither the allocator nor any historical malloc position.
+ * It never owns callback/context storage or escapes the page lifetime. */
+typedef struct quantapdf_native_malloc_fault_v1 {
+    void *owner;
+    int (*reject)(void *owner,size_t bytes);
+} quantapdf_native_malloc_fault_v1;
+
 typedef struct quantapdf_native_work_ledger_v1 {
     quantapdf_native_work_cost_v1 limit, used, reserved, peak_reserved;
     size_t completed_leases;
     int failed, samples_exact;
     quantapdf_native_resource_usage_v1 resources;
+    quantapdf_native_malloc_fault_v1 malloc_fault;
 } quantapdf_native_work_ledger_v1;
 
 typedef struct quantapdf_native_work_lease_v1 {

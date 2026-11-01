@@ -401,6 +401,145 @@ static int probe_rgb(const unsigned char *data,int stride,int x,int y,
     return px[0]==red && px[1]==green && px[2]==blue;
 }
 
+/* M2a independent whole-image oracle for four ORIGINAL 128x64 CID TTF +
+ * RAW/Flate 2x2 Image XObject pages in both paint orders.
+ *
+ * The Text reference is the already reviewed original Roboto-hello RGBA
+ * golden (produced BEFORE M2a), NOT a new mixed renderer's output. The
+ * Image footprint/nearest-neighbor colors and shared 4x4 coverage are
+ * calculated here directly from the authored PDF operands. They are
+ * blended analytically over opaque white in the actual authored order.
+ * Pixel-by-pixel comparison covers *all* 72/96/144 DPI RGB bytes. */
+static int native_m2a_public_text_image_cases(const std::string& filename)
+{
+    const auto goldens=std::filesystem::path(__FILE__).parent_path()/"goldens";
+    quantapdf_context *ctx=nullptr;
+    OK(quantapdf_context_create(&ctx));
+    for(int mode:{49,50,64,65}) {
+        const auto original=native_ttf_fixture(mode);
+        CHECK(write_pdf(filename,original));
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        for(int dpi:{72,96,144}) {
+            const size_t width=(128u*(size_t)dpi+71u)/72u;
+            const size_t height=(64u*(size_t)dpi+71u)/72u;
+            const double scale=(double)dpi/72.0;
+            std::ifstream file(goldens/("roboto-hello-"+
+                               std::to_string(dpi)+"-m0.rgba"),
+                               std::ios::binary);
+            const std::vector<unsigned char> text_golden{
+                std::istreambuf_iterator<char>(file),{}};
+            CHECK(text_golden.size()==width*height*4u);
+            quantapdf_render_options opts{};
+            opts.struct_size=sizeof(opts);opts.dpi=(float)dpi;
+            quantapdf_bitmap *bitmap=nullptr;
+            OK(quantapdf_render_page_with_options(page,&opts,&bitmap));
+            const unsigned char *rgb=nullptr;
+            size_t bytes=0u;
+            int w=0,h=0,stride=0,components=0;
+            OK(quantapdf_bitmap_dimensions(bitmap,&w,&h,&stride,&components));
+            OK(quantapdf_bitmap_data(bitmap,&rgb,&bytes));
+            CHECK(w==(int)width && h==(int)height && stride==(int)width*3 &&
+                  components==3 && rgb!=nullptr && bytes==width*height*3u);
+            size_t overlapping=0u;
+            for(size_t y=0u;y<height;++y)
+            for(size_t x=0u;x<width;++x) {
+                const size_t index=y*width+x;
+                /* Text glyphs are opaque black over white. The *older*
+                 * independent golden fixes precise TTF contour coverage. */
+                const unsigned char t0=text_golden[4u*index];
+                CHECK(t0==text_golden[4u*index+1u] &&
+                      t0==text_golden[4u*index+2u] &&
+                      text_golden[4u*index+3u]==255u);
+                const unsigned text_alpha=255u-(unsigned)t0;
+                const double left=10.0*scale,right=26.0*scale;
+                const double top=37.0*scale,bottom=49.0*scale;
+                unsigned covered=0u;
+                for(unsigned sy=0u;sy<4u;++sy)
+                for(unsigned sx=0u;sx<4u;++sx) {
+                    const double px=(double)x+((double)sx+0.5)/4.0;
+                    const double py=(double)y+((double)sy+0.5)/4.0;
+                    covered+=(unsigned)(px>=left && px<right &&
+                                         py>=top && py<bottom);
+                }
+                const unsigned image_alpha=(covered*255u+8u)/16u;
+                if(text_alpha>0u && image_alpha>0u)++overlapping;
+                const double nx=((double)x+0.5-left)/(right-left)*2.0;
+                const double ny=((double)y+0.5-top)/(bottom-top)*2.0;
+                const size_t ix=nx<=0.0?0u:nx>=2.0?1u:(size_t)nx;
+                const size_t iy=ny<=0.0?0u:ny>=2.0?1u:(size_t)ny;
+                static const unsigned char source[4][3]={
+                    {255u,0u,0u},{0u,255u,0u},
+                    {0u,0u,255u},{255u,255u,0u}
+                };
+                const unsigned char *image_rgb=source[iy*2u+ix];
+                unsigned expected[3]={255u,255u,255u};
+                for(unsigned layer=0u;layer<2u;++layer) {
+                    const bool image=(mode==49 || mode==64)?
+                        layer==1u:layer==0u;
+                    const unsigned alpha=image?image_alpha:text_alpha;
+                    for(unsigned c=0u;c<3u;++c) {
+                        const unsigned color=image?image_rgb[c]:0u;
+                        expected[c]=(color*alpha+
+                            expected[c]*(255u-alpha)+127u)/255u;
+                    }
+                }
+                const unsigned char *actual=rgb+index*3u;
+                if(actual[0]!=expected[0] || actual[1]!=expected[1] ||
+                   actual[2]!=expected[2]) {
+                    std::fprintf(stderr,
+                        "M2a independent RGB mode=%d DPI=%d x=%zu y=%zu"
+                        " expected=%u/%u/%u actual=%u/%u/%u\n",
+                        mode,dpi,x,y,expected[0],expected[1],expected[2],
+                        (unsigned)actual[0],(unsigned)actual[1],
+                        (unsigned)actual[2]);
+                    quantapdf_drop_bitmap(bitmap);
+                    quantapdf_drop_page(page);
+                    quantapdf_close(doc);
+                    quantapdf_drop_context(ctx);
+                    return EXIT_FAILURE;
+                }
+            }
+            CHECK(overlapping>0u);
+            quantapdf_drop_bitmap(bitmap);
+        }
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+    }
+    /* All thirteen late-source cases are exhaustively exercised in
+     * the EXISTING Source/OOM test. A six-case representative subset
+     * also checks public Bitmap atomic refusal and same-Context
+     * recovery. Avoid thirteen redundant full TTF public renders:
+     * the existing ASan CTest has an immutable 45-second ceiling. */
+    constexpr int public_m2a_refusals[]={51,52,53,54,60,63};
+    for(int mode:public_m2a_refusals) {
+        CHECK(write_pdf(filename,native_ttf_fixture(mode)));
+        quantapdf_document *denied_doc=nullptr;
+        quantapdf_page *denied_page=nullptr;
+        quantapdf_bitmap *denied_bitmap=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+        OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&denied_doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(denied_doc,0,&denied_page));
+        const auto refusal=quantapdf_render_page(denied_page,&denied_bitmap);
+        if(refusal!=QUANTAPDF_ERROR_UNSUPPORTED &&
+           refusal!=QUANTAPDF_ERROR_FORMAT)
+            std::fprintf(stderr,"M2a public negative mode=%d status=%d\n",
+                         mode,(int)refusal);
+        CHECK((refusal==QUANTAPDF_ERROR_UNSUPPORTED ||
+               refusal==QUANTAPDF_ERROR_FORMAT) &&
+              denied_bitmap==nullptr);
+        quantapdf_drop_page(denied_page);
+        quantapdf_close(denied_doc);
+    }
+    quantapdf_drop_context(ctx);
+    std::puts("[native-public-render] M2a original RAW/Flate Text/Image"
+              " in both orders, independent RGB 72/96/144 DPI passed");
+    return EXIT_SUCCESS;
+}
+
 /* Native original-PDF goldens use the true 96-DPI 4/3 device
  * sampling grid, including fractional image/Clip intersections and
  * already-qualified integer-image and 144-DPI profiles.
@@ -3453,6 +3592,7 @@ int main()
 {
     const std::string filename="native-standalone-smoke.pdf";
     CHECK(native_ttf_public_cases(filename)==EXIT_SUCCESS);
+    CHECK(native_m2a_public_text_image_cases(filename)==EXIT_SUCCESS);
     CHECK(high_dpi_cases(filename)==EXIT_SUCCESS);
     CHECK(original_source_rotation_cases(filename)==EXIT_SUCCESS);
     CHECK(selected_page_v10_cases(filename)==EXIT_SUCCESS);
