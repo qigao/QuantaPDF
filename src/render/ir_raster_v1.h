@@ -28,6 +28,8 @@ typedef struct quantapdf_ir_raster_v1_limits {
  * types. Pixel/mask surfaces and borrowed Source bytes are added by prepare. */
 int quantapdf_native_geometry_allocation_bound_v1(
     size_t max_edges,size_t max_draws,size_t *out_bytes);
+int quantapdf_native_owned_geometry_bound_v1(
+    size_t max_edges,size_t max_draws,size_t max_commands,size_t max_owners,size_t *out_bytes);
 
 /* Same existing admission modes, with a reservation in the owning page's
  * ledger before entering the sampler. Conservative sample-work charges are
@@ -37,6 +39,44 @@ typedef enum quantapdf_native_work_mode_v1 {
     QP_NATIVE_WORK_VISIBLE_FILL=1,
     QP_NATIVE_WORK_VISIBLE_STROKE=2
 } quantapdf_native_work_mode_v1;
+
+/* PRIVATE unique owner, zero-initialize and never copy a live handle. Its
+ * compiled payload contains no IR/Clip/device-plan borrows. The synchronous
+ * ledger borrow must outlive the owner. First execution settles its pending
+ * compilation lease; replays bill fresh sample work, without recompiling or
+ * rebilling retained edges. Dispose abandons a pending lease and frees all
+ * geometry, including after failure. Output pixels have independent ownership. */
+typedef struct quantapdf_native_geometry_v1 {
+    void *data;
+    quantapdf_native_work_ledger_v1 *ledger;
+    quantapdf_native_work_lease_v1 lease;
+    int executed;
+} quantapdf_native_geometry_v1;
+
+typedef struct quantapdf_native_geometry_info_v1 {
+    size_t width,height,draws,clips,edges,commands,retained_bytes;
+} quantapdf_native_geometry_info_v1;
+
+quantapdf_status quantapdf_native_geometry_prepare_v1(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_v1_limits *limits,const quantapdf_native_device_plan *plan,
+    const quantapdf_composer_clip_state *const *clips,size_t clip_count,
+    quantapdf_native_work_mode_v1 mode,quantapdf_native_work_ledger_v1 *ledger,
+    quantapdf_native_geometry_v1 *out);
+quantapdf_status quantapdf_native_geometry_execute_v1(
+    quantapdf_native_geometry_v1 *geometry,size_t *out_sample_tests,
+    quantapdf_ir_raster_image *out);
+quantapdf_status quantapdf_native_geometry_info_get_v1(
+    const quantapdf_native_geometry_v1 *geometry,quantapdf_native_geometry_info_v1 *out);
+void quantapdf_native_geometry_dispose_v1(quantapdf_native_geometry_v1 *geometry);
+quantapdf_status quantapdf_native_geometry_prepare_text_v1(
+    const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,quantapdf_native_work_ledger_v1 *ledger,
+    quantapdf_native_geometry_v1 *out);
+quantapdf_status quantapdf_native_geometry_prepare_texample_v1(
+    const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,quantapdf_native_work_ledger_v1 *ledger,
+    quantapdf_native_geometry_v1 *out);
 quantapdf_status quantapdf_ir_raster_render_v1_accounted(
     const quantapdf_ir *ir,size_t page_index,
     const quantapdf_ir_raster_v1_limits *limits,

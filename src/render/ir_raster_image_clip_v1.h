@@ -34,6 +34,20 @@ quantapdf_status quantapdf_ir_raster_clipped_raw_image_v1_accounted(
     const quantapdf_ir_raster_v1_limits *clip_limits,
     quantapdf_native_work_ledger_v1 *ledger,quantapdf_ir_raster_image *out_image);
 
+/* Compile the SAME rectangle/Clip intersection without allocating a pixel
+ * mask. Its owner copies/compiles every temporary command before returning. */
+quantapdf_status quantapdf_native_image_mask_prepare_v1(
+    const quantapdf_composer_page_state *page,const quantapdf_rect *bounds,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_composer_clip_state *const *clips,size_t clip_count,
+    quantapdf_native_work_ledger_v1 *ledger,quantapdf_native_geometry_v1 *out);
+quantapdf_status quantapdf_ir_raster_clipped_raw_image_v1_prepared(
+    const quantapdf_ir *ir,size_t page_index,
+    const quantapdf_ir_raster_image_v1_limits *image_limits,
+    const quantapdf_ir_raster_v1_limits *clip_limits,
+    quantapdf_native_work_ledger_v1 *ledger,quantapdf_native_geometry_v1 *mask,
+    quantapdf_ir_raster_image *out_image);
+
 #ifdef __cplusplus
 }
 #endif

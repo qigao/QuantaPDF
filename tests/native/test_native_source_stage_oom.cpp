@@ -963,6 +963,78 @@ static bool physical_texample_page_fringe(unsigned dpi=72u,bool buffer_rect=fals
 /* The SAME untouched PDF, fully owned Source M3 graph and three source
  * operations. The independent authored-decimal reference uses polynomial
  * ray roots + all quintic stationary-distance roots, never native pixels. */
+/* Use one existing positive render to prove that actual Source geometry
+ * survives destruction of every temporary IR/command/device-plan view. No
+ * extra expensive original-PDF execution or test allocation hook is added. */
+static quantapdf_status render_detached_geometry(const quantapdf_ir& source,
+    const quantapdf_native_prepared_page_v1& prepared,size_t *work,quantapdf_ir_raster_image *out)
+{
+    quantapdf_composer_path_command commands[4096]{};
+    quantapdf_outline_glyph glyphs[64]{};
+    quantapdf_composer_operation ops[4]{};
+    quantapdf_composer_clip_state clips[1]{};
+    quantapdf_composer_graphics_state states[1]{};
+    quantapdf_composer_page_state page=source.pages[0];
+    quantapdf_ir view=source;size_t used=0u,nglyphs=0u;
+    const auto copy=[&](const quantapdf_composer_path_command *input,size_t n) {
+        if(n>4096u-used)return static_cast<quantapdf_composer_path_command *>(nullptr);
+        auto *result=commands+used;std::memcpy(result,input,n*sizeof(*input));used+=n;return result;
+    };
+    if(work)*work=0u;
+    std::memset(out,0,sizeof(*out));
+    if(source.operation_count>4u || source.resources.clip_count>1u || source.resources.graphics_state_count>1u)
+        return QUANTAPDF_ERROR_BACKEND;
+    for(size_t i=0u;i<source.operation_count;++i) {
+        ops[i]=source.operations[i];
+        if(ops[i].kind==QUANTAPDF_COMPOSER_OPERATION_PATH) {
+            auto& path=ops[i].value.path;path.commands=copy(path.commands,path.command_count);
+            if(path.commands==nullptr)return QUANTAPDF_ERROR_BACKEND;
+        } else {
+            auto& text=ops[i].value.text_outlines;
+            if(text.glyph_count>64u-nglyphs)return QUANTAPDF_ERROR_BACKEND;
+            text.glyphs=text.glyph_count!=0u?glyphs+nglyphs:nullptr;
+            for(size_t j=0u;j<text.glyph_count;++j) {
+                auto& glyph=glyphs[nglyphs++];glyph=source.operations[i].value.text_outlines.glyphs[j];
+                glyph.commands=copy(glyph.commands,glyph.command_count);
+                if(glyph.commands==nullptr)return QUANTAPDF_ERROR_BACKEND;
+            }
+        }
+    }
+    view.pages=&page;view.operations=ops;
+    if(source.resources.clip_count) {
+        clips[0]=source.resources.clips[0];clips[0].commands=copy(clips[0].commands,clips[0].command_count);
+        if(clips[0].commands==nullptr)return QUANTAPDF_ERROR_BACKEND;
+        view.resources.clips=clips;
+    }
+    if(source.resources.graphics_state_count) {
+        states[0]=source.resources.graphics_states[0];view.resources.graphics_states=states;
+    }
+    auto device=prepared.physical;quantapdf_native_work_ledger_v1 ledger{};
+    quantapdf_native_work_init_v1(&ledger,prepared.limits.max_sample_tests,prepared.limits.max_edges);
+    if(!quantapdf_native_resources_init_v1(&ledger,&prepared.resource_limits,prepared.usage.retained_bytes))
+        return QUANTAPDF_ERROR_BACKEND;
+    quantapdf_native_geometry_v1 geometry{};
+    auto status=prepared.route==QP_NATIVE_PREPARED_TEXT?
+        quantapdf_native_geometry_prepare_text_v1(&view,&prepared.physical_limits,&device,&ledger,&geometry):
+        quantapdf_native_geometry_prepare_texample_v1(&view,&prepared.physical_limits,&device,&ledger,&geometry);
+    if(status!=QUANTAPDF_OK)return status;
+    quantapdf_native_geometry_info_v1 info{};
+    if(quantapdf_native_geometry_info_get_v1(&geometry,&info)!=QUANTAPDF_OK || info.commands!=used) {
+        quantapdf_native_geometry_dispose_v1(&geometry);return QUANTAPDF_ERROR_BACKEND;
+    }
+    std::memset(commands,0xa5,used*sizeof(*commands));std::memset(glyphs,0xa5,sizeof(glyphs));
+    std::memset(ops,0xa5,sizeof(ops));std::memset(clips,0xa5,sizeof(clips));
+    std::memset(states,0xa5,sizeof(states));std::memset(&view,0xa5,sizeof(view));
+    std::memset(&page,0xa5,sizeof(page));std::memset(&device,0xa5,sizeof(device));
+    status=quantapdf_native_geometry_execute_v1(&geometry,work,out);
+    quantapdf_native_geometry_dispose_v1(&geometry);
+    if(ledger.resources.live_bytes!=prepared.usage.retained_bytes+(status==QUANTAPDF_OK?out->size:0u) ||
+       (status==QUANTAPDF_OK && (!ledger.samples_exact || ledger.used.edges!=info.edges))) {
+        quantapdf_ir_raster_image_dispose(out);if(work)*work=0u;return QUANTAPDF_ERROR_BACKEND;
+    }
+    return status;
+}
+
 static bool original_texample_three_layer(const quantapdf_ir& source,
     const char *original_filename,quantapdf_ir_raster_image& detached,bool shared=false,unsigned dpi=72u)
 {
@@ -988,7 +1060,7 @@ static bool original_texample_three_layer(const quantapdf_ir& source,
         quantapdf_ir_raster_render_v1_texample_physical_dpi_three_layer:shared?
         quantapdf_ir_raster_render_v1_texample_shared_three_layer:
         quantapdf_ir_raster_render_v1_texample_physical_three_layer;
-    size_t memory_cap=0u;
+    size_t memory_cap=0u;bool detach_once=true;
     const auto render=[&](const quantapdf_ir *ir,const quantapdf_ir_raster_v1_limits *budget,
         const quantapdf_native_device_plan *device,size_t *observed_work,quantapdf_ir_raster_image *out) {
         /* Keep legacy and explicitly malformed private-plan tests on their
@@ -1007,6 +1079,9 @@ static bool original_texample_three_layer(const quantapdf_ir& source,
         if(result!=QUANTAPDF_OK)return result;
         if(prepared.route!=QP_NATIVE_PREPARED_EXACT_CUBICS)return QUANTAPDF_ERROR_BACKEND;
         if(memory_cap!=0u)prepared.resource_limits.max_live_bytes=memory_cap;
+        if(detach_once && memory_cap!=0u && budget->max_sample_tests<limits.max_sample_tests) {
+            detach_once=false;return render_detached_geometry(*ir,prepared,observed_work,out);
+        }
         quantapdf_native_execution_receipt_v1 receipt{};
         result=quantapdf_native_execute_page_v1(&prepared,&receipt,out);
         if(result==QUANTAPDF_OK && (!receipt.sample_tests_exact ||
@@ -1584,6 +1659,7 @@ static int native_ttf_source_and_raster_contracts(
         std::ifstream file(goldens/(std::string(mode==1?"roboto-layers-":"roboto-mixed-")+std::to_string(dpi)+(mode==1?"-m0.rgba":"-m1.rgba")),std::ios::binary);
         const std::vector<unsigned char> expected{std::istreambuf_iterator<char>(file),{}};
         CHECK(expected.size()==full.size && std::memcmp(expected.data(),full.pixels,full.size)==0);
+        bool detach_once=true;
         const auto retry=[&](const quantapdf_ir_raster_v1_limits& budget,quantapdf_status want,size_t fail_index=0u) {
             quantapdf_ir_raster_image result;std::memset(&result,0xa5,sizeof(result));size_t seen=999u;
             track_c_allocation=fail_index!=0u;c_fail_index=fail_index;c_allocations=0u;c_faults=0u;
@@ -1594,10 +1670,14 @@ static int native_ttf_source_and_raster_contracts(
                 quantapdf_native_prepared_page_v1 retry_plan{};
                 quantapdf_native_execution_receipt_v1 retry_receipt{};
                 got=prepare(budget,retry_plan);
-                if(got==QUANTAPDF_OK)got=quantapdf_native_execute_page_v1(&retry_plan,&retry_receipt,&result);
+                const bool detached=got==QUANTAPDF_OK && detach_once && want==QUANTAPDF_OK &&
+                    fail_index==0u && budget.max_sample_tests==work;
+                if(detached) {
+                    detach_once=false;got=render_detached_geometry(ir,retry_plan,&seen,&result);
+                } else if(got==QUANTAPDF_OK)got=quantapdf_native_execute_page_v1(&retry_plan,&retry_receipt,&result);
                 else std::memset(&result,0,sizeof(result));
-                seen=retry_receipt.sample_tests;
-                if(got==QUANTAPDF_OK && (!retry_receipt.sample_tests_exact ||
+                if(!detached)seen=retry_receipt.sample_tests;
+                if(!detached && got==QUANTAPDF_OK && (!retry_receipt.sample_tests_exact ||
                    retry_receipt.peak_live_bytes>memory_cap || retry_receipt.output_bytes!=result.size ||
                    (budget.max_edges==limits.max_edges && retry_receipt.peak_live_bytes!=memory_cap)))
                     got=QUANTAPDF_ERROR_BACKEND;
