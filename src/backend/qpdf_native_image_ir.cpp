@@ -891,6 +891,53 @@ void validate_v10_opaque_gs(Obj resources,Obj name)
     }
 }
 
+/* M2a: the existing outline reader may report an actual TTF show or
+ * one image to the SAME original source's ordered staging. The callback
+ * retains neither QPDF handles nor font/parser state. The only new
+ * Source grammar is one opaque Text show plus one qualified Image Do. */
+quantapdf_status source_m2a_text(void *user)
+{
+    admission& source=*static_cast<admission*>(user);
+    try {
+        admit(source.native_unclipped_mode &&
+              source.text_outlines_eligible &&
+              source.order.size()<hard_operations &&
+              source.order.size()<source.limits.max_operations &&
+              source.painted_paths.empty() &&
+              !source.clip_completed &&
+              source.clip.commands.empty() &&
+              source.second_clip.commands.empty(),
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        source.order.push_back(3);
+        source.scoped_clip_membership.push_back(0u);
+        return QUANTAPDF_OK;
+    } catch(rejected const& e){return e.status;}
+      catch(std::bad_alloc const&){return QUANTAPDF_ERROR_NOMEM;}
+      catch(...){return QUANTAPDF_ERROR_UNSUPPORTED;}
+}
+quantapdf_status source_m2a_image(
+    void *user,Obj image,const std::array<double,6>&ctm)
+{
+    admission& source=*static_cast<admission*>(user);
+    try {
+        admit(source.native_unclipped_mode &&
+              source.text_outlines_eligible &&
+              source.draws.empty() &&
+              source.painted_paths.empty() &&
+              source.order.size()==1u && source.order[0]==3 &&
+              !source.clip_completed &&
+              source.clip.commands.empty() &&
+              source.second_clip.commands.empty() &&
+              !source.saw_q_restore,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        source.execute(image,ctm);
+        source.scoped_clip_membership.push_back(0u);
+        return QUANTAPDF_OK;
+    } catch(rejected const& e){return e.status;}
+      catch(std::bad_alloc const&){return QUANTAPDF_ERROR_NOMEM;}
+      catch(...){return QUANTAPDF_ERROR_UNSUPPORTED;}
+}
+
 class image_content_reader final : public Obj::ParserCallbacks {
 public:
     explicit image_content_reader(admission& a,bool allow_path=false,
@@ -913,8 +960,14 @@ public:
         const std::string op=item.getOperatorValue();
         if(target.text_outlines_eligible && op=="BT") {
             admit(args.empty() && pending_path.empty() && !clip_pending &&
-                !target.clip_completed && target.draws.empty() &&
-                target.order.size()==target.painted_paths.size() && stack.size()==fill_stack.size() &&
+                !target.clip_completed &&
+                (target.draws.empty() ?
+                    target.order.size()==target.painted_paths.size() :
+                    (target.draws.size()==1u && target.order.size()==1u &&
+                     target.order[0]==2 && target.painted_paths.empty() &&
+                     target.scoped_clip_membership.size()==1u &&
+                     target.scoped_clip_membership[0]==0u)) &&
+                stack.size()==fill_stack.size() &&
                 std::all_of(clip_stack.begin(),clip_stack.end(),[](size_t id){return id==0u;}),
                 QUANTAPDF_ERROR_UNSUPPORTED);
             std::vector<quantapdf::detail::source_text_seed> saved;
@@ -930,7 +983,8 @@ public:
             admit(prefix.size()<4u,QUANTAPDF_ERROR_UNSUPPORTED);
             QP_SOURCE_STAGE_ARM(8u);
             outline_reader=quantapdf::detail::make_source_text_outlines(
-                target.resources,target.exact_page_h,{current,fill_argb},saved,prefix);
+                target.resources,target.exact_page_h,{current,fill_argb},saved,prefix,
+                {&target,source_m2a_text,source_m2a_image});
             const auto status=outline_reader->consume(item);
             admit(status==QUANTAPDF_OK,status);return;
         }
@@ -2460,6 +2514,69 @@ quantapdf_ir materialize_text_outlines(const admission& source)
                 out.commands=static_cast<quantapdf_composer_path_command *>(QP_SOURCE_C_MALLOC(in.size()*sizeof(*out.commands)));
                 admit(out.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
                 std::memcpy(out.commands,in.data(),in.size()*sizeof(*out.commands));
+            }
+        }
+        return ir;
+    } catch(...) {quantapdf_ir_dispose(&ir);throw;}
+}
+
+/* M2a complete owned Source graph: one embedded-TTF show and one
+ * original RAW/Flate RGB/Gray Image, in either original paint order.
+ * Existing decoder/font interpreter remain the ONLY providers. All
+ * bytes/contours are copied into one IR only AFTER whole-content EOF. */
+quantapdf_ir materialize_m2a_text_image(const admission& source)
+{
+    admit(source.native_unclipped_mode && source.text_outlines_complete &&
+          source.text_outline_paints.size()==1u &&
+          source.painted_paths.empty() && source.draws.size()==1u &&
+          source.order.size()==2u && source.limits.max_operations>=2u &&
+          ((source.order[0]==3 && source.order[1]==2) ||
+           (source.order[0]==2 && source.order[1]==3)) &&
+          source.scoped_clip_membership.size()==2u &&
+          source.scoped_clip_membership[0]==0u &&
+          source.scoped_clip_membership[1]==0u &&
+          !source.clip_completed && source.clip.commands.empty() &&
+          source.second_clip.commands.empty() && !source.saw_q_restore,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    const auto& paint=source.text_outline_paints[0];
+    admit(paint.rectangle.empty() && !paint.glyphs.empty() &&
+          paint.glyphs.size()<=64u && (paint.argb>>24u)==255u,
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    size_t commands=0u;
+    for(const auto& glyph:paint.glyphs) {
+        admit(!glyph.commands.empty() &&
+              glyph.commands.size()<=4096u-commands,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        commands+=glyph.commands.size();
+    }
+    quantapdf_ir ir=materialize(source);
+    try {
+        const auto image=ir.operations[0];
+        auto *expanded=static_cast<quantapdf_composer_operation *>(
+            QP_SOURCE_C_REALLOC(ir.operations,2u*sizeof(*ir.operations)));
+        admit(expanded!=nullptr,QUANTAPDF_ERROR_NOMEM);
+        ir.operations=expanded;
+        std::memset(expanded,0,2u*sizeof(*expanded));
+        ir.operation_count=2u;
+        for(size_t i=0u;i<2u;++i) {
+            if(source.order[i]==2) {ir.operations[i]=image;continue;}
+            auto& op=ir.operations[i];
+            op.kind=QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES;
+            auto& text=op.value.text_outlines;
+            text.argb=paint.argb;
+            text.glyph_count=paint.glyphs.size();
+            text.glyphs=static_cast<quantapdf_outline_glyph *>(
+                QP_SOURCE_C_CALLOC(text.glyph_count,sizeof(*text.glyphs)));
+            admit(text.glyphs!=nullptr,QUANTAPDF_ERROR_NOMEM);
+            for(size_t g=0u;g<text.glyph_count;++g) {
+                const auto& input=paint.glyphs[g].commands;
+                auto& glyph=text.glyphs[g];
+                glyph.command_count=input.size();
+                glyph.commands=static_cast<quantapdf_composer_path_command *>(
+                    QP_SOURCE_C_MALLOC(input.size()*sizeof(*glyph.commands)));
+                admit(glyph.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
+                std::memcpy(glyph.commands,input.data(),
+                            input.size()*sizeof(*glyph.commands));
             }
         }
         return ir;
@@ -4102,7 +4219,9 @@ static quantapdf_status source_raw_images_to_ir_impl(
         admit(!parser.anyWarnings() && !pdf->anyWarnings(),
               QUANTAPDF_ERROR_FORMAT);
         if(source.text_outlines_complete) {
-            *out_ir=materialize_text_outlines(source);return QUANTAPDF_OK;
+            *out_ir=source.draws.empty()?materialize_text_outlines(source):
+                materialize_m2a_text_image(source);
+            return QUANTAPDF_OK;
         }
         const bool clip_states=native_v10 &&
             !source.texample_original_profile &&
