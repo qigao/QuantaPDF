@@ -1199,6 +1199,7 @@ quantapdf_status quantapdf_native_scoped_prepare_m2a_text_image_v1(
     const quantapdf_composer_operation *image_op=&ir->operations[image_index];
     const quantapdf_composer_image_state *resource=&ir->resources.images[0];
     if(text_op->page_index!=0u || text_op->graphics_state_id!=0u ||
+       text_op->value.text_outlines.argb!=UINT32_C(0xff000000) ||
        image_op->page_index!=0u || image_op->graphics_state_id!=0u ||
        image_op->value.image.image_id!=1u ||
        image_op->value.image.options.struct_size<
@@ -1276,9 +1277,10 @@ quantapdf_status quantapdf_native_scoped_prepare_m2a_text_image_v1(
     status=quantapdf_native_geometry_prepare_text_v1(
         &text_view,&text_limits,physical,ledger,&out->geometry[text_index]);
     if(status!=QUANTAPDF_OK)goto cleanup;
-    status=quantapdf_native_geometry_transparent_text_layer_v1(
-        &out->geometry[text_index]);
-    if(status!=QUANTAPDF_OK)goto cleanup;
+    /* Retain exact old Text-on-white sample rounding. V5 converts the
+     * fully sampled opaque grayscale result to black plus coverage alpha
+     * in-place, preserving every old Text-only byte and the shared ledger. */
+    out->modes[text_index]=4u;
     if(fractional) {
         image_mask_limits.max_pixels=limits->max_pixels;
         image_mask_limits.max_operations=1u;
@@ -1326,6 +1328,25 @@ quantapdf_status quantapdf_native_scoped_execute_v5(
     for(i=0u;i<page->count;++i) {
         if(page->modes[i]==0u) {
             status=quantapdf_native_geometry_execute_v1(&page->geometry[i],NULL,&layers[i]);
+        } else if(page->modes[i]==4u) {
+            /* M2a exact opaque black Text qualification: use the existing
+             * TTF-on-white result as a per-pixel coverage observation.
+             * Convert this owned buffer to black/alpha BEFORE existing
+             * source-over. Do not quantize alpha during glyph sampling
+             * then round it again when compositing over white. */
+            status=quantapdf_native_geometry_execute_v1(&page->geometry[i],NULL,&layers[i]);
+            if(status==QUANTAPDF_OK) {
+                for(size_t p=0u;p<page->pixels;++p) {
+                    unsigned char *pixel=layers[i].pixels+4u*p;
+                    const unsigned char value=pixel[0];
+                    if(pixel[1]!=value || pixel[2]!=value || pixel[3]!=255u) {
+                        status=QUANTAPDF_ERROR_UNSUPPORTED;
+                        break;
+                    }
+                    pixel[0]=pixel[1]=pixel[2]=0u;
+                    pixel[3]=(unsigned char)(255u-value);
+                }
+            }
         } else if(page->modes[i]==2u) {
             status=v5_fractional_image_layer(&transparent,&page->images[i].bounds,&page->resources[i],
                                              &page->geometry[i],ledger,&layers[i]);

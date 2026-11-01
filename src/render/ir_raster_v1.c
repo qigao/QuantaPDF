@@ -2622,21 +2622,6 @@ quantapdf_status quantapdf_ir_raster_render_v1_texample_accounted(
                                     plan!=NULL && plan->dpi==72u?1:2,ledger,NULL);
 }
 
-quantapdf_status quantapdf_native_geometry_transparent_text_layer_v1(
-    quantapdf_native_geometry_v1 *geometry)
-{
-    qp_compiled_geometry *g;
-    if(geometry==NULL || geometry->data==NULL || geometry->ledger==NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    g=(qp_compiled_geometry *)geometry->data;
-    if(g->mode!=10 || g->suppress_background!=0 ||
-       g->background!=UINT32_C(0xffffffff))
-        return QUANTAPDF_ERROR_UNSUPPORTED;
-    g->background=0u;
-    g->suppress_background=1;
-    return QUANTAPDF_OK;
-}
-
 quantapdf_status quantapdf_native_geometry_prepare_text_v1(
     const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
     const quantapdf_native_device_plan *plan,quantapdf_native_work_ledger_v1 *ledger,

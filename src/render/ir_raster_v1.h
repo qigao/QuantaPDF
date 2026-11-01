@@ -71,12 +71,6 @@ quantapdf_status quantapdf_native_geometry_execute_v1(
 quantapdf_status quantapdf_native_geometry_info_get_v1(
     const quantapdf_native_geometry_v1 *geometry,quantapdf_native_geometry_info_v1 *out);
 void quantapdf_native_geometry_dispose_v1(quantapdf_native_geometry_v1 *geometry);
-/* M2a only: after the existing exact TTF geometry has compiled under
- * its normal opaque-white validation, mark the owned compiled layer as
- * transparent for the existing V5 source-over compositor. This changes
- * no contour, sample or budget and does not affect Text-only callers. */
-quantapdf_status quantapdf_native_geometry_transparent_text_layer_v1(
-    quantapdf_native_geometry_v1 *geometry);
 quantapdf_status quantapdf_native_geometry_prepare_text_v1(
     const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
     const quantapdf_native_device_plan *plan,quantapdf_native_work_ledger_v1 *ledger,
