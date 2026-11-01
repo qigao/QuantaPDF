@@ -1639,9 +1639,15 @@ static int m2a_ordered_text_image_source_contract(
     const quantapdf_qpdf_source_raw_image_limits& limits)
 {
     target=0u;armed=false;track_c_allocation=false;c_fail_index=0u;
-    quantapdf_context *context=nullptr;
-    CHECK(quantapdf_context_create(&context)==QUANTAPDF_OK);
     for(int mode:{49,50}) {
+        /* A public Composer is a separate real retained Context guard.
+         * Do NOT link a test to the unexported retain_internal in Windows. */
+        quantapdf_context *context=nullptr;
+        quantapdf_composer *composer_guard=nullptr;
+        CHECK(quantapdf_context_create(&context)==QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create_with_context(context,nullptr,
+              &composer_guard)==QUANTAPDF_OK &&
+              composer_guard!=nullptr && context->references==2u);
         const std::string original=native_ttf_fixture(mode);
         const auto read=[&](quantapdf_ir& ir) {
             return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
@@ -1737,7 +1743,7 @@ static int m2a_ordered_text_image_source_contract(
             }
             bool ok=status==wanted &&
                 std::memcmp(&ir,&saved,sizeof(ir))==0 &&
-                context->references==1u;
+                context->references==2u;
             if(wanted==QUANTAPDF_OK)
                 ok=ok && result.size==baseline.size &&
                     std::memcmp(result.pixels,baseline.pixels,result.size)==0 &&
@@ -1809,9 +1815,10 @@ static int m2a_ordered_text_image_source_contract(
         /* Explicit same-Context failure leaves caller-owned IR/lease
          * untouched; successful adoption moves the same retained guard.
          * The detached output survives page and Context-reference drops. */
-        quantapdf_context_lease_internal lease{};
-        CHECK(quantapdf_context_lease_acquire_internal(context,&lease)==QUANTAPDF_OK &&
-              context->references==2u);
+        /* Move the caller's existing reference only AFTER complete
+         * admission. Failed preparation must preserve it untouched. */
+        quantapdf_context_lease_internal lease{context,quantapdf_drop_context};
+        CHECK(context->references==2u);
         auto too_small=caps;too_small.max_source_pixels=3u;
         quantapdf_native_source_page_v1 refused{};
         CHECK(quantapdf_native_source_page_prepare_context_v1(
@@ -1820,9 +1827,7 @@ static int m2a_ordered_text_image_source_contract(
               std::memcmp(&ir,&saved,sizeof(ir))==0 &&
               lease.context==context && context->references==2u &&
               refused.owns_ir==0 && refused.compiled.ready==0);
-        quantapdf_context_lease_drop_internal(&lease);
-        CHECK(context->references==1u);
-        CHECK(quantapdf_context_lease_acquire_internal(context,&lease)==QUANTAPDF_OK);
+        CHECK(lease.context==context && context->references==2u);
         quantapdf_native_source_page_v1 owned{};
         CHECK(quantapdf_native_source_page_prepare_context_v1(
                   &ir,&caps,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,
@@ -1843,9 +1848,8 @@ static int m2a_ordered_text_image_source_contract(
               std::memcmp(rendered.pixels,baseline.pixels,baseline.size)==0);
         quantapdf_ir_raster_image_dispose(&rendered);
         quantapdf_ir_raster_image_dispose(&baseline);
+        quantapdf_drop_composer(composer_guard);
     }
-    CHECK(context->references==1u);
-    quantapdf_drop_context(context);
     std::puts("M2a: both original orders, exact N/N-1 pixel/edge/work/bytes, real Text malloc faults, Context adoption/recovery");
     return EXIT_SUCCESS;
 }
