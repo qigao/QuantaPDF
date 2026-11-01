@@ -1657,7 +1657,7 @@ static int m2a_ordered_text_image_source_contract(
     const quantapdf_qpdf_source_raw_image_limits& limits)
 {
     target=0u;armed=false;track_c_allocation=false;c_fail_index=0u;
-    for(int mode:{49,50}) {
+    for(int mode:{49,50,64,65}) {
         /* A public Composer is a separate real retained Context guard.
          * Do NOT link a test to the unexported retain_internal in Windows. */
         quantapdf_context *context=nullptr;
@@ -1686,8 +1686,9 @@ static int m2a_ordered_text_image_source_contract(
               ir.resources.images[0].size==12u && ir.pages!=nullptr &&
               ir.pages[0].width_points==128.0f &&
               ir.pages[0].height_points==64.0f);
-        const auto& img=ir.operations[mode==49?1u:0u];
-        const auto& txt=ir.operations[mode==49?0u:1u];
+        const bool text_first=mode==49 || mode==64;
+        const auto& img=ir.operations[text_first?1u:0u];
+        const auto& txt=ir.operations[text_first?0u:1u];
         CHECK(img.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE &&
               img.value.image.image_id==1u &&
               txt.kind==QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES &&
@@ -1901,7 +1902,7 @@ static int m2a_ordered_text_image_source_contract(
             original.size(),&limits,0u,&denied);
         if(status!=QUANTAPDF_ERROR_UNSUPPORTED &&
            status!=QUANTAPDF_ERROR_FORMAT)
-            std::fprintf(stderr,"M2a negative original mode=%d status=%d\\n",mode,(int)status);
+            std::fprintf(stderr,"M2a negative original mode=%d status=%d\n",mode,(int)status);
         CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED ||
                status==QUANTAPDF_ERROR_FORMAT) && cleared(denied));
     }
@@ -1916,7 +1917,7 @@ static int m2a_ordered_text_image_source_contract(
         quantapdf_ir_dispose(&recovered);
         CHECK(cleared(recovered));
     }
-    std::puts("M2a: original dual-order pixels, 13 late-invalid source refusals, N/N-1 budgets, actual six malloc faults, Context recovery");
+    std::puts("M2a: original RAW/Flate both orders, 13 late-invalid refusals, N/N-1 quotas, six malloc faults, Context recovery");
     return EXIT_SUCCESS;
 }
 

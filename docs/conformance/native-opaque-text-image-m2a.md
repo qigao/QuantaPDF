@@ -43,3 +43,7 @@ No new test project, installer/consumer project, probe workflow/CMake, public AB
 ## New M2a failure matrix (candidate)
 
 Existing native Source/OOM and public render tests now exercise 13 full original PDF variants (51–63) for unused graphics/font/image resources; late unsupported Do, Fill, W Clip, text render mode, second Do, bad shear, unbalanced q/Q/ET, and unqualified Image SMask. Each must reject the **whole original page** without an owned IR/Bitmap; the same Source can subsequently recover on a known good page. Test-only per-page ledger injection now reaches *all six actual C11 allocations* of the M2a compilation/execution, including the fifth RAW Image layer RGBA and sixth final composite RGBA; it does not change the old four test-malloc sites, public ABI or CI/CMake.
+
+## Original compressed Image parity (next candidate)
+
+Modes 64 and 65 use **original QPDF-authored FlateDecode RGB stream bytes** (test-only zlib encoding; QPDF explicitly preserves the chosen Filter), with the *same* 2×2 decoded source samples and Text/Image or Image/Text original order. The unchanged independent per-pixel 72/96/144-DPI oracle compares both compressed originals against the pre-M2a Roboto baseline and analytic Image coverage; Source/OOM validates the same unique RAW 12-byte owned IR and the previously qualified page-ledger budget. This is an extra candidate requiring fresh exact-HEAD CI, not evidence inherited from #2304.

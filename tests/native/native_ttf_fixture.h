@@ -12,6 +12,7 @@
 #include <string>
 #include <cstdint>
 #include <vector>
+#include <zlib.h>
 
 
 /* Test-author sfnt packaging only: copy every original table byte except
@@ -168,12 +169,23 @@ inline std::string native_ttf_fixture(int mode=0)
         if(mode==47)text=blue; // no text: retain the old integer PATH-only gate
         if(mode==48)text="q 0 0 1 rg 25.1250000000000001 18.25 12.5 9.5 re f Q "+hello; // interrupted rect
     }
-    /* #578 M2a: fully original QPDF-authored embedded CID TTF + RAW
-     * Image in both orders, followed by late invalid operators/resources.
-     * These are genuine Source admission cases, not constructed IR. */
-    if(mode>=49 && mode<=63) {
+    /* #578 M2a: fully original QPDF-authored embedded CID TTF +
+     * RAW/Flate RGB Image in both orders, plus late invalid operations.
+     * No IR-derived or compositor-derived fixtures are used. */
+    if(mode>=49 && mode<=65) {
         const std::string pixels("\xff\0\0\0\xff\0\0\0\xff\xff\xff\0",12);
-        auto image=pdf->newStream(pixels);
+        std::string encoded=pixels;
+        if(mode==64 || mode==65) {
+            uLongf capacity=compressBound(static_cast<uLong>(pixels.size()));
+            encoded.assign(static_cast<size_t>(capacity),'\0');
+            if(compress2(reinterpret_cast<Bytef *>(encoded.data()),&capacity,
+                         reinterpret_cast<const Bytef *>(pixels.data()),
+                         static_cast<uLong>(pixels.size()),
+                         Z_BEST_COMPRESSION)!=Z_OK)
+                throw std::runtime_error("M2a test-only Flate encoding failed");
+            encoded.resize(static_cast<size_t>(capacity));
+        }
+        auto image=pdf->newStream(encoded);
         auto dict=image.getDict();
         dict.replaceKey("/Type",O::newName("/XObject"));
         dict.replaceKey("/Subtype",O::newName("/Image"));
@@ -181,6 +193,10 @@ inline std::string native_ttf_fixture(int mode=0)
         dict.replaceKey("/Height",O::newInteger(2));
         dict.replaceKey("/BitsPerComponent",O::newInteger(8));
         dict.replaceKey("/ColorSpace",O::newName("/DeviceRGB"));
+        if(mode==64 || mode==65) {
+            dict.replaceKey("/Filter",O::newName("/FlateDecode"));
+            image.setFilterOnWrite(false);
+        }
         if(mode==60)
             dict.replaceKey("/SMask",O::newName("/None")); /* bad SMask */
         auto xobjects=O::newDictionary();
@@ -200,7 +216,7 @@ inline std::string native_ttf_fixture(int mode=0)
         const std::string draw=mode==56 ?
             "q 16 1 0 12 10 15 cm /I Do Q" : /* unsupported shear */
             "q 16 0 0 12 10 15 cm /I Do Q";
-        text=(mode==50 || mode==63) ?
+        text=(mode==50 || mode==63 || mode==65) ?
             draw+" "+show : show+" "+draw;
         if(mode==52 || mode==63)text+=" /Missing Do";
         if(mode==53)text+=" 0 0 1 rg 1 1 2 2 re f"; /* late Fill */

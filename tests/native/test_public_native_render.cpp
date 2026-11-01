@@ -401,8 +401,8 @@ static int probe_rgb(const unsigned char *data,int stride,int x,int y,
     return px[0]==red && px[1]==green && px[2]==blue;
 }
 
-/* M2a independent whole-image oracle for two ORIGINAL 128x64 CID TTF +
- * RAW 2x2 Image XObject pages in opposite paint orders.
+/* M2a independent whole-image oracle for four ORIGINAL 128x64 CID TTF +
+ * RAW/Flate 2x2 Image XObject pages in both paint orders.
  *
  * The Text reference is the already reviewed original Roboto-hello RGBA
  * golden (produced BEFORE M2a), NOT a new mixed renderer's output. The
@@ -415,7 +415,7 @@ static int native_m2a_public_text_image_cases(const std::string& filename)
     const auto goldens=std::filesystem::path(__FILE__).parent_path()/"goldens";
     quantapdf_context *ctx=nullptr;
     OK(quantapdf_context_create(&ctx));
-    for(int mode:{49,50}) {
+    for(int mode:{49,50,64,65}) {
         const auto original=native_ttf_fixture(mode);
         CHECK(write_pdf(filename,original));
         quantapdf_document *doc=nullptr;
@@ -478,7 +478,8 @@ static int native_m2a_public_text_image_cases(const std::string& filename)
                 const unsigned char *image_rgb=source[iy*2u+ix];
                 unsigned expected[3]={255u,255u,255u};
                 for(unsigned layer=0u;layer<2u;++layer) {
-                    const bool image=(mode==49)?layer==1u:layer==0u;
+                    const bool image=(mode==49 || mode==64)?
+                        layer==1u:layer==0u;
                     const unsigned alpha=image?image_alpha:text_alpha;
                     for(unsigned c=0u;c<3u;++c) {
                         const unsigned color=image?image_rgb[c]:0u;
@@ -522,7 +523,7 @@ static int native_m2a_public_text_image_cases(const std::string& filename)
         const auto refusal=quantapdf_render_page(denied_page,&denied_bitmap);
         if(refusal!=QUANTAPDF_ERROR_UNSUPPORTED &&
            refusal!=QUANTAPDF_ERROR_FORMAT)
-            std::fprintf(stderr,"M2a public negative mode=%d status=%d\\n",
+            std::fprintf(stderr,"M2a public negative mode=%d status=%d\n",
                          mode,(int)refusal);
         CHECK((refusal==QUANTAPDF_ERROR_UNSUPPORTED ||
                refusal==QUANTAPDF_ERROR_FORMAT) &&
@@ -531,8 +532,8 @@ static int native_m2a_public_text_image_cases(const std::string& filename)
         quantapdf_close(denied_doc);
     }
     quantapdf_drop_context(ctx);
-    std::puts("[native-public-render] M2a original Text/Image + Image/Text"
-              " full independent RGB 72/96/144 DPI passed");
+    std::puts("[native-public-render] M2a original RAW/Flate Text/Image"
+              " in both orders, independent RGB 72/96/144 DPI passed");
     return EXIT_SUCCESS;
 }
 
