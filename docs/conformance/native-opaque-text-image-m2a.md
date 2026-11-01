@@ -1,59 +1,41 @@
-# M2a — ordered opaque Text/Image original Source qualification
+# M2a — opaque, ordered original Text/Image Source qualification
 
-Tracking: [#578](https://github.com/qigao/QuantaPDF/issues/578), parent [#570](https://github.com/qigao/QuantaPDF/issues/570), broader [#208](https://github.com/qigao/QuantaPDF/issues/208). **Status: pre-admission fixture and acceptance contract, not M2 support.**
+Tracking: [Issue #578](https://github.com/qigao/QuantaPDF/issues/578), [parent #570](https://github.com/qigao/QuantaPDF/issues/570) and [broader #208](https://github.com/qigao/QuantaPDF/issues/208).
 
-## Frozen M1 baseline
+**Status: Draft implementation and conformance.** The first mixed renderer and independent full-image reference passed [Native CI #2298](https://github.com/qigao/QuantaPDF/actions/runs/41304403199), exact HEAD `c2ce69e5db3e7b01ed405eab21ccddf19c45a141` (Linux Release/ASan-UBSan, Windows and macOS, 60/60 and installed consumers 1/1). Later budget/OOM and source-resource-closure work has its own exact HEAD CI and is **not automatically accepted by #2298**. Keep #579 Draft; M2 as a whole is not complete.
 
-Production master `cfb93d382b97b6ee1198f7990fc4b860f2958513`, complete Git tree `7b5bbb1df0098cf061b2f5e9b72beba50d3782cc`, passed independent master Native CI #2286 (four native configs 60/60, installed consumers 1/1). The Source V10 compiler, page-wide ledger, actual four raster malloc calls/order, existing golden pixels, original Source profiles, public C11 ABI, Context lease and synchronous Composer boundary are not changed by the present pre-admission tests.
+## M1 immutable baseline
 
-## The first admission
+Merged [#577](https://github.com/qigao/QuantaPDF/pull/577): master `cfb93d382b97b6ee1198f7990fc4b860f2958513` (tree `7b5bbb1df0098cf061b2f5e9b72beba50d3782cc`), independent master-push CI #2286 SUCCESS 3/3. Preserve all previous original PDF/reference pixels, Source V8/V9 and qualified V10 profiles, exact four historical raster malloc calls/order, numerical quotas, public ABI, existing Core Context lifetime, synchronous Composer boundary and existing build/workflows.
 
-Two fully valid **original PDFs** authored by the existing `native_ttf_fixture.h`, using the existing embedded CID TrueType font, 2x2 8-bit RAW RGB Image XObject and deliberate pixel overlap:
+## Current bounded first M2a capability
 
-| Mode | Original stream order | Current / intended state |
+Two actual, independently QPDF-authored original PDFs share a **genuine embedded CID TTF (Roboto) and 2×2 RAW RGB Image XObject** with overlapping ink. Both orderings are required:
+
+| Fixture | Original content order | Evidence |
 | --- | --- | --- |
-| 49 | `q BT /F ... Tj ET Q` → `q cm /I Do Q` | UNSUPPORTED now → whole-image Text-under-Image positive |
-| 50 | `q cm /I Do Q` → `q BT /F ... Tj ET Q` | UNSUPPORTED now → whole-image Image-under-Text positive |
+| `native_ttf_fixture(49)` | Text show → Image Do | Complete Source IR, common C11 compiled page and public RGB |
+| `native_ttf_fixture(50)` | Image Do → Text show | Complete Source IR, common C11 compiled page and public RGB |
+| `native_ttf_fixture(51)` | Text → Image with an unused original ExtGState | Atomic public UNSUPPORTED; no hidden resource dropped |
 
-M2a must make **both** orders positive together. A one-way specialization is not acceptable. Keep one page, one embedded-TTF Text show, one previously qualified RAW/Flate Gray/RGB image, opaque Normal and only the already bounded positioning semantics. Existing image-local save/restore has no new cross-paint Clip semantics. M2b owns multiple scoped graphics states, frozen Clip, interleaved PATH Fill, broader font-resource/matrix cases. M3 owns later device expansion; no implicit broadening of DPI, RGBA or canvas contracts.
+This first capability supports **one opaque black embedded-TTF Text show** and **one decoded, opaque, qualified RAW/Flate Gray/RGB image** on the existing exact 72/96/144-DPI physical grid, with the Source-admitted CTM bounds, real q/Q and no Clip/Stroke/Fill paint. Text other than this explicitly admitted black run, multiple fonts, additional paints, general mixed clipping, arbitrary transforms/gradients, Form, alpha, masks, groups and public Composer rendering are **not** qualified; refuse atomically. More colors/font resources and Clip/Fill are subsequent M2 subgates, not implied by these tests.
 
-## Code-level migration boundaries
+## One interpreter, one compiler, one page-wide ledger
 
-1. **Original complete Source admission** — `src/backend/qpdf_native_image_ir.cpp` currently hands every token after first BT to `source_text_outlines`; BT currently requires `target.draws.empty()`; `text_outlines_complete` takes a Text-only early return. Establish a single source-ordered paint list that freezes each completed Text show and Image Do without a second parser or silently removed operators. No live QPDF/font handles enter IR. Reuse the existing `src/backend/qpdf_source_text.cpp` outline interpreter rather than inventing another TTF decoder.
-2. **Owned IR and closure** — Each operation records its real kind and source order. All Image RAW bytes and glyph command contours have exactly one owner, copied or adopted only after whole-document EOF/resource/geometry validation. All reachable and unsupported source resources are checked, not discarded. Source preparation atomically adopts this IR together with its existing Core Context lease.
-3. **One mixed compiled C11 page** — `native_prepared_page_v1.h` presently diverts any Text to `QP_NATIVE_PREPARED_TEXT`; `ir_raster_v1.c` Text geometry expands only PATH glyphs and rejects image resources. Introduce a specifically qualified ordered mixed execution route: Text's bounded glyph-expanded paints and Image placement run on one canonical device grid, source-over order and **single** page work/pixel/byte ledger. Avoid Text-only/full-page intermediary RGBA and Image-only/full-page intermediary RGBA compositing: separate full-page renders would create a second budget and extra pixel semantics. Keep authored operation quota distinct from up-to-64 emitted glyph draws and bill every expanded paint/sample.
-4. **Publication and lifetime** — Failed admission/preparation/painting publishes zero Bitmap/pixels/receipt and leaves exact ownership balanced; successful detached output survives prepared-page disposal, document lifetime permitting. Same-Context retry after failure works. Earlier Source V8/V9 and V10 Text-only/PATH/Image/Clip/TeXample routes are unchanged.
+1. `qpdf_native_image_ir.cpp` and the **existing** `qpdf_source_text.cpp` run through the same original PDF content parse. The text callback freezes show order and forwards the sole qualified Image Do to the already existing Source image decoder. Whole-source EOF is required before the unique owned IR copies glyph commands and decoded sample bytes; no new font provider, QPDF parse or alternate raster.
+2. M2a's original `/Resources` is strictly the single referenced `/Font` and single referenced `/XObject`. Extra original resources, even unused declarations, are not silently lost. The existing private IR resource closure additionally refuses unconsumed/malformed records.
+3. `QP_NATIVE_PREPARED_M2A_TEXT_IMAGE` reuses one physical device plan, one Source Context lease, one compiled V5 page owner, **one** checked Source/drawn-pixel, sample/edge and requested-byte ledger. The Text outline geometry and RAW Image are its two ordered layers, not independent PDF renderers. V5's existing source-over compositor determines the actual final RGB. The initially detected 1-LSB transparent-vs-opaque Text rounding mismatch was fixed by converting already sampled exact black-on-white glyph pixels **in place** to black/coverage alpha; no new full-page malloc or separate sampler is added.
+4. Successful RGBA/Bitmap publication detaches its bytes. Every failure clears output/receipt; generated geometry/IR is released before dropping the retained Core Context. Compiled page replay never resets work/placement budget. Existing Text-only, Image-only, PATH/Clip/TeXample pixels and failure allocation sequence are untouched.
 
-## M2a acceptance checklist (all must pass before M2a is checked)
+## Qualification matrix
 
-- [ ] Flip the **same actual fixture** modes 49 and 50 from current atomic refusals to successful Source→owned IR→one C11 compiled page→public Bitmap; no separate test-only renderer.
-- [ ] Independent whole-image analytic/high-precision references at **72/96/144 DPI**; measure overlaps and opaque compositing in both orders, glyph edges, physical placement and no altered original TTF golden.
-- [ ] One aggregate ledger: original paint/expanded glyph counts, 64-glyph and 4096-command caps, 512-edge cap, 1M output-pixel cap, 8M actual-work cap, source pixels counted once, Image placement charged, retained/temporary byte peaks; N/N−1.
-- [ ] Full-EOF fail-closed negatives including unknown trailing Do, extra resource, Clip/Fill outside M2a, malformed font/images, forbidden matrices, exceeding operation/glyph/edge/pixel/work/byte budgets; no partial image.
-- [ ] Real Source C++ allocation and C11 IR/geometry/raster injected failures (including late failure), same-Context recovery, Context/IR/page/Bitmap teardown and detached output survival.
-- [ ] Existing originals, goldens, resource caps, raster malloc 1–4 faults, Source/OOM 40s and Context/OOM 30s gates are **unchanged**. No installer/consumer test projects or probe CMake/workflows, no PDFium, new ABI or public Composer render API.
-- [ ] Exact HEAD, tree, existing Native CI all Linux Release/ASan-UBSan/Windows/macOS and installed consumer checks before merge; independent production master-push CI after merge.
+- [x] Both actual original Source orders survive complete parser/owned IR and use the same C11 native V5 compiled page.
+- [x] Independent full-image RGB references for **both orders, all 72/96/144 DPI**. The oracle is the **previously reviewed** original Text-only RGBA reference plus independently evaluated 4×4 Image footprint, pixel-center nearest-neighbor source samples and opaque source-over in source order. Every RGB pixel is compared exactly, including overlapping regions, never with M2a's output as a new reference. Accepted at #2298.
+- [ ] Candidate exact-HEAD **M2a Source C-allocation fault** controls; four actual TTF geometry/mask/raster malloc failures and same-Context recovery.
+- [ ] M2a sample/edge/pixel, original/expanded operation, unique source/placement pixels and requested-byte N/N−1 quotas; output receipt and retained-owner balances.
+- [ ] Public original unused-/Resources fail-closed negative, plus late unsupported/malformed/unqualified Text/Image/Clip/PATH matrix and full recovery.
+- [ ] Every remaining new Image/final-composite allocation failure and mixed-page lifetime/rollback under sanitizer.
+- [ ] Current candidate's own Linux Release/ASan-UBSan, Windows and macOS Native CI; installed consumers and exact exports, no PDFium. Existing Source/OOM 40-second gate and Context/OOM 30-second gate remain.
+- [ ] Only after candidate acceptance, consider merging #579 and independently rerun actual production master CI; even then **M2b Text/Image/Fill/Clip is still open**.
 
-The checked-in pre-admission test documents the **real current refusal** only; it is not an implementation or passing M2 capability. The parent M2 checkbox remains unchecked until M2b is separately accepted.
-
-## Stage S — ordered original Source IR
-
-This intermediate implementation sends the existing TTF outline interpreter
-the same Source parser callbacks and reports one completed Text show plus one
-qualified Image Do into the existing Source staging, in either source order.
-Each materialized result uniquely owns every glyph outline and decoded Image
-payload. The production prepared-page text route still refuses mixed Image
-resources: there is **no new public C11 Bitmap positive yet**. The tests now
-require complete original-owned IR in both orders and explicitly verify this
-compiled-page refusal. Pixel/edge/operation quotas and existing M1 cases
-are unchanged; the new mixed painter is a separate qualification gate.
-
-## First compiled-page increment (under test)
-
-The M2a route now selects `QP_NATIVE_PREPARED_M2A_TEXT_IMAGE` only after
-the common closure and physical-plan checks. One owned TTF geometry layer
-and one qualified RAW image layer join the **existing V5 source-over painter**
-and **one retained page ledger**. Text-only compilation and existing four-malloc
-raster routes are unchanged. The current Source/OOM test attempts both original
-orders at 72 DPI with ownership and ledger checks. This is a candidate, not
-independent full-image 72/96/144 qualification; keep Draft and M2 unchecked.
+No new test project, installer/consumer project, probe workflow/CMake, public ABI/provider or PDFium dependency has been introduced. Do not update the accepted original corpus count or label M2 complete until separately demonstrated.

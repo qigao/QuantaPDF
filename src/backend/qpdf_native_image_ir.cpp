@@ -2543,6 +2543,17 @@ quantapdf_ir materialize_m2a_text_image(const admission& source)
           !source.clip_completed && source.clip.commands.empty() &&
           source.second_clip.commands.empty() && !source.saw_q_restore,
           QUANTAPDF_ERROR_UNSUPPORTED);
+    /* M2a is one referenced embedded Font and one referenced Image XObject.
+     * Reject undeclared/unreachable original Resources instead of silently
+     * dropping them at C11 IR publication. Broader lexical scopes are M2b. */
+    admit(source.resources.isDictionary(),QUANTAPDF_ERROR_FORMAT);
+    const Obj fonts=source.resources.getKey("/Font");
+    const Obj images=source.resources.getKey("/XObject");
+    admit(fonts.isDictionary() && images.isDictionary(),
+          QUANTAPDF_ERROR_FORMAT);
+    admit(source.resources.getKeys().size()==2u &&
+          fonts.getKeys().size()==1u && images.getKeys().size()==1u,
+          QUANTAPDF_ERROR_UNSUPPORTED);
     const auto& paint=source.text_outline_paints[0];
     admit(paint.rectangle.empty() && !paint.glyphs.empty() &&
           paint.glyphs.size()<=64u && (paint.argb>>24u)==255u,

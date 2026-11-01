@@ -508,6 +508,19 @@ static int native_m2a_public_text_image_cases(const std::string& filename)
         quantapdf_drop_page(page);
         quantapdf_close(doc);
     }
+    /* The original resource dictionary is not a filter for painting:
+     * even an UNUSED ExtGState prevents M2a admission, before Bitmap. */
+    CHECK(write_pdf(filename,native_ttf_fixture(51)));
+    quantapdf_document *hidden_doc=nullptr;
+    quantapdf_page *hidden_page=nullptr;
+    quantapdf_bitmap *hidden_bitmap=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+    OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&hidden_doc));
+    CHECK(std::remove(filename.c_str())==0);
+    OK(quantapdf_load_page(hidden_doc,0,&hidden_page));
+    CHECK(quantapdf_render_page(hidden_page,&hidden_bitmap)==
+          QUANTAPDF_ERROR_UNSUPPORTED && hidden_bitmap==nullptr);
+    quantapdf_drop_page(hidden_page);
+    quantapdf_close(hidden_doc);
     quantapdf_drop_context(ctx);
     std::puts("[native-public-render] M2a original Text/Image + Image/Text"
               " full independent RGB 72/96/144 DPI passed");

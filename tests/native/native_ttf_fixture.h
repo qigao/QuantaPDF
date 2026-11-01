@@ -171,7 +171,7 @@ inline std::string native_ttf_fixture(int mode=0)
     /* #578 M2a original Source order fixtures. Both are expected to
      * refuse until the SAME compiled C11 page admits Text+Image. Test
      * source authoring keeps the embedded TTF and genuine RAW XObject. */
-    if(mode==49 || mode==50) {
+    if(mode==49 || mode==50 || mode==51) {
         const std::string pixels("\xff\0\0\0\xff\0\0\0\xff\xff\xff\0",12);
         auto image=pdf->newStream(pixels);
         auto dict=image.getDict();
@@ -184,10 +184,15 @@ inline std::string native_ttf_fixture(int mode=0)
         auto xobjects=O::newDictionary();
         xobjects.replaceKey("/I",image);
         resources.replaceKey("/XObject",xobjects);
+        if(mode==51) {
+            /* The fully parsed original has an UNUSED graphics resource.
+             * M2a must reject it instead of silently dropping it from IR. */
+            resources.replaceKey("/ExtGState",O::newDictionary());
+        }
         const std::string show=
             "q BT /F 24 Tf 12 20 Td <002d004a005100510054> Tj ET Q";
         const std::string draw="q 16 0 0 12 10 15 cm /I Do Q";
-        text=mode==49 ? show+" "+draw : draw+" "+show;
+        text=mode==50 ? draw+" "+show : show+" "+draw;
     }
     page.replaceKey("/Contents",pdf->newStream(text));
     QPDFWriter writer(*pdf);writer.setOutputMemory();writer.write();
