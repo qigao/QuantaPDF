@@ -259,7 +259,10 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
         /* Explicit M2a mixed route only for fully admitted one-Text/
          * one-Image Source. Prior Text-only mode remains byte-identical. */
         p.route=source->resources.image_count==1u?
-            QP_NATIVE_PREPARED_M2A_TEXT_IMAGE:QP_NATIVE_PREPARED_TEXT;
+            (source->operation_count==3u?
+                QP_NATIVE_PREPARED_M2B1_TEXT_FILL_IMAGE:
+                QP_NATIVE_PREPARED_M2A_TEXT_IMAGE):
+            QP_NATIVE_PREPARED_TEXT;
         printed=snprintf(box,sizeof(box),"0 0 %u %u",
             (unsigned)page->width_points,(unsigned)page->height_points);
         if(printed<0 || (size_t)printed>=sizeof(box))return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -354,7 +357,8 @@ static inline quantapdf_status quantapdf_native_compiled_page_compile_v1(
     if(metadata==NULL || metadata->source==NULL)return QUANTAPDF_ERROR_ARGUMENT;
     out->metadata=*metadata;out->metadata.source=NULL;
     quantapdf_native_work_init_v1(&out->ledger,metadata->limits.max_sample_tests,metadata->limits.max_edges);
-    if(metadata->route==QP_NATIVE_PREPARED_M2A_TEXT_IMAGE)
+    if(metadata->route==QP_NATIVE_PREPARED_M2A_TEXT_IMAGE ||
+       metadata->route==QP_NATIVE_PREPARED_M2B1_TEXT_FILL_IMAGE)
         out->ledger.malloc_fault=metadata->m2a_malloc_fault;
     if(!quantapdf_native_resources_init_v1(&out->ledger,&metadata->resource_limits,
                                           metadata->usage.retained_bytes)) {
@@ -365,6 +369,9 @@ static inline quantapdf_status quantapdf_native_compiled_page_compile_v1(
             &metadata->physical_limits,&metadata->physical,&out->ledger,&out->exact);
     else if(metadata->route==QP_NATIVE_PREPARED_M2A_TEXT_IMAGE)
         status=quantapdf_native_scoped_prepare_m2a_text_image_v1(metadata->source,
+            &metadata->limits,&metadata->physical,&out->ledger,&out->scoped);
+    else if(metadata->route==QP_NATIVE_PREPARED_M2B1_TEXT_FILL_IMAGE)
+        status=quantapdf_native_scoped_prepare_m2b1_text_fill_image_v1(metadata->source,
             &metadata->limits,&metadata->physical,&out->ledger,&out->scoped);
     else if(metadata->route==QP_NATIVE_PREPARED_EXACT_CUBICS)
         status=quantapdf_native_geometry_prepare_texample_v1(metadata->source,

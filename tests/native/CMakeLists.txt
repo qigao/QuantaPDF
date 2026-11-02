@@ -66,6 +66,51 @@ add_test(NAME quantapdf.native_public_render
 set_tests_properties(quantapdf.native_public_render PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api")
 
+# Split the existing original Text, two-paint M2a and selected UserUnit
+# public corpus into independent CTest invocations of the SAME executable.
+# All originals, independent RGB goldens, faults and refusals still run;
+# no new build target, workflow, installer or consumer, and no timeout raise.
+# On CI #2318, the unsplit legacy public ASan test took 42.58/45 sec.
+add_test(NAME quantapdf.native_public_ttf
+  COMMAND quantapdf_native_public_render --public-ttf)
+add_test(NAME quantapdf.native_public_m2a
+  COMMAND quantapdf_native_public_render --public-m2a)
+add_test(NAME quantapdf.native_public_userunit7
+  COMMAND quantapdf_native_public_render --public-userunit7)
+set_tests_properties(
+  quantapdf.native_public_ttf
+  quantapdf.native_public_m2a
+  quantapdf.native_public_userunit7 PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api")
+
+# Independent M2b.1 original late-invalid PDF public Bitmap gate.
+# Reuse this same existing native executable and real PDF/Context/Bitmap;
+# do not add a consumer/installer target or extend historical timeouts.
+add_test(NAME quantapdf.native_m2b1_public_negatives
+  COMMAND quantapdf_native_public_render --m2b1-negatives)
+set_tests_properties(quantapdf.native_m2b1_public_negatives PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;m2b1")
+
+# Original FlateDecode XObject + embedded-TTF/Fill parity is its OWN
+# independent full-image 72/96/144-DPI conformance gate. Reuse the
+# exact same public native executable; avoid consuming the legacy
+# 45s whole-corpus CTest budget. No extra target or CI workflow.
+add_test(NAME quantapdf.native_m2b1_flate
+  COMMAND quantapdf_native_public_render --m2b1-flate)
+set_tests_properties(quantapdf.native_m2b1_flate PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;m2b1")
+
+# Independent M2b.1 original RAW three-paint pixel references. The
+# merged M1/M2a whole-corpus public CTest remains on its SAME 45-second
+# ceiling; CI #2317 measured 44.02s/45s under Linux ASan contention.
+# The 2 extra genuine PDF reference cases now have an isolated CTest
+# invocation of the SAME existing public executable. No additional
+# build target, no skipped reference, no timeout increase/probe CI.
+add_test(NAME quantapdf.native_m2b1_raw
+  COMMAND quantapdf_native_public_render --m2b1-raw)
+set_tests_properties(quantapdf.native_m2b1_raw PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;m2b1")
+
 
 # TEST-ONLY Context OOM hook for the real Native V10 public Bitmap handoff.
 # QPDF creates only the ORIGINAL source; no PDFium, second raster or SDK ABI.

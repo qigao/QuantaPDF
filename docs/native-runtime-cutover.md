@@ -109,6 +109,30 @@ partially paint or select a fallback.
   Text/Image paint, colored Text, arbitrary fonts, PATH Fill/Clip,
   general graphics-state scopes and alpha remain unsupported; those
   are separately tracked by M2b [#580](https://github.com/qigao/QuantaPDF/issues/580).
+- **M2b.1 — first three-paint original Text/Fill/Image page:** one
+  black opaque embedded CID TrueType Text show, one opaque solid
+  axis-aligned rectangular PATH Fill, and one RAW/Flate Gray/RGB Image
+  Do in the two independently tested source orders **Text→Fill→Image**
+  and **Image→Fill→Text**. A single original QPDF Source V10 token pass
+  records every completed Text/Fill/Image event; one uniquely-owned
+  three-operation IR preserves their exact authorial order/rectangle
+  geometry/image samples. The same retained Context and native C11 V5
+  page compile the original glyph outlines, Fill V1 geometry and RAW
+  Image as three source-over layers under ONE shared physical
+  72/96/144-DPI work/edge/source-pixel/drawn-pixel/byte ledger. Every
+  output RGB pixel is compared with pre-M2a reviewed Roboto coverage
+  plus independently calculated 4×4 Fill/Image geometric coverage
+  and image center-nearest samples; original M1/M2a exact pixels
+  remain unchanged. Checked N/N−1 and real heap fault/rollback tests
+  preserve atomic output and post-Context Bitmap lifetime. Any fourth
+  unsupported paint, extra Font/XObject/ExtGState, late unknown Do/W
+  Clip/Stroke, nonblack Text or unbalanced q/Q/ET refuses the WHOLE
+  page; no partial Bitmap/provider retry is allowed. No second PDF
+  interpreter, full-page renderer, public SDK ABI or PDFium import is
+  introduced. This does NOT qualify general mixed Text+Clip, wider
+  fonts/colors, Forms or alpha: [M2b #580](https://github.com/qigao/QuantaPDF/issues/580)
+  and [M2b.1 #582](https://github.com/qigao/QuantaPDF/issues/582)
+  track the bounded first increment and remaining work.
 - One or **two source-ordered Image-only Do paints** under the SAME
   genuine frozen W/W* Clip leaf, with balanced q/Q and no extra PATH
   paint, use the existing C11 clipped RAW Image raster for each layer.
@@ -150,10 +174,15 @@ error reset, pure C11 Clip/Raw Image/scoped mixed Raster and device planning.
 The M2a original embedded-TTF/RAW and embedded-TTF/Flate checks use
 **pre-M2a reviewed Roboto RGBA goldens** plus an independently authored
 4×4 Image-coverage, center-nearest RGB and source-over oracle for every
-72/96/144-DPI pixel in both paint orders. Further independent tests cover
-all actual Source C-allocations, original C11 exact-Text malloc 1–4,
-additional RAW Image and final compositor malloc 5–6, bounded N/N−1
-ledger quotas and late unsupported original-resource refusals. No
+72/96/144-DPI pixel in both paint orders. M2b.1 adds an independently
+sampled original opaque Fill in both three-paint orders and verifies
+the same grid and source-over through the SAME public Bitmap path.
+Independent tests cover all actual Source C-allocations, original
+C11 exact-Text malloc 1–4, every additional PATH/Image/composite
+allocation position, bounded global N/N−1 work/edge/source/drawn/
+output-pixel/byte quotas and late unsupported original-resource
+refusals. Source/OOM and public negative original-PDF tests remain
+separate bounded invocations of existing native executables. No
 reference PDF renderer comparison, downloaded PDFium binary, differential
 renderer or self-generated mixed-image golden is used in build/CI.
 

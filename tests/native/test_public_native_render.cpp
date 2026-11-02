@@ -401,8 +401,9 @@ static int probe_rgb(const unsigned char *data,int stride,int x,int y,
     return px[0]==red && px[1]==green && px[2]==blue;
 }
 
-/* M2a independent whole-image oracle for four ORIGINAL 128x64 CID TTF +
- * RAW/Flate 2x2 Image XObject pages in both paint orders.
+/* M2a/M2b.1 independent whole-image oracle for eight ORIGINAL CID TTF +
+ * RAW/Flate 2x2 Image XObject pages in separate bounded CTest modes,
+ * including the source-ordered three-paint opaque Fill profile.
  *
  * The Text reference is the already reviewed original Roboto-hello RGBA
  * golden (produced BEFORE M2a), NOT a new mixed renderer's output. The
@@ -410,12 +411,20 @@ static int probe_rgb(const unsigned char *data,int stride,int x,int y,
  * calculated here directly from the authored PDF operands. They are
  * blended analytically over opaque white in the actual authored order.
  * Pixel-by-pixel comparison covers *all* 72/96/144 DPI RGB bytes. */
-static int native_m2a_public_text_image_cases(const std::string& filename)
+static int native_m2a_public_text_image_cases(const std::string& filename,
+                                             unsigned subset=0u)
 {
     const auto goldens=std::filesystem::path(__FILE__).parent_path()/"goldens";
     quantapdf_context *ctx=nullptr;
     OK(quantapdf_context_create(&ctx));
-    for(int mode:{49,50,64,65}) {
+    /* Split only execution scheduling, not byte-level expectations:
+     * 0 = unchanged M2a 2-paint goldens, 1 = original M2b.1 RAW
+     * 3-paint goldens, 2 = original M2b.1 Flate 3-paint goldens.
+     * All use the same QPDF originals and independent analytic oracle. */
+    const std::vector<int> modes=subset==2u?
+        std::vector<int>{81,82}:subset==1u?
+        std::vector<int>{66,67}:std::vector<int>{49,50,64,65};
+    for(int mode:modes) {
         const auto original=native_ttf_fixture(mode);
         CHECK(write_pdf(filename,original));
         quantapdf_document *doc=nullptr;
@@ -466,6 +475,17 @@ static int native_m2a_public_text_image_cases(const std::string& filename)
                                          py>=top && py<bottom);
                 }
                 const unsigned image_alpha=(covered*255u+8u)/16u;
+                const bool with_fill=mode==66 || mode==67 || mode==81 || mode==82;
+                unsigned filled_samples=0u;
+                if(with_fill)for(unsigned sy=0u;sy<4u;++sy)
+                for(unsigned sx=0u;sx<4u;++sx) {
+                    const double px=(double)x+((double)sx+0.5)/4.0;
+                    const double py=(double)y+((double)sy+0.5)/4.0;
+                    filled_samples+=(unsigned)(
+                        px>=12.0*scale && px<28.0*scale &&
+                        py>=24.0*scale && py<44.0*scale);
+                }
+                const unsigned fill_alpha=(filled_samples*255u+8u)/16u;
                 if(text_alpha>0u && image_alpha>0u)++overlapping;
                 const double nx=((double)x+0.5-left)/(right-left)*2.0;
                 const double ny=((double)y+0.5-top)/(bottom-top)*2.0;
@@ -477,12 +497,16 @@ static int native_m2a_public_text_image_cases(const std::string& filename)
                 };
                 const unsigned char *image_rgb=source[iy*2u+ix];
                 unsigned expected[3]={255u,255u,255u};
-                for(unsigned layer=0u;layer<2u;++layer) {
-                    const bool image=(mode==49 || mode==64)?
-                        layer==1u:layer==0u;
-                    const unsigned alpha=image?image_alpha:text_alpha;
+                for(unsigned layer=0u;layer<(with_fill?3u:2u);++layer) {
+                    const bool text_first=mode==49 || mode==64 || mode==66 || mode==81;
+                    const bool fill=with_fill && layer==1u;
+                    const bool image=text_first?
+                        layer==(with_fill?2u:1u):layer==0u;
+                    const unsigned alpha=fill?fill_alpha:
+                        image?image_alpha:text_alpha;
                     for(unsigned c=0u;c<3u;++c) {
-                        const unsigned color=image?image_rgb[c]:0u;
+                        const unsigned color=fill?
+                            (c==1u?255u:0u):image?image_rgb[c]:0u;
                         expected[c]=(color*alpha+
                             expected[c]*(255u-alpha)+127u)/255u;
                     }
@@ -535,8 +559,43 @@ static int native_m2a_public_text_image_cases(const std::string& filename)
         quantapdf_close(denied_doc);
     }
     quantapdf_drop_context(ctx);
-    std::puts("[native-public-render] M2a original RAW/Flate Text/Image"
-              " in both orders, independent RGB 72/96/144 DPI passed");
+    std::puts("[native-public-render] M2a + M2b.1 original Text/Fill/Image"
+              " and Image/Fill/Text, independent RGB 72/96/144 DPI passed");
+    return EXIT_SUCCESS;
+}
+
+/* Separate CTest invocation of the SAME real public-native executable.
+ * The seven original invalid three-paint PDFs must not consume part of
+ * the unchanged 45s main public golden budget on a contended ASan
+ * runner. No extra consumer/test project or probing workflow. */
+static int native_m2b1_public_negatives(const std::string& filename)
+{
+    quantapdf_context *ctx=nullptr;
+    OK(quantapdf_context_create(&ctx));
+    /* Seven representative complete ORIGINAL PDFs with a good three-
+     * paint prefix followed by an illegal final operation/Resource:
+     * public Bitmap must fail atomically, never return an image. All
+     * thirteen are independently checked in Source/OOM. */
+    constexpr int invalid_m2b1[]={68,69,70,72,74,75,80};
+    for(int mode:invalid_m2b1) {
+        CHECK(write_pdf(filename,native_ttf_fixture(mode)));
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        quantapdf_bitmap *bitmap=reinterpret_cast<quantapdf_bitmap*>(
+            uintptr_t(1));
+        OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        const auto st=quantapdf_render_page(page,&bitmap);
+        if(st!=QUANTAPDF_ERROR_UNSUPPORTED && st!=QUANTAPDF_ERROR_FORMAT)
+            std::fprintf(stderr,"M2b1 public late refusal mode=%d got=%d\n",
+                         mode,(int)st);
+        CHECK((st==QUANTAPDF_ERROR_UNSUPPORTED ||
+               st==QUANTAPDF_ERROR_FORMAT) && bitmap==nullptr);
+        quantapdf_drop_page(page);quantapdf_close(doc);
+    }
+    quantapdf_drop_context(ctx);
+    std::puts("[native-public-render] M2b.1 original late Source negatives: seven public atomic refusals");
     return EXIT_SUCCESS;
 }
 
@@ -3588,11 +3647,25 @@ static int native_seventh_userunit_late_refusal_cases(
 
 #include "native_ttf_public_cases.h"
 
-int main()
+int main(int argc,char **argv)
 {
     const std::string filename="native-standalone-smoke.pdf";
-    CHECK(native_ttf_public_cases(filename)==EXIT_SUCCESS);
-    CHECK(native_m2a_public_text_image_cases(filename)==EXIT_SUCCESS);
+    if(argc==2 && std::strcmp(argv[1],"--m2b1-negatives")==0)
+        return native_m2b1_public_negatives(filename);
+    if(argc==2 && std::strcmp(argv[1],"--m2b1-flate")==0)
+        return native_m2a_public_text_image_cases(filename,2u);
+    if(argc==2 && std::strcmp(argv[1],"--m2b1-raw")==0)
+        return native_m2a_public_text_image_cases(filename,1u);
+    if(argc==2 && std::strcmp(argv[1],"--public-ttf")==0)
+        return native_ttf_public_cases(filename);
+    if(argc==2 && std::strcmp(argv[1],"--public-m2a")==0)
+        return native_m2a_public_text_image_cases(filename);
+    if(argc==2 && std::strcmp(argv[1],"--public-userunit7")==0) {
+        CHECK(native_seventh_userunit_cases(filename)==EXIT_SUCCESS);
+        CHECK(native_seventh_userunit_late_refusal_cases(filename)==EXIT_SUCCESS);
+        return EXIT_SUCCESS;
+    }
+    if(argc!=1)return EXIT_FAILURE;
     CHECK(high_dpi_cases(filename)==EXIT_SUCCESS);
     CHECK(original_source_rotation_cases(filename)==EXIT_SUCCESS);
     CHECK(selected_page_v10_cases(filename)==EXIT_SUCCESS);
@@ -3605,8 +3678,6 @@ int main()
     CHECK(native_decimal_number_cases(filename)==EXIT_SUCCESS);
     CHECK(native_decimal_cropped_viewport_cases(filename)==EXIT_SUCCESS);
     CHECK(native_userunit_physical_budget_cases(filename)==EXIT_SUCCESS);
-    CHECK(native_seventh_userunit_cases(filename)==EXIT_SUCCESS);
-    CHECK(native_seventh_userunit_late_refusal_cases(filename)==EXIT_SUCCESS);
     CHECK(write_pdf(filename,create_source(false)));
 
     quantapdf_context *context=nullptr;

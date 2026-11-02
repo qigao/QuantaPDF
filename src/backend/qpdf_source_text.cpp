@@ -490,6 +490,10 @@ struct projection {
         supported(commands.size()<=4096u-outline_commands);outline_commands+=commands.size();
         begin_outline_paint(g,false);outline_paints.back().rectangle=std::move(commands);
         outline_paints.back().rule=evenodd?QUANTAPDF_COMPOSER_FILL_EVEN_ODD:QUANTAPDF_COMPOSER_FILL_NONZERO;
+        if(source_mixed.on_fill) {
+            const auto result=source_mixed.on_fill(source_mixed.user);
+            need(result==QUANTAPDF_OK,result);
+        }
     }
     void outline(font const& face,unsigned code,graphics const& g,matrix const& m)
     {

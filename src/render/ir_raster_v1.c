@@ -1464,11 +1464,15 @@ static quantapdf_status qp_geometry_compile(
         return QUANTAPDF_ERROR_ARGUMENT;
     draw_bytes+=sizeof(*g)+snapshot_count*sizeof(*command_pool);
     flatten.edges = (qp_edge *)qp_exact_malloc(flat_bytes,exact_native,ledger,&status);
-    if(exact_native && flatten.edges==NULL) {
-        goto cleanup;
-    }
+    /* A missing edge buffer is a terminal failure in EVERY C11
+     * geometry mode, not only the strict exact-Text mode. Continuing
+     * to allocate a draw record after this first failure needlessly
+     * touches more heap/ledger state during rollback. Successful
+     * allocation count/order and all four legacy exact-Text fault
+     * positions are unchanged. */
+    if(flatten.edges==NULL)goto cleanup;
     g=(qp_compiled_geometry *)qp_exact_malloc(draw_bytes,exact_native,ledger,&status);
-    if(flatten.edges==NULL || g==NULL)goto cleanup;
+    if(g==NULL)goto cleanup;
     memset(g,0,sizeof(*g));draws=(qp_raster_draw *)(g+1);g->draws=draws;
     command_pool=(quantapdf_composer_path_command *)(draws+limits->max_operations);
 
