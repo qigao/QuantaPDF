@@ -83,6 +83,17 @@ add_test(NAME quantapdf.native_m2b1_flate
 set_tests_properties(quantapdf.native_m2b1_flate PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;m2b1")
 
+# Independent M2b.1 original RAW three-paint pixel references. The
+# merged M1/M2a whole-corpus public CTest remains on its SAME 45-second
+# ceiling; CI #2317 measured 44.02s/45s under Linux ASan contention.
+# The 2 extra genuine PDF reference cases now have an isolated CTest
+# invocation of the SAME existing public executable. No additional
+# build target, no skipped reference, no timeout increase/probe CI.
+add_test(NAME quantapdf.native_m2b1_raw
+  COMMAND quantapdf_native_public_render --m2b1-raw)
+set_tests_properties(quantapdf.native_m2b1_raw PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;m2b1")
+
 
 # TEST-ONLY Context OOM hook for the real Native V10 public Bitmap handoff.
 # QPDF creates only the ORIGINAL source; no PDFium, second raster or SDK ABI.

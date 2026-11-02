@@ -401,8 +401,9 @@ static int probe_rgb(const unsigned char *data,int stride,int x,int y,
     return px[0]==red && px[1]==green && px[2]==blue;
 }
 
-/* M2a/M2b.1 independent whole-image oracle for six ORIGINAL CID TTF +
- * RAW/Flate 2x2 Image XObject pages, with optional opaque Fill.
+/* M2a/M2b.1 independent whole-image oracle for eight ORIGINAL CID TTF +
+ * RAW/Flate 2x2 Image XObject pages in separate bounded CTest modes,
+ * including the source-ordered three-paint opaque Fill profile.
  *
  * The Text reference is the already reviewed original Roboto-hello RGBA
  * golden (produced BEFORE M2a), NOT a new mixed renderer's output. The
@@ -411,13 +412,18 @@ static int probe_rgb(const unsigned char *data,int stride,int x,int y,
  * blended analytically over opaque white in the actual authored order.
  * Pixel-by-pixel comparison covers *all* 72/96/144 DPI RGB bytes. */
 static int native_m2a_public_text_image_cases(const std::string& filename,
-                                             bool only_m2b1_flate=false)
+                                             unsigned subset=0u)
 {
     const auto goldens=std::filesystem::path(__FILE__).parent_path()/"goldens";
     quantapdf_context *ctx=nullptr;
     OK(quantapdf_context_create(&ctx));
-    const std::vector<int> modes=only_m2b1_flate?
-        std::vector<int>{81,82}:std::vector<int>{49,50,64,65,66,67};
+    /* Split only execution scheduling, not byte-level expectations:
+     * 0 = unchanged M2a 2-paint goldens, 1 = original M2b.1 RAW
+     * 3-paint goldens, 2 = original M2b.1 Flate 3-paint goldens.
+     * All use the same QPDF originals and independent analytic oracle. */
+    const std::vector<int> modes=subset==2u?
+        std::vector<int>{81,82}:subset==1u?
+        std::vector<int>{66,67}:std::vector<int>{49,50,64,65};
     for(int mode:modes) {
         const auto original=native_ttf_fixture(mode);
         CHECK(write_pdf(filename,original));
@@ -3647,7 +3653,9 @@ int main(int argc,char **argv)
     if(argc==2 && std::strcmp(argv[1],"--m2b1-negatives")==0)
         return native_m2b1_public_negatives(filename);
     if(argc==2 && std::strcmp(argv[1],"--m2b1-flate")==0)
-        return native_m2a_public_text_image_cases(filename,true);
+        return native_m2a_public_text_image_cases(filename,2u);
+    if(argc==2 && std::strcmp(argv[1],"--m2b1-raw")==0)
+        return native_m2a_public_text_image_cases(filename,1u);
     if(argc!=1)return EXIT_FAILURE;
     CHECK(native_ttf_public_cases(filename)==EXIT_SUCCESS);
     CHECK(native_m2a_public_text_image_cases(filename)==EXIT_SUCCESS);
