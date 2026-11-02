@@ -563,10 +563,33 @@ static int native_m2b2c_public_aligned(const std::string& filename)
     OK(quantapdf_render_page_with_options(
         recover_page,&options,&recover_bitmap));
     CHECK(recover_bitmap!=nullptr);
-    quantapdf_drop_bitmap(recover_bitmap);
+    /* The public Bitmap owns detached pixel storage. Original Source,
+     * Page, Document and Context have no right to revoke this result:
+     * read the EXACT same output after every owning object is dropped,
+     * not only immediately after the successful native V5 execution. */
+    int held_w=0,held_h=0,held_stride=0,held_components=0;
+    size_t held_size=0u;
+    const unsigned char *held_pixels=nullptr;
+    OK(quantapdf_bitmap_dimensions(recover_bitmap,&held_w,&held_h,
+                                   &held_stride,&held_components));
+    OK(quantapdf_bitmap_data(recover_bitmap,&held_pixels,&held_size));
+    CHECK(held_w==171 && held_h==86 && held_components==3 &&
+          held_stride==held_w*3 && held_size==(size_t)held_stride*(size_t)held_h &&
+          held_pixels!=nullptr);
+    const std::vector<unsigned char> detached_reference(
+        held_pixels,held_pixels+held_size);
     quantapdf_drop_page(recover_page);
     quantapdf_close(recover_doc);
     quantapdf_drop_context(ctx);
+    held_pixels=nullptr;held_size=0u;
+    OK(quantapdf_bitmap_dimensions(recover_bitmap,&held_w,&held_h,
+                                   &held_stride,&held_components));
+    OK(quantapdf_bitmap_data(recover_bitmap,&held_pixels,&held_size));
+    CHECK(held_w==171 && held_h==86 && held_stride==held_w*3 &&
+          held_components==3 && held_pixels!=nullptr &&
+          held_size==detached_reference.size() &&
+          std::memcmp(held_pixels,detached_reference.data(),held_size)==0);
+    quantapdf_drop_bitmap(recover_bitmap);
     std::puts("M2b.2d original W/W* public Text/Fill/Image aligned full RGB at 72/96/144 PASS");
     return EXIT_SUCCESS;
 }
