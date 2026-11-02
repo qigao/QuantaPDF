@@ -1057,10 +1057,14 @@ public:
              * any W/W* after BT (unsupported by the outline grammar). */
             const bool saved_preclip_root=
                 target.native_unclipped_mode && target.clip_completed &&
-                clip_active==1u && stack.size()==1u &&
-                fill_stack.size()==1u && clip_stack.size()==1u &&
-                clip_stack[0]==0u && target.order.empty() &&
-                target.draws.empty() && target.painted_paths.empty();
+                clip_active==1u && stack.size()>=1u &&
+                stack.size()<=2u && stack.size()==fill_stack.size() &&
+                clip_stack.size()==stack.size() &&
+                clip_stack[0]==0u &&
+                std::all_of(clip_stack.begin()+1,clip_stack.end(),
+                            [](unsigned char id){return id==1u;}) &&
+                target.order.empty() && target.draws.empty() &&
+                target.painted_paths.empty();
             const bool frozen_root=target.native_unclipped_mode &&
                 target.clip_completed && clip_active==1u &&
                 target.clip.commands.size()==5u &&
