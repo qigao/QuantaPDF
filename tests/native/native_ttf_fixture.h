@@ -172,7 +172,7 @@ inline std::string native_ttf_fixture(int mode=0)
     /* #578 M2a: fully original QPDF-authored embedded CID TTF +
      * RAW/Flate RGB Image in both orders, plus late invalid operations.
      * No IR-derived or compositor-derived fixtures are used. */
-    if(mode>=49 && mode<=90) {
+    if(mode>=49 && mode<=92) {
         const std::string pixels("\xff\0\0\0\xff\0\0\0\xff\xff\xff\0",12);
         std::string encoded=pixels;
         if(mode==64 || mode==65 || mode==81 || mode==82) {
@@ -225,14 +225,14 @@ inline std::string native_ttf_fixture(int mode=0)
         if(mode==59)text+=" Q"; /* unbalanced restore */
         if(mode==61)text+=" "+draw; /* second original Image Do */
         if(mode==62)text+=" BT /F 24 Tf 12 20 Td <002d> Tj"; /* no ET */
-        if(mode>=66 && mode<=90) {
+        if(mode>=66 && mode<=92) {
             const std::string fill="q 0 1 0 rg 12 20 16 20 re f Q";
             const std::string first=mode==75 ?
                 "q 16 1 0 12 10 15 cm /I Do Q":draw;
             const std::string tshow=mode==80 ?
                 "q 0 0 1 rg BT /F 24 Tf 12 20 Td "
                 "<002d004a005100510054> Tj ET Q":show;
-            text=(mode==67 || mode==82 || mode==84 ||
+            text=(mode==67 || mode==82 || mode==84 || mode==92 ||
                   (mode>=69 && mode<=80 && (mode%2)==1)) ?
                 first+" "+fill+" "+tshow:
                 tshow+" "+fill+" "+first;
@@ -247,11 +247,17 @@ inline std::string native_ttf_fixture(int mode=0)
             if(mode==77)text+=" BT /F 24 Tf 1 Tr 12 20 Td <002d> Tj ET";
             if(mode==78)text+=" "+draw;
             if(mode==79)text+=" BT /F 24 Tf 12 20 Td <002d> Tj";
-            if(mode>=83 && mode<=90) {
-                /* One genuine PDF W/W* root BEFORE the existing BT
-                 * interpreter. Modes 85..89 are late-invalid originals,
-                 * not synthetic IR or silent unsupported paint skips. */
-                text="12 20 16 20 re "+std::string(mode==84?"W*":"W")+
+            if(mode>=83 && mode<=92) {
+                /* 83/84 preserve the genuine fractional Clip boundary at
+                 * 96 DPI. NEW 91/92 use independent Roboto pre-M2a
+                 * reference with Clip edges aligned to full physical
+                 * pixels at 72/96/144; this enables exact whole-image
+                 * compositing goldens without reconstructing lost
+                 * glyph subpixel information from averaged 8-bit alpha. */
+                const bool aligned=mode==91 || mode==92;
+                text=std::string(aligned?"12 22 15 18 re ":
+                                         "12 20 16 20 re ")+
+                     (mode==84 || mode==92?"W*":"W")+
                      " n "+text;
                 if(mode==85)text+=" Q"; /* unmatched graphics restoration */
                 if(mode==86)text+=" 1 1 2 2 re W n"; /* late Clip after BT */
