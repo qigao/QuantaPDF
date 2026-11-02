@@ -132,6 +132,16 @@ add_test(NAME quantapdf.native_source_stage_oom
 set_tests_properties(quantapdf.native_source_stage_oom PROPERTIES
   TIMEOUT 40 LABELS "conformance;native;no-pdfium;source-staging;oom")
 
+# M2a true Source/IR/compiled C11 recovery and N/N-1 faults live in the
+# SAME existing native Source/OOM executable, with no extra target, provider,
+# installer/consumer project or CI workflow. Preserve both exhaustive
+# fault suites and each historical 40-second CTest timeout; the merged
+# master #2307 ASan failure was their combined 40.06-second invocation.
+add_test(NAME quantapdf.native_source_m2a_oom
+  COMMAND quantapdf_native_source_stage_oom --m2a)
+set_tests_properties(quantapdf.native_source_m2a_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;no-pdfium;source-staging;oom;m2a")
+
 # Public Source V10 standard PDF 'n': discard a bounded path without
 # ink, Clip or a new C11 layer. Original QPDF PDFs, no provider fallback
 # and unchanged private V8/V9 source contracts.

@@ -2501,15 +2501,22 @@ static int legacy_prepared_contracts(const quantapdf_qpdf_source_raw_image_limit
 
 int main(int argc,char **argv)
 {
-    CHECK(native_ttf_subset_contracts()==EXIT_SUCCESS);
-    const std::string pdf=original_pdf();
     const quantapdf_qpdf_source_raw_image_limits limits={
         2u*1024u*1024u,65536u,4u,4u,1000000u,1000000u,4000000u,8u
     };
+    /* The production master #2307 sanitizer RED was CTest's 40-second
+     * deadline for TWO independent Source/OOM suites in one invocation,
+     * not an allocator, geometry or Bitmap failure. Run the exact same
+     * M2a suite through this existing test-linked production executable,
+     * but with its own 40-second CTest lease. No test case is discarded. */
+    if(argc==2 && std::strcmp(argv[1],"--m2a")==0)
+        return m2a_ordered_text_image_source_contract(limits);
+    if(argc!=3)return EXIT_FAILURE;
+    CHECK(native_ttf_subset_contracts()==EXIT_SUCCESS);
+    const std::string pdf=original_pdf();
     CHECK(owned_page_contracts()==EXIT_SUCCESS);
     CHECK(composer_preparation_contracts()==EXIT_SUCCESS);
     CHECK(legacy_prepared_contracts(limits)==EXIT_SUCCESS);
-    CHECK(m2a_ordered_text_image_source_contract(limits)==EXIT_SUCCESS);
     CHECK(native_ttf_source_and_raster_contracts(limits)==EXIT_SUCCESS);
     CHECK(native_ttf_source_and_raster_contracts(limits,32)==EXIT_SUCCESS);
     /* Stages: 1 RAW Image, 2 IMAGE order, 3 PATH ownership,
