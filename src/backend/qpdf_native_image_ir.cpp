@@ -597,7 +597,7 @@ struct admission {
      * the existing outline reader; no second parser or QPDF owner. */
     bool outline_scope_started=false;
     unsigned char outline_clip_id=0u;
-    std::vector<unsigned char> outline_clip_stack;
+    std::vector<unsigned char> outline_clip_stack={};
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule,
