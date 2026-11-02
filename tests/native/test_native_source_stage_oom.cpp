@@ -1950,7 +1950,7 @@ static int m2b1_ordered_source_ir_contract(
               ir.operation_count==3u && ir.resources.image_count==1u &&
               ir.resources.images!=nullptr &&
               ir.resources.images[0].size==12u);
-        const size_t kinds[3]={
+        const quantapdf_composer_operation_kind kinds[3]={
             mode==66?QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES:
                      QUANTAPDF_COMPOSER_OPERATION_IMAGE,
             QUANTAPDF_COMPOSER_OPERATION_PATH,
@@ -1958,7 +1958,7 @@ static int m2b1_ordered_source_ir_contract(
                      QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES
         };
         for(size_t i=0u;i<3u;++i)
-            CHECK((size_t)ir.operations[i].kind==kinds[i] &&
+            CHECK(ir.operations[i].kind==kinds[i] &&
                   ir.operations[i].page_index==0u);
         CHECK(ir.operations[1].value.path.command_count==5u &&
               ir.operations[1].value.path.commands!=nullptr &&
@@ -1974,16 +1974,28 @@ static int m2b1_ordered_source_ir_contract(
             1000000u,4u,512u,8000000u,
             limits.max_source_pixels,limits.max_drawn_pixels
         };
-        quantapdf_native_source_page_v1 unadmitted{};
+        quantapdf_native_source_page_v1 prepared{};
         CHECK(quantapdf_native_source_page_prepare_v1(&ir,&caps,&device,
-              QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&unadmitted)==
-                  QUANTAPDF_ERROR_UNSUPPORTED &&
-              unadmitted.owns_ir==0 && !cleared(ir));
-        quantapdf_native_source_page_dispose_v1(&unadmitted);
-        quantapdf_ir_dispose(&ir);
-        CHECK(cleared(ir));
+              QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&prepared)==QUANTAPDF_OK &&
+              prepared.owns_ir && cleared(ir) &&
+              prepared.compiled.metadata.route==
+                  QP_NATIVE_PREPARED_M2B1_TEXT_FILL_IMAGE);
+        quantapdf_native_execution_receipt_v1 receipt{};
+        quantapdf_ir_raster_image rendered{};
+        CHECK(quantapdf_native_source_page_execute_v1(
+                  &prepared,&receipt,&rendered)==QUANTAPDF_OK &&
+              rendered.width==128u && rendered.height==64u &&
+              rendered.size==128u*64u*4u &&
+              receipt.source_pixels==4u &&
+              receipt.drawn_pixels==192u &&
+              receipt.charged_sample_work>0u &&
+              receipt.compiled_edges>0u &&
+              receipt.peak_live_bytes<=prepared.compiled.metadata.resource_limits.max_live_bytes);
+        quantapdf_native_source_page_dispose_v1(&prepared);
+        CHECK(cleared(ir) && rendered.pixels!=nullptr);
+        quantapdf_ir_raster_image_dispose(&rendered);
     }
-    std::puts("M2b.1 stage: original Text/Fill/Image and Image/Fill/Text own ordered 3-paint IR; C11 remains closed");
+    std::puts("M2b.1 stage: original Text/Fill/Image and Image/Fill/Text owned IR and one C11 V5 executed page");
     return EXIT_SUCCESS;
 }
 

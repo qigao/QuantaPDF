@@ -401,8 +401,8 @@ static int probe_rgb(const unsigned char *data,int stride,int x,int y,
     return px[0]==red && px[1]==green && px[2]==blue;
 }
 
-/* M2a independent whole-image oracle for four ORIGINAL 128x64 CID TTF +
- * RAW/Flate 2x2 Image XObject pages in both paint orders.
+/* M2a/M2b.1 independent whole-image oracle for six ORIGINAL CID TTF +
+ * RAW/Flate 2x2 Image XObject pages, with optional opaque Fill.
  *
  * The Text reference is the already reviewed original Roboto-hello RGBA
  * golden (produced BEFORE M2a), NOT a new mixed renderer's output. The
@@ -415,7 +415,7 @@ static int native_m2a_public_text_image_cases(const std::string& filename)
     const auto goldens=std::filesystem::path(__FILE__).parent_path()/"goldens";
     quantapdf_context *ctx=nullptr;
     OK(quantapdf_context_create(&ctx));
-    for(int mode:{49,50,64,65}) {
+    for(int mode:{49,50,64,65,66,67}) {
         const auto original=native_ttf_fixture(mode);
         CHECK(write_pdf(filename,original));
         quantapdf_document *doc=nullptr;
@@ -466,6 +466,17 @@ static int native_m2a_public_text_image_cases(const std::string& filename)
                                          py>=top && py<bottom);
                 }
                 const unsigned image_alpha=(covered*255u+8u)/16u;
+                const bool with_fill=mode==66 || mode==67;
+                unsigned filled_samples=0u;
+                if(with_fill)for(unsigned sy=0u;sy<4u;++sy)
+                for(unsigned sx=0u;sx<4u;++sx) {
+                    const double px=(double)x+((double)sx+0.5)/4.0;
+                    const double py=(double)y+((double)sy+0.5)/4.0;
+                    filled_samples+=(unsigned)(
+                        px>=12.0*scale && px<28.0*scale &&
+                        py>=24.0*scale && py<44.0*scale);
+                }
+                const unsigned fill_alpha=(filled_samples*255u+8u)/16u;
                 if(text_alpha>0u && image_alpha>0u)++overlapping;
                 const double nx=((double)x+0.5-left)/(right-left)*2.0;
                 const double ny=((double)y+0.5-top)/(bottom-top)*2.0;
@@ -477,12 +488,16 @@ static int native_m2a_public_text_image_cases(const std::string& filename)
                 };
                 const unsigned char *image_rgb=source[iy*2u+ix];
                 unsigned expected[3]={255u,255u,255u};
-                for(unsigned layer=0u;layer<2u;++layer) {
-                    const bool image=(mode==49 || mode==64)?
-                        layer==1u:layer==0u;
-                    const unsigned alpha=image?image_alpha:text_alpha;
+                for(unsigned layer=0u;layer<(with_fill?3u:2u);++layer) {
+                    const bool text_first=mode==49 || mode==64 || mode==66;
+                    const bool fill=with_fill && layer==1u;
+                    const bool image=text_first?
+                        layer==(with_fill?2u:1u):layer==0u;
+                    const unsigned alpha=fill?fill_alpha:
+                        image?image_alpha:text_alpha;
                     for(unsigned c=0u;c<3u;++c) {
-                        const unsigned color=image?image_rgb[c]:0u;
+                        const unsigned color=fill?
+                            (c==1u?255u:0u):image?image_rgb[c]:0u;
                         expected[c]=(color*alpha+
                             expected[c]*(255u-alpha)+127u)/255u;
                     }
@@ -534,25 +549,9 @@ static int native_m2a_public_text_image_cases(const std::string& filename)
         quantapdf_drop_page(denied_page);
         quantapdf_close(denied_doc);
     }
-    /* The M2b.1 originals are valid full PDFs and have a complete
-     * three-operation owned Source IR, but until the SAME C11 V5 page
-     * has all three compiled layers, PUBLIC Bitmap must reject both. */
-    for(int mode:{66,67}) {
-        CHECK(write_pdf(filename,native_ttf_fixture(mode)));
-        quantapdf_document *doc=nullptr;
-        quantapdf_page *page=nullptr;
-        quantapdf_bitmap *bitmap=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-        OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&doc));
-        CHECK(std::remove(filename.c_str())==0);
-        OK(quantapdf_load_page(doc,0,&page));
-        CHECK(quantapdf_render_page(page,&bitmap)==
-              QUANTAPDF_ERROR_UNSUPPORTED && bitmap==nullptr);
-        quantapdf_drop_page(page);
-        quantapdf_close(doc);
-    }
     quantapdf_drop_context(ctx);
-    std::puts("[native-public-render] M2a original RAW/Flate Text/Image"
-              " in both orders, independent RGB 72/96/144 DPI passed");
+    std::puts("[native-public-render] M2a + M2b.1 original Text/Fill/Image"
+              " and Image/Fill/Text, independent RGB 72/96/144 DPI passed");
     return EXIT_SUCCESS;
 }
 

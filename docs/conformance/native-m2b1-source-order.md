@@ -1,17 +1,27 @@
-# M2b.1 — Source-only ordered Text/Fill/Image checkpoint
+# M2b.1 — one original ordered Text/Fill/Image compiled page
 
-Tracks [#582](https://github.com/qigao/QuantaPDF/issues/582), parent [#580](https://github.com/qigao/QuantaPDF/issues/580). Based on independent M2a master accepted `affc4132da73c574fd4f17da313c1a337cbde5bc`, CI #2309 61/61 native and installed 1/1.
+Tracks [#582](https://github.com/qigao/QuantaPDF/issues/582), parent [#580](https://github.com/qigao/QuantaPDF/issues/580). Starts from M2a accepted production master `affc4132da73c574fd4f17da313c1a337cbde5bc`, independent #2309 SUCCESS.
 
-## What this **does** add
+## Restricted new qualification (Draft until CI)
 
-One original QPDF Content token stream now stages a **completed Fill event** from the **existing** embedded-TTF outline interpreter. It preserves the original Source operation kind sequence `TEXT_SHOW, FILL, IMAGE` or `IMAGE, FILL, TEXT_SHOW`, including the path prefix before the first BT. Whole-content EOF is mandatory. One native owner copies each opaque black TTF glyph contour, one frozen opaque green rectangle Fill and the real RAW Image bytes into a unique three-operation IR. No QPDF/font handle escapes. Existing Text-only and two-paint M2a owners retain their prior exact allocation/geometry/bitmap paths.
+Two new, genuinely original QPDF 128×64 pages:
+- mode 66: black embedded CID TTF **Text → green rectangle Fill → RAW RGB Image**
+- mode 67: **RAW RGB Image → green rectangle Fill → black embedded CID TTF Text**
 
-New original fixture modes `66` and `67` are genuine PDF pages (one resource Font and one XObject, 128×64 MediaBox). Each has one q/Q-contained nonzero Fill `12 20 16 20 re f` and one black TTF Hello show plus RGB Image 2×2 at original bounds `10 15 16 12 cm` under their actual authored ordering.
+The one existing Source V10/TTF interpreter sends completed original Text, opaque Fill and decoded Image to a single source-order staging graph, retaining original q/Q and paint colors; no second parser. Fully validated EOF materializes one owned three-operation IR (exactly one TTF glyph show, one closed rectangle, one Image sample record). No borrowed font/QPDF pointer escapes.
 
-## What remains deliberately closed
+The production C11 M2a preparation and output remain untouched for two-paint pages. A distinct private `M2B1_TEXT_FILL_IMAGE` route borrows the same unique Source Context lease and compiles the three operations into one existing V5 C11 page; PATH uses its **existing** V1 geometry compiler with projected coordinates, Text retains the exact black glyph coverage conversion, and Image remains the existing RAW sample renderer. All three share the original device grid, V5 source-over painter and page-level sample/edge/pixel/byte ledger. No second renderer or full-page PDF fallback exists.
 
-Public C11 geometry/Bitmap for these **three** paints still returns `UNSUPPORTED`; the current M2a V5 route accepts only two logical paints. The existing native Source/OOM target validates owned three-op IR and atomic C11 refusal. The public native target verifies no partial Bitmap. No new parser, C11 raster, second source-over compositor, CMake/CI/consumer project, ABI, PDFium or historic golden changes.
+## Independent pixel oracle
 
-## Next qualification gate before enabling Bitmap
+In the existing native public render executable, use the **pre-M2a reviewed Roboto-hello RGBA reference** for exact TTF black coverage, independently calculate the original green rectangle coverage at every 4×4 device subpixel and the existing 2×2 Image footprint/center-nearest RGB, then apply the three operations in original authored order. Compare **every** RGB output pixel at 72, 96 and 144 DPI; never generate new goldens from the implementation.
 
-Integrate PATH's existing C11 V1 geometry compiler as a **third V5 layer** with Text+Image under one page-owned sample/edge/byte ledger. Use genuinely independent pre-M2a Roboto RGBA and analytic 4×4 rectangle Fill/image reference for exact 72/96/144 whole-image RGB in both orders; retain M2a's alpha-rounding behavior and N/N−1/real malloc/Context rollback. M2b.2 W/W* correlated Clip sampling remains a separate gate. Keep PR Draft; no stage success without exact-head CI.
+## Still open
+
+- [ ] Candidate exact-head full 61/61 or higher Linux Release/ASan-UBSan/Windows/macOS native CI and installed consumers 1/1; Windows exact export/no-PDFium audit.
+- [ ] New route's actual edge/work/byte N/N−1 and real 3-layer C11 allocation-fault/Context recovery tests, including later failure and post-IR teardown.
+- [ ] Extended negative original PDF matrix: extra Text/Fill/Image, late invalid Do/W/Stroke, unqualified Text colors/graphics states/font identities and nonidentity matrices, never partial Bitmap.
+- [ ] Independent master-push CI after any eventual qualified merge.
+- [ ] Later M2b.2 correlated 4×4 glyph∩Clip and wider fonts/colors remain OPEN. No new public ABI, CI/workflow/test project or PDFium.
+
+This is a Draft capability, NOT a completed general Text/Image/Fill/Clip renderer.
