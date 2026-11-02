@@ -1945,7 +1945,7 @@ static int m2b1_ordered_source_ir_contract(
     const quantapdf_qpdf_source_raw_image_limits& limits)
 {
     target=0u;armed=false;track_c_allocation=false;c_fail_index=0u;
-    for(int mode:{66,67}) {
+    for(int mode:{66,67,81,82}) {
         const std::string original=native_ttf_fixture(mode);
         const auto read=[&](quantapdf_ir& out) {
             return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
@@ -1971,10 +1971,12 @@ static int m2b1_ordered_source_ir_contract(
               ir.resources.images!=nullptr &&
               ir.resources.images[0].size==12u);
         const quantapdf_composer_operation_kind expected[3]={
-            mode==66?QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES:
+            (mode==66 || mode==81)?
+                QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES:
                      QUANTAPDF_COMPOSER_OPERATION_IMAGE,
             QUANTAPDF_COMPOSER_OPERATION_PATH,
-            mode==66?QUANTAPDF_COMPOSER_OPERATION_IMAGE:
+            (mode==66 || mode==81)?
+                QUANTAPDF_COMPOSER_OPERATION_IMAGE:
                      QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES
         };
         for(size_t i=0u;i<3u;++i)
@@ -1986,7 +1988,7 @@ static int m2b1_ordered_source_ir_contract(
               ir.operations[1].value.path.options.fill==1 &&
               ir.operations[1].value.path.options.fill_argb==
                   UINT32_C(0xff00ff00));
-        const auto& text=ir.operations[mode==66?0u:2u].value.text_outlines;
+        const auto& text=ir.operations[(mode==66 || mode==81)?0u:2u].value.text_outlines;
         CHECK(text.argb==UINT32_C(0xff000000) &&
               text.glyph_count==5u && text.glyphs!=nullptr);
         const quantapdf_ir snapshot=ir;

@@ -74,6 +74,15 @@ add_test(NAME quantapdf.native_m2b1_public_negatives
 set_tests_properties(quantapdf.native_m2b1_public_negatives PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;m2b1")
 
+# Original FlateDecode XObject + embedded-TTF/Fill parity is its OWN
+# independent full-image 72/96/144-DPI conformance gate. Reuse the
+# exact same public native executable; avoid consuming the legacy
+# 45s whole-corpus CTest budget. No extra target or CI workflow.
+add_test(NAME quantapdf.native_m2b1_flate
+  COMMAND quantapdf_native_public_render --m2b1-flate)
+set_tests_properties(quantapdf.native_m2b1_flate PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;m2b1")
+
 
 # TEST-ONLY Context OOM hook for the real Native V10 public Bitmap handoff.
 # QPDF creates only the ORIGINAL source; no PDFium, second raster or SDK ABI.

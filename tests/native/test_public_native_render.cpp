@@ -410,12 +410,15 @@ static int probe_rgb(const unsigned char *data,int stride,int x,int y,
  * calculated here directly from the authored PDF operands. They are
  * blended analytically over opaque white in the actual authored order.
  * Pixel-by-pixel comparison covers *all* 72/96/144 DPI RGB bytes. */
-static int native_m2a_public_text_image_cases(const std::string& filename)
+static int native_m2a_public_text_image_cases(const std::string& filename,
+                                             bool only_m2b1_flate=false)
 {
     const auto goldens=std::filesystem::path(__FILE__).parent_path()/"goldens";
     quantapdf_context *ctx=nullptr;
     OK(quantapdf_context_create(&ctx));
-    for(int mode:{49,50,64,65,66,67}) {
+    const std::vector<int> modes=only_m2b1_flate?
+        std::vector<int>{81,82}:std::vector<int>{49,50,64,65,66,67};
+    for(int mode:modes) {
         const auto original=native_ttf_fixture(mode);
         CHECK(write_pdf(filename,original));
         quantapdf_document *doc=nullptr;
@@ -466,7 +469,7 @@ static int native_m2a_public_text_image_cases(const std::string& filename)
                                          py>=top && py<bottom);
                 }
                 const unsigned image_alpha=(covered*255u+8u)/16u;
-                const bool with_fill=mode==66 || mode==67;
+                const bool with_fill=mode==66 || mode==67 || mode==81 || mode==82;
                 unsigned filled_samples=0u;
                 if(with_fill)for(unsigned sy=0u;sy<4u;++sy)
                 for(unsigned sx=0u;sx<4u;++sx) {
@@ -489,7 +492,7 @@ static int native_m2a_public_text_image_cases(const std::string& filename)
                 const unsigned char *image_rgb=source[iy*2u+ix];
                 unsigned expected[3]={255u,255u,255u};
                 for(unsigned layer=0u;layer<(with_fill?3u:2u);++layer) {
-                    const bool text_first=mode==49 || mode==64 || mode==66;
+                    const bool text_first=mode==49 || mode==64 || mode==66 || mode==81;
                     const bool fill=with_fill && layer==1u;
                     const bool image=text_first?
                         layer==(with_fill?2u:1u):layer==0u;
@@ -3643,6 +3646,8 @@ int main(int argc,char **argv)
     const std::string filename="native-standalone-smoke.pdf";
     if(argc==2 && std::strcmp(argv[1],"--m2b1-negatives")==0)
         return native_m2b1_public_negatives(filename);
+    if(argc==2 && std::strcmp(argv[1],"--m2b1-flate")==0)
+        return native_m2a_public_text_image_cases(filename,true);
     if(argc!=1)return EXIT_FAILURE;
     CHECK(native_ttf_public_cases(filename)==EXIT_SUCCESS);
     CHECK(native_m2a_public_text_image_cases(filename)==EXIT_SUCCESS);

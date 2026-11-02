@@ -172,10 +172,10 @@ inline std::string native_ttf_fixture(int mode=0)
     /* #578 M2a: fully original QPDF-authored embedded CID TTF +
      * RAW/Flate RGB Image in both orders, plus late invalid operations.
      * No IR-derived or compositor-derived fixtures are used. */
-    if(mode>=49 && mode<=80) {
+    if(mode>=49 && mode<=82) {
         const std::string pixels("\xff\0\0\0\xff\0\0\0\xff\xff\xff\0",12);
         std::string encoded=pixels;
-        if(mode==64 || mode==65) {
+        if(mode==64 || mode==65 || mode==81 || mode==82) {
             uLongf capacity=compressBound(static_cast<uLong>(pixels.size()));
             encoded.assign(static_cast<size_t>(capacity),'\0');
             if(compress2(reinterpret_cast<Bytef *>(encoded.data()),&capacity,
@@ -193,7 +193,7 @@ inline std::string native_ttf_fixture(int mode=0)
         dict.replaceKey("/Height",O::newInteger(2));
         dict.replaceKey("/BitsPerComponent",O::newInteger(8));
         dict.replaceKey("/ColorSpace",O::newName("/DeviceRGB"));
-        if(mode==64 || mode==65) {
+        if(mode==64 || mode==65 || mode==81 || mode==82) {
             dict.replaceKey("/Filter",O::newName("/FlateDecode"));
             image.setFilterOnWrite(false);
         }
@@ -225,14 +225,15 @@ inline std::string native_ttf_fixture(int mode=0)
         if(mode==59)text+=" Q"; /* unbalanced restore */
         if(mode==61)text+=" "+draw; /* second original Image Do */
         if(mode==62)text+=" BT /F 24 Tf 12 20 Td <002d> Tj"; /* no ET */
-        if(mode>=66 && mode<=80) {
+        if(mode>=66 && mode<=82) {
             const std::string fill="q 0 1 0 rg 12 20 16 20 re f Q";
             const std::string first=mode==75 ?
                 "q 16 1 0 12 10 15 cm /I Do Q":draw;
             const std::string tshow=mode==80 ?
                 "q 0 0 1 rg BT /F 24 Tf 12 20 Td "
                 "<002d004a005100510054> Tj ET Q":show;
-            text=(mode==67 || (mode>=69 && (mode%2)==1)) ?
+            text=(mode==67 || mode==82 ||
+                  (mode>=69 && mode<=80 && (mode%2)==1)) ?
                 first+" "+fill+" "+tshow:
                 tshow+" "+fill+" "+first;
             if(mode==68)text+=" /Missing Do";
