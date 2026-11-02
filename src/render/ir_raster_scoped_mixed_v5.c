@@ -1508,6 +1508,123 @@ quantapdf_status quantapdf_native_scoped_prepare_m2b2c_text_fill_image_v1(
     return qp_mixed_text_image_prepare(ir,limits,physical,ledger,out,1,1);
 }
 
+
+/* M2b.2g PRIVATE one-owner four-layer compilation. The first three
+ * ORIGINAL paints hold frozen W/W* Clip1 and reuse the accepted M2b.2c
+ * Text∩Clip, Fill∩Clip and Image∩Clip C11 geometry. An original Q then
+ * restores GS0 for exactly ONE final unmasked opaque rectangular Fill.
+ *
+ * The first-three view is a synchronous BORROW of the unique Source IR,
+ * never a new parser or a copied/live IR owner. Every geometry object,
+ * decoded Image borrow and RGBA layer remains in one existing V5 owner.
+ * Reserve a fixed one-eighth share of the SAME 8M page work ledger for
+ * the GS0 suffix, before preparing any earlier clipped geometry. */
+quantapdf_status quantapdf_native_scoped_prepare_m2b2g_restored_four_v1(
+    const quantapdf_ir *ir,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    const quantapdf_native_device_plan *physical,
+    quantapdf_native_work_ledger_v1 *ledger,
+    quantapdf_native_scoped_page_v5 *out)
+{
+    quantapdf_ir first_three={0};
+    quantapdf_ir_raster_scoped_mixed_v5_limits first_limits={0};
+    quantapdf_ir_raster_v1_limits suffix_limits={0};
+    quantapdf_composer_page_state suffix_page={0};
+    quantapdf_composer_operation suffix={0};
+    quantapdf_composer_path_command commands[5]={{0}};
+    quantapdf_ir suffix_view={0};
+    quantapdf_status status=QUANTAPDF_ERROR_UNSUPPORTED;
+    size_t suffix_samples;
+    double scale;
+    if(out==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out,0,sizeof(*out));
+    if(ir==NULL || limits==NULL || physical==NULL || ledger==NULL ||
+       ir->pages==NULL || ir->operations==NULL ||
+       ir->page_count!=1u || ir->operation_count!=4u ||
+       limits->max_operations<4u || limits->max_edges<=8u ||
+       limits->max_sample_tests<=8u ||
+       ir->operations[0].kind!=QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES ||
+       ir->operations[1].kind!=QUANTAPDF_COMPOSER_OPERATION_PATH ||
+       ir->operations[2].kind!=QUANTAPDF_COMPOSER_OPERATION_IMAGE ||
+       ir->operations[3].kind!=QUANTAPDF_COMPOSER_OPERATION_PATH ||
+       ir->operations[0].graphics_state_id!=1u ||
+       ir->operations[1].graphics_state_id!=1u ||
+       ir->operations[2].graphics_state_id!=1u ||
+       ir->operations[3].graphics_state_id!=0u ||
+       ir->operations[3].page_index!=0u)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    const quantapdf_composer_path_operation *p=
+        &ir->operations[3].value.path;
+    const quantapdf_affine_transform *transform=&p->options.transform;
+    if(p->options.struct_size<QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE ||
+       p->options.graphics_state_id!=0u ||
+       p->options.fill!=1 || p->options.stroke!=0 ||
+       (p->options.fill_argb>>24u)!=255u ||
+       p->options.fill_paint_id!=0u ||
+       p->options.stroke_paint_id!=0u ||
+       p->dash_lengths!=NULL || p->dash_count!=0u ||
+       p->commands==NULL || p->command_count!=5u ||
+       !v5_closed_contour(p->commands,5u) ||
+       transform->a!=0.0f || transform->b!=0.0f ||
+       transform->c!=0.0f || transform->d!=0.0f ||
+       transform->e!=0.0f || transform->f!=0.0f)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    suffix_samples=limits->max_sample_tests/8u;
+    if(suffix_samples==0u ||
+       suffix_samples>=limits->max_sample_tests)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    first_three=*ir;
+    first_three.operation_count=3u;
+    first_limits=*limits;
+    first_limits.max_operations=3u;
+    first_limits.max_edges=limits->max_edges-8u;
+    first_limits.max_sample_tests=limits->max_sample_tests-suffix_samples;
+    status=quantapdf_native_scoped_prepare_m2b2c_text_fill_image_v1(
+        &first_three,&first_limits,physical,ledger,out);
+    if(status!=QUANTAPDF_OK)return status;
+    /* Frozen original Y-down positions are point coordinates, not
+     * resized integer canvas coordinates. Project exactly once to
+     * the physical DPI, same as earlier V5 Fill and Image geometry. */
+    scale=(double)physical->dpi/72.0;
+    suffix=ir->operations[3];
+    for(size_t i=0u;i<5u;++i) {
+        commands[i]=p->commands[i];
+        if(i<4u) {
+            const double x=(double)commands[i].point1.x*scale;
+            const double y=(double)commands[i].point1.y*scale;
+            if(!isfinite(x) || !isfinite(y) ||
+               x< -1000000.0 || x>1000000.0 ||
+               y< -1000000.0 || y>1000000.0)goto cleanup;
+            commands[i].point1.x=(float)x;
+            commands[i].point1.y=(float)y;
+        }
+    }
+    suffix.value.path.commands=commands;
+    suffix_page=out->page;
+    suffix_page.suppress_background=1;
+    suffix_page.background_argb=0u;
+    suffix_view.pages=&suffix_page;
+    suffix_view.page_count=1u;
+    suffix_view.operations=&suffix;
+    suffix_view.operation_count=1u;
+    suffix_limits.max_pixels=limits->max_pixels;
+    suffix_limits.max_operations=1u;
+    suffix_limits.max_edges=8u;
+    suffix_limits.max_sample_tests=suffix_samples;
+    status=quantapdf_native_geometry_prepare_v1(
+        &suffix_view,0u,&suffix_limits,NULL,NULL,0u,
+        QP_NATIVE_WORK_VISIBLE_FILL,ledger,&out->geometry[3]);
+    if(status!=QUANTAPDF_OK)goto cleanup;
+    out->modes[3]=0u;
+    out->count=4u;
+    out->ready=1;
+    return QUANTAPDF_OK;
+cleanup:
+    ledger->failed=1;
+    quantapdf_native_scoped_dispose_v5(out);
+    return status;
+}
+
 quantapdf_status quantapdf_native_scoped_execute_v5(
     quantapdf_native_scoped_page_v5 *page,quantapdf_ir_raster_image *out)
 {

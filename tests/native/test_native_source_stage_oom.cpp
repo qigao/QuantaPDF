@@ -3550,6 +3550,82 @@ static int m2b2f_fourth_restored_source_owner(
     return EXIT_SUCCESS;
 }
 
+static int m2b2g_private_fourth_restored_v5(
+    const quantapdf_qpdf_source_raw_image_limits& caps)
+{
+    const auto original=native_ttf_fixture(97);
+    quantapdf_ir ir{};
+    CHECK(quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+        reinterpret_cast<const unsigned char*>(original.data()),
+        original.size(),&caps,0u,&ir)==QUANTAPDF_OK &&
+        ir.operation_count==4u && ir.resources.clip_count==1u);
+    const quantapdf_ir_raster_scoped_mixed_v5_limits limits={
+        1000000u,4u,512u,8000000u,caps.max_source_pixels,caps.max_drawn_pixels
+    };
+    for(unsigned dpi:{72u,96u,144u}) {
+        quantapdf_native_device_plan physical{};
+        CHECK(quantapdf_native_device_plan_create_physical(
+            "0 0 128 64","0 0 128 64","1",0,dpi,
+            limits.max_pixels,&physical)==QUANTAPDF_OK);
+        quantapdf_native_work_ledger_v1 ledger{};
+        const quantapdf_native_resource_limits_v1 resources={
+            limits.max_source_pixels,limits.max_drawn_pixels,8000000u
+        };
+        quantapdf_native_work_init_v1(
+            &ledger,limits.max_sample_tests,limits.max_edges);
+        CHECK(quantapdf_native_resources_init_v1(
+            &ledger,&resources,0u));
+        quantapdf_native_scoped_page_v5 compiled{};
+        const auto preparation=
+            quantapdf_native_scoped_prepare_m2b2g_restored_four_v1(
+                &ir,&limits,&physical,&ledger,&compiled);
+        if(preparation!=QUANTAPDF_OK)
+            std::fprintf(stderr,
+                "M2b2g C11 four prepare dpi=%u status=%d\n",
+                dpi,(int)preparation);
+        CHECK(preparation==QUANTAPDF_OK && compiled.ready &&
+              compiled.count==4u &&
+              compiled.width==physical.width &&
+              compiled.height==physical.height);
+        for(size_t i=0u;i<4u;++i) {
+            quantapdf_native_geometry_info_v1 info{};
+            CHECK(quantapdf_native_geometry_info_get_v1(
+                &compiled.geometry[i],&info)==QUANTAPDF_OK &&
+                info.draws>0u &&
+                info.clips==(i==3u?0u:1u));
+        }
+        quantapdf_ir_raster_image pixels{};
+        CHECK(quantapdf_native_scoped_execute_v5(
+                  &compiled,&pixels)==QUANTAPDF_OK &&
+              pixels.width==physical.width &&
+              pixels.height==physical.height &&
+              pixels.size==physical.size &&
+              pixels.pixels!=nullptr &&
+              ledger.used.sample_work<=limits.max_sample_tests &&
+              ledger.used.edges<=limits.max_edges);
+        const double scale=(double)dpi/72.0;
+        const size_t red_x=(size_t)(36.0*scale);
+        const size_t red_y=(size_t)(52.0*scale);
+        const size_t green_x=(size_t)(14.0*scale);
+        const size_t green_y=(size_t)(30.0*scale);
+        const size_t white_x=(size_t)(29.0*scale);
+        const size_t white_y=(size_t)(30.0*scale);
+        CHECK(rgba_at(pixels,red_x,red_y)==UINT32_C(0xff0000ff) &&
+              rgba_at(pixels,green_x,green_y)==UINT32_C(0x00ff00ff) &&
+              rgba_at(pixels,white_x,white_y)==UINT32_C(0xffffffff) &&
+              rgba_at(pixels,0u,0u)==UINT32_C(0xffffffff));
+        quantapdf_native_raster_image_dispose_v1(&ledger,&pixels);
+        quantapdf_native_scoped_dispose_v5(&compiled);
+        CHECK(ledger.resources.live_bytes==0u &&
+              ledger.reserved.sample_work==0u &&
+              ledger.reserved.edges==0u);
+    }
+    quantapdf_ir_dispose(&ir);
+    CHECK(cleared(ir));
+    std::puts("M2b.2g original Q-restored four-paint private C11 V5 owner at 72/96/144 PASS");
+    return EXIT_SUCCESS;
+}
+
 /* M2b.2a private C11 correlated glyph/Clip fault acceptance. This
  * exercises the REAL exact C11 mallocs in the SAME existing Source/OOM
  * executable; the public original W/W* Source profile is still closed. */
@@ -3665,6 +3741,7 @@ int main(int argc,char **argv)
         CHECK(m2b1_ordered_source_ir_contract(limits)==EXIT_SUCCESS);
         CHECK(m2b2b_clipped_source_owner_contract(limits)==EXIT_SUCCESS);
         CHECK(m2b2f_fourth_restored_source_owner(limits)==EXIT_SUCCESS);
+        CHECK(m2b2g_private_fourth_restored_v5(limits)==EXIT_SUCCESS);
         CHECK(m2b2c_original_aligned_whole_rgb(limits)==EXIT_SUCCESS);
         CHECK(m2b2d_aligned_prepared_receipt_faults(limits)==EXIT_SUCCESS);
         return m2b2a_private_clipped_text_faults();
