@@ -2879,6 +2879,9 @@ static int m2b2b_clipped_source_owner_contract(
                 &ledger,raster.max_sample_tests,raster.max_edges);
             CHECK(quantapdf_native_resources_init_v1(
                 &ledger,&resource_caps,0u));
+            m2a_malloc_fault_state observed_fault{};
+            if(mode==83 && dpi==72u)
+                ledger.malloc_fault={&observed_fault,m2a_malloc_fault_callback};
             quantapdf_native_scoped_page_v5 compiled{};
             const auto compiled_status=
                 quantapdf_native_scoped_prepare_m2b2c_text_fill_image_v1(
@@ -2927,6 +2930,78 @@ static int m2b2b_clipped_source_owner_contract(
                 else if(pixel!=UINT32_C(0xffffffff))++colored;
             }
             CHECK(colored>0u && rgba_at(pixels,0u,0u)==UINT32_C(0xffffffff));
+            /* M2b.2c first exact allocator/resource fault gate.
+             * These all compile the SAME ORIGINAL Source-owned W leaf
+             * and 3 paints, but never publish a partial result. Preserve
+             * the independent old C11 four-malloc and PDF goldens. */
+            if(mode==83 && dpi==72u) {
+                CHECK(observed_fault.attempts>=6u &&
+                      observed_fault.attempts<=64u &&
+                      observed_fault.failures==0u &&
+                      ledger.resources.peak_live_bytes>0u);
+                const size_t attempts=observed_fault.attempts;
+                const size_t peak=ledger.resources.peak_live_bytes;
+                const std::vector<unsigned char> expected_rgba(
+                    pixels.pixels,pixels.pixels+pixels.size);
+                const auto trial=[&](
+                    size_t fail_on,size_t source_cap,size_t memory_cap,
+                    quantapdf_status wanted) {
+                    quantapdf_native_work_ledger_v1 fault_ledger{};
+                    quantapdf_native_work_init_v1(
+                        &fault_ledger,raster.max_sample_tests,raster.max_edges);
+                    quantapdf_native_resource_limits_v1 reduced_caps={
+                        source_cap,raster.max_drawn_pixels,memory_cap
+                    };
+                    if(!quantapdf_native_resources_init_v1(
+                        &fault_ledger,&reduced_caps,0u))return false;
+                    m2a_malloc_fault_state fault{};
+                    fault.fail_on=fail_on;
+                    fault_ledger.malloc_fault={&fault,m2a_malloc_fault_callback};
+                    quantapdf_native_scoped_page_v5 candidate{};
+                    quantapdf_ir_raster_image out{};
+                    quantapdf_status result=
+                        quantapdf_native_scoped_prepare_m2b2c_text_fill_image_v1(
+                            &ir,&raster,&physical,&fault_ledger,&candidate);
+                    if(result==QUANTAPDF_OK)
+                        result=quantapdf_native_scoped_execute_v5(
+                            &candidate,&out);
+                    bool ok=result==wanted;
+                    if(wanted==QUANTAPDF_OK)
+                        ok=ok && out.pixels!=nullptr &&
+                            out.size==expected_rgba.size() &&
+                            std::memcmp(out.pixels,expected_rgba.data(),
+                                        expected_rgba.size())==0 &&
+                            fault.failures==0u;
+                    else
+                        ok=ok && zero_bitmap(out) &&
+                            (fail_on==0u ||
+                             (fault.failures==1u &&
+                              fault.attempts==fail_on));
+                    quantapdf_native_raster_image_dispose_v1(&fault_ledger,&out);
+                    quantapdf_native_scoped_dispose_v5(&candidate);
+                    ok=ok && fault_ledger.resources.live_bytes==0u &&
+                        fault_ledger.reserved.sample_work==0u &&
+                        fault_ledger.reserved.edges==0u;
+                    if(!ok)
+                        std::fprintf(stderr,
+                            "M2b2c fault fail=%zu source=%zu live=%zu got=%d wanted=%d seen=%zu\n",
+                            fail_on,source_cap,memory_cap,
+                            (int)result,(int)wanted,fault.attempts);
+                    return ok;
+                };
+                const size_t marks[3]={1u,(attempts+1u)/2u,attempts};
+                for(size_t n:marks)
+                    CHECK(trial(n,resource_caps.max_source_pixels,
+                                resource_caps.max_live_bytes,
+                                QUANTAPDF_ERROR_NOMEM));
+                CHECK(trial(0u,3u,resource_caps.max_live_bytes,
+                            QUANTAPDF_ERROR_UNSUPPORTED));
+                CHECK(peak>1u);
+                CHECK(trial(0u,resource_caps.max_source_pixels,peak-1u,
+                            QUANTAPDF_ERROR_UNSUPPORTED));
+                CHECK(trial(0u,resource_caps.max_source_pixels,peak,
+                            QUANTAPDF_OK));
+            }
             quantapdf_native_raster_image_dispose_v1(&ledger,&pixels);
             quantapdf_native_scoped_dispose_v5(&compiled);
             CHECK(ledger.resources.live_bytes==0u &&
