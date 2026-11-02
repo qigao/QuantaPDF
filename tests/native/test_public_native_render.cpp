@@ -3656,9 +3656,16 @@ int main(int argc,char **argv)
         return native_m2a_public_text_image_cases(filename,2u);
     if(argc==2 && std::strcmp(argv[1],"--m2b1-raw")==0)
         return native_m2a_public_text_image_cases(filename,1u);
+    if(argc==2 && std::strcmp(argv[1],"--public-ttf")==0)
+        return native_ttf_public_cases(filename);
+    if(argc==2 && std::strcmp(argv[1],"--public-m2a")==0)
+        return native_m2a_public_text_image_cases(filename);
+    if(argc==2 && std::strcmp(argv[1],"--public-userunit7")==0) {
+        CHECK(native_seventh_userunit_cases(filename)==EXIT_SUCCESS);
+        CHECK(native_seventh_userunit_late_refusal_cases(filename)==EXIT_SUCCESS);
+        return EXIT_SUCCESS;
+    }
     if(argc!=1)return EXIT_FAILURE;
-    CHECK(native_ttf_public_cases(filename)==EXIT_SUCCESS);
-    CHECK(native_m2a_public_text_image_cases(filename)==EXIT_SUCCESS);
     CHECK(high_dpi_cases(filename)==EXIT_SUCCESS);
     CHECK(original_source_rotation_cases(filename)==EXIT_SUCCESS);
     CHECK(selected_page_v10_cases(filename)==EXIT_SUCCESS);
@@ -3671,8 +3678,6 @@ int main(int argc,char **argv)
     CHECK(native_decimal_number_cases(filename)==EXIT_SUCCESS);
     CHECK(native_decimal_cropped_viewport_cases(filename)==EXIT_SUCCESS);
     CHECK(native_userunit_physical_budget_cases(filename)==EXIT_SUCCESS);
-    CHECK(native_seventh_userunit_cases(filename)==EXIT_SUCCESS);
-    CHECK(native_seventh_userunit_late_refusal_cases(filename)==EXIT_SUCCESS);
     CHECK(write_pdf(filename,create_source(false)));
 
     quantapdf_context *context=nullptr;

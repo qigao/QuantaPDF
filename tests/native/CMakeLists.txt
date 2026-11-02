@@ -66,6 +66,23 @@ add_test(NAME quantapdf.native_public_render
 set_tests_properties(quantapdf.native_public_render PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api")
 
+# Split the existing original Text, two-paint M2a and selected UserUnit
+# public corpus into independent CTest invocations of the SAME executable.
+# All originals, independent RGB goldens, faults and refusals still run;
+# no new build target, workflow, installer or consumer, and no timeout raise.
+# On CI #2318, the unsplit legacy public ASan test took 42.58/45 sec.
+add_test(NAME quantapdf.native_public_ttf
+  COMMAND quantapdf_native_public_render --public-ttf)
+add_test(NAME quantapdf.native_public_m2a
+  COMMAND quantapdf_native_public_render --public-m2a)
+add_test(NAME quantapdf.native_public_userunit7
+  COMMAND quantapdf_native_public_render --public-userunit7)
+set_tests_properties(
+  quantapdf.native_public_ttf
+  quantapdf.native_public_m2a
+  quantapdf.native_public_userunit7 PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api")
+
 # Independent M2b.1 original late-invalid PDF public Bitmap gate.
 # Reuse this same existing native executable and real PDF/Context/Bitmap;
 # do not add a consumer/installer target or extend historical timeouts.
