@@ -549,6 +549,20 @@ static int native_m2a_public_text_image_cases(const std::string& filename)
         quantapdf_drop_page(denied_page);
         quantapdf_close(denied_doc);
     }
+    quantapdf_drop_context(ctx);
+    std::puts("[native-public-render] M2a + M2b.1 original Text/Fill/Image"
+              " and Image/Fill/Text, independent RGB 72/96/144 DPI passed");
+    return EXIT_SUCCESS;
+}
+
+/* Separate CTest invocation of the SAME real public-native executable.
+ * The seven original invalid three-paint PDFs must not consume part of
+ * the unchanged 45s main public golden budget on a contended ASan
+ * runner. No extra consumer/test project or probing workflow. */
+static int native_m2b1_public_negatives(const std::string& filename)
+{
+    quantapdf_context *ctx=nullptr;
+    OK(quantapdf_context_create(&ctx));
     /* Seven representative complete ORIGINAL PDFs with a good three-
      * paint prefix followed by an illegal final operation/Resource:
      * public Bitmap must fail atomically, never return an image. All
@@ -572,8 +586,7 @@ static int native_m2a_public_text_image_cases(const std::string& filename)
         quantapdf_drop_page(page);quantapdf_close(doc);
     }
     quantapdf_drop_context(ctx);
-    std::puts("[native-public-render] M2a + M2b.1 original Text/Fill/Image"
-              " and Image/Fill/Text, independent RGB 72/96/144 DPI passed");
+    std::puts("[native-public-render] M2b.1 original late Source negatives: seven public atomic refusals");
     return EXIT_SUCCESS;
 }
 
@@ -3625,9 +3638,12 @@ static int native_seventh_userunit_late_refusal_cases(
 
 #include "native_ttf_public_cases.h"
 
-int main()
+int main(int argc,char **argv)
 {
     const std::string filename="native-standalone-smoke.pdf";
+    if(argc==2 && std::strcmp(argv[1],"--m2b1-negatives")==0)
+        return native_m2b1_public_negatives(filename);
+    if(argc!=1)return EXIT_FAILURE;
     CHECK(native_ttf_public_cases(filename)==EXIT_SUCCESS);
     CHECK(native_m2a_public_text_image_cases(filename)==EXIT_SUCCESS);
     CHECK(high_dpi_cases(filename)==EXIT_SUCCESS);

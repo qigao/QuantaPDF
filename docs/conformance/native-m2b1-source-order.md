@@ -29,3 +29,7 @@ This is a Draft capability, NOT a completed general Text/Image/Fill/Clip rendere
 ## Full original-source refusal matrix (candidate)
 
 Existing test-only author now supplies 13 additional original PDFs, modes 68–80, with a complete good Text/Fill/Image or Image/Fill/Text prefix before an unsupported late Do, extra Fill, W Clip, Stroke, unused Font/XObject/ExtGState, sheared original CTM, malformed q/Q/ET, second Do or blue text run. The **existing** Source/OOM target requires every one to refuse complete IR atomically; seven representative originals also traverse the public Bitmap API and must return no handle. Neither checks a fake IR/renderer, nor changes the M1/M2a golden corpus. This is an unaccepted candidate until exact-head CI passes.
+
+## Independent bounded public error CTest (candidate)
+
+The seven representative original public API refusal cases now run in a **separate 45-second invocation of the exact existing `quantapdf_native_public_render` executable**, via `--m2b1-negatives`. The unchanged 45-second existing public whole-image golden CTest retains its M1/M2a and newly admitted M2b.1 original pixel cases. All thirteen original negative PDFs still run in the existing Source/OOM invocation under its unchanged 40s deadline. This is a real product conformance split, not a probe CI or installer/consumer project; **native CTest count becomes 62** upon acceptance.

@@ -66,6 +66,14 @@ add_test(NAME quantapdf.native_public_render
 set_tests_properties(quantapdf.native_public_render PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api")
 
+# Independent M2b.1 original late-invalid PDF public Bitmap gate.
+# Reuse this same existing native executable and real PDF/Context/Bitmap;
+# do not add a consumer/installer target or extend historical timeouts.
+add_test(NAME quantapdf.native_m2b1_public_negatives
+  COMMAND quantapdf_native_public_render --m2b1-negatives)
+set_tests_properties(quantapdf.native_m2b1_public_negatives PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;m2b1")
+
 
 # TEST-ONLY Context OOM hook for the real Native V10 public Bitmap handoff.
 # QPDF creates only the ORIGINAL source; no PDFium, second raster or SDK ABI.
