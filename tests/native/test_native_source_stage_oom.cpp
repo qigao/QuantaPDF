@@ -2794,7 +2794,7 @@ static int m2b2b_clipped_source_owner_contract(
         1000000u,4u,512u,8000000u,
         limits.max_source_pixels,limits.max_drawn_pixels
     };
-    for(int mode:{83,84,95}) {
+    for(int mode:{83,84}) {
         const std::string original=native_ttf_fixture(mode);
         const auto read=[&](quantapdf_ir& output) {
             return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
@@ -2817,7 +2817,7 @@ static int m2b2b_clipped_source_owner_contract(
         const auto& c=ir.resources.clips[0];
         CHECK(c.kind==QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL &&
               c.command_count==5u && c.commands!=nullptr &&
-              c.fill_rule==(mode==83 || mode==95?
+              c.fill_rule==(mode==83?
                   QUANTAPDF_COMPOSER_FILL_NONZERO:
                   QUANTAPDF_COMPOSER_FILL_EVEN_ODD) &&
               c.transform.a==1.0f && c.transform.d==1.0f);
@@ -2839,10 +2839,10 @@ static int m2b2b_clipped_source_owner_contract(
               gs.stroke_alpha==1.0f &&
               gs.blend_mode==QUANTAPDF_COMPOSER_BLEND_NORMAL);
         const quantapdf_composer_operation_kind expected[3]={
-            (mode==83 || mode==95)?QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES:
+            mode==83?QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES:
                 QUANTAPDF_COMPOSER_OPERATION_IMAGE,
             QUANTAPDF_COMPOSER_OPERATION_PATH,
-            (mode==83 || mode==95)?QUANTAPDF_COMPOSER_OPERATION_IMAGE:
+            mode==83?QUANTAPDF_COMPOSER_OPERATION_IMAGE:
                 QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES
         };
         for(size_t i=0u;i<3u;++i)
@@ -2850,7 +2850,7 @@ static int m2b2b_clipped_source_owner_contract(
                   ir.operations[i].graphics_state_id==1u &&
                   ir.operations[i].page_index==0u);
         CHECK(ir.operations[1].value.path.options.graphics_state_id==1u);
-        const size_t image_at=(mode==83 || mode==95)?2u:0u;
+        const size_t image_at=mode==83?2u:0u;
         CHECK(ir.operations[image_at].value.image.options.graphics_state_id==1u &&
               ir.operations[image_at].value.image.options.struct_size==
                   QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE &&
@@ -3058,6 +3058,36 @@ static int m2b2b_clipped_source_owner_contract(
                 original.size(),&smaller,0u,&refused);
             CHECK(budget_status==QUANTAPDF_ERROR_UNSUPPORTED && cleared(refused));
         }
+    }
+    /* M2b.2e additional REAL original has a different pixel-aligned
+     * root rectangle and is already qualified for PUBLIC 96-DPI V5.
+     * Do not accidentally apply the historical 83/84 fractional
+     * fail-closed and 12..28 x 24..44 geometry assertions to mode95. */
+    {
+        const std::string original=native_ttf_fixture(95);
+        quantapdf_ir staged{};
+        CHECK(quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            reinterpret_cast<const unsigned char*>(original.data()),
+            original.size(),&limits,0u,&staged)==QUANTAPDF_OK &&
+            staged.operation_count==3u &&
+            staged.resources.clip_count==1u &&
+            staged.resources.graphics_state_count==1u);
+        const auto& commands=staged.resources.clips[0].commands;
+        CHECK(commands!=nullptr &&
+              commands[0].point1.x==12.0f &&
+              commands[1].point1.x==27.0f &&
+              commands[0].point1.y==24.0f &&
+              commands[2].point1.y==42.0f);
+        quantapdf_native_source_raster_device_v1 device{};
+        device.dpi=96.0f;
+        quantapdf_native_prepared_page_v1 metadata{};
+        CHECK(quantapdf_native_prepare_page_v1(
+            &staged,&raster,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,
+            &metadata)==QUANTAPDF_OK &&
+            metadata.route==QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE &&
+            metadata.usage.clips_used==1u);
+        quantapdf_ir_dispose(&staged);
+        CHECK(cleared(staged));
     }
     /* Every later invalid op/resource must refuse the WHOLE original,
      * even though the earlier Text/Fill/Image+Clip prefix is valid. */
