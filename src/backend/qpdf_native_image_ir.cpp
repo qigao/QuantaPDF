@@ -903,14 +903,16 @@ quantapdf_status source_m2a_text(void *user)
               source.text_outlines_eligible &&
               source.order.size()<hard_operations &&
               source.order.size()<source.limits.max_operations &&
-              /* Existing Text-only PATH-prefix profiles remain admitted.
-               * Mixed Image materialization independently rejects PATH. */
-              !source.clip_completed &&
-              source.clip.commands.empty() &&
-              source.second_clip.commands.empty(),
+              /* One root W/W* is frozen before BT, never a poppable
+               * scope borrowed by the independent outline callbacks. */
+              (!source.clip_completed ||
+               (source.clip.commands.size()==5u &&
+                !source.two_owned_clips &&
+                source.second_clip.commands.empty() &&
+                !source.saw_q_restore)),
               QUANTAPDF_ERROR_UNSUPPORTED);
         source.order.push_back(3);
-        source.scoped_clip_membership.push_back(0u);
+        source.scoped_clip_membership.push_back(source.clip_completed?1u:0u);
         return QUANTAPDF_OK;
     } catch(rejected const& e){return e.status;}
       catch(std::bad_alloc const&){return QUANTAPDF_ERROR_NOMEM;}
@@ -927,11 +929,14 @@ quantapdf_status source_m2b1_fill(void *user)
         admit(source.native_unclipped_mode && source.text_outlines_eligible &&
               source.order.size()<hard_operations &&
               source.order.size()<source.limits.max_operations &&
-              !source.clip_completed && source.clip.commands.empty() &&
-              source.second_clip.commands.empty(),
+              (!source.clip_completed ||
+               (source.clip.commands.size()==5u &&
+                !source.two_owned_clips &&
+                source.second_clip.commands.empty() &&
+                !source.saw_q_restore)),
               QUANTAPDF_ERROR_UNSUPPORTED);
         source.order.push_back(1);
-        source.scoped_clip_membership.push_back(0u);
+        source.scoped_clip_membership.push_back(source.clip_completed?1u:0u);
         return QUANTAPDF_OK;
     } catch(rejected const& e){return e.status;}
       catch(std::bad_alloc const&){return QUANTAPDF_ERROR_NOMEM;}
@@ -949,13 +954,14 @@ quantapdf_status source_m2a_image(
               ((source.order.size()==1u && source.order[0]==3) ||
                (source.order.size()==2u && source.order[0]==3 &&
                 source.order[1]==1)) &&
-              !source.clip_completed &&
-              source.clip.commands.empty() &&
-              source.second_clip.commands.empty() &&
+              (!source.clip_completed ||
+               (source.clip.commands.size()==5u &&
+                !source.two_owned_clips &&
+                source.second_clip.commands.empty())) &&
               !source.saw_q_restore,
               QUANTAPDF_ERROR_UNSUPPORTED);
         source.execute(image,ctm);
-        source.scoped_clip_membership.push_back(0u);
+        source.scoped_clip_membership.push_back(source.clip_completed?1u:0u);
         return QUANTAPDF_OK;
     } catch(rejected const& e){return e.status;}
       catch(std::bad_alloc const&){return QUANTAPDF_ERROR_NOMEM;}
@@ -983,8 +989,23 @@ public:
         }
         const std::string op=item.getOperatorValue();
         if(target.text_outlines_eligible && op=="BT") {
+            /* An original q nested AFTER W/n may legitimately save the
+             * same active Clip root. The post-BT outline parser receives
+             * that saved graphics frame; its Q restores Clip 1, not GS0.
+             * Reject any pre-Clip q whose saved Clip ID is zero, and
+             * any W/W* after BT (unsupported by the outline grammar). */
+            const bool frozen_root=target.native_unclipped_mode &&
+                target.clip_completed && clip_active==1u &&
+                target.clip.commands.size()==5u &&
+                !target.two_owned_clips &&
+                target.second_clip.commands.empty() &&
+                !target.saw_q_restore &&
+                stack.size()==fill_stack.size() &&
+                clip_stack.size()==stack.size() &&
+                std::all_of(clip_stack.begin(),clip_stack.end(),
+                    [](unsigned char id){return id==1u;});
             admit(args.empty() && pending_path.empty() && !clip_pending &&
-                !target.clip_completed &&
+                (!target.clip_completed || frozen_root) &&
                 (target.draws.empty() ?
                     target.order.size()==target.painted_paths.size() :
                     (target.draws.size()==1u &&
@@ -996,9 +1017,14 @@ public:
                      target.scoped_clip_membership.size()==target.order.size() &&
                      std::all_of(target.scoped_clip_membership.begin(),
                          target.scoped_clip_membership.end(),
-                         [](unsigned char member){return member==0u;}))) &&
+                         [frozen_root](unsigned char member) {
+                             return member==(frozen_root?1u:0u);
+                         }))) &&
                 stack.size()==fill_stack.size() &&
-                std::all_of(clip_stack.begin(),clip_stack.end(),[](size_t id){return id==0u;}),
+                std::all_of(clip_stack.begin(),clip_stack.end(),
+                    [frozen_root](unsigned char id) {
+                        return id==(frozen_root?1u:0u);
+                    }),
                 QUANTAPDF_ERROR_UNSUPPORTED);
             std::vector<quantapdf::detail::source_text_seed> saved;
             for(size_t i=0u;i<stack.size();++i)saved.push_back({stack[i],fill_stack[i]});
@@ -2510,7 +2536,11 @@ quantapdf_ir materialize_blank_page(const admission& source)
 quantapdf_ir materialize_text_outlines(const admission& source)
 {
     const size_t n=source.text_outline_paints.size();
-    admit(source.text_outlines_complete && n<=4u && n<=source.limits.max_operations,
+    admit(source.text_outlines_complete && n<=4u &&
+          n<=source.limits.max_operations &&
+          /* No Text-only/Fill-only page may silently drop a real Clip. */
+          !source.clip_completed && source.clip.commands.empty() &&
+          source.second_clip.commands.empty(),
           QUANTAPDF_ERROR_UNSUPPORTED);
     quantapdf_ir ir=materialize_blank_page(source);
     if(n==0u)return ir;
@@ -2555,6 +2585,8 @@ quantapdf_ir materialize_text_outlines(const admission& source)
 /* Existing image materializer is defined below the prior owned PATH
  * specializations. M2a shares it without copying decoder/allocation logic. */
 quantapdf_ir materialize(const admission& source);
+quantapdf_composer_clip_id materialize_source_clip_graph(
+    quantapdf_ir& ir,const admission& source);
 
 /* M2a complete owned Source graph: one embedded-TTF show and one
  * original RAW/Flate RGB/Gray Image, in either original paint order.
@@ -2642,6 +2674,7 @@ quantapdf_ir materialize_m2b1_text_fill_image(const admission& source)
         source.order[0]==3 && source.order[1]==1 && source.order[2]==2;
     const bool image_first=source.order.size()==3u &&
         source.order[0]==2 && source.order[1]==1 && source.order[2]==3;
+    const bool frozen_clip=source.clip_completed;
     admit(source.native_unclipped_mode && source.text_outlines_eligible &&
           source.text_outlines_complete && (text_first || image_first) &&
           source.draws.size()==1u && source.limits.max_operations>=3u &&
@@ -2650,9 +2683,16 @@ quantapdf_ir materialize_m2b1_text_fill_image(const admission& source)
           source.scoped_clip_membership.size()==3u &&
           std::all_of(source.scoped_clip_membership.begin(),
                       source.scoped_clip_membership.end(),
-                      [](unsigned char member){return member==0u;}) &&
-          !source.clip_completed && source.clip.commands.empty() &&
-          source.second_clip.commands.empty() && !source.saw_q_restore,
+                      [frozen_clip](unsigned char member) {
+                          return member==(frozen_clip?1u:0u);
+                      }) &&
+          (frozen_clip ?
+             (source.clip.commands.size()==5u && !source.two_owned_clips &&
+              !source.sibling_clip_scopes &&
+              source.second_clip.commands.empty()) :
+             (source.clip.commands.empty() &&
+              source.second_clip.commands.empty())) &&
+          !source.saw_q_restore,
           QUANTAPDF_ERROR_UNSUPPORTED);
     admit(source.resources.isDictionary(),QUANTAPDF_ERROR_FORMAT);
     const Obj font_dict=source.resources.getKey("/Font");
@@ -2729,6 +2769,35 @@ quantapdf_ir materialize_m2b1_text_fill_image(const admission& source)
                     admit(target.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
                     std::memcpy(target.commands,outline_commands.data(),
                                 outline_commands.size()*sizeof(*target.commands));
+                }
+            }
+        }
+        if(frozen_clip) {
+            /* M2b.2b: original Source owns one immutable Clip/GS and all
+             * three operation IDs; public Text+Clip is intentionally still
+             * refused by native_prepared_page_v1 until joint V5 acceptance.
+             * No new public ABI or alternative raster is introduced. */
+            ir.resources.graphics_states=
+                static_cast<quantapdf_composer_graphics_state *>(
+                   QP_SOURCE_C_CALLOC(1u,sizeof(*ir.resources.graphics_states)));
+            admit(ir.resources.graphics_states!=nullptr,QUANTAPDF_ERROR_NOMEM);
+            ir.resources.graphics_state_count=1u;
+            ir.resources.graphics_state_capacity=1u;
+            const auto root=materialize_source_clip_graph(ir,source);
+            admit(root==1u,QUANTAPDF_ERROR_UNSUPPORTED);
+            auto& state=ir.resources.graphics_states[0];
+            state.clip_id=root;
+            state.fill_alpha=1.0f;state.stroke_alpha=1.0f;
+            state.blend_mode=QUANTAPDF_COMPOSER_BLEND_NORMAL;
+            for(size_t i=0u;i<3u;++i) {
+                auto& operation=ir.operations[i];
+                operation.graphics_state_id=1u;
+                if(operation.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
+                    operation.value.image.options.struct_size=
+                        QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+                    operation.value.image.options.graphics_state_id=1u;
+                } else if(operation.kind==QUANTAPDF_COMPOSER_OPERATION_PATH) {
+                    operation.value.path.options.graphics_state_id=1u;
                 }
             }
         }
