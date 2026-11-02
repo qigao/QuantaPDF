@@ -416,8 +416,8 @@ static int native_m2b2c_public_aligned(const std::string& filename)
     };
     quantapdf_context *ctx=nullptr;
     OK(quantapdf_context_create(&ctx));
-    for(int mode:{91,92,93,94}) {
-        const bool text_first=(mode==91 || mode==93);
+    for(int mode:{91,92,93,94,95}) {
+        const bool text_first=(mode==91 || mode==93 || mode==95);
         const bool partial_fill=(mode==93 || mode==94);
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         quantapdf_document *doc=nullptr;
@@ -529,7 +529,7 @@ static int native_m2b2c_public_aligned(const std::string& filename)
     /* Fractional Clip source 83/84 at 96 DPI must remain FAIL-CLOSED.
      * Malformed late W, Q, Stroke, masked resource and unknown Do also
      * cannot fall back to a second renderer or publish any bitmap. */
-    for(int mode:{83,84,85,86,87,88,89,90}) {
+    for(int mode:{83,84,85,86,87,88,89,90,96}) {
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         quantapdf_document *denied_doc=nullptr;
         quantapdf_page *denied_page=nullptr;
