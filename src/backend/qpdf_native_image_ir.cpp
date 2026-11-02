@@ -2722,13 +2722,13 @@ quantapdf_ir materialize_m2b1_text_fill_image(const admission& source)
                 admit(result.glyphs!=nullptr,QUANTAPDF_ERROR_NOMEM);
                 for(size_t g=0u;g<result.glyph_count;++g) {
                     auto& target=result.glyphs[g];
-                    const auto& commands=text.glyphs[g].commands;
-                    target.command_count=commands.size();
+                    const auto& outline_commands=text.glyphs[g].commands;
+                    target.command_count=outline_commands.size();
                     target.commands=static_cast<quantapdf_composer_path_command *>(
-                        QP_SOURCE_C_MALLOC(commands.size()*sizeof(*target.commands)));
+                        QP_SOURCE_C_MALLOC(outline_commands.size()*sizeof(*target.commands)));
                     admit(target.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
-                    std::memcpy(target.commands,commands.data(),
-                                commands.size()*sizeof(*target.commands));
+                    std::memcpy(target.commands,outline_commands.data(),
+                                outline_commands.size()*sizeof(*target.commands));
                 }
             }
         }
