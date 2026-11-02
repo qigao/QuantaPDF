@@ -102,6 +102,91 @@ static inline int qp_prepared_commands(
     return 1;
 }
 
+/* M2b.2d PUBLIC admission is narrower than the underlying PRIVATE
+ * C11 V5 Clip sampler. Require exactly 3 original ordered opaque
+ * Text/Fill/Image paints, one live root W/W* rectangle and one GS1.
+ * The compiler independently repeats full semantic/resource checks. */
+static inline int qp_prepared_m2b2c_root_v1(const quantapdf_ir *ir)
+{
+    if(ir==NULL || ir->pages==NULL || ir->page_count!=1u ||
+       ir->operations==NULL || ir->operation_count!=3u ||
+       ir->resources.images==NULL || ir->resources.image_count!=1u ||
+       ir->resources.image_capacity!=1u ||
+       ir->resources.graphics_states==NULL ||
+       ir->resources.graphics_state_count!=1u ||
+       ir->resources.graphics_state_capacity!=1u ||
+       ir->resources.clips==NULL || ir->resources.clip_count!=1u ||
+       ir->resources.clip_capacity!=1u)return 0;
+    const quantapdf_composer_graphics_state *g=ir->resources.graphics_states;
+    const quantapdf_composer_clip_state *c=ir->resources.clips;
+    if(g->clip_id!=1u || g->soft_mask_id!=0u ||
+       g->fill_alpha!=1.0f || g->stroke_alpha!=1.0f ||
+       g->blend_mode!=QUANTAPDF_COMPOSER_BLEND_NORMAL ||
+       c->kind!=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL ||
+       c->members!=NULL || c->member_count!=0u ||
+       c->commands==NULL || c->command_count!=5u ||
+       (c->fill_rule!=QUANTAPDF_COMPOSER_FILL_NONZERO &&
+        c->fill_rule!=QUANTAPDF_COMPOSER_FILL_EVEN_ODD) ||
+       c->transform.a!=1.0f || c->transform.b!=0.0f ||
+       c->transform.c!=0.0f || c->transform.d!=1.0f ||
+       c->transform.e!=0.0f || c->transform.f!=0.0f)return 0;
+    const quantapdf_composer_path_command *v=c->commands;
+    if(v[0].kind!=QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
+       v[1].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+       v[2].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+       v[3].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+       v[4].kind!=QUANTAPDF_COMPOSER_PATH_CLOSE)return 0;
+    const quantapdf_point a=v[0].point1,b=v[1].point1,
+                         d=v[2].point1,f=v[3].point1;
+    const int horizontal=a.y==b.y && b.x==d.x &&
+        d.y==f.y && f.x==a.x && a.x!=b.x && a.y!=d.y;
+    const int vertical=a.x==b.x && b.y==d.y &&
+        d.x==f.x && f.y==a.y && a.x!=d.x && a.y!=b.y;
+    if(!horizontal && !vertical)return 0;
+    const quantapdf_composer_operation *p=ir->operations;
+    const int forward=
+        p[0].kind==QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES &&
+        p[1].kind==QUANTAPDF_COMPOSER_OPERATION_PATH &&
+        p[2].kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE;
+    const int reverse=
+        p[0].kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE &&
+        p[1].kind==QUANTAPDF_COMPOSER_OPERATION_PATH &&
+        p[2].kind==QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES;
+    if(!forward && !reverse)return 0;
+    for(size_t i=0u;i<3u;++i)
+        if(p[i].graphics_state_id!=1u || p[i].page_index!=0u)
+            return 0;
+    const size_t text=forward?0u:2u,image=forward?2u:0u;
+    if(p[text].value.text_outlines.argb!=UINT32_C(0xff000000) ||
+       p[1].value.path.options.graphics_state_id!=1u ||
+       p[1].value.path.options.fill!=1 ||
+       p[1].value.path.options.stroke!=0 ||
+       p[image].value.image.options.graphics_state_id!=1u ||
+       p[image].value.image.options.struct_size<
+           QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE ||
+       p[image].value.image.image_id!=1u)return 0;
+    return 1;
+}
+
+/* A reviewed historical opaque Text alpha golden is sufficient only
+ * for a Clip that is all-or-none at each physical pixel. Disallow
+ * every fractional Clip rectangle at the requested DPI until exact
+ * independent glyph/Clip correlated-edge full RGB is available. */
+static inline int qp_prepared_m2b2c_aligned_v1(
+    const quantapdf_ir *ir,unsigned dpi)
+{
+    if(!qp_prepared_m2b2c_root_v1(ir))return 0;
+    const double scale=(double)dpi/72.0;
+    const quantapdf_composer_path_command *v=ir->resources.clips[0].commands;
+    for(size_t i=0u;i<4u;++i) {
+        const double x=(double)v[i].point1.x*scale;
+        const double y=(double)v[i].point1.y*scale;
+        if(!isfinite(x) || !isfinite(y) ||
+           floor(x)!=x || floor(y)!=y)return 0;
+    }
+    return 1;
+}
+
 /* Complete resource-reference closure and checked inventory for the currently
  * Source-owned profiles. Kernel-specific geometry/state-order validation stays
  * in the SAME existing consumers; this common gate cannot enable a feature. */
@@ -132,6 +217,7 @@ static inline int qp_prepared_resource_closure(
        ir->pages[0].width_points>1000000.0f || ir->pages[0].height_points>1000000.0f ||
        ir->pages[0].background_argb!=UINT32_C(0xffffffff) || ir->pages[0].suppress_background!=0)
         return 0;
+    const int qualified_clipped_text=qp_prepared_m2b2c_root_v1(ir);
     u->operations=ir->operation_count;
     if(!qp_prepared_bytes(&u->retained_bytes,1u,sizeof(*ir->pages)) ||
        !qp_prepared_bytes(&u->retained_bytes,ir->operation_count,sizeof(*ir->operations)) ||
@@ -212,7 +298,8 @@ static inline int qp_prepared_resource_closure(
             ++u->expanded_paints;
         } else if(op->kind==QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES) {
             const quantapdf_text_outline_operation *t=&op->value.text_outlines;
-            if(state!=0u || (t->argb>>24u)!=255u ||
+            if((state!=0u && !qualified_clipped_text) ||
+               (t->argb>>24u)!=255u ||
                ((t->glyph_count==0u)!=(t->glyphs==NULL)) ||
                !qp_prepared_charge(&u->glyphs,t->glyph_count,64u) ||
                !qp_prepared_bytes(&u->retained_bytes,t->glyph_count,sizeof(*t->glyphs)))
@@ -258,11 +345,17 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
             return QUANTAPDF_ERROR_UNSUPPORTED;
         /* Explicit M2a mixed route only for fully admitted one-Text/
          * one-Image Source. Prior Text-only mode remains byte-identical. */
-        p.route=source->resources.image_count==1u?
-            (source->operation_count==3u?
-                QP_NATIVE_PREPARED_M2B1_TEXT_FILL_IMAGE:
-                QP_NATIVE_PREPARED_M2A_TEXT_IMAGE):
-            QP_NATIVE_PREPARED_TEXT;
+        const int original_clipped=qp_prepared_m2b2c_root_v1(source);
+        if(original_clipped &&
+           !qp_prepared_m2b2c_aligned_v1(source,p.dpi))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        p.route=original_clipped?
+            QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE:
+            source->resources.image_count==1u?
+                (source->operation_count==3u?
+                    QP_NATIVE_PREPARED_M2B1_TEXT_FILL_IMAGE:
+                    QP_NATIVE_PREPARED_M2A_TEXT_IMAGE):
+                QP_NATIVE_PREPARED_TEXT;
         printed=snprintf(box,sizeof(box),"0 0 %u %u",
             (unsigned)page->width_points,(unsigned)page->height_points);
         if(printed<0 || (size_t)printed>=sizeof(box))return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -358,7 +451,8 @@ static inline quantapdf_status quantapdf_native_compiled_page_compile_v1(
     out->metadata=*metadata;out->metadata.source=NULL;
     quantapdf_native_work_init_v1(&out->ledger,metadata->limits.max_sample_tests,metadata->limits.max_edges);
     if(metadata->route==QP_NATIVE_PREPARED_M2A_TEXT_IMAGE ||
-       metadata->route==QP_NATIVE_PREPARED_M2B1_TEXT_FILL_IMAGE)
+       metadata->route==QP_NATIVE_PREPARED_M2B1_TEXT_FILL_IMAGE ||
+       metadata->route==QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE)
         out->ledger.malloc_fault=metadata->m2a_malloc_fault;
     if(!quantapdf_native_resources_init_v1(&out->ledger,&metadata->resource_limits,
                                           metadata->usage.retained_bytes)) {
@@ -372,6 +466,9 @@ static inline quantapdf_status quantapdf_native_compiled_page_compile_v1(
             &metadata->limits,&metadata->physical,&out->ledger,&out->scoped);
     else if(metadata->route==QP_NATIVE_PREPARED_M2B1_TEXT_FILL_IMAGE)
         status=quantapdf_native_scoped_prepare_m2b1_text_fill_image_v1(metadata->source,
+            &metadata->limits,&metadata->physical,&out->ledger,&out->scoped);
+    else if(metadata->route==QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE)
+        status=quantapdf_native_scoped_prepare_m2b2c_text_fill_image_v1(metadata->source,
             &metadata->limits,&metadata->physical,&out->ledger,&out->scoped);
     else if(metadata->route==QP_NATIVE_PREPARED_EXACT_CUBICS)
         status=quantapdf_native_geometry_prepare_texample_v1(metadata->source,

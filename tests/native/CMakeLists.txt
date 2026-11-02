@@ -112,6 +112,15 @@ set_tests_properties(quantapdf.native_m2b1_raw PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;m2b1")
 
 
+# M2b.2d PUBLIC original-source W/W* root Text/Fill/Image in both orders.
+# One already-built native executable, independent complete RGB 72/96/144 DPI
+# and same-Context rejection/recovery. No consumer/installer target or probe CI.
+# Keep the existing strict 45-second original rendering timeout unchanged.
+add_test(NAME quantapdf.native_m2b2c_aligned
+  COMMAND quantapdf_native_public_render --m2b2c-aligned)
+set_tests_properties(quantapdf.native_m2b2c_aligned PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;m2b2c")
+
 # TEST-ONLY Context OOM hook for the real Native V10 public Bitmap handoff.
 # QPDF creates only the ORIGINAL source; no PDFium, second raster or SDK ABI.
 # The independent installed C11 consumer remains public-header-only.

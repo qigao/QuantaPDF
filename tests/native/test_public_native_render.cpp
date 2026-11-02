@@ -401,6 +401,199 @@ static int probe_rgb(const unsigned char *data,int stride,int x,int y,
     return px[0]==red && px[1]==green && px[2]==blue;
 }
 
+/* M2b.2d PUBLIC original W/W* Clip + Text/Fill/RAW Image RGB oracle.
+ * Two authorial paint orders, W and W*, 72/96/144 DPI. Each QPDF
+ * source is a real PDF with one CID FontFile2 TTF; no PDFium or
+ * re-exported IR can become the oracle. The old pre-M2a black Roboto
+ * glyph golden is valid here ONLY because Clip is all-or-none for
+ * every device pixel at these exact DPIs. Fill and Image coverage
+ * are independently calculated at the 16 physical subpixels. */
+static int native_m2b2c_public_aligned(const std::string& filename)
+{
+    const auto goldens=std::filesystem::path(__FILE__).parent_path()/"goldens";
+    static const unsigned char source[4][3]={
+        {255u,0u,0u},{0u,255u,0u},{0u,0u,255u},{255u,255u,0u}
+    };
+    quantapdf_context *ctx=nullptr;
+    OK(quantapdf_context_create(&ctx));
+    for(int mode:{91,92,93,94}) {
+        const bool text_first=(mode==91 || mode==93);
+        const bool partial_fill=(mode==93 || mode==94);
+        CHECK(write_pdf(filename,native_ttf_fixture(mode)));
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        for(unsigned dpi:{72u,96u,144u}) {
+            const double scale=(double)dpi/72.0;
+            const size_t width=(128u*(size_t)dpi+71u)/72u;
+            const size_t height=(64u*(size_t)dpi+71u)/72u;
+            std::ifstream old_file(goldens/("roboto-hello-"+
+                std::to_string(dpi)+"-m0.rgba"),std::ios::binary);
+            const std::vector<unsigned char> text_golden{
+                std::istreambuf_iterator<char>(old_file),{}};
+            CHECK(text_golden.size()==width*height*4u);
+            quantapdf_render_options options{};
+            options.struct_size=sizeof(options);
+            options.dpi=(float)dpi;
+            quantapdf_bitmap *bitmap=nullptr;
+            const auto render_status=
+                quantapdf_render_page_with_options(page,&options,&bitmap);
+            if(render_status!=QUANTAPDF_OK)
+                std::fprintf(stderr,
+                    "M2b2d public original W/W* mode=%d dpi=%u status=%d\n",
+                    mode,dpi,(int)render_status);
+            CHECK(render_status==QUANTAPDF_OK && bitmap!=nullptr);
+            int w=0,h=0,stride=0,components=0;
+            const unsigned char *actual=nullptr;
+            size_t size=0u;
+            OK(quantapdf_bitmap_dimensions(bitmap,&w,&h,&stride,&components));
+            OK(quantapdf_bitmap_data(bitmap,&actual,&size));
+            CHECK(w==(int)width && h==(int)height &&
+                  stride==(int)(width*3u) && components==3 &&
+                  size==width*height*3u && actual!=nullptr);
+            size_t nonwhite=0u,text_exposed=0u;
+            for(size_t y=0u;y<height;++y)
+            for(size_t x=0u;x<width;++x) {
+                const size_t index=y*width+x;
+                const unsigned char grey=text_golden[4u*index];
+                CHECK(grey==text_golden[4u*index+1u] &&
+                      grey==text_golden[4u*index+2u] &&
+                      text_golden[4u*index+3u]==255u);
+                unsigned clip_hits=0u,fill_hits=0u,image_hits=0u;
+                for(unsigned sy=0u;sy<4u;++sy)
+                for(unsigned sx=0u;sx<4u;++sx) {
+                    const double px=(double)x+((double)sx+0.5)/4.0;
+                    const double py=(double)y+((double)sy+0.5)/4.0;
+                    const bool clip=px>=12.0*scale && px<27.0*scale &&
+                                    py>=24.0*scale && py<42.0*scale;
+                    clip_hits+=(unsigned)clip;
+                    fill_hits+=(unsigned)(clip &&
+                        px>=12.0*scale &&
+                        px<(partial_fill?19.0:28.0)*scale &&
+                        py>=(partial_fill?34.0:24.0)*scale &&
+                        py<44.0*scale);
+                    image_hits+=(unsigned)(clip &&
+                        px>=10.0*scale && px<26.0*scale &&
+                        py>=37.0*scale && py<49.0*scale);
+                }
+                CHECK(clip_hits==0u || clip_hits==16u);
+                const unsigned text_alpha=clip_hits==16u?
+                    255u-(unsigned)grey:0u;
+                const unsigned fill_alpha=(fill_hits*255u+8u)/16u;
+                const unsigned image_alpha=(image_hits*255u+8u)/16u;
+                const double nx=(((double)x+0.5)-10.0*scale)/(16.0*scale)*2.0;
+                const double ny=(((double)y+0.5)-37.0*scale)/(12.0*scale)*2.0;
+                const size_t ix=nx<=0.0?0u:nx>=2.0?1u:(size_t)nx;
+                const size_t iy=ny<=0.0?0u:ny>=2.0?1u:(size_t)ny;
+                const unsigned char *raw=source[2u*iy+ix];
+                unsigned expected[3]={255u,255u,255u};
+                for(unsigned layer=0u;layer<3u;++layer) {
+                    const bool fill=layer==1u;
+                    const bool image=text_first?layer==2u:layer==0u;
+                    const unsigned alpha=fill?fill_alpha:
+                        image?image_alpha:text_alpha;
+                    for(unsigned c=0u;c<3u;++c) {
+                        const unsigned source_color=fill?
+                            (c==1u?255u:0u):image?raw[c]:0u;
+                        expected[c]=(source_color*alpha+
+                            expected[c]*(255u-alpha)+127u)/255u;
+                    }
+                }
+                const unsigned char *pixel=actual+3u*index;
+                if(pixel[0]!=expected[0] ||
+                   pixel[1]!=expected[1] ||
+                   pixel[2]!=expected[2]) {
+                    std::fprintf(stderr,
+                        "M2b2d public RGB mode=%d dpi=%u x=%zu y=%zu "
+                        "expected=%u/%u/%u actual=%u/%u/%u\n",
+                        mode,dpi,x,y,expected[0],expected[1],expected[2],
+                        (unsigned)pixel[0],(unsigned)pixel[1],
+                        (unsigned)pixel[2]);
+                    return EXIT_FAILURE;
+                }
+                nonwhite+=(unsigned)(expected[0]!=255u ||
+                                    expected[1]!=255u ||
+                                    expected[2]!=255u);
+                text_exposed+=(unsigned)(
+                    text_alpha>0u && fill_alpha==0u && image_alpha==0u);
+            }
+            CHECK(nonwhite>0u && probe_rgb(actual,stride,0,0,255u,255u,255u));
+            if(partial_fill)CHECK(text_exposed>0u);
+            quantapdf_drop_bitmap(bitmap);
+        }
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+    }
+    /* Fractional Clip source 83/84 at 96 DPI must remain FAIL-CLOSED.
+     * Malformed late W, Q, Stroke, masked resource and unknown Do also
+     * cannot fall back to a second renderer or publish any bitmap. */
+    for(int mode:{83,84,85,86,87,88,89,90}) {
+        CHECK(write_pdf(filename,native_ttf_fixture(mode)));
+        quantapdf_document *denied_doc=nullptr;
+        quantapdf_page *denied_page=nullptr;
+        quantapdf_bitmap *denied_bitmap=nullptr;
+        OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&denied_doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(denied_doc,0,&denied_page));
+        quantapdf_render_options options{};
+        options.struct_size=sizeof(options);options.dpi=96.0f;
+        const auto denied_status=
+            quantapdf_render_page_with_options(
+                denied_page,&options,&denied_bitmap);
+        CHECK((denied_status==QUANTAPDF_ERROR_UNSUPPORTED ||
+               denied_status==QUANTAPDF_ERROR_FORMAT) &&
+              denied_bitmap==nullptr);
+        quantapdf_drop_page(denied_page);
+        quantapdf_close(denied_doc);
+    }
+    /* A valid full-page render in the SAME Context after all negative
+     * originals proves no poisoned Context or borrowed Clip identity. */
+    CHECK(write_pdf(filename,native_ttf_fixture(93)));
+    quantapdf_document *recover_doc=nullptr;
+    quantapdf_page *recover_page=nullptr;
+    quantapdf_bitmap *recover_bitmap=nullptr;
+    OK(quantapdf_open_with_context(
+        ctx,filename.c_str(),nullptr,&recover_doc));
+    CHECK(std::remove(filename.c_str())==0);
+    OK(quantapdf_load_page(recover_doc,0,&recover_page));
+    quantapdf_render_options options{};
+    options.struct_size=sizeof(options);options.dpi=96.0f;
+    OK(quantapdf_render_page_with_options(
+        recover_page,&options,&recover_bitmap));
+    CHECK(recover_bitmap!=nullptr);
+    /* The public Bitmap owns detached pixel storage. Original Source,
+     * Page, Document and Context have no right to revoke this result:
+     * read the EXACT same output after every owning object is dropped,
+     * not only immediately after the successful native V5 execution. */
+    int held_w=0,held_h=0,held_stride=0,held_components=0;
+    size_t held_size=0u;
+    const unsigned char *held_pixels=nullptr;
+    OK(quantapdf_bitmap_dimensions(recover_bitmap,&held_w,&held_h,
+                                   &held_stride,&held_components));
+    OK(quantapdf_bitmap_data(recover_bitmap,&held_pixels,&held_size));
+    CHECK(held_w==171 && held_h==86 && held_components==3 &&
+          held_stride==held_w*3 && held_size==(size_t)held_stride*(size_t)held_h &&
+          held_pixels!=nullptr);
+    const std::vector<unsigned char> detached_reference(
+        held_pixels,held_pixels+held_size);
+    quantapdf_drop_page(recover_page);
+    quantapdf_close(recover_doc);
+    quantapdf_drop_context(ctx);
+    held_pixels=nullptr;held_size=0u;
+    OK(quantapdf_bitmap_dimensions(recover_bitmap,&held_w,&held_h,
+                                   &held_stride,&held_components));
+    OK(quantapdf_bitmap_data(recover_bitmap,&held_pixels,&held_size));
+    CHECK(held_w==171 && held_h==86 && held_stride==held_w*3 &&
+          held_components==3 && held_pixels!=nullptr &&
+          held_size==detached_reference.size() &&
+          std::memcmp(held_pixels,detached_reference.data(),held_size)==0);
+    quantapdf_drop_bitmap(recover_bitmap);
+    std::puts("M2b.2d original W/W* public Text/Fill/Image aligned full RGB at 72/96/144 PASS");
+    return EXIT_SUCCESS;
+}
+
 /* M2a/M2b.1 independent whole-image oracle for eight ORIGINAL CID TTF +
  * RAW/Flate 2x2 Image XObject pages in separate bounded CTest modes,
  * including the source-ordered three-paint opaque Fill profile.
@@ -3650,6 +3843,8 @@ static int native_seventh_userunit_late_refusal_cases(
 int main(int argc,char **argv)
 {
     const std::string filename="native-standalone-smoke.pdf";
+    if(argc==2 && std::strcmp(argv[1],"--m2b2c-aligned")==0)
+        return native_m2b2c_public_aligned(filename);
     if(argc==2 && std::strcmp(argv[1],"--m2b1-negatives")==0)
         return native_m2b1_public_negatives(filename);
     if(argc==2 && std::strcmp(argv[1],"--m2b1-flate")==0)

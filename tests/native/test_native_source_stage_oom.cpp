@@ -3211,6 +3211,180 @@ static int m2b2c_original_aligned_whole_rgb(
     return EXIT_SUCCESS;
 }
 
+/* M2b.2d exactly the EXISTING Source+Context prepared metadata/receipt
+ * pipeline: original clipped Text/Fill/Image receives one new private
+ * route, not a second renderer. Fail every actually reached C11 malloc
+ * position and demand zero receipt/pixels plus exact recovered bytes.
+ * The public pixel-aligned original RGB oracle lives in the existing
+ * native_public_render executable, not in this IR-facing test. */
+static int m2b2d_aligned_prepared_receipt_faults(
+    const quantapdf_qpdf_source_raw_image_limits& source_caps)
+{
+    const auto original=native_ttf_fixture(91);
+    quantapdf_ir ir{};
+    CHECK(quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+        reinterpret_cast<const unsigned char*>(original.data()),
+        original.size(),&source_caps,0u,&ir)==QUANTAPDF_OK &&
+        ir.operation_count==3u && ir.resources.clip_count==1u);
+    const quantapdf_ir_raster_scoped_mixed_v5_limits caps={
+        1000000u,4u,512u,8000000u,
+        source_caps.max_source_pixels,source_caps.max_drawn_pixels
+    };
+    quantapdf_native_source_raster_device_v1 device{};
+    device.dpi=72.0f;
+    quantapdf_native_prepared_page_v1 plan{};
+    CHECK(quantapdf_native_prepare_page_v1(
+        &ir,&caps,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&plan)==
+        QUANTAPDF_OK &&
+        plan.route==QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE &&
+        plan.usage.operations==3u &&
+        plan.usage.image_pixels==4u &&
+        plan.usage.glyphs==5u &&
+        plan.usage.states_used==1u && plan.usage.clips_used==1u);
+    m2a_malloc_fault_state baseline{};
+    plan.m2a_malloc_fault={&baseline,m2a_malloc_fault_callback};
+    quantapdf_native_execution_receipt_v1 receipt{};
+    quantapdf_ir_raster_image pixels{};
+    const auto rendered=quantapdf_native_execute_page_v1(
+        &plan,&receipt,&pixels);
+    if(rendered!=QUANTAPDF_OK)
+        std::fprintf(stderr,
+            "M2b2d prepared baseline status=%d reached=%zu\n",
+            (int)rendered,baseline.attempts);
+    CHECK(rendered==QUANTAPDF_OK && pixels.pixels!=nullptr &&
+          pixels.width==128u && pixels.height==64u &&
+          pixels.size==128u*64u*4u &&
+          baseline.attempts>=6u && baseline.attempts<=64u &&
+          baseline.failures==0u &&
+          receipt.source_pixels==4u &&
+          receipt.drawn_pixels>0u &&
+          receipt.output_bytes==pixels.size &&
+          receipt.retained_bytes==plan.usage.retained_bytes &&
+          receipt.completed_leases>=3u &&
+          receipt.peak_live_bytes>plan.usage.retained_bytes &&
+          receipt.charged_sample_work>0u &&
+          receipt.charged_sample_work<=caps.max_sample_tests &&
+          receipt.compiled_edges>0u &&
+          receipt.compiled_edges<=caps.max_edges);
+    const std::vector<unsigned char> golden(
+        pixels.pixels,pixels.pixels+pixels.size);
+    const size_t allocations=baseline.attempts;
+    const size_t peak=receipt.peak_live_bytes;
+    quantapdf_ir_raster_image_dispose(&pixels);
+    const auto retry=[&](quantapdf_native_prepared_page_v1 candidate,
+                          size_t failure_index,quantapdf_status desired) {
+        m2a_malloc_fault_state fail{};
+        fail.fail_on=failure_index;
+        candidate.m2a_malloc_fault={&fail,m2a_malloc_fault_callback};
+        quantapdf_native_execution_receipt_v1 report;
+        quantapdf_ir_raster_image output;
+        std::memset(&report,0xa5,sizeof(report));
+        std::memset(&output,0xa5,sizeof(output));
+        const auto result=quantapdf_native_execute_page_v1(
+            &candidate,&report,&output);
+        bool ok=result==desired;
+        if(desired==QUANTAPDF_OK) {
+            ok=ok && output.pixels!=nullptr &&
+                output.size==golden.size() &&
+                std::memcmp(output.pixels,golden.data(),golden.size())==0 &&
+                report.output_bytes==output.size &&
+                fail.failures==0u;
+        } else {
+            quantapdf_native_execution_receipt_v1 empty{};
+            ok=ok && zero_bitmap(output) &&
+                std::memcmp(&report,&empty,sizeof(report))==0 &&
+                (failure_index==0u ||
+                 (fail.failures==1u && fail.attempts==failure_index));
+        }
+        quantapdf_ir_raster_image_dispose(&output);
+        if(!ok)std::fprintf(stderr,
+            "M2b2d prepared fault=%zu want=%d got=%d attempts=%zu fail=%zu\n",
+            failure_index,(int)desired,(int)result,fail.attempts,
+            fail.failures);
+        return ok;
+    };
+    for(size_t i=1u;i<=allocations;++i) {
+        CHECK(retry(plan,i,QUANTAPDF_ERROR_NOMEM));
+        if(i==1u || i==(allocations+1u)/2u || i==allocations)
+            CHECK(retry(plan,0u,QUANTAPDF_OK));
+    }
+    auto budget=plan;
+    budget.resource_limits.max_source_pixels=3u;
+    CHECK(retry(budget,0u,QUANTAPDF_ERROR_UNSUPPORTED));
+    CHECK(peak>1u);
+    budget=plan;budget.resource_limits.max_live_bytes=peak-1u;
+    CHECK(retry(budget,0u,QUANTAPDF_ERROR_UNSUPPORTED));
+    budget.resource_limits.max_live_bytes=peak;
+    CHECK(retry(budget,0u,QUANTAPDF_OK));
+    /* Full original Image Do placement consumes a measured destination
+     * pixel count, not one quota reset for each painted layer. Verify
+     * the exact global N succeeds and N-1 refuses atomically. */
+    CHECK(receipt.drawn_pixels>1u);
+    budget=plan;
+    budget.limits.max_drawn_pixels=receipt.drawn_pixels;
+    budget.resource_limits.max_drawn_pixels=receipt.drawn_pixels;
+    CHECK(retry(budget,0u,QUANTAPDF_OK));
+    --budget.limits.max_drawn_pixels;
+    --budget.resource_limits.max_drawn_pixels;
+    CHECK(retry(budget,0u,QUANTAPDF_ERROR_UNSUPPORTED));
+    /* Exhaustive ORIGINAL Source->one owned IR C allocations, not only
+     * the separately checked first/middle/last probes of M2b.2b.
+     * Every failed owned Clip publication clears all IR pointers and
+     * later exact success reuses the same immutable PDF bytes. */
+    size_t source_attempts=0u;
+    {
+        quantapdf_ir trial{};
+        track_c_allocation=true;c_fail_index=0u;
+        c_allocations=0u;c_faults=0u;
+        const auto source_result=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            reinterpret_cast<const unsigned char*>(original.data()),
+            original.size(),&source_caps,0u,&trial);
+        source_attempts=c_allocations;
+        track_c_allocation=false;
+        CHECK(source_result==QUANTAPDF_OK &&
+              source_attempts>=7u && source_attempts<=64u &&
+              c_faults==0u && trial.operation_count==3u &&
+              trial.resources.clip_count==1u);
+        quantapdf_ir_dispose(&trial);
+        CHECK(cleared(trial));
+    }
+    for(size_t fail=1u;fail<=source_attempts;++fail) {
+        quantapdf_ir refused;
+        std::memset(&refused,0xa5,sizeof(refused));
+        track_c_allocation=true;c_fail_index=fail;
+        c_allocations=0u;c_faults=0u;
+        const auto source_result=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            reinterpret_cast<const unsigned char*>(original.data()),
+            original.size(),&source_caps,0u,&refused);
+        track_c_allocation=false;c_fail_index=0u;
+        CHECK(source_result==QUANTAPDF_ERROR_NOMEM &&
+              c_faults==1u && c_allocations==fail &&
+              cleared(refused));
+        if(fail==1u || fail==(source_attempts+1u)/2u ||
+           fail==source_attempts) {
+            quantapdf_ir recovered{};
+            CHECK(quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+                reinterpret_cast<const unsigned char*>(original.data()),
+                original.size(),&source_caps,0u,&recovered)==QUANTAPDF_OK &&
+                recovered.operation_count==3u &&
+                recovered.resources.clip_count==1u &&
+                recovered.resources.graphics_state_count==1u);
+            quantapdf_ir_dispose(&recovered);
+            CHECK(cleared(recovered));
+        }
+    }
+    auto smaller=caps;
+    smaller.max_operations=2u;
+    quantapdf_native_prepared_page_v1 denied{};
+    CHECK(quantapdf_native_prepare_page_v1(
+        &ir,&smaller,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&denied)==
+        QUANTAPDF_ERROR_UNSUPPORTED && denied.source==nullptr);
+    quantapdf_ir_dispose(&ir);
+    CHECK(cleared(ir));
+    std::puts("M2b.2d original W/W* public prepared page receipt and every C11 malloc NOMEM rollback PASS");
+    return EXIT_SUCCESS;
+}
+
 /* M2b.2a private C11 correlated glyph/Clip fault acceptance. This
  * exercises the REAL exact C11 mallocs in the SAME existing Source/OOM
  * executable; the public original W/W* Source profile is still closed. */
@@ -3326,6 +3500,7 @@ int main(int argc,char **argv)
         CHECK(m2b1_ordered_source_ir_contract(limits)==EXIT_SUCCESS);
         CHECK(m2b2b_clipped_source_owner_contract(limits)==EXIT_SUCCESS);
         CHECK(m2b2c_original_aligned_whole_rgb(limits)==EXIT_SUCCESS);
+        CHECK(m2b2d_aligned_prepared_receipt_faults(limits)==EXIT_SUCCESS);
         return m2b2a_private_clipped_text_faults();
     }
     if(argc!=3)return EXIT_FAILURE;
