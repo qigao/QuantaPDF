@@ -274,9 +274,9 @@ inline std::string native_ttf_fixture(int mode=0)
                     /* One additional ORIGINAL q saves frozen W Clip 1
                      * before BT and restores that same Clip after the
                      * final paint. Extra Q in 96 is malformed. */
-                    const std::string root=std::string("12 22 15 18 re W n ");
-                    const std::string paints=text.substr(root.size());
-                    text=root+"q "+paints+" Q";
+                    const std::string clip_prefix="12 22 15 18 re W n ";
+                    const std::string paints=text.substr(clip_prefix.size());
+                    text=clip_prefix+"q "+paints+" Q";
                     if(mode==96)text+=" Q";
                 }
             }
