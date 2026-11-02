@@ -228,11 +228,16 @@ quantapdf_status quantapdf_ir_raster_clipped_raw_image_v1_accounted(
     return qp_clipped_raw_image(ir,page_index,image_limits,clip_limits,out,ledger,NULL);
 }
 
-quantapdf_status quantapdf_native_image_mask_prepare_v1(
+/* One existing C11 rectangle/Clip sampler. The new M2b.2c PRIVATE
+ * opt-in uses its bounded VISITED sample box, not a second mask engine
+ * or a full-page conservative work charge at 144 DPI. Historical
+ * callers retain mode FULL and all previous allocation ordering. */
+static quantapdf_status qp_native_image_mask_prepare_impl(
     const quantapdf_composer_page_state *page,const quantapdf_rect *bounds,
     const quantapdf_ir_raster_v1_limits *limits,
     const quantapdf_composer_clip_state *const *clips,size_t clip_count,
-    quantapdf_native_work_ledger_v1 *ledger,quantapdf_native_geometry_v1 *out)
+    quantapdf_native_work_ledger_v1 *ledger,quantapdf_native_geometry_v1 *out,
+    quantapdf_native_work_mode_v1 work_mode)
 {
     quantapdf_ir ir={0};quantapdf_composer_page_state transparent;
     quantapdf_composer_operation paint={0};quantapdf_composer_path_command rectangle[5]={{0}};
@@ -255,7 +260,34 @@ quantapdf_status quantapdf_native_image_mask_prepare_v1(
     qp_point(&rectangle[3],QUANTAPDF_COMPOSER_PATH_LINE_TO,bounds->x0,bounds->y1);
     qp_point(&rectangle[4],QUANTAPDF_COMPOSER_PATH_CLOSE,0.0f,0.0f);
     return quantapdf_native_geometry_prepare_v1(&ir,0u,limits,NULL,clips,clip_count,
-                                                QP_NATIVE_WORK_FULL,ledger,out);
+                                                work_mode,ledger,out);
+}
+
+quantapdf_status quantapdf_native_image_mask_prepare_v1(
+    const quantapdf_composer_page_state *page,const quantapdf_rect *bounds,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_composer_clip_state *const *clips,size_t clip_count,
+    quantapdf_native_work_ledger_v1 *ledger,quantapdf_native_geometry_v1 *out)
+{
+    return qp_native_image_mask_prepare_impl(page,bounds,limits,clips,clip_count,
+        ledger,out,QP_NATIVE_WORK_FULL);
+}
+
+/* Separate PRIVATE M2b.2c one-Clip intersection with a bounded visited
+ * sample domain. Its owning V5 page uses exactly the same V1 compiler,
+ * geometry owner, 4x4 winding function, ledger and output lifetime. */
+quantapdf_status quantapdf_native_image_mask_prepare_visible_clip_v1(
+    const quantapdf_composer_page_state *page,const quantapdf_rect *bounds,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_composer_clip_state *clip,
+    quantapdf_native_work_ledger_v1 *ledger,quantapdf_native_geometry_v1 *out)
+{
+    const quantapdf_composer_clip_state *one[1]={clip};
+    if(out==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out,0,sizeof(*out));
+    if(clip==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    return qp_native_image_mask_prepare_impl(page,bounds,limits,one,1u,
+        ledger,out,QP_NATIVE_WORK_VISIBLE_FILL);
 }
 
 quantapdf_status quantapdf_ir_raster_clipped_raw_image_v1_prepared(

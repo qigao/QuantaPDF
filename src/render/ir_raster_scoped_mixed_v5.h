@@ -75,6 +75,14 @@ quantapdf_status quantapdf_native_scoped_prepare_m2b1_text_fill_image_v1(
     const quantapdf_native_device_plan *physical,
     quantapdf_native_work_ledger_v1 *ledger,
     quantapdf_native_scoped_page_v5 *out);
+/* PRIVATE M2b.2c: one actually frozen Source W/W* leaf carried by
+ * three ordered Text/Fill/Image paints, one V5 compiled page/ledger.
+ * No public Text+Clip Source route is enabled by this entry alone. */
+quantapdf_status quantapdf_native_scoped_prepare_m2b2c_text_fill_image_v1(
+    const quantapdf_ir *ir,const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    const quantapdf_native_device_plan *physical,
+    quantapdf_native_work_ledger_v1 *ledger,
+    quantapdf_native_scoped_page_v5 *out);
 quantapdf_status quantapdf_native_scoped_execute_v5(
     quantapdf_native_scoped_page_v5 *page,quantapdf_ir_raster_image *out);
 void quantapdf_native_scoped_dispose_v5(quantapdf_native_scoped_page_v5 *page);
