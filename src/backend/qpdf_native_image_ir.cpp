@@ -2856,12 +2856,12 @@ quantapdf_ir materialize_m2b2f_restored_fill(const admission& source)
         admit(outlines.glyphs!=nullptr,QUANTAPDF_ERROR_NOMEM);
         for(size_t g=0u;g<outlines.glyph_count;++g) {
             auto& glyph=outlines.glyphs[g];
-            const auto& commands=text.glyphs[g].commands;
-            glyph.command_count=commands.size();
+            const auto& outline_source=text.glyphs[g].commands;
+            glyph.command_count=outline_source.size();
             glyph.commands=static_cast<quantapdf_composer_path_command *>(
                 QP_SOURCE_C_MALLOC(glyph.command_count*sizeof(*glyph.commands)));
             admit(glyph.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
-            std::memcpy(glyph.commands,commands.data(),
+            std::memcpy(glyph.commands,outline_source.data(),
                         glyph.command_count*sizeof(*glyph.commands));
         }
         copy_fill(1u,first_fill,1u);
