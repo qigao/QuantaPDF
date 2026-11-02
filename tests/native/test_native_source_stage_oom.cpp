@@ -3482,6 +3482,41 @@ static int m2b2f_fourth_restored_source_owner(
     }
     CHECK(left==34.0f && right==40.0f &&
           top==50.0f && bottom==55.0f);
+    /* Real Source C allocator first/middle/last slots: the new
+     * restored-fourth owner must preserve atomic publication and
+     * identical original bytes on the next synchronous call. */
+    quantapdf_ir counted{};
+    track_c_allocation=true;
+    c_fail_index=0u;c_allocations=0u;c_faults=0u;
+    const auto counted_status=stage(original,caps,counted);
+    const size_t total_c_allocations=c_allocations;
+    track_c_allocation=false;
+    CHECK(counted_status==QUANTAPDF_OK &&
+          total_c_allocations>=8u && total_c_allocations<=128u &&
+          c_faults==0u && counted.operation_count==4u);
+    quantapdf_ir_dispose(&counted);
+    CHECK(cleared(counted));
+    const size_t failure_slots[3]={
+        1u,(total_c_allocations+1u)/2u,total_c_allocations
+    };
+    for(size_t failed_slot:failure_slots) {
+        quantapdf_ir rejected_ir;
+        std::memset(&rejected_ir,0xa5,sizeof(rejected_ir));
+        track_c_allocation=true;
+        c_fail_index=failed_slot;c_allocations=0u;c_faults=0u;
+        const auto rejected_status=stage(original,caps,rejected_ir);
+        track_c_allocation=false;c_fail_index=0u;
+        CHECK(rejected_status==QUANTAPDF_ERROR_NOMEM &&
+              c_faults==1u && c_allocations==failed_slot &&
+              cleared(rejected_ir));
+        quantapdf_ir reopened{};
+        CHECK(stage(original,caps,reopened)==QUANTAPDF_OK &&
+              reopened.operation_count==4u &&
+              reopened.resources.graphics_state_count==1u &&
+              reopened.operations[3].graphics_state_id==0u);
+        quantapdf_ir_dispose(&reopened);
+        CHECK(cleared(reopened));
+    }
     quantapdf_native_source_raster_device_v1 device{};
     device.dpi=96.0f;
     const quantapdf_ir_raster_scoped_mixed_v5_limits raster={
