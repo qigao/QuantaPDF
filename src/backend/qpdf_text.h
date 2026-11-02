@@ -16,7 +16,13 @@ struct source_outline_paint {
     quantapdf_composer_fill_rule rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
 };
 bool source_outline_is_rectangle(const std::vector<quantapdf_composer_path_command>&);
-struct source_text_seed { std::array<double,6> ctm; uint32_t argb; };
+struct source_text_seed {
+    std::array<double,6> ctm;
+    uint32_t argb;
+    /* PRIVATE Source W/W* identity at the original BT handoff; never
+     * observed by ordinary extraction, which defaults to GS0. */
+    unsigned char clip_id=0u;
+};
 /* M2a private callbacks: complete original Source token stream, bounded
  * Text outline interpreter, no second parser or retained QPDF/font owner. */
 struct source_mixed_callbacks {
@@ -28,6 +34,12 @@ struct source_mixed_callbacks {
      * PATH paint alongside Text shows, rather than ignoring its order.
      * Existing Text-only paints do not need a new IR materializer. */
     quantapdf_status (*on_fill)(void*)=nullptr;
+    /* PRIVATE M2b.2e: q/Q in the SAME original token interpreter,
+     * with actual saved/restored Clip identity (not a later page flag).
+     * is_save=1 for q, 0 for Q. Historical callers leave this NULL. */
+    quantapdf_status (*on_scope)(void*,int is_save,
+                                  unsigned char before,
+                                  unsigned char after)=nullptr;
 };
 /* Reuses the existing observation interpreter on the SAME token callback
  * stream. It never parses/reopens source bytes or returns font/QPDF owners. */

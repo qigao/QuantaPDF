@@ -592,6 +592,12 @@ struct admission {
     std::vector<quantapdf::detail::source_outline_paint> text_outline_paints={};
     bool text_outlines_complete=false;
     bool text_prefix_precision=false;
+    /* PRIVATE M2b.2e: one clip identity and saved stack copied from
+     * the ORIGINAL Content reader at BT. Every later q/Q arrives from
+     * the existing outline reader; no second parser or QPDF owner. */
+    bool outline_scope_started=false;
+    unsigned char outline_clip_id=0u;
+    std::vector<unsigned char> outline_clip_stack;
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule,
@@ -891,6 +897,38 @@ void validate_v10_opaque_gs(Obj resources,Obj name)
     }
 }
 
+/* One callback per REAL q/Q emitted by the same existing outline
+ * token reader after BT. A Q restores exactly the Clip identity saved
+ * at that original q; no inference from global clip_completed and no
+ * new admission of a post-Clip restored paint in this phase. */
+quantapdf_status source_m2b2e_scope(
+    void *user,int is_save,unsigned char before,unsigned char after)
+{
+    admission& source=*static_cast<admission*>(user);
+    try {
+        admit(source.native_unclipped_mode && source.text_outlines_eligible &&
+              source.outline_scope_started &&
+              before==source.outline_clip_id &&
+              before<=1u && after<=1u,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        if(is_save==1) {
+            admit(before==after && source.outline_clip_stack.size()<16u,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            source.outline_clip_stack.push_back(before);
+        } else {
+            admit(is_save==0 && !source.outline_clip_stack.empty() &&
+                  after==source.outline_clip_stack.back(),
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+            source.outline_clip_stack.pop_back();
+            if(before!=0u && after==0u)source.saw_q_restore=true;
+        }
+        source.outline_clip_id=after;
+        return QUANTAPDF_OK;
+    } catch(rejected const& e){return e.status;}
+      catch(std::bad_alloc const&){return QUANTAPDF_ERROR_NOMEM;}
+      catch(...){return QUANTAPDF_ERROR_UNSUPPORTED;}
+}
+
 /* M2a: the existing outline reader may report an actual TTF show or
  * one image to the SAME original source's ordered staging. The callback
  * retains neither QPDF handles nor font/parser state. The only new
@@ -903,6 +941,8 @@ quantapdf_status source_m2a_text(void *user)
               source.text_outlines_eligible &&
               source.order.size()<hard_operations &&
               source.order.size()<source.limits.max_operations &&
+              source.outline_scope_started &&
+              source.outline_clip_id==(source.clip_completed?1u:0u) &&
               /* One root W/W* is frozen before BT, never a poppable
                * scope borrowed by the independent outline callbacks. */
               (!source.clip_completed ||
@@ -912,7 +952,7 @@ quantapdf_status source_m2a_text(void *user)
                 !source.saw_q_restore)),
               QUANTAPDF_ERROR_UNSUPPORTED);
         source.order.push_back(3);
-        source.scoped_clip_membership.push_back(source.clip_completed?1u:0u);
+        source.scoped_clip_membership.push_back(source.outline_clip_id);
         return QUANTAPDF_OK;
     } catch(rejected const& e){return e.status;}
       catch(std::bad_alloc const&){return QUANTAPDF_ERROR_NOMEM;}
@@ -929,6 +969,8 @@ quantapdf_status source_m2b1_fill(void *user)
         admit(source.native_unclipped_mode && source.text_outlines_eligible &&
               source.order.size()<hard_operations &&
               source.order.size()<source.limits.max_operations &&
+              source.outline_scope_started &&
+              source.outline_clip_id==(source.clip_completed?1u:0u) &&
               (!source.clip_completed ||
                (source.clip.commands.size()==5u &&
                 !source.two_owned_clips &&
@@ -936,7 +978,7 @@ quantapdf_status source_m2b1_fill(void *user)
                 !source.saw_q_restore)),
               QUANTAPDF_ERROR_UNSUPPORTED);
         source.order.push_back(1);
-        source.scoped_clip_membership.push_back(source.clip_completed?1u:0u);
+        source.scoped_clip_membership.push_back(source.outline_clip_id);
         return QUANTAPDF_OK;
     } catch(rejected const& e){return e.status;}
       catch(std::bad_alloc const&){return QUANTAPDF_ERROR_NOMEM;}
@@ -951,6 +993,8 @@ quantapdf_status source_m2a_image(
               source.text_outlines_eligible &&
               source.draws.empty() &&
               source.painted_paths.empty() &&
+              source.outline_scope_started &&
+              source.outline_clip_id==(source.clip_completed?1u:0u) &&
               ((source.order.size()==1u && source.order[0]==3) ||
                (source.order.size()==2u && source.order[0]==3 &&
                 source.order[1]==1)) &&
@@ -961,7 +1005,7 @@ quantapdf_status source_m2a_image(
               !source.saw_q_restore,
               QUANTAPDF_ERROR_UNSUPPORTED);
         source.execute(image,ctm);
-        source.scoped_clip_membership.push_back(source.clip_completed?1u:0u);
+        source.scoped_clip_membership.push_back(source.outline_clip_id);
         return QUANTAPDF_OK;
     } catch(rejected const& e){return e.status;}
       catch(std::bad_alloc const&){return QUANTAPDF_ERROR_NOMEM;}
@@ -1040,9 +1084,21 @@ public:
             }
             admit(prefix.size()<4u,QUANTAPDF_ERROR_UNSUPPORTED);
             QP_SOURCE_STAGE_ARM(8u);
+            target.outline_scope_started=true;
+            target.outline_clip_id=clip_active;
+            target.outline_clip_stack=clip_stack;
+            std::vector<quantapdf::detail::source_text_seed> scoped_saved;
+            scoped_saved.reserve(saved.size());
+            for(size_t i=0u;i<saved.size();++i) {
+                const unsigned char id=clipped?clip_stack[i]:0u;
+                scoped_saved.push_back({saved[i].ctm,saved[i].argb,id});
+            }
             outline_reader=quantapdf::detail::make_source_text_outlines(
-                target.resources,target.exact_page_h,{current,fill_argb},saved,prefix,
-                {&target,source_m2a_text,source_m2a_image,source_m2b1_fill});
+                target.resources,target.exact_page_h,
+                {current,fill_argb,clipped?clip_active:(unsigned char)0u},
+                scoped_saved,prefix,
+                {&target,source_m2a_text,source_m2a_image,
+                 source_m2b1_fill,source_m2b2e_scope});
             const auto status=outline_reader->consume(item);
             admit(status==QUANTAPDF_OK,status);return;
         }
@@ -1870,6 +1926,10 @@ public:
     {
         if(outline_reader) {
             const auto status=outline_reader->finish();admit(status==QUANTAPDF_OK,status);
+            admit(target.outline_scope_started &&
+                  target.outline_clip_stack.empty() &&
+                  target.outline_clip_id<=1u,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
             target.text_outline_paints=outline_reader->paints();
             target.text_outlines_complete=true;return;
         }

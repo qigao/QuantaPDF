@@ -356,6 +356,9 @@ matrix read_matrix(Obj v)
 { if(v.isNull()) return identity; need(v.isArray() && v.getArrayNItems()==6); matrix r; for(int i=0;i<6;++i) r[static_cast<size_t>(i)]=number(v.getArrayItem(i)); return r; }
 struct graphics {
     matrix ctm=identity;
+    /* One private frozen Source Clip identity, carried with the real
+     * PDF graphics-state stack. Ordinary text extraction leaves it 0. */
+    unsigned char clip_id=0u;
     font *face=nullptr;
     double size=0, character=0, word=0, scale=1, leading=0, rise=0;
     std::array<double,3> fill={0,0,0};
@@ -663,8 +666,24 @@ public:
             count(0);supported(!in_text && !pending_rectangle.empty());
             p.fill_rectangle(g,std::move(pending_rectangle),op=="f*");pending_rectangle.clear();
         } else if(p.outline_mode && op=="n") {count(0);supported(!in_text);pending_rectangle.clear();}
-        else if(op=="q") { count(0); supported(stack.size()<128u); stack.push_back(g); }
-        else if(op=="Q") { count(0); need(!stack.empty()); g=stack.back(); stack.pop_back(); }
+        else if(op=="q") {
+            count(0); supported(stack.size()<128u);
+            if(p.outline_mode && p.source_mixed.on_scope!=nullptr) {
+                const auto status=p.source_mixed.on_scope(
+                    p.source_mixed.user,1,g.clip_id,g.clip_id);
+                need(status==QUANTAPDF_OK,status);
+            }
+            stack.push_back(g);
+        } else if(op=="Q") {
+            count(0); need(!stack.empty());
+            const graphics restored=stack.back();
+            if(p.outline_mode && p.source_mixed.on_scope!=nullptr) {
+                const auto status=p.source_mixed.on_scope(
+                    p.source_mixed.user,0,g.clip_id,restored.clip_id);
+                need(status==QUANTAPDF_OK,status);
+            }
+            g=restored;stack.pop_back();
+        }
         else if(op=="cm") { count(6); matrix m; for(size_t i=0;i<6u;++i) m[i]=number(args[i]); g.ctm=concat(g.ctm,m); }
         else if(op=="BT") { count(0); need(!in_text); in_text=true; text=line=identity; }
         else if(op=="ET") { count(0); inside(); in_text=false; }
@@ -831,7 +850,7 @@ bool source_outline_is_rectangle(const std::vector<quantapdf_composer_path_comma
 namespace {
 graphics outline_graphics(source_text_seed const& seed)
 {
-    graphics g;g.ctm=seed.ctm;
+    graphics g;g.ctm=seed.ctm;g.clip_id=seed.clip_id;
     g.fill={static_cast<double>((seed.argb>>16u)&255u)/255,
             static_cast<double>((seed.argb>>8u)&255u)/255,
             static_cast<double>(seed.argb&255u)/255};

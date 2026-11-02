@@ -2794,7 +2794,7 @@ static int m2b2b_clipped_source_owner_contract(
         1000000u,4u,512u,8000000u,
         limits.max_source_pixels,limits.max_drawn_pixels
     };
-    for(int mode:{83,84}) {
+    for(int mode:{83,84,95}) {
         const std::string original=native_ttf_fixture(mode);
         const auto read=[&](quantapdf_ir& output) {
             return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
@@ -2817,7 +2817,7 @@ static int m2b2b_clipped_source_owner_contract(
         const auto& c=ir.resources.clips[0];
         CHECK(c.kind==QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL &&
               c.command_count==5u && c.commands!=nullptr &&
-              c.fill_rule==(mode==83?
+              c.fill_rule==(mode==83 || mode==95?
                   QUANTAPDF_COMPOSER_FILL_NONZERO:
                   QUANTAPDF_COMPOSER_FILL_EVEN_ODD) &&
               c.transform.a==1.0f && c.transform.d==1.0f);
@@ -2839,10 +2839,10 @@ static int m2b2b_clipped_source_owner_contract(
               gs.stroke_alpha==1.0f &&
               gs.blend_mode==QUANTAPDF_COMPOSER_BLEND_NORMAL);
         const quantapdf_composer_operation_kind expected[3]={
-            mode==83?QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES:
+            (mode==83 || mode==95)?QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES:
                 QUANTAPDF_COMPOSER_OPERATION_IMAGE,
             QUANTAPDF_COMPOSER_OPERATION_PATH,
-            mode==83?QUANTAPDF_COMPOSER_OPERATION_IMAGE:
+            (mode==83 || mode==95)?QUANTAPDF_COMPOSER_OPERATION_IMAGE:
                 QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES
         };
         for(size_t i=0u;i<3u;++i)
@@ -2850,7 +2850,7 @@ static int m2b2b_clipped_source_owner_contract(
                   ir.operations[i].graphics_state_id==1u &&
                   ir.operations[i].page_index==0u);
         CHECK(ir.operations[1].value.path.options.graphics_state_id==1u);
-        const size_t image_at=mode==83?2u:0u;
+        const size_t image_at=(mode==83 || mode==95)?2u:0u;
         CHECK(ir.operations[image_at].value.image.options.graphics_state_id==1u &&
               ir.operations[image_at].value.image.options.struct_size==
                   QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE &&
@@ -3061,7 +3061,7 @@ static int m2b2b_clipped_source_owner_contract(
     }
     /* Every later invalid op/resource must refuse the WHOLE original,
      * even though the earlier Text/Fill/Image+Clip prefix is valid. */
-    for(int mode=85;mode<=90;++mode) {
+    for(int mode:{85,86,87,88,89,90,96}) {
         const auto original=native_ttf_fixture(mode);
         quantapdf_ir denied;
         std::memset(&denied,0xa5,sizeof(denied));

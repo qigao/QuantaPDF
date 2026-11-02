@@ -54,13 +54,18 @@ The stable public API includes document/page lifecycle, text and image
 observations, annotations, forms, links, metadata, image rewriting, security,
 page editing, PDF composition and the native Bitmap interface. **Rendering
 support is deliberately narrower than structural/editing support**: the
-initial PDFium-free pixel path admits one 72-DPI unencrypted page-zero,
-opaque 2–4 ordered bounded Path/Image paints, exact W/W* Clip and Q
-restoration, 8-bit Gray/RGB RAW or Flate Predictors 1/2/10..15, and solid
-fills. Text/glyph rendering, arbitrary Forms, transparency/groups, general
-Stroke/Clip, nonqualified images, rotation/DPI variants, region clipping
-and thumbnail scaling return `QUANTAPDF_ERROR_UNSUPPORTED` rather than
-silently dropping contents or using a fallback.
+PDFium-free pixel path supports bounded original opaque Path/Image paints,
+RAW or Flate 8-bit Gray/RGB images (including qualified predictors), and
+direct 72/96/144-DPI device sampling. A separately qualified profile renders
+one embedded CID TrueType Text show with one solid rectangular Fill and one
+Image in either original order. The W/W* Text+Fill+Image profile is narrower:
+one axis-aligned root Clip with boundaries aligned to physical pixels at the
+**requested DPI**, under the same owned C11 V5 page and budget. Unsupported
+fonts, fractional original Text/Clip intersections, complex q/Q restored
+or sibling Clip scopes, arbitrary Forms, transparency/groups, unsupported
+Stroke/Clip, nonqualified render options, region clipping and thumbnail scaling
+return `QUANTAPDF_ERROR_UNSUPPORTED`, never silently dropping content or
+using a PDFium fallback.
 
 Feature work now expands native Source→owned IR→C11 Raster and device
 planning directly. See [native-runtime-cutover.md](docs/native-runtime-cutover.md)
