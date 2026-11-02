@@ -41,6 +41,13 @@ quantapdf_status quantapdf_native_image_mask_prepare_v1(
     const quantapdf_ir_raster_v1_limits *limits,
     const quantapdf_composer_clip_state *const *clips,size_t clip_count,
     quantapdf_native_work_ledger_v1 *ledger,quantapdf_native_geometry_v1 *out);
+/* PRIVATE M2b.2c only: same prepared 4x4 Image-bounds/Clip geometry,
+ * with visited-sample work instead of a full-viewport preflight. */
+quantapdf_status quantapdf_native_image_mask_prepare_visible_clip_v1(
+    const quantapdf_composer_page_state *page,const quantapdf_rect *bounds,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_composer_clip_state *clip,
+    quantapdf_native_work_ledger_v1 *ledger,quantapdf_native_geometry_v1 *out);
 quantapdf_status quantapdf_ir_raster_clipped_raw_image_v1_prepared(
     const quantapdf_ir *ir,size_t page_index,
     const quantapdf_ir_raster_image_v1_limits *image_limits,
