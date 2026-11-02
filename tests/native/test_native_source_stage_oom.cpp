@@ -3073,11 +3073,22 @@ static int m2b2b_clipped_source_owner_contract(
             staged.resources.clip_count==1u &&
             staged.resources.graphics_state_count==1u);
         const auto& commands=staged.resources.clips[0].commands;
-        CHECK(commands!=nullptr &&
-              commands[0].point1.x==12.0f &&
-              commands[1].point1.x==27.0f &&
-              commands[0].point1.y==24.0f &&
-              commands[2].point1.y==42.0f);
+        CHECK(commands!=nullptr);
+        float left=commands[0].point1.x,right=left;
+        float top=commands[0].point1.y,bottom=top;
+        for(size_t k=0u;k<4u;++k) {
+            const auto& pt=commands[k].point1;
+            if(pt.x<left)left=pt.x;
+            if(pt.x>right)right=pt.x;
+            if(pt.y<top)top=pt.y;
+            if(pt.y>bottom)bottom=pt.y;
+        }
+        /* Original PDF re starts at the BOTTOM left; normalized
+         * owned Y-down Source commands may visit bottom first.
+         * Verify the entire exact physical rectangle, not a
+         * source-operator vertex index or a compositor golden. */
+        CHECK(left==12.0f && right==27.0f &&
+              top==24.0f && bottom==42.0f);
         quantapdf_native_source_raster_device_v1 device{};
         device.dpi=96.0f;
         quantapdf_native_prepared_page_v1 metadata{};
