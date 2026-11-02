@@ -2191,8 +2191,25 @@ static int m2b1_ordered_source_ir_contract(
         quantapdf_ir_raster_image_dispose(&rendered);
         quantapdf_ir_raster_image_dispose(&full);
     }
-    std::puts("M2b.1: ordered Text/Fill/Image, one page owner, exact"
-              " global N/N-1, all real Source/C11 malloc faults and"
+    /* Every original follows a valid three-paint prefix, then violates
+     * exactly one Source grammar, resource or state contract. No
+     * execution may publish a partial page from the good prefix. */
+    for(int mode=68;mode<=80;++mode) {
+        const std::string original=native_ttf_fixture(mode);
+        quantapdf_ir denied;
+        std::memset(&denied,0xa5,sizeof(denied));
+        const auto st=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            reinterpret_cast<const unsigned char*>(original.data()),
+            original.size(),&limits,0u,&denied);
+        if(st!=QUANTAPDF_ERROR_UNSUPPORTED &&
+           st!=QUANTAPDF_ERROR_FORMAT)
+            std::fprintf(stderr,"M2b1 original late refusal mode=%d got=%d\n",
+                         mode,(int)st);
+        CHECK((st==QUANTAPDF_ERROR_UNSUPPORTED ||
+               st==QUANTAPDF_ERROR_FORMAT) && cleared(denied));
+    }
+    std::puts("M2b.1: ordered three-paint originals, exact N/N-1,"
+              " Source+C11 actual malloc faults and 13 atomic negatives,"
               " same-Context recovery");
     return EXIT_SUCCESS;
 }

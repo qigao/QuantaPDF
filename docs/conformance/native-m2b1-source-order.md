@@ -25,3 +25,7 @@ In the existing native public render executable, use the **pre-M2a reviewed Robo
 - [ ] Later M2b.2 correlated 4×4 glyph∩Clip and wider fonts/colors remain OPEN. No new public ABI, CI/workflow/test project or PDFium.
 
 This is a Draft capability, NOT a completed general Text/Image/Fill/Clip renderer.
+
+## Full original-source refusal matrix (candidate)
+
+Existing test-only author now supplies 13 additional original PDFs, modes 68–80, with a complete good Text/Fill/Image or Image/Fill/Text prefix before an unsupported late Do, extra Fill, W Clip, Stroke, unused Font/XObject/ExtGState, sheared original CTM, malformed q/Q/ET, second Do or blue text run. The **existing** Source/OOM target requires every one to refuse complete IR atomically; seven representative originals also traverse the public Bitmap API and must return no handle. Neither checks a fake IR/renderer, nor changes the M1/M2a golden corpus. This is an unaccepted candidate until exact-head CI passes.
