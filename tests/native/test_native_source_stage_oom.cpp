@@ -2863,6 +2863,76 @@ static int m2b2b_clipped_source_owner_contract(
             &ir,&raster,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&denied);
         CHECK(prep==QUANTAPDF_ERROR_UNSUPPORTED &&
               denied.source==nullptr);
+        /* M2b.2c: ONE private compiled C11 V5 page from the actual
+         * original Source-owned frozen Clip+Text+Fill+Image. The public
+         * Bitmap adapter above must STILL fail closed. */
+        for(unsigned dpi:{72u,96u,144u}) {
+            quantapdf_native_device_plan physical{};
+            CHECK(quantapdf_native_device_plan_create_physical(
+                "0 0 128 64","0 0 128 64","1",0,dpi,
+                raster.max_pixels,&physical)==QUANTAPDF_OK);
+            quantapdf_native_work_ledger_v1 ledger{};
+            const quantapdf_native_resource_limits_v1 resource_caps={
+                raster.max_source_pixels,raster.max_drawn_pixels,8000000u
+            };
+            quantapdf_native_work_init_v1(
+                &ledger,raster.max_sample_tests,raster.max_edges);
+            CHECK(quantapdf_native_resources_init_v1(
+                &ledger,&resource_caps,0u));
+            quantapdf_native_scoped_page_v5 compiled{};
+            const auto compiled_status=
+                quantapdf_native_scoped_prepare_m2b2c_text_fill_image_v1(
+                    &ir,&raster,&physical,&ledger,&compiled);
+            if(compiled_status!=QUANTAPDF_OK)
+                std::fprintf(stderr,
+                    "M2b2c V5 compile mode=%d dpi=%u status=%d\n",
+                    mode,dpi,(int)compiled_status);
+            CHECK(compiled_status==QUANTAPDF_OK &&
+                  compiled.ready && compiled.count==3u &&
+                  compiled.width==physical.width &&
+                  compiled.height==physical.height &&
+                  ledger.resources.source_pixels==4u &&
+                  ledger.resources.drawn_pixels>0u);
+            for(size_t layer=0u;layer<3u;++layer) {
+                quantapdf_native_geometry_info_v1 info{};
+                CHECK(quantapdf_native_geometry_info_get_v1(
+                    &compiled.geometry[layer],&info)==QUANTAPDF_OK &&
+                      info.clips==1u && info.draws>0u);
+            }
+            quantapdf_ir_raster_image pixels{};
+            const auto rendered=quantapdf_native_scoped_execute_v5(
+                &compiled,&pixels);
+            if(rendered!=QUANTAPDF_OK)
+                std::fprintf(stderr,
+                    "M2b2c V5 execute mode=%d dpi=%u status=%d\n",
+                    mode,dpi,(int)rendered);
+            CHECK(rendered==QUANTAPDF_OK &&
+                  pixels.pixels!=nullptr && pixels.width==physical.width &&
+                  pixels.height==physical.height &&
+                  pixels.stride==physical.width*4u &&
+                  pixels.size==physical.size &&
+                  ledger.used.sample_work<=raster.max_sample_tests &&
+                  ledger.used.edges<=raster.max_edges);
+            const double scale=(double)dpi/72.0;
+            size_t colored=0u;
+            for(size_t y=0u;y<pixels.height;++y)
+            for(size_t x=0u;x<pixels.width;++x) {
+                const uint32_t pixel=rgba_at(pixels,x,y);
+                CHECK((pixel&255u)==255u);
+                if((double)(x+1u)<=12.0*scale ||
+                   (double)x>=28.0*scale ||
+                   (double)(y+1u)<=24.0*scale ||
+                   (double)y>=44.0*scale)
+                    CHECK(pixel==UINT32_C(0xffffffff));
+                else if(pixel!=UINT32_C(0xffffffff))++colored;
+            }
+            CHECK(colored>0u && rgba_at(pixels,0u,0u)==UINT32_C(0xffffffff));
+            quantapdf_native_raster_image_dispose_v1(&ledger,&pixels);
+            quantapdf_native_scoped_dispose_v5(&compiled);
+            CHECK(ledger.resources.live_bytes==0u &&
+                  ledger.reserved.sample_work==0u &&
+                  ledger.reserved.edges==0u);
+        }
         quantapdf_ir_dispose(&ir);
         CHECK(cleared(ir));
         CHECK(read(ir)==QUANTAPDF_OK &&

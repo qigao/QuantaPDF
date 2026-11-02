@@ -1210,8 +1210,8 @@ static quantapdf_status qp_mixed_text_image_prepare(
         clip_source=&r->clips[0];
         const quantapdf_affine_transform *t=&clip_source->transform;
         if(clip_source->kind!=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL ||
-           clip_source->fill_rule!=QUANTAPDF_COMPOSER_FILL_NONZERO &&
-           clip_source->fill_rule!=QUANTAPDF_COMPOSER_FILL_EVEN_ODD)
+           (clip_source->fill_rule!=QUANTAPDF_COMPOSER_FILL_NONZERO &&
+            clip_source->fill_rule!=QUANTAPDF_COMPOSER_FILL_EVEN_ODD))
             return QUANTAPDF_ERROR_UNSUPPORTED;
         if(clip_source->members!=NULL || clip_source->member_count!=0u ||
            clip_source->commands==NULL || clip_source->command_count!=5u ||
