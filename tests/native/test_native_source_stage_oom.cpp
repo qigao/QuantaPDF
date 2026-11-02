@@ -3614,6 +3614,84 @@ static int m2b2g_private_fourth_restored_v5(
               rgba_at(pixels,green_x,green_y)==UINT32_C(0x00ff00ff) &&
               rgba_at(pixels,white_x,white_y)==UINT32_C(0xffffffff) &&
               rgba_at(pixels,0u,0u)==UINT32_C(0xffffffff));
+        /* INDEPENDENT ORIGINAL every-pixel RGBA. The reviewed
+         * pre-M2a Roboto Text golden is exact only because this Clip
+         * root (12..27 x24..42) is pixel aligned at each requested
+         * 72/96/144 DPI. The fourth GS0 red rectangle intentionally
+         * has fractional 96-DPI physical edges and is sampled on the
+         * SAME analytic 4x4 grid, never from another raster output. */
+        const auto goldens=std::filesystem::path(__FILE__).parent_path()/"goldens";
+        std::ifstream text_file(goldens/("roboto-hello-"+
+            std::to_string(dpi)+"-m0.rgba"),std::ios::binary);
+        const std::vector<unsigned char> glyph_reference{
+            std::istreambuf_iterator<char>(text_file),{}};
+        CHECK(glyph_reference.size()==pixels.width*pixels.height*4u);
+        static const unsigned char rgb_samples[4][3]={
+            {255u,0u,0u},{0u,255u,0u},
+            {0u,0u,255u},{255u,255u,0u}
+        };
+        size_t ink=0u,unclipped_ink=0u;
+        for(size_t y=0u;y<pixels.height;++y)
+        for(size_t x=0u;x<pixels.width;++x) {
+            const size_t index=y*pixels.width+x;
+            const unsigned char grey=glyph_reference[4u*index];
+            CHECK(grey==glyph_reference[4u*index+1u] &&
+                  grey==glyph_reference[4u*index+2u] &&
+                  glyph_reference[4u*index+3u]==255u);
+            unsigned clip_hits=0u,fill_hits=0u,image_hits=0u,red_hits=0u;
+            for(unsigned sy=0u;sy<4u;++sy)
+            for(unsigned sx=0u;sx<4u;++sx) {
+                const double px=(double)x+((double)sx+0.5)/4.0;
+                const double py=(double)y+((double)sy+0.5)/4.0;
+                const bool clip=px>=12.0*scale && px<27.0*scale &&
+                                py>=24.0*scale && py<42.0*scale;
+                clip_hits+=(unsigned)clip;
+                fill_hits+=(unsigned)(clip &&
+                    px>=12.0*scale && px<28.0*scale &&
+                    py>=24.0*scale && py<44.0*scale);
+                image_hits+=(unsigned)(clip &&
+                    px>=10.0*scale && px<26.0*scale &&
+                    py>=37.0*scale && py<49.0*scale);
+                red_hits+=(unsigned)(px>=34.0*scale && px<40.0*scale &&
+                                     py>=50.0*scale && py<55.0*scale);
+            }
+            CHECK(clip_hits==0u || clip_hits==16u);
+            const unsigned alpha[4]={
+                clip_hits==16u?255u-(unsigned)grey:0u,
+                (fill_hits*255u+8u)/16u,
+                (image_hits*255u+8u)/16u,
+                (red_hits*255u+8u)/16u
+            };
+            const double nx=((double)x+0.5-10.0*scale)/(16.0*scale)*2.0;
+            const double ny=((double)y+0.5-37.0*scale)/(12.0*scale)*2.0;
+            const size_t ix=nx<=0.0?0u:nx>=2.0?1u:(size_t)nx;
+            const size_t iy=ny<=0.0?0u:ny>=2.0?1u:(size_t)ny;
+            const unsigned char *sample=rgb_samples[iy*2u+ix];
+            unsigned expected[3]={255u,255u,255u};
+            for(unsigned layer=0u;layer<4u;++layer) {
+                for(unsigned channel=0u;channel<3u;++channel) {
+                    const unsigned color=layer==0u?0u:
+                        layer==1u?(channel==1u?255u:0u):
+                        layer==2u?(unsigned)sample[channel]:
+                        (channel==0u?255u:0u);
+                    expected[channel]=(color*alpha[layer]+
+                        expected[channel]*(255u-alpha[layer])+127u)/255u;
+                }
+            }
+            const uint32_t actual=rgba_at(pixels,x,y);
+            const uint32_t wanted=(expected[0]<<24u)|
+                                  (expected[1]<<16u)|
+                                  (expected[2]<<8u)|255u;
+            if(actual!=wanted) {
+                std::fprintf(stderr,
+                    "M2b2g original full RGB dpi=%u x=%zu y=%zu got=%08x want=%08x\n",
+                    dpi,x,y,(unsigned)actual,(unsigned)wanted);
+                return EXIT_FAILURE;
+            }
+            ink+=(unsigned)(wanted!=UINT32_C(0xffffffff));
+            unclipped_ink+=(unsigned)(red_hits>0u && clip_hits==0u);
+        }
+        CHECK(ink>0u && unclipped_ink>0u);
         quantapdf_native_raster_image_dispose_v1(&ledger,&pixels);
         quantapdf_native_scoped_dispose_v5(&compiled);
         CHECK(ledger.resources.live_bytes==0u &&
