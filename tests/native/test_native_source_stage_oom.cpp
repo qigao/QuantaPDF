@@ -2908,10 +2908,10 @@ static int m2b2b_clipped_source_owner_contract(
             smaller.max_operations=2u;
             quantapdf_ir refused;
             std::memset(&refused,0xa5,sizeof(refused));
-            const auto status=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            const auto budget_status=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
                 reinterpret_cast<const unsigned char*>(original.data()),
                 original.size(),&smaller,0u,&refused);
-            CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED && cleared(refused));
+            CHECK(budget_status==QUANTAPDF_ERROR_UNSUPPORTED && cleared(refused));
         }
     }
     /* Every later invalid op/resource must refuse the WHOLE original,
