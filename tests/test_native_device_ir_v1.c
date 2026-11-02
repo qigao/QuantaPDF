@@ -550,7 +550,11 @@ static int correlated_glyph_clip_contracts(void)
             &ir,&limits,&plan,&clip,&ledger,&owner));
         OK(quantapdf_native_geometry_info_get_v1(&owner,&info));
         CHECK(info.clips==1u && info.draws==1u && info.edges>=8u);
-        /* Prove full snapshot ownership before execution. */
+        /* Prove full snapshot ownership before execution. Keep independent
+         * original commands for fresh N/N-1 denial builds below. */
+        quantapdf_composer_path_command saved_glyph[5],saved_clip[5];
+        memcpy(saved_glyph,glyph_commands,sizeof(saved_glyph));
+        memcpy(saved_clip,clip_commands,sizeof(saved_clip));
         memset(glyph_commands,0xa5,sizeof(glyph_commands));
         memset(clip_commands,0xa5,sizeof(clip_commands));
         memset(&glyph,0xa5,sizeof(glyph));memset(&clip,0xa5,sizeof(clip));
@@ -586,8 +590,60 @@ static int correlated_glyph_clip_contracts(void)
         quantapdf_native_raster_image_dispose_v1(&ledger,&rendered);
         CHECK(ledger.resources.live_bytes==0u &&
               ledger.reserved.sample_work==0u);
+
+        /* Three strict N/N-1 refusals from the exact successful execution:
+         * (1) actual glyph+Clip visited work, (2) compiled glyph+Clip edges,
+         * (3) retained compiler bytes. Never publish a partial image.
+         * These use fresh owners; successful mode-10 goldens are unchanged. */
+        CHECK(work>0u && info.edges>1u && info.retained_bytes>1u);
+        memcpy(glyph_commands,saved_glyph,sizeof(glyph_commands));
+        memcpy(clip_commands,saved_clip,sizeof(clip_commands));
+        memset(&glyph,0,sizeof(glyph));
+        glyph.commands=glyph_commands;glyph.command_count=5u;
+        memset(&op,0,sizeof(op));
+        op.kind=QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES;
+        op.value.text_outlines.glyphs=&glyph;
+        op.value.text_outlines.glyph_count=1u;
+        op.value.text_outlines.argb=UINT32_C(0xff000000);
+        memset(&clip,0,sizeof(clip));
+        clip.kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;
+        clip.commands=clip_commands;clip.command_count=5u;
+        clip.fill_rule=variant?QUANTAPDF_COMPOSER_FILL_EVEN_ODD:
+                               QUANTAPDF_COMPOSER_FILL_NONZERO;
+        clip.transform.a=clip.transform.d=1.0f;
+        memset(&ir,0,sizeof(ir));
+        ir.pages=&page;ir.page_count=1u;
+        ir.operations=&op;ir.operation_count=1u;
+        for(unsigned denial=0u;denial<3u;++denial) {
+            const size_t sample_cap=denial==0u?work-1u:800000u;
+            const size_t edge_cap=denial==1u?info.edges-1u:64u;
+            const size_t byte_cap=denial==2u?info.retained_bytes-1u:100000u;
+            const quantapdf_ir_raster_v1_limits smaller={
+                16u,1u,edge_cap,sample_cap
+            };
+            quantapdf_native_resource_limits_v1 small_resources={
+                0u,0u,byte_cap
+            };
+            quantapdf_native_work_ledger_v1 refused_ledger;
+            quantapdf_native_geometry_v1 refused_owner={0};
+            quantapdf_ir_raster_image refused_pixels={0};
+            quantapdf_native_work_init_v1(&refused_ledger,sample_cap,edge_cap);
+            CHECK(quantapdf_native_resources_init_v1(
+                &refused_ledger,&small_resources,0u));
+            quantapdf_status refused=
+                quantapdf_native_geometry_prepare_text_clipped_v1(
+                    &ir,&smaller,&plan,&clip,&refused_ledger,&refused_owner);
+            if(refused==QUANTAPDF_OK)
+                refused=quantapdf_native_geometry_execute_v1(
+                    &refused_owner,NULL,&refused_pixels);
+            CHECK(refused==QUANTAPDF_ERROR_UNSUPPORTED &&
+                  refused_pixels.pixels==NULL && refused_pixels.size==0u);
+            quantapdf_native_geometry_dispose_v1(&refused_owner);
+            CHECK(refused_ledger.resources.live_bytes==0u &&
+                  refused_ledger.reserved.sample_work==0u);
+        }
     }
-    puts("M2b.2a private C11 correlated glyph/Clip subpixel and detached owner PASS");
+    puts("M2b.2a private C11 correlated glyph/Clip, N/N-1 owner PASS");
     return EXIT_SUCCESS;
 }
 
