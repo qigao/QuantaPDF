@@ -75,6 +75,14 @@ quantapdf_status quantapdf_native_geometry_prepare_text_v1(
     const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
     const quantapdf_native_device_plan *plan,quantapdf_native_work_ledger_v1 *ledger,
     quantapdf_native_geometry_v1 *out);
+/* M2b.2a private only: exact Text glyph AND one frozen owned Clip at
+ * the same 16 subpixels. Does not admit Source V10 Text+Clip yet. */
+quantapdf_status quantapdf_native_geometry_prepare_text_clipped_v1(
+    const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,
+    const quantapdf_composer_clip_state *clip,
+    quantapdf_native_work_ledger_v1 *ledger,
+    quantapdf_native_geometry_v1 *out);
 quantapdf_status quantapdf_native_geometry_prepare_texample_v1(
     const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
     const quantapdf_native_device_plan *plan,quantapdf_native_work_ledger_v1 *ledger,
