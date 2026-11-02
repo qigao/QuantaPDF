@@ -1933,6 +1933,60 @@ static int m2a_ordered_text_image_source_contract(
     return EXIT_SUCCESS;
 }
 
+/* M2b.1 Source-only gate: three real original PDF paints are now
+ * owned in exact order, but the public C11 three-layer route is NOT
+ * admitted until its independent geometry/ledger/pixel tests pass.
+ * This cannot accidentally publish a partial Text/Image Bitmap. */
+static int m2b1_ordered_source_ir_contract(
+    const quantapdf_qpdf_source_raw_image_limits& limits)
+{
+    for(int mode:{66,67}) {
+        const std::string original=native_ttf_fixture(mode);
+        quantapdf_ir ir{};
+        const auto status=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            reinterpret_cast<const unsigned char*>(original.data()),
+            original.size(),&limits,0u,&ir);
+        CHECK(status==QUANTAPDF_OK && ir.page_count==1u &&
+              ir.operation_count==3u && ir.resources.image_count==1u &&
+              ir.resources.images!=nullptr &&
+              ir.resources.images[0].size==12u);
+        const size_t kinds[3]={
+            mode==66?QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES:
+                     QUANTAPDF_COMPOSER_OPERATION_IMAGE,
+            QUANTAPDF_COMPOSER_OPERATION_PATH,
+            mode==66?QUANTAPDF_COMPOSER_OPERATION_IMAGE:
+                     QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES
+        };
+        for(size_t i=0u;i<3u;++i)
+            CHECK((size_t)ir.operations[i].kind==kinds[i] &&
+                  ir.operations[i].page_index==0u);
+        CHECK(ir.operations[1].value.path.command_count==5u &&
+              ir.operations[1].value.path.commands!=nullptr &&
+              ir.operations[1].value.path.options.fill==1 &&
+              ir.operations[1].value.path.options.fill_argb==
+                  UINT32_C(0xff00ff00));
+        const auto& text=ir.operations[mode==66?0u:2u].value.text_outlines;
+        CHECK(text.argb==UINT32_C(0xff000000) &&
+              text.glyph_count==5u && text.glyphs!=nullptr);
+        quantapdf_native_source_raster_device_v1 device{};
+        device.dpi=72.0f;
+        const quantapdf_ir_raster_scoped_mixed_v5_limits caps={
+            1000000u,4u,512u,8000000u,
+            limits.max_source_pixels,limits.max_drawn_pixels
+        };
+        quantapdf_native_source_page_v1 unadmitted{};
+        CHECK(quantapdf_native_source_page_prepare_v1(&ir,&caps,&device,
+              QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&unadmitted)==
+                  QUANTAPDF_ERROR_UNSUPPORTED &&
+              unadmitted.owns_ir==0 && !cleared(ir));
+        quantapdf_native_source_page_dispose_v1(&unadmitted);
+        quantapdf_ir_dispose(&ir);
+        CHECK(cleared(ir));
+    }
+    std::puts("M2b.1 stage: original Text/Fill/Image and Image/Fill/Text own ordered 3-paint IR; C11 remains closed");
+    return EXIT_SUCCESS;
+}
+
 static int native_ttf_source_and_raster_contracts(
     const quantapdf_qpdf_source_raw_image_limits& source_limits,int mode=1)
 {
@@ -2509,8 +2563,10 @@ int main(int argc,char **argv)
      * not an allocator, geometry or Bitmap failure. Run the exact same
      * M2a suite through this existing test-linked production executable,
      * but with its own 40-second CTest lease. No test case is discarded. */
-    if(argc==2 && std::strcmp(argv[1],"--m2a")==0)
-        return m2a_ordered_text_image_source_contract(limits);
+    if(argc==2 && std::strcmp(argv[1],"--m2a")==0) {
+        CHECK(m2a_ordered_text_image_source_contract(limits)==EXIT_SUCCESS);
+        return m2b1_ordered_source_ir_contract(limits);
+    }
     if(argc!=3)return EXIT_FAILURE;
     CHECK(native_ttf_subset_contracts()==EXIT_SUCCESS);
     const std::string pdf=original_pdf();

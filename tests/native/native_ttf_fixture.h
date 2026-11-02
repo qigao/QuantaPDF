@@ -172,7 +172,7 @@ inline std::string native_ttf_fixture(int mode=0)
     /* #578 M2a: fully original QPDF-authored embedded CID TTF +
      * RAW/Flate RGB Image in both orders, plus late invalid operations.
      * No IR-derived or compositor-derived fixtures are used. */
-    if(mode>=49 && mode<=65) {
+    if(mode>=49 && mode<=67) {
         const std::string pixels("\xff\0\0\0\xff\0\0\0\xff\xff\xff\0",12);
         std::string encoded=pixels;
         if(mode==64 || mode==65) {
@@ -225,6 +225,11 @@ inline std::string native_ttf_fixture(int mode=0)
         if(mode==59)text+=" Q"; /* unbalanced restore */
         if(mode==61)text+=" "+draw; /* second original Image Do */
         if(mode==62)text+=" BT /F 24 Tf 12 20 Td <002d> Tj"; /* no ET */
+        if(mode==66 || mode==67) {
+            const std::string fill="q 0 1 0 rg 12 20 16 20 re f Q";
+            text=mode==66?show+" "+fill+" "+draw:
+                          draw+" "+fill+" "+show;
+        }
     }
     page.replaceKey("/Contents",pdf->newStream(text));
     QPDFWriter writer(*pdf);writer.setOutputMemory();writer.write();

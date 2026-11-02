@@ -24,6 +24,10 @@ struct source_mixed_callbacks {
     quantapdf_status (*on_text)(void*)=nullptr;
     quantapdf_status (*on_image)(void*,QPDFObjectHandle,
                                  const std::array<double,6>&)=nullptr;
+    /* Original post-BT opaque solid Fill: the SAME reader freezes the
+     * PATH paint alongside Text shows, rather than ignoring its order.
+     * Existing Text-only paints do not need a new IR materializer. */
+    quantapdf_status (*on_fill)(void*)=nullptr;
 };
 /* Reuses the existing observation interpreter on the SAME token callback
  * stream. It never parses/reopens source bytes or returns font/QPDF owners. */

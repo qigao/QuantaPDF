@@ -534,6 +534,22 @@ static int native_m2a_public_text_image_cases(const std::string& filename)
         quantapdf_drop_page(denied_page);
         quantapdf_close(denied_doc);
     }
+    /* The M2b.1 originals are valid full PDFs and have a complete
+     * three-operation owned Source IR, but until the SAME C11 V5 page
+     * has all three compiled layers, PUBLIC Bitmap must reject both. */
+    for(int mode:{66,67}) {
+        CHECK(write_pdf(filename,native_ttf_fixture(mode)));
+        quantapdf_document *doc=nullptr;
+        quantapdf_page *page=nullptr;
+        quantapdf_bitmap *bitmap=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+        OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(doc,0,&page));
+        CHECK(quantapdf_render_page(page,&bitmap)==
+              QUANTAPDF_ERROR_UNSUPPORTED && bitmap==nullptr);
+        quantapdf_drop_page(page);
+        quantapdf_close(doc);
+    }
     quantapdf_drop_context(ctx);
     std::puts("[native-public-render] M2a original RAW/Flate Text/Image"
               " in both orders, independent RGB 72/96/144 DPI passed");
