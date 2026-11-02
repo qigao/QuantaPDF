@@ -989,17 +989,21 @@ public:
         }
         const std::string op=item.getOperatorValue();
         if(target.text_outlines_eligible && op=="BT") {
-            /* Only a single previously completed ROOT W/W* may cross the
-             * existing parser's one-way Text transition. No saved pre-
-             * Clip q can be restored inside the outline reader; W/W*
-             * after BT remains strictly unsupported. */
+            /* An original q nested AFTER W/n may legitimately save the
+             * same active Clip root. The post-BT outline parser receives
+             * that saved graphics frame; its Q restores Clip 1, not GS0.
+             * Reject any pre-Clip q whose saved Clip ID is zero, and
+             * any W/W* after BT (unsupported by the outline grammar). */
             const bool frozen_root=target.native_unclipped_mode &&
                 target.clip_completed && clip_active==1u &&
                 target.clip.commands.size()==5u &&
                 !target.two_owned_clips &&
                 target.second_clip.commands.empty() &&
                 !target.saw_q_restore &&
-                stack.empty() && fill_stack.empty() && clip_stack.empty();
+                stack.size()==fill_stack.size() &&
+                clip_stack.size()==stack.size() &&
+                std::all_of(clip_stack.begin(),clip_stack.end(),
+                    [](unsigned char id){return id==1u;});
             admit(args.empty() && pending_path.empty() && !clip_pending &&
                 (!target.clip_completed || frozen_root) &&
                 (target.draws.empty() ?
@@ -1017,7 +1021,10 @@ public:
                              return member==(frozen_root?1u:0u);
                          }))) &&
                 stack.size()==fill_stack.size() &&
-                std::all_of(clip_stack.begin(),clip_stack.end(),[](size_t id){return id==0u;}),
+                std::all_of(clip_stack.begin(),clip_stack.end(),
+                    [frozen_root](unsigned char id) {
+                        return id==(frozen_root?1u:0u);
+                    }),
                 QUANTAPDF_ERROR_UNSUPPORTED);
             std::vector<quantapdf::detail::source_text_seed> saved;
             for(size_t i=0u;i<stack.size();++i)saved.push_back({stack[i],fill_stack[i]});
