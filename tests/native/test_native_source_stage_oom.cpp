@@ -2821,6 +2821,19 @@ static int m2b2b_clipped_source_owner_contract(
                   QUANTAPDF_COMPOSER_FILL_NONZERO:
                   QUANTAPDF_COMPOSER_FILL_EVEN_ODD) &&
               c.transform.a==1.0f && c.transform.d==1.0f);
+        float minx=c.commands[0].point1.x,maxx=minx;
+        float miny=c.commands[0].point1.y,maxy=miny;
+        for(size_t i=0u;i<4u;++i) {
+            const auto& p=c.commands[i].point1;
+            if(p.x<minx)minx=p.x;
+            if(p.x>maxx)maxx=p.x;
+            if(p.y<miny)miny=p.y;
+            if(p.y>maxy)maxy=p.y;
+        }
+        /* Exact authored Clip projection, not synthesized from
+         * the Image footprint or post-raster output Bitmap. */
+        CHECK(minx==12.0f && maxx==28.0f &&
+              miny==24.0f && maxy==44.0f);
         const auto& gs=ir.resources.graphics_states[0];
         CHECK(gs.clip_id==1u && gs.fill_alpha==1.0f &&
               gs.stroke_alpha==1.0f &&
@@ -2903,7 +2916,7 @@ static int m2b2b_clipped_source_owner_contract(
     }
     /* Every later invalid op/resource must refuse the WHOLE original,
      * even though the earlier Text/Fill/Image+Clip prefix is valid. */
-    for(int mode=85;mode<=89;++mode) {
+    for(int mode=85;mode<=90;++mode) {
         const auto original=native_ttf_fixture(mode);
         quantapdf_ir denied;
         std::memset(&denied,0xa5,sizeof(denied));
