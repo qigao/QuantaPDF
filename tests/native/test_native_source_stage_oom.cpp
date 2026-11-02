@@ -2857,6 +2857,49 @@ static int m2b2b_clipped_source_owner_contract(
               ir.resources.graphics_state_count==1u);
         quantapdf_ir_dispose(&ir);
         CHECK(cleared(ir));
+        if(mode==83) {
+            /* Same original and exact C allocation hook as existing M2b.1:
+             * the new owned GS+Clip is part of the one Source transaction.
+             * First/middle/last failures must publish zero IR; a good
+             * re-open after each proves no damaged source owner escapes. */
+            quantapdf_ir reference{};
+            track_c_allocation=true;c_fail_index=0u;
+            c_allocations=0u;c_faults=0u;
+            const auto counted=read(reference);
+            const size_t calls=c_allocations;
+            track_c_allocation=false;
+            CHECK(counted==QUANTAPDF_OK && calls>=7u && calls<=64u &&
+                  c_faults==0u && reference.resources.clip_count==1u);
+            quantapdf_ir_dispose(&reference);
+            CHECK(cleared(reference));
+            const size_t probes[3]={1u,(calls+1u)/2u,calls};
+            for(size_t index:probes) {
+                quantapdf_ir failed;
+                std::memset(&failed,0xa5,sizeof(failed));
+                track_c_allocation=true;c_fail_index=index;
+                c_allocations=0u;c_faults=0u;
+                const auto denied_status=read(failed);
+                track_c_allocation=false;c_fail_index=0u;
+                CHECK(denied_status==QUANTAPDF_ERROR_NOMEM &&
+                      c_faults==1u && c_allocations==index &&
+                      cleared(failed));
+                quantapdf_ir recovered{};
+                CHECK(read(recovered)==QUANTAPDF_OK &&
+                      recovered.resources.clip_count==1u &&
+                      recovered.resources.graphics_state_count==1u &&
+                      recovered.operation_count==3u);
+                quantapdf_ir_dispose(&recovered);
+                CHECK(cleared(recovered));
+            }
+            auto smaller=limits;
+            smaller.max_operations=2u;
+            quantapdf_ir refused;
+            std::memset(&refused,0xa5,sizeof(refused));
+            const auto status=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+                reinterpret_cast<const unsigned char*>(original.data()),
+                original.size(),&smaller,0u,&refused);
+            CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED && cleared(refused));
+        }
     }
     /* Every later invalid op/resource must refuse the WHOLE original,
      * even though the earlier Text/Fill/Image+Clip prefix is valid. */
