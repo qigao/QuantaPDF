@@ -488,7 +488,111 @@ static int compiled_page_contracts(const quantapdf_ir *fixture)
     return 0;
 }
 
+
+/* M2b.2a: exact 16-bit glyph coverage AND frozen W/W* Clip coverage.
+ * The disjoint edge control produces zero ink even though each mask
+ * separately covers part of pixel (0,0): rounded-alpha multiplication
+ * would spuriously darken it. Real V1 compiler/sampler, no second raster. */
+static int correlated_glyph_clip_contracts(void)
+{
+    for(unsigned variant=0u;variant<2u;++variant)
+    for(unsigned dpi=72u;dpi<=144u;dpi+=dpi==72u?24u:48u) {
+        quantapdf_composer_page_state page={0};
+        quantapdf_composer_path_command glyph_commands[5]={{0}};
+        quantapdf_composer_path_command clip_commands[5]={{0}};
+        quantapdf_outline_glyph glyph={0};
+        quantapdf_composer_operation op={0};
+        quantapdf_composer_clip_state clip={0};
+        quantapdf_ir ir={0};
+        quantapdf_native_device_plan plan={0};
+        quantapdf_native_work_ledger_v1 ledger;
+        quantapdf_native_resource_limits_v1 resources={0u,0u,100000u};
+        quantapdf_ir_raster_v1_limits limits={16u,1u,64u,800000u};
+        quantapdf_native_geometry_v1 owner={0};
+        quantapdf_native_geometry_info_v1 info={0};
+        quantapdf_ir_raster_image rendered={0};
+        size_t work=0u;
+        const float right=variant?0.75f:0.5f;
+        page.width_points=2.0f;page.height_points=2.0f;
+        page.background_argb=UINT32_C(0xffffffff);
+        glyph_commands[0].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+        glyph_commands[1].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+        glyph_commands[1].point1.x=right;
+        glyph_commands[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+        glyph_commands[2].point1.x=right;glyph_commands[2].point1.y=1.0f;
+        glyph_commands[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+        glyph_commands[3].point1.y=1.0f;
+        glyph_commands[4].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+        clip_commands[0].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+        clip_commands[0].point1.x=0.5f;
+        clip_commands[1].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+        clip_commands[1].point1.x=1.0f;
+        clip_commands[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+        clip_commands[2].point1.x=1.0f;clip_commands[2].point1.y=1.0f;
+        clip_commands[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+        clip_commands[3].point1.x=0.5f;clip_commands[3].point1.y=1.0f;
+        clip_commands[4].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+        glyph.commands=glyph_commands;glyph.command_count=5u;
+        op.kind=QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES;
+        op.value.text_outlines.glyphs=&glyph;op.value.text_outlines.glyph_count=1u;
+        op.value.text_outlines.argb=UINT32_C(0xff000000);
+        clip.kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;
+        clip.commands=clip_commands;clip.command_count=5u;
+        clip.fill_rule=variant?QUANTAPDF_COMPOSER_FILL_EVEN_ODD:
+                               QUANTAPDF_COMPOSER_FILL_NONZERO;
+        clip.transform.a=clip.transform.d=1.0f;
+        ir.pages=&page;ir.page_count=1u;ir.operations=&op;ir.operation_count=1u;
+        OK(quantapdf_native_device_plan_create_physical(
+            "0 0 2 2","0 0 2 2","1",0,dpi,16u,&plan));
+        quantapdf_native_work_init_v1(&ledger,800000u,64u);
+        CHECK(quantapdf_native_resources_init_v1(&ledger,&resources,0u));
+        OK(quantapdf_native_geometry_prepare_text_clipped_v1(
+            &ir,&limits,&plan,&clip,&ledger,&owner));
+        OK(quantapdf_native_geometry_info_get_v1(&owner,&info));
+        CHECK(info.clips==1u && info.draws==1u && info.edges>=8u);
+        /* Prove full snapshot ownership before execution. */
+        memset(glyph_commands,0xa5,sizeof(glyph_commands));
+        memset(clip_commands,0xa5,sizeof(clip_commands));
+        memset(&glyph,0xa5,sizeof(glyph));memset(&clip,0xa5,sizeof(clip));
+        memset(&op,0xa5,sizeof(op));memset(&ir,0xa5,sizeof(ir));
+        OK(quantapdf_native_geometry_execute_v1(&owner,&work,&rendered));
+        const double scale=(double)dpi/72.0;
+        CHECK(rendered.width==(size_t)(2.0*scale+0.5) &&
+              rendered.height==(size_t)(2.0*scale+0.5) &&
+              work>0u && work<=800000u && ledger.samples_exact);
+        unsigned ink=0u;
+        for(size_t y=0u;y<rendered.height;++y)
+        for(size_t x=0u;x<rendered.width;++x) {
+            unsigned covered=0u,glyph_samples=0u,clip_samples=0u;
+            for(unsigned sy=0u;sy<4u;++sy)
+            for(unsigned sx=0u;sx<4u;++sx) {
+                const double px=(double)x+((double)sx+0.5)/4.0;
+                const double py=(double)y+((double)sy+0.5)/4.0;
+                const int in_glyph=px<(double)right*scale && py<scale;
+                const int in_clip=px>=0.5*scale && px<scale && py<scale;
+                glyph_samples+=(unsigned)in_glyph;
+                clip_samples+=(unsigned)in_clip;
+                covered+=(unsigned)(in_glyph && in_clip);
+            }
+            if(variant==0u && dpi==72u && x==0u && y==0u)
+                CHECK(covered==0u && glyph_samples>0u && clip_samples>0u);
+            ink+=covered;
+            const unsigned gray=(255u*(16u-covered)+8u)/16u;
+            const uint32_t expected=(gray<<24u)|(gray<<16u)|(gray<<8u)|255u;
+            CHECK(at(&rendered,x,y)==expected);
+        }
+        CHECK((variant==0u && ink==0u) || (variant==1u && ink>0u));
+        quantapdf_native_geometry_dispose_v1(&owner);
+        quantapdf_native_raster_image_dispose_v1(&ledger,&rendered);
+        CHECK(ledger.resources.live_bytes==0u &&
+              ledger.reserved.sample_work==0u);
+    }
+    puts("M2b.2a private C11 correlated glyph/Clip subpixel and detached owner PASS");
+    return EXIT_SUCCESS;
+}
+
 int main(void) {
+    CHECK(correlated_glyph_clip_contracts()==EXIT_SUCCESS);
     quantapdf_composer_page_state page={0};
     quantapdf_composer_path_command commands[5]={{0}};
     quantapdf_composer_operation op={0};
