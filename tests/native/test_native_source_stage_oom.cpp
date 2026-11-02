@@ -2782,6 +2782,106 @@ static int legacy_prepared_contracts(const quantapdf_qpdf_source_raw_image_limit
     return EXIT_SUCCESS;
 }
 
+/* M2b.2a private C11 correlated glyph/Clip fault acceptance. This
+ * exercises the REAL exact C11 mallocs in the SAME existing Source/OOM
+ * executable; the public original W/W* Source profile is still closed. */
+static int m2b2a_private_clipped_text_faults()
+{
+    quantapdf_composer_page_state page{};
+    quantapdf_composer_path_command commands[5]{},clip_commands[5]{};
+    quantapdf_outline_glyph glyph{};
+    quantapdf_composer_operation op{};
+    quantapdf_composer_clip_state clip{};
+    quantapdf_ir ir{};
+    quantapdf_native_device_plan physical{};
+    const quantapdf_ir_raster_v1_limits caps={16u,1u,64u,800000u};
+    page.width_points=2.0f;page.height_points=2.0f;
+    page.background_argb=UINT32_C(0xffffffff);
+    commands[0].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+    commands[1].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    commands[1].point1.x=0.75f;
+    commands[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    commands[2].point1.x=0.75f;commands[2].point1.y=1.0f;
+    commands[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    commands[3].point1.y=1.0f;
+    commands[4].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+    clip_commands[0].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
+    clip_commands[0].point1.x=0.5f;
+    clip_commands[1].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    clip_commands[1].point1.x=1.0f;
+    clip_commands[2].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    clip_commands[2].point1.x=1.0f;clip_commands[2].point1.y=1.0f;
+    clip_commands[3].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;
+    clip_commands[3].point1.x=0.5f;clip_commands[3].point1.y=1.0f;
+    clip_commands[4].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+    glyph.commands=commands;glyph.command_count=5u;
+    op.kind=QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES;
+    op.value.text_outlines.glyphs=&glyph;
+    op.value.text_outlines.glyph_count=1u;
+    op.value.text_outlines.argb=UINT32_C(0xff000000);
+    clip.kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;
+    clip.commands=clip_commands;clip.command_count=5u;
+    clip.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
+    clip.transform.a=clip.transform.d=1.0f;
+    ir.pages=&page;ir.page_count=1u;
+    ir.operations=&op;ir.operation_count=1u;
+    CHECK(quantapdf_native_device_plan_create_physical(
+        "0 0 2 2","0 0 2 2","1",0,96u,16u,&physical)==QUANTAPDF_OK);
+    std::vector<unsigned char> golden;
+    size_t successful_calls=0u;
+    auto trial=[&](size_t failure_index,bool baseline) -> bool {
+        quantapdf_native_work_ledger_v1 ledger{};
+        quantapdf_native_resource_limits_v1 resource_caps={0u,0u,100000u};
+        quantapdf_native_geometry_v1 prepared{};
+        quantapdf_ir_raster_image output{};
+        quantapdf_native_work_init_v1(&ledger,800000u,64u);
+        if(!quantapdf_native_resources_init_v1(&ledger,&resource_caps,0u))
+            return false;
+        c_fail_index=failure_index;c_allocations=0u;c_faults=0u;
+        track_c_allocation=true;
+        auto result=quantapdf_native_geometry_prepare_text_clipped_v1(
+            &ir,&caps,&physical,&clip,&ledger,&prepared);
+        if(result==QUANTAPDF_OK)
+            result=quantapdf_native_geometry_execute_v1(
+                &prepared,nullptr,&output);
+        track_c_allocation=false;c_fail_index=0u;
+        const size_t attempts=c_allocations,faults_seen=c_faults;
+        bool valid=false;
+        if(baseline) {
+            valid=result==QUANTAPDF_OK && output.pixels!=nullptr &&
+                output.size==output.width*output.height*4u &&
+                attempts>=4u && attempts<=12u && faults_seen==0u;
+            if(valid && golden.empty()) {
+                golden.assign(output.pixels,output.pixels+output.size);
+                successful_calls=attempts;
+            } else if(valid) {
+                valid=golden.size()==output.size &&
+                    std::memcmp(golden.data(),output.pixels,output.size)==0 &&
+                    successful_calls==attempts;
+            }
+        } else {
+            valid=result==QUANTAPDF_ERROR_NOMEM && output.pixels==nullptr &&
+                output.size==0u && output.width==0u &&
+                faults_seen==1u && attempts==failure_index;
+        }
+        quantapdf_native_geometry_dispose_v1(&prepared);
+        quantapdf_native_raster_image_dispose_v1(&ledger,&output);
+        valid=valid && ledger.resources.live_bytes==0u &&
+            ledger.reserved.sample_work==0u;
+        if(!valid)
+            std::fprintf(stderr,
+                "M2b2a C11 malloc failure=%zu result=%d attempts=%zu faults=%zu baseline=%d\n",
+                failure_index,(int)result,attempts,faults_seen,(int)baseline);
+        return valid;
+    };
+    CHECK(trial(0u,true));
+    for(size_t fail=1u;fail<=successful_calls;++fail) {
+        CHECK(trial(fail,false));
+        CHECK(trial(0u,true)); /* same private owner lifecycle recovery */
+    }
+    return EXIT_SUCCESS;
+}
+
 int main(int argc,char **argv)
 {
     const quantapdf_qpdf_source_raw_image_limits limits={
@@ -2794,7 +2894,8 @@ int main(int argc,char **argv)
      * but with its own 40-second CTest lease. No test case is discarded. */
     if(argc==2 && std::strcmp(argv[1],"--m2a")==0) {
         CHECK(m2a_ordered_text_image_source_contract(limits)==EXIT_SUCCESS);
-        return m2b1_ordered_source_ir_contract(limits);
+        CHECK(m2b1_ordered_source_ir_contract(limits)==EXIT_SUCCESS);
+        return m2b2a_private_clipped_text_faults();
     }
     if(argc!=3)return EXIT_FAILURE;
     CHECK(native_ttf_subset_contracts()==EXIT_SUCCESS);
