@@ -2782,6 +2782,98 @@ static int legacy_prepared_contracts(const quantapdf_qpdf_source_raw_image_limit
     return EXIT_SUCCESS;
 }
 
+
+/* M2b.2b original Source ROOT Clip stage. One QPDF parser and one
+ * detached owned IR; the public Bitmap route is deliberately still
+ * unsupported until the jointly correlated V5 compiled page is ready. */
+static int m2b2b_clipped_source_owner_contract(
+    const quantapdf_qpdf_source_raw_image_limits& limits)
+{
+    target=0u;armed=false;track_c_allocation=false;c_fail_index=0u;
+    const quantapdf_ir_raster_scoped_mixed_v5_limits raster={
+        1000000u,4u,512u,8000000u,
+        limits.max_source_pixels,limits.max_drawn_pixels
+    };
+    for(int mode:{83,84}) {
+        const std::string original=native_ttf_fixture(mode);
+        const auto read=[&](quantapdf_ir& output) {
+            return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+                reinterpret_cast<const unsigned char*>(original.data()),
+                original.size(),&limits,0u,&output);
+        };
+        quantapdf_ir ir{};
+        const auto status=read(ir);
+        if(status!=QUANTAPDF_OK)
+            std::fprintf(stderr,"M2b2b Source mode=%d status=%d\n",
+                mode,(int)status);
+        CHECK(status==QUANTAPDF_OK &&
+              ir.page_count==1u && ir.operation_count==3u &&
+              ir.resources.image_count==1u &&
+              ir.resources.graphics_state_count==1u &&
+              ir.resources.graphics_state_capacity==1u &&
+              ir.resources.clip_count==1u &&
+              ir.resources.clip_capacity==1u &&
+              ir.resources.clips!=nullptr);
+        const auto& c=ir.resources.clips[0];
+        CHECK(c.kind==QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL &&
+              c.command_count==5u && c.commands!=nullptr &&
+              c.fill_rule==(mode==83?
+                  QUANTAPDF_COMPOSER_FILL_NONZERO:
+                  QUANTAPDF_COMPOSER_FILL_EVEN_ODD) &&
+              c.transform.a==1.0f && c.transform.d==1.0f);
+        const auto& gs=ir.resources.graphics_states[0];
+        CHECK(gs.clip_id==1u && gs.fill_alpha==1.0f &&
+              gs.stroke_alpha==1.0f &&
+              gs.blend_mode==QUANTAPDF_COMPOSER_BLEND_NORMAL);
+        const quantapdf_composer_operation_kind expected[3]={
+            mode==83?QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES:
+                QUANTAPDF_COMPOSER_OPERATION_IMAGE,
+            QUANTAPDF_COMPOSER_OPERATION_PATH,
+            mode==83?QUANTAPDF_COMPOSER_OPERATION_IMAGE:
+                QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES
+        };
+        for(size_t i=0u;i<3u;++i)
+            CHECK(ir.operations[i].kind==expected[i] &&
+                  ir.operations[i].graphics_state_id==1u &&
+                  ir.operations[i].page_index==0u);
+        CHECK(ir.operations[1].value.path.options.graphics_state_id==1u);
+        const size_t image_at=mode==83?2u:0u;
+        CHECK(ir.operations[image_at].value.image.options.graphics_state_id==1u &&
+              ir.operations[image_at].value.image.options.struct_size==
+                  QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE &&
+              ir.resources.images[0].size==12u);
+        quantapdf_native_source_raster_device_v1 device{};
+        device.dpi=96.0f;
+        quantapdf_native_prepared_page_v1 denied;
+        std::memset(&denied,0xa5,sizeof(denied));
+        const auto prep=quantapdf_native_prepare_page_v1(
+            &ir,&raster,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&denied);
+        CHECK(prep==QUANTAPDF_ERROR_UNSUPPORTED &&
+              denied.source==nullptr);
+        quantapdf_ir_dispose(&ir);
+        CHECK(cleared(ir));
+        CHECK(read(ir)==QUANTAPDF_OK &&
+              ir.resources.clip_count==1u &&
+              ir.resources.graphics_state_count==1u);
+        quantapdf_ir_dispose(&ir);
+        CHECK(cleared(ir));
+    }
+    /* Every later invalid op/resource must refuse the WHOLE original,
+     * even though the earlier Text/Fill/Image+Clip prefix is valid. */
+    for(int mode=85;mode<=89;++mode) {
+        const auto original=native_ttf_fixture(mode);
+        quantapdf_ir denied;
+        std::memset(&denied,0xa5,sizeof(denied));
+        const auto status=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            reinterpret_cast<const unsigned char*>(original.data()),
+            original.size(),&limits,0u,&denied);
+        CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED ||
+               status==QUANTAPDF_ERROR_FORMAT) && cleared(denied));
+    }
+    std::puts("M2b2b: original W/W* immutable Source GS/Clip owner, late refusals, public Text+Clip still closed PASS");
+    return EXIT_SUCCESS;
+}
+
 /* M2b.2a private C11 correlated glyph/Clip fault acceptance. This
  * exercises the REAL exact C11 mallocs in the SAME existing Source/OOM
  * executable; the public original W/W* Source profile is still closed. */
@@ -2895,6 +2987,7 @@ int main(int argc,char **argv)
     if(argc==2 && std::strcmp(argv[1],"--m2a")==0) {
         CHECK(m2a_ordered_text_image_source_contract(limits)==EXIT_SUCCESS);
         CHECK(m2b1_ordered_source_ir_contract(limits)==EXIT_SUCCESS);
+        CHECK(m2b2b_clipped_source_owner_contract(limits)==EXIT_SUCCESS);
         return m2b2a_private_clipped_text_faults();
     }
     if(argc!=3)return EXIT_FAILURE;
