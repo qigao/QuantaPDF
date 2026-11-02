@@ -3316,6 +3316,63 @@ static int m2b2d_aligned_prepared_receipt_faults(
     CHECK(retry(budget,0u,QUANTAPDF_ERROR_UNSUPPORTED));
     budget.resource_limits.max_live_bytes=peak;
     CHECK(retry(budget,0u,QUANTAPDF_OK));
+    /* Full original Image Do placement consumes a measured destination
+     * pixel count, not one quota reset for each painted layer. Verify
+     * the exact global N succeeds and N-1 refuses atomically. */
+    CHECK(receipt.drawn_pixels>1u);
+    budget=plan;
+    budget.limits.max_drawn_pixels=receipt.drawn_pixels;
+    budget.resource_limits.max_drawn_pixels=receipt.drawn_pixels;
+    CHECK(retry(budget,0u,QUANTAPDF_OK));
+    --budget.limits.max_drawn_pixels;
+    --budget.resource_limits.max_drawn_pixels;
+    CHECK(retry(budget,0u,QUANTAPDF_ERROR_UNSUPPORTED));
+    /* Exhaustive ORIGINAL Source->one owned IR C allocations, not only
+     * the separately checked first/middle/last probes of M2b.2b.
+     * Every failed owned Clip publication clears all IR pointers and
+     * later exact success reuses the same immutable PDF bytes. */
+    size_t source_attempts=0u;
+    {
+        quantapdf_ir trial{};
+        track_c_allocation=true;c_fail_index=0u;
+        c_allocations=0u;c_faults=0u;
+        const auto source_result=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            reinterpret_cast<const unsigned char*>(original.data()),
+            original.size(),&source_caps,0u,&trial);
+        source_attempts=c_allocations;
+        track_c_allocation=false;
+        CHECK(source_result==QUANTAPDF_OK &&
+              source_attempts>=7u && source_attempts<=64u &&
+              c_faults==0u && trial.operation_count==3u &&
+              trial.resources.clip_count==1u);
+        quantapdf_ir_dispose(&trial);
+        CHECK(cleared(trial));
+    }
+    for(size_t fail=1u;fail<=source_attempts;++fail) {
+        quantapdf_ir refused;
+        std::memset(&refused,0xa5,sizeof(refused));
+        track_c_allocation=true;c_fail_index=fail;
+        c_allocations=0u;c_faults=0u;
+        const auto source_result=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            reinterpret_cast<const unsigned char*>(original.data()),
+            original.size(),&source_caps,0u,&refused);
+        track_c_allocation=false;c_fail_index=0u;
+        CHECK(source_result==QUANTAPDF_ERROR_NOMEM &&
+              c_faults==1u && c_allocations==fail &&
+              cleared(refused));
+        if(fail==1u || fail==(source_attempts+1u)/2u ||
+           fail==source_attempts) {
+            quantapdf_ir recovered{};
+            CHECK(quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+                reinterpret_cast<const unsigned char*>(original.data()),
+                original.size(),&source_caps,0u,&recovered)==QUANTAPDF_OK &&
+                recovered.operation_count==3u &&
+                recovered.resources.clip_count==1u &&
+                recovered.resources.graphics_state_count==1u);
+            quantapdf_ir_dispose(&recovered);
+            CHECK(cleared(recovered));
+        }
+    }
     auto smaller=caps;
     smaller.max_operations=2u;
     quantapdf_native_prepared_page_v1 denied{};
