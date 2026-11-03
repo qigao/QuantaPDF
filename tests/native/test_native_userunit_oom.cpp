@@ -1,5 +1,6 @@
 /* Private TEST-ONLY deterministic Bitmap allocation failure on true
- * original QPDF Source V10 UserUnit, restored four-paint and fractional Clip pages.
+ * original QPDF Source V10 UserUnit, restored four-paint and fractional
+ * single/sibling Clip pages.
  * Public/installed SDK headers and ABI remain unchanged. */
 #include <quantapdf/quantapdf.h>
 #include "core/context_internal.h"
@@ -179,7 +180,7 @@ int main()
 {
     for(int quarters:{2,5,8,16,0})
         CHECK(exercise_context_faults(quarters)==EXIT_SUCCESS);
-    for(int mode:{99,100,105,106})
+    for(int mode:{99,100,105,106,113,114})
         CHECK(exercise_context_faults(0,mode)==EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }

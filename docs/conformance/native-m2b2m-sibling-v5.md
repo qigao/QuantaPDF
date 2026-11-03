@@ -33,9 +33,10 @@ second; the first output survives compiled-owner disposal. Wrong operation
 bindings, aliased GS roots, transformed/skew/cubic/compound leaves and reverse
 order refuse before any geometry allocation.
 
-This is PRIVATE compiled-page qualification. Public prepared metadata and
-Source→Context→Bitmap sibling rendering remain refused by the existing tests.
+This stage qualifies PRIVATE compiled pages. The subsequent
+[M2b.2n public stage](native-m2b2n-public-sibling.md) connects this same compiler
+to strict prepared metadata and Source→Context→Bitmap sibling rendering.
 No new public ABI, numerical policy, test target, CMake/workflow, timeout or
 golden asset. Candidate acceptance requires exact HEAD CI and independent
-master CI after merge. #584/#580/#570/#208 remain open; the next gate is public
-preparation with Source ownership, receipts, faults and Bitmap lifetime.
+master CI after merge. #584/#580/#570/#208 remain open for the remaining wider
+Clip graphs, orders, fonts and matrices.

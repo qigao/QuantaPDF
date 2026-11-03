@@ -3131,8 +3131,8 @@ static int m2b2b_clipped_source_owner_contract(
 }
 
 
-/* M2b.2l: Source-owned sibling roots ONLY. The first two paints retain
- * Clip1 after real Q; only Image belongs to independent Clip2. */
+/* M2b.2l Source ownership; M2b.2n now admits its public prepared metadata.
+ * The first two paints retain Clip1 after real Q; only Image uses Clip2. */
 static int m2b2l_sibling_source_owner(const quantapdf_qpdf_source_raw_image_limits& caps)
 {
     const auto stage=[](const std::string& bytes,
@@ -3223,10 +3223,12 @@ static int m2b2l_sibling_source_owner(const quantapdf_qpdf_source_raw_image_limi
             quantapdf_native_source_raster_device_v1 device{};device.dpi=(float)dpi;
             const quantapdf_ir_raster_scoped_mixed_v5_limits raster={1000000u,4u,512u,8000000u,
                 caps.max_source_pixels,caps.max_drawn_pixels};
-            quantapdf_native_prepared_page_v1 denied{};
+            quantapdf_native_prepared_page_v1 prepared{};
             CHECK(quantapdf_native_prepare_page_v1(&owned,&raster,&device,
-                QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&denied)==QUANTAPDF_ERROR_UNSUPPORTED &&
-                denied.source==nullptr && denied.route==QP_NATIVE_PREPARED_NONE);
+                QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&prepared)==QUANTAPDF_OK &&
+                prepared.source==&owned &&
+                prepared.route==QP_NATIVE_PREPARED_M2B2N_SIBLING_TEXT_FILL_IMAGE &&
+                prepared.usage.states_used==3u && prepared.usage.clips_used==3u);
         }
         target=9u;observed=0u;faults=0u;armed=false;
         quantapdf_ir cpp_denied{};
@@ -3267,7 +3269,7 @@ static int m2b2l_sibling_source_owner(const quantapdf_qpdf_source_raw_image_limi
         CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED || status==QUANTAPDF_ERROR_FORMAT) && cleared(denied));
     }
     quantapdf_ir_dispose(&prefix);CHECK(cleared(prefix));
-    std::puts("M2b2l Source sibling Clip1/2, immutable [1,1,2], C++/C faults, limits and public refusal PASS");
+    std::puts("M2b2l/n Source sibling Clip1/2, immutable [1,1,2], C++/C faults, limits and prepared admission PASS");
     return EXIT_SUCCESS;
 }
 
@@ -3398,6 +3400,11 @@ static int m2b2m_sibling_v5(const quantapdf_qpdf_source_raw_image_limits& source
                     if(variant==5u){clips[1].kind=QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL;clips[1].members=&member;clips[1].member_count=1u;}
                     if(variant==6u)ops[0].graphics_state_id=2u;
                     if(variant==7u)std::swap(ops[0],ops[2]);
+                    quantapdf_native_source_raster_device_v1 device{};device.dpi=(float)dpi;
+                    quantapdf_native_prepared_page_v1 denied{};
+                    CHECK(quantapdf_native_prepare_page_v1(&view,&caps,&device,
+                        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&denied)==QUANTAPDF_ERROR_UNSUPPORTED &&
+                        denied.source==nullptr && denied.route==QP_NATIVE_PREPARED_NONE);
                     quantapdf_native_work_ledger_v1 ledger{};
                     quantapdf_native_work_init_v1(&ledger,caps.max_sample_tests,caps.max_edges);
                     const quantapdf_native_resource_limits_v1 resources={caps.max_source_pixels,caps.max_drawn_pixels,8000000u};
@@ -3761,7 +3768,7 @@ static int m2b2i_fractional_original_reference(
     return EXIT_SUCCESS;
 }
 
-/* M2b.2d/M2b.2h use the EXISTING Source prepared metadata/receipt
+/* M2b.2d/M2b.2h/M2b.2n use the EXISTING Source prepared metadata/receipt
  * pipeline: original clipped Text/Fill/Image receives one new private
  * route, not a second renderer. Fail every actually reached C11 malloc
  * position and demand zero receipt/pixels plus exact recovered bytes.
@@ -3771,16 +3778,21 @@ static int m2b_clipped_prepared_receipt_faults(
     const quantapdf_qpdf_source_raw_image_limits& source_caps,int mode,unsigned dpi=72u)
 {
     const bool restored=mode==97 || mode==105 || mode==106;
-    const bool fractional=mode==99 || mode==100 || mode==105 || mode==106;
+    const bool siblings=mode==113 || mode==114;
+    const bool fractional=mode==99 || mode==100 || mode==105 || mode==106 || siblings;
     const size_t operations=restored?4u:3u;
-    const auto route=restored?QP_NATIVE_PREPARED_M2B2H_RESTORED_FOUR:
+    const size_t roots=siblings?2u:1u;
+    const unsigned used_roots=siblings?3u:1u;
+    const auto route=siblings?QP_NATIVE_PREPARED_M2B2N_SIBLING_TEXT_FILL_IMAGE:
+                     restored?QP_NATIVE_PREPARED_M2B2H_RESTORED_FOUR:
                               QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE;
     const auto original=native_ttf_fixture(mode);
     quantapdf_ir ir{};
     CHECK(quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
         reinterpret_cast<const unsigned char*>(original.data()),
         original.size(),&source_caps,0u,&ir)==QUANTAPDF_OK &&
-        ir.operation_count==operations && ir.resources.clip_count==1u);
+        ir.operation_count==operations && ir.resources.clip_count==roots);
+    const auto frozen=siblings?text_ir_snapshot(ir):std::vector<unsigned char>{};
     if(restored) {
         CHECK(ir.resources.graphics_state_count==1u);
         for(size_t i=0u;i<4u;++i)CHECK(ir.operations[i].graphics_state_id==(i<3u?1u:0u));
@@ -3799,7 +3811,7 @@ static int m2b_clipped_prepared_receipt_faults(
         plan.usage.operations==operations &&
         plan.usage.image_pixels==4u &&
         plan.usage.glyphs==5u &&
-        plan.usage.states_used==1u && plan.usage.clips_used==1u);
+        plan.usage.states_used==used_roots && plan.usage.clips_used==used_roots);
     m2a_malloc_fault_state baseline{};
     plan.m2a_malloc_fault={&baseline,m2a_malloc_fault_callback};
     quantapdf_native_execution_receipt_v1 receipt{};
@@ -3831,6 +3843,13 @@ static int m2b_clipped_prepared_receipt_faults(
     if(fractional)CHECK(independent.rgba.size()==pixels.size &&
         std::memcmp(independent.rgba.data(),pixels.pixels,pixels.size)==0 &&
         independent.disjoint>0u && independent.overlap>0u && independent.spurious>0u);
+    if(siblings)CHECK(independent.sibling_old_only>0u && independent.sibling_new_only>0u &&
+        independent.sibling_wrong_root>0u && independent.sibling_wrong_intersection>0u);
+    if(siblings) {
+        const double scale=(double)dpi/72.0;
+        CHECK(receipt.drawn_pixels==(size_t)(std::ceil(26.0*scale)-std::floor(10.0*scale))*
+            (size_t)(std::ceil(49.0*scale)-std::floor(37.0*scale)));
+    }
     const std::vector<unsigned char> golden=fractional?independent.rgba:
         std::vector<unsigned char>(pixels.pixels,pixels.pixels+pixels.size);
     const size_t allocations=baseline.attempts;
@@ -3858,6 +3877,11 @@ static int m2b_clipped_prepared_receipt_faults(
                 std::memcmp(output.pixels,golden.data(),golden.size())==0 &&
                 report.output_bytes==output.size &&
                 fail.failures==0u;
+            if(siblings)ok=ok && report.source_pixels==4u &&
+                report.drawn_pixels==receipt.drawn_pixels &&
+                report.retained_bytes==plan.usage.retained_bytes &&
+                report.charged_sample_work<=candidate.limits.max_sample_tests &&
+                report.compiled_edges<=candidate.limits.max_edges;
         } else {
             quantapdf_native_execution_receipt_v1 empty{};
             ok=ok && zero_bitmap(output) &&
@@ -3866,6 +3890,7 @@ static int m2b_clipped_prepared_receipt_faults(
                  (fail.failures==1u && fail.attempts==failure_index));
         }
         quantapdf_ir_raster_image_dispose(&output);
+        if(siblings)ok=ok && text_ir_snapshot(ir)==frozen;
         if(!ok)std::fprintf(stderr,
             "M2b2d prepared fault=%zu want=%d got=%d attempts=%zu fail=%zu\n",
             failure_index,(int)desired,(int)result,fail.attempts,
@@ -3949,9 +3974,9 @@ static int m2b_clipped_prepared_receipt_faults(
         source_attempts=c_allocations;
         track_c_allocation=false;
         CHECK(source_result==QUANTAPDF_OK &&
-              source_attempts>=7u && source_attempts<=(restored?128u:64u) &&
+              source_attempts>=7u && source_attempts<=(restored || siblings?128u:64u) &&
               c_faults==0u && trial.operation_count==operations &&
-              trial.resources.clip_count==1u);
+              trial.resources.clip_count==roots);
         quantapdf_ir_dispose(&trial);
         CHECK(cleared(trial));
     }
@@ -3974,8 +3999,8 @@ static int m2b_clipped_prepared_receipt_faults(
                 reinterpret_cast<const unsigned char*>(original.data()),
                 original.size(),&source_caps,0u,&recovered)==QUANTAPDF_OK &&
                 recovered.operation_count==operations &&
-                recovered.resources.clip_count==1u &&
-                recovered.resources.graphics_state_count==1u);
+                recovered.resources.clip_count==roots &&
+                recovered.resources.graphics_state_count==roots);
             quantapdf_ir_dispose(&recovered);
             CHECK(cleared(recovered));
         }
@@ -4556,6 +4581,8 @@ int main(int argc,char **argv)
         CHECK(m2b_clipped_prepared_receipt_faults(limits,100,96u)==EXIT_SUCCESS);
         CHECK(m2b_clipped_prepared_receipt_faults(limits,105,96u)==EXIT_SUCCESS);
         CHECK(m2b_clipped_prepared_receipt_faults(limits,106,96u)==EXIT_SUCCESS);
+        CHECK(m2b_clipped_prepared_receipt_faults(limits,113,96u)==EXIT_SUCCESS);
+        CHECK(m2b_clipped_prepared_receipt_faults(limits,114,96u)==EXIT_SUCCESS);
         return m2b2a_private_clipped_text_faults();
     }
     if(argc!=3)return EXIT_FAILURE;

@@ -221,8 +221,12 @@ preserves original Text/Fill in Clip1 and Image in a separate post-Q Clip2.
 It qualifies owned IR and failure recovery. The private
 [M2b.2m V5 stage](conformance/native-m2b2m-sibling-v5.md) compiles those frozen
 roots through the shared operation compiler with independent whole-image
-references and one ledger. Public sibling Text/Fill/Image Bitmap rendering
-remains a separate preparation/Context acceptance gate.
+references and one ledger. The bounded
+[M2b.2n public sibling stage](conformance/native-m2b2n-public-sibling.md) connects
+that same compiler to Source preparation, receipts and Context→Bitmap output,
+with independent RGB, faults, recovery and lifetime tests at 72/96/144 DPI.
+This admits exactly the original `[1,1,2]` Text/Fill/Image graph; compound Text
+roots, reverse sibling order and general matrices remain unqualified.
 
 The public C11 ABI remains unchanged. The SDK is a C ABI backed by C/C++
 implementation; qpdf 12.4, ZLIB and JPEG remain private structure/codec
