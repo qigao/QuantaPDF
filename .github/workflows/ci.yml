@@ -151,7 +151,7 @@ jobs:
       - name: Verify exact Windows DLL export ABI
         if: runner.os == 'Windows'
         run: >-
-          cmake -DQUANTAPDF_LLVM_READOBJ=llvm-readobj
-          -DQUANTAPDF_LIBRARY=build/${{ matrix.preset }}/libquantapdf.dll
-          -DQUANTAPDF_EXPORT_BASELINE=abi/quantapdf-v2.exports
+          cmake "-DQUANTAPDF_LLVM_READOBJ=llvm-readobj"
+          "-DQUANTAPDF_LIBRARY=build/${{ matrix.preset }}/libquantapdf.dll"
+          "-DQUANTAPDF_EXPORT_BASELINE=abi/quantapdf-v2.exports"
           -P cmake/CheckQuantaPDFExports.cmake
