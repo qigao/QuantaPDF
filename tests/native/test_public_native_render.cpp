@@ -809,7 +809,7 @@ static int native_m2b2j_public_fractional(const std::string& filename)
     OK(quantapdf_context_create(&context));
     quantapdf_bitmap *retained=nullptr;
     native_ttf_fractional_reference retained_reference;
-    for(int mode:{83,84,99,100}) {
+    for(int mode:{83,84,99,100,105,106}) {
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         quantapdf_document *document=nullptr;quantapdf_page *page=nullptr;
         OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
@@ -820,6 +820,10 @@ static int native_m2b2j_public_fractional(const std::string& filename)
             CHECK(!expected.rgb.empty());
             if(mode>=99)CHECK(expected.disjoint>0u && expected.overlap>0u &&
                               expected.spurious>0u);
+            if(mode>=105)CHECK(expected.restored_outside>0u);
+            if(mode==106)CHECK(expected.restored_inside>0u &&
+                expected.restored_over_text>0u && expected.restored_over_fill>0u &&
+                expected.restored_over_image>0u);
             quantapdf_render_options options{};
             options.struct_size=sizeof(options);options.dpi=(float)dpi;
             quantapdf_bitmap *bitmap=nullptr;
@@ -829,15 +833,15 @@ static int native_m2b2j_public_fractional(const std::string& filename)
                     mode,dpi,(int)status);
                 return EXIT_FAILURE;
             }
-            if(mode==100 && dpi==96u) {
+            if(mode==106 && dpi==96u) {
                 retained=bitmap;retained_reference=expected;
             } else quantapdf_drop_bitmap(bitmap);
         }
         quantapdf_drop_page(page);quantapdf_close(document);
     }
-    /* Authored fractional excess Q, late W, skew/cubic Clip roots and
-     * the still-unqualified fractional FOUR-paint restore refuse atomically. */
-    for(int mode:{101,102,103,104,105}) {
+    /* Malformed original scopes, skew/cubic Clip or suffix, a fifth
+     * paint and the unqualified reverse four-paint order refuse atomically. */
+    for(int mode:{101,102,103,104,107,108,109,110,111,112}) {
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         quantapdf_document *document=nullptr;quantapdf_page *page=nullptr;
         OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
@@ -851,7 +855,7 @@ static int native_m2b2j_public_fractional(const std::string& filename)
               denied==nullptr && matches(retained,retained_reference));
         quantapdf_drop_page(page);quantapdf_close(document);
     }
-    CHECK(write_pdf(filename,native_ttf_fixture(99)));
+    CHECK(write_pdf(filename,native_ttf_fixture(106)));
     quantapdf_document *document=nullptr;quantapdf_page *page=nullptr;
     OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
     CHECK(std::remove(filename.c_str())==0);
@@ -860,13 +864,13 @@ static int native_m2b2j_public_fractional(const std::string& filename)
     options.struct_size=sizeof(options);options.dpi=96.0f;
     quantapdf_bitmap *recovered=nullptr;
     OK(quantapdf_render_page_with_options(page,&options,&recovered));
-    CHECK(matches(recovered,native_ttf_fractional_expected(99,96u)));
+    CHECK(matches(recovered,native_ttf_fractional_expected(106,96u)));
     quantapdf_drop_bitmap(recovered);
     quantapdf_drop_page(page);quantapdf_close(document);
     quantapdf_drop_context(context);
     CHECK(matches(retained,retained_reference));
     quantapdf_drop_bitmap(retained);
-    std::puts("M2b2j public fractional original W/W* full RGB, negative alpha control, recovery/lifetime PASS");
+    std::puts("M2b2j/k public fractional original W/W* three/four-paint RGB, negative alpha control, recovery/lifetime PASS");
     return EXIT_SUCCESS;
 }
 

@@ -168,31 +168,12 @@ static inline int qp_prepared_m2b2c_root_v1(const quantapdf_ir *ir)
     return 1;
 }
 
-/* The four-paint restored profile still relies on historical averaged
- * Text references. Its Clip must be all-or-none at each physical pixel.
- * M2b.2j separately qualifies fractional roots for THREE paints using
- * independent original-glyph sample masks and the same V5 compiler. */
-static inline int qp_prepared_m2b2c_aligned_v1(
-    const quantapdf_ir *ir,unsigned dpi)
-{
-    if(!qp_prepared_m2b2c_root_v1(ir))return 0;
-    const double scale=(double)dpi/72.0;
-    const quantapdf_composer_path_command *v=ir->resources.clips[0].commands;
-    for(size_t i=0u;i<4u;++i) {
-        const double x=(double)v[i].point1.x*scale;
-        const double y=(double)v[i].point1.y*scale;
-        if(!isfinite(x) || !isfinite(y) ||
-           floor(x)!=x || floor(y)!=y)return 0;
-    }
-    return 1;
-}
-
-
-/* M2b.2h PUBLIC candidate is narrower than the qualified private
+/* M2b.2h/k PUBLIC admission is narrower than the qualified private
  * four-layer V5 compiler. The original Source has EXACTLY one q-restored
  * suffix after Text->Fill->Image under one W/W* Clip root. This classifier
  * inspects the borrowed original-owned IR, without making a second
- * Source parse or manufacturing any new graphics state. */
+ * Source parse or manufacturing any new graphics state. Independent
+ * original-glyph samples now qualify fractional Clip boundaries too. */
 static inline int qp_prepared_m2b2h_restored_four_v1(
     const quantapdf_ir *ir)
 {
@@ -237,15 +218,6 @@ static inline int qp_prepared_m2b2h_restored_four_v1(
             c.y==d.y && a.x!=b.x && a.y!=d.y) ||
            (a.x==b.x && c.x==d.x && a.y==d.y &&
             b.y==c.y && a.x!=c.x && a.y!=b.y);
-}
-
-static inline int qp_prepared_m2b2h_aligned_v1(
-    const quantapdf_ir *ir,unsigned dpi)
-{
-    if(!qp_prepared_m2b2h_restored_four_v1(ir))return 0;
-    quantapdf_ir first_three=*ir;
-    first_three.operation_count=3u;
-    return qp_prepared_m2b2c_aligned_v1(&first_three,dpi);
 }
 
 /* Complete resource-reference closure and checked inventory for the currently
@@ -409,9 +381,6 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
          * one-Image Source. Prior Text-only mode remains byte-identical. */
         const int original_clipped=qp_prepared_m2b2c_root_v1(source);
         const int restored_four=qp_prepared_m2b2h_restored_four_v1(source);
-        if(restored_four &&
-            !qp_prepared_m2b2h_aligned_v1(source,p.dpi))
-            return QUANTAPDF_ERROR_UNSUPPORTED;
         p.route=restored_four?
             QP_NATIVE_PREPARED_M2B2H_RESTORED_FOUR:
             original_clipped?

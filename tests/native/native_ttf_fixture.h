@@ -172,7 +172,7 @@ inline std::string native_ttf_fixture(int mode=0)
     /* #578 M2a: fully original QPDF-authored embedded CID TTF +
      * RAW/Flate RGB Image in both orders, plus late invalid operations.
      * No IR-derived or compositor-derived fixtures are used. */
-    if(mode>=49 && mode<=105) {
+    if(mode>=49 && mode<=112) {
         const std::string pixels("\xff\0\0\0\xff\0\0\0\xff\xff\xff\0",12);
         std::string encoded=pixels;
         if(mode==64 || mode==65 || mode==81 || mode==82) {
@@ -225,7 +225,7 @@ inline std::string native_ttf_fixture(int mode=0)
         if(mode==59)text+=" Q"; /* unbalanced restore */
         if(mode==61)text+=" "+draw; /* second original Image Do */
         if(mode==62)text+=" BT /F 24 Tf 12 20 Td <002d> Tj"; /* no ET */
-        if(mode>=66 && mode<=105) {
+        if(mode>=66 && mode<=112) {
             const std::string fill=(mode==93 || mode==94 || mode>=99)?
                 "q 0 1 0 rg 12 20 7 10 re f Q":
                 "q 0 1 0 rg 12 20 16 20 re f Q";
@@ -234,7 +234,7 @@ inline std::string native_ttf_fixture(int mode=0)
             const std::string tshow=mode==80 ?
                 "q 0 0 1 rg BT /F 24 Tf 12 20 Td "
                 "<002d004a005100510054> Tj ET Q":show;
-            text=(mode==67 || mode==82 || mode==84 || mode==92 || mode==94 || mode==100 ||
+            text=(mode==67 || mode==82 || mode==84 || mode==92 || mode==94 || mode==100 || mode==112 ||
                   (mode>=69 && mode<=80 && (mode%2)==1)) ?
                 first+" "+fill+" "+tshow:
                 tshow+" "+fill+" "+first;
@@ -249,7 +249,7 @@ inline std::string native_ttf_fixture(int mode=0)
             if(mode==77)text+=" BT /F 24 Tf 1 Tr 12 20 Td <002d> Tj ET";
             if(mode==78)text+=" "+draw;
             if(mode==79)text+=" BT /F 24 Tf 12 20 Td <002d> Tj";
-            if(mode>=83 && mode<=105) {
+            if(mode>=83 && mode<=112) {
                 /* 83/84 preserve the genuine fractional Clip boundary at
                  * 96 DPI. NEW 91/92 use independent Roboto pre-M2a
                  * reference with Clip edges aligned to full physical
@@ -262,7 +262,7 @@ inline std::string native_ttf_fixture(int mode=0)
                  * Clip have disjoint nonempty subpixel masks. */
                 text=std::string(mode>=99?"16.25 22.25 27 15.5 re ":
                                 aligned?"12 22 15 18 re ":"12 20 16 20 re ")+
-                     (mode==84 || mode==92 || mode==94 || mode==100?"W*":"W")+
+                     (mode==84 || mode==92 || mode==94 || mode==100 || mode>=106?"W*":"W")+
                      " n "+text;
                 if(mode==101)text+=" Q"; /* fractional excess restore */
                 if(mode==102)text+=" 1 1 2 2 re W n"; /* late Clip */
@@ -290,14 +290,22 @@ inline std::string native_ttf_fixture(int mode=0)
                     text=clip_prefix+"q "+paints+" Q";
                     if(mode==96)text+=" Q";
                 }
-                if(mode==97 || mode==98 || mode==105) {
+                if(mode==97 || mode==98 || mode>=105) {
                     /* Real pre-W q saves GS0; W/n creates Clip1.
                      * Text, Fill and Image freeze GS1, then original
                      * Q restores GS0 for a FOURTH RED Fill. The extra
                      * Q in mode98 is a complete-original negative. */
-                    text="q "+text+
+                    std::string suffix=mode>=106?
+                        " Q 1 0 0 rg 18.25 20.25 18.5 12.5 re f":
                         " Q 1 0 0 rg 34 9 6 5 re f";
-                    if(mode==98)text+=" Q";
+                    if(mode==109)suffix=
+                        " Q 1 0 0 rg 18.25 20.25 m 36.75 20.25 l 35.75 32.75 l 18.25 32.75 l h f";
+                    if(mode==110)suffix=
+                        " Q 1 0 0 rg 18.25 20.25 m 36.75 20.25 l 36.75 24 35.75 28 36.75 32.75 c 18.25 32.75 l h f";
+                    text="q "+text+suffix;
+                    if(mode==98 || mode==107)text+=" Q";
+                    if(mode==108)text+=" 1 1 2 2 re W n";
+                    if(mode==111)text+=" 0 0 1 rg 1 1 2 2 re f";
                 }
             }
         }

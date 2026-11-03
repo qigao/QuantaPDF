@@ -62,8 +62,8 @@ Image in either original order. The W/W* Text+Fill+Image profile accepts one
 axis-aligned root Clip, including fractional original boundaries: glyph and
 Clip membership intersect at the same 4x4 subpixels before averaging, under
 the same owned C11 V5 page and budget. The strict Text→Fill→Image sequence
-followed by a Q-restored opaque red rectangle still requires pixel-aligned
-Clip boundaries at the requested DPI. Unsupported fonts, complex q/Q restored
+followed by a Q-restored opaque red rectangle also admits fractional Clip
+boundaries at the requested DPI. Unsupported fonts, complex q/Q restored
 or sibling Clip scopes, arbitrary Forms, transparency/groups, unsupported
 Stroke/Clip, nonqualified render options, region clipping and thumbnail scaling
 return `QUANTAPDF_ERROR_UNSUPPORTED`, never silently dropping content or
