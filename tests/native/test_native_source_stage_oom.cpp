@@ -3273,6 +3273,169 @@ static int m2b2l_sibling_source_owner(const quantapdf_qpdf_source_raw_image_limi
     return EXIT_SUCCESS;
 }
 
+/* M2b.2r Source-only reverse siblings: Image/Fill retain Clip1,
+ * actual Q restores GS0 and only Text observes the independent Clip2. */
+static int m2b2r_reverse_sibling_source_owner(const quantapdf_qpdf_source_raw_image_limits& caps)
+{
+    const auto stage=[](const std::string& bytes,
+        const quantapdf_qpdf_source_raw_image_limits& budget,quantapdf_ir& out) {
+        return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            reinterpret_cast<const unsigned char*>(bytes.data()),bytes.size(),&budget,0u,&out);
+    };
+    auto prefix_bytes=native_ttf_fixture(100);
+    quantapdf_ir prefix{};
+    CHECK(stage(prefix_bytes,caps,prefix)==QUANTAPDF_OK && prefix.operation_count==3u &&
+          prefix.operations[0].kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE &&
+          prefix.operations[1].kind==QUANTAPDF_COMPOSER_OPERATION_PATH &&
+          prefix.operations[2].kind==QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES &&
+          prefix.resources.clip_count==1u && prefix.resources.clips!=nullptr &&
+          prefix.resources.image_count==1u && prefix.resources.images!=nullptr);
+    prefix_bytes.clear();prefix_bytes.shrink_to_fit();
+    for(int mode:{147,148}) {
+        auto original=native_ttf_fixture(mode);
+        const auto valid=[&](const quantapdf_ir& ir) {
+            if(ir.page_count!=1u || ir.pages==nullptr || ir.operation_count!=3u ||
+               ir.operations==nullptr || ir.resources.clip_count!=2u ||
+               ir.resources.clip_capacity!=2u || ir.resources.clips==nullptr ||
+               ir.resources.graphics_state_count!=2u || ir.resources.graphics_state_capacity!=2u ||
+               ir.resources.graphics_states==nullptr || ir.resources.image_count!=1u ||
+               ir.resources.image_capacity!=1u || ir.resources.images==nullptr ||
+               ir.pages[0].width_points!=128.0f || ir.pages[0].height_points!=64.0f)return false;
+            for(size_t i=0u;i<3u;++i) {
+                const auto& op=ir.operations[i];
+                if(op.kind!=prefix.operations[i].kind || op.page_index!=0u ||
+                   op.graphics_state_id!=(i==2u?2u:1u))return false;
+            }
+            for(size_t i=0u;i<2u;++i) {
+                const auto& gs=ir.resources.graphics_states[i];
+                const auto& clip=ir.resources.clips[i];
+                const bool evenodd=mode==147?i==1u:i==0u;
+                if(gs.clip_id!=i+1u || gs.soft_mask_id!=0u || gs.fill_alpha!=1.0f ||
+                   gs.stroke_alpha!=1.0f || gs.blend_mode!=QUANTAPDF_COMPOSER_BLEND_NORMAL ||
+                   clip.kind!=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL || clip.members!=nullptr ||
+                   clip.member_count!=0u || clip.commands==nullptr || clip.command_count!=5u ||
+                   clip.fill_rule!=(evenodd?QUANTAPDF_COMPOSER_FILL_EVEN_ODD:
+                                             QUANTAPDF_COMPOSER_FILL_NONZERO) ||
+                   clip.transform.a!=1.0f || clip.transform.d!=1.0f ||
+                   clip.transform.b!=0.0f || clip.transform.c!=0.0f ||
+                   clip.transform.e!=0.0f || clip.transform.f!=0.0f)return false;
+            }
+            if(ir.resources.clips[0].commands==ir.resources.clips[1].commands ||
+               ir.resources.clips[0].commands==prefix.resources.clips[0].commands ||
+               std::memcmp(ir.resources.clips[0].commands,prefix.resources.clips[0].commands,
+                   5u*sizeof(quantapdf_composer_path_command))!=0)return false;
+            const float x[4]={20.5f,38.75f,38.75f,20.5f};
+            const float y[4]={48.25f,48.25f,29.75f,29.75f};
+            for(size_t i=0u;i<5u;++i) {
+                const auto& c=ir.resources.clips[1].commands[i];
+                if(c.kind!=(i==0u?QUANTAPDF_COMPOSER_PATH_MOVE_TO:
+                    i==4u?QUANTAPDF_COMPOSER_PATH_CLOSE:QUANTAPDF_COMPOSER_PATH_LINE_TO))return false;
+                if(i<4u && (c.point1.x!=x[i] || c.point1.y!=y[i]))return false;
+            }
+            const auto& text=ir.operations[2].value.text_outlines;
+            const auto& old_text=prefix.operations[2].value.text_outlines;
+            if(text.argb!=old_text.argb || text.glyph_count!=5u || text.glyphs==nullptr)return false;
+            for(size_t g=0u;g<5u;++g) {
+                const auto& a=text.glyphs[g];const auto& b=old_text.glyphs[g];
+                if(a.commands==nullptr || a.command_count!=b.command_count ||
+                   std::memcmp(a.commands,b.commands,a.command_count*sizeof(*a.commands))!=0)return false;
+            }
+            const auto& fill=ir.operations[1].value.path;
+            const auto& old_fill=prefix.operations[1].value.path;
+            if(fill.command_count!=old_fill.command_count || fill.commands==nullptr ||
+               fill.options.graphics_state_id!=1u || fill.options.fill_argb!=old_fill.options.fill_argb ||
+               std::memcmp(fill.commands,old_fill.commands,fill.command_count*sizeof(*fill.commands))!=0 ||
+               ir.operations[0].value.image.options.graphics_state_id!=1u ||
+               ir.operations[0].value.image.image_id!=1u ||
+               std::memcmp(&ir.operations[0].bounds,&prefix.operations[0].bounds,sizeof(ir.operations[0].bounds))!=0)
+                return false;
+            const auto& image=ir.resources.images[0];const auto& old_image=prefix.resources.images[0];
+            return image.width==2u && image.height==2u && image.components==3 && image.size==12u &&
+                image.format==QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW && image.has_alpha==0 &&
+                image.alpha_data==nullptr && image.alpha_size==0u &&
+                image.data!=nullptr && image.data!=old_image.data &&
+                std::memcmp(image.data,old_image.data,12u)==0;
+        };
+        quantapdf_ir owned{};
+        track_c_allocation=true;c_fail_index=0u;c_allocations=0u;c_faults=0u;
+        const auto status=stage(original,caps,owned);
+        const size_t calls=c_allocations;track_c_allocation=false;
+        CHECK(status==QUANTAPDF_OK && calls>=12u && calls<=128u && c_faults==0u && valid(owned));
+        const auto frozen=text_ir_snapshot(owned);
+        for(unsigned dpi:{72u,96u,144u}) {
+            quantapdf_native_source_raster_device_v1 device{};device.dpi=(float)dpi;
+            const quantapdf_ir_raster_scoped_mixed_v5_limits raster={1000000u,4u,512u,8000000u,
+                caps.max_source_pixels,caps.max_drawn_pixels};
+            quantapdf_native_prepared_page_v1 prepared{};
+            CHECK(quantapdf_native_prepare_page_v1(&owned,&raster,&device,
+                QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&prepared)==QUANTAPDF_ERROR_UNSUPPORTED &&
+                prepared.source==nullptr && prepared.route==QP_NATIVE_PREPARED_NONE &&
+                text_ir_snapshot(owned)==frozen);
+            quantapdf_native_device_plan physical{};
+            CHECK(quantapdf_native_device_plan_create_physical("0 0 128 64","0 0 128 64","1",0,
+                dpi,raster.max_pixels,&physical)==QUANTAPDF_OK);
+            quantapdf_native_work_ledger_v1 ledger{};
+            quantapdf_native_work_init_v1(&ledger,raster.max_sample_tests,raster.max_edges);
+            const quantapdf_native_resource_limits_v1 resources={
+                raster.max_source_pixels,raster.max_drawn_pixels,8000000u};
+            CHECK(quantapdf_native_resources_init_v1(&ledger,&resources,0u));
+            m2a_malloc_fault_state allocation{};
+            ledger.malloc_fault={&allocation,m2a_malloc_fault_callback};
+            quantapdf_native_scoped_page_v5 page{};
+            CHECK(quantapdf_native_scoped_prepare_m2b2m_sibling_v1(
+                &owned,&raster,&physical,&ledger,&page)==QUANTAPDF_ERROR_UNSUPPORTED &&
+                !page.ready && page.count==0u && allocation.attempts==0u &&
+                ledger.resources.live_bytes==0u && text_ir_snapshot(owned)==frozen);
+            quantapdf_native_scoped_dispose_v5(&page);
+        }
+        target=8u;observed=0u;faults=0u;armed=false;
+        quantapdf_ir cpp_denied{};
+        const auto cpp_status=stage(original,caps,cpp_denied);
+        const bool fired=observed==8u && faults==1u && !armed;
+        target=0u;armed=false;
+        CHECK(cpp_status==QUANTAPDF_ERROR_NOMEM && fired && cleared(cpp_denied));
+        for(size_t fail=1u;fail<=calls;++fail) {
+            quantapdf_ir denied;std::memset(&denied,0xa5,sizeof(denied));
+            track_c_allocation=true;c_fail_index=fail;c_allocations=0u;c_faults=0u;
+            const auto got=stage(original,caps,denied);
+            track_c_allocation=false;c_fail_index=0u;
+            CHECK(got==QUANTAPDF_ERROR_NOMEM && c_allocations==fail && c_faults==1u && cleared(denied));
+            if(fail==1u || fail==(calls+1u)/2u || fail==calls) {
+                quantapdf_ir recovered{};
+                CHECK(stage(original,caps,recovered)==QUANTAPDF_OK && valid(recovered));
+                quantapdf_ir_dispose(&recovered);CHECK(cleared(recovered));
+            }
+        }
+        auto exact=caps;exact.max_operations=3u;exact.max_source_pixels=4u;exact.max_drawn_pixels=192u;
+        quantapdf_ir good{};
+        CHECK(stage(original,exact,good)==QUANTAPDF_OK && valid(good));
+        quantapdf_ir_dispose(&good);CHECK(cleared(good));
+        for(unsigned bound=0u;bound<3u;++bound) {
+            auto small=exact;
+            if(bound==0u)--small.max_operations;
+            else if(bound==1u)--small.max_source_pixels;
+            else --small.max_drawn_pixels;
+            quantapdf_ir denied{};
+            CHECK(stage(original,small,denied)==QUANTAPDF_ERROR_UNSUPPORTED && cleared(denied));
+        }
+        original.clear();original.shrink_to_fit();
+        CHECK(valid(owned) && text_ir_snapshot(owned)==frozen);quantapdf_ir_dispose(&owned);CHECK(cleared(owned));
+    }
+    for(int mode=149;mode<=167;++mode) {
+        quantapdf_ir denied;std::memset(&denied,0xa5,sizeof(denied));
+        const auto status=stage(native_ttf_fixture(mode),caps,denied);
+        if(status==QUANTAPDF_OK)std::fprintf(stderr,"M2b2r unexpected Source admission mode=%d\n",mode);
+        CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED || status==QUANTAPDF_ERROR_FORMAT) && cleared(denied));
+        quantapdf_ir recovered{};
+        CHECK(stage(native_ttf_fixture(147),caps,recovered)==QUANTAPDF_OK &&
+              recovered.operation_count==3u && recovered.operations[2].graphics_state_id==2u);
+        quantapdf_ir_dispose(&recovered);CHECK(cleared(recovered));
+    }
+    quantapdf_ir_dispose(&prefix);CHECK(cleared(prefix));
+    std::puts("M2b2r reverse Image/Fill/Text sibling Clip1/2, ownership, faults, quotas and prepared refusal PASS");
+    return EXIT_SUCCESS;
+}
+
 /* M2b.2o Source-only compound Clip. Both leaves remain authored resources;
  * GS1 names Intersection(1,2), and all three paints retain that GS. */
 static int m2b2o_compound_source_owner(const quantapdf_qpdf_source_raw_image_limits& caps)
@@ -4731,6 +4894,7 @@ int main(int argc,char **argv)
         CHECK(m2b2b_clipped_source_owner_contract(limits)==EXIT_SUCCESS);
         CHECK(m2b2l_sibling_source_owner(limits)==EXIT_SUCCESS);
         CHECK(m2b2o_compound_source_owner(limits)==EXIT_SUCCESS);
+        CHECK(m2b2r_reverse_sibling_source_owner(limits)==EXIT_SUCCESS);
         CHECK(m2b2m_sibling_v5(limits)==EXIT_SUCCESS);
         CHECK(m2b2m_sibling_v5(limits,true)==EXIT_SUCCESS);
         CHECK(m2b2f_fourth_restored_source_owner(limits)==EXIT_SUCCESS);
