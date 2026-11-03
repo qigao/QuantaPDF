@@ -1,5 +1,11 @@
 # Native QuantaPDF runtime — PDFium removed
 
+> Planning reset, 2026-11-03: [native-feature-plan.md](native-feature-plan.md)
+> and [AGENTS.md](../AGENTS.md) define current work. The profiles, quotas and
+> stage/issue references below record implementation history. They do not
+> freeze API/ABI, fixed paint-order admission or tiny resource/DPI limits,
+> and do not reopen superseded issue gates.
+
 This repository's production runtime is **PDFium-free**. The public C11
 `quantapdf_render_page` and `quantapdf_render_page_with_options` use the
 existing **one** Source V10 (QPDF structure/Flate decoding) → detached IR →
