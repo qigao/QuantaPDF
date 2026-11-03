@@ -853,7 +853,7 @@ static int native_m2b2j_public_fractional(const std::string& filename)
      * paint and the unqualified reverse four-paint order refuse atomically. */
     for(int mode:{101,102,103,104,107,108,109,110,111,112,
                   115,116,117,118,119,120,121,122,123,124,125,
-                  126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142}) {
+                  126,127,128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144}) {
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         quantapdf_document *document=nullptr;quantapdf_page *page=nullptr;
         OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));

@@ -3391,7 +3391,7 @@ static int m2b2o_compound_source_owner(const quantapdf_qpdf_source_raw_image_lim
         original.clear();original.shrink_to_fit();
         CHECK(valid(owned) && text_ir_snapshot(owned)==frozen);quantapdf_ir_dispose(&owned);CHECK(cleared(owned));
     }
-    for(int mode=128;mode<=142;++mode) {
+    for(int mode=128;mode<=144;++mode) {
         quantapdf_ir denied;std::memset(&denied,0xa5,sizeof(denied));
         const auto status=stage(native_ttf_fixture(mode),caps,denied);
         if(status==QUANTAPDF_OK)std::fprintf(stderr,"M2b2o unexpected Source admission mode=%d\n",mode);

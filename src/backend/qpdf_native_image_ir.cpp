@@ -1658,7 +1658,17 @@ public:
                   (target.native_unclipped_mode &&
                    w!=0.0 && h!=0.0),
                   QUANTAPDF_ERROR_UNSUPPORTED);
-            text_rect_staging=target.text_outlines_eligible && !target.clip_completed &&
+            /* Fractional leaf2 belongs to the same pre-BT Text candidate.
+             * The unchanged EOF gate still refuses this precision path
+             * unless an actual original BT completes the Text profile. */
+            const bool compound_text_prefix=target.native_unclipped_mode &&
+                target.clip_completed && clip_active==1u && !target.two_owned_clips &&
+                !target.saw_q_restore && target.order.empty() && target.painted_paths.empty() &&
+                stack.size()==2u && fill_stack.size()==2u && clip_stack.size()==2u &&
+                clip_stack[0]==0u && clip_stack[1]==1u &&
+                quantapdf::detail::source_outline_is_rectangle(target.clip.commands);
+            text_rect_staging=target.text_outlines_eligible &&
+                (!target.clip_completed || compound_text_prefix) &&
                 target.draws.empty() && current==identity &&
                 (std::trunc(x)!=x || std::trunc(y)!=y || std::trunc(w)!=w || std::trunc(h)!=h);
             if(text_rect_staging)for(const auto& value:args)(void)source_v10_lattice(value,8ll);

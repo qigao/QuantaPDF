@@ -33,7 +33,8 @@ Source operations, source pixels and full Image placement have N/N−1 checks
 
 Missing/excess Q, a third root, changed handoff CTM, paints after either
 restore, a post-BT second Clip, missing n, reverse order, extra Font alias,
-unknown Do, skew/cubic leaf and an unqualified saved-stack shape refuse the
+unknown Do, skew/cubic leaf, unqualified saved-stack shape, off-lattice leaf
+and an original without Text refuse the
 complete original. Prepared metadata and actual public Bitmap calls still
 refuse both positive compound originals at 72/96/144 DPI; the existing public
 test then recovers accepted single/sibling originals in the same Context.
