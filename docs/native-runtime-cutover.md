@@ -216,6 +216,11 @@ native features must extend the **same** source grammar, owned IR,
 raster painter and device pipeline with explicit negative budget,
 ownership and original-source tests. Do not restore a PDFium fallback.
 
+The private [M2b.2l sibling Source stage](conformance/native-m2b2l-sibling-source-owner.md)
+preserves original Text/Fill in Clip1 and Image in a separate post-Q Clip2.
+It qualifies owned IR and failure recovery; sibling Text/Fill/Image Bitmap
+rendering remains a separate shared-compiler/public acceptance gate.
+
 The public C11 ABI remains unchanged. The SDK is a C ABI backed by C/C++
 implementation; qpdf 12.4, ZLIB and JPEG remain private structure/codec
 dependencies. There is no installed PDFium import or runtime.

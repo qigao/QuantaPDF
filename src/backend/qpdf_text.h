@@ -40,6 +40,12 @@ struct source_mixed_callbacks {
     quantapdf_status (*on_scope)(void*,int is_save,
                                   unsigned char before,
                                   unsigned char after)=nullptr;
+    /* PRIVATE post-BT W/W* completion at n. The existing owner validates
+     * the whole scope and returns the new frozen identity. */
+    quantapdf_status (*on_clip)(void*,
+        const std::vector<quantapdf_composer_path_command>&,
+        quantapdf_composer_fill_rule,const std::array<double,6>&,
+        unsigned char before,unsigned char *after)=nullptr;
 };
 /* Reuses the existing observation interpreter on the SAME token callback
  * stream. It never parses/reopens source bytes or returns font/QPDF owners. */

@@ -655,8 +655,9 @@ public:
         if(!object.isOperator()) { supported(args.size()<64u); args.push_back(object); return; }
         auto op=object.getOperatorValue();
         if(p.outline_mode) {
-            if(!pending_rectangle.empty())supported(op=="f" || op=="f*" || op=="n");
-            static const char *allowed[]={"q","Q","cm","BT","ET","Tf","Tc","Tw","Tz","TL","Ts","Tr","Tm","Td","TD","T*","Tj","TJ","'","\"","g","rg","re","f","f*","n","Do"};
+            if(pending_clip)supported(op=="n");
+            else if(!pending_rectangle.empty())supported(op=="f" || op=="f*" || op=="n" || op=="W" || op=="W*");
+            static const char *allowed[]={"q","Q","cm","BT","ET","Tf","Tc","Tw","Tz","TL","Ts","Tr","Tm","Td","TD","T*","Tj","TJ","'","\"","g","rg","re","f","f*","n","Do","W","W*"};
             supported(std::any_of(std::begin(allowed),std::end(allowed),[&](const char *s){return op==s;}));
         }
         if(p.outline_mode && op=="re") {
@@ -665,7 +666,24 @@ public:
         } else if(p.outline_mode && (op=="f" || op=="f*")) {
             count(0);supported(!in_text && !pending_rectangle.empty());
             p.fill_rectangle(g,std::move(pending_rectangle),op=="f*");pending_rectangle.clear();
-        } else if(p.outline_mode && op=="n") {count(0);supported(!in_text);pending_rectangle.clear();}
+        } else if(p.outline_mode && (op=="W" || op=="W*")) {
+            count(0);supported(!in_text && !pending_rectangle.empty() &&
+                !pending_clip && p.source_mixed.on_clip!=nullptr);
+            pending_clip=true;pending_evenodd=op=="W*";
+        } else if(p.outline_mode && op=="n") {
+            count(0);supported(!in_text);
+            if(pending_clip) {
+                supported(pending_rectangle.size()<=4096u-p.outline_commands);
+                p.outline_commands+=pending_rectangle.size();
+                unsigned char after=0u;
+                const auto status=p.source_mixed.on_clip(p.source_mixed.user,
+                    pending_rectangle,pending_evenodd?QUANTAPDF_COMPOSER_FILL_EVEN_ODD:
+                        QUANTAPDF_COMPOSER_FILL_NONZERO,g.ctm,g.clip_id,&after);
+                need(status==QUANTAPDF_OK,status);
+                g.clip_id=after;pending_clip=false;
+            }
+            pending_rectangle.clear();
+        }
         else if(op=="q") {
             count(0); supported(stack.size()<128u);
             if(p.outline_mode && p.source_mixed.on_scope!=nullptr) {
@@ -740,13 +758,14 @@ public:
         }
         args.clear();
     }
-    void handleEOF() override { need(args.empty() && stack.empty() && !in_text && marked==0u && pending_rectangle.empty()); }
+    void handleEOF() override { need(args.empty() && stack.empty() && !in_text && marked==0u && pending_rectangle.empty() && !pending_clip); }
 private:
     projection& p; Obj resources; graphics g; size_t depth,marked=0; bool in_text=false;
     // Text/line matrices are not part of the saved graphics-state stack.
     matrix text=identity,line=identity;
     std::vector<graphics> stack; std::vector<Obj> args;
     std::vector<quantapdf_composer_path_command> pending_rectangle;
+    bool pending_clip=false,pending_evenodd=false;
 };
 void projection::content(Obj streams,Obj resources,graphics const& initial,size_t depth)
 {
