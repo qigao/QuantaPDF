@@ -3594,8 +3594,8 @@ static int m2b2g_private_fourth_restored_v5(
                             sizeof(commands));
                 if(variant==0u) {
                     commands[1].kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
-                    commands[1].point2={36.0f,48.0f};
-                    commands[1].point3={38.0f,52.0f};
+                    commands[1].point2={36.0f,50.5f};
+                    commands[1].point3={38.0f,51.5f};
                 } else commands[1].point1.y+=0.5f;
                 operations[3].value.path.commands=commands;
                 auto rejected_ir=ir;
