@@ -1,0 +1,41 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "ci-native",
+      "displayName": "Native LLVM CI",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "toolchainFile": "$env{QUANTAPDF_CI_TOOLCHAIN_FILE}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_COMPILER_LAUNCHER": "ccache",
+        "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
+        "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "$env{QIGAO_COMPILER_TOOLCHAIN_FILE}",
+        "VCPKG_TARGET_TRIPLET": "$env{QUANTAPDF_CI_TRIPLET}",
+        "VCPKG_HOST_TRIPLET": "$env{QUANTAPDF_CI_TRIPLET}",
+        "BUILD_SHARED_LIBS": "$env{QUANTAPDF_CI_SHARED}",
+        "QUANTAPDF_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "ci-asan-ubsan",
+      "inherits": "ci-native",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_FLAGS": "-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=address,undefined"
+      }
+    }
+  ],
+  "buildPresets": [
+    {"name": "ci-native", "configurePreset": "ci-native"},
+    {"name": "ci-asan-ubsan", "configurePreset": "ci-asan-ubsan"}
+  ],
+  "testPresets": [
+    {"name": "ci-native", "configurePreset": "ci-native", "output": {"outputOnFailure": true}, "execution": {"noTestsAction": "error"}},
+    {"name": "ci-asan-ubsan", "configurePreset": "ci-asan-ubsan", "output": {"outputOnFailure": true}, "execution": {"noTestsAction": "error"}}
+  ]
+}

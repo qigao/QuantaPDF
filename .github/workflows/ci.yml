@@ -2,255 +2,151 @@ name: QuantaPDF Native CI
 
 on:
   push:
-    branches:
-      - master
+    branches: [master]
   pull_request:
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - labeled
+    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
-  group: native-${{ github.head_ref || github.ref_name }}
+  group: native-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-env:
-  VCPKG_COMMIT: f74a2eade17a628413746557d04db25ccf6e76f9
-
 jobs:
-  linux:
-    runs-on: ubuntu-latest
+  native:
+    name: LLVM / ${{ matrix.rid }} / ${{ matrix.preset }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {rid: linux-x64, runner: ubuntu-24.04, triplet: x64-linux, preset: ci-native, shared: "OFF"}
+          - {rid: linux-x64, runner: ubuntu-24.04, triplet: x64-linux, preset: ci-asan-ubsan, shared: "OFF"}
+          - {rid: macos-arm64, runner: macos-15, triplet: arm64-osx, preset: ci-native, shared: "OFF"}
+          - {rid: windows-x64, runner: windows-2025, triplet: qigao-x64-windows-llvm-mingw, preset: ci-native, shared: "ON"}
+    env:
+      VCPKG_DOWNLOADS: ${{ github.workspace }}/build/vcpkg-downloads
+      VCPKG_BINARY_CACHE: ${{ github.workspace }}/build/vcpkg-binary-cache
+      CCACHE_VERSION: 4.14.2
+      CCACHE_DIR: ${{ github.workspace }}/build/ccache
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_MAXSIZE: 512MiB
+      CCACHE_COMPILERCHECK: content
+      CMAKE_BUILD_PARALLEL_LEVEL: 2
     steps:
       - uses: actions/checkout@v4
-      - name: Restore vcpkg binary cache
-        id: vcpkg-cache
-        uses: actions/cache/restore@v4
         with:
-          path: ${{ runner.temp }}/vcpkg-binary-cache
-          key: vcpkg-native-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
-      - name: Configure vcpkg binary cache
-        shell: bash
-        run: |
-          mkdir -p "$RUNNER_TEMP/vcpkg-binary-cache"
-          echo "VCPKG_DEFAULT_BINARY_CACHE=$RUNNER_TEMP/vcpkg-binary-cache" >> "$GITHUB_ENV"
-      - name: Bootstrap pinned vcpkg
-        shell: bash
-        run: |
-          git init "$RUNNER_TEMP/vcpkg"
-          git -C "$RUNNER_TEMP/vcpkg" remote add origin https://github.com/microsoft/vcpkg.git
-          git -C "$RUNNER_TEMP/vcpkg" fetch --depth 1 origin "$VCPKG_COMMIT"
-          git -C "$RUNNER_TEMP/vcpkg" checkout --detach FETCH_HEAD
-          "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
-          echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
-          echo "PROJECT_ROOT=$RUNNER_TEMP" >> "$GITHUB_ENV"
-      - name: Install qpdf
-        shell: bash
-        run: |
-          "$VCPKG_ROOT/vcpkg" install --triplet x64-linux
-      - name: Save vcpkg binary cache
-        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ runner.temp }}/vcpkg-binary-cache
-          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
-      - name: Native Release configure
-        run: cmake --fresh --preset linux-release-user
-      - name: Native Release build
-        run: cmake --build --preset linux-release-user --parallel 2
-      - name: Native Release tests
-        run: ctest --preset linux-release-user
-      - name: Install native SDK
-        run: cmake --build --preset install-linux-release-user --parallel 2
-      - name: Assert no PDFium installation
-        shell: bash
-        run: |
-          prefix="$RUNNER_TEMP/external/pkgs/quantapdf/release"
-          test -f "$prefix/lib/cmake/QuantaPDF/QuantaPDFConfig.cmake"
-          if grep -Ri -E '(libpdfium|_PDFium|quantapdf_pdfium)' "$prefix/lib/cmake/QuantaPDF"; then
-            echo "PDFium consumer linkage remains in the exported CMake package" >&2
-            exit 1
-          fi
-          if find "$prefix" -type f -iname '*pdfium*' | grep .; then
-            echo "PDFium binary or license artifact installed" >&2
-            exit 1
-          fi
-      - name: Installed C11 native render consumer
-        shell: bash
-        run: |
-          prefix="$RUNNER_TEMP/external/pkgs/quantapdf/release"
-          cmake -S tests/native/installed-c11-consumer \
-            -B build/installed-c11-consumer -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            "-DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
-            "-DVCPKG_INSTALLED_DIR=$GITHUB_WORKSPACE/vcpkg_installed" \
-            "-DVCPKG_TARGET_TRIPLET=x64-linux" \
-            "-DCMAKE_PREFIX_PATH=$GITHUB_WORKSPACE/vcpkg_installed/x64-linux" \
-            "-DQuantaPDF_DIR=$prefix/lib/cmake/QuantaPDF"
-          cmake --build build/installed-c11-consumer --parallel 2
-          ctest --test-dir build/installed-c11-consumer --output-on-failure
-      - name: Native ASan/UBSan configure
-        run: cmake --fresh --preset linux-dev-user
-      - name: Native ASan/UBSan build
-        run: cmake --build --preset linux-dev-user --parallel 2
-      - name: Native ASan/UBSan tests
-        run: ctest --preset linux-dev-user
+          persist-credentials: false
 
-  macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Restore vcpkg binary cache
-        id: vcpkg-cache
-        uses: actions/cache/restore@v4
+      # Fixed curl-only infrastructure revision: the older cache action and
+      # compiler download helpers used Mono/NuGet or non-curl downloaders.
+      - name: Set up runner LLVM
+        if: runner.os != 'Windows'
+        uses: qigao/vcpkg-cache/.github/actions/setup-llvm-native@6672559950946f9b11eab6e4c06d211b53b3eebc
         with:
-          path: ${{ runner.temp }}/vcpkg-binary-cache
-          key: vcpkg-native-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
-      - name: Configure cache
-        shell: bash
-        run: |
-          mkdir -p "$RUNNER_TEMP/vcpkg-binary-cache"
-          echo "VCPKG_DEFAULT_BINARY_CACHE=$RUNNER_TEMP/vcpkg-binary-cache" >> "$GITHUB_ENV"
-      - name: Bootstrap pinned vcpkg
-        shell: bash
-        run: |
-          git init "$RUNNER_TEMP/vcpkg"
-          git -C "$RUNNER_TEMP/vcpkg" remote add origin https://github.com/microsoft/vcpkg.git
-          git -C "$RUNNER_TEMP/vcpkg" fetch --depth 1 origin "$VCPKG_COMMIT"
-          git -C "$RUNNER_TEMP/vcpkg" checkout --detach FETCH_HEAD
-          "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
-          echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
-          echo "PROJECT_ROOT=$RUNNER_TEMP" >> "$GITHUB_ENV"
-      - name: Select native preset
-        shell: bash
-        run: |
-          case "$(uname -m)" in
-            arm64) echo 'VCPKG_TRIPLET=arm64-osx' >> "$GITHUB_ENV"
-                   echo 'NATIVE_PRESET=macos-arm64-release-user' >> "$GITHUB_ENV" ;;
-            x86_64) echo 'VCPKG_TRIPLET=x64-osx' >> "$GITHUB_ENV"
-                    echo 'NATIVE_PRESET=macos-x64-release-user' >> "$GITHUB_ENV" ;;
-            *) exit 1 ;;
-          esac
-      - name: Install qpdf
-        shell: bash
-        run: |
-          "$VCPKG_ROOT/vcpkg" install --triplet "$VCPKG_TRIPLET"
-      - name: Save vcpkg binary cache
-        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ runner.temp }}/vcpkg-binary-cache
-          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
-      - name: Configure
-        run: cmake --fresh --preset "$NATIVE_PRESET"
-      - name: Build
-        run: cmake --build --preset "$NATIVE_PRESET" --parallel 2
-      - name: Native tests
-        run: ctest --preset "$NATIVE_PRESET"
-      - name: Install native SDK and audit
-        shell: bash
-        run: |
-          cmake --install build/macos-clang-release
-          prefix="$RUNNER_TEMP/external/pkgs/quantapdf/release"
-          test -f "$prefix/lib/cmake/QuantaPDF/QuantaPDFConfig.cmake"
-          if grep -Ri -E '(libpdfium|_PDFium|quantapdf_pdfium)' "$prefix/lib/cmake/QuantaPDF"; then
-            exit 1
-          fi
-          if find "$prefix" -type f -iname '*pdfium*' | grep .; then
-            exit 1
-          fi
-      - name: Installed C11 native render consumer
-        shell: bash
-        run: |
-          prefix="$RUNNER_TEMP/external/pkgs/quantapdf/release"
-          cmake -S tests/native/installed-c11-consumer \
-            -B build/installed-c11-consumer -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            "-DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
-            "-DVCPKG_INSTALLED_DIR=$GITHUB_WORKSPACE/vcpkg_installed" \
-            "-DVCPKG_TARGET_TRIPLET=$VCPKG_TRIPLET" \
-            "-DCMAKE_PREFIX_PATH=$GITHUB_WORKSPACE/vcpkg_installed/$VCPKG_TRIPLET" \
-            "-DQuantaPDF_DIR=$prefix/lib/cmake/QuantaPDF"
-          cmake --build build/installed-c11-consumer --parallel 2
-          ctest --test-dir build/installed-c11-consumer --output-on-failure
+          build-type: toolchain-only
+          obfuscator: "false"
 
-  windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Restore vcpkg binary cache
-        id: vcpkg-cache
+      - name: Set up Windows LLVM-MinGW
+        id: windows-llvm
+        if: runner.os == 'Windows'
+        uses: qigao/vcpkg-cache/.github/actions/setup-llvm-mingw@6672559950946f9b11eab6e4c06d211b53b3eebc
+        with:
+          target: x64
+          build-type: toolchain-only
+          obfuscator: "false"
+
+      - name: Set up pinned dependencies and curl transport
+        id: vcpkg
+        uses: qigao/vcpkg-cache/.github/actions/setup-vcpkg-curl-cache@6672559950946f9b11eab6e4c06d211b53b3eebc
+        with:
+          mode: read
+          # A product cache miss builds its pinned source into the local files
+          # cache. Do not require an unpublished exact GitHub Packages ABI.
+          restore-packages: "false"
+          triplet: ${{ matrix.triplet }}
+          host-triplet: ${{ matrix.triplet }}
+          token: ${{ github.token }}
+
+      - name: Select native build inputs
+        id: build-inputs
+        shell: pwsh
+        env:
+          TOOLCHAIN: ${{ steps.vcpkg.outputs.toolchain_file }}
+        run: |
+          "QUANTAPDF_CI_TOOLCHAIN_FILE=$env:TOOLCHAIN" >> $env:GITHUB_ENV
+          'QUANTAPDF_CI_TRIPLET=${{ matrix.triplet }}' >> $env:GITHUB_ENV
+          'QUANTAPDF_CI_SHARED=${{ matrix.shared }}' >> $env:GITHUB_ENV
+          "runner-image=$env:ImageOS-$env:ImageVersion" >> $env:GITHUB_OUTPUT
+          if ($IsWindows) {
+            (Join-Path $env:GITHUB_WORKSPACE 'vcpkg_installed/${{ matrix.triplet }}/bin') >> $env:GITHUB_PATH
+          }
+
+      - name: Restore dependencies and source downloads
+        id: dependencies
         uses: actions/cache/restore@v4
         with:
-          path: ${{ runner.temp }}/vcpkg-binary-cache
-          key: vcpkg-native-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
-      - name: Configure vcpkg binary cache
+          path: |
+            ${{ env.VCPKG_BINARY_CACHE }}
+            ${{ env.VCPKG_DOWNLOADS }}
+          key: native-deps-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.triplet }}-${{ steps.vcpkg.outputs.cache_revision }}-${{ steps.build-inputs.outputs.runner-image }}-${{ steps.windows-llvm.outputs.version }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+          restore-keys: |
+            native-deps-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.triplet }}-${{ steps.vcpkg.outputs.cache_revision }}-
+
+      - name: Install native ccache with curl
         shell: pwsh
+        run: ./.github/scripts/setup-ccache.ps1
+
+      - name: Restore compiler cache
+        id: compiler-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ env.CCACHE_VERSION }}-${{ matrix.rid }}-${{ matrix.preset }}-${{ steps.dependencies.outputs.cache-primary-key }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ env.CCACHE_VERSION }}-${{ matrix.rid }}-${{ matrix.preset }}-${{ steps.dependencies.outputs.cache-primary-key }}-
+
+      - name: Configure native library and tests
         run: |
-          $cache = Join-Path $env:RUNNER_TEMP "vcpkg-binary-cache"
-          New-Item -ItemType Directory -Force -Path $cache | Out-Null
-          "VCPKG_DEFAULT_BINARY_CACHE=$cache" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      - name: Bootstrap pinned vcpkg
-        shell: pwsh
-        run: |
-          $root = Join-Path $env:RUNNER_TEMP "vcpkg"
-          git init $root
-          git -C $root remote add origin https://github.com/microsoft/vcpkg.git
-          git -C $root fetch --depth 1 origin $env:VCPKG_COMMIT
-          git -C $root checkout --detach FETCH_HEAD
-          & "$root\bootstrap-vcpkg.bat" -disableMetrics
-          "VCPKG_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "PROJECT_ROOT=$env:RUNNER_TEMP" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      - name: Install qpdf
-        shell: pwsh
-        run: '& "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x64-windows-static-md'
-      - name: Save vcpkg binary cache
-        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+          ccache --zero-stats
+          cmake --preset ${{ matrix.preset }}
+
+      # Preserve built dependencies even when a later project test fails.
+      - name: Save dependencies and source downloads
+        if: steps.dependencies.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
-          path: ${{ runner.temp }}/vcpkg-binary-cache
-          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
-      - name: Locate Visual Studio environment
-        shell: pwsh
-        run: |
-          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
-          $installation = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          if (-not $installation) { throw "MSVC toolchain not found" }
-          $vsdev = Join-Path $installation "Common7\Tools\VsDevCmd.bat"
-          "VSDEVCMD=$vsdev" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      - name: Configure native DLL
-        # Dependencies use the static-md triplet. Avoid concurrent
-        # z-applocal copies of the native test executables (file locks).
-        # The installed DLL consumer and exact ABI checks still run.
-        shell: cmd
-        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && cmake --fresh --preset win-release-user -DVCPKG_APPLOCAL_DEPS=OFF
-      - name: Build native DLL
-        shell: cmd
-        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && cmake --build --preset win-release-user --parallel 2
-      - name: Native CTest
-        shell: cmd
-        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && ctest --preset win-release-user
-      - name: Install native SDK
-        shell: cmd
-        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && cmake --build --preset install-win-release-user
-      - name: Audit no PDFium artifacts
-        shell: pwsh
-        run: |
-          $prefix = Join-Path $env:RUNNER_TEMP 'external\pkgs\quantapdf\release'
-          $config = Join-Path $prefix 'lib\cmake\QuantaPDF\QuantaPDFConfig.cmake'
-          if (-not (Test-Path $config)) { throw 'Missing native CMake package' }
-          if (Select-String -Path $config -Pattern 'PDFium|quantapdf_pdfium') { throw 'PDFium target is exported' }
-          $files = @(Get-ChildItem -Path $prefix -Recurse -File | Where-Object { $_.Name -match '(?i)pdfium' })
-          if ($files.Count -ne 0) { throw 'PDFium binary installed' }
+          path: |
+            ${{ env.VCPKG_BINARY_CACHE }}
+            ${{ env.VCPKG_DOWNLOADS }}
+          key: ${{ steps.dependencies.outputs.cache-primary-key }}
+
+      - name: Build native library and tests
+        id: build
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Report compiler cache statistics
+        if: always() && steps.build.outcome != '' && steps.build.outcome != 'skipped'
+        run: ccache --show-stats --verbose
+
+      - name: Save compiler cache
+        if: always() && steps.build.outcome == 'success' && steps.compiler-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ steps.compiler-cache.outputs.cache-primary-key }}
+
+      - name: Run native CTest suite
+        run: ctest --preset ${{ matrix.preset }}
+
       - name: Verify exact Windows DLL export ABI
-        shell: cmd
-        run: |
-          call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && cmake "-DQUANTAPDF_DUMPBIN=dumpbin" "-DQUANTAPDF_LIBRARY=%CD%/build/Msvc-Release/quantapdf.dll" "-DQUANTAPDF_EXPORT_BASELINE=%CD%/abi/quantapdf-v2.exports" -P cmake/CheckQuantaPDFExports.cmake
-      - name: Installed C11 native render consumer
-        shell: cmd
-        run: |
-          call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && cmake -S tests/native/installed-c11-consumer -B build/installed-c11-consumer -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%/scripts/buildsystems/vcpkg.cmake" "-DVCPKG_INSTALLED_DIR=%CD%/vcpkg_installed" -DVCPKG_TARGET_TRIPLET=x64-windows-static-md -DVCPKG_APPLOCAL_DEPS=OFF "-DCMAKE_PREFIX_PATH=%CD%/vcpkg_installed/x64-windows-static-md" "-DQuantaPDF_DIR=%RUNNER_TEMP%/external/pkgs/quantapdf/release/lib/cmake/QuantaPDF" && cmake --build build/installed-c11-consumer --parallel 2 && set "PATH=%RUNNER_TEMP%\external\pkgs\quantapdf\release\bin;%PATH%" && ctest --test-dir build/installed-c11-consumer --output-on-failure
+        if: runner.os == 'Windows'
+        run: >-
+          cmake -DQUANTAPDF_LLVM_READOBJ=llvm-readobj
+          -DQUANTAPDF_LIBRARY=build/${{ matrix.preset }}/libquantapdf.dll
+          -DQUANTAPDF_EXPORT_BASELINE=abi/quantapdf-v2.exports
+          -P cmake/CheckQuantaPDFExports.cmake
