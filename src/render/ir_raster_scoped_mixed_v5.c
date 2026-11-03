@@ -1606,6 +1606,23 @@ quantapdf_status quantapdf_native_scoped_prepare_m2b2g_restored_four_v1(
        transform->c!=0.0f || transform->d!=0.0f ||
        transform->e!=0.0f || transform->f!=0.0f)
         return QUANTAPDF_ERROR_UNSUPPORTED;
+    /* This profile projects four rectangle vertices only. A generic
+     * closed contour would also admit cubics with unprojected controls.
+     * Prove the complete suffix shape before any prefix allocation. */
+    const quantapdf_composer_path_command *commands=p->commands;
+    if(commands[0].kind!=QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
+       commands[1].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+       commands[2].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+       commands[3].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+       commands[4].kind!=QUANTAPDF_COMPOSER_PATH_CLOSE)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    const quantapdf_point a=commands[0].point1,b=commands[1].point1;
+    const quantapdf_point c=commands[2].point1,d=commands[3].point1;
+    if(!((a.y==b.y && b.x==c.x && c.y==d.y && d.x==a.x &&
+          a.x!=b.x && b.y!=c.y) ||
+         (a.x==b.x && b.y==c.y && c.x==d.x && d.y==a.y &&
+          a.y!=b.y && b.x!=c.x)))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
     suffix_samples=limits->max_sample_tests/2u;
     if(suffix_samples==0u ||
        suffix_samples>=limits->max_sample_tests)

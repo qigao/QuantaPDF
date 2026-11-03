@@ -3582,6 +3582,44 @@ static int m2b2g_private_fourth_restored_v5(
             ledger.malloc_fault={
                 &counted_allocations,m2a_malloc_fault_callback
             };
+        if(dpi==96u) {
+            /* Borrow the real original Source graph and change only the
+             * suffix. Neither a cubic with unprojected controls nor a
+             * skew quadrilateral is in this rectangle-only profile. */
+            for(unsigned variant=0u;variant<2u;++variant) {
+                quantapdf_composer_operation operations[4];
+                quantapdf_composer_path_command commands[5];
+                std::memcpy(operations,ir.operations,sizeof(operations));
+                std::memcpy(commands,ir.operations[3].value.path.commands,
+                            sizeof(commands));
+                if(variant==0u) {
+                    commands[1].kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
+                    commands[1].point2={36.0f,48.0f};
+                    commands[1].point3={38.0f,52.0f};
+                } else commands[1].point1.y+=0.5f;
+                operations[3].value.path.commands=commands;
+                auto rejected_ir=ir;
+                rejected_ir.operations=operations;
+                quantapdf_native_work_ledger_v1 rejected_ledger{};
+                quantapdf_native_work_init_v1(&rejected_ledger,
+                    limits.max_sample_tests,limits.max_edges);
+                CHECK(quantapdf_native_resources_init_v1(
+                    &rejected_ledger,&resources,0u));
+                m2a_malloc_fault_state rejected_allocations{};
+                rejected_ledger.malloc_fault={
+                    &rejected_allocations,m2a_malloc_fault_callback
+                };
+                quantapdf_native_scoped_page_v5 rejected{};
+                CHECK(quantapdf_native_scoped_prepare_m2b2g_restored_four_v1(
+                    &rejected_ir,&limits,&physical,&rejected_ledger,
+                    &rejected)==QUANTAPDF_ERROR_UNSUPPORTED &&
+                    !rejected.ready && rejected_allocations.attempts==0u &&
+                    rejected_ledger.resources.live_bytes==0u &&
+                    rejected_ledger.reserved.sample_work==0u &&
+                    rejected_ledger.reserved.edges==0u);
+                quantapdf_native_scoped_dispose_v5(&rejected);
+            }
+        }
         quantapdf_native_scoped_page_v5 compiled{};
         const auto preparation=
             quantapdf_native_scoped_prepare_m2b2g_restored_four_v1(
