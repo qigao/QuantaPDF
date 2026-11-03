@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include "pdf_security_rewrite_test_api.h"
@@ -79,10 +80,6 @@ _Static_assert(
 _Static_assert(
     QUANTAPDF_PERMISSION_PRINT_HIGH_QUALITY == (1u << 6),
     "stable high-quality print permission");
-_Static_assert(
-    QUANTAPDF_ENCRYPTION_OPTIONS_V1_MIN_SIZE ==
-        sizeof(quantapdf_encryption_options),
-    "V1 options prefix must be complete");
 
 static void compile_public_surface(void)
 {
@@ -153,7 +150,7 @@ static int test_state_transitions(void)
     quantapdf_output *reencrypted = NULL;
     quantapdf_output *sentinel = (quantapdf_output *)(uintptr_t)1u;
     quantapdf_encryption_options options = {
-        QUANTAPDF_ENCRYPTION_OPTIONS_V1_SIZE,
+
         QUANTAPDF_ENCRYPTION_AES_256,
         "user",
         "owner",
@@ -165,7 +162,7 @@ static int test_state_transitions(void)
     replacement.user_password_utf8 = "new-user";
     replacement.owner_password_utf8 = "new-owner";
 
-    CHECK(quantapdf_open(SECURITY_PLAIN_PDF, NULL, &plain) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), SECURITY_PLAIN_PDF, NULL, &plain) == QUANTAPDF_OK);
     CHECK(quantapdf_encrypt_pdf(plain, &options, &encrypted) == QUANTAPDF_OK);
     CHECK(inspect_output(encrypted, "user", &inspection));
     CHECK(inspection.encrypted && inspection.revision == 6 &&
@@ -174,7 +171,7 @@ static int test_state_transitions(void)
     CHECK(inspection.extension_level == 8);
     CHECK(quantapdf_output_save_file(encrypted, SECURITY_ENCRYPTED_OUTPUT) ==
           QUANTAPDF_OK);
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               SECURITY_ENCRYPTED_OUTPUT, "user", &authenticated) ==
           QUANTAPDF_OK);
 
@@ -232,7 +229,7 @@ static int inspect_permissions(
     quantapdf_security_inspection *inspection)
 {
     quantapdf_encryption_options options = {
-        QUANTAPDF_ENCRYPTION_OPTIONS_V1_SIZE,
+
         QUANTAPDF_ENCRYPTION_AES_256,
         "user",
         "owner",
@@ -252,7 +249,7 @@ static int test_validation_and_permissions(void)
 {
     quantapdf_document *plain = NULL;
     quantapdf_encryption_options options = {
-        QUANTAPDF_ENCRYPTION_OPTIONS_V1_SIZE,
+
         QUANTAPDF_ENCRYPTION_AES_256,
         "user",
         "owner",
@@ -274,14 +271,11 @@ static int test_validation_and_permissions(void)
     password_127[sizeof(password_127) - 1u] = '\0';
     memset(password_128, 'a', sizeof(password_128) - 1u);
     password_128[sizeof(password_128) - 1u] = '\0';
-    CHECK(quantapdf_open(SECURITY_PLAIN_PDF, NULL, &plain) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), SECURITY_PLAIN_PDF, NULL, &plain) == QUANTAPDF_OK);
 
     CHECK(expect_encrypt_status(
         plain, NULL, QUANTAPDF_ERROR_ARGUMENT));
-    options.struct_size = QUANTAPDF_ENCRYPTION_OPTIONS_V1_MIN_SIZE - 1u;
-    CHECK(expect_encrypt_status(
-        plain, &options, QUANTAPDF_ERROR_ARGUMENT));
-    options.struct_size = QUANTAPDF_ENCRYPTION_OPTIONS_V1_SIZE;
+
     options.method = (quantapdf_encryption_method)99;
     CHECK(expect_encrypt_status(
         plain, &options, QUANTAPDF_ERROR_ARGUMENT));
@@ -325,7 +319,7 @@ static int test_validation_and_permissions(void)
     CHECK(expect_encrypt_status(plain, &options, QUANTAPDF_OK));
 
     extended.options = options;
-    extended.options.struct_size = sizeof(extended);
+
     extended.suffix = UINT64_C(0x8877665544332211);
     CHECK(expect_encrypt_status(
         plain, &extended.options, QUANTAPDF_OK));
@@ -385,7 +379,7 @@ static int test_authentication_randomness_and_lifetime(void)
     quantapdf_output *decrypted_second = NULL;
     quantapdf_output *reencrypted = NULL;
     quantapdf_encryption_options options = {
-        QUANTAPDF_ENCRYPTION_OPTIONS_V1_SIZE,
+
         QUANTAPDF_ENCRYPTION_AES_256,
         "user",
         "owner",
@@ -402,7 +396,7 @@ static int test_authentication_randomness_and_lifetime(void)
     replacement.permissions = QUANTAPDF_PERMISSION_FILL_FORMS;
     replacement.encrypt_metadata = 0;
 
-    CHECK(quantapdf_open(SECURITY_PLAIN_PDF, NULL, &plain) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), SECURITY_PLAIN_PDF, NULL, &plain) == QUANTAPDF_OK);
     CHECK(quantapdf_encrypt_pdf(plain, &options, &first) == QUANTAPDF_OK);
     CHECK(quantapdf_encrypt_pdf(plain, &options, &second) == QUANTAPDF_OK);
     CHECK(!outputs_equal(first, second));
@@ -424,20 +418,20 @@ static int test_authentication_randomness_and_lifetime(void)
               sizeof(first_inspection.id2)) != 0);
     CHECK(quantapdf_output_save_file(first, SECURITY_ENCRYPTED_OUTPUT) ==
           QUANTAPDF_OK);
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               SECURITY_ENCRYPTED_OUTPUT, "wrong", &probe) ==
           QUANTAPDF_ERROR_PASSWORD);
     CHECK(probe == NULL);
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               SECURITY_ENCRYPTED_OUTPUT, "user", &probe) == QUANTAPDF_OK);
     quantapdf_close(probe);
     probe = NULL;
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               SECURITY_ENCRYPTED_OUTPUT, "owner", &probe) == QUANTAPDF_OK);
     quantapdf_close(probe);
     probe = NULL;
 
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               SECURITY_ENCRYPTED_OUTPUT, "user", &encrypted_document) ==
           QUANTAPDF_OK);
     CHECK(quantapdf_decrypt_pdf(
@@ -460,11 +454,11 @@ static int test_authentication_randomness_and_lifetime(void)
               decrypted_first, SECURITY_DECRYPTED_OUTPUT) == QUANTAPDF_OK);
     CHECK(quantapdf_output_save_file(
               reencrypted, SECURITY_REENCRYPTED_OUTPUT) == QUANTAPDF_OK);
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               SECURITY_REENCRYPTED_OUTPUT, "user", &probe) ==
           QUANTAPDF_ERROR_PASSWORD);
     CHECK(probe == NULL);
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               SECURITY_REENCRYPTED_OUTPUT, "new-user", &probe) ==
           QUANTAPDF_OK);
     quantapdf_close(probe);
@@ -485,7 +479,7 @@ static int test_signed_and_legacy_policy(void)
     quantapdf_document *legacy_document = NULL;
     quantapdf_output *output = (quantapdf_output *)(uintptr_t)1u;
     quantapdf_encryption_options options = {
-        QUANTAPDF_ENCRYPTION_OPTIONS_V1_SIZE,
+
         QUANTAPDF_ENCRYPTION_AES_256,
         "user",
         "owner",
@@ -493,7 +487,7 @@ static int test_signed_and_legacy_policy(void)
         1};
     int kind;
 
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               SECURITY_SIGNED_PDF, NULL, &signed_document) == QUANTAPDF_OK);
     CHECK(quantapdf_encrypt_pdf(
               signed_document, &options, &output) ==
@@ -509,7 +503,7 @@ static int test_signed_and_legacy_policy(void)
         CHECK(quantapdf_security_create_signature_fixture(
             SECURITY_PLAIN_PDF, SECURITY_SIGNATURE_FIXTURE, kind, 0));
         signed_document = NULL;
-        CHECK(quantapdf_open(
+        CHECK(quantapdf_open(test_context(),
                   SECURITY_SIGNATURE_FIXTURE,
                   NULL,
                   &signed_document) == QUANTAPDF_OK);
@@ -522,7 +516,7 @@ static int test_signed_and_legacy_policy(void)
         CHECK(quantapdf_security_create_signature_fixture(
             SECURITY_PLAIN_PDF, SECURITY_SIGNATURE_FIXTURE, kind, 1));
         signed_document = NULL;
-        CHECK(quantapdf_open(
+        CHECK(quantapdf_open(test_context(),
                   SECURITY_SIGNATURE_FIXTURE,
                   "sig-user",
                   &signed_document) == QUANTAPDF_OK);
@@ -538,7 +532,7 @@ static int test_signed_and_legacy_policy(void)
 
     CHECK(quantapdf_security_create_incremental_signature_fixture(
         SECURITY_PLAIN_PDF, SECURITY_SIGNATURE_FIXTURE, NULL));
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               SECURITY_SIGNATURE_FIXTURE,
               NULL,
               &signed_document) == QUANTAPDF_OK);
@@ -549,7 +543,7 @@ static int test_signed_and_legacy_policy(void)
     CHECK(output == NULL);
     quantapdf_close(signed_document);
 
-    CHECK(quantapdf_open(SECURITY_PLAIN_PDF, NULL, &plain) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), SECURITY_PLAIN_PDF, NULL, &plain) == QUANTAPDF_OK);
     CHECK(quantapdf_encrypt_pdf(plain, &options, &output) == QUANTAPDF_OK);
     CHECK(quantapdf_output_save_file(
               output, SECURITY_ENCRYPTED_OUTPUT) == QUANTAPDF_OK);
@@ -560,7 +554,7 @@ static int test_signed_and_legacy_policy(void)
         SECURITY_ENCRYPTED_OUTPUT,
         SECURITY_SIGNATURE_FIXTURE,
         "user"));
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               SECURITY_SIGNATURE_FIXTURE,
               "user",
               &signed_document) == QUANTAPDF_OK);
@@ -575,7 +569,7 @@ static int test_signed_and_legacy_policy(void)
     CHECK(output == NULL);
     quantapdf_close(signed_document);
 
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               SECURITY_LEGACY_ENCRYPTED_PDF,
               "user-pass",
               &legacy_document) == QUANTAPDF_OK);
@@ -594,7 +588,7 @@ static int test_entropy_and_publication_faults(void)
     quantapdf_document *plain = NULL;
     quantapdf_output *output = (quantapdf_output *)(uintptr_t)1u;
     quantapdf_encryption_options options = {
-        QUANTAPDF_ENCRYPTION_OPTIONS_V1_SIZE,
+
         QUANTAPDF_ENCRYPTION_AES_256,
         "user",
         "owner",
@@ -605,7 +599,7 @@ static int test_entropy_and_publication_faults(void)
     size_t write_requests = 0;
     size_t context_exits = 0;
 
-    CHECK(quantapdf_open(SECURITY_PLAIN_PDF, NULL, &plain) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), SECURITY_PLAIN_PDF, NULL, &plain) == QUANTAPDF_OK);
 
     quantapdf_security_test_set_fault(
         plain, QUANTAPDF_SECURITY_TEST_FAULT_ENTROPY_CONFIGURE);
@@ -659,7 +653,7 @@ static int test_metadata_encryption_observability(void)
     quantapdf_output *encrypted_true = NULL;
     quantapdf_output *encrypted_false = NULL;
     quantapdf_encryption_options options = {
-        QUANTAPDF_ENCRYPTION_OPTIONS_V1_SIZE,
+
         QUANTAPDF_ENCRYPTION_AES_256,
         "user",
         "owner",
@@ -670,7 +664,7 @@ static int test_metadata_encryption_observability(void)
 
     CHECK(quantapdf_security_create_metadata_fixture(
         SECURITY_PLAIN_PDF, SECURITY_METADATA_FIXTURE));
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               SECURITY_METADATA_FIXTURE, NULL, &source) == QUANTAPDF_OK);
     CHECK(quantapdf_encrypt_pdf(source, &options, &encrypted_true) ==
           QUANTAPDF_OK);
@@ -686,7 +680,7 @@ static int test_metadata_encryption_observability(void)
     CHECK(quantapdf_output_save_file(
               encrypted_false, SECURITY_METADATA_ENCRYPTED_FALSE) ==
           QUANTAPDF_OK);
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               SECURITY_METADATA_ENCRYPTED_TRUE,
               "user",
               &authenticated) == QUANTAPDF_OK);
@@ -702,7 +696,7 @@ static int test_metadata_encryption_observability(void)
     authenticated = NULL;
     title = NULL;
     title_size = 0;
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               SECURITY_METADATA_ENCRYPTED_FALSE,
               "owner",
               &authenticated) == QUANTAPDF_OK);
@@ -783,25 +777,25 @@ static int test_text_and_render_semantics(void)
     quantapdf_output *encrypted = NULL;
     quantapdf_output *decrypted = NULL;
     quantapdf_encryption_options options = {
-        QUANTAPDF_ENCRYPTION_OPTIONS_V1_SIZE,
+
         QUANTAPDF_ENCRYPTION_AES_256,
         "user",
         "owner",
         QUANTAPDF_PERMISSION_ALL,
         1};
 
-    CHECK(quantapdf_open(SECURITY_TEXT_PDF, NULL, &source) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), SECURITY_TEXT_PDF, NULL, &source) == QUANTAPDF_OK);
     CHECK(quantapdf_encrypt_pdf(source, &options, &encrypted) == QUANTAPDF_OK);
     CHECK(quantapdf_output_save_file(
               encrypted, SECURITY_SEMANTIC_ENCRYPTED) == QUANTAPDF_OK);
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               SECURITY_SEMANTIC_ENCRYPTED, "user", &authenticated) ==
           QUANTAPDF_OK);
     CHECK(compare_first_page_semantics(source, authenticated));
     CHECK(quantapdf_decrypt_pdf(authenticated, &decrypted) == QUANTAPDF_OK);
     CHECK(quantapdf_output_save_file(
               decrypted, SECURITY_SEMANTIC_DECRYPTED) == QUANTAPDF_OK);
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               SECURITY_SEMANTIC_DECRYPTED, NULL, &roundtrip) == QUANTAPDF_OK);
     CHECK(compare_first_page_semantics(source, roundtrip));
 
@@ -819,7 +813,7 @@ static int test_file_identifier_policy(void)
     quantapdf_output *first = NULL;
     quantapdf_output *second = NULL;
     quantapdf_encryption_options options = {
-        QUANTAPDF_ENCRYPTION_OPTIONS_V1_SIZE,
+
         QUANTAPDF_ENCRYPTION_AES_256,
         "user",
         "owner",
@@ -830,7 +824,7 @@ static int test_file_identifier_policy(void)
 
     CHECK(quantapdf_security_create_id_fixture(
         SECURITY_PLAIN_PDF, SECURITY_ID_FIXTURE, 0));
-    CHECK(quantapdf_open(SECURITY_ID_FIXTURE, NULL, &document) ==
+    CHECK(quantapdf_open(test_context(), SECURITY_ID_FIXTURE, NULL, &document) ==
           QUANTAPDF_OK);
     CHECK(quantapdf_encrypt_pdf(document, &options, &first) == QUANTAPDF_OK);
     CHECK(quantapdf_encrypt_pdf(document, &options, &second) == QUANTAPDF_OK);
@@ -851,7 +845,7 @@ static int test_file_identifier_policy(void)
     CHECK(quantapdf_security_create_id_fixture(
         SECURITY_PLAIN_PDF, SECURITY_ID_FIXTURE, 1));
     document = NULL;
-    CHECK(quantapdf_open(SECURITY_ID_FIXTURE, NULL, &document) ==
+    CHECK(quantapdf_open(test_context(), SECURITY_ID_FIXTURE, NULL, &document) ==
           QUANTAPDF_OK);
     first = (quantapdf_output *)(uintptr_t)1u;
     CHECK(quantapdf_encrypt_pdf(document, &options, &first) ==

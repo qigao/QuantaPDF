@@ -66,7 +66,7 @@ static void add_page(quantapdf_composer *composer)
 {
     quantapdf_composer_page_options options = {0};
     size_t index = SIZE_MAX;
-    options.struct_size = sizeof(options);
+
     options.width_points = options.height_points = 72.0f;
     options.background_argb = UINT32_C(0xffffffff);
     CHECK(quantapdf_composer_add_page(composer, &options, &index) == QUANTAPDF_OK);
@@ -76,25 +76,19 @@ static void test_arguments_and_failed_open(void)
 {
     quantapdf_context *context = SENTINEL(quantapdf_context);
     quantapdf_document *document = SENTINEL(quantapdf_document);
-    quantapdf_composer *composer = SENTINEL(quantapdf_composer);
-    quantapdf_output *output = SENTINEL(quantapdf_output);
     size_t finalized = 0;
     CHECK(quantapdf_context_create(NULL) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(quantapdf_context_create(&context) == QUANTAPDF_OK);
     CHECK(context->references == 1);
     context->test_finalizations = &finalized;
-    CHECK(quantapdf_open_with_context(NULL, TEXT_PDF, NULL, &document) == QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(document == NULL);
-    CHECK(quantapdf_composer_create_with_context(NULL, NULL, &composer) == QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(composer == NULL);
-    CHECK(quantapdf_merge_outputs_with_context(NULL, NULL, 0, &output) == QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(output == NULL);
-    CHECK(quantapdf_open_with_context(context, TEXT_PDF, NULL, NULL) == QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(quantapdf_composer_create_with_context(context, NULL, NULL) == QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(quantapdf_merge_outputs_with_context(context, NULL, 0, NULL) == QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(quantapdf_open_with_context(context, NON_PDF, NULL, &document) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_open(context, NON_PDF, NULL, &document) == QUANTAPDF_ERROR_FORMAT);
     CHECK(document == NULL && context->references == 1);
-    CHECK(quantapdf_open_with_context(context, "", NULL, &document) == QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_open(context, DAMAGED_PDF, NULL, &document) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(document == NULL && context->references == 1);
+    CHECK(quantapdf_open(context, TEXT_PDF, NULL, &document) == QUANTAPDF_OK);
+    quantapdf_close(document);
+    CHECK(context->references == 1);
+    CHECK(quantapdf_open(context, "", NULL, &document) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(document == NULL && context->references == 1);
     quantapdf_drop_context(context);
     CHECK(finalized == 1);
@@ -106,7 +100,6 @@ static void test_shared_domain_and_detached_results(void)
     quantapdf_context *context = NULL;
     quantapdf_document *document = NULL, *other = NULL;
     quantapdf_page *page = NULL;
-    quantapdf_bitmap *bitmap = NULL;
     quantapdf_text_page *text = NULL;
     quantapdf_link_page *links = NULL;
     quantapdf_annotation_page *annotations = NULL;
@@ -119,13 +112,12 @@ static void test_shared_domain_and_detached_results(void)
     int pages = 0;
     CHECK(quantapdf_context_create(&context) == QUANTAPDF_OK);
     context->test_finalizations = &finalized;
-    CHECK(quantapdf_open_with_context(context, TEXT_PDF, NULL, &document) == QUANTAPDF_OK);
-    CHECK(quantapdf_open_with_context(context, TEXT_PDF, NULL, &other) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(context, TEXT_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(context, TEXT_PDF, NULL, &other) == QUANTAPDF_OK);
     CHECK(context->references == 3);
     quantapdf_drop_context(context);
     CHECK(document->context == other->context && document->context->references == 2);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-    CHECK(quantapdf_render_page(page, &bitmap) == QUANTAPDF_OK);
     CHECK(quantapdf_extract_text(page, &raw, &size) == QUANTAPDF_OK && size > 0);
     CHECK(quantapdf_extract_structured_text(page, &text) == QUANTAPDF_OK);
     CHECK(quantapdf_extract_links(page, &links) == QUANTAPDF_OK);
@@ -133,12 +125,11 @@ static void test_shared_domain_and_detached_results(void)
     CHECK(quantapdf_document_outline(document, &outline) == QUANTAPDF_OK);
     CHECK(quantapdf_document_form(document, &form) == QUANTAPDF_OK);
     CHECK(quantapdf_pdf_edit_begin(document, &edit) == QUANTAPDF_OK);
-    CHECK(page->context == document->context && bitmap->context == page->context);
+    CHECK(page->context == document->context);
     CHECK(text->snapshot.context == page->context && links->snapshot.context == page->context);
     CHECK(annotations->snapshot.context == page->context && outline->snapshot.context == page->context);
     CHECK(form->snapshot.context == page->context && edit->context == page->context);
     quantapdf_drop_page(page);
-    quantapdf_drop_bitmap(bitmap);
     quantapdf_close(document);
     CHECK(quantapdf_page_count(other, &pages) == QUANTAPDF_OK && pages == 1);
     quantapdf_close(other);
@@ -167,6 +158,30 @@ static void test_shared_domain_and_detached_results(void)
     quantapdf_free(raw);
 }
 
+static void test_bitmap_domain(void)
+{
+    quantapdf_context *context = NULL;
+    quantapdf_document *document = NULL;
+    quantapdf_page *page = NULL;
+    quantapdf_bitmap *bitmap = NULL;
+    const unsigned char *data = NULL;
+    size_t size = 0, finalized = 0;
+    CHECK(quantapdf_context_create(&context) == QUANTAPDF_OK);
+    context->test_finalizations = &finalized;
+    CHECK(quantapdf_open(context, BLANK_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
+    CHECK(quantapdf_render_page(page, &bitmap) == QUANTAPDF_OK);
+    CHECK(bitmap->context == context);
+    quantapdf_drop_context(context);
+    quantapdf_drop_page(page);
+    quantapdf_close(document);
+    CHECK(finalized == 0);
+    CHECK(quantapdf_bitmap_data(bitmap, &data, &size) == QUANTAPDF_OK);
+    CHECK(size > 0 && data[0] == 255);
+    quantapdf_drop_bitmap(bitmap);
+    CHECK(finalized == 1);
+}
+
 static void test_image_domain(void)
 {
     quantapdf_context *context = NULL;
@@ -177,7 +192,7 @@ static void test_image_domain(void)
     size_t finalized = 0, count = 0;
     CHECK(quantapdf_context_create(&context) == QUANTAPDF_OK);
     context->test_finalizations = &finalized;
-    CHECK(quantapdf_open_with_context(context, IMAGES_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(context, IMAGES_PDF, NULL, &document) == QUANTAPDF_OK);
     quantapdf_drop_context(context);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     CHECK(quantapdf_extract_images(page, &images) == QUANTAPDF_OK);
@@ -228,14 +243,14 @@ static void test_builder_release(int pattern, int fail)
     quantapdf_status status;
     CHECK(quantapdf_context_create(&context) == QUANTAPDF_OK);
     context->test_finalizations = &finalized;
-    CHECK(quantapdf_composer_create_with_context(context, NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(context, NULL, &composer) == QUANTAPDF_OK);
     add_page(composer);
     state.owned_context = context;
     state.parent = composer;
     state.result = fail ? QUANTAPDF_ERROR_STATE : QUANTAPDF_OK;
-    form.struct_size = sizeof(form);
+
     form.width_points = form.height_points = 10;
-    tile.struct_size = sizeof(tile);
+
     tile.width_points = tile.height_points = tile.x_step = tile.y_step = 10;
     tile.transform.a = tile.transform.d = 1;
     if (pattern)
@@ -258,13 +273,17 @@ static void test_builder_release(int pattern, int fail)
 
 static void test_independent_roots_and_merge(void)
 {
-    quantapdf_context *destination = NULL;
+    quantapdf_context *destination = NULL, *left_context = NULL, *right_context = NULL;
     quantapdf_composer *a = NULL, *b = NULL;
-    quantapdf_output *left = NULL, *right = NULL, *merged = NULL, *legacy = NULL;
+    quantapdf_output *left = NULL, *right = NULL, *merged = NULL;
     const quantapdf_output *inputs[2];
     size_t finalized_a = 0, finalized_b = 0, finalized_merge = 0;
-    CHECK(quantapdf_composer_create(NULL, &a) == QUANTAPDF_OK);
-    CHECK(quantapdf_composer_create(NULL, &b) == QUANTAPDF_OK);
+    CHECK(quantapdf_context_create(&left_context) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(left_context, NULL, &a) == QUANTAPDF_OK);
+    quantapdf_drop_context(left_context);
+    CHECK(quantapdf_context_create(&right_context) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(right_context, NULL, &b) == QUANTAPDF_OK);
+    quantapdf_drop_context(right_context);
     CHECK(a->context != b->context && a->context->references == 1 && b->context->references == 1);
     a->context->test_finalizations = &finalized_a;
     b->context->test_finalizations = &finalized_b;
@@ -278,19 +297,15 @@ static void test_independent_roots_and_merge(void)
     inputs[1] = right;
     CHECK(quantapdf_context_create(&destination) == QUANTAPDF_OK);
     destination->test_finalizations = &finalized_merge;
-    CHECK(quantapdf_merge_outputs_with_context(destination, inputs, 2, &merged) == QUANTAPDF_OK);
+    CHECK(quantapdf_merge_outputs(destination, inputs, 2, &merged) == QUANTAPDF_OK);
     CHECK(merged->context == destination && destination->references == 2);
     CHECK(left->context->references == 1 && right->context->references == 1);
-    CHECK(quantapdf_merge_outputs(inputs, 2, &legacy) == QUANTAPDF_OK);
-    CHECK(legacy->context != destination && legacy->context != left->context && legacy->context != right->context);
     quantapdf_drop_context(destination);
     quantapdf_drop_output(left);
     quantapdf_drop_output(right);
     CHECK(finalized_a == 1 && finalized_b == 1 && finalized_merge == 0);
     check_pdf(merged);
-    check_pdf(legacy);
     quantapdf_drop_output(merged);
-    quantapdf_drop_output(legacy);
     CHECK(finalized_merge == 1);
 }
 
@@ -310,20 +325,20 @@ static void test_construction_failures(int overflow)
     quantapdf_annotation_page *annotations = NULL;
     quantapdf_outline *outline = NULL;
     const quantapdf_output *inputs[1];
-    quantapdf_page_crop crop = {sizeof(crop), 0, {0, 0, 10, 10}};
-    quantapdf_page_trim trim = {sizeof(trim), 0, {0, 0, 10, 10}};
-    quantapdf_page_poster_split split = {sizeof(split), 0, 1, 1};
-    quantapdf_image_recompression_options recompress = {sizeof(recompress), 80, 0};
+    quantapdf_page_crop crop = { 0, {0, 0, 10, 10}};
+    quantapdf_page_trim trim = { 0, {0, 0, 10, 10}};
+    quantapdf_page_poster_split split = { 0, 1, 1};
+    quantapdf_image_recompression_options recompress = { 80, 0};
     size_t references;
     int index = 0;
     quantapdf_status expected = overflow ? QUANTAPDF_ERROR_UNSUPPORTED : QUANTAPDF_ERROR_NOMEM;
     CHECK(quantapdf_context_create(&context) == QUANTAPDF_OK);
-    CHECK(quantapdf_open_with_context(context, IMAGES_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(context, IMAGES_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     CHECK(quantapdf_extract_images(page, &images) == QUANTAPDF_OK);
     CHECK(images->count > 0);
     CHECK(quantapdf_pdf_edit_begin(document, &edit) == QUANTAPDF_OK);
-    CHECK(quantapdf_composer_create_with_context(context, NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(context, NULL, &composer) == QUANTAPDF_OK);
     add_page(composer);
     CHECK(quantapdf_composer_finish(composer, &input) == QUANTAPDF_OK);
     inputs[0] = input;
@@ -341,9 +356,9 @@ static void test_construction_failures(int overflow)
     CHECK(context->test_fail_allocation == 0); \
     context->references = references; \
 } while (0)
-    FAIL_CONSTRUCTION(quantapdf_open_with_context(context, IMAGES_PDF, NULL, &new_document), new_document);
-    FAIL_CONSTRUCTION(quantapdf_composer_create_with_context(context, NULL, &new_composer), new_composer);
-    FAIL_CONSTRUCTION(quantapdf_merge_outputs_with_context(context, inputs, 1, &output), output);
+    FAIL_CONSTRUCTION(quantapdf_open(context, IMAGES_PDF, NULL, &new_document), new_document);
+    FAIL_CONSTRUCTION(quantapdf_composer_create(context, NULL, &new_composer), new_composer);
+    FAIL_CONSTRUCTION(quantapdf_merge_outputs(context, inputs, 1, &output), output);
     FAIL_CONSTRUCTION(quantapdf_load_page(document, 0, &new_page), new_page);
     FAIL_CONSTRUCTION(quantapdf_render_page(page, &bitmap), bitmap);
     FAIL_CONSTRUCTION(quantapdf_image_render(images, 0, &bitmap), bitmap);
@@ -386,13 +401,16 @@ static void test_transform_output_domains(void)
 {
     quantapdf_document *document = NULL;
     quantapdf_output *outputs[8] = {0};
-    quantapdf_page_crop crop = {sizeof(crop), 0, {0, 0, 10, 10}};
-    quantapdf_page_trim trim = {sizeof(trim), 0, {0, 0, 10, 10}};
-    quantapdf_page_poster_split split = {sizeof(split), 0, 1, 1};
-    quantapdf_image_recompression_options recompress = {sizeof(recompress), 80, 0};
+    quantapdf_page_crop crop = { 0, {0, 0, 10, 10}};
+    quantapdf_page_trim trim = { 0, {0, 0, 10, 10}};
+    quantapdf_page_poster_split split = { 0, 1, 1};
+    quantapdf_image_recompression_options recompress = { 80, 0};
     size_t finalized = 0, i;
     int index = 0;
-    CHECK(quantapdf_open(TEXT_PDF, NULL, &document) == QUANTAPDF_OK);
+    quantapdf_context *context = NULL;
+    CHECK(quantapdf_context_create(&context) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(context, TEXT_PDF, NULL, &document) == QUANTAPDF_OK);
+    quantapdf_drop_context(context);
     CHECK(document->context->references == 1);
     document->context->test_finalizations = &finalized;
     CHECK(quantapdf_export_pages(document, &index, 1, &outputs[0]) == QUANTAPDF_OK);
@@ -420,6 +438,7 @@ int main(void)
     test_snapshot_finalization_order();
     test_arguments_and_failed_open();
     test_shared_domain_and_detached_results();
+    test_bitmap_domain();
     test_image_domain();
     test_builder_release(0, 0);
     test_builder_release(0, 1);

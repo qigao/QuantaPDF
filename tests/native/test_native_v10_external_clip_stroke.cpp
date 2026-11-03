@@ -172,14 +172,14 @@ static int check(const std::filesystem::path& assets)
         quantapdf_page* page=nullptr;
         quantapdf_bitmap* bitmap=
             reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-        OK(quantapdf_open_with_context(
+        OK(quantapdf_open(
             context,filename.c_str(),nullptr,&doc));
         CHECK(doc!=nullptr);
         if(!exact_external)CHECK(std::remove(temporary)==0);
         OK(quantapdf_load_page(doc,0,&page));
         CHECK(page!=nullptr);
         quantapdf_render_options opts{};
-        opts.struct_size=sizeof(opts);
+
         opts.dpi=case_index==17u?96.0f:72.0f;
         const auto status=quantapdf_render_page_with_options(
             page,&opts,&bitmap);

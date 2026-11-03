@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 #include "snapshot/text_snapshot.h"
 #include <qpdf/QPDF.hh>
@@ -30,7 +31,7 @@ struct fixture {
     {
         { QPDFWriter w(pdf,NATIVE_DOCUMENT_OUTPUT_PDF); if(encrypted) w.setR6EncryptionParameters("pass","owner",true,true,true,true,true,true,qpdf_r3p_full,false); w.write(); }
         quantapdf_document *d=nullptr; quantapdf_page *p=nullptr;
-        SCHECK(quantapdf_open(NATIVE_DOCUMENT_OUTPUT_PDF,encrypted?"pass":nullptr,&d)==QUANTAPDF_OK);
+        SCHECK(quantapdf_open(test_context(), NATIVE_DOCUMENT_OUTPUT_PDF,encrypted?"pass":nullptr,&d)==QUANTAPDF_OK);
         SCHECK(quantapdf_load_page(d,0,&p)==QUANTAPDF_OK);
         auto t=reinterpret_cast<quantapdf_text_page *>(1);
         auto status=quantapdf_extract_structured_text(p,&t);
@@ -43,7 +44,7 @@ struct fixture {
 };
 quantapdf_quad search(quantapdf_text_page *t,char const *needle)
 {
-    size_t count=0; quantapdf_search_result r={}; r.struct_size=sizeof(r);
+    size_t count=0; quantapdf_search_result r={};
     SCHECK(quantapdf_text_search(t,needle,&r,1,&count)==QUANTAPDF_OK && count==1);
     return r.quad;
 }
@@ -128,7 +129,7 @@ void refusals()
     f.content("BT /F 10 Tf (A) Tj ET"); f.face.replaceKey("/FontDescriptor",Obj::parse("<< /Ascent 800 >>")); f.extract(QUANTAPDF_ERROR_UNSUPPORTED);
     // Missing geometry metrics must not break the separate plain-text path.
     quantapdf_document *d=nullptr; quantapdf_page *p=nullptr; char *bytes=nullptr; size_t size=0;
-    SCHECK(quantapdf_open(NATIVE_DOCUMENT_OUTPUT_PDF,nullptr,&d)==QUANTAPDF_OK);
+    SCHECK(quantapdf_open(test_context(), NATIVE_DOCUMENT_OUTPUT_PDF,nullptr,&d)==QUANTAPDF_OK);
     SCHECK(quantapdf_load_page(d,0,&p)==QUANTAPDF_OK);
     SCHECK(quantapdf_extract_text(p,&bytes,&size)==QUANTAPDF_OK && size==1 && bytes[0]=='A');
     quantapdf_free(bytes); quantapdf_drop_page(p); quantapdf_close(d);

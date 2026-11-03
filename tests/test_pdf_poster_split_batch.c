@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include "test_pdf_poster_split_internal.h"
 
 #include <quantapdf/quantapdf.h>
@@ -24,7 +25,7 @@ static int close_float(float left, float right)
 static quantapdf_document *open_document(const char *path)
 {
     quantapdf_document *document = NULL;
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     CHECK(document != NULL);
     return document;
 }
@@ -35,7 +36,7 @@ static quantapdf_page_poster_split make_split(
     size_t rows)
 {
     quantapdf_page_poster_split split;
-    split.struct_size = sizeof(split);
+
     split.page_index = page_index;
     split.columns = columns;
     split.rows = rows;
@@ -303,7 +304,7 @@ static void check_interactive_source(quantapdf_document *source)
     CHECK(quantapdf_document_form(source, &form) == QUANTAPDF_OK);
     CHECK(quantapdf_form_widget_count(form, &count) == QUANTAPDF_OK);
     CHECK(count == 1);
-    widget.struct_size = sizeof(widget);
+
     CHECK(quantapdf_form_widget_get_info(form, 0, &widget) == QUANTAPDF_OK);
     CHECK(widget.page_index == 0);
     CHECK(quantapdf_form_field_value_utf8(
@@ -330,7 +331,7 @@ static void check_navigation_source(quantapdf_document *source)
     CHECK(outline != NULL);
     CHECK(quantapdf_outline_count(outline, &count) == QUANTAPDF_OK);
     CHECK(count == 2);
-    info.struct_size = sizeof(info);
+
     CHECK(quantapdf_outline_get_info(outline, 0, &info) == QUANTAPDF_OK);
     CHECK(info.destination_kind == QUANTAPDF_OUTLINE_DESTINATION_INTERNAL);
     CHECK(info.target_page == 0);

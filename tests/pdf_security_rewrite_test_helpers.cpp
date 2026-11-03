@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include <qpdf/Constants.h>
@@ -402,14 +403,14 @@ int quantapdf_security_check_static_provider_boundary(
     quantapdf_document *document = nullptr;
     quantapdf_output *output = nullptr;
     quantapdf_encryption_options options = {
-        QUANTAPDF_ENCRYPTION_OPTIONS_V1_SIZE,
+
         QUANTAPDF_ENCRYPTION_AES_256,
         "provider-user",
         "provider-owner",
         QUANTAPDF_PERMISSION_ALL,
         1};
     bool boundary_ok =
-        quantapdf_open(source_path, nullptr, &document) == QUANTAPDF_OK &&
+        quantapdf_open(test_context(), source_path, nullptr, &document) == QUANTAPDF_OK &&
         quantapdf_encrypt_pdf(document, &options, &output) ==
             QUANTAPDF_ERROR_UNSUPPORTED &&
         output == nullptr &&
@@ -421,7 +422,7 @@ int quantapdf_security_check_static_provider_boundary(
         return 0;
 
     document = nullptr;
-    if (quantapdf_open(source_path, nullptr, &document) != QUANTAPDF_OK)
+    if (quantapdf_open(test_context(), source_path, nullptr, &document) != QUANTAPDF_OK)
         return 0;
     std::atomic<bool> stop{false};
     std::atomic<bool> worker_ok{true};

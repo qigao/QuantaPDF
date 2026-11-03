@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include <stdio.h>
@@ -105,7 +106,7 @@ static void expect_saved_pdf(
     quantapdf_document *document = NULL;
     int page_count = 0;
 
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_page_count(document, &page_count) == QUANTAPDF_OK);
     CHECK(page_count == 2);
     expect_page(document, 0, first_text, first_width, first_height);
@@ -139,7 +140,7 @@ int main(void)
     CHECK(quantapdf_output_save_file(NULL, ASCII_OUTPUT_PDF) ==
           QUANTAPDF_ERROR_ARGUMENT);
 
-    CHECK(quantapdf_open(COMPOSITION_PDF, NULL, &source) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), COMPOSITION_PDF, NULL, &source) == QUANTAPDF_OK);
     CHECK(quantapdf_export_pages(source, indices, 2, &output) == QUANTAPDF_OK);
     CHECK(output != NULL);
     quantapdf_close(source);

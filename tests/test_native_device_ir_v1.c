@@ -260,7 +260,7 @@ static int resource_ledger_contracts(const quantapdf_ir *source)
     ops[0].kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;
     ops[0].bounds=(quantapdf_rect){0.0f,0.0f,8.0f,8.0f};
     ops[0].value.image.image_id=1u;
-    ops[0].value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+
     ops[0].value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     ops[1]=ops[0];
     ir.operations=ops;ir.operation_count=2u;
@@ -454,7 +454,7 @@ static int compiled_page_contracts(const quantapdf_ir *fixture)
         if(mode!=0u) {
             memset(&op,0,sizeof(op));op.kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;
             op.bounds.x1=op.bounds.y1=8.0f;op.graphics_state_id=1u;
-            op.value.image.image_id=1u;op.value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+            op.value.image.image_id=1u;
             op.value.image.options.graphics_state_id=1u;
             op.value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
             image.data=red;image.size=3u;image.width=image.height=1u;image.components=3;
@@ -487,7 +487,6 @@ static int compiled_page_contracts(const quantapdf_ir *fixture)
     puts("Compiled page: frozen PATH/RAW/Clip projection, cumulative refusal and independent output passed");
     return 0;
 }
-
 
 /* M2b.2a: exact 16-bit glyph coverage AND frozen W/W* Clip coverage.
  * The disjoint edge control produces zero ink even though each mask
@@ -666,7 +665,7 @@ int main(void) {
     ir.pages=&page;ir.page_count=1u;
     ir.operations=&op;ir.operation_count=1u;
     op.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
-    op.value.path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
     op.value.path.options.fill=1;
     op.value.path.options.fill_argb=UINT32_C(0xff0000ff);
     op.value.path.commands=commands;op.value.path.command_count=5u;
@@ -738,7 +737,7 @@ int main(void) {
     op=(quantapdf_composer_operation){0};
     op.kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;
     op.value.image.image_id=(quantapdf_composer_image_id)1;
-    op.value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE;
+
     op.value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     op.bounds=(quantapdf_rect){0,0,8,8};
     raw.format=QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW;
@@ -809,7 +808,7 @@ int main(void) {
         ir.resources.clip_count=1u;
         ir.resources.clip_capacity=1u;
         op.graphics_state_id=(quantapdf_composer_graphics_state_id)1u;
-        op.value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+
         op.value.image.options.graphics_state_id=
             (quantapdf_composer_graphics_state_id)1u;
         OK(quantapdf_native_device_ir_render_v1(&ir,96u,&lim,&out));
@@ -836,7 +835,7 @@ int main(void) {
         ir.resources.clip_count=0u;
         ir.resources.clip_capacity=0u;
         op.graphics_state_id=(quantapdf_composer_graphics_state_id)0u;
-        op.value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE;
+
         op.value.image.options.graphics_state_id=
             (quantapdf_composer_graphics_state_id)0u;
     }

@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 /* M1/M2: unchanged literal source PDF -> owned Graph -> detached IR + device
  * plan -> Native. PDFium is an independent original-source FIT oracle.
  * The expected grid and 4x4 coverage below use fixture integer coordinates,
@@ -162,7 +163,7 @@ quantapdf_status lower(const char *path, unsigned dpi, size_t max_pixels,
 {
     quantapdf_document *document = nullptr;
     quantapdf_graph_snapshot *snapshot = nullptr;
-    OK(quantapdf_open(path, nullptr, &document));
+    OK(quantapdf_open(test_context(), path, nullptr, &document));
     OK(quantapdf_document_capture_graph(document, &graph_limits, &snapshot));
     quantapdf_close(document);
     if (numbers) {

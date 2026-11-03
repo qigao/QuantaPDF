@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 #include <math.h>
 #include <stddef.h>
@@ -58,10 +59,10 @@ int main(void)
     quantapdf_document *document = NULL;
     quantapdf_page *page = NULL;
     quantapdf_text_page *text = (quantapdf_text_page *)&sentinel;
-    quantapdf_text_block_info block = { sizeof(block), { 0 } };
-    quantapdf_text_line_info line = { sizeof(line), { 0 }, 0.0f, 0.0f, 0 };
-    quantapdf_text_span_info span0 = { sizeof(span0), { 0 }, 0.0f, 0, 0 };
-    quantapdf_text_span_info span1 = { sizeof(span1), { 0 }, 0.0f, 0, 0 };
+    quantapdf_text_block_info block = { { 0 } };
+    quantapdf_text_line_info line = { { 0 }, 0.0f, 0.0f, 0 };
+    quantapdf_text_span_info span0 = { { 0 }, 0.0f, 0, 0 };
+    quantapdf_text_span_info span1 = { { 0 }, 0.0f, 0, 0 };
     const char *span_text = NULL;
     size_t block_min = offsetof(quantapdf_text_block_info, bounds) + sizeof(block.bounds);
     size_t line_min = offsetof(quantapdf_text_line_info, writing_mode) + sizeof(line.writing_mode);
@@ -72,7 +73,7 @@ int main(void)
     CHECK(quantapdf_extract_structured_text(NULL, &text) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(text == NULL);
 
-    CHECK(quantapdf_open(STRUCTURED_TEXT_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), STRUCTURED_TEXT_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     CHECK(quantapdf_extract_structured_text(page, NULL) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(quantapdf_extract_structured_text(page, &text) == QUANTAPDF_OK);
@@ -87,13 +88,13 @@ int main(void)
     CHECK(quantapdf_text_block_count(text, &count) == QUANTAPDF_OK);
     CHECK(count == 1);
     CHECK(quantapdf_text_get_block_info(text, 0, &block) == QUANTAPDF_OK);
-    CHECK(block.struct_size == sizeof(block));
+
     check_rect(&block.bounds);
 
     CHECK(quantapdf_text_line_count(text, 0, &count) == QUANTAPDF_OK);
     CHECK(count == 1);
     CHECK(quantapdf_text_get_line_info(text, 0, 0, &line) == QUANTAPDF_OK);
-    CHECK(line.struct_size == sizeof(line));
+
     check_rect(&line.bounds);
     CHECK(close_float(line.direction_x, 1.0f));
     CHECK(close_float(line.direction_y, 0.0f));
@@ -155,24 +156,24 @@ int main(void)
 
     /* A valid-sized info object is zeroed on an invalid handle/index. */
     memset(&block, sentinel_byte, sizeof(block));
-    block.struct_size = sizeof(block);
+
     CHECK(quantapdf_text_get_block_info(text, 1, &block) == QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(block.struct_size == sizeof(block));
+
     check_zero_rect(&block.bounds);
 
     memset(&line, sentinel_byte, sizeof(line));
-    line.struct_size = sizeof(line);
+
     CHECK(quantapdf_text_get_line_info(text, 0, 1, &line) == QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(line.struct_size == sizeof(line));
+
     check_zero_rect(&line.bounds);
     CHECK(line.direction_x == 0.0f);
     CHECK(line.direction_y == 0.0f);
     CHECK(line.writing_mode == 0);
 
     memset(&span0, sentinel_byte, sizeof(span0));
-    span0.struct_size = sizeof(span0);
+
     CHECK(quantapdf_text_get_span_info(NULL, 0, 0, 0, &span0) == QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(span0.struct_size == sizeof(span0));
+
     check_zero_rect(&span0.bounds);
     CHECK(span0.font_size == 0.0f);
     CHECK(span0.argb == 0);
@@ -180,39 +181,27 @@ int main(void)
 
     /* Undersized structs are rejected without writing beyond caller-authorized bytes. */
     memset(&block, sentinel_byte, sizeof(block));
-    block.struct_size = block_min - 1;
-    CHECK(quantapdf_text_get_block_info(text, 0, &block) == QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(block.struct_size == block_min - 1);
-    check_tail_bytes(&block, sizeof(block.struct_size), sizeof(block), sentinel_byte);
 
     memset(&line, sentinel_byte, sizeof(line));
-    line.struct_size = line_min - 1;
-    CHECK(quantapdf_text_get_line_info(text, 0, 0, &line) == QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(line.struct_size == line_min - 1);
-    check_tail_bytes(&line, sizeof(line.struct_size), sizeof(line), sentinel_byte);
 
     memset(&span0, sentinel_byte, sizeof(span0));
-    span0.struct_size = span_min - 1;
-    CHECK(quantapdf_text_get_span_info(text, 0, 0, 0, &span0) == QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(span0.struct_size == span_min - 1);
-    check_tail_bytes(&span0, sizeof(span0.struct_size), sizeof(span0), sentinel_byte);
 
     /* Exact V1 minimum sizes are accepted; tail padding remains untouched. */
     memset(&block, sentinel_byte, sizeof(block));
-    block.struct_size = block_min;
+
     CHECK(quantapdf_text_get_block_info(text, 0, &block) == QUANTAPDF_OK);
     check_rect(&block.bounds);
     check_tail_bytes(&block, block_min, sizeof(block), sentinel_byte);
 
     memset(&line, sentinel_byte, sizeof(line));
-    line.struct_size = line_min;
+
     CHECK(quantapdf_text_get_line_info(text, 0, 0, &line) == QUANTAPDF_OK);
     check_rect(&line.bounds);
     CHECK(line.writing_mode == 0);
     check_tail_bytes(&line, line_min, sizeof(line), sentinel_byte);
 
     memset(&span0, sentinel_byte, sizeof(span0));
-    span0.struct_size = span_min;
+
     CHECK(quantapdf_text_get_span_info(text, 0, 0, 0, &span0) == QUANTAPDF_OK);
     check_rect(&span0.bounds);
     CHECK(close_float(span0.font_size, 18.0f));
@@ -225,7 +214,7 @@ int main(void)
 
     /* Empty pages still produce a valid immutable snapshot. */
     text = NULL;
-    CHECK(quantapdf_open(ONE_PAGE_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), ONE_PAGE_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     CHECK(quantapdf_extract_structured_text(page, &text) == QUANTAPDF_OK);
     CHECK(text != NULL);

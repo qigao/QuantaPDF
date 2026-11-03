@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include <stdint.h>
@@ -62,7 +63,7 @@ static size_t annotation_count(const char *path)
     quantapdf_annotation_page *annotations = NULL;
     size_t count = 0;
 
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     CHECK(quantapdf_extract_annotations(page, &annotations) == QUANTAPDF_OK);
     CHECK(quantapdf_annotation_count(annotations, &count) == QUANTAPDF_OK);
@@ -78,7 +79,7 @@ static quantapdf_status flatten_status(const char *path, uint32_t flags)
     quantapdf_output *output = (quantapdf_output *)(uintptr_t)1;
     quantapdf_status status;
 
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     status = quantapdf_flatten_interactive(document, flags, &output);
     if (status == QUANTAPDF_OK)
         quantapdf_drop_output(output);
@@ -97,7 +98,7 @@ static quantapdf_status flatten_status_with_password(
     quantapdf_output *output = (quantapdf_output *)(uintptr_t)1;
     quantapdf_status status;
 
-    CHECK(quantapdf_open(path, password, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, password, &document) == QUANTAPDF_OK);
     status = quantapdf_flatten_interactive(document, flags, &output);
     if (status == QUANTAPDF_OK)
         quantapdf_drop_output(output);
@@ -135,12 +136,12 @@ static void check_form_transform(
     quantapdf_document *result = NULL;
     quantapdf_output *output = NULL;
 
-    CHECK(quantapdf_open(path, NULL, &source) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &source) == QUANTAPDF_OK);
     check_form_counts(source, source_fields, source_widgets);
     CHECK(quantapdf_flatten_interactive(
         source, QUANTAPDF_FLATTEN_WIDGETS, &output) == QUANTAPDF_OK);
     CHECK(quantapdf_output_save_file(output, FLATTEN_OUTPUT_PDF) == QUANTAPDF_OK);
-    CHECK(quantapdf_open(FLATTEN_OUTPUT_PDF, NULL, &result) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), FLATTEN_OUTPUT_PDF, NULL, &result) == QUANTAPDF_OK);
     check_form_counts(result, result_fields, result_widgets);
     check_form_counts(source, source_fields, source_widgets);
     quantapdf_close(result);
@@ -155,7 +156,7 @@ static void check_raw_form_closure(const char *path, int ancestor_survives)
     const unsigned char *data = NULL;
     size_t size = 0;
 
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_flatten_interactive(
         document, QUANTAPDF_FLATTEN_WIDGETS, &output) == QUANTAPDF_OK);
     CHECK(quantapdf_output_data(output, &data, &size) == QUANTAPDF_OK);
@@ -172,7 +173,7 @@ static void check_raw_combined(void)
     const unsigned char *data = NULL;
     size_t size = 0;
 
-    CHECK(quantapdf_open(FLATTEN_COMBINED_ORDER_PDF, NULL, &document) ==
+    CHECK(quantapdf_open(test_context(), FLATTEN_COMBINED_ORDER_PDF, NULL, &document) ==
         QUANTAPDF_OK);
     CHECK(quantapdf_flatten_interactive(
         document,
@@ -191,7 +192,7 @@ static void check_raw_calculation_order(void)
     const unsigned char *data = NULL;
     size_t size = 0;
 
-    CHECK(quantapdf_open(FLATTEN_FORM_CO_COW_PDF, NULL, &document) ==
+    CHECK(quantapdf_open(test_context(), FLATTEN_FORM_CO_COW_PDF, NULL, &document) ==
         QUANTAPDF_OK);
     CHECK(quantapdf_flatten_interactive(
         document, QUANTAPDF_FLATTEN_WIDGETS, &output) == QUANTAPDF_OK);
@@ -208,7 +209,7 @@ static void check_raw_contents(void)
     const unsigned char *data = NULL;
     size_t size = 0;
 
-    CHECK(quantapdf_open(FLATTEN_CONTENTS_PDF, NULL, &document) ==
+    CHECK(quantapdf_open(test_context(), FLATTEN_CONTENTS_PDF, NULL, &document) ==
         QUANTAPDF_OK);
     CHECK(quantapdf_flatten_interactive(
         document, QUANTAPDF_FLATTEN_ANNOTATIONS, &output) == QUANTAPDF_OK);
@@ -225,7 +226,7 @@ static void check_raw_number_format(void)
     const unsigned char *data = NULL;
     size_t size = 0;
 
-    CHECK(quantapdf_open(FLATTEN_NUMBER_FORMAT_PDF, NULL, &document) ==
+    CHECK(quantapdf_open(test_context(), FLATTEN_NUMBER_FORMAT_PDF, NULL, &document) ==
         QUANTAPDF_OK);
     CHECK(quantapdf_flatten_interactive(
         document, QUANTAPDF_FLATTEN_ANNOTATIONS, &output) == QUANTAPDF_OK);
@@ -252,7 +253,6 @@ static void compare_rendered_page(
     int sw = 0, sh = 0, ss = 0, sc = 0;
     int rw = 0, rh = 0, rs = 0, rc = 0;
 
-    options.struct_size = sizeof(options);
     options.dpi = 72.0f;
     CHECK(quantapdf_load_page(source, page_index, &source_page) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(result, page_index, &result_page) == QUANTAPDF_OK);
@@ -289,14 +289,14 @@ static void check_render_fixture(
     quantapdf_status status;
     int page_index;
 
-    CHECK(quantapdf_open(path, NULL, &source) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &source) == QUANTAPDF_OK);
     status = quantapdf_flatten_interactive(source, flags, &output);
     if (status != QUANTAPDF_OK)
         fprintf(stderr, "flatten failed for %s: %s\n", path,
             quantapdf_status_string(status));
     CHECK(status == QUANTAPDF_OK);
     CHECK(quantapdf_output_save_file(output, FLATTEN_OUTPUT_PDF) == QUANTAPDF_OK);
-    CHECK(quantapdf_open(FLATTEN_OUTPUT_PDF, NULL, &result) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), FLATTEN_OUTPUT_PDF, NULL, &result) == QUANTAPDF_OK);
     for (page_index = 0; page_index < page_count; ++page_index)
         compare_rendered_page(source, result, page_index);
     if (expect_empty_form) {
@@ -324,7 +324,7 @@ static void check_deterministic(const char *path, uint32_t flags)
     size_t first_size = 0;
     size_t second_size = 0;
 
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_flatten_interactive(document, flags, &first) == QUANTAPDF_OK);
     CHECK(quantapdf_flatten_interactive(document, flags, &second) == QUANTAPDF_OK);
     CHECK(quantapdf_output_data(first, &first_data, &first_size) == QUANTAPDF_OK);
@@ -347,10 +347,10 @@ static void check_idempotent(const char *path, uint32_t flags)
     size_t first_size = 0;
     size_t second_size = 0;
 
-    CHECK(quantapdf_open(path, NULL, &source) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &source) == QUANTAPDF_OK);
     CHECK(quantapdf_flatten_interactive(source, flags, &first) == QUANTAPDF_OK);
     CHECK(quantapdf_output_save_file(first, FLATTEN_OUTPUT_PDF) == QUANTAPDF_OK);
-    CHECK(quantapdf_open(FLATTEN_OUTPUT_PDF, NULL, &result) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), FLATTEN_OUTPUT_PDF, NULL, &result) == QUANTAPDF_OK);
     CHECK(quantapdf_flatten_interactive(result, flags, &second) == QUANTAPDF_OK);
     CHECK(quantapdf_output_data(first, &first_data, &first_size) == QUANTAPDF_OK);
     CHECK(quantapdf_output_data(second, &second_data, &second_size) == QUANTAPDF_OK);
@@ -369,7 +369,7 @@ int main(void)
     quantapdf_output *output = NULL;
     quantapdf_output *sentinel = (quantapdf_output *)(uintptr_t)1;
 
-    CHECK(quantapdf_open(FLATTEN_BASIC_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), FLATTEN_BASIC_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(document != NULL);
     CHECK(annotation_count(FLATTEN_BASIC_PDF) == 1);
 
@@ -392,7 +392,7 @@ int main(void)
         document, QUANTAPDF_FLATTEN_ANNOTATIONS, NULL) ==
         QUANTAPDF_ERROR_ARGUMENT);
 
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
         FLATTEN_NO_ANNOTATIONS_PDF, NULL, &no_annotations) == QUANTAPDF_OK);
     CHECK(quantapdf_flatten_interactive(
         no_annotations, QUANTAPDF_FLATTEN_ANNOTATIONS, &output) ==

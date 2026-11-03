@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include "ir/ir.h"
 #include "composer/composer_internal.h"
 #include "core/context_internal.h"
@@ -48,24 +49,24 @@ static int test_model_outlives_builder(void)
 
     CHECK(quantapdf_context_create(&context) == QUANTAPDF_OK);
     context->test_finalizations = &finalizations;
-    CHECK(quantapdf_composer_create_with_context(context, NULL, &composer) ==
+    CHECK(quantapdf_composer_create(context, NULL, &composer) ==
           QUANTAPDF_OK);
     quantapdf_drop_context(context);
-    page_options.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
+
     page_options.width_points = 120;
     page_options.height_points = 100;
     page_options.background_argb = UINT32_C(0xffffffff);
     CHECK(quantapdf_composer_add_page(composer, &page_options, &page_index) ==
           QUANTAPDF_OK);
     CHECK(page_index == 0);
-    text_options.struct_size = QUANTAPDF_COMPOSER_TEXT_OPTIONS_V1_SIZE;
+
     text_options.font = QUANTAPDF_COMPOSER_FONT_HELVETICA;
     text_options.font_size = 12;
     text_options.argb = UINT32_C(0xff000000);
     text_options.line_height_multiplier = 1;
     CHECK(quantapdf_composer_draw_text(composer, 0, source_text, &text_bounds,
                                      &text_options) == QUANTAPDF_OK);
-    raster.struct_size = QUANTAPDF_COMPOSER_RASTER_V1_SIZE;
+
     raster.format = QUANTAPDF_COMPOSER_RASTER_RGBA32;
     raster.width = raster.height = 1;
     raster.stride = raster.size = sizeof(source_pixel);
@@ -78,7 +79,7 @@ static int test_model_outlives_builder(void)
               QUANTAPDF_OK);
         CHECK(reused == image_id);
     }
-    image_options.struct_size = QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE;
+
     image_options.fit = QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     CHECK(quantapdf_composer_draw_image(composer, 0, image_id, &image_bounds,
                                       &image_options) == QUANTAPDF_OK);
@@ -126,7 +127,7 @@ static int test_model_outlives_builder(void)
     CHECK(fwrite(first, 1, first_size, file) == first_size);
     CHECK(fclose(file) == 0);
     free(first);
-    CHECK(quantapdf_open(IR_OUTPUT_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), IR_OUTPUT_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     CHECK(quantapdf_extract_text(page, &text, &text_size) == QUANTAPDF_OK);
     CHECK(text_size >= strlen("IR survives"));

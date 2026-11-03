@@ -1,3 +1,4 @@
+#include "../test_context_fixture.h"
 #ifndef QUANTAPDF_NATIVE_TTF_PUBLIC_CASES_H
 #define QUANTAPDF_NATIVE_TTF_PUBLIC_CASES_H
 #include "native_ttf_fixture.h"
@@ -66,19 +67,19 @@ static std::string composer_ttf_original(bool glyph_run=false,bool cycle=false)
         font.at(glyph+12u)=0x09u;font.at(glyph+13u)=0x0du;
     }
     quantapdf_composer *composer=nullptr;quantapdf_output *output=nullptr;
-    quantapdf_composer_options limits{};limits.struct_size=sizeof(limits);
+    quantapdf_composer_options limits{};
     limits.max_pages=1u;limits.max_operations=4u;limits.max_resource_bytes=2000000u;limits.max_navigation_items=1u;
-    require(quantapdf_composer_create(&limits,&composer));
-    quantapdf_composer_page_options page{sizeof(page),128.0f,64.0f,UINT32_C(0xffdfdfdf)};size_t index=0u;
+    require(quantapdf_composer_create(test_context(), &limits,&composer));
+    quantapdf_composer_page_options page{128.0f,64.0f,UINT32_C(0xffdfdfdf)};size_t index=0u;
     require(quantapdf_composer_add_page(composer,&page,&index));
-    quantapdf_composer_font_id id=0u;quantapdf_composer_font_options options{sizeof(options)};
-    require(quantapdf_composer_add_font(composer,font.data(),font.size(),&options,&id));
-    quantapdf_composer_embedded_text_options text{};text.struct_size=sizeof(text);text.font_id=id;
+    quantapdf_composer_font_id id=0u;
+    require(quantapdf_composer_add_font(composer,font.data(),font.size(),&id));
+    quantapdf_composer_embedded_text_options text{};text.font_id=id;
     text.font_size=24.0f;text.argb=UINT32_C(0xff000000);text.line_height_multiplier=1.0f;
     const quantapdf_rect bounds{12.0f,20.0f,120.0f,60.0f};
     if(glyph_run) {
         const quantapdf_composer_glyph glyph={cycle?2317u:45u,713.0f,0.0f,0.0f,0.0f,0u,cycle?2u:1u};
-        quantapdf_composer_glyph_run_options run{};run.struct_size=sizeof(run);run.font_id=id;
+        quantapdf_composer_glyph_run_options run{};run.font_id=id;
         run.font_size=24.0f;run.argb=UINT32_C(0xff000000);
         const quantapdf_point origin{12.0f,44.0f};
         require(quantapdf_composer_draw_glyph_run(composer,index,origin,&glyph,1u,cycle?"\xc3\xa9":"H",cycle?2u:1u,&run));
@@ -113,7 +114,7 @@ static int native_ttf_public_cases(const std::string& filename,int first=0,int l
         const char *text_value=mode==49?"H":"Hello";
         CHECK(write_native_ttf_pdf(filename,original));
         quantapdf_document *doc=nullptr;quantapdf_page *page=nullptr;
-        OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&doc));
+        OK(quantapdf_open(ctx,filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_text_page *text=nullptr;
@@ -129,12 +130,12 @@ static int native_ttf_public_cases(const std::string& filename,int first=0,int l
             const char *span=nullptr;size_t n=0u;
             OK(quantapdf_text_span_text(text,0u,0u,0u,&span,&n));
             CHECK(span!=nullptr && std::string(span,n)==text_value);
-            quantapdf_search_result hit{};hit.struct_size=sizeof(hit);
+            quantapdf_search_result hit{};
             OK(quantapdf_text_search(text,mode==49?"H":"ell",&hit,1u,&count));CHECK(count==1u);
         }
         quantapdf_bitmap *held=nullptr;std::vector<unsigned char> retained;
         for(int dpi:{72,96,144}) {
-            quantapdf_render_options options{};options.struct_size=sizeof(options);options.dpi=(float)dpi;
+            quantapdf_render_options options{};options.dpi=(float)dpi;
             quantapdf_bitmap *bitmap=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
             const auto status=quantapdf_render_page_with_options(page,&options,&bitmap);
             if(!positive) {
@@ -203,7 +204,7 @@ static int native_ttf_public_cases(const std::string& filename,int first=0,int l
      * same Context. Its final Bitmap also outlives that Context. */
     CHECK(write_native_ttf_pdf(filename,native_ttf_fixture()));
     quantapdf_document *doc=nullptr;quantapdf_page *page=nullptr;quantapdf_bitmap *bm=nullptr;
-    OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&doc));
+    OK(quantapdf_open(ctx,filename.c_str(),nullptr,&doc));
     CHECK(std::remove(filename.c_str())==0);OK(quantapdf_load_page(doc,0,&page));OK(quantapdf_render_page(page,&bm));
     const unsigned char *pixels=nullptr;size_t n=0u;OK(quantapdf_bitmap_data(bm,&pixels,&n));
     const std::vector<unsigned char> stable(pixels,pixels+n);

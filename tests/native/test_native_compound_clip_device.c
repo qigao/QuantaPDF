@@ -131,7 +131,7 @@ static void path_op(fixture *f,size_t index,unsigned id,size_t count,uint32_t co
     quantapdf_composer_operation *op=&f->ops[index];
     memset(op,0,sizeof(*op));op->kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
     op->value.path.commands=f->paths[index];op->value.path.command_count=count;
-    op->value.path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
     op->value.path.options.fill=1;op->value.path.options.fill_argb=color;
     state(op,id);
 }
@@ -183,7 +183,7 @@ static void setup(fixture *f,const geometry *g,int fractional,const profile *p)
             im->components=3;im->format=QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW;
             op->kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;op->bounds=bounds[i];
             op->value.image.image_id=(quantapdf_composer_image_id)(images+1u);
-            op->value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+
             op->value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
             state(op,id);++images;
         }

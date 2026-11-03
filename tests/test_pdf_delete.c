@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include <stdint.h>
@@ -97,7 +98,7 @@ static int verify_delete_complement(
 
     if (!write_bytes(DELETE_OUTPUT_PDF, first_data, first_size))
         goto done;
-    if (quantapdf_open(DELETE_OUTPUT_PDF, NULL, &reopened) != QUANTAPDF_OK)
+    if (quantapdf_open(test_context(), DELETE_OUTPUT_PDF, NULL, &reopened) != QUANTAPDF_OK)
         goto done;
     if (quantapdf_page_count(reopened, &reopened_count) != QUANTAPDF_OK ||
         reopened_count != (int)retained_count)
@@ -139,7 +140,7 @@ int main(void)
     int dummy_index = 0;
     int result = 1;
 
-    if (quantapdf_open(COMPOSITION_PDF, NULL, &source) != QUANTAPDF_OK) {
+    if (quantapdf_open(test_context(), COMPOSITION_PDF, NULL, &source) != QUANTAPDF_OK) {
         fprintf(stderr, "could not open composition source PDF\n");
         goto cleanup;
     }

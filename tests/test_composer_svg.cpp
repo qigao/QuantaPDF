@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include "composer_test_helpers.h"
@@ -21,7 +22,7 @@ static int add_page(quantapdf_composer* composer)
 {
     quantapdf_composer_page_options page = {};
     size_t page_index = SIZE_MAX;
-    page.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
+
     page.width_points = 240.0f;
     page.height_points = 240.0f;
     page.background_argb = UINT32_C(0xffffffff);
@@ -35,15 +36,13 @@ static quantapdf_status draw(
     char const* svg,
     quantapdf_rect bounds)
 {
-    quantapdf_composer_svg_options options = {};
-    options.struct_size = QUANTAPDF_COMPOSER_SVG_OPTIONS_V1_SIZE;
+
     return quantapdf_composer_draw_svg(
         composer,
         0u,
         reinterpret_cast<unsigned char const*>(svg),
         std::strlen(svg),
-        &bounds,
-        &options);
+        &bounds);
 }
 
 static size_t count_nonwhite(
@@ -97,36 +96,24 @@ static int test_argument_contract()
     static char const svg[] =
         "<svg viewBox=\"0 0 10 10\"><rect width=\"2\" height=\"2\"/></svg>";
     quantapdf_composer* composer = nullptr;
-    quantapdf_composer_svg_options options = {};
+
     quantapdf_rect bounds = {0.0f, 0.0f, 100.0f, 100.0f};
 
-    CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer));
 
-    options.struct_size = QUANTAPDF_COMPOSER_SVG_OPTIONS_V1_SIZE;
     CHECK(quantapdf_composer_draw_svg(
               nullptr,
               0u,
               reinterpret_cast<unsigned char const*>(svg),
               sizeof(svg) - 1u,
-              &bounds,
-              &options) == QUANTAPDF_ERROR_ARGUMENT);
+              &bounds) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(quantapdf_composer_draw_svg(
               composer,
               1u,
               reinterpret_cast<unsigned char const*>(svg),
               sizeof(svg) - 1u,
-              &bounds,
-              &options) == QUANTAPDF_ERROR_ARGUMENT);
-
-    options.struct_size = 0u;
-    CHECK(quantapdf_composer_draw_svg(
-              composer,
-              0u,
-              reinterpret_cast<unsigned char const*>(svg),
-              sizeof(svg) - 1u,
-              &bounds,
-              &options) == QUANTAPDF_ERROR_ARGUMENT);
+              &bounds) == QUANTAPDF_ERROR_ARGUMENT);
 
     quantapdf_drop_composer(composer);
     return 0;
@@ -172,7 +159,7 @@ static int test_render_geometry_and_determinism()
     int stride = 0;
     int components = 0;
 
-    CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer));
     CHECK(draw(composer, svg, bounds) == QUANTAPDF_OK);
 
@@ -202,12 +189,11 @@ static int test_render_geometry_and_determinism()
 
     CHECK(quantapdf_output_save_file(
               first, COMPOSER_SVG_OUTPUT_PDF) == QUANTAPDF_OK);
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
           QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
 
-    render.struct_size = sizeof(render);
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
           QUANTAPDF_OK);
@@ -261,7 +247,7 @@ static int test_v2a_dash_opacity_arcs_and_aspect()
         double stroke_alpha = 0.0;
         char blend[32] = {};
 
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, svg_meet, bounds) == QUANTAPDF_OK);
         CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
@@ -300,7 +286,7 @@ static int test_v2a_dash_opacity_arcs_and_aspect()
         unsigned char const* data = nullptr;
         size_t size = 0u;
 
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, svg_none, bounds) == QUANTAPDF_OK);
         CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
@@ -335,7 +321,7 @@ static int test_v2a_dash_opacity_arcs_and_aspect()
         int stride = 0;
         int components = 0;
 
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, svg_slice, bounds) == QUANTAPDF_OK);
         CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
@@ -348,11 +334,11 @@ static int test_v2a_dash_opacity_arcs_and_aspect()
 
         CHECK(quantapdf_output_save_file(
                   output, COMPOSER_SVG_OUTPUT_PDF) == QUANTAPDF_OK);
-        CHECK(quantapdf_open(
+        CHECK(quantapdf_open(test_context(),
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
+
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -424,7 +410,7 @@ static int test_v2b1_gradient_and_clip_references()
     int function_type = 0;
     double matrix[6] = {};
 
-    CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer));
     CHECK(draw(composer, svg, bounds) == QUANTAPDF_OK);
 
@@ -480,10 +466,10 @@ static int test_v2b1_gradient_and_clip_references()
 
     CHECK(quantapdf_output_save_file(
               first, COMPOSER_SVG_OUTPUT_PDF) == QUANTAPDF_OK);
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-    render.struct_size = sizeof(render);
+
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
           QUANTAPDF_OK);
@@ -541,14 +527,14 @@ static int test_v2b1_reference_failures_and_rollback()
     quantapdf_rect bounds = {0.0f, 0.0f, 100.0f, 100.0f};
     for (char const* svg: unsupported) {
         quantapdf_composer* composer = nullptr;
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, svg, bounds) == QUANTAPDF_ERROR_UNSUPPORTED);
         quantapdf_drop_composer(composer);
     }
     {
         quantapdf_composer* composer = nullptr;
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, duplicate_id, bounds) == QUANTAPDF_ERROR_FORMAT);
         quantapdf_drop_composer(composer);
@@ -567,7 +553,7 @@ static int test_v2b1_reference_failures_and_rollback()
         "<rect width=\"10\" height=\"10\" fill=\"red\"/></svg>";
 
     quantapdf_composer_options composer_options = {};
-    composer_options.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V1_SIZE;
+
     composer_options.max_resource_bytes =
         5u * sizeof(quantapdf_composer_path_command);
 
@@ -580,9 +566,9 @@ static int test_v2b1_reference_failures_and_rollback()
     size_t rejected_size = 0u;
     size_t clean_size = 0u;
 
-    CHECK(quantapdf_composer_create(&composer_options, &rejected) ==
+    CHECK(quantapdf_composer_create(test_context(), &composer_options, &rejected) ==
           QUANTAPDF_OK);
-    CHECK(quantapdf_composer_create(&composer_options, &clean) ==
+    CHECK(quantapdf_composer_create(test_context(), &composer_options, &clean) ==
           QUANTAPDF_OK);
     CHECK(add_page(rejected));
     CHECK(add_page(clean));
@@ -669,7 +655,7 @@ static int test_v2b2_symbol_use_form_reuse()
     double bbox[4] = {};
     int has_resources = 0;
 
-    CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer));
     CHECK(draw(composer, svg, bounds) == QUANTAPDF_OK);
 
@@ -736,11 +722,11 @@ static int test_v2b2_symbol_use_form_reuse()
 
     CHECK(quantapdf_output_save_file(
               first, COMPOSER_SVG_OUTPUT_PDF) == QUANTAPDF_OK);
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
           QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-    render.struct_size = sizeof(render);
+
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
           QUANTAPDF_OK);
@@ -814,7 +800,7 @@ static int test_v2b2_symbol_reference_failures_and_rollback()
     quantapdf_rect bounds = {0.0f, 0.0f, 100.0f, 100.0f};
     for (char const* svg: unsupported) {
         quantapdf_composer* composer = nullptr;
-        CHECK(quantapdf_composer_create(nullptr, &composer) ==
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) ==
               QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, svg, bounds) == QUANTAPDF_ERROR_UNSUPPORTED);
@@ -822,7 +808,7 @@ static int test_v2b2_symbol_reference_failures_and_rollback()
     }
     {
         quantapdf_composer* composer = nullptr;
-        CHECK(quantapdf_composer_create(nullptr, &composer) ==
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) ==
               QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, malformed, bounds) == QUANTAPDF_ERROR_FORMAT);
@@ -839,7 +825,7 @@ static int test_v2b2_symbol_reference_failures_and_rollback()
         "<rect width=\"10\" height=\"10\" fill=\"red\"/></svg>";
 
     quantapdf_composer_options composer_options = {};
-    composer_options.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V1_SIZE;
+
     composer_options.max_resource_bytes = 256u;
 
     quantapdf_composer* rejected = nullptr;
@@ -851,9 +837,9 @@ static int test_v2b2_symbol_reference_failures_and_rollback()
     size_t rejected_size = 0u;
     size_t clean_size = 0u;
 
-    CHECK(quantapdf_composer_create(&composer_options, &rejected) ==
+    CHECK(quantapdf_composer_create(test_context(), &composer_options, &rejected) ==
           QUANTAPDF_OK);
-    CHECK(quantapdf_composer_create(&composer_options, &clean) ==
+    CHECK(quantapdf_composer_create(test_context(), &composer_options, &clean) ==
           QUANTAPDF_OK);
     CHECK(add_page(rejected));
     CHECK(add_page(clean));
@@ -913,7 +899,7 @@ static int test_v3a_nonconformal_path_and_pattern()
         size_t size = 0u;
         quantapdf_rect bounds = {0.0f, 0.0f, 100.0f, 100.0f};
 
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, svg_path, bounds) == QUANTAPDF_OK);
         CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
@@ -957,7 +943,7 @@ static int test_v3a_nonconformal_path_and_pattern()
         int has_tile_form = 0;
         quantapdf_rect bounds = {0.0f, 0.0f, 120.0f, 100.0f};
 
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, svg_pattern, bounds) == QUANTAPDF_OK);
 
@@ -999,11 +985,11 @@ static int test_v3a_nonconformal_path_and_pattern()
 
         CHECK(quantapdf_output_save_file(
                   first, COMPOSER_SVG_OUTPUT_PDF) == QUANTAPDF_OK);
-        CHECK(quantapdf_open(
+        CHECK(quantapdf_open(test_context(),
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
+
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -1068,7 +1054,7 @@ static int test_v3a_group_opacity_and_dom_order()
         int knockout = 0;
         quantapdf_rect bounds = {0.0f, 0.0f, 120.0f, 80.0f};
 
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, svg, bounds) == QUANTAPDF_OK);
         CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
@@ -1081,11 +1067,11 @@ static int test_v3a_group_opacity_and_dom_order()
 
         CHECK(quantapdf_output_save_file(
                   output, COMPOSER_SVG_OUTPUT_PDF) == QUANTAPDF_OK);
-        CHECK(quantapdf_open(
+        CHECK(quantapdf_open(test_context(),
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
+
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -1122,17 +1108,17 @@ static int test_v3a_group_opacity_and_dom_order()
         int components = 0;
         quantapdf_rect bounds = {10.0f, 10.0f, 110.0f, 70.0f};
 
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, root_svg, bounds) == QUANTAPDF_OK);
         CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
         CHECK(quantapdf_output_save_file(
                   output, COMPOSER_SVG_OUTPUT_PDF) == QUANTAPDF_OK);
-        CHECK(quantapdf_open(
+        CHECK(quantapdf_open(test_context(),
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
+
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -1168,7 +1154,7 @@ static int test_v3a_rollback_and_unsupported_pattern_units()
     quantapdf_rect bounds = {0.0f, 0.0f, 100.0f, 100.0f};
     for (char const* text: unsupported) {
         quantapdf_composer* composer = nullptr;
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, text, bounds) == QUANTAPDF_ERROR_UNSUPPORTED);
         quantapdf_drop_composer(composer);
@@ -1182,7 +1168,7 @@ static int test_v3a_rollback_and_unsupported_pattern_units()
         "<rect width=\"10\" height=\"10\" fill=\"red\"/></svg>";
 
     quantapdf_composer_options composer_options = {};
-    composer_options.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V1_SIZE;
+
     composer_options.max_resource_bytes = 256u;
     quantapdf_composer* rejected = nullptr;
     quantapdf_composer* clean = nullptr;
@@ -1193,9 +1179,9 @@ static int test_v3a_rollback_and_unsupported_pattern_units()
     size_t rejected_size = 0u;
     size_t clean_size = 0u;
 
-    CHECK(quantapdf_composer_create(&composer_options, &rejected) ==
+    CHECK(quantapdf_composer_create(test_context(), &composer_options, &rejected) ==
           QUANTAPDF_OK);
-    CHECK(quantapdf_composer_create(&composer_options, &clean) ==
+    CHECK(quantapdf_composer_create(test_context(), &composer_options, &clean) ==
           QUANTAPDF_OK);
     CHECK(add_page(rejected));
     CHECK(add_page(clean));
@@ -1270,7 +1256,7 @@ static int test_v3b_object_bbox_gradient_clip_and_cubic_bounds()
         double matrix[6] = {};
         quantapdf_rect bounds = {20.0f, 20.0f, 120.0f, 120.0f};
 
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, svg_bbox, bounds) == QUANTAPDF_OK);
         CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
@@ -1293,11 +1279,11 @@ static int test_v3b_object_bbox_gradient_clip_and_cubic_bounds()
 
         CHECK(quantapdf_output_save_file(
                   output, COMPOSER_SVG_OUTPUT_PDF) == QUANTAPDF_OK);
-        CHECK(quantapdf_open(
+        CHECK(quantapdf_open(test_context(),
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
+
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -1328,7 +1314,7 @@ static int test_v3b_object_bbox_gradient_clip_and_cubic_bounds()
         double matrix[6] = {};
         quantapdf_rect bounds = {0.0f, 0.0f, 100.0f, 100.0f};
 
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, svg_cubic, bounds) == QUANTAPDF_OK);
         CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
@@ -1424,7 +1410,7 @@ static int test_v3b_templates_and_pattern_unit_combinations()
         double gradient_matrix[6] = {};
         quantapdf_rect bounds = {0.0f, 0.0f, 200.0f, 200.0f};
 
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, svg_templates, bounds) == QUANTAPDF_OK);
         CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
@@ -1454,11 +1440,11 @@ static int test_v3b_templates_and_pattern_unit_combinations()
 
         CHECK(quantapdf_output_save_file(
                   output, COMPOSER_SVG_OUTPUT_PDF) == QUANTAPDF_OK);
-        CHECK(quantapdf_open(
+        CHECK(quantapdf_open(test_context(),
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
+
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -1507,7 +1493,7 @@ static int test_v3b_templates_and_pattern_unit_combinations()
         int has_tile_form = 0;
         quantapdf_rect bounds = {0.0f, 0.0f, 200.0f, 200.0f};
 
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, svg, bounds) == QUANTAPDF_OK);
         CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
@@ -1524,11 +1510,11 @@ static int test_v3b_templates_and_pattern_unit_combinations()
 
         CHECK(quantapdf_output_save_file(
                   output, COMPOSER_SVG_OUTPUT_PDF) == QUANTAPDF_OK);
-        CHECK(quantapdf_open(
+        CHECK(quantapdf_open(test_context(),
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
+
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -1605,7 +1591,7 @@ static int test_v3b_template_failures_zero_bbox_and_rollback()
     quantapdf_rect bounds = {0.0f, 0.0f, 100.0f, 100.0f};
     for (char const* svg: unsupported) {
         quantapdf_composer* composer = nullptr;
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, svg, bounds) == QUANTAPDF_ERROR_UNSUPPORTED);
         quantapdf_drop_composer(composer);
@@ -1632,8 +1618,8 @@ static int test_v3b_template_failures_zero_bbox_and_rollback()
     size_t rejected_size = 0u;
     size_t clean_size = 0u;
 
-    CHECK(quantapdf_composer_create(nullptr, &rejected) == QUANTAPDF_OK);
-    CHECK(quantapdf_composer_create(nullptr, &clean) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), nullptr, &rejected) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), nullptr, &clean) == QUANTAPDF_OK);
     CHECK(add_page(rejected));
     CHECK(add_page(clean));
 
@@ -1696,7 +1682,7 @@ static int test_v4a_compound_clip_intersections()
         int components = 0;
         quantapdf_rect bounds = {20.0f, 20.0f, 220.0f, 120.0f};
 
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, svg_path, bounds) == QUANTAPDF_OK);
         CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
@@ -1706,11 +1692,11 @@ static int test_v4a_compound_clip_intersections()
 
         CHECK(quantapdf_output_save_file(
                   output, COMPOSER_SVG_OUTPUT_PDF) == QUANTAPDF_OK);
-        CHECK(quantapdf_open(
+        CHECK(quantapdf_open(test_context(),
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
+
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -1759,7 +1745,7 @@ static int test_v4a_compound_clip_intersections()
         int components = 0;
         quantapdf_rect bounds = {20.0f, 20.0f, 120.0f, 120.0f};
 
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, svg_group, bounds) == QUANTAPDF_OK);
         CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
@@ -1771,11 +1757,11 @@ static int test_v4a_compound_clip_intersections()
 
         CHECK(quantapdf_output_save_file(
                   output, COMPOSER_SVG_OUTPUT_PDF) == QUANTAPDF_OK);
-        CHECK(quantapdf_open(
+        CHECK(quantapdf_open(test_context(),
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
+
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -1817,7 +1803,7 @@ static int test_v4a_compound_clip_intersections()
         size_t size = 0u;
         quantapdf_rect bounds = {0.0f, 0.0f, 120.0f, 100.0f};
 
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, svg_use, bounds) == QUANTAPDF_OK);
         CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
@@ -1873,7 +1859,7 @@ static int test_v4a_nested_clip_references_and_rollback()
         quantapdf_output* output = nullptr;
         unsigned char const* data = nullptr;
         size_t size = 0u;
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, svg_nested, bounds) == QUANTAPDF_OK);
         CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
@@ -1890,14 +1876,14 @@ static int test_v4a_nested_clip_references_and_rollback()
     };
     for (char const* svg: invalid_nested) {
         quantapdf_composer* composer = nullptr;
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, svg, bounds) == QUANTAPDF_ERROR_UNSUPPORTED);
         quantapdf_drop_composer(composer);
     }
 
     quantapdf_composer_options limited_options = {};
-    limited_options.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V1_SIZE;
+
     limited_options.max_resource_bytes =
         5u * sizeof(quantapdf_composer_path_command);
 
@@ -1910,9 +1896,9 @@ static int test_v4a_nested_clip_references_and_rollback()
     size_t rejected_size = 0u;
     size_t clean_size = 0u;
 
-    CHECK(quantapdf_composer_create(&limited_options, &rejected) ==
+    CHECK(quantapdf_composer_create(test_context(), &limited_options, &rejected) ==
           QUANTAPDF_OK);
-    CHECK(quantapdf_composer_create(&limited_options, &clean) ==
+    CHECK(quantapdf_composer_create(test_context(), &limited_options, &clean) ==
           QUANTAPDF_OK);
     CHECK(add_page(rejected));
     CHECK(add_page(clean));
@@ -1999,7 +1985,7 @@ static int test_v4b_leaf_alpha_and_luminosity_masks()
         int has_source_form = 0;
         double mask_bbox[4] = {};
 
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, svg, bounds) == QUANTAPDF_OK);
         CHECK(quantapdf_composer_finish(composer, &first) == QUANTAPDF_OK);
@@ -2030,11 +2016,11 @@ static int test_v4b_leaf_alpha_and_luminosity_masks()
 
         CHECK(quantapdf_output_save_file(
                   first, COMPOSER_SVG_OUTPUT_PDF) == QUANTAPDF_OK);
-        CHECK(quantapdf_open(
+        CHECK(quantapdf_open(test_context(),
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
+
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -2131,17 +2117,17 @@ static int test_v4b_group_root_and_nested_mask_content()
         int stride = 0;
         int components = 0;
 
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, group_svg, bounds) == QUANTAPDF_OK);
         CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
         CHECK(quantapdf_output_save_file(
                   output, COMPOSER_SVG_OUTPUT_PDF) == QUANTAPDF_OK);
-        CHECK(quantapdf_open(
+        CHECK(quantapdf_open(test_context(),
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
+
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -2176,17 +2162,17 @@ static int test_v4b_group_root_and_nested_mask_content()
         int stride = 0;
         int components = 0;
 
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, root_svg, bounds) == QUANTAPDF_OK);
         CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
         CHECK(quantapdf_output_save_file(
                   output, COMPOSER_SVG_OUTPUT_PDF) == QUANTAPDF_OK);
-        CHECK(quantapdf_open(
+        CHECK(quantapdf_open(test_context(),
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
+
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -2247,7 +2233,7 @@ static int test_v4b_mask_failures_and_rollback()
 
     for (char const* svg: unsupported) {
         quantapdf_composer* composer = nullptr;
-        CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, svg, bounds) == QUANTAPDF_ERROR_UNSUPPORTED);
         quantapdf_drop_composer(composer);
@@ -2264,7 +2250,7 @@ static int test_v4b_mask_failures_and_rollback()
         "<rect width=\"10\" height=\"10\" fill=\"red\"/></svg>";
 
     quantapdf_composer_options limited = {};
-    limited.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V1_SIZE;
+
     limited.max_resource_bytes =
         5u * sizeof(quantapdf_composer_path_command);
 
@@ -2277,8 +2263,8 @@ static int test_v4b_mask_failures_and_rollback()
     size_t rejected_size = 0u;
     size_t clean_size = 0u;
 
-    CHECK(quantapdf_composer_create(&limited, &rejected) == QUANTAPDF_OK);
-    CHECK(quantapdf_composer_create(&limited, &clean) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), &limited, &rejected) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), &limited, &clean) == QUANTAPDF_OK);
     CHECK(add_page(rejected));
     CHECK(add_page(clean));
 
@@ -2321,7 +2307,7 @@ static int test_security_and_unsupported_features()
 
     for (char const* svg: cases) {
         quantapdf_composer* composer = nullptr;
-        CHECK(quantapdf_composer_create(nullptr, &composer) ==
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) ==
               QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, svg, bounds) == QUANTAPDF_ERROR_UNSUPPORTED);
@@ -2346,7 +2332,7 @@ static int test_malformed_inputs()
 
     for (char const* svg: cases) {
         quantapdf_composer* composer = nullptr;
-        CHECK(quantapdf_composer_create(nullptr, &composer) ==
+        CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) ==
               QUANTAPDF_OK);
         CHECK(add_page(composer));
         CHECK(draw(composer, svg, bounds) == QUANTAPDF_ERROR_FORMAT);
@@ -2378,11 +2364,10 @@ static int test_atomic_capacity_failure()
     size_t rejected_size = 0u;
     size_t clean_size = 0u;
 
-    composer_options.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V1_SIZE;
     composer_options.max_operations = 1u;
-    CHECK(quantapdf_composer_create(
+    CHECK(quantapdf_composer_create(test_context(),
               &composer_options, &rejected) == QUANTAPDF_OK);
-    CHECK(quantapdf_composer_create(
+    CHECK(quantapdf_composer_create(test_context(),
               &composer_options, &clean) == QUANTAPDF_OK);
     CHECK(add_page(rejected));
     CHECK(add_page(clean));

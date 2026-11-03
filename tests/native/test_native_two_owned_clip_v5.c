@@ -85,8 +85,7 @@ static void setup(fixture *f)
   f->ops[0].kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;
   f->ops[0].graphics_state_id=1u;
   f->ops[0].value.image.image_id=1u;
-  f->ops[0].value.image.options.struct_size=
-      QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+
   f->ops[0].value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
   f->ops[0].value.image.options.graphics_state_id=1u;
   f->ops[0].bounds=(quantapdf_rect){0,0,8,8};
@@ -94,8 +93,7 @@ static void setup(fixture *f)
   f->ops[1].graphics_state_id=1u;
   f->ops[1].value.path.commands=f->blue;
   f->ops[1].value.path.command_count=5u;
-  f->ops[1].value.path.options.struct_size=
-      QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
   f->ops[1].value.path.options.fill=1;
   f->ops[1].value.path.options.fill_argb=UINT32_C(0xff0000ff);
   f->ops[1].value.path.options.graphics_state_id=1u;
@@ -103,8 +101,7 @@ static void setup(fixture *f)
   f->ops[2].kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
   f->ops[2].value.path.commands=f->green;
   f->ops[2].value.path.command_count=5u;
-  f->ops[2].value.path.options.struct_size=
-      QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
   f->ops[2].value.path.options.fill=1;
   f->ops[2].value.path.options.fill_argb=UINT32_C(0xff00ff00);
   rectangle(f->green,0,0,8,1); /* Q-restored GS #0 */

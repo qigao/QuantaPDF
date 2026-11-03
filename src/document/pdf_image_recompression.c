@@ -8,11 +8,7 @@ quantapdf_status quantapdf_recompress_images(
     const quantapdf_image_recompression_options *options,
     quantapdf_output **out_output)
 {
-    const size_t cap_field_size =
-        offsetof(
-            quantapdf_image_recompression_options,
-            max_decoded_bytes_per_image) +
-        sizeof(size_t);
+
     size_t max_decoded_bytes_per_image =
         QUANTAPDF_IMAGE_RECOMPRESSION_DEFAULT_MAX_DECODED_BYTES;
     quantapdf_output *output;
@@ -23,15 +19,14 @@ quantapdf_status quantapdf_recompress_images(
     if (out_output == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_output = NULL;
-    if (document == NULL || document->backend == NULL ||
+    if (document == NULL ||
+        document->backend == NULL ||
         options == NULL ||
-        options->struct_size <
-            QUANTAPDF_IMAGE_RECOMPRESSION_OPTIONS_V1_MIN_SIZE ||
-        options->jpeg_quality < 1 || options->jpeg_quality > 100)
+        options->jpeg_quality < 1 ||
+        options->jpeg_quality > 100)
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    if (options->struct_size >= cap_field_size &&
-        options->max_decoded_bytes_per_image != 0)
+    if (options->max_decoded_bytes_per_image != 0)
         max_decoded_bytes_per_image = options->max_decoded_bytes_per_image;
 
     status = quantapdf_output_create_internal(document->context, &output);

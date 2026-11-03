@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include <stddef.h>
@@ -55,7 +56,7 @@ static quantapdf_pdf_edit *ap_open_edit(const char *path)
     quantapdf_document *document = NULL;
     quantapdf_pdf_edit *edit = NULL;
 
-    AP_CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    AP_CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     AP_CHECK(quantapdf_pdf_edit_begin(document, &edit) == QUANTAPDF_OK);
     quantapdf_close(document);
     return edit;
@@ -72,12 +73,11 @@ static void ap_expect_text(
     const char *text = NULL;
     size_t size = 0;
 
-    info.struct_size = sizeof(info);
     AP_CHECK(quantapdf_form_field_get_info(form, index, &info) == QUANTAPDF_OK);
     AP_CHECK(info.type == QUANTAPDF_FORM_FIELD_TEXT);
     AP_CHECK(info.value_presence == QUANTAPDF_FORM_VALUE_PRESENT);
     AP_CHECK(info.value_count == 1);
-    value_info.struct_size = sizeof(value_info);
+
     AP_CHECK(quantapdf_form_field_value_get_info(form, index, 0, &value_info) ==
         QUANTAPDF_OK);
     AP_CHECK(value_info.kind == QUANTAPDF_FORM_VALUE_UTF8);
@@ -97,12 +97,11 @@ static void ap_expect_choice_option(
     quantapdf_form_field_info info = {0};
     quantapdf_form_value_info value_info = {0};
 
-    info.struct_size = sizeof(info);
     AP_CHECK(quantapdf_form_field_get_info(form, index, &info) == QUANTAPDF_OK);
     AP_CHECK(info.type == type);
     AP_CHECK(info.value_presence == QUANTAPDF_FORM_VALUE_PRESENT);
     AP_CHECK(info.value_count == 1);
-    value_info.struct_size = sizeof(value_info);
+
     AP_CHECK(quantapdf_form_field_value_get_info(form, index, 0, &value_info) ==
         QUANTAPDF_OK);
     AP_CHECK(value_info.kind == QUANTAPDF_FORM_VALUE_OPTION);
@@ -122,7 +121,7 @@ static quantapdf_form_widget_info ap_widget_by_field(
     AP_CHECK(quantapdf_form_widget_count(form, &count) == QUANTAPDF_OK);
     for (i = 0; i < count; ++i) {
         quantapdf_form_widget_info info = {0};
-        info.struct_size = sizeof(info);
+
         AP_CHECK(quantapdf_form_widget_get_info(form, i, &info) == QUANTAPDF_OK);
         if (info.field_index != field_index)
             continue;
@@ -141,7 +140,7 @@ static quantapdf_form_widget_info ap_widget_from_path(
     quantapdf_form *form = NULL;
     quantapdf_form_widget_info info;
 
-    AP_CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    AP_CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     AP_CHECK(quantapdf_document_form(document, &form) == QUANTAPDF_OK);
     info = ap_widget_by_field(form, name);
     quantapdf_drop_form(form);
@@ -164,9 +163,9 @@ static void ap_render_clip(
 
     *out_data = NULL;
     *out_size = 0;
-    AP_CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    AP_CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     AP_CHECK(quantapdf_load_page(document, widget->page_index, &page) == QUANTAPDF_OK);
-    options.struct_size = sizeof(options);
+
     options.dpi = 72.0f;
     options.rotation_degrees = 0.0f;
     options.clip_enabled = 1;
@@ -225,12 +224,12 @@ static void ap_make_text_update(
 {
     memset(value, 0, sizeof(*value));
     memset(update, 0, sizeof(*update));
-    value->struct_size = sizeof(*value);
+
     value->kind = QUANTAPDF_FORM_VALUE_UTF8;
     value->option_index = SIZE_MAX;
     value->utf8 = text;
     value->utf8_size = strlen(text);
-    update->struct_size = sizeof(*update);
+
     update->presence = QUANTAPDF_FORM_VALUE_PRESENT;
     update->values = value;
     update->value_count = 1;
@@ -243,10 +242,10 @@ static void ap_make_option_update(
 {
     memset(value, 0, sizeof(*value));
     memset(update, 0, sizeof(*update));
-    value->struct_size = sizeof(*value);
+
     value->kind = QUANTAPDF_FORM_VALUE_OPTION;
     value->option_index = option_index;
-    update->struct_size = sizeof(*update);
+
     update->presence = QUANTAPDF_FORM_VALUE_PRESENT;
     update->values = value;
     update->value_count = 1;
@@ -257,7 +256,7 @@ static void ap_check_reopened_text(const char *path)
     quantapdf_document *document = NULL;
     quantapdf_form *form = NULL;
 
-    AP_CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    AP_CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     AP_CHECK(quantapdf_document_form(document, &form) == QUANTAPDF_OK);
     ap_expect_text(form, "target", "AFTER");
     ap_expect_text(form, "unrelated", "UNCHANGED");
@@ -379,7 +378,7 @@ static void test_choice_target_refresh(void)
     AP_CHECK(quantapdf_pdf_edit_snapshot(edit, &output) == QUANTAPDF_OK);
     AP_CHECK(quantapdf_output_save_file(output, FORM_AP_OUTPUT_CHOICE) == QUANTAPDF_OK);
 
-    AP_CHECK(quantapdf_open(FORM_AP_OUTPUT_CHOICE, NULL, &document) == QUANTAPDF_OK);
+    AP_CHECK(quantapdf_open(test_context(), FORM_AP_OUTPUT_CHOICE, NULL, &document) == QUANTAPDF_OK);
     AP_CHECK(quantapdf_document_form(document, &form) == QUANTAPDF_OK);
     ap_expect_choice_option(form, "combo", QUANTAPDF_FORM_FIELD_COMBO_BOX, 0);
     ap_expect_choice_option(form, "single", QUANTAPDF_FORM_FIELD_LIST_BOX, 2);

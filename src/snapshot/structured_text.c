@@ -64,13 +64,8 @@ quantapdf_status quantapdf_text_get_block_info(
     size_t block_index,
     quantapdf_text_block_info *out_info)
 {
-    size_t minimum_size;
 
     if (out_info == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    minimum_size = offsetof(quantapdf_text_block_info, bounds) +
-        sizeof(out_info->bounds);
-    if (out_info->struct_size < minimum_size)
         return QUANTAPDF_ERROR_ARGUMENT;
 
     out_info->bounds = (quantapdf_rect){ 0 };
@@ -118,13 +113,8 @@ quantapdf_status quantapdf_text_get_line_info(
     quantapdf_text_line_info *out_info)
 {
     const quantapdf_text_line_internal *line;
-    size_t minimum_size;
 
     if (out_info == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    minimum_size = offsetof(quantapdf_text_line_info, writing_mode) +
-        sizeof(out_info->writing_mode);
-    if (out_info->struct_size < minimum_size)
         return QUANTAPDF_ERROR_ARGUMENT;
 
     out_info->bounds = (quantapdf_rect){ 0 };
@@ -185,13 +175,8 @@ quantapdf_status quantapdf_text_get_span_info(
     quantapdf_text_span_info *out_info)
 {
     const quantapdf_text_span_internal *span;
-    size_t minimum_size;
 
     if (out_info == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    minimum_size = offsetof(quantapdf_text_span_info, bidi_level) +
-        sizeof(out_info->bidi_level);
-    if (out_info->struct_size < minimum_size)
         return QUANTAPDF_ERROR_ARGUMENT;
 
     out_info->bounds = (quantapdf_rect){ 0 };

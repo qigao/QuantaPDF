@@ -889,6 +889,8 @@ target_compile_definitions(quantapdf_test_context PRIVATE
   QUANTAPDF_TESTING=1
   TEXT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/text-one-page.pdf"
   IMAGES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-images.pdf"
+  BLANK_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
+  DAMAGED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page-damaged-xref.pdf"
   NON_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-non-pdf.txt")
 add_test(NAME quantapdf.context COMMAND quantapdf_test_context)
 set_tests_properties(quantapdf.context PROPERTIES TIMEOUT 30)
@@ -1435,7 +1437,7 @@ if(WIN32 AND BUILD_SHARED_LIBS)
     COMMAND "${CMAKE_COMMAND}"
       "-DQUANTAPDF_DUMPBIN=${QUANTAPDF_DUMPBIN_EXECUTABLE}"
       "-DQUANTAPDF_LIBRARY=$<TARGET_FILE:quantapdf>"
-      "-DQUANTAPDF_EXPORT_BASELINE=${CMAKE_CURRENT_SOURCE_DIR}/../abi/quantapdf-v2.exports"
+      "-DQUANTAPDF_EXPORT_MANIFEST=${CMAKE_CURRENT_SOURCE_DIR}/../abi/quantapdf.exports"
       -P "${CMAKE_CURRENT_SOURCE_DIR}/../cmake/CheckQuantaPDFExports.cmake")
   set_tests_properties(quantapdf.abi_exports PROPERTIES TIMEOUT 10)
 
@@ -1443,8 +1445,8 @@ if(WIN32 AND BUILD_SHARED_LIBS)
   add_test(NAME quantapdf.abi_checker_rejects_extra_export
     COMMAND "${CMAKE_COMMAND}"
       "-DQUANTAPDF_DUMPBIN=$<TARGET_FILE:quantapdf_test_fake_dumpbin>"
-      "-DQUANTAPDF_LIBRARY=${CMAKE_CURRENT_SOURCE_DIR}/../abi/quantapdf-v2.exports"
-      "-DQUANTAPDF_EXPORT_BASELINE=${CMAKE_CURRENT_SOURCE_DIR}/../abi/quantapdf-v2.exports"
+      "-DQUANTAPDF_LIBRARY=${CMAKE_CURRENT_SOURCE_DIR}/../abi/quantapdf.exports"
+      "-DQUANTAPDF_EXPORT_MANIFEST=${CMAKE_CURRENT_SOURCE_DIR}/../abi/quantapdf.exports"
       -P "${CMAKE_CURRENT_SOURCE_DIR}/../cmake/CheckQuantaPDFExports.cmake")
   set_tests_properties(quantapdf.abi_checker_rejects_extra_export PROPERTIES
     TIMEOUT 10

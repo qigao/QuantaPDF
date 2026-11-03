@@ -68,8 +68,7 @@ static void setup(fixture *f)
     f->op.graphics_state_id = 1u;
     f->op.value.path.commands = f->paint;
     f->op.value.path.command_count = 5u;
-    f->op.value.path.options.struct_size =
-        QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
     f->op.value.path.options.fill = 1;
     f->op.value.path.options.fill_argb = UINT32_C(0xffff0000);
     f->op.value.path.options.graphics_state_id = 1u;
@@ -154,7 +153,6 @@ static int success_cases(void)
     quantapdf_ir_raster_image_dispose(&image);
     return EXIT_SUCCESS;
 }
-
 
 /* Standalone V3 is also required to accept a syntactically valid but
  * zero-area Clip leaf without turning an empty intersection into a refusal.

@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include <limits.h>
@@ -25,7 +26,7 @@ static quantapdf_page_poster_split make_split(
     int page_index, size_t columns, size_t rows)
 {
     quantapdf_page_poster_split split;
-    split.struct_size = sizeof(split);
+
     split.page_index = page_index;
     split.columns = columns;
     split.rows = rows;
@@ -56,7 +57,7 @@ static void sibling_fixture_path(
 static quantapdf_document *open_document(const char *path, const char *password)
 {
     quantapdf_document *document = NULL;
-    CHECK(quantapdf_open(path, password, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, password, &document) == QUANTAPDF_OK);
     CHECK(document != NULL);
     return document;
 }
@@ -153,12 +154,9 @@ int main(void)
     expect_split_error(document, &split, 0, QUANTAPDF_ERROR_ARGUMENT);
 
     bad = split;
-    bad.struct_size = offsetof(quantapdf_page_poster_split, rows) +
-        sizeof(size_t) - 1;
-    expect_split_error(document, &bad, 1, QUANTAPDF_ERROR_ARGUMENT);
 
     bad = split;
-    bad.struct_size = sizeof(bad) + sizeof(uint64_t);
+
     expect_split_error(document, &bad, 1, QUANTAPDF_ERROR_ARGUMENT);
 
     bad = split;
@@ -189,7 +187,7 @@ int main(void)
     bad.rows = 2;
     expect_split_error(document, &bad, 1, QUANTAPDF_ERROR_ARGUMENT);
 
-    CHECK(quantapdf_open(non_pdf, NULL, &other) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_open(test_context(), non_pdf, NULL, &other) == QUANTAPDF_ERROR_FORMAT);
     CHECK(other == NULL);
     bad = make_split(0, 1, 1);
 

@@ -3,10 +3,10 @@
 The Native CI workflow builds and runs the in-tree native CTests on Linux
 Release, Linux ASan/UBSan, macOS ARM64 and Windows x64. Linux/macOS use the
 runner's Clang; Windows and all its dependency packages use LLVM-MinGW UCRT.
-The Windows job currently compares exports with `abi/quantapdf-v2.exports`
-using `llvm-readobj --coff-exports`. Under the [current plan](native-feature-plan.md),
-that historical filename is not an API/ABI compatibility promise. Update the
-intended export manifest with the current header when an API changes.
+The Windows job compares exports with the current `abi/quantapdf.exports`
+manifest using `llvm-readobj --coff-exports`. Update this manifest with the
+current header when an API changes. ELF symbols have no historical ABI-version
+namespace, and the CMake package makes no major-version compatibility claim.
 
 `ci-native` and `ci-asan-ubsan` are separate from developer presets. The shared
 vcpkg toolchain chainloads the selected compiler, and both C and C++ project
@@ -39,6 +39,9 @@ PowerShell scripts must propagate native exit failures as well as cmdlet
 exceptions. No catch-and-continue, alternate toolchain/backend, environment
 probe or compatibility path is part of CI. The caches accelerate the same
 pinned build rather than select a different implementation after an error.
+The ccache setup script enables native-command error propagation and performs a
+single curl transfer. Other native CI commands each run in their own step, so
+an earlier native command cannot be hidden by a later successful command.
 
 Debug/O1 ASan/UBSan, the existing runtime tests and current export verification
 remain real checks. Their test count and historical ABI contents are not frozen.

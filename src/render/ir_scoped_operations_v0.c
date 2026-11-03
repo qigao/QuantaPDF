@@ -108,13 +108,9 @@ quantapdf_status quantapdf_ir_raster_scoped_operations_v0(
             return QUANTAPDF_ERROR_UNSUPPORTED;
         opt = &op->value.path.options;
         id = (size_t)op->graphics_state_id;
-        if (id != 0u &&
-            (opt->struct_size < QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE ||
-             opt->graphics_state_id != op->graphics_state_id))
+        if (id != 0u && (opt->graphics_state_id != op->graphics_state_id))
             return QUANTAPDF_ERROR_UNSUPPORTED;
-        if (id == 0u &&
-            opt->struct_size >= QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE &&
-            opt->graphics_state_id != 0u)
+        if (id == 0u && opt->graphics_state_id != 0u)
             return QUANTAPDF_ERROR_UNSUPPORTED;
         if (id == 0u)
             continue;

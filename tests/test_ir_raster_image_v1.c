@@ -43,8 +43,7 @@ static void draw(quantapdf_composer_operation *op,
     memset(op, 0, sizeof(*op));
     op->kind = QUANTAPDF_COMPOSER_OPERATION_IMAGE;
     op->value.image.image_id = image_id;
-    op->value.image.options.struct_size =
-        QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE;
+
     op->value.image.options.fit = QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     op->bounds.x0 = x0;
     op->bounds.y0 = y0;

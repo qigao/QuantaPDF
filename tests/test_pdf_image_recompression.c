@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include "image_recompression_test_helpers.h"
@@ -9,15 +10,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-_Static_assert(
-    QUANTAPDF_IMAGE_RECOMPRESSION_OPTIONS_V1_MIN_SIZE ==
-        offsetof(quantapdf_image_recompression_options, jpeg_quality) +
-            sizeof(int),
-    "unexpected image recompression V1 minimum size");
-_Static_assert(
-    QUANTAPDF_IMAGE_RECOMPRESSION_OPTIONS_V1_SIZE ==
-        sizeof(quantapdf_image_recompression_options),
-    "unexpected image recompression V1 size");
 _Static_assert(
     QUANTAPDF_IMAGE_RECOMPRESSION_DEFAULT_MAX_DECODED_BYTES ==
         (size_t)64u * (size_t)1024u * (size_t)1024u,
@@ -67,8 +59,7 @@ static void check_policy_cap(
     int expect_boundary_rewritten,
     size_t expected_rewritten)
 {
-    quantapdf_image_recompression_options options = {
-        sizeof(options), 90, cap};
+    quantapdf_image_recompression_options options = { 90, cap};
     quantapdf_output *output = NULL;
     quantapdf_test_image_recompression_stats stats = {0};
     const unsigned char *data = NULL;
@@ -96,7 +87,6 @@ static void check_policy_cap(
 static void check_malformed_inputs(void)
 {
     quantapdf_image_recompression_options options = {
-        sizeof(options),
         90,
         QUANTAPDF_IMAGE_RECOMPRESSION_DEFAULT_MAX_DECODED_BYTES};
     int fixture;
@@ -110,7 +100,7 @@ static void check_malformed_inputs(void)
             MALFORMED_FIXTURE_PDF,
             (image_recompression_malformed_fixture)fixture));
         CHECK(
-            quantapdf_open(MALFORMED_FIXTURE_PDF, NULL, &document) ==
+            quantapdf_open(test_context(), MALFORMED_FIXTURE_PDF, NULL, &document) ==
             QUANTAPDF_OK);
         CHECK(document != NULL);
         expect_failure(document, &options, QUANTAPDF_ERROR_FORMAT);
@@ -126,18 +116,17 @@ static void check_malformed_inputs(void)
 static void check_security_fail_closed(void)
 {
     quantapdf_image_recompression_options options = {
-        sizeof(options),
         90,
         QUANTAPDF_IMAGE_RECOMPRESSION_DEFAULT_MAX_DECODED_BYTES};
     quantapdf_document *document = NULL;
 
-    CHECK(quantapdf_open(SIGNED_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), SIGNED_PDF, NULL, &document) == QUANTAPDF_OK);
     expect_failure(document, &options, QUANTAPDF_ERROR_UNSUPPORTED);
     quantapdf_close(document);
     document = NULL;
 
     CHECK(
-        quantapdf_open(ENCRYPTED_PDF, "user-pass", &document) ==
+        quantapdf_open(test_context(), ENCRYPTED_PDF, "user-pass", &document) ==
         QUANTAPDF_OK);
     expect_failure(document, &options, QUANTAPDF_ERROR_UNSUPPORTED);
     quantapdf_close(document);
@@ -207,14 +196,13 @@ static void check_fault_atomicity(void)
         {QUANTAPDF_TEST_IMAGE_RECOMPRESSION_FAULT_WORK_BUDGET,
          QUANTAPDF_ERROR_UNSUPPORTED}};
     quantapdf_image_recompression_options options = {
-        sizeof(options),
         90,
         QUANTAPDF_IMAGE_RECOMPRESSION_DEFAULT_MAX_DECODED_BYTES};
     quantapdf_document *document = NULL;
     uint64_t baseline;
     size_t index;
 
-    CHECK(quantapdf_open(POSITIVE_FIXTURE_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), POSITIVE_FIXTURE_PDF, NULL, &document) == QUANTAPDF_OK);
     baseline = document_observation_hash(document);
     for (index = 0; index < sizeof(cases) / sizeof(cases[0]); ++index) {
         quantapdf_test_image_recompression_set_fault(
@@ -241,8 +229,8 @@ static unsigned long long render_difference(
     unsigned long long total_delta = 0;
     size_t total_samples = 0;
 
-    CHECK(quantapdf_open(source_path, NULL, &source) == QUANTAPDF_OK);
-    CHECK(quantapdf_open(output_path, NULL, &output) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), source_path, NULL, &source) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), output_path, NULL, &output) == QUANTAPDF_OK);
     CHECK(quantapdf_page_count(source, &source_pages) == QUANTAPDF_OK);
     CHECK(quantapdf_page_count(output, &output_pages) == QUANTAPDF_OK);
     CHECK(source_pages == output_pages);
@@ -357,11 +345,10 @@ int main(void)
     quantapdf_output *repeated_output = NULL;
     quantapdf_output *quality_output = NULL;
     quantapdf_image_recompression_options options = {
-        sizeof(options),
         90,
         QUANTAPDF_IMAGE_RECOMPRESSION_DEFAULT_MAX_DECODED_BYTES};
     quantapdf_image_recompression_options minimum_options = {
-        QUANTAPDF_IMAGE_RECOMPRESSION_OPTIONS_V1_MIN_SIZE,
+
         90,
         1};
     quantapdf_test_image_recompression_stats stats = {0};
@@ -373,13 +360,11 @@ int main(void)
         quantapdf_recompress_images(NULL, &options, NULL) ==
         QUANTAPDF_ERROR_ARGUMENT);
     expect_failure(NULL, &options, QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(quantapdf_open(ONE_PAGE_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), ONE_PAGE_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(document != NULL);
 
     expect_failure(document, NULL, QUANTAPDF_ERROR_ARGUMENT);
-    options.struct_size = QUANTAPDF_IMAGE_RECOMPRESSION_OPTIONS_V1_MIN_SIZE - 1;
-    expect_failure(document, &options, QUANTAPDF_ERROR_ARGUMENT);
-    options.struct_size = sizeof(options);
+
     options.jpeg_quality = 0;
     expect_failure(document, &options, QUANTAPDF_ERROR_ARGUMENT);
     options.jpeg_quality = 101;
@@ -395,7 +380,7 @@ int main(void)
 
     CHECK(image_recompression_create_positive_fixture(
         POSITIVE_SOURCE_PDF, POSITIVE_FIXTURE_PDF));
-    CHECK(quantapdf_open(POSITIVE_FIXTURE_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), POSITIVE_FIXTURE_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(document != NULL);
     CHECK(
         quantapdf_page_count(document, &positive_page_count) ==
@@ -403,7 +388,7 @@ int main(void)
     expect_success(document, &minimum_options);
     quantapdf_test_image_recompression_get_stats(document, &stats);
     CHECK(stats.unique_images == 8);
-    options.struct_size = sizeof(options);
+
     options.jpeg_quality = 90;
     options.max_decoded_bytes_per_image = 0;
     CHECK(
@@ -482,7 +467,7 @@ int main(void)
         document = NULL;
         CHECK(image_recompression_check_positive_output(data, size, 8));
         CHECK(
-            quantapdf_open(POSITIVE_OUTPUT_PDF, NULL, &document) ==
+            quantapdf_open(test_context(), POSITIVE_OUTPUT_PDF, NULL, &document) ==
             QUANTAPDF_OK);
         CHECK(quantapdf_page_count(document, &page_count) == QUANTAPDF_OK);
         CHECK(page_count == positive_page_count);
@@ -501,7 +486,7 @@ int main(void)
 
     CHECK(image_recompression_create_policy_fixture(
         POSITIVE_SOURCE_PDF, POLICY_FIXTURE_PDF));
-    CHECK(quantapdf_open(POLICY_FIXTURE_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), POLICY_FIXTURE_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(document != NULL);
     check_policy_cap(document, 5, 0, 1);
     check_policy_cap(document, 6, 1, 2);

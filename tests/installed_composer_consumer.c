@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #define _CRT_SECURE_NO_WARNINGS 1
 
 #include <quantapdf/quantapdf.h>
@@ -66,7 +67,7 @@ static quantapdf_status installed_form_builder(
     quantapdf_rect bounds = {4.0f, 4.0f, 76.0f, 28.0f};
 
     (void)user_data;
-    text.struct_size = QUANTAPDF_COMPOSER_TEXT_OPTIONS_V1_SIZE;
+
     text.font = QUANTAPDF_COMPOSER_FONT_HELVETICA_BOLD;
     text.font_size = 12.0f;
     text.argb = UINT32_C(0xff202020);
@@ -95,7 +96,7 @@ static quantapdf_status installed_pattern_builder(
     rect[3].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
     rect[3].point1 = (quantapdf_point){0.0f, 8.0f};
     rect[4].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
-    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
+
     path.fill = 1;
     path.fill_argb = UINT32_C(0xff008040);
     path.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -118,7 +119,7 @@ int main(int argc, char **argv)
     quantapdf_composer_form_options form_options = {0};
     quantapdf_composer_form_draw_options form_draw = {0};
     quantapdf_composer_form_id form_id = 0u;
-    quantapdf_composer_font_options font_options = {0};
+
     quantapdf_composer_graphics_state_options graphics_state = {0};
     quantapdf_composer_graphics_state_id graphics_state_id = 0u;
     quantapdf_composer_soft_mask_options soft_mask = {0};
@@ -160,7 +161,7 @@ int main(int argc, char **argv)
     quantapdf_composer_path_options path = {0};
     quantapdf_composer_dash_pattern dash = {0};
     float dash_lengths[2] = {6.0f, 3.0f};
-    quantapdf_composer_svg_options svg_options = {0};
+
     quantapdf_barcode_options barcode = {0};
     quantapdf_composer_outline_options outline = {0};
 
@@ -214,16 +215,14 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    CHECK(quantapdf_composer_create(NULL, &composer));
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer));
 
-    page.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
     page.width_points = 300.0f;
     page.height_points = 180.0f;
     page.background_argb = UINT32_C(0xffffffff);
     CHECK(quantapdf_composer_add_page(composer, &page, &page0));
     CHECK(quantapdf_composer_add_page(composer, &page, &page1));
 
-    form_options.struct_size = QUANTAPDF_COMPOSER_FORM_OPTIONS_V2_SIZE;
     form_options.width_points = 80.0f;
     form_options.height_points = 32.0f;
     form_options.flags =
@@ -239,8 +238,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "form ID was not published\n");
         goto fail;
     }
-    soft_mask.struct_size =
-        QUANTAPDF_COMPOSER_SOFT_MASK_OPTIONS_V1_SIZE;
+
     soft_mask.mode = QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA;
     soft_mask.transform = (quantapdf_affine_transform){
         1.0f, 0.0f, 0.0f, 1.0f, 180.0f, 30.0f
@@ -251,8 +249,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "soft-mask ID was not published\n");
         goto fail;
     }
-    form_draw.struct_size =
-        QUANTAPDF_COMPOSER_FORM_DRAW_OPTIONS_V1_SIZE;
+
     {
         quantapdf_affine_transform form_transform = {
             1.0f, 0.0f, 0.0f, 1.0f, 200.0f, 135.0f
@@ -274,7 +271,7 @@ int main(int argc, char **argv)
     clip_rectangle[3].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
     clip_rectangle[3].point1 = (quantapdf_point){0.0f, 180.0f};
     clip_rectangle[4].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
-    clip_options.struct_size = QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE;
+
     clip_options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
     CHECK(quantapdf_composer_add_clip_path(
         composer, clip_rectangle, 5u, &clip_options, &clip_id));
@@ -308,8 +305,6 @@ int main(int argc, char **argv)
         goto fail;
     }
 
-    graphics_state.struct_size =
-        QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V3_SIZE;
     graphics_state.fill_alpha = 0.75f;
     graphics_state.stroke_alpha = 0.75f;
     graphics_state.blend_mode = QUANTAPDF_COMPOSER_BLEND_MULTIPLY;
@@ -322,8 +317,6 @@ int main(int argc, char **argv)
         goto fail;
     }
 
-    linear_gradient.struct_size =
-        QUANTAPDF_COMPOSER_LINEAR_GRADIENT_OPTIONS_V1_SIZE;
     linear_gradient.start = (quantapdf_point){20.0f, 20.0f};
     linear_gradient.end = (quantapdf_point){280.0f, 20.0f};
     linear_gradient.stops = gradient_stops;
@@ -335,8 +328,6 @@ int main(int argc, char **argv)
         goto fail;
     }
 
-    radial_gradient.struct_size =
-        QUANTAPDF_COMPOSER_RADIAL_GRADIENT_OPTIONS_V1_SIZE;
     radial_gradient.start_center = (quantapdf_point){150.0f, 90.0f};
     radial_gradient.start_radius = 0.0f;
     radial_gradient.end_center = (quantapdf_point){150.0f, 90.0f};
@@ -350,8 +341,6 @@ int main(int argc, char **argv)
         goto fail;
     }
 
-    tiling_pattern.struct_size =
-        QUANTAPDF_COMPOSER_TILING_PATTERN_OPTIONS_V1_SIZE;
     tiling_pattern.width_points = 8.0f;
     tiling_pattern.height_points = 8.0f;
     tiling_pattern.x_step = 8.0f;
@@ -367,11 +356,9 @@ int main(int argc, char **argv)
         goto fail;
     }
 
-    font_options.struct_size = QUANTAPDF_COMPOSER_FONT_OPTIONS_V1_SIZE;
     CHECK(quantapdf_composer_add_font(
-        composer, font_data, font_size, &font_options, &font_id));
+        composer, font_data, font_size, &font_id));
 
-    raster.struct_size = QUANTAPDF_COMPOSER_RASTER_V1_SIZE;
     raster.format = QUANTAPDF_COMPOSER_RASTER_RGB24;
     raster.width = 2u;
     raster.height = 1u;
@@ -380,20 +367,19 @@ int main(int argc, char **argv)
     raster.size = sizeof(raster_pixels);
     CHECK(quantapdf_composer_add_raster(
         composer, &raster, &raster_id));
-    raster_draw.struct_size = QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+
     raster_draw.fit = QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     raster_draw.graphics_state_id = graphics_state_id;
     CHECK(quantapdf_composer_draw_image(
         composer, page1, raster_id, &raster_box, &raster_draw));
 
-    base_text.struct_size = QUANTAPDF_COMPOSER_TEXT_OPTIONS_V1_SIZE;
     base_text.font = QUANTAPDF_COMPOSER_FONT_HELVETICA;
     base_text.font_size = 12.0f;
     base_text.argb = UINT32_C(0xff202020);
     base_text.line_height_multiplier = 1.2f;
     base_text.alignment = QUANTAPDF_COMPOSER_TEXT_ALIGN_LEFT;
     base_text.wrap = 1;
-    measurement.struct_size = QUANTAPDF_COMPOSER_TEXT_MEASUREMENT_V1_SIZE;
+
     CHECK(quantapdf_composer_measure_text(
         composer,
         "Installed package measurement",
@@ -415,14 +401,13 @@ int main(int argc, char **argv)
         &rotate90,
         &base_text));
 
-    text.struct_size = QUANTAPDF_COMPOSER_EMBEDDED_TEXT_OPTIONS_V1_SIZE;
     text.font_id = font_id;
     text.font_size = 22.0f;
     text.argb = UINT32_C(0xff202020);
     text.line_height_multiplier = 1.2f;
     text.alignment = QUANTAPDF_COMPOSER_TEXT_ALIGN_LEFT;
     text.wrap = 1;
-    measurement.struct_size = QUANTAPDF_COMPOSER_TEXT_MEASUREMENT_V1_SIZE;
+
     CHECK(quantapdf_composer_measure_embedded_text(
         composer,
         "Installed Caf\xC3\xA9 \xCE\xA9",
@@ -444,7 +429,6 @@ int main(int argc, char **argv)
         &identity,
         &text));
 
-    glyph_run.struct_size = QUANTAPDF_COMPOSER_GLYPH_RUN_OPTIONS_V1_SIZE;
     glyph_run.font_id = font_id;
     glyph_run.font_size = 18.0f;
     glyph_run.argb = UINT32_C(0xff404040);
@@ -470,7 +454,7 @@ int main(int argc, char **argv)
     rectangle[3].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
     rectangle[3].point1 = (quantapdf_point){20.0f, 170.0f};
     rectangle[4].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
-    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
     path.stroke = 1;
     path.fill = 1;
     path.fill_argb = UINT32_C(0xff000000);
@@ -485,23 +469,20 @@ int main(int argc, char **argv)
     path.transform = (quantapdf_affine_transform){
         1.0f, 0.0f, 0.0f, 1.0f, 2.0f, 0.0f
     };
-    dash.struct_size = QUANTAPDF_COMPOSER_DASH_PATTERN_V1_SIZE;
+
     dash.lengths = dash_lengths;
     dash.length_count = 2u;
     dash.phase = 1.0f;
     CHECK(quantapdf_composer_draw_path_dashed(
         composer, page0, rectangle, 5u, &path, &dash));
 
-    svg_options.struct_size = QUANTAPDF_COMPOSER_SVG_OPTIONS_V1_SIZE;
     CHECK(quantapdf_composer_draw_svg(
         composer,
         page1,
         svg_data,
         sizeof(svg_data) - 1u,
-        &svg_box,
-        &svg_options));
+        &svg_box));
 
-    barcode.struct_size = QUANTAPDF_BARCODE_OPTIONS_V1_SIZE;
     barcode.argb = UINT32_C(0xff000000);
     CHECK(quantapdf_composer_draw_barcode(
         composer,
@@ -516,7 +497,6 @@ int main(int argc, char **argv)
     CHECK(quantapdf_composer_add_page_link(
         composer, page0, &page_link_box, page1, target));
 
-    outline.struct_size = QUANTAPDF_COMPOSER_OUTLINE_OPTIONS_V1_SIZE;
     outline.target_page_index = page0;
     outline.target = target;
     outline.is_open = 1;

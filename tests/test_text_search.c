@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include <math.h>
@@ -40,14 +41,14 @@ int main(void)
     quantapdf_document *document = NULL;
     quantapdf_page *page = NULL;
     quantapdf_text_page *text = NULL;
-    quantapdf_search_result result = { sizeof(result), { { 0 } } };
+    quantapdf_search_result result = { { { 0 } } };
     quantapdf_search_result repeated[2] = {
         { sizeof(repeated[0]), { { 0 } } },
         { sizeof(repeated[1]), { { 0 } } }
     };
     size_t count = 0;
 
-    CHECK(quantapdf_open(STRUCTURED_TEXT_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), STRUCTURED_TEXT_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     CHECK(quantapdf_extract_structured_text(page, &text) == QUANTAPDF_OK);
 
@@ -65,7 +66,7 @@ int main(void)
     count = 123;
     CHECK(quantapdf_text_search(text, "lo Caf\xc3\xa9", &result, 1, &count) == QUANTAPDF_OK);
     CHECK(count == 1);
-    CHECK(result.struct_size == sizeof(result));
+
     check_quad(&result.quad);
 
     /* Repeated matches exercise sizing, insufficient capacity, and fill. */
@@ -112,7 +113,7 @@ int main(void)
     CHECK(quantapdf_text_search(text, "l", repeated, 2, NULL) == QUANTAPDF_ERROR_ARGUMENT);
 
     /* V1 result structs require the quad field to be present. */
-    result.struct_size = offsetof(quantapdf_search_result, quad);
+
     count = 123;
     CHECK(quantapdf_text_search(text, "Caf\xc3\xa9", &result, 1, &count) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(count == 1);
@@ -123,7 +124,7 @@ int main(void)
             quantapdf_search_result result;
             uint64_t trailing;
         } oversized = {0};
-        oversized.result.struct_size = sizeof(oversized);
+
         count = 123;
         CHECK(quantapdf_text_search(
                   text, "Caf\xc3\xa9", &oversized.result, 1, &count) ==

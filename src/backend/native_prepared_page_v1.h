@@ -164,13 +164,11 @@ static inline int qp_prepared_m2b2c_root_v1(const quantapdf_ir *ir)
             return 0;
     const size_t text=forward?0u:2u,image=forward?2u:0u;
     if(p[text].value.text_outlines.argb!=UINT32_C(0xff000000) ||
-       p[1].value.path.options.graphics_state_id!=1u ||
-       p[1].value.path.options.fill!=1 ||
-       p[1].value.path.options.stroke!=0 ||
-       p[image].value.image.options.graphics_state_id!=1u ||
-       p[image].value.image.options.struct_size<
-           QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE ||
-       p[image].value.image.image_id!=1u)return 0;
+        p[1].value.path.options.graphics_state_id!=1u ||
+        p[1].value.path.options.fill!=1 ||
+        p[1].value.path.options.stroke!=0 ||
+        p[image].value.image.options.graphics_state_id!=1u ||
+        p[image].value.image.image_id!=1u)return 0;
     return 1;
 }
 
@@ -201,12 +199,7 @@ static inline int qp_prepared_m2b2n_sibling_v1(const quantapdf_ir *ir)
        p[2].kind!=QUANTAPDF_COMPOSER_OPERATION_IMAGE)return 0;
     for(size_t i=0u;i<3u;++i)
         if(p[i].page_index!=0u || p[i].graphics_state_id!=(i==2u?2u:1u))return 0;
-    return p[0].value.text_outlines.argb==UINT32_C(0xff000000) &&
-        p[1].value.path.options.graphics_state_id==1u &&
-        p[1].value.path.options.fill==1 && p[1].value.path.options.stroke==0 &&
-        p[2].value.image.options.graphics_state_id==2u &&
-        p[2].value.image.options.struct_size>=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE &&
-        p[2].value.image.image_id==1u;
+    return p[0].value.text_outlines.argb==UINT32_C(0xff000000) && p[1].value.path.options.graphics_state_id==1u && p[1].value.path.options.fill==1 && p[1].value.path.options.stroke==0 && p[2].value.image.options.graphics_state_id==2u && p[2].value.image.image_id==1u;
 }
 
 /* M2b.2q PUBLIC compound admission: exactly the Source-owned flat root
@@ -241,12 +234,7 @@ static inline int qp_prepared_m2b2q_compound_v1(const quantapdf_ir *ir)
        p[2].kind!=QUANTAPDF_COMPOSER_OPERATION_IMAGE)return 0;
     for(size_t i=0u;i<3u;++i)
         if(p[i].page_index!=0u || p[i].graphics_state_id!=1u)return 0;
-    return p[0].value.text_outlines.argb==UINT32_C(0xff000000) &&
-        p[1].value.path.options.graphics_state_id==1u &&
-        p[1].value.path.options.fill==1 && p[1].value.path.options.stroke==0 &&
-        p[2].value.image.options.graphics_state_id==1u &&
-        p[2].value.image.options.struct_size>=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE &&
-        p[2].value.image.image_id==1u;
+    return p[0].value.text_outlines.argb==UINT32_C(0xff000000) && p[1].value.path.options.graphics_state_id==1u && p[1].value.path.options.fill==1 && p[1].value.path.options.stroke==0 && p[2].value.image.options.graphics_state_id==1u && p[2].value.image.image_id==1u;
 }
 
 /* M2b.2h/k PUBLIC admission is narrower than the qualified private
@@ -271,23 +259,30 @@ static inline int qp_prepared_m2b2h_restored_four_v1(
     const quantapdf_composer_path_operation *p=&suffix->value.path;
     const quantapdf_affine_transform *t=&p->options.transform;
     if(suffix->kind!=QUANTAPDF_COMPOSER_OPERATION_PATH ||
-       suffix->page_index!=0u || suffix->graphics_state_id!=0u ||
-       p->options.struct_size<QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE ||
-       p->options.graphics_state_id!=0u ||
-       p->options.fill!=1 || p->options.stroke!=0 ||
-       p->options.fill_argb!=UINT32_C(0xffff0000) ||
-       p->options.fill_paint_id!=0u ||
-       p->options.stroke_paint_id!=0u ||
-       p->dash_lengths!=NULL || p->dash_count!=0u ||
-       p->dash_phase!=0.0f ||
-       p->commands==NULL || p->command_count!=5u ||
-       t->a!=0.0f || t->b!=0.0f || t->c!=0.0f ||
-       t->d!=0.0f || t->e!=0.0f || t->f!=0.0f ||
-       p->commands[0].kind!=QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
-       p->commands[1].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
-       p->commands[2].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
-       p->commands[3].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
-       p->commands[4].kind!=QUANTAPDF_COMPOSER_PATH_CLOSE)
+        suffix->page_index!=0u ||
+        suffix->graphics_state_id!=0u ||
+        p->options.graphics_state_id!=0u ||
+        p->options.fill!=1 ||
+        p->options.stroke!=0 ||
+        p->options.fill_argb!=UINT32_C(0xffff0000) ||
+        p->options.fill_paint_id!=0u ||
+        p->options.stroke_paint_id!=0u ||
+        p->dash_lengths!=NULL ||
+        p->dash_count!=0u ||
+        p->dash_phase!=0.0f ||
+        p->commands==NULL ||
+        p->command_count!=5u ||
+        t->a!=0.0f ||
+        t->b!=0.0f ||
+        t->c!=0.0f ||
+        t->d!=0.0f ||
+        t->e!=0.0f ||
+        t->f!=0.0f ||
+        p->commands[0].kind!=QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
+        p->commands[1].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+        p->commands[2].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+        p->commands[3].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+        p->commands[4].kind!=QUANTAPDF_COMPOSER_PATH_CLOSE)
         return 0;
     for(size_t i=0u;i<4u;++i)
         if(!isfinite(p->commands[i].point1.x) ||

@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include "composer_test_helpers.h"
@@ -24,7 +25,6 @@ static int add_page(
     quantapdf_composer_page_options page = {0};
     size_t page_index = SIZE_MAX;
 
-    page.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
     page.width_points = 120.0f;
     page.height_points = 100.0f;
     page.background_argb = background;
@@ -36,7 +36,7 @@ static int add_page(
 static quantapdf_composer_image_options stretch_options(void)
 {
     quantapdf_composer_image_options options = {0};
-    options.struct_size = QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE;
+
     options.fit = QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     return options;
 }
@@ -72,10 +72,10 @@ static int test_resource_reuse_and_normalization_budget(void)
     quantapdf_composer_raster raster = {0};
     quantapdf_composer_image_id first = 0, repeated = 0, changed = 0;
     unsigned char pixel[] = {0, 0, 255, 255};
-    limits.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V1_SIZE;
+
     limits.max_resource_bytes = 8;
-    CHECK(quantapdf_composer_create(&limits, &composer) == QUANTAPDF_OK);
-    raster.struct_size = QUANTAPDF_COMPOSER_RASTER_V1_SIZE;
+    CHECK(quantapdf_composer_create(test_context(), &limits, &composer) == QUANTAPDF_OK);
+
     raster.format = QUANTAPDF_COMPOSER_RASTER_RGBA32;
     raster.width = raster.height = 1;
     raster.stride = raster.size = sizeof(pixel);
@@ -103,7 +103,6 @@ static int test_validation_and_budget(void)
     quantapdf_composer *composer = NULL;
     quantapdf_composer_options limits = {0};
 
-    raster.struct_size = QUANTAPDF_COMPOSER_RASTER_V1_SIZE;
     raster.format = QUANTAPDF_COMPOSER_RASTER_RGBA32;
     raster.width = 2u;
     raster.height = 2u;
@@ -115,19 +114,12 @@ static int test_validation_and_budget(void)
               NULL, &raster, &id) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(id == 0u);
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
 
     id = UINT32_MAX;
     CHECK(quantapdf_composer_add_raster(
               composer, NULL, &id) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(id == 0u);
-
-    raster.struct_size = 0u;
-    id = UINT32_MAX;
-    CHECK(quantapdf_composer_add_raster(
-              composer, &raster, &id) == QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(id == 0u);
-    raster.struct_size = QUANTAPDF_COMPOSER_RASTER_V1_SIZE;
 
     raster.format = (quantapdf_composer_raster_format)99;
     CHECK(quantapdf_composer_add_raster(
@@ -164,9 +156,8 @@ static int test_validation_and_budget(void)
     quantapdf_drop_composer(composer);
     composer = NULL;
 
-    limits.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V1_SIZE;
     limits.max_resource_bytes = 15u;
-    CHECK(quantapdf_composer_create(&limits, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), &limits, &composer) == QUANTAPDF_OK);
     id = UINT32_MAX;
     raster.stride = 12u;
     raster.size = 20u;
@@ -177,7 +168,7 @@ static int test_validation_and_budget(void)
     composer = NULL;
 
     limits.max_resource_bytes = 16u;
-    CHECK(quantapdf_composer_create(&limits, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), &limits, &composer) == QUANTAPDF_OK);
     raster.stride = 1024u;
     raster.size = 1032u;
     {
@@ -194,7 +185,7 @@ static int test_validation_and_budget(void)
     quantapdf_drop_composer(composer);
     composer = NULL;
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     raster.pixels = pixels;
     raster.width = UINT32_MAX;
     raster.height = UINT32_MAX;
@@ -256,10 +247,9 @@ static int test_formats_stride_alpha_and_determinism(void)
     int xobject_components = 0;
     int has_smask = 0;
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer, UINT32_C(0xffffffff), 0u));
 
-    raster.struct_size = QUANTAPDF_COMPOSER_RASTER_V1_SIZE;
     raster.format = QUANTAPDF_COMPOSER_RASTER_GRAY8;
     raster.width = 2u;
     raster.height = 2u;
@@ -328,24 +318,23 @@ static int test_formats_stride_alpha_and_determinism(void)
 
     CHECK(quantapdf_output_save_file(first, COMPOSER_RASTER_OUTPUT_PDF) ==
           QUANTAPDF_OK);
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               COMPOSER_RASTER_OUTPUT_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
 
     CHECK(quantapdf_extract_images(page, &images) == QUANTAPDF_OK);
     CHECK(quantapdf_image_count(images, &image_count) == QUANTAPDF_OK);
     CHECK(image_count == 3u);
-    info.struct_size = sizeof(info);
+
     CHECK(quantapdf_image_get_info(images, 0u, &info) == QUANTAPDF_OK);
     CHECK(info.pixel_width == 2 && info.pixel_height == 2);
     CHECK(info.components == 1);
     CHECK(info.has_alpha == 0);
-    info.struct_size = sizeof(info);
+
     CHECK(quantapdf_image_get_info(images, 2u, &info) == QUANTAPDF_OK);
     CHECK(info.pixel_width == 2 && info.pixel_height == 1);
     CHECK(info.has_alpha == 1);
 
-    render.struct_size = sizeof(render);
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
           QUANTAPDF_OK);

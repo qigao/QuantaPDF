@@ -1,3 +1,4 @@
+#include "../test_context_fixture.h"
 /* Original PDF signed 're' rectangle admission for public Native V10.
  * Valid negative widths/heights preserve the author's m/l/l/l/h winding
  * and must paint identically to rectangles with the same area. Original
@@ -116,11 +117,11 @@ static int rendered_rgb(const std::string& pdf,int quarters,int angle,int dpi,
     quantapdf_page *page=nullptr;
     quantapdf_bitmap *bitmap=nullptr;
     OK(quantapdf_context_create(&context));
-    OK(quantapdf_open_with_context(context,filename,nullptr,&doc));
+    OK(quantapdf_open(context,filename,nullptr,&doc));
     CHECK(std::remove(filename)==0);
     OK(quantapdf_load_page(doc,0,&page));
     quantapdf_render_options options{};
-    options.struct_size=sizeof(options);
+
     options.dpi=(float)dpi;
     const auto status=quantapdf_render_page_with_options(
         page,&options,&bitmap);
@@ -209,11 +210,11 @@ static int negative(void)
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bitmap=
             reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-        OK(quantapdf_open(filename,nullptr,&doc));
+        OK(quantapdf_open(test_context(), filename,nullptr,&doc));
         CHECK(std::remove(filename)==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_render_options options{};
-        options.struct_size=sizeof(options);
+
         options.dpi=(float)dpi;
         const auto status=quantapdf_render_page_with_options(
             page,&options,&bitmap);

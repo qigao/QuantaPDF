@@ -46,19 +46,18 @@ static quantapdf_status admit_path(
     unsigned corners = 0u;
 
     if (op->graphics_state_id != 0u ||
-        options->struct_size < QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE ||
-        options->stroke != 0 || options->fill != 1 ||
+        options->stroke != 0 ||
+        options->fill != 1 ||
         (options->fill_argb >> 24u) != 255u ||
         (options->fill_rule != QUANTAPDF_COMPOSER_FILL_NONZERO &&
-         options->fill_rule != QUANTAPDF_COMPOSER_FILL_EVEN_ODD) ||
-        (options->struct_size >= QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE &&
-         options->graphics_state_id != 0u) ||
-        (options->struct_size >= QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_MIN_SIZE &&
-         (options->fill_paint_id != 0u || options->stroke_paint_id != 0u)) ||
-        (options->struct_size >= QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_MIN_SIZE &&
-         !identity_or_default(&options->transform)) ||
+            options->fill_rule != QUANTAPDF_COMPOSER_FILL_EVEN_ODD) ||
+        (options->graphics_state_id != 0u) ||
+        ((options->fill_paint_id != 0u ||
+                options->stroke_paint_id != 0u)) ||
+        (!identity_or_default(&options->transform)) ||
         path->dash_count != 0u ||
-        path->command_count != 5u || path->commands == NULL)
+        path->command_count != 5u ||
+        path->commands == NULL)
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
     if (path->commands[0].kind != QUANTAPDF_COMPOSER_PATH_MOVE_TO ||

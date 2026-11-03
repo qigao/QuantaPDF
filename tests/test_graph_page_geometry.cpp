@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include "backend/qpdf_graph.h"
 #include "backend/qpdf_composer.h"
 #include "document/page_composer_ir.h"
@@ -258,7 +259,7 @@ static void test_snapshot_to_composer()
     auto db = decode_budget();
     auto cb = content_budget();
     auto lb = lower_budget();
-    OK(quantapdf_open(GEOMETRY_SOURCE_PDF, nullptr, &document));
+    OK(quantapdf_open(test_context(), GEOMETRY_SOURCE_PDF, nullptr, &document));
     OK(quantapdf_document_capture_graph(document, &gb, &snapshot));
     quantapdf_close(document);
     CHECK(snapshot != nullptr);
@@ -298,7 +299,7 @@ static void test_snapshot_to_composer()
     CHECK(out != nullptr && std::fwrite(bytes, 1, size, out) == size);
     CHECK(std::fclose(out) == 0);
     std::free(bytes);
-    OK(quantapdf_open(GEOMETRY_RESULT_PDF, nullptr, &document));
+    OK(quantapdf_open(test_context(), GEOMETRY_RESULT_PDF, nullptr, &document));
     quantapdf_page *page = nullptr;
     quantapdf_bitmap *bitmap = nullptr;
     OK(quantapdf_load_page(document, 0, &page));

@@ -27,8 +27,8 @@
   `tests/native`。旧 `tests/CMakeLists.txt` 中的完整 SDK 回归没有因此自动获得验收。
 - 当前已打开文档持有 qpdf 对象，而 native page bridge 又交出原始字节并由 Source
   重新解析；带非空密码的 render view 被直接拒绝。这是 A1/A2 要消除的具体分裂。
-- 现行公开版本号、`struct_size`、V1/V2/V8/V9/V10 等标记和导出基线仍在代码中；
-  本次重置取消其兼容义务，实际代码清理由 A1 完成，本文不声称已经删除。
+- 重置时，公开版本号、`struct_size`、V1/V2/V8/V9/V10 等标记和导出基线仍在代码中；
+  重置取消其兼容义务。A1 下方记录实际已完成的清理，内部 profile 路线仍待收敛。
 
 ## 单一执行模型
 
@@ -72,6 +72,12 @@ Renderer 使用同一套几何、采样和合成实现。Form、透明组和 pat
 | A7 Beta 测试、文档与交付 | 当前 native CI 全绿；旧验收文档过时，CI 没有 SDK 发布产物 | 当前功能矩阵、已有 SDK 回归迁移、真实文档集合、发布包/清单/许可/校验和、对应平台运行结果 | P0，与功能并行 |
 
 ### A1：直接 API 与失败行为
+
+当前已落地：三个根工厂统一显式 Context；公开记录只保留当前完整布局，移除
+`struct_size`、MIN_SIZE 和空 Font/SVG options；导出清单与当前头文件同步，取消旧
+ABI 名称空间和 CMake major-version 兼容声明；ccache 下载失败直接退出且不重试。
+仍待完成：已有文档直接提供 scene、旧 Source/profile 分支收敛、逐层重复校验与
+错误转换的系统清理。A1 尚未整体完成，不能因此声称 Beta 已就绪。
 
 - 保留 C11 入口作为外部调用方式，qpdf/C++ 与 C11 像素内核继续各司其职；这不冻结
   任何现有名字、参数、结构布局、枚举值、package target 或所有权形式。

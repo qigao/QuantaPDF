@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include "backend/ttf_font.h"
@@ -38,7 +39,6 @@ static int add_page(quantapdf_composer* composer)
     quantapdf_composer_page_options page = {};
     size_t page_index = SIZE_MAX;
 
-    page.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
     page.width_points = 300.0f;
     page.height_points = 200.0f;
     page.background_argb = UINT32_C(0xffffffff);
@@ -51,7 +51,7 @@ static quantapdf_composer_glyph_run_options run_options(
     quantapdf_composer_font_id font_id)
 {
     quantapdf_composer_glyph_run_options options = {};
-    options.struct_size = QUANTAPDF_COMPOSER_GLYPH_RUN_OPTIONS_V1_SIZE;
+
     options.font_id = font_id;
     options.font_size = 30.0f;
     options.argb = UINT32_C(0xff102030);
@@ -102,7 +102,7 @@ static int test_validation(
     quantapdf::detail::ttf_font_face const& face)
 {
     quantapdf_composer* composer = nullptr;
-    quantapdf_composer_font_options font_options = {};
+
     quantapdf_composer_font_id font_id = 0u;
     quantapdf_composer_glyph glyph = {};
     quantapdf_composer_glyph_run_options options = {};
@@ -110,15 +110,13 @@ static int test_validation(
     char const valid[] = "A";
     char const bad_utf8[] = {static_cast<char>(0xc0), 0};
 
-    CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer));
 
-    font_options.struct_size = QUANTAPDF_COMPOSER_FONT_OPTIONS_V1_SIZE;
     CHECK(quantapdf_composer_add_font(
               composer,
               font_data.data(),
               font_data.size(),
-              &font_options,
               &font_id) == QUANTAPDF_OK);
     options = run_options(font_id);
 
@@ -222,7 +220,7 @@ static int test_render_extract_and_determinism(
     static char const combining_source[] = "o\xCC\x81";
 
     quantapdf_composer* composer = nullptr;
-    quantapdf_composer_font_options font_options = {};
+
     quantapdf_composer_font_id font_id = 0u;
     quantapdf_composer_glyph_run_options options = {};
     quantapdf_composer_glyph av[2] = {};
@@ -255,15 +253,13 @@ static int test_render_extract_and_determinism(
     CHECK(gid_a != 0u && gid_v != 0u && gid_e_acute != 0u &&
           gid_o != 0u && gid_acute != 0u);
 
-    CHECK(quantapdf_composer_create(nullptr, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), nullptr, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer));
 
-    font_options.struct_size = QUANTAPDF_COMPOSER_FONT_OPTIONS_V1_SIZE;
     CHECK(quantapdf_composer_add_font(
               composer,
               font_data.data(),
               font_data.size(),
-              &font_options,
               &font_id) == QUANTAPDF_OK);
     options = run_options(font_id);
 
@@ -346,7 +342,7 @@ static int test_render_extract_and_determinism(
 
     CHECK(quantapdf_output_save_file(
               first, COMPOSER_GLYPH_RUN_OUTPUT_PDF) == QUANTAPDF_OK);
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               COMPOSER_GLYPH_RUN_OUTPUT_PDF, nullptr, &document) ==
           QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
@@ -378,7 +374,6 @@ static int test_render_extract_and_determinism(
         quantapdf_drop_text_page(structured);
     }
 
-    render.struct_size = sizeof(render);
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
           QUANTAPDF_OK);

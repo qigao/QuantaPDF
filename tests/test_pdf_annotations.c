@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include <stddef.h>
@@ -34,11 +35,10 @@ static void expect_info(
     uint32_t flags)
 {
     quantapdf_annotation_info info = { 0 };
-    info.struct_size = sizeof(info);
 
     CHECK(quantapdf_annotation_get_info(annotations, index, &info) ==
           QUANTAPDF_OK);
-    CHECK(info.struct_size == sizeof(info));
+
     CHECK(info.type == type);
     CHECK(close_float(info.bounds.x0, x0));
     CHECK(close_float(info.bounds.y0, y0));
@@ -76,7 +76,7 @@ static void open_page(
 {
     *out_document = NULL;
     *out_page = NULL;
-    CHECK(quantapdf_open(path, NULL, out_document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, out_document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(*out_document, 0, out_page) == QUANTAPDF_OK);
     CHECK(*out_page != NULL);
 }
@@ -209,11 +209,9 @@ static void test_argument_and_reset_contract(void)
     CHECK(quantapdf_annotation_count(annotations, NULL) ==
           QUANTAPDF_ERROR_ARGUMENT);
 
-    small.struct_size = offsetof(quantapdf_annotation_info, flags);
     CHECK(quantapdf_annotation_get_info(annotations, 0, &small) ==
           QUANTAPDF_ERROR_ARGUMENT);
 
-    info.struct_size = sizeof(info);
     info.type = QUANTAPDF_ANNOTATION_HIGHLIGHT;
     info.bounds.x0 = 99.0f;
     info.bounds.y0 = 99.0f;

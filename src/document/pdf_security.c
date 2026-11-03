@@ -13,10 +13,8 @@ quantapdf_status quantapdf_document_audit(
     uint32_t findings = 0;
     if (out_result == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    if (out_result->struct_size >= QUANTAPDF_AUDIT_RESULT_V1_MIN_SIZE)
-        out_result->findings = 0;
-    if (document == NULL ||
-        out_result->struct_size < QUANTAPDF_AUDIT_RESULT_V1_MIN_SIZE)
+    out_result->findings = 0;
+    if (document == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     status = document->ops->document_audit(document->backend, &findings);
     if (status != QUANTAPDF_OK)

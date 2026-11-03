@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 #include "pdf_edit_test_api.h"
 
@@ -39,7 +40,7 @@ static quantapdf_pdf_edit *begin_edit_path(const char *path, const char *passwor
     quantapdf_document *source = NULL;
     quantapdf_pdf_edit *edit = NULL;
 
-    CHECK(quantapdf_open(path, password, &source) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, password, &source) == QUANTAPDF_OK);
     CHECK(source != NULL);
     CHECK(quantapdf_pdf_edit_begin(source, &edit) == QUANTAPDF_OK);
     CHECK(edit != NULL);
@@ -66,7 +67,6 @@ static quantapdf_annotation_info get_live_info(
 {
     quantapdf_annotation_info info = {0};
 
-    info.struct_size = sizeof(info);
     CHECK(quantapdf_pdf_edit_annotation_get_info(
               edit, ref, &info) == QUANTAPDF_OK);
     return info;
@@ -139,11 +139,10 @@ static void expect_snapshot_annotation(
     const char *text = (const char *)(uintptr_t)1;
     size_t size = (size_t)-1;
 
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, page_index, &page) == QUANTAPDF_OK);
     CHECK(quantapdf_extract_annotations(page, &annotations) == QUANTAPDF_OK);
 
-    info.struct_size = sizeof(info);
     CHECK(quantapdf_annotation_get_info(annotations, index, &info) ==
           QUANTAPDF_OK);
     CHECK(info.type == type);
@@ -178,7 +177,7 @@ static void expect_metadata_title(const char *path, const char *expected)
     size_t size = 0;
     size_t expected_size = strlen(expected);
 
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_document_metadata(
               document, QUANTAPDF_METADATA_TITLE, &text, &size) ==
           QUANTAPDF_OK);
@@ -202,7 +201,6 @@ static quantapdf_annotation_ref create_rect_annot(
     quantapdf_annotation_create_options options = {0};
     quantapdf_annotation_ref ref = {{0, 0}};
 
-    options.struct_size = sizeof(options);
     options.type = type;
     options.bounds = bounds;
     options.flags = flags;
@@ -255,7 +253,6 @@ static void test_arguments(void)
     CHECK(quantapdf_pdf_edit_annotation_ref_at(NULL, 0, 0, NULL) ==
           QUANTAPDF_ERROR_ARGUMENT);
 
-    info.struct_size = offsetof(quantapdf_annotation_info, flags);
     CHECK(quantapdf_pdf_edit_annotation_get_info(NULL, &ref, &info) ==
           QUANTAPDF_ERROR_ARGUMENT);
 
@@ -287,25 +284,20 @@ static void test_arguments(void)
     CHECK(strcmp(quantapdf_status_string(QUANTAPDF_ERROR_STATE),
                  "invalid state") == 0);
 
-    CHECK(quantapdf_open(MUTATION_PDF, NULL, &source) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), MUTATION_PDF, NULL, &source) == QUANTAPDF_OK);
     CHECK(quantapdf_pdf_edit_begin(source, &edit) == QUANTAPDF_OK);
     quantapdf_close(source);
     source = NULL;
     live_ref = get_ref(edit, 0, 1);
 
-    create_small.struct_size =
-        offsetof(quantapdf_annotation_create_options, contents_size);
     zero_ref(&ref);
     CHECK(quantapdf_pdf_edit_annotation_create(
               edit, 0, &create_small, &ref) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(ref_is_zero(&ref));
 
-    update_small.struct_size =
-        offsetof(quantapdf_annotation_update, contents_size);
     CHECK(quantapdf_pdf_edit_annotation_update(
               edit, &live_ref, &update_small) == QUANTAPDF_ERROR_ARGUMENT);
 
-    create_big.v1.struct_size = sizeof(create_big);
     create_big.v1.type = QUANTAPDF_ANNOTATION_TEXT;
     create_big.v1.bounds = (quantapdf_rect){150, 150, 170, 170};
     create_big.v1.flags = 0;
@@ -316,12 +308,10 @@ static void test_arguments(void)
               edit, 0, &create_big.v1, &ref) == QUANTAPDF_OK);
     CHECK(!ref_is_zero(&ref));
 
-    update_big.v1.struct_size = sizeof(update_big);
     update_big.v1.fields = 0;
     CHECK(quantapdf_pdf_edit_annotation_update(
               edit, &live_ref, &update_big.v1) == QUANTAPDF_OK);
 
-    bad_bits.struct_size = sizeof(bad_bits);
     bad_bits.fields = UINT32_C(0x80000000);
     CHECK(quantapdf_pdf_edit_annotation_update(
               edit, &live_ref, &bad_bits) == QUANTAPDF_ERROR_ARGUMENT);
@@ -355,7 +345,7 @@ static void test_begin_lifetime_and_fail_closed(void)
     quantapdf_pdf_edit *edit = NULL;
     quantapdf_output *output = NULL;
 
-    CHECK(quantapdf_open(MUTATION_PDF, NULL, &source) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), MUTATION_PDF, NULL, &source) == QUANTAPDF_OK);
     CHECK(quantapdf_pdf_edit_begin(source, &edit) == QUANTAPDF_OK);
     CHECK(edit != NULL);
     quantapdf_close(source);
@@ -365,7 +355,7 @@ static void test_begin_lifetime_and_fail_closed(void)
     quantapdf_drop_output(output);
     quantapdf_drop_pdf_edit(edit);
 
-    CHECK(quantapdf_open(ENCRYPTED_PDF, "user-pass", &source) ==
+    CHECK(quantapdf_open(test_context(), ENCRYPTED_PDF, "user-pass", &source) ==
           QUANTAPDF_OK);
     edit = (quantapdf_pdf_edit *)(uintptr_t)1;
     CHECK(quantapdf_pdf_edit_begin(source, &edit) ==
@@ -373,14 +363,14 @@ static void test_begin_lifetime_and_fail_closed(void)
     CHECK(edit == NULL);
     quantapdf_close(source);
 
-    CHECK(quantapdf_open(SIGNED_PDF, NULL, &source) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), SIGNED_PDF, NULL, &source) == QUANTAPDF_OK);
     edit = (quantapdf_pdf_edit *)(uintptr_t)1;
     CHECK(quantapdf_pdf_edit_begin(source, &edit) ==
           QUANTAPDF_ERROR_UNSUPPORTED);
     CHECK(edit == NULL);
     quantapdf_close(source);
 
-    CHECK(quantapdf_open(UNSIGNED_SIGNATURE_PDF, NULL, &source) ==
+    CHECK(quantapdf_open(test_context(), UNSIGNED_SIGNATURE_PDF, NULL, &source) ==
           QUANTAPDF_OK);
     edit = NULL;
     CHECK(quantapdf_pdf_edit_begin(source, &edit) == QUANTAPDF_OK);
@@ -388,7 +378,7 @@ static void test_begin_lifetime_and_fail_closed(void)
     quantapdf_drop_pdf_edit(edit);
     quantapdf_close(source);
 
-    CHECK(quantapdf_open(NON_PDF, NULL, &source) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_open(test_context(), NON_PDF, NULL, &source) == QUANTAPDF_ERROR_FORMAT);
     CHECK(source == NULL);
 }
 
@@ -427,7 +417,6 @@ static void test_discovery_and_refs(void)
         (quantapdf_rect){40, 120, 70, 150}, 4);
     expect_live_contents(a, &square_ref, 1, "square-b", 8);
 
-    info.struct_size = sizeof(info);
     info.type = QUANTAPDF_ANNOTATION_CIRCLE;
     info.flags = UINT32_MAX;
     CHECK(quantapdf_pdf_edit_annotation_get_info(
@@ -528,7 +517,6 @@ static void test_create(void)
           QUANTAPDF_OK);
     CHECK(count == 5);
 
-    options.struct_size = sizeof(options);
     options.type = QUANTAPDF_ANNOTATION_HIGHLIGHT;
     options.bounds = (quantapdf_rect){20, 20, 50, 50};
     options.flags = 0;
@@ -586,7 +574,6 @@ static void test_update_delete(void)
     CHECK(quantapdf_pdf_edit_annotation_delete(edit, &text_ref) ==
           QUANTAPDF_OK);
 
-    before.struct_size = sizeof(before);
     CHECK(quantapdf_pdf_edit_annotation_get_info(
               edit, &text_ref, &before) == QUANTAPDF_ERROR_STATE);
     CHECK(quantapdf_pdf_edit_annotation_contents(
@@ -595,7 +582,6 @@ static void test_update_delete(void)
     CHECK(before_text == NULL);
     CHECK(before_size == 0);
 
-    zero.struct_size = sizeof(zero);
     zero.fields = 0;
     CHECK(quantapdf_pdf_edit_annotation_update(
               edit, &text_ref, &zero) == QUANTAPDF_ERROR_STATE);
@@ -605,7 +591,6 @@ static void test_update_delete(void)
     current_square = get_ref(edit, 0, 0);
     CHECK(memcmp(&square_ref, &current_square, sizeof(square_ref)) == 0);
 
-    update.struct_size = sizeof(update);
     update.fields = QUANTAPDF_ANNOTATION_UPDATE_BOUNDS |
                     QUANTAPDF_ANNOTATION_UPDATE_FLAGS |
                     QUANTAPDF_ANNOTATION_UPDATE_CONTENTS;
@@ -626,14 +611,12 @@ static void test_update_delete(void)
     unknown_ref = get_ref(edit, 0, 1);
     highlight_ref = get_ref(edit, 0, 2);
 
-    update.struct_size = sizeof(update);
     update.fields = QUANTAPDF_ANNOTATION_UPDATE_BOUNDS;
     update.bounds = (quantapdf_rect){20, 20, 100, 100};
     CHECK(quantapdf_pdf_edit_annotation_update(
               edit, &highlight_ref, &update) ==
           QUANTAPDF_ERROR_UNSUPPORTED);
 
-    update.struct_size = sizeof(update);
     update.fields = QUANTAPDF_ANNOTATION_UPDATE_FLAGS |
                     QUANTAPDF_ANNOTATION_UPDATE_CONTENTS;
     update.flags = 77;
@@ -645,7 +628,6 @@ static void test_update_delete(void)
         edit, &highlight_ref, 1, "highlight-updated",
         sizeof("highlight-updated") - 1);
 
-    zero.struct_size = sizeof(zero);
     zero.fields = 0;
     CHECK(quantapdf_pdf_edit_annotation_update(
               edit, &unknown_ref, &zero) == QUANTAPDF_OK);
@@ -654,13 +636,11 @@ static void test_update_delete(void)
     CHECK(quantapdf_pdf_edit_annotation_update(
               other, &square_ref, &zero) == QUANTAPDF_ERROR_ARGUMENT);
 
-    before.struct_size = sizeof(before);
     CHECK(quantapdf_pdf_edit_annotation_get_info(
               edit, &square_ref, &before) == QUANTAPDF_OK);
     CHECK(quantapdf_pdf_edit_annotation_contents(
               edit, &square_ref, &before_text, &before_size) == QUANTAPDF_OK);
 
-    update.struct_size = sizeof(update);
     update.fields = QUANTAPDF_ANNOTATION_UPDATE_BOUNDS |
                     QUANTAPDF_ANNOTATION_UPDATE_CONTENTS;
     update.bounds = (quantapdf_rect){20, 20, 90, 90};
@@ -673,7 +653,6 @@ static void test_update_delete(void)
     quantapdf_test_pdf_edit_set_fault(
         edit, QUANTAPDF_TEST_PDF_EDIT_FAULT_NONE);
 
-    after.struct_size = sizeof(after);
     CHECK(quantapdf_pdf_edit_annotation_get_info(
               edit, &square_ref, &after) == QUANTAPDF_OK);
     CHECK(quantapdf_pdf_edit_annotation_contents(
@@ -693,7 +672,7 @@ static void test_update_delete(void)
 
     CHECK(quantapdf_pdf_edit_annotation_count(
               edit, 0, &before_count) == QUANTAPDF_OK);
-    options.struct_size = sizeof(options);
+
     options.type = QUANTAPDF_ANNOTATION_TEXT;
     options.bounds = (quantapdf_rect){120, 120, 150, 150};
     options.flags = 0;
@@ -739,23 +718,19 @@ static void test_contents_flags(void)
     size_t old_size = 0;
     size_t size = 0;
 
-    info.struct_size = sizeof(info);
     CHECK(quantapdf_pdf_edit_annotation_get_info(
               edit, &text_ref, &info) == QUANTAPDF_OK);
     CHECK(info.flags == UINT32_C(2147483649));
 
-    update.struct_size = sizeof(update);
     update.fields = QUANTAPDF_ANNOTATION_UPDATE_FLAGS;
     update.flags = UINT32_MAX;
     CHECK(quantapdf_pdf_edit_annotation_update(
               edit, &text_ref, &update) == QUANTAPDF_OK);
 
-    info.struct_size = sizeof(info);
     CHECK(quantapdf_pdf_edit_annotation_get_info(
               edit, &text_ref, &info) == QUANTAPDF_OK);
     CHECK(info.flags == UINT32_MAX);
 
-    update.struct_size = sizeof(update);
     update.fields = QUANTAPDF_ANNOTATION_UPDATE_CONTENTS;
     update.contents_utf8 = counted;
     update.contents_size = sizeof(counted);
@@ -849,7 +824,7 @@ static void test_snapshot_isolation(void)
     size_t after_failed_size = 0;
     unsigned char *a_copy = NULL;
 
-    CHECK(quantapdf_open(MUTATION_PDF, NULL, &source) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), MUTATION_PDF, NULL, &source) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(source, 0, &source_page) == QUANTAPDF_OK);
     CHECK(quantapdf_extract_annotations(
               source_page, &source_annotations) == QUANTAPDF_OK);
@@ -861,7 +836,6 @@ static void test_snapshot_isolation(void)
     quantapdf_close(source);
     source = NULL;
 
-    source_info.struct_size = sizeof(source_info);
     CHECK(quantapdf_annotation_get_info(
               source_annotations, 0, &source_info) == QUANTAPDF_OK);
     CHECK(source_info.type == QUANTAPDF_ANNOTATION_TEXT);
@@ -891,14 +865,12 @@ static void test_snapshot_isolation(void)
     CHECK(a_copy != NULL);
     memcpy(a_copy, a_data, a_size);
 
-    update.struct_size = sizeof(update);
     update.fields = QUANTAPDF_ANNOTATION_UPDATE_CONTENTS;
     update.contents_utf8 = "snapshot-b";
     update.contents_size = sizeof("snapshot-b") - 1;
     CHECK(quantapdf_pdf_edit_annotation_update(
               edit, &text_ref, &update) == QUANTAPDF_OK);
 
-    source_info.struct_size = sizeof(source_info);
     CHECK(quantapdf_annotation_get_info(
               source_annotations, 0, &source_info) == QUANTAPDF_OK);
     CHECK(source_info.flags == UINT32_C(2147483649));
@@ -976,7 +948,7 @@ static void test_javascript_disabled(void)
     char *title = NULL;
     size_t title_size = 0;
 
-    CHECK(quantapdf_open(JS_PDF, NULL, &source) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), JS_PDF, NULL, &source) == QUANTAPDF_OK);
     CHECK(quantapdf_document_metadata(
               source, QUANTAPDF_METADATA_TITLE, &title, &title_size) ==
           QUANTAPDF_OK);
@@ -991,7 +963,7 @@ static void test_javascript_disabled(void)
     source = NULL;
 
     text_ref = get_ref(edit, 0, 0);
-    update.struct_size = sizeof(update);
+
     update.fields = QUANTAPDF_ANNOTATION_UPDATE_CONTENTS;
     update.contents_utf8 = "js-mutated";
     update.contents_size = sizeof("js-mutated") - 1;
@@ -1041,7 +1013,7 @@ static void test_exception_rollback(void)
     quantapdf_output *after = NULL;
 
     CHECK(quantapdf_pdf_edit_snapshot(edit, &before) == QUANTAPDF_OK);
-    update.struct_size = sizeof(update);
+
     update.fields = QUANTAPDF_ANNOTATION_UPDATE_BOUNDS |
                     QUANTAPDF_ANNOTATION_UPDATE_FLAGS |
                     QUANTAPDF_ANNOTATION_UPDATE_CONTENTS;
@@ -1094,7 +1066,7 @@ static void test_create_rollback(void)
 
             CHECK(quantapdf_pdf_edit_annotation_count(edit, 0, &before_count) == QUANTAPDF_OK);
             CHECK(quantapdf_pdf_edit_snapshot(edit, &before) == QUANTAPDF_OK);
-            options.struct_size = sizeof(options);
+
             options.type = QUANTAPDF_ANNOTATION_TEXT;
             options.bounds = (quantapdf_rect){20, 20, 30, 30};
             options.contents_utf8 = "retry";
@@ -1137,7 +1109,7 @@ static void test_failed_rollback_closes_session(void)
     size_t count = SIZE_MAX;
 
     CHECK(quantapdf_pdf_edit_snapshot(edit, &before) == QUANTAPDF_OK);
-    update.struct_size = sizeof(update);
+
     update.fields = QUANTAPDF_ANNOTATION_UPDATE_CONTENTS;
     update.contents_utf8 = "unpublished";
     update.contents_size = sizeof("unpublished") - 1;
@@ -1149,14 +1121,14 @@ static void test_failed_rollback_closes_session(void)
     CHECK(count == 0);
     CHECK(quantapdf_pdf_edit_annotation_ref_at(edit, 0, 0, &failed_ref) == QUANTAPDF_ERROR_STATE);
     CHECK(ref_is_zero(&failed_ref));
-    info.struct_size = sizeof(info);
+
     info.flags = UINT32_MAX;
     CHECK(quantapdf_pdf_edit_annotation_get_info(edit, &ref, &info) == QUANTAPDF_ERROR_STATE);
     CHECK(info.flags == 0 && info.type == QUANTAPDF_ANNOTATION_UNKNOWN);
     CHECK(quantapdf_pdf_edit_annotation_contents(edit, &ref, &contents, &contents_size) ==
           QUANTAPDF_ERROR_STATE);
     CHECK(contents == NULL && contents_size == 0);
-    create.struct_size = sizeof(create);
+
     create.type = QUANTAPDF_ANNOTATION_TEXT;
     create.bounds = (quantapdf_rect){20, 20, 30, 30};
     CHECK(quantapdf_pdf_edit_annotation_create(edit, 0, &create, &failed_ref) == QUANTAPDF_ERROR_STATE);
@@ -1167,7 +1139,7 @@ static void test_failed_rollback_closes_session(void)
     CHECK(form == NULL);
     CHECK(quantapdf_pdf_edit_form_field_ref_at(edit, 0, &form_ref) == QUANTAPDF_ERROR_STATE);
     CHECK(form_ref.opaque[0] == 0 && form_ref.opaque[1] == 0);
-    form_update.struct_size = sizeof(form_update);
+
     form_update.presence = QUANTAPDF_FORM_VALUE_MISSING;
     CHECK(quantapdf_pdf_edit_form_set_values(edit, &form_ref, &form_update) == QUANTAPDF_ERROR_STATE);
     quantapdf_drop_pdf_edit(edit);
@@ -1175,7 +1147,6 @@ static void test_failed_rollback_closes_session(void)
     quantapdf_drop_output(before);
     quantapdf_drop_pdf_edit(clean);
 }
-
 
 /* Different pages alias one indirect /Annots with three interleaved matches.
  * Replacing just one page key on rollback cannot satisfy both page checks. */
@@ -1268,7 +1239,7 @@ static void test_delete_rollback(void)
                       duplicate.opaque[1] == ref.opaque[1]);
                 expect_live_contents(edit, &ref, 1, "erase", 5);
             }
-            info.struct_size = sizeof(info);
+
             CHECK(quantapdf_pdf_edit_annotation_get_info(edit, &ref, &info) == QUANTAPDF_OK);
             expect_same_output(before, edit);
             CHECK(quantapdf_pdf_edit_annotation_delete(edit, &ref) == QUANTAPDF_OK);

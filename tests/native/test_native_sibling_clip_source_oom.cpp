@@ -513,11 +513,7 @@ static bool owned_graph(const quantapdf_ir& ir,const scenario& sc,
         CHECK(op.page_index==0u && op.graphics_state_id==state);
         states_used|=1u<<static_cast<unsigned>(state);
         if(is_image(authored.kind)) {
-            CHECK(op.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE &&
-                  op.value.image.image_id==image_index+1u &&
-                  op.value.image.options.struct_size==QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE &&
-                  op.value.image.options.fit==QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH &&
-                  op.value.image.options.graphics_state_id==state);
+            CHECK(op.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE && op.value.image.image_id==image_index+1u && op.value.image.options.fit==QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH && op.value.image.options.graphics_state_id==state);
             const auto& img=r.images[image_index];
             const bool red_image=authored.kind==paint::red_image;
             CHECK(img.format==QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW &&
@@ -540,15 +536,8 @@ static bool owned_graph(const quantapdf_ir& ir,const scenario& sc,
         const uint32_t color=authored.kind==paint::red_path?UINT32_C(0xffff0000):
             authored.kind==paint::blue_path?UINT32_C(0xff0000ff):
             authored.kind==paint::magenta_path?UINT32_C(0xffff00ff):UINT32_C(0xff00ff00);
-        CHECK(path.commands!=nullptr && path.command_count==5u &&
-              path.dash_lengths==nullptr && path.dash_count==0u && path.dash_phase==0.0f &&
-              path.options.struct_size==QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE &&
-              path.options.fill==1 && path.options.stroke==0 &&
-              path.options.graphics_state_id==state && path.options.fill_argb==color &&
-              path.options.fill_rule==(authored.kind==paint::blue_path?
-                  QUANTAPDF_COMPOSER_FILL_EVEN_ODD:QUANTAPDF_COMPOSER_FILL_NONZERO) &&
-              path.options.fill_paint_id==0u && path.options.stroke_paint_id==0u &&
-              cleared(path.options.transform));
+        CHECK(path.commands!=nullptr && path.command_count==5u && path.dash_lengths==nullptr && path.dash_count==0u && path.dash_phase==0.0f && path.options.fill==1 && path.options.stroke==0 && path.options.graphics_state_id==state && path.options.fill_argb==color && path.options.fill_rule==(authored.kind==paint::blue_path?
+                  QUANTAPDF_COMPOSER_FILL_EVEN_ODD:QUANTAPDF_COMPOSER_FILL_NONZERO) && path.options.fill_paint_id==0u && path.options.stroke_paint_id==0u && cleared(path.options.transform));
         const size_t rectangle=authored.kind==paint::magenta_path?1u:
             authored.kind==paint::green_path?2u:0u;
         for(size_t p=0u;p<4u;++p)

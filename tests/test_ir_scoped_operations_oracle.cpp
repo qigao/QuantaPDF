@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 /* Test-only PDFium reference for provider-free scoped native raster V0.
  * No PDFium/qpdf calls exist in the production C11 render implementation. */
 #include "backend/qpdf_composer.h"
@@ -77,7 +78,7 @@ struct scene {
             op.value.path.commands = shape[i];
             op.value.path.command_count = 5u;
             auto& opt = op.value.path.options;
-            opt.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
             opt.fill = 1;
             opt.fill_argb = colors[i];
             opt.transform = quantapdf_affine_transform{1,0,0,1,0,0};
@@ -117,7 +118,7 @@ pdfium_image pdfium_render(const char *path)
     const unsigned char *pixels = nullptr;
     size_t bytes = 0u;
     pdfium_image result;
-    OK(quantapdf_open(path,nullptr,&doc));
+    OK(quantapdf_open(test_context(), path,nullptr,&doc));
     OK(quantapdf_load_page(doc,0,&page));
     OK(quantapdf_render_page(page,&bitmap));
     OK(quantapdf_bitmap_dimensions(bitmap,&result.width,&result.height,

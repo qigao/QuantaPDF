@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 /* Test-only QPDF/PDFium reference for private scoped native Clip DAG V1.
  * Native raster and its separate strict C11 conformance remain provider-free. */
 #include "backend/qpdf_composer.h"
@@ -75,7 +76,7 @@ struct scene {
             op.value.path.commands = paints[i];
             op.value.path.command_count = 5u;
             auto& opt = op.value.path.options;
-            opt.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
             opt.fill = 1;
             opt.fill_argb = colors[i];
             opt.transform = quantapdf_affine_transform{1,0,0,1,0,0};
@@ -126,7 +127,7 @@ image pdfium_render(const char *name)
     quantapdf_bitmap *bitmap = nullptr;
     const unsigned char *data = nullptr;
     size_t bytes = 0u;
-    OK(quantapdf_open(name,nullptr,&doc));
+    OK(quantapdf_open(test_context(), name,nullptr,&doc));
     OK(quantapdf_load_page(doc,0,&page));
     OK(quantapdf_render_page(page,&bitmap));
     OK(quantapdf_bitmap_dimensions(bitmap,&result.width,&result.height,

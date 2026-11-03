@@ -343,10 +343,7 @@ static bool owned_graph(const quantapdf_ir& ir,const scenario& sc,
         CHECK(op.page_index==0u && op.graphics_state_id==state);
         states_used|=1u<<static_cast<unsigned>(state);
         if(is_image(authored.kind)) {
-            CHECK(op.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE &&
-                  op.value.image.image_id==image_index+1u &&
-                  op.value.image.options.struct_size==QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE &&
-                  op.value.image.options.graphics_state_id==state);
+            CHECK(op.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE && op.value.image.image_id==image_index+1u && op.value.image.options.graphics_state_id==state);
             const auto& img=r.images[image_index];
             const bool red_image=authored.kind==paint::red_image;
             CHECK(img.format==QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW &&

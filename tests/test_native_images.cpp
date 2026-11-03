@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 #include "backend/jpeg_encoder.h"
 #include <qpdf/Pl_Buffer.hh>
@@ -47,7 +48,7 @@ struct fixture {
     {
         write();
         quantapdf_document *document = nullptr; quantapdf_page *loaded = nullptr;
-        ICHECK(quantapdf_open(NATIVE_DOCUMENT_OUTPUT_PDF, nullptr, &document) == QUANTAPDF_OK);
+        ICHECK(quantapdf_open(test_context(), NATIVE_DOCUMENT_OUTPUT_PDF, nullptr, &document) == QUANTAPDF_OK);
         ICHECK(quantapdf_load_page(document, 0, &loaded) == QUANTAPDF_OK);
         auto result = reinterpret_cast<quantapdf_image_page *>(1);
         ICHECK(quantapdf_extract_images(loaded, &result) == expected);
@@ -90,7 +91,7 @@ void placements()
         f.pdf.newStream("/I Do Q q 2 0 0 3 4 5 cm /F Do Q")}));
     auto images = f.extract(); size_t count = 0;
     ICHECK(quantapdf_image_count(images, &count) == QUANTAPDF_OK && count == 2);
-    quantapdf_image_info a = {}, b = {}; a.struct_size = sizeof(a); b.struct_size = sizeof(b);
+    quantapdf_image_info a = {}, b = {};
     ICHECK(quantapdf_image_get_info(images, 0, &a) == QUANTAPDF_OK);
     ICHECK(quantapdf_image_get_info(images, 1, &b) == QUANTAPDF_OK);
     point(a.quad.ul,40,120); point(a.quad.ur,60,120); point(a.quad.ll,40,160); point(a.quad.lr,60,160);
@@ -100,7 +101,7 @@ void placements()
     // Inherited resources, quarter rotation and a second independent extraction.
     f.page.removeKey("/Resources"); f.page.getKey("/Parent").replaceKey("/Resources", f.resources);
     f.page.replaceKey("/Rotate", Obj::newInteger(90)); f.content("q 10 0 0 20 30 40 cm /I Do Q");
-    images = f.extract(); a.struct_size = sizeof(a);
+    images = f.extract();
     ICHECK(quantapdf_image_get_info(images,0,&a) == QUANTAPDF_OK);
     point(a.quad.ul,80,40); point(a.quad.ur,80,60); point(a.quad.ll,40,40); point(a.quad.lr,40,60);
     pixels(images,0,{255,0,0,0,255,0},2,3); quantapdf_drop_image_page(images);

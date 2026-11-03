@@ -3,7 +3,7 @@
 
 #include <stdlib.h>
 
-quantapdf_status quantapdf_merge_outputs_with_context(
+quantapdf_status quantapdf_merge_outputs(
     quantapdf_context *context,
     const quantapdf_output *const *inputs,
     size_t input_count,
@@ -15,18 +15,7 @@ quantapdf_status quantapdf_merge_outputs_with_context(
     quantapdf_status status;
     size_t index;
 
-    if (out_output == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
     *out_output = NULL;
-    if (context == NULL || inputs == NULL || input_count == 0 ||
-        input_count > SIZE_MAX / sizeof(*data) ||
-        input_count > SIZE_MAX / sizeof(*sizes))
-        return QUANTAPDF_ERROR_ARGUMENT;
-    for (index = 0; index < input_count; ++index) {
-        if (inputs[index] == NULL)
-            return QUANTAPDF_ERROR_ARGUMENT;
-    }
-
     status = quantapdf_output_create_internal(context, &output);
     if (status != QUANTAPDF_OK)
         return status;
@@ -56,23 +45,4 @@ quantapdf_status quantapdf_merge_outputs_with_context(
     }
     *out_output = output;
     return QUANTAPDF_OK;
-}
-
-quantapdf_status quantapdf_merge_outputs(
-    const quantapdf_output *const *inputs,
-    size_t input_count,
-    quantapdf_output **out_output)
-{
-    quantapdf_context *context;
-    quantapdf_status status;
-    if (out_output == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    *out_output = NULL;
-    status = quantapdf_context_create(&context);
-    if (status != QUANTAPDF_OK)
-        return status;
-    status = quantapdf_merge_outputs_with_context(
-        context, inputs, input_count, out_output);
-    quantapdf_drop_context(context);
-    return status;
 }

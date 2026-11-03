@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include <stdio.h>
@@ -89,7 +90,7 @@ static int verify_export_contract(
 
     if (!write_bytes(ORDER_OUTPUT_PDF, first_data, first_size))
         goto done;
-    if (quantapdf_open(ORDER_OUTPUT_PDF, NULL, &reopened) != QUANTAPDF_OK)
+    if (quantapdf_open(test_context(), ORDER_OUTPUT_PDF, NULL, &reopened) != QUANTAPDF_OK)
         goto done;
     if (quantapdf_page_count(reopened, &reopened_count) != QUANTAPDF_OK ||
         reopened_count != (int)index_count)
@@ -129,7 +130,7 @@ int main(void)
     float duplicate_height[] = {180.0f, 180.0f, 150.0f, 180.0f};
     int result = 1;
 
-    if (quantapdf_open(COMPOSITION_PDF, NULL, &source) != QUANTAPDF_OK) {
+    if (quantapdf_open(test_context(), COMPOSITION_PDF, NULL, &source) != QUANTAPDF_OK) {
         fprintf(stderr, "could not open composition source PDF\n");
         goto cleanup;
     }

@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 #include "test_pdf_trim_internal.h"
 
@@ -122,7 +123,7 @@ static quantapdf_document *open_document(const char *path)
 {
     quantapdf_document *document = NULL;
 
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     CHECK(document != NULL);
     return document;
 }
@@ -203,7 +204,7 @@ static quantapdf_rect find_text_bounds(
                           &span_text, &span_size) == QUANTAPDF_OK);
                 if (span_text == NULL || strstr(span_text, needle) == NULL)
                     continue;
-                info.struct_size = sizeof(info);
+
                 CHECK(quantapdf_text_get_span_info(
                           text, block_index, line_index, span_index, &info) ==
                       QUANTAPDF_OK);
@@ -234,10 +235,6 @@ static void capture_observation(
     int saw_internal = 0;
 
     memset(observation, 0, sizeof(*observation));
-    observation->annotation.struct_size = sizeof(observation->annotation);
-    observation->field.struct_size = sizeof(observation->field);
-    observation->widget.struct_size = sizeof(observation->widget);
-    observation->outline.struct_size = sizeof(observation->outline);
 
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     CHECK(quantapdf_page_bounds(page, &observation->page_bounds) == QUANTAPDF_OK);
@@ -254,7 +251,7 @@ static void capture_observation(
     CHECK(count == 1);
     {
         quantapdf_image_info info = {0};
-        info.struct_size = sizeof(info);
+
         CHECK(quantapdf_image_get_info(images, 0, &info) == QUANTAPDF_OK);
         observation->image_quad = info.quad;
     }
@@ -264,7 +261,7 @@ static void capture_observation(
     CHECK(count == 2);
     for (index = 0; index < count; ++index) {
         quantapdf_link_info info = {0};
-        info.struct_size = sizeof(info);
+
         CHECK(quantapdf_link_get_info(links, index, &info) == QUANTAPDF_OK);
         if (info.kind == QUANTAPDF_LINK_URI) {
             const char *uri = NULL;
@@ -319,7 +316,7 @@ static void capture_observation(
         copy_text(observation->field_name, sizeof(observation->field_name),
                   name, name_size);
         CHECK(observation->field.value_count == 1);
-        value_info.struct_size = sizeof(value_info);
+
         CHECK(quantapdf_form_field_value_get_info(
                   form, 0, 0, &value_info) == QUANTAPDF_OK);
         CHECK(value_info.kind == QUANTAPDF_FORM_VALUE_UTF8);
@@ -433,7 +430,7 @@ static quantapdf_page_trim make_trim(
     quantapdf_rect bounds)
 {
     quantapdf_page_trim trim;
-    trim.struct_size = sizeof(trim);
+
     trim.page_index = page_index;
     trim.bounds = bounds;
     return trim;

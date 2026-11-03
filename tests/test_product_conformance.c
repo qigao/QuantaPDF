@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 /*
  * Product-level public C11 conformance: no private headers or backend types.
  * Keep the byte comparison within one build/SDK; cross-platform byte equality
@@ -29,22 +30,21 @@ int main(int argc, char **argv)
     int page_count = -1;
 
     CHECK(argc == 3);
-    CHECK(QUANTAPDF_ABI_VERSION == 2);
     CHECK(QUANTAPDF_VERSION_MAJOR == 2);
 
     fprintf(stderr, "conformance: reject invalid input\n");
     /* Error paths must not publish a handle. */
     bad_document = (quantapdf_document *) &page_count;
-    CHECK(quantapdf_open(NULL, NULL, &bad_document) ==
+    CHECK(quantapdf_open(test_context(), NULL, NULL, &bad_document) ==
           QUANTAPDF_ERROR_ARGUMENT);
     CHECK(bad_document == NULL);
 
     bad_document = (quantapdf_document *) &page_count;
-    CHECK(quantapdf_open(argv[2], NULL, &bad_document) != QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), argv[2], NULL, &bad_document) != QUANTAPDF_OK);
     CHECK(bad_document == NULL);
 
     fprintf(stderr, "conformance: open fixture\n");
-    CHECK(quantapdf_open(argv[1], NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), argv[1], NULL, &document) == QUANTAPDF_OK);
     CHECK(document != NULL);
     CHECK(quantapdf_page_count(document, &page_count) == QUANTAPDF_OK);
     CHECK(page_count == 1);

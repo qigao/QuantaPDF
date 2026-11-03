@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFWriter.hh>
@@ -35,7 +36,7 @@ struct fixture {
     {
         { QPDFWriter writer(pdf,NATIVE_DOCUMENT_OUTPUT_PDF); if(encrypted) writer.setR6EncryptionParameters("pass","owner",true,true,true,true,true,true,qpdf_r3p_full,false); writer.write(); }
         quantapdf_document *document=nullptr; quantapdf_page *loaded=nullptr;
-        TCHECK(quantapdf_open(NATIVE_DOCUMENT_OUTPUT_PDF,encrypted?"pass":nullptr,&document)==QUANTAPDF_OK);
+        TCHECK(quantapdf_open(test_context(), NATIVE_DOCUMENT_OUTPUT_PDF,encrypted?"pass":nullptr,&document)==QUANTAPDF_OK);
         TCHECK(quantapdf_load_page(document,0,&loaded)==QUANTAPDF_OK);
         char *bytes=reinterpret_cast<char *>(1); size_t size=99;
         auto status=quantapdf_extract_text(loaded,&bytes,&size);

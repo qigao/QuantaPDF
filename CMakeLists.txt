@@ -173,10 +173,9 @@ target_link_libraries(quantapdf PRIVATE
 set_target_properties(quantapdf PROPERTIES
   EXPORT_NAME QuantaPDF
   LINKER_LANGUAGE CXX
-  VERSION "${PROJECT_VERSION}"
-  SOVERSION "${PROJECT_VERSION_MAJOR}")
+  VERSION "${PROJECT_VERSION}")
 quantapdf_configure_shared_exports(
-  quantapdf "${CMAKE_CURRENT_SOURCE_DIR}/abi/quantapdf-v2.exports")
+  quantapdf "${CMAKE_CURRENT_SOURCE_DIR}/abi/quantapdf.exports")
 
 if(BUILD_SHARED_LIBS)
   target_compile_definitions(quantapdf
@@ -219,17 +218,12 @@ configure_package_config_file(
   "${CMAKE_CURRENT_BINARY_DIR}/QuantaPDFConfig.cmake"
   INSTALL_DESTINATION "${_quantapdf_package_dir}"
   PATH_VARS CMAKE_INSTALL_LIBDIR)
-write_basic_package_version_file(
-  "${CMAKE_CURRENT_BINARY_DIR}/QuantaPDFConfigVersion.cmake"
-  VERSION "${PROJECT_VERSION}"
-  COMPATIBILITY SameMajorVersion)
 install(EXPORT QuantaPDFTargets
   FILE QuantaPDFTargets.cmake
   NAMESPACE QuantaPDF::
   DESTINATION "${_quantapdf_package_dir}")
 install(FILES
   "${CMAKE_CURRENT_BINARY_DIR}/QuantaPDFConfig.cmake"
-  "${CMAKE_CURRENT_BINARY_DIR}/QuantaPDFConfigVersion.cmake"
   DESTINATION "${_quantapdf_package_dir}")
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/docs/native-sdk.md"
   DESTINATION "${CMAKE_INSTALL_DATADIR}/quantapdf/docs")

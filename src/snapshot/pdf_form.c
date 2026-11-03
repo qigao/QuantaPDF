@@ -87,13 +87,8 @@ quantapdf_status quantapdf_form_field_get_info(
     quantapdf_form_field_info *out_info)
 {
     const quantapdf_pdf_form_field_internal *field;
-    size_t minimum_size;
 
     if (out_info == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    minimum_size = offsetof(quantapdf_form_field_info, is_signed) +
-        sizeof(out_info->is_signed);
-    if (out_info->struct_size < minimum_size)
         return QUANTAPDF_ERROR_ARGUMENT;
 
     out_info->type = QUANTAPDF_FORM_FIELD_UNKNOWN;
@@ -190,13 +185,8 @@ quantapdf_status quantapdf_form_field_value_get_info(
 {
     const quantapdf_pdf_form_field_internal *field;
     const quantapdf_pdf_form_value_internal *value;
-    size_t minimum_size;
 
     if (out_info == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    minimum_size = offsetof(quantapdf_form_value_info, option_index) +
-        sizeof(out_info->option_index);
-    if (out_info->struct_size < minimum_size)
         return QUANTAPDF_ERROR_ARGUMENT;
 
     out_info->kind = QUANTAPDF_FORM_VALUE_UTF8;
@@ -254,13 +244,8 @@ quantapdf_status quantapdf_form_field_option_get_info(
 {
     const quantapdf_pdf_form_field_internal *field;
     const quantapdf_pdf_form_option_internal *option;
-    size_t minimum_size;
 
     if (out_info == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    minimum_size = offsetof(quantapdf_form_option_info, kind) +
-        sizeof(out_info->kind);
-    if (out_info->struct_size < minimum_size)
         return QUANTAPDF_ERROR_ARGUMENT;
 
     out_info->kind = QUANTAPDF_FORM_OPTION_BUTTON_STATE;
@@ -349,13 +334,8 @@ quantapdf_status quantapdf_form_widget_get_info(
     quantapdf_form_widget_info *out_info)
 {
     const quantapdf_pdf_form_widget_internal *widget;
-    size_t minimum_size;
 
     if (out_info == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    minimum_size = offsetof(quantapdf_form_widget_info, button_option_index) +
-        sizeof(out_info->button_option_index);
-    if (out_info->struct_size < minimum_size)
         return QUANTAPDF_ERROR_ARGUMENT;
 
     out_info->field_index = SIZE_MAX;

@@ -124,7 +124,6 @@ int64_t source_v10_lattice(Obj number,int64_t ticks)
     return negative?-quarters:quarters;
 }
 
-
 double whole_signed_source(double value)
 {
     /* Source V10 accepts quarter-point coordinates from a proven
@@ -2784,7 +2783,7 @@ quantapdf_ir materialize_text_outlines(const admission& source)
                 path.commands=static_cast<quantapdf_composer_path_command *>(QP_SOURCE_C_MALLOC(path.command_count*sizeof(*path.commands)));
                 admit(path.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
                 std::memcpy(path.commands,paint.rectangle.data(),path.command_count*sizeof(*path.commands));
-                path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
                 path.options.fill=1;path.options.fill_argb=paint.argb;path.options.fill_rule=paint.rule;continue;
             }
             op.kind=QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES;
@@ -2887,7 +2886,6 @@ quantapdf_ir materialize_m2a_text_image(const admission& source)
     } catch(...) {quantapdf_ir_dispose(&ir);throw;}
 }
 
-
 /* M2b.2f private Source/IR ownership ONLY: one QPDF W/W* root is
  * defined under an original pre-BT q; a real Q after the first THREE
  * paints restores GS0. Source then authors one unmasked PATH Fill as
@@ -2974,7 +2972,7 @@ quantapdf_ir materialize_m2b2f_restored_fill(const admission& source)
             admit(path.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
             std::memcpy(path.commands,paint.rectangle.data(),
                         path.command_count*sizeof(*path.commands));
-            path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
             path.options.fill=1;
             path.options.fill_argb=paint.argb;
             path.options.fill_rule=paint.rule;
@@ -3003,8 +3001,7 @@ quantapdf_ir materialize_m2b2f_restored_fill(const admission& source)
         copy_fill(1u,first_fill,1u);
         ir.operations[2]=decoded_image;
         ir.operations[2].graphics_state_id=1u;
-        ir.operations[2].value.image.options.struct_size=
-            QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+
         ir.operations[2].value.image.options.graphics_state_id=1u;
         copy_fill(3u,restored_fill,0u);
         ir.resources.graphics_states=
@@ -3127,7 +3124,7 @@ quantapdf_ir materialize_m2b1_text_fill_image(const admission& source)
                 admit(path.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
                 std::memcpy(path.commands,fill.rectangle.data(),
                             path.command_count*sizeof(*path.commands));
-                path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
                 path.options.fill=1;
                 path.options.fill_argb=fill.argb;
                 path.options.fill_rule=fill.rule;
@@ -3176,8 +3173,7 @@ quantapdf_ir materialize_m2b1_text_fill_image(const admission& source)
                     sibling?source.scoped_clip_membership[i]:1u);
                 operation.graphics_state_id=id;
                 if(operation.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
-                    operation.value.image.options.struct_size=
-                        QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+
                     operation.value.image.options.graphics_state_id=id;
                 } else if(operation.kind==QUANTAPDF_COMPOSER_OPERATION_PATH) {
                     operation.value.path.options.graphics_state_id=id;
@@ -3228,7 +3224,7 @@ quantapdf_ir materialize_owned_paths(const admission& source)
             admit(path.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
             std::memcpy(path.commands,staged.commands.data(),
                 path.command_count*sizeof(*path.commands));
-            path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
             path.options.fill=staged.stroke?0:1;
             path.options.stroke=staged.stroke?1:0;
             path.options.fill_argb=staged.fill_argb;
@@ -3311,8 +3307,7 @@ quantapdf_ir materialize(
             operation.page_index=0u;
             operation.bounds=staged.bounds;
             operation.value.image.image_id=static_cast<quantapdf_composer_image_id>(i+1u);
-            operation.value.image.options.struct_size=
-                QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE;
+
             operation.value.image.options.fit=
                 QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
         }
@@ -3726,8 +3721,7 @@ quantapdf_ir materialize_clipped_image(const admission& source,
             const quantapdf_composer_graphics_state_id state_id =
                 source.restore_second_image && i==1u ? 0u : 1u;
             ir.operations[i].graphics_state_id=state_id;
-            ir.operations[i].value.image.options.struct_size=
-                QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+
             ir.operations[i].value.image.options.graphics_state_id=state_id;
         }
         return ir;
@@ -3797,7 +3791,7 @@ quantapdf_ir materialize_mixed(const admission& source,
             path.command_count=count;
             std::memcpy(path.commands,staged.commands.data(),
                         count*sizeof(*path.commands));
-            path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
             path.options.fill=staged.stroke?0:1;
             path.options.stroke=staged.stroke?1:0;
             path.options.fill_argb=staged.fill_argb;
@@ -3897,8 +3891,7 @@ quantapdf_ir materialize_clip_states(const admission& source)
                 source.scoped_clip_membership[i];
             op.graphics_state_id=id;
             if(op.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
-                op.value.image.options.struct_size=
-                    QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+
                 op.value.image.options.graphics_state_id=id;
             } else {
                 op.value.path.options.graphics_state_id=id;
@@ -3990,8 +3983,7 @@ quantapdf_ir materialize_sibling_clip_scopes(const admission& source)
                 source.scoped_clip_membership[i];
             op.graphics_state_id=id;
             if(op.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
-                op.value.image.options.struct_size=
-                    QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+
                 op.value.image.options.graphics_state_id=id;
             } else {
                 op.value.path.options.graphics_state_id=id;
@@ -4093,8 +4085,7 @@ quantapdf_ir materialize_unclipped_prefix(const admission& source,
                 source.scoped_clip_membership[i];
             op.graphics_state_id=id;
             if(op.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
-                op.value.image.options.struct_size=
-                    QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+
                 op.value.image.options.graphics_state_id=id;
             } else {
                 op.value.path.options.graphics_state_id=id;
@@ -4213,8 +4204,7 @@ quantapdf_ir materialize_scoped_mixed_v5(const admission& source,
                 source.scoped_clip_membership[i] ? 1u : 0u;
             op.graphics_state_id=id;
             if(op.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
-                op.value.image.options.struct_size=
-                    QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+
                 op.value.image.options.graphics_state_id=id;
             } else {
                 admit(op.kind==QUANTAPDF_COMPOSER_OPERATION_PATH,
@@ -4277,8 +4267,7 @@ quantapdf_ir materialize_restored_image_then_path(const admission& source)
         clip.transform={1.0f,0.0f,0.0f,1.0f,0.0f,0.0f};
 
         ir.operations[0].graphics_state_id=1u;
-        ir.operations[0].value.image.options.struct_size=
-            QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+
         ir.operations[0].value.image.options.graphics_state_id=1u;
         /* Operation #1 represents original post-Q paint with no Clip. */
         admit(ir.operations[1].graphics_state_id==0u,
@@ -4512,7 +4501,7 @@ void scale_source_userunit(admission& source,unsigned quarters)
           QUANTAPDF_ERROR_UNSUPPORTED);
     const size_t w=(size_t)std::ceil(pw);
     const size_t h=(size_t)std::ceil(ph);
-    admit(w!=0u && h!=0u && 
+    admit(w!=0u && h!=0u &&
           w<=hard_page_pixels/h &&
           w*h<=source.limits.max_page_pixels,
           QUANTAPDF_ERROR_UNSUPPORTED);

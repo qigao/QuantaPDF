@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include "composer_test_helpers.h"
@@ -25,7 +26,6 @@ static int add_page(
     quantapdf_composer_page_options page = {0};
     size_t page_index = SIZE_MAX;
 
-    page.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
     page.width_points = width;
     page.height_points = height;
     page.background_argb = UINT32_C(0xffffffff);
@@ -56,7 +56,7 @@ static void rectangle_commands(
 static quantapdf_composer_path_options fill_options(void)
 {
     quantapdf_composer_path_options options = {0};
-    options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE;
+
     options.fill = 1;
     options.fill_argb = UINT32_C(0xffff0000);
     options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -66,7 +66,7 @@ static quantapdf_composer_path_options fill_options(void)
 static quantapdf_composer_path_options stroke_options(void)
 {
     quantapdf_composer_path_options options = {0};
-    options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE;
+
     options.stroke = 1;
     options.stroke_argb = UINT32_C(0xff000000);
     options.stroke_width = 4.0f;
@@ -116,12 +116,12 @@ static int make_identity_output(
 
     *out_data = NULL;
     *out_size = 0u;
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer, 120.0f, 100.0f));
 
     rectangle_commands(rect, 10.0f, 10.0f, 80.0f, 70.0f);
     if (v4) {
-        path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
         path.transform =
             (quantapdf_affine_transform){1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f};
     }
@@ -157,11 +157,10 @@ static int test_identity_and_validation(void)
     free(v4);
     free(v3);
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer, 120.0f, 100.0f));
     rectangle_commands(rect, 10.0f, 10.0f, 80.0f, 70.0f);
 
-    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     memset(&path.transform, 0, sizeof(path.transform));
     CHECK(quantapdf_composer_draw_path(
               composer, 0u, rect, 5u, &path) == QUANTAPDF_OK);
@@ -209,32 +208,28 @@ static int test_nonconformal_dash_gradient_and_render(void)
     int stride = 0;
     int components = 0;
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer, 300.0f, 240.0f));
 
-    fill.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     fill.transform =
         (quantapdf_affine_transform){2.0f, 0.0f, 0.0f, 0.5f, 20.0f, 40.0f};
     rectangle_commands(rect, 10.0f, 20.0f, 50.0f, 60.0f);
     CHECK(quantapdf_composer_draw_path(
               composer, 0u, rect, 5u, &fill) == QUANTAPDF_OK);
 
-    stroke.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     stroke.transform =
         (quantapdf_affine_transform){2.0f, 0.0f, 0.0f, 0.5f, 20.0f, 40.0f};
     line[0].kind = QUANTAPDF_COMPOSER_PATH_MOVE_TO;
     line[0].point1 = (quantapdf_point){10.0f, 80.0f};
     line[1].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
     line[1].point1 = (quantapdf_point){50.0f, 80.0f};
-    dash.struct_size = QUANTAPDF_COMPOSER_DASH_PATTERN_V1_SIZE;
+
     dash.lengths = dash_lengths;
     dash.length_count = 2u;
     dash.phase = 0.0f;
     CHECK(quantapdf_composer_draw_path_dashed(
               composer, 0u, line, 2u, &stroke, &dash) == QUANTAPDF_OK);
 
-    gradient.struct_size =
-        QUANTAPDF_COMPOSER_LINEAR_GRADIENT_OPTIONS_V1_SIZE;
     gradient.start = (quantapdf_point){60.0f, 20.0f};
     gradient.end = (quantapdf_point){100.0f, 20.0f};
     gradient.stops = stops;
@@ -243,7 +238,7 @@ static int test_nonconformal_dash_gradient_and_render(void)
               composer, &gradient, &paint_id) == QUANTAPDF_OK);
 
     fill = fill_options();
-    fill.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
     fill.fill_argb = 0u;
     fill.fill_paint_id = paint_id;
     fill.transform =
@@ -267,11 +262,11 @@ static int test_nonconformal_dash_gradient_and_render(void)
 
     CHECK(quantapdf_output_save_file(
               output, COMPOSER_PATH_AFFINE_OUTPUT_PDF) == QUANTAPDF_OK);
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               COMPOSER_PATH_AFFINE_OUTPUT_PDF, NULL, &document) ==
           QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-    render.struct_size = sizeof(render);
+
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
           QUANTAPDF_OK);

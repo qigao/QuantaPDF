@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include "composer_test_helpers.h"
@@ -25,7 +26,6 @@ static int add_page(
 {
     quantapdf_composer_page_options page = {0};
 
-    page.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
     page.width_points = width;
     page.height_points = height;
     page.background_argb = UINT32_C(0xffffffff);
@@ -55,7 +55,7 @@ static void rectangle_commands(
 static quantapdf_composer_path_options fill_options(uint32_t argb)
 {
     quantapdf_composer_path_options options = {0};
-    options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
+
     options.fill = 1;
     options.fill_argb = argb;
     options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -119,10 +119,10 @@ static int test_validation_dedup_and_budget(void)
 
     rectangle_commands(a, 0.0f, 0.0f, 100.0f, 100.0f);
     rectangle_commands(b, 20.0f, 20.0f, 80.0f, 80.0f);
-    options.struct_size = QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE;
+
     options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     CHECK(quantapdf_composer_add_clip_path(
               composer, a, 5u, &options, &a_id) == QUANTAPDF_OK);
     CHECK(quantapdf_composer_add_clip_path(
@@ -184,9 +184,8 @@ static int test_validation_dedup_and_budget(void)
     quantapdf_drop_composer(composer);
     composer = NULL;
 
-    limits.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V1_SIZE;
     limits.max_resource_bytes = command_bytes + member_bytes - 1u;
-    CHECK(quantapdf_composer_create(&limits, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), &limits, &composer) == QUANTAPDF_OK);
     CHECK(quantapdf_composer_add_clip_path(
               composer, a, 5u, &options, &a_id) == QUANTAPDF_OK);
     CHECK(quantapdf_composer_add_clip_path(
@@ -201,7 +200,7 @@ static int test_validation_dedup_and_budget(void)
     quantapdf_drop_composer(composer);
 
     limits.max_resource_bytes = command_bytes + member_bytes;
-    CHECK(quantapdf_composer_create(&limits, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), &limits, &composer) == QUANTAPDF_OK);
     CHECK(quantapdf_composer_add_clip_path(
               composer, a, 5u, &options, &a_id) == QUANTAPDF_OK);
     CHECK(quantapdf_composer_add_clip_path(
@@ -234,7 +233,7 @@ static int render_and_check_page(
 
     CHECK(quantapdf_load_page(
               document, (int)page_index, &page) == QUANTAPDF_OK);
-    render.struct_size = sizeof(render);
+
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(
               page, &render, &bitmap) == QUANTAPDF_OK);
@@ -295,7 +294,7 @@ static int test_nested_intersection_render_and_scope(void)
     size_t page0 = SIZE_MAX;
     size_t page1 = SIZE_MAX;
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer, 160.0f, 120.0f, &page0));
     CHECK(add_page(composer, 160.0f, 120.0f, &page1));
     CHECK(page0 == 0u && page1 == 1u);
@@ -303,7 +302,7 @@ static int test_nested_intersection_render_and_scope(void)
     rectangle_commands(a, 10.0f, 10.0f, 110.0f, 90.0f);
     rectangle_commands(b, 20.0f, 0.0f, 70.0f, 100.0f);
     rectangle_commands(c, 0.0f, 20.0f, 120.0f, 70.0f);
-    options.struct_size = QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE;
+
     options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
 
     CHECK(quantapdf_composer_add_clip_path(
@@ -337,7 +336,6 @@ static int test_nested_intersection_render_and_scope(void)
         CHECK(flat_id == abc_id);
     }
 
-    state.struct_size = QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE;
     state.fill_alpha = 1.0f;
     state.stroke_alpha = 1.0f;
     state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
@@ -347,7 +345,7 @@ static int test_nested_intersection_render_and_scope(void)
     CHECK(state_id != 0u);
 
     rectangle_commands(full, 0.0f, 0.0f, 160.0f, 120.0f);
-    red.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_SIZE;
+
     red.graphics_state_id = state_id;
     CHECK(quantapdf_composer_draw_path(
               composer, page0, full, 5u, &red) == QUANTAPDF_OK);
@@ -356,7 +354,6 @@ static int test_nested_intersection_render_and_scope(void)
     CHECK(quantapdf_composer_draw_path(
               composer, page0, blue, 5u, &blue_path) == QUANTAPDF_OK);
 
-    form.struct_size = QUANTAPDF_COMPOSER_FORM_OPTIONS_V1_SIZE;
     form.width_points = 160.0f;
     form.height_points = 120.0f;
     CHECK(quantapdf_composer_add_form(
@@ -365,7 +362,7 @@ static int test_nested_intersection_render_and_scope(void)
               full_green_form_builder,
               NULL,
               &form_id) == QUANTAPDF_OK);
-    form_draw.struct_size = QUANTAPDF_COMPOSER_FORM_DRAW_OPTIONS_V1_SIZE;
+
     form_draw.graphics_state_id = state_id;
     CHECK(quantapdf_composer_draw_form(
               composer,
@@ -395,7 +392,7 @@ static int test_nested_intersection_render_and_scope(void)
 
     CHECK(quantapdf_output_save_file(
               first, COMPOSER_COMPOUND_CLIP_OUTPUT_PDF) == QUANTAPDF_OK);
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               COMPOSER_COMPOUND_CLIP_OUTPUT_PDF,
               NULL,
               &document) == QUANTAPDF_OK);
@@ -414,7 +411,7 @@ static int test_nested_intersection_render_and_scope(void)
         int components = 0;
 
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
+
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(
                   page, &render, &bitmap) == QUANTAPDF_OK);

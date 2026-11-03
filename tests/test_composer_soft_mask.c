@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include "composer_test_helpers.h"
@@ -25,7 +26,6 @@ static int add_page(
 {
     quantapdf_composer_page_options page = {0};
 
-    page.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
     page.width_points = width;
     page.height_points = height;
     page.background_argb = UINT32_C(0xffffffff);
@@ -55,7 +55,7 @@ static void rectangle_commands(
 static quantapdf_composer_path_options fill_options(uint32_t argb)
 {
     quantapdf_composer_path_options options = {0};
-    options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
+
     options.fill = 1;
     options.fill_argb = argb;
     options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -77,7 +77,7 @@ static quantapdf_status draw_rect(
 
     rectangle_commands(rect, x0, y0, x1, y1);
     if (graphics_state_id != 0u) {
-        path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_SIZE;
+
         path.graphics_state_id = graphics_state_id;
     }
     return quantapdf_composer_draw_path(
@@ -105,8 +105,7 @@ static quantapdf_status half_alpha_content_builder(
     quantapdf_status status;
 
     (void)user_data;
-    state.struct_size =
-        QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE;
+
     state.fill_alpha = 0.5f;
     state.stroke_alpha = 0.5f;
     state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
@@ -139,7 +138,7 @@ static quantapdf_status nested_alpha_mask_builder(
     quantapdf_status status;
 
     (void)user_data;
-    form.struct_size = QUANTAPDF_COMPOSER_FORM_OPTIONS_V2_SIZE;
+
     form.width_points = 80.0f;
     form.height_points = 60.0f;
     form.flags =
@@ -153,7 +152,7 @@ static quantapdf_status nested_alpha_mask_builder(
         &form_id);
     if (status != QUANTAPDF_OK)
         return status;
-    draw.struct_size = QUANTAPDF_COMPOSER_FORM_DRAW_OPTIONS_V1_SIZE;
+
     return quantapdf_composer_draw_form(
         composer, page_index, form_id, &identity, &draw);
 }
@@ -228,11 +227,9 @@ static int make_zero_mask_output(
 
     *out_data = NULL;
     *out_size = 0u;
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer, 100.0f, 80.0f, &page_index));
-    state.struct_size = v3
-        ? QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V3_SIZE
-        : QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE;
+
     state.fill_alpha = 0.75f;
     state.stroke_alpha = 0.75f;
     state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
@@ -285,9 +282,8 @@ static int test_validation_dedup_and_v2_identity(void)
     free(v3);
     free(v2);
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
 
-    ordinary.struct_size = QUANTAPDF_COMPOSER_FORM_OPTIONS_V1_SIZE;
     ordinary.width_points = 80.0f;
     ordinary.height_points = 60.0f;
     CHECK(quantapdf_composer_add_form(
@@ -297,7 +293,6 @@ static int test_validation_dedup_and_v2_identity(void)
               NULL,
               &ordinary_id) == QUANTAPDF_OK);
 
-    group.struct_size = QUANTAPDF_COMPOSER_FORM_OPTIONS_V2_SIZE;
     group.width_points = 80.0f;
     group.height_points = 60.0f;
     group.flags =
@@ -310,7 +305,6 @@ static int test_validation_dedup_and_v2_identity(void)
               NULL,
               &group_id) == QUANTAPDF_OK);
 
-    options.struct_size = QUANTAPDF_COMPOSER_SOFT_MASK_OPTIONS_V1_SIZE;
     options.mode = QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA;
 
     id = 99u;
@@ -330,12 +324,6 @@ static int test_validation_dedup_and_v2_identity(void)
     CHECK(quantapdf_composer_add_soft_mask(
               composer, group_id, &options, NULL) ==
           QUANTAPDF_ERROR_ARGUMENT);
-
-    options.struct_size = 0u;
-    CHECK(quantapdf_composer_add_soft_mask(
-              composer, group_id, &options, &id) ==
-          QUANTAPDF_ERROR_ARGUMENT);
-    options.struct_size = QUANTAPDF_COMPOSER_SOFT_MASK_OPTIONS_V1_SIZE;
 
     options.mode = (quantapdf_composer_soft_mask_mode)99;
     CHECK(quantapdf_composer_add_soft_mask(
@@ -403,11 +391,10 @@ static int test_alpha_luminosity_render_and_dictionary(void)
     int has_source_form = 0;
     double bbox[4] = {0};
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer, 160.0f, 120.0f, &page0));
     CHECK(add_page(composer, 160.0f, 120.0f, &page1));
 
-    form.struct_size = QUANTAPDF_COMPOSER_FORM_OPTIONS_V2_SIZE;
     form.width_points = 80.0f;
     form.height_points = 60.0f;
     form.flags =
@@ -426,7 +413,6 @@ static int test_alpha_luminosity_render_and_dictionary(void)
               NULL,
               &luminosity_form_id) == QUANTAPDF_OK);
 
-    mask.struct_size = QUANTAPDF_COMPOSER_SOFT_MASK_OPTIONS_V1_SIZE;
     mask.mode = QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA;
     mask.transform =
         (quantapdf_affine_transform){1.0f, 0.0f, 0.0f, 1.0f, 20.0f, 20.0f};
@@ -443,8 +429,6 @@ static int test_alpha_luminosity_render_and_dictionary(void)
               &mask,
               &luminosity_mask_id) == QUANTAPDF_OK);
 
-    state.struct_size =
-        QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V3_SIZE;
     state.fill_alpha = 0.5f;
     state.stroke_alpha = 0.5f;
     state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
@@ -513,7 +497,7 @@ static int test_alpha_luminosity_render_and_dictionary(void)
 
     CHECK(quantapdf_output_save_file(
               first, COMPOSER_SOFT_MASK_OUTPUT_PDF) == QUANTAPDF_OK);
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               COMPOSER_SOFT_MASK_OUTPUT_PDF,
               NULL,
               &document) == QUANTAPDF_OK);
@@ -530,7 +514,7 @@ static int test_alpha_luminosity_render_and_dictionary(void)
         int components = 0;
 
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
+
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(
                   page, &render, &bitmap) == QUANTAPDF_OK);
@@ -559,7 +543,7 @@ static int test_alpha_luminosity_render_and_dictionary(void)
         int components = 0;
 
         CHECK(quantapdf_load_page(document, 1, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
+
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(
                   page, &render, &bitmap) == QUANTAPDF_OK);

@@ -1273,7 +1273,7 @@ void stage_path(
     // Clip resources are established outside the PATH q/cm scope, so they
     // still need the full referencing-element transform.
     staged.resource_transform = transform;
-    staged.options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
     staged.options.fill = style.fill ? 1 : 0;
     staged.options.stroke = style.stroke ? 1 : 0;
     staged.options.fill_argb = style.fill_argb;
@@ -3575,7 +3575,6 @@ matrix resource_units_matrix(
     fail(QUANTAPDF_ERROR_BACKEND);
 }
 
-
 quantapdf_status register_gradient_paint(
     quantapdf_composer* composer,
     gradient_definition const& gradient,
@@ -3599,8 +3598,7 @@ quantapdf_status register_gradient_paint(
 
     if (gradient.radial) {
         quantapdf_composer_radial_gradient_options options{};
-        options.struct_size =
-            QUANTAPDF_COMPOSER_RADIAL_GRADIENT_OPTIONS_V1_SIZE;
+
         options.start_center =
             point(gradient.fx, gradient.fy);
         options.start_radius = static_cast<float>(gradient.fr);
@@ -3615,8 +3613,7 @@ quantapdf_status register_gradient_paint(
     }
 
     quantapdf_composer_linear_gradient_options options{};
-    options.struct_size =
-        QUANTAPDF_COMPOSER_LINEAR_GRADIENT_OPTIONS_V1_SIZE;
+
     options.start = point(gradient.x1, gradient.y1);
     options.end = point(gradient.x2, gradient.y2);
     options.transform = transform;
@@ -3634,7 +3631,7 @@ quantapdf_status register_clip_resource(
     quantapdf_composer_clip_id* out_clip_id)
 {
     quantapdf_composer_clip_options options{};
-    options.struct_size = QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE;
+
     options.fill_rule = clip.fill_rule;
     matrix const units =
         resource_units_matrix(clip.units, local_bounds);
@@ -3748,8 +3745,7 @@ quantapdf_status symbol_form_builder(
         static_cast<symbol_form_builder_context const*>(user_data);
     if (context == nullptr || context->svg == nullptr)
         return QUANTAPDF_ERROR_ARGUMENT;
-    quantapdf_composer_svg_options options{};
-    options.struct_size = QUANTAPDF_COMPOSER_SVG_OPTIONS_V1_SIZE;
+
     quantapdf_rect bounds = {
         0.0f,
         0.0f,
@@ -3760,8 +3756,7 @@ quantapdf_status symbol_form_builder(
         page_index,
         reinterpret_cast<unsigned char const*>(context->svg->data()),
         context->svg->size(),
-        &bounds,
-        &options);
+        &bounds);
 }
 
 quantapdf_status materialize_symbol(
@@ -3792,7 +3787,7 @@ quantapdf_status materialize_symbol(
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
     quantapdf_composer_form_options form_options{};
-    form_options.struct_size = QUANTAPDF_COMPOSER_FORM_OPTIONS_V1_SIZE;
+
     form_options.width_points = context.width;
     form_options.height_points = context.height;
 
@@ -3852,8 +3847,7 @@ quantapdf_status pattern_builder(
         static_cast<pattern_builder_context const*>(user_data);
     if (context == nullptr || context->svg == nullptr)
         return QUANTAPDF_ERROR_ARGUMENT;
-    quantapdf_composer_svg_options options{};
-    options.struct_size = QUANTAPDF_COMPOSER_SVG_OPTIONS_V1_SIZE;
+
     quantapdf_rect bounds = {
         0.0f, 0.0f, context->width, context->height};
     return quantapdf_composer_draw_svg(
@@ -3861,8 +3855,7 @@ quantapdf_status pattern_builder(
         page_index,
         reinterpret_cast<unsigned char const*>(context->svg->data()),
         context->svg->size(),
-        &bounds,
-        &options);
+        &bounds);
 }
 
 quantapdf_status materialize_pattern(
@@ -3952,8 +3945,7 @@ quantapdf_status materialize_pattern(
                     translate_matrix(pattern.x, pattern.y))));
 
     quantapdf_composer_tiling_pattern_options options{};
-    options.struct_size =
-        QUANTAPDF_COMPOSER_TILING_PATTERN_OPTIONS_V1_SIZE;
+
     options.width_points = context.width;
     options.height_points = context.height;
     options.x_step = context.width;
@@ -4758,8 +4750,7 @@ quantapdf_status materialize_mask(
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
     quantapdf_composer_form_options form_options{};
-    form_options.struct_size =
-        QUANTAPDF_COMPOSER_FORM_OPTIONS_V2_SIZE;
+
     form_options.width_points = context.width;
     form_options.height_points = context.height;
     form_options.flags =
@@ -4777,8 +4768,7 @@ quantapdf_status materialize_mask(
         return status;
 
     quantapdf_composer_soft_mask_options options{};
-    options.struct_size =
-        QUANTAPDF_COMPOSER_SOFT_MASK_OPTIONS_V1_SIZE;
+
     options.mode =
         mask.mode == svg_mask_mode::alpha
         ? QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA
@@ -4832,7 +4822,7 @@ quantapdf_status register_use_clip(
     auto commands = rectangle(
         use.x, use.y, use.width, use.height);
     quantapdf_composer_clip_options options{};
-    options.struct_size = QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE;
+
     options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
     options.transform = resource_affine(use.user_transform);
     return quantapdf_composer_add_clip_path(
@@ -4854,7 +4844,7 @@ quantapdf_status register_bounds_clip(
         bounds.x1 - bounds.x0,
         bounds.y1 - bounds.y0);
     quantapdf_composer_clip_options options{};
-    options.struct_size = QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE;
+
     options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
     return quantapdf_composer_add_clip_path(
         composer,
@@ -5075,10 +5065,7 @@ quantapdf_status publish_uses(
         quantapdf_composer_graphics_state_id state_id = 0u;
         if (effective_clip_id != 0u || soft_mask_id != 0u) {
             quantapdf_composer_graphics_state_options state{};
-            state.struct_size =
-                soft_mask_id != 0u
-                ? QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V3_SIZE
-                : QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE;
+
             state.fill_alpha = 1.0f;
             state.stroke_alpha = 1.0f;
             state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
@@ -5098,8 +5085,7 @@ quantapdf_status publish_uses(
             resource_affine(placement);
 
         quantapdf_composer_form_draw_options draw_options{};
-        draw_options.struct_size =
-            QUANTAPDF_COMPOSER_FORM_DRAW_OPTIONS_V1_SIZE;
+
         draw_options.graphics_state_id = state_id;
         status = quantapdf_composer_draw_form(
             composer,
@@ -5161,8 +5147,7 @@ quantapdf_status publish_groups(
         context.height = height;
 
         quantapdf_composer_form_options form_options{};
-        form_options.struct_size =
-            QUANTAPDF_COMPOSER_FORM_OPTIONS_V2_SIZE;
+
         form_options.width_points = width;
         form_options.height_points = height;
         form_options.flags =
@@ -5206,12 +5191,7 @@ quantapdf_status publish_groups(
         }
 
         quantapdf_composer_graphics_state_options state{};
-        state.struct_size =
-            soft_mask_id != 0u
-            ? QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V3_SIZE
-            : (effective_clip_id != 0u
-                ? QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE
-                : QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE);
+
         state.fill_alpha = group.opacity;
         state.stroke_alpha = group.opacity;
         state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
@@ -5227,8 +5207,7 @@ quantapdf_status publish_groups(
         quantapdf_affine_transform placement = {
             1.0f, 0.0f, 0.0f, 1.0f, bounds.x0, bounds.y0};
         quantapdf_composer_form_draw_options draw_options{};
-        draw_options.struct_size =
-            QUANTAPDF_COMPOSER_FORM_DRAW_OPTIONS_V1_SIZE;
+
         draw_options.graphics_state_id = state_id;
         status = quantapdf_composer_draw_form(
             composer,
@@ -5331,7 +5310,7 @@ quantapdf_status publish_paths(
             bounds.x1 - bounds.x0,
             bounds.y1 - bounds.y0);
         quantapdf_composer_clip_options clip_options{};
-        clip_options.struct_size = QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE;
+
         clip_options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
         quantapdf_status const clip_status =
             quantapdf_composer_add_clip_path(
@@ -5425,12 +5404,7 @@ quantapdf_status publish_paths(
             effective_clip_id != 0u ||
             soft_mask_id != 0u) {
             quantapdf_composer_graphics_state_options state{};
-            state.struct_size =
-                soft_mask_id != 0u
-                ? QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V3_SIZE
-                : (effective_clip_id != 0u
-                    ? QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE
-                    : QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE);
+
             state.fill_alpha = paths[i].fill_alpha;
             state.stroke_alpha = paths[i].stroke_alpha;
             state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
@@ -5504,12 +5478,7 @@ quantapdf_status publish_paths(
              * Do not downgrade a V4 PATH to the V3 paint boundary.
              * V4 owns the affine CTM; paint IDs are an earlier tail.
              */
-            if (operation.value.path.options.struct_size <
-                QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_MIN_SIZE)
-                operation.value.path.options.struct_size =
-                    QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE;
-            operation.value.path.options.fill_paint_id =
-                fill_paint_ids[i];
+
             operation.value.path.options.stroke_paint_id =
                 stroke_paint_ids[i];
         }
@@ -5625,16 +5594,19 @@ extern "C" quantapdf_status quantapdf_composer_draw_svg(
     size_t page_index,
     unsigned char const* svg_data,
     size_t svg_size,
-    quantapdf_rect const* bounds,
-    quantapdf_composer_svg_options const* options)
+    quantapdf_rect const* bounds)
 {
-    if (composer == nullptr || svg_data == nullptr || svg_size == 0u ||
-        bounds == nullptr || options == nullptr ||
-        options->struct_size < QUANTAPDF_COMPOSER_SVG_OPTIONS_V1_MIN_SIZE ||
+    if (composer == nullptr ||
+        svg_data == nullptr ||
+        svg_size == 0u ||
+        bounds == nullptr ||
         page_index >= composer->ir.page_count ||
-        !std::isfinite(bounds->x0) || !std::isfinite(bounds->y0) ||
-        !std::isfinite(bounds->x1) || !std::isfinite(bounds->y1) ||
-        bounds->x1 <= bounds->x0 || bounds->y1 <= bounds->y0)
+        !std::isfinite(bounds->x0) ||
+        !std::isfinite(bounds->y0) ||
+        !std::isfinite(bounds->x1) ||
+        !std::isfinite(bounds->y1) ||
+        bounds->x1 <= bounds->x0 ||
+        bounds->y1 <= bounds->y0)
         return QUANTAPDF_ERROR_ARGUMENT;
     if (svg_size > k_svg_max_input_bytes)
         return QUANTAPDF_ERROR_UNSUPPORTED;

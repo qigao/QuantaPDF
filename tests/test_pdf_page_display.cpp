@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include "backend/qpdf_composer.h"
 #include "document/page_composer_ir.h"
 #include "graph/graph_edit.h"
@@ -67,7 +68,7 @@ static image raster(const char *path)
     const unsigned char *pixels = nullptr;
     size_t size = 0;
     image result;
-    OK(quantapdf_open(path, nullptr, &document));
+    OK(quantapdf_open(test_context(), path, nullptr, &document));
     OK(quantapdf_load_page(document, 0, &page));
     OK(quantapdf_render_page(page, &bitmap));
     OK(quantapdf_bitmap_dimensions(bitmap, &result.width,
@@ -145,7 +146,7 @@ static void test_actual_pdf(int rotation, int unit)
     quantapdf_document *document = nullptr;
     quantapdf_graph_snapshot *snapshot = nullptr;
     quantapdf_ir ir = {};
-    OK(quantapdf_open(DISPLAY_SOURCE_PDF, nullptr, &document));
+    OK(quantapdf_open(test_context(), DISPLAY_SOURCE_PDF, nullptr, &document));
     OK(quantapdf_document_capture_graph(document, &gb, &snapshot));
     quantapdf_close(document);
     auto display = get_plan(snapshot);
@@ -210,7 +211,7 @@ static void test_selected_rotation_version()
     quantapdf_graph_snapshot *base = nullptr, *next = nullptr;
     quantapdf_validation_report report{};
     quantapdf_ir a{}, b{};
-    OK(quantapdf_open(DISPLAY_SOURCE_PDF, nullptr, &document));
+    OK(quantapdf_open(test_context(), DISPLAY_SOURCE_PDF, nullptr, &document));
     OK(quantapdf_document_capture_graph(document, &gb, &base));
     quantapdf_close(document);
     auto model = quantapdf_graph_view(base->graph);

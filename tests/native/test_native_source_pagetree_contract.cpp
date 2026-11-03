@@ -1,3 +1,4 @@
+#include "../test_context_fixture.h"
 /* Original PDF/xref PageTree integrity: no writer normalization of
  * deliberately malformed /Kids, /Count, /Parent or page identities.
  * Source V10 MUST inspect beyond an already selected valid first page.
@@ -270,7 +271,7 @@ static int test_public_valid()
 {
     CHECK(write_pdf(pdf(mutation::none)));
     quantapdf_document *doc=nullptr;
-    CHECK(quantapdf_open(filename,nullptr,&doc)==QUANTAPDF_OK &&
+    CHECK(quantapdf_open(test_context(), filename,nullptr,&doc)==QUANTAPDF_OK &&
           doc!=nullptr);
     CHECK(std::remove(filename)==0);
     int count=0;
@@ -320,7 +321,7 @@ static int test_public_invalid()
         CHECK(write_pdf(pdf(entry.fault)));
         quantapdf_document *doc=
             reinterpret_cast<quantapdf_document *>(uintptr_t(1));
-        const auto open_status=quantapdf_open(filename,nullptr,&doc);
+        const auto open_status=quantapdf_open(test_context(), filename,nullptr,&doc);
         CHECK(std::remove(filename)==0);
         if(open_status!=QUANTAPDF_OK) {
             CHECK(doc==nullptr);++refused;continue;

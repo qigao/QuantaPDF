@@ -47,13 +47,13 @@ static void setup(quantapdf_ir *ir,quantapdf_composer_page_state *page,
     ops[0].kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
     ops[0].value.path.commands=commands;
     ops[0].value.path.command_count=5u;
-    ops[0].value.path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
     ops[0].value.path.options.fill=1;
     ops[0].value.path.options.fill_argb=UINT32_C(0xffff0000);
     ops[0].value.path.options.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
     ops[1].kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;
     ops[1].value.image.image_id=1u;
-    ops[1].value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE;
+
     ops[1].value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     ops[1].bounds=(quantapdf_rect){0.0f,0.0f,4.0f,4.0f};
 }

@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include <stdio.h>
@@ -238,8 +239,7 @@ static size_t compare_text_and_search(
             right_count, sizeof(*right_results));
         SCHECK(left_results != NULL && right_results != NULL);
         for (index = 0; index < left_count; ++index) {
-            left_results[index].struct_size = sizeof(*left_results);
-            right_results[index].struct_size = sizeof(*right_results);
+
         }
         SCHECK(quantapdf_text_search(
             left, "PDF", left_results, left_count, &left_count) == QUANTAPDF_OK);
@@ -394,7 +394,7 @@ static semantic_observations compare_documents(
     const char *fixture_path)
 {
     quantapdf_encryption_options options = {
-        QUANTAPDF_ENCRYPTION_OPTIONS_V1_SIZE,
+
         QUANTAPDF_ENCRYPTION_AES_256,
         "semantic-user",
         "semantic-owner",
@@ -411,9 +411,9 @@ static semantic_observations compare_documents(
     quantapdf_status status;
     semantic_observations observed = {0};
 
-    SCHECK(quantapdf_open(source_path, NULL, &left) == QUANTAPDF_OK);
+    SCHECK(quantapdf_open(test_context(), source_path, NULL, &left) == QUANTAPDF_OK);
     {
-        quantapdf_audit_result audit = {sizeof(audit), 0};
+        quantapdf_audit_result audit = { 0};
         quantapdf_status audit_status = quantapdf_document_audit(left, &audit);
         if (audit_status != QUANTAPDF_OK)
             fprintf(stderr, "semantic audit failed for %s: %s\n",
@@ -428,7 +428,7 @@ static semantic_observations compare_documents(
     SCHECK(quantapdf_output_save_file(
         encrypted, SECURITY_SEMANTIC_ENCRYPTED) == QUANTAPDF_OK);
     quantapdf_drop_output(encrypted);
-    SCHECK(quantapdf_open(
+    SCHECK(quantapdf_open(test_context(),
         SECURITY_SEMANTIC_ENCRYPTED,
         "semantic-user",
         &authenticated) == QUANTAPDF_OK);
@@ -437,7 +437,7 @@ static semantic_observations compare_documents(
     SCHECK(quantapdf_output_save_file(
         decrypted, SECURITY_SEMANTIC_DECRYPTED) == QUANTAPDF_OK);
     quantapdf_drop_output(decrypted);
-    SCHECK(quantapdf_open(
+    SCHECK(quantapdf_open(test_context(),
         SECURITY_SEMANTIC_DECRYPTED, NULL, &right) == QUANTAPDF_OK);
     SCHECK(quantapdf_page_count(left, &left_pages) == QUANTAPDF_OK);
     SCHECK(quantapdf_page_count(right, &right_pages) == QUANTAPDF_OK);

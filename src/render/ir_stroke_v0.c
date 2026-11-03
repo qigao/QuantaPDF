@@ -16,8 +16,7 @@ static int identity_or_inherited(
     const quantapdf_composer_path_options *options)
 {
     const quantapdf_affine_transform *t = &options->transform;
-    if (options->struct_size < QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_MIN_SIZE)
-        return 1;
+
     /* An explicit V4 transform must be canonical, not a zero matrix.
      * The normal Composer producer normalizes default input to identity. */
     return t->a == 1.0f && t->b == 0.0f &&
@@ -71,20 +70,22 @@ quantapdf_status quantapdf_ir_raster_stroke_butt_v0(
 
     path = &ir->operations[0].value.path;
     opt = &path->options;
-    if (opt->struct_size < QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE ||
-        opt->stroke != 1 || opt->fill != 0 ||
+    if (opt->stroke != 1 ||
+        opt->fill != 0 ||
         (opt->stroke_argb >> 24u) != 255u ||
-        !isfinite(opt->stroke_width) || opt->stroke_width <= 0.0f ||
+        !isfinite(opt->stroke_width) ||
+        opt->stroke_width <= 0.0f ||
         opt->stroke_width > 2048.0f ||
         opt->line_cap != QUANTAPDF_COMPOSER_LINE_CAP_BUTT ||
         opt->line_join != QUANTAPDF_COMPOSER_LINE_JOIN_MITER ||
-        (opt->struct_size >= QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE &&
-         opt->graphics_state_id != 0u) ||
-        (opt->struct_size >= QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_MIN_SIZE &&
-         (opt->fill_paint_id != 0u || opt->stroke_paint_id != 0u)) ||
+        (opt->graphics_state_id != 0u) ||
+        ((opt->fill_paint_id != 0u ||
+                opt->stroke_paint_id != 0u)) ||
         !identity_or_inherited(opt) ||
-        path->dash_count != 0u || path->dash_phase != 0.0f ||
-        path->command_count != 2u || path->commands == NULL ||
+        path->dash_count != 0u ||
+        path->dash_phase != 0.0f ||
+        path->command_count != 2u ||
+        path->commands == NULL ||
         path->commands[0].kind != QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
         path->commands[1].kind != QUANTAPDF_COMPOSER_PATH_LINE_TO)
         return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -123,8 +124,7 @@ quantapdf_status quantapdf_ir_raster_stroke_butt_v0(
     operation.kind = QUANTAPDF_COMPOSER_OPERATION_PATH;
     operation.value.path.commands = commands;
     operation.value.path.command_count = 5u;
-    operation.value.path.options.struct_size =
-        QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
     operation.value.path.options.fill = 1;
     operation.value.path.options.fill_argb = opt->stroke_argb;
     operation.value.path.options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;

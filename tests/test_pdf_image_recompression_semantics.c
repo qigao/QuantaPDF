@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include "image_recompression_test_helpers.h"
@@ -215,8 +216,7 @@ static void compare_text_and_search(
             right_count, sizeof(*right_results));
         SCHECK(left_results != NULL && right_results != NULL);
         for (index = 0; index < left_count; ++index) {
-            left_results[index].struct_size = sizeof(*left_results);
-            right_results[index].struct_size = sizeof(*right_results);
+
         }
         SCHECK(quantapdf_text_search(
             left, "PDF", left_results, left_count, &left_count) == QUANTAPDF_OK);
@@ -356,7 +356,6 @@ static void compare_metadata(
 static size_t compare_documents(const char *source_path)
 {
     quantapdf_image_recompression_options options = {
-        sizeof(options),
         90,
         QUANTAPDF_IMAGE_RECOMPRESSION_DEFAULT_MAX_DECODED_BYTES};
     quantapdf_document *left = NULL;
@@ -368,9 +367,9 @@ static size_t compare_documents(const char *source_path)
     quantapdf_status status;
     size_t image_occurrences = 0;
 
-    SCHECK(quantapdf_open(source_path, NULL, &left) == QUANTAPDF_OK);
+    SCHECK(quantapdf_open(test_context(), source_path, NULL, &left) == QUANTAPDF_OK);
     {
-        quantapdf_audit_result audit = {sizeof(audit), 0};
+        quantapdf_audit_result audit = { 0};
         quantapdf_status audit_status = quantapdf_document_audit(left, &audit);
         if (audit_status != QUANTAPDF_OK)
             fprintf(stderr, "semantic audit failed for %s: %s\n",
@@ -384,7 +383,7 @@ static size_t compare_documents(const char *source_path)
     SCHECK(status == QUANTAPDF_OK);
     SCHECK(quantapdf_output_save_file(output, SEMANTIC_OUTPUT_PDF) == QUANTAPDF_OK);
     quantapdf_drop_output(output);
-    SCHECK(quantapdf_open(SEMANTIC_OUTPUT_PDF, NULL, &right) == QUANTAPDF_OK);
+    SCHECK(quantapdf_open(test_context(), SEMANTIC_OUTPUT_PDF, NULL, &right) == QUANTAPDF_OK);
     SCHECK(quantapdf_page_count(left, &left_pages) == QUANTAPDF_OK);
     SCHECK(quantapdf_page_count(right, &right_pages) == QUANTAPDF_OK);
     SCHECK(left_pages == right_pages);

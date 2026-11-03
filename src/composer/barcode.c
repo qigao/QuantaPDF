@@ -239,7 +239,7 @@ static quantapdf_status quantapdf_draw_path_builder(
 
     if (builder->count == 0u)
         return QUANTAPDF_ERROR_FORMAT;
-    options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
+
     options.fill = 1;
     options.fill_argb = argb;
     options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -619,7 +619,6 @@ static quantapdf_status quantapdf_encode_ean8(
     return quantapdf_module_append(builder, 0, 7u);
 }
 
-
 static const uint8_t quantapdf_upce_parity[2][10] = {
     {0x38u, 0x34u, 0x32u, 0x31u, 0x2cu,
      0x26u, 0x23u, 0x2au, 0x29u, 0x25u},
@@ -935,9 +934,10 @@ quantapdf_status quantapdf_composer_draw_barcode(
     quantapdf_status status;
     size_t length = 0u;
 
-    if (composer == NULL || payload_utf8 == NULL ||
-        !quantapdf_barcode_rect_valid(bounds) || options == NULL ||
-        options->struct_size < QUANTAPDF_BARCODE_OPTIONS_V1_MIN_SIZE ||
+    if (composer == NULL ||
+        payload_utf8 == NULL ||
+        !quantapdf_barcode_rect_valid(bounds) ||
+        options == NULL ||
         (options->argb >> 24u) != 0xffu)
         return QUANTAPDF_ERROR_ARGUMENT;
     if (kind < QUANTAPDF_BARCODE_CODE_128B ||

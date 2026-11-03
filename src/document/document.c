@@ -49,25 +49,6 @@ static quantapdf_status quantapdf_copy_password(
 }
 
 quantapdf_status quantapdf_open(
-    const char *filename,
-    const char *password,
-    quantapdf_document **out_document)
-{
-    quantapdf_context *context;
-    quantapdf_status status;
-    if (out_document == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    *out_document = NULL;
-    status = quantapdf_context_create(&context);
-    if (status != QUANTAPDF_OK)
-        return status;
-    status = quantapdf_open_with_context(
-        context, filename, password, out_document);
-    quantapdf_drop_context(context);
-    return status;
-}
-
-quantapdf_status quantapdf_open_with_context(
     quantapdf_context *context,
     const char *filename,
     const char *password,
@@ -76,14 +57,7 @@ quantapdf_status quantapdf_open_with_context(
     quantapdf_document *document;
     quantapdf_status status;
 
-    if (out_document == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
     *out_document = NULL;
-    if (context == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-
-    if (filename == NULL || filename[0] == '\0')
-        return QUANTAPDF_ERROR_ARGUMENT;
 
     status = quantapdf_context_retain_internal(context);
     if (status != QUANTAPDF_OK)

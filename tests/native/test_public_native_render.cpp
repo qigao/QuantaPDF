@@ -1,3 +1,4 @@
+#include "../test_context_fixture.h"
 /* Native-only public SDK acceptance; never imports PDFium and never
  * creates an IR re-export oracle. Source PDF is authored with QPDF, while
  * the expected RGB samples are fixed independent render semantics. */
@@ -92,7 +93,6 @@ static std::string create_blank_source(int mode)
         reinterpret_cast<const char *>(blob->getBuffer()),blob->getSize());
 }
 
-
 /* Native-only opaque Path Fill originals with no /Resources or Image:
  * 1..4 source-ordered PATHs, grayscale, exact overlap and atomic
  * fifth PATH / late Text / Stroke refusals, including after a Clip. */
@@ -141,7 +141,6 @@ static std::string create_path_only_source(int mode)
     return std::string(
         reinterpret_cast<const char*>(blob->getBuffer()),blob->getSize());
 }
-
 
 /* One/two original Image-only Do draws, no Clip or PATH. QPDF authors
  * the original and only native C11 goldens are checked. For mode 3,
@@ -253,7 +252,6 @@ static std::string create_image_only_source(int mode)
     return std::string(
         reinterpret_cast<const char *>(blob->getBuffer()),blob->getSize());
 }
-
 
 /* Native-only public original with one IMAGE and one opaque PATH fill in
  * either authorial order. No reference renderer or alternate raster is
@@ -428,7 +426,7 @@ static int native_m2b2h_public_restored(const std::string& filename)
     CHECK(write_pdf(filename,native_ttf_fixture(97)));
     quantapdf_document *document=nullptr;
     quantapdf_page *page=nullptr;
-    OK(quantapdf_open_with_context(
+    OK(quantapdf_open(
         context,filename.c_str(),nullptr,&document));
     CHECK(std::remove(filename.c_str())==0);
     OK(quantapdf_load_page(document,0,&page));
@@ -444,7 +442,7 @@ static int native_m2b2h_public_restored(const std::string& filename)
             std::istreambuf_iterator<char>(glyph_file),{}};
         CHECK(old_glyph.size()==width*height*4u);
         quantapdf_render_options options{};
-        options.struct_size=sizeof(options);
+
         options.dpi=(float)dpi;
         quantapdf_bitmap *bitmap=nullptr;
         const auto status=quantapdf_render_page_with_options(
@@ -545,12 +543,12 @@ static int native_m2b2h_public_restored(const std::string& filename)
     quantapdf_document *bad_doc=nullptr;
     quantapdf_page *bad_page=nullptr;
     quantapdf_bitmap *bad_bitmap=nullptr;
-    OK(quantapdf_open_with_context(
+    OK(quantapdf_open(
         context,filename.c_str(),nullptr,&bad_doc));
     CHECK(std::remove(filename.c_str())==0);
     OK(quantapdf_load_page(bad_doc,0,&bad_page));
     quantapdf_render_options options{};
-    options.struct_size=sizeof(options);
+
     options.dpi=96.0f;
     const auto bad_status=quantapdf_render_page_with_options(
         bad_page,&options,&bad_bitmap);
@@ -563,7 +561,7 @@ static int native_m2b2h_public_restored(const std::string& filename)
     quantapdf_document *recovery_doc=nullptr;
     quantapdf_page *recovery_page=nullptr;
     quantapdf_bitmap *recovery_bitmap=nullptr;
-    OK(quantapdf_open_with_context(
+    OK(quantapdf_open(
         context,filename.c_str(),nullptr,&recovery_doc));
     CHECK(std::remove(filename.c_str())==0);
     OK(quantapdf_load_page(recovery_doc,0,&recovery_page));
@@ -617,7 +615,7 @@ static int native_m2b2c_public_aligned(const std::string& filename)
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         quantapdf_document *doc=nullptr;
         quantapdf_page *page=nullptr;
-        OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&doc));
+        OK(quantapdf_open(ctx,filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         for(unsigned dpi:{72u,96u,144u}) {
@@ -630,7 +628,7 @@ static int native_m2b2c_public_aligned(const std::string& filename)
                 std::istreambuf_iterator<char>(old_file),{}};
             CHECK(text_golden.size()==width*height*4u);
             quantapdf_render_options options{};
-            options.struct_size=sizeof(options);
+
             options.dpi=(float)dpi;
             quantapdf_bitmap *bitmap=nullptr;
             const auto render_status=
@@ -728,11 +726,11 @@ static int native_m2b2c_public_aligned(const std::string& filename)
         quantapdf_document *denied_doc=nullptr;
         quantapdf_page *denied_page=nullptr;
         quantapdf_bitmap *denied_bitmap=nullptr;
-        OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&denied_doc));
+        OK(quantapdf_open(ctx,filename.c_str(),nullptr,&denied_doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(denied_doc,0,&denied_page));
         quantapdf_render_options options{};
-        options.struct_size=sizeof(options);options.dpi=96.0f;
+        options.dpi=96.0f;
         const auto denied_status=
             quantapdf_render_page_with_options(
                 denied_page,&options,&denied_bitmap);
@@ -748,12 +746,12 @@ static int native_m2b2c_public_aligned(const std::string& filename)
     quantapdf_document *recover_doc=nullptr;
     quantapdf_page *recover_page=nullptr;
     quantapdf_bitmap *recover_bitmap=nullptr;
-    OK(quantapdf_open_with_context(
+    OK(quantapdf_open(
         ctx,filename.c_str(),nullptr,&recover_doc));
     CHECK(std::remove(filename.c_str())==0);
     OK(quantapdf_load_page(recover_doc,0,&recover_page));
     quantapdf_render_options options{};
-    options.struct_size=sizeof(options);options.dpi=96.0f;
+    options.dpi=96.0f;
     OK(quantapdf_render_page_with_options(
         recover_page,&options,&recover_bitmap));
     CHECK(recover_bitmap!=nullptr);
@@ -818,7 +816,7 @@ static int native_m2b2j_public_fractional(const std::string& filename)
         const bool compound=mode==126 || mode==127 || mode==145 || mode==146;
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         quantapdf_document *document=nullptr;quantapdf_page *page=nullptr;
-        OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
+        OK(quantapdf_open(context,filename.c_str(),nullptr,&document));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(document,0,&page));
         for(unsigned dpi:{72u,96u,144u}) {
@@ -840,7 +838,7 @@ static int native_m2b2j_public_fractional(const std::string& filename)
                     expected.compound_product_spurious>0u);
             }
             quantapdf_render_options options{};
-            options.struct_size=sizeof(options);options.dpi=(float)dpi;
+            options.dpi=(float)dpi;
             quantapdf_bitmap *bitmap=nullptr;
             const auto status=quantapdf_render_page_with_options(page,&options,&bitmap);
             if(status!=QUANTAPDF_OK || !matches(bitmap,expected)) {
@@ -865,13 +863,13 @@ static int native_m2b2j_public_fractional(const std::string& filename)
                   147,148,149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167,168,169}) {
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         quantapdf_document *document=nullptr;quantapdf_page *page=nullptr;
-        OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
+        OK(quantapdf_open(context,filename.c_str(),nullptr,&document));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(document,0,&page));
         for(unsigned dpi:{72u,96u,144u}) {
             if(dpi!=96u && mode!=147 && mode!=148 && mode!=168 && mode!=169)continue;
             quantapdf_render_options options{};
-            options.struct_size=sizeof(options);options.dpi=(float)dpi;
+            options.dpi=(float)dpi;
             quantapdf_bitmap *denied=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
             const auto status=quantapdf_render_page_with_options(page,&options,&denied);
             CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED || status==QUANTAPDF_ERROR_FORMAT) &&
@@ -881,11 +879,11 @@ static int native_m2b2j_public_fractional(const std::string& filename)
     }
     CHECK(write_pdf(filename,native_ttf_fixture(106)));
     quantapdf_document *document=nullptr;quantapdf_page *page=nullptr;
-    OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
+    OK(quantapdf_open(context,filename.c_str(),nullptr,&document));
     CHECK(std::remove(filename.c_str())==0);
     OK(quantapdf_load_page(document,0,&page));
     quantapdf_render_options options{};
-    options.struct_size=sizeof(options);options.dpi=96.0f;
+    options.dpi=96.0f;
     quantapdf_bitmap *recovered=nullptr;
     OK(quantapdf_render_page_with_options(page,&options,&recovered));
     CHECK(matches(recovered,native_ttf_fractional_expected(106,96u)));
@@ -896,7 +894,7 @@ static int native_m2b2j_public_fractional(const std::string& filename)
     for(int mode:{113,114,126,127,145,146}) {
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         document=nullptr;page=nullptr;
-        OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
+        OK(quantapdf_open(context,filename.c_str(),nullptr,&document));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(document,0,&page));
         for(unsigned dpi:{72u,96u,144u}) {
@@ -947,7 +945,7 @@ static int native_m2a_public_text_image_cases(const std::string& filename,
         CHECK(write_pdf(filename,original));
         quantapdf_document *doc=nullptr;
         quantapdf_page *page=nullptr;
-        OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&doc));
+        OK(quantapdf_open(ctx,filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         for(int dpi:{72,96,144}) {
@@ -961,7 +959,7 @@ static int native_m2a_public_text_image_cases(const std::string& filename,
                 std::istreambuf_iterator<char>(file),{}};
             CHECK(text_golden.size()==width*height*4u);
             quantapdf_render_options opts{};
-            opts.struct_size=sizeof(opts);opts.dpi=(float)dpi;
+            opts.dpi=(float)dpi;
             quantapdf_bitmap *bitmap=nullptr;
             OK(quantapdf_render_page_with_options(page,&opts,&bitmap));
             const unsigned char *rgb=nullptr;
@@ -1062,7 +1060,7 @@ static int native_m2a_public_text_image_cases(const std::string& filename,
         quantapdf_document *denied_doc=nullptr;
         quantapdf_page *denied_page=nullptr;
         quantapdf_bitmap *denied_bitmap=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-        OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&denied_doc));
+        OK(quantapdf_open(ctx,filename.c_str(),nullptr,&denied_doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(denied_doc,0,&denied_page));
         const auto refusal=quantapdf_render_page(denied_page,&denied_bitmap);
@@ -1101,7 +1099,7 @@ static int native_m2b1_public_negatives(const std::string& filename)
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bitmap=reinterpret_cast<quantapdf_bitmap*>(
             uintptr_t(1));
-        OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&doc));
+        OK(quantapdf_open(ctx,filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         const auto st=quantapdf_render_page(page,&bitmap);
@@ -1151,11 +1149,11 @@ static int high_dpi_cases(const std::string& filename)
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *im=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
         OK(quantapdf_context_create(&ctx));
-        OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&doc));
+        OK(quantapdf_open(ctx,filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_render_options opts{};
-        opts.struct_size=sizeof(opts);
+
         opts.dpi=(float)c.dpi;
         const auto result=quantapdf_render_page_with_options(page,&opts,&im);
         if(!c.success) {
@@ -1449,12 +1447,12 @@ static int original_source_rotation_cases(const std::string& filename)
         quantapdf_page *base_page=nullptr;
         quantapdf_bitmap *base_bitmap=nullptr;
         OK(quantapdf_context_create(&base_ctx));
-        OK(quantapdf_open_with_context(
+        OK(quantapdf_open(
             base_ctx,filename.c_str(),nullptr,&base_doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(base_doc,0,&base_page));
         quantapdf_render_options opts{};
-        opts.struct_size=sizeof(opts);opts.dpi=(float)dpi;
+        opts.dpi=(float)dpi;
         OK(quantapdf_render_page_with_options(
             base_page,&opts,&base_bitmap));
         int bw=0,bh=0,bs=0,bc=0;
@@ -1485,7 +1483,7 @@ static int original_source_rotation_cases(const std::string& filename)
                 quantapdf_page *page=nullptr;
                 quantapdf_bitmap *bitmap=nullptr;
                 OK(quantapdf_context_create(&ctx));
-                OK(quantapdf_open_with_context(
+                OK(quantapdf_open(
                     ctx,filename.c_str(),nullptr,&doc));
                 CHECK(std::remove(filename.c_str())==0);
                 OK(quantapdf_load_page(doc,0,&page));
@@ -1598,7 +1596,7 @@ static int original_source_rotation_cases(const std::string& filename)
         CHECK(write_pdf(filename,bad));
         quantapdf_document *doc=nullptr;
         quantapdf_page *page=nullptr;
-        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        OK(quantapdf_open(test_context(), filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_bitmap *failed=reinterpret_cast<quantapdf_bitmap*>(
@@ -1647,7 +1645,7 @@ static int original_source_rotation_cases(const std::string& filename)
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *out=reinterpret_cast<quantapdf_bitmap*>(
             uintptr_t(1));
-        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        OK(quantapdf_open(test_context(), filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         CHECK(quantapdf_render_page(page,&out)==
@@ -1657,7 +1655,6 @@ static int original_source_rotation_cases(const std::string& filename)
     }
     return EXIT_SUCCESS;
 }
-
 
 /* Seven actual PDF page-tree leaves; no IR re-export or PDFium oracle.
  * 0 blank, 1 red PATH, 2 distinct RAW image, 3 image/W Clip/gray PATH,
@@ -1752,7 +1749,7 @@ static int selected_page_v10_cases(const std::string& filename)
         quantapdf_page *page=nullptr,*invalid=nullptr;
         quantapdf_bitmap *bitmap=nullptr,*repeat=nullptr,*thumb=nullptr;
         OK(quantapdf_context_create(&ctx));
-        OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&doc));
+        OK(quantapdf_open(ctx,filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         int count=0;
         OK(quantapdf_page_count(doc,&count));
@@ -1774,7 +1771,7 @@ static int selected_page_v10_cases(const std::string& filename)
               page_bounds.x1==(float)pdf_width &&
               page_bounds.y1==(float)pdf_height);
         quantapdf_render_options opts{};
-        opts.struct_size=sizeof(opts);opts.dpi=(float)dpi;
+        opts.dpi=(float)dpi;
         const auto status=quantapdf_render_page_with_options(
             page,&opts,&bitmap);
         if(selected==4) {
@@ -1911,7 +1908,7 @@ static int selected_page_v10_cases(const std::string& filename)
         quantapdf_bitmap *bitmap=reinterpret_cast<quantapdf_bitmap*>(
             uintptr_t(1));
         OK(quantapdf_context_create(&ctx));
-        const auto opened=quantapdf_open_with_context(
+        const auto opened=quantapdf_open(
             ctx,filename.c_str(),nullptr,&doc);
         CHECK(std::remove(filename.c_str())==0);
         if(opened!=QUANTAPDF_OK) {
@@ -2036,12 +2033,12 @@ static int native_media_origin_cases(const std::string& filename)
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bitmap=nullptr;
         OK(quantapdf_context_create(&ctx));
-        OK(quantapdf_open_with_context(
+        OK(quantapdf_open(
             ctx,filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_render_options opts{};
-        opts.struct_size=sizeof(opts);opts.dpi=(float)dpi;
+        opts.dpi=(float)dpi;
         OK(quantapdf_render_page_with_options(page,&opts,&bitmap));
         int w=0,h=0,stride=0,channels=0;
         const unsigned char *pixels=nullptr;
@@ -2062,7 +2059,7 @@ static int native_media_origin_cases(const std::string& filename)
             CHECK(write_pdf(filename,shifted));
             ctx=nullptr;doc=nullptr;page=nullptr;bitmap=nullptr;
             OK(quantapdf_context_create(&ctx));
-            OK(quantapdf_open_with_context(
+            OK(quantapdf_open(
                 ctx,filename.c_str(),nullptr,&doc));
             CHECK(std::remove(filename.c_str())==0);
             OK(quantapdf_load_page(doc,0,&page));
@@ -2157,7 +2154,7 @@ static int native_media_origin_cases(const std::string& filename)
         CHECK(write_pdf(filename,malformed));
         quantapdf_document *doc=nullptr;
         quantapdf_page *page=nullptr;
-        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        OK(quantapdf_open(test_context(), filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_bitmap *result=reinterpret_cast<quantapdf_bitmap*>(
@@ -2295,12 +2292,12 @@ static int cropped_source_v10_cases(const std::string& filename)
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bm=nullptr;
         OK(quantapdf_context_create(&ctx));
-        OK(quantapdf_open_with_context(
+        OK(quantapdf_open(
             ctx,filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_render_options opts{};
-        opts.struct_size=sizeof(opts);
+
         opts.dpi=(float)dpi;
         OK(quantapdf_render_page_with_options(page,&opts,&bm));
         int rw=0,rh=0,rs=0,rc=0;
@@ -2373,7 +2370,7 @@ static int cropped_source_v10_cases(const std::string& filename)
             CHECK(write_pdf(filename,original));
             ctx=nullptr;doc=nullptr;page=nullptr;bm=nullptr;
             OK(quantapdf_context_create(&ctx));
-            OK(quantapdf_open_with_context(
+            OK(quantapdf_open(
                 ctx,filename.c_str(),nullptr,&doc));
             CHECK(std::remove(filename.c_str())==0);
             OK(quantapdf_load_page(doc,0,&page));
@@ -2445,11 +2442,11 @@ static int cropped_source_v10_cases(const std::string& filename)
         quantapdf_document *doc=nullptr;
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bm=nullptr;
-        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        OK(quantapdf_open(test_context(), filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_render_options opts{};
-        opts.struct_size=sizeof(opts);opts.dpi=(float)dpi;
+        opts.dpi=(float)dpi;
         OK(quantapdf_render_page_with_options(
             page,&opts,&bm));
         const int w=dpi==72?24:dpi==96?32:48;
@@ -2496,7 +2493,7 @@ static int cropped_source_v10_cases(const std::string& filename)
             quantapdf_document *doc=nullptr;
             quantapdf_page *page=nullptr;
             quantapdf_bitmap *bm=nullptr;
-            OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+            OK(quantapdf_open(test_context(), filename.c_str(),nullptr,&doc));
             CHECK(std::remove(filename.c_str())==0);
             int pages=0;
             OK(quantapdf_page_count(doc,&pages));
@@ -2507,7 +2504,7 @@ static int cropped_source_v10_cases(const std::string& filename)
             CHECK(bounds.x0==0.0f && bounds.y0==0.0f &&
                   bounds.x1==16.0f && bounds.y1==16.0f);
             quantapdf_render_options opts{};
-            opts.struct_size=sizeof(opts);opts.dpi=(float)dpi;
+            opts.dpi=(float)dpi;
             OK(quantapdf_render_page_with_options(page,&opts,&bm));
             int w=0,h=0,stride=0,channels=0;
             const unsigned char *pixels=nullptr;
@@ -2570,7 +2567,7 @@ static int cropped_source_v10_cases(const std::string& filename)
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bm=reinterpret_cast<quantapdf_bitmap*>(
             uintptr_t(1));
-        const auto opened=quantapdf_open(filename.c_str(),nullptr,&doc);
+        const auto opened=quantapdf_open(test_context(), filename.c_str(),nullptr,&doc);
         CHECK(std::remove(filename.c_str())==0);
         if(opened!=QUANTAPDF_OK) {
             CHECK(doc==nullptr);
@@ -2673,11 +2670,11 @@ static int native_fractional_quarter_cases(const std::string& filename)
         quantapdf_document *doc=nullptr;
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bm=nullptr;
-        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        OK(quantapdf_open(test_context(), filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_render_options opts{};
-        opts.struct_size=sizeof(opts);
+
         opts.dpi=(float)dpi;
         const auto render_status=
             quantapdf_render_page_with_options(page,&opts,&bm);
@@ -2792,7 +2789,7 @@ static int native_fractional_quarter_cases(const std::string& filename)
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bitmap=reinterpret_cast<quantapdf_bitmap*>(
             uintptr_t(1));
-        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        OK(quantapdf_open(test_context(), filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         const auto status=quantapdf_render_page(page,&bitmap);
@@ -2844,11 +2841,11 @@ static int native_fractional_quarter_rotation_cases(const std::string& filename)
         quantapdf_document *doc=nullptr;
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bm=nullptr;
-        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        OK(quantapdf_open(test_context(), filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_render_options opts{};
-        opts.struct_size=sizeof(opts);opts.dpi=(float)dpi;
+        opts.dpi=(float)dpi;
         OK(quantapdf_render_page_with_options(page,&opts,&bm));
         int w=0,h=0,s=0,nc=0;
         const unsigned char *px=nullptr;
@@ -2934,7 +2931,7 @@ static int native_fractional_quarter_rotation_cases(const std::string& filename)
         quantapdf_document *doc=nullptr;
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bm=nullptr;
-        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        OK(quantapdf_open(test_context(), filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         int count=0;
         OK(quantapdf_page_count(doc,&count));
@@ -2945,7 +2942,7 @@ static int native_fractional_quarter_rotation_cases(const std::string& filename)
         CHECK(bounds.x0==0.0f && bounds.y0==0.0f &&
               bounds.x1==16.0f && bounds.y1==16.0f);
         quantapdf_render_options opts{};
-        opts.struct_size=sizeof(opts);opts.dpi=(float)dpi;
+        opts.dpi=(float)dpi;
         OK(quantapdf_render_page_with_options(page,&opts,&bm));
         int w=0,h=0,s=0,ch=0;
         const unsigned char *px=nullptr;
@@ -3035,12 +3032,12 @@ static int native_fractional_span_cases(const std::string& filename)
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bitmap=nullptr;
         OK(quantapdf_context_create(&context));
-        OK(quantapdf_open_with_context(context,
+        OK(quantapdf_open(context,
             filename.c_str(),nullptr,&document));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(document,0,&page));
         quantapdf_render_options opts{};
-        opts.struct_size=sizeof(opts);opts.dpi=(float)dpi;
+        opts.dpi=(float)dpi;
         const auto status=quantapdf_render_page_with_options(
             page,&opts,&bitmap);
         if(status!=QUANTAPDF_OK)
@@ -3104,7 +3101,7 @@ static int native_fractional_span_cases(const std::string& filename)
             quantapdf_document *other=nullptr;
             quantapdf_page *other_page=nullptr;
             quantapdf_bitmap *other_bitmap=nullptr;
-            OK(quantapdf_open(filename.c_str(),nullptr,&other));
+            OK(quantapdf_open(test_context(), filename.c_str(),nullptr,&other));
             CHECK(std::remove(filename.c_str())==0);
             OK(quantapdf_load_page(other,0,&other_page));
             OK(quantapdf_render_page_with_options(
@@ -3300,11 +3297,11 @@ static int native_decimal_number_cases(const std::string& filename)
             quantapdf_document *doc=nullptr;
             quantapdf_page *page=nullptr;
             quantapdf_bitmap *bitmap=nullptr;
-            OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+            OK(quantapdf_open(test_context(), filename.c_str(),nullptr,&doc));
             CHECK(std::remove(filename.c_str())==0);
             OK(quantapdf_load_page(doc,0,&page));
             quantapdf_render_options opts{};
-            opts.struct_size=sizeof(opts);
+
             opts.dpi=(float)decimal_dpi;
             const auto status=quantapdf_render_page_with_options(
                 page,&opts,&bitmap);
@@ -3362,11 +3359,11 @@ static int native_decimal_number_cases(const std::string& filename)
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bitmap=
             reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        OK(quantapdf_open(test_context(), filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_render_options opts{};
-        opts.struct_size=sizeof(opts);
+
         opts.dpi=(float)decimal_dpi;
         CHECK(quantapdf_render_page_with_options(
             page,&opts,&bitmap)==QUANTAPDF_ERROR_UNSUPPORTED &&
@@ -3383,11 +3380,11 @@ static int native_decimal_number_cases(const std::string& filename)
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bitmap=
             reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        OK(quantapdf_open(test_context(), filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_render_options opts{};
-        opts.struct_size=sizeof(opts);
+
         opts.dpi=(float)decimal_dpi;
         CHECK(quantapdf_render_page_with_options(
             page,&opts,&bitmap)==QUANTAPDF_ERROR_UNSUPPORTED &&
@@ -3409,11 +3406,11 @@ static int native_decimal_number_cases(const std::string& filename)
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bitmap=
             reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        OK(quantapdf_open(test_context(), filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_render_options opts{};
-        opts.struct_size=sizeof(opts);
+
         opts.dpi=(float)decimal_dpi;
         CHECK(quantapdf_render_page_with_options(
             page,&opts,&bitmap)==QUANTAPDF_ERROR_UNSUPPORTED &&
@@ -3464,7 +3461,7 @@ static int native_decimal_cropped_viewport_cases(
             quantapdf_document *doc=nullptr;
             quantapdf_page *page=nullptr;
             quantapdf_bitmap *bitmap=nullptr;
-            OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+            OK(quantapdf_open(test_context(), filename.c_str(),nullptr,&doc));
             CHECK(std::remove(filename.c_str())==0);
             OK(quantapdf_load_page(doc,0,&page));
             quantapdf_rect bounds{};
@@ -3473,7 +3470,7 @@ static int native_decimal_cropped_viewport_cases(
             CHECK(bounds.x0==0.0f && bounds.y0==0.0f &&
                   bounds.x1==extent && bounds.y1==extent);
             quantapdf_render_options options{};
-            options.struct_size=sizeof(options);
+
             options.dpi=(float)dpi;
             const auto result=quantapdf_render_page_with_options(
                 page,&options,&bitmap);
@@ -3529,11 +3526,11 @@ static int native_decimal_cropped_viewport_cases(
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bitmap=
             reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        OK(quantapdf_open(test_context(), filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_render_options options{};
-        options.struct_size=sizeof(options);
+
         options.dpi=(float)dpi;
         CHECK(quantapdf_render_page_with_options(
             page,&options,&bitmap)==QUANTAPDF_ERROR_UNSUPPORTED &&
@@ -3579,12 +3576,12 @@ static int native_original_userunit_cases(const std::string& filename)
                 quantapdf_page *p=nullptr;
                 quantapdf_bitmap *out=
                     reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-                OK(quantapdf_open(
+                OK(quantapdf_open(test_context(),
                     filename.c_str(),nullptr,&d));
                 CHECK(std::remove(filename.c_str())==0);
                 OK(quantapdf_load_page(d,0,&p));
                 quantapdf_render_options costly_options{};
-                costly_options.struct_size=sizeof(costly_options);
+
                 costly_options.dpi=(float)dpi;
                 const auto denied_status=
                     quantapdf_render_page_with_options(
@@ -3602,12 +3599,12 @@ static int native_original_userunit_cases(const std::string& filename)
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bitmap=nullptr;
         OK(quantapdf_context_create(&ctx));
-        OK(quantapdf_open_with_context(
+        OK(quantapdf_open(
             ctx,filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_render_options opts{};
-        opts.struct_size=sizeof(opts);
+
         opts.dpi=(float)dpi;
         const auto reference_status=
             quantapdf_render_page_with_options(page,&opts,&bitmap);
@@ -3633,7 +3630,7 @@ static int native_original_userunit_cases(const std::string& filename)
         CHECK(write_pdf(filename,unit_pdf));
         ctx=nullptr;doc=nullptr;page=nullptr;bitmap=nullptr;
         OK(quantapdf_context_create(&ctx));
-        OK(quantapdf_open_with_context(
+        OK(quantapdf_open(
             ctx,filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
@@ -3728,7 +3725,7 @@ static int native_original_userunit_cases(const std::string& filename)
         quantapdf_document *doc=nullptr;
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bitmap=nullptr;
-        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        OK(quantapdf_open(test_context(), filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         OK(quantapdf_render_page(page,&bitmap));
@@ -3790,11 +3787,11 @@ static int native_original_userunit_cases(const std::string& filename)
                 quantapdf_document *doc=nullptr;
                 quantapdf_page *page=nullptr;
                 quantapdf_bitmap *bitmap=nullptr;
-                OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+                OK(quantapdf_open(test_context(), filename.c_str(),nullptr,&doc));
                 CHECK(std::remove(filename.c_str())==0);
                 OK(quantapdf_load_page(doc,0,&page));
                 quantapdf_render_options opts{};
-                opts.struct_size=sizeof(opts);
+
                 opts.dpi=(float)null_dpis[i];
                 OK(quantapdf_render_page_with_options(page,&opts,&bitmap));
                 int w=0,h=0,stride=0,channels=0;
@@ -3848,7 +3845,7 @@ static int native_original_userunit_cases(const std::string& filename)
             b->getSize())));
         quantapdf_document *doc=nullptr;
         quantapdf_page *page=nullptr;
-        const auto opened=quantapdf_open(
+        const auto opened=quantapdf_open(test_context(),
             filename.c_str(),nullptr,&doc);
         CHECK(std::remove(filename.c_str())==0);
         if(opened!=QUANTAPDF_OK) {
@@ -3917,7 +3914,7 @@ static int native_userunit_physical_budget_cases(
             native_userunit_budget_original(mode,unit)));
         quantapdf_document *doc=nullptr;
         quantapdf_page *page=nullptr;
-        OK(quantapdf_open(filename.c_str(),nullptr,&doc));
+        OK(quantapdf_open(test_context(), filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_rect bounds{};
@@ -3931,7 +3928,7 @@ static int native_userunit_physical_budget_cases(
              * regardless of device DPI, without raising any quota. */
             if(unit==1 && dpi!=72)continue;
             quantapdf_render_options opts{};
-            opts.struct_size=sizeof(opts);
+
             opts.dpi=(float)dpi;
             quantapdf_bitmap *bitmap=
                 reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
@@ -4025,7 +4022,7 @@ static int native_seventh_userunit_cases(const std::string& filename)
             quantapdf_page *page=nullptr;
             quantapdf_bitmap *bitmap=nullptr;
             OK(quantapdf_context_create(&ctx));
-            OK(quantapdf_open_with_context(
+            OK(quantapdf_open(
                 ctx,filename.c_str(),nullptr,&doc));
             CHECK(std::remove(filename.c_str())==0);
             int pages=0;
@@ -4038,7 +4035,7 @@ static int native_seventh_userunit_cases(const std::string& filename)
             CHECK(bounds.x0==0.0f && bounds.y0==0.0f &&
                   bounds.x1==(float)span && bounds.y1==(float)span);
             quantapdf_render_options opts{};
-            opts.struct_size=sizeof(opts);
+
             opts.dpi=(float)dpi;
             OK(quantapdf_render_page_with_options(page,&opts,&bitmap));
             int w=0,h=0,stride=0,channels=0;
@@ -4138,7 +4135,7 @@ static int native_seventh_userunit_late_refusal_cases(
         quantapdf_document *doc=nullptr;
         quantapdf_page *page=nullptr;
         OK(quantapdf_context_create(&ctx));
-        OK(quantapdf_open_with_context(
+        OK(quantapdf_open(
             ctx,filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         int pages=0;
@@ -4147,7 +4144,7 @@ static int native_seventh_userunit_late_refusal_cases(
         OK(quantapdf_load_page(doc,6,&page));
         for(int dpi:{72,96,144}) {
             quantapdf_render_options opts{};
-            opts.struct_size=sizeof(opts);
+
             opts.dpi=(float)dpi;
             quantapdf_bitmap *bitmap=reinterpret_cast<quantapdf_bitmap*>(
                 uintptr_t(1));
@@ -4161,7 +4158,6 @@ static int native_seventh_userunit_late_refusal_cases(
     }
     return EXIT_SUCCESS;
 }
-
 
 #include "native_ttf_public_cases.h"
 
@@ -4208,7 +4204,7 @@ int main(int argc,char **argv)
     quantapdf_page *page=nullptr;
     quantapdf_bitmap *bitmap=nullptr,*second=nullptr,*thumbnail=nullptr;
     OK(quantapdf_context_create(&context));
-    OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
+    OK(quantapdf_open(context,filename.c_str(),nullptr,&document));
     CHECK(std::remove(filename.c_str())==0);
     int count=0;
     OK(quantapdf_page_count(document,&count));
@@ -4229,7 +4225,7 @@ int main(int argc,char **argv)
     CHECK(probe_rgb(data,stride,2,2,255u,255u,255u));
 
     quantapdf_render_options opts{};
-    opts.struct_size=sizeof(opts);
+
     opts.dpi=72.0f;
     OK(quantapdf_render_page_with_options(page,&opts,&second));
     CHECK(second!=nullptr);
@@ -4425,7 +4421,7 @@ int main(int argc,char **argv)
 
     CHECK(write_pdf(filename,create_source(true)));
     document=nullptr;page=nullptr;second=nullptr;
-    OK(quantapdf_open(filename.c_str(),nullptr,&document));
+    OK(quantapdf_open(test_context(), filename.c_str(),nullptr,&document));
     CHECK(std::remove(filename.c_str())==0);
     OK(quantapdf_load_page(document,0,&page));
     second=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
@@ -4446,7 +4442,7 @@ int main(int argc,char **argv)
         quantapdf_page *blank_page=nullptr;
         quantapdf_bitmap *blank=nullptr,*small=nullptr;
         OK(quantapdf_context_create(&blank_context));
-        OK(quantapdf_open_with_context(
+        OK(quantapdf_open(
             blank_context,filename.c_str(),nullptr,&blank_document));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(blank_document,0,&blank_page));
@@ -4488,7 +4484,6 @@ int main(int argc,char **argv)
         quantapdf_drop_bitmap(blank);
     }
 
-
     /* One to four opaque PATHs, no Image/Clip resources. Compare fixed
      * independently declared RGB goldens, NOT any PDFium oracle. Later
      * Text/Stroke/fifth PATH refuse completely, including after a Clip. */
@@ -4500,7 +4495,7 @@ int main(int argc,char **argv)
         quantapdf_bitmap *filled=reinterpret_cast<quantapdf_bitmap*>(
             uintptr_t(1)),*repeated=nullptr,*small=nullptr;
         OK(quantapdf_context_create(&path_context));
-        OK(quantapdf_open_with_context(
+        OK(quantapdf_open(
             path_context,filename.c_str(),nullptr,&path_document));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(path_document,0,&path_page));
@@ -4579,7 +4574,6 @@ int main(int argc,char **argv)
         quantapdf_drop_bitmap(filled);
     }
 
-
     /* One-to-four native IMAGE layers with deterministic independent
      * RGB goldens. Fifth IMAGE / late Text rejects atomically; original
      * RAW/TIFF Predictor image bytes, thumbnail, no fallback and actual
@@ -4592,7 +4586,7 @@ int main(int argc,char **argv)
         quantapdf_bitmap *rendered=reinterpret_cast<quantapdf_bitmap*>(
             uintptr_t(1)),*again=nullptr,*small=nullptr;
         OK(quantapdf_context_create(&image_context));
-        OK(quantapdf_open_with_context(
+        OK(quantapdf_open(
             image_context,filename.c_str(),nullptr,&image_doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(image_doc,0,&image_page));
@@ -4731,7 +4725,6 @@ int main(int argc,char **argv)
         quantapdf_drop_bitmap(rendered);
     }
 
-
     /* Public Source V10 admits two-paint IMAGE+PATH in either order.
      * Mode 3 also qualifies both paints under ONE frozen W Clip after
      * the same-Clip feature was introduced. Remaining negative modes
@@ -4744,7 +4737,7 @@ int main(int argc,char **argv)
         quantapdf_bitmap *rendered=reinterpret_cast<quantapdf_bitmap*>(
             uintptr_t(1)),*again=nullptr,*small=nullptr;
         OK(quantapdf_context_create(&mixed_context));
-        OK(quantapdf_open_with_context(
+        OK(quantapdf_open(
             mixed_context,filename.c_str(),nullptr,&mixed_doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(mixed_doc,0,&mixed_page));
@@ -4858,7 +4851,7 @@ int main(int argc,char **argv)
         quantapdf_bitmap *filled=reinterpret_cast<quantapdf_bitmap*>(
             uintptr_t(1)),*again=nullptr,*small=nullptr;
         OK(quantapdf_context_create(&ctx));
-        OK(quantapdf_open_with_context(
+        OK(quantapdf_open(
             ctx,filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&clipped_page));

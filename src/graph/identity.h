@@ -22,8 +22,8 @@ extern "C" {
 quantapdf_status quantapdf_identity_next(
     quantapdf_identity_sequence *sequence, uint64_t *out_value);
 
-/* Unique ephemeral scope within this loaded runtime. ABI v2 serializes all
- * calls, including calls through distinct contexts. No retained resource. */
+/* Unique ephemeral scope within this loaded runtime. Calls require external serialization,
+ * including calls through distinct contexts. No retained resource. */
 quantapdf_status quantapdf_reference_scope_create(uint64_t *out_scope);
 
 /* Index -> nonzero local ordinal. Unrepresentable index: NOMEM; NULL output:

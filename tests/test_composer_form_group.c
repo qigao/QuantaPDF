@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include "composer_test_helpers.h"
@@ -25,7 +26,6 @@ static int add_page(
     quantapdf_composer_page_options page = {0};
     size_t page_index = SIZE_MAX;
 
-    page.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
     page.width_points = width;
     page.height_points = height;
     page.background_argb = UINT32_C(0xffffffff);
@@ -66,7 +66,7 @@ static quantapdf_status draw_filled_rect(
     quantapdf_composer_path_options path = {0};
 
     rectangle_commands(rect, x0, y0, x1, y1);
-    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
+
     path.fill = 1;
     path.fill_argb = argb;
     path.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -106,7 +106,7 @@ static quantapdf_status nested_group_builder(
     quantapdf_status status;
 
     (void)user_data;
-    form.struct_size = QUANTAPDF_COMPOSER_FORM_OPTIONS_V2_SIZE;
+
     form.width_points = 100.0f;
     form.height_points = 60.0f;
     form.flags = QUANTAPDF_COMPOSER_FORM_FLAG_TRANSPARENCY_GROUP |
@@ -116,7 +116,6 @@ static quantapdf_status nested_group_builder(
     if (status != QUANTAPDF_OK)
         return status;
 
-    draw.struct_size = QUANTAPDF_COMPOSER_FORM_DRAW_OPTIONS_V1_SIZE;
     return quantapdf_composer_draw_form(
         composer, page_index, inner_id, &identity, &draw);
 }
@@ -164,12 +163,9 @@ static int make_zero_flag_output(
 
     *out_data = NULL;
     *out_size = 0u;
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer, 120.0f, 80.0f));
 
-    form.struct_size = v2
-        ? QUANTAPDF_COMPOSER_FORM_OPTIONS_V2_SIZE
-        : QUANTAPDF_COMPOSER_FORM_OPTIONS_V1_SIZE;
     form.width_points = 100.0f;
     form.height_points = 60.0f;
     form.flags = 0u;
@@ -177,7 +173,6 @@ static int make_zero_flag_output(
               composer, &form, overlap_builder, NULL, &form_id) ==
           QUANTAPDF_OK);
 
-    draw.struct_size = QUANTAPDF_COMPOSER_FORM_DRAW_OPTIONS_V1_SIZE;
     CHECK(quantapdf_composer_draw_form(
               composer, 0u, form_id, &transform, &draw) == QUANTAPDF_OK);
     CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
@@ -212,9 +207,8 @@ static int test_validation_dedup_and_v1_identity(void)
     free(v2);
     free(v1);
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
 
-    form.struct_size = QUANTAPDF_COMPOSER_FORM_OPTIONS_V2_SIZE;
     form.width_points = 100.0f;
     form.height_points = 60.0f;
 
@@ -294,17 +288,15 @@ static int test_group_dictionary_render_and_nested(void)
     int isolated = 0;
     int knockout = 0;
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer, 360.0f, 110.0f));
 
-    form.struct_size = QUANTAPDF_COMPOSER_FORM_OPTIONS_V1_SIZE;
     form.width_points = 100.0f;
     form.height_points = 60.0f;
     CHECK(quantapdf_composer_add_form(
               composer, &form, overlap_builder, NULL, &ordinary_id) ==
           QUANTAPDF_OK);
 
-    form.struct_size = QUANTAPDF_COMPOSER_FORM_OPTIONS_V2_SIZE;
     form.flags = QUANTAPDF_COMPOSER_FORM_FLAG_TRANSPARENCY_GROUP |
         QUANTAPDF_COMPOSER_FORM_FLAG_ISOLATED;
     CHECK(quantapdf_composer_add_form(
@@ -322,15 +314,12 @@ static int test_group_dictionary_render_and_nested(void)
               composer, &form, nested_group_builder, NULL, &nested_id) ==
           QUANTAPDF_OK);
 
-    state.struct_size =
-        QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE;
     state.fill_alpha = 0.5f;
     state.stroke_alpha = 0.5f;
     state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
     CHECK(quantapdf_composer_add_graphics_state(
               composer, &state, &half_id) == QUANTAPDF_OK);
 
-    draw.struct_size = QUANTAPDF_COMPOSER_FORM_DRAW_OPTIONS_V1_SIZE;
     draw.graphics_state_id = half_id;
     CHECK(quantapdf_composer_draw_form(
               composer, 0u, ordinary_id, &ordinary_transform, &draw) ==
@@ -365,11 +354,11 @@ static int test_group_dictionary_render_and_nested(void)
 
     CHECK(quantapdf_output_save_file(
               output, COMPOSER_FORM_GROUP_OUTPUT_PDF) == QUANTAPDF_OK);
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               COMPOSER_FORM_GROUP_OUTPUT_PDF, NULL, &document) ==
           QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-    render.struct_size = sizeof(render);
+
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
           QUANTAPDF_OK);

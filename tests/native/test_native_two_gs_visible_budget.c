@@ -107,8 +107,7 @@ static void setup(fixture *f)
         f->ops[i].graphics_state_id=(quantapdf_composer_graphics_state_id)(i+1u);
         f->ops[i].value.path.commands=i==0u?f->red:f->blue;
         f->ops[i].value.path.command_count=5u;
-        f->ops[i].value.path.options.struct_size=
-            QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
         f->ops[i].value.path.options.fill=1;
         f->ops[i].value.path.options.fill_argb=
             i==0u?UINT32_C(0xffff0000):UINT32_C(0xff0000ff);

@@ -79,8 +79,7 @@ static void init(case_data *f)
     f->op.kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;
     f->op.graphics_state_id=1u;
     f->op.value.image.image_id=1u;
-    f->op.value.image.options.struct_size=
-        QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+
     f->op.value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     f->op.value.image.options.graphics_state_id=1u;
     f->op.bounds=(quantapdf_rect){0.0f,0.0f,8.0f,8.0f};

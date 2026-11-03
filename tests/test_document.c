@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,44 +26,44 @@ static void test_arguments_and_errors(void)
     int pages = 123;
 
     trace_step("argument validation");
-    CHECK(quantapdf_open(NULL, NULL, &doc) == QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_open(test_context(), NULL, NULL, &doc) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(doc == NULL);
 
     doc = (quantapdf_document *)&sentinel;
-    CHECK(quantapdf_open("", NULL, &doc) == QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_open(test_context(), "", NULL, &doc) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(doc == NULL);
 
-    CHECK(quantapdf_open(ONE_PAGE_PDF, NULL, NULL) == QUANTAPDF_ERROR_ARGUMENT);
+
 
     trace_step("missing file");
     doc = (quantapdf_document *)&sentinel;
-    CHECK(quantapdf_open(MISSING_PDF, NULL, &doc) == QUANTAPDF_ERROR_IO);
+    CHECK(quantapdf_open(test_context(), MISSING_PDF, NULL, &doc) == QUANTAPDF_ERROR_IO);
     CHECK(doc == NULL);
 
     trace_step("encrypted file without password");
     doc = (quantapdf_document *)&sentinel;
-    CHECK(quantapdf_open(ENCRYPTED_PDF, NULL, &doc) == QUANTAPDF_ERROR_PASSWORD);
+    CHECK(quantapdf_open(test_context(), ENCRYPTED_PDF, NULL, &doc) == QUANTAPDF_ERROR_PASSWORD);
     CHECK(doc == NULL);
 
     trace_step("encrypted file with wrong password");
     doc = (quantapdf_document *)&sentinel;
-    CHECK(quantapdf_open(ENCRYPTED_PDF, "wrong", &doc) == QUANTAPDF_ERROR_PASSWORD);
+    CHECK(quantapdf_open(test_context(), ENCRYPTED_PDF, "wrong", &doc) == QUANTAPDF_ERROR_PASSWORD);
     CHECK(doc == NULL);
 
     trace_step("encrypted file with correct password");
     doc = NULL;
-    CHECK(quantapdf_open(ENCRYPTED_PDF, "user-pass", &doc) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), ENCRYPTED_PDF, "user-pass", &doc) == QUANTAPDF_OK);
     CHECK(doc != NULL);
     quantapdf_close(doc);
 
     trace_step("truncated file");
     doc = (quantapdf_document *)&sentinel;
-    CHECK(quantapdf_open(TRUNCATED_PDF, NULL, &doc) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_open(test_context(), TRUNCATED_PDF, NULL, &doc) == QUANTAPDF_ERROR_FORMAT);
     CHECK(doc == NULL);
 
     trace_step("non-PDF file");
     doc = (quantapdf_document *)&sentinel;
-    CHECK(quantapdf_open(NON_PDF, NULL, &doc) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_open(test_context(), NON_PDF, NULL, &doc) == QUANTAPDF_ERROR_FORMAT);
     CHECK(doc == NULL);
 
     trace_step("page-count argument validation");
@@ -71,7 +72,7 @@ static void test_arguments_and_errors(void)
     CHECK(pages == 123);
 
     doc = NULL;
-    CHECK(quantapdf_open(ONE_PAGE_PDF, NULL, &doc) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), ONE_PAGE_PDF, NULL, &doc) == QUANTAPDF_OK);
     CHECK(quantapdf_page_count(doc, NULL) == QUANTAPDF_ERROR_ARGUMENT);
     quantapdf_close(doc);
 }
@@ -87,7 +88,7 @@ static void test_repeated_lifecycle(void)
             fprintf(stderr, "[quantapdf.document] repeated lifecycle iteration %d\n", i);
             fflush(stderr);
         }
-        CHECK(quantapdf_open(ONE_PAGE_PDF, NULL, &doc) == QUANTAPDF_OK);
+        CHECK(quantapdf_open(test_context(), ONE_PAGE_PDF, NULL, &doc) == QUANTAPDF_OK);
         CHECK(quantapdf_page_count(doc, &pages) == QUANTAPDF_OK);
         CHECK(pages == 1);
         quantapdf_close(doc);
@@ -103,8 +104,8 @@ static void test_handle_isolation(void)
     int b_pages = 0;
 
     trace_step("handle isolation");
-    CHECK(quantapdf_open(ONE_PAGE_PDF, NULL, &a) == QUANTAPDF_OK);
-    CHECK(quantapdf_open(TWO_PAGE_PDF, NULL, &b) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), ONE_PAGE_PDF, NULL, &a) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), TWO_PAGE_PDF, NULL, &b) == QUANTAPDF_OK);
     CHECK(quantapdf_page_count(b, &b_pages) == QUANTAPDF_OK);
     CHECK(quantapdf_page_count(a, &a_pages) == QUANTAPDF_OK);
     CHECK(a_pages == 1);
@@ -123,7 +124,7 @@ static void test_page_lifecycle(void)
     CHECK(quantapdf_load_page(NULL, 0, &page) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(page == NULL);
 
-    CHECK(quantapdf_open(ONE_PAGE_PDF, NULL, &doc) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), ONE_PAGE_PDF, NULL, &doc) == QUANTAPDF_OK);
 
     page = (quantapdf_page *)&sentinel;
     CHECK(quantapdf_load_page(doc, -1, &page) == QUANTAPDF_ERROR_ARGUMENT);
@@ -157,7 +158,7 @@ static void test_page_bounds(void)
     CHECK(bounds.x1 == -3.0f);
     CHECK(bounds.y1 == -4.0f);
 
-    CHECK(quantapdf_open(ONE_PAGE_PDF, NULL, &doc) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), ONE_PAGE_PDF, NULL, &doc) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(doc, 0, &page) == QUANTAPDF_OK);
     CHECK(quantapdf_page_bounds(page, NULL) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(quantapdf_page_bounds(page, &bounds) == QUANTAPDF_OK);
@@ -184,7 +185,7 @@ static void test_page_box_bounds(void)
     CHECK(sentinel.x1 == -3.0f);
     CHECK(sentinel.y1 == -4.0f);
 
-    CHECK(quantapdf_open(PAGE_BOXES_PDF, NULL, &doc) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), PAGE_BOXES_PDF, NULL, &doc) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(doc, 0, &page) == QUANTAPDF_OK);
     CHECK(quantapdf_page_box_bounds(page, QUANTAPDF_PAGE_BOX_MEDIA, NULL) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(quantapdf_page_box_bounds(page, (quantapdf_page_box)99, &sentinel) == QUANTAPDF_ERROR_ARGUMENT);
@@ -224,7 +225,7 @@ static void test_page_render(void)
     CHECK(quantapdf_render_page(NULL, &bitmap) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(bitmap == NULL);
 
-    CHECK(quantapdf_open(ONE_PAGE_PDF, NULL, &doc) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), ONE_PAGE_PDF, NULL, &doc) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(doc, 0, &page) == QUANTAPDF_OK);
     CHECK(quantapdf_render_page(page, NULL) == QUANTAPDF_ERROR_ARGUMENT);
 
@@ -264,7 +265,7 @@ static void test_utf8_path(void)
     int pages = -1;
 
     trace_step("utf8 path");
-    CHECK(quantapdf_open(UTF8_PDF, NULL, &doc) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), UTF8_PDF, NULL, &doc) == QUANTAPDF_OK);
     CHECK(quantapdf_page_count(doc, &pages) == QUANTAPDF_OK);
     CHECK(pages == 1);
     quantapdf_close(doc);

@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include <qpdf/QPDF.hh>
@@ -74,7 +75,7 @@ struct Fixture {
 static quantapdf_link_info info(quantapdf_link_page *links, size_t index)
 {
     quantapdf_link_info result = {};
-    result.struct_size = sizeof(result);
+
     CHECK(quantapdf_link_get_info(links, index, &result) == QUANTAPDF_OK);
     return result;
 }
@@ -118,11 +119,11 @@ static void test_geometry_and_links(int rotation, bool encrypted)
 
     quantapdf_document *document = nullptr;
     if (encrypted) {
-        CHECK(quantapdf_open(NATIVE_DOCUMENT_OUTPUT_PDF, "wrong", &document) ==
+        CHECK(quantapdf_open(test_context(), NATIVE_DOCUMENT_OUTPUT_PDF, "wrong", &document) ==
             QUANTAPDF_ERROR_PASSWORD);
         CHECK(document == nullptr);
     }
-    CHECK(quantapdf_open(NATIVE_DOCUMENT_OUTPUT_PDF,
+    CHECK(quantapdf_open(test_context(), NATIVE_DOCUMENT_OUTPUT_PDF,
         encrypted ? "reader" : nullptr, &document) == QUANTAPDF_OK);
     int count = 0;
     CHECK(quantapdf_page_count(document, &count) == QUANTAPDF_OK && count == 2);
@@ -183,7 +184,7 @@ static void expect_failure(Fixture& fixture, quantapdf_status expected)
     fixture.write();
     quantapdf_document *document = nullptr;
     quantapdf_page *page = nullptr;
-    CHECK(quantapdf_open(NATIVE_DOCUMENT_OUTPUT_PDF, nullptr, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), NATIVE_DOCUMENT_OUTPUT_PDF, nullptr, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     quantapdf_link_page *links = reinterpret_cast<quantapdf_link_page *>(1);
     CHECK(quantapdf_extract_links(page, &links) == expected);
@@ -249,7 +250,7 @@ static void test_structural_operations()
     fixture.pdf.getTrailer().replaceKey("/Info", fixture.pdf.makeIndirectObject(metadata));
     fixture.write();
     quantapdf_document *document = nullptr;
-    CHECK(quantapdf_open(NATIVE_DOCUMENT_OUTPUT_PDF, nullptr, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), NATIVE_DOCUMENT_OUTPUT_PDF, nullptr, &document) == QUANTAPDF_OK);
     char *title = nullptr;
     size_t size = 0;
     CHECK(quantapdf_document_metadata(document, QUANTAPDF_METADATA_TITLE,

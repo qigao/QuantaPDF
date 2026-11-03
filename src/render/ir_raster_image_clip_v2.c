@@ -114,20 +114,20 @@ static quantapdf_status qp_two_image_impl(
         const quantapdf_composer_graphics_state_id expected_state =
             (second_restored && i==1u) ? 0u : 1u;
         if(op->kind!=QUANTAPDF_COMPOSER_OPERATION_IMAGE ||
-           op->page_index!=0u ||
-           op->graphics_state_id!=expected_state ||
-           op->value.image.image_id!=(quantapdf_composer_image_id)(i+1u) ||
-           op->value.image.options.struct_size<
-               QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_MIN_SIZE ||
-           op->value.image.options.graphics_state_id!=expected_state ||
-           op->value.image.options.fit!=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH ||
-           image->width==0u || image->height==0u ||
-           (size_t)image->width>QP_V2_MAX_SOURCE/(size_t)image->height ||
-           !qp_integer(op->bounds.x0,width,&x0) ||
-           !qp_integer(op->bounds.y0,height,&y0) ||
-           !qp_integer(op->bounds.x1,width,&x1) ||
-           !qp_integer(op->bounds.y1,height,&y1) ||
-           x1<=x0 || y1<=y0)
+            op->page_index!=0u ||
+            op->graphics_state_id!=expected_state ||
+            op->value.image.image_id!=(quantapdf_composer_image_id)(i+1u) ||
+            op->value.image.options.graphics_state_id!=expected_state ||
+            op->value.image.options.fit!=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH ||
+            image->width==0u ||
+            image->height==0u ||
+            (size_t)image->width>QP_V2_MAX_SOURCE/(size_t)image->height ||
+            !qp_integer(op->bounds.x0,width,&x0) ||
+            !qp_integer(op->bounds.y0,height,&y0) ||
+            !qp_integer(op->bounds.x1,width,&x1) ||
+            !qp_integer(op->bounds.y1,height,&y1) ||
+            x1<=x0 ||
+            y1<=y0)
             return QUANTAPDF_ERROR_UNSUPPORTED;
         pixels=(size_t)image->width*(size_t)image->height;
         area=(x1-x0)*(y1-y0);

@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 #include "test_pdf_crop_internal.h"
 
@@ -37,7 +38,6 @@ static quantapdf_page_crop make_crop(
 {
     quantapdf_page_crop crop;
 
-    crop.struct_size = sizeof(crop);
     crop.page_index = page_index;
     crop.bounds.x0 = x0;
     crop.bounds.y0 = y0;
@@ -50,7 +50,7 @@ static quantapdf_document *open_document(const char *path)
 {
     quantapdf_document *document = NULL;
 
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     CHECK(document != NULL);
     return document;
 }

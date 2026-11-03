@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 #include "test_pdf_trim_internal.h"
 
@@ -59,7 +60,7 @@ static quantapdf_document *open_document(const char *path)
 {
     quantapdf_document *document = NULL;
 
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     CHECK(document != NULL);
     return document;
 }
@@ -86,7 +87,6 @@ static quantapdf_page_trim make_trim(
 {
     quantapdf_page_trim trim;
 
-    trim.struct_size = sizeof(trim);
     trim.page_index = page_index;
     trim.bounds = (quantapdf_rect){x0, y0, x1, y1};
     return trim;
@@ -106,7 +106,7 @@ static quantapdf_point internal_link_target(quantapdf_document *document)
     CHECK(quantapdf_link_count(links, &count) == QUANTAPDF_OK);
     for (index = 0; index < count; ++index) {
         quantapdf_link_info info = {0};
-        info.struct_size = sizeof(info);
+
         CHECK(quantapdf_link_get_info(links, index, &info) == QUANTAPDF_OK);
         if (info.kind == QUANTAPDF_LINK_INTERNAL) {
             CHECK(info.target_page == 1);
@@ -131,7 +131,7 @@ static quantapdf_point outline_target(quantapdf_document *document)
     CHECK(outline != NULL);
     CHECK(quantapdf_outline_count(outline, &count) == QUANTAPDF_OK);
     CHECK(count == 1);
-    info.struct_size = sizeof(info);
+
     CHECK(quantapdf_outline_get_info(outline, 0, &info) == QUANTAPDF_OK);
     CHECK(info.destination_kind == QUANTAPDF_OUTLINE_DESTINATION_INTERNAL);
     CHECK(info.target_page == 1);

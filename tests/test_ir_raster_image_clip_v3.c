@@ -73,8 +73,7 @@ static void init(fixture *f)
         f->ops[i].graphics_state_id=i==0u?1u:0u;
         f->ops[i].value.image.image_id=
             (quantapdf_composer_image_id)(i+1u);
-        f->ops[i].value.image.options.struct_size=
-            QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+
         f->ops[i].value.image.options.graphics_state_id=i==0u?1u:0u;
         f->ops[i].value.image.options.fit=
             QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;

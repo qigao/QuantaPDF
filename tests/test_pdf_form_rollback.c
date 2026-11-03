@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include "pdf_edit_test_api.h"
@@ -21,7 +22,7 @@ static quantapdf_pdf_edit *rollback_open_edit(const char *path)
     quantapdf_document *document = NULL;
     quantapdf_pdf_edit *edit = NULL;
 
-    ROLLBACK_CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    ROLLBACK_CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     ROLLBACK_CHECK(quantapdf_pdf_edit_begin(document, &edit) == QUANTAPDF_OK);
     quantapdf_close(document);
     return edit;
@@ -80,12 +81,12 @@ static void rollback_make_text(
 {
     memset(value, 0, sizeof(*value));
     memset(update, 0, sizeof(*update));
-    value->struct_size = sizeof(*value);
+
     value->kind = QUANTAPDF_FORM_VALUE_UTF8;
     value->option_index = SIZE_MAX;
     value->utf8 = text;
     value->utf8_size = strlen(text);
-    update->struct_size = sizeof(*update);
+
     update->presence = QUANTAPDF_FORM_VALUE_PRESENT;
     update->values = value;
     update->value_count = 1;
@@ -98,10 +99,10 @@ static void rollback_make_option(
 {
     memset(value, 0, sizeof(*value));
     memset(update, 0, sizeof(*update));
-    value->struct_size = sizeof(*value);
+
     value->kind = QUANTAPDF_FORM_VALUE_OPTION;
     value->option_index = option_index;
-    update->struct_size = sizeof(*update);
+
     update->presence = QUANTAPDF_FORM_VALUE_PRESENT;
     update->values = value;
     update->value_count = 1;
@@ -171,12 +172,12 @@ static void rollback_expect_text(
 
     ROLLBACK_CHECK(quantapdf_pdf_edit_form_snapshot(edit, &form) == QUANTAPDF_OK);
     index = rollback_field_index(form, name);
-    info.struct_size = sizeof(info);
+
     ROLLBACK_CHECK(quantapdf_form_field_get_info(form, index, &info) == QUANTAPDF_OK);
     ROLLBACK_CHECK(info.type == QUANTAPDF_FORM_FIELD_TEXT);
     ROLLBACK_CHECK(info.value_presence == QUANTAPDF_FORM_VALUE_PRESENT);
     ROLLBACK_CHECK(info.value_count == 1);
-    value_info.struct_size = sizeof(value_info);
+
     ROLLBACK_CHECK(quantapdf_form_field_value_get_info(form, index, 0,
         &value_info) == QUANTAPDF_OK);
     ROLLBACK_CHECK(value_info.kind == QUANTAPDF_FORM_VALUE_UTF8);
@@ -199,12 +200,12 @@ static void rollback_expect_button_option(
 
     ROLLBACK_CHECK(quantapdf_pdf_edit_form_snapshot(edit, &form) == QUANTAPDF_OK);
     index = rollback_field_index(form, name);
-    info.struct_size = sizeof(info);
+
     ROLLBACK_CHECK(quantapdf_form_field_get_info(form, index, &info) == QUANTAPDF_OK);
     ROLLBACK_CHECK(info.type == QUANTAPDF_FORM_FIELD_CHECKBOX);
     ROLLBACK_CHECK(info.value_presence == QUANTAPDF_FORM_VALUE_PRESENT);
     ROLLBACK_CHECK(info.value_count == 1);
-    value_info.struct_size = sizeof(value_info);
+
     ROLLBACK_CHECK(quantapdf_form_field_value_get_info(form, index, 0,
         &value_info) == QUANTAPDF_OK);
     ROLLBACK_CHECK(value_info.kind == QUANTAPDF_FORM_VALUE_OPTION);

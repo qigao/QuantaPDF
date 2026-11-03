@@ -69,13 +69,8 @@ quantapdf_status quantapdf_annotation_get_info(
     quantapdf_annotation_info *out_info)
 {
     const quantapdf_annotation_internal *item;
-    size_t minimum_size;
 
     if (out_info == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    minimum_size = offsetof(quantapdf_annotation_info, flags) +
-        sizeof(out_info->flags);
-    if (out_info->struct_size < minimum_size)
         return QUANTAPDF_ERROR_ARGUMENT;
 
     out_info->type = QUANTAPDF_ANNOTATION_UNKNOWN;

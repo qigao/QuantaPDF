@@ -218,7 +218,7 @@ static int qualify()
     quantapdf_bitmap *held=nullptr;
     std::vector<unsigned char> held_rgb;
     OK(quantapdf_context_create(&ctx));
-    OK(quantapdf_open_with_context(ctx,filename,nullptr,&doc));
+    OK(quantapdf_open(ctx,filename,nullptr,&doc));
     CHECK(std::remove(filename)==0);
 
     /* Geometry failures must neither erase previous valid output nor
@@ -244,7 +244,7 @@ static int qualify()
                 CHECK(false);
             }
             quantapdf_render_options options{};
-            options.struct_size=sizeof(options);
+
             options.dpi=static_cast<float>(dpi);
             const quantapdf_status status=
                 quantapdf_render_page_with_options(page,&options,&bitmap);

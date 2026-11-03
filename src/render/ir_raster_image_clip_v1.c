@@ -90,8 +90,7 @@ static quantapdf_status qp_clipped_raw_pixels(
     masked_path.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
     masked_path.value.path.commands=rect;
     masked_path.value.path.command_count=5u;
-    masked_path.value.path.options.struct_size=
-        QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
     masked_path.value.path.options.fill=1;
     masked_path.value.path.options.fill_argb=UINT32_C(0xffffffff);
     masked_path.value.path.options.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -187,19 +186,21 @@ static quantapdf_status qp_clipped_raw_image(
     gs=&ir->resources.graphics_states[0];
     clip=&ir->resources.clips[0];
     if(image_op->page_index!=0u ||
-       image_op->kind!=QUANTAPDF_COMPOSER_OPERATION_IMAGE ||
-       image_op->graphics_state_id!=1u ||
-       image_op->value.image.image_id!=1u ||
-       image_op->value.image.options.struct_size<
-           QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_MIN_SIZE ||
-       image_op->value.image.options.graphics_state_id!=1u ||
-       image_op->value.image.options.fit!=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH ||
-       gs->fill_alpha!=1.0f || gs->stroke_alpha!=1.0f ||
-       gs->blend_mode!=QUANTAPDF_COMPOSER_BLEND_NORMAL ||
-       gs->clip_id!=1u || gs->soft_mask_id!=0u ||
-       clip->kind!=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL ||
-       clip->members!=NULL || clip->member_count!=0u ||
-       clip->commands==NULL || clip->command_count==0u)
+        image_op->kind!=QUANTAPDF_COMPOSER_OPERATION_IMAGE ||
+        image_op->graphics_state_id!=1u ||
+        image_op->value.image.image_id!=1u ||
+        image_op->value.image.options.graphics_state_id!=1u ||
+        image_op->value.image.options.fit!=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH ||
+        gs->fill_alpha!=1.0f ||
+        gs->stroke_alpha!=1.0f ||
+        gs->blend_mode!=QUANTAPDF_COMPOSER_BLEND_NORMAL ||
+        gs->clip_id!=1u ||
+        gs->soft_mask_id!=0u ||
+        clip->kind!=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL ||
+        clip->members!=NULL ||
+        clip->member_count!=0u ||
+        clip->commands==NULL ||
+        clip->command_count==0u)
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
     return qp_clipped_raw_pixels(&ir->pages[0],image_op,&ir->resources.images[0],
@@ -251,7 +252,7 @@ static quantapdf_status qp_native_image_mask_prepare_impl(
     ir.pages=&transparent;ir.page_count=1u;ir.operations=&paint;ir.operation_count=1u;
     paint.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
     paint.value.path.commands=rectangle;paint.value.path.command_count=5u;
-    paint.value.path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
     paint.value.path.options.fill=1;paint.value.path.options.fill_argb=UINT32_C(0xffffffff);
     paint.value.path.options.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
     qp_point(&rectangle[0],QUANTAPDF_COMPOSER_PATH_MOVE_TO,bounds->x0,bounds->y0);

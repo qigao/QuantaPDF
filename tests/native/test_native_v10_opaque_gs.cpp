@@ -79,7 +79,6 @@ static void dump_original(const std::string& filename)
     }
 }
 
-
 /* PRIVATE diagnostic: test builds the exact production Source function
  * independently just like the established in-tree OOM tests. It is not
  * linked into, exported from, or substituted for the public DLL. */
@@ -249,13 +248,13 @@ static int run(const std::string& original)
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bitmap=
             reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-        OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&doc));
+        OK(quantapdf_open(context,filename.c_str(),nullptr,&doc));
         CHECK(doc!=nullptr);
         if(!external)CHECK(std::remove(generated_file)==0);
         OK(quantapdf_load_page(doc,0,&page));
         CHECK(page!=nullptr);
         quantapdf_render_options options{};
-        options.struct_size=sizeof(options);options.dpi=72.0f;
+        options.dpi=72.0f;
         const auto status=quantapdf_render_page_with_options(
             page,&options,&bitmap);
         if(status!=want ||

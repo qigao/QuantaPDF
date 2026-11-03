@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include "test_pdf_poster_split_internal.h"
 #include "pdf_poster_test_api.h"
 
@@ -31,9 +32,9 @@ static void expect_policy_status(
     quantapdf_output *output = output_sentinel();
     quantapdf_page_poster_split split;
 
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     CHECK(document != NULL);
-    split.struct_size = sizeof(split);
+
     split.page_index = 0;
     split.columns = columns;
     split.rows = rows;
@@ -58,8 +59,8 @@ static void expect_preflight_faults_are_contained(void)
     quantapdf_page_poster_split split;
     size_t index;
 
-    CHECK(quantapdf_open(POSTER_ROTATE_90_PDF, NULL, &document) == QUANTAPDF_OK);
-    split.struct_size = sizeof(split);
+    CHECK(quantapdf_open(test_context(), POSTER_ROTATE_90_PDF, NULL, &document) == QUANTAPDF_OK);
+
     split.page_index = 0;
     split.columns = 2;
     split.rows = 1;

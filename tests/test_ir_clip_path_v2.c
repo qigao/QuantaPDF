@@ -74,8 +74,7 @@ static void init(fixture *f)
     f->operation.graphics_state_id = 1u;
     f->operation.value.path.commands = f->paint;
     f->operation.value.path.command_count = 4u;
-    f->operation.value.path.options.struct_size =
-        QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
     f->operation.value.path.options.fill = 1;
     f->operation.value.path.options.fill_argb = UINT32_C(0xffff0000);
     f->operation.value.path.options.graphics_state_id = 1u;

@@ -116,37 +116,32 @@ quantapdf_status quantapdf_ir_raster_clipped_image_then_path_v4(
     path_op=&ir->operations[1];
     source=&ir->resources.images[0];
     if(image_op->kind!=QUANTAPDF_COMPOSER_OPERATION_IMAGE ||
-       path_op->kind!=QUANTAPDF_COMPOSER_OPERATION_PATH ||
-       image_op->page_index!=0u || path_op->page_index!=0u ||
-       image_op->graphics_state_id!=1u ||
-       path_op->graphics_state_id!=0u ||
-       image_op->value.image.image_id!=1u ||
-       image_op->value.image.options.struct_size<
-           QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_MIN_SIZE ||
-       image_op->value.image.options.graphics_state_id!=1u ||
-       image_op->value.image.options.fit!=
+        path_op->kind!=QUANTAPDF_COMPOSER_OPERATION_PATH ||
+        image_op->page_index!=0u ||
+        path_op->page_index!=0u ||
+        image_op->graphics_state_id!=1u ||
+        path_op->graphics_state_id!=0u ||
+        image_op->value.image.image_id!=1u ||
+        image_op->value.image.options.graphics_state_id!=1u ||
+        image_op->value.image.options.fit!=
            QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH ||
-       path_op->value.path.options.struct_size<
-           QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE ||
-       path_op->value.path.options.fill!=1 ||
-       path_op->value.path.options.stroke!=0 ||
-       (path_op->value.path.options.fill_argb>>24u)!=255u ||
-       (path_op->value.path.options.struct_size>=
-            QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE &&
-        path_op->value.path.options.graphics_state_id!=0u) ||
-       (path_op->value.path.options.struct_size>=
-            QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_MIN_SIZE &&
-        (path_op->value.path.options.fill_paint_id!=0u ||
-         path_op->value.path.options.stroke_paint_id!=0u)) ||
-       path_op->value.path.dash_count!=0u ||
-       source->width==0u || source->height==0u ||
-       (size_t)source->width>QP_V4_MAX_SOURCE_PIXELS/
+        path_op->value.path.options.fill!=1 ||
+        path_op->value.path.options.stroke!=0 ||
+        (path_op->value.path.options.fill_argb>>24u)!=255u ||
+        (path_op->value.path.options.graphics_state_id!=0u) ||
+        ((path_op->value.path.options.fill_paint_id!=0u ||
+                path_op->value.path.options.stroke_paint_id!=0u)) ||
+        path_op->value.path.dash_count!=0u ||
+        source->width==0u ||
+        source->height==0u ||
+        (size_t)source->width>QP_V4_MAX_SOURCE_PIXELS/
            (size_t)source->height ||
-       !qp_integer(image_op->bounds.x0,width,&x0) ||
-       !qp_integer(image_op->bounds.y0,height,&y0) ||
-       !qp_integer(image_op->bounds.x1,width,&x1) ||
-       !qp_integer(image_op->bounds.y1,height,&y1) ||
-       x1<=x0 || y1<=y0)
+        !qp_integer(image_op->bounds.x0,width,&x0) ||
+        !qp_integer(image_op->bounds.y0,height,&y0) ||
+        !qp_integer(image_op->bounds.x1,width,&x1) ||
+        !qp_integer(image_op->bounds.y1,height,&y1) ||
+        x1<=x0 ||
+        y1<=y0)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     source_pixels=(size_t)source->width*(size_t)source->height;
     if(source_pixels>QP_V4_MAX_SOURCE_PIXELS ||

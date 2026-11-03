@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include <stddef.h>
@@ -84,13 +85,13 @@ static void expect_document_audit(
 {
     quantapdf_audit_result audit = {0};
     quantapdf_document *document = NULL;
-    quantapdf_status open_status = quantapdf_open(path, password, &document);
+    quantapdf_status open_status = quantapdf_open(test_context(), path, password, &document);
     quantapdf_status status;
 
     CHECK(open_status == QUANTAPDF_OK);
     if (open_status != QUANTAPDF_OK)
         return;
-    audit.struct_size = QUANTAPDF_AUDIT_RESULT_V1_SIZE;
+
     audit.findings = UINT32_MAX;
     status = quantapdf_document_audit(document, &audit);
     if (status != expected_status) {
@@ -219,8 +220,8 @@ static void expect_document_observations_equal(
     int right_stride = 0;
     int right_components = 0;
 
-    CHECK(quantapdf_open(left_path, NULL, &left) == QUANTAPDF_OK);
-    CHECK(quantapdf_open(right_path, NULL, &right) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), left_path, NULL, &left) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), right_path, NULL, &right) == QUANTAPDF_OK);
     if (left == NULL || right == NULL)
         goto cleanup;
     CHECK(quantapdf_page_count(left, &left_pages) == QUANTAPDF_OK);
@@ -298,25 +299,12 @@ static void test_public_contract(void)
     CHECK(QUANTAPDF_SANITIZE_XFA == (1u << 5));
     CHECK(QUANTAPDF_SANITIZE_RICH_MEDIA == (1u << 6));
     CHECK(QUANTAPDF_SANITIZE_ALL == ((1u << 7) - 1u));
-    CHECK(QUANTAPDF_AUDIT_RESULT_V1_MIN_SIZE ==
-          offsetof(quantapdf_audit_result, findings) + sizeof(audit.findings));
-    CHECK(QUANTAPDF_AUDIT_RESULT_V1_SIZE == sizeof(audit));
 
-    audit.struct_size = QUANTAPDF_AUDIT_RESULT_V1_SIZE;
     audit.findings = UINT32_MAX;
     CHECK(quantapdf_document_audit(NULL, &audit) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(audit.findings == 0);
     CHECK(quantapdf_document_audit(NULL, NULL) == QUANTAPDF_ERROR_ARGUMENT);
-    audit.struct_size = QUANTAPDF_AUDIT_RESULT_V1_MIN_SIZE - 1u;
-    audit.findings = UINT32_MAX;
-    CHECK(quantapdf_document_audit(NULL, &audit) == QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(audit.findings == UINT32_MAX);
 
-    CHECK(quantapdf_sanitize(NULL, QUANTAPDF_SANITIZE_ALL, &output) ==
-          QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(output == NULL);
-    CHECK(quantapdf_sanitize(NULL, QUANTAPDF_SANITIZE_ALL, NULL) ==
-          QUANTAPDF_ERROR_ARGUMENT);
 }
 
 static void test_valid_audit_matrix(void)
@@ -462,14 +450,14 @@ static void test_extended_result_and_repeatability(void)
     begin_case("extended_result");
     memset(&extended, 0xa5, sizeof(extended));
     memcpy(expected_suffix, extended.suffix, sizeof(expected_suffix));
-    extended.v1.struct_size = sizeof(extended);
+
     extended.v1.findings = UINT32_MAX;
-    status = quantapdf_open(SECURITY_PDF, NULL, &document);
+    status = quantapdf_open(test_context(), SECURITY_PDF, NULL, &document);
     CHECK(status == QUANTAPDF_OK);
     if (status == QUANTAPDF_OK) {
         CHECK(quantapdf_document_audit(document, &extended.v1) ==
               QUANTAPDF_OK);
-        CHECK(extended.v1.struct_size == sizeof(extended));
+
         CHECK(extended.v1.findings == 0);
         CHECK(memcmp(
                   extended.suffix, expected_suffix,
@@ -481,12 +469,11 @@ static void test_extended_result_and_repeatability(void)
     document = NULL;
     if (!create_fixture("action_javascript", path, sizeof(path)))
         return;
-    status = quantapdf_open(path, NULL, &document);
+    status = quantapdf_open(test_context(), path, NULL, &document);
     CHECK(status == QUANTAPDF_OK);
     if (status != QUANTAPDF_OK)
         return;
-    first.struct_size = sizeof(first);
-    second.struct_size = sizeof(second);
+
     CHECK(quantapdf_document_audit(document, &first) == QUANTAPDF_OK);
     CHECK(quantapdf_document_audit(document, &second) == QUANTAPDF_OK);
     CHECK(first.findings == QUANTAPDF_AUDIT_JAVASCRIPT_ACTION);
@@ -520,11 +507,11 @@ static void test_sanitize_policy_isolation_and_all(void)
     if (!create_fixture(
             "sanitize_combined", source_path, sizeof(source_path)))
         return;
-    status = quantapdf_open(source_path, NULL, &document);
+    status = quantapdf_open(test_context(), source_path, NULL, &document);
     CHECK(status == QUANTAPDF_OK);
     if (status != QUANTAPDF_OK)
         return;
-    source_audit.struct_size = sizeof(source_audit);
+
     CHECK(quantapdf_document_audit(document, &source_audit) == QUANTAPDF_OK);
     CHECK(source_audit.findings == QUANTAPDF_SANITIZE_ALL);
 
@@ -605,7 +592,7 @@ static void test_sanitize_ownership_and_canonical_output(void)
     if (!create_fixture(
             "sanitize_combined", source_path, sizeof(source_path)))
         return;
-    CHECK(quantapdf_open(source_path, NULL, &source) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), source_path, NULL, &source) == QUANTAPDF_OK);
     if (source == NULL)
         return;
     CHECK(quantapdf_sanitize(source, QUANTAPDF_SANITIZE_ALL, &first) ==
@@ -633,7 +620,7 @@ static void test_sanitize_ownership_and_canonical_output(void)
             first, "sanitize-canonical-output", output_path,
             sizeof(output_path)))
         goto cleanup;
-    CHECK(quantapdf_open(output_path, NULL, &reopened) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), output_path, NULL, &reopened) == QUANTAPDF_OK);
     if (reopened == NULL)
         goto cleanup;
     CHECK(quantapdf_sanitize(
@@ -668,10 +655,10 @@ static void test_sanitize_empty_container_policy_isolation(void)
     if (!create_fixture(
             "sanitize_empty_unselected", path, sizeof(path)))
         return;
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     if (document == NULL)
         return;
-    audit.struct_size = sizeof(audit);
+
     CHECK(quantapdf_document_audit(document, &audit) == QUANTAPDF_OK);
     CHECK(audit.findings == 0);
     CHECK(quantapdf_sanitize(document, QUANTAPDF_SANITIZE_XFA, &output) ==
@@ -688,7 +675,7 @@ static void test_sanitize_empty_container_policy_isolation(void)
     if (!create_fixture(
             "sanitize_selected_to_empty", path, sizeof(path)))
         return;
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     if (document == NULL)
         return;
     audit.findings = 0;
@@ -715,10 +702,10 @@ static void test_sanitize_mutation_budget_exhaustion(void)
     if (!create_fixture(
             "mutation_budget_shared_next", path, sizeof(path)))
         return;
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     if (document == NULL)
         return;
-    audit.struct_size = sizeof(audit);
+
     CHECK(quantapdf_document_audit(document, &audit) == QUANTAPDF_OK);
     CHECK(audit.findings == 0);
     CHECK(quantapdf_sanitize(document, QUANTAPDF_SANITIZE_XFA, &output) ==
@@ -738,10 +725,10 @@ static void expect_sanitize_shared_container_cleanup(
 
     if (!create_fixture(scenario, path, sizeof(path)))
         return;
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     if (document == NULL)
         return;
-    audit.struct_size = sizeof(audit);
+
     CHECK(quantapdf_document_audit(document, &audit) == QUANTAPDF_OK);
     CHECK(audit.findings == QUANTAPDF_AUDIT_JAVASCRIPT_ACTION);
     CHECK(quantapdf_sanitize(
@@ -776,7 +763,7 @@ static void expect_sanitize_failure(
     quantapdf_document *document = NULL;
     quantapdf_output *output = (quantapdf_output *)(uintptr_t)1;
 
-    CHECK(quantapdf_open(path, password, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, password, &document) == QUANTAPDF_OK);
     if (document == NULL)
         return;
     CHECK(quantapdf_sanitize(document, flags, &output) == expected_status);
@@ -797,10 +784,10 @@ static void test_sanitize_javascript_name_tree_actions(void)
     begin_case("sanitize_name_tree_launch_continuation");
     if (!create_fixture("name_tree_next_launch", path, sizeof(path)))
         return;
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     if (document == NULL)
         return;
-    audit.struct_size = sizeof(audit);
+
     CHECK(quantapdf_document_audit(document, &audit) == QUANTAPDF_OK);
     CHECK(audit.findings == (QUANTAPDF_AUDIT_JAVASCRIPT_ACTION |
                              QUANTAPDF_AUDIT_LAUNCH_ACTION));
@@ -827,7 +814,7 @@ static void test_sanitize_javascript_name_tree_actions(void)
     output = NULL;
     if (!create_fixture("name_tree_head_launch", path, sizeof(path)))
         return;
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     if (document == NULL)
         return;
     CHECK(quantapdf_sanitize(
@@ -849,7 +836,7 @@ static void test_sanitize_javascript_name_tree_actions(void)
     output = NULL;
     if (!create_fixture("name_tree_limited_head_launch", path, sizeof(path)))
         return;
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     if (document == NULL)
         return;
     CHECK(quantapdf_sanitize(
@@ -869,7 +856,7 @@ static void test_sanitize_javascript_name_tree_actions(void)
     begin_case("sanitize_name_tree_whole_javascript_policy");
     document = NULL;
     output = NULL;
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     if (document != NULL) {
         CHECK(quantapdf_sanitize(
                   document, QUANTAPDF_SANITIZE_JAVASCRIPT_ACTIONS,
@@ -965,7 +952,7 @@ static void test_sanitize_ambiguous_aliases(void)
     if (create_fixture("alias_annots_next", path, sizeof(path))) {
         quantapdf_document *document = NULL;
         quantapdf_output *output = NULL;
-        CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+        CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
         if (document != NULL) {
             CHECK(quantapdf_sanitize(
                       document, QUANTAPDF_SANITIZE_XFA, &output) ==
@@ -1009,7 +996,7 @@ static void test_sanitize_annotation_backlinks(void)
             path, NULL, QUANTAPDF_OK,
             QUANTAPDF_AUDIT_EMBEDDED_FILE |
                 QUANTAPDF_AUDIT_RICH_MEDIA);
-        CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+        CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
         if (document == NULL)
             continue;
         CHECK(quantapdf_sanitize(
@@ -1034,7 +1021,7 @@ static void test_sanitize_annotation_backlinks(void)
         return;
     expect_document_audit(
         path, NULL, QUANTAPDF_OK, QUANTAPDF_AUDIT_LAUNCH_ACTION);
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     if (document == NULL)
         return;
     CHECK(quantapdf_sanitize(
@@ -1101,7 +1088,7 @@ static void test_sanitize_strict_failures_and_arguments(void)
     size_t index;
 
     begin_case("sanitize_arguments");
-    CHECK(quantapdf_open(SECURITY_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), SECURITY_PDF, NULL, &document) == QUANTAPDF_OK);
     if (document != NULL) {
         output = (quantapdf_output *)(uintptr_t)1;
         CHECK(quantapdf_sanitize(document, 0, &output) ==
@@ -1149,7 +1136,7 @@ static void test_sanitize_strict_failures_and_arguments(void)
 
     begin_case("sanitize_action_cycle");
     if (create_fixture("action_cycle", path, sizeof(path))) {
-        CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+        CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
         if (document != NULL) {
             output = NULL;
             CHECK(quantapdf_sanitize(

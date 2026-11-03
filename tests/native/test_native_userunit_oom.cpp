@@ -72,7 +72,7 @@ static int exercise_context_faults(int quarters,int mode=97)
     OK(quantapdf_context_create(&context));
     CHECK(context!=nullptr && context->references==1u);
     context->test_finalizations=&finalizations;
-    OK(quantapdf_open_with_context(
+    OK(quantapdf_open(
         context,filename,nullptr,&document));
     CHECK(std::remove(filename)==0);
     OK(quantapdf_load_page(document,0,&page));
@@ -80,7 +80,7 @@ static int exercise_context_faults(int quarters,int mode=97)
     CHECK(baseline_references>=3u);
     for(int dpi:{72,96,144}) {
         quantapdf_render_options options{};
-        options.struct_size=sizeof(options);
+
         options.dpi=(float)dpi;
         /* Refuse either the Bitmap retain or its separate prepared
          * Source-owner retain, balancing every already acquired lease. */

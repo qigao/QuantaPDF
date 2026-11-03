@@ -72,8 +72,7 @@ static void initialize(fixture *f)
         f->ops[i].kind = QUANTAPDF_COMPOSER_OPERATION_PATH;
         f->ops[i].value.path.commands = f->shapes[i];
         f->ops[i].value.path.command_count = 5u;
-        f->ops[i].value.path.options.struct_size =
-            QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
         f->ops[i].value.path.options.fill = 1;
         f->ops[i].value.path.options.fill_argb = colors[i];
         f->ops[i].value.path.options.transform =
@@ -187,7 +186,6 @@ static int test_single_opaque_path(void)
     return EXIT_SUCCESS;
 }
 
-
 /* Provider-free reproduction of the independently published one-pixel,
  * closed triangle stroke inside a rectangular PDF W n clip. */
 static int test_clipped_one_pixel_stroke(void)
@@ -294,7 +292,6 @@ static int test_fractional_and_transparent(void)
     quantapdf_ir_raster_image_dispose(&image);
     return EXIT_SUCCESS;
 }
-
 
 /* A clip with an admitted MOVE_TO but no nondegenerate edges is empty,
  * not a corrupt Clip resource. No samples in the red nested scope may

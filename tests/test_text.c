@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -26,7 +27,7 @@ int main(void)
     size_t size = 123;
     size_t i;
 
-    CHECK(quantapdf_open(TEXT_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), TEXT_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
 
     CHECK(quantapdf_extract_text(NULL, &text, &size) == QUANTAPDF_ERROR_ARGUMENT);
@@ -57,7 +58,7 @@ int main(void)
     CHECK(text[size] == '\0');
     quantapdf_free(text);
 
-    CHECK(quantapdf_open(ONE_PAGE_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), ONE_PAGE_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     text = (char *)&sentinel;
     size = 123;

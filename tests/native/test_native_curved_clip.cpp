@@ -1,3 +1,4 @@
+#include "../test_context_fixture.h"
 /* Native Source V10 original curved c/v/y W/W* Clip (issue #522).
  * QPDF only authors original source; the existing pure C11 V5 raster
  * produces ALL pixels. No PDFium, fallback, export or second renderer. */
@@ -94,11 +95,11 @@ static int render(const std::string& input,int quarters,int rotation,
     quantapdf_page *page=nullptr;
     quantapdf_bitmap *bitmap=nullptr;
     OK(quantapdf_context_create(&context));
-    OK(quantapdf_open_with_context(context,filename,nullptr,&doc));
+    OK(quantapdf_open(context,filename,nullptr,&doc));
     CHECK(std::remove(filename)==0);
     OK(quantapdf_load_page(doc,0,&page));
     quantapdf_render_options options{};
-    options.struct_size=sizeof(options);
+
     options.dpi=static_cast<float>(dpi);
     const auto status=quantapdf_render_page_with_options(
         page,&options,&bitmap);
@@ -145,11 +146,11 @@ static int rejected(const std::string& contents,
     quantapdf_page *page=nullptr;
     quantapdf_bitmap *bitmap=
         reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-    OK(quantapdf_open(filename,nullptr,&doc));
+    OK(quantapdf_open(test_context(), filename,nullptr,&doc));
     CHECK(std::remove(filename)==0);
     OK(quantapdf_load_page(doc,0,&page));
     quantapdf_render_options options{};
-    options.struct_size=sizeof(options);
+
     options.dpi=static_cast<float>(dpi);
     const auto status=quantapdf_render_page_with_options(
         page,&options,&bitmap);
@@ -418,7 +419,6 @@ static int atomic_rejections()
     return EXIT_SUCCESS;
 }
 
-
 /* Original empty W/W*: zero filled area under both winding rules.
  * The C11 Clip consumer's zero-edge region must suppress every Image
  * sample. The real original stream is written by QPDF, not IR export. */
@@ -551,7 +551,6 @@ static int empty_clip_atomic_refusals()
         CHECK(rejected(content,true,dpi,crop)==EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }
-
 
 /* Two authored rectangular W/W* definitions in one original q scope,
  * before ANY paint, have the same exact 4x4 sample membership as

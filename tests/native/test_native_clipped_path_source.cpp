@@ -1,3 +1,4 @@
+#include "../test_context_fixture.h"
 /* Public Source V10 original-PDF clipped PATH-only conformance.
  * Every original below contains opaque f/f* paints and NO Image,
  * XObject or artificial image resource. QPDF authors the original PDF;
@@ -117,11 +118,11 @@ static int render(const std::string& bytes,const configuration& cfg,
     quantapdf_page *page=nullptr;
     quantapdf_bitmap *bitmap=nullptr;
     OK(quantapdf_context_create(&context));
-    OK(quantapdf_open_with_context(context,filename,nullptr,&doc));
+    OK(quantapdf_open(context,filename,nullptr,&doc));
     CHECK(std::remove(filename)==0);
     OK(quantapdf_load_page(doc,cfg.selected,&page));
     quantapdf_render_options options{};
-    options.struct_size=sizeof(options);
+
     options.dpi=static_cast<float>(cfg.dpi);
     const auto status=quantapdf_render_page_with_options(
         page,&options,&bitmap);
@@ -173,11 +174,11 @@ static int rejected(const std::string& content,const configuration& cfg,
     quantapdf_page *page=nullptr;
     quantapdf_bitmap *bitmap=
         reinterpret_cast<quantapdf_bitmap *>(uintptr_t(1));
-    OK(quantapdf_open(filename,nullptr,&doc));
+    OK(quantapdf_open(test_context(), filename,nullptr,&doc));
     CHECK(std::remove(filename)==0);
     OK(quantapdf_load_page(doc,cfg.selected,&page));
     quantapdf_render_options options{};
-    options.struct_size=sizeof(options);
+
     options.dpi=static_cast<float>(cfg.dpi);
     const auto status=quantapdf_render_page_with_options(
         page,&options,&bitmap);

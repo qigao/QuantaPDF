@@ -121,7 +121,7 @@ static quantapdf_status paint_options(
     quantapdf_pdf_content_opcode opcode = path->paint_opcode;
     quantapdf_status status;
     memset(options, 0, sizeof(*options));
-    options->struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
     options->fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
     if (path->graphics.line_cap < 0 || path->graphics.line_cap > 2 ||
         path->graphics.line_join < 0 || path->graphics.line_join > 2 ||
@@ -645,7 +645,6 @@ fail:
     quantapdf_ir_dispose(&temporary);
     return status;
 }
-
 
 quantapdf_status quantapdf_pdf_path_lower_to_composer_mapped(
     const quantapdf_pdf_page_semantics *page,

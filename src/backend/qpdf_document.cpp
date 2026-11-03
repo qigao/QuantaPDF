@@ -68,6 +68,7 @@ static std::shared_ptr<QPDF> quantapdf_qpdf_fresh_document(
     char const *description)
 {
     auto pdf = QPDF::create();
+    pdf->setAttemptRecovery(false);
     pdf->processMemoryFile(
         description,
         reinterpret_cast<char const *>(document.source_data),
@@ -2616,6 +2617,7 @@ extern "C" quantapdf_status quantapdf_qpdf_open_memory(
         document->source_size = size;
         document->password = password_utf8 == nullptr ? "" : password_utf8;
         document->pdf = QPDF::create();
+        document->pdf->setAttemptRecovery(false);
         document->pdf->processMemoryFile(
             "quantapdf-memory",
             reinterpret_cast<char const *>(data),
@@ -3788,6 +3790,7 @@ extern "C" quantapdf_status quantapdf_qpdf_merge_memory(
             if (input_data[input_index] == nullptr || input_sizes[input_index] == 0)
                 return QUANTAPDF_ERROR_ARGUMENT;
             auto source = QPDF::create();
+            source->setAttemptRecovery(false);
             source->processMemoryFile(
                 "quantapdf-merge",
                 reinterpret_cast<char const *>(input_data[input_index]),
@@ -3834,9 +3837,7 @@ extern "C" quantapdf_status quantapdf_qpdf_crop_pages(
             return QUANTAPDF_ERROR_UNSUPPORTED;
         bool changed = false;
         for (size_t index = 0; index < crop_count; ++index) {
-            if (crops[index].struct_size < QUANTAPDF_PAGE_CROP_V1_MIN_SIZE ||
-                crops[index].struct_size > QUANTAPDF_PAGE_CROP_V1_SIZE)
-                return QUANTAPDF_ERROR_ARGUMENT;
+
             for (size_t prior = 0; prior < index; ++prior) {
                 if (crops[prior].page_index == crops[index].page_index)
                     return QUANTAPDF_ERROR_ARGUMENT;
@@ -3870,6 +3871,7 @@ extern "C" quantapdf_status quantapdf_qpdf_crop_pages(
         std::unique_ptr<unsigned char, decltype(&std::free)> seed_owner(
             seed, &std::free);
         auto private_pdf = QPDF::create();
+        private_pdf->setAttemptRecovery(false);
         private_pdf->processMemoryFile(
             "quantapdf-crop",
             reinterpret_cast<char const *>(seed_owner.get()),
@@ -3940,9 +3942,7 @@ extern "C" quantapdf_status quantapdf_qpdf_trim_pages(
         std::vector<trim_plan> plans;
         plans.reserve(trim_count);
         for (size_t index = 0; index < trim_count; ++index) {
-            if (trims[index].struct_size < QUANTAPDF_PAGE_TRIM_V1_MIN_SIZE ||
-                trims[index].struct_size > QUANTAPDF_PAGE_TRIM_V1_SIZE)
-                return QUANTAPDF_ERROR_ARGUMENT;
+
             quantapdf_rect const requested = trims[index].bounds;
             if (!std::isfinite(requested.x0) ||
                 !std::isfinite(requested.y0) ||
@@ -4078,11 +4078,7 @@ extern "C" quantapdf_status quantapdf_qpdf_poster_split_pages(
         size_t added_pages = 0;
         bool any_changed = false;
         for (size_t index = 0; index < split_count; ++index) {
-            if (splits[index].struct_size <
-                    QUANTAPDF_PAGE_POSTER_SPLIT_V1_MIN_SIZE ||
-                splits[index].struct_size >
-                    QUANTAPDF_PAGE_POSTER_SPLIT_V1_SIZE ||
-                splits[index].columns == 0 || splits[index].rows == 0)
+            if (splits[index].columns == 0 || splits[index].rows == 0)
                 return QUANTAPDF_ERROR_ARGUMENT;
             if (splits[index].columns >
                 std::numeric_limits<size_t>::max() / splits[index].rows)
@@ -4518,6 +4514,7 @@ extern "C" quantapdf_status quantapdf_qpdf_rewrite_memory(
     try {
         auto pdf = QPDF::create();
         pdf->setSuppressWarnings(true);
+        pdf->setAttemptRecovery(false);
         pdf->processMemoryFile(
             "quantapdf-rewrite",
             reinterpret_cast<char const *>(data),
@@ -6658,6 +6655,7 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_begin(
         edit->source_bytes.assign(
             source->source_data, source->source_data + source->source_size);
         edit->pdf = QPDF::create();
+        edit->pdf->setAttemptRecovery(false);
         edit->pdf->processMemoryFile(
             "quantapdf-edit",
             reinterpret_cast<char const *>(edit->source_bytes.data()),
@@ -7023,13 +7021,6 @@ static quantapdf_status quantapdf_qpdf_edit_form_preflight(QPDF& pdf)
     return QUANTAPDF_OK;
 }
 
-static bool quantapdf_qpdf_edit_form_value_input_valid(
-    quantapdf_form_value_input const& value)
-{
-    return value.struct_size >= QUANTAPDF_FORM_VALUE_INPUT_V1_MIN_SIZE &&
-        value.struct_size <= QUANTAPDF_FORM_VALUE_INPUT_V1_SIZE;
-}
-
 static std::string quantapdf_qpdf_edit_form_option_export(
     quantapdf_pdf_form_model const& model,
     quantapdf_pdf_form_field_internal const& field,
@@ -7161,14 +7152,14 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_form_set_values(
     const quantapdf_form_value_update *update,
     int *test_fault)
 {
-    size_t const update_minimum =
-        offsetof(quantapdf_form_value_update, value_count) +
-        sizeof(update->value_count);
-    if (edit == nullptr || ref == nullptr || update == nullptr ||
-        update->struct_size < update_minimum ||
+
+    if (edit == nullptr ||
+        ref == nullptr ||
+        update == nullptr ||
         (update->presence != QUANTAPDF_FORM_VALUE_MISSING &&
-         update->presence != QUANTAPDF_FORM_VALUE_PRESENT) ||
-        (update->value_count != 0u && update->values == nullptr))
+            update->presence != QUANTAPDF_FORM_VALUE_PRESENT) ||
+        (update->value_count != 0u &&
+            update->values == nullptr))
         return QUANTAPDF_ERROR_ARGUMENT;
     try {
         quantapdf_qpdf_edit_form_entry *entry = nullptr;
@@ -7222,8 +7213,7 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_form_set_values(
                 if (update->value_count != 1u)
                     return QUANTAPDF_ERROR_ARGUMENT;
                 auto const& value = update->values[0];
-                if (!quantapdf_qpdf_edit_form_value_input_valid(value) ||
-                    value.kind != QUANTAPDF_FORM_VALUE_UTF8 ||
+                if (value.kind != QUANTAPDF_FORM_VALUE_UTF8 ||
                     value.option_index != SIZE_MAX || value.utf8 == nullptr ||
                     !quantapdf_qpdf_valid_utf8(value.utf8, value.utf8_size))
                     return QUANTAPDF_ERROR_ARGUMENT;
@@ -7249,8 +7239,7 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_form_set_values(
                 if (update->value_count != 1u)
                     return QUANTAPDF_ERROR_ARGUMENT;
                 auto const& value = update->values[0];
-                if (!quantapdf_qpdf_edit_form_value_input_valid(value) ||
-                    value.kind != QUANTAPDF_FORM_VALUE_OPTION ||
+                if (value.kind != QUANTAPDF_FORM_VALUE_OPTION ||
                     value.utf8 != nullptr || value.utf8_size != 0u ||
                     value.option_index >= field.option_count)
                     return QUANTAPDF_ERROR_ARGUMENT;
@@ -7270,7 +7259,6 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_form_set_values(
                     field.type == QUANTAPDF_FORM_FIELD_COMBO_BOX &&
                     (field.flags & (1u << 18)) != 0u) {
                     if (index != 0u ||
-                        !quantapdf_qpdf_edit_form_value_input_valid(value) ||
                         value.option_index != SIZE_MAX || value.utf8 == nullptr ||
                         !quantapdf_qpdf_valid_utf8(
                             value.utf8, value.utf8_size))
@@ -7279,8 +7267,7 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_form_set_values(
                     text.assign(value.utf8, value.utf8_size);
                     continue;
                 }
-                if (!quantapdf_qpdf_edit_form_value_input_valid(value) ||
-                    value.kind != QUANTAPDF_FORM_VALUE_OPTION ||
+                if (value.kind != QUANTAPDF_FORM_VALUE_OPTION ||
                     value.utf8 != nullptr || value.utf8_size != 0u ||
                     value.option_index >= field.option_count ||
                     std::find(option_indices.begin(), option_indices.end(),
@@ -7491,10 +7478,7 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_annotation_get_info(
 {
     if (out_info == nullptr)
         return QUANTAPDF_ERROR_ARGUMENT;
-    size_t const minimum = offsetof(quantapdf_annotation_info, flags) +
-        sizeof(out_info->flags);
-    if (out_info->struct_size < minimum)
-        return QUANTAPDF_ERROR_ARGUMENT;
+
     out_info->type = QUANTAPDF_ANNOTATION_UNKNOWN;
     out_info->bounds = {};
     out_info->flags = 0;
@@ -7591,11 +7575,8 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_annotation_create(
     if (out_ref == nullptr)
         return QUANTAPDF_ERROR_ARGUMENT;
     std::memset(out_ref, 0, sizeof(*out_ref));
-    size_t const minimum =
-        offsetof(quantapdf_annotation_create_options, contents_size) +
-        sizeof(options->contents_size);
-    if (edit == nullptr || options == nullptr ||
-        options->struct_size < minimum || page_index < 0)
+
+    if (edit == nullptr || options == nullptr || page_index < 0)
         return QUANTAPDF_ERROR_ARGUMENT;
     if (options->type != QUANTAPDF_ANNOTATION_TEXT &&
         options->type != QUANTAPDF_ANNOTATION_FREE_TEXT &&
@@ -7682,10 +7663,10 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_annotation_update(
     const quantapdf_annotation_update *update,
     int *test_fault)
 {
-    size_t const minimum = offsetof(quantapdf_annotation_update, contents_size) +
-        sizeof(update->contents_size);
-    if (edit == nullptr || ref == nullptr || update == nullptr ||
-        update->struct_size < minimum ||
+
+    if (edit == nullptr ||
+        ref == nullptr ||
+        update == nullptr ||
         (update->fields & ~(QUANTAPDF_ANNOTATION_UPDATE_BOUNDS |
                             QUANTAPDF_ANNOTATION_UPDATE_FLAGS |
                             QUANTAPDF_ANNOTATION_UPDATE_CONTENTS)) != 0u)

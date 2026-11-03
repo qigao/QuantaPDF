@@ -21,7 +21,7 @@ static void init(void)
     ops[0].kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
     ops[0].value.path.commands=commands; ops[0].value.path.command_count=3;
     quantapdf_composer_path_options *o=&ops[0].value.path.options;
-    o->struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
     o->stroke=1; o->stroke_argb=0xffff0000u; o->stroke_width=4;
     o->miter_limit=10; o->line_cap=QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
     o->line_join=QUANTAPDF_COMPOSER_LINE_JOIN_MITER;
@@ -1155,7 +1155,6 @@ static void test_fractional_device_strokes(void)
     check_same_device_outline(&thin,&reference);
     quantapdf_ir_stroke_polyline_dispose_v1(&thin);
     quantapdf_ir_stroke_polyline_dispose_v1(&reference);
-
 
     /* The same floor applies to true cubic strips at multiple widths and
        both FIT resolutions, not only to straight segment expansion. */

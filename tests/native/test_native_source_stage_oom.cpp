@@ -427,7 +427,6 @@ static bool original_three_branch_source_oom(
     return true;
 }
 
-
 /* Exact original decimal MediaBox admission is a SOURCE-only M2
  * milestone. The same original production V10 parser, selected PageTree,
  * QPDF number tokens and C-owned IR are used here, not a second parser
@@ -571,7 +570,6 @@ static bool original_texample_decimal_source_m2(
     return true;
 }
 
-
 /* The UNMODIFIED 1,396-byte TeXample original. Private Source M3
  * admission proves all original 24 MOVE / 32 CUBIC / 8 CLOSE tokens
  * are represented by FOUR owned 12-command M+4C+H double-ring
@@ -642,14 +640,7 @@ static bool exact_texample_private_ir(const quantapdf_ir& ir)
     }
     for(size_t i=0u;i<3u;++i) {
         const auto& op=ir.operations[i];
-        if(op.kind!=QUANTAPDF_COMPOSER_OPERATION_PATH ||
-           op.page_index!=0u ||
-           op.value.path.command_count!=12u ||
-           op.graphics_state_id!=(i==0u?1u:0u) ||
-           op.value.path.options.graphics_state_id!=(i==0u?1u:0u) ||
-           op.value.path.options.struct_size<
-               QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE ||
-           (i==0u ?
+        if(op.kind!=QUANTAPDF_COMPOSER_OPERATION_PATH || op.page_index!=0u || op.value.path.command_count!=12u || op.graphics_state_id!=(i==0u?1u:0u) || op.value.path.options.graphics_state_id!=(i==0u?1u:0u) || (i==0u ?
              (op.value.path.options.fill!=1 ||
               op.value.path.options.stroke!=0 ||
               op.value.path.options.fill_rule!=
@@ -873,7 +864,7 @@ static bool physical_texample_page_fringe(unsigned dpi=72u,bool buffer_rect=fals
     op.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
     op.value.path.commands=commands;op.value.path.command_count=5u;
     auto& opt=op.value.path.options;
-    opt.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
     opt.fill=1;opt.fill_argb=UINT32_C(0xffff0000);
     opt.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
     quantapdf_ir ir{};
@@ -1522,11 +1513,11 @@ static bool public_texample_complete_page(const char *filename)
     if(quantapdf_context_create(&ctx)!=QUANTAPDF_OK)return false;
     auto render=[&](const char *file,quantapdf_bitmap **out) {
         quantapdf_document *doc=nullptr;quantapdf_page *page=nullptr;
-        auto status=quantapdf_open_with_context(ctx,file,nullptr,&doc);
+        auto status=quantapdf_open(ctx,file,nullptr,&doc);
         if(status==QUANTAPDF_OK)status=quantapdf_load_page(doc,0,&page);
         if(status==QUANTAPDF_OK) {
             quantapdf_render_options options{};
-            options.struct_size=sizeof(options);options.dpi=72.0f;
+            options.dpi=72.0f;
             status=quantapdf_render_page_with_options(page,&options,out);
         }
         if(page!=nullptr)quantapdf_drop_page(page);
@@ -1612,7 +1603,6 @@ static bool public_texample_complete_page(const char *filename)
     return true;
 }
 
-
 static std::vector<unsigned char> text_ir_snapshot(const quantapdf_ir& ir)
 {
     std::vector<unsigned char> result;
@@ -1679,7 +1669,7 @@ static int m2a_ordered_text_image_source_contract(
         quantapdf_context *context=nullptr;
         quantapdf_composer *composer_guard=nullptr;
         CHECK(quantapdf_context_create(&context)==QUANTAPDF_OK);
-        CHECK(quantapdf_composer_create_with_context(context,nullptr,
+        CHECK(quantapdf_composer_create(context,nullptr,
               &composer_guard)==QUANTAPDF_OK &&
               composer_guard!=nullptr && context->references==2u);
         const std::string original=native_ttf_fixture(mode);
@@ -1971,7 +1961,7 @@ static int m2b1_ordered_source_ir_contract(
         quantapdf_context *context=nullptr;
         quantapdf_composer *guard=nullptr;
         CHECK(quantapdf_context_create(&context)==QUANTAPDF_OK);
-        CHECK(quantapdf_composer_create_with_context(context,nullptr,
+        CHECK(quantapdf_composer_create(context,nullptr,
               &guard)==QUANTAPDF_OK && guard!=nullptr &&
               context->references==2u);
         quantapdf_ir ir{};
@@ -2516,7 +2506,7 @@ static int owned_page_contracts()
     fixture_ir.pages=&fixture_page;fixture_ir.page_count=1u;
     fixture_ir.operations=&fixture_op;fixture_ir.operation_count=1u;
     fixture_op.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
-    fixture_op.value.path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
     fixture_op.value.path.options.fill=1;fixture_op.value.path.options.fill_argb=UINT32_C(0xff0000ff);
     fixture_op.value.path.commands=fixture_commands;fixture_op.value.path.command_count=5u;
     fixture_commands[0].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
@@ -2558,7 +2548,7 @@ static int owned_page_contracts()
             CHECK(image->data!=NULL);image->data[0]=255u;image->data[1]=image->data[2]=0u;
             op->kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;op->bounds.x1=op->bounds.y1=8.0f;
             op->value.image.image_id=1u;
-            op->value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+
             op->value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
             if(mode>=2u) {
                 ir.resources.clips=(quantapdf_composer_clip_state *)calloc(1u,sizeof(*ir.resources.clips));
@@ -2659,8 +2649,8 @@ static int composer_preparation_contracts()
     quantapdf_context_lease_internal domain{context,quantapdf_drop_context};
     quantapdf_context_lease_internal wrong{wrong_context,quantapdf_drop_context};
     quantapdf_composer *composer=nullptr;
-    CHECK(quantapdf_composer_create_with_context(context,nullptr,&composer)==QUANTAPDF_OK);
-    quantapdf_composer_page_options page_options{};page_options.struct_size=sizeof(page_options);
+    CHECK(quantapdf_composer_create(context,nullptr,&composer)==QUANTAPDF_OK);
+    quantapdf_composer_page_options page_options{};
     page_options.width_points=page_options.height_points=6.0f;page_options.background_argb=UINT32_C(0xffffffff);
     size_t page_index=99u;
     CHECK(quantapdf_composer_add_page(composer,&page_options,&page_index)==QUANTAPDF_OK && page_index==0u);
@@ -2670,27 +2660,27 @@ static int composer_preparation_contracts()
     rectangle[1].point1.x=rectangle[2].point1.x=6.0f;
     rectangle[2].point1.y=rectangle[3].point1.y=6.0f;
     rectangle[4].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
-    quantapdf_composer_clip_options clip_options{};clip_options.struct_size=sizeof(clip_options);
+    quantapdf_composer_clip_options clip_options{};
     clip_options.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
     quantapdf_composer_clip_id clip_id=0u;
     CHECK(quantapdf_composer_add_clip_path(composer,rectangle,5u,&clip_options,&clip_id)==QUANTAPDF_OK);
-    quantapdf_composer_graphics_state_options gs{};gs.struct_size=sizeof(gs);
+    quantapdf_composer_graphics_state_options gs{};
     gs.fill_alpha=gs.stroke_alpha=1.0f;gs.blend_mode=QUANTAPDF_COMPOSER_BLEND_NORMAL;gs.clip_id=clip_id;
     quantapdf_composer_graphics_state_id gs_id=0u;
     CHECK(quantapdf_composer_add_graphics_state(composer,&gs,&gs_id)==QUANTAPDF_OK);
     rectangle[1].point1.x=rectangle[2].point1.x=3.0f;
     rectangle[2].point1.y=rectangle[3].point1.y=3.0f;
-    quantapdf_composer_path_options path_options{};path_options.struct_size=sizeof(path_options);
+    quantapdf_composer_path_options path_options{};
     path_options.fill=1;path_options.fill_argb=UINT32_C(0xff0000ff);
     path_options.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;path_options.graphics_state_id=gs_id;
     CHECK(quantapdf_composer_draw_path(composer,0u,rectangle,5u,&path_options)==QUANTAPDF_OK);
     unsigned char red[3]={255u,0u,0u};
-    quantapdf_composer_raster raster{};raster.struct_size=sizeof(raster);
+    quantapdf_composer_raster raster{};
     raster.format=QUANTAPDF_COMPOSER_RASTER_RGB24;raster.width=raster.height=1u;
     raster.stride=raster.size=3u;raster.pixels=red;
     quantapdf_composer_image_id image_id=0u;
     CHECK(quantapdf_composer_add_raster(composer,&raster,&image_id)==QUANTAPDF_OK);
-    quantapdf_composer_image_options image_options{};image_options.struct_size=sizeof(image_options);
+    quantapdf_composer_image_options image_options{};
     image_options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;image_options.graphics_state_id=gs_id;
     const quantapdf_rect bounds{3.0f,0.0f,6.0f,3.0f};
     CHECK(quantapdf_composer_draw_image(composer,0u,image_id,&bounds,&image_options)==QUANTAPDF_OK);
@@ -2798,7 +2788,6 @@ static int legacy_prepared_contracts(const quantapdf_qpdf_source_raw_image_limit
     return EXIT_SUCCESS;
 }
 
-
 /* M2b.2b original Source ROOT Clip stage. One QPDF parser and one
  * detached owned IR, also reused by the public fractional V5 route. */
 static int m2b2b_clipped_source_owner_contract(
@@ -2866,10 +2855,7 @@ static int m2b2b_clipped_source_owner_contract(
                   ir.operations[i].page_index==0u);
         CHECK(ir.operations[1].value.path.options.graphics_state_id==1u);
         const size_t image_at=mode==83?2u:0u;
-        CHECK(ir.operations[image_at].value.image.options.graphics_state_id==1u &&
-              ir.operations[image_at].value.image.options.struct_size==
-                  QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE &&
-              ir.resources.images[0].size==12u);
+        CHECK(ir.operations[image_at].value.image.options.graphics_state_id==1u && ir.resources.images[0].size==12u);
         quantapdf_native_source_raster_device_v1 device{};
         device.dpi=96.0f;
         quantapdf_native_prepared_page_v1 denied;
@@ -3129,7 +3115,6 @@ static int m2b2b_clipped_source_owner_contract(
     std::puts("M2b2b: original W/W* immutable Source GS/Clip owner and late refusals PASS");
     return EXIT_SUCCESS;
 }
-
 
 /* M2b.2l Source ownership; M2b.2n now admits its public prepared metadata.
  * The first two paints retain Clip1 after real Q; only Image uses Clip2. */
@@ -4350,7 +4335,6 @@ static int m2b_clipped_prepared_receipt_faults(
     return EXIT_SUCCESS;
 }
 
-
 /* Original four-paint Clip1->Clip0 restore: the same QPDF Content
  * token stream and unique detached IR owner, now connected to the
  * shared prepared public four-paint route. */
@@ -5077,4 +5061,3 @@ int main(int argc,char **argv)
     if(!public_texample_complete_page(argv[2]))return EXIT_FAILURE;
     return EXIT_SUCCESS;
 }
-

@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include "pdf_edit_test_api.h"
@@ -27,12 +28,11 @@ static void compile_surface(void)
     quantapdf_form_value_input value = {0};
     quantapdf_form_value_update update = {0};
 
-    value.struct_size = sizeof(value);
     value.kind = QUANTAPDF_FORM_VALUE_UTF8;
     value.option_index = SIZE_MAX;
     value.utf8 = "x";
     value.utf8_size = 1;
-    update.struct_size = sizeof(update);
+
     update.presence = QUANTAPDF_FORM_VALUE_PRESENT;
     update.values = &value;
     update.value_count = 1;
@@ -97,7 +97,7 @@ static quantapdf_output *snapshot_source(const char *path, int observe_document_
     quantapdf_output *output = NULL;
     quantapdf_form *form = NULL;
 
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     if (observe_document_form) {
         CHECK(quantapdf_document_form(document, &form) == QUANTAPDF_OK);
         CHECK(form != NULL);
@@ -157,7 +157,6 @@ static void expect_text_field(const quantapdf_form *form, const char *name,
     size_t index = form_field_index_by_name(form, name);
     quantapdf_form_field_info info = {0};
 
-    info.struct_size = sizeof(info);
     CHECK(quantapdf_form_field_get_info(form, index, &info) == QUANTAPDF_OK);
     CHECK(info.type == QUANTAPDF_FORM_FIELD_TEXT);
     CHECK(info.value_presence == presence);
@@ -168,7 +167,7 @@ static void expect_text_field(const quantapdf_form *form, const char *name,
         const char *text = NULL;
         size_t size = 0;
         CHECK(presence == QUANTAPDF_FORM_VALUE_PRESENT && info.value_count == 1);
-        value_info.struct_size = sizeof(value_info);
+
         CHECK(quantapdf_form_field_value_get_info(form, index, 0, &value_info) == QUANTAPDF_OK);
         CHECK(value_info.kind == QUANTAPDF_FORM_VALUE_UTF8);
         CHECK(quantapdf_form_field_value_utf8(form, index, 0, &text, &size) == QUANTAPDF_OK);
@@ -184,7 +183,6 @@ static void expect_button_field(const quantapdf_form *form, const char *name,
     size_t index = form_field_index_by_name(form, name);
     quantapdf_form_field_info info = {0};
 
-    info.struct_size = sizeof(info);
     CHECK(quantapdf_form_field_get_info(form, index, &info) == QUANTAPDF_OK);
     CHECK(info.type == type);
     CHECK(info.value_presence == presence);
@@ -192,7 +190,7 @@ static void expect_button_field(const quantapdf_form *form, const char *name,
     if (value_count != 0) {
         quantapdf_form_value_info value_info = {0};
         CHECK(value_count == 1);
-        value_info.struct_size = sizeof(value_info);
+
         CHECK(quantapdf_form_field_value_get_info(form, index, 0, &value_info) == QUANTAPDF_OK);
         CHECK(value_info.kind == QUANTAPDF_FORM_VALUE_OPTION);
         CHECK(value_info.option_index == option_index);
@@ -207,14 +205,13 @@ static void expect_choice_options(const quantapdf_form *form, const char *name,
     quantapdf_form_field_info info = {0};
     size_t i;
 
-    info.struct_size = sizeof(info);
     CHECK(quantapdf_form_field_get_info(form, index, &info) == QUANTAPDF_OK);
     CHECK(info.type == type);
     CHECK(info.value_presence == presence);
     CHECK(info.value_count == expected_count);
     for (i = 0; i < expected_count; ++i) {
         quantapdf_form_value_info value_info = {0};
-        value_info.struct_size = sizeof(value_info);
+
         CHECK(quantapdf_form_field_value_get_info(form, index, i, &value_info) == QUANTAPDF_OK);
         CHECK(value_info.kind == QUANTAPDF_FORM_VALUE_OPTION);
         CHECK(value_info.option_index == expected_options[i]);
@@ -230,12 +227,11 @@ static void expect_choice_utf8(const quantapdf_form *form, const char *name,
     const char *text = NULL;
     size_t size = SIZE_MAX;
 
-    info.struct_size = sizeof(info);
     CHECK(quantapdf_form_field_get_info(form, index, &info) == QUANTAPDF_OK);
     CHECK(info.type == type);
     CHECK(info.value_presence == QUANTAPDF_FORM_VALUE_PRESENT);
     CHECK(info.value_count == 1);
-    value_info.struct_size = sizeof(value_info);
+
     CHECK(quantapdf_form_field_value_get_info(form, index, 0, &value_info) == QUANTAPDF_OK);
     CHECK(value_info.kind == QUANTAPDF_FORM_VALUE_UTF8);
     CHECK(quantapdf_form_field_value_utf8(form, index, 0, &text, &size) == QUANTAPDF_OK);
@@ -248,12 +244,12 @@ static void make_text_update(quantapdf_form_value_input *value,
 {
     memset(value, 0, sizeof(*value));
     memset(update, 0, sizeof(*update));
-    value->struct_size = sizeof(*value);
+
     value->kind = QUANTAPDF_FORM_VALUE_UTF8;
     value->option_index = SIZE_MAX;
     value->utf8 = text;
     value->utf8_size = size;
-    update->struct_size = sizeof(*update);
+
     update->presence = QUANTAPDF_FORM_VALUE_PRESENT;
     update->values = value;
     update->value_count = 1;
@@ -264,10 +260,10 @@ static void make_option_update(quantapdf_form_value_input *value,
 {
     memset(value, 0, sizeof(*value));
     memset(update, 0, sizeof(*update));
-    value->struct_size = sizeof(*value);
+
     value->kind = QUANTAPDF_FORM_VALUE_OPTION;
     value->option_index = option_index;
-    update->struct_size = sizeof(*update);
+
     update->presence = QUANTAPDF_FORM_VALUE_PRESENT;
     update->values = value;
     update->value_count = 1;
@@ -281,11 +277,11 @@ static void make_options_update(quantapdf_form_value_input *values,
     memset(update, 0, sizeof(*update));
     for (i = 0; i < count; ++i) {
         memset(&values[i], 0, sizeof(values[i]));
-        values[i].struct_size = sizeof(values[i]);
+
         values[i].kind = QUANTAPDF_FORM_VALUE_OPTION;
         values[i].option_index = option_indices[i];
     }
-    update->struct_size = sizeof(*update);
+
     update->presence = QUANTAPDF_FORM_VALUE_PRESENT;
     update->values = count != 0 ? values : NULL;
     update->value_count = count;
@@ -295,7 +291,7 @@ static void make_empty_update(quantapdf_form_value_update *update,
     quantapdf_form_value_presence presence)
 {
     memset(update, 0, sizeof(*update));
-    update->struct_size = sizeof(*update);
+
     update->presence = presence;
     update->values = NULL;
     update->value_count = 0;
@@ -305,7 +301,7 @@ static quantapdf_pdf_edit *open_edit(const char *path)
 {
     quantapdf_document *document = NULL;
     quantapdf_pdf_edit *edit = NULL;
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_pdf_edit_begin(document, &edit) == QUANTAPDF_OK);
     quantapdf_close(document);
     return edit;
@@ -352,7 +348,7 @@ static void test_reference_domains_and_editor_recreation(void)
     size_t i;
 
     CHECK(memcmp(&first_ref, &second_ref, sizeof(first_ref)) != 0);
-    options.struct_size = sizeof(options);
+
     options.type = QUANTAPDF_ANNOTATION_TEXT;
     options.bounds = (quantapdf_rect){10, 10, 20, 20};
     CHECK(quantapdf_pdf_edit_annotation_create(first, 0, &options, &annotation) == QUANTAPDF_OK);
@@ -360,7 +356,7 @@ static void test_reference_domains_and_editor_recreation(void)
     CHECK(memcmp(&annotation, &second_annotation, sizeof(annotation)) != 0);
     memcpy(wrong_form.opaque, annotation.opaque, sizeof(wrong_form.opaque));
     memcpy(wrong_annotation.opaque, first_ref.opaque, sizeof(wrong_annotation.opaque));
-    info.struct_size = sizeof(info);
+
     CHECK(quantapdf_pdf_edit_annotation_get_info(first, &wrong_annotation, &info) == QUANTAPDF_ERROR_ARGUMENT);
     make_text_update(&value, &update, "changed", 7);
     copy_editor_output(first, &before, &before_size);
@@ -496,7 +492,7 @@ static void test_zero_widget_text_roundtrip(void)
 
     CHECK(quantapdf_pdf_edit_snapshot(edit, &output) == QUANTAPDF_OK);
     CHECK(quantapdf_output_save_file(output, FORM_MUTATION_ROUNDTRIP_PDF) == QUANTAPDF_OK);
-    CHECK(quantapdf_open(FORM_MUTATION_ROUNDTRIP_PDF, NULL, &reopened) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), FORM_MUTATION_ROUNDTRIP_PDF, NULL, &reopened) == QUANTAPDF_OK);
     CHECK(quantapdf_document_form(reopened, &form) == QUANTAPDF_OK);
     expect_text_field(form, "zero", QUANTAPDF_FORM_VALUE_PRESENT, "alpha");
     quantapdf_drop_form(form); quantapdf_close(reopened); quantapdf_drop_output(output);
@@ -530,7 +526,7 @@ static void test_text_validation_and_noop(void)
     make_text_update(&value, &update, embedded, sizeof(embedded));
     CHECK(quantapdf_pdf_edit_form_set_values(edit, &ref, &update) == QUANTAPDF_ERROR_ARGUMENT);
     make_text_update(&value, &update, empty, 0);
-    value.struct_size = sizeof(value) + sizeof(uint64_t);
+
     CHECK(quantapdf_pdf_edit_form_set_values(edit, &ref, &update) ==
           QUANTAPDF_ERROR_ARGUMENT);
     make_text_update(&value, &update, empty, 0);
@@ -703,7 +699,7 @@ static void test_button_mutation_and_ap_preservation(void)
 
     remove(FORM_MUTATION_ROUNDTRIP_PDF);
     CHECK(quantapdf_output_save_file(output, FORM_MUTATION_ROUNDTRIP_PDF) == QUANTAPDF_OK);
-    CHECK(quantapdf_open(FORM_MUTATION_ROUNDTRIP_PDF, NULL, &reopened) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), FORM_MUTATION_ROUNDTRIP_PDF, NULL, &reopened) == QUANTAPDF_OK);
     CHECK(quantapdf_document_form(reopened, &form) == QUANTAPDF_OK);
     expect_button_field(form, "check", QUANTAPDF_FORM_FIELD_CHECKBOX,
         QUANTAPDF_FORM_VALUE_MISSING, 0, SIZE_MAX);
@@ -848,7 +844,7 @@ static void test_choice_mutation(void)
 
     remove(FORM_MUTATION_ROUNDTRIP_PDF);
     CHECK(quantapdf_output_save_file(output, FORM_MUTATION_ROUNDTRIP_PDF) == QUANTAPDF_OK);
-    CHECK(quantapdf_open(FORM_MUTATION_ROUNDTRIP_PDF, NULL, &reopened) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), FORM_MUTATION_ROUNDTRIP_PDF, NULL, &reopened) == QUANTAPDF_OK);
     CHECK(quantapdf_document_form(reopened, &form) == QUANTAPDF_OK);
     expect_choice_options(form, "combo", QUANTAPDF_FORM_FIELD_COMBO_BOX,
         QUANTAPDF_FORM_VALUE_PRESENT, option0, 1);

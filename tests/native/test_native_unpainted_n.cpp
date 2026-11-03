@@ -1,3 +1,4 @@
+#include "../test_context_fixture.h"
 /* Original PDF n (end path without painting) — native-only acceptance.
  * No PDFium, no IR export oracle, no secondary renderer and no SDK API.
  * Compare two independently QPDF-authored original files byte-for-byte
@@ -85,12 +86,12 @@ static int render(const std::string& source,int dpi,
     quantapdf_page *page=nullptr;
     quantapdf_bitmap *bitmap=nullptr;
     OK(quantapdf_context_create(&context));
-    OK(quantapdf_open_with_context(
+    OK(quantapdf_open(
         context,filename,nullptr,&doc));
     CHECK(std::remove(filename)==0);
     OK(quantapdf_load_page(doc,0,&page));
     quantapdf_render_options options{};
-    options.struct_size=sizeof(options);
+
     options.dpi=(float)dpi;
     OK(quantapdf_render_page_with_options(page,&options,&bitmap));
     CHECK(bitmap!=nullptr);
@@ -194,11 +195,11 @@ static int negative()
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *out=
             reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-        OK(quantapdf_open(filename,nullptr,&doc));
+        OK(quantapdf_open(test_context(), filename,nullptr,&doc));
         CHECK(std::remove(filename)==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_render_options options{};
-        options.struct_size=sizeof(options);
+
         options.dpi=(float)dpi;
         const auto status=quantapdf_render_page_with_options(
             page,&options,&out);

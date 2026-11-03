@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include <stdint.h>
@@ -85,7 +86,7 @@ static void open_rewritten_pair(
 
     *out_source = NULL;
     *out_rewritten = NULL;
-    CHECK(quantapdf_open(path, NULL, out_source) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, out_source) == QUANTAPDF_OK);
     status = quantapdf_rewrite_lossless(*out_source, &output);
     if (status != QUANTAPDF_OK)
         fprintf(stderr, "rewrite failed for %s: %s\n",
@@ -95,7 +96,7 @@ static void open_rewritten_pair(
     CHECK(quantapdf_output_save_file(output, REWRITE_SEMANTIC_PDF) ==
           QUANTAPDF_OK);
     quantapdf_drop_output(output);
-    CHECK(quantapdf_open(REWRITE_SEMANTIC_PDF, NULL, out_rewritten) ==
+    CHECK(quantapdf_open(test_context(), REWRITE_SEMANTIC_PDF, NULL, out_rewritten) ==
           QUANTAPDF_OK);
 }
 
@@ -180,8 +181,6 @@ static void check_outline_equal(
         quantapdf_status left_status;
         quantapdf_status right_status;
 
-        left_info.struct_size = sizeof(left_info);
-        right_info.struct_size = sizeof(right_info);
         CHECK(quantapdf_outline_get_info(left, index, &left_info) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_outline_get_info(right, index, &right_info) ==
@@ -236,8 +235,6 @@ static void check_links_equal(
         quantapdf_status left_status;
         quantapdf_status right_status;
 
-        left_info.struct_size = sizeof(left_info);
-        right_info.struct_size = sizeof(right_info);
         CHECK(quantapdf_link_get_info(left, index, &left_info) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_link_get_info(right, index, &right_info) ==
@@ -277,8 +274,6 @@ static void check_annotations_equal(
         quantapdf_status left_status;
         quantapdf_status right_status;
 
-        left_info.struct_size = sizeof(left_info);
-        right_info.struct_size = sizeof(right_info);
         CHECK(quantapdf_annotation_get_info(left, index, &left_info) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_annotation_get_info(right, index, &right_info) ==
@@ -318,8 +313,6 @@ static void check_form_equal(
         quantapdf_status left_status;
         quantapdf_status right_status;
 
-        left_info.struct_size = sizeof(left_info);
-        right_info.struct_size = sizeof(right_info);
         CHECK(quantapdf_form_field_get_info(
                   left, field_index, &left_info) == QUANTAPDF_OK);
         CHECK(quantapdf_form_field_get_info(
@@ -355,8 +348,7 @@ static void check_form_equal(
         for (index = 0; index < left_info.value_count; ++index) {
             quantapdf_form_value_info left_value = {0};
             quantapdf_form_value_info right_value = {0};
-            left_value.struct_size = sizeof(left_value);
-            right_value.struct_size = sizeof(right_value);
+
             CHECK(quantapdf_form_field_value_get_info(
                       left, field_index, index, &left_value) == QUANTAPDF_OK);
             CHECK(quantapdf_form_field_value_get_info(
@@ -380,8 +372,7 @@ static void check_form_equal(
         for (index = 0; index < left_info.option_count; ++index) {
             quantapdf_form_option_info left_option = {0};
             quantapdf_form_option_info right_option = {0};
-            left_option.struct_size = sizeof(left_option);
-            right_option.struct_size = sizeof(right_option);
+
             CHECK(quantapdf_form_field_option_get_info(
                       left, field_index, index, &left_option) == QUANTAPDF_OK);
             CHECK(quantapdf_form_field_option_get_info(
@@ -418,8 +409,7 @@ static void check_form_equal(
     for (field_index = 0; field_index < left_count; ++field_index) {
         quantapdf_form_widget_info left_info = {0};
         quantapdf_form_widget_info right_info = {0};
-        left_info.struct_size = sizeof(left_info);
-        right_info.struct_size = sizeof(right_info);
+
         CHECK(quantapdf_form_widget_get_info(
                   left, field_index, &left_info) == QUANTAPDF_OK);
         CHECK(quantapdf_form_widget_get_info(
@@ -586,7 +576,7 @@ static void expect_rewrite_error(
     quantapdf_output *output = (quantapdf_output *)(uintptr_t)1;
     quantapdf_status status;
 
-    CHECK(quantapdf_open(path, password, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, password, &document) == QUANTAPDF_OK);
     status = quantapdf_rewrite_lossless(document, &output);
     if (status != expected)
         fprintf(stderr, "rewrite policy mismatch for %s: expected %s, got %s\n",
@@ -651,7 +641,7 @@ static void test_fail_closed_policy(void)
     expect_rewrite_error(
         REWRITE_POLICY_PDF, NULL, QUANTAPDF_ERROR_UNSUPPORTED);
 
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               UNSIGNED_SIGNATURE_PDF, NULL, &unsigned_document) ==
           QUANTAPDF_OK);
     CHECK(quantapdf_rewrite_lossless(unsigned_document, &unsigned_output) ==
@@ -683,7 +673,7 @@ static void test_gc_and_repeated_determinism(void)
     CHECK(source_data != NULL);
     CHECK(rewrite_marker_mask(source_data, source_size) == 7);
 
-    CHECK(quantapdf_open(REWRITE_GC_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), REWRITE_GC_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(document != NULL);
     CHECK(quantapdf_rewrite_lossless(document, &first) == QUANTAPDF_OK);
     CHECK(first != NULL);
@@ -710,7 +700,7 @@ static void test_gc_and_repeated_determinism(void)
     CHECK(quantapdf_output_data(first, &first_data, &first_size) ==
           QUANTAPDF_OK);
     CHECK(first_data != NULL && first_size != 0);
-    CHECK(quantapdf_open(REWRITE_OUTPUT_PDF, NULL, &rewritten_document) ==
+    CHECK(quantapdf_open(test_context(), REWRITE_OUTPUT_PDF, NULL, &rewritten_document) ==
           QUANTAPDF_OK);
     CHECK(quantapdf_rewrite_lossless(rewritten_document, &third) ==
           QUANTAPDF_OK);

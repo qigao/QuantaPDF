@@ -49,7 +49,7 @@ static int qualify(void)
     op.page_index=0u;
     op.value.path.commands=commands;
     op.value.path.command_count=5u;
-    op.value.path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
     op.value.path.options.fill=1;
     op.value.path.options.fill_argb=UINT32_C(0xff000000);
     op.value.path.options.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;

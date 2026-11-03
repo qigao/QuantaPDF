@@ -1,3 +1,4 @@
+#include "../test_context_fixture.h"
 /* Public Native V10 joint Source admission for six grammar additions without
  * implementing Stroke. QPDF independently authors ORIGINAL source PDFs;
  * a single owned C11 raster is the only actual pixel producer. */
@@ -78,7 +79,6 @@ static std::string original(const std::string& operators,
         reinterpret_cast<const char*>(blob->getBuffer()),blob->getSize());
 }
 
-
 /* QPDFWriter canonicalizes numeric spellings. To exercise #506's
  * ORIGINAL zero-padded PDF tokens together with signed re, n, W*,
  * q/Q and stroking-only metadata, author the original objects and
@@ -137,7 +137,6 @@ static std::string literal_original(
         std::to_string(xref)+"\n%%EOF\n";
     return bytes;
 }
-
 
 /* Original two-stream PDF: never re-export an IR or canonicalize via
  * QPDFWriter. PDF /Contents array is parsed as one ordered page stream;
@@ -211,12 +210,12 @@ static int render(const std::string& bytes,int quarters,int rotation,
     quantapdf_page *page=nullptr;
     quantapdf_bitmap *bitmap=nullptr;
     OK(quantapdf_context_create(&context));
-    OK(quantapdf_open_with_context(
+    OK(quantapdf_open(
         context,filename,nullptr,&doc));
     CHECK(std::remove(filename)==0);
     OK(quantapdf_load_page(doc,0,&page));
     quantapdf_render_options opts{};
-    opts.struct_size=sizeof(opts);
+
     opts.dpi=(float)dpi;
     CHECK(quantapdf_render_page_with_options(
         page,&opts,&bitmap)==QUANTAPDF_OK && bitmap!=nullptr);
@@ -326,11 +325,11 @@ static int negative()
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bitmap=
             reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-        OK(quantapdf_open(filename,nullptr,&doc));
+        OK(quantapdf_open(test_context(), filename,nullptr,&doc));
         CHECK(std::remove(filename)==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_render_options opts{};
-        opts.struct_size=sizeof(opts);
+
         opts.dpi=(float)dpi;
         const auto status=quantapdf_render_page_with_options(
             page,&opts,&bitmap);
@@ -340,7 +339,6 @@ static int negative()
     }
     return EXIT_SUCCESS;
 }
-
 
 /* Combined admission must preserve the actual original decimal
  * lexemes, not merely QPDF's normalized numerical observations. */
@@ -438,11 +436,11 @@ static int lexical_rejection_cases()
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bitmap=
             reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-        OK(quantapdf_open(filename,nullptr,&doc));
+        OK(quantapdf_open(test_context(), filename,nullptr,&doc));
         CHECK(std::remove(filename)==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_render_options options{};
-        options.struct_size=sizeof(options);
+
         options.dpi=static_cast<float>(dpi);
         const auto status=quantapdf_render_page_with_options(
             page,&options,&bitmap);
@@ -452,7 +450,6 @@ static int lexical_rejection_cases()
     }
     return EXIT_SUCCESS;
 }
-
 
 /* An equal-to-Media CropBox cannot qualify clipping semantics.
  * These ORIGINAL PDFs deliberately shrink the visible page to 16x16:
@@ -561,11 +558,11 @@ static int active_crop_rejection_cases()
             quantapdf_page *page=nullptr;
             quantapdf_bitmap *bitmap=
                 reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-            OK(quantapdf_open(filename,nullptr,&doc));
+            OK(quantapdf_open(test_context(), filename,nullptr,&doc));
             CHECK(std::remove(filename)==0);
             OK(quantapdf_load_page(doc,0,&page));
             quantapdf_render_options opts{};
-            opts.struct_size=sizeof(opts);
+
             opts.dpi=static_cast<float>(dpi);
             const auto status=quantapdf_render_page_with_options(
                 page,&opts,&bitmap);
@@ -577,7 +574,6 @@ static int active_crop_rejection_cases()
     }
     return EXIT_SUCCESS;
 }
-
 
 /* The two original PDF content streams are semantically one page.
  * An even/odd W/W* Clip may be declared in the first stream and
@@ -698,11 +694,11 @@ static int split_content_budget_and_failure_cases()
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bitmap=
             reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-        OK(quantapdf_open(filename,nullptr,&doc));
+        OK(quantapdf_open(test_context(), filename,nullptr,&doc));
         CHECK(std::remove(filename)==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_render_options options{};
-        options.struct_size=sizeof(options);
+
         options.dpi=static_cast<float>(dpi);
         const auto status=quantapdf_render_page_with_options(
             page,&options,&bitmap);
@@ -712,7 +708,6 @@ static int split_content_budget_and_failure_cases()
     }
     return EXIT_SUCCESS;
 }
-
 
 int main()
 {

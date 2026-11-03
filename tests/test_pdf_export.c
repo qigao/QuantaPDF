@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include <stdint.h>
@@ -96,7 +97,7 @@ int main(void)
 
     (void)remove(COMPOSITION_OUTPUT_PDF);
 
-    if (quantapdf_open(COMPOSITION_PDF, NULL, &document) != QUANTAPDF_OK) {
+    if (quantapdf_open(test_context(), COMPOSITION_PDF, NULL, &document) != QUANTAPDF_OK) {
         fprintf(stderr, "could not open composition source PDF\n");
         goto cleanup;
     }
@@ -181,7 +182,7 @@ int main(void)
         goto cleanup;
     }
 
-    if (quantapdf_open(COMPOSITION_OUTPUT_PDF, NULL, &reopened) != QUANTAPDF_OK) {
+    if (quantapdf_open(test_context(), COMPOSITION_OUTPUT_PDF, NULL, &reopened) != QUANTAPDF_OK) {
         fprintf(stderr, "could not reopen exported PDF\n");
         goto cleanup;
     }
@@ -202,7 +203,7 @@ int main(void)
     quantapdf_close(reopened);
     reopened = NULL;
 
-    if (quantapdf_open(COMPOSITION_NON_PDF, NULL, &text_document) !=
+    if (quantapdf_open(test_context(), COMPOSITION_NON_PDF, NULL, &text_document) !=
             QUANTAPDF_ERROR_FORMAT ||
         text_document != NULL) {
         fprintf(stderr, "non-PDF open contract failed\n");

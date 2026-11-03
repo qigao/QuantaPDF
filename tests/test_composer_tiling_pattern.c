@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include "composer_test_helpers.h"
@@ -25,7 +26,6 @@ static int add_page(
     quantapdf_composer_page_options page = {0};
     size_t page_index = SIZE_MAX;
 
-    page.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
     page.width_points = width;
     page.height_points = height;
     page.background_argb = UINT32_C(0xffffffff);
@@ -63,7 +63,7 @@ static quantapdf_status tile_builder(
 
     (void)user_data;
     rectangle_commands(rect, 0.0f, 0.0f, 5.0f, 8.0f);
-    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
+
     path.fill = 1;
     path.fill_argb = UINT32_C(0xffff0000);
     path.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -103,7 +103,7 @@ static quantapdf_status extra_page_builder(
 
     (void)page_index;
     (void)user_data;
-    page.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
+
     page.width_points = 1.0f;
     page.height_points = 1.0f;
     page.background_argb = UINT32_C(0xffffffff);
@@ -149,8 +149,6 @@ static int test_validation_dedup_and_budget(void)
     quantapdf_composer_paint_id duplicate = 0u;
     quantapdf_composer_paint_id distinct = 0u;
 
-    options.struct_size =
-        QUANTAPDF_COMPOSER_TILING_PATTERN_OPTIONS_V1_SIZE;
     options.width_points = 10.0f;
     options.height_points = 8.0f;
     options.x_step = 12.0f;
@@ -161,7 +159,7 @@ static int test_validation_dedup_and_budget(void)
           QUANTAPDF_ERROR_ARGUMENT);
     CHECK(id == 0u);
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
 
     id = 99u;
     CHECK(quantapdf_composer_add_tiling_pattern(
@@ -174,13 +172,6 @@ static int test_validation_dedup_and_budget(void)
     CHECK(quantapdf_composer_add_tiling_pattern(
               composer, &options, tile_builder, NULL, NULL) ==
           QUANTAPDF_ERROR_ARGUMENT);
-
-    options.struct_size = 0u;
-    CHECK(quantapdf_composer_add_tiling_pattern(
-              composer, &options, tile_builder, NULL, &id) ==
-          QUANTAPDF_ERROR_ARGUMENT);
-    options.struct_size =
-        QUANTAPDF_COMPOSER_TILING_PATTERN_OPTIONS_V1_SIZE;
 
     options.width_points = 0.0f;
     CHECK(quantapdf_composer_add_tiling_pattern(
@@ -236,9 +227,8 @@ static int test_validation_dedup_and_budget(void)
     quantapdf_drop_composer(composer);
     composer = NULL;
 
-    limits.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V1_SIZE;
     limits.max_resource_bytes = 1u;
-    CHECK(quantapdf_composer_create(&limits, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), &limits, &composer) == QUANTAPDF_OK);
     options.x_step = 12.0f;
     id = 99u;
     CHECK(quantapdf_composer_add_tiling_pattern(
@@ -283,11 +273,9 @@ static int test_pattern_resources_fill_stroke_and_render(void)
     double matrix[6] = {0};
     int has_tile_form = 0;
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer, 160.0f, 120.0f));
 
-    pattern.struct_size =
-        QUANTAPDF_COMPOSER_TILING_PATTERN_OPTIONS_V1_SIZE;
     pattern.width_points = 10.0f;
     pattern.height_points = 8.0f;
     pattern.x_step = 12.0f;
@@ -308,7 +296,7 @@ static int test_pattern_resources_fill_stroke_and_render(void)
     CHECK(rotated_id == 2u);
 
     rectangle_commands(rect, 0.0f, 0.0f, 80.0f, 60.0f);
-    fill.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE;
+
     fill.fill = 1;
     fill.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
     fill.fill_paint_id = pattern_id;
@@ -319,7 +307,7 @@ static int test_pattern_resources_fill_stroke_and_render(void)
     line[0].point1 = (quantapdf_point){0.0f, 90.0f};
     line[1].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
     line[1].point1 = (quantapdf_point){120.0f, 90.0f};
-    stroke.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE;
+
     stroke.stroke = 1;
     stroke.stroke_width = 6.0f;
     stroke.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -392,10 +380,10 @@ static int test_pattern_resources_fill_stroke_and_render(void)
 
     CHECK(quantapdf_output_save_file(
               first, COMPOSER_TILING_OUTPUT_PDF) == QUANTAPDF_OK);
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               COMPOSER_TILING_OUTPUT_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-    render.struct_size = sizeof(render);
+
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
           QUANTAPDF_OK);

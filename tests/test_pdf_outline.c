@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include <stddef.h>
@@ -36,10 +37,9 @@ static void expect_info(
     int is_open)
 {
     quantapdf_outline_info info = { 0 };
-    info.struct_size = sizeof(info);
 
     CHECK(quantapdf_outline_get_info(outline, index, &info) == QUANTAPDF_OK);
-    CHECK(info.struct_size == sizeof(info));
+
     CHECK(info.parent_index == parent_index);
     CHECK(info.first_child_index == first_child_index);
     CHECK(info.next_sibling_index == next_sibling_index);
@@ -106,7 +106,7 @@ static void test_valid_outline_and_independent_lifetime(void)
     quantapdf_outline *outline = NULL;
     size_t count = 0;
 
-    CHECK(quantapdf_open(OUTLINE_TREE_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), OUTLINE_TREE_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_document_outline(document, &outline) == QUANTAPDF_OK);
     CHECK(outline != NULL);
     quantapdf_close(document);
@@ -153,7 +153,7 @@ static void test_empty_outline(void)
     quantapdf_outline *outline = NULL;
     size_t count = 99;
 
-    CHECK(quantapdf_open(EMPTY_OUTLINE_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), EMPTY_OUTLINE_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_document_outline(document, &outline) == QUANTAPDF_OK);
     CHECK(outline != NULL);
     quantapdf_close(document);
@@ -169,7 +169,7 @@ static void test_repairable_outline_is_rejected_without_repair(void)
     quantapdf_document *document = NULL;
     quantapdf_outline *outline = (quantapdf_outline *)&sentinel;
 
-    CHECK(quantapdf_open(OUTLINE_REPAIRABLE_BAD_PDF, NULL, &document) ==
+    CHECK(quantapdf_open(test_context(), OUTLINE_REPAIRABLE_BAD_PDF, NULL, &document) ==
           QUANTAPDF_OK);
     CHECK(quantapdf_document_outline(document, &outline) ==
           QUANTAPDF_ERROR_FORMAT);
@@ -188,7 +188,7 @@ static void test_cycle_depth_and_pdf_only_boundaries(void)
     quantapdf_document *document = NULL;
     quantapdf_outline *outline = (quantapdf_outline *)&sentinel;
 
-    CHECK(quantapdf_open(OUTLINE_CYCLE_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), OUTLINE_CYCLE_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_document_outline(document, &outline) ==
           QUANTAPDF_ERROR_FORMAT);
     CHECK(outline == NULL);
@@ -196,7 +196,7 @@ static void test_cycle_depth_and_pdf_only_boundaries(void)
 
     document = NULL;
     outline = (quantapdf_outline *)&sentinel;
-    CHECK(quantapdf_open(OUTLINE_DEPTH_257_PDF, NULL, &document) ==
+    CHECK(quantapdf_open(test_context(), OUTLINE_DEPTH_257_PDF, NULL, &document) ==
           QUANTAPDF_OK);
     CHECK(quantapdf_document_outline(document, &outline) ==
           QUANTAPDF_ERROR_UNSUPPORTED);
@@ -205,7 +205,7 @@ static void test_cycle_depth_and_pdf_only_boundaries(void)
 
     document = NULL;
     outline = (quantapdf_outline *)&sentinel;
-    CHECK(quantapdf_open(COMPOSITION_NON_PDF, NULL, &document) ==
+    CHECK(quantapdf_open(test_context(), COMPOSITION_NON_PDF, NULL, &document) ==
           QUANTAPDF_ERROR_FORMAT);
     CHECK(document == NULL);
 }
@@ -226,7 +226,7 @@ static void test_argument_and_reset_contract(void)
     CHECK(outline == NULL);
     CHECK(quantapdf_document_outline(NULL, NULL) == QUANTAPDF_ERROR_ARGUMENT);
 
-    CHECK(quantapdf_open(OUTLINE_TREE_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), OUTLINE_TREE_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_document_outline(document, NULL) ==
           QUANTAPDF_ERROR_ARGUMENT);
     CHECK(quantapdf_document_outline(document, &outline) == QUANTAPDF_OK);
@@ -236,11 +236,9 @@ static void test_argument_and_reset_contract(void)
     CHECK(count == 0);
     CHECK(quantapdf_outline_count(outline, NULL) == QUANTAPDF_ERROR_ARGUMENT);
 
-    small.struct_size = offsetof(quantapdf_outline_info, is_open);
     CHECK(quantapdf_outline_get_info(outline, 0, &small) ==
           QUANTAPDF_ERROR_ARGUMENT);
 
-    info.struct_size = sizeof(info);
     info.parent_index = 0;
     info.first_child_index = 0;
     info.next_sibling_index = 0;

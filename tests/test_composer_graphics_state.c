@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include "composer_test_helpers.h"
@@ -64,7 +65,6 @@ static int add_page(
     quantapdf_composer_page_options page = {0};
     size_t page_index = SIZE_MAX;
 
-    page.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
     page.width_points = width;
     page.height_points = height;
     page.background_argb = UINT32_C(0xffffffff);
@@ -76,7 +76,7 @@ static int add_page(
 static quantapdf_composer_path_options fill_path_options(uint32_t argb)
 {
     quantapdf_composer_path_options options = {0};
-    options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
+
     options.fill = 1;
     options.fill_argb = argb;
     options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -142,11 +142,11 @@ static int make_identity_output(
 
     *out_copy = NULL;
     *out_size = 0u;
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer, 100.0f, 100.0f));
     rectangle_commands(rect, 10.0f, 10.0f, 90.0f, 90.0f);
     if (v2) {
-        options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_SIZE;
+
         options.graphics_state_id = 0u;
     }
     CHECK(quantapdf_composer_draw_path(
@@ -186,15 +186,13 @@ static int test_registration_validation_and_v1_identity(void)
     free(v2);
     free(v1);
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer, 100.0f, 100.0f));
 
     CHECK(quantapdf_composer_add_graphics_state(
               composer, NULL, &id) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(id == 0u);
 
-    state.struct_size =
-        QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE;
     state.fill_alpha = 0.5f;
     state.stroke_alpha = 0.25f;
     state.blend_mode = QUANTAPDF_COMPOSER_BLEND_MULTIPLY;
@@ -239,13 +237,12 @@ static int test_registration_validation_and_v1_identity(void)
     CHECK(duplicate == id);
 
     rectangle_commands(rect, 10.0f, 10.0f, 90.0f, 90.0f);
-    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_SIZE;
+
     path.graphics_state_id = id + 10u;
     CHECK(quantapdf_composer_draw_path(
               composer, 0u, rect, 5u, &path) ==
           QUANTAPDF_ERROR_ARGUMENT);
 
-    text.struct_size = QUANTAPDF_COMPOSER_TEXT_OPTIONS_V2_SIZE;
     text.font = QUANTAPDF_COMPOSER_FONT_HELVETICA;
     text.font_size = 12.0f;
     text.argb = UINT32_C(0xff000000);
@@ -273,7 +270,7 @@ static int test_render_resources_and_attachment(
     quantapdf_composer_graphics_state_options state = {0};
     quantapdf_composer_graphics_state_id half_id = 0u;
     quantapdf_composer_graphics_state_id multiply_id = 0u;
-    quantapdf_composer_font_options font_options = {0};
+
     quantapdf_composer_font_id font_id = 0u;
     quantapdf_composer_raster raster = {0};
     quantapdf_composer_image_id image_id = 0u;
@@ -307,11 +304,9 @@ static int test_render_resources_and_attachment(
     double stroke_alpha = 0.0;
     char blend[32] = {0};
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer, 240.0f, 180.0f));
 
-    state.struct_size =
-        QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE;
     state.fill_alpha = 0.5f;
     state.stroke_alpha = 0.25f;
     state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
@@ -327,7 +322,7 @@ static int test_render_resources_and_attachment(
     CHECK(multiply_id == 2u);
 
     path = fill_path_options(UINT32_C(0xffff0000));
-    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_SIZE;
+
     path.graphics_state_id = half_id;
     rectangle_commands(rect, 10.0f, 10.0f, 70.0f, 70.0f);
     CHECK(quantapdf_composer_draw_path(
@@ -343,12 +338,11 @@ static int test_render_resources_and_attachment(
     CHECK(quantapdf_composer_draw_path(
               composer, 0u, rect, 5u, &path) == QUANTAPDF_OK);
     path = fill_path_options(UINT32_C(0xffff0000));
-    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_SIZE;
+
     path.graphics_state_id = multiply_id;
     CHECK(quantapdf_composer_draw_path(
               composer, 0u, rect, 5u, &path) == QUANTAPDF_OK);
 
-    raster.struct_size = QUANTAPDF_COMPOSER_RASTER_V1_SIZE;
     raster.format = QUANTAPDF_COMPOSER_RASTER_RGBA32;
     raster.width = 1u;
     raster.height = 1u;
@@ -357,7 +351,7 @@ static int test_render_resources_and_attachment(
     raster.size = sizeof(rgba_pixel);
     CHECK(quantapdf_composer_add_raster(
               composer, &raster, &image_id) == QUANTAPDF_OK);
-    image_options.struct_size = QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+
     image_options.fit = QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     image_options.graphics_state_id = half_id;
     {
@@ -367,7 +361,6 @@ static int test_render_resources_and_attachment(
               QUANTAPDF_OK);
     }
 
-    text.struct_size = QUANTAPDF_COMPOSER_TEXT_OPTIONS_V2_SIZE;
     text.font = QUANTAPDF_COMPOSER_FONT_HELVETICA;
     text.font_size = 14.0f;
     text.argb = UINT32_C(0xff000000);
@@ -382,13 +375,10 @@ static int test_render_resources_and_attachment(
               QUANTAPDF_OK);
     }
 
-    font_options.struct_size = QUANTAPDF_COMPOSER_FONT_OPTIONS_V1_SIZE;
     CHECK(quantapdf_composer_add_font(
-              composer, font_data, font_size, &font_options, &font_id) ==
+              composer, font_data, font_size, &font_id) ==
           QUANTAPDF_OK);
 
-    embedded.struct_size =
-        QUANTAPDF_COMPOSER_EMBEDDED_TEXT_OPTIONS_V2_SIZE;
     embedded.font_id = font_id;
     embedded.font_size = 14.0f;
     embedded.argb = UINT32_C(0xff000000);
@@ -403,8 +393,6 @@ static int test_render_resources_and_attachment(
               QUANTAPDF_OK);
     }
 
-    glyph_options.struct_size =
-        QUANTAPDF_COMPOSER_GLYPH_RUN_OPTIONS_V2_SIZE;
     glyph_options.font_id = font_id;
     glyph_options.font_size = 14.0f;
     glyph_options.argb = UINT32_C(0xff000000);
@@ -427,7 +415,7 @@ static int test_render_resources_and_attachment(
     line[1].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
     line[1].point1 = (quantapdf_point){210.0f, 155.0f};
     path = (quantapdf_composer_path_options){0};
-    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_SIZE;
+
     path.stroke = 1;
     path.stroke_argb = UINT32_C(0xff000000);
     path.stroke_width = 4.0f;
@@ -436,7 +424,7 @@ static int test_render_resources_and_attachment(
     path.line_join = QUANTAPDF_COMPOSER_LINE_JOIN_MITER;
     path.miter_limit = 10.0f;
     path.graphics_state_id = half_id;
-    dash.struct_size = QUANTAPDF_COMPOSER_DASH_PATTERN_V1_SIZE;
+
     dash.lengths = dash_lengths;
     dash.length_count = 2u;
     dash.phase = 0.0f;
@@ -471,10 +459,10 @@ static int test_render_resources_and_attachment(
 
     CHECK(quantapdf_output_save_file(first, COMPOSER_GRAPHICS_OUTPUT_PDF) ==
           QUANTAPDF_OK);
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               COMPOSER_GRAPHICS_OUTPUT_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-    render.struct_size = sizeof(render);
+
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
           QUANTAPDF_OK);

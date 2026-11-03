@@ -268,7 +268,7 @@ void quantapdf_test_backend_dispatch(void)
     document->ops = &probe_ops;
     document->backend = &probe;
     {
-        quantapdf_audit_result audit = {sizeof(audit), UINT32_MAX};
+        quantapdf_audit_result audit = { UINT32_MAX};
         probe.audit_findings = QUANTAPDF_AUDIT_SIGNATURE | QUANTAPDF_AUDIT_ENCRYPTION;
         CHECK(quantapdf_document_audit(document, &audit) == QUANTAPDF_OK);
         CHECK(audit.findings == probe.audit_findings);

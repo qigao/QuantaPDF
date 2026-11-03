@@ -18,20 +18,16 @@ static int quantapdf_composer_rect_valid(const quantapdf_rect *rect)
         rect->x1 > rect->x0 && rect->y1 > rect->y0;
 }
 
-
 static int quantapdf_composer_measurement_prepare(
     quantapdf_composer_text_measurement *out_measurement)
 {
-    if (out_measurement == NULL ||
-        out_measurement->struct_size <
-            QUANTAPDF_COMPOSER_TEXT_MEASUREMENT_V1_MIN_SIZE)
+    if (out_measurement == NULL)
         return 0;
     out_measurement->width = 0.0f;
     out_measurement->height = 0.0f;
     out_measurement->line_count = 0u;
     return 1;
 }
-
 
 int quantapdf_affine_transform_valid_internal(
     const quantapdf_affine_transform *transform)
@@ -57,56 +53,6 @@ int quantapdf_graphics_state_id_valid_internal(
     return composer != NULL &&
         (graphics_state_id == 0u ||
          (size_t)graphics_state_id <= composer->ir.resources.graphics_state_count);
-}
-
-static quantapdf_composer_graphics_state_id
-quantapdf_text_graphics_state_id(
-    const quantapdf_composer_text_options *options)
-{
-    if (options != NULL &&
-        options->struct_size >= QUANTAPDF_COMPOSER_TEXT_OPTIONS_V2_MIN_SIZE)
-        return options->graphics_state_id;
-    return 0u;
-}
-
-static quantapdf_composer_graphics_state_id
-quantapdf_image_graphics_state_id(
-    const quantapdf_composer_image_options *options)
-{
-    if (options != NULL &&
-        options->struct_size >= QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_MIN_SIZE)
-        return options->graphics_state_id;
-    return 0u;
-}
-
-static quantapdf_composer_graphics_state_id
-quantapdf_path_graphics_state_id(
-    const quantapdf_composer_path_options *options)
-{
-    if (options != NULL &&
-        options->struct_size >= QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE)
-        return options->graphics_state_id;
-    return 0u;
-}
-
-static quantapdf_composer_paint_id
-quantapdf_path_fill_paint_id(
-    const quantapdf_composer_path_options *options)
-{
-    if (options != NULL &&
-        options->struct_size >= QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_MIN_SIZE)
-        return options->fill_paint_id;
-    return 0u;
-}
-
-static quantapdf_composer_paint_id
-quantapdf_path_stroke_paint_id(
-    const quantapdf_composer_path_options *options)
-{
-    if (options != NULL &&
-        options->struct_size >= QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_MIN_SIZE)
-        return options->stroke_paint_id;
-    return 0u;
 }
 
 static int quantapdf_paint_id_valid(
@@ -140,27 +86,6 @@ static int quantapdf_soft_mask_id_valid(
     return composer != NULL &&
         (soft_mask_id == 0u ||
          soft_mask_id <= composer->ir.resources.soft_mask_count);
-}
-
-static quantapdf_composer_clip_id quantapdf_graphics_state_clip_id(
-    const quantapdf_composer_graphics_state_options *options)
-{
-    if (options != NULL &&
-        options->struct_size >=
-            QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_MIN_SIZE)
-        return options->clip_id;
-    return 0u;
-}
-
-static quantapdf_composer_soft_mask_id
-quantapdf_graphics_state_soft_mask_id(
-    const quantapdf_composer_graphics_state_options *options)
-{
-    if (options != NULL &&
-        options->struct_size >=
-            QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V3_MIN_SIZE)
-        return options->soft_mask_id;
-    return 0u;
 }
 
 static float quantapdf_canonical_float(float value)
@@ -204,10 +129,7 @@ static int quantapdf_path_transform_normalize(
 {
     if (destination == NULL || options == NULL)
         return 0;
-    if (options->struct_size < QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_MIN_SIZE) {
-        *destination = quantapdf_affine_identity_internal();
-        return 1;
-    }
+
     return quantapdf_composer_resource_transform_normalize(
         &options->transform, destination);
 }
@@ -241,7 +163,7 @@ static void quantapdf_copy_text_options(
     const quantapdf_composer_text_options *source)
 {
     memset(destination, 0, sizeof(*destination));
-    destination->struct_size = QUANTAPDF_COMPOSER_TEXT_OPTIONS_V2_SIZE;
+
     destination->font = source->font;
     destination->font_size = source->font_size;
     destination->argb = source->argb;
@@ -249,7 +171,7 @@ static void quantapdf_copy_text_options(
     destination->alignment = source->alignment;
     destination->wrap = source->wrap;
     destination->graphics_state_id =
-        quantapdf_text_graphics_state_id(source);
+        source->graphics_state_id;
 }
 
 static void quantapdf_copy_image_options(
@@ -257,10 +179,10 @@ static void quantapdf_copy_image_options(
     const quantapdf_composer_image_options *source)
 {
     memset(destination, 0, sizeof(*destination));
-    destination->struct_size = QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+
     destination->fit = source->fit;
     destination->graphics_state_id =
-        quantapdf_image_graphics_state_id(source);
+        source->graphics_state_id;
 }
 
 static void quantapdf_copy_path_options(
@@ -268,7 +190,7 @@ static void quantapdf_copy_path_options(
     const quantapdf_composer_path_options *source)
 {
     memset(destination, 0, sizeof(*destination));
-    destination->struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
     destination->stroke = source->stroke;
     destination->fill = source->fill;
     destination->stroke_argb = source->stroke_argb;
@@ -279,11 +201,11 @@ static void quantapdf_copy_path_options(
     destination->line_join = source->line_join;
     destination->miter_limit = source->miter_limit;
     destination->graphics_state_id =
-        quantapdf_path_graphics_state_id(source);
+        source->graphics_state_id;
     destination->fill_paint_id =
-        quantapdf_path_fill_paint_id(source);
+        source->fill_paint_id;
     destination->stroke_paint_id =
-        quantapdf_path_stroke_paint_id(source);
+        source->stroke_paint_id;
     (void)quantapdf_path_transform_normalize(
         source, &destination->transform);
 }
@@ -292,10 +214,12 @@ static int quantapdf_composer_path_options_valid(
     const quantapdf_composer_path_options *options)
 {
     if (options == NULL ||
-        options->struct_size < QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE ||
-        (options->stroke != 0 && options->stroke != 1) ||
-        (options->fill != 0 && options->fill != 1) ||
-        (!options->stroke && !options->fill) ||
+        (options->stroke != 0 &&
+            options->stroke != 1) ||
+        (options->fill != 0 &&
+            options->fill != 1) ||
+        (!options->stroke &&
+            !options->fill) ||
         options->fill_rule < QUANTAPDF_COMPOSER_FILL_NONZERO ||
         options->fill_rule > QUANTAPDF_COMPOSER_FILL_EVEN_ODD)
         return 0;
@@ -306,11 +230,11 @@ static int quantapdf_composer_path_options_valid(
          options->line_join < QUANTAPDF_COMPOSER_LINE_JOIN_MITER ||
          options->line_join > QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL ||
          !isfinite(options->miter_limit) || options->miter_limit < 1.0f ||
-         (quantapdf_path_stroke_paint_id(options) == 0u &&
+         (options->stroke_paint_id == 0u &&
           (options->stroke_argb >> 24u) != 0xffu)))
         return 0;
     if (options->fill &&
-        quantapdf_path_fill_paint_id(options) == 0u &&
+        options->fill_paint_id == 0u &&
         (options->fill_argb >> 24u) != 0xffu)
         return 0;
     {
@@ -328,11 +252,11 @@ static int quantapdf_composer_dash_pattern_valid(
     int have_positive = 0;
 
     if (pattern == NULL ||
-        pattern->struct_size < QUANTAPDF_COMPOSER_DASH_PATTERN_V1_MIN_SIZE ||
         pattern->lengths == NULL ||
         pattern->length_count == 0u ||
         pattern->length_count > QUANTAPDF_COMPOSER_MAX_DASH_COUNT ||
-        !isfinite(pattern->phase) || pattern->phase < 0.0f)
+        !isfinite(pattern->phase) ||
+        pattern->phase < 0.0f)
         return 0;
     for (i = 0u; i < pattern->length_count; ++i) {
         if (!isfinite(pattern->lengths[i]) || pattern->lengths[i] < 0.0f)
@@ -455,15 +379,6 @@ quantapdf_status quantapdf_composer_reserve_operation_internal(
     return quantapdf_composer_reserve_operations_internal(composer, 1u);
 }
 
-static uint32_t quantapdf_composer_form_flags(
-    const quantapdf_composer_form_options *options)
-{
-    if (options != NULL &&
-        options->struct_size >= QUANTAPDF_COMPOSER_FORM_OPTIONS_V2_MIN_SIZE)
-        return options->flags;
-    return 0u;
-}
-
 static quantapdf_status quantapdf_composer_publish_paint(
     quantapdf_composer *composer,
     quantapdf_composer_paint_state *state,
@@ -516,24 +431,6 @@ static size_t quantapdf_composer_limit_or_default(
 }
 
 quantapdf_status quantapdf_composer_create(
-    const quantapdf_composer_options *options,
-    quantapdf_composer **out_composer)
-{
-    quantapdf_context *context;
-    quantapdf_status status;
-    if (out_composer == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    *out_composer = NULL;
-    status = quantapdf_context_create(&context);
-    if (status != QUANTAPDF_OK)
-        return status;
-    status = quantapdf_composer_create_with_context(
-        context, options, out_composer);
-    quantapdf_drop_context(context);
-    return status;
-}
-
-quantapdf_status quantapdf_composer_create_with_context(
     quantapdf_context *context,
     const quantapdf_composer_options *options,
     quantapdf_composer **out_composer)
@@ -547,22 +444,17 @@ quantapdf_status quantapdf_composer_create_with_context(
     size_t max_navigation_items =
         QUANTAPDF_COMPOSER_DEFAULT_MAX_NAVIGATION_ITEMS;
 
-    if (out_composer == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
     *out_composer = NULL;
-    if (context == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
 
     if (options != NULL) {
-        if (options->struct_size < QUANTAPDF_COMPOSER_OPTIONS_V1_MIN_SIZE)
-            return QUANTAPDF_ERROR_ARGUMENT;
+
         max_pages = quantapdf_composer_limit_or_default(
             options->max_pages, max_pages);
         max_operations = quantapdf_composer_limit_or_default(
             options->max_operations, max_operations);
         max_resource_bytes = quantapdf_composer_limit_or_default(
             options->max_resource_bytes, max_resource_bytes);
-        if (options->struct_size >= QUANTAPDF_COMPOSER_OPTIONS_V2_MIN_SIZE) {
+        {
             max_navigation_items = quantapdf_composer_limit_or_default(
                 options->max_navigation_items, max_navigation_items);
         }
@@ -599,11 +491,13 @@ quantapdf_status quantapdf_composer_add_page(
 
     if (out_page_index != NULL)
         *out_page_index = SIZE_MAX;
-    if (composer == NULL || options == NULL || out_page_index == NULL ||
-        options->struct_size < QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_MIN_SIZE ||
+    if (composer == NULL ||
+        options == NULL ||
+        out_page_index == NULL ||
         !isfinite(options->width_points) ||
         !isfinite(options->height_points) ||
-        options->width_points <= 0.0f || options->height_points <= 0.0f)
+        options->width_points <= 0.0f ||
+        options->height_points <= 0.0f)
         return QUANTAPDF_ERROR_ARGUMENT;
     if (composer->ir.page_count >= composer->max_pages)
         return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -656,14 +550,17 @@ quantapdf_status quantapdf_composer_add_form(
 
     if (out_form_id != NULL)
         *out_form_id = 0u;
-    if (composer == NULL || options == NULL || builder == NULL ||
+    if (composer == NULL ||
+        options == NULL ||
+        builder == NULL ||
         out_form_id == NULL ||
-        options->struct_size < QUANTAPDF_COMPOSER_FORM_OPTIONS_V1_MIN_SIZE ||
-        !isfinite(options->width_points) || options->width_points <= 0.0f ||
-        !isfinite(options->height_points) || options->height_points <= 0.0f)
+        !isfinite(options->width_points) ||
+        options->width_points <= 0.0f ||
+        !isfinite(options->height_points) ||
+        options->height_points <= 0.0f)
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    flags = quantapdf_composer_form_flags(options);
+    flags = options->flags;
     if ((flags & ~(QUANTAPDF_COMPOSER_FORM_FLAG_TRANSPARENCY_GROUP |
                    QUANTAPDF_COMPOSER_FORM_FLAG_ISOLATED |
                    QUANTAPDF_COMPOSER_FORM_FLAG_KNOCKOUT)) != 0u)
@@ -679,19 +576,19 @@ quantapdf_status quantapdf_composer_add_form(
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
     memset(&child_options, 0, sizeof(child_options));
-    child_options.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V2_SIZE;
+
     child_options.max_pages = 1u;
     child_options.max_operations = composer->max_operations;
     child_options.max_resource_bytes = remaining;
     child_options.max_navigation_items = 1u;
-    status = quantapdf_composer_create_with_context(
+    status = quantapdf_composer_create(
         composer->context, &child_options, &child);
     if (status != QUANTAPDF_OK)
         return status;
     child->max_navigation_items = 0u;
 
     memset(&page_options, 0, sizeof(page_options));
-    page_options.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
+
     page_options.width_points = options->width_points;
     page_options.height_points = options->height_points;
     page_options.background_argb = UINT32_C(0xffffffff);
@@ -764,9 +661,11 @@ quantapdf_status quantapdf_composer_add_clip_path(
 
     if (out_clip_id != NULL)
         *out_clip_id = 0u;
-    if (composer == NULL || commands == NULL || command_count == 0u ||
-        options == NULL || out_clip_id == NULL ||
-        options->struct_size < QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_MIN_SIZE ||
+    if (composer == NULL ||
+        commands == NULL ||
+        command_count == 0u ||
+        options == NULL ||
+        out_clip_id == NULL ||
         options->fill_rule < QUANTAPDF_COMPOSER_FILL_NONZERO ||
         options->fill_rule > QUANTAPDF_COMPOSER_FILL_EVEN_ODD ||
         !quantapdf_validation_path_valid(commands, command_count) ||
@@ -969,11 +868,10 @@ quantapdf_status quantapdf_composer_add_soft_mask(
 
     if (out_soft_mask_id != NULL)
         *out_soft_mask_id = 0u;
-    if (composer == NULL || options == NULL ||
+    if (composer == NULL ||
+        options == NULL ||
         out_soft_mask_id == NULL ||
         !quantapdf_form_id_valid(composer, form_id) ||
-        options->struct_size <
-            QUANTAPDF_COMPOSER_SOFT_MASK_OPTIONS_V1_MIN_SIZE ||
         options->mode < QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA ||
         options->mode > QUANTAPDF_COMPOSER_SOFT_MASK_LUMINOSITY ||
         !quantapdf_composer_resource_transform_normalize(
@@ -1009,20 +907,21 @@ quantapdf_status quantapdf_composer_add_graphics_state(
 
     if (out_graphics_state_id != NULL)
         *out_graphics_state_id = 0u;
-    if (composer == NULL || options == NULL ||
+    if (composer == NULL ||
+        options == NULL ||
         out_graphics_state_id == NULL ||
-        options->struct_size <
-            QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_MIN_SIZE ||
         !isfinite(options->fill_alpha) ||
-        options->fill_alpha < 0.0f || options->fill_alpha > 1.0f ||
+        options->fill_alpha < 0.0f ||
+        options->fill_alpha > 1.0f ||
         !isfinite(options->stroke_alpha) ||
-        options->stroke_alpha < 0.0f || options->stroke_alpha > 1.0f ||
+        options->stroke_alpha < 0.0f ||
+        options->stroke_alpha > 1.0f ||
         options->blend_mode < QUANTAPDF_COMPOSER_BLEND_NORMAL ||
         options->blend_mode > QUANTAPDF_COMPOSER_BLEND_LIGHTEN ||
         !quantapdf_clip_id_valid(
-            composer, quantapdf_graphics_state_clip_id(options)) ||
+            composer, options->clip_id) ||
         !quantapdf_soft_mask_id_valid(
-            composer, quantapdf_graphics_state_soft_mask_id(options)))
+            composer, options->soft_mask_id))
         return QUANTAPDF_ERROR_ARGUMENT;
 
     state.fill_alpha =
@@ -1030,9 +929,9 @@ quantapdf_status quantapdf_composer_add_graphics_state(
     state.stroke_alpha =
         options->stroke_alpha == 0.0f ? 0.0f : options->stroke_alpha;
     state.blend_mode = options->blend_mode;
-    state.clip_id = quantapdf_graphics_state_clip_id(options);
+    state.clip_id = options->clip_id;
     state.soft_mask_id =
-        quantapdf_graphics_state_soft_mask_id(options);
+        options->soft_mask_id;
 
     status = quantapdf_resource_intern_graphics_state(
         &composer->ir.resources, &state,
@@ -1052,13 +951,15 @@ quantapdf_status quantapdf_composer_add_linear_gradient(
 
     if (out_paint_id != NULL)
         *out_paint_id = 0u;
-    if (composer == NULL || options == NULL || out_paint_id == NULL ||
-        options->struct_size <
-            QUANTAPDF_COMPOSER_LINEAR_GRADIENT_OPTIONS_V1_MIN_SIZE ||
-        !isfinite(options->start.x) || !isfinite(options->start.y) ||
-        !isfinite(options->end.x) || !isfinite(options->end.y) ||
+    if (composer == NULL ||
+        options == NULL ||
+        out_paint_id == NULL ||
+        !isfinite(options->start.x) ||
+        !isfinite(options->start.y) ||
+        !isfinite(options->end.x) ||
+        !isfinite(options->end.y) ||
         (options->start.x == options->end.x &&
-         options->start.y == options->end.y) ||
+            options->start.y == options->end.y) ||
         !quantapdf_gradient_stops_valid(
             options->stops, options->stop_count))
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -1087,18 +988,20 @@ quantapdf_status quantapdf_composer_add_radial_gradient(
 
     if (out_paint_id != NULL)
         *out_paint_id = 0u;
-    if (composer == NULL || options == NULL || out_paint_id == NULL ||
-        options->struct_size <
-            QUANTAPDF_COMPOSER_RADIAL_GRADIENT_OPTIONS_V1_MIN_SIZE ||
+    if (composer == NULL ||
+        options == NULL ||
+        out_paint_id == NULL ||
         !isfinite(options->start_center.x) ||
         !isfinite(options->start_center.y) ||
         !isfinite(options->end_center.x) ||
         !isfinite(options->end_center.y) ||
-        !isfinite(options->start_radius) || options->start_radius < 0.0f ||
-        !isfinite(options->end_radius) || options->end_radius < 0.0f ||
+        !isfinite(options->start_radius) ||
+        options->start_radius < 0.0f ||
+        !isfinite(options->end_radius) ||
+        options->end_radius < 0.0f ||
         (options->start_center.x == options->end_center.x &&
-         options->start_center.y == options->end_center.y &&
-         options->start_radius == options->end_radius) ||
+            options->start_center.y == options->end_center.y &&
+            options->start_radius == options->end_radius) ||
         !quantapdf_gradient_stops_valid(
             options->stops, options->stop_count))
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -1143,14 +1046,18 @@ quantapdf_status quantapdf_composer_add_tiling_pattern(
 
     if (out_paint_id != NULL)
         *out_paint_id = 0u;
-    if (composer == NULL || options == NULL || builder == NULL ||
+    if (composer == NULL ||
+        options == NULL ||
+        builder == NULL ||
         out_paint_id == NULL ||
-        options->struct_size <
-            QUANTAPDF_COMPOSER_TILING_PATTERN_OPTIONS_V1_MIN_SIZE ||
-        !isfinite(options->width_points) || options->width_points <= 0.0f ||
-        !isfinite(options->height_points) || options->height_points <= 0.0f ||
-        !isfinite(options->x_step) || options->x_step == 0.0f ||
-        !isfinite(options->y_step) || options->y_step == 0.0f ||
+        !isfinite(options->width_points) ||
+        options->width_points <= 0.0f ||
+        !isfinite(options->height_points) ||
+        options->height_points <= 0.0f ||
+        !isfinite(options->x_step) ||
+        options->x_step == 0.0f ||
+        !isfinite(options->y_step) ||
+        options->y_step == 0.0f ||
         !quantapdf_composer_resource_transform_normalize(
             &options->transform, &transform))
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -1161,19 +1068,19 @@ quantapdf_status quantapdf_composer_add_tiling_pattern(
         return QUANTAPDF_ERROR_UNSUPPORTED;
 
     memset(&child_options, 0, sizeof(child_options));
-    child_options.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V2_SIZE;
+
     child_options.max_pages = 1u;
     child_options.max_operations = composer->max_operations;
     child_options.max_resource_bytes = remaining;
     child_options.max_navigation_items = 1u;
-    status = quantapdf_composer_create_with_context(
+    status = quantapdf_composer_create(
         composer->context, &child_options, &child);
     if (status != QUANTAPDF_OK)
         return status;
     child->max_navigation_items = 0u;
 
     memset(&page_options, 0, sizeof(page_options));
-    page_options.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
+
     page_options.width_points = options->width_points;
     page_options.height_points = options->height_points;
     page_options.background_argb = UINT32_C(0xffffffff);
@@ -1309,15 +1216,18 @@ quantapdf_status quantapdf_composer_add_raster(
     size_t pixel_count;
     size_t required_source_size;
     size_t main_size;
+
     size_t alpha_size = 0u;
     size_t total_size;
     size_t y;
 
     if (out_image_id != NULL)
         *out_image_id = 0u;
-    if (composer == NULL || raster == NULL || out_image_id == NULL ||
-        raster->struct_size < QUANTAPDF_COMPOSER_RASTER_V1_MIN_SIZE ||
-        raster->pixels == NULL || raster->width == 0u ||
+    if (composer == NULL ||
+        raster == NULL ||
+        out_image_id == NULL ||
+        raster->pixels == NULL ||
+        raster->width == 0u ||
         raster->height == 0u)
         return QUANTAPDF_ERROR_ARGUMENT;
 
@@ -1434,12 +1344,15 @@ quantapdf_status quantapdf_composer_measure_text(
 {
     if (!quantapdf_composer_measurement_prepare(out_measurement))
         return QUANTAPDF_ERROR_ARGUMENT;
-    if (composer == NULL || text_utf8 == NULL || options == NULL ||
-        options->struct_size < QUANTAPDF_COMPOSER_TEXT_OPTIONS_V1_MIN_SIZE ||
-        !isfinite(max_width) || max_width <= 0.0f ||
+    if (composer == NULL ||
+        text_utf8 == NULL ||
+        options == NULL ||
+        !isfinite(max_width) ||
+        max_width <= 0.0f ||
         options->font < QUANTAPDF_COMPOSER_FONT_HELVETICA ||
         options->font > QUANTAPDF_COMPOSER_FONT_COURIER_BOLD_OBLIQUE ||
-        !isfinite(options->font_size) || options->font_size <= 0.0f ||
+        !isfinite(options->font_size) ||
+        options->font_size <= 0.0f ||
         !isfinite(options->line_height_multiplier) ||
         options->line_height_multiplier <= 0.0f ||
         options->alignment < QUANTAPDF_COMPOSER_TEXT_ALIGN_LEFT ||
@@ -1465,21 +1378,23 @@ static quantapdf_status quantapdf_composer_draw_text_internal(
     quantapdf_status status;
     size_t text_size;
 
-    if (composer == NULL || text_utf8 == NULL || options == NULL ||
-        options->struct_size < QUANTAPDF_COMPOSER_TEXT_OPTIONS_V1_MIN_SIZE ||
+    if (composer == NULL ||
+        text_utf8 == NULL ||
+        options == NULL ||
         page_index >= composer->ir.page_count ||
         !quantapdf_composer_rect_valid(bounds) ||
         !quantapdf_affine_transform_valid_internal(transform) ||
         options->font < QUANTAPDF_COMPOSER_FONT_HELVETICA ||
         options->font > QUANTAPDF_COMPOSER_FONT_COURIER_BOLD_OBLIQUE ||
-        !isfinite(options->font_size) || options->font_size <= 0.0f ||
+        !isfinite(options->font_size) ||
+        options->font_size <= 0.0f ||
         !isfinite(options->line_height_multiplier) ||
         options->line_height_multiplier <= 0.0f ||
         options->alignment < QUANTAPDF_COMPOSER_TEXT_ALIGN_LEFT ||
         options->alignment > QUANTAPDF_COMPOSER_TEXT_ALIGN_RIGHT ||
         (options->argb >> 24u) != 0xffu ||
         !quantapdf_graphics_state_id_valid_internal(
-            composer, quantapdf_text_graphics_state_id(options)))
+            composer, options->graphics_state_id))
         return QUANTAPDF_ERROR_ARGUMENT;
     if (!quantapdf_composer_utf8_is_winansi(text_utf8))
         return QUANTAPDF_ERROR_FORMAT;
@@ -1500,7 +1415,7 @@ static quantapdf_status quantapdf_composer_draw_text_internal(
     operation.kind = QUANTAPDF_COMPOSER_OPERATION_TEXT;
     operation.page_index = page_index;
     operation.bounds = *bounds;
-    operation.graphics_state_id = quantapdf_text_graphics_state_id(options);
+    operation.graphics_state_id = options->graphics_state_id;
     quantapdf_copy_text_options(&operation.value.text.options, options);
     operation.value.text.transform = *transform;
     composer->ir.operations[composer->ir.operation_count] = operation;
@@ -1520,11 +1435,10 @@ quantapdf_status quantapdf_composer_draw_form(
     quantapdf_composer_operation operation;
     quantapdf_status status;
 
-    if (composer == NULL || page_index >= composer->ir.page_count ||
+    if (composer == NULL ||
+        page_index >= composer->ir.page_count ||
         !quantapdf_form_id_valid(composer, form_id) ||
         options == NULL ||
-        options->struct_size <
-            QUANTAPDF_COMPOSER_FORM_DRAW_OPTIONS_V1_MIN_SIZE ||
         !quantapdf_graphics_state_id_valid_internal(
             composer, options->graphics_state_id) ||
         transform == NULL ||
@@ -1582,14 +1496,16 @@ quantapdf_status quantapdf_composer_draw_image(
     quantapdf_composer_operation operation;
     quantapdf_status status;
 
-    if (composer == NULL || page_index >= composer->ir.page_count ||
-        image_id == 0u || (size_t)image_id > composer->ir.resources.image_count ||
-        !quantapdf_composer_rect_valid(bounds) || options == NULL ||
-        options->struct_size < QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_MIN_SIZE ||
+    if (composer == NULL ||
+        page_index >= composer->ir.page_count ||
+        image_id == 0u ||
+        (size_t)image_id > composer->ir.resources.image_count ||
+        !quantapdf_composer_rect_valid(bounds) ||
+        options == NULL ||
         options->fit < QUANTAPDF_COMPOSER_IMAGE_FIT_CONTAIN ||
         options->fit > QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH ||
         !quantapdf_graphics_state_id_valid_internal(
-            composer, quantapdf_image_graphics_state_id(options)))
+            composer, options->graphics_state_id))
         return QUANTAPDF_ERROR_ARGUMENT;
     status = quantapdf_composer_reserve_operation_internal(composer);
     if (status != QUANTAPDF_OK)
@@ -1598,14 +1514,13 @@ quantapdf_status quantapdf_composer_draw_image(
     operation.kind = QUANTAPDF_COMPOSER_OPERATION_IMAGE;
     operation.page_index = page_index;
     operation.bounds = *bounds;
-    operation.graphics_state_id = quantapdf_image_graphics_state_id(options);
+    operation.graphics_state_id = options->graphics_state_id;
     operation.value.image.image_id = image_id;
     quantapdf_copy_image_options(&operation.value.image.options, options);
     composer->ir.operations[composer->ir.operation_count] = operation;
     ++composer->ir.operation_count;
     return QUANTAPDF_OK;
 }
-
 
 static quantapdf_status quantapdf_composer_draw_path_internal(
     quantapdf_composer *composer,
@@ -1626,13 +1541,13 @@ static quantapdf_status quantapdf_composer_draw_path_internal(
     if (composer == NULL || page_index >= composer->ir.page_count ||
         !quantapdf_composer_path_options_valid(options) ||
         !quantapdf_graphics_state_id_valid_internal(
-            composer, quantapdf_path_graphics_state_id(options)) ||
+            composer, options->graphics_state_id) ||
         !quantapdf_paint_id_valid(
-            composer, quantapdf_path_fill_paint_id(options)) ||
+            composer, options->fill_paint_id) ||
         !quantapdf_paint_id_valid(
-            composer, quantapdf_path_stroke_paint_id(options)) ||
-        (quantapdf_path_fill_paint_id(options) != 0u && !options->fill) ||
-        (quantapdf_path_stroke_paint_id(options) != 0u && !options->stroke) ||
+            composer, options->stroke_paint_id) ||
+        (options->fill_paint_id != 0u && !options->fill) ||
+        (options->stroke_paint_id != 0u && !options->stroke) ||
         commands == NULL || command_count == 0u)
         return QUANTAPDF_ERROR_ARGUMENT;
     if (dash_pattern != NULL &&
@@ -1682,7 +1597,7 @@ static quantapdf_status quantapdf_composer_draw_path_internal(
     memset(&operation, 0, sizeof(operation));
     operation.kind = QUANTAPDF_COMPOSER_OPERATION_PATH;
     operation.page_index = page_index;
-    operation.graphics_state_id = quantapdf_path_graphics_state_id(options);
+    operation.graphics_state_id = options->graphics_state_id;
     operation.value.path.commands = copied_commands;
     operation.value.path.command_count = command_count;
     quantapdf_copy_path_options(&operation.value.path.options, options);

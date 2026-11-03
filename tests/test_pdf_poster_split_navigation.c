@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include "test_pdf_poster_split_internal.h"
 
 #include <quantapdf/quantapdf.h>
@@ -23,7 +24,7 @@ static int close_float(float left, float right)
 static quantapdf_document *open_document(const char *path)
 {
     quantapdf_document *document = NULL;
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     CHECK(document != NULL);
     return document;
 }
@@ -35,7 +36,6 @@ static quantapdf_output *split_page_zero(
     quantapdf_page_poster_split split;
     quantapdf_output *output = NULL;
 
-    split.struct_size = sizeof(split);
     split.page_index = 0;
     split.columns = 2;
     split.rows = 2;
@@ -64,7 +64,6 @@ static void expect_internal_link(
 {
     quantapdf_link_info info;
 
-    info.struct_size = sizeof(info);
     CHECK(quantapdf_link_get_info(links, index, &info) == QUANTAPDF_OK);
     CHECK(info.kind == QUANTAPDF_LINK_INTERNAL);
     CHECK(info.target_page == target_page);
@@ -109,13 +108,13 @@ static void expect_primary_navigation(void)
     CHECK(outline != NULL);
     CHECK(quantapdf_outline_count(outline, &count) == QUANTAPDF_OK);
     CHECK(count == 2);
-    info.struct_size = sizeof(info);
+
     CHECK(quantapdf_outline_get_info(outline, 0, &info) == QUANTAPDF_OK);
     CHECK(info.destination_kind == QUANTAPDF_OUTLINE_DESTINATION_INTERNAL);
     CHECK(info.target_page == 2);
     CHECK(close_float(info.target.x, 50.0f));
     CHECK(close_float(info.target.y, 75.0f));
-    info.struct_size = sizeof(info);
+
     CHECK(quantapdf_outline_get_info(outline, 1, &info) == QUANTAPDF_OK);
     CHECK(info.destination_kind == QUANTAPDF_OUTLINE_DESTINATION_INTERNAL);
     CHECK(info.target_page == 3);
@@ -155,7 +154,7 @@ static void expect_transform_navigation(const char *path)
     CHECK(quantapdf_page_bounds(source_page, &source_bounds) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(source, 1, &link_page) == QUANTAPDF_OK);
     CHECK(quantapdf_extract_links(link_page, &source_links) == QUANTAPDF_OK);
-    source_info.struct_size = sizeof(source_info);
+
     CHECK(quantapdf_link_get_info(source_links, 0, &source_info) == QUANTAPDF_OK);
     CHECK(source_info.kind == QUANTAPDF_LINK_INTERNAL);
     CHECK(source_info.target_page == 0);
@@ -173,7 +172,7 @@ static void expect_transform_navigation(const char *path)
     reopened = open_document(POSTER_OUTPUT_PDF);
     CHECK(quantapdf_load_page(reopened, 4, &output_link_page) == QUANTAPDF_OK);
     CHECK(quantapdf_extract_links(output_link_page, &output_links) == QUANTAPDF_OK);
-    output_info.struct_size = sizeof(output_info);
+
     CHECK(quantapdf_link_get_info(output_links, 0, &output_info) == QUANTAPDF_OK);
     CHECK(output_info.kind == QUANTAPDF_LINK_INTERNAL);
     CHECK(output_info.target_page == expected_page);

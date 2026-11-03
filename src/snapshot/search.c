@@ -357,9 +357,7 @@ quantapdf_status quantapdf_text_search(
     uint32_t *needle = NULL;
     size_t needle_count = 0;
     size_t required = 0;
-    const size_t minimum_size = QUANTAPDF_SEARCH_RESULT_V1_MIN_SIZE;
-    const size_t element_size = QUANTAPDF_SEARCH_RESULT_V1_SIZE;
-    size_t i;
+
     quantapdf_status status;
 
     if (out_count == NULL)
@@ -392,14 +390,6 @@ quantapdf_status quantapdf_text_search(
     if (capacity < required) {
         free(needle);
         return QUANTAPDF_ERROR_ARGUMENT;
-    }
-
-    for (i = 0; i < required; ++i) {
-        if (results[i].struct_size < minimum_size ||
-            results[i].struct_size > element_size) {
-            free(needle);
-            return QUANTAPDF_ERROR_ARGUMENT;
-        }
     }
 
     quantapdf_fill_search_results(text, needle, needle_count, results);

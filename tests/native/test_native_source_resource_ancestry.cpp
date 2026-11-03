@@ -216,7 +216,7 @@ static int qualify()
     quantapdf_bitmap *held=nullptr;
     std::vector<unsigned char> held_bytes;
     OK(quantapdf_context_create(&context));
-    OK(quantapdf_open_with_context(context,filename,nullptr,&document));
+    OK(quantapdf_open(context,filename,nullptr,&document));
     CHECK(std::remove(filename)==0);
 
     /* Revisit shared, overridden and malformed resources repeatedly,
@@ -235,7 +235,7 @@ static int qualify()
                 reinterpret_cast<quantapdf_bitmap *>(uintptr_t(1));
             OK(quantapdf_load_page(document,index,&page));
             quantapdf_render_options options{};
-            options.struct_size=sizeof(options);
+
             options.dpi=static_cast<float>(dpi);
             const quantapdf_status status=
                 quantapdf_render_page_with_options(page,&options,&bitmap);

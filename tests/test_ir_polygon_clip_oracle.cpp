@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 /* Independent PDFium oracle: Native Polygon Clip V2 itself is pure C11
  * with no backend linkage. Only this conformance executable depends on
  * QuantaPDF's existing PDF writer and PDFium reader/raster renderer. */
@@ -47,7 +48,7 @@ struct scene {
         operation.value.path.commands = paint;
         operation.value.path.command_count = 5u;
         auto& opt = operation.value.path.options;
-        opt.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
         opt.fill = 1;
         opt.fill_argb = UINT32_C(0xffff0000);
         opt.graphics_state_id = 1u;
@@ -95,7 +96,7 @@ reference render_pdfium(char const* file)
     const unsigned char *pixels = nullptr;
     size_t bytes = 0u;
     reference out;
-    OK(quantapdf_open(file, nullptr, &doc));
+    OK(quantapdf_open(test_context(), file, nullptr, &doc));
     OK(quantapdf_load_page(doc, 0, &page));
     OK(quantapdf_render_page(page, &bitmap));
     OK(quantapdf_bitmap_dimensions(bitmap, &out.width, &out.height,

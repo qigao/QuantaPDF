@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include <stdio.h>
@@ -31,7 +32,7 @@ static void test_decode_retained_occurrence(void)
     int stride = 0;
     int components = 0;
 
-    CHECK(quantapdf_open(PAGE_IMAGES_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), PAGE_IMAGES_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     CHECK(quantapdf_extract_images(page, &images) == QUANTAPDF_OK);
 
@@ -84,7 +85,7 @@ static void test_decode_soft_mask(void)
     int stride = 0;
     int components = 0;
 
-    CHECK(quantapdf_open(PAGE_IMAGES_ALPHA_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), PAGE_IMAGES_ALPHA_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     CHECK(quantapdf_extract_images(page, &images) == QUANTAPDF_OK);
     quantapdf_drop_page(page);
@@ -131,7 +132,7 @@ static void test_argument_contract(void)
     CHECK(bitmap == NULL);
     CHECK(quantapdf_image_render(NULL, 0, NULL) == QUANTAPDF_ERROR_ARGUMENT);
 
-    CHECK(quantapdf_open(PAGE_IMAGES_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), PAGE_IMAGES_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     CHECK(quantapdf_extract_images(page, &images) == QUANTAPDF_OK);
     quantapdf_drop_page(page);

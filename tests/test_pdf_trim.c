@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include <math.h>
@@ -43,7 +44,6 @@ static quantapdf_page_trim make_trim(
 {
     quantapdf_page_trim trim;
 
-    trim.struct_size = sizeof(trim);
     trim.page_index = page_index;
     trim.bounds.x0 = x0;
     trim.bounds.y0 = y0;
@@ -77,7 +77,7 @@ static quantapdf_document *open_document(const char *path, const char *password)
 {
     quantapdf_document *document = NULL;
 
-    CHECK(quantapdf_open(path, password, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, password, &document) == QUANTAPDF_OK);
     CHECK(document != NULL);
     return document;
 }
@@ -182,12 +182,9 @@ int main(void)
     expect_trim_error(document, &trim, 0, QUANTAPDF_ERROR_ARGUMENT);
 
     bad = trim;
-    bad.struct_size =
-        offsetof(quantapdf_page_trim, bounds) + sizeof(quantapdf_rect) - 1;
-    expect_trim_error(document, &bad, 1, QUANTAPDF_ERROR_ARGUMENT);
 
     bad = trim;
-    bad.struct_size = sizeof(bad) + sizeof(uint64_t);
+
     expect_trim_error(document, &bad, 1, QUANTAPDF_ERROR_ARGUMENT);
 
     bad = trim;
@@ -229,7 +226,7 @@ int main(void)
     bad.bounds.x1 = source_media.x1 + 1.0f;
     expect_trim_error(document, &bad, 1, QUANTAPDF_ERROR_ARGUMENT);
 
-    CHECK(quantapdf_open(non_pdf, NULL, &other) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_open(test_context(), non_pdf, NULL, &other) == QUANTAPDF_ERROR_FORMAT);
     CHECK(other == NULL);
 
     other = open_document(encrypted_pdf, "user-pass");

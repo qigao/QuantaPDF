@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include "composer_test_helpers.h"
@@ -22,7 +23,6 @@ static int add_page(quantapdf_composer *composer)
     quantapdf_composer_page_options page = {0};
     size_t page_index = SIZE_MAX;
 
-    page.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
     page.width_points = 220.0f;
     page.height_points = 180.0f;
     page.background_argb = UINT32_C(0xffffffff);
@@ -34,7 +34,7 @@ static int add_page(quantapdf_composer *composer)
 static quantapdf_composer_path_options stroke_options(void)
 {
     quantapdf_composer_path_options options = {0};
-    options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
+
     options.stroke = 1;
     options.stroke_argb = UINT32_C(0xff000000);
     options.stroke_width = 3.0f;
@@ -91,23 +91,17 @@ static int test_validation(void)
     float too_many[QUANTAPDF_COMPOSER_MAX_DASH_COUNT + 1u] = {0};
 
     line_commands(commands, 40.0f);
-    dash.struct_size = QUANTAPDF_COMPOSER_DASH_PATTERN_V1_SIZE;
+
     dash.lengths = valid;
     dash.length_count = 3u;
     dash.phase = 0.0f;
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer));
 
     CHECK(quantapdf_composer_draw_path_dashed(
               composer, 0u, commands, 2u, &options, NULL) ==
           QUANTAPDF_ERROR_ARGUMENT);
-
-    dash.struct_size = 0u;
-    CHECK(quantapdf_composer_draw_path_dashed(
-              composer, 0u, commands, 2u, &options, &dash) ==
-          QUANTAPDF_ERROR_ARGUMENT);
-    dash.struct_size = QUANTAPDF_COMPOSER_DASH_PATTERN_V1_SIZE;
 
     dash.lengths = NULL;
     CHECK(quantapdf_composer_draw_path_dashed(
@@ -186,14 +180,13 @@ static int test_resource_and_operation_atomicity(void)
     size_t size = 0u;
 
     line_commands(commands, 40.0f);
-    dash.struct_size = QUANTAPDF_COMPOSER_DASH_PATTERN_V1_SIZE;
+
     dash.lengths = lengths;
     dash.length_count = 2u;
     dash.phase = 0.0f;
 
-    composer_options.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V1_SIZE;
     composer_options.max_resource_bytes = required - 1u;
-    CHECK(quantapdf_composer_create(&composer_options, &composer) ==
+    CHECK(quantapdf_composer_create(test_context(), &composer_options, &composer) ==
           QUANTAPDF_OK);
     CHECK(add_page(composer));
     CHECK(quantapdf_composer_draw_path_dashed(
@@ -209,9 +202,9 @@ static int test_resource_and_operation_atomicity(void)
     composer = NULL;
 
     composer_options = (quantapdf_composer_options){0};
-    composer_options.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V1_SIZE;
+
     composer_options.max_operations = 1u;
-    CHECK(quantapdf_composer_create(&composer_options, &composer) ==
+    CHECK(quantapdf_composer_create(test_context(), &composer_options, &composer) ==
           QUANTAPDF_OK);
     CHECK(add_page(composer));
     CHECK(quantapdf_composer_draw_path_dashed(
@@ -257,10 +250,9 @@ static int test_content_render_copy_and_determinism(void)
     int stride = 0;
     int components = 0;
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer));
 
-    first_dash.struct_size = QUANTAPDF_COMPOSER_DASH_PATTERN_V1_SIZE;
     first_dash.lengths = first_lengths;
     first_dash.length_count = 2u;
     first_dash.phase = 0.0f;
@@ -269,7 +261,6 @@ static int test_content_render_copy_and_determinism(void)
               composer, 0u, commands, 2u, &options, &first_dash) ==
           QUANTAPDF_OK);
 
-    second_dash.struct_size = QUANTAPDF_COMPOSER_DASH_PATTERN_V1_SIZE;
     second_dash.lengths = second_lengths;
     second_dash.length_count = 3u;
     second_dash.phase = 2.0f;
@@ -310,10 +301,10 @@ static int test_content_render_copy_and_determinism(void)
 
     CHECK(quantapdf_output_save_file(first, COMPOSER_DASH_OUTPUT_PDF) ==
           QUANTAPDF_OK);
-    CHECK(quantapdf_open(
+    CHECK(quantapdf_open(test_context(),
               COMPOSER_DASH_OUTPUT_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-    render.struct_size = sizeof(render);
+
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
           QUANTAPDF_OK);

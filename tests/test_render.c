@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 #include <math.h>
 #include <stddef.h>
@@ -52,12 +53,12 @@ static void test_pattern_geometry(void)
     quantapdf_composer_page_options page_options = {0};
     quantapdf_composer_path_options style = {0};
     quantapdf_composer_path_command path[5] = {0};
-    quantapdf_render_options options = {sizeof(options), 72, 0, 0, {0}, 0};
+    quantapdf_render_options options = { 72, 0, 0, {0}, 0};
     size_t page_index;
-    page_options.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
+
     page_options.width_points = 72; page_options.height_points = 36;
     page_options.background_argb = UINT32_C(0xffffffff);
-    style.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
+
     style.fill = 1; style.fill_argb = UINT32_C(0xffff0000);
     style.stroke_argb = UINT32_C(0xff000000); style.stroke_width = 1;
     style.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -68,13 +69,13 @@ static void test_pattern_geometry(void)
     path[2].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO; path[2].point1 = (quantapdf_point){36, 18};
     path[3].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO; path[3].point1 = (quantapdf_point){12, 18};
     path[4].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     CHECK(quantapdf_composer_add_page(composer, &page_options, &page_index) == QUANTAPDF_OK);
     CHECK(quantapdf_composer_draw_path(composer, page_index, path, 5, &style) == QUANTAPDF_OK);
     CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
     CHECK(quantapdf_output_save_file(output, RENDER_PATTERN_PDF) == QUANTAPDF_OK);
     quantapdf_drop_output(output); quantapdf_drop_composer(composer);
-    CHECK(quantapdf_open(RENDER_PATTERN_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), RENDER_PATTERN_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     check_render_sample(page, &options, 72, 36, 24, 12);
     options.rotation_degrees = 90;
@@ -89,13 +90,13 @@ static void test_pattern_geometry(void)
     options.clip = (quantapdf_rect){6, 0, 42, 24};
     check_render_sample(page, &options, 24, 36, 12, 18);
     {
-        quantapdf_page_crop crop = {sizeof(crop), 0, {6, 3, 66, 33}};
+        quantapdf_page_crop crop = { 0, {6, 3, 66, 33}};
         CHECK(quantapdf_crop_pages(document, &crop, 1, &output) == QUANTAPDF_OK);
         CHECK(quantapdf_output_save_file(output, RENDER_CROPPED_PATTERN_PDF) == QUANTAPDF_OK);
         quantapdf_drop_output(output);
     }
     quantapdf_drop_page(page); quantapdf_close(document);
-    CHECK(quantapdf_open(RENDER_CROPPED_PATTERN_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), RENDER_CROPPED_PATTERN_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     options.clip_enabled = 0;
     check_render_sample(page, &options, 30, 60, 21, 18);
@@ -107,12 +108,12 @@ static void test_displayed_page_rotation(const char *filename)
     quantapdf_document *document = NULL;
     quantapdf_page *page = NULL;
     quantapdf_bitmap *base = NULL, *rotated = NULL;
-    quantapdf_render_options options = {sizeof(options), 72, 90, 0, {0}, 0};
+    quantapdf_render_options options = { 72, 90, 0, {0}, 0};
     const unsigned char *original, *turned;
     size_t size;
     int width, height, stride, components, turn_width, turn_height, turn_stride, turn_components;
     int quadrant;
-    CHECK(quantapdf_open(filename, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), filename, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     CHECK(quantapdf_render_page(page, &base) == QUANTAPDF_OK);
     CHECK(quantapdf_render_page_with_options(page, &options, &rotated) == QUANTAPDF_OK);
@@ -145,7 +146,7 @@ int main(void)
     quantapdf_document *doc = NULL;
     quantapdf_page *page = NULL;
     quantapdf_bitmap *bitmap = (quantapdf_bitmap *)&sentinel;
-    quantapdf_render_options options = { sizeof(options), 144.0f, 0.0f, 0, { 0 } };
+    quantapdf_render_options options = { 144.0f, 0.0f, 0, { 0 } };
     const unsigned char *data = NULL;
     size_t data_size = 0;
     size_t i;
@@ -154,21 +155,15 @@ int main(void)
     int stride = 0;
     int components = 0;
 
-    CHECK(quantapdf_open(ONE_PAGE_PDF, NULL, &doc) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), ONE_PAGE_PDF, NULL, &doc) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(doc, 0, &page) == QUANTAPDF_OK);
 
     CHECK(quantapdf_render_page_with_options(NULL, &options, &bitmap) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(bitmap == NULL);
-    CHECK(quantapdf_render_page_with_options(page, NULL, &bitmap) == QUANTAPDF_ERROR_ARGUMENT);
+
     CHECK(bitmap == NULL);
     CHECK(quantapdf_render_page_with_options(page, &options, NULL) == QUANTAPDF_ERROR_ARGUMENT);
 
-    options.struct_size = 0;
-    bitmap = (quantapdf_bitmap *)&sentinel;
-    CHECK(quantapdf_render_page_with_options(page, &options, &bitmap) == QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(bitmap == NULL);
-
-    options.struct_size = sizeof(options);
     options.dpi = 0.0f;
     bitmap = (quantapdf_bitmap *)&sentinel;
     CHECK(quantapdf_render_page_with_options(page, &options, &bitmap) == QUANTAPDF_ERROR_ARGUMENT);
@@ -185,7 +180,7 @@ int main(void)
     quantapdf_drop_bitmap(bitmap);
 
     /* An older caller-provided options size must ignore a newer alpha field. */
-    options.struct_size = offsetof(quantapdf_render_options, alpha);
+
     options.dpi = 72.0f;
     options.rotation_degrees = 0.0f;
     options.clip_enabled = 0;
@@ -199,7 +194,6 @@ int main(void)
     CHECK(components == 3);
     quantapdf_drop_bitmap(bitmap);
 
-    options.struct_size = sizeof(options);
     options.alpha = 1;
     bitmap = NULL;
     CHECK(quantapdf_render_page_with_options(page, &options, &bitmap) == QUANTAPDF_OK);
@@ -244,11 +238,11 @@ int main(void)
     doc = NULL;
     page = NULL;
     bitmap = NULL;
-    CHECK(quantapdf_open(PAGE_BOXES_PDF, NULL, &doc) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), PAGE_BOXES_PDF, NULL, &doc) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(doc, 0, &page) == QUANTAPDF_OK);
 
     /* A caller using the v1 struct size gets the new field's default behavior. */
-    options.struct_size = offsetof(quantapdf_render_options, rotation_degrees);
+
     options.dpi = 72.0f;
     options.rotation_degrees = 90.0f;
     CHECK(quantapdf_render_page_with_options(page, &options, &bitmap) == QUANTAPDF_OK);
@@ -257,7 +251,6 @@ int main(void)
     CHECK(height == 60);
     quantapdf_drop_bitmap(bitmap);
 
-    options.struct_size = offsetof(quantapdf_render_options, clip_enabled);
     options.rotation_degrees = 90.0f;
     options.clip_enabled = 1;
     bitmap = NULL;
@@ -267,7 +260,6 @@ int main(void)
     CHECK(height == 180);
     quantapdf_drop_bitmap(bitmap);
 
-    options.struct_size = sizeof(options);
     options.rotation_degrees = 90.0f;
     options.clip_enabled = 0;
     options.alpha = 0;

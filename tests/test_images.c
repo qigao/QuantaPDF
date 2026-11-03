@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 #include <math.h>
 #include <stddef.h>
@@ -73,7 +74,6 @@ static void check_info(
     float x1;
     float y1;
 
-    CHECK(info->struct_size == sizeof(*info));
     CHECK(info->pixel_width == 2);
     CHECK(info->pixel_height == 1);
     CHECK(info->components == 3);
@@ -96,7 +96,7 @@ static void test_occurrences_and_lifetime(void)
     quantapdf_image_info info1 = { sizeof(info1) };
     size_t count = 0;
 
-    CHECK(quantapdf_open(PAGE_IMAGES_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), PAGE_IMAGES_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     CHECK(quantapdf_extract_images(page, &images) == QUANTAPDF_OK);
     CHECK(images != NULL);
@@ -144,16 +144,16 @@ static void test_argument_and_version_contract(void)
     CHECK(quantapdf_image_count(NULL, NULL) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(quantapdf_image_get_info(NULL, 0, NULL) == QUANTAPDF_ERROR_ARGUMENT);
 
-    CHECK(quantapdf_open(PAGE_IMAGES_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), PAGE_IMAGES_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     CHECK(quantapdf_extract_images(page, &images) == QUANTAPDF_OK);
     quantapdf_drop_page(page);
     page = NULL;
 
     memset(&invalid_info, 0x5a, sizeof(invalid_info));
-    invalid_info.struct_size = sizeof(invalid_info);
+
     CHECK(quantapdf_image_get_info(images, 99, &invalid_info) == QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(invalid_info.struct_size == sizeof(invalid_info));
+
     check_zero_quad(&invalid_info.quad);
     CHECK(invalid_info.pixel_width == 0);
     CHECK(invalid_info.pixel_height == 0);
@@ -162,18 +162,11 @@ static void test_argument_and_version_contract(void)
     CHECK(invalid_info.has_alpha == 0);
 
     memset(&undersized, 0x5a, sizeof(undersized));
-    undersized.struct_size = minimum_size - 1;
-    undersized.pixel_width = 77;
-    undersized.quad.ul.x = 7.0f;
-    CHECK(quantapdf_image_get_info(images, 0, &undersized) == QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(undersized.struct_size == minimum_size - 1);
-    CHECK(undersized.pixel_width == 77);
-    CHECK(undersized.quad.ul.x == 7.0f);
 
     memset(&minimum, 0, sizeof(minimum));
-    minimum.struct_size = minimum_size;
+
     CHECK(quantapdf_image_get_info(images, 0, &minimum) == QUANTAPDF_OK);
-    CHECK(minimum.struct_size == minimum_size);
+
     CHECK(minimum.pixel_width == 2);
     CHECK(minimum.pixel_height == 1);
     CHECK(minimum.components == 3);
@@ -181,9 +174,9 @@ static void test_argument_and_version_contract(void)
     CHECK(minimum.has_alpha == 0);
 
     memset(&oversized, 0xa5, sizeof(oversized));
-    oversized.info.struct_size = sizeof(oversized);
+
     CHECK(quantapdf_image_get_info(images, 0, &oversized.info) == QUANTAPDF_OK);
-    CHECK(oversized.info.struct_size == sizeof(oversized));
+
     CHECK(oversized.info.pixel_width == 2);
     for (i = 0; i < sizeof(oversized.tail); ++i)
         CHECK(oversized.tail[i] == 0xa5);
@@ -200,7 +193,7 @@ static void test_empty_page(void)
     quantapdf_image_page *images = NULL;
     size_t count = 99;
 
-    CHECK(quantapdf_open(ONE_PAGE_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), ONE_PAGE_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     CHECK(quantapdf_extract_images(page, &images) == QUANTAPDF_OK);
     CHECK(images != NULL);

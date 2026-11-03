@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 /* Test-only PDFium oracle for the strict native flat Clip intersection.
  * Production Native Raster has no PDFium/qpdf linkage or fallback. */
 #include "backend/qpdf_composer.h"
@@ -59,7 +60,7 @@ struct scene {
         operation.value.path.commands = paint;
         operation.value.path.command_count = 5u;
         auto& options = operation.value.path.options;
-        options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
         options.fill = 1;
         options.fill_argb = UINT32_C(0xffff0000);
         options.graphics_state_id = 1u;
@@ -119,7 +120,7 @@ pdfium_image render_pdfium(const char *name)
     quantapdf_bitmap *bitmap = nullptr;
     const unsigned char *borrowed = nullptr;
     size_t available = 0u;
-    OK(quantapdf_open(name, nullptr, &doc));
+    OK(quantapdf_open(test_context(), name, nullptr, &doc));
     OK(quantapdf_load_page(doc, 0, &page));
     OK(quantapdf_render_page(page, &bitmap));
     OK(quantapdf_bitmap_dimensions(bitmap, &result.width, &result.height,

@@ -87,7 +87,7 @@ static void path_op(fixture *f,size_t index,unsigned id,size_t count,uint32_t co
     quantapdf_composer_operation *op=&f->ops[index];
     memset(op,0,sizeof(*op));op->kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
     op->value.path.commands=f->paths[index];op->value.path.command_count=count;
-    op->value.path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
     op->value.path.options.fill=1;op->value.path.options.fill_argb=color;
     state(op,id);
 }
@@ -140,7 +140,7 @@ static void setup(fixture *f,const geometry *g,int fractional,
             im->components=3;im->format=QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW;
             op->kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;op->bounds=bounds[i];
             op->value.image.image_id=(quantapdf_composer_image_id)(images+1u);
-            op->value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+
             op->value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
             state(op,id);++images;
         }
@@ -519,7 +519,7 @@ static int malformed_graphs_and_paints(void)
         &f.ir,72u,&budget,NULL)==QUANTAPDF_ERROR_ARGUMENT);
     CHECK(quantapdf_ir_raster_scoped_mixed_v5_sibling_clips_device_viewport(
         &f.ir,0u,&budget,16,12,NULL)==QUANTAPDF_ERROR_ARGUMENT);
-    for(unsigned bad=0u;bad<58u;++bad) {
+    for(unsigned bad=0u;bad<57u;++bad) {
         source(&f,0,"PPPP","1020");
         switch(bad) {
         case 0u:f.ir.resources.clip_count=0u;break;
@@ -563,54 +563,50 @@ static int malformed_graphs_and_paints(void)
         case 38u:f.ir.outlines=&outline;break;
         case 39u:f.ops[3].kind=QUANTAPDF_COMPOSER_OPERATION_TEXT;break;
         case 40u:f.ops[3].value.path.options.graphics_state_id=1u;break;
-        case 41u:f.ops[1].value.path.options.struct_size=
-            QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE;break;
-        case 42u:f.ops[3].value.path.options.stroke=1;break;
-        case 43u:f.ops[3].value.path.options.fill_argb=UINT32_C(0x80ff0000);break;
-        case 44u:f.ir.operation_count=1u;break;
-        case 45u:f.ir.operation_count=5u;break;
-        case 46u:f.ir.operations=NULL;break;
-        case 47u:f.ir.pages=NULL;break;
-        case 48u:f.ops[0].value.path.command_count=
+        case 41u:f.ops[3].value.path.options.stroke=1;break;
+        case 42u:f.ops[3].value.path.options.fill_argb=UINT32_C(0x80ff0000);break;
+        case 43u:f.ir.operation_count=1u;break;
+        case 44u:f.ir.operation_count=5u;break;
+        case 45u:f.ir.operations=NULL;break;
+        case 46u:f.ir.pages=NULL;break;
+        case 47u:f.ops[0].value.path.command_count=
             complex_clip(f.paths[0],&grids[0],0u,0u,0);break;
-        case 49u:f.ops[3].value.path.command_count=
+        case 48u:f.ops[3].value.path.command_count=
             complex_clip(f.paths[3],&grids[0],0u,0u,0);break;
-        case 50u:f.ops[2].graphics_state_id=3u;break;
-        case 51u:f.ops[3].page_index=1u;break;
-        case 52u: /* Too-short second contour. */
+        case 49u:f.ops[2].graphics_state_id=3u;break;
+        case 50u:f.ops[3].page_index=1u;break;
+        case 51u: /* Too-short second contour. */
             triangle(f.leaves[0],1,1,7,1,4,11);
             point(f.leaves[0]+4,QUANTAPDF_COMPOSER_PATH_MOVE_TO,2,2);
             point(f.leaves[0]+5,QUANTAPDF_COMPOSER_PATH_LINE_TO,3,3);
             point(f.leaves[0]+6,QUANTAPDF_COMPOSER_PATH_CLOSE,0,0);
             f.clips[0].command_count=7u;break;
-        case 53u:
+        case 52u:
             f.clips[1].command_count=complex_clip(f.leaves[1],&grids[0],8u,2u,0);
             f.leaves[1][7].point2.x=NAN;break;
-        case 54u:
+        case 53u:
             f.clips[1].command_count=complex_clip(f.leaves[1],&grids[0],8u,2u,0);
             f.leaves[1][7].point3.y=1000001.0f;break;
-        case 55u:f.ir.resources.clip_capacity=1u;break;
-        case 56u:f.ir.resources.graphics_state_capacity=1u;break;
-        case 57u:f.ir.page_count=2u;break;
+        case 54u:f.ir.resources.clip_capacity=1u;break;
+        case 55u:f.ir.resources.graphics_state_capacity=1u;break;
+        case 56u:f.ir.page_count=2u;break;
         default:CHECK(0);break;
         }
         memcpy(&saved,&f,sizeof(saved));
         CHECK(refusal(&f.ir,72u,&budget,1)==EXIT_SUCCESS);
         CHECK(memcmp(&saved,&f,sizeof(saved))==0);
     }
-    for(unsigned bad=0u;bad<9u;++bad) {
+    for(unsigned bad=0u;bad<8u;++bad) {
         source(&f,0,"II","12");
         switch(bad) {
         case 0u:f.ops[1].value.image.options.graphics_state_id=1u;break;
-        case 1u:f.ops[1].value.image.options.struct_size=
-            QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_MIN_SIZE;break;
-        case 2u:f.ops[1].value.image.image_id=3u;break;
-        case 3u:f.ops[1].value.image.image_id=1u;break; /* unused Image 2 */
-        case 4u:f.images[1].size=11u;break;
-        case 5u:f.ir.resources.image_capacity=3u;break;
-        case 6u:f.ops[1].bounds.x1=f.ops[1].bounds.x0;break;
-        case 7u:f.images[1].data=NULL;break;
-        case 8u:f.images[1].alpha_data=f.pixels[0];break;
+        case 1u:f.ops[1].value.image.image_id=3u;break;
+        case 2u:f.ops[1].value.image.image_id=1u;break; /* unused Image 2 */
+        case 3u:f.images[1].size=11u;break;
+        case 4u:f.ir.resources.image_capacity=3u;break;
+        case 5u:f.ops[1].bounds.x1=f.ops[1].bounds.x0;break;
+        case 6u:f.images[1].data=NULL;break;
+        case 7u:f.images[1].alpha_data=f.pixels[0];break;
         default:CHECK(0);break;
         }
         CHECK(refusal(&f.ir,72u,&budget,1)==EXIT_SUCCESS);
@@ -696,4 +692,3 @@ int main(void)
         "67 malformed graph/paint/resource controls\n");
     return EXIT_SUCCESS;
 }
-

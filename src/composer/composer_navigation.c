@@ -238,15 +238,16 @@ quantapdf_status quantapdf_composer_add_outline(
 
     if (out_outline_id != NULL)
         *out_outline_id = 0u;
-    if (composer == NULL || title_utf8 == NULL || options == NULL ||
+    if (composer == NULL ||
+        title_utf8 == NULL ||
+        options == NULL ||
         out_outline_id == NULL ||
-        options->struct_size <
-            QUANTAPDF_COMPOSER_OUTLINE_OPTIONS_V1_MIN_SIZE ||
         options->target_page_index >= composer->ir.page_count ||
         !quantapdf_navigation_point_valid(options->target) ||
-        (options->is_open != 0 && options->is_open != 1) ||
+        (options->is_open != 0 &&
+            options->is_open != 1) ||
         (options->parent_id != 0u &&
-         (size_t)options->parent_id > composer->ir.outline_count))
+            (size_t)options->parent_id > composer->ir.outline_count))
         return QUANTAPDF_ERROR_ARGUMENT;
 
     memset(&outline, 0, sizeof(outline));

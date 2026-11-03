@@ -477,7 +477,6 @@ void append_text_content(
     }
 }
 
-
 struct embedded_font_usage {
     bool referenced = false;
     std::map<uint16_t, uint32_t> glyph_to_unicode;
@@ -772,7 +771,6 @@ QPDFObjectHandle make_embedded_font(
     type0.replaceKey("/ToUnicode", to_unicode);
     return pdf.makeIndirectObject(type0);
 }
-
 
 struct glyph_run_font_entry {
     uint16_t cid = 0u;
@@ -1224,7 +1222,6 @@ void append_image_content(
         std::to_string(operation.value.image.image_id) + " Do Q\n";
 }
 
-
 void append_path_content(
     std::string& content,
     quantapdf_composer_page_state const& page,
@@ -1247,7 +1244,7 @@ void append_path_content(
     content += "q ";
     auto const& transform = options.transform;
     bool const identity_transform =
-        options.struct_size < QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_MIN_SIZE ||
+        0 ||
         (transform.a == 1.0f && transform.b == 0.0f &&
          transform.c == 0.0f && transform.d == 1.0f &&
          transform.e == 0.0f && transform.f == 0.0f);
@@ -1422,7 +1419,6 @@ QPDFObjectHandle make_soft_mask_group(
     dictionary.replaceKey("/Group", group);
     return stream;
 }
-
 
 QPDFObjectHandle navigation_destination(
     std::vector<QPDFObjectHandle> const& pages,
@@ -1803,6 +1799,7 @@ extern "C" quantapdf_status quantapdf_png_decode(
     size_t sample_size = 0u;
     size_t pixels = 0u;
     size_t rgb_size = 0u;
+
     size_t alpha_size = 0u;
     std::vector<unsigned char> compressed;
 
@@ -2056,6 +2053,7 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                 auto source = std::make_unique<QPDF>();
                 std::string const description =
                     "quantapdf-form-" + std::to_string(id);
+                source->setAttemptRecovery(false);
                 source->processMemoryFile(
                     description.c_str(),
                     reinterpret_cast<char const*>(form.pdf_data),
@@ -2211,6 +2209,7 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                 auto source = std::make_unique<QPDF>();
                 std::string const description =
                     "quantapdf-pattern-" + std::to_string(id);
+                source->setAttemptRecovery(false);
                 source->processMemoryFile(
                     description.c_str(),
                     reinterpret_cast<char const*>(paint.pdf_data),

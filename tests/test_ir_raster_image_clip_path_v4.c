@@ -74,15 +74,13 @@ static void init(fixture *f)
     f->operations[0].graphics_state_id=1u;
     f->operations[0].bounds=(quantapdf_rect){0,0,8,8};
     f->operations[0].value.image.image_id=1u;
-    f->operations[0].value.image.options.struct_size=
-        QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
+
     f->operations[0].value.image.options.graphics_state_id=1u;
     f->operations[0].value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     f->operations[1].kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
     f->operations[1].value.path.commands=f->paint;
     f->operations[1].value.path.command_count=5u;
-    f->operations[1].value.path.options.struct_size=
-        QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
     f->operations[1].value.path.options.fill=1;
     f->operations[1].value.path.options.fill_argb=UINT32_C(0xff0000ff);
     f->operations[1].value.path.options.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;

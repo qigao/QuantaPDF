@@ -10,7 +10,6 @@
 #define QP_V5_MAX_SOURCE_PIXELS ((size_t)4194304u)
 #define QP_V5_MAX_DRAW_WORK ((size_t)4194304u)
 
-
 /* Explicit profiles share two owned frozen Path leaves and one flat root.
  * Their exact GS count remains part of each independent admission. */
 static int v5_two_clip_leaves(const quantapdf_resource_registry *r,
@@ -114,7 +113,6 @@ static int v5_closed_clip_contours(
 {
     return v5_closed_clip_contours_limit(commands,count,9u);
 }
-
 
 /* The *only* qualified ten-command compound W* Clip leaf: two
  * axis-aligned rectangles with strict inner containment. A return
@@ -238,7 +236,6 @@ static int v5_integer(float v,size_t max,size_t *out)
     *out=integral;
     return 1;
 }
-
 
 /* Native device IMAGE bounds are the full authorial source placement.
  * The V10 opt-in permits a rectangle partially or fully outside the
@@ -879,28 +876,9 @@ static quantapdf_status v5_prepare_impl(
                 opt->line_cap==QUANTAPDF_COMPOSER_LINE_CAP_BUTT &&
                 opt->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_MITER &&
                 opt->miter_limit==10.0f;
-            if(opt->struct_size<QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE ||
-               !(clipped_triangle_stroke || branch_open_stroke ||
-                 (opt->fill==1 && opt->stroke==0)) ||
-               (((clipped_triangle_stroke || branch_open_stroke)?
-                  opt->stroke_argb:opt->fill_argb)>>24u)!=255u ||
-               p->commands==NULL || p->command_count==0u ||
-               p->command_count>10240u ||
-               ((clipped_paths_optin || two_states || three_states ||
-                 unclipped_prefix_optin) &&
-                ((!branch_open_stroke &&
-                  (p->command_count<4u || p->command_count>9u)) ||
-                 opt->struct_size<QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE)) ||
-               ((two_states || three_states || unclipped_prefix_optin) &&
-                !branch_open_stroke &&
-                !v5_closed_contour(p->commands,p->command_count)) ||
-               p->dash_count!=0u || p->dash_lengths!=NULL ||
-               (state!=0u &&
-                opt->struct_size<QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE) ||
-               (opt->struct_size>=QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE &&
-                (size_t)opt->graphics_state_id!=state) ||
-               (opt->struct_size>=QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_MIN_SIZE &&
-                (opt->fill_paint_id!=0u || opt->stroke_paint_id!=0u)))
+            if(!(clipped_triangle_stroke || branch_open_stroke ||
+                 (opt->fill==1 && opt->stroke==0)) || (((clipped_triangle_stroke || branch_open_stroke)?
+                  opt->stroke_argb:opt->fill_argb)>>24u)!=255u || p->commands==NULL || p->command_count==0u || p->command_count>10240u || ((clipped_paths_optin || two_states || three_states || unclipped_prefix_optin) && ((!branch_open_stroke && (p->command_count<4u || p->command_count>9u)))) || ((two_states || three_states || unclipped_prefix_optin) && !branch_open_stroke && !v5_closed_contour(p->commands,p->command_count)) || p->dash_count!=0u || p->dash_lengths!=NULL || ((size_t)opt->graphics_state_id!=state) || ((opt->fill_paint_id!=0u || opt->stroke_paint_id!=0u)))
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             ++path_count;
             ++edge_layers;
@@ -908,14 +886,7 @@ static quantapdf_status v5_prepare_impl(
             const quantapdf_composer_image_options *opt=&op->value.image.options;
             size_t x0,x1,y0,y1,id,area;
             int has_fraction=0;
-            if(opt->struct_size<QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_MIN_SIZE ||
-               opt->fit!=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH ||
-               ((two_states || unclipped_prefix_optin) &&
-                opt->struct_size<QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_MIN_SIZE) ||
-               (state!=0u &&
-                opt->struct_size<QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_MIN_SIZE) ||
-               (opt->struct_size>=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_MIN_SIZE &&
-                (size_t)opt->graphics_state_id!=state))
+            if(opt->fit!=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH || ((size_t)opt->graphics_state_id!=state))
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             id=(size_t)op->value.image.image_id;
             if(id==0u || id>ir->resources.image_count ||
@@ -978,10 +949,8 @@ static quantapdf_status v5_prepare_impl(
             for(size_t k=0u;k<ir->operation_count;++k) {
                 const quantapdf_composer_operation *paint=&ir->operations[k];
                 if(paint->kind!=QUANTAPDF_COMPOSER_OPERATION_IMAGE ||
-                   paint->graphics_state_id!=1u ||
-                   paint->value.image.options.struct_size<
-                       QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE ||
-                   paint->value.image.options.graphics_state_id!=1u) {
+                    paint->graphics_state_id!=1u ||
+                    paint->value.image.options.graphics_state_id!=1u) {
                     bounded_clipped=0;
                     break;
                 }
@@ -1367,9 +1336,6 @@ static quantapdf_status qp_mixed_text_image_prepare(
        image_op->page_index!=0u ||
        image_op->graphics_state_id!=((sibling && !reverse_sibling)?2u:with_clip?1u:0u) ||
        image_op->value.image.image_id!=1u ||
-       image_op->value.image.options.struct_size<
-           (with_clip?QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE:
-                      QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_MIN_SIZE) ||
        image_op->value.image.options.graphics_state_id!=((sibling && !reverse_sibling)?2u:with_clip?1u:0u) ||
        image_op->value.image.options.fit!=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH ||
        resource->width==0u || resource->height==0u ||
@@ -1385,22 +1351,28 @@ static quantapdf_status qp_mixed_text_image_prepare(
         const quantapdf_composer_path_operation *path=&fill->value.path;
         const quantapdf_affine_transform *t=&path->options.transform;
         if(fill->page_index!=0u ||
-           fill->graphics_state_id!=(with_clip?1u:0u) ||
-           path->options.graphics_state_id!=(with_clip?1u:0u) ||
-           path->options.struct_size<QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE ||
-           path->options.fill!=1 || path->options.stroke!=0 ||
-           (path->options.fill_argb>>24u)!=255u ||
-           path->options.fill_paint_id!=0u ||
-           path->options.stroke_paint_id!=0u ||
-           path->dash_lengths!=NULL || path->dash_count!=0u ||
-           path->commands==NULL || path->command_count!=5u ||
-           t->a!=0.0f || t->b!=0.0f || t->c!=0.0f ||
-           t->d!=0.0f || t->e!=0.0f || t->f!=0.0f ||
-           path->commands[0].kind!=QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
-           path->commands[1].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
-           path->commands[2].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
-           path->commands[3].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
-           path->commands[4].kind!=QUANTAPDF_COMPOSER_PATH_CLOSE)
+            fill->graphics_state_id!=(with_clip?1u:0u) ||
+            path->options.graphics_state_id!=(with_clip?1u:0u) ||
+            path->options.fill!=1 ||
+            path->options.stroke!=0 ||
+            (path->options.fill_argb>>24u)!=255u ||
+            path->options.fill_paint_id!=0u ||
+            path->options.stroke_paint_id!=0u ||
+            path->dash_lengths!=NULL ||
+            path->dash_count!=0u ||
+            path->commands==NULL ||
+            path->command_count!=5u ||
+            t->a!=0.0f ||
+            t->b!=0.0f ||
+            t->c!=0.0f ||
+            t->d!=0.0f ||
+            t->e!=0.0f ||
+            t->f!=0.0f ||
+            path->commands[0].kind!=QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
+            path->commands[1].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+            path->commands[2].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+            path->commands[3].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
+            path->commands[4].kind!=QUANTAPDF_COMPOSER_PATH_CLOSE)
             return QUANTAPDF_ERROR_UNSUPPORTED;
     }
     source_pixels=(size_t)resource->width*(size_t)resource->height;
@@ -1615,7 +1587,6 @@ quantapdf_status quantapdf_native_scoped_prepare_m2b2p_compound_v1(
     return qp_mixed_text_image_prepare(ir,limits,physical,ledger,out,1,3,0);
 }
 
-
 /* M2b.2g PRIVATE one-owner four-layer compilation. The first three
  * ORIGINAL paints hold frozen W/W* Clip1 and reuse the accepted M2b.2c
  * Text∩Clip, Fill∩Clip and Image∩Clip C11 geometry. An original Q then
@@ -1662,18 +1633,23 @@ quantapdf_status quantapdf_native_scoped_prepare_m2b2g_restored_four_v1(
     const quantapdf_composer_path_operation *p=
         &ir->operations[3].value.path;
     const quantapdf_affine_transform *transform=&p->options.transform;
-    if(p->options.struct_size<QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE ||
-       p->options.graphics_state_id!=0u ||
-       p->options.fill!=1 || p->options.stroke!=0 ||
-       (p->options.fill_argb>>24u)!=255u ||
-       p->options.fill_paint_id!=0u ||
-       p->options.stroke_paint_id!=0u ||
-       p->dash_lengths!=NULL || p->dash_count!=0u ||
-       p->commands==NULL || p->command_count!=5u ||
-       !v5_closed_contour(p->commands,5u) ||
-       transform->a!=0.0f || transform->b!=0.0f ||
-       transform->c!=0.0f || transform->d!=0.0f ||
-       transform->e!=0.0f || transform->f!=0.0f)
+    if(p->options.graphics_state_id!=0u ||
+        p->options.fill!=1 ||
+        p->options.stroke!=0 ||
+        (p->options.fill_argb>>24u)!=255u ||
+        p->options.fill_paint_id!=0u ||
+        p->options.stroke_paint_id!=0u ||
+        p->dash_lengths!=NULL ||
+        p->dash_count!=0u ||
+        p->commands==NULL ||
+        p->command_count!=5u ||
+        !v5_closed_contour(p->commands,5u) ||
+        transform->a!=0.0f ||
+        transform->b!=0.0f ||
+        transform->c!=0.0f ||
+        transform->d!=0.0f ||
+        transform->e!=0.0f ||
+        transform->f!=0.0f)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     /* This profile projects four rectangle vertices only. A generic
      * closed contour would also admit cubics with unprojected controls.
@@ -1958,7 +1934,6 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_two_gs_visible_work_device_
         viewport_width,viewport_height,1,0,1,1,0,0,1,0,NULL,out_image);
 }
 
-
 /* Private exact 3-GS work proof; keep the one V5->V1 sampler. */
 quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_three_gs_visible_work_device_viewport(
     const quantapdf_ir *ir,size_t page_index,
@@ -1969,7 +1944,6 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_three_gs_visible_work_devic
     return v5_render_impl(ir,page_index,limits,1,
         viewport_width,viewport_height,0,0,0,0,0,0,0,1,NULL,out_image);
 }
-
 
 /* Private three independent q/Q branch intersections. The unchanged
  * original yWorks first Stroke remains unsupported by this Fill-only
@@ -1983,7 +1957,6 @@ quantapdf_status quantapdf_ir_raster_scoped_mixed_v5_three_gs_branch_visible_wor
     return v5_render_impl(ir,page_index,limits,1,
         viewport_width,viewport_height,0,0,0,0,0,0,0,2,NULL,out_image);
 }
-
 
 /* PRIVATE source-shaped 3GS subset: original one-pixel horizontal
  * butt Stroke in first frozen W/W* branch, followed by two opaque

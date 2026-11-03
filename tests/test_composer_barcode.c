@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include "composer_test_helpers.h"
@@ -21,7 +22,6 @@ static int add_page(quantapdf_composer *composer, size_t expected)
     quantapdf_composer_page_options page = {0};
     size_t page_index = SIZE_MAX;
 
-    page.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
     page.width_points = 200.0f;
     page.height_points = 200.0f;
     page.background_argb = UINT32_C(0xffffffff);
@@ -33,7 +33,7 @@ static int add_page(quantapdf_composer *composer, size_t expected)
 static quantapdf_barcode_options black_options(void)
 {
     quantapdf_barcode_options options = {0};
-    options.struct_size = QUANTAPDF_BARCODE_OPTIONS_V1_SIZE;
+
     options.argb = UINT32_C(0xff000000);
     return options;
 }
@@ -55,7 +55,7 @@ static int render_page(
     *out_bitmap = NULL;
     *out_pixels = NULL;
     *out_stride = 0;
-    options.struct_size = sizeof(options);
+
     options.dpi = 72.0f;
 
     if (quantapdf_load_page(document, page_index, &page) != QUANTAPDF_OK ||
@@ -108,7 +108,7 @@ static int test_validation(void)
     memset(long_qr, 'A', sizeof(long_qr));
     long_qr[107] = '\0';
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer, 0u));
 
     CHECK(quantapdf_composer_draw_barcode(
@@ -121,10 +121,6 @@ static int test_validation(void)
               composer, 0u, QUANTAPDF_BARCODE_CODE_128B,
               "", &bounds, &options) == QUANTAPDF_ERROR_FORMAT);
 
-    options.struct_size = QUANTAPDF_BARCODE_OPTIONS_V1_MIN_SIZE - 1u;
-    CHECK(quantapdf_composer_draw_barcode(
-              composer, 0u, QUANTAPDF_BARCODE_CODE_128B,
-              "A", &bounds, &options) == QUANTAPDF_ERROR_ARGUMENT);
     options = black_options();
     options.argb = UINT32_C(0x80000000);
     CHECK(quantapdf_composer_draw_barcode(
@@ -202,7 +198,7 @@ static int test_generation(void)
     const quantapdf_rect upce_bounds = {10.0f, 50.0f, 77.0f, 90.0f};
     const quantapdf_rect qr_bounds = {100.0f, 100.0f, 129.0f, 129.0f};
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     for (page = 0u; page < 7u; ++page)
         CHECK(add_page(composer, page));
 
@@ -252,7 +248,7 @@ static int test_generation(void)
 
     CHECK(quantapdf_output_save_file(first, COMPOSER_BARCODE_OUTPUT_PDF) ==
           QUANTAPDF_OK);
-    CHECK(quantapdf_open(COMPOSER_BARCODE_OUTPUT_PDF, NULL, &document) ==
+    CHECK(quantapdf_open(test_context(), COMPOSER_BARCODE_OUTPUT_PDF, NULL, &document) ==
           QUANTAPDF_OK);
     CHECK(quantapdf_page_count(document, &page_count) == QUANTAPDF_OK);
     CHECK(page_count == 7);

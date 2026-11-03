@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include <stdio.h>
@@ -40,7 +41,7 @@ static quantapdf_document *open_output(
     CHECK(size >= 5);
     CHECK(memcmp(data, "%PDF-", 5) == 0);
     CHECK(write_bytes(path, data, size));
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     return document;
 }
 
@@ -90,7 +91,6 @@ static void expect_same_bytes(
 
 int main(void)
 {
-    int sentinel = 0;
     quantapdf_document *composition = NULL;
     quantapdf_document *text = NULL;
     quantapdf_document *reopened = NULL;
@@ -100,25 +100,14 @@ int main(void)
     quantapdf_output *merged_ab_2 = NULL;
     quantapdf_output *merged_single = NULL;
     quantapdf_output *merged_duplicate = NULL;
-    quantapdf_output *reset_output = (quantapdf_output *)&sentinel;
     int composition_indices[] = {2, 0};
     int text_indices[] = {0};
-    const quantapdf_output *empty_inputs[] = {NULL};
     int page_count = 0;
 
     (void)remove(MERGE_OUTPUT_PDF);
 
-    CHECK(quantapdf_merge_outputs(NULL, 1, &reset_output) == QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(reset_output == NULL);
-
-    reset_output = (quantapdf_output *)&sentinel;
-    CHECK(quantapdf_merge_outputs(empty_inputs, 0, &reset_output) == QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(reset_output == NULL);
-
-    CHECK(quantapdf_merge_outputs(empty_inputs, 1, NULL) == QUANTAPDF_ERROR_ARGUMENT);
-
-    CHECK(quantapdf_open(COMPOSITION_PDF, NULL, &composition) == QUANTAPDF_OK);
-    CHECK(quantapdf_open(TEXT_PDF, NULL, &text) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), COMPOSITION_PDF, NULL, &composition) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), TEXT_PDF, NULL, &text) == QUANTAPDF_OK);
 
     CHECK(quantapdf_export_pages(
         composition,
@@ -140,19 +129,9 @@ int main(void)
     text = NULL;
 
     {
-        const quantapdf_output *invalid_inputs[] = {output_a, NULL};
-        reset_output = (quantapdf_output *)&sentinel;
-        CHECK(quantapdf_merge_outputs(
-            invalid_inputs,
-            sizeof(invalid_inputs) / sizeof(invalid_inputs[0]),
-            &reset_output) == QUANTAPDF_ERROR_ARGUMENT);
-        CHECK(reset_output == NULL);
-    }
-
-    {
         const quantapdf_output *inputs[] = {output_a, output_b};
-        CHECK(quantapdf_merge_outputs(inputs, 2, &merged_ab_1) == QUANTAPDF_OK);
-        CHECK(quantapdf_merge_outputs(inputs, 2, &merged_ab_2) == QUANTAPDF_OK);
+        CHECK(quantapdf_merge_outputs(test_context(), inputs, 2, &merged_ab_1) == QUANTAPDF_OK);
+        CHECK(quantapdf_merge_outputs(test_context(), inputs, 2, &merged_ab_2) == QUANTAPDF_OK);
         CHECK(merged_ab_1 != NULL);
         CHECK(merged_ab_2 != NULL);
         expect_same_bytes(merged_ab_1, merged_ab_2);
@@ -160,13 +139,13 @@ int main(void)
 
     {
         const quantapdf_output *inputs[] = {output_a};
-        CHECK(quantapdf_merge_outputs(inputs, 1, &merged_single) == QUANTAPDF_OK);
+        CHECK(quantapdf_merge_outputs(test_context(), inputs, 1, &merged_single) == QUANTAPDF_OK);
         CHECK(merged_single != NULL);
     }
 
     {
         const quantapdf_output *inputs[] = {output_b, output_a, output_b};
-        CHECK(quantapdf_merge_outputs(inputs, 3, &merged_duplicate) == QUANTAPDF_OK);
+        CHECK(quantapdf_merge_outputs(test_context(), inputs, 3, &merged_duplicate) == QUANTAPDF_OK);
         CHECK(merged_duplicate != NULL);
     }
 

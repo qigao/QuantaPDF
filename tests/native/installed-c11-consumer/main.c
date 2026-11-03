@@ -175,7 +175,7 @@ int main(void)
     }
     status=quantapdf_context_create(&context);
     if(status!=QUANTAPDF_OK || context==NULL)goto fail;
-    status=quantapdf_open_with_context(context,filename,NULL,&document);
+    status=quantapdf_open(context,filename,NULL,&document);
     if(status!=QUANTAPDF_OK || document==NULL)goto fail;
     status=quantapdf_page_count(document,&pages);
     if(status!=QUANTAPDF_OK || pages!=1)goto fail;
@@ -192,7 +192,7 @@ int main(void)
             const unsigned char *samples=NULL;
             size_t count=0u;
             quantapdf_render_options options={0};
-            options.struct_size=sizeof(options);
+
             options.dpi=(float)dpis[k];
             status=quantapdf_render_page_with_options(
                 page,&options,&device_bitmap);
@@ -257,7 +257,7 @@ int main(void)
     if(!write_blank_pdf(filename,1))goto done;
     status=quantapdf_context_create(&context);
     if(status!=QUANTAPDF_OK || context==NULL)goto fail;
-    status=quantapdf_open_with_context(
+    status=quantapdf_open(
         context,filename,NULL,&document);
     if(status!=QUANTAPDF_OK || document==NULL)goto fail;
     status=quantapdf_load_page(document,0,&page);
@@ -277,7 +277,7 @@ int main(void)
         const int dpis[2]={96,144};
         for(size_t k=0u;k<2u;++k) {
             quantapdf_render_options options={0};
-            options.struct_size=sizeof(options);
+
             options.dpi=(float)dpis[k];
             options.rotation_degrees=90.0f;
             status=quantapdf_render_page_with_options(
@@ -313,7 +313,7 @@ int main(void)
     if(!write_multi_pdf(filename,0))goto done;
     status=quantapdf_context_create(&context);
     if(status!=QUANTAPDF_OK || context==NULL)goto fail;
-    status=quantapdf_open_with_context(
+    status=quantapdf_open(
         context,filename,NULL,&document);
     if(status!=QUANTAPDF_OK || document==NULL)goto fail;
     status=quantapdf_page_count(document,&pages);
@@ -346,7 +346,7 @@ int main(void)
         const int dpis[2]={96,144};
         for(size_t k=0u;k<2u;++k) {
             quantapdf_render_options options={0};
-            options.struct_size=sizeof(options);
+
             options.dpi=(float)dpis[k];
             options.rotation_degrees=90.0f;
             status=quantapdf_render_page_with_options(
@@ -388,7 +388,7 @@ int main(void)
     if(!write_multi_pdf(filename,1))goto done;
     status=quantapdf_context_create(&context);
     if(status!=QUANTAPDF_OK || context==NULL)goto fail;
-    status=quantapdf_open_with_context(
+    status=quantapdf_open(
         context,filename,NULL,&document);
     if(status!=QUANTAPDF_OK || document==NULL)goto fail;
     status=quantapdf_load_page(document,2,&page);
@@ -422,7 +422,7 @@ int main(void)
     if(!write_multi_pdf(filename,2))goto done;
     status=quantapdf_context_create(&context);
     if(status!=QUANTAPDF_OK || context==NULL)goto fail;
-    status=quantapdf_open_with_context(
+    status=quantapdf_open(
         context,filename,NULL,&document);
     if(status!=QUANTAPDF_OK || document==NULL)goto fail;
     status=quantapdf_page_count(document,&pages);
@@ -456,7 +456,7 @@ int main(void)
         const int dpis[2]={96,144};
         for(size_t k=0u;k<2u;++k) {
             quantapdf_render_options opts={0};
-            opts.struct_size=sizeof(opts);
+
             opts.dpi=(float)dpis[k];
             status=quantapdf_render_page_with_options(
                 page,&opts,&device_bitmap);
@@ -497,7 +497,7 @@ int main(void)
     if(!write_multi_pdf(filename,3))goto done;
     status=quantapdf_context_create(&context);
     if(status!=QUANTAPDF_OK || context==NULL)goto fail;
-    status=quantapdf_open_with_context(
+    status=quantapdf_open(
         context,filename,NULL,&document);
     if(status!=QUANTAPDF_OK || document==NULL)goto fail;
     status=quantapdf_page_count(document,&pages);
@@ -532,7 +532,7 @@ int main(void)
         const int dpis[2]={96,144};
         for(size_t k=0u;k<2u;++k) {
             quantapdf_render_options opts={0};
-            opts.struct_size=sizeof(opts);
+
             opts.dpi=(float)dpis[k];
             status=quantapdf_render_page_with_options(
                 page,&opts,&device_bitmap);
@@ -576,7 +576,7 @@ int main(void)
         if(!write_multi_pdf(filename,source_turn?5:4))goto done;
         status=quantapdf_context_create(&context);
         if(status!=QUANTAPDF_OK || context==NULL)goto fail;
-        status=quantapdf_open_with_context(
+        status=quantapdf_open(
             context,filename,NULL,&document);
         if(status!=QUANTAPDF_OK || document==NULL)goto fail;
         status=quantapdf_page_count(document,&pages);
@@ -594,7 +594,7 @@ int main(void)
         const int dpis[3]={72,96,144};
         for(size_t k=0u;k<3u;++k) {
             quantapdf_render_options opts={0};
-            opts.struct_size=sizeof(opts);
+
             opts.dpi=(float)dpis[k];
             status=quantapdf_render_page_with_options(
                 page,&opts,&device_bitmap);
@@ -682,7 +682,7 @@ int main(void)
         if(!write_multi_pdf(filename,unit_mode))goto done;
         status=quantapdf_context_create(&context);
         if(status!=QUANTAPDF_OK || context==NULL)goto fail;
-        status=quantapdf_open_with_context(
+        status=quantapdf_open(
             context,filename,NULL,&document);
         if(status!=QUANTAPDF_OK || document==NULL)goto fail;
         status=quantapdf_page_count(document,&pages);
@@ -700,7 +700,7 @@ int main(void)
         const int dpis[3]={72,96,144};
         for(size_t k=0u;k<3u;++k) {
             quantapdf_render_options opts={0};
-            opts.struct_size=sizeof(opts);
+
             opts.dpi=(float)dpis[k];
             status=quantapdf_render_page_with_options(
                 page,&opts,&device_bitmap);

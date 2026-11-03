@@ -124,6 +124,23 @@ set_tests_properties(quantapdf.native_m2b2c_aligned PROPERTIES
 # TEST-ONLY Context OOM hook for the real Native V10 public Bitmap handoff.
 # QPDF creates only the ORIGINAL source; no PDFium, second raster or SDK ABI.
 # The independent installed C11 consumer remains public-header-only.
+# Exercise the current Context factories and detached result lifetimes in-tree.
+add_executable(quantapdf_native_context
+  ../test_context.c "${PROJECT_SOURCE_DIR}/src/snapshot/snapshot_owner.c")
+target_include_directories(quantapdf_native_context PRIVATE "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_native_context PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_native_context PRIVATE
+  QUANTAPDF_TESTING=1
+  BLANK_PDF="${PROJECT_SOURCE_DIR}/tests/fixtures/one-page.pdf"
+  DAMAGED_PDF="${PROJECT_SOURCE_DIR}/tests/fixtures/one-page-damaged-xref.pdf"
+  TEXT_PDF="${PROJECT_SOURCE_DIR}/tests/fixtures/text-one-page.pdf"
+  IMAGES_PDF="${PROJECT_SOURCE_DIR}/tests/fixtures/page-images.pdf"
+  NON_PDF="${PROJECT_SOURCE_DIR}/tests/fixtures/composition-non-pdf.txt")
+target_compile_features(quantapdf_native_context PRIVATE c_std_11)
+target_compile_options(quantapdf_native_context PRIVATE -Wall -Wextra -Wpedantic -Werror)
+add_test(NAME quantapdf.native_context COMMAND quantapdf_native_context)
+set_tests_properties(quantapdf.native_context PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_native_userunit_oom test_native_userunit_oom.cpp)
 target_compile_features(quantapdf_native_userunit_oom PRIVATE cxx_std_20)
 target_include_directories(quantapdf_native_userunit_oom PRIVATE

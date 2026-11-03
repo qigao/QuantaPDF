@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include "ir/pdf_path_lowering.h"
 #include "backend/qpdf_composer.h"
 
@@ -197,7 +198,7 @@ static void test_pdf_export_and_render(void)
     f = fopen(PATH_LOWER_OUTPUT_PDF, "wb");
     CHECK(f != NULL && fwrite(first, 1, first_size, f) == first_size && fclose(f) == 0);
     free(first); free(second);
-    OK(quantapdf_open(PATH_LOWER_OUTPUT_PDF, NULL, &document));
+    OK(quantapdf_open(test_context(), PATH_LOWER_OUTPUT_PDF, NULL, &document));
     OK(quantapdf_load_page(document, 0, &render_page));
     OK(quantapdf_render_page(render_page, &bitmap));
     OK(quantapdf_bitmap_dimensions(bitmap, &width, &height, &stride, &components));
@@ -215,7 +216,6 @@ static void test_pdf_export_and_render(void)
     quantapdf_close(document);
     CHECK(remove(PATH_LOWER_OUTPUT_PDF) == 0);
 }
-
 
 static void test_stroke_style_lowering(void)
 {
@@ -261,7 +261,6 @@ static void test_stroke_style_lowering(void)
     CHECK(ir.pages == NULL && ir.operations == NULL);
     dispose_page(&page);
 }
-
 
 /* #266: rebase local points and their affine transform atomically.
  * The old top-down conjugation produces 800*(1-(-300))-700 = 240100,
@@ -357,7 +356,6 @@ static void test_extgstate_to_composer_resources(void)
     CHECK(ir.operations == NULL && ir.resources.graphics_states == NULL);
     dispose_page(&page);
 }
-
 
 static void test_native_float_projection_is_not_serialized_writer_admission(void)
 {

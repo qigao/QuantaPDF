@@ -37,15 +37,15 @@ static quantapdf_status quantapdf_validate_encryption_options(
     size_t owner_size;
 
     if (options == NULL ||
-        options->struct_size < QUANTAPDF_ENCRYPTION_OPTIONS_V1_MIN_SIZE ||
         options->method != QUANTAPDF_ENCRYPTION_AES_256 ||
         options->user_password_utf8 == NULL ||
         options->owner_password_utf8 == NULL ||
         (options->permissions & ~QUANTAPDF_PERMISSION_ALL) != 0u ||
-        (options->encrypt_metadata != 0 && options->encrypt_metadata != 1) ||
+        (options->encrypt_metadata != 0 &&
+            options->encrypt_metadata != 1) ||
         ((options->permissions &
           QUANTAPDF_PERMISSION_PRINT_HIGH_QUALITY) != 0u &&
-         (options->permissions &
+            (options->permissions &
           QUANTAPDF_PERMISSION_PRINT_LOW_RESOLUTION) == 0u))
         return QUANTAPDF_ERROR_ARGUMENT;
     if (quantapdf_validate_password_ascii(

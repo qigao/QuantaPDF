@@ -54,7 +54,7 @@ static void init(quantapdf_ir *ir,quantapdf_composer_page_state *page,
         ops[i].kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
         ops[i].value.path.commands=i==0u?p1:p2;
         ops[i].value.path.command_count=5u;
-        ops[i].value.path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
         ops[i].value.path.options.fill=1;
         ops[i].value.path.options.fill_argb=i==0u?
             UINT32_C(0xffff0000):UINT32_C(0xffffff00);
@@ -68,7 +68,7 @@ static void init(quantapdf_ir *ir,quantapdf_composer_page_state *page,
     for(i=2u;i<4u;++i) {
         ops[i].kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;
         ops[i].value.image.image_id=(quantapdf_composer_image_id)(i-1u);
-        ops[i].value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE;
+
         ops[i].value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     }
     ops[2].bounds=(quantapdf_rect){0,0,4,4};

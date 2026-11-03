@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include <stdint.h>
@@ -58,7 +59,6 @@ static int add_page(quantapdf_composer *composer)
     quantapdf_composer_page_options page = {0};
     size_t page_index = SIZE_MAX;
 
-    page.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
     page.width_points = 300.0f;
     page.height_points = 180.0f;
     page.background_argb = UINT32_C(0xffffffff);
@@ -99,52 +99,42 @@ static int test_registration_contract(
         'O', 'T', 'T', 'O', 0, 0, 0, 0, 0, 0, 0, 0
     };
     quantapdf_composer *composer = NULL;
-    quantapdf_composer_font_options options = {0};
+
     quantapdf_composer_font_id id = 99u;
 
-    options.struct_size = QUANTAPDF_COMPOSER_FONT_OPTIONS_V1_SIZE;
-
     CHECK(quantapdf_composer_add_font(
-              NULL, font_data, font_size, &options, &id) ==
+              NULL, font_data, font_size, &id) ==
           QUANTAPDF_ERROR_ARGUMENT);
     CHECK(id == 0u);
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
 
     id = 99u;
     CHECK(quantapdf_composer_add_font(
-              composer, NULL, font_size, &options, &id) ==
+              composer, NULL, font_size, &id) ==
           QUANTAPDF_ERROR_ARGUMENT);
     CHECK(id == 0u);
 
-    options.struct_size = 0u;
     id = 99u;
     CHECK(quantapdf_composer_add_font(
-              composer, font_data, font_size, &options, &id) ==
-          QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(id == 0u);
-    options.struct_size = QUANTAPDF_COMPOSER_FONT_OPTIONS_V1_SIZE;
-
-    id = 99u;
-    CHECK(quantapdf_composer_add_font(
-              composer, bad_font, sizeof(bad_font), &options, &id) ==
+              composer, bad_font, sizeof(bad_font), &id) ==
           QUANTAPDF_ERROR_UNSUPPORTED);
     CHECK(id == 0u);
 
     id = 99u;
     CHECK(quantapdf_composer_add_font(
-              composer, cff_font, sizeof(cff_font), &options, &id) ==
+              composer, cff_font, sizeof(cff_font), &id) ==
           QUANTAPDF_ERROR_UNSUPPORTED);
     CHECK(id == 0u);
 
     CHECK(quantapdf_composer_add_font(
-              composer, font_data, font_size, &options, &id) ==
+              composer, font_data, font_size, &id) ==
           QUANTAPDF_OK);
     CHECK(id == 1u);
 
     id = 99u;
     CHECK(quantapdf_composer_add_font(
-              composer, font_data, font_size, &options, &id) ==
+              composer, font_data, font_size, &id) ==
           QUANTAPDF_OK);
     CHECK(id == 1u);
 
@@ -157,17 +147,16 @@ static int test_resource_limit(
     size_t font_size)
 {
     quantapdf_composer_options composer_options = {0};
-    quantapdf_composer_font_options font_options = {0};
+
     quantapdf_composer *composer = NULL;
     quantapdf_composer_font_id id = 99u;
 
-    composer_options.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V1_SIZE;
     composer_options.max_resource_bytes = font_size - 1u;
-    font_options.struct_size = QUANTAPDF_COMPOSER_FONT_OPTIONS_V1_SIZE;
-    CHECK(quantapdf_composer_create(&composer_options, &composer) ==
+
+    CHECK(quantapdf_composer_create(test_context(), &composer_options, &composer) ==
           QUANTAPDF_OK);
     CHECK(quantapdf_composer_add_font(
-              composer, font_data, font_size, &font_options, &id) ==
+              composer, font_data, font_size, &id) ==
           QUANTAPDF_ERROR_UNSUPPORTED);
     CHECK(id == 0u);
     quantapdf_drop_composer(composer);
@@ -181,7 +170,7 @@ static int test_embedded_text(
     static const char expected[] = "Hello Caf\xC3\xA9 \xCE\xA9";
     static const char missing[] = "\xF0\x9F\x98\x80";
     quantapdf_composer_options composer_options = {0};
-    quantapdf_composer_font_options font_options = {0};
+
     quantapdf_composer_embedded_text_options text_options = {0};
     quantapdf_composer *composer = NULL;
     quantapdf_composer_font_id font_id = 0u;
@@ -205,20 +194,16 @@ static int test_embedded_text(
     int stride = 0;
     int components = 0;
 
-    composer_options.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V1_SIZE;
     composer_options.max_resource_bytes = font_size + 4096u;
-    font_options.struct_size = QUANTAPDF_COMPOSER_FONT_OPTIONS_V1_SIZE;
 
-    CHECK(quantapdf_composer_create(&composer_options, &composer) ==
+    CHECK(quantapdf_composer_create(test_context(), &composer_options, &composer) ==
           QUANTAPDF_OK);
     CHECK(add_page(composer));
     CHECK(quantapdf_composer_add_font(
-              composer, font_data, font_size, &font_options, &font_id) ==
+              composer, font_data, font_size, &font_id) ==
           QUANTAPDF_OK);
     CHECK(font_id == 1u);
 
-    text_options.struct_size =
-        QUANTAPDF_COMPOSER_EMBEDDED_TEXT_OPTIONS_V1_SIZE;
     text_options.font_id = font_id;
     text_options.font_size = 24.0f;
     text_options.argb = UINT32_C(0xff102030);
@@ -254,7 +239,7 @@ static int test_embedded_text(
 
     CHECK(quantapdf_output_save_file(first, COMPOSER_FONT_OUTPUT_PDF) ==
           QUANTAPDF_OK);
-    CHECK(quantapdf_open(COMPOSER_FONT_OUTPUT_PDF, NULL, &document) ==
+    CHECK(quantapdf_open(test_context(), COMPOSER_FONT_OUTPUT_PDF, NULL, &document) ==
           QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     CHECK(quantapdf_extract_text(page, &extracted, &extracted_size) ==
@@ -273,7 +258,6 @@ static int test_embedded_text(
         quantapdf_drop_text_page(structured);
     }
 
-    render.struct_size = sizeof(render);
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
           QUANTAPDF_OK);

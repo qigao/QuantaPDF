@@ -109,14 +109,8 @@ quantapdf_status quantapdf_link_get_info(
     quantapdf_link_info *out_info)
 {
     const quantapdf_link_internal *item;
-    size_t minimum_size;
 
     if (out_info == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-
-    minimum_size = offsetof(quantapdf_link_info, target) +
-        sizeof(out_info->target);
-    if (out_info->struct_size < minimum_size)
         return QUANTAPDF_ERROR_ARGUMENT;
 
     quantapdf_zero_rect(&out_info->hotspot);

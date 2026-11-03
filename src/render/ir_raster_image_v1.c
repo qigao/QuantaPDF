@@ -146,14 +146,11 @@ static quantapdf_status qp_raw_images(
         const quantapdf_composer_operation *op = &ir->operations[i];
         size_t x0, x1, y0, y1, id, area;
         if (op->kind != QUANTAPDF_COMPOSER_OPERATION_IMAGE ||
-            op->page_index != 0u || op->graphics_state_id != 0u ||
-            op->value.image.options.struct_size <
-                QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_MIN_SIZE ||
+            op->page_index != 0u ||
+            op->graphics_state_id != 0u ||
             op->value.image.options.fit !=
                 QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH ||
-            (op->value.image.options.struct_size >=
-                QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_MIN_SIZE &&
-             op->value.image.options.graphics_state_id != 0u))
+            (op->value.image.options.graphics_state_id != 0u))
             return QUANTAPDF_ERROR_UNSUPPORTED;
         id = (size_t)op->value.image.image_id;
         if (id == 0u || id > ir->resources.image_count ||

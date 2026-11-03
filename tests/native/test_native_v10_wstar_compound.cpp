@@ -222,7 +222,7 @@ static int test()
         quantapdf_page* page=nullptr;
         quantapdf_bitmap* bitmap=
             reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-        OK(quantapdf_open_with_context(ctx,temp_file,nullptr,&doc));
+        OK(quantapdf_open(ctx,temp_file,nullptr,&doc));
         CHECK(doc!=nullptr);
         CHECK(std::remove(temp_file)==0);
         int page_count=0;
@@ -231,7 +231,7 @@ static int test()
         OK(quantapdf_load_page(doc,0,&page));
         CHECK(page!=nullptr);
         quantapdf_render_options opts{};
-        opts.struct_size=sizeof(opts);
+
         opts.dpi=72.0f;
         const quantapdf_status status=
             quantapdf_render_page_with_options(page,&opts,&bitmap);

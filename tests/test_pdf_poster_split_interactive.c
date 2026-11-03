@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include "test_pdf_poster_split_internal.h"
 
 #include <quantapdf/quantapdf.h>
@@ -24,7 +25,7 @@ static int close_float(float a, float b)
 static quantapdf_document *open_document(const char *path)
 {
     quantapdf_document *document = NULL;
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     CHECK(document != NULL);
     return document;
 }
@@ -41,7 +42,7 @@ static quantapdf_output *split_interactive(quantapdf_document *source)
 {
     quantapdf_page_poster_split split;
     quantapdf_output *output = NULL;
-    split.struct_size = sizeof(split);
+
     split.page_index = 0;
     split.columns = 2;
     split.rows = 2;
@@ -73,7 +74,7 @@ static void expect_uri_link(
         quantapdf_link_info info;
         const char *actual_uri = NULL;
         size_t uri_size = 0;
-        info.struct_size = sizeof(info);
+
         CHECK(quantapdf_link_get_info(links, index, &info) == QUANTAPDF_OK);
         if (info.kind != QUANTAPDF_LINK_URI)
             continue;
@@ -117,7 +118,7 @@ static void expect_square(quantapdf_document *document)
     CHECK(quantapdf_extract_annotations(page, &annotations) == QUANTAPDF_OK);
     CHECK(quantapdf_annotation_count(annotations, &count) == QUANTAPDF_OK);
     CHECK(count == 1);
-    info.struct_size = sizeof(info);
+
     CHECK(quantapdf_annotation_get_info(annotations, 0, &info) == QUANTAPDF_OK);
     CHECK(info.type == QUANTAPDF_ANNOTATION_SQUARE);
     CHECK(close_float(info.bounds.x0, 30.0f));
@@ -152,7 +153,6 @@ static void expect_widget(quantapdf_document *document)
     CHECK(quantapdf_form_widget_count(form, &widget_count) == QUANTAPDF_OK);
     CHECK(widget_count == 1);
 
-    widget.struct_size = sizeof(widget);
     CHECK(quantapdf_form_widget_get_info(form, 0, &widget) == QUANTAPDF_OK);
     CHECK(widget.page_index == 3);
     CHECK(close_float(widget.bounds.x0, 50.0f));
@@ -160,7 +160,6 @@ static void expect_widget(quantapdf_document *document)
     CHECK(close_float(widget.bounds.x1, 150.0f));
     CHECK(close_float(widget.bounds.y1, 110.0f));
 
-    field.struct_size = sizeof(field);
     CHECK(quantapdf_form_field_get_info(form, widget.field_index, &field) == QUANTAPDF_OK);
     CHECK(field.widget_count == 1);
     CHECK(field.value_count == 1);
@@ -168,7 +167,7 @@ static void expect_widget(quantapdf_document *document)
               form, widget.field_index, &name, &name_size) == QUANTAPDF_OK);
     CHECK(name_size == strlen("poster.text"));
     CHECK(memcmp(name, "poster.text", name_size) == 0);
-    value_info.struct_size = sizeof(value_info);
+
     CHECK(quantapdf_form_field_value_get_info(
               form, widget.field_index, 0, &value_info) == QUANTAPDF_OK);
     CHECK(value_info.kind == QUANTAPDF_FORM_VALUE_UTF8);

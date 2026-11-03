@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include "backend/qpdf_composer.h"
 #include "document/page_composer_ir.h"
 #include "graph/graph_edit.h"
@@ -81,7 +82,7 @@ static bitmap_image bitmap(const char *name)
     const unsigned char *ptr = nullptr;
     size_t bytes = 0;
     bitmap_image result;
-    OK(quantapdf_open(name, nullptr, &document));
+    OK(quantapdf_open(test_context(), name, nullptr, &document));
     OK(quantapdf_load_page(document, 0, &page));
     OK(quantapdf_render_page(page, &image));
     OK(quantapdf_bitmap_dimensions(image, &result.width, &result.height,
@@ -105,7 +106,7 @@ static quantapdf_status lower_source(quantapdf_ir *ir)
     auto decode = decode_budget();
     auto content = content_budget();
     auto lower = lower_budget();
-    OK(quantapdf_open(EXTGSTATE_SOURCE_PDF, nullptr, &document));
+    OK(quantapdf_open(test_context(), EXTGSTATE_SOURCE_PDF, nullptr, &document));
     OK(quantapdf_document_capture_graph(document, &graph, &snapshot));
     quantapdf_close(document);
     quantapdf_status status = quantapdf_graph_snapshot_page_composer_ir(
@@ -242,7 +243,7 @@ static void test_selected_version_alpha()
     quantapdf_document *document = nullptr;
     quantapdf_graph_snapshot *base = nullptr, *next = nullptr;
     quantapdf_validation_report report{};
-    OK(quantapdf_open(EXTGSTATE_SOURCE_PDF, nullptr, &document));
+    OK(quantapdf_open(test_context(), EXTGSTATE_SOURCE_PDF, nullptr, &document));
     OK(quantapdf_document_capture_graph(document, &graph, &base));
     quantapdf_close(document);
     auto model = quantapdf_graph_view(base->graph);

@@ -1,3 +1,4 @@
+#include "../test_context_fixture.h"
 /* Native-only PUBLIC Source V10 acceptance of stroking-only PDF
  * graphics-state setters w/J/j. These do not affect opaque Fill or
  * RAW Image rendering, while actual Stroke remains fail-closed.
@@ -87,12 +88,12 @@ static int render(const std::string& bytes,int quarters,int rotation,
     quantapdf_page *page=nullptr;
     quantapdf_bitmap *bitmap=nullptr;
     OK(quantapdf_context_create(&context));
-    OK(quantapdf_open_with_context(
+    OK(quantapdf_open(
         context,filename,nullptr,&doc));
     CHECK(std::remove(filename)==0);
     OK(quantapdf_load_page(doc,0,&page));
     quantapdf_render_options opts{};
-    opts.struct_size=sizeof(opts);
+
     opts.dpi=(float)dpi;
     const auto status=quantapdf_render_page_with_options(
         page,&opts,&bitmap);
@@ -206,11 +207,11 @@ static int negative()
         quantapdf_page *page=nullptr;
         quantapdf_bitmap *bitmap=
             reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-        OK(quantapdf_open(filename,nullptr,&doc));
+        OK(quantapdf_open(test_context(), filename,nullptr,&doc));
         CHECK(std::remove(filename)==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_render_options opts{};
-        opts.struct_size=sizeof(opts);
+
         opts.dpi=(float)dpi;
         const auto status=quantapdf_render_page_with_options(
             page,&opts,&bitmap);

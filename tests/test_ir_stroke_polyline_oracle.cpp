@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 /* Test-only linear Stroke source-PDF conformance. PDFium is an independent oracle:
  * Original source PDF -> PDFium versus Source -> detached Graph -> owned IR
  * -> private pure-C11 scoped Clip DAG raster. Never export IR to PDF as a
@@ -116,7 +117,7 @@ quantapdf_status snapshot_lower(const char *input_path,quantapdf_ir *out,
     quantapdf_status st;
     CHECK(out != nullptr);
     std::memset(out,0,sizeof(*out));
-    st = quantapdf_open(input_path,nullptr,&doc);
+    st = quantapdf_open(test_context(), input_path,nullptr,&doc);
     if(st != QUANTAPDF_OK) return st;
     st = quantapdf_document_capture_graph(doc,&graph_limits,&snap);
     quantapdf_close(doc);

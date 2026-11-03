@@ -39,7 +39,7 @@ int main(void)
     op.kind = QUANTAPDF_COMPOSER_OPERATION_PATH;
     op.value.path.commands = cmd;
     op.value.path.command_count = 2u;
-    op.value.path.options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
     op.value.path.options.stroke = 1;
     op.value.path.options.stroke_width = 2.0f;
     op.value.path.options.stroke_argb = UINT32_C(0xffff0000);

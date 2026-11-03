@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include <stddef.h>
@@ -49,10 +50,7 @@ static void test_links_and_document_independent_lifetime(void)
     size_t uri_size = 0;
     size_t count = 0;
 
-    external.struct_size = sizeof(external);
-    internal.struct_size = sizeof(internal);
-
-    CHECK(quantapdf_open(PAGE_LINKS_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), PAGE_LINKS_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     CHECK(quantapdf_extract_links(page, &links) == QUANTAPDF_OK);
     CHECK(links != NULL);
@@ -70,7 +68,7 @@ static void test_links_and_document_independent_lifetime(void)
     CHECK(count == 2);
 
     CHECK(quantapdf_link_get_info(links, 0, &external) == QUANTAPDF_OK);
-    CHECK(external.struct_size == sizeof(external));
+
     CHECK(external.kind == QUANTAPDF_LINK_URI);
     check_rect(&external.hotspot, 20.0f, 40.0f, 100.0f, 60.0f);
     CHECK(external.target_page == -1);
@@ -84,7 +82,7 @@ static void test_links_and_document_independent_lifetime(void)
     CHECK(uri[uri_size] == '\0');
 
     CHECK(quantapdf_link_get_info(links, 1, &internal) == QUANTAPDF_OK);
-    CHECK(internal.struct_size == sizeof(internal));
+
     CHECK(internal.kind == QUANTAPDF_LINK_INTERNAL);
     check_rect(&internal.hotspot, 20.0f, 80.0f, 100.0f, 100.0f);
     CHECK(internal.target_page == 1);
@@ -102,8 +100,6 @@ static void test_argument_contract(void)
     const char *uri = (const char *)&sentinel;
     size_t count = 99;
     size_t uri_size = 99;
-
-    info.struct_size = sizeof(info);
 
     CHECK(quantapdf_extract_links(NULL, &links) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(links == NULL);

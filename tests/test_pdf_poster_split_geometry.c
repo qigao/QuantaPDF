@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include "test_pdf_poster_split_internal.h"
 
 #include <quantapdf/quantapdf.h>
@@ -24,7 +25,7 @@ static int close_float(float left, float right)
 static quantapdf_document *open_document(const char *path)
 {
     quantapdf_document *document = NULL;
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     CHECK(document != NULL);
     return document;
 }
@@ -87,7 +88,6 @@ static void compare_render(
     int sw, sh, ss, sc;
     int ow, oh, os, oc;
 
-    source_options.struct_size = sizeof(source_options);
     source_options.dpi = 72.0f;
     source_options.rotation_degrees = 0.0f;
     source_options.clip_enabled = 1;
@@ -126,7 +126,6 @@ static quantapdf_output *split_to_file(
     quantapdf_page_poster_split split;
     quantapdf_output *output = NULL;
 
-    split.struct_size = sizeof(split);
     split.page_index = page_index;
     split.columns = columns;
     split.rows = rows;

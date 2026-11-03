@@ -103,7 +103,7 @@ static int replay(const std::filesystem::path& assets,
             const std::string path=(assets/
                 (std::string(item.id)+".pdf")).string();
             quantapdf_document *document=nullptr;
-            const auto opened=quantapdf_open_with_context(
+            const auto opened=quantapdf_open(
                 context,path.c_str(),nullptr,&document);
             if(opened!=QUANTAPDF_OK || document==nullptr) {
                 std::fprintf(stderr,"external %s open=%d\n",
@@ -118,7 +118,7 @@ static int replay(const std::filesystem::path& assets,
             CHECK(page!=nullptr);
 
             quantapdf_render_options options{};
-            options.struct_size=sizeof(options);
+
             options.dpi=72.0f;
             quantapdf_bitmap *bitmap=
                 reinterpret_cast<quantapdf_bitmap *>(uintptr_t(1));

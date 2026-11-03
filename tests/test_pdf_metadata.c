@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include <stdint.h>
@@ -56,7 +57,7 @@ int main(void)
     char *value;
     size_t size;
 
-    CHECK(quantapdf_open(METADATA_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), METADATA_PDF, NULL, &document) == QUANTAPDF_OK);
 
     expect_value(document, QUANTAPDF_METADATA_TITLE, title, sizeof(title) - 1);
     CHECK(sizeof(title) - 1 == 13);
@@ -118,7 +119,7 @@ int main(void)
                                        &value, NULL) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(value == NULL);
 
-    CHECK(quantapdf_open(COMPOSITION_NON_PDF, NULL, &non_pdf) ==
+    CHECK(quantapdf_open(test_context(), COMPOSITION_NON_PDF, NULL, &non_pdf) ==
           QUANTAPDF_ERROR_FORMAT);
     CHECK(non_pdf == NULL);
 

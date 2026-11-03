@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include "snapshot/graph_snapshot.h"
 #include "document/page_content_ir.h"
 #include "document/document_internal.h"
@@ -51,7 +52,7 @@ static void test_capture(void)
     quantapdf_validation_report report;
     size_t i, finalized = 0, references;
     OK(quantapdf_context_create(&context)); context->test_finalizations = &finalized;
-    OK(quantapdf_open_with_context(context, GRAPH_PDF, NULL, &document));
+    OK(quantapdf_open(context, GRAPH_PDF, NULL, &document));
     references = context->references;
     context->test_fail_allocation = 1;
     failed = (quantapdf_graph_snapshot *)(uintptr_t)1;
@@ -105,7 +106,7 @@ static void test_document_families(void)
         quantapdf_graph_snapshot *snapshot = NULL;
         const quantapdf_graph_model *m;
         quantapdf_status status;
-        OK(quantapdf_open(cases[i].path, cases[i].password, &document));
+        OK(quantapdf_open(test_context(), cases[i].path, cases[i].password, &document));
         status = quantapdf_document_capture_graph(document, &budget, &snapshot);
         if (status != QUANTAPDF_OK) fprintf(stderr, "Graph capture failed: %s (status %d)\n", cases[i].path, status);
         OK(status);
@@ -173,7 +174,7 @@ static void test_commit_detached_metadata(void)
     unsigned char payload[] = {'N', 0, 0xff, 'W'};
     size_t finalized = 0, references;
     OK(quantapdf_context_create(&context)); context->test_finalizations = &finalized;
-    OK(quantapdf_open_with_context(context, GRAPH_METADATA_PDF, NULL, &document));
+    OK(quantapdf_open(context, GRAPH_METADATA_PDF, NULL, &document));
     OK(quantapdf_document_capture_graph(document, &budget, &base));
     quantapdf_close(document); quantapdf_drop_context(context);
     context = base->owner.context;
@@ -237,7 +238,7 @@ static void test_commit_detached_metadata(void)
     quantapdf_graph_snapshot_drop(b); CHECK(finalized == 0);
     CHECK(memcmp(decoded, "N\0\xc3\xbfW", 5) == 0); quantapdf_free(decoded);
     OK(quantapdf_output_save_file(output, "graph-writer-output.pdf"));
-    OK(quantapdf_open("graph-writer-output.pdf", NULL, &reopened));
+    OK(quantapdf_open(test_context(), "graph-writer-output.pdf", NULL, &reopened));
     OK(quantapdf_document_capture_graph(reopened, &budget, &roundtrip));
     model = quantapdf_graph_view(roundtrip->graph);
     title = quantapdf_graph_node_at(model, field(model, field(model, model->trailer, "/Info"), "/Title"));
@@ -256,7 +257,7 @@ static void test_metadata_compatibility(void)
     int field;
     char *retained = NULL;
     size_t retained_size = 0;
-    OK(quantapdf_open(GRAPH_METADATA_PDF, NULL, &document));
+    OK(quantapdf_open(test_context(), GRAPH_METADATA_PDF, NULL, &document));
     OK(quantapdf_document_capture_graph(document, &budget, &snapshot));
     for (field = 0; field <= 9; ++field) {
         char *legacy = (char *)(uintptr_t)1, *graph = (char *)(uintptr_t)1;
@@ -291,7 +292,7 @@ static void test_stream_snapshot_lifetime(void)
     unsigned char *first = NULL, *second = NULL;
     size_t first_size = 0, second_size = 0, finalized = 0;
     OK(quantapdf_context_create(&context)); context->test_finalizations = &finalized;
-    OK(quantapdf_open_with_context(context, GRAPH_PDF, NULL, &document));
+    OK(quantapdf_open(context, GRAPH_PDF, NULL, &document));
     OK(quantapdf_document_capture_graph(document, &budget, &snapshot));
     quantapdf_drop_context(context); quantapdf_close(document);
     CHECK(finalized == 0);
@@ -311,7 +312,6 @@ static void test_stream_snapshot_lifetime(void)
     CHECK(quantapdf_graph_snapshot_stream(NULL, &reference, &decode, &first, &first_size) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(first == NULL && first_size == 0);
 }
-
 
 static void test_content_ir_snapshot_version(void)
 {
@@ -335,7 +335,7 @@ static void test_content_ir_snapshot_version(void)
 
     OK(quantapdf_context_create(&context));
     context->test_finalizations = &finalized;
-    OK(quantapdf_open_with_context(context, GRAPH_PDF, NULL, &document));
+    OK(quantapdf_open(context, GRAPH_PDF, NULL, &document));
     OK(quantapdf_document_capture_graph(document, &budget, &base));
     quantapdf_close(document); quantapdf_drop_context(context);
     CHECK(finalized == 0);
@@ -396,7 +396,6 @@ static void test_content_ir_snapshot_version(void)
     quantapdf_pdf_content_dispose(ir);
 }
 
-
 static void test_page_semantics_arrays(void)
 {
     static const char a[] = "q 1 0 0 1 100 0 cm 1 0 0 rg 0 0 m 10";
@@ -420,7 +419,7 @@ static void test_page_semantics_arrays(void)
 
     OK(quantapdf_context_create(&context));
     context->test_finalizations = &finalized;
-    OK(quantapdf_open_with_context(context, GRAPH_PDF, NULL, &document));
+    OK(quantapdf_open(context, GRAPH_PDF, NULL, &document));
     OK(quantapdf_document_capture_graph(document, &budget, &base));
     quantapdf_close(document);
     quantapdf_drop_context(context);

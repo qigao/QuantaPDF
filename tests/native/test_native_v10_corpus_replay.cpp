@@ -147,7 +147,7 @@ static int run(const std::filesystem::path& assets,
                 quantapdf_page *page=nullptr;
                 quantapdf_bitmap *bitmap=
                     reinterpret_cast<quantapdf_bitmap *>(uintptr_t(1));
-                if(quantapdf_open_with_context(context,path.c_str(),nullptr,
+                if(quantapdf_open(context,path.c_str(),nullptr,
                                                &doc)!=QUANTAPDF_OK || doc==nullptr) {
                     std::fprintf(stderr,"open refused source %s\n",entry.id);
                     CHECK(false);
@@ -158,7 +158,7 @@ static int run(const std::filesystem::path& assets,
                 OK(quantapdf_load_page(doc,0,&page));
                 CHECK(page!=nullptr);
                 quantapdf_render_options options{};
-                options.struct_size=sizeof(options);
+
                 options.dpi=static_cast<float>(dpis[di]);
                 const auto status=quantapdf_render_page_with_options(
                     page,&options,&bitmap);

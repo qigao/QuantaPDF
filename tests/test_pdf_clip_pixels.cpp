@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include "backend/qpdf_composer.h"
 #include "document/page_composer_ir.h"
 
@@ -36,7 +37,7 @@ static raster render(const char *name)
     const unsigned char *bytes = nullptr;
     size_t count = 0;
     raster result;
-    OK(quantapdf_open(name, nullptr, &document));
+    OK(quantapdf_open(test_context(), name, nullptr, &document));
     OK(quantapdf_load_page(document, 0, &page));
     OK(quantapdf_render_page(page, &bitmap));
     OK(quantapdf_bitmap_dimensions(bitmap, &result.width, &result.height,
@@ -94,7 +95,7 @@ static void pdf_lower()
     quantapdf_graph_stream_limits decode = {8192, 128, 100000};
     quantapdf_pdf_content_limits content = {8192, 512, 16};
     quantapdf_pdf_path_lower_limits lower = {64, 1024};
-    OK(quantapdf_open(CLIP_SOURCE_PDF, nullptr, &document));
+    OK(quantapdf_open(test_context(), CLIP_SOURCE_PDF, nullptr, &document));
     OK(quantapdf_document_capture_graph(document, &graph, &snapshot));
     quantapdf_close(document);
     OK(quantapdf_graph_snapshot_page_composer_ir(snapshot, 0, 2,
@@ -210,7 +211,6 @@ static void test_clip_definition_ctm_and_page_map(void)
     CHECK(std::remove(CLIP_SOURCE_PDF) == 0);
     CHECK(std::remove(CLIP_LOWERED_PDF) == 0);
 }
-
 
 static void test_stroke_styles_with_clip_and_scope(void)
 {

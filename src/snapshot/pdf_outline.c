@@ -56,13 +56,8 @@ quantapdf_status quantapdf_outline_get_info(
     quantapdf_outline_info *out_info)
 {
     const quantapdf_outline_node_internal *node;
-    size_t minimum_size;
 
     if (out_info == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    minimum_size = offsetof(quantapdf_outline_info, is_open) +
-        sizeof(out_info->is_open);
-    if (out_info->struct_size < minimum_size)
         return QUANTAPDF_ERROR_ARGUMENT;
 
     out_info->parent_index = SIZE_MAX;

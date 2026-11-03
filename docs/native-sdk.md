@@ -18,11 +18,34 @@ platform libraries. `size_t` maps to the caller's native size type; C `int`,
 paths use UTF-8. These are current calling requirements, not cross-version
 negotiation or guarantees about future layouts.
 
-The present header still contains ABI-version macros, `struct_size`, V1/MIN_SIZE
-constants and duplicate factories. Until A1 removes them, code using this
-checkout initializes the current records with their declared fields and size.
-Their presence does not create an append-only, binary-compatibility or retention
-requirement for the redesign.
+Records have one current layout. Initialize input records with zero and set the
+fields the operation uses; output records are written directly. There is no
+`struct_size`, record-version negotiation or ABI-version macro. Build callers
+against the matching current header and library.
+
+The three root factories take an explicit Context:
+
+```c
+quantapdf_context *context;
+quantapdf_document *document;
+quantapdf_status status = quantapdf_context_create(&context);
+if (status != QUANTAPDF_OK)
+    return status;
+status = quantapdf_open(context, "document.pdf", NULL, &document);
+quantapdf_drop_context(context);
+if (status != QUANTAPDF_OK)
+    return status;
+/* Use document; it owns its Context reference. */
+quantapdf_close(document);
+```
+
+`quantapdf_composer_create(context, options, out_composer)` accepts NULL options
+for defaults. `quantapdf_merge_outputs(context, inputs, count, out_output)` uses
+the chosen destination Context; its input Outputs may belong to other Contexts.
+Each successful factory retains the Context. There are no implicit-root
+factories or `_with_context` aliases. Mandatory handles, pointers and output
+slots must be valid. Font registration and SVG drawing have no empty options
+argument.
 
 ## One ownership and error model
 

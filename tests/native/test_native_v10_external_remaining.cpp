@@ -194,13 +194,13 @@ static int replay(const std::filesystem::path& root,
             quantapdf_page *page=nullptr;
             quantapdf_bitmap *bitmap=
                 reinterpret_cast<quantapdf_bitmap *>(uintptr_t(1));
-            OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&doc));
+            OK(quantapdf_open(ctx,filename.c_str(),nullptr,&doc));
             CHECK(doc!=nullptr);
             int page_count=0;
             OK(quantapdf_page_count(doc,&page_count));CHECK(page_count>0);
             OK(quantapdf_load_page(doc,0,&page));CHECK(page!=nullptr);
             quantapdf_render_options options{};
-            options.struct_size=sizeof(options);options.dpi=72.0f;
+            options.dpi=72.0f;
             const auto status=quantapdf_render_page_with_options(page,&options,&bitmap);
             if(status!=QUANTAPDF_OK || bitmap==nullptr) {
                 std::fprintf(stderr,"original %s public status=%d pass=%zu\n",
@@ -243,7 +243,7 @@ static int replay(const std::filesystem::path& root,
             /* Independently reopen the existing external blank recovery. */
             const std::string blank_path=(root/(std::string(blank_id)+".pdf")).string();
             doc=nullptr;page=nullptr;bitmap=nullptr;
-            OK(quantapdf_open_with_context(ctx,blank_path.c_str(),nullptr,&doc));
+            OK(quantapdf_open(ctx,blank_path.c_str(),nullptr,&doc));
             CHECK(doc!=nullptr);
             OK(quantapdf_load_page(doc,0,&page));CHECK(page!=nullptr);
             OK(quantapdf_render_page_with_options(page,&options,&bitmap));

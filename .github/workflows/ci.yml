@@ -115,10 +115,11 @@ jobs:
           restore-keys: |
             ccache-${{ env.CCACHE_VERSION }}-${{ matrix.rid }}-${{ matrix.preset }}-${{ steps.dependencies.outputs.cache-primary-key }}-
 
+      - name: Reset compiler cache statistics
+        run: ccache --zero-stats
+
       - name: Configure native library and tests
-        run: |
-          ccache --zero-stats
-          cmake --preset ${{ matrix.preset }}
+        run: cmake --preset ${{ matrix.preset }}
 
       # Preserve built dependencies even when a later project test fails.
       - name: Save dependencies and source downloads
@@ -148,10 +149,10 @@ jobs:
       - name: Run native CTest suite
         run: ctest --preset ${{ matrix.preset }} --stop-on-failure
 
-      - name: Verify exact Windows DLL export ABI
+      - name: Verify current Windows DLL exports
         if: runner.os == 'Windows'
         run: >-
           cmake "-DQUANTAPDF_LLVM_READOBJ=llvm-readobj"
           "-DQUANTAPDF_LIBRARY=build/${{ matrix.preset }}/libquantapdf.dll"
-          "-DQUANTAPDF_EXPORT_BASELINE=abi/quantapdf-v2.exports"
+          "-DQUANTAPDF_EXPORT_MANIFEST=abi/quantapdf.exports"
           -P cmake/CheckQuantaPDFExports.cmake

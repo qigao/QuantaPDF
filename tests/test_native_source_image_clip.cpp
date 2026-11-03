@@ -728,7 +728,6 @@ int negative(const fixture& src,quantapdf_status expected)
     return EXIT_SUCCESS;
 }
 
-
 /* Source Scoped V5 exercises the REAL original q/Q grammar rather than a
  * manually populated mixed IR. One Path and one Image Do are painted while
  * W/W* is active, followed by an actual Q pop and one of each unclipped. */
@@ -857,7 +856,6 @@ int negative_scoped_mixed_v5(
     }
     return EXIT_SUCCESS;
 }
-
 
 /* V6 is the first original-source variable length scoped admission. Its
  * original PDF is independently painted by PDFium; no Composer re-export
@@ -1334,7 +1332,6 @@ int source_scoped_mixed_v7_suite()
         false,true)!=EXIT_SUCCESS)return EXIT_FAILURE;
     return EXIT_SUCCESS;
 }
-
 
 /* Opt-in V8: a single normalized /DeviceGray nonstroking g channel
  * duplicates into opaque RGB on the existing Source V7 Path/Image and C11
@@ -2313,7 +2310,7 @@ int positive_private_native_facade_v1(
     quantapdf_bitmap *native=nullptr,*pdfium=nullptr,*legacy_native=nullptr;
     OK(quantapdf_context_create(&context));
     CHECK(context!=nullptr && context->references==1u);
-    OK(quantapdf_open_with_context(
+    OK(quantapdf_open(
         context,facade_fixture_path().c_str(),
         nullptr,&document));
     std::remove(facade_fixture_path().c_str());
@@ -2491,7 +2488,7 @@ int negative_private_native_facade_v1(
     quantapdf_document *document=nullptr;
     quantapdf_page *page=nullptr;
     OK(quantapdf_context_create(&context));
-    OK(quantapdf_open_with_context(context,
+    OK(quantapdf_open(context,
         facade_fixture_path().c_str(),nullptr,&document));
     std::remove(facade_fixture_path().c_str());
     OK(quantapdf_load_page(document,0,&page));
@@ -2610,10 +2607,9 @@ int private_native_facade_bitmap_v1_suite()
         {{13u,16u,64u,64u,64u},{23u,3u,255u,0u,0u}});
 }
 
-
 /* ISSUE #459 — the REAL product-linked private Context/Page/Bitmap path.
  * This is not the Source-only oracle: each original is opened through
- * quantapdf_open_with_context, and PDFium runs independently only as a
+ * quantapdf_open, and PDFium runs independently only as a
  * test oracle / unchanged public render dispatch. */
 int private_native_facade_bitmap_v9_suite()
 {
@@ -2787,7 +2783,6 @@ int private_native_facade_bitmap_v9_suite()
     return positive_private_native_facade_v1(inverted,
         {{13u,11u,0u,255u,255u},{26u,5u,223u,223u,223u}},true);
 }
-
 
 /* Issue #464: V10 Flate TIFF/PNG Predictor on a REAL built-in
  * Page/Context and ordinary retained RGB facade Bitmap. Original

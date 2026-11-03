@@ -4,7 +4,7 @@
 #include "../backend/document_backend.h"
 #include "context_lease_internal.h"
 
-/* ABI v2 requires external serialization, including retain and release. */
+/* Context references require external serialization, including retain/release. */
 struct quantapdf_context {
     size_t references;
     const quantapdf_backend_ops *ops;

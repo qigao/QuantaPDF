@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 #include "test_pdf_trim_internal.h"
 
@@ -38,7 +39,7 @@ static quantapdf_document *open_document(const char *path)
 {
     quantapdf_document *document = NULL;
 
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_open(test_context(), path, NULL, &document) == QUANTAPDF_OK);
     CHECK(document != NULL);
     return document;
 }
@@ -62,7 +63,6 @@ static quantapdf_page_trim make_trim(int page_index, quantapdf_rect bounds)
 {
     quantapdf_page_trim trim;
 
-    trim.struct_size = sizeof(trim);
     trim.page_index = page_index;
     trim.bounds = bounds;
     return trim;

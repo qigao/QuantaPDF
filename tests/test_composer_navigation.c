@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include <math.h>
@@ -28,7 +29,6 @@ static int add_page(quantapdf_composer *composer, size_t expected)
     quantapdf_composer_page_options page = {0};
     size_t page_index = SIZE_MAX;
 
-    page.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
     page.width_points = 200.0f;
     page.height_points = 200.0f;
     page.background_argb = UINT32_C(0xffffffff);
@@ -80,7 +80,6 @@ static int expect_outline_info(
 {
     quantapdf_outline_info info = {0};
 
-    info.struct_size = sizeof(info);
     if (quantapdf_outline_get_info(outline, index, &info) != QUANTAPDF_OK)
         return 0;
     return info.parent_index == parent &&
@@ -103,9 +102,8 @@ static int test_argument_and_capacity_contract(void)
     quantapdf_point target = {20.0f, 30.0f};
     char bad_utf8[] = {(char)0xc0, '\0'};
 
-    composer_options.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V2_SIZE;
     composer_options.max_navigation_items = 1u;
-    CHECK(quantapdf_composer_create(&composer_options, &composer) ==
+    CHECK(quantapdf_composer_create(test_context(), &composer_options, &composer) ==
           QUANTAPDF_OK);
     CHECK(add_page(composer, 0u));
     CHECK(add_page(composer, 1u));
@@ -140,8 +138,6 @@ static int test_argument_and_capacity_contract(void)
               composer, 0u, &hotspot, 1u, target) ==
           QUANTAPDF_ERROR_UNSUPPORTED);
 
-    outline_options.struct_size =
-        QUANTAPDF_COMPOSER_OUTLINE_OPTIONS_V1_SIZE;
     outline_options.target_page_index = 1u;
     outline_options.target = target;
     outline_options.is_open = 1;
@@ -152,7 +148,7 @@ static int test_argument_and_capacity_contract(void)
     quantapdf_drop_composer(composer);
 
     composer = NULL;
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer, 0u));
     outline_options.parent_id = 1u;
     outline_options.target_page_index = 0u;
@@ -162,14 +158,7 @@ static int test_argument_and_capacity_contract(void)
           QUANTAPDF_ERROR_ARGUMENT);
     CHECK(outline_id == 0u);
     outline_options.parent_id = 0u;
-    outline_options.struct_size =
-        QUANTAPDF_COMPOSER_OUTLINE_OPTIONS_V1_MIN_SIZE - 1u;
-    CHECK(quantapdf_composer_add_outline(
-              composer, "Small options", &outline_options, &outline_id) ==
-          QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(outline_id == 0u);
-    outline_options.struct_size =
-        QUANTAPDF_COMPOSER_OUTLINE_OPTIONS_V1_SIZE;
+
     outline_options.is_open = 2;
     CHECK(quantapdf_composer_add_outline(
               composer, "Bad open", &outline_options, &outline_id) ==
@@ -213,7 +202,7 @@ static int test_round_trip_and_determinism(void)
     size_t count = 0u;
     quantapdf_link_info info = {0};
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer, 0u));
     CHECK(add_page(composer, 1u));
     CHECK(add_page(composer, 2u));
@@ -224,8 +213,6 @@ static int test_round_trip_and_determinism(void)
               composer, 0u, &page_hotspot, 1u, page_target) ==
           QUANTAPDF_OK);
 
-    outline_options.struct_size =
-        QUANTAPDF_COMPOSER_OUTLINE_OPTIONS_V1_SIZE;
     outline_options.parent_id = 0u;
     outline_options.target_page_index = 0u;
     outline_options.target = (quantapdf_point){30.0f, 50.0f};
@@ -271,7 +258,7 @@ static int test_round_trip_and_determinism(void)
 
     CHECK(quantapdf_output_save_file(first, COMPOSER_NAVIGATION_OUTPUT_PDF) ==
           QUANTAPDF_OK);
-    CHECK(quantapdf_open(COMPOSER_NAVIGATION_OUTPUT_PDF, NULL, &document) ==
+    CHECK(quantapdf_open(test_context(), COMPOSER_NAVIGATION_OUTPUT_PDF, NULL, &document) ==
           QUANTAPDF_OK);
 
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
@@ -281,7 +268,6 @@ static int test_round_trip_and_determinism(void)
     CHECK(quantapdf_link_count(links, &count) == QUANTAPDF_OK);
     CHECK(count == 2u);
 
-    info.struct_size = sizeof(info);
     CHECK(quantapdf_link_get_info(links, 0u, &info) == QUANTAPDF_OK);
     CHECK(info.kind == QUANTAPDF_LINK_URI);
     CHECK(check_rect(&info.hotspot, 20.0f, 40.0f, 100.0f, 60.0f));
@@ -290,7 +276,6 @@ static int test_round_trip_and_determinism(void)
     CHECK(uri_size == strlen(uri));
     CHECK(memcmp(actual_uri, uri, uri_size) == 0);
 
-    info.struct_size = sizeof(info);
     CHECK(quantapdf_link_get_info(links, 1u, &info) == QUANTAPDF_OK);
     CHECK(info.kind == QUANTAPDF_LINK_INTERNAL);
     CHECK(check_rect(&info.hotspot, 20.0f, 80.0f, 100.0f, 100.0f));

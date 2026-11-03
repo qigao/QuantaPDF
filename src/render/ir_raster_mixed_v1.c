@@ -121,16 +121,13 @@ static quantapdf_status qp_mixed_impl(
             const quantapdf_composer_path_operation *p = &op->value.path;
             const quantapdf_composer_path_options *opt = &p->options;
             if (++path_count > expected_paths ||
-                opt->struct_size < QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE ||
-                opt->fill != 1 || opt->stroke != 0 ||
+                opt->fill != 1 ||
+                opt->stroke != 0 ||
                 (opt->fill_argb >> 24u) != 255u ||
                 p->dash_count != 0u ||
-                (opt->struct_size >=
-                     QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE &&
-                 opt->graphics_state_id != 0u) ||
-                (opt->struct_size >=
-                     QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_MIN_SIZE &&
-                 (opt->fill_paint_id != 0u || opt->stroke_paint_id != 0u)))
+                (opt->graphics_state_id != 0u) ||
+                ((opt->fill_paint_id != 0u ||
+                        opt->stroke_paint_id != 0u)))
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             break;
         }

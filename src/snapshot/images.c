@@ -59,13 +59,8 @@ quantapdf_status quantapdf_image_get_info(
     quantapdf_image_info *out_info)
 {
     const quantapdf_image_occurrence_internal *item;
-    size_t minimum_size;
 
     if (out_info == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    minimum_size = offsetof(quantapdf_image_info, has_alpha) +
-        sizeof(out_info->has_alpha);
-    if (out_info->struct_size < minimum_size)
         return QUANTAPDF_ERROR_ARGUMENT;
 
     out_info->quad = (quantapdf_quad){ 0 };

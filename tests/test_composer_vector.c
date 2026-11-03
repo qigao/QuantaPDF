@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 #include <quantapdf/quantapdf.h>
 
 #include "composer_test_helpers.h"
@@ -20,7 +21,6 @@ static quantapdf_composer_path_options path_options(void)
 {
     quantapdf_composer_path_options options = {0};
 
-    options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
     options.stroke = 1;
     options.fill = 0;
     options.stroke_argb = UINT32_C(0xff000000);
@@ -38,7 +38,6 @@ static int add_page(quantapdf_composer *composer)
     quantapdf_composer_page_options page = {0};
     size_t page_index = SIZE_MAX;
 
-    page.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
     page.width_points = 200.0f;
     page.height_points = 200.0f;
     page.background_argb = UINT32_C(0xffffffff);
@@ -54,7 +53,7 @@ static int test_path_validation(void)
     quantapdf_composer_path_options options = path_options();
     quantapdf_composer_path_command commands[2] = {0};
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer));
 
     commands[0].kind = QUANTAPDF_COMPOSER_PATH_MOVE_TO;
@@ -79,10 +78,6 @@ static int test_path_validation(void)
               composer, 0u, commands, SIZE_MAX, &options) ==
           QUANTAPDF_ERROR_UNSUPPORTED);
 
-    options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE - 1u;
-    CHECK(quantapdf_composer_draw_path(
-              composer, 0u, commands, 2u, &options) ==
-          QUANTAPDF_ERROR_ARGUMENT);
     options = path_options();
     options.stroke = 0;
     CHECK(quantapdf_composer_draw_path(
@@ -117,9 +112,8 @@ static int test_path_validation(void)
 
     quantapdf_drop_composer(composer);
 
-    composer_options.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V1_SIZE;
     composer_options.max_resource_bytes = sizeof(commands) - 1u;
-    CHECK(quantapdf_composer_create(&composer_options, &composer) ==
+    CHECK(quantapdf_composer_create(test_context(), &composer_options, &composer) ==
           QUANTAPDF_OK);
     CHECK(add_page(composer));
     commands[0].kind = QUANTAPDF_COMPOSER_PATH_MOVE_TO;
@@ -166,7 +160,7 @@ static int test_path_content_render_and_determinism(void)
     int stride = 0;
     int components = 0;
 
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_create(test_context(), NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer));
 
     rect[0].kind = QUANTAPDF_COMPOSER_PATH_MOVE_TO;
@@ -206,7 +200,7 @@ static int test_path_content_render_and_determinism(void)
     triangle[2].point1 = (quantapdf_point){150.0f, 180.0f};
     triangle[3].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
     options = (quantapdf_composer_path_options){0};
-    options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
+
     options.fill = 1;
     options.fill_argb = UINT32_C(0xff00ff00);
     options.fill_rule = QUANTAPDF_COMPOSER_FILL_EVEN_ODD;
@@ -236,10 +230,10 @@ static int test_path_content_render_and_determinism(void)
 
     CHECK(quantapdf_output_save_file(first, COMPOSER_VECTOR_OUTPUT_PDF) ==
           QUANTAPDF_OK);
-    CHECK(quantapdf_open(COMPOSER_VECTOR_OUTPUT_PDF, NULL, &document) ==
+    CHECK(quantapdf_open(test_context(), COMPOSER_VECTOR_OUTPUT_PDF, NULL, &document) ==
           QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-    render.struct_size = sizeof(render);
+
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
           QUANTAPDF_OK);

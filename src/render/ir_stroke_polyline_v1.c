@@ -71,7 +71,7 @@ static quantapdf_status polygon(stroke_builder *b, stroke_point *p, size_t n)
 static double arc_scale(const quantapdf_composer_path_options *o,const double *device)
 {
     double a=1,b=0,c=0,d=1;
-    if(o->struct_size>=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_MIN_SIZE) {
+    {
         const quantapdf_affine_transform *t=&o->transform;
         int zero=t->a==0 && t->b==0 && t->c==0 && t->d==0 && t->e==0 && t->f==0;
         if(!zero) {
@@ -695,7 +695,7 @@ static quantapdf_status planned_stroke_options(
     quantapdf_composer_path_options *effective)
 {
     double a=1.0,b=0.0,c=0.0,d=1.0;
-    if (o->struct_size >= QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_MIN_SIZE) {
+    {
         const quantapdf_affine_transform *t=&o->transform;
         const int zero=t->a==0 && t->b==0 && t->c==0 &&
             t->d==0 && t->e==0 && t->f==0;
@@ -742,27 +742,37 @@ static quantapdf_status outline_impl(
     memset(out_fill,0,sizeof(*out_fill));
     if (!source || max_edges==0u) return QUANTAPDF_ERROR_ARGUMENT;
     o=&source->options;
-    if (!source->commands || source->command_count==0u ||
+    if (!source->commands ||
+        source->command_count==0u ||
         (source->command_count==1u &&
-         source->commands[0].kind!=QUANTAPDF_COMPOSER_PATH_MOVE_TO) ||
+            source->commands[0].kind!=QUANTAPDF_COMPOSER_PATH_MOVE_TO) ||
         source->command_count>QP_STROKE_POINTS ||
-        o->struct_size<QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE ||
-        o->stroke!=1 || o->fill!=0 || (o->stroke_argb>>24)!=255u ||
-        !isfinite(o->stroke_width) || o->stroke_width<=0 || o->stroke_width>2048 ||
-        !isfinite(o->miter_limit) || o->miter_limit<1 || o->miter_limit>1000 ||
+        o->stroke!=1 ||
+        o->fill!=0 ||
+        (o->stroke_argb>>24)!=255u ||
+        !isfinite(o->stroke_width) ||
+        o->stroke_width<=0 ||
+        o->stroke_width>2048 ||
+        !isfinite(o->miter_limit) ||
+        o->miter_limit<1 ||
+        o->miter_limit>1000 ||
         (o->line_cap!=QUANTAPDF_COMPOSER_LINE_CAP_BUTT &&
-         o->line_cap!=QUANTAPDF_COMPOSER_LINE_CAP_SQUARE &&
-         o->line_cap!=QUANTAPDF_COMPOSER_LINE_CAP_ROUND) ||
+            o->line_cap!=QUANTAPDF_COMPOSER_LINE_CAP_SQUARE &&
+            o->line_cap!=QUANTAPDF_COMPOSER_LINE_CAP_ROUND) ||
         (o->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_MITER &&
-         o->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL &&
-         o->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND) ||
-        source->dash_count>QP_DASH_ITEMS || !isfinite(source->dash_phase) ||
-        source->dash_phase<0 || source->dash_phase>1000000000.0f ||
-        (source->dash_count==0u && source->dash_phase!=0) ||
-        (source->dash_count!=0u && source->dash_lengths==NULL) ||
-        (o->struct_size>=QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE && o->graphics_state_id!=0) ||
-        (o->struct_size>=QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_MIN_SIZE &&
-         (o->fill_paint_id!=0 || o->stroke_paint_id!=0)))
+            o->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL &&
+            o->line_join!=QUANTAPDF_COMPOSER_LINE_JOIN_ROUND) ||
+        source->dash_count>QP_DASH_ITEMS ||
+        !isfinite(source->dash_phase) ||
+        source->dash_phase<0 ||
+        source->dash_phase>1000000000.0f ||
+        (source->dash_count==0u &&
+            source->dash_phase!=0) ||
+        (source->dash_count!=0u &&
+            source->dash_lengths==NULL) ||
+        (o->graphics_state_id!=0) ||
+        ((o->fill_paint_id!=0 ||
+                o->stroke_paint_id!=0)))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     if (device != NULL) {
         status=planned_stroke_options(o,device,&effective_options);
@@ -859,12 +869,11 @@ publish:
         b.commands[2].kind=QUANTAPDF_COMPOSER_PATH_CLOSE; b.count=3u;
     }
     out_fill->commands=b.commands; out_fill->command_count=b.count;
-    out_fill->options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
     out_fill->options.fill=1; out_fill->options.fill_argb=o->stroke_argb;
     out_fill->options.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
     out_fill->options.transform=(quantapdf_affine_transform){1,0,0,1,0,0};
-    if(o->struct_size>=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_MIN_SIZE)
-        out_fill->options.transform=o->transform;
+    out_fill->options.transform=o->transform;
     free(normalized_commands);
     return QUANTAPDF_OK;
 fail:

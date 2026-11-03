@@ -116,8 +116,7 @@ static void setup(fixture *f)
         f->operations[i].value.path.commands=
             i==0u?f->red:i==1u?f->blue:f->green;
         f->operations[i].value.path.command_count=i==0u?2u:5u;
-        f->operations[i].value.path.options.struct_size=
-            QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
         f->operations[i].value.path.options.fill=i==0u?0:1;
         f->operations[i].value.path.options.stroke=i==0u?1:0;
         f->operations[i].value.path.options.fill_argb=colors[i];
@@ -473,8 +472,7 @@ static int original_texample_cubic_wstar(void)
     paint.page_index=0u;
     paint.value.path.commands=fill;
     paint.value.path.command_count=5u;
-    paint.value.path.options.struct_size=
-        QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
     paint.value.path.options.fill=1;
     paint.value.path.options.fill_argb=UINT32_C(0xff0000ff);
     paint.value.path.options.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;

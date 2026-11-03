@@ -1,3 +1,4 @@
+#include "test_context_fixture.h"
 /* Differential conformance for a bounded nested Clip DAG. This test alone
  * uses QPDF Composer + PDFium; the native Clip DAG and Raster remain C11-only. */
 #include "backend/qpdf_composer.h"
@@ -76,7 +77,7 @@ struct scene {
         operation.value.path.commands = paint;
         operation.value.path.command_count = 5u;
         auto& opt = operation.value.path.options;
-        opt.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+
         opt.fill = 1;
         opt.fill_argb = UINT32_C(0xffff0000);
         opt.graphics_state_id = 1u;
@@ -117,7 +118,7 @@ raster render_pdfium(const char *filename)
     quantapdf_bitmap *bitmap=nullptr;
     const unsigned char *borrowed=nullptr;
     size_t bytes=0u;
-    OK(quantapdf_open(filename,nullptr,&doc));
+    OK(quantapdf_open(test_context(), filename,nullptr,&doc));
     OK(quantapdf_load_page(doc,0,&page));
     OK(quantapdf_render_page(page,&bitmap));
     OK(quantapdf_bitmap_dimensions(bitmap,&r.width,&r.height,
