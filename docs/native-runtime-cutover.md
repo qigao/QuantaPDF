@@ -218,8 +218,11 @@ ownership and original-source tests. Do not restore a PDFium fallback.
 
 The private [M2b.2l sibling Source stage](conformance/native-m2b2l-sibling-source-owner.md)
 preserves original Text/Fill in Clip1 and Image in a separate post-Q Clip2.
-It qualifies owned IR and failure recovery; sibling Text/Fill/Image Bitmap
-rendering remains a separate shared-compiler/public acceptance gate.
+It qualifies owned IR and failure recovery. The private
+[M2b.2m V5 stage](conformance/native-m2b2m-sibling-v5.md) compiles those frozen
+roots through the shared operation compiler with independent whole-image
+references and one ledger. Public sibling Text/Fill/Image Bitmap rendering
+remains a separate preparation/Context acceptance gate.
 
 The public C11 ABI remains unchanged. The SDK is a C ABI backed by C/C++
 implementation; qpdf 12.4, ZLIB and JPEG remain private structure/codec
