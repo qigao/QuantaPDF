@@ -91,6 +91,11 @@ quantapdf_status quantapdf_native_scoped_prepare_m2b2m_sibling_v1(
     const quantapdf_native_device_plan *physical,
     quantapdf_native_work_ledger_v1 *ledger,
     quantapdf_native_scoped_page_v5 *out);
+/* Private compound Text/Fill/Image, GS1 -> Intersection(1,2). */
+quantapdf_status quantapdf_native_scoped_prepare_m2b2p_compound_v1(
+    const quantapdf_ir *ir,const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    const quantapdf_native_device_plan *physical,quantapdf_native_work_ledger_v1 *ledger,
+    quantapdf_native_scoped_page_v5 *out);
 /* M2b.2g PRIVATE: first three Text/Fill/Image paints under original
  * Clip1, then exactly one Q-restored GS0 opaque PATH Fill, all under
  * one C11 V5 page and the unchanged 8M/512 common work ledger. */

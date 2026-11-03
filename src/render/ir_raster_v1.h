@@ -87,6 +87,12 @@ quantapdf_status quantapdf_native_geometry_prepare_texample_v1(
     const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
     const quantapdf_native_device_plan *plan,quantapdf_native_work_ledger_v1 *ledger,
     quantapdf_native_geometry_v1 *out);
+/* Private exact Text AND two original Clip leaves on the same sample grid. */
+quantapdf_status quantapdf_native_geometry_prepare_text_compound_v1(
+    const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_native_device_plan *plan,
+    const quantapdf_composer_clip_state *first,const quantapdf_composer_clip_state *second,
+    quantapdf_native_work_ledger_v1 *ledger,quantapdf_native_geometry_v1 *out);
 quantapdf_status quantapdf_ir_raster_render_v1_accounted(
     const quantapdf_ir *ir,size_t page_index,
     const quantapdf_ir_raster_v1_limits *limits,

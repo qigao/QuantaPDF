@@ -39,9 +39,10 @@ complete original. Prepared metadata and actual public Bitmap calls still
 refuse both positive compound originals at 72/96/144 DPI; the existing public
 test then recovers accepted single/sibling originals in the same Context.
 
-This is Source ownership qualification. Compound C11/V5 compilation and public
-Bitmap pixels require separate original-sample references, fault/receipt and
-lifetime acceptance. Existing public ABI, goldens, numeric caps, test targets,
+This is Source ownership qualification. The subsequent
+[M2b.2p private V5 stage](native-m2b2p-compound-v5.md) adds shared compilation
+and independent correlated sample references. Public Bitmap pixels still need
+separate fault/receipt and lifetime acceptance. Existing public ABI, goldens, numeric caps, test targets,
 registrations, CMake/workflow and timeouts are unchanged. #584/#580/#570/#208
 remain open; exact candidate CI and independent master CI after merge are
 separate gates.
