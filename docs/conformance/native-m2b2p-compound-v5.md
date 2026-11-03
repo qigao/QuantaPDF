@@ -39,9 +39,8 @@ failed repetition and compiled-owner disposal. Twelve malformed graph variants
 refuse before any geometry allocation. Existing singleton/sibling tests use
 the same verification helper and retain their prior coverage.
 
-This is PRIVATE compiled-page qualification. Prepared metadata and actual
-public Context→Bitmap calls still refuse all four compound originals at every
-supported DPI, followed by exact same-Context recovery on accepted profiles.
-Public preparation, receipts, Context fault/recovery and Bitmap lifetime need
-their own gate after independent master acceptance. ABI, caps, test projects,
+This stage qualifies PRIVATE compiled pages. The subsequent
+[M2b.2q public stage](native-m2b2q-public-compound.md) connects this same compiler
+to strict prepared metadata, receipts and actual Context→Bitmap calls, with
+original full-image, fault/recovery and Bitmap lifetime tests. ABI, caps, test projects,
 registrations, CI/CMake, timeouts and old goldens remain unchanged.

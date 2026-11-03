@@ -41,8 +41,9 @@ test then recovers accepted single/sibling originals in the same Context.
 
 This is Source ownership qualification. The subsequent
 [M2b.2p private V5 stage](native-m2b2p-compound-v5.md) adds shared compilation
-and independent correlated sample references. Public Bitmap pixels still need
-separate fault/receipt and lifetime acceptance. Existing public ABI, goldens, numeric caps, test targets,
+and independent correlated sample references. The following
+[public M2b.2q stage](native-m2b2q-public-compound.md) reuses that path with
+fault/receipt and Bitmap lifetime acceptance. Existing public ABI, goldens, numeric caps, test targets,
 registrations, CMake/workflow and timeouts are unchanged. #584/#580/#570/#208
 remain open; exact candidate CI and independent master CI after merge are
 separate gates.

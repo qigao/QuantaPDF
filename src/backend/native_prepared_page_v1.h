@@ -209,6 +209,46 @@ static inline int qp_prepared_m2b2n_sibling_v1(const quantapdf_ir *ir)
         p[2].value.image.image_id==1u;
 }
 
+/* M2b.2q PUBLIC compound admission: exactly the Source-owned flat root
+ * already qualified by M2b.2p. Preserve both original leaves and inspect
+ * their actual member/GS/paint IDs before selecting the shared compiler. */
+static inline int qp_prepared_m2b2q_compound_v1(const quantapdf_ir *ir)
+{
+    if(ir==NULL || ir->pages==NULL || ir->page_count!=1u ||
+       ir->operations==NULL || ir->operation_count!=3u ||
+       ir->resources.images==NULL || ir->resources.image_count!=1u ||
+       ir->resources.image_capacity!=1u || ir->resources.graphics_states==NULL ||
+       ir->resources.graphics_state_count!=1u || ir->resources.graphics_state_capacity!=1u ||
+       ir->resources.clips==NULL || ir->resources.clip_count!=3u || ir->resources.clip_capacity!=3u)
+        return 0;
+    const quantapdf_composer_graphics_state *g=ir->resources.graphics_states;
+    const quantapdf_composer_clip_state *root=&ir->resources.clips[2];
+    const quantapdf_affine_transform *t=&root->transform;
+    if(g->clip_id!=3u || g->soft_mask_id!=0u || g->fill_alpha!=1.0f || g->stroke_alpha!=1.0f ||
+       g->blend_mode!=QUANTAPDF_COMPOSER_BLEND_NORMAL ||
+       root->kind!=QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL ||
+       root->commands!=NULL || root->command_count!=0u ||
+       root->members==NULL || root->member_count!=2u ||
+       !((root->members[0]==1u && root->members[1]==2u) ||
+         (root->members[0]==2u && root->members[1]==1u)) ||
+       !((t->a==0.0f && t->b==0.0f && t->c==0.0f && t->d==0.0f && t->e==0.0f && t->f==0.0f) ||
+         (t->a==1.0f && t->b==0.0f && t->c==0.0f && t->d==1.0f && t->e==0.0f && t->f==0.0f)) ||
+       !qp_prepared_rectangle_clip_v1(&ir->resources.clips[0]) ||
+       !qp_prepared_rectangle_clip_v1(&ir->resources.clips[1]))return 0;
+    const quantapdf_composer_operation *p=ir->operations;
+    if(p[0].kind!=QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES ||
+       p[1].kind!=QUANTAPDF_COMPOSER_OPERATION_PATH ||
+       p[2].kind!=QUANTAPDF_COMPOSER_OPERATION_IMAGE)return 0;
+    for(size_t i=0u;i<3u;++i)
+        if(p[i].page_index!=0u || p[i].graphics_state_id!=1u)return 0;
+    return p[0].value.text_outlines.argb==UINT32_C(0xff000000) &&
+        p[1].value.path.options.graphics_state_id==1u &&
+        p[1].value.path.options.fill==1 && p[1].value.path.options.stroke==0 &&
+        p[2].value.image.options.graphics_state_id==1u &&
+        p[2].value.image.options.struct_size>=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE &&
+        p[2].value.image.image_id==1u;
+}
+
 /* M2b.2h/k PUBLIC admission is narrower than the qualified private
  * four-layer V5 compiler. The original Source has EXACTLY one q-restored
  * suffix after Text->Fill->Image under one W/W* Clip root. This classifier
@@ -292,7 +332,8 @@ static inline int qp_prepared_resource_closure(
        ir->pages[0].background_argb!=UINT32_C(0xffffffff) || ir->pages[0].suppress_background!=0)
         return 0;
     const int qualified_clipped_text=qp_prepared_m2b2c_root_v1(ir) ||
-        qp_prepared_m2b2h_restored_four_v1(ir) || qp_prepared_m2b2n_sibling_v1(ir);
+        qp_prepared_m2b2h_restored_four_v1(ir) || qp_prepared_m2b2n_sibling_v1(ir) ||
+        qp_prepared_m2b2q_compound_v1(ir);
     u->operations=ir->operation_count;
     if(!qp_prepared_bytes(&u->retained_bytes,1u,sizeof(*ir->pages)) ||
        !qp_prepared_bytes(&u->retained_bytes,ir->operation_count,sizeof(*ir->operations)) ||
@@ -423,7 +464,10 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
         const int original_clipped=qp_prepared_m2b2c_root_v1(source);
         const int restored_four=qp_prepared_m2b2h_restored_four_v1(source);
         const int siblings=qp_prepared_m2b2n_sibling_v1(source);
-        p.route=siblings?
+        const int compound=qp_prepared_m2b2q_compound_v1(source);
+        p.route=compound?
+            QP_NATIVE_PREPARED_M2B2Q_COMPOUND_TEXT_FILL_IMAGE:
+            siblings?
             QP_NATIVE_PREPARED_M2B2N_SIBLING_TEXT_FILL_IMAGE:
             restored_four?
             QP_NATIVE_PREPARED_M2B2H_RESTORED_FOUR:
@@ -532,7 +576,8 @@ static inline quantapdf_status quantapdf_native_compiled_page_compile_v1(
        metadata->route==QP_NATIVE_PREPARED_M2B1_TEXT_FILL_IMAGE ||
        metadata->route==QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE ||
        metadata->route==QP_NATIVE_PREPARED_M2B2H_RESTORED_FOUR ||
-       metadata->route==QP_NATIVE_PREPARED_M2B2N_SIBLING_TEXT_FILL_IMAGE)
+       metadata->route==QP_NATIVE_PREPARED_M2B2N_SIBLING_TEXT_FILL_IMAGE ||
+       metadata->route==QP_NATIVE_PREPARED_M2B2Q_COMPOUND_TEXT_FILL_IMAGE)
         out->ledger.malloc_fault=metadata->m2a_malloc_fault;
     if(!quantapdf_native_resources_init_v1(&out->ledger,&metadata->resource_limits,
                                           metadata->usage.retained_bytes)) {
@@ -555,6 +600,9 @@ static inline quantapdf_status quantapdf_native_compiled_page_compile_v1(
             &metadata->limits,&metadata->physical,&out->ledger,&out->scoped);
     else if(metadata->route==QP_NATIVE_PREPARED_M2B2N_SIBLING_TEXT_FILL_IMAGE)
         status=quantapdf_native_scoped_prepare_m2b2m_sibling_v1(metadata->source,
+            &metadata->limits,&metadata->physical,&out->ledger,&out->scoped);
+    else if(metadata->route==QP_NATIVE_PREPARED_M2B2Q_COMPOUND_TEXT_FILL_IMAGE)
+        status=quantapdf_native_scoped_prepare_m2b2p_compound_v1(metadata->source,
             &metadata->limits,&metadata->physical,&out->ledger,&out->scoped);
     else if(metadata->route==QP_NATIVE_PREPARED_EXACT_CUBICS)
         status=quantapdf_native_geometry_prepare_texample_v1(metadata->source,
