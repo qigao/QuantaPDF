@@ -58,10 +58,12 @@ PDFium-free pixel path supports bounded original opaque Path/Image paints,
 RAW or Flate 8-bit Gray/RGB images (including qualified predictors), and
 direct 72/96/144-DPI device sampling. A separately qualified profile renders
 one embedded CID TrueType Text show with one solid rectangular Fill and one
-Image in either original order. The W/W* Text+Fill+Image profile is narrower:
-one axis-aligned root Clip with boundaries aligned to physical pixels at the
-**requested DPI**, under the same owned C11 V5 page and budget. Unsupported
-fonts, fractional original Text/Clip intersections, complex q/Q restored
+Image in either original order. The W/W* Text+Fill+Image profile accepts one
+axis-aligned root Clip, including fractional original boundaries: glyph and
+Clip membership intersect at the same 4x4 subpixels before averaging, under
+the same owned C11 V5 page and budget. The strict Text→Fill→Image sequence
+followed by a Q-restored opaque red rectangle still requires pixel-aligned
+Clip boundaries at the requested DPI. Unsupported fonts, complex q/Q restored
 or sibling Clip scopes, arbitrary Forms, transparency/groups, unsupported
 Stroke/Clip, nonqualified render options, region clipping and thumbnail scaling
 return `QUANTAPDF_ERROR_UNSUPPORTED`, never silently dropping content or

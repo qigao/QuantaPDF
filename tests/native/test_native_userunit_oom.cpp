@@ -1,5 +1,5 @@
 /* Private TEST-ONLY deterministic Bitmap allocation failure on true
- * original QPDF Source V10 UserUnit and restored four-paint pages.
+ * original QPDF Source V10 UserUnit, restored four-paint and fractional Clip pages.
  * Public/installed SDK headers and ABI remain unchanged. */
 #include <quantapdf/quantapdf.h>
 #include "core/context_internal.h"
@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 #include "native_ttf_fixture.h"
+#include "native_ttf_fractional_reference.h"
 
 #define CHECK(expr) do { if(!(expr)) { \
     std::fprintf(stderr,"native UserUnit OOM at %d: %s\n",__LINE__,#expr); \
@@ -49,13 +50,13 @@ static bool author_original_pdf(const char *filename,int quarters)
     return out.good();
 }
 
-static int exercise_context_faults(int quarters)
+static int exercise_context_faults(int quarters,int mode=97)
 {
-    /* Zero selects the original four-paint profile; other values are
+    /* Zero selects an original TTF profile; other values are
      * the established quarter-unit CropBox/Rotate originals. */
     const char *const filename="native-original-userunit-oom.pdf";
     if(quarters==0) {
-        const auto original=native_ttf_fixture(97);
+        const auto original=native_ttf_fixture(mode);
         std::ofstream out(filename,std::ios::binary);
         out.write(original.data(),static_cast<std::streamsize>(original.size()));
         out.close();
@@ -120,13 +121,22 @@ static int exercise_context_faults(int quarters)
         CHECK(w==exact_w && h==exact_h && components==3 &&
               stride==w*3 && bytes==(size_t)stride*(size_t)h &&
               pixels!=nullptr);
-        /* Mode97's red suffix is wholly outside its restored Clip. */
-        const size_t sample=quarters==0?
-            (size_t)(52*dpi/72)*(size_t)stride+(size_t)(36*dpi/72)*3u:
-            2u*(size_t)stride+2u*3u;
-        CHECK(sample+2u<bytes && pixels[sample]==255u &&
-              pixels[sample+1u]==0u && pixels[sample+2u]==0u);
-        const std::vector<unsigned char> golden(pixels,pixels+bytes);
+        const bool fractional=quarters==0 && mode>=99;
+        const auto independent=fractional?native_ttf_fractional_expected(mode,(unsigned)dpi):
+            native_ttf_fractional_reference{};
+        if(fractional) {
+            CHECK(independent.rgb.size()==bytes &&
+                  std::memcmp(pixels,independent.rgb.data(),bytes)==0);
+        } else {
+            /* Mode97's red suffix is wholly outside its restored Clip. */
+            const size_t sample=quarters==0?
+                (size_t)(52*dpi/72)*(size_t)stride+(size_t)(36*dpi/72)*3u:
+                2u*(size_t)stride+2u*3u;
+            CHECK(sample+2u<bytes && pixels[sample]==255u &&
+                  pixels[sample+1u]==0u && pixels[sample+2u]==0u);
+        }
+        const std::vector<unsigned char> golden=fractional?independent.rgb:
+            std::vector<unsigned char>(pixels,pixels+bytes);
         quantapdf_drop_bitmap(bitmap);
         CHECK(context->references==baseline_references);
         /* A failure cannot poison the page, leak the owner lease,
@@ -155,6 +165,11 @@ static int exercise_context_faults(int quarters)
     size_t length=0u;
     OK(quantapdf_bitmap_data(retained,&pixels,&length));
     CHECK(pixels!=nullptr && length!=0u);
+    if(quarters==0 && mode>=99) {
+        const auto expected=native_ttf_fractional_expected(mode,72u);
+        CHECK(length==expected.rgb.size() &&
+              std::memcmp(pixels,expected.rgb.data(),length)==0);
+    }
     quantapdf_drop_bitmap(retained);
     CHECK(finalizations==1u);
     return EXIT_SUCCESS;
@@ -164,5 +179,7 @@ int main()
 {
     for(int quarters:{2,5,8,16,0})
         CHECK(exercise_context_faults(quarters)==EXIT_SUCCESS);
+    for(int mode:{99,100})
+        CHECK(exercise_context_faults(0,mode)==EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }

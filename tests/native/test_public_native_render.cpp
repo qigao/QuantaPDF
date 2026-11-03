@@ -15,6 +15,7 @@
 #include <stdexcept>
 #include <zlib.h>
 #include "native_ttf_fixture.h"
+#include "native_ttf_fractional_reference.h"
 
 #define CHECK(expr) do { if (!(expr)) { \
     std::fprintf(stderr,"native public render failed at %d: %s\n",__LINE__,#expr); \
@@ -720,10 +721,9 @@ static int native_m2b2c_public_aligned(const std::string& filename)
         quantapdf_drop_page(page);
         quantapdf_close(doc);
     }
-    /* Fractional Clip source 83/84 at 96 DPI must remain FAIL-CLOSED.
-     * Malformed late W, Q, Stroke, masked resource and unknown Do also
+    /* Malformed late W, Q, Stroke, masked resource and unknown Do
      * cannot fall back to a second renderer or publish any bitmap. */
-    for(int mode:{83,84,85,86,87,88,89,90,96}) {
+    for(int mode:{85,86,87,88,89,90,96}) {
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         quantapdf_document *denied_doc=nullptr;
         quantapdf_page *denied_page=nullptr;
@@ -785,6 +785,88 @@ static int native_m2b2c_public_aligned(const std::string& filename)
           std::memcmp(held_pixels,detached_reference.data(),held_size)==0);
     quantapdf_drop_bitmap(recover_bitmap);
     std::puts("M2b.2d original W/W* public Text/Fill/Image aligned full RGB at 72/96/144 PASS");
+    return EXIT_SUCCESS;
+}
+
+/* M2b.2j: actual public Source -> Context -> Bitmap, using the independent
+ * original-glyph sample planes. The same byte oracle also verifies recovery
+ * and post-Context lifetime; no successful Bitmap is its own reference. */
+static int native_m2b2j_public_fractional(const std::string& filename)
+{
+    const auto matches=[](quantapdf_bitmap *bitmap,
+                          const native_ttf_fractional_reference& expected) {
+        int w=0,h=0,stride=0,components=0;
+        const unsigned char *bytes=nullptr;size_t size=0u;
+        return bitmap!=nullptr && !expected.rgb.empty() &&
+            quantapdf_bitmap_dimensions(bitmap,&w,&h,&stride,&components)==QUANTAPDF_OK &&
+            quantapdf_bitmap_data(bitmap,&bytes,&size)==QUANTAPDF_OK &&
+            w==(int)expected.width && h==(int)expected.height &&
+            stride==w*3 && components==3 && bytes!=nullptr &&
+            size==expected.rgb.size() &&
+            std::memcmp(bytes,expected.rgb.data(),size)==0;
+    };
+    quantapdf_context *context=nullptr;
+    OK(quantapdf_context_create(&context));
+    quantapdf_bitmap *retained=nullptr;
+    native_ttf_fractional_reference retained_reference;
+    for(int mode:{83,84,99,100}) {
+        CHECK(write_pdf(filename,native_ttf_fixture(mode)));
+        quantapdf_document *document=nullptr;quantapdf_page *page=nullptr;
+        OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(document,0,&page));
+        for(unsigned dpi:{72u,96u,144u}) {
+            const auto expected=native_ttf_fractional_expected(mode,dpi);
+            CHECK(!expected.rgb.empty());
+            if(mode>=99)CHECK(expected.disjoint>0u && expected.overlap>0u &&
+                              expected.spurious>0u);
+            quantapdf_render_options options{};
+            options.struct_size=sizeof(options);options.dpi=(float)dpi;
+            quantapdf_bitmap *bitmap=nullptr;
+            const auto status=quantapdf_render_page_with_options(page,&options,&bitmap);
+            if(status!=QUANTAPDF_OK || !matches(bitmap,expected)) {
+                std::fprintf(stderr,"M2b2j public original RGB mode=%d dpi=%u status=%d\n",
+                    mode,dpi,(int)status);
+                return EXIT_FAILURE;
+            }
+            if(mode==100 && dpi==96u) {
+                retained=bitmap;retained_reference=expected;
+            } else quantapdf_drop_bitmap(bitmap);
+        }
+        quantapdf_drop_page(page);quantapdf_close(document);
+    }
+    /* Authored fractional excess Q, late W, skew/cubic Clip roots and
+     * the still-unqualified fractional FOUR-paint restore refuse atomically. */
+    for(int mode:{101,102,103,104,105}) {
+        CHECK(write_pdf(filename,native_ttf_fixture(mode)));
+        quantapdf_document *document=nullptr;quantapdf_page *page=nullptr;
+        OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(document,0,&page));
+        quantapdf_render_options options{};
+        options.struct_size=sizeof(options);options.dpi=96.0f;
+        quantapdf_bitmap *denied=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+        const auto status=quantapdf_render_page_with_options(page,&options,&denied);
+        CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED || status==QUANTAPDF_ERROR_FORMAT) &&
+              denied==nullptr && matches(retained,retained_reference));
+        quantapdf_drop_page(page);quantapdf_close(document);
+    }
+    CHECK(write_pdf(filename,native_ttf_fixture(99)));
+    quantapdf_document *document=nullptr;quantapdf_page *page=nullptr;
+    OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
+    CHECK(std::remove(filename.c_str())==0);
+    OK(quantapdf_load_page(document,0,&page));
+    quantapdf_render_options options{};
+    options.struct_size=sizeof(options);options.dpi=96.0f;
+    quantapdf_bitmap *recovered=nullptr;
+    OK(quantapdf_render_page_with_options(page,&options,&recovered));
+    CHECK(matches(recovered,native_ttf_fractional_expected(99,96u)));
+    quantapdf_drop_bitmap(recovered);
+    quantapdf_drop_page(page);quantapdf_close(document);
+    quantapdf_drop_context(context);
+    CHECK(matches(retained,retained_reference));
+    quantapdf_drop_bitmap(retained);
+    std::puts("M2b2j public fractional original W/W* full RGB, negative alpha control, recovery/lifetime PASS");
     return EXIT_SUCCESS;
 }
 
@@ -4039,7 +4121,8 @@ int main(int argc,char **argv)
     const std::string filename="native-standalone-smoke.pdf";
     if(argc==2 && std::strcmp(argv[1],"--m2b2c-aligned")==0) {
         CHECK(native_m2b2c_public_aligned(filename)==EXIT_SUCCESS);
-        return native_m2b2h_public_restored(filename);
+        CHECK(native_m2b2h_public_restored(filename)==EXIT_SUCCESS);
+        return native_m2b2j_public_fractional(filename);
     }
     if(argc==2 && std::strcmp(argv[1],"--m2b1-negatives")==0)
         return native_m2b1_public_negatives(filename);
