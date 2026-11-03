@@ -168,10 +168,10 @@ static inline int qp_prepared_m2b2c_root_v1(const quantapdf_ir *ir)
     return 1;
 }
 
-/* A reviewed historical opaque Text alpha golden is sufficient only
- * for a Clip that is all-or-none at each physical pixel. Disallow
- * every fractional Clip rectangle at the requested DPI until exact
- * independent glyph/Clip correlated-edge full RGB is available. */
+/* The four-paint restored profile still relies on historical averaged
+ * Text references. Its Clip must be all-or-none at each physical pixel.
+ * M2b.2j separately qualifies fractional roots for THREE paints using
+ * independent original-glyph sample masks and the same V5 compiler. */
 static inline int qp_prepared_m2b2c_aligned_v1(
     const quantapdf_ir *ir,unsigned dpi)
 {
@@ -409,10 +409,8 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
          * one-Image Source. Prior Text-only mode remains byte-identical. */
         const int original_clipped=qp_prepared_m2b2c_root_v1(source);
         const int restored_four=qp_prepared_m2b2h_restored_four_v1(source);
-        if((original_clipped &&
-            !qp_prepared_m2b2c_aligned_v1(source,p.dpi)) ||
-           (restored_four &&
-            !qp_prepared_m2b2h_aligned_v1(source,p.dpi)))
+        if(restored_four &&
+            !qp_prepared_m2b2h_aligned_v1(source,p.dpi))
             return QUANTAPDF_ERROR_UNSUPPORTED;
         p.route=restored_four?
             QP_NATIVE_PREPARED_M2B2H_RESTORED_FOUR:

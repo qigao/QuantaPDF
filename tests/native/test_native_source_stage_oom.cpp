@@ -26,6 +26,7 @@
 #include <new>
 #include <string>
 #include "native_ttf_fixture.h"
+#include "native_ttf_fractional_reference.h"
 #include <vector>
 #include <algorithm>
 
@@ -2785,8 +2786,7 @@ static int legacy_prepared_contracts(const quantapdf_qpdf_source_raw_image_limit
 
 
 /* M2b.2b original Source ROOT Clip stage. One QPDF parser and one
- * detached owned IR; the public Bitmap route is deliberately still
- * unsupported until the jointly correlated V5 compiled page is ready. */
+ * detached owned IR, also reused by the public fractional V5 route. */
 static int m2b2b_clipped_source_owner_contract(
     const quantapdf_qpdf_source_raw_image_limits& limits)
 {
@@ -2862,11 +2862,11 @@ static int m2b2b_clipped_source_owner_contract(
         std::memset(&denied,0xa5,sizeof(denied));
         const auto prep=quantapdf_native_prepare_page_v1(
             &ir,&raster,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&denied);
-        CHECK(prep==QUANTAPDF_ERROR_UNSUPPORTED &&
-              denied.source==nullptr);
+        CHECK(prep==QUANTAPDF_OK && denied.source==&ir &&
+              denied.route==QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE);
         /* M2b.2c: ONE private compiled C11 V5 page from the actual
          * original Source-owned frozen Clip+Text+Fill+Image. The public
-         * Bitmap adapter above must STILL fail closed. */
+         * Bitmap adapter now uses the same fractional route (M2b.2j). */
         for(unsigned dpi:{72u,96u,144u}) {
             quantapdf_native_device_plan physical{};
             CHECK(quantapdf_native_device_plan_create_physical(
@@ -3062,8 +3062,7 @@ static int m2b2b_clipped_source_owner_contract(
     }
     /* M2b.2e additional REAL original has a different pixel-aligned
      * root rectangle and is already qualified for PUBLIC 96-DPI V5.
-     * Do not accidentally apply the historical 83/84 fractional
-     * fail-closed and 12..28 x 24..44 geometry assertions to mode95. */
+     * Its 12..27 x 24..42 geometry differs from modes 83/84. */
     {
         const std::string original=native_ttf_fixture(95);
         quantapdf_ir staged{};
@@ -3113,7 +3112,7 @@ static int m2b2b_clipped_source_owner_contract(
         CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED ||
                status==QUANTAPDF_ERROR_FORMAT) && cleared(denied));
     }
-    std::puts("M2b2b: original W/W* immutable Source GS/Clip owner, late refusals, public Text+Clip still closed PASS");
+    std::puts("M2b2b: original W/W* immutable Source GS/Clip owner and late refusals PASS");
     return EXIT_SUCCESS;
 }
 
@@ -3254,8 +3253,8 @@ static int m2b2c_original_aligned_whole_rgb(
 }
 
 /* M2b.2i: original quarter-point Clip edges, independent original-glyf
- * sample masks, and one PRIVATE shared V5 compiler. Public fractional
- * admission remains closed while this primitive-level gate qualifies. */
+ * sample masks, and one shared V5 compiler. M2b.2j connects the same
+ * original to public preparation; the independent primitive gate remains. */
 static int m2b2i_fractional_original_reference(
     const quantapdf_qpdf_source_raw_image_limits& source_caps)
 {
@@ -3305,10 +3304,11 @@ static int m2b2i_fractional_original_reference(
                 physical.height==(64u*dpi+71u)/72u);
             quantapdf_native_source_raster_device_v1 device{};
             device.dpi=(float)dpi;
-            quantapdf_native_prepared_page_v1 refused{};
+            quantapdf_native_prepared_page_v1 prepared{};
             CHECK(quantapdf_native_prepare_page_v1(&ir,&limits,&device,
-                QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&refused)==
-                QUANTAPDF_ERROR_UNSUPPORTED && refused.source==nullptr);
+                QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&prepared)==
+                QUANTAPDF_OK && prepared.source==&ir &&
+                prepared.route==QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE);
             const size_t pixels=physical.width*physical.height;
             std::ifstream masks_file(goldens/("roboto-hello-"+
                 std::to_string(dpi)+"-m2b2i.mask16"),std::ios::binary);
@@ -3402,6 +3402,7 @@ static int m2b2i_fractional_original_reference(
             }
             CHECK(disjoint>0u && overlap>0u && wrong_pixels>0u &&
                   spurious_pixels>0u && allocations.failures==0u);
+            CHECK(native_ttf_fractional_expected(mode,dpi).rgba==expected);
             const size_t calls=allocations.attempts;
             quantapdf_native_raster_image_dispose_v1(&ledger,&actual);
             quantapdf_native_scoped_dispose_v5(&compiled);
@@ -3451,9 +3452,10 @@ static int m2b2i_fractional_original_reference(
  * The public pixel-aligned original RGB oracle lives in the existing
  * native_public_render executable, not in this IR-facing test. */
 static int m2b_clipped_prepared_receipt_faults(
-    const quantapdf_qpdf_source_raw_image_limits& source_caps,int mode)
+    const quantapdf_qpdf_source_raw_image_limits& source_caps,int mode,unsigned dpi=72u)
 {
     const bool restored=mode==97;
+    const bool fractional=mode==99 || mode==100;
     const size_t operations=restored?4u:3u;
     const auto route=restored?QP_NATIVE_PREPARED_M2B2H_RESTORED_FOUR:
                               QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE;
@@ -3468,7 +3470,7 @@ static int m2b_clipped_prepared_receipt_faults(
         source_caps.max_source_pixels,source_caps.max_drawn_pixels
     };
     quantapdf_native_source_raster_device_v1 device{};
-    device.dpi=72.0f;
+    device.dpi=(float)dpi;
     quantapdf_native_prepared_page_v1 plan{};
     CHECK(quantapdf_native_prepare_page_v1(
         &ir,&caps,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&plan)==
@@ -3489,8 +3491,9 @@ static int m2b_clipped_prepared_receipt_faults(
             "M2b2d prepared baseline status=%d reached=%zu\n",
             (int)rendered,baseline.attempts);
     CHECK(rendered==QUANTAPDF_OK && pixels.pixels!=nullptr &&
-          pixels.width==128u && pixels.height==64u &&
-          pixels.size==128u*64u*4u &&
+          pixels.width==(128u*dpi+71u)/72u &&
+          pixels.height==(64u*dpi+71u)/72u &&
+          pixels.size==pixels.width*pixels.height*4u &&
           baseline.attempts>=6u && baseline.attempts<=64u &&
           baseline.failures==0u &&
           receipt.source_pixels==4u &&
@@ -3503,8 +3506,13 @@ static int m2b_clipped_prepared_receipt_faults(
           receipt.charged_sample_work<=caps.max_sample_tests &&
           receipt.compiled_edges>0u &&
           receipt.compiled_edges<=caps.max_edges);
-    const std::vector<unsigned char> golden(
-        pixels.pixels,pixels.pixels+pixels.size);
+    const auto independent=fractional?native_ttf_fractional_expected(mode,dpi):
+        native_ttf_fractional_reference{};
+    if(fractional)CHECK(independent.rgba.size()==pixels.size &&
+        std::memcmp(independent.rgba.data(),pixels.pixels,pixels.size)==0 &&
+        independent.disjoint>0u && independent.overlap>0u && independent.spurious>0u);
+    const std::vector<unsigned char> golden=fractional?independent.rgba:
+        std::vector<unsigned char>(pixels.pixels,pixels.pixels+pixels.size);
     const size_t allocations=baseline.attempts;
     const size_t peak=receipt.peak_live_bytes;
     quantapdf_ir_raster_image_dispose(&pixels);
@@ -3556,7 +3564,7 @@ static int m2b_clipped_prepared_receipt_faults(
     budget.limits.max_source_pixels=3u;
     budget.resource_limits.max_source_pixels=3u;
     CHECK(retry(budget,0u,QUANTAPDF_ERROR_UNSUPPORTED));
-    budget=plan;budget.limits.max_pixels=128u*64u;
+    budget=plan;budget.limits.max_pixels=plan.physical.width*plan.physical.height;
     CHECK(retry(budget,0u,QUANTAPDF_OK));
     --budget.limits.max_pixels;
     CHECK(retry(budget,0u,QUANTAPDF_ERROR_UNSUPPORTED));
@@ -3580,7 +3588,7 @@ static int m2b_clipped_prepared_receipt_faults(
     --budget.limits.max_drawn_pixels;
     --budget.resource_limits.max_drawn_pixels;
     CHECK(retry(budget,0u,QUANTAPDF_ERROR_UNSUPPORTED));
-    if(restored) {
+    if(restored || fractional) {
         /* Find the exact admitted cap under the unchanged fixed child
          * shares. Actual billed work alone need not meet those shares.
          * Every probe still requires exact bytes or an empty receipt. */
@@ -4104,7 +4112,7 @@ static int m2b2g_private_fourth_restored_v5(
 
 /* M2b.2a private C11 correlated glyph/Clip fault acceptance. This
  * exercises the REAL exact C11 mallocs in the SAME existing Source/OOM
- * executable; the public original W/W* Source profile is still closed. */
+ * executable; public original acceptance is checked separately above. */
 static int m2b2a_private_clipped_text_faults()
 {
     quantapdf_composer_page_state page{};
@@ -4222,6 +4230,8 @@ int main(int argc,char **argv)
         CHECK(m2b2i_fractional_original_reference(limits)==EXIT_SUCCESS);
         CHECK(m2b_clipped_prepared_receipt_faults(limits,91)==EXIT_SUCCESS);
         CHECK(m2b_clipped_prepared_receipt_faults(limits,97)==EXIT_SUCCESS);
+        CHECK(m2b_clipped_prepared_receipt_faults(limits,99,96u)==EXIT_SUCCESS);
+        CHECK(m2b_clipped_prepared_receipt_faults(limits,100,96u)==EXIT_SUCCESS);
         return m2b2a_private_clipped_text_faults();
     }
     if(argc!=3)return EXIT_FAILURE;

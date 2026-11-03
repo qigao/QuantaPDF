@@ -133,6 +133,20 @@ partially paint or select a fallback.
   fonts/colors, Forms or alpha: [M2b #580](https://github.com/qigao/QuantaPDF/issues/580)
   and [M2b.1 #582](https://github.com/qigao/QuantaPDF/issues/582)
   track the bounded first increment and remaining work.
+- **M2b.2j — fractional original Text/Clip through public Bitmap:** exactly
+  one axis-aligned W/W* root around the qualified three Text/Fill/Image
+  paints, in either original order, now admits fractional Clip boundaries
+  at 72/96/144 DPI. The existing exact glyph sampler intersects each glyph
+  with that root at the same sixteen physical subpixels before averaging;
+  the shared typed compiler, V5 owner/compositor and global ledger are reused.
+  Independent original-quadratic glyph masks and analytic Fill/Image samples
+  compare every RGB byte, including disjoint marginal coverage for which
+  multiplying rounded alpha values would create visible spurious ink.
+  Actual public Context/storage/refcount faults, complete-byte recovery and
+  retained Bitmap lifetime accompany Source/C11 faults and quota N/N−1.
+  The Q-restored fourth red Fill remains restricted to pixel-aligned Clip
+  roots. Skew/cubic roots, sibling roots and wider orders/fonts/matrices
+  remain separate gates. See [M2b.2j](conformance/native-m2b2j-public-fractional.md).
 - One or **two source-ordered Image-only Do paints** under the SAME
   genuine frozen W/W* Clip leaf, with balanced q/Q and no extra PATH
   paint, use the existing C11 clipped RAW Image raster for each layer.
