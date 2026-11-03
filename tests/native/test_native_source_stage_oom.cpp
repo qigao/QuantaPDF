@@ -3550,6 +3550,301 @@ static int m2b2f_fourth_restored_source_owner(
     return EXIT_SUCCESS;
 }
 
+static int m2b2g_private_fourth_restored_v5(
+    const quantapdf_qpdf_source_raw_image_limits& caps)
+{
+    const auto original=native_ttf_fixture(97);
+    quantapdf_ir ir{};
+    CHECK(quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+        reinterpret_cast<const unsigned char*>(original.data()),
+        original.size(),&caps,0u,&ir)==QUANTAPDF_OK &&
+        ir.operation_count==4u && ir.resources.clip_count==1u);
+    const quantapdf_ir_raster_scoped_mixed_v5_limits limits={
+        1000000u,4u,512u,8000000u,caps.max_source_pixels,caps.max_drawn_pixels
+    };
+    for(unsigned dpi:{72u,96u,144u}) {
+        quantapdf_native_device_plan physical{};
+        CHECK(quantapdf_native_device_plan_create_physical(
+            "0 0 128 64","0 0 128 64","1",0,dpi,
+            limits.max_pixels,&physical)==QUANTAPDF_OK);
+        quantapdf_native_work_ledger_v1 ledger{};
+        const quantapdf_native_resource_limits_v1 resources={
+            limits.max_source_pixels,limits.max_drawn_pixels,8000000u
+        };
+        quantapdf_native_work_init_v1(
+            &ledger,limits.max_sample_tests,limits.max_edges);
+        CHECK(quantapdf_native_resources_init_v1(
+            &ledger,&resources,0u));
+        /* This hook counts actual C11 allocations inside the SAME V5
+         * compiled owner, including its fourth GS0 Fill and output. */
+        m2a_malloc_fault_state counted_allocations{};
+        if(dpi==72u)
+            ledger.malloc_fault={
+                &counted_allocations,m2a_malloc_fault_callback
+            };
+        if(dpi==96u) {
+            /* Borrow the real original Source graph and change only the
+             * suffix. Neither a cubic with unprojected controls nor a
+             * skew quadrilateral is in this rectangle-only profile. */
+            for(unsigned variant=0u;variant<2u;++variant) {
+                quantapdf_composer_operation operations[4];
+                quantapdf_composer_path_command commands[5];
+                std::memcpy(operations,ir.operations,sizeof(operations));
+                std::memcpy(commands,ir.operations[3].value.path.commands,
+                            sizeof(commands));
+                if(variant==0u) {
+                    commands[1].kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
+                    commands[1].point2={36.0f,50.5f};
+                    commands[1].point3={38.0f,51.5f};
+                } else commands[1].point1.y+=0.5f;
+                operations[3].value.path.commands=commands;
+                auto rejected_ir=ir;
+                rejected_ir.operations=operations;
+                quantapdf_native_work_ledger_v1 rejected_ledger{};
+                quantapdf_native_work_init_v1(&rejected_ledger,
+                    limits.max_sample_tests,limits.max_edges);
+                CHECK(quantapdf_native_resources_init_v1(
+                    &rejected_ledger,&resources,0u));
+                m2a_malloc_fault_state rejected_allocations{};
+                rejected_ledger.malloc_fault={
+                    &rejected_allocations,m2a_malloc_fault_callback
+                };
+                quantapdf_native_scoped_page_v5 rejected{};
+                CHECK(quantapdf_native_scoped_prepare_m2b2g_restored_four_v1(
+                    &rejected_ir,&limits,&physical,&rejected_ledger,
+                    &rejected)==QUANTAPDF_ERROR_UNSUPPORTED &&
+                    !rejected.ready && rejected_allocations.attempts==0u &&
+                    rejected_ledger.resources.live_bytes==0u &&
+                    rejected_ledger.reserved.sample_work==0u &&
+                    rejected_ledger.reserved.edges==0u);
+                quantapdf_native_scoped_dispose_v5(&rejected);
+            }
+        }
+        quantapdf_native_scoped_page_v5 compiled{};
+        const auto preparation=
+            quantapdf_native_scoped_prepare_m2b2g_restored_four_v1(
+                &ir,&limits,&physical,&ledger,&compiled);
+        if(preparation!=QUANTAPDF_OK)
+            std::fprintf(stderr,
+                "M2b2g C11 four prepare dpi=%u status=%d\n",
+                dpi,(int)preparation);
+        CHECK(preparation==QUANTAPDF_OK && compiled.ready &&
+              compiled.count==4u &&
+              compiled.width==physical.width &&
+              compiled.height==physical.height);
+        for(size_t i=0u;i<4u;++i) {
+            quantapdf_native_geometry_info_v1 info{};
+            CHECK(quantapdf_native_geometry_info_get_v1(
+                &compiled.geometry[i],&info)==QUANTAPDF_OK &&
+                info.draws>0u &&
+                info.clips==(i==3u?0u:1u));
+        }
+        quantapdf_ir_raster_image pixels{};
+        CHECK(quantapdf_native_scoped_execute_v5(
+                  &compiled,&pixels)==QUANTAPDF_OK &&
+              pixels.width==physical.width &&
+              pixels.height==physical.height &&
+              pixels.size==physical.size &&
+              pixels.pixels!=nullptr &&
+              ledger.used.sample_work<=limits.max_sample_tests &&
+              ledger.used.edges<=limits.max_edges);
+        const double scale=(double)dpi/72.0;
+        const size_t red_x=(size_t)(36.0*scale);
+        const size_t red_y=(size_t)(52.0*scale);
+        const size_t green_x=(size_t)(14.0*scale);
+        const size_t green_y=(size_t)(30.0*scale);
+        const size_t white_x=(size_t)(29.0*scale);
+        const size_t white_y=(size_t)(30.0*scale);
+        CHECK(rgba_at(pixels,red_x,red_y)==UINT32_C(0xff0000ff) &&
+              rgba_at(pixels,green_x,green_y)==UINT32_C(0x00ff00ff) &&
+              rgba_at(pixels,white_x,white_y)==UINT32_C(0xffffffff) &&
+              rgba_at(pixels,0u,0u)==UINT32_C(0xffffffff));
+        /* INDEPENDENT ORIGINAL every-pixel RGBA. The reviewed
+         * pre-M2a Roboto Text golden is exact only because this Clip
+         * root (12..27 x24..42) is pixel aligned at each requested
+         * 72/96/144 DPI. The fourth GS0 red rectangle intentionally
+         * has fractional 96-DPI physical edges and is sampled on the
+         * SAME analytic 4x4 grid, never from another raster output. */
+        const auto goldens=std::filesystem::path(__FILE__).parent_path()/"goldens";
+        std::ifstream text_file(goldens/("roboto-hello-"+
+            std::to_string(dpi)+"-m0.rgba"),std::ios::binary);
+        const std::vector<unsigned char> glyph_reference{
+            std::istreambuf_iterator<char>(text_file),{}};
+        CHECK(glyph_reference.size()==pixels.width*pixels.height*4u);
+        static const unsigned char rgb_samples[4][3]={
+            {255u,0u,0u},{0u,255u,0u},
+            {0u,0u,255u},{255u,255u,0u}
+        };
+        size_t ink=0u,unclipped_ink=0u;
+        for(size_t y=0u;y<pixels.height;++y)
+        for(size_t x=0u;x<pixels.width;++x) {
+            const size_t index=y*pixels.width+x;
+            const unsigned char grey=glyph_reference[4u*index];
+            CHECK(grey==glyph_reference[4u*index+1u] &&
+                  grey==glyph_reference[4u*index+2u] &&
+                  glyph_reference[4u*index+3u]==255u);
+            unsigned clip_hits=0u,fill_hits=0u,image_hits=0u,red_hits=0u;
+            for(unsigned sy=0u;sy<4u;++sy)
+            for(unsigned sx=0u;sx<4u;++sx) {
+                const double px=(double)x+((double)sx+0.5)/4.0;
+                const double py=(double)y+((double)sy+0.5)/4.0;
+                const bool clip=px>=12.0*scale && px<27.0*scale &&
+                                py>=24.0*scale && py<42.0*scale;
+                clip_hits+=(unsigned)clip;
+                fill_hits+=(unsigned)(clip &&
+                    px>=12.0*scale && px<28.0*scale &&
+                    py>=24.0*scale && py<44.0*scale);
+                image_hits+=(unsigned)(clip &&
+                    px>=10.0*scale && px<26.0*scale &&
+                    py>=37.0*scale && py<49.0*scale);
+                red_hits+=(unsigned)(px>=34.0*scale && px<40.0*scale &&
+                                     py>=50.0*scale && py<55.0*scale);
+            }
+            CHECK(clip_hits==0u || clip_hits==16u);
+            const unsigned alpha[4]={
+                clip_hits==16u?255u-(unsigned)grey:0u,
+                (fill_hits*255u+8u)/16u,
+                (image_hits*255u+8u)/16u,
+                (red_hits*255u+8u)/16u
+            };
+            const double nx=((double)x+0.5-10.0*scale)/(16.0*scale)*2.0;
+            const double ny=((double)y+0.5-37.0*scale)/(12.0*scale)*2.0;
+            const size_t ix=nx<=0.0?0u:nx>=2.0?1u:(size_t)nx;
+            const size_t iy=ny<=0.0?0u:ny>=2.0?1u:(size_t)ny;
+            const unsigned char *sample=rgb_samples[iy*2u+ix];
+            unsigned expected[3]={255u,255u,255u};
+            for(unsigned layer=0u;layer<4u;++layer) {
+                for(unsigned channel=0u;channel<3u;++channel) {
+                    const unsigned color=layer==0u?0u:
+                        layer==1u?(channel==1u?255u:0u):
+                        layer==2u?(unsigned)sample[channel]:
+                        (channel==0u?255u:0u);
+                    expected[channel]=(color*alpha[layer]+
+                        expected[channel]*(255u-alpha[layer])+127u)/255u;
+                }
+            }
+            const uint32_t actual=rgba_at(pixels,x,y);
+            const uint32_t wanted=(expected[0]<<24u)|
+                                  (expected[1]<<16u)|
+                                  (expected[2]<<8u)|255u;
+            if(actual!=wanted) {
+                std::fprintf(stderr,
+                    "M2b2g original full RGB dpi=%u x=%zu y=%zu got=%08x want=%08x\n",
+                    dpi,x,y,(unsigned)actual,(unsigned)wanted);
+                return EXIT_FAILURE;
+            }
+            ink+=(unsigned)(wanted!=UINT32_C(0xffffffff));
+            unclipped_ink+=(unsigned)(red_hits>0u && clip_hits==0u);
+        }
+        CHECK(ink>0u && unclipped_ink>0u);
+        if(dpi==72u) {
+            /* Stage-only M2b.2g private V5: first/mid/last real
+             * compiled C11 malloc refusals publish zero pixels.
+             * Replaying the same immutable Source IR in a FRESH
+             * ledger must reproduce the entire reviewed RGBA page.
+             * Real global output/source/operation/peak-byte N/N−1
+             * checks never reset an existing work-owner ledger. */
+            const size_t allocations=counted_allocations.attempts;
+            const size_t peak=ledger.resources.peak_live_bytes;
+            const size_t output_pixels=physical.width*physical.height;
+            CHECK(allocations>=7u && allocations<=80u &&
+                  counted_allocations.failures==0u &&
+                  peak>1u && output_pixels>1u);
+            const std::vector<unsigned char> golden(
+                pixels.pixels,pixels.pixels+pixels.size);
+            const auto exercise=[&](
+                size_t fail_on,size_t source_limit,
+                size_t pixel_limit,size_t live_limit,
+                size_t operation_limit,quantapdf_status wanted) {
+                auto cap=limits;
+                cap.max_source_pixels=source_limit;
+                cap.max_pixels=pixel_limit;
+                cap.max_operations=operation_limit;
+                quantapdf_native_work_ledger_v1 trial_ledger{};
+                const quantapdf_native_resource_limits_v1 trial_resources={
+                    source_limit,cap.max_drawn_pixels,live_limit
+                };
+                quantapdf_native_work_init_v1(
+                    &trial_ledger,cap.max_sample_tests,cap.max_edges);
+                if(!quantapdf_native_resources_init_v1(
+                    &trial_ledger,&trial_resources,0u))return false;
+                m2a_malloc_fault_state failures{};
+                failures.fail_on=fail_on;
+                trial_ledger.malloc_fault={
+                    &failures,m2a_malloc_fault_callback
+                };
+                quantapdf_native_scoped_page_v5 candidate{};
+                quantapdf_ir_raster_image result{};
+                auto status=
+                    quantapdf_native_scoped_prepare_m2b2g_restored_four_v1(
+                        &ir,&cap,&physical,&trial_ledger,&candidate);
+                if(status==QUANTAPDF_OK)
+                    status=quantapdf_native_scoped_execute_v5(
+                        &candidate,&result);
+                bool ok=status==wanted;
+                if(wanted==QUANTAPDF_OK)
+                    ok=ok && failures.failures==0u &&
+                       result.pixels!=nullptr &&
+                       result.size==golden.size() &&
+                       std::memcmp(result.pixels,golden.data(),
+                                   golden.size())==0;
+                else
+                    ok=ok && zero_bitmap(result) &&
+                       (fail_on==0u ||
+                        (failures.failures==1u &&
+                         failures.attempts==fail_on));
+                quantapdf_native_raster_image_dispose_v1(
+                    &trial_ledger,&result);
+                quantapdf_native_scoped_dispose_v5(&candidate);
+                ok=ok && trial_ledger.resources.live_bytes==0u &&
+                    trial_ledger.reserved.sample_work==0u &&
+                    trial_ledger.reserved.edges==0u;
+                if(!ok)std::fprintf(stderr,
+                    "M2b2g C11 fault index=%zu source=%zu pixels=%zu live=%zu "
+                    "ops=%zu got=%d want=%d attempts=%zu faults=%zu\n",
+                    fail_on,source_limit,pixel_limit,live_limit,
+                    operation_limit,(int)status,(int)wanted,
+                    failures.attempts,failures.failures);
+                return ok;
+            };
+            const size_t slots[3]={
+                1u,(allocations+1u)/2u,allocations
+            };
+            for(size_t slot:slots) {
+                CHECK(exercise(slot,resources.max_source_pixels,
+                      limits.max_pixels,resources.max_live_bytes,
+                      4u,QUANTAPDF_ERROR_NOMEM));
+                CHECK(exercise(0u,resources.max_source_pixels,
+                      limits.max_pixels,resources.max_live_bytes,
+                      4u,QUANTAPDF_OK));
+            }
+            CHECK(exercise(0u,3u,limits.max_pixels,
+                  resources.max_live_bytes,4u,
+                  QUANTAPDF_ERROR_UNSUPPORTED));
+            CHECK(exercise(0u,resources.max_source_pixels,
+                  output_pixels-1u,resources.max_live_bytes,4u,
+                  QUANTAPDF_ERROR_UNSUPPORTED));
+            CHECK(exercise(0u,resources.max_source_pixels,
+                  limits.max_pixels,resources.max_live_bytes,3u,
+                  QUANTAPDF_ERROR_UNSUPPORTED));
+            CHECK(exercise(0u,resources.max_source_pixels,
+                  limits.max_pixels,peak-1u,4u,
+                  QUANTAPDF_ERROR_UNSUPPORTED));
+            CHECK(exercise(0u,resources.max_source_pixels,
+                  limits.max_pixels,peak,4u,QUANTAPDF_OK));
+        }
+        quantapdf_native_raster_image_dispose_v1(&ledger,&pixels);
+        quantapdf_native_scoped_dispose_v5(&compiled);
+        CHECK(ledger.resources.live_bytes==0u &&
+              ledger.reserved.sample_work==0u &&
+              ledger.reserved.edges==0u);
+    }
+    quantapdf_ir_dispose(&ir);
+    CHECK(cleared(ir));
+    std::puts("M2b.2g original Q-restored four-paint private C11 V5 owner at 72/96/144 PASS");
+    return EXIT_SUCCESS;
+}
+
 /* M2b.2a private C11 correlated glyph/Clip fault acceptance. This
  * exercises the REAL exact C11 mallocs in the SAME existing Source/OOM
  * executable; the public original W/W* Source profile is still closed. */
@@ -3665,6 +3960,7 @@ int main(int argc,char **argv)
         CHECK(m2b1_ordered_source_ir_contract(limits)==EXIT_SUCCESS);
         CHECK(m2b2b_clipped_source_owner_contract(limits)==EXIT_SUCCESS);
         CHECK(m2b2f_fourth_restored_source_owner(limits)==EXIT_SUCCESS);
+        CHECK(m2b2g_private_fourth_restored_v5(limits)==EXIT_SUCCESS);
         CHECK(m2b2c_original_aligned_whole_rgb(limits)==EXIT_SUCCESS);
         CHECK(m2b2d_aligned_prepared_receipt_faults(limits)==EXIT_SUCCESS);
         return m2b2a_private_clipped_text_faults();

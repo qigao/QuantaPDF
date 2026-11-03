@@ -83,6 +83,15 @@ quantapdf_status quantapdf_native_scoped_prepare_m2b2c_text_fill_image_v1(
     const quantapdf_native_device_plan *physical,
     quantapdf_native_work_ledger_v1 *ledger,
     quantapdf_native_scoped_page_v5 *out);
+/* M2b.2g PRIVATE: first three Text/Fill/Image paints under original
+ * Clip1, then exactly one Q-restored GS0 opaque PATH Fill, all under
+ * one C11 V5 page and the unchanged 8M/512 common work ledger. */
+quantapdf_status quantapdf_native_scoped_prepare_m2b2g_restored_four_v1(
+    const quantapdf_ir *ir,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    const quantapdf_native_device_plan *physical,
+    quantapdf_native_work_ledger_v1 *ledger,
+    quantapdf_native_scoped_page_v5 *out);
 quantapdf_status quantapdf_native_scoped_execute_v5(
     quantapdf_native_scoped_page_v5 *page,quantapdf_ir_raster_image *out);
 void quantapdf_native_scoped_dispose_v5(quantapdf_native_scoped_page_v5 *page);

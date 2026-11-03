@@ -12,6 +12,17 @@ design, not arbitrary M2 page admission. No new route identifier, parser, IR
 owner, renderer, public ABI or resource quota is added. Historical wrappers
 still call the same strict page validator. Other V5 profiles are unchanged.
 
+The private M2b.2g four-paint compiler also uses this operation compiler for
+the final Q-restored GS0 Fill. Its own complete admission runs first; the
+first three clipped operations compile through M2b.2c, and the fourth PATH
+keeps the existing physical DPI projection and unclipped FULL work mode.
+All four geometry slots belong to one V5 owner and one ledger. The original
+half-page suffix reservation, eight-edge share and failure cleanup remain.
+The suffix validator proves five-command axis-aligned rectangle topology
+before compiling the prefix. Cubics and skew quadrilaterals refuse without
+geometry allocation; their controls or geometry are not projected here.
+This private increment leaves public four-paint Bitmap admission to #592.
+
 Preparation still occurs in Text/Fill/Image order, independent of paint order,
 to preserve the qualified allocation/error and reservation sequence. The
 existing four-slot owner stores geometry in original paint order, and the
