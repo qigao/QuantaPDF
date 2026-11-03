@@ -42,6 +42,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Prepare dependency cache directories
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_DOWNLOADS, $env:VCPKG_BINARY_CACHE | Out-Null
+
       # Fixed curl-only infrastructure revision: the older cache action and
       # compiler download helpers used Mono/NuGet or non-curl downloaders.
       - name: Set up runner LLVM
