@@ -180,7 +180,7 @@ int main()
 {
     for(int quarters:{2,5,8,16,0})
         CHECK(exercise_context_faults(quarters)==EXIT_SUCCESS);
-    for(int mode:{99,100,105,106,113,114})
+    for(int mode:{99,100,105,106,113,114,126,127,145,146})
         CHECK(exercise_context_faults(0,mode)==EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }
