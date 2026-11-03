@@ -3454,8 +3454,8 @@ static int m2b2i_fractional_original_reference(
 static int m2b_clipped_prepared_receipt_faults(
     const quantapdf_qpdf_source_raw_image_limits& source_caps,int mode,unsigned dpi=72u)
 {
-    const bool restored=mode==97;
-    const bool fractional=mode==99 || mode==100;
+    const bool restored=mode==97 || mode==105 || mode==106;
+    const bool fractional=mode==99 || mode==100 || mode==105 || mode==106;
     const size_t operations=restored?4u:3u;
     const auto route=restored?QP_NATIVE_PREPARED_M2B2H_RESTORED_FOUR:
                               QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE;
@@ -3465,6 +3465,10 @@ static int m2b_clipped_prepared_receipt_faults(
         reinterpret_cast<const unsigned char*>(original.data()),
         original.size(),&source_caps,0u,&ir)==QUANTAPDF_OK &&
         ir.operation_count==operations && ir.resources.clip_count==1u);
+    if(restored) {
+        CHECK(ir.resources.graphics_state_count==1u);
+        for(size_t i=0u;i<4u;++i)CHECK(ir.operations[i].graphics_state_id==(i<3u?1u:0u));
+    }
     const quantapdf_ir_raster_scoped_mixed_v5_limits caps={
         1000000u,4u,512u,8000000u,
         source_caps.max_source_pixels,source_caps.max_drawn_pixels
@@ -4232,6 +4236,8 @@ int main(int argc,char **argv)
         CHECK(m2b_clipped_prepared_receipt_faults(limits,97)==EXIT_SUCCESS);
         CHECK(m2b_clipped_prepared_receipt_faults(limits,99,96u)==EXIT_SUCCESS);
         CHECK(m2b_clipped_prepared_receipt_faults(limits,100,96u)==EXIT_SUCCESS);
+        CHECK(m2b_clipped_prepared_receipt_faults(limits,105,96u)==EXIT_SUCCESS);
+        CHECK(m2b_clipped_prepared_receipt_faults(limits,106,96u)==EXIT_SUCCESS);
         return m2b2a_private_clipped_text_faults();
     }
     if(argc!=3)return EXIT_FAILURE;

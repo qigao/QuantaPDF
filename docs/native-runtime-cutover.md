@@ -144,9 +144,15 @@ partially paint or select a fallback.
   multiplying rounded alpha values would create visible spurious ink.
   Actual public Context/storage/refcount faults, complete-byte recovery and
   retained Bitmap lifetime accompany Source/C11 faults and quota N/N−1.
-  The Q-restored fourth red Fill remains restricted to pixel-aligned Clip
-  roots. Skew/cubic roots, sibling roots and wider orders/fonts/matrices
-  remain separate gates. See [M2b.2j](conformance/native-m2b2j-public-fractional.md).
+  **M2b.2k** extends the strict Text→Fill→Image prefix plus one Q-restored
+  opaque red rectangular Fill to fractional Clip roots. Independent original
+  W/W* references cover a suffix wholly outside the Clip and a suffix that
+  crosses its boundary while painting over all three earlier layers. The
+  original half-work/eight-edge suffix shares and global quotas remain.
+  Skew/cubic roots or suffixes, sibling roots, reversed four-paint order,
+  fifth paints and wider fonts/matrices remain separate gates. See
+  [M2b.2j](conformance/native-m2b2j-public-fractional.md) and
+  [M2b.2k](conformance/native-m2b2k-fractional-restored-four.md).
 - One or **two source-ordered Image-only Do paints** under the SAME
   genuine frozen W/W* Clip leaf, with balanced q/Q and no extra PATH
   paint, use the existing C11 clipped RAW Image raster for each layer.
