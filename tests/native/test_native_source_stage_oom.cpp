@@ -3252,16 +3252,20 @@ static int m2b2c_original_aligned_whole_rgb(
     return EXIT_SUCCESS;
 }
 
-/* M2b.2d exactly the EXISTING Source+Context prepared metadata/receipt
+/* M2b.2d/M2b.2h use the EXISTING Source prepared metadata/receipt
  * pipeline: original clipped Text/Fill/Image receives one new private
  * route, not a second renderer. Fail every actually reached C11 malloc
  * position and demand zero receipt/pixels plus exact recovered bytes.
  * The public pixel-aligned original RGB oracle lives in the existing
  * native_public_render executable, not in this IR-facing test. */
-static int m2b2d_aligned_prepared_receipt_faults(
-    const quantapdf_qpdf_source_raw_image_limits& source_caps)
+static int m2b_clipped_prepared_receipt_faults(
+    const quantapdf_qpdf_source_raw_image_limits& source_caps,int mode)
 {
-    const auto original=native_ttf_fixture(91);
+    const bool restored=mode==97;
+    const size_t operations=restored?4u:3u;
+    const auto route=restored?QP_NATIVE_PREPARED_M2B2H_RESTORED_FOUR:
+                              QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE;
+    const auto original=native_ttf_fixture(mode);
     quantapdf_ir ir{};
     CHECK(quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
         reinterpret_cast<const unsigned char*>(original.data()),
@@ -3277,8 +3281,8 @@ static int m2b2d_aligned_prepared_receipt_faults(
     CHECK(quantapdf_native_prepare_page_v1(
         &ir,&caps,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&plan)==
         QUANTAPDF_OK &&
-        plan.route==QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE &&
-        plan.usage.operations==3u &&
+        plan.route==route &&
+        plan.usage.operations==operations &&
         plan.usage.image_pixels==4u &&
         plan.usage.glyphs==5u &&
         plan.usage.states_used==1u && plan.usage.clips_used==1u);
@@ -3301,7 +3305,7 @@ static int m2b2d_aligned_prepared_receipt_faults(
           receipt.drawn_pixels>0u &&
           receipt.output_bytes==pixels.size &&
           receipt.retained_bytes==plan.usage.retained_bytes &&
-          receipt.completed_leases>=3u &&
+          receipt.completed_leases>=operations &&
           receipt.peak_live_bytes>plan.usage.retained_bytes &&
           receipt.charged_sample_work>0u &&
           receipt.charged_sample_work<=caps.max_sample_tests &&
@@ -3313,7 +3317,8 @@ static int m2b2d_aligned_prepared_receipt_faults(
     const size_t peak=receipt.peak_live_bytes;
     quantapdf_ir_raster_image_dispose(&pixels);
     const auto retry=[&](quantapdf_native_prepared_page_v1 candidate,
-                          size_t failure_index,quantapdf_status desired) {
+                          size_t failure_index,quantapdf_status desired,
+                          quantapdf_status *budget_probe=nullptr) {
         m2a_malloc_fault_state fail{};
         fail.fail_on=failure_index;
         candidate.m2a_malloc_fault={&fail,m2a_malloc_fault_callback};
@@ -3323,8 +3328,11 @@ static int m2b2d_aligned_prepared_receipt_faults(
         std::memset(&output,0xa5,sizeof(output));
         const auto result=quantapdf_native_execute_page_v1(
             &candidate,&report,&output);
-        bool ok=result==desired;
-        if(desired==QUANTAPDF_OK) {
+        if(budget_probe!=nullptr)*budget_probe=result;
+        bool ok=budget_probe!=nullptr?
+            (result==QUANTAPDF_OK || result==QUANTAPDF_ERROR_UNSUPPORTED):
+            result==desired;
+        if(result==QUANTAPDF_OK) {
             ok=ok && output.pixels!=nullptr &&
                 output.size==golden.size() &&
                 std::memcmp(output.pixels,golden.data(),golden.size())==0 &&
@@ -3350,7 +3358,19 @@ static int m2b2d_aligned_prepared_receipt_faults(
             CHECK(retry(plan,0u,QUANTAPDF_OK));
     }
     auto budget=plan;
+    budget.limits.max_source_pixels=4u;
+    budget.resource_limits.max_source_pixels=4u;
+    CHECK(retry(budget,0u,QUANTAPDF_OK));
+    budget.limits.max_source_pixels=3u;
     budget.resource_limits.max_source_pixels=3u;
+    CHECK(retry(budget,0u,QUANTAPDF_ERROR_UNSUPPORTED));
+    budget=plan;budget.limits.max_pixels=128u*64u;
+    CHECK(retry(budget,0u,QUANTAPDF_OK));
+    --budget.limits.max_pixels;
+    CHECK(retry(budget,0u,QUANTAPDF_ERROR_UNSUPPORTED));
+    budget=plan;budget.limits.max_operations=operations;
+    CHECK(retry(budget,0u,QUANTAPDF_OK));
+    --budget.limits.max_operations;
     CHECK(retry(budget,0u,QUANTAPDF_ERROR_UNSUPPORTED));
     CHECK(peak>1u);
     budget=plan;budget.resource_limits.max_live_bytes=peak-1u;
@@ -3368,6 +3388,32 @@ static int m2b2d_aligned_prepared_receipt_faults(
     --budget.limits.max_drawn_pixels;
     --budget.resource_limits.max_drawn_pixels;
     CHECK(retry(budget,0u,QUANTAPDF_ERROR_UNSUPPORTED));
+    if(restored) {
+        /* Find the exact admitted cap under the unchanged fixed child
+         * shares. Actual billed work alone need not meet those shares.
+         * Every probe still requires exact bytes or an empty receipt. */
+        for(bool samples:{true,false}) {
+            size_t low=1u,high=samples?caps.max_sample_tests:caps.max_edges;
+            while(low<high) {
+                const size_t middle=low+(high-low)/2u;
+                auto probe=plan;
+                if(samples)probe.limits.max_sample_tests=middle;
+                else probe.limits.max_edges=middle;
+                quantapdf_status status=QUANTAPDF_ERROR_BACKEND;
+                CHECK(retry(probe,0u,QUANTAPDF_OK,&status));
+                if(status==QUANTAPDF_OK)high=middle;
+                else low=middle+1u;
+            }
+            CHECK(low>1u);
+            auto exact=plan;
+            if(samples)exact.limits.max_sample_tests=low;
+            else exact.limits.max_edges=low;
+            CHECK(retry(exact,0u,QUANTAPDF_OK));
+            if(samples)--exact.limits.max_sample_tests;
+            else --exact.limits.max_edges;
+            CHECK(retry(exact,0u,QUANTAPDF_ERROR_UNSUPPORTED));
+        }
+    }
     /* Exhaustive ORIGINAL Source->one owned IR C allocations, not only
      * the separately checked first/middle/last probes of M2b.2b.
      * Every failed owned Clip publication clears all IR pointers and
@@ -3383,8 +3429,8 @@ static int m2b2d_aligned_prepared_receipt_faults(
         source_attempts=c_allocations;
         track_c_allocation=false;
         CHECK(source_result==QUANTAPDF_OK &&
-              source_attempts>=7u && source_attempts<=64u &&
-              c_faults==0u && trial.operation_count==3u &&
+              source_attempts>=7u && source_attempts<=(restored?128u:64u) &&
+              c_faults==0u && trial.operation_count==operations &&
               trial.resources.clip_count==1u);
         quantapdf_ir_dispose(&trial);
         CHECK(cleared(trial));
@@ -3407,7 +3453,7 @@ static int m2b2d_aligned_prepared_receipt_faults(
             CHECK(quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
                 reinterpret_cast<const unsigned char*>(original.data()),
                 original.size(),&source_caps,0u,&recovered)==QUANTAPDF_OK &&
-                recovered.operation_count==3u &&
+                recovered.operation_count==operations &&
                 recovered.resources.clip_count==1u &&
                 recovered.resources.graphics_state_count==1u);
             quantapdf_ir_dispose(&recovered);
@@ -3415,21 +3461,21 @@ static int m2b2d_aligned_prepared_receipt_faults(
         }
     }
     auto smaller=caps;
-    smaller.max_operations=2u;
+    smaller.max_operations=operations-1u;
     quantapdf_native_prepared_page_v1 denied{};
     CHECK(quantapdf_native_prepare_page_v1(
         &ir,&smaller,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&denied)==
         QUANTAPDF_ERROR_UNSUPPORTED && denied.source==nullptr);
     quantapdf_ir_dispose(&ir);
     CHECK(cleared(ir));
-    std::puts("M2b.2d original W/W* public prepared page receipt and every C11 malloc NOMEM rollback PASS");
+    std::printf("M2b original mode%d prepared receipt, every Source/C11 malloc and budgets PASS\n",mode);
     return EXIT_SUCCESS;
 }
 
 
-/* M2b.2f Source-only four-paint Clip1->Clip0 restore: the same
- * original QPDF Content token stream and unique detached IR owner.
- * PUBLIC Bitmap V5 four-paint route is intentionally still closed. */
+/* Original four-paint Clip1->Clip0 restore: the same QPDF Content
+ * token stream and unique detached IR owner, now connected to the
+ * shared prepared public four-paint route. */
 static int m2b2f_fourth_restored_source_owner(
     const quantapdf_qpdf_source_raw_image_limits& caps)
 {
@@ -3601,6 +3647,44 @@ static int m2b2g_private_fourth_restored_v5(
             ledger.malloc_fault={
                 &counted_allocations,m2a_malloc_fault_callback
             };
+        if(dpi==96u) {
+            /* Borrow the real original Source graph and change only the
+             * suffix. Neither a cubic with unprojected controls nor a
+             * skew quadrilateral is in this rectangle-only profile. */
+            for(unsigned variant=0u;variant<2u;++variant) {
+                quantapdf_composer_operation operations[4];
+                quantapdf_composer_path_command commands[5];
+                std::memcpy(operations,ir.operations,sizeof(operations));
+                std::memcpy(commands,ir.operations[3].value.path.commands,
+                            sizeof(commands));
+                if(variant==0u) {
+                    commands[1].kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
+                    commands[1].point2={36.0f,50.5f};
+                    commands[1].point3={38.0f,51.5f};
+                } else commands[1].point1.y+=0.5f;
+                operations[3].value.path.commands=commands;
+                auto rejected_ir=ir;
+                rejected_ir.operations=operations;
+                quantapdf_native_work_ledger_v1 rejected_ledger{};
+                quantapdf_native_work_init_v1(&rejected_ledger,
+                    limits.max_sample_tests,limits.max_edges);
+                CHECK(quantapdf_native_resources_init_v1(
+                    &rejected_ledger,&resources,0u));
+                m2a_malloc_fault_state rejected_allocations{};
+                rejected_ledger.malloc_fault={
+                    &rejected_allocations,m2a_malloc_fault_callback
+                };
+                quantapdf_native_scoped_page_v5 rejected{};
+                CHECK(quantapdf_native_scoped_prepare_m2b2g_restored_four_v1(
+                    &rejected_ir,&limits,&physical,&rejected_ledger,
+                    &rejected)==QUANTAPDF_ERROR_UNSUPPORTED &&
+                    !rejected.ready && rejected_allocations.attempts==0u &&
+                    rejected_ledger.resources.live_bytes==0u &&
+                    rejected_ledger.reserved.sample_work==0u &&
+                    rejected_ledger.reserved.edges==0u);
+                quantapdf_native_scoped_dispose_v5(&rejected);
+            }
+        }
         quantapdf_native_scoped_page_v5 compiled{};
         const auto preparation=
             quantapdf_native_scoped_prepare_m2b2g_restored_four_v1(
@@ -3943,7 +4027,8 @@ int main(int argc,char **argv)
         CHECK(m2b2f_fourth_restored_source_owner(limits)==EXIT_SUCCESS);
         CHECK(m2b2g_private_fourth_restored_v5(limits)==EXIT_SUCCESS);
         CHECK(m2b2c_original_aligned_whole_rgb(limits)==EXIT_SUCCESS);
-        CHECK(m2b2d_aligned_prepared_receipt_faults(limits)==EXIT_SUCCESS);
+        CHECK(m2b_clipped_prepared_receipt_faults(limits,91)==EXIT_SUCCESS);
+        CHECK(m2b_clipped_prepared_receipt_faults(limits,97)==EXIT_SUCCESS);
         return m2b2a_private_clipped_text_faults();
     }
     if(argc!=3)return EXIT_FAILURE;
