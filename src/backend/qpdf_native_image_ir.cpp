@@ -1144,8 +1144,11 @@ public:
                      [](unsigned char id){return id==1u;}));
             const bool compound_root=source_m2b2o_compound_clip(target) &&
                 clip_active==2u && !target.saw_q_restore &&
-                stack.size()==2u && fill_stack.size()==2u && clip_stack.size()==2u &&
+                stack.size()>=2u && stack.size()<=3u && fill_stack.size()==stack.size() &&
+                clip_stack.size()==stack.size() &&
                 clip_stack[0]==0u && clip_stack[1]==1u &&
+                std::all_of(clip_stack.begin()+2,clip_stack.end(),
+                    [](unsigned char id){return id==2u;}) &&
                 current==matrix{1.0,0.0,0.0,1.0,0.0,0.0} &&
                 std::all_of(stack.begin(),stack.end(),[](const matrix& m) {
                     return m==matrix{1.0,0.0,0.0,1.0,0.0,0.0};

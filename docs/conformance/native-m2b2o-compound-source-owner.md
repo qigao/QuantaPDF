@@ -5,7 +5,9 @@ rectangular W/W* plus n defines leaf1, another q saves leaf1, and a second
 rectangular W/W* plus n defines their intersection before BT. The ordered
 opaque Text→Fill→Image paints use that same frozen root; Q returns to leaf1,
 then Q returns to GS0. No paint after either restore is admitted by this
-profile. Both saved CTMs and the BT handoff CTM are identity.
+profile. Both Clip frames, an optional Text q frame retaining the intersection,
+and the BT handoff CTM are identity. The saved Clip IDs are exactly [0,1] or
+[0,1,2]; the original Text frame does not create a new Clip resource.
 
 The existing pre-BT image/content reader already retains independently frozen
 Clip leaves when a saved frame can observe leaf1. The same outline-reader

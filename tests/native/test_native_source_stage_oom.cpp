@@ -3350,6 +3350,10 @@ static int m2b2o_compound_source_owner(const quantapdf_qpdf_source_raw_image_lim
         track_c_allocation=true;c_allocations=0u;c_faults=0u;c_fail_index=0u;
         const auto status=stage(original,caps,owned);
         const size_t allocations=c_allocations;track_c_allocation=false;
+        if(status!=QUANTAPDF_OK || !valid(owned))std::fprintf(stderr,
+            "M2b2o Source mode=%d status=%d allocations=%zu ops=%zu clips=%zu states=%zu\n",
+            mode,(int)status,allocations,owned.operation_count,owned.resources.clip_count,
+            owned.resources.graphics_state_count);
         CHECK(status==QUANTAPDF_OK && allocations>=12u && allocations<=128u && c_faults==0u && valid(owned));
         const auto frozen=text_ir_snapshot(owned);
         for(unsigned dpi:{72u,96u,144u}) {
