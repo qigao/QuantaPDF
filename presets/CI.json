@@ -15,7 +15,8 @@
         "VCPKG_TARGET_TRIPLET": "$env{QUANTAPDF_CI_TRIPLET}",
         "VCPKG_HOST_TRIPLET": "$env{QUANTAPDF_CI_TRIPLET}",
         "BUILD_SHARED_LIBS": "$env{QUANTAPDF_CI_SHARED}",
-        "QUANTAPDF_BUILD_TESTS": "ON"
+        "QUANTAPDF_BUILD_TESTS": "ON",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/vcpkg_installed"
       }
     },
     {
@@ -31,11 +32,35 @@
     }
   ],
   "buildPresets": [
-    {"name": "ci-native", "configurePreset": "ci-native"},
-    {"name": "ci-asan-ubsan", "configurePreset": "ci-asan-ubsan"}
+    {
+      "name": "ci-native",
+      "configurePreset": "ci-native"
+    },
+    {
+      "name": "ci-asan-ubsan",
+      "configurePreset": "ci-asan-ubsan"
+    }
   ],
   "testPresets": [
-    {"name": "ci-native", "configurePreset": "ci-native", "output": {"outputOnFailure": true}, "execution": {"noTestsAction": "error"}},
-    {"name": "ci-asan-ubsan", "configurePreset": "ci-asan-ubsan", "output": {"outputOnFailure": true}, "execution": {"noTestsAction": "error"}}
+    {
+      "name": "ci-native",
+      "configurePreset": "ci-native",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "ci-asan-ubsan",
+      "configurePreset": "ci-asan-ubsan",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    }
   ]
 }
