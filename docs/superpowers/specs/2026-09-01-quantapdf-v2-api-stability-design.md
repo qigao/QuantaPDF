@@ -1,5 +1,10 @@
 # QuantaPDF v2 API Stability Design
 
+> Superseded on 2026-11-03. No API/ABI compatibility is required. Use the
+> [current feature plan](../../native-feature-plan.md) and
+> [development rules](../../../AGENTS.md). This file preserves the old design
+> as history; its compatibility policy is not an implementation requirement.
+
 ## Goal
 
 Turn the current v2 C11 interface into a release-candidate ABI by making its

@@ -3,8 +3,10 @@
 The Native CI workflow builds and runs the in-tree native CTests on Linux
 Release, Linux ASan/UBSan, macOS ARM64 and Windows x64. Linux/macOS use the
 runner's Clang; Windows and all its dependency packages use LLVM-MinGW UCRT.
-The Windows shared library retains the exact `abi/quantapdf-v2.exports`
-contract, checked with `llvm-readobj --coff-exports`.
+The Windows job currently compares exports with `abi/quantapdf-v2.exports`
+using `llvm-readobj --coff-exports`. Under the [current plan](native-feature-plan.md),
+that historical filename is not an API/ABI compatibility promise. Update the
+intended export manifest with the current header when an API changes.
 
 `ci-native` and `ci-asan-ubsan` are separate from developer presets. The shared
 vcpkg toolchain chainloads the selected compiler, and both C and C++ project
@@ -29,3 +31,18 @@ sources into the local vcpkg files cache; they do not require every dependency
 ABI to have been published to GitHub Packages. No installer/consumer projects
 are built by CI. Runtime CTests, sanitizers and the real Windows export check
 remain the acceptance gates.
+
+## Failure behavior and development direction
+
+Fail fast or let it fail. Native command failures terminate their script;
+PowerShell scripts must propagate native exit failures as well as cmdlet
+exceptions. No catch-and-continue, alternate toolchain/backend, environment
+probe or compatibility path is part of CI. The caches accelerate the same
+pinned build rather than select a different implementation after an error.
+
+Debug/O1 ASan/UBSan, the existing runtime tests and current export verification
+remain real checks. Their test count and historical ABI contents are not frozen.
+A1 cleans up old script/API guard layers; A7 brings relevant SDK behavior tests
+and actual release artifacts into this same in-tree workflow. See
+[the feature plan](native-feature-plan.md) and
+[product verification](product-conformance.md).
