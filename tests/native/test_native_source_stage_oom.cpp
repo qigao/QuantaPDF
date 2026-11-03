@@ -3568,14 +3568,17 @@ static int m2b2o_compound_source_owner(const quantapdf_qpdf_source_raw_image_lim
 
 /* M2b.2m PRIVATE V5: actual sibling Source originals, independent whole
  * RGBA, one per-page ledger, and frozen per-operation Clip selection. */
-static int m2b2m_sibling_v5(const quantapdf_qpdf_source_raw_image_limits& source_caps,bool compound=false)
+static int m2b2m_sibling_v5(const quantapdf_qpdf_source_raw_image_limits& source_caps,
+    bool compound=false,bool reverse=false)
 {
     const quantapdf_ir_raster_scoped_mixed_v5_limits caps={
         1000000u,4u,512u,8000000u,source_caps.max_source_pixels,source_caps.max_drawn_pixels};
     size_t thresholds[2]={0u,0u};
-    const auto prepare=compound?quantapdf_native_scoped_prepare_m2b2p_compound_v1:
+    const auto prepare=reverse?quantapdf_native_scoped_prepare_m2b2s_reverse_sibling_v1:
+        compound?quantapdf_native_scoped_prepare_m2b2p_compound_v1:
         quantapdf_native_scoped_prepare_m2b2m_sibling_v1;
-    const std::vector<int> modes=compound?std::vector<int>{126,127,145,146}:std::vector<int>{113,114};
+    const std::vector<int> modes=reverse?std::vector<int>{147,148,168,169}:
+        compound?std::vector<int>{126,127,145,146}:std::vector<int>{113,114};
     for(int mode:modes) {
         const auto original=native_ttf_fixture(mode);
         quantapdf_ir ir{};
@@ -3587,13 +3590,17 @@ static int m2b2m_sibling_v5(const quantapdf_qpdf_source_raw_image_limits& source
         for(unsigned dpi:{72u,96u,144u}) {
             const auto expected=native_ttf_fractional_expected(mode,dpi);
             CHECK(!expected.rgba.empty());
-            if(!compound || mode>=145)CHECK(expected.disjoint>0u && expected.overlap>0u && expected.spurious>0u);
+            if(reverse?mode>=168:(!compound || mode>=145))CHECK(expected.disjoint>0u && expected.overlap>0u && expected.spurious>0u);
             if(compound) {
                 CHECK(expected.compound_drop_first>0u && expected.compound_drop_second>0u);
                 if(mode>=145)CHECK(expected.compound_text_samples>0u &&
                     expected.compound_fill_samples>0u && expected.compound_image_samples>0u &&
                     expected.compound_product_wrong>0u && expected.compound_product_spurious>0u);
-            } else CHECK(expected.sibling_old_only>0u && expected.sibling_new_only>0u &&
+            } else if(reverse) CHECK(expected.reverse_old_only>0u && expected.reverse_new_only>0u &&
+                expected.reverse_wrong_text_root>0u && expected.reverse_wrong_image_fill_root>0u &&
+                expected.reverse_wrong_intersection>0u && expected.reverse_text_samples>0u &&
+                expected.reverse_fill_samples>0u && expected.reverse_image_samples>0u);
+            else CHECK(expected.sibling_old_only>0u && expected.sibling_new_only>0u &&
                 expected.sibling_wrong_root>0u && expected.sibling_wrong_intersection>0u);
             quantapdf_native_device_plan physical{};
             CHECK(quantapdf_native_device_plan_create_physical("0 0 128 64","0 0 128 64","1",0,
@@ -3643,7 +3650,7 @@ static int m2b2m_sibling_v5(const quantapdf_qpdf_source_raw_image_limits& source
             const double scale=(double)dpi/72.0;
             CHECK(baseline.drawn==(size_t)(std::ceil(26.0*scale)-std::floor(10.0*scale))*
                 (size_t)(std::ceil(49.0*scale)-std::floor(37.0*scale)));
-            if(dpi==96u && (!compound || mode>=145)) {
+            if(dpi==96u && (reverse?mode>=168:(!compound || mode>=145))) {
                 for(size_t fail=1u;fail<=baseline.calls;++fail)
                     CHECK(run(caps,8000000u,fail,QUANTAPDF_ERROR_NOMEM));
                 CHECK(run(caps,8000000u,0u,QUANTAPDF_OK));
@@ -3685,7 +3692,7 @@ static int m2b2m_sibling_v5(const quantapdf_qpdf_source_raw_image_limits& source
                     CHECK(run(bound,8000000u,0u,QUANTAPDF_ERROR_UNSUPPORTED));
                 }
                 /* Complete graph validation precedes the first geometry allocation. */
-                for(unsigned variant=0u;variant<(compound?12u:8u);++variant) {
+                for(unsigned variant=0u;variant<((compound || reverse)?12u:8u);++variant) {
                     auto view=ir;
                     quantapdf_composer_graphics_state states[2]={ir.resources.graphics_states[0],
                         compound?quantapdf_composer_graphics_state{}:ir.resources.graphics_states[1]};
@@ -3698,7 +3705,8 @@ static int m2b2m_sibling_v5(const quantapdf_qpdf_source_raw_image_limits& source
                     if(compound)clips[2].members=members;
                     view.operations=ops;view.resources.graphics_states=states;view.resources.clips=clips;
                     if(variant==0u){if(compound)states[0].clip_id=1u;
-                        else {ops[2].graphics_state_id=1u;ops[2].value.image.options.graphics_state_id=1u;}}
+                        else {ops[2].graphics_state_id=1u;
+                            if(!reverse)ops[2].value.image.options.graphics_state_id=1u;}}
                     if(variant==1u){if(compound)members[1]=1u;else states[1].clip_id=1u;}
                     if(variant==2u)clips[1].transform.e=1.0f;
                     if(variant==3u)commands[2].point1.x-=1.0f;
@@ -3707,10 +3715,11 @@ static int m2b2m_sibling_v5(const quantapdf_qpdf_source_raw_image_limits& source
                         else {clips[1].kind=QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL;clips[1].members=members;clips[1].member_count=1u;}}
                     if(variant==6u)ops[0].graphics_state_id=2u;
                     if(variant==7u)std::swap(ops[0],ops[2]);
-                    if(variant==8u)members[1]=4u;
-                    if(variant==9u)clips[2].transform.e=1.0f;
-                    if(variant==10u)clips[2].member_count=1u;
-                    if(variant==11u)clips[2].kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;
+                    if(variant==8u){if(reverse)ops[0].value.image.options.graphics_state_id=2u;else members[1]=4u;}
+                    if(variant==9u){if(reverse){ops[1].graphics_state_id=2u;ops[1].value.path.options.graphics_state_id=2u;}
+                        else clips[2].transform.e=1.0f;}
+                    if(variant==10u){if(reverse)clips[0].transform.e=1.0f;else clips[2].member_count=1u;}
+                    if(variant==11u){if(reverse)ops[2].page_index=1u;else clips[2].kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;}
                     quantapdf_native_source_raster_device_v1 device{};device.dpi=(float)dpi;
                     quantapdf_native_prepared_page_v1 denied{};
                     CHECK(quantapdf_native_prepare_page_v1(&view,&caps,&device,
@@ -3747,7 +3756,8 @@ static int m2b2m_sibling_v5(const quantapdf_qpdf_source_raw_image_limits& source
         }
         CHECK(text_ir_snapshot(ir)==frozen);quantapdf_ir_dispose(&ir);CHECK(cleared(ir));
     }
-    std::puts(compound?"M2b2p compound V5 independent RGBA, dropped-leaf/product controls, all C11 faults and N/N-1 PASS":
+    std::puts(reverse?"M2b2s reverse sibling V5 independent RGBA, wrong-root/intersection controls, C11 faults and N/N-1 PASS":
+        compound?"M2b2p compound V5 independent RGBA, dropped-leaf/product controls, all C11 faults and N/N-1 PASS":
         "M2b2m sibling V5 independent three-DPI RGBA, wrong-root controls, every C11 malloc and N/N-1 PASS");
     return EXIT_SUCCESS;
 }
@@ -4897,6 +4907,7 @@ int main(int argc,char **argv)
         CHECK(m2b2r_reverse_sibling_source_owner(limits)==EXIT_SUCCESS);
         CHECK(m2b2m_sibling_v5(limits)==EXIT_SUCCESS);
         CHECK(m2b2m_sibling_v5(limits,true)==EXIT_SUCCESS);
+        CHECK(m2b2m_sibling_v5(limits,false,true)==EXIT_SUCCESS);
         CHECK(m2b2f_fourth_restored_source_owner(limits)==EXIT_SUCCESS);
         CHECK(m2b2g_private_fourth_restored_v5(limits)==EXIT_SUCCESS);
         CHECK(m2b2c_original_aligned_whole_rgb(limits)==EXIT_SUCCESS);

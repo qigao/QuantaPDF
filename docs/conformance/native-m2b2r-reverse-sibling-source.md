@@ -41,7 +41,10 @@ in the same Context with unchanged independent RGB references and retained
 Bitmap lifetime checks.
 
 This qualifies Source ownership only. Reverse sibling private V5 pixels and
-public preparation/receipts/Bitmaps require their own increments. Public ABI,
+public preparation/receipts/Bitmaps require their own increments. The following
+[M2b.2s private V5 stage](native-m2b2s-reverse-sibling-v5.md) uses the same
+compiler with independent RGBA and shared-ledger fault/quota qualification;
+public Bitmap admission remains separately gated. Public ABI,
 numerical caps/shares, old fixture bytes/goldens, test executables and
 registrations, CMake/workflow and timeouts remain unchanged. Wider Clip
 graphs/contours, fonts and matrices remain open under #584/#580/#570/#208.

@@ -228,8 +228,10 @@ with independent RGB, faults, recovery and lifetime tests at 72/96/144 DPI.
 This admits exactly the original `[1,1,2]` Text/Fill/Image graph. The subsequent
 [M2b.2r Source stage](conformance/native-m2b2r-reverse-sibling-source.md)
 retains the reverse Image/Fill/Text sibling graph through the same BT handoff
-and shared Source owner, with GS `[1,1,2]` and actual Q restoration. Its private
-V5 and public Bitmap admission remain separately gated; general matrices
+and shared Source owner, with GS `[1,1,2]` and actual Q restoration. The private
+[M2b.2s V5 stage](conformance/native-m2b2s-reverse-sibling-v5.md)
+compiles the frozen roots through the same operation compiler with independent
+RGBA and one ledger. Public Bitmap admission remains separately gated; general matrices
 remain unqualified.
 
 The private [M2b.2o compound Source stage](conformance/native-m2b2o-compound-source-owner.md)
