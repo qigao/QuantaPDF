@@ -569,6 +569,14 @@ static int native_m2b2h_public_restored(const std::string& filename)
     OK(quantapdf_render_page_with_options(
         recovery_page,&options,&recovery_bitmap));
     CHECK(recovery_bitmap!=nullptr);
+    const unsigned char *recovered_bytes=nullptr;
+    size_t recovered_size=0u;
+    OK(quantapdf_bitmap_data(
+        recovery_bitmap,&recovered_bytes,&recovered_size));
+    CHECK(recovered_bytes!=nullptr &&
+          recovered_size==retained_reference.size() &&
+          std::memcmp(recovered_bytes,retained_reference.data(),
+                      recovered_size)==0);
     quantapdf_drop_bitmap(recovery_bitmap);
     quantapdf_drop_page(recovery_page);
     quantapdf_close(recovery_doc);
