@@ -48,10 +48,19 @@ assets, test cases, fault positions, numerical policies and timeouts remain
 unchanged. Candidate CI and independent master CI after merge remain separate
 acceptance evidence.
 
+The existing sanitizer preset stays Debug, with assertions, debug symbols,
+ASan/UBSan, nonrecovering UBSan and frame pointers, and now adds `-O1` for C
+and C++. [Clang's ASan guidance](https://clang.llvm.org/docs/AddressSanitizer.html)
+recommends at least this optimization level for reasonable runtime. The
+accumulated fault/quota corpus exceeded its historical 40-second deadline
+without optimization; no case, sanitizer check or deadline is removed or
+relaxed. Optimized fault-injection observability is verified by the same
+complete native suite.
+
 Prepared metadata and actual public Bitmap calls still refuse all four
 reverse originals at 72/96/144 DPI, then recover accepted single, forward
 sibling and compound profiles in the same Context with independent RGB and
 retained Bitmap lifetime checks. Public preparation, receipts and Bitmap
 fault/lifetime qualification require their next increment. No public ABI,
-test executable/registration, CMake/workflow or timeout changes. Wider Clip
+test executable/registration, CI workflow or timeout changes. Wider Clip
 graphs/contours, fonts and matrices stay open under #584/#580/#570/#208.
