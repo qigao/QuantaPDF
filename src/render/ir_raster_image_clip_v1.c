@@ -290,6 +290,20 @@ quantapdf_status quantapdf_native_image_mask_prepare_visible_clip_v1(
         ledger,out,QP_NATIVE_WORK_VISIBLE_FILL);
 }
 
+quantapdf_status quantapdf_native_image_mask_prepare_visible_pair_v1(
+    const quantapdf_composer_page_state *page,const quantapdf_rect *bounds,
+    const quantapdf_ir_raster_v1_limits *limits,
+    const quantapdf_composer_clip_state *first,const quantapdf_composer_clip_state *second,
+    quantapdf_native_work_ledger_v1 *ledger,quantapdf_native_geometry_v1 *out)
+{
+    const quantapdf_composer_clip_state *clips[2]={first,second};
+    if(out==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out,0,sizeof(*out));
+    if(first==NULL || second==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    return qp_native_image_mask_prepare_impl(page,bounds,limits,clips,2u,
+        ledger,out,QP_NATIVE_WORK_VISIBLE_FILL);
+}
+
 quantapdf_status quantapdf_ir_raster_clipped_raw_image_v1_prepared(
     const quantapdf_ir *ir,size_t page_index,
     const quantapdf_ir_raster_image_v1_limits *image_limits,

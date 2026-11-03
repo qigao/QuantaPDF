@@ -231,7 +231,10 @@ roots, reverse sibling order and general matrices remain unqualified.
 The private [M2b.2o compound Source stage](conformance/native-m2b2o-compound-source-owner.md)
 retains two original rectangular leaves plus their Intersection root for one
 Text→Fill→Image sequence under nested q/Q. It qualifies Source ownership only;
-compound prepared metadata, V5/public Bitmap acceptance remain separate gates.
+compound prepared metadata and public Bitmap acceptance remain separate gates.
+The private [M2b.2p V5 stage](conformance/native-m2b2p-compound-v5.md) passes both
+original leaves through the shared typed compiler and correlated sample path,
+with independent whole-image references and one global ledger.
 
 The public C11 ABI remains unchanged. The SDK is a C ABI backed by C/C++
 implementation; qpdf 12.4, ZLIB and JPEG remain private structure/codec
