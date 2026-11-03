@@ -27,6 +27,7 @@
 #include <string>
 #include "native_ttf_fixture.h"
 #include <vector>
+#include <algorithm>
 
 namespace {
 thread_local unsigned target=0u, observed=0u, faults=0u;
@@ -3252,6 +3253,195 @@ static int m2b2c_original_aligned_whole_rgb(
     return EXIT_SUCCESS;
 }
 
+/* M2b.2i: original quarter-point Clip edges, independent original-glyf
+ * sample masks, and one PRIVATE shared V5 compiler. Public fractional
+ * admission remains closed while this primitive-level gate qualifies. */
+static int m2b2i_fractional_original_reference(
+    const quantapdf_qpdf_source_raw_image_limits& source_caps)
+{
+    const quantapdf_ir_raster_scoped_mixed_v5_limits limits={
+        1000000u,4u,512u,8000000u,
+        source_caps.max_source_pixels,source_caps.max_drawn_pixels
+    };
+    const auto goldens=std::filesystem::path(__FILE__).parent_path()/"goldens";
+    const auto count=[](unsigned mask) {
+        unsigned n=0u;
+        for(unsigned k=0u;k<16u;++k)n+=(mask>>k)&1u;
+        return n;
+    };
+    static const unsigned char samples[4][3]={
+        {255u,0u,0u},{0u,255u,0u},{0u,0u,255u},{255u,255u,0u}
+    };
+    for(int mode:{99,100}) {
+        const bool text_first=mode==99;
+        const auto original=native_ttf_fixture(mode);
+        quantapdf_ir ir{};
+        CHECK(quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            reinterpret_cast<const unsigned char*>(original.data()),
+            original.size(),&source_caps,0u,&ir)==QUANTAPDF_OK &&
+            ir.operation_count==3u && ir.resources.clip_count==1u &&
+            ir.resources.graphics_state_count==1u &&
+            ir.resources.clips[0].fill_rule==(text_first?
+                QUANTAPDF_COMPOSER_FILL_NONZERO:QUANTAPDF_COMPOSER_FILL_EVEN_ODD));
+        const auto& clip=ir.resources.clips[0];
+        CHECK(clip.command_count==5u && clip.commands!=nullptr);
+        float left=clip.commands[0].point1.x,right=left;
+        float top=clip.commands[0].point1.y,bottom=top;
+        for(size_t i=0u;i<4u;++i) {
+            const auto p=clip.commands[i].point1;
+            left=std::min(left,p.x);right=std::max(right,p.x);
+            top=std::min(top,p.y);bottom=std::max(bottom,p.y);
+        }
+        CHECK(left==16.25f && right==43.25f && top==26.25f && bottom==41.75f);
+        CHECK(ir.operations[text_first?0u:2u].kind==QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES &&
+              ir.operations[text_first?0u:2u].value.text_outlines.glyph_count==5u);
+        for(size_t i=0u;i<3u;++i)CHECK(ir.operations[i].graphics_state_id==1u);
+        for(unsigned dpi:{72u,96u,144u}) {
+            quantapdf_native_device_plan physical{};
+            CHECK(quantapdf_native_device_plan_create_physical(
+                "0 0 128 64","0 0 128 64","1",0,dpi,
+                limits.max_pixels,&physical)==QUANTAPDF_OK &&
+                physical.width==(128u*dpi+71u)/72u &&
+                physical.height==(64u*dpi+71u)/72u);
+            quantapdf_native_source_raster_device_v1 device{};
+            device.dpi=(float)dpi;
+            quantapdf_native_prepared_page_v1 refused{};
+            CHECK(quantapdf_native_prepare_page_v1(&ir,&limits,&device,
+                QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&refused)==
+                QUANTAPDF_ERROR_UNSUPPORTED && refused.source==nullptr);
+            const size_t pixels=physical.width*physical.height;
+            std::ifstream masks_file(goldens/("roboto-hello-"+
+                std::to_string(dpi)+"-m2b2i.mask16"),std::ios::binary);
+            const std::vector<unsigned char> masks{
+                std::istreambuf_iterator<char>(masks_file),{}};
+            std::ifstream old_file(goldens/("roboto-hello-"+
+                std::to_string(dpi)+"-m0.rgba"),std::ios::binary);
+            const std::vector<unsigned char> old{
+                std::istreambuf_iterator<char>(old_file),{}};
+            CHECK(masks.size()==pixels*5u*2u && old.size()==pixels*4u);
+            quantapdf_native_work_ledger_v1 ledger{};
+            const quantapdf_native_resource_limits_v1 resources={
+                limits.max_source_pixels,limits.max_drawn_pixels,8000000u
+            };
+            quantapdf_native_work_init_v1(&ledger,limits.max_sample_tests,limits.max_edges);
+            CHECK(quantapdf_native_resources_init_v1(&ledger,&resources,0u));
+            m2a_malloc_fault_state allocations{};
+            ledger.malloc_fault={&allocations,m2a_malloc_fault_callback};
+            quantapdf_native_scoped_page_v5 compiled{};
+            CHECK(quantapdf_native_scoped_prepare_m2b2c_text_fill_image_v1(
+                &ir,&limits,&physical,&ledger,&compiled)==QUANTAPDF_OK);
+            quantapdf_ir_raster_image actual{};
+            CHECK(quantapdf_native_scoped_execute_v5(&compiled,&actual)==QUANTAPDF_OK &&
+                  actual.width==physical.width && actual.height==physical.height &&
+                  actual.size==physical.size && actual.pixels!=nullptr &&
+                  ledger.used.sample_work<=limits.max_sample_tests &&
+                  ledger.used.edges<=limits.max_edges);
+            const double scale=(double)dpi/72.0;
+            std::vector<unsigned char> expected(actual.size,255u);
+            size_t disjoint=0u,overlap=0u,wrong_pixels=0u;
+            for(size_t y=0u;y<physical.height;++y)
+            for(size_t x=0u;x<physical.width;++x) {
+                const size_t i=y*physical.width+x;
+                unsigned clip_mask=0u,fill_hits=0u,image_hits=0u;
+                for(unsigned sy=0u;sy<4u;++sy)
+                for(unsigned sx=0u;sx<4u;++sx) {
+                    const double px=(double)x+((double)sx+0.5)/4.0;
+                    const double py=(double)y+((double)sy+0.5)/4.0;
+                    const bool inside=px>=16.25*scale && px<43.25*scale &&
+                                      py>=26.25*scale && py<41.75*scale;
+                    if(inside)clip_mask|=1u<<(4u*sy+sx);
+                    fill_hits+=(unsigned)(inside && px>=12.0*scale &&
+                        px<19.0*scale && py>=34.0*scale && py<44.0*scale);
+                    image_hits+=(unsigned)(inside && px>=10.0*scale &&
+                        px<26.0*scale && py>=37.0*scale && py<49.0*scale);
+                }
+                unsigned gray=255u,unclipped=255u;
+                for(size_t g=0u;g<5u;++g) {
+                    const size_t at=2u*(g*pixels+i);
+                    const unsigned glyph=(unsigned)masks[at]|((unsigned)masks[at+1u]<<8u);
+                    const unsigned intersection=glyph&clip_mask;
+                    gray=(gray*(16u-count(intersection))+8u)/16u;
+                    unclipped=(unclipped*(16u-count(glyph))+8u)/16u;
+                    if(glyph!=0u && glyph!=65535u && clip_mask!=0u && clip_mask!=65535u) {
+                        disjoint+=(unsigned)(intersection==0u);
+                        overlap+=(unsigned)(intersection!=0u);
+                    }
+                }
+                CHECK(old[4u*i]==unclipped && old[4u*i+1u]==unclipped &&
+                      old[4u*i+2u]==unclipped && old[4u*i+3u]==255u);
+                const unsigned fill_alpha=(fill_hits*255u+8u)/16u;
+                const unsigned image_alpha=(image_hits*255u+8u)/16u;
+                const double nx=((double)x+0.5-10.0*scale)/(16.0*scale)*2.0;
+                const double ny=((double)y+0.5-37.0*scale)/(12.0*scale)*2.0;
+                const size_t ix=nx<=0.0?0u:nx>=2.0?1u:(size_t)nx;
+                const size_t iy=ny<=0.0?0u:ny>=2.0?1u:(size_t)ny;
+                const auto composite=[&](unsigned text_alpha,unsigned channel) {
+                    unsigned value=255u;
+                    for(unsigned layer=0u;layer<3u;++layer) {
+                        const bool image=text_first?layer==2u:layer==0u;
+                        const unsigned alpha=layer==1u?fill_alpha:image?image_alpha:text_alpha;
+                        const unsigned color=layer==1u?(channel==1u?255u:0u):
+                            image?(unsigned)samples[2u*iy+ix][channel]:0u;
+                        value=(color*alpha+value*(255u-alpha)+127u)/255u;
+                    }
+                    return value;
+                };
+                const unsigned product=((255u-unclipped)*((count(clip_mask)*255u+8u)/16u)+127u)/255u;
+                bool different=false;
+                for(unsigned channel=0u;channel<3u;++channel) {
+                    expected[4u*i+channel]=(unsigned char)composite(255u-gray,channel);
+                    different=different || expected[4u*i+channel]!=composite(product,channel);
+                }
+                wrong_pixels+=(unsigned)different;
+                if(std::memcmp(actual.pixels+4u*i,expected.data()+4u*i,4u)!=0) {
+                    std::fprintf(stderr,"M2b2i original fractional RGB mode=%d dpi=%u x=%zu y=%zu\n",
+                        mode,dpi,x,y);
+                    return EXIT_FAILURE;
+                }
+            }
+            CHECK(disjoint>0u && overlap>0u && wrong_pixels>0u && allocations.failures==0u);
+            const size_t calls=allocations.attempts;
+            quantapdf_native_raster_image_dispose_v1(&ledger,&actual);
+            quantapdf_native_scoped_dispose_v5(&compiled);
+            CHECK(ledger.resources.live_bytes==0u && ledger.reserved.sample_work==0u &&
+                  ledger.reserved.edges==0u);
+            if(mode==99 && dpi==96u) {
+                CHECK(calls>=6u && calls<=80u);
+                for(size_t failed=1u;failed<=calls+1u;++failed) {
+                    quantapdf_native_work_ledger_v1 trial{};
+                    quantapdf_native_work_init_v1(&trial,limits.max_sample_tests,limits.max_edges);
+                    CHECK(quantapdf_native_resources_init_v1(&trial,&resources,0u));
+                    m2a_malloc_fault_state fault{};
+                    fault.fail_on=failed<=calls?failed:0u;
+                    trial.malloc_fault={&fault,m2a_malloc_fault_callback};
+                    quantapdf_native_scoped_page_v5 page{};
+                    quantapdf_ir_raster_image result{};
+                    auto status=quantapdf_native_scoped_prepare_m2b2c_text_fill_image_v1(
+                        &ir,&limits,&physical,&trial,&page);
+                    if(status==QUANTAPDF_OK)status=quantapdf_native_scoped_execute_v5(&page,&result);
+                    if(fault.fail_on!=0u) {
+                        CHECK(status==QUANTAPDF_ERROR_NOMEM && zero_bitmap(result) &&
+                              fault.failures==1u && fault.attempts==failed);
+                    } else {
+                        CHECK(status==QUANTAPDF_OK && result.pixels!=nullptr &&
+                              result.size==expected.size() && fault.failures==0u &&
+                              fault.attempts==calls &&
+                              std::memcmp(result.pixels,expected.data(),expected.size())==0);
+                    }
+                    quantapdf_native_raster_image_dispose_v1(&trial,&result);
+                    quantapdf_native_scoped_dispose_v5(&page);
+                    CHECK(trial.resources.live_bytes==0u && trial.reserved.sample_work==0u &&
+                          trial.reserved.edges==0u);
+                }
+            }
+        }
+        quantapdf_ir_dispose(&ir);
+        CHECK(cleared(ir));
+    }
+    std::puts("M2b2i original fractional W/W* both orders, independent per-glyph samples and C11 faults PASS");
+    return EXIT_SUCCESS;
+}
+
 /* M2b.2d/M2b.2h use the EXISTING Source prepared metadata/receipt
  * pipeline: original clipped Text/Fill/Image receives one new private
  * route, not a second renderer. Fail every actually reached C11 malloc
@@ -4027,6 +4217,7 @@ int main(int argc,char **argv)
         CHECK(m2b2f_fourth_restored_source_owner(limits)==EXIT_SUCCESS);
         CHECK(m2b2g_private_fourth_restored_v5(limits)==EXIT_SUCCESS);
         CHECK(m2b2c_original_aligned_whole_rgb(limits)==EXIT_SUCCESS);
+        CHECK(m2b2i_fractional_original_reference(limits)==EXIT_SUCCESS);
         CHECK(m2b_clipped_prepared_receipt_faults(limits,91)==EXIT_SUCCESS);
         CHECK(m2b_clipped_prepared_receipt_faults(limits,97)==EXIT_SUCCESS);
         return m2b2a_private_clipped_text_faults();

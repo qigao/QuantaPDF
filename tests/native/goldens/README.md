@@ -75,3 +75,40 @@ edges and original paint order. The background golden also qualifies
 actual public Composer → serialized PDF → Source → native RGB output.
 Regenerate with the existing `native_ttf_reference.py` command above.
 M0 files remain byte-identical. No reference tool runs in production/CI.
+
+## Original fractional glyph/Clip samples (M2b.2i)
+
+`roboto-hello-{72,96,144}-m2b2i.mask16` stores the five original Hello
+glyphs separately, in paint order. Each glyph has a row-major physical
+page of little-endian uint16 values. Bit `4*sy+sx` is membership at the
+global sample `(x+(sx+0.5)/4, y+(sy+0.5)/4)`, with `sx,sy` in 0..3.
+Dimensions use the exact enclosing ceil of 128x64 points at DPI/72.
+Glyph masks are not unioned or converted to 8-bit alpha.
+
+| DPI | Dimensions | Bytes | SHA256 |
+| --- | --- | --- | --- |
+| 72 | 128 x 64 | 81920 | `cc4fa9c8ae8be60cd129b0bb497ad5f6ad4decd84dad5da98aa827323ba9389a` |
+| 96 | 171 x 86 | 147060 | `8cb02a9e28041f28251a04b78667e21f8ad5244ef27db7224174306793ff6f47` |
+| 144 | 256 x 128 | 327680 | `25ae2582a2eae77aa09c2edd1b5fc5591b636fdb22df9232c2bd0c555a23c92c` |
+
+The existing independent original-glyf Decimal reference produces these
+masks from the SHA-pinned Roboto fixture, with no production Source/C11
+imports, cubic conversion, flattening or captured Bitmap. Regenerate with:
+
+```sh
+python tools/qualification/native_ttf_reference.py --case hello --sample-masks --output-dir /tmp/ttf-reference
+```
+
+60- and 80-digit generation yields identical masks. Collapsing each glyph
+to coverage and preserving glyph paint order reproduces the complete old
+Hello M0 RGBA at all three DPIs. Regeneration also preserves all 24 old
+M0/M1 RGBA files byte-for-byte.
+
+Genuine original W/W* fixtures 99/100 use Source Clip x=16.25..43.25,
+Y-down y=26.25..41.75, partial green Fill and the existing RGB Image, in
+both paint orders. The H stem has nonempty marginal glyph/Clip masks but
+empty intersections at every DPI; curved glyph edges also have nonempty
+partial intersections. Native tests compare every mixed RGBA byte with
+the independently generated glyph masks and analytic rectangle/Image
+samples. They additionally prove rounded 8-bit alpha multiplication would
+change visible pixels. Public fractional admission remains separately gated.

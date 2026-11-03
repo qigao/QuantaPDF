@@ -112,25 +112,32 @@ def fixture(case, font):
                 x -= 8  # same-Tj overlap: preserve each original glyph paint
 
 
+def sample_mask(edges, dpi):
+    """One original glyph's exact 4x4 membership, before alpha rounding."""
+    width, height = (128*dpi+71)//72, (64*dpi+71)//72
+    masks = [0]*(width*height)
+    for row in range(height*4):
+        y = D(2*row+1)*72/(8*dpi)
+        if y >= 64:
+            continue
+        events = sorted(v for e in edges if (v := crossing(e, y)) is not None)
+        winding, event = 0, 0
+        for col in range(width*4):
+            x = D(2*col+1)*72/(8*dpi)
+            while event < len(events) and events[event][0] <= x:
+                winding += events[event][1]
+                event += 1
+            if winding and x < 128:
+                masks[(row//4)*width+col//4] |= 1 << (4*(row%4)+col%4)
+    return masks
+
+
 def render(case, dpi, font):
     width, height = (128*dpi+71)//72, (64*dpi+71)//72
     pixels = bytearray([255])*(width*height*4)
     for edges, color in fixture(case, font):
-        cover = [0]*(width*height)
-        for row in range(height*4):
-            y = D(2*row+1)*72/(8*dpi)
-            if y >= 64:
-                continue
-            events = sorted(v for e in edges if (v := crossing(e, y)) is not None)
-            winding, event = 0, 0
-            for col in range(width*4):
-                x = D(2*col+1)*72/(8*dpi)
-                while event < len(events) and events[event][0] <= x:
-                    winding += events[event][1]
-                    event += 1
-                if winding and x < 128:
-                    cover[(row//4)*width+col//4] += 1
-        for i, n in enumerate(cover):
+        for i, mask in enumerate(sample_mask(edges, dpi)):
+            n = mask.bit_count()
             for ch in range(3):
                 pixels[4*i+ch] = (color[ch]*n+pixels[4*i+ch]*(16-n)+8)//16
     return pixels
@@ -139,14 +146,26 @@ def render(case, dpi, font):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output-dir', type=Path, required=True)
+    cases = ('hello', 'layers', 'tj', 'fringe', 'mixed', 'reverse', 'background', 'late')
+    parser.add_argument('--case', action='append', choices=cases)
+    parser.add_argument('--sample-masks', action='store_true',
+                        help='also write five Hello glyph layers as little-endian uint16 masks')
     args = parser.parse_args()
     assert hashlib.sha256(FONT.read_bytes()).hexdigest() == SHA
     font = TTFont(FONT)
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    for case in ('hello', 'layers', 'tj', 'fringe', 'mixed', 'reverse', 'background', 'late'):
+    for case in args.case or cases:
         for dpi in (72, 96, 144):
             data = render(case, dpi, font)
             out = args.output_dir / f'roboto-{case}-{dpi}-m{1 if case in ("mixed","reverse","background","late") else 0}.rgba'
+            out.write_bytes(data)
+            print(out.name, len(data), hashlib.sha256(data).hexdigest())
+    if args.sample_masks:
+        for dpi in (72, 96, 144):
+            layers = [sample_mask(edges, dpi) for edges, _ in fixture('hello', font)]
+            assert len(layers) == 5
+            data = b''.join(mask.to_bytes(2, 'little') for layer in layers for mask in layer)
+            out = args.output_dir / f'roboto-hello-{dpi}-m2b2i.mask16'
             out.write_bytes(data)
             print(out.name, len(data), hashlib.sha256(data).hexdigest())
 
