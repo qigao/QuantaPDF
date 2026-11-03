@@ -174,10 +174,10 @@ static inline int qp_prepared_m2b2c_root_v1(const quantapdf_ir *ir)
     return 1;
 }
 
-/* M2b.2n PUBLIC sibling admission: the Source-owned [1,1,2] graph
+/* M2b.2n/t PUBLIC sibling admission: the Source-owned [1,1,2] graph
  * already qualified by the shared private compiler. Inspect both original
  * roots directly; never replace, intersect or reparse their identity. */
-static inline int qp_prepared_m2b2n_sibling_v1(const quantapdf_ir *ir)
+static inline int qp_prepared_sibling_text_fill_image_v1(const quantapdf_ir *ir,int reverse)
 {
     if(ir==NULL || ir->pages==NULL || ir->page_count!=1u ||
        ir->operations==NULL || ir->operation_count!=3u ||
@@ -196,17 +196,32 @@ static inline int qp_prepared_m2b2n_sibling_v1(const quantapdf_ir *ir)
            !qp_prepared_rectangle_clip_v1(&ir->resources.clips[i]))return 0;
     }
     const quantapdf_composer_operation *p=ir->operations;
-    if(p[0].kind!=QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES ||
+    if(p[0].kind!=(reverse?QUANTAPDF_COMPOSER_OPERATION_IMAGE:
+                           QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES) ||
        p[1].kind!=QUANTAPDF_COMPOSER_OPERATION_PATH ||
-       p[2].kind!=QUANTAPDF_COMPOSER_OPERATION_IMAGE)return 0;
+       p[2].kind!=(reverse?QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES:
+                           QUANTAPDF_COMPOSER_OPERATION_IMAGE))return 0;
     for(size_t i=0u;i<3u;++i)
         if(p[i].page_index!=0u || p[i].graphics_state_id!=(i==2u?2u:1u))return 0;
-    return p[0].value.text_outlines.argb==UINT32_C(0xff000000) &&
+    const size_t text=reverse?2u:0u,image=reverse?0u:2u;
+    return p[text].value.text_outlines.argb==UINT32_C(0xff000000) &&
         p[1].value.path.options.graphics_state_id==1u &&
         p[1].value.path.options.fill==1 && p[1].value.path.options.stroke==0 &&
-        p[2].value.image.options.graphics_state_id==2u &&
-        p[2].value.image.options.struct_size>=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE &&
-        p[2].value.image.image_id==1u;
+        p[image].value.image.options.graphics_state_id==(reverse?1u:2u) &&
+        p[image].value.image.options.struct_size>=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE &&
+        p[image].value.image.image_id==1u;
+}
+
+static inline int qp_prepared_m2b2n_sibling_v1(const quantapdf_ir *ir)
+{
+    return qp_prepared_sibling_text_fill_image_v1(ir,0);
+}
+
+/* M2b.2t: the same frozen [1,1,2] graph in Image/Fill/Text order.
+ * The separately qualified reverse compiler preserves Text->Clip2. */
+static inline int qp_prepared_m2b2t_reverse_sibling_v1(const quantapdf_ir *ir)
+{
+    return qp_prepared_sibling_text_fill_image_v1(ir,1);
 }
 
 /* M2b.2q PUBLIC compound admission: exactly the Source-owned flat root
@@ -333,7 +348,7 @@ static inline int qp_prepared_resource_closure(
         return 0;
     const int qualified_clipped_text=qp_prepared_m2b2c_root_v1(ir) ||
         qp_prepared_m2b2h_restored_four_v1(ir) || qp_prepared_m2b2n_sibling_v1(ir) ||
-        qp_prepared_m2b2q_compound_v1(ir);
+        qp_prepared_m2b2q_compound_v1(ir) || qp_prepared_m2b2t_reverse_sibling_v1(ir);
     u->operations=ir->operation_count;
     if(!qp_prepared_bytes(&u->retained_bytes,1u,sizeof(*ir->pages)) ||
        !qp_prepared_bytes(&u->retained_bytes,ir->operation_count,sizeof(*ir->operations)) ||
@@ -464,8 +479,11 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
         const int original_clipped=qp_prepared_m2b2c_root_v1(source);
         const int restored_four=qp_prepared_m2b2h_restored_four_v1(source);
         const int siblings=qp_prepared_m2b2n_sibling_v1(source);
+        const int reverse_siblings=qp_prepared_m2b2t_reverse_sibling_v1(source);
         const int compound=qp_prepared_m2b2q_compound_v1(source);
-        p.route=compound?
+        p.route=reverse_siblings?
+            QP_NATIVE_PREPARED_M2B2T_REVERSE_SIBLING:
+            compound?
             QP_NATIVE_PREPARED_M2B2Q_COMPOUND_TEXT_FILL_IMAGE:
             siblings?
             QP_NATIVE_PREPARED_M2B2N_SIBLING_TEXT_FILL_IMAGE:
@@ -577,7 +595,8 @@ static inline quantapdf_status quantapdf_native_compiled_page_compile_v1(
        metadata->route==QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE ||
        metadata->route==QP_NATIVE_PREPARED_M2B2H_RESTORED_FOUR ||
        metadata->route==QP_NATIVE_PREPARED_M2B2N_SIBLING_TEXT_FILL_IMAGE ||
-       metadata->route==QP_NATIVE_PREPARED_M2B2Q_COMPOUND_TEXT_FILL_IMAGE)
+       metadata->route==QP_NATIVE_PREPARED_M2B2Q_COMPOUND_TEXT_FILL_IMAGE ||
+       metadata->route==QP_NATIVE_PREPARED_M2B2T_REVERSE_SIBLING)
         out->ledger.malloc_fault=metadata->m2a_malloc_fault;
     if(!quantapdf_native_resources_init_v1(&out->ledger,&metadata->resource_limits,
                                           metadata->usage.retained_bytes)) {
@@ -603,6 +622,9 @@ static inline quantapdf_status quantapdf_native_compiled_page_compile_v1(
             &metadata->limits,&metadata->physical,&out->ledger,&out->scoped);
     else if(metadata->route==QP_NATIVE_PREPARED_M2B2Q_COMPOUND_TEXT_FILL_IMAGE)
         status=quantapdf_native_scoped_prepare_m2b2p_compound_v1(metadata->source,
+            &metadata->limits,&metadata->physical,&out->ledger,&out->scoped);
+    else if(metadata->route==QP_NATIVE_PREPARED_M2B2T_REVERSE_SIBLING)
+        status=quantapdf_native_scoped_prepare_m2b2s_reverse_sibling_v1(metadata->source,
             &metadata->limits,&metadata->physical,&out->ledger,&out->scoped);
     else if(metadata->route==QP_NATIVE_PREPARED_EXACT_CUBICS)
         status=quantapdf_native_geometry_prepare_texample_v1(metadata->source,

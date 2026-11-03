@@ -92,7 +92,8 @@ quantapdf_status quantapdf_native_scoped_prepare_m2b2m_sibling_v1(
     quantapdf_native_work_ledger_v1 *ledger,
     quantapdf_native_scoped_page_v5 *out);
 /* M2b.2s PRIVATE: original Image/Fill under Clip1, Text under Clip2,
- * frozen GS [1,1,2]. Same compiler/owner/ledger; public gate stays closed. */
+ * frozen GS [1,1,2]. Same compiler/owner/ledger; public Source admission
+ * separately qualifies this graph before invoking the private entry. */
 quantapdf_status quantapdf_native_scoped_prepare_m2b2s_reverse_sibling_v1(
     const quantapdf_ir *ir,const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     const quantapdf_native_device_plan *physical,quantapdf_native_work_ledger_v1 *ledger,

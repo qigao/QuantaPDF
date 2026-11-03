@@ -57,10 +57,11 @@ without optimization; no case, sanitizer check or deadline is removed or
 relaxed. Optimized fault-injection observability is verified by the same
 complete native suite.
 
-Prepared metadata and actual public Bitmap calls still refuse all four
-reverse originals at 72/96/144 DPI, then recover accepted single, forward
-sibling and compound profiles in the same Context with independent RGB and
-retained Bitmap lifetime checks. Public preparation, receipts and Bitmap
-fault/lifetime qualification require their next increment. No public ABI,
+This private stage leaves prepared metadata and actual public Bitmap calls
+closed for all four reverse originals at 72/96/144 DPI, followed by recovery
+on accepted profiles in the same Context. The following
+[M2b.2t public stage](native-m2b2t-public-reverse-sibling.md) connects this same
+compiler to preparation, receipts and Bitmap fault/lifetime qualification.
+No public ABI,
 test executable/registration, CI workflow or timeout changes. Wider Clip
 graphs/contours, fonts and matrices stay open under #584/#580/#570/#208.
