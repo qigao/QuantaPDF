@@ -87,6 +87,7 @@ jobs:
           'QUANTAPDF_CI_SHARED=${{ matrix.shared }}' >> $env:GITHUB_ENV
           "runner-image=$env:ImageOS-$env:ImageVersion" >> $env:GITHUB_OUTPUT
           if ($IsWindows) {
+            (Join-Path $env:GITHUB_WORKSPACE 'build/${{ matrix.preset }}') >> $env:GITHUB_PATH
             (Join-Path $env:GITHUB_WORKSPACE 'vcpkg_installed/${{ matrix.triplet }}/bin') >> $env:GITHUB_PATH
           }
 
