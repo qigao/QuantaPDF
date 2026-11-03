@@ -1594,7 +1594,10 @@ quantapdf_status quantapdf_native_scoped_prepare_m2b2g_restored_four_v1(
             const double y=(double)commands[i].point1.y*scale;
             if(!isfinite(x) || !isfinite(y) ||
                x< -1000000.0 || x>1000000.0 ||
-               y< -1000000.0 || y>1000000.0)goto cleanup;
+               y< -1000000.0 || y>1000000.0) {
+                status=QUANTAPDF_ERROR_UNSUPPORTED;
+                goto cleanup;
+            }
             commands[i].point1.x=(float)x;
             commands[i].point1.y=(float)y;
         }
