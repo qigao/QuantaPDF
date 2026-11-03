@@ -3523,12 +3523,31 @@ static int m2b2f_fourth_restored_source_owner(
         1000000u,4u,512u,8000000u,
         caps.max_source_pixels,caps.max_drawn_pixels
     };
-    quantapdf_native_prepared_page_v1 refused;
-    std::memset(&refused,0xa5,sizeof(refused));
+    /* M2b.2h accepted PUBLIC route is exactly the newly qualified
+     * four-paint original state transition [Clip1,Clip1,Clip1,GS0].
+     * Reuse the identical owner/receipt and C11 V5 execute pipeline
+     * already used for previous public source profiles. */
+    quantapdf_native_prepared_page_v1 accepted{};
     CHECK(quantapdf_native_prepare_page_v1(
         &ir,&raster,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,
-        &refused)==QUANTAPDF_ERROR_UNSUPPORTED &&
-        refused.source==nullptr);
+        &accepted)==QUANTAPDF_OK &&
+        accepted.route==QP_NATIVE_PREPARED_M2B2H_RESTORED_FOUR &&
+        accepted.usage.operations==4u &&
+        accepted.usage.image_pixels==4u &&
+        accepted.usage.states_used==1u &&
+        accepted.usage.clips_used==1u);
+    quantapdf_native_execution_receipt_v1 receipt{};
+    quantapdf_ir_raster_image receipt_bitmap{};
+    CHECK(quantapdf_native_execute_page_v1(
+        &accepted,&receipt,&receipt_bitmap)==QUANTAPDF_OK &&
+        receipt_bitmap.pixels!=nullptr &&
+        receipt.source_pixels==4u &&
+        receipt.drawn_pixels>0u &&
+        receipt.completed_leases>=4u &&
+        receipt.output_bytes==receipt_bitmap.size &&
+        receipt.charged_sample_work<=raster.max_sample_tests &&
+        receipt.compiled_edges<=raster.max_edges);
+    quantapdf_ir_raster_image_dispose(&receipt_bitmap);
     quantapdf_ir_dispose(&ir);
     CHECK(cleared(ir));
     auto smaller=caps;
@@ -3546,7 +3565,7 @@ static int m2b2f_fourth_restored_source_owner(
           ir.operations[3].graphics_state_id==0u);
     quantapdf_ir_dispose(&ir);
     CHECK(cleared(ir));
-    std::puts("M2b2f ORIGINAL pre-W q, Clip1 x3, Q restored GS0 fourth Fill and fail-closed public PASS");
+    std::puts("M2b2h ORIGINAL Clip1 x3, Q restored GS0 fourth Fill public receipt and Source owner PASS");
     return EXIT_SUCCESS;
 }
 

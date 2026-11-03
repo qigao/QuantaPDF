@@ -21,7 +21,8 @@ typedef enum quantapdf_native_prepared_route_v1 {
     QP_NATIVE_PREPARED_EXACT_CUBICS,
     QP_NATIVE_PREPARED_M2A_TEXT_IMAGE,
     QP_NATIVE_PREPARED_M2B1_TEXT_FILL_IMAGE,
-    QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE
+    QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE,
+    QP_NATIVE_PREPARED_M2B2H_RESTORED_FOUR
 } quantapdf_native_prepared_route_v1;
 
 /* Compile the same stack projection into retained geometry/value records.

@@ -408,6 +408,192 @@ static int probe_rgb(const unsigned char *data,int stride,int x,int y,
  * glyph golden is valid here ONLY because Clip is all-or-none for
  * every device pixel at these exact DPIs. Fill and Image coverage
  * are independently calculated at the 16 physical subpixels. */
+/* M2b.2h PUBLIC QPDF original q/W/BT/Text/Fill/Image/Q/unmasked Fill.
+ * Exactly one frozen pixel-aligned W root and four source-ordered paints.
+ * The old independent reviewed CID Roboto glyph golden fixes Text mask
+ * ONLY for this all-or-none physical-pixel Clip. Fill/Image bounds and
+ * the GS0 red suffix are evaluated independently on 4x4 subpixels at
+ * the actual target DPI, including fractional suffix edges at 96 DPI.
+ * No second PDF interpreter, Image/Clip self-oracle or PDFium. */
+static int native_m2b2h_public_restored(const std::string& filename)
+{
+    const auto goldens=std::filesystem::path(__FILE__).parent_path()/"goldens";
+    static const unsigned char rgb[4][3]={
+        {255u,0u,0u},{0u,255u,0u},
+        {0u,0u,255u},{255u,255u,0u}
+    };
+    quantapdf_context *context=nullptr;
+    OK(quantapdf_context_create(&context));
+    CHECK(write_pdf(filename,native_ttf_fixture(97)));
+    quantapdf_document *document=nullptr;
+    quantapdf_page *page=nullptr;
+    OK(quantapdf_open_with_context(
+        context,filename.c_str(),nullptr,&document));
+    CHECK(std::remove(filename.c_str())==0);
+    OK(quantapdf_load_page(document,0,&page));
+    quantapdf_bitmap *retained=nullptr;
+    std::vector<unsigned char> retained_reference;
+    for(unsigned dpi:{72u,96u,144u}) {
+        const double scale=(double)dpi/72.0;
+        const size_t width=(128u*(size_t)dpi+71u)/72u;
+        const size_t height=(64u*(size_t)dpi+71u)/72u;
+        std::ifstream glyph_file(goldens/("roboto-hello-"+
+            std::to_string(dpi)+"-m0.rgba"),std::ios::binary);
+        const std::vector<unsigned char> old_glyph{
+            std::istreambuf_iterator<char>(glyph_file),{}};
+        CHECK(old_glyph.size()==width*height*4u);
+        quantapdf_render_options options{};
+        options.struct_size=sizeof(options);
+        options.dpi=(float)dpi;
+        quantapdf_bitmap *bitmap=nullptr;
+        const auto status=quantapdf_render_page_with_options(
+            page,&options,&bitmap);
+        if(status!=QUANTAPDF_OK)std::fprintf(stderr,
+            "M2b2h public source Q-restored mode97 dpi=%u status=%d\n",
+            dpi,(int)status);
+        CHECK(status==QUANTAPDF_OK && bitmap!=nullptr);
+        int actual_w=0,actual_h=0,stride=0,components=0;
+        const unsigned char *actual=nullptr;
+        size_t actual_size=0u;
+        OK(quantapdf_bitmap_dimensions(
+            bitmap,&actual_w,&actual_h,&stride,&components));
+        OK(quantapdf_bitmap_data(bitmap,&actual,&actual_size));
+        CHECK(actual_w==(int)width && actual_h==(int)height &&
+              stride==(int)(width*3u) && components==3 &&
+              actual_size==width*height*3u && actual!=nullptr);
+        size_t opaque_ink=0u,restored_outside_clip=0u;
+        for(size_t y=0u;y<height;++y)
+        for(size_t x=0u;x<width;++x) {
+            const size_t index=y*width+x;
+            const unsigned char gray=old_glyph[4u*index];
+            CHECK(gray==old_glyph[4u*index+1u] &&
+                  gray==old_glyph[4u*index+2u] &&
+                  old_glyph[4u*index+3u]==255u);
+            unsigned clip_hits=0u,fill_hits=0u,image_hits=0u,red_hits=0u;
+            for(unsigned sy=0u;sy<4u;++sy)
+            for(unsigned sx=0u;sx<4u;++sx) {
+                const double px=(double)x+((double)sx+0.5)/4.0;
+                const double py=(double)y+((double)sy+0.5)/4.0;
+                const bool in_clip=px>=12.0*scale && px<27.0*scale &&
+                                   py>=24.0*scale && py<42.0*scale;
+                clip_hits+=(unsigned)in_clip;
+                fill_hits+=(unsigned)(in_clip &&
+                    px>=12.0*scale && px<28.0*scale &&
+                    py>=24.0*scale && py<44.0*scale);
+                image_hits+=(unsigned)(in_clip &&
+                    px>=10.0*scale && px<26.0*scale &&
+                    py>=37.0*scale && py<49.0*scale);
+                red_hits+=(unsigned)(
+                    px>=34.0*scale && px<40.0*scale &&
+                    py>=50.0*scale && py<55.0*scale);
+            }
+            CHECK(clip_hits==0u || clip_hits==16u);
+            const unsigned alpha[4]={
+                clip_hits==16u?255u-(unsigned)gray:0u,
+                (fill_hits*255u+8u)/16u,
+                (image_hits*255u+8u)/16u,
+                (red_hits*255u+8u)/16u
+            };
+            const double nx=((double)x+0.5-10.0*scale)/
+                            (16.0*scale)*2.0;
+            const double ny=((double)y+0.5-37.0*scale)/
+                            (12.0*scale)*2.0;
+            const size_t ix=nx<=0.0?0u:nx>=2.0?1u:(size_t)nx;
+            const size_t iy=ny<=0.0?0u:ny>=2.0?1u:(size_t)ny;
+            const unsigned char *sample=rgb[2u*iy+ix];
+            unsigned expected[3]={255u,255u,255u};
+            for(unsigned layer=0u;layer<4u;++layer)
+            for(unsigned channel=0u;channel<3u;++channel) {
+                const unsigned color=layer==0u?0u:
+                    layer==1u?(channel==1u?255u:0u):
+                    layer==2u?(unsigned)sample[channel]:
+                    (channel==0u?255u:0u);
+                expected[channel]=(color*alpha[layer]+
+                    expected[channel]*(255u-alpha[layer])+127u)/255u;
+            }
+            const unsigned char *pixel=actual+3u*index;
+            if(pixel[0]!=expected[0] ||
+               pixel[1]!=expected[1] ||
+               pixel[2]!=expected[2]) {
+                std::fprintf(stderr,
+                    "M2b2h public Q-restored RGB dpi=%u x=%zu y=%zu "
+                    "expected=%u,%u,%u got=%u,%u,%u\n",
+                    dpi,x,y,expected[0],expected[1],expected[2],
+                    (unsigned)pixel[0],(unsigned)pixel[1],
+                    (unsigned)pixel[2]);
+                return EXIT_FAILURE;
+            }
+            opaque_ink+=(unsigned)(expected[0]!=255u ||
+                                  expected[1]!=255u ||
+                                  expected[2]!=255u);
+            restored_outside_clip+=(unsigned)(
+                red_hits>0u && clip_hits==0u);
+        }
+        CHECK(opaque_ink>0u && restored_outside_clip>0u &&
+              probe_rgb(actual,stride,0,0,255u,255u,255u));
+        if(dpi==96u) {
+            retained=bitmap;
+            retained_reference.assign(actual,actual+actual_size);
+        } else quantapdf_drop_bitmap(bitmap);
+    }
+    quantapdf_drop_page(page);
+    quantapdf_close(document);
+    /* An excess original Q must refuse the WHOLE page, never publish
+     * a partial three-paint Bitmap or corrupt the shared Context. */
+    CHECK(write_pdf(filename,native_ttf_fixture(98)));
+    quantapdf_document *bad_doc=nullptr;
+    quantapdf_page *bad_page=nullptr;
+    quantapdf_bitmap *bad_bitmap=nullptr;
+    OK(quantapdf_open_with_context(
+        context,filename.c_str(),nullptr,&bad_doc));
+    CHECK(std::remove(filename.c_str())==0);
+    OK(quantapdf_load_page(bad_doc,0,&bad_page));
+    quantapdf_render_options options{};
+    options.struct_size=sizeof(options);
+    options.dpi=96.0f;
+    const auto bad_status=quantapdf_render_page_with_options(
+        bad_page,&options,&bad_bitmap);
+    CHECK((bad_status==QUANTAPDF_ERROR_UNSUPPORTED ||
+           bad_status==QUANTAPDF_ERROR_FORMAT) &&
+          bad_bitmap==nullptr);
+    quantapdf_drop_page(bad_page);
+    quantapdf_close(bad_doc);
+    CHECK(write_pdf(filename,native_ttf_fixture(97)));
+    quantapdf_document *recovery_doc=nullptr;
+    quantapdf_page *recovery_page=nullptr;
+    quantapdf_bitmap *recovery_bitmap=nullptr;
+    OK(quantapdf_open_with_context(
+        context,filename.c_str(),nullptr,&recovery_doc));
+    CHECK(std::remove(filename.c_str())==0);
+    OK(quantapdf_load_page(recovery_doc,0,&recovery_page));
+    OK(quantapdf_render_page_with_options(
+        recovery_page,&options,&recovery_bitmap));
+    CHECK(recovery_bitmap!=nullptr);
+    quantapdf_drop_bitmap(recovery_bitmap);
+    quantapdf_drop_page(recovery_page);
+    quantapdf_close(recovery_doc);
+    quantapdf_drop_context(context);
+    /* Public 96-DPI Bitmap must retain its ORIGINAL RGB byte stream
+     * after the Source owner, Page, Document, AND Context are all dead. */
+    int retained_w=0,retained_h=0,retained_stride=0,retained_components=0;
+    const unsigned char *retained_bytes=nullptr;
+    size_t retained_size=0u;
+    OK(quantapdf_bitmap_dimensions(
+        retained,&retained_w,&retained_h,
+        &retained_stride,&retained_components));
+    OK(quantapdf_bitmap_data(
+        retained,&retained_bytes,&retained_size));
+    CHECK(retained_w==171 && retained_h==86 &&
+          retained_stride==171*3 && retained_components==3 &&
+          retained_size==retained_reference.size() &&
+          retained_bytes!=nullptr &&
+          std::memcmp(retained_bytes,retained_reference.data(),
+                      retained_size)==0);
+    quantapdf_drop_bitmap(retained);
+    std::puts("M2b2h original public q/W/BT/Clip1,Q-GS0 fourth Fill every RGB 72/96/144 PASS");
+    return EXIT_SUCCESS;
+}
+
 static int native_m2b2c_public_aligned(const std::string& filename)
 {
     const auto goldens=std::filesystem::path(__FILE__).parent_path()/"goldens";
@@ -3843,8 +4029,10 @@ static int native_seventh_userunit_late_refusal_cases(
 int main(int argc,char **argv)
 {
     const std::string filename="native-standalone-smoke.pdf";
-    if(argc==2 && std::strcmp(argv[1],"--m2b2c-aligned")==0)
-        return native_m2b2c_public_aligned(filename);
+    if(argc==2 && std::strcmp(argv[1],"--m2b2c-aligned")==0) {
+        CHECK(native_m2b2c_public_aligned(filename)==EXIT_SUCCESS);
+        return native_m2b2h_public_restored(filename);
+    }
     if(argc==2 && std::strcmp(argv[1],"--m2b1-negatives")==0)
         return native_m2b1_public_negatives(filename);
     if(argc==2 && std::strcmp(argv[1],"--m2b1-flate")==0)
