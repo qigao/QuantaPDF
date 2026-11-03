@@ -495,9 +495,10 @@ static quantapdf_status builtin_edit_annotation_update(
 
 static quantapdf_status builtin_edit_annotation_delete(
     void *edit,
-    const quantapdf_annotation_ref *ref)
+    const quantapdf_annotation_ref *ref,
+    int *test_fault)
 {
-    return quantapdf_qpdf_edit_annotation_delete(edit, ref);
+    return quantapdf_qpdf_edit_annotation_delete(edit, ref, test_fault);
 }
 
 static void builtin_edit_drop(

@@ -1165,3 +1165,35 @@ add_test(NAME quantapdf.native_two_curved_clip_c11
   COMMAND quantapdf_native_two_curved_clip_c11)
 set_tests_properties(quantapdf.native_two_curved_clip_c11 PROPERTIES
   TIMEOUT 30 LABELS "conformance;native;no-pdfium;c11;curved-clip;ownership")
+
+# Existing annotation mutation executable, now in native runtime acceptance.
+# Per-session fault hooks are private; no PDFium or installer/consumer project.
+add_executable(quantapdf_test_pdf_annotation_mutation
+  "${PROJECT_SOURCE_DIR}/tests/test_pdf_annotation_mutation.c"
+  "${PROJECT_SOURCE_DIR}/tests/pdf_edit_fault_hook.c")
+target_compile_features(quantapdf_test_pdf_annotation_mutation PRIVATE c_std_11)
+target_link_libraries(quantapdf_test_pdf_annotation_mutation PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_pdf_annotation_mutation PRIVATE
+  QUANTAPDF_TESTING=1
+  MUTATION_PDF="${PROJECT_SOURCE_DIR}/tests/fixtures/annotation-mutation.pdf"
+  NO_ANNOTS_PDF="${PROJECT_SOURCE_DIR}/tests/fixtures/one-page.pdf"
+  NONARRAY_ANNOTS_PDF="${PROJECT_SOURCE_DIR}/tests/fixtures/annotations-nonarray.pdf"
+  SIGNED_PDF="${PROJECT_SOURCE_DIR}/tests/fixtures/annotation-mutation-signed.pdf"
+  UNSIGNED_SIGNATURE_PDF="${PROJECT_SOURCE_DIR}/tests/fixtures/annotation-mutation-unsigned-signature.pdf"
+  JS_PDF="${PROJECT_SOURCE_DIR}/tests/fixtures/annotation-mutation-js.pdf"
+  LATE_MALFORMED_PDF="${PROJECT_SOURCE_DIR}/tests/fixtures/annotations-late-malformed.pdf"
+  ENCRYPTED_PDF="${PROJECT_SOURCE_DIR}/tests/fixtures/encrypted-one-page.pdf"
+  NON_PDF="${PROJECT_SOURCE_DIR}/tests/fixtures/composition-non-pdf.txt"
+  OUTPUT_A_PDF="${CMAKE_CURRENT_BINARY_DIR}/annotation-mutation-a.pdf"
+  OUTPUT_B_PDF="${CMAKE_CURRENT_BINARY_DIR}/annotation-mutation-b.pdf"
+  OUTPUT_JS_PDF="${CMAKE_CURRENT_BINARY_DIR}/annotation-mutation-js.pdf")
+if(MSVC)
+  target_compile_options(quantapdf_test_pdf_annotation_mutation PRIVATE /W4 /WX)
+else()
+  target_compile_options(quantapdf_test_pdf_annotation_mutation PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME quantapdf.pdf_annotation_transaction
+  COMMAND quantapdf_test_pdf_annotation_mutation transaction)
+set_tests_properties(quantapdf.pdf_annotation_transaction PROPERTIES
+  TIMEOUT 60 LABELS "native;no-pdfium;transactions;oom")

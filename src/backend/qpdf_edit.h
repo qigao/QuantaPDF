@@ -64,7 +64,8 @@ quantapdf_status quantapdf_qpdf_edit_annotation_update(
     int *test_fault);
 quantapdf_status quantapdf_qpdf_edit_annotation_delete(
     quantapdf_qpdf_edit *edit,
-    const quantapdf_annotation_ref *ref);
+    const quantapdf_annotation_ref *ref,
+    int *test_fault);
 void quantapdf_qpdf_edit_drop(quantapdf_qpdf_edit *edit);
 
 #ifdef __cplusplus

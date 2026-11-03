@@ -1,5 +1,5 @@
 foreach(required IN ITEMS
-    QUANTAPDF_DUMPBIN
+    QUANTAPDF_LLVM_READOBJ
     QUANTAPDF_LIBRARY
     QUANTAPDF_EXPORT_BASELINE)
   if(NOT DEFINED ${required} OR "${${required}}" STREQUAL "")
@@ -8,12 +8,12 @@ foreach(required IN ITEMS
 endforeach()
 
 execute_process(
-  COMMAND "${QUANTAPDF_DUMPBIN}" /nologo /exports "${QUANTAPDF_LIBRARY}"
+  COMMAND "${QUANTAPDF_LLVM_READOBJ}" --coff-exports "${QUANTAPDF_LIBRARY}"
   RESULT_VARIABLE result
   OUTPUT_VARIABLE output
   ERROR_VARIABLE error)
 if(NOT result EQUAL 0)
-  message(FATAL_ERROR "dumpbin failed: ${error}")
+  message(FATAL_ERROR "llvm-readobj failed: ${error}")
 endif()
 
 file(STRINGS "${QUANTAPDF_EXPORT_BASELINE}" expected
@@ -22,35 +22,27 @@ list(REMOVE_DUPLICATES expected)
 list(SORT expected)
 list(LENGTH expected expected_count)
 
-string(REGEX MATCH "([0-9]+)[ \t]+number of functions" function_match "${output}")
-if(function_match STREQUAL "")
-  message(FATAL_ERROR "dumpbin output is missing the function count")
-endif()
-set(function_count "${CMAKE_MATCH_1}")
-
-string(REGEX MATCH "([0-9]+)[ \t]+number of names" name_match "${output}")
-if(name_match STREQUAL "")
-  message(FATAL_ERROR "dumpbin output is missing the name count")
-endif()
-set(name_count "${CMAKE_MATCH_1}")
-
+# Count every export record, including unnamed or duplicate-name entries.
+# Comparing a deduplicated name list alone could hide extra ordinal exports.
+string(REGEX MATCHALL "Export \\{" exports "${output}")
+list(LENGTH exports export_count)
 string(REPLACE "\r\n" "\n" output_lines "${output}")
 string(REPLACE "\r" "\n" output_lines "${output_lines}")
 string(REPLACE "\n" ";" output_lines "${output_lines}")
 set(actual)
 foreach(line IN LISTS output_lines)
-  if(line MATCHES "^[ \t]*[0-9]+[ \t]+[0-9A-Fa-f]+[ \t]+[0-9A-Fa-f]+[ \t]+([^ \t=]+)")
+  if(line MATCHES "^[ \t]*Name: ([^ \t]+)[ \t]*$")
     list(APPEND actual "${CMAKE_MATCH_1}")
   endif()
 endforeach()
-list(REMOVE_DUPLICATES actual)
+list(LENGTH actual name_count)
 list(SORT actual)
 
-if(NOT function_count EQUAL expected_count OR NOT name_count EQUAL expected_count)
+if(NOT export_count EQUAL expected_count OR NOT name_count EQUAL expected_count)
   message(FATAL_ERROR
     "QuantaPDF ABI export count mismatch\n"
     "Expected named functions: ${expected_count}\n"
-    "Functions: ${function_count}\n"
+    "Exports: ${export_count}\n"
     "Names: ${name_count}")
 endif()
 
