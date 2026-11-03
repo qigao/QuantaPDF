@@ -3338,7 +3338,7 @@ static int m2b2i_fractional_original_reference(
                   ledger.used.edges<=limits.max_edges);
             const double scale=(double)dpi/72.0;
             std::vector<unsigned char> expected(actual.size,255u);
-            size_t disjoint=0u,overlap=0u,wrong_pixels=0u;
+            size_t disjoint=0u,overlap=0u,wrong_pixels=0u,spurious_pixels=0u;
             for(size_t y=0u;y<physical.height;++y)
             for(size_t x=0u;x<physical.width;++x) {
                 const size_t i=y*physical.width+x;
@@ -3393,13 +3393,15 @@ static int m2b2i_fractional_original_reference(
                     different=different || expected[4u*i+channel]!=composite(product,channel);
                 }
                 wrong_pixels+=(unsigned)different;
+                spurious_pixels+=(unsigned)(gray==255u && product>0u && different);
                 if(std::memcmp(actual.pixels+4u*i,expected.data()+4u*i,4u)!=0) {
                     std::fprintf(stderr,"M2b2i original fractional RGB mode=%d dpi=%u x=%zu y=%zu\n",
                         mode,dpi,x,y);
                     return EXIT_FAILURE;
                 }
             }
-            CHECK(disjoint>0u && overlap>0u && wrong_pixels>0u && allocations.failures==0u);
+            CHECK(disjoint>0u && overlap>0u && wrong_pixels>0u &&
+                  spurious_pixels>0u && allocations.failures==0u);
             const size_t calls=allocations.attempts;
             quantapdf_native_raster_image_dispose_v1(&ledger,&actual);
             quantapdf_native_scoped_dispose_v5(&compiled);
