@@ -26,13 +26,13 @@ pixels and full image placement have N/N−1 checks (3/2, 4/3 and 192/191).
 
 Missing/excess Q, a balanced nested second root, a third root, late Text/Fill,
 nonidentity Clip CTM, unused second root, missing n, unknown Do and an extra
-Font alias refuse the whole original. Existing public tests refuse both
-positive Source graphs at 72/96/144 DPI and then recover in the same Context
-against the already accepted four-paint RGB oracle.
+Font alias refuse the whole original. This Source stage originally refused
+public rendering; subsequent [private V5](native-m2b2m-sibling-v5.md) and
+[public preparation](native-m2b2n-public-sibling.md) stages qualify the same
+two owned graphs, with independent bytes and same-Context recovery.
 
-**No sibling Bitmap admission:** prepared metadata and actual public rendering
-remain unsupported for these inputs. No new C11 primitive, public ABI, numeric
+This stage establishes Source ownership. No new C11 primitive, public ABI, numeric
 cap, test project, CMake/workflow or timeout. Candidate acceptance still needs
 exact HEAD CI and independent master CI after merge. #584/#580/#570/#208 stay
-open. The next gate is shared V5 compilation with per-operation frozen roots,
-one global ledger and independent full-image references before public admission.
+open for wider Clip graphs, orders, fonts and matrices. The following stages
+reuse these per-operation frozen roots and one global ledger.
