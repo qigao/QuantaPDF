@@ -225,8 +225,12 @@ references and one ledger. The bounded
 [M2b.2n public sibling stage](conformance/native-m2b2n-public-sibling.md) connects
 that same compiler to Source preparation, receipts and Context→Bitmap output,
 with independent RGB, faults, recovery and lifetime tests at 72/96/144 DPI.
-This admits exactly the original `[1,1,2]` Text/Fill/Image graph; reverse sibling
-order and general matrices remain unqualified.
+This admits exactly the original `[1,1,2]` Text/Fill/Image graph. The subsequent
+[M2b.2r Source stage](conformance/native-m2b2r-reverse-sibling-source.md)
+retains the reverse Image/Fill/Text sibling graph through the same BT handoff
+and shared Source owner, with GS `[1,1,2]` and actual Q restoration. Its private
+V5 and public Bitmap admission remain separately gated; general matrices
+remain unqualified.
 
 The private [M2b.2o compound Source stage](conformance/native-m2b2o-compound-source-owner.md)
 retains two original rectangular leaves plus their Intersection root for one

@@ -908,6 +908,27 @@ bool source_m2b2o_compound_clip(const admission& source)
         quantapdf::detail::source_outline_is_rectangle(source.second_clip.commands);
 }
 
+/* M2b.2r: the original Image/Fill prefix has already observed leaf1.
+ * The BT handoff separately validates a real Q, a new independent q,
+ * leaf2 and the saved identity CTMs before Text may observe leaf2. */
+bool source_m2b2r_image_fill_prefix(const admission& source)
+{
+    return source.native_unclipped_mode && source.text_outlines_eligible &&
+        source.clip_completed && source.order.size()==2u &&
+        source.order[0]==2 && source.order[1]==1 &&
+        source.draws.size()==1u && source.painted_paths.size()==1u &&
+        source.scoped_clip_membership.size()==2u &&
+        source.scoped_clip_membership[0]==1u && source.scoped_clip_membership[1]==1u &&
+        quantapdf::detail::source_outline_is_rectangle(source.clip.commands);
+}
+
+bool source_m2b2r_reverse_sibling(const admission& source)
+{
+    return source_m2b2r_image_fill_prefix(source) && source.saw_q_restore &&
+        source.two_owned_clips && source.sibling_clip_scopes &&
+        quantapdf::detail::source_outline_is_rectangle(source.second_clip.commands);
+}
+
 /* One callback per REAL q/Q emitted by the same existing outline
  * token reader after BT. A Q restores exactly the Clip identity saved
  * at that original q; no inference from global clip_completed and no
@@ -989,12 +1010,17 @@ quantapdf_status source_m2a_text(void *user)
     try {
         const bool compound=source_m2b2o_compound_clip(source) &&
             source.outline_clip_id==2u && source.order.empty() && !source.saw_q_restore;
+        const bool reverse=source_m2b2r_reverse_sibling(source) &&
+            source.outline_clip_id==2u && source.outline_clip_stack.size()>=1u &&
+            source.outline_clip_stack.size()<=2u && source.outline_clip_stack[0]==0u &&
+            std::all_of(source.outline_clip_stack.begin()+1,source.outline_clip_stack.end(),
+                [](unsigned char id){return id==2u;});
         admit(source.native_unclipped_mode &&
               source.text_outlines_eligible &&
               source.order.size()<hard_operations &&
               source.order.size()<source.limits.max_operations &&
               source.outline_scope_started &&
-              (compound || (source.outline_clip_id==(source.clip_completed?1u:0u) &&
+              (compound || reverse || (source.outline_clip_id==(source.clip_completed?1u:0u) &&
               /* One root W/W* is frozen before BT, never a poppable
                * scope borrowed by the independent outline callbacks. */
               (!source.clip_completed ||
@@ -1153,8 +1179,15 @@ public:
                 std::all_of(stack.begin(),stack.end(),[](const matrix& m) {
                     return m==matrix{1.0,0.0,0.0,1.0,0.0,0.0};
                 }) && target.order.empty() && target.draws.empty() && target.painted_paths.empty();
+            const bool reverse_sibling=source_m2b2r_reverse_sibling(target) &&
+                clip_active==2u && stack.size()>=1u && stack.size()<=2u &&
+                fill_stack.size()==stack.size() && clip_stack.size()==stack.size() &&
+                clip_stack[0]==0u &&
+                std::all_of(clip_stack.begin()+1,clip_stack.end(),
+                    [](unsigned char id){return id==2u;}) && current==identity &&
+                std::all_of(stack.begin(),stack.end(),[](const matrix& m){return m==identity;});
             admit(args.empty() && pending_path.empty() && !clip_pending &&
-                (!target.clip_completed || frozen_root || compound_root) &&
+                (!target.clip_completed || frozen_root || compound_root || reverse_sibling) &&
                 (target.draws.empty() ?
                     target.order.size()==target.painted_paths.size() :
                     (target.draws.size()==1u &&
@@ -1166,11 +1199,11 @@ public:
                      target.scoped_clip_membership.size()==target.order.size() &&
                      std::all_of(target.scoped_clip_membership.begin(),
                          target.scoped_clip_membership.end(),
-                         [frozen_root](unsigned char member) {
-                             return member==(frozen_root?1u:0u);
+                         [frozen_root,reverse_sibling](unsigned char member) {
+                             return member==((frozen_root || reverse_sibling)?1u:0u);
                          }))) &&
                 stack.size()==fill_stack.size() &&
-                (compound_root || std::all_of(clip_stack.begin(),clip_stack.end(),
+                (compound_root || reverse_sibling || std::all_of(clip_stack.begin(),clip_stack.end(),
                     [frozen_root,saved_preclip_root](unsigned char id) {
                         return id==(frozen_root?1u:0u) ||
                                (saved_preclip_root && id==0u);
@@ -1667,9 +1700,13 @@ public:
                 stack.size()==2u && fill_stack.size()==2u && clip_stack.size()==2u &&
                 clip_stack[0]==0u && clip_stack[1]==1u &&
                 quantapdf::detail::source_outline_is_rectangle(target.clip.commands);
+            const bool reverse_text_prefix=source_m2b2r_image_fill_prefix(target) &&
+                clip_active==0u && target.saw_q_restore && !target.two_owned_clips &&
+                stack.size()==1u && fill_stack.size()==1u && clip_stack.size()==1u &&
+                clip_stack[0]==0u;
             text_rect_staging=target.text_outlines_eligible &&
-                (!target.clip_completed || compound_text_prefix) &&
-                target.draws.empty() && current==identity &&
+                (((!target.clip_completed || compound_text_prefix) && target.draws.empty()) ||
+                 reverse_text_prefix) && current==identity &&
                 (std::trunc(x)!=x || std::trunc(y)!=y || std::trunc(w)!=w || std::trunc(h)!=h);
             if(text_rect_staging)for(const auto& value:args)(void)source_v10_lattice(value,8ll);
             append_point(QUANTAPDF_COMPOSER_PATH_MOVE_TO,x,y);
@@ -2989,7 +3026,8 @@ quantapdf_ir materialize_m2b2f_restored_fill(const admission& source)
 
 /* Shared three-paint Source owner: one original opaque Text show,
  * one rectangular Fill and one RAW/Flate Image. Single-root variants
- * preserve both original orders; M2b.2l adds forward [1,1,2] siblings.
+ * preserve both original orders; M2b.2l/r retain [1,1,2] siblings
+ * in the forward and reverse three-paint orders.
  * The old image materializer owns
  * the decoded payload, while the existing TTF interpreter owns and
  * copies the frozen glyph/PATH contours only after original EOF.
@@ -3015,7 +3053,7 @@ quantapdf_ir materialize_m2b1_text_fill_image(const admission& source)
               std::all_of(source.scoped_clip_membership.begin(),
                   source.scoped_clip_membership.end(),[](unsigned char id){return id==2u;})) :
            sibling ?
-             (text_first && frozen_clip && source.two_owned_clips &&
+             ((text_first || image_first) && frozen_clip && source.two_owned_clips &&
               source.saw_q_restore && source.outline_scope_started &&
               source.outline_clip_id==0u && source.outline_clip_stack.empty() &&
               source.scoped_clip_membership[0]==1u &&

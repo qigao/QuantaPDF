@@ -857,17 +857,19 @@ static int native_m2b2j_public_fractional(const std::string& filename)
         quantapdf_drop_page(page);quantapdf_close(document);
     }
     /* Malformed original scopes, skew/cubic Clip or suffix, a fifth
-     * paint and the unqualified reverse four-paint order refuse atomically. */
+     * paint and unqualified reverse orders refuse atomically. Source-only
+     * reverse siblings 147/148 still refuse public Bitmaps at all three DPIs. */
     for(int mode:{101,102,103,104,107,108,109,110,111,112,
                   115,116,117,118,119,120,121,122,123,124,125,
-                  128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144}) {
+                  128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,
+                  147,148,149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167}) {
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         quantapdf_document *document=nullptr;quantapdf_page *page=nullptr;
         OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(document,0,&page));
         for(unsigned dpi:{72u,96u,144u}) {
-            if(dpi!=96u)continue;
+            if(dpi!=96u && mode!=147 && mode!=148)continue;
             quantapdf_render_options options{};
             options.struct_size=sizeof(options);options.dpi=(float)dpi;
             quantapdf_bitmap *denied=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
