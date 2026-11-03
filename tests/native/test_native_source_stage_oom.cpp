@@ -3575,6 +3575,13 @@ static int m2b2g_private_fourth_restored_v5(
             &ledger,limits.max_sample_tests,limits.max_edges);
         CHECK(quantapdf_native_resources_init_v1(
             &ledger,&resources,0u));
+        /* This hook counts actual C11 allocations inside the SAME V5
+         * compiled owner, including its fourth GS0 Fill and output. */
+        m2a_malloc_fault_state counted_allocations{};
+        if(dpi==72u)
+            ledger.malloc_fault={
+                &counted_allocations,m2a_malloc_fault_callback
+            };
         quantapdf_native_scoped_page_v5 compiled{};
         const auto preparation=
             quantapdf_native_scoped_prepare_m2b2g_restored_four_v1(
@@ -3692,6 +3699,102 @@ static int m2b2g_private_fourth_restored_v5(
             unclipped_ink+=(unsigned)(red_hits>0u && clip_hits==0u);
         }
         CHECK(ink>0u && unclipped_ink>0u);
+        if(dpi==72u) {
+            /* Stage-only M2b.2g private V5: first/mid/last real
+             * compiled C11 malloc refusals publish zero pixels.
+             * Replaying the same immutable Source IR in a FRESH
+             * ledger must reproduce the entire reviewed RGBA page.
+             * Real global output/source/operation/peak-byte N/N−1
+             * checks never reset an existing work-owner ledger. */
+            const size_t allocations=counted_allocations.attempts;
+            const size_t peak=ledger.resources.peak_live_bytes;
+            const size_t output_pixels=physical.width*physical.height;
+            CHECK(allocations>=7u && allocations<=80u &&
+                  counted_allocations.failures==0u &&
+                  peak>1u && output_pixels>1u);
+            const std::vector<unsigned char> golden(
+                pixels.pixels,pixels.pixels+pixels.size);
+            const auto exercise=[&](
+                size_t fail_on,size_t source_limit,
+                size_t pixel_limit,size_t live_limit,
+                size_t operation_limit,quantapdf_status wanted) {
+                auto cap=limits;
+                cap.max_source_pixels=source_limit;
+                cap.max_pixels=pixel_limit;
+                cap.max_operations=operation_limit;
+                quantapdf_native_work_ledger_v1 trial_ledger{};
+                const quantapdf_native_resource_limits_v1 trial_resources={
+                    source_limit,cap.max_drawn_pixels,live_limit
+                };
+                quantapdf_native_work_init_v1(
+                    &trial_ledger,cap.max_sample_tests,cap.max_edges);
+                if(!quantapdf_native_resources_init_v1(
+                    &trial_ledger,&trial_resources,0u))return false;
+                m2a_malloc_fault_state failures{};
+                failures.fail_on=fail_on;
+                trial_ledger.malloc_fault={
+                    &failures,m2a_malloc_fault_callback
+                };
+                quantapdf_native_scoped_page_v5 candidate{};
+                quantapdf_ir_raster_image result{};
+                auto status=
+                    quantapdf_native_scoped_prepare_m2b2g_restored_four_v1(
+                        &ir,&cap,&physical,&trial_ledger,&candidate);
+                if(status==QUANTAPDF_OK)
+                    status=quantapdf_native_scoped_execute_v5(
+                        &candidate,&result);
+                bool ok=status==wanted;
+                if(wanted==QUANTAPDF_OK)
+                    ok=ok && failures.failures==0u &&
+                       result.pixels!=nullptr &&
+                       result.size==golden.size() &&
+                       std::memcmp(result.pixels,golden.data(),
+                                   golden.size())==0;
+                else
+                    ok=ok && zero_bitmap(result) &&
+                       (fail_on==0u ||
+                        (failures.failures==1u &&
+                         failures.attempts==fail_on));
+                quantapdf_native_raster_image_dispose_v1(
+                    &trial_ledger,&result);
+                quantapdf_native_scoped_dispose_v5(&candidate);
+                ok=ok && trial_ledger.resources.live_bytes==0u &&
+                    trial_ledger.reserved.sample_work==0u &&
+                    trial_ledger.reserved.edges==0u;
+                if(!ok)std::fprintf(stderr,
+                    "M2b2g C11 fault index=%zu source=%zu pixels=%zu live=%zu "
+                    "ops=%zu got=%d want=%d attempts=%zu faults=%zu\n",
+                    fail_on,source_limit,pixel_limit,live_limit,
+                    operation_limit,(int)status,(int)wanted,
+                    failures.attempts,failures.failures);
+                return ok;
+            };
+            const size_t slots[3]={
+                1u,(allocations+1u)/2u,allocations
+            };
+            for(size_t slot:slots) {
+                CHECK(exercise(slot,resources.max_source_pixels,
+                      limits.max_pixels,resources.max_live_bytes,
+                      4u,QUANTAPDF_ERROR_NOMEM));
+                CHECK(exercise(0u,resources.max_source_pixels,
+                      limits.max_pixels,resources.max_live_bytes,
+                      4u,QUANTAPDF_OK));
+            }
+            CHECK(exercise(0u,3u,limits.max_pixels,
+                  resources.max_live_bytes,4u,
+                  QUANTAPDF_ERROR_UNSUPPORTED));
+            CHECK(exercise(0u,resources.max_source_pixels,
+                  output_pixels-1u,resources.max_live_bytes,4u,
+                  QUANTAPDF_ERROR_UNSUPPORTED));
+            CHECK(exercise(0u,resources.max_source_pixels,
+                  limits.max_pixels,resources.max_live_bytes,3u,
+                  QUANTAPDF_ERROR_UNSUPPORTED));
+            CHECK(exercise(0u,resources.max_source_pixels,
+                  limits.max_pixels,peak-1u,4u,
+                  QUANTAPDF_ERROR_UNSUPPORTED));
+            CHECK(exercise(0u,resources.max_source_pixels,
+                  limits.max_pixels,peak,4u,QUANTAPDF_OK));
+        }
         quantapdf_native_raster_image_dispose_v1(&ledger,&pixels);
         quantapdf_native_scoped_dispose_v5(&compiled);
         CHECK(ledger.resources.live_bytes==0u &&
