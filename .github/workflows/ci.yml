@@ -33,7 +33,6 @@ jobs:
       VCPKG_BINARY_CACHE: ${{ github.workspace }}/build/vcpkg-binary-cache
       CCACHE_VERSION: 4.14.2
       CCACHE_DIR: ${{ github.workspace }}/build/ccache
-      CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_MAXSIZE: 512MiB
       CCACHE_COMPILERCHECK: content
       CMAKE_BUILD_PARALLEL_LEVEL: 2
