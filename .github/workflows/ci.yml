@@ -145,7 +145,7 @@ jobs:
           key: ${{ steps.compiler-cache.outputs.cache-primary-key }}
 
       - name: Run native CTest suite
-        run: ctest --preset ${{ matrix.preset }}
+        run: ctest --preset ${{ matrix.preset }} --stop-on-failure
 
       - name: Verify exact Windows DLL export ABI
         if: runner.os == 'Windows'
