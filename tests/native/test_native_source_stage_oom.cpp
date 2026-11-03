@@ -3273,7 +3273,8 @@ static int m2b2l_sibling_source_owner(const quantapdf_qpdf_source_raw_image_limi
     return EXIT_SUCCESS;
 }
 
-/* M2b.2r Source-only reverse siblings: Image/Fill retain Clip1,
+/* M2b.2r Source reverse siblings, with M2b.2t prepared admission:
+ * Image/Fill retain Clip1,
  * actual Q restores GS0 and only Text observes the independent Clip2. */
 static int m2b2r_reverse_sibling_source_owner(const quantapdf_qpdf_source_raw_image_limits& caps)
 {
@@ -3368,8 +3369,9 @@ static int m2b2r_reverse_sibling_source_owner(const quantapdf_qpdf_source_raw_im
                 caps.max_source_pixels,caps.max_drawn_pixels};
             quantapdf_native_prepared_page_v1 prepared{};
             CHECK(quantapdf_native_prepare_page_v1(&owned,&raster,&device,
-                QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&prepared)==QUANTAPDF_ERROR_UNSUPPORTED &&
-                prepared.source==nullptr && prepared.route==QP_NATIVE_PREPARED_NONE &&
+                QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&prepared)==QUANTAPDF_OK &&
+                prepared.source==&owned && prepared.route==QP_NATIVE_PREPARED_M2B2T_REVERSE_SIBLING &&
+                prepared.usage.states_used==3u && prepared.usage.clips_used==3u &&
                 text_ir_snapshot(owned)==frozen);
             quantapdf_native_device_plan physical{};
             CHECK(quantapdf_native_device_plan_create_physical("0 0 128 64","0 0 128 64","1",0,
@@ -3432,7 +3434,7 @@ static int m2b2r_reverse_sibling_source_owner(const quantapdf_qpdf_source_raw_im
         quantapdf_ir_dispose(&recovered);CHECK(cleared(recovered));
     }
     quantapdf_ir_dispose(&prefix);CHECK(cleared(prefix));
-    std::puts("M2b2r reverse Image/Fill/Text sibling Clip1/2, ownership, faults, quotas and prepared refusal PASS");
+    std::puts("M2b2r reverse Image/Fill/Text sibling Clip1/2, ownership, faults, quotas and prepared admission PASS");
     return EXIT_SUCCESS;
 }
 
@@ -4090,7 +4092,7 @@ static int m2b2i_fractional_original_reference(
     return EXIT_SUCCESS;
 }
 
-/* M2b.2d/M2b.2h/M2b.2n use the EXISTING Source prepared metadata/receipt
+/* M2b.2d/h/n/q/t use the EXISTING Source prepared metadata/receipt
  * pipeline: original clipped Text/Fill/Image receives one new private
  * route, not a second renderer. Fail every actually reached C11 malloc
  * position and demand zero receipt/pixels plus exact recovered bytes.
@@ -4100,7 +4102,8 @@ static int m2b_clipped_prepared_receipt_faults(
     const quantapdf_qpdf_source_raw_image_limits& source_caps,int mode,unsigned dpi=72u)
 {
     const bool restored=mode==97 || mode==105 || mode==106;
-    const bool siblings=mode==113 || mode==114;
+    const bool reverse=mode==147 || mode==148 || mode==168 || mode==169;
+    const bool siblings=mode==113 || mode==114 || reverse;
     const bool compound=mode==126 || mode==127 || mode==145 || mode==146;
     const bool fractional=mode==99 || mode==100 || mode==105 || mode==106 || siblings || compound;
     const size_t operations=restored?4u:3u;
@@ -4108,7 +4111,8 @@ static int m2b_clipped_prepared_receipt_faults(
     const size_t states=siblings?2u:1u;
     const unsigned used_roots=compound?7u:siblings?3u:1u;
     const unsigned used_states=siblings?3u:1u;
-    const auto route=compound?QP_NATIVE_PREPARED_M2B2Q_COMPOUND_TEXT_FILL_IMAGE:
+    const auto route=reverse?QP_NATIVE_PREPARED_M2B2T_REVERSE_SIBLING:
+                     compound?QP_NATIVE_PREPARED_M2B2Q_COMPOUND_TEXT_FILL_IMAGE:
                      siblings?QP_NATIVE_PREPARED_M2B2N_SIBLING_TEXT_FILL_IMAGE:
                      restored?QP_NATIVE_PREPARED_M2B2H_RESTORED_FOUR:
                               QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE;
@@ -4168,7 +4172,7 @@ static int m2b_clipped_prepared_receipt_faults(
         native_ttf_fractional_reference{};
     if(fractional)CHECK(independent.rgba.size()==pixels.size &&
         std::memcmp(independent.rgba.data(),pixels.pixels,pixels.size)==0);
-    if(fractional && (!compound || mode>=145))CHECK(independent.disjoint>0u &&
+    if(fractional && (reverse?mode>=168:(!compound || mode>=145)))CHECK(independent.disjoint>0u &&
         independent.overlap>0u && independent.spurious>0u);
     if(compound) {
         CHECK(independent.compound_drop_first>0u && independent.compound_drop_second>0u);
@@ -4176,7 +4180,11 @@ static int m2b_clipped_prepared_receipt_faults(
             independent.compound_text_samples>0u && independent.compound_fill_samples>0u &&
             independent.compound_image_samples>0u);
     }
-    if(siblings)CHECK(independent.sibling_old_only>0u && independent.sibling_new_only>0u &&
+    if(reverse)CHECK(independent.reverse_old_only>0u && independent.reverse_new_only>0u &&
+        independent.reverse_wrong_text_root>0u && independent.reverse_wrong_image_fill_root>0u &&
+        independent.reverse_wrong_intersection>0u && independent.reverse_text_samples>0u &&
+        independent.reverse_fill_samples>0u && independent.reverse_image_samples>0u);
+    else if(siblings)CHECK(independent.sibling_old_only>0u && independent.sibling_new_only>0u &&
         independent.sibling_wrong_root>0u && independent.sibling_wrong_intersection>0u);
     if(siblings || compound) {
         const double scale=(double)dpi/72.0;
@@ -4922,6 +4930,8 @@ int main(int argc,char **argv)
         CHECK(m2b_clipped_prepared_receipt_faults(limits,114,96u)==EXIT_SUCCESS);
         CHECK(m2b_clipped_prepared_receipt_faults(limits,145,96u)==EXIT_SUCCESS);
         CHECK(m2b_clipped_prepared_receipt_faults(limits,146,96u)==EXIT_SUCCESS);
+        CHECK(m2b_clipped_prepared_receipt_faults(limits,168,96u)==EXIT_SUCCESS);
+        CHECK(m2b_clipped_prepared_receipt_faults(limits,169,96u)==EXIT_SUCCESS);
         return m2b2a_private_clipped_text_faults();
     }
     if(argc!=3)return EXIT_FAILURE;

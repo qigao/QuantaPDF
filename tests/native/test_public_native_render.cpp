@@ -814,8 +814,9 @@ static int native_m2b2j_public_fractional(const std::string& filename)
         native_ttf_fractional_reference expected;
     };
     std::vector<held_clip_bitmap> retained_scopes;
-    for(int mode:{83,84,99,100,105,106,113,114,126,127,145,146}) {
+    for(int mode:{83,84,99,100,105,106,113,114,126,127,145,146,147,148,168,169}) {
         const bool compound=mode==126 || mode==127 || mode==145 || mode==146;
+        const bool reverse=mode==147 || mode==148 || mode==168 || mode==169;
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         quantapdf_document *document=nullptr;quantapdf_page *page=nullptr;
         OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
@@ -824,7 +825,7 @@ static int native_m2b2j_public_fractional(const std::string& filename)
         for(unsigned dpi:{72u,96u,144u}) {
             const auto expected=native_ttf_fractional_expected(mode,dpi);
             CHECK(!expected.rgb.empty());
-            if(mode>=99 && mode!=126 && mode!=127)CHECK(expected.disjoint>0u && expected.overlap>0u &&
+            if(mode>=99 && mode!=126 && mode!=127 && mode!=147 && mode!=148)CHECK(expected.disjoint>0u && expected.overlap>0u &&
                               expected.spurious>0u);
             if(mode==105 || mode==106)CHECK(expected.restored_outside>0u);
             if(mode==106)CHECK(expected.restored_inside>0u &&
@@ -833,6 +834,10 @@ static int native_m2b2j_public_fractional(const std::string& filename)
             if(mode==113 || mode==114)CHECK(expected.sibling_old_only>0u &&
                 expected.sibling_new_only>0u && expected.sibling_wrong_root>0u &&
                 expected.sibling_wrong_intersection>0u);
+            if(reverse)CHECK(expected.reverse_old_only>0u && expected.reverse_new_only>0u &&
+                expected.reverse_wrong_text_root>0u && expected.reverse_wrong_image_fill_root>0u &&
+                expected.reverse_wrong_intersection>0u && expected.reverse_text_samples>0u &&
+                expected.reverse_fill_samples>0u && expected.reverse_image_samples>0u);
             if(compound) {
                 CHECK(expected.compound_drop_first>0u && expected.compound_drop_second>0u);
                 if(mode>=145)CHECK(expected.compound_text_samples>0u && expected.compound_fill_samples>0u &&
@@ -850,26 +855,26 @@ static int native_m2b2j_public_fractional(const std::string& filename)
             }
             if(mode==106 && dpi==96u) {
                 retained=bitmap;retained_reference=expected;
-            } else if(mode==113 || mode==114 || compound) {
+            } else if(mode==113 || mode==114 || compound || reverse) {
                 retained_scopes.push_back({bitmap,expected});
             } else quantapdf_drop_bitmap(bitmap);
         }
         quantapdf_drop_page(page);quantapdf_close(document);
     }
     /* Malformed original scopes, skew/cubic Clip or suffix, a fifth
-     * paint and unqualified reverse orders refuse atomically. Source-only
-     * reverse siblings 147/148/168/169 still refuse public Bitmaps at all three DPIs. */
+     * paint and unqualified reverse four-paint orders refuse atomically.
+     * Original reverse sibling scope/order/resource negatives remain active. */
     for(int mode:{101,102,103,104,107,108,109,110,111,112,
                   115,116,117,118,119,120,121,122,123,124,125,
                   128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,
-                  147,148,149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167,168,169}) {
+                  149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167}) {
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         quantapdf_document *document=nullptr;quantapdf_page *page=nullptr;
         OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(document,0,&page));
         for(unsigned dpi:{72u,96u,144u}) {
-            if(dpi!=96u && mode!=147 && mode!=148 && mode!=168 && mode!=169)continue;
+            if(dpi!=96u)continue;
             quantapdf_render_options options{};
             options.struct_size=sizeof(options);options.dpi=(float)dpi;
             quantapdf_bitmap *denied=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
@@ -893,7 +898,7 @@ static int native_m2b2j_public_fractional(const std::string& filename)
     quantapdf_drop_page(page);quantapdf_close(document);
     /* Sibling and compound originals recover on the SAME Context after every
      * malformed scope/root/order original, using independent bytes. */
-    for(int mode:{113,114,126,127,145,146}) {
+    for(int mode:{113,114,126,127,145,146,147,148,168,169}) {
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         document=nullptr;page=nullptr;
         OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
@@ -910,12 +915,12 @@ static int native_m2b2j_public_fractional(const std::string& filename)
     quantapdf_drop_context(context);
     CHECK(matches(retained,retained_reference));
     quantapdf_drop_bitmap(retained);
-    CHECK(retained_scopes.size()==18u);
+    CHECK(retained_scopes.size()==30u);
     for(const auto& held:retained_scopes) {
         CHECK(matches(held.bitmap,held.expected));
         quantapdf_drop_bitmap(held.bitmap);
     }
-    std::puts("M2b2j/k/n/q public fractional single/sibling/compound W/W* RGB, wrong-root controls, recovery/lifetime PASS");
+    std::puts("M2b2j/k/n/q/t public fractional single/sibling/reverse/compound W/W* RGB, wrong-root controls, recovery/lifetime PASS");
     return EXIT_SUCCESS;
 }
 
