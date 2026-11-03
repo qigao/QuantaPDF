@@ -228,6 +228,11 @@ with independent RGB, faults, recovery and lifetime tests at 72/96/144 DPI.
 This admits exactly the original `[1,1,2]` Text/Fill/Image graph; compound Text
 roots, reverse sibling order and general matrices remain unqualified.
 
+The private [M2b.2o compound Source stage](conformance/native-m2b2o-compound-source-owner.md)
+retains two original rectangular leaves plus their Intersection root for one
+Text→Fill→Image sequence under nested q/Q. It qualifies Source ownership only;
+compound prepared metadata, V5/public Bitmap acceptance remain separate gates.
+
 The public C11 ABI remains unchanged. The SDK is a C ABI backed by C/C++
 implementation; qpdf 12.4, ZLIB and JPEG remain private structure/codec
 dependencies. There is no installed PDFium import or runtime.

@@ -172,10 +172,10 @@ inline std::string native_ttf_fixture(int mode=0)
     /* #578 M2a: fully original QPDF-authored embedded CID TTF +
      * RAW/Flate RGB Image in both orders, plus late invalid operations.
      * No IR-derived or compositor-derived fixtures are used. */
-    if(mode>=49 && mode<=125) {
+    if(mode>=49 && mode<=144) {
         const std::string pixels("\xff\0\0\0\xff\0\0\0\xff\xff\xff\0",12);
         std::string encoded=pixels;
-        if(mode==64 || mode==65 || mode==81 || mode==82 || mode==114) {
+        if(mode==64 || mode==65 || mode==81 || mode==82 || mode==114 || mode==127) {
             uLongf capacity=compressBound(static_cast<uLong>(pixels.size()));
             encoded.assign(static_cast<size_t>(capacity),'\0');
             if(compress2(reinterpret_cast<Bytef *>(encoded.data()),&capacity,
@@ -193,7 +193,7 @@ inline std::string native_ttf_fixture(int mode=0)
         dict.replaceKey("/Height",O::newInteger(2));
         dict.replaceKey("/BitsPerComponent",O::newInteger(8));
         dict.replaceKey("/ColorSpace",O::newName("/DeviceRGB"));
-        if(mode==64 || mode==65 || mode==81 || mode==82 || mode==114) {
+        if(mode==64 || mode==65 || mode==81 || mode==82 || mode==114 || mode==127) {
             dict.replaceKey("/Filter",O::newName("/FlateDecode"));
             image.setFilterOnWrite(false);
         }
@@ -225,7 +225,7 @@ inline std::string native_ttf_fixture(int mode=0)
         if(mode==59)text+=" Q"; /* unbalanced restore */
         if(mode==61)text+=" "+draw; /* second original Image Do */
         if(mode==62)text+=" BT /F 24 Tf 12 20 Td <002d> Tj"; /* no ET */
-        if(mode>=66 && mode<=125) {
+        if(mode>=66 && mode<=144) {
             const std::string fill=(mode==93 || mode==94 || mode>=99)?
                 "q 0 1 0 rg 12 20 7 10 re f Q":
                 "q 0 1 0 rg 12 20 16 20 re f Q";
@@ -249,7 +249,7 @@ inline std::string native_ttf_fixture(int mode=0)
             if(mode==77)text+=" BT /F 24 Tf 1 Tr 12 20 Td <002d> Tj ET";
             if(mode==78)text+=" "+draw;
             if(mode==79)text+=" BT /F 24 Tf 12 20 Td <002d> Tj";
-            if(mode>=83 && mode<=125) {
+            if(mode>=83 && mode<=144) {
                 /* 83/84 preserve the genuine fractional Clip boundary at
                  * 96 DPI. NEW 91/92 use independent Roboto pre-M2a
                  * reference with Clip edges aligned to full physical
@@ -307,7 +307,7 @@ inline std::string native_ttf_fixture(int mode=0)
                     if(mode==108)text+=" 1 1 2 2 re W n";
                     if(mode==111)text+=" 0 0 1 rg 1 1 2 2 re f";
                 }
-                if(mode>=113) {
+                if(mode>=113 && mode<=125) {
                     const std::string first_rule=mode==114?"W*":"W";
                     const std::string second_rule=mode==114?"W":"W*";
                     const std::string first_scope="q 16.25 22.25 27 15.5 re "+
@@ -325,6 +325,33 @@ inline std::string native_ttf_fixture(int mode=0)
                     if(mode==118)text+=" q 1 1 2 2 re W n Q";
                     if(mode==124)text+=" /Missing Do";
                     if(mode==125)fonts.replaceKey("/G",font);
+                }
+                if(mode>=126) {
+                    /* Both q frames precede BT: the inner frame retains
+                     * leaf1, so the second W/n must preserve two authored
+                     * leaves and root Intersection(1,2), not reduce a rect. */
+                    const std::string first_rule=mode==127?"W*":"W";
+                    const std::string second_rule=mode==127?"W":"W*";
+                    const std::string outer=std::string(mode==142?"":"q ")+
+                        "16.25 22.25 27 15.5 re "+first_rule+" n ";
+                    std::string inner="q "+std::string(mode==131?"1 0 0 1 1 0 cm ":"")+
+                        "20.5 15.75 18.25 18.5 re ";
+                    if(mode==139)inner="q 20.5 15.75 m 38.75 15.75 l 37.75 34.25 l 20.5 34.25 l h ";
+                    if(mode==140)inner="q 20.5 15.75 m 38.75 15.75 l 38.75 20 37.75 30 38.75 34.25 c 20.5 34.25 l h ";
+                    if(mode==143)inner="q 20.5 15.75 18.2500000001 18.5 re ";
+                    inner+=second_rule+(mode==135?std::string(" "):std::string(" n "));
+                    if(mode==130)inner+="q 1 1 2 2 re W n ";
+                    text=outer+inner+(mode==136?draw+" "+fill+" "+show:show+" "+fill+" "+draw);
+                    if(mode==134)text=outer+show+" "+fill+" "+inner+draw;
+                    if(mode==144)text=outer+inner+fill+" "+draw; /* no original Text */
+                    text+=" Q";
+                    if(mode==132)text+=" "+fill; /* after root2->leaf1 */
+                    if(mode!=128 && mode!=142)text+=" Q";
+                    if(mode==129)text+=" Q";
+                    if(mode==133)text+=" 1 0 0 rg 34 9 6 5 re f"; /* restored GS0 */
+                    if(mode==137)fonts.replaceKey("/G",font);
+                    if(mode==138)text+=" /Missing Do";
+                    if(mode==141)text+=" q 1 1 2 2 re W n Q";
                 }
             }
         }
