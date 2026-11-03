@@ -841,18 +841,22 @@ static int native_m2b2j_public_fractional(const std::string& filename)
     }
     /* Malformed original scopes, skew/cubic Clip or suffix, a fifth
      * paint and the unqualified reverse four-paint order refuse atomically. */
-    for(int mode:{101,102,103,104,107,108,109,110,111,112}) {
+    for(int mode:{101,102,103,104,107,108,109,110,111,112,
+                  113,114,115,116,117,118,119,120,121,122,123,124,125}) {
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         quantapdf_document *document=nullptr;quantapdf_page *page=nullptr;
         OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(document,0,&page));
-        quantapdf_render_options options{};
-        options.struct_size=sizeof(options);options.dpi=96.0f;
-        quantapdf_bitmap *denied=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-        const auto status=quantapdf_render_page_with_options(page,&options,&denied);
-        CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED || status==QUANTAPDF_ERROR_FORMAT) &&
-              denied==nullptr && matches(retained,retained_reference));
+        for(unsigned dpi:{72u,96u,144u}) {
+            if(dpi!=96u && mode!=113 && mode!=114)continue;
+            quantapdf_render_options options{};
+            options.struct_size=sizeof(options);options.dpi=(float)dpi;
+            quantapdf_bitmap *denied=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+            const auto status=quantapdf_render_page_with_options(page,&options,&denied);
+            CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED || status==QUANTAPDF_ERROR_FORMAT) &&
+                  denied==nullptr && matches(retained,retained_reference));
+        }
         quantapdf_drop_page(page);quantapdf_close(document);
     }
     CHECK(write_pdf(filename,native_ttf_fixture(106)));
