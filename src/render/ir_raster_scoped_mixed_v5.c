@@ -1517,8 +1517,11 @@ quantapdf_status quantapdf_native_scoped_prepare_m2b2c_text_fill_image_v1(
  * The first-three view is a synchronous BORROW of the unique Source IR,
  * never a new parser or a copied/live IR owner. Every geometry object,
  * decoded Image borrow and RGBA layer remains in one existing V5 owner.
- * Reserve a fixed one-eighth share of the SAME 8M page work ledger for
- * the GS0 suffix, before preparing any earlier clipped geometry. */
+ * Reserve half of the SAME bounded 8M page work ledger for the GS0
+ * suffix. The existing FULL V1 mode conservatively charges a complete
+ * pixel grid when no Clip exists; its 144-DPI 256x128 bounded original
+ * needs more than the one-eighth reserved for clipped-only paints.
+ * The first three still share the remainder of the one page ledger. */
 quantapdf_status quantapdf_native_scoped_prepare_m2b2g_restored_four_v1(
     const quantapdf_ir *ir,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
@@ -1569,7 +1572,7 @@ quantapdf_status quantapdf_native_scoped_prepare_m2b2g_restored_four_v1(
        transform->c!=0.0f || transform->d!=0.0f ||
        transform->e!=0.0f || transform->f!=0.0f)
         return QUANTAPDF_ERROR_UNSUPPORTED;
-    suffix_samples=limits->max_sample_tests/8u;
+    suffix_samples=limits->max_sample_tests/2u;
     if(suffix_samples==0u ||
        suffix_samples>=limits->max_sample_tests)
         return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -1616,7 +1619,7 @@ quantapdf_status quantapdf_native_scoped_prepare_m2b2g_restored_four_v1(
     suffix_limits.max_sample_tests=suffix_samples;
     status=quantapdf_native_geometry_prepare_v1(
         &suffix_view,0u,&suffix_limits,NULL,NULL,0u,
-        QP_NATIVE_WORK_VISIBLE_FILL,ledger,&out->geometry[3]);
+        QP_NATIVE_WORK_FULL,ledger,&out->geometry[3]);
     if(status!=QUANTAPDF_OK)goto cleanup;
     out->modes[3]=0u;
     out->count=4u;
