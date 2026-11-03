@@ -95,7 +95,8 @@ typedef struct quantapdf_backend_edit_ops {
         int *test_fault);
     quantapdf_status (*annotation_delete)(
         void *edit,
-        const quantapdf_annotation_ref *ref);
+        const quantapdf_annotation_ref *ref,
+        int *test_fault);
     void (*drop)(
         void *edit);
 } quantapdf_backend_edit_ops;
