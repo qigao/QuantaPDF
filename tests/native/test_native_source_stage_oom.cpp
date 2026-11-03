@@ -3270,7 +3270,7 @@ static int m2b_clipped_prepared_receipt_faults(
     CHECK(quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
         reinterpret_cast<const unsigned char*>(original.data()),
         original.size(),&source_caps,0u,&ir)==QUANTAPDF_OK &&
-        ir.operation_count==3u && ir.resources.clip_count==1u);
+        ir.operation_count==operations && ir.resources.clip_count==1u);
     const quantapdf_ir_raster_scoped_mixed_v5_limits caps={
         1000000u,4u,512u,8000000u,
         source_caps.max_source_pixels,source_caps.max_drawn_pixels
