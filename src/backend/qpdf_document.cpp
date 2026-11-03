@@ -39,6 +39,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <stdexcept>
 #include <type_traits>
 #include <vector>
 
@@ -75,17 +76,50 @@ static std::shared_ptr<QPDF> quantapdf_qpdf_fresh_document(
     return pdf;
 }
 
+// Per-call test sink for an exception DURING serialization, after output
+// has begun. The normal memory writer and production ABI are unchanged.
+class quantapdf_qpdf_snapshot_fault_pipeline final : public Pipeline {
+  public:
+    explicit quantapdf_qpdf_snapshot_fault_pipeline(bool nomem) :
+        Pipeline("quantapdf snapshot fault", nullptr), nomem(nomem)
+    {
+    }
+    void write(unsigned char const *, size_t) override
+    {
+        if (++writes < 2)
+            return;
+        if (nomem)
+            throw std::bad_alloc();
+        throw std::runtime_error("snapshot output sink");
+    }
+    void finish() override {}
+  private:
+    bool nomem;
+    size_t writes = 0;
+};
+
 static quantapdf_status quantapdf_qpdf_write_memory(
     QPDF& pdf,
     unsigned char **out_data,
-    size_t *out_size)
+    size_t *out_size,
+    int *test_fault = nullptr)
 {
     QPDFWriter writer(pdf);
-    writer.setOutputMemory();
     writer.setDeterministicID(true);
     writer.setObjectStreamMode(qpdf_o_disable);
     writer.setStreamDataMode(qpdf_s_preserve);
     writer.setPreserveUnreferencedObjects(false);
+    if (test_fault != nullptr &&
+        (*test_fault == QUANTAPDF_TEST_PDF_EDIT_FAULT_SNAPSHOT_WRITE_ERROR ||
+         *test_fault == QUANTAPDF_TEST_PDF_EDIT_FAULT_SNAPSHOT_WRITE_NOMEM)) {
+        bool const nomem = *test_fault == QUANTAPDF_TEST_PDF_EDIT_FAULT_SNAPSHOT_WRITE_NOMEM;
+        *test_fault = QUANTAPDF_TEST_PDF_EDIT_FAULT_NONE;
+        quantapdf_qpdf_snapshot_fault_pipeline sink(nomem);
+        writer.setOutputPipeline(&sink);
+        writer.write();
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+    writer.setOutputMemory();
     writer.write();
     std::unique_ptr<Buffer> buffer(writer.getBuffer());
     if (buffer == nullptr || buffer->getSize() == 0 ||
@@ -6666,7 +6700,7 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_snapshot(
         return QUANTAPDF_ERROR_BACKEND;
     }
     try {
-        return quantapdf_qpdf_write_memory(*edit->pdf, out_data, out_size);
+        return quantapdf_qpdf_write_memory(*edit->pdf, out_data, out_size, test_fault);
     } catch (QPDFExc const& error) {
         return quantapdf_status_from_qpdf(error);
     } catch (std::bad_alloc const&) {
@@ -6816,6 +6850,7 @@ struct quantapdf_qpdf_edit_change {
     QPDFObjectHandle old_value;
     bool present;
     int array_size = -1;
+    int erased_at = -1;
 };
 
 class quantapdf_qpdf_edit_transaction {
@@ -6852,6 +6887,48 @@ class quantapdf_qpdf_edit_transaction {
         changes.push_back({array, {}, {}, false, array.getArrayNItems()});
     }
 
+    // Retain every original element/position before the first mutation. The
+    // complete journal is bounded by the original array length. Reinsert into
+    // the SAME array object so indirect aliases also observe rollback.
+    void save_array_erase(QPDFObjectHandle array, int at)
+    {
+        if (changes.size() == limit)
+            throw std::bad_alloc();
+        changes.push_back({array, {}, array.getArrayItem(at), false, -1, at});
+    }
+
+    bool erase_saved_items()
+    {
+        if (changes.empty())
+            return false;
+        for (size_t i = 0; i < changes.size(); ++i) {
+            auto& change = changes[i];
+            // Record the size before calling the provider. A thrown erase may
+            // have left either the original array or exactly one item fewer.
+            change.array_size = change.object.getArrayNItems();
+            change.object.eraseItem(change.erased_at);
+            if (fault == nullptr)
+                continue;
+            if (*fault == QUANTAPDF_TEST_PDF_EDIT_FAULT_ROLLBACK)
+                throw std::runtime_error("delete before failed rollback");
+            bool const fail =
+                (i == 0 && (*fault == QUANTAPDF_TEST_PDF_EDIT_FAULT_DELETE_AFTER_FIRST ||
+                            *fault == QUANTAPDF_TEST_PDF_EDIT_FAULT_DELETE_AFTER_FIRST_NOMEM)) ||
+                (i == changes.size() / 2 &&
+                 *fault == QUANTAPDF_TEST_PDF_EDIT_FAULT_DELETE_AFTER_MIDDLE) ||
+                (i + 1 == changes.size() &&
+                 *fault == QUANTAPDF_TEST_PDF_EDIT_FAULT_DELETE_AFTER_LAST);
+            if (fail) {
+                int const selected = *fault;
+                *fault = QUANTAPDF_TEST_PDF_EDIT_FAULT_NONE;
+                if (selected == QUANTAPDF_TEST_PDF_EDIT_FAULT_DELETE_AFTER_FIRST_NOMEM)
+                    throw std::bad_alloc();
+                throw std::runtime_error("delete after array erase");
+            }
+        }
+        return true;
+    }
+
     void commit() noexcept { committed = true; }
 
     ~quantapdf_qpdf_edit_transaction() noexcept
@@ -6860,13 +6937,21 @@ class quantapdf_qpdf_edit_transaction {
             return;
         for (auto change = changes.rbegin(); change != changes.rend();
              ++change) {
+            if (change->erased_at >= 0 && change->array_size < 0)
+                continue;
             try {
                 if (fault != nullptr &&
                     *fault == QUANTAPDF_TEST_PDF_EDIT_FAULT_ROLLBACK) {
                     *fault = QUANTAPDF_TEST_PDF_EDIT_FAULT_NONE;
                     throw std::bad_alloc();
                 }
-                if (change->array_size >= 0) {
+                if (change->erased_at >= 0) {
+                    int const count = change->object.getArrayNItems();
+                    if (count == change->array_size - 1)
+                        change->object.insertItem(change->erased_at, change->old_value);
+                    else if (count != change->array_size)
+                        owner.rollback_failed = true;
+                } else if (change->array_size >= 0) {
                     int count = change->object.getArrayNItems();
                     if (count < change->array_size) {
                         owner.rollback_failed = true;
@@ -7683,7 +7768,8 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_annotation_update(
 
 extern "C" quantapdf_status quantapdf_qpdf_edit_annotation_delete(
     quantapdf_qpdf_edit *edit,
-    const quantapdf_annotation_ref *ref)
+    const quantapdf_annotation_ref *ref,
+    int *test_fault)
 {
     try {
         quantapdf_qpdf_edit_annotation_entry *entry = nullptr;
@@ -7700,20 +7786,28 @@ extern "C" quantapdf_status quantapdf_qpdf_edit_annotation_delete(
         if (!annots.isArray())
             return QUANTAPDF_ERROR_STATE;
         int const count = annots.getArrayNItems();
-        bool removed = false;
+        quantapdf_qpdf_edit_transaction transaction(
+            *edit, static_cast<size_t>(count), test_fault);
+        if (test_fault != nullptr &&
+            *test_fault == QUANTAPDF_TEST_PDF_EDIT_FAULT_DELETE_JOURNAL_NOMEM) {
+            *test_fault = QUANTAPDF_TEST_PDF_EDIT_FAULT_NONE;
+            throw std::bad_alloc();
+        }
         for (int index = count - 1; index >= 0; --index) {
             if (quantapdf_qpdf_same_object(
                     annots.getArrayItem(index), entry->object)) {
-                annots.eraseItem(index);
-                removed = true;
+                transaction.save_array_erase(annots, index);
             }
         }
-        if (!removed)
+        if (!transaction.erase_saved_items())
             return QUANTAPDF_ERROR_STATE;
+        transaction.commit();
         entry->live = false;
         return QUANTAPDF_OK;
     } catch (QPDFExc const& error) {
         return quantapdf_status_from_qpdf(error);
+    } catch (std::bad_alloc const&) {
+        return QUANTAPDF_ERROR_NOMEM;
     } catch (...) {
         return QUANTAPDF_ERROR_BACKEND;
     }

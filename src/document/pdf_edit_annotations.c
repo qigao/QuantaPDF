@@ -99,5 +99,11 @@ quantapdf_status quantapdf_pdf_edit_annotation_delete(
 {
     if (edit == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return edit->ops->annotation_delete(edit->backend, ref);
+    return edit->ops->annotation_delete(edit->backend, ref,
+#if defined(QUANTAPDF_TESTING)
+        &edit->test_fault
+#else
+        NULL
+#endif
+    );
 }

@@ -1176,6 +1176,170 @@ static void test_failed_rollback_closes_session(void)
     quantapdf_drop_pdf_edit(clean);
 }
 
+
+/* Different pages alias one indirect /Annots with three interleaved matches.
+ * Replacing just one page key on rollback cannot satisfy both page checks. */
+static quantapdf_pdf_edit *begin_shared_delete_edit(void)
+{
+    const char *objects[] = {
+        "",
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << >> /Annots 5 0 R >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << >> /Annots 5 0 R >>",
+        "[6 0 R 7 0 R 6 0 R 8 0 R 6 0 R]",
+        "<< /Type /Annot /Subtype /Text /Rect [10 20 30 40] /Contents (erase) >>",
+        "<< /Type /Annot /Subtype /Square /Rect [40 50 70 80] /Contents (keep-a) >>",
+        "<< /Type /Annot /Subtype /Circle /Rect [80 90 100 110] /Contents (keep-b) >>"
+    };
+    long offsets[9] = {0}, xref;
+    FILE *file = fopen(OUTPUT_A_PDF, "wb");
+    size_t i;
+    quantapdf_pdf_edit *edit;
+    CHECK(file != NULL);
+    CHECK(fputs("%PDF-1.7\n", file) >= 0);
+    for (i = 1; i < 9; ++i) {
+        offsets[i] = ftell(file);
+        CHECK(offsets[i] > 0);
+        CHECK(fprintf(file, "%zu 0 obj\n%s\nendobj\n", i, objects[i]) > 0);
+    }
+    xref = ftell(file);
+    CHECK(xref > 0);
+    CHECK(fputs("xref\n0 9\n0000000000 65535 f \n", file) >= 0);
+    for (i = 1; i < 9; ++i)
+        CHECK(fprintf(file, "%010ld 00000 n \n", offsets[i]) > 0);
+    CHECK(fprintf(file, "trailer\n<< /Size 9 /Root 1 0 R >>\nstartxref\n%ld\n%%%%EOF\n", xref) > 0);
+    CHECK(fclose(file) == 0);
+    edit = begin_edit_path(OUTPUT_A_PDF, NULL);
+    CHECK(remove(OUTPUT_A_PDF) == 0);
+    return edit;
+}
+
+static void expect_annotation_count(quantapdf_pdf_edit *edit, int page, size_t expected)
+{
+    size_t count = SIZE_MAX;
+    CHECK(quantapdf_pdf_edit_annotation_count(edit, page, &count) == QUANTAPDF_OK);
+    CHECK(count == expected);
+}
+
+static void expect_retained_output(const quantapdf_output *output)
+{
+    const unsigned char *data = NULL;
+    size_t size = 0;
+    CHECK(quantapdf_output_data(output, &data, &size) == QUANTAPDF_OK);
+    CHECK(data != NULL && size > 0);
+}
+
+static void test_delete_rollback(void)
+{
+    const quantapdf_test_pdf_edit_fault faults[] = {
+        QUANTAPDF_TEST_PDF_EDIT_FAULT_DELETE_AFTER_FIRST,
+        QUANTAPDF_TEST_PDF_EDIT_FAULT_DELETE_AFTER_MIDDLE,
+        QUANTAPDF_TEST_PDF_EDIT_FAULT_DELETE_AFTER_LAST,
+        QUANTAPDF_TEST_PDF_EDIT_FAULT_DELETE_JOURNAL_NOMEM,
+        QUANTAPDF_TEST_PDF_EDIT_FAULT_DELETE_AFTER_FIRST_NOMEM
+    };
+    size_t f;
+    int shared;
+    for (shared = 0; shared != 2; ++shared) {
+        for (f = 0; f < sizeof(faults) / sizeof(faults[0]); ++f) {
+            quantapdf_pdf_edit *edit = shared ? begin_shared_delete_edit() :
+                begin_edit_path(MUTATION_PDF, NULL);
+            quantapdf_pdf_edit *clean = shared ? begin_shared_delete_edit() :
+                begin_edit_path(MUTATION_PDF, NULL);
+            quantapdf_annotation_ref ref = get_ref(edit, 0, 0);
+            quantapdf_annotation_ref clean_ref = get_ref(clean, 0, 0);
+            quantapdf_output *before = NULL, *after = NULL;
+            quantapdf_annotation_info info = {0};
+            size_t before_count = 0;
+            quantapdf_status expected =
+                faults[f] == QUANTAPDF_TEST_PDF_EDIT_FAULT_DELETE_JOURNAL_NOMEM ||
+                faults[f] == QUANTAPDF_TEST_PDF_EDIT_FAULT_DELETE_AFTER_FIRST_NOMEM ?
+                    QUANTAPDF_ERROR_NOMEM : QUANTAPDF_ERROR_BACKEND;
+            CHECK(quantapdf_pdf_edit_annotation_count(edit, 0, &before_count) == QUANTAPDF_OK);
+            CHECK(quantapdf_pdf_edit_snapshot(edit, &before) == QUANTAPDF_OK);
+            quantapdf_test_pdf_edit_set_fault(edit, faults[f]);
+            CHECK(quantapdf_pdf_edit_annotation_delete(edit, &ref) == expected);
+            expect_annotation_count(edit, 0, before_count);
+            if (shared) {
+                quantapdf_annotation_ref duplicate = get_ref(edit, 1, 4);
+                expect_annotation_count(edit, 1, 5);
+                CHECK(duplicate.opaque[0] == ref.opaque[0] &&
+                      duplicate.opaque[1] == ref.opaque[1]);
+                expect_live_contents(edit, &ref, 1, "erase", 5);
+            }
+            info.struct_size = sizeof(info);
+            CHECK(quantapdf_pdf_edit_annotation_get_info(edit, &ref, &info) == QUANTAPDF_OK);
+            expect_same_output(before, edit);
+            CHECK(quantapdf_pdf_edit_annotation_delete(edit, &ref) == QUANTAPDF_OK);
+            CHECK(quantapdf_pdf_edit_annotation_delete(clean, &clean_ref) == QUANTAPDF_OK);
+            CHECK(quantapdf_pdf_edit_annotation_get_info(edit, &ref, &info) == QUANTAPDF_ERROR_STATE);
+            expect_annotation_count(edit, 0, before_count - (shared ? 3u : 1u));
+            if (shared) {
+                quantapdf_annotation_ref kept_a = get_ref(edit, 1, 0);
+                quantapdf_annotation_ref kept_b = get_ref(edit, 1, 1);
+                expect_annotation_count(edit, 1, 2);
+                expect_live_contents(edit, &kept_a, 1, "keep-a", 6);
+                expect_live_contents(edit, &kept_b, 1, "keep-b", 6);
+            }
+            CHECK(quantapdf_pdf_edit_snapshot(clean, &after) == QUANTAPDF_OK);
+            expect_same_output(after, edit);
+            quantapdf_drop_pdf_edit(edit);
+            quantapdf_drop_pdf_edit(clean);
+            expect_retained_output(before);
+            expect_retained_output(after);
+            quantapdf_drop_output(after);
+            quantapdf_drop_output(before);
+        }
+    }
+}
+
+static void test_delete_failed_rollback(void)
+{
+    quantapdf_pdf_edit *edit = begin_shared_delete_edit();
+    quantapdf_annotation_ref ref = get_ref(edit, 0, 0);
+    quantapdf_output *before = NULL;
+    quantapdf_output *failed = (quantapdf_output *)(uintptr_t)1;
+    size_t count = SIZE_MAX;
+    CHECK(quantapdf_pdf_edit_snapshot(edit, &before) == QUANTAPDF_OK);
+    quantapdf_test_pdf_edit_set_fault(edit, QUANTAPDF_TEST_PDF_EDIT_FAULT_ROLLBACK);
+    CHECK(quantapdf_pdf_edit_annotation_delete(edit, &ref) == QUANTAPDF_ERROR_BACKEND);
+    CHECK(quantapdf_pdf_edit_annotation_delete(edit, &ref) == QUANTAPDF_ERROR_STATE);
+    CHECK(quantapdf_pdf_edit_annotation_count(edit, 1, &count) == QUANTAPDF_ERROR_STATE);
+    CHECK(count == 0);
+    CHECK(quantapdf_pdf_edit_snapshot(edit, &failed) == QUANTAPDF_ERROR_STATE);
+    CHECK(failed == NULL);
+    quantapdf_drop_pdf_edit(edit);
+    expect_retained_output(before);
+    quantapdf_drop_output(before);
+}
+
+static void test_snapshot_write_rollback(void)
+{
+    const quantapdf_test_pdf_edit_fault faults[] = {
+        QUANTAPDF_TEST_PDF_EDIT_FAULT_SNAPSHOT_WRITE_ERROR,
+        QUANTAPDF_TEST_PDF_EDIT_FAULT_SNAPSHOT_WRITE_NOMEM
+    };
+    quantapdf_pdf_edit *edit = begin_shared_delete_edit();
+    quantapdf_output *before = NULL;
+    size_t i;
+    CHECK(quantapdf_pdf_edit_snapshot(edit, &before) == QUANTAPDF_OK);
+    for (i = 0; i < sizeof(faults) / sizeof(faults[0]); ++i) {
+        quantapdf_output *failed = (quantapdf_output *)(uintptr_t)1;
+        quantapdf_test_pdf_edit_set_fault(edit, faults[i]);
+        CHECK(quantapdf_pdf_edit_snapshot(edit, &failed) ==
+            (faults[i] == QUANTAPDF_TEST_PDF_EDIT_FAULT_SNAPSHOT_WRITE_NOMEM ?
+                QUANTAPDF_ERROR_NOMEM : QUANTAPDF_ERROR_BACKEND));
+        CHECK(failed == NULL);
+        expect_annotation_count(edit, 0, 5);
+        expect_annotation_count(edit, 1, 5);
+        expect_same_output(before, edit);
+    }
+    quantapdf_drop_pdf_edit(edit);
+    expect_retained_output(before);
+    quantapdf_drop_output(before);
+}
+
 int main(int argc, char **argv)
 {
     CHECK(argc <= 2);
@@ -1201,6 +1365,9 @@ int main(int argc, char **argv)
     if (selected(argc, argv, "transaction")) {
         test_exception_rollback();
         test_create_rollback();
+        test_delete_rollback();
+        test_delete_failed_rollback();
+        test_snapshot_write_rollback();
         test_failed_rollback_closes_session();
     }
 
