@@ -239,7 +239,6 @@ static quantapdf_status quantapdf_draw_path_builder(
 
     if (builder->count == 0u)
         return QUANTAPDF_ERROR_FORMAT;
-    options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
     options.fill = 1;
     options.fill_argb = argb;
     options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;

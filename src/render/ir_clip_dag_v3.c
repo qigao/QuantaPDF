@@ -159,8 +159,6 @@ quantapdf_status quantapdf_ir_raster_clip_dag_v3(
     original = &ir->operations[0];
     if (original->kind != QUANTAPDF_COMPOSER_OPERATION_PATH ||
         original->graphics_state_id != 1u ||
-        original->value.path.options.struct_size <
-            QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE ||
         original->value.path.options.graphics_state_id != 1u)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     state = &ir->resources.graphics_states[0];

@@ -134,7 +134,6 @@ static quantapdf_status simple_form_builder(
         return status;
 
     rectangle_commands(rect, 0.0f, 0.0f, 100.0f, 40.0f);
-    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE;
     path.fill = 1;
     path.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
     path.fill_paint_id = paint_id;
@@ -422,7 +421,6 @@ static int test_render_extract_nested_and_state(void)
               composer, 0u, form_id, &rotated, &draw) == QUANTAPDF_OK);
 
     rectangle_commands(clip_rect, 20.0f, 140.0f, 70.0f, 200.0f);
-    clip_options.struct_size = QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE;
     clip_options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
     CHECK(quantapdf_composer_add_clip_path(
               composer, clip_rect, 5u, &clip_options, &clip_id) ==

@@ -67,6 +67,10 @@ add_test(NAME quantapdf.native_composer_state
   COMMAND quantapdf_native_public_render --composer-state)
 set_tests_properties(quantapdf.native_composer_state PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;public-api;composer;current-api")
+add_test(NAME quantapdf.native_composer_geometry
+  COMMAND quantapdf_native_public_render --composer-geometry)
+set_tests_properties(quantapdf.native_composer_geometry PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;public-api;composer;current-api")
 add_test(NAME quantapdf.native_ordered_clip
   COMMAND quantapdf_native_public_render --ordered-clip)
 set_tests_properties(quantapdf.native_ordered_clip PROPERTIES

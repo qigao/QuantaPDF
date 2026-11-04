@@ -131,7 +131,6 @@ static void path_op(fixture *f,size_t index,unsigned id,size_t count,uint32_t co
     quantapdf_composer_operation *op=&f->ops[index];
     memset(op,0,sizeof(*op));op->kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
     op->value.path.commands=f->paths[index];op->value.path.command_count=count;
-    op->value.path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     op->value.path.options.fill=1;op->value.path.options.fill_argb=color;
     state(op,id);
 }

@@ -22,7 +22,7 @@ inline quantapdf_status form_content(quantapdf_composer *composer,size_t page,vo
 {
     if(failure!=nullptr)return *static_cast<quantapdf_status*>(failure);
     const auto commands=rectangle(0.0f,0.0f,4.0f,4.0f);
-    quantapdf_composer_path_options paint{};paint.struct_size=sizeof(paint);
+    quantapdf_composer_path_options paint{};
     paint.fill=1;paint.fill_argb=UINT32_C(0xffffffff);paint.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
     return quantapdf_composer_draw_path(composer,page,commands.data(),commands.size(),&paint);
 }
@@ -103,10 +103,11 @@ static int composer_state_cases(const std::string& filename)
             const quantapdf_composer_page_options options{sizeof(options),page==0u?12.0f:18.0f,page==0u?12.0f:16.0f,UINT32_C(0xffffffff)};
             size_t index=SIZE_MAX;OK(quantapdf_composer_add_page(composer,&options,&index));CHECK(index==page);
         }
-        quantapdf_composer_clip_options clip_options{};clip_options.struct_size=sizeof(clip_options);clip_options.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
-        const auto full=rectangle(0.0f,0.0f,12.0f,12.0f),cut=rectangle(1.0f,2.0f,2.0f,3.0f);
+        quantapdf_composer_clip_options clip_options{};clip_options.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
+        const auto full=rectangle(0.0f,0.0f,12.0f,12.0f),cut=rectangle(0.0f,0.0f,1.0f,1.0f);
         quantapdf_composer_clip_id full_id=0u,cut_id=0u;
         OK(quantapdf_composer_add_clip_path(composer,full.data(),full.size(),&clip_options,&full_id));
+        clip_options.transform={1,0,0,1,1,2};
         OK(quantapdf_composer_add_clip_path(composer,cut.data(),cut.size(),&clip_options,&cut_id));CHECK(cut_id!=full_id);
         quantapdf_composer_soft_mask_id alpha=0u,luminosity=0u,translated=0u;
         if(mode>=4u) {

@@ -57,7 +57,6 @@ static void test_pattern_geometry(void)
     page_options.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
     page_options.width_points = 72; page_options.height_points = 36;
     page_options.background_argb = UINT32_C(0xffffffff);
-    style.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
     style.fill = 1; style.fill_argb = UINT32_C(0xffff0000);
     style.stroke_argb = UINT32_C(0xff000000); style.stroke_width = 1;
     style.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;

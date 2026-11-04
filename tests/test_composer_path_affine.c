@@ -56,7 +56,6 @@ static void rectangle_commands(
 static quantapdf_composer_path_options fill_options(void)
 {
     quantapdf_composer_path_options options = {0};
-    options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE;
     options.fill = 1;
     options.fill_argb = UINT32_C(0xffff0000);
     options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -66,7 +65,6 @@ static quantapdf_composer_path_options fill_options(void)
 static quantapdf_composer_path_options stroke_options(void)
 {
     quantapdf_composer_path_options options = {0};
-    options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE;
     options.stroke = 1;
     options.stroke_argb = UINT32_C(0xff000000);
     options.stroke_width = 4.0f;
@@ -103,7 +101,7 @@ static int pixel_near(
 }
 
 static int make_identity_output(
-    int v4,
+    int explicit_identity,
     unsigned char **out_data,
     size_t *out_size)
 {
@@ -120,8 +118,7 @@ static int make_identity_output(
     CHECK(add_page(composer, 120.0f, 100.0f));
 
     rectangle_commands(rect, 10.0f, 10.0f, 80.0f, 70.0f);
-    if (v4) {
-        path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+    if (explicit_identity) {
         path.transform =
             (quantapdf_affine_transform){1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f};
     }
@@ -142,26 +139,25 @@ static int make_identity_output(
 
 static int test_identity_and_validation(void)
 {
-    unsigned char *v3 = NULL;
-    unsigned char *v4 = NULL;
-    size_t v3_size = 0u;
-    size_t v4_size = 0u;
+    unsigned char *default_transform = NULL;
+    unsigned char *explicit_identity = NULL;
+    size_t default_size = 0u;
+    size_t identity_size = 0u;
     quantapdf_composer *composer = NULL;
     quantapdf_composer_path_options path = fill_options();
     quantapdf_composer_path_command rect[5];
 
-    CHECK(make_identity_output(0, &v3, &v3_size) == 0);
-    CHECK(make_identity_output(1, &v4, &v4_size) == 0);
-    CHECK(v3_size == v4_size);
-    CHECK(memcmp(v3, v4, v3_size) == 0);
-    free(v4);
-    free(v3);
+    CHECK(make_identity_output(0, &default_transform, &default_size) == 0);
+    CHECK(make_identity_output(1, &explicit_identity, &identity_size) == 0);
+    CHECK(default_size == identity_size);
+    CHECK(memcmp(default_transform, explicit_identity, default_size) == 0);
+    free(explicit_identity);
+    free(default_transform);
 
     CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer, 120.0f, 100.0f));
     rectangle_commands(rect, 10.0f, 10.0f, 80.0f, 70.0f);
 
-    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     memset(&path.transform, 0, sizeof(path.transform));
     CHECK(quantapdf_composer_draw_path(
               composer, 0u, rect, 5u, &path) == QUANTAPDF_OK);
@@ -212,21 +208,18 @@ static int test_nonconformal_dash_gradient_and_render(void)
     CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer, 300.0f, 240.0f));
 
-    fill.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     fill.transform =
         (quantapdf_affine_transform){2.0f, 0.0f, 0.0f, 0.5f, 20.0f, 40.0f};
     rectangle_commands(rect, 10.0f, 20.0f, 50.0f, 60.0f);
     CHECK(quantapdf_composer_draw_path(
               composer, 0u, rect, 5u, &fill) == QUANTAPDF_OK);
 
-    stroke.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     stroke.transform =
         (quantapdf_affine_transform){2.0f, 0.0f, 0.0f, 0.5f, 20.0f, 40.0f};
     line[0].kind = QUANTAPDF_COMPOSER_PATH_MOVE_TO;
     line[0].point1 = (quantapdf_point){10.0f, 80.0f};
     line[1].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
     line[1].point1 = (quantapdf_point){50.0f, 80.0f};
-    dash.struct_size = QUANTAPDF_COMPOSER_DASH_PATTERN_V1_SIZE;
     dash.lengths = dash_lengths;
     dash.length_count = 2u;
     dash.phase = 0.0f;
@@ -243,7 +236,6 @@ static int test_nonconformal_dash_gradient_and_render(void)
               composer, &gradient, &paint_id) == QUANTAPDF_OK);
 
     fill = fill_options();
-    fill.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     fill.fill_argb = 0u;
     fill.fill_paint_id = paint_id;
     fill.transform =

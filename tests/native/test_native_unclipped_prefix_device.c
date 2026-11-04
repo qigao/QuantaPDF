@@ -87,7 +87,6 @@ static void path_op(fixture *f,size_t index,unsigned id,size_t count,uint32_t co
     quantapdf_composer_operation *op=&f->ops[index];
     memset(op,0,sizeof(*op));op->kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
     op->value.path.commands=f->paths[index];op->value.path.command_count=count;
-    op->value.path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     op->value.path.options.fill=1;op->value.path.options.fill_argb=color;
     state(op,id);
 }
@@ -498,7 +497,7 @@ static int malformed_graphs_and_paints(void)
         &f.ir,72u,&budget,NULL)==QUANTAPDF_ERROR_ARGUMENT);
     CHECK(quantapdf_ir_raster_scoped_mixed_v5_unclipped_prefix_device_viewport(
         &f.ir,0u,&budget,16,12,NULL)==QUANTAPDF_ERROR_ARGUMENT);
-    for(unsigned bad=0u;bad<52u;++bad) {
+    for(unsigned bad=0u;bad<51u;++bad) {
         source(&f,0,2u,"PPPP","0210");
         switch(bad) {
         case 0u:f.ir.resources.clip_count=0u;break;
@@ -542,20 +541,18 @@ static int malformed_graphs_and_paints(void)
         case 38u:f.ir.outlines=&outline;break;
         case 39u:f.ops[3].kind=QUANTAPDF_COMPOSER_OPERATION_TEXT;break;
         case 40u:f.ops[3].value.path.options.graphics_state_id=1u;break;
-        case 41u:f.ops[0].value.path.options.struct_size=
-            QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE;break;
-        case 42u:f.ops[3].value.path.options.stroke=1;break;
-        case 43u:f.ops[3].value.path.options.fill_argb=UINT32_C(0x80ff0000);break;
-        case 44u:f.ir.operation_count=1u;break;
-        case 45u:f.ir.operation_count=5u;break;
-        case 46u:f.ir.operations=NULL;break;
-        case 47u:f.ir.pages=NULL;break;
-        case 48u:f.ops[0].value.path.command_count=
+        case 41u:f.ops[3].value.path.options.stroke=1;break;
+        case 42u:f.ops[3].value.path.options.fill_argb=UINT32_C(0x80ff0000);break;
+        case 43u:f.ir.operation_count=1u;break;
+        case 44u:f.ir.operation_count=5u;break;
+        case 45u:f.ir.operations=NULL;break;
+        case 46u:f.ir.pages=NULL;break;
+        case 47u:f.ops[0].value.path.command_count=
             complex_clip(f.paths[0],&grids[0],0u,0);break;
-        case 49u:f.ops[3].value.path.command_count=
+        case 48u:f.ops[3].value.path.command_count=
             complex_clip(f.paths[3],&grids[0],0u,0);break;
-        case 50u:f.ir.resources.clip_count=f.ir.resources.clip_capacity=1u;break;
-        case 51u:f.ops[3].page_index=1u;break;
+        case 49u:f.ir.resources.clip_count=f.ir.resources.clip_capacity=1u;break;
+        case 50u:f.ops[3].page_index=1u;break;
         default:CHECK(0);break;
         }
         memcpy(&saved,&f,sizeof(saved));

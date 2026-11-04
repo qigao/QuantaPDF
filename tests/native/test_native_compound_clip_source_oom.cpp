@@ -466,7 +466,6 @@ static bool owned_graph(const quantapdf_ir& ir,const scenario& sc,
             authored.kind==paint::magenta_path?UINT32_C(0xffff00ff):UINT32_C(0xff00ff00);
         CHECK(path.commands!=nullptr && path.command_count==5u &&
               path.dash_lengths==nullptr && path.dash_count==0u && path.dash_phase==0.0f &&
-              path.options.struct_size==QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE &&
               path.options.fill==1 && path.options.stroke==0 &&
               path.options.graphics_state_id==state && path.options.fill_argb==color &&
               path.options.fill_rule==(authored.kind==paint::blue_path?

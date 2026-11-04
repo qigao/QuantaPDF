@@ -90,8 +90,6 @@ static quantapdf_status qp_clipped_raw_pixels(
     masked_path.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
     masked_path.value.path.commands=rect;
     masked_path.value.path.command_count=5u;
-    masked_path.value.path.options.struct_size=
-        QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     masked_path.value.path.options.fill=1;
     masked_path.value.path.options.fill_argb=UINT32_C(0xffffffff);
     masked_path.value.path.options.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -251,7 +249,6 @@ static quantapdf_status qp_native_image_mask_prepare_impl(
     ir.pages=&transparent;ir.page_count=1u;ir.operations=&paint;ir.operation_count=1u;
     paint.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
     paint.value.path.commands=rectangle;paint.value.path.command_count=5u;
-    paint.value.path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     paint.value.path.options.fill=1;paint.value.path.options.fill_argb=UINT32_C(0xffffffff);
     paint.value.path.options.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
     qp_point(&rectangle[0],QUANTAPDF_COMPOSER_PATH_MOVE_TO,bounds->x0,bounds->y0);

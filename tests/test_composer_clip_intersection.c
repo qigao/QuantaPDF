@@ -55,7 +55,6 @@ static void rectangle_commands(
 static quantapdf_composer_path_options fill_options(uint32_t argb)
 {
     quantapdf_composer_path_options options = {0};
-    options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
     options.fill = 1;
     options.fill_argb = argb;
     options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -119,7 +118,6 @@ static int test_validation_dedup_and_budget(void)
 
     rectangle_commands(a, 0.0f, 0.0f, 100.0f, 100.0f);
     rectangle_commands(b, 20.0f, 20.0f, 80.0f, 80.0f);
-    options.struct_size = QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE;
     options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
 
     CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
@@ -302,7 +300,6 @@ static int test_nested_intersection_render_and_scope(void)
     rectangle_commands(a, 10.0f, 10.0f, 110.0f, 90.0f);
     rectangle_commands(b, 20.0f, 0.0f, 70.0f, 100.0f);
     rectangle_commands(c, 0.0f, 20.0f, 120.0f, 70.0f);
-    options.struct_size = QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE;
     options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
 
     CHECK(quantapdf_composer_add_clip_path(
@@ -345,7 +342,6 @@ static int test_nested_intersection_render_and_scope(void)
     CHECK(state_id != 0u);
 
     rectangle_commands(full, 0.0f, 0.0f, 160.0f, 120.0f);
-    red.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_SIZE;
     red.graphics_state_id = state_id;
     CHECK(quantapdf_composer_draw_path(
               composer, page0, full, 5u, &red) == QUANTAPDF_OK);

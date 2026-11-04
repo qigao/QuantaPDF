@@ -49,7 +49,6 @@ int main(void)
     op.graphics_state_id = 1u;
     op.value.path.commands = paint;
     op.value.path.command_count = 5u;
-    op.value.path.options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     op.value.path.options.fill = 1;
     op.value.path.options.fill_argb = 0xffff0000u;
     op.value.path.options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;

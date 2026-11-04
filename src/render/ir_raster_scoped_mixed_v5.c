@@ -893,8 +893,7 @@ static quantapdf_status v5_prepare_impl(
                 opt->line_cap==QUANTAPDF_COMPOSER_LINE_CAP_BUTT &&
                 opt->line_join==QUANTAPDF_COMPOSER_LINE_JOIN_MITER &&
                 opt->miter_limit==10.0f;
-            if(opt->struct_size<QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE ||
-               !(clipped_triangle_stroke || branch_open_stroke ||
+            if(!(clipped_triangle_stroke || branch_open_stroke ||
                  (opt->fill==1 && opt->stroke==0)) ||
                (((clipped_triangle_stroke || branch_open_stroke)?
                   opt->stroke_argb:opt->fill_argb)>>24u)!=255u ||
@@ -902,19 +901,14 @@ static quantapdf_status v5_prepare_impl(
                p->command_count>10240u ||
                ((clipped_paths_optin || two_states || three_states ||
                  unclipped_prefix_optin) &&
-                ((!branch_open_stroke &&
-                  (p->command_count<4u || p->command_count>9u)) ||
-                 opt->struct_size<QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE)) ||
+                !branch_open_stroke &&
+                (p->command_count<4u || p->command_count>9u)) ||
                ((two_states || three_states || unclipped_prefix_optin) &&
                 !branch_open_stroke &&
                 !v5_closed_contour(p->commands,p->command_count)) ||
                p->dash_count!=0u || p->dash_lengths!=NULL ||
-               (state!=0u &&
-                opt->struct_size<QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE) ||
-               (opt->struct_size>=QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE &&
-                (size_t)opt->graphics_state_id!=state) ||
-               (opt->struct_size>=QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_MIN_SIZE &&
-                (opt->fill_paint_id!=0u || opt->stroke_paint_id!=0u)))
+               (size_t)opt->graphics_state_id!=state ||
+               opt->fill_paint_id!=0u || opt->stroke_paint_id!=0u)
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             ++path_count;
             ++edge_layers;
@@ -1395,7 +1389,6 @@ static quantapdf_status qp_clipped_text_image_prepare(
         if(fill->page_index!=0u ||
            fill->graphics_state_id!=1u ||
            path->options.graphics_state_id!=1u ||
-           path->options.struct_size<QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE ||
            path->options.fill!=1 || path->options.stroke!=0 ||
            (path->options.fill_argb>>24u)!=255u ||
            path->options.fill_paint_id!=0u ||

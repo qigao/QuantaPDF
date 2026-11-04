@@ -55,7 +55,6 @@ static void rectangle_commands(
 static quantapdf_composer_path_options fill_options(uint32_t argb)
 {
     quantapdf_composer_path_options options = {0};
-    options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
     options.fill = 1;
     options.fill_argb = argb;
     options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -77,7 +76,6 @@ static quantapdf_status draw_rect(
 
     rectangle_commands(rect, x0, y0, x1, y1);
     if (graphics_state_id != 0u) {
-        path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_SIZE;
         path.graphics_state_id = graphics_state_id;
     }
     return quantapdf_composer_draw_path(

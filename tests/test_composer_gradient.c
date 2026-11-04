@@ -37,7 +37,6 @@ static int add_page(
 static quantapdf_composer_path_options fill_options(void)
 {
     quantapdf_composer_path_options options = {0};
-    options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_SIZE;
     options.fill = 1;
     options.fill_argb = UINT32_C(0xff000000);
     options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -47,7 +46,6 @@ static quantapdf_composer_path_options fill_options(void)
 static quantapdf_composer_path_options stroke_options(void)
 {
     quantapdf_composer_path_options options = {0};
-    options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_SIZE;
     options.stroke = 1;
     options.stroke_argb = UINT32_C(0xff000000);
     options.stroke_width = 8.0f;
@@ -107,41 +105,7 @@ static int close_number(double left, double right)
     return fabs(left - right) < 0.001;
 }
 
-static int make_solid_output(
-    int v3,
-    unsigned char **out_data,
-    size_t *out_size)
-{
-    quantapdf_composer *composer = NULL;
-    quantapdf_output *output = NULL;
-    quantapdf_composer_path_options path = fill_options();
-    quantapdf_composer_path_command rect[5];
-    const unsigned char *data = NULL;
-    size_t size = 0u;
-
-    *out_data = NULL;
-    *out_size = 0u;
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
-    CHECK(add_page(composer, 100.0f, 100.0f));
-    rectangle_commands(rect, 10.0f, 10.0f, 90.0f, 90.0f);
-    if (v3)
-        path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE;
-    CHECK(quantapdf_composer_draw_path(
-              composer, 0u, rect, 5u, &path) == QUANTAPDF_OK);
-    CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
-    CHECK(quantapdf_output_data(output, &data, &size) == QUANTAPDF_OK);
-
-    *out_data = (unsigned char *)malloc(size);
-    CHECK(*out_data != NULL);
-    memcpy(*out_data, data, size);
-    *out_size = size;
-
-    quantapdf_drop_output(output);
-    quantapdf_drop_composer(composer);
-    return 0;
-}
-
-static int test_validation_budget_and_v3_identity(void)
+static int test_validation_and_budget(void)
 {
     quantapdf_composer *composer = NULL;
     quantapdf_composer_options limits = {0};
@@ -161,17 +125,7 @@ static int test_validation_budget_and_v3_identity(void)
     quantapdf_composer_paint_id duplicate = 0u;
     quantapdf_composer_path_options path = fill_options();
     quantapdf_composer_path_command rect[5];
-    unsigned char *v2 = NULL;
-    unsigned char *v3 = NULL;
-    size_t v2_size = 0u;
-    size_t v3_size = 0u;
 
-    CHECK(make_solid_output(0, &v2, &v2_size) == 0);
-    CHECK(make_solid_output(1, &v3, &v3_size) == 0);
-    CHECK(v2_size == v3_size);
-    CHECK(memcmp(v2, v3, v2_size) == 0);
-    free(v3);
-    free(v2);
 
     linear.struct_size =
         QUANTAPDF_COMPOSER_LINEAR_GRADIENT_OPTIONS_V1_SIZE;
@@ -301,7 +255,6 @@ static int test_validation_budget_and_v3_identity(void)
     CHECK(id == 1u);
     CHECK(add_page(composer, 100.0f, 100.0f));
     rectangle_commands(rect, 10.0f, 10.0f, 90.0f, 90.0f);
-    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE;
     path.fill_paint_id = id + 10u;
     CHECK(quantapdf_composer_draw_path(
               composer, 0u, rect, 5u, &path) ==
@@ -420,7 +373,6 @@ static int test_render_resources_ownership_and_determinism(void)
     memset(vertical, 0, sizeof(vertical));
 
     path = fill_options();
-    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE;
     path.fill_argb = 0u;
     path.fill_paint_id = linear_id;
     rectangle_commands(rect, 20.0f, 20.0f, 120.0f, 80.0f);
@@ -443,7 +395,6 @@ static int test_render_resources_ownership_and_determinism(void)
               composer, 0u, rect, 5u, &path) == QUANTAPDF_OK);
 
     path = stroke_options();
-    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE;
     path.stroke_argb = 0u;
     path.stroke_paint_id = linear_id;
     line[0].kind = QUANTAPDF_COMPOSER_PATH_MOVE_TO;
@@ -533,7 +484,7 @@ static int test_render_resources_ownership_and_determinism(void)
 
 int main(void)
 {
-    CHECK(test_validation_budget_and_v3_identity() == 0);
+    CHECK(test_validation_and_budget() == 0);
     CHECK(test_render_resources_ownership_and_determinism() == 0);
     return 0;
 }

@@ -105,7 +105,6 @@ static void path_op(fixture *f,size_t index,unsigned id,size_t count)
     quantapdf_composer_operation *op=&f->ops[index];
     memset(op,0,sizeof(*op));op->kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
     op->value.path.commands=f->paths[index];op->value.path.command_count=count;
-    op->value.path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     op->value.path.options.fill=1;
     op->value.path.options.fill_argb=colors[index];
     state(op,id);
@@ -517,7 +516,7 @@ static int malformed(void)
         &f.ir,72u,&budget,NULL)==QUANTAPDF_ERROR_ARGUMENT);
     CHECK(quantapdf_ir_raster_scoped_mixed_v5_clip_states_device_viewport(
         &f.ir,0u,&budget,8,8,NULL)==QUANTAPDF_ERROR_ARGUMENT);
-    for(unsigned bad=0u;bad<69u;++bad) {
+    for(unsigned bad=0u;bad<68u;++bad) {
         source(&f,0,&profiles[0]);
         switch(bad) {
         case 0u:f.ir.operation_count=0u;break;
@@ -569,26 +568,25 @@ static int malformed(void)
         case 46u:f.paths[3][4].kind=QUANTAPDF_COMPOSER_PATH_LINE_TO;break;
         case 47u:f.ops[3].value.path.options.stroke=1;break;
         case 48u:f.ops[3].value.path.options.fill_argb=UINT32_C(0x8000ff00);break;
-        case 49u:f.ops[3].value.path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE;break;
-        case 50u:f.ops[3].value.path.options.fill_paint_id=1u;break;
-        case 51u:f.ir.resources.fonts=&font;break;
-        case 52u:f.ir.resources.font_capacity=1u;break;
-        case 53u:f.ir.resources.forms=&form;break;
-        case 54u:f.ir.resources.form_capacity=1u;break;
-        case 55u:f.ir.resources.paints=&paint;break;
-        case 56u:f.ir.resources.paint_capacity=1u;break;
-        case 57u:f.ir.resources.soft_masks=&soft_mask;break;
-        case 58u:f.ir.resources.soft_mask_capacity=1u;break;
-        case 59u:f.ir.links=&link;break;
-        case 60u:f.ir.outlines=&outline;break;
-        case 61u:f.ir.resources.graphics_state_count=0u;break;
-        case 62u:f.ir.page_count=2u;break;
-        case 63u:f.page.width_points=7.1f;break;
-        case 64u:f.ir.pages=NULL;break;
-        case 65u:state(&f.ops[3],3u);break;
-        case 66u:f.clips[1].fill_rule=(quantapdf_composer_fill_rule)55;break;
-        case 67u:f.gs[1].blend_mode=(quantapdf_composer_blend_mode)55;break;
-        case 68u:f.paths[3][2].point1.y=NAN;break;
+        case 49u:f.ops[3].value.path.options.fill_paint_id=1u;break;
+        case 50u:f.ir.resources.fonts=&font;break;
+        case 51u:f.ir.resources.font_capacity=1u;break;
+        case 52u:f.ir.resources.forms=&form;break;
+        case 53u:f.ir.resources.form_capacity=1u;break;
+        case 54u:f.ir.resources.paints=&paint;break;
+        case 55u:f.ir.resources.paint_capacity=1u;break;
+        case 56u:f.ir.resources.soft_masks=&soft_mask;break;
+        case 57u:f.ir.resources.soft_mask_capacity=1u;break;
+        case 58u:f.ir.links=&link;break;
+        case 59u:f.ir.outlines=&outline;break;
+        case 60u:f.ir.resources.graphics_state_count=0u;break;
+        case 61u:f.ir.page_count=2u;break;
+        case 62u:f.page.width_points=7.1f;break;
+        case 63u:f.ir.pages=NULL;break;
+        case 64u:state(&f.ops[3],3u);break;
+        case 65u:f.clips[1].fill_rule=(quantapdf_composer_fill_rule)55;break;
+        case 66u:f.gs[1].blend_mode=(quantapdf_composer_blend_mode)55;break;
+        case 67u:f.paths[3][2].point1.y=NAN;break;
         default:CHECK(0);break;
         }
         memcpy(&saved,&f,sizeof(saved));

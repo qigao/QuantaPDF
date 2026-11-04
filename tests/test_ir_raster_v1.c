@@ -64,8 +64,6 @@ static int setup(quantapdf_ir *ir, quantapdf_composer_page_state *page,
     op->kind = QUANTAPDF_COMPOSER_OPERATION_PATH;
     op->value.path.commands = commands;
     op->value.path.command_count = count;
-    op->value.path.options.struct_size =
-        QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     op->value.path.options.fill = 1;
     op->value.path.options.fill_argb = UINT32_C(0xffff0000);
     op->value.path.options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;

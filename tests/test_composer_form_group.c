@@ -66,7 +66,6 @@ static quantapdf_status draw_filled_rect(
     quantapdf_composer_path_options path = {0};
 
     rectangle_commands(rect, x0, y0, x1, y1);
-    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
     path.fill = 1;
     path.fill_argb = argb;
     path.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;

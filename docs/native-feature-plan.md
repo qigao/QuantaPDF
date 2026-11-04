@@ -80,6 +80,16 @@
   builder 失败传播和 Context/Page/Bitmap 生命周期。无 mask 的 opaque/Clip 文字验证
   12 次完整 RGB；其余 24 次明确返回 native UNSUPPORTED。另验证 SVG 的四种
   mask 写出与明确拒绝；这些字典可写出，不表示 A5 透明度渲染已经完成。
+- Path/Clip options 与 dash pattern 同样改为当前完整记录，删除三类尺寸字段、
+  12 个 V1–V4 尺寸宏、Path 的版本化 GS/paint/transform 读取和逐字段复制包装。
+  Path 变换在 Composer 接受操作时只归一化一次；SVG、barcode、qpdf writer、Source
+  发布和 C11 raster 直接消费当前字段，不再以记录版本决定是否应用真实资源/变换。
+  `quantapdf.native_composer_geometry` 在现有公开测试可执行文件中验证 8 个重开页资源图、
+  18 次完整独立 RGB（含 AES-256、选页、72/96/144 DPI 与 owner 释放），以及曲线、
+  combined paint、Clip、GS、fill/stroke gradient、dash 的真实写出与 6 次明确 native 拒绝。
+  调用后改写 commands、dash 和 gradient 输入，仍核对写出值；当前 state 用例的 Clip
+  也改由真实变换定位，保留原 RGB。纯 Fill 当前经过 8-bit alpha 再合成，仍有与直接
+  n/16 相差一个色阶的边缘；这一 A2 合成差异与复杂 paint 渲染不计作已完成。
 
 ## A2 当前实现增量：动态 q/Q 状态
 

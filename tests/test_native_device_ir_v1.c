@@ -672,7 +672,6 @@ int main(void) {
     ir.pages=&page;ir.page_count=1u;
     ir.operations=&op;ir.operation_count=1u;
     op.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
-    op.value.path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     op.value.path.options.fill=1;
     op.value.path.options.fill_argb=UINT32_C(0xff0000ff);
     op.value.path.commands=commands;op.value.path.command_count=5u;

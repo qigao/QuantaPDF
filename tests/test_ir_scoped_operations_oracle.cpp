@@ -77,7 +77,6 @@ struct scene {
             op.value.path.commands = shape[i];
             op.value.path.command_count = 5u;
             auto& opt = op.value.path.options;
-            opt.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
             opt.fill = 1;
             opt.fill_argb = colors[i];
             opt.transform = quantapdf_affine_transform{1,0,0,1,0,0};

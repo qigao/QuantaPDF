@@ -47,7 +47,6 @@ struct scene {
         operation.value.path.commands = paint;
         operation.value.path.command_count = 5u;
         auto& opt = operation.value.path.options;
-        opt.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
         opt.fill = 1;
         opt.fill_argb = UINT32_C(0xffff0000);
         opt.graphics_state_id = 1u;

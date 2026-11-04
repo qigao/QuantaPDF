@@ -56,15 +56,11 @@ int main(void)
     operations[0].kind = QUANTAPDF_COMPOSER_OPERATION_PATH;
     operations[0].value.path.commands = red;
     operations[0].value.path.command_count = 5;
-    operations[0].value.path.options.struct_size =
-        QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     operations[0].value.path.options.fill = 1;
     operations[0].value.path.options.fill_argb = UINT32_C(0xffff0000);
     operations[1].kind = QUANTAPDF_COMPOSER_OPERATION_PATH;
     operations[1].value.path.commands = blue;
     operations[1].value.path.command_count = 5;
-    operations[1].value.path.options.struct_size =
-        QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     operations[1].value.path.options.fill = 1;
     operations[1].value.path.options.fill_argb = UINT32_C(0xff0000ff);
 

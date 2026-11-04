@@ -126,18 +126,12 @@ quantapdf_status quantapdf_ir_raster_clipped_image_then_path_v4(
        image_op->value.image.options.graphics_state_id!=1u ||
        image_op->value.image.options.fit!=
            QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH ||
-       path_op->value.path.options.struct_size<
-           QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE ||
        path_op->value.path.options.fill!=1 ||
        path_op->value.path.options.stroke!=0 ||
        (path_op->value.path.options.fill_argb>>24u)!=255u ||
-       (path_op->value.path.options.struct_size>=
-            QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE &&
-        path_op->value.path.options.graphics_state_id!=0u) ||
-       (path_op->value.path.options.struct_size>=
-            QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_MIN_SIZE &&
-        (path_op->value.path.options.fill_paint_id!=0u ||
-         path_op->value.path.options.stroke_paint_id!=0u)) ||
+       path_op->value.path.options.graphics_state_id!=0u ||
+       path_op->value.path.options.fill_paint_id!=0u ||
+       path_op->value.path.options.stroke_paint_id!=0u ||
        path_op->value.path.dash_count!=0u ||
        source->width==0u || source->height==0u ||
        (size_t)source->width>QP_V4_MAX_SOURCE_PIXELS/

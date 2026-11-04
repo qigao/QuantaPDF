@@ -81,8 +81,6 @@ static void init(fixture *f)
     f->operations[1].kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
     f->operations[1].value.path.commands=f->paint;
     f->operations[1].value.path.command_count=5u;
-    f->operations[1].value.path.options.struct_size=
-        QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     f->operations[1].value.path.options.fill=1;
     f->operations[1].value.path.options.fill_argb=UINT32_C(0xff0000ff);
     f->operations[1].value.path.options.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
