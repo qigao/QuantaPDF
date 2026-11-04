@@ -4130,7 +4130,13 @@ static int native_seventh_userunit_late_refusal_cases(
 
 int main(int argc,char **argv)
 {
-    const std::string filename="native-standalone-smoke.pdf";
+    // Each CTest invocation owns its input path, including parallel runs.
+    const std::string filename=std::string("native-public-")+
+        (argc>1?argv[1]:"render")+".pdf";
+    if(argc==2 && std::strcmp(argv[1],"--path-boundaries")==0)
+        return path_commands_cases(filename,true,1u);
+    if(argc==2 && std::strcmp(argv[1],"--parity-stress")==0)
+        return path_commands_cases(filename,true,2u);
     if(argc==2 && std::strcmp(argv[1],"--multi-contour")==0)
         return path_commands_cases(filename,true);
     if(argc==2 && std::strcmp(argv[1],"--path-commands")==0)

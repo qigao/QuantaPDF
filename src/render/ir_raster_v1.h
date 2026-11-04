@@ -16,7 +16,10 @@ extern "C" {
  * to the intersection of the actual flattened draw and Clip edges.
  * This is a visited-sample optimization INSIDE this same C11 raster:
  * the numeric cap, sample grid, untouched paths and atomic refusal
- * contract are unchanged. */
+ * contract are unchanged. Ordered Scene geometry and Clip winding use
+ * three coverage units per pixel; device plans, work bounds and output
+ * dimensions remain in physical pixels. Curve tolerance is converted
+ * with the geometry, and original glyph masks retain their own sampler. */
 typedef struct quantapdf_ir_raster_v1_limits {
     size_t max_pixels;
     size_t max_operations;

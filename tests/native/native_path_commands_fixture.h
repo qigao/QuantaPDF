@@ -42,6 +42,7 @@ inline original create(size_t repeats,unsigned primitive,unsigned clip,bool even
     if(clip==1u || clip==4u)parts[0]+="4 4 4 4 re W n\n";
     if(clip==2u)parts[0]+="3 3 m 9 3 l 3 9 l h W* n\n";
     if(clip==3u)parts[0]+="2 2 m W* n\n";
+    if(clip==5u)parts[0]+="1 1 m 5 1 l 1 5 l h W* n\n";
     if(clip==4u)parts[0]+="q 5 3 4 6 re W* n\n";
     parts[0]+="0.2 0.4 0.6 rg 2 2 m\n";
     const std::array<std::string,4> corner={"2 2","10 2","10 10","2 10"};
@@ -76,6 +77,7 @@ inline original create_contours(size_t count,unsigned primitive,unsigned clip,bo
     if(clip==1u || clip==4u)parts[0]+="4 4 4 4 re W n\n";
     if(clip==2u)parts[0]+="3 3 m 9 3 l 3 9 l h W* n\n";
     if(clip==3u)parts[0]+="2 2 m W* n\n";
+    if(clip==5u)parts[0]+="1 1 m 5 1 l 1 5 l h W* n\n";
     if(clip==4u)parts[0]+="q 5 3 4 6 re W* n\n";
     parts[0]+="0.2 0.4 0.6 rg\n";
     const auto point=[](int x,int y) {return std::to_string(x)+" "+std::to_string(y);};
@@ -129,27 +131,33 @@ inline original create_contours(size_t count,unsigned primitive,unsigned clip,bo
 }
 inline std::vector<unsigned char> rgb(const original& sample,unsigned dpi)
 {
-    const size_t width=12u*dpi/72u;const double scale=double(dpi)/72.0;
+    const size_t width=12u*dpi/72u;
+    // Independent exact rational PDF sample locations: denominator 8*dpi.
+    // Triangle and rectangle predicates never round a projected vertex.
+    const int64_t denominator=8ll*dpi;
     std::vector<unsigned char> pixels(width*width*3u,255u);
-    const auto rectangle=[](double x,double y,double x0,double y0,double x1,double y1) {
-        return x>=x0 && x<x1 && y>=y0 && y<y1;
+    const auto rectangle=[&](int64_t x,int64_t y,int x0,int y0,int x1,int y1) {
+        return x>=x0*denominator && x<x1*denominator &&
+            y>=y0*denominator && y<y1*denominator;
     };
     for(size_t y=0u;y<width;++y)for(size_t x=0u;x<width;++x) {
         unsigned first=0u,last=0u;
         for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
-            const double px=(double(x)+(double(sx)+0.5)/4.0)/scale;
-            const double py=12.0-(double(y)+(double(sy)+0.5)/4.0)/scale;
+            const int64_t px=(8ll*int64_t(x)+2ll*sx+1ll)*72ll;
+            const int64_t py=12ll*denominator-(8ll*int64_t(y)+2ll*sy+1ll)*72ll;
             bool clip=true;
             if(sample.clip==1u)clip=rectangle(px,py,4,4,8,8);
-            if(sample.clip==2u)clip=px>=3.0 && py>=3.0 && px+py<12.0;
+            if(sample.clip==2u)clip=px>=3ll*denominator && py>=3ll*denominator && px+py<12ll*denominator;
             if(sample.clip==3u)clip=false;
             if(sample.clip==4u)clip=rectangle(px,py,5,4,8,8);
+            if(sample.clip==5u)clip=px>=denominator && py>=denominator && px+py<6ll*denominator;
             bool inside=rectangle(px,py,2,2,10,10) && (!sample.even || sample.repeats%2u!=0u);
             if(!sample.contours.empty()) {
                 int winding=0;
                 for(const auto& r:sample.contours) {
-                    const bool hit=r.triangle ? px>=r.x0 && py>=r.y0 &&
-                        (px-r.x0)/double(r.x1-r.x0)+(py-r.y0)/double(r.y1-r.y0)<1.0 :
+                    const int64_t w=r.x1-r.x0,h=r.y1-r.y0;
+                    const bool hit=r.triangle ? px>=r.x0*denominator && py>=r.y0*denominator &&
+                        (px-r.x0*denominator)*h+(py-r.y0*denominator)*w<w*h*denominator :
                         rectangle(px,py,r.x0,r.y0,r.x1,r.y1);
                     if(hit)winding+=r.reverse?-1:1;
                 }
