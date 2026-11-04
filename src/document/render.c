@@ -99,9 +99,9 @@ static quantapdf_status quantapdf_render_page_transformed(
     const quantapdf_native_page_limits limits = {
         /* qpdf owns arbitrarily split/encoded Contents. The remaining paint
          * and raster limits belong to their existing IR implementations. */
-        {SIZE_MAX,SIZE_MAX,4u,1000000u,1000000u,
+        {SIZE_MAX,SIZE_MAX,SIZE_MAX,1000000u,1000000u,
          4000000u,8u},
-        {1000000u,4u,512u,8000000u,1000000u,4000000u}
+        {1000000u,SIZE_MAX,512u,8000000u,1000000u,4000000u}
     };
     quantapdf_native_page_device device = {0};
 

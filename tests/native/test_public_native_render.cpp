@@ -95,7 +95,7 @@ static std::string create_blank_source(int mode)
 
 /* Native-only opaque Path Fill originals with no /Resources or Image:
  * 1..4 source-ordered PATHs, grayscale, exact overlap and atomic
- * fifth PATH / late Text / Stroke refusals, including after a Clip. */
+ * fifth PATH output and late Text/Stroke failures, including after a Clip. */
 static std::string create_path_only_source(int mode)
 {
     auto pdf=QPDF::create();
@@ -231,7 +231,7 @@ static std::string create_image_only_source(int mode)
     if(mode>=17 && mode<=20)
         content+=" q 8 0 0 6 24 12 cm /I Do Q"; /* fourth */
     if(mode==18)
-        content+=" q 4 0 0 4 12 19 cm /I Do Q"; /* fifth: reject */
+        content+=" q 4 0 0 4 12 19 cm /I Do Q"; /* fifth */
     if(mode==19)
         content+=" BT ET"; /* late unsupported: discard all four */
     if(mode==21)
@@ -4149,10 +4149,13 @@ static int native_seventh_userunit_late_refusal_cases(
 #include "native_opened_document_cases.h"
 #include "native_content_stream_cases.h"
 #include "native_graphics_state_cases.h"
+#include "native_ordered_paints_cases.h"
 
 int main(int argc,char **argv)
 {
     const std::string filename="native-standalone-smoke.pdf";
+    if(argc==2 && std::strcmp(argv[1],"--ordered-paints")==0)
+        return ordered_paints_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--graphics-state")==0)
         return graphics_state_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--content-streams")==0)
@@ -4481,7 +4484,7 @@ int main(int argc,char **argv)
 
     /* One to four opaque PATHs, no Image/Clip resources. Compare fixed
      * independently declared RGB goldens, NOT any PDFium oracle. Later
-     * Text/Stroke/fifth PATH refuse completely, including after a Clip. */
+     * Text/Stroke refuse completely, including after a Clip. */
     for(int mode=0;mode<10;++mode) {
         CHECK(write_pdf(filename,create_path_only_source(mode)));
         quantapdf_context *path_context=nullptr;
@@ -4495,7 +4498,7 @@ int main(int argc,char **argv)
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(path_document,0,&path_page));
         const auto st=quantapdf_render_page(path_page,&filled);
-        const bool valid=mode<=2 || mode==6 || mode==7;
+        const bool valid=mode<=2 || (mode>=6 && mode<=8);
         if(!valid) {
             CHECK(st==QUANTAPDF_ERROR_UNSUPPORTED && filled==nullptr);
             small=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
@@ -4516,12 +4519,13 @@ int main(int argc,char **argv)
             CHECK(probe_rgb(px,s,6,17,red,green,blue));
             CHECK(probe_rgb(px,s,1,1,255u,255u,255u));
             if(mode>=6) {
+                if(mode==8)CHECK(probe_rgb(px,s,1,22,0u,0u,0u));
                 CHECK(probe_rgb(px,s,10,18,0u,255u,0u));
                 CHECK(probe_rgb(px,s,14,11,0u,0u,255u));
                 CHECK(probe_rgb(px,s,14,13,
-                    mode==7?255u:0u,255u,0u));
+                    mode>=7?255u:0u,255u,0u));
                 CHECK(probe_rgb(px,s,11,15,
-                    mode==7?255u:0u,255u,0u));
+                    mode>=7?255u:0u,255u,0u));
                 CHECK(probe_rgb(px,s,18,12,0u,0u,255u));
                 CHECK(probe_rgb(px,s,22,12,255u,255u,255u));
             } else {
@@ -4544,7 +4548,7 @@ int main(int argc,char **argv)
                 CHECK(probe_rgb(rp,s,5,9,0u,255u,0u));
                 CHECK(probe_rgb(rp,s,7,5,0u,0u,255u));
                 CHECK(probe_rgb(rp,s,6,7,
-                    mode==7?255u:0u,255u,0u));
+                    mode>=7?255u:0u,255u,0u));
             } else {
                 CHECK(probe_rgb(rp,s,7,5,
                     mode==1?0u:255u,
@@ -4588,9 +4592,9 @@ int main(int argc,char **argv)
         OK(quantapdf_load_page(image_doc,0,&image_page));
         const auto result=quantapdf_render_page(image_page,&rendered);
         const bool clipped=mode==5 || mode==9 || mode==11 || mode==13;
-        const bool image_only_four=mode==6 || mode==17 ||
+        const bool unclipped_images=mode==6 || mode==17 || mode==18 ||
                                    mode==20 || mode==21;
-        if(mode>=4 && !clipped && !image_only_four) {
+        if(mode>=4 && !clipped && !unclipped_images) {
             /* Unknown /J is an invalid resource; an unmatched Q is
              * malformed original-PDF graphics-stack syntax. Both are
              * FORMAT failures, not ordinary unsupported features. */
@@ -4648,19 +4652,19 @@ int main(int argc,char **argv)
                     gray?0u:255u,gray?0u:255u,0u));
             }
             CHECK(probe_rgb(pixels,s,2,2,255u,255u,255u));
-            if(mode==1 || mode==13 || image_only_four) {
+            if(mode==1 || mode==13 || unclipped_images) {
                 CHECK(probe_rgb(pixels,s,26,19,
                     255u,gray?255u:0u,gray?255u:0u));
                 CHECK(probe_rgb(pixels,s,30,19,
                     gray?170u:0u,gray?170u:255u,gray?170u:0u));
             }
-            if(image_only_four) {
+            if(unclipped_images) {
                 CHECK(probe_rgb(pixels,s,2,19,
                     255u,gray?255u:0u,gray?255u:0u));
                 CHECK(probe_rgb(pixels,s,6,19,
                     gray?170u:0u,gray?170u:255u,gray?170u:0u));
             }
-            if(mode==17 || mode==20) {
+            if(mode==17 || mode==18 || mode==20) {
                 CHECK(probe_rgb(pixels,s,26,8,
                     255u,gray?255u:0u,gray?255u:0u));
                 CHECK(probe_rgb(pixels,s,30,8,
@@ -4692,7 +4696,7 @@ int main(int argc,char **argv)
                 if(mode==9)
                     CHECK(probe_rgb(repeat,s,6,6,0u,0u,255u));
             }
-            if(mode==17 || mode==20) {
+            if(mode==17 || mode==18 || mode==20) {
                 /* 16x12 thumbnail at x=15 spans full x=[30,32).
                  * Row y=3 samples only the fourth IMAGE top row;
                  * y=4 straddles its green/yellow (or 170/0 Gray)
@@ -4739,7 +4743,7 @@ int main(int argc,char **argv)
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(mixed_doc,0,&mixed_page));
         const auto status=quantapdf_render_page(mixed_page,&rendered);
-        const bool valid=mode==0 || mode==1 || mode==3 || mode==8;
+        const bool valid=mode==0 || mode==1 || mode==3 || mode==4 || mode==5 || mode==8;
         if(!valid) {
             const auto expected_status=mode==6 ?
                 QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED;
@@ -4755,7 +4759,7 @@ int main(int argc,char **argv)
                   small==nullptr);
         } else {
             CHECK(status==QUANTAPDF_OK && rendered!=nullptr);
-            const bool gray=mode==8, image_last=mode==1;
+            const bool gray=mode==8, image_last=mode==1 || mode==5;
             int w=0,h=0,s=0,c=0;
             const unsigned char *pixels=nullptr,*repeat=nullptr;
             size_t bytes=0u,repeat_size=0u;
@@ -4763,6 +4767,7 @@ int main(int argc,char **argv)
             OK(quantapdf_bitmap_data(rendered,&pixels,&bytes));
             CHECK(w==32 && h==24 && s==96 && c==3 &&
                   bytes==32u*24u*3u && pixels!=nullptr);
+            if(mode==4)CHECK(probe_rgb(pixels,s,27,20,255u,0u,0u));
             if(mode==3) {
                 /* New qualified single W clip x=[4,12), bitmap y=[14,20).
                  * IMAGE paints first, then green PATH covers the clipped

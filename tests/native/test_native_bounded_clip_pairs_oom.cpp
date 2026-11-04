@@ -469,7 +469,7 @@ static bool allocation_matrix(const clip_pair& pair,profile kind)
     track_c_allocation=false;
     const size_t allocations=c_allocations;
     CHECK(baseline==QUANTAPDF_OK && owned_graph(clean,pair,kind,true) &&
-          allocations==(kind==profile::mixed?12u:9u) && c_faults==0u);
+          allocations==(kind==profile::mixed?11u:9u) && c_faults==0u);
     quantapdf_ir_dispose(&clean);
     CHECK(cleared(clean));
     for(size_t fail=1u;fail<=allocations;++fail) {

@@ -646,10 +646,6 @@ static int atomic_refusals()
         full_red+full_red+full_red+first+blue_image+"Q",
         /* These fit final 2-Image/2-PATH limits but stage THREE mixed
          * prefix paints, outside the retained unclipped forms. */
-        red_image+full_red+red_image+first+full_blue+"Q",
-        full_red+red_image+full_red+first+blue_image+"Q",
-        red_image+full_red+first+full_blue+"Q "+cyan_suffix,
-        full_red+red_image+first+blue_image+"Q "+red_image,
         red_image+red_image+red_image+red_image+first+full_blue+"Q",
         "1 0 0 rg "+compound+" f "+first+full_blue+"Q",
         compound+" n "+full_red+first+full_blue+"Q",
@@ -667,6 +663,15 @@ static int atomic_refusals()
         ready+" Q",
         ready+" q"
     };
+    for(int dpi:{72,96,144}) {
+        configuration cfg;cfg.dpi=dpi;
+        CHECK(compare(red_image+full_red+red_image+first+full_blue+"Q",
+            full_red+full_red+full_red+first+full_blue+"Q",cfg,true)==EXIT_SUCCESS);
+        CHECK(compare(full_red+red_image+full_red+first+blue_image+"Q",
+            full_red+full_red+full_red+first+full_blue+"Q",cfg,true)==EXIT_SUCCESS);
+        CHECK(rejected(red_image+full_red+first+full_blue+"Q "+cyan_suffix,cfg,true)==EXIT_SUCCESS);
+        CHECK(rejected(full_red+red_image+first+blue_image+"Q "+red_image,cfg,true)==EXIT_SUCCESS);
+    }
     for(const auto& content:bad)
     for(int dpi:{72,96,144}) {
         configuration cfg;

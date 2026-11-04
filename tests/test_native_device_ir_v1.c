@@ -299,11 +299,15 @@ static int resource_ledger_contracts(const quantapdf_ir *source)
                   receipt.peak_live_bytes<=plan.resource_limits.max_live_bytes);
             CHECK(at(&out,1u,1u)==UINT32_C(0xff0000ff));
             if(clipped)CHECK(at(&out,side-1u,side-1u)==UINT32_C(0xffffffff));
-            /* Independent live-buffer count: two integer RAW layers and one
-             * final composite, with no geometry/mask scratch at 72/144 DPI. */
-            if(!clipped && dpi!=96u)
-                CHECK(receipt.peak_live_bytes==receipt.retained_bytes+3u*out.size &&
+            /* Independent live-buffer count: one integer RAW layer and one
+             * final composite plus the retained collection, with no geometry/mask scratch at 72/144 DPI. */
+            if(!clipped && dpi!=96u) {
+                size_t projection=0u;CHECK(quantapdf_native_device_projection_bytes(ir.operation_count,&projection));
+                const size_t scratch=projection>2u*out.size?projection:2u*out.size;
+                CHECK(receipt.peak_live_bytes==receipt.retained_bytes+
+                      ir.operation_count*sizeof(quantapdf_native_scoped_layer_v5)+scratch &&
                       receipt.completed_leases==0u);
+            }
             if(clipped)CHECK(receipt.completed_leases==1u && receipt.compiled_edges>0u);
             const size_t peak=receipt.peak_live_bytes;
             OK(quantapdf_native_device_ir_render_v1(&ir,dpi,&limits,&reference));
@@ -756,7 +760,7 @@ int main(void) {
         quantapdf_native_page_device device={0};device.dpi=96.0f;
         OK(quantapdf_native_prepare_page_v1(&ir,&lim,&device,
             &prepared));
-        CHECK(prepared.usage.image_pixels==1u && prepared.usage.images_used==1u &&
+        CHECK(prepared.usage.image_pixels==1u && prepared.usage.operations==1u &&
               prepared.usage.expanded_paints==1u && prepared.usage.commands==0u);
         OK(quantapdf_native_execute_page_v1(&prepared,NULL,&out));
     }
