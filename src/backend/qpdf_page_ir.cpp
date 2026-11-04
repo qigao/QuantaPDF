@@ -2307,7 +2307,7 @@ void copy_outline_paint(quantapdf_composer_operation& op,
         path.commands=static_cast<quantapdf_composer_path_command *>(QP_SOURCE_C_MALLOC(path.command_count*sizeof(*path.commands)));
         admit(path.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
         std::memcpy(path.commands,paint.rectangle.data(),path.command_count*sizeof(*path.commands));
-        path.options.struct_size=sizeof(path.options);path.options.fill=1;
+        path.options.fill=1;
         path.options.fill_argb=paint.argb;path.options.fill_rule=paint.rule;return;
     }
     op.kind=QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES;
@@ -2413,7 +2413,6 @@ quantapdf_ir materialize_two_clip_text_scene(const admission& source)
                 admit(path.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
                 std::memcpy(path.commands,fill.rectangle.data(),
                             path.command_count*sizeof(*path.commands));
-                path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
                 path.options.fill=1;
                 path.options.fill_argb=fill.argb;
                 path.options.fill_rule=fill.rule;
@@ -2522,7 +2521,6 @@ quantapdf_ir materialize_ordered_paints(const admission& source)
                 QP_SOURCE_C_MALLOC(path.command_count*sizeof(*path.commands)));
             admit(path.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
             std::memcpy(path.commands,staged.commands.data(),path.command_count*sizeof(*path.commands));
-            path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
             path.options.fill=staged.stroke?0:1;path.options.stroke=staged.stroke?1:0;
             path.options.fill_argb=staged.fill_argb;path.options.fill_rule=staged.fill_rule;
             if(staged.stroke) {

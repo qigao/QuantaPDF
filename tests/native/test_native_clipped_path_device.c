@@ -111,7 +111,6 @@ static void setup(fixture *f,const geometry *g,int two,
         f->ops[i].kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
         f->ops[i].graphics_state_id=i<2u?1u:0u;
         p->commands=f->paths[i];p->command_count=5u;
-        p->options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
         p->options.graphics_state_id=f->ops[i].graphics_state_id;
         p->options.fill=1;p->options.fill_argb=colors[i];
     }
@@ -308,7 +307,7 @@ static int malformed_and_legacy(void)
     CHECK(refusal(&f.ir,72u,NULL)==EXIT_SUCCESS);
     CHECK(quantapdf_native_device_ir_render_v1_clipped_paths(
         &f.ir,72u,&budget,NULL)==QUANTAPDF_ERROR_ARGUMENT);
-    for(unsigned bad=0u;bad<46u;++bad) {
+    for(unsigned bad=0u;bad<45u;++bad) {
         source(&f,1,0,4u);
         switch(bad) {
         case 0u:f.ir.operation_count=0u;break;
@@ -355,8 +354,7 @@ static int malformed_and_legacy(void)
         case 41u:f.ir.outlines=&outline;break;
         case 42u:f.ir.resources.graphics_state_count=0u;break;
         case 43u:f.clips[0].members=f.members;break;
-        case 44u:f.ops[0].value.path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE;break;
-        case 45u:f.page.width_points=7.1f;break;
+        case 44u:f.page.width_points=7.1f;break;
         default:CHECK(0);break;
         }
         memcpy(&saved,&f,sizeof(saved));

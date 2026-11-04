@@ -86,8 +86,6 @@ static void setup(fixture *f)
 
     f->ops[1].kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
     f->ops[1].graphics_state_id=1u;
-    f->ops[1].value.path.options.struct_size=
-        QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     f->ops[1].value.path.options.graphics_state_id=1u;
     f->ops[1].value.path.options.fill=1;
     f->ops[1].value.path.options.fill_rule=
@@ -107,8 +105,6 @@ static void setup(fixture *f)
     f->ops[2].bounds=(quantapdf_rect){4,0,8,8};
 
     f->ops[3].kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
-    f->ops[3].value.path.options.struct_size=
-        QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     f->ops[3].value.path.options.fill=1;
     f->ops[3].value.path.options.fill_rule=
         QUANTAPDF_COMPOSER_FILL_NONZERO;

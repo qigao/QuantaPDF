@@ -63,7 +63,6 @@ static quantapdf_status tile_builder(
 
     (void)user_data;
     rectangle_commands(rect, 0.0f, 0.0f, 5.0f, 8.0f);
-    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
     path.fill = 1;
     path.fill_argb = UINT32_C(0xffff0000);
     path.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -308,7 +307,6 @@ static int test_pattern_resources_fill_stroke_and_render(void)
     CHECK(rotated_id == 2u);
 
     rectangle_commands(rect, 0.0f, 0.0f, 80.0f, 60.0f);
-    fill.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE;
     fill.fill = 1;
     fill.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
     fill.fill_paint_id = pattern_id;
@@ -319,7 +317,6 @@ static int test_pattern_resources_fill_stroke_and_render(void)
     line[0].point1 = (quantapdf_point){0.0f, 90.0f};
     line[1].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
     line[1].point1 = (quantapdf_point){120.0f, 90.0f};
-    stroke.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE;
     stroke.stroke = 1;
     stroke.stroke_width = 6.0f;
     stroke.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;

@@ -661,8 +661,6 @@ static bool exact_texample_private_ir(const quantapdf_ir& ir)
            op.value.path.command_count!=12u ||
            op.graphics_state_id!=(i==0u?1u:0u) ||
            op.value.path.options.graphics_state_id!=(i==0u?1u:0u) ||
-           op.value.path.options.struct_size<
-               QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE ||
            (i==0u ?
              (op.value.path.options.fill!=1 ||
               op.value.path.options.stroke!=0 ||
@@ -887,7 +885,6 @@ static bool physical_texample_page_fringe(unsigned dpi=72u,bool buffer_rect=fals
     op.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
     op.value.path.commands=commands;op.value.path.command_count=5u;
     auto& opt=op.value.path.options;
-    opt.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     opt.fill=1;opt.fill_argb=UINT32_C(0xffff0000);
     opt.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
     quantapdf_ir ir{};
@@ -2515,7 +2512,6 @@ static int owned_page_contracts()
     fixture_ir.pages=&fixture_page;fixture_ir.page_count=1u;
     fixture_ir.operations=&fixture_op;fixture_ir.operation_count=1u;
     fixture_op.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
-    fixture_op.value.path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     fixture_op.value.path.options.fill=1;fixture_op.value.path.options.fill_argb=UINT32_C(0xff0000ff);
     fixture_op.value.path.commands=fixture_commands;fixture_op.value.path.command_count=5u;
     fixture_commands[0].kind=QUANTAPDF_COMPOSER_PATH_MOVE_TO;
@@ -2670,7 +2666,7 @@ static int composer_preparation_contracts()
     rectangle[1].point1.x=rectangle[2].point1.x=6.0f;
     rectangle[2].point1.y=rectangle[3].point1.y=6.0f;
     rectangle[4].kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
-    quantapdf_composer_clip_options clip_options{};clip_options.struct_size=sizeof(clip_options);
+    quantapdf_composer_clip_options clip_options{};
     clip_options.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
     quantapdf_composer_clip_id clip_id=0u;
     CHECK(quantapdf_composer_add_clip_path(composer,rectangle,5u,&clip_options,&clip_id)==QUANTAPDF_OK);
@@ -2680,7 +2676,7 @@ static int composer_preparation_contracts()
     CHECK(quantapdf_composer_add_graphics_state(composer,&gs,&gs_id)==QUANTAPDF_OK);
     rectangle[1].point1.x=rectangle[2].point1.x=3.0f;
     rectangle[2].point1.y=rectangle[3].point1.y=3.0f;
-    quantapdf_composer_path_options path_options{};path_options.struct_size=sizeof(path_options);
+    quantapdf_composer_path_options path_options{};
     path_options.fill=1;path_options.fill_argb=UINT32_C(0xff0000ff);
     path_options.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;path_options.graphics_state_id=gs_id;
     CHECK(quantapdf_composer_draw_path(composer,0u,rectangle,5u,&path_options)==QUANTAPDF_OK);

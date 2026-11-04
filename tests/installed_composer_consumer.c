@@ -95,7 +95,6 @@ static quantapdf_status installed_pattern_builder(
     rect[3].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
     rect[3].point1 = (quantapdf_point){0.0f, 8.0f};
     rect[4].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
-    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
     path.fill = 1;
     path.fill_argb = UINT32_C(0xff008040);
     path.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -272,7 +271,6 @@ int main(int argc, char **argv)
     clip_rectangle[3].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
     clip_rectangle[3].point1 = (quantapdf_point){0.0f, 180.0f};
     clip_rectangle[4].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
-    clip_options.struct_size = QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE;
     clip_options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
     CHECK(quantapdf_composer_add_clip_path(
         composer, clip_rectangle, 5u, &clip_options, &clip_id));
@@ -466,7 +464,6 @@ int main(int argc, char **argv)
     rectangle[3].kind = QUANTAPDF_COMPOSER_PATH_LINE_TO;
     rectangle[3].point1 = (quantapdf_point){20.0f, 170.0f};
     rectangle[4].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
-    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     path.stroke = 1;
     path.fill = 1;
     path.fill_argb = UINT32_C(0xff000000);
@@ -481,7 +478,6 @@ int main(int argc, char **argv)
     path.transform = (quantapdf_affine_transform){
         1.0f, 0.0f, 0.0f, 1.0f, 2.0f, 0.0f
     };
-    dash.struct_size = QUANTAPDF_COMPOSER_DASH_PATTERN_V1_SIZE;
     dash.lengths = dash_lengths;
     dash.length_count = 2u;
     dash.phase = 1.0f;

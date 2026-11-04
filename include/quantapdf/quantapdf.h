@@ -346,16 +346,10 @@ typedef enum quantapdf_composer_fill_rule {
 } quantapdf_composer_fill_rule;
 
 typedef struct quantapdf_composer_clip_options {
-    size_t struct_size;
     quantapdf_composer_fill_rule fill_rule;
     quantapdf_affine_transform transform;
 } quantapdf_composer_clip_options;
 
-#define QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_MIN_SIZE \
-    (offsetof(quantapdf_composer_clip_options, transform) + \
-     sizeof(quantapdf_affine_transform))
-#define QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE \
-    (sizeof(quantapdf_composer_clip_options))
 
 #define QUANTAPDF_COMPOSER_MAX_CLIP_COMPONENTS ((size_t)64u)
 
@@ -371,8 +365,9 @@ typedef enum quantapdf_composer_line_join {
     QUANTAPDF_COMPOSER_LINE_JOIN_BEVEL = 2
 } quantapdf_composer_line_join;
 
+/* Complete current record; zero resource IDs omit optional references.
+ * An all-zero transform requests identity at the Composer boundary. */
 typedef struct quantapdf_composer_path_options {
-    size_t struct_size;
     int stroke;
     int fill;
     uint32_t stroke_argb;
@@ -388,25 +383,6 @@ typedef struct quantapdf_composer_path_options {
     quantapdf_affine_transform transform;
 } quantapdf_composer_path_options;
 
-#define QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE \
-    (offsetof(quantapdf_composer_path_options, miter_limit) + sizeof(float))
-#define QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE \
-    (offsetof(quantapdf_composer_path_options, graphics_state_id))
-#define QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE \
-    (offsetof(quantapdf_composer_path_options, graphics_state_id) + \
-     sizeof(quantapdf_composer_graphics_state_id))
-#define QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_SIZE \
-    (offsetof(quantapdf_composer_path_options, fill_paint_id))
-#define QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_MIN_SIZE \
-    (offsetof(quantapdf_composer_path_options, stroke_paint_id) + \
-     sizeof(quantapdf_composer_paint_id))
-#define QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE \
-    (offsetof(quantapdf_composer_path_options, transform))
-#define QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_MIN_SIZE \
-    (offsetof(quantapdf_composer_path_options, transform) + \
-     sizeof(quantapdf_affine_transform))
-#define QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE \
-    (sizeof(quantapdf_composer_path_options))
 
 #define QUANTAPDF_COMPOSER_MAX_GRADIENT_STOPS ((size_t)64u)
 
@@ -468,16 +444,11 @@ typedef struct quantapdf_composer_tiling_pattern_options {
 #define QUANTAPDF_COMPOSER_MAX_DASH_COUNT ((size_t)64u)
 
 typedef struct quantapdf_composer_dash_pattern {
-    size_t struct_size;
     const float *lengths;
     size_t length_count;
     float phase;
 } quantapdf_composer_dash_pattern;
 
-#define QUANTAPDF_COMPOSER_DASH_PATTERN_V1_MIN_SIZE \
-    (offsetof(quantapdf_composer_dash_pattern, phase) + sizeof(float))
-#define QUANTAPDF_COMPOSER_DASH_PATTERN_V1_SIZE \
-    (sizeof(quantapdf_composer_dash_pattern))
 
 typedef struct quantapdf_composer_svg_options {
     size_t struct_size;

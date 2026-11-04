@@ -117,8 +117,6 @@ static void setup(fixture *f)
         f->operations[i].value.path.commands=
             i==0u?f->red:i==1u?f->blue:f->green;
         f->operations[i].value.path.command_count=5u;
-        f->operations[i].value.path.options.struct_size=
-            QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
         f->operations[i].value.path.options.fill=1;
         f->operations[i].value.path.options.fill_argb=colors[i];
         f->operations[i].value.path.options.fill_rule=

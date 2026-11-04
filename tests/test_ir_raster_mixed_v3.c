@@ -54,7 +54,6 @@ static void init(quantapdf_ir *ir,quantapdf_composer_page_state *page,
         ops[i].kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
         ops[i].value.path.commands=i==0u?p1:p2;
         ops[i].value.path.command_count=5u;
-        ops[i].value.path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
         ops[i].value.path.options.fill=1;
         ops[i].value.path.options.fill_argb=i==0u?
             UINT32_C(0xffff0000):UINT32_C(0xffffff00);

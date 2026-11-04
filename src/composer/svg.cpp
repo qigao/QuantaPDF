@@ -1273,7 +1273,6 @@ void stage_path(
     // Clip resources are established outside the PATH q/cm scope, so they
     // still need the full referencing-element transform.
     staged.resource_transform = transform;
-    staged.options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
     staged.options.fill = style.fill ? 1 : 0;
     staged.options.stroke = style.stroke ? 1 : 0;
     staged.options.fill_argb = style.fill_argb;
@@ -3634,7 +3633,6 @@ quantapdf_status register_clip_resource(
     quantapdf_composer_clip_id* out_clip_id)
 {
     quantapdf_composer_clip_options options{};
-    options.struct_size = QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE;
     options.fill_rule = clip.fill_rule;
     matrix const units =
         resource_units_matrix(clip.units, local_bounds);
@@ -4830,7 +4828,6 @@ quantapdf_status register_use_clip(
     auto commands = rectangle(
         use.x, use.y, use.width, use.height);
     quantapdf_composer_clip_options options{};
-    options.struct_size = QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE;
     options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
     options.transform = resource_affine(use.user_transform);
     return quantapdf_composer_add_clip_path(
@@ -4852,7 +4849,6 @@ quantapdf_status register_bounds_clip(
         bounds.x1 - bounds.x0,
         bounds.y1 - bounds.y0);
     quantapdf_composer_clip_options options{};
-    options.struct_size = QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE;
     options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
     return quantapdf_composer_add_clip_path(
         composer,
@@ -5319,7 +5315,6 @@ quantapdf_status publish_paths(
             bounds.x1 - bounds.x0,
             bounds.y1 - bounds.y0);
         quantapdf_composer_clip_options clip_options{};
-        clip_options.struct_size = QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE;
         clip_options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
         quantapdf_status const clip_status =
             quantapdf_composer_add_clip_path(
@@ -5481,20 +5476,8 @@ quantapdf_status publish_paths(
         operation.value.path.command_count =
             paths[i].commands.size();
         operation.value.path.options = paths[i].options;
-        if (fill_paint_ids[i] != 0u || stroke_paint_ids[i] != 0u) {
-            /*
-             * Do not downgrade a V4 PATH to the V3 paint boundary.
-             * V4 owns the affine CTM; paint IDs are an earlier tail.
-             */
-            if (operation.value.path.options.struct_size <
-                QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_MIN_SIZE)
-                operation.value.path.options.struct_size =
-                    QUANTAPDF_COMPOSER_PATH_OPTIONS_V3_SIZE;
-            operation.value.path.options.fill_paint_id =
-                fill_paint_ids[i];
-            operation.value.path.options.stroke_paint_id =
-                stroke_paint_ids[i];
-        }
+        operation.value.path.options.fill_paint_id = fill_paint_ids[i];
+        operation.value.path.options.stroke_paint_id = stroke_paint_ids[i];
         operation.value.path.dash_lengths = dash_copy;
         operation.value.path.dash_count =
             paths[i].dash_lengths.size();

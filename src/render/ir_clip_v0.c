@@ -121,8 +121,6 @@ quantapdf_status quantapdf_ir_raster_clip_rect_v0(
         ir->link_count != 0u || ir->outline_count != 0u ||
         ir->operations[0].kind != QUANTAPDF_COMPOSER_OPERATION_PATH ||
         ir->operations[0].graphics_state_id != 1u ||
-        ir->operations[0].value.path.options.struct_size <
-            QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_MIN_SIZE ||
         ir->operations[0].value.path.options.graphics_state_id != 1u)
         return QUANTAPDF_ERROR_UNSUPPORTED;
 

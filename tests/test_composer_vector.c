@@ -20,7 +20,6 @@ static quantapdf_composer_path_options path_options(void)
 {
     quantapdf_composer_path_options options = {0};
 
-    options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
     options.stroke = 1;
     options.fill = 0;
     options.stroke_argb = UINT32_C(0xff000000);
@@ -79,10 +78,6 @@ static int test_path_validation(void)
               composer, 0u, commands, SIZE_MAX, &options) ==
           QUANTAPDF_ERROR_UNSUPPORTED);
 
-    options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_MIN_SIZE - 1u;
-    CHECK(quantapdf_composer_draw_path(
-              composer, 0u, commands, 2u, &options) ==
-          QUANTAPDF_ERROR_ARGUMENT);
     options = path_options();
     options.stroke = 0;
     CHECK(quantapdf_composer_draw_path(
@@ -206,7 +201,6 @@ static int test_path_content_render_and_determinism(void)
     triangle[2].point1 = (quantapdf_point){150.0f, 180.0f};
     triangle[3].kind = QUANTAPDF_COMPOSER_PATH_CLOSE;
     options = (quantapdf_composer_path_options){0};
-    options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
     options.fill = 1;
     options.fill_argb = UINT32_C(0xff00ff00);
     options.fill_rule = QUANTAPDF_COMPOSER_FILL_EVEN_ODD;

@@ -56,7 +56,6 @@ static void rectangle_commands(
 static quantapdf_composer_path_options fill_options(uint32_t argb)
 {
     quantapdf_composer_path_options options = {0};
-    options.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V1_SIZE;
     options.fill = 1;
     options.fill_argb = argb;
     options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -108,7 +107,6 @@ static int test_validation_budget_and_dedup(void)
     negative_zero[0].point1.x = -0.0f;
     negative_zero[0].point1.y = -0.0f;
 
-    clip_options.struct_size = QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE;
     clip_options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
 
     CHECK(quantapdf_composer_add_clip_path(
@@ -132,12 +130,6 @@ static int test_validation_budget_and_dedup(void)
     CHECK(quantapdf_composer_add_clip_path(
               composer, rect, 5u, &clip_options, NULL) ==
           QUANTAPDF_ERROR_ARGUMENT);
-
-    clip_options.struct_size = 0u;
-    CHECK(quantapdf_composer_add_clip_path(
-              composer, rect, 5u, &clip_options, &clip_id) ==
-          QUANTAPDF_ERROR_ARGUMENT);
-    clip_options.struct_size = QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE;
 
     clip_options.fill_rule = (quantapdf_composer_fill_rule)99;
     CHECK(quantapdf_composer_add_clip_path(
@@ -252,7 +244,6 @@ static int test_render_transform_scope_and_consumers(void)
     CHECK(add_page(composer, 300.0f, 220.0f));
 
     rectangle_commands(clip_rect, 0.0f, 0.0f, 80.0f, 80.0f);
-    clip_options.struct_size = QUANTAPDF_COMPOSER_CLIP_OPTIONS_V1_SIZE;
     clip_options.fill_rule = QUANTAPDF_COMPOSER_FILL_NONZERO;
     clip_options.transform =
         (quantapdf_affine_transform){1.0f, 0.0f, 0.0f, 1.0f, 20.0f, 20.0f};
@@ -290,7 +281,6 @@ static int test_render_transform_scope_and_consumers(void)
 
     rectangle_commands(fill_rect, 0.0f, 0.0f, 110.0f, 110.0f);
     path = fill_options(UINT32_C(0xffff0000));
-    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_SIZE;
     path.graphics_state_id = clipped_half_id;
     CHECK(quantapdf_composer_draw_path(
               composer, 0u, fill_rect, 5u, &path) == QUANTAPDF_OK);
@@ -302,7 +292,6 @@ static int test_render_transform_scope_and_consumers(void)
 
     rectangle_commands(fill_rect, 200.0f, 10.0f, 300.0f, 110.0f);
     path = fill_options(UINT32_C(0xff00ff00));
-    path.struct_size = QUANTAPDF_COMPOSER_PATH_OPTIONS_V2_SIZE;
     path.graphics_state_id = evenodd_state_id;
     CHECK(quantapdf_composer_draw_path(
               composer, 0u, fill_rect, 5u, &path) == QUANTAPDF_OK);
