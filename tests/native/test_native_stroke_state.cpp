@@ -157,7 +157,9 @@ static const case_data cases[]={
      "Q 0.875 g 24 17 5 3 re f",
      "q 2 w 1 J 2 j 12 6 8 9 re W n "
      "q 16 0 0 12 8 3 cm /I Do Q "
-     "Q 0 w 0 J 0 j 0.875 g 24 17 5 3 re f",true,false}
+     "Q 0 w 0 J 0 j 0.875 g 24 17 5 3 re f",true,false},
+    /* Graphics-state settings do not end or repaint the current path. */
+    {"4 4 8 6 re f","4 4 8 6 re 1 w f",false,false}
 };
 
 static int positive()
@@ -195,7 +197,6 @@ static int negative()
         "1 J 1 0 0 rg 4 4 8 6 re B",
         "0 j BT ET",
         "0 w 0 J 1 j Q",
-        "4 4 8 6 re 1 w f",
         "0 w /Missing Do"
     };
     for(const char* ops:bad)

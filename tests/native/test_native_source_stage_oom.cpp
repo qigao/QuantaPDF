@@ -29,12 +29,14 @@
 #include "native_ttf_fixture.h"
 #include "native_ttf_fractional_reference.h"
 #include "native_content_stream_fixture.h"
+#include "native_graphics_state_fixture.h"
 #include <memory>
 #include <vector>
 #include <algorithm>
 
 namespace {
 thread_local unsigned target=0u, observed=0u, faults=0u;
+thread_local size_t graphics_growths=0u,graphics_fail_growth=0u;
 thread_local bool armed=false;
 /* The same test-only Source unit redirects every actual C allocation in
  * its IR materializers through this one-shot returning-NULL allocator.
@@ -44,6 +46,12 @@ thread_local size_t c_fail_index=0u,c_allocations=0u,c_faults=0u;
 }
 extern "C" void quantapdf_source_stage_oom_arm(unsigned phase) noexcept
 {
+    if(phase==11u) {
+        ++graphics_growths;
+        if(graphics_fail_growth!=0u && graphics_growths==graphics_fail_growth) {
+            graphics_fail_growth=0u;observed=phase;armed=true;
+        }
+    }
     if(phase==target) { target=0u; observed=phase; armed=true; }
 }
 extern "C" bool quantapdf_source_ir_oom_fail_c_allocation() noexcept
@@ -1588,9 +1596,10 @@ static bool public_texample_complete_page(const char *filename)
         quantapdf_bitmap *denied=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
         const auto status=render(badfile.string().c_str(),&denied);
         std::filesystem::remove(badfile);
-        /* Removing S leaves a pending original path at Q; an extra Q
-         * underflows the stack. Both are structurally malformed FORMAT. */
-        const auto expected=(which==3u || which==14u)?
+        /* Removing S leaves a legal pending path across Q, then n discards
+         * it; that incomplete TeXample paint sequence is unsupported. Only
+         * the extra Q underflows the real stack and is FORMAT. */
+        const auto expected=which==14u?
             QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED;
         if(status!=expected || denied!=nullptr) {
             std::fprintf(stderr,"public TeXample negative=%u status=%d bitmap=%p\n",
@@ -4901,11 +4910,88 @@ static int content_stream_source_contracts(
     return EXIT_SUCCESS;
 }
 
+static int graphics_state_source_contracts(
+    const quantapdf_qpdf_page_limits& defaults)
+{
+    size_t stack_faults=0u,publication_faults=0u,quota_checks=0u;
+    for(bool clipped:{false,true})for(bool encrypted:{false,true})for(int kind:{0,1,2,3}) {
+        const bool images=kind==1;
+        // With a partially built path, the next q crosses an actual vector
+        // capacity boundary; its failure must retire the unpainted path too.
+        const size_t depth=kind==0?4097u:kind==3?(clipped?255u:256u):257u;
+        auto sample=native_graphics_fixture::create(depth,clipped,images,encrypted,kind==2,0,kind==3);
+        quantapdf_qpdf_document *document=nullptr;
+        CHECK(quantapdf_qpdf_open_memory(reinterpret_cast<const unsigned char*>(sample.bytes.data()),
+            sample.bytes.size(),encrypted?"reader":"",&document)==QUANTAPDF_OK);
+        std::unique_ptr<quantapdf_qpdf_document,decltype(&quantapdf_qpdf_close)> owner(document,quantapdf_qpdf_close);
+        auto caps=defaults;caps.max_content_bytes=sample.decoded_bytes;
+        caps.max_content_streams=3u;caps.max_operations=images?2u:3u;
+        const auto read=[&](const quantapdf_qpdf_page_limits& limits,quantapdf_ir& ir) {
+            return quantapdf_qpdf_page_to_ir(owner.get(),1u,&limits,&ir);
+        };
+        target=0u;observed=0u;faults=0u;armed=false;
+        graphics_growths=0u;graphics_fail_growth=0u;
+        track_c_allocation=true;c_fail_index=0u;c_allocations=0u;c_faults=0u;
+        quantapdf_ir ir{};const auto status=read(caps,ir);
+        track_c_allocation=false;
+        const size_t growths=graphics_growths,allocations=c_allocations;
+        if(status!=QUANTAPDF_OK || growths<=1u)std::fprintf(stderr,
+            "graphics-state baseline kind=%d clip=%d encrypted=%d status=%d growths=%zu C=%zu\n",
+            kind,int(clipped),int(encrypted),int(status),growths,allocations);
+        CHECK(status==QUANTAPDF_OK && growths>1u && allocations>0u &&
+            ir.operation_count==(images?2u:3u));
+        quantapdf_ir_dispose(&ir);
+        for(size_t fail=1u;fail<=growths;++fail) {
+            graphics_growths=0u;graphics_fail_growth=fail;observed=0u;faults=0u;armed=false;
+            std::memset(&ir,0xa5,sizeof(ir));
+            CHECK(read(caps,ir)==QUANTAPDF_ERROR_NOMEM && cleared(ir) &&
+                observed==11u && faults==1u && !armed && graphics_fail_growth==0u && graphics_growths==fail);
+            ++stack_faults;
+        }
+        for(size_t fail=1u;fail<=allocations;++fail) {
+            std::memset(&ir,0xa5,sizeof(ir));
+            track_c_allocation=true;c_fail_index=fail;c_allocations=0u;c_faults=0u;
+            const auto denied=read(caps,ir);track_c_allocation=false;c_fail_index=0u;
+            CHECK(denied==QUANTAPDF_ERROR_NOMEM && cleared(ir) && c_faults==1u);
+            ++publication_faults;
+        }
+        for(unsigned quota:{0u,1u,2u}) {
+            auto limited=caps;
+            if(quota==0u)--limited.max_content_bytes;
+            if(quota==1u)--limited.max_content_streams;
+            if(quota==2u)--limited.max_operations;
+            std::memset(&ir,0xa5,sizeof(ir));
+            CHECK(read(limited,ir)==QUANTAPDF_ERROR_UNSUPPORTED && cleared(ir));++quota_checks;
+        }
+        CHECK(read(caps,ir)==QUANTAPDF_OK);
+        owner.reset();sample.bytes.assign(sample.bytes.size(),'x');
+        quantapdf_native_page_device device{};device.dpi=96.0f;
+        const quantapdf_ir_raster_scoped_mixed_v5_limits budget={1024u,4u,512u,8000000u,1024u,4096u};
+        quantapdf_native_prepared_page_v1 prepared{};
+        CHECK(quantapdf_native_prepare_page_v1(&ir,&budget,&device,&prepared)==QUANTAPDF_OK);
+        quantapdf_ir_raster_image rendered{};
+        CHECK(quantapdf_native_execute_page_v1(&prepared,nullptr,&rendered)==QUANTAPDF_OK);
+        const auto expected=native_graphics_fixture::rgb(96u,clipped,images);
+        CHECK(rendered.width==16u && rendered.height==12u && rendered.stride==64u && rendered.size==768u);
+        quantapdf_ir_dispose(&ir);CHECK(cleared(ir));
+        for(size_t pixel=0u;pixel<192u;++pixel) {
+            CHECK(std::memcmp(rendered.pixels+4u*pixel,expected.data()+3u*pixel,3u)==0 &&
+                  rendered.pixels[4u*pixel+3u]==255u);
+        }
+        quantapdf_ir_raster_image_dispose(&rendered);CHECK(zero_bitmap(rendered));
+    }
+    std::printf("Dynamic q/Q: %zu actual stack-growth faults, %zu IR publication faults, %zu N/N-1 quotas; detached RGB passed\n",
+        stack_faults,publication_faults,quota_checks);
+    return EXIT_SUCCESS;
+}
+
 int main(int argc,char **argv)
 {
     const quantapdf_qpdf_page_limits limits={
         65536u,4u,4u,1000000u,1000000u,4000000u,8u
     };
+    if(argc==2 && std::strcmp(argv[1],"--graphics-state")==0)
+        return graphics_state_source_contracts(limits);
     if(argc==2 && std::strcmp(argv[1],"--content-streams")==0)
         return content_stream_source_contracts(limits);
     /* The production master #2307 sanitizer RED was CTest's 40-second

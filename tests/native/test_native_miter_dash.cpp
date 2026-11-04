@@ -160,7 +160,10 @@ static const case_data cases[]={
      "q 10 M [2 1] 0 d 16 0 0 12 8 3 cm /I Do Q",true,false},
     {"1 0 0 rg 4 4 8 6 re f",
      "1000000 M [0 1000000] 1000000 d "
-     "1 0 0 rg 4 4 8 6 re f",false,false}
+     "1 0 0 rg 4 4 8 6 re f",false,false},
+    /* Graphics-state settings do not end or repaint the current path. */
+    {"4 4 8 6 re f","4 4 8 6 re 1 M f",false,false},
+    {"4 4 8 6 re f","4 4 8 6 re [1 2] 0 d f",false,false}
 };
 
 static int positive()
@@ -197,8 +200,6 @@ static int negative()
         "[1000000 1] 0 d","[1] -1 d","[1] 1000001 d",
         "[1 true] 0 d",
         "[1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1] 0 d",
-        "4 4 8 6 re 1 M f",
-        "4 4 8 6 re [1 2] 0 d f",
         "1 M 1 0 0 rg 4 4 8 6 re S",
         "[1] 0 d 4 4 8 6 re B",
         "1 M BT ET",

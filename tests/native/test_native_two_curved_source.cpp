@@ -620,14 +620,16 @@ static int atomic_refusals()
         cfg.selected=dpi==144?2:0;
         CHECK(rejected(content,cfg)==EXIT_SUCCESS);
     }
-    /* Harmless original stroke-state settings still spend the same
-     * finite parser operand/operator quota before either Clip exists. */
+    /* Nonpainting state traffic preserves every original painted pixel. */
     std::string over_operators;
     for(int i=0;i<256;++i)over_operators+="1 w ";
     for(int dpi:{72,96,144}) {
         configuration cfg;
         cfg.dpi=dpi;
-        CHECK(rejected(over_operators+ready,cfg)==EXIT_SUCCESS);
+        rendered long_state,compact_state;
+        CHECK(render(original(over_operators+ready,cfg),cfg,long_state)==EXIT_SUCCESS);
+        CHECK(render(original(ready,cfg),cfg,compact_state)==EXIT_SUCCESS);
+        CHECK(equal(long_state,compact_state));
     }
     return EXIT_SUCCESS;
 }
