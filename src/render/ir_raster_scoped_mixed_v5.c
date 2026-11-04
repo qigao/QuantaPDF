@@ -945,7 +945,8 @@ static quantapdf_status v5_prepare_impl(
     }
     /* IMAGE-only admission: 1..4 unclipped images using the already
      * bounded four-layer C11 compositor, or exactly 1..2 images under
-     * the SAME owned GS/Clip leaf. The new 3/4-image profile requires
+     * an owned GS/Clip leaf, with each paint retaining its saved state.
+     * The new 3/4-image profile requires
      * exact resource capacity. Mixed and clipped profiles retain their
      * independently narrower admission; no hidden state is inferred. */
     if(two_states || three_states || unclipped_prefix_optin) {
@@ -978,10 +979,11 @@ static quantapdf_status v5_prepare_impl(
             for(size_t k=0u;k<ir->operation_count;++k) {
                 const quantapdf_composer_operation *paint=&ir->operations[k];
                 if(paint->kind!=QUANTAPDF_COMPOSER_OPERATION_IMAGE ||
-                   paint->graphics_state_id!=1u ||
+                   paint->graphics_state_id>1u ||
                    paint->value.image.options.struct_size<
                        QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE ||
-                   paint->value.image.options.graphics_state_id!=1u) {
+                   paint->value.image.options.graphics_state_id!=
+                       paint->graphics_state_id) {
                     bounded_clipped=0;
                     break;
                 }

@@ -5,7 +5,8 @@
  * independently, including late unsupported operators and NULL Bitmap.
  */
 #include <quantapdf/quantapdf.h>
-#include "backend/qpdf_native_image_ir.h"
+#include "backend/qpdf_page_ir.h"
+#include "native_source_test_page.h"
 #include <qpdf/Pipeline.hh>
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFObjectHandle.hh>
@@ -89,11 +90,11 @@ static void dump_source_status(const std::string& filename)
         std::ifstream stream(filename,std::ios::binary);
         std::vector<char> bytes((std::istreambuf_iterator<char>(stream)),
                                 std::istreambuf_iterator<char>());
-        const quantapdf_qpdf_source_raw_image_limits limits={
-            2u*1024u*1024u,65536u,4u,4u,1000000u,1000000u,4000000u,8u
+        const quantapdf_qpdf_page_limits limits={
+            65536u,4u,4u,1000000u,1000000u,4000000u,8u
         };
         quantapdf_ir ir{};
-        const auto status=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+        const auto status=native_test_page_ir(
             reinterpret_cast<const unsigned char*>(bytes.data()),bytes.size(),
             &limits,0u,&ir);
         std::fprintf(stderr,"opaque exact production Source status=%d "

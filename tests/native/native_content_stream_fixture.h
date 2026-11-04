@@ -71,7 +71,7 @@ inline Object stream(QPDF& pdf,const std::string& decoded,unsigned encoding)
     }
     auto result=pdf.newStream();result.replaceStreamData(bytes,filter,parms);return result;
 }
-inline original create(unsigned encoding,size_t count,bool encrypted=false,int invalid=0)
+inline original create(unsigned encoding,size_t count,bool encrypted=false,int invalid=0,size_t extra_bytes=0u)
 {
     auto pdf=QPDF::create();pdf->emptyPDF();
     auto root=pdf->getRoot().getKey("/Pages");
@@ -97,6 +97,8 @@ inline original create(unsigned encoding,size_t count,bool encrypted=false,int i
     if(invalid==7)streams.back().replaceStreamData(right,Object::parse("[17]"),Object::newNull());
     if(invalid==4)streams.push_back(Object::newInteger(17));
     page.replaceKey("/Contents",count==1u?streams[0]:Object::newArray(streams));
+    if(extra_bytes!=0u)pdf->getRoot().replaceKey("/QuantaFixtureData",
+        stream(*pdf,std::string(extra_bytes,'x'),0u));
     QPDFWriter writer(*pdf);writer.setOutputMemory();
     writer.setStreamDataMode(qpdf_s_preserve);writer.setCompressStreams(false);
     if(encrypted)writer.setR6EncryptionParameters("reader","owner",true,true,true,true,true,true,qpdf_r3p_full,true);

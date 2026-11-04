@@ -32,6 +32,10 @@
 
 ## A1 当前实现增量
 
+#609 已合并为 `0eb5101f666d6dacde29b4eca45f22b16709699b`；独立 master
+[Native CI #2413](https://github.com/qigao/QuantaPDF/actions/runs/41751809313) 通过。
+这是本次继续开发的基线，不能代替后续 HEAD 的测试。
+
 - Native renderer 直接借用已打开、已解密的 qpdf Document 和所选 Page，
   Source 不再重开原始文件；已删除字节/password view、版本化 Page/Bitmap bridge
   和重复的私有 facade。独立原件 Source 测试仍可自行打开一次文档。
@@ -54,8 +58,20 @@
   以及 144 项 N/N−1 字节/流数/操作数预算检查，复用现有两个测试可执行文件。
   六组旧 64 KiB padding 拒绝用例已改为 72/96/144 DPI 的完整 RGB 等价对照；
   其他未实现绘制、几何及资源错误用例保留。
-- 其他 API 的尺寸协商、独立原件 Source 的历史入口，以及固定内容/绘制顺序、
-  字体、几何、预算和 DPI 限制尚待 A1/A2 后续清理。本增量不声称通用 PDF 渲染完成。
+- Source 只保留 `quantapdf_qpdf_page_to_ir`：接收已打开 Document、所选页和实际工作预算。
+  头文件与实现改为 `qpdf_page_ir.h/.cpp`；16 个字节式/版本化/私有样例入口、
+  V1–V10 策略矩阵和历史能力开关已删除。测试通过当前 Document 打开一次，使用同一
+  Page 入口；不再以“旧版本必须拒绝新能力”作为验收。
+- 页面预算不含旧 `max_pdf_bytes`，不再按 2 MiB 文件总大小拒绝已打开文档。
+  内容流用例包含明文与 AES-256 的大于 3 MiB 文档，仍核对全部 RGB、释放顺序、
+  实际 qpdf 遍历/Source 发布失败与页面工作预算。
+- 两次 Image 绘制现在可分别处于 Clip 内和实际 Q 恢复后的 GS0；使用同一顺序 C11
+  合成器，不增加绘制 route。测试核对当前 IR 资源归属、逐个 Source 分配失败、
+  错误 GS 绑定的空输出，以及 72/96/144 DPI、Rotate/Crop/选页后的完整公开 Bitmap。
+- 三个未注册的 PDFium 时代 Source 版本隔离测试与其旧注册已删除。有价值的单/双
+  Image、Q 恢复、Image+Path 和混合顺序原件在现有 native 测试中验证当前输出。
+- 其他 API 的尺寸协商，以及固定内容/绘制顺序、字体、几何、预算和 DPI 限制尚待
+  A1/A2 后续清理。此处删除的是历史接口准入，不声称通用有序 Scene 或完整 PDF 渲染完成。
 
 ## 单一执行模型
 

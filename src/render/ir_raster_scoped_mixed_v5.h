@@ -11,9 +11,10 @@ extern "C" {
  *
  * Admits one integer-size page with 1..4 source-ordered opaque PATH
  * fills and/or normalized RAW Gray/RGB Images. Homogeneous IMAGE-only
- * pages may use four layers only without Clip or GS. The older clipped
- * IMAGE-only profile permits at most two paints under one frozen Clip
- * PATH leaf and a single GS (full alpha, Normal blend, no soft-mask).
+ * pages may use four layers only without Clip or GS. Clipped IMAGE-only
+ * pages permit at most two paints sharing one frozen Clip PATH leaf and
+ * a single GS (full alpha, Normal blend, no soft-mask); a paint may use
+ * GS0 after Q restores the original unclipped state.
  * Mixed PATH/IMAGE keeps its independent strict admission.
  * Per-operation GS identity is immutable; 0 means Q restored no Clip.
  *

@@ -3,7 +3,8 @@
  * pre-allocation arming points, not with a replacement source/provider.
  * QPDF authors the original PDF; PDFium is never linked. */
 #include <quantapdf/quantapdf.h>
-#include "backend/qpdf_native_image_ir.h"
+#include "backend/qpdf_page_ir.h"
+#include "native_source_test_page.h"
 #include "backend/native_prepared_page_v1.h"
 #include "composer/native_prepared_composer_v1.h"
 #include "core/context_internal.h"
@@ -348,7 +349,7 @@ static bool original_three_branch_pixels(
 
 static bool original_three_branch_source_oom(
     const char *filename,
-    const quantapdf_qpdf_source_raw_image_limits& limits)
+    const quantapdf_qpdf_page_limits& limits)
 {
     if(filename==nullptr)return false;
     std::ifstream input(filename,std::ios::binary);
@@ -363,7 +364,7 @@ static bool original_three_branch_source_oom(
         track_c_allocation=true;
         c_fail_index=0u;c_allocations=0u;c_faults=0u;
         const auto status=
-            quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            native_test_page_ir(
                 reinterpret_cast<const unsigned char*>(bytes.data()),
                 bytes.size(),&limits,0u,&ir);
         allocations=c_allocations;
@@ -400,7 +401,7 @@ static bool original_three_branch_source_oom(
         track_c_allocation=true;
         c_fail_index=fail;c_allocations=0u;c_faults=0u;
         const auto status=
-            quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            native_test_page_ir(
                 reinterpret_cast<const unsigned char*>(bytes.data()),
                 bytes.size(),&limits,0u,&ir);
         const size_t seen=c_allocations,fired=c_faults;
@@ -415,7 +416,7 @@ static bool original_three_branch_source_oom(
         }
         quantapdf_ir recovery{};
         const auto success=
-            quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            native_test_page_ir(
                 reinterpret_cast<const unsigned char*>(bytes.data()),
                 bytes.size(),&limits,0u,&recovery);
         const bool restored=success==QUANTAPDF_OK &&
@@ -470,11 +471,11 @@ static bool exact_decimal_page_ir(const quantapdf_ir& ir)
            ir.resources.clips==nullptr && ir.resources.clip_count==0u;
 }
 static bool original_texample_decimal_source_m2(
-    const quantapdf_qpdf_source_raw_image_limits& limits)
+    const quantapdf_qpdf_page_limits& limits)
 {
     constexpr const char *real_box="[0 0 237.133 180.44]";
     const auto native=[&](const std::string& original,quantapdf_ir& out) {
-        return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+        return native_test_page_ir(
             reinterpret_cast<const unsigned char*>(original.data()),
             original.size(),&limits,0u,&out);
     };
@@ -1315,7 +1316,7 @@ static bool original_texample_three_layer(quantapdf_ir& source,
 
 static bool authentic_texample_source_m3(
     const char *filename,
-    const quantapdf_qpdf_source_raw_image_limits& limits)
+    const quantapdf_qpdf_page_limits& limits)
 {
     if(filename==nullptr)return false;
     std::ifstream input(filename,std::ios::binary);
@@ -1325,22 +1326,17 @@ static bool authentic_texample_source_m3(
     if(original.size()!=1396u ||
        original.compare(0u,5u,"%PDF-")!=0)
         return false;
-    const auto private_read=[&](quantapdf_ir& out) {
-        return quantapdf_qpdf_source_texample_m3_stage_to_ir(
-            reinterpret_cast<const unsigned char*>(original.data()),
-            original.size(),&limits,&out);
-    };
-    const auto public_read=[&](quantapdf_ir& out) {
-        return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+    const auto read=[&](quantapdf_ir& out) {
+        return native_test_page_ir(
             reinterpret_cast<const unsigned char*>(original.data()),
             original.size(),&limits,0u,&out);
     };
-    /* Public V10 must reach the same complete original owned graph in
-     * one callback pass, not the retained private fixture selector. */
+    /* The current Page entry reaches the complete original graph in one
+     * callback pass; fixture-specific Source selectors have been removed. */
     {
         quantapdf_ir ir{};
         track_c_allocation=true;c_fail_index=0u;c_allocations=0u;c_faults=0u;
-        const auto status=public_read(ir);
+        const auto status=read(ir);
         const size_t public_allocations=c_allocations;
         track_c_allocation=false;
         if(status!=QUANTAPDF_OK || !exact_texample_private_ir(ir) ||
@@ -1386,7 +1382,7 @@ static bool authentic_texample_source_m3(
         for(size_t fail=1u;fail<=public_allocations;++fail) {
             std::memset(&ir,0xa5,sizeof(ir));
             track_c_allocation=true;c_fail_index=fail;c_allocations=0u;c_faults=0u;
-            const auto denied=public_read(ir);
+            const auto denied=read(ir);
             const size_t seen=c_allocations,fired=c_faults;
             track_c_allocation=false;c_fail_index=0u;
             if(denied!=QUANTAPDF_ERROR_NOMEM || !cleared(ir) ||
@@ -1394,7 +1390,7 @@ static bool authentic_texample_source_m3(
                 std::fprintf(stderr,"public Source OOM fail=%zu status=%d\n",fail,(int)denied);
                 quantapdf_ir_dispose(&ir);return false;
             }
-            if(public_read(ir)!=QUANTAPDF_OK || !exact_texample_private_ir(ir)) {
+            if(read(ir)!=QUANTAPDF_OK || !exact_texample_private_ir(ir)) {
                 quantapdf_ir_dispose(&ir);return false;
             }
             quantapdf_ir_raster_image recovered{};
@@ -1415,7 +1411,7 @@ static bool authentic_texample_source_m3(
         quantapdf_ir ir{};
         track_c_allocation=true;
         c_fail_index=0u;c_allocations=0u;c_faults=0u;
-        const auto status=private_read(ir);
+        const auto status=read(ir);
         allocs=c_allocations;
         track_c_allocation=false;
         if(status!=QUANTAPDF_OK || !exact_texample_private_ir(ir) ||
@@ -1485,7 +1481,7 @@ static bool authentic_texample_source_m3(
         std::memset(&denied,0xa5,sizeof(denied));
         track_c_allocation=true;
         c_fail_index=fail;c_allocations=0u;c_faults=0u;
-        const auto status=private_read(denied);
+        const auto status=read(denied);
         const auto seen=c_allocations,fired=c_faults;
         track_c_allocation=false;c_fail_index=0u;
         if(status!=QUANTAPDF_ERROR_NOMEM || !cleared(denied) ||
@@ -1498,7 +1494,7 @@ static bool authentic_texample_source_m3(
             return false;
         }
         quantapdf_ir recovery{};
-        const auto again=private_read(recovery);
+        const auto again=read(recovery);
         const bool restored=again==QUANTAPDF_OK &&
                             exact_texample_private_ir(recovery);
         quantapdf_ir_dispose(&recovery);
@@ -1672,7 +1668,7 @@ static int m2a_malloc_fault_callback(void *owner,size_t bytes)
  * Common Source -> IR -> C11 compiled page and error/lifetime boundaries.
  * Keep this compact: the existing 40s Source/OOM gate is unchanged. */
 static int m2a_ordered_text_image_source_contract(
-    const quantapdf_qpdf_source_raw_image_limits& limits)
+    const quantapdf_qpdf_page_limits& limits)
 {
     target=0u;armed=false;track_c_allocation=false;c_fail_index=0u;
     for(int mode:{49,50,64,65}) {
@@ -1686,7 +1682,7 @@ static int m2a_ordered_text_image_source_contract(
               composer_guard!=nullptr && context->references==2u);
         const std::string original=native_ttf_fixture(mode);
         const auto read=[&](quantapdf_ir& ir) {
-            return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            return native_test_page_ir(
                 reinterpret_cast<const unsigned char*>(original.data()),
                 original.size(),&limits,0u,&ir);
         };
@@ -1923,7 +1919,7 @@ static int m2a_ordered_text_image_source_contract(
         const std::string original=native_ttf_fixture(mode);
         quantapdf_ir denied;
         std::memset(&denied,0xa5,sizeof(denied));
-        const auto status=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+        const auto status=native_test_page_ir(
             reinterpret_cast<const unsigned char*>(original.data()),
             original.size(),&limits,0u,&denied);
         if(status!=QUANTAPDF_ERROR_UNSUPPORTED &&
@@ -1935,7 +1931,7 @@ static int m2a_ordered_text_image_source_contract(
     {
         const std::string original=native_ttf_fixture(49);
         quantapdf_ir recovered{};
-        CHECK(quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+        CHECK(native_test_page_ir(
             reinterpret_cast<const unsigned char*>(original.data()),
             original.size(),&limits,0u,&recovered)==QUANTAPDF_OK &&
             recovered.operation_count==2u &&
@@ -1956,13 +1952,13 @@ static int m2a_ordered_text_image_source_contract(
  * own unchanged 40-second sanitizer timeout; keep its injections
  * bounded to the two new three-paint originals. */
 static int m2b1_ordered_source_ir_contract(
-    const quantapdf_qpdf_source_raw_image_limits& limits)
+    const quantapdf_qpdf_page_limits& limits)
 {
     target=0u;armed=false;track_c_allocation=false;c_fail_index=0u;
     for(int mode:{66,67,81,82}) {
         const std::string original=native_ttf_fixture(mode);
         const auto read=[&](quantapdf_ir& out) {
-            return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            return native_test_page_ir(
                 reinterpret_cast<const unsigned char*>(original.data()),
                 original.size(),&limits,0u,&out);
         };
@@ -2209,7 +2205,7 @@ static int m2b1_ordered_source_ir_contract(
         const std::string original=native_ttf_fixture(mode);
         quantapdf_ir denied;
         std::memset(&denied,0xa5,sizeof(denied));
-        const auto st=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+        const auto st=native_test_page_ir(
             reinterpret_cast<const unsigned char*>(original.data()),
             original.size(),&limits,0u,&denied);
         if(st!=QUANTAPDF_ERROR_UNSUPPORTED &&
@@ -2226,11 +2222,11 @@ static int m2b1_ordered_source_ir_contract(
 }
 
 static int native_ttf_source_and_raster_contracts(
-    const quantapdf_qpdf_source_raw_image_limits& source_limits,int mode=1)
+    const quantapdf_qpdf_page_limits& source_limits,int mode=1)
 {
     const auto original=native_ttf_fixture(mode);
     const auto read=[&](quantapdf_ir& ir) {
-        return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+        return native_test_page_ir(
             reinterpret_cast<const unsigned char*>(original.data()),original.size(),&source_limits,0u,&ir);
     };
     target=8u;armed=false;observed=0u;faults=0u;
@@ -2763,7 +2759,7 @@ static int composer_preparation_contracts()
 /* M2b.2b original Source ROOT Clip stage. One QPDF parser and one
  * detached owned IR, also reused by the public fractional V5 route. */
 static int m2b2b_clipped_source_owner_contract(
-    const quantapdf_qpdf_source_raw_image_limits& limits)
+    const quantapdf_qpdf_page_limits& limits)
 {
     target=0u;armed=false;track_c_allocation=false;c_fail_index=0u;
     const quantapdf_ir_raster_scoped_mixed_v5_limits raster={
@@ -2773,7 +2769,7 @@ static int m2b2b_clipped_source_owner_contract(
     for(int mode:{83,84}) {
         const std::string original=native_ttf_fixture(mode);
         const auto read=[&](quantapdf_ir& output) {
-            return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            return native_test_page_ir(
                 reinterpret_cast<const unsigned char*>(original.data()),
                 original.size(),&limits,0u,&output);
         };
@@ -3029,7 +3025,7 @@ static int m2b2b_clipped_source_owner_contract(
             smaller.max_operations=2u;
             quantapdf_ir refused;
             std::memset(&refused,0xa5,sizeof(refused));
-            const auto budget_status=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            const auto budget_status=native_test_page_ir(
                 reinterpret_cast<const unsigned char*>(original.data()),
                 original.size(),&smaller,0u,&refused);
             CHECK(budget_status==QUANTAPDF_ERROR_UNSUPPORTED && cleared(refused));
@@ -3041,7 +3037,7 @@ static int m2b2b_clipped_source_owner_contract(
     {
         const std::string original=native_ttf_fixture(95);
         quantapdf_ir staged{};
-        CHECK(quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+        CHECK(native_test_page_ir(
             reinterpret_cast<const unsigned char*>(original.data()),
             original.size(),&limits,0u,&staged)==QUANTAPDF_OK &&
             staged.operation_count==3u &&
@@ -3080,7 +3076,7 @@ static int m2b2b_clipped_source_owner_contract(
         const auto original=native_ttf_fixture(mode);
         quantapdf_ir denied;
         std::memset(&denied,0xa5,sizeof(denied));
-        const auto status=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+        const auto status=native_test_page_ir(
             reinterpret_cast<const unsigned char*>(original.data()),
             original.size(),&limits,0u,&denied);
         CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED ||
@@ -3093,11 +3089,11 @@ static int m2b2b_clipped_source_owner_contract(
 
 /* M2b.2l Source ownership; M2b.2n now admits its public prepared metadata.
  * The first two paints retain Clip1 after real Q; only Image uses Clip2. */
-static int m2b2l_sibling_source_owner(const quantapdf_qpdf_source_raw_image_limits& caps)
+static int m2b2l_sibling_source_owner(const quantapdf_qpdf_page_limits& caps)
 {
     const auto stage=[](const std::string& bytes,
-        const quantapdf_qpdf_source_raw_image_limits& budget,quantapdf_ir& out) {
-        return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+        const quantapdf_qpdf_page_limits& budget,quantapdf_ir& out) {
+        return native_test_page_ir(
             reinterpret_cast<const unsigned char*>(bytes.data()),bytes.size(),&budget,0u,&out);
     };
     auto prefix_bytes=native_ttf_fixture(99);
@@ -3235,11 +3231,11 @@ static int m2b2l_sibling_source_owner(const quantapdf_qpdf_source_raw_image_limi
 
 /* M2b.2r Source-only reverse siblings: Image/Fill retain Clip1,
  * actual Q restores GS0 and only Text observes the independent Clip2. */
-static int m2b2r_reverse_sibling_source_owner(const quantapdf_qpdf_source_raw_image_limits& caps)
+static int m2b2r_reverse_sibling_source_owner(const quantapdf_qpdf_page_limits& caps)
 {
     const auto stage=[](const std::string& bytes,
-        const quantapdf_qpdf_source_raw_image_limits& budget,quantapdf_ir& out) {
-        return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+        const quantapdf_qpdf_page_limits& budget,quantapdf_ir& out) {
+        return native_test_page_ir(
             reinterpret_cast<const unsigned char*>(bytes.data()),bytes.size(),&budget,0u,&out);
     };
     auto prefix_bytes=native_ttf_fixture(100);
@@ -3398,11 +3394,11 @@ static int m2b2r_reverse_sibling_source_owner(const quantapdf_qpdf_source_raw_im
 
 /* M2b.2o Source-only compound Clip. Both leaves remain authored resources;
  * GS1 names Intersection(1,2), and all three paints retain that GS. */
-static int m2b2o_compound_source_owner(const quantapdf_qpdf_source_raw_image_limits& caps)
+static int m2b2o_compound_source_owner(const quantapdf_qpdf_page_limits& caps)
 {
     const auto stage=[](const std::string& original,
-        const quantapdf_qpdf_source_raw_image_limits& budget,quantapdf_ir& out) {
-        return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+        const quantapdf_qpdf_page_limits& budget,quantapdf_ir& out) {
+        return native_test_page_ir(
             reinterpret_cast<const unsigned char*>(original.data()),original.size(),&budget,0u,&out);
     };
     quantapdf_ir prefix{};
@@ -3528,7 +3524,7 @@ static int m2b2o_compound_source_owner(const quantapdf_qpdf_source_raw_image_lim
 
 /* M2b.2m PRIVATE V5: actual sibling Source originals, independent whole
  * RGBA, one per-page ledger, and frozen per-operation Clip selection. */
-static int m2b2m_sibling_v5(const quantapdf_qpdf_source_raw_image_limits& source_caps,
+static int m2b2m_sibling_v5(const quantapdf_qpdf_page_limits& source_caps,
     bool compound=false,bool reverse=false)
 {
     const quantapdf_ir_raster_scoped_mixed_v5_limits caps={
@@ -3542,7 +3538,7 @@ static int m2b2m_sibling_v5(const quantapdf_qpdf_source_raw_image_limits& source
     for(int mode:modes) {
         const auto original=native_ttf_fixture(mode);
         quantapdf_ir ir{};
-        CHECK(quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+        CHECK(native_test_page_ir(
             reinterpret_cast<const unsigned char*>(original.data()),original.size(),
             &source_caps,0u,&ir)==QUANTAPDF_OK && ir.operation_count==3u &&
             ir.resources.clip_count==(compound?3u:2u) && ir.resources.graphics_state_count==(compound?1u:2u));
@@ -3732,7 +3728,7 @@ static int m2b2m_sibling_v5(const quantapdf_qpdf_source_raw_image_limits& source
  * an unknown fractional glyph/Clip crossing. The separate fractional
  * mode 83/84 and mode11 private disjoint controls remain unchanged. */
 static int m2b2c_original_aligned_whole_rgb(
-    const quantapdf_qpdf_source_raw_image_limits& limits)
+    const quantapdf_qpdf_page_limits& limits)
 {
     const auto root=std::filesystem::path(__FILE__).parent_path()/"goldens";
     const quantapdf_ir_raster_scoped_mixed_v5_limits cap={
@@ -3744,7 +3740,7 @@ static int m2b2c_original_aligned_whole_rgb(
     for(int mode:{91,92}) {
         const std::string authored=native_ttf_fixture(mode);
         quantapdf_ir ir{};
-        CHECK(quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+        CHECK(native_test_page_ir(
             reinterpret_cast<const unsigned char*>(authored.data()),
             authored.size(),&limits,0u,&ir)==QUANTAPDF_OK &&
             ir.operation_count==3u && ir.resources.clip_count==1u &&
@@ -3861,7 +3857,7 @@ static int m2b2c_original_aligned_whole_rgb(
  * sample masks, and one shared V5 compiler. M2b.2j connects the same
  * original to public preparation; the independent primitive gate remains. */
 static int m2b2i_fractional_original_reference(
-    const quantapdf_qpdf_source_raw_image_limits& source_caps)
+    const quantapdf_qpdf_page_limits& source_caps)
 {
     const quantapdf_ir_raster_scoped_mixed_v5_limits limits={
         1000000u,4u,512u,8000000u,
@@ -3880,7 +3876,7 @@ static int m2b2i_fractional_original_reference(
         const bool text_first=mode==99;
         const auto original=native_ttf_fixture(mode);
         quantapdf_ir ir{};
-        CHECK(quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+        CHECK(native_test_page_ir(
             reinterpret_cast<const unsigned char*>(original.data()),
             original.size(),&source_caps,0u,&ir)==QUANTAPDF_OK &&
             ir.operation_count==3u && ir.resources.clip_count==1u &&
@@ -4057,7 +4053,7 @@ static int m2b2i_fractional_original_reference(
  * The public pixel-aligned original RGB oracle lives in the existing
  * native_public_render executable, not in this IR-facing test. */
 static int m2b_clipped_prepared_receipt_faults(
-    const quantapdf_qpdf_source_raw_image_limits& source_caps,int mode,unsigned dpi=72u)
+    const quantapdf_qpdf_page_limits& source_caps,int mode,unsigned dpi=72u)
 {
     const bool restored=mode==97 || mode==105 || mode==106;
     const bool siblings=mode==113 || mode==114;
@@ -4074,7 +4070,7 @@ static int m2b_clipped_prepared_receipt_faults(
                               QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE;
     const auto original=native_ttf_fixture(mode);
     quantapdf_ir ir{};
-    CHECK(quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+    CHECK(native_test_page_ir(
         reinterpret_cast<const unsigned char*>(original.data()),
         original.size(),&source_caps,0u,&ir)==QUANTAPDF_OK &&
         ir.operation_count==operations && ir.resources.clip_count==roots);
@@ -4261,7 +4257,7 @@ static int m2b_clipped_prepared_receipt_faults(
         quantapdf_ir trial{};
         track_c_allocation=true;c_fail_index=0u;
         c_allocations=0u;c_faults=0u;
-        const auto source_result=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+        const auto source_result=native_test_page_ir(
             reinterpret_cast<const unsigned char*>(original.data()),
             original.size(),&source_caps,0u,&trial);
         source_attempts=c_allocations;
@@ -4278,7 +4274,7 @@ static int m2b_clipped_prepared_receipt_faults(
         std::memset(&refused,0xa5,sizeof(refused));
         track_c_allocation=true;c_fail_index=fail;
         c_allocations=0u;c_faults=0u;
-        const auto source_result=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+        const auto source_result=native_test_page_ir(
             reinterpret_cast<const unsigned char*>(original.data()),
             original.size(),&source_caps,0u,&refused);
         track_c_allocation=false;c_fail_index=0u;
@@ -4288,7 +4284,7 @@ static int m2b_clipped_prepared_receipt_faults(
         if(fail==1u || fail==(source_attempts+1u)/2u ||
            fail==source_attempts) {
             quantapdf_ir recovered{};
-            CHECK(quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            CHECK(native_test_page_ir(
                 reinterpret_cast<const unsigned char*>(original.data()),
                 original.size(),&source_caps,0u,&recovered)==QUANTAPDF_OK &&
                 recovered.operation_count==operations &&
@@ -4315,13 +4311,13 @@ static int m2b_clipped_prepared_receipt_faults(
  * token stream and unique detached IR owner, now connected to the
  * shared prepared public four-paint route. */
 static int m2b2f_fourth_restored_source_owner(
-    const quantapdf_qpdf_source_raw_image_limits& caps)
+    const quantapdf_qpdf_page_limits& caps)
 {
     const auto original=native_ttf_fixture(97);
     const auto stage=[&](const auto& input,
-                        const quantapdf_qpdf_source_raw_image_limits& budget,
+                        const quantapdf_qpdf_page_limits& budget,
                         quantapdf_ir& ir) {
-        return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+        return native_test_page_ir(
             reinterpret_cast<const unsigned char*>(input.data()),
             input.size(),&budget,0u,&ir);
     };
@@ -4453,11 +4449,11 @@ static int m2b2f_fourth_restored_source_owner(
 }
 
 static int m2b2g_private_fourth_restored_v5(
-    const quantapdf_qpdf_source_raw_image_limits& caps)
+    const quantapdf_qpdf_page_limits& caps)
 {
     const auto original=native_ttf_fixture(97);
     quantapdf_ir ir{};
-    CHECK(quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+    CHECK(native_test_page_ir(
         reinterpret_cast<const unsigned char*>(original.data()),
         original.size(),&caps,0u,&ir)==QUANTAPDF_OK &&
         ir.operation_count==4u && ir.resources.clip_count==1u);
@@ -4848,12 +4844,14 @@ static int m2b2a_private_clipped_text_faults()
 }
 
 static int content_stream_source_contracts(
-    const quantapdf_qpdf_source_raw_image_limits& defaults)
+    const quantapdf_qpdf_page_limits& defaults)
 {
     size_t source_failures=0u,decoder_failures=0u,budget_failures=0u;
     for(unsigned encoding=0u;encoding<8u;++encoding)
     for(bool encrypted:{false,true})for(size_t count:{1u,3u,17u}) {
-        const auto sample=native_content_fixture::create(encoding,count,encrypted);
+        const size_t payload=encoding==0u && count==1u?3u*1024u*1024u:0u;
+        const auto sample=native_content_fixture::create(encoding,count,encrypted,0,payload);
+        CHECK(payload==0u || sample.bytes.size()>payload);
         quantapdf_qpdf_document *document=nullptr;
         CHECK(quantapdf_qpdf_open_memory(
             reinterpret_cast<const unsigned char*>(sample.bytes.data()),sample.bytes.size(),
@@ -4862,7 +4860,7 @@ static int content_stream_source_contracts(
             owner(document,quantapdf_qpdf_close);
         auto caps=defaults;caps.max_content_bytes=sample.decoded_bytes;
         caps.max_content_streams=count;
-        const auto read=[&](const quantapdf_qpdf_source_raw_image_limits& limits,quantapdf_ir& ir) {
+        const auto read=[&](const quantapdf_qpdf_page_limits& limits,quantapdf_ir& ir) {
             return quantapdf_qpdf_page_to_ir(owner.get(),0u,&limits,&ir);
         };
         quantapdf_ir ir{};
@@ -4905,8 +4903,8 @@ static int content_stream_source_contracts(
 
 int main(int argc,char **argv)
 {
-    const quantapdf_qpdf_source_raw_image_limits limits={
-        2u*1024u*1024u,65536u,4u,4u,1000000u,1000000u,4000000u,8u
+    const quantapdf_qpdf_page_limits limits={
+        65536u,4u,4u,1000000u,1000000u,4000000u,8u
     };
     if(argc==2 && std::strcmp(argv[1],"--content-streams")==0)
         return content_stream_source_contracts(limits);
@@ -4956,7 +4954,7 @@ int main(int argc,char **argv)
         std::memset(&ir,0xA5,sizeof(ir));
         target=phase; observed=0u; faults=0u; armed=false;
         const quantapdf_status result=
-            quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            native_test_page_ir(
                 reinterpret_cast<const unsigned char*>(pdf.data()),
                 pdf.size(),&limits,0u,&ir);
         const unsigned was_observed=observed, did_fail=faults;
@@ -4982,7 +4980,7 @@ int main(int argc,char **argv)
             /* A failed partial stage must not poison the parser and
              * the next real invocation must own a complete IR. */
             quantapdf_ir recovery{};
-            const auto status=quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+            const auto status=native_test_page_ir(
                 reinterpret_cast<const unsigned char*>(pdf.data()),
                 pdf.size(),&limits,0u,&recovery);
             CHECK(status==QUANTAPDF_OK &&
@@ -5023,7 +5021,7 @@ int main(int argc,char **argv)
             track_c_allocation=true;
             c_fail_index=0u;c_allocations=0u;c_faults=0u;
             const auto status=
-                quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+                native_test_page_ir(
                     reinterpret_cast<const unsigned char*>(original.data()),
                     original.size(),&limits,selected_index,&clean);
             expected_allocations=c_allocations;
@@ -5049,7 +5047,7 @@ int main(int argc,char **argv)
             track_c_allocation=true;
             c_fail_index=fail;c_allocations=0u;c_faults=0u;
             const auto status=
-                quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+                native_test_page_ir(
                     reinterpret_cast<const unsigned char*>(original.data()),
                     original.size(),&limits,selected_index,&denied);
             const size_t count=c_allocations,failures=c_faults;
@@ -5066,7 +5064,7 @@ int main(int argc,char **argv)
             }
             quantapdf_ir retry{};
             const auto recovered=
-                quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+                native_test_page_ir(
                     reinterpret_cast<const unsigned char*>(original.data()),
                     original.size(),&limits,selected_index,&retry);
             if(recovered!=QUANTAPDF_OK || !accepted(retry)) {

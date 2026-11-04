@@ -42,10 +42,18 @@ selected Page's original content streams, including filter arrays/chains and
 mixed encodings across a Contents array. Source no longer creates an empty
 qpdf document or a second decoded-content copy. Tested content filters are
 RAW, Flate, ASCIIHex, ASCII85 and RunLength; Image XObject codec coverage is
-unchanged. Public rendering has no four-stream/64-KiB Contents admission cap.
+unchanged. The only Source entry, `quantapdf_qpdf_page_to_ir`, takes the opened
+Document, selected page index and current page-work limits. The old byte-based
+versioned entries, fixture selector and capability-policy matrix are removed;
+current Source code lives in `qpdf_page_ir.h/.cpp`. Page-work limits have no
+whole-file byte cap. Public rendering has no four-stream/64-KiB Contents admission cap.
 Explicit internal content budgets count selected streams before parsing and
 qpdf's actual decoded content bytes before interpretation; they do not bound
-qpdf's transient decode buffer allocation. Failed open/render calls
+qpdf's transient decode buffer allocation. Two Image paints may retain a frozen
+Clip for the first and GS0 after an actual Q restore for the second; the same
+C11 ordered compositor consumes both. Tests include clear/encrypted files larger
+than 3 MiB and independent full-RGB restored-image references. Fixed paint,
+geometry, font and DPI limits remain A2 work. Failed open/render calls
 publish no handle/Bitmap and preserve the failure status. Do not add a wrapper to preserve an old ownership rule. The current
 implementation has not acquired a concurrency guarantee from this design;
 independent/same-object concurrency must be implemented and tested if exposed.

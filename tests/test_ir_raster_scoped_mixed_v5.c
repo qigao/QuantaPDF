@@ -788,13 +788,17 @@ static int clipped_image_only_cases(void)
     CHECK(color(&a,5u,3u)==UINT32_C(0x00ff00ff));
     quantapdf_ir_raster_image_dispose(&a);
 
-    /* All two-paint membership/owner/budget refusals must reset output.
-     * The second Image cannot be a bare un-clipped Q-restored paint. */
+    /* A Q-restored second Image uses GS0 and paints outside the first
+     * Clip. Inconsistent/invalid bindings and budgets still clear output. */
     clipped_image_only_setup(&f);
     f.ir.resources.image_count=2u;
     f.ir.resources.image_capacity=2u;
     f.ir.operation_count=2u;
     f.ops[1]=f.ops[2];
+    OK(quantapdf_ir_raster_scoped_mixed_v5(&f.ir,0u,&limit,&a));
+    CHECK(color(&a,7u,3u)==UINT32_C(0x00ff00ff));
+    quantapdf_ir_raster_image_dispose(&a);
+    f.ops[1].value.image.options.graphics_state_id=1u; /* inconsistent */
     CHECK(expect_unsupported(&f,&limit)==EXIT_SUCCESS);
     f.ops[1].graphics_state_id=1u;
     f.ops[1].value.image.options.graphics_state_id=1u;
