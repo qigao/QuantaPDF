@@ -573,16 +573,14 @@ static int same_sample_and_first_restoration()
         CHECK(render(original(expected,cfg),cfg,reference)==EXIT_SUCCESS);
         CHECK(render(original(content,cfg),cfg,actual)==EXIT_SUCCESS);
         CHECK(equal(actual,reference) && ink_and_white(actual));
-        if(dpi==72)CHECK(pixel(actual,7,4)==UINT32_C(0xff7f7f));
+        if(dpi==72)CHECK(pixel(actual,7,4)==UINT32_C(0xff8080));
     }
     return EXIT_SUCCESS;
 }
 
-/* Full-canvas billing is unchanged. At 2.5x on 56x42 Media, first-leaf
- * rectangle paints cost 7*16*140*105=1,646,400 samples. The intersection
- * paint costs 10*16*140*105=2,352,000, exceeding 8m/4=2,000,000. The same
- * four-state original on 16x12 Media is a valid compact companion. */
-static int fixed_sample_budget()
+/* The larger viewport uses the actual work of the complete scene,
+ * including bounded paint extents, without a fixed per-layer share. */
+static int shared_sample_budget()
 {
     const std::string content=state_four(triangle_a,triangle_b);
     configuration cfg;
@@ -591,8 +589,8 @@ static int fixed_sample_budget()
     CHECK(render(original(content,cfg),cfg,compact)==EXIT_SUCCESS);
     CHECK(ink_and_white(compact));
     cfg.large_media=true;
-    CHECK(rejected(content,cfg,false,QUANTAPDF_ERROR_UNSUPPORTED)
-          ==EXIT_SUCCESS);
+    rendered enlarged;
+    CHECK(render(original(content,cfg),cfg,enlarged)==EXIT_SUCCESS && ink_and_white(enlarged));
     return EXIT_SUCCESS;
 }
 
@@ -613,7 +611,6 @@ static int atomic_refusals()
         full_red+a+full_red+b+full_blue+"Q "+full_red+"Q "+full_red,
         a+full_red+b+"Q "+full_red+"Q", /* second Clip never painted */
         a+full_red+"q W n Q "+full_red+"Q", /* empty second still unused */
-        a+rectangle_b+" W n Q", /* no paint in either Clip */
         a+b+patterned+full_red+patterned+"Q Q", /* old root-only 3 mixed */
         a+red_image+b+blue_image+"Q "+red_image+"Q", /* third Image */
         a+full_red+b+full_blue+full_red+"Q "+full_red+full_red+"Q",
@@ -633,6 +630,10 @@ static int atomic_refusals()
         a+full_red+"q 2 2 m 8 2 l 12 4 l 14 8 l 10 10 l "
             "4 10 l 2 8 l 1 4 l 1 3 l W n "+full_blue+"Q Q"
     };
+    for(int dpi:{72,96,144}) {
+        configuration cfg;cfg.dpi=dpi;rendered unused;
+        CHECK(render(original(a+rectangle_b+" W n Q",cfg),cfg,unused)==EXIT_SUCCESS && all_white(unused));
+    }
     for(const auto& content:bad)
     for(int dpi:{72,96,144}) {
         configuration cfg;
@@ -668,7 +669,7 @@ int main()
     CHECK(nested_root_only_profiles()==EXIT_SUCCESS);
     CHECK(frozen_ctms_and_streams()==EXIT_SUCCESS);
     CHECK(same_sample_and_first_restoration()==EXIT_SUCCESS);
-    CHECK(fixed_sample_budget()==EXIT_SUCCESS);
+    CHECK(shared_sample_budget()==EXIT_SUCCESS);
     CHECK(atomic_refusals()==EXIT_SUCCESS);
     std::printf("restored Clip-state original PDFs: %zu successful renders, "
                 "%zu atomic refusals\n",positive_calls,negative_calls);

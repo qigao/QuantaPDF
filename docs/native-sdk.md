@@ -71,6 +71,17 @@ publish no handle/Bitmap and preserve the failure status. Do not add a wrapper t
 implementation has not acquired a concurrency guarantee from this design;
 independent/same-object concurrency must be implemented and tested if exposed.
 
+Opaque Fill, decoded Image and original Text outlines now share one ordered
+C11 geometry owner and final surface for the currently published Clip graphs.
+Each draw retains its actual Clip leaf set, including Q-restored GS0 and sibling
+roots. Coverage composites directly as n/16; adding an empty Text show does not
+change Fill/Image bytes. Single-root Fill/Image publication uses the same
+ordered builder as Text scenes. Reverse Image/Fill/Text siblings produce public
+Bitmaps through this common path. Their old three-paint V5 compilers and
+prepared classifiers have been removed. Stroke-bearing pages retain their
+existing geometry admission. Wider Source Clip graphs/order, Clip definitions after BT, general Stroke/affine and the existing font/geometry/DPI limits
+remain unfinished; the current scene is not a complete PDF renderer.
+
 An actual parse, decode, I/O, allocation, write or unimplemented-operation
 failure ends that operation. Keep the cause and translate it once at a C entry.
 Do not unwind a C++ exception through a C caller. Do not catch an error to

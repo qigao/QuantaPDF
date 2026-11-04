@@ -5,9 +5,10 @@
 #include <array>
 namespace native_ordered_scene {
 using O=QPDFObjectHandle;
+enum class text_presence { glyphs,empty,none };
 struct paint {double x,y,w,h;std::array<unsigned char,12> colors;bool image;bool clipped=false;};
 struct original {std::string bytes;size_t decoded_bytes=0u,operations=0u,glyphs=0u,images=0u;std::vector<paint> paints;unsigned clip_kind=0u;};
-inline original create(size_t count,size_t letters,unsigned permutation,bool encrypted,size_t depth=0u,int invalid=0,unsigned clip_kind=0u,size_t restore_at=SIZE_MAX,bool omit_images=false)
+inline original create(size_t count,size_t letters,unsigned permutation,bool encrypted,size_t depth=0u,int invalid=0,unsigned clip_kind=0u,size_t restore_at=SIZE_MAX,bool omit_images=false,text_presence text_mode=text_presence::glyphs)
 {
     auto pdf=QPDF::create();const auto base=native_ttf_fixture();
     pdf->processMemoryFile("ordered-scene-authoring",base.data(),base.size());
@@ -57,8 +58,8 @@ inline original create(size_t count,size_t letters,unsigned permutation,bool enc
                 if(omit_images)continue;
                 part+="q 2.25 0 0 2.5 "+std::to_string(x)+" "+std::to_string(y)+" cm "+name+" Do Q ";
                 result.paints.push_back({x,y,2.25,2.5,samples,true});++result.operations;++result.images;
-            } else if(item==1u && text) {
-                const size_t n=i==0u?letters:1u;const unsigned color=unsigned((i+1u)%3u);
+            } else if(item==1u && text && text_mode!=text_presence::none) {
+                const size_t n=text_mode==text_presence::empty?0u:i==0u?letters:1u;const unsigned color=unsigned((i+1u)%3u);
                 const double tx=double(i%6u)*1.75+0.25,ty=double((i/6u)%7u)*1.5+0.25;
                 part+=std::string(rg[color])+"BT /F 2 Tf -0.4 Tc "+std::to_string(tx)+" "+std::to_string(ty)+" Td <";
                 for(size_t g=0u;g<n;++g) {

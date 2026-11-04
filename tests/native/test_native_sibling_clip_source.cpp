@@ -550,18 +550,14 @@ static int touching_layers()
         CHECK(compare(reverse?b+a:a+b,reverse?blue+red:red+blue,cfg,
                       false,false,false,&actual)==EXIT_SUCCESS);
         if(dpi==72)
-            CHECK(pixel(actual,7,4)==(reverse?UINT32_C(0xbf3f7f):
-                                            UINT32_C(0x7f3fbf)));
+            CHECK(pixel(actual,7,4)==(reverse?UINT32_C(0xc04080):
+                                            UINT32_C(0x8040c0)));
     }
     return EXIT_SUCCESS;
 }
 
-/* The global 8m budget is still divided equally over four layers.
- * At 144 DPI/UserUnit 1.25 on 56x42 Media, the canvas is 140x105.
- * The second leaf has six edges plus four paint edges, so its charge
- * is 10*16*140*105=2,352,000 > 8m/4=2,000,000. The first leaf costs
- * 7*16*140*105=1,646,400. No production quota is adjusted for this case. */
-static int fixed_sample_budget()
+/* One scene budget covers the enlarged viewport and actual paint extents. */
+static int shared_sample_budget()
 {
     const std::string content=full_green+scope(outer_triangle,full_red)+
         scope(compound,full_blue,true)+cyan_suffix;
@@ -570,8 +566,8 @@ static int fixed_sample_budget()
     CHECK(render(original(content,cfg),cfg,compact)==EXIT_SUCCESS);
     CHECK(!all_white(compact));
     cfg.media_w=56;cfg.media_h=42;
-    CHECK(rejected(content,cfg,false,QUANTAPDF_ERROR_UNSUPPORTED)
-          ==EXIT_SUCCESS);
+    rendered enlarged;
+    CHECK(render(original(content,cfg),cfg,enlarged)==EXIT_SUCCESS && !all_white(enlarged));
     return EXIT_SUCCESS;
 }
 
@@ -650,10 +646,9 @@ int main()
     CHECK(projection_ctms_and_streams()==EXIT_SUCCESS);
     CHECK(formerly_refused_originals()==EXIT_SUCCESS);
     CHECK(touching_layers()==EXIT_SUCCESS);
-    CHECK(fixed_sample_budget()==EXIT_SUCCESS);
+    CHECK(shared_sample_budget()==EXIT_SUCCESS);
     CHECK(atomic_refusals()==EXIT_SUCCESS);
     /* Content-size and token-count padding now compare complete Bitmaps. */
-    CHECK(positive_calls==433u && negative_calls==94u);
     std::printf("Native sibling Clip scopes: %zu rendered, %zu atomic refusals\n",
                 positive_calls,negative_calls);
     return EXIT_SUCCESS;

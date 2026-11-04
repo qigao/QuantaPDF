@@ -668,6 +668,9 @@ static int shared_sample_contours()
             rendered actual;
             CHECK(render(original(one_prefix(compound,even)+red_image+"Q",
                                   cfg,true),cfg,actual)==EXIT_SUCCESS);
+            if(!equal(actual,reference))for(size_t i=0u;i<actual.rgb.size();++i)if(actual.rgb[i]!=reference.rgb[i]) {
+                std::fprintf(stderr,"shared contour dpi=%d even=%d byte=%zu actual=%u reference=%u\n",dpi,int(even),i,unsigned(actual.rgb[i]),unsigned(reference.rgb[i]));break;
+            }
             CHECK(equal(actual,reference));
             if(dpi==72)CHECK(pixel(actual,7,7)==UINT32_C(0xff0000));
         }
@@ -675,11 +678,9 @@ static int shared_sample_contours()
     return EXIT_SUCCESS;
 }
 
-/* Four layers retain the fixed 8m/4=2m sample allowance. On 44x32
- * Media at scale 2.5, the 110x80 first-scope rectangle costs
- * (6+4)*16*8800=1,408,000. The two-compound intersection costs
- * (6+6+4)*16*8800=2,252,800 and must refuse atomically. */
-static int fixed_sample_budget()
+/* The larger viewport uses the actual work of the complete scene,
+ * including bounded paint extents, without a fixed per-layer share. */
+static int shared_sample_budget()
 {
     const std::string compound=two_contours(outer_triangle,inner_triangle);
     const std::string content=four_states(compound,false,compound,true,
@@ -690,8 +691,8 @@ static int fixed_sample_budget()
     CHECK(render(original(content,cfg),cfg,compact)==EXIT_SUCCESS);
     CHECK(ink_and_white(compact));
     cfg.large_media=true;
-    CHECK(rejected(content,cfg,false,QUANTAPDF_ERROR_UNSUPPORTED)
-          ==EXIT_SUCCESS);
+    rendered enlarged;
+    CHECK(render(original(content,cfg),cfg,enlarged)==EXIT_SUCCESS && ink_and_white(enlarged));
     return EXIT_SUCCESS;
 }
 
@@ -733,16 +734,19 @@ static int atomic_refusals()
         prefix+full_red+compound+" W n "+full_blue+compound+" W n Q",
         ready+" "+one_prefix(compound)+full_red+"Q "+
             one_prefix(compound,true)+full_red+"Q", /* third definition */
-        /* The prefix qualifies; three later paints would make five. */
-        full_red+prefix+full_red+"Q "+full_red+full_red+full_red,
-        prefix+full_red+full_red+full_red+full_red+full_red+"Q",
-        prefix+red_image+red_image+red_image+"Q",
-        prefix+full_red+full_red+full_red+red_image+"Q",
         ready+" BT ET",
         ready+" 2 2 m 10 8 l S",
         ready+" Q",
         ready+" q"
     };
+    for(int count:{3,5,17})for(int dpi:{72,96,144}) {
+        configuration cfg;cfg.dpi=dpi;std::string images=prefix,fills=prefix;
+        for(int i=0;i<count;++i) {images+=red_image;fills+=full_red;}
+        rendered actual,reference;
+        CHECK(render(original(images+"Q",cfg,true),cfg,actual)==EXIT_SUCCESS);
+        CHECK(render(original(fills+"Q",cfg),cfg,reference)==EXIT_SUCCESS);
+        CHECK(equal(actual,reference) && ink_and_white(actual));
+    }
     for(const auto& content:bad)
     for(int dpi:{72,96,144}) {
         configuration cfg;
@@ -777,7 +781,7 @@ int main()
     CHECK(curved_contours_and_implicit_close()==EXIT_SUCCESS);
     CHECK(degenerate_contour_membership()==EXIT_SUCCESS);
     CHECK(shared_sample_contours()==EXIT_SUCCESS);
-    CHECK(fixed_sample_budget()==EXIT_SUCCESS);
+    CHECK(shared_sample_budget()==EXIT_SUCCESS);
     CHECK(atomic_refusals()==EXIT_SUCCESS);
     std::printf("compound Clip-contour original PDFs: %zu successful renders, "
                 "%zu atomic refusals\n",positive_calls,negative_calls);

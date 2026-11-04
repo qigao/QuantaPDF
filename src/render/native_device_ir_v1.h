@@ -27,10 +27,8 @@ typedef enum quantapdf_native_prepared_route_v1 {
     QP_NATIVE_PREPARED_PREFIX,
     QP_NATIVE_PREPARED_SIBLINGS,
     QP_NATIVE_PREPARED_THREE_GS,
-    QP_NATIVE_PREPARED_TEXT,
+    QP_NATIVE_PREPARED_SCENE,
     QP_NATIVE_PREPARED_EXACT_CUBICS,
-    QP_NATIVE_PREPARED_M2B2N_SIBLING_TEXT_FILL_IMAGE,
-    QP_NATIVE_PREPARED_M2B2Q_COMPOUND_TEXT_FILL_IMAGE
 } quantapdf_native_prepared_route_v1;
 
 /* Compile the same temporary projection into retained geometry/value records.

@@ -30,14 +30,14 @@ inline native_ttf_fractional_reference native_ttf_fractional_compute(int mode,un
 {
     native_ttf_fractional_reference out;
     if((mode!=83 && mode!=84 && mode!=99 && mode!=100 && mode!=105 && mode!=106 &&
-        mode!=111 && mode!=112 && mode!=113 && mode!=114 && mode!=126 && mode!=127 && mode!=145 && mode!=146 &&
+        mode!=111 && mode!=112 && mode!=113 && mode!=114 && mode!=126 && mode!=127 && mode!=144 && mode!=145 && mode!=146 &&
         mode!=147 && mode!=148 && mode!=168 && mode!=169) ||
        (dpi!=72u && dpi!=96u && dpi!=144u))return out;
     const bool restored=mode==105 || mode==106 || mode==111 || mode==112;
     const bool reverse=mode==147 || mode==148 || mode==168 || mode==169;
     const bool reverse_crossing=mode==168 || mode==169;
     const bool sibling=mode==113 || mode==114;
-    const bool compound=mode==126 || mode==127 || mode==145 || mode==146;
+    const bool compound=mode==126 || mode==127 || mode==144 || mode==145 || mode==146;
     const bool quarter=mode>=99,text_first=mode==83 || mode==99 || (restored && mode!=112) || sibling || compound;
     out.width=(128u*dpi+71u)/72u;out.height=(64u*dpi+71u)/72u;
     const size_t pixels=out.width*out.height;
@@ -115,8 +115,7 @@ inline native_ttf_fractional_reference native_ttf_fractional_compute(int mode,un
                 out.restored_outside+=(unsigned)!inside;
             }
         }
-        unsigned gray=255u,unclipped=255u,intersection_gray=255u;
-        unsigned leaf_gray[2]={255u,255u};
+        unsigned gray=255u,unclipped=255u;
         for(size_t g=0u;g<5u;++g) {
             const size_t at=2u*(g*pixels+i);
             const unsigned glyph=(unsigned)masks[at]|((unsigned)masks[at+1u]<<8u);
@@ -125,14 +124,11 @@ inline native_ttf_fractional_reference native_ttf_fractional_compute(int mode,un
             unclipped=(unclipped*(16u-count(glyph))+8u)/16u;
             if(compound || reverse) {
                 if(compound)out.compound_text_samples+=count(intersection);
-                for(unsigned leaf=0u;leaf<2u;++leaf)
-                    leaf_gray[leaf]=(leaf_gray[leaf]*(16u-count(glyph&leaf_masks[leaf]))+8u)/16u;
             }
             if(reverse) {
                 out.reverse_text_samples+=count(intersection);
                 out.reverse_old_only+=count(glyph&leaf_masks[0]&~leaf_masks[1]);
                 out.reverse_new_only+=count(glyph&leaf_masks[1]&~leaf_masks[0]);
-                intersection_gray=(intersection_gray*(16u-count(glyph&leaf_masks[0]&leaf_masks[1]))+8u)/16u;
             }
             if(glyph!=0u && glyph!=65535u && clip_mask!=0u && clip_mask!=65535u) {
                 out.disjoint+=(unsigned)(intersection==0u);
@@ -172,18 +168,21 @@ inline native_ttf_fractional_reference native_ttf_fractional_compute(int mode,un
                 value*(255u-suffix_alpha)+127u)/255u;
             return value;
         };
-        const auto ordered_composite=[&](unsigned channel) {
+        const auto ordered_composite=[&](unsigned channel,unsigned text_mode=0u,unsigned image_mode=0u,unsigned fill_mode=0u) {
+            const unsigned text_clip=text_mode==1u?leaf_masks[0]:text_mode==2u?(leaf_masks[0]&leaf_masks[1]):text_mode>=3u?leaf_masks[text_mode-3u]:clip_mask;
             unsigned value=255u;
             for(unsigned layer=0u;layer<3u;++layer) {
                 const bool image=text_first?layer==2u:layer==0u;
                 if(layer!=1u && !image) {
+                    if(mode==144)continue;
                     for(size_t g=0u;g<5u;++g) {
                         const size_t at=2u*(g*pixels+i);
                         const unsigned glyph=(unsigned)masks[at]|((unsigned)masks[at+1u]<<8u);
-                        value=(value*(16u-count(glyph&clip_mask))+8u)/16u;
+                        value=(value*(16u-count(glyph&text_clip))+8u)/16u;
                     }
                 } else {
-                    const unsigned hits=image?image_hits:fill_hits;
+                    const unsigned hits=image?(image_mode==1u?old_image_hits:image_mode==2u?intersection_hits:image_mode>=3u?leaf_image[image_mode-3u]:image_hits):
+                        (fill_mode==1u?leaf_fill[1]:fill_mode==2u?intersection_fill_hits:fill_mode>=3u?leaf_fill[fill_mode-3u]:fill_hits);
                     const unsigned color=image?(unsigned)samples[2u*iy+ix][channel]:(channel==1u?255u:0u);
                     value=(color*hits+value*(16u-hits)+8u)/16u;
                 }
@@ -202,26 +201,22 @@ inline native_ttf_fractional_reference native_ttf_fractional_compute(int mode,un
         bool dropped[2]={false,false};
         bool triple_wrong=false;
         for(unsigned channel=0u;channel<3u;++channel) {
-            const auto value=(unsigned char)((sibling || compound || reverse)?composite(255u-gray,channel):ordered_composite(channel));
+            const auto value=(unsigned char)ordered_composite(channel);
             out.rgba[4u*i+channel]=value;out.rgb[3u*i+channel]=value;
             different=different || value!=composite(product,channel);
             if(compound)triple_wrong=triple_wrong || value!=composite(triple_product,channel);
             if(sibling) {
-                wrong_root=wrong_root || value!=composite(255u-gray,channel,1u);
-                wrong_intersection=wrong_intersection || value!=composite(255u-gray,channel,2u);
+                wrong_root=wrong_root || value!=ordered_composite(channel,0u,1u);
+                wrong_intersection=wrong_intersection || value!=ordered_composite(channel,0u,2u);
             }
             if(reverse) {
-                reverse_text_wrong=reverse_text_wrong || value!=composite(255u-leaf_gray[0],channel);
-                reverse_early_wrong=reverse_early_wrong || value!=composite(255u-gray,channel,1u,1u);
+                reverse_text_wrong=reverse_text_wrong || value!=ordered_composite(channel,1u);
+                reverse_early_wrong=reverse_early_wrong || value!=ordered_composite(channel,0u,1u,1u);
                 reverse_intersection_wrong=reverse_intersection_wrong ||
-                    value!=composite(255u-intersection_gray,channel,2u,2u);
+                    value!=ordered_composite(channel,2u,2u,2u);
             }
             if(compound)for(unsigned leaf=0u;leaf<2u;++leaf) {
-                unsigned wrong=leaf_gray[leaf];
-                const unsigned fa=(leaf_fill[leaf]*255u+8u)/16u;
-                const unsigned ia=(leaf_image[leaf]*255u+8u)/16u;
-                wrong=((channel==1u?255u:0u)*fa+wrong*(255u-fa)+127u)/255u;
-                wrong=((unsigned)samples[2u*iy+ix][channel]*ia+wrong*(255u-ia)+127u)/255u;
+                const unsigned wrong=ordered_composite(channel,leaf+3u,leaf+3u,leaf+3u);
                 dropped[leaf]=dropped[leaf] || value!=wrong;
             }
         }
@@ -251,11 +246,11 @@ inline native_ttf_fractional_reference native_ttf_fractional_expected(int mode,u
     if(mode==146)mode=145;
     if(mode==148)mode=147;
     if(mode==169)mode=168;
-    static constexpr int profiles[]={83,84,99,100,105,106,111,112,113,126,145,147,168};
+    static constexpr int profiles[]={83,84,99,100,105,106,111,112,113,126,144,145,147,168};
     size_t profile=0u;
-    while(profile<13u && profiles[profile]!=mode)++profile;
-    if(profile==13u)return {};
-    static thread_local std::array<std::array<native_ttf_fractional_reference,3>,13> values{};
+    while(profile<std::size(profiles) && profiles[profile]!=mode)++profile;
+    if(profile==std::size(profiles))return {};
+    static thread_local std::array<std::array<native_ttf_fractional_reference,3>,std::size(profiles)> values{};
     auto& value=values[profile][dpi==72u?0u:dpi==96u?1u:2u];
     if(value.rgba.empty())value=native_ttf_fractional_compute(mode,dpi);
     return value;

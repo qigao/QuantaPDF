@@ -76,10 +76,9 @@ inline std::vector<unsigned char> rgb(const original& sample,unsigned dpi,unsign
             const double px=rotation?dy:dx,py=rotation?dx:12.0-dy;
             hits+=unsigned(px>=p.x && px<p.x+2.0 && py>=p.y && py<p.y+1.0);
         }
-        const unsigned alpha=(hits*255u+8u)/16u;
         for(size_t c=0u;c<3u;++c) {
             auto& dst=out[(y*width+x)*3u+c];
-            dst=static_cast<unsigned char>((colors[p.color][c]*alpha+unsigned(dst)*(255u-alpha)+127u)/255u);
+            dst=static_cast<unsigned char>((colors[p.color][c]*hits+unsigned(dst)*(16u-hits)+8u)/16u);
         }
     }
     return out;

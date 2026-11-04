@@ -51,7 +51,7 @@ static int prepared_contracts(quantapdf_ir *ir,
         device.dpi=(float)dpi;
         OK(quantapdf_native_prepare_page_v1(ir,&limits.raster,&device,
             &plan));
-        CHECK(plan.source==ir && plan.route==QP_NATIVE_PREPARED_DEVICE &&
+        CHECK(plan.source==ir && plan.route==QP_NATIVE_PREPARED_SCENE &&
               plan.usage.operations==1u && plan.usage.commands==5u &&
               plan.usage.expanded_paints==1u && plan.usage.glyphs==0u &&
               plan.usage.retained_bytes>0u);
@@ -60,7 +60,7 @@ static int prepared_contracts(quantapdf_ir *ir,
         limits.raster.max_sample_tests=0u;
         memset(&a,0,sizeof(a));memset(&b,0,sizeof(b));memset(&receipt,0xa5,sizeof(receipt));
         OK(quantapdf_native_execute_page_v1(&plan,&receipt,&a));
-        CHECK(receipt.sample_tests==0u && receipt.sample_tests_exact==0);
+        CHECK(receipt.sample_tests>0u && receipt.sample_tests_exact==1);
         CHECK(receipt.charged_sample_work>0u &&
               receipt.charged_sample_work<=raster->max_sample_tests &&
               receipt.compiled_edges>0u && receipt.compiled_edges<=raster->max_edges &&
@@ -106,7 +106,7 @@ static int prepared_contracts(quantapdf_ir *ir,
     ir->operations[0].value.path.options.graphics_state_id=1u;
     OK(quantapdf_native_prepare_page_v1(ir,&limits.raster,&device,
         &plan));
-    CHECK(plan.route==QP_NATIVE_PREPARED_CLIPPED_PATHS &&
+    CHECK(plan.route==QP_NATIVE_PREPARED_SCENE &&
           plan.usage.clips_used==7u && plan.usage.states_used==1u &&
           plan.usage.commands==15u);
     members[1]=3u;CHECK(prepared_denied(ir,&limits,&device)==0);members[1]=2u;
@@ -299,16 +299,7 @@ static int resource_ledger_contracts(const quantapdf_ir *source)
                   receipt.peak_live_bytes<=plan.resource_limits.max_live_bytes);
             CHECK(at(&out,1u,1u)==UINT32_C(0xff0000ff));
             if(clipped)CHECK(at(&out,side-1u,side-1u)==UINT32_C(0xffffffff));
-            /* Independent live-buffer count: one integer RAW layer and one
-             * final composite plus the retained collection, with no geometry/mask scratch at 72/144 DPI. */
-            if(!clipped && dpi!=96u) {
-                size_t projection=0u;CHECK(quantapdf_native_device_projection_bytes(ir.operation_count,&projection));
-                const size_t scratch=projection>2u*out.size?projection:2u*out.size;
-                CHECK(receipt.peak_live_bytes==receipt.retained_bytes+
-                      ir.operation_count*sizeof(quantapdf_native_scoped_layer_v5)+scratch &&
-                      receipt.completed_leases==0u);
-            }
-            if(clipped)CHECK(receipt.completed_leases==1u && receipt.compiled_edges>0u);
+            CHECK(receipt.completed_leases==1u && receipt.compiled_edges>0u && receipt.sample_tests_exact);
             const size_t peak=receipt.peak_live_bytes;
             OK(quantapdf_native_device_ir_render_v1(&ir,dpi,&limits,&reference));
             CHECK(out.size==reference.size && memcmp(out.pixels,reference.pixels,out.size)==0);
@@ -327,16 +318,19 @@ static int resource_ledger_contracts(const quantapdf_ir *source)
             quantapdf_ir_raster_image_dispose(&out);quantapdf_ir_raster_image_dispose(&reference);
         }
     }
-    /* Preserve the historical clipped IMAGE-only profile: two placements
-     * sharing one resource are still refused by its exact capacity rule. */
+    /* Two clipped placements share one decoded resource and charge each draw. */
     {
         quantapdf_native_prepared_page_v1 plan;
         quantapdf_native_page_device device={0};device.dpi=72.0f;
         const quantapdf_ir_raster_scoped_mixed_v5_limits limits={64u,4u,512u,8000000u,1u,128u};
+        quantapdf_ir_raster_image out={0};quantapdf_native_execution_receipt_v1 receipt;
         ir.operation_count=2u;
-        OK(quantapdf_native_prepare_page_v1(&ir,&limits,&device,
-            &plan));
-        CHECK(resource_denied(&plan)==0);
+        OK(quantapdf_native_prepare_page_v1(&ir,&limits,&device,&plan));
+        OK(quantapdf_native_execute_page_v1(&plan,&receipt,&out));
+        CHECK(receipt.source_pixels==1u && receipt.drawn_pixels==128u &&
+              receipt.completed_leases==1u && at(&out,1u,1u)==UINT32_C(0xff0000ff) &&
+              at(&out,7u,7u)==UINT32_C(0xffffffff));
+        quantapdf_ir_raster_image_dispose(&out);
     }
     puts("Resource ledger: unique RAW inputs, repeated/clipped placements, exact byte peaks and N-1 passed");
     return 0;
@@ -424,7 +418,7 @@ static int owned_geometry_contracts(const quantapdf_ir *source)
     OK(quantapdf_native_device_plan_create_physical("0 0 8 8","0 0 8 8","1",0,96u,121u,&plan));
     quantapdf_native_work_init_v1(&ledger,8000000u,512u);resources.max_live_bytes=100000u;
     CHECK(quantapdf_native_resources_init_v1(&ledger,&resources,0u));
-    OK(quantapdf_native_geometry_prepare_text_v1(&ir,&limits,&plan,&ledger,&owner));
+    OK(quantapdf_native_geometry_prepare_scene_v1(&ir,&limits,&plan,&ledger,&owner));
     OK(quantapdf_native_geometry_info_get_v1(&owner,&info));CHECK(info.commands==5u);
     memset(path,0xa5,sizeof(path));memset(&glyph,0xa5,sizeof(glyph));memset(&op,0xa5,sizeof(op));
     memset(&ir,0xa5,sizeof(ir));memset(&page,0xa5,sizeof(page));memset(&plan,0xa5,sizeof(plan));
@@ -743,7 +737,7 @@ int main(void) {
     op=(quantapdf_composer_operation){0};
     op.kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;
     op.value.image.image_id=(quantapdf_composer_image_id)1;
-    op.value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE;
+    op.value.image.options.struct_size=sizeof(op.value.image.options);
     op.value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     op.bounds=(quantapdf_rect){0,0,8,8};
     raw.format=QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW;
@@ -841,7 +835,7 @@ int main(void) {
         ir.resources.clip_count=0u;
         ir.resources.clip_capacity=0u;
         op.graphics_state_id=(quantapdf_composer_graphics_state_id)0u;
-        op.value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE;
+        op.value.image.options.struct_size=sizeof(op.value.image.options);
         op.value.image.options.graphics_state_id=
             (quantapdf_composer_graphics_state_id)0u;
     }

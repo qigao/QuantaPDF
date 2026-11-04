@@ -723,6 +723,12 @@ static int two_rectangle_atomic_refusals()
     const std::string first="8 4 12 12 re";
     const std::string second="12 6 12 12 re";
     const std::string image="q 16 0 0 12 8 3 cm /I Do Q Q";
+    for(int dpi:{72,96,144}) {
+        std::vector<unsigned char> actual,intersection;
+        CHECK(render(original("q "+first+" W n 12.125 6 12 12 re W n "+image,true,4,0,0),4,0,dpi,0,actual)==EXIT_SUCCESS);
+        CHECK(render(original("q 12.125 6 7.875 10 re W n "+image,true,4,0,0),4,0,dpi,0,intersection)==EXIT_SUCCESS);
+        CHECK(actual==intersection);
+    }
     const std::vector<std::string> bad={
         /* First W outside q and two Images in states 2,1 now qualify.
          * A third Image after that real restoration still refuses. */
@@ -753,7 +759,7 @@ static int two_rectangle_atomic_refusals()
         "q "+first+" W n "+second+" W* n "+image+" BT ET",
         "q "+first+" W n "+second+" W n "+image+" S",
         "q "+first+" W n "+second+" W n "+image+" Q",
-        "q "+first+" W n 12.125 6 12 12 re W n "+image,
+        "q "+first+" W n 12.0625 6 12 12 re W n "+image,
         "q "+first+" W n 12 6 0 12 re W n "+image
     };
     for(const auto& input:bad)

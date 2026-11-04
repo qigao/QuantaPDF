@@ -63,26 +63,6 @@ quantapdf_status quantapdf_native_scoped_prepare_v5(
     double viewport_width,double viewport_height,quantapdf_native_scoped_profile_v5 profile,
     quantapdf_native_work_ledger_v1 *ledger,quantapdf_native_scoped_page_v5 *out);
 
-/* M2b.2m PRIVATE: Text/Fill under original Clip1, Image under sibling
- * Clip2, frozen [1,1,2], one existing typed compiler/V5 owner/ledger.
- * Public sibling Source/Bitmap admission remains separately gated. */
-quantapdf_status quantapdf_native_scoped_prepare_m2b2m_sibling_v1(
-    const quantapdf_ir *ir,const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
-    const quantapdf_native_device_plan *physical,
-    quantapdf_native_work_ledger_v1 *ledger,
-    quantapdf_native_scoped_page_v5 *out);
-/* M2b.2s PRIVATE: original Image/Fill under Clip1, Text under Clip2,
- * frozen GS [1,1,2]. Same compiler/owner/ledger; public gate stays closed. */
-quantapdf_status quantapdf_native_scoped_prepare_m2b2s_reverse_sibling_v1(
-    const quantapdf_ir *ir,const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
-    const quantapdf_native_device_plan *physical,quantapdf_native_work_ledger_v1 *ledger,
-    quantapdf_native_scoped_page_v5 *out);
-/* Private compound Text/Fill/Image, GS1 -> Intersection(1,2). */
-quantapdf_status quantapdf_native_scoped_prepare_m2b2p_compound_v1(
-    const quantapdf_ir *ir,const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
-    const quantapdf_native_device_plan *physical,quantapdf_native_work_ledger_v1 *ledger,
-    quantapdf_native_scoped_page_v5 *out);
-
 quantapdf_status quantapdf_native_scoped_execute_v5(
     quantapdf_native_scoped_page_v5 *page,quantapdf_ir_raster_image *out);
 void quantapdf_native_scoped_dispose_v5(quantapdf_native_scoped_page_v5 *page);

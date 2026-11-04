@@ -582,7 +582,7 @@ static int same_sample_intersection()
                 rendered single;
                 CHECK(render(original(one_prefix(path)+full_red+"Q",cfg),
                              cfg,single)==EXIT_SUCCESS);
-                CHECK(pixel(single,7,4)==UINT32_C(0xff7f7f));
+                CHECK(pixel(single,7,4)==UINT32_C(0xff8080));
             }
             CHECK(pixel(actual,7,4)==UINT32_C(0xffffff));
         }
@@ -607,13 +607,9 @@ static int live_single_clip()
     return EXIT_SUCCESS;
 }
 
-/* The same four clipped fills succeed on the compact page. At 2.5x
- * scale each leaf has 16 cubic segments plus three closing edges.
- * The compact layer charges (4+19+19)*16*40*30 = 806,400 tests.
- * Enlarging only MediaBox to 32x24 charges 3,225,600 per layer, above
- * the unchanged 8,000,000/4 allowance of 2,000,000. Preserve the exact
- * UNSUPPORTED/null-Bitmap result rather than enlarging that budget. */
-static int fixed_sample_budget()
+/* The larger viewport uses the actual work of the complete scene,
+ * including bounded paint extents, without a fixed per-layer share. */
+static int shared_sample_budget()
 {
     const std::string content=pair_prefix(curve_a,curve_b)+
         full_red+full_red+full_red+full_red+"Q";
@@ -623,7 +619,8 @@ static int fixed_sample_budget()
     CHECK(render(original(content,cfg),cfg,compact)==EXIT_SUCCESS);
     CHECK(ink_and_white(compact));
     cfg.large_media=true;
-    CHECK(rejected(content,cfg,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
+    rendered enlarged;
+    CHECK(render(original(content,cfg),cfg,enlarged)==EXIT_SUCCESS && ink_and_white(enlarged));
     return EXIT_SUCCESS;
 }
 
@@ -636,9 +633,7 @@ static int atomic_refusals()
     const std::string ready=prefix+full_red+"Q";
     const std::vector<std::string> bad={
         prefix+full_red+full_red+full_red+full_red+full_red+"Q",
-        one_prefix(curve_a)+"Q",
         prefix+"Q",
-        one_prefix(curve_a)+"Q "+full_red,
         prefix+"Q "+full_red,
         ready+" BT ET",
         ready+" 2 2 m 10 8 l S",
@@ -677,6 +672,12 @@ static int atomic_refusals()
         ready+" q",
         prefix+full_red+"2 g Q"
     };
+    for(int dpi:{72,96,144}) {
+        configuration cfg;cfg.dpi=dpi;rendered unused,unclipped,reference;
+        CHECK(render(original(one_prefix(curve_a)+"Q",cfg),cfg,unused)==EXIT_SUCCESS && all_white(unused));
+        CHECK(render(original(one_prefix(curve_a)+"Q "+full_red,cfg),cfg,unclipped)==EXIT_SUCCESS);
+        CHECK(render(original(full_red,cfg),cfg,reference)==EXIT_SUCCESS && equal(unclipped,reference));
+    }
     for(const auto& content:bad)
     for(int dpi:{72,96,144}) {
         configuration cfg;
@@ -712,7 +713,7 @@ int main()
     CHECK(empty_clips_and_restoration()==EXIT_SUCCESS);
     CHECK(same_sample_intersection()==EXIT_SUCCESS);
     CHECK(live_single_clip()==EXIT_SUCCESS);
-    CHECK(fixed_sample_budget()==EXIT_SUCCESS);
+    CHECK(shared_sample_budget()==EXIT_SUCCESS);
     CHECK(atomic_refusals()==EXIT_SUCCESS);
     std::printf("clipped PATH-only original PDFs: %zu successful renders, "
                 "%zu atomic refusals\n",positive_calls,negative_calls);

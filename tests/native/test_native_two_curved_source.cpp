@@ -438,19 +438,6 @@ static int frozen_ctms_and_order()
         cfg.selected=rotation==270?2:0;
         const std::string paints=image_draw+" "+blue+restored;
         const std::string tail="n 1 0 0 1 -4 0 cm "+paints;
-        if(dpi==144 && rotation==270 && quarters==5 && cfg.crop==0) {
-            /* The fixed 8,000,000 sample-test budget is divided among
-             * three layers: 2,666,666 each. At 2.5x scale the full
-             * 60x80 canvas and two 35-edge leaves charge each clipped
-             * layer (4+35+35)*16*4800 = 5,683,200 tests. Preserve its
-             * exact UNSUPPORTED/null-Bitmap result, then qualify the
-             * same geometry and source order through the fractional
-             * viewport: (4+4+35+35)*16*42*42 = 2,201,472 per layer. */
-            CHECK(rejected(pair_prefix(explicit_a,curve_b,false,true)+
-                           paints,cfg,QUANTAPDF_ERROR_UNSUPPORTED)
-                  ==EXIT_SUCCESS);
-            cfg.crop=3;
-        }
         rendered reference,actual,split;
         CHECK(render(original(pair_prefix(explicit_a,curve_b,false,true)+
                               paints,cfg),cfg,reference)==EXIT_SUCCESS);
@@ -514,7 +501,7 @@ static int empty_and_same_sample_intersection()
                 rendered single;
                 CHECK(render(original(single_image(path),cfg),cfg,single)
                       ==EXIT_SUCCESS);
-                CHECK(pixel(single,12,4)==UINT32_C(0xff7f7f));
+                CHECK(pixel(single,12,4)==UINT32_C(0xff8080));
             }
             CHECK(pixel(both,12,4)==UINT32_C(0xffffff));
         }
