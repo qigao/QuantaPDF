@@ -63,6 +63,10 @@ add_test(NAME quantapdf.native_content_streams
   COMMAND quantapdf_native_public_render --content-streams)
 set_tests_properties(quantapdf.native_content_streams PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;public-api;content-streams")
+add_test(NAME quantapdf.native_ordered_scene
+  COMMAND quantapdf_native_public_render --ordered-scene)
+set_tests_properties(quantapdf.native_ordered_scene PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;public-api;ordered-scene")
 add_test(NAME quantapdf.native_ordered_text
   COMMAND quantapdf_native_public_render --ordered-text)
 set_tests_properties(quantapdf.native_ordered_text PROPERTIES
@@ -209,6 +213,10 @@ add_test(NAME quantapdf.native_source_stage_oom
 set_tests_properties(quantapdf.native_source_stage_oom PROPERTIES
   TIMEOUT 40 LABELS "conformance;native;no-pdfium;source-staging;oom")
 
+add_test(NAME quantapdf.native_ordered_scene_oom
+  COMMAND quantapdf_native_source_stage_oom --ordered-scene)
+set_tests_properties(quantapdf.native_ordered_scene_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;source-staging;ordered-scene")
 add_test(NAME quantapdf.native_ordered_text_oom
   COMMAND quantapdf_native_source_stage_oom --ordered-text)
 set_tests_properties(quantapdf.native_ordered_text_oom PROPERTIES

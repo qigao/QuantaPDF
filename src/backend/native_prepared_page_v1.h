@@ -447,8 +447,8 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
            floorf(page->width_points)!=page->width_points ||
            floorf(page->height_points)!=page->height_points)
             return QUANTAPDF_ERROR_UNSUPPORTED;
-        /* Explicit M2a mixed route only for fully admitted one-Text/
-         * one-Image Source. Prior Text-only mode remains byte-identical. */
+        /* Unclipped Text/Fill/Image shares one ordered geometry owner.
+         * The remaining Clip graph combinations retain their current compiler. */
         const int original_clipped=qp_prepared_m2b2c_root_v1(source);
         const int restored_four=qp_prepared_m2b2h_restored_four_v1(source);
         const int siblings=qp_prepared_m2b2n_sibling_v1(source);
@@ -461,11 +461,7 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
             QP_NATIVE_PREPARED_M2B2H_RESTORED_FOUR:
             original_clipped?
             QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE:
-            source->resources.image_count==1u?
-                (source->operation_count==3u?
-                    QP_NATIVE_PREPARED_M2B1_TEXT_FILL_IMAGE:
-                    QP_NATIVE_PREPARED_M2A_TEXT_IMAGE):
-                QP_NATIVE_PREPARED_TEXT;
+            QP_NATIVE_PREPARED_TEXT;
         printed=snprintf(box,sizeof(box),"0 0 %u %u",
             (unsigned)page->width_points,(unsigned)page->height_points);
         if(printed<0 || (size_t)printed>=sizeof(box))return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -571,12 +567,6 @@ static inline quantapdf_status quantapdf_native_compiled_page_compile_v1(
     if(metadata->route==QP_NATIVE_PREPARED_TEXT)
         status=quantapdf_native_geometry_prepare_text_v1(metadata->source,
             &metadata->physical_limits,&metadata->physical,&out->ledger,&out->exact);
-    else if(metadata->route==QP_NATIVE_PREPARED_M2A_TEXT_IMAGE)
-        status=quantapdf_native_scoped_prepare_m2a_text_image_v1(metadata->source,
-            &metadata->limits,&metadata->physical,&out->ledger,&out->scoped);
-    else if(metadata->route==QP_NATIVE_PREPARED_M2B1_TEXT_FILL_IMAGE)
-        status=quantapdf_native_scoped_prepare_m2b1_text_fill_image_v1(metadata->source,
-            &metadata->limits,&metadata->physical,&out->ledger,&out->scoped);
     else if(metadata->route==QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE)
         status=quantapdf_native_scoped_prepare_m2b2c_text_fill_image_v1(metadata->source,
             &metadata->limits,&metadata->physical,&out->ledger,&out->scoped);

@@ -481,6 +481,8 @@ static int compiled_page_contracts(const quantapdf_ir *fixture)
         CHECK(at(&out,1u,1u)==(mode==0u?UINT32_C(0x0000ffff):UINT32_C(0xff0000ff)));
         CHECK(receipt.completed_leases==1u && receipt.compiled_edges>0u &&
               compiled.ledger.resources.live_bytes==receipt.retained_bytes+qp_compiled_retained_bytes(&compiled));
+        /* Exhaust the actual work budget after the first successful sampling. */
+        compiled.ledger.limit.sample_work=compiled.ledger.used.sample_work;
         CHECK(quantapdf_native_compiled_page_execute_v1(&compiled,&receipt,&denied)==QUANTAPDF_ERROR_UNSUPPORTED);
         CHECK(denied.pixels==NULL && receipt.output_bytes==0u && compiled.ledger.failed);
         quantapdf_native_compiled_page_dispose_v1(&compiled);memset(&zero,0,sizeof(zero));

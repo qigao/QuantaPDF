@@ -41,16 +41,19 @@ typedef enum quantapdf_native_work_mode_v1 {
 } quantapdf_native_work_mode_v1;
 
 /* PRIVATE unique owner, zero-initialize and never copy a live handle. Its
- * compiled payload contains no IR/Clip/device-plan borrows. The synchronous
+ * compiled payload snapshots commands, Clip, device plan and Image descriptors.
+ * RAW Image bytes borrow the enclosing Source IR owner. The synchronous
  * ledger borrow must outlive the owner. First execution settles its pending
  * compilation lease; replays bill fresh sample work, without recompiling or
- * rebilling retained edges. Dispose abandons a pending lease and frees all
+ * rebilling retained edges or source pixels. Image placement is billed on each
+ * execution. Dispose abandons a pending lease and frees all
  * geometry, including after failure. Output pixels have independent ownership. */
 typedef struct quantapdf_native_geometry_v1 {
     void *data;
     quantapdf_native_work_ledger_v1 *ledger;
     quantapdf_native_work_lease_v1 lease;
     int executed;
+    size_t sample_tests; /* deterministic work of the immutable compiled draws */
 } quantapdf_native_geometry_v1;
 
 typedef struct quantapdf_native_geometry_info_v1 {
@@ -259,8 +262,9 @@ quantapdf_status quantapdf_ir_raster_render_v1_texample_physical_dpi_three_layer
     const quantapdf_native_device_plan *plan,size_t *out_sample_tests,
     quantapdf_ir_raster_image *out_image);
 
-/* Source-owned TrueType glyph contours and axis rectangles, preserved in
- * original paint/glyph order. Paint/glyph expansion uses count-sized
+/* Source-owned TrueType glyph contours, axis rectangles and opaque RAW
+ * RGB/Gray Images, preserved in original paint/glyph order. Images use
+ * nearest pixel-center sampling and the same n/16 blend. Expansion uses count-sized
  * temporary storage with the 4096-command and existing 512-edge/8M/1M-pixel
  * budgets. Atomic output even on a late glyph. */
 quantapdf_status quantapdf_ir_raster_render_v1_text_outlines(
