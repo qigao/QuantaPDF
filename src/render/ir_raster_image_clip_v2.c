@@ -117,8 +117,6 @@ static quantapdf_status qp_two_image_impl(
            op->page_index!=0u ||
            op->graphics_state_id!=expected_state ||
            op->value.image.image_id!=(quantapdf_composer_image_id)(i+1u) ||
-           op->value.image.options.struct_size<
-               QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_MIN_SIZE ||
            op->value.image.options.graphics_state_id!=expected_state ||
            op->value.image.options.fit!=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH ||
            image->width==0u || image->height==0u ||

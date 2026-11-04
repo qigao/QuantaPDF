@@ -91,6 +91,17 @@
   也改由真实变换定位，保留原 RGB。该增量验收时，纯 Fill 经过 8-bit alpha 再合成，有与直接
   n/16 相差一个色阶的边缘；下述 A2 增量统一 opaque Fill 的合成，复杂 paint 渲染仍未完成。
 
+- Image options 改为当前 `fit` 与 `graphics_state_id` 完整记录，删除尺寸字段、四个
+  V1/V2 尺寸宏、按尺寸忽略 GS 的读取函数和逐字段复制包装；Composer、Source、
+  当前 C11 Scene 与保留的底层 Image/Clip 消费者直接读取真实字段，仓库调用方同步。
+- `quantapdf.native_composer_image` 复用现有公开测试可执行文件，验证 72 个实际写出/
+  重开的共享 Image 资源图、144 次独立完整 RGB，以及 72 次透明 Image 明确 native
+  拒绝。覆盖横/竖 RAW Raster 的 CONTAIN/COVER/STRETCH、实际矩阵、COVER 的
+  目标框 Clip、变换 GS Clip 和 Q 恢复后的第二次 Image，含 AES-256/错误密码、
+  反向选页和 Document/Page/Context 释放后保留 Bitmap。调用后改写 Raster、Clip
+  commands 和 Image options，仍核对序列化资源和全部 RGB；非法 fit/GS 不增加输出绘制。
+  Raster 及其他记录的尺寸字段仍待清理，透明 Image 写出不表示 A5 渲染完成。
+
 ## A2 当前实现增量：动态 q/Q 状态
 
 - 开发基线为 #610 合并后的 `a3c91f0f0f42e5f0b352e172ae4fa04182de3409`，

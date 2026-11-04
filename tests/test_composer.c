@@ -277,7 +277,6 @@ static int test_jpeg_resource_and_placement(void)
     memset(jpeg, 0, jpeg_size);
     free(jpeg);
 
-    image_options.struct_size = QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE;
     image_options.fit = QUANTAPDF_COMPOSER_IMAGE_FIT_CONTAIN;
     CHECK(quantapdf_composer_draw_image(
               composer, page_index, image_id, &bounds, &image_options) ==
@@ -362,7 +361,6 @@ static int test_png_and_alpha(void)
     CHECK(corrupt_id == 0u);
     free(opaque_png);
     free(alpha_png);
-    image_options.struct_size = QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE;
     image_options.fit = QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     CHECK(quantapdf_composer_draw_image(
               composer, page_index, opaque_id, &opaque_bounds,
@@ -656,7 +654,6 @@ static int test_layout_order_fit_and_locale(void)
               composer, 0u, "WW", &wrap_bounds, &text_options) ==
           QUANTAPDF_OK);
 
-    image_options.struct_size = sizeof(image_options);
     image_options.fit = QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     CHECK(quantapdf_composer_draw_image(
               composer, 1u, image_id, &overlap, &image_options) ==

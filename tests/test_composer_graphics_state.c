@@ -302,7 +302,6 @@ static int test_render_resources_and_attachment(
     raster.size = sizeof(rgba_pixel);
     CHECK(quantapdf_composer_add_raster(
               composer, &raster, &image_id) == QUANTAPDF_OK);
-    image_options.struct_size = QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
     image_options.fit = QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     image_options.graphics_state_id = half_id;
     {

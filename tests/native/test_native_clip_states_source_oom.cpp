@@ -346,7 +346,6 @@ static bool owned_graph(const quantapdf_ir& ir,const scenario& sc,
         if(is_image(authored.kind)) {
             CHECK(op.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE &&
                   op.value.image.image_id==image_index+1u &&
-                  op.value.image.options.struct_size==QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE &&
                   op.value.image.options.graphics_state_id==state);
             const auto& img=r.images[image_index];
             const bool red_image=authored.kind==paint::red_image;

@@ -289,21 +289,9 @@ typedef enum quantapdf_composer_image_fit {
 } quantapdf_composer_image_fit;
 
 typedef struct quantapdf_composer_image_options {
-    size_t struct_size;
     quantapdf_composer_image_fit fit;
     quantapdf_composer_graphics_state_id graphics_state_id;
 } quantapdf_composer_image_options;
-
-#define QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_MIN_SIZE \
-    (offsetof(quantapdf_composer_image_options, fit) + \
-     sizeof(quantapdf_composer_image_fit))
-#define QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE \
-    (offsetof(quantapdf_composer_image_options, graphics_state_id))
-#define QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_MIN_SIZE \
-    (offsetof(quantapdf_composer_image_options, graphics_state_id) + \
-     sizeof(quantapdf_composer_graphics_state_id))
-#define QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE \
-    (sizeof(quantapdf_composer_image_options))
 
 typedef enum quantapdf_composer_raster_format {
     QUANTAPDF_COMPOSER_RASTER_GRAY8 = 1,

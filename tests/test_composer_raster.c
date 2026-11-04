@@ -36,7 +36,6 @@ static int add_page(
 static quantapdf_composer_image_options stretch_options(void)
 {
     quantapdf_composer_image_options options = {0};
-    options.struct_size = QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE;
     options.fit = QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     return options;
 }

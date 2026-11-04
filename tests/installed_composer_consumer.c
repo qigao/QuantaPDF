@@ -374,7 +374,6 @@ int main(int argc, char **argv)
     raster.size = sizeof(raster_pixels);
     CHECK(quantapdf_composer_add_raster(
         composer, &raster, &raster_id));
-    raster_draw.struct_size = QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
     raster_draw.fit = QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     raster_draw.graphics_state_id = graphics_state_id;
     CHECK(quantapdf_composer_draw_image(

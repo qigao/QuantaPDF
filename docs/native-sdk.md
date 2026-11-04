@@ -20,9 +20,11 @@ negotiation or guarantees about future layouts.
 
 `quantapdf_render_options`, `quantapdf_composer_graphics_state_options` and
 `quantapdf_composer_soft_mask_options`, plus Composer Path/Clip options and dash
-patterns, are current complete records: initialize all fields; they have no
+patterns and `quantapdf_composer_image_options`, are current complete records: initialize all fields; they have no
 `struct_size` negotiation. Graphics states consume their Clip/SMask IDs directly;
 Paths consume their graphics-state, fill/stroke paint IDs and transform directly.
+Image draws consume their fit and graphics-state ID directly, with no V1/V2 GS
+reader or field-copy adapter. Current callers initialize both Image fields.
 Zero omits an optional resource reference. Composer normalizes an all-zero Path
 transform to identity once when accepting the operation. Source, SVG, the writer
 and C11 raster use the complete Path record without a V1–V4 field boundary.

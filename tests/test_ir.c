@@ -78,7 +78,6 @@ static int test_model_outlives_builder(void)
               QUANTAPDF_OK);
         CHECK(reused == image_id);
     }
-    image_options.struct_size = QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE;
     image_options.fit = QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     CHECK(quantapdf_composer_draw_image(composer, 0, image_id, &image_bounds,
                                       &image_options) == QUANTAPDF_OK);

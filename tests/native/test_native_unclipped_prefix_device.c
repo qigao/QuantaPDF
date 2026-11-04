@@ -143,7 +143,6 @@ static void setup(fixture *f,const geometry *g,int fractional,unsigned graph,
             im->components=3;im->format=QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW;
             op->kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;op->bounds=bounds[i];
             op->value.image.image_id=(quantapdf_composer_image_id)(images+1u);
-            op->value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
             op->value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
             state(op,id);++images;
         }
@@ -570,8 +569,7 @@ static int malformed_graphs_and_paints(void)
         case 3u:f.clips[0].command_count=3u;break;
         case 4u:f.clips[0].members=f.members;break;
         case 5u:f.gs[0].clip_id=3u;break;
-        case 6u:f.ops[0].value.image.options.struct_size=
-            QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_MIN_SIZE;break;
+        case 6u:f.ops[0].value.image.options.fit=(quantapdf_composer_image_fit)-1;break;
         case 7u:f.ops[0].value.image.options.graphics_state_id=1u;break;
         case 8u:f.images[0].size=11u;break;
         case 9u:f.ir.resources.image_capacity=2u;break;

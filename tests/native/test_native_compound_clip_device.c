@@ -182,7 +182,6 @@ static void setup(fixture *f,const geometry *g,int fractional,const profile *p)
             im->components=3;im->format=QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW;
             op->kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;op->bounds=bounds[i];
             op->value.image.image_id=(quantapdf_composer_image_id)(images+1u);
-            op->value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
             op->value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
             state(op,id);++images;
         }

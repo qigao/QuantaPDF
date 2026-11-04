@@ -2555,7 +2555,6 @@ static int owned_page_contracts()
             CHECK(image->data!=NULL);image->data[0]=255u;image->data[1]=image->data[2]=0u;
             op->kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;op->bounds.x1=op->bounds.y1=8.0f;
             op->value.image.image_id=1u;
-            op->value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
             op->value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
             if(mode>=2u) {
                 ir.resources.clips=(quantapdf_composer_clip_state *)calloc(1u,sizeof(*ir.resources.clips));
@@ -2688,7 +2687,7 @@ static int composer_preparation_contracts()
     raster.stride=raster.size=3u;raster.pixels=red;
     quantapdf_composer_image_id image_id=0u;
     CHECK(quantapdf_composer_add_raster(composer,&raster,&image_id)==QUANTAPDF_OK);
-    quantapdf_composer_image_options image_options{};image_options.struct_size=sizeof(image_options);
+    quantapdf_composer_image_options image_options{};
     image_options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;image_options.graphics_state_id=gs_id;
     const quantapdf_rect bounds{3.0f,0.0f,6.0f,3.0f};
     CHECK(quantapdf_composer_draw_image(composer,0u,image_id,&bounds,&image_options)==QUANTAPDF_OK);
@@ -2833,8 +2832,6 @@ static int m2b2b_clipped_source_owner_contract(
         CHECK(ir.operations[1].value.path.options.graphics_state_id==1u);
         const size_t image_at=mode==83?2u:0u;
         CHECK(ir.operations[image_at].value.image.options.graphics_state_id==1u &&
-              ir.operations[image_at].value.image.options.struct_size==
-                  QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE &&
               ir.resources.images[0].size==12u);
         quantapdf_native_page_device device{};
         device.dpi=96.0f;
@@ -5241,7 +5238,7 @@ static int ordered_scene_source_contracts(const quantapdf_qpdf_page_limits& defa
                 if(invalid==0u)op.value.image.image_id=1u; // the last published resource is unreachable
                 if(invalid==1u)--image.size;
                 if(invalid==2u)image.has_alpha=1;
-                if(invalid==3u)op.value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_MIN_SIZE;
+                if(invalid==3u)op.value.image.options.fit=(quantapdf_composer_image_fit)-1;
                 if(invalid==4u)op.bounds.x1=op.bounds.x0;
                 if(invalid==5u)op.graphics_state_id=1u;
                 if(invalid==6u)op.bounds.y0=std::numeric_limits<float>::quiet_NaN();
@@ -5384,7 +5381,7 @@ static int ordered_clip_source_contracts(const quantapdf_qpdf_page_limits& defau
                 if(invalid==0u)op.value.image.image_id=1u; // the last published resource is unreachable
                 if(invalid==1u)--image.size;
                 if(invalid==2u)image.has_alpha=1;
-                if(invalid==3u)op.value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_MIN_SIZE;
+                if(invalid==3u)op.value.image.options.fit=(quantapdf_composer_image_fit)-1;
                 if(invalid==4u)op.bounds.x1=op.bounds.x0;
                 if(invalid==5u)op.graphics_state_id=1u;
                 if(invalid==6u)op.bounds.y0=std::numeric_limits<float>::quiet_NaN();
