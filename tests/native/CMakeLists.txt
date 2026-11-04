@@ -83,6 +83,14 @@ add_test(NAME quantapdf.native_parity_stress
   COMMAND quantapdf_native_public_render --parity-stress)
 set_tests_properties(quantapdf.native_parity_stress PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;public-api;parity-lifetime")
+add_test(NAME quantapdf.native_multi_contour_three
+  COMMAND quantapdf_native_public_render --multi-contour-three)
+set_tests_properties(quantapdf.native_multi_contour_three PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;public-api;multi-contour")
+add_test(NAME quantapdf.native_multi_contour_many
+  COMMAND quantapdf_native_public_render --multi-contour-many)
+set_tests_properties(quantapdf.native_multi_contour_many PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;public-api;multi-contour")
 add_test(NAME quantapdf.native_multi_contour_fill
   COMMAND quantapdf_native_public_render --multi-contour)
 set_tests_properties(quantapdf.native_multi_contour_fill PROPERTIES

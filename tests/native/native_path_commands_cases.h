@@ -85,9 +85,13 @@ static int path_commands_cases(const std::string& filename,bool multi=false,unsi
         for(unsigned closing:{0u,1u,2u})for(bool encrypted:{false,true})
             CHECK(run(65u,0u,4u,true,true,encrypted,0u,layout,closing)==EXIT_SUCCESS);
     } else if(multi) {
-        for(size_t count:{2u,3u,65u})for(unsigned layout:{0u,1u,2u})for(unsigned closing:{0u,1u,2u})
+        // Keep the complete matrix in bounded CTest groups under the existing
+        // timeout, including sanitizer runs. Each group owns its PDF filename.
+        const size_t count=selection==4u?3u:selection==5u?65u:2u;
+        for(unsigned layout:{0u,1u,2u})for(unsigned closing:{0u,1u,2u})
         for(unsigned clip:{0u,1u,2u,3u,4u})for(bool even:{false,true})for(bool encrypted:{false,true})
             CHECK(run(count,0u,clip,even,true,encrypted,0u,layout,closing)==EXIT_SUCCESS);
+        if(selection==0u) {
         for(unsigned primitive:{1u,2u,3u})for(unsigned layout:{0u,2u})for(bool even:{false,true})for(bool encrypted:{false,true})
             CHECK(run(17u,primitive,1u,even,true,encrypted,0u,layout,1u)==EXIT_SUCCESS);
         for(size_t count:{2u,65u})for(unsigned layout:{0u,1u})for(unsigned clip:{0u,1u})
@@ -102,6 +106,7 @@ static int path_commands_cases(const std::string& filename,bool multi=false,unsi
         for(unsigned round=0u;round<6u;++round)for(unsigned layout:{0u,1u})
         for(unsigned closing:{0u,1u,2u})for(bool encrypted:{false,true})
             CHECK(run(65u,0u,4u,true,true,encrypted,0u,layout,closing)==EXIT_SUCCESS);
+        }
     } else {
     for(size_t repeats:{1u,2u,3u,17u,65u})for(unsigned clip:{0u,1u,2u,3u,4u})
     for(bool even:{false,true})for(bool restore:{false,true})for(bool encrypted:{false,true})
@@ -125,7 +130,7 @@ static int path_commands_cases(const std::string& filename,bool multi=false,unsi
         CHECK(quantapdf_render_page(page,&bitmap)==(invalid>=4?QUANTAPDF_ERROR_UNSUPPORTED:QUANTAPDF_ERROR_FORMAT) && bitmap==nullptr);
         quantapdf_drop_page(page);++failures;
     }
-    std::printf("%s Fill paths: %zu independent RGB renders, m/l/c/v/y/h, f/f*, long winding/zero edges, Clip/Q, selected AES-256 pages, detached owners; %zu atomic errors\n",selection==3u?"Dynamic Clip":selection==1u?"Boundary":selection==2u?"Parity stress":multi?"Multi-contour":"Dynamic",renders,failures);
+    std::printf("%s Fill paths: %zu independent RGB renders, m/l/c/v/y/h, f/f*, long winding/zero edges, Clip/Q, selected AES-256 pages, detached owners; %zu atomic errors\n",selection==3u?"Dynamic Clip":selection==1u?"Boundary":selection==2u?"Parity stress":selection==4u?"Three-contour":selection==5u?"Dense-contour":multi?"Multi-contour":"Dynamic",renders,failures);
     return EXIT_SUCCESS;
 }
 #endif

@@ -4139,6 +4139,10 @@ int main(int argc,char **argv)
         return path_commands_cases(filename,true,1u);
     if(argc==2 && std::strcmp(argv[1],"--parity-stress")==0)
         return path_commands_cases(filename,true,2u);
+    if(argc==2 && std::strcmp(argv[1],"--multi-contour-three")==0)
+        return path_commands_cases(filename,true,4u);
+    if(argc==2 && std::strcmp(argv[1],"--multi-contour-many")==0)
+        return path_commands_cases(filename,true,5u);
     if(argc==2 && std::strcmp(argv[1],"--multi-contour")==0)
         return path_commands_cases(filename,true);
     if(argc==2 && std::strcmp(argv[1],"--path-commands")==0)
