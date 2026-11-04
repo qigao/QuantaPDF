@@ -697,7 +697,7 @@ static int shared_sample_budget()
 }
 
 /* New contour staging applies only to W/W* n. Painted PATH and plain n
- * keep their old single-contour admission; every late error clears a
+ * use the current contour admission; every late error clears a
  * nonnull Bitmap sentinel. Quotas and graph/cardinality gates stay fixed. */
 static int atomic_refusals()
 {
@@ -712,7 +712,6 @@ static int atomic_refusals()
         "q "+outer_rectangle+" 6 4 m 10 4 l 8 7 l 7 6 l W n "+
             full_red+"Q", /* implicit close would be command ten */
         "q "+compound+" "+empty_point+" W n "+full_red+"Q",
-        "q 2 2 m 14 2 l 8 10 l "+inner_triangle+" W n "+full_red+"Q",
         "q "+outer_triangle+" 8 8 m h W n "+full_red+"Q",
         "q "+outer_triangle+" 8 8 m 10 8 l h W n "+full_red+"Q",
         "q "+outer_triangle+" 8 8 m 10 8 l W n "+full_red+"Q",
@@ -726,10 +725,6 @@ static int atomic_refusals()
             full_red+"Q",
         "q "+outer_triangle+" 6 4 m 10 4 l 8 -1000001 l h W n "+
             full_red+"Q",
-        "1 0 0 rg "+compound+" f", /* compound unclipped PATH */
-        one_prefix(outer_rectangle)+"1 0 0 rg "+compound+" f* Q",
-        compound+" n "+full_red, /* compound ignored path */
-        one_prefix(outer_rectangle)+compound+" n "+full_red+"Q",
         prefix+full_red+compound+" W n Q", /* unused second Clip */
         prefix+full_red+compound+" W n "+full_blue+compound+" W n Q",
         ready+" "+one_prefix(compound)+full_red+"Q "+
@@ -746,6 +741,22 @@ static int atomic_refusals()
         CHECK(render(original(images+"Q",cfg,true),cfg,actual)==EXIT_SUCCESS);
         CHECK(render(original(fills+"Q",cfg),cfg,reference)==EXIT_SUCCESS);
         CHECK(equal(actual,reference) && ink_and_white(actual));
+    }
+    const std::pair<std::string,std::string> admitted[]={
+        {"q 2 2 m 14 2 l 8 10 l "+inner_triangle+" W n "+full_red+"Q",
+         one_prefix(compound)+full_red+"Q"},
+        {"1 0 0 rg "+compound+" f","1 0 0 rg "+outer_triangle+" f"},
+        {one_prefix(outer_rectangle)+"1 0 0 rg "+compound+" f* Q",
+         one_prefix(compound,true)+full_red+"Q"},
+        {compound+" n "+full_red,full_red},
+        {one_prefix(outer_rectangle)+compound+" n "+full_red+"Q",
+         one_prefix(outer_rectangle)+full_red+"Q"}
+    };
+    for(const auto& pair:admitted)for(int dpi:{72,96,144}) {
+        configuration cfg;cfg.dpi=dpi;cfg.crop=dpi==72?0:(dpi==96?2:3);cfg.selected=dpi==144?2:0;
+        rendered actual,reference;
+        CHECK(render(original(pair.first,cfg),cfg,actual)==EXIT_SUCCESS);
+        CHECK(render(original(pair.second,cfg),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
     }
     for(const auto& content:bad)
     for(int dpi:{72,96,144}) {

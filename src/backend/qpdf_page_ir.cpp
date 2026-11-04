@@ -317,22 +317,6 @@ bool bounded_clip_path(
     return contours!=0u && commands.size()>=4u;
 }
 
-bool returned_rectangle(
-    const std::vector<quantapdf_composer_path_command>& p,size_t at)
-{
-    if(p.size()<at+5u ||
-       p[at].kind!=QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
-       p[at+1].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
-       p[at+2].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
-       p[at+3].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO ||
-       p[at+4].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO)return false;
-    const auto a=p[at].point1,b=p[at+1].point1;
-    const auto c=p[at+2].point1,d=p[at+3].point1;
-    const auto e=p[at+4].point1;
-    return a.x!=b.x && a.y!=d.y &&
-           a.y==b.y && b.x==c.x && c.y==d.y && d.x==a.x &&
-           e.x==a.x && e.y==a.y;
-}
 bool nested_rectangles(const std::vector<quantapdf_composer_path_command>& p)
 {
     if(p.size()!=10u ||
@@ -1248,7 +1232,7 @@ public:
                 texample_move(finite_number(args[0]),
                               finite_number(args[1]));
             else {
-                begin_contour(4u);
+                begin_contour();
                 append_point(QUANTAPDF_COMPOSER_PATH_MOVE_TO,
                              finite_number(args[0]),finite_number(args[1]));
             }
@@ -1293,23 +1277,11 @@ public:
                   QUANTAPDF_ERROR_UNSUPPORTED);
             if(target.texample_original_profile) {
                 texample_close();
-            } else if(ten_wstar_candidate) {
-                /* The second authored l returns to the same start.
-                 * Replacing it with CLOSE retains the full edge; the
-                 * following h has zero additional geometric extent. */
-                admit(contour_count==2u && contour_start==5u &&
-                      pending_path.size()==10u &&
-                      returned_rectangle(pending_path,5u),
-                      QUANTAPDF_ERROR_UNSUPPORTED);
-                pending_path.back().kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
-                closed=true;
-                admit(nested_rectangles(pending_path),
-                      QUANTAPDF_ERROR_UNSUPPORTED);
             } else close_path();
         } else if(op=="re") {
             admit(args.size()==4u && !clip_pending,
                   QUANTAPDF_ERROR_UNSUPPORTED);
-            begin_contour(5u);
+            begin_contour();
             const double x=finite_number(args[0]), y=finite_number(args[1]);
             const double w=finite_number(args[2]), h=finite_number(args[3]);
 
@@ -1429,8 +1401,7 @@ public:
                 target.texample_stage=2u;
                 texample_clear_group();
             } else {
-            admit(args.empty() && pending_path.size()>=3u &&
-                  contour_count==1u,
+            admit(args.empty() && pending_path.size()>=3u,
                   QUANTAPDF_ERROR_UNSUPPORTED);
             if(target.three_branch_candidate)
                 admit(op=="f" && target.painted_paths.size()>=1u &&
@@ -1479,8 +1450,7 @@ public:
                       target.three_branch_count==
                           target.painted_paths.size() &&
                       (target.three_branch_count==0u ?
-                       (op=="W*" && ten_wstar_candidate &&
-                        nested_rectangles(pending_path)) :
+                       (op=="W*" && nested_rectangles(pending_path)) :
                        (pending_path.size()==6u &&
                         bounded_clip_path(pending_path,true) &&
                         op==(target.three_branch_count==1u?"W":"W*"))),
@@ -1500,10 +1470,8 @@ public:
                        trivial_zero_area_clip()) &&
                       !target.clip_completed &&
                       (trivial_zero_area_clip() ||
-                       (ten_wstar_candidate ?
-                        (op=="W*" && closed &&
-                         nested_rectangles(pending_path)) :
-                        bounded_clip_path(pending_path,true))),
+                       bounded_clip_path(pending_path,true) ||
+                       (op=="W*" && nested_rectangles(pending_path))),
                       QUANTAPDF_ERROR_UNSUPPORTED);
             }
             clip_rule=op=="W*" ? QUANTAPDF_COMPOSER_FILL_EVEN_ODD :
@@ -1619,8 +1587,6 @@ public:
                 clip_pending=false;
                 clear_path();
             } else if(!clip_pending) {
-                admit(pending_path.empty() || contour_count==1u,
-                      QUANTAPDF_ERROR_UNSUPPORTED);
                 clear_path();
             } else {
                 admit(clip_pending && !target.clip_completed &&
@@ -1628,10 +1594,9 @@ public:
                        trivial_zero_area_clip()),
                       QUANTAPDF_ERROR_UNSUPPORTED);
                 complete_clip_contour();
-                admit((ten_wstar_candidate ?
-                       (clip_rule==QUANTAPDF_COMPOSER_FILL_EVEN_ODD &&
-                        nested_rectangles(pending_path)) :
-                       bounded_clip_path(pending_path)),
+                admit(bounded_clip_path(pending_path) ||
+                      (clip_rule==QUANTAPDF_COMPOSER_FILL_EVEN_ODD &&
+                       nested_rectangles(pending_path)),
                       QUANTAPDF_ERROR_UNSUPPORTED);
                 target.clip.commands=std::move(pending_path);
                 target.clip.rule=clip_rule;
@@ -1776,56 +1741,14 @@ private:
         texample_group_empty=0u;
         texample_contours=0u;
     }
-    void begin_contour(size_t minimum_commands)
+    void begin_contour()
     {
-        if(pending_path.empty()) {
-            contour_count=1u;
-            contour_start=0u;
-        } else {
-            /* Preserve the historical Source contract: an arbitrary
-             * open contour followed by m/re is still unqualified.
-             * The first independent increment handles ONLY a complete
-             * authored LINE_TO returning exactly to that contour's
-             * MOVE_TO. CLOSE then replaces no painted geometry and
-             * cannot hide an unsupported open first contour. */
-            const bool original_return=
-                !closed && pending_path.size()>=contour_start+4u &&
-                pending_path[contour_start].kind==
-                    QUANTAPDF_COMPOSER_PATH_MOVE_TO &&
-                pending_path.back().kind==
-                    QUANTAPDF_COMPOSER_PATH_LINE_TO &&
-                pending_path.back().point1.x==
-                    pending_path[contour_start].point1.x &&
-                pending_path.back().point1.y==
-                    pending_path[contour_start].point1.y;
-            /* A complete authored rectangle ends with l-to-MOVE.
-             * CLOSE replaces the SAME geometric edge, keeping five
-             * commands and reserving room for the next rectangle. */
-            const bool special=(!target.clip_completed ||
-                 (target.three_branch_candidate &&
-                  target.three_branch_count==0u &&
-                  clip_active==1u)) && !clip_pending &&
-                contour_count==1u && minimum_commands==4u &&
-                !closed && pending_path.size()==5u &&
-                returned_rectangle(pending_path,0u);
-            if(special) {
-                pending_path.back().kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
-                closed=true;
-                ten_wstar_candidate=true;
-            } else {
-                admit(!clip_pending &&
-                      contour_count==1u && (closed || original_return) &&
-                      bounded_clip_contour(pending_path,!closed) &&
-                      minimum_commands<=9u &&
-                      pending_path.size()<=9u-minimum_commands &&
-                      (closed ||
-                       pending_path.size()<9u-minimum_commands),
-                      QUANTAPDF_ERROR_UNSUPPORTED);
-                if(!closed)close_path();
-            }
-            contour_count=2u;
-            contour_start=pending_path.size();
-        }
+        // Fill closes each preceding subpath at its original start before
+        // beginning the next one. All contours remain in one paint so the
+        // winding/even-odd rule sees their combined edges.
+        if(!pending_path.empty() && !closed)close_path();
+        ++contour_count;
+        contour_start=pending_path.size();
         closed=false;
     }
     void clear_path()
@@ -1834,7 +1757,6 @@ private:
         contour_start=0u;
         contour_count=0u;
         closed=false;
-        ten_wstar_candidate=false;
     }
     static bool read_strict_rect(
         const std::vector<quantapdf_composer_path_command>& path,
@@ -2020,10 +1942,20 @@ private:
     {
         admit(pending_path.size()>=contour_start+3u && !closed,
               QUANTAPDF_ERROR_UNSUPPORTED);
-        quantapdf_composer_path_command cmd={};
-        cmd.kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
-        QP_SOURCE_PATH_GROW(pending_path);
-        pending_path.push_back(cmd);
+        // An authored return line already contributes the closing edge.
+        // Replace only that redundant final line; curves retain all controls.
+        const auto& first=pending_path[contour_start];
+        auto& last=pending_path.back();
+        if(pending_path.size()>=contour_start+4u &&
+           last.kind==QUANTAPDF_COMPOSER_PATH_LINE_TO &&
+           last.point1.x==first.point1.x && last.point1.y==first.point1.y)
+            last.kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+        else {
+            quantapdf_composer_path_command cmd={};
+            cmd.kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+            QP_SOURCE_PATH_GROW(pending_path);
+            pending_path.push_back(cmd);
+        }
         closed=true;
     }
     admission& target;
@@ -2045,7 +1977,6 @@ private:
     std::vector<quantapdf_composer_path_command> pending_path;
     size_t contour_start=0u,contour_count=0u;
     bool closed=false;
-    bool ten_wstar_candidate=false;
     bool three_branch_clip_pending=false;
     bool texample_pending_move=false,texample_original_ctm=false;
     std::unique_ptr<quantapdf::detail::source_text_outlines> outline_reader;

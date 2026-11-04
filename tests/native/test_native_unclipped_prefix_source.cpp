@@ -636,8 +636,6 @@ static int atomic_refusals()
         red_image+first+red_image+second+blue_image+"Q Q",
         /* These fit final 2-Image/2-PATH limits but stage THREE mixed
          * prefix paints, outside the retained unclipped forms. */
-        "1 0 0 rg "+compound+" f "+first+full_blue+"Q",
-        compound+" n "+full_red+first+full_blue+"Q",
         full_red+"q 2 2 10 8 re 6 4 4 3 re W n "+full_blue+"Q",
         full_red+"q "+compound+" 1 1 m 2 1 l 1 2 l h W n "+
             full_blue+"Q",
@@ -670,6 +668,13 @@ static int atomic_refusals()
         CHECK(compare(red_image+red_image+red_image+first+full_blue+"Q",full_red+full_red+full_red+first+full_blue+"Q",cfg,true)==EXIT_SUCCESS);
         CHECK(compare(full_red+full_red+full_red+first+blue_image+"Q",full_red+full_red+full_red+first+full_blue+"Q",cfg,true)==EXIT_SUCCESS);
         CHECK(compare(red_image+red_image+red_image+red_image+first+full_blue+"Q",full_red+full_red+full_red+full_red+first+full_blue+"Q",cfg,true)==EXIT_SUCCESS);
+    }
+    for(int dpi:{72,96,144}) {
+        configuration cfg;cfg.dpi=dpi;cfg.crop=dpi==72?0:(dpi==96?2:3);cfg.selected=dpi==144?2:0;
+        CHECK(compare("1 0 0 rg "+compound+" f "+first+full_blue+"Q",
+            "1 0 0 rg "+outer_triangle+" f "+first+full_blue+"Q",cfg,false)==EXIT_SUCCESS);
+        CHECK(compare(compound+" n "+full_red+first+full_blue+"Q",
+            full_red+first+full_blue+"Q",cfg,false)==EXIT_SUCCESS);
     }
     for(const auto& content:bad)
     for(int dpi:{72,96,144}) {

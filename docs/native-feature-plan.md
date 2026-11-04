@@ -295,9 +295,35 @@
   实际路径 vector 扩容、IR 发布和 C11 分配。核对 NOMEM、空 IR/receipt/输出、
   源 IR 不变，以及字节/流/操作/边/采样/像素/峰值内存 N/N−1；编译后改写包括
   长路径尾部在内的调用方命令与绑定，输出仍使用深拷贝，最后独立于 Source owner 保留。
-- 多轮廓 Fill、一般 Stroke、Clip 自身的短轮廓限制及双 Clip 固定顺序发布仍未完成。
+- 该增量之后，多轮廓 Fill、一般 Stroke、Clip 自身的短轮廓限制及双 Clip 固定顺序发布仍未完成。
   Text 解释器的 4096 命令和字形采样器的 1024 交点限制仍在；本增量不将其
   当作 Fill 限制重新引入，也不声称 A2 已完成。沿用现有工具链、缓存和四配置 CI。
+
+### A2 多轮廓 Fill 与隐式闭合
+
+- Source 用同一个动态路径记录多个轮廓；下一次 `m/re` 在原始起点闭合前一条
+  非退化轮廓，最终 `f/f*` 一次发布完整 paint。沿用同一 C11 flatten/winding/采样和
+  合成器，不逐轮廓合成，保留孔洞、岛、重叠奇偶关系、分离轮廓及 signed `re`。
+- 删除两轮廓/剩余九条命令的构建准入、`ten_wstar_candidate` 和 returned-rectangle
+  特判；普通闭合可直接用 CLOSE 替换冗余的返回起点 LINE，曲线控制点保持不变。
+  `n` 丢弃全部当前轮廓。现有短 Clip 在轮廓几何符合当前规则时也接受第一条轮廓
+  的隐式闭合；Clip 的九条/嵌套矩形十条及固定组合发布限制仍然存在。
+- `quantapdf.native_multi_contour_fill` 复用已有公开可执行文件，核对 2028 次完整
+  独立 RGB：2/3/17/65/128 条轮廓、非零与奇偶、正反向/重叠/分离的矩形和三角形、
+  line/cubic/v/y、显式/隐式/返回起点闭合及 signed `re`、多个 Clip、Q 恢复、三个 DPI、
+  多编码 Contents、AES-256、第二页和释放原 owner 后的 Bitmap。包含密集 even-odd
+  与相交 Clip 的新 Context/Document 重用压力检查，以及 10 项原子失败。
+- `quantapdf.native_multi_contour_oom` 通过 440 次 vector 扩容失败、176 次 Source
+  发布失败、112 次 C11 分配失败和 224 项 N/N−1；包括密集 even-odd/相交 Clip、
+  长命令尾部快照、不可变 IR、空失败结果与独立像素生命周期。原 840 次单轮廓
+  RGB 和原路径故障用例继续保留。旧拒绝按实际新行为改为完整 RGB/RGBA 对照。
+- 坐标精度仍未完成：12×12 页的 `1 1 m 5 1 l 1 5 l h` 在 96 DPI 的对角线上
+  出现浮点投影/采样边界差异。新多轮廓斜边矩阵使用在三个当前 DPI 均可精确
+  投影的坐标；fixture layout 3 保留原始坐标的重现方式，不将其写为通过或已修复。
+  另有一次密集 even-odd/相交 Clip 像素不一致在后续完整回归与压力检查中未复现，
+  原因尚未确认；精确 HEAD CI 和后续坐标/生命周期验收继续记录，不以重跑覆盖历史。
+- 多字体、一般 Stroke、退化轮廓、BT 前后解释分段、一般 Clip 图与任意 affine/DPI
+  等条目继续开放。本增量不改变工具链、缓存、CI 期限或创建 installer/consumer 工程。
 
 ## 单一执行模型
 

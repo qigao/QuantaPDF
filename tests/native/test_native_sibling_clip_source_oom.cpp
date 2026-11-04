@@ -830,6 +830,8 @@ static bool source_failures(const scenario& sc)
     CHECK(cleared(recovered));
     return true;
 }
+#include "native_source_fill_equivalence.h"
+
 static bool bounded_scope_refusals()
 {
     const std::string p=paint_source(paint::red_path),i=paint_source(paint::red_image);
@@ -850,13 +852,15 @@ static bool bounded_scope_refusals()
         p+i+p+a+i+"Q "+b+p+"Q",
         a+p+"Q q 2 2 10 7 re W "+p+"n Q", /* n must immediately follow W */
         a+p+"Q q 2 2 10 7 re 4 3 3 2 re W n "+p+"Q", /* ten B commands */
-        a+p+"Q q 2 2 m 12 2 l 2 10 l 4 3 m 7 3 l 4 6 l h W n "+p+"Q",
         a+p+"Q q 2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h 6 6 m 7 6 l 6 7 l h W n "+p+"Q",
         ready+"BT ET",
         ready+"/Unqualified gs",
         a+p+"Q "+b+"2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h f Q",
-        a+p+"Q "+b+"2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h n "+p+"Q"
     };
+    CHECK(source_fill_equivalent(a+p+"Q q 2 2 m 12 2 l 2 10 l 4 3 m 7 3 l 4 6 l h W n "+p+"Q",
+        a+p+"Q q 2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h W n "+p+"Q",cases[18]));
+    CHECK(source_fill_equivalent(a+p+"Q "+b+"2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h n "+p+"Q",
+        a+p+"Q "+b+p+"Q",cases[18]));
     for(const auto& content:bad)
         CHECK(atomic_rejection(original_pdf(content,cases[18],false),source_budget));
     const std::vector<std::string> malformed={ready+"3 4 m",ready+"q",ready+"Q"};
@@ -953,7 +957,7 @@ static bool run_tests()
     CHECK(staging_failures());
     for(size_t i:{8u,11u,20u})CHECK(source_failures(cases[i]));
     CHECK(bounded_scope_refusals() && source_controls());
-    CHECK(positive_count==253u && fault_count==248u && atomic_failures==42u);
+    CHECK(positive_count==253u && fault_count==248u && atomic_failures==40u);
     std::fprintf(stderr,"[native.sibling_clip_source_oom] %zu detached originals, %zu renders, "
         "%zu C faults, 8 C++ staging faults, %zu Source refusals, current Source controls completed\n",
         positive_count,2u*positive_count,fault_count,atomic_failures);

@@ -4131,6 +4131,8 @@ static int native_seventh_userunit_late_refusal_cases(
 int main(int argc,char **argv)
 {
     const std::string filename="native-standalone-smoke.pdf";
+    if(argc==2 && std::strcmp(argv[1],"--multi-contour")==0)
+        return path_commands_cases(filename,true);
     if(argc==2 && std::strcmp(argv[1],"--path-commands")==0)
         return path_commands_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--composer-image")==0)

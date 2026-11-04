@@ -171,17 +171,17 @@ static std::vector<case_entry> make_cases()
             "4 4 m 28 4 l 28 28 l 4 28 l 4 4 l "
             "12 10 m 20 10 l 20 18 l 12 18 l 12 10 l h W* n "+
             fill_red+"BT ET",QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
-        {"reject-arbitrary-open-first",
+        {"implicit-first-evenodd-hole",
             outer_implicit+inner+"W* n "+fill_red,
-            QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
+            QUANTAPDF_OK,UINT32_C(0xffffff),UINT32_C(0xff0000),false},
         {"reject-short-implicit-first",too_short+inner+"W* n "+fill_red,
             QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
-        {"reject-unqualified-ten-command",
+        {"closed-return-rectangle-triangle",
             outer_too_large+inner+"W* n "+fill_red,
-            QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
-        {"reject-re-after-return-over-quota",
+            QUANTAPDF_OK,UINT32_C(0xffffff),UINT32_C(0xff0000),false},
+        {"implicit-return-triangle-rectangle",
             outer_return_start+"12 10 8 12 re W* n "+fill_red,
-            QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
+            QUANTAPDF_OK,UINT32_C(0xffffff),UINT32_C(0xff0000),false},
         {"reject-third-after-return",
             outer_return_start+inner+third+"W* n "+fill_red,
             QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
@@ -299,10 +299,10 @@ static int test()
     CHECK(bytes!=nullptr && size==held_copy.size() &&
           std::memcmp(bytes,held_copy.data(),size)==0);
     quantapdf_drop_bitmap(held);
-    CHECK(positives==13u && negatives==17u);
-    std::printf("Original generated W/W* two-contour: 13 exact RGB "
+    CHECK(positives==16u && negatives==14u);
+    std::printf("Original generated W/W* two-contour: 16 exact RGB "
                 "positives (2 nested returned-rectangle W*), "
-                "17 atomic negatives, single C11 renderer\n");
+                "14 atomic negatives, single C11 renderer\n");
     return EXIT_SUCCESS;
 }
 int main()
