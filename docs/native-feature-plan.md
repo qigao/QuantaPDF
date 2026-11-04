@@ -119,6 +119,39 @@
   整数坐标准入、三个 DPI，以及边数/采样/像素预算仍未消除。此增量不代表任意
   页面、一般 Clip/Text 绘制序列或完整 PDF SDK 已经实现。
 
+### A2 顺序 Text/Fill 增量
+
+- 以 #612 合并后的 master `6f05a03caae219c584a44a41013201c858874bea` 为基线；
+  独立 [master CI #2419](https://github.com/qigao/QuantaPDF/actions/runs/41770973296)
+  四配置各 76/76，Windows 导出通过。该历史结果不能代替本增量 HEAD 的验收。
+- 无 Clip、无 Image 的 Text/矩形 Fill 保留全部原始顺序、颜色及 text-show 分组。
+  Source 的四笔检查、BT 前四笔前缀检查，以及整页 64 字形检查已删除。
+  Text 内核把固定 68 元素展开数组改为按实际矩形/字形数分配的临时借用视图，
+  完成唯一几何编译后释放；存储计入同一页 ledger，分配失败保留 NOMEM。
+- 继续使用原有字体解码、原始轮廓和 C11 4×4 覆盖/整数混色，不引入 Text 的
+  Bitmap 中间层，不改变原有彩色字形和多次绘制的舍入结果。当前头文件、内部
+  回调名称和仓库测试同步；不为原来的数量限制增加兼容分支或组合专用 route。
+- BT 后 q/Q 的 Text 图形状态栈与 Source Clip 身份栈按实际容器增长，不再以
+  16/128 层拒绝。测试验证 4097 层后恢复字体大小、字符间距及填充颜色；
+  同一解释器的文字观察也使用动态状态栈，12 次公开提取验证恢复后的三个字符；
+  深层 q 内设置的 text matrix 在 Q 后继续生效，独立于恢复的图形状态。
+- `quantapdf.native_ordered_text` 比较 156 次独立解析式 RGB：原始 Roboto `l`
+  的四个 on-curve 点形成已知矩形，直接计算覆盖与混色。覆盖 1/4/5/17/69 笔
+  Text/Fill、单次 Tj/TJ 的 69 字形、BT 前大量 Fill、深层状态恢复、三个 DPI、
+  AES-256、多编码 Contents、继承资源、第二页和独立 Bitmap 生命周期；
+  晚到缺失字体、Stroke、未闭合 BT 及多余 Q 不发布 Bitmap。
+- Text 解释器工厂直接返回状态和独立 owner；构造、consume、finish 共用一次错误
+  转换，避免构造期的 UNSUPPORTED 被外层错误改报为 BACKEND。
+- Source 与 C11 命令预算仍为 4096。BT 前的矩形在 Text 解释器入口累计，
+  超额前缀在 IR 发布前失败；发布函数只复制已验证轮廓和实际所有权。
+  边数/采样/像素预算不变；glyph/paint 数量增加仍必须满足这些实际工作预算。
+- `quantapdf.native_ordered_text_oom` 在同一已解密 qpdf Document 上穷举实际
+  状态栈增长和 IR 发布失败，并穷举 C11 临时展开/几何/输出分配失败。
+  核对不变 IR、空 receipt/输出、独立 RGBA、预算 N/N−1 及原 owner 释放。
+- Text/Image 和含 Clip 的 Text 仍走现有固定组合；一般 Clip 图、多个字体、
+  一般路径/Stroke、Text 的页面变换和 DPI/颜色支持仍未完成。
+  这是 Text/Fill 动态容器与顺序功能的独立增量，不代表完整通用 Text/Clip 场景。
+
 ## 单一执行模型
 
 ```mermaid

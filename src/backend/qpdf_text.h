@@ -23,8 +23,8 @@ struct source_text_seed {
      * observed by ordinary extraction, which defaults to GS0. */
     unsigned char clip_id=0u;
 };
-/* M2a private callbacks: complete original Source token stream, bounded
- * Text outline interpreter, no second parser or retained QPDF/font owner. */
+/* Page-scene callbacks on the original qpdf token stream. Fonts and
+ * contours use the existing interpreter; qpdf/font owners do not escape. */
 struct source_mixed_callbacks {
     void *user=nullptr;
     quantapdf_status (*on_text)(void*)=nullptr;
@@ -36,7 +36,7 @@ struct source_mixed_callbacks {
     quantapdf_status (*on_fill)(void*)=nullptr;
     /* PRIVATE M2b.2e: q/Q in the SAME original token interpreter,
      * with actual saved/restored Clip identity (not a later page flag).
-     * is_save=1 for q, 0 for Q. Historical callers leave this NULL. */
+     * is_save=1 for q, 0 for Q. Extraction has no Source Clip observer. */
     quantapdf_status (*on_scope)(void*,int is_save,
                                   unsigned char before,
                                   unsigned char after)=nullptr;
@@ -48,7 +48,9 @@ struct source_mixed_callbacks {
         unsigned char before,unsigned char *after)=nullptr;
 };
 /* Reuses the existing observation interpreter on the SAME token callback
- * stream. It never parses/reopens source bytes or returns font/QPDF owners. */
+ * stream. It never parses/reopens source bytes or returns font/QPDF owners.
+ * The caller supplies an empty owner; construction failures preserve their
+ * status and leave it empty, just like consume/finish. */
 class source_text_outlines {
 public:
     virtual ~source_text_outlines()=default;
@@ -56,11 +58,11 @@ public:
     virtual quantapdf_status finish()=0;
     virtual const std::vector<source_outline_paint>& paints() const=0;
 };
-std::unique_ptr<source_text_outlines> make_source_text_outlines(
+quantapdf_status make_source_text_outlines(
     QPDFObjectHandle resources,double page_height,source_text_seed initial,
     const std::vector<source_text_seed>& saved,
-    const std::vector<source_outline_paint>& prefix={},
-    source_mixed_callbacks callbacks={});
+    const std::vector<source_outline_paint>& prefix,
+    source_mixed_callbacks callbacks,std::unique_ptr<source_text_outlines>& out);
 }
 
 /* Common conversion/copy body for an already admitted string. Outputs must be

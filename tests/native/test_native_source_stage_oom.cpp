@@ -31,6 +31,7 @@
 #include "native_content_stream_fixture.h"
 #include "native_graphics_state_fixture.h"
 #include "native_ordered_paints_fixture.h"
+#include "native_ordered_text_fixture.h"
 #include <memory>
 #include <vector>
 #include <algorithm>
@@ -5092,11 +5093,120 @@ static int ordered_paints_source_contracts(const quantapdf_qpdf_page_limits& def
     return EXIT_SUCCESS;
 }
 
+static int ordered_text_source_contracts(const quantapdf_qpdf_page_limits& defaults)
+{
+    size_t stack_faults=0u,publications=0u,raster_faults=0u,quotas=0u;
+    for(int kind:{0,1,2,3,4})for(bool encrypted:{false,true}) {
+        auto sample=native_ordered_text::create(kind==4?2u:69u,kind,encrypted,kind==4?4097u:0u);
+        quantapdf_qpdf_document *document=nullptr;
+        CHECK(quantapdf_qpdf_open_memory(reinterpret_cast<const unsigned char*>(sample.bytes.data()),sample.bytes.size(),encrypted?"reader":"",&document)==QUANTAPDF_OK);
+        std::unique_ptr<quantapdf_qpdf_document,decltype(&quantapdf_qpdf_close)> owner(document,quantapdf_qpdf_close);
+        auto caps=defaults;caps.max_content_bytes=sample.decoded_bytes;caps.max_content_streams=3u;caps.max_operations=sample.operations;
+        const auto read=[&](const quantapdf_qpdf_page_limits& limits,quantapdf_ir& ir) {return quantapdf_qpdf_page_to_ir(owner.get(),1u,&limits,&ir);};
+        graphics_growths=0u;graphics_fail_growth=0u;
+        track_c_allocation=true;c_fail_index=0u;c_allocations=0u;c_faults=0u;
+        quantapdf_ir ir{};const auto status=read(caps,ir);track_c_allocation=false;
+        const size_t allocations=c_allocations,growths=graphics_growths;
+        CHECK(status==QUANTAPDF_OK && allocations>=3u && ir.operation_count==sample.operations && growths>0u);
+        quantapdf_ir_dispose(&ir);
+        for(size_t fail=1u;fail<=allocations;++fail) {
+            track_c_allocation=true;c_fail_index=fail;c_allocations=0u;c_faults=0u;
+            std::memset(&ir,0xa5,sizeof(ir));const auto error=read(caps,ir);track_c_allocation=false;c_fail_index=0u;
+            CHECK(error==QUANTAPDF_ERROR_NOMEM && cleared(ir) && c_allocations==fail && c_faults==1u);++publications;
+        }
+        for(size_t fail=1u;fail<=growths;++fail) {
+            graphics_growths=0u;graphics_fail_growth=fail;observed=0u;faults=0u;armed=false;
+            std::memset(&ir,0xa5,sizeof(ir));
+            CHECK(read(caps,ir)==QUANTAPDF_ERROR_NOMEM && cleared(ir) && graphics_growths==fail && graphics_fail_growth==0u && observed==11u && faults==1u && !armed);
+            ++stack_faults;
+        }
+        for(unsigned quota:{0u,1u,2u}) {
+            auto limited=caps;
+            if(quota==0u)--limited.max_content_bytes;
+            if(quota==1u)--limited.max_content_streams;
+            if(quota==2u)--limited.max_operations;
+            CHECK(read(limited,ir)==QUANTAPDF_ERROR_UNSUPPORTED && cleared(ir));++quotas;
+        }
+        CHECK(read(caps,ir)==QUANTAPDF_OK);owner.reset();sample.bytes.assign(sample.bytes.size(),'x');
+        const auto snapshot=text_ir_snapshot(ir),expected=native_ordered_text::rgb(sample,96u);
+        const auto equal=[&](const quantapdf_ir_raster_image& output) {
+            if(output.width!=16u || output.height!=16u || output.size!=1024u)return false;
+            for(size_t i=0u;i<256u;++i)if(std::memcmp(output.pixels+4u*i,expected.data()+3u*i,3u)!=0 || output.pixels[4u*i+3u]!=255u)return false;
+            return true;
+        };
+        const quantapdf_ir_raster_scoped_mixed_v5_limits budget={1024u,sample.operations,512u,8000000u,1u,1u};
+        quantapdf_native_page_device device{};device.dpi=96.0f;
+        quantapdf_native_prepared_page_v1 metadata{};
+        CHECK(quantapdf_native_prepare_page_v1(&ir,&budget,&device,&metadata)==QUANTAPDF_OK && metadata.usage.glyphs==sample.glyphs);
+        m2a_malloc_fault_state baseline{};metadata.malloc_fault={&baseline,m2a_malloc_fault_callback};
+        quantapdf_native_execution_receipt_v1 receipt{};quantapdf_ir_raster_image output{};
+        CHECK(quantapdf_native_execute_page_v1(&metadata,&receipt,&output)==QUANTAPDF_OK && equal(output) && receipt.sample_tests_exact && baseline.attempts>=5u);
+        quantapdf_ir_raster_image_dispose(&output);
+        for(size_t fail=1u;fail<=baseline.attempts;++fail) {
+            m2a_malloc_fault_state allocation{};allocation.fail_on=fail;
+            auto candidate=metadata;candidate.malloc_fault={&allocation,m2a_malloc_fault_callback};
+            quantapdf_native_execution_receipt_v1 denied{},zero{};std::memset(&output,0xa5,sizeof(output));
+            CHECK(quantapdf_native_execute_page_v1(&candidate,&denied,&output)==QUANTAPDF_ERROR_NOMEM && zero_bitmap(output) &&
+                std::memcmp(&denied,&zero,sizeof(zero))==0 && allocation.attempts==fail && allocation.failures==1u && text_ir_snapshot(ir)==snapshot);++raster_faults;
+        }
+        const auto trial=[&](const quantapdf_ir_raster_scoped_mixed_v5_limits& bounds,size_t memory,quantapdf_status wanted)->bool {
+            quantapdf_native_prepared_page_v1 candidate{};quantapdf_ir_raster_image rendered{};
+            auto error=quantapdf_native_prepare_page_v1(&ir,&bounds,&device,&candidate);
+            if(error==QUANTAPDF_OK) {if(memory!=0u)candidate.resource_limits.max_live_bytes=memory;error=quantapdf_native_execute_page_v1(&candidate,nullptr,&rendered);}
+            const bool valid=error==wanted && text_ir_snapshot(ir)==snapshot && (wanted==QUANTAPDF_OK?equal(rendered):zero_bitmap(rendered));
+            quantapdf_ir_raster_image_dispose(&rendered);return valid;
+        };
+        CHECK(trial(budget,receipt.peak_live_bytes,QUANTAPDF_OK));
+        CHECK(trial(budget,receipt.peak_live_bytes-1u,QUANTAPDF_ERROR_UNSUPPORTED));++quotas;
+        for(unsigned quota:{0u,1u,2u}) {
+            auto bounds=budget;
+            if(quota==0u)bounds.max_operations=sample.operations;
+            if(quota==1u)bounds.max_edges=receipt.compiled_edges;
+            if(quota==2u)bounds.max_sample_tests=receipt.sample_tests;
+            CHECK(trial(bounds,0u,QUANTAPDF_OK));
+            if(quota==0u)--bounds.max_operations;
+            if(quota==1u)--bounds.max_edges;
+            if(quota==2u)--bounds.max_sample_tests;
+            CHECK(trial(bounds,0u,QUANTAPDF_ERROR_UNSUPPORTED));++quotas;
+        }
+        metadata.malloc_fault={};quantapdf_native_compiled_page_v1 compiled{};
+        CHECK(quantapdf_native_compiled_page_compile_v1(&metadata,&compiled)==QUANTAPDF_OK);
+        CHECK(quantapdf_native_compiled_page_execute_v1(&compiled,nullptr,&output)==QUANTAPDF_OK && equal(output));
+        quantapdf_native_compiled_page_dispose_v1(&compiled);quantapdf_ir_dispose(&ir);CHECK(cleared(ir));
+        CHECK(equal(output));quantapdf_ir_raster_image_dispose(&output);CHECK(zero_bitmap(output));
+    }
+    for(size_t glyphs:{682u,683u}) {
+        const auto sample=native_ordered_text::create(glyphs,3,false);quantapdf_ir ir{};
+        auto caps=defaults;caps.max_operations=1u;
+        const auto error=native_test_page_ir(reinterpret_cast<const unsigned char*>(sample.bytes.data()),sample.bytes.size(),&caps,1u,&ir);
+        CHECK(error==(glyphs==682u?QUANTAPDF_OK:QUANTAPDF_ERROR_UNSUPPORTED));
+        if(glyphs==682u)CHECK(ir.operations[0].value.text_outlines.glyph_count==glyphs);else CHECK(cleared(ir));
+        quantapdf_ir_dispose(&ir);++quotas;
+    }
+    // Exactly 4096 commands includes 818 pre-BT rectangles plus one
+    // six-command 'l'. Larger prefixes fail inside the content interpreter.
+    for(size_t count:{819u,820u,821u}) {
+        const auto sample=native_ordered_text::create(count,2,false);quantapdf_ir ir{};
+        auto caps=defaults;caps.max_operations=count;
+        track_c_allocation=true;c_fail_index=0u;c_allocations=0u;c_faults=0u;
+        const auto error=native_test_page_ir(reinterpret_cast<const unsigned char*>(sample.bytes.data()),sample.bytes.size(),&caps,1u,&ir);
+        track_c_allocation=false;
+        if(error!=(count==819u?QUANTAPDF_OK:QUANTAPDF_ERROR_UNSUPPORTED))std::fprintf(stderr,"Prefix count=%zu content=%zu status=%d C=%zu\n",count,sample.decoded_bytes,int(error),c_allocations);
+        CHECK(error==(count==819u?QUANTAPDF_OK:QUANTAPDF_ERROR_UNSUPPORTED));
+        if(count==819u)CHECK(ir.operation_count==count);else CHECK(cleared(ir) && c_allocations==0u);
+        quantapdf_ir_dispose(&ir);++quotas;
+    }
+    std::printf("Ordered Text/Fill: %zu stack-growth faults, %zu Source publication faults, %zu actual Text projection/geometry/output faults, %zu N/N-1 checks; independent RGBA, immutable Source and detached owners passed\n",stack_faults,publications,raster_faults,quotas);
+    return EXIT_SUCCESS;
+}
+
 int main(int argc,char **argv)
 {
     const quantapdf_qpdf_page_limits limits={
         65536u,4u,4u,1000000u,1000000u,4000000u,8u
     };
+    if(argc==2 && std::strcmp(argv[1],"--ordered-text")==0)
+        return ordered_text_source_contracts(limits);
     if(argc==2 && std::strcmp(argv[1],"--ordered-paints")==0)
         return ordered_paints_source_contracts(limits);
     if(argc==2 && std::strcmp(argv[1],"--graphics-state")==0)

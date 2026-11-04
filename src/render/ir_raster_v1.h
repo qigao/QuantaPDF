@@ -260,8 +260,9 @@ quantapdf_status quantapdf_ir_raster_render_v1_texample_physical_dpi_three_layer
     quantapdf_ir_raster_image *out_image);
 
 /* Source-owned TrueType glyph contours and axis rectangles, preserved in
- * original paint/glyph order. Four source paints, 64 glyphs, 4096 commands, and the
- * existing 512-edge/8M/1M-pixel limits. Atomic output even on a late glyph. */
+ * original paint/glyph order. Paint/glyph expansion uses count-sized
+ * temporary storage with the 4096-command and existing 512-edge/8M/1M-pixel
+ * budgets. Atomic output even on a late glyph. */
 quantapdf_status quantapdf_ir_raster_render_v1_text_outlines(
     const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
     const quantapdf_native_device_plan *plan,size_t *out_sample_tests,quantapdf_ir_raster_image *out_image);

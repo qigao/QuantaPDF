@@ -63,6 +63,10 @@ add_test(NAME quantapdf.native_content_streams
   COMMAND quantapdf_native_public_render --content-streams)
 set_tests_properties(quantapdf.native_content_streams PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;public-api;content-streams")
+add_test(NAME quantapdf.native_ordered_text
+  COMMAND quantapdf_native_public_render --ordered-text)
+set_tests_properties(quantapdf.native_ordered_text PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;public-api;ordered-text")
 add_test(NAME quantapdf.native_ordered_paints
   COMMAND quantapdf_native_public_render --ordered-paints)
 set_tests_properties(quantapdf.native_ordered_paints PROPERTIES
@@ -172,6 +176,7 @@ set_tests_properties(quantapdf.native_userunit_oom PROPERTIES
 add_executable(quantapdf_native_source_stage_oom
   test_native_source_stage_oom.cpp
   "${PROJECT_SOURCE_DIR}/src/backend/qpdf_page_ir.cpp"
+  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_source_text.cpp"
   "${PROJECT_SOURCE_DIR}/src/ir/ir.c"
   "${PROJECT_SOURCE_DIR}/src/resource/resource_registry.c"
   "${PROJECT_SOURCE_DIR}/src/render/native_device_ir_v1.c"
@@ -204,6 +209,10 @@ add_test(NAME quantapdf.native_source_stage_oom
 set_tests_properties(quantapdf.native_source_stage_oom PROPERTIES
   TIMEOUT 40 LABELS "conformance;native;no-pdfium;source-staging;oom")
 
+add_test(NAME quantapdf.native_ordered_text_oom
+  COMMAND quantapdf_native_source_stage_oom --ordered-text)
+set_tests_properties(quantapdf.native_ordered_text_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;ordered-text;source-staging;oom")
 add_test(NAME quantapdf.native_ordered_paints_oom
   COMMAND quantapdf_native_source_stage_oom --ordered-paints)
 set_tests_properties(quantapdf.native_ordered_paints_oom PROPERTIES
