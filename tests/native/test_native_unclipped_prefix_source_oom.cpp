@@ -108,17 +108,17 @@ static const scenario cases[]={
     {"root_image2",graph::root,profile::image,
         {{paint::red_image,0u},{paint::cyan_image,2u}},10u},
     {"single_mixed2_ip",graph::single,profile::mixed,
-        {{paint::red_image,0u},{paint::blue_path,1u}},9u},
+        {{paint::red_image,0u},{paint::blue_path,1u}},8u},
     {"single_mixed2_pi",graph::single,profile::mixed,
-        {{paint::red_path,0u},{paint::cyan_image,1u}},9u},
+        {{paint::red_path,0u},{paint::cyan_image,1u}},8u},
     {"single_mixed4_ip_prefix",graph::single,profile::mixed,
         {{paint::red_image,0u},{paint::blue_path,0u},
-         {paint::cyan_image,1u},{paint::green_path,0u}},11u},
+         {paint::cyan_image,1u},{paint::green_path,0u}},10u},
     {"root_mixed4_pi_prefix",graph::root,profile::mixed,
         {{paint::red_path,0u},{paint::red_image,0u},
-         {paint::blue_path,2u},{paint::cyan_small_image,0u}},13u},
+         {paint::blue_path,2u},{paint::cyan_small_image,0u}},12u},
     {"root_mixed3",graph::root,profile::mixed,
-        {{paint::red_path,0u},{paint::blue_path,2u},{paint::cyan_image,2u}},12u},
+        {{paint::red_path,0u},{paint::blue_path,2u},{paint::cyan_image,2u}},11u},
     {"states_path3",graph::states,profile::paths,
         {{paint::red_path,0u},{paint::blue_path,1u},{paint::red_path,2u}},10u},
     {"states_path4_restore_first",graph::states,profile::paths,
@@ -128,17 +128,17 @@ static const scenario cases[]={
         {{paint::red_path,0u},{paint::blue_path,2u},
          {paint::magenta_path,1u},{paint::green_path,0u}},11u},
     {"states_mixed3",graph::states,profile::mixed,
-        {{paint::red_image,0u},{paint::blue_path,1u},{paint::red_path,2u}},12u},
+        {{paint::red_image,0u},{paint::blue_path,1u},{paint::red_path,2u}},11u},
     {"states_mixed4_restore_first",graph::states,profile::mixed,
         {{paint::red_path,0u},{paint::cyan_image,1u},
-         {paint::blue_path,2u},{paint::cyan_small_image,1u}},13u},
+         {paint::blue_path,2u},{paint::cyan_small_image,1u}},12u},
     {"states_mixed4_suffix",graph::states,profile::mixed,
         {{paint::red_image,0u},{paint::blue_path,2u},
-         {paint::cyan_small_image,1u},{paint::green_path,0u}},13u},
+         {paint::cyan_small_image,1u},{paint::green_path,0u}},12u},
     {"root_mixed3_ii_prefix",graph::root,profile::mixed,
-        {{paint::red_image,0u},{paint::cyan_image,0u},{paint::blue_path,2u}},12u},
+        {{paint::red_image,0u},{paint::cyan_image,0u},{paint::blue_path,2u}},11u},
     {"single_mixed3_pp_prefix",graph::single,profile::mixed,
-        {{paint::red_path,0u},{paint::blue_path,0u},{paint::cyan_image,1u}},10u}
+        {{paint::red_path,0u},{paint::blue_path,0u},{paint::cyan_image,1u}},9u}
 };
 static const clip_pair pairs[]={
     {shape::triangles8,shape::rectangle_triangle9},
@@ -799,13 +799,16 @@ static bool bounded_prefix_refusals()
         p+p+p+a+p+p+"Q", /* fifth PATH */
         i+a+i+i+"Q", /* third Image */
         i+a+i+b+i+"Q Q", /* two GS plus prefix needs three Images */
-        i+p+i+a+p+"Q", /* mixed prefix cannot grow past one of each */
-        p+i+p+a+i+"Q",
         p+p+p+a+i+"Q", /* mixed total cannot contain three PATHs */
         i+i+i+a+p+"Q", /* mixed total cannot contain three Images */
         p+"q 2 2 10 7 re 4 3 3 2 re W n "+p+"Q", /* ten Clip commands */
         p+a+"Q "+p /* all paints remain GS0; Clip must be observed */
     };
+    for(const auto& content:{i+p+i+a+p+"Q",p+i+p+a+i+"Q"}) {
+        quantapdf_ir ir{};
+        CHECK(source(original_pdf(content,cases[9],false),source_budget,ir)==QUANTAPDF_OK && ir.operation_count==4u);
+        quantapdf_ir_dispose(&ir);CHECK(cleared(ir));
+    }
     /* The resource dictionary contains /R for the Image negatives.
      * Limits allow all raw pixels, isolating the fixed layer/cardinality
      * and prefix grammar refusals from an incidental source-pixel quota. */
@@ -906,7 +909,7 @@ static bool run_tests()
     CHECK(staging_failures());
     for(size_t i:{9u,10u,17u})CHECK(source_failures(cases[i]));
     CHECK(bounded_prefix_refusals() && source_controls());
-    CHECK(positive_count==160u && fault_count==210u && atomic_failures==34u);
+    CHECK(positive_count==160u && fault_count==200u && atomic_failures==32u);
     std::fprintf(stderr,"[native.unclipped_prefix_source_oom] %zu detached originals, %zu renders, "
         "%zu C faults, 7 C++ staging faults, %zu Source refusals, current Source controls completed\n",
         positive_count,2u*positive_count,fault_count,atomic_failures);

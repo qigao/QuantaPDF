@@ -1,4 +1,5 @@
 #include "render/native_device_ir_v1.h"
+#include "render/native_raster_memory_v1.h"
 #include "render/native_device_plan.h"
 
 #include <math.h>
@@ -6,11 +7,12 @@
 #include <stdio.h>
 #include <string.h>
 
-#define QP_DPI_MAX_OPS 4u
 /* Source/V5 independently admit only the exact canonical 10-command
  * pair of nested rectangles. Other profiles retain their old shapes
  * and hard nine-command source limits. */
 #define QP_DPI_MAX_PATH_COMMANDS 10u
+_Static_assert(sizeof(quantapdf_composer_operation)%_Alignof(quantapdf_composer_path_command)==0u,
+    "device command storage must follow the operation array with native alignment");
 
 static int qp_device_float(float source, double scale, float *out)
 {
@@ -131,24 +133,23 @@ static int qp_image_bounds(
     return 1;
 }
 
-static quantapdf_status qp_native_device_ir_render(
+static quantapdf_status qp_native_device_ir_project(
     const quantapdf_ir *source,unsigned dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image,int two_clip_optin,
     int clipped_paths_optin,int clip_states_optin,int compound_clips_optin,
     int unclipped_prefix_optin,int sibling_clips_optin,
     int original_three_branch_optin,quantapdf_native_work_ledger_v1 *ledger,
-    quantapdf_native_scoped_page_v5 *prepared)
+    quantapdf_native_scoped_page_v5 *prepared,
+    quantapdf_composer_operation *operations,
+    quantapdf_composer_path_command (*paths)[QP_DPI_MAX_PATH_COMMANDS])
 {
     const int two_states=clip_states_optin || sibling_clips_optin;
     quantapdf_native_device_plan plan={0};
     quantapdf_ir projected={0};
     quantapdf_composer_page_state page={0};
-    quantapdf_composer_operation operations[QP_DPI_MAX_OPS]={{0}};
-    quantapdf_composer_path_command paths[QP_DPI_MAX_OPS]
-        [QP_DPI_MAX_PATH_COMMANDS]={{{0}}};
-    /* One fixed-stack device projection; legacy profiles still use
-     * their historical 1..3 Clip nodes and smaller edge quotas. */
+    /* Clip storage remains bounded by the current Clip graph support.
+     * Paint operations and their command storage use the actual count. */
     quantapdf_composer_clip_state clips[7]={{0}};
     quantapdf_composer_path_command
         clip_commands[4][QP_DPI_MAX_PATH_COMMANDS]={{{0}}};
@@ -159,15 +160,9 @@ static quantapdf_status qp_native_device_ir_render(
     double scale;
     quantapdf_status status;
 
-    if(out_image==NULL)return QUANTAPDF_ERROR_ARGUMENT;
-    memset(out_image,0,sizeof(*out_image));
-    if(source==NULL || source->pages==NULL || limits==NULL ||
-       limits->max_pixels==0u)
-        return QUANTAPDF_ERROR_ARGUMENT;
     if((dpi!=72u && dpi!=96u && dpi!=144u) ||
        (original_three_branch_optin && dpi!=72u) ||
        source->page_count!=1u ||
-       source->operation_count>QP_DPI_MAX_OPS ||
        (original_three_branch_optin && source->operation_count!=3u) ||
        (two_states && source->operation_count<2u) ||
        (source->operation_count!=0u && source->operations==NULL) ||
@@ -440,6 +435,39 @@ static quantapdf_status qp_native_device_ir_render(
         (double)source_width*(double)dpi/1152.0,
         (double)source_height*(double)dpi/1152.0,
         out_image);
+}
+
+static quantapdf_status qp_native_device_ir_render(
+    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
+    quantapdf_ir_raster_image *out_image,int two_clip_optin,
+    int clipped_paths_optin,int clip_states_optin,int compound_clips_optin,
+    int unclipped_prefix_optin,int sibling_clips_optin,
+    int original_three_branch_optin,quantapdf_native_work_ledger_v1 *ledger,
+    quantapdf_native_scoped_page_v5 *prepared)
+{
+    quantapdf_status status=QUANTAPDF_OK;
+    size_t bytes=0u;void *storage=NULL;
+    quantapdf_composer_operation *operations=NULL;
+    quantapdf_composer_path_command (*paths)[QP_DPI_MAX_PATH_COMMANDS]=NULL;
+    if(out_image==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    memset(out_image,0,sizeof(*out_image));
+    if(source==NULL || source->pages==NULL || limits==NULL || limits->max_pixels==0u)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if(!quantapdf_native_device_projection_bytes(source->operation_count,&bytes))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if(bytes!=0u) {
+        storage=quantapdf_native_raster_malloc_v1(ledger,bytes,&status);
+        if(storage==NULL)return status;
+        operations=(quantapdf_composer_operation *)storage;
+        paths=(quantapdf_composer_path_command (*)[QP_DPI_MAX_PATH_COMMANDS])
+            ((unsigned char *)storage+source->operation_count*sizeof(*operations));
+    }
+    status=qp_native_device_ir_project(source,dpi,limits,out_image,two_clip_optin,
+        clipped_paths_optin,clip_states_optin,compound_clips_optin,unclipped_prefix_optin,
+        sibling_clips_optin,original_three_branch_optin,ledger,prepared,operations,paths);
+    quantapdf_native_raster_free_v1(ledger,storage,bytes);
+    return status;
 }
 
 quantapdf_status quantapdf_native_device_ir_render_v1(

@@ -77,12 +77,12 @@ static const scenario cases[]={
     {"image21",{{paint::red_image,2u},{paint::cyan_small_image,1u}},
         10u,cyan,red,white,white,graph::clip_states},
     {"mixed2",{{paint::red_path,1u},{paint::cyan_image,2u}},
-        11u,red,cyan,red,white,graph::clip_states},
+        10u,red,cyan,red,white,graph::clip_states},
     {"mixed3",{{paint::red_image,1u},{paint::blue_path,2u},{paint::magenta_path,1u}},
-        12u,magenta,blue,red,white,graph::clip_states},
+        11u,magenta,blue,red,white,graph::clip_states},
     {"mixed4",{{paint::red_image,1u},{paint::blue_path,2u},
         {paint::cyan_small_image,1u},{paint::green_path,0u}},
-        13u,cyan,blue,red,green,graph::clip_states}
+        12u,cyan,blue,red,green,graph::clip_states}
 };
 static const scenario root_only={"root_only",{{paint::cyan_image,2u}},
     9u,white,cyan,white,white,graph::root_only};

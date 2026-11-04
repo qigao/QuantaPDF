@@ -2584,7 +2584,7 @@ static quantapdf_status qp_text_outlines(
        source->operation_count==0u || source->operation_count>limits->max_operations ||
        source->operation_count>4u || source->links!=NULL || source->link_count!=0u ||
        source->outlines!=NULL || source->outline_count!=0u || !qp_no_resources(source) ||
-       limits->max_pixels>1000000u || limits->max_operations>4u ||
+       limits->max_pixels>1000000u ||
        limits->max_edges>512u || limits->max_sample_tests>8000000u ||
        source->pages[0].width_points<1.0f || source->pages[0].width_points>65536.0f ||
        source->pages[0].height_points<1.0f || source->pages[0].height_points>65536.0f ||

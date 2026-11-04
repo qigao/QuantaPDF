@@ -7,6 +7,16 @@
 extern "C" {
 #endif
 
+/* Temporary device projection: one operation and the current bounded
+ * per-path command storage per source paint, sized from the real count. */
+static inline int quantapdf_native_device_projection_bytes(size_t count,size_t *bytes)
+{
+    const size_t per=sizeof(quantapdf_composer_operation)+
+        10u*sizeof(quantapdf_composer_path_command);
+    if(count>SIZE_MAX/per)return 0;
+    *bytes=count*per;return 1;
+}
+
 typedef enum quantapdf_native_prepared_route_v1 {
     QP_NATIVE_PREPARED_NONE=0,
     QP_NATIVE_PREPARED_LEGACY,
@@ -27,7 +37,7 @@ typedef enum quantapdf_native_prepared_route_v1 {
     QP_NATIVE_PREPARED_M2B2Q_COMPOUND_TEXT_FILL_IMAGE
 } quantapdf_native_prepared_route_v1;
 
-/* Compile the same stack projection into retained geometry/value records.
+/* Compile the same temporary projection into retained geometry/value records.
  * No projected descriptor/command pointer escapes this synchronous call. */
 quantapdf_status quantapdf_native_device_ir_prepare_v1(
     const quantapdf_ir *source,unsigned dpi,
@@ -35,7 +45,7 @@ quantapdf_status quantapdf_native_device_ir_prepare_v1(
     quantapdf_native_prepared_route_v1 route,quantapdf_native_work_ledger_v1 *ledger,
     quantapdf_native_scoped_page_v5 *out);
 
-/* Page-owned ledger; same route-specific validators and stack projection. */
+/* Page-owned ledger; same route-specific validators and temporary projection. */
 quantapdf_status quantapdf_native_device_ir_render_v1_accounted(
     const quantapdf_ir *source,unsigned dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
@@ -45,7 +55,8 @@ quantapdf_status quantapdf_native_device_ir_render_v1_accounted(
 /* Private C11, no provider. Borrow a fully Source-admitted immutable IR
  * and directly raster its source geometry in 72/96/144-DPI device pixels.
  * The only raster implementation remains scoped_mixed_v5. The projected
- * IR and path/clip commands live on this call's stack, never persist.
+ * operation/path arrays live in this call's owned temporary storage.
+ * Clip descriptors stay local; no projected pointer escapes.
  *
  * At 96 DPI, IMAGE fractional placement is retained (never rounded);
  * the same V5 Raster builds a bounded 4x4 subpixel rectangle/Clip
@@ -75,7 +86,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1_two_clip(
  * one frozen identity-space Clip or two leaves plus their flat root,
  * and a single GS=1 prefix followed by an optional GS=0 suffix. All
  * commands have four..nine elements; no Image resources are admitted.
- * Reuses the same bounded stack projection and V5 subpixel sampler.
+ * Reuses the same bounded temporary projection and V5 subpixel sampler.
  * Older device entrypoints still refuse clipped PATH-only input. */
 quantapdf_status quantapdf_native_device_ir_render_v1_clipped_paths(
     const quantapdf_ir *source,unsigned dpi,
@@ -91,7 +102,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1_clipped_paths(
  * mixed one..two of each, within the unchanged four-layer ceiling.
  * Each PATH/Clip is one closed contour with four..nine commands. The
  * older entrypoints still refuse two GS records. Projection is
- * stack-only, all borrows immutable, output owned
+ * temporary, all borrows immutable, output owned
  * and detached on success and zeroed on failure. */
 quantapdf_status quantapdf_native_device_ir_render_v1_clip_states(
     const quantapdf_ir *source,unsigned dpi,
@@ -104,7 +115,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1_clip_states(
  * CLOSE. Original single-contour inputs remain a subset; painted PATHs
  * still contain exactly one contour. The old clip_states entry keeps
  * rejecting compound leaves. State order, resource cardinalities,
- * budgets, immutable stack projection and output ownership are shared. */
+ * budgets, immutable temporary projection and output ownership are shared. */
 quantapdf_status quantapdf_native_device_ir_render_v1_compound_clip_states(
     const quantapdf_ir *source,unsigned dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
@@ -119,7 +130,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1_compound_clip_states(
  * it cannot also use both nonzero GS identities. Clip leaves keep one
  * or two closed contours/four..nine commands; painted PATHs stay one
  * closed contour. All older entrypoints retain their own admission.
- * Budgets, immutable stack projection and detached output are shared. */
+ * Budgets, immutable temporary projection and detached output are shared. */
 quantapdf_status quantapdf_native_device_ir_render_v1_unclipped_prefix(
     const quantapdf_ir *source,unsigned dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
@@ -133,7 +144,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1_unclipped_prefix(
  * fills, exactly two Images, or at most two of each kind within four
  * total operations. Clip leaves admit one/two closed contours within
  * four..nine commands; painted PATHs remain single-contour. Exact
- * capacities, unchanged budgets, stack projection, immutable borrows
+ * capacities, unchanged budgets, temporary projection, immutable borrows
  * and detached/zeroed output follow the existing device contracts.
  * All earlier entrypoints continue to refuse this two-leaf/no-root IR. */
 quantapdf_status quantapdf_native_device_ir_render_v1_sibling_clips(

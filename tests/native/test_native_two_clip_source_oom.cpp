@@ -344,9 +344,9 @@ static bool allocation_matrix(bool mixed)
     const size_t allocation_count=c_allocations;
     /* Existing image/page/operation ownership plus GS, 3 descriptors,
      * two separately allocated command arrays and owned root members.
-     * Mixed additionally reallocates operations and owns two PATHs. */
+     * Mixed additionally owns two PATH command arrays. */
     CHECK(baseline==QUANTAPDF_OK && owned_graph(clean,mixed,true) &&
-          allocation_count>=(mixed?12u:9u) &&
+          allocation_count>=(mixed?11u:9u) &&
           allocation_count<=32u && c_faults==0u);
     quantapdf_ir_dispose(&clean);
     CHECK(cleared(clean));

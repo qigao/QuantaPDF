@@ -16,7 +16,7 @@
  * and every reachable input must remain immutable for that borrow. */
 typedef struct quantapdf_native_prepared_usage_v1 {
     size_t operations,expanded_paints,glyphs,commands,image_pixels,retained_bytes;
-    unsigned images_used,states_used,clips_used;
+    unsigned states_used,clips_used;
 } quantapdf_native_prepared_usage_v1;
 
 typedef struct quantapdf_native_prepared_page_v1 {
@@ -28,9 +28,9 @@ typedef struct quantapdf_native_prepared_page_v1 {
     quantapdf_native_device_plan physical;
     quantapdf_native_prepared_usage_v1 usage;
     quantapdf_native_resource_limits_v1 resource_limits;
-    /* PRIVATE M2a test-only option. Production prepare always leaves
-     * this empty; existing routes ignore it and retain old malloc order. */
-    quantapdf_native_malloc_fault_v1 m2a_malloc_fault;
+    /* Test-only allocation fault at real ledger-backed C11 malloc sites.
+     * Production preparation leaves this empty. */
+    quantapdf_native_malloc_fault_v1 malloc_fault;
 } quantapdf_native_prepared_page_v1;
 
 /* Exact classifier counts remain separate from conservative charged work.
@@ -304,12 +304,11 @@ static inline int qp_prepared_resource_closure(
 {
     const quantapdf_resource_registry *r=&ir->resources;
     unsigned closure[7]={0u};
-    if(ir->pages==NULL || ir->page_count!=1u || ir->operation_count>4u ||
-       ir->operation_count>limits->max_operations ||
+    if(ir->pages==NULL || ir->page_count!=1u || ir->operation_count>limits->max_operations ||
        ((ir->operation_count==0u)!=(ir->operations==NULL)) ||
        ir->links!=NULL || ir->link_count!=0u ||
        ir->outlines!=NULL || ir->outline_count!=0u ||
-       r->image_count>4u || r->image_capacity!=r->image_count ||
+       r->image_count>ir->operation_count || r->image_capacity!=r->image_count ||
        ((r->image_count==0u)!=(r->images==NULL)) ||
        r->graphics_state_count>3u || r->graphics_state_capacity!=r->graphics_state_count ||
        ((r->graphics_state_count==0u)!=(r->graphics_states==NULL)) ||
@@ -396,7 +395,7 @@ static inline int qp_prepared_resource_closure(
             if(id==0u || id>r->image_count ||
                op->value.image.options.graphics_state_id!=op->graphics_state_id)
                 return 0;
-            u->images_used|=1u<<(unsigned)(id-1u);++u->expanded_paints;
+            ++u->expanded_paints;
         } else if(op->kind==QUANTAPDF_COMPOSER_OPERATION_PATH) {
             const quantapdf_composer_path_operation *p=&op->value.path;
             if(p->options.graphics_state_id!=op->graphics_state_id ||
@@ -419,8 +418,7 @@ static inline int qp_prepared_resource_closure(
                     return 0;
         } else return 0;
     }
-    return u->images_used==((1u<<(unsigned)r->image_count)-1u) &&
-        u->states_used==((1u<<(unsigned)r->graphics_state_count)-1u) &&
+    return u->states_used==((1u<<(unsigned)r->graphics_state_count)-1u) &&
         u->clips_used==((1u<<(unsigned)r->clip_count)-1u);
 }
 
@@ -506,14 +504,16 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
     else if(source->resources.clip_count==3u)p.route=QP_NATIVE_PREPARED_TWO_CLIP;
     else p.route=QP_NATIVE_PREPARED_DEVICE;
     {
-        size_t geometry=0u,bytes=p.usage.retained_bytes;
+        size_t geometry=0u,projection=0u,bytes=p.usage.retained_bytes;
         const size_t draws=p.usage.expanded_paints==0u?1u:p.usage.expanded_paints;
-        /* The existing four-layer ceiling needs at most six simultaneous
-         * RGBA surfaces (three earlier layers plus raw/mask/composite).
-         * Exact Text/cubic masks fit inside that surface envelope. Geometry
+        /* Streaming composition retains the result and current layer.
+         * The existing six-surface envelope also covers mask/Text scratch. Geometry
          * uses the real kernel type sizes, including optional edge boxes. */
         if(!quantapdf_native_owned_geometry_bound_v1(limits->max_edges,draws,p.usage.commands,
                 source->operation_count==0u?1u:source->operation_count,&geometry) ||
+           !quantapdf_native_device_projection_bytes(source->operation_count,&projection) ||
+           !qp_prepared_charge(&bytes,projection,SIZE_MAX) ||
+           !qp_prepared_bytes(&bytes,source->operation_count,sizeof(quantapdf_native_scoped_layer_v5)) ||
            !qp_prepared_bytes(&bytes,limits->max_pixels,24u) ||
            !qp_prepared_charge(&bytes,geometry,SIZE_MAX))
             return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -562,13 +562,7 @@ static inline quantapdf_status quantapdf_native_compiled_page_compile_v1(
     if(metadata==NULL || metadata->source==NULL)return QUANTAPDF_ERROR_ARGUMENT;
     out->metadata=*metadata;out->metadata.source=NULL;
     quantapdf_native_work_init_v1(&out->ledger,metadata->limits.max_sample_tests,metadata->limits.max_edges);
-    if(metadata->route==QP_NATIVE_PREPARED_M2A_TEXT_IMAGE ||
-       metadata->route==QP_NATIVE_PREPARED_M2B1_TEXT_FILL_IMAGE ||
-       metadata->route==QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE ||
-       metadata->route==QP_NATIVE_PREPARED_M2B2H_RESTORED_FOUR ||
-       metadata->route==QP_NATIVE_PREPARED_M2B2N_SIBLING_TEXT_FILL_IMAGE ||
-       metadata->route==QP_NATIVE_PREPARED_M2B2Q_COMPOUND_TEXT_FILL_IMAGE)
-        out->ledger.malloc_fault=metadata->m2a_malloc_fault;
+    out->ledger.malloc_fault=metadata->malloc_fault;
     if(!quantapdf_native_resources_init_v1(&out->ledger,&metadata->resource_limits,
                                           metadata->usage.retained_bytes)) {
         quantapdf_native_compiled_page_dispose_v1(out);return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -607,12 +601,12 @@ static inline quantapdf_status quantapdf_native_compiled_page_compile_v1(
 static inline size_t qp_compiled_retained_bytes(const quantapdf_native_compiled_page_v1 *p)
 {
     quantapdf_native_geometry_info_v1 info;
-    size_t bytes=0u;
+    size_t bytes=p->scoped.capacity*sizeof(quantapdf_native_scoped_layer_v5);
     if(p->exact.data!=NULL && quantapdf_native_geometry_info_get_v1(&p->exact,&info)==QUANTAPDF_OK)
         bytes=info.retained_bytes;
-    for(size_t i=0u;i<4u;++i)
-        if(p->scoped.geometry[i].data!=NULL &&
-           quantapdf_native_geometry_info_get_v1(&p->scoped.geometry[i],&info)==QUANTAPDF_OK &&
+    for(size_t i=0u;i<p->scoped.count;++i)
+        if(p->scoped.layers[i].geometry.data!=NULL &&
+           quantapdf_native_geometry_info_get_v1(&p->scoped.layers[i].geometry,&info)==QUANTAPDF_OK &&
            !qp_prepared_charge(&bytes,info.retained_bytes,SIZE_MAX))return SIZE_MAX;
     return bytes;
 }

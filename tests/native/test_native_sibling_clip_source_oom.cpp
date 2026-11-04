@@ -119,38 +119,38 @@ static const scenario cases[]={
     {"image2_shared_resource",profile::image,
         {{paint::cyan_image,1u},{paint::cyan_image,2u}},9u},
     {"mixed2_ip",profile::mixed,
-        {{paint::red_image,1u},{paint::blue_path,2u}},10u},
+        {{paint::red_image,1u},{paint::blue_path,2u}},9u},
     {"mixed2_pi",profile::mixed,
-        {{paint::red_path,1u},{paint::cyan_image,2u}},10u},
+        {{paint::red_path,1u},{paint::cyan_image,2u}},9u},
     {"mixed3_prefix_image",profile::mixed,
-        {{paint::red_image,0u},{paint::red_path,1u},{paint::blue_path,2u}},11u},
+        {{paint::red_image,0u},{paint::red_path,1u},{paint::blue_path,2u}},10u},
     {"mixed3_gap_image",profile::mixed,
-        {{paint::red_path,1u},{paint::cyan_image,0u},{paint::blue_path,2u}},11u},
+        {{paint::red_path,1u},{paint::cyan_image,0u},{paint::blue_path,2u}},10u},
     {"mixed3_suffix_image",profile::mixed,
-        {{paint::red_path,1u},{paint::blue_path,2u},{paint::cyan_image,0u}},11u},
+        {{paint::red_path,1u},{paint::blue_path,2u},{paint::cyan_image,0u}},10u},
     {"mixed3_second_image",profile::mixed,
-        {{paint::red_image,1u},{paint::blue_path,2u},{paint::cyan_small_image,2u}},11u},
+        {{paint::red_image,1u},{paint::blue_path,2u},{paint::cyan_small_image,2u}},10u},
     {"mixed4_prefix_ip",profile::mixed,
         {{paint::red_image,0u},{paint::blue_path,0u},
-         {paint::red_path,1u},{paint::cyan_image,2u}},12u},
+         {paint::red_path,1u},{paint::cyan_image,2u}},11u},
     {"mixed4_prefix_pi",profile::mixed,
         {{paint::red_path,0u},{paint::red_image,0u},
-         {paint::blue_path,1u},{paint::cyan_image,2u}},12u},
+         {paint::blue_path,1u},{paint::cyan_image,2u}},11u},
     {"mixed4_gap_suffix",profile::mixed,
         {{paint::red_image,1u},{paint::magenta_path,0u},
-         {paint::cyan_image,2u},{paint::green_path,0u}},12u},
+         {paint::cyan_image,2u},{paint::green_path,0u}},11u},
     {"mixed4_first_second",profile::mixed,
         {{paint::red_image,1u},{paint::blue_path,1u},
-         {paint::magenta_path,2u},{paint::cyan_image,2u}},12u},
+         {paint::magenta_path,2u},{paint::cyan_image,2u}},11u},
     {"mixed4_suffix_pp",profile::mixed,
         {{paint::red_image,1u},{paint::cyan_image,2u},
-         {paint::magenta_path,0u},{paint::green_path,0u}},12u},
+         {paint::magenta_path,0u},{paint::green_path,0u}},11u},
     {"mixed4_prefix_ii",profile::mixed,
         {{paint::red_image,0u},{paint::cyan_image,0u},
-         {paint::red_path,1u},{paint::blue_path,2u}},12u},
+         {paint::red_path,1u},{paint::blue_path,2u}},11u},
     {"mixed4_prefix_pp",profile::mixed,
         {{paint::red_path,0u},{paint::blue_path,0u},
-         {paint::red_image,1u},{paint::cyan_image,2u}},12u}
+         {paint::red_image,1u},{paint::cyan_image,2u}},11u}
 };
 static const clip_pair pairs[]={
     {shape::rectangle5,shape::rectangle5},
@@ -955,7 +955,7 @@ static bool run_tests()
     CHECK(staging_failures());
     for(size_t i:{8u,11u,20u})CHECK(source_failures(cases[i]));
     CHECK(bounded_scope_refusals() && source_controls());
-    CHECK(positive_count==253u && fault_count==261u && atomic_failures==42u);
+    CHECK(positive_count==253u && fault_count==248u && atomic_failures==42u);
     std::fprintf(stderr,"[native.sibling_clip_source_oom] %zu detached originals, %zu renders, "
         "%zu C faults, 8 C++ staging faults, %zu Source refusals, current Source controls completed\n",
         positive_count,2u*positive_count,fault_count,atomic_failures);

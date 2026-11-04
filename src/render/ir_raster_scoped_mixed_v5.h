@@ -9,13 +9,10 @@ extern "C" {
 
 /* Private, reusable bounded C11 Path/RAW Image compositor.
  *
- * Admits one integer-size page with 1..4 source-ordered opaque PATH
- * fills and/or normalized RAW Gray/RGB Images. Homogeneous IMAGE-only
- * pages may use four layers only without Clip or GS. Clipped IMAGE-only
- * pages permit at most two paints sharing one frozen Clip PATH leaf and
- * a single GS (full alpha, Normal blend, no soft-mask); a paint may use
- * GS0 after Q restores the original unclipped state.
- * Mixed PATH/IMAGE keeps its independent strict admission.
+ * Unclipped opaque PATH/normalized RAW Gray/RGB Image paints form an
+ * ordered collection sized from the actual operation count and charged
+ * against explicit resource limits. Clipped and Text scenes still have
+ * the existing graph/order restrictions in their responsible compilers.
  * Per-operation GS identity is immutable; 0 means Q restored no Clip.
  *
  * Every resource must be reachable, all image input, destination sampling
@@ -43,15 +40,20 @@ typedef enum quantapdf_native_scoped_profile_v5 {
 /* PRIVATE address-stable unique compiled collection. Geometry owns every
  * command/Clip value. RAW payloads borrow the parent IR owner, which must
  * outlive this collection. No live handle may be copied or its ledger reset. */
+typedef struct quantapdf_native_scoped_layer_v5 {
+    quantapdf_native_geometry_v1 geometry;
+    quantapdf_composer_operation image;
+    quantapdf_composer_image_state resource;
+    unsigned char mode; /* PATH, RAW, fractional mask, integer Clip, Text */
+    unsigned char image_seen; /* compilation resource reachability */
+} quantapdf_native_scoped_layer_v5;
 typedef struct quantapdf_native_scoped_page_v5 {
     quantapdf_native_work_ledger_v1 *ledger;
     quantapdf_composer_page_state page;
     quantapdf_ir_raster_v1_limits geometry_limits;
     quantapdf_ir_raster_image_v1_limits image_limits;
-    quantapdf_native_geometry_v1 geometry[4];
-    quantapdf_composer_operation images[4];
-    quantapdf_composer_image_state resources[4];
-    unsigned char modes[4]; /* 0 PATH, 1 RAW, 2 fractional mask, 3 integer Clip */
+    quantapdf_native_scoped_layer_v5 *layers;
+    size_t capacity;
     size_t width,height,pixels,bytes,count,drawn_pixels;
     int ready,executed;
 } quantapdf_native_scoped_page_v5;

@@ -72,13 +72,13 @@ static const scenario cases[]={
     {"single_image",graph::single,profile::image,
         {{paint::red_image,1u}},7u},
     {"single_mixed",graph::single,profile::mixed,
-        {{paint::red_image,1u},{paint::blue_path,1u},{paint::green_path,0u}},10u},
+        {{paint::red_image,1u},{paint::blue_path,1u},{paint::green_path,0u}},9u},
     {"root_path",graph::root,profile::paths,
         {{paint::blue_path,2u},{paint::green_path,0u}},9u},
     {"root_image",graph::root,profile::image,
         {{paint::red_image,2u}},9u},
     {"root_mixed",graph::root,profile::mixed,
-        {{paint::red_image,2u},{paint::blue_path,2u},{paint::green_path,0u}},12u},
+        {{paint::red_image,2u},{paint::blue_path,2u},{paint::green_path,0u}},11u},
     {"states_path",graph::states,profile::paths,
         {{paint::red_path,1u},{paint::blue_path,2u},
          {paint::magenta_path,1u},{paint::green_path,0u}},11u},
@@ -86,7 +86,7 @@ static const scenario cases[]={
         {{paint::red_image,1u},{paint::cyan_image,2u}},10u},
     {"states_mixed",graph::states,profile::mixed,
         {{paint::red_image,1u},{paint::blue_path,2u},
-         {paint::cyan_small_image,1u},{paint::green_path,0u}},13u}
+         {paint::cyan_small_image,1u},{paint::green_path,0u}},12u}
 };
 static const clip_pair pairs[]={
     {shape::triangles8,shape::rectangle_triangle9},
@@ -772,7 +772,7 @@ static bool run_tests()
     }
     for(size_t i:{2u,5u,8u})CHECK(source_failures(cases[i]));
     CHECK(malformed_failures() && source_controls());
-    CHECK(positive_count==152u && fault_count==88u);
+    CHECK(positive_count==152u && fault_count==85u);
     std::fprintf(stderr,"[native.compound_clip_source_oom] %zu detached originals, %zu renders, "
         "%zu C allocation faults, 30 Source refusals, V8/V9 controls completed\n",
         positive_count,2u*positive_count,fault_count);
