@@ -182,6 +182,12 @@ static int positive(void)
                                    got.size())==0);
         }
     }
+    for(int dpi:{72,96,144}) {
+        std::vector<unsigned char> positive,signed_rectangle;
+        CHECK(rendered_rgb(original("1 0 0 rg 3.875 4 8.125 6 re f",false,4,0),4,0,dpi,positive)==EXIT_SUCCESS);
+        CHECK(rendered_rgb(original("1 0 0 rg 12 4 -8.125 6 re f",false,4,0),4,0,dpi,signed_rectangle)==EXIT_SUCCESS);
+        CHECK(positive==signed_rectangle);
+    }
     return EXIT_SUCCESS;
 }
 
@@ -193,7 +199,7 @@ static int negative(void)
         "1 0 0 rg 4 4 -0 6 re f",
         "1 0 0 rg 4 4 -8 6 re f", /* outside strict MediaBox */
         "1 0 0 rg 4 4 8 -6 re f", /* outside strict MediaBox */
-        "1 0 0 rg 12 4 -8.125 6 re f", /* nonquarter */
+        "1 0 0 rg 12 4 -8.0625 6 re f", /* outside current eighth lattice */
         "1 0 0 rg 12 4 -8 6 re f BT ET",
         "1 0 0 rg 12 4 -8 6 re f 4 4 8 6 re S",
         "1 0 0 rg 12 4 -8 6 re f Q",

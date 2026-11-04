@@ -108,6 +108,19 @@ static std::vector<unsigned char> native_ttf_expanded_expected(int mode,unsigned
     const size_t width=(128u*dpi+71u)/72u,height=(64u*dpi+71u)/72u;
     std::vector<unsigned char> out(width*height*3u,255u);
     if(mode==23)return out;
+    if(mode==47) {
+        const double scale=double(dpi)/72.0;
+        for(size_t y=0u;y<height;++y)for(size_t x=0u;x<width;++x) {
+            unsigned hits=0u;
+            for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
+                const double px=(double(x)+(double(sx)+0.5)/4.0)/scale;
+                const double py=64.0-(double(y)+(double(sy)+0.5)/4.0)/scale;
+                hits+=unsigned(px>=25.125 && px<37.625 && py>=18.25 && py<27.75);
+            }
+            out[(y*width+x)*3u]=out[(y*width+x)*3u+1u]=static_cast<unsigned char>((255u*(16u-hits)+8u)/16u);
+        }
+        return out;
+    }
     if(mode==35) {
         const auto path=std::filesystem::path(__FILE__).parent_path()/"goldens"/
             ("roboto-mixed-"+std::to_string(dpi)+"-m1.rgba");
@@ -165,7 +178,7 @@ static int native_ttf_public_cases(const std::string& filename,int first=0,int l
     /* Each positive is a fresh ORIGINAL; this restores real text observation
      * coverage in the existing native-only public target as well. */
     for(int mode=first;mode<=last;++mode) {
-        const bool positive=mode<=9 || mode==11 || (mode>=32 && mode<=34) || mode==44 || mode==49 || mode==22 || mode==23 || mode==24 || mode==35 || mode==46;
+        const bool positive=mode<=9 || mode==11 || (mode>=32 && mode<=34) || mode==44 || mode==49 || mode==22 || mode==23 || mode==24 || mode==35 || mode==46 || mode==47;
         const auto original=(mode==44 || mode==49)?composer_ttf_original(mode==49):native_ttf_fixture(mode);
         const char *text_value=(mode==49 || mode==24)?"H":"Hello";
         CHECK(write_native_ttf_pdf(filename,original));
@@ -206,7 +219,7 @@ static int native_ttf_public_cases(const std::string& filename,int first=0,int l
             OK(quantapdf_bitmap_dimensions(bitmap,&w,&h,&stride,&components));
             OK(quantapdf_bitmap_data(bitmap,&pixels,&n));
             CHECK(w==(128*dpi+71)/72 && h==(64*dpi+71)/72 && stride==w*3 && components==3 && n==(size_t)stride*(size_t)h);
-            if(mode==22 || mode==23 || mode==35 || mode==46) {
+            if(mode==22 || mode==23 || mode==35 || mode==46 || mode==47) {
                 const auto expected=native_ttf_expanded_expected(mode,unsigned(dpi));
                 CHECK(expected.size()==n && std::memcmp(pixels,expected.data(),n)==0);
             } else if(mode==3 || mode==24) {for(size_t i=0u;i<n;++i)CHECK(pixels[i]==255u);}

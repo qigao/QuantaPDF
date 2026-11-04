@@ -28,10 +28,7 @@ inline std::vector<unsigned char> rgb(size_t page,unsigned dpi,unsigned mode)
             hits+=unsigned(px>=(g==0u?x0:0.0)*scale && px<(g==0u?x1:3.0)*scale &&
                 py>=(g==0u?y0:8.0)*scale && py<(g==0u?y1:10.0)*scale);
         }
-        // The current pure-Fill scene publishes sampled coverage as 8-bit alpha
-        // before source-over. General sampling/composition remains A2 work.
-        const unsigned alpha=(hits*255u+8u)/16u;
-        for(size_t c=0u;c<3u;++c) {auto& value=pixels[(y*w+x)*3u+c];value=static_cast<unsigned char>((colors[g][c]*alpha+unsigned(value)*(255u-alpha)+127u)/255u);}
+        for(size_t c=0u;c<3u;++c) {auto& value=pixels[(y*w+x)*3u+c];value=static_cast<unsigned char>((colors[g][c]*hits+unsigned(value)*(16u-hits)+8u)/16u);}
     }
     return pixels;
 }

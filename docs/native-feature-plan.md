@@ -88,8 +88,8 @@
   18 次完整独立 RGB（含 AES-256、选页、72/96/144 DPI 与 owner 释放），以及曲线、
   combined paint、Clip、GS、fill/stroke gradient、dash 的真实写出与 6 次明确 native 拒绝。
   调用后改写 commands、dash 和 gradient 输入，仍核对写出值；当前 state 用例的 Clip
-  也改由真实变换定位，保留原 RGB。纯 Fill 当前经过 8-bit alpha 再合成，仍有与直接
-  n/16 相差一个色阶的边缘；这一 A2 合成差异与复杂 paint 渲染不计作已完成。
+  也改由真实变换定位，保留原 RGB。该增量验收时，纯 Fill 经过 8-bit alpha 再合成，有与直接
+  n/16 相差一个色阶的边缘；下述 A2 增量统一 opaque Fill 的合成，复杂 paint 渲染仍未完成。
 
 ## A2 当前实现增量：动态 q/Q 状态
 
@@ -238,6 +238,33 @@
 - 两个 Clip 的固定组合、一般 Clip 图、BT 后新 Clip 定义、其余内容解释分段，以及
   纯 Fill/Image Clip 的固定组合仍待后续收敛；一般路径/Stroke、更多字体、任意页
   变换与 DPI 也未完成。现有命令、边数、采样和像素预算未提高，不代表完整 SDK。
+
+### A2 统一 opaque 场景与覆盖合成
+
+- 基于 #618 合并后的 master `d70848d76a8c860fa93c10016bf9f685ade2e5f8`；
+  独立 [Native CI #2429](https://github.com/qigao/QuantaPDF/actions/runs/41819545301)
+  四配置各 84/84。这是历史基线，不能代替本增量精确 HEAD 的验收。
+- 当前已发布的 opaque Fill/Image/Text 场景共用一个 C11 几何 owner、一个工作 ledger
+  和最终表面。普通 Path 使用原有 4×4 几何采样，字形保留原始轮廓的精确采样；每笔
+  paint 使用自身 GS 指向的 Clip 叶集合，依原始顺序直接 n/16 混色。反向共边统一从
+  同一端点计算交点，避免 96 DPI 下两条三角形轮廓的采样缝，独立矩形 RGB 对照通过。纯 Fill 不再先
+  量化为 8-bit alpha；添加空文字不会改变其他 paint 的边缘像素。
+- 删除两个 Clip 的三笔 Text/Fill/Image 正序、反序和 compound 专用 V5 编译入口、
+  准备阶段的精确三笔/矩形分类器及对应 route；现有 sibling/Intersection 图直接进入
+  同一场景编译器。反向 Image/Fill/Text 原件也能通过公开 Bitmap，逐 DPI 比较独立 RGB。
+  #607 的旧固定反向 profile 方案仍未合入；本实现直接复用 master 已有原件和轮廓资产。
+- 单根 Clip 的普通 Fill/Image 与包含 Text 的场景使用同一有序发布规则，支持实际 Q
+  恢复后的继续绘制和未观察 Clip；不再要求出现 BT 才能使用已有的小数矩形或动态 paint
+  容器。C11 按实际可见绘制范围计采样工作，不再为这些场景按图层均分总预算。
+- `quantapdf.native_scene_parity` 复用现有公开可执行文件，验证 480 次完整解析式 RGB：
+  有/无空文字、1/5/17/65 次 Image 加 Fill、W/W* 矩形/polygon/空 Clip、真实 Q 恢复、
+  72/96/144 DPI、AES-256 与错误密码、第二页、Document/Page/Context 释放及 Bitmap
+  保留；6 个晚到语法/资源/未实现 Stroke 错误不发布 Bitmap。现有 Source/C11 分配失败、
+  峰值字节与操作/边/采样/源/目标像素 N/N−1 用例按当前一 owner 路径验收，保留真实错误。
+- 此增量没有完成一般 Clip 图：Source 的双 Clip 解释/发布仍有顺序和数量分类，当前
+  C11 Clip 容器仍为 4 叶/7 节点，准备资源表仍至多 3 个状态。含 Stroke 的页面沿用
+  已有描边几何及 join 边界；一般 Stroke、BT 后定义 Clip、任意 affine、字体/颜色/codec、
+  页面几何与 DPI 支持仍待 A2–A5。所有 A1–A7 总项继续开放。
 
 ## 单一执行模型
 

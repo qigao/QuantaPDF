@@ -816,8 +816,9 @@ static int native_m2b2j_public_fractional(const std::string& filename)
         native_ttf_fractional_reference expected;
     };
     std::vector<held_clip_bitmap> retained_scopes;
-    for(int mode:{83,84,99,100,105,106,113,114,126,127,145,146}) {
-        const bool compound=mode==126 || mode==127 || mode==145 || mode==146;
+    for(int mode:{83,84,99,100,105,106,113,114,126,127,144,145,146,147,148,168,169}) {
+        const bool compound=mode==126 || mode==127 || mode==144 || mode==145 || mode==146;
+        const bool reverse=mode==147 || mode==148 || mode==168 || mode==169;
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         quantapdf_document *document=nullptr;quantapdf_page *page=nullptr;
         OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
@@ -826,13 +827,17 @@ static int native_m2b2j_public_fractional(const std::string& filename)
         for(unsigned dpi:{72u,96u,144u}) {
             const auto expected=native_ttf_fractional_expected(mode,dpi);
             CHECK(!expected.rgb.empty());
-            if(mode>=99 && mode!=126 && mode!=127)CHECK(expected.disjoint>0u && expected.overlap>0u &&
+            if((reverse?mode>=168:mode>=99 && mode!=126 && mode!=127 && mode!=144))CHECK(expected.disjoint>0u && expected.overlap>0u &&
                               expected.spurious>0u);
             if(mode==105 || mode==106)CHECK(expected.restored_outside>0u);
             if(mode==106)CHECK(expected.restored_inside>0u &&
                 expected.restored_over_text>0u && expected.restored_over_fill>0u &&
                 expected.restored_over_image>0u);
-            if(mode==113 || mode==114)CHECK(expected.sibling_old_only>0u &&
+            if(reverse)CHECK(expected.reverse_old_only>0u && expected.reverse_new_only>0u &&
+                expected.reverse_wrong_text_root>0u && expected.reverse_wrong_image_fill_root>0u &&
+                expected.reverse_wrong_intersection>0u && expected.reverse_text_samples>0u &&
+                expected.reverse_fill_samples>0u && expected.reverse_image_samples>0u);
+            else if(mode==113 || mode==114)CHECK(expected.sibling_old_only>0u &&
                 expected.sibling_new_only>0u && expected.sibling_wrong_root>0u &&
                 expected.sibling_wrong_intersection>0u);
             if(compound) {
@@ -852,26 +857,25 @@ static int native_m2b2j_public_fractional(const std::string& filename)
             }
             if(mode==106 && dpi==96u) {
                 retained=bitmap;retained_reference=expected;
-            } else if(mode==113 || mode==114 || compound) {
+            } else if(mode==113 || mode==114 || compound || reverse) {
                 retained_scopes.push_back({bitmap,expected});
             } else quantapdf_drop_bitmap(bitmap);
         }
         quantapdf_drop_page(page);quantapdf_close(document);
     }
-    /* Malformed original scopes, skew/cubic Clip or suffix, a fifth
-     * paint and unqualified reverse orders refuse atomically. Source-only
-     * reverse siblings 147/148/168/169 still refuse public Bitmaps at all three DPIs. */
+    /* Remaining malformed scopes and unsupported Source geometry fail
+     * atomically. Reverse siblings use the same scene and public Bitmap. */
     for(int mode:{101,102,103,104,107,108,109,110,111,112,
                   115,116,117,118,119,120,121,122,123,124,125,
-                  128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,
-                  147,148,149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167,168,169}) {
+                  128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,
+                  149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167}) {
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         quantapdf_document *document=nullptr;quantapdf_page *page=nullptr;
         OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(document,0,&page));
         for(unsigned dpi:{72u,96u,144u}) {
-            if(dpi!=96u && mode!=147 && mode!=148 && mode!=168 && mode!=169)continue;
+            if(dpi!=96u)continue;
             quantapdf_render_options options{};
             options.dpi=(float)dpi;
             quantapdf_bitmap *denied=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
@@ -901,7 +905,7 @@ static int native_m2b2j_public_fractional(const std::string& filename)
     quantapdf_drop_page(page);quantapdf_close(document);
     /* Sibling and compound originals recover on the SAME Context after every
      * malformed scope/root/order original, using independent bytes. */
-    for(int mode:{113,114,126,127,145,146}) {
+    for(int mode:{113,114,126,127,144,145,146,147,148,168,169}) {
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         document=nullptr;page=nullptr;
         OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
@@ -918,12 +922,12 @@ static int native_m2b2j_public_fractional(const std::string& filename)
     quantapdf_drop_context(context);
     CHECK(matches(retained,retained_reference));
     quantapdf_drop_bitmap(retained);
-    CHECK(retained_scopes.size()==18u);
+    CHECK(retained_scopes.size()==33u);
     for(const auto& held:retained_scopes) {
         CHECK(matches(held.bitmap,held.expected));
         quantapdf_drop_bitmap(held.bitmap);
     }
-    std::puts("M2b2j/k/n/q public fractional single/sibling/compound W/W* RGB, wrong-root controls, recovery/lifetime PASS");
+    std::puts("Unified public fractional single/sibling/reverse/compound W/W* RGB, wrong-root controls, recovery/lifetime PASS");
     return EXIT_SUCCESS;
 }
 
@@ -2585,7 +2589,7 @@ static int cropped_source_v10_cases(const std::string& filename)
             CHECK(w==16 && h==16 && s==48 && ch==3 &&
                   bytes==768u && rgb!=nullptr);
             CHECK(probe_rgb(rgb,s,4,6,255u,0u,0u));
-            CHECK(probe_rgb(rgb,s,15,6,127u,255u,127u));
+            CHECK(probe_rgb(rgb,s,15,6,128u,255u,128u));
             CHECK(probe_rgb(rgb,s,15,1,255u,255u,255u));
             quantapdf_drop_bitmap(bm);
         } else
@@ -2700,7 +2704,7 @@ static int native_fractional_quarter_cases(const std::string& filename)
                 CHECK(probe_rgb(px,s,4,22,255u,255u,255u));
                 CHECK(probe_rgb(px,s,5,22,255u,0u,0u));
             } else {
-                CHECK(probe_rgb(px,s,7,32,255u,127u,127u));
+                CHECK(probe_rgb(px,s,7,32,255u,128u,128u));
                 CHECK(probe_rgb(px,s,8,32,255u,0u,0u));
             }
         }
@@ -2715,7 +2719,7 @@ static int native_fractional_quarter_cases(const std::string& filename)
                 CHECK(probe_rgb(px,s,31,16,64u,255u,64u));
                 CHECK(probe_rgb(px,s,11,16,255u,0u,0u));
             } else {
-                CHECK(probe_rgb(px,s,47,24,127u,255u,127u));
+                CHECK(probe_rgb(px,s,47,24,128u,255u,128u));
                 CHECK(probe_rgb(px,s,17,24,255u,0u,0u));
             }
         }
@@ -2728,7 +2732,7 @@ static int native_fractional_quarter_cases(const std::string& filename)
                 CHECK(probe_rgb(px,s,21,10,255u,255u,255u));
             } else {
                 CHECK(probe_rgb(px,s,30,14,0u,255u,0u));
-                CHECK(probe_rgb(px,s,31,14,127u,255u,127u));
+                CHECK(probe_rgb(px,s,31,14,128u,255u,128u));
             }
         }
         if(fixture>=2 && kind==3u)
@@ -3059,7 +3063,7 @@ static int native_fractional_span_cases(const std::string& filename)
              * last pixel rows and columns are not force-stretched. */
             CHECK(probe_rgb(pixels,stride,5,5,255u,0u,0u));
             if(dpi==72) {
-                CHECK(probe_rgb(pixels,stride,16,4,255u,127u,127u));
+                CHECK(probe_rgb(pixels,stride,16,4,255u,128u,128u));
                 CHECK(probe_rgb(pixels,stride,4,12,255u,191u,191u));
                 CHECK(probe_rgb(pixels,stride,16,12,255u,223u,223u));
             } else if(dpi==96) {
@@ -3067,18 +3071,18 @@ static int native_fractional_span_cases(const std::string& filename)
                 CHECK(probe_rgb(pixels,stride,5,16,255u,191u,191u));
             } else {
                 CHECK(probe_rgb(pixels,stride,32,4,255u,0u,0u));
-                CHECK(probe_rgb(pixels,stride,5,24,255u,127u,127u));
+                CHECK(probe_rgb(pixels,stride,5,24,255u,128u,128u));
             }
         }
         if(mode==2) {
             if(dpi==72) {
-                CHECK(probe_rgb(pixels,stride,16,2,127u,255u,127u));
+                CHECK(probe_rgb(pixels,stride,16,2,128u,255u,128u));
                 CHECK(probe_rgb(pixels,stride,4,12,191u,191u,255u));
                 CHECK(probe_rgb(pixels,stride,16,12,255u,255u,223u));
             } else if(dpi==96) {
                 CHECK(probe_rgb(pixels,stride,20,16,255u,255u,191u));
             } else {
-                CHECK(probe_rgb(pixels,stride,32,24,255u,255u,127u));
+                CHECK(probe_rgb(pixels,stride,32,24,255u,255u,128u));
             }
         }
         const std::vector<unsigned char> stable(pixels,pixels+size);
@@ -3548,34 +3552,6 @@ static int native_original_userunit_cases(const std::string& filename)
             originals[kind],(int)kind,qu,original_turn,true);
         const auto unit_pdf=original_unit_source_or_physical_reference(
             originals[kind],(int)kind,qu,original_turn,false);
-        if(kind==3u && qu==16 && dpi>=96) {
-            /* Native work quota is device-space: at UserUnit4,
-             * 96/144 DPI, this 32x24 mixed PATH+W Clip source
-             * requires more than the existing 8M sampled edge
-             * budget. Both equivalent original PDFs must refuse,
-             * without partial output, not raise production limits. */
-            for(const auto& denied_pdf:{reference,unit_pdf}) {
-                CHECK(write_pdf(filename,denied_pdf));
-                quantapdf_document *d=nullptr;
-                quantapdf_page *p=nullptr;
-                quantapdf_bitmap *out=
-                    reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-                OK(quantapdf_open(
-                    filename.c_str(),nullptr,&d));
-                CHECK(std::remove(filename.c_str())==0);
-                OK(quantapdf_load_page(d,0,&p));
-                quantapdf_render_options costly_options{};
-                costly_options.dpi=(float)dpi;
-                const auto denied_status=
-                    quantapdf_render_page_with_options(
-                        p,&costly_options,&out);
-                CHECK(denied_status==QUANTAPDF_ERROR_UNSUPPORTED &&
-                      out==nullptr);
-                quantapdf_drop_page(p);
-                quantapdf_close(d);
-            }
-            continue;
-        }
         CHECK(write_pdf(filename,reference));
         quantapdf_context *ctx=nullptr;
         quantapdf_document *doc=nullptr;
@@ -4148,10 +4124,13 @@ static int native_seventh_userunit_late_refusal_cases(
 #include "native_ordered_clip_cases.h"
 #include "native_composer_state_cases.h"
 #include "native_composer_geometry_cases.h"
+#include "native_scene_parity_cases.h"
 
 int main(int argc,char **argv)
 {
     const std::string filename="native-standalone-smoke.pdf";
+    if(argc==2 && std::strcmp(argv[1],"--scene-parity")==0)
+        return scene_parity_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--composer-geometry")==0)
         return composer_geometry_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--composer-state")==0)
@@ -4599,7 +4578,7 @@ int main(int argc,char **argv)
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(image_doc,0,&image_page));
         const auto result=quantapdf_render_page(image_page,&rendered);
-        const bool clipped=mode==5 || mode==9 || mode==11 || mode==13;
+        const bool clipped=mode==5 || mode==9 || mode==11 || mode==12 || mode==13;
         const bool unclipped_images=mode==6 || mode==17 || mode==18 ||
                                    mode==20 || mode==21;
         if(mode>=4 && !clipped && !unclipped_images) {
@@ -4866,7 +4845,7 @@ int main(int argc,char **argv)
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&clipped_page));
         const auto st=quantapdf_render_page(clipped_page,&filled);
-        if(mode>=2) {
+        if(mode>=3) {
             const auto rejection=(mode==4 || mode==5)?
                 QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED;
             CHECK(st==rejection && filled==nullptr);
@@ -4886,11 +4865,11 @@ int main(int argc,char **argv)
             /* Clip x=[12,20), y=[9,18). The Image paints on its
              * left half, while the blue PATH covers the whole Clip. */
             CHECK(probe_rgb(bytes,clipped_stride,13,11,
-                0u,mode==1?255u:0u,mode==1?0u:255u));
+                mode==2?255u:0u,mode==1?255u:0u,mode==0?255u:0u));
             CHECK(probe_rgb(bytes,clipped_stride,13,16,
-                mode==1?255u:0u,mode==1?255u:0u,mode==1?0u:255u));
-            CHECK(probe_rgb(bytes,clipped_stride,18,11,0u,0u,255u));
-            CHECK(probe_rgb(bytes,clipped_stride,18,16,0u,0u,255u));
+                mode==1?255u:mode==2?255u:0u,mode==1?255u:0u,mode==0?255u:0u));
+            CHECK(probe_rgb(bytes,clipped_stride,18,11,mode==2?255u:0u,0u,mode==2?0u:255u));
+            CHECK(probe_rgb(bytes,clipped_stride,18,16,mode==2?255u:0u,0u,mode==2?0u:255u));
             CHECK(probe_rgb(bytes,clipped_stride,11,11,255u,255u,255u));
             CHECK(probe_rgb(bytes,clipped_stride,20,11,255u,255u,255u));
             CHECK(probe_rgb(bytes,clipped_stride,13,19,255u,255u,255u));
@@ -4906,10 +4885,10 @@ int main(int argc,char **argv)
             CHECK(w==16 && h==12 && clipped_stride==48 && channels==3 &&
                   other_count==16u*12u*3u && other!=nullptr);
             CHECK(probe_rgb(other,clipped_stride,6,5,
-                0u,mode==1?255u:0u,mode==1?0u:255u));
+                mode==2?255u:0u,mode==1?255u:0u,mode==0?255u:0u));
             CHECK(probe_rgb(other,clipped_stride,6,8,
-                mode==1?255u:0u,mode==1?255u:0u,mode==1?0u:255u));
-            CHECK(probe_rgb(other,clipped_stride,9,5,0u,0u,255u));
+                mode==1?255u:mode==2?255u:0u,mode==1?255u:0u,mode==0?255u:0u));
+            CHECK(probe_rgb(other,clipped_stride,9,5,mode==2?255u:0u,0u,mode==2?0u:255u));
             CHECK(probe_rgb(other,clipped_stride,5,5,255u,255u,255u));
         }
         quantapdf_drop_page(clipped_page);
@@ -4920,7 +4899,7 @@ int main(int argc,char **argv)
             size_t n=0u;
             OK(quantapdf_bitmap_data(filled,&detached,&n));
             CHECK(detached!=nullptr && n==32u*24u*3u &&
-                  probe_rgb(detached,96,18,11,0u,0u,255u));
+                  probe_rgb(detached,96,18,11,mode==2?255u:0u,0u,mode==2?0u:255u));
         }
         quantapdf_drop_bitmap(small);
         quantapdf_drop_bitmap(filled);

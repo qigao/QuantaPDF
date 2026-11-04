@@ -74,12 +74,15 @@ quantapdf_status quantapdf_native_geometry_execute_v1(
 quantapdf_status quantapdf_native_geometry_info_get_v1(
     const quantapdf_native_geometry_v1 *geometry,quantapdf_native_geometry_info_v1 *out);
 void quantapdf_native_geometry_dispose_v1(quantapdf_native_geometry_v1 *geometry);
-quantapdf_status quantapdf_native_geometry_prepare_text_v1(
+/* Ordered opaque Fill/Image/Text with per-draw frozen Clip identities.
+ * Geometry, glyph commands and descriptors are retained; RAW bytes borrow the
+ * enclosing Source owner. One ledger charges preparation and every execution. */
+quantapdf_status quantapdf_native_geometry_prepare_scene_v1(
     const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
     const quantapdf_native_device_plan *plan,quantapdf_native_work_ledger_v1 *ledger,
     quantapdf_native_geometry_v1 *out);
-/* M2b.2a private only: exact Text glyph AND one frozen owned Clip at
- * the same 16 subpixels. Does not admit Source V10 Text+Clip yet. */
+/* Correlation primitive: exact Text glyph AND one explicit frozen Clip at
+ * the same 16 subpixels. Page scenes bind registry roots per draw above. */
 quantapdf_status quantapdf_native_geometry_prepare_text_clipped_v1(
     const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
     const quantapdf_native_device_plan *plan,
@@ -107,7 +110,7 @@ quantapdf_status quantapdf_ir_raster_render_v1_texample_accounted(
     const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
     const quantapdf_native_device_plan *plan,quantapdf_native_work_ledger_v1 *ledger,
     quantapdf_ir_raster_image *out_image);
-quantapdf_status quantapdf_ir_raster_render_v1_text_outlines_accounted(
+quantapdf_status quantapdf_ir_raster_render_v1_scene_accounted(
     const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
     const quantapdf_native_device_plan *plan,quantapdf_native_work_ledger_v1 *ledger,
     quantapdf_ir_raster_image *out_image);
@@ -269,7 +272,7 @@ quantapdf_status quantapdf_ir_raster_render_v1_texample_physical_dpi_three_layer
  * Expansion uses count-sized
  * temporary storage with the 4096-command and existing 512-edge/8M/1M-pixel
  * budgets. Atomic output even on a late glyph. */
-quantapdf_status quantapdf_ir_raster_render_v1_text_outlines(
+quantapdf_status quantapdf_ir_raster_render_v1_scene(
     const quantapdf_ir *source,const quantapdf_ir_raster_v1_limits *limits,
     const quantapdf_native_device_plan *plan,size_t *out_sample_tests,quantapdf_ir_raster_image *out_image);
 

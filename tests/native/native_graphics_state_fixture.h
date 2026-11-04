@@ -100,11 +100,10 @@ inline std::vector<unsigned char> rgb(unsigned dpi,bool clipped,bool images)
                 hits+=unsigned(xx>=left*unit && xx<right*unit &&
                     (!clipped || (xx>=unit && xx<11u*unit && yy>=unit && yy<8u*unit)));
             }
-            const unsigned alpha=(hits*255u+8u)/16u;
             const auto& color=colors[images && paint==1u?2u:paint];
             for(size_t c=0u;c<3u;++c) {
                 auto& dst=output[(y*width+x)*3u+c];
-                dst=static_cast<unsigned char>((color[c]*alpha+unsigned(dst)*(255u-alpha)+127u)/255u);
+                dst=static_cast<unsigned char>((color[c]*hits+unsigned(dst)*(16u-hits)+8u)/16u);
             }
         }
     return output;

@@ -207,6 +207,19 @@ static int path_scope_positive()
         CHECK(rendered_rgb(original(base+" q f Q",false,quarters,rotation),quarters,rotation,dpi,closed)==EXIT_SUCCESS);
         CHECK(rendered_rgb(original(transformed,false,quarters,rotation),quarters,rotation,dpi,saved)==EXIT_SUCCESS);
         CHECK(reference==closed && reference==saved);
+        std::vector<unsigned char> unobserved_clip;
+        CHECK(rendered_rgb(original(base+" f 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h W n",false,quarters,rotation),quarters,rotation,dpi,unobserved_clip)==EXIT_SUCCESS);
+        CHECK(reference==unobserved_clip);
+    }
+    return EXIT_SUCCESS;
+}
+
+static int unpainted_clip()
+{
+    for(const char *rule:{"W","W*"})for(int dpi:{72,96,144}) {
+        std::vector<unsigned char> pixels;
+        CHECK(rendered_rgb(original(std::string("q 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h ")+rule+" n Q",false,4,0),4,0,dpi,pixels)==EXIT_SUCCESS);
+        for(unsigned char value:pixels)CHECK(value==255u);
     }
     return EXIT_SUCCESS;
 }
@@ -224,13 +237,10 @@ static int negative(void)
         "4 5 m 4.125 18 20 18 20 5 c 20 4 l 4 4 l h f",
         "4 5 m 4 -1 20 18 20 5 c 20 4 l 4 4 l h f",
         "4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h 4 18 20 18 20 5 c f",
-        "q 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h W n Q",
-        "q 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h W* n Q",
         "4 5 m 4 18 20 18 20 5 v 20 4 l 4 4 l h f",
         "4 5 m 4 18 20 18 20 5 y 20 4 l 4 4 l h f",
         "1 0 0 rg 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h f BT ET",
         "1 0 0 rg 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h f 4 5 m 4 18 20 18 20 5 c S",
-        "1 0 0 rg 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h f 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h W n",
         "q 16 0 0 12 8 3 cm /I Do Q 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h f Q",
         "q 16 0 0 12 8 3 cm /Missing Do Q 1 0 0 rg 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h f"
     };
@@ -335,8 +345,6 @@ static int shorthand_negative(void)
         "4 5 m /Bad 18 20 5 v 20 4 l 4 4 l h f",
         "4 5 m 20.125 18 20 5 v 20 4 l 4 4 l h f",
         "4 5 m 4 -1 20 5 y 20 4 l 4 4 l h f",
-        "4 5 m 20 18 20 5 v 20 4 l 4 4 l h W n",
-        "4 5 m 4 18 20 5 y 20 4 l 4 4 l h W* n",
         "4 5 m 20 18 20 5 v 20 4 l 4 4 l h S",
         "4 5 m 4 18 20 5 y 20 4 l 4 4 l h B",
         "1 0 0 rg 4 5 m 20 18 20 5 v 20 4 l 4 4 l h f "
@@ -370,6 +378,7 @@ int main()
 {
     CHECK(positive()==EXIT_SUCCESS);
     CHECK(path_scope_positive()==EXIT_SUCCESS);
+    CHECK(unpainted_clip()==EXIT_SUCCESS);
     CHECK(negative()==EXIT_SUCCESS);
     CHECK(shorthand_positive()==EXIT_SUCCESS);
     CHECK(shorthand_negative()==EXIT_SUCCESS);

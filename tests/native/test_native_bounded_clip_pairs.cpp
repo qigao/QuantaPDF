@@ -566,7 +566,7 @@ static int same_sample_intersection()
                 rendered single;
                 CHECK(render(original(one_prefix(path)+paint+"Q",cfg,
                                       with_image),cfg,single)==EXIT_SUCCESS);
-                CHECK(pixel(single,7,4)==UINT32_C(0xff7f7f));
+                CHECK(pixel(single,7,4)==UINT32_C(0xff8080));
             }
             CHECK(pixel(actual,7,4)==UINT32_C(0xffffff));
         }
@@ -574,11 +574,9 @@ static int same_sample_intersection()
     return EXIT_SUCCESS;
 }
 
-/* Two three-edge triangles plus a four-edge paint cost ten edge tests
- * per sample. Four compact layers fit: 10*16*40*30=192,000 each. Changing
- * only MediaBox to 64x48 gives 10*16*160*120=3,072,000 per layer, beyond
- * the unchanged 8,000,000/4=2,000,000 allowance. Refuse atomically. */
-static int fixed_sample_budget()
+/* The larger viewport uses the actual work of the complete scene,
+ * including bounded paint extents, without a fixed per-layer share. */
+static int shared_sample_budget()
 {
     const std::string content=pair_prefix(triangle_a,triangle_b)+
         full_red+full_red+full_red+full_red+"Q";
@@ -588,8 +586,8 @@ static int fixed_sample_budget()
     CHECK(render(original(content,cfg),cfg,compact)==EXIT_SUCCESS);
     CHECK(ink_and_white(compact));
     cfg.large_media=true;
-    CHECK(rejected(content,cfg,false,QUANTAPDF_ERROR_UNSUPPORTED)
-          ==EXIT_SUCCESS);
+    rendered enlarged;
+    CHECK(render(original(content,cfg),cfg,enlarged)==EXIT_SUCCESS && ink_and_white(enlarged));
     return EXIT_SUCCESS;
 }
 
@@ -675,7 +673,7 @@ int main()
     CHECK(frozen_ctms_mixed_and_streams()==EXIT_SUCCESS);
     CHECK(ordered_path_layers()==EXIT_SUCCESS);
     CHECK(same_sample_intersection()==EXIT_SUCCESS);
-    CHECK(fixed_sample_budget()==EXIT_SUCCESS);
+    CHECK(shared_sample_budget()==EXIT_SUCCESS);
     CHECK(atomic_refusals()==EXIT_SUCCESS);
     std::printf("bounded two-Clip original PDFs: %zu successful renders, "
                 "%zu atomic refusals\n",positive_calls,negative_calls);

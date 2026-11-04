@@ -601,11 +601,9 @@ static int same_sample_prefix_survival()
     return EXIT_SUCCESS;
 }
 
-/* The new prefix is still one of the SAME four sampled layers. On
- * 56x42 Media at 2.5x the 140x105 prefix costs 4*16*14700=940,800;
- * the first-Clip layer costs 7*16*14700=1,646,400; intersection costs
- * 10*16*14700=2,352,000, exceeding the unchanged 8m/4=2,000,000. */
-static int fixed_sample_budget()
+/* All paint work uses the one scene budget. The larger viewport formerly
+ * exceeded a per-layer quarter share despite fitting the complete page. */
+static int shared_sample_budget()
 {
     const std::string content=full_red+one_prefix(triangle_a)+full_green+
         triangle_b+" W* n "+full_blue+"Q "+cyan_suffix;
@@ -615,8 +613,8 @@ static int fixed_sample_budget()
     CHECK(render(original(content,cfg),cfg,compact)==EXIT_SUCCESS);
     CHECK(!all_white(compact));
     cfg.media_w=56;cfg.media_h=42;
-    CHECK(rejected(content,cfg,false,QUANTAPDF_ERROR_UNSUPPORTED)
-          ==EXIT_SUCCESS);
+    rendered enlarged;
+    CHECK(render(original(content,cfg),cfg,enlarged)==EXIT_SUCCESS && !all_white(enlarged));
     return EXIT_SUCCESS;
 }
 
@@ -626,9 +624,6 @@ static int atomic_refusals()
     const std::string second=one_prefix(rectangle_b,true);
     const std::string ready=full_red+first+full_blue+"Q";
     const std::vector<std::string> bad={
-        full_red+first+"Q", /* prefix does not qualify an unused Clip */
-        red_image+first+"Q",
-        full_red+first+"Q "+full_blue,
         ready+" "+one_prefix(rectangle_b)+full_blue+"Q "+
             one_prefix(rectangle_a)+full_blue+"Q", /* third definition */
         full_red+first+full_green+second+full_blue+
@@ -637,16 +632,10 @@ static int atomic_refusals()
         /* Prefix+first+intersection+restored-first+suffix is FIVE. */
         full_red+first+full_green+second+full_blue+
             "Q "+full_green+"Q "+cyan_suffix,
-        full_red+full_red+full_red+full_red+first+full_blue+"Q",
-        full_red+full_red+full_red+first+full_blue+"Q "+cyan_suffix,
         /* Two-GS IMAGE-only plus a prefix would require three Images. */
         red_image+first+red_image+second+blue_image+"Q Q",
-        red_image+red_image+first+blue_image+"Q",
-        red_image+red_image+red_image+first+full_blue+"Q",
-        full_red+full_red+full_red+first+blue_image+"Q",
         /* These fit final 2-Image/2-PATH limits but stage THREE mixed
          * prefix paints, outside the retained unclipped forms. */
-        red_image+red_image+red_image+red_image+first+full_blue+"Q",
         "1 0 0 rg "+compound+" f "+first+full_blue+"Q",
         compound+" n "+full_red+first+full_blue+"Q",
         full_red+"q 2 2 10 8 re 6 4 4 3 re W n "+full_blue+"Q",
@@ -669,8 +658,18 @@ static int atomic_refusals()
             full_red+full_red+full_red+first+full_blue+"Q",cfg,true)==EXIT_SUCCESS);
         CHECK(compare(full_red+red_image+full_red+first+blue_image+"Q",
             full_red+full_red+full_red+first+full_blue+"Q",cfg,true)==EXIT_SUCCESS);
-        CHECK(rejected(red_image+full_red+first+full_blue+"Q "+cyan_suffix,cfg,true)==EXIT_SUCCESS);
-        CHECK(rejected(full_red+red_image+first+blue_image+"Q "+red_image,cfg,true)==EXIT_SUCCESS);
+        CHECK(compare(red_image+full_red+first+full_blue+"Q "+cyan_suffix,full_red+full_red+first+full_blue+"Q "+cyan_suffix,cfg,true)==EXIT_SUCCESS);
+        CHECK(compare(full_red+red_image+first+blue_image+"Q "+red_image,full_red+full_red+first+full_blue+"Q "+full_red,cfg,true)==EXIT_SUCCESS);
+    }
+    for(int dpi:{72,96,144}) {
+        configuration cfg;cfg.dpi=dpi;
+        CHECK(compare(full_red+first+"Q",full_red,cfg,false)==EXIT_SUCCESS);
+        CHECK(compare(red_image+first+"Q",full_red,cfg,true)==EXIT_SUCCESS);
+        CHECK(compare(full_red+first+"Q "+full_blue,full_red+full_blue,cfg,false)==EXIT_SUCCESS);
+        CHECK(compare(red_image+red_image+first+blue_image+"Q",full_red+full_red+first+full_blue+"Q",cfg,true)==EXIT_SUCCESS);
+        CHECK(compare(red_image+red_image+red_image+first+full_blue+"Q",full_red+full_red+full_red+first+full_blue+"Q",cfg,true)==EXIT_SUCCESS);
+        CHECK(compare(full_red+full_red+full_red+first+blue_image+"Q",full_red+full_red+full_red+first+full_blue+"Q",cfg,true)==EXIT_SUCCESS);
+        CHECK(compare(red_image+red_image+red_image+red_image+first+full_blue+"Q",full_red+full_red+full_red+full_red+first+full_blue+"Q",cfg,true)==EXIT_SUCCESS);
     }
     for(const auto& content:bad)
     for(int dpi:{72,96,144}) {
@@ -724,7 +723,7 @@ int main()
     CHECK(projection_ctms_and_streams()==EXIT_SUCCESS);
     CHECK(formerly_refused_originals()==EXIT_SUCCESS);
     CHECK(same_sample_prefix_survival()==EXIT_SUCCESS);
-    CHECK(fixed_sample_budget()==EXIT_SUCCESS);
+    CHECK(shared_sample_budget()==EXIT_SUCCESS);
     CHECK(atomic_refusals()==EXIT_SUCCESS);
     std::printf("unclipped-prefix original PDFs: %zu successful renders, "
                 "%zu atomic refusals\n",positive_calls,negative_calls);
