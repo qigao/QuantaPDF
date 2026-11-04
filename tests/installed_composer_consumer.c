@@ -239,8 +239,6 @@ int main(int argc, char **argv)
         fprintf(stderr, "form ID was not published\n");
         goto fail;
     }
-    soft_mask.struct_size =
-        QUANTAPDF_COMPOSER_SOFT_MASK_OPTIONS_V1_SIZE;
     soft_mask.mode = QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA;
     soft_mask.transform = (quantapdf_affine_transform){
         1.0f, 0.0f, 0.0f, 1.0f, 180.0f, 30.0f
@@ -308,8 +306,6 @@ int main(int argc, char **argv)
         goto fail;
     }
 
-    graphics_state.struct_size =
-        QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V3_SIZE;
     graphics_state.fill_alpha = 0.75f;
     graphics_state.stroke_alpha = 0.75f;
     graphics_state.blend_mode = QUANTAPDF_COMPOSER_BLEND_MULTIPLY;

@@ -105,8 +105,6 @@ static quantapdf_status half_alpha_content_builder(
     quantapdf_status status;
 
     (void)user_data;
-    state.struct_size =
-        QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE;
     state.fill_alpha = 0.5f;
     state.stroke_alpha = 0.5f;
     state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
@@ -213,56 +211,7 @@ static int pixel_near(
         near_channel(p[2], b, tolerance);
 }
 
-static int make_zero_mask_output(
-    int v3,
-    unsigned char **out_data,
-    size_t *out_size)
-{
-    quantapdf_composer *composer = NULL;
-    quantapdf_composer_graphics_state_options state = {0};
-    quantapdf_composer_graphics_state_id state_id = 0u;
-    quantapdf_output *output = NULL;
-    const unsigned char *data = NULL;
-    size_t size = 0u;
-    size_t page_index = SIZE_MAX;
-
-    *out_data = NULL;
-    *out_size = 0u;
-    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
-    CHECK(add_page(composer, 100.0f, 80.0f, &page_index));
-    state.struct_size = v3
-        ? QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V3_SIZE
-        : QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE;
-    state.fill_alpha = 0.75f;
-    state.stroke_alpha = 0.75f;
-    state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
-    state.clip_id = 0u;
-    state.soft_mask_id = 0u;
-    CHECK(quantapdf_composer_add_graphics_state(
-              composer, &state, &state_id) == QUANTAPDF_OK);
-    CHECK(draw_rect(
-              composer,
-              page_index,
-              10.0f,
-              10.0f,
-              90.0f,
-              70.0f,
-              UINT32_C(0xffff0000),
-              state_id) == QUANTAPDF_OK);
-    CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
-    CHECK(quantapdf_output_data(output, &data, &size) == QUANTAPDF_OK);
-
-    *out_data = (unsigned char *)malloc(size);
-    CHECK(*out_data != NULL);
-    memcpy(*out_data, data, size);
-    *out_size = size;
-
-    quantapdf_drop_output(output);
-    quantapdf_drop_composer(composer);
-    return 0;
-}
-
-static int test_validation_dedup_and_v2_identity(void)
+static int test_validation_and_dedup(void)
 {
     quantapdf_composer *composer = NULL;
     quantapdf_composer_form_options ordinary = {0};
@@ -273,17 +222,6 @@ static int test_validation_dedup_and_v2_identity(void)
     quantapdf_composer_soft_mask_id id = 99u;
     quantapdf_composer_soft_mask_id duplicate = 0u;
     quantapdf_composer_soft_mask_id distinct = 0u;
-    unsigned char *v2 = NULL;
-    unsigned char *v3 = NULL;
-    size_t v2_size = 0u;
-    size_t v3_size = 0u;
-
-    CHECK(make_zero_mask_output(0, &v2, &v2_size) == 0);
-    CHECK(make_zero_mask_output(1, &v3, &v3_size) == 0);
-    CHECK(v2_size == v3_size);
-    CHECK(memcmp(v2, v3, v2_size) == 0);
-    free(v3);
-    free(v2);
 
     CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
 
@@ -310,7 +248,6 @@ static int test_validation_dedup_and_v2_identity(void)
               NULL,
               &group_id) == QUANTAPDF_OK);
 
-    options.struct_size = QUANTAPDF_COMPOSER_SOFT_MASK_OPTIONS_V1_SIZE;
     options.mode = QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA;
 
     id = 99u;
@@ -330,12 +267,6 @@ static int test_validation_dedup_and_v2_identity(void)
     CHECK(quantapdf_composer_add_soft_mask(
               composer, group_id, &options, NULL) ==
           QUANTAPDF_ERROR_ARGUMENT);
-
-    options.struct_size = 0u;
-    CHECK(quantapdf_composer_add_soft_mask(
-              composer, group_id, &options, &id) ==
-          QUANTAPDF_ERROR_ARGUMENT);
-    options.struct_size = QUANTAPDF_COMPOSER_SOFT_MASK_OPTIONS_V1_SIZE;
 
     options.mode = (quantapdf_composer_soft_mask_mode)99;
     CHECK(quantapdf_composer_add_soft_mask(
@@ -426,7 +357,6 @@ static int test_alpha_luminosity_render_and_dictionary(void)
               NULL,
               &luminosity_form_id) == QUANTAPDF_OK);
 
-    mask.struct_size = QUANTAPDF_COMPOSER_SOFT_MASK_OPTIONS_V1_SIZE;
     mask.mode = QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA;
     mask.transform =
         (quantapdf_affine_transform){1.0f, 0.0f, 0.0f, 1.0f, 20.0f, 20.0f};
@@ -443,8 +373,6 @@ static int test_alpha_luminosity_render_and_dictionary(void)
               &mask,
               &luminosity_mask_id) == QUANTAPDF_OK);
 
-    state.struct_size =
-        QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V3_SIZE;
     state.fill_alpha = 0.5f;
     state.stroke_alpha = 0.5f;
     state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
@@ -583,7 +511,7 @@ static int test_alpha_luminosity_render_and_dictionary(void)
 
 int main(void)
 {
-    CHECK(test_validation_dedup_and_v2_identity() == 0);
+    CHECK(test_validation_and_dedup() == 0);
     CHECK(test_alpha_luminosity_render_and_dictionary() == 0);
     return 0;
 }

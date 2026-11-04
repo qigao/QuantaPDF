@@ -61,12 +61,7 @@ typedef struct quantapdf_affine_transform {
     float f;
 } quantapdf_affine_transform;
 
-/*
- * size_t is intentional: its alignment matches the pre-existing size-tagged
- * option records' maximum alignment, so this V2 tail begins at the legacy V1
- * sizeof boundary on both 32-bit and 64-bit ABIs rather than occupying old
- * tail padding.
- */
+/* Registry resource identifiers; optional references use zero. */
 typedef size_t quantapdf_composer_graphics_state_id;
 typedef size_t quantapdf_composer_paint_id;
 typedef size_t quantapdf_composer_clip_id;
@@ -82,8 +77,8 @@ typedef enum quantapdf_composer_blend_mode {
     QUANTAPDF_COMPOSER_BLEND_LIGHTEN = 5
 } quantapdf_composer_blend_mode;
 
+/* Complete current record. Zero clip/mask IDs omit those references. */
 typedef struct quantapdf_composer_graphics_state_options {
-    size_t struct_size;
     float fill_alpha;
     float stroke_alpha;
     quantapdf_composer_blend_mode blend_mode;
@@ -91,38 +86,15 @@ typedef struct quantapdf_composer_graphics_state_options {
     quantapdf_composer_soft_mask_id soft_mask_id;
 } quantapdf_composer_graphics_state_options;
 
-#define QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_MIN_SIZE \
-    (offsetof(quantapdf_composer_graphics_state_options, blend_mode) + \
-     sizeof(quantapdf_composer_blend_mode))
-#define QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE \
-    (offsetof(quantapdf_composer_graphics_state_options, clip_id))
-#define QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_MIN_SIZE \
-    (offsetof(quantapdf_composer_graphics_state_options, clip_id) + \
-     sizeof(quantapdf_composer_clip_id))
-#define QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE \
-    (offsetof(quantapdf_composer_graphics_state_options, soft_mask_id))
-#define QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V3_MIN_SIZE \
-    (offsetof(quantapdf_composer_graphics_state_options, soft_mask_id) + \
-     sizeof(quantapdf_composer_soft_mask_id))
-#define QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V3_SIZE \
-    (sizeof(quantapdf_composer_graphics_state_options))
-
 typedef enum quantapdf_composer_soft_mask_mode {
     QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA = 0,
     QUANTAPDF_COMPOSER_SOFT_MASK_LUMINOSITY = 1
 } quantapdf_composer_soft_mask_mode;
 
 typedef struct quantapdf_composer_soft_mask_options {
-    size_t struct_size;
     quantapdf_composer_soft_mask_mode mode;
     quantapdf_affine_transform transform;
 } quantapdf_composer_soft_mask_options;
-
-#define QUANTAPDF_COMPOSER_SOFT_MASK_OPTIONS_V1_MIN_SIZE \
-    (offsetof(quantapdf_composer_soft_mask_options, transform) + \
-     sizeof(quantapdf_affine_transform))
-#define QUANTAPDF_COMPOSER_SOFT_MASK_OPTIONS_V1_SIZE \
-    (sizeof(quantapdf_composer_soft_mask_options))
 
 #define QUANTAPDF_COMPOSER_DEFAULT_MAX_PAGES ((size_t)1024u)
 #define QUANTAPDF_COMPOSER_DEFAULT_MAX_OPERATIONS ((size_t)1000000u)

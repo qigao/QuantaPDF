@@ -63,6 +63,10 @@ add_test(NAME quantapdf.native_content_streams
   COMMAND quantapdf_native_public_render --content-streams)
 set_tests_properties(quantapdf.native_content_streams PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;public-api;content-streams")
+add_test(NAME quantapdf.native_composer_state
+  COMMAND quantapdf_native_public_render --composer-state)
+set_tests_properties(quantapdf.native_composer_state PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;public-api;composer;current-api")
 add_test(NAME quantapdf.native_ordered_clip
   COMMAND quantapdf_native_public_render --ordered-clip)
 set_tests_properties(quantapdf.native_ordered_clip PROPERTIES

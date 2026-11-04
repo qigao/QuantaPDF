@@ -97,8 +97,8 @@ static int test_validation_budget_and_dedup(void)
     quantapdf_composer_clip_options clip_options = {0};
     quantapdf_composer_clip_id clip_id = 99u;
     quantapdf_composer_clip_id duplicate_id = 0u;
-    quantapdf_composer_graphics_state_options state_v1 = {0};
-    quantapdf_composer_graphics_state_options state_v2 = {0};
+    quantapdf_composer_graphics_state_options state_default_clip = {0};
+    quantapdf_composer_graphics_state_options state_zero_clip = {0};
     quantapdf_composer_graphics_state_id state_id = 0u;
     quantapdf_composer_graphics_state_id state_duplicate = 0u;
     size_t command_bytes = sizeof(rect);
@@ -172,27 +172,23 @@ static int test_validation_budget_and_dedup(void)
               &duplicate_id) == QUANTAPDF_OK);
     CHECK(duplicate_id == clip_id);
 
-    state_v1.struct_size =
-        QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE;
-    state_v1.fill_alpha = 1.0f;
-    state_v1.stroke_alpha = 1.0f;
-    state_v1.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
+    state_default_clip.fill_alpha = 1.0f;
+    state_default_clip.stroke_alpha = 1.0f;
+    state_default_clip.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
     CHECK(quantapdf_composer_add_graphics_state(
-              composer, &state_v1, &state_id) == QUANTAPDF_OK);
+              composer, &state_default_clip, &state_id) == QUANTAPDF_OK);
 
-    state_v2.struct_size =
-        QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE;
-    state_v2.fill_alpha = 1.0f;
-    state_v2.stroke_alpha = 1.0f;
-    state_v2.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
-    state_v2.clip_id = 0u;
+    state_zero_clip.fill_alpha = 1.0f;
+    state_zero_clip.stroke_alpha = 1.0f;
+    state_zero_clip.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
+    state_zero_clip.clip_id = 0u;
     CHECK(quantapdf_composer_add_graphics_state(
-              composer, &state_v2, &state_duplicate) == QUANTAPDF_OK);
+              composer, &state_zero_clip, &state_duplicate) == QUANTAPDF_OK);
     CHECK(state_duplicate == state_id);
 
-    state_v2.clip_id = clip_id + 10u;
+    state_zero_clip.clip_id = clip_id + 10u;
     CHECK(quantapdf_composer_add_graphics_state(
-              composer, &state_v2, &state_duplicate) ==
+              composer, &state_zero_clip, &state_duplicate) ==
           QUANTAPDF_ERROR_ARGUMENT);
 
     quantapdf_drop_composer(composer);
@@ -270,8 +266,6 @@ static int test_render_transform_scope_and_consumers(void)
 
     memset(clip_rect, 0, sizeof(clip_rect));
 
-    state_options.struct_size =
-        QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE;
     state_options.fill_alpha = 0.5f;
     state_options.stroke_alpha = 1.0f;
     state_options.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
