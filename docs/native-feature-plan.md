@@ -171,7 +171,8 @@
   晚到缺失字体、Stroke、未闭合 BT 及多余 Q 不发布 Bitmap。
 - Text 解释器工厂直接返回状态和独立 owner；构造、consume、finish 共用一次错误
   转换，避免构造期的 UNSUPPORTED 被外层错误改报为 BACKEND。
-- Source 与 C11 命令预算仍为 4096。BT 前的矩形在 Text 解释器入口累计，
+- 该增量验收时 Source 与 C11 命令预算为 4096（后续动态 Fill 增量移除公共
+  C11 快照总量门槛，字体解释器限制仍在）。BT 前的矩形在 Text 解释器入口累计，
   超额前缀在 IR 发布前失败；发布函数只复制已验证轮廓和实际所有权。
   边数/采样/像素预算不变；glyph/paint 数量增加仍必须满足这些实际工作预算。
 - `quantapdf.native_ordered_text_oom` 在同一已解密 qpdf Document 上穷举实际
@@ -210,8 +211,8 @@
   内存的 N/N−1。第 65 个资源必须可达；重复执行累计收费，超限不发布结果。
   复用现有两个可执行文件和四配置 CI，不增加 installer/consumer 工程。
 - 一般 Clip 图仍使用已有受限编译路径；通用路径/Stroke、字体类型、任意仿射 Image、
-  Text 页变换与三个 DPI 以外的支持仍待实现。4096 命令、512 边、8M 采样等实际
-  工作预算未提高。本增量不代表完整 PDF SDK 已完成。
+  Text 页变换与三个 DPI 以外的支持仍待实现。该增量未提高当时的 4096 命令、
+  512 边、8M 采样预算；后续动态 Fill 增量移除公共命令门槛。本增量不代表完整 PDF SDK 已完成。
 
 ### A2 单根 Clip 的有序文字场景
 
@@ -276,6 +277,27 @@
   C11 Clip 容器仍为 4 叶/7 节点，准备资源表仍至多 3 个状态。含 Stroke 的页面沿用
   已有描边几何及 join 边界；一般 Stroke、BT 后定义 Clip、任意 affine、字体/颜色/codec、
   页面几何与 DPI 支持仍待 A2–A5。所有 A1–A7 总项继续开放。
+
+### A2 动态 Fill 路径命令
+
+- 普通单轮廓 Fill 的 `m/l/c/v/y/h` 在同一 Source 动态 vector 中解释一次，
+  原始 cubic 与 shorthand 归一化后的命令直接进入已有 C11 Scene。删除 8/9 条
+  paint 命令准入；没有为长路径增加 profile、入口或解析器。
+- C11 保留几何的命令池本来按实际数量分配，现在移除公共准备/Scene/快照累计的
+  4096 条门槛，使用原有溢出检查和真实保留字节计账。零长度边不消耗边预算，
+  但其原始命令仍保留并计内存；真实边数、采样、像素与峰值字节预算继续生效。
+- `quantapdf.native_path_commands` 在现有公开可执行文件中核对 840 次完整独立 RGB：
+  重复绕行的非零/奇偶填充、line/cubic/v/y、Clip、Q 恢复，超过 16,000 条命令，
+  72/96/144 DPI、三个不同编码的 Contents、AES-256/错误密码、第二页及
+  Document/Page/Context 释放后的 Bitmap。10 项晚到语法/资源/未实现操作和
+  实际边预算错误不发布 Bitmap；原曲线用例还比较长短等价轮廓经 Clip/页面变换后的全部 RGB。
+- `quantapdf.native_path_commands_oom` 复用现有 Source/OOM 可执行文件，逐次拒绝
+  实际路径 vector 扩容、IR 发布和 C11 分配。核对 NOMEM、空 IR/receipt/输出、
+  源 IR 不变，以及字节/流/操作/边/采样/像素/峰值内存 N/N−1；编译后改写包括
+  长路径尾部在内的调用方命令与绑定，输出仍使用深拷贝，最后独立于 Source owner 保留。
+- 多轮廓 Fill、一般 Stroke、Clip 自身的短轮廓限制及双 Clip 固定顺序发布仍未完成。
+  Text 解释器的 4096 命令和字形采样器的 1024 交点限制仍在；本增量不将其
+  当作 Fill 限制重新引入，也不声称 A2 已完成。沿用现有工具链、缓存和四配置 CI。
 
 ## 单一执行模型
 

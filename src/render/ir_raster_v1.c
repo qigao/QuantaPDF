@@ -1570,12 +1570,12 @@ static quantapdf_status qp_geometry_compile(
             if(op->page_index!=page_index)continue;
             if(ordered_scene && !clipped_text && op->kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE)continue;
             if(op->kind!=QUANTAPDF_COMPOSER_OPERATION_PATH ||
-               op->value.path.command_count>4096u-snapshot_count)
+               op->value.path.command_count>SIZE_MAX-snapshot_count)
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             snapshot_count+=op->value.path.command_count;
         }
         for(size_t k=0u;k<clip_count;++k) {
-            if(clips[k]==NULL || clips[k]->command_count>4096u-snapshot_count)
+            if(clips[k]==NULL || clips[k]->command_count>SIZE_MAX-snapshot_count)
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             snapshot_count+=clips[k]->command_count;
         }
@@ -2795,7 +2795,7 @@ static quantapdf_status qp_ordered_scene(
             const quantapdf_composer_path_operation *path=&op->value.path;
             const quantapdf_composer_path_options *opt=&path->options;
             if(op->page_index!=0u || op->graphics_state_id>source->resources.graphics_state_count || path->commands==NULL ||
-               path->command_count==0u || path->command_count>4096u-commands || path->dash_count!=0u || path->dash_lengths!=NULL || path->dash_phase!=0.0f ||
+               path->command_count==0u || path->command_count>SIZE_MAX-commands || path->dash_count!=0u || path->dash_lengths!=NULL || path->dash_phase!=0.0f ||
                opt->fill!=1 || opt->stroke!=0 ||
                (opt->fill_argb>>24u)!=255u || opt->graphics_state_id!=op->graphics_state_id || opt->fill_paint_id!=0u || opt->stroke_paint_id!=0u ||
                (opt->fill_rule!=QUANTAPDF_COMPOSER_FILL_NONZERO && opt->fill_rule!=QUANTAPDF_COMPOSER_FILL_EVEN_ODD) ||
@@ -2819,7 +2819,7 @@ static quantapdf_status qp_ordered_scene(
         ++shows;capacity+=text->glyph_count;
         for(size_t g=0u;g<text->glyph_count;++g) {
             const quantapdf_outline_glyph *glyph=&text->glyphs[g];
-            if(glyph->commands==NULL || glyph->command_count==0u || glyph->command_count>4096u-commands)
+            if(glyph->commands==NULL || glyph->command_count==0u || glyph->command_count>SIZE_MAX-commands)
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             commands+=glyph->command_count;
         }

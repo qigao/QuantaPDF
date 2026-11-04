@@ -30,6 +30,8 @@ extern "C" bool quantapdf_source_ir_oom_fail_c_allocation() noexcept;
 #define QP_SOURCE_STAGE_ARM(n) quantapdf_source_stage_oom_arm(n)
 #define QP_SOURCE_STACK_GROW(v) \
     do {if((v).size()==(v).capacity())QP_SOURCE_STAGE_ARM(11u);} while(0)
+#define QP_SOURCE_PATH_GROW(v) \
+    do {if((v).size()==(v).capacity())QP_SOURCE_STAGE_ARM(12u);} while(0)
 #define QP_SOURCE_C_CALLOC(n,s) \
     (quantapdf_source_ir_oom_fail_c_allocation()?nullptr:std::calloc((n),(s)))
 #define QP_SOURCE_C_MALLOC(n) \
@@ -39,6 +41,7 @@ extern "C" bool quantapdf_source_ir_oom_fail_c_allocation() noexcept;
 #else
 #define QP_SOURCE_STAGE_ARM(n) ((void)0)
 #define QP_SOURCE_STACK_GROW(v) ((void)0)
+#define QP_SOURCE_PATH_GROW(v) ((void)0)
 #define QP_SOURCE_C_CALLOC(n,s) std::calloc((n),(s))
 #define QP_SOURCE_C_MALLOC(n) std::malloc(n)
 #define QP_SOURCE_C_REALLOC(p,n) std::realloc((p),(n))
@@ -455,7 +458,7 @@ struct admission {
         admit(painted_paths.size()<allowed_paths &&
               (texample_path ||
                (three_path && is_stroke && commands.size()==2u) ||
-               (commands.size()>=4u && commands.size()<=9u)) &&
+               (commands.size()>=4u && (!is_stroke || commands.size()<=9u))) &&
               (ordered_scene() || !clip_completed || order.size()<hard_operations) &&
               limits.max_operations>=
                    order.size()+1u,
@@ -1251,9 +1254,7 @@ public:
             }
         } else if(op=="l") {
             admit(args.size()==2u && !pending_path.empty() &&
-                  !closed && (pending_path.size()<8u ||
-                  (ten_wstar_candidate && contour_count==2u &&
-                   pending_path.size()<10u)),
+                  !closed,
                   QUANTAPDF_ERROR_UNSUPPORTED);
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,
                          finite_number(args[0]),finite_number(args[1]));
@@ -1266,8 +1267,7 @@ public:
              * consume these same original cubic commands. */
             admit(args.size()==6u &&
                   (target.texample_original_profile ||
-                   (!pending_path.empty() && !closed && !clip_pending &&
-                    pending_path.size()<8u)),
+                   (!pending_path.empty() && !closed && !clip_pending)),
                   QUANTAPDF_ERROR_UNSUPPORTED);
             std::array<double,6u> xy{};
             for(size_t i=0u;i<6u;++i)
@@ -1280,7 +1280,7 @@ public:
              * Expand into the SAME staged CUBIC_TO command; do not
              * introduce a second curve interpreter or renderer. */
             admit(args.size()==4u && !pending_path.empty() &&
-                  !closed && !clip_pending && pending_path.size()<8u,
+                  !closed && !clip_pending,
                   QUANTAPDF_ERROR_UNSUPPORTED);
             std::array<double,4u> xy{};
             for(size_t i=0u;i<4u;++i)
@@ -1970,29 +1970,27 @@ private:
         quantapdf_composer_path_command cmd={};
         cmd.kind=kind;
         cmd.point1=stage_point(x,y);
+        QP_SOURCE_PATH_GROW(pending_path);
         pending_path.push_back(cmd);
-        admit(pending_path.size()<=(ten_wstar_candidate?10u:8u),
-              QUANTAPDF_ERROR_UNSUPPORTED);
     }
     void append_cubic(const std::array<double,6u>& xy)
     {
         /* Do not publish a partially admitted cubic command. All
          * three individually transformed points must pass first. */
-        admit(!pending_path.empty() && !closed && !clip_pending &&
-              pending_path.size()<(target.texample_original_profile?12u:8u),
+        admit(!pending_path.empty() && !closed && !clip_pending,
               QUANTAPDF_ERROR_UNSUPPORTED);
         quantapdf_composer_path_command cmd={};
         cmd.kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
         cmd.point1=stage_point(xy[0],xy[1]);
         cmd.point2=stage_point(xy[2],xy[3]);
         cmd.point3=stage_point(xy[4],xy[5]);
+        QP_SOURCE_PATH_GROW(pending_path);
         pending_path.push_back(cmd);
     }
     void append_cubic_shorthand(const std::string& op,
                                 const std::array<double,4u>& xy)
     {
         admit(!pending_path.empty() && !closed && !clip_pending &&
-              pending_path.size()<8u &&
               (op=="v" || op=="y"),QUANTAPDF_ERROR_UNSUPPORTED);
         const auto& previous=pending_path.back();
         quantapdf_point current_point{};
@@ -2015,15 +2013,16 @@ private:
         cmd.point1=op=="v"?current_point:first;
         cmd.point2=op=="v"?first:endpoint;
         cmd.point3=endpoint;
+        QP_SOURCE_PATH_GROW(pending_path);
         pending_path.push_back(cmd);
     }
     void close_path()
     {
-        admit(pending_path.size()>=contour_start+3u && !closed &&
-              pending_path.size()<(target.texample_original_profile?12u:9u),
+        admit(pending_path.size()>=contour_start+3u && !closed,
               QUANTAPDF_ERROR_UNSUPPORTED);
         quantapdf_composer_path_command cmd={};
         cmd.kind=QUANTAPDF_COMPOSER_PATH_CLOSE;
+        QP_SOURCE_PATH_GROW(pending_path);
         pending_path.push_back(cmd);
         closed=true;
     }

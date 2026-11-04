@@ -76,7 +76,7 @@ static inline int qp_prepared_commands(
     quantapdf_native_prepared_usage_v1 *usage)
 {
     if(commands==NULL || count==0u ||
-       !qp_prepared_charge(&usage->commands,count,4096u) ||
+       !qp_prepared_charge(&usage->commands,count,SIZE_MAX) ||
        !qp_prepared_bytes(&usage->retained_bytes,count,sizeof(*commands)))
         return 0;
     for(size_t i=0u;i<count;++i) {
