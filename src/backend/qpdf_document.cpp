@@ -135,7 +135,7 @@ static quantapdf_status quantapdf_qpdf_write_memory(
     return QUANTAPDF_OK;
 }
 
-static quantapdf_status quantapdf_status_from_qpdf(
+quantapdf_status quantapdf_status_from_qpdf(
     QPDFExc const& error) noexcept
 {
     switch (error.getErrorCode()) {
@@ -2616,6 +2616,8 @@ extern "C" quantapdf_status quantapdf_qpdf_open_memory(
         document->source_size = size;
         document->password = password_utf8 == nullptr ? "" : password_utf8;
         document->pdf = QPDF::create();
+        document->pdf->setSuppressWarnings(true);
+        document->pdf->setAttemptRecovery(false);
         document->pdf->processMemoryFile(
             "quantapdf-memory",
             reinterpret_cast<char const *>(data),

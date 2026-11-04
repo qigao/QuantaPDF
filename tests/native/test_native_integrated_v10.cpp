@@ -216,7 +216,6 @@ static int render(const std::string& bytes,int quarters,int rotation,
     CHECK(std::remove(filename)==0);
     OK(quantapdf_load_page(doc,0,&page));
     quantapdf_render_options opts{};
-    opts.struct_size=sizeof(opts);
     opts.dpi=(float)dpi;
     CHECK(quantapdf_render_page_with_options(
         page,&opts,&bitmap)==QUANTAPDF_OK && bitmap!=nullptr);
@@ -330,7 +329,6 @@ static int negative()
         CHECK(std::remove(filename)==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_render_options opts{};
-        opts.struct_size=sizeof(opts);
         opts.dpi=(float)dpi;
         const auto status=quantapdf_render_page_with_options(
             page,&opts,&bitmap);
@@ -442,7 +440,6 @@ static int lexical_rejection_cases()
         CHECK(std::remove(filename)==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_render_options options{};
-        options.struct_size=sizeof(options);
         options.dpi=static_cast<float>(dpi);
         const auto status=quantapdf_render_page_with_options(
             page,&options,&bitmap);
@@ -565,7 +562,6 @@ static int active_crop_rejection_cases()
             CHECK(std::remove(filename)==0);
             OK(quantapdf_load_page(doc,0,&page));
             quantapdf_render_options opts{};
-            opts.struct_size=sizeof(opts);
             opts.dpi=static_cast<float>(dpi);
             const auto status=quantapdf_render_page_with_options(
                 page,&opts,&bitmap);
@@ -702,7 +698,6 @@ static int split_content_budget_and_failure_cases()
         CHECK(std::remove(filename)==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_render_options options{};
-        options.struct_size=sizeof(options);
         options.dpi=static_cast<float>(dpi);
         const auto status=quantapdf_render_page_with_options(
             page,&options,&bitmap);

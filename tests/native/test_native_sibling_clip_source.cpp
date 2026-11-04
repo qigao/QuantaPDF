@@ -155,7 +155,6 @@ static int render(const std::string& bytes,const configuration& cfg,
     CHECK(std::remove(filename)==0);
     OK(quantapdf_load_page(doc,cfg.selected,&page));
     quantapdf_render_options options{};
-    options.struct_size=sizeof(options);
     options.dpi=static_cast<float>(cfg.dpi);
     const auto status=quantapdf_render_page_with_options(
         page,&options,&bitmap);
@@ -212,7 +211,6 @@ static int rejected(const std::string& content,const configuration& cfg,
     CHECK(std::remove(filename)==0);
     OK(quantapdf_load_page(doc,cfg.selected,&page));
     quantapdf_render_options options{};
-    options.struct_size=sizeof(options);
     options.dpi=static_cast<float>(cfg.dpi);
     const auto status=quantapdf_render_page_with_options(
         page,&options,&bitmap);
@@ -634,8 +632,10 @@ static int atomic_refusals()
         configuration cfg;cfg.dpi=dpi;
         CHECK(rejected(operators+ready,cfg,false,
                        QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
-        CHECK(rejected(a+std::string(65536u,' ')+b,cfg,false,
-                       QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
+        rendered padded,reference;
+        CHECK(render(original(a+std::string(65536u,' ')+b,cfg),cfg,padded)==EXIT_SUCCESS);
+        CHECK(render(original(a+b,cfg),cfg,reference)==EXIT_SUCCESS);
+        CHECK(equal(padded,reference));
     }
     return EXIT_SUCCESS;
 }
@@ -650,7 +650,8 @@ int main()
     CHECK(touching_layers()==EXIT_SUCCESS);
     CHECK(fixed_sample_budget()==EXIT_SUCCESS);
     CHECK(atomic_refusals()==EXIT_SUCCESS);
-    CHECK(positive_calls==421u && negative_calls==100u);
+    /* Three former content-size refusals now compare two complete Bitmaps. */
+    CHECK(positive_calls==427u && negative_calls==97u);
     std::printf("Native sibling Clip scopes: %zu rendered, %zu atomic refusals\n",
                 positive_calls,negative_calls);
     return EXIT_SUCCESS;

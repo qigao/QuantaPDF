@@ -52,7 +52,7 @@ static void test_pattern_geometry(void)
     quantapdf_composer_page_options page_options = {0};
     quantapdf_composer_path_options style = {0};
     quantapdf_composer_path_command path[5] = {0};
-    quantapdf_render_options options = {sizeof(options), 72, 0, 0, {0}, 0};
+    quantapdf_render_options options = { 72, 0, 0, {0}, 0};
     size_t page_index;
     page_options.struct_size = QUANTAPDF_COMPOSER_PAGE_OPTIONS_V1_SIZE;
     page_options.width_points = 72; page_options.height_points = 36;
@@ -107,7 +107,7 @@ static void test_displayed_page_rotation(const char *filename)
     quantapdf_document *document = NULL;
     quantapdf_page *page = NULL;
     quantapdf_bitmap *base = NULL, *rotated = NULL;
-    quantapdf_render_options options = {sizeof(options), 72, 90, 0, {0}, 0};
+    quantapdf_render_options options = { 72, 90, 0, {0}, 0};
     const unsigned char *original, *turned;
     size_t size;
     int width, height, stride, components, turn_width, turn_height, turn_stride, turn_components;
@@ -145,7 +145,7 @@ int main(void)
     quantapdf_document *doc = NULL;
     quantapdf_page *page = NULL;
     quantapdf_bitmap *bitmap = (quantapdf_bitmap *)&sentinel;
-    quantapdf_render_options options = { sizeof(options), 144.0f, 0.0f, 0, { 0 } };
+    quantapdf_render_options options = { 144.0f, 0.0f, 0, { 0 }, 0 };
     const unsigned char *data = NULL;
     size_t data_size = 0;
     size_t i;
@@ -163,12 +163,6 @@ int main(void)
     CHECK(bitmap == NULL);
     CHECK(quantapdf_render_page_with_options(page, &options, NULL) == QUANTAPDF_ERROR_ARGUMENT);
 
-    options.struct_size = 0;
-    bitmap = (quantapdf_bitmap *)&sentinel;
-    CHECK(quantapdf_render_page_with_options(page, &options, &bitmap) == QUANTAPDF_ERROR_ARGUMENT);
-    CHECK(bitmap == NULL);
-
-    options.struct_size = sizeof(options);
     options.dpi = 0.0f;
     bitmap = (quantapdf_bitmap *)&sentinel;
     CHECK(quantapdf_render_page_with_options(page, &options, &bitmap) == QUANTAPDF_ERROR_ARGUMENT);
@@ -184,22 +178,9 @@ int main(void)
     CHECK(components == 3);
     quantapdf_drop_bitmap(bitmap);
 
-    /* An older caller-provided options size must ignore a newer alpha field. */
-    options.struct_size = offsetof(quantapdf_render_options, alpha);
     options.dpi = 72.0f;
     options.rotation_degrees = 0.0f;
     options.clip_enabled = 0;
-    options.alpha = 1;
-    bitmap = NULL;
-    CHECK(quantapdf_render_page_with_options(page, &options, &bitmap) == QUANTAPDF_OK);
-    CHECK(quantapdf_bitmap_dimensions(bitmap, &width, &height, &stride, &components) == QUANTAPDF_OK);
-    CHECK(width == 72);
-    CHECK(height == 72);
-    CHECK(stride == 72 * 3);
-    CHECK(components == 3);
-    quantapdf_drop_bitmap(bitmap);
-
-    options.struct_size = sizeof(options);
     options.alpha = 1;
     bitmap = NULL;
     CHECK(quantapdf_render_page_with_options(page, &options, &bitmap) == QUANTAPDF_OK);
@@ -247,27 +228,6 @@ int main(void)
     CHECK(quantapdf_open(PAGE_BOXES_PDF, NULL, &doc) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(doc, 0, &page) == QUANTAPDF_OK);
 
-    /* A caller using the v1 struct size gets the new field's default behavior. */
-    options.struct_size = offsetof(quantapdf_render_options, rotation_degrees);
-    options.dpi = 72.0f;
-    options.rotation_degrees = 90.0f;
-    CHECK(quantapdf_render_page_with_options(page, &options, &bitmap) == QUANTAPDF_OK);
-    CHECK(quantapdf_bitmap_dimensions(bitmap, &width, &height, &stride, &components) == QUANTAPDF_OK);
-    CHECK(width == 180);
-    CHECK(height == 60);
-    quantapdf_drop_bitmap(bitmap);
-
-    options.struct_size = offsetof(quantapdf_render_options, clip_enabled);
-    options.rotation_degrees = 90.0f;
-    options.clip_enabled = 1;
-    bitmap = NULL;
-    CHECK(quantapdf_render_page_with_options(page, &options, &bitmap) == QUANTAPDF_OK);
-    CHECK(quantapdf_bitmap_dimensions(bitmap, &width, &height, &stride, &components) == QUANTAPDF_OK);
-    CHECK(width == 60);
-    CHECK(height == 180);
-    quantapdf_drop_bitmap(bitmap);
-
-    options.struct_size = sizeof(options);
     options.rotation_degrees = 90.0f;
     options.clip_enabled = 0;
     options.alpha = 0;

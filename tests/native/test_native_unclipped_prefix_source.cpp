@@ -155,7 +155,6 @@ static int render(const std::string& bytes,const configuration& cfg,
     CHECK(std::remove(filename)==0);
     OK(quantapdf_load_page(doc,cfg.selected,&page));
     quantapdf_render_options options{};
-    options.struct_size=sizeof(options);
     options.dpi=static_cast<float>(cfg.dpi);
     const auto status=quantapdf_render_page_with_options(
         page,&options,&bitmap);
@@ -212,7 +211,6 @@ static int rejected(const std::string& content,const configuration& cfg,
     CHECK(std::remove(filename)==0);
     OK(quantapdf_load_page(doc,cfg.selected,&page));
     quantapdf_render_options options{};
-    options.struct_size=sizeof(options);
     options.dpi=static_cast<float>(cfg.dpi);
     const auto status=quantapdf_render_page_with_options(
         page,&options,&bitmap);
@@ -684,8 +682,10 @@ static int atomic_refusals()
         cfg.dpi=dpi;
         CHECK(rejected(operators+ready,cfg,false,QUANTAPDF_ERROR_UNSUPPORTED)
               ==EXIT_SUCCESS);
-        CHECK(rejected(full_red+std::string(65536u,' ')+first+full_blue+"Q",
-                       cfg,false,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
+        rendered padded,reference;
+        CHECK(render(original(full_red+std::string(65536u,' ')+first+full_blue+"Q",cfg),cfg,padded)==EXIT_SUCCESS);
+        CHECK(render(original(full_red+first+full_blue+"Q",cfg),cfg,reference)==EXIT_SUCCESS);
+        CHECK(equal(padded,reference));
     }
     return EXIT_SUCCESS;
 }

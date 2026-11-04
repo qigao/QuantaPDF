@@ -255,7 +255,7 @@ static int run(const std::string& original)
         OK(quantapdf_load_page(doc,0,&page));
         CHECK(page!=nullptr);
         quantapdf_render_options options{};
-        options.struct_size=sizeof(options);options.dpi=72.0f;
+        options.dpi=72.0f;
         const auto status=quantapdf_render_page_with_options(
             page,&options,&bitmap);
         if(status!=want ||

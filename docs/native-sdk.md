@@ -18,11 +18,10 @@ platform libraries. `size_t` maps to the caller's native size type; C `int`,
 paths use UTF-8. These are current calling requirements, not cross-version
 negotiation or guarantees about future layouts.
 
-The present header still contains ABI-version macros, `struct_size`, V1/MIN_SIZE
-constants and duplicate factories. Until A1 removes them, code using this
-checkout initializes the current records with their declared fields and size.
-Their presence does not create an append-only, binary-compatibility or retention
-requirement for the redesign.
+`quantapdf_render_options` is one current record: initialize all fields; it has
+no `struct_size` negotiation. Other areas of the header still contain
+ABI-version macros, size fields, V1/MIN_SIZE constants and duplicate factories;
+their cleanup remains A1 work, without compatibility obligations.
 
 ## One ownership and error model
 
@@ -31,9 +30,23 @@ Document/Page relationships and owned results are ordinary lifetime rules.
 Borrowed views are used while their owner lives. Returned owned bytes/handles
 are released through their current release operation.
 
-A1 must make the public declarations, tests and documentation agree on these
-lifetimes, including the native Bitmap result that tests keep after source
-retirement. Do not add a wrapper to preserve an old ownership rule. The current
+A loaded Page retains its Document. `quantapdf_close` releases the caller's
+Document reference; loaded Pages still render after that call and after the
+caller drops its Context reference. The final Page releases qpdf, source bytes
+and password; a completed Bitmap independently retains its Context and pixels.
+The native renderer borrows the already opened/decrypted qpdf document for
+Source construction and publishes owned IR, including decoded image/font data,
+before the C11 raster runs. It does not reopen or reserialize original bytes.
+Password-bearing Documents use the same renderer. qpdf directly parses the
+selected Page's original content streams, including filter arrays/chains and
+mixed encodings across a Contents array. Source no longer creates an empty
+qpdf document or a second decoded-content copy. Tested content filters are
+RAW, Flate, ASCIIHex, ASCII85 and RunLength; Image XObject codec coverage is
+unchanged. Public rendering has no four-stream/64-KiB Contents admission cap.
+Explicit internal content budgets count selected streams before parsing and
+qpdf's actual decoded content bytes before interpretation; they do not bound
+qpdf's transient decode buffer allocation. Failed open/render calls
+publish no handle/Bitmap and preserve the failure status. Do not add a wrapper to preserve an old ownership rule. The current
 implementation has not acquired a concurrency guarantee from this design;
 independent/same-object concurrency must be implemented and tested if exposed.
 

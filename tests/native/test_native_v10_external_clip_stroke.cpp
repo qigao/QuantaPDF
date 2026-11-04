@@ -179,7 +179,6 @@ static int check(const std::filesystem::path& assets)
         OK(quantapdf_load_page(doc,0,&page));
         CHECK(page!=nullptr);
         quantapdf_render_options opts{};
-        opts.struct_size=sizeof(opts);
         opts.dpi=case_index==17u?96.0f:72.0f;
         const auto status=quantapdf_render_page_with_options(
             page,&opts,&bitmap);

@@ -235,7 +235,6 @@ static int qualify()
                 reinterpret_cast<quantapdf_bitmap *>(uintptr_t(1));
             OK(quantapdf_load_page(document,index,&page));
             quantapdf_render_options options{};
-            options.struct_size=sizeof(options);
             options.dpi=static_cast<float>(dpi);
             const quantapdf_status status=
                 quantapdf_render_page_with_options(page,&options,&bitmap);

@@ -2,6 +2,7 @@
 #define QUANTAPDF_QPDF_NATIVE_IMAGE_IR_H
 
 #include "ir/ir.h"
+#include "backend/qpdf_document.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,6 +35,13 @@ typedef struct quantapdf_qpdf_source_raw_image_limits {
      * the selected leaf. Independent of decoder/stream and image budgets. */
     size_t max_parent_steps;
 } quantapdf_qpdf_source_raw_image_limits;
+
+/* Borrow the already opened/decrypted qpdf document for this call. All page,
+ * image and font data in the result is independently owned by the IR. */
+quantapdf_status quantapdf_qpdf_page_to_ir(
+    quantapdf_qpdf_document *document,size_t page_index,
+    const quantapdf_qpdf_source_raw_image_limits *limits,
+    quantapdf_ir *out_ir);
 
 quantapdf_status quantapdf_qpdf_source_raw_images_to_ir(
     const unsigned char *original_pdf, size_t size,

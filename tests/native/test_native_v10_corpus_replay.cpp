@@ -158,7 +158,6 @@ static int run(const std::filesystem::path& assets,
                 OK(quantapdf_load_page(doc,0,&page));
                 CHECK(page!=nullptr);
                 quantapdf_render_options options{};
-                options.struct_size=sizeof(options);
                 options.dpi=static_cast<float>(dpis[di]);
                 const auto status=quantapdf_render_page_with_options(
                     page,&options,&bitmap);

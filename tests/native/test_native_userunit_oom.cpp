@@ -80,7 +80,6 @@ static int exercise_context_faults(int quarters,int mode=97)
     CHECK(baseline_references>=3u);
     for(int dpi:{72,96,144}) {
         quantapdf_render_options options{};
-        options.struct_size=sizeof(options);
         options.dpi=(float)dpi;
         /* Refuse either the Bitmap retain or its separate prepared
          * Source-owner retain, balancing every already acquired lease. */

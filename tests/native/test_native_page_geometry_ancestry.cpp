@@ -244,7 +244,6 @@ static int qualify()
                 CHECK(false);
             }
             quantapdf_render_options options{};
-            options.struct_size=sizeof(options);
             options.dpi=static_cast<float>(dpi);
             const quantapdf_status status=
                 quantapdf_render_page_with_options(page,&options,&bitmap);

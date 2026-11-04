@@ -372,7 +372,6 @@ static int test_render_transform_scope_and_consumers(void)
               COMPOSER_CLIP_OUTPUT_PDF, NULL, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
 
-    render.struct_size = sizeof(render);
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
           QUANTAPDF_OK);

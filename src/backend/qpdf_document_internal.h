@@ -4,6 +4,7 @@
 /* Private structure-provider state. No renderer or public ABI types escape. */
 #include "qpdf_document.h"
 #include <qpdf/QPDF.hh>
+#include <qpdf/QPDFExc.hh>
 #include <memory>
 
 struct quantapdf_qpdf_document {
@@ -22,6 +23,8 @@ struct quantapdf_qpdf_page_geometry {
     bool has_explicit_crop;
     int rotation;
 };
+
+quantapdf_status quantapdf_status_from_qpdf(QPDFExc const& error) noexcept;
 
 QPDFObjectHandle quantapdf_qpdf_inherited_value(QPDFObjectHandle page,
     char const *key);

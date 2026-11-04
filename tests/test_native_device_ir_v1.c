@@ -21,21 +21,21 @@ static int denied(const quantapdf_ir *ir,unsigned dpi,
     return 0;
 }
 static int prepared_denied(const quantapdf_ir *ir,
-    const quantapdf_native_source_raster_bridge_limits_v1 *limits,
-    const quantapdf_native_source_raster_device_v1 *device)
+    const quantapdf_native_page_limits *limits,
+    const quantapdf_native_page_device *device)
 {
     quantapdf_native_prepared_page_v1 plan,zero;
     memset(&plan,0xa5,sizeof(plan));memset(&zero,0,sizeof(zero));
     CHECK(quantapdf_native_prepare_page_v1(ir,&limits->raster,device,
-        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&plan)==QUANTAPDF_ERROR_UNSUPPORTED);
+        &plan)==QUANTAPDF_ERROR_UNSUPPORTED);
     CHECK(memcmp(&plan,&zero,sizeof(plan))==0);
     return 0;
 }
 static int prepared_contracts(quantapdf_ir *ir,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *raster)
 {
-    quantapdf_native_source_raster_bridge_limits_v1 limits;
-    quantapdf_native_source_raster_device_v1 device;
+    quantapdf_native_page_limits limits;
+    quantapdf_native_page_device device;
     quantapdf_native_prepared_page_v1 plan,before;
     quantapdf_native_execution_receipt_v1 receipt;
     quantapdf_ir_raster_image a,b;
@@ -50,7 +50,7 @@ static int prepared_contracts(quantapdf_ir *ir,
     for(unsigned dpi=72u;dpi<=144u;dpi+=dpi==72u?24u:48u) {
         device.dpi=(float)dpi;
         OK(quantapdf_native_prepare_page_v1(ir,&limits.raster,&device,
-            QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&plan));
+            &plan));
         CHECK(plan.source==ir && plan.route==QP_NATIVE_PREPARED_DEVICE &&
               plan.usage.operations==1u && plan.usage.commands==5u &&
               plan.usage.expanded_paints==1u && plan.usage.glyphs==0u &&
@@ -105,7 +105,7 @@ static int prepared_contracts(quantapdf_ir *ir,
     ir->operations[0].graphics_state_id=1u;
     ir->operations[0].value.path.options.graphics_state_id=1u;
     OK(quantapdf_native_prepare_page_v1(ir,&limits.raster,&device,
-        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&plan));
+        &plan));
     CHECK(plan.route==QP_NATIVE_PREPARED_CLIPPED_PATHS &&
           plan.usage.clips_used==7u && plan.usage.states_used==1u &&
           plan.usage.commands==15u);
@@ -285,12 +285,12 @@ static int resource_ledger_contracts(const quantapdf_ir *source)
             const size_t side=dpi==72u?8u:dpi==96u?11u:16u;
             const size_t pixels=side*side;
             quantapdf_ir_raster_scoped_mixed_v5_limits limits={pixels,4u,512u,8000000u,1u,placements*pixels};
-            quantapdf_native_source_raster_device_v1 device={0};device.dpi=(float)dpi;
+            quantapdf_native_page_device device={0};device.dpi=(float)dpi;
             quantapdf_native_prepared_page_v1 plan,budget;
             quantapdf_native_execution_receipt_v1 receipt;
             quantapdf_ir_raster_image out={0},reference={0};
             OK(quantapdf_native_prepare_page_v1(&ir,&limits,&device,
-                QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&plan));
+                &plan));
             OK(quantapdf_native_execute_page_v1(&plan,&receipt,&out));
             CHECK(receipt.source_pixels==1u && receipt.drawn_pixels==placements*pixels &&
                   receipt.retained_bytes==plan.usage.retained_bytes &&
@@ -327,11 +327,11 @@ static int resource_ledger_contracts(const quantapdf_ir *source)
      * sharing one resource are still refused by its exact capacity rule. */
     {
         quantapdf_native_prepared_page_v1 plan;
-        quantapdf_native_source_raster_device_v1 device={0};device.dpi=72.0f;
+        quantapdf_native_page_device device={0};device.dpi=72.0f;
         const quantapdf_ir_raster_scoped_mixed_v5_limits limits={64u,4u,512u,8000000u,1u,128u};
         ir.operation_count=2u;
         OK(quantapdf_native_prepare_page_v1(&ir,&limits,&device,
-            QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&plan));
+            &plan));
         CHECK(resource_denied(&plan)==0);
     }
     puts("Resource ledger: unique RAW inputs, repeated/clipped placements, exact byte peaks and N-1 passed");
@@ -445,7 +445,7 @@ static int compiled_page_contracts(const quantapdf_ir *fixture)
         quantapdf_composer_clip_state clip={0};quantapdf_composer_graphics_state gs={0};
         quantapdf_composer_image_state image={0};unsigned char red[3]={255u,0u,0u};
         quantapdf_ir_raster_scoped_mixed_v5_limits limits={512u,4u,512u,8000000u,1u,128u};
-        quantapdf_native_source_raster_device_v1 device={0};device.dpi=mode==2u?96.0f:72.0f;
+        quantapdf_native_page_device device={0};device.dpi=mode==2u?96.0f:72.0f;
         quantapdf_native_prepared_page_v1 metadata;
         quantapdf_native_compiled_page_v1 compiled,zero;
         quantapdf_native_execution_receipt_v1 receipt;quantapdf_ir_raster_image out={0},denied={0};
@@ -466,7 +466,7 @@ static int compiled_page_contracts(const quantapdf_ir *fixture)
             ir.resources.clips=&clip;ir.resources.clip_count=ir.resources.clip_capacity=1u;
             ir.resources.graphics_states=&gs;ir.resources.graphics_state_count=ir.resources.graphics_state_capacity=1u;
         }
-        OK(quantapdf_native_prepare_page_v1(&ir,&limits,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&metadata));
+        OK(quantapdf_native_prepare_page_v1(&ir,&limits,&device,&metadata));
         OK(quantapdf_native_compiled_page_compile_v1(&metadata,&compiled));
         CHECK(compiled.metadata.source==NULL && compiled.ledger.completed_leases==0u);
         memset(&ir,0xa5,sizeof(ir));memset(&page,0xa5,sizeof(page));memset(&op,0xa5,sizeof(op));
@@ -753,9 +753,9 @@ int main(void) {
      * subpixel samples, and the corner covers 9/16. */
     {
         quantapdf_native_prepared_page_v1 prepared;
-        quantapdf_native_source_raster_device_v1 device={0};device.dpi=96.0f;
+        quantapdf_native_page_device device={0};device.dpi=96.0f;
         OK(quantapdf_native_prepare_page_v1(&ir,&lim,&device,
-            QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&prepared));
+            &prepared));
         CHECK(prepared.usage.image_pixels==1u && prepared.usage.images_used==1u &&
               prepared.usage.expanded_paints==1u && prepared.usage.commands==0u);
         OK(quantapdf_native_execute_page_v1(&prepared,NULL,&out));

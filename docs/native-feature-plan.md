@@ -25,10 +25,37 @@
   增量已通过 PR CI，但尚未合并，不能计入 master 功能。
 - qpdf 文档操作、编辑、Composer、文本提取等已有代码；当前顶层 CMake 只注册
   `tests/native`。旧 `tests/CMakeLists.txt` 中的完整 SDK 回归没有因此自动获得验收。
-- 当前已打开文档持有 qpdf 对象，而 native page bridge 又交出原始字节并由 Source
-  重新解析；带非空密码的 render view 被直接拒绝。这是 A1/A2 要消除的具体分裂。
+- 重置时已打开文档持有 qpdf 对象，而 native page bridge 又交出原始字节并由 Source
+  重新解析；带非空密码的 render view 被拒绝。下述 A1 增量消除了这条重复路径。
 - 现行公开版本号、`struct_size`、V1/V2/V8/V9/V10 等标记和导出基线仍在代码中；
   本次重置取消其兼容义务，实际代码清理由 A1 完成，本文不声称已经删除。
+
+## A1 当前实现增量
+
+- Native renderer 直接借用已打开、已解密的 qpdf Document 和所选 Page，
+  Source 不再重开原始文件；已删除字节/password view、版本化 Page/Bitmap bridge
+  和重复的私有 facade。独立原件 Source 测试仍可自行打开一次文档。
+- Page 持有 Document 引用；调用方 close Document/drop Context 后 Page 仍可渲染。
+  Source IR 独立持有图像/字体数据，完成的 Bitmap 独立持有像素和 Context。
+- `quantapdf_render_options` 使用当前完整字段，已删除 `struct_size` 协商；
+  渲染调用链不再选择 V8/V9/V10，也不再重复检查 UserUnit。
+- 加密多页、实际对象/资源变更、释放顺序、错误传播、完整 RGB 验收位于
+  `quantapdf.native_opened_document`，复用现有 native 测试可执行文件。
+- Page 的原始 `/Contents` 现在由 qpdf 直接拼接、解密、解码和解析；
+  已删除 Source 自行拼接的 decoded bytes 和空 qpdf 内容文档。
+  RAW、Flate、ASCIIHex、ASCII85、RunLength、filter array/chain，以及不同编码的
+  多内容流已通过独立 RGB 用例；这不是 Image XObject codec 的扩展。
+- 公开渲染不再将 4 个内容流或 64 KiB 当作页面准入上限。显式内部调用方的流数
+  预算在 qpdf 内容解析前核对，解码字节预算由 qpdf 的 contentSize 回调在解释前核对；
+  该字节预算不宣称限制 qpdf 解码缓冲区的瞬时内存。
+- `quantapdf.native_content_streams` 验证 144 次公开 RGB 输出、1/3/17 个流、
+  跨流 q/Q、AES-256、资源释放和错误传播；`quantapdf.native_content_stream_oom`
+  在同一打开的文档上验证 48 次真实 qpdf 遍历分配失败、192 次 Source 发布分配失败，
+  以及 144 项 N/N−1 字节/流数/操作数预算检查，复用现有两个测试可执行文件。
+  六组旧 64 KiB padding 拒绝用例已改为 72/96/144 DPI 的完整 RGB 等价对照；
+  其他未实现绘制、几何及资源错误用例保留。
+- 其他 API 的尺寸协商、独立原件 Source 的历史入口，以及固定内容/绘制顺序、
+  字体、几何、预算和 DPI 限制尚待 A1/A2 后续清理。本增量不声称通用 PDF 渲染完成。
 
 ## 单一执行模型
 

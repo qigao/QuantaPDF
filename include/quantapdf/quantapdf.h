@@ -678,8 +678,8 @@ typedef enum quantapdf_page_box {
     QUANTAPDF_PAGE_BOX_CROP = 1
 } quantapdf_page_box;
 
+/* Current render options; callers initialize all fields. */
 typedef struct quantapdf_render_options {
-    size_t struct_size;
     float dpi;
     float rotation_degrees;
     int clip_enabled;
@@ -1434,6 +1434,8 @@ QUANTAPDF_API quantapdf_status quantapdf_pdf_edit_snapshot(
     quantapdf_pdf_edit *edit,
     quantapdf_output **out_output);
 
+/* A successful Page retains Document and its qpdf/input resources. Calling
+ * close(document) releases the caller reference; loaded Pages remain usable. */
 QUANTAPDF_API quantapdf_status quantapdf_load_page(
     quantapdf_document *document,
     int page_index,

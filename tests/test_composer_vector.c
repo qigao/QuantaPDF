@@ -239,7 +239,6 @@ static int test_path_content_render_and_determinism(void)
     CHECK(quantapdf_open(COMPOSER_VECTOR_OUTPUT_PDF, NULL, &document) ==
           QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-    render.struct_size = sizeof(render);
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
           QUANTAPDF_OK);

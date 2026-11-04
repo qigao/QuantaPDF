@@ -22,6 +22,7 @@ typedef enum quantapdf_test_security_fault_internal {
 #endif
 
 struct quantapdf_document {
+    size_t references;
     quantapdf_context *context;
     unsigned char *source_data;
     size_t source_size;

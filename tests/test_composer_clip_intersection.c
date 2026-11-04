@@ -234,7 +234,6 @@ static int render_and_check_page(
 
     CHECK(quantapdf_load_page(
               document, (int)page_index, &page) == QUANTAPDF_OK);
-    render.struct_size = sizeof(render);
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(
               page, &render, &bitmap) == QUANTAPDF_OK);
@@ -414,7 +413,6 @@ static int test_nested_intersection_render_and_scope(void)
         int components = 0;
 
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(
                   page, &render, &bitmap) == QUANTAPDF_OK);

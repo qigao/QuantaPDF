@@ -273,7 +273,6 @@ static int test_embedded_text(
         quantapdf_drop_text_page(structured);
     }
 
-    render.struct_size = sizeof(render);
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
           QUANTAPDF_OK);

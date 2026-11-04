@@ -120,7 +120,6 @@ static int rendered_rgb(const std::string& pdf,int quarters,int angle,int dpi,
     CHECK(std::remove(filename)==0);
     OK(quantapdf_load_page(doc,0,&page));
     quantapdf_render_options options{};
-    options.struct_size=sizeof(options);
     options.dpi=(float)dpi;
     const auto status=quantapdf_render_page_with_options(
         page,&options,&bitmap);
@@ -213,7 +212,6 @@ static int negative(void)
         CHECK(std::remove(filename)==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_render_options options{};
-        options.struct_size=sizeof(options);
         options.dpi=(float)dpi;
         const auto status=quantapdf_render_page_with_options(
             page,&options,&bitmap);

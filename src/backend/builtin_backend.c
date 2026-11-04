@@ -1,5 +1,5 @@
 #include "document_backend.h"
-#include "builtin_source_view_v1.h"
+#include "builtin_page_view.h"
 #include "qpdf_document.h"
 #include "qpdf_graph_write.h"
 #include "qpdf_graph_stream.h"
@@ -10,11 +10,6 @@
 
 typedef struct quantapdf_builtin_document {
     quantapdf_qpdf_document *writer;
-    /* Borrowed from the immutable facade document through its Page lease.
-     * Native Source copies and seals IR before any Raster work. */
-    const unsigned char *source_data;
-    size_t source_size;
-    const char *password;
 } quantapdf_builtin_document;
 
 typedef struct quantapdf_builtin_page {
@@ -48,9 +43,6 @@ static quantapdf_status builtin_open_memory(
     state = (quantapdf_builtin_document *)calloc(1, sizeof(*state));
     if (state == NULL)
         return QUANTAPDF_ERROR_NOMEM;
-    state->source_data = data;
-    state->source_size = size;
-    state->password = password_utf8;
     status = quantapdf_qpdf_open_memory(
         data, size, password_utf8 == NULL ? "" : password_utf8,
         &state->writer);
@@ -108,32 +100,11 @@ static quantapdf_status builtin_page_bounds(
         state->page_index, QUANTAPDF_PAGE_BOX_CROP, out_bounds);
 }
 
-/* This is the ONLY built-in-struct-dependent native integration:
- * borrow the already opened Page's immutable original source and index.
- * Native admission/decoding/raster belong to the main product target,
- * never this backend archive. The getter has no PDFium lazy-open call. */
-quantapdf_status quantapdf_builtin_page_source_view_v1(
-    void *builtin_page,
-    quantapdf_builtin_source_view_v1 *out_view)
+quantapdf_builtin_page_view quantapdf_builtin_page_borrow(void *builtin_page)
 {
-    quantapdf_builtin_page *page = builtin_page;
-    quantapdf_builtin_document *document;
-
-    if (out_view == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    *out_view = (quantapdf_builtin_source_view_v1){0};
-    if (page == NULL || page->document == NULL || page->page_index < 0)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    document = page->document;
-    if (document->writer == NULL || document->source_data == NULL ||
-        document->source_size == 0u)
-        return QUANTAPDF_ERROR_ARGUMENT;
-
-    out_view->data = document->source_data;
-    out_view->size = document->source_size;
-    out_view->password = document->password;
-    out_view->page_index = (size_t)page->page_index;
-    return QUANTAPDF_OK;
+    const quantapdf_builtin_page *page=builtin_page;
+    return (quantapdf_builtin_page_view){page->document->writer,
+        (size_t)page->page_index};
 }
 
 static quantapdf_status builtin_qpdf_extract_text(

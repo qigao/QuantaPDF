@@ -494,7 +494,6 @@ static int test_render_extract_nested_and_state(void)
     CHECK(contains_bytes(extracted, extracted_size, "FORM", 4u));
     CHECK(contains_bytes(extracted, extracted_size, "NEST", 4u));
 
-    render.struct_size = sizeof(render);
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
           QUANTAPDF_OK);

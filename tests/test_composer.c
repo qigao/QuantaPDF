@@ -73,7 +73,6 @@ static int render_page_pixels(
     *out_bitmap = NULL;
     *out_pixels = NULL;
     *out_stride = 0;
-    options.struct_size = sizeof(options);
     options.dpi = 72.0f;
     if (quantapdf_load_page(document, page_index, &page) != QUANTAPDF_OK ||
         quantapdf_render_page_with_options(page, &options, out_bitmap) !=
@@ -388,7 +387,6 @@ static int test_png_and_alpha(void)
     CHECK(info.pixel_height == 1);
     CHECK(info.has_alpha == 1);
 
-    render_options.struct_size = sizeof(render_options);
     render_options.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(
               page, &render_options, &bitmap) == QUANTAPDF_OK);

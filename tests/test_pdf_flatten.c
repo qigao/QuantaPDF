@@ -252,7 +252,6 @@ static void compare_rendered_page(
     int sw = 0, sh = 0, ss = 0, sc = 0;
     int rw = 0, rh = 0, rs = 0, rc = 0;
 
-    options.struct_size = sizeof(options);
     options.dpi = 72.0f;
     CHECK(quantapdf_load_page(source, page_index, &source_page) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(result, page_index, &result_page) == QUANTAPDF_OK);

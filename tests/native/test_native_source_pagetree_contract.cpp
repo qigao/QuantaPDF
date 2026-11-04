@@ -225,7 +225,7 @@ static int test_source()
     const std::array<bound_case,3u> budgets={{
         {0u,2u,QUANTAPDF_ERROR_UNSUPPORTED},
         {3u,8u,QUANTAPDF_ERROR_UNSUPPORTED},
-        {0u,0u,QUANTAPDF_ERROR_ARGUMENT}
+        {0u,0u,QUANTAPDF_ERROR_UNSUPPORTED}
     }};
     for(const auto& b:budgets) {
         quantapdf_ir ir{};
