@@ -72,6 +72,14 @@
   Image、Q 恢复、Image+Path 和混合顺序原件在现有 native 测试中验证当前输出。
 - 其他 API 的尺寸协商，以及固定内容/绘制顺序、字体、几何、预算和 DPI 限制尚待
   A1/A2 后续清理。此处删除的是历史接口准入，不声称通用有序 Scene 或完整 PDF 渲染完成。
+- Composer 的 graphics-state 与 soft-mask options 改为当前完整记录，删除两者的
+  `struct_size`、V1/V2/V3 尺寸宏和按尺寸丢弃 Clip/SMask 引用的兼容读取分支；
+  SVG 的 path/group/use 调用方和当前仓库测试同步更新。其他 Composer 记录尚未清理。
+  `quantapdf.native_composer_state` 在现有公开测试可执行文件中验证实际写出/重开后的
+  alpha、blend、Clip、Alpha/Luminosity mask、变换、共享与逐页资源关系，以及
+  builder 失败传播和 Context/Page/Bitmap 生命周期。无 mask 的 opaque/Clip 文字验证
+  12 次完整 RGB；其余 24 次明确返回 native UNSUPPORTED。另验证 SVG 的四种
+  mask 写出与明确拒绝；这些字典可写出，不表示 A5 透明度渲染已经完成。
 
 ## A2 当前实现增量：动态 q/Q 状态
 

@@ -336,7 +336,6 @@ static int test_nested_intersection_render_and_scope(void)
         CHECK(flat_id == abc_id);
     }
 
-    state.struct_size = QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE;
     state.fill_alpha = 1.0f;
     state.stroke_alpha = 1.0f;
     state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;

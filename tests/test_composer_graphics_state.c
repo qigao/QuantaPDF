@@ -164,7 +164,7 @@ static int make_identity_output(
     return 0;
 }
 
-static int test_registration_validation_and_v1_identity(void)
+static int test_registration_validation_and_path_identity(void)
 {
     quantapdf_composer *composer = NULL;
     quantapdf_composer_graphics_state_options state = {0};
@@ -193,8 +193,6 @@ static int test_registration_validation_and_v1_identity(void)
               composer, NULL, &id) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(id == 0u);
 
-    state.struct_size =
-        QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE;
     state.fill_alpha = 0.5f;
     state.stroke_alpha = 0.25f;
     state.blend_mode = QUANTAPDF_COMPOSER_BLEND_MULTIPLY;
@@ -310,8 +308,6 @@ static int test_render_resources_and_attachment(
     CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
     CHECK(add_page(composer, 240.0f, 180.0f));
 
-    state.struct_size =
-        QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE;
     state.fill_alpha = 0.5f;
     state.stroke_alpha = 0.25f;
     state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
@@ -504,7 +500,7 @@ int main(void)
     unsigned char *font_data = NULL;
     size_t font_size = 0u;
 
-    CHECK(test_registration_validation_and_v1_identity() == 0);
+    CHECK(test_registration_validation_and_path_identity() == 0);
     CHECK(read_file(ROBOTO_TTF, &font_data, &font_size));
     CHECK(test_render_resources_and_attachment(font_data, font_size) == 0);
     free(font_data);

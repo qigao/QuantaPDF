@@ -428,7 +428,6 @@ static int test_render_extract_nested_and_state(void)
               composer, clip_rect, 5u, &clip_options, &clip_id) ==
           QUANTAPDF_OK);
 
-    state.struct_size = QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE;
     state.fill_alpha = 0.5f;
     state.stroke_alpha = 1.0f;
     state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;

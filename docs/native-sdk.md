@@ -18,8 +18,11 @@ platform libraries. `size_t` maps to the caller's native size type; C `int`,
 paths use UTF-8. These are current calling requirements, not cross-version
 negotiation or guarantees about future layouts.
 
-`quantapdf_render_options` is one current record: initialize all fields; it has
-no `struct_size` negotiation. Other areas of the header still contain
+`quantapdf_render_options`, `quantapdf_composer_graphics_state_options` and
+`quantapdf_composer_soft_mask_options` are current complete records: initialize
+all fields; they have no `struct_size` negotiation. Graphics states consume
+their Clip/SMask IDs directly; zero omits an optional reference. Other areas of
+the header still contain
 ABI-version macros, size fields, V1/MIN_SIZE constants and duplicate factories;
 their cleanup remains A1 work, without compatibility obligations.
 

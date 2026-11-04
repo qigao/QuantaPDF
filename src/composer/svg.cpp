@@ -4777,8 +4777,6 @@ quantapdf_status materialize_mask(
         return status;
 
     quantapdf_composer_soft_mask_options options{};
-    options.struct_size =
-        QUANTAPDF_COMPOSER_SOFT_MASK_OPTIONS_V1_SIZE;
     options.mode =
         mask.mode == svg_mask_mode::alpha
         ? QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA
@@ -5075,10 +5073,6 @@ quantapdf_status publish_uses(
         quantapdf_composer_graphics_state_id state_id = 0u;
         if (effective_clip_id != 0u || soft_mask_id != 0u) {
             quantapdf_composer_graphics_state_options state{};
-            state.struct_size =
-                soft_mask_id != 0u
-                ? QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V3_SIZE
-                : QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE;
             state.fill_alpha = 1.0f;
             state.stroke_alpha = 1.0f;
             state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
@@ -5206,12 +5200,6 @@ quantapdf_status publish_groups(
         }
 
         quantapdf_composer_graphics_state_options state{};
-        state.struct_size =
-            soft_mask_id != 0u
-            ? QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V3_SIZE
-            : (effective_clip_id != 0u
-                ? QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE
-                : QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE);
         state.fill_alpha = group.opacity;
         state.stroke_alpha = group.opacity;
         state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;
@@ -5425,12 +5413,6 @@ quantapdf_status publish_paths(
             effective_clip_id != 0u ||
             soft_mask_id != 0u) {
             quantapdf_composer_graphics_state_options state{};
-            state.struct_size =
-                soft_mask_id != 0u
-                ? QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V3_SIZE
-                : (effective_clip_id != 0u
-                    ? QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V2_SIZE
-                    : QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE);
             state.fill_alpha = paths[i].fill_alpha;
             state.stroke_alpha = paths[i].stroke_alpha;
             state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;

@@ -322,8 +322,6 @@ static int test_group_dictionary_render_and_nested(void)
               composer, &form, nested_group_builder, NULL, &nested_id) ==
           QUANTAPDF_OK);
 
-    state.struct_size =
-        QUANTAPDF_COMPOSER_GRAPHICS_STATE_OPTIONS_V1_SIZE;
     state.fill_alpha = 0.5f;
     state.stroke_alpha = 0.5f;
     state.blend_mode = QUANTAPDF_COMPOSER_BLEND_NORMAL;

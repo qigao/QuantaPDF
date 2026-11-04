@@ -2674,7 +2674,7 @@ static int composer_preparation_contracts()
     clip_options.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
     quantapdf_composer_clip_id clip_id=0u;
     CHECK(quantapdf_composer_add_clip_path(composer,rectangle,5u,&clip_options,&clip_id)==QUANTAPDF_OK);
-    quantapdf_composer_graphics_state_options gs{};gs.struct_size=sizeof(gs);
+    quantapdf_composer_graphics_state_options gs{};
     gs.fill_alpha=gs.stroke_alpha=1.0f;gs.blend_mode=QUANTAPDF_COMPOSER_BLEND_NORMAL;gs.clip_id=clip_id;
     quantapdf_composer_graphics_state_id gs_id=0u;
     CHECK(quantapdf_composer_add_graphics_state(composer,&gs,&gs_id)==QUANTAPDF_OK);
