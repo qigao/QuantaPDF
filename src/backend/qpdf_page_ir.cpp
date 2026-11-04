@@ -422,6 +422,11 @@ struct admission {
               size_t width,size_t height) :
         resources(page_resources),limits(page_limits),page_w(width),page_h(height) {}
 
+    bool ordered_outline_scene() const
+    {
+        return text_outlines_eligible && (!clip_completed || !two_owned_clips);
+    }
+
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
                     uint32_t color,quantapdf_composer_fill_rule rule,
                     bool is_stroke=false,uint32_t stroke_rgb=UINT32_C(0xff000000),
@@ -445,13 +450,13 @@ struct admission {
                  order.empty() && scoped_clip_membership.empty() &&
                  !saw_q_restore))),QUANTAPDF_ERROR_UNSUPPORTED);
 
-        const size_t allowed_paths=clip_completed?
+        const size_t allowed_paths=clip_completed && !ordered_outline_scene()?
             (draws.empty()?hard_operations:2u):limits.max_operations;
         admit(painted_paths.size()<allowed_paths &&
               (texample_path ||
                (three_path && is_stroke && commands.size()==2u) ||
                (commands.size()>=4u && commands.size()<=9u)) &&
-              (!clip_completed || order.size()<hard_operations) &&
+              (ordered_outline_scene() || !clip_completed || order.size()<hard_operations) &&
               limits.max_operations>=
                    order.size()+1u,
               QUANTAPDF_ERROR_UNSUPPORTED);
@@ -473,7 +478,7 @@ struct admission {
         admit(std::none_of(painted_paths.begin(),painted_paths.end(),
                   [](const staged_path& p){return p.stroke;}),
               QUANTAPDF_ERROR_UNSUPPORTED);
-        admit((!clip_completed || (draws.size()<2u && order.size()<hard_operations)) &&
+        admit((ordered_outline_scene() || !clip_completed || (draws.size()<2u && order.size()<hard_operations)) &&
               order.size()<limits.max_operations,QUANTAPDF_ERROR_UNSUPPORTED);
         admit(image.isStream(),QUANTAPDF_ERROR_FORMAT);
         Obj dict = image.getDict(), subtype=dict.getKey("/Subtype");
@@ -581,7 +586,7 @@ struct admission {
          * rescaled before nearest-sample lookup. The viewport C11
          * sampler intersects the full source footprint at 4x4 samples.
          * Legacy integer page grammar still rejects outside placements. */
-        const bool ordered_scene=text_outlines_eligible && !clip_completed;
+        const bool ordered_scene=ordered_outline_scene();
         if(ordered_scene)for(double value:{ax0,ax1,ay0,ay1})
             admit(std::isfinite(value) && value>=-1000000.0 && value<=1000000.0,
                   QUANTAPDF_ERROR_UNSUPPORTED);
@@ -716,9 +721,8 @@ bool source_m2b2r_reverse_sibling(const admission& source)
 
 /* One callback per REAL q/Q emitted by the same existing outline
  * token reader after BT. A Q restores exactly the Clip identity saved
- * at that original q; no inference from global clip_completed and no
- * new admission of a post-Clip restored paint in this phase. */
-quantapdf_status source_m2b2e_scope(
+ * at that original q. Later paints record that identity directly. */
+quantapdf_status source_outline_scope(
     void *user,int is_save,unsigned char before,unsigned char after)
 {
     admission& source=*static_cast<admission*>(user);
@@ -793,26 +797,17 @@ quantapdf_status source_text_paint(void *user)
 {
     admission& source=*static_cast<admission*>(user);
     try {
-        const bool compound=source_m2b2o_compound_clip(source) &&
-            source.outline_clip_id==2u && source.order.empty() && !source.saw_q_restore;
-        const bool reverse=source_m2b2r_reverse_sibling(source) &&
-            source.outline_clip_id==2u && source.outline_clip_stack.size()>=1u &&
-            source.outline_clip_stack.size()<=2u && source.outline_clip_stack[0]==0u &&
-            std::all_of(source.outline_clip_stack.begin()+1,source.outline_clip_stack.end(),
-                [](unsigned char id){return id==2u;});
-        admit(source.text_outlines_eligible &&
-              (!source.clip_completed || source.order.size()<hard_operations) &&
-              source.order.size()<source.limits.max_operations &&
-              source.outline_scope_started &&
-              (compound || reverse || (source.outline_clip_id==(source.clip_completed?1u:0u) &&
-              /* One root W/W* is frozen before BT, never a poppable
-               * scope borrowed by the independent outline callbacks. */
-              (!source.clip_completed ||
-               (source.clip.commands.size()==5u &&
-                !source.two_owned_clips &&
-                source.second_clip.commands.empty() &&
-                !source.saw_q_restore)))),
-              QUANTAPDF_ERROR_UNSUPPORTED);
+        admit(source.order.size()<source.limits.max_operations,QUANTAPDF_ERROR_UNSUPPORTED);
+        if(!source.ordered_outline_scene()) {
+            const bool compound=source_m2b2o_compound_clip(source) &&
+                source.outline_clip_id==2u && source.order.empty() && !source.saw_q_restore;
+            const bool reverse=source_m2b2r_reverse_sibling(source) &&
+                source.outline_clip_id==2u && source.outline_clip_stack.size()>=1u &&
+                source.outline_clip_stack.size()<=2u && source.outline_clip_stack[0]==0u &&
+                std::all_of(source.outline_clip_stack.begin()+1,source.outline_clip_stack.end(),
+                    [](unsigned char id){return id==2u;});
+            admit(compound || reverse,QUANTAPDF_ERROR_UNSUPPORTED);
+        }
         source.order.push_back(3);
         source.scoped_clip_membership.push_back(source.outline_clip_id);
         return QUANTAPDF_OK;
@@ -826,37 +821,11 @@ quantapdf_status source_fill_paint(void *user)
 {
     admission& source=*static_cast<admission*>(user);
     try {
-        /* M2b.2f Source OWNER only: one original Q restored GS0 after
-         * exactly Text/Fill/Image under Clip1. A fourth rectangle Fill
-         * must inherit GS0, never the final global clip_completed flag.
-         * Neither a fifth paint nor a post-Q Text/Image is admitted. */
-        const bool restored_suffix=
-            source.text_outlines_eligible &&
-            source.clip_completed && source.outline_scope_started &&
-            source.outline_clip_id==0u && source.saw_q_restore &&
-            source.outline_clip_stack.empty() &&
-            source.draws.size()==1u && source.painted_paths.empty() &&
-            source.order.size()==3u &&
-            source.order[0]==3 && source.order[1]==1 && source.order[2]==2 &&
-            source.scoped_clip_membership.size()==3u &&
-            std::all_of(source.scoped_clip_membership.begin(),
-                        source.scoped_clip_membership.end(),
-                        [](unsigned char root){return root==1u;});
-        const bool compound=source_m2b2o_compound_clip(source) &&
-            source.outline_clip_id==2u && !source.saw_q_restore &&
-            source.order.size()==1u && source.order[0]==3;
-        admit(source.text_outlines_eligible &&
-              (!source.clip_completed || source.order.size()<hard_operations) &&
-              source.order.size()<source.limits.max_operations &&
-              source.outline_scope_started &&
-              (restored_suffix || compound ||
-               (source.outline_clip_id==(source.clip_completed?1u:0u) &&
-                (!source.clip_completed ||
-                 (source.clip.commands.size()==5u &&
-                  !source.two_owned_clips &&
-                  source.second_clip.commands.empty() &&
-                  !source.saw_q_restore)))),
-              QUANTAPDF_ERROR_UNSUPPORTED);
+        admit(source.order.size()<source.limits.max_operations,QUANTAPDF_ERROR_UNSUPPORTED);
+        if(!source.ordered_outline_scene())
+            admit(source_m2b2o_compound_clip(source) && source.outline_clip_id==2u &&
+                  !source.saw_q_restore && source.order.size()==1u && source.order[0]==3,
+                  QUANTAPDF_ERROR_UNSUPPORTED);
         source.order.push_back(1);
         source.scoped_clip_membership.push_back(source.outline_clip_id);
         return QUANTAPDF_OK;
@@ -869,9 +838,9 @@ quantapdf_status source_image_paint(
 {
     admission& source=*static_cast<admission*>(user);
     try {
-        if(!source.clip_completed) {
+        if(source.ordered_outline_scene()) {
             source.execute(image,ctm);
-            source.scoped_clip_membership.push_back(0u);return QUANTAPDF_OK;
+            source.scoped_clip_membership.push_back(source.outline_clip_id);return QUANTAPDF_OK;
         }
         const bool sibling=source.sibling_clip_scopes && source.two_owned_clips &&
             source.outline_clip_id==2u && source.saw_q_restore &&
@@ -939,27 +908,6 @@ public:
         }
         const std::string op=item.getOperatorValue();
         if(target.text_outlines_eligible && op=="BT") {
-            /* An original q nested AFTER W/n may legitimately save the
-             * same active Clip root. The post-BT outline parser receives
-             * that saved graphics frame; its Q restores Clip 1, not GS0.
-             * Reject any pre-Clip q whose saved Clip ID is zero, and
-             * any W/W* after BT (unsupported by the outline grammar). */
-            const bool saved_preclip_root=
-                target.clip_completed &&
-                clip_active==1u && stack.size()>=1u &&
-                stack.size()<=2u && stack[0].clip==0u &&
-                std::all_of(stack.begin()+1,stack.end(),
-                            [](const graphics_state& state){return state.clip==1u;}) &&
-                target.order.empty() && target.draws.empty() &&
-                target.painted_paths.empty();
-            const bool frozen_root=target.clip_completed && clip_active==1u &&
-                target.clip.commands.size()==5u &&
-                !target.two_owned_clips &&
-                target.second_clip.commands.empty() &&
-                !target.saw_q_restore &&
-                (saved_preclip_root ||
-                 std::all_of(stack.begin(),stack.end(),
-                     [](const graphics_state& state){return state.clip==1u;}));
             const bool compound_root=source_m2b2o_compound_clip(target) &&
                 clip_active==2u && !target.saw_q_restore &&
                 stack.size()>=2u && stack.size()<=3u && stack[0].clip==0u && stack[1].clip==1u &&
@@ -976,27 +924,8 @@ public:
                     [](const graphics_state& state){return state.clip==2u;}) && current==identity &&
                 std::all_of(stack.begin(),stack.end(),[](const graphics_state& state){return state.ctm==identity;});
             admit(args.empty() && pending_path.empty() && !clip_pending &&
-                (!target.clip_completed || frozen_root || compound_root || reverse_sibling) &&
-                (!target.clip_completed || (target.draws.empty() ?
-                    target.order.size()==target.painted_paths.size() :
-                    (target.draws.size()==1u &&
-                     ((target.order.size()==1u && target.order[0]==2 &&
-                       target.painted_paths.empty()) ||
-                      (target.order.size()==2u && target.order[0]==2 &&
-                       target.order[1]==1 &&
-                       target.painted_paths.size()==1u)) &&
-                     target.scoped_clip_membership.size()==target.order.size() &&
-                     std::all_of(target.scoped_clip_membership.begin(),
-                         target.scoped_clip_membership.end(),
-                         [frozen_root,reverse_sibling](unsigned char member) {
-                             return member==((frozen_root || reverse_sibling)?1u:0u);
-                         })))) &&
-                (compound_root || reverse_sibling || std::all_of(stack.begin(),stack.end(),
-                    [frozen_root,saved_preclip_root](const graphics_state& state) {
-                        return state.clip==(frozen_root?1u:0u) ||
-                               (saved_preclip_root && state.clip==0u);
-                    })),
-                QUANTAPDF_ERROR_UNSUPPORTED);
+                  (target.ordered_outline_scene() || compound_root || reverse_sibling),
+                  QUANTAPDF_ERROR_UNSUPPORTED);
             std::vector<quantapdf::detail::source_outline_paint> prefix;
             for(size_t i=0u;i<target.painted_paths.size();++i) {
                 const auto& path=target.painted_paths[i];
@@ -1021,7 +950,7 @@ public:
                 {current,fill_argb,clip_active},
                 scoped_saved,prefix,
                 {&target,source_text_paint,source_image_paint,
-                 source_fill_paint,source_m2b2e_scope,source_m2b2l_sibling_clip},outline_reader);
+                 source_fill_paint,source_outline_scope,source_m2b2l_sibling_clip},outline_reader);
             admit(setup==QUANTAPDF_OK,setup);
             const auto status=outline_reader->consume(item);
             admit(status==QUANTAPDF_OK,status);return;
@@ -1224,8 +1153,8 @@ public:
             if(!target.clip_completed) {
                 admit(!clip_active && !target.saw_q_restore,QUANTAPDF_ERROR_UNSUPPORTED);
             } else {
-                admit(target.draws.size()<2u &&
-                      ((clip_active && !target.saw_q_restore) ||
+                admit((target.ordered_outline_scene() || target.draws.size()<2u) &&
+                      (target.ordered_outline_scene() || (clip_active && !target.saw_q_restore) ||
                        (target.sibling_clip_scopes && clip_active==2u) ||
                        (!clip_active && target.saw_q_restore)),
                       QUANTAPDF_ERROR_UNSUPPORTED);
@@ -1398,7 +1327,7 @@ public:
                 clip_active==0u && target.saw_q_restore && !target.two_owned_clips &&
                 stack.size()==1u && stack[0].clip==0u;
             text_rect_staging=target.text_outlines_eligible &&
-                (!target.clip_completed || (compound_text_prefix && target.draws.empty()) ||
+                (target.ordered_outline_scene() || (compound_text_prefix && target.draws.empty()) ||
                  reverse_text_prefix) && current==identity &&
                 (std::trunc(x)!=x || std::trunc(y)!=y || std::trunc(w)!=w || std::trunc(h)!=h);
             if(text_rect_staging)for(const auto& value:args)(void)page_lattice(value,8ll);
@@ -1517,7 +1446,7 @@ public:
                       QUANTAPDF_ERROR_UNSUPPORTED);
             } else  {
                 admit(target.clip_completed &&
-                      ((clip_active && !target.saw_q_restore) ||
+                      (target.ordered_outline_scene() || (clip_active && !target.saw_q_restore) ||
                        (target.sibling_clip_scopes &&
                         clip_active==2u) ||
                        (!clip_active && target.saw_q_restore)),
@@ -2402,143 +2331,7 @@ quantapdf_composer_clip_id materialize_source_clip_graph(
 
 
 
-quantapdf_ir materialize_m2b2f_restored_fill(const admission& source)
-{
-    const size_t n=source.order.size();
-    admit(source.text_outlines_eligible &&
-          source.text_outlines_complete && n==4u &&
-          source.limits.max_operations>=4u &&
-          source.order[0]==3 && source.order[1]==1 &&
-          source.order[2]==2 && source.order[3]==1 &&
-          source.draws.size()==1u && source.painted_paths.empty() &&
-          source.text_outline_paints.size()==3u &&
-          source.scoped_clip_membership.size()==4u &&
-          source.scoped_clip_membership[0]==1u &&
-          source.scoped_clip_membership[1]==1u &&
-          source.scoped_clip_membership[2]==1u &&
-          source.scoped_clip_membership[3]==0u &&
-          source.saw_q_restore && source.clip_completed &&
-          source.outline_scope_started &&
-          source.outline_clip_id==0u &&
-          source.outline_clip_stack.empty() &&
-          !source.two_owned_clips && !source.sibling_clip_scopes &&
-          source.second_clip.commands.empty() &&
-          source.clip.commands.size()==5u &&
-          quantapdf::detail::source_outline_is_rectangle(
-              source.clip.commands),
-          QUANTAPDF_ERROR_UNSUPPORTED);
-    admit(source.resources.isDictionary(),QUANTAPDF_ERROR_FORMAT);
-    const Obj fonts=source.resources.getKey("/Font");
-    const Obj images=source.resources.getKey("/XObject");
-    admit(fonts.isDictionary() && images.isDictionary(),
-          QUANTAPDF_ERROR_FORMAT);
-    admit(source.resources.getKeys().size()==2u &&
-          fonts.getKeys().size()==1u && images.getKeys().size()==1u,
-          QUANTAPDF_ERROR_UNSUPPORTED);
-    const auto& text=source.text_outline_paints[0];
-    const auto& first_fill=source.text_outline_paints[1];
-    const auto& restored_fill=source.text_outline_paints[2];
-    admit(text.rectangle.empty() && !text.glyphs.empty() &&
-          text.glyphs.size()<=64u && text.argb==UINT32_C(0xff000000) &&
-          first_fill.glyphs.empty() && restored_fill.glyphs.empty() &&
-          first_fill.rectangle.size()==5u &&
-          restored_fill.rectangle.size()==5u &&
-          (first_fill.argb>>24u)==255u &&
-          (restored_fill.argb>>24u)==255u &&
-          quantapdf::detail::source_outline_is_rectangle(
-              first_fill.rectangle) &&
-          quantapdf::detail::source_outline_is_rectangle(
-              restored_fill.rectangle),
-          QUANTAPDF_ERROR_UNSUPPORTED);
-    size_t commands=10u;
-    for(const auto& glyph:text.glyphs) {
-        admit(!glyph.commands.empty() &&
-              glyph.commands.size()<=4096u-commands,
-              QUANTAPDF_ERROR_UNSUPPORTED);
-        commands+=glyph.commands.size();
-    }
-    quantapdf_ir ir=materialize(source);
-    try {
-        const quantapdf_composer_operation decoded_image=ir.operations[0];
-        auto *operations=static_cast<quantapdf_composer_operation *>(
-            QP_SOURCE_C_REALLOC(ir.operations,n*sizeof(*ir.operations)));
-        admit(operations!=nullptr,QUANTAPDF_ERROR_NOMEM);
-        ir.operations=operations;
-        std::memset(operations,0,n*sizeof(*operations));
-        ir.operation_count=n;
-        const auto copy_fill=[&](size_t index,
-            const quantapdf::detail::source_outline_paint& paint,
-            quantapdf_composer_graphics_state_id gs) {
-            auto& op=ir.operations[index];
-            op.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
-            op.page_index=0u;
-            op.graphics_state_id=gs;
-            auto& path=op.value.path;
-            path.command_count=paint.rectangle.size();
-            path.commands=static_cast<quantapdf_composer_path_command *>(
-                QP_SOURCE_C_MALLOC(path.command_count*sizeof(*path.commands)));
-            admit(path.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
-            std::memcpy(path.commands,paint.rectangle.data(),
-                        path.command_count*sizeof(*path.commands));
-            path.options.struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
-            path.options.fill=1;
-            path.options.fill_argb=paint.argb;
-            path.options.fill_rule=paint.rule;
-            path.options.graphics_state_id=gs;
-        };
-        auto& text_op=ir.operations[0];
-        text_op.kind=QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES;
-        text_op.page_index=0u;
-        text_op.graphics_state_id=1u;
-        auto& outlines=text_op.value.text_outlines;
-        outlines.argb=text.argb;
-        outlines.glyph_count=text.glyphs.size();
-        outlines.glyphs=static_cast<quantapdf_outline_glyph *>(
-            QP_SOURCE_C_CALLOC(outlines.glyph_count,sizeof(*outlines.glyphs)));
-        admit(outlines.glyphs!=nullptr,QUANTAPDF_ERROR_NOMEM);
-        for(size_t g=0u;g<outlines.glyph_count;++g) {
-            auto& glyph=outlines.glyphs[g];
-            const auto& outline_source=text.glyphs[g].commands;
-            glyph.command_count=outline_source.size();
-            glyph.commands=static_cast<quantapdf_composer_path_command *>(
-                QP_SOURCE_C_MALLOC(glyph.command_count*sizeof(*glyph.commands)));
-            admit(glyph.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
-            std::memcpy(glyph.commands,outline_source.data(),
-                        glyph.command_count*sizeof(*glyph.commands));
-        }
-        copy_fill(1u,first_fill,1u);
-        ir.operations[2]=decoded_image;
-        ir.operations[2].graphics_state_id=1u;
-        ir.operations[2].value.image.options.struct_size=
-            QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
-        ir.operations[2].value.image.options.graphics_state_id=1u;
-        copy_fill(3u,restored_fill,0u);
-        ir.resources.graphics_states=
-            static_cast<quantapdf_composer_graphics_state *>(
-                QP_SOURCE_C_CALLOC(1u,sizeof(*ir.resources.graphics_states)));
-        admit(ir.resources.graphics_states!=nullptr,QUANTAPDF_ERROR_NOMEM);
-        ir.resources.graphics_state_count=1u;
-        ir.resources.graphics_state_capacity=1u;
-        const auto clip_root=materialize_source_clip_graph(ir,source);
-        admit(clip_root==1u,QUANTAPDF_ERROR_UNSUPPORTED);
-        auto& gs=ir.resources.graphics_states[0];
-        gs.clip_id=clip_root;
-        gs.fill_alpha=1.0f;
-        gs.stroke_alpha=1.0f;
-        gs.blend_mode=QUANTAPDF_COMPOSER_BLEND_NORMAL;
-        return ir;
-    } catch(...) {quantapdf_ir_dispose(&ir);throw;}
-}
-
-/* Shared three-paint Source owner: one original opaque Text show,
- * one rectangular Fill and one RAW/Flate Image. Single-root variants
- * preserve both original orders; M2b.2l/r retain [1,1,2] siblings
- * in the forward and reverse three-paint orders.
- * The old image materializer owns
- * the decoded payload, while the existing TTF interpreter owns and
- * copies the frozen glyph/PATH contours only after original EOF.
- * This stage does not enable C11 painting of the three-layer IR. */
-quantapdf_ir materialize_clipped_text_fill_image(const admission& source)
+quantapdf_ir materialize_two_clip_text_scene(const admission& source)
 {
     const bool text_first=source.order.size()==3u &&
         source.order[0]==3 && source.order[1]==1 && source.order[2]==2;
@@ -2558,23 +2351,14 @@ quantapdf_ir materialize_clipped_text_fill_image(const admission& source)
               source.outline_clip_id==0u && source.outline_clip_stack.empty() &&
               std::all_of(source.scoped_clip_membership.begin(),
                   source.scoped_clip_membership.end(),[](unsigned char id){return id==2u;})) :
-           sibling ?
-             ((text_first || image_first) && source.two_owned_clips &&
+           (sibling && (text_first || image_first) && source.two_owned_clips &&
               source.saw_q_restore && source.outline_scope_started &&
               source.outline_clip_id==0u && source.outline_clip_stack.empty() &&
               source.scoped_clip_membership[0]==1u &&
               source.scoped_clip_membership[1]==1u &&
               source.scoped_clip_membership[2]==2u &&
               quantapdf::detail::source_outline_is_rectangle(source.clip.commands) &&
-              quantapdf::detail::source_outline_is_rectangle(source.second_clip.commands)) :
-           (std::all_of(source.scoped_clip_membership.begin(),
-                      source.scoped_clip_membership.end(),
-                      [](unsigned char member) {
-                          return member==1u;
-                      }) &&
-          source.clip.commands.size()==5u && !source.two_owned_clips &&
-          !source.sibling_clip_scopes && source.second_clip.commands.empty() &&
-          !source.saw_q_restore)),
+              quantapdf::detail::source_outline_is_rectangle(source.second_clip.commands))),
           QUANTAPDF_ERROR_UNSUPPORTED);
     admit(source.resources.isDictionary(),QUANTAPDF_ERROR_FORMAT);
     const Obj font_dict=source.resources.getKey("/Font");
@@ -2599,7 +2383,7 @@ quantapdf_ir materialize_clipped_text_fill_image(const admission& source)
               source.painted_paths[0].fill_rule==fill.rule &&
               !source.painted_paths[0].stroke,
               QUANTAPDF_ERROR_UNSUPPORTED);
-    size_t commands=fill.rectangle.size()+((sibling || compound)?10u:0u);
+    size_t commands=fill.rectangle.size()+10u;
     for(const auto& glyph:text.glyphs) {
         admit(!glyph.commands.empty() &&
               glyph.commands.size()<=4096u-commands,
@@ -2745,6 +2529,21 @@ quantapdf_ir materialize_ordered_paints(const admission& source)
                 path.options.stroke_argb=staged.stroke_argb;path.options.stroke_width=staged.stroke_width;
                 path.options.line_cap=QUANTAPDF_COMPOSER_LINE_CAP_BUTT;
                 path.options.line_join=QUANTAPDF_COMPOSER_LINE_JOIN_MITER;path.options.miter_limit=10.0f;
+            }
+        }
+        if(source.text_outlines_complete && source.clip_completed &&
+           std::find(source.scoped_clip_membership.begin(),source.scoped_clip_membership.end(),1u)!=source.scoped_clip_membership.end()) {
+            ir.resources.graphics_states=static_cast<quantapdf_composer_graphics_state *>(QP_SOURCE_C_CALLOC(1u,sizeof(*ir.resources.graphics_states)));
+            admit(ir.resources.graphics_states!=nullptr,QUANTAPDF_ERROR_NOMEM);
+            ir.resources.graphics_state_count=ir.resources.graphics_state_capacity=1u;
+            auto& state=ir.resources.graphics_states[0];
+            state.fill_alpha=state.stroke_alpha=1.0f;state.blend_mode=QUANTAPDF_COMPOSER_BLEND_NORMAL;
+            state.clip_id=materialize_source_clip_graph(ir,source);
+            for(size_t i=0u;i<n;++i) {
+                auto& op=ir.operations[i];const auto id=source.scoped_clip_membership[i];
+                op.graphics_state_id=id;
+                if(op.kind==QUANTAPDF_COMPOSER_OPERATION_PATH)op.value.path.options.graphics_state_id=id;
+                if(op.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE)op.value.image.options.graphics_state_id=id;
             }
         }
         return ir;
@@ -3939,12 +3738,8 @@ static quantapdf_status source_page_to_ir_impl(
         page.parseContents(&reader);
         admit(!pdf.anyWarnings(),QUANTAPDF_ERROR_FORMAT);
         if(source.text_outlines_complete) {
-            if(!source.clip_completed)*out_ir=materialize_ordered_paints(source);
-            else {
-                admit(!source.draws.empty(),QUANTAPDF_ERROR_UNSUPPORTED);
-                *out_ir=source.order.size()==4u?materialize_m2b2f_restored_fill(source):
-                    materialize_clipped_text_fill_image(source);
-            }
+            *out_ir=source.ordered_outline_scene()?materialize_ordered_paints(source):
+                materialize_two_clip_text_scene(source);
             return QUANTAPDF_OK;
         }
         const bool clip_states=!source.texample_original_profile &&

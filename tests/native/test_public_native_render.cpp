@@ -733,9 +733,14 @@ static int native_m2b2c_public_aligned(const std::string& filename)
         const auto denied_status=
             quantapdf_render_page_with_options(
                 denied_page,&options,&denied_bitmap);
-        CHECK((denied_status==QUANTAPDF_ERROR_UNSUPPORTED ||
-               denied_status==QUANTAPDF_ERROR_FORMAT) &&
-              denied_bitmap==nullptr);
+        if(mode==87 || mode==90) {
+            CHECK(denied_status==QUANTAPDF_OK && denied_bitmap!=nullptr);
+            const auto expected=native_ttf_fractional_expected(83,96u);
+            const unsigned char *pixels=nullptr;size_t size=0u;
+            OK(quantapdf_bitmap_data(denied_bitmap,&pixels,&size));
+            CHECK(size==expected.rgb.size() && std::memcmp(pixels,expected.rgb.data(),size)==0);
+            quantapdf_drop_bitmap(denied_bitmap);
+        } else CHECK((denied_status==QUANTAPDF_ERROR_UNSUPPORTED || denied_status==QUANTAPDF_ERROR_FORMAT) && denied_bitmap==nullptr);
         quantapdf_drop_page(denied_page);
         quantapdf_close(denied_doc);
     }
@@ -871,8 +876,14 @@ static int native_m2b2j_public_fractional(const std::string& filename)
             options.dpi=(float)dpi;
             quantapdf_bitmap *denied=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
             const auto status=quantapdf_render_page_with_options(page,&options,&denied);
-            CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED || status==QUANTAPDF_ERROR_FORMAT) &&
-                  denied==nullptr && matches(retained,retained_reference));
+            if(mode==111 || mode==112) {
+                CHECK(status==QUANTAPDF_OK && matches(denied,native_ttf_fractional_expected(mode,dpi)));
+                quantapdf_drop_bitmap(denied);
+            } else {
+                if(status==QUANTAPDF_OK)std::fprintf(stderr,"Now supported Clip original mode=%d dpi=%u\n",mode,dpi);
+                CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED || status==QUANTAPDF_ERROR_FORMAT) && denied==nullptr);
+            }
+            CHECK(matches(retained,retained_reference));
         }
         quantapdf_drop_page(page);quantapdf_close(document);
     }
@@ -4134,10 +4145,13 @@ static int native_seventh_userunit_late_refusal_cases(
 #include "native_ordered_paints_cases.h"
 #include "native_ordered_text_cases.h"
 #include "native_ordered_scene_cases.h"
+#include "native_ordered_clip_cases.h"
 
 int main(int argc,char **argv)
 {
     const std::string filename="native-standalone-smoke.pdf";
+    if(argc==2 && std::strcmp(argv[1],"--ordered-clip")==0)
+        return ordered_clip_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--ordered-scene")==0)
         return ordered_scene_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--ordered-text")==0)

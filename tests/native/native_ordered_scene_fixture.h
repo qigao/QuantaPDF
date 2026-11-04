@@ -5,9 +5,9 @@
 #include <array>
 namespace native_ordered_scene {
 using O=QPDFObjectHandle;
-struct paint {double x,y,w,h;std::array<unsigned char,12> colors;bool image;};
-struct original {std::string bytes;size_t decoded_bytes=0u,operations=0u,glyphs=0u,images=0u;std::vector<paint> paints;};
-inline original create(size_t count,size_t letters,unsigned permutation,bool encrypted,size_t depth=0u,int invalid=0)
+struct paint {double x,y,w,h;std::array<unsigned char,12> colors;bool image;bool clipped=false;};
+struct original {std::string bytes;size_t decoded_bytes=0u,operations=0u,glyphs=0u,images=0u;std::vector<paint> paints;unsigned clip_kind=0u;};
+inline original create(size_t count,size_t letters,unsigned permutation,bool encrypted,size_t depth=0u,int invalid=0,unsigned clip_kind=0u,size_t restore_at=SIZE_MAX,bool omit_images=false)
 {
     auto pdf=QPDF::create();const auto base=native_ttf_fixture();
     pdf->processMemoryFile("ordered-scene-authoring",base.data(),base.size());
@@ -22,12 +22,20 @@ inline original create(size_t count,size_t letters,unsigned permutation,bool enc
     // Their presence cannot become an arbitrary whole-page profile gate.
     resources.replaceKey("/ExtGState",O::newDictionary());
     resources.getKey("/Font").replaceKey("/Unused",resources.getKey("/Font").getKey("/F"));
-    original result;std::array<std::string,3> parts;parts[0]="q ";
+    original result;result.clip_kind=clip_kind;std::array<std::string,3> parts;parts[0]="q ";
+    if(clip_kind==1u || clip_kind==2u)parts[0]+=std::string("2.25 2.25 7.5 7.5 re ")+(clip_kind==1u?"W n ":"W* n ");
+    if(clip_kind==3u)parts[0]+="2 2 m 10 2 l 8 10 l 2 10 l h W n ";
+    if(clip_kind==4u)parts[0]+="2 2 m W* n ";
     const std::array<std::array<unsigned char,3>,3> colors={{{51,102,153},{204,51,102},{102,204,51}}};
     const char *rg[]={"0.2 0.4 0.6 rg ","0.8 0.2 0.4 rg ","0.4 0.8 0.2 rg "};
     for(size_t i=0u;i<count;++i) {
         auto& part=parts[std::min(size_t(2u),i*3u/count)];
         if(i==0u)for(size_t q=0u;q<depth;++q)part+="q ";
+        if(i==restore_at) {
+            for(size_t q=0u;q<=depth;++q)part+="Q ";
+            for(size_t q=0u;q<=depth;++q)part+="q ";
+        }
+        const size_t first_paint=result.paints.size();
         const double x=double(i%7u)*1.75-0.5,y=double((i/7u)%7u)*1.75-0.25;
         std::array<unsigned char,12> samples{};std::string raw;
         const bool gray=i%2u!=0u;
@@ -46,6 +54,7 @@ inline original create(size_t count,size_t letters,unsigned permutation,bool enc
         static const unsigned orders[6][3]={{0,1,2},{0,2,1},{1,0,2},{1,2,0},{2,0,1},{2,1,0}};
         for(unsigned item:orders[permutation%6u]) {
             if(item==0u) {
+                if(omit_images)continue;
                 part+="q 2.25 0 0 2.5 "+std::to_string(x)+" "+std::to_string(y)+" cm "+name+" Do Q ";
                 result.paints.push_back({x,y,2.25,2.5,samples,true});++result.operations;++result.images;
             } else if(item==1u && text) {
@@ -65,6 +74,7 @@ inline original create(size_t count,size_t letters,unsigned permutation,bool enc
                 result.paints.push_back({x+0.75,y+0.75,2.5,1.25,ink,false});++result.operations;
             }
         }
+        for(size_t at=first_paint;at<result.paints.size();++at)result.paints[at].clipped=clip_kind!=0u && i<restore_at;
         if(i+1u==count)for(size_t q=0u;q<depth;++q)part+="Q ";
     }
     parts[2]+="Q ";
@@ -86,7 +96,11 @@ inline std::vector<unsigned char> rgb(const original& source,unsigned dpi)
         unsigned hits=0u;
         for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
             const double xx=double(x)+(double(sx)+0.5)/4.0,yy=double(y)+(double(sy)+0.5)/4.0;
-            hits+=unsigned(xx>=x0 && xx<x1 && yy>=y0 && yy<y1);
+            const double px=xx/scale,py=12.0-yy/scale;
+            const bool inside=source.clip_kind==1u || source.clip_kind==2u?
+                px>=2.25 && px<9.75 && py>=2.25 && py<9.75:
+                source.clip_kind==3u?py>=2.0 && py<10.0 && px>=2.0 && px<10.0-(py-2.0)/4.0:false;
+            hits+=unsigned(xx>=x0 && xx<x1 && yy>=y0 && yy<y1 && (!p.clipped || inside));
         }
         size_t pixel=0u;
         if(p.image) {

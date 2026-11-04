@@ -184,6 +184,43 @@
   Text 页变换与三个 DPI 以外的支持仍待实现。4096 命令、512 边、8M 采样等实际
   工作预算未提高。本增量不代表完整 PDF SDK 已完成。
 
+### A2 单根 Clip 的有序文字场景
+
+- 基于 #614 合并后的 master `52453d02d5517be6c76bc1b9da695519a8d5c440`；
+  独立 [master CI #2423](https://github.com/qigao/QuantaPDF/actions/runs/41791611009)
+  四配置各 80/80。该历史结果不代替本增量精确 HEAD 的验收。
+- 包含 Text 的页面可将原有 Source 已冻结的单根 W/W* 叶子，绑定到任意顺序和数量
+  的 Text、矩形 Fill、opaque RAW/Flate RGB/Gray Image。每笔 paint 保存真实身份；
+  Q 恢复后可以继续文字、Fill、Image，不再要求三笔固定顺序或恰好第四笔红色 Fill。
+  无 Image、空 text show、空 Clip、Clip 从未用于 paint 的原件也按实际语义处理。
+- 单根场景使用已有 ordered Source 发布器与一个 C11 几何 owner。根 Clip 只编译
+  一次，每笔字形/Fill/Image 在同一组 4×4 子采样上与自己的 Clip 相交，再直接
+  按 n/16 混入当前像素。删除根 Clip 与恢复后第四笔的独立 Source 发布器、
+  prepared route、分类器、私有 V5 编译入口及已无调用的分支，更新当前头文件与测试。
+- 字形、Clip、状态绑定和 Image 描述符在编译时快照；RAW 分配仍由外层 Source
+  owner 保护。测试在编译后破坏调用方操作、Clip、GS 和 Image 描述符，核对两次
+  完整输出与累计收费，第三次超过放置预算后立即失败。输出在 owner 释放后仍有效。
+- 单根场景不再划分 Text/Fill/Image 的固定工作份额。源像素计一次，真实编译边、
+  访问的采样、完整物理 Image 放置、临时展开/保留几何/mask/输出统一计入原有
+  ledger，N/N−1 使用当前实际工作。旧测试由当前预算入口重新准备，不修改失配的
+  prepared 内部副本来模拟准入；真实分配失败保留 NOMEM，失败不发布 IR/receipt/Bitmap。
+- `quantapdf.native_ordered_clip` 对比 264 次独立解析式完整 RGB：W/W* 矩形、
+  梯形、空 Clip，六种绘制顺序，0/1/5/17/33/65 个 Image，69 字形与空 show，
+  根 Clip 内外的非原色文字/Fill/2×2 Image，三个 DPI，129/4097 层 q/Q，
+  Clip 未被使用的真实恢复，AES-256、多编码 Contents、继承资源、选中第二页和
+  Bitmap/Context 生命周期。八项晚到真实错误保持空输出。
+- `quantapdf.native_ordered_clip_oom` 复用同一已解密 qpdf Document，穷举
+  216 个实际栈增长、458 个 Source C 发布、40 个 C11 分配失败，及 88 项工作/内存
+  预算边界；另核对末尾 Image 和 Clip/GS 的错误绑定、非法资源与不可达资源。
+  复用现有两个可执行文件、LLVM/LLVM-MinGW、ccache 和四配置 CI。
+- 历史单根独立字形 mask/完整 RGB 原件保留。其期望改为每个字形直接在当前颜色上
+  进行 n/16 混色，反映删除中间 8-bit alpha 层后的正确舍入；两个 Clip 的现有路径
+  保留原来的独立像素证据。合法的外层 q、未使用资源、额外 Fill 和反向恢复顺序
+  改为成功验收，真实不支持语义仍立即失败。
+- 两个 Clip 的固定组合、一般 Clip 图、BT 后新 Clip 定义、其余内容解释分段，以及
+  纯 Fill/Image Clip 的固定组合仍待后续收敛；一般路径/Stroke、更多字体、任意页
+  变换与 DPI 也未完成。现有命令、边数、采样和像素预算未提高，不代表完整 SDK。
+
 ## 单一执行模型
 
 ```mermaid
