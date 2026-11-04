@@ -62,22 +62,6 @@ quantapdf_status quantapdf_native_scoped_prepare_v5(
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     double viewport_width,double viewport_height,quantapdf_native_scoped_profile_v5 profile,
     quantapdf_native_work_ledger_v1 *ledger,quantapdf_native_scoped_page_v5 *out);
-/* M2a unique ordered Text/Image original Source: prepare the existing
- * TTF geometry as one transparent V5 layer and the RAW image as another.
- * The same V5 pixel compositor and one execution ledger own both. */
-quantapdf_status quantapdf_native_scoped_prepare_m2a_text_image_v1(
-    const quantapdf_ir *ir,const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
-    const quantapdf_native_device_plan *physical,
-    quantapdf_native_work_ledger_v1 *ledger,
-    quantapdf_native_scoped_page_v5 *out);
-/* M2b.1: same V5 compiled-page owner and source-over compositor,
- * now with one original opaque rectangular Fill between TTF and RAW
- * Image (or their inverse source order). No W/W* or new raster. */
-quantapdf_status quantapdf_native_scoped_prepare_m2b1_text_fill_image_v1(
-    const quantapdf_ir *ir,const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
-    const quantapdf_native_device_plan *physical,
-    quantapdf_native_work_ledger_v1 *ledger,
-    quantapdf_native_scoped_page_v5 *out);
 /* PRIVATE M2b.2c: one actually frozen Source W/W* leaf carried by
  * three ordered Text/Fill/Image paints, one V5 compiled page/ledger.
  * No public Text+Clip Source route is enabled by this entry alone. */

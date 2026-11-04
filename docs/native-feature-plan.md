@@ -152,6 +152,38 @@
   一般路径/Stroke、Text 的页面变换和 DPI/颜色支持仍未完成。
   这是 Text/Fill 动态容器与顺序功能的独立增量，不代表完整通用 Text/Clip 场景。
 
+### A2 顺序 Text/Fill/Image 增量
+
+- 基于 #613 合并后的 master `f60bb59f862f2d6d94e6eb432ad94173a03d9ba8`；
+  独立 [master CI #2421](https://github.com/qigao/QuantaPDF/actions/runs/41780611481)
+  四配置各 78/78。这份历史结果不代替本增量精确 HEAD 的验收。
+- 无 Clip 的 opaque Text、矩形 Fill、RAW/Flate DeviceRGB/DeviceGray Image
+  按实际顺序使用一个 Source 发布函数和一个 C11 几何 owner。原始字形轮廓、
+  矩形与 Image 的真实放置边界进入同一绘制序列；Image 按 4×4 几何覆盖和像素中心
+  最近邻取样，直接按 n/16 混入当前像素。Text 不再先输出灰度 Bitmap 再转 alpha。
+- 删除两类无 Clip 固定组合的 Source 发布函数、prepared route 和私有编译入口；
+  当前头文件、实现、调用方与测试同步，不保留兼容包装。Image 描述符与几何被
+  编译 owner 快照，RAW 字节借用外层 Source IR 的独立资源 owner；输出像素独立持有。
+- 未使用的 Font/XObject 别名与 ExtGState 字典不再作为无 Clip 场景的准入错误。
+  额外 Fill、重复 Image、多个彩色 text show 和六种交错顺序正常绘制。缺失 XObject
+  在责任解析器保留 FORMAT；未实现语义直接传播 UNSUPPORTED。
+- 源像素按发布资源计一次，完整物理放置面积、真实边数、每个访问的采样测试及
+  临时展开/保留几何/输出内存均进入同一页 ledger。重用不可变几何时按第一次实际
+  采样工作预留，累计新的放置和采样；达到预算立即失败，不重置或恢复账本。
+- `quantapdf.native_ordered_scene` 比较 300 次独立解析式完整 RGB：六种顺序、
+  1/5/17/33/65 个 Image、69 字形、空 text show、非原色 Text/Fill/2×2 Image、
+  分数放置与跨页边界、RAW/Flate Gray/RGB、三个 DPI、129/4097 层 q/Q、AES-256、
+  三种编码的 Contents、继承资源和第二页。Document/Page/调用方 Context 释放后
+  复核全部 Bitmap；八项晚到错误不发布输出。
+- `quantapdf.native_ordered_scene_oom` 在同一已打开并解密的文档上逐个拒绝
+  实际状态栈增长与 IR 发布分配，穷举当前 C11 五处分配失败；逐字节检查 IR 不变、
+  空 receipt/输出、独立 RGBA，以及内容/操作数/源像素/完整放置/边数/采样/峰值
+  内存的 N/N−1。第 65 个资源必须可达；重复执行累计收费，超限不发布结果。
+  复用现有两个可执行文件和四配置 CI，不增加 installer/consumer 工程。
+- 一般 Clip 图仍使用已有受限编译路径；通用路径/Stroke、字体类型、任意仿射 Image、
+  Text 页变换与三个 DPI 以外的支持仍待实现。4096 命令、512 边、8M 采样等实际
+  工作预算未提高。本增量不代表完整 PDF SDK 已完成。
+
 ## 单一执行模型
 
 ```mermaid

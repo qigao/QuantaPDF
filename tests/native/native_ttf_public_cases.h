@@ -196,7 +196,7 @@ static int native_ttf_public_cases(const std::string& filename,int first=0,int l
             const auto status=quantapdf_render_page_with_options(page,&options,&bitmap);
             if(!positive) {
                 CHECK(status!=QUANTAPDF_OK && bitmap==nullptr);
-                CHECK(status==(mode==13 || mode==17 || mode==18 || mode==27 || mode==30 || mode==31 || mode==39?QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED));
+                CHECK(status==(mode==12 || mode==13 || mode==17 || mode==18 || mode==27 || mode==30 || mode==31 || mode==36 || mode==39?QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED));
                 continue;
             }
             if(status!=QUANTAPDF_OK || bitmap==nullptr)

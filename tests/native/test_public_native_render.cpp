@@ -1048,30 +1048,20 @@ static int native_m2a_public_text_image_cases(const std::string& filename,
         quantapdf_drop_page(page);
         quantapdf_close(doc);
     }
-    /* All thirteen late-source cases are exhaustively exercised in
-     * the EXISTING Source/OOM test. A six-case representative subset
-     * also checks public Bitmap atomic refusal and same-Context
-     * recovery. Avoid thirteen redundant full TTF public renders:
-     * the existing ASan CTest has an immutable 45-second ceiling. */
-    constexpr int public_m2a_refusals[]={51,52,53,54,60,63};
-    for(int mode:public_m2a_refusals) {
+    /* Former profile refusals are real successful PDFs now: unused
+     * dictionaries/aliases, additional Fill and repeated Image paints. */
+    constexpr int public_m2a_cases[]={51,52,53,54,55,56,57,58,59,60,61,62,63};
+    for(int mode:public_m2a_cases) {
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
-        quantapdf_document *denied_doc=nullptr;
-        quantapdf_page *denied_page=nullptr;
-        quantapdf_bitmap *denied_bitmap=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-        OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&denied_doc));
-        CHECK(std::remove(filename.c_str())==0);
-        OK(quantapdf_load_page(denied_doc,0,&denied_page));
-        const auto refusal=quantapdf_render_page(denied_page,&denied_bitmap);
-        if(refusal!=QUANTAPDF_ERROR_UNSUPPORTED &&
-           refusal!=QUANTAPDF_ERROR_FORMAT)
-            std::fprintf(stderr,"M2a public negative mode=%d status=%d\n",
-                         mode,(int)refusal);
-        CHECK((refusal==QUANTAPDF_ERROR_UNSUPPORTED ||
-               refusal==QUANTAPDF_ERROR_FORMAT) &&
-              denied_bitmap==nullptr);
-        quantapdf_drop_page(denied_page);
-        quantapdf_close(denied_doc);
+        quantapdf_document *doc=nullptr;quantapdf_page *page=nullptr;
+        quantapdf_bitmap *bitmap=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
+        OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&doc));
+        CHECK(std::remove(filename.c_str())==0);OK(quantapdf_load_page(doc,0,&page));
+        const auto status=quantapdf_render_page(page,&bitmap);
+        const bool supported=mode==51 || mode==53 || mode==57 || mode==58 || mode==61;
+        if(supported) {CHECK(status==QUANTAPDF_OK && bitmap!=nullptr);quantapdf_drop_bitmap(bitmap);}
+        else CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED || status==QUANTAPDF_ERROR_FORMAT) && bitmap==nullptr);
+        quantapdf_drop_page(page);quantapdf_close(doc);
     }
     quantapdf_drop_context(ctx);
     std::puts("[native-public-render] M2a + M2b.1 original Text/Fill/Image"
@@ -1079,19 +1069,13 @@ static int native_m2a_public_text_image_cases(const std::string& filename,
     return EXIT_SUCCESS;
 }
 
-/* Separate CTest invocation of the SAME real public-native executable.
- * The seven original invalid three-paint PDFs must not consume part of
- * the unchanged 45s main public golden budget on a contended ASan
- * runner. No extra consumer/test project or probing workflow. */
+/* Existing public invocation verifies the formerly fixed three-paint cases. */
 static int native_m2b1_public_negatives(const std::string& filename)
 {
     quantapdf_context *ctx=nullptr;
     OK(quantapdf_context_create(&ctx));
-    /* Seven representative complete ORIGINAL PDFs with a good three-
-     * paint prefix followed by an illegal final operation/Resource:
-     * public Bitmap must fail atomically, never return an image. All
-     * thirteen are independently checked in Source/OOM. */
-    constexpr int invalid_m2b1[]={68,69,70,72,74,75,80};
+    /* Seven semantic failures and six now-supported paint/resource cases. */
+    constexpr int invalid_m2b1[]={68,69,70,71,72,73,74,75,76,77,78,79,80};
     for(int mode:invalid_m2b1) {
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         quantapdf_document *doc=nullptr;
@@ -1102,15 +1086,13 @@ static int native_m2b1_public_negatives(const std::string& filename)
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         const auto st=quantapdf_render_page(page,&bitmap);
-        if(st!=QUANTAPDF_ERROR_UNSUPPORTED && st!=QUANTAPDF_ERROR_FORMAT)
-            std::fprintf(stderr,"M2b1 public late refusal mode=%d got=%d\n",
-                         mode,(int)st);
-        CHECK((st==QUANTAPDF_ERROR_UNSUPPORTED ||
-               st==QUANTAPDF_ERROR_FORMAT) && bitmap==nullptr);
+        const bool supported=mode==69 || mode==72 || mode==73 || mode==74 || mode==78 || mode==80;
+        if(supported) {CHECK(st==QUANTAPDF_OK && bitmap!=nullptr);quantapdf_drop_bitmap(bitmap);}
+        else CHECK((st==QUANTAPDF_ERROR_UNSUPPORTED || st==QUANTAPDF_ERROR_FORMAT) && bitmap==nullptr);
         quantapdf_drop_page(page);quantapdf_close(doc);
     }
     quantapdf_drop_context(ctx);
-    std::puts("[native-public-render] M2b.1 original late Source negatives: seven public atomic refusals");
+    std::puts("[native-public-render] Original Text/Fill/Image: additional paints/colors/unused resources succeed; malformed semantics fail atomically");
     return EXIT_SUCCESS;
 }
 
@@ -4151,10 +4133,13 @@ static int native_seventh_userunit_late_refusal_cases(
 #include "native_graphics_state_cases.h"
 #include "native_ordered_paints_cases.h"
 #include "native_ordered_text_cases.h"
+#include "native_ordered_scene_cases.h"
 
 int main(int argc,char **argv)
 {
     const std::string filename="native-standalone-smoke.pdf";
+    if(argc==2 && std::strcmp(argv[1],"--ordered-scene")==0)
+        return ordered_scene_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--ordered-text")==0)
         return ordered_text_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--ordered-paints")==0)
