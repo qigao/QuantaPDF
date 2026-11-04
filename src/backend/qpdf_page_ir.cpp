@@ -28,6 +28,8 @@
 extern "C" void quantapdf_source_stage_oom_arm(unsigned) noexcept;
 extern "C" bool quantapdf_source_ir_oom_fail_c_allocation() noexcept;
 #define QP_SOURCE_STAGE_ARM(n) quantapdf_source_stage_oom_arm(n)
+#define QP_SOURCE_STACK_GROW(v) \
+    do {if((v).size()==(v).capacity())QP_SOURCE_STAGE_ARM(11u);} while(0)
 #define QP_SOURCE_C_CALLOC(n,s) \
     (quantapdf_source_ir_oom_fail_c_allocation()?nullptr:std::calloc((n),(s)))
 #define QP_SOURCE_C_MALLOC(n) \
@@ -36,6 +38,7 @@ extern "C" bool quantapdf_source_ir_oom_fail_c_allocation() noexcept;
     (quantapdf_source_ir_oom_fail_c_allocation()?nullptr:std::realloc((p),(n)))
 #else
 #define QP_SOURCE_STAGE_ARM(n) ((void)0)
+#define QP_SOURCE_STACK_GROW(v) ((void)0)
 #define QP_SOURCE_C_CALLOC(n,s) std::calloc((n),(s))
 #define QP_SOURCE_C_MALLOC(n) std::malloc(n)
 #define QP_SOURCE_C_REALLOC(p,n) std::realloc((p),(n))
@@ -366,7 +369,7 @@ struct admission {
     Obj resources;
     const quantapdf_qpdf_page_limits& limits;
     size_t page_w,page_h;
-    size_t source_pixels=0,drawn_pixels=0,operators=0;
+    size_t source_pixels=0,drawn_pixels=0;
     std::vector<staged_image> draws;
     std::vector<staged_path> painted_paths;
     std::vector<int> order; /* 1=PATH, 2=IMAGE, as originally painted */
@@ -911,6 +914,16 @@ quantapdf_status source_m2a_image(
 }
 
 class image_content_reader final : public Obj::ParserCallbacks {
+    /* One q frame owns every currently interpreted graphics-state value.
+     * Path construction belongs to the content stream, outside q/Q. */
+    struct graphics_state {
+        matrix ctm;
+        uint32_t fill,stroke;
+        unsigned char clip;
+        double width,miter;
+        int cap,join;
+        bool default_dash,rgb_exact;
+    };
 public:
     explicit image_content_reader(admission& a) : target(a) {}
 
@@ -921,7 +934,6 @@ public:
 
     void handleObject(Obj item) override
     {
-        admit(++target.operators<=512u,QUANTAPDF_ERROR_UNSUPPORTED);
         admit(!item.isInlineImage(),QUANTAPDF_ERROR_UNSUPPORTED);
         if(outline_reader) {
             const auto status=outline_reader->consume(item);
@@ -942,11 +954,9 @@ public:
             const bool saved_preclip_root=
                 target.clip_completed &&
                 clip_active==1u && stack.size()>=1u &&
-                stack.size()<=2u && stack.size()==fill_stack.size() &&
-                clip_stack.size()==stack.size() &&
-                clip_stack[0]==0u &&
-                std::all_of(clip_stack.begin()+1,clip_stack.end(),
-                            [](unsigned char id){return id==1u;}) &&
+                stack.size()<=2u && stack[0].clip==0u &&
+                std::all_of(stack.begin()+1,stack.end(),
+                            [](const graphics_state& state){return state.clip==1u;}) &&
                 target.order.empty() && target.draws.empty() &&
                 target.painted_paths.empty();
             const bool frozen_root=target.clip_completed && clip_active==1u &&
@@ -954,29 +964,24 @@ public:
                 !target.two_owned_clips &&
                 target.second_clip.commands.empty() &&
                 !target.saw_q_restore &&
-                stack.size()==fill_stack.size() &&
-                clip_stack.size()==stack.size() &&
                 (saved_preclip_root ||
-                 std::all_of(clip_stack.begin(),clip_stack.end(),
-                     [](unsigned char id){return id==1u;}));
+                 std::all_of(stack.begin(),stack.end(),
+                     [](const graphics_state& state){return state.clip==1u;}));
             const bool compound_root=source_m2b2o_compound_clip(target) &&
                 clip_active==2u && !target.saw_q_restore &&
-                stack.size()>=2u && stack.size()<=3u && fill_stack.size()==stack.size() &&
-                clip_stack.size()==stack.size() &&
-                clip_stack[0]==0u && clip_stack[1]==1u &&
-                std::all_of(clip_stack.begin()+2,clip_stack.end(),
-                    [](unsigned char id){return id==2u;}) &&
+                stack.size()>=2u && stack.size()<=3u && stack[0].clip==0u && stack[1].clip==1u &&
+                std::all_of(stack.begin()+2,stack.end(),
+                    [](const graphics_state& state){return state.clip==2u;}) &&
                 current==matrix{1.0,0.0,0.0,1.0,0.0,0.0} &&
-                std::all_of(stack.begin(),stack.end(),[](const matrix& m) {
-                    return m==matrix{1.0,0.0,0.0,1.0,0.0,0.0};
+                std::all_of(stack.begin(),stack.end(),[](const graphics_state& state) {
+                    return state.ctm==matrix{1.0,0.0,0.0,1.0,0.0,0.0};
                 }) && target.order.empty() && target.draws.empty() && target.painted_paths.empty();
             const bool reverse_sibling=source_m2b2r_reverse_sibling(target) &&
                 clip_active==2u && stack.size()>=1u && stack.size()<=2u &&
-                fill_stack.size()==stack.size() && clip_stack.size()==stack.size() &&
-                clip_stack[0]==0u &&
-                std::all_of(clip_stack.begin()+1,clip_stack.end(),
-                    [](unsigned char id){return id==2u;}) && current==identity &&
-                std::all_of(stack.begin(),stack.end(),[](const matrix& m){return m==identity;});
+                stack[0].clip==0u &&
+                std::all_of(stack.begin()+1,stack.end(),
+                    [](const graphics_state& state){return state.clip==2u;}) && current==identity &&
+                std::all_of(stack.begin(),stack.end(),[](const graphics_state& state){return state.ctm==identity;});
             admit(args.empty() && pending_path.empty() && !clip_pending &&
                 (!target.clip_completed || frozen_root || compound_root || reverse_sibling) &&
                 (target.draws.empty() ?
@@ -993,15 +998,12 @@ public:
                          [frozen_root,reverse_sibling](unsigned char member) {
                              return member==((frozen_root || reverse_sibling)?1u:0u);
                          }))) &&
-                stack.size()==fill_stack.size() &&
-                (compound_root || reverse_sibling || std::all_of(clip_stack.begin(),clip_stack.end(),
-                    [frozen_root,saved_preclip_root](unsigned char id) {
-                        return id==(frozen_root?1u:0u) ||
-                               (saved_preclip_root && id==0u);
+                (compound_root || reverse_sibling || std::all_of(stack.begin(),stack.end(),
+                    [frozen_root,saved_preclip_root](const graphics_state& state) {
+                        return state.clip==(frozen_root?1u:0u) ||
+                               (saved_preclip_root && state.clip==0u);
                     })),
                 QUANTAPDF_ERROR_UNSUPPORTED);
-            std::vector<quantapdf::detail::source_text_seed> saved;
-            for(size_t i=0u;i<stack.size();++i)saved.push_back({stack[i],fill_stack[i]});
             std::vector<quantapdf::detail::source_outline_paint> prefix;
             for(size_t i=0u;i<target.painted_paths.size();++i) {
                 const auto& path=target.painted_paths[i];
@@ -1016,12 +1018,11 @@ public:
             QP_SOURCE_STAGE_ARM(8u);
             target.outline_scope_started=true;
             target.outline_clip_id=clip_active;
-            target.outline_clip_stack=clip_stack;
             std::vector<quantapdf::detail::source_text_seed> scoped_saved;
-            scoped_saved.reserve(saved.size());
-            for(size_t i=0u;i<saved.size();++i) {
-                const unsigned char id=clip_stack[i];
-                scoped_saved.push_back({saved[i].ctm,saved[i].argb,id});
+            scoped_saved.reserve(stack.size());
+            for(const auto& state:stack) {
+                target.outline_clip_stack.push_back(state.clip);
+                scoped_saved.push_back({state.ctm,state.fill,state.clip});
             }
             outline_reader=quantapdf::detail::make_source_text_outlines(
                 target.resources,target.exact_page_h,
@@ -1046,8 +1047,7 @@ public:
                     args[0].getNumericValue()==(texample_prefix_index==4u?0.3985:0.0);
             if(!matches)texample_prefix_possible=false;
             else if(++texample_prefix_index==8u) {
-                admit(stack.size()==3u && fill_stack.size()==3u &&
-                      clip_stack.size()==3u && pending_path.empty() &&
+                admit(stack.size()==3u && pending_path.empty() &&
                       !target.clip_completed && target.order.empty() &&
                       current[0]==1.0 && current[1]==0.0 &&
                       current[2]==0.0 && current[3]==1.0 &&
@@ -1059,7 +1059,6 @@ public:
                 target.texample_gray_count=1u;target.texample_width_count=1u;
                 texample_original_ctm=true;texample_qdepth=3u;
 
-                stroke_rgb_exact=true;stroke_argb=UINT32_C(0xff000000);
             }
         }
         if(target.texample_original_profile) {
@@ -1088,8 +1087,6 @@ public:
         if(clip_pending && op!="n")
             throw rejected{QUANTAPDF_ERROR_UNSUPPORTED};
         if((op=="M" || op=="d")) {
-            admit(pending_path.empty() && !clip_pending,
-                  QUANTAPDF_ERROR_UNSUPPORTED);
             if(op=="M") {
                 admit(args.size()==1u,QUANTAPDF_ERROR_UNSUPPORTED);
                 const double miter=finite_number(args[0]);
@@ -1120,7 +1117,7 @@ public:
                     stroke_default_dash=count==0 && phase==0.0;
             }
         } else if (op=="q") {
-            admit(args.empty() && pending_path.empty());
+            admit(args.empty());
             if(target.texample_original_profile) {
                 admit(texample_original_ctm && texample_qdepth<4u &&
                       ((target.texample_stage==0u &&
@@ -1131,15 +1128,15 @@ public:
                 ++texample_qdepth;
                 ++target.texample_q_count;
             }
-            /* Save/restore of Stroke state is outside the first
-             * exact clipped-triangle Source profile. */
+            /* A real Stroke inside saved scopes still needs the general
+             * Stroke sampler; every parsed state value is nevertheless saved. */
             saw_saved_scope=true;
-            admit(stack.size()<16u,QUANTAPDF_ERROR_UNSUPPORTED);
-            stack.push_back(current);
-            fill_stack.push_back(fill_argb);
-            clip_stack.push_back(clip_active);
+            QP_SOURCE_STACK_GROW(stack);
+            stack.push_back({current,fill_argb,stroke_argb,clip_active,
+                stroke_width,stroke_miter,stroke_cap,stroke_join,
+                stroke_default_dash,stroke_rgb_exact});
         } else if(op=="Q") {
-            admit(args.empty() && pending_path.empty() && !stack.empty());
+            admit(args.empty() && !stack.empty());
             if(target.texample_original_profile) {
                 admit(texample_qdepth>0u &&
                       ((target.texample_stage==2u &&
@@ -1152,15 +1149,16 @@ public:
                 --texample_qdepth;
                 ++target.texample_Q_count;
             }
-            current=stack.back();stack.pop_back();
-            fill_argb=fill_stack.back();fill_stack.pop_back();
-            admit(!clip_stack.empty());
+            const graphics_state saved=stack.back();stack.pop_back();
             const bool was_clipped=clip_active!=0u;
-            clip_active=clip_stack.back();clip_stack.pop_back();
+            current=saved.ctm;fill_argb=saved.fill;clip_active=saved.clip;
+            stroke_argb=saved.stroke;stroke_width=saved.width;stroke_miter=saved.miter;
+            stroke_cap=saved.cap;stroke_join=saved.join;
+            stroke_default_dash=saved.default_dash;stroke_rgb_exact=saved.rgb_exact;
             if(target.clip_completed && was_clipped && !clip_active)
                 target.saw_q_restore=true;
         } else if(op=="cm") {
-            admit(args.size()==6u && pending_path.empty());
+            admit(args.size()==6u);
             matrix next;
             for(size_t i=0u;i<6u;++i)next[i]=finite_number(args[i]);
             current=concat(current,next);
@@ -1197,8 +1195,7 @@ public:
              * state values before publishing their owned graph.
              * Admit strictly typed bounded originals, but allocate
              * no extra GS/Clip resource or hidden paint layer. */
-            admit(args.size()==1u && pending_path.empty() &&
-                  !clip_pending,QUANTAPDF_ERROR_UNSUPPORTED);
+            admit(args.size()==1u,QUANTAPDF_ERROR_UNSUPPORTED);
             if(op=="w") {
                 const double width=finite_number(args[0]);
                 admit(width>=0.0 && width<=1000000.0,
@@ -1226,9 +1223,7 @@ public:
              * resource at the actual operator position. A missing or
              * unsupported state rejects the COMPLETE original page;
              * never continue painting only the visible black Path. */
-            admit(args.size()==1u && args[0].isName() &&
-                  pending_path.empty() && !clip_pending,
-                  QUANTAPDF_ERROR_UNSUPPORTED);
+            admit(args.size()==1u && args[0].isName(),QUANTAPDF_ERROR_UNSUPPORTED);
             validate_opaque_gs(target.resources,args[0]);
         } else if(op=="Do") {
             admit(args.size()==1u && args[0].isName() &&
@@ -1258,7 +1253,7 @@ public:
             QP_SOURCE_STAGE_ARM(6u);
             target.scoped_clip_membership.push_back(clip_active);
         } else if(op=="rg") {
-            admit(args.size()==3u && pending_path.empty());
+            admit(args.size()==3u);
             uint32_t rgb=0u;
             for(size_t i=0u;i<3u;++i) {
                 const double channel=finite_number(args[i]);
@@ -1280,7 +1275,7 @@ public:
                 ++target.texample_orange_count;
             }
         } else if(op=="g") {
-            admit(args.size()==1u && pending_path.empty());
+            admit(args.size()==1u);
             const double channel=finite_number(args[0]);
             admit(channel>=0.0 && channel<=1.0,
                   QUANTAPDF_ERROR_UNSUPPORTED);
@@ -1296,23 +1291,24 @@ public:
                 ++target.texample_gray_count;
             }
         } else if((op=="G" || op=="RG" || op=="K")) {
-            admit(pending_path.empty() && !clip_pending,
-                  QUANTAPDF_ERROR_UNSUPPORTED);
             const size_t count=op=="G"?1u:(op=="RG"?3u:4u);
             admit(args.size()==count,QUANTAPDF_ERROR_UNSUPPORTED);
             uint32_t rgb=0u;
-            bool exact=op=="RG";
+            bool exact=op=="RG" || op=="G";
             for(size_t i=0u;i<count;++i) {
                 const double component=finite_number(args[i]);
                 admit(component>=0.0 && component<=1.0,
                       QUANTAPDF_ERROR_UNSUPPORTED);
-                if(op=="RG") {
+                if(op=="G") {
+                    exact=component==0.0 || component==1.0;
+                    rgb=component==1.0?UINT32_C(0x00ffffff):0u;
+                } else if(op=="RG") {
                     exact=exact && (component==0.0 || component==1.0);
                     rgb|=(component==1.0?255u:0u) << (16u-8u*i);
                 }
             }
-            /* G/K remain ignored for Fill-only pages, but a future
-             * clipped Stroke cannot silently reuse an old RGB color. */
+            /* Binary DeviceGray is exact RGB state before any q saves it.
+             * Other Gray/CMYK strokes still need broader color admission. */
             stroke_rgb_exact=exact;
             if(target.texample_original_profile) {
                 admit(op=="G" && args.size()==1u &&
@@ -1410,13 +1406,11 @@ public:
              * unless an actual original BT completes the Text profile. */
             const bool compound_text_prefix=target.clip_completed && clip_active==1u && !target.two_owned_clips &&
                 !target.saw_q_restore && target.order.empty() && target.painted_paths.empty() &&
-                stack.size()==2u && fill_stack.size()==2u && clip_stack.size()==2u &&
-                clip_stack[0]==0u && clip_stack[1]==1u &&
+                stack.size()==2u && stack[0].clip==0u && stack[1].clip==1u &&
                 quantapdf::detail::source_outline_is_rectangle(target.clip.commands);
             const bool reverse_text_prefix=source_m2b2r_image_fill_prefix(target) &&
                 clip_active==0u && target.saw_q_restore && !target.two_owned_clips &&
-                stack.size()==1u && fill_stack.size()==1u && clip_stack.size()==1u &&
-                clip_stack[0]==0u;
+                stack.size()==1u && stack[0].clip==0u;
             text_rect_staging=target.text_outlines_eligible &&
                 (((!target.clip_completed || compound_text_prefix) && target.draws.empty()) ||
                  reverse_text_prefix) && current==identity &&
@@ -1683,8 +1677,8 @@ public:
                     std::find(target.scoped_clip_membership.begin(),
                               target.scoped_clip_membership.end(),1u)!=
                         target.scoped_clip_membership.end() ||
-                    std::find(clip_stack.begin(),clip_stack.end(),1u)!=
-                        clip_stack.end();
+                    std::any_of(stack.begin(),stack.end(),
+                        [](const graphics_state& state){return state.clip==1u;});
                 if(!sibling_clip_pending && !first_observable &&
                    read_strict_rect(target.clip.commands,first) &&
                    read_strict_rect(pending_path,next)) {
@@ -1772,9 +1766,8 @@ public:
             target.text_outlines_complete=true;return;
         }
         admit(!target.text_prefix_precision,QUANTAPDF_ERROR_UNSUPPORTED);
-        admit(args.empty() && stack.empty() && fill_stack.empty() &&
-              pending_path.empty() && !clip_pending &&
-              (clip_stack.empty()));
+        admit(args.empty() && stack.empty() &&
+              pending_path.empty() && !clip_pending);
         if(target.texample_original_profile)
             admit(target.texample_stage==4u &&
                   target.texample_moves==24u &&
@@ -2141,9 +2134,7 @@ private:
     int stroke_cap=0,stroke_join=0;
     bool stroke_default_dash=true,stroke_rgb_exact=true;
     bool saw_saved_scope=false;
-    std::vector<matrix> stack;
-    std::vector<uint32_t> fill_stack;
-    std::vector<unsigned char> clip_stack;
+    std::vector<graphics_state> stack;
     std::vector<Obj> args;
     std::vector<quantapdf_composer_path_command> pending_path;
     size_t contour_start=0u,contour_count=0u;

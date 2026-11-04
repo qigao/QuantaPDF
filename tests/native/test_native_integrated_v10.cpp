@@ -141,7 +141,7 @@ static std::string literal_original(
 
 /* Original two-stream PDF: never re-export an IR or canonicalize via
  * QPDFWriter. PDF /Contents array is parsed as one ordered page stream;
- * all q/Q, path/clip, Source operator budget and late errors must
+ * all q/Q, path/clip, nonpainting state and late errors must
  * preserve their state across the stream boundary. */
 static std::string literal_split_original(
     const std::string& unit,const std::string& media,int crop_mode,
@@ -270,7 +270,9 @@ static const case_data cases[]={
     {"q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q 0.875 g 24 17 5 3 re f",
      "q 0 w 0 J 0 j 5 M [1 0 2] 1 d 0.5 G 20 15 -8 -9 re W n 1 0 1 RG q 16 0 0 12 8 3 cm /I Do Q Q 0 0 0 1 K 0.875 g 29 20 -5 -3 re f",true,false},
     {"1 0 0 rg 4 4 8 6 re f q 16 0 0 12 8 3 cm /I Do Q",
-     "0 w 2 J 1 j 1 M [] 0 d 0 G 0 0 0 RG 0 0 0 1 K 2 2 3 3 re n 1 0 0 rg 12 10 -8 -6 re f q 16 0 0 12 8 3 cm /I Do Q",true,false}
+     "0 w 2 J 1 j 1 M [] 0 d 0 G 0 0 0 RG 0 0 0 1 K 2 2 3 3 re n 1 0 0 rg 12 10 -8 -6 re f q 16 0 0 12 8 3 cm /I Do Q",true,false},
+    /* Graphics-state settings do not end or repaint the current path. */
+    {"1 0 0 rg 4 4 8 6 re f 12 10 -8 -6 re f","1 0 0 rg 4 4 8 6 re f 12 10 -8 -6 re 0.3 w f",false,false}
 };
 
 static int positive()
@@ -301,7 +303,6 @@ static int negative()
 {
     const char *const bad[]={
         "1 0 0 rg 12 10 -8 -6 re f 1 w 2 G 1 M [1] 0 d S",
-        "1 0 0 rg 4 4 8 6 re f 12 10 -8 -6 re 0.3 w f",
         "0 w 0 G 0 0 0 RG 0 0 0 1 K 1 M [] 0 d 12 10 -8 -6 re f BT ET",
         "0 w 1 0 0 rg 12 10 -8 -6 re f 1000001 M",
         "0 w 12 10 -8 -6 re f [0 0] 0 d",
@@ -643,12 +644,10 @@ static int split_content_original_cases()
     return EXIT_SUCCESS;
 }
 
-/* Every number/array/operator delivered to handleObject consumes
- * the SAME bounded 512-object page budget, across all /Contents.
- * The final Fill below is 10 objects; 502 unpainted n objects make
- * exactly 512, while 503 n plus that Fill must refuse atomically.
- * The late bad operators also must not publish earlier painted RGB. */
-static int split_content_budget_and_failure_cases()
+/* Nonpainting operators and operands cross Contents boundaries without a
+ * token-count admission gate. Actual malformed/unsupported late operators
+ * still invalidate the whole page and publish no earlier painted RGB. */
+static int split_content_state_and_failure_cases()
 {
     const std::string unit="1.250000000000000000";
     const std::string media="[0 0 32 24]";
@@ -659,7 +658,7 @@ static int split_content_budget_and_failure_cases()
     for(int i=0;i<251;++i)second+="n ";
     second+=fill;
     for(int rotation:{0,90})
-    for(int dpi:{72,144}) {
+    for(int dpi:{72,96,144}) {
         const auto exact=literal_split_original(
             unit,media,1,rotation,first,second,false,crop);
         std::vector<unsigned char> pixels;
@@ -670,14 +669,20 @@ static int split_content_budget_and_failure_cases()
                      pixels[i+1u]!=255u || pixels[i+2u]!=255u;
         CHECK(has_ink);
     }
-    const std::string bad_second="n "+second;
+    for(int rotation:{0,90})for(int dpi:{72,96,144}) {
+        std::vector<unsigned char> baseline,extended;
+        CHECK(render(literal_split_original(unit,media,1,rotation,"",fill,false,crop),
+            5,rotation,dpi,baseline,16,16)==EXIT_SUCCESS);
+        CHECK(render(literal_split_original(unit,media,1,rotation,first,"n "+second,false,crop),
+            5,rotation,dpi,extended,16,16)==EXIT_SUCCESS);
+        CHECK(extended==baseline);
+    }
     struct bad_stream {
         std::string first;
         std::string second;
         bool image;
     };
     const std::vector<bad_stream> invalid={
-        {first,bad_second,false},
         {"1 0 0 rg 12 10 -8 -6 re f","S",false},
         {"1 0 0 rg 12 10 -8 -6 re f","2 G",false},
         {"1 0 0 rg 12 10 -8 -6 re f","[0 0] 0 d",false},
@@ -718,6 +723,6 @@ int main()
     CHECK(active_crop_original_cases()==EXIT_SUCCESS);
     CHECK(active_crop_rejection_cases()==EXIT_SUCCESS);
     CHECK(split_content_original_cases()==EXIT_SUCCESS);
-    CHECK(split_content_budget_and_failure_cases()==EXIT_SUCCESS);
+    CHECK(split_content_state_and_failure_cases()==EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }

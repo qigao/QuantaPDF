@@ -630,8 +630,10 @@ static int atomic_refusals()
     for(int i=0;i<256;++i)operators+="1 w ";
     for(int dpi:{72,96,144}) {
         configuration cfg;cfg.dpi=dpi;
-        CHECK(rejected(operators+ready,cfg,false,
-                       QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
+        rendered long_state,compact_state;
+        CHECK(render(original(operators+ready,cfg),cfg,long_state)==EXIT_SUCCESS);
+        CHECK(render(original(ready,cfg),cfg,compact_state)==EXIT_SUCCESS);
+        CHECK(equal(long_state,compact_state));
         rendered padded,reference;
         CHECK(render(original(a+std::string(65536u,' ')+b,cfg),cfg,padded)==EXIT_SUCCESS);
         CHECK(render(original(a+b,cfg),cfg,reference)==EXIT_SUCCESS);
@@ -650,8 +652,8 @@ int main()
     CHECK(touching_layers()==EXIT_SUCCESS);
     CHECK(fixed_sample_budget()==EXIT_SUCCESS);
     CHECK(atomic_refusals()==EXIT_SUCCESS);
-    /* Three former content-size refusals now compare two complete Bitmaps. */
-    CHECK(positive_calls==427u && negative_calls==97u);
+    /* Content-size and token-count padding now compare complete Bitmaps. */
+    CHECK(positive_calls==433u && negative_calls==94u);
     std::printf("Native sibling Clip scopes: %zu rendered, %zu atomic refusals\n",
                 positive_calls,negative_calls);
     return EXIT_SUCCESS;

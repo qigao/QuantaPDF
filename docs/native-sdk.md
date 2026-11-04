@@ -53,7 +53,13 @@ qpdf's transient decode buffer allocation. Two Image paints may retain a frozen
 Clip for the first and GS0 after an actual Q restore for the second; the same
 C11 ordered compositor consumes both. Tests include clear/encrypted files larger
 than 3 MiB and independent full-RGB restored-image references. Fixed paint,
-geometry, font and DPI limits remain A2 work. Failed open/render calls
+geometry, font and DPI limits remain A2 work. Fill/Image q/Q state uses one
+dynamic frame stack for CTM, colors, saved Clip identity and currently interpreted
+stroke metadata. That interpreter no longer applies a 16-frame or 512-token gate;
+actual content/paint budgets still apply. The current path belongs to the content
+stream and survives q/Q; its segments retain their own construction CTM. Tests cover 4097 nested frames, long
+balanced state traffic, selected/encrypted/split-stream pages and real full RGB.
+Text-internal state and the general ordered scene remain A2/A3 work. Failed open/render calls
 publish no handle/Bitmap and preserve the failure status. Do not add a wrapper to preserve an old ownership rule. The current
 implementation has not acquired a concurrency guarantee from this design;
 independent/same-object concurrency must be implemented and tested if exposed.

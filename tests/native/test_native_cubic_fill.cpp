@@ -193,6 +193,24 @@ static int positive(void)
     return EXIT_SUCCESS;
 }
 
+/* Current-path points survive q/Q and each segment freezes its actual CTM.
+ * The green inner state is restored before red paint, independently of
+ * whether the path was closed before the save. */
+static int path_scope_positive()
+{
+    const std::string base="1 0 0 rg 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h";
+    const std::string transformed="1 0 0 rg 4 5 m q 1 0 0 1 0 1 cm 0 1 0 rg "
+        "4 17 20 17 20 4 c Q 20 4 l 4 4 l h f";
+    for(int quarters:{4,5})for(int rotation:{0,90})for(int dpi:{72,96,144}) {
+        std::vector<unsigned char> reference,closed,saved;
+        CHECK(rendered_rgb(original(base+" f",false,quarters,rotation),quarters,rotation,dpi,reference)==EXIT_SUCCESS);
+        CHECK(rendered_rgb(original(base+" q f Q",false,quarters,rotation),quarters,rotation,dpi,closed)==EXIT_SUCCESS);
+        CHECK(rendered_rgb(original(transformed,false,quarters,rotation),quarters,rotation,dpi,saved)==EXIT_SUCCESS);
+        CHECK(reference==closed && reference==saved);
+    }
+    return EXIT_SUCCESS;
+}
+
 static int negative(void)
 {
     const char *const invalid[]={
@@ -205,7 +223,6 @@ static int negative(void)
         "4 5 m 4 18 20 18 20 5 0 c 20 4 l 4 4 l h f",
         "4 5 m 4.125 18 20 18 20 5 c 20 4 l 4 4 l h f",
         "4 5 m 4 -1 20 18 20 5 c 20 4 l 4 4 l h f",
-        "4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h q f Q",
         "4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h 4 18 20 18 20 5 c f",
         "q 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h W n Q",
         "q 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h W* n Q",
@@ -352,6 +369,7 @@ static int shorthand_negative(void)
 int main()
 {
     CHECK(positive()==EXIT_SUCCESS);
+    CHECK(path_scope_positive()==EXIT_SUCCESS);
     CHECK(negative()==EXIT_SUCCESS);
     CHECK(shorthand_positive()==EXIT_SUCCESS);
     CHECK(shorthand_negative()==EXIT_SUCCESS);

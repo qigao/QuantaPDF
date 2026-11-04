@@ -147,7 +147,11 @@ static const case_data cases[]={
     {"1 0 0 rg 4 4 8 6 re f q 16 0 0 12 8 3 cm /I Do Q",
      "0 G 1 0 0 RG 0 0 0 1 K 1 0 0 rg 4 4 8 6 re f q 1 G 16 0 0 12 8 3 cm /I Do Q",true,false},
     {"1 0 0 rg 4 4 8 6 re f",
-     "1 G 1 0 1 RG 0 1 0 1 K 1 0 0 rg 4 4 8 6 re f",false,false}
+     "1 G 1 0 1 RG 0 1 0 1 K 1 0 0 rg 4 4 8 6 re f",false,false},
+    /* Graphics-state settings do not end or repaint the current path. */
+    {"4 4 8 6 re f","4 4 8 6 re 0 G f",false,false},
+    {"4 4 8 6 re f","4 4 8 6 re 0 0 0 RG f",false,false},
+    {"4 4 8 6 re f","4 4 8 6 re 0 0 0 1 K f",false,false}
 };
 
 static int positive()
@@ -201,9 +205,6 @@ static int negative()
         "1 0 0 rg 4 4 8 6 re f 2 G",
         "1 0 0 rg 4 4 8 6 re f 0 2 0 RG",
         "1 0 0 rg 4 4 8 6 re f 0 0 0 2 K",
-        "4 4 8 6 re 0 G f",
-        "4 4 8 6 re 0 0 0 RG f",
-        "4 4 8 6 re 0 0 0 1 K f",
         "q 12 6 8 9 re W 0 G n Q",
         "0 G 4 4 8 6 re S",
         "0 0 0 RG BT ET",

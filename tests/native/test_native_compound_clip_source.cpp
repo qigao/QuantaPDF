@@ -756,8 +756,10 @@ static int atomic_refusals()
     for(int dpi:{72,96,144}) {
         configuration cfg;
         cfg.dpi=dpi;
-        CHECK(rejected(over_operators+ready,cfg,false,
-                       QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
+        rendered long_state,compact_state;
+        CHECK(render(original(over_operators+ready,cfg),cfg,long_state)==EXIT_SUCCESS);
+        CHECK(render(original(ready,cfg),cfg,compact_state)==EXIT_SUCCESS);
+        CHECK(equal(long_state,compact_state));
         rendered padded,reference;
         CHECK(render(original(prefix+std::string(65536u,' ')+full_red+"Q",cfg),cfg,padded)==EXIT_SUCCESS);
         CHECK(render(original(prefix+full_red+"Q",cfg),cfg,reference)==EXIT_SUCCESS);

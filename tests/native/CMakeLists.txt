@@ -63,6 +63,10 @@ add_test(NAME quantapdf.native_content_streams
   COMMAND quantapdf_native_public_render --content-streams)
 set_tests_properties(quantapdf.native_content_streams PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;public-api;content-streams")
+add_test(NAME quantapdf.native_graphics_state
+  COMMAND quantapdf_native_public_render --graphics-state)
+set_tests_properties(quantapdf.native_graphics_state PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;public-api;graphics-state")
 target_link_libraries(quantapdf_native_public_render PRIVATE
   QuantaPDF::QuantaPDF quantapdf_backend qpdf::libqpdf ZLIB::ZLIB)
 if(MSVC)
@@ -195,6 +199,11 @@ add_test(NAME quantapdf.native_source_stage_oom
   "${PROJECT_SOURCE_DIR}/tests/external_source_corpus/documents/texample.intersecting-rings-v1.pdf")
 set_tests_properties(quantapdf.native_source_stage_oom PROPERTIES
   TIMEOUT 40 LABELS "conformance;native;no-pdfium;source-staging;oom")
+
+add_test(NAME quantapdf.native_graphics_state_oom
+  COMMAND quantapdf_native_source_stage_oom --graphics-state)
+set_tests_properties(quantapdf.native_graphics_state_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;graphics-state;source-staging;oom")
 
 add_test(NAME quantapdf.native_content_stream_oom
   COMMAND quantapdf_native_source_stage_oom --content-streams)
