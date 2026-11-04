@@ -100,6 +100,63 @@ static std::string composer_ttf_original(bool glyph_run=false,bool cycle=false)
     return result;
 }
 
+/* New supported sequences reuse the independently qualified old layouts.
+ * Five H shows equal one five-glyph show; remote small rectangles cannot
+ * touch the original Hello/accent outlines, so their sample grid is analytic. */
+static std::vector<unsigned char> native_ttf_expanded_expected(int mode,unsigned dpi)
+{
+    const size_t width=(128u*dpi+71u)/72u,height=(64u*dpi+71u)/72u;
+    std::vector<unsigned char> out(width*height*3u,255u);
+    if(mode==23)return out;
+    if(mode==35) {
+        const auto path=std::filesystem::path(__FILE__).parent_path()/"goldens"/
+            ("roboto-mixed-"+std::to_string(dpi)+"-m1.rgba");
+        std::ifstream file(path,std::ios::binary);const std::vector<unsigned char> rgba{std::istreambuf_iterator<char>(file),{}};
+        if(rgba.size()!=width*height*4u)throw std::runtime_error("missing original mixed golden");
+        for(size_t i=0u;i<width*height;++i)std::memcpy(out.data()+3u*i,rgba.data()+4u*i,3u);
+    } else {
+        const auto original=native_ttf_fixture(mode);auto pdf=QPDF::create();
+        pdf->processMemoryFile("expanded-text-reference",original.data(),original.size());
+        auto page=pdf->getRoot().getKey("/Pages").getKey("/Kids").getArrayItem(0);
+        const std::string content=mode==22?
+            "BT /F 24 Tf 12 20 Td <002d002d002d002d002d> Tj ET":
+            "q 0.875 g 0 0 128 64 re f Q q 0 0 1 rg 25.125 18.25 12.5 9.5 re f* Q "
+            "q BT /F 24 Tf 12 20 Td <002d004a005100510054> Tj ET Q";
+        page.replaceKey("/Contents",pdf->newStream(content));QPDFWriter writer(*pdf);writer.setOutputMemory();writer.write();
+        const auto buffer=writer.getBufferSharedPointer();const std::string bytes(reinterpret_cast<const char*>(buffer->getBuffer()),buffer->getSize());
+        const char *path="native-ttf-expanded-reference.pdf";
+        if(!write_native_ttf_pdf(path,bytes))throw std::runtime_error("write expanded reference");
+        const auto require=[](quantapdf_status st) {if(st!=QUANTAPDF_OK)throw std::runtime_error("render expanded reference");};
+        quantapdf_document *document=nullptr;quantapdf_page *selected=nullptr;quantapdf_bitmap *bitmap=nullptr;
+        require(quantapdf_open(path,nullptr,&document));if(std::remove(path)!=0)throw std::runtime_error("remove expanded reference");
+        require(quantapdf_load_page(document,0,&selected));quantapdf_close(document);
+        const quantapdf_render_options options{float(dpi),0.0f,0,{},0};
+        require(quantapdf_render_page_with_options(selected,&options,&bitmap));quantapdf_drop_page(selected);
+        const unsigned char *pixels=nullptr;size_t size=0u;require(quantapdf_bitmap_data(bitmap,&pixels,&size));
+        if(size!=out.size())throw std::runtime_error("expanded reference dimensions");
+        std::memcpy(out.data(),pixels,size);quantapdf_drop_bitmap(bitmap);
+    }
+    if(mode==35 || mode==46)for(unsigned rectangle=0u;rectangle<(mode==46?2u:1u);++rectangle) {
+        const unsigned left=1u+2u*rectangle,bottom=1u+2u*rectangle;
+        for(size_t y=0u;y<height;++y)for(size_t x=0u;x<width;++x) {
+            unsigned hits=0u;
+            for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
+                const uint64_t xx=(uint64_t(x)*8u+2u*sx+1u)*72u;
+                const uint64_t yy=(uint64_t(y)*8u+2u*sy+1u)*72u;
+                const uint64_t unit=8u*dpi;
+                hits+=unsigned(xx>=left*unit && xx<(left+2u)*unit &&
+                    yy>=(64u-bottom-2u)*unit && yy<(64u-bottom)*unit);
+            }
+            for(size_t c=0u;c<3u;++c) {
+                auto& value=out[(y*width+x)*3u+c];
+                const unsigned color=mode==35 && c==2u?255u:0u;
+                value=static_cast<unsigned char>((color*hits+unsigned(value)*(16u-hits)+8u)/16u);
+            }
+        }
+    }
+    return out;
+}
+
 static int native_ttf_public_cases(const std::string& filename,int first=0,int last=31)
 {
     if(first==32) {CHECK(composer_ttf_original(false,true).empty());CHECK(composer_ttf_original(true,true).empty());}
@@ -108,7 +165,7 @@ static int native_ttf_public_cases(const std::string& filename,int first=0,int l
     /* Each positive is a fresh ORIGINAL; this restores real text observation
      * coverage in the existing native-only public target as well. */
     for(int mode=first;mode<=last;++mode) {
-        const bool positive=mode<=9 || mode==11 || (mode>=32 && mode<=34) || mode==44 || mode==49;
+        const bool positive=mode<=9 || mode==11 || (mode>=32 && mode<=34) || mode==44 || mode==49 || mode==22 || mode==23 || mode==35 || mode==46;
         const auto original=(mode==44 || mode==49)?composer_ttf_original(mode==49):native_ttf_fixture(mode);
         const char *text_value=mode==49?"H":"Hello";
         CHECK(write_native_ttf_pdf(filename,original));
@@ -149,7 +206,10 @@ static int native_ttf_public_cases(const std::string& filename,int first=0,int l
             OK(quantapdf_bitmap_dimensions(bitmap,&w,&h,&stride,&components));
             OK(quantapdf_bitmap_data(bitmap,&pixels,&n));
             CHECK(w==(128*dpi+71)/72 && h==(64*dpi+71)/72 && stride==w*3 && components==3 && n==(size_t)stride*(size_t)h);
-            if(mode==3) {for(size_t i=0u;i<n;++i)CHECK(pixels[i]==255u);}
+            if(mode==22 || mode==23 || mode==35 || mode==46) {
+                const auto expected=native_ttf_expanded_expected(mode,unsigned(dpi));
+                CHECK(expected.size()==n && std::memcmp(pixels,expected.data(),n)==0);
+            } else if(mode==3) {for(size_t i=0u;i<n;++i)CHECK(pixels[i]==255u);}
             else {
                 const char *name=mode==11?"late":mode==32?"mixed":mode==33?"reverse":(mode==34 || mode==44 || mode==49)?"background":mode==1?"layers":mode==2?"tj":mode==5?"fringe":"hello";
                 std::ifstream file(goldens/(std::string("roboto-")+name+"-"+std::to_string(dpi)+(mode==11 || mode>=32?"-m1.rgba":"-m0.rgba")),std::ios::binary);

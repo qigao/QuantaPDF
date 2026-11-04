@@ -726,8 +726,9 @@ quantapdf_status source_m2b2e_scope(
               after<=(source.two_owned_clips?2u:1u),
               QUANTAPDF_ERROR_UNSUPPORTED);
         if(is_save==1) {
-            admit(before==after && source.outline_clip_stack.size()<16u,
+            admit(before==after,
                   QUANTAPDF_ERROR_UNSUPPORTED);
+            QP_SOURCE_STACK_GROW(source.outline_clip_stack);
             source.outline_clip_stack.push_back(before);
         } else {
             admit(is_save==0 && !source.outline_clip_stack.empty() &&
@@ -781,11 +782,10 @@ quantapdf_status source_m2b2l_sibling_clip(void *user,
       catch(...){return QUANTAPDF_ERROR_UNSUPPORTED;}
 }
 
-/* M2a: the existing outline reader may report an actual TTF show or
- * one image to the SAME original source's ordered staging. The callback
- * retains neither QPDF handles nor font/parser state. The only new
- * Source grammar is one opaque Text show plus one qualified Image Do. */
-quantapdf_status source_m2a_text(void *user)
+/* Record the actual Text-show position in the page scene. Unclipped
+ * shows use the page operation budget; Clip combinations remain bounded
+ * by their existing graph support. No font or qpdf pointer is retained. */
+quantapdf_status source_text_paint(void *user)
 {
     admission& source=*static_cast<admission*>(user);
     try {
@@ -797,7 +797,7 @@ quantapdf_status source_m2a_text(void *user)
             std::all_of(source.outline_clip_stack.begin()+1,source.outline_clip_stack.end(),
                 [](unsigned char id){return id==2u;});
         admit(source.text_outlines_eligible &&
-              source.order.size()<hard_operations &&
+              (!source.clip_completed || source.order.size()<hard_operations) &&
               source.order.size()<source.limits.max_operations &&
               source.outline_scope_started &&
               (compound || reverse || (source.outline_clip_id==(source.clip_completed?1u:0u) &&
@@ -816,11 +816,9 @@ quantapdf_status source_m2a_text(void *user)
       catch(std::bad_alloc const&){return QUANTAPDF_ERROR_NOMEM;}
       catch(...){return QUANTAPDF_ERROR_UNSUPPORTED;}
 }
-/* M2b.1 pre-Clip stage: one actual Fill after the first BT uses the
- * SAME TTF outline reader's already-validated rectangle/paint record.
- * This event is also observed for existing Text-only Fill paints;
- * those keep their unchanged Text-only materializer and four-paint cap. */
-quantapdf_status source_m2b1_fill(void *user)
+/* The outline reader freezes each actual solid Fill with Text shows.
+ * Both paint kinds share the page operation budget and retain order. */
+quantapdf_status source_fill_paint(void *user)
 {
     admission& source=*static_cast<admission*>(user);
     try {
@@ -844,7 +842,7 @@ quantapdf_status source_m2b1_fill(void *user)
             source.outline_clip_id==2u && !source.saw_q_restore &&
             source.order.size()==1u && source.order[0]==3;
         admit(source.text_outlines_eligible &&
-              source.order.size()<hard_operations &&
+              (!source.clip_completed || source.order.size()<hard_operations) &&
               source.order.size()<source.limits.max_operations &&
               source.outline_scope_started &&
               (restored_suffix || compound ||
@@ -900,7 +898,7 @@ quantapdf_status source_m2a_image(
       catch(...){return QUANTAPDF_ERROR_UNSUPPORTED;}
 }
 
-class image_content_reader final : public Obj::ParserCallbacks {
+class page_content_reader final : public Obj::ParserCallbacks {
     /* One q frame owns every currently interpreted graphics-state value.
      * Path construction belongs to the content stream, outside q/Q. */
     struct graphics_state {
@@ -912,7 +910,7 @@ class image_content_reader final : public Obj::ParserCallbacks {
         bool default_dash,rgb_exact;
     };
 public:
-    explicit image_content_reader(admission& a) : target(a) {}
+    explicit page_content_reader(admission& a) : target(a) {}
 
     void contentSize(size_t size) override
     {
@@ -1001,22 +999,23 @@ public:
                 quantapdf::detail::source_outline_paint paint{{},path.fill_argb};
                 paint.rectangle=path.commands;paint.rule=path.fill_rule;prefix.push_back(std::move(paint));
             }
-            admit(prefix.size()<4u,QUANTAPDF_ERROR_UNSUPPORTED);
             QP_SOURCE_STAGE_ARM(8u);
             target.outline_scope_started=true;
             target.outline_clip_id=clip_active;
             std::vector<quantapdf::detail::source_text_seed> scoped_saved;
             scoped_saved.reserve(stack.size());
             for(const auto& state:stack) {
+                QP_SOURCE_STACK_GROW(target.outline_clip_stack);
                 target.outline_clip_stack.push_back(state.clip);
                 scoped_saved.push_back({state.ctm,state.fill,state.clip});
             }
-            outline_reader=quantapdf::detail::make_source_text_outlines(
+            const auto setup=quantapdf::detail::make_source_text_outlines(
                 target.resources,target.exact_page_h,
                 {current,fill_argb,clip_active},
                 scoped_saved,prefix,
-                {&target,source_m2a_text,source_m2a_image,
-                 source_m2b1_fill,source_m2b2e_scope,source_m2b2l_sibling_clip});
+                {&target,source_text_paint,source_m2a_image,
+                 source_fill_paint,source_m2b2e_scope,source_m2b2l_sibling_clip},outline_reader);
+            admit(setup==QUANTAPDF_OK,setup);
             const auto status=outline_reader->consume(item);
             admit(status==QUANTAPDF_OK,status);return;
         }
@@ -2366,25 +2365,20 @@ quantapdf_ir materialize_blank_page(const admission& source)
 quantapdf_ir materialize_text_outlines(const admission& source)
 {
     const size_t n=source.text_outline_paints.size();
-    admit(source.text_outlines_complete && n<=4u &&
-          n<=source.limits.max_operations &&
-          /* No Text-only/Fill-only page may silently drop a real Clip. */
-          !source.clip_completed && source.clip.commands.empty() &&
+    /* The content interpreter owns syntax and work validation. This
+     * producer owns publication; an unimplemented Clip cannot be dropped. */
+    admit(!source.clip_completed && source.clip.commands.empty() &&
           source.second_clip.commands.empty(),
           QUANTAPDF_ERROR_UNSUPPORTED);
     quantapdf_ir ir=materialize_blank_page(source);
-    if(n==0u)return ir;
     try {
         ir.operations=static_cast<quantapdf_composer_operation *>(QP_SOURCE_C_CALLOC(n,sizeof(*ir.operations)));
         admit(ir.operations!=nullptr,QUANTAPDF_ERROR_NOMEM);ir.operation_count=n;
-        size_t glyphs=0u,commands=0u;
         for(size_t i=0u;i<n;++i) {
             const auto& paint=source.text_outline_paints[i];
             auto& op=ir.operations[i];
             if(!paint.rectangle.empty()) {
-                admit(paint.glyphs.empty() && quantapdf::detail::source_outline_is_rectangle(paint.rectangle) &&
-                      paint.rectangle.size()<=4096u-commands,QUANTAPDF_ERROR_UNSUPPORTED);
-                commands+=paint.rectangle.size();op.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
+                op.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
                 auto& path=op.value.path;path.command_count=paint.rectangle.size();
                 path.commands=static_cast<quantapdf_composer_path_command *>(QP_SOURCE_C_MALLOC(path.command_count*sizeof(*path.commands)));
                 admit(path.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
@@ -2394,15 +2388,13 @@ quantapdf_ir materialize_text_outlines(const admission& source)
             }
             op.kind=QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES;
             auto& text=op.value.text_outlines;text.argb=paint.argb;
-            admit(paint.glyphs.size()<=64u-glyphs,QUANTAPDF_ERROR_UNSUPPORTED);
-            glyphs+=paint.glyphs.size();text.glyph_count=paint.glyphs.size();
+            text.glyph_count=paint.glyphs.size();
             if(text.glyph_count==0u)continue;
             text.glyphs=static_cast<quantapdf_outline_glyph *>(QP_SOURCE_C_CALLOC(text.glyph_count,sizeof(*text.glyphs)));
             admit(text.glyphs!=nullptr,QUANTAPDF_ERROR_NOMEM);
             for(size_t g=0u;g<text.glyph_count;++g) {
                 auto& out=text.glyphs[g];const auto& in=paint.glyphs[g].commands;
-                admit(!in.empty() && in.size()<=4096u-commands,QUANTAPDF_ERROR_UNSUPPORTED);
-                commands+=in.size();out.command_count=in.size();
+                out.command_count=in.size();
                 out.commands=static_cast<quantapdf_composer_path_command *>(QP_SOURCE_C_MALLOC(in.size()*sizeof(*out.commands)));
                 admit(out.commands!=nullptr,QUANTAPDF_ERROR_NOMEM);
                 std::memcpy(out.commands,in.data(),in.size()*sizeof(*out.commands));
@@ -4025,7 +4017,7 @@ static quantapdf_status source_page_to_ir_impl(
         source.crop_viewport=(!full_media || fractional_geometry);
         QPDFPageObjectHelper page(geo.page);
         page_content_resources(page,*limits);
-        image_content_reader reader(source);
+        page_content_reader reader(source);
         QP_SOURCE_STAGE_ARM(10u);
         page.parseContents(&reader);
         admit(!pdf.anyWarnings(),QUANTAPDF_ERROR_FORMAT);

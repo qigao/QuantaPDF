@@ -409,7 +409,7 @@ static inline int qp_prepared_resource_closure(
             if((state!=0u && !qualified_clipped_text) ||
                (t->argb>>24u)!=255u ||
                ((t->glyph_count==0u)!=(t->glyphs==NULL)) ||
-               !qp_prepared_charge(&u->glyphs,t->glyph_count,64u) ||
+               !qp_prepared_charge(&u->glyphs,t->glyph_count,SIZE_MAX) ||
                !qp_prepared_bytes(&u->retained_bytes,t->glyph_count,sizeof(*t->glyphs)))
                 return 0;
             *text=1;u->expanded_paints+=t->glyph_count;
@@ -513,6 +513,7 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
                 source->operation_count==0u?1u:source->operation_count,&geometry) ||
            !quantapdf_native_device_projection_bytes(source->operation_count,&projection) ||
            !qp_prepared_charge(&bytes,projection,SIZE_MAX) ||
+           (text && !qp_prepared_bytes(&bytes,p.usage.expanded_paints,sizeof(quantapdf_composer_operation))) ||
            !qp_prepared_bytes(&bytes,source->operation_count,sizeof(quantapdf_native_scoped_layer_v5)) ||
            !qp_prepared_bytes(&bytes,limits->max_pixels,24u) ||
            !qp_prepared_charge(&bytes,geometry,SIZE_MAX))

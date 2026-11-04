@@ -4150,10 +4150,13 @@ static int native_seventh_userunit_late_refusal_cases(
 #include "native_content_stream_cases.h"
 #include "native_graphics_state_cases.h"
 #include "native_ordered_paints_cases.h"
+#include "native_ordered_text_cases.h"
 
 int main(int argc,char **argv)
 {
     const std::string filename="native-standalone-smoke.pdf";
+    if(argc==2 && std::strcmp(argv[1],"--ordered-text")==0)
+        return ordered_text_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--ordered-paints")==0)
         return ordered_paints_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--graphics-state")==0)

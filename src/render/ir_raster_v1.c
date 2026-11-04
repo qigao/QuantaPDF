@@ -2570,11 +2570,12 @@ static quantapdf_status qp_text_outlines(
     size_t *out_sample_tests,quantapdf_ir_raster_image *out_image,
     quantapdf_native_work_ledger_v1 *ledger,quantapdf_native_geometry_v1 *prepared)
 {
-    quantapdf_ir projected={0};quantapdf_composer_operation paths[68]={{0}};
+    quantapdf_ir projected={0};quantapdf_composer_operation *paths=NULL;
+    quantapdf_status status=QUANTAPDF_OK;
     const quantapdf_composer_clip_state *clip_leaves[2]={clip,second_clip};
     const size_t clip_count=clip!=NULL?(second_clip!=NULL?2u:1u):0u;
     quantapdf_ir_raster_v1_limits work;
-    size_t n=0u,commands=0u,glyphs=0u,shows=0u;
+    size_t n=0u,commands=0u,shows=0u,capacity=0u,bytes=0u;
     if(out_sample_tests!=NULL)*out_sample_tests=0u;
     if(prepared!=NULL)memset(prepared,0,sizeof(*prepared));
     if(out_image==NULL && prepared==NULL)return QUANTAPDF_ERROR_ARGUMENT;
@@ -2582,7 +2583,7 @@ static quantapdf_status qp_text_outlines(
     if(source==NULL || limits==NULL || plan==NULL)return QUANTAPDF_ERROR_ARGUMENT;
     if(source->pages==NULL || source->page_count!=1u || source->operations==NULL ||
        source->operation_count==0u || source->operation_count>limits->max_operations ||
-       source->operation_count>4u || source->links!=NULL || source->link_count!=0u ||
+       source->links!=NULL || source->link_count!=0u ||
        source->outlines!=NULL || source->outline_count!=0u || !qp_no_resources(source) ||
        limits->max_pixels>1000000u ||
        limits->max_edges>512u || limits->max_sample_tests>8000000u ||
@@ -2613,40 +2614,58 @@ static quantapdf_status qp_text_outlines(
             const quantapdf_point a=c[0].point1,b=c[1].point1,d=c[2].point1,e=c[3].point1;
             if(!((a.x==e.x&&b.x==d.x&&a.y==b.y&&d.y==e.y&&a.x!=b.x&&a.y!=e.y) ||
                  (a.x==b.x&&d.x==e.x&&a.y==e.y&&b.y==d.y&&a.x!=e.x&&a.y!=b.y)))return QUANTAPDF_ERROR_UNSUPPORTED;
-            paths[n++]=*op;commands+=5u;continue;
+            if(capacity==SIZE_MAX)return QUANTAPDF_ERROR_UNSUPPORTED;
+            ++capacity;commands+=5u;continue;
         }
         const quantapdf_text_outline_operation *text=&op->value.text_outlines;
         if(op->kind!=QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES || op->page_index!=0u ||
            op->graphics_state_id!=0u || (text->argb>>24u)!=255u ||
-           text->glyph_count>64u-glyphs || ((text->glyph_count==0u)!=(text->glyphs==NULL)))
+           text->glyph_count>SIZE_MAX-capacity || ((text->glyph_count==0u)!=(text->glyphs==NULL)))
             return QUANTAPDF_ERROR_UNSUPPORTED;
-        ++shows;glyphs+=text->glyph_count;
+        ++shows;capacity+=text->glyph_count;
         for(size_t g=0u;g<text->glyph_count;++g) {
             const quantapdf_outline_glyph *glyph=&text->glyphs[g];
-            quantapdf_composer_path_options *opt=&paths[n].value.path.options;
             if(glyph->commands==NULL || glyph->command_count==0u || glyph->command_count>4096u-commands)
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             commands+=glyph->command_count;
-            paths[n].kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
-            paths[n].value.path.commands=glyph->commands;paths[n].value.path.command_count=glyph->command_count;
-            opt->struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
-            opt->fill=1;opt->fill_argb=text->argb;opt->fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;++n;
         }
     }
     if(shows==0u || (clip!=NULL && source->operation_count!=1u))
         return QUANTAPDF_ERROR_UNSUPPORTED;
+    if(capacity>SIZE_MAX/sizeof(*paths))return QUANTAPDF_ERROR_UNSUPPORTED;
+    bytes=capacity*sizeof(*paths);
+    if(bytes!=0u) {
+        paths=(quantapdf_composer_operation *)quantapdf_native_raster_malloc_v1(ledger,bytes,&status);
+        if(paths==NULL)return status;
+        memset(paths,0,bytes);
+    }
+    for(size_t i=0u;i<source->operation_count;++i) {
+        const quantapdf_composer_operation *op=&source->operations[i];
+        if(op->kind==QUANTAPDF_COMPOSER_OPERATION_PATH) {paths[n++]=*op;continue;}
+        const quantapdf_text_outline_operation *text=&op->value.text_outlines;
+        for(size_t g=0u;g<text->glyph_count;++g) {
+            const quantapdf_outline_glyph *glyph=&text->glyphs[g];
+            quantapdf_composer_path_options *opt=&paths[n].value.path.options;
+            paths[n].kind=QUANTAPDF_COMPOSER_OPERATION_PATH;
+            paths[n].value.path.commands=glyph->commands;
+            paths[n].value.path.command_count=glyph->command_count;
+            opt->struct_size=QUANTAPDF_COMPOSER_PATH_OPTIONS_V4_SIZE;
+            opt->fill=1;opt->fill_argb=text->argb;
+            opt->fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;++n;
+        }
+    }
     projected.pages=source->pages;projected.page_count=1u;projected.operations=paths;projected.operation_count=n;
     work=*limits;work.max_operations=n==0u?1u:n;
-    /* Four original rectangle/text paints remain the caller admission limit.
-     * Only the separately bounded (64 glyphs + at most 3 rectangles) expansion uses this
-     * synchronous borrowed PATH view. No global operation limit is widened. */
     if(prepared!=NULL)
-        return qp_geometry_prepare(&projected,0u,&work,plan,
+        status=qp_geometry_prepare(&projected,0u,&work,plan,
             clip!=NULL?clip_leaves:NULL,clip_count,
             second_clip!=NULL?12:clip!=NULL?11:10,ledger,prepared);
-    return qp_render_v1_accounted_impl(&projected,0u,&work,plan,
-        clip!=NULL?clip_leaves:NULL,clip_count,
-        second_clip!=NULL?12:clip!=NULL?11:10,ledger,out_image,out_sample_tests);
+    else
+        status=qp_render_v1_accounted_impl(&projected,0u,&work,plan,
+            clip!=NULL?clip_leaves:NULL,clip_count,
+            second_clip!=NULL?12:clip!=NULL?11:10,ledger,out_image,out_sample_tests);
+    quantapdf_native_raster_free_v1(ledger,paths,bytes);
+    return status;
 }
 
 quantapdf_status quantapdf_ir_raster_render_v1_text_outlines(

@@ -19,6 +19,13 @@
 #include <vector>
 #include <type_traits>
 
+#ifdef QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST
+extern "C" void quantapdf_source_stage_oom_arm(unsigned) noexcept;
+#define QP_TEXT_STACK_GROW(v) do { if((v).size()==(v).capacity())quantapdf_source_stage_oom_arm(11u); } while(0)
+#else
+#define QP_TEXT_STACK_GROW(v) ((void)0)
+#endif
+
 namespace {
 using Obj = QPDFObjectHandle;
 constexpr size_t byte_limit = 8u*1024u*1024u;
@@ -379,7 +386,7 @@ struct projection {
     bool pending_break=false;
     bool outline_mode=false;
     double outline_height=0.0;
-    size_t outline_glyphs=0u,outline_commands=0u,outline_shows=0u;
+    size_t outline_commands=0u,outline_shows=0u;
     std::vector<quantapdf::detail::source_outline_paint> outline_paints;
     quantapdf::detail::source_mixed_callbacks source_mixed={};
     // Direct dictionaries have no ObjGen identity. Cache the handle identity
@@ -463,7 +470,7 @@ struct projection {
     }
     void begin_outline_paint(graphics const& g,bool text=true)
     {
-        supported(outline_paints.size()<4u && g.opacity==1.0 && g.color_supported);
+        supported(g.opacity==1.0 && g.color_supported);
         if(text && source_mixed.on_text) {
             const auto result=source_mixed.on_text(source_mixed.user);
             need(result==QUANTAPDF_OK,result);
@@ -500,7 +507,7 @@ struct projection {
     }
     void outline(font const& face,unsigned code,graphics const& g,matrix const& m)
     {
-        supported(++outline_glyphs<=64u && !outline_paints.empty());
+        supported(!outline_paints.empty());
         supported(g.size>0.0 && g.scale>0.0 && m[0]>0.0 && m[3]>0.0 &&
                   m[1]==0.0 && m[2]==0.0);
         unsigned gid=code;
@@ -685,12 +692,13 @@ public:
             pending_rectangle.clear();
         }
         else if(op=="q") {
-            count(0); supported(stack.size()<128u);
+            count(0);
             if(p.outline_mode && p.source_mixed.on_scope!=nullptr) {
                 const auto status=p.source_mixed.on_scope(
                     p.source_mixed.user,1,g.clip_id,g.clip_id);
                 need(status==QUANTAPDF_OK,status);
             }
+            if(p.outline_mode)QP_TEXT_STACK_GROW(stack);
             stack.push_back(g);
         } else if(op=="Q") {
             count(0); need(!stack.empty());
@@ -875,18 +883,19 @@ graphics outline_graphics(source_text_seed const& seed)
             static_cast<double>(seed.argb&255u)/255};
     return g;
 }
+template<class F> quantapdf_status outline_result(F f)
+{
+    try {f();return QUANTAPDF_OK;}
+    catch(failure const& e){return e.status;}
+    catch(std::bad_alloc const&){return QUANTAPDF_ERROR_NOMEM;}
+    catch(std::length_error const&){return QUANTAPDF_ERROR_UNSUPPORTED;}
+    catch(...){return QUANTAPDF_ERROR_FORMAT;}
+}
 class source_outline_reader final : public source_text_outlines {
     projection p;
     reader tokens;
-    template<class F> quantapdf_status invoke(F f) {
-        try {f();return QUANTAPDF_OK;}
-        catch(failure const& e){return e.status;}
-        catch(std::bad_alloc const&){return QUANTAPDF_ERROR_NOMEM;}
-        catch(std::length_error const&){return QUANTAPDF_ERROR_UNSUPPORTED;}
-        catch(...){return QUANTAPDF_ERROR_FORMAT;}
-    }
     static std::vector<graphics> saved_graphics(const std::vector<source_text_seed>& saved)
-    {std::vector<graphics> result;for(auto const& g:saved)result.push_back(outline_graphics(g));return result;}
+    {std::vector<graphics> result;for(auto const& g:saved) {QP_TEXT_STACK_GROW(result);result.push_back(outline_graphics(g));}return result;}
 public:
     source_outline_reader(Obj resources,double height,source_text_seed seed,
                           const std::vector<source_text_seed>& saved,
@@ -894,20 +903,26 @@ public:
                           source_mixed_callbacks callbacks) :
         p(),tokens(p,resources,outline_graphics(seed),0u,saved_graphics(saved))
     {p.outline_mode=true;p.outline_height=height;p.source_mixed=callbacks;
-        supported(prefix.size()<4u);p.outline_paints=prefix;
-        for(const auto& paint:prefix) {supported(source_outline_is_rectangle(paint.rectangle));p.outline_commands+=paint.rectangle.size();}
+        for(const auto& paint:prefix) {
+            supported(source_outline_is_rectangle(paint.rectangle));
+            supported(paint.rectangle.size()<=4096u-p.outline_commands);
+            p.outline_commands+=paint.rectangle.size();
+        }
+        p.outline_paints=prefix;
     }
-    quantapdf_status consume(Obj object) override {return invoke([&]{tokens.handleObject(object);});}
-    quantapdf_status finish() override {return invoke([&]{tokens.handleEOF();
+    quantapdf_status consume(Obj object) override {return outline_result([&]{tokens.handleObject(object);});}
+    quantapdf_status finish() override {return outline_result([&]{tokens.handleEOF();
         supported(!p.fonts.empty() && p.outline_shows>0u);});}
     const std::vector<source_outline_paint>& paints() const override {return p.outline_paints;}
 };
 }
-std::unique_ptr<source_text_outlines> make_source_text_outlines(
+quantapdf_status make_source_text_outlines(
     QPDFObjectHandle resources,double height,source_text_seed seed,
     const std::vector<source_text_seed>& saved,const std::vector<source_outline_paint>& prefix,
-    source_mixed_callbacks callbacks)
-{return std::make_unique<source_outline_reader>(resources,height,seed,saved,prefix,callbacks);}
+    source_mixed_callbacks callbacks,std::unique_ptr<source_text_outlines>& out)
+{
+    return outline_result([&]{out=std::make_unique<source_outline_reader>(resources,height,seed,saved,prefix,callbacks);});
+}
 }
 
 extern "C" quantapdf_status quantapdf_qpdf_extract_text(quantapdf_qpdf_document *document,int page_index,char **out_utf8,size_t *out_size)
