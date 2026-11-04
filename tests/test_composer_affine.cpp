@@ -250,7 +250,6 @@ static int verify_page(
           QUANTAPDF_OK);
     CHECK(contains_bytes(extracted, extracted_size, expected, expected_size));
 
-    render.struct_size = sizeof(render);
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
           QUANTAPDF_OK);

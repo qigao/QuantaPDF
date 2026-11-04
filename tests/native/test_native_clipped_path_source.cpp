@@ -121,7 +121,6 @@ static int render(const std::string& bytes,const configuration& cfg,
     CHECK(std::remove(filename)==0);
     OK(quantapdf_load_page(doc,cfg.selected,&page));
     quantapdf_render_options options{};
-    options.struct_size=sizeof(options);
     options.dpi=static_cast<float>(cfg.dpi);
     const auto status=quantapdf_render_page_with_options(
         page,&options,&bitmap);
@@ -177,7 +176,6 @@ static int rejected(const std::string& content,const configuration& cfg,
     CHECK(std::remove(filename)==0);
     OK(quantapdf_load_page(doc,cfg.selected,&page));
     quantapdf_render_options options{};
-    options.struct_size=sizeof(options);
     options.dpi=static_cast<float>(cfg.dpi);
     const auto status=quantapdf_render_page_with_options(
         page,&options,&bitmap);

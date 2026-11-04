@@ -39,6 +39,7 @@ quantapdf_status quantapdf_load_page(
         quantapdf_drop_context(document->context);
         return status;
     }
+    ++document->references;
     *out_page = page;
     return QUANTAPDF_OK;
 }
@@ -111,6 +112,7 @@ void quantapdf_drop_page(quantapdf_page *page)
     context = page->context;
 
     page->document->ops->drop_page(page->backend);
+    quantapdf_close(page->document);
     free(page);
     quantapdf_drop_context(context);
 }

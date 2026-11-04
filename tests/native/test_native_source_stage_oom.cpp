@@ -982,14 +982,14 @@ static quantapdf_status render_adopted_page(quantapdf_ir& source,
     std::memset(out,0,sizeof(*out));
     const quantapdf_ir before=source;
     quantapdf_native_source_page_v1 page{};
-    quantapdf_native_source_raster_device_v1 device{};device.dpi=(float)dpi;
+    quantapdf_native_page_device device{};device.dpi=(float)dpi;
     auto mutable_limits=limits;
     quantapdf_context *context=nullptr;
     auto status=quantapdf_context_create(&context);
     if(status!=QUANTAPDF_OK)return status;
     quantapdf_context_lease_internal domain{context,quantapdf_drop_context};
     status=quantapdf_native_source_page_prepare_context_v1(&source,&mutable_limits,&device,
-        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&domain,&page);
+        &domain,&page);
     if(status!=QUANTAPDF_OK) {
         const bool unchanged=std::memcmp(&source,&before,sizeof(source))==0 && domain.context==context;
         quantapdf_context_lease_drop_internal(&domain);
@@ -1116,10 +1116,10 @@ static bool original_texample_three_layer(quantapdf_ir& source,
         std::memset(out,0,sizeof(*out));
         const quantapdf_ir_raster_scoped_mixed_v5_limits caps={budget->max_pixels,
             budget->max_operations,budget->max_edges,budget->max_sample_tests,1000000u,4000000u};
-        quantapdf_native_source_raster_device_v1 request{};request.dpi=(float)dpi;
+        quantapdf_native_page_device request{};request.dpi=(float)dpi;
         quantapdf_native_prepared_page_v1 prepared{};
         auto result=quantapdf_native_prepare_page_v1(ir,&caps,&request,
-            QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&prepared);
+            &prepared);
         if(result!=QUANTAPDF_OK)return result;
         if(prepared.route!=QP_NATIVE_PREPARED_EXACT_CUBICS)return QUANTAPDF_ERROR_BACKEND;
         if(memory_cap!=0u)prepared.resource_limits.max_live_bytes=memory_cap;
@@ -1526,7 +1526,7 @@ static bool public_texample_complete_page(const char *filename)
         if(status==QUANTAPDF_OK)status=quantapdf_load_page(doc,0,&page);
         if(status==QUANTAPDF_OK) {
             quantapdf_render_options options{};
-            options.struct_size=sizeof(options);options.dpi=72.0f;
+            options.dpi=72.0f;
             status=quantapdf_render_page_with_options(page,&options,out);
         }
         if(page!=nullptr)quantapdf_drop_page(page);
@@ -1714,7 +1714,7 @@ static int m2a_ordered_text_image_source_contract(
             CHECK(txt.value.text_outlines.glyphs[g].commands!=nullptr &&
                   txt.value.text_outlines.glyphs[g].command_count>0u);
         const quantapdf_ir saved=ir;
-        quantapdf_native_source_raster_device_v1 device{};
+        quantapdf_native_page_device device{};
         device.dpi=72.0f;
         const quantapdf_ir_raster_scoped_mixed_v5_limits caps{
             1000000u,4u,512u,8000000u,
@@ -1722,7 +1722,7 @@ static int m2a_ordered_text_image_source_contract(
         };
         quantapdf_native_prepared_page_v1 metadata{};
         CHECK(quantapdf_native_prepare_page_v1(&ir,&caps,&device,
-              QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&metadata)==QUANTAPDF_OK &&
+              &metadata)==QUANTAPDF_OK &&
               metadata.route==QP_NATIVE_PREPARED_M2A_TEXT_IMAGE &&
               metadata.usage.operations==2u &&
               metadata.usage.glyphs==5u &&
@@ -1766,8 +1766,7 @@ static int m2a_ordered_text_image_source_contract(
             quantapdf_native_execution_receipt_v1 receipt{};
             quantapdf_ir_raster_image result{};
             quantapdf_status status=quantapdf_native_prepare_page_v1(
-                &ir,&bound,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,
-                &prepared);
+                &ir,&bound,&device,&prepared);
             if(status==QUANTAPDF_OK) {
                 if(memory_limit!=0u)
                     prepared.resource_limits.max_live_bytes=memory_limit;
@@ -1871,8 +1870,7 @@ static int m2a_ordered_text_image_source_contract(
             const quantapdf_ir malformed=ir;
             quantapdf_native_prepared_page_v1 rejected{};
             CHECK(quantapdf_native_prepare_page_v1(
-                  &ir,&caps,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,
-                  &rejected)==QUANTAPDF_ERROR_UNSUPPORTED &&
+                  &ir,&caps,&device,&rejected)==QUANTAPDF_ERROR_UNSUPPORTED &&
                   std::memcmp(&ir,&malformed,sizeof(ir))==0 &&
                   rejected.source==nullptr);
             --ir.resources.font_count;
@@ -1888,16 +1886,14 @@ static int m2a_ordered_text_image_source_contract(
         auto too_small=caps;too_small.max_source_pixels=3u;
         quantapdf_native_source_page_v1 refused{};
         CHECK(quantapdf_native_source_page_prepare_context_v1(
-                  &ir,&too_small,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,
-                  &lease,&refused)==QUANTAPDF_ERROR_UNSUPPORTED &&
+                  &ir,&too_small,&device,&lease,&refused)==QUANTAPDF_ERROR_UNSUPPORTED &&
               std::memcmp(&ir,&saved,sizeof(ir))==0 &&
               lease.context==context && context->references==2u &&
               refused.owns_ir==0 && refused.compiled.ready==0);
         CHECK(lease.context==context && context->references==2u);
         quantapdf_native_source_page_v1 owned{};
         CHECK(quantapdf_native_source_page_prepare_context_v1(
-                  &ir,&caps,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,
-                  &lease,&owned)==QUANTAPDF_OK &&
+                  &ir,&caps,&device,&lease,&owned)==QUANTAPDF_OK &&
               cleared(ir) && lease.context==nullptr && owned.owns_ir &&
               owned.domain.context==context && context->references==2u);
         quantapdf_native_execution_receipt_v1 receipt{};
@@ -2008,7 +2004,7 @@ static int m2b1_ordered_source_ir_contract(
         CHECK(text.argb==UINT32_C(0xff000000) &&
               text.glyph_count==5u && text.glyphs!=nullptr);
         const quantapdf_ir snapshot=ir;
-        quantapdf_native_source_raster_device_v1 device{};
+        quantapdf_native_page_device device{};
         device.dpi=72.0f;
         const quantapdf_ir_raster_scoped_mixed_v5_limits caps={
             1000000u,4u,512u,8000000u,
@@ -2016,8 +2012,7 @@ static int m2b1_ordered_source_ir_contract(
         };
         quantapdf_native_prepared_page_v1 metadata{};
         CHECK(quantapdf_native_prepare_page_v1(
-              &ir,&caps,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,
-              &metadata)==QUANTAPDF_OK &&
+              &ir,&caps,&device,&metadata)==QUANTAPDF_OK &&
               metadata.route==QP_NATIVE_PREPARED_M2B1_TEXT_FILL_IMAGE &&
               metadata.usage.operations==3u &&
               metadata.usage.expanded_paints==7u &&
@@ -2062,8 +2057,7 @@ static int m2b1_ordered_source_ir_contract(
             quantapdf_ir_raster_image result{};
             m2a_malloc_fault_state fault{};
             quantapdf_status got=quantapdf_native_prepare_page_v1(
-                &ir,&budget,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,
-                &prepared);
+                &ir,&budget,&device,&prepared);
             if(got==QUANTAPDF_OK) {
                 if(live_max!=0u)
                     prepared.resource_limits.max_live_bytes=live_max;
@@ -2126,8 +2120,7 @@ static int m2b1_ordered_source_ir_contract(
                     quantapdf_ir_raster_image result{};
                     quantapdf_native_execution_receipt_v1 receipt{};
                     auto accepted=quantapdf_native_prepare_page_v1(
-                        &ir,&limit,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,
-                        &prepared);
+                        &ir,&limit,&device,&prepared);
                     if(accepted==QUANTAPDF_OK)
                         accepted=quantapdf_native_execute_page_v1(
                             &prepared,&receipt,&result);
@@ -2183,15 +2176,13 @@ static int m2b1_ordered_source_ir_contract(
         auto too_small=caps;too_small.max_source_pixels=3u;
         quantapdf_native_source_page_v1 refused{};
         CHECK(quantapdf_native_source_page_prepare_context_v1(
-                &ir,&too_small,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,
-                &lease,&refused)==QUANTAPDF_ERROR_UNSUPPORTED &&
+                &ir,&too_small,&device,&lease,&refused)==QUANTAPDF_ERROR_UNSUPPORTED &&
               std::memcmp(&snapshot,&ir,sizeof(ir))==0 &&
               lease.context==context && context->references==2u &&
               refused.owns_ir==0);
         quantapdf_native_source_page_v1 prepared{};
         CHECK(quantapdf_native_source_page_prepare_context_v1(
-                &ir,&caps,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,
-                &lease,&prepared)==QUANTAPDF_OK &&
+                &ir,&caps,&device,&lease,&prepared)==QUANTAPDF_OK &&
               prepared.owns_ir && cleared(ir) &&
               lease.context==nullptr && context->references==2u);
         quantapdf_native_execution_receipt_v1 receipt{};
@@ -2271,9 +2262,9 @@ static int native_ttf_source_and_raster_contracts(
             const quantapdf_ir_raster_scoped_mixed_v5_limits caps={budget.max_pixels,
                 budget.max_operations,budget.max_edges,budget.max_sample_tests,
                 source_limits.max_source_pixels,source_limits.max_drawn_pixels};
-            quantapdf_native_source_raster_device_v1 device{};device.dpi=(float)dpi;
+            quantapdf_native_page_device device{};device.dpi=(float)dpi;
             const auto status=quantapdf_native_prepare_page_v1(&ir,&caps,&device,
-                QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&out);
+                &out);
             if(status==QUANTAPDF_OK && memory_cap!=0u)out.resource_limits.max_live_bytes=memory_cap;
             return status;
         };
@@ -2531,7 +2522,7 @@ static int owned_page_contracts()
         CHECK(quantapdf_context_create(&context)==QUANTAPDF_OK);
         quantapdf_context_lease_internal domain{context,drop_prepared_context};
         prepared_domains[0]={&page,context,0u,false};prepared_domains[1]={};
-        quantapdf_native_source_raster_device_v1 device{};
+        quantapdf_native_page_device device{};
         quantapdf_ir_raster_scoped_mixed_v5_limits caps={512u,4u,512u,8000000u,1u,128u};
         quantapdf_native_execution_receipt_v1 receipt;
         quantapdf_ir_raster_image first{},second{},refused{};
@@ -2581,19 +2572,19 @@ static int owned_page_contracts()
         }
         before=ir;device.dpi=73.0f;
         CHECK(quantapdf_native_source_page_prepare_context_v1(&ir,&caps,&device,
-            QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&domain,&page)==QUANTAPDF_ERROR_UNSUPPORTED);
+            &domain,&page)==QUANTAPDF_ERROR_UNSUPPORTED);
         CHECK(memcmp(&ir,&before,sizeof(ir))==0 && memcmp(&page,&zero,sizeof(page))==0);
         CHECK(domain.context==context && context->references==1u && prepared_domains[0].drops==0u);
         device.dpi=(float)dpi;
         if(mode!=1u) {
             const size_t cap=caps.max_sample_tests;caps.max_sample_tests=1u;
             CHECK(quantapdf_native_source_page_prepare_context_v1(&ir,&caps,&device,
-                QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&domain,&page)==QUANTAPDF_ERROR_UNSUPPORTED);
+                &domain,&page)==QUANTAPDF_ERROR_UNSUPPORTED);
             CHECK(memcmp(&ir,&before,sizeof(ir))==0 && memcmp(&page,&zero,sizeof(page))==0);
             caps.max_sample_tests=cap;
         }
         CHECK((quantapdf_native_source_page_prepare_context_v1(&ir,&caps,&device,
-            QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&domain,&page))==QUANTAPDF_OK);
+            &domain,&page))==QUANTAPDF_OK);
         CHECK(ir.pages==NULL && ir.operations==NULL && ir.resources.images==NULL && ir.operation_count==0u);
         CHECK(domain.context==nullptr && domain.drop==nullptr && page.domain.context==context && context->references==1u);
         if(mode==1u) {
@@ -2604,7 +2595,7 @@ static int owned_page_contracts()
             quantapdf_ir blank{};blank.pages=(quantapdf_composer_page_state *)calloc(1u,sizeof(*blank.pages));
             CHECK(blank.pages!=nullptr);*blank.pages=fixture_page;blank.page_count=1u;
             CHECK(quantapdf_native_source_page_prepare_context_v1(&blank,&caps,&device,
-                QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&other_domain,&other_page)==QUANTAPDF_OK);
+                &other_domain,&other_page)==QUANTAPDF_OK);
             CHECK(other_domain.context==nullptr && blank.pages==nullptr);
         }
         CHECK(page.owns_ir && page.ir.pages==before.pages && page.compiled.metadata.source==NULL);
@@ -2719,7 +2710,7 @@ static int composer_preparation_contracts()
         10u*sizeof(*rectangle)+3u;
     quantapdf_ir_raster_image held{};
     for(unsigned dpi:{72u,96u,144u}) {
-        quantapdf_native_source_raster_device_v1 device{};device.dpi=(float)dpi;
+        quantapdf_native_page_device device{};device.dpi=(float)dpi;
         quantapdf_ir_raster_scoped_mixed_v5_limits caps{512u,4u,512u,8000000u,1u,512u};
         quantapdf_native_execution_receipt_v1 receipt{};
         quantapdf_ir_raster_image out{};
@@ -2766,38 +2757,6 @@ static int composer_preparation_contracts()
     std::puts("Composer preparation: real public PATH/RAW/Clip, exact capacity bytes, analytic 3-DPI RGBA, N/N-1 and unchanged finish passed");
     return EXIT_SUCCESS;
 }
-
-static int legacy_prepared_contracts(const quantapdf_qpdf_source_raw_image_limits& source_limits)
-{
-    const auto original=original_pdf(true);
-    const quantapdf_ir_raster_scoped_mixed_v5_limits caps={1000000u,4u,512u,8000000u,1000000u,4000000u};
-    for(const auto profile:{QUANTAPDF_PRIVATE_NATIVE_SOURCE_V8,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V9}) {
-        quantapdf_ir ir{};
-        const auto reader=profile==QUANTAPDF_PRIVATE_NATIVE_SOURCE_V8?
-            quantapdf_qpdf_source_scoped_mixed_v8_to_ir:quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir;
-        CHECK(reader(reinterpret_cast<const unsigned char*>(original.data()),original.size(),&source_limits,&ir)==QUANTAPDF_OK);
-        quantapdf_native_source_raster_device_v1 device{};device.dpi=72.0f;
-        quantapdf_native_prepared_page_v1 prepared{};
-        CHECK(quantapdf_native_prepare_page_v1(&ir,&caps,&device,profile,&prepared)==QUANTAPDF_OK);
-        CHECK(prepared.route==QP_NATIVE_PREPARED_LEGACY && prepared.usage.images_used==1u);
-        quantapdf_ir_raster_image baseline{},got{};
-        CHECK(quantapdf_ir_raster_scoped_mixed_v5(&ir,0u,&caps,&baseline)==QUANTAPDF_OK);
-        quantapdf_native_execution_receipt_v1 receipt{};
-        CHECK(quantapdf_native_execute_page_v1(&prepared,&receipt,&got)==QUANTAPDF_OK);
-        CHECK(receipt.source_pixels==prepared.usage.image_pixels && receipt.drawn_pixels>0u &&
-              receipt.retained_bytes==prepared.usage.retained_bytes && receipt.output_bytes==got.size &&
-              receipt.peak_live_bytes>=receipt.retained_bytes+got.size &&
-              receipt.peak_live_bytes<=prepared.resource_limits.max_live_bytes);
-        CHECK(got.size==baseline.size && std::memcmp(got.pixels,baseline.pixels,got.size)==0);
-        quantapdf_ir_raster_image_dispose(&baseline);quantapdf_ir_raster_image_dispose(&got);
-        device.dpi=96.0f;
-        CHECK(quantapdf_native_prepare_page_v1(&ir,&caps,&device,profile,&prepared)==QUANTAPDF_ERROR_UNSUPPORTED);
-        CHECK(prepared.source==nullptr && prepared.route==QP_NATIVE_PREPARED_NONE);
-        quantapdf_ir_dispose(&ir);
-    }
-    return EXIT_SUCCESS;
-}
-
 
 /* M2b.2b original Source ROOT Clip stage. One QPDF parser and one
  * detached owned IR, also reused by the public fractional V5 route. */
@@ -2870,12 +2829,12 @@ static int m2b2b_clipped_source_owner_contract(
               ir.operations[image_at].value.image.options.struct_size==
                   QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE &&
               ir.resources.images[0].size==12u);
-        quantapdf_native_source_raster_device_v1 device{};
+        quantapdf_native_page_device device{};
         device.dpi=96.0f;
         quantapdf_native_prepared_page_v1 denied;
         std::memset(&denied,0xa5,sizeof(denied));
         const auto prep=quantapdf_native_prepare_page_v1(
-            &ir,&raster,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&denied);
+            &ir,&raster,&device,&denied);
         CHECK(prep==QUANTAPDF_OK && denied.source==&ir &&
               denied.route==QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE);
         /* M2b.2c: ONE private compiled C11 V5 page from the actual
@@ -3103,12 +3062,11 @@ static int m2b2b_clipped_source_owner_contract(
          * source-operator vertex index or a compositor golden. */
         CHECK(left==12.0f && right==27.0f &&
               top==24.0f && bottom==42.0f);
-        quantapdf_native_source_raster_device_v1 device{};
+        quantapdf_native_page_device device{};
         device.dpi=96.0f;
         quantapdf_native_prepared_page_v1 metadata{};
         CHECK(quantapdf_native_prepare_page_v1(
-            &staged,&raster,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,
-            &metadata)==QUANTAPDF_OK &&
+            &staged,&raster,&device,&metadata)==QUANTAPDF_OK &&
             metadata.route==QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE &&
             metadata.usage.clips_used==1u);
         quantapdf_ir_dispose(&staged);
@@ -3220,12 +3178,12 @@ static int m2b2l_sibling_source_owner(const quantapdf_qpdf_source_raw_image_limi
         const size_t calls=c_allocations;track_c_allocation=false;
         CHECK(status==QUANTAPDF_OK && calls>=12u && calls<=128u && c_faults==0u && valid(owned));
         for(unsigned dpi:{72u,96u,144u}) {
-            quantapdf_native_source_raster_device_v1 device{};device.dpi=(float)dpi;
+            quantapdf_native_page_device device{};device.dpi=(float)dpi;
             const quantapdf_ir_raster_scoped_mixed_v5_limits raster={1000000u,4u,512u,8000000u,
                 caps.max_source_pixels,caps.max_drawn_pixels};
             quantapdf_native_prepared_page_v1 prepared{};
             CHECK(quantapdf_native_prepare_page_v1(&owned,&raster,&device,
-                QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&prepared)==QUANTAPDF_OK &&
+                &prepared)==QUANTAPDF_OK &&
                 prepared.source==&owned &&
                 prepared.route==QP_NATIVE_PREPARED_M2B2N_SIBLING_TEXT_FILL_IMAGE &&
                 prepared.usage.states_used==3u && prepared.usage.clips_used==3u);
@@ -3363,12 +3321,12 @@ static int m2b2r_reverse_sibling_source_owner(const quantapdf_qpdf_source_raw_im
         CHECK(status==QUANTAPDF_OK && calls>=12u && calls<=128u && c_faults==0u && valid(owned));
         const auto frozen=text_ir_snapshot(owned);
         for(unsigned dpi:{72u,96u,144u}) {
-            quantapdf_native_source_raster_device_v1 device{};device.dpi=(float)dpi;
+            quantapdf_native_page_device device{};device.dpi=(float)dpi;
             const quantapdf_ir_raster_scoped_mixed_v5_limits raster={1000000u,4u,512u,8000000u,
                 caps.max_source_pixels,caps.max_drawn_pixels};
             quantapdf_native_prepared_page_v1 prepared{};
             CHECK(quantapdf_native_prepare_page_v1(&owned,&raster,&device,
-                QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&prepared)==QUANTAPDF_ERROR_UNSUPPORTED &&
+                &prepared)==QUANTAPDF_ERROR_UNSUPPORTED &&
                 prepared.source==nullptr && prepared.route==QP_NATIVE_PREPARED_NONE &&
                 text_ir_snapshot(owned)==frozen);
             quantapdf_native_device_plan physical{};
@@ -3520,12 +3478,12 @@ static int m2b2o_compound_source_owner(const quantapdf_qpdf_source_raw_image_lim
         CHECK(status==QUANTAPDF_OK && allocations>=12u && allocations<=128u && c_faults==0u && valid(owned));
         const auto frozen=text_ir_snapshot(owned);
         for(unsigned dpi:{72u,96u,144u}) {
-            quantapdf_native_source_raster_device_v1 device{};device.dpi=(float)dpi;
+            quantapdf_native_page_device device{};device.dpi=(float)dpi;
             const quantapdf_ir_raster_scoped_mixed_v5_limits raster={1000000u,4u,512u,8000000u,
                 caps.max_source_pixels,caps.max_drawn_pixels};
             quantapdf_native_prepared_page_v1 prepared{};
             CHECK(quantapdf_native_prepare_page_v1(&owned,&raster,&device,
-                QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&prepared)==QUANTAPDF_OK &&
+                &prepared)==QUANTAPDF_OK &&
                 prepared.source==&owned && prepared.route==QP_NATIVE_PREPARED_M2B2Q_COMPOUND_TEXT_FILL_IMAGE &&
                 prepared.usage.states_used==1u && prepared.usage.clips_used==7u && text_ir_snapshot(owned)==frozen);
         }
@@ -3720,10 +3678,10 @@ static int m2b2m_sibling_v5(const quantapdf_qpdf_source_raw_image_limits& source
                         else clips[2].transform.e=1.0f;}
                     if(variant==10u){if(reverse)clips[0].transform.e=1.0f;else clips[2].member_count=1u;}
                     if(variant==11u){if(reverse)ops[2].page_index=1u;else clips[2].kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;}
-                    quantapdf_native_source_raster_device_v1 device{};device.dpi=(float)dpi;
+                    quantapdf_native_page_device device{};device.dpi=(float)dpi;
                     quantapdf_native_prepared_page_v1 denied{};
                     CHECK(quantapdf_native_prepare_page_v1(&view,&caps,&device,
-                        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&denied)==QUANTAPDF_ERROR_UNSUPPORTED &&
+                        &denied)==QUANTAPDF_ERROR_UNSUPPORTED &&
                         denied.source==nullptr && denied.route==QP_NATIVE_PREPARED_NONE);
                     quantapdf_native_work_ledger_v1 ledger{};
                     quantapdf_native_work_init_v1(&ledger,caps.max_sample_tests,caps.max_edges);
@@ -3947,11 +3905,11 @@ static int m2b2i_fractional_original_reference(
                 limits.max_pixels,&physical)==QUANTAPDF_OK &&
                 physical.width==(128u*dpi+71u)/72u &&
                 physical.height==(64u*dpi+71u)/72u);
-            quantapdf_native_source_raster_device_v1 device{};
+            quantapdf_native_page_device device{};
             device.dpi=(float)dpi;
             quantapdf_native_prepared_page_v1 prepared{};
             CHECK(quantapdf_native_prepare_page_v1(&ir,&limits,&device,
-                QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&prepared)==
+                &prepared)==
                 QUANTAPDF_OK && prepared.source==&ir &&
                 prepared.route==QP_NATIVE_PREPARED_M2B2C_TEXT_FILL_IMAGE);
             const size_t pixels=physical.width*physical.height;
@@ -4127,11 +4085,11 @@ static int m2b_clipped_prepared_receipt_faults(
         1000000u,4u,512u,8000000u,
         source_caps.max_source_pixels,source_caps.max_drawn_pixels
     };
-    quantapdf_native_source_raster_device_v1 device{};
+    quantapdf_native_page_device device{};
     device.dpi=(float)dpi;
     quantapdf_native_prepared_page_v1 plan{};
     CHECK(quantapdf_native_prepare_page_v1(
-        &ir,&caps,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&plan)==
+        &ir,&caps,&device,&plan)==
         QUANTAPDF_OK &&
         plan.route==route &&
         plan.usage.operations==operations &&
@@ -4342,7 +4300,7 @@ static int m2b_clipped_prepared_receipt_faults(
     smaller.max_operations=operations-1u;
     quantapdf_native_prepared_page_v1 denied{};
     CHECK(quantapdf_native_prepare_page_v1(
-        &ir,&smaller,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&denied)==
+        &ir,&smaller,&device,&denied)==
         QUANTAPDF_ERROR_UNSUPPORTED && denied.source==nullptr);
     quantapdf_ir_dispose(&ir);
     CHECK(cleared(ir));
@@ -4441,7 +4399,7 @@ static int m2b2f_fourth_restored_source_owner(
         quantapdf_ir_dispose(&reopened);
         CHECK(cleared(reopened));
     }
-    quantapdf_native_source_raster_device_v1 device{};
+    quantapdf_native_page_device device{};
     device.dpi=96.0f;
     const quantapdf_ir_raster_scoped_mixed_v5_limits raster={
         1000000u,4u,512u,8000000u,
@@ -4453,8 +4411,7 @@ static int m2b2f_fourth_restored_source_owner(
      * already used for previous public source profiles. */
     quantapdf_native_prepared_page_v1 accepted{};
     CHECK(quantapdf_native_prepare_page_v1(
-        &ir,&raster,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,
-        &accepted)==QUANTAPDF_OK &&
+        &ir,&raster,&device,&accepted)==QUANTAPDF_OK &&
         accepted.route==QP_NATIVE_PREPARED_M2B2H_RESTORED_FOUR &&
         accepted.usage.operations==4u &&
         accepted.usage.image_pixels==4u &&
@@ -4929,7 +4886,6 @@ int main(int argc,char **argv)
     const std::string pdf=original_pdf();
     CHECK(owned_page_contracts()==EXIT_SUCCESS);
     CHECK(composer_preparation_contracts()==EXIT_SUCCESS);
-    CHECK(legacy_prepared_contracts(limits)==EXIT_SUCCESS);
     CHECK(native_ttf_source_and_raster_contracts(limits)==EXIT_SUCCESS);
     CHECK(native_ttf_source_and_raster_contracts(limits,32)==EXIT_SUCCESS);
     /* Stages: 1 RAW Image, 2 IMAGE order, 3 PATH ownership,

@@ -192,7 +192,6 @@ int main(void)
             const unsigned char *samples=NULL;
             size_t count=0u;
             quantapdf_render_options options={0};
-            options.struct_size=sizeof(options);
             options.dpi=(float)dpis[k];
             status=quantapdf_render_page_with_options(
                 page,&options,&device_bitmap);
@@ -277,7 +276,6 @@ int main(void)
         const int dpis[2]={96,144};
         for(size_t k=0u;k<2u;++k) {
             quantapdf_render_options options={0};
-            options.struct_size=sizeof(options);
             options.dpi=(float)dpis[k];
             options.rotation_degrees=90.0f;
             status=quantapdf_render_page_with_options(
@@ -346,7 +344,6 @@ int main(void)
         const int dpis[2]={96,144};
         for(size_t k=0u;k<2u;++k) {
             quantapdf_render_options options={0};
-            options.struct_size=sizeof(options);
             options.dpi=(float)dpis[k];
             options.rotation_degrees=90.0f;
             status=quantapdf_render_page_with_options(
@@ -456,7 +453,6 @@ int main(void)
         const int dpis[2]={96,144};
         for(size_t k=0u;k<2u;++k) {
             quantapdf_render_options opts={0};
-            opts.struct_size=sizeof(opts);
             opts.dpi=(float)dpis[k];
             status=quantapdf_render_page_with_options(
                 page,&opts,&device_bitmap);
@@ -532,7 +528,6 @@ int main(void)
         const int dpis[2]={96,144};
         for(size_t k=0u;k<2u;++k) {
             quantapdf_render_options opts={0};
-            opts.struct_size=sizeof(opts);
             opts.dpi=(float)dpis[k];
             status=quantapdf_render_page_with_options(
                 page,&opts,&device_bitmap);
@@ -594,7 +589,6 @@ int main(void)
         const int dpis[3]={72,96,144};
         for(size_t k=0u;k<3u;++k) {
             quantapdf_render_options opts={0};
-            opts.struct_size=sizeof(opts);
             opts.dpi=(float)dpis[k];
             status=quantapdf_render_page_with_options(
                 page,&opts,&device_bitmap);
@@ -700,7 +694,6 @@ int main(void)
         const int dpis[3]={72,96,144};
         for(size_t k=0u;k<3u;++k) {
             quantapdf_render_options opts={0};
-            opts.struct_size=sizeof(opts);
             opts.dpi=(float)dpis[k];
             status=quantapdf_render_page_with_options(
                 page,&opts,&device_bitmap);

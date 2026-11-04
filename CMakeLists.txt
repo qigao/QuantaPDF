@@ -77,10 +77,9 @@ endif()
 # dependency. Reuse identical private OBJECT files in in-tree oracles
 # without exporting new SDK symbols or duplicating C11 render sources.
 add_library(quantapdf_native_bridge_objects OBJECT
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/native_source_raster_bridge_v1.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/render/native_device_ir_v1.c"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/builtin_native_page_v1.c"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/builtin_native_bitmap_v1.c")
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/builtin_native_page.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/builtin_native_bitmap.c")
 target_compile_features(quantapdf_native_bridge_objects PRIVATE c_std_11)
 target_include_directories(quantapdf_native_bridge_objects PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/include"
@@ -94,17 +93,11 @@ else()
     -Wall -Wextra -Wpedantic -Werror)
 endif()
 
-# Two PRIVATE product C11 owner implementation units are also embedded in
-# the in-tree original-PDF oracle. A Windows shared DLL must not export
-# private facade/Context lifecycle functions just to test them; the exact
-# same PIC OBJECTs are linked into product and test, once per executable.
-# No additional installed/EXPORT target or reverse backend archive edge.
+# Share the exact private C11 Context lifetime implementation with in-tree
+# tests without exporting private symbols from the Windows DLL.
 add_library(quantapdf_context_lifetime_objects OBJECT
   "${CMAKE_CURRENT_SOURCE_DIR}/src/core/context_lifetime.c")
-add_library(quantapdf_native_facade_objects OBJECT
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/document/private_native_facade_bitmap_v1.c")
-foreach(_owner_target IN ITEMS
-    quantapdf_context_lifetime_objects quantapdf_native_facade_objects)
+foreach(_owner_target IN ITEMS quantapdf_context_lifetime_objects)
   target_compile_features(${_owner_target} PRIVATE c_std_11)
   target_include_directories(${_owner_target} PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
@@ -149,8 +142,7 @@ target_sources(quantapdf PRIVATE
   $<TARGET_OBJECTS:quantapdf_native_raster_objects>
   $<TARGET_OBJECTS:quantapdf_native_bridge_objects>
   $<TARGET_OBJECTS:quantapdf_native_rgb_objects>
-  $<TARGET_OBJECTS:quantapdf_context_lifetime_objects>
-  $<TARGET_OBJECTS:quantapdf_native_facade_objects>)
+  $<TARGET_OBJECTS:quantapdf_context_lifetime_objects>)
 add_subdirectory(src/core)
 add_subdirectory(src/document)
 add_subdirectory(src/snapshot)

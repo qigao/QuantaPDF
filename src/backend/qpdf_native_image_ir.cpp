@@ -43,7 +43,6 @@ extern "C" bool quantapdf_source_ir_oom_fail_c_allocation() noexcept;
 namespace {
 using Obj = QPDFObjectHandle;
 constexpr size_t hard_pdf_bytes = 2u * 1024u * 1024u;
-constexpr size_t hard_content_bytes = 65536u;
 constexpr size_t hard_image_pixels = 4194304u;
 constexpr size_t hard_page_pixels = 4194304u;
 constexpr size_t hard_draw_work = 16777216u;
@@ -226,7 +225,7 @@ std::vector<unsigned char> stream_data(Obj stream, size_t limit,
     bool filtered = false;
     admit(stream.pipeStreamData(&sink,&filtered,0,level,true,true) &&
           sink.complete && (filtered || !flate),
-          QUANTAPDF_ERROR_UNSUPPORTED);
+          QUANTAPDF_ERROR_FORMAT);
     if (image) admit(!sink.bytes.empty());
     return std::move(sink.bytes);
 }
@@ -4593,31 +4592,14 @@ size_t source_exact_tick_ceil(
     return (size_t)pixels;
 }
 
-static quantapdf_status source_raw_images_to_ir_impl(
-    const unsigned char *original_pdf,size_t size,
+static quantapdf_status source_page_to_ir_impl(
+    QPDF& pdf,
     const quantapdf_qpdf_source_raw_image_limits *limits,
     quantapdf_ir *out_ir,source_profile_id profile_id,
     size_t selected_page_index=0u,bool private_texample_m3=false)
 {
-    if(out_ir!=nullptr) std::memset(out_ir,0,sizeof(*out_ir));
-    if(out_ir==nullptr || original_pdf==nullptr || limits==nullptr ||
-       size==0u || limits->max_pdf_bytes==0u ||
-       limits->max_content_bytes==0u || limits->max_content_streams==0u ||
-       limits->max_operations==0u || limits->max_page_pixels==0u ||
-       limits->max_source_pixels==0u || limits->max_drawn_pixels==0u ||
-       limits->max_parent_steps==0u)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    if(size>hard_pdf_bytes || size>limits->max_pdf_bytes ||
-       limits->max_content_bytes>hard_content_bytes)
-        return QUANTAPDF_ERROR_UNSUPPORTED;
+    std::memset(out_ir,0,sizeof(*out_ir));
     try {
-        auto pdf=QPDF::create();
-        /* Match the production no-recovery source contract: a corrected
-         * or warning-bearing PDF must never become a native positive. */
-        pdf->setSuppressWarnings(true);
-        pdf->setAttemptRecovery(false);
-        pdf->processMemoryFile("Native Image original",
-            reinterpret_cast<const char *>(original_pdf),size,"");
         const bool native_v10=
             profile_id==source_profile_id::scoped_mixed_v10_flate_predictor;
         /* Old private source profiles remain explicitly page zero.
@@ -4627,10 +4609,10 @@ static quantapdf_status source_raw_images_to_ir_impl(
         Obj selected=Obj::newNull();
         if(native_v10)
             selected=source_v10_selected_page(
-                *pdf,selected_page_index,limits->max_parent_steps);
+                pdf,selected_page_index,limits->max_parent_steps);
         quantapdf_qpdf_page_geometry geo={};
         const auto status=quantapdf_qpdf_load_page_geometry(
-            *pdf,static_cast<int>(selected_page_index),&geo);
+            pdf,static_cast<int>(selected_page_index),&geo);
         if(status!=QUANTAPDF_OK)return status;
         if(native_v10)
             admit(geo.page.isSameObjectAs(selected),
@@ -4821,7 +4803,7 @@ static quantapdf_status source_raw_images_to_ir_impl(
         image_content_reader reader(source,source.mixed_mode,
                                     source.clipped_image_mode);
         parsed.parseAsContents(&reader);
-        admit(!parser.anyWarnings() && !pdf->anyWarnings(),
+        admit(!parser.anyWarnings() && !pdf.anyWarnings(),
               QUANTAPDF_ERROR_FORMAT);
         if(source.text_outlines_complete) {
             *out_ir=source.draws.empty()?materialize_text_outlines(source):
@@ -5008,9 +4990,40 @@ static quantapdf_status source_raw_images_to_ir_impl(
     } catch(rejected const& e) {return e.status;}
       catch(std::bad_alloc const&) {return QUANTAPDF_ERROR_NOMEM;}
       catch(std::length_error const&) {return QUANTAPDF_ERROR_UNSUPPORTED;}
-      catch(QPDFExc const&) {return QUANTAPDF_ERROR_FORMAT;}
+      catch(QPDFExc const& e) {return quantapdf_status_from_qpdf(e);}
       catch(std::runtime_error const&) {return QUANTAPDF_ERROR_FORMAT;}
       catch(...) {return QUANTAPDF_ERROR_BACKEND;}
+}
+
+/* Standalone source tests open through the same document owner. Rendering an
+ * existing Document calls page_to_ir below and never returns to this entry. */
+static quantapdf_status source_raw_images_to_ir_impl(
+    const unsigned char *original_pdf,size_t size,
+    const quantapdf_qpdf_source_raw_image_limits *limits,
+    quantapdf_ir *out_ir,source_profile_id profile_id,
+    size_t selected_page_index=0u,bool private_texample_m3=false)
+{
+    if(out_ir==nullptr)return QUANTAPDF_ERROR_ARGUMENT;
+    std::memset(out_ir,0,sizeof(*out_ir));
+    if(original_pdf==nullptr || size==0u || limits==nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if(size>hard_pdf_bytes || size>limits->max_pdf_bytes)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    quantapdf_qpdf_document *document=nullptr;
+    const auto status=quantapdf_qpdf_open_memory(original_pdf,size,"",&document);
+    if(status!=QUANTAPDF_OK)return status;
+    const auto result=source_page_to_ir_impl(*document->pdf,limits,out_ir,
+        profile_id,selected_page_index,private_texample_m3);
+    quantapdf_qpdf_close(document);
+    return result;
+}
+
+extern "C" quantapdf_status quantapdf_qpdf_page_to_ir(
+    quantapdf_qpdf_document *document,size_t page_index,
+    const quantapdf_qpdf_source_raw_image_limits *limits,quantapdf_ir *out_ir)
+{
+    return source_page_to_ir_impl(*document->pdf,limits,out_ir,
+        source_profile_id::scoped_mixed_v10_flate_predictor,page_index);
 }
 
 extern "C" quantapdf_status quantapdf_qpdf_source_raw_images_to_ir(

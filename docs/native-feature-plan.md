@@ -25,10 +25,24 @@
   增量已通过 PR CI，但尚未合并，不能计入 master 功能。
 - qpdf 文档操作、编辑、Composer、文本提取等已有代码；当前顶层 CMake 只注册
   `tests/native`。旧 `tests/CMakeLists.txt` 中的完整 SDK 回归没有因此自动获得验收。
-- 当前已打开文档持有 qpdf 对象，而 native page bridge 又交出原始字节并由 Source
-  重新解析；带非空密码的 render view 被直接拒绝。这是 A1/A2 要消除的具体分裂。
+- 重置时已打开文档持有 qpdf 对象，而 native page bridge 又交出原始字节并由 Source
+  重新解析；带非空密码的 render view 被拒绝。下述 A1 增量消除了这条重复路径。
 - 现行公开版本号、`struct_size`、V1/V2/V8/V9/V10 等标记和导出基线仍在代码中；
   本次重置取消其兼容义务，实际代码清理由 A1 完成，本文不声称已经删除。
+
+## A1 当前实现增量
+
+- Native renderer 直接借用已打开、已解密的 qpdf Document 和所选 Page，
+  Source 不再重开原始文件；已删除字节/password view、版本化 Page/Bitmap bridge
+  和重复的私有 facade。独立原件 Source 测试仍可自行打开一次文档。
+- Page 持有 Document 引用；调用方 close Document/drop Context 后 Page 仍可渲染。
+  Source IR 独立持有图像/字体数据，完成的 Bitmap 独立持有像素和 Context。
+- `quantapdf_render_options` 使用当前完整字段，已删除 `struct_size` 协商；
+  渲染调用链不再选择 V8/V9/V10，也不再重复检查 UserUnit。
+- 加密多页、实际对象/资源变更、释放顺序、错误传播、完整 RGB 验收位于
+  `quantapdf.native_opened_document`，复用现有 native 测试可执行文件。
+- 其他 API 的尺寸协商、独立原件 Source 的历史入口，以及固定内容/绘制顺序、
+  字体、几何、预算和 DPI 限制尚待 A1/A2 后续清理。本增量不声称通用 PDF 渲染完成。
 
 ## 单一执行模型
 

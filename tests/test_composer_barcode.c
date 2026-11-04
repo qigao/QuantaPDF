@@ -55,7 +55,6 @@ static int render_page(
     *out_bitmap = NULL;
     *out_pixels = NULL;
     *out_stride = 0;
-    options.struct_size = sizeof(options);
     options.dpi = 72.0f;
 
     if (quantapdf_load_page(document, page_index, &page) != QUANTAPDF_OK ||

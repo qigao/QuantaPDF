@@ -207,7 +207,6 @@ static int test_render_geometry_and_determinism()
           QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
 
-    render.struct_size = sizeof(render);
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
           QUANTAPDF_OK);
@@ -352,7 +351,6 @@ static int test_v2a_dash_opacity_arcs_and_aspect()
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -483,7 +481,6 @@ static int test_v2b1_gradient_and_clip_references()
     CHECK(quantapdf_open(
               COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) == QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-    render.struct_size = sizeof(render);
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
           QUANTAPDF_OK);
@@ -740,7 +737,6 @@ static int test_v2b2_symbol_use_form_reuse()
               COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
           QUANTAPDF_OK);
     CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-    render.struct_size = sizeof(render);
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
           QUANTAPDF_OK);
@@ -1003,7 +999,6 @@ static int test_v3a_nonconformal_path_and_pattern()
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -1085,7 +1080,6 @@ static int test_v3a_group_opacity_and_dom_order()
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -1132,7 +1126,6 @@ static int test_v3a_group_opacity_and_dom_order()
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -1297,7 +1290,6 @@ static int test_v3b_object_bbox_gradient_clip_and_cubic_bounds()
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -1458,7 +1450,6 @@ static int test_v3b_templates_and_pattern_unit_combinations()
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -1528,7 +1519,6 @@ static int test_v3b_templates_and_pattern_unit_combinations()
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -1710,7 +1700,6 @@ static int test_v4a_compound_clip_intersections()
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -1775,7 +1764,6 @@ static int test_v4a_compound_clip_intersections()
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -2034,7 +2022,6 @@ static int test_v4b_leaf_alpha_and_luminosity_masks()
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -2141,7 +2128,6 @@ static int test_v4b_group_root_and_nested_mask_content()
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);
@@ -2186,7 +2172,6 @@ static int test_v4b_group_root_and_nested_mask_content()
                   COMPOSER_SVG_OUTPUT_PDF, nullptr, &document) ==
               QUANTAPDF_OK);
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
               QUANTAPDF_OK);

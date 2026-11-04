@@ -134,7 +134,7 @@ static int native_ttf_public_cases(const std::string& filename,int first=0,int l
         }
         quantapdf_bitmap *held=nullptr;std::vector<unsigned char> retained;
         for(int dpi:{72,96,144}) {
-            quantapdf_render_options options{};options.struct_size=sizeof(options);options.dpi=(float)dpi;
+            quantapdf_render_options options{};options.dpi=(float)dpi;
             quantapdf_bitmap *bitmap=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
             const auto status=quantapdf_render_page_with_options(page,&options,&bitmap);
             if(!positive) {

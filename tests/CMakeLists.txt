@@ -375,7 +375,6 @@ add_executable(quantapdf_test_native_source_image_clip
   # shared DLL intentionally hides these symbols, so test them without
   # modifying the public ABI or compiling a separate implementation.
   $<TARGET_OBJECTS:quantapdf_context_lifetime_objects>
-  $<TARGET_OBJECTS:quantapdf_native_facade_objects>
   ../src/render/ir_raster_image_clip_v2.c
   ../src/render/ir_raster_image_clip_path_v4.c
   ../src/render/ir_raster_v1.c
@@ -443,76 +442,6 @@ add_test(NAME quantapdf.native_source_profile_legacy_parity
   COMMAND quantapdf_test_native_source_image_clip --profile-parity-only)
 set_tests_properties(quantapdf.native_source_profile_legacy_parity PROPERTIES
   TIMEOUT 40 LABELS "conformance;source-pdf;native-raster;profile-parity")
-# Actual private production-archive Source -> owned IR -> canonical C11
-# raster bridge. The original PDFium oracle is test-only and independent.
-add_test(NAME quantapdf.native_source_product_bridge_v1
-  COMMAND quantapdf_test_native_source_image_clip --native-product-bridge-only)
-set_tests_properties(quantapdf.native_source_product_bridge_v1 PROPERTIES
-  TIMEOUT 40
-  LABELS "conformance;source-pdf;native-raster;product-bridge;backend-free-raster")
-# Private Native render through real built-in provider document/page lifetime.
-# Public render_page dispatch stays PDFium-backed and is not replaced.
-add_test(NAME quantapdf.native_builtin_page_owner_v1
-  COMMAND quantapdf_test_native_source_image_clip --builtin-native-page-only)
-set_tests_properties(quantapdf.native_builtin_page_owner_v1 PROPERTIES
-  TIMEOUT 40
-  LABELS "conformance;source-pdf;native-raster;builtin-page;ownership")
-# Private Native opaque RGBA -> owned RGB backend-bitmap product contract.
-# Public PDFium rendering remains the independent comparison, not fallback.
-add_test(NAME quantapdf.native_builtin_backend_rgb_v1
-  COMMAND quantapdf_test_native_source_image_clip --builtin-native-rgb-only)
-set_tests_properties(quantapdf.native_builtin_backend_rgb_v1 PROPERTIES
-  TIMEOUT 40
-  LABELS "conformance;source-pdf;native-raster;builtin-page;rgb-layout")
-# Complete private public-facade Context/Page/Bitmap lifetime qualification:
-# calls the same bitmap accessor/drop functions as ordinary users, but
-# never switches the public render_page provider from PDFium to Native.
-add_test(NAME quantapdf.private_native_facade_bitmap_v1
-  COMMAND quantapdf_test_native_source_image_clip --native-facade-bitmap-only)
-set_tests_properties(quantapdf.private_native_facade_bitmap_v1 PROPERTIES
-  TIMEOUT 40
-  LABELS "conformance;native-raster;source-pdf;facade;context;ownership")
-# V9 must flow through the REAL private C facade owner and ordinary bitmap,
-# not just the isolated original-PDF Source/IR/raster test binary.
-add_test(NAME quantapdf.private_native_facade_bitmap_v9_decode
-  COMMAND quantapdf_test_native_source_image_clip --native-facade-decode-v9-only)
-set_tests_properties(quantapdf.private_native_facade_bitmap_v9_decode PROPERTIES
-  TIMEOUT 40
-  LABELS "conformance;source-pdf;native-raster;facade;context;ownership;decode")
-# A real private V10 Page/Context-owned Bitmap, not a disconnected Source
-# function call; unchanged original-PDF direct PDFium remains test-only.
-add_test(NAME quantapdf.private_native_facade_bitmap_v10_predictor
-  COMMAND quantapdf_test_native_source_image_clip
-          --native-facade-predictor-v10-only)
-set_tests_properties(quantapdf.private_native_facade_bitmap_v10_predictor
-  PROPERTIES TIMEOUT 40
-  LABELS "conformance;source-pdf;native-raster;facade;context;ownership;predictor")
-
-# Static-link closure gate: intentionally NO direct Raster OBJECTs and NO
-# explicit quantapdf_backend target. All private builtin->Source->Raster
-# references must resolve from the actual QuantaPDF static product target.
-if(NOT BUILD_SHARED_LIBS)
-  add_executable(quantapdf_test_private_builtin_native_static_link
-    test_private_builtin_native_static_link.c)
-  target_include_directories(quantapdf_test_private_builtin_native_static_link
-    PRIVATE "${PROJECT_SOURCE_DIR}/include" "${PROJECT_SOURCE_DIR}/src")
-  target_compile_features(quantapdf_test_private_builtin_native_static_link
-    PRIVATE c_std_11)
-  target_link_libraries(quantapdf_test_private_builtin_native_static_link
-    PRIVATE QuantaPDF::QuantaPDF)
-  if(MSVC)
-    target_compile_options(quantapdf_test_private_builtin_native_static_link
-      PRIVATE /W4 /WX)
-  else()
-    target_compile_options(quantapdf_test_private_builtin_native_static_link
-      PRIVATE -Wall -Wextra -Wpedantic -Werror)
-  endif()
-  add_test(NAME quantapdf.private_builtin_native_static_link
-    COMMAND quantapdf_test_private_builtin_native_static_link)
-  set_tests_properties(quantapdf.private_builtin_native_static_link PROPERTIES
-    TIMEOUT 20
-    LABELS "conformance;native-raster;builtin-page;static-link")
-endif()
 
 if(WIN32)
   set_property(TEST quantapdf.native_source_image_clip
@@ -522,12 +451,6 @@ if(WIN32)
     quantapdf.native_source_scoped_mixed_v9_decode
     quantapdf.native_source_scoped_mixed_v10_predictor
     quantapdf.native_source_profile_legacy_parity
-    quantapdf.native_source_product_bridge_v1
-    quantapdf.native_builtin_page_owner_v1
-    quantapdf.native_builtin_backend_rgb_v1
-    quantapdf.private_native_facade_bitmap_v1
-    quantapdf.private_native_facade_bitmap_v9_decode
-    quantapdf.private_native_facade_bitmap_v10_predictor
     PROPERTY ENVIRONMENT_MODIFICATION
     "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 elseif(APPLE)
@@ -538,12 +461,6 @@ elseif(APPLE)
     quantapdf.native_source_scoped_mixed_v9_decode
     quantapdf.native_source_scoped_mixed_v10_predictor
     quantapdf.native_source_profile_legacy_parity
-    quantapdf.native_source_product_bridge_v1
-    quantapdf.native_builtin_page_owner_v1
-    quantapdf.native_builtin_backend_rgb_v1
-    quantapdf.private_native_facade_bitmap_v1
-    quantapdf.private_native_facade_bitmap_v9_decode
-    quantapdf.private_native_facade_bitmap_v10_predictor
     PROPERTY ENVIRONMENT_MODIFICATION
     "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 else()
@@ -554,12 +471,6 @@ else()
     quantapdf.native_source_scoped_mixed_v9_decode
     quantapdf.native_source_scoped_mixed_v10_predictor
     quantapdf.native_source_profile_legacy_parity
-    quantapdf.native_source_product_bridge_v1
-    quantapdf.native_builtin_page_owner_v1
-    quantapdf.native_builtin_backend_rgb_v1
-    quantapdf.private_native_facade_bitmap_v1
-    quantapdf.private_native_facade_bitmap_v9_decode
-    quantapdf.private_native_facade_bitmap_v10_predictor
     PROPERTY ENVIRONMENT_MODIFICATION
     "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()

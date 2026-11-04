@@ -90,7 +90,6 @@ static int render(const std::string& source,int dpi,
     CHECK(std::remove(filename)==0);
     OK(quantapdf_load_page(doc,0,&page));
     quantapdf_render_options options{};
-    options.struct_size=sizeof(options);
     options.dpi=(float)dpi;
     OK(quantapdf_render_page_with_options(page,&options,&bitmap));
     CHECK(bitmap!=nullptr);
@@ -198,7 +197,6 @@ static int negative()
         CHECK(std::remove(filename)==0);
         OK(quantapdf_load_page(doc,0,&page));
         quantapdf_render_options options{};
-        options.struct_size=sizeof(options);
         options.dpi=(float)dpi;
         const auto status=quantapdf_render_page_with_options(
             page,&options,&out);

@@ -118,7 +118,6 @@ static int replay(const std::filesystem::path& assets,
             CHECK(page!=nullptr);
 
             quantapdf_render_options options{};
-            options.struct_size=sizeof(options);
             options.dpi=72.0f;
             quantapdf_bitmap *bitmap=
                 reinterpret_cast<quantapdf_bitmap *>(uintptr_t(1));

@@ -166,7 +166,6 @@ static void ap_render_clip(
     *out_size = 0;
     AP_CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
     AP_CHECK(quantapdf_load_page(document, widget->page_index, &page) == QUANTAPDF_OK);
-    options.struct_size = sizeof(options);
     options.dpi = 72.0f;
     options.rotation_degrees = 0.0f;
     options.clip_enabled = 1;

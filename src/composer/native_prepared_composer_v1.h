@@ -18,7 +18,7 @@ static inline int qp_composer_capacity_bytes(
 static inline quantapdf_status quantapdf_native_composer_execute_v1(
     const quantapdf_composer *composer,const quantapdf_context_lease_internal *domain,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
-    const quantapdf_native_source_raster_device_v1 *device,
+    const quantapdf_native_page_device *device,
     quantapdf_native_execution_receipt_v1 *receipt,quantapdf_ir_raster_image *out)
 {
     quantapdf_ir view;
@@ -64,7 +64,7 @@ static inline quantapdf_status quantapdf_native_composer_execute_v1(
     }
     view.operations=view.operation_count==0u?NULL:operations;
     status=quantapdf_native_prepare_page_v1(&view,limits,device,
-        QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,&metadata);
+        &metadata);
     if(status!=QUANTAPDF_OK)return status;
     if(!qp_prepared_charge(&metadata.usage.retained_bytes,extra,SIZE_MAX) ||
        !qp_prepared_charge(&metadata.resource_limits.max_live_bytes,extra,SIZE_MAX))

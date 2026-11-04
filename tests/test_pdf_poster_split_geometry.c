@@ -87,7 +87,6 @@ static void compare_render(
     int sw, sh, ss, sc;
     int ow, oh, os, oc;
 
-    source_options.struct_size = sizeof(source_options);
     source_options.dpi = 72.0f;
     source_options.rotation_degrees = 0.0f;
     source_options.clip_enabled = 1;

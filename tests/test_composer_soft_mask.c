@@ -530,7 +530,6 @@ static int test_alpha_luminosity_render_and_dictionary(void)
         int components = 0;
 
         CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(
                   page, &render, &bitmap) == QUANTAPDF_OK);
@@ -559,7 +558,6 @@ static int test_alpha_luminosity_render_and_dictionary(void)
         int components = 0;
 
         CHECK(quantapdf_load_page(document, 1, &page) == QUANTAPDF_OK);
-        render.struct_size = sizeof(render);
         render.dpi = 72.0f;
         CHECK(quantapdf_render_page_with_options(
                   page, &render, &bitmap) == QUANTAPDF_OK);

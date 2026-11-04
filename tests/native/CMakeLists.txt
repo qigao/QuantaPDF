@@ -53,8 +53,14 @@ quantapdf_native_test(quantapdf_native_raw_images
 # It NEVER imports PDFium and never compares two rendering engines.
 add_executable(quantapdf_native_public_render test_public_native_render.cpp)
 target_compile_features(quantapdf_native_public_render PRIVATE cxx_std_20)
+target_include_directories(quantapdf_native_public_render PRIVATE "${PROJECT_SOURCE_DIR}/src")
+target_compile_definitions(quantapdf_native_public_render PRIVATE QUANTAPDF_TESTING=1)
+add_test(NAME quantapdf.native_opened_document
+  COMMAND quantapdf_native_public_render --opened-document)
+set_tests_properties(quantapdf.native_opened_document PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;public-api;document")
 target_link_libraries(quantapdf_native_public_render PRIVATE
-  QuantaPDF::QuantaPDF qpdf::libqpdf ZLIB::ZLIB)
+  QuantaPDF::QuantaPDF quantapdf_backend qpdf::libqpdf ZLIB::ZLIB)
 if(MSVC)
   target_compile_options(quantapdf_native_public_render PRIVATE /W4 /WX /utf-8)
 else()

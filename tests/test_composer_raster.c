@@ -345,7 +345,6 @@ static int test_formats_stride_alpha_and_determinism(void)
     CHECK(info.pixel_width == 2 && info.pixel_height == 1);
     CHECK(info.has_alpha == 1);
 
-    render.struct_size = sizeof(render);
     render.dpi = 72.0f;
     CHECK(quantapdf_render_page_with_options(page, &render, &bitmap) ==
           QUANTAPDF_OK);

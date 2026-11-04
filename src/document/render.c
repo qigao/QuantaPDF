@@ -1,6 +1,6 @@
 #include "core/bitmap_internal.h"
 #include "document/document_internal.h"
-#include "backend/builtin_native_bitmap_v1.h"
+#include "backend/builtin_native_bitmap.h"
 #include "render/native_device_plan.h"
 
 #include <limits.h>
@@ -96,15 +96,14 @@ static quantapdf_status quantapdf_render_page_transformed(
     quantapdf_backend_bitmap rendered = {0};
     quantapdf_context_lease_internal prepared_domain={0};
     quantapdf_status status;
-    double user_unit;
-    const quantapdf_native_source_raster_bridge_limits_v1 limits = {
+    const quantapdf_native_page_limits limits = {
         /* Strict complete-page Source V10 admission. The numeric caps
          * are below the existing independent decoder and Raster maxima. */
         {2u*1024u*1024u,65536u,4u,4u,1000000u,1000000u,
          4000000u,8u},
         {1000000u,4u,512u,8000000u,1000000u,4000000u}
     };
-    quantapdf_native_source_raster_device_v1 device = {0};
+    quantapdf_native_page_device device = {0};
 
     if (out_bitmap == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -152,25 +151,10 @@ static quantapdf_status quantapdf_render_page_transformed(
     }
 
 
-    status = quantapdf_document_page_user_unit(
-        page->document, page->page_index, &user_unit);
-    if (status == QUANTAPDF_OK) {
-        /* Final original token/quarter-lattice admission is still
-         * owned by Source V10. This public gate only bounds the
-         * physical page lease before the unique Source/C11 provider.
-         * /UserUnit does NOT select an alternate renderer. */
-        if (!isfinite(user_unit) || user_unit<0.25 ||
-            user_unit>4.0)
-            status = QUANTAPDF_ERROR_UNSUPPORTED;
-        else {
-            status = quantapdf_builtin_native_qualify_bitmap_context_v1(
-                page->backend,&limits,&device,QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10,
-                &prepared_domain,&rendered);
-            if (status == QUANTAPDF_OK && rotation_degrees != 0.0f)
-                status = quantapdf_native_rotate_rgb_device(
-                    &rendered, (int)rotation_degrees);
-        }
-    }
+    status=quantapdf_builtin_render_bitmap(
+        page->backend,&limits,&device,&prepared_domain,&rendered);
+    if(status==QUANTAPDF_OK && rotation_degrees!=0.0f)
+        status=quantapdf_native_rotate_rgb_device(&rendered,(int)rotation_degrees);
     quantapdf_context_lease_drop_internal(&prepared_domain);
     if (status != QUANTAPDF_OK) {
         free(rendered.data);
@@ -208,65 +192,17 @@ quantapdf_status quantapdf_render_page_with_options(
     const quantapdf_render_options *options,
     quantapdf_bitmap **out_bitmap)
 {
-    size_t minimum_size;
-    size_t rotation_size;
-    size_t clip_enabled_size;
-    size_t clip_size;
-    size_t alpha_size;
-    float rotation_degrees = 0.0f;
-    int clip_enabled = 0;
-    int alpha = 0;
-    quantapdf_rect clip = { 0 };
-    const quantapdf_rect *clip_ptr = NULL;
-
-    if (out_bitmap == NULL)
+    if(out_bitmap==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    *out_bitmap=NULL;
+    if(page==NULL || options==NULL)return QUANTAPDF_ERROR_ARGUMENT;
+    if(options->clip_enabled &&
+       (!isfinite(options->clip.x0) || !isfinite(options->clip.y0) ||
+        !isfinite(options->clip.x1) || !isfinite(options->clip.y1) ||
+        options->clip.x1<=options->clip.x0 || options->clip.y1<=options->clip.y0))
         return QUANTAPDF_ERROR_ARGUMENT;
-    *out_bitmap = NULL;
-
-    if (page == NULL || options == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-
-    minimum_size = offsetof(quantapdf_render_options, dpi) + sizeof(options->dpi);
-    if (options->struct_size < minimum_size)
-        return QUANTAPDF_ERROR_ARGUMENT;
-
-    rotation_size = offsetof(quantapdf_render_options, rotation_degrees) +
-        sizeof(options->rotation_degrees);
-    if (options->struct_size >= rotation_size)
-        rotation_degrees = options->rotation_degrees;
-
-    clip_enabled_size = offsetof(quantapdf_render_options, clip_enabled) +
-        sizeof(options->clip_enabled);
-    if (options->struct_size >= clip_enabled_size)
-        clip_enabled = options->clip_enabled != 0;
-
-    if (clip_enabled) {
-        clip_size = offsetof(quantapdf_render_options, clip) + sizeof(options->clip);
-        if (options->struct_size < clip_size)
-            return QUANTAPDF_ERROR_ARGUMENT;
-
-        clip = options->clip;
-        if (!isfinite(clip.x0) || !isfinite(clip.y0) ||
-            !isfinite(clip.x1) || !isfinite(clip.y1) ||
-            clip.x1 <= clip.x0 || clip.y1 <= clip.y0)
-            return QUANTAPDF_ERROR_ARGUMENT;
-        clip_ptr = &clip;
-    }
-
-    alpha_size = offsetof(quantapdf_render_options, alpha) + sizeof(options->alpha);
-    if (options->struct_size >= alpha_size) {
-        alpha = options->alpha;
-        if (alpha != 0 && alpha != 1)
-            return QUANTAPDF_ERROR_ARGUMENT;
-    }
-
-    return quantapdf_render_page_transformed(
-        page,
-        options->dpi,
-        rotation_degrees,
-        clip_ptr,
-        alpha,
-        out_bitmap);
+    return quantapdf_render_page_transformed(page,options->dpi,
+        options->rotation_degrees,options->clip_enabled?&options->clip:NULL,
+        options->alpha,out_bitmap);
 }
 
 /* Deterministic RGB area resampling for an ALREADY fully admitted native

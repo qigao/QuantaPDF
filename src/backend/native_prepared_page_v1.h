@@ -1,7 +1,7 @@
 #ifndef QUANTAPDF_NATIVE_PREPARED_PAGE_V1_H
 #define QUANTAPDF_NATIVE_PREPARED_PAGE_V1_H
 
-#include "backend/native_source_raster_bridge_v1.h"
+#include "backend/native_page.h"
 #include "render/native_device_ir_v1.h"
 #include "render/native_device_plan.h"
 #include "render/ir_raster_v1.h"
@@ -45,8 +45,7 @@ typedef struct quantapdf_native_execution_receipt_v1 {
 } quantapdf_native_execution_receipt_v1;
 
 static inline quantapdf_status quantapdf_native_source_device_validate_v1(
-    const quantapdf_native_source_raster_device_v1 *device,
-    quantapdf_private_native_source_profile profile)
+    const quantapdf_native_page_device *device)
 {
     if(device==NULL || !isfinite(device->dpi) ||
        !isfinite(device->rotation_degrees) || device->dpi<=0.0f ||
@@ -54,14 +53,8 @@ static inline quantapdf_status quantapdf_native_source_device_validate_v1(
        (device->clip_enabled!=0 && device->clip_enabled!=1) ||
        (device->thumbnail!=0 && device->thumbnail!=1))
         return QUANTAPDF_ERROR_ARGUMENT;
-    if((profile!=QUANTAPDF_PRIVATE_NATIVE_SOURCE_V8 &&
-        profile!=QUANTAPDF_PRIVATE_NATIVE_SOURCE_V9 &&
-        profile!=QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10) ||
-       (profile!=QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10 && device->page_index!=0u) ||
-       device->page_index>(size_t)INT_MAX ||
-       (device->dpi!=72.0f &&
-        !(profile==QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10 &&
-          (device->dpi==96.0f || device->dpi==144.0f))) ||
+    if(device->page_index>(size_t)INT_MAX ||
+       (device->dpi!=72.0f && device->dpi!=96.0f && device->dpi!=144.0f) ||
        device->rotation_degrees!=0.0f || device->clip_enabled ||
        device->alpha || device->thumbnail)
         return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -434,8 +427,7 @@ static inline int qp_prepared_resource_closure(
 static inline quantapdf_status quantapdf_native_prepare_page_v1(
     const quantapdf_ir *source,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
-    const quantapdf_native_source_raster_device_v1 *device,
-    quantapdf_private_native_source_profile profile,
+    const quantapdf_native_page_device *device,
     quantapdf_native_prepared_page_v1 *out)
 {
     quantapdf_native_prepared_page_v1 p;
@@ -444,14 +436,12 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
     if(out==NULL)return QUANTAPDF_ERROR_ARGUMENT;
     memset(out,0,sizeof(*out));memset(&p,0,sizeof(p));
     if(source==NULL || limits==NULL)return QUANTAPDF_ERROR_ARGUMENT;
-    status=quantapdf_native_source_device_validate_v1(device,profile);
+    status=quantapdf_native_source_device_validate_v1(device);
     if(status!=QUANTAPDF_OK)return status;
     if(!qp_prepared_resource_closure(source,limits,&p.usage,&text))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     p.source=source;p.dpi=(unsigned)device->dpi;p.limits=*limits;
-    if(profile!=QUANTAPDF_PRIVATE_NATIVE_SOURCE_V10)
-        p.route=QP_NATIVE_PREPARED_LEGACY;
-    else if(text) {
+    if(text) {
         char box[64];
         int printed;
         const quantapdf_composer_page_state *page=&source->pages[0];
@@ -685,8 +675,8 @@ static inline quantapdf_status quantapdf_native_compiled_page_execute_v1(
  * Every failed preparation leaves the caller's IR untouched and output empty. */
 static inline quantapdf_status quantapdf_native_source_page_prepare_context_v1(
     quantapdf_ir *source,const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
-    const quantapdf_native_source_raster_device_v1 *device,
-    quantapdf_private_native_source_profile profile,quantapdf_context_lease_internal *lease,
+    const quantapdf_native_page_device *device,
+    quantapdf_context_lease_internal *lease,
     quantapdf_native_source_page_v1 *out)
 {
     quantapdf_native_prepared_page_v1 metadata;
@@ -694,7 +684,7 @@ static inline quantapdf_status quantapdf_native_source_page_prepare_context_v1(
     if(out==NULL)return QUANTAPDF_ERROR_ARGUMENT;
     memset(out,0,sizeof(*out));
     if(lease!=NULL && !quantapdf_context_lease_valid_internal(lease))return QUANTAPDF_ERROR_ARGUMENT;
-    status=quantapdf_native_prepare_page_v1(source,limits,device,profile,&metadata);
+    status=quantapdf_native_prepare_page_v1(source,limits,device,&metadata);
     if(status!=QUANTAPDF_OK)return status;
     status=quantapdf_native_compiled_page_compile_v1(&metadata,&out->compiled);
     if(status!=QUANTAPDF_OK) {memset(out,0,sizeof(*out));return status;}
@@ -708,10 +698,10 @@ static inline quantapdf_status quantapdf_native_source_page_prepare_context_v1(
 
 static inline quantapdf_status quantapdf_native_source_page_prepare_v1(
     quantapdf_ir *source,const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
-    const quantapdf_native_source_raster_device_v1 *device,
-    quantapdf_private_native_source_profile profile,quantapdf_native_source_page_v1 *out)
+    const quantapdf_native_page_device *device,
+    quantapdf_native_source_page_v1 *out)
 {
-    return quantapdf_native_source_page_prepare_context_v1(source,limits,device,profile,NULL,out);
+    return quantapdf_native_source_page_prepare_context_v1(source,limits,device,NULL,out);
 }
 
 static inline quantapdf_status quantapdf_native_source_page_execute_v1(
