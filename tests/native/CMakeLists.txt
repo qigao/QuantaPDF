@@ -163,7 +163,7 @@ set_tests_properties(quantapdf.native_userunit_oom PROPERTIES
 # as test-linked objects, exactly like the existing native Clip tests.
 add_executable(quantapdf_native_source_stage_oom
   test_native_source_stage_oom.cpp
-  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_native_image_ir.cpp"
+  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_page_ir.cpp"
   "${PROJECT_SOURCE_DIR}/src/ir/ir.c"
   "${PROJECT_SOURCE_DIR}/src/resource/resource_registry.c"
   "${PROJECT_SOURCE_DIR}/src/render/native_device_ir_v1.c"
@@ -383,7 +383,7 @@ set_tests_properties(quantapdf.native_two_curved_source PROPERTIES
 # Exact Source materializer with test-only returning-NULL allocation faults.
 add_executable(quantapdf_native_two_clip_source_oom
   test_native_two_clip_source_oom.cpp
-  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_native_image_ir.cpp"
+  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_page_ir.cpp"
   "${PROJECT_SOURCE_DIR}/src/ir/ir.c"
   "${PROJECT_SOURCE_DIR}/src/resource/resource_registry.c"
   "${PROJECT_SOURCE_DIR}/src/render/native_device_ir_v1.c"
@@ -444,7 +444,7 @@ set_tests_properties(quantapdf.native_clipped_path_source PROPERTIES
 # Exercise the actual Source owner at every PATH/GS/Clip C allocation.
 add_executable(quantapdf_native_clipped_path_source_oom
   test_native_clipped_path_source_oom.cpp
-  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_native_image_ir.cpp"
+  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_page_ir.cpp"
   "${PROJECT_SOURCE_DIR}/src/ir/ir.c"
   "${PROJECT_SOURCE_DIR}/src/resource/resource_registry.c"
   "${PROJECT_SOURCE_DIR}/src/render/native_device_ir_v1.c"
@@ -496,7 +496,7 @@ set_tests_properties(quantapdf.native_bounded_clip_pairs PROPERTIES
 # Exact original Source ownership and rollback for line/empty Clip pairs.
 add_executable(quantapdf_native_bounded_clip_pairs_oom
   test_native_bounded_clip_pairs_oom.cpp
-  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_native_image_ir.cpp"
+  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_page_ir.cpp"
   "${PROJECT_SOURCE_DIR}/src/ir/ir.c"
   "${PROJECT_SOURCE_DIR}/src/resource/resource_registry.c"
   "${PROJECT_SOURCE_DIR}/src/render/native_device_ir_v1.c"
@@ -557,7 +557,7 @@ set_tests_properties(quantapdf.native_clip_states_source PROPERTIES
 # Exact Source owners, two-GS identity and allocation rollback.
 add_executable(quantapdf_native_clip_states_source_oom
   test_native_clip_states_source_oom.cpp
-  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_native_image_ir.cpp"
+  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_page_ir.cpp"
   "${PROJECT_SOURCE_DIR}/src/ir/ir.c"
   "${PROJECT_SOURCE_DIR}/src/resource/resource_registry.c"
   "${PROJECT_SOURCE_DIR}/src/render/native_device_ir_v1.c"
@@ -618,7 +618,7 @@ set_tests_properties(quantapdf.native_compound_clip_source PROPERTIES
 # Exact compound Clip owners and complete allocation rollback.
 add_executable(quantapdf_native_compound_clip_source_oom
   test_native_compound_clip_source_oom.cpp
-  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_native_image_ir.cpp"
+  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_page_ir.cpp"
   "${PROJECT_SOURCE_DIR}/src/ir/ir.c"
   "${PROJECT_SOURCE_DIR}/src/resource/resource_registry.c"
   "${PROJECT_SOURCE_DIR}/src/render/native_device_ir_v1.c"
@@ -678,7 +678,7 @@ set_tests_properties(quantapdf.native_unclipped_prefix_source PROPERTIES
 # Exact prefix ownership, frozen memberships and allocation rollback.
 add_executable(quantapdf_native_unclipped_prefix_source_oom
   test_native_unclipped_prefix_source_oom.cpp
-  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_native_image_ir.cpp"
+  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_page_ir.cpp"
   "${PROJECT_SOURCE_DIR}/src/ir/ir.c"
   "${PROJECT_SOURCE_DIR}/src/resource/resource_registry.c"
   "${PROJECT_SOURCE_DIR}/src/render/native_device_ir_v1.c"
@@ -738,7 +738,7 @@ set_tests_properties(quantapdf.native_sibling_clip_source PROPERTIES
 # Production Source owner failure injection and detached sibling identities.
 add_executable(quantapdf_native_sibling_clip_source_oom
   test_native_sibling_clip_source_oom.cpp
-  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_native_image_ir.cpp"
+  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_page_ir.cpp"
   "${PROJECT_SOURCE_DIR}/src/ir/ir.c"
   "${PROJECT_SOURCE_DIR}/src/resource/resource_registry.c"
   "${PROJECT_SOURCE_DIR}/src/render/native_device_ir_v1.c"
@@ -1028,7 +1028,7 @@ set_tests_properties(
 # author; no PDFium reference pixels, second raster or SDK ABI expansion.
 add_executable(quantapdf_native_v10_opaque_gs
   test_native_v10_opaque_gs.cpp
-  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_native_image_ir.cpp"
+  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_page_ir.cpp"
   "${PROJECT_SOURCE_DIR}/src/ir/ir.c"
   "${PROJECT_SOURCE_DIR}/src/resource/resource_registry.c")
 target_include_directories(quantapdf_native_v10_opaque_gs PRIVATE

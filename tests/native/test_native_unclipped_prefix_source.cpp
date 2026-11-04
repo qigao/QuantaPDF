@@ -690,11 +690,29 @@ static int atomic_refusals()
     return EXIT_SUCCESS;
 }
 
+/* Each original Image owns its real q/Q and placement. Independent solid
+ * PATH references expose accidental Clip reuse after Q, including a small
+ * suffix that leaves the earlier clipped red image visible. */
+static int restored_image_scopes()
+{
+    for(int dpi:{72,96,144})for(int variant:{0,1,2}) {
+        configuration cfg;cfg.dpi=dpi;cfg.quarters=4+variant%2;
+        cfg.rotation=variant*90;cfg.crop=variant;cfg.selected=variant==2?2:0;
+        const std::string suffix=variant==0?blue_image:blue_rectangle;
+        const std::string expected=paint("1 0 0 rg",rectangle_a)+
+            (variant==0?full_blue:paint("0 0 1 rg","2 2 10 8 re"));
+        CHECK(compare(one_prefix(rectangle_a,variant==1)+red_image+"Q "+suffix,
+                      expected,cfg,true)==EXIT_SUCCESS);
+    }
+    return EXIT_SUCCESS;
+}
+
 int main()
 {
     CHECK(path_prefix_geometries()==EXIT_SUCCESS);
     CHECK(homogeneous_prefix_and_suffix()==EXIT_SUCCESS);
     CHECK(images_and_mixed_prefixes()==EXIT_SUCCESS);
+    CHECK(restored_image_scopes()==EXIT_SUCCESS);
     CHECK(two_state_prefixes()==EXIT_SUCCESS);
     CHECK(projection_ctms_and_streams()==EXIT_SUCCESS);
     CHECK(formerly_refused_originals()==EXIT_SUCCESS);

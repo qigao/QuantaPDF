@@ -2,7 +2,8 @@
  * The EXACT production Source unit uses its existing isolated allocation
  * hooks. QPDF authors the original; the canonical private device bridge
  * and C11 raster consume the detached immutable PATH/Clip IR. */
-#include "backend/qpdf_native_image_ir.h"
+#include "backend/qpdf_page_ir.h"
+#include "native_source_test_page.h"
 #include "render/native_device_ir_v1.h"
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFObjectHandle.hh>
@@ -44,8 +45,8 @@ using Obj=QPDFObjectHandle;
 
 /* Image budgets deliberately allow only one pixel: a PATH-only source
  * must not manufacture an Image owner or charge nonexistent image work. */
-static const quantapdf_qpdf_source_raw_image_limits source_budget={
-    2u*1024u*1024u,65536u,4u,4u,1000000u,1u,1u,8u
+static const quantapdf_qpdf_page_limits source_budget={
+    65536u,4u,4u,1000000u,1u,1u,8u
 };
 static const quantapdf_ir_raster_scoped_mixed_v5_limits raster_budget={
     1024u,4u,512u,8000000u,1u,1u
@@ -133,10 +134,10 @@ static std::string original_pdf(const std::string& content,bool physical,
 }
 
 static quantapdf_status source(const std::string& pdf,
-    const quantapdf_qpdf_source_raw_image_limits& budget,quantapdf_ir& ir,
+    const quantapdf_qpdf_page_limits& budget,quantapdf_ir& ir,
     size_t selected_index=2u)
 {
-    return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+    return native_test_page_ir(
         reinterpret_cast<const unsigned char*>(pdf.data()),pdf.size(),
         &budget,selected_index,&ir);
 }
@@ -425,7 +426,7 @@ static bool allocation_matrix(size_t count,bool two)
 }
 
 static bool atomic_rejection(const std::string& pdf,
-    const quantapdf_qpdf_source_raw_image_limits& budget)
+    const quantapdf_qpdf_page_limits& budget)
 {
     quantapdf_ir ir;
     std::memset(&ir,0xA5,sizeof(ir));
@@ -442,8 +443,6 @@ static bool source_failures(bool two)
     const std::string content=page_content(4u,two,true);
     const std::string pdf=original_pdf(content,true);
     auto budget=source_budget;
-    budget.max_pdf_bytes=pdf.size()-1u;
-    CHECK(atomic_rejection(pdf,budget));
     budget=source_budget;budget.max_content_bytes=16u;
     CHECK(atomic_rejection(pdf,budget));
     budget=source_budget;budget.max_content_streams=1u;
@@ -473,33 +472,14 @@ static bool source_failures(bool two)
     return true;
 }
 
-static bool older_source_refusal()
+static bool source_controls()
 {
-    using source_function=quantapdf_status (*)(const unsigned char*,size_t,
-        const quantapdf_qpdf_source_raw_image_limits*,quantapdf_ir*);
-    const source_function older[]={
-        quantapdf_qpdf_source_scoped_mixed_v8_to_ir,
-        quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir
-    };
-    /* Plain geometry, page zero and an all-LINE rectangular Clip ensure
-     * older signatures refuse the new PATH-only cardinality, rather than
-     * cubic Clip, Rotate/UserUnit or different-page restrictions. */
+    /* Current Page API: ordinary clipped PATHs and real Q restoration. */
     for(size_t count=1u;count<=2u;++count) {
         const bool restored=count==2u;
         std::string content="q 2 2 8 7 re W n 0 0 1 rg 4 2 6 6 re f Q ";
         if(restored)content+="0 1 0 rg 12 9 3 2 re f* ";
         const std::string pdf=original_pdf(content,false,0u);
-        for(source_function old_source:older) {
-            quantapdf_ir ir;
-            std::memset(&ir,0xA5,sizeof(ir));
-            begin_allocation_count(0u);
-            const auto status=old_source(
-                reinterpret_cast<const unsigned char*>(pdf.data()),pdf.size(),
-                &source_budget,&ir);
-            track_c_allocation=false;
-            CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED && cleared(ir) &&
-                  c_allocations==0u && c_faults==0u);
-        }
         quantapdf_ir admitted{};
         CHECK(source(pdf,source_budget,admitted,0u)==QUANTAPDF_OK &&
               owned_graph(admitted,count,false,restored,false,true));
@@ -521,7 +501,7 @@ static bool run_tests()
         }
         CHECK(source_failures(two));
     }
-    CHECK(older_source_refusal());
+    CHECK(source_controls());
     return true;
 }
 

@@ -2,7 +2,8 @@
  * deliberately malformed /Kids, /Count, /Parent or page identities.
  * Source V10 MUST inspect beyond an already selected valid first page.
  * Both the exact production Source and the public facade are exercised. */
-#include "backend/qpdf_native_image_ir.h"
+#include "backend/qpdf_page_ir.h"
+#include "native_source_test_page.h"
 #include <quantapdf/quantapdf.h>
 
 #include <array>
@@ -17,8 +18,8 @@
 #define CHECK(e) do { if(!(e)) { \
     std::fprintf(stderr,"native Source PageTree:%d: %s\n",__LINE__,#e); \
     return EXIT_FAILURE; } } while(0)
-static constexpr quantapdf_qpdf_source_raw_image_limits limits={
-    2u*1024u*1024u,65536u,4u,4u,1000000u,1000000u,4000000u,8u
+static constexpr quantapdf_qpdf_page_limits limits={
+    65536u,4u,4u,1000000u,1000000u,4000000u,8u
 };
 static const char *const filename="native-source-pagetree-contract.pdf";
 static constexpr size_t object_count=9u;
@@ -170,7 +171,7 @@ static quantapdf_status parse(const std::string& bytes,size_t selected,
                                size_t parent_limit,quantapdf_ir *out)
 {
     auto bounded=limits;bounded.max_parent_steps=parent_limit;
-    return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+    return native_test_page_ir(
         reinterpret_cast<const unsigned char *>(bytes.data()),bytes.size(),
         &bounded,selected,out);
 }

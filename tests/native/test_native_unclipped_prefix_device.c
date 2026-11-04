@@ -443,7 +443,7 @@ static int compound_and_curved_goldens(void)
     return EXIT_SUCCESS;
 }
 
-static int legacy_mixed_isolation(void)
+static int current_mixed_scopes(void)
 {
     for(unsigned graph=0u;graph<2u;++graph)
     for(unsigned reentry=0u;reentry<2u;++reentry) {
@@ -469,10 +469,14 @@ static int legacy_mixed_isolation(void)
         quantapdf_ir_raster_image_dispose(&direct);
         source(&f,0,graph,"II","01");
         memset(&native,0xa5,sizeof(native));
-        CHECK((graph==0u?quantapdf_native_device_ir_render_v1(
+        OK(graph==0u?quantapdf_native_device_ir_render_v1(
             &f.ir,72u,&budget,&native):quantapdf_native_device_ir_render_v1_two_clip(
-            &f.ir,72u,&budget,&native))==QUANTAPDF_ERROR_UNSUPPORTED);
-        CHECK(cleared(&native));
+            &f.ir,72u,&budget,&native));
+        OK(quantapdf_native_device_ir_render_v1_unclipped_prefix(
+            &f.ir,72u,&budget,&fresh));
+        CHECK(equal(&native,&fresh));
+        quantapdf_ir_raster_image_dispose(&native);
+        quantapdf_ir_raster_image_dispose(&fresh);
     }
     return EXIT_SUCCESS;
 }
@@ -651,7 +655,7 @@ int main(void)
     CHECK(rectangular_projection_and_ownership()==EXIT_SUCCESS);
     CHECK(all_state_orders()==EXIT_SUCCESS);
     CHECK(compound_and_curved_goldens()==EXIT_SUCCESS);
-    CHECK(legacy_mixed_isolation()==EXIT_SUCCESS);
+    CHECK(current_mixed_scopes()==EXIT_SUCCESS);
     CHECK(malformed_graphs_and_paints()==EXIT_SUCCESS);
     CHECK(exact_budgets_and_shared_images()==EXIT_SUCCESS);
     fprintf(stderr,"[native.unclipped_prefix_device] completed\n");

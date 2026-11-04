@@ -3,7 +3,8 @@
  * consume its detached owners through the canonical private C11 device.
  * Expected contour coordinates and interior colors are authored here,
  * independently of Source projection and the production mask builder. */
-#include "backend/qpdf_native_image_ir.h"
+#include "backend/qpdf_page_ir.h"
+#include "native_source_test_page.h"
 #include "render/native_device_ir_v1.h"
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFObjectHandle.hh>
@@ -98,8 +99,8 @@ static const clip_pair pairs[]={
     {shape::rectangle_triangle9,shape::degenerate8}
 };
 
-static const quantapdf_qpdf_source_raw_image_limits source_budget={
-    2u*1024u*1024u,65536u,4u,4u,1000000u,2u,4000000u,8u
+static const quantapdf_qpdf_page_limits source_budget={
+    65536u,4u,4u,1000000u,2u,4000000u,8u
 };
 static const quantapdf_ir_raster_scoped_mixed_v5_limits raster_budget={
     1024u,4u,512u,8000000u,2u,4096u
@@ -240,10 +241,10 @@ static std::string original_pdf(const std::string& content,const scenario& sc,
 }
 
 static quantapdf_status source(const std::string& pdf,
-    const quantapdf_qpdf_source_raw_image_limits& budget,quantapdf_ir& ir,
+    const quantapdf_qpdf_page_limits& budget,quantapdf_ir& ir,
     size_t selected_index=2u)
 {
-    return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+    return native_test_page_ir(
         reinterpret_cast<const unsigned char*>(pdf.data()),pdf.size(),
         &budget,selected_index,&ir);
 }
@@ -662,7 +663,7 @@ static bool allocation_matrix(const scenario& sc,const clip_pair& pair)
 }
 
 static bool atomic_rejection(const std::string& pdf,
-    const quantapdf_qpdf_source_raw_image_limits& budget)
+    const quantapdf_qpdf_page_limits& budget)
 {
     quantapdf_ir ir;
     std::memset(&ir,0xA5,sizeof(ir));
@@ -679,8 +680,6 @@ static bool source_failures(const scenario& sc)
     const std::string content=page_content(sc,pair,3u,true);
     const std::string pdf=original_pdf(content,sc,true);
     auto budget=source_budget;
-    budget.max_pdf_bytes=pdf.size()-1u;
-    CHECK(atomic_rejection(pdf,budget));
     budget=source_budget;budget.max_content_bytes=16u;
     CHECK(atomic_rejection(pdf,budget));
     budget=source_budget;budget.max_page_pixels=299u;
@@ -727,34 +726,17 @@ static bool malformed_failures()
     return true;
 }
 
-static bool older_source_isolation()
+static bool source_controls()
 {
-    using source_function=quantapdf_status (*)(const unsigned char*,size_t,
-        const quantapdf_qpdf_source_raw_image_limits*,quantapdf_ir*);
-    const source_function older[]={quantapdf_qpdf_source_scoped_mixed_v8_to_ir,
-        quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir};
     const auto& sc=cases[2];
     const auto& pair=pairs[1];
-    /* Ordinary page zero; one Image, two PATHs, one real restored GS0
-     * suffix. The control has only the same outer re. Adding its second
-     * all-LINE contour is the sole newly qualified feature. */
+    /* Current Page API: preserve the single-scope control and extended graph. */
     const std::string control=original_pdf(page_content(sc,pair,1u,false,true),sc,false,0u);
     const std::string compound=original_pdf(page_content(sc,pair,1u,false),sc,false,0u);
-    for(source_function old_source:older) {
-        quantapdf_ir admitted{};
-        CHECK(old_source(reinterpret_cast<const unsigned char*>(control.data()),control.size(),
-            &source_budget,&admitted)==QUANTAPDF_OK && owned_graph(admitted,sc,pair,false,1u,true));
-        quantapdf_ir_dispose(&admitted);
-        CHECK(cleared(admitted));
-        quantapdf_ir refused;
-        std::memset(&refused,0xA5,sizeof(refused));
-        begin_allocation_count(0u);
-        const auto status=old_source(reinterpret_cast<const unsigned char*>(compound.data()),
-            compound.size(),&source_budget,&refused);
-        track_c_allocation=false;
-        CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED && cleared(refused) &&
-              c_allocations==0u && c_faults==0u);
-    }
+    quantapdf_ir admitted{};
+    CHECK(source(control,source_budget,admitted,0u)==QUANTAPDF_OK && owned_graph(admitted,sc,pair,false,1u,true));
+    quantapdf_ir_dispose(&admitted);
+    CHECK(cleared(admitted));
     quantapdf_ir accepted{};
     CHECK(source(compound,source_budget,accepted,0u)==QUANTAPDF_OK &&
           owned_graph(accepted,sc,pair,false,1u));
@@ -789,7 +771,7 @@ static bool run_tests()
         fault_count+=cases[i].allocations;
     }
     for(size_t i:{2u,5u,8u})CHECK(source_failures(cases[i]));
-    CHECK(malformed_failures() && older_source_isolation());
+    CHECK(malformed_failures() && source_controls());
     CHECK(positive_count==152u && fault_count==88u);
     std::fprintf(stderr,"[native.compound_clip_source_oom] %zu detached originals, %zu renders, "
         "%zu C allocation faults, 30 Source refusals, V8/V9 controls completed\n",

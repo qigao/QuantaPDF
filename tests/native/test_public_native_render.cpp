@@ -4584,7 +4584,7 @@ int main(int argc,char **argv)
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(image_doc,0,&image_page));
         const auto result=quantapdf_render_page(image_page,&rendered);
-        const bool clipped=mode==5 || mode==9 || mode==11;
+        const bool clipped=mode==5 || mode==9 || mode==11 || mode==13;
         const bool image_only_four=mode==6 || mode==17 ||
                                    mode==20 || mode==21;
         if(mode>=4 && !clipped && !image_only_four) {
@@ -4645,7 +4645,7 @@ int main(int argc,char **argv)
                     gray?0u:255u,gray?0u:255u,0u));
             }
             CHECK(probe_rgb(pixels,s,2,2,255u,255u,255u));
-            if(mode==1 || image_only_four) {
+            if(mode==1 || mode==13 || image_only_four) {
                 CHECK(probe_rgb(pixels,s,26,19,
                     255u,gray?255u:0u,gray?255u:0u));
                 CHECK(probe_rgb(pixels,s,30,19,

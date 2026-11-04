@@ -19,7 +19,9 @@ static int content_stream_cases(const std::string& filename)
     size_t renders=0u;
     for(unsigned encoding=0u;encoding<8u;++encoding)
     for(bool encrypted:{false,true})for(size_t count:{1u,3u,17u}) {
-        const auto sample=native_content_fixture::create(encoding,count,encrypted);
+        const size_t payload=encoding==0u && count==1u?3u*1024u*1024u:0u;
+        const auto sample=native_content_fixture::create(encoding,count,encrypted,0,payload);
+        CHECK(payload==0u || sample.bytes.size()>payload);
         CHECK(count!=17u || sample.decoded_bytes>65536u);
         CHECK(write_pdf(filename,sample.bytes));
         quantapdf_context *context=nullptr;quantapdf_document *document=nullptr;

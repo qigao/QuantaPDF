@@ -3,7 +3,8 @@
  * C-allocation fault hooks. QPDF authors the input, and the existing
  * private device bridge/C11 raster consumes the detached immutable IR.
  * No alternate Source, image provider, renderer or public ABI is used. */
-#include "backend/qpdf_native_image_ir.h"
+#include "backend/qpdf_page_ir.h"
+#include "native_source_test_page.h"
 #include "render/native_device_ir_v1.h"
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFObjectHandle.hh>
@@ -43,8 +44,8 @@ extern "C" bool quantapdf_source_ir_oom_fail_c_allocation() noexcept
 
 using Obj=QPDFObjectHandle;
 
-static const quantapdf_qpdf_source_raw_image_limits source_budget={
-    2u*1024u*1024u,65536u,4u,4u,1000000u,1000000u,4000000u,8u
+static const quantapdf_qpdf_page_limits source_budget={
+    65536u,4u,4u,1000000u,1000000u,4000000u,8u
 };
 static const quantapdf_ir_raster_scoped_mixed_v5_limits raster_budget={
     8192u,4u,512u,16000000u,4u,8192u
@@ -109,9 +110,9 @@ static std::string original_pdf(bool mixed,bool physical,
 }
 
 static quantapdf_status source(const std::string& pdf,
-    const quantapdf_qpdf_source_raw_image_limits& budget,quantapdf_ir& ir)
+    const quantapdf_qpdf_page_limits& budget,quantapdf_ir& ir)
 {
-    return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+    return native_test_page_ir(
         reinterpret_cast<const unsigned char*>(pdf.data()),pdf.size(),
         &budget,2u,&ir);
 }
@@ -378,7 +379,7 @@ static bool allocation_matrix(bool mixed)
 }
 
 static bool atomic_rejection(const std::string& pdf,
-    const quantapdf_qpdf_source_raw_image_limits& budget)
+    const quantapdf_qpdf_page_limits& budget)
 {
     quantapdf_ir ir;
     std::memset(&ir,0xA5,sizeof(ir));
@@ -394,8 +395,6 @@ static bool source_failures(bool mixed)
 {
     const std::string pdf=original_pdf(mixed,true);
     auto budget=source_budget;
-    budget.max_pdf_bytes=pdf.size()-1u;
-    CHECK(atomic_rejection(pdf,budget));
     budget=source_budget;budget.max_content_bytes=16u;
     CHECK(atomic_rejection(pdf,budget));
     budget=source_budget;budget.max_source_pixels=3u;

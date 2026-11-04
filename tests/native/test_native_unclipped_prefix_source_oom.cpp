@@ -3,7 +3,8 @@
  * hooks. Prefix GS0, first-leaf GS1, intersection GS2 and restored GS0
  * retain independent owners and authored order through detached native
  * consumption. Explicit geometry/color tables are independent oracles. */
-#include "backend/qpdf_native_image_ir.h"
+#include "backend/qpdf_page_ir.h"
+#include "native_source_test_page.h"
 #include "render/native_device_ir_v1.h"
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFObjectHandle.hh>
@@ -150,8 +151,8 @@ static const clip_pair pairs[]={
     {shape::rectangle_triangle9,shape::degenerate8}
 };
 
-static const quantapdf_qpdf_source_raw_image_limits source_budget={
-    2u*1024u*1024u,65536u,4u,4u,1000000u,8u,4000000u,8u
+static const quantapdf_qpdf_page_limits source_budget={
+    65536u,4u,4u,1000000u,8u,4000000u,8u
 };
 static const quantapdf_ir_raster_scoped_mixed_v5_limits raster_budget={
     1024u,4u,512u,8000000u,2u,4096u
@@ -294,10 +295,10 @@ static std::string original_pdf(const std::string& content,const scenario& sc,
 }
 
 static quantapdf_status source(const std::string& pdf,
-    const quantapdf_qpdf_source_raw_image_limits& budget,quantapdf_ir& ir,
+    const quantapdf_qpdf_page_limits& budget,quantapdf_ir& ir,
     size_t selected_index=2u)
 {
-    return quantapdf_qpdf_source_scoped_mixed_v10_selected_to_ir(
+    return native_test_page_ir(
         reinterpret_cast<const unsigned char*>(pdf.data()),pdf.size(),
         &budget,selected_index,&ir);
 }
@@ -743,7 +744,7 @@ static bool staging_failures()
     return true;
 }
 static bool atomic_rejection(const std::string& pdf,
-    const quantapdf_qpdf_source_raw_image_limits& budget)
+    const quantapdf_qpdf_page_limits& budget)
 {
     quantapdf_ir ir;
     std::memset(&ir,0xA5,sizeof(ir));
@@ -761,8 +762,6 @@ static bool source_failures(const scenario& sc)
     const std::string content=page_content(sc,pair,3u,true);
     const std::string pdf=original_pdf(content,sc,true);
     auto budget=source_budget;
-    budget.max_pdf_bytes=pdf.size()-1u;
-    CHECK(atomic_rejection(pdf,budget));
     budget=source_budget;budget.max_content_bytes=16u;
     CHECK(atomic_rejection(pdf,budget));
     budget=source_budget;budget.max_page_pixels=299u;
@@ -815,68 +814,70 @@ static bool bounded_prefix_refusals()
     return true;
 }
 
-static bool older_source_isolation()
+static bool source_controls()
 {
-    using source_function=quantapdf_status (*)(const unsigned char*,size_t,
-        const quantapdf_qpdf_source_raw_image_limits*,quantapdf_ir*);
-    const source_function older[]={
-        quantapdf_qpdf_source_clipped_raw_image_to_ir_v1,
-        quantapdf_qpdf_source_two_clipped_raw_images_to_ir_v2,
-        quantapdf_qpdf_source_restored_clipped_raw_images_to_ir_v3,
-        quantapdf_qpdf_source_clipped_image_then_path_to_ir_v4,
-        quantapdf_qpdf_source_scoped_mixed_v5_to_ir,
-        quantapdf_qpdf_source_scoped_mixed_v6_to_ir,
-        quantapdf_qpdf_source_scoped_mixed_v7_to_ir,
-        quantapdf_qpdf_source_scoped_mixed_v8_to_ir,
-        quantapdf_qpdf_source_scoped_mixed_v9_image_decode_to_ir
-    };
     const scenario controls[]={
-        {"v1",graph::single,profile::image,{{paint::red_image,1u}},0u},
-        {"v2",graph::single,profile::image,
+        {"single_image",graph::single,profile::image,{{paint::red_image,1u}},0u},
+        {"two_images",graph::single,profile::image,
             {{paint::red_image,1u},{paint::cyan_image,1u}},0u},
-        {"v3",graph::single,profile::image,
+        {"restored_images",graph::single,profile::image,
             {{paint::red_image,1u},{paint::cyan_image,0u}},0u},
-        {"v4",graph::single,profile::mixed,
+        {"image_path",graph::single,profile::mixed,
             {{paint::red_image,1u},{paint::blue_path,0u}},0u},
-        {"v5_to_v9",graph::single,profile::mixed,
+        {"ordered_mixed",graph::single,profile::mixed,
             {{paint::red_image,1u},{paint::blue_path,1u},
              {paint::cyan_image,0u},{paint::green_path,0u}},0u}
     };
-    const scenario mixed_prefix={"legacy_prefix",graph::single,profile::mixed,
+    const scenario mixed_prefix={"unclipped_prefix",graph::single,profile::mixed,
         {{paint::red_image,0u},{paint::blue_path,1u},
          {paint::cyan_image,0u},{paint::green_path,0u}},11u};
     const auto& pair=pairs[1];
-    for(size_t version=0u;version<9u;++version) {
-        const auto& control=controls[version<4u?version:4u];
-        const auto& prefixed=version<3u?cases[5]:version==3u?cases[7]:mixed_prefix;
-        /* Every old signature first passes its own legal profile on an
-         * ordinary page zero with a single all-LINE rectangle Clip.
-         * V2..V9 retain the same paint cardinalities for the prefixed
-         * original; V1's one-Image contract necessarily cannot fit the
-         * minimum two-paint Image-only prefix. */
-        const std::string old_pdf=original_pdf(
-            page_content(control,pair,1u,false,true),control,false,0u);
-        const std::string pdf=original_pdf(
-            page_content(prefixed,pair,1u,false,true),prefixed,false,0u);
-        quantapdf_ir admitted{};
-        CHECK(older[version](reinterpret_cast<const unsigned char*>(old_pdf.data()),
-            old_pdf.size(),&source_budget,&admitted)==QUANTAPDF_OK &&
-            owned_graph(admitted,control,pair,false,1u,true));
-        quantapdf_ir_dispose(&admitted);
-        CHECK(cleared(admitted));
-        quantapdf_ir refused;
-        std::memset(&refused,0xA5,sizeof(refused));
+    for(const auto& control:controls) {
+        const std::string pdf=original_pdf(page_content(control,pair,1u,false,true),control,false,0u);
+        quantapdf_ir ir{};
         begin_allocation_count(0u);
-        const auto status=older[version](reinterpret_cast<const unsigned char*>(pdf.data()),
-            pdf.size(),&source_budget,&refused);
-        track_c_allocation=false;
-        CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED && cleared(refused) &&
-              c_allocations==0u && c_faults==0u);
-        quantapdf_ir accepted{};
-        CHECK(source(pdf,source_budget,accepted,0u)==QUANTAPDF_OK &&
-              owned_graph(accepted,prefixed,pair,false,1u,true));
-        quantapdf_ir_dispose(&accepted);
-        CHECK(cleared(accepted));
+        const auto status=source(pdf,source_budget,ir,0u);
+        track_c_allocation=false;const size_t allocations=c_allocations;
+        if(status!=QUANTAPDF_OK)std::fprintf(stderr,"Source control %s status=%d\n",control.name,int(status));
+        CHECK(status==QUANTAPDF_OK &&
+              owned_graph(ir,control,pair,false,1u,true));
+        if(std::strcmp(control.name,"restored_images")==0) {
+            const auto before=snapshot(ir);
+            quantapdf_ir_raster_image image{};
+            CHECK(quantapdf_ir_raster_scoped_mixed_v5(&ir,0u,&raster_budget,&image)==QUANTAPDF_OK);
+            CHECK(image.pixels!=nullptr && image.width==16u && image.height==12u &&
+                  snapshot(ir)==before);
+            quantapdf_ir malformed=ir;
+            quantapdf_composer_operation operations[2]={ir.operations[0],ir.operations[1]};
+            malformed.operations=operations;
+            for(unsigned invalid:{0u,1u}) {
+                operations[1]=ir.operations[1];
+                if(invalid==0u)operations[1].graphics_state_id=2u;
+                else operations[1].value.image.options.graphics_state_id=1u;
+                quantapdf_ir_raster_image rejected;
+                std::memset(&rejected,0xa5,sizeof(rejected));
+                CHECK(quantapdf_ir_raster_scoped_mixed_v5(&malformed,0u,&raster_budget,&rejected)
+                      ==QUANTAPDF_ERROR_UNSUPPORTED && cleared(rejected));
+            }
+            const std::vector<unsigned char> retained(image.pixels,image.pixels+image.size);
+            quantapdf_ir_dispose(&ir);CHECK(cleared(ir));
+            CHECK(std::memcmp(image.pixels,retained.data(),retained.size())==0);
+            quantapdf_ir_raster_image_dispose(&image);CHECK(cleared(image));
+        }
+        quantapdf_ir_dispose(&ir);CHECK(cleared(ir));
+        for(size_t fail=1u;fail<=allocations;++fail) {
+            std::memset(&ir,0xa5,sizeof(ir));begin_allocation_count(fail);
+            const auto denied=source(pdf,source_budget,ir,0u);
+            track_c_allocation=false;
+            CHECK(denied==QUANTAPDF_ERROR_NOMEM && cleared(ir) && c_faults==1u);
+        }
+    }
+    const scenario extended[]={cases[5],cases[7],mixed_prefix};
+    for(const auto& sc:extended) {
+        const std::string pdf=original_pdf(page_content(sc,pair,1u,false),sc,false,0u);
+        quantapdf_ir ir{};
+        CHECK(source(pdf,source_budget,ir,0u)==QUANTAPDF_OK && owned_graph(ir,sc,pair,false,1u));
+        quantapdf_ir_dispose(&ir);CHECK(cleared(ir));
     }
     return true;
 }
@@ -904,10 +905,10 @@ static bool run_tests()
     }
     CHECK(staging_failures());
     for(size_t i:{9u,10u,17u})CHECK(source_failures(cases[i]));
-    CHECK(bounded_prefix_refusals() && older_source_isolation());
-    CHECK(positive_count==160u && fault_count==210u && atomic_failures==37u);
+    CHECK(bounded_prefix_refusals() && source_controls());
+    CHECK(positive_count==160u && fault_count==210u && atomic_failures==34u);
     std::fprintf(stderr,"[native.unclipped_prefix_source_oom] %zu detached originals, %zu renders, "
-        "%zu C faults, 7 C++ staging faults, %zu Source refusals, 9 legacy controls completed\n",
+        "%zu C faults, 7 C++ staging faults, %zu Source refusals, current Source controls completed\n",
         positive_count,2u*positive_count,fault_count,atomic_failures);
     return true;
 }
