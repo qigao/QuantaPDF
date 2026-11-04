@@ -71,6 +71,10 @@ add_test(NAME quantapdf.native_composer_geometry
   COMMAND quantapdf_native_public_render --composer-geometry)
 set_tests_properties(quantapdf.native_composer_geometry PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;public-api;composer;current-api")
+add_test(NAME quantapdf.native_path_commands
+  COMMAND quantapdf_native_public_render --path-commands)
+set_tests_properties(quantapdf.native_path_commands PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;public-api;path-commands")
 add_test(NAME quantapdf.native_scene_parity
   COMMAND quantapdf_native_public_render --scene-parity)
 set_tests_properties(quantapdf.native_scene_parity PROPERTIES
@@ -233,6 +237,10 @@ add_test(NAME quantapdf.native_source_stage_oom
 set_tests_properties(quantapdf.native_source_stage_oom PROPERTIES
   TIMEOUT 40 LABELS "conformance;native;no-pdfium;source-staging;oom")
 
+add_test(NAME quantapdf.native_path_commands_oom
+  COMMAND quantapdf_native_source_stage_oom --path-commands)
+set_tests_properties(quantapdf.native_path_commands_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;source-staging;path-commands;oom")
 add_test(NAME quantapdf.native_ordered_clip_oom
   COMMAND quantapdf_native_source_stage_oom --ordered-clip)
 set_tests_properties(quantapdf.native_ordered_clip_oom PROPERTIES

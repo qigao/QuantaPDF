@@ -40,6 +40,7 @@
 namespace {
 thread_local unsigned target=0u, observed=0u, faults=0u;
 thread_local size_t graphics_growths=0u,graphics_fail_growth=0u;
+thread_local size_t path_growths=0u,path_fail_growth=0u;
 thread_local bool armed=false;
 /* The same test-only Source unit redirects every actual C allocation in
  * its IR materializers through this one-shot returning-NULL allocator.
@@ -53,6 +54,12 @@ extern "C" void quantapdf_source_stage_oom_arm(unsigned phase) noexcept
         ++graphics_growths;
         if(graphics_fail_growth!=0u && graphics_growths==graphics_fail_growth) {
             graphics_fail_growth=0u;observed=phase;armed=true;
+        }
+    }
+    if(phase==12u) {
+        ++path_growths;
+        if(path_fail_growth!=0u && path_growths==path_fail_growth) {
+            path_fail_growth=0u;observed=phase;armed=true;
         }
     }
     if(phase==target) { target=0u; observed=phase; armed=true; }
@@ -5450,11 +5457,15 @@ static int ordered_clip_source_contracts(const quantapdf_qpdf_page_limits& defau
     return EXIT_SUCCESS;
 }
 
+#include "native_path_commands_oom_cases.h"
+
 int main(int argc,char **argv)
 {
     const quantapdf_qpdf_page_limits limits={
         65536u,4u,4u,1000000u,1000000u,4000000u,8u
     };
+    if(argc==2 && std::strcmp(argv[1],"--path-commands")==0)
+        return path_commands_source_contracts(limits);
     if(argc==2 && std::strcmp(argv[1],"--ordered-clip")==0)
         return ordered_clip_source_contracts(limits);
     if(argc==2 && std::strcmp(argv[1],"--ordered-scene")==0)

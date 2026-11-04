@@ -665,8 +665,6 @@ static int atomic_refusals()
             "10 2 l 2 2 l h f Q",
         prefix+"1 0 0 rg 2 3 m 2 -1000001 10 11 10 3 c "
             "10 2 l 2 2 l h f Q",
-        prefix+"1 0 0 rg 2 3 m 2 11 10 11 10 3 c "
-            "10 2 l 9 2 l 8 2 l 7 2 l 6 2 l 5 2 l 2 2 l h f Q",
         ready+" Q",
         prefix+full_red,
         ready+" q",
@@ -677,6 +675,19 @@ static int atomic_refusals()
         CHECK(render(original(one_prefix(curve_a)+"Q",cfg),cfg,unused)==EXIT_SUCCESS && all_white(unused));
         CHECK(render(original(one_prefix(curve_a)+"Q "+full_red,cfg),cfg,unclipped)==EXIT_SUCCESS);
         CHECK(render(original(full_red,cfg),cfg,reference)==EXIT_SUCCESS && equal(unclipped,reference));
+    }
+    // A genuinely curved Fill with extra collinear bottom segments must
+    // preserve the short original's complete RGB through the same Clip.
+    // This is geometric equivalence, not a renderer-generated golden.
+    const std::string long_curve="2 3 m 2 11 10 11 10 3 c "
+        "10 2 l 9 2 l 8 2 l 7 2 l 6 2 l 5 2 l 2 2 l h";
+    for(int dpi:{72,96,144})for(unsigned clips:{0u,1u,2u}) {
+        configuration cfg;cfg.dpi=dpi;cfg.rotation=90;cfg.quarters=5;cfg.crop=3;cfg.selected=2;
+        const std::string scope=clips==2u?prefix:clips==1u?one_prefix(curve_b):"q ";
+        rendered compact,expanded;
+        CHECK(render(original(scope+"1 0 0 rg "+curve_a+" f Q",cfg),cfg,compact)==EXIT_SUCCESS);
+        CHECK(render(original(scope+"1 0 0 rg "+long_curve+" f Q",cfg),cfg,expanded)==EXIT_SUCCESS);
+        CHECK(equal(compact,expanded) && ink_and_white(expanded));
     }
     for(const auto& content:bad)
     for(int dpi:{72,96,144}) {
