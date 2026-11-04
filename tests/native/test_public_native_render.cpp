@@ -4124,11 +4124,14 @@ static int native_seventh_userunit_late_refusal_cases(
 #include "native_ordered_clip_cases.h"
 #include "native_composer_state_cases.h"
 #include "native_composer_geometry_cases.h"
+#include "native_composer_image_cases.h"
 #include "native_scene_parity_cases.h"
 
 int main(int argc,char **argv)
 {
     const std::string filename="native-standalone-smoke.pdf";
+    if(argc==2 && std::strcmp(argv[1],"--composer-image")==0)
+        return composer_image_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--scene-parity")==0)
         return scene_parity_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--composer-geometry")==0)

@@ -319,7 +319,6 @@ static int test_render_transform_scope_and_consumers(void)
     raster.size = sizeof(green_pixel);
     CHECK(quantapdf_composer_add_raster(
               composer, &raster, &image_id) == QUANTAPDF_OK);
-    image.struct_size = QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
     image.fit = QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     image.graphics_state_id = clipped_half_id;
     {

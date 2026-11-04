@@ -159,7 +159,6 @@ static void setup(fixture *f,const geometry *g,int fractional,const profile *p)
             op->kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;
             op->bounds=bounds[i];op->value.image.image_id=
                 (quantapdf_composer_image_id)(images+1u);
-            op->value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
             op->value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
             state(op,id);++images;
         }
@@ -610,7 +609,7 @@ static int malformed(void)
         case 9u:f.ops[1].value.image.image_id=1u;break;
         case 10u:f.ops[1].value.image.image_id=3u;break;
         case 11u:f.ops[1].value.image.options.graphics_state_id=1u;break;
-        case 12u:f.ops[1].value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_MIN_SIZE;break;
+        case 12u:f.ops[1].value.image.options.fit=(quantapdf_composer_image_fit)-1;break;
         case 13u:f.ops[1].bounds.x1=NAN;break;
         case 14u:f.ops[1].bounds.x1=0.0f;break;
         default:CHECK(0);break;
@@ -622,7 +621,7 @@ static int malformed(void)
         CHECK(memcmp(&saved,&f,sizeof(saved))==0);
     }
     source(&f,0,&profiles[9]);
-    f.ops[3].value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_MIN_SIZE;
+    f.ops[3].value.image.options.fit=(quantapdf_composer_image_fit)-1;
     CHECK(refusal(&f.ir,144u,&budget,1)==EXIT_SUCCESS);
     source(&f,0,&profiles[9]);
     f.ops[3].value.image.options.graphics_state_id=1u;

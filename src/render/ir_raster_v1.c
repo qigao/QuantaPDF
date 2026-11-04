@@ -801,7 +801,7 @@ static quantapdf_status qp_admit_scene_image(
     const quantapdf_composer_image_options *opt=&op->value.image.options;
     double x0=op->bounds.x0,y0=op->bounds.y0,x1=op->bounds.x1,y1=op->bounds.y1;
     size_t cols,rows,area;
-    if(op->graphics_state_id!=0u || opt->struct_size!=sizeof(*opt) ||
+    if(op->graphics_state_id!=0u ||
        opt->fit!=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH || opt->graphics_state_id!=0u ||
        id==0u || id>ir->resources.image_count)return QUANTAPDF_ERROR_UNSUPPORTED;
     if(plan!=NULL) {

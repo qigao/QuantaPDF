@@ -78,8 +78,6 @@ static void setup(fixture *f)
     f->ops[0].kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;
     f->ops[0].graphics_state_id=1u;
     f->ops[0].value.image.image_id=1u;
-    f->ops[0].value.image.options.struct_size=
-        QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
     f->ops[0].value.image.options.graphics_state_id=1u;
     f->ops[0].value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     f->ops[0].bounds=(quantapdf_rect){0,0,8,8};
@@ -99,8 +97,6 @@ static void setup(fixture *f)
      * inherit either the previous Image or PATH Clip. */
     f->ops[2].kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;
     f->ops[2].value.image.image_id=2u;
-    f->ops[2].value.image.options.struct_size=
-        QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
     f->ops[2].value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     f->ops[2].bounds=(quantapdf_rect){4,0,8,8};
 

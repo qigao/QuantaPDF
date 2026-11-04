@@ -166,7 +166,6 @@ static quantapdf_status simple_form_builder(
     if (status != QUANTAPDF_OK)
         return status;
 
-    image.struct_size = QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE;
     image.fit = QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     return quantapdf_composer_draw_image(
         composer, page_index, image_id, &image_bounds, &image);

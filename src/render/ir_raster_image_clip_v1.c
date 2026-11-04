@@ -188,8 +188,6 @@ static quantapdf_status qp_clipped_raw_image(
        image_op->kind!=QUANTAPDF_COMPOSER_OPERATION_IMAGE ||
        image_op->graphics_state_id!=1u ||
        image_op->value.image.image_id!=1u ||
-       image_op->value.image.options.struct_size<
-           QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_MIN_SIZE ||
        image_op->value.image.options.graphics_state_id!=1u ||
        image_op->value.image.options.fit!=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH ||
        gs->fill_alpha!=1.0f || gs->stroke_alpha!=1.0f ||

@@ -916,14 +916,8 @@ static quantapdf_status v5_prepare_impl(
             const quantapdf_composer_image_options *opt=&op->value.image.options;
             size_t x0,x1,y0,y1,id,area;
             int has_fraction=0;
-            if(opt->struct_size<QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_MIN_SIZE ||
-               opt->fit!=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH ||
-               ((two_states || unclipped_prefix_optin) &&
-                opt->struct_size<QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_MIN_SIZE) ||
-               (state!=0u &&
-                opt->struct_size<QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_MIN_SIZE) ||
-               (opt->struct_size>=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_MIN_SIZE &&
-                (size_t)opt->graphics_state_id!=state))
+            if(opt->fit!=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH ||
+               (size_t)opt->graphics_state_id!=state)
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             id=(size_t)op->value.image.image_id;
             if(id==0u || id>ir->resources.image_count ||
@@ -986,8 +980,6 @@ static quantapdf_status v5_prepare_impl(
                 const quantapdf_composer_operation *paint=&ir->operations[k];
                 if(paint->kind!=QUANTAPDF_COMPOSER_OPERATION_IMAGE ||
                    paint->graphics_state_id>1u ||
-                   paint->value.image.options.struct_size<
-                       QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE ||
                    paint->value.image.options.graphics_state_id!=
                        paint->graphics_state_id) {
                     bounded_clipped=0;

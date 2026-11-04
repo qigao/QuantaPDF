@@ -58,12 +58,10 @@ static void init(quantapdf_ir *ir,quantapdf_composer_page_state *page,
     images[1].format=QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW;
     ops[1].kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;
     ops[1].value.image.image_id=1u;
-    ops[1].value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE;
     ops[1].value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     ops[1].bounds=(quantapdf_rect){0,0,4,4};
     ops[2].kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;
     ops[2].value.image.image_id=2u;
-    ops[2].value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE;
     ops[2].value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
     ops[2].bounds=(quantapdf_rect){3,3,7,7};
 }

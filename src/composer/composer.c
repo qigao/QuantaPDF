@@ -69,16 +69,6 @@ quantapdf_text_graphics_state_id(
     return 0u;
 }
 
-static quantapdf_composer_graphics_state_id
-quantapdf_image_graphics_state_id(
-    const quantapdf_composer_image_options *options)
-{
-    if (options != NULL &&
-        options->struct_size >= QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_MIN_SIZE)
-        return options->graphics_state_id;
-    return 0u;
-}
-
 static int quantapdf_paint_id_valid(
     const quantapdf_composer *composer,
     quantapdf_composer_paint_id paint_id)
@@ -185,17 +175,6 @@ static void quantapdf_copy_text_options(
     destination->wrap = source->wrap;
     destination->graphics_state_id =
         quantapdf_text_graphics_state_id(source);
-}
-
-static void quantapdf_copy_image_options(
-    quantapdf_composer_image_options *destination,
-    const quantapdf_composer_image_options *source)
-{
-    memset(destination, 0, sizeof(*destination));
-    destination->struct_size = QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
-    destination->fit = source->fit;
-    destination->graphics_state_id =
-        quantapdf_image_graphics_state_id(source);
 }
 
 static int quantapdf_composer_path_options_valid(
@@ -1482,11 +1461,10 @@ quantapdf_status quantapdf_composer_draw_image(
     if (composer == NULL || page_index >= composer->ir.page_count ||
         image_id == 0u || (size_t)image_id > composer->ir.resources.image_count ||
         !quantapdf_composer_rect_valid(bounds) || options == NULL ||
-        options->struct_size < QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_MIN_SIZE ||
         options->fit < QUANTAPDF_COMPOSER_IMAGE_FIT_CONTAIN ||
         options->fit > QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH ||
         !quantapdf_graphics_state_id_valid_internal(
-            composer, quantapdf_image_graphics_state_id(options)))
+            composer, options->graphics_state_id))
         return QUANTAPDF_ERROR_ARGUMENT;
     status = quantapdf_composer_reserve_operation_internal(composer);
     if (status != QUANTAPDF_OK)
@@ -1495,9 +1473,9 @@ quantapdf_status quantapdf_composer_draw_image(
     operation.kind = QUANTAPDF_COMPOSER_OPERATION_IMAGE;
     operation.page_index = page_index;
     operation.bounds = *bounds;
-    operation.graphics_state_id = quantapdf_image_graphics_state_id(options);
+    operation.graphics_state_id = options->graphics_state_id;
     operation.value.image.image_id = image_id;
-    quantapdf_copy_image_options(&operation.value.image.options, options);
+    operation.value.image.options = *options;
     composer->ir.operations[composer->ir.operation_count] = operation;
     ++composer->ir.operation_count;
     return QUANTAPDF_OK;

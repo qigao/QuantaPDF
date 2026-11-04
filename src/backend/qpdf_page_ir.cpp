@@ -2460,8 +2460,6 @@ quantapdf_ir materialize_two_clip_text_scene(const admission& source)
                     sibling?source.scoped_clip_membership[i]:1u);
                 operation.graphics_state_id=id;
                 if(operation.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
-                    operation.value.image.options.struct_size=
-                        QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
                     operation.value.image.options.graphics_state_id=id;
                 } else if(operation.kind==QUANTAPDF_COMPOSER_OPERATION_PATH) {
                     operation.value.path.options.graphics_state_id=id;
@@ -2507,7 +2505,6 @@ quantapdf_ir materialize_ordered_paints(const admission& source)
                 image.format=QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW;
                 op.kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;op.bounds=staged.bounds;
                 op.value.image.image_id=static_cast<quantapdf_composer_image_id>(image_index);
-                op.value.image.options.struct_size=QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
                 op.value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
                 continue;
             }
@@ -2606,8 +2603,6 @@ quantapdf_ir materialize(
             operation.page_index=0u;
             operation.bounds=staged.bounds;
             operation.value.image.image_id=static_cast<quantapdf_composer_image_id>(i+1u);
-            operation.value.image.options.struct_size=
-                QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_SIZE;
             operation.value.image.options.fit=
                 QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
         }
@@ -2964,8 +2959,6 @@ quantapdf_ir materialize_clipped_image(const admission& source,
         for(size_t i=0u;i<expected_images;++i) {
             const quantapdf_composer_graphics_state_id state_id=1u;
             ir.operations[i].graphics_state_id=state_id;
-            ir.operations[i].value.image.options.struct_size=
-                QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
             ir.operations[i].value.image.options.graphics_state_id=state_id;
         }
         return ir;
@@ -3050,8 +3043,6 @@ quantapdf_ir materialize_clip_states(const admission& source)
                 source.scoped_clip_membership[i];
             op.graphics_state_id=id;
             if(op.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
-                op.value.image.options.struct_size=
-                    QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
                 op.value.image.options.graphics_state_id=id;
             } else {
                 op.value.path.options.graphics_state_id=id;
@@ -3135,8 +3126,6 @@ quantapdf_ir materialize_sibling_clip_scopes(const admission& source)
                 source.scoped_clip_membership[i];
             op.graphics_state_id=id;
             if(op.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
-                op.value.image.options.struct_size=
-                    QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
                 op.value.image.options.graphics_state_id=id;
             } else {
                 op.value.path.options.graphics_state_id=id;
@@ -3230,8 +3219,6 @@ quantapdf_ir materialize_unclipped_prefix(const admission& source,
                 source.scoped_clip_membership[i];
             op.graphics_state_id=id;
             if(op.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
-                op.value.image.options.struct_size=
-                    QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
                 op.value.image.options.graphics_state_id=id;
             } else {
                 op.value.path.options.graphics_state_id=id;
@@ -3306,8 +3293,6 @@ quantapdf_ir materialize_scoped_mixed(const admission& source)
                 source.scoped_clip_membership[i] ? 1u : 0u;
             op.graphics_state_id=id;
             if(op.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
-                op.value.image.options.struct_size=
-                    QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V2_SIZE;
                 op.value.image.options.graphics_state_id=id;
             } else {
                 admit(op.kind==QUANTAPDF_COMPOSER_OPERATION_PATH,

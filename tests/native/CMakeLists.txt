@@ -75,6 +75,10 @@ add_test(NAME quantapdf.native_scene_parity
   COMMAND quantapdf_native_public_render --scene-parity)
 set_tests_properties(quantapdf.native_scene_parity PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;public-api;ordered-scene")
+add_test(NAME quantapdf.native_composer_image
+  COMMAND quantapdf_native_public_render --composer-image)
+set_tests_properties(quantapdf.native_composer_image PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;public-api;composer;current-api")
 add_test(NAME quantapdf.native_ordered_clip
   COMMAND quantapdf_native_public_render --ordered-clip)
 set_tests_properties(quantapdf.native_ordered_clip PROPERTIES
