@@ -71,6 +71,18 @@ add_test(NAME quantapdf.native_composer_geometry
   COMMAND quantapdf_native_public_render --composer-geometry)
 set_tests_properties(quantapdf.native_composer_geometry PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;public-api;composer;current-api")
+add_test(NAME quantapdf.native_path_boundaries
+  COMMAND quantapdf_native_public_render --path-boundaries)
+set_tests_properties(quantapdf.native_path_boundaries PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;public-api;coordinate-boundaries")
+add_test(NAME quantapdf.native_parity_stress
+  COMMAND quantapdf_native_public_render --parity-stress)
+set_tests_properties(quantapdf.native_parity_stress PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;public-api;parity-lifetime")
+add_test(NAME quantapdf.native_multi_contour_fill
+  COMMAND quantapdf_native_public_render --multi-contour)
+set_tests_properties(quantapdf.native_multi_contour_fill PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;public-api;multi-contour")
 add_test(NAME quantapdf.native_path_commands
   COMMAND quantapdf_native_public_render --path-commands)
 set_tests_properties(quantapdf.native_path_commands PROPERTIES
@@ -237,6 +249,14 @@ add_test(NAME quantapdf.native_source_stage_oom
 set_tests_properties(quantapdf.native_source_stage_oom PROPERTIES
   TIMEOUT 40 LABELS "conformance;native;no-pdfium;source-staging;oom")
 
+add_test(NAME quantapdf.native_path_boundaries_oom
+  COMMAND quantapdf_native_source_stage_oom --path-boundaries)
+set_tests_properties(quantapdf.native_path_boundaries_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;source-staging;coordinate-boundaries;oom")
+add_test(NAME quantapdf.native_multi_contour_oom
+  COMMAND quantapdf_native_source_stage_oom --multi-contour)
+set_tests_properties(quantapdf.native_multi_contour_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;source-staging;multi-contour;oom")
 add_test(NAME quantapdf.native_path_commands_oom
   COMMAND quantapdf_native_source_stage_oom --path-commands)
 set_tests_properties(quantapdf.native_path_commands_oom PROPERTIES

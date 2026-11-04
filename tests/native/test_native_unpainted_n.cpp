@@ -126,6 +126,13 @@ static const positive_case cases[]={
     /* A standalone n and a no-paint rectangle are legitimate blanks. */
     {"","n",false,true},
     {"","4 4 8 6 re n",false,true},
+    // n retires the entire current path, including every subpath.
+    {"","4 4 8 6 re 16 4 8 6 re n",false,true},
+    {"1 0 0 rg 4 4 8 6 re f",
+     "1 1 m 6 1 l 6 6 l 1 6 l 8 1 m 12 1 l 8 6 l n "
+     "1 0 0 rg 4 4 8 6 re f",false,false},
+    {"q 16 0 0 12 8 3 cm /I Do Q",
+     "1 1 3 3 re 8 1 3 3 re n q 16 0 0 12 8 3 cm /I Do Q",true,false},
     /* Discard an unpainted PATH before the real single PATH. */
     {"1 0 0 rg 4 4 8 6 re f",
      "1 0 0 rg 12 10 7 5 re n 4 4 8 6 re f",false,false},

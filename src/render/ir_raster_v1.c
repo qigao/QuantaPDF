@@ -21,6 +21,7 @@ typedef struct qp_edge {
 
 typedef struct qp_raster_draw {
     size_t first_edge, edge_count;
+    double coordinate_units; /* geometry units per device pixel */
     uint32_t color;
     quantapdf_composer_fill_rule rule;
     int one_pixel_stroke;
@@ -46,6 +47,7 @@ typedef struct qp_flatten {
     size_t count, capacity;
     qp_point_d current, start;
     int active;
+    double coordinate_units;
     double a, b, c, d, e, f;
 } qp_flatten;
 
@@ -79,21 +81,24 @@ static quantapdf_status qp_transform_point(
         return QUANTAPDF_ERROR_UNSUPPORTED;
     out->x = flat->a * x + flat->c * y + flat->e;
     out->y = flat->b * x + flat->d * y + flat->f;
-    if (!qp_valid_coordinate(out->x) || !qp_valid_coordinate(out->y))
+    if (!qp_valid_coordinate(out->x / flat->coordinate_units) ||
+        !qp_valid_coordinate(out->y / flat->coordinate_units))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     return QUANTAPDF_OK;
 }
 
 static int qp_curve_flat_enough(
-    qp_point_d a, qp_point_d b, qp_point_d c, qp_point_d d)
+    const qp_flatten *flat,qp_point_d a, qp_point_d b, qp_point_d c, qp_point_d d)
 {
     double dx = d.x - a.x, dy = d.y - a.y;
     double chord2 = dx * dx + dy * dy;
-    if (chord2 < 1e-12) {
+    const double units2=flat->coordinate_units*flat->coordinate_units;
+    const double tolerance2=QP_CURVE_TOLERANCE_SQUARED*units2;
+    if (chord2 < 1e-12*units2) {
         double x1 = b.x - a.x, y1 = b.y - a.y;
         double x2 = c.x - a.x, y2 = c.y - a.y;
-        return x1 * x1 + y1 * y1 <= QP_CURVE_TOLERANCE_SQUARED &&
-               x2 * x2 + y2 * y2 <= QP_CURVE_TOLERANCE_SQUARED;
+        return x1 * x1 + y1 * y1 <= tolerance2 &&
+               x2 * x2 + y2 * y2 <= tolerance2;
     }
     {
         double v1 = (b.x - a.x) * dy - (b.y - a.y) * dx;
@@ -104,8 +109,8 @@ static int qp_curve_flat_enough(
          * Subdivide those cases instead of silently erasing the extrema. */
         return along1 >= 0.0 && along1 <= along2 &&
                along2 <= chord2 &&
-               v1 * v1 <= QP_CURVE_TOLERANCE_SQUARED * chord2 &&
-               v2 * v2 <= QP_CURVE_TOLERANCE_SQUARED * chord2;
+               v1 * v1 <= tolerance2 * chord2 &&
+               v2 * v2 <= tolerance2 * chord2;
     }
 }
 
@@ -121,7 +126,7 @@ static quantapdf_status qp_flatten_cubic(
 {
     qp_point_d q0, q1, q2, r0, r1, s;
     quantapdf_status status;
-    if (qp_curve_flat_enough(p0, p1, p2, p3))
+    if (qp_curve_flat_enough(flat,p0, p1, p2, p3))
         return qp_add_edge(flat, p0, p3);
     if (depth >= QP_CURVE_DEPTH)
         return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -377,12 +382,12 @@ static quantapdf_status qp_admit_draw(
         flat->d = c * device[1] + d * device[3];
         flat->e = e * device[0] + f * device[2] + device[4];
         flat->f = e * device[1] + f * device[3] + device[5];
-        if (!qp_valid_coordinate(flat->a) ||
-            !qp_valid_coordinate(flat->b) ||
-            !qp_valid_coordinate(flat->c) ||
-            !qp_valid_coordinate(flat->d) ||
-            !qp_valid_coordinate(flat->e) ||
-            !qp_valid_coordinate(flat->f))
+        if (!qp_valid_coordinate(flat->a / flat->coordinate_units) ||
+            !qp_valid_coordinate(flat->b / flat->coordinate_units) ||
+            !qp_valid_coordinate(flat->c / flat->coordinate_units) ||
+            !qp_valid_coordinate(flat->d / flat->coordinate_units) ||
+            !qp_valid_coordinate(flat->e / flat->coordinate_units) ||
+            !qp_valid_coordinate(flat->f / flat->coordinate_units))
             return QUANTAPDF_ERROR_UNSUPPORTED;
         det = flat->a * flat->d - flat->b * flat->c;
         if (!isfinite(det) || det == 0.0)
@@ -462,6 +467,7 @@ static quantapdf_status qp_admit_draw(
            (flat->count-first==(open_line?1u:3u)))) ||
         (rect_stroke && flat->count - first != 8u))
         return QUANTAPDF_ERROR_UNSUPPORTED;
+    out->coordinate_units=flat->coordinate_units;
     out->first_edge = first;
     out->edge_count = flat->count - first;
     out->color = stroke ? opt->stroke_argb : opt->fill_argb;
@@ -479,6 +485,7 @@ static int qp_inside(
 {
     size_t i;
     int winding = 0;
+    x*=draw->coordinate_units;y*=draw->coordinate_units;
     for (i = 0; i < draw->edge_count; ++i) {
         const qp_edge *edge = &edges[draw->first_edge + i];
         double y0 = edge->from.y, y1 = edge->to.y;
@@ -506,7 +513,8 @@ static int qp_inside(
 static int qp_full_canvas_rect(const qp_edge *edges,
     const qp_raster_draw *draw,size_t width,size_t height)
 {
-    const double right=(double)width,bottom=(double)height;
+    const double right=(double)width*draw->coordinate_units,
+        bottom=(double)height*draw->coordinate_units;
     unsigned corners=0u;
     if(draw->one_pixel_stroke || draw->edge_count!=4u ||
        width==0u || height==0u)
@@ -599,11 +607,13 @@ static int qp_edges_sample_box(const qp_edge *edges,
     if(out==NULL || edges==NULL || draw==NULL)return 0;
     *out=(qp_sample_box){0u,0u,0u,0u};
     if(draw->edge_count==0u)return 1;
-    minx=maxx=edges[draw->first_edge].from.x;
-    miny=maxy=edges[draw->first_edge].from.y;
+    minx=maxx=edges[draw->first_edge].from.x/draw->coordinate_units;
+    miny=maxy=edges[draw->first_edge].from.y/draw->coordinate_units;
     for(i=0u;i<draw->edge_count;++i) {
         const qp_edge *edge=&edges[draw->first_edge+i];
-        const qp_point_d p[2]={edge->from,edge->to};
+        const qp_point_d p[2]={
+            {edge->from.x/draw->coordinate_units,edge->from.y/draw->coordinate_units},
+            {edge->to.x/draw->coordinate_units,edge->to.y/draw->coordinate_units}};
         size_t j;
         for(j=0u;j<2u;++j) {
             if(!qp_valid_coordinate(p[j].x) ||
@@ -819,9 +829,12 @@ static quantapdf_status qp_admit_scene_image(
     area=cols*rows;
     if(area>SIZE_MAX-*drawn_pixels)return QUANTAPDF_ERROR_UNSUPPORTED;
     *drawn_pixels+=area;
+    out->coordinate_units=flat->coordinate_units;
     out->first_edge=flat->count;out->edge_count=4u;
     out->rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
-    const qp_point_d corners[4]={{x0,y0},{x1,y0},{x1,y1},{x0,y1}};
+    const double units=flat->coordinate_units;
+    const qp_point_d corners[4]={{x0*units,y0*units},{x1*units,y0*units},
+        {x1*units,y1*units},{x0*units,y1*units}};
     for(size_t k=0u;k<4u;++k) {
         quantapdf_status status=qp_add_edge(flat,corners[k],corners[(k+1u)%4u]);
         if(status!=QUANTAPDF_OK)return status;
@@ -1426,6 +1439,19 @@ static quantapdf_status qp_geometry_compile(
     const int shared_texample=visible_work_optin==8 || physical_dpi;
     const int exact_texample=visible_work_optin==7 || shared_texample;
     const int exact_native=exact_texample || ordered_scene;
+    /* One coverage coordinate frame for every ordered Scene draw and Clip.
+     * Three units per pixel makes the current 72/96/144 DPI projections
+     * 3/4/6 units per point. Vertices and 4x4 sample locations then share
+     * exact dyadic coordinates instead of rounding a 4/3-pixel endpoint.
+     * Device plans, original glyph sampling and output pixels stay physical. */
+    double coverage_device[6]={1.0,0.0,0.0,1.0,0.0,0.0};
+    const double *path_device=plan==NULL?NULL:plan->from_composer;
+    flatten.coordinate_units=ordered_scene?3.0:1.0;
+    if(ordered_scene) {
+        for(size_t k=0u;k<6u;++k)
+            coverage_device[k]=(plan==NULL?coverage_device[k]:plan->from_composer[k])*flatten.coordinate_units;
+        path_device=coverage_device;
+    }
 
     const quantapdf_composer_clip_state *scene_clips[QUANTAPDF_NATIVE_CLIP_DAG_MAX_LEAVES];
     unsigned scene_masks[QP_SCENE_GRAPH_NODES]={0u};
@@ -1655,7 +1681,7 @@ static quantapdf_status qp_geometry_compile(
             status=QUANTAPDF_OK;
         } else {
             status = qp_admit_draw(op, &flatten,
-                plan == NULL ? NULL : plan->from_composer, &draws[draw_count],
+                path_device, &draws[draw_count],
                 ordered_scene?1:0,visible_work_optin==3?1:
                   (physical_dpi?3:(bounded_curved_stroke || exact_texample)?2:0));
         }
@@ -1721,7 +1747,7 @@ static quantapdf_status qp_geometry_compile(
             status=QUANTAPDF_OK;
         } else {
             status = qp_admit_draw(&clip_op, &flatten,
-                plan == NULL ? NULL : plan->from_composer, &clip_draws[ci],1,0);
+                path_device, &clip_draws[ci],1,0);
         }
         if (status != QUANTAPDF_OK) {
             goto cleanup;

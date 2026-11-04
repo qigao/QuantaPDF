@@ -702,11 +702,11 @@ static bool source_failures(const scenario& sc)
     CHECK(cleared(recovered));
     return true;
 }
+#include "native_source_fill_equivalence.h"
+
 static bool malformed_failures()
 {
     const char *invalid[]={
-        /* Starting contour 2 requires an explicitly closed contour 1. */
-        "2 2 m 12 2 l 2 10 l 4 3 m 7 3 l 4 6 l h W n",
         /* Each compound contour independently needs two actual edges. */
         "2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l h W n",
         "2 2 m 12 2 l 2 10 l h 4 3 m W n",
@@ -714,11 +714,12 @@ static bool malformed_failures()
         /* Two re contours spend ten commands, beyond the shared nine. */
         "2 2 10 7 re 4 3 3 2 re W n",
         "2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h 8 3 m 8 4 l 9 3 l h W n",
-        /* Compound geometry is only a Clip admission, not painted PATH
-         * or a plain-n path-discard extension. */
-        "2 2 10 7 re 4 3 m 7 3 l 4 6 l h f",
-        "2 2 10 7 re 4 3 m 7 3 l 4 6 l h n"
     };
+    CHECK(source_fill_equivalent(
+        "2 2 m 12 2 l 2 10 l 4 3 m 7 3 l 4 6 l h W n 1 0 0 rg 0 0 16 12 re f",
+        "2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h W n 1 0 0 rg 0 0 16 12 re f",cases[0]));
+    CHECK(source_fill_equivalent("2 2 10 7 re 4 3 m 7 3 l 4 6 l h f","2 2 10 7 re f",cases[0]));
+    CHECK(source_fill_equivalent("2 2 10 7 re 4 3 m 7 3 l 4 6 l h n","",cases[0]));
     for(const char *content:invalid)
         CHECK(atomic_rejection(original_pdf(content,cases[0],false),source_budget));
     return true;
@@ -772,7 +773,7 @@ static bool run_tests()
     CHECK(malformed_failures() && source_controls());
     CHECK(positive_count==152u && fault_count==85u);
     std::fprintf(stderr,"[native.compound_clip_source_oom] %zu detached originals, %zu renders, "
-        "%zu C allocation faults, 30 Source refusals, V8/V9 controls completed\n",
+        "%zu C allocation faults, Source refusal and current Page controls completed\n",
         positive_count,2u*positive_count,fault_count);
     return true;
 }

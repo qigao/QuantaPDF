@@ -2,15 +2,19 @@
 #define QUANTAPDF_NATIVE_PATH_COMMANDS_OOM_CASES_H
 #include "native_path_commands_fixture.h"
 
-static int path_commands_source_contracts(const quantapdf_qpdf_page_limits& defaults)
+static int path_commands_source_contracts(const quantapdf_qpdf_page_limits& defaults,bool multi=false,bool boundaries=false)
 {
     size_t growth_faults=0u,publications=0u,raster_faults=0u,quotas=0u;
-    struct shape {size_t repeats,zeros;unsigned primitive,clip;bool restore;};
-    const shape shapes[]={{3u,0u,0u,0u,false},{65u,0u,1u,1u,true},
-        {17u,0u,2u,4u,false},{17u,0u,3u,2u,true},
-        {3u,8192u,0u,1u,true},{128u,0u,1u,0u,false}};
-    for(const auto& shape:shapes)for(bool encrypted:{false,true}) {
-        auto sample=native_path_commands::create(shape.repeats,shape.primitive,shape.clip,false,shape.restore,encrypted,shape.zeros);
+    struct shape {size_t repeats,zeros;unsigned primitive,clip;bool restore;unsigned layout;};
+    const shape shapes[]={{3u,0u,0u,0u,false,0u},{65u,0u,1u,1u,true,1u},
+        {17u,0u,2u,4u,false,2u},{17u,0u,3u,2u,true,0u},
+        {3u,8192u,0u,1u,true,0u},{128u,0u,1u,0u,false,1u},{65u,0u,0u,4u,true,0u},
+        {17u,0u,1u,5u,true,3u}};
+    for(size_t index=boundaries?7u:0u;index<(boundaries?8u:multi?7u:6u);++index)for(bool encrypted:{false,true})
+    for(unsigned rule=0u;rule<(multi?2u:1u);++rule) {
+        const auto& shape=shapes[index];const bool even=rule!=0u;
+        auto sample=multi?native_path_commands::create_contours(shape.repeats,shape.primitive,shape.clip,even,shape.restore,encrypted,shape.zeros,shape.layout,shape.primitive%4u):
+            native_path_commands::create(shape.repeats,shape.primitive,shape.clip,false,shape.restore,encrypted,shape.zeros);
         quantapdf_qpdf_document *document=nullptr;
         CHECK(quantapdf_qpdf_open_memory(reinterpret_cast<const unsigned char*>(sample.bytes.data()),sample.bytes.size(),encrypted?"reader":"",&document)==QUANTAPDF_OK);
         std::unique_ptr<quantapdf_qpdf_document,decltype(&quantapdf_qpdf_close)> owner(document,quantapdf_qpdf_close);
@@ -96,7 +100,7 @@ static int path_commands_source_contracts(const quantapdf_qpdf_page_limits& defa
         quantapdf_native_compiled_page_dispose_v1(&compiled);quantapdf_ir_dispose(&ir);CHECK(cleared(ir));
         CHECK(equal(output));quantapdf_ir_raster_image_dispose(&output);CHECK(zero_bitmap(output));
     }
-    std::printf("Dynamic Fill paths: %zu vector growth faults, %zu Source publication faults, %zu C11 allocation faults, %zu N/N-1 checks; independent RGBA and deep snapshots survive owner release\n",growth_faults,publications,raster_faults,quotas);
+    std::printf("%s Fill paths: %zu vector growth faults, %zu Source publication faults, %zu C11 allocation faults, %zu N/N-1 checks; independent RGBA and deep snapshots survive owner release\n",boundaries?"Boundary":multi?"Multi-contour":"Dynamic",growth_faults,publications,raster_faults,quotas);
     return EXIT_SUCCESS;
 }
 #endif

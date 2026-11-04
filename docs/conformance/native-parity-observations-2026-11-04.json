@@ -1,0 +1,74 @@
+{
+  "purpose": "Historical diagnostic evidence; observed RGB is not a test golden.",
+  "historical_dense_observation": {
+    "contours": 65,
+    "fill_rule": "even-odd",
+    "clip": "intersection",
+    "dpi": 72,
+    "byte": 195,
+    "observed": 255,
+    "independent_expected": 51,
+    "original_pdf_captured": false,
+    "opened_bytes_captured": false
+  },
+  "later_captured_observation": {
+    "width": 12,
+    "height": 12,
+    "dpi": 72,
+    "components": 3,
+    "opened_bytes_captured": false,
+    "authored_pdf_is_not_proof_of_opened_input": true,
+    "replay_fixture": "native_path_commands::create(3,1,1,true,true,true)",
+    "replay_matches_reference": true,
+    "artifacts": {
+      "source.failed.pdf": {
+        "bytes": 1808,
+        "sha256": "0b4be4cea7879121baf663ad3083f76de5c3e5b07f3e0e437e322ef3a3692da9",
+        "base64": "JVBERi0xLjcKJb/3ov4KMSAwIG9iago8PCAvRXh0ZW5zaW9ucyA8PCAvQURCRSA8PCAvQmFzZVZlcnNpb24gLzEuNyAvRXh0ZW5zaW9uTGV2ZWwgOCA+PiA+PiAvUGFnZXMgMiAwIFIgL1R5cGUgL0NhdGFsb2cgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL0NvdW50IDIgL0tpZHMgWyAzIDAgUiA0IDAgUiBdIC9SZXNvdXJjZXMgPDwgPj4gL1R5cGUgL1BhZ2VzID4+CmVuZG9iagozIDAgb2JqCjw8IC9NZWRpYUJveCBbIDAgMCA1IDQgXSAvUGFyZW50IDIgMCBSIC9UeXBlIC9QYWdlID4+CmVuZG9iago0IDAgb2JqCjw8IC9Db250ZW50cyBbIDUgMCBSIDYgMCBSIDcgMCBSIF0gL01lZGlhQm94IFsgMCAwIDEyIDEyIF0gL1BhcmVudCAyIDAgUiAvVHlwZSAvUGFnZSA+PgplbmRvYmoKNSAwIG9iago8PCAvRmlsdGVyIC9SdW5MZW5ndGhEZWNvZGUgL0xlbmd0aCA2NCA+PgpzdHJlYW0KqGIwYJXZcfkACISb2WawYJsZhdQHmG68Ytrhhe7m/UYToMLAqK6bgq6HGlGVcqV4vZPlunE9zEmqEcBx5cPsw2VuZHN0cmVhbQplbmRvYmoKNiAwIG9iago8PCAvRGVjb2RlUGFybXMgWyBudWxsIG51bGwgXSAvRmlsdGVyIFsgL0FTQ0lJSGV4RGVjb2RlIC9GbGF0ZURlY29kZSBdIC9MZW5ndGggOTYgPj4Kc3RyZWFtCqmtw/vTeGNKmJ8VfYiaV+ov6AtaMD6PajfuYL3IJB5hYmXAS2NyxjnGeIfde3mnBhdumzk0+AZ5cRMSo6cY+U3SmYc4s8rM40q+a+8sPLq5jXeVrPjJHzLiG3cr/c+RiGVuZHN0cmVhbQplbmRvYmoKNyAwIG9iago8PCAvRGVjb2RlUGFybXMgWyBudWxsIF0gL0ZpbHRlciBbIC9GbGF0ZURlY29kZSBdIC9MZW5ndGggOTYgPj4Kc3RyZWFtCscBr8M8dpT8godRDIBAa3h8+odPvRSFNoeE2Dd93Vk1HkB5xO7k6PZJciMovA21eZ7+kU+fo0b74hWLaZSX7M2LcxmoWtexEKVXERJjYCGxfVPzB0OAqOwrSVsW0Voyg2VuZHN0cmVhbQplbmRvYmoKOCAwIG9iago8PCAvQ0YgPDwgL1N0ZENGIDw8IC9BdXRoRXZlbnQgL0RvY09wZW4gL0NGTSAvQUVTVjMgL0xlbmd0aCAzMiA+PiA+PiAvRmlsdGVyIC9TdGFuZGFyZCAvTGVuZ3RoIDI1NiAvTyA8ZjczZDM5Y2UwNzdmMjBmYzA2YTE4ZmRiYWE3M2M5ZTIzNjVmZDE0OTg2MmI3OTA0MDE3MTg4Njg1ZjU5NDM1NzEwNWMyOGQ3YTM0NTBhYTM5Y2E1MmJmMTkwNTVkMjEyPiAvT0UgPDQyMzg3OWJjY2M2YzVhMjkxOGViMTM2NTNjMTEyMzY5YmRkZGQ2YjM2NDBkZmRmZjFiMzlkMWM5MGVmYTg2ZGI+IC9QIC00IC9QZXJtcyA8OTE0ZDllMzUwNWI4ZmNjOTg2MDdmODAyZGUxMTU4NTE+IC9SIDYgL1N0bUYgL1N0ZENGIC9TdHJGIC9TdGRDRiAvVSA8OTZjNDhmZTY1N2I2M2I5NWI1ZTIyNDY0N2Q1ZjIzYzMyNTA2Y2E5YWRiODk5OTU0N2RjYTEwNGU1NDc3MTBiMWEyNTdkNTdkZWJkNGZlMWNiMzFlYWJmZDg3M2Y1NTY0PiAvVUUgPDlkMzk4OGUwMmI2OWNlM2UyN2E5NmEwODE1MTBiZTVkNDY3OThlNTcwZmUzNjJmNWJiNjg1N2YwYThjYzRlMWI+IC9WIDUgPj4KZW5kb2JqCnhyZWYKMCA5CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAxNSAwMDAwMCBuIAowMDAwMDAwMTMwIDAwMDAwIG4gCjAwMDAwMDAyMTIgMDAwMDAgbiAKMDAwMDAwMDI4MSAwMDAwMCBuIAowMDAwMDAwMzg0IDAwMDAwIG4gCjAwMDAwMDA1MjIgMDAwMDAgbiAKMDAwMDAwMDczNSAwMDAwMCBuIAowMDAwMDAwOTI3IDAwMDAwIG4gCnRyYWlsZXIgPDwgL1Jvb3QgMSAwIFIgL1NpemUgOSAvSUQgWzw5YjJmZGE2MTBmNWRjMmFmMzEwMmYwZWFlZDQyNmY2NT48OWIyZmRhNjEwZjVkYzJhZjMxMDJmMGVhZWQ0MjZmNjU+XSAvRW5jcnlwdCA4IDAgUiA+PgpzdGFydHhyZWYKMTQ3NAolJUVPRgo="
+      },
+      "source.actual.rgb": {
+        "bytes": 432,
+        "sha256": "c0b12d35f41d270ed8772e5ed23768f19c7c0a61f73379aec3aa2b888bef3f20",
+        "base64": "////////////////////////////////////////////////////////////////////////////////////////////////////////M2aZM2aZM2aZM2aZM2aZM2aZM2aZM2aZ////////////////M2aZM2aZM2aZM2aZM2aZM2aZM2aZM2aZ////////////////M2aZM2aZM2aZM2aZM2aZM2aZM2aZM2aZ////////////////M2aZM2aZM2aZM2aZM2aZM2aZM2aZM2aZ////////////////M2aZM2aZM2aZM2aZM2aZM2aZM2aZM2aZ////////////////M2aZM2aZM2aZM2aZM2aZM2aZM2aZM2aZ////////////////M2aZM2aZM2aZM2aZM2aZM2aZM2aZM2aZ////////////////M2aZM2aZM2aZM2aZM2aZM2aZM2aZM2aZ////////zDNmzDNm////////////////////////////////////////zDNmzDNm////////////////////////////////////////"
+      },
+      "source.expected.rgb": {
+        "bytes": 432,
+        "sha256": "06d3b64d9b8d0c435e9effce2154175cfc6b6e7c981caa9b34e463eaa1442e4b",
+        "base64": "////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////M2aZM2aZM2aZM2aZ////////////////////////////////M2aZM2aZM2aZM2aZ////////////////////////////////M2aZM2aZM2aZM2aZ////////////////////////////////M2aZM2aZM2aZM2aZ////////////////////////////////////////////////////////////////////////////////////////////////////////////////zDNmzDNm////////////////////////////////////////zDNmzDNm////////////////////////////////////////"
+      }
+    }
+  },
+  "parallel_shared_file_control": {
+    "tests": [
+      "quantapdf.native_parity_stress",
+      "quantapdf.native_multi_contour_fill",
+      "quantapdf.native_path_commands"
+    ],
+    "parallel_jobs": 3,
+    "shared_filename": "native-standalone-smoke.pdf",
+    "before": {
+      "passed": 1,
+      "total": 3,
+      "observed_input_mismatches": [
+        {
+          "case": "parity_stress",
+          "authored_size": 5807,
+          "opened_size": 5807,
+          "bytes_equal": false
+        },
+        {
+          "case": "multi_contour_fill",
+          "authored_size": 1013,
+          "opened_size": 5807,
+          "bytes_equal": false
+        }
+      ]
+    },
+    "after_case_filename_isolation": {
+      "passed": 3,
+      "total": 3,
+      "seconds": 16.45
+    }
+  },
+  "interpretation": "Shared test-file input races are reproduced and fixed by case filename isolation. Missing historical opened bytes prevent asserting a complete cause for each old pixel discrepancy."
+}

@@ -595,7 +595,6 @@ static int atomic_refusals()
         scope(rectangle_a,red_image+patterned)+
             scope(rectangle_b,blue_image+full_blue), /* three Images + PATH */
         a+second+"0 0 1 rg "+compound+" f Q", /* compound painted PATH */
-        a+second+compound+" n "+full_blue+"Q", /* compound discarded path */
         a+"q 2 2 12 8 re 6 4 4 3 re W n "+full_blue+"Q", /* 10 commands */
         a+"q "+compound+" "+empty_point+" W n "+full_blue+"Q",
         a+"q 2 2 m 14 2 l 8 10 l h h W n "+full_blue+"Q",
@@ -614,6 +613,12 @@ static int atomic_refusals()
         ready+" Q",
         ready+" q"
     };
+    for(int dpi:{72,96,144}) {
+        configuration cfg;cfg.dpi=dpi;cfg.crop=dpi==72?0:(dpi==96?2:3);cfg.selected=dpi==144?2:0;
+        rendered actual,reference;
+        CHECK(render(original(a+second+compound+" n "+full_blue+"Q",cfg),cfg,actual)==EXIT_SUCCESS);
+        CHECK(render(original(a+second+full_blue+"Q",cfg),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
+    }
     for(const auto& content:bad)
     for(int dpi:{72,96,144}) {
         configuration cfg;

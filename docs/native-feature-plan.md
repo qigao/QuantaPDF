@@ -295,9 +295,61 @@
   实际路径 vector 扩容、IR 发布和 C11 分配。核对 NOMEM、空 IR/receipt/输出、
   源 IR 不变，以及字节/流/操作/边/采样/像素/峰值内存 N/N−1；编译后改写包括
   长路径尾部在内的调用方命令与绑定，输出仍使用深拷贝，最后独立于 Source owner 保留。
-- 多轮廓 Fill、一般 Stroke、Clip 自身的短轮廓限制及双 Clip 固定顺序发布仍未完成。
+- 该增量之后，多轮廓 Fill、一般 Stroke、Clip 自身的短轮廓限制及双 Clip 固定顺序发布仍未完成。
   Text 解释器的 4096 命令和字形采样器的 1024 交点限制仍在；本增量不将其
   当作 Fill 限制重新引入，也不声称 A2 已完成。沿用现有工具链、缓存和四配置 CI。
+
+### A2 多轮廓 Fill 与隐式闭合
+
+- Source 用同一个动态路径记录多个轮廓；下一次 `m/re` 在原始起点闭合前一条
+  非退化轮廓，最终 `f/f*` 一次发布完整 paint。沿用同一 C11 flatten/winding/采样和
+  合成器，不逐轮廓合成，保留孔洞、岛、重叠奇偶关系、分离轮廓及 signed `re`。
+- 删除两轮廓/剩余九条命令的构建准入、`ten_wstar_candidate` 和 returned-rectangle
+  特判；普通闭合可直接用 CLOSE 替换冗余的返回起点 LINE，曲线控制点保持不变。
+  `n` 丢弃全部当前轮廓。现有短 Clip 在轮廓几何符合当前规则时也接受第一条轮廓
+  的隐式闭合；Clip 的九条/嵌套矩形十条及固定组合发布限制仍然存在。
+- `quantapdf.native_multi_contour_fill` 复用已有公开可执行文件，核对 2028 次完整
+  独立 RGB：2/3/17/65/128 条轮廓、非零与奇偶、正反向/重叠/分离的矩形和三角形、
+  line/cubic/v/y、显式/隐式/返回起点闭合及 signed `re`、多个 Clip、Q 恢复、三个 DPI、
+  多编码 Contents、AES-256、第二页和释放原 owner 后的 Bitmap。包含密集 even-odd
+  与相交 Clip 的新 Context/Document 重用压力检查，以及 10 项原子失败。
+- `quantapdf.native_multi_contour_oom` 通过 440 次 vector 扩容失败、176 次 Source
+  发布失败、112 次 C11 分配失败和 224 项 N/N−1；包括密集 even-odd/相交 Clip、
+  长命令尾部快照、不可变 IR、空失败结果与独立像素生命周期。原 840 次单轮廓
+  RGB 和原路径故障用例继续保留。旧拒绝按实际新行为改为完整 RGB/RGBA 对照。
+- 最初验收时，12×12 页的 `1 1 m 5 1 l 1 5 l h` 在 96 DPI 的对角线上出现
+  浮点投影/采样边界差异；当时矩阵采用可精确投影的坐标，保留 layout 3 作为原始
+  反例。另记录了一次未稳定复现的密集 even-odd/相交 Clip 差异。这些历史观察
+  继续保留；下述增量修正已稳定复现的数值缺陷，并验证测试输入竞争。
+- 多字体、一般 Stroke、退化轮廓、BT 前后解释分段、一般 Clip 图与任意 affine/DPI
+  等条目继续开放。本增量不改变工具链、缓存、CI 期限或创建 installer/consumer 工程。
+
+### A2 覆盖坐标与测试输入隔离
+
+- 96 DPI 原始反例在修正前稳定返回 R=179，独立参考为 217。Scene 的 Path、Clip
+  与 Image 几何现在统一使用每物理像素三个覆盖单位，72/96/144 DPI 对应每点
+  3/4/6 单位；4×4 采样点与几何端点处于同一格点，不再先舍入为 4/3 像素端点。
+  曲线容差随单位换算，绘制边界、图像采样、尺寸及工作/内存预算仍按物理像素
+  计量，原始 glyph mask 使用原采样器。没有 epsilon 补丁、按轮廓启用的例外或新 renderer。
+- 独立参考改为整数有理数采样谓词，不从 native 输出生成参考。新
+  `quantapdf.native_path_boundaries` 验证 1152 次完整 RGB：原反例、正反方向、
+  c/v/y、三种闭合、多个 Clip、三个 DPI、AES-256、选页及 owner 释放；对应 OOM
+  用例验证 60 次路径扩容失败、28 次 Source 发布失败、16 次 C11 分配失败和
+  32 项 N/N−1。原 2028/840 次 RGB、Scene Image/Text 和全部旧用例继续运行。
+- public 测试原来共用 `native-standalone-smoke.pdf`。三个原有用例以 `-j3` 同时
+  执行时，已捕获到打开字节与各自刚生成的 PDF 不同（包括 65 轮廓用例和一个
+  两轮廓用例读到 65 轮廓文档）；这是可复现的测试输入竞争。现在按 CTest 用例
+  隔离文件名，并在打开后、原 Document/Context 释放后的每次 render 前核对字节。
+  相同并行对照由 1/3 变为 3/3；新增 parity 压力用例验证 576 次独立 RGB。
+- 历史单次差异未保存当时实际打开的字节，不能断言每个历史像素都由上述竞争
+  导致，也不将重跑通过写成 native parity 修复。当前可复现的输入竞争与 96 DPI
+  数值反例均有修正前后对照；失败时保存原件、实际打开的字节和 RGB 供追踪。
+  临时 C11 trace 与专用 replay 入口已移除，测试不重新打开另一套 PDF 解析器。
+  原始观察、捕获的 authored PDF/RGB 与并行对照记录保存在
+  `docs/conformance/native-parity-observations-2026-11-04.json`；错误输出不作为测试 golden。
+- 本地 LLVM Release **93/93，131.84 s**；ASan/UBSan **93/93，265.10 s**。
+  本地 ptrace 环境关闭 leak，默认 leak 与平台结果仍须核对精确 HEAD 的云端 CI。
+  这不是任意 DPI/affine、完整 Stroke 或通用 Clip 图的完成声明。
 
 ## 单一执行模型
 
