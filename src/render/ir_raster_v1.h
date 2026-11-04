@@ -264,7 +264,9 @@ quantapdf_status quantapdf_ir_raster_render_v1_texample_physical_dpi_three_layer
 
 /* Source-owned TrueType glyph contours, axis rectangles and opaque RAW
  * RGB/Gray Images, preserved in original paint/glyph order. Images use
- * nearest pixel-center sampling and the same n/16 blend. Expansion uses count-sized
+ * nearest pixel-center sampling and the same n/16 blend. Each draw may bind
+ * a frozen root Clip; glyph and Clip intersect before coverage is averaged.
+ * Expansion uses count-sized
  * temporary storage with the 4096-command and existing 512-edge/8M/1M-pixel
  * budgets. Atomic output even on a late glyph. */
 quantapdf_status quantapdf_ir_raster_render_v1_text_outlines(
