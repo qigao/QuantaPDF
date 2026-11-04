@@ -4147,10 +4147,13 @@ static int native_seventh_userunit_late_refusal_cases(
 
 #include "native_ttf_public_cases.h"
 #include "native_opened_document_cases.h"
+#include "native_content_stream_cases.h"
 
 int main(int argc,char **argv)
 {
     const std::string filename="native-standalone-smoke.pdf";
+    if(argc==2 && std::strcmp(argv[1],"--content-streams")==0)
+        return content_stream_cases(filename+".contents.pdf");
     if(argc==2 && std::strcmp(argv[1],"--opened-document")==0)
         return opened_document_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--m2b2c-aligned")==0) {

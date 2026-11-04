@@ -5,6 +5,7 @@
 #include <qpdf/Pipeline.hh>
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFExc.hh>
+#include <qpdf/QPDFPageObjectHelper.hh>
 
 #include <algorithm>
 #include <array>
@@ -46,7 +47,6 @@ constexpr size_t hard_pdf_bytes = 2u * 1024u * 1024u;
 constexpr size_t hard_image_pixels = 4194304u;
 constexpr size_t hard_page_pixels = 4194304u;
 constexpr size_t hard_draw_work = 16777216u;
-constexpr size_t hard_streams = 4u;
 constexpr size_t hard_operations = 4u;
 
 struct rejected { quantapdf_status status; };
@@ -163,8 +163,7 @@ public:
     std::vector<unsigned char> bytes;
 };
 
-std::vector<unsigned char> stream_data(Obj stream, size_t limit,
-                                      bool image,
+std::vector<unsigned char> image_data(Obj stream, size_t limit,
                                       bool allow_predictor=false,
                                       size_t image_columns=0u,
                                       int image_channels=0)
@@ -188,7 +187,7 @@ std::vector<unsigned char> stream_data(Obj stream, size_t limit,
      * filter chains, guessed defaults and arbitrary predictor ranges.
      * The downstream sink caps the fully decoded byte count. */
     Obj parms=dict.getKey("/DecodeParms");
-    admit(parms.isNull() || (image && allow_predictor && flate),
+    admit(parms.isNull() || (allow_predictor && flate),
           QUANTAPDF_ERROR_UNSUPPORTED);
     if(!parms.isNull()) {
         admit(parms.isDictionary() && image_columns>0u &&
@@ -223,10 +222,10 @@ std::vector<unsigned char> stream_data(Obj stream, size_t limit,
     auto level = flate ? qpdf_dl_specialized : qpdf_dl_none;
     bounded_sink sink(limit);
     bool filtered = false;
-    admit(stream.pipeStreamData(&sink,&filtered,0,level,true,true) &&
+    admit(stream.pipeStreamData(&sink,&filtered,0,level,true,false) &&
           sink.complete && (filtered || !flate),
           QUANTAPDF_ERROR_FORMAT);
-    if (image) admit(!sink.bytes.empty());
+    admit(!sink.bytes.empty());
     return std::move(sink.bytes);
 }
 
@@ -755,8 +754,8 @@ struct admission {
               QUANTAPDF_ERROR_UNSUPPORTED);
         admit(pixels<=SIZE_MAX/(size_t)channels,QUANTAPDF_ERROR_UNSUPPORTED);
         const size_t size=pixels*(size_t)channels;
-        auto decoded=stream_data(
-            image,size,true,explicit_image_predictor_mode,w,channels);
+        auto decoded=image_data(
+            image,size,explicit_image_predictor_mode,w,channels);
         admit(decoded.size()==size);
         /* Only after full Decode admission and bounded stream decode
          * normalize the original color samples to owned RAW bytes.
@@ -1125,6 +1124,11 @@ public:
     explicit image_content_reader(admission& a,bool allow_path=false,
                                   bool image_clip=false) :
         target(a),mixed(allow_path),clipped(image_clip) {}
+
+    void contentSize(size_t size) override
+    {
+        admit(size<=target.limits.max_content_bytes,QUANTAPDF_ERROR_UNSUPPORTED);
+    }
 
     void handleObject(Obj item) override
     {
@@ -2710,31 +2714,19 @@ Obj bounded_page_resources(Obj page, size_t max_parent_steps,
     throw rejected{QUANTAPDF_ERROR_FORMAT};
 }
 
-std::vector<unsigned char> page_streams(
-    Obj streams,const quantapdf_qpdf_source_raw_image_limits& limits)
+/* qpdf owns content syntax, concatenation and filter-chain decoding. Source
+ * only charges the selected page's stream count and rejects external-file
+ * contents, which this renderer does not implement. */
+void page_content_resources(QPDFPageObjectHelper& page,
+                            const quantapdf_qpdf_source_raw_image_limits& limits)
 {
-    std::vector<unsigned char> bytes;
-    auto append=[&](Obj stream) {
-        admit(stream.isStream());
-        admit(bytes.size()<limits.max_content_bytes,
-              QUANTAPDF_ERROR_UNSUPPORTED);
-        size_t left=limits.max_content_bytes-bytes.size()-1u;
-        auto decoded=stream_data(stream,left,false);
-        admit(decoded.size()<=left,QUANTAPDF_ERROR_UNSUPPORTED);
-        bytes.insert(bytes.end(),decoded.begin(),decoded.end());
-        bytes.push_back('\n');
-    };
-    if (streams.isArray()) {
-        const int n=streams.getArrayNItems();
-        admit(n>0 && static_cast<size_t>(n)<=hard_streams &&
-              static_cast<size_t>(n)<=limits.max_content_streams,
-              QUANTAPDF_ERROR_UNSUPPORTED);
-        for(int i=0;i<n;++i)append(streams.getArrayItem(i));
-    } else {
-        admit(!streams.isNull());
-        append(streams);
+    const auto streams=page.getPageContents();
+    admit(streams.size()<=limits.max_content_streams,QUANTAPDF_ERROR_UNSUPPORTED);
+    for(auto stream:streams) {
+        const Obj dict=stream.getDict();
+        admit(dict.getKey("/F").isNull() && dict.getKey("/FFilter").isNull() &&
+              dict.getKey("/FDecodeParms").isNull(),QUANTAPDF_ERROR_UNSUPPORTED);
     }
-    return bytes;
 }
 
 /* A strictly parsed zero-paint page owns a valid Page IR with no
@@ -4788,23 +4780,13 @@ static quantapdf_status source_page_to_ir_impl(
             source.exact_page_h!=(double)page_h;
         source.crop_viewport=native_v10 &&
             (!full_media || fractional_geometry);
-        Obj raw_contents=geo.page.getKey("/Contents");
-        const bool empty_contents=native_v10 &&
-            (raw_contents.isNull() ||
-             (raw_contents.isArray() &&
-              raw_contents.getArrayNItems()==0));
-        auto contents=empty_contents ?
-            std::vector<unsigned char>{} :
-            page_streams(raw_contents,*limits);
-        QPDF parser;
-        parser.emptyPDF();
-        parser.setSuppressWarnings(true);
-        Obj parsed=parser.newStream(std::string(contents.begin(),contents.end()));
+        QPDFPageObjectHelper page(geo.page);
+        page_content_resources(page,*limits);
         image_content_reader reader(source,source.mixed_mode,
                                     source.clipped_image_mode);
-        parsed.parseAsContents(&reader);
-        admit(!parser.anyWarnings() && !pdf.anyWarnings(),
-              QUANTAPDF_ERROR_FORMAT);
+        QP_SOURCE_STAGE_ARM(10u);
+        page.parseContents(&reader);
+        admit(!pdf.anyWarnings(),QUANTAPDF_ERROR_FORMAT);
         if(source.text_outlines_complete) {
             *out_ir=source.draws.empty()?materialize_text_outlines(source):
                 (source.order.size()==2u?

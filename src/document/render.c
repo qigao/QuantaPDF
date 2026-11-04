@@ -97,9 +97,9 @@ static quantapdf_status quantapdf_render_page_transformed(
     quantapdf_context_lease_internal prepared_domain={0};
     quantapdf_status status;
     const quantapdf_native_page_limits limits = {
-        /* Strict complete-page Source V10 admission. The numeric caps
-         * are below the existing independent decoder and Raster maxima. */
-        {2u*1024u*1024u,65536u,4u,4u,1000000u,1000000u,
+        /* qpdf owns arbitrarily split/encoded Contents. The remaining paint
+         * and raster limits belong to their existing IR implementations. */
+        {2u*1024u*1024u,SIZE_MAX,SIZE_MAX,4u,1000000u,1000000u,
          4000000u,8u},
         {1000000u,4u,512u,8000000u,1000000u,4000000u}
     };

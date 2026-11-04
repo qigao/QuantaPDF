@@ -37,7 +37,15 @@ and password; a completed Bitmap independently retains its Context and pixels.
 The native renderer borrows the already opened/decrypted qpdf document for
 Source construction and publishes owned IR, including decoded image/font data,
 before the C11 raster runs. It does not reopen or reserialize original bytes.
-Password-bearing Documents use the same renderer. Failed open/render calls
+Password-bearing Documents use the same renderer. qpdf directly parses the
+selected Page's original content streams, including filter arrays/chains and
+mixed encodings across a Contents array. Source no longer creates an empty
+qpdf document or a second decoded-content copy. Tested content filters are
+RAW, Flate, ASCIIHex, ASCII85 and RunLength; Image XObject codec coverage is
+unchanged. Public rendering has no four-stream/64-KiB Contents admission cap.
+Explicit internal content budgets count selected streams before parsing and
+qpdf's actual decoded content bytes before interpretation; they do not bound
+qpdf's transient decode buffer allocation. Failed open/render calls
 publish no handle/Bitmap and preserve the failure status. Do not add a wrapper to preserve an old ownership rule. The current
 implementation has not acquired a concurrency guarantee from this design;
 independent/same-object concurrency must be implemented and tested if exposed.

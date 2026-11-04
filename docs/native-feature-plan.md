@@ -41,6 +41,19 @@
   渲染调用链不再选择 V8/V9/V10，也不再重复检查 UserUnit。
 - 加密多页、实际对象/资源变更、释放顺序、错误传播、完整 RGB 验收位于
   `quantapdf.native_opened_document`，复用现有 native 测试可执行文件。
+- Page 的原始 `/Contents` 现在由 qpdf 直接拼接、解密、解码和解析；
+  已删除 Source 自行拼接的 decoded bytes 和空 qpdf 内容文档。
+  RAW、Flate、ASCIIHex、ASCII85、RunLength、filter array/chain，以及不同编码的
+  多内容流已通过独立 RGB 用例；这不是 Image XObject codec 的扩展。
+- 公开渲染不再将 4 个内容流或 64 KiB 当作页面准入上限。显式内部调用方的流数
+  预算在 qpdf 内容解析前核对，解码字节预算由 qpdf 的 contentSize 回调在解释前核对；
+  该字节预算不宣称限制 qpdf 解码缓冲区的瞬时内存。
+- `quantapdf.native_content_streams` 验证 144 次公开 RGB 输出、1/3/17 个流、
+  跨流 q/Q、AES-256、资源释放和错误传播；`quantapdf.native_content_stream_oom`
+  在同一打开的文档上验证 48 次真实 qpdf 遍历分配失败、192 次 Source 发布分配失败，
+  以及 144 项 N/N−1 字节/流数/操作数预算检查，复用现有两个测试可执行文件。
+  六组旧 64 KiB padding 拒绝用例已改为 72/96/144 DPI 的完整 RGB 等价对照；
+  其他未实现绘制、几何及资源错误用例保留。
 - 其他 API 的尺寸协商、独立原件 Source 的历史入口，以及固定内容/绘制顺序、
   字体、几何、预算和 DPI 限制尚待 A1/A2 后续清理。本增量不声称通用 PDF 渲染完成。
 

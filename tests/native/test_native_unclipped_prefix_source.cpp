@@ -682,8 +682,10 @@ static int atomic_refusals()
         cfg.dpi=dpi;
         CHECK(rejected(operators+ready,cfg,false,QUANTAPDF_ERROR_UNSUPPORTED)
               ==EXIT_SUCCESS);
-        CHECK(rejected(full_red+std::string(65536u,' ')+first+full_blue+"Q",
-                       cfg,false,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
+        rendered padded,reference;
+        CHECK(render(original(full_red+std::string(65536u,' ')+first+full_blue+"Q",cfg),cfg,padded)==EXIT_SUCCESS);
+        CHECK(render(original(full_red+first+full_blue+"Q",cfg),cfg,reference)==EXIT_SUCCESS);
+        CHECK(equal(padded,reference));
     }
     return EXIT_SUCCESS;
 }

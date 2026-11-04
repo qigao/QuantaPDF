@@ -27,6 +27,8 @@
 #include <string>
 #include "native_ttf_fixture.h"
 #include "native_ttf_fractional_reference.h"
+#include "native_content_stream_fixture.h"
+#include <memory>
 #include <vector>
 #include <algorithm>
 
@@ -4845,11 +4847,69 @@ static int m2b2a_private_clipped_text_faults()
     return EXIT_SUCCESS;
 }
 
+static int content_stream_source_contracts(
+    const quantapdf_qpdf_source_raw_image_limits& defaults)
+{
+    size_t source_failures=0u,decoder_failures=0u,budget_failures=0u;
+    for(unsigned encoding=0u;encoding<8u;++encoding)
+    for(bool encrypted:{false,true})for(size_t count:{1u,3u,17u}) {
+        const auto sample=native_content_fixture::create(encoding,count,encrypted);
+        quantapdf_qpdf_document *document=nullptr;
+        CHECK(quantapdf_qpdf_open_memory(
+            reinterpret_cast<const unsigned char*>(sample.bytes.data()),sample.bytes.size(),
+            encrypted?"reader":"",&document)==QUANTAPDF_OK);
+        std::unique_ptr<quantapdf_qpdf_document,decltype(&quantapdf_qpdf_close)>
+            owner(document,quantapdf_qpdf_close);
+        auto caps=defaults;caps.max_content_bytes=sample.decoded_bytes;
+        caps.max_content_streams=count;
+        const auto read=[&](const quantapdf_qpdf_source_raw_image_limits& limits,quantapdf_ir& ir) {
+            return quantapdf_qpdf_page_to_ir(owner.get(),0u,&limits,&ir);
+        };
+        quantapdf_ir ir{};
+        track_c_allocation=true;c_fail_index=0u;c_allocations=0u;c_faults=0u;
+        const auto status=read(caps,ir);const size_t allocations=c_allocations;
+        track_c_allocation=false;
+        CHECK(status==QUANTAPDF_OK && ir.operation_count==2u && allocations>0u);
+        CHECK(ir.operations[0].value.path.options.fill_argb==UINT32_C(0xff0000ff) &&
+            ir.operations[1].value.path.options.fill_argb==UINT32_C(0xffff0000));
+        quantapdf_ir_dispose(&ir);
+        for(unsigned kind:{0u,1u,2u}) {
+            auto limited=caps;
+            if(kind==0u)--limited.max_content_bytes;
+            if(kind==1u)--limited.max_content_streams;
+            if(kind==2u)limited.max_operations=1u;
+            std::memset(&ir,0xa5,sizeof(ir));
+            CHECK(read(limited,ir)==QUANTAPDF_ERROR_UNSUPPORTED && cleared(ir));
+            CHECK(read(caps,ir)==QUANTAPDF_OK && ir.operation_count==2u);
+            quantapdf_ir_dispose(&ir);++budget_failures;
+        }
+        target=10u;observed=0u;faults=0u;armed=false;
+        std::memset(&ir,0xa5,sizeof(ir));
+        CHECK(read(caps,ir)==QUANTAPDF_ERROR_NOMEM && cleared(ir) &&
+            observed==10u && faults==1u && !armed);
+        CHECK(read(caps,ir)==QUANTAPDF_OK && ir.operation_count==2u);
+        quantapdf_ir_dispose(&ir);++decoder_failures;
+        for(size_t fail=1u;fail<=allocations;++fail) {
+            std::memset(&ir,0xa5,sizeof(ir));
+            track_c_allocation=true;c_fail_index=fail;c_allocations=0u;c_faults=0u;
+            const auto denied=read(caps,ir);track_c_allocation=false;c_fail_index=0u;
+            CHECK(denied==QUANTAPDF_ERROR_NOMEM && cleared(ir) && c_faults==1u);
+            CHECK(read(caps,ir)==QUANTAPDF_OK && ir.operation_count==2u);
+            quantapdf_ir_dispose(&ir);++source_failures;
+        }
+    }
+    std::printf("Original qpdf Contents: %zu traversal allocation faults, %zu Source publication faults, %zu N/N-1 quota checks passed\n",
+        decoder_failures,source_failures,budget_failures);
+    return EXIT_SUCCESS;
+}
+
 int main(int argc,char **argv)
 {
     const quantapdf_qpdf_source_raw_image_limits limits={
         2u*1024u*1024u,65536u,4u,4u,1000000u,1000000u,4000000u,8u
     };
+    if(argc==2 && std::strcmp(argv[1],"--content-streams")==0)
+        return content_stream_source_contracts(limits);
     /* The production master #2307 sanitizer RED was CTest's 40-second
      * deadline for TWO independent Source/OOM suites in one invocation,
      * not an allocator, geometry or Bitmap failure. Run the exact same
