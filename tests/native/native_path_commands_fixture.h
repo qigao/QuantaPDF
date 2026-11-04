@@ -10,6 +10,7 @@ struct region {int x0,y0,x1,y1;bool triangle,reverse;};
 struct original {
     std::string bytes;
     size_t decoded_bytes=0u,commands=0u,operations=0u,repeats=0u;
+    size_t clip_commands=0u;
     unsigned clip=0u;
     bool even=false,restore=false;
     std::vector<region> contours;
@@ -35,7 +36,7 @@ inline void encode(original& result,const std::array<std::string,3>& parts,unsig
     result.bytes.assign(reinterpret_cast<const char*>(buffer->getBuffer()),buffer->getSize());
 }
 inline original create(size_t repeats,unsigned primitive,unsigned clip,bool even,
-    bool restore,bool encrypted,size_t zero_commands=0u,int invalid=0)
+    bool restore,bool encrypted,size_t zero_commands=0u,int invalid=0,bool as_clip=false)
 {
     std::array<std::string,3> parts;
     parts[0]="q\n";
@@ -55,7 +56,8 @@ inline original create(size_t repeats,unsigned primitive,unsigned clip,bool even
         if(primitive==3u)part+=a+" "+b+" y\n";
     }
     for(size_t i=0u;i<zero_commands;++i)parts[2]+="2 10 l\n";
-    parts[2]+=even?"h f*\n":"h f\n";
+    parts[2]+=as_clip?(even?"h W* n\n":"h W n\n"):(even?"h f*\n":"h f\n");
+    if(as_clip)parts[2]+="0 0 12 12 re f\n";
     parts[2]+=clip==4u?"Q Q\n":"Q\n";
     if(restore)parts[2]+="0.8 0.2 0.4 rg 0 0 2 2 re f\n";
     if(invalid==1)parts[2]+="Q\n";
@@ -64,12 +66,13 @@ inline original create(size_t repeats,unsigned primitive,unsigned clip,bool even
     if(invalid==4)parts[2]+="/Missing sh\n";
     original result;result.repeats=repeats;result.clip=clip;result.even=even;result.restore=restore;
     result.commands=4u*repeats+1u+zero_commands;result.operations=restore?2u:1u;
+    if(as_clip) {result.clip_commands=result.commands;result.commands=5u;}
     encode(result,parts,unsigned(repeats+primitive),encrypted);return result;
 }
 
 // Multiple original subpaths share ONE fill. No per-contour compositing.
 inline original create_contours(size_t count,unsigned primitive,unsigned clip,bool even,
-    bool restore,bool encrypted,size_t zeros=0u,unsigned layout=0u,unsigned closing=0u,int invalid=0)
+    bool restore,bool encrypted,size_t zeros=0u,unsigned layout=0u,unsigned closing=0u,int invalid=0,bool as_clip=false)
 {
     original result;result.clip=clip;result.even=even;result.restore=restore;
     result.operations=restore?2u:1u;
@@ -121,7 +124,9 @@ inline original create_contours(size_t count,unsigned primitive,unsigned clip,bo
         out+="q 1 0 0 1 0 0 cm Q\n";
     }
     result.commands+=zeros;
-    parts[2]+=even?"f*\n":"f\n";parts[2]+=clip==4u?"Q Q\n":"Q\n";
+    if(as_clip) {parts[2]+=even?"W* n\n":"W n\n";parts[2]+="0 0 12 12 re f\n";result.clip_commands=result.commands;result.commands=5u;}
+    else parts[2]+=even?"f*\n":"f\n";
+    parts[2]+=clip==4u?"Q Q\n":"Q\n";
     if(restore)parts[2]+="0.8 0.2 0.4 rg 0 0 2 2 re f\n";
     if(invalid==1)parts[2]+="Q\n";
     if(invalid==2)parts[2]+="/Missing Do\n";

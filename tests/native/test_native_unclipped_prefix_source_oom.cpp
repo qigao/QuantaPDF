@@ -784,6 +784,8 @@ static bool source_failures(const scenario& sc)
     CHECK(cleared(recovered));
     return true;
 }
+#include "native_source_fill_equivalence.h"
+
 static bool bounded_prefix_refusals()
 {
     const std::string p=paint_source(paint::red_path),i=paint_source(paint::red_image);
@@ -795,8 +797,9 @@ static bool bounded_prefix_refusals()
         p+a+b+p+"Q "+clip+"W n Q", /* third definition after restored first */
         p+p+p+a+p+p+"Q", /* fifth PATH */
         i+a+i+b+i+"Q Q", /* two GS plus prefix needs three Images */
-        p+"q 2 2 10 7 re 4 3 3 2 re W n "+p+"Q", /* ten Clip commands */
     };
+    CHECK(source_fill_equivalent(p+"q 2 2 10 7 re 4 3 3 2 re W n "+p+"Q",
+        p+"1 0 0 rg 2 2 10 7 re f",cases[9]));
     for(const auto& content:{i+p+i+a+p+"Q",p+i+p+a+i+"Q"}) {
         quantapdf_ir ir{};
         CHECK(source(original_pdf(content,cases[9],false),source_budget,ir)==QUANTAPDF_OK && ir.operation_count==4u);

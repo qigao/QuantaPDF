@@ -351,6 +351,29 @@
   本地 ptrace 环境关闭 leak，默认 leak 与平台结果仍须核对精确 HEAD 的云端 CI。
   这不是任意 DPI/affine、完整 Stroke 或通用 Clip 图的完成声明。
 
+### A2 单根 Clip 的动态路径几何
+
+- 单根 `W/W* n` 直接保留当前动态路径的全部非退化轮廓和绕行；删除 Source
+  的九条命令/两个轮廓准入及发布时的嵌套矩形十条特例。原始路径的解释、隐式闭合、
+  q/Q 与定义时坐标仍由同一内容解释器处理，IR 独立拥有命令和 winding rule。
+- 沿用现有 C11 Scene 的动态命令快照、flatten、Clip 采样和直接 n/16 合成。
+  没有新增 API、profile、route、兼容层或解析器，也没有提高实际边数/采样/像素/
+  峰值字节预算。长零长度边保留命令并计内存，不增加覆盖或虚构边数。
+- `quantapdf.native_clip_paths` 复用公开测试可执行文件，验证长绕行、1/2/3/17/65
+  条轮廓、孔洞/岛/重叠/分离、非零/奇偶、line/cubic/v/y、显式/隐式闭合和 signed re，
+  包括 8192 条零长度命令；948 次完整 RGB 逐字节核对独立有理数参考，另核对
+  10 项原子失败。
+  覆盖 72/96/144 DPI、多编码 Contents、AES-256/错误密码、第二页、q/Q 后独立
+  绘制和 Document/Page/Context 释放后的 Bitmap；晚到语法/资源/未实现操作及真实
+  边数超预算仍须空输出失败。
+- `quantapdf.native_clip_paths_oom` 复用 Source/OOM 可执行文件，逐个拒绝实际
+  vector 扩容（312 次）、IR 发布（132 次）与 C11 分配（80 次），核对 NOMEM、
+  空 IR/receipt/像素以及不可变源，执行 160 项预算边界检查。
+  字节/流/操作/边/采样/像素/峰值内存执行 N/N−1 检查；释放 qpdf/input owner、
+  改写包括长尾在内的 Clip 命令和 GS 绑定后，编译快照及独立 RGBA 仍有效。
+- 此增量是单根 Clip 几何的扩展。双 Clip 的短叶/固定发布、通用 nested/sibling
+  图、BT 后 Clip 定义、退化路径与一般 Stroke、任意 affine/DPI 仍开放；不表示 A2 完成。
+
 ## 单一执行模型
 
 ```mermaid

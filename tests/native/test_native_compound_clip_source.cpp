@@ -705,13 +705,6 @@ static int atomic_refusals()
     const std::string prefix=one_prefix(compound,true);
     const std::string ready=prefix+full_red+"Q";
     const std::vector<std::string> bad={
-        /* Two re contours are ten commands, even though each is valid. */
-        "q 2 2 12 8 re 6 4 4 3 re W n "+full_red+"Q",
-        "q "+outer_rectangle+" 6 4 m 10 4 l 8 7 l 7 6 l h W n "+
-            full_red+"Q",
-        "q "+outer_rectangle+" 6 4 m 10 4 l 8 7 l 7 6 l W n "+
-            full_red+"Q", /* implicit close would be command ten */
-        "q "+compound+" "+empty_point+" W n "+full_red+"Q",
         "q "+outer_triangle+" 8 8 m h W n "+full_red+"Q",
         "q "+outer_triangle+" 8 8 m 10 8 l h W n "+full_red+"Q",
         "q "+outer_triangle+" 8 8 m 10 8 l W n "+full_red+"Q",
@@ -743,6 +736,14 @@ static int atomic_refusals()
         CHECK(equal(actual,reference) && ink_and_white(actual));
     }
     const std::pair<std::string,std::string> admitted[]={
+        {"q "+compound+" "+empty_point+" W n "+full_red+"Q",
+         one_prefix(compound)+full_red+"Q"},
+        {"q 2 2 12 8 re 6 4 4 3 re W n "+full_red+"Q",
+         one_prefix(outer_rectangle)+full_red+"Q"},
+        {"q "+outer_rectangle+" 6 4 m 10 4 l 8 7 l 7 6 l h W n "+full_red+"Q",
+         one_prefix(outer_rectangle)+full_red+"Q"},
+        {"q "+outer_rectangle+" 6 4 m 10 4 l 8 7 l 7 6 l W n "+full_red+"Q",
+         one_prefix(outer_rectangle)+full_red+"Q"},
         {"q 2 2 m 14 2 l 8 10 l "+inner_triangle+" W n "+full_red+"Q",
          one_prefix(compound)+full_red+"Q"},
         {"1 0 0 rg "+compound+" f","1 0 0 rg "+outer_triangle+" f"},
