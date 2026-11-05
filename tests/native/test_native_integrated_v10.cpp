@@ -253,6 +253,7 @@ struct case_data {
     bool blank;
 };
 static const case_data cases[]={
+    {"","12 10 0 -6 re f",false,true},
     {"",
      "0 w 0 J 0 j 1 M [] 0 d 0 G 0 0 0 RG 0 0 0 1 K 2 2 3 3 re n",false,true},
     {"1 0 0 rg 4 4 8 6 re f",
@@ -311,7 +312,6 @@ static int negative()
         "0 w 12 10 -8 -6 re f Q",
         "12 10 -8 -6 re W 1 M n",
         "q 20 15 -8 -9 re W n q 16 0 0 12 8 3 cm /Missing Do Q Q",
-        "12 10 0 -6 re f",
         "0 G 2 2 3 3 re n 12 10 -8 -6 re f 1 n",
         "1 0 0 rg 12 10 -8 -6 re f q 16 0 0 12 8 3 cm /I Do Q S",
         "q 20 15 -8 -9 re W* n q 16 0 0 12 8 3 cm /I Do Q Q 0 0 2 RG",
@@ -540,6 +540,14 @@ static int active_crop_rejection_cases()
     const std::string clipped=
         "q 20 15 -8 -9 re W* n q 16 0 0 12 8 3 cm /I Do Q Q";
     for(int crop_mode:{1,2}) {
+        for(int dpi:{72,96,144}) {
+            std::vector<unsigned char> reference,zero_area;
+            CHECK(render(literal_original("1.25",box,crop_mode,0,painted,false,crop),
+                5,0,dpi,reference,16,16)==EXIT_SUCCESS);
+            CHECK(render(literal_original("1.25",box,crop_mode,0,painted+" 12 10 -0 -6 re f",false,crop),
+                5,0,dpi,zero_area,16,16)==EXIT_SUCCESS);
+            CHECK(reference==zero_area);
+        }
         const std::vector<std::string> invalid={
             literal_original("1.25",box,crop_mode,0,painted,false,bad_crop),
             literal_original("1.250000000000000001",box,crop_mode,0,painted,false,crop),
@@ -547,7 +555,6 @@ static int active_crop_rejection_cases()
             literal_original("1.25",box,crop_mode,0,painted+" S",false,crop),
             literal_original("1.25",box,crop_mode,0,painted+" 2 G",false,crop),
             literal_original("1.25",box,crop_mode,0,painted+" 1 n",false,crop),
-            literal_original("1.25",box,crop_mode,0,painted+" 12 10 -0 -6 re f",false,crop),
             literal_original("1.25",box,crop_mode,0,painted+" 0 1 1 0 k",false,crop),
             literal_original("1.25",box,crop_mode,0,painted+" [0 0] 0 d",false,crop),
             literal_original("1.25",box,crop_mode,0,clipped+" 1 M S",true,crop)

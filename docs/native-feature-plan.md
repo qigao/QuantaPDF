@@ -377,6 +377,41 @@
 - 此增量是单根 Clip 几何的扩展。双 Clip 的短叶/固定发布、通用 nested/sibling
   图、BT 后 Clip 定义、退化路径与一般 Stroke、任意 affine/DPI 仍开放；不表示 A2 完成。
 
+### A2 Fill 的闭合、当前点与零面积路径
+
+- 普通 Fill 解释段与 C11 路径状态同步遵循闭合语义：`h` 保留原起点为当前点，
+  重复 `h` 不增加边，后续 `l/c/v/y` 从该点开始新的子路径。Source 保留实际 CLOSE
+  与后续命令，不插入另一套解析或按图形组合选择 route；`v` 的第一控制点直接继承
+  已暂存的当前点，不重新应用后来变化的 CTM。依据为 PDF 32000-1:2008 的表 59，
+  以及 [PDF Reference 1.7 §4.4](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf)。
+- 普通 Path 的端点与 cubic 控制点使用同一有限四分之一点坐标包络，不再要求
+  完整 Media 页面的点位于可见页内。曲线保留实际页外控制点，C11 在采样时裁剪
+  可见覆盖；没有先夹紧或改写曲线，也没有扩大 C11 的坐标/实际工作预算。
+- MOVE-only、单线、单个 cubic、零宽/高 `re` 与被后续 `m` 替代的空子路径可闭合；
+  `f/f*` 聚合所有轮廓的真实 winding，零面积子路径不产生颜色。空路径的 `f/f*`
+  没有保留绘制；C11 删除在 Fill/Clip 间切换空几何准入的多余参数，直接按 winding
+  处理。实际命令、边、采样、像素与内存预算继续生效。一般 Stroke 与
+  Clip 的固定组合/短轮廓分类没有借此宣称完成。
+- `native_empty_subpaths`、`native_close_current_point`、`native_continued_subpaths`
+  复用现有公开测试可执行文件，分组保持各项 45 秒期限；以独立矩形有理数参考核对
+  完整 RGB，覆盖非零/奇偶、c/v/y、正反绕行抵消、隐式新子路径、空 f/f*、Clip、q/Q、
+  h 后改变 CTM、三个 DPI、多编码 Contents、AES-256/错误密码、第二页及 Document/Page/Context
+  释放后的 Bitmap。真实单 cubic 的例子完整包围原始矩形 Clip，核对其内部实际覆盖，
+  不把 renderer 输出当作 golden，也不声称任意曲线边缘的精确像素一致性。
+- 原四分之一点非矩形 Clip 拒绝已升级：直边梯形与原始 glyph mask 的逐样本
+  有理数参考比较完整 RGB，曲线 Clip 与等价的平移构建/恢复 CTM 原件比较全 RGB。
+  后者是几何等价验证，不宣称任意曲线边缘的解析像素一致性；真实前后绘制顺序保留。
+- `native_path_state_oom` 复用 Source/OOM 可执行文件，拒绝实际 vector 扩容、
+  IR 发布和 C11 分配，核对空失败结果、不可变 IR、预算 N/N−1、释放 qpdf/input
+  owner 与改写命令后的深快照。含长命令尾部、退化前缀和单 cubic Fill。
+- 旧 signed re 的零面积/跨 Media 拒绝升级为独立有理数全 RGB；完整 Media 下的
+  页外控制点、零面积 Clip 交集与不同作用域中的重复 h 升级为完整像素对照。
+  原 cubic Fill 的页外 c/y 与等价平移构建比较，h 后 c/v/y 与显式新 MOVE 比较，
+  完全位于视口外的曲线核对白页；覆盖两种 winding、UserUnit、旋转与三个 DPI。
+- BT 后路径仍待统一解释，一般 Clip 图、Stroke、任意 affine/DPI 继续开放。
+  本轮本地工具链被工作区维护清理，未宣称本地编译或运行通过；验收使用现有
+  LLVM/LLVM-MinGW 四配置 CI、ccache 和依赖组织，不建立工具链探测或 consumer 工程。
+
 ## 单一执行模型
 
 ```mermaid

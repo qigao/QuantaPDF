@@ -543,6 +543,11 @@ static int atomic_refusals()
     const std::string ready=pair_image(curve_a,curve_b);
     const std::string prefix=pair_prefix(curve_a,curve_b);
     const std::string path_fill="0 0 1 rg 4 4 8 6 re f ";
+    for(int crop:{0,1,2,3})for(int dpi:{72,96,144}) {
+        configuration cfg;cfg.crop=crop;cfg.dpi=dpi;rendered empty;
+        CHECK(render(original("q W n 8 4 0 12 re W* n "+image_draw+" Q",cfg),cfg,empty)==EXIT_SUCCESS);
+        CHECK(all_white(empty));
+    }
     const std::vector<std::string> bad={
         "q "+curve_a+" W n "+curve_b+" W* "+image_draw+" Q",
         "q "+curve_a+" W n "+curve_b+" W* W n "+image_draw+" Q",
@@ -560,10 +565,10 @@ static int atomic_refusals()
         "q "+curve_a+" W n q "+curve_b+" W n "+image_draw+
             " Q "+curve_a+" W n Q", /* third definition after Q to leaf 1 */
         /* Empty second leaves and empty+rectangle now qualify; malformed
-         * n operands and zero-width original re still fail atomically. */
+         * n operands still fail atomically. */
         "q "+curve_a+" W n W* 1 n "+image_draw+" Q",
-        "q W n 8 4 0 12 re W* n "+image_draw+" Q",
-        /* Straight pairs now qualify, but l cannot follow a closed h. */
+        /* The remaining two-leaf publisher still requires explicit MOVE
+         * contours; its short-leaf grammar does not publish this sequence. */
         "q 4 4 m 20 4 l 16 16 l 4 12 l h 8 8 l W n "
             "8 4 12 12 re W* n "+image_draw+" Q",
         /* Implicit closing does not enlarge the nine-command ceiling. */

@@ -578,6 +578,11 @@ static int atomic_refusals()
     const std::string ready=a+b;
     const std::string first=one_prefix(rectangle_a);
     const std::string second=one_prefix(rectangle_b);
+    for(int crop:{0,1,2,3})for(int dpi:{72,96,144}) {
+        configuration cfg;cfg.crop=crop;cfg.dpi=dpi;rendered actual,reference;
+        CHECK(render(original(a+"q 2 2 m 14 2 l 8 10 l h h W n "+full_blue+"Q",cfg),cfg,actual)==EXIT_SUCCESS);
+        CHECK(render(original(a+"q 2 2 m 14 2 l 8 10 l h W n "+full_blue+"Q",cfg),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
+    }
     const std::vector<std::string> bad={
         first+"Q "+b, /* first leaf never painted */
         a+second+"Q", /* second leaf never painted */
@@ -597,7 +602,6 @@ static int atomic_refusals()
         a+second+"0 0 1 rg "+compound+" f Q", /* compound painted PATH */
         a+"q 2 2 12 8 re 6 4 4 3 re W n "+full_blue+"Q", /* 10 commands */
         a+"q "+compound+" "+empty_point+" W n "+full_blue+"Q",
-        a+"q 2 2 m 14 2 l 8 10 l h h W n "+full_blue+"Q",
         a+"q "+outer_triangle+" 8 8 m 10 8 l h W n "+full_blue+"Q",
         a+"q 2.125 2 m 14 2 l 8 10 l h W n "+full_blue+"Q",
         a+"q 2 2 m 14 2 l 8 -1000001 l h W n "+full_blue+"Q",

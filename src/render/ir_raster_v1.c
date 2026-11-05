@@ -46,7 +46,7 @@ typedef struct qp_flatten {
     qp_edge *edges;
     size_t count, capacity;
     qp_point_d current, start;
-    int active;
+    int active, closed;
     double coordinate_units;
     double a, b, c, d, e, f;
 } qp_flatten;
@@ -148,8 +148,11 @@ static quantapdf_status qp_close_subpath(qp_flatten *flat)
     quantapdf_status status;
     if (!flat->active)
         return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (flat->closed)
+        return QUANTAPDF_OK;
     status = qp_add_edge(flat, flat->current, flat->start);
-    flat->active = 0;
+    flat->current = flat->start;
+    flat->closed = 1;
     return status;
 }
 
@@ -163,7 +166,7 @@ static quantapdf_status qp_flatten_path(
         quantapdf_status status = QUANTAPDF_OK;
         switch (cmd->kind) {
         case QUANTAPDF_COMPOSER_PATH_MOVE_TO:
-            if (flat->active) {
+            if (flat->active && !flat->closed) {
                 status = qp_close_subpath(flat);
                 if (status != QUANTAPDF_OK)
                     return status;
@@ -173,10 +176,15 @@ static quantapdf_status qp_flatten_path(
                 return status;
             flat->current = flat->start = p;
             flat->active = 1;
+            flat->closed = 0;
             break;
         case QUANTAPDF_COMPOSER_PATH_LINE_TO:
             if (!flat->active)
                 return QUANTAPDF_ERROR_UNSUPPORTED;
+            if (flat->closed) {
+                flat->start = flat->current;
+                flat->closed = 0;
+            }
             status = qp_transform_point(flat, cmd->point1, &p);
             if (status != QUANTAPDF_OK)
                 return status;
@@ -186,6 +194,10 @@ static quantapdf_status qp_flatten_path(
         case QUANTAPDF_COMPOSER_PATH_CUBIC_TO:
             if (!flat->active)
                 return QUANTAPDF_ERROR_UNSUPPORTED;
+            if (flat->closed) {
+                flat->start = flat->current;
+                flat->closed = 0;
+            }
             status = qp_transform_point(flat, cmd->point1, &p);
             if (status == QUANTAPDF_OK)
                 status = qp_transform_point(flat, cmd->point2, &q);
@@ -205,7 +217,7 @@ static quantapdf_status qp_flatten_path(
         if (status != QUANTAPDF_OK)
             return status;
     }
-    if (flat->active)
+    if (flat->active && !flat->closed)
         return qp_close_subpath(flat);
     return QUANTAPDF_OK;
 }
@@ -280,7 +292,7 @@ static quantapdf_status qp_expand_rect_stroke_ring(
 static quantapdf_status qp_admit_draw(
     const quantapdf_composer_operation *op, qp_flatten *flat,
     const double *device, qp_raster_draw *out,
-    int allow_empty_clip,int fractional_stroke_optin)
+    int fractional_stroke_optin)
 {
     const quantapdf_composer_path_operation *path = &op->value.path;
     const quantapdf_composer_path_options *opt = &path->options;
@@ -345,6 +357,7 @@ static quantapdf_status qp_admit_draw(
     flat->a = flat->d = 1.0;
     flat->b = flat->c = flat->e = flat->f = 0.0;
     flat->active = 0;
+    flat->closed = 0;
     {
         const quantapdf_affine_transform *t = &opt->transform;
         int zero = t->a == 0 && t->b == 0 && t->c == 0 &&
@@ -456,11 +469,9 @@ static quantapdf_status qp_admit_draw(
             return status;
         }
     }
-    /* A valid Clip PATH may contain only MOVE_TO or degenerate edges.
-     * Its geometric intersection is empty: accept it as a zero-edge Clip
-     * instead of treating it as a malformed resource. Painted paths must
-     * still contain geometry. Sample-wise winding of zero edges is false. */
-    if ((flat->count == first && !allow_empty_clip) ||
+    /* Fill and Clip share winding, including zero-area subpaths. An empty
+     * edge set covers no samples. Stroke keeps its actual geometry limits. */
+    if ((flat->count == first && stroke) ||
         (stroke && !rect_stroke &&
          !(fractional_closed ?
            (flat->count-first>=64u && flat->count-first<=256u) :
@@ -1682,7 +1693,7 @@ static quantapdf_status qp_geometry_compile(
         } else {
             status = qp_admit_draw(op, &flatten,
                 path_device, &draws[draw_count],
-                ordered_scene?1:0,visible_work_optin==3?1:
+                visible_work_optin==3?1:
                   (physical_dpi?3:(bounded_curved_stroke || exact_texample)?2:0));
         }
         if (status != QUANTAPDF_OK) {
@@ -1747,7 +1758,7 @@ static quantapdf_status qp_geometry_compile(
             status=QUANTAPDF_OK;
         } else {
             status = qp_admit_draw(&clip_op, &flatten,
-                path_device, &clip_draws[ci],1,0);
+                path_device, &clip_draws[ci],0);
         }
         if (status != QUANTAPDF_OK) {
             goto cleanup;

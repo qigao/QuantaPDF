@@ -439,7 +439,8 @@ struct admission {
         admit(painted_paths.size()<allowed_paths &&
               (texample_path ||
                (three_path && is_stroke && commands.size()==2u) ||
-               (commands.size()>=4u && (!is_stroke || commands.size()<=9u))) &&
+               (!commands.empty() && (!is_stroke ||
+                (commands.size()>=4u && commands.size()<=9u)))) &&
               (ordered_scene() || !clip_completed || order.size()<hard_operations) &&
               limits.max_operations>=
                    order.size()+1u,
@@ -1235,8 +1236,9 @@ public:
             }
         } else if(op=="l") {
             admit(args.size()==2u && !pending_path.empty() &&
-                  !closed,
+                  !clip_pending,
                   QUANTAPDF_ERROR_UNSUPPORTED);
+            resume_contour();
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,
                          finite_number(args[0]),finite_number(args[1]));
         } else if(op=="c") {
@@ -1248,7 +1250,7 @@ public:
              * consume these same original cubic commands. */
             admit(args.size()==6u &&
                   (target.texample_original_profile ||
-                   (!pending_path.empty() && !closed && !clip_pending)),
+                   (!pending_path.empty() && !clip_pending)),
                   QUANTAPDF_ERROR_UNSUPPORTED);
             std::array<double,6u> xy{};
             for(size_t i=0u;i<6u;++i)
@@ -1261,7 +1263,7 @@ public:
              * Expand into the SAME staged CUBIC_TO command; do not
              * introduce a second curve interpreter or renderer. */
             admit(args.size()==4u && !pending_path.empty() &&
-                  !closed && !clip_pending,
+                  !clip_pending,
                   QUANTAPDF_ERROR_UNSUPPORTED);
             std::array<double,4u> xy{};
             for(size_t i=0u;i<4u;++i)
@@ -1270,7 +1272,7 @@ public:
         } else if(op=="h") {
             admit(args.empty() &&
                   (target.texample_original_profile ||
-                   (pending_path.size()>=contour_start+3u && !closed)),
+                   (!pending_path.empty() && !clip_pending)),
                   QUANTAPDF_ERROR_UNSUPPORTED);
             if(target.texample_original_profile) {
                 texample_close();
@@ -1282,9 +1284,6 @@ public:
             const double x=finite_number(args[0]), y=finite_number(args[1]);
             const double w=finite_number(args[2]), h=finite_number(args[3]);
 
-            admit((w>0.0 && h>0.0) ||
-                  (w!=0.0 && h!=0.0),
-                  QUANTAPDF_ERROR_UNSUPPORTED);
             /* Single-root Fill coordinates use the same source lattice with
              * or without Text. The remaining two-root Text handoff retains
              * its current geometry admission. */
@@ -1398,8 +1397,10 @@ public:
                 target.texample_stage=2u;
                 texample_clear_group();
             } else {
-            admit(args.empty() && pending_path.size()>=3u,
+            admit(args.empty() && !clip_pending,
                   QUANTAPDF_ERROR_UNSUPPORTED);
+            // Painting an empty path has no coverage or retained operation.
+            if(pending_path.empty())return;
             if(target.three_branch_candidate)
                 admit(op=="f" && target.painted_paths.size()>=1u &&
                       target.painted_paths.size()<=2u &&
@@ -1748,6 +1749,14 @@ private:
         contour_count=0u;
         closed=false;
     }
+    void resume_contour()
+    {
+        if(!closed)return;
+        // h retains the original starting point. A following segment begins
+        // a new subpath there, even when q/Q or cm changed the current CTM.
+        closed=false;
+        ++contour_count;
+    }
     static bool read_strict_rect(
         const std::vector<quantapdf_composer_path_command>& path,
         std::array<float,4u>& bounds)
@@ -1866,12 +1875,10 @@ private:
             if(!target.ordered_scene())target.text_prefix_precision=true;
             return {static_cast<float>(absolute_x),static_cast<float>(py)};
         }
-        const double ix=target.crop_viewport?
-            whole_signed_source(absolute_x):
-            (double)whole(absolute_x,target.page_w);
-        const double iy=target.crop_viewport?
-            whole_signed_source(absolute_y):
-            (double)whole(absolute_y,target.page_h);
+        // Path endpoints and Bezier controls may lie outside the viewport.
+        // Keep their geometry; the native sampler clips visible coverage.
+        const double ix=whole_signed_source(absolute_x);
+        const double iy=whole_signed_source(absolute_y);
         return {static_cast<float>(ix),static_cast<float>(
             (target.exact_page_h>0.0?
                 target.exact_page_h:(double)target.page_h)-iy)};
@@ -1889,8 +1896,7 @@ private:
     {
         /* Do not publish a partially admitted cubic command. All
          * three individually transformed points must pass first. */
-        admit(!pending_path.empty() && !closed && !clip_pending,
-              QUANTAPDF_ERROR_UNSUPPORTED);
+        resume_contour();
         quantapdf_composer_path_command cmd={};
         cmd.kind=QUANTAPDF_COMPOSER_PATH_CUBIC_TO;
         cmd.point1=stage_point(xy[0],xy[1]);
@@ -1902,12 +1908,13 @@ private:
     void append_cubic_shorthand(const std::string& op,
                                 const std::array<double,4u>& xy)
     {
-        admit(!pending_path.empty() && !closed && !clip_pending &&
-              (op=="v" || op=="y"),QUANTAPDF_ERROR_UNSUPPORTED);
+        resume_contour();
         const auto& previous=pending_path.back();
         quantapdf_point current_point{};
         if(previous.kind==QUANTAPDF_COMPOSER_PATH_CUBIC_TO)
             current_point=previous.point3;
+        else if(previous.kind==QUANTAPDF_COMPOSER_PATH_CLOSE)
+            current_point=pending_path[contour_start].point1;
         else {
             admit(previous.kind==QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
                   previous.kind==QUANTAPDF_COMPOSER_PATH_LINE_TO,
@@ -1930,8 +1937,8 @@ private:
     }
     void close_path()
     {
-        admit(pending_path.size()>=contour_start+3u && !closed,
-              QUANTAPDF_ERROR_UNSUPPORTED);
+        // Repeated h is a no-op; MOVE-only and single-edge subpaths close too.
+        if(closed)return;
         // An authored return line already contributes the closing edge.
         // Replace only that redundant final line; curves retain all controls.
         const auto& first=pending_path[contour_start];

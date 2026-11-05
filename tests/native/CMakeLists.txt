@@ -71,6 +71,18 @@ add_test(NAME quantapdf.native_composer_geometry
   COMMAND quantapdf_native_public_render --composer-geometry)
 set_tests_properties(quantapdf.native_composer_geometry PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;public-api;composer;current-api")
+add_test(NAME quantapdf.native_empty_subpaths
+  COMMAND quantapdf_native_public_render --empty-subpaths)
+set_tests_properties(quantapdf.native_empty_subpaths PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;public-api;path-state")
+add_test(NAME quantapdf.native_close_current_point
+  COMMAND quantapdf_native_public_render --close-current-point)
+set_tests_properties(quantapdf.native_close_current_point PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;public-api;path-state")
+add_test(NAME quantapdf.native_continued_subpaths
+  COMMAND quantapdf_native_public_render --continued-subpaths)
+set_tests_properties(quantapdf.native_continued_subpaths PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;public-api;path-state")
 add_test(NAME quantapdf.native_clip_paths
   COMMAND quantapdf_native_public_render --clip-paths)
 set_tests_properties(quantapdf.native_clip_paths PROPERTIES
@@ -261,6 +273,10 @@ add_test(NAME quantapdf.native_source_stage_oom
 set_tests_properties(quantapdf.native_source_stage_oom PROPERTIES
   TIMEOUT 40 LABELS "conformance;native;no-pdfium;source-staging;oom")
 
+add_test(NAME quantapdf.native_path_state_oom
+  COMMAND quantapdf_native_source_stage_oom --path-state)
+set_tests_properties(quantapdf.native_path_state_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;source-staging;path-state;oom")
 add_test(NAME quantapdf.native_clip_paths_oom
   COMMAND quantapdf_native_source_stage_oom --clip-paths)
 set_tests_properties(quantapdf.native_clip_paths_oom PROPERTIES
@@ -313,9 +329,8 @@ add_test(NAME quantapdf.native_source_m2a_oom
 set_tests_properties(quantapdf.native_source_m2a_oom PROPERTIES
   TIMEOUT 40 LABELS "conformance;native;no-pdfium;source-staging;oom;m2a")
 
-# Public Source V10 standard PDF 'n': discard a bounded path without
-# ink, Clip or a new C11 layer. Original QPDF PDFs, no provider fallback
-# and unchanged private V8/V9 source contracts.
+# PDF 'n' discards the current path without adding paint or changing Clip.
+# Authored qpdf documents exercise the current Source and single C11 raster.
 add_executable(quantapdf_native_unpainted_n
   test_native_unpainted_n.cpp)
 target_compile_features(quantapdf_native_unpainted_n PRIVATE cxx_std_20)

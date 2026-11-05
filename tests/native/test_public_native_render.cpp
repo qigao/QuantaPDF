@@ -816,7 +816,7 @@ static int native_m2b2j_public_fractional(const std::string& filename)
         native_ttf_fractional_reference expected;
     };
     std::vector<held_clip_bitmap> retained_scopes;
-    for(int mode:{83,84,99,100,105,106,113,114,126,127,144,145,146,147,148,168,169}) {
+    for(int mode:{83,84,99,100,103,105,106,113,114,126,127,144,145,146,147,148,168,169}) {
         const bool compound=mode==126 || mode==127 || mode==144 || mode==145 || mode==146;
         const bool reverse=mode==147 || mode==148 || mode==168 || mode==169;
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
@@ -865,7 +865,7 @@ static int native_m2b2j_public_fractional(const std::string& filename)
     }
     /* Remaining malformed scopes and unsupported Source geometry fail
      * atomically. Reverse siblings use the same scene and public Bitmap. */
-    for(int mode:{101,102,103,104,107,108,109,110,111,112,
+    for(int mode:{101,102,104,107,108,109,110,111,112,
                   115,116,117,118,119,120,121,122,123,124,125,
                   128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,
                   149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167}) {
@@ -875,12 +875,34 @@ static int native_m2b2j_public_fractional(const std::string& filename)
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(document,0,&page));
         for(unsigned dpi:{72u,96u,144u}) {
-            if(dpi!=96u)continue;
+            if(dpi!=96u && mode!=104)continue;
             quantapdf_render_options options{};
             options.dpi=(float)dpi;
             quantapdf_bitmap *denied=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
             const auto status=quantapdf_render_page_with_options(page,&options,&denied);
-            if(mode==111 || mode==112) {
+            if(mode==104) {
+                CHECK(status==QUANTAPDF_OK && denied!=nullptr);
+                const unsigned char *bytes=nullptr;size_t size=0u;
+                OK(quantapdf_bitmap_data(denied,&bytes,&size));
+                const std::vector<unsigned char> original(bytes,bytes+size);
+                quantapdf_drop_bitmap(denied);
+                // Same authored cubic, translated construction coordinates;
+                // restore the CTM before Text/Fill/Image. Compare every byte.
+                CHECK(write_pdf(filename,native_ttf_fixture(104,true)));
+                quantapdf_document *other_doc=nullptr;quantapdf_page *other_page=nullptr;
+                quantapdf_bitmap *other=nullptr;
+                OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&other_doc));
+                CHECK(std::remove(filename.c_str())==0);OK(quantapdf_load_page(other_doc,0,&other_page));
+                quantapdf_close(other_doc);OK(quantapdf_render_page_with_options(other_page,&options,&other));
+                quantapdf_drop_page(other_page);
+                int width=0,height=0,stride=0,components=0;
+                OK(quantapdf_bitmap_dimensions(other,&width,&height,&stride,&components));
+                CHECK(width==int((128u*dpi+71u)/72u) && height==int((64u*dpi+71u)/72u) &&
+                    stride==width*3 && components==3);
+                OK(quantapdf_bitmap_data(other,&bytes,&size));
+                CHECK(size==original.size() && std::memcmp(bytes,original.data(),size)==0);
+                quantapdf_drop_bitmap(other);
+            } else if(mode==111 || mode==112) {
                 CHECK(status==QUANTAPDF_OK && matches(denied,native_ttf_fractional_expected(mode,dpi)));
                 quantapdf_drop_bitmap(denied);
             } else {
@@ -4133,6 +4155,12 @@ int main(int argc,char **argv)
     // Each CTest invocation owns its input path, including parallel runs.
     const std::string filename=std::string("native-public-")+
         (argc>1?argv[1]:"render")+".pdf";
+    if(argc==2 && std::strcmp(argv[1],"--empty-subpaths")==0)
+        return path_commands_cases(filename,true,6u);
+    if(argc==2 && std::strcmp(argv[1],"--close-current-point")==0)
+        return path_commands_cases(filename,true,7u);
+    if(argc==2 && std::strcmp(argv[1],"--continued-subpaths")==0)
+        return path_commands_cases(filename,true,8u);
     if(argc==2 && std::strcmp(argv[1],"--clip-paths")==0)
         return path_commands_cases(filename,true,3u);
     if(argc==2 && std::strcmp(argv[1],"--path-boundaries")==0)
