@@ -460,13 +460,10 @@ static bool source_failures(bool two)
     /* Clip reentry cannot replace the single immutable GS identity. */
     CHECK(atomic_rejection(original_pdf(content+clip_prefix(false)+
         "0 0 1 rg 4 2 6 6 re f Q",true),source_budget));
-    /* Every paint after Q would leave the Clip unused: first paint must
-     * have belonged to the admitted clipped prefix. */
-    if(two) {
-        CHECK(atomic_rejection(original_pdf(clip_prefix(true)+"Q 0 1 0 rg 12 9 3 2 re f",true),source_budget));
-    } else {
+    /* Unobserved definitions are pruned, including both nested leaves. */
+    {
         quantapdf_ir unused{};
-        CHECK(source(original_pdf(clip_prefix(false)+"Q 0 1 0 rg 12 9 3 2 re f",true),source_budget,unused)==QUANTAPDF_OK &&
+        CHECK(source(original_pdf(clip_prefix(two)+"Q 0 1 0 rg 12 9 3 2 re f",true),source_budget,unused)==QUANTAPDF_OK &&
               unused.operation_count==1u && unused.operations[0].graphics_state_id==0u && unused.resources.clip_count==0u);
         quantapdf_ir_dispose(&unused);CHECK(cleared(unused));
     }

@@ -186,9 +186,9 @@ static std::vector<case_entry> make_cases()
         {"reject-late-stroke",two+"W* n "+fill_red+
             "4 4 m 28 4 l 16 28 l s ",
             QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
-        {"reject-third-clip",two+"W* n "+fill_red+
+        {"unused-late-clip",two+"W* n "+fill_red+
             "0 0 32 32 re W n ",
-            QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
+            QUANTAPDF_OK,UINT32_C(0xffffff),UINT32_C(0xff0000),false},
         {"reject-missing-gs",two+"W* n /NotThere gs "+fill_red,
             QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
         {"reject-shading",two+"W* n /Missing sh "+fill_red,
@@ -303,10 +303,10 @@ static int test()
     CHECK(bytes!=nullptr && size==held_copy.size() &&
           std::memcmp(bytes,held_copy.data(),size)==0);
     quantapdf_drop_bitmap(held);
-    CHECK(positives==22u && negatives==8u);
-    std::printf("Original generated W/W* contours: 22 full RGB "
+    CHECK(positives==23u && negatives==7u);
+    std::printf("Original generated W/W* contours: 23 full RGB "
                 "positives, "
-                "8 atomic negatives, single C11 renderer\n");
+                "7 atomic negatives, single C11 renderer\n");
     return EXIT_SUCCESS;
 }
 int main()

@@ -488,13 +488,19 @@
   Clip 身份贯穿文字 handoff 和每笔 paint，使用当前 Clip ID 类型，取消八位身份。
   删除固定双叶、sibling/reverse/compound、特定三笔顺序及重复 Clip 栈；普通 Text/Fill/Image
   共用一个发布循环。仅发布绘制观察到的节点和祖先，并保留每个原始叶子的轮廓与规则。
-- 复用公开/Source-OOM 可执行文件，新增三组独立 RGB 和一组故障测试，仍为 45/40 秒。
+- 复用公开/Source-OOM 可执行文件，新增四组公开像素测试和一组故障测试，仍为 45/40 秒。
   660 次完整 RGB 覆盖三、四叶 nested/sibling/fan-out/mixed 图、六种 paint 顺序、实际
   Roboto 字形、RAW Image、Fill、空叶、定义 CTM、65 轮廓、8192 零长度段、257 个未使用
   定义之后的真实身份、深 q/Q、三 DPI、多编码 Contents、AES-256/选页和 Bitmap 生命周期。
   Source 定义/路径/状态扩容、C 发布、C11 malloc、N/N−1、不可变 IR 和编译后改写整个
   Clip 图的深快照均使用实际入口。宽身份场景的重复短路径取首/中/末故障，其余分配
   类别及核心场景按实际分配逐次注入。
+- 34 份旧 TTF 拒绝升级为 90 次独立 glyph-mask/有理数 RGB、12 次明确的曲线/文字
+  构建几何等价，以及 102 个三 DPI detached Bitmap；Source 也执行完整 RGBA 并核对
+  IR 不可变及输出生命周期。纯图形的旧固定状态/叶数/绘制顺序拒绝改为逐笔独立
+  Paint 几何或明确的曲线几何等价，不使用新输出生成 golden；实际私有预算 N/N−1、
+  错误操作数、资源和未实现 paint 仍拒绝。准备阶段的状态位库存量与既有七节点闭包
+  一致；C11 四叶、七节点数组容量未变。
 - C11 Scene 仍限四个可达叶子、七个节点；本轮不提高其固定数组容量。五叶图能发布
   Source IR，但 native 准备明确拒绝且不发布像素。动态 native 图、一般 Stroke/CTM/DPI、
   页面坐标和字体能力继续开放。旧拒绝会按实际语义升级，历史失败保留。

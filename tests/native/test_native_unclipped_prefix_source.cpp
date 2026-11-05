@@ -629,17 +629,22 @@ static int atomic_refusals()
         CHECK(render(original(full_red+"q 2.125 2 m 14 2 l 8 10 l h W n "+full_blue+"Q",cfg),cfg,actual)==EXIT_SUCCESS);
         CHECK(render(original(full_red+"q 1 0 0 1 1 0 cm 1.125 2 m 13 2 l 7 10 l h W n 1 0 0 1 -1 0 cm "+full_blue+"Q",cfg),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
     }
+    const auto ab=paint("0 0 1 rg",rectangle_a),bb=paint("0 0 1 rg",rectangle_b);
+    const auto ag=paint("0 1 0 rg",rectangle_a),ib=paint("0 0 1 rg",rectangle_i),ar=paint("1 0 0 rg",rectangle_a);
+    const std::pair<std::string,std::string> admitted[]={
+        {ready+" "+one_prefix(rectangle_b)+full_blue+"Q "+one_prefix(rectangle_a)+full_blue+"Q",full_red+ab+bb+ab},
+        {full_red+first+full_green+second+full_blue+rectangle_b+" W n Q Q",full_red+ag+ib},
+        {full_red+first+full_green+second+"Q Q",full_red+ag},
+        {full_red+first+full_green+second+full_blue+"Q "+full_green+"Q "+cyan_suffix,full_red+ag+ib+ag+cyan_suffix},
+        {red_image+first+red_image+second+blue_image+"Q Q",full_red+ar+ib}
+    };
+    for(const auto& pair:admitted)for(int dpi:{72,96,144}) {
+        configuration cfg;cfg.dpi=dpi;cfg.crop=dpi==72?0:(dpi==96?2:3);cfg.selected=dpi==144?2:0;
+        rendered actual,reference;
+        CHECK(render(original(pair.first,cfg,pair.first.find(" Do")!=std::string::npos),cfg,actual)==EXIT_SUCCESS);
+        CHECK(render(original(pair.second,cfg),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
+    }
     const std::vector<std::string> bad={
-        ready+" "+one_prefix(rectangle_b)+full_blue+"Q "+
-            one_prefix(rectangle_a)+full_blue+"Q", /* third definition */
-        full_red+first+full_green+second+full_blue+
-            rectangle_b+" W n Q Q", /* third definition */
-        full_red+first+full_green+second+"Q Q", /* second Clip unused */
-        /* Prefix+first+intersection+restored-first+suffix is FIVE. */
-        full_red+first+full_green+second+full_blue+
-            "Q "+full_green+"Q "+cyan_suffix,
-        /* Two-GS IMAGE-only plus a prefix would require three Images. */
-        red_image+first+red_image+second+blue_image+"Q Q",
         full_red+"q 2 2 m 14 2 l 8 -1000001 l h W n "+full_blue+"Q",
         full_red+"q "+rectangle_a+" W "+full_blue+"Q",
         full_red+"q "+rectangle_a+" W 1 n "+full_blue+"Q",

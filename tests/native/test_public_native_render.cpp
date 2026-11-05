@@ -4660,7 +4660,7 @@ int main(int argc,char **argv)
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(image_doc,0,&image_page));
         const auto result=quantapdf_render_page(image_page,&rendered);
-        const bool clipped=mode==5 || mode==9 || mode==11 || mode==12 || mode==13;
+        const bool clipped=mode==5 || mode==9 || mode==11 || mode==12 || mode==13 || mode==16;
         const bool unclipped_images=mode==6 || mode==17 || mode==18 ||
                                    mode==20 || mode==21;
         if(mode>=4 && !clipped && !unclipped_images) {
@@ -4692,6 +4692,14 @@ int main(int argc,char **argv)
             CHECK(w==32 && h==24 && s==96 && c==3 &&
                   bytes==32u*24u*3u && pixels!=nullptr);
             const bool gray=mode==2 || mode==3 || mode==20;
+            if(mode==16) {
+                const unsigned char raw[4][3]={{255,0,0},{0,255,0},{0,0,255},{255,255,0}};
+                for(size_t y=0;y<24u;++y)for(size_t x=0;x<32u;++x)for(size_t channel=0;channel<3u;++channel) {
+                    const bool inside=x>=12u && x<20u && y>=9u && y<18u;
+                    const unsigned char expected=inside?raw[2u*(y>=15u)+(x>=16u)][channel]:255u;
+                    CHECK(pixels[3u*(32u*y+x)+channel]==expected);
+                }
+            }
             if(clipped) {
                 /* The Clip is x=[12,20), page y=[6,15):
                  * original four RAW quadrants are partially visible.
@@ -4927,7 +4935,8 @@ int main(int argc,char **argv)
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&clipped_page));
         const auto st=quantapdf_render_page(clipped_page,&filled);
-        if(mode>=3) {
+        const int reference_mode=mode==3?0:mode;
+        if(mode>=4) {
             const auto rejection=(mode==4 || mode==5)?
                 QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED;
             CHECK(st==rejection && filled==nullptr);
@@ -4947,11 +4956,11 @@ int main(int argc,char **argv)
             /* Clip x=[12,20), y=[9,18). The Image paints on its
              * left half, while the blue PATH covers the whole Clip. */
             CHECK(probe_rgb(bytes,clipped_stride,13,11,
-                mode==2?255u:0u,mode==1?255u:0u,mode==0?255u:0u));
+                reference_mode==2?255u:0u,reference_mode==1?255u:0u,reference_mode==0?255u:0u));
             CHECK(probe_rgb(bytes,clipped_stride,13,16,
-                mode==1?255u:mode==2?255u:0u,mode==1?255u:0u,mode==0?255u:0u));
-            CHECK(probe_rgb(bytes,clipped_stride,18,11,mode==2?255u:0u,0u,mode==2?0u:255u));
-            CHECK(probe_rgb(bytes,clipped_stride,18,16,mode==2?255u:0u,0u,mode==2?0u:255u));
+                reference_mode==1?255u:reference_mode==2?255u:0u,reference_mode==1?255u:0u,reference_mode==0?255u:0u));
+            CHECK(probe_rgb(bytes,clipped_stride,18,11,reference_mode==2?255u:0u,0u,reference_mode==2?0u:255u));
+            CHECK(probe_rgb(bytes,clipped_stride,18,16,reference_mode==2?255u:0u,0u,reference_mode==2?0u:255u));
             CHECK(probe_rgb(bytes,clipped_stride,11,11,255u,255u,255u));
             CHECK(probe_rgb(bytes,clipped_stride,20,11,255u,255u,255u));
             CHECK(probe_rgb(bytes,clipped_stride,13,19,255u,255u,255u));
@@ -4967,10 +4976,10 @@ int main(int argc,char **argv)
             CHECK(w==16 && h==12 && clipped_stride==48 && channels==3 &&
                   other_count==16u*12u*3u && other!=nullptr);
             CHECK(probe_rgb(other,clipped_stride,6,5,
-                mode==2?255u:0u,mode==1?255u:0u,mode==0?255u:0u));
+                reference_mode==2?255u:0u,reference_mode==1?255u:0u,reference_mode==0?255u:0u));
             CHECK(probe_rgb(other,clipped_stride,6,8,
-                mode==1?255u:mode==2?255u:0u,mode==1?255u:0u,mode==0?255u:0u));
-            CHECK(probe_rgb(other,clipped_stride,9,5,mode==2?255u:0u,0u,mode==2?0u:255u));
+                reference_mode==1?255u:reference_mode==2?255u:0u,reference_mode==1?255u:0u,reference_mode==0?255u:0u));
+            CHECK(probe_rgb(other,clipped_stride,9,5,reference_mode==2?255u:0u,0u,reference_mode==2?0u:255u));
             CHECK(probe_rgb(other,clipped_stride,5,5,255u,255u,255u));
         }
         quantapdf_drop_page(clipped_page);
@@ -4981,7 +4990,7 @@ int main(int argc,char **argv)
             size_t n=0u;
             OK(quantapdf_bitmap_data(filled,&detached,&n));
             CHECK(detached!=nullptr && n==32u*24u*3u &&
-                  probe_rgb(detached,96,18,11,mode==2?255u:0u,0u,mode==2?0u:255u));
+                  probe_rgb(detached,96,18,11,reference_mode==2?255u:0u,0u,reference_mode==2?0u:255u));
         }
         quantapdf_drop_bitmap(small);
         quantapdf_drop_bitmap(filled);

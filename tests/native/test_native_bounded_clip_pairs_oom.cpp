@@ -542,6 +542,7 @@ static bool atomic_rejection(const std::string& pdf,
           c_allocations==0u && c_faults==0u);
     return true;
 }
+#include "native_source_fill_equivalence.h"
 static bool source_failures(const clip_pair& pair)
 {
     const std::string content=page_content(pair,profile::mixed);
@@ -559,7 +560,7 @@ static bool source_failures(const clip_pair& pair)
     CHECK(atomic_rejection(pdf,budget));
     CHECK(atomic_rejection(original_pdf(content+"BT 1 Tr ET",profile::mixed,true),source_budget));
     CHECK(atomic_rejection(original_pdf(content+"/Unqualified gs",profile::mixed,true),source_budget));
-    CHECK(atomic_rejection(original_pdf(content+"q 2 2 8 7 re W n Q",profile::mixed,true),source_budget));
+    CHECK(source_pdf_equivalent(original_pdf(content+"q 2 2 8 7 re W n Q",profile::mixed,true),pdf));
     quantapdf_ir recovered{};
     CHECK(source(pdf,source_budget,recovered)==QUANTAPDF_OK &&
           owned_graph(recovered,pair,profile::mixed,true));

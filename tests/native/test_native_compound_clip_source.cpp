@@ -715,10 +715,6 @@ static int atomic_refusals()
         "q "+compound+" W 1 n "+full_red+"Q",
         "q "+outer_triangle+" 6 4 m 10 4 l 8 -1000001 l h W n "+
             full_red+"Q",
-        prefix+full_red+compound+" W n Q", /* unused second Clip */
-        prefix+full_red+compound+" W n "+full_blue+compound+" W n Q",
-        ready+" "+one_prefix(compound)+full_red+"Q "+
-            one_prefix(compound,true)+full_red+"Q", /* third definition */
         ready+" BT 1 Tr ET",
         ready+" 2 2 m 10 8 l S",
         ready+" Q",
@@ -733,6 +729,10 @@ static int atomic_refusals()
         CHECK(equal(actual,reference) && ink_and_white(actual));
     }
     const std::pair<std::string,std::string> admitted[]={
+        {prefix+full_red+compound+" W n Q",ready},
+        {prefix+full_red+compound+" W n "+full_blue+compound+" W n Q",prefix+full_red+full_blue+"Q"},
+        {ready+" "+one_prefix(compound)+full_red+"Q "+one_prefix(compound,true)+full_red+"Q",
+         ready+" 1 0 0 rg "+outer_triangle+" f "+one_prefix(compound,true)+full_red+"Q"},
         {"q "+outer_triangle+" 8 8 m h W n "+full_red+"Q",
          one_prefix(outer_triangle)+full_red+"Q"},
         {"q "+outer_triangle+" 8 8 m 10 8 l h W n "+full_red+"Q",

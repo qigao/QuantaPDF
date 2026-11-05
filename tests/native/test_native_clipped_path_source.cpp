@@ -637,34 +637,37 @@ static int atomic_refusals()
         CHECK(render(original(prefix+"1 0 0 rg 2 3 m 2.125 11 10 11 10 3 c 10 2 l 2 2 l h f Q",cfg),cfg,actual)==EXIT_SUCCESS);
         CHECK(render(original(prefix+"1 0 0 rg 1 0 0 1 1 0 cm 1 3 m 1.125 11 9 11 9 3 c 9 2 l 1 2 l h 1 0 0 1 -1 0 cm f Q",cfg),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
     }
+    const std::string ar="1 0 0 rg "+curve_a+" f ",br="1 0 0 rg "+curve_b+" f ";
+    const std::string ir=one_prefix(curve_a)+br+"Q ";
+    const std::pair<std::string,std::string> admitted[]={
+        {prefix+full_red+full_red+full_red+full_red+full_red+"Q",ir+ir+ir+ir+ir},
+        {prefix+"Q",""},
+        {prefix+"Q "+full_red,full_red},
+        {curve_a+" W n q "+curve_b+" W* n "+full_red+"Q "+full_red+full_red+full_red+full_red,ir+ar+ar+ar+ar},
+        {one_prefix(curve_a)+"Q "+one_prefix(curve_b)+full_red+"Q",br},
+        {one_prefix(curve_a)+"q "+curve_b+" W n "+full_red+"Q "+curve_a+" W n Q",ir},
+        {one_prefix(curve_a)+full_red+curve_b+" W n "+full_red+"Q "+one_prefix(curve_a)+full_red+"Q",ar+ir+ar},
+        {prefix+curve_a+" W n "+full_red+"Q",ir},
+        {ready+" "+one_prefix(curve_a)+full_red+"Q",ir+ar},
+        {"q W n 4 3 8 4 re W* n W n "+full_red+"Q",""},
+        {one_prefix(curve_a)+"6 3 m 6 11 14 11 14 3 c 14 2 l 13 2 l 12 2 l 11 2 l 10 2 l 9 2 l 6 2 l W n "+full_red+"Q",ir}
+    };
+    for(const auto& pair:admitted)for(int dpi:{72,96,144}) {
+        configuration cfg;cfg.dpi=dpi;cfg.crop=dpi==72?0:(dpi==96?2:3);cfg.selected=dpi==144?2:0;
+        rendered actual,reference;
+        CHECK(render(original(pair.first,cfg),cfg,actual)==EXIT_SUCCESS);
+        CHECK(render(original(pair.second,cfg),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
+    }
     const std::vector<std::string> bad={
-        prefix+full_red+full_red+full_red+full_red+full_red+"Q",
-        prefix+"Q",
-        prefix+"Q "+full_red,
         ready+" BT 1 Tr ET",
         ready+" 2 2 m 10 8 l S",
-        /* Root then restored-first painting is admitted, but a fifth
-         * PATH still exceeds the unchanged four-layer ceiling. */
-        curve_a+" W n q "+curve_b+" W* n "+full_red+"Q "+
-            full_red+full_red+full_red+full_red,
-        one_prefix(curve_a)+"Q "+one_prefix(curve_b)+full_red+"Q",
-        one_prefix(curve_a)+"q "+curve_b+" W n "+full_red+
-            "Q "+curve_a+" W n Q", /* third Clip after Q to leaf 1 */
-        one_prefix(curve_a)+full_red+curve_b+" W n "+full_red+
-            "Q "+one_prefix(curve_a)+full_red+"Q", /* redefinition after Q to 0 */
         /* Prefix plus clipped PATH is admitted; late Text still fails. */
         full_red+one_prefix(curve_a)+full_red+"Q BT 1 Tr ET",
-        prefix+curve_a+" W n "+full_red+"Q",
-        ready+" "+one_prefix(curve_a)+full_red+"Q",
         one_prefix(curve_a)+"W* 1 n "+full_red+"Q",
-        "q W n 4 3 8 4 re W* n W n "+full_red+"Q",
         "q 2 2 m 10 2 l 8 9 l 2 8 l h W n "
             "4 3 8 4 re W* n "+full_red+"Q S",
         "q "+curve_a+" W "+full_red+"Q",
         "q "+curve_a+" W 1 n "+full_red+"Q",
-        one_prefix(curve_a)+"6 3 m 6 11 14 11 14 3 c "
-            "14 2 l 13 2 l 12 2 l 11 2 l 10 2 l 9 2 l 6 2 l "
-            "W n "+full_red+"Q",
         prefix+"1 0 0 rg 2 3 m 2 11 10 11 10 c "
             "10 2 l 2 2 l h f Q",
         prefix+"1 0 0 rg 2 3 m 2 -1000001 10 11 10 3 c "

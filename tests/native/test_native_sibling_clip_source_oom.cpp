@@ -837,25 +837,31 @@ static bool bounded_scope_refusals()
     const std::string p=paint_source(paint::red_path),i=paint_source(paint::red_image);
     const std::string a="q 2 2 10 7 re W n ",b="q 2 2 10 7 re W* n ";
     const std::string ready=a+p+"Q "+b+p+"Q ";
+    const std::string rc="1 0 0 rg 2 2 10 7 re f ";
+    const std::pair<std::string,std::string> admitted[]={
+        {a+"Q "+b+p+"Q",rc},
+        {a+p+"Q "+b+"Q",rc},
+        {p+a+"Q "+b+p+"Q",p+rc},
+        {a+p+"Q "+b+"Q "+p,rc+p},
+        {ready+a+p+"Q",rc+rc+rc},
+        {ready+p+" "+b+"Q",rc+rc+p},
+        {a+i+"Q "+b+i+i+"Q",rc+rc+rc},
+        {i+a+i+"Q "+b+i+"Q",p+rc+rc},
+        {p+p+a+p+"Q "+b+i+"Q",p+p+rc+rc},
+        {a+p+"Q q 2 2 10 7 re 4 3 3 2 re W n "+p+"Q",rc+rc},
+        {a+p+"Q q 2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h 6 6 m 7 6 l 6 7 l h W n "+p+"Q",
+         rc+"1 0 0 rg 2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h 6 6 m 7 6 l 6 7 l h f"},
+        {a+p+"Q "+b+"2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h f Q",
+         rc+"1 0 0 rg 2 2 m 12 2 l 2 10 l h f"}
+    };
+    for(const auto& pair:admitted)CHECK(source_fill_equivalent(pair.first,pair.second,cases[18]));
     const std::vector<std::string> bad={
-        a+"Q "+b+p+"Q", /* A unused */
-        a+p+"Q "+b+"Q", /* B unused */
-        p+a+"Q "+b+p+"Q", /* a GS0 prefix cannot replace first-leaf paint */
-        a+p+"Q "+b+"Q "+p, /* a GS0 suffix cannot replace second-leaf paint */
-        ready+a+p+"Q", /* third definition after both siblings */
-        ready+p+" "+b+"Q", /* even an unused third definition refuses */
         a+p+p+"Q "+b+p+p+p+"Q", /* fifth PATH */
-        a+i+"Q "+b+i+i+"Q", /* third Image */
-        i+a+i+"Q "+b+i+"Q", /* Image-only prefix cannot exceed two Images */
-        p+p+a+p+"Q "+b+i+"Q", /* three mixed PATHs within four layers */
         i+p+i+a+p+"Q "+b+p+"Q", /* mixed prefix past one of each */
         p+i+p+a+i+"Q "+b+p+"Q",
         a+p+"Q q 2 2 10 7 re W "+p+"n Q", /* n must immediately follow W */
-        a+p+"Q q 2 2 10 7 re 4 3 3 2 re W n "+p+"Q", /* ten B commands */
-        a+p+"Q q 2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h 6 6 m 7 6 l 6 7 l h W n "+p+"Q",
         ready+"BT 1 Tr ET",
         ready+"/Unqualified gs",
-        a+p+"Q "+b+"2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h f Q",
     };
     CHECK(source_fill_equivalent(a+p+"Q q 2 2 m 12 2 l 2 10 l 4 3 m 7 3 l 4 6 l h W n "+p+"Q",
         a+p+"Q q 2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h W n "+p+"Q",cases[18]));

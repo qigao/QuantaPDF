@@ -390,17 +390,11 @@ static int atomic_rejections()
         " W n q 16 0 0 12 8 3 cm /I Do Q Q";
     const std::vector<std::string> bad={
         "q "+path+" W q 16 0 0 12 8 3 cm /I Do Q Q",
-        /* Two identical owned curved leaves are now qualified; a third
-         * definition must still reject the complete original page. */
-        "q "+path+" W n "+path+" W* n "+path+" W n "
-           "q 16 0 0 12 8 3 cm /I Do Q Q",
         "q "+path+" W* n q 16 0 0 12 8 3 cm /Missing Do Q Q",
         ready+" S",
         ready+" BT 1 Tr ET",
         ready+" 2 G",
         ready+" 1 0 0 rg 4 4 8 6 re f 1 0 0 rg 4 4 8 6 re S",
-        ready+" 4 4 8 6 re W n",
-        ready+" q 4 4 8 6 re W n Q",
         ready+" Q",
         ready+" q",
         /* Cropped source legitimately admits geometry outside the CropBox;
@@ -414,11 +408,20 @@ static int atomic_rejections()
           "q 16 0 0 12 8 3 cm /I Do Q Q",
         "q "+path+" W* n q 16 0 0 12 8 3 cm /I Do Q "
             "Q 4 5 m 4 18 20 18 20 5 c S",
-        "q "+path+" W n q 16 0 0 12 8 3 cm /I Do Q "
-            "Q 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h W n",
         "q "+path+" W* n q 16 0 0 12 8 3 cm /I Do Q "
             "Q 1 0 0 rg 4 4 8 6 re f BT 1 Tr ET"
     };
+    const std::string admitted[]={
+        "q "+path+" W n "+path+" W* n "+path+" W n q 16 0 0 12 8 3 cm /I Do Q Q",
+        ready+" 4 4 8 6 re W n",
+        ready+" q 4 4 8 6 re W n Q",
+        "q "+path+" W n q 16 0 0 12 8 3 cm /I Do Q Q "+path+" W n"
+    };
+    for(const auto& content:admitted)for(int dpi:{72,96,144})for(int crop:{0,1}) {
+        std::vector<unsigned char> actual,reference;
+        CHECK(render(original(content,true,4,0,crop),4,0,dpi,crop,actual)==EXIT_SUCCESS);
+        CHECK(render(original(ready,true,4,0,crop),4,0,dpi,crop,reference)==EXIT_SUCCESS && actual==reference);
+    }
     for(const auto& content:bad)
     for(int dpi:{72,96,144})
     for(int crop_mode:{0,1}) {
@@ -746,26 +749,25 @@ static int two_rectangle_atomic_refusals()
         CHECK(render(original("q "+first+" W n 12 6 0 12 re W n "+image,true,4,0,crop),4,0,dpi,crop,empty)==EXIT_SUCCESS);
         for(unsigned char c:empty)CHECK(c==255u);
     }
+    const std::string draw="q 16 0 0 12 8 3 cm /I Do Q ";
+    const std::string intersection="q 12 6 8 10 re W n "+draw+"Q ";
+    const std::pair<std::string,std::string> admitted[]={
+        {first+" W n q "+second+" W* n "+image+draw+draw,intersection+"q "+first+" W n "+draw+draw+"Q"},
+        {"q "+first+" W n "+second+" W* n "+second+" W n "+image,intersection},
+        {"q "+first+" W n q "+second+" W* n "+draw+"Q "+first+" W n Q",intersection},
+        {"q "+first+" W n Q q "+second+" W* n "+image,"q "+second+" W n "+image},
+        {"q "+first+" W n "+draw+second+" W* n Q","q "+first+" W n "+draw+"Q"},
+        {"q "+first+" W n 12 6 m 12 16 l 20 16 l 20 6 l h W* n W n "+image,""},
+        {"q W n "+second+" W* n W n "+image,""}
+    };
+    for(const auto& pair:admitted)for(int crop:{0,1})for(int dpi:{72,96,144}) {
+        std::vector<unsigned char> actual,reference;
+        CHECK(render(original(pair.first,true,4,0,crop),4,0,dpi,crop,actual)==EXIT_SUCCESS);
+        CHECK(render(original(pair.second,true,4,0,crop),4,0,dpi,crop,reference)==EXIT_SUCCESS && actual==reference);
+    }
     const std::vector<std::string> bad={
-        /* First W outside q and two Images in states 2,1 now qualify.
-         * A third Image after that real restoration still refuses. */
-        first+" W n q "+second+" W* n "+image+
-            " q 16 0 0 12 8 3 cm /I Do Q"
-            " q 16 0 0 12 8 3 cm /I Do Q",
         "q "+first+" W n "+second+" W* "+image,
         "q "+first+" W n "+second+" W* W n "+image,
-        "q "+first+" W n "+second+" W* n "+second+
-            " W n "+image,
-        /* Nested q with root-only paint now qualifies; redefining a
-         * third Clip after Q restores leaf 1 still does not. */
-        "q "+first+" W n q "+second+" W* n "+
-            "q 16 0 0 12 8 3 cm /I Do Q Q "+first+" W n Q",
-        "q "+first+" W n Q q "+second+" W* n "+image,
-        "q "+first+" W n q 16 0 0 12 8 3 cm /I Do Q "+
-            second+" W* n Q",
-        "q "+first+" W n 12 6 m 12 16 l 20 16 l "+
-            "20 6 l h W* n W n "+image,
-        "q W n "+second+" W* n W n "+image,
         "q "+first+" W n W* 1 n "+image,
         "q "+first+" W n "+second+" W n "+
             "q 16 0 0 12 8 3 cm /Missing Do Q Q",

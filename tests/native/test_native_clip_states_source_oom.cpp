@@ -524,6 +524,7 @@ static bool atomic_rejection(const std::string& pdf,
           c_allocations==0u && c_faults==0u);
     return true;
 }
+#include "native_source_fill_equivalence.h"
 static bool source_failures(shape geometry)
 {
     const auto& sc=cases[8];
@@ -544,10 +545,11 @@ static bool source_failures(shape geometry)
     CHECK(atomic_rejection(pdf,budget));
     CHECK(atomic_rejection(original_pdf(content+"BT 1 Tr ET",sc,true),source_budget));
     CHECK(atomic_rejection(original_pdf(content+"/Unqualified gs",sc,true),source_budget));
-    CHECK(atomic_rejection(original_pdf(content+"q 2 2 8 7 re W n Q",sc,true),source_budget));
+    CHECK(source_pdf_equivalent(original_pdf(content+"q 2 2 8 7 re W n Q",sc,true),pdf));
     const scenario unused={"unused_intersection",{{paint::red_path,1u},{paint::magenta_path,1u}},
         0u,white,white,white,white,graph::clip_states};
-    CHECK(atomic_rejection(original_pdf(page_content(unused,geometry),unused,true),source_budget));
+    CHECK(source_pdf_equivalent(original_pdf(page_content(unused,geometry),unused,true),
+        original_pdf(page_content(unused,geometry,true),unused,true)));
     quantapdf_ir recovered{};
     CHECK(source(pdf,source_budget,recovered)==QUANTAPDF_OK && owned_graph(recovered,sc,geometry,true));
     quantapdf_ir_dispose(&recovered);

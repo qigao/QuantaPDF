@@ -591,9 +591,8 @@ static int shared_sample_budget()
     return EXIT_SUCCESS;
 }
 
-/* New contour closure/empty normalization must not relax source scopes,
- * malformed operators, the nine-command ceiling, resource cardinalities
- * or whole-page budgets. A late error clears a nonnull Bitmap sentinel. */
+/* General graph originals compare complete pixels with independently
+ * authored paint/intersection geometry. Actual malformed paths still fail. */
 static int atomic_refusals()
 {
     const std::string prefix=pair_prefix(triangle_a,triangle_b);
@@ -610,43 +609,49 @@ static int atomic_refusals()
         CHECK(render(original(one_prefix(triangle_a)+"2 2 m 14 2 l 8 10 l h h W n "+full_red+"Q",cfg),cfg,actual)==EXIT_SUCCESS);
         CHECK(render(original(one_prefix(triangle_a)+"2 2 m 14 2 l 8 10 l h W n "+full_red+"Q",cfg),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
     }
+    const std::string ar="1 0 0 rg "+triangle_a+" f ",br="1 0 0 rg "+triangle_b+" f ";
+    const std::string ir="1 0 0 rg "+triangle_intersection+" f ";
+    const std::string ip=one_prefix(triangle_intersection);
+    const std::pair<std::string,std::string> admitted[]={
+        {prefix+"W n "+full_red+"Q",""},
+        {prefix+triangle_a+" W n "+full_red+"Q",ir},
+        {one_prefix(triangle_a)+full_red+triangle_b+" W n "+full_red+full_red+full_red+full_red+"Q",ar+ir+ir+ir+ir},
+        {one_prefix(triangle_a)+image_draw+triangle_b+" W n Q",one_prefix(triangle_a)+image_draw+"Q"},
+        {triangle_a+" W n q "+triangle_b+" W n "+full_red+"Q "+full_red+triangle_a+" W n",ir+ar},
+        {one_prefix(triangle_a)+"Q "+one_prefix(triangle_b)+full_red+"Q",br},
+        {one_prefix(triangle_a)+"q "+triangle_b+" W n "+full_red+"Q "+triangle_b+" W* n Q",ir},
+        {ready+" "+one_prefix(triangle_a)+full_red+"Q",ir+ar},
+        {prefix+"Q",""},
+        {prefix+"Q "+full_red,full_red},
+        {one_prefix(triangle_a)+"4 4 m 8 8 m W n "+full_red+"Q",""},
+        // Equivalent cubic construction, without claiming an analytic curve oracle.
+        {one_prefix(triangle_a)+"2 3 m 2 11 10 11 10 3 c W n "+full_red+"Q",
+         one_prefix(triangle_a)+"1 0 0 1 1 0 cm 1 3 m 1 11 9 11 9 3 c W n 1 0 0 1 -1 0 cm "+full_red+"Q"},
+        {one_prefix(triangle_a)+"2 2 m 8 2 l 12 4 l 14 8 l 10 10 l 4 10 l 2 8 l 1 4 l 1 3 l W n "+full_red+"Q",
+         one_prefix(triangle_a)+"1 0 0 rg 2 2 m 8 2 l 12 4 l 14 8 l 10 10 l 4 10 l 2 8 l 1 4 l 1 3 l h f Q"},
+        {prefix+full_red+full_red+full_red+full_red+full_red+"Q",ir+ir+ir+ir+ir},
+        {prefix+image_draw+image_draw+image_draw+"Q",ip+image_draw+image_draw+image_draw+"Q"},
+        {prefix+image_draw+full_red+image_draw+"Q",ip+image_draw+full_red+image_draw+"Q"},
+        {prefix+full_red+full_red+full_red+image_draw+"Q",ip+full_red+full_red+full_red+image_draw+"Q"}
+    };
+    for(const auto& pair:admitted)for(int dpi:{72,96,144}) {
+        configuration cfg;cfg.dpi=dpi;cfg.crop=dpi==72?0:(dpi==96?2:3);cfg.selected=dpi==144?2:0;
+        rendered actual,reference;
+        CHECK(render(original(pair.first,cfg,pair.first.find("/I Do")!=std::string::npos),cfg,actual)==EXIT_SUCCESS);
+        CHECK(render(original(pair.second,cfg,pair.second.find("/I Do")!=std::string::npos),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
+    }
     const std::vector<std::string> bad={
         "q "+triangle_a+" W n "+triangle_b+" W* "+full_red+"Q",
         "q "+triangle_a+" W n W* 1 n "+full_red+"Q",
         "q "+triangle_a+" W n "+triangle_b+" W* W n "+full_red+"Q",
-        prefix+"W n "+full_red+"Q",
-        prefix+triangle_a+" W n "+full_red+"Q",
-        /* Paint between definitions now qualifies; a fifth PATH in
-         * the resulting two-state page still exceeds the layer cap. */
-        one_prefix(triangle_a)+full_red+triangle_b+" W n "+
-            full_red+full_red+full_red+full_red+"Q",
-        one_prefix(triangle_a)+image_draw+triangle_b+" W n Q",
-        triangle_a+" W n q "+triangle_b+" W n "+full_red+"Q "+
-            full_red+triangle_a+" W n", /* third Clip after restored-first paint */
-        one_prefix(triangle_a)+"Q "+one_prefix(triangle_b)+full_red+"Q",
-        one_prefix(triangle_a)+"q "+triangle_b+" W n "+full_red+
-            "Q "+triangle_b+" W* n Q", /* third Clip after nested Q */
-        ready+" "+one_prefix(triangle_a)+full_red+"Q",
-        prefix+"Q",
-        prefix+"Q "+full_red,
         one_prefix(triangle_a)+"4 4 l W n "+full_red+"Q",
-        one_prefix(triangle_a)+"4 4 m 8 8 m W n "+full_red+"Q",
         one_prefix(triangle_a)+"h W n "+full_red+"Q",
-        one_prefix(triangle_a)+"2 3 m 2 11 10 11 10 3 c W n "+full_red+"Q",
-        one_prefix(triangle_a)+"2 3 m 2 11 10 11 10 c 10 2 l W n "+
-            full_red+"Q",
+        one_prefix(triangle_a)+"2 3 m 2 11 10 11 10 c 10 2 l W n "+full_red+"Q",
         one_prefix(triangle_a)+"2 2 m 14 2 l 8 -1000001 l W n "+full_red+"Q",
-        /* Nine pre-close commands would require a forbidden tenth. */
-        one_prefix(triangle_a)+"2 2 m 8 2 l 12 4 l 14 8 l 10 10 l "
-            "4 10 l 2 8 l 1 4 l 1 3 l W n "+full_red+"Q",
         ready+" BT 1 Tr ET",
         ready+" 2 2 m 10 8 l S",
         ready+" Q",
-        prefix+full_red,
-        prefix+full_red+full_red+full_red+full_red+full_red+"Q",
-        prefix+image_draw+image_draw+image_draw+"Q",
-        prefix+image_draw+full_red+image_draw+"Q",
-        prefix+full_red+full_red+full_red+image_draw+"Q"
+        prefix+full_red
     };
     for(const auto& content:bad)
     for(int dpi:{72,96,144}) {

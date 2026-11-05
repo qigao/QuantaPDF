@@ -594,9 +594,8 @@ static int shared_sample_budget()
     return EXIT_SUCCESS;
 }
 
-/* New scope transitions do not permit a third definition, an unused
- * scoped leaf, late unsupported operators,
- * malformed paths, or widened Image/mixed/path and work budgets. */
+/* Ordinary graph definitions and paint counts use the ordered scene.
+ * Keep malformed operators and real unsupported operations atomic. */
 static int atomic_refusals()
 {
     const std::string a=one_prefix(rectangle_a);
@@ -613,21 +612,32 @@ static int atomic_refusals()
         CHECK(render(original(a+full_red+"q 2 2 m 14 2 l 8 10 l h h W n "+full_blue+"Q Q",cfg),cfg,actual)==EXIT_SUCCESS);
         CHECK(render(original(a+full_red+"q 2 2 m 14 2 l 8 10 l h W n "+full_blue+"Q Q",cfg),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
     }
+    const auto ar=paint("1 0 0 rg",rectangle_a),ir=paint("1 0 0 rg",rectangle_i);
+    const auto ib=paint("0 0 1 rg",rectangle_i),bb=paint("0 0 1 rg",rectangle_b);
+    const auto ap=one_prefix(rectangle_a)+patterned+"Q ",ip=one_prefix(rectangle_i)+patterned+"Q ";
+    const std::pair<std::string,std::string> admitted[]={
+        {a+full_red+b+full_blue+rectangle_a+" W n Q Q",ar+ib},
+        {a+full_red+b+full_blue+"Q "+rectangle_a+" W n "+full_red+"Q",ar+ib+ar},
+        {a+full_red+"Q "+b+full_blue+"Q "+a+full_red+"Q",ar+bb+ar},
+        {full_red+a+full_red+b+full_blue+"Q "+full_red+"Q "+full_red,full_red+ar+ib+ar+full_red},
+        {a+full_red+b+"Q "+full_red+"Q",ar+ar},
+        {a+full_red+"q W n Q "+full_red+"Q",ar+ar},
+        {a+b+patterned+full_red+patterned+"Q Q",ip+ir+ip},
+        {a+red_image+b+blue_image+"Q "+red_image+"Q",ar+ib+ar},
+        {a+full_red+b+full_blue+full_red+"Q "+full_red+full_red+"Q",ar+ib+ir+ar+ar},
+        {a+full_red+b+full_blue+patterned+"Q "+full_red+"Q",ar+ib+ip+ar},
+        {a+full_red+b+full_blue+"Q "+full_red+patterned+"Q",ar+ib+ar+ap},
+        {a+patterned+b+full_blue+patterned+"Q "+patterned+"Q",ap+ib+ip+ap},
+        {a+full_red+"q 2 2 m 8 2 l 12 4 l 14 8 l 10 10 l 4 10 l 2 8 l 1 4 l 1 3 l W n "+full_blue+"Q Q",
+         ar+paint("0 0 1 rg","2 2 m 8 2 l 12 4 l 12 9 l 10 10 l 4 10 l 2 8 l h")}
+    };
+    for(const auto& pair:admitted)for(int dpi:{72,96,144}) {
+        configuration cfg;cfg.dpi=dpi;cfg.crop=dpi==72?0:(dpi==96?2:3);cfg.selected=dpi==144?2:0;
+        rendered actual,reference;
+        CHECK(render(original(pair.first,cfg,pair.first.find(" Do")!=std::string::npos),cfg,actual)==EXIT_SUCCESS);
+        CHECK(render(original(pair.second,cfg,pair.second.find(" Do")!=std::string::npos),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
+    }
     const std::vector<std::string> bad={
-        a+full_red+b+full_blue+rectangle_a+" W n Q Q",
-        a+full_red+b+full_blue+"Q "+rectangle_a+" W n "+full_red+"Q",
-        a+full_red+"Q "+b+full_blue+"Q "+a+full_red+"Q", /* third leaf */
-        /* Prefix, first, intersection, restored first, and suffix are
-         * five paints, beyond the unchanged four-layer ceiling. */
-        full_red+a+full_red+b+full_blue+"Q "+full_red+"Q "+full_red,
-        a+full_red+b+"Q "+full_red+"Q", /* second Clip never painted */
-        a+full_red+"q W n Q "+full_red+"Q", /* empty second still unused */
-        a+b+patterned+full_red+patterned+"Q Q", /* old root-only 3 mixed */
-        a+red_image+b+blue_image+"Q "+red_image+"Q", /* third Image */
-        a+full_red+b+full_blue+full_red+"Q "+full_red+full_red+"Q",
-        a+full_red+b+full_blue+patterned+"Q "+full_red+"Q", /* 3PATH+Image */
-        a+full_red+b+full_blue+"Q "+full_red+patterned+"Q", /* late Image */
-        a+patterned+b+full_blue+patterned+"Q "+patterned+"Q",
         ready+" BT 1 Tr ET",
         ready+" 2 2 m 10 8 l S",
         ready+" 2 g",
@@ -635,9 +645,7 @@ static int atomic_refusals()
         ready+" q",
         a+full_red+"q "+rectangle_b+" W "+full_blue+"Q Q",
         a+full_red+"q W* 1 n "+full_blue+"Q Q",
-        a+full_red+"q 2 2 m 14 2 l 8 -1000001 l W n "+full_blue+"Q Q",
-        a+full_red+"q 2 2 m 8 2 l 12 4 l 14 8 l 10 10 l "
-            "4 10 l 2 8 l 1 4 l 1 3 l W n "+full_blue+"Q Q"
+        a+full_red+"q 2 2 m 14 2 l 8 -1000001 l W n "+full_blue+"Q Q"
     };
     for(int dpi:{72,96,144}) {
         configuration cfg;cfg.dpi=dpi;rendered unused;

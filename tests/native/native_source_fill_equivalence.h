@@ -2,14 +2,13 @@
 #define QUANTAPDF_NATIVE_SOURCE_FILL_EQUIVALENCE_H
 #include "backend/native_prepared_page_v1.h"
 
-// The including original-PDF fixture supplies source(), original_pdf(),
-// scenario and its existing budgets. Compare actual detached RGBA bytes.
-static bool source_fill_equivalent(const std::string& left,const std::string& right,
-    const scenario& sc)
+// The including fixture supplies source() and its existing budgets.
+// Compare fully authored PDF originals through detached RGBA bytes.
+static bool source_pdf_equivalent(const std::string& left,const std::string& right)
 {
     quantapdf_ir a{},b{};quantapdf_ir_raster_image x{},y{};
-    CHECK(source(original_pdf(left,sc,false),source_budget,a)==QUANTAPDF_OK);
-    CHECK(source(original_pdf(right,sc,false),source_budget,b)==QUANTAPDF_OK);
+    CHECK(source(left,source_budget,a)==QUANTAPDF_OK);
+    CHECK(source(right,source_budget,b)==QUANTAPDF_OK);
     const auto draw=[](const quantapdf_ir& ir,quantapdf_ir_raster_image& out) {
         quantapdf_native_page_device device{};device.dpi=96.0f;
         quantapdf_native_prepared_page_v1 prepared{};
@@ -22,5 +21,11 @@ static bool source_fill_equivalent(const std::string& left,const std::string& ri
     CHECK(x.width==y.width && x.height==y.height && x.size==y.size && std::memcmp(x.pixels,y.pixels,x.size)==0);
     quantapdf_ir_raster_image_dispose(&x);quantapdf_ir_raster_image_dispose(&y);
     return true;
+}
+template<class Scenario>
+static bool source_fill_equivalent(const std::string& left,const std::string& right,
+    const Scenario& sc)
+{
+    return source_pdf_equivalent(original_pdf(left,sc,false),original_pdf(right,sc,false));
 }
 #endif

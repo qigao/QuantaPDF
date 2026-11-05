@@ -554,58 +554,49 @@ static int atomic_refusals()
         CHECK(render(original("q W n 8 4 0 12 re W* n "+image_draw+" Q",cfg),cfg,empty)==EXIT_SUCCESS);
         CHECK(all_white(empty));
     }
+    // Curved originals use authored geometric equivalence: swapped roots,
+    // independently scoped paints, and removal of zero-area/collinear pieces.
+    // This checks every RGB byte without claiming an analytic Bezier oracle.
+    const std::string swapped=pair_prefix(curve_b,curve_a);
+    const std::string draw_a="q "+curve_a+" W n ";
+    const std::pair<std::string,std::string> admitted[]={
+        {prefix+curve_a+" W n "+image_draw+" Q",swapped+image_draw+" Q"},
+        {"q "+curve_a+" W n "+image_draw+" "+curve_b+" W n Q",single_image(curve_a)},
+        {"q "+curve_a+" W n "+path_fill+curve_b+" W n "+image_draw+" "+path_fill+path_fill+"Q",
+         draw_a+path_fill+"Q "+swapped+image_draw+" "+path_fill+path_fill+"Q"},
+        {curve_a+" W n q "+curve_b+" W n "+image_draw+" Q "+image_draw+" "+image_draw,
+         swapped+image_draw+" Q "+draw_a+image_draw+" "+image_draw+" Q"},
+        {"q "+curve_a+" W n Q q "+curve_b+" W n "+image_draw+" Q",single_image(curve_b)},
+        {"q "+curve_a+" W n q "+curve_b+" W n "+image_draw+" Q "+curve_a+" W n Q",swapped+image_draw+" Q"},
+        {"q 4 4 m 20 4 l 16 16 l 4 12 l h 8 8 l W n 8 4 12 12 re W* n "+image_draw+" Q",
+         pair_image("4 4 m 20 4 l 16 16 l 4 12 l h","8 4 12 12 re")},
+        {"q "+curve_a+" W n 12 5 m 12 18 28 18 28 5 c 28 4 l 26 4 l 24 4 l 22 4 l 20 4 l 18 4 l 12 4 l W n "+image_draw+" Q",swapped+image_draw+" Q"},
+        {"q "+curve_a+" W n 12 5 m 12 18 28 18 28 5 c 28 4 l 26 4 l 24 4 l 22 4 l 20 4 l 18 4 l 12 4 l h W n "+image_draw+" Q",swapped+image_draw+" Q"},
+        {prefix+image_draw+" "+image_draw+" "+image_draw+" Q",swapped+image_draw+" "+image_draw+" "+image_draw+" Q"},
+        {prefix+image_draw+" "+path_fill+image_draw+" Q",swapped+image_draw+" "+path_fill+image_draw+" Q"},
+        {prefix+path_fill+path_fill+path_fill+image_draw+" Q",swapped+path_fill+path_fill+path_fill+image_draw+" Q"},
+        {prefix+image_draw+" "+path_fill+" Q "+image_draw+" "+path_fill+path_fill,
+         swapped+image_draw+" "+path_fill+" Q "+image_draw+" "+path_fill+path_fill},
+        {prefix+path_fill+path_fill+path_fill+path_fill+path_fill+" Q",swapped+path_fill+path_fill+path_fill+path_fill+path_fill+" Q"},
+        {ready+" q "+curve_a+" W n "+image_draw+" Q",swapped+image_draw+" Q "+single_image(curve_a)}
+    };
+    for(const auto& pair:admitted)for(int dpi:{72,96,144}) {
+        configuration cfg;cfg.dpi=dpi;cfg.crop=dpi==72?0:(dpi==96?2:3);cfg.selected=dpi==144?2:0;
+        rendered actual,reference;
+        CHECK(render(original(pair.first,cfg),cfg,actual)==EXIT_SUCCESS);
+        CHECK(render(original(pair.second,cfg),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
+    }
     const std::vector<std::string> bad={
         "q "+curve_a+" W n "+curve_b+" W* "+image_draw+" Q",
         "q "+curve_a+" W n "+curve_b+" W* W n "+image_draw+" Q",
-        prefix+curve_a+" W n "+image_draw+" Q",
-        "q "+curve_a+" W n "+image_draw+" "+curve_b+" W n Q",
-        /* Painting before the second W now qualifies; three PATHs
-         * plus one Image still exceed the retained mixed PATH limit. */
-        "q "+curve_a+" W n "+path_fill+curve_b+" W n "+image_draw+" "+
-            path_fill+path_fill+"Q",
-        /* Two Images in states 2,1 qualify; the third remains outside
-         * the Image-only limit even after restoring the first Clip. */
-        curve_a+" W n q "+curve_b+" W n "+image_draw+" Q "+
-            image_draw+" "+image_draw,
-        "q "+curve_a+" W n Q q "+curve_b+" W n "+image_draw+" Q",
-        "q "+curve_a+" W n q "+curve_b+" W n "+image_draw+
-            " Q "+curve_a+" W n Q", /* third definition after Q to leaf 1 */
-        /* Empty second leaves and empty+rectangle now qualify; malformed
-         * n operands still fail atomically. */
         "q "+curve_a+" W n W* 1 n "+image_draw+" Q",
-        /* The remaining two-leaf publisher still requires explicit MOVE
-         * contours; its short-leaf grammar does not publish this sequence. */
-        "q 4 4 m 20 4 l 16 16 l 4 12 l h 8 8 l W n "
-            "8 4 12 12 re W* n "+image_draw+" Q",
-        /* Implicit closing does not enlarge the nine-command ceiling. */
-        "q "+curve_a+" W n 12 5 m 12 18 28 18 28 5 c "
-            "28 4 l 26 4 l 24 4 l 22 4 l 20 4 l 18 4 l 12 4 l "
-            "W n "+image_draw+" Q",
-        "q "+curve_a+" W n 12 5 m 12 18 28 18 28 c "
-            "28 4 l 12 4 l h W n "+image_draw+" Q",
-        "q "+curve_a+" W n 12 5 m 12 -1000001 28 18 28 5 c "
-            "28 4 l 12 4 l h W n "+image_draw+" Q",
-        /* Ten commands would exceed the existing nine-command cap. */
-        "q "+curve_a+" W n 12 5 m 12 18 28 18 28 5 c "
-            "28 4 l 26 4 l 24 4 l 22 4 l 20 4 l 18 4 l 12 4 l h "
-            "W n "+image_draw+" Q",
+        "q "+curve_a+" W n 12 5 m 12 18 28 18 28 c 28 4 l 12 4 l h W n "+image_draw+" Q",
+        "q "+curve_a+" W n 12 5 m 12 -1000001 28 18 28 5 c 28 4 l 12 4 l h W n "+image_draw+" Q",
         ready+" BT 1 Tr ET",
         ready+" 4 4 m 20 18 20 18 20 4 c S",
         prefix+"q 32 0 0 24 0 0 cm /Missing Do Q Q",
         ready+" Q",
         ready+" q",
-        prefix+image_draw+" "+image_draw+" "+image_draw+" Q",
-        /* Three all-clipped paints remain outside the mixed profile. */
-        prefix+image_draw+" "+path_fill+image_draw+" Q",
-        /* Widened PATH-only staging must not admit a late first Image
-         * after three PATHs through the unchanged mixed preflight. */
-        prefix+path_fill+path_fill+path_fill+image_draw+" Q",
-        prefix+image_draw+" "+path_fill+" Q "+image_draw+" "+
-            path_fill+path_fill,
-        /* PATH-only under the final Clip is now qualified separately;
-         * a fifth opaque PATH still exceeds the fixed layer ceiling. */
-        prefix+path_fill+path_fill+path_fill+path_fill+path_fill+" Q",
-        ready+" q "+curve_a+" W n "+image_draw+" Q",
         prefix+curve_a+" W 1 n "+image_draw+" Q"
     };
     for(const auto& content:bad)
