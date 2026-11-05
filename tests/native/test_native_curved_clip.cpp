@@ -365,6 +365,23 @@ static int bounded_control_outside_crop()
 /* Unsupported and malformed Source MUST refuse the ENTIRE page,
  * even if a clipped Image has already been staged, never return
  * partially painted RGB. Both W and W* are checked at real DPI. */
+static int fractional_curve_clips()
+{
+    const std::string path="4 5 m 4.125 18 20 18 20 5 c 20 4 l 4 4 l h ";
+    const std::string shifted="1 0 0 1 1 0 cm 3 5 m 3.125 18 19 18 19 5 c 19 4 l 3 4 l h ";
+    const std::string draw="q 16 0 0 12 8 3 cm /I Do Q Q";
+    for(bool pair:{false,true})for(bool even:{false,true})for(int quarters:{4,5})
+    for(int rotation:{0,90})for(int dpi:{72,96,144})for(int crop:{0,1,2}) {
+        const std::string prefix=pair?"q 8 4 12 12 re W n ":"q ";
+        const std::string rule=even?"W* n ":"W n ";
+        std::vector<unsigned char> actual,reference;
+        CHECK(render(original(prefix+path+rule+draw,true,quarters,rotation,crop),quarters,rotation,dpi,crop,actual)==EXIT_SUCCESS);
+        CHECK(render(original(prefix+shifted+rule+"1 0 0 1 -1 0 cm "+draw,true,quarters,rotation,crop),quarters,rotation,dpi,crop,reference)==EXIT_SUCCESS);
+        CHECK(actual==reference);
+    }
+    return EXIT_SUCCESS;
+}
+
 static int atomic_rejections()
 {
     const std::string path=
@@ -386,8 +403,6 @@ static int atomic_rejections()
         ready+" q 4 4 8 6 re W n Q",
         ready+" Q",
         ready+" q",
-        "q 4 5 m 4.125 18 20 18 20 5 c 20 4 l 4 4 l h W n "
-          "q 16 0 0 12 8 3 cm /I Do Q Q",
         /* Cropped source legitimately admits geometry outside the CropBox;
          * the actual strict SOURCE +/-1,000,000 coordinate cap must fail
          * for both full-Media and reduced-CropBox original pages. */
@@ -748,10 +763,6 @@ static int two_rectangle_atomic_refusals()
         "q "+first+" W n Q q "+second+" W* n "+image,
         "q "+first+" W n q 16 0 0 12 8 3 cm /I Do Q "+
             second+" W* n Q",
-        /* A rectangle plus a valid cubic now has positive coverage in
-         * test_native_two_curved_source; off-quarter controls do not. */
-        "q "+first+" W n 4 5 m 4.125 18 20 18 20 5 c "+
-            "20 4 l 4 4 l h W n "+image,
         "q "+first+" W n 12 6 m 12 16 l 20 16 l "+
             "20 6 l h W* n W n "+image,
         "q W n "+second+" W* n W n "+image,
@@ -779,6 +790,7 @@ int main()
     CHECK(definition_time_ctm()==EXIT_SUCCESS);
     CHECK(split_original_contents()==EXIT_SUCCESS);
     CHECK(bounded_control_outside_crop()==EXIT_SUCCESS);
+    CHECK(fractional_curve_clips()==EXIT_SUCCESS);
     CHECK(atomic_rejections()==EXIT_SUCCESS);
     CHECK(empty_clip_pixels()==EXIT_SUCCESS);
     CHECK(disjoint_clip_and_unclipped_image()==EXIT_SUCCESS);

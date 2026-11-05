@@ -5185,9 +5185,10 @@ static int ordered_text_source_contracts(const quantapdf_qpdf_page_limits& defau
 static int ordered_scene_source_contracts(const quantapdf_qpdf_page_limits& defaults,bool path_mode=false)
 {
     size_t stack_faults=0u,path_faults=0u,publications=0u,raster_faults=0u,quotas=0u;
-    for(size_t images:{1u,5u,17u,65u})for(bool encrypted:{false,true}) {
+    for(size_t images:{1u,5u,17u,65u})for(bool encrypted:{false,true})
+    for(unsigned variant=0u;variant<(path_mode?2u:1u);++variant) {
         if(path_mode && images>5u)continue;
-        auto sample=native_ordered_scene::create(images,images==17u?69u:1u,unsigned(images%6u),encrypted,129u,0,0u,SIZE_MAX,false,native_ordered_scene::text_presence::glyphs,path_mode?(images==1u?4u:3u):0u,path_mode && images==5u?65u:1u,path_mode && images==1u?8192u:0u,path_mode);
+        auto sample=native_ordered_scene::create(images,images==17u?69u:1u,unsigned(images%6u),encrypted,129u,0,0u,SIZE_MAX,false,native_ordered_scene::text_presence::glyphs,path_mode?(images==1u?4u:3u):0u,path_mode && images==5u?65u:1u,path_mode && images==1u?8192u:0u,path_mode,variant==0u?1u:8u);
         quantapdf_qpdf_document *document=nullptr;
         CHECK(quantapdf_qpdf_open_memory(reinterpret_cast<const unsigned char*>(sample.bytes.data()),sample.bytes.size(),encrypted?"reader":"",&document)==QUANTAPDF_OK);
         std::unique_ptr<quantapdf_qpdf_document,decltype(&quantapdf_qpdf_close)> owner(document,quantapdf_qpdf_close);
@@ -5508,6 +5509,10 @@ int main(int argc,char **argv)
     const quantapdf_qpdf_page_limits limits={
         65536u,4u,4u,1000000u,1000000u,4000000u,8u
     };
+    if(argc==2 && std::strcmp(argv[1],"--fractional-fill")==0)
+        return path_commands_source_contracts(limits,true,false,false,false,false,8u);
+    if(argc==2 && std::strcmp(argv[1],"--fractional-clip")==0)
+        return path_commands_source_contracts(limits,true,false,true,false,false,8u);
     if(argc==2 && std::strcmp(argv[1],"--text-paths")==0)
         return ordered_scene_source_contracts(limits,true);
     if(argc==2 && std::strcmp(argv[1],"--text-path-state")==0)

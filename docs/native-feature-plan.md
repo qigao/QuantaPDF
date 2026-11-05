@@ -443,6 +443,23 @@
   qpdf owner 后核对三个 DPI 的全部 RGBA；实际操作预算少一笔仍拒绝。长小数
   compound/reverse Clip 原件保留其双叶/GS 关系、逐个 Source 分配失败及独立 RGBA。
 
+### A2 普通路径的小数坐标：当前开发增量
+
+- 已验收起点为 #625 的 `5350d42c`，tree `d4d763830081453356474bb72e782fd8dba3e76a`；
+  [CI #2456](https://github.com/qigao/QuantaPDF/actions/runs/41963822510) 四配置各 110/110。
+  此快照仍为 Draft、未合并；本节增量须以新的精确 HEAD CI 验收。
+- m/l/c/v/y/re 的端点和控制点使用同一个定义时 CTM 投影及有限 C11 坐标包络。
+  删除按 re 切换的 `rectangle_staging` 和普通路径四分之一点准入；沿用动态命令、
+  flatten、采样及实际工作预算。Image placement、页面盒/UserUnit、一般 affine/DPI、
+  通用 Clip 图、Stroke 和字体限制尚未在本增量解决。
+- 复用公开和 Source/OOM 可执行文件，新增小数 Fill/Clip 两项公开测试和两项故障测试，
+  仍为 45/40 秒。1/8 和 1/10 点位移、3/65 轮廓、长零长度命令、f/f*、m/l/c/v/y/h、
+  单根 Clip、三 DPI、AES-256/选页及 Bitmap 生命周期逐字节对照独立有理数参考。
+- 原 744 次真实文字路径 RGB 保留，并增加对应的 744 次小数路径 RGB，仍按五组运行。
+  Source 栈/路径扩容、C 发布、C11 分配失败、N/N−1、不可变 IR 与长尾深快照覆盖小数路径。
+  旧小数三角形/曲线拒绝升级为完整 RGB 的平移构建等价，并保留真实越界、非法语法和
+  未实现操作拒绝；曲线等价检查不宣称任意曲线边缘的解析像素证明。
+
 ## 单一执行模型
 
 ```mermaid

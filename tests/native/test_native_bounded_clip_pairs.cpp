@@ -598,6 +598,12 @@ static int atomic_refusals()
 {
     const std::string prefix=pair_prefix(triangle_a,triangle_b);
     const std::string ready=prefix+full_red+"Q";
+    for(int quarters:{4,5})for(int rotation:{0,90})for(int dpi:{72,96,144})for(int crop:{0,3}) {
+        configuration cfg;cfg.quarters=quarters;cfg.rotation=rotation;cfg.dpi=dpi;cfg.crop=crop;
+        rendered actual,reference;
+        CHECK(render(original(one_prefix(triangle_a)+"2.125 2 m 14 2 l 8 10 l W n "+full_red+"Q",cfg),cfg,actual)==EXIT_SUCCESS);
+        CHECK(render(original(one_prefix(triangle_a)+"1 0 0 1 1 0 cm 1.125 2 m 13 2 l 7 10 l W n 1 0 0 1 -1 0 cm "+full_red+"Q",cfg),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
+    }
     for(int crop:{0,1,2,3})for(int dpi:{72,96,144}) {
         configuration cfg;cfg.crop=crop;cfg.dpi=dpi;rendered empty,actual,reference;
         CHECK(render(original("q W n 2 2 0 8 re W* n "+full_red+"Q",cfg),cfg,empty)==EXIT_SUCCESS && all_white(empty));
@@ -629,7 +635,6 @@ static int atomic_refusals()
         one_prefix(triangle_a)+"2 3 m 2 11 10 11 10 3 c W n "+full_red+"Q",
         one_prefix(triangle_a)+"2 3 m 2 11 10 11 10 c 10 2 l W n "+
             full_red+"Q",
-        one_prefix(triangle_a)+"2.125 2 m 14 2 l 8 10 l W n "+full_red+"Q",
         one_prefix(triangle_a)+"2 2 m 14 2 l 8 -1000001 l W n "+full_red+"Q",
         /* Nine pre-close commands would require a forbidden tenth. */
         one_prefix(triangle_a)+"2 2 m 8 2 l 12 4 l 14 8 l 10 10 l "

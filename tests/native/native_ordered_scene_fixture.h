@@ -8,7 +8,7 @@ using O=QPDFObjectHandle;
 enum class text_presence { glyphs,empty,none };
 struct paint {double x,y,w,h;std::array<unsigned char,12> colors;bool image;bool clipped=false;};
 struct original {std::string bytes;size_t decoded_bytes=0u,operations=0u,glyphs=0u,images=0u;std::vector<paint> paints;unsigned clip_kind=0u;};
-inline original create(size_t count,size_t letters,unsigned permutation,bool encrypted,size_t depth=0u,int invalid=0,unsigned clip_kind=0u,size_t restore_at=SIZE_MAX,bool omit_images=false,text_presence text_mode=text_presence::glyphs,unsigned path_kind=0u,size_t path_repeats=1u,size_t zeros=0u,bool text_before_path=false)
+inline original create(size_t count,size_t letters,unsigned permutation,bool encrypted,size_t depth=0u,int invalid=0,unsigned clip_kind=0u,size_t restore_at=SIZE_MAX,bool omit_images=false,text_presence text_mode=text_presence::glyphs,unsigned path_kind=0u,size_t path_repeats=1u,size_t zeros=0u,bool text_before_path=false,unsigned divisor=1u)
 {
     auto pdf=QPDF::create();const auto base=native_ttf_fixture();
     pdf->processMemoryFile("ordered-scene-authoring",base.data(),base.size());
@@ -72,13 +72,15 @@ inline original create(size_t count,size_t letters,unsigned permutation,bool enc
                 const unsigned color=unsigned((i+2u)%3u);std::array<unsigned char,12> ink{};
                 std::copy(colors[color].begin(),colors[color].end(),ink.begin());
                 part+=rg[color];
-                if(path_kind==0u)part+=std::to_string(x+0.75)+" "+std::to_string(y+0.75)+" 2.5 1.25 re f* ";
+                const double left=x+0.75+(divisor==1u?0.0:1.0/divisor);
+                const double bottom=y+0.75+(divisor==1u?0.0:3.0/divisor);
+                if(path_kind==0u)part+=std::to_string(left)+" "+std::to_string(bottom)+" 2.5 1.25 re f* ";
                 else {
                     const std::array<std::string,4> v={
-                        std::to_string(x+0.75)+" "+std::to_string(y+0.75),
-                        std::to_string(x+3.25)+" "+std::to_string(y+0.75),
-                        std::to_string(x+3.25)+" "+std::to_string(y+2.0),
-                        std::to_string(x+0.75)+" "+std::to_string(y+2.0)};
+                        std::to_string(left)+" "+std::to_string(bottom),
+                        std::to_string(left+2.5)+" "+std::to_string(bottom),
+                        std::to_string(left+2.5)+" "+std::to_string(bottom+1.25),
+                        std::to_string(left)+" "+std::to_string(bottom+1.25)};
                     for(size_t repeat=0u;repeat<path_repeats;++repeat) {
                         if(text_before_path && repeat==0u) {
                             // Real Text immediately before an arbitrary Fill;
@@ -103,7 +105,7 @@ inline original create(size_t count,size_t letters,unsigned permutation,bool enc
                     }
                     part+="f* ";
                 }
-                result.paints.push_back({x+0.75,y+0.75,2.5,1.25,ink,false});++result.operations;
+                result.paints.push_back({left,bottom,2.5,1.25,ink,false});++result.operations;
             }
         }
         for(size_t at=first_paint;at<result.paints.size();++at)result.paints[at].clipped=clip_kind!=0u && i<restore_at;

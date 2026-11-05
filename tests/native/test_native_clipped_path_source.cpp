@@ -631,6 +631,12 @@ static int atomic_refusals()
 {
     const std::string prefix=pair_prefix(curve_a,curve_b);
     const std::string ready=prefix+full_red+"Q";
+    for(int quarters:{4,5})for(int rotation:{0,90})for(int dpi:{72,96,144})for(int crop:{0,3}) {
+        configuration cfg;cfg.quarters=quarters;cfg.rotation=rotation;cfg.dpi=dpi;cfg.crop=crop;
+        rendered actual,reference;
+        CHECK(render(original(prefix+"1 0 0 rg 2 3 m 2.125 11 10 11 10 3 c 10 2 l 2 2 l h f Q",cfg),cfg,actual)==EXIT_SUCCESS);
+        CHECK(render(original(prefix+"1 0 0 rg 1 0 0 1 1 0 cm 1 3 m 1.125 11 9 11 9 3 c 9 2 l 1 2 l h 1 0 0 1 -1 0 cm f Q",cfg),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
+    }
     const std::vector<std::string> bad={
         prefix+full_red+full_red+full_red+full_red+full_red+"Q",
         prefix+"Q",
@@ -660,8 +666,6 @@ static int atomic_refusals()
             "14 2 l 13 2 l 12 2 l 11 2 l 10 2 l 9 2 l 6 2 l "
             "W n "+full_red+"Q",
         prefix+"1 0 0 rg 2 3 m 2 11 10 11 10 c "
-            "10 2 l 2 2 l h f Q",
-        prefix+"1 0 0 rg 2 3 m 2.125 11 10 11 10 3 c "
             "10 2 l 2 2 l h f Q",
         prefix+"1 0 0 rg 2 3 m 2 -1000001 10 11 10 3 c "
             "10 2 l 2 2 l h f Q",

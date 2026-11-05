@@ -22,8 +22,8 @@ typedef struct quantapdf_qpdf_page_limits {
  * command storage is dynamic and raster work uses the caller's actual budgets.
  * Ordinary Fill preserves closed-path current points and zero-area subpaths;
  * empty f/f* has no retained paint. Endpoints and controls may cross the
- * viewport within the current quarter-point envelope; re uses finite C11
- * coordinates. Text forwards original path operands to the same page owner
+ * viewport within the finite C11 coordinate envelope. All ordinary path
+ * endpoints and controls use it. Text forwards operands to the same page owner
  * and does not copy Fill prefixes or impose a glyph-command quota on Fill.
  * Caller disposes it with quantapdf_ir_dispose. Failure publishes empty IR. */
 quantapdf_status quantapdf_qpdf_page_to_ir(

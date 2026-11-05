@@ -128,7 +128,7 @@ int64_t page_lattice(Obj number,int64_t ticks)
     return negative?-quarters:quarters;
 }
 
-/* The current geometry compiler consumes quarter-point transformed values. */
+/* Image placement retains its current quarter-point admission. */
 double whole_signed_source(double value)
 {
     admit(std::isfinite(value) && value>=-1000000.0 &&
@@ -1291,12 +1291,11 @@ public:
 
             // Rectangles use the C11 finite coordinate envelope everywhere;
             // the presence of a Text object never chooses their precision.
-            rectangle_staging=true;
             append_point(QUANTAPDF_COMPOSER_PATH_MOVE_TO,x,y);
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x+w,y);
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x+w,y+h);
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x,y+h);
-            close_path();rectangle_staging=false;
+            close_path();
         } else if(op=="S") {
             if(target.texample_original_profile) {
                 admit(args.empty() &&
@@ -1830,10 +1829,8 @@ private:
     }
     quantapdf_point stage_point(double x,double y) const
     {
-        /* Source coordinates/CTM are resolved at construction time.
-         * Existing strict scale/shear and exact quarter-viewport
-         * policies apply IDENTICALLY to every cubic control/end
-         * point, not merely to its final visible endpoint. */
+        /* Freeze every endpoint/control at its original construction CTM.
+         * Ordinary paths share the native finite coordinate envelope. */
         if(target.texample_original_profile) {
             admit(texample_original_ctm &&
                   current[0]==1.0 && current[1]==0.0 &&
@@ -1867,20 +1864,13 @@ private:
             current[0]*x+current[4]-target.media_left;
         const double absolute_y=
             current[3]*y+current[5]-target.media_bottom;
-        if(rectangle_staging) {
-            const double py=target.exact_page_h-absolute_y;
-            admit(std::isfinite(absolute_x) && std::isfinite(py) &&
-                  std::abs(absolute_x)<=1000000.0 && std::abs(py)<=1000000.0,
-                  QUANTAPDF_ERROR_UNSUPPORTED);
-            return {static_cast<float>(absolute_x),static_cast<float>(py)};
-        }
         // Path endpoints and Bezier controls may lie outside the viewport.
         // Keep their geometry; the native sampler clips visible coverage.
-        const double ix=whole_signed_source(absolute_x);
-        const double iy=whole_signed_source(absolute_y);
-        return {static_cast<float>(ix),static_cast<float>(
-            (target.exact_page_h>0.0?
-                target.exact_page_h:(double)target.page_h)-iy)};
+        const double py=target.exact_page_h-absolute_y;
+        admit(std::isfinite(absolute_x) && std::isfinite(py) &&
+              std::abs(absolute_x)<=1000000.0 && std::abs(py)<=1000000.0,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        return {static_cast<float>(absolute_x),static_cast<float>(py)};
     }
     void append_point(quantapdf_composer_path_command_kind kind,
                       double x,double y)
@@ -1976,7 +1966,6 @@ private:
     bool three_branch_clip_pending=false;
     bool texample_pending_move=false,texample_original_ctm=false;
     std::unique_ptr<quantapdf::detail::source_text_outlines> outline_reader;
-    bool rectangle_staging=false;
     bool texample_prefix_possible=true;
     size_t texample_prefix_index=0u;
     quantapdf_point texample_move_point{};

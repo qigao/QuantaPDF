@@ -543,6 +543,12 @@ static int atomic_refusals()
     const std::string ready=pair_image(curve_a,curve_b);
     const std::string prefix=pair_prefix(curve_a,curve_b);
     const std::string path_fill="0 0 1 rg 4 4 8 6 re f ";
+    for(int quarters:{4,5})for(int rotation:{0,90})for(int dpi:{72,96,144})for(int crop:{0,3}) {
+        configuration cfg;cfg.quarters=quarters;cfg.rotation=rotation;cfg.dpi=dpi;cfg.crop=crop;
+        rendered actual,reference;
+        CHECK(render(original("q "+curve_a+" W n 12 5 m 12.125 18 28 18 28 5 c 28 4 l 12 4 l h W n "+image_draw+" Q",cfg),cfg,actual)==EXIT_SUCCESS);
+        CHECK(render(original("q "+curve_a+" W n 1 0 0 1 1 0 cm 11 5 m 11.125 18 27 18 27 5 c 27 4 l 11 4 l h W n 1 0 0 1 -1 0 cm "+image_draw+" Q",cfg),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
+    }
     for(int crop:{0,1,2,3})for(int dpi:{72,96,144}) {
         configuration cfg;cfg.crop=crop;cfg.dpi=dpi;rendered empty;
         CHECK(render(original("q W n 8 4 0 12 re W* n "+image_draw+" Q",cfg),cfg,empty)==EXIT_SUCCESS);
@@ -576,8 +582,6 @@ static int atomic_refusals()
             "28 4 l 26 4 l 24 4 l 22 4 l 20 4 l 18 4 l 12 4 l "
             "W n "+image_draw+" Q",
         "q "+curve_a+" W n 12 5 m 12 18 28 18 28 c "
-            "28 4 l 12 4 l h W n "+image_draw+" Q",
-        "q "+curve_a+" W n 12 5 m 12.125 18 28 18 28 5 c "
             "28 4 l 12 4 l h W n "+image_draw+" Q",
         "q "+curve_a+" W n 12 5 m 12 -1000001 28 18 28 5 c "
             "28 4 l 12 4 l h W n "+image_draw+" Q",

@@ -72,6 +72,12 @@ add_test(NAME quantapdf.native_composer_geometry
 set_tests_properties(quantapdf.native_composer_geometry PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;public-api;composer;current-api")
 # Ordinary Fill keeps one page path owner on both sides of Text objects.
+foreach(kind IN ITEMS fill clip)
+  add_test(NAME quantapdf.native_fractional_${kind}
+    COMMAND quantapdf_native_public_render --fractional-${kind})
+  set_tests_properties(quantapdf.native_fractional_${kind} PROPERTIES
+    TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;fractional-path")
+endforeach()
 add_test(NAME quantapdf.native_text_paths
   COMMAND quantapdf_native_public_render --text-paths)
 foreach(primitive IN ITEMS cubic v y continued)
@@ -289,6 +295,13 @@ add_test(NAME quantapdf.native_source_stage_oom
   "${PROJECT_SOURCE_DIR}/tests/external_source_corpus/documents/texample.intersecting-rings-v1.pdf")
 set_tests_properties(quantapdf.native_source_stage_oom PROPERTIES
   TIMEOUT 40 LABELS "conformance;native;no-pdfium;source-staging;oom")
+
+foreach(kind IN ITEMS fill clip)
+  add_test(NAME quantapdf.native_fractional_${kind}_oom
+    COMMAND quantapdf_native_source_stage_oom --fractional-${kind})
+  set_tests_properties(quantapdf.native_fractional_${kind}_oom PROPERTIES
+    TIMEOUT 40 LABELS "conformance;native;no-pdfium;source;fractional-path;oom")
+endforeach()
 
 add_test(NAME quantapdf.native_text_paths_oom
   COMMAND quantapdf_native_source_stage_oom --text-paths)

@@ -623,6 +623,12 @@ static int atomic_refusals()
     const std::string first=one_prefix(rectangle_a);
     const std::string second=one_prefix(rectangle_b,true);
     const std::string ready=full_red+first+full_blue+"Q";
+    for(int quarters:{4,5})for(int rotation:{0,90})for(int dpi:{72,96,144})for(int crop:{0,3}) {
+        configuration cfg;cfg.quarters=quarters;cfg.rotation=rotation;cfg.dpi=dpi;cfg.crop=crop;
+        rendered actual,reference;
+        CHECK(render(original(full_red+"q 2.125 2 m 14 2 l 8 10 l h W n "+full_blue+"Q",cfg),cfg,actual)==EXIT_SUCCESS);
+        CHECK(render(original(full_red+"q 1 0 0 1 1 0 cm 1.125 2 m 13 2 l 7 10 l h W n 1 0 0 1 -1 0 cm "+full_blue+"Q",cfg),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
+    }
     const std::vector<std::string> bad={
         ready+" "+one_prefix(rectangle_b)+full_blue+"Q "+
             one_prefix(rectangle_a)+full_blue+"Q", /* third definition */
@@ -634,7 +640,6 @@ static int atomic_refusals()
             "Q "+full_green+"Q "+cyan_suffix,
         /* Two-GS IMAGE-only plus a prefix would require three Images. */
         red_image+first+red_image+second+blue_image+"Q Q",
-        full_red+"q 2.125 2 m 14 2 l 8 10 l h W n "+full_blue+"Q",
         full_red+"q 2 2 m 14 2 l 8 -1000001 l h W n "+full_blue+"Q",
         full_red+"q "+rectangle_a+" W "+full_blue+"Q",
         full_red+"q "+rectangle_a+" W 1 n "+full_blue+"Q",

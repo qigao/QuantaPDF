@@ -12,6 +12,7 @@ struct original {
     size_t decoded_bytes=0u,commands=0u,operations=0u,repeats=0u;
     size_t clip_commands=0u;
     unsigned clip=0u;
+    unsigned contour_divisor=1u;
     bool even=false,restore=false;
     std::vector<region> contours;
 };
@@ -89,9 +90,10 @@ inline original create(size_t repeats,unsigned primitive,unsigned clip,bool even
 
 // Multiple original subpaths share ONE fill. No per-contour compositing.
 inline original create_contours(size_t count,unsigned primitive,unsigned clip,bool even,
-    bool restore,bool encrypted,size_t zeros=0u,unsigned layout=0u,unsigned closing=0u,int invalid=0,bool as_clip=false,bool across_text=false)
+    bool restore,bool encrypted,size_t zeros=0u,unsigned layout=0u,unsigned closing=0u,int invalid=0,bool as_clip=false,bool across_text=false,unsigned divisor=1u)
 {
     original result;result.clip=clip;result.even=even;result.restore=restore;
+    result.contour_divisor=divisor;
     result.operations=restore?2u:1u;
     std::array<std::string,3> parts;parts[0]="q\n";
     if(clip==1u || clip==4u)parts[0]+="4 4 4 4 re W n\n";
@@ -100,7 +102,8 @@ inline original create_contours(size_t count,unsigned primitive,unsigned clip,bo
     if(clip==5u)parts[0]+="1 1 m 5 1 l 1 5 l h W* n\n";
     if(clip==4u)parts[0]+="q 5 3 4 6 re W* n\n";
     parts[0]+="0.2 0.4 0.6 rg\n";
-    const auto point=[](int x,int y) {return std::to_string(x)+" "+std::to_string(y);};
+    const auto number=[&](int v) {return divisor==1u?std::to_string(v):std::to_string(double(v)/divisor);};
+    const auto point=[&](int x,int y) {return number(x)+" "+number(y);};
     for(size_t i=0u;i<count;++i) {
         region r{};
         if(layout==0u) {
@@ -117,12 +120,16 @@ inline original create_contours(size_t count,unsigned primitive,unsigned clip,bo
             const int x=offset+6*int(i%2u),y=offset+6*int((i/2u)%2u);
             r={x,y,x+extent,y+extent,true,i%2u!=0u};
         }
+        if(divisor!=1u) {
+            r.x0=r.x0*int(divisor)+1;r.x1=r.x1*int(divisor)+1;
+            r.y0=r.y0*int(divisor)+3;r.y1=r.y1*int(divisor)+3;
+        }
         result.contours.push_back(r);auto& out=parts[i<count/2u?1u:2u];
         std::vector<std::string> vertices={point(r.x0,r.y0),point(r.x1,r.y0),point(r.x1,r.y1),point(r.x0,r.y1)};
         if(r.triangle)vertices.erase(vertices.begin()+2);
         if(r.reverse)std::reverse(vertices.begin()+1,vertices.end());
         if(closing==3u && !r.triangle) {
-            out+=point(r.x0,r.reverse?r.y1:r.y0)+" "+std::to_string(r.x1-r.x0)+" "+std::to_string((r.reverse?-1:1)*(r.y1-r.y0))+" re\n";
+            out+=point(r.x0,r.reverse?r.y1:r.y0)+" "+number(r.x1-r.x0)+" "+number((r.reverse?-1:1)*(r.y1-r.y0))+" re\n";
         } else {
             out+=vertices[0]+" m\n";
             for(size_t j=1u;j<vertices.size();++j) {
@@ -245,11 +252,12 @@ inline std::vector<unsigned char> rgb(const original& sample,unsigned dpi)
             bool inside=rectangle(px,py,2,2,10,10) && (!sample.even || sample.repeats%2u!=0u);
             if(!sample.contours.empty()) {
                 int winding=0;
+                const int64_t cx=px*sample.contour_divisor,cy=py*sample.contour_divisor;
                 for(const auto& r:sample.contours) {
                     const int64_t w=r.x1-r.x0,h=r.y1-r.y0;
-                    const bool hit=r.triangle ? px>=r.x0*denominator && py>=r.y0*denominator &&
-                        (px-r.x0*denominator)*h+(py-r.y0*denominator)*w<w*h*denominator :
-                        rectangle(px,py,r.x0,r.y0,r.x1,r.y1);
+                    const bool hit=r.triangle ? cx>=r.x0*denominator && cy>=r.y0*denominator &&
+                        (cx-r.x0*denominator)*h+(cy-r.y0*denominator)*w<w*h*denominator :
+                        rectangle(cx,cy,r.x0,r.y0,r.x1,r.y1);
                     if(hit)winding+=r.reverse?-1:1;
                 }
                 inside=sample.even?winding%2!=0:winding!=0;

@@ -602,6 +602,12 @@ static int atomic_refusals()
     const std::string a=one_prefix(rectangle_a);
     const std::string b=one_prefix(rectangle_b,true);
     const std::string ready=a+full_red+b+full_blue+"Q Q";
+    for(int quarters:{4,5})for(int rotation:{0,90})for(int dpi:{72,96,144})for(int crop:{0,3}) {
+        configuration cfg;cfg.quarters=quarters;cfg.rotation=rotation;cfg.dpi=dpi;cfg.crop=crop;
+        rendered actual,reference;
+        CHECK(render(original(a+full_red+"q 2.125 2 m 14 2 l 8 10 l W n "+full_blue+"Q Q",cfg),cfg,actual)==EXIT_SUCCESS);
+        CHECK(render(original(a+full_red+"q 1 0 0 1 1 0 cm 1.125 2 m 13 2 l 7 10 l W n 1 0 0 1 -1 0 cm "+full_blue+"Q Q",cfg),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
+    }
     for(int crop:{0,1,2,3})for(int dpi:{72,96,144}) {
         configuration cfg;cfg.crop=crop;cfg.dpi=dpi;rendered actual,reference;
         CHECK(render(original(a+full_red+"q 2 2 m 14 2 l 8 10 l h h W n "+full_blue+"Q Q",cfg),cfg,actual)==EXIT_SUCCESS);
@@ -629,7 +635,6 @@ static int atomic_refusals()
         ready+" q",
         a+full_red+"q "+rectangle_b+" W "+full_blue+"Q Q",
         a+full_red+"q W* 1 n "+full_blue+"Q Q",
-        a+full_red+"q 2.125 2 m 14 2 l 8 10 l W n "+full_blue+"Q Q",
         a+full_red+"q 2 2 m 14 2 l 8 -1000001 l W n "+full_blue+"Q Q",
         a+full_red+"q 2 2 m 8 2 l 12 4 l 14 8 l 10 10 l "
             "4 10 l 2 8 l 1 4 l 1 3 l W n "+full_blue+"Q Q"

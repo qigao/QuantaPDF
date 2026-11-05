@@ -704,11 +704,15 @@ static int atomic_refusals()
     const std::string compound=two_contours(outer_triangle,inner_triangle);
     const std::string prefix=one_prefix(compound,true);
     const std::string ready=prefix+full_red+"Q";
+    for(int quarters:{4,5})for(int rotation:{0,90})for(int dpi:{72,96,144})for(int crop:{0,3}) {
+        configuration cfg;cfg.quarters=quarters;cfg.rotation=rotation;cfg.dpi=dpi;cfg.crop=crop;
+        rendered actual,reference;
+        CHECK(render(original("q "+outer_triangle+" 6.125 4 m 10 4 l 8 7 l h W n "+full_red+"Q",cfg),cfg,actual)==EXIT_SUCCESS);
+        CHECK(render(original("q "+outer_triangle+" 1 0 0 1 1 0 cm 5.125 4 m 9 4 l 7 7 l h W n 1 0 0 1 -1 0 cm "+full_red+"Q",cfg),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
+    }
     const std::vector<std::string> bad={
         "q "+outer_triangle+" W "+inner_triangle+" n "+full_red+"Q",
         "q "+compound+" W 1 n "+full_red+"Q",
-        "q "+outer_triangle+" 6.125 4 m 10 4 l 8 7 l h W n "+
-            full_red+"Q",
         "q "+outer_triangle+" 6 4 m 10 4 l 8 -1000001 l h W n "+
             full_red+"Q",
         prefix+full_red+compound+" W n Q", /* unused second Clip */
