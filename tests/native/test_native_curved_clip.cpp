@@ -538,9 +538,8 @@ static int empty_or_disjoint_q_restoration()
     return EXIT_SUCCESS;
 }
 
-/* Malformed or unsupported content, even AFTER a correctly suppressed
- * Image, must not publish partial RGB. Clip redefinition after Q restores
- * no Clip, and W without n, remain unsupported without a fallback. */
+/* Malformed or unsupported content after a suppressed Image fails atomically.
+ * A later unused definition preserves the earlier pixels and actual Q state. */
 static int empty_clip_atomic_refusals()
 {
     const std::string draw="q 16 0 0 12 8 3 cm /I Do Q Q";
@@ -554,12 +553,20 @@ static int empty_clip_atomic_refusals()
         "q W n q 16 0 0 12 8 3 cm /Missing Do Q Q",
         "q W n "+draw+" BT 1 Tr ET",
         "q W* n "+draw+" 4 4 m S",
-        "q W n "+draw+" q 4 4 8 6 re W* n Q",
         "q W n "+draw+" 1 0 0 rg 8 6 8 6 re f BT 1 Tr ET",
-        "q 4 5 m 4 18 20 18 20 5 c W n "+draw,
-        "q W n "+draw+" 1 0 0 rg 8 6 8 6 re f "
-            "q 4 4 8 6 re W n Q"
     };
+    const std::pair<std::string,std::string> admitted[]={
+        {"q W n "+draw+" q 4 4 8 6 re W* n Q",""},
+        {"q 4 5 m 4 18 20 18 20 5 c W n "+draw,
+         "q 1 0 0 1 4 0 cm 0 5 m 0 18 16 18 16 5 c W n 1 0 0 1 -4 0 cm "+draw},
+        {"q W n "+draw+" 1 0 0 rg 8 6 8 6 re f q 4 4 8 6 re W n Q",
+         "1 0 0 rg 8 6 8 6 re f"}
+    };
+    for(const auto& pair:admitted)for(int crop:{0,1})for(int dpi:{72,96,144}) {
+        std::vector<unsigned char> actual,reference;
+        CHECK(render(original(pair.first,true,4,0,crop),4,0,dpi,crop,actual)==EXIT_SUCCESS);
+        CHECK(render(original(pair.second,true,4,0,crop),4,0,dpi,crop,reference)==EXIT_SUCCESS && actual==reference);
+    }
     for(const auto& content:bad)
     for(int crop:{0,1})
     for(int dpi:{72,96,144})
@@ -570,9 +577,8 @@ static int empty_clip_atomic_refusals()
 
 /* Two authored rectangular W/W* definitions in one original q scope,
  * before ANY paint, have the same exact 4x4 sample membership as
- * their rectangle intersection. Only that strictly qualified subset
- * is collapsed by Source into ONE owned Clip for the existing C11
- * renderer. The reference is a separate real PDF, not a second
+ * their rectangle intersection. Source retains both original leaves
+ * and one intersection root. The reference is a separate real PDF, not a second
  * renderer or a Composer IR re-export. */
 static int two_rectangle_clip_intersections()
 {
