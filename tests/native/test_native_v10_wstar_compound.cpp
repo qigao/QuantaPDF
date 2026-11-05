@@ -1,8 +1,5 @@
-/* Original test-authored PDF W/W* two-contour winding admission.
- * No original yWorks source is modified or claimed pixel-qualified.
- * This is one narrow public Source V10 => unique C11 V5/V1 raster
- * capability, not a PDFium oracle or a second Clip implementation.
- */
+/* Authored PDF W/W* contours through the current opened Document and C11.
+ * No original yWorks source is modified or claimed pixel-qualified. */
 #include <quantapdf/quantapdf.h>
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFObjectHandle.hh>
@@ -35,11 +32,7 @@ static const std::string inner_reverse=
     "12 10 m 16 18 l 20 10 l h ";
 static const std::string third=
     "8 8 m 12 8 l 10 12 l h ";
-/* The authentic yWorks source closes a preceding Clip subpath by
- * starting the next m, rather than by an explicit h. The public
- * V10 source grammar now proves that PDF implicit closure within the
- * same NINE-command two-contour lease; the actual yWorks original
- * has a larger compound shape and is still a separate negative. */
+/* A new m implicitly closes the preceding contour at its original start. */
 static const std::string outer_implicit=
     "4 4 m 28 4 l 16 28 l ";
 static const std::string outer_return_start=
@@ -124,9 +117,6 @@ static std::vector<case_entry> make_cases()
             UINT32_C(0xff0000),UINT32_C(0xff0000),false},
         {"evenodd-hole-repeat",two+"W* n "+fill_red,QUANTAPDF_OK,
             UINT32_C(0xffffff),UINT32_C(0xff0000),false},
-        /* Only a COMPLETE first contour with a source LINE returning
-         * to the exact initial MOVE point is newly admitted. Arbitrary
-         * open first contours remain a historical negative contract. */
         {"return-to-m-evenodd-hole",
             outer_return_start+inner+"W* n "+fill_red,
             QUANTAPDF_OK,UINT32_C(0xffffff),UINT32_C(0xff0000),false},
@@ -142,8 +132,7 @@ static std::vector<case_entry> make_cases()
         {"return-to-m-final-implicit",
             outer_return_start+"12 10 m 20 10 l 16 18 l W* n "+fill_red,
             QUANTAPDF_OK,UINT32_C(0xffffff),UINT32_C(0xff0000),false},
-        /* Actual eleven authored PDF path commands can be normalized
-         * losslessly to two 5-command rectangles for the sole W* leaf. */
+        /* Returned rectangles close at their original starts. */
         {"yworks-returned-rectangles-wstar",
             "4 4 m 28 4 l 28 28 l 4 28 l 4 4 l "
             "12 10 m 20 10 l 20 18 l 12 18 l 12 10 l h W* n "+
@@ -154,19 +143,19 @@ static std::vector<case_entry> make_cases()
             "18 10 m 25 10 l 25 18 l 18 18 l 18 10 l h W* n "+
             fill_blue,QUANTAPDF_OK,
             UINT32_C(0x0000ff),UINT32_C(0x0000ff),true},
-        {"reject-wide-rectangles-nonzero",
+        {"wide-rectangles-nonzero",
             "4 4 m 28 4 l 28 28 l 4 28 l 4 4 l "
             "12 10 m 20 10 l 20 18 l 12 18 l 12 10 l h W n "+
-            fill_red,QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
-        {"reject-wide-rectangles-third",
+            fill_red,QUANTAPDF_OK,UINT32_C(0xff0000),UINT32_C(0xff0000),false},
+        {"wide-rectangles-third",
             "4 4 m 28 4 l 28 28 l 4 28 l 4 4 l "
             "12 10 m 20 10 l 20 18 l 12 18 l 12 10 l h "+
-            third+"W* n "+fill_red,QUANTAPDF_ERROR_UNSUPPORTED,
-            0u,0u,false},
-        {"reject-wide-rectangles-not-nested",
+            third+"W* n "+fill_red,QUANTAPDF_OK,
+            UINT32_C(0xffffff),UINT32_C(0xff0000),false},
+        {"wide-rectangles-not-nested",
             "4 4 m 28 4 l 28 28 l 4 28 l 4 4 l "
             "22 10 m 31 10 l 31 18 l 22 18 l 22 10 l h W* n "+
-            fill_red,QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
+            fill_red,QUANTAPDF_OK,UINT32_C(0xff0000),UINT32_C(0xff0000),false},
         {"reject-wide-rectangles-late-text",
             "4 4 m 28 4 l 28 28 l 4 28 l 4 4 l "
             "12 10 m 20 10 l 20 18 l 12 18 l 12 10 l h W* n "+
@@ -182,14 +171,14 @@ static std::vector<case_entry> make_cases()
         {"implicit-return-triangle-rectangle",
             outer_return_start+"12 10 8 12 re W* n "+fill_red,
             QUANTAPDF_OK,UINT32_C(0xffffff),UINT32_C(0xff0000),false},
-        {"reject-third-after-return",
+        {"third-after-return",
             outer_return_start+inner+third+"W* n "+fill_red,
-            QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
+            QUANTAPDF_OK,UINT32_C(0xffffff),UINT32_C(0xff0000),false},
         {"reject-late-text-after-return",
             outer_return_start+inner+"W* n "+fill_red+"BT ET ",
             QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
-        {"reject-third-contour",outer+inner+third+"W* n "+fill_red,
-            QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
+        {"third-contour",outer+inner+third+"W* n "+fill_red,
+            QUANTAPDF_OK,UINT32_C(0xffffff),UINT32_C(0xff0000),false},
         {"reject-late-text",two+"W* n "+fill_red+"BT ET ",
             QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
         {"reject-early-text",two+"W* n BT ET "+fill_red,
@@ -256,6 +245,21 @@ static int test()
                   count==static_cast<size_t>(stride)*
                          static_cast<size_t>(result.h));
             result.rgb.assign(bytes,bytes+count);
+            // A full-page solid paint under Clip equals a Fill of the same
+            // contours. Compare the entire RGB surface, including edge samples.
+            const size_t even=entry.contents.find("W* n ");
+            const size_t at=even!=std::string::npos?even:entry.contents.find("W n ");
+            CHECK(at!=std::string::npos);
+            CHECK(write_file(std::string(entry.blue?"0 0 1 rg ":"1 0 0 rg ")+
+                entry.contents.substr(0u,at)+(even!=std::string::npos?"f*":"f")));
+            quantapdf_document *reference_doc=nullptr;quantapdf_page *reference_page=nullptr;
+            quantapdf_bitmap *reference=nullptr;
+            OK(quantapdf_open_with_context(ctx,temp_file,nullptr,&reference_doc));
+            CHECK(std::remove(temp_file)==0);OK(quantapdf_load_page(reference_doc,0,&reference_page));
+            quantapdf_close(reference_doc);OK(quantapdf_render_page(reference_page,&reference));
+            quantapdf_drop_page(reference_page);OK(quantapdf_bitmap_data(reference,&bytes,&count));
+            CHECK(count==result.rgb.size() && std::memcmp(bytes,result.rgb.data(),count)==0);
+            quantapdf_drop_bitmap(reference);
             if(color(result,2,2)!=UINT32_C(0xffffff) ||
                color(result,16,18)!=entry.center ||
                color(result,16,8)!=entry.outer_point ||
@@ -299,10 +303,10 @@ static int test()
     CHECK(bytes!=nullptr && size==held_copy.size() &&
           std::memcmp(bytes,held_copy.data(),size)==0);
     quantapdf_drop_bitmap(held);
-    CHECK(positives==16u && negatives==14u);
-    std::printf("Original generated W/W* two-contour: 16 exact RGB "
-                "positives (2 nested returned-rectangle W*), "
-                "14 atomic negatives, single C11 renderer\n");
+    CHECK(positives==21u && negatives==9u);
+    std::printf("Original generated W/W* contours: 21 full RGB "
+                "positives, "
+                "9 atomic negatives, single C11 renderer\n");
     return EXIT_SUCCESS;
 }
 int main()

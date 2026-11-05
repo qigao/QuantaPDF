@@ -4133,10 +4133,16 @@ int main(int argc,char **argv)
     // Each CTest invocation owns its input path, including parallel runs.
     const std::string filename=std::string("native-public-")+
         (argc>1?argv[1]:"render")+".pdf";
+    if(argc==2 && std::strcmp(argv[1],"--clip-paths")==0)
+        return path_commands_cases(filename,true,3u);
     if(argc==2 && std::strcmp(argv[1],"--path-boundaries")==0)
         return path_commands_cases(filename,true,1u);
     if(argc==2 && std::strcmp(argv[1],"--parity-stress")==0)
         return path_commands_cases(filename,true,2u);
+    if(argc==2 && std::strcmp(argv[1],"--multi-contour-three")==0)
+        return path_commands_cases(filename,true,4u);
+    if(argc==2 && std::strcmp(argv[1],"--multi-contour-many")==0)
+        return path_commands_cases(filename,true,5u);
     if(argc==2 && std::strcmp(argv[1],"--multi-contour")==0)
         return path_commands_cases(filename,true);
     if(argc==2 && std::strcmp(argv[1],"--path-commands")==0)

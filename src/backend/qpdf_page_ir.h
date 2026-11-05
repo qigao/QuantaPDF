@@ -17,7 +17,9 @@ typedef struct quantapdf_qpdf_page_limits {
     size_t max_parent_steps;
 } quantapdf_qpdf_page_limits;
 /* Borrow the selected opened/decrypted page synchronously. Success publishes
- * independently owned IR, including decoded image and font geometry data.
+ * independently owned IR, including Clip commands, decoded images and font
+ * geometry. A single Clip retains all parsed contours and its winding rule;
+ * command storage is dynamic and raster work uses the caller's actual budgets.
  * Caller disposes it with quantapdf_ir_dispose. Failure publishes empty IR. */
 quantapdf_status quantapdf_qpdf_page_to_ir(
     quantapdf_qpdf_document *document,size_t page_index,

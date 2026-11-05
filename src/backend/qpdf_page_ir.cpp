@@ -279,11 +279,8 @@ bool bounded_clip_contour(
     return true;
 }
 
-/* A compound Clip keeps one aggregate winding rule over one or two
- * closed contours. The TOTAL command allowance stays at nine; every
- * contour still spends MOVE, at least two edges, and CLOSE. Only the
- * last contour may await the original W/n implicit closure. Painted
- * PATHs retain the separate single-contour predicate above. */
+/* Remaining legacy two-Clip/Stroke publishers still require short leaves.
+ * A single Clip's parsed geometry goes directly to the dynamic Scene owner. */
 bool bounded_clip_path(
     const std::vector<quantapdf_composer_path_command>& commands,
     bool allow_implicit_close=false)
@@ -1468,10 +1465,7 @@ public:
             } else {
                 admit((pending_path.size()>=3u ||
                        trivial_zero_area_clip()) &&
-                      !target.clip_completed &&
-                      (trivial_zero_area_clip() ||
-                       bounded_clip_path(pending_path,true) ||
-                       (op=="W*" && nested_rectangles(pending_path))),
+                      !target.clip_completed,
                       QUANTAPDF_ERROR_UNSUPPORTED);
             }
             clip_rule=op=="W*" ? QUANTAPDF_COMPOSER_FILL_EVEN_ODD :
@@ -1594,10 +1588,6 @@ public:
                        trivial_zero_area_clip()),
                       QUANTAPDF_ERROR_UNSUPPORTED);
                 complete_clip_contour();
-                admit(bounded_clip_path(pending_path) ||
-                      (clip_rule==QUANTAPDF_COMPOSER_FILL_EVEN_ODD &&
-                       nested_rectangles(pending_path)),
-                      QUANTAPDF_ERROR_UNSUPPORTED);
                 target.clip.commands=std::move(pending_path);
                 target.clip.rule=clip_rule;
                 target.clip_completed=true;
@@ -2544,10 +2534,8 @@ quantapdf_ir materialize(
 }
 
 
-/* Publish the same detached Clip payload shape in homogeneous and mixed
- * materializers. The caller's existing catch/dispose owns every slot
- * immediately, including partial leaf/root allocation failures. The old
- * one-leaf path keeps its allocation order and count unchanged. */
+/* Publish detached Clip geometry. Scene copies every command, without a
+ * contour/command profile. The caller owns each allocated resource slot. */
 quantapdf_composer_clip_id materialize_source_clip_graph(
     quantapdf_ir& ir,const admission& source)
 {
@@ -2555,10 +2543,6 @@ quantapdf_composer_clip_id materialize_source_clip_graph(
     admit(source.clip_completed &&
           (!source.sibling_clip_scopes || two) &&
           source.clip.commands.size()>=4u &&
-          (source.clip.commands.size()<=9u ||
-           (!two &&
-            source.clip.rule==QUANTAPDF_COMPOSER_FILL_EVEN_ODD &&
-            nested_rectangles(source.clip.commands))) &&
           ir.resources.clips==nullptr &&
           ir.resources.clip_count==0u && ir.resources.clip_capacity==0u &&
           (two ?

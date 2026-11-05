@@ -711,13 +711,14 @@ static bool malformed_failures()
         "2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l h W n",
         "2 2 m 12 2 l 2 10 l h 4 3 m W n",
         "2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l W n",
-        /* Two re contours spend ten commands, beyond the shared nine. */
-        "2 2 10 7 re 4 3 3 2 re W n",
-        "2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h 8 3 m 8 4 l 9 3 l h W n",
     };
     CHECK(source_fill_equivalent(
         "2 2 m 12 2 l 2 10 l 4 3 m 7 3 l 4 6 l h W n 1 0 0 rg 0 0 16 12 re f",
         "2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h W n 1 0 0 rg 0 0 16 12 re f",cases[0]));
+    for(const std::string& geometry:{std::string("2 2 10 7 re 4 3 3 2 re "),
+        std::string("2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h 8 3 m 8 4 l 9 3 l h ")})
+        CHECK(source_fill_equivalent(geometry+"W n 1 0 0 rg 0 0 16 12 re f",
+            "1 0 0 rg "+geometry+"f",cases[0]));
     CHECK(source_fill_equivalent("2 2 10 7 re 4 3 m 7 3 l 4 6 l h f","2 2 10 7 re f",cases[0]));
     CHECK(source_fill_equivalent("2 2 10 7 re 4 3 m 7 3 l 4 6 l h n","",cases[0]));
     for(const char *content:invalid)
