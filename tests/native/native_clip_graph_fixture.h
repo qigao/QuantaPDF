@@ -8,7 +8,7 @@
 namespace native_clip_graph {
 using O=QPDFObjectHandle;
 // Integer sixteenth-point regions are an independent sample oracle.
-struct region {int left,bottom,right,top;};
+struct region {int64_t left,bottom,right,top;};
 struct paint {
     region bounds;
     std::array<unsigned char,12> colors;
@@ -18,8 +18,8 @@ struct paint {
 struct options {
     unsigned scene=0u,order=0u,primitive=0u,leaves=4u;
     bool empty=false,prefix=true,sparse=false,fringe=false,glyph_fringe=false;
-    int width_ticks=192,height_ticks=192;
-    int media_left=0,media_bottom=0;
+    int64_t width_ticks=192,height_ticks=192;
+    int64_t media_left=0,media_bottom=0,ticks_per_point=16;
     int rotation=0;
     unsigned user_quarters=4u;
     bool crop=false,inherited_geometry=false;
@@ -30,8 +30,8 @@ struct original {
     std::string bytes;
     size_t decoded_bytes=0u,operations=0u,images=0u,glyphs=0u;
     size_t leaves=0u,nodes=0u,states=0u;
-    int width_ticks=192,height_ticks=192;
-    int viewport_left=0,viewport_bottom=0,absolute_left=0,absolute_bottom=0;
+    int64_t width_ticks=192,height_ticks=192,ticks_per_point=16;
+    int64_t viewport_left=0,viewport_bottom=0,absolute_left=0,absolute_bottom=0;
     unsigned rotation=0u,user_quarters=4u;
     std::vector<paint> paints;
 };
@@ -53,15 +53,44 @@ inline options viewport_case(options opt,unsigned kind)
     }
     return opt;
 }
+inline std::string decimal(int64_t value,int64_t den)
+{
+    const bool negative=value<0;
+    uint64_t n=uint64_t(negative?-value:value),d=uint64_t(den);
+    std::string out=(negative?"-":"")+std::to_string(n/d);n%=d;
+    if(n!=0u) {
+        out+='.';
+        do {n*=10u;out+=char('0'+n/d);n%=d;}while(n!=0u);
+    }
+    return out;
+}
+inline options decimal_case(options opt,unsigned kind)
+{
+    opt.fringe=true;opt.glyph_fringe=false;opt.ticks_per_point=1000000000ll;
+    opt.width_ticks=12137000000ll;opt.height_ticks=11293000000ll;
+    switch(kind) {
+    case 0u:opt.media_left=2103000000ll;opt.media_bottom=-1207000000ll;break;
+    case 1u:opt.media_left=-7301000000ll;opt.media_bottom=609000000ll;
+        opt.crop=true;opt.crop_box={1103000000ll,917000000ll,9331250000ll,10719000000ll};
+        opt.inherited_geometry=true;break;
+    case 2u:opt.width_ticks=12125000001ll;opt.height_ticks=11125000001ll;break;
+    case 3u:opt.width_ticks=12124999999ll;opt.height_ticks=11124999999ll;break;
+    case 4u:opt.width_ticks=12000000001ll;opt.height_ticks=11000000001ll;break;
+    case 5u:opt.media_left=2103000000ll;opt.media_bottom=-1207000000ll;
+        opt.crop=true;opt.crop_box={-331000000ll,729000000ll,11917000000ll,11893000000ll};break;
+    default:throw std::runtime_error("invalid decimal viewport fixture");
+    }
+    return opt;
+}
 inline original create(options opt,bool encrypted,int invalid=0)
 {
     auto pdf=QPDF::create();const auto base=native_ttf_fixture();
     pdf->processMemoryFile("Clip graph original",base.data(),base.size());
     auto root=pdf->getRoot().getKey("/Pages"),page=root.getKey("/Kids").getArrayItem(0);
     auto resources=page.getKey("/Resources");root.replaceKey("/Resources",resources);page.removeKey("/Resources");
-    const auto box=[](region r) {return O::parse("["+std::to_string(double(r.left)/16.0)+" "+
-        std::to_string(double(r.bottom)/16.0)+" "+std::to_string(double(r.right)/16.0)+" "+
-        std::to_string(double(r.top)/16.0)+"]");};
+    const auto box=[&](region r) {return O::parse("["+decimal(r.left,opt.ticks_per_point)+" "+
+        decimal(r.bottom,opt.ticks_per_point)+" "+decimal(r.right,opt.ticks_per_point)+" "+
+        decimal(r.top,opt.ticks_per_point)+"]");};
     auto geometry=opt.inherited_geometry?root:page;
     geometry.replaceKey("/MediaBox",box({opt.media_left,opt.media_bottom,opt.media_left+opt.width_ticks,opt.media_bottom+opt.height_ticks}));
     if(opt.inherited_geometry)page.removeKey("/MediaBox");
@@ -90,18 +119,18 @@ inline original create(options opt,bool encrypted,int invalid=0)
     const char *inks[]={"0.2 0.4 0.6 rg ","0.8 0.2 0.4 rg ","0.4 0.8 0.2 rg "};
     const std::array<std::array<unsigned char,3>,3> colors={{{51,102,153},{204,51,102},{102,204,51}}};
     static const unsigned orders[6][3]={{0,1,2},{0,2,1},{1,0,2},{1,2,0},{2,0,1},{2,1,0}};
-    original result;result.width_ticks=opt.width_ticks;result.height_ticks=opt.height_ticks;
+    original result;result.width_ticks=opt.width_ticks;result.height_ticks=opt.height_ticks;result.ticks_per_point=opt.ticks_per_point;
     result.rotation=unsigned((opt.rotation%360+360)%360);result.user_quarters=opt.user_quarters;
     if(opt.crop) {
-        result.viewport_left=std::max(0,opt.crop_box.left);result.viewport_bottom=std::max(0,opt.crop_box.bottom);
+        result.viewport_left=std::max(int64_t(0),opt.crop_box.left);result.viewport_bottom=std::max(int64_t(0),opt.crop_box.bottom);
         result.width_ticks=std::min(opt.width_ticks,opt.crop_box.right)-result.viewport_left;
         result.height_ticks=std::min(opt.height_ticks,opt.crop_box.top)-result.viewport_bottom;
     }
     result.absolute_left=opt.media_left+result.viewport_left;result.absolute_bottom=opt.media_bottom+result.viewport_bottom;
     std::string content;std::vector<region> active;
     const bool translated=opt.media_left!=0 || opt.media_bottom!=0 || opt.crop;
-    if(translated)content="q 1 0 0 1 "+std::to_string(double(opt.media_left)/16.0)+" "+
-        std::to_string(double(opt.media_bottom)/16.0)+" cm ";
+    if(translated)content="q 1 0 0 1 "+decimal(opt.media_left,opt.ticks_per_point)+" "+
+        decimal(opt.media_bottom,opt.ticks_per_point)+" cm ";
     std::vector<std::vector<region>> saved;
     size_t root_id=0u,next_id=0u;std::vector<size_t> saved_ids,observed_roots;
     const auto save=[&]() {content+="q ";saved.push_back(active);saved_ids.push_back(root_id);};
@@ -140,7 +169,7 @@ inline original create(options opt,bool encrypted,int invalid=0)
         const bool parent=!active.empty();
         // Build with a translated CTM, then restore it before applying W/n.
         content+="q 1 0 0 1 0.125 0.375 cm ";
-        const auto point=[&](int x,int y) {return std::to_string(double(x)/16.0-0.125)+" "+std::to_string(double(y)/16.0-0.375);};
+        const auto point=[&](int64_t x,int64_t y) {return std::to_string(double(x)/16.0-0.125)+" "+std::to_string(double(y)/16.0-0.375);};
         if(r.right==r.left)content+=point(r.left,r.bottom)+" m ";
         else for(size_t repeat=0u;repeat<(index==1u?opt.contours:1u);++repeat) {
             if(opt.primitive==0u) {
@@ -197,7 +226,7 @@ inline original create(options opt,bool encrypted,int invalid=0)
         }
     }
     if(opt.glyph_fringe) {
-        for(auto at:std::array<std::array<int,2>,2>{{{result.viewport_left+result.width_ticks-4,result.viewport_bottom+96},
+        for(auto at:std::array<std::array<int64_t,2>,2>{{{result.viewport_left+result.width_ticks-4,result.viewport_bottom+96},
                                                   {result.viewport_left+20,result.viewport_bottom-12}}}) {
             content+="q 0 g BT /F 2 Tf "+std::to_string(double(at[0])/16.0)+" "+
                 std::to_string(double(at[1])/16.0)+" Td <0051> Tj ET Q ";
@@ -229,30 +258,31 @@ inline original create(options opt,bool encrypted,int invalid=0)
     writer.write();const auto bytes=writer.getBufferSharedPointer();
     result.bytes.assign(reinterpret_cast<const char*>(bytes->getBuffer()),bytes->getSize());return result;
 }
-inline float width_points(const original& source)
-{return float((source.rotation==90u || source.rotation==270u?source.height_ticks:source.width_ticks)*source.user_quarters)/64.0f;}
-inline float height_points(const original& source)
-{return float((source.rotation==90u || source.rotation==270u?source.width_ticks:source.height_ticks)*source.user_quarters)/64.0f;}
+inline double width_points(const original& source)
+{return double((source.rotation==90u || source.rotation==270u?source.height_ticks:source.width_ticks)*source.user_quarters)/double(4*source.ticks_per_point);}
+inline double height_points(const original& source)
+{return double((source.rotation==90u || source.rotation==270u?source.width_ticks:source.height_ticks)*source.user_quarters)/double(4*source.ticks_per_point);}
 inline size_t width(const original& source,unsigned dpi)
-{return (size_t(source.rotation==90u || source.rotation==270u?source.height_ticks:source.width_ticks)*source.user_quarters*dpi+4607u)/4608u;}
+{return size_t((uint64_t(source.rotation==90u || source.rotation==270u?source.height_ticks:source.width_ticks)*source.user_quarters*dpi+288u*uint64_t(source.ticks_per_point)-1u)/(288u*uint64_t(source.ticks_per_point)));}
 inline size_t height(const original& source,unsigned dpi)
-{return (size_t(source.rotation==90u || source.rotation==270u?source.width_ticks:source.height_ticks)*source.user_quarters*dpi+4607u)/4608u;}
+{return size_t((uint64_t(source.rotation==90u || source.rotation==270u?source.width_ticks:source.height_ticks)*source.user_quarters*dpi+288u*uint64_t(source.ticks_per_point)-1u)/(288u*uint64_t(source.ticks_per_point)));}
 inline std::vector<unsigned char> rgb(const original& source,unsigned dpi,bool truncate_glyph_viewport=false,bool omit_glyph_origin=false)
 {
     const size_t w=width(source,dpi),h=height(source,dpi);
     // Invert the authored page transform at each physical sample using
     // rational sixteenth-point coordinates. No production geometry input.
-    const int64_t den=int64_t(dpi)*source.user_quarters;
+    const int64_t frame=int64_t(dpi)*source.user_quarters;
+    const int64_t den=frame*source.ticks_per_point;
     const auto authored=[&](int64_t x,int64_t y) {
         int64_t px=0,py=0;
         switch(source.rotation) {
-        case 0u:px=x;py=source.height_ticks*den-y;break;
+        case 0u:px=x;py=source.height_ticks*frame-y;break;
         case 90u:px=y;py=x;break;
-        case 180u:px=source.width_ticks*den-x;py=y;break;
-        case 270u:px=source.width_ticks*den-y;py=source.height_ticks*den-x;break;
+        case 180u:px=source.width_ticks*frame-x;py=y;break;
+        case 270u:px=source.width_ticks*frame-y;py=source.height_ticks*frame-x;break;
         default:throw std::runtime_error("invalid reference page turn");
         }
-        return std::array<int64_t,2>{px+source.viewport_left*den,py+source.viewport_bottom*den};
+        return std::array<int64_t,2>{px+source.viewport_left*frame,py+source.viewport_bottom*frame};
     };
     const auto horizontal=[&](int64_t lo,int64_t hi,int64_t x) {
         return source.rotation<180u?x>=lo && x<hi:x>lo && x<=hi;
@@ -262,36 +292,40 @@ inline std::vector<unsigned char> rgb(const original& source,unsigned dpi,bool t
     };
     std::vector<unsigned char> out(w*h*3u,255u);
     const auto contains=[&](region r,int64_t x,int64_t y) {
-        return horizontal(r.left*den,r.right*den,x) && vertical(r.bottom*den,r.top*den,y);
+        return horizontal(r.left*den,r.right*den,16*x) && vertical(r.bottom*den,r.top*den,16*y);
     };
     for(const auto& p:source.paints)for(size_t y=0u;y<h;++y)for(size_t x=0u;x<w;++x) {
         unsigned hits=0u;
         for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
-            const auto at=authored((8ll*int64_t(x)+2ll*sx+1ll)*576ll,(8ll*int64_t(y)+2ll*sy+1ll)*576ll);
+            const auto at=authored((8ll*int64_t(x)+2ll*sx+1ll)*36ll*source.ticks_per_point,
+                (8ll*int64_t(y)+2ll*sy+1ll)*36ll*source.ticks_per_point);
             const int64_t px=at[0],py=at[1];
-            const int64_t gx=px-(omit_glyph_origin?source.absolute_left*den:0ll);
-            const int64_t gy=py-(omit_glyph_origin?source.absolute_bottom*den:0ll);
+            const int64_t gx=px-(omit_glyph_origin?source.absolute_left*frame:0ll);
+            const int64_t gy=py-(omit_glyph_origin?source.absolute_bottom*frame:0ll);
             bool visible=p.glyph?
-                horizontal((p.bounds.left*64+156)*den,(p.bounds.left*64+341)*den,64*gx) &&
-                    vertical(p.bounds.bottom*den,p.bounds.top*den,gy):
+                horizontal((p.bounds.left*64+156)*den,(p.bounds.left*64+341)*den,1024*gx) &&
+                    vertical(p.bounds.bottom*den,p.bounds.top*den,16*gy):
                 contains(p.bounds,px,py);
-            visible=visible && contains({source.viewport_left,source.viewport_bottom,
-                source.viewport_left+source.width_ticks,source.viewport_bottom+source.height_ticks},px,py);
+            visible=visible && horizontal(source.viewport_left*frame,(source.viewport_left+source.width_ticks)*frame,px) &&
+                vertical(source.viewport_bottom*frame,(source.viewport_bottom+source.height_ticks)*frame,py);
             if(p.glyph && truncate_glyph_viewport)
-                visible=visible && contains({source.viewport_left,source.viewport_bottom+source.height_ticks%16,
-                    source.viewport_left+(source.width_ticks/16)*16,source.viewport_bottom+source.height_ticks},px,py);
+                visible=visible && horizontal(source.viewport_left*frame,
+                    (source.viewport_left+(source.width_ticks/source.ticks_per_point)*source.ticks_per_point)*frame,px) &&
+                    vertical((source.viewport_bottom+source.height_ticks%source.ticks_per_point)*frame,
+                        (source.viewport_bottom+source.height_ticks)*frame,py);
             for(const auto& clip:p.clips)visible=visible && contains(clip,px,py);
             hits+=unsigned(visible);
         }
         size_t sample=0u;
         if(p.image) {
-            const auto at=authored((2ll*int64_t(x)+1ll)*2304ll,(2ll*int64_t(y)+1ll)*2304ll);
+            const auto at=authored((2ll*int64_t(x)+1ll)*144ll*source.ticks_per_point,
+                (2ll*int64_t(y)+1ll)*144ll*source.ticks_per_point);
             const int64_t mx=int64_t(p.bounds.left+p.bounds.right)*den;
             const int64_t my=int64_t(p.bounds.bottom+p.bounds.top)*den;
             // Rotate reorients source texels before nearest-neighbor lookup;
             // ties therefore follow the corresponding physical axis.
-            const size_t col=(source.rotation<180u?2*at[0]<mx:2*at[0]<=mx)?0u:1u;
-            const size_t row=(source.rotation==90u || source.rotation==180u?2*at[1]>=my:2*at[1]>my)?0u:1u;
+            const size_t col=(source.rotation<180u?32*at[0]<mx:32*at[0]<=mx)?0u:1u;
+            const size_t row=(source.rotation==90u || source.rotation==180u?32*at[1]>=my:32*at[1]>my)?0u:1u;
             sample=2u*row+col;
         }
         for(size_t c=0u;c<3u;++c) {

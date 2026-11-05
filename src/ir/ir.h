@@ -38,6 +38,10 @@ typedef struct quantapdf_ir {
     size_t link_count;
     quantapdf_composer_outline_state *outlines;
     size_t outline_count;
+    /* Source's canonical physical canvas in exact decimal points, "0 0 W H".
+     * Inline ownership preserves original page extents across the float page
+     * metadata. Composer IR has no original PDF canvas and leaves this empty. */
+    char source_canvas[96];
 } quantapdf_ir;
 
 #ifdef __cplusplus

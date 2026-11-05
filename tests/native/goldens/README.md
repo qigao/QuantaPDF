@@ -96,6 +96,26 @@ python tools/qualification/native_ttf_reference.py --case hello --dpi 96 --rotat
 
 ## Rectangle and TrueType M1
 
+`roboto-decimal-{72,96,144}-m0.rgba.z` and
+`roboto-decimal-shapes-{72,96,144}-m0.rgba.z` are independent original
+237.133 x 180.44-point pages. The first paints original quadratic Hello,
+a solid RAW RGB image and green Fill; the second paints the same image,
+green Fill and blue Fill with no text. Each has three logical paints.
+All six compressed RGBA references agree at 60/80 Decimal digits.
+
+| Case / DPI | Decoded bytes | Decoded SHA256 |
+| --- | --- | --- |
+| decimal / 72 | 172312 | `a0c31b8ab6176fcb3d6bf7966f231213ebf03b01cfcd7007f85268865aa29814` |
+| decimal / 96 | 305588 | `7135b7fdfb49673b0391b05ba2fa2987f7ffd60d07bf91501d70d2ba33a98be4` |
+| decimal / 144 | 685900 | `150cc9a80e681516a3004d08b67f6933165416409be75462f6a25892f4eeb83d` |
+| decimal-shapes / 72 | 172312 | `83e773f72e81de25070b4bd406476ff2036bedcec5e284a4ebcb66d8dd319f6a` |
+| decimal-shapes / 96 | 305588 | `d0e986bafc1571f8964302d123b405a652b196aa1d15f1580e5913b5f5a6d500` |
+| decimal-shapes / 144 | 685900 | `3260eeebc76d72cb591fe6c844766b4249d9ab7d4c9eaa6b3889c5a2ae35b4ab` |
+
+```sh
+python tools/qualification/native_ttf_reference.py --case decimal --case decimal-shapes --compress --output-dir /tmp/ttf-reference
+```
+
 `roboto-{mixed,reverse,background,late}-{72,96,144}-m1.rgba` use the same
 independent original-quadratic reference, with exact Decimal rectangle
 edges and original paint order. The background golden also qualifies

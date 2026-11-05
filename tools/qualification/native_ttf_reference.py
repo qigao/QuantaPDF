@@ -21,12 +21,13 @@ FONT = ROOT / 'tests/fixtures/fonts/Roboto-Regular.ttf'
 SHA = '56a45233d29f11b4dfb86d248e921939d115778f87325e7ae8cc108383d6664d'
 
 class Pen(BasePen):
-    def __init__(self, glyphs, x, y, em):
+    def __init__(self, glyphs, x, y, em, height=64):
         super().__init__(glyphs)
         self.x, self.y, self.em = D(x), D(y), D(em)
+        self.height = D(height)
         self.edges = []
     def point(self, p):
-        return self.x + D(p[0])*24/self.em, 64-self.y-D(p[1])*24/self.em
+        return self.x + D(p[0])*24/self.em, self.height-self.y-D(p[1])*24/self.em
     def _moveTo(self, p):
         self.current = self.first = self.point(p)
     def _lineTo(self, p):
@@ -73,10 +74,18 @@ def crossing(edge, y):
     return x, 1 if b[1] > a[1] else -1
 
 
-def fixture(case, font):
+def fixture(case, font, height=64):
     def rect(x,y,w,h,color):
-        x,y,w,h=map(D,(x,y,w,h));a=(x,64-y);b=(x+w,64-y);c=(x+w,64-y-h);d=(x,64-y-h)
+        x,y,w,h=map(D,(x,y,w,h));a=(x,height-y);b=(x+w,height-y);c=(x+w,height-y-h);d=(x,height-y-h)
         return [(a,b),(b,c),(c,d),(d,a)],color
+    if case in ('decimal', 'decimal-shapes'):
+        if case == 'decimal':
+            yield from fixture('hello', font, height)
+        yield rect('20','16','12','12',(153,51,204))
+        yield rect('12','20','7','10',(0,255,0))
+        if case == 'decimal-shapes':
+            yield rect('14','22','12','8',(0,0,255))
+        return
     if case in ('mixed','reverse','background'):
         yield rect('0','0','128','64',(223,223,223))
         if case=='reverse':yield rect('25.125','18.25','12.5','9.5',(0,0,255))
@@ -105,7 +114,7 @@ def fixture(case, font):
                 x -= D('2.88')
             if case == 'tj' and i == 3:
                 x += D('2.88')
-            pen = Pen(glyphs, x, y, font['head'].unitsPerEm)
+            pen = Pen(glyphs, x, y, font['head'].unitsPerEm, height)
             glyphs[font.getBestCmap()[ord(c)]].draw(pen)
             yield pen.edges, color
             x += D(widths[c])*24/1000
@@ -113,12 +122,12 @@ def fixture(case, font):
                 x -= 8  # same-Tj overlap: preserve each original glyph paint
 
 
-def turned_edges(edges, rotation):
+def turned_edges(edges, rotation, width_points=128, height_points=64):
     """Rotate original quadratic coordinates before solving scanline roots."""
     def point(p):
         x, y = p
-        return {0: (x, y), 90: (64-y, x),
-                180: (128-x, 64-y), 270: (y, 128-x)}[rotation]
+        return {0: (x, y), 90: (height_points-y, x),
+                180: (width_points-x, height_points-y), 270: (y, width_points-x)}[rotation]
     for edge in edges:
         transformed = tuple(map(point, edge))
         if len(edge) == 2:
@@ -139,7 +148,8 @@ def turned_edges(edges, rotation):
 
 def sample_mask(edges, dpi, width_points=128, height_points=64):
     """One original glyph's exact 4x4 membership, before alpha rounding."""
-    width, height = (width_points*dpi+71)//72, (height_points*dpi+71)//72
+    width = int((D(width_points)*dpi/72).to_integral_value(rounding=ROUND_CEILING))
+    height = int((D(height_points)*dpi/72).to_integral_value(rounding=ROUND_CEILING))
     masks = [0]*(width*height)
     for row in range(height*4):
         y = D(2*row+1)*72/(8*dpi)
@@ -158,11 +168,13 @@ def sample_mask(edges, dpi, width_points=128, height_points=64):
 
 
 def render(case, dpi, font, rotation=0):
-    wp, hp = (64, 128) if rotation in (90, 270) else (128, 64)
-    width, height = (wp*dpi+71)//72, (hp*dpi+71)//72
+    original_w, original_h = (D('237.133'), D('180.44')) if case.startswith('decimal') else (D(128), D(64))
+    wp, hp = (original_h, original_w) if rotation in (90, 270) else (original_w, original_h)
+    width = int((wp*dpi/72).to_integral_value(rounding=ROUND_CEILING))
+    height = int((hp*dpi/72).to_integral_value(rounding=ROUND_CEILING))
     pixels = bytearray([255])*(width*height*4)
-    for edges, color in fixture(case, font):
-        oriented = list(turned_edges(edges, rotation)) if rotation else edges
+    for edges, color in fixture(case, font, original_h):
+        oriented = list(turned_edges(edges, rotation, original_w, original_h)) if rotation else edges
         for i, mask in enumerate(sample_mask(oriented, dpi, wp, hp)):
             n = mask.bit_count()
             for ch in range(3):
@@ -174,7 +186,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output-dir', type=Path, required=True)
     cases = ('hello', 'layers', 'tj', 'fringe', 'mixed', 'reverse', 'background', 'late')
-    parser.add_argument('--case', action='append', choices=cases)
+    parser.add_argument('--case', action='append', choices=cases+('decimal','decimal-shapes'))
     parser.add_argument('--dpi', type=int, action='append', choices=(72, 96, 144))
     parser.add_argument('--rotation', type=int, default=0, choices=(0, 90, 180, 270))
     parser.add_argument('--compress', action='store_true', help='write lossless zlib-compressed RGBA with .z suffix')

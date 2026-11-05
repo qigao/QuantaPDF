@@ -555,12 +555,9 @@ static bool original_texample_decimal_source_m2(
         quantapdf_ir_dispose(&recovery);
         if(!accepted || !cleared(recovery))return false;
     }
-    /* This M2 gate admits NO painted original decimal page yet.
-     * Neither near-miss decimals, cropped/rotated/nondefault-Unit
-     * originals, Text/Do/Fill, nor unbalanced sources may be treated
-     * as an empty white Bitmap. There is no 238x181 rescaled output
-     * and no special public V10 render branch. */
-    const std::string negatives[]={
+    /* Promote the old decimal-coordinate refusals to actual native RGBA.
+     * The rectangle's authored bounds are independent integer thousandths. */
+    const std::string promoted[]={
         original_decimal_source("[0 0 237.134 180.44]",""),
         original_decimal_source("[0 0 237.133 180.45]",""),
         original_decimal_source(real_box,"",
@@ -570,7 +567,34 @@ static bool original_texample_decimal_source_m2(
         original_decimal_source(real_box,"",
             "/Rotate 90"),
         original_decimal_source(real_box,
-            "q 1 0 0 1 118.566 90.22 cm 4 4 8 6 re f Q"),
+            "q 1 0 0 1 118.566 90.22 cm 4 4 8 6 re f Q")
+    };
+    const size_t widths[6]={238u,238u,238u,297u,181u,238u};
+    const size_t heights[6]={181u,181u,180u,226u,238u,181u};
+    for(size_t index=0u;index<6u;++index) {
+        quantapdf_ir ir{};if(native(promoted[index],ir)!=QUANTAPDF_OK)return false;
+        const quantapdf_ir_raster_scoped_mixed_v5_limits budget={1000000u,4u,512u,8000000u,1000000u,4000000u};
+        quantapdf_native_page_device device{};device.dpi=72.0f;
+        quantapdf_native_prepared_page_v1 page{};quantapdf_ir_raster_image image{};
+        if(quantapdf_native_prepare_page_v1(&ir,&budget,&device,&page)!=QUANTAPDF_OK ||
+           page.route!=QP_NATIVE_PREPARED_SCENE || quantapdf_native_execute_page_v1(&page,nullptr,&image)!=QUANTAPDF_OK)
+            {quantapdf_ir_dispose(&ir);return false;}
+        quantapdf_ir_dispose(&ir);
+        bool equal=image.width==widths[index] && image.height==heights[index];
+        for(size_t y=0u;y<image.height && equal;++y)for(size_t x=0u;x<image.width;++x) {
+            unsigned hits=0u;
+            if(index==5u)for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
+                const uint64_t px=(8u*x+2u*sx+1u)*125u,py=(8u*y+2u*sy+1u)*125u;
+                hits+=unsigned(px>=122566u && px<130566u && py>=80220u && py<86220u);
+            }
+            const unsigned char gray=static_cast<unsigned char>((255u*(16u-hits)+8u)/16u);
+            const auto *p=image.pixels+4u*(y*image.width+x);
+            equal=equal && p[0]==gray && p[1]==gray && p[2]==gray && p[3]==255u;
+        }
+        quantapdf_ir_raster_image_dispose(&image);if(!equal)return false;
+    }
+    const std::string negatives[]={
+        original_decimal_source("[0 0 237.1330000011 180.44]",""),
         original_decimal_source(real_box,
             "1 0 0 1 118.566 90.22 cm BT 1 Tr ET"),
         original_decimal_source(real_box,
@@ -584,7 +608,7 @@ static bool original_texample_decimal_source_m2(
         /* Structurally malformed q scopes and missing named XObject
          * resources are FORMAT, not unsupported graphic features.
          * No Source error class may leak any partially owned IR. */
-        const auto expected=i>=7u ? QUANTAPDF_ERROR_FORMAT :
+        const auto expected=i>=2u ? QUANTAPDF_ERROR_FORMAT :
                                      QUANTAPDF_ERROR_UNSUPPORTED;
         if(status!=expected || !cleared(denied)) {
             std::fprintf(stderr,
@@ -596,7 +620,7 @@ static bool original_texample_decimal_source_m2(
     }
     std::printf("Original TeXample Source M2: exact "
                 "237133/1000 x 180440/1000 MediaBox in owned blank IR, "
-                "6 positives / 9 atomic negatives / C OOM recovery\n");
+                "6 original positives / 6 promoted RGBA / 4 atomic negatives / C OOM recovery\n");
     return true;
 }
 
@@ -5606,6 +5630,8 @@ int main(int argc,char **argv)
         return clip_graph_dpi_contracts(limits,false,true);
     if(argc==2 && std::strcmp(argv[1],"--page-text-transform")==0)
         return clip_graph_dpi_contracts(limits,false,false,true);
+    if(argc==2 && std::strcmp(argv[1],"--decimal-text-page")==0)
+        return clip_graph_dpi_contracts(limits,false,false,true,true);
     if(argc==2 && std::strcmp(argv[1],"--fractional-fill")==0)
         return path_commands_source_contracts(limits,true,false,false,false,false,8u);
     if(argc==2 && std::strcmp(argv[1],"--fractional-clip")==0)

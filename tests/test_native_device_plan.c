@@ -341,10 +341,27 @@ static int test_fail_closed(void)
     return 0;
 }
 
+static int test_exact_sample_fringe(void)
+{
+    const char *boxes[]={"0 0 12.124999999999 11.124999999999",
+        "0 0 12.125 11.125","0 0 12.125000000001 11.125000000001",
+        "0 0 12.000000000001 11.000000000001"};
+    const size_t samples_x[]={48u,48u,49u,48u},samples_y[]={44u,44u,45u,44u};
+    for(size_t i=0u;i<4u;++i)for(int rotation=0;rotation<360;rotation+=90) {
+        quantapdf_native_device_plan p;
+        const int swap=rotation==90 || rotation==270;
+        OK(quantapdf_native_device_plan_create_physical(boxes[i],boxes[i],"1",rotation,72u,1000000u,&p));
+        CHECK(p.width==(swap?12u:13u) && p.height==(swap?13u:12u));
+        CHECK(p.sample_width==(swap?samples_y[i]:samples_x[i]) &&
+              p.sample_height==(swap?samples_x[i]:samples_y[i]));
+    }
+    return 0;
+}
+
 int main(void)
 {
     if (test_exact_grid_and_unit() || test_crop_rotation_and_samples() ||
-        test_physical_grid() || test_integer_dpi() || test_fail_closed())
+        test_physical_grid() || test_integer_dpi() || test_fail_closed() || test_exact_sample_fringe())
         return EXIT_FAILURE;
     puts("native device FIT/physical plans: exact grids, source maps and refusal contracts passed");
     return EXIT_SUCCESS;

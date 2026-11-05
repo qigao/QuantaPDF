@@ -624,6 +624,34 @@
   0.25..4 的四分之一 UserUnit 范围保留；一般十进制、Image affine、通用 Stroke、
   非整数 DPI、完整字体与 A2 总项仍开放。PR 保持 Draft，未合并或发布。
 
+### A2 一般小数页面与精确视口：当前开发增量
+
+- 起点为 #625 `375c976b`，tree `040c31fe46840d32de36dbc0763776c3ebfce1de`；
+  [CI #2477](https://github.com/qigao/QuantaPDF/actions/runs/42062684380) 四配置各 135/135。
+  本节须以新精确 HEAD 的真实 CI 验收，PR 保持 Draft。
+- Source 页面盒统一按原始 QPDF 数字的九位小数整数刻度解析，删除四分之一点准入和
+  单独 237.133×180.44 页面盒例外；Crop 交集、完整 Media 和物理 UserUnit 预算保持精确。
+  原始数字仍限 20 字节、坐标范围 ±1M；非零的第十位小数、非 quarter UserUnit 和
+  既有范围外 Unit 继续明确拒绝，未把它们经 double 舍入为已支持值。
+- IR 内联持有规范十进制物理 canvas，所有 Source 页都填写；不再把 float 页面元数据
+  格式化后当作原始尺寸。设备规划在浮点转换前同时确定 ceil 缓冲区及可见的 4×4
+  子像素列／行数，文字、路径、Clip 和图像沿同一个 Scene 采样边界。
+- 当前公共 point/rect 改为 double，Source 普通路径／字形／图像、Rotate 和 UserUnit
+  不再把小数视口平移缩成 float。字形直线判定扩展式同时保留 coordinate×DPI 和
+  随后 coordinate 乘积的残差。当前调用方与测试使用新头文件；不提供旧 ABI 别名或桥接。
+- 新小数混合页项有 576 次独立有理数 RGB、144 次显示旋转：六类十进制几何、
+  四个原始方向、两个 Unit、文字／路径／图像、多根及空 Clip、继承原点和 Crop、
+  加密选页及 detached Bitmap。包含距离整数像素和子像素边界仅 1e−9 点的尺寸。
+- 普通 237.133×180.44 原始 PDF 另比较 18 次独立 RGB、9 次显示旋转，覆盖空白页、
+  曲线 Hello/Image/Fill 和无文字的三笔绘制；不再仅凭尺寸与三笔数量选择专用曲线内核。
+  六份原始二次曲线／矩形独立参考以 60／80 位 Decimal 生成且一致，CI 仅读取参考字节。
+- 新 Source/OOM 继续验证 64 次独立 RGBA、全部实际发布／C11 分配故障、旋转 Image
+  的 C++ 失败、不可变 IR 和真实 N/N−1。升级旧小数拒绝（包括 ancestry 与 .1/.125
+  原点、原始 TeXample 近邻／Crop／Unit／Rotate／Fill），保留真正未实现和精度范围外的失败。
+  新增三个现有 CTest（共 138 项），45／40 秒期限和既有工作／像素预算不提高。
+- 本地仅静态检查和离线独立参考生成，未运行 Native。Image affine、通用 Stroke、
+  非整数 DPI、完整字体与其他 A2/A3 项仍开放；旧 TeXample 曲线内核的专用限制未冒称移除。
+
 ## 单一执行模型
 
 ```mermaid

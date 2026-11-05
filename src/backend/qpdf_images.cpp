@@ -433,7 +433,7 @@ struct projection {
             double px = 0, py = 0;
             quantapdf_qpdf_pdf_point_to_public(geometry,
                 ctm[0]*x+ctm[2]*y+ctm[4], ctm[1]*x+ctm[3]*y+ctm[5], &px, &py);
-            quantapdf_point result = {static_cast<float>(px), static_cast<float>(py)};
+            quantapdf_point result = {px,py};
             require(std::isfinite(result.x) && std::isfinite(result.y));
             return result;
         };

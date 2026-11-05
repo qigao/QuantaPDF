@@ -253,7 +253,7 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
     for(size_t i=0u;i<source->operation_count;++i)
         if(source->operations[i].kind==QUANTAPDF_COMPOSER_OPERATION_PATH)
             stroke|=source->operations[i].value.path.options.stroke;
-    const int exact_cubics=!text && source->pages[0].width_points==237.133f &&
+    const int exact_cubics=stroke && !text && source->pages[0].width_points==237.133f &&
         source->pages[0].height_points==180.44f && source->operation_count==3u;
     if((text || !stroke) && !exact_cubics) {
         char box[64];
@@ -262,14 +262,17 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
         if(page->width_points>65536.0f || page->height_points>65536.0f)
             return QUANTAPDF_ERROR_UNSUPPORTED;
         p.route=QP_NATIVE_PREPARED_SCENE;
-        printed=snprintf(box,sizeof(box),"0 0 %.9g %.9g",
-            (double)page->width_points,(double)page->height_points);
-        if(printed<0 || (size_t)printed>=sizeof(box))return QUANTAPDF_ERROR_UNSUPPORTED;
-        status=quantapdf_native_device_plan_create_physical(box,box,"1",0,
+        const char *canvas=source->source_canvas;
+        if(canvas[0]=='\0') {
+            printed=snprintf(box,sizeof(box),"0 0 %.9g %.9g",
+                (double)page->width_points,(double)page->height_points);
+            if(printed<0 || (size_t)printed>=sizeof(box))return QUANTAPDF_ERROR_UNSUPPORTED;
+            canvas=box;
+        }
+        status=quantapdf_native_device_plan_create_physical(canvas,canvas,"1",0,
             p.dpi,limits->max_pixels,&p.physical);
         if(status!=QUANTAPDF_OK)return status;
-    } else if(source->pages[0].width_points==237.133f &&
-              source->pages[0].height_points==180.44f && source->operation_count==3u) {
+    } else if(exact_cubics) {
         const size_t pixels=p.dpi==72u?50000u:1000000u;
         const size_t edges=p.dpi==72u?1024u:512u;
         p.route=QP_NATIVE_PREPARED_EXACT_CUBICS;

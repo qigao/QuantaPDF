@@ -19,6 +19,9 @@
  * All affine arrays use x'=a*x+c*y+e, y'=b*x+d*y+f. */
 typedef struct quantapdf_native_device_plan {
     size_t width, height, stride, size;
+    /* Exact counts of visible 4x4 sample columns/rows, before any floating
+     * conversion. Fractional fringes use these counts in every Scene draw. */
+    size_t sample_width, sample_height;
     unsigned dpi, mode;
     double width_points, height_points;
     double source_to_display[6]; /* source PDF -> displayed PDF Y-up */
@@ -83,6 +86,8 @@ static inline int quantapdf_native_device_plan_matches_page_mode(
         p->height > SIZE_MAX / (p->width * 4u) ||
         p->stride != p->width * 4u ||
         p->size != p->stride * p->height ||
+        p->sample_width > p->width * 4u ||
+        p->sample_height > p->height * 4u ||
         !isfinite(p->width_points) || !isfinite(p->height_points) ||
         p->width_points <= 0.0 || p->height_points <= 0.0 ||
         p->width_points > 65536.0 || p->height_points > 65536.0 ||

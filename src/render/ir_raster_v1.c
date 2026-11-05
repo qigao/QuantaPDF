@@ -1298,9 +1298,9 @@ unsupported:
     return QUANTAPDF_ERROR_UNSUPPORTED;
 }
 
-/* Exact sign of the line/ray determinant. Float source coordinates and
- * integer sample/DPI factors are exact doubles; fma residuals and two-sum
- * expansions retain every product/sum bit, including boundary equality. */
+/* Exact sign of the line/ray determinant. Retain the residual of both
+ * products in a coordinate*DPI*coordinate term; double Source coordinates
+ * must not lose bits before entering the determinant expansion. */
 static void qp_text_grow(double e[16],size_t *n,double term)
 {
     double next[16],q=term;size_t used=0u;
@@ -1318,12 +1318,19 @@ static int qp_text_line_side(quantapdf_point a,quantapdf_point b,
 {
     const double k=8.0*(double)dpi;
     const double py=72.0*(double)(2u*row+1u),px=72.0*(double)(2u*column+1u);
-    const double u[6]={k*a.x,-k*b.x,py,-py,-px,px};
+    const double u[6]={a.x,-b.x,py,-py,-px,px};
     const double v[6]={b.y,a.y,b.x,a.x,b.y,a.y};
     double expansion[16]={0};size_t count=0u;
     for(unsigned i=0u;i<6u;++i) {
-        const double product=u[i]*v[i];
-        qp_text_grow(expansion,&count,fma(u[i],v[i],-product));
+        const double factor=i<2u?k:1.0;
+        const double high=u[i]*factor;
+        if(i<2u) {
+            const double low=fma(u[i],factor,-high),tail=low*v[i];
+            qp_text_grow(expansion,&count,fma(low,v[i],-tail));
+            qp_text_grow(expansion,&count,tail);
+        }
+        const double product=high*v[i];
+        qp_text_grow(expansion,&count,fma(high,v[i],-product));
         qp_text_grow(expansion,&count,product);
     }
     const double sign=expansion[count-1u];
@@ -1406,13 +1413,9 @@ static int qp_text_glyph_mask(const quantapdf_composer_path_command *commands,si
     const quantapdf_native_device_plan *plan,uint16_t *mask,size_t *work,size_t cap)
 {
     const size_t width=plan->width,height=plan->height;
-    /* Keep the actual physical viewport. Fractional page extents must not
-     * be truncated before clipping the original glyph sample lattice. */
-    const double physical_x=8.0*(double)plan->dpi*plan->width_points;
-    const double physical_y=8.0*(double)plan->dpi*plan->height_points;
     memset(mask,0,width*height*sizeof(*mask));
     for(size_t y=0u;y<height;++y)for(unsigned sy=0u;sy<4u;++sy) {
-        if(72.0*(double)(2u*(y*4u+sy)+1u)>=physical_y)continue;
+        if(y*4u+sy>=plan->sample_height)continue;
         size_t thresholds[1024],count=0u;int deltas[1024],winding=0;
         quantapdf_point current={0,0},start={0,0};int active=0;
         for(size_t k=0u;k<command_count;++k) {
@@ -1451,7 +1454,7 @@ static int qp_text_glyph_mask(const quantapdf_composer_path_command *commands,si
             const size_t end=thresholds[i];
             if(winding!=0)for(size_t col=first;col<end;++col) {
                 if(!qp_exact_charge(work,1u,cap))return 0;
-                if(72.0*(double)(2u*col+1u)<physical_x)
+                if(col<plan->sample_width)
                     mask[y*width+col/4u]|=(uint16_t)(1u<<(4u*sy+col%4u));
             }
             do {winding-=deltas[i++];if(!qp_exact_charge(work,1u,cap))return 0;}
@@ -2046,8 +2049,8 @@ static quantapdf_status qp_geometry_sample(
                     if(!qp_exact_charge(&total_checks,draw->edge_count,limits->max_sample_tests)) {
                         status=QUANTAPDF_ERROR_UNSUPPORTED;goto cleanup;
                     }
-                    if(plan!=NULL && (px*72.0>=plan->width_points*(double)plan->dpi ||
-                                      py*72.0>=plan->height_points*(double)plan->dpi))continue;
+                    if(plan!=NULL && (x*4u+sx>=plan->sample_width ||
+                                      y*4u+sy>=plan->sample_height))continue;
                     if(!qp_inside(g->edges,draw,px,py))continue;
                     int inside=1,next=0;size_t cursor=0u;
                     while(inside && (next=qp_next_clip(draw,&cursor,clip_count,&total_checks,limits->max_sample_tests,&ci))>0) {
@@ -2128,10 +2131,8 @@ static quantapdf_status qp_geometry_sample(
                     if(plan!=NULL && plan->mode==QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1) {
                         unsigned nx=0u,ny=0u;
                         for(unsigned k=0u;k<QP_SAMPLES;++k) {
-                            nx+=(unsigned)(((double)x+((double)k+0.5)/QP_SAMPLES)*72.0<
-                                           plan->width_points*(double)plan->dpi);
-                            ny+=(unsigned)(((double)y+((double)k+0.5)/QP_SAMPLES)*72.0<
-                                           plan->height_points*(double)plan->dpi);
+                            nx+=(unsigned)(x*QP_SAMPLES+k<plan->sample_width);
+                            ny+=(unsigned)(y*QP_SAMPLES+k<plan->sample_height);
                         }
                         covered=nx*ny;
                     }
@@ -2181,8 +2182,8 @@ static quantapdf_status qp_geometry_sample(
                          * even when authored geometry crosses the page edge. */
                         if (plan != NULL &&
                             plan->mode == QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1 &&
-                            (px*72.0 >= plan->width_points * (double)plan->dpi ||
-                             py*72.0 >= plan->height_points * (double)plan->dpi))
+                            (x*QP_SAMPLES+sx >= plan->sample_width ||
+                             y*QP_SAMPLES+sy >= plan->sample_height))
                             continue;
                         if(ordered_scene && !qp_exact_charge(&total_checks,draw->edge_count,limits->max_sample_tests)) {
                             status=QUANTAPDF_ERROR_UNSUPPORTED;goto cleanup;
@@ -2897,8 +2898,8 @@ static quantapdf_status qp_ordered_scene(
        source->pages[0].width_points<1.0f || source->pages[0].width_points>65536.0f ||
        source->pages[0].height_points<1.0f || source->pages[0].height_points>65536.0f ||
        (source->pages[0].background_argb>>24u)!=255u || source->pages[0].suppress_background!=0 ||
-       plan->width_points!=(double)source->pages[0].width_points ||
-       plan->height_points!=(double)source->pages[0].height_points)
+       (float)plan->width_points!=source->pages[0].width_points ||
+       (float)plan->height_points!=source->pages[0].height_points)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     for(size_t i=0u;i<source->operation_count;++i) {
         const quantapdf_composer_operation *op=&source->operations[i];

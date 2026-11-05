@@ -15,7 +15,7 @@ typedef struct qp_fixed_decimal {
 } qp_fixed_decimal;
 
 typedef struct qp_exact_span {
-    uint64_t numerator, denominator, pixels;
+    uint64_t numerator, denominator, pixels, samples;
 } qp_exact_span;
 
 static const uint64_t qp_powers_of_ten[13] = {
@@ -156,6 +156,12 @@ static int qp_span(qp_fixed_decimal lower, qp_fixed_decimal upper,
     out->denominator = denominator;
     out->pixels = pixel_numerator / pixel_denominator +
                   (pixel_numerator % pixel_denominator != 0u);
+    /* Sample c lies at (2*c+1)*9/DPI points. Strict right/bottom
+     * membership is decided on the original exact decimal fraction. */
+    const uint64_t first = pixel_denominator / UINT64_C(8);
+    const uint64_t step = pixel_denominator / UINT64_C(4);
+    const uint64_t remainder = pixel_numerator > first ? pixel_numerator - first : 0u;
+    out->samples = remainder / step + (remainder % step != 0u);
     return out->pixels != 0u;
 }
 
@@ -204,6 +210,10 @@ static quantapdf_status qp_device_plan_create(
 
     result.width = (size_t)x.pixels;
     result.height = (size_t)y.pixels;
+    result.sample_width = mode == QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1 ?
+        (size_t)x.samples : result.width * 4u;
+    result.sample_height = mode == QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1 ?
+        (size_t)y.samples : result.height * 4u;
     result.stride = result.width * 4u;
     result.size = result.stride * result.height;
     result.dpi = dpi;

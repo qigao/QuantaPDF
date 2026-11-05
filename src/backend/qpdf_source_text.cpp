@@ -424,7 +424,7 @@ struct projection {
             m[1]*x+m[3]*y+m[5],&px,&py);
         constexpr double bound=static_cast<double>(std::numeric_limits<float>::max())/8.0;
         supported(std::isfinite(px) && std::isfinite(py) && std::abs(px)<bound && std::abs(py)<bound);
-        return {static_cast<float>(px),static_cast<float>(py)};
+        return {px,py};
     }
     character_value cell(matrix const& m,graphics const& g,unsigned c) const
     {
@@ -504,7 +504,7 @@ struct projection {
             const double px=m[0]*x+m[4]-outline_left;
             const double py=outline_height-(m[3]*y+m[5]-outline_bottom);
             supported(std::isfinite(px)&&std::isfinite(py)&&std::abs(px)<=1000000.0&&std::abs(py)<=1000000.0);
-            return quantapdf_point{static_cast<float>(px),static_cast<float>(py)};
+            return quantapdf_point{px,py};
         };
         auto append=[&](quantapdf_composer_path_command c) {
             supported(++glyph_commands<=4096u);glyph.commands.push_back(c);

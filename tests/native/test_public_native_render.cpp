@@ -2799,9 +2799,8 @@ static int native_fractional_quarter_cases(const std::string& filename)
               owned[0]==px[0]);
         quantapdf_drop_bitmap(bm);
     }
-    /* Old M0 rejects fractional SPANS; M1 must admit their real
-     * physical ceil dimensions and SOURCE Image coverage. A decimal
-     * outside the quarter lattice still fails atomically. */
+    /* Quarter spans and ordinary decimal origins use their actual viewport.
+     * The old .1/.125 origin refusals now compare independent full RGB. */
     for(int fixture=4;fixture<=7;++fixture) {
         CHECK(write_pdf(filename,original_quarter_box_pdf(
             originals[2],fixture,0)));
@@ -2813,7 +2812,7 @@ static int native_fractional_quarter_cases(const std::string& filename)
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         const auto status=quantapdf_render_page(page,&bitmap);
-        if(fixture<=5) {
+        {
             CHECK(status==QUANTAPDF_OK && bitmap!=nullptr);
             int w=0,h=0,stride=0,channels=0;
             const unsigned char *rgb=nullptr;
@@ -2831,15 +2830,26 @@ static int native_fractional_quarter_cases(const std::string& filename)
                 CHECK(probe_rgb(rgb,stride,11,7,0u,255u,0u));
                 CHECK(probe_rgb(rgb,stride,15,7,64u,255u,64u));
                 CHECK(probe_rgb(rgb,stride,16,7,255u,255u,255u));
-            } else {
+            } else if(fixture==5) {
                 CHECK(probe_rgb(rgb,stride,10,11,255u,0u,0u));
                 CHECK(probe_rgb(rgb,stride,20,11,0u,255u,0u));
                 CHECK(probe_rgb(rgb,stride,31,11,255u,255u,255u));
+            } else {
+                static const unsigned char colors[4][3]={{255,0,0},{0,255,0},{0,0,255},{255,255,0}};
+                const double left=fixture==6?7.9:15.125;
+                for(int y=0;y<h;++y)for(int x=0;x<w;++x) {
+                    unsigned hits=0u;
+                    for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
+                        const double px=double(x)+(double(sx)+0.5)/4.0,py=double(y)+(double(sy)+0.5)/4.0;
+                        hits+=unsigned(px>=left && px<left+16.0 && py>=9.5 && py<21.5);
+                    }
+                    const size_t col=double(x)+0.5<left+8.0?0u:1u,row=double(y)+0.5<15.5?0u:1u;
+                    for(size_t c=0u;c<3u;++c)CHECK(rgb[size_t(y)*size_t(stride)+size_t(x)*3u+c]==
+                        (unsigned(colors[2u*row+col][c])*hits+255u*(16u-hits)+8u)/16u);
+                }
             }
             quantapdf_drop_bitmap(bitmap);
-        } else
-            CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED &&
-                  bitmap==nullptr);
+        }
         quantapdf_drop_page(page);
         quantapdf_close(doc);
     }
@@ -4150,6 +4160,7 @@ static int native_seventh_userunit_late_refusal_cases(
 #include "native_ordered_clip_cases.h"
 #include "native_clip_graph_cases.h"
 #include "native_page_text_cases.h"
+#include "native_decimal_page_cases.h"
 #include "native_ttf_graph_cases.h"
 #include "native_composer_state_cases.h"
 #include "native_composer_geometry_cases.h"
@@ -4188,6 +4199,10 @@ int main(int argc,char **argv)
         return clip_graph_cases(filename,9u);
     if(argc==2 && std::strcmp(argv[1],"--page-text-curves")==0)
         return page_text_curve_cases(filename);
+    if(argc==2 && std::strcmp(argv[1],"--decimal-text-page")==0)
+        return clip_graph_cases(filename,10u);
+    if(argc==2 && std::strcmp(argv[1],"--decimal-literal")==0)
+        return decimal_literal_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--fractional-clip")==0)
         return path_commands_cases(filename,true,12u);
     if(argc==2 && std::strcmp(argv[1],"--text-paths")==0)

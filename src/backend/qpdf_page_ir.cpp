@@ -8,6 +8,7 @@
 #include <qpdf/QPDFPageObjectHelper.hh>
 
 #include <algorithm>
+#include <charconv>
 #include <array>
 #include <climits>
 #include <cmath>
@@ -350,6 +351,7 @@ struct admission {
 
     bool crop_viewport=false;
     double exact_page_w=0.0,exact_page_h=0.0;
+    uint64_t canvas_w_num=0u,canvas_h_num=0u,canvas_den=1u;
 
     /* Remaining fixture-shaped geometry admission is independent of the
      * removed Source API versions; general ordered scenes remain A2 work. */
@@ -362,7 +364,6 @@ struct admission {
     size_t texample_stroke_gray_count=0u,texample_width_count=0u;
     size_t texample_orange_count=0u,texample_terminal_n=0u;
     bool texample_public_eligible=false;
-    bool text_outlines_eligible=false;
     bool text_outline_swap_axes=false;
     std::vector<quantapdf::detail::source_outline_paint> text_outline_paints={};
     admission(Obj page_resources,const quantapdf_qpdf_page_limits& page_limits,
@@ -577,10 +578,7 @@ struct admission {
         entry.components=channels;
         const double canvas_h=exact_page_h>0.0?
             exact_page_h:(double)page_h;
-        entry.bounds={static_cast<float>(x0),
-                      static_cast<float>(canvas_h-top),
-                      static_cast<float>(x1),
-                      static_cast<float>(canvas_h-bottom)};
+        entry.bounds={x0,canvas_h-top,x1,canvas_h-bottom};
         QP_SOURCE_STAGE_ARM(1u);
         draws.push_back(std::move(entry));
         QP_SOURCE_STAGE_ARM(2u);
@@ -701,7 +699,7 @@ public:
             return;
         }
         const std::string op=item.getOperatorValue();
-        if(target.text_outlines_eligible && op=="BT") {
+        if(op=="BT") {
             admit(args.empty() && pending_path.empty() && !clip_pending,
                   QUANTAPDF_ERROR_FORMAT);
             admit(target.ordered_scene(),QUANTAPDF_ERROR_UNSUPPORTED);
@@ -1513,7 +1511,7 @@ private:
         admit(std::isfinite(absolute_x) && std::isfinite(py) &&
               std::abs(absolute_x)<=1000000.0 && std::abs(py)<=1000000.0,
               QUANTAPDF_ERROR_UNSUPPORTED);
-        return {static_cast<float>(absolute_x),static_cast<float>(py)};
+        return {absolute_x,py};
     }
     void append_point(quantapdf_composer_path_command_kind kind,
                       double x,double y)
@@ -1654,12 +1652,9 @@ quantapdf_point original_turn_point(quantapdf_point p,
           w<=1000000u && h<=1000000u,
           QUANTAPDF_ERROR_UNSUPPORTED);
     switch(rotation) {
-    case 90:  return {static_cast<float>((double)h-y),
-                      static_cast<float>(x)};
-    case 180: return {static_cast<float>((double)w-x),
-                      static_cast<float>((double)h-y)};
-    case 270: return {static_cast<float>(y),
-                      static_cast<float>((double)w-x)};
+    case 90:  return {h-y,x};
+    case 180: return {w-x,h-y};
+    case 270: return {y,w-x};
     default: throw rejected{QUANTAPDF_ERROR_UNSUPPORTED};
     }
 }
@@ -1748,6 +1743,7 @@ void original_turn_staging(admission& source,int rotation)
     if(rotation==90 || rotation==270) {
         std::swap(source.page_w,source.page_h);
         std::swap(source.exact_page_w,source.exact_page_h);
+        std::swap(source.canvas_w_num,source.canvas_h_num);
     }
 }
 
@@ -1821,6 +1817,21 @@ quantapdf_ir materialize_blank_page(const admission& source)
     ir.pages[0].height_points=static_cast<float>(
         source.exact_page_h>0.0?source.exact_page_h:(double)source.page_h);
     ir.pages[0].background_argb=UINT32_C(0xffffffff);
+    // The denominator has only factors 2 and 5 (nine decimal places,
+    // followed by one quarter-UserUnit multiplication). At most 11
+    // fractional digits and six whole digits fit the inline canvas.
+    char *cursor=ir.source_canvas;
+    *cursor++='0';*cursor++=' ';*cursor++='0';*cursor++=' ';
+    for(uint64_t n:{source.canvas_w_num,source.canvas_h_num}) {
+        cursor=std::to_chars(cursor,cursor+20,n/source.canvas_den).ptr;
+        uint64_t rest=n%source.canvas_den;
+        if(rest!=0u) {
+            *cursor++='.';
+            do {rest*=10u;*cursor++=char('0'+rest/source.canvas_den);rest%=source.canvas_den;}while(rest!=0u);
+        }
+        *cursor++=' ';
+    }
+    cursor[-1]='\0';
     return ir;
 }
 
@@ -2323,21 +2334,19 @@ Obj selected_page_object(QPDF& pdf,size_t selected_index,
     return selected;
 }
 
-/* Exact quarter-point M0 Source box parser. Use the original QPDF
- * NUMBER token, not double->snprintf (which can change decimal bounds).
- * This deliberately admits only the 1/4-point lattice. A fractional
- * viewport SPAN is a separate M1 gate: do not silently ceil, round,
- * stretch, or lose a partial final row/column in the current Raster. */
+/* UserUnit retains its current quarter-point numeric contract. Page boxes
+ * use the same original-token parser with all nine supported decimal places. */
 int64_t page_quarters(Obj number)
 { return page_lattice(number,4ll); }
 
-std::array<int64_t,4> page_quarter_box(Obj box)
+constexpr uint32_t source_page_ticks=1000000000u;
+std::array<int64_t,4> page_exact_box(Obj box)
 {
     admit(box.isArray() && box.getArrayNItems()==4,
           QUANTAPDF_ERROR_FORMAT);
     std::array<int64_t,4> q={};
     for(size_t i=0u;i<4u;++i)
-        q[i]=page_quarters(box.getArrayItem((int)i));
+        q[i]=page_lattice(box.getArrayItem((int)i),source_page_ticks);
     if(q[0]>q[2])std::swap(q[0],q[2]);
     if(q[1]>q[3])std::swap(q[1],q[3]);
     admit(q[2]>q[0] && q[3]>q[1],QUANTAPDF_ERROR_FORMAT);
@@ -2348,14 +2357,11 @@ struct page_exact_boxes {
     std::array<int64_t,4> media;
     std::array<int64_t,4> crop;
     std::array<int64_t,4> visible;
-    /* Existing source profiles use 1/4pt ticks. The ONLY newly
-     * qualified source decimal page is the original TeXample
-     * 237.133 x 180.44 MediaBox (1/1000pt ticks). Never coerce it
-     * onto the older quarter-point grid or round it to 238x181pt. */
-    uint32_t ticks_per_point=4u;
+    uint32_t ticks_per_point=source_page_ticks;
+    bool texample=false;
 };
 
-page_exact_boxes page_quarter_geometry(
+page_exact_boxes page_exact_geometry(
     Obj selected,size_t max_parent_steps,
     const quantapdf_qpdf_page_geometry& geo)
 {
@@ -2373,38 +2379,17 @@ page_exact_boxes page_quarter_geometry(
         if(crop.isNull())crop=p.getKey("/CropBox");
     }
     admit(!media.isNull(),QUANTAPDF_ERROR_FORMAT);
-    /* Recognize EXACT original numeric PDF operands, not rounded
-     * getNumericValue()/snprintf reparsing. This is a bounded one-page
-     * TeXample geometry exception; the normal quarter grammar and
-     * all other original MediaBox profiles remain untouched.
-     * An independent cropped decimal viewport is NOT admitted. */
-    const auto exact_texample_box=[](Obj box) {
-        return box.isArray() && box.getArrayNItems()==4 &&
-            box.getArrayItem(0).unparse()=="0" &&
-            box.getArrayItem(1).unparse()=="0" &&
-            box.getArrayItem(2).unparse()=="237.133" &&
-            box.getArrayItem(3).unparse()=="180.44";
-    };
-    const bool teexample_decimal=exact_texample_box(media);
-    if(teexample_decimal)
-        admit(crop.isNull() || exact_texample_box(crop),
-              QUANTAPDF_ERROR_UNSUPPORTED);
-    const auto m=teexample_decimal ?
-        std::array<int64_t,4>{0,0,237133,180440} :
-        page_quarter_box(media);
-    const auto c=teexample_decimal ? m :
-        crop.isNull()?m:page_quarter_box(crop);
-    const uint32_t denominator=teexample_decimal?1000u:4u;
+    const auto m=page_exact_box(media);
+    const auto c=crop.isNull()?m:page_exact_box(crop);
+    const uint32_t denominator=source_page_ticks;
     std::array<int64_t,4> view={
         std::max(m[0],c[0]),std::max(m[1],c[1]),
         std::min(m[2],c[2]),std::min(m[3],c[3])
     };
     admit(view[2]>view[0] && view[3]>view[1],
           QUANTAPDF_ERROR_FORMAT);
-    /* Cross-check the independently loaded original PageTree geometry.
-     * For quarter ticks these are binary-exact; for the original
-     * decimal box the exact rational is converted to double ONCE
-     * solely for the existing QPDF comparison, not for admission. */
+    /* Original decimal tokens govern the box intersection and budgets.
+     * Floating conversion is used only by the existing coordinate model. */
     for(size_t i=0u;i<4u;++i) {
         admit(geo.media[i]==(double)m[i]/(double)denominator &&
               geo.crop[i]==(double)c[i]/(double)denominator,
@@ -2415,7 +2400,7 @@ page_exact_boxes page_quarter_geometry(
           geo.right==(double)view[2]/(double)denominator &&
           geo.top==(double)view[3]/(double)denominator,
           QUANTAPDF_ERROR_FORMAT);
-    return {m,c,view,denominator};
+    return {m,c,view,denominator,m==std::array<int64_t,4>{0,0,237133000000ll,180440000000ll}};
 }
 
 unsigned checked_page_userunit(Obj page,double geometry_unit)
@@ -2453,9 +2438,7 @@ void scale_source_userunit(admission& source,unsigned quarters)
     const double ph=source.exact_page_h*unit;
     admit(std::isfinite(pw) && std::isfinite(ph) &&
           pw>=1.0 && ph>=1.0 &&
-          pw<=1000000.0 && ph<=1000000.0 &&
-          std::floor(pw*16.0)==pw*16.0 &&
-          std::floor(ph*16.0)==ph*16.0,
+          pw<=1000000.0 && ph<=1000000.0,
           QUANTAPDF_ERROR_UNSUPPORTED);
     const size_t w=(size_t)std::ceil(pw);
     const size_t h=(size_t)std::ceil(ph);
@@ -2470,8 +2453,8 @@ void scale_source_userunit(admission& source,unsigned quarters)
               x>=-1000000.0 && x<=1000000.0 &&
               y>=-1000000.0 && y<=1000000.0,
               QUANTAPDF_ERROR_UNSUPPORTED);
-        p.x=(float)x;
-        p.y=(float)y;
+        p.x=x;
+        p.y=y;
     };
     const auto commands=[&point](
         std::vector<quantapdf_composer_path_command>& v) {
@@ -2519,11 +2502,12 @@ void scale_source_userunit(admission& source,unsigned quarters)
               physical_draw<=hard_draw_work-area_w*area_h,
               QUANTAPDF_ERROR_UNSUPPORTED);
         physical_draw+=area_w*area_h;
-        image.bounds.x0=(float)x0;image.bounds.x1=(float)x1;
-        image.bounds.y0=(float)y0;image.bounds.y1=(float)y1;
+        image.bounds.x0=x0;image.bounds.x1=x1;
+        image.bounds.y0=y0;image.bounds.y1=y1;
     }
     source.page_w=w;source.page_h=h;
     source.exact_page_w=pw;source.exact_page_h=ph;
+    source.canvas_w_num*=quarters;source.canvas_h_num*=quarters;source.canvas_den*=4u;
 }
 
 /* The exact source-number bounds admit one integer-ceiled pixel canvas
@@ -2532,7 +2516,7 @@ size_t source_exact_tick_ceil(
     int64_t lo,int64_t hi,uint32_t ticks_per_point,size_t cap)
 {
     admit(hi>lo && cap!=0u &&
-          (ticks_per_point==4u || ticks_per_point==1000u),
+          ticks_per_point==source_page_ticks,
           QUANTAPDF_ERROR_UNSUPPORTED);
     const uint64_t n=(uint64_t)(hi-lo),ticks=ticks_per_point;
     const uint64_t pixels=n/ticks+(n%ticks!=0u);
@@ -2555,12 +2539,9 @@ static quantapdf_status source_page_to_ir_impl(
             pdf,static_cast<int>(selected_page_index),&geo);
         if(status!=QUANTAPDF_OK)return status;
         admit(geo.page.isSameObjectAs(selected),QUANTAPDF_ERROR_FORMAT);
-        /* Quarters of a source point are parsed from the ORIGINAL QPDF
-         * numeric token under independent source ancestry bounds, not
-         * approximated by reformatting binary64. M0 admits fractional
-         * endpoints only when visible and full Media spans stay integer.
-         * This protects the C11 Raster's canonical integer page grid. */
-        const page_exact_boxes exact=page_quarter_geometry(
+        /* Original decimal endpoints remain exact through intersection,
+         * page budgets and the canonical canvas passed to the device. */
+        const page_exact_boxes exact=page_exact_geometry(
             geo.page,limits->max_parent_steps,geo);
         const unsigned user_quarters=checked_page_userunit(geo.page,geo.user_unit);
         const bool full_media=
@@ -2652,12 +2633,14 @@ static quantapdf_status source_page_to_ir_impl(
         Obj resources=bounded_page_resources(
             geo.page,limits->max_parent_steps,true);
         admission source(resources,*limits,page_w,page_h);
-        source.texample_public_eligible=exact.ticks_per_point==1000u && full_media &&
+        source.texample_public_eligible=exact.texample && full_media &&
             geo.rotation==0 && user_quarters==4u;
-        source.text_outlines_eligible=exact.ticks_per_point==4u;
         source.text_outline_swap_axes=geo.rotation==90 || geo.rotation==270;
         source.exact_page_w=(double)(exact.visible[2]-exact.visible[0])/(double)exact.ticks_per_point;
         source.exact_page_h=(double)(exact.visible[3]-exact.visible[1])/(double)exact.ticks_per_point;
+        source.canvas_w_num=static_cast<uint64_t>(exact.visible[2]-exact.visible[0]);
+        source.canvas_h_num=static_cast<uint64_t>(exact.visible[3]-exact.visible[1]);
+        source.canvas_den=exact.ticks_per_point;
         source.viewport_left=geo.left;
         source.viewport_bottom=geo.bottom;
         /* The opt-in signed/quarter-aware SOURCE staging is required
@@ -2690,11 +2673,6 @@ static quantapdf_status source_page_to_ir_impl(
         if(source.three_branch_candidate) {
             *out_ir=materialize_three_branch_source(source);
             return QUANTAPDF_OK;
-        }
-        if(exact.ticks_per_point==1000u && !source.clip_completed) {
-            admit(geo.rotation==0 && user_quarters==4u && full_media &&
-                  source.draws.empty() && source.painted_paths.empty() && source.order.empty(),
-                  QUANTAPDF_ERROR_UNSUPPORTED);
         }
         *out_ir=source.ordered_scene()?materialize_ordered_scene(source):
             materialize_clipped_path_only(source);
