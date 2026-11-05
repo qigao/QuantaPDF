@@ -412,6 +412,30 @@
   本轮本地工具链被工作区维护清理，未宣称本地编译或运行通过；验收使用现有
   LLVM/LLVM-MinGW 四配置 CI、ccache 和依赖组织，不建立工具链探测或 consumer 工程。
 
+### A2 BT 前后的普通 Fill 路径
+
+- `page_content_reader` 保留唯一的普通路径 owner 和解释函数；文字 reader 直接传入
+  原始 qpdf 操作数及当前 CTM/颜色/Clip，不重放 token、不重开 PDF。BT 前后使用同一
+  m/l/c/v/y/h/re/f/f*/n 构建、闭合与发布，路径对象与文字对象按实际顺序交错，逐段冻结 CTM。
+- 删除文字 reader 的矩形构造、pending rectangle、Fill 发布回调及前缀复制；文字
+  paint 仅持有字形。页面的 Fill、Text、Image 各自独立索引，由同一个顺序发布循环
+  形成现有 C11 Scene。原双 Clip 文字场景也复用该发布循环，删除其重复的三笔复制。
+- Fill 与 Clip 命令不再占用文字的 4096 字形命令额度；原路径 vector、工作 ledger
+  和溢出检查负责实际存储/工作。字形 4096 命令及其余字体限制仍存在，未宣称 A3 完成。
+  空 BT/ET 无须字体或实际 show，不产生绘制；旧晚到错误使用实际未实现的 Tr=1。
+  文字对象不嵌入未完成的路径对象；该语法错误仍拒绝整个页面。
+- 普通 re 在 BT 前后都使用 C11 的有限坐标范围，包含 signed/零面积和小数矩形；
+  删除按 Text 前缀/第八点精度选择的准入。一般 m/l/c/v/y 仍保留四分之一点范围，
+  非轴对齐 CTM、任意 DPI、BT 后一般 Clip 定义和 Clip 图仍待后续实现。
+- 复用现有公开及 Source/OOM 可执行文件，新增三组真实完整 RGB 与两组故障测试。
+  含原始字形、Image、Fill 六种顺序、任意路径前后的真实 Text、多个轮廓、h 后继续、
+  空/零面积路径、单 cubic 的 Clip 内部覆盖、8,000 条以上命令、跨流和三个 DPI，
+  AES-256/错误密码、选页及 Context/Document/Page 释放后的 Bitmap。
+  拒绝每次实际扩容、Source C 发布和 C11 分配，核对 N/N−1、深快照、不可变输入、
+  空失败输出与真实资源/语法/未实现操作的传播。
+- 本轮沿用 LLVM/LLVM-MinGW、ccache 与现有 CI；本地工具链已被维护清理，未宣称
+  本地编译或运行通过。此处描述待精确 HEAD 验收的实现，不能替代完整 CI 结果。
+
 ## 单一执行模型
 
 ```mermaid

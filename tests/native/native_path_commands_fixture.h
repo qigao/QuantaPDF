@@ -15,7 +15,7 @@ struct original {
     bool even=false,restore=false;
     std::vector<region> contours;
 };
-inline void encode(original& result,const std::array<std::string,3>& parts,unsigned encoding,bool encrypted)
+inline void encode(original& result,const std::array<std::string,3>& parts,unsigned encoding,bool encrypted,bool across_text=false)
 {
     using Object=native_content_fixture::Object;
     auto pdf=QPDF::create();pdf->emptyPDF();auto root=pdf->getRoot().getKey("/Pages");
@@ -24,15 +24,27 @@ inline void encode(original& result,const std::array<std::string,3>& parts,unsig
     blank.replaceKey("/Parent",root);page.replaceKey("/Parent",root);
     root.replaceKey("/Kids",Object::newArray({blank,page}));root.replaceKey("/Count",Object::newInteger(2));
     root.replaceKey("/Resources",Object::newDictionary());
+    auto decoded=parts;
+    if(across_text) {
+        decoded[0]+="BT ET\n";
+        for(size_t i=1u;i<decoded.size();++i) {
+            for(const std::string op:{"f\n","f*\n"}) {
+                size_t at=0u;
+                while((at=decoded[i].find(op,at))!=std::string::npos) {
+                    at+=op.size();decoded[i].insert(at,"BT ET\n");at+=6u;
+                }
+            }
+        }
+    }
     std::vector<Object> streams;
     bool needs_separator=false;
     for(size_t i=0u;i<parts.size();++i) {
         // qpdf separates an empty or non-newline-terminated preceding stream.
         // Include that byte in the independent N/N-1 content work budget.
         if(needs_separator)++result.decoded_bytes;
-        result.decoded_bytes+=parts[i].size();
-        needs_separator=parts[i].empty() || parts[i].back()!='\n';
-        streams.push_back(native_content_fixture::stream(*pdf,parts[i],unsigned((encoding+i)%8u)));
+        result.decoded_bytes+=decoded[i].size();
+        needs_separator=decoded[i].empty() || decoded[i].back()!='\n';
+        streams.push_back(native_content_fixture::stream(*pdf,decoded[i],unsigned((encoding+i)%8u)));
     }
     page.replaceKey("/Contents",Object::newArray(streams));
     QPDFWriter writer(*pdf);writer.setOutputMemory();writer.setStreamDataMode(qpdf_s_preserve);writer.setCompressStreams(false);
@@ -77,7 +89,7 @@ inline original create(size_t repeats,unsigned primitive,unsigned clip,bool even
 
 // Multiple original subpaths share ONE fill. No per-contour compositing.
 inline original create_contours(size_t count,unsigned primitive,unsigned clip,bool even,
-    bool restore,bool encrypted,size_t zeros=0u,unsigned layout=0u,unsigned closing=0u,int invalid=0,bool as_clip=false)
+    bool restore,bool encrypted,size_t zeros=0u,unsigned layout=0u,unsigned closing=0u,int invalid=0,bool as_clip=false,bool across_text=false)
 {
     original result;result.clip=clip;result.even=even;result.restore=restore;
     result.operations=restore?2u:1u;
@@ -137,12 +149,12 @@ inline original create_contours(size_t count,unsigned primitive,unsigned clip,bo
     if(invalid==2)parts[2]+="/Missing Do\n";
     if(invalid==3)parts[2]+="2 /Bad m\n";
     if(invalid==4)parts[2]+="/Missing sh\n";
-    encode(result,parts,unsigned(count+primitive),encrypted);return result;
+    encode(result,parts,unsigned(count+primitive),encrypted,across_text);return result;
 }
 // Authored current-point cases. Empty subpaths do not contribute winding;
 // following polygons use an independent rectangle membership reference.
 inline original create_states(size_t repeats,unsigned primitive,unsigned clip,bool even,
-    bool restore,bool encrypted,size_t zeros,unsigned kind,int invalid=0)
+    bool restore,bool encrypted,size_t zeros,unsigned kind,int invalid=0,bool across_text=false)
 {
     original result;result.repeats=repeats;result.clip=clip;result.even=even;result.restore=restore;
     result.operations=kind==13u?(restore?1u:0u):(restore?2u:1u);
@@ -206,7 +218,7 @@ inline original create_states(size_t repeats,unsigned primitive,unsigned clip,bo
     if(invalid==2)parts[2]+="/Missing Do\n";
     if(invalid==3)parts[2]+="2 /Bad m\n";
     if(invalid==4)parts[2]+="/Missing sh\n";
-    encode(result,parts,unsigned(kind+primitive),encrypted);return result;
+    encode(result,parts,unsigned(kind+primitive),encrypted,across_text);return result;
 }
 inline std::vector<unsigned char> rgb(const original& sample,unsigned dpi)
 {

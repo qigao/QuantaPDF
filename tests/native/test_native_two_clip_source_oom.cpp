@@ -67,7 +67,7 @@ static std::string original_pdf(bool mixed,bool physical,
     second.replaceKey("/Parent",root);
     selected.replaceKey("/Parent",root);
     /* A real third leaf, with unsupported Text on a preceding sibling. */
-    second.replaceKey("/Contents",pdf->newStream("BT ET"));
+    second.replaceKey("/Contents",pdf->newStream("BT 1 Tr ET"));
     root.replaceKey("/Kids",Obj::newArray({first,second,selected}));
     root.replaceKey("/Count",Obj::newInteger(3));
     if(physical) {
@@ -411,7 +411,7 @@ static bool source_failures(bool mixed)
         budget=source_budget;budget.max_operations=2u;
         CHECK(atomic_rejection(pdf,budget));
     }
-    CHECK(atomic_rejection(original_pdf(mixed,true,"BT ET"),source_budget));
+    CHECK(atomic_rejection(original_pdf(mixed,true,"BT 1 Tr ET"),source_budget));
     /* Rejections cannot poison ownership or the next complete parse. */
     quantapdf_ir recovered{};
     CHECK(source(pdf,source_budget,recovered)==QUANTAPDF_OK &&

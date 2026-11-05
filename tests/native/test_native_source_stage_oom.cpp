@@ -161,7 +161,7 @@ static std::string original_pdf_variant(
             "<< /Type /Page /MediaBox [0 0 32 24] >>"));
         first.replaceKey("/Parent",root);
         second.replaceKey("/Parent",root);
-        second.replaceKey("/Contents",pdf->newStream("BT ET"));
+        second.replaceKey("/Contents",pdf->newStream("BT 1 Tr ET"));
         root.replaceKey("/Kids",Obj::newArray({first,second,selected}));
         root.replaceKey("/Count",Obj::newInteger(3));
     } else {
@@ -564,7 +564,7 @@ static bool original_texample_decimal_source_m2(
         original_decimal_source(real_box,
             "q 1 0 0 1 118.566 90.22 cm 4 4 8 6 re f Q"),
         original_decimal_source(real_box,
-            "1 0 0 1 118.566 90.22 cm BT ET"),
+            "1 0 0 1 118.566 90.22 cm BT 1 Tr ET"),
         original_decimal_source(real_box,
             "q 1 0 0 1 118.566 90.22 cm"),
         original_decimal_source(real_box,"/Missing Do")
@@ -1574,7 +1574,7 @@ static bool public_texample_complete_page(const char *filename)
         };
         bool edited=true;
         switch(which) {
-        case 0:stream+="\nBT ET\n";break;
+        case 0:stream+="\nBT 1 Tr ET\n";break;
         case 1:stream+="\n0 g\n";break;
         case 2:stream+="\n0 0 1 1 re f\n";break;
         case 3:{const auto pos=stream.rfind("S");
@@ -5153,20 +5153,21 @@ static int ordered_text_source_contracts(const quantapdf_qpdf_page_limits& defau
     return EXIT_SUCCESS;
 }
 
-static int ordered_scene_source_contracts(const quantapdf_qpdf_page_limits& defaults)
+static int ordered_scene_source_contracts(const quantapdf_qpdf_page_limits& defaults,bool path_mode=false)
 {
-    size_t stack_faults=0u,publications=0u,raster_faults=0u,quotas=0u;
+    size_t stack_faults=0u,path_faults=0u,publications=0u,raster_faults=0u,quotas=0u;
     for(size_t images:{1u,5u,17u,65u})for(bool encrypted:{false,true}) {
-        auto sample=native_ordered_scene::create(images,images==17u?69u:1u,unsigned(images%6u),encrypted,129u);
+        if(path_mode && images>5u)continue;
+        auto sample=native_ordered_scene::create(images,images==17u?69u:1u,unsigned(images%6u),encrypted,129u,0,0u,SIZE_MAX,false,native_ordered_scene::text_presence::glyphs,path_mode?(images==1u?4u:3u):0u,path_mode && images==5u?65u:1u,path_mode && images==1u?8192u:0u,path_mode);
         quantapdf_qpdf_document *document=nullptr;
         CHECK(quantapdf_qpdf_open_memory(reinterpret_cast<const unsigned char*>(sample.bytes.data()),sample.bytes.size(),encrypted?"reader":"",&document)==QUANTAPDF_OK);
         std::unique_ptr<quantapdf_qpdf_document,decltype(&quantapdf_qpdf_close)> owner(document,quantapdf_qpdf_close);
         auto caps=defaults;caps.max_content_bytes=sample.decoded_bytes;caps.max_content_streams=3u;caps.max_operations=sample.operations;
         const auto read=[&](const quantapdf_qpdf_page_limits& limits,quantapdf_ir& ir) {return quantapdf_qpdf_page_to_ir(owner.get(),1u,&limits,&ir);};
-        graphics_growths=0u;graphics_fail_growth=0u;
+        graphics_growths=0u;graphics_fail_growth=0u;path_growths=0u;path_fail_growth=0u;
         track_c_allocation=true;c_fail_index=0u;c_allocations=0u;c_faults=0u;
         quantapdf_ir ir{};const auto status=read(caps,ir);track_c_allocation=false;
-        const size_t allocations=c_allocations,growths=graphics_growths;
+        const size_t allocations=c_allocations,growths=graphics_growths,path_grows=path_growths;
         if(status!=QUANTAPDF_OK)std::fprintf(stderr,"Scene Source images=%zu status=%d\n",images,int(status));
         CHECK(status==QUANTAPDF_OK && allocations>=3u && ir.operation_count==sample.operations && growths>0u);
         quantapdf_ir_dispose(&ir);
@@ -5180,6 +5181,15 @@ static int ordered_scene_source_contracts(const quantapdf_qpdf_page_limits& defa
             std::memset(&ir,0xa5,sizeof(ir));
             CHECK(read(caps,ir)==QUANTAPDF_ERROR_NOMEM && cleared(ir) && graphics_growths==fail && graphics_fail_growth==0u && observed==11u && faults==1u && !armed);
             ++stack_faults;
+        }
+        if(path_mode) {
+            CHECK(path_grows>0u);
+            for(size_t fail=1u;fail<=path_grows;++fail) {
+                path_growths=0u;path_fail_growth=fail;observed=0u;faults=0u;armed=false;
+                std::memset(&ir,0xa5,sizeof(ir));
+                CHECK(read(caps,ir)==QUANTAPDF_ERROR_NOMEM && cleared(ir) && path_growths==fail && path_fail_growth==0u && observed==12u && faults==1u && !armed);
+                ++path_faults;
+            }
         }
         for(unsigned quota:{0u,1u,2u,3u,4u}) {
             auto limited=caps;
@@ -5276,6 +5286,10 @@ static int ordered_scene_source_contracts(const quantapdf_qpdf_page_limits& defa
         quantapdf_native_compiled_page_dispose_v1(&replay);CHECK(text_ir_snapshot(ir)==snapshot);
         metadata.malloc_fault={};quantapdf_native_compiled_page_v1 compiled{};
         CHECK(quantapdf_native_compiled_page_compile_v1(&metadata,&compiled)==QUANTAPDF_OK);
+        if(path_mode)for(size_t i=0u;i<ir.operation_count;++i)if(ir.operations[i].kind==QUANTAPDF_COMPOSER_OPERATION_PATH) {
+            auto& path=ir.operations[i].value.path;
+            for(size_t c=0u;c<path.command_count;++c)path.commands[c].point1={-999.0f,-999.0f};
+        }
         CHECK(quantapdf_native_compiled_page_execute_v1(&compiled,nullptr,&output)==QUANTAPDF_OK && equal(output));
         quantapdf_native_compiled_page_dispose_v1(&compiled);quantapdf_ir_dispose(&ir);CHECK(cleared(ir));
         CHECK(equal(output));quantapdf_ir_raster_image_dispose(&output);CHECK(zero_bitmap(output));
@@ -5289,6 +5303,7 @@ static int ordered_scene_source_contracts(const quantapdf_qpdf_page_limits& defa
         quantapdf_ir denied;std::memset(&denied,0xa5,sizeof(denied));
         CHECK(quantapdf_qpdf_page_to_ir(owner.get(),1u,&caps,&denied)==(invalid>=3?QUANTAPDF_ERROR_UNSUPPORTED:QUANTAPDF_ERROR_FORMAT) && cleared(denied));
     }
+    if(path_mode)std::printf("Text path growth faults: %zu\n",path_faults);
     std::printf("Ordered Text/Fill/Image: %zu stack-growth faults, %zu Source publication faults, %zu C11 allocation faults, %zu N/N-1 checks; independent RGBA, immutable Source and detached owners passed\n",stack_faults,publications,raster_faults,quotas);
     return EXIT_SUCCESS;
 }
@@ -5464,6 +5479,10 @@ int main(int argc,char **argv)
     const quantapdf_qpdf_page_limits limits={
         65536u,4u,4u,1000000u,1000000u,4000000u,8u
     };
+    if(argc==2 && std::strcmp(argv[1],"--text-paths")==0)
+        return ordered_scene_source_contracts(limits,true);
+    if(argc==2 && std::strcmp(argv[1],"--text-path-state")==0)
+        return path_commands_source_contracts(limits,true,false,false,true,true);
     if(argc==2 && std::strcmp(argv[1],"--path-state")==0)
         return path_commands_source_contracts(limits,true,false,false,true);
     if(argc==2 && std::strcmp(argv[1],"--clip-paths")==0)

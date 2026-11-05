@@ -379,7 +379,7 @@ static int atomic_rejections()
            "q 16 0 0 12 8 3 cm /I Do Q Q",
         "q "+path+" W* n q 16 0 0 12 8 3 cm /Missing Do Q Q",
         ready+" S",
-        ready+" BT ET",
+        ready+" BT 1 Tr ET",
         ready+" 2 G",
         ready+" 1 0 0 rg 4 4 8 6 re f 1 0 0 rg 4 4 8 6 re S",
         ready+" 4 4 8 6 re W n",
@@ -402,7 +402,7 @@ static int atomic_rejections()
         "q "+path+" W n q 16 0 0 12 8 3 cm /I Do Q "
             "Q 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h W n",
         "q "+path+" W* n q 16 0 0 12 8 3 cm /I Do Q "
-            "Q 1 0 0 rg 4 4 8 6 re f BT ET"
+            "Q 1 0 0 rg 4 4 8 6 re f BT 1 Tr ET"
     };
     for(const auto& content:bad)
     for(int dpi:{72,96,144})
@@ -534,10 +534,10 @@ static int empty_clip_atomic_refusals()
         "q W n q 16 0 0 12 8 3 cm /I Do Q",
         "q W n "+draw+" Q",
         "q W n q 16 0 0 12 8 3 cm /Missing Do Q Q",
-        "q W n "+draw+" BT ET",
+        "q W n "+draw+" BT 1 Tr ET",
         "q W* n "+draw+" 4 4 m S",
         "q W n "+draw+" q 4 4 8 6 re W* n Q",
-        "q W n "+draw+" 1 0 0 rg 8 6 8 6 re f BT ET",
+        "q W n "+draw+" 1 0 0 rg 8 6 8 6 re f BT 1 Tr ET",
         "q 4 5 m 4 18 20 18 20 5 c W n "+draw,
         "q W n "+draw+" 1 0 0 rg 8 6 8 6 re f "
             "q 4 4 8 6 re W n Q"
@@ -760,7 +760,7 @@ static int two_rectangle_atomic_refusals()
         "q "+first+" W n W* 1 n "+image,
         "q "+first+" W n "+second+" W n "+
             "q 16 0 0 12 8 3 cm /Missing Do Q Q",
-        "q "+first+" W n "+second+" W* n "+image+" BT ET",
+        "q "+first+" W n "+second+" W* n "+image+" BT 1 Tr ET",
         "q "+first+" W n "+second+" W n "+image+" S",
         "q "+first+" W n "+second+" W n "+image+" Q",
         "q "+first+" W n 12.0625 6 12 12 re W n "+image,

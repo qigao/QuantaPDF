@@ -52,7 +52,7 @@ static std::string create_source(bool late_text)
         "q 12 6 8 9 re W n "
         "q 16 0 0 12 8 3 cm /I Do Q "
         "Q 0.875 g 24 17 5 3 re f"
-        +(late_text ? std::string(" BT ET") : std::string());
+        +(late_text ? std::string(" BT 1 Tr ET") : std::string());
     page.replaceKey("/Contents",pdf->newStream(source));
     QPDFWriter writer(*pdf);
     writer.setOutputMemory();
@@ -80,7 +80,7 @@ static std::string create_blank_source(int mode)
     if(mode==3)page.replaceKey("/Contents",
         pdf->newStream("q 1 0 0 1 10 0 cm Q"));
     if(mode==4)page.replaceKey("/Contents",
-        pdf->newStream("BT ET"));
+        pdf->newStream("BT 1 Tr ET"));
     if(mode==5)page.replaceKey("/Annots",Obj::parse("[]"));
     if(mode==6)page.replaceKey("/MediaBox",
         Obj::parse("[0 0 1000 1000]"));
@@ -115,14 +115,14 @@ static std::string create_path_only_source(int mode)
     if(mode==2)
         source="0.5 g 4 4 8 6 re f";
     if(mode==3)
-        source="1 0 0 rg 4 4 8 6 re f BT ET";
+        source="1 0 0 rg 4 4 8 6 re f BT 1 Tr ET";
     if(mode==4)
         source="1 0 0 rg 4 4 8 6 re f 4 4 8 6 re S";
     if(mode==5)
         /* The unclipped prefix now qualifies; late Text still poisons
          * the complete original and its public thumbnail. */
         source="1 0 0 rg 4 4 8 6 re f "
-               "q 4 4 8 6 re W n 0 0 1 rg 4 4 8 6 re f Q BT ET";
+               "q 4 4 8 6 re W n 0 0 1 rg 4 4 8 6 re f Q BT 1 Tr ET";
     if(mode>=6 && mode<=9) {
         /* Three source-ordered opaque fills; the fourth covers part of
          * green without changing the blue or red-only sample regions. */
@@ -131,7 +131,7 @@ static std::string create_path_only_source(int mode)
                "0 1 0 rg 8 4 8 8 re f";
         if(mode>=7)source+=" 1 1 0 rg 10 7 6 5 re f";
         if(mode==8)source+=" 0 0 0 rg 1 1 2 2 re f"; /* fifth */
-        if(mode==9)source+=" BT ET"; /* unsupported late Text */
+        if(mode==9)source+=" BT 1 Tr ET"; /* unsupported late Text */
     }
     page.replaceKey("/Contents",pdf->newStream(source));
     QPDFWriter writer(*pdf);
@@ -200,14 +200,14 @@ static std::string create_image_only_source(int mode)
     std::string content="q 16 0 0 12 8 3 cm /I Do Q";
     if(mode==1)
         content+=" q 8 0 0 6 24 0 cm /I Do Q";
-    if(mode==4)content+=" BT ET";
+    if(mode==4)content+=" BT 1 Tr ET";
     if(mode==5)content=
         "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q";
     if(mode==9)content=
         "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q "
         "q 8 0 0 6 12 9 cm /I Do Q Q";
     if(mode==10)content=
-        "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q BT ET";
+        "q 12 6 8 9 re W n q 16 0 0 12 8 3 cm /I Do Q Q BT 1 Tr ET";
     if(mode==11)content=
         "q 12 6 8 9 re W* n q 16 0 0 12 8 3 cm /I Do Q Q";
     if(mode==12)content=
@@ -233,7 +233,7 @@ static std::string create_image_only_source(int mode)
     if(mode==18)
         content+=" q 4 0 0 4 12 19 cm /I Do Q"; /* fifth */
     if(mode==19)
-        content+=" BT ET"; /* late unsupported: discard all four */
+        content+=" BT 1 Tr ET"; /* late unsupported: discard all four */
     if(mode==21)
         content+=" q 8 0 0 6 16 9 cm /I Do Q"; /* fourth overlaps */
     if(mode==22)
@@ -243,7 +243,7 @@ static std::string create_image_only_source(int mode)
         if(mode==24)
             content="q 5 2 9 9 re W n "
                     "q 9 0 0 9 5 2 cm /I Do Q Q";
-        if(mode==25)content+=" BT ET"; /* late unsupported */
+        if(mode==25)content+=" BT 1 Tr ET"; /* late unsupported */
     }
     page.replaceKey("/Contents",pdf->newStream(content));
     QPDFWriter writer(*pdf);
@@ -314,7 +314,7 @@ static std::string create_unclipped_mixed_source(int mode)
     const bool path_first=mode==1 || mode==6;
     std::string source=path_first ?
         fill+" "+draw : draw+" "+fill;
-    if(mode==2) source+=" BT ET";
+    if(mode==2) source+=" BT 1 Tr ET";
     if(mode==3) source="q 4 4 8 6 re W n "+source+" Q";
     if(mode==4) source+=" 1 0 0 rg 26 2 3 4 re f";
     if(mode==5) source+=" "+draw;
@@ -372,7 +372,7 @@ static std::string create_clipped_mixed_source(int mode)
         content=outer+"q 8 0 0 12 8 3 cm /J Do Q "+
             paint_path+"Q"; /* missing Image XObject = FORMAT */
     if(mode==6)
-        content+=" BT ET"; /* late unsupported Text */
+        content+=" BT 1 Tr ET"; /* late unsupported Text */
     page.replaceKey("/Contents",pdf->newStream(content));
     QPDFWriter writer(*pdf);
     writer.setOutputMemory();
@@ -1715,7 +1715,7 @@ static std::string selected_page_original_pdf(int bad_mode=0)
     auto p1=make_page(fill);
     auto p2=make_page(paint);
     auto p3=make_page(scoped);
-    auto p4=make_page("BT ET");
+    auto p4=make_page("BT 1 Tr ET");
     auto p5=make_page(fill);
     p2.replaceKey("/Resources",resources);
     p3.replaceKey("/Resources",resources);
@@ -2008,7 +2008,7 @@ static std::string shifted_media_original(
     const std::string translate=
         "q 1 0 0 1 "+std::to_string(shift_x)+" "+
          std::to_string(shift_y)+" cm "+paint+
-         (mode==5?" BT ET":"")+" Q";
+         (mode==5?" BT 1 Tr ET":"")+" Q";
     page.replaceKey("/Contents",pdf->newStream(translate));
     QPDFWriter writer(*pdf);
     writer.setOutputMemory();
@@ -4083,7 +4083,7 @@ static int native_seventh_userunit_late_refusal_cases(
     const std::string& filename)
 {
     const char *const bad_contents[]={
-        "q 16 0 0 12 8 3 cm /I Do Q BT ET",
+        "q 16 0 0 12 8 3 cm /I Do Q BT 1 Tr ET",
         "q 16 0 0 12 8 3 cm /I Do Q 0 0 0 rg 4 4 8 6 re S",
         "q 16 0 0 12 8 3 cm /I Do Q Q"
     };
@@ -4155,6 +4155,12 @@ int main(int argc,char **argv)
     // Each CTest invocation owns its input path, including parallel runs.
     const std::string filename=std::string("native-public-")+
         (argc>1?argv[1]:"render")+".pdf";
+    if(argc==2 && std::strcmp(argv[1],"--text-paths")==0)
+        return ordered_scene_cases(filename,true);
+    if(argc==2 && std::strcmp(argv[1],"--text-path-empty")==0)
+        return path_commands_cases(filename,true,9u);
+    if(argc==2 && std::strcmp(argv[1],"--text-path-state")==0)
+        return path_commands_cases(filename,true,10u);
     if(argc==2 && std::strcmp(argv[1],"--empty-subpaths")==0)
         return path_commands_cases(filename,true,6u);
     if(argc==2 && std::strcmp(argv[1],"--close-current-point")==0)

@@ -73,7 +73,7 @@ static std::string original(const std::string& first,
         blank.replaceKey("/Parent",pages);
         blank.replaceKey("/Contents",pdf->newStream(""));
         auto text=pdf->makeIndirectObject(Obj::parse(page_dictionary));
-        text.replaceKey("/Contents",pdf->newStream("BT ET"));
+        text.replaceKey("/Contents",pdf->newStream("BT 1 Tr ET"));
         parent=pdf->makeIndirectObject(Obj::parse("<< /Type /Pages >>"));
         parent.replaceKey("/Parent",pages);
         parent.replaceKey("/Kids",Obj::newArray({text,page}));
@@ -622,7 +622,7 @@ static int atomic_refusals()
         a+full_red+b+full_blue+patterned+"Q "+full_red+"Q", /* 3PATH+Image */
         a+full_red+b+full_blue+"Q "+full_red+patterned+"Q", /* late Image */
         a+patterned+b+full_blue+patterned+"Q "+patterned+"Q",
-        ready+" BT ET",
+        ready+" BT 1 Tr ET",
         ready+" 2 2 m 10 8 l S",
         ready+" 2 g",
         ready+" Q",

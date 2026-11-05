@@ -71,6 +71,17 @@ add_test(NAME quantapdf.native_composer_geometry
   COMMAND quantapdf_native_public_render --composer-geometry)
 set_tests_properties(quantapdf.native_composer_geometry PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;public-api;composer;current-api")
+# Ordinary Fill keeps one page path owner on both sides of Text objects.
+add_test(NAME quantapdf.native_text_paths
+  COMMAND quantapdf_native_public_render --text-paths)
+add_test(NAME quantapdf.native_text_path_empty
+  COMMAND quantapdf_native_public_render --text-path-empty)
+add_test(NAME quantapdf.native_text_path_state
+  COMMAND quantapdf_native_public_render --text-path-state)
+set_tests_properties(quantapdf.native_text_paths quantapdf.native_text_path_empty
+  quantapdf.native_text_path_state PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;text-path")
+
 add_test(NAME quantapdf.native_empty_subpaths
   COMMAND quantapdf_native_public_render --empty-subpaths)
 set_tests_properties(quantapdf.native_empty_subpaths PROPERTIES
@@ -272,6 +283,14 @@ add_test(NAME quantapdf.native_source_stage_oom
   "${PROJECT_SOURCE_DIR}/tests/external_source_corpus/documents/texample.intersecting-rings-v1.pdf")
 set_tests_properties(quantapdf.native_source_stage_oom PROPERTIES
   TIMEOUT 40 LABELS "conformance;native;no-pdfium;source-staging;oom")
+
+add_test(NAME quantapdf.native_text_paths_oom
+  COMMAND quantapdf_native_source_stage_oom --text-paths)
+add_test(NAME quantapdf.native_text_path_state_oom
+  COMMAND quantapdf_native_source_stage_oom --text-path-state)
+set_tests_properties(quantapdf.native_text_paths_oom
+  quantapdf.native_text_path_state_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;no-pdfium;source;text-path;oom")
 
 add_test(NAME quantapdf.native_path_state_oom
   COMMAND quantapdf_native_source_stage_oom --path-state)

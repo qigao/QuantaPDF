@@ -72,7 +72,7 @@ static std::string original(const std::string& first,
         blank.replaceKey("/Contents",pdf->newStream(""));
         auto text=pdf->makeIndirectObject(
             Obj::parse("<< /Type /Page /MediaBox [0 0 32 24] >>"));
-        text.replaceKey("/Contents",pdf->newStream("BT ET"));
+        text.replaceKey("/Contents",pdf->newStream("BT 1 Tr ET"));
         parent=pdf->makeIndirectObject(Obj::parse("<< /Type /Pages >>"));
         parent.replaceKey("/Parent",pages);
         parent.replaceKey("/Kids",Obj::newArray({text,page}));
@@ -585,7 +585,7 @@ static int atomic_refusals()
         "q "+curve_a+" W n 12 5 m 12 18 28 18 28 5 c "
             "28 4 l 26 4 l 24 4 l 22 4 l 20 4 l 18 4 l 12 4 l h "
             "W n "+image_draw+" Q",
-        ready+" BT ET",
+        ready+" BT 1 Tr ET",
         ready+" 4 4 m 20 18 20 18 20 4 c S",
         prefix+"q 32 0 0 24 0 0 cm /Missing Do Q Q",
         ready+" Q",

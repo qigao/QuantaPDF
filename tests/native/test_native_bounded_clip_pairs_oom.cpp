@@ -148,7 +148,7 @@ static std::string original_pdf(const std::string& content,profile kind,
             "<< /Type /Page /MediaBox [0 0 16 12] >>"));
         first.replaceKey("/Parent",root);
         second.replaceKey("/Parent",root);
-        second.replaceKey("/Contents",pdf->newStream("BT ET"));
+        second.replaceKey("/Contents",pdf->newStream("BT 1 Tr ET"));
         root.replaceKey("/Kids",Obj::newArray({first,second,selected}));
         root.replaceKey("/Count",Obj::newInteger(3));
     } else {
@@ -557,7 +557,7 @@ static bool source_failures(const clip_pair& pair)
      * even when an empty Clip makes all its pixels invisible. */
     budget=source_budget;budget.max_drawn_pixels=79u;
     CHECK(atomic_rejection(pdf,budget));
-    CHECK(atomic_rejection(original_pdf(content+"BT ET",profile::mixed,true),source_budget));
+    CHECK(atomic_rejection(original_pdf(content+"BT 1 Tr ET",profile::mixed,true),source_budget));
     CHECK(atomic_rejection(original_pdf(content+"/Unqualified gs",profile::mixed,true),source_budget));
     CHECK(atomic_rejection(original_pdf(content+"q 2 2 8 7 re W n Q",profile::mixed,true),source_budget));
     quantapdf_ir recovered{};

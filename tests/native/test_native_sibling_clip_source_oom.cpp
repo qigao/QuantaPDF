@@ -273,7 +273,7 @@ static std::string original_pdf(const std::string& content,const scenario& sc,
             "<< /Type /Page /MediaBox [0 0 16 12] >>"));
         first.replaceKey("/Parent",root);
         second.replaceKey("/Parent",root);
-        second.replaceKey("/Contents",pdf->newStream("BT ET"));
+        second.replaceKey("/Contents",pdf->newStream("BT 1 Tr ET"));
         root.replaceKey("/Kids",Obj::newArray({first,second,selected}));
         root.replaceKey("/Count",Obj::newInteger(3));
     } else {
@@ -821,7 +821,7 @@ static bool source_failures(const scenario& sc)
         budget=source_budget;budget.max_drawn_pixels=drawn-1u;
         CHECK(atomic_rejection(pdf,budget));
     }
-    CHECK(atomic_rejection(original_pdf(content+"BT ET",sc,true),source_budget));
+    CHECK(atomic_rejection(original_pdf(content+"BT 1 Tr ET",sc,true),source_budget));
     CHECK(atomic_rejection(original_pdf(content+"/Unqualified gs",sc,true),source_budget));
     quantapdf_ir recovered{};
     CHECK(source(pdf,source_budget,recovered)==QUANTAPDF_OK &&
@@ -853,7 +853,7 @@ static bool bounded_scope_refusals()
         a+p+"Q q 2 2 10 7 re W "+p+"n Q", /* n must immediately follow W */
         a+p+"Q q 2 2 10 7 re 4 3 3 2 re W n "+p+"Q", /* ten B commands */
         a+p+"Q q 2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h 6 6 m 7 6 l 6 7 l h W n "+p+"Q",
-        ready+"BT ET",
+        ready+"BT 1 Tr ET",
         ready+"/Unqualified gs",
         a+p+"Q "+b+"2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h f Q",
     };

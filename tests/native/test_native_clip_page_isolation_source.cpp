@@ -52,7 +52,7 @@ static std::string original()
         {scope("2 2 8 7 re",full_red),
          scope("6 4 8 6 re",full_blue)},
         {full_green},
-        {"BT ET"}, /* Actual unsupported page, not a blank stand-in. */
+        {"BT 1 Tr ET"}, /* Actual unsupported page, not a blank stand-in. */
         {""},
         {scope("",full_red),scope("",full_blue,true)},
         {scope("1 1 2 2 re",full_red),

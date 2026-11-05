@@ -73,7 +73,7 @@ static std::string original(const std::string& first,
         blank.replaceKey("/Parent",pages);
         blank.replaceKey("/Contents",pdf->newStream(""));
         auto text=pdf->makeIndirectObject(Obj::parse(page_dictionary));
-        text.replaceKey("/Contents",pdf->newStream("BT ET"));
+        text.replaceKey("/Contents",pdf->newStream("BT 1 Tr ET"));
         parent=pdf->makeIndirectObject(Obj::parse("<< /Type /Pages >>"));
         parent.replaceKey("/Parent",pages);
         parent.replaceKey("/Kids",Obj::newArray({text,page}));
@@ -635,7 +635,7 @@ static int atomic_refusals()
         prefix+full_red+full_red+full_red+full_red+full_red+"Q",
         prefix+"Q",
         prefix+"Q "+full_red,
-        ready+" BT ET",
+        ready+" BT 1 Tr ET",
         ready+" 2 2 m 10 8 l S",
         /* Root then restored-first painting is admitted, but a fifth
          * PATH still exceeds the unchanged four-layer ceiling. */
@@ -647,7 +647,7 @@ static int atomic_refusals()
         one_prefix(curve_a)+full_red+curve_b+" W n "+full_red+
             "Q "+one_prefix(curve_a)+full_red+"Q", /* redefinition after Q to 0 */
         /* Prefix plus clipped PATH is admitted; late Text still fails. */
-        full_red+one_prefix(curve_a)+full_red+"Q BT ET",
+        full_red+one_prefix(curve_a)+full_red+"Q BT 1 Tr ET",
         prefix+curve_a+" W n "+full_red+"Q",
         ready+" "+one_prefix(curve_a)+full_red+"Q",
         one_prefix(curve_a)+"W* 1 n "+full_red+"Q",

@@ -195,7 +195,7 @@ static int negative()
         "3 j","-1 j","1.5 j","true j",
         "1 w 1 0 0 rg 4 4 8 6 re S",
         "1 J 1 0 0 rg 4 4 8 6 re B",
-        "0 j BT ET",
+        "0 j BT 1 Tr ET",
         "0 w 0 J 1 j Q",
         "0 w /Missing Do"
     };

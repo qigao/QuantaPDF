@@ -73,7 +73,7 @@ static std::string original(const std::string& first,
         blank.replaceKey("/Parent",pages);
         blank.replaceKey("/Contents",pdf->newStream(""));
         auto text=pdf->makeIndirectObject(Obj::parse(page_dictionary));
-        text.replaceKey("/Contents",pdf->newStream("BT ET"));
+        text.replaceKey("/Contents",pdf->newStream("BT 1 Tr ET"));
         parent=pdf->makeIndirectObject(Obj::parse("<< /Type /Pages >>"));
         parent.replaceKey("/Parent",pages);
         parent.replaceKey("/Kids",Obj::newArray({text,page}));
@@ -715,7 +715,7 @@ static int atomic_refusals()
         prefix+full_red+compound+" W n "+full_blue+compound+" W n Q",
         ready+" "+one_prefix(compound)+full_red+"Q "+
             one_prefix(compound,true)+full_red+"Q", /* third definition */
-        ready+" BT ET",
+        ready+" BT 1 Tr ET",
         ready+" 2 2 m 10 8 l S",
         ready+" Q",
         ready+" q"

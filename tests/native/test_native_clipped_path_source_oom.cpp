@@ -109,7 +109,7 @@ static std::string original_pdf(const std::string& content,bool physical,
         first.replaceKey("/Parent",root);
         second.replaceKey("/Parent",root);
         /* The selected original is a real third PageTree leaf. */
-        second.replaceKey("/Contents",pdf->newStream("BT ET"));
+        second.replaceKey("/Contents",pdf->newStream("BT 1 Tr ET"));
         root.replaceKey("/Kids",Obj::newArray({first,second,selected}));
         root.replaceKey("/Count",Obj::newInteger(3));
     } else {
@@ -455,7 +455,7 @@ static bool source_failures(bool two)
     }
     /* These failures occur after all admitted PATHs have been staged.
      * Neither late Text nor an unqualified graphics state can publish IR. */
-    CHECK(atomic_rejection(original_pdf(content+"BT ET",true),source_budget));
+    CHECK(atomic_rejection(original_pdf(content+"BT 1 Tr ET",true),source_budget));
     CHECK(atomic_rejection(original_pdf(content+"/Unqualified gs",true),source_budget));
     /* Clip reentry cannot replace the single immutable GS identity. */
     CHECK(atomic_rejection(original_pdf(content+clip_prefix(false)+

@@ -237,7 +237,7 @@ static int negative(void)
         "4 5 m 4.125 18 20 18 20 5 c 20 4 l 4 4 l h f",
         "4 5 m 4 18 20 18 20 5 v 20 4 l 4 4 l h f",
         "4 5 m 4 18 20 18 20 5 y 20 4 l 4 4 l h f",
-        "1 0 0 rg 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h f BT ET",
+        "1 0 0 rg 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h f BT 1 Tr ET",
         "1 0 0 rg 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h f 4 5 m 4 18 20 18 20 5 c S",
         "q 16 0 0 12 8 3 cm /I Do Q 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h f Q",
         "q 16 0 0 12 8 3 cm /Missing Do Q 1 0 0 rg 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h f"
@@ -392,7 +392,7 @@ static int shorthand_negative(void)
         "1 0 0 rg 4 5 m 20 18 20 5 v 20 4 l 4 4 l h f "
         "4 5 m 4 18 20 5 y S",
         "q 16 0 0 12 8 3 cm /I Do Q 1 0 0 rg "
-        "4 5 m 20 18 20 5 v 20 4 l 4 4 l h f BT ET"
+        "4 5 m 20 18 20 5 v 20 4 l 4 4 l h f BT 1 Tr ET"
     };
     for(const char *content:bad)
     for(int dpi:{72,96,144}) {

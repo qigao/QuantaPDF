@@ -8,7 +8,7 @@ using O=QPDFObjectHandle;
 enum class text_presence { glyphs,empty,none };
 struct paint {double x,y,w,h;std::array<unsigned char,12> colors;bool image;bool clipped=false;};
 struct original {std::string bytes;size_t decoded_bytes=0u,operations=0u,glyphs=0u,images=0u;std::vector<paint> paints;unsigned clip_kind=0u;};
-inline original create(size_t count,size_t letters,unsigned permutation,bool encrypted,size_t depth=0u,int invalid=0,unsigned clip_kind=0u,size_t restore_at=SIZE_MAX,bool omit_images=false,text_presence text_mode=text_presence::glyphs)
+inline original create(size_t count,size_t letters,unsigned permutation,bool encrypted,size_t depth=0u,int invalid=0,unsigned clip_kind=0u,size_t restore_at=SIZE_MAX,bool omit_images=false,text_presence text_mode=text_presence::glyphs,unsigned path_kind=0u,size_t path_repeats=1u,size_t zeros=0u,bool text_before_path=false)
 {
     auto pdf=QPDF::create();const auto base=native_ttf_fixture();
     pdf->processMemoryFile("ordered-scene-authoring",base.data(),base.size());
@@ -71,7 +71,38 @@ inline original create(size_t count,size_t letters,unsigned permutation,bool enc
             } else if(item==2u && fill) {
                 const unsigned color=unsigned((i+2u)%3u);std::array<unsigned char,12> ink{};
                 std::copy(colors[color].begin(),colors[color].end(),ink.begin());
-                part+=std::string(rg[color])+std::to_string(x+0.75)+" "+std::to_string(y+0.75)+" 2.5 1.25 re f* ";
+                part+=rg[color];
+                if(path_kind==0u)part+=std::to_string(x+0.75)+" "+std::to_string(y+0.75)+" 2.5 1.25 re f* ";
+                else {
+                    const std::array<std::string,4> v={
+                        std::to_string(x+0.75)+" "+std::to_string(y+0.75),
+                        std::to_string(x+3.25)+" "+std::to_string(y+0.75),
+                        std::to_string(x+3.25)+" "+std::to_string(y+2.0),
+                        std::to_string(x+0.75)+" "+std::to_string(y+2.0)};
+                    for(size_t repeat=0u;repeat<path_repeats;++repeat) {
+                        if(text_before_path && repeat==0u) {
+                            // Real Text immediately before an arbitrary Fill;
+                            // q/Q restores the Fill color at page-description level.
+                            part+=std::string("q ")+rg[(color+1u)%3u]+"BT /F 2 Tf 1 1 Td <0051> Tj ET Q ";
+                            std::array<unsigned char,12> glyph_ink{};
+                            std::copy(colors[(color+1u)%3u].begin(),colors[(color+1u)%3u].end(),glyph_ink.begin());
+                            result.paints.push_back({1.0+156.0/1024.0,1.0,185.0/1024.0,1.5,glyph_ink,false});
+                            ++result.glyphs;++result.operations;
+                        }
+                        part+=v[0]+" m ";
+                        if(path_kind==5u)part+="h h ";
+                        for(size_t j=1u;j<v.size();++j) {
+                            const auto& a=v[j-1u];const auto& b=v[j];
+                            if(path_kind==1u || path_kind==5u)part+=b+" l ";
+                            if(path_kind==2u)part+=a+" "+b+" "+b+" c ";
+                            if(path_kind==3u)part+=b+" "+b+" v ";
+                            if(path_kind==4u)part+=a+" "+b+" y ";
+                        }
+                        if(repeat+1u==path_repeats)for(size_t z=0u;z<zeros;++z)part+=v.back()+" l ";
+                        part+="h ";
+                    }
+                    part+="f* ";
+                }
                 result.paints.push_back({x+0.75,y+0.75,2.5,1.25,ink,false});++result.operations;
             }
         }
@@ -82,6 +113,10 @@ inline original create(size_t count,size_t letters,unsigned permutation,bool enc
     if(invalid==1)parts[2]+="Q ";
     if(invalid==2)parts[2]+="/Missing Do ";
     if(invalid==3)parts[2]+="1 1 2 2 re S ";
+    if(invalid==5)parts[2]+="2 /Bad m ";
+    if(invalid==6)parts[2]+="2 2 l ";
+    if(invalid==7)parts[2]+="2 2 m BT ET ";
+    if(invalid==8)parts[2]+="BT BT ET ET ";
     std::vector<O> contents;
     for(size_t i=0u;i<parts.size();++i) {parts[i]+='\n';result.decoded_bytes+=parts[i].size();contents.push_back(native_content_fixture::stream(*pdf,parts[i],unsigned(i)+1u));}
     page.replaceKey("/Contents",O::newArray(contents));
