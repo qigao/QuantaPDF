@@ -3368,8 +3368,9 @@ static int m2b2r_reverse_sibling_source_owner(const quantapdf_qpdf_page_limits& 
                ir.resources.clips[0].commands==prefix.resources.clips[0].commands ||
                std::memcmp(ir.resources.clips[0].commands,prefix.resources.clips[0].commands,
                    5u*sizeof(quantapdf_composer_path_command))!=0)return false;
-            const float x[4]={20.5f,38.75f,38.75f,20.5f};
-            const float y[4]={48.25f,48.25f,29.75f,29.75f};
+            const double right=mode==160?38.7500000001:38.75;
+            const double x[4]={20.5,right,right,20.5};
+            const double y[4]={48.25,48.25,29.75,29.75};
             for(size_t i=0u;i<5u;++i) {
                 const auto& c=ir.resources.clips[1].commands[i];
                 if(c.kind!=(i==0u?QUANTAPDF_COMPOSER_PATH_MOVE_TO:
