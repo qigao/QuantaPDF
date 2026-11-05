@@ -235,8 +235,6 @@ static int negative(void)
         "4 5 m true 18 20 18 20 5 c 20 4 l 4 4 l h f",
         "4 5 m 4 18 20 18 20 5 0 c 20 4 l 4 4 l h f",
         "4 5 m 4.125 18 20 18 20 5 c 20 4 l 4 4 l h f",
-        "4 5 m 4 -1 20 18 20 5 c 20 4 l 4 4 l h f",
-        "4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h 4 18 20 18 20 5 c f",
         "4 5 m 4 18 20 18 20 5 v 20 4 l 4 4 l h f",
         "4 5 m 4 18 20 18 20 5 y 20 4 l 4 4 l h f",
         "1 0 0 rg 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h f BT ET",
@@ -334,6 +332,51 @@ static int shorthand_positive(void)
     return EXIT_SUCCESS;
 }
 
+/* Out-of-viewport controls keep their original geometry. Compare an
+ * independently authored translated construction, and an explicit MOVE
+ * with h's current-point continuation, over every retained page transform.
+ * These are complete geometric equivalences, not analytic curve goldens. */
+static int viewport_and_close_positive()
+{
+    struct pair { const char *reference; const char *continued; };
+    const pair shapes[]={
+        {"q 1 0 0 1 0 -1 cm 4 6 m 4 0 20 19 20 6 c 20 5 l 4 5 l h",
+         "4 5 m 4 -1 20 18 20 5 c 20 4 l 4 4 l h"},
+        {"q 1 0 0 1 0 -1 cm 4 6 m 4 0 20 6 y 20 5 l 4 5 l h",
+         "4 5 m 4 -1 20 5 y 20 4 l 4 4 l h"}
+    };
+    for(const auto& item:shapes)
+    for(bool even:{false,true})for(int quarters:{4,5})
+    for(int rotation:{0,90})for(int dpi:{72,96,144}) {
+        const std::string paint=even?" f*":" f";
+        std::vector<unsigned char> reference,got;
+        CHECK(rendered_rgb(original(std::string(item.reference)+paint+" Q",false,quarters,rotation),quarters,rotation,dpi,reference)==EXIT_SUCCESS);
+        CHECK(rendered_rgb(original(std::string(item.continued)+paint,false,quarters,rotation),quarters,rotation,dpi,got)==EXIT_SUCCESS);
+        CHECK(reference==got);
+        bool ink=false,white=false;
+        for(unsigned char value:got){ink|=value!=255u;white|=value==255u;}
+        CHECK(ink && white);
+    }
+    const std::string prefix="4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h ";
+    for(const char *segment:{"4 18 20 18 20 5 c","20 18 20 5 v","4 18 20 5 y"})
+    for(bool even:{false,true})for(int quarters:{4,5})
+    for(int rotation:{0,90})for(int dpi:{72,96,144}) {
+        const std::string paint=even?" f*":" f";
+        std::vector<unsigned char> reference,got;
+        CHECK(rendered_rgb(original(prefix+"4 5 m "+segment+paint,false,quarters,rotation),quarters,rotation,dpi,reference)==EXIT_SUCCESS);
+        CHECK(rendered_rgb(original(prefix+segment+paint,false,quarters,rotation),quarters,rotation,dpi,got)==EXIT_SUCCESS);
+        CHECK(reference==got);
+    }
+    for(bool even:{false,true})for(int quarters:{4,5})
+    for(int rotation:{0,90})for(int dpi:{72,96,144}) {
+        const std::string content=std::string("-4 5 m -4 -1 -20 18 -20 5 c -20 4 l -4 4 l h")+(even?" f*":" f");
+        std::vector<unsigned char> got;
+        CHECK(rendered_rgb(original(content,false,quarters,rotation),quarters,rotation,dpi,got)==EXIT_SUCCESS);
+        for(unsigned char value:got)CHECK(value==255u);
+    }
+    return EXIT_SUCCESS;
+}
+
 static int shorthand_negative(void)
 {
     const char *const bad[]={
@@ -344,7 +387,6 @@ static int shorthand_negative(void)
         "4 5 m 4 18 20 5 0 y 20 4 l 4 4 l h f",
         "4 5 m /Bad 18 20 5 v 20 4 l 4 4 l h f",
         "4 5 m 20.125 18 20 5 v 20 4 l 4 4 l h f",
-        "4 5 m 4 -1 20 5 y 20 4 l 4 4 l h f",
         "4 5 m 20 18 20 5 v 20 4 l 4 4 l h S",
         "4 5 m 4 18 20 5 y 20 4 l 4 4 l h B",
         "1 0 0 rg 4 5 m 20 18 20 5 v 20 4 l 4 4 l h f "
@@ -381,6 +423,7 @@ int main()
     CHECK(unpainted_clip()==EXIT_SUCCESS);
     CHECK(negative()==EXIT_SUCCESS);
     CHECK(shorthand_positive()==EXIT_SUCCESS);
+    CHECK(viewport_and_close_positive()==EXIT_SUCCESS);
     CHECK(shorthand_negative()==EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }

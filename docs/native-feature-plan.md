@@ -406,6 +406,8 @@
   owner 与改写命令后的深快照。含长命令尾部、退化前缀和单 cubic Fill。
 - 旧 signed re 的零面积/跨 Media 拒绝升级为独立有理数全 RGB；完整 Media 下的
   页外控制点、零面积 Clip 交集与不同作用域中的重复 h 升级为完整像素对照。
+  原 cubic Fill 的页外 c/y 与等价平移构建比较，h 后 c/v/y 与显式新 MOVE 比较，
+  完全位于视口外的曲线核对白页；覆盖两种 winding、UserUnit、旋转与三个 DPI。
 - BT 后路径仍待统一解释，一般 Clip 图、Stroke、任意 affine/DPI 继续开放。
   本轮本地工具链被工作区维护清理，未宣称本地编译或运行通过；验收使用现有
   LLVM/LLVM-MinGW 四配置 CI、ccache 和依赖组织，不建立工具链探测或 consumer 工程。
