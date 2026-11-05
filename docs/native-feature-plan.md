@@ -636,7 +636,7 @@
 - IR 内联持有规范十进制物理 canvas，所有 Source 页都填写；不再把 float 页面元数据
   格式化后当作原始尺寸。设备规划在浮点转换前同时确定 ceil 缓冲区及可见的 4×4
   子像素列／行数，文字、路径、Clip 和图像沿同一个 Scene 采样边界。
-- 当前公共 point/rect 改为 double，Source 普通路径／字形／图像、Rotate 和 UserUnit
+- 当前公共 point/rect/affine 改为 double，Source 普通路径／字形／图像、Rotate 和 UserUnit
   不再把小数视口平移缩成 float。字形直线判定扩展式同时保留 coordinate×DPI 和
   随后 coordinate 乘积的残差。当前调用方与测试使用新头文件；不提供旧 ABI 别名或桥接。
 - 新小数混合页项有 576 次独立有理数 RGB、144 次显示旋转：六类十进制几何、

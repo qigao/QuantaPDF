@@ -53,12 +53,12 @@ typedef struct quantapdf_rect {
 } quantapdf_rect;
 
 typedef struct quantapdf_affine_transform {
-    float a;
-    float b;
-    float c;
-    float d;
-    float e;
-    float f;
+    double a;
+    double b;
+    double c;
+    double d;
+    double e;
+    double f;
 } quantapdf_affine_transform;
 
 /* Registry resource identifiers; optional references use zero. */
