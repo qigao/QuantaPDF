@@ -4145,6 +4145,7 @@ static int native_seventh_userunit_late_refusal_cases(
 #include "native_ordered_text_cases.h"
 #include "native_ordered_scene_cases.h"
 #include "native_ordered_clip_cases.h"
+#include "native_clip_graph_cases.h"
 #include "native_composer_state_cases.h"
 #include "native_composer_geometry_cases.h"
 #include "native_composer_image_cases.h"
@@ -4158,6 +4159,12 @@ int main(int argc,char **argv)
         (argc>1?argv[1]:"render")+".pdf";
     if(argc==2 && std::strcmp(argv[1],"--fractional-fill")==0)
         return path_commands_cases(filename,true,11u);
+    if(argc==2 && std::strcmp(argv[1],"--clip-graphs")==0)
+        return clip_graph_cases(filename);
+    if(argc==2 && std::strcmp(argv[1],"--clip-graphs-curves")==0)
+        return clip_graph_cases(filename,1u);
+    if(argc==2 && std::strcmp(argv[1],"--clip-graphs-storage")==0)
+        return clip_graph_cases(filename,2u);
     if(argc==2 && std::strcmp(argv[1],"--fractional-clip")==0)
         return path_commands_cases(filename,true,12u);
     if(argc==2 && std::strcmp(argv[1],"--text-paths")==0)

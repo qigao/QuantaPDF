@@ -479,6 +479,26 @@
 - 本增量仅覆盖单根 Clip 的定义位置；旧双叶 sibling/intersection 组合仍有准入限制。
   通用 nested/intersecting/sibling Clip 图、一般 affine/DPI、Stroke 与字体能力继续开放。
 
+### A2 动态 Source Clip 图：当前开发增量
+
+- 已验收起点为 #625 的 `fe674f02`，tree `405f7b8939dbea34b31df27144199493bb507c3b`；
+  [CI #2461](https://github.com/qigao/QuantaPDF/actions/runs/42004930578) 四配置各 116/116。
+  该历史快照仍为 Draft、未合并；本节增量须由新的精确 HEAD CI 验收。
+- 每次 W/W*/n 将原始路径和当前父 Clip 身份追加到动态 owner；q/Q 保存、恢复实际身份。
+  Clip 身份贯穿文字 handoff 和每笔 paint，使用当前 Clip ID 类型，取消八位身份。
+  删除固定双叶、sibling/reverse/compound、特定三笔顺序及重复 Clip 栈；普通 Text/Fill/Image
+  共用一个发布循环。仅发布绘制观察到的节点和祖先，并保留每个原始叶子的轮廓与规则。
+- 复用公开/Source-OOM 可执行文件，新增三组独立 RGB 和一组故障测试，仍为 45/40 秒。
+  660 次完整 RGB 覆盖三、四叶 nested/sibling/fan-out/mixed 图、六种 paint 顺序、实际
+  Roboto 字形、RAW Image、Fill、空叶、定义 CTM、65 轮廓、8192 零长度段、257 个未使用
+  定义之后的真实身份、深 q/Q、三 DPI、多编码 Contents、AES-256/选页和 Bitmap 生命周期。
+  Source 定义/路径/状态扩容、C 发布、C11 malloc、N/N−1、不可变 IR 和编译后改写整个
+  Clip 图的深快照均使用实际入口。宽身份场景的重复短路径取首/中/末故障，其余分配
+  类别及核心场景按实际分配逐次注入。
+- C11 Scene 仍限四个可达叶子、七个节点；本轮不提高其固定数组容量。五叶图能发布
+  Source IR，但 native 准备明确拒绝且不发布像素。动态 native 图、一般 Stroke/CTM/DPI、
+  页面坐标和字体能力继续开放。旧拒绝会按实际语义升级，历史失败保留。
+
 ## 单一执行模型
 
 ```mermaid

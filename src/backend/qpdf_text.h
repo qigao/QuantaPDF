@@ -14,34 +14,26 @@ struct source_outline_glyph { std::vector<quantapdf_composer_path_command> comma
 struct source_outline_paint {
     std::vector<source_outline_glyph> glyphs; uint32_t argb;
 };
-bool source_outline_is_rectangle(const std::vector<quantapdf_composer_path_command>&);
 struct source_text_seed {
     std::array<double,6> ctm;
     uint32_t argb;
     /* PRIVATE Source W/W* identity at the original BT handoff; never
      * observed by ordinary extraction, which defaults to GS0. */
-    unsigned char clip_id=0u;
+    quantapdf_composer_clip_id clip_id=0u;
 };
 /* Page-scene callbacks on the original qpdf token stream. Fonts and
  * contours use the existing interpreter; qpdf/font owners do not escape. */
 struct source_mixed_callbacks {
     void *user=nullptr;
-    quantapdf_status (*on_text)(void*)=nullptr;
+    quantapdf_status (*on_text)(void*,quantapdf_composer_clip_id)=nullptr;
     quantapdf_status (*on_image)(void*,QPDFObjectHandle,
-                                 const std::array<double,6>&)=nullptr;
+        const std::array<double,6>&,quantapdf_composer_clip_id)=nullptr;
     /* Ordinary page paths retain one owner across BT. Operands are passed
      * directly once; the page reader freezes the supplied current state and
      * checks that BT does not enter an unfinished path object. */
     quantapdf_status (*on_path)(void*,const std::string&,
         const std::vector<QPDFObjectHandle>&,source_text_seed,
-        unsigned char *after)=nullptr;
-    /* q/Q in the SAME original token interpreter,
-     * with actual saved/restored Clip identity (not a later page flag).
-     * is_save=1 for q, 0 for Q. Extraction has no Source Clip observer. */
-    quantapdf_status (*on_scope)(void*,int is_save,
-                                  unsigned char before,
-                                  unsigned char after)=nullptr;
-
+        quantapdf_composer_clip_id *after)=nullptr;
 };
 /* Reuses the existing observation interpreter on the SAME token callback
  * stream. It never parses/reopens source bytes or returns font/QPDF owners.

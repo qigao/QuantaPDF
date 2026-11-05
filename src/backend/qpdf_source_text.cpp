@@ -365,7 +365,7 @@ struct graphics {
     matrix ctm=identity;
     /* One private frozen Source Clip identity, carried with the real
      * PDF graphics-state stack. Ordinary text extraction leaves it 0. */
-    unsigned char clip_id=0u;
+    quantapdf_composer_clip_id clip_id=0u;
     font *face=nullptr;
     double size=0, character=0, word=0, scale=1, leading=0, rise=0;
     std::array<double,3> fill={0,0,0};
@@ -479,7 +479,7 @@ struct projection {
     {
         const auto argb=outline_color(g);
         if(source_mixed.on_text) {
-            const auto result=source_mixed.on_text(source_mixed.user);
+            const auto result=source_mixed.on_text(source_mixed.user,g.clip_id);
             need(result==QUANTAPDF_OK,result);
         }
         outline_paints.push_back({{},argb});
@@ -651,7 +651,7 @@ public:
         if(p.outline_mode && path_op) {
             supported(!in_text);
             const uint32_t argb=(op=="f" || op=="f*")?p.outline_color(g):0u;
-            unsigned char after=0u;
+            quantapdf_composer_clip_id after=0u;
             const auto status=p.source_mixed.on_path(p.source_mixed.user,
                 op,args,{g.ctm,argb,g.clip_id},&after);
             need(status==QUANTAPDF_OK,status);
@@ -660,28 +660,18 @@ public:
         }
         else if(op=="q") {
             count(0);
-            if(p.outline_mode && p.source_mixed.on_scope!=nullptr) {
-                const auto status=p.source_mixed.on_scope(
-                    p.source_mixed.user,1,g.clip_id,g.clip_id);
-                need(status==QUANTAPDF_OK,status);
-            }
             if(p.outline_mode)QP_TEXT_STACK_GROW(stack);
             stack.push_back(g);
         } else if(op=="Q") {
             count(0); need(!stack.empty());
             const graphics restored=stack.back();
-            if(p.outline_mode && p.source_mixed.on_scope!=nullptr) {
-                const auto status=p.source_mixed.on_scope(
-                    p.source_mixed.user,0,g.clip_id,restored.clip_id);
-                need(status==QUANTAPDF_OK,status);
-            }
             g=restored;stack.pop_back();
         }
         else if(op=="cm") { count(6); matrix m; for(size_t i=0;i<6u;++i) m[i]=number(args[i]); g.ctm=concat(g.ctm,m); }
         else if(op=="BT") {
             count(0);need(!in_text);
             if(p.outline_mode) {
-                unsigned char after=0u;
+                quantapdf_composer_clip_id after=0u;
                 const auto status=p.source_mixed.on_path(p.source_mixed.user,
                     op,args,{g.ctm,0u,g.clip_id},&after);
                 need(status==QUANTAPDF_OK,status);
@@ -708,7 +698,7 @@ public:
         } else if(op=="Do" && p.outline_mode) {
             count(1);supported(!in_text && p.source_mixed.on_image!=nullptr);
             const Obj image=resource("/XObject",args[0]);
-            const auto result=p.source_mixed.on_image(p.source_mixed.user,image,g.ctm);
+            const auto result=p.source_mixed.on_image(p.source_mixed.user,image,g.ctm,g.clip_id);
             need(result==QUANTAPDF_OK,result);
         } else if(op=="Do") { count(1); p.draw(resource("/XObject",args[0]),resources,g,depth); }
         else if(op=="gs") {
@@ -836,16 +826,6 @@ quantapdf_text_page *publish(projection const& p)
 
 }
 namespace quantapdf::detail {
-bool source_outline_is_rectangle(const std::vector<quantapdf_composer_path_command>& c)
-{
-    if(c.size()!=5u || c[0].kind!=QUANTAPDF_COMPOSER_PATH_MOVE_TO ||
-       c[4].kind!=QUANTAPDF_COMPOSER_PATH_CLOSE)return false;
-    for(size_t i=1u;i<4u;++i)if(c[i].kind!=QUANTAPDF_COMPOSER_PATH_LINE_TO)return false;
-    const auto a=c[0].point1,b=c[1].point1,d=c[2].point1,e=c[3].point1;
-    for(auto point:{a,b,d,e})if(!std::isfinite(point.x)||!std::isfinite(point.y))return false;
-    return (a.x==e.x && b.x==d.x && a.y==b.y && d.y==e.y && a.x!=b.x && a.y!=e.y) ||
-           (a.x==b.x && d.x==e.x && a.y==e.y && b.y==d.y && a.x!=e.x && a.y!=b.y);
-}
 namespace {
 graphics outline_graphics(source_text_seed const& seed)
 {

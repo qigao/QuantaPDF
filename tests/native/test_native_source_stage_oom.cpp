@@ -41,6 +41,7 @@ namespace {
 thread_local unsigned target=0u, observed=0u, faults=0u;
 thread_local size_t graphics_growths=0u,graphics_fail_growth=0u;
 thread_local size_t path_growths=0u,path_fail_growth=0u;
+thread_local size_t clip_growths=0u,clip_fail_growth=0u;
 thread_local bool armed=false;
 /* The same test-only Source unit redirects every actual C allocation in
  * its IR materializers through this one-shot returning-NULL allocator.
@@ -50,6 +51,12 @@ thread_local size_t c_fail_index=0u,c_allocations=0u,c_faults=0u;
 }
 extern "C" void quantapdf_source_stage_oom_arm(unsigned phase) noexcept
 {
+    if(phase==9u) {
+        ++clip_growths;
+        if(clip_fail_growth!=0u && clip_growths==clip_fail_growth) {
+            clip_fail_growth=0u;observed=phase;armed=true;
+        }
+    }
     if(phase==11u) {
         ++graphics_growths;
         if(graphics_fail_growth!=0u && graphics_growths==graphics_fail_growth) {
@@ -5530,12 +5537,15 @@ static int ordered_clip_source_contracts(const quantapdf_qpdf_page_limits& defau
 }
 
 #include "native_path_commands_oom_cases.h"
+#include "native_clip_graph_oom_cases.h"
 
 int main(int argc,char **argv)
 {
     const quantapdf_qpdf_page_limits limits={
         65536u,4u,4u,1000000u,1000000u,4000000u,8u
     };
+    if(argc==2 && std::strcmp(argv[1],"--clip-graphs")==0)
+        return clip_graph_source_contracts(limits);
     if(argc==2 && std::strcmp(argv[1],"--fractional-fill")==0)
         return path_commands_source_contracts(limits,true,false,false,false,false,8u);
     if(argc==2 && std::strcmp(argv[1],"--fractional-clip")==0)
