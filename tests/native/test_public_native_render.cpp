@@ -816,9 +816,9 @@ static int native_m2b2j_public_fractional(const std::string& filename)
         native_ttf_fractional_reference expected;
     };
     std::vector<held_clip_bitmap> retained_scopes;
-    for(int mode:{83,84,99,100,103,105,106,113,114,126,127,144,145,146,147,148,168,169}) {
-        const bool compound=mode==126 || mode==127 || mode==144 || mode==145 || mode==146;
-        const bool reverse=mode==147 || mode==148 || mode==168 || mode==169;
+    for(int mode:{83,84,99,100,103,105,106,109,113,114,126,127,143,144,145,146,147,148,160,168,169}) {
+        const bool compound=mode==126 || mode==127 || mode==143 || mode==144 || mode==145 || mode==146;
+        const bool reverse=mode==147 || mode==148 || mode==160 || mode==168 || mode==169;
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         quantapdf_document *document=nullptr;quantapdf_page *page=nullptr;
         OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
@@ -865,22 +865,22 @@ static int native_m2b2j_public_fractional(const std::string& filename)
     }
     /* Remaining malformed scopes and unsupported Source geometry fail
      * atomically. Reverse siblings use the same scene and public Bitmap. */
-    for(int mode:{101,102,104,107,108,109,110,111,112,
+    for(int mode:{101,102,104,107,108,110,111,112,
                   115,116,117,118,119,120,121,122,123,124,125,
-                  128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,
-                  149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167}) {
+                  128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,
+                  149,150,151,152,153,154,155,156,157,158,159,161,162,163,164,165,166,167}) {
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         quantapdf_document *document=nullptr;quantapdf_page *page=nullptr;
         OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(document,0,&page));
         for(unsigned dpi:{72u,96u,144u}) {
-            if(dpi!=96u && mode!=104)continue;
+            if(dpi!=96u && mode!=104 && mode!=110)continue;
             quantapdf_render_options options{};
             options.dpi=(float)dpi;
             quantapdf_bitmap *denied=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
             const auto status=quantapdf_render_page_with_options(page,&options,&denied);
-            if(mode==104) {
+            if(mode==104 || mode==110) {
                 CHECK(status==QUANTAPDF_OK && denied!=nullptr);
                 const unsigned char *bytes=nullptr;size_t size=0u;
                 OK(quantapdf_bitmap_data(denied,&bytes,&size));
@@ -888,7 +888,7 @@ static int native_m2b2j_public_fractional(const std::string& filename)
                 quantapdf_drop_bitmap(denied);
                 // Same authored cubic, translated construction coordinates;
                 // restore the CTM before Text/Fill/Image. Compare every byte.
-                CHECK(write_pdf(filename,native_ttf_fixture(104,true)));
+                CHECK(write_pdf(filename,native_ttf_fixture(mode,true)));
                 quantapdf_document *other_doc=nullptr;quantapdf_page *other_page=nullptr;
                 quantapdf_bitmap *other=nullptr;
                 OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&other_doc));

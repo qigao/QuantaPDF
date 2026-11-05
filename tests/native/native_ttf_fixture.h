@@ -304,7 +304,8 @@ inline std::string native_ttf_fixture(int mode=0,bool translated_clip=false)
                         " Q 1 0 0 rg 34 9 6 5 re f";
                     if(mode==109)suffix=
                         " Q 1 0 0 rg 18.25 20.25 m 36.75 20.25 l 35.75 32.75 l 18.25 32.75 l h f";
-                    if(mode==110)suffix=
+                    if(mode==110)suffix=translated_clip?
+                        " Q 1 0 0 rg q 1 0 0 1 4 0 cm 14.25 20.25 m 32.75 20.25 l 32.75 24 31.75 28 32.75 32.75 c 14.25 32.75 l h f Q":
                         " Q 1 0 0 rg 18.25 20.25 m 36.75 20.25 l 36.75 24 35.75 28 36.75 32.75 c 18.25 32.75 l h f";
                     text="q "+text+suffix;
                     if(mode==98 || mode==107)text+=" Q";
