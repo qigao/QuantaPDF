@@ -1820,7 +1820,9 @@ quantapdf_ir materialize_blank_page(const admission& source)
     // The denominator has only factors 2 and 5 (nine decimal places,
     // followed by one quarter-UserUnit multiplication). At most 11
     // fractional digits and six whole digits fit the inline canvas.
-    char *cursor=ir.source_canvas;
+    ir.source_canvas.width_points=double(source.canvas_w_num)/double(source.canvas_den);
+    ir.source_canvas.height_points=double(source.canvas_h_num)/double(source.canvas_den);
+    char *cursor=ir.source_canvas.ascii;
     *cursor++='0';*cursor++=' ';*cursor++='0';*cursor++=' ';
     for(uint64_t n:{source.canvas_w_num,source.canvas_h_num}) {
         cursor=std::to_chars(cursor,cursor+20,n/source.canvas_den).ptr;

@@ -2898,8 +2898,10 @@ static quantapdf_status qp_ordered_scene(
        source->pages[0].width_points<1.0f || source->pages[0].width_points>65536.0f ||
        source->pages[0].height_points<1.0f || source->pages[0].height_points>65536.0f ||
        (source->pages[0].background_argb>>24u)!=255u || source->pages[0].suppress_background!=0 ||
-       (float)plan->width_points!=source->pages[0].width_points ||
-       (float)plan->height_points!=source->pages[0].height_points)
+       plan->width_points!=(source->source_canvas.ascii[0]!='\0'?
+            source->source_canvas.width_points:(double)source->pages[0].width_points) ||
+       plan->height_points!=(source->source_canvas.ascii[0]!='\0'?
+            source->source_canvas.height_points:(double)source->pages[0].height_points))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     for(size_t i=0u;i<source->operation_count;++i) {
         const quantapdf_composer_operation *op=&source->operations[i];

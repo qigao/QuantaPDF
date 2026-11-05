@@ -262,7 +262,7 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
         if(page->width_points>65536.0f || page->height_points>65536.0f)
             return QUANTAPDF_ERROR_UNSUPPORTED;
         p.route=QP_NATIVE_PREPARED_SCENE;
-        const char *canvas=source->source_canvas;
+        const char *canvas=source->source_canvas.ascii;
         if(canvas[0]=='\0') {
             printed=snprintf(box,sizeof(box),"0 0 %.9g %.9g",
                 (double)page->width_points,(double)page->height_points);

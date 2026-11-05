@@ -201,7 +201,7 @@ static int clip_graph_dpi_contracts(const quantapdf_qpdf_page_limits& defaults,b
         if(fractional || cropped || transformed) {
             const size_t calls=c_allocations;
             CHECK(calls>0u && ir.pages[0].width_points==float(native_clip_graph::width_points(sample)) &&
-                ir.pages[0].height_points==float(native_clip_graph::height_points(sample)) && ir.source_canvas[0]!='\0');
+                ir.pages[0].height_points==float(native_clip_graph::height_points(sample)) && ir.source_canvas.ascii[0]!='\0');
             for(size_t fail=1u;fail<=calls;++fail) {
                 quantapdf_ir denied;std::memset(&denied,0xa5,sizeof(denied));
                 track_c_allocation=true;c_fail_index=fail;c_allocations=0u;c_faults=0u;
