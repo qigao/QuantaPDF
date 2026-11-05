@@ -17,7 +17,7 @@ struct paint {
 };
 struct options {
     unsigned scene=0u,order=0u,primitive=0u,leaves=4u;
-    bool empty=false,prefix=true;
+    bool empty=false,prefix=true,sparse=false;
     size_t unused=0u,contours=1u,zeros=0u,depth=0u;
 };
 struct original {
@@ -54,11 +54,16 @@ inline original create(options opt,bool encrypted,int invalid=0)
     static const unsigned orders[6][3]={{0,1,2},{0,2,1},{1,0,2},{1,2,0},{2,0,1},{2,1,0}};
     original result;std::string content;std::vector<region> active;
     std::vector<std::vector<region>> saved;
-    const auto save=[&]() {content+="q ";saved.push_back(active);};
-    const auto restore=[&]() {content+="Q ";active=saved.back();saved.pop_back();};
+    size_t root_id=0u,next_id=0u;std::vector<size_t> saved_ids,observed_roots;
+    const auto save=[&]() {content+="q ";saved.push_back(active);saved_ids.push_back(root_id);};
+    const auto restore=[&]() {content+="Q ";active=saved.back();saved.pop_back();root_id=saved_ids.back();saved_ids.pop_back();};
     size_t bodies=0u;
     const auto body=[&]() {
-        const int left=16*int(bodies+1u);
+        if(root_id!=0u && std::find(observed_roots.begin(),observed_roots.end(),root_id)==observed_roots.end()) {
+            observed_roots.push_back(root_id);++result.states;
+        }
+        static const int sparse_left[5]={16,64,80,96,144};
+        const int left=opt.sparse?sparse_left[bodies]:16*int(bodies+1u);
         for(unsigned kind:orders[opt.order%6u]) {
             paint p{};p.clips=active;
             if(kind==0u) {
@@ -77,7 +82,12 @@ inline original create(options opt,bool encrypted,int invalid=0)
         ++bodies;
     };
     const auto define=[&](unsigned index,bool observed=true) {
-        region r=boxes[index];if(opt.empty && index==2u)r.right=r.left;
+        // Intermediate wide-graph leaves cover the page. The last leaf is
+        // restrictive, so truncating a second or later membership word
+        // changes the independent RGB result.
+        region r=index<boxes.size()?boxes[index]:region{0,0,192,192};
+        if(index>=boxes.size() && index+1u==opt.leaves)r={84,76,100,102};
+        if(opt.empty && index==2u)r.right=r.left;
         const bool parent=!active.empty();
         // Build with a translated CTM, then restore it before applying W/n.
         content+="q 1 0 0 1 0.125 0.375 cm ";
@@ -101,8 +111,8 @@ inline original create(options opt,bool encrypted,int invalid=0)
             }
         }
         content+=index%2u==0u?"Q W n ":"Q W* n ";
-        active.push_back(r);
-        if(observed) {++result.leaves;++result.states;result.nodes+=parent?2u:1u;}
+        active.push_back(r);root_id=++next_id;
+        if(observed) {++result.leaves;result.nodes+=parent?2u:1u;}
     };
     if(opt.prefix)body();
     if(opt.scene==1u) {
@@ -113,8 +123,8 @@ inline original create(options opt,bool encrypted,int invalid=0)
         body();
         for(size_t i=0u;i<opt.unused;++i) {save();define(4u,false);restore();}
         if(opt.scene==0u) {
-            for(unsigned i=1u;i<opt.leaves;++i) {save();define(i);body();}
-            for(unsigned i=1u;i<opt.leaves;++i) {restore();body();}
+            for(unsigned i=1u;i<opt.leaves;++i) {save();define(i);if(!opt.sparse || i+1u==opt.leaves)body();}
+            for(unsigned i=1u;i<opt.leaves;++i) {restore();if(!opt.sparse || i+1u==opt.leaves)body();}
         } else if(opt.scene==2u) {
             for(unsigned i=1u;i<opt.leaves;++i) {save();define(i);body();restore();body();}
         } else {

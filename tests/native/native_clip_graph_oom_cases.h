@@ -2,16 +2,19 @@
 #define QUANTAPDF_NATIVE_CLIP_GRAPH_OOM_CASES_H
 #include "native_clip_graph_fixture.h"
 
-static int clip_graph_source_contracts(const quantapdf_qpdf_page_limits& defaults)
+static int clip_graph_source_contracts(const quantapdf_qpdf_page_limits& defaults,bool wide=false)
 {
     size_t clip_faults=0u,path_faults=0u,stack_faults=0u,publications=0u,raster_faults=0u,quotas=0u;
     target=0u;armed=false;
-    for(unsigned scene=0u;scene<4u;++scene) {
+    const unsigned wide_leaves[6]={5u,9u,17u,65u,129u,257u};
+    for(unsigned iteration=0u;iteration<(wide?6u:4u);++iteration) {
+        const unsigned scene=wide?0u:iteration;
         native_clip_graph::options opt;opt.scene=scene;opt.order=scene;
         opt.leaves=scene==1u?3u:4u;opt.primitive=scene+1u;opt.empty=scene==1u;
         opt.prefix=scene%2u==0u;opt.depth=129u;
         opt.unused=scene==3u?257u:0u;opt.contours=scene==2u?65u:1u;opt.zeros=scene==2u?8192u:0u;
-        const bool encrypted=scene%2u!=0u;auto sample=native_clip_graph::create(opt,encrypted);
+        if(wide) {opt.leaves=wide_leaves[iteration];opt.sparse=true;opt.primitive=iteration%5u;opt.order=iteration;}
+        const bool encrypted=iteration%2u!=0u;auto sample=native_clip_graph::create(opt,encrypted);
         quantapdf_qpdf_document *document=nullptr;
         CHECK(quantapdf_qpdf_open_memory(reinterpret_cast<const unsigned char*>(sample.bytes.data()),sample.bytes.size(),encrypted?"reader":"",&document)==QUANTAPDF_OK);
         std::unique_ptr<quantapdf_qpdf_document,decltype(&quantapdf_qpdf_close)> owner(document,quantapdf_qpdf_close);
@@ -35,7 +38,7 @@ static int clip_graph_source_contracts(const quantapdf_qpdf_page_limits& default
                 clip_fail_growth==0u && observed==9u && faults==1u && !armed);++clip_faults;
         }
         std::vector<size_t> positions;
-        if(opt.unused!=0u)positions={1u,(path_grows+1u)/2u,path_grows};
+        if(opt.unused!=0u || (wide && opt.leaves>17u))positions={1u,(path_grows+1u)/2u,path_grows};
         else for(size_t i=1u;i<=path_grows;++i)positions.push_back(i);
         for(size_t fail:positions) {
             path_growths=0u;path_fail_growth=fail;observed=0u;faults=0u;armed=false;
@@ -49,7 +52,10 @@ static int clip_graph_source_contracts(const quantapdf_qpdf_page_limits& default
             CHECK(read(caps,ir)==QUANTAPDF_ERROR_NOMEM && cleared(ir) && graphics_growths==fail &&
                 graphics_fail_growth==0u && observed==11u && faults==1u && !armed);++stack_faults;
         }
-        for(size_t fail=1u;fail<=c_calls;++fail) {
+        std::vector<size_t> c_positions;
+        if(wide && opt.leaves>17u)c_positions={1u,(c_calls+1u)/2u,c_calls};
+        else for(size_t i=1u;i<=c_calls;++i)c_positions.push_back(i);
+        for(size_t fail:c_positions) {
             track_c_allocation=true;c_fail_index=fail;c_allocations=0u;c_faults=0u;
             std::memset(&ir,0xa5,sizeof(ir));const auto error=read(caps,ir);track_c_allocation=false;c_fail_index=0u;
             CHECK(error==QUANTAPDF_ERROR_NOMEM && cleared(ir) && c_allocations==fail && c_faults==1u);++publications;
@@ -65,15 +71,22 @@ static int clip_graph_source_contracts(const quantapdf_qpdf_page_limits& default
         }
         CHECK(read(caps,ir)==QUANTAPDF_OK);owner.reset();sample.bytes.assign(sample.bytes.size(),'x');
         const auto snapshot=text_ir_snapshot(ir),expected=native_clip_graph::rgb(sample,96u);
+        if(wide && opt.leaves>=65u) {
+            auto truncated=sample;
+            for(auto& p:truncated.paints)if(p.clips.size()==opt.leaves)p.clips.pop_back();
+            CHECK(expected!=native_clip_graph::rgb(truncated,96u));
+        }
         const auto equal=[&](const quantapdf_ir_raster_image& image) {
             if(image.width!=16u || image.height!=16u || image.size!=1024u)return false;
             for(size_t i=0u;i<256u;++i)if(std::memcmp(image.pixels+4u*i,expected.data()+3u*i,3u)!=0 || image.pixels[4u*i+3u]!=255u)return false;
             return true;
         };
-        const quantapdf_ir_raster_scoped_mixed_v5_limits budget={1024u,sample.operations,512u,8000000u,4u*sample.images,12u*sample.images};
+        const quantapdf_ir_raster_scoped_mixed_v5_limits budget={1024u,sample.operations,wide?2048u:512u,8000000u,4u*sample.images,12u*sample.images};
         quantapdf_native_page_device device{};device.dpi=96.0f;
         quantapdf_native_prepared_page_v1 metadata{};
-        CHECK(quantapdf_native_prepare_page_v1(&ir,&budget,&device,&metadata)==QUANTAPDF_OK && metadata.usage.glyphs==sample.glyphs);
+        CHECK(quantapdf_native_prepare_page_v1(&ir,&budget,&device,&metadata)==QUANTAPDF_OK &&
+            metadata.usage.glyphs==sample.glyphs && metadata.usage.clip_leaves==sample.leaves &&
+            metadata.usage.clips_used==sample.nodes && metadata.usage.states_used==sample.states);
         m2a_malloc_fault_state allocations{};metadata.malloc_fault={&allocations,m2a_malloc_fault_callback};
         quantapdf_native_execution_receipt_v1 receipt{};quantapdf_ir_raster_image output{};
         const auto rendered=quantapdf_native_execute_page_v1(&metadata,&receipt,&output);
@@ -118,6 +131,8 @@ static int clip_graph_source_contracts(const quantapdf_qpdf_page_limits& default
         std::vector<std::vector<quantapdf_composer_path_command>> commands(ir.resources.clip_count);
         std::vector<std::vector<quantapdf_composer_clip_id>> members(ir.resources.clip_count);
         const std::vector<quantapdf_composer_operation> operations(ir.operations,ir.operations+ir.operation_count);
+        const std::vector<quantapdf_composer_graphics_state> states(ir.resources.graphics_states,
+            ir.resources.graphics_states+ir.resources.graphics_state_count);
         for(size_t i=0u;i<ir.resources.clip_count;++i) {
             auto& clip=ir.resources.clips[i];
             if(clip.command_count!=0u) {
@@ -131,6 +146,7 @@ static int clip_graph_source_contracts(const quantapdf_qpdf_page_limits& default
                 std::fill(ids,ids+clip.member_count,UINT32_MAX);
             }
         }
+        for(size_t i=0u;i<ir.resources.graphics_state_count;++i)ir.resources.graphics_states[i].clip_id=SIZE_MAX;
         for(size_t i=0u;i<ir.operation_count;++i)ir.operations[i].graphics_state_id=UINT32_MAX;
         CHECK(quantapdf_native_compiled_page_execute_v1(&compiled,nullptr,&output)==QUANTAPDF_OK && equal(output));
         for(size_t i=0u;i<ir.resources.clip_count;++i) {
@@ -138,24 +154,12 @@ static int clip_graph_source_contracts(const quantapdf_qpdf_page_limits& default
             if(!commands[i].empty())std::copy(commands[i].begin(),commands[i].end(),const_cast<quantapdf_composer_path_command *>(clip.commands));
             if(!members[i].empty())std::copy(members[i].begin(),members[i].end(),const_cast<quantapdf_composer_clip_id *>(clip.members));
         }
+        std::copy(states.begin(),states.end(),ir.resources.graphics_states);
         std::copy(operations.begin(),operations.end(),ir.operations);CHECK(text_ir_snapshot(ir)==snapshot);
         quantapdf_native_compiled_page_dispose_v1(&compiled);quantapdf_ir_dispose(&ir);CHECK(cleared(ir));
         CHECK(equal(output));quantapdf_ir_raster_image_dispose(&output);
     }
-    for(bool encrypted:{false,true}) {
-        native_clip_graph::options opt;opt.scene=0u;opt.leaves=5u;
-        const auto sample=native_clip_graph::create(opt,encrypted);quantapdf_qpdf_document *document=nullptr;
-        CHECK(quantapdf_qpdf_open_memory(reinterpret_cast<const unsigned char*>(sample.bytes.data()),sample.bytes.size(),encrypted?"reader":"",&document)==QUANTAPDF_OK);
-        std::unique_ptr<quantapdf_qpdf_document,decltype(&quantapdf_qpdf_close)> owner(document,quantapdf_qpdf_close);
-        auto caps=defaults;caps.max_content_bytes=sample.decoded_bytes;caps.max_operations=sample.operations;
-        quantapdf_ir ir{};CHECK(quantapdf_qpdf_page_to_ir(owner.get(),1u,&caps,&ir)==QUANTAPDF_OK && ir.resources.clip_count==9u);
-        const auto snapshot=text_ir_snapshot(ir);
-        const quantapdf_ir_raster_scoped_mixed_v5_limits budget={1024u,sample.operations,512u,8000000u,4u*sample.images,12u*sample.images};
-        quantapdf_native_page_device device{};device.dpi=96.0f;quantapdf_native_prepared_page_v1 metadata{};
-        CHECK(quantapdf_native_prepare_page_v1(&ir,&budget,&device,&metadata)==QUANTAPDF_ERROR_UNSUPPORTED && metadata.source==nullptr && text_ir_snapshot(ir)==snapshot);
-        quantapdf_ir_dispose(&ir);
-    }
-    std::printf("Clip graph Source: %zu definition growth faults, %zu path growth faults, %zu state growth faults, %zu publication faults, %zu C11 malloc faults, %zu exact N/N-1 checks; independent RGBA and deep graph snapshots; native four-leaf limit retained\n",clip_faults,path_faults,stack_faults,publications,raster_faults,quotas);
+    std::printf("Clip graph Source wide=%d: %zu definition growth faults, %zu path growth faults, %zu state growth faults, %zu publication faults, %zu C11 malloc faults, %zu exact N/N-1 checks; independent RGBA and deep graph snapshots\n",int(wide),clip_faults,path_faults,stack_faults,publications,raster_faults,quotas);
     return EXIT_SUCCESS;
 }
 #endif

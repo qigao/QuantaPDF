@@ -36,6 +36,8 @@ int quantapdf_native_geometry_allocation_bound_v1(
     size_t max_edges,size_t max_draws,size_t *out_bytes);
 int quantapdf_native_owned_geometry_bound_v1(
     size_t max_edges,size_t max_draws,size_t max_commands,size_t max_owners,size_t *out_bytes);
+int quantapdf_native_scene_clip_storage_bound_v1(
+    size_t nodes,size_t leaves,size_t *out_bytes);
 
 /* Same existing admission modes, with a reservation in the owning page's
  * ledger before entering the sampler. Conservative sample-work charges are

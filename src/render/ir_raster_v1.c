@@ -40,6 +40,7 @@ typedef struct qp_raster_draw {
     double image_x0,image_y0,image_x1,image_y1;
     int is_image,image_seen,original_outline;
     unsigned clip_mask;
+    const uint64_t *clip_bits;
 } qp_raster_draw;
 
 typedef struct qp_flatten {
@@ -578,6 +579,7 @@ typedef struct qp_compiled_geometry {
     int suppress_background,has_plan,mode;
     int bounded_clipped_fill,bounded_clipped_stroke,bounded_curved_stroke;
     qp_raster_draw *draws;
+    qp_raster_draw *scene_clips;
     unsigned char storage[];
 } qp_compiled_geometry;
 
@@ -607,6 +609,19 @@ int quantapdf_native_geometry_allocation_bound_v1(
     size_t max_edges,size_t max_draws,size_t *out_bytes)
 {
     return quantapdf_native_owned_geometry_bound_v1(max_edges,max_draws,0u,1u,out_bytes);
+}
+
+int quantapdf_native_scene_clip_storage_bound_v1(
+    size_t nodes,size_t leaves,size_t *out_bytes)
+{
+    const size_t words=leaves/64u+(leaves%64u!=0u);
+    size_t draws,bits;
+    *out_bytes=0u;
+    if(leaves>SIZE_MAX/sizeof(qp_raster_draw) ||
+       (words!=0u && nodes>SIZE_MAX/words))return 0;
+    draws=leaves*sizeof(qp_raster_draw);bits=nodes*words;
+    if(bits>(SIZE_MAX-draws)/sizeof(uint64_t))return 0;
+    *out_bytes=draws+bits*sizeof(uint64_t);return 1;
 }
 
 static int qp_edges_sample_box(const qp_edge *edges,
@@ -760,9 +775,7 @@ static int qp_no_resources(const quantapdf_ir *ir)
 
 /* The ordered scene consumes only decoded opaque Images. Fonts have already
  * become original glyph outlines; no registry conversion or decoder lives here. */
-#define QP_SCENE_GRAPH_NODES (2u*QUANTAPDF_NATIVE_CLIP_DAG_MAX_LEAVES-1u)
-static int qp_scene_resources(const quantapdf_ir *ir,
-    const quantapdf_composer_clip_state **leaves,size_t *leaf_count,unsigned *masks)
+static int qp_scene_resources(const quantapdf_ir *ir,size_t *leaf_count)
 {
     const quantapdf_resource_registry *r=&ir->resources;
     if(r->image_count>ir->operation_count || r->image_count>r->image_capacity ||
@@ -771,15 +784,13 @@ static int qp_scene_resources(const quantapdf_ir *ir,
        r->soft_mask_count!=0u || r->soft_masks!=NULL ||
        r->paint_count!=0u || r->paints!=NULL || r->form_count!=0u || r->forms!=NULL ||
        ir->link_count!=0u || ir->links!=NULL || ir->outline_count!=0u || ir->outlines!=NULL ||
-       r->clip_count>QP_SCENE_GRAPH_NODES ||
        ((r->clip_count==0u)!=(r->clips==NULL)) ||
        ((r->graphics_state_count==0u)!=(r->graphics_states==NULL)))return 0;
     for(size_t i=0u;i<r->clip_count;++i) {
         const quantapdf_composer_clip_state *clip=&r->clips[i];
         if(clip->kind==QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL) {
-            if(*leaf_count==QUANTAPDF_NATIVE_CLIP_DAG_MAX_LEAVES ||
-               clip->members!=NULL || clip->member_count!=0u)return 0;
-            masks[i]=1u<<(unsigned)*leaf_count;leaves[(*leaf_count)++]=clip;
+            if(clip->members!=NULL || clip->member_count!=0u)return 0;
+            ++*leaf_count;
         } else if(clip->kind==QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL) {
             const quantapdf_affine_transform *t=&clip->transform;
             if(clip->commands!=NULL || clip->command_count!=0u || clip->members==NULL || clip->member_count<2u ||
@@ -787,7 +798,6 @@ static int qp_scene_resources(const quantapdf_ir *ir,
                  (t->a==1 && t->b==0 && t->c==0 && t->d==1 && t->e==0 && t->f==0)))return 0;
             for(size_t member=0u;member<clip->member_count;++member) {
                 const size_t id=(size_t)clip->members[member];if(id==0u || id>i)return 0;
-                masks[i]|=masks[id-1u];
             }
         } else return 0;
     }
@@ -952,6 +962,33 @@ static int qp_exact_charge(size_t *work,size_t count,size_t cap)
     if(*work>cap || count>cap-*work)return 0;
     *work+=count;
     return 1;
+}
+
+/* Scene membership is an owned, variable-width bit row. Charge each visited
+ * word as well as the selected leaf's winding edges. The explicit bounded
+ * Stroke/Text callers retain their existing small-mask work accounting. */
+static int qp_next_clip(const qp_raster_draw *draw,size_t *cursor,size_t count,
+    size_t *work,size_t cap,size_t *index)
+{
+    if(draw->clip_bits!=NULL) {
+        while(*cursor<count) {
+            const size_t word=*cursor/64u,offset=*cursor%64u;
+            if(!qp_exact_charge(work,1u,cap))return -1;
+            uint64_t bits=draw->clip_bits[word] & (UINT64_MAX<<offset);
+            if(bits!=0u) {
+                size_t bit=0u;
+                while((bits&UINT64_C(1))==0u) {bits>>=1u;++bit;}
+                *index=word*64u+bit;*cursor=*index+1u;return 1;
+            }
+            *cursor+=64u-offset;
+        }
+    } else if(draw->clip_mask!=0u) {
+        while(*cursor<count) {
+            const size_t leaf=(*cursor)++;
+            if(draw->clip_mask&(1u<<(unsigned)leaf)) {*index=leaf;return 1;}
+        }
+    }
+    return 0;
 }
 static double qp_down(double x) { return nextafter(x,-INFINITY); }
 static double qp_up(double x) { return nextafter(x,INFINITY); }
@@ -1429,13 +1466,16 @@ static quantapdf_status qp_geometry_compile(
     qp_compiled_geometry **out_geometry)
 {
     size_t width, height, pixels_count, total_checks = 0u,source_pixels=0u,drawn_pixels=0u;
-    size_t flat_bytes=0u,draw_bytes=0u,curve_bytes=0u,snapshot_count=0u;
+    size_t flat_bytes=0u,draw_bytes=0u,curve_bytes=0u,snapshot_count=0u,clip_storage=0u;
     qp_compiled_geometry *g=NULL;
     quantapdf_composer_path_command *command_pool=NULL;
     size_t i, draw_count = 0u, ci;
     qp_flatten flatten = {0};
     qp_raster_draw *draws = NULL;
-    qp_raster_draw clip_draws[QUANTAPDF_NATIVE_CLIP_DAG_MAX_LEAVES] = {{0}};
+    qp_raster_draw bounded_clips[QUANTAPDF_NATIVE_CLIP_DAG_MAX_LEAVES] = {{0}};
+    qp_raster_draw *clip_draws=bounded_clips;
+    uint64_t *scene_masks=NULL;
+    size_t clip_words=0u;
     quantapdf_status status = QUANTAPDF_ERROR_ARGUMENT;
     const quantapdf_composer_page_state *page;
     int two_path_clip_pair = 0;
@@ -1446,6 +1486,7 @@ static quantapdf_status qp_geometry_compile(
     qp_sample_box *curve_boxes = NULL;
     const int ordered_scene=visible_work_optin>=10 && visible_work_optin<=12;
     const int clipped_text=visible_work_optin==11 || visible_work_optin==12;
+    const int scene=ordered_scene && !clipped_text;
     const int physical_dpi=visible_work_optin==9;
     const int shared_texample=visible_work_optin==8 || physical_dpi;
     const int exact_texample=visible_work_optin==7 || shared_texample;
@@ -1464,8 +1505,6 @@ static quantapdf_status qp_geometry_compile(
         path_device=coverage_device;
     }
 
-    const quantapdf_composer_clip_state *scene_clips[QUANTAPDF_NATIVE_CLIP_DAG_MAX_LEAVES];
-    unsigned scene_masks[QP_SCENE_GRAPH_NODES]={0u};
     if(out_geometry==NULL)return QUANTAPDF_ERROR_ARGUMENT;
     *out_geometry=NULL;
     if (ir == NULL || limits == NULL || ir->pages == NULL ||
@@ -1481,10 +1520,12 @@ static quantapdf_status qp_geometry_compile(
         (ir->operation_count != 0u && ir->operations == NULL))
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    if(ordered_scene && !clipped_text) {
-        clip_count=0u;clips=scene_clips;
-        if(!qp_scene_resources(ir,scene_clips,&clip_count,scene_masks))
+    if(scene) {
+        clip_count=0u;
+        if(!qp_scene_resources(ir,&clip_count) ||
+           !quantapdf_native_scene_clip_storage_bound_v1(ir->resources.clip_count,clip_count,&clip_storage))
             return QUANTAPDF_ERROR_UNSUPPORTED;
+        clip_words=clip_count/64u+(clip_count%64u!=0u);
     }
     if(ordered_scene && clipped_text && clip_count!=(visible_work_optin==12?2u:1u))
         return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -1611,10 +1652,12 @@ static quantapdf_status qp_geometry_compile(
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             snapshot_count+=op->value.path.command_count;
         }
-        for(size_t k=0u;k<clip_count;++k) {
-            if(clips[k]==NULL || clips[k]->command_count>SIZE_MAX-snapshot_count)
+        for(size_t k=0u;k<(scene?ir->resources.clip_count:clip_count);++k) {
+            const quantapdf_composer_clip_state *clip=scene?&ir->resources.clips[k]:clips[k];
+            if(scene && clip->kind!=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL)continue;
+            if(clip==NULL || clip->command_count>SIZE_MAX-snapshot_count)
                 return QUANTAPDF_ERROR_UNSUPPORTED;
-            snapshot_count+=clips[k]->command_count;
+            snapshot_count+=clip->command_count;
         }
     }
     if(ordered_scene && !clipped_text)for(size_t k=0u;k<ir->resources.image_count;++k)
@@ -1623,10 +1666,10 @@ static quantapdf_status qp_geometry_compile(
     flatten.capacity = limits->max_edges;
     flat_bytes=flatten.capacity*sizeof(qp_edge);
     draw_bytes=limits->max_operations*sizeof(qp_raster_draw);
-    if(draw_bytes>SIZE_MAX-sizeof(*g) ||
-       snapshot_count>(SIZE_MAX-sizeof(*g)-draw_bytes)/sizeof(*command_pool))
+    if(draw_bytes>SIZE_MAX-sizeof(*g) || clip_storage>SIZE_MAX-sizeof(*g)-draw_bytes ||
+       snapshot_count>(SIZE_MAX-sizeof(*g)-draw_bytes-clip_storage)/sizeof(*command_pool))
         return QUANTAPDF_ERROR_ARGUMENT;
-    draw_bytes+=sizeof(*g)+snapshot_count*sizeof(*command_pool);
+    draw_bytes+=sizeof(*g)+clip_storage+snapshot_count*sizeof(*command_pool);
     flatten.edges = (qp_edge *)qp_exact_malloc(flat_bytes,exact_native,ledger,&status);
     /* A missing edge buffer is a terminal failure in EVERY C11
      * geometry mode, not only the strict exact-Text mode. Continuing
@@ -1639,6 +1682,22 @@ static quantapdf_status qp_geometry_compile(
     if(g==NULL)goto cleanup;
     memset(g,0,draw_bytes);draws=(qp_raster_draw *)(g+1);g->draws=draws;
     command_pool=(quantapdf_composer_path_command *)(draws+limits->max_operations);
+    if(scene) {
+        size_t leaf=0u;
+        clip_draws=draws+limits->max_operations;g->scene_clips=clip_draws;
+        scene_masks=(uint64_t *)(clip_draws+clip_count);
+        command_pool=(quantapdf_composer_path_command *)(scene_masks+ir->resources.clip_count*clip_words);
+        for(size_t node=0u;node<ir->resources.clip_count;++node) {
+            const quantapdf_composer_clip_state *clip=&ir->resources.clips[node];
+            uint64_t *row=scene_masks+node*clip_words;
+            if(clip->kind==QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL) {
+                row[leaf/64u]|=UINT64_C(1)<<(leaf%64u);++leaf;
+            } else for(size_t member=0u;member<clip->member_count;++member) {
+                const uint64_t *from=scene_masks+((size_t)clip->members[member]-1u)*clip_words;
+                for(size_t word=0u;word<clip_words;++word)row[word]|=from[word];
+            }
+        }
+    }
 
     /* Whole-page shape/edge admission precedes output allocation. Exact text
      * bills coverage while painting private pixels and publishes only after
@@ -1651,7 +1710,7 @@ static quantapdf_status qp_geometry_compile(
             const size_t state=(size_t)op->graphics_state_id;
             if(state!=0u) {
                 const size_t node=(size_t)ir->resources.graphics_states[state-1u].clip_id;
-                draws[draw_count].clip_mask=node==0u?0u:scene_masks[node-1u];
+                draws[draw_count].clip_bits=node==0u?NULL:scene_masks+(node-1u)*clip_words;
             }
             unbound=*op;unbound.graphics_state_id=0u;
             if(op->kind==QUANTAPDF_COMPOSER_OPERATION_PATH) {
@@ -1729,9 +1788,14 @@ static quantapdf_status qp_geometry_compile(
         ++draw_count;
     }
 
+    size_t clip_node=0u;
     for (ci = 0u; ci < clip_count; ++ci) {
         quantapdf_composer_operation clip_op = {0};
-        const quantapdf_composer_clip_state *clip = clips[ci];
+        const quantapdf_composer_clip_state *clip;
+        if(scene) {
+            while(ir->resources.clips[clip_node].kind!=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL)++clip_node;
+            clip=&ir->resources.clips[clip_node++];
+        } else clip=clips[ci];
         quantapdf_composer_path_options *options =
             &clip_op.value.path.options;
         if (clip == NULL ||
@@ -1903,7 +1967,8 @@ static quantapdf_status qp_geometry_compile(
     g->width=width;g->height=height;g->draw_count=draw_count;g->clip_count=clip_count;
     g->edge_count=flatten.count;g->command_count=snapshot_count;g->preflight_checks=total_checks;
     g->limits=*limits;g->has_plan=plan!=NULL;if(plan!=NULL)g->plan=*plan;
-    memcpy(g->clips,clip_draws,sizeof(clip_draws));g->sample_box=sample_box;
+    if(!scene)memcpy(g->clips,bounded_clips,sizeof(bounded_clips));
+    g->sample_box=sample_box;
     g->background=page->background_argb;g->suppress_background=page->suppress_background;
     g->mode=visible_work_optin;
     g->bounded_clipped_fill=bounded_clipped_fill;g->bounded_clipped_stroke=bounded_clipped_stroke;
@@ -1925,7 +1990,7 @@ static quantapdf_status qp_geometry_sample(
     const size_t pixel_bytes=pixels_count*4u,draw_count=g->draw_count,clip_count=g->clip_count;
     const quantapdf_ir_raster_v1_limits *limits=&g->limits;
     const quantapdf_native_device_plan *plan=g->has_plan?&g->plan:NULL;
-    const qp_raster_draw *draws=g->draws,*clip_draws=g->clips;
+    const qp_raster_draw *draws=g->draws,*clip_draws=g->mode==10?g->scene_clips:g->clips;
     const qp_sample_box *curve_boxes=g->curve_boxes;
     const qp_sample_box sample_box=g->sample_box;
     const int bounded_clipped_fill=g->bounded_clipped_fill;
@@ -1980,13 +2045,14 @@ static quantapdf_status qp_geometry_sample(
                     if(plan!=NULL && (px>=plan->width_points*(double)plan->dpi/72.0 ||
                                       py>=plan->height_points*(double)plan->dpi/72.0))continue;
                     if(!qp_inside(g->edges,draw,px,py))continue;
-                    int inside=1;
-                    for(ci=0u;ci<clip_count && inside;++ci)if(draw->clip_mask&(1u<<(unsigned)ci)) {
+                    int inside=1,next=0;size_t cursor=0u;
+                    while(inside && (next=qp_next_clip(draw,&cursor,clip_count,&total_checks,limits->max_sample_tests,&ci))>0) {
                         if(!qp_exact_charge(&total_checks,clip_draws[ci].edge_count,limits->max_sample_tests)) {
                             status=QUANTAPDF_ERROR_UNSUPPORTED;goto cleanup;
                         }
                         inside=qp_inside(g->edges,&clip_draws[ci],px,py);
                     }
+                    if(next<0) {status=QUANTAPDF_ERROR_UNSUPPORTED;goto cleanup;}
                     covered+=(unsigned)inside;
                 }
                 if(covered!=0u) {
@@ -2013,15 +2079,15 @@ static quantapdf_status qp_geometry_sample(
             for(y=0u;y<height;++y)for(x=0u;x<width;++x) {
                 unsigned covered=0u;
                 uint16_t mask=exact_masks[(ordered_scene?0u:i)*pixels_count+y*width+x];
-                if(draw->clip_mask!=0u && mask!=0u) {
+                if((draw->clip_bits!=NULL || draw->clip_mask!=0u) && mask!=0u) {
                     /* Intersect the genuine glyph and frozen Clip at each
                      * original 4x4 subpixel. Independently rounded alpha
                      * products are WRONG for disjoint correlated edges.
                      * Charge every visited Clip edge into the SAME ledger
                      * before its winding predicate can contribute ink. */
-                    for(ci=0u;ci<clip_count && mask!=0u;++ci) {
+                    size_t cursor=0u;int next=0;
+                    while(mask!=0u && (next=qp_next_clip(draw,&cursor,clip_count,&total_checks,limits->max_sample_tests,&ci))>0) {
                         const qp_raster_draw *clip=&clip_draws[ci];
-                        if(!(draw->clip_mask&(1u<<(unsigned)ci)))continue;
                         for(unsigned k=0u;k<16u;++k) {
                             const uint16_t bit=(uint16_t)(1u<<k);
                             if((mask&bit)==0u)continue;
@@ -2037,6 +2103,7 @@ static quantapdf_status qp_geometry_sample(
                                 mask=(uint16_t)(mask&~bit);
                         }
                     }
+                    if(next<0) {status=QUANTAPDF_ERROR_UNSUPPORTED;goto cleanup;}
                 }
                 for(unsigned k=0u;k<16u;++k)covered+=(unsigned)((mask>>k)&1u);
                 qp_blend_pixel(pixels+4u*(y*width+x),draw->color,covered);
@@ -2123,13 +2190,16 @@ static quantapdf_status qp_geometry_sample(
                             (draw->one_pixel_stroke ?
                              qp_stroke_inside(g->edges,draw,px,py) :
                              qp_inside(g->edges,draw,px,py));
-                        for (ci = 0u; visible && ci < clip_count; ++ci) {
-                            if(ordered_scene && !(draw->clip_mask&(1u<<(unsigned)ci)))continue;
+                        size_t cursor=0u;int next=0;
+                        while(visible && (ordered_scene?
+                            (next=qp_next_clip(draw,&cursor,clip_count,&total_checks,limits->max_sample_tests,&ci))>0:
+                            (ci=cursor++)<clip_count)) {
                             if(ordered_scene && !qp_exact_charge(&total_checks,clip_draws[ci].edge_count,limits->max_sample_tests)) {
                                 status=QUANTAPDF_ERROR_UNSUPPORTED;goto cleanup;
                             }
                             visible = qp_inside(g->edges, &clip_draws[ci], px, py);
                         }
+                        if(next<0) {status=QUANTAPDF_ERROR_UNSUPPORTED;goto cleanup;}
                         covered += (unsigned)visible;
                     }
                 }

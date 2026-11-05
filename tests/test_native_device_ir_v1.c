@@ -107,7 +107,7 @@ static int prepared_contracts(quantapdf_ir *ir,
     OK(quantapdf_native_prepare_page_v1(ir,&limits.raster,&device,
         &plan));
     CHECK(plan.route==QP_NATIVE_PREPARED_SCENE &&
-          plan.usage.clips_used==7u && plan.usage.states_used==1u &&
+          plan.usage.clips_used==3u && plan.usage.states_used==1u && plan.usage.clip_leaves==2u &&
           plan.usage.commands==15u);
     members[1]=3u;CHECK(prepared_denied(ir,&limits,&device)==0);members[1]=2u;
     members[0]=0u;CHECK(prepared_denied(ir,&limits,&device)==0);members[0]=1u;

@@ -10,6 +10,12 @@ static int clip_graph_cases(const std::string& filename,unsigned group=0u)
     size_t renders=0u,errors=0u;
     const auto exercise=[&](native_clip_graph::options opt,bool encrypted)->int {
         const auto sample=native_clip_graph::create(opt,encrypted);
+        if(opt.sparse && opt.leaves>=65u && !opt.empty) {
+            auto truncated=sample;
+            for(auto& p:truncated.paints)if(p.clips.size()==opt.leaves)p.clips.pop_back();
+            for(unsigned dpi:{72u,96u,144u})
+                CHECK(native_clip_graph::rgb(sample,dpi)!=native_clip_graph::rgb(truncated,dpi));
+        }
         CHECK(write_pdf(filename,sample.bytes));
         size_t finalized=0u;quantapdf_context *raw_context=nullptr;
         OK(quantapdf_context_create(&raw_context));raw_context->test_finalizations=&finalized;
@@ -78,7 +84,7 @@ static int clip_graph_cases(const std::string& filename,unsigned group=0u)
             opt.leaves=scene==2u?3u:4u;opt.empty=empty;opt.prefix=order%2u==0u;
             CHECK(exercise(opt,encrypted)==EXIT_SUCCESS);
         }
-    } else {
+    } else if(group==2u) {
         for(unsigned scene:{0u,2u})for(unsigned primitive:{0u,1u,2u,3u,4u})for(bool encrypted:{false,true}) {
             native_clip_graph::options opt;opt.scene=scene;opt.primitive=primitive;opt.order=2u;
             opt.contours=65u;opt.zeros=primitive==2u?8192u:0u;
@@ -92,10 +98,24 @@ static int clip_graph_cases(const std::string& filename,unsigned group=0u)
             native_clip_graph::options opt;opt.scene=2u;opt.depth=depth;
             CHECK(exercise(opt,encrypted)==EXIT_SUCCESS);
         }
+        for(bool encrypted:{false,true}) {
+            native_clip_graph::options opt;opt.leaves=5u;
+            CHECK(exercise(opt,encrypted)==EXIT_SUCCESS);
+        }
+    } else {
+        for(unsigned leaves:{5u,9u,17u,33u,65u})for(unsigned primitive:{0u,1u,4u})
+        for(bool empty:{false,true})for(bool encrypted:{false,true}) {
+            native_clip_graph::options opt;opt.leaves=leaves;opt.primitive=primitive;
+            opt.sparse=true;opt.empty=empty;opt.order=leaves%6u;
+            CHECK(exercise(opt,encrypted)==EXIT_SUCCESS);
+        }
+        for(unsigned scene:{1u,2u})for(unsigned primitive:{0u,2u})for(bool encrypted:{false,true}) {
+            native_clip_graph::options opt;opt.scene=scene;opt.leaves=9u;opt.primitive=primitive;
+            CHECK(exercise(opt,encrypted)==EXIT_SUCCESS);
+        }
     }
-    if(group==0u || group==2u)for(bool encrypted:{false,true})
-    for(int invalid=group==0u?1:0;invalid<=(group==0u?5:0);++invalid) {
-        native_clip_graph::options opt;opt.scene=0u;opt.leaves=invalid==0?5u:4u;
+    if(group==0u)for(bool encrypted:{false,true})for(int invalid=1;invalid<=5;++invalid) {
+        native_clip_graph::options opt;opt.scene=0u;
         const auto sample=native_clip_graph::create(opt,encrypted,invalid);
         CHECK(write_pdf(filename,sample.bytes));quantapdf_document *raw_document=nullptr;
         OK(quantapdf_open(filename.c_str(),encrypted?"reader":nullptr,&raw_document));
@@ -110,7 +130,7 @@ static int clip_graph_cases(const std::string& filename,unsigned group=0u)
             CHECK(status==(invalid>=1 && invalid<=3?QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED) && bitmap==nullptr);++errors;
         }
     }
-    CHECK(renders==(group==2u?84u:288u) && errors==(group==0u?30u:group==2u?6u:0u));
+    CHECK(renders==(group==3u?204u:group==2u?90u:288u) && errors==(group==0u?30u:0u));
     std::printf("Clip graph group %u: %zu independent RGB renders, nested/sibling/fan-out/mixed roots, real Text/Fill/Image, definition CTM, wide identities, selected encrypted split pages and detached Bitmaps; %zu atomic errors\n",group,renders,errors);
     return EXIT_SUCCESS;
 }

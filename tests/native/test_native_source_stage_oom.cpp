@@ -3245,7 +3245,7 @@ static int m2b2l_sibling_source_owner(const quantapdf_qpdf_page_limits& caps)
                 &prepared)==QUANTAPDF_OK &&
                 prepared.source==&owned &&
                 prepared.route==QP_NATIVE_PREPARED_SCENE &&
-                prepared.usage.states_used==3u && prepared.usage.clips_used==3u);
+                prepared.usage.states_used==2u && prepared.usage.clips_used==2u);
         }
         target=9u;observed=0u;faults=0u;armed=false;
         quantapdf_ir cpp_denied{};
@@ -3538,7 +3538,7 @@ static int m2b2o_compound_source_owner(const quantapdf_qpdf_page_limits& caps)
             CHECK(quantapdf_native_prepare_page_v1(&owned,&raster,&device,
                 &prepared)==QUANTAPDF_OK &&
                 prepared.source==&owned && prepared.route==QP_NATIVE_PREPARED_SCENE &&
-                prepared.usage.states_used==1u && prepared.usage.clips_used==7u && text_ir_snapshot(owned)==frozen);
+                prepared.usage.states_used==1u && prepared.usage.clips_used==3u && text_ir_snapshot(owned)==frozen);
             quantapdf_ir_raster_image output{};
             CHECK(quantapdf_native_execute_page_v1(&prepared,nullptr,&output)==QUANTAPDF_OK);
             const auto expected=native_ttf_fractional_expected(mode,dpi);
@@ -4130,8 +4130,6 @@ static int m2b_clipped_prepared_receipt_faults(
     const size_t operations=restored?4u:3u;
     const size_t roots=compound?3u:siblings?2u:1u;
     const size_t states=siblings?2u:1u;
-    const unsigned used_roots=compound?7u:siblings?3u:1u;
-    const unsigned used_states=siblings?3u:1u;
     const auto route=compound?QP_NATIVE_PREPARED_SCENE:
                      siblings?QP_NATIVE_PREPARED_SCENE:
                      QP_NATIVE_PREPARED_SCENE;
@@ -4160,7 +4158,7 @@ static int m2b_clipped_prepared_receipt_faults(
         plan.usage.operations==operations &&
         plan.usage.image_pixels==4u &&
         plan.usage.glyphs==5u &&
-        plan.usage.states_used==used_states && plan.usage.clips_used==used_roots);
+        plan.usage.states_used==ir.resources.graphics_state_count && plan.usage.clips_used==ir.resources.clip_count);
     m2a_malloc_fault_state baseline{};
     plan.malloc_fault={&baseline,m2a_malloc_fault_callback};
     quantapdf_native_execution_receipt_v1 receipt{};
@@ -5598,6 +5596,8 @@ int main(int argc,char **argv)
     };
     if(argc==2 && std::strcmp(argv[1],"--clip-graphs")==0)
         return clip_graph_source_contracts(limits);
+    if(argc==2 && std::strcmp(argv[1],"--clip-graphs-wide")==0)
+        return clip_graph_source_contracts(limits,true);
     if(argc==2 && std::strcmp(argv[1],"--fractional-fill")==0)
         return path_commands_source_contracts(limits,true,false,false,false,false,8u);
     if(argc==2 && std::strcmp(argv[1],"--fractional-clip")==0)
