@@ -852,7 +852,8 @@ static bool bounded_scope_refusals()
         {a+p+"Q q 2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h 6 6 m 7 6 l 6 7 l h W n "+p+"Q",
          rc+"1 0 0 rg 2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h 6 6 m 7 6 l 6 7 l h f"},
         {a+p+"Q "+b+"2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h f Q",
-         rc+"1 0 0 rg 2 2 m 12 2 l 2 10 l h f"}
+         // Q restored black. Clip y<=9 cuts the diagonal at x=3.25.
+         rc+"0 g 2 2 m 12 2 l 3.25 9 l 2 9 l h f"}
     };
     for(const auto& pair:admitted)CHECK(source_fill_equivalent(pair.first,pair.second,cases[18]));
     const std::vector<std::string> bad={

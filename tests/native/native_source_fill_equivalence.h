@@ -35,6 +35,8 @@ template<class Scenario>
 static bool source_fill_equivalent(const std::string& left,const std::string& right,
     const Scenario& sc)
 {
-    return source_pdf_equivalent(original_pdf(left,sc,false),original_pdf(right,sc,false));
+    const bool equal=source_pdf_equivalent(original_pdf(left,sc,false),original_pdf(right,sc,false));
+    if(!equal)std::fprintf(stderr,"Source equivalence original: %s\nReference: %s\n",left.c_str(),right.c_str());
+    return equal;
 }
 #endif
