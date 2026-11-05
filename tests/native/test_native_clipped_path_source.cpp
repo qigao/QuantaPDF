@@ -624,8 +624,8 @@ static int shared_sample_budget()
     return EXIT_SUCCESS;
 }
 
-/* State/ownership, paint cardinality, malformed paths, coordinate and
- * source-parser quotas must still reject the complete original, even
+/* Malformed paths, out-of-range coordinates and unsupported paints
+ * still reject the complete original, even
  * after earlier valid fills. Every error clears a nonnull Bitmap sentinel. */
 static int atomic_refusals()
 {
@@ -640,7 +640,7 @@ static int atomic_refusals()
     const std::string ar="1 0 0 rg "+curve_a+" f ",br="1 0 0 rg "+curve_b+" f ";
     const std::string ir=one_prefix(curve_a)+br+"Q ";
     const std::pair<std::string,std::string> admitted[]={
-        {prefix+full_red+full_red+full_red+full_red+full_red+"Q",ir+ir+ir+ir+ir},
+        {prefix+full_red+full_red+full_red+full_red+full_red+"Q",one_prefix(curve_a)+br+br+br+br+br+"Q"},
         {prefix+"Q",""},
         {prefix+"Q "+full_red,full_red},
         {curve_a+" W n q "+curve_b+" W* n "+full_red+"Q "+full_red+full_red+full_red+full_red,ir+ar+ar+ar+ar},

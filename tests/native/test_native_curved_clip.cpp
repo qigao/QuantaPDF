@@ -743,8 +743,8 @@ static int two_rectangle_split_contents()
 }
 
 /* Observed first leaves retain their owned identity instead of rectangle
- * reduction. Image cardinality, malformed pending operands and third
- * definitions still refuse atomically after the admitted states. */
+ * reduction. Malformed pending operands and unsupported operators still
+ * fail atomically after valid graph paints. */
 static int two_rectangle_atomic_refusals()
 {
     const std::string first="8 4 12 12 re";
