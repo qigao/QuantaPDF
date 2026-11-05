@@ -20,6 +20,8 @@ typedef struct quantapdf_qpdf_page_limits {
  * independently owned IR, including Clip commands, decoded images and font
  * geometry. A single Clip retains all parsed contours and its winding rule;
  * command storage is dynamic and raster work uses the caller's actual budgets.
+ * Ordinary Fill preserves closed-path current points and zero-area subpaths;
+ * empty f/f* has no retained paint. Text handoff remains a separate A2 limit.
  * Caller disposes it with quantapdf_ir_dispose. Failure publishes empty IR. */
 quantapdf_status quantapdf_qpdf_page_to_ir(
     quantapdf_qpdf_document *document,size_t page_index,

@@ -707,11 +707,13 @@ static bool source_failures(const scenario& sc)
 static bool malformed_failures()
 {
     const char *invalid[]={
-        /* Each compound contour independently needs two actual edges. */
-        "2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l h W n",
-        "2 2 m 12 2 l 2 10 l h 4 3 m W n",
-        "2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l W n",
+        "12 2 l W n",
+        "2 2 m 12 2 l W 2 10 l n",
     };
+    for(const std::string& tail:{std::string("4 3 m 7 3 l h "),
+        std::string("4 3 m "),std::string("4 3 m 7 3 l ")})
+        CHECK(source_fill_equivalent("2 2 m 12 2 l 2 10 l h "+tail+
+            "W n 1 0 0 rg 0 0 16 12 re f", "1 0 0 rg 2 2 m 12 2 l 2 10 l h f",cases[0]));
     CHECK(source_fill_equivalent(
         "2 2 m 12 2 l 2 10 l 4 3 m 7 3 l 4 6 l h W n 1 0 0 rg 0 0 16 12 re f",
         "2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h W n 1 0 0 rg 0 0 16 12 re f",cases[0]));

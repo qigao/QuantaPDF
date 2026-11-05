@@ -705,15 +705,8 @@ static int atomic_refusals()
     const std::string prefix=one_prefix(compound,true);
     const std::string ready=prefix+full_red+"Q";
     const std::vector<std::string> bad={
-        "q "+outer_triangle+" 8 8 m h W n "+full_red+"Q",
-        "q "+outer_triangle+" 8 8 m 10 8 l h W n "+full_red+"Q",
-        "q "+outer_triangle+" 8 8 m 10 8 l W n "+full_red+"Q",
-        "q 4 4 m 8 8 m W n "+full_red+"Q",
-        "q "+outer_triangle+" 4 4 l W n "+full_red+"Q",
-        "q "+compound+" h W n "+full_red+"Q",
         "q "+outer_triangle+" W "+inner_triangle+" n "+full_red+"Q",
         "q "+compound+" W 1 n "+full_red+"Q",
-        "q "+outer_triangle+" 6 4 0 3 re W n "+full_red+"Q",
         "q "+outer_triangle+" 6.125 4 m 10 4 l 8 7 l h W n "+
             full_red+"Q",
         "q "+outer_triangle+" 6 4 m 10 4 l 8 -1000001 l h W n "+
@@ -736,6 +729,20 @@ static int atomic_refusals()
         CHECK(equal(actual,reference) && ink_and_white(actual));
     }
     const std::pair<std::string,std::string> admitted[]={
+        {"q "+outer_triangle+" 8 8 m h W n "+full_red+"Q",
+         one_prefix(outer_triangle)+full_red+"Q"},
+        {"q "+outer_triangle+" 8 8 m 10 8 l h W n "+full_red+"Q",
+         one_prefix(outer_triangle)+full_red+"Q"},
+        {"q "+outer_triangle+" 8 8 m 10 8 l W n "+full_red+"Q",
+         one_prefix(outer_triangle)+full_red+"Q"},
+        {"q 4 4 m 8 8 m W n "+full_red+"Q",
+         one_prefix(empty_point)+full_red+"Q"},
+        {"q "+outer_triangle+" 4 4 l W n "+full_red+"Q",
+         one_prefix(outer_triangle)+full_red+"Q"},
+        {"q "+compound+" h W n "+full_red+"Q",
+         one_prefix(compound)+full_red+"Q"},
+        {"q "+outer_triangle+" 6 4 0 3 re W n "+full_red+"Q",
+         one_prefix(outer_triangle)+full_red+"Q"},
         {"q "+compound+" "+empty_point+" W n "+full_red+"Q",
          one_prefix(compound)+full_red+"Q"},
         {"q 2 2 12 8 re 6 4 4 3 re W n "+full_red+"Q",

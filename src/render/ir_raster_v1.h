@@ -19,7 +19,10 @@ extern "C" {
  * contract are unchanged. Ordered Scene geometry and Clip winding use
  * three coverage units per pixel; device plans, work bounds and output
  * dimensions remain in physical pixels. Curve tolerance is converted
- * with the geometry, and original glyph masks retain their own sampler. */
+ * with the geometry, and original glyph masks retain their own sampler.
+ * CLOSE keeps the subpath start as current point. Following segments begin
+ * a new subpath there; repeated CLOSE adds no edges. Scene Fill can retain
+ * a path with zero covered area, including MOVE-only geometry. */
 typedef struct quantapdf_ir_raster_v1_limits {
     size_t max_pixels;
     size_t max_operations;

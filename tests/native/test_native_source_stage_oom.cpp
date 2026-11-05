@@ -5464,6 +5464,8 @@ int main(int argc,char **argv)
     const quantapdf_qpdf_page_limits limits={
         65536u,4u,4u,1000000u,1000000u,4000000u,8u
     };
+    if(argc==2 && std::strcmp(argv[1],"--path-state")==0)
+        return path_commands_source_contracts(limits,true,false,false,true);
     if(argc==2 && std::strcmp(argv[1],"--clip-paths")==0)
         return path_commands_source_contracts(limits,true,false,true);
     if(argc==2 && std::strcmp(argv[1],"--path-boundaries")==0)

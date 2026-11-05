@@ -134,6 +134,72 @@ inline original create_contours(size_t count,unsigned primitive,unsigned clip,bo
     if(invalid==4)parts[2]+="/Missing sh\n";
     encode(result,parts,unsigned(count+primitive),encrypted);return result;
 }
+// Authored current-point cases. Empty subpaths do not contribute winding;
+// following polygons use an independent rectangle membership reference.
+inline original create_states(size_t repeats,unsigned primitive,unsigned clip,bool even,
+    bool restore,bool encrypted,size_t zeros,unsigned kind,int invalid=0)
+{
+    original result;result.repeats=repeats;result.clip=clip;result.even=even;result.restore=restore;
+    result.operations=kind==13u?(restore?1u:0u):(restore?2u:1u);
+    std::array<std::string,3> parts;parts[0]="q\n";
+    if(clip==1u)parts[0]+="4 4 4 4 re W n\n";
+    if(clip==2u)parts[0]+="3 3 m 9 3 l 3 9 l h W* n\n";
+    parts[0]+="0.2 0.4 0.6 rg\n";
+    const auto segment=[&](const std::string& a,const std::string& b) {
+        if(primitive==1u)return a+" "+b+" "+b+" c\n";
+        if(primitive==2u)return b+" "+b+" v\n";
+        if(primitive==3u)return a+" "+b+" y\n";
+        return b+" l\n";
+    };
+    for(size_t i=0u;i<repeats;++i) {
+        auto& out=parts[i<repeats/2u?1u:2u];
+        const size_t tail=i+1u==repeats?zeros:0u;
+        const auto polygon=[&](bool move,bool reverse) {
+            std::array<std::string,4> v={"2 2","10 2","10 10","2 10"};
+            if(reverse)std::reverse(v.begin()+1,v.end());
+            if(move)out+=v[0]+" m\n";
+            for(size_t j=1u;j<v.size();++j)out+=segment(v[j-1u],v[j]);
+            for(size_t z=0u;z<tail;++z)out+=v.back()+" l\n";
+            out+="h h q 1 0 0 1 0 0 cm Q\n";
+            result.commands+=(move?5u:4u)+tail;
+            result.contours.push_back({2,2,10,10,false,reverse});
+        };
+        if(kind==0u) {out+="2 2 m h h\n";result.commands+=2u;}
+        if(kind==1u) {out+="2 2 m 10 2 l h h\n";result.commands+=3u;}
+        if(kind==2u) {out+="2 2 m 2 2 2 2 2 2 c h h\n";result.commands+=3u;}
+        if(kind==3u) {out+="2 2 0 8 re h h\n";result.commands+=5u;}
+        if(kind<=3u)result.contours.push_back({2,2,2,2,false,false});
+        if(kind==4u) {out+="2 2 m h h\n";result.commands+=2u;polygon(false,false);}
+        if(kind==5u) {out+="2 2 m 10 2 l h h\n";result.commands+=3u;polygon(false,false);}
+        if(kind==6u) {out+="11 11 m\n";result.commands+=2u;polygon(true,false);}
+        if(kind==7u) {out+="2 2 0 8 re h h\n";result.commands+=5u;polygon(true,false);}
+        if(kind==8u) {out+="2 2 m 2 2 2 2 2 2 c h h\n";result.commands+=3u;polygon(false,false);}
+        if(kind==9u) {out+="f f*\n";polygon(true,false);}
+        if(kind==10u) {out+="2 2 8 0 re h h\n";result.commands+=5u;polygon(true,false);}
+        if(kind==11u) {polygon(true,false);polygon(false,true);}
+        if(kind==13u) {out+="f f*\n";result.contours.push_back({2,2,2,2,false,false});}
+        if(kind==12u) {
+            // A single genuine cubic plus its implicit straight closure.
+            // Each chosen curve encloses the whole [4,8] Clip, away from its
+            // boundary. Only that rectangle contributes visible samples.
+            out+="0 0 m\n";
+            if(primitive==1u)out+="0 16 12 16 12 0 c\n";
+            if(primitive==2u)out+="12 32 12 0 v\n";
+            if(primitive==3u)out+="0 32 12 0 y\n";
+            out+=even?"f*\n":"f\n";
+            result.commands+=3u;
+            result.contours.push_back({0,0,12,12,false,false});
+        }
+    }
+    if(kind!=12u)parts[2]+=even?"f*\n":"f\n";
+    parts[2]+="Q\n";
+    if(restore)parts[2]+="0.8 0.2 0.4 rg 0 0 2 2 re f\n";
+    if(invalid==1)parts[2]+="Q\n";
+    if(invalid==2)parts[2]+="/Missing Do\n";
+    if(invalid==3)parts[2]+="2 /Bad m\n";
+    if(invalid==4)parts[2]+="/Missing sh\n";
+    encode(result,parts,unsigned(kind+primitive),encrypted);return result;
+}
 inline std::vector<unsigned char> rgb(const original& sample,unsigned dpi)
 {
     const size_t width=12u*dpi/72u;

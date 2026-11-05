@@ -163,8 +163,8 @@ static std::vector<case_entry> make_cases()
         {"implicit-first-evenodd-hole",
             outer_implicit+inner+"W* n "+fill_red,
             QUANTAPDF_OK,UINT32_C(0xffffff),UINT32_C(0xff0000),false},
-        {"reject-short-implicit-first",too_short+inner+"W* n "+fill_red,
-            QUANTAPDF_ERROR_UNSUPPORTED,0u,0u,false},
+        {"zero-area-first",too_short+inner+"W* n "+fill_red,
+            QUANTAPDF_OK,UINT32_C(0xff0000),UINT32_C(0xffffff),false},
         {"closed-return-rectangle-triangle",
             outer_too_large+inner+"W* n "+fill_red,
             QUANTAPDF_OK,UINT32_C(0xffffff),UINT32_C(0xff0000),false},
@@ -303,10 +303,10 @@ static int test()
     CHECK(bytes!=nullptr && size==held_copy.size() &&
           std::memcmp(bytes,held_copy.data(),size)==0);
     quantapdf_drop_bitmap(held);
-    CHECK(positives==21u && negatives==9u);
-    std::printf("Original generated W/W* contours: 21 full RGB "
+    CHECK(positives==22u && negatives==8u);
+    std::printf("Original generated W/W* contours: 22 full RGB "
                 "positives, "
-                "9 atomic negatives, single C11 renderer\n");
+                "8 atomic negatives, single C11 renderer\n");
     return EXIT_SUCCESS;
 }
 int main()
