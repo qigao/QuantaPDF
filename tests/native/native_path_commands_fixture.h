@@ -25,8 +25,13 @@ inline void encode(original& result,const std::array<std::string,3>& parts,unsig
     root.replaceKey("/Kids",Object::newArray({blank,page}));root.replaceKey("/Count",Object::newInteger(2));
     root.replaceKey("/Resources",Object::newDictionary());
     std::vector<Object> streams;
+    bool needs_separator=false;
     for(size_t i=0u;i<parts.size();++i) {
+        // qpdf separates an empty or non-newline-terminated preceding stream.
+        // Include that byte in the independent N/N-1 content work budget.
+        if(needs_separator)++result.decoded_bytes;
         result.decoded_bytes+=parts[i].size();
+        needs_separator=parts[i].empty() || parts[i].back()!='\n';
         streams.push_back(native_content_fixture::stream(*pdf,parts[i],unsigned((encoding+i)%8u)));
     }
     page.replaceKey("/Contents",Object::newArray(streams));
