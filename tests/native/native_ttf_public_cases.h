@@ -229,7 +229,7 @@ static int native_ttf_public_cases(const std::string& filename,int first=0,int l
     /* Each positive is a fresh ORIGINAL; this restores real text observation
      * coverage in the existing native-only public target as well. */
     for(int mode=first;mode<=last;++mode) {
-        const bool positive=mode<=9 || mode==11 || (mode>=32 && mode<=34) || mode==44 || mode==49 || mode==22 || mode==23 || mode==24 || mode==35 || mode==40 || mode==43 || mode==45 || mode==46 || mode==47 || mode==48;
+        const bool positive=mode<=9 || mode==11 || (mode>=32 && mode<=34) || mode==37 || mode==44 || mode==49 || mode==22 || mode==23 || mode==24 || mode==35 || mode==40 || mode==43 || mode==45 || mode==46 || mode==47 || mode==48;
         const auto original=(mode==44 || mode==49)?composer_ttf_original(mode==49):native_ttf_fixture(mode);
         const char *text_value=(mode==49 || mode==24)?"H":"Hello";
         CHECK(write_native_ttf_pdf(filename,original));
@@ -276,7 +276,7 @@ static int native_ttf_public_cases(const std::string& filename,int first=0,int l
                 CHECK(expected.size()==n && std::memcmp(pixels,expected.data(),n)==0);
             } else if(mode==3 || mode==24) {for(size_t i=0u;i<n;++i)CHECK(pixels[i]==255u);}
             else {
-                const char *name=mode==11?"late":mode==32?"mixed":mode==33?"reverse":(mode==34 || mode==44 || mode==49)?"background":mode==1?"layers":mode==2?"tj":mode==5?"fringe":"hello";
+                const char *name=mode==11?"late":(mode==32 || mode==37)?"mixed":mode==33?"reverse":(mode==34 || mode==44 || mode==49)?"background":mode==1?"layers":mode==2?"tj":mode==5?"fringe":"hello";
                 std::ifstream file(goldens/(std::string("roboto-")+name+"-"+std::to_string(dpi)+(mode==11 || mode>=32?"-m1.rgba":"-m0.rgba")),std::ios::binary);
                 const std::vector<unsigned char> expected{std::istreambuf_iterator<char>(file),{}};
                 CHECK(expected.size()==(size_t)w*(size_t)h*4u);

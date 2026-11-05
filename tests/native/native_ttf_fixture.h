@@ -157,7 +157,7 @@ inline std::string native_ttf_fixture(int mode=0,bool translated_clip=false)
         if(mode==34)text=background+hello;
         if(mode==35)text+=" 0 0 1 rg 1 1 2 2 re f"; // fifth logical paint
         if(mode==36)text+=" /Missing Do";
-        if(mode==37)text+=" 1 1 2 2 re W n";
+        if(mode==37)text+=" 1 1 2 2 re W n"; // unused late Clip
         if(mode==38)text+=" 1 1 2 2 re S";
         if(mode==39)text+=" 1 1 2 2 re"; // unfinished path
         if(mode==40)text+=" 1 1 m 2 3 l 3 1 l h f"; // nonrectangle

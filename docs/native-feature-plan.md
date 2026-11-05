@@ -474,7 +474,7 @@
   三 DPI、多编码 Contents、AES-256/错误密码、选页和 Bitmap 生命周期。
   Source 实际栈/路径扩容、C 发布与 C11 分配失败、N/N−1、不可变 IR 和编译后改写
   长 Clip 命令的深快照验证同一入口；保留 late 语法、资源、未实现 paint 的原子失败。
-  两份旧的“绘制之后定义但未使用 Clip”拒绝（54/70）升级为历史 glyph golden 与
+  三份旧的“绘制之后定义但未使用 Clip”拒绝（37/54/70）升级为历史 glyph golden 与
   独立几何合成的三 DPI 完整 RGB，已有绘制不会追溯套用新 Clip。
 - 本增量仅覆盖单根 Clip 的定义位置；旧双叶 sibling/intersection 组合仍有准入限制。
   通用 nested/intersecting/sibling Clip 图、一般 affine/DPI、Stroke 与字体能力继续开放。
