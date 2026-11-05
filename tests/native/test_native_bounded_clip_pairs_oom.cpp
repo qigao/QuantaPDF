@@ -84,10 +84,6 @@ static bool empty_contour(contour shape)
     return shape==contour::empty || shape==contour::move ||
            shape==contour::open_line;
 }
-static bool reduced(const clip_pair& pair)
-{
-    return pair.first==contour::rectangle && pair.second==contour::rectangle;
-}
 static size_t operation_count(profile kind)
 {
     return kind==profile::paths?2u:kind==profile::image?1u:3u;
@@ -221,10 +217,6 @@ static const float rectangle_points[2][2][4][2]={
     {{{2.5f,2.5f},{2.5f,15},{11.25f,15},{11.25f,2.5f}},
      {{3.75f,3.75f},{3.75f,16.25f},{12.5f,16.25f},{12.5f,3.75f}}}
 };
-static const float reduced_points[2][4][2]={
-    {{3,3},{12,3},{12,9},{3,9}},
-    {{11.25f,3.75f},{11.25f,15},{3.75f,15},{3.75f,3.75f}}
-};
 static const float eight_points[2][8][2]={
     {{3,9},{6,9},{10,9},{11,7},{11,5},{9,2},{6,2},{4,5}},
     {{3.75f,3.75f},{3.75f,7.5f},{3.75f,12.5f},{6.25f,13.75f},
@@ -237,9 +229,9 @@ static const float paint_points[2][2][4][2]={
 };
 
 static bool leaf_geometry(const quantapdf_composer_clip_state& clip,
-    contour shape,size_t leaf,bool physical,bool is_reduced)
+    contour shape,size_t leaf,bool physical)
 {
-    const bool empty=empty_contour(shape) && !is_reduced;
+    const bool empty=empty_contour(shape);
     const size_t points=empty?3u:shape==contour::open_eight?8u:4u;
     CHECK(clip.kind==QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL &&
           clip.commands!=nullptr && clip.command_count==points+1u &&
@@ -257,8 +249,6 @@ static bool leaf_geometry(const quantapdf_composer_clip_state& clip,
              * projection. Unused point fields must remain all zero. */
             const float expected[2]={physical?15.0f:0.0f,0.0f};
             CHECK(point_is(command.point1,expected));
-        } else if(is_reduced) {
-            CHECK(point_is(command.point1,reduced_points[physical?1u:0u][i]));
         } else if(shape==contour::open_eight) {
             CHECK(leaf==1u && point_is(command.point1,eight_points[physical?1u:0u][i]));
         } else if(shape==contour::rectangle) {
@@ -277,7 +267,7 @@ static bool leaf_geometry(const quantapdf_composer_clip_state& clip,
 static bool owned_graph(const quantapdf_ir& ir,const clip_pair& pair,
     profile kind,bool physical,bool one_leaf_control=false)
 {
-    const bool one=one_leaf_control || reduced(pair);
+    const bool one=one_leaf_control;
     const size_t leaves=one?1u:2u;
     CHECK(ir.pages!=nullptr && ir.page_count==1u &&
           ir.pages[0].width_points==(physical?15.0f:16.0f) &&
@@ -309,10 +299,9 @@ static bool owned_graph(const quantapdf_ir& ir,const clip_pair& pair,
     CHECK(gs.fill_alpha==1.0f && gs.stroke_alpha==1.0f &&
           gs.blend_mode==QUANTAPDF_COMPOSER_BLEND_NORMAL &&
           gs.clip_id==(one?1u:3u) && gs.soft_mask_id==0u);
-    CHECK(leaf_geometry(r.clips[0],pair.first,0u,physical,
-                        reduced(pair) && !one_leaf_control));
+    CHECK(leaf_geometry(r.clips[0],pair.first,0u,physical));
     if(!one) {
-        CHECK(leaf_geometry(r.clips[1],pair.second,1u,physical,false));
+        CHECK(leaf_geometry(r.clips[1],pair.second,1u,physical));
         CHECK(r.clips[0].commands!=r.clips[1].commands);
         const auto& root=r.clips[2];
         CHECK(root.kind==QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL &&
@@ -424,6 +413,22 @@ static bool detached_render(const clip_pair& pair,profile kind,bool physical)
     CHECK(first.pixels!=nullptr && first.width==(physical?20u:22u) &&
           first.height==(physical?27u:16u) && first.stride==first.width*4u &&
           first.size==first.stride*first.height);
+    if(pair.first==contour::rectangle && pair.second==contour::rectangle) {
+        // Independently derived intersection: [2,12]x[2,9] intersect
+        // [3,13]x[3,10] = [3,12]x[3,9]. Retain the original paint order.
+        std::string content="q 3 3 9 6 re W n ";
+        if(kind!=profile::paths)content+="q 8 0 0 6 4 3 cm /I Do Q ";
+        if(kind!=profile::image)content+="0 0 1 rg 4 3 7 5 re f* ";
+        content+="Q ";
+        if(kind!=profile::image)content+="0 1 0 rg 12 9 3 2 re f ";
+        quantapdf_ir reference{};quantapdf_ir_raster_image expected{};
+        CHECK(source(original_pdf(content,kind,physical),source_budget,reference)==QUANTAPDF_OK);
+        CHECK(render(reference,kind,expected)==QUANTAPDF_OK);
+        quantapdf_ir_dispose(&reference);CHECK(cleared(reference));
+        CHECK(first.width==expected.width && first.height==expected.height && first.size==expected.size &&
+            std::memcmp(first.pixels,expected.pixels,first.size)==0);
+        quantapdf_ir_raster_image_dispose(&expected);
+    }
     const bool empty=empty_contour(pair.first) || empty_contour(pair.second);
     const uint32_t covered=empty?UINT32_C(0xffffffff):
         kind==profile::image?UINT32_C(0xff0000ff):UINT32_C(0x0000ffff);
@@ -617,6 +622,7 @@ static bool run_tests()
                 }
             }
     const clip_pair fault_pairs[]={
+        {contour::rectangle,contour::rectangle},
         {contour::polygon,contour::polygon},
         {contour::empty,contour::polygon},
         {contour::polygon,contour::open_line},

@@ -1,7 +1,7 @@
 #ifndef QUANTAPDF_NATIVE_ORDERED_CLIP_CASES_H
 #define QUANTAPDF_NATIVE_ORDERED_CLIP_CASES_H
 #include "native_ordered_scene_fixture.h"
-static int ordered_clip_cases(const std::string& filename,bool deferred=false)
+static int ordered_clip_cases(const std::string& filename,bool deferred=false,bool storage=false)
 {
     size_t renders=0u,errors=0u;
     const auto exercise=[&](const native_ordered_scene::original& sample,bool encrypted)->int {
@@ -41,11 +41,13 @@ static int ordered_clip_cases(const std::string& filename,bool deferred=false)
         CHECK(finalized==1u);return EXIT_SUCCESS;
     };
     if(deferred) {
+        if(!storage) {
         for(unsigned kind:{1u,2u,3u,4u})for(unsigned order=0u;order<6u;++order)
         for(bool encrypted:{false,true})for(size_t at:{0u,1u,5u}) {
             const native_ordered_scene::clip_definition definition{at,at==0u};
             CHECK(exercise(native_ordered_scene::create(5u,1u,order,encrypted,0u,0,kind,3u,false,native_ordered_scene::text_presence::glyphs,0u,1u,0u,false,1u,definition),encrypted)==EXIT_SUCCESS);
         }
+        } else {
         for(unsigned primitive:{1u,2u,3u,4u})for(unsigned kind:{1u,2u,3u})
         for(size_t contours:{1u,65u})for(bool encrypted:{false,true}) {
             const native_ordered_scene::clip_definition definition{1u,false,primitive,contours,0u,true};
@@ -74,6 +76,7 @@ static int ordered_clip_cases(const std::string& filename,bool deferred=false)
             const native_ordered_scene::clip_definition definition{1u,false,primitive,65u,0u,true};
             CHECK(exercise(native_ordered_scene::create(17u,1u,2u,encrypted,0u,0,2u,SIZE_MAX,false,native_ordered_scene::text_presence::glyphs,0u,1u,0u,false,1u,definition),encrypted)==EXIT_SUCCESS);
         }
+        }
     } else {
     for(unsigned kind:{1u,2u,3u,4u})for(unsigned order=0u;order<6u;++order)for(bool encrypted:{false,true})
         CHECK(exercise(native_ordered_scene::create(5u,1u,order,encrypted,0u,0,kind,2u),encrypted)==EXIT_SUCCESS);
@@ -88,7 +91,7 @@ static int ordered_clip_cases(const std::string& filename,bool deferred=false)
     for(unsigned kind:{1u,3u})for(bool encrypted:{false,true})
         CHECK(exercise(native_ordered_scene::create(5u,1u,0u,encrypted,0u,0,kind,2u,true),encrypted)==EXIT_SUCCESS);
     }
-    for(bool encrypted:{false,true})for(int invalid:{1,2,3,4}) {
+    if(!deferred || !storage)for(bool encrypted:{false,true})for(int invalid:{1,2,3,4}) {
         const native_ordered_scene::clip_definition definition{deferred?1u:0u};
         const auto sample=native_ordered_scene::create(17u,1u,2u,encrypted,0u,invalid,1u,8u,false,native_ordered_scene::text_presence::glyphs,0u,1u,0u,false,1u,definition);
         CHECK(write_pdf(filename,sample.bytes));quantapdf_document *document=nullptr;quantapdf_page *page=nullptr;
@@ -99,7 +102,7 @@ static int ordered_clip_cases(const std::string& filename,bool deferred=false)
         CHECK(status==(invalid>=3?QUANTAPDF_ERROR_UNSUPPORTED:QUANTAPDF_ERROR_FORMAT) && bitmap==nullptr);
         quantapdf_drop_page(page);++errors;
     }
-    CHECK(renders==(deferred?714u:264u) && errors==8u);
+    CHECK(renders==(deferred?(storage?282u:432u):264u) && errors==((deferred && storage)?0u:8u));
     std::printf("Ordered Clip/Text/Fill/Image: %zu analytic full RGB renders, six orders, 0/1/5/17/33/65 Images, 69 glyphs and empty shows, RGB/Gray RAW/Flate, unused resources, deep q/Q, encrypted split selected pages, detached owners, %zu late errors\n",renders,errors);
     return EXIT_SUCCESS;
 }

@@ -4219,6 +4219,8 @@ int main(int argc,char **argv)
         return ordered_clip_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--deferred-clip")==0)
         return ordered_clip_cases(filename,true);
+    if(argc==2 && std::strcmp(argv[1],"--deferred-clip-storage")==0)
+        return ordered_clip_cases(filename,true,true);
     if(argc==2 && std::strcmp(argv[1],"--ordered-scene")==0)
         return ordered_scene_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--ordered-text")==0)
