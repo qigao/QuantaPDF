@@ -1689,7 +1689,7 @@ static int m2a_ordered_text_image_source_contract(
     const quantapdf_qpdf_page_limits& limits)
 {
     target=0u;armed=false;track_c_allocation=false;c_fail_index=0u;
-    for(int mode:{49,50,64,65}) {
+    for(int mode:{49,50,54,64,65}) {
         /* A public Composer is a separate real retained Context guard.
          * Do NOT link a test to the unexported retain_internal in Windows. */
         quantapdf_context *context=nullptr;
@@ -1718,7 +1718,9 @@ static int m2a_ordered_text_image_source_contract(
               ir.resources.images[0].size==12u && ir.pages!=nullptr &&
               ir.pages[0].width_points==128.0f &&
               ir.pages[0].height_points==64.0f);
-        const bool text_first=mode==49 || mode==64;
+        const bool text_first=mode==49 || mode==54 || mode==64;
+        if(mode==54)CHECK(ir.resources.clip_count==0u && ir.resources.graphics_state_count==0u &&
+            ir.operations[0].graphics_state_id==0u && ir.operations[1].graphics_state_id==0u);
         const auto& img=ir.operations[text_first?1u:0u];
         const auto& txt=ir.operations[text_first?0u:1u];
         CHECK(img.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE &&
@@ -1924,7 +1926,7 @@ static int m2a_ordered_text_image_source_contract(
     }
     /* Additional Fill, Image and unused resources are now supported;
      * malformed syntax and unimplemented semantics fail the complete page. */
-    for(int mode=51;mode<=63;++mode) {
+    for(int mode:{51,52,53,55,56,57,58,59,60,61,62,63}) {
         const std::string original=native_ttf_fixture(mode);
         quantapdf_ir denied;
         std::memset(&denied,0xa5,sizeof(denied));
@@ -1953,7 +1955,7 @@ static int m2a_ordered_text_image_source_contract(
         quantapdf_ir_dispose(&recovered);
         CHECK(cleared(recovered));
     }
-    std::puts("M2a: RAW/Flate both orders, 13 late-invalid refusals, N/N-1 quotas, all Source C-malloc faults, six C11 malloc faults and Context recovery");
+    std::puts("M2a: RAW/Flate both orders, unused late Clip, current semantic/syntax checks, N/N-1 quotas, all Source C-malloc faults, six C11 malloc faults and Context recovery");
     return EXIT_SUCCESS;
 }
 
@@ -1969,7 +1971,7 @@ static int m2b1_ordered_source_ir_contract(
     const quantapdf_qpdf_page_limits& limits)
 {
     target=0u;armed=false;track_c_allocation=false;c_fail_index=0u;
-    for(int mode:{66,67,81,82}) {
+    for(int mode:{66,67,70,81,82}) {
         const std::string original=native_ttf_fixture(mode);
         const auto read=[&](quantapdf_ir& out) {
             return native_test_page_ir(
@@ -1995,11 +1997,11 @@ static int m2b1_ordered_source_ir_contract(
               ir.resources.images!=nullptr &&
               ir.resources.images[0].size==12u);
         const quantapdf_composer_operation_kind expected[3]={
-            (mode==66 || mode==81)?
+            (mode==66 || mode==70 || mode==81)?
                 QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES:
                      QUANTAPDF_COMPOSER_OPERATION_IMAGE,
             QUANTAPDF_COMPOSER_OPERATION_PATH,
-            (mode==66 || mode==81)?
+            (mode==66 || mode==70 || mode==81)?
                 QUANTAPDF_COMPOSER_OPERATION_IMAGE:
                      QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES
         };
@@ -2012,7 +2014,8 @@ static int m2b1_ordered_source_ir_contract(
               ir.operations[1].value.path.options.fill==1 &&
               ir.operations[1].value.path.options.fill_argb==
                   UINT32_C(0xff00ff00));
-        const auto& text=ir.operations[(mode==66 || mode==81)?0u:2u].value.text_outlines;
+        if(mode==70)CHECK(ir.resources.clip_count==0u && ir.resources.graphics_state_count==0u);
+        const auto& text=ir.operations[(mode==66 || mode==70 || mode==81)?0u:2u].value.text_outlines;
         CHECK(text.argb==UINT32_C(0xff000000) &&
               text.glyph_count==5u && text.glyphs!=nullptr);
         const quantapdf_ir snapshot=ir;
@@ -2213,7 +2216,7 @@ static int m2b1_ordered_source_ir_contract(
     }
     /* Former profile refusals now render; genuine semantic/syntax
      * failures after a valid prefix still publish no partial page. */
-    for(int mode=68;mode<=80;++mode) {
+    for(int mode:{68,69,71,72,73,74,75,76,77,78,79,80}) {
         const std::string original=native_ttf_fixture(mode);
         quantapdf_ir denied;
         std::memset(&denied,0xa5,sizeof(denied));
