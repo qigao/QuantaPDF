@@ -622,8 +622,8 @@ static int curved_contours_and_implicit_close()
 
 /* An explicitly closed degenerate contour contributes zero winding;
  * it must not erase its nonempty sibling or create phantom edges.
- * These are actual M + two LINE + CLOSE contours, not consecutive MOVE
- * commands or zero-width re operands outside the bounded contract. */
+ * This matrix uses explicit M + two LINE + CLOSE contours; path-state
+ * cases also cover shorter subpaths and zero-width re operands. */
 static int degenerate_contour_membership()
 {
     const std::string paths[]={

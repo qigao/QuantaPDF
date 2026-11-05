@@ -329,9 +329,8 @@ add_test(NAME quantapdf.native_source_m2a_oom
 set_tests_properties(quantapdf.native_source_m2a_oom PROPERTIES
   TIMEOUT 40 LABELS "conformance;native;no-pdfium;source-staging;oom;m2a")
 
-# Public Source V10 standard PDF 'n': discard a bounded path without
-# ink, Clip or a new C11 layer. Original QPDF PDFs, no provider fallback
-# and unchanged private V8/V9 source contracts.
+# PDF 'n' discards the current path without adding paint or changing Clip.
+# Authored qpdf documents exercise the current Source and single C11 raster.
 add_executable(quantapdf_native_unpainted_n
   test_native_unpainted_n.cpp)
 target_compile_features(quantapdf_native_unpainted_n PRIVATE cxx_std_20)

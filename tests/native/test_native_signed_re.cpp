@@ -191,14 +191,40 @@ static int positive(void)
     return EXIT_SUCCESS;
 }
 
+static int zero_and_outside_rectangles()
+{
+    struct example {const char *content;int x0,y0,x1,y1;};
+    const example cases[]={
+        {"1 0 0 rg 4 4 0 6 re f",0,0,0,0},
+        {"1 0 0 rg 4 4 8 0 re f",0,0,0,0},
+        {"1 0 0 rg 4 4 -0 6 re f",0,0,0,0},
+        {"1 0 0 rg 4 4 -8 6 re f",0,4,4,10},
+        {"1 0 0 rg 4 4 8 -6 re f",4,0,12,4}
+    };
+    for(const auto& sample:cases)for(int dpi:{72,96,144}) {
+        std::vector<unsigned char> rgb;
+        CHECK(rendered_rgb(original(sample.content,false,4,0),4,0,dpi,rgb)==EXIT_SUCCESS);
+        const size_t w=(32u*unsigned(dpi)+71u)/72u,h=(24u*unsigned(dpi)+71u)/72u;
+        const int64_t den=8ll*dpi;
+        for(size_t y=0u;y<h;++y)for(size_t x=0u;x<w;++x) {
+            unsigned hits=0u;
+            for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
+                const int64_t px=(8ll*int64_t(x)+2ll*sx+1ll)*72ll;
+                const int64_t py=24ll*den-(8ll*int64_t(y)+2ll*sy+1ll)*72ll;
+                hits+=px>=sample.x0*den && px<sample.x1*den &&
+                    py>=sample.y0*den && py<sample.y1*den;
+            }
+            const unsigned white=(255u*(16u-hits)+8u)/16u;
+            CHECK(rgb[3u*(y*w+x)]==255u && rgb[3u*(y*w+x)+1u]==white &&
+                rgb[3u*(y*w+x)+2u]==white);
+        }
+    }
+    return EXIT_SUCCESS;
+}
+
 static int negative(void)
 {
     const char *const invalid[]={
-        "1 0 0 rg 4 4 0 6 re f",
-        "1 0 0 rg 4 4 8 0 re f",
-        "1 0 0 rg 4 4 -0 6 re f",
-        "1 0 0 rg 4 4 -8 6 re f", /* outside strict MediaBox */
-        "1 0 0 rg 4 4 8 -6 re f", /* outside strict MediaBox */
         "1 0 0 rg 12 4 -8.0625 6 re f", /* outside current eighth lattice */
         "1 0 0 rg 12 4 -8 6 re f BT ET",
         "1 0 0 rg 12 4 -8 6 re f 4 4 8 6 re S",
@@ -230,6 +256,7 @@ static int negative(void)
 int main()
 {
     CHECK(positive()==EXIT_SUCCESS);
+    CHECK(zero_and_outside_rectangles()==EXIT_SUCCESS);
     CHECK(negative()==EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }

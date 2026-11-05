@@ -315,13 +315,8 @@ static int split_original_contents()
     return EXIT_SUCCESS;
 }
 
-/* The strict full-Media profile excludes authored negative controls,
- * but a truly reduced original CropBox may contain a curve whose
- * control extends outside BOTH Crop and Media. Those source points
- * are bounded but must not be artificially clamped or rejected:
- * the single C11 raster clips visible samples after geometry staging.
- * Compare local/inherited CropBox and W/W* byte-for-byte, while
- * preserving full-Media fail-closed behavior for the same original. */
+/* Original negative controls retain their geometry under both full Media
+ * and reduced Crop. Local/inherited crop and winding rules must agree. */
 static int bounded_control_outside_crop()
 {
     const std::string path=
@@ -352,13 +347,17 @@ static int bounded_control_outside_crop()
                  std::memcmp(reference.data(),got.data(),got.size())==0);
         }
     }
-    /* With no effective CropBox the older full-Media original-
-     * geometry contract must still reject the negative x control
-     * atomically, regardless of W versus W* and actual DPI. */
-    for(bool even:{false,true})
     for(int dpi:{72,96,144}) {
-        const auto content="q "+path+(even?" W* ":" W ")+draw;
-        CHECK(rejected(content,true,dpi,0)==EXIT_SUCCESS);
+        std::vector<unsigned char> reference;
+        for(bool even:{false,true}) {
+            const auto content="q "+path+(even?" W* ":" W ")+draw;
+            std::vector<unsigned char> got;
+            CHECK(render(original(content,true,4,0,0),4,0,dpi,0,got)==EXIT_SUCCESS);
+            bool ink=false,white=false;
+            for(size_t i=0u;i<got.size();i+=3u) {ink|=!is_white(got,i);white|=is_white(got,i);}
+            CHECK(ink && white);
+            if(reference.empty())reference=got;else CHECK(reference==got);
+        }
     }
     return EXIT_SUCCESS;
 }
@@ -729,6 +728,11 @@ static int two_rectangle_atomic_refusals()
         CHECK(render(original("q 12.125 6 7.875 10 re W n "+image,true,4,0,0),4,0,dpi,0,intersection)==EXIT_SUCCESS);
         CHECK(actual==intersection);
     }
+    for(int crop:{0,1})for(int dpi:{72,96,144}) {
+        std::vector<unsigned char> empty;
+        CHECK(render(original("q "+first+" W n 12 6 0 12 re W n "+image,true,4,0,crop),4,0,dpi,crop,empty)==EXIT_SUCCESS);
+        for(unsigned char c:empty)CHECK(c==255u);
+    }
     const std::vector<std::string> bad={
         /* First W outside q and two Images in states 2,1 now qualify.
          * A third Image after that real restoration still refuses. */
@@ -760,7 +764,6 @@ static int two_rectangle_atomic_refusals()
         "q "+first+" W n "+second+" W n "+image+" S",
         "q "+first+" W n "+second+" W n "+image+" Q",
         "q "+first+" W n 12.0625 6 12 12 re W n "+image,
-        "q "+first+" W n 12 6 0 12 re W n "+image
     };
     for(const auto& input:bad)
     for(int crop:{0,1})

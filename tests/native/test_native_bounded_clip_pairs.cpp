@@ -598,6 +598,12 @@ static int atomic_refusals()
 {
     const std::string prefix=pair_prefix(triangle_a,triangle_b);
     const std::string ready=prefix+full_red+"Q";
+    for(int crop:{0,1,2,3})for(int dpi:{72,96,144}) {
+        configuration cfg;cfg.crop=crop;cfg.dpi=dpi;rendered empty,actual,reference;
+        CHECK(render(original("q W n 2 2 0 8 re W* n "+full_red+"Q",cfg),cfg,empty)==EXIT_SUCCESS && all_white(empty));
+        CHECK(render(original(one_prefix(triangle_a)+"2 2 m 14 2 l 8 10 l h h W n "+full_red+"Q",cfg),cfg,actual)==EXIT_SUCCESS);
+        CHECK(render(original(one_prefix(triangle_a)+"2 2 m 14 2 l 8 10 l h W n "+full_red+"Q",cfg),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
+    }
     const std::vector<std::string> bad={
         "q "+triangle_a+" W n "+triangle_b+" W* "+full_red+"Q",
         "q "+triangle_a+" W n W* 1 n "+full_red+"Q",
@@ -628,8 +634,6 @@ static int atomic_refusals()
         /* Nine pre-close commands would require a forbidden tenth. */
         one_prefix(triangle_a)+"2 2 m 8 2 l 12 4 l 14 8 l 10 10 l "
             "4 10 l 2 8 l 1 4 l 1 3 l W n "+full_red+"Q",
-        one_prefix(triangle_a)+"2 2 m 14 2 l 8 10 l h h W n "+full_red+"Q",
-        "q W n 2 2 0 8 re W* n "+full_red+"Q",
         ready+" BT ET",
         ready+" 2 2 m 10 8 l S",
         ready+" Q",

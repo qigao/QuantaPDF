@@ -404,6 +404,8 @@
 - `native_path_state_oom` 复用 Source/OOM 可执行文件，拒绝实际 vector 扩容、
   IR 发布和 C11 分配，核对空失败结果、不可变 IR、预算 N/N−1、释放 qpdf/input
   owner 与改写命令后的深快照。含长命令尾部、退化前缀和单 cubic Fill。
+- 旧 signed re 的零面积/跨 Media 拒绝升级为独立有理数全 RGB；完整 Media 下的
+  页外控制点、零面积 Clip 交集与不同作用域中的重复 h 升级为完整像素对照。
 - BT 后路径仍待统一解释，一般 Clip 图、Stroke、任意 affine/DPI 继续开放。
   本轮本地工具链被工作区维护清理，未宣称本地编译或运行通过；验收使用现有
   LLVM/LLVM-MinGW 四配置 CI、ccache 和依赖组织，不建立工具链探测或 consumer 工程。

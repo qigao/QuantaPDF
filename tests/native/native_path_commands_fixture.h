@@ -183,7 +183,7 @@ inline original create_states(size_t repeats,unsigned primitive,unsigned clip,bo
         if(kind==7u) {out+="2 2 0 8 re h h\n";result.commands+=5u;polygon(true,false);}
         if(kind==8u) {out+="2 2 m 2 2 2 2 2 2 c h h\n";result.commands+=3u;continuation();polygon(false,false);out+="Q\n";}
         if(kind==9u) {out+="f f*\n";polygon(true,false);}
-        if(kind==10u) {out+="2 2 8 0 re h h\n";result.commands+=5u;polygon(true,false);}
+        if(kind==10u) {out+="2 2 8 0 re h h\n";result.commands+=4u;polygon(true,false);}
         if(kind==11u) {polygon(true,false);polygon(false,true);}
         if(kind==13u) {out+="f f*\n";result.contours.push_back({2,2,2,2,false,false});}
         if(kind==12u) {
