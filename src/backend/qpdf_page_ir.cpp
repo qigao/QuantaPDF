@@ -535,9 +535,9 @@ struct admission {
          * original lower-left corner BEFORE bounds, texture sampling
          * work and RGB/Clip compositing. Never alter the original CTM. */
         const double ax0=ctm[4]-viewport_left;
-        const double ax1=ctm[4]+ctm[0]-viewport_left;
+        const double ax1=ax0+ctm[0];
         const double ay0=ctm[5]-viewport_bottom;
-        const double ay1=ctm[5]+ctm[3]-viewport_bottom;
+        const double ay1=ay0+ctm[3];
         /* A cropped original IMAGE still owns its complete XObject
          * sample footprint. Its off-canvas edges are not clipped or
          * rescaled before nearest-sample lookup. The viewport C11
@@ -1502,9 +1502,9 @@ private:
                current[1]==0.0 && current[2]==0.0),
               QUANTAPDF_ERROR_UNSUPPORTED);
         const double absolute_x=
-            current[0]*x+current[4]-target.viewport_left;
+            current[0]*x+(current[4]-target.viewport_left);
         const double absolute_y=
-            current[3]*y+current[5]-target.viewport_bottom;
+            current[3]*y+(current[5]-target.viewport_bottom);
         // Path endpoints and Bezier controls may lie outside the viewport.
         // Keep their geometry; the native sampler clips visible coverage.
         const double py=target.exact_page_h-absolute_y;

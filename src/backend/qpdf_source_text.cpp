@@ -501,8 +501,8 @@ struct projection {
         auto transform=[&](point p) {
             const double x=p.x*g.size*g.scale/face.outline_face.units_per_em;
             const double y=p.y*g.size/face.outline_face.units_per_em+g.rise;
-            const double px=m[0]*x+m[4]-outline_left;
-            const double py=outline_height-(m[3]*y+m[5]-outline_bottom);
+            const double px=m[0]*x+(m[4]-outline_left);
+            const double py=outline_height-(m[3]*y+(m[5]-outline_bottom));
             supported(std::isfinite(px)&&std::isfinite(py)&&std::abs(px)<=1000000.0&&std::abs(py)<=1000000.0);
             return quantapdf_point{px,py};
         };
