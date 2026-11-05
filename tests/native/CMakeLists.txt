@@ -150,7 +150,7 @@ add_test(NAME quantapdf.native_deferred_clip
   COMMAND quantapdf_native_public_render --deferred-clip)
 set_tests_properties(quantapdf.native_deferred_clip PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;public-api;ordered-clip;text-path")
-foreach(kind IN ITEMS clip-graphs clip-graphs-curves clip-graphs-storage)
+foreach(kind IN ITEMS clip-graphs clip-graphs-curves clip-graphs-storage clip-originals)
   add_test(NAME quantapdf.native_${kind}
     COMMAND quantapdf_native_public_render --${kind})
   set_tests_properties(quantapdf.native_${kind} PROPERTIES

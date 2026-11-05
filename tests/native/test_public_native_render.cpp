@@ -16,6 +16,7 @@
 #include <zlib.h>
 #include "native_ttf_fixture.h"
 #include "native_ttf_fractional_reference.h"
+#include "native_ttf_graph_reference.h"
 
 #define CHECK(expr) do { if (!(expr)) { \
     std::fprintf(stderr,"native public render failed at %d: %s\n",__LINE__,#expr); \
@@ -733,7 +734,7 @@ static int native_m2b2c_public_aligned(const std::string& filename)
         const auto denied_status=
             quantapdf_render_page_with_options(
                 denied_page,&options,&denied_bitmap);
-        if(mode==87 || mode==90) {
+        if(mode==86 || mode==87 || mode==90) {
             CHECK(denied_status==QUANTAPDF_OK && denied_bitmap!=nullptr);
             const auto expected=native_ttf_fractional_expected(83,96u);
             const unsigned char *pixels=nullptr;size_t size=0u;
@@ -869,6 +870,8 @@ static int native_m2b2j_public_fractional(const std::string& filename)
                   115,116,117,118,119,120,121,122,123,124,125,
                   128,129,130,131,132,133,134,135,136,137,138,139,140,141,142,
                   149,150,151,152,153,154,155,156,157,158,159,161,162,163,164,165,166,167}) {
+        // Full three-DPI RGB and detached ownership live in --clip-originals.
+        if(native_ttf_graph_supported(mode))continue;
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         quantapdf_document *document=nullptr;quantapdf_page *page=nullptr;
         OK(quantapdf_open_with_context(context,filename.c_str(),nullptr,&document));
@@ -4146,6 +4149,7 @@ static int native_seventh_userunit_late_refusal_cases(
 #include "native_ordered_scene_cases.h"
 #include "native_ordered_clip_cases.h"
 #include "native_clip_graph_cases.h"
+#include "native_ttf_graph_cases.h"
 #include "native_composer_state_cases.h"
 #include "native_composer_geometry_cases.h"
 #include "native_composer_image_cases.h"
@@ -4161,6 +4165,8 @@ int main(int argc,char **argv)
         return path_commands_cases(filename,true,11u);
     if(argc==2 && std::strcmp(argv[1],"--clip-graphs")==0)
         return clip_graph_cases(filename);
+    if(argc==2 && std::strcmp(argv[1],"--clip-originals")==0)
+        return ttf_clip_graph_originals(filename);
     if(argc==2 && std::strcmp(argv[1],"--clip-graphs-curves")==0)
         return clip_graph_cases(filename,1u);
     if(argc==2 && std::strcmp(argv[1],"--clip-graphs-storage")==0)

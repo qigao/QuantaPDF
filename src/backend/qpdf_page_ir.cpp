@@ -643,9 +643,6 @@ void validate_opaque_gs(Obj resources,Obj name)
     }
 }
 
-/* M2b.2o Source-only: retain two original rectangle leaves and their
- * intersection root. The BT handoff separately qualifies the exact nested
- * q/Q stack and ordered three-paint profile before callbacks use it. */
 // The token interpreter supplies the paint's actual current Clip identity.
 quantapdf_status source_text_paint(void *user,clip_identity clip)
 {

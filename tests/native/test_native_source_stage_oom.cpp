@@ -28,6 +28,7 @@
 #include <string>
 #include "native_ttf_fixture.h"
 #include "native_ttf_fractional_reference.h"
+#include "native_ttf_graph_reference.h"
 #include "native_content_stream_fixture.h"
 #include "native_graphics_state_fixture.h"
 #include "native_ordered_paints_fixture.h"
@@ -3095,7 +3096,7 @@ static int m2b2b_clipped_source_owner_contract(
         const auto status=native_test_page_ir(
             reinterpret_cast<const unsigned char*>(original.data()),
             original.size(),&limits,0u,&denied);
-        if(mode==87 || mode==90) {
+        if(mode==86 || mode==87 || mode==90) {
             CHECK(status==QUANTAPDF_OK && denied.operation_count==3u && denied.resources.clip_count==1u);
             quantapdf_ir_dispose(&denied);
         } else CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED || status==QUANTAPDF_ERROR_FORMAT) && cleared(denied));
@@ -3104,6 +3105,48 @@ static int m2b2b_clipped_source_owner_contract(
     return EXIT_SUCCESS;
 }
 
+
+// The old profile-specific refusal lists share the same ordinary Source
+// graph behavior. Verify each promoted original through owned IR execution;
+// --clip-originals additionally compares every public RGB at all three DPI.
+static int promoted_ttf_graph_source(int mode,const quantapdf_qpdf_page_limits& caps)
+{
+    const auto read=[&](bool normalized,quantapdf_ir& ir) {
+        auto bytes=native_ttf_fixture(mode,normalized);
+        return native_test_page_ir(reinterpret_cast<const unsigned char*>(bytes.data()),bytes.size(),&caps,0u,&ir);
+    };
+    quantapdf_ir ir{};
+    std::unique_ptr<quantapdf_ir,decltype(&quantapdf_ir_dispose)> owner(&ir,quantapdf_ir_dispose);
+    const auto status=read(false,ir);
+    if(status!=QUANTAPDF_OK)std::fprintf(stderr,"promoted Source Clip mode=%d status=%d\n",mode,int(status));
+    CHECK(status==QUANTAPDF_OK && ir.operation_count>0u && ir.operation_count<=4u);
+    const auto snapshot=text_ir_snapshot(ir);
+    quantapdf_native_page_device device{};device.dpi=96.0f;
+    const quantapdf_ir_raster_scoped_mixed_v5_limits raster={1000000u,4u,512u,8000000u,caps.max_source_pixels,caps.max_drawn_pixels};
+    quantapdf_native_prepared_page_v1 prepared{};
+    CHECK(quantapdf_native_prepare_page_v1(&ir,&raster,&device,&prepared)==QUANTAPDF_OK);
+    quantapdf_ir_raster_image output{};
+    std::unique_ptr<quantapdf_ir_raster_image,decltype(&quantapdf_ir_raster_image_dispose)> output_owner(&output,quantapdf_ir_raster_image_dispose);
+    CHECK(quantapdf_native_execute_page_v1(&prepared,nullptr,&output)==QUANTAPDF_OK && text_ir_snapshot(ir)==snapshot);
+    std::vector<unsigned char> expected;
+    if(native_ttf_graph_equivalent(mode)) {
+        quantapdf_ir peer{};
+        std::unique_ptr<quantapdf_ir,decltype(&quantapdf_ir_dispose)> peer_owner(&peer,quantapdf_ir_dispose);
+        CHECK(read(true,peer)==QUANTAPDF_OK);
+        quantapdf_native_prepared_page_v1 peer_prepared{};
+        CHECK(quantapdf_native_prepare_page_v1(&peer,&raster,&device,&peer_prepared)==QUANTAPDF_OK);
+        quantapdf_ir_raster_image peer_output{};
+        std::unique_ptr<quantapdf_ir_raster_image,decltype(&quantapdf_ir_raster_image_dispose)> peer_output_owner(&peer_output,quantapdf_ir_raster_image_dispose);
+        CHECK(quantapdf_native_execute_page_v1(&peer_prepared,nullptr,&peer_output)==QUANTAPDF_OK);
+        expected.assign(peer_output.pixels,peer_output.pixels+peer_output.size);
+    } else expected=native_ttf_graph_expected(mode,96u).rgba;
+    if(output.size!=expected.size() || std::memcmp(output.pixels,expected.data(),output.size)!=0)
+        std::fprintf(stderr,"promoted Source Clip full RGBA mode=%d\n",mode);
+    CHECK(!expected.empty() && output.size==expected.size() && std::memcmp(output.pixels,expected.data(),output.size)==0);
+    owner.reset();CHECK(cleared(ir));
+    CHECK(std::memcmp(output.pixels,expected.data(),output.size)==0);
+    return EXIT_SUCCESS;
+}
 
 /* M2b.2l Source ownership; M2b.2n now admits its public prepared metadata.
  * The first two paints retain Clip1 after real Q; only Image uses Clip2. */
@@ -3238,6 +3281,9 @@ static int m2b2l_sibling_source_owner(const quantapdf_qpdf_page_limits& caps)
         CHECK(valid(owned));quantapdf_ir_dispose(&owned);CHECK(cleared(owned));
     }
     for(int mode:{115,116,117,118,119,120,121,122,123,124,125}) {
+        if(native_ttf_graph_supported(mode)) {
+            CHECK(promoted_ttf_graph_source(mode,caps)==EXIT_SUCCESS);continue;
+        }
         quantapdf_ir denied;std::memset(&denied,0xa5,sizeof(denied));
         const auto status=stage(native_ttf_fixture(mode),caps,denied);
         CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED || status==QUANTAPDF_ERROR_FORMAT) && cleared(denied));
@@ -3384,6 +3430,9 @@ static int m2b2r_reverse_sibling_source_owner(const quantapdf_qpdf_page_limits& 
     }
     for(int mode=149;mode<=167;++mode) {
         if(mode==160)continue; // Finite decimal rectangle is covered above.
+        if(native_ttf_graph_supported(mode)) {
+            CHECK(promoted_ttf_graph_source(mode,caps)==EXIT_SUCCESS);continue;
+        }
         quantapdf_ir denied;std::memset(&denied,0xa5,sizeof(denied));
         const auto status=stage(native_ttf_fixture(mode),caps,denied);
         if(status==QUANTAPDF_OK)std::fprintf(stderr,"M2b2r unexpected Source admission mode=%d\n",mode);
@@ -3524,6 +3573,9 @@ static int m2b2o_compound_source_owner(const quantapdf_qpdf_page_limits& caps)
         CHECK(valid(owned) && text_ir_snapshot(owned)==frozen);quantapdf_ir_dispose(&owned);CHECK(cleared(owned));
     }
     for(int mode=128;mode<143;++mode) {
+        if(native_ttf_graph_supported(mode)) {
+            CHECK(promoted_ttf_graph_source(mode,caps)==EXIT_SUCCESS);continue;
+        }
         quantapdf_ir denied;std::memset(&denied,0xa5,sizeof(denied));
         const auto status=stage(native_ttf_fixture(mode),caps,denied);
         if(status==QUANTAPDF_OK)std::fprintf(stderr,"M2b2o unexpected Source admission mode=%d\n",mode);

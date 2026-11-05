@@ -111,7 +111,10 @@ static inline int qp_prepared_resource_closure(
        ir->outlines!=NULL || ir->outline_count!=0u ||
        r->image_count>ir->operation_count || r->image_capacity!=r->image_count ||
        ((r->image_count==0u)!=(r->images==NULL)) ||
-       r->graphics_state_count>3u || r->graphics_state_capacity!=r->graphics_state_count ||
+       /* State use is a bit inventory, with one Source state per observed
+        * graph root. Match the existing seven-node closure envelope; the
+        * scene compiler still owns the four-leaf bound. */
+       r->graphics_state_count>7u || r->graphics_state_capacity!=r->graphics_state_count ||
        ((r->graphics_state_count==0u)!=(r->graphics_states==NULL)) ||
        r->clip_count>7u || r->clip_capacity!=r->clip_count ||
        ((r->clip_count==0u)!=(r->clips==NULL)) ||

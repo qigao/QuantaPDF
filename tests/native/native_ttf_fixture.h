@@ -339,10 +339,11 @@ inline std::string native_ttf_fixture(int mode=0,bool translated_clip=false)
                     const std::string second_rule=(mode==127 || mode==146)?"W":"W*";
                     const std::string outer=std::string(mode==142?"":"q ")+
                         "16.25 22.25 27 15.5 re "+first_rule+" n ";
-                    std::string inner="q "+std::string(mode==131?"1 0 0 1 1 0 cm ":"")+
-                        "20.5 15.75 18.25 18.5 re ";
+                    std::string inner="q "+std::string(mode==131 && !translated_clip?"1 0 0 1 1 0 cm ":"")+
+                        (mode==131 && translated_clip?"21.5 15.75 18.25 18.5 re ":"20.5 15.75 18.25 18.5 re ");
                     if(mode==139)inner="q 20.5 15.75 m 38.75 15.75 l 37.75 34.25 l 20.5 34.25 l h ";
                     if(mode==140)inner="q 20.5 15.75 m 38.75 15.75 l 38.75 20 37.75 30 38.75 34.25 c 20.5 34.25 l h ";
+                    if(mode==140 && translated_clip)inner="q 1 0 0 1 4 0 cm 16.5 15.75 m 34.75 15.75 l 34.75 20 33.75 30 34.75 34.25 c 16.5 34.25 l h 1 0 0 1 -4 0 cm ";
                     if(mode==143)inner="q 20.5 15.75 18.2500000001 18.5 re ";
                     if(mode==145 || mode==146)inner="q 15.5 15.75 23.25 18.5 re ";
                     inner+=second_rule+(mode==135?std::string(" "):std::string(" n "));
@@ -369,10 +370,12 @@ inline std::string native_ttf_fixture(int mode=0,bool translated_clip=false)
                         "q 15.5 15.75 23.25 18.5 re ":"q 16.25 22.25 27 15.5 re ")+first_rule+" n "+
                         (mode==166?fill+" "+draw:draw+(mode==163?"":" "+fill));
                     std::string second_scope=std::string(mode==164?"":"q ")+
-                        (mode==155?"1 0 0 1 1 0 cm ":"")+"20.5 15.75 18.25 18.5 re ";
+                        (mode==155 && !translated_clip?"1 0 0 1 1 0 cm ":"")+
+                        (mode==155 && translated_clip?"21.5 15.75 18.25 18.5 re ":"20.5 15.75 18.25 18.5 re ");
                     if(mode==160)second_scope="q 20.5 15.75 18.2500000001 18.5 re ";
                     if(mode==161)second_scope="q 20.5 15.75 m 38.75 15.75 l 37.75 34.25 l 20.5 34.25 l h ";
                     if(mode==162)second_scope="q 20.5 15.75 m 38.75 15.75 l 38.75 20 37.75 30 38.75 34.25 c 20.5 34.25 l h ";
+                    if(mode==162 && translated_clip)second_scope="q 1 0 0 1 4 0 cm 16.5 15.75 m 34.75 15.75 l 34.75 20 33.75 30 34.75 34.25 c 16.5 34.25 l h 1 0 0 1 -4 0 cm ";
                     if(mode>=168)second_scope="q 16.25 22.25 27 15.5 re ";
                     text=first_scope+(mode==151?" ":" Q ")+second_scope+second_rule+
                         (mode==157?" ":" n ");
@@ -388,6 +391,19 @@ inline std::string native_ttf_fixture(int mode=0,bool translated_clip=false)
                     if(mode==159)fonts.replaceKey("/G",font);
                 }
             }
+        }
+    }
+    if(translated_clip && (mode==131 || mode==155)) {
+        // Identity-CTM original with independently translated authored operands.
+        const auto shift=[&](const std::string& from,const std::string& to) {
+            const size_t at=text.find(from);
+            if(at==std::string::npos)throw std::runtime_error("missing translated fixture operand");
+            text.replace(at,from.size(),to);
+        };
+        shift("12 20 Td","13 20 Td");
+        if(mode==131) {
+            shift("12 20 7 10 re","13 20 7 10 re");
+            shift("16 0 0 12 10 15 cm","16 0 0 12 11 15 cm");
         }
     }
     page.replaceKey("/Contents",pdf->newStream(text));
