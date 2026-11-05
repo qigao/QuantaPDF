@@ -20,6 +20,8 @@ struct options {
     bool empty=false,prefix=true,sparse=false,fringe=false,glyph_fringe=false;
     int width_ticks=192,height_ticks=192;
     int media_left=0,media_bottom=0;
+    int rotation=0;
+    unsigned user_quarters=4u;
     bool crop=false,inherited_geometry=false;
     region crop_box{};
     size_t unused=0u,contours=1u,zeros=0u,depth=0u;
@@ -30,6 +32,7 @@ struct original {
     size_t leaves=0u,nodes=0u,states=0u;
     int width_ticks=192,height_ticks=192;
     int viewport_left=0,viewport_bottom=0,absolute_left=0,absolute_bottom=0;
+    unsigned rotation=0u,user_quarters=4u;
     std::vector<paint> paints;
 };
 inline options viewport_case(options opt,unsigned kind)
@@ -64,6 +67,8 @@ inline original create(options opt,bool encrypted,int invalid=0)
     if(opt.inherited_geometry)page.removeKey("/MediaBox");
     if(opt.crop)geometry.replaceKey("/CropBox",box({opt.media_left+opt.crop_box.left,opt.media_bottom+opt.crop_box.bottom,
         opt.media_left+opt.crop_box.right,opt.media_bottom+opt.crop_box.top}));
+    geometry.replaceKey("/Rotate",O::newInteger(opt.rotation));
+    page.replaceKey("/UserUnit",O::parse(std::to_string(double(opt.user_quarters)/4.0)));
     resources.replaceKey("/ExtGState",O::newDictionary());
     resources.getKey("/Font").replaceKey("/Unused",resources.getKey("/Font").getKey("/F"));
     const std::array<unsigned char,12> samples={255,0,0,0,255,0,0,0,255,255,255,0};
@@ -77,6 +82,7 @@ inline original create(options opt,bool encrypted,int invalid=0)
     auto blank=pdf->makeIndirectObject(O::parse("<< /Type /Page /MediaBox [0 0 5 4] >>"));
     blank.replaceKey("/Parent",root);blank.replaceKey("/Contents",pdf->newStream("\n"));
     blank.replaceKey("/CropBox",O::parse("[0 0 5 4]"));
+    blank.replaceKey("/Rotate",O::newInteger(0));
     root.replaceKey("/Kids",O::newArray({blank,page}));root.replaceKey("/Count",O::newInteger(2));
 
     const std::array<region,5> boxes={{{18,22,162,166},{68,44,132,148},
@@ -85,6 +91,7 @@ inline original create(options opt,bool encrypted,int invalid=0)
     const std::array<std::array<unsigned char,3>,3> colors={{{51,102,153},{204,51,102},{102,204,51}}};
     static const unsigned orders[6][3]={{0,1,2},{0,2,1},{1,0,2},{1,2,0},{2,0,1},{2,1,0}};
     original result;result.width_ticks=opt.width_ticks;result.height_ticks=opt.height_ticks;
+    result.rotation=unsigned((opt.rotation%360+360)%360);result.user_quarters=opt.user_quarters;
     if(opt.crop) {
         result.viewport_left=std::max(0,opt.crop_box.left);result.viewport_bottom=std::max(0,opt.crop_box.bottom);
         result.width_ticks=std::min(opt.width_ticks,opt.crop_box.right)-result.viewport_left;
@@ -222,28 +229,51 @@ inline original create(options opt,bool encrypted,int invalid=0)
     writer.write();const auto bytes=writer.getBufferSharedPointer();
     result.bytes.assign(reinterpret_cast<const char*>(bytes->getBuffer()),bytes->getSize());return result;
 }
+inline float width_points(const original& source)
+{return float((source.rotation==90u || source.rotation==270u?source.height_ticks:source.width_ticks)*source.user_quarters)/64.0f;}
+inline float height_points(const original& source)
+{return float((source.rotation==90u || source.rotation==270u?source.width_ticks:source.height_ticks)*source.user_quarters)/64.0f;}
 inline size_t width(const original& source,unsigned dpi)
-{return (size_t(source.width_ticks)*dpi+1151u)/1152u;}
+{return (size_t(source.rotation==90u || source.rotation==270u?source.height_ticks:source.width_ticks)*source.user_quarters*dpi+4607u)/4608u;}
 inline size_t height(const original& source,unsigned dpi)
-{return (size_t(source.height_ticks)*dpi+1151u)/1152u;}
+{return (size_t(source.rotation==90u || source.rotation==270u?source.width_ticks:source.height_ticks)*source.user_quarters*dpi+4607u)/4608u;}
 inline std::vector<unsigned char> rgb(const original& source,unsigned dpi,bool truncate_glyph_viewport=false,bool omit_glyph_origin=false)
 {
     const size_t w=width(source,dpi),h=height(source,dpi);
-    const int64_t unit=128ll*dpi;
+    // Invert the authored page transform at each physical sample using
+    // rational sixteenth-point coordinates. No production geometry input.
+    const int64_t den=int64_t(dpi)*source.user_quarters;
+    const auto authored=[&](int64_t x,int64_t y) {
+        int64_t px=0,py=0;
+        switch(source.rotation) {
+        case 0u:px=x;py=source.height_ticks*den-y;break;
+        case 90u:px=y;py=x;break;
+        case 180u:px=source.width_ticks*den-x;py=y;break;
+        case 270u:px=source.width_ticks*den-y;py=source.height_ticks*den-x;break;
+        default:throw std::runtime_error("invalid reference page turn");
+        }
+        return std::array<int64_t,2>{px+source.viewport_left*den,py+source.viewport_bottom*den};
+    };
+    const auto horizontal=[&](int64_t lo,int64_t hi,int64_t x) {
+        return source.rotation<180u?x>=lo && x<hi:x>lo && x<=hi;
+    };
+    const auto vertical=[&](int64_t lo,int64_t hi,int64_t y) {
+        return source.rotation==90u || source.rotation==180u?y>=lo && y<hi:y>lo && y<=hi;
+    };
     std::vector<unsigned char> out(w*h*3u,255u);
     const auto contains=[&](region r,int64_t x,int64_t y) {
-        return 16*x>=r.left*unit && 16*x<r.right*unit && 16*y>r.bottom*unit && 16*y<=r.top*unit;
+        return horizontal(r.left*den,r.right*den,x) && vertical(r.bottom*den,r.top*den,y);
     };
     for(const auto& p:source.paints)for(size_t y=0u;y<h;++y)for(size_t x=0u;x<w;++x) {
         unsigned hits=0u;
         for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
-            const int64_t px=int64_t(source.viewport_left)*8ll*dpi+(8ll*int64_t(x)+2ll*sx+1ll)*1152ll;
-            const int64_t py=int64_t(source.viewport_bottom+source.height_ticks)*8ll*dpi-(8ll*int64_t(y)+2ll*sy+1ll)*1152ll;
-            const int64_t gx=px-(omit_glyph_origin?int64_t(source.absolute_left)*8ll*dpi:0ll);
-            const int64_t gy=py-(omit_glyph_origin?int64_t(source.absolute_bottom)*8ll*dpi:0ll);
+            const auto at=authored((8ll*int64_t(x)+2ll*sx+1ll)*576ll,(8ll*int64_t(y)+2ll*sy+1ll)*576ll);
+            const int64_t px=at[0],py=at[1];
+            const int64_t gx=px-(omit_glyph_origin?source.absolute_left*den:0ll);
+            const int64_t gy=py-(omit_glyph_origin?source.absolute_bottom*den:0ll);
             bool visible=p.glyph?
-                1024*gx>=(p.bounds.left*64+156)*unit && 1024*gx<(p.bounds.left*64+341)*unit &&
-                    16*gy>p.bounds.bottom*unit && 16*gy<=p.bounds.top*unit:
+                horizontal((p.bounds.left*64+156)*den,(p.bounds.left*64+341)*den,64*gx) &&
+                    vertical(p.bounds.bottom*den,p.bounds.top*den,gy):
                 contains(p.bounds,px,py);
             visible=visible && contains({source.viewport_left,source.viewport_bottom,
                 source.viewport_left+source.width_ticks,source.viewport_bottom+source.height_ticks},px,py);
@@ -255,10 +285,13 @@ inline std::vector<unsigned char> rgb(const original& source,unsigned dpi,bool t
         }
         size_t sample=0u;
         if(p.image) {
-            const int64_t px=int64_t(source.viewport_left)*dpi+(2ll*int64_t(x)+1ll)*576ll;
-            const int64_t py=int64_t(source.viewport_bottom+source.height_ticks)*dpi-(2ll*int64_t(y)+1ll)*576ll;
-            const size_t col=32*px<int64_t(p.bounds.left+p.bounds.right)*16ll*dpi?0u:1u;
-            const size_t row=32*py>int64_t(p.bounds.bottom+p.bounds.top)*16ll*dpi?0u:1u;
+            const auto at=authored((2ll*int64_t(x)+1ll)*2304ll,(2ll*int64_t(y)+1ll)*2304ll);
+            const int64_t mx=int64_t(p.bounds.left+p.bounds.right)*den;
+            const int64_t my=int64_t(p.bounds.bottom+p.bounds.top)*den;
+            // Rotate reorients source texels before nearest-neighbor lookup;
+            // ties therefore follow the corresponding physical axis.
+            const size_t col=(source.rotation<180u?2*at[0]<mx:2*at[0]<=mx)?0u:1u;
+            const size_t row=(source.rotation==90u || source.rotation==180u?2*at[1]>=my:2*at[1]>my)?0u:1u;
             sample=2u*row+col;
         }
         for(size_t c=0u;c<3u;++c) {

@@ -594,6 +594,36 @@
   非默认 UserUnit 的文字组合、一般十进制、Image affine、通用 Stroke、非整数 DPI
   与字体能力继续开放。本地仅静态检查，不运行 Native。
 
+### A2 原始 Rotate／UserUnit 文字 Scene：当前开发增量
+
+- 起点为 #625 的 `f2370d4a`，tree `40b9b4c3523442e61ed23b5d8f4833c5053b576e`；
+  [CI #2476](https://github.com/qigao/QuantaPDF/actions/runs/42055641385) 的 Linux Release、
+  ASan/UBSan 和 Windows LLVM-MinGW 各 131/131，macOS 未分配 runner、排队后取消，
+  整轮 failure。该历史结果保留，不能作为本增量的四配置验收。
+- 移除文字 handoff 后提前发布 IR 的分支。字形轮廓与 Path/Clip 共用 Source 的
+  原始页面 Rotate／UserUnit 变换，RAW Image 仍由同一阶段同步旋转 texel 和 placement；
+  完成所有内容解释和页面变换后，仅发布一次普通有序 Scene。CTM、q/Q 和作者坐标
+  的解释仍在原始 PDF 空间，不增加新的绘制组合或像素路径。
+- 字形二次曲线按最终页面 Y 轴切为单调片段；90°／270° 使用原始 X 极值，避免
+  只旋转端点后把非单调曲线交给精确扫描器。原始旋转、UserUnit、Crop 原点归一化
+  与请求显示旋转分别保留其语义，页面大小在设备 ceil 前保持精确。
+- 新公开两组各 336 次独立全 RGB、72 次显示旋转，覆盖四个原始方向、正负角度
+  归一化、六个 UserUnit（0.25/0.75/1.25/1.75/2.75/4）、非零原点和继承 Crop／Rotate、
+  原始多根及 65 叶 Clip、空叶、Fill/Image/Text 顺序、加密选页和 detached Bitmap。
+  参考使用有理数逆变换，还区分旋转后图像 texel 分界点的采样归属。
+- 曲线文字另有 112 次原始二次曲线独立参考的全 RGB、336 次显示旋转，覆盖七个
+  UserUnit 和整像素裁切；旧 Rotate90 拒绝提升为 72/96/144 DPI 的独立全 RGB。
+  七份新参考直接旋转原始二次曲线，全部通过 60／80 位 Decimal 一致性验证；
+  不能用旋转旧 Bitmap 代替具有不同采样相位或恰好命中边界的原始页面旋转。
+- 新 Source/OOM 项覆盖 64 次独立 RGBA（32 空白、32 变换混合页）、实际旋转
+  Image 的 C++ 分配失败、逐次 Source C 发布与 C11 malloc 故障、文档销毁后 IR／Bitmap
+  所有权和实际内存／操作／边／采样／Image／像素 N/N−1，含物理 UserUnit 绘制预算。
+  共新增四项 CTest（当前 135 项），期限仍为公开 45／OOM 40 秒。
+- 本节仅记录实现和新增验收内容，须以新精确 HEAD 的真实 CI 结果验收；本地只执行
+  静态检查和离线独立参考生成，不编译／运行 Native。既有四分之一点页面语法和
+  0.25..4 的四分之一 UserUnit 范围保留；一般十进制、Image affine、通用 Stroke、
+  非整数 DPI、完整字体与 A2 总项仍开放。PR 保持 Draft，未合并或发布。
+
 ## 单一执行模型
 
 ```mermaid

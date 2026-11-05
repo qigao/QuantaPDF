@@ -363,8 +363,8 @@ struct admission {
     size_t texample_orange_count=0u,texample_terminal_n=0u;
     bool texample_public_eligible=false;
     bool text_outlines_eligible=false;
+    bool text_outline_swap_axes=false;
     std::vector<quantapdf::detail::source_outline_paint> text_outline_paints={};
-    bool text_outlines_complete=false;
     admission(Obj page_resources,const quantapdf_qpdf_page_limits& page_limits,
               size_t width,size_t height) :
         resources(page_resources),limits(page_limits),page_w(width),page_h(height) {}
@@ -713,6 +713,7 @@ public:
             }
             const auto setup=quantapdf::detail::make_source_text_outlines(
                 target.resources,target.viewport_left,target.viewport_bottom,target.exact_page_h,
+                target.text_outline_swap_axes,
                 {current,fill_argb,clip_active},
                 scoped_saved,
                 {this,
@@ -1307,7 +1308,7 @@ public:
             const auto status=outline_reader->finish();admit(status==QUANTAPDF_OK,status);
             admit(pending_path.empty() && !clip_pending,QUANTAPDF_ERROR_FORMAT);
             target.text_outline_paints=outline_reader->paints();
-            target.text_outlines_complete=true;return;
+            return;
         }
         admit(args.empty() && stack.empty() &&
               pending_path.empty() && !clip_pending);
@@ -1725,7 +1726,7 @@ void original_turn_image(staged_image& image,
 }
 
 /* Consume complete q/Q, CTM and operator admission first; only then
- * orient SOURCE-staged PATH/Clip points and uniquely owned RAW Image
+ * orient SOURCE-staged PATH/Clip/glyph points and uniquely owned RAW Image
  * samples before emitting the one canonical Composer IR. The source
  * quotas and image-work accounting are invariant under quarter turns. */
 void original_turn_staging(admission& source,int rotation)
@@ -1740,6 +1741,8 @@ void original_turn_staging(admission& source,int rotation)
     for(auto& path:source.painted_paths)
         original_turn_commands(path.commands,w,h,rotation);
     for(auto& clip:source.clips)original_turn_commands(clip.path.commands,w,h,rotation);
+    for(auto& paint:source.text_outline_paints)for(auto& glyph:paint.glyphs)
+        original_turn_commands(glyph.commands,w,h,rotation);
     for(auto& image:source.draws)
         original_turn_image(image,w,h,rotation);
     if(rotation==90 || rotation==270) {
@@ -2488,6 +2491,8 @@ void scale_source_userunit(admission& source,unsigned quarters)
     for(auto& p:source.painted_paths)
         commands(p.commands);
     for(auto& clip:source.clips)commands(clip.path.commands);
+    for(auto& paint:source.text_outline_paints)for(auto& glyph:paint.glyphs)
+        commands(glyph.commands);
     size_t physical_draw=0u;
     for(auto& image:source.draws) {
         const double x0=(double)image.bounds.x0*unit;
@@ -2649,8 +2654,8 @@ static quantapdf_status source_page_to_ir_impl(
         admission source(resources,*limits,page_w,page_h);
         source.texample_public_eligible=exact.ticks_per_point==1000u && full_media &&
             geo.rotation==0 && user_quarters==4u;
-        source.text_outlines_eligible=exact.ticks_per_point==4u &&
-            geo.rotation==0 && user_quarters==4u;
+        source.text_outlines_eligible=exact.ticks_per_point==4u;
+        source.text_outline_swap_axes=geo.rotation==90 || geo.rotation==270;
         source.exact_page_w=(double)(exact.visible[2]-exact.visible[0])/(double)exact.ticks_per_point;
         source.exact_page_h=(double)(exact.visible[3]-exact.visible[1])/(double)exact.ticks_per_point;
         source.viewport_left=geo.left;
@@ -2673,10 +2678,6 @@ static quantapdf_status source_page_to_ir_impl(
         QP_SOURCE_STAGE_ARM(10u);
         page.parseContents(&reader);
         admit(!pdf.anyWarnings(),QUANTAPDF_ERROR_FORMAT);
-        if(source.text_outlines_complete) {
-            *out_ir=materialize_ordered_scene(source);
-            return QUANTAPDF_OK;
-        }
         if(source.three_branch_candidate)
             admit(geo.rotation==0 && user_quarters==4u && !source.crop_viewport,
                   QUANTAPDF_ERROR_UNSUPPORTED);

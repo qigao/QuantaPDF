@@ -39,6 +39,8 @@ struct source_mixed_callbacks {
  * stream. It never parses/reopens source bytes or returns font/QPDF owners.
  * Glyph contours alone subtract the original visible viewport origin;
  * graphics-state CTMs passed to path/image callbacks stay in PDF space.
+ * swap_axes selects the future page Y axis for monotone quadratic pieces;
+ * the page owner applies Rotate/UserUnit to every staged paint together.
  * The caller supplies an empty owner; construction failures preserve their
  * status and leave it empty, just like consume/finish. */
 class source_text_outlines {
@@ -50,7 +52,7 @@ public:
 };
 quantapdf_status make_source_text_outlines(
     QPDFObjectHandle resources,double viewport_left,double viewport_bottom,
-    double page_height,source_text_seed initial,
+    double page_height,bool swap_axes,source_text_seed initial,
     const std::vector<source_text_seed>& saved,
     source_mixed_callbacks callbacks,std::unique_ptr<source_text_outlines>& out);
 }

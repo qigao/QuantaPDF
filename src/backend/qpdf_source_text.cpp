@@ -386,6 +386,7 @@ struct projection {
     bool pending_break=false;
     bool outline_mode=false;
     double outline_left=0.0,outline_bottom=0.0,outline_height=0.0;
+    bool outline_swap_axes=false;
     size_t glyph_commands=0u;
     std::vector<quantapdf::detail::source_outline_paint> outline_paints;
     quantapdf::detail::source_mixed_callbacks source_mixed={};
@@ -516,15 +517,21 @@ struct projection {
             c.point3=transform(b);append(c);
         };
         auto quadratic=[&](point a,point q,point b) {
-            const double denominator=a.y-2*q.y+b.y;
-            const double t=denominator!=0.0?(a.y-q.y)/denominator:0.0;
+            // Keep each original quadratic monotone in the eventual page
+            // Y direction. Quarter turns exchange X/Y after this handoff.
+            const double av=outline_swap_axes?a.x:a.y;
+            const double qv=outline_swap_axes?q.x:q.y;
+            const double bv=outline_swap_axes?b.x:b.y;
+            const double denominator=av-2*qv+bv;
+            const double t=denominator!=0.0?(av-qv)/denominator:0.0;
             if(t>0.0 && t<1.0) {
                 point u{a.x+(q.x-a.x)*t,a.y+(q.y-a.y)*t,true};
                 point v{q.x+(b.x-q.x)*t,q.y+(b.y-q.y)*t,true};
                 point p{u.x+(v.x-u.x)*t,u.y+(v.y-u.y)*t,true};
-                /* At the exact quadratic Y extremum both incident controls
-                 * share that height; retain the common analytic value. */
-                u.y=v.y=p.y;
+                // At the exact extremum the incident controls share its
+                // ordinate. Retain that equality through cubic conversion.
+                if(outline_swap_axes)u.x=v.x=p.x;
+                else u.y=v.y=p.y;
                 cubic(a,u,p);cubic(p,v,b);
             } else cubic(a,q,b);
         };
@@ -850,22 +857,22 @@ class source_outline_reader final : public source_text_outlines {
     static std::vector<graphics> saved_graphics(const std::vector<source_text_seed>& saved)
     {std::vector<graphics> result;for(auto const& g:saved) {QP_TEXT_STACK_GROW(result);result.push_back(outline_graphics(g));}return result;}
 public:
-    source_outline_reader(Obj resources,double left,double bottom,double height,source_text_seed seed,
+    source_outline_reader(Obj resources,double left,double bottom,double height,bool swap_axes,source_text_seed seed,
                           const std::vector<source_text_seed>& saved,
                           source_mixed_callbacks callbacks) :
         p(),tokens(p,resources,outline_graphics(seed),0u,saved_graphics(saved))
-    {p.outline_mode=true;p.outline_left=left;p.outline_bottom=bottom;p.outline_height=height;p.source_mixed=callbacks;}
+    {p.outline_mode=true;p.outline_left=left;p.outline_bottom=bottom;p.outline_height=height;p.outline_swap_axes=swap_axes;p.source_mixed=callbacks;}
     quantapdf_status consume(Obj object) override {return outline_result([&]{tokens.handleObject(object);});}
     quantapdf_status finish() override {return outline_result([&]{tokens.handleEOF();});}
     const std::vector<source_outline_paint>& paints() const override {return p.outline_paints;}
 };
 }
 quantapdf_status make_source_text_outlines(
-    QPDFObjectHandle resources,double left,double bottom,double height,source_text_seed seed,
+    QPDFObjectHandle resources,double left,double bottom,double height,bool swap_axes,source_text_seed seed,
     const std::vector<source_text_seed>& saved,
     source_mixed_callbacks callbacks,std::unique_ptr<source_text_outlines>& out)
 {
-    return outline_result([&]{out=std::make_unique<source_outline_reader>(resources,left,bottom,height,seed,saved,callbacks);});
+    return outline_result([&]{out=std::make_unique<source_outline_reader>(resources,left,bottom,height,swap_axes,seed,saved,callbacks);});
 }
 }
 

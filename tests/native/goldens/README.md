@@ -66,6 +66,33 @@ quadratic roots. CI compares complete public RGB and native RGBA images;
 fontTools is not a production or CI runtime dependency. See
 `docs/conformance/native-truetype-text-m0.md` for scope and failure gates.
 
+`roboto-hello-{72,144}-m0-rotate{90,180,270}.rgba.z` and
+`roboto-hello-96-m0-rotate90.rgba.z` cover original page `/Rotate`.
+Each file is lossless zlib-compressed RGBA, using the existing test zlib
+dependency. References rotate original quadratic coordinates before solving
+roots, preserving the physical viewport before device ceil. At 96 DPI,
+rotating an old Bitmap changes the sample phase. At 144 DPI, exact boundary
+samples can also change their half-open membership after original rotation,
+even though the page extents are whole pixels. Display rotation retains its
+separate lossless Bitmap semantics. All seven references are identical at
+60 and 80 Decimal digits; the three old Hello goldens are unchanged.
+
+| DPI / original Rotate | Decoded dimensions | Decoded bytes | Decoded SHA256 |
+| --- | --- | --- | --- |
+| 72 / 90 | 64 x 128 | 32768 | `5538f86b44d95b1cc1b57c94ff5cfbfd6bb38140a7ecf455f391067c3d613d04` |
+| 72 / 180 | 128 x 64 | 32768 | `891c886bf5c1e77500b78cd7e073a00a1763a35cd5843bbea437339bf3c4cb5a` |
+| 72 / 270 | 64 x 128 | 32768 | `7760eff600ead9ec31f69ee1cc27e07e5706f1f7ddb38678e70f4382f0ec2762` |
+| 96 / 90 | 86 x 171 | 58824 | `7c2adf26f139fee010b81cd829f040016ec9ee852da0a9883487d2db0e785795` |
+| 144 / 90 | 128 x 256 | 131072 | `e9b2d8eb37a5611b28b039d25c2c60d1bcea62aacb3e7700b180f88e49b565a9` |
+| 144 / 180 | 256 x 128 | 131072 | `4a25a7c5f85991f58f699897d882f19d4449b4606a86bff0f65f6324ff4f4fda` |
+| 144 / 270 | 128 x 256 | 131072 | `79a1ea135e6e084d4a2e052f60d2b42802457e0f2e3ea75e34826cb61a678dea` |
+
+For example, reproduce the 96-DPI reference with:
+
+```sh
+python tools/qualification/native_ttf_reference.py --case hello --dpi 96 --rotation 90 --compress --output-dir /tmp/ttf-reference
+```
+
 
 ## Rectangle and TrueType M1
 

@@ -11,6 +11,7 @@ from decimal import Decimal as D, getcontext, ROUND_CEILING
 from pathlib import Path
 import argparse
 import hashlib
+import zlib
 from fontTools.ttLib import TTFont
 from fontTools.pens.basePen import BasePen
 
@@ -112,13 +113,37 @@ def fixture(case, font):
                 x -= 8  # same-Tj overlap: preserve each original glyph paint
 
 
-def sample_mask(edges, dpi):
+def turned_edges(edges, rotation):
+    """Rotate original quadratic coordinates before solving scanline roots."""
+    def point(p):
+        x, y = p
+        return {0: (x, y), 90: (64-y, x),
+                180: (128-x, 64-y), 270: (y, 128-x)}[rotation]
+    for edge in edges:
+        transformed = tuple(map(point, edge))
+        if len(edge) == 2:
+            yield transformed
+            continue
+        a, q, b = transformed
+        den = a[1]-2*q[1]+b[1]
+        t = (a[1]-q[1])/den if den else D(0)
+        if 0 < t < 1:
+            u = tuple(a[i]+(q[i]-a[i])*t for i in (0, 1))
+            v = tuple(q[i]+(b[i]-q[i])*t for i in (0, 1))
+            c = tuple(u[i]+(v[i]-u[i])*t for i in (0, 1))
+            yield a, u, c
+            yield c, v, b
+        else:
+            yield transformed
+
+
+def sample_mask(edges, dpi, width_points=128, height_points=64):
     """One original glyph's exact 4x4 membership, before alpha rounding."""
-    width, height = (128*dpi+71)//72, (64*dpi+71)//72
+    width, height = (width_points*dpi+71)//72, (height_points*dpi+71)//72
     masks = [0]*(width*height)
     for row in range(height*4):
         y = D(2*row+1)*72/(8*dpi)
-        if y >= 64:
+        if y >= height_points:
             continue
         events = sorted(v for e in edges if (v := crossing(e, y)) is not None)
         winding, event = 0, 0
@@ -127,16 +152,18 @@ def sample_mask(edges, dpi):
             while event < len(events) and events[event][0] <= x:
                 winding += events[event][1]
                 event += 1
-            if winding and x < 128:
+            if winding and x < width_points:
                 masks[(row//4)*width+col//4] |= 1 << (4*(row%4)+col%4)
     return masks
 
 
-def render(case, dpi, font):
-    width, height = (128*dpi+71)//72, (64*dpi+71)//72
+def render(case, dpi, font, rotation=0):
+    wp, hp = (64, 128) if rotation in (90, 270) else (128, 64)
+    width, height = (wp*dpi+71)//72, (hp*dpi+71)//72
     pixels = bytearray([255])*(width*height*4)
     for edges, color in fixture(case, font):
-        for i, mask in enumerate(sample_mask(edges, dpi)):
+        oriented = list(turned_edges(edges, rotation)) if rotation else edges
+        for i, mask in enumerate(sample_mask(oriented, dpi, wp, hp)):
             n = mask.bit_count()
             for ch in range(3):
                 pixels[4*i+ch] = (color[ch]*n+pixels[4*i+ch]*(16-n)+8)//16
@@ -148,20 +175,29 @@ def main():
     parser.add_argument('--output-dir', type=Path, required=True)
     cases = ('hello', 'layers', 'tj', 'fringe', 'mixed', 'reverse', 'background', 'late')
     parser.add_argument('--case', action='append', choices=cases)
+    parser.add_argument('--dpi', type=int, action='append', choices=(72, 96, 144))
+    parser.add_argument('--rotation', type=int, default=0, choices=(0, 90, 180, 270))
+    parser.add_argument('--compress', action='store_true', help='write lossless zlib-compressed RGBA with .z suffix')
     parser.add_argument('--sample-masks', action='store_true',
                         help='also write five Hello glyph layers as little-endian uint16 masks')
     args = parser.parse_args()
+    if args.sample_masks and args.rotation:
+        parser.error('--sample-masks requires the original zero rotation')
     assert hashlib.sha256(FONT.read_bytes()).hexdigest() == SHA
     font = TTFont(FONT)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     for case in args.case or cases:
-        for dpi in (72, 96, 144):
-            data = render(case, dpi, font)
-            out = args.output_dir / f'roboto-{case}-{dpi}-m{1 if case in ("mixed","reverse","background","late") else 0}.rgba'
+        for dpi in args.dpi or (72, 96, 144):
+            data = render(case, dpi, font, args.rotation)
+            suffix = f'-rotate{args.rotation}' if args.rotation else ''
+            out = args.output_dir / f'roboto-{case}-{dpi}-m{1 if case in ("mixed","reverse","background","late") else 0}{suffix}.rgba'
+            if args.compress:
+                data = zlib.compress(data, 9)
+                out = out.with_suffix('.rgba.z')
             out.write_bytes(data)
             print(out.name, len(data), hashlib.sha256(data).hexdigest())
     if args.sample_masks:
-        for dpi in (72, 96, 144):
+        for dpi in args.dpi or (72, 96, 144):
             layers = [sample_mask(edges, dpi) for edges, _ in fixture('hello', font)]
             assert len(layers) == 5
             data = b''.join(mask.to_bytes(2, 'little') for layer in layers for mask in layer)

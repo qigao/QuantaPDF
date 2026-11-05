@@ -4149,6 +4149,7 @@ static int native_seventh_userunit_late_refusal_cases(
 #include "native_ordered_scene_cases.h"
 #include "native_ordered_clip_cases.h"
 #include "native_clip_graph_cases.h"
+#include "native_page_text_cases.h"
 #include "native_ttf_graph_cases.h"
 #include "native_composer_state_cases.h"
 #include "native_composer_geometry_cases.h"
@@ -4181,6 +4182,12 @@ int main(int argc,char **argv)
         return clip_graph_cases(filename,6u);
     if(argc==2 && std::strcmp(argv[1],"--crop-text-page")==0)
         return clip_graph_cases(filename,7u);
+    if(argc==2 && std::strcmp(argv[1],"--page-text-transform")==0)
+        return clip_graph_cases(filename,8u);
+    if(argc==2 && std::strcmp(argv[1],"--page-text-unit")==0)
+        return clip_graph_cases(filename,9u);
+    if(argc==2 && std::strcmp(argv[1],"--page-text-curves")==0)
+        return page_text_curve_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--fractional-clip")==0)
         return path_commands_cases(filename,true,12u);
     if(argc==2 && std::strcmp(argv[1],"--text-paths")==0)
