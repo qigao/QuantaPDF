@@ -38,8 +38,12 @@ static int path_commands_cases(const std::string& filename,bool multi=false,unsi
             const quantapdf_render_options options{float(dpi),0.0f,0,{},0};
             CHECK(input_matches(page->document));
             const auto error=quantapdf_render_page_with_options(page,&options,&held[slot]);
-            if(error!=QUANTAPDF_OK)std::fprintf(stderr,"long path repeats=%zu primitive=%u clip=%u even=%d restore=%d zeros=%zu dpi=%u status=%d\n",repeats,primitive,clip,int(even),int(restore),zero_commands,dpi,int(error));
-            CHECK(error==QUANTAPDF_OK);OK(quantapdf_bitmap_dimensions(held[slot],&w,&h,&stride,&components));
+            if(error!=QUANTAPDF_OK) {
+                std::fprintf(stderr,"long path repeats=%zu primitive=%u clip=%u even=%d restore=%d zeros=%zu dpi=%u status=%d\n",repeats,primitive,clip,int(even),int(restore),zero_commands,dpi,int(error));
+                for(auto bitmap:held)quantapdf_drop_bitmap(bitmap);
+                quantapdf_drop_page(page);return EXIT_FAILURE;
+            }
+            OK(quantapdf_bitmap_dimensions(held[slot],&w,&h,&stride,&components));
             CHECK(w==int(12u*dpi/72u) && h==w && stride==w*3 && components==3);
             OK(quantapdf_bitmap_data(held[slot],&data,&size));const auto expected=native_path_commands::rgb(sample,dpi);
             if(size==expected.size() && std::memcmp(data,expected.data(),size)!=0)for(size_t i=0u;i<size;++i)if(data[i]!=expected[i]) {

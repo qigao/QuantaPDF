@@ -154,8 +154,11 @@ inline original create_states(size_t repeats,unsigned primitive,unsigned clip,bo
     for(size_t i=0u;i<repeats;++i) {
         auto& out=parts[i<repeats/2u?1u:2u];
         const size_t tail=i+1u==repeats?zeros:0u;
+        int shift=0;
+        const auto continuation=[&]() {out+="q 1 0 0 1 3 0 cm\n";shift=3;};
         const auto polygon=[&](bool move,bool reverse) {
-            std::array<std::string,4> v={"2 2","10 2","10 10","2 10"};
+            const auto left=std::to_string(2-shift),right=std::to_string(10-shift);
+            std::array<std::string,4> v={left+" 2",right+" 2",right+" 10",left+" 10"};
             if(reverse)std::reverse(v.begin()+1,v.end());
             if(move)out+=v[0]+" m\n";
             for(size_t j=1u;j<v.size();++j)out+=segment(v[j-1u],v[j]);
@@ -169,11 +172,11 @@ inline original create_states(size_t repeats,unsigned primitive,unsigned clip,bo
         if(kind==2u) {out+="2 2 m 2 2 2 2 2 2 c h h\n";result.commands+=3u;}
         if(kind==3u) {out+="2 2 0 8 re h h\n";result.commands+=5u;}
         if(kind<=3u)result.contours.push_back({2,2,2,2,false,false});
-        if(kind==4u) {out+="2 2 m h h\n";result.commands+=2u;polygon(false,false);}
-        if(kind==5u) {out+="2 2 m 10 2 l h h\n";result.commands+=3u;polygon(false,false);}
+        if(kind==4u) {out+="2 2 m h h\n";result.commands+=2u;continuation();polygon(false,false);out+="Q\n";}
+        if(kind==5u) {out+="2 2 m 10 2 l h h\n";result.commands+=3u;continuation();polygon(false,false);out+="Q\n";}
         if(kind==6u) {out+="11 11 m\n";result.commands+=2u;polygon(true,false);}
         if(kind==7u) {out+="2 2 0 8 re h h\n";result.commands+=5u;polygon(true,false);}
-        if(kind==8u) {out+="2 2 m 2 2 2 2 2 2 c h h\n";result.commands+=3u;polygon(false,false);}
+        if(kind==8u) {out+="2 2 m 2 2 2 2 2 2 c h h\n";result.commands+=3u;continuation();polygon(false,false);out+="Q\n";}
         if(kind==9u) {out+="f f*\n";polygon(true,false);}
         if(kind==10u) {out+="2 2 8 0 re h h\n";result.commands+=5u;polygon(true,false);}
         if(kind==11u) {polygon(true,false);polygon(false,true);}

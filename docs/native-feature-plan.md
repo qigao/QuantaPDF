@@ -384,6 +384,9 @@
   与后续命令，不插入另一套解析或按图形组合选择 route；`v` 的第一控制点直接继承
   已暂存的当前点，不重新应用后来变化的 CTM。依据为 PDF 32000-1:2008 的表 59，
   以及 [PDF Reference 1.7 §4.4](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf)。
+- 普通 Path 的端点与 cubic 控制点使用同一有限四分之一点坐标包络，不再要求
+  完整 Media 页面的点位于可见页内。曲线保留实际页外控制点，C11 在采样时裁剪
+  可见覆盖；没有先夹紧或改写曲线，也没有扩大 C11 的坐标/实际工作预算。
 - MOVE-only、单线、单个 cubic、零宽/高 `re` 与被后续 `m` 替代的空子路径可闭合；
   `f/f*` 聚合所有轮廓的真实 winding，零面积子路径不产生颜色。空路径的 `f/f*`
   没有保留绘制；C11 删除在 Fill/Clip 间切换空几何准入的多余参数，直接按 winding
@@ -392,7 +395,7 @@
 - `native_empty_subpaths`、`native_close_current_point`、`native_continued_subpaths`
   复用现有公开测试可执行文件，分组保持各项 45 秒期限；以独立矩形有理数参考核对
   完整 RGB，覆盖非零/奇偶、c/v/y、正反绕行抵消、隐式新子路径、空 f/f*、Clip、q/Q、
-  三个 DPI、多编码 Contents、AES-256/错误密码、第二页及 Document/Page/Context
+  h 后改变 CTM、三个 DPI、多编码 Contents、AES-256/错误密码、第二页及 Document/Page/Context
   释放后的 Bitmap。真实单 cubic 的例子完整包围原始矩形 Clip，核对其内部实际覆盖，
   不把 renderer 输出当作 golden，也不声称任意曲线边缘的精确像素一致性。
 - `native_path_state_oom` 复用 Source/OOM 可执行文件，拒绝实际 vector 扩容、

@@ -1875,12 +1875,10 @@ private:
             if(!target.ordered_scene())target.text_prefix_precision=true;
             return {static_cast<float>(absolute_x),static_cast<float>(py)};
         }
-        const double ix=target.crop_viewport?
-            whole_signed_source(absolute_x):
-            (double)whole(absolute_x,target.page_w);
-        const double iy=target.crop_viewport?
-            whole_signed_source(absolute_y):
-            (double)whole(absolute_y,target.page_h);
+        // Path endpoints and Bezier controls may lie outside the viewport.
+        // Keep their geometry; the native sampler clips visible coverage.
+        const double ix=whole_signed_source(absolute_x);
+        const double iy=whole_signed_source(absolute_y);
         return {static_cast<float>(ix),static_cast<float>(
             (target.exact_page_h>0.0?
                 target.exact_page_h:(double)target.page_h)-iy)};
