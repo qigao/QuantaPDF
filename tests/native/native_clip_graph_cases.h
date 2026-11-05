@@ -10,13 +10,16 @@ static int clip_graph_cases(const std::string& filename,unsigned group=0u)
 {
     using bitmap_owner=std::unique_ptr<quantapdf_bitmap,decltype(&quantapdf_drop_bitmap)>;
     size_t renders=0u,errors=0u,turns=0u;
-    const std::vector<unsigned> dpis=group==6u?std::vector<unsigned>{1u,23u,72u,73u,96u,113u,144u,300u}:
+    const std::vector<unsigned> dpis=group==7u?std::vector<unsigned>{23u,72u,96u,113u,300u}:
+        group==6u?std::vector<unsigned>{1u,23u,72u,73u,96u,113u,144u,300u}:
         group==4u?std::vector<unsigned>{1u,23u,71u,73u,110u}:
         group==5u?std::vector<unsigned>{113u,120u,150u,300u}:std::vector<unsigned>{72u,96u,144u};
     const auto exercise=[&](native_clip_graph::options opt,bool encrypted)->int {
         const auto sample=native_clip_graph::create(opt,encrypted);
-        if(opt.glyph_fringe)
+        if(opt.glyph_fringe && (sample.width_ticks%16!=0 || sample.height_ticks%16!=0))
             CHECK(native_clip_graph::rgb(sample,300u)!=native_clip_graph::rgb(sample,300u,true));
+        if(group==7u && (sample.absolute_left!=0 || sample.absolute_bottom!=0))
+            CHECK(native_clip_graph::rgb(sample,300u)!=native_clip_graph::rgb(sample,300u,false,true));
         if(opt.sparse && opt.leaves>=65u && !opt.empty) {
             auto truncated=sample;
             for(auto& p:truncated.paints)if(p.clips.size()==opt.leaves)p.clips.pop_back();
@@ -167,7 +170,7 @@ static int clip_graph_cases(const std::string& filename,unsigned group=0u)
             opt.fringe=true;opt.empty=order==3u;opt.leaves=scene==1u?3u:4u;
             CHECK(exercise(opt,encrypted)==EXIT_SUCCESS);
         }
-    } else {
+    } else if(group==6u) {
         for(auto page:std::array<std::array<int,2>,4>{{{188,180},{196,204},{192,188},{196,192}}})
         for(unsigned scene:{0u,2u})for(unsigned order:{0u,3u})for(bool encrypted:{false,true}) {
             native_clip_graph::options opt;opt.scene=scene;opt.order=order;opt.primitive=order==0u?0u:4u;
@@ -178,6 +181,18 @@ static int clip_graph_cases(const std::string& filename,unsigned group=0u)
         for(unsigned primitive:{0u,4u})for(bool encrypted:{false,true}) {
             native_clip_graph::options opt;opt.leaves=65u;opt.sparse=true;opt.order=2u;opt.primitive=primitive;
             opt.width_ticks=page[0];opt.height_ticks=page[1];opt.fringe=true;opt.glyph_fringe=true;
+            CHECK(exercise(opt,encrypted)==EXIT_SUCCESS);
+        }
+    } else {
+        for(unsigned geometry=0u;geometry<7u;++geometry)for(unsigned scene:{0u,2u,3u})
+        for(unsigned order:{0u,3u})for(bool encrypted:{false,true}) {
+            native_clip_graph::options opt;opt.scene=scene;opt.order=order;opt.primitive=order==0u?0u:4u;
+            opt.empty=order==3u;opt=native_clip_graph::viewport_case(opt,geometry);
+            CHECK(exercise(opt,encrypted)==EXIT_SUCCESS);
+        }
+        for(unsigned geometry=0u;geometry<7u;++geometry)for(bool encrypted:{false,true}) {
+            native_clip_graph::options opt;opt.leaves=65u;opt.sparse=true;opt.order=2u;opt.primitive=4u;
+            opt=native_clip_graph::viewport_case(opt,geometry);
             CHECK(exercise(opt,encrypted)==EXIT_SUCCESS);
         }
     }
@@ -197,8 +212,8 @@ static int clip_graph_cases(const std::string& filename,unsigned group=0u)
             CHECK(status==(invalid>=1 && invalid<=3?QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED) && bitmap==nullptr);++errors;
         }
     }
-    CHECK(renders==(group==6u?320u:group==5u?128u:group==4u?160u:group==3u?204u:group==2u?90u:288u) &&
-          errors==(group==4u || group==5u?16u:group==0u?30u:0u) && turns==(group==6u?24u:group>=4u?12u:0u));
+    CHECK(renders==(group==7u?490u:group==6u?320u:group==5u?128u:group==4u?160u:group==3u?204u:group==2u?90u:288u) &&
+          errors==(group==4u || group==5u?16u:group==0u?30u:0u) && turns==(group==7u?63u:group==6u?24u:group>=4u?12u:0u));
     std::printf("Clip graph group %u: %zu independent RGB renders, %zu display turns, nested/sibling/fan-out/mixed roots, real Text/Fill/Image, definition CTM, wide identities, selected encrypted split pages and detached Bitmaps; %zu atomic errors\n",group,renders,turns,errors);
     return EXIT_SUCCESS;
 }

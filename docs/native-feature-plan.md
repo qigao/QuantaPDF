@@ -573,6 +573,27 @@
   非零原点／Crop、原始 Rotate、非默认 UserUnit 的文字组合，以及 Image affine、
   通用 Stroke、非整数 DPI 和字体能力继续开放。本地仅静态检查，不运行 Native。
 
+### A2 非零原点与 CropBox 文字 Scene：当前开发增量
+
+- 已验收起点为 #625 的 `e31ae678`，tree `4909002a8994501409e941d9ca42a4de5acd4471`；
+  [CI #2475](https://github.com/qigao/QuantaPDF/actions/runs/42050059258) 四配置各 129/129。
+  本节须由新精确 HEAD 验收，仍为 Draft、未合并或发布。
+- 文字轮廓使用与 Path/Image/Clip 相同的原始可见视口原点；不再要求页面零原点或
+  CropBox 与 MediaBox 相同。仅在轮廓投影时减去视口左／下边界，并围绕真实视口高度
+  翻转 Y；文字解释器的 CTM 和 q/Q 状态保持原 PDF 坐标，BT 后的路径、图像和 Clip
+  回调继续原位冻结，不能重复归一化。
+- 七类页面几何包括正负原点、内部 Crop、与 Media 相交／包围 Media 的 Crop、继承的
+  MediaBox/CropBox 和零原点 Crop。公开新项在五个整数 DPI 比较 490 次独立全 RGB、
+  63 次非方形显示旋转，覆盖真实 Roboto 字形／RAW Image／Fill、多根及 65 叶 Clip、
+  空叶、右下边缘字形、加密／错误密码／多编码 Contents／选页和 detached Bitmap。
+  有理数参考从原始作者坐标选择采样点与 texel，并证明遗漏字形原点平移会改变像素。
+- 新 Source/OOM 使用内部 Crop 和继承负原点 Crop，在原文档销毁后执行 24 次独立
+  RGBA、逐次 Source C 发布和 C11 malloc 故障、不可变 IR，以及实际内存／操作／边／
+  采样／Image／像素 N/N−1。公开／OOM 期限仍为 45/40 秒，公开 1M 像素预算保留。
+- 本增量仍使用既有四分之一点页面格式、原始 Rotate=0 和 UserUnit=1；原始旋转、
+  非默认 UserUnit 的文字组合、一般十进制、Image affine、通用 Stroke、非整数 DPI
+  与字体能力继续开放。本地仅静态检查，不运行 Native。
+
 ## 单一执行模型
 
 ```mermaid

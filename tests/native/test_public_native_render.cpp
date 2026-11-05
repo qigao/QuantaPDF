@@ -4179,6 +4179,8 @@ int main(int argc,char **argv)
         return clip_graph_cases(filename,5u);
     if(argc==2 && std::strcmp(argv[1],"--fractional-text-page")==0)
         return clip_graph_cases(filename,6u);
+    if(argc==2 && std::strcmp(argv[1],"--crop-text-page")==0)
+        return clip_graph_cases(filename,7u);
     if(argc==2 && std::strcmp(argv[1],"--fractional-clip")==0)
         return path_commands_cases(filename,true,12u);
     if(argc==2 && std::strcmp(argv[1],"--text-paths")==0)

@@ -343,10 +343,10 @@ struct admission {
     std::array<staged_image_clip,3u> three_branch_leaves{};
     size_t three_branch_count=0u;
 
-    /* Normalize the media origin and retain the exact Crop viewport while
+    /* Normalize the visible viewport origin and retain its exact size while
      * charging full authored placements against the page-work budgets. */
-    double media_left=0.0;
-    double media_bottom=0.0;
+    double viewport_left=0.0;
+    double viewport_bottom=0.0;
 
     bool crop_viewport=false;
     double exact_page_w=0.0,exact_page_h=0.0;
@@ -533,10 +533,10 @@ struct admission {
          * MediaBox has nonzero origin. Subtract the fully admitted
          * original lower-left corner BEFORE bounds, texture sampling
          * work and RGB/Clip compositing. Never alter the original CTM. */
-        const double ax0=ctm[4]-media_left;
-        const double ax1=ctm[4]+ctm[0]-media_left;
-        const double ay0=ctm[5]-media_bottom;
-        const double ay1=ctm[5]+ctm[3]-media_bottom;
+        const double ax0=ctm[4]-viewport_left;
+        const double ax1=ctm[4]+ctm[0]-viewport_left;
+        const double ay0=ctm[5]-viewport_bottom;
+        const double ay1=ctm[5]+ctm[3]-viewport_bottom;
         /* A cropped original IMAGE still owns its complete XObject
          * sample footprint. Its off-canvas edges are not clipped or
          * rescaled before nearest-sample lookup. The viewport C11
@@ -712,7 +712,7 @@ public:
                 scoped_saved.push_back({state.ctm,state.fill,state.clip});
             }
             const auto setup=quantapdf::detail::make_source_text_outlines(
-                target.resources,target.exact_page_h,
+                target.resources,target.viewport_left,target.viewport_bottom,target.exact_page_h,
                 {current,fill_argb,clip_active},
                 scoped_saved,
                 {this,
@@ -873,7 +873,7 @@ public:
                target.order.empty() && target.draws.empty() &&
                target.exact_page_w==600.0 &&
                target.exact_page_h==600.0 &&
-               target.media_left==0.0 && target.media_bottom==0.0 &&
+               target.viewport_left==0.0 && target.viewport_bottom==0.0 &&
                current[0]==1.0 && current[1]==0.0 &&
                current[2]==0.0 && current[3]==-1.0 &&
                current[4]==0.0 && current[5]==600.0)
@@ -1485,9 +1485,9 @@ private:
                   std::fabs(x*100000.0-std::round(x*100000.0))<0.0001 &&
                   std::fabs(y*100000.0-std::round(y*100000.0))<0.0001,
                   QUANTAPDF_ERROR_UNSUPPORTED);
-            const double px=current[4]+x-target.media_left;
+            const double px=current[4]+x-target.viewport_left;
             const double py=target.exact_page_h-
-                (current[5]+y-target.media_bottom);
+                (current[5]+y-target.viewport_bottom);
             admit(std::isfinite(px) && std::isfinite(py) &&
                   px>=0.0 && px<=target.exact_page_w &&
                   py>=0.0 && py<=target.exact_page_h,
@@ -1503,9 +1503,9 @@ private:
                current[1]==0.0 && current[2]==0.0),
               QUANTAPDF_ERROR_UNSUPPORTED);
         const double absolute_x=
-            current[0]*x+current[4]-target.media_left;
+            current[0]*x+current[4]-target.viewport_left;
         const double absolute_y=
-            current[3]*y+current[5]-target.media_bottom;
+            current[3]*y+current[5]-target.viewport_bottom;
         // Path endpoints and Bezier controls may lie outside the viewport.
         // Keep their geometry; the native sampler clips visible coverage.
         const double py=target.exact_page_h-absolute_y;
@@ -2110,7 +2110,7 @@ quantapdf_ir materialize_three_branch_source(const admission& source)
           source.scoped_clip_membership.size()==3u &&
           source.limits.max_operations>=3u &&
           source.exact_page_w==600.0 && source.exact_page_h==600.0 &&
-          source.media_left==0.0 && source.media_bottom==0.0 &&
+          source.viewport_left==0.0 && source.viewport_bottom==0.0 &&
           !source.crop_viewport &&
           nested_rectangles(source.three_branch_leaves[0].commands) &&
           source.three_branch_leaves[0].rule==
@@ -2649,12 +2649,12 @@ static quantapdf_status source_page_to_ir_impl(
         admission source(resources,*limits,page_w,page_h);
         source.texample_public_eligible=exact.ticks_per_point==1000u && full_media &&
             geo.rotation==0 && user_quarters==4u;
-        source.text_outlines_eligible=full_media && exact.ticks_per_point==4u &&
-            geo.rotation==0 && user_quarters==4u && geo.left==0.0 && geo.bottom==0.0;
+        source.text_outlines_eligible=exact.ticks_per_point==4u &&
+            geo.rotation==0 && user_quarters==4u;
         source.exact_page_w=(double)(exact.visible[2]-exact.visible[0])/(double)exact.ticks_per_point;
         source.exact_page_h=(double)(exact.visible[3]-exact.visible[1])/(double)exact.ticks_per_point;
-        source.media_left=geo.left;
-        source.media_bottom=geo.bottom;
+        source.viewport_left=geo.left;
+        source.viewport_bottom=geo.bottom;
         /* The opt-in signed/quarter-aware SOURCE staging is required
          * for nonzero fractional origins EVEN when CropBox==MediaBox.
          * The inherited strict integer branch remains unchanged for

@@ -19,6 +19,9 @@ struct options {
     unsigned scene=0u,order=0u,primitive=0u,leaves=4u;
     bool empty=false,prefix=true,sparse=false,fringe=false,glyph_fringe=false;
     int width_ticks=192,height_ticks=192;
+    int media_left=0,media_bottom=0;
+    bool crop=false,inherited_geometry=false;
+    region crop_box{};
     size_t unused=0u,contours=1u,zeros=0u,depth=0u;
 };
 struct original {
@@ -26,16 +29,41 @@ struct original {
     size_t decoded_bytes=0u,operations=0u,images=0u,glyphs=0u;
     size_t leaves=0u,nodes=0u,states=0u;
     int width_ticks=192,height_ticks=192;
+    int viewport_left=0,viewport_bottom=0,absolute_left=0,absolute_bottom=0;
     std::vector<paint> paints;
 };
+inline options viewport_case(options opt,unsigned kind)
+{
+    opt.fringe=true;opt.glyph_fringe=true;
+    switch(kind) {
+    case 0u:opt.media_left=36;opt.media_bottom=-20;opt.width_ticks=188;opt.height_ticks=180;break;
+    case 1u:opt.media_left=-116;opt.media_bottom=12;opt.width_ticks=196;opt.height_ticks=204;opt.inherited_geometry=true;break;
+    case 2u:opt.crop=true;opt.crop_box={20,28,180,188};break;
+    case 3u:opt.media_left=-88;opt.media_bottom=-44;opt.width_ticks=196;opt.height_ticks=204;
+        opt.crop=true;opt.crop_box={28,20,184,196};opt.inherited_geometry=true;break;
+    case 4u:opt.media_left=36;opt.media_bottom=20;opt.width_ticks=188;opt.height_ticks=180;
+        opt.crop=true;opt.crop_box={-16,-24,176,196};break;
+    case 5u:opt.media_left=-52;opt.media_bottom=28;opt.width_ticks=196;opt.height_ticks=192;
+        opt.crop=true;opt.crop_box={-20,-12,212,216};opt.inherited_geometry=true;break;
+    case 6u:opt.width_ticks=196;opt.height_ticks=204;opt.crop=true;opt.crop_box={0,0,184,188};break;
+    default:throw std::runtime_error("invalid viewport fixture");
+    }
+    return opt;
+}
 inline original create(options opt,bool encrypted,int invalid=0)
 {
     auto pdf=QPDF::create();const auto base=native_ttf_fixture();
     pdf->processMemoryFile("Clip graph original",base.data(),base.size());
     auto root=pdf->getRoot().getKey("/Pages"),page=root.getKey("/Kids").getArrayItem(0);
     auto resources=page.getKey("/Resources");root.replaceKey("/Resources",resources);page.removeKey("/Resources");
-    page.replaceKey("/MediaBox",O::parse("[0 0 "+std::to_string(double(opt.width_ticks)/16.0)+
-        " "+std::to_string(double(opt.height_ticks)/16.0)+"]"));
+    const auto box=[](region r) {return O::parse("["+std::to_string(double(r.left)/16.0)+" "+
+        std::to_string(double(r.bottom)/16.0)+" "+std::to_string(double(r.right)/16.0)+" "+
+        std::to_string(double(r.top)/16.0)+"]");};
+    auto geometry=opt.inherited_geometry?root:page;
+    geometry.replaceKey("/MediaBox",box({opt.media_left,opt.media_bottom,opt.media_left+opt.width_ticks,opt.media_bottom+opt.height_ticks}));
+    if(opt.inherited_geometry)page.removeKey("/MediaBox");
+    if(opt.crop)geometry.replaceKey("/CropBox",box({opt.media_left+opt.crop_box.left,opt.media_bottom+opt.crop_box.bottom,
+        opt.media_left+opt.crop_box.right,opt.media_bottom+opt.crop_box.top}));
     resources.replaceKey("/ExtGState",O::newDictionary());
     resources.getKey("/Font").replaceKey("/Unused",resources.getKey("/Font").getKey("/F"));
     const std::array<unsigned char,12> samples={255,0,0,0,255,0,0,0,255,255,255,0};
@@ -48,6 +76,7 @@ inline original create(options opt,bool encrypted,int invalid=0)
     resources.replaceKey("/XObject",xobjects);
     auto blank=pdf->makeIndirectObject(O::parse("<< /Type /Page /MediaBox [0 0 5 4] >>"));
     blank.replaceKey("/Parent",root);blank.replaceKey("/Contents",pdf->newStream("\n"));
+    blank.replaceKey("/CropBox",O::parse("[0 0 5 4]"));
     root.replaceKey("/Kids",O::newArray({blank,page}));root.replaceKey("/Count",O::newInteger(2));
 
     const std::array<region,5> boxes={{{18,22,162,166},{68,44,132,148},
@@ -56,7 +85,16 @@ inline original create(options opt,bool encrypted,int invalid=0)
     const std::array<std::array<unsigned char,3>,3> colors={{{51,102,153},{204,51,102},{102,204,51}}};
     static const unsigned orders[6][3]={{0,1,2},{0,2,1},{1,0,2},{1,2,0},{2,0,1},{2,1,0}};
     original result;result.width_ticks=opt.width_ticks;result.height_ticks=opt.height_ticks;
+    if(opt.crop) {
+        result.viewport_left=std::max(0,opt.crop_box.left);result.viewport_bottom=std::max(0,opt.crop_box.bottom);
+        result.width_ticks=std::min(opt.width_ticks,opt.crop_box.right)-result.viewport_left;
+        result.height_ticks=std::min(opt.height_ticks,opt.crop_box.top)-result.viewport_bottom;
+    }
+    result.absolute_left=opt.media_left+result.viewport_left;result.absolute_bottom=opt.media_bottom+result.viewport_bottom;
     std::string content;std::vector<region> active;
+    const bool translated=opt.media_left!=0 || opt.media_bottom!=0 || opt.crop;
+    if(translated)content="q 1 0 0 1 "+std::to_string(double(opt.media_left)/16.0)+" "+
+        std::to_string(double(opt.media_bottom)/16.0)+" cm ";
     std::vector<std::vector<region>> saved;
     size_t root_id=0u,next_id=0u;std::vector<size_t> saved_ids,observed_roots;
     const auto save=[&]() {content+="q ";saved.push_back(active);saved_ids.push_back(root_id);};
@@ -152,13 +190,15 @@ inline original create(options opt,bool encrypted,int invalid=0)
         }
     }
     if(opt.glyph_fringe) {
-        for(auto at:std::array<std::array<int,2>,2>{{{opt.width_ticks-4,96},{20,-12}}}) {
+        for(auto at:std::array<std::array<int,2>,2>{{{result.viewport_left+result.width_ticks-4,result.viewport_bottom+96},
+                                                  {result.viewport_left+20,result.viewport_bottom-12}}}) {
             content+="q 0 g BT /F 2 Tf "+std::to_string(double(at[0])/16.0)+" "+
                 std::to_string(double(at[1])/16.0)+" Td <0051> Tj ET Q ";
             paint glyph{};glyph.glyph=true;glyph.bounds={at[0],at[1],at[0],at[1]+24};
             result.paints.push_back(glyph);++result.operations;++result.glyphs;
         }
     }
+    if(translated)content+="Q ";
     if(invalid==1)content+="Q ";
     if(invalid==2)content+="/Missing Do ";
     if(invalid==3)content+="2 2 m BT ET ";
@@ -186,7 +226,7 @@ inline size_t width(const original& source,unsigned dpi)
 {return (size_t(source.width_ticks)*dpi+1151u)/1152u;}
 inline size_t height(const original& source,unsigned dpi)
 {return (size_t(source.height_ticks)*dpi+1151u)/1152u;}
-inline std::vector<unsigned char> rgb(const original& source,unsigned dpi,bool truncate_glyph_viewport=false)
+inline std::vector<unsigned char> rgb(const original& source,unsigned dpi,bool truncate_glyph_viewport=false,bool omit_glyph_origin=false)
 {
     const size_t w=width(source,dpi),h=height(source,dpi);
     const int64_t unit=128ll*dpi;
@@ -197,22 +237,26 @@ inline std::vector<unsigned char> rgb(const original& source,unsigned dpi,bool t
     for(const auto& p:source.paints)for(size_t y=0u;y<h;++y)for(size_t x=0u;x<w;++x) {
         unsigned hits=0u;
         for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
-            const int64_t px=(8ll*int64_t(x)+2ll*sx+1ll)*1152ll;
-            const int64_t py=int64_t(source.height_ticks)*8ll*dpi-(8ll*int64_t(y)+2ll*sy+1ll)*1152ll;
+            const int64_t px=int64_t(source.viewport_left)*8ll*dpi+(8ll*int64_t(x)+2ll*sx+1ll)*1152ll;
+            const int64_t py=int64_t(source.viewport_bottom+source.height_ticks)*8ll*dpi-(8ll*int64_t(y)+2ll*sy+1ll)*1152ll;
+            const int64_t gx=px-(omit_glyph_origin?int64_t(source.absolute_left)*8ll*dpi:0ll);
+            const int64_t gy=py-(omit_glyph_origin?int64_t(source.absolute_bottom)*8ll*dpi:0ll);
             bool visible=p.glyph?
-                1024*px>=(p.bounds.left*64+156)*unit && 1024*px<(p.bounds.left*64+341)*unit &&
-                    16*py>p.bounds.bottom*unit && 16*py<=p.bounds.top*unit:
+                1024*gx>=(p.bounds.left*64+156)*unit && 1024*gx<(p.bounds.left*64+341)*unit &&
+                    16*gy>p.bounds.bottom*unit && 16*gy<=p.bounds.top*unit:
                 contains(p.bounds,px,py);
-            visible=visible && contains({0,0,source.width_ticks,source.height_ticks},px,py);
+            visible=visible && contains({source.viewport_left,source.viewport_bottom,
+                source.viewport_left+source.width_ticks,source.viewport_bottom+source.height_ticks},px,py);
             if(p.glyph && truncate_glyph_viewport)
-                visible=visible && contains({0,source.height_ticks%16,(source.width_ticks/16)*16,source.height_ticks},px,py);
+                visible=visible && contains({source.viewport_left,source.viewport_bottom+source.height_ticks%16,
+                    source.viewport_left+(source.width_ticks/16)*16,source.viewport_bottom+source.height_ticks},px,py);
             for(const auto& clip:p.clips)visible=visible && contains(clip,px,py);
             hits+=unsigned(visible);
         }
         size_t sample=0u;
         if(p.image) {
-            const int64_t px=(2ll*int64_t(x)+1ll)*576ll;
-            const int64_t py=int64_t(source.height_ticks)*dpi-(2ll*int64_t(y)+1ll)*576ll;
+            const int64_t px=int64_t(source.viewport_left)*dpi+(2ll*int64_t(x)+1ll)*576ll;
+            const int64_t py=int64_t(source.viewport_bottom+source.height_ticks)*dpi-(2ll*int64_t(y)+1ll)*576ll;
             const size_t col=32*px<int64_t(p.bounds.left+p.bounds.right)*16ll*dpi?0u:1u;
             const size_t row=32*py>int64_t(p.bounds.bottom+p.bounds.top)*16ll*dpi?0u:1u;
             sample=2u*row+col;

@@ -37,6 +37,8 @@ struct source_mixed_callbacks {
 };
 /* Reuses the existing observation interpreter on the SAME token callback
  * stream. It never parses/reopens source bytes or returns font/QPDF owners.
+ * Glyph contours alone subtract the original visible viewport origin;
+ * graphics-state CTMs passed to path/image callbacks stay in PDF space.
  * The caller supplies an empty owner; construction failures preserve their
  * status and leave it empty, just like consume/finish. */
 class source_text_outlines {
@@ -47,7 +49,8 @@ public:
     virtual const std::vector<source_outline_paint>& paints() const=0;
 };
 quantapdf_status make_source_text_outlines(
-    QPDFObjectHandle resources,double page_height,source_text_seed initial,
+    QPDFObjectHandle resources,double viewport_left,double viewport_bottom,
+    double page_height,source_text_seed initial,
     const std::vector<source_text_seed>& saved,
     source_mixed_callbacks callbacks,std::unique_ptr<source_text_outlines>& out);
 }

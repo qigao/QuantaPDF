@@ -5602,6 +5602,8 @@ int main(int argc,char **argv)
         return clip_graph_dpi_contracts(limits);
     if(argc==2 && std::strcmp(argv[1],"--fractional-text-page")==0)
         return clip_graph_dpi_contracts(limits,true);
+    if(argc==2 && std::strcmp(argv[1],"--crop-text-page")==0)
+        return clip_graph_dpi_contracts(limits,false,true);
     if(argc==2 && std::strcmp(argv[1],"--fractional-fill")==0)
         return path_commands_source_contracts(limits,true,false,false,false,false,8u);
     if(argc==2 && std::strcmp(argv[1],"--fractional-clip")==0)
