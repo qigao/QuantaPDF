@@ -975,7 +975,7 @@ static int native_m2a_public_text_image_cases(const std::string& filename,
      * All use the same QPDF originals and independent analytic oracle. */
     const std::vector<int> modes=subset==2u?
         std::vector<int>{81,82}:subset==1u?
-        std::vector<int>{66,67}:std::vector<int>{49,50,64,65};
+        std::vector<int>{66,67,70}:std::vector<int>{49,50,54,64,65};
     for(int mode:modes) {
         const auto original=native_ttf_fixture(mode);
         CHECK(write_pdf(filename,original));
@@ -1027,7 +1027,7 @@ static int native_m2a_public_text_image_cases(const std::string& filename,
                                          py>=top && py<bottom);
                 }
                 const unsigned image_alpha=(covered*255u+8u)/16u;
-                const bool with_fill=mode==66 || mode==67 || mode==81 || mode==82;
+                const bool with_fill=mode==66 || mode==67 || mode==70 || mode==81 || mode==82;
                 unsigned filled_samples=0u;
                 if(with_fill)for(unsigned sy=0u;sy<4u;++sy)
                 for(unsigned sx=0u;sx<4u;++sx) {
@@ -1050,7 +1050,7 @@ static int native_m2a_public_text_image_cases(const std::string& filename,
                 const unsigned char *image_rgb=source[iy*2u+ix];
                 unsigned expected[3]={255u,255u,255u};
                 for(unsigned layer=0u;layer<(with_fill?3u:2u);++layer) {
-                    const bool text_first=mode==49 || mode==64 || mode==66 || mode==81;
+                    const bool text_first=mode==49 || mode==54 || mode==64 || mode==66 || mode==70 || mode==81;
                     const bool fill=with_fill && layer==1u;
                     const bool image=text_first?
                         layer==(with_fill?2u:1u):layer==0u;
@@ -1087,7 +1087,7 @@ static int native_m2a_public_text_image_cases(const std::string& filename,
     }
     /* Former profile refusals are real successful PDFs now: unused
      * dictionaries/aliases, additional Fill and repeated Image paints. */
-    constexpr int public_m2a_cases[]={51,52,53,54,55,56,57,58,59,60,61,62,63};
+    constexpr int public_m2a_cases[]={51,52,53,55,56,57,58,59,60,61,62,63};
     for(int mode:public_m2a_cases) {
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         quantapdf_document *doc=nullptr;quantapdf_page *page=nullptr;
@@ -1111,8 +1111,9 @@ static int native_m2b1_public_negatives(const std::string& filename)
 {
     quantapdf_context *ctx=nullptr;
     OK(quantapdf_context_create(&ctx));
-    /* Seven semantic failures and six now-supported paint/resource cases. */
-    constexpr int invalid_m2b1[]={68,69,70,71,72,73,74,75,76,77,78,79,80};
+    /* Semantic failures and now-supported paint/resource cases. The unused
+     * late Clip (70) is covered by the complete independent RGB matrix. */
+    constexpr int invalid_m2b1[]={68,69,71,72,73,74,75,76,77,78,79,80};
     for(int mode:invalid_m2b1) {
         CHECK(write_pdf(filename,native_ttf_fixture(mode)));
         quantapdf_document *doc=nullptr;
@@ -4203,6 +4204,8 @@ int main(int argc,char **argv)
         return composer_state_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--ordered-clip")==0)
         return ordered_clip_cases(filename);
+    if(argc==2 && std::strcmp(argv[1],"--deferred-clip")==0)
+        return ordered_clip_cases(filename,true);
     if(argc==2 && std::strcmp(argv[1],"--ordered-scene")==0)
         return ordered_scene_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--ordered-text")==0)

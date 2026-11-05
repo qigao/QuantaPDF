@@ -6,9 +6,16 @@
 namespace native_ordered_scene {
 using O=QPDFObjectHandle;
 enum class text_presence { glyphs,empty,none };
+struct clip_definition {
+    size_t at=0u;
+    bool after_empty_text=false;
+    unsigned primitive=0u;
+    size_t contours=1u,zeros=0u;
+    bool shifted=false;
+};
 struct paint {double x,y,w,h;std::array<unsigned char,12> colors;bool image;bool clipped=false;};
 struct original {std::string bytes;size_t decoded_bytes=0u,operations=0u,glyphs=0u,images=0u;std::vector<paint> paints;unsigned clip_kind=0u;};
-inline original create(size_t count,size_t letters,unsigned permutation,bool encrypted,size_t depth=0u,int invalid=0,unsigned clip_kind=0u,size_t restore_at=SIZE_MAX,bool omit_images=false,text_presence text_mode=text_presence::glyphs,unsigned path_kind=0u,size_t path_repeats=1u,size_t zeros=0u,bool text_before_path=false,unsigned divisor=1u)
+inline original create(size_t count,size_t letters,unsigned permutation,bool encrypted,size_t depth=0u,int invalid=0,unsigned clip_kind=0u,size_t restore_at=SIZE_MAX,bool omit_images=false,text_presence text_mode=text_presence::glyphs,unsigned path_kind=0u,size_t path_repeats=1u,size_t zeros=0u,bool text_before_path=false,unsigned divisor=1u,clip_definition definition={})
 {
     auto pdf=QPDF::create();const auto base=native_ttf_fixture();
     pdf->processMemoryFile("ordered-scene-authoring",base.data(),base.size());
@@ -24,9 +31,35 @@ inline original create(size_t count,size_t letters,unsigned permutation,bool enc
     resources.replaceKey("/ExtGState",O::newDictionary());
     resources.getKey("/Font").replaceKey("/Unused",resources.getKey("/Font").getKey("/F"));
     original result;result.clip_kind=clip_kind;std::array<std::string,3> parts;parts[0]="q ";
-    if(clip_kind==1u || clip_kind==2u)parts[0]+=std::string("2.25 2.25 7.5 7.5 re ")+(clip_kind==1u?"W n ":"W* n ");
-    if(clip_kind==3u)parts[0]+="2 2 m 10 2 l 8 10 l 2 10 l h W n ";
-    if(clip_kind==4u)parts[0]+="2 2 m W* n ";
+    std::string clip;
+    if(clip_kind==1u || clip_kind==2u)clip=std::string("2.25 2.25 7.5 7.5 re ")+(clip_kind==1u?"W n ":"W* n ");
+    if(clip_kind==3u)clip="2 2 m 10 2 l 8 10 l 2 10 l h W n ";
+    if(clip_kind==4u)clip="2 2 m W* n ";
+    if(definition.primitive!=0u && clip_kind>=1u && clip_kind<=3u) {
+        const std::array<std::array<double,2>,4> vertices=clip_kind==3u?
+            std::array<std::array<double,2>,4>{{{2,2},{10,2},{8,10},{2,10}}}:
+            std::array<std::array<double,2>,4>{{{2.25,2.25},{9.75,2.25},{9.75,9.75},{2.25,9.75}}};
+        const auto point=[&](size_t index) {return std::to_string(vertices[index][0]-(definition.shifted?0.125:0.0))+" "+std::to_string(vertices[index][1]-(definition.shifted?0.375:0.0));};
+        clip=definition.shifted?"q 1 0 0 1 0.125 0.375 cm ":"";
+        for(size_t contour=0u;contour<definition.contours;++contour) {
+            clip+=point(0u)+" m ";
+            for(size_t j=1u;j<vertices.size();++j) {
+                const auto a=point(j-1u),b=point(j);
+                if(definition.primitive==1u)clip+=b+" l ";
+                if(definition.primitive==2u)clip+=a+" "+b+" "+b+" c ";
+                if(definition.primitive==3u)clip+=b+" "+b+" v ";
+                if(definition.primitive==4u)clip+=a+" "+b+" y ";
+            }
+            if(contour+1u==definition.contours)for(size_t z=0u;z<definition.zeros;++z)clip+=point(3u)+" l ";
+            clip+="h ";
+        }
+        // Restoring the construction CTM preserves the current path.
+        if(definition.shifted)clip+="Q ";
+        clip+=clip_kind==2u?"W* n ":"W n ";
+    }
+    if(definition.after_empty_text)parts[0]+="BT ET ";
+    if(definition.at==0u)parts[0]+=clip;
+    bool clipped=clip_kind!=0u && definition.at==0u;
     const std::array<std::array<unsigned char,3>,3> colors={{{51,102,153},{204,51,102},{102,204,51}}};
     const char *rg[]={"0.2 0.4 0.6 rg ","0.8 0.2 0.4 rg ","0.4 0.8 0.2 rg "};
     for(size_t i=0u;i<count;++i) {
@@ -35,7 +68,9 @@ inline original create(size_t count,size_t letters,unsigned permutation,bool enc
         if(i==restore_at) {
             for(size_t q=0u;q<=depth;++q)part+="Q ";
             for(size_t q=0u;q<=depth;++q)part+="q ";
+            clipped=false;
         }
+        if(i!=0u && i==definition.at) {part+=clip;clipped=clip_kind!=0u;}
         const size_t first_paint=result.paints.size();
         const double x=double(i%7u)*1.75-0.5,y=double((i/7u)%7u)*1.75-0.25;
         std::array<unsigned char,12> samples{};std::string raw;
@@ -108,9 +143,10 @@ inline original create(size_t count,size_t letters,unsigned permutation,bool enc
                 result.paints.push_back({left,bottom,2.5,1.25,ink,false});++result.operations;
             }
         }
-        for(size_t at=first_paint;at<result.paints.size();++at)result.paints[at].clipped=clip_kind!=0u && i<restore_at;
+        for(size_t at=first_paint;at<result.paints.size();++at)result.paints[at].clipped=clipped;
         if(i+1u==count)for(size_t q=0u;q<depth;++q)part+="Q ";
     }
+    if(definition.at==count)parts[2]+=clip;
     parts[2]+="Q ";
     if(invalid==1)parts[2]+="Q ";
     if(invalid==2)parts[2]+="/Missing Do ";

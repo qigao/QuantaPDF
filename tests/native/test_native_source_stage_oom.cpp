@@ -5338,24 +5338,31 @@ static int ordered_scene_source_contracts(const quantapdf_qpdf_page_limits& defa
     return EXIT_SUCCESS;
 }
 
-static int ordered_clip_source_contracts(const quantapdf_qpdf_page_limits& defaults)
+static int ordered_clip_source_contracts(const quantapdf_qpdf_page_limits& defaults,bool deferred=false)
 {
-    size_t stack_faults=0u,publications=0u,raster_faults=0u,quotas=0u;
+    size_t stack_faults=0u,path_faults=0u,publications=0u,raster_faults=0u,quotas=0u;
     for(size_t images:{1u,5u,17u,65u})for(bool encrypted:{false,true})
     for(auto text_mode:{native_ordered_scene::text_presence::glyphs,native_ordered_scene::text_presence::none}) {
+        if(deferred && text_mode==native_ordered_scene::text_presence::none)continue;
         const unsigned kind=images==1u?4u:images==5u?3u:images==17u?2u:1u;
-        auto sample=native_ordered_scene::create(images,images==1u?0u:images==17u?69u:1u,unsigned(images%6u),encrypted,129u,0,kind,(images==1u || images==17u)?SIZE_MAX:images/2u,false,text_mode);
+        native_ordered_scene::clip_definition definition;
+        if(deferred)definition={images==1u?0u:images==65u?3u:1u,images==1u,
+            images==1u?0u:images==5u?3u:images==17u?4u:2u,
+            images==17u?65u:1u,images==17u?8192u:0u,images!=1u};
+        auto sample=native_ordered_scene::create(images,images==1u?0u:!deferred && images==17u?69u:1u,unsigned(images%6u),encrypted,129u,0,kind,(images==1u || images==17u)?SIZE_MAX:images/2u,false,text_mode,0u,1u,0u,false,1u,definition);
         quantapdf_qpdf_document *document=nullptr;
         CHECK(quantapdf_qpdf_open_memory(reinterpret_cast<const unsigned char*>(sample.bytes.data()),sample.bytes.size(),encrypted?"reader":"",&document)==QUANTAPDF_OK);
         std::unique_ptr<quantapdf_qpdf_document,decltype(&quantapdf_qpdf_close)> owner(document,quantapdf_qpdf_close);
         auto caps=defaults;caps.max_content_bytes=sample.decoded_bytes;caps.max_content_streams=3u;caps.max_operations=sample.operations;
         const auto read=[&](const quantapdf_qpdf_page_limits& limits,quantapdf_ir& ir) {return quantapdf_qpdf_page_to_ir(owner.get(),1u,&limits,&ir);};
-        graphics_growths=0u;graphics_fail_growth=0u;
+        graphics_growths=0u;graphics_fail_growth=0u;path_growths=0u;path_fail_growth=0u;
         track_c_allocation=true;c_fail_index=0u;c_allocations=0u;c_faults=0u;
         quantapdf_ir ir{};const auto status=read(caps,ir);track_c_allocation=false;
-        const size_t allocations=c_allocations,growths=graphics_growths;
+        const size_t allocations=c_allocations,growths=graphics_growths,path_grows=path_growths;
         if(status!=QUANTAPDF_OK)std::fprintf(stderr,"Scene Source images=%zu status=%d\n",images,int(status));
         CHECK(status==QUANTAPDF_OK && allocations>=3u && ir.operation_count==sample.operations && growths>0u);
+        if(deferred)CHECK(path_grows>0u && ir.resources.clip_count==1u &&
+            ir.operations[0].graphics_state_id==(definition.at==0u?1u:0u));
         quantapdf_ir_dispose(&ir);
         for(size_t fail=1u;fail<=allocations;++fail) {
             track_c_allocation=true;c_fail_index=fail;c_allocations=0u;c_faults=0u;
@@ -5367,6 +5374,12 @@ static int ordered_clip_source_contracts(const quantapdf_qpdf_page_limits& defau
             std::memset(&ir,0xa5,sizeof(ir));
             CHECK(read(caps,ir)==QUANTAPDF_ERROR_NOMEM && cleared(ir) && graphics_growths==fail && graphics_fail_growth==0u && observed==11u && faults==1u && !armed);
             ++stack_faults;
+        }
+        if(deferred)for(size_t fail=1u;fail<=path_grows;++fail) {
+            path_growths=0u;path_fail_growth=fail;observed=0u;faults=0u;armed=false;
+            std::memset(&ir,0xa5,sizeof(ir));
+            CHECK(read(caps,ir)==QUANTAPDF_ERROR_NOMEM && cleared(ir) && path_growths==fail &&
+                path_fail_growth==0u && observed==12u && faults==1u && !armed);++path_faults;
         }
         for(unsigned quota:{0u,1u,2u,3u,4u}) {
             auto limited=caps;
@@ -5458,6 +5471,14 @@ static int ordered_clip_source_contracts(const quantapdf_qpdf_page_limits& defau
         // borrowed descriptor. RAW allocations remain owned by this Source IR.
         const auto saved_state=ir.resources.graphics_state_count?ir.resources.graphics_states[0]:quantapdf_composer_graphics_state{};
         const auto saved_clip=ir.resources.clip_count?ir.resources.clips[0]:quantapdf_composer_clip_state{};
+        std::vector<quantapdf_composer_path_command> saved_commands;
+        if(deferred) {
+            saved_commands.assign(saved_clip.commands,saved_clip.commands+saved_clip.command_count);
+            auto *commands=const_cast<quantapdf_composer_path_command *>(saved_clip.commands);
+            for(size_t i=0u;i<saved_clip.command_count;++i) {
+                commands[i].point1={0.0f,0.0f};commands[i].point2={0.0f,0.0f};commands[i].point3={0.0f,0.0f};
+            }
+        }
         const std::vector<quantapdf_composer_operation> saved_operations(ir.operations,ir.operations+ir.operation_count);
         const std::vector<quantapdf_composer_image_state> saved_images(ir.resources.images,ir.resources.images+ir.resources.image_count);
         if(images==65u) {
@@ -5482,6 +5503,8 @@ static int ordered_clip_source_contracts(const quantapdf_qpdf_page_limits& defau
             std::copy(saved_images.begin(),saved_images.end(),ir.resources.images);
             ir.resources.graphics_states[0]=saved_state;ir.resources.clips[0]=saved_clip;
         }
+        if(deferred)std::copy(saved_commands.begin(),saved_commands.end(),
+            const_cast<quantapdf_composer_path_command *>(saved_clip.commands));
         quantapdf_native_compiled_page_dispose_v1(&replay);CHECK(text_ir_snapshot(ir)==snapshot);
         metadata.malloc_fault={};quantapdf_native_compiled_page_v1 compiled{};
         CHECK(quantapdf_native_compiled_page_compile_v1(&metadata,&compiled)==QUANTAPDF_OK);
@@ -5490,7 +5513,8 @@ static int ordered_clip_source_contracts(const quantapdf_qpdf_page_limits& defau
         CHECK(equal(output));quantapdf_ir_raster_image_dispose(&output);CHECK(zero_bitmap(output));
     }
     for(bool encrypted:{false,true})for(int invalid:{1,2,3,4}) {
-        const auto sample=native_ordered_scene::create(17u,1u,2u,encrypted,0u,invalid,1u,8u);
+        const native_ordered_scene::clip_definition definition{deferred?1u:0u};
+        const auto sample=native_ordered_scene::create(17u,1u,2u,encrypted,0u,invalid,1u,8u,false,native_ordered_scene::text_presence::glyphs,0u,1u,0u,false,1u,definition);
         auto caps=defaults;caps.max_operations=sample.operations+1u;caps.max_content_bytes=sample.decoded_bytes;
         quantapdf_qpdf_document *document=nullptr;
         CHECK(quantapdf_qpdf_open_memory(reinterpret_cast<const unsigned char*>(sample.bytes.data()),sample.bytes.size(),encrypted?"reader":"",&document)==QUANTAPDF_OK);
@@ -5498,7 +5522,7 @@ static int ordered_clip_source_contracts(const quantapdf_qpdf_page_limits& defau
         quantapdf_ir denied;std::memset(&denied,0xa5,sizeof(denied));
         CHECK(quantapdf_qpdf_page_to_ir(owner.get(),1u,&caps,&denied)==(invalid>=3?QUANTAPDF_ERROR_UNSUPPORTED:QUANTAPDF_ERROR_FORMAT) && cleared(denied));
     }
-    std::printf("Ordered Clip/Text/Fill/Image: %zu stack-growth faults, %zu Source publication faults, %zu C11 allocation faults, %zu N/N-1 checks; independent RGBA, immutable Source and detached owners passed\n",stack_faults,publications,raster_faults,quotas);
+    std::printf("Ordered Clip/Text/Fill/Image: %zu stack-growth faults, %zu path-growth faults, %zu Source publication faults, %zu C11 allocation faults, %zu N/N-1 checks; independent RGBA, immutable Source and detached owners passed\n",stack_faults,path_faults,publications,raster_faults,quotas);
     return EXIT_SUCCESS;
 }
 
@@ -5529,6 +5553,8 @@ int main(int argc,char **argv)
         return path_commands_source_contracts(limits);
     if(argc==2 && std::strcmp(argv[1],"--ordered-clip")==0)
         return ordered_clip_source_contracts(limits);
+    if(argc==2 && std::strcmp(argv[1],"--deferred-clip")==0)
+        return ordered_clip_source_contracts(limits,true);
     if(argc==2 && std::strcmp(argv[1],"--ordered-scene")==0)
         return ordered_scene_source_contracts(limits);
     if(argc==2 && std::strcmp(argv[1],"--ordered-text")==0)

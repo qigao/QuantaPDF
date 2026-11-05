@@ -220,7 +220,7 @@ inline std::string native_ttf_fixture(int mode=0,bool translated_clip=false)
             draw+" "+show : show+" "+draw;
         if(mode==52 || mode==63)text+=" /Missing Do";
         if(mode==53)text+=" 0 0 1 rg 1 1 2 2 re f"; /* late Fill */
-        if(mode==54)text+=" q 1 1 2 2 re W n Q"; /* late Clip */
+        if(mode==54)text+=" q 1 1 2 2 re W n Q"; /* unused late Clip */
         if(mode==55)text+=" BT /F 24 Tf 1 Tr 12 20 Td <002d> Tj ET";
         if(mode==59)text+=" Q"; /* unbalanced restore */
         if(mode==61)text+=" "+draw; /* second original Image Do */

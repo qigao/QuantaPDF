@@ -460,6 +460,25 @@
   旧小数三角形/曲线拒绝升级为完整 RGB 的平移构建等价，并保留真实越界、非法语法和
   未实现操作拒绝；曲线等价检查不宣称任意曲线边缘的解析像素证明。
 
+### A2 首次 Clip 定义跨越 Text：当前开发增量
+
+- 已验收起点为 #625 的 `3a81083c`，tree `322cdd2d5642a345b9c3691daceb525d2e13f304`；
+  [CI #2458](https://github.com/qigao/QuantaPDF/actions/runs/41971599631) 四配置各 114/114。
+  该历史快照仍为 Draft、未合并；本节增量须由新的精确 HEAD CI 验收。
+- 首次 W/W* 与 n 在 BT 前后使用相同路径构建、CTM 冻结、隐式闭合和动态 Clip 发布。
+  每笔 Text/Fill/Image 记录当时的 Clip 身份：此前绘制保持原身份，定义后的绘制使用
+  新 Clip，Q 恢复后继续使用保存的身份；定义后未使用的 Clip 不制造绘制或资源引用。
+- 复用现有公开/Source-OOM 可执行文件，新增两项 CTest，期限仍为 45/40 秒。
+  714 次独立全 RGB 对照覆盖六顺序、空 BT/ET 后与真实字形后定义、W/W*、空 Clip、
+  m/l/c/v/y/h、65 轮廓、8192 零长度段、构建 CTM 经 Q 恢复、无 Image、深 q/Q、
+  三 DPI、多编码 Contents、AES-256/错误密码、选页和 Bitmap 生命周期。
+  Source 实际栈/路径扩容、C 发布与 C11 分配失败、N/N−1、不可变 IR 和编译后改写
+  长 Clip 命令的深快照验证同一入口；保留 late 语法、资源、未实现 paint 的原子失败。
+  两份旧的“绘制之后定义但未使用 Clip”拒绝（54/70）升级为历史 glyph golden 与
+  独立几何合成的三 DPI 完整 RGB，已有绘制不会追溯套用新 Clip。
+- 本增量仅覆盖单根 Clip 的定义位置；旧双叶 sibling/intersection 组合仍有准入限制。
+  通用 nested/intersecting/sibling Clip 图、一般 affine/DPI、Stroke 与字体能力继续开放。
+
 ## 单一执行模型
 
 ```mermaid

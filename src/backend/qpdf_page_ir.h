@@ -25,6 +25,8 @@ typedef struct quantapdf_qpdf_page_limits {
  * viewport within the finite C11 coordinate envelope. All ordinary path
  * endpoints and controls use it. Text forwards operands to the same page owner
  * and does not copy Fill prefixes or impose a glyph-command quota on Fill.
+ * The first W/W* Clip uses that owner before or after Text; each paint keeps
+ * the Clip identity active at its own position, including subsequent Q.
  * Caller disposes it with quantapdf_ir_dispose. Failure publishes empty IR. */
 quantapdf_status quantapdf_qpdf_page_to_ir(
     quantapdf_qpdf_document *document,size_t page_index,

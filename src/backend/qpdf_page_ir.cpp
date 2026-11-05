@@ -1216,6 +1216,7 @@ public:
             reader.current=state.ctm;reader.fill_argb=state.argb;
             reader.clip_active=state.clip_id;
             reader.path_operator(op,operands);
+            reader.target.outline_clip_id=reader.clip_active;
             *after=reader.clip_active;
             return QUANTAPDF_OK;
         } catch(rejected const& e){return e.status;}
@@ -1423,7 +1424,7 @@ public:
         } else if((op=="W" || op=="W*")) {
             admit(args.empty() && !clip_pending,
                   QUANTAPDF_ERROR_UNSUPPORTED);
-            if(target.outline_scope_started) {
+            if(target.outline_scope_started && target.clip_completed) {
                 // The existing text-sibling Clip graph is completed at n.
             } else if(target.texample_original_profile) {
                 admit(op=="W*" && target.texample_stage==0u &&
@@ -1468,7 +1469,7 @@ public:
             clip_pending=true;
         } else if(op=="n") {
             admit(args.empty(),QUANTAPDF_ERROR_UNSUPPORTED);
-            if(target.outline_scope_started && clip_pending) {
+            if(target.outline_scope_started && target.clip_completed && clip_pending) {
                 complete_clip_contour();
                 unsigned char after=0u;
                 const auto status=source_m2b2l_sibling_clip(&target,pending_path,
