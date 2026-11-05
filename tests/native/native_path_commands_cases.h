@@ -39,7 +39,7 @@ static int path_commands_cases(const std::string& filename,bool multi=false,unsi
             CHECK(input_matches(page->document));
             const auto error=quantapdf_render_page_with_options(page,&options,&held[slot]);
             if(error!=QUANTAPDF_OK) {
-                std::fprintf(stderr,"long path repeats=%zu primitive=%u clip=%u even=%d restore=%d zeros=%zu dpi=%u status=%d\n",repeats,primitive,clip,int(even),int(restore),zero_commands,dpi,int(error));
+                std::fprintf(stderr,"long path repeats=%zu primitive=%u clip=%u even=%d restore=%d zeros=%zu divisor=%u dpi=%u status=%d\n",repeats,primitive,clip,int(even),int(restore),zero_commands,divisor,dpi,int(error));
                 for(auto bitmap:held)quantapdf_drop_bitmap(bitmap);
                 quantapdf_drop_page(page);return EXIT_FAILURE;
             }
@@ -47,7 +47,7 @@ static int path_commands_cases(const std::string& filename,bool multi=false,unsi
             CHECK(w==int(12u*dpi/72u) && h==w && stride==w*3 && components==3);
             OK(quantapdf_bitmap_data(held[slot],&data,&size));const auto expected=native_path_commands::rgb(sample,dpi);
             if(size==expected.size() && std::memcmp(data,expected.data(),size)!=0)for(size_t i=0u;i<size;++i)if(data[i]!=expected[i]) {
-                std::fprintf(stderr,"long path repeats=%zu primitive=%u clip=%u even=%d layout=%u closing=%u encrypted=%d dpi=%u byte=%zu got=%u expected=%u\n",repeats,primitive,clip,int(even),layout,closing,int(encrypted),dpi,i,unsigned(data[i]),unsigned(expected[i]));break;
+                std::fprintf(stderr,"long path repeats=%zu primitive=%u clip=%u even=%d layout=%u closing=%u encrypted=%d divisor=%u dpi=%u byte=%zu got=%u expected=%u\n",repeats,primitive,clip,int(even),layout,closing,int(encrypted),divisor,dpi,i,unsigned(data[i]),unsigned(expected[i]));break;
             }
             if(size!=expected.size() || std::memcmp(data,expected.data(),size)!=0) {
                 CHECK(write_pdf(filename+".failed.pdf",sample.bytes));

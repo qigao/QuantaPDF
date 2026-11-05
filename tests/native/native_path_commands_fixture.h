@@ -236,7 +236,7 @@ inline std::vector<unsigned char> rgb(const original& sample,unsigned dpi)
     std::vector<unsigned char> pixels(width*width*3u,255u);
     const auto rectangle=[&](int64_t x,int64_t y,int x0,int y0,int x1,int y1) {
         return x>=x0*denominator && x<x1*denominator &&
-            y>=y0*denominator && y<y1*denominator;
+            y>y0*denominator && y<=y1*denominator;
     };
     for(size_t y=0u;y<width;++y)for(size_t x=0u;x<width;++x) {
         unsigned first=0u,last=0u;
@@ -255,7 +255,10 @@ inline std::vector<unsigned char> rgb(const original& sample,unsigned dpi)
                 const int64_t cx=px*sample.contour_divisor,cy=py*sample.contour_divisor;
                 for(const auto& r:sample.contours) {
                     const int64_t w=r.x1-r.x0,h=r.y1-r.y0;
-                    const bool hit=r.triangle ? cx>=r.x0*denominator && cy>=r.y0*denominator &&
+                    // Top/left inclusive in the raster viewport means
+                    // upper/left inclusive in PDF coordinates. Fractional
+                    // vertices can land exactly on a 4x4 sample location.
+                    const bool hit=r.triangle ? cx>=r.x0*denominator && cy>r.y0*denominator &&
                         (cx-r.x0*denominator)*h+(cy-r.y0*denominator)*w<w*h*denominator :
                         rectangle(cx,cy,r.x0,r.y0,r.x1,r.y1);
                     if(hit)winding+=r.reverse?-1:1;
