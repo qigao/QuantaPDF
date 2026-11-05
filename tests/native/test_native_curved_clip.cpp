@@ -569,6 +569,10 @@ static int two_rectangle_clip_intersections()
     const pair shapes[]={
         {"8 4 12 12 re","12 6 12 12 re",
          "12 6 8 10 re","","",false},
+        {"8 4 12 12 re","12.125 6 12 12 re",
+         "12.125 6 7.875 10 re","","",false},
+        {"8 4 12 12 re","12.0625 6 12 12 re",
+         "12.0625 6 7.9375 10 re","","",false},
         {"12 6 12 12 re","8 4 12 12 re",
          "12 6 8 10 re","","",false},
         {"4 4 24 16 re","12 6 8 10 re",
@@ -722,12 +726,6 @@ static int two_rectangle_atomic_refusals()
     const std::string first="8 4 12 12 re";
     const std::string second="12 6 12 12 re";
     const std::string image="q 16 0 0 12 8 3 cm /I Do Q Q";
-    for(int dpi:{72,96,144}) {
-        std::vector<unsigned char> actual,intersection;
-        CHECK(render(original("q "+first+" W n 12.125 6 12 12 re W n "+image,true,4,0,0),4,0,dpi,0,actual)==EXIT_SUCCESS);
-        CHECK(render(original("q 12.125 6 7.875 10 re W n "+image,true,4,0,0),4,0,dpi,0,intersection)==EXIT_SUCCESS);
-        CHECK(actual==intersection);
-    }
     for(int crop:{0,1})for(int dpi:{72,96,144}) {
         std::vector<unsigned char> empty;
         CHECK(render(original("q "+first+" W n 12 6 0 12 re W n "+image,true,4,0,crop),4,0,dpi,crop,empty)==EXIT_SUCCESS);
@@ -763,7 +761,6 @@ static int two_rectangle_atomic_refusals()
         "q "+first+" W n "+second+" W* n "+image+" BT 1 Tr ET",
         "q "+first+" W n "+second+" W n "+image+" S",
         "q "+first+" W n "+second+" W n "+image+" Q",
-        "q "+first+" W n 12.0625 6 12 12 re W n "+image,
     };
     for(const auto& input:bad)
     for(int crop:{0,1})
