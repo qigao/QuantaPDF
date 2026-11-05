@@ -126,7 +126,8 @@ def specimens() -> dict[str, tuple[bytes, str, str | None, list[str]]]:
                                             image_object(bytes([0, 0, 255]))),
                                "OK", "0000ff", ["image", "clip-w", "blue"]),
         "blank-page": (original_pdf(b""), "OK", "ffffff", ["blank", "white"]),
-        "reject-late-text": (original_pdf(RED_PATH + b"BT ET "),
+        # Empty BT/ET is legal; late unsupported text rendering still fails.
+        "reject-late-text": (original_pdf(RED_PATH + b"BT 1 Tr ET "),
                              "UNSUPPORTED", None, ["path", "text", "late-rejection"]),
         "reject-missing-name": (original_pdf(
             b"q 16 0 0 12 0 0 cm /Missing Do Q ", RESOURCE_IMAGE,
@@ -139,7 +140,7 @@ def specimens() -> dict[str, tuple[bytes, str, str | None, list[str]]]:
                                             image_object(bytes([255, 0, 0]))),
                                "UNSUPPORTED", None, ["default-rgb", "atomic"]),
         "reject-image-late-text": (original_pdf(
-            DRAW + b"BT ET ", RESOURCE_IMAGE,
+            DRAW + b"BT 1 Tr ET ", RESOURCE_IMAGE,
             image_object(bytes([0, 255, 0]))),
                                    "UNSUPPORTED", None, ["image", "late-text", "atomic"]),
         "reject-cmyk-image": (original_pdf(
