@@ -22,7 +22,7 @@ namespace {
 thread_local bool track_c_allocation=false,stage_armed=false;
 thread_local size_t c_fail_index=0u,c_allocations=0u,c_faults=0u;
 thread_local unsigned stage_target=0u,stage_observed=0u,stage_faults=0u;
-size_t atomic_failures=0u;
+size_t atomic_failures=0u,graph_promotions=0u;
 }
 extern "C" void quantapdf_source_stage_oom_arm(unsigned phase) noexcept
 {
@@ -855,7 +855,9 @@ static bool bounded_scope_refusals()
          // Q restored black. Clip y<=9 cuts the diagonal at x=3.25.
          rc+"0 g 2 2 m 12 2 l 3.25 9 l 2 9 l h f"}
     };
-    for(const auto& pair:admitted)CHECK(source_fill_equivalent(pair.first,pair.second,cases[18]));
+    for(const auto& pair:admitted) {
+        CHECK(source_fill_equivalent(pair.first,pair.second,cases[18]));++graph_promotions;
+    }
     const std::vector<std::string> bad={
         a+p+p+"Q "+b+p+p+p+"Q", /* fifth PATH */
         i+p+i+a+p+"Q "+b+p+"Q", /* mixed prefix past one of each */
@@ -964,10 +966,10 @@ static bool run_tests()
     CHECK(staging_failures());
     for(size_t i:{8u,11u,20u})CHECK(source_failures(cases[i]));
     CHECK(bounded_scope_refusals() && source_controls());
-    CHECK(positive_count==253u && fault_count==248u && atomic_failures==40u);
+    CHECK(positive_count==253u && fault_count==248u && atomic_failures==28u && graph_promotions==12u);
     std::fprintf(stderr,"[native.sibling_clip_source_oom] %zu detached originals, %zu renders, "
-        "%zu C faults, 8 C++ staging faults, %zu Source refusals, current Source controls completed\n",
-        positive_count,2u*positive_count,fault_count,atomic_failures);
+        "%zu C faults, 8 C++ staging faults, %zu Source refusals, %zu promoted full RGBA originals, current Source controls completed\n",
+        positive_count,2u*positive_count,fault_count,atomic_failures,graph_promotions);
     return true;
 }
 
