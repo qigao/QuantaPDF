@@ -398,6 +398,9 @@
   h 后改变 CTM、三个 DPI、多编码 Contents、AES-256/错误密码、第二页及 Document/Page/Context
   释放后的 Bitmap。真实单 cubic 的例子完整包围原始矩形 Clip，核对其内部实际覆盖，
   不把 renderer 输出当作 golden，也不声称任意曲线边缘的精确像素一致性。
+- 原四分之一点非矩形 Clip 拒绝已升级：直边梯形与原始 glyph mask 的逐样本
+  有理数参考比较完整 RGB，曲线 Clip 与等价的平移构建/恢复 CTM 原件比较全 RGB。
+  后者是几何等价验证，不宣称任意曲线边缘的解析像素一致性；真实前后绘制顺序保留。
 - `native_path_state_oom` 复用 Source/OOM 可执行文件，拒绝实际 vector 扩容、
   IR 发布和 C11 分配，核对空失败结果、不可变 IR、预算 N/N−1、释放 qpdf/input
   owner 与改写命令后的深快照。含长命令尾部、退化前缀和单 cubic Fill。

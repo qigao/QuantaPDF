@@ -54,7 +54,7 @@ inline std::string native_cid_font_program(const std::string& original)
     put32(head+8u,UINT32_C(0xb1b0afba)-sum);return out;
 }
 
-inline std::string native_ttf_fixture(int mode=0)
+inline std::string native_ttf_fixture(int mode=0,bool translated_clip=false)
 {
     using O=QPDFObjectHandle;
     const auto path=std::filesystem::path(__FILE__).parent_path().parent_path()/
@@ -268,7 +268,11 @@ inline std::string native_ttf_fixture(int mode=0)
                 if(mode==102)text+=" 1 1 2 2 re W n"; /* late Clip */
                 if(mode==103 || mode==104) {
                     const auto paints=text.substr(text.find(" n ")+3u);
-                    text=std::string(mode==103?
+                    if(mode==104 && translated_clip)
+                        text="q 1 0 0 1 4 0 cm 12.25 22.25 m 39.25 22.25 l "
+                            "39.25 27 38.25 32 39.25 37.75 c 12.25 37.75 l h W n "
+                            "1 0 0 1 -4 0 cm "+paints+" Q";
+                    else text=std::string(mode==103?
                         "16.25 22.25 m 43.25 22.25 l 42.25 37.75 l 16.25 37.75 l h W n ":
                         "16.25 22.25 m 43.25 22.25 l 43.25 27 42.25 32 43.25 37.75 c 16.25 37.75 l h W n ")+paints;
                 }

@@ -4,6 +4,7 @@
 /* TEST ONLY: original-quadratic glyph samples plus analytic authored
  * rectangles. No Source IR, production sampler or captured Bitmap input. */
 #include <array>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -29,7 +30,7 @@ struct native_ttf_fractional_reference {
 inline native_ttf_fractional_reference native_ttf_fractional_compute(int mode,unsigned dpi)
 {
     native_ttf_fractional_reference out;
-    if((mode!=83 && mode!=84 && mode!=99 && mode!=100 && mode!=105 && mode!=106 &&
+    if((mode!=83 && mode!=84 && mode!=99 && mode!=100 && mode!=103 && mode!=105 && mode!=106 &&
         mode!=111 && mode!=112 && mode!=113 && mode!=114 && mode!=126 && mode!=127 && mode!=144 && mode!=145 && mode!=146 &&
         mode!=147 && mode!=148 && mode!=168 && mode!=169) ||
        (dpi!=72u && dpi!=96u && dpi!=144u))return out;
@@ -38,7 +39,7 @@ inline native_ttf_fractional_reference native_ttf_fractional_compute(int mode,un
     const bool reverse_crossing=mode==168 || mode==169;
     const bool sibling=mode==113 || mode==114;
     const bool compound=mode==126 || mode==127 || mode==144 || mode==145 || mode==146;
-    const bool quarter=mode>=99,text_first=mode==83 || mode==99 || (restored && mode!=112) || sibling || compound;
+    const bool quarter=mode>=99,text_first=mode==83 || mode==99 || mode==103 || (restored && mode!=112) || sibling || compound;
     out.width=(128u*dpi+71u)/72u;out.height=(64u*dpi+71u)/72u;
     const size_t pixels=out.width*out.height;
     const auto goldens=std::filesystem::path(__FILE__).parent_path()/"goldens";
@@ -72,10 +73,19 @@ inline native_ttf_fractional_reference native_ttf_fractional_compute(int mode,un
             const double px=(double)x+((double)sx+0.5)/4.0;
             const double py=(double)y+((double)sy+0.5)/4.0;
             if(mode==111 && px>=scale && px<3.0*scale && py>=61.0*scale && py<63.0*scale)++extra_hits;
-            const bool first_inside=px>=(reverse_crossing?15.5:quarter?16.25:12.0)*scale &&
+            bool first_inside=px>=(reverse_crossing?15.5:quarter?16.25:12.0)*scale &&
                 px<(reverse_crossing?38.75:quarter?43.25:28.0)*scale &&
                 py>=(reverse_crossing?29.75:quarter?26.25:24.0)*scale &&
                 py<(reverse_crossing?48.25:quarter?41.75:44.0)*scale;
+            if(mode==103) {
+                // Exact trapezoid half-plane in PDF-point rational units.
+                const int64_t den=8ll*dpi;
+                const int64_t rx=(8ll*int64_t(x)+2ll*sx+1ll)*72ll;
+                const int64_t ry=(8ll*int64_t(y)+2ll*sy+1ll)*72ll;
+                first_inside=4ll*rx>=65ll*den && 4ll*ry>=105ll*den &&
+                    4ll*ry<167ll*den &&
+                    62ll*(4ll*rx-169ll*den)<4ll*(4ll*ry-105ll*den);
+            }
             const bool second_inside=px>=(reverse_crossing?16.25:
                 (mode==145 || mode==146)?15.5:20.5)*scale && px<(reverse_crossing?43.25:38.75)*scale &&
                 py>=(reverse_crossing?26.25:29.75)*scale && py<(reverse_crossing?41.75:48.25)*scale;
@@ -246,7 +256,7 @@ inline native_ttf_fractional_reference native_ttf_fractional_expected(int mode,u
     if(mode==146)mode=145;
     if(mode==148)mode=147;
     if(mode==169)mode=168;
-    static constexpr int profiles[]={83,84,99,100,105,106,111,112,113,126,144,145,147,168};
+    static constexpr int profiles[]={83,84,99,100,103,105,106,111,112,113,126,144,145,147,168};
     size_t profile=0u;
     while(profile<std::size(profiles) && profiles[profile]!=mode)++profile;
     if(profile==std::size(profiles))return {};
