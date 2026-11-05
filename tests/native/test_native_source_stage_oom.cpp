@@ -3962,8 +3962,8 @@ static int m2b2i_fractional_original_reference(
                 QUANTAPDF_COMPOSER_FILL_NONZERO:QUANTAPDF_COMPOSER_FILL_EVEN_ODD));
         const auto& clip=ir.resources.clips[0];
         CHECK(clip.command_count==5u && clip.commands!=nullptr);
-        float left=clip.commands[0].point1.x,right=left;
-        float top=clip.commands[0].point1.y,bottom=top;
+        double left=clip.commands[0].point1.x,right=left;
+        double top=clip.commands[0].point1.y,bottom=top;
         for(size_t i=0u;i<4u;++i) {
             const auto p=clip.commands[i].point1;
             left=std::min(left,p.x);right=std::max(right,p.x);
