@@ -101,13 +101,45 @@ static std::string composer_ttf_original(bool glyph_run=false,bool cycle=false)
 }
 
 /* New supported sequences reuse the independently qualified old layouts.
- * Five H shows equal one five-glyph show; remote small rectangles cannot
+ * Five H shows equal one five-glyph show; remote rectangles/triangles cannot
  * touch the original Hello/accent outlines, so their sample grid is analytic. */
 static std::vector<unsigned char> native_ttf_expanded_expected(int mode,unsigned dpi)
 {
     const size_t width=(128u*dpi+71u)/72u,height=(64u*dpi+71u)/72u;
     std::vector<unsigned char> out(width*height*3u,255u);
     if(mode==23)return out;
+    if(mode==48) {
+        const auto goldens=std::filesystem::path(__FILE__).parent_path()/"goldens";
+        std::ifstream masks_file(goldens/("roboto-hello-"+std::to_string(dpi)+"-m2b2i.mask16"),std::ios::binary);
+        const std::vector<unsigned char> masks{std::istreambuf_iterator<char>(masks_file),{}};
+        std::ifstream old_file(goldens/("roboto-hello-"+std::to_string(dpi)+"-m0.rgba"),std::ios::binary);
+        const std::vector<unsigned char> old{std::istreambuf_iterator<char>(old_file),{}};
+        const size_t pixels=width*height;
+        if(masks.size()!=pixels*10u || old.size()!=pixels*4u)throw std::runtime_error("missing original glyph masks");
+        for(size_t y=0u;y<height;++y)for(size_t x=0u;x<width;++x) {
+            unsigned hits=0u;
+            const uint64_t unit=8u*dpi;
+            for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
+                const uint64_t xx=(uint64_t(x)*8u+2u*sx+1u)*72u;
+                const uint64_t yy=(uint64_t(y)*8u+2u*sy+1u)*72u;
+                hits+=unsigned(8u*xx>=201u*unit && 8u*xx<301u*unit &&
+                    4u*yy>=145u*unit && 4u*yy<183u*unit);
+            }
+            const size_t i=y*width+x;
+            out[3u*i]=out[3u*i+1u]=static_cast<unsigned char>((255u*(16u-hits)+8u)/16u);
+            unsigned gray=255u;
+            for(size_t g=0u;g<5u;++g) {
+                const size_t at=2u*(g*pixels+i);
+                const unsigned mask=unsigned(masks[at])|(unsigned(masks[at+1u])<<8u);
+                unsigned covered=0u;for(unsigned bit=0u;bit<16u;++bit)covered+=(mask>>bit)&1u;
+                gray=(gray*(16u-covered)+8u)/16u;
+                for(size_t c=0u;c<3u;++c)out[3u*i+c]=static_cast<unsigned char>((unsigned(out[3u*i+c])*(16u-covered)+8u)/16u);
+            }
+            if(old[4u*i]!=gray || old[4u*i+1u]!=gray || old[4u*i+2u]!=gray || old[4u*i+3u]!=255u)
+                throw std::runtime_error("original glyph mask/golden mismatch");
+        }
+        return out;
+    }
     if(mode==47) {
         const double scale=double(dpi)/72.0;
         for(size_t y=0u;y<height;++y)for(size_t x=0u;x<width;++x) {
@@ -121,12 +153,14 @@ static std::vector<unsigned char> native_ttf_expanded_expected(int mode,unsigned
         }
         return out;
     }
-    if(mode==35) {
+    if(mode==35 || mode==40 || mode==43 || mode==45) {
         const auto path=std::filesystem::path(__FILE__).parent_path()/"goldens"/
-            ("roboto-mixed-"+std::to_string(dpi)+"-m1.rgba");
+            ((mode==35 || mode==40?"roboto-mixed-":"roboto-hello-")+std::to_string(dpi)+
+             (mode==35 || mode==40?"-m1.rgba":"-m0.rgba"));
         std::ifstream file(path,std::ios::binary);const std::vector<unsigned char> rgba{std::istreambuf_iterator<char>(file),{}};
         if(rgba.size()!=width*height*4u)throw std::runtime_error("missing original mixed golden");
         for(size_t i=0u;i<width*height;++i)std::memcpy(out.data()+3u*i,rgba.data()+4u*i,3u);
+        if(mode==45)for(size_t i=0u;i<width*height;++i)out[3u*i+2u]=255u;
     } else {
         const auto original=native_ttf_fixture(mode);auto pdf=QPDF::create();
         pdf->processMemoryFile("expanded-text-reference",original.data(),original.size());
@@ -167,6 +201,23 @@ static std::vector<unsigned char> native_ttf_expanded_expected(int mode,unsigned
             }
         }
     }
+    if(mode==40 || mode==43 || mode==45) {
+        for(size_t y=0u;y<height;++y)for(size_t x=0u;x<width;++x) {
+            unsigned hits=0u;const uint64_t unit=8u*dpi;
+            for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
+                const uint64_t xx=(uint64_t(x)*8u+2u*sx+1u)*72u;
+                const uint64_t yy=(uint64_t(y)*8u+2u*sy+1u)*72u;
+                hits+=unsigned(yy>=61u*unit && yy<63u*unit && (mode==43?
+                    xx>=unit && xx<3u*unit:
+                    2u*xx+yy>=65u*unit && 2u*xx+57u*unit<yy));
+            }
+            for(size_t c=0u;c<3u;++c) {
+                auto& value=out[(y*width+x)*3u+c];
+                const unsigned color=mode==45 && c==2u?255u:0u;
+                value=static_cast<unsigned char>((color*hits+unsigned(value)*(16u-hits)+8u)/16u);
+            }
+        }
+    }
     return out;
 }
 
@@ -178,7 +229,7 @@ static int native_ttf_public_cases(const std::string& filename,int first=0,int l
     /* Each positive is a fresh ORIGINAL; this restores real text observation
      * coverage in the existing native-only public target as well. */
     for(int mode=first;mode<=last;++mode) {
-        const bool positive=mode<=9 || mode==11 || (mode>=32 && mode<=34) || mode==44 || mode==49 || mode==22 || mode==23 || mode==24 || mode==35 || mode==46 || mode==47;
+        const bool positive=mode<=9 || mode==11 || (mode>=32 && mode<=34) || mode==44 || mode==49 || mode==22 || mode==23 || mode==24 || mode==35 || mode==40 || mode==43 || mode==45 || mode==46 || mode==47 || mode==48;
         const auto original=(mode==44 || mode==49)?composer_ttf_original(mode==49):native_ttf_fixture(mode);
         const char *text_value=(mode==49 || mode==24)?"H":"Hello";
         CHECK(write_native_ttf_pdf(filename,original));
@@ -208,6 +259,7 @@ static int native_ttf_public_cases(const std::string& filename,int first=0,int l
             quantapdf_bitmap *bitmap=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
             const auto status=quantapdf_render_page_with_options(page,&options,&bitmap);
             if(!positive) {
+                if(status==QUANTAPDF_OK || bitmap!=nullptr)std::fprintf(stderr,"Unexpected TTF admission mode=%d dpi=%d status=%d\n",mode,dpi,int(status));
                 CHECK(status!=QUANTAPDF_OK && bitmap==nullptr);
                 CHECK(status==(mode==12 || mode==13 || mode==17 || mode==18 || mode==27 || mode==30 || mode==31 || mode==36 || mode==39?QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED));
                 continue;
@@ -219,7 +271,7 @@ static int native_ttf_public_cases(const std::string& filename,int first=0,int l
             OK(quantapdf_bitmap_dimensions(bitmap,&w,&h,&stride,&components));
             OK(quantapdf_bitmap_data(bitmap,&pixels,&n));
             CHECK(w==(128*dpi+71)/72 && h==(64*dpi+71)/72 && stride==w*3 && components==3 && n==(size_t)stride*(size_t)h);
-            if(mode==22 || mode==23 || mode==35 || mode==46 || mode==47) {
+            if(mode==22 || mode==23 || mode==35 || mode==40 || mode==43 || mode==45 || mode==46 || mode==47 || mode==48) {
                 const auto expected=native_ttf_expanded_expected(mode,unsigned(dpi));
                 CHECK(expected.size()==n && std::memcmp(pixels,expected.data(),n)==0);
             } else if(mode==3 || mode==24) {for(size_t i=0u;i<n;++i)CHECK(pixels[i]==255u);}

@@ -167,7 +167,7 @@ inline std::string native_ttf_fixture(int mode=0,bool translated_clip=false)
         if(mode==45)text="0 0 1 rg 1 1 m 2 3 l 3 1 l h f "+hello;
         if(mode==46)text=background+blue+"0 g 1 1 2 2 re f 3 3 2 2 re f "+hello;
         if(mode==47)text=blue; // the same fractional Fill without Text
-        if(mode==48)text="q 0 0 1 rg 25.1250000000000001 18.25 12.5 9.5 re f Q "+hello; // interrupted rect
+        if(mode==48)text="q 0 0 1 rg 25.1250000000000001 18.25 12.5 9.5 re f Q "+hello; // finite decimal rectangle before Text
     }
     /* #578 M2a: fully original QPDF-authored embedded CID TTF +
      * RAW/Flate RGB Image in both orders, plus late invalid operations.
