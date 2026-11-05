@@ -2593,7 +2593,7 @@ static int owned_page_contracts()
                 op->graphics_state_id=op->value.image.options.graphics_state_id=1u;
             }
         }
-        before=ir;device.dpi=73.0f;
+        before=ir;device.dpi=73.5f;
         CHECK(quantapdf_native_source_page_prepare_context_v1(&ir,&caps,&device,
             &domain,&page)==QUANTAPDF_ERROR_UNSUPPORTED);
         CHECK(memcmp(&ir,&before,sizeof(ir))==0 && memcmp(&page,&zero,sizeof(page))==0);
@@ -5598,6 +5598,8 @@ int main(int argc,char **argv)
         return clip_graph_source_contracts(limits);
     if(argc==2 && std::strcmp(argv[1],"--clip-graphs-wide")==0)
         return clip_graph_source_contracts(limits,true);
+    if(argc==2 && std::strcmp(argv[1],"--integer-dpi")==0)
+        return clip_graph_dpi_contracts(limits);
     if(argc==2 && std::strcmp(argv[1],"--fractional-fill")==0)
         return path_commands_source_contracts(limits,true,false,false,false,false,8u);
     if(argc==2 && std::strcmp(argv[1],"--fractional-clip")==0)

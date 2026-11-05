@@ -528,6 +528,29 @@
 - 公开 512 边与 8M 工作预算未提高，129/257 叶使用私有 2048 边预算验证动态容量。
   一般 Stroke/CTM/DPI、页面坐标和字体能力继续开放；本地只做静态检查，不运行 Native。
 
+### A2 普通 Scene 整数 DPI：当前开发增量
+
+- 已验收起点为 #625 的 `d755bd97`，tree `54682072b98ae8f16e8b0b1afba651f1f416b42e`；
+  [CI #2473](https://github.com/qigao/QuantaPDF/actions/runs/42035053233) 四配置各 124/124。
+  本节须由新精确 HEAD CI 验收，仍为 Draft、未合并或发布。
+- 普通 Source Scene 接受正整数 DPI，移除 72/96/144 三档枚举。设备规划仍按原始十进制
+  端点和整数 DPI 精确 ceil 分配；像素、内存、边及采样预算继续约束实际工作。
+  空白页使用同一个 Scene。低 DPI 的页尺寸按实际像素预算判断，不再将点数与像素数比较。
+- Path、Clip 和 Image 使用每像素 72 个内部单位，端点直接乘整数 DPI；Image 最近邻
+  取样及物理页面边界也在这一坐标中比较。保持同一个 4×4 采样／合成内核，曲线容差
+  仍以像素为单位；原字形 mask 保持自己的精确 DPI 采样。
+- 复用现有公开可执行文件，新增低／高 DPI 两项：1/23/71/73/110/113/120/150/300 DPI
+  共 288 次独立全 RGB，另有 24 次显示 quarter-turn、非方形空白页、加密／错误密码、
+  多编码 Contents／第二页和 detached Bitmap。混合页同时覆盖真实字形、RAW Image、
+  Fill、多根 Clip、空叶，以及越过右／下物理边界的绘制；独立有理数参考裁掉 ceil 缓冲区的
+  外部采样点，并直接选择原始图像 texel，不能用新输出生成 golden。
+- 新 Source/OOM 项在原文档销毁后，以 1/23/73/113/150/300 DPI 执行 24 次完整 RGBA、
+  实际 C11 malloc 逐次故障、IR 不变、内存／操作／边／采样／Image／像素 N/N−1。
+  设备规划器另验证 600 DPI、原始小数端点、UserUnit、四个方向及精确像素预算。
+  公开／OOM 期限仍为 45/40 秒。保留真实非整数／越界／非有限请求、预算失败的原子结果。
+- 非整数 DPI、一般页面盒／坐标、Image 仿射采样、通用 Stroke 和字体能力继续开放；
+  旧显式 Stroke 内核仍保留各自的 DPI 合同。本地仅静态检查，不运行 Native。
+
 ## 单一执行模型
 
 ```mermaid
@@ -562,7 +585,7 @@ Renderer 使用同一套几何、采样和合成实现。Form、透明组和 pat
 | 工作包 | 当前事实 | 要补的功能 | 优先级 |
 | --- | --- | --- | --- |
 | A1 API 与执行模型 | C11 facade、Context/owner、qpdf backend、native renderer 已存在；版本包装和多层准入仍多 | 一套当前 API；删除兼容 factory/provider/record 协商；直接复用打开的文档；统一所有权、错误和脚本失败行为 | P0 |
-| A2 通用内容、路径与坐标 | 已有真实 Path/Image/Text/Clip、曲线、Stroke 原件和独立像素结果；Source 仍受固定 profile、4-paint 等限制 | 任意实际绘制序列、通用 q/Q/CTM/Clip；完整路径/Stroke；一般页面几何、DPI/ROI/RGBA；合理的动态/分块绘制 | P1，功能实现首先推进 |
+| A2 通用内容、路径与坐标 | 普通 opaque Scene 已动态保存操作及 Clip 图；Stroke/复杂 paint、一般页面坐标和部分底层消费者仍受固定 profile 限制 | 任意实际绘制序列、通用 q/Q/CTM/Clip；完整路径/Stroke；一般页面几何、DPI/ROI/RGBA；合理的动态/分块绘制 | P1，功能实现首先推进 |
 | A3 字体、文本与提取 | 已有 TrueType 子集/轮廓、CID FontFile2 与部分文字操作；Composer 部分能力不能当作 Source 通用支持 | 多字体、多段 Text、完整 text state/positioning；Encoding/CMap/ToUnicode；常见嵌入字体与标准字体；提取/搜索/选区几何 | P1 |
 | A4 图像与色彩 | RAW/Flate 8-bit Gray/RGB 和部分 predictors 已验收；其他路径有代码不等于 Source 已能渲染 | JPEG、扫描图像、更多位深/Decode/色彩空间、inline image、image mask/SMask；完整图像仿射采样 | P1 |
 | A5 Form、透明度与外观 | 部分 writer/Composer 数据结构已存在；native 整页解释/渲染覆盖不足 | 嵌套 Form、Resources/BBox/Matrix；alpha/blend/group/soft mask；pattern/shading；annotation/widget appearance | P1 |

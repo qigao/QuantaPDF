@@ -182,7 +182,7 @@ static quantapdf_status qp_device_plan_create(
         max_pixels == 0u)
         return QUANTAPDF_ERROR_ARGUMENT;
     if (max_pixels > QUANTAPDF_NATIVE_DEVICE_MAX_PIXELS ||
-        (dpi != 72u && dpi != 96u && dpi != 144u) ||
+        dpi == 0u ||
         (rotation != 0 && rotation != 90 && rotation != 180 && rotation != 270) ||
         !qp_parse_box(media_ascii, media) || !qp_parse_box(crop_ascii, crop) ||
         !qp_bounded_length(unit_ascii, QP_MAX_TOKEN_ASCII, &unit_length) ||

@@ -4173,6 +4173,10 @@ int main(int argc,char **argv)
         return clip_graph_cases(filename,2u);
     if(argc==2 && std::strcmp(argv[1],"--clip-graphs-wide")==0)
         return clip_graph_cases(filename,3u);
+    if(argc==2 && std::strcmp(argv[1],"--integer-dpi-low")==0)
+        return clip_graph_cases(filename,4u);
+    if(argc==2 && std::strcmp(argv[1],"--integer-dpi-high")==0)
+        return clip_graph_cases(filename,5u);
     if(argc==2 && std::strcmp(argv[1],"--fractional-clip")==0)
         return path_commands_cases(filename,true,12u);
     if(argc==2 && std::strcmp(argv[1],"--text-paths")==0)

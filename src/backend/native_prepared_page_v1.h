@@ -54,7 +54,7 @@ static inline quantapdf_status quantapdf_native_source_device_validate_v1(
        (device->thumbnail!=0 && device->thumbnail!=1))
         return QUANTAPDF_ERROR_ARGUMENT;
     if(device->page_index>(size_t)INT_MAX ||
-       (device->dpi!=72.0f && device->dpi!=96.0f && device->dpi!=144.0f) ||
+       floorf(device->dpi)!=device->dpi || (double)device->dpi>(double)UINT_MAX ||
        device->rotation_degrees!=0.0f || device->clip_enabled ||
        device->alpha || device->thumbnail)
         return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -255,7 +255,7 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
             stroke|=source->operations[i].value.path.options.stroke;
     const int exact_cubics=!text && source->pages[0].width_points==237.133f &&
         source->pages[0].height_points==180.44f && source->operation_count==3u;
-    if((text || !stroke) && source->operation_count!=0u && !exact_cubics) {
+    if((text || !stroke) && !exact_cubics) {
         char box[64];
         int printed;
         const quantapdf_composer_page_state *page=&source->pages[0];

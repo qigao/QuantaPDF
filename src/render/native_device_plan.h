@@ -6,8 +6,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Private, bounded pure-C11 device geometry planner. Public 72/96/144
- * DPI orthogonal display turns and the native V10 96/144-DPI
+/* Private, bounded pure-C11 device geometry planner. Positive integer
+ * DPI orthogonal display turns and the native device-space
  * device-space IR projection reuse exact dimensions and pixel budgets.
  * It never paints, selects providers, decodes or changes the public ABI. */
 #define QUANTAPDF_NATIVE_DEVICE_FIT_V1 1u
@@ -34,7 +34,7 @@ extern "C" {
  * integer quotient/remainder ceil precede any floating conversion. Inputs
  * are bounded ASCII boxes (four space-separated decimals, <=95 bytes),
  * tokens <=20 bytes, <=12 fractional digits, significands <=2^53-1.
- * Unit is positive and <=128; DPI is 72,96,144; rotation is 0,90,180,270.
+ * Unit is positive and <=128; DPI is a positive integer; rotation is 0,90,180,270.
  * Crop must lie inside Media. Work is allocation-free and provider-free.
  * Invalid arguments: ARGUMENT; outside the admitted numeric/geometry/budget
  * envelope: UNSUPPORTED. All failures clear the complete output. Inputs
@@ -73,7 +73,7 @@ static inline int quantapdf_native_device_plan_matches_page_mode(
     if (p == NULL || p->mode != mode ||
         (mode != QUANTAPDF_NATIVE_DEVICE_FIT_V1 &&
          mode != QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1) ||
-        (p->dpi != 72u && p->dpi != 96u && p->dpi != 144u) ||
+        p->dpi == 0u ||
         max_pixels == 0u || p->width == 0u || p->height == 0u ||
         p->width > QUANTAPDF_NATIVE_DEVICE_MAX_PIXELS ||
         p->height > QUANTAPDF_NATIVE_DEVICE_MAX_PIXELS ||

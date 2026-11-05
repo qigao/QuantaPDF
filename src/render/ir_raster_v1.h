@@ -17,7 +17,7 @@ extern "C" {
  * This is a visited-sample optimization INSIDE this same C11 raster:
  * the numeric cap, sample grid, untouched paths and atomic refusal
  * contract are unchanged. Ordered Scene geometry and Clip winding use
- * three coverage units per pixel; device plans, work bounds and output
+ * 72 coverage units per pixel; device plans, work bounds and output
  * dimensions remain in physical pixels. Curve tolerance is converted
  * with the geometry, and original glyph masks retain their own sampler.
  * CLOSE keeps the subpath start as current point. Following segments begin

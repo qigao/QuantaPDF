@@ -162,4 +162,83 @@ static int clip_graph_source_contracts(const quantapdf_qpdf_page_limits& default
     std::printf("Clip graph Source wide=%d: %zu definition growth faults, %zu path growth faults, %zu state growth faults, %zu publication faults, %zu C11 malloc faults, %zu exact N/N-1 checks; independent RGBA and deep graph snapshots\n",int(wide),clip_faults,path_faults,stack_faults,publications,raster_faults,quotas);
     return EXIT_SUCCESS;
 }
+static int clip_graph_dpi_contracts(const quantapdf_qpdf_page_limits& defaults)
+{
+    size_t renders=0u,faults_seen=0u,boundaries=0u;
+    target=0u;armed=false;
+    for(bool encrypted:{false,true}) {
+        native_clip_graph::options opt;opt.scene=encrypted?2u:0u;opt.primitive=4u;opt.fringe=true;
+        auto sample=native_clip_graph::create(opt,encrypted);quantapdf_qpdf_document *document=nullptr;
+        CHECK(quantapdf_qpdf_open_memory(reinterpret_cast<const unsigned char*>(sample.bytes.data()),sample.bytes.size(),
+            encrypted?"reader":"",&document)==QUANTAPDF_OK);
+        std::unique_ptr<quantapdf_qpdf_document,decltype(&quantapdf_qpdf_close)> owner(document,quantapdf_qpdf_close);
+        auto caps=defaults;caps.max_content_bytes=sample.decoded_bytes;caps.max_content_streams=3u;
+        caps.max_operations=sample.operations;
+        quantapdf_ir blank{},ir{};
+        CHECK(quantapdf_qpdf_page_to_ir(owner.get(),0u,&caps,&blank)==QUANTAPDF_OK && blank.operation_count==0u);
+        CHECK(quantapdf_qpdf_page_to_ir(owner.get(),1u,&caps,&ir)==QUANTAPDF_OK && ir.operation_count==sample.operations);
+        owner.reset();sample.bytes.assign(sample.bytes.size(),'x');
+        for(quantapdf_ir *source:{&blank,&ir})for(unsigned dpi:{1u,23u,73u,113u,150u,300u}) {
+            const bool empty=source==&blank;
+            const size_t w=((empty?5u:12u)*dpi+71u)/72u,h=((empty?4u:12u)*dpi+71u)/72u;
+            const auto expected=empty?std::vector<unsigned char>(w*h*3u,255u):native_clip_graph::rgb(sample,dpi);
+            const auto snapshot=text_ir_snapshot(*source);
+            const auto equal=[&](const quantapdf_ir_raster_image& image) {
+                if(image.width!=w || image.height!=h || image.stride!=4u*w || image.size!=4u*w*h)return false;
+                for(size_t i=0u;i<w*h;++i)
+                    if(std::memcmp(image.pixels+4u*i,expected.data()+3u*i,3u)!=0 || image.pixels[4u*i+3u]!=255u)return false;
+                return true;
+            };
+            const quantapdf_ir_raster_scoped_mixed_v5_limits budget={65536u,sample.operations,512u,8000000u,1000000u,4000000u};
+            quantapdf_native_page_device device{};device.dpi=float(dpi);
+            quantapdf_native_prepared_page_v1 metadata{};
+            CHECK(quantapdf_native_prepare_page_v1(source,&budget,&device,&metadata)==QUANTAPDF_OK &&
+                metadata.route==QP_NATIVE_PREPARED_SCENE);
+            m2a_malloc_fault_state allocation{};metadata.malloc_fault={&allocation,m2a_malloc_fault_callback};
+            quantapdf_native_execution_receipt_v1 receipt{};quantapdf_ir_raster_image output{};
+            const auto status=quantapdf_native_execute_page_v1(&metadata,&receipt,&output);
+            if(status!=QUANTAPDF_OK || !equal(output))
+                std::fprintf(stderr,"integer DPI empty=%d dpi=%u status=%d RGB=%d\n",int(empty),dpi,int(status),int(status==QUANTAPDF_OK && equal(output)));
+            CHECK(status==QUANTAPDF_OK && equal(output) && receipt.sample_tests_exact && allocation.attempts>0u);
+            quantapdf_ir_raster_image_dispose(&output);++renders;
+            for(size_t fail=1u;fail<=allocation.attempts;++fail) {
+                m2a_malloc_fault_state fault{};fault.fail_on=fail;
+                auto candidate=metadata;candidate.malloc_fault={&fault,m2a_malloc_fault_callback};
+                quantapdf_native_execution_receipt_v1 denied{},zero{};std::memset(&output,0xa5,sizeof(output));
+                CHECK(quantapdf_native_execute_page_v1(&candidate,&denied,&output)==QUANTAPDF_ERROR_NOMEM &&
+                    zero_bitmap(output) && std::memcmp(&denied,&zero,sizeof(zero))==0 &&
+                    fault.attempts==fail && fault.failures==1u && text_ir_snapshot(*source)==snapshot);++faults_seen;
+            }
+            const auto trial=[&](const quantapdf_ir_raster_scoped_mixed_v5_limits& limits,size_t bytes,quantapdf_status wanted) {
+                quantapdf_native_prepared_page_v1 candidate{};quantapdf_ir_raster_image image{};
+                auto error=quantapdf_native_prepare_page_v1(source,&limits,&device,&candidate);
+                if(error==QUANTAPDF_OK) {
+                    if(bytes!=0u)candidate.resource_limits.max_live_bytes=bytes;
+                    error=quantapdf_native_execute_page_v1(&candidate,nullptr,&image);
+                }
+                const bool ok=error==wanted && text_ir_snapshot(*source)==snapshot &&
+                    (wanted==QUANTAPDF_OK?equal(image):zero_bitmap(image));
+                quantapdf_ir_raster_image_dispose(&image);return ok;
+            };
+            CHECK(trial(budget,receipt.peak_live_bytes,QUANTAPDF_OK));
+            CHECK(trial(budget,receipt.peak_live_bytes-1u,QUANTAPDF_ERROR_UNSUPPORTED));++boundaries;
+            for(unsigned quota=0u;quota<6u;++quota) {
+                const size_t count=quota==0u?source->operation_count:quota==1u?receipt.compiled_edges:
+                    quota==2u?receipt.sample_tests:quota==3u?w*h:quota==4u?receipt.source_pixels:receipt.drawn_pixels;
+                if(count==0u)continue;
+                auto limits=budget;
+                size_t *cap=quota==0u?&limits.max_operations:quota==1u?&limits.max_edges:
+                    quota==2u?&limits.max_sample_tests:quota==3u?&limits.max_pixels:
+                    quota==4u?&limits.max_source_pixels:&limits.max_drawn_pixels;
+                *cap=count;CHECK(trial(limits,0u,QUANTAPDF_OK));
+                --*cap;CHECK(trial(limits,0u,quota==3u && count==1u?
+                    QUANTAPDF_ERROR_ARGUMENT:QUANTAPDF_ERROR_UNSUPPORTED));++boundaries;
+            }
+        }
+        quantapdf_ir_dispose(&blank);quantapdf_ir_dispose(&ir);CHECK(cleared(blank) && cleared(ir));
+    }
+    CHECK(renders==24u && faults_seen>0u && boundaries>0u);
+    std::printf("integer DPI Source: %zu independent RGBA results, %zu actual C11 malloc faults, %zu N/N-1 boundaries; blank and Text/Fill/Image/Clip at original DPI after document destruction\n",renders,faults_seen,boundaries);
+    return EXIT_SUCCESS;
+}
 #endif

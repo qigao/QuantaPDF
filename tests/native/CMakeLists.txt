@@ -152,7 +152,7 @@ add_test(NAME quantapdf.native_deferred_clip_storage
   COMMAND quantapdf_native_public_render --deferred-clip-storage)
 set_tests_properties(quantapdf.native_deferred_clip quantapdf.native_deferred_clip_storage PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;public-api;ordered-clip;text-path")
-foreach(kind IN ITEMS clip-graphs clip-graphs-curves clip-graphs-storage clip-graphs-wide clip-originals)
+foreach(kind IN ITEMS clip-graphs clip-graphs-curves clip-graphs-storage clip-graphs-wide clip-originals integer-dpi-low integer-dpi-high)
   add_test(NAME quantapdf.native_${kind}
     COMMAND quantapdf_native_public_render --${kind})
   set_tests_properties(quantapdf.native_${kind} PROPERTIES
@@ -359,6 +359,10 @@ add_test(NAME quantapdf.native_clip_graphs_wide_oom
   COMMAND quantapdf_native_source_stage_oom --clip-graphs-wide)
 set_tests_properties(quantapdf.native_clip_graphs_wide_oom PROPERTIES
   TIMEOUT 40 LABELS "conformance;native;source-staging;clip-graph;oom")
+add_test(NAME quantapdf.native_integer_dpi_oom
+  COMMAND quantapdf_native_source_stage_oom --integer-dpi)
+set_tests_properties(quantapdf.native_integer_dpi_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;source-staging;integer-dpi;oom")
 add_test(NAME quantapdf.native_ordered_scene_oom
   COMMAND quantapdf_native_source_stage_oom --ordered-scene)
 set_tests_properties(quantapdf.native_ordered_scene_oom PROPERTIES

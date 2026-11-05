@@ -230,6 +230,40 @@ static int test_physical_grid(void)
     return 0;
 }
 
+static int test_integer_dpi(void)
+{
+    const unsigned dpis[]={1u,23u,71u,73u,110u,113u,120u,150u,300u,600u};
+    for(size_t d=0u;d<sizeof(dpis)/sizeof(dpis[0]);++d) {
+        const size_t w=(70u*dpis[d]+71u)/72u,h=(56u*dpis[d]+71u)/72u;
+        for(int rotation=0;rotation<360;rotation+=90) {
+            const int swap=rotation==90 || rotation==270;
+            quantapdf_native_device_plan p;
+            for(unsigned physical=0u;physical<2u;++physical) {
+                const quantapdf_status status=physical?
+                    quantapdf_native_device_plan_create_physical("0 0 20 20",
+                        "6.1 3.1 16.1 11.1","7",rotation,dpis[d],w*h,&p):
+                    quantapdf_native_device_plan_create("0 0 20 20",
+                        "6.1 3.1 16.1 11.1","7",rotation,dpis[d],w*h,&p);
+                OK(status);
+                CHECK(p.width==(swap?h:w) && p.height==(swap?w:h));
+                CHECK(quantapdf_native_device_plan_matches_page_mode(&p,
+                    physical?QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1:QUANTAPDF_NATIVE_DEVICE_FIT_V1,
+                    swap?56.0f:70.0f,swap?70.0f:56.0f,w*h));
+                if(physical) {
+                    double x,y;map(p.source_to_device,11.1,7.1,&x,&y);
+                    CHECK(near(x,p.width_points*dpis[d]/144.0) &&
+                          near(y,p.height_points*dpis[d]/144.0));
+                }
+            }
+            memset(&p,0xa5,sizeof(p));
+            CHECK(quantapdf_native_device_plan_create_physical("0 0 20 20",
+                "6.1 3.1 16.1 11.1","7",rotation,dpis[d],w*h-1u,&p)==
+                (w*h==1u?QUANTAPDF_ERROR_ARGUMENT:QUANTAPDF_ERROR_UNSUPPORTED) && zero_plan(&p));
+        }
+    }
+    return 0;
+}
+
 static int test_fail_closed(void)
 {
     static const struct {
@@ -239,7 +273,7 @@ static int test_fail_closed(void)
         size_t cap;
     } bad[] = {
         {"0 0 10 8", "0 0 10 8", "1", 45, 72u, 1000000u},
-        {"0 0 10 8", "0 0 10 8", "1", 0, 73u, 1000000u},
+        {"0 0 10 8", "0 0 10 8", "1", 0, 0u, 1000000u},
         {"0 0 10 8", "0 0 10 8", "1", 0, 72u, 1000001u},
         {"0 0 10 8", "0 0 10.000000000001 8", "1", 0, 72u, 1000000u},
         {"0 0 10 8", "-.000000000001 0 10 8", "1", 0, 72u, 1000000u},
@@ -310,7 +344,7 @@ static int test_fail_closed(void)
 int main(void)
 {
     if (test_exact_grid_and_unit() || test_crop_rotation_and_samples() ||
-        test_physical_grid() || test_fail_closed())
+        test_physical_grid() || test_integer_dpi() || test_fail_closed())
         return EXIT_FAILURE;
     puts("native device FIT/physical plans: exact grids, source maps and refusal contracts passed");
     return EXIT_SUCCESS;

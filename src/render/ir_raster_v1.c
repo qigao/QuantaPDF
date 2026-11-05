@@ -37,7 +37,7 @@ typedef struct qp_raster_draw {
     size_t command_count;
     /* Descriptor snapshot; RAW bytes borrow the enclosing immutable IR owner. */
     quantapdf_composer_image_state image;
-    double image_x0,image_y0,image_x1,image_y1;
+    double image_x0,image_y0,image_x1,image_y1; /* same coverage frame as edges */
     int is_image,image_seen,original_outline;
     unsigned clip_mask;
     const uint64_t *clip_bits;
@@ -831,6 +831,7 @@ static quantapdf_status qp_admit_scene_image(
     const size_t id=(size_t)op->value.image.image_id;
     const quantapdf_composer_image_options *opt=&op->value.image.options;
     double x0=op->bounds.x0,y0=op->bounds.y0,x1=op->bounds.x1,y1=op->bounds.y1;
+    const double units=flat->coordinate_units;
     size_t cols,rows,area;
     if(op->graphics_state_id!=0u ||
        opt->fit!=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH || opt->graphics_state_id!=0u ||
@@ -839,13 +840,18 @@ static quantapdf_status qp_admit_scene_image(
         const double *m=plan->from_composer;
         if(m[0]<=0.0 || m[3]<=0.0 || m[1]!=0.0 || m[2]!=0.0)
             return QUANTAPDF_ERROR_UNSUPPORTED;
-        x0=x0*m[0]+m[4];x1=x1*m[0]+m[4];
-        y0=y0*m[3]+m[5];y1=y1*m[3]+m[5];
+        /* The physical Scene frame has 72 units per pixel. Multiplying
+         * original coordinates by integer DPI preserves their exact
+         * dyadic endpoints and the texel-boundary ties at every DPI. */
+        x0*=plan->dpi;x1*=plan->dpi;
+        y0*=plan->dpi;y1*=plan->dpi;
+    } else {
+        x0*=units;x1*=units;y0*=units;y1*=units;
     }
-    if(!qp_valid_coordinate(x0) || !qp_valid_coordinate(x1) ||
-       !qp_valid_coordinate(y0) || !qp_valid_coordinate(y1) || x1<=x0 || y1<=y0)
+    if(!qp_valid_coordinate(x0/units) || !qp_valid_coordinate(x1/units) ||
+       !qp_valid_coordinate(y0/units) || !qp_valid_coordinate(y1/units) || x1<=x0 || y1<=y0)
         return QUANTAPDF_ERROR_UNSUPPORTED;
-    cols=(size_t)ceil(x1-x0);rows=(size_t)ceil(y1-y0);
+    cols=(size_t)ceil((x1-x0)/units);rows=(size_t)ceil((y1-y0)/units);
     if(cols>SIZE_MAX/rows)return QUANTAPDF_ERROR_UNSUPPORTED;
     area=cols*rows;
     if(area>SIZE_MAX-*drawn_pixels)return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -853,9 +859,7 @@ static quantapdf_status qp_admit_scene_image(
     out->coordinate_units=flat->coordinate_units;
     out->first_edge=flat->count;out->edge_count=4u;
     out->rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
-    const double units=flat->coordinate_units;
-    const qp_point_d corners[4]={{x0*units,y0*units},{x1*units,y0*units},
-        {x1*units,y1*units},{x0*units,y1*units}};
+    const qp_point_d corners[4]={{x0,y0},{x1,y0},{x1,y1},{x0,y1}};
     for(size_t k=0u;k<4u;++k) {
         quantapdf_status status=qp_add_edge(flat,corners[k],corners[(k+1u)%4u]);
         if(status!=QUANTAPDF_OK)return status;
@@ -1492,16 +1496,14 @@ static quantapdf_status qp_geometry_compile(
     const int exact_texample=visible_work_optin==7 || shared_texample;
     const int exact_native=exact_texample || ordered_scene;
     /* One coverage coordinate frame for every ordered Scene draw and Clip.
-     * Three units per pixel makes the current 72/96/144 DPI projections
-     * 3/4/6 units per point. Vertices and 4x4 sample locations then share
-     * exact dyadic coordinates instead of rounding a 4/3-pixel endpoint.
-     * Device plans, original glyph sampling and output pixels stay physical. */
+     * 72 units per pixel makes integer DPI an exact units-per-point factor.
+     * Original dyadic vertices and 4x4 samples stay exact across all integer
+     * requests. Device plans, glyph masks and output pixels stay physical. */
     double coverage_device[6]={1.0,0.0,0.0,1.0,0.0,0.0};
     const double *path_device=plan==NULL?NULL:plan->from_composer;
-    flatten.coordinate_units=ordered_scene?3.0:1.0;
+    flatten.coordinate_units=ordered_scene?72.0:1.0;
     if(ordered_scene) {
-        for(size_t k=0u;k<6u;++k)
-            coverage_device[k]=(plan==NULL?coverage_device[k]:plan->from_composer[k])*flatten.coordinate_units;
+        coverage_device[0]=coverage_device[3]=plan==NULL?72.0:(double)plan->dpi;
         path_device=coverage_device;
     }
 
@@ -1545,8 +1547,8 @@ static quantapdf_status qp_geometry_compile(
     page = &ir->pages[page_index];
     if (!isfinite(page->width_points) || !isfinite(page->height_points) ||
         page->width_points <= 0.0f || page->height_points <= 0.0f ||
-        (double)page->width_points > (double)limits->max_pixels ||
-        (double)page->height_points > (double)limits->max_pixels)
+        (plan==NULL && ((double)page->width_points > (double)limits->max_pixels ||
+                       (double)page->height_points > (double)limits->max_pixels)))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     if (plan != NULL) {
         const int physical = visible_work_optin == 5 || visible_work_optin == 6 || exact_native;
@@ -2042,8 +2044,8 @@ static quantapdf_status qp_geometry_sample(
                     if(!qp_exact_charge(&total_checks,draw->edge_count,limits->max_sample_tests)) {
                         status=QUANTAPDF_ERROR_UNSUPPORTED;goto cleanup;
                     }
-                    if(plan!=NULL && (px>=plan->width_points*(double)plan->dpi/72.0 ||
-                                      py>=plan->height_points*(double)plan->dpi/72.0))continue;
+                    if(plan!=NULL && (px*72.0>=plan->width_points*(double)plan->dpi ||
+                                      py*72.0>=plan->height_points*(double)plan->dpi))continue;
                     if(!qp_inside(g->edges,draw,px,py))continue;
                     int inside=1,next=0;size_t cursor=0u;
                     while(inside && (next=qp_next_clip(draw,&cursor,clip_count,&total_checks,limits->max_sample_tests,&ci))>0) {
@@ -2057,8 +2059,8 @@ static quantapdf_status qp_geometry_sample(
                 }
                 if(covered!=0u) {
                     const quantapdf_composer_image_state *image=&draw->image;
-                    double u=((double)x+0.5-draw->image_x0)/(draw->image_x1-draw->image_x0);
-                    double v=((double)y+0.5-draw->image_y0)/(draw->image_y1-draw->image_y0);
+                    double u=(((double)x+0.5)*draw->coordinate_units-draw->image_x0)/(draw->image_x1-draw->image_x0);
+                    double v=(((double)y+0.5)*draw->coordinate_units-draw->image_y0)/(draw->image_y1-draw->image_y0);
                     size_t ix=u<=0.0?0u:u>=1.0?(size_t)image->width-1u:(size_t)(u*image->width);
                     size_t iy=v<=0.0?0u:v>=1.0?(size_t)image->height-1u:(size_t)(v*image->height);
                     const unsigned char *src=image->data+(iy*(size_t)image->width+ix)*(size_t)image->components;
@@ -2123,12 +2125,11 @@ static quantapdf_status qp_geometry_sample(
                     }
                     if(plan!=NULL && plan->mode==QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1) {
                         unsigned nx=0u,ny=0u;
-                        const double scale=(double)plan->dpi/72.0;
                         for(unsigned k=0u;k<QP_SAMPLES;++k) {
-                            nx+=(unsigned)((double)x+((double)k+0.5)/QP_SAMPLES<
-                                           plan->width_points*scale);
-                            ny+=(unsigned)((double)y+((double)k+0.5)/QP_SAMPLES<
-                                           plan->height_points*scale);
+                            nx+=(unsigned)(((double)x+((double)k+0.5)/QP_SAMPLES)*72.0<
+                                           plan->width_points*(double)plan->dpi);
+                            ny+=(unsigned)(((double)y+((double)k+0.5)/QP_SAMPLES)*72.0<
+                                           plan->height_points*(double)plan->dpi);
                         }
                         covered=nx*ny;
                     }
@@ -2178,8 +2179,8 @@ static quantapdf_status qp_geometry_sample(
                          * even when authored geometry crosses the page edge. */
                         if (plan != NULL &&
                             plan->mode == QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1 &&
-                            (px >= plan->width_points * ((double)plan->dpi / 72.0) ||
-                             py >= plan->height_points * ((double)plan->dpi / 72.0)))
+                            (px*72.0 >= plan->width_points * (double)plan->dpi ||
+                             py*72.0 >= plan->height_points * (double)plan->dpi))
                             continue;
                         if(ordered_scene && !qp_exact_charge(&total_checks,draw->edge_count,limits->max_sample_tests)) {
                             status=QUANTAPDF_ERROR_UNSUPPORTED;goto cleanup;
@@ -2885,8 +2886,9 @@ static quantapdf_status qp_ordered_scene(
     if(out_image==NULL && prepared==NULL)return QUANTAPDF_ERROR_ARGUMENT;
     if(out_image!=NULL)memset(out_image,0,sizeof(*out_image));
     if(source==NULL || limits==NULL || plan==NULL)return QUANTAPDF_ERROR_ARGUMENT;
-    if(source->pages==NULL || source->page_count!=1u || source->operations==NULL ||
-       source->operation_count==0u || source->operation_count>limits->max_operations ||
+    if(source->pages==NULL || source->page_count!=1u ||
+       ((source->operation_count==0u)!=(source->operations==NULL)) ||
+       source->operation_count>limits->max_operations ||
        source->links!=NULL || source->link_count!=0u ||
        source->outlines!=NULL || source->outline_count!=0u ||
        (clip!=NULL && !qp_no_resources(source)) ||

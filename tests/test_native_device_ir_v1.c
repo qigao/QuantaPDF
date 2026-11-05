@@ -85,7 +85,7 @@ static int prepared_contracts(quantapdf_ir *ir,
     CHECK(prepared_denied(ir,&limits,&device)==0);ir->operations[0]=old_op;
     limits.raster.max_operations=0u;
     CHECK(prepared_denied(ir,&limits,&device)==0);limits.raster=*raster;
-    device.dpi=73.0f;CHECK(prepared_denied(ir,&limits,&device)==0);device.dpi=96.0f;
+    device.dpi=73.5f;CHECK(prepared_denied(ir,&limits,&device)==0);device.dpi=96.0f;
 
     memset(clips,0,sizeof(clips));memset(gs,0,sizeof(gs));
     for(size_t i=0u;i<2u;++i) {

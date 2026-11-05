@@ -17,7 +17,7 @@ struct paint {
 };
 struct options {
     unsigned scene=0u,order=0u,primitive=0u,leaves=4u;
-    bool empty=false,prefix=true,sparse=false;
+    bool empty=false,prefix=true,sparse=false,fringe=false;
     size_t unused=0u,contours=1u,zeros=0u,depth=0u;
 };
 struct original {
@@ -114,6 +114,15 @@ inline original create(options opt,bool encrypted,int invalid=0)
         active.push_back(r);root_id=++next_id;
         if(observed) {++result.leaves;result.nodes+=parent?2u:1u;}
     };
+    if(opt.fringe) {
+        content+="q 0.2 0.4 0.6 rg 11.75 -0.25 0.5 12.5 re f Q ";
+        paint edge{};edge.bounds={188,-4,196,196};
+        std::copy(colors[0].begin(),colors[0].end(),edge.colors.begin());
+        result.paints.push_back(edge);++result.operations;
+        content+="q 12.25 0 0 0.5 0 -0.25 cm /I Do Q ";
+        edge={};edge.bounds={0,-4,196,4};edge.colors=samples;edge.image=true;
+        result.paints.push_back(edge);++result.operations;++result.images;
+    }
     if(opt.prefix)body();
     if(opt.scene==1u) {
         for(unsigned i=0u;i<opt.leaves;++i) {save();define(i);body();restore();body();}
@@ -163,7 +172,7 @@ inline original create(options opt,bool encrypted,int invalid=0)
 }
 inline std::vector<unsigned char> rgb(const original& source,unsigned dpi)
 {
-    const size_t side=12u*dpi/72u;
+    const size_t side=(12u*dpi+71u)/72u;
     const int64_t unit=8ll*dpi;
     std::vector<unsigned char> out(side*side*3u,255u);
     const auto contains=[&](region r,int64_t x,int64_t y) {
@@ -178,6 +187,7 @@ inline std::vector<unsigned char> rgb(const original& source,unsigned dpi)
                 1024*px>=(p.bounds.left*64+156)*unit && 1024*px<(p.bounds.left*64+341)*unit &&
                     16*py>p.bounds.bottom*unit && 16*py<=p.bounds.top*unit:
                 contains(p.bounds,px,py);
+            visible=visible && contains({0,0,192,192},px,py);
             for(const auto& clip:p.clips)visible=visible && contains(clip,px,py);
             hits+=unsigned(visible);
         }
