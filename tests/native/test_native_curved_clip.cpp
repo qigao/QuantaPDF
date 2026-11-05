@@ -758,7 +758,7 @@ static int two_rectangle_atomic_refusals()
     const std::string draw="q 16 0 0 12 8 3 cm /I Do Q ";
     const std::string intersection="q 12 6 8 10 re W n "+draw+"Q ";
     const std::pair<std::string,std::string> admitted[]={
-        {first+" W n q "+second+" W* n "+image+draw+draw,intersection+"q "+first+" W n "+draw+draw+"Q"},
+        {first+" W n q "+second+" W* n "+image+" "+draw+draw,intersection+"q "+first+" W n "+draw+draw+"Q"},
         {"q "+first+" W n "+second+" W* n "+second+" W n "+image,intersection},
         {"q "+first+" W n q "+second+" W* n "+draw+"Q "+first+" W n Q",intersection},
         {"q "+first+" W n Q q "+second+" W* n "+image,"q "+second+" W n "+image},
