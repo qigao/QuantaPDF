@@ -2649,9 +2649,8 @@ static quantapdf_status source_page_to_ir_impl(
         admission source(resources,*limits,page_w,page_h);
         source.texample_public_eligible=exact.ticks_per_point==1000u && full_media &&
             geo.rotation==0 && user_quarters==4u;
-        source.text_outlines_eligible=full_media &&
-            geo.rotation==0 && user_quarters==4u && geo.left==0.0 && geo.bottom==0.0 &&
-            geo.right==std::trunc(geo.right) && geo.top==std::trunc(geo.top);
+        source.text_outlines_eligible=full_media && exact.ticks_per_point==4u &&
+            geo.rotation==0 && user_quarters==4u && geo.left==0.0 && geo.bottom==0.0;
         source.exact_page_w=(double)(exact.visible[2]-exact.visible[0])/(double)exact.ticks_per_point;
         source.exact_page_h=(double)(exact.visible[3]-exact.visible[1])/(double)exact.ticks_per_point;
         source.media_left=geo.left;

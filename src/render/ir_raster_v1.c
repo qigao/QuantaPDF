@@ -1406,11 +1406,13 @@ static int qp_text_glyph_mask(const quantapdf_composer_path_command *commands,si
     const quantapdf_native_device_plan *plan,uint16_t *mask,size_t *work,size_t cap)
 {
     const size_t width=plan->width,height=plan->height;
-    const uint64_t physical_x=8u*(uint64_t)plan->dpi*(uint64_t)plan->width_points;
-    const uint64_t physical_y=8u*(uint64_t)plan->dpi*(uint64_t)plan->height_points;
+    /* Keep the actual physical viewport. Fractional page extents must not
+     * be truncated before clipping the original glyph sample lattice. */
+    const double physical_x=8.0*(double)plan->dpi*plan->width_points;
+    const double physical_y=8.0*(double)plan->dpi*plan->height_points;
     memset(mask,0,width*height*sizeof(*mask));
     for(size_t y=0u;y<height;++y)for(unsigned sy=0u;sy<4u;++sy) {
-        if(72u*(uint64_t)(2u*(y*4u+sy)+1u)>=physical_y)continue;
+        if(72.0*(double)(2u*(y*4u+sy)+1u)>=physical_y)continue;
         size_t thresholds[1024],count=0u;int deltas[1024],winding=0;
         quantapdf_point current={0,0},start={0,0};int active=0;
         for(size_t k=0u;k<command_count;++k) {
@@ -1449,7 +1451,7 @@ static int qp_text_glyph_mask(const quantapdf_composer_path_command *commands,si
             const size_t end=thresholds[i];
             if(winding!=0)for(size_t col=first;col<end;++col) {
                 if(!qp_exact_charge(work,1u,cap))return 0;
-                if(72u*(uint64_t)(2u*col+1u)<physical_x)
+                if(72.0*(double)(2u*col+1u)<physical_x)
                     mask[y*width+col/4u]|=(uint16_t)(1u<<(4u*sy+col%4u));
             }
             do {winding-=deltas[i++];if(!qp_exact_charge(work,1u,cap))return 0;}
@@ -2880,7 +2882,7 @@ static quantapdf_status qp_ordered_scene(
     const quantapdf_composer_clip_state *clip_leaves[2]={clip,second_clip};
     const size_t clip_count=clip!=NULL?(second_clip!=NULL?2u:1u):0u;
     quantapdf_ir_raster_v1_limits work;
-    size_t n=0u,commands=0u,shows=0u,capacity=0u,bytes=0u;
+    size_t n=0u,commands=0u,capacity=0u,bytes=0u;
     if(out_sample_tests!=NULL)*out_sample_tests=0u;
     if(prepared!=NULL)memset(prepared,0,sizeof(*prepared));
     if(out_image==NULL && prepared==NULL)return QUANTAPDF_ERROR_ARGUMENT;
@@ -2925,7 +2927,7 @@ static quantapdf_status qp_ordered_scene(
            op->graphics_state_id>source->resources.graphics_state_count || (text->argb>>24u)!=255u ||
            text->glyph_count>SIZE_MAX-capacity || ((text->glyph_count==0u)!=(text->glyphs==NULL)))
             return QUANTAPDF_ERROR_UNSUPPORTED;
-        ++shows;capacity+=text->glyph_count;
+        capacity+=text->glyph_count;
         for(size_t g=0u;g<text->glyph_count;++g) {
             const quantapdf_outline_glyph *glyph=&text->glyphs[g];
             if(glyph->commands==NULL || glyph->command_count==0u || glyph->command_count>SIZE_MAX-commands)
@@ -2933,10 +2935,7 @@ static quantapdf_status qp_ordered_scene(
             commands+=glyph->command_count;
         }
     }
-    if((shows!=0u &&
-        (source->pages[0].width_points!=floorf(source->pages[0].width_points) ||
-         source->pages[0].height_points!=floorf(source->pages[0].height_points))) ||
-       (clip!=NULL && source->operation_count!=1u))
+    if(clip!=NULL && source->operation_count!=1u)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     if(capacity>SIZE_MAX/sizeof(*paths))return QUANTAPDF_ERROR_UNSUPPORTED;
     bytes=capacity*sizeof(*paths);

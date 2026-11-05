@@ -105,8 +105,21 @@ static std::string composer_ttf_original(bool glyph_run=false,bool cycle=false)
  * touch the original Hello/accent outlines, so their sample grid is analytic. */
 static std::vector<unsigned char> native_ttf_expanded_expected(int mode,unsigned dpi)
 {
-    const size_t width=(128u*dpi+71u)/72u,height=(64u*dpi+71u)/72u;
+    const size_t width=mode==26?(257u*dpi+143u)/144u:(128u*dpi+71u)/72u;
+    const size_t height=(64u*dpi+71u)/72u;
     std::vector<unsigned char> out(width*height*3u,255u);
+    if(mode==26) {
+        const size_t old_width=(128u*dpi+71u)/72u;
+        const auto path=std::filesystem::path(__FILE__).parent_path()/"goldens"/
+            ("roboto-hello-"+std::to_string(dpi)+"-m0.rgba");
+        std::ifstream file(path,std::ios::binary);const std::vector<unsigned char> old{std::istreambuf_iterator<char>(file),{}};
+        if(old.size()!=old_width*height*4u)throw std::runtime_error("missing original Hello golden");
+        // The unchanged original Hello lies left of 128pt. The extra half
+        // point adds white viewport columns, never resizes its glyphs.
+        for(size_t y=0u;y<height;++y)for(size_t x=0u;x<old_width;++x)
+            std::memcpy(out.data()+3u*(y*width+x),old.data()+4u*(y*old_width+x),3u);
+        return out;
+    }
     if(mode==23)return out;
     if(mode==48) {
         const auto goldens=std::filesystem::path(__FILE__).parent_path()/"goldens";
@@ -229,7 +242,7 @@ static int native_ttf_public_cases(const std::string& filename,int first=0,int l
     /* Each positive is a fresh ORIGINAL; this restores real text observation
      * coverage in the existing native-only public target as well. */
     for(int mode=first;mode<=last;++mode) {
-        const bool positive=mode<=9 || mode==11 || (mode>=32 && mode<=34) || mode==37 || mode==44 || mode==49 || mode==22 || mode==23 || mode==24 || mode==35 || mode==40 || mode==43 || mode==45 || mode==46 || mode==47 || mode==48;
+        const bool positive=mode<=9 || mode==11 || (mode>=32 && mode<=34) || mode==37 || mode==44 || mode==49 || mode==22 || mode==23 || mode==24 || mode==26 || mode==35 || mode==40 || mode==43 || mode==45 || mode==46 || mode==47 || mode==48;
         const auto original=(mode==44 || mode==49)?composer_ttf_original(mode==49):native_ttf_fixture(mode);
         const char *text_value=(mode==49 || mode==24)?"H":"Hello";
         CHECK(write_native_ttf_pdf(filename,original));
@@ -270,8 +283,8 @@ static int native_ttf_public_cases(const std::string& filename,int first=0,int l
             int w=0,h=0,stride=0,components=0;const unsigned char *pixels=nullptr;size_t n=0u;
             OK(quantapdf_bitmap_dimensions(bitmap,&w,&h,&stride,&components));
             OK(quantapdf_bitmap_data(bitmap,&pixels,&n));
-            CHECK(w==(128*dpi+71)/72 && h==(64*dpi+71)/72 && stride==w*3 && components==3 && n==(size_t)stride*(size_t)h);
-            if(mode==22 || mode==23 || mode==35 || mode==40 || mode==43 || mode==45 || mode==46 || mode==47 || mode==48) {
+            CHECK(w==(mode==26?(257*dpi+143)/144:(128*dpi+71)/72) && h==(64*dpi+71)/72 && stride==w*3 && components==3 && n==(size_t)stride*(size_t)h);
+            if(mode==22 || mode==23 || mode==26 || mode==35 || mode==40 || mode==43 || mode==45 || mode==46 || mode==47 || mode==48) {
                 const auto expected=native_ttf_expanded_expected(mode,unsigned(dpi));
                 CHECK(expected.size()==n && std::memcmp(pixels,expected.data(),n)==0);
             } else if(mode==3 || mode==24) {for(size_t i=0u;i<n;++i)CHECK(pixels[i]==255u);}

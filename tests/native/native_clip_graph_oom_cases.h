@@ -162,12 +162,13 @@ static int clip_graph_source_contracts(const quantapdf_qpdf_page_limits& default
     std::printf("Clip graph Source wide=%d: %zu definition growth faults, %zu path growth faults, %zu state growth faults, %zu publication faults, %zu C11 malloc faults, %zu exact N/N-1 checks; independent RGBA and deep graph snapshots\n",int(wide),clip_faults,path_faults,stack_faults,publications,raster_faults,quotas);
     return EXIT_SUCCESS;
 }
-static int clip_graph_dpi_contracts(const quantapdf_qpdf_page_limits& defaults)
+static int clip_graph_dpi_contracts(const quantapdf_qpdf_page_limits& defaults,bool fractional=false)
 {
     size_t renders=0u,faults_seen=0u,boundaries=0u;
     target=0u;armed=false;
     for(bool encrypted:{false,true}) {
         native_clip_graph::options opt;opt.scene=encrypted?2u:0u;opt.primitive=4u;opt.fringe=true;
+        if(fractional) {opt.width_ticks=encrypted?196:188;opt.height_ticks=encrypted?180:204;opt.glyph_fringe=true;}
         auto sample=native_clip_graph::create(opt,encrypted);quantapdf_qpdf_document *document=nullptr;
         CHECK(quantapdf_qpdf_open_memory(reinterpret_cast<const unsigned char*>(sample.bytes.data()),sample.bytes.size(),
             encrypted?"reader":"",&document)==QUANTAPDF_OK);
@@ -176,11 +177,27 @@ static int clip_graph_dpi_contracts(const quantapdf_qpdf_page_limits& defaults)
         caps.max_operations=sample.operations;
         quantapdf_ir blank{},ir{};
         CHECK(quantapdf_qpdf_page_to_ir(owner.get(),0u,&caps,&blank)==QUANTAPDF_OK && blank.operation_count==0u);
-        CHECK(quantapdf_qpdf_page_to_ir(owner.get(),1u,&caps,&ir)==QUANTAPDF_OK && ir.operation_count==sample.operations);
+        if(fractional) {track_c_allocation=true;c_allocations=0u;c_fail_index=0u;c_faults=0u;}
+        const auto staged=quantapdf_qpdf_page_to_ir(owner.get(),1u,&caps,&ir);track_c_allocation=false;
+        CHECK(staged==QUANTAPDF_OK && ir.operation_count==sample.operations);
+        if(fractional) {
+            const size_t calls=c_allocations;
+            CHECK(calls>0u && ir.pages[0].width_points==float(opt.width_ticks)/16.0f &&
+                ir.pages[0].height_points==float(opt.height_ticks)/16.0f);
+            for(size_t fail=1u;fail<=calls;++fail) {
+                quantapdf_ir denied;std::memset(&denied,0xa5,sizeof(denied));
+                track_c_allocation=true;c_fail_index=fail;c_allocations=0u;c_faults=0u;
+                const auto error=quantapdf_qpdf_page_to_ir(owner.get(),1u,&caps,&denied);
+                track_c_allocation=false;c_fail_index=0u;
+                CHECK(error==QUANTAPDF_ERROR_NOMEM && cleared(denied) && c_faults==1u && c_allocations==fail);
+            }
+            CHECK(native_clip_graph::rgb(sample,300u)!=native_clip_graph::rgb(sample,300u,true));
+        }
         owner.reset();sample.bytes.assign(sample.bytes.size(),'x');
         for(quantapdf_ir *source:{&blank,&ir})for(unsigned dpi:{1u,23u,73u,113u,150u,300u}) {
             const bool empty=source==&blank;
-            const size_t w=((empty?5u:12u)*dpi+71u)/72u,h=((empty?4u:12u)*dpi+71u)/72u;
+            const size_t w=empty?(5u*dpi+71u)/72u:native_clip_graph::width(sample,dpi);
+            const size_t h=empty?(4u*dpi+71u)/72u:native_clip_graph::height(sample,dpi);
             const auto expected=empty?std::vector<unsigned char>(w*h*3u,255u):native_clip_graph::rgb(sample,dpi);
             const auto snapshot=text_ir_snapshot(*source);
             const auto equal=[&](const quantapdf_ir_raster_image& image) {
@@ -238,7 +255,7 @@ static int clip_graph_dpi_contracts(const quantapdf_qpdf_page_limits& defaults)
         quantapdf_ir_dispose(&blank);quantapdf_ir_dispose(&ir);CHECK(cleared(blank) && cleared(ir));
     }
     CHECK(renders==24u && faults_seen>0u && boundaries>0u);
-    std::printf("integer DPI Source: %zu independent RGBA results, %zu actual C11 malloc faults, %zu N/N-1 boundaries; blank and Text/Fill/Image/Clip at original DPI after document destruction\n",renders,faults_seen,boundaries);
+    std::printf("integer DPI Source fractional=%d: %zu independent RGBA results, %zu actual C11 malloc faults, %zu N/N-1 boundaries; blank and Text/Fill/Image/Clip at original DPI after document destruction\n",int(fractional),renders,faults_seen,boundaries);
     return EXIT_SUCCESS;
 }
 #endif

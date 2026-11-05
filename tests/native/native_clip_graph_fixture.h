@@ -17,13 +17,15 @@ struct paint {
 };
 struct options {
     unsigned scene=0u,order=0u,primitive=0u,leaves=4u;
-    bool empty=false,prefix=true,sparse=false,fringe=false;
+    bool empty=false,prefix=true,sparse=false,fringe=false,glyph_fringe=false;
+    int width_ticks=192,height_ticks=192;
     size_t unused=0u,contours=1u,zeros=0u,depth=0u;
 };
 struct original {
     std::string bytes;
     size_t decoded_bytes=0u,operations=0u,images=0u,glyphs=0u;
     size_t leaves=0u,nodes=0u,states=0u;
+    int width_ticks=192,height_ticks=192;
     std::vector<paint> paints;
 };
 inline original create(options opt,bool encrypted,int invalid=0)
@@ -32,7 +34,8 @@ inline original create(options opt,bool encrypted,int invalid=0)
     pdf->processMemoryFile("Clip graph original",base.data(),base.size());
     auto root=pdf->getRoot().getKey("/Pages"),page=root.getKey("/Kids").getArrayItem(0);
     auto resources=page.getKey("/Resources");root.replaceKey("/Resources",resources);page.removeKey("/Resources");
-    page.replaceKey("/MediaBox",O::parse("[0 0 12 12]"));
+    page.replaceKey("/MediaBox",O::parse("[0 0 "+std::to_string(double(opt.width_ticks)/16.0)+
+        " "+std::to_string(double(opt.height_ticks)/16.0)+"]"));
     resources.replaceKey("/ExtGState",O::newDictionary());
     resources.getKey("/Font").replaceKey("/Unused",resources.getKey("/Font").getKey("/F"));
     const std::array<unsigned char,12> samples={255,0,0,0,255,0,0,0,255,255,255,0};
@@ -52,7 +55,8 @@ inline original create(options opt,bool encrypted,int invalid=0)
     const char *inks[]={"0.2 0.4 0.6 rg ","0.8 0.2 0.4 rg ","0.4 0.8 0.2 rg "};
     const std::array<std::array<unsigned char,3>,3> colors={{{51,102,153},{204,51,102},{102,204,51}}};
     static const unsigned orders[6][3]={{0,1,2},{0,2,1},{1,0,2},{1,2,0},{2,0,1},{2,1,0}};
-    original result;std::string content;std::vector<region> active;
+    original result;result.width_ticks=opt.width_ticks;result.height_ticks=opt.height_ticks;
+    std::string content;std::vector<region> active;
     std::vector<std::vector<region>> saved;
     size_t root_id=0u,next_id=0u;std::vector<size_t> saved_ids,observed_roots;
     const auto save=[&]() {content+="q ";saved.push_back(active);saved_ids.push_back(root_id);};
@@ -147,6 +151,14 @@ inline original create(options opt,bool encrypted,int invalid=0)
             restore();body();
         }
     }
+    if(opt.glyph_fringe) {
+        for(auto at:std::array<std::array<int,2>,2>{{{opt.width_ticks-4,96},{20,-12}}}) {
+            content+="q 0 g BT /F 2 Tf "+std::to_string(double(at[0])/16.0)+" "+
+                std::to_string(double(at[1])/16.0)+" Td <0051> Tj ET Q ";
+            paint glyph{};glyph.glyph=true;glyph.bounds={at[0],at[1],at[0],at[1]+24};
+            result.paints.push_back(glyph);++result.operations;++result.glyphs;
+        }
+    }
     if(invalid==1)content+="Q ";
     if(invalid==2)content+="/Missing Do ";
     if(invalid==3)content+="2 2 m BT ET ";
@@ -170,36 +182,43 @@ inline original create(options opt,bool encrypted,int invalid=0)
     writer.write();const auto bytes=writer.getBufferSharedPointer();
     result.bytes.assign(reinterpret_cast<const char*>(bytes->getBuffer()),bytes->getSize());return result;
 }
-inline std::vector<unsigned char> rgb(const original& source,unsigned dpi)
+inline size_t width(const original& source,unsigned dpi)
+{return (size_t(source.width_ticks)*dpi+1151u)/1152u;}
+inline size_t height(const original& source,unsigned dpi)
+{return (size_t(source.height_ticks)*dpi+1151u)/1152u;}
+inline std::vector<unsigned char> rgb(const original& source,unsigned dpi,bool truncate_glyph_viewport=false)
 {
-    const size_t side=(12u*dpi+71u)/72u;
-    const int64_t unit=8ll*dpi;
-    std::vector<unsigned char> out(side*side*3u,255u);
+    const size_t w=width(source,dpi),h=height(source,dpi);
+    const int64_t unit=128ll*dpi;
+    std::vector<unsigned char> out(w*h*3u,255u);
     const auto contains=[&](region r,int64_t x,int64_t y) {
         return 16*x>=r.left*unit && 16*x<r.right*unit && 16*y>r.bottom*unit && 16*y<=r.top*unit;
     };
-    for(const auto& p:source.paints)for(size_t y=0u;y<side;++y)for(size_t x=0u;x<side;++x) {
+    for(const auto& p:source.paints)for(size_t y=0u;y<h;++y)for(size_t x=0u;x<w;++x) {
         unsigned hits=0u;
         for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
-            const int64_t px=(8ll*int64_t(x)+2ll*sx+1ll)*72ll;
-            const int64_t py=12*unit-(8ll*int64_t(y)+2ll*sy+1ll)*72ll;
+            const int64_t px=(8ll*int64_t(x)+2ll*sx+1ll)*1152ll;
+            const int64_t py=int64_t(source.height_ticks)*8ll*dpi-(8ll*int64_t(y)+2ll*sy+1ll)*1152ll;
             bool visible=p.glyph?
                 1024*px>=(p.bounds.left*64+156)*unit && 1024*px<(p.bounds.left*64+341)*unit &&
                     16*py>p.bounds.bottom*unit && 16*py<=p.bounds.top*unit:
                 contains(p.bounds,px,py);
-            visible=visible && contains({0,0,192,192},px,py);
+            visible=visible && contains({0,0,source.width_ticks,source.height_ticks},px,py);
+            if(p.glyph && truncate_glyph_viewport)
+                visible=visible && contains({0,source.height_ticks%16,(source.width_ticks/16)*16,source.height_ticks},px,py);
             for(const auto& clip:p.clips)visible=visible && contains(clip,px,py);
             hits+=unsigned(visible);
         }
         size_t sample=0u;
         if(p.image) {
-            const int64_t px=(2ll*int64_t(x)+1ll)*36ll,py=12ll*dpi-(2ll*int64_t(y)+1ll)*36ll;
-            const size_t col=32*px<int64_t(p.bounds.left+p.bounds.right)*dpi?0u:1u;
-            const size_t row=32*py>int64_t(p.bounds.bottom+p.bounds.top)*dpi?0u:1u;
+            const int64_t px=(2ll*int64_t(x)+1ll)*576ll;
+            const int64_t py=int64_t(source.height_ticks)*dpi-(2ll*int64_t(y)+1ll)*576ll;
+            const size_t col=32*px<int64_t(p.bounds.left+p.bounds.right)*16ll*dpi?0u:1u;
+            const size_t row=32*py>int64_t(p.bounds.bottom+p.bounds.top)*16ll*dpi?0u:1u;
             sample=2u*row+col;
         }
         for(size_t c=0u;c<3u;++c) {
-            auto& value=out[(y*side+x)*3u+c];
+            auto& value=out[(y*w+x)*3u+c];
             value=static_cast<unsigned char>((unsigned(p.colors[sample*3u+c])*hits+unsigned(value)*(16u-hits)+8u)/16u);
         }
     }

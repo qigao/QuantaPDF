@@ -551,6 +551,28 @@
 - 非整数 DPI、一般页面盒／坐标、Image 仿射采样、通用 Stroke 和字体能力继续开放；
   旧显式 Stroke 内核仍保留各自的 DPI 合同。本地仅静态检查，不运行 Native。
 
+### A2 小数页面上的普通文字 Scene：当前开发增量
+
+- 已验收起点为 #625 的 `eee846ee`，tree `087289eddfe0d2e1efc4eacc564c62fe7f5c7108`；
+  [CI #2474](https://github.com/qigao/QuantaPDF/actions/runs/42041388683) 四配置各 127/127。
+  本节须以新精确 HEAD 验收，仍为 Draft、未合并或发布。
+- Source 的文字 handoff 使用已经保留的真实页面高度，移除整点宽高准入。
+  字形 mask 在原 4×4 子像素网格比较完整物理宽高，不再先将页面尺寸截断为整数；
+  普通 Scene 编译器取消与此对应的整点页面拒绝。输出按精确设备规划的 ceil 尺寸分配，
+  字形、Clip、Fill 与 Image 不拉伸到缓冲区。
+- 新公开项覆盖四组非方形页面（11.75×11.25、12.25×12.75、12×11.75、12.25×12 pt），
+  八个整数 DPI、真实 Roboto 字形、Text/Fill/RAW Image、多根及 65 叶 Clip、空叶、
+  加密／选页／多编码 Contents／detached Bitmap：320 次独立全 RGB、24 次显示旋转。
+  额外字形跨越右边和底边；有理数参考还证明“先截断宽高”的错误模型会改变真实像素。
+- Source/OOM 项在原文档销毁后验证 24 次完整 RGBA（空白及小数混合页）、不可变 IR、
+  逐次 Source C 发布和 C11 malloc 故障，以及实际内存／操作／边／采样／Image／像素 N/N−1。
+  历史 128.5×64 pt Hello 拒绝提升为原始独立 glyph golden 加白边的三 DPI 全 RGB、
+  重复渲染、thumbnail 和 Bitmap 生命周期。公开／OOM 期限仍为 45/40 秒。
+- 本增量沿用 Source 的既有四分之一点页面数值语法；TeXample 千分之一点专用页的文字
+  和一般十进制页面仍待实现，不能经 binary32 页面尺寸舍入后冒称精确保留原始视口。
+  非零原点／Crop、原始 Rotate、非默认 UserUnit 的文字组合，以及 Image affine、
+  通用 Stroke、非整数 DPI 和字体能力继续开放。本地仅静态检查，不运行 Native。
+
 ## 单一执行模型
 
 ```mermaid
