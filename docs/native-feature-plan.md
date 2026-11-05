@@ -439,6 +439,9 @@
   分类断言，ASan 在合并的 744 次文字路径 RGB 矩阵触及 45 秒期限；该轮未通过。
   双 Clip 原件保留其独立全 RGB 和双叶检查，并按新增原件核对 39 个延迟释放 Bitmap。
   原 744 次 RGB 按 line/cubic/v/y/h 后继续分为五项，各项仍为 45 秒，覆盖不减少。
+- Source/OOM 的旧 Fill 前缀字形额度拒绝改为 819/820/821 笔完整顺序场景，在释放
+  qpdf owner 后核对三个 DPI 的全部 RGBA；实际操作预算少一笔仍拒绝。长小数
+  compound/reverse Clip 原件保留其双叶/GS 关系、逐个 Source 分配失败及独立 RGBA。
 
 ## 单一执行模型
 

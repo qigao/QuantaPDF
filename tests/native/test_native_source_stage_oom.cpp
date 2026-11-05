@@ -3255,7 +3255,7 @@ static int m2b2r_reverse_sibling_source_owner(const quantapdf_qpdf_page_limits& 
           prefix.resources.clip_count==1u && prefix.resources.clips!=nullptr &&
           prefix.resources.image_count==1u && prefix.resources.images!=nullptr);
     prefix_bytes.clear();prefix_bytes.shrink_to_fit();
-    for(int mode:{147,148}) {
+    for(int mode:{147,148,160}) {
         auto original=native_ttf_fixture(mode);
         const auto valid=[&](const quantapdf_ir& ir) {
             if(ir.page_count!=1u || ir.pages==nullptr || ir.operation_count!=3u ||
@@ -3273,7 +3273,7 @@ static int m2b2r_reverse_sibling_source_owner(const quantapdf_qpdf_page_limits& 
             for(size_t i=0u;i<2u;++i) {
                 const auto& gs=ir.resources.graphics_states[i];
                 const auto& clip=ir.resources.clips[i];
-                const bool evenodd=mode==147?i==1u:i==0u;
+                const bool evenodd=mode==148?i==0u:i==1u;
                 if(gs.clip_id!=i+1u || gs.soft_mask_id!=0u || gs.fill_alpha!=1.0f ||
                    gs.stroke_alpha!=1.0f || gs.blend_mode!=QUANTAPDF_COMPOSER_BLEND_NORMAL ||
                    clip.kind!=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL || clip.members!=nullptr ||
@@ -3373,6 +3373,7 @@ static int m2b2r_reverse_sibling_source_owner(const quantapdf_qpdf_page_limits& 
         CHECK(valid(owned) && text_ir_snapshot(owned)==frozen);quantapdf_ir_dispose(&owned);CHECK(cleared(owned));
     }
     for(int mode=149;mode<=167;++mode) {
+        if(mode==160)continue; // Finite decimal rectangle is covered above.
         quantapdf_ir denied;std::memset(&denied,0xa5,sizeof(denied));
         const auto status=stage(native_ttf_fixture(mode),caps,denied);
         if(status==QUANTAPDF_OK)std::fprintf(stderr,"M2b2r unexpected Source admission mode=%d\n",mode);
@@ -3398,7 +3399,7 @@ static int m2b2o_compound_source_owner(const quantapdf_qpdf_page_limits& caps)
     };
     quantapdf_ir prefix{};
     CHECK(stage(native_ttf_fixture(99),caps,prefix)==QUANTAPDF_OK);
-    for(int mode:{126,127}) {
+    for(int mode:{126,127,143}) {
         auto original=native_ttf_fixture(mode);
         const auto valid=[&](const quantapdf_ir& ir) {
             if(ir.page_count!=1u || ir.pages==nullptr || ir.operation_count!=3u ||
@@ -3417,7 +3418,7 @@ static int m2b2o_compound_source_owner(const quantapdf_qpdf_page_limits& caps)
                root.member_count!=2u || root.members[0]!=1u || root.members[1]!=2u)return false;
             for(size_t i=0u;i<2u;++i) {
                 const auto& leaf=ir.resources.clips[i];
-                const bool evenodd=mode==126?i==1u:i==0u;
+                const bool evenodd=mode==127?i==0u:i==1u;
                 if(leaf.kind!=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL ||
                    leaf.commands==nullptr || leaf.command_count!=5u ||
                    leaf.members!=nullptr || leaf.member_count!=0u ||
@@ -3479,6 +3480,12 @@ static int m2b2o_compound_source_owner(const quantapdf_qpdf_page_limits& caps)
                 &prepared)==QUANTAPDF_OK &&
                 prepared.source==&owned && prepared.route==QP_NATIVE_PREPARED_SCENE &&
                 prepared.usage.states_used==1u && prepared.usage.clips_used==7u && text_ir_snapshot(owned)==frozen);
+            quantapdf_ir_raster_image output{};
+            CHECK(quantapdf_native_execute_page_v1(&prepared,nullptr,&output)==QUANTAPDF_OK);
+            const auto expected=native_ttf_fractional_expected(mode,dpi);
+            CHECK(output.size==expected.rgba.size() && std::memcmp(output.pixels,expected.rgba.data(),output.size)==0 &&
+                text_ir_snapshot(owned)==frozen);
+            quantapdf_ir_raster_image_dispose(&output);
         }
         target=8u;observed=0u;faults=0u;armed=false;
         quantapdf_ir cpp_denied{};
@@ -3506,7 +3513,7 @@ static int m2b2o_compound_source_owner(const quantapdf_qpdf_page_limits& caps)
         original.clear();original.shrink_to_fit();
         CHECK(valid(owned) && text_ir_snapshot(owned)==frozen);quantapdf_ir_dispose(&owned);CHECK(cleared(owned));
     }
-    for(int mode=128;mode<144;++mode) {
+    for(int mode=128;mode<143;++mode) {
         quantapdf_ir denied;std::memset(&denied,0xa5,sizeof(denied));
         const auto status=stage(native_ttf_fixture(mode),caps,denied);
         if(status==QUANTAPDF_OK)std::fprintf(stderr,"M2b2o unexpected Source admission mode=%d\n",mode);
@@ -5136,18 +5143,40 @@ static int ordered_text_source_contracts(const quantapdf_qpdf_page_limits& defau
         if(glyphs==682u)CHECK(ir.operations[0].value.text_outlines.glyph_count==glyphs);else CHECK(cleared(ir));
         quantapdf_ir_dispose(&ir);++quotas;
     }
-    // Exactly 4096 commands includes 818 pre-BT rectangles plus one
-    // six-command 'l'. Larger prefixes fail inside the content interpreter.
+    // Fill prefixes no longer consume the 4096-command glyph quota.
+    // Cross that old boundary and retain every paint in source order.
     for(size_t count:{819u,820u,821u}) {
-        const auto sample=native_ordered_text::create(count,2,false);quantapdf_ir ir{};
-        auto caps=defaults;caps.max_operations=count;
+        auto sample=native_ordered_text::create(count,2,false);quantapdf_ir ir{};
+        quantapdf_qpdf_document *document=nullptr;
+        CHECK(quantapdf_qpdf_open_memory(reinterpret_cast<const unsigned char*>(sample.bytes.data()),sample.bytes.size(),"",&document)==QUANTAPDF_OK);
+        std::unique_ptr<quantapdf_qpdf_document,decltype(&quantapdf_qpdf_close)> owner(document,quantapdf_qpdf_close);
+        auto caps=defaults;caps.max_operations=count;caps.max_content_bytes=sample.decoded_bytes;
         track_c_allocation=true;c_fail_index=0u;c_allocations=0u;c_faults=0u;
-        const auto error=native_test_page_ir(reinterpret_cast<const unsigned char*>(sample.bytes.data()),sample.bytes.size(),&caps,1u,&ir);
+        const auto error=quantapdf_qpdf_page_to_ir(owner.get(),1u,&caps,&ir);
         track_c_allocation=false;
-        if(error!=(count==819u?QUANTAPDF_OK:QUANTAPDF_ERROR_UNSUPPORTED))std::fprintf(stderr,"Prefix count=%zu content=%zu status=%d C=%zu\n",count,sample.decoded_bytes,int(error),c_allocations);
-        CHECK(error==(count==819u?QUANTAPDF_OK:QUANTAPDF_ERROR_UNSUPPORTED));
-        if(count==819u)CHECK(ir.operation_count==count);else CHECK(cleared(ir) && c_allocations==0u);
-        quantapdf_ir_dispose(&ir);++quotas;
+        CHECK(error==QUANTAPDF_OK && ir.operation_count==count && c_allocations>0u && c_faults==0u);
+        CHECK(ir.operations[count-1u].kind==QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES &&
+            ir.operations[count-1u].value.text_outlines.glyph_count==1u);
+        auto limited=caps;--limited.max_operations;
+        quantapdf_ir denied{};
+        CHECK(quantapdf_qpdf_page_to_ir(owner.get(),1u,&limited,&denied)==QUANTAPDF_ERROR_UNSUPPORTED && cleared(denied));++quotas;
+        owner.reset();sample.bytes.assign(sample.bytes.size(),'x');
+        const auto snapshot=text_ir_snapshot(ir);
+        const quantapdf_ir_raster_scoped_mixed_v5_limits budget={1024u,count,8u*count,8000000u,1u,1u};
+        for(unsigned dpi:{72u,96u,144u}) {
+            const auto expected=native_ordered_text::rgb(sample,dpi);
+            quantapdf_native_page_device device{};device.dpi=float(dpi);
+            quantapdf_native_prepared_page_v1 metadata{};
+            quantapdf_ir_raster_image output{};
+            CHECK(quantapdf_native_prepare_page_v1(&ir,&budget,&device,&metadata)==QUANTAPDF_OK);
+            CHECK(quantapdf_native_execute_page_v1(&metadata,nullptr,&output)==QUANTAPDF_OK &&
+                output.width==12u*dpi/72u && output.height==output.width &&
+                output.size==output.width*output.height*4u && text_ir_snapshot(ir)==snapshot);
+            for(size_t i=0u;i<output.width*output.height;++i)
+                CHECK(std::memcmp(output.pixels+4u*i,expected.data()+3u*i,3u)==0 && output.pixels[4u*i+3u]==255u);
+            quantapdf_ir_raster_image_dispose(&output);
+        }
+        quantapdf_ir_dispose(&ir);CHECK(cleared(ir));
     }
     std::printf("Ordered Text/Fill: %zu stack-growth faults, %zu Source publication faults, %zu actual Text projection/geometry/output faults, %zu N/N-1 checks; independent RGBA, immutable Source and detached owners passed\n",stack_faults,publications,raster_faults,quotas);
     return EXIT_SUCCESS;
