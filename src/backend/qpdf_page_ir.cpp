@@ -2149,7 +2149,7 @@ quantapdf_ir materialize_three_branch_source(const admission& source)
         ir.resources.clip_count=7u;
         ir.resources.clip_capacity=7u;
         for(size_t i=0u;i<4u;++i) {
-            const auto& staged=i==0u?source.clip:
+            const auto& staged=i==0u?source.first_clip():
                                       source.three_branch_leaves[i-1u];
             auto& dest=ir.resources.clips[i];
             dest.kind=QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL;
@@ -2248,6 +2248,9 @@ quantapdf_ir materialize_clipped_path_only(const admission& source)
     }
 }
 
+} // namespace
+
+constexpr size_t page_max_tree_nodes=128u;
 size_t page_walk_pages(
     Obj node,Obj expected_parent,size_t depth,size_t max_depth,
     std::set<QPDFObjGen>& seen,size_t& nodes,size_t& leaf_index,
