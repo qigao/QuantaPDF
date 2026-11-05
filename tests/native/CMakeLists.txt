@@ -74,6 +74,12 @@ set_tests_properties(quantapdf.native_composer_geometry PROPERTIES
 # Ordinary Fill keeps one page path owner on both sides of Text objects.
 add_test(NAME quantapdf.native_text_paths
   COMMAND quantapdf_native_public_render --text-paths)
+foreach(primitive IN ITEMS cubic v y continued)
+  add_test(NAME quantapdf.native_text_paths_${primitive}
+    COMMAND quantapdf_native_public_render --text-paths-${primitive})
+  set_tests_properties(quantapdf.native_text_paths_${primitive} PROPERTIES
+    TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;text-path")
+endforeach()
 add_test(NAME quantapdf.native_text_path_empty
   COMMAND quantapdf_native_public_render --text-path-empty)
 add_test(NAME quantapdf.native_text_path_state

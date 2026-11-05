@@ -1,8 +1,9 @@
 #ifndef QUANTAPDF_NATIVE_ORDERED_SCENE_CASES_H
 #define QUANTAPDF_NATIVE_ORDERED_SCENE_CASES_H
 #include "native_ordered_scene_fixture.h"
-static int ordered_scene_cases(const std::string& filename,bool path_mode=false)
+static int ordered_scene_cases(const std::string& filename,unsigned path_kind=0u)
 {
+    const bool path_mode=path_kind!=0u;
     size_t renders=0u,errors=0u;
     const auto exercise=[&](const native_ordered_scene::original& sample,bool encrypted)->int {
         CHECK(write_pdf(filename,sample.bytes));
@@ -41,11 +42,11 @@ static int ordered_scene_cases(const std::string& filename,bool path_mode=false)
         CHECK(finalized==1u);return EXIT_SUCCESS;
     };
     if(path_mode) {
-        for(unsigned kind:{1u,2u,3u,4u,5u})for(unsigned order=0u;order<6u;++order)
+        for(unsigned order=0u;order<6u;++order)
         for(unsigned clip:{0u,1u,3u,4u})for(bool encrypted:{false,true})
-            CHECK(exercise(native_ordered_scene::create(1u,1u,order,encrypted,0u,0,clip,SIZE_MAX,false,native_ordered_scene::text_presence::glyphs,kind,3u,0u,true),encrypted)==EXIT_SUCCESS);
-        for(unsigned kind:{1u,2u,3u,4u})for(bool encrypted:{false,true})
-            CHECK(exercise(native_ordered_scene::create(1u,1u,2u,encrypted,0u,0,0u,SIZE_MAX,false,native_ordered_scene::text_presence::glyphs,kind,65u,8192u,true),encrypted)==EXIT_SUCCESS);
+            CHECK(exercise(native_ordered_scene::create(1u,1u,order,encrypted,0u,0,clip,SIZE_MAX,false,native_ordered_scene::text_presence::glyphs,path_kind,3u,0u,true),encrypted)==EXIT_SUCCESS);
+        if(path_kind<=4u)for(bool encrypted:{false,true})
+            CHECK(exercise(native_ordered_scene::create(1u,1u,2u,encrypted,0u,0,0u,SIZE_MAX,false,native_ordered_scene::text_presence::glyphs,path_kind,65u,8192u,true),encrypted)==EXIT_SUCCESS);
     } else {
     for(size_t count:{1u,5u,17u,33u,65u})for(unsigned order=0u;order<6u;++order)for(bool encrypted:{false,true})
         CHECK(exercise(native_ordered_scene::create(count,1u,order,encrypted),encrypted)==EXIT_SUCCESS);
@@ -66,8 +67,8 @@ static int ordered_scene_cases(const std::string& filename,bool path_mode=false)
         CHECK(status==((invalid==3 || invalid==4 || invalid==6)?QUANTAPDF_ERROR_UNSUPPORTED:QUANTAPDF_ERROR_FORMAT) && bitmap==nullptr);
         quantapdf_drop_page(page);++errors;
     }
-    CHECK(renders==(path_mode?744u:300u) && errors==(path_mode?16u:8u));
-    if(path_mode)std::printf("BT Fill paths: %zu independent full RGB renders, six orders, line/cubic/v/y/current-point continuation, single-root Clip and empty Clip, 65 contours and 8192 zero segments, encrypted split selected pages, detached owners, %zu late errors\n",renders,errors);
+    CHECK(renders==(path_mode?(path_kind==5u?144u:150u):300u) && errors==(path_mode?16u:8u));
+    if(path_mode)std::printf("BT Fill path kind=%u: %zu independent full RGB renders, six orders, single-root Clip and empty Clip, encrypted split selected pages, detached owners, %zu late errors\n",path_kind,renders,errors);
     else std::printf("Ordered Text/Fill/Image: %zu analytic full RGB renders, six orders, 1/5/17/33/65 Images, 69 glyphs, RGB/Gray RAW/Flate, unused resources, deep q/Q, encrypted split selected pages, detached owners, %zu late errors\n",renders,errors);
     return EXIT_SUCCESS;
 }

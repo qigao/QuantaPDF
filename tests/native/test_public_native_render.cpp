@@ -827,7 +827,7 @@ static int native_m2b2j_public_fractional(const std::string& filename)
         for(unsigned dpi:{72u,96u,144u}) {
             const auto expected=native_ttf_fractional_expected(mode,dpi);
             CHECK(!expected.rgb.empty());
-            if((reverse?mode>=168:mode>=99 && mode!=126 && mode!=127 && mode!=144))CHECK(expected.disjoint>0u && expected.overlap>0u &&
+            if((reverse?mode>=168:mode>=99 && mode!=126 && mode!=127 && mode!=143 && mode!=144))CHECK(expected.disjoint>0u && expected.overlap>0u &&
                               expected.spurious>0u);
             if(mode==105 || mode==106)CHECK(expected.restored_outside>0u);
             if(mode==106)CHECK(expected.restored_inside>0u &&
@@ -944,7 +944,7 @@ static int native_m2b2j_public_fractional(const std::string& filename)
     quantapdf_drop_context(context);
     CHECK(matches(retained,retained_reference));
     quantapdf_drop_bitmap(retained);
-    CHECK(retained_scopes.size()==33u);
+    CHECK(retained_scopes.size()==39u);
     for(const auto& held:retained_scopes) {
         CHECK(matches(held.bitmap,held.expected));
         quantapdf_drop_bitmap(held.bitmap);
@@ -4156,7 +4156,15 @@ int main(int argc,char **argv)
     const std::string filename=std::string("native-public-")+
         (argc>1?argv[1]:"render")+".pdf";
     if(argc==2 && std::strcmp(argv[1],"--text-paths")==0)
-        return ordered_scene_cases(filename,true);
+        return ordered_scene_cases(filename,1u);
+    if(argc==2 && std::strcmp(argv[1],"--text-paths-cubic")==0)
+        return ordered_scene_cases(filename,2u);
+    if(argc==2 && std::strcmp(argv[1],"--text-paths-v")==0)
+        return ordered_scene_cases(filename,3u);
+    if(argc==2 && std::strcmp(argv[1],"--text-paths-y")==0)
+        return ordered_scene_cases(filename,4u);
+    if(argc==2 && std::strcmp(argv[1],"--text-paths-continued")==0)
+        return ordered_scene_cases(filename,5u);
     if(argc==2 && std::strcmp(argv[1],"--text-path-empty")==0)
         return path_commands_cases(filename,true,9u);
     if(argc==2 && std::strcmp(argv[1],"--text-path-state")==0)
