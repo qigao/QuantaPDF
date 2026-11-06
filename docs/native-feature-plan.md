@@ -683,6 +683,10 @@
 - 起点为 #625 `9936b583`，tree `d6bfb0af957547f0eb18ee2a1a20c47227d1cd6b`；
   [CI #2486](https://github.com/qigao/QuantaPDF/actions/runs/42136359944) 四配置各 143/143。
   本节须以新精确 HEAD 的完整 CI 验收，PR 保持 Draft。
+- 首轮 `4b997cb9`，tree `0ee75b5ed31f3bdf8ad0c6a29da2f396b9a0e969`，
+  [CI #2487](https://github.com/qigao/QuantaPDF/actions/runs/42144605445) 四配置均止于
+  sibling Clip 测试的旧 unsigned DPI 回调类型，CTest 未执行；修正测试声明为 float。
+  失败记录保留，未重跑或取消作业，生产实现与独立像素参考未再变化。
 - 普通 Source Scene 直接保存 API 的实际正有限 binary32 DPI，移除全局整数检查及
   unsigned 转换。字形、Path/Clip、Image、页边界与像素中心使用同一个原始请求值。
   旧显式 Stroke/device 内核继续在自己的入口拒绝不支持的 DPI，不能先截断再选档。
