@@ -30,11 +30,11 @@ struct native_ttf_fractional_reference {
 inline native_ttf_fractional_reference native_ttf_fractional_compute(int mode,unsigned dpi)
 {
     native_ttf_fractional_reference out;
-    if((mode!=83 && mode!=84 && mode!=99 && mode!=100 && mode!=103 && mode!=105 && mode!=106 &&
+    if((mode!=83 && mode!=84 && mode!=99 && mode!=100 && mode!=103 && mode!=105 && mode!=106 && mode!=109 &&
         mode!=111 && mode!=112 && mode!=113 && mode!=114 && mode!=126 && mode!=127 && mode!=144 && mode!=145 && mode!=146 &&
         mode!=147 && mode!=148 && mode!=168 && mode!=169) ||
        (dpi!=72u && dpi!=96u && dpi!=144u))return out;
-    const bool restored=mode==105 || mode==106 || mode==111 || mode==112;
+    const bool restored=mode==105 || mode==106 || mode==109 || mode==111 || mode==112;
     const bool reverse=mode==147 || mode==148 || mode==168 || mode==169;
     const bool reverse_crossing=mode==168 || mode==169;
     const bool sibling=mode==113 || mode==114;
@@ -116,10 +116,19 @@ inline native_ttf_fractional_reference native_ttf_fractional_compute(int mode,un
             }
             /* Original Q restores GS0: this rectangle is independent
              * of Clip membership, including samples on either side. */
-            if(restored && px>=(mode==105?34.0:18.25)*scale &&
+            bool suffix_inside=restored && px>=(mode==105?34.0:18.25)*scale &&
                px<(mode==105?40.0:36.75)*scale &&
                py>=(mode==105?50.0:31.25)*scale &&
-               py<(mode==105?55.0:43.75)*scale) {
+               py<(mode==105?55.0:43.75)*scale;
+            if(mode==109) {
+                const int64_t den=8ll*dpi;
+                const int64_t rx=(8ll*int64_t(x)+2ll*sx+1ll)*72ll;
+                const int64_t ry=(8ll*int64_t(y)+2ll*sy+1ll)*72ll;
+                suffix_inside=4ll*rx>=73ll*den && 4ll*ry>=125ll*den &&
+                    4ll*ry<175ll*den &&
+                    25ll*(4ll*rx-143ll*den)<2ll*(4ll*ry-125ll*den);
+            }
+            if(suffix_inside) {
                 ++suffix_hits;
                 out.restored_inside+=(unsigned)inside;
                 out.restored_outside+=(unsigned)!inside;
@@ -251,12 +260,14 @@ inline native_ttf_fractional_reference native_ttf_fractional_compute(int mode,un
 inline native_ttf_fractional_reference native_ttf_fractional_expected(int mode,unsigned dpi)
 {
     if(dpi!=72u && dpi!=96u && dpi!=144u)return {};
+    if(mode==143)mode=126;
+    if(mode==160)mode=147;
     if(mode==114)mode=113;
     if(mode==127)mode=126;
     if(mode==146)mode=145;
     if(mode==148)mode=147;
     if(mode==169)mode=168;
-    static constexpr int profiles[]={83,84,99,100,103,105,106,111,112,113,126,144,145,147,168};
+    static constexpr int profiles[]={83,84,99,100,103,105,106,109,111,112,113,126,144,145,147,168};
     size_t profile=0u;
     while(profile<std::size(profiles) && profiles[profile]!=mode)++profile;
     if(profile==std::size(profiles))return {};

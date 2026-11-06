@@ -11,7 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Public 72/96/144 DPI quarter turns permute the COMPLETE native RGB
+/* Public integer-DPI quarter turns permute the COMPLETE native RGB
  * output at the same already-qualified target DPI, never a 72-DPI
  * upscaler or second source renderer. This private 72-unit pixel-space
  * C11 device plan validates the image's discrete width/height and
@@ -120,7 +120,6 @@ static quantapdf_status quantapdf_render_page_transformed(
      * The local IR slot zero never changes which original page is read.
      * No 72-DPI upscale, alternative provider or fallback. */
     if (page->page_index < 0 ||
-        (dpi != 72.0f && dpi != 96.0f && dpi != 144.0f) ||
         (rotation_degrees != 0.0f &&
          rotation_degrees != 90.0f &&
          rotation_degrees != 180.0f &&

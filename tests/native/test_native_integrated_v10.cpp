@@ -304,7 +304,7 @@ static int negative()
 {
     const char *const bad[]={
         "1 0 0 rg 12 10 -8 -6 re f 1 w 2 G 1 M [1] 0 d S",
-        "0 w 0 G 0 0 0 RG 0 0 0 1 K 1 M [] 0 d 12 10 -8 -6 re f BT ET",
+        "0 w 0 G 0 0 0 RG 0 0 0 1 K 1 M [] 0 d 12 10 -8 -6 re f BT 1 Tr ET",
         "0 w 1 0 0 rg 12 10 -8 -6 re f 1000001 M",
         "0 w 12 10 -8 -6 re f [0 0] 0 d",
         "0 G 2 2 3 3 re n 12 10 -8 -6 re f 2 G",

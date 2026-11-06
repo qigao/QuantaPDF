@@ -66,8 +66,55 @@ quadratic roots. CI compares complete public RGB and native RGBA images;
 fontTools is not a production or CI runtime dependency. See
 `docs/conformance/native-truetype-text-m0.md` for scope and failure gates.
 
+`roboto-hello-{72,144}-m0-rotate{90,180,270}.rgba.z` and
+`roboto-hello-96-m0-rotate90.rgba.z` cover original page `/Rotate`.
+Each file is lossless zlib-compressed RGBA, using the existing test zlib
+dependency. References rotate original quadratic coordinates before solving
+roots, preserving the physical viewport before device ceil. At 96 DPI,
+rotating an old Bitmap changes the sample phase. At 144 DPI, exact boundary
+samples can also change their half-open membership after original rotation,
+even though the page extents are whole pixels. Display rotation retains its
+separate lossless Bitmap semantics. All seven references are identical at
+60 and 80 Decimal digits; the three old Hello goldens are unchanged.
+
+| DPI / original Rotate | Decoded dimensions | Decoded bytes | Decoded SHA256 |
+| --- | --- | --- | --- |
+| 72 / 90 | 64 x 128 | 32768 | `5538f86b44d95b1cc1b57c94ff5cfbfd6bb38140a7ecf455f391067c3d613d04` |
+| 72 / 180 | 128 x 64 | 32768 | `891c886bf5c1e77500b78cd7e073a00a1763a35cd5843bbea437339bf3c4cb5a` |
+| 72 / 270 | 64 x 128 | 32768 | `7760eff600ead9ec31f69ee1cc27e07e5706f1f7ddb38678e70f4382f0ec2762` |
+| 96 / 90 | 86 x 171 | 58824 | `7c2adf26f139fee010b81cd829f040016ec9ee852da0a9883487d2db0e785795` |
+| 144 / 90 | 128 x 256 | 131072 | `e9b2d8eb37a5611b28b039d25c2c60d1bcea62aacb3e7700b180f88e49b565a9` |
+| 144 / 180 | 256 x 128 | 131072 | `4a25a7c5f85991f58f699897d882f19d4449b4606a86bff0f65f6324ff4f4fda` |
+| 144 / 270 | 128 x 256 | 131072 | `79a1ea135e6e084d4a2e052f60d2b42802457e0f2e3ea75e34826cb61a678dea` |
+
+For example, reproduce the 96-DPI reference with:
+
+```sh
+python tools/qualification/native_ttf_reference.py --case hello --dpi 96 --rotation 90 --compress --output-dir /tmp/ttf-reference
+```
+
 
 ## Rectangle and TrueType M1
+
+`roboto-decimal-{72,96,144}-m0.rgba.z` and
+`roboto-decimal-shapes-{72,96,144}-m0.rgba.z` are independent original
+237.133 x 180.44-point pages. The first paints original quadratic Hello,
+a solid RAW RGB image and green Fill; the second paints the same image,
+green Fill and blue Fill with no text. Each has three logical paints.
+All six compressed RGBA references agree at 60/80 Decimal digits.
+
+| Case / DPI | Decoded bytes | Decoded SHA256 |
+| --- | --- | --- |
+| decimal / 72 | 172312 | `a0c31b8ab6176fcb3d6bf7966f231213ebf03b01cfcd7007f85268865aa29814` |
+| decimal / 96 | 305588 | `7135b7fdfb49673b0391b05ba2fa2987f7ffd60d07bf91501d70d2ba33a98be4` |
+| decimal / 144 | 685900 | `150cc9a80e681516a3004d08b67f6933165416409be75462f6a25892f4eeb83d` |
+| decimal-shapes / 72 | 172312 | `83e773f72e81de25070b4bd406476ff2036bedcec5e284a4ebcb66d8dd319f6a` |
+| decimal-shapes / 96 | 305588 | `d0e986bafc1571f8964302d123b405a652b196aa1d15f1580e5913b5f5a6d500` |
+| decimal-shapes / 144 | 685900 | `3260eeebc76d72cb591fe6c844766b4249d9ab7d4c9eaa6b3889c5a2ae35b4ab` |
+
+```sh
+python tools/qualification/native_ttf_reference.py --case decimal --case decimal-shapes --compress --output-dir /tmp/ttf-reference
+```
 
 `roboto-{mixed,reverse,background,late}-{72,96,144}-m1.rgba` use the same
 independent original-quadratic reference, with exact Decimal rectangle
@@ -112,3 +159,26 @@ partial intersections. Native tests compare every mixed RGBA byte with
 the independently generated glyph masks and analytic rectangle/Image
 samples. They additionally prove rounded 8-bit alpha multiplication would
 change visible pixels. Public fractional admission remains separately gated.
+
+### Binary32 fractional DPI references
+
+The following original-quadratic Hello assets use the actual binary32 request
+value. Fractional file names denote exactly representable rates. Rotated files
+rotate the original geometry before scanline solving; Source UserUnit makes
+the corresponding effective DPI. All six agree at 60 and 80 Decimal digits;
+the three old integer-DPI Hello RGBA files remain byte-for-byte unchanged.
+
+| Compressed asset | Decoded RGBA bytes | Decoded SHA-256 |
+| --- | ---: | --- |
+| roboto-hello-23.125-m0.rgba.z | 3528 | 7da10d327a589ab2cbb8e3a09896c17159953a7f83f2d399912ed9052b3496ae |
+| roboto-hello-73.5-m0.rgba.z | 34584 | 6581a0ab8611d78e4b5722f7603138a360c72c68be2ed6e1643a770587cc8953 |
+| roboto-hello-96.0625-m0.rgba.z | 58824 | 7565fbc16381bade535b6fa3b11aa9a5ff2fa1e2911dd4ca2bc34e8974b5f4ab |
+| roboto-hello-91.875-m0-rotate90.rgba.z | 53792 | d4cdf22c5d2b05990464c9ee86b4879da2b184c0ade96e2c225560164cf3b1ae |
+| roboto-hello-72.046875-m0-rotate270.rgba.z | 33540 | c9c9a64cc2549ebf66da4af32e01d5864c03b4d9d8dd18d99edeb17dbe317d75 |
+| roboto-hello-40.46875-m0-rotate180.rgba.z | 10368 | 3da4eac52abcc236f080ff38eee1b952604741e656d338aa686c11ec87193da8 |
+
+For example:
+
+```sh
+python tools/qualification/native_ttf_reference.py --case hello --dpi 73.5 --precision 80 --compress --output-dir /tmp/fractional-dpi
+```

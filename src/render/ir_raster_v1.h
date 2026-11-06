@@ -17,7 +17,7 @@ extern "C" {
  * This is a visited-sample optimization INSIDE this same C11 raster:
  * the numeric cap, sample grid, untouched paths and atomic refusal
  * contract are unchanged. Ordered Scene geometry and Clip winding use
- * three coverage units per pixel; device plans, work bounds and output
+ * 72 coverage units per pixel; device plans, work bounds and output
  * dimensions remain in physical pixels. Curve tolerance is converted
  * with the geometry, and original glyph masks retain their own sampler.
  * CLOSE keeps the subpath start as current point. Following segments begin
@@ -36,6 +36,8 @@ int quantapdf_native_geometry_allocation_bound_v1(
     size_t max_edges,size_t max_draws,size_t *out_bytes);
 int quantapdf_native_owned_geometry_bound_v1(
     size_t max_edges,size_t max_draws,size_t max_commands,size_t max_owners,size_t *out_bytes);
+int quantapdf_native_scene_clip_storage_bound_v1(
+    size_t nodes,size_t leaves,size_t *out_bytes);
 
 /* Same existing admission modes, with a reservation in the owning page's
  * ledger before entering the sampler. Conservative sample-work charges are

@@ -16,13 +16,13 @@
  * and every reachable input must remain immutable for that borrow. */
 typedef struct quantapdf_native_prepared_usage_v1 {
     size_t operations,expanded_paints,glyphs,commands,image_pixels,retained_bytes;
-    unsigned states_used,clips_used;
+    size_t states_used,clips_used,clip_leaves;
 } quantapdf_native_prepared_usage_v1;
 
 typedef struct quantapdf_native_prepared_page_v1 {
     const quantapdf_ir *source;
     quantapdf_native_prepared_route_v1 route;
-    unsigned dpi;
+    float dpi;
     quantapdf_ir_raster_scoped_mixed_v5_limits limits;
     quantapdf_ir_raster_v1_limits cubic_limits;
     quantapdf_native_device_plan physical;
@@ -54,7 +54,6 @@ static inline quantapdf_status quantapdf_native_source_device_validate_v1(
        (device->thumbnail!=0 && device->thumbnail!=1))
         return QUANTAPDF_ERROR_ARGUMENT;
     if(device->page_index>(size_t)INT_MAX ||
-       (device->dpi!=72.0f && device->dpi!=96.0f && device->dpi!=144.0f) ||
        device->rotation_degrees!=0.0f || device->clip_enabled ||
        device->alpha || device->thumbnail)
         return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -104,16 +103,15 @@ static inline int qp_prepared_resource_closure(
     quantapdf_native_prepared_usage_v1 *u,int *text)
 {
     const quantapdf_resource_registry *r=&ir->resources;
-    unsigned closure[7]={0u};
     if(ir->pages==NULL || ir->page_count!=1u || ir->operation_count>limits->max_operations ||
        ((ir->operation_count==0u)!=(ir->operations==NULL)) ||
        ir->links!=NULL || ir->link_count!=0u ||
        ir->outlines!=NULL || ir->outline_count!=0u ||
        r->image_count>ir->operation_count || r->image_capacity!=r->image_count ||
        ((r->image_count==0u)!=(r->images==NULL)) ||
-       r->graphics_state_count>3u || r->graphics_state_capacity!=r->graphics_state_count ||
+       r->graphics_state_capacity!=r->graphics_state_count ||
        ((r->graphics_state_count==0u)!=(r->graphics_states==NULL)) ||
-       r->clip_count>7u || r->clip_capacity!=r->clip_count ||
+       r->clip_capacity!=r->clip_count ||
        ((r->clip_count==0u)!=(r->clips==NULL)) ||
        r->fonts!=NULL || r->font_count!=0u || r->font_capacity!=0u ||
        r->forms!=NULL || r->form_count!=0u || r->form_capacity!=0u ||
@@ -154,21 +152,20 @@ static inline int qp_prepared_resource_closure(
     }
     for(size_t i=0u;i<r->clip_count;++i) {
         const quantapdf_composer_clip_state *c=&r->clips[i];
-        closure[i]=1u<<(unsigned)i;
         if(c->kind==QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL) {
             if(c->members!=NULL || c->member_count!=0u ||
                !qp_prepared_commands(c->commands,c->command_count,u))
                 return 0;
+            ++u->clip_leaves;
         } else if(c->kind==QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL) {
             if(c->commands!=NULL || c->command_count!=0u || c->members==NULL ||
-               c->member_count<2u || c->member_count>7u ||
+               c->member_count<2u ||
                !qp_prepared_bytes(&u->retained_bytes,c->member_count,sizeof(*c->members)))
                 return 0;
             for(size_t j=0u;j<c->member_count;++j) {
                 const size_t id=(size_t)c->members[j];
                 /* Existing Source graphs are topologically numbered. */
                 if(id==0u || id>i)return 0;
-                closure[i]|=closure[id-1u];
             }
         } else return 0;
     }
@@ -183,11 +180,6 @@ static inline int qp_prepared_resource_closure(
         const quantapdf_composer_operation *op=&ir->operations[i];
         const size_t state=(size_t)op->graphics_state_id;
         if(op->page_index!=0u || state>r->graphics_state_count)return 0;
-        if(state!=0u) {
-            const size_t clip=(size_t)r->graphics_states[state-1u].clip_id;
-            u->states_used|=1u<<(unsigned)(state-1u);
-            if(clip!=0u)u->clips_used|=closure[clip-1u];
-        }
         if(op->kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
             const size_t id=(size_t)op->value.image.image_id;
             if(id==0u || id>r->image_count ||
@@ -215,8 +207,28 @@ static inline int qp_prepared_resource_closure(
                     return 0;
         } else return 0;
     }
-    return u->states_used==((1u<<(unsigned)r->graphics_state_count)-1u) &&
-        u->clips_used==((1u<<(unsigned)r->clip_count)-1u);
+    /* Topological numbering makes allocation-free closure possible: every
+     * node must feed a later node or an observed state. A finite forward
+     * chain therefore ends at an observed root, including shared subgraphs. */
+    for(size_t state=0u;state<r->graphics_state_count;++state) {
+        size_t op=0u;
+        while(op<ir->operation_count && ir->operations[op].graphics_state_id!=state+1u)++op;
+        if(op==ir->operation_count)return 0;
+        ++u->states_used;
+    }
+    for(size_t node=0u;node<r->clip_count;++node) {
+        int used=0;
+        for(size_t state=0u;state<r->graphics_state_count && !used;++state)
+            used=r->graphics_states[state].clip_id==node+1u;
+        for(size_t later=node+1u;later<r->clip_count && !used;++later) {
+            const quantapdf_composer_clip_state *c=&r->clips[later];
+            for(size_t member=0u;member<c->member_count && !used;++member)
+                used=c->members[member]==node+1u;
+        }
+        if(!used)return 0;
+        ++u->clips_used;
+    }
+    return 1;
 }
 
 static inline quantapdf_status quantapdf_native_prepare_page_v1(
@@ -235,28 +247,31 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
     if(status!=QUANTAPDF_OK)return status;
     if(!qp_prepared_resource_closure(source,limits,&p.usage,&text))
         return QUANTAPDF_ERROR_UNSUPPORTED;
-    p.source=source;p.dpi=(unsigned)device->dpi;p.limits=*limits;
+    p.source=source;p.dpi=device->dpi;p.limits=*limits;
     int stroke=0;
     for(size_t i=0u;i<source->operation_count;++i)
         if(source->operations[i].kind==QUANTAPDF_COMPOSER_OPERATION_PATH)
             stroke|=source->operations[i].value.path.options.stroke;
-    const int exact_cubics=!text && source->pages[0].width_points==237.133f &&
+    const int exact_cubics=stroke && !text && source->pages[0].width_points==237.133f &&
         source->pages[0].height_points==180.44f && source->operation_count==3u;
-    if((text || !stroke) && source->operation_count!=0u && !exact_cubics) {
+    if((text || !stroke) && !exact_cubics) {
         char box[64];
         int printed;
         const quantapdf_composer_page_state *page=&source->pages[0];
         if(page->width_points>65536.0f || page->height_points>65536.0f)
             return QUANTAPDF_ERROR_UNSUPPORTED;
         p.route=QP_NATIVE_PREPARED_SCENE;
-        printed=snprintf(box,sizeof(box),"0 0 %.9g %.9g",
-            (double)page->width_points,(double)page->height_points);
-        if(printed<0 || (size_t)printed>=sizeof(box))return QUANTAPDF_ERROR_UNSUPPORTED;
-        status=quantapdf_native_device_plan_create_physical(box,box,"1",0,
+        const char *canvas=source->source_canvas.ascii;
+        if(canvas[0]=='\0') {
+            printed=snprintf(box,sizeof(box),"0 0 %.9g %.9g",
+                (double)page->width_points,(double)page->height_points);
+            if(printed<0 || (size_t)printed>=sizeof(box))return QUANTAPDF_ERROR_UNSUPPORTED;
+            canvas=box;
+        }
+        status=quantapdf_native_device_plan_create_physical(canvas,canvas,"1",0,
             p.dpi,limits->max_pixels,&p.physical);
         if(status!=QUANTAPDF_OK)return status;
-    } else if(source->pages[0].width_points==237.133f &&
-              source->pages[0].height_points==180.44f && source->operation_count==3u) {
+    } else if(exact_cubics) {
         const size_t pixels=p.dpi==72u?50000u:1000000u;
         const size_t edges=p.dpi==72u?1024u:512u;
         p.route=QP_NATIVE_PREPARED_EXACT_CUBICS;
@@ -292,7 +307,10 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
         if(p.route==QP_NATIVE_PREPARED_SCENE) {
             /* One result surface and scratch only for original glyph masks. */
             const size_t pixel_bytes=4u+(p.usage.glyphs!=0u?sizeof(uint16_t):0u);
-            if(!qp_prepared_bytes(&bytes,p.usage.expanded_paints,sizeof(quantapdf_composer_operation)) ||
+            size_t clips=0u;
+            if(!quantapdf_native_scene_clip_storage_bound_v1(source->resources.clip_count,p.usage.clip_leaves,&clips) ||
+               !qp_prepared_charge(&bytes,clips,SIZE_MAX) ||
+               !qp_prepared_bytes(&bytes,p.usage.expanded_paints,sizeof(quantapdf_composer_operation)) ||
                !qp_prepared_bytes(&bytes,limits->max_pixels,pixel_bytes))
                 return QUANTAPDF_ERROR_UNSUPPORTED;
         } else {

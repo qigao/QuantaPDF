@@ -34,14 +34,14 @@ typedef enum quantapdf_native_prepared_route_v1 {
 /* Compile the same temporary projection into retained geometry/value records.
  * No projected descriptor/command pointer escapes this synchronous call. */
 quantapdf_status quantapdf_native_device_ir_prepare_v1(
-    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir *source,float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_native_prepared_route_v1 route,quantapdf_native_work_ledger_v1 *ledger,
     quantapdf_native_scoped_page_v5 *out);
 
 /* Page-owned ledger; same route-specific validators and temporary projection. */
 quantapdf_status quantapdf_native_device_ir_render_v1_accounted(
-    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir *source,float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_native_prepared_route_v1 route,quantapdf_native_work_ledger_v1 *ledger,
     quantapdf_ir_raster_image *out_image);
@@ -58,7 +58,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1_accounted(
  * pixel center. This is NOT separate 72-DPI rescaling or a second image
  * provider. On failure every output field remains zeroed. */
 quantapdf_status quantapdf_native_device_ir_render_v1(
-    const quantapdf_ir *source, unsigned dpi,
+    const quantapdf_ir *source, float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image);
 
@@ -72,7 +72,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1(
  * graph; the original function above still refuses multi-Clip input.
  * Failure clears every output field. */
 quantapdf_status quantapdf_native_device_ir_render_v1_two_clip(
-    const quantapdf_ir *source, unsigned dpi,
+    const quantapdf_ir *source, float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image);
 
@@ -83,7 +83,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1_two_clip(
  * Reuses the same bounded temporary projection and V5 subpixel sampler.
  * Older device entrypoints still refuse clipped PATH-only input. */
 quantapdf_status quantapdf_native_device_ir_render_v1_clipped_paths(
-    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir *source,float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image);
 
@@ -99,7 +99,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1_clipped_paths(
  * temporary, all borrows immutable, output owned
  * and detached on success and zeroed on failure. */
 quantapdf_status quantapdf_native_device_ir_render_v1_clip_states(
-    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir *source,float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image);
 
@@ -111,7 +111,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1_clip_states(
  * rejecting compound leaves. State order, resource cardinalities,
  * budgets, immutable temporary projection and output ownership are shared. */
 quantapdf_status quantapdf_native_device_ir_render_v1_compound_clip_states(
-    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir *source,float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image);
 
@@ -126,7 +126,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1_compound_clip_states(
  * closed contour. All older entrypoints retain their own admission.
  * Budgets, immutable temporary projection and detached output are shared. */
 quantapdf_status quantapdf_native_device_ir_render_v1_unclipped_prefix(
-    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir *source,float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image);
 
@@ -142,7 +142,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1_unclipped_prefix(
  * and detached/zeroed output follow the existing device contracts.
  * All earlier entrypoints continue to refuse this two-leaf/no-root IR. */
 quantapdf_status quantapdf_native_device_ir_render_v1_sibling_clips(
-    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir *source,float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image);
 
@@ -156,7 +156,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1_sibling_clips(
  * commands/Clip roots on its stack into the ONE existing V5->V1 C11
  * 4x4 sampler with no fallback. Exact budget refusal has zero output. */
 quantapdf_status quantapdf_native_device_ir_render_v1_three_gs_original(
-    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir *source,float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image);
 

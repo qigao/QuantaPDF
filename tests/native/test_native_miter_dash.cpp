@@ -202,7 +202,7 @@ static int negative()
         "[1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1] 0 d",
         "1 M 1 0 0 rg 4 4 8 6 re S",
         "[1] 0 d 4 4 8 6 re B",
-        "1 M BT ET",
+        "1 M BT 1 Tr ET",
         "[] 0 d Q",
         "1 M /Missing Do",
         "q 12 6 8 9 re W 1 M n Q",

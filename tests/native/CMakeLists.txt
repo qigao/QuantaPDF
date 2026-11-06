@@ -71,6 +71,29 @@ add_test(NAME quantapdf.native_composer_geometry
   COMMAND quantapdf_native_public_render --composer-geometry)
 set_tests_properties(quantapdf.native_composer_geometry PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;public-api;composer;current-api")
+# Ordinary Fill keeps one page path owner on both sides of Text objects.
+foreach(kind IN ITEMS fill clip)
+  add_test(NAME quantapdf.native_fractional_${kind}
+    COMMAND quantapdf_native_public_render --fractional-${kind})
+  set_tests_properties(quantapdf.native_fractional_${kind} PROPERTIES
+    TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;fractional-path")
+endforeach()
+add_test(NAME quantapdf.native_text_paths
+  COMMAND quantapdf_native_public_render --text-paths)
+foreach(primitive IN ITEMS cubic v y continued)
+  add_test(NAME quantapdf.native_text_paths_${primitive}
+    COMMAND quantapdf_native_public_render --text-paths-${primitive})
+  set_tests_properties(quantapdf.native_text_paths_${primitive} PROPERTIES
+    TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;text-path")
+endforeach()
+add_test(NAME quantapdf.native_text_path_empty
+  COMMAND quantapdf_native_public_render --text-path-empty)
+add_test(NAME quantapdf.native_text_path_state
+  COMMAND quantapdf_native_public_render --text-path-state)
+set_tests_properties(quantapdf.native_text_paths quantapdf.native_text_path_empty
+  quantapdf.native_text_path_state PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;no-pdfium;public-api;text-path")
+
 add_test(NAME quantapdf.native_empty_subpaths
   COMMAND quantapdf_native_public_render --empty-subpaths)
 set_tests_properties(quantapdf.native_empty_subpaths PROPERTIES
@@ -123,6 +146,18 @@ add_test(NAME quantapdf.native_ordered_clip
   COMMAND quantapdf_native_public_render --ordered-clip)
 set_tests_properties(quantapdf.native_ordered_clip PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;public-api;ordered-clip")
+add_test(NAME quantapdf.native_deferred_clip
+  COMMAND quantapdf_native_public_render --deferred-clip)
+add_test(NAME quantapdf.native_deferred_clip_storage
+  COMMAND quantapdf_native_public_render --deferred-clip-storage)
+set_tests_properties(quantapdf.native_deferred_clip quantapdf.native_deferred_clip_storage PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;public-api;ordered-clip;text-path")
+foreach(kind IN ITEMS clip-graphs clip-graphs-curves clip-graphs-storage clip-graphs-wide clip-originals integer-dpi-low integer-dpi-high fractional-text-page crop-text-page page-text-transform page-text-unit page-text-curves decimal-text-page decimal-literal image-affine-1 image-affine-2 image-affine-3 image-affine-4 fractional-dpi-page fractional-dpi-image fractional-dpi-boundaries fractional-dpi-curves)
+  add_test(NAME quantapdf.native_${kind}
+    COMMAND quantapdf_native_public_render --${kind})
+  set_tests_properties(quantapdf.native_${kind} PROPERTIES
+    TIMEOUT 45 LABELS "conformance;native;public-api;clip-graph")
+endforeach()
 add_test(NAME quantapdf.native_ordered_scene
   COMMAND quantapdf_native_public_render --ordered-scene)
 set_tests_properties(quantapdf.native_ordered_scene PROPERTIES
@@ -273,6 +308,21 @@ add_test(NAME quantapdf.native_source_stage_oom
 set_tests_properties(quantapdf.native_source_stage_oom PROPERTIES
   TIMEOUT 40 LABELS "conformance;native;no-pdfium;source-staging;oom")
 
+foreach(kind IN ITEMS fill clip)
+  add_test(NAME quantapdf.native_fractional_${kind}_oom
+    COMMAND quantapdf_native_source_stage_oom --fractional-${kind})
+  set_tests_properties(quantapdf.native_fractional_${kind}_oom PROPERTIES
+    TIMEOUT 40 LABELS "conformance;native;no-pdfium;source;fractional-path;oom")
+endforeach()
+
+add_test(NAME quantapdf.native_text_paths_oom
+  COMMAND quantapdf_native_source_stage_oom --text-paths)
+add_test(NAME quantapdf.native_text_path_state_oom
+  COMMAND quantapdf_native_source_stage_oom --text-path-state)
+set_tests_properties(quantapdf.native_text_paths_oom
+  quantapdf.native_text_path_state_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;no-pdfium;source;text-path;oom")
+
 add_test(NAME quantapdf.native_path_state_oom
   COMMAND quantapdf_native_source_stage_oom --path-state)
 set_tests_properties(quantapdf.native_path_state_oom PROPERTIES
@@ -297,6 +347,46 @@ add_test(NAME quantapdf.native_ordered_clip_oom
   COMMAND quantapdf_native_source_stage_oom --ordered-clip)
 set_tests_properties(quantapdf.native_ordered_clip_oom PROPERTIES
   TIMEOUT 40 LABELS "conformance;native;source-staging;ordered-clip")
+add_test(NAME quantapdf.native_deferred_clip_oom
+  COMMAND quantapdf_native_source_stage_oom --deferred-clip)
+set_tests_properties(quantapdf.native_deferred_clip_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;source-staging;ordered-clip;text-path;oom")
+add_test(NAME quantapdf.native_clip_graphs_oom
+  COMMAND quantapdf_native_source_stage_oom --clip-graphs)
+set_tests_properties(quantapdf.native_clip_graphs_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;source-staging;clip-graph;oom")
+add_test(NAME quantapdf.native_clip_graphs_wide_oom
+  COMMAND quantapdf_native_source_stage_oom --clip-graphs-wide)
+set_tests_properties(quantapdf.native_clip_graphs_wide_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;source-staging;clip-graph;oom")
+add_test(NAME quantapdf.native_integer_dpi_oom
+  COMMAND quantapdf_native_source_stage_oom --integer-dpi)
+set_tests_properties(quantapdf.native_integer_dpi_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;source-staging;integer-dpi;oom")
+add_test(NAME quantapdf.native_fractional_text_page_oom
+  COMMAND quantapdf_native_source_stage_oom --fractional-text-page)
+set_tests_properties(quantapdf.native_fractional_text_page_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;source-staging;fractional-page;oom")
+add_test(NAME quantapdf.native_crop_text_page_oom
+  COMMAND quantapdf_native_source_stage_oom --crop-text-page)
+set_tests_properties(quantapdf.native_crop_text_page_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;source-staging;crop-text;oom")
+add_test(NAME quantapdf.native_page_text_transform_oom
+  COMMAND quantapdf_native_source_stage_oom --page-text-transform)
+set_tests_properties(quantapdf.native_page_text_transform_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;source-staging;page-transform;text;oom")
+add_test(NAME quantapdf.native_decimal_text_page_oom
+  COMMAND quantapdf_native_source_stage_oom --decimal-text-page)
+set_tests_properties(quantapdf.native_decimal_text_page_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;source-staging;decimal-page;text;oom")
+add_test(NAME quantapdf.native_image_affine_oom
+  COMMAND quantapdf_native_source_stage_oom --image-affine)
+set_tests_properties(quantapdf.native_image_affine_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;source-staging;image-affine;oom")
+add_test(NAME quantapdf.native_fractional_dpi_oom
+  COMMAND quantapdf_native_source_stage_oom --fractional-dpi)
+set_tests_properties(quantapdf.native_fractional_dpi_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;source-staging;fractional-dpi;oom")
 add_test(NAME quantapdf.native_ordered_scene_oom
   COMMAND quantapdf_native_source_stage_oom --ordered-scene)
 set_tests_properties(quantapdf.native_ordered_scene_oom PROPERTIES

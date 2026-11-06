@@ -157,7 +157,7 @@ inline std::string native_ttf_fixture(int mode=0,bool translated_clip=false)
         if(mode==34)text=background+hello;
         if(mode==35)text+=" 0 0 1 rg 1 1 2 2 re f"; // fifth logical paint
         if(mode==36)text+=" /Missing Do";
-        if(mode==37)text+=" 1 1 2 2 re W n";
+        if(mode==37)text+=" 1 1 2 2 re W n"; // unused late Clip
         if(mode==38)text+=" 1 1 2 2 re S";
         if(mode==39)text+=" 1 1 2 2 re"; // unfinished path
         if(mode==40)text+=" 1 1 m 2 3 l 3 1 l h f"; // nonrectangle
@@ -167,7 +167,7 @@ inline std::string native_ttf_fixture(int mode=0,bool translated_clip=false)
         if(mode==45)text="0 0 1 rg 1 1 m 2 3 l 3 1 l h f "+hello;
         if(mode==46)text=background+blue+"0 g 1 1 2 2 re f 3 3 2 2 re f "+hello;
         if(mode==47)text=blue; // the same fractional Fill without Text
-        if(mode==48)text="q 0 0 1 rg 25.1250000000000001 18.25 12.5 9.5 re f Q "+hello; // interrupted rect
+        if(mode==48)text="q 0 0 1 rg 25.1250000000000001 18.25 12.5 9.5 re f Q "+hello; // finite decimal rectangle before Text
     }
     /* #578 M2a: fully original QPDF-authored embedded CID TTF +
      * RAW/Flate RGB Image in both orders, plus late invalid operations.
@@ -214,13 +214,13 @@ inline std::string native_ttf_fixture(int mode=0,bool translated_clip=false)
         const std::string show=
             "q BT /F 24 Tf 12 20 Td <002d004a005100510054> Tj ET Q";
         const std::string draw=mode==56 ?
-            "q 16 1 0 12 10 15 cm /I Do Q" : /* unsupported shear */
+            "q 16 1 0 12 10 15 cm /I Do Q" : /* original shear, now rendered */
             "q 16 0 0 12 10 15 cm /I Do Q";
         text=(mode==50 || mode==63 || mode==65) ?
             draw+" "+show : show+" "+draw;
         if(mode==52 || mode==63)text+=" /Missing Do";
         if(mode==53)text+=" 0 0 1 rg 1 1 2 2 re f"; /* late Fill */
-        if(mode==54)text+=" q 1 1 2 2 re W n Q"; /* late Clip */
+        if(mode==54)text+=" q 1 1 2 2 re W n Q"; /* unused late Clip */
         if(mode==55)text+=" BT /F 24 Tf 1 Tr 12 20 Td <002d> Tj ET";
         if(mode==59)text+=" Q"; /* unbalanced restore */
         if(mode==61)text+=" "+draw; /* second original Image Do */
@@ -304,7 +304,8 @@ inline std::string native_ttf_fixture(int mode=0,bool translated_clip=false)
                         " Q 1 0 0 rg 34 9 6 5 re f";
                     if(mode==109)suffix=
                         " Q 1 0 0 rg 18.25 20.25 m 36.75 20.25 l 35.75 32.75 l 18.25 32.75 l h f";
-                    if(mode==110)suffix=
+                    if(mode==110)suffix=translated_clip?
+                        " Q 1 0 0 rg q 1 0 0 1 4 0 cm 14.25 20.25 m 32.75 20.25 l 32.75 24 31.75 28 32.75 32.75 c 14.25 32.75 l h f Q":
                         " Q 1 0 0 rg 18.25 20.25 m 36.75 20.25 l 36.75 24 35.75 28 36.75 32.75 c 18.25 32.75 l h f";
                     text="q "+text+suffix;
                     if(mode==98 || mode==107)text+=" Q";
@@ -338,10 +339,11 @@ inline std::string native_ttf_fixture(int mode=0,bool translated_clip=false)
                     const std::string second_rule=(mode==127 || mode==146)?"W":"W*";
                     const std::string outer=std::string(mode==142?"":"q ")+
                         "16.25 22.25 27 15.5 re "+first_rule+" n ";
-                    std::string inner="q "+std::string(mode==131?"1 0 0 1 1 0 cm ":"")+
-                        "20.5 15.75 18.25 18.5 re ";
+                    std::string inner="q "+std::string(mode==131 && !translated_clip?"1 0 0 1 1 0 cm ":"")+
+                        (mode==131 && translated_clip?"21.5 15.75 18.25 18.5 re ":"20.5 15.75 18.25 18.5 re ");
                     if(mode==139)inner="q 20.5 15.75 m 38.75 15.75 l 37.75 34.25 l 20.5 34.25 l h ";
                     if(mode==140)inner="q 20.5 15.75 m 38.75 15.75 l 38.75 20 37.75 30 38.75 34.25 c 20.5 34.25 l h ";
+                    if(mode==140 && translated_clip)inner="q 1 0 0 1 4 0 cm 16.5 15.75 m 34.75 15.75 l 34.75 20 33.75 30 34.75 34.25 c 16.5 34.25 l h 1 0 0 1 -4 0 cm ";
                     if(mode==143)inner="q 20.5 15.75 18.2500000001 18.5 re ";
                     if(mode==145 || mode==146)inner="q 15.5 15.75 23.25 18.5 re ";
                     inner+=second_rule+(mode==135?std::string(" "):std::string(" n "));
@@ -368,10 +370,12 @@ inline std::string native_ttf_fixture(int mode=0,bool translated_clip=false)
                         "q 15.5 15.75 23.25 18.5 re ":"q 16.25 22.25 27 15.5 re ")+first_rule+" n "+
                         (mode==166?fill+" "+draw:draw+(mode==163?"":" "+fill));
                     std::string second_scope=std::string(mode==164?"":"q ")+
-                        (mode==155?"1 0 0 1 1 0 cm ":"")+"20.5 15.75 18.25 18.5 re ";
+                        (mode==155 && !translated_clip?"1 0 0 1 1 0 cm ":"")+
+                        (mode==155 && translated_clip?"21.5 15.75 18.25 18.5 re ":"20.5 15.75 18.25 18.5 re ");
                     if(mode==160)second_scope="q 20.5 15.75 18.2500000001 18.5 re ";
                     if(mode==161)second_scope="q 20.5 15.75 m 38.75 15.75 l 37.75 34.25 l 20.5 34.25 l h ";
                     if(mode==162)second_scope="q 20.5 15.75 m 38.75 15.75 l 38.75 20 37.75 30 38.75 34.25 c 20.5 34.25 l h ";
+                    if(mode==162 && translated_clip)second_scope="q 1 0 0 1 4 0 cm 16.5 15.75 m 34.75 15.75 l 34.75 20 33.75 30 34.75 34.25 c 16.5 34.25 l h 1 0 0 1 -4 0 cm ";
                     if(mode>=168)second_scope="q 16.25 22.25 27 15.5 re ";
                     text=first_scope+(mode==151?" ":" Q ")+second_scope+second_rule+
                         (mode==157?" ":" n ");
@@ -387,6 +391,19 @@ inline std::string native_ttf_fixture(int mode=0,bool translated_clip=false)
                     if(mode==159)fonts.replaceKey("/G",font);
                 }
             }
+        }
+    }
+    if(translated_clip && (mode==131 || mode==155)) {
+        // Identity-CTM original with independently translated authored operands.
+        const auto shift=[&](const std::string& from,const std::string& to) {
+            const size_t at=text.find(from);
+            if(at==std::string::npos)throw std::runtime_error("missing translated fixture operand");
+            text.replace(at,from.size(),to);
+        };
+        shift("12 20 Td","13 20 Td");
+        if(mode==131) {
+            shift("12 20 7 10 re","13 20 7 10 re");
+            shift("16 0 0 12 10 15 cm","16 0 0 12 11 15 cm");
         }
     }
     page.replaceKey("/Contents",pdf->newStream(text));

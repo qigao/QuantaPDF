@@ -41,24 +41,24 @@ typedef struct quantapdf_form quantapdf_form;
 typedef struct quantapdf_composer quantapdf_composer;
 
 typedef struct quantapdf_point {
-    float x;
-    float y;
+    double x;
+    double y;
 } quantapdf_point;
 
 typedef struct quantapdf_rect {
-    float x0;
-    float y0;
-    float x1;
-    float y1;
+    double x0;
+    double y0;
+    double x1;
+    double y1;
 } quantapdf_rect;
 
 typedef struct quantapdf_affine_transform {
-    float a;
-    float b;
-    float c;
-    float d;
-    float e;
-    float f;
+    double a;
+    double b;
+    double c;
+    double d;
+    double e;
+    double f;
 } quantapdf_affine_transform;
 
 /* Registry resource identifiers; optional references use zero. */

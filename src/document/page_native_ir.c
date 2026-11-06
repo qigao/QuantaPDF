@@ -11,7 +11,7 @@ quantapdf_status quantapdf_graph_snapshot_page_native_ir(
     const quantapdf_pdf_content_limits *content_limits,
     size_t max_streams,
     const quantapdf_pdf_path_lower_limits *lower_limits,
-    unsigned dpi, size_t max_pixels,
+    float dpi, size_t max_pixels,
     quantapdf_ir *out_ir, quantapdf_native_device_plan *out_plan)
 {
     quantapdf_graph_page_source_numbers numbers = {0};

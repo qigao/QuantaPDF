@@ -2,6 +2,57 @@
 
 #include <stdint.h>
 #include <string.h>
+#include <float.h>
+
+_Static_assert(FLT_RADIX==2 && FLT_MANT_DIG==24 && FLT_MAX_EXP==128 && FLT_MIN_EXP==-125,
+    "Native DPI is a binary32 value");
+
+/* A retained page fraction has 64-bit numerator/denominator. Binary32 DPI
+ * contributes at most 24 significand bits and shifts -149..104. Even the
+ * largest denominator times the last sample index (<2^23) uses <244 bits.
+ * Eight 32-bit limbs cover this complete domain, without heap allocation,
+ * compiler integer extensions, approximate quotients or overflow retries. */
+typedef struct qp_wide { uint32_t limb[8]; } qp_wide;
+typedef struct qp_dpi { uint32_t significand; int exponent; } qp_dpi;
+
+static qp_wide qp_wide_from_u64(uint64_t value)
+{
+    qp_wide out={{0}};
+    out.limb[0]=(uint32_t)value;out.limb[1]=(uint32_t)(value>>32u);
+    return out;
+}
+static qp_wide qp_wide_mul(qp_wide value,uint32_t factor)
+{
+    qp_wide out={{0}};uint64_t carry=0u;
+    for(size_t i=0u;i<8u;++i) {
+        const uint64_t product=(uint64_t)value.limb[i]*factor+carry;
+        out.limb[i]=(uint32_t)product;carry=product>>32u;
+    }
+    return out;
+}
+static qp_wide qp_wide_shift(qp_wide value,unsigned bits)
+{
+    qp_wide out={{0}};const unsigned words=bits/32u,shift=bits%32u;
+    for(size_t i=0u;i<8u-words;++i) {
+        const uint64_t part=(uint64_t)value.limb[i]<<shift;
+        out.limb[i+words]|=(uint32_t)part;
+        if(i+words+1u<8u)out.limb[i+words+1u]|=(uint32_t)(part>>32u);
+    }
+    return out;
+}
+static int qp_wide_compare(qp_wide a,qp_wide b)
+{
+    for(size_t i=8u;i>0u;--i)
+        if(a.limb[i-1u]!=b.limb[i-1u])return a.limb[i-1u]<b.limb[i-1u]?-1:1;
+    return 0;
+}
+static qp_dpi qp_dpi_exact(float dpi)
+{
+    int exponent=0;const float fraction=frexpf(dpi,&exponent);
+    qp_dpi out={(uint32_t)ldexpf(fraction,24),exponent-24};
+    while((out.significand&1u)==0u) {out.significand>>=1u;++out.exponent;}
+    return out;
+}
 
 #define QP_DECIMAL_LIMIT UINT64_C(9007199254740991)
 #define QP_MAX_BOX_ASCII 95u
@@ -15,7 +66,7 @@ typedef struct qp_fixed_decimal {
 } qp_fixed_decimal;
 
 typedef struct qp_exact_span {
-    uint64_t numerator, denominator, pixels;
+    uint64_t numerator, denominator, pixels, samples;
 } qp_exact_span;
 
 static const uint64_t qp_powers_of_ten[13] = {
@@ -136,27 +187,41 @@ static int qp_contained_box(const qp_fixed_decimal media[4],
 }
 
 static int qp_span(qp_fixed_decimal lower, qp_fixed_decimal upper,
-    qp_fixed_decimal unit, unsigned dpi, qp_exact_span *out)
+    qp_fixed_decimal unit, qp_dpi dpi,size_t max_pixels,qp_exact_span *out)
 {
     const unsigned common = lower.places > upper.places ?
                             lower.places : upper.places;
-    int64_t lo, hi;
-    uint64_t numerator, denominator, pixel_numerator, pixel_denominator;
-    if (!qp_signed_rescale(lower, common, &lo) ||
-        !qp_signed_rescale(upper, common, &hi) || hi <= lo ||
-        (lo < 0 && hi > INT64_MAX + lo))
+    int64_t lower_value, upper_value;
+    uint64_t numerator, denominator;
+    if (!qp_signed_rescale(lower, common, &lower_value) ||
+        !qp_signed_rescale(upper, common, &upper_value) || upper_value <= lower_value ||
+        (lower_value < 0 && upper_value > INT64_MAX + lower_value))
         return 0;
-    if (!qp_checked_mul((uint64_t)(hi - lo), unit.significand, &numerator) ||
+    if (!qp_checked_mul((uint64_t)(upper_value - lower_value), unit.significand, &numerator) ||
         !qp_checked_mul(qp_powers_of_ten[common],
-            qp_powers_of_ten[unit.places], &denominator) ||
-        !qp_checked_mul(numerator, (uint64_t)dpi, &pixel_numerator) ||
-        !qp_checked_mul(denominator, UINT64_C(72), &pixel_denominator))
+            qp_powers_of_ten[unit.places], &denominator))
         return 0;
     out->numerator = numerator;
     out->denominator = denominator;
-    out->pixels = pixel_numerator / pixel_denominator +
-                  (pixel_numerator % pixel_denominator != 0u);
-    return out->pixels != 0u;
+    qp_wide a=qp_wide_mul(qp_wide_from_u64(numerator),dpi.significand);
+    qp_wide b=qp_wide_mul(qp_wide_from_u64(denominator),72u);
+    if(dpi.exponent>=0)a=qp_wide_shift(a,(unsigned)dpi.exponent);
+    else b=qp_wide_shift(b,(unsigned)-dpi.exponent);
+    if(qp_wide_compare(a,qp_wide_mul(b,(uint32_t)max_pixels))>0)return 0;
+    uint32_t lo=0u,hi=(uint32_t)max_pixels;
+    while(lo<hi) {
+        const uint32_t mid=lo+(hi-lo)/2u;
+        if(qp_wide_compare(a,qp_wide_mul(b,mid))>0)lo=mid+1u;else hi=mid;
+    }
+    out->pixels=lo;
+    // Sample c is visible iff (2*c+1)*b < 8*a, including tiny subnormal DPI.
+    a=qp_wide_shift(a,3u);lo=0u;hi=4u*(uint32_t)out->pixels;
+    while(lo<hi) {
+        const uint32_t mid=lo+(hi-lo)/2u;
+        if(qp_wide_compare(qp_wide_mul(b,2u*mid+1u),a)<0)lo=mid+1u;else hi=mid;
+    }
+    out->samples=lo;
+    return 1;
 }
 
 static double qp_decimal_to_double(qp_fixed_decimal value)
@@ -168,13 +233,14 @@ static double qp_decimal_to_double(qp_fixed_decimal value)
 
 static quantapdf_status qp_device_plan_create(
     const char *media_ascii, const char *crop_ascii, const char *unit_ascii,
-    int rotation, unsigned dpi, size_t max_pixels,
+    int rotation, float dpi, size_t max_pixels,
     unsigned mode, quantapdf_native_device_plan *out)
 {
     qp_fixed_decimal media[4] = {{0}}, crop[4] = {{0}}, unit = {0};
     qp_exact_span x = {0}, y = {0}, temporary;
     quantapdf_native_device_plan result = {0};
     size_t unit_length;
+    qp_dpi rate;
     double c[4], u, sx, sy;
     if (out == NULL) return QUANTAPDF_ERROR_ARGUMENT;
     memset(out, 0, sizeof(*out));
@@ -182,16 +248,18 @@ static quantapdf_status qp_device_plan_create(
         max_pixels == 0u)
         return QUANTAPDF_ERROR_ARGUMENT;
     if (max_pixels > QUANTAPDF_NATIVE_DEVICE_MAX_PIXELS ||
-        (dpi != 72u && dpi != 96u && dpi != 144u) ||
+        !isfinite(dpi) || dpi <= 0.0f ||
         (rotation != 0 && rotation != 90 && rotation != 180 && rotation != 270) ||
         !qp_parse_box(media_ascii, media) || !qp_parse_box(crop_ascii, crop) ||
         !qp_bounded_length(unit_ascii, QP_MAX_TOKEN_ASCII, &unit_length) ||
         !qp_parse_decimal(unit_ascii, unit_length, &unit) ||
         unit.negative || unit.significand == 0u ||
         unit.significand > UINT64_C(128) * qp_powers_of_ten[unit.places] ||
-        !qp_contained_box(media, crop) ||
-        !qp_span(crop[0], crop[2], unit, dpi, &x) ||
-        !qp_span(crop[1], crop[3], unit, dpi, &y))
+        !qp_contained_box(media, crop))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    rate=qp_dpi_exact(dpi);
+    if(!qp_span(crop[0],crop[2],unit,rate,max_pixels,&x) ||
+       !qp_span(crop[1],crop[3],unit,rate,max_pixels,&y))
         return QUANTAPDF_ERROR_UNSUPPORTED;
     if (rotation == 90 || rotation == 270) {
         temporary = x; x = y; y = temporary;
@@ -204,6 +272,10 @@ static quantapdf_status qp_device_plan_create(
 
     result.width = (size_t)x.pixels;
     result.height = (size_t)y.pixels;
+    result.sample_width = mode == QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1 ?
+        (size_t)x.samples : result.width * 4u;
+    result.sample_height = mode == QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1 ?
+        (size_t)y.samples : result.height * 4u;
     result.stride = result.width * 4u;
     result.size = result.stride * result.height;
     result.dpi = dpi;
@@ -271,7 +343,7 @@ static quantapdf_status qp_device_plan_create(
  * an explicit private entry: only buffer allocation uses decimal ceil. */
 quantapdf_status quantapdf_native_device_plan_create(
     const char *media_ascii, const char *crop_ascii, const char *unit_ascii,
-    int rotation, unsigned dpi, size_t max_pixels,
+    int rotation, float dpi, size_t max_pixels,
     quantapdf_native_device_plan *out)
 {
     return qp_device_plan_create(media_ascii, crop_ascii, unit_ascii,
@@ -280,7 +352,7 @@ quantapdf_status quantapdf_native_device_plan_create(
 
 quantapdf_status quantapdf_native_device_plan_create_physical(
     const char *media_ascii, const char *crop_ascii, const char *unit_ascii,
-    int rotation, unsigned dpi, size_t max_pixels,
+    int rotation, float dpi, size_t max_pixels,
     quantapdf_native_device_plan *out)
 {
     return qp_device_plan_create(media_ascii, crop_ascii, unit_ascii,

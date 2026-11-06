@@ -71,8 +71,8 @@ quantapdf_status quantapdf_page_bounds(
         return QUANTAPDF_ERROR_FORMAT;
     out_bounds->x0 = 0.0f;
     out_bounds->y0 = 0.0f;
-    out_bounds->x1 = (float)width;
-    out_bounds->y1 = (float)height;
+    out_bounds->x1 = width;
+    out_bounds->y1 = height;
     return QUANTAPDF_OK;
 }
 
@@ -97,10 +97,10 @@ quantapdf_status quantapdf_page_box_bounds(
         out_bounds);
     if (status != QUANTAPDF_OK)
         return status;
-    out_bounds->x0 = (float)((double)out_bounds->x0 * user_unit);
-    out_bounds->y0 = (float)((double)out_bounds->y0 * user_unit);
-    out_bounds->x1 = (float)((double)out_bounds->x1 * user_unit);
-    out_bounds->y1 = (float)((double)out_bounds->y1 * user_unit);
+    out_bounds->x0 *= user_unit;
+    out_bounds->y0 *= user_unit;
+    out_bounds->x1 *= user_unit;
+    out_bounds->y1 *= user_unit;
     return QUANTAPDF_OK;
 }
 

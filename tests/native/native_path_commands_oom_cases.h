@@ -2,7 +2,7 @@
 #define QUANTAPDF_NATIVE_PATH_COMMANDS_OOM_CASES_H
 #include "native_path_commands_fixture.h"
 
-static int path_commands_source_contracts(const quantapdf_qpdf_page_limits& defaults,bool multi=false,bool boundaries=false,bool clip_paths=false,bool state_paths=false)
+static int path_commands_source_contracts(const quantapdf_qpdf_page_limits& defaults,bool multi=false,bool boundaries=false,bool clip_paths=false,bool state_paths=false,bool across_text=false,unsigned divisor=1u)
 {
     size_t growth_faults=0u,publications=0u,raster_faults=0u,quotas=0u;
     struct shape {size_t repeats,zeros;unsigned primitive,clip;bool restore;unsigned layout;};
@@ -17,7 +17,7 @@ static int path_commands_source_contracts(const quantapdf_qpdf_page_limits& defa
     for(unsigned rule=0u;rule<(multi?2u:1u);++rule) {
         const auto& shape=state_paths?state_shapes[index]:shapes[index];const bool even=rule!=0u;
         const unsigned clip=clip_paths?0u:shape.clip;
-        auto sample=state_paths?native_path_commands::create_states(shape.repeats,shape.primitive,shape.clip,even,shape.restore,encrypted,shape.zeros,shape.layout):multi?native_path_commands::create_contours(shape.repeats,shape.primitive,clip,even,shape.restore,encrypted,shape.zeros,shape.layout,shape.primitive%4u,0,clip_paths):
+        auto sample=state_paths?native_path_commands::create_states(shape.repeats,shape.primitive,shape.clip,even,shape.restore,encrypted,shape.zeros,shape.layout,0,across_text):multi?native_path_commands::create_contours(shape.repeats,shape.primitive,clip,even,shape.restore,encrypted,shape.zeros,shape.layout,shape.primitive%4u,0,clip_paths,false,divisor):
             native_path_commands::create(shape.repeats,shape.primitive,clip,false,shape.restore,encrypted,shape.zeros,0,clip_paths);
         quantapdf_qpdf_document *document=nullptr;
         CHECK(quantapdf_qpdf_open_memory(reinterpret_cast<const unsigned char*>(sample.bytes.data()),sample.bytes.size(),encrypted?"reader":"",&document)==QUANTAPDF_OK);

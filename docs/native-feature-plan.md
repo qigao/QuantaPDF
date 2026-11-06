@@ -412,6 +412,304 @@
   本轮本地工具链被工作区维护清理，未宣称本地编译或运行通过；验收使用现有
   LLVM/LLVM-MinGW 四配置 CI、ccache 和依赖组织，不建立工具链探测或 consumer 工程。
 
+### A2 BT 前后的普通 Fill 路径
+
+- `page_content_reader` 保留唯一的普通路径 owner 和解释函数；文字 reader 直接传入
+  原始 qpdf 操作数及当前 CTM/颜色/Clip，不重放 token、不重开 PDF。BT 前后使用同一
+  m/l/c/v/y/h/re/f/f*/n 构建、闭合与发布，路径对象与文字对象按实际顺序交错，逐段冻结 CTM。
+- 删除文字 reader 的矩形构造、pending rectangle、Fill 发布回调及前缀复制；文字
+  paint 仅持有字形。页面的 Fill、Text、Image 各自独立索引，由同一个顺序发布循环
+  形成现有 C11 Scene。原双 Clip 文字场景也复用该发布循环，删除其重复的三笔复制。
+- Fill 与 Clip 命令不再占用文字的 4096 字形命令额度；原路径 vector、工作 ledger
+  和溢出检查负责实际存储/工作。字形 4096 命令及其余字体限制仍存在，未宣称 A3 完成。
+  空 BT/ET 无须字体或实际 show，不产生绘制；旧晚到错误使用实际未实现的 Tr=1。
+  文字对象不嵌入未完成的路径对象；该语法错误仍拒绝整个页面。
+- 普通 re 在 BT 前后都使用 C11 的有限坐标范围，包含 signed/零面积和小数矩形；
+  删除按 Text 前缀/第八点精度选择的准入。一般 m/l/c/v/y 仍保留四分之一点范围，
+  非轴对齐 CTM、任意 DPI、BT 后一般 Clip 定义和 Clip 图仍待后续实现。
+- 复用现有公开及 Source/OOM 可执行文件，新增三组真实完整 RGB 与两组故障测试。
+  含原始字形、Image、Fill 六种顺序、任意路径前后的真实 Text、多个轮廓、h 后继续、
+  空/零面积路径、单 cubic 的 Clip 内部覆盖、8,000 条以上命令、跨流和三个 DPI，
+  AES-256/错误密码、选页及 Context/Document/Page 释放后的 Bitmap。
+  拒绝每次实际扩容、Source C 发布和 C11 分配，核对 N/N−1、深快照、不可变输入、
+  空失败输出与真实资源/语法/未实现操作的传播。
+- 本轮沿用 LLVM/LLVM-MinGW、ccache 与现有 CI；本地工具链已被维护清理，未宣称
+  本地编译或运行通过。此处描述待精确 HEAD 验收的实现，不能替代完整 CI 结果。
+- 历史 HEAD `6936dbbc` 的 CI #2451：普通配置在长小数双 Clip 原件上误用单 Clip
+  分类断言，ASan 在合并的 744 次文字路径 RGB 矩阵触及 45 秒期限；该轮未通过。
+  双 Clip 原件保留其独立全 RGB 和双叶检查，并按新增原件核对 39 个延迟释放 Bitmap。
+  原 744 次 RGB 按 line/cubic/v/y/h 后继续分为五项，各项仍为 45 秒，覆盖不减少。
+- Source/OOM 的旧 Fill 前缀字形额度拒绝改为 819/820/821 笔完整顺序场景，在释放
+  qpdf owner 后核对三个 DPI 的全部 RGBA；实际操作预算少一笔仍拒绝。长小数
+  compound/reverse Clip 原件保留其双叶/GS 关系、逐个 Source 分配失败及独立 RGBA。
+
+### A2 普通路径的小数坐标：当前开发增量
+
+- 已验收起点为 #625 的 `5350d42c`，tree `d4d763830081453356474bb72e782fd8dba3e76a`；
+  [CI #2456](https://github.com/qigao/QuantaPDF/actions/runs/41963822510) 四配置各 110/110。
+  此快照仍为 Draft、未合并；本节增量须以新的精确 HEAD CI 验收。
+- m/l/c/v/y/re 的端点和控制点使用同一个定义时 CTM 投影及有限 C11 坐标包络。
+  删除按 re 切换的 `rectangle_staging` 和普通路径四分之一点准入；沿用动态命令、
+  flatten、采样及实际工作预算。Image placement、页面盒/UserUnit、一般 affine/DPI、
+  通用 Clip 图、Stroke 和字体限制尚未在本增量解决。
+- 复用公开和 Source/OOM 可执行文件，新增小数 Fill/Clip 两项公开测试和两项故障测试，
+  仍为 45/40 秒。1/8 和 1/10 点位移、3/65 轮廓、长零长度命令、f/f*、m/l/c/v/y/h、
+  单根 Clip、三 DPI、AES-256/选页及 Bitmap 生命周期逐字节对照独立有理数参考。
+- 原 744 次真实文字路径 RGB 保留，并增加对应的 744 次小数路径 RGB，仍按五组运行。
+  Source 栈/路径扩容、C 发布、C11 分配失败、N/N−1、不可变 IR 与长尾深快照覆盖小数路径。
+  旧小数三角形/曲线拒绝升级为完整 RGB 的平移构建等价，并保留真实越界、非法语法和
+  未实现操作拒绝；曲线等价检查不宣称任意曲线边缘的解析像素证明。
+
+### A2 首次 Clip 定义跨越 Text：当前开发增量
+
+- 已验收起点为 #625 的 `3a81083c`，tree `322cdd2d5642a345b9c3691daceb525d2e13f304`；
+  [CI #2458](https://github.com/qigao/QuantaPDF/actions/runs/41971599631) 四配置各 114/114。
+  该历史快照仍为 Draft、未合并；本节增量须由新的精确 HEAD CI 验收。
+- 首次 W/W* 与 n 在 BT 前后使用相同路径构建、CTM 冻结、隐式闭合和动态 Clip 发布。
+  每笔 Text/Fill/Image 记录当时的 Clip 身份：此前绘制保持原身份，定义后的绘制使用
+  新 Clip，Q 恢复后继续使用保存的身份；定义后未使用的 Clip 不制造绘制或资源引用。
+- 复用现有公开/Source-OOM 可执行文件，新增两项 CTest，期限仍为 45/40 秒。
+  714 次独立全 RGB 对照覆盖六顺序、空 BT/ET 后与真实字形后定义、W/W*、空 Clip、
+  m/l/c/v/y/h、65 轮廓、8192 零长度段、构建 CTM 经 Q 恢复、无 Image、深 q/Q、
+  三 DPI、多编码 Contents、AES-256/错误密码、选页和 Bitmap 生命周期。
+  Source 实际栈/路径扩容、C 发布与 C11 分配失败、N/N−1、不可变 IR 和编译后改写
+  长 Clip 命令的深快照验证同一入口；保留 late 语法、资源、未实现 paint 的原子失败。
+  三份旧的“绘制之后定义但未使用 Clip”拒绝（37/54/70）升级为历史 glyph golden 与
+  独立几何合成的三 DPI 完整 RGB，已有绘制不会追溯套用新 Clip。
+- 本增量仅覆盖单根 Clip 的定义位置；旧双叶 sibling/intersection 组合仍有准入限制。
+  通用 nested/intersecting/sibling Clip 图、一般 affine/DPI、Stroke 与字体能力继续开放。
+
+### A2 动态 Source Clip 图：历史开发增量
+
+- 已验收起点为 #625 的 `fe674f02`，tree `405f7b8939dbea34b31df27144199493bb507c3b`；
+  [CI #2461](https://github.com/qigao/QuantaPDF/actions/runs/42004930578) 四配置各 116/116。
+  该历史快照仍为 Draft、未合并；本节增量须由新的精确 HEAD CI 验收。
+- 每次 W/W*/n 将原始路径和当前父 Clip 身份追加到动态 owner；q/Q 保存、恢复实际身份。
+  Clip 身份贯穿文字 handoff 和每笔 paint，使用当前 Clip ID 类型，取消八位身份。
+  删除固定双叶、sibling/reverse/compound、特定三笔顺序及重复 Clip 栈；普通 Text/Fill/Image
+  共用一个发布循环。仅发布绘制观察到的节点和祖先，并保留每个原始叶子的轮廓与规则。
+- 复用公开/Source-OOM 可执行文件，新增四组公开像素测试和一组故障测试，仍为 45/40 秒。
+  660 次完整 RGB 覆盖三、四叶 nested/sibling/fan-out/mixed 图、六种 paint 顺序、实际
+  Roboto 字形、RAW Image、Fill、空叶、定义 CTM、65 轮廓、8192 零长度段、257 个未使用
+  定义之后的真实身份、深 q/Q、三 DPI、多编码 Contents、AES-256/选页和 Bitmap 生命周期。
+  Source 定义/路径/状态扩容、C 发布、C11 malloc、N/N−1、不可变 IR 和编译后改写整个
+  Clip 图的深快照均使用实际入口。宽身份场景的重复短路径取首/中/末故障，其余分配
+  类别及核心场景按实际分配逐次注入。
+- 34 份旧 TTF 拒绝升级为 90 次独立 glyph-mask/有理数 RGB、12 次明确的曲线/文字
+  构建几何等价，以及 102 个三 DPI detached Bitmap；Source 也执行完整 RGBA 并核对
+  IR 不可变及输出生命周期。纯图形的旧固定状态/叶数/绘制顺序拒绝改为逐笔独立
+  Paint 几何或明确的曲线几何等价，不使用新输出生成 golden；实际私有预算 N/N−1、
+  错误操作数、资源和未实现 paint 仍拒绝。准备阶段的状态位库存量与既有七节点闭包
+  一致；C11 四叶、七节点数组容量未变。
+- 既有 714 次 deferred Clip RGB 按原始顺序矩阵 432 次和长路径/深栈/内部覆盖 282 次
+  分为两项 CTest；8 个错误检查仍在顺序矩阵执行，所有像素及生命周期检查保留。
+  每项仍为 45 秒，Source/OOM 仍为 40 秒；没有放宽超时或减少矩阵。
+- 此历史快照的 C11 Scene 仍限四个可达叶子、七个节点，未提高固定数组容量。五叶嵌套图能发布
+  Source IR，但 native 准备明确拒绝且不发布像素。动态 native 图、一般 Stroke/CTM/DPI、
+  页面坐标和字体能力继续开放。旧拒绝会按实际语义升级，历史失败保留。
+
+### A2 动态 C11 Clip 图：当前开发增量
+
+- 已验收起点为 #625 的 `3e3ad5b5`，tree `baaac5de7bcfca252cff2c89fbe82eb7549a26a2`；
+  [CI #2472](https://github.com/qigao/QuantaPDF/actions/runs/42029198798) 四配置各 122/122。
+  本节开发增量须由新的精确 HEAD CI 验收，仍为 Draft、未合并或发布。
+- 普通有序 Scene 的 Clip 叶记录与每节点叶集按实际数量分配，冻结在同一个编译 owner。
+  叶集使用可跨多个 64 位字的位集；交集按拓扑次序合并，paint 保留自己的冻结根。
+  准备阶段以实际状态、节点与叶数核对完整引用闭包，不再使用七位状态或节点库存量。
+  Clip 记录、位集、路径命令均计入实际内存账本；采样计入访问的位集字和 Clip 边测试。
+  原有显式 Stroke/Text 内核保留自身有界合同，普通 Scene 不再经过四叶／七节点数组。
+- 既有五叶拒绝升级为三 DPI 完整独立 RGB。新增 204 次公开 RGB，覆盖 5/9/17/33/65
+  个叶子、超过七个观察状态、nested/sibling/fan-out、空叶、三种命令写法、加密选页和
+  detached Bitmap；最后一个叶子确实改变像素，额外核对截断第二个位集字会改变参考。
+- 新增独立 Source/OOM 项覆盖 5/9/17/65/129/257 个叶子、最多 513 个节点及五个位集字。
+  验证实际扩容、C 发布、全部 C11 malloc、内存/边/采样/Image/操作预算 N/N−1、IR 不变，
+  以及编译后改写全部路径、成员、状态根与操作身份仍得到相同 RGBA。宽图重复短路径
+  和 C 发布取首/中/末故障，5/9/17 叶核心场景逐次注入；公开项仍为 45 秒，OOM 为 40 秒。
+- 公开 512 边与 8M 工作预算未提高，129/257 叶使用私有 2048 边预算验证动态容量。
+  一般 Stroke/CTM/DPI、页面坐标和字体能力继续开放；本地只做静态检查，不运行 Native。
+
+### A2 普通 Scene 整数 DPI：当前开发增量
+
+- 已验收起点为 #625 的 `d755bd97`，tree `54682072b98ae8f16e8b0b1afba651f1f416b42e`；
+  [CI #2473](https://github.com/qigao/QuantaPDF/actions/runs/42035053233) 四配置各 124/124。
+  本节须由新精确 HEAD CI 验收，仍为 Draft、未合并或发布。
+- 普通 Source Scene 接受正整数 DPI，移除 72/96/144 三档枚举。设备规划仍按原始十进制
+  端点和整数 DPI 精确 ceil 分配；像素、内存、边及采样预算继续约束实际工作。
+  空白页使用同一个 Scene。低 DPI 的页尺寸按实际像素预算判断，不再将点数与像素数比较。
+- Path、Clip 和 Image 使用每像素 72 个内部单位，端点直接乘整数 DPI；Image 最近邻
+  取样及物理页面边界也在这一坐标中比较。保持同一个 4×4 采样／合成内核，曲线容差
+  仍以像素为单位；原字形 mask 保持自己的精确 DPI 采样。
+- 复用现有公开可执行文件，新增低／高 DPI 两项：1/23/71/73/110/113/120/150/300 DPI
+  共 288 次独立全 RGB，另有 24 次显示 quarter-turn、非方形空白页、加密／错误密码、
+  多编码 Contents／第二页和 detached Bitmap。混合页同时覆盖真实字形、RAW Image、
+  Fill、多根 Clip、空叶，以及越过右／下物理边界的绘制；独立有理数参考裁掉 ceil 缓冲区的
+  外部采样点，并直接选择原始图像 texel，不能用新输出生成 golden。
+- 新 Source/OOM 项在原文档销毁后，以 1/23/73/113/150/300 DPI 执行 24 次完整 RGBA、
+  实际 C11 malloc 逐次故障、IR 不变、内存／操作／边／采样／Image／像素 N/N−1。
+  设备规划器另验证 600 DPI、原始小数端点、UserUnit、四个方向及精确像素预算。
+  公开／OOM 期限仍为 45/40 秒。保留真实非整数／越界／非有限请求、预算失败的原子结果。
+- 非整数 DPI、一般页面盒／坐标、Image 仿射采样、通用 Stroke 和字体能力继续开放；
+  旧显式 Stroke 内核仍保留各自的 DPI 合同。本地仅静态检查，不运行 Native。
+
+### A2 小数页面上的普通文字 Scene：当前开发增量
+
+- 已验收起点为 #625 的 `eee846ee`，tree `087289eddfe0d2e1efc4eacc564c62fe7f5c7108`；
+  [CI #2474](https://github.com/qigao/QuantaPDF/actions/runs/42041388683) 四配置各 127/127。
+  本节须以新精确 HEAD 验收，仍为 Draft、未合并或发布。
+- Source 的文字 handoff 使用已经保留的真实页面高度，移除整点宽高准入。
+  字形 mask 在原 4×4 子像素网格比较完整物理宽高，不再先将页面尺寸截断为整数；
+  普通 Scene 编译器取消与此对应的整点页面拒绝。输出按精确设备规划的 ceil 尺寸分配，
+  字形、Clip、Fill 与 Image 不拉伸到缓冲区。
+- 新公开项覆盖四组非方形页面（11.75×11.25、12.25×12.75、12×11.75、12.25×12 pt），
+  八个整数 DPI、真实 Roboto 字形、Text/Fill/RAW Image、多根及 65 叶 Clip、空叶、
+  加密／选页／多编码 Contents／detached Bitmap：320 次独立全 RGB、24 次显示旋转。
+  额外字形跨越右边和底边；有理数参考还证明“先截断宽高”的错误模型会改变真实像素。
+- Source/OOM 项在原文档销毁后验证 24 次完整 RGBA（空白及小数混合页）、不可变 IR、
+  逐次 Source C 发布和 C11 malloc 故障，以及实际内存／操作／边／采样／Image／像素 N/N−1。
+  历史 128.5×64 pt Hello 拒绝提升为原始独立 glyph golden 加白边的三 DPI 全 RGB、
+  重复渲染、thumbnail 和 Bitmap 生命周期。公开／OOM 期限仍为 45/40 秒。
+- 本增量沿用 Source 的既有四分之一点页面数值语法；TeXample 千分之一点专用页的文字
+  和一般十进制页面仍待实现，不能经 binary32 页面尺寸舍入后冒称精确保留原始视口。
+  非零原点／Crop、原始 Rotate、非默认 UserUnit 的文字组合，以及 Image affine、
+  通用 Stroke、非整数 DPI 和字体能力继续开放。本地仅静态检查，不运行 Native。
+
+### A2 非零原点与 CropBox 文字 Scene：当前开发增量
+
+- 已验收起点为 #625 的 `e31ae678`，tree `4909002a8994501409e941d9ca42a4de5acd4471`；
+  [CI #2475](https://github.com/qigao/QuantaPDF/actions/runs/42050059258) 四配置各 129/129。
+  本节须由新精确 HEAD 验收，仍为 Draft、未合并或发布。
+- 文字轮廓使用与 Path/Image/Clip 相同的原始可见视口原点；不再要求页面零原点或
+  CropBox 与 MediaBox 相同。仅在轮廓投影时减去视口左／下边界，并围绕真实视口高度
+  翻转 Y；文字解释器的 CTM 和 q/Q 状态保持原 PDF 坐标，BT 后的路径、图像和 Clip
+  回调继续原位冻结，不能重复归一化。
+- 七类页面几何包括正负原点、内部 Crop、与 Media 相交／包围 Media 的 Crop、继承的
+  MediaBox/CropBox 和零原点 Crop。公开新项在五个整数 DPI 比较 490 次独立全 RGB、
+  63 次非方形显示旋转，覆盖真实 Roboto 字形／RAW Image／Fill、多根及 65 叶 Clip、
+  空叶、右下边缘字形、加密／错误密码／多编码 Contents／选页和 detached Bitmap。
+  有理数参考从原始作者坐标选择采样点与 texel，并证明遗漏字形原点平移会改变像素。
+- 新 Source/OOM 使用内部 Crop 和继承负原点 Crop，在原文档销毁后执行 24 次独立
+  RGBA、逐次 Source C 发布和 C11 malloc 故障、不可变 IR，以及实际内存／操作／边／
+  采样／Image／像素 N/N−1。公开／OOM 期限仍为 45/40 秒，公开 1M 像素预算保留。
+- 本增量仍使用既有四分之一点页面格式、原始 Rotate=0 和 UserUnit=1；原始旋转、
+  非默认 UserUnit 的文字组合、一般十进制、Image affine、通用 Stroke、非整数 DPI
+  与字体能力继续开放。本地仅静态检查，不运行 Native。
+
+### A2 原始 Rotate／UserUnit 文字 Scene：当前开发增量
+
+- 起点为 #625 的 `f2370d4a`，tree `40b9b4c3523442e61ed23b5d8f4833c5053b576e`；
+  [CI #2476](https://github.com/qigao/QuantaPDF/actions/runs/42055641385) 的 Linux Release、
+  ASan/UBSan 和 Windows LLVM-MinGW 各 131/131，macOS 未分配 runner、排队后取消，
+  整轮 failure。该历史结果保留，不能作为本增量的四配置验收。
+- 移除文字 handoff 后提前发布 IR 的分支。字形轮廓与 Path/Clip 共用 Source 的
+  原始页面 Rotate／UserUnit 变换，RAW Image 仍由同一阶段同步旋转 texel 和 placement；
+  完成所有内容解释和页面变换后，仅发布一次普通有序 Scene。CTM、q/Q 和作者坐标
+  的解释仍在原始 PDF 空间，不增加新的绘制组合或像素路径。
+- 字形二次曲线按最终页面 Y 轴切为单调片段；90°／270° 使用原始 X 极值，避免
+  只旋转端点后把非单调曲线交给精确扫描器。原始旋转、UserUnit、Crop 原点归一化
+  与请求显示旋转分别保留其语义，页面大小在设备 ceil 前保持精确。
+- 新公开两组各 336 次独立全 RGB、72 次显示旋转，覆盖四个原始方向、正负角度
+  归一化、六个 UserUnit（0.25/0.75/1.25/1.75/2.75/4）、非零原点和继承 Crop／Rotate、
+  原始多根及 65 叶 Clip、空叶、Fill/Image/Text 顺序、加密选页和 detached Bitmap。
+  参考使用有理数逆变换，还区分旋转后图像 texel 分界点的采样归属。
+- 曲线文字另有 112 次原始二次曲线独立参考的全 RGB、336 次显示旋转，覆盖七个
+  UserUnit 和整像素裁切；旧 Rotate90 拒绝提升为 72/96/144 DPI 的独立全 RGB。
+  七份新参考直接旋转原始二次曲线，全部通过 60／80 位 Decimal 一致性验证；
+  不能用旋转旧 Bitmap 代替具有不同采样相位或恰好命中边界的原始页面旋转。
+- 新 Source/OOM 项覆盖 64 次独立 RGBA（32 空白、32 变换混合页）、实际旋转
+  Image 的 C++ 分配失败、逐次 Source C 发布与 C11 malloc 故障、文档销毁后 IR／Bitmap
+  所有权和实际内存／操作／边／采样／Image／像素 N/N−1，含物理 UserUnit 绘制预算。
+  共新增四项 CTest（当前 135 项），期限仍为公开 45／OOM 40 秒。
+- 本节仅记录实现和新增验收内容，须以新精确 HEAD 的真实 CI 结果验收；本地只执行
+  静态检查和离线独立参考生成，不编译／运行 Native。既有四分之一点页面语法和
+  0.25..4 的四分之一 UserUnit 范围保留；一般十进制、Image affine、通用 Stroke、
+  非整数 DPI、完整字体与 A2 总项仍开放。PR 保持 Draft，未合并或发布。
+
+### A2 一般小数页面与精确视口：当前开发增量
+
+- 起点为 #625 `375c976b`，tree `040c31fe46840d32de36dbc0763776c3ebfce1de`；
+  [CI #2477](https://github.com/qigao/QuantaPDF/actions/runs/42062684380) 四配置各 135/135。
+  本节须以新精确 HEAD 的真实 CI 验收，PR 保持 Draft。
+- Source 页面盒统一按原始 QPDF 数字的九位小数整数刻度解析，删除四分之一点准入和
+  单独 237.133×180.44 页面盒例外；Crop 交集、完整 Media 和物理 UserUnit 预算保持精确。
+  原始数字仍限 20 字节、坐标范围 ±1M；非零的第十位小数、非 quarter UserUnit 和
+  既有范围外 Unit 继续明确拒绝，未把它们经 double 舍入为已支持值。
+- IR 内联持有规范十进制物理 canvas，所有 Source 页都填写；不再把 float 页面元数据
+  格式化后当作原始尺寸。设备规划在浮点转换前同时确定 ceil 缓冲区及可见的 4×4
+  子像素列／行数，文字、路径、Clip 和图像沿同一个 Scene 采样边界。
+- 当前公共 point/rect/affine 改为 double，Source 普通路径／字形／图像、Rotate 和 UserUnit
+  不再把小数视口平移缩成 float。字形直线判定扩展式同时保留 coordinate×DPI 和
+  随后 coordinate 乘积的残差。当前调用方与测试使用新头文件；不提供旧 ABI 别名或桥接。
+- 新小数混合页项有 576 次独立有理数 RGB、144 次显示旋转：六类十进制几何、
+  四个原始方向、两个 Unit、文字／路径／图像、多根及空 Clip、继承原点和 Crop、
+  加密选页及 detached Bitmap。包含距离整数像素和子像素边界仅 1e−9 点的尺寸。
+- 普通 237.133×180.44 原始 PDF 另比较 18 次独立 RGB、9 次显示旋转，覆盖空白页、
+  曲线 Hello/Image/Fill 和无文字的三笔绘制；不再仅凭尺寸与三笔数量选择专用曲线内核。
+  六份原始二次曲线／矩形独立参考以 60／80 位 Decimal 生成且一致，CI 仅读取参考字节。
+- 新 Source/OOM 继续验证 64 次独立 RGBA、全部实际发布／C11 分配故障、旋转 Image
+  的 C++ 失败、不可变 IR 和真实 N/N−1。升级旧小数拒绝（包括 ancestry 与 .1/.125
+  原点、原始 TeXample 近邻／Crop／Unit／Rotate／Fill），保留真正未实现和精度范围外的失败。
+  新增三个现有 CTest（共 138 项），45／40 秒期限和既有工作／像素预算不提高。
+- 本地仅静态检查和离线独立参考生成，未运行 Native。Image affine、通用 Stroke、
+  非整数 DPI、完整字体与其他 A2/A3 项仍开放；旧 TeXample 曲线内核的专用限制未冒称移除。
+
+### A2 不透明 Image affine：当前开发增量
+
+- 起点为 #625 `e2f217f8`，tree `e18d3cbd1ecb6a58b7cecd308cd039ccd66b267a`；
+  [CI #2485](https://github.com/qigao/QuantaPDF/actions/runs/42088165028) 四配置各 138/138。
+  本节须以新精确 HEAD 的完整 CI 验收，PR 保持 Draft。
+- 普通 Source Image Do 保留有限非奇异 CTM，允许旋转、shear 与镜像；图像 placement
+  和 texel frame 作为同一 IR operation 的值传递给有序 Scene。轴对齐 placement 仍直接
+  保存原矩形；一般 affine 使用单位矩形与显式映射，沿用一个四边形覆盖与最近邻采样器。
+  没有新的 paint-order profile、解析器或 Bitmap fallback。
+- C11 在原有物理采样 frame 构建四条图像边；斜边判定与字形共用 FMA expansion，
+  不以射线交点的浮点除法决定恰好落在边上的样本。像素中心逆映射决定 texel，4×4
+  子像素覆盖再与当前 Clip 图相交。Source 原始 Rotate 同时复合 placement 与 texel
+  frame，UserUnit 只缩放世界映射；全 placement 的 AABB 继续计费，Crop 不缩小作者预算。
+- 复用现有公开与 Source/OOM 可执行文件，新增四项公开分组及一项 OOM（共 143 项）。
+  八类 CTM × 六种顺序、nested/sibling/empty Clip、原点/Crop/继承、原始 Rotate/UserUnit、
+  加密和纯 Image／Image+Fill、Gray/RGB，共 672 次独立整数全 RGB、96 次显示旋转。
+  两份原 shear 拒绝夹具保留原 PDF，另比较六次完整 RGB 与两次 Source RGBA；
+  使用原始 Hello mask 与整数 half-plane，不从渲染器或新 Bitmap 生成 golden。
+- 新 OOM 项验证 64 次独立 RGBA、逐次 Source C 发布、真实 affine RAW quarter-turn 的
+  C++ 分配失败、C11 malloc 故障、不可变 IR、实际内存/操作/边/采样/Image/像素 N/N−1，
+  并在编译后改写原 placement 和映射，验证已编译几何值。45/40 秒期限与资源预算不提高。
+- 仍限现有 opaque Gray/RGB 图像语义、整数 DPI、有限坐标包络；奇异矩阵明确拒绝。
+  通用 Stroke、非整数 DPI、插值/透明图像、其余图像解码与字体能力继续开放，A2/A4
+  总项不勾选。此增量不新增公共 Composer affine 图像 API。
+- 本地仅静态检查、独立有理数矩阵组合和既有字形资产核对，未编译或运行 Native。
+
+### A2 普通 Scene 的 binary32 小数 DPI：当前开发增量
+
+- 起点为 #625 `9936b583`，tree `d6bfb0af957547f0eb18ee2a1a20c47227d1cd6b`；
+  [CI #2486](https://github.com/qigao/QuantaPDF/actions/runs/42136359944) 四配置各 143/143。
+  本节须以新精确 HEAD 的完整 CI 验收，PR 保持 Draft。
+- 首轮 `4b997cb9`，tree `0ee75b5ed31f3bdf8ad0c6a29da2f396b9a0e969`，
+  [CI #2487](https://github.com/qigao/QuantaPDF/actions/runs/42144605445) 四配置均止于
+  sibling Clip 测试的旧 unsigned DPI 回调类型，CTest 未执行；修正测试声明为 float。
+  失败记录保留，未重跑或取消作业，生产实现与独立像素参考未再变化。
+- 普通 Source Scene 直接保存 API 的实际正有限 binary32 DPI，移除全局整数检查及
+  unsigned 转换。字形、Path/Clip、Image、页边界与像素中心使用同一个原始请求值。
+  旧显式 Stroke/device 内核继续在自己的入口拒绝不支持的 DPI，不能先截断再选档。
+- 规划器保持原有 64 位精确十进制页跨度，用八个 32 位 limb 计算 binary32 乘积和
+  像素/子像素整数比较。完整指数范围和原像素预算最多需要 243 位；无分配、无编译器
+  大整数扩展、无溢出后重试、无近似 ceil。极小正 DPI 分配真实 1×1 缓冲区，未到
+  首个物理样本则保持白色；极大请求由实际像素/资源预算拒绝。
+- `0.1f` 的实际值是 13421773/134217728。在 810pt 页上它位于 1.125 像素边界之上：
+  2×2 缓冲区、每轴五个可见子像素，不能按十进制 0.1 或整数 DPI 推导。另验证 9/72
+  DPI 两侧的相邻 binary32 值、最小 normal/subnormal、非有限/预算失败及后续有效操作。
+- 复用既有公开与 Source/OOM 可执行文件，新增四项公开与一项 OOM（共 148 CTest）。
+  224 次混合页全 RGB、42 次显示旋转，覆盖九位小数页盒、原点/Crop/继承、Gray/RGB、
+  affine Image、真实文字、多根/empty Clip、原始 Rotate/UserUnit 和加密。参考直接使用
+  人工给定的精确 DPI 分数，不复用生产规划器或其 limb 算术。
+- 六份原始二次曲线参考覆盖小数 DPI 与原始 Rotate/UserUnit：24 次完整 RGB、72 次
+  显示旋转。离线 60/80 位 Decimal 一致，三个旧 Hello golden 保持原字节。边界项另有
+  12 次完整 RGB；原 0.5/73.5 拒绝提升为八次完整 RGB，C/C++ 所有权旧 73.5 拒绝也
+  升级为真正的 9×9 RGBA，保留资源失败的原子输出与 context 生命周期检查。
+- 新 Source/OOM 有 64 次独立 RGBA、逐次 Source C 发布、真实 RAW quarter-turn C++
+  分配失败、C11 malloc 故障、不可变 IR、N/N−1 和编译后映射改写。45/40 秒期限、
+  像素/边/操作/内存/采样预算不变。本地仅静态和离线参考核对，未编译或运行 Native。
+- 通用 Stroke、ROI/RGBA、透明/插值图像、其余解码与字体能力继续开放；A2/A4 不勾选。
+
 ## 单一执行模型
 
 ```mermaid
@@ -446,7 +744,7 @@ Renderer 使用同一套几何、采样和合成实现。Form、透明组和 pat
 | 工作包 | 当前事实 | 要补的功能 | 优先级 |
 | --- | --- | --- | --- |
 | A1 API 与执行模型 | C11 facade、Context/owner、qpdf backend、native renderer 已存在；版本包装和多层准入仍多 | 一套当前 API；删除兼容 factory/provider/record 协商；直接复用打开的文档；统一所有权、错误和脚本失败行为 | P0 |
-| A2 通用内容、路径与坐标 | 已有真实 Path/Image/Text/Clip、曲线、Stroke 原件和独立像素结果；Source 仍受固定 profile、4-paint 等限制 | 任意实际绘制序列、通用 q/Q/CTM/Clip；完整路径/Stroke；一般页面几何、DPI/ROI/RGBA；合理的动态/分块绘制 | P1，功能实现首先推进 |
+| A2 通用内容、路径与坐标 | 普通 opaque Scene 已动态保存操作及 Clip 图；Stroke/复杂 paint、一般页面坐标和部分底层消费者仍受固定 profile 限制 | 任意实际绘制序列、通用 q/Q/CTM/Clip；完整路径/Stroke；一般页面几何、DPI/ROI/RGBA；合理的动态/分块绘制 | P1，功能实现首先推进 |
 | A3 字体、文本与提取 | 已有 TrueType 子集/轮廓、CID FontFile2 与部分文字操作；Composer 部分能力不能当作 Source 通用支持 | 多字体、多段 Text、完整 text state/positioning；Encoding/CMap/ToUnicode；常见嵌入字体与标准字体；提取/搜索/选区几何 | P1 |
 | A4 图像与色彩 | RAW/Flate 8-bit Gray/RGB 和部分 predictors 已验收；其他路径有代码不等于 Source 已能渲染 | JPEG、扫描图像、更多位深/Decode/色彩空间、inline image、image mask/SMask；完整图像仿射采样 | P1 |
 | A5 Form、透明度与外观 | 部分 writer/Composer 数据结构已存在；native 整页解释/渲染覆盖不足 | 嵌套 Form、Resources/BBox/Matrix；alpha/blend/group/soft mask；pattern/shading；annotation/widget appearance | P1 |

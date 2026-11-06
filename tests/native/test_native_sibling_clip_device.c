@@ -274,7 +274,7 @@ static int rectangular_projection_and_ownership(void)
 
 static int older_entries_refuse(const quantapdf_ir *ir)
 {
-    typedef quantapdf_status (*native_fn)(const quantapdf_ir *,unsigned,
+    typedef quantapdf_status (*native_fn)(const quantapdf_ir *,float,
         const quantapdf_ir_raster_scoped_mixed_v5_limits *,quantapdf_ir_raster_image *);
     typedef quantapdf_status (*viewport_fn)(const quantapdf_ir *,size_t,
         const quantapdf_ir_raster_scoped_mixed_v5_limits *,double,double,

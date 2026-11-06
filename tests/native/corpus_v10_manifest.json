@@ -104,8 +104,8 @@
     },
     {
       "id": "reject-late-text",
-      "sha256": "3a4cfe208bc20ec10798359ac1ccba66dc375ea7af9e28a49690d6df9f3c8edb",
-      "size_bytes": 482,
+      "sha256": "cf27e8a85e7b201ec578f9b5d457cd467a599b374d22dfca92d9e906849ffadb",
+      "size_bytes": 487,
       "source_provenance": "QuantaPDF-test-authored-original-bytes-v1",
       "feature_tags": [
         "path",
@@ -170,8 +170,8 @@
     },
     {
       "id": "reject-image-late-text",
-      "sha256": "264807f0d6a9409bdfb9173de75859781e50d241aff44cf1ee1dcac01fe017d8",
-      "size_bytes": 674,
+      "sha256": "fcf9fee5543306a41c6f60d52adacb9fd2d2a5830d61b13a2bbf6da525f5a846",
+      "size_bytes": 679,
       "source_provenance": "QuantaPDF-test-authored-original-bytes-v1",
       "feature_tags": [
         "image",

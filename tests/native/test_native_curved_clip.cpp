@@ -365,6 +365,23 @@ static int bounded_control_outside_crop()
 /* Unsupported and malformed Source MUST refuse the ENTIRE page,
  * even if a clipped Image has already been staged, never return
  * partially painted RGB. Both W and W* are checked at real DPI. */
+static int fractional_curve_clips()
+{
+    const std::string path="4 5 m 4.125 18 20 18 20 5 c 20 4 l 4 4 l h ";
+    const std::string shifted="1 0 0 1 1 0 cm 3 5 m 3.125 18 19 18 19 5 c 19 4 l 3 4 l h ";
+    const std::string draw="q 16 0 0 12 8 3 cm /I Do Q Q";
+    for(bool pair:{false,true})for(bool even:{false,true})for(int quarters:{4,5})
+    for(int rotation:{0,90})for(int dpi:{72,96,144})for(int crop:{0,1,2}) {
+        const std::string prefix=pair?"q 8 4 12 12 re W n ":"q ";
+        const std::string rule=even?"W* n ":"W n ";
+        std::vector<unsigned char> actual,reference;
+        CHECK(render(original(prefix+path+rule+draw,true,quarters,rotation,crop),quarters,rotation,dpi,crop,actual)==EXIT_SUCCESS);
+        CHECK(render(original(prefix+shifted+rule+"1 0 0 1 -1 0 cm "+draw,true,quarters,rotation,crop),quarters,rotation,dpi,crop,reference)==EXIT_SUCCESS);
+        CHECK(actual==reference);
+    }
+    return EXIT_SUCCESS;
+}
+
 static int atomic_rejections()
 {
     const std::string path=
@@ -373,21 +390,13 @@ static int atomic_rejections()
         " W n q 16 0 0 12 8 3 cm /I Do Q Q";
     const std::vector<std::string> bad={
         "q "+path+" W q 16 0 0 12 8 3 cm /I Do Q Q",
-        /* Two identical owned curved leaves are now qualified; a third
-         * definition must still reject the complete original page. */
-        "q "+path+" W n "+path+" W* n "+path+" W n "
-           "q 16 0 0 12 8 3 cm /I Do Q Q",
         "q "+path+" W* n q 16 0 0 12 8 3 cm /Missing Do Q Q",
         ready+" S",
-        ready+" BT ET",
+        ready+" BT 1 Tr ET",
         ready+" 2 G",
         ready+" 1 0 0 rg 4 4 8 6 re f 1 0 0 rg 4 4 8 6 re S",
-        ready+" 4 4 8 6 re W n",
-        ready+" q 4 4 8 6 re W n Q",
         ready+" Q",
         ready+" q",
-        "q 4 5 m 4.125 18 20 18 20 5 c 20 4 l 4 4 l h W n "
-          "q 16 0 0 12 8 3 cm /I Do Q Q",
         /* Cropped source legitimately admits geometry outside the CropBox;
          * the actual strict SOURCE +/-1,000,000 coordinate cap must fail
          * for both full-Media and reduced-CropBox original pages. */
@@ -399,11 +408,20 @@ static int atomic_rejections()
           "q 16 0 0 12 8 3 cm /I Do Q Q",
         "q "+path+" W* n q 16 0 0 12 8 3 cm /I Do Q "
             "Q 4 5 m 4 18 20 18 20 5 c S",
-        "q "+path+" W n q 16 0 0 12 8 3 cm /I Do Q "
-            "Q 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h W n",
         "q "+path+" W* n q 16 0 0 12 8 3 cm /I Do Q "
-            "Q 1 0 0 rg 4 4 8 6 re f BT ET"
+            "Q 1 0 0 rg 4 4 8 6 re f BT 1 Tr ET"
     };
+    const std::string admitted[]={
+        "q "+path+" W n "+path+" W* n "+path+" W n q 16 0 0 12 8 3 cm /I Do Q Q",
+        ready+" 4 4 8 6 re W n",
+        ready+" q 4 4 8 6 re W n Q",
+        "q "+path+" W n q 16 0 0 12 8 3 cm /I Do Q Q "+path+" W n"
+    };
+    for(const auto& content:admitted)for(int dpi:{72,96,144})for(int crop:{0,1}) {
+        std::vector<unsigned char> actual,reference;
+        CHECK(render(original(content,true,4,0,crop),4,0,dpi,crop,actual)==EXIT_SUCCESS);
+        CHECK(render(original(ready,true,4,0,crop),4,0,dpi,crop,reference)==EXIT_SUCCESS && actual==reference);
+    }
     for(const auto& content:bad)
     for(int dpi:{72,96,144})
     for(int crop_mode:{0,1}) {
@@ -520,9 +538,8 @@ static int empty_or_disjoint_q_restoration()
     return EXIT_SUCCESS;
 }
 
-/* Malformed or unsupported content, even AFTER a correctly suppressed
- * Image, must not publish partial RGB. Clip redefinition after Q restores
- * no Clip, and W without n, remain unsupported without a fallback. */
+/* Malformed or unsupported content after a suppressed Image fails atomically.
+ * A later unused definition preserves the earlier pixels and actual Q state. */
 static int empty_clip_atomic_refusals()
 {
     const std::string draw="q 16 0 0 12 8 3 cm /I Do Q Q";
@@ -534,14 +551,22 @@ static int empty_clip_atomic_refusals()
         "q W n q 16 0 0 12 8 3 cm /I Do Q",
         "q W n "+draw+" Q",
         "q W n q 16 0 0 12 8 3 cm /Missing Do Q Q",
-        "q W n "+draw+" BT ET",
+        "q W n "+draw+" BT 1 Tr ET",
         "q W* n "+draw+" 4 4 m S",
-        "q W n "+draw+" q 4 4 8 6 re W* n Q",
-        "q W n "+draw+" 1 0 0 rg 8 6 8 6 re f BT ET",
-        "q 4 5 m 4 18 20 18 20 5 c W n "+draw,
-        "q W n "+draw+" 1 0 0 rg 8 6 8 6 re f "
-            "q 4 4 8 6 re W n Q"
+        "q W n "+draw+" 1 0 0 rg 8 6 8 6 re f BT 1 Tr ET",
     };
+    const std::pair<std::string,std::string> admitted[]={
+        {"q W n "+draw+" q 4 4 8 6 re W* n Q",""},
+        {"q 4 5 m 4 18 20 18 20 5 c W n "+draw,
+         "q 1 0 0 1 4 0 cm 0 5 m 0 18 16 18 16 5 c W n 1 0 0 1 -4 0 cm "+draw},
+        {"q W n "+draw+" 1 0 0 rg 8 6 8 6 re f q 4 4 8 6 re W n Q",
+         "1 0 0 rg 8 6 8 6 re f"}
+    };
+    for(const auto& pair:admitted)for(int crop:{0,1})for(int dpi:{72,96,144}) {
+        std::vector<unsigned char> actual,reference;
+        CHECK(render(original(pair.first,true,4,0,crop),4,0,dpi,crop,actual)==EXIT_SUCCESS);
+        CHECK(render(original(pair.second,true,4,0,crop),4,0,dpi,crop,reference)==EXIT_SUCCESS && actual==reference);
+    }
     for(const auto& content:bad)
     for(int crop:{0,1})
     for(int dpi:{72,96,144})
@@ -552,9 +577,8 @@ static int empty_clip_atomic_refusals()
 
 /* Two authored rectangular W/W* definitions in one original q scope,
  * before ANY paint, have the same exact 4x4 sample membership as
- * their rectangle intersection. Only that strictly qualified subset
- * is collapsed by Source into ONE owned Clip for the existing C11
- * renderer. The reference is a separate real PDF, not a second
+ * their rectangle intersection. Source retains both original leaves
+ * and one intersection root. The reference is a separate real PDF, not a second
  * renderer or a Composer IR re-export. */
 static int two_rectangle_clip_intersections()
 {
@@ -569,6 +593,10 @@ static int two_rectangle_clip_intersections()
     const pair shapes[]={
         {"8 4 12 12 re","12 6 12 12 re",
          "12 6 8 10 re","","",false},
+        {"8 4 12 12 re","12.125 6 12 12 re",
+         "12.125 6 7.875 10 re","","",false},
+        {"8 4 12 12 re","12.0625 6 12 12 re",
+         "12.0625 6 7.9375 10 re","","",false},
         {"12 6 12 12 re","8 4 12 12 re",
          "12 6 8 10 re","","",false},
         {"4 4 24 16 re","12 6 8 10 re",
@@ -715,55 +743,43 @@ static int two_rectangle_split_contents()
 }
 
 /* Observed first leaves retain their owned identity instead of rectangle
- * reduction. Image cardinality, malformed pending operands and third
- * definitions still refuse atomically after the admitted states. */
+ * reduction. Malformed pending operands and unsupported operators still
+ * fail atomically after valid graph paints. */
 static int two_rectangle_atomic_refusals()
 {
     const std::string first="8 4 12 12 re";
     const std::string second="12 6 12 12 re";
     const std::string image="q 16 0 0 12 8 3 cm /I Do Q Q";
-    for(int dpi:{72,96,144}) {
-        std::vector<unsigned char> actual,intersection;
-        CHECK(render(original("q "+first+" W n 12.125 6 12 12 re W n "+image,true,4,0,0),4,0,dpi,0,actual)==EXIT_SUCCESS);
-        CHECK(render(original("q 12.125 6 7.875 10 re W n "+image,true,4,0,0),4,0,dpi,0,intersection)==EXIT_SUCCESS);
-        CHECK(actual==intersection);
-    }
     for(int crop:{0,1})for(int dpi:{72,96,144}) {
         std::vector<unsigned char> empty;
         CHECK(render(original("q "+first+" W n 12 6 0 12 re W n "+image,true,4,0,crop),4,0,dpi,crop,empty)==EXIT_SUCCESS);
         for(unsigned char c:empty)CHECK(c==255u);
     }
+    const std::string draw="q 16 0 0 12 8 3 cm /I Do Q ";
+    const std::string intersection="q 12 6 8 10 re W n "+draw+"Q ";
+    const std::pair<std::string,std::string> admitted[]={
+        {first+" W n q "+second+" W* n "+image+" "+draw+draw,intersection+"q "+first+" W n "+draw+draw+"Q"},
+        {"q "+first+" W n "+second+" W* n "+second+" W n "+image,intersection},
+        {"q "+first+" W n q "+second+" W* n "+draw+"Q "+first+" W n Q",intersection},
+        {"q "+first+" W n Q q "+second+" W* n "+image,"q "+second+" W n "+image},
+        {"q "+first+" W n "+draw+second+" W* n Q","q "+first+" W n "+draw+"Q"},
+        {"q "+first+" W n 12 6 m 12 16 l 20 16 l 20 6 l h W* n W n "+image,""},
+        {"q W n "+second+" W* n W n "+image,""}
+    };
+    for(const auto& pair:admitted)for(int crop:{0,1})for(int dpi:{72,96,144}) {
+        std::vector<unsigned char> actual,reference;
+        CHECK(render(original(pair.first,true,4,0,crop),4,0,dpi,crop,actual)==EXIT_SUCCESS);
+        CHECK(render(original(pair.second,true,4,0,crop),4,0,dpi,crop,reference)==EXIT_SUCCESS && actual==reference);
+    }
     const std::vector<std::string> bad={
-        /* First W outside q and two Images in states 2,1 now qualify.
-         * A third Image after that real restoration still refuses. */
-        first+" W n q "+second+" W* n "+image+
-            " q 16 0 0 12 8 3 cm /I Do Q"
-            " q 16 0 0 12 8 3 cm /I Do Q",
         "q "+first+" W n "+second+" W* "+image,
         "q "+first+" W n "+second+" W* W n "+image,
-        "q "+first+" W n "+second+" W* n "+second+
-            " W n "+image,
-        /* Nested q with root-only paint now qualifies; redefining a
-         * third Clip after Q restores leaf 1 still does not. */
-        "q "+first+" W n q "+second+" W* n "+
-            "q 16 0 0 12 8 3 cm /I Do Q Q "+first+" W n Q",
-        "q "+first+" W n Q q "+second+" W* n "+image,
-        "q "+first+" W n q 16 0 0 12 8 3 cm /I Do Q "+
-            second+" W* n Q",
-        /* A rectangle plus a valid cubic now has positive coverage in
-         * test_native_two_curved_source; off-quarter controls do not. */
-        "q "+first+" W n 4 5 m 4.125 18 20 18 20 5 c "+
-            "20 4 l 4 4 l h W n "+image,
-        "q "+first+" W n 12 6 m 12 16 l 20 16 l "+
-            "20 6 l h W* n W n "+image,
-        "q W n "+second+" W* n W n "+image,
         "q "+first+" W n W* 1 n "+image,
         "q "+first+" W n "+second+" W n "+
             "q 16 0 0 12 8 3 cm /Missing Do Q Q",
-        "q "+first+" W n "+second+" W* n "+image+" BT ET",
+        "q "+first+" W n "+second+" W* n "+image+" BT 1 Tr ET",
         "q "+first+" W n "+second+" W n "+image+" S",
         "q "+first+" W n "+second+" W n "+image+" Q",
-        "q "+first+" W n 12.0625 6 12 12 re W n "+image,
     };
     for(const auto& input:bad)
     for(int crop:{0,1})
@@ -782,6 +798,7 @@ int main()
     CHECK(definition_time_ctm()==EXIT_SUCCESS);
     CHECK(split_original_contents()==EXIT_SUCCESS);
     CHECK(bounded_control_outside_crop()==EXIT_SUCCESS);
+    CHECK(fractional_curve_clips()==EXIT_SUCCESS);
     CHECK(atomic_rejections()==EXIT_SUCCESS);
     CHECK(empty_clip_pixels()==EXIT_SUCCESS);
     CHECK(disjoint_clip_and_unclipped_image()==EXIT_SUCCESS);

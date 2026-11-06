@@ -1,6 +1,5 @@
 #include "render_plan.h"
 
-#include <float.h>
 #include <limits.h>
 #include <math.h>
 #include <stdint.h>
@@ -14,11 +13,11 @@ static int checked_int(double value, int *out_value)
     return 1;
 }
 
-static int checked_float(double value, float *out_value)
+static int checked_coordinate(double value, double *out_value)
 {
-    if (!isfinite(value) || value < -(double)FLT_MAX || value > (double)FLT_MAX)
+    if (!isfinite(value))
         return 0;
-    *out_value = (float)value;
+    *out_value = value;
     return 1;
 }
 
@@ -108,17 +107,17 @@ quantapdf_status quantapdf_render_plan_map_source(const quantapdf_render_plan *p
         return QUANTAPDF_ERROR_FORMAT;
     scale = plan->scale; cosine = plan->cosine; sine = plan->sine;
     /* Preserve the established translate/rotate/scale evaluation order. */
-    if (!checked_float(scale * (cosine * source->a - sine * source->b), &matrix.a) ||
-        !checked_float(scale * (sine * source->a + cosine * source->b), &matrix.b) ||
-        !checked_float(scale * (cosine * source->c - sine * source->d), &matrix.c) ||
-        !checked_float(scale * (sine * source->c + cosine * source->d), &matrix.d) ||
-        !checked_float(scale * (cosine * (source->e - plan->source_x0) -
+    if (!checked_coordinate(scale * (cosine * source->a - sine * source->b), &matrix.a) ||
+        !checked_coordinate(scale * (sine * source->a + cosine * source->b), &matrix.b) ||
+        !checked_coordinate(scale * (cosine * source->c - sine * source->d), &matrix.c) ||
+        !checked_coordinate(scale * (sine * source->c + cosine * source->d), &matrix.d) ||
+        !checked_coordinate(scale * (cosine * (source->e - plan->source_x0) -
                                sine * (source->f - plan->source_y0)) - plan->pixel_x0, &matrix.e) ||
-        !checked_float(scale * (sine * (source->e - plan->source_x0) +
+        !checked_coordinate(scale * (sine * (source->e - plan->source_x0) +
                                cosine * (source->f - plan->source_y0)) - plan->pixel_y0, &matrix.f))
         return QUANTAPDF_ERROR_ARGUMENT;
-    /* A float conversion can collapse a tiny but finite source transform. */
-    if ((double)matrix.a * matrix.d - (double)matrix.b * matrix.c == 0.0)
+    const double determinant=matrix.a * matrix.d - matrix.b * matrix.c;
+    if (!isfinite(determinant) || determinant == 0.0)
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_matrix = matrix;
     return QUANTAPDF_OK;

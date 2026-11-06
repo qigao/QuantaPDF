@@ -198,8 +198,9 @@ static int zero_and_outside_rectangles()
         {"1 0 0 rg 4 4 0 6 re f",0,0,0,0},
         {"1 0 0 rg 4 4 8 0 re f",0,0,0,0},
         {"1 0 0 rg 4 4 -0 6 re f",0,0,0,0},
-        {"1 0 0 rg 4 4 -8 6 re f",0,4,4,10},
-        {"1 0 0 rg 4 4 8 -6 re f",4,0,12,4}
+        {"1 0 0 rg 4 4 -8 6 re f",0,64,64,160},
+        {"1 0 0 rg 4 4 8 -6 re f",64,0,192,64},
+        {"1 0 0 rg 12 4 -8.0625 6 re f",63,64,192,160}
     };
     for(const auto& sample:cases)for(int dpi:{72,96,144}) {
         std::vector<unsigned char> rgb;
@@ -211,8 +212,8 @@ static int zero_and_outside_rectangles()
             for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
                 const int64_t px=(8ll*int64_t(x)+2ll*sx+1ll)*72ll;
                 const int64_t py=24ll*den-(8ll*int64_t(y)+2ll*sy+1ll)*72ll;
-                hits+=px>=sample.x0*den && px<sample.x1*den &&
-                    py>=sample.y0*den && py<sample.y1*den;
+                hits+=16ll*px>=sample.x0*den && 16ll*px<sample.x1*den &&
+                    16ll*py>=sample.y0*den && 16ll*py<sample.y1*den;
             }
             const unsigned white=(255u*(16u-hits)+8u)/16u;
             CHECK(rgb[3u*(y*w+x)]==255u && rgb[3u*(y*w+x)+1u]==white &&
@@ -225,8 +226,7 @@ static int zero_and_outside_rectangles()
 static int negative(void)
 {
     const char *const invalid[]={
-        "1 0 0 rg 12 4 -8.0625 6 re f", /* outside current eighth lattice */
-        "1 0 0 rg 12 4 -8 6 re f BT ET",
+        "1 0 0 rg 12 4 -8 6 re f BT 1 Tr ET",
         "1 0 0 rg 12 4 -8 6 re f 4 4 8 6 re S",
         "1 0 0 rg 12 4 -8 6 re f Q",
         ("q 20 6 -8 9 re W n "

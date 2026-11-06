@@ -1213,6 +1213,12 @@ void append_image_content(
         draw_top += (box_height - draw_height) / 2.0;
     }
     content += "q ";
+    auto const& t=operation.value.image.transform;
+    if(t.a!=0.0 || t.b!=0.0 || t.c!=0.0 || t.d!=0.0 || t.e!=0.0 || t.f!=0.0) {
+        content+=number(t.a)+" "+number(-t.b)+" "+number(-t.c)+" "+number(t.d)+" "+
+            number(t.c*page.height_points+t.e)+" "+
+            number(page.height_points*(1.0-t.d)-t.f)+" cm ";
+    }
     if (clip) {
         content += number(operation.bounds.x0) + " " +
             number(page.height_points - operation.bounds.y1) + " " +

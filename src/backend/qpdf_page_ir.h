@@ -18,12 +18,17 @@ typedef struct quantapdf_qpdf_page_limits {
 } quantapdf_qpdf_page_limits;
 /* Borrow the selected opened/decrypted page synchronously. Success publishes
  * independently owned IR, including Clip commands, decoded images and font
- * geometry. A single Clip retains all parsed contours and its winding rule;
+ * geometry. Clip definitions retain all parsed contours and winding rules;
  * command storage is dynamic and raster work uses the caller's actual budgets.
  * Ordinary Fill preserves closed-path current points and zero-area subpaths;
  * empty f/f* has no retained paint. Endpoints and controls may cross the
- * viewport within the current quarter-point envelope. Text handoff remains
- * a separate A2 limit.
+ * viewport within the finite C11 coordinate envelope. All ordinary path
+ * endpoints and controls use it. Text forwards operands to the same page owner
+ * and does not copy Fill prefixes or impose a glyph-command quota on Fill.
+ * W/W* definitions use that owner before or after Text; each definition owns
+ * its path and parent identity, and each paint keeps its actual current Clip.
+ * Publication prunes unobserved definitions and owns the resulting graph.
+ * C11 Scene currently retains its four-leaf graph limit independently.
  * Caller disposes it with quantapdf_ir_dispose. Failure publishes empty IR. */
 quantapdf_status quantapdf_qpdf_page_to_ir(
     quantapdf_qpdf_document *document,size_t page_index,

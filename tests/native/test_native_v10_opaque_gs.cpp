@@ -219,7 +219,7 @@ static const scenario cases[]={
     {"gs-unsafe-AIS",opaque_group,"<< /ca 1 /AIS true >>",
         black_paint,QUANTAPDF_ERROR_UNSUPPORTED,false},
     {"gs-late-text",opaque_group,opaque_state,
-        "q /a0 gs 0 0 16 12 re f Q BT ET",
+        "q /a0 gs 0 0 16 12 re f Q BT 1 Tr ET",
         QUANTAPDF_ERROR_UNSUPPORTED,false},
     {"gs-late-stroke",opaque_group,opaque_state,
         "q /a0 gs 0 0 16 12 re f Q "
