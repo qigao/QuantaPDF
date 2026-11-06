@@ -2583,7 +2583,7 @@ static int owned_page_contracts()
         quantapdf_ir_raster_scoped_mixed_v5_limits caps={512u,4u,512u,8000000u,1u,128u};
         quantapdf_native_execution_receipt_v1 receipt;
         quantapdf_ir_raster_image first{},second{},refused{};
-        const unsigned dpi=mode==3u?96u:72u;
+        const float dpi=mode==3u?73.5f:72.0f;
         ir.pages=(quantapdf_composer_page_state *)calloc(1u,sizeof(*ir.pages));
         CHECK(ir.pages!=NULL);*ir.pages=fixture->pages[0];ir.page_count=1u;
         ir.operations=(quantapdf_composer_operation *)calloc(1u,sizeof(*ir.operations));
@@ -2626,7 +2626,7 @@ static int owned_page_contracts()
                 op->graphics_state_id=op->value.image.options.graphics_state_id=1u;
             }
         }
-        before=ir;device.dpi=73.5f;
+        before=ir;device.dpi=72000.0f; // Actual pixel-budget failure retains the borrow.
         CHECK(quantapdf_native_source_page_prepare_context_v1(&ir,&caps,&device,
             &domain,&page)==QUANTAPDF_ERROR_UNSUPPORTED);
         CHECK(memcmp(&ir,&before,sizeof(ir))==0 && memcmp(&page,&zero,sizeof(page))==0);
@@ -2662,6 +2662,11 @@ static int owned_page_contracts()
         memset(&caps,0xa5,sizeof(caps));memset(&device,0xa5,sizeof(device));
         CHECK((quantapdf_native_source_page_execute_v1(&page,&receipt,&first))==QUANTAPDF_OK);
         CHECK(first.pixels!=NULL && rgba_at(first,1u,1u)==(mode==0u?UINT32_C(0x0000ffff):UINT32_C(0xff0000ff)));
+        if(mode==3u) {
+            CHECK(first.width==9u && first.height==9u);
+            for(size_t y=0u;y<9u;++y)for(size_t x=0u;x<9u;++x)
+                CHECK(rgba_at(first,x,y)==(x<4u && y<4u?UINT32_C(0xff0000ff):UINT32_C(0xffffffff)));
+        }
         CHECK(page.compiled.ledger.resources.live_bytes==retained);
         const size_t edges=receipt.compiled_edges,work=receipt.charged_sample_work;
         if(mode==1u) {
@@ -5647,6 +5652,8 @@ int main(int argc,char **argv)
         return clip_graph_dpi_contracts(limits,false,false,true,true);
     if(argc==2 && std::strcmp(argv[1],"--image-affine")==0)
         return clip_graph_dpi_contracts(limits,false,false,true,false,true);
+    if(argc==2 && std::strcmp(argv[1],"--fractional-dpi")==0)
+        return clip_graph_dpi_contracts(limits,false,false,true,false,false,true);
     if(argc==2 && std::strcmp(argv[1],"--fractional-fill")==0)
         return path_commands_source_contracts(limits,true,false,false,false,false,8u);
     if(argc==2 && std::strcmp(argv[1],"--fractional-clip")==0)

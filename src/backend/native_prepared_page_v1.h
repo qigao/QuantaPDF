@@ -22,7 +22,7 @@ typedef struct quantapdf_native_prepared_usage_v1 {
 typedef struct quantapdf_native_prepared_page_v1 {
     const quantapdf_ir *source;
     quantapdf_native_prepared_route_v1 route;
-    unsigned dpi;
+    float dpi;
     quantapdf_ir_raster_scoped_mixed_v5_limits limits;
     quantapdf_ir_raster_v1_limits cubic_limits;
     quantapdf_native_device_plan physical;
@@ -54,7 +54,6 @@ static inline quantapdf_status quantapdf_native_source_device_validate_v1(
        (device->thumbnail!=0 && device->thumbnail!=1))
         return QUANTAPDF_ERROR_ARGUMENT;
     if(device->page_index>(size_t)INT_MAX ||
-       floorf(device->dpi)!=device->dpi || (double)device->dpi>(double)UINT_MAX ||
        device->rotation_degrees!=0.0f || device->clip_enabled ||
        device->alpha || device->thumbnail)
         return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -248,7 +247,7 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
     if(status!=QUANTAPDF_OK)return status;
     if(!qp_prepared_resource_closure(source,limits,&p.usage,&text))
         return QUANTAPDF_ERROR_UNSUPPORTED;
-    p.source=source;p.dpi=(unsigned)device->dpi;p.limits=*limits;
+    p.source=source;p.dpi=device->dpi;p.limits=*limits;
     int stroke=0;
     for(size_t i=0u;i<source->operation_count;++i)
         if(source->operations[i].kind==QUANTAPDF_COMPOSER_OPERATION_PATH)

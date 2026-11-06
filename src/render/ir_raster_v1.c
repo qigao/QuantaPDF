@@ -1352,7 +1352,7 @@ unsupported:
  * products in a coordinate*DPI*coordinate term; double Source coordinates
  * must not lose bits before entering the determinant expansion. */
 static int qp_text_line_side(quantapdf_point a,quantapdf_point b,
-    size_t column,size_t row,unsigned dpi)
+    size_t column,size_t row,double dpi)
 {
     const double k=8.0*(double)dpi;
     const double py=72.0*(double)(2u*row+1u),px=72.0*(double)(2u*column+1u);
@@ -1375,7 +1375,7 @@ static int qp_text_line_side(quantapdf_point a,quantapdf_point b,
     return sign>0.0?1:sign<0.0?-1:0;
 }
 static int qp_text_line_ray(quantapdf_point a,quantapdf_point b,
-    size_t row,unsigned dpi,size_t width,size_t *threshold,size_t *work,size_t cap)
+    size_t row,double dpi,size_t width,size_t *threshold,size_t *work,size_t cap)
 {
     size_t lo=0u,hi=width*4u;
     while(lo<hi) {
@@ -1422,7 +1422,7 @@ static int qp_text_curve_ray(qp_cubic_cell root,double y,size_t width,
     return 0;
 }
 static int qp_text_crossing(quantapdf_point a,
-    const quantapdf_composer_path_command *c,int line,size_t row,unsigned dpi,
+    const quantapdf_composer_path_command *c,int line,size_t row,double dpi,
     size_t width,size_t *threshold,int *delta,size_t *work,size_t cap)
 {
     const quantapdf_point b=line?c->point1:c->point3;

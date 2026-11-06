@@ -2,7 +2,7 @@
 """Offline original-glyf reference; never imports production paths or pixels.
 
 Requires fontTools only for reading the checked-in Roboto fixture. Decimal
-quadratic roots (60 digits), exact unhinted font units, and the physical
+quadratic roots (60/80 digits), exact unhinted font units, and the physical
 DPI/72 grid classify nonzero 4x4 coverage. Each glyph blends separately in
 PDF order, even inside one Tj. No flattening, cubic conversion or SDK use.
 The generated RGBA files are checked in; CI needs no fontTools dependency.
@@ -10,6 +10,8 @@ The generated RGBA files are checked in; CI needs no fontTools dependency.
 from decimal import Decimal as D, getcontext, ROUND_CEILING
 from pathlib import Path
 import argparse
+import math
+import struct
 import hashlib
 import zlib
 from fontTools.ttLib import TTFont
@@ -187,12 +189,19 @@ def main():
     parser.add_argument('--output-dir', type=Path, required=True)
     cases = ('hello', 'layers', 'tj', 'fringe', 'mixed', 'reverse', 'background', 'late')
     parser.add_argument('--case', action='append', choices=cases+('decimal','decimal-shapes'))
-    parser.add_argument('--dpi', type=int, action='append', choices=(72, 96, 144))
+    def binary32_dpi(value):
+        number = struct.unpack('f', struct.pack('f', float(value)))[0]
+        if not math.isfinite(number) or number <= 0:
+            raise argparse.ArgumentTypeError('DPI must be positive finite binary32')
+        return D.from_float(number)
+    parser.add_argument('--dpi', type=binary32_dpi, action='append')
+    parser.add_argument('--precision', type=int, choices=(60, 80), default=80)
     parser.add_argument('--rotation', type=int, default=0, choices=(0, 90, 180, 270))
     parser.add_argument('--compress', action='store_true', help='write lossless zlib-compressed RGBA with .z suffix')
     parser.add_argument('--sample-masks', action='store_true',
                         help='also write five Hello glyph layers as little-endian uint16 masks')
     args = parser.parse_args()
+    getcontext().prec = args.precision
     if args.sample_masks and args.rotation:
         parser.error('--sample-masks requires the original zero rotation')
     assert hashlib.sha256(FONT.read_bytes()).hexdigest() == SHA

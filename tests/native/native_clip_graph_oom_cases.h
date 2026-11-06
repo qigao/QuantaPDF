@@ -162,9 +162,10 @@ static int clip_graph_source_contracts(const quantapdf_qpdf_page_limits& default
     std::printf("Clip graph Source wide=%d: %zu definition growth faults, %zu path growth faults, %zu state growth faults, %zu publication faults, %zu C11 malloc faults, %zu exact N/N-1 checks; independent RGBA and deep graph snapshots\n",int(wide),clip_faults,path_faults,stack_faults,publications,raster_faults,quotas);
     return EXIT_SUCCESS;
 }
-static int clip_graph_dpi_contracts(const quantapdf_qpdf_page_limits& defaults,bool fractional=false,bool cropped=false,bool transformed=false,bool decimal=false,bool affine=false)
+static int clip_graph_dpi_contracts(const quantapdf_qpdf_page_limits& defaults,bool fractional=false,bool cropped=false,bool transformed=false,bool decimal=false,bool affine=false,bool fractional_dpi=false)
 {
     size_t renders=0u,faults_seen=0u,boundaries=0u;
+    using rate=native_clip_graph::dpi_rate;
     target=0u;armed=false;
     for(unsigned iteration=0u;iteration<(transformed?8u:2u);++iteration) {
         const bool encrypted=iteration%2u!=0u;
@@ -179,6 +180,13 @@ static int clip_graph_dpi_contracts(const quantapdf_qpdf_page_limits& defaults,b
             opt.rotation=rotations[iteration];opt.user_quarters=units[iteration];
         }
         if(affine) {opt.image_affine=iteration+1u;opt.fringe=false;opt.gray_image=encrypted;}
+        if(fractional_dpi) {
+            const int rotation=opt.rotation;const unsigned unit=opt.user_quarters;
+            opt=native_clip_graph::options{};opt.scene=encrypted?2u:0u;opt.primitive=4u;opt.fringe=true;
+            opt=iteration<4u?native_clip_graph::decimal_case(opt,iteration):native_clip_graph::viewport_case(opt,3u);
+            opt.rotation=rotation;opt.user_quarters=unit;opt.gray_image=encrypted;
+            if(iteration>=4u) {opt.image_affine=iteration-3u;opt.fringe=false;}
+        }
         auto sample=native_clip_graph::create(opt,encrypted);quantapdf_qpdf_document *document=nullptr;
         CHECK(quantapdf_qpdf_open_memory(reinterpret_cast<const unsigned char*>(sample.bytes.data()),sample.bytes.size(),
             encrypted?"reader":"",&document)==QUANTAPDF_OK);
@@ -234,12 +242,12 @@ static int clip_graph_dpi_contracts(const quantapdf_qpdf_page_limits& defaults,b
             }
         }
         owner.reset();sample.bytes.assign(sample.bytes.size(),'x');
-        const std::vector<unsigned> dpis=transformed?std::vector<unsigned>{1u,23u,73u,113u}:
-            std::vector<unsigned>{1u,23u,73u,113u,150u,300u};
-        for(quantapdf_ir *source:{&blank,&ir})for(unsigned dpi:dpis) {
+        const std::vector<rate> dpis=fractional_dpi?std::vector<rate>{{1,2},{185,8},{147,2},{1537,16}}:
+            transformed?std::vector<rate>{1u,23u,73u,113u}:std::vector<rate>{1u,23u,73u,113u,150u,300u};
+        for(quantapdf_ir *source:{&blank,&ir})for(auto dpi:dpis) {
             const bool empty=source==&blank;
-            const size_t w=empty?(5u*dpi+71u)/72u:native_clip_graph::width(sample,dpi);
-            const size_t h=empty?(4u*dpi+71u)/72u:native_clip_graph::height(sample,dpi);
+            const size_t w=empty?size_t((5*dpi.numerator+72*dpi.denominator-1)/(72*dpi.denominator)):native_clip_graph::width(sample,dpi);
+            const size_t h=empty?size_t((4*dpi.numerator+72*dpi.denominator-1)/(72*dpi.denominator)):native_clip_graph::height(sample,dpi);
             const auto expected=empty?std::vector<unsigned char>(w*h*3u,255u):native_clip_graph::rgb(sample,dpi);
             const auto snapshot=text_ir_snapshot(*source);
             const auto equal=[&](const quantapdf_ir_raster_image& image) {
@@ -257,7 +265,7 @@ static int clip_graph_dpi_contracts(const quantapdf_qpdf_page_limits& defaults,b
             quantapdf_native_execution_receipt_v1 receipt{};quantapdf_ir_raster_image output{};
             const auto status=quantapdf_native_execute_page_v1(&metadata,&receipt,&output);
             if(status!=QUANTAPDF_OK || !equal(output))
-                std::fprintf(stderr,"integer DPI empty=%d dpi=%u status=%d RGB=%d\n",int(empty),dpi,int(status),int(status==QUANTAPDF_OK && equal(output)));
+                std::fprintf(stderr,"requested DPI empty=%d dpi=%g status=%d RGB=%d\n",int(empty),double(float(dpi)),int(status),int(status==QUANTAPDF_OK && equal(output)));
             CHECK(status==QUANTAPDF_OK && equal(output) && receipt.sample_tests_exact && allocation.attempts>0u);
             quantapdf_ir_raster_image_dispose(&output);++renders;
             for(size_t fail=1u;fail<=allocation.attempts;++fail) {
@@ -293,7 +301,7 @@ static int clip_graph_dpi_contracts(const quantapdf_qpdf_page_limits& defaults,b
                 --*cap;CHECK(trial(limits,0u,quota==3u && count==1u?
                     QUANTAPDF_ERROR_ARGUMENT:QUANTAPDF_ERROR_UNSUPPORTED));++boundaries;
             }
-            if(affine && !empty && dpi==73u) {
+            if((affine || fractional_dpi) && !empty && dpi==(fractional_dpi?rate{147,2}:rate{73u})) {
                 metadata.malloc_fault={};quantapdf_native_compiled_page_v1 compiled{};
                 CHECK(quantapdf_native_compiled_page_compile_v1(&metadata,&compiled)==QUANTAPDF_OK);
                 const std::vector<quantapdf_composer_operation> saved(source->operations,source->operations+source->operation_count);
@@ -308,7 +316,7 @@ static int clip_graph_dpi_contracts(const quantapdf_qpdf_page_limits& defaults,b
         quantapdf_ir_dispose(&blank);quantapdf_ir_dispose(&ir);CHECK(cleared(blank) && cleared(ir));
     }
     CHECK(renders==(transformed?64u:24u) && faults_seen>0u && boundaries>0u);
-    std::printf("integer DPI Source fractional=%d crop=%d transform=%d decimal=%d affine=%d: %zu independent RGBA results, %zu actual C11 malloc faults, %zu N/N-1 boundaries; blank and Text/Fill/Image/Clip at original DPI after document destruction\n",int(fractional),int(cropped),int(transformed),int(decimal),int(affine),renders,faults_seen,boundaries);
+    std::printf("requested DPI Source fractional=%d crop=%d transform=%d decimal=%d affine=%d fractional-dpi=%d: %zu independent RGBA results, %zu actual C11 malloc faults, %zu N/N-1 boundaries; blank and Text/Fill/Image/Clip at original DPI after document destruction\n",int(fractional),int(cropped),int(transformed),int(decimal),int(affine),int(fractional_dpi),renders,faults_seen,boundaries);
     return EXIT_SUCCESS;
 }
 #endif

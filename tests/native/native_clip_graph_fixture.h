@@ -7,6 +7,15 @@
 
 namespace native_clip_graph {
 using O=QPDFObjectHandle;
+// Oracle rates are authored exact fractions, independently of the Native
+// planner's binary32 decomposition and multiword arithmetic.
+struct dpi_rate {
+    int64_t numerator,denominator;
+    dpi_rate(unsigned value):numerator(value),denominator(1) {}
+    dpi_rate(int64_t n,int64_t d):numerator(n),denominator(d) {}
+    explicit operator float() const {return float(numerator)/float(denominator);}
+    bool operator==(const dpi_rate&) const = default;
+};
 // Integer sixteenth-point regions are an independent sample oracle.
 struct region {int64_t left,bottom,right,top;};
 struct paint {
@@ -296,16 +305,16 @@ inline double width_points(const original& source)
 {return double((source.rotation==90u || source.rotation==270u?source.height_ticks:source.width_ticks)*source.user_quarters)/double(4*source.ticks_per_point);}
 inline double height_points(const original& source)
 {return double((source.rotation==90u || source.rotation==270u?source.width_ticks:source.height_ticks)*source.user_quarters)/double(4*source.ticks_per_point);}
-inline size_t width(const original& source,unsigned dpi)
-{return size_t((uint64_t(source.rotation==90u || source.rotation==270u?source.height_ticks:source.width_ticks)*source.user_quarters*dpi+288u*uint64_t(source.ticks_per_point)-1u)/(288u*uint64_t(source.ticks_per_point)));}
-inline size_t height(const original& source,unsigned dpi)
-{return size_t((uint64_t(source.rotation==90u || source.rotation==270u?source.width_ticks:source.height_ticks)*source.user_quarters*dpi+288u*uint64_t(source.ticks_per_point)-1u)/(288u*uint64_t(source.ticks_per_point)));}
-inline std::vector<unsigned char> rgb(const original& source,unsigned dpi,bool truncate_glyph_viewport=false,bool omit_glyph_origin=false)
+inline size_t width(const original& source,dpi_rate dpi)
+{return size_t((uint64_t(source.rotation==90u || source.rotation==270u?source.height_ticks:source.width_ticks)*source.user_quarters*uint64_t(dpi.numerator)+288u*uint64_t(source.ticks_per_point)*uint64_t(dpi.denominator)-1u)/(288u*uint64_t(source.ticks_per_point)*uint64_t(dpi.denominator)));}
+inline size_t height(const original& source,dpi_rate dpi)
+{return size_t((uint64_t(source.rotation==90u || source.rotation==270u?source.width_ticks:source.height_ticks)*source.user_quarters*uint64_t(dpi.numerator)+288u*uint64_t(source.ticks_per_point)*uint64_t(dpi.denominator)-1u)/(288u*uint64_t(source.ticks_per_point)*uint64_t(dpi.denominator)));}
+inline std::vector<unsigned char> rgb(const original& source,dpi_rate dpi,bool truncate_glyph_viewport=false,bool omit_glyph_origin=false)
 {
     const size_t w=width(source,dpi),h=height(source,dpi);
     // Invert the authored page transform at each physical sample using
     // rational sixteenth-point coordinates. No production geometry input.
-    const int64_t frame=int64_t(dpi)*source.user_quarters;
+    const int64_t frame=dpi.numerator*source.user_quarters;
     const int64_t den=frame*source.ticks_per_point;
     const auto authored=[&](int64_t x,int64_t y) {
         int64_t px=0,py=0;
@@ -354,8 +363,8 @@ inline std::vector<unsigned char> rgb(const original& source,unsigned dpi,bool t
         for(size_t y=0u;y<h;++y)for(size_t x=0u;x<w;++x) {
         unsigned hits=0u;
         for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
-            const auto at=authored((8ll*int64_t(x)+2ll*sx+1ll)*36ll*source.ticks_per_point,
-                (8ll*int64_t(y)+2ll*sy+1ll)*36ll*source.ticks_per_point);
+            const auto at=authored((8ll*int64_t(x)+2ll*sx+1ll)*36ll*source.ticks_per_point*dpi.denominator,
+                (8ll*int64_t(y)+2ll*sy+1ll)*36ll*source.ticks_per_point*dpi.denominator);
             const int64_t px=at[0],py=at[1];
             const int64_t gx=px-(omit_glyph_origin?source.absolute_left*frame:0ll);
             const int64_t gy=py-(omit_glyph_origin?source.absolute_bottom*frame:0ll);
@@ -375,8 +384,8 @@ inline std::vector<unsigned char> rgb(const original& source,unsigned dpi,bool t
         }
         size_t sample=0u;
         if(p.image) {
-            const auto at=authored((2ll*int64_t(x)+1ll)*144ll*source.ticks_per_point,
-                (2ll*int64_t(y)+1ll)*144ll*source.ticks_per_point);
+            const auto at=authored((2ll*int64_t(x)+1ll)*144ll*source.ticks_per_point*dpi.denominator,
+                (2ll*int64_t(y)+1ll)*144ll*source.ticks_per_point*dpi.denominator);
             if(p.affine) {
                 const int64_t dx=16*at[0]-m[4]*den,dy=16*at[1]-m[5]*den;
                 int64_t u=m[3]*dx-m[2]*dy,v=m[0]*dy-m[1]*dx,d=(m[0]*m[3]-m[1]*m[2])*den;

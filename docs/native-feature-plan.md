@@ -678,6 +678,34 @@
   总项不勾选。此增量不新增公共 Composer affine 图像 API。
 - 本地仅静态检查、独立有理数矩阵组合和既有字形资产核对，未编译或运行 Native。
 
+### A2 普通 Scene 的 binary32 小数 DPI：当前开发增量
+
+- 起点为 #625 `9936b583`，tree `d6bfb0af957547f0eb18ee2a1a20c47227d1cd6b`；
+  [CI #2486](https://github.com/qigao/QuantaPDF/actions/runs/42136359944) 四配置各 143/143。
+  本节须以新精确 HEAD 的完整 CI 验收，PR 保持 Draft。
+- 普通 Source Scene 直接保存 API 的实际正有限 binary32 DPI，移除全局整数检查及
+  unsigned 转换。字形、Path/Clip、Image、页边界与像素中心使用同一个原始请求值。
+  旧显式 Stroke/device 内核继续在自己的入口拒绝不支持的 DPI，不能先截断再选档。
+- 规划器保持原有 64 位精确十进制页跨度，用八个 32 位 limb 计算 binary32 乘积和
+  像素/子像素整数比较。完整指数范围和原像素预算最多需要 243 位；无分配、无编译器
+  大整数扩展、无溢出后重试、无近似 ceil。极小正 DPI 分配真实 1×1 缓冲区，未到
+  首个物理样本则保持白色；极大请求由实际像素/资源预算拒绝。
+- `0.1f` 的实际值是 13421773/134217728。在 810pt 页上它位于 1.125 像素边界之上：
+  2×2 缓冲区、每轴五个可见子像素，不能按十进制 0.1 或整数 DPI 推导。另验证 9/72
+  DPI 两侧的相邻 binary32 值、最小 normal/subnormal、非有限/预算失败及后续有效操作。
+- 复用既有公开与 Source/OOM 可执行文件，新增四项公开与一项 OOM（共 148 CTest）。
+  224 次混合页全 RGB、42 次显示旋转，覆盖九位小数页盒、原点/Crop/继承、Gray/RGB、
+  affine Image、真实文字、多根/empty Clip、原始 Rotate/UserUnit 和加密。参考直接使用
+  人工给定的精确 DPI 分数，不复用生产规划器或其 limb 算术。
+- 六份原始二次曲线参考覆盖小数 DPI 与原始 Rotate/UserUnit：24 次完整 RGB、72 次
+  显示旋转。离线 60/80 位 Decimal 一致，三个旧 Hello golden 保持原字节。边界项另有
+  12 次完整 RGB；原 0.5/73.5 拒绝提升为八次完整 RGB，C/C++ 所有权旧 73.5 拒绝也
+  升级为真正的 9×9 RGBA，保留资源失败的原子输出与 context 生命周期检查。
+- 新 Source/OOM 有 64 次独立 RGBA、逐次 Source C 发布、真实 RAW quarter-turn C++
+  分配失败、C11 malloc 故障、不可变 IR、N/N−1 和编译后映射改写。45/40 秒期限、
+  像素/边/操作/内存/采样预算不变。本地仅静态和离线参考核对，未编译或运行 Native。
+- 通用 Stroke、ROI/RGBA、透明/插值图像、其余解码与字体能力继续开放；A2/A4 不勾选。
+
 ## 单一执行模型
 
 ```mermaid

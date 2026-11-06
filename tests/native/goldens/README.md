@@ -159,3 +159,26 @@ partial intersections. Native tests compare every mixed RGBA byte with
 the independently generated glyph masks and analytic rectangle/Image
 samples. They additionally prove rounded 8-bit alpha multiplication would
 change visible pixels. Public fractional admission remains separately gated.
+
+### Binary32 fractional DPI references
+
+The following original-quadratic Hello assets use the actual binary32 request
+value. Fractional file names denote exactly representable rates. Rotated files
+rotate the original geometry before scanline solving; Source UserUnit makes
+the corresponding effective DPI. All six agree at 60 and 80 Decimal digits;
+the three old integer-DPI Hello RGBA files remain byte-for-byte unchanged.
+
+| Compressed asset | Decoded RGBA bytes | Decoded SHA-256 |
+| --- | ---: | --- |
+| roboto-hello-23.125-m0.rgba.z | 3528 | 7da10d327a589ab2cbb8e3a09896c17159953a7f83f2d399912ed9052b3496ae |
+| roboto-hello-73.5-m0.rgba.z | 34584 | 6581a0ab8611d78e4b5722f7603138a360c72c68be2ed6e1643a770587cc8953 |
+| roboto-hello-96.0625-m0.rgba.z | 58824 | 7565fbc16381bade535b6fa3b11aa9a5ff2fa1e2911dd4ca2bc34e8974b5f4ab |
+| roboto-hello-91.875-m0-rotate90.rgba.z | 53792 | d4cdf22c5d2b05990464c9ee86b4879da2b184c0ade96e2c225560164cf3b1ae |
+| roboto-hello-72.046875-m0-rotate270.rgba.z | 33540 | c9c9a64cc2549ebf66da4af32e01d5864c03b4d9d8dd18d99edeb17dbe317d75 |
+| roboto-hello-40.46875-m0-rotate180.rgba.z | 10368 | 3da4eac52abcc236f080ff38eee1b952604741e656d338aa686c11ec87193da8 |
+
+For example:
+
+```sh
+python tools/qualification/native_ttf_reference.py --case hello --dpi 73.5 --precision 80 --compress --output-dir /tmp/fractional-dpi
+```

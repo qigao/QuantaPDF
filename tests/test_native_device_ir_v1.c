@@ -85,7 +85,18 @@ static int prepared_contracts(quantapdf_ir *ir,
     CHECK(prepared_denied(ir,&limits,&device)==0);ir->operations[0]=old_op;
     limits.raster.max_operations=0u;
     CHECK(prepared_denied(ir,&limits,&device)==0);limits.raster=*raster;
-    device.dpi=73.5f;CHECK(prepared_denied(ir,&limits,&device)==0);device.dpi=96.0f;
+    device.dpi=73.5f;
+    memset(&a,0xa5,sizeof(a));
+    CHECK(quantapdf_native_device_ir_render_v1(ir,72.5f,raster,&a)==QUANTAPDF_ERROR_UNSUPPORTED && a.pixels==NULL && a.size==0u);
+    OK(quantapdf_native_prepare_page_v1(ir,&limits.raster,&device,&plan));
+    CHECK(plan.dpi==73.5f && plan.physical.dpi==73.5f);
+    memset(&a,0,sizeof(a));OK(quantapdf_native_execute_page_v1(&plan,NULL,&a));
+    CHECK(a.width==9u && a.height==9u);
+    for(size_t y=0u;y<9u;++y)for(size_t x=0u;x<9u;++x) {
+        const unsigned char *pixel=a.pixels+4u*(y*9u+x);
+        CHECK(pixel[0]==(x<4u && y<4u?0u:255u) && pixel[1]==pixel[0] && pixel[2]==255u && pixel[3]==255u);
+    }
+    quantapdf_ir_raster_image_dispose(&a);device.dpi=96.0f;
 
     memset(clips,0,sizeof(clips));memset(gs,0,sizeof(gs));
     for(size_t i=0u;i<2u;++i) {
