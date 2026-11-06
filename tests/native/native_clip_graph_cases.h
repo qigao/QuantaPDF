@@ -1,10 +1,33 @@
 #ifndef QUANTAPDF_NATIVE_CLIP_GRAPH_CASES_H
 #define QUANTAPDF_NATIVE_CLIP_GRAPH_CASES_H
 #include "native_clip_graph_fixture.h"
+#include "native_image_affine_reference.h"
 #include "document/document_internal.h"
 #include <memory>
 #include <limits>
 #include <cmath>
+
+static int image_affine_original_cases(const std::string& filename)
+{
+    for(int mode:{56,75}) {
+        CHECK(write_pdf(filename,native_ttf_fixture(mode)));
+        quantapdf_document *raw_document=nullptr;OK(quantapdf_open(filename.c_str(),nullptr,&raw_document));
+        std::unique_ptr<quantapdf_document,decltype(&quantapdf_close)> document(raw_document,quantapdf_close);
+        CHECK(std::remove(filename.c_str())==0);
+        quantapdf_page *raw_page=nullptr;OK(quantapdf_load_page(document.get(),0u,&raw_page));
+        std::unique_ptr<quantapdf_page,decltype(&quantapdf_drop_page)> page(raw_page,quantapdf_drop_page);document.reset();
+        for(unsigned dpi:{72u,96u,144u}) {
+            quantapdf_render_options opts{};opts.dpi=float(dpi);quantapdf_bitmap *raw=nullptr;
+            OK(quantapdf_render_page_with_options(page.get(),&opts,&raw));
+            std::unique_ptr<quantapdf_bitmap,decltype(&quantapdf_drop_bitmap)> image(raw,quantapdf_drop_bitmap);
+            const auto expected=native_image_shear_reference(mode,dpi);const unsigned char *bytes=nullptr;size_t size=0u;
+            OK(quantapdf_bitmap_data(image.get(),&bytes,&size));CHECK(!expected.empty() && size/3u==expected.size()/4u);
+            for(size_t i=0u;i<size/3u;++i)CHECK(std::memcmp(bytes+3u*i,expected.data()+4u*i,3u)==0);
+        }
+    }
+    std::puts("Original sheared Image/Text and Image/Fill/Text: six full independent RGB comparisons");
+    return EXIT_SUCCESS;
+}
 
 static int clip_graph_cases(const std::string& filename,unsigned group=0u)
 {
@@ -214,7 +237,7 @@ static int clip_graph_cases(const std::string& filename,unsigned group=0u)
             opt=native_clip_graph::viewport_case(opt,geometry);opt.rotation=rotation;opt.user_quarters=group==8u?5u:11u;
             CHECK(exercise(opt,encrypted)==EXIT_SUCCESS);
         }
-    } else {
+    } else if(group==10u) {
         for(unsigned geometry=0u;geometry<6u;++geometry)for(int rotation:{0,90,180,270})
         for(unsigned quarters:{3u,5u})for(unsigned order:{0u,3u})for(bool encrypted:{false,true}) {
             native_clip_graph::options opt;opt.scene=order==0u?0u:3u;opt.order=order;opt.empty=order==3u;
@@ -222,8 +245,27 @@ static int clip_graph_cases(const std::string& filename,unsigned group=0u)
             opt.rotation=rotation;opt.user_quarters=quarters;
             CHECK(exercise(opt,encrypted)==EXIT_SUCCESS);
         }
+    } else {
+        const unsigned first=(group-11u)*2u+1u;
+        for(unsigned kind=first;kind<first+2u;++kind)for(unsigned scene:{0u,3u})
+        for(unsigned order=0u;order<6u;++order)for(bool encrypted:{false,true}) {
+            native_clip_graph::options opt;opt.scene=scene;opt.order=order;opt.primitive=order%5u;
+            opt=native_clip_graph::viewport_case(opt,scene==0u?0u:3u);
+            opt.image_affine=kind;opt.rotation=int(order%4u)*90;
+            opt.user_quarters=order%3u==0u?4u:order%3u==1u?3u:5u;
+            opt.empty=scene==3u && order==3u;
+            CHECK(exercise(opt,encrypted)==EXIT_SUCCESS);
+        }
+        for(unsigned kind=first;kind<first+2u;++kind)for(unsigned mask:{1u,5u})for(bool encrypted:{false,true}) {
+            native_clip_graph::options opt;opt=native_clip_graph::viewport_case(opt,1u);
+            opt.fringe=opt.glyph_fringe=false;opt.image_affine=kind;opt.paint_mask=mask;
+            opt.gray_image=encrypted;
+            opt.rotation=int(kind%4u)*90;opt.user_quarters=kind%2u==0u?3u:5u;
+            CHECK(exercise(opt,encrypted)==EXIT_SUCCESS);
+        }
     }
-    if(group==0u)for(bool encrypted:{false,true})for(int invalid=1;invalid<=5;++invalid) {
+    if(group==0u || group==11u)for(bool encrypted:{false,true})
+    for(int invalid=group==0u?1:6;invalid<=(group==0u?5:7);++invalid) {
         native_clip_graph::options opt;opt.scene=0u;
         const auto sample=native_clip_graph::create(opt,encrypted,invalid);
         CHECK(write_pdf(filename,sample.bytes));quantapdf_document *raw_document=nullptr;
@@ -239,8 +281,8 @@ static int clip_graph_cases(const std::string& filename,unsigned group=0u)
             CHECK(status==(invalid>=1 && invalid<=3?QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED) && bitmap==nullptr);++errors;
         }
     }
-    CHECK(renders==(group==10u?576u:group>=8u?336u:group==7u?490u:group==6u?320u:group==5u?128u:group==4u?160u:group==3u?204u:group==2u?90u:288u) &&
-          errors==(group==4u || group==5u?16u:group==0u?30u:0u) && turns==(group==10u?144u:group>=8u?72u:group==7u?63u:group==6u?24u:group>=4u?12u:0u));
+    CHECK(renders==(group>=11u?168u:group==10u?576u:group>=8u?336u:group==7u?490u:group==6u?320u:group==5u?128u:group==4u?160u:group==3u?204u:group==2u?90u:288u) &&
+          errors==(group==11u?12u:group==4u || group==5u?16u:group==0u?30u:0u) && turns==(group>=11u?24u:group==10u?144u:group>=8u?72u:group==7u?63u:group==6u?24u:group>=4u?12u:0u));
     std::printf("Clip graph group %u: %zu independent RGB renders, %zu display turns, nested/sibling/fan-out/mixed roots, real Text/Fill/Image, definition CTM, wide identities, selected encrypted split pages and detached Bitmaps; %zu atomic errors\n",group,renders,turns,errors);
     return EXIT_SUCCESS;
 }

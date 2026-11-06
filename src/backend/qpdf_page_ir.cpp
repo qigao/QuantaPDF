@@ -244,7 +244,25 @@ struct staged_image {
     uint32_t width=0,height=0;
     int components=0;
     quantapdf_rect bounds={};
+    quantapdf_affine_transform transform={};
 };
+
+bool image_transform_active(const staged_image& image)
+{
+    const auto& t=image.transform;
+    return t.a!=0.0 || t.b!=0.0 || t.c!=0.0 || t.d!=0.0 || t.e!=0.0 || t.f!=0.0;
+}
+
+quantapdf_rect image_page_bounds(const staged_image& image)
+{
+    const auto b=image.bounds;
+    if(!image_transform_active(image))return b;
+    const auto& t=image.transform;
+    const auto point=[&](double x,double y) {return quantapdf_point{t.a*x+t.c*y+t.e,t.b*x+t.d*y+t.f};};
+    const auto p0=point(b.x0,b.y0),p1=point(b.x1,b.y0),p2=point(b.x1,b.y1),p3=point(b.x0,b.y1);
+    return {std::min({p0.x,p1.x,p2.x,p3.x}),std::min({p0.y,p1.y,p2.y,p3.y}),
+        std::max({p0.x,p1.x,p2.x,p3.x}),std::max({p0.y,p1.y,p2.y,p3.y})};
+}
 
 struct staged_path {
     std::vector<quantapdf_composer_path_command> commands;
@@ -527,41 +545,55 @@ struct admission {
             }
         source_pixels+=pixels;
 
-        admit(ctm[1]==0.0 && ctm[2]==0.0 &&
-              ctm[0]>0.0 && ctm[3]>0.0,
-              QUANTAPDF_ERROR_UNSUPPORTED);
-        /* SOURCE PDF absolute coordinates are not page-local when
-         * MediaBox has nonzero origin. Subtract the fully admitted
-         * original lower-left corner BEFORE bounds, texture sampling
-         * work and RGB/Clip compositing. Never alter the original CTM. */
-        const double ax0=ctm[4]-viewport_left;
-        const double ax1=ax0+ctm[0];
-        const double ay0=ctm[5]-viewport_bottom;
-        const double ay1=ay0+ctm[3];
-        /* A cropped original IMAGE still owns its complete XObject
-         * sample footprint. Its off-canvas edges are not clipped or
-         * rescaled before nearest-sample lookup. The viewport C11
-         * sampler intersects the full source footprint at 4x4 samples.
-         * Legacy integer page grammar still rejects outside placements. */
+        const bool axis=ctm[1]==0.0 && ctm[2]==0.0 && ctm[0]>0.0 && ctm[3]>0.0;
         const bool ordered=ordered_scene();
-        if(ordered)for(double value:{ax0,ax1,ay0,ay1})
-            admit(std::isfinite(value) && value>=-1000000.0 && value<=1000000.0,
-                  QUANTAPDF_ERROR_UNSUPPORTED);
-        const double x0=ordered?ax0:crop_viewport ?
-            whole_signed_source(ax0) :
-            (double)whole(ax0,page_w);
-        const double x1=ordered?ax1:crop_viewport ?
-            whole_signed_source(ax1) :
-            (double)whole(ax1,page_w);
-        const double bottom=ordered?ay0:crop_viewport ?
-            whole_signed_source(ay0) :
-            (double)whole(ay0,page_h);
-        const double top=ordered?ay1:crop_viewport ?
-            whole_signed_source(ay1) :
-            (double)whole(ay1,page_h);
-        admit(x1>x0 && top>bottom,QUANTAPDF_ERROR_UNSUPPORTED);
-        const size_t draw_width=whole(ordered?std::ceil(x1-x0):x1-x0,hard_draw_work);
-        const size_t draw_height=whole(ordered?std::ceil(top-bottom):top-bottom,hard_draw_work);
+        const double determinant=ctm[0]*ctm[3]-ctm[1]*ctm[2];
+        admit((axis || ordered) && std::isfinite(determinant) && determinant!=0.0,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        staged_image entry;
+        const double canvas_h=exact_page_h>0.0?exact_page_h:(double)page_h;
+        if(!axis) {
+            // PDF image v points up; the RAW buffer and Composer v point down.
+            entry.bounds={0.0,0.0,1.0,1.0};
+            entry.transform={ctm[0],-ctm[1],-ctm[2],ctm[3],
+                (ctm[4]-viewport_left)+ctm[2],canvas_h-(ctm[5]-viewport_bottom)-ctm[3]};
+        } else {
+            /* SOURCE PDF absolute coordinates are not page-local when
+             * MediaBox has nonzero origin. Subtract the fully admitted
+             * original lower-left corner BEFORE bounds, texture sampling
+             * work and RGB/Clip compositing. Never alter the original CTM. */
+            const double ax0=ctm[4]-viewport_left;
+            const double ax1=ax0+ctm[0];
+            const double ay0=ctm[5]-viewport_bottom;
+            const double ay1=ay0+ctm[3];
+            /* A cropped original IMAGE still owns its complete XObject
+             * sample footprint. Its off-canvas edges are not clipped or
+             * rescaled before nearest-sample lookup. The viewport C11
+             * sampler intersects the full source footprint at 4x4 samples.
+             * Legacy integer page grammar still rejects outside placements. */
+            if(ordered)for(double value:{ax0,ax1,ay0,ay1})
+                admit(std::isfinite(value) && value>=-1000000.0 && value<=1000000.0,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+            const double x0=ordered?ax0:crop_viewport ?
+                whole_signed_source(ax0) :
+                (double)whole(ax0,page_w);
+            const double x1=ordered?ax1:crop_viewport ?
+                whole_signed_source(ax1) :
+                (double)whole(ax1,page_w);
+            const double bottom=ordered?ay0:crop_viewport ?
+                whole_signed_source(ay0) :
+                (double)whole(ay0,page_h);
+            const double top=ordered?ay1:crop_viewport ?
+                whole_signed_source(ay1) :
+                (double)whole(ay1,page_h);
+            admit(x1>x0 && top>bottom,QUANTAPDF_ERROR_UNSUPPORTED);
+            entry.bounds={x0,canvas_h-top,x1,canvas_h-bottom};
+        }
+        const auto extent=image_page_bounds(entry);
+        for(double value:{extent.x0,extent.y0,extent.x1,extent.y1})
+            admit(std::isfinite(value) && value>=-1000000.0 && value<=1000000.0,QUANTAPDF_ERROR_UNSUPPORTED);
+        const size_t draw_width=whole(ordered?std::ceil(extent.x1-extent.x0):extent.x1-extent.x0,hard_draw_work);
+        const size_t draw_height=whole(ordered?std::ceil(extent.y1-extent.y0):extent.y1-extent.y0,hard_draw_work);
         admit(draw_width<=hard_draw_work/draw_height,
               QUANTAPDF_ERROR_UNSUPPORTED);
         const size_t draw_area=draw_width*draw_height;
@@ -571,14 +603,10 @@ struct admission {
               QUANTAPDF_ERROR_UNSUPPORTED);
         drawn_pixels+=draw_area;
 
-        staged_image entry;
         entry.pixels=std::move(decoded);
         entry.width=static_cast<uint32_t>(w);
         entry.height=static_cast<uint32_t>(h);
         entry.components=channels;
-        const double canvas_h=exact_page_h>0.0?
-            exact_page_h:(double)page_h;
-        entry.bounds={x0,canvas_h-top,x1,canvas_h-bottom};
         QP_SOURCE_STAGE_ARM(1u);
         draws.push_back(std::move(entry));
         QP_SOURCE_STAGE_ARM(2u);
@@ -1680,19 +1708,29 @@ void original_turn_commands(
 void original_turn_image(staged_image& image,
     double page_w,double page_h,int rotation)
 {
-    const quantapdf_rect b=image.bounds;
-    const quantapdf_point p0=original_turn_point(
-        {b.x0,b.y0},page_w,page_h,rotation);
-    const quantapdf_point p1=original_turn_point(
-        {b.x1,b.y1},page_w,page_h,rotation);
-    const quantapdf_point p2=original_turn_point(
-        {b.x1,b.y0},page_w,page_h,rotation);
-    const quantapdf_point p3=original_turn_point(
-        {b.x0,b.y1},page_w,page_h,rotation);
-    image.bounds.x0=std::min({p0.x,p1.x,p2.x,p3.x});
-    image.bounds.x1=std::max({p0.x,p1.x,p2.x,p3.x});
-    image.bounds.y0=std::min({p0.y,p1.y,p2.y,p3.y});
-    image.bounds.y1=std::max({p0.y,p1.y,p2.y,p3.y});
+    if(image_transform_active(image)) {
+        // Reorient both placement and the RAW texel frame. The latter is
+        // the same quarter-turn used below for axis-aligned images.
+        const auto t=image.transform;
+        if(rotation==90)image.transform={t.d,-t.c,-t.b,t.a,page_h-t.f-t.d,t.e+t.c};
+        else if(rotation==180)image.transform={t.a,t.b,t.c,t.d,page_w-t.e-t.a-t.c,page_h-t.f-t.b-t.d};
+        else if(rotation==270)image.transform={t.d,-t.c,-t.b,t.a,t.f+t.b,page_w-t.e-t.a};
+        else throw rejected{QUANTAPDF_ERROR_UNSUPPORTED};
+    } else {
+        const quantapdf_rect b=image.bounds;
+        const quantapdf_point p0=original_turn_point(
+            {b.x0,b.y0},page_w,page_h,rotation);
+        const quantapdf_point p1=original_turn_point(
+            {b.x1,b.y1},page_w,page_h,rotation);
+        const quantapdf_point p2=original_turn_point(
+            {b.x1,b.y0},page_w,page_h,rotation);
+        const quantapdf_point p3=original_turn_point(
+            {b.x0,b.y1},page_w,page_h,rotation);
+        image.bounds.x0=std::min({p0.x,p1.x,p2.x,p3.x});
+        image.bounds.x1=std::max({p0.x,p1.x,p2.x,p3.x});
+        image.bounds.y0=std::min({p0.y,p1.y,p2.y,p3.y});
+        image.bounds.y1=std::max({p0.y,p1.y,p2.y,p3.y});
+    }
 
     const size_t w=(size_t)image.width,h=(size_t)image.height;
     const size_t channels=(size_t)image.components;
@@ -1892,6 +1930,7 @@ quantapdf_ir materialize_ordered_paints(const admission& source)
                 op.kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;op.bounds=staged.bounds;
                 op.value.image.image_id=static_cast<quantapdf_composer_image_id>(image_index);
                 op.value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
+                op.value.image.transform=staged.transform;
                 continue;
             }
             if(source.order[i]==3) {
@@ -2480,10 +2519,11 @@ void scale_source_userunit(admission& source,unsigned quarters)
         commands(glyph.commands);
     size_t physical_draw=0u;
     for(auto& image:source.draws) {
-        const double x0=(double)image.bounds.x0*unit;
-        const double x1=(double)image.bounds.x1*unit;
-        const double y0=(double)image.bounds.y0*unit;
-        const double y1=(double)image.bounds.y1*unit;
+        const auto bounds=image_page_bounds(image);
+        const double x0=bounds.x0*unit;
+        const double x1=bounds.x1*unit;
+        const double y0=bounds.y0*unit;
+        const double y1=bounds.y1*unit;
         admit(std::isfinite(x0) && std::isfinite(x1) &&
               std::isfinite(y0) && std::isfinite(y1) &&
               x0>=-1000000.0 && x1<=1000000.0 &&
@@ -2504,8 +2544,13 @@ void scale_source_userunit(admission& source,unsigned quarters)
               physical_draw<=hard_draw_work-area_w*area_h,
               QUANTAPDF_ERROR_UNSUPPORTED);
         physical_draw+=area_w*area_h;
-        image.bounds.x0=x0;image.bounds.x1=x1;
-        image.bounds.y0=y0;image.bounds.y1=y1;
+        if(image_transform_active(image)) {
+            auto& t=image.transform;
+            t.a*=unit;t.b*=unit;t.c*=unit;t.d*=unit;t.e*=unit;t.f*=unit;
+        } else {
+            image.bounds.x0=x0;image.bounds.x1=x1;
+            image.bounds.y0=y0;image.bounds.y1=y1;
+        }
     }
     source.page_w=w;source.page_h=h;
     source.exact_page_w=pw;source.exact_page_h=ph;

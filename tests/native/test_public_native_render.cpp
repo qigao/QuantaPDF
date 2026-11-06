@@ -1098,7 +1098,7 @@ static int native_m2a_public_text_image_cases(const std::string& filename,
         OK(quantapdf_open_with_context(ctx,filename.c_str(),nullptr,&doc));
         CHECK(std::remove(filename.c_str())==0);OK(quantapdf_load_page(doc,0,&page));
         const auto status=quantapdf_render_page(page,&bitmap);
-        const bool supported=mode==51 || mode==53 || mode==57 || mode==58 || mode==61;
+        const bool supported=mode==51 || mode==53 || mode==56 || mode==57 || mode==58 || mode==61;
         if(supported) {CHECK(status==QUANTAPDF_OK && bitmap!=nullptr);quantapdf_drop_bitmap(bitmap);}
         else CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED || status==QUANTAPDF_ERROR_FORMAT) && bitmap==nullptr);
         quantapdf_drop_page(page);quantapdf_close(doc);
@@ -1127,7 +1127,7 @@ static int native_m2b1_public_negatives(const std::string& filename)
         CHECK(std::remove(filename.c_str())==0);
         OK(quantapdf_load_page(doc,0,&page));
         const auto st=quantapdf_render_page(page,&bitmap);
-        const bool supported=mode==69 || mode==72 || mode==73 || mode==74 || mode==78 || mode==80;
+        const bool supported=mode==69 || mode==72 || mode==73 || mode==74 || mode==75 || mode==78 || mode==80;
         if(supported) {CHECK(st==QUANTAPDF_OK && bitmap!=nullptr);quantapdf_drop_bitmap(bitmap);}
         else CHECK((st==QUANTAPDF_ERROR_UNSUPPORTED || st==QUANTAPDF_ERROR_FORMAT) && bitmap==nullptr);
         quantapdf_drop_page(page);quantapdf_close(doc);
@@ -4203,6 +4203,12 @@ int main(int argc,char **argv)
         return clip_graph_cases(filename,10u);
     if(argc==2 && std::strcmp(argv[1],"--decimal-literal")==0)
         return decimal_literal_cases(filename);
+    if(argc==2 && std::strcmp(argv[1],"--image-affine-1")==0) {
+        CHECK(image_affine_original_cases(filename)==EXIT_SUCCESS);return clip_graph_cases(filename,11u);
+    }
+    if(argc==2 && std::strcmp(argv[1],"--image-affine-2")==0)return clip_graph_cases(filename,12u);
+    if(argc==2 && std::strcmp(argv[1],"--image-affine-3")==0)return clip_graph_cases(filename,13u);
+    if(argc==2 && std::strcmp(argv[1],"--image-affine-4")==0)return clip_graph_cases(filename,14u);
     if(argc==2 && std::strcmp(argv[1],"--fractional-clip")==0)
         return path_commands_cases(filename,true,12u);
     if(argc==2 && std::strcmp(argv[1],"--text-paths")==0)

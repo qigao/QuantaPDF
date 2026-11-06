@@ -37,7 +37,7 @@ typedef struct qp_raster_draw {
     size_t command_count;
     /* Descriptor snapshot; RAW bytes borrow the enclosing immutable IR owner. */
     quantapdf_composer_image_state image;
-    double image_x0,image_y0,image_x1,image_y1; /* same coverage frame as edges */
+    double image_x0,image_y0,image_a,image_b,image_c,image_d; /* texel basis in the coverage frame */
     int is_image,image_seen,original_outline;
     unsigned clip_mask;
     const uint64_t *clip_bits;
@@ -492,6 +492,34 @@ static quantapdf_status qp_admit_draw(
     return QUANTAPDF_OK;
 }
 
+static void qp_expansion_grow(double e[16],size_t *n,double term)
+{
+    double next[16],q=term;size_t used=0u;
+    for(size_t i=0u;i<*n;++i) {
+        const double sum=q+e[i],b=sum-q;
+        const double error=(q-(sum-b))+(e[i]-b);
+        if(error!=0.0)next[used++]=error;
+        q=sum;
+    }
+    if(q!=0.0 || used==0u)next[used++]=q;
+    memcpy(e,next,used*sizeof(*e));*n=used;
+}
+/* Exact orientation of three retained double points. Six products contribute
+ * at most twelve expansion terms; share the existing glyph arithmetic. */
+static int qp_image_line_side(qp_point_d a,qp_point_d b,double x,double y)
+{
+    const double u[6]={a.x,a.y,b.x,b.y,x,y};
+    const double v[6]={b.y,-b.x,y,-x,a.y,-a.x};
+    double expansion[16]={0};size_t count=0u;
+    for(size_t i=0u;i<6u;++i) {
+        const double product=u[i]*v[i];
+        qp_expansion_grow(expansion,&count,fma(u[i],v[i],-product));
+        qp_expansion_grow(expansion,&count,product);
+    }
+    const double sign=expansion[count-1u];
+    return sign>0.0?1:sign<0.0?-1:0;
+}
+
 static int qp_inside(
     const qp_edge *edges, const qp_raster_draw *draw, double x, double y)
 {
@@ -506,9 +534,10 @@ static int qp_inside(
              * so their winding/parity cancels at every sample. */
             const qp_point_d low=y0<y1?edge->from:edge->to;
             const qp_point_d high=y0<y1?edge->to:edge->from;
-            double intersection = low.x +
-                (y - low.y) * (high.x - low.x) / (high.y - low.y);
-            if (intersection > x)
+            const int right=draw->is_image && low.x!=high.x?
+                qp_image_line_side(low,high,x,y)>0:
+                low.x+(y-low.y)*(high.x-low.x)/(high.y-low.y)>x;
+            if (right)
                 winding += y1 > y0 ? 1 : -1;
         }
     }
@@ -830,12 +859,18 @@ static quantapdf_status qp_admit_scene_image(
 {
     const size_t id=(size_t)op->value.image.image_id;
     const quantapdf_composer_image_options *opt=&op->value.image.options;
-    double x0=op->bounds.x0,y0=op->bounds.y0,x1=op->bounds.x1,y1=op->bounds.y1;
+    const double x0=op->bounds.x0,y0=op->bounds.y0,x1=op->bounds.x1,y1=op->bounds.y1;
+    const quantapdf_affine_transform *t=&op->value.image.transform;
+    const int zero=t->a==0.0 && t->b==0.0 && t->c==0.0 && t->d==0.0 && t->e==0.0 && t->f==0.0;
+    qp_point_d corners[4]={{x0,y0},{x1,y0},{x1,y1},{x0,y1}};
     const double units=flat->coordinate_units;
     size_t cols,rows,area;
     if(op->graphics_state_id!=0u ||
        opt->fit!=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH || opt->graphics_state_id!=0u ||
        id==0u || id>ir->resources.image_count)return QUANTAPDF_ERROR_UNSUPPORTED;
+    if(!qp_valid_coordinate(x0) || !qp_valid_coordinate(x1) ||
+       !qp_valid_coordinate(y0) || !qp_valid_coordinate(y1) || x1<=x0 || y1<=y0)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
     if(plan!=NULL) {
         const double *m=plan->from_composer;
         if(m[0]<=0.0 || m[3]<=0.0 || m[1]!=0.0 || m[2]!=0.0)
@@ -843,29 +878,44 @@ static quantapdf_status qp_admit_scene_image(
         /* The physical Scene frame has 72 units per pixel. Multiplying
          * original coordinates by integer DPI preserves their exact
          * dyadic endpoints and the texel-boundary ties at every DPI. */
-        x0*=plan->dpi;x1*=plan->dpi;
-        y0*=plan->dpi;y1*=plan->dpi;
-    } else {
-        x0*=units;x1*=units;y0*=units;y1*=units;
     }
-    if(!qp_valid_coordinate(x0/units) || !qp_valid_coordinate(x1/units) ||
-       !qp_valid_coordinate(y0/units) || !qp_valid_coordinate(y1/units) || x1<=x0 || y1<=y0)
-        return QUANTAPDF_ERROR_UNSUPPORTED;
-    cols=(size_t)ceil((x1-x0)/units);rows=(size_t)ceil((y1-y0)/units);
-    if(cols>SIZE_MAX/rows)return QUANTAPDF_ERROR_UNSUPPORTED;
+    const double scale=plan!=NULL?(double)plan->dpi:units;
+    double left=0.0,right=0.0,top=0.0,bottom=0.0;
+    for(size_t k=0u;k<4u;++k) {
+        const double x=corners[k].x,y=corners[k].y;
+        if(!zero) {
+            corners[k].x=t->a*x+t->c*y+t->e;
+            corners[k].y=t->b*x+t->d*y+t->f;
+        }
+        corners[k].x*=scale;corners[k].y*=scale;
+        if(!qp_valid_coordinate(corners[k].x/units) || !qp_valid_coordinate(corners[k].y/units))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        if(k==0u) {left=right=corners[k].x;top=bottom=corners[k].y;}
+        else {
+            left=fmin(left,corners[k].x);right=fmax(right,corners[k].x);
+            top=fmin(top,corners[k].y);bottom=fmax(bottom,corners[k].y);
+        }
+    }
+    const double a=corners[1].x-corners[0].x,b=corners[1].y-corners[0].y;
+    const double c=corners[3].x-corners[0].x,d=corners[3].y-corners[0].y;
+    const double determinant=a*d-b*c;
+    if(!isfinite(determinant) || determinant==0.0)return QUANTAPDF_ERROR_UNSUPPORTED;
+    cols=(size_t)ceil((right-left)/units);rows=(size_t)ceil((bottom-top)/units);
+    if(cols==0u || rows==0u || cols>SIZE_MAX/rows)return QUANTAPDF_ERROR_UNSUPPORTED;
     area=cols*rows;
     if(area>SIZE_MAX-*drawn_pixels)return QUANTAPDF_ERROR_UNSUPPORTED;
     *drawn_pixels+=area;
     out->coordinate_units=flat->coordinate_units;
-    out->first_edge=flat->count;out->edge_count=4u;
+    out->first_edge=flat->count;
     out->rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
-    const qp_point_d corners[4]={{x0,y0},{x1,y0},{x1,y1},{x0,y1}};
     for(size_t k=0u;k<4u;++k) {
         quantapdf_status status=qp_add_edge(flat,corners[k],corners[(k+1u)%4u]);
         if(status!=QUANTAPDF_OK)return status;
     }
+    out->edge_count=flat->count-out->first_edge;
     out->is_image=1;out->image=ir->resources.images[id-1u];
-    out->image_x0=x0;out->image_x1=x1;out->image_y0=y0;out->image_y1=y1;
+    out->image_x0=corners[0].x;out->image_y0=corners[0].y;
+    out->image_a=a;out->image_b=b;out->image_c=c;out->image_d=d;
     return QUANTAPDF_OK;
 }
 
@@ -1301,18 +1351,6 @@ unsupported:
 /* Exact sign of the line/ray determinant. Retain the residual of both
  * products in a coordinate*DPI*coordinate term; double Source coordinates
  * must not lose bits before entering the determinant expansion. */
-static void qp_text_grow(double e[16],size_t *n,double term)
-{
-    double next[16],q=term;size_t used=0u;
-    for(size_t i=0u;i<*n;++i) {
-        const double sum=q+e[i],b=sum-q;
-        const double error=(q-(sum-b))+(e[i]-b);
-        if(error!=0.0)next[used++]=error;
-        q=sum;
-    }
-    if(q!=0.0 || used==0u)next[used++]=q;
-    memcpy(e,next,used*sizeof(*e));*n=used;
-}
 static int qp_text_line_side(quantapdf_point a,quantapdf_point b,
     size_t column,size_t row,unsigned dpi)
 {
@@ -1326,12 +1364,12 @@ static int qp_text_line_side(quantapdf_point a,quantapdf_point b,
         const double high=u[i]*factor;
         if(i<2u) {
             const double low=fma(u[i],factor,-high),tail=low*v[i];
-            qp_text_grow(expansion,&count,fma(low,v[i],-tail));
-            qp_text_grow(expansion,&count,tail);
+            qp_expansion_grow(expansion,&count,fma(low,v[i],-tail));
+            qp_expansion_grow(expansion,&count,tail);
         }
         const double product=high*v[i];
-        qp_text_grow(expansion,&count,fma(high,v[i],-product));
-        qp_text_grow(expansion,&count,product);
+        qp_expansion_grow(expansion,&count,fma(high,v[i],-product));
+        qp_expansion_grow(expansion,&count,product);
     }
     const double sign=expansion[count-1u];
     return sign>0.0?1:sign<0.0?-1:0;
@@ -2064,8 +2102,16 @@ static quantapdf_status qp_geometry_sample(
                 }
                 if(covered!=0u) {
                     const quantapdf_composer_image_state *image=&draw->image;
-                    double u=(((double)x+0.5)*draw->coordinate_units-draw->image_x0)/(draw->image_x1-draw->image_x0);
-                    double v=(((double)y+0.5)*draw->coordinate_units-draw->image_y0)/(draw->image_y1-draw->image_y0);
+                    const double dx=((double)x+0.5)*draw->coordinate_units-draw->image_x0;
+                    const double dy=((double)y+0.5)*draw->coordinate_units-draw->image_y0;
+                    double u,v;
+                    if(draw->image_b==0.0 && draw->image_c==0.0) {
+                        u=dx/draw->image_a;v=dy/draw->image_d;
+                    } else {
+                        const double determinant=draw->image_a*draw->image_d-draw->image_b*draw->image_c;
+                        u=(dx*draw->image_d-dy*draw->image_c)/determinant;
+                        v=(dy*draw->image_a-dx*draw->image_b)/determinant;
+                    }
                     size_t ix=u<=0.0?0u:u>=1.0?(size_t)image->width-1u:(size_t)(u*image->width);
                     size_t iy=v<=0.0?0u:v>=1.0?(size_t)image->height-1u:(size_t)(v*image->height);
                     const unsigned char *src=image->data+(iy*(size_t)image->width+ix)*(size_t)image->components;

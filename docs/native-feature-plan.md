@@ -652,6 +652,32 @@
 - 本地仅静态检查和离线独立参考生成，未运行 Native。Image affine、通用 Stroke、
   非整数 DPI、完整字体与其他 A2/A3 项仍开放；旧 TeXample 曲线内核的专用限制未冒称移除。
 
+### A2 不透明 Image affine：当前开发增量
+
+- 起点为 #625 `e2f217f8`，tree `e18d3cbd1ecb6a58b7cecd308cd039ccd66b267a`；
+  [CI #2485](https://github.com/qigao/QuantaPDF/actions/runs/42088165028) 四配置各 138/138。
+  本节须以新精确 HEAD 的完整 CI 验收，PR 保持 Draft。
+- 普通 Source Image Do 保留有限非奇异 CTM，允许旋转、shear 与镜像；图像 placement
+  和 texel frame 作为同一 IR operation 的值传递给有序 Scene。轴对齐 placement 仍直接
+  保存原矩形；一般 affine 使用单位矩形与显式映射，沿用一个四边形覆盖与最近邻采样器。
+  没有新的 paint-order profile、解析器或 Bitmap fallback。
+- C11 在原有物理采样 frame 构建四条图像边；斜边判定与字形共用 FMA expansion，
+  不以射线交点的浮点除法决定恰好落在边上的样本。像素中心逆映射决定 texel，4×4
+  子像素覆盖再与当前 Clip 图相交。Source 原始 Rotate 同时复合 placement 与 texel
+  frame，UserUnit 只缩放世界映射；全 placement 的 AABB 继续计费，Crop 不缩小作者预算。
+- 复用现有公开与 Source/OOM 可执行文件，新增四项公开分组及一项 OOM（共 143 项）。
+  八类 CTM × 六种顺序、nested/sibling/empty Clip、原点/Crop/继承、原始 Rotate/UserUnit、
+  加密和纯 Image／Image+Fill、Gray/RGB，共 672 次独立整数全 RGB、96 次显示旋转。
+  两份原 shear 拒绝夹具保留原 PDF，另比较六次完整 RGB 与两次 Source RGBA；
+  使用原始 Hello mask 与整数 half-plane，不从渲染器或新 Bitmap 生成 golden。
+- 新 OOM 项验证 64 次独立 RGBA、逐次 Source C 发布、真实 affine RAW quarter-turn 的
+  C++ 分配失败、C11 malloc 故障、不可变 IR、实际内存/操作/边/采样/Image/像素 N/N−1，
+  并在编译后改写原 placement 和映射，验证已编译几何值。45/40 秒期限与资源预算不提高。
+- 仍限现有 opaque Gray/RGB 图像语义、整数 DPI、有限坐标包络；奇异矩阵明确拒绝。
+  通用 Stroke、非整数 DPI、插值/透明图像、其余图像解码与字体能力继续开放，A2/A4
+  总项不勾选。此增量不新增公共 Composer affine 图像 API。
+- 本地仅静态检查、独立有理数矩阵组合和既有字形资产核对，未编译或运行 Native。
+
 ## 单一执行模型
 
 ```mermaid

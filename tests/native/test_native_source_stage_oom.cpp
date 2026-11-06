@@ -29,6 +29,7 @@
 #include "native_ttf_fixture.h"
 #include "native_ttf_fractional_reference.h"
 #include "native_ttf_graph_reference.h"
+#include "native_image_affine_reference.h"
 #include "native_content_stream_fixture.h"
 #include "native_graphics_state_fixture.h"
 #include "native_ordered_paints_fixture.h"
@@ -1965,7 +1966,7 @@ static int m2a_ordered_text_image_source_contract(
         const auto status=native_test_page_ir(
             reinterpret_cast<const unsigned char*>(original.data()),
             original.size(),&limits,0u,&denied);
-        const bool supported=mode==51 || mode==53 || mode==57 || mode==58 || mode==61;
+        const bool supported=mode==51 || mode==53 || mode==56 || mode==57 || mode==58 || mode==61;
         if(supported) {
             CHECK(status==QUANTAPDF_OK);
             const quantapdf_ir_raster_scoped_mixed_v5_limits caps={1000000u,4u,512u,8000000u,limits.max_source_pixels,limits.max_drawn_pixels};
@@ -1973,6 +1974,10 @@ static int m2a_ordered_text_image_source_contract(
             quantapdf_native_prepared_page_v1 metadata{};quantapdf_ir_raster_image image{};
             CHECK(quantapdf_native_prepare_page_v1(&denied,&caps,&device,&metadata)==QUANTAPDF_OK && metadata.route==QP_NATIVE_PREPARED_SCENE);
             CHECK(quantapdf_native_execute_page_v1(&metadata,nullptr,&image)==QUANTAPDF_OK && image.size==128u*64u*4u);
+            if(mode==56) {
+                const auto expected=native_image_shear_reference(mode,72u);
+                CHECK(expected.size()==image.size && std::memcmp(expected.data(),image.pixels,image.size)==0);
+            }
             quantapdf_ir_raster_image_dispose(&image);quantapdf_ir_dispose(&denied);
         } else CHECK((status==QUANTAPDF_ERROR_UNSUPPORTED || status==QUANTAPDF_ERROR_FORMAT) && cleared(denied));
     }
@@ -2255,7 +2260,7 @@ static int m2b1_ordered_source_ir_contract(
         const auto st=native_test_page_ir(
             reinterpret_cast<const unsigned char*>(original.data()),
             original.size(),&limits,0u,&denied);
-        const bool supported=mode==69 || mode==72 || mode==73 || mode==74 || mode==78 || mode==80;
+        const bool supported=mode==69 || mode==72 || mode==73 || mode==74 || mode==75 || mode==78 || mode==80;
         if(supported) {
             CHECK(st==QUANTAPDF_OK);
             const quantapdf_ir_raster_scoped_mixed_v5_limits caps={1000000u,4u,512u,8000000u,limits.max_source_pixels,limits.max_drawn_pixels};
@@ -2263,6 +2268,10 @@ static int m2b1_ordered_source_ir_contract(
             quantapdf_native_prepared_page_v1 metadata{};quantapdf_ir_raster_image image{};
             CHECK(quantapdf_native_prepare_page_v1(&denied,&caps,&device,&metadata)==QUANTAPDF_OK && metadata.route==QP_NATIVE_PREPARED_SCENE);
             CHECK(quantapdf_native_execute_page_v1(&metadata,nullptr,&image)==QUANTAPDF_OK && image.size==128u*64u*4u);
+            if(mode==75) {
+                const auto expected=native_image_shear_reference(mode,72u);
+                CHECK(expected.size()==image.size && std::memcmp(expected.data(),image.pixels,image.size)==0);
+            }
             quantapdf_ir_raster_image_dispose(&image);quantapdf_ir_dispose(&denied);
         } else CHECK((st==QUANTAPDF_ERROR_UNSUPPORTED || st==QUANTAPDF_ERROR_FORMAT) && cleared(denied));
     }
@@ -5636,6 +5645,8 @@ int main(int argc,char **argv)
         return clip_graph_dpi_contracts(limits,false,false,true);
     if(argc==2 && std::strcmp(argv[1],"--decimal-text-page")==0)
         return clip_graph_dpi_contracts(limits,false,false,true,true);
+    if(argc==2 && std::strcmp(argv[1],"--image-affine")==0)
+        return clip_graph_dpi_contracts(limits,false,false,true,false,true);
     if(argc==2 && std::strcmp(argv[1],"--fractional-fill")==0)
         return path_commands_source_contracts(limits,true,false,false,false,false,8u);
     if(argc==2 && std::strcmp(argv[1],"--fractional-clip")==0)

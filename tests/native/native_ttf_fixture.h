@@ -214,7 +214,7 @@ inline std::string native_ttf_fixture(int mode=0,bool translated_clip=false)
         const std::string show=
             "q BT /F 24 Tf 12 20 Td <002d004a005100510054> Tj ET Q";
         const std::string draw=mode==56 ?
-            "q 16 1 0 12 10 15 cm /I Do Q" : /* unsupported shear */
+            "q 16 1 0 12 10 15 cm /I Do Q" : /* original shear, now rendered */
             "q 16 0 0 12 10 15 cm /I Do Q";
         text=(mode==50 || mode==63 || mode==65) ?
             draw+" "+show : show+" "+draw;

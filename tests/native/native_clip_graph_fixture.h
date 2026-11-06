@@ -14,10 +14,13 @@ struct paint {
     std::array<unsigned char,12> colors;
     std::vector<region> clips;
     bool image=false,glyph=false;
+    bool affine=false;
+    std::array<int64_t,6> matrix{}; // original PDF image CTM, in sixteenths
 };
 struct options {
     unsigned scene=0u,order=0u,primitive=0u,leaves=4u;
-    bool empty=false,prefix=true,sparse=false,fringe=false,glyph_fringe=false;
+    unsigned image_affine=0u,paint_mask=7u;
+    bool empty=false,prefix=true,sparse=false,fringe=false,glyph_fringe=false,gray_image=false;
     int64_t width_ticks=192,height_ticks=192;
     int64_t media_left=0,media_bottom=0,ticks_per_point=16;
     int rotation=0;
@@ -82,6 +85,20 @@ inline options decimal_case(options opt,unsigned kind)
     }
     return opt;
 }
+inline std::array<int64_t,6> image_matrix(unsigned kind,int64_t left)
+{
+    switch(kind) {
+    case 1u:return {0,48,-32,0,left+48,48};
+    case 2u:return {-32,0,0,48,left+48,48};
+    case 3u:return {32,0,0,-48,left+16,96};
+    case 4u:return {32,12,20,48,left,32};
+    case 5u:return {40,24,-24,40,left+32,32};
+    case 6u:return {20,32,40,-12,left,64};
+    case 7u:return {32,16,16,9,left,48};
+    case 8u:return {320,32,-48,224,left-112,-64};
+    default:throw std::runtime_error("invalid affine image fixture");
+    }
+}
 inline original create(options opt,bool encrypted,int invalid=0)
 {
     auto pdf=QPDF::create();const auto base=native_ttf_fixture();
@@ -100,12 +117,16 @@ inline original create(options opt,bool encrypted,int invalid=0)
     page.replaceKey("/UserUnit",O::parse(std::to_string(double(opt.user_quarters)/4.0)));
     resources.replaceKey("/ExtGState",O::newDictionary());
     resources.getKey("/Font").replaceKey("/Unused",resources.getKey("/Font").getKey("/F"));
-    const std::array<unsigned char,12> samples={255,0,0,0,255,0,0,0,255,255,255,0};
-    const std::string raw(reinterpret_cast<const char*>(samples.data()),samples.size());
+    std::array<unsigned char,12> samples={255,0,0,0,255,0,0,0,255,255,255,0};
+    std::string raw;
+    if(opt.gray_image)for(size_t i=0u;i<4u;++i) {
+        const auto gray=static_cast<unsigned char>(17u+68u*i);raw+=char(gray);
+        samples[3u*i]=samples[3u*i+1u]=samples[3u*i+2u]=gray;
+    } else raw.assign(reinterpret_cast<const char*>(samples.data()),samples.size());
     auto image=pdf->newStream(raw);auto dict=image.getDict();
     dict.replaceKey("/Type",O::newName("/XObject"));dict.replaceKey("/Subtype",O::newName("/Image"));
     dict.replaceKey("/Width",O::newInteger(2));dict.replaceKey("/Height",O::newInteger(2));
-    dict.replaceKey("/BitsPerComponent",O::newInteger(8));dict.replaceKey("/ColorSpace",O::newName("/DeviceRGB"));
+    dict.replaceKey("/BitsPerComponent",O::newInteger(8));dict.replaceKey("/ColorSpace",O::newName(opt.gray_image?"/DeviceGray":"/DeviceRGB"));
     auto xobjects=O::newDictionary();xobjects.replaceKey("/I",image);xobjects.replaceKey("/Unused",image);
     resources.replaceKey("/XObject",xobjects);
     auto blank=pdf->makeIndirectObject(O::parse("<< /Type /Page /MediaBox [0 0 5 4] >>"));
@@ -143,10 +164,21 @@ inline original create(options opt,bool encrypted,int invalid=0)
         static const int sparse_left[5]={16,64,80,96,144};
         const int left=opt.sparse?sparse_left[bodies]:16*int(bodies+1u);
         for(unsigned kind:orders[opt.order%6u]) {
+            if((opt.paint_mask&(1u<<kind))==0u)continue;
             paint p{};p.clips=active;
             if(kind==0u) {
-                content+="q 0.75 0 0 3 "+std::to_string(left/16)+" 3 cm /I Do Q ";
+                if(opt.image_affine!=0u) {
+                    p.affine=true;p.matrix=image_matrix(opt.image_affine,left);
+                    content+="q ";for(auto value:p.matrix)content+=decimal(value,16)+" ";content+="cm /I Do Q ";
+                } else content+="q 0.75 0 0 3 "+std::to_string(left/16)+" 3 cm /I Do Q ";
                 p.bounds={left,48,left+12,96};p.colors=samples;p.image=true;++result.images;
+                if(p.affine) {
+                    const auto& m=p.matrix;
+                    const std::array<int64_t,4> x={m[4],m[4]+m[0],m[4]+m[0]+m[2],m[4]+m[2]};
+                    const std::array<int64_t,4> y={m[5],m[5]+m[1],m[5]+m[1]+m[3],m[5]+m[3]};
+                    p.bounds={*std::min_element(x.begin(),x.end()),*std::min_element(y.begin(),y.end()),
+                        *std::max_element(x.begin(),x.end()),*std::max_element(y.begin(),y.end())};
+                }
             } else if(kind==1u) {
                 content+="q 0 g BT /F 2 Tf "+std::to_string(double(left+2)/16.0)+" 3 Td <0051> Tj ET Q ";
                 p.bounds={left+2,48,left+2,72};p.glyph=true;++result.glyphs;
@@ -240,6 +272,8 @@ inline original create(options opt,bool encrypted,int invalid=0)
     if(invalid==3)content+="2 2 m BT ET ";
     if(invalid==4)content+="BT 1 Tr ET ";
     if(invalid==5)content+="0 0 1 1 re W f ";
+    if(invalid==6)content+="q 1 2 2 4 1 1 cm /I Do Q ";
+    if(invalid==7)content+="q 0 0 0 0 1 1 cm /I Do Q ";
     std::array<std::string,3> parts;
     size_t begin=0u;
     for(size_t i=0u;i<2u;++i) {
@@ -294,7 +328,30 @@ inline std::vector<unsigned char> rgb(const original& source,unsigned dpi,bool t
     const auto contains=[&](region r,int64_t x,int64_t y) {
         return horizontal(r.left*den,r.right*den,16*x) && vertical(r.bottom*den,r.top*den,16*y);
     };
-    for(const auto& p:source.paints)for(size_t y=0u;y<h;++y)for(size_t x=0u;x<w;++x) {
+    for(const auto& p:source.paints) {
+        // Independently project the authored parallelogram's integer corners.
+        // A rational horizontal ray supplies the same half-open screen edges
+        // for reflected and rotated images, without a floating inverse.
+        const auto display=[&](int64_t x,int64_t y) {
+            if(source.rotation==0u)return std::array<int64_t,2>{x,-y};
+            if(source.rotation==90u)return std::array<int64_t,2>{y,x};
+            if(source.rotation==180u)return std::array<int64_t,2>{-x,y};
+            return std::array<int64_t,2>{-y,-x};
+        };
+        const auto& m=p.matrix;
+        const std::array<std::array<int64_t,2>,4> quad={display(m[4],m[5]),display(m[4]+m[0],m[5]+m[1]),
+            display(m[4]+m[0]+m[2],m[5]+m[1]+m[3]),display(m[4]+m[2],m[5]+m[3])};
+        const auto affine_contains=[&](int64_t x,int64_t y) {
+            const auto point=display(x,y);const int64_t px=16*point[0],py=16*point[1];bool inside=false;
+            for(size_t i=0u;i<4u;++i) {
+                const auto a=quad[i],b=quad[(i+1u)%4u];
+                const int64_t cross=(b[0]-a[0])*(py-a[1]*den)-(b[1]-a[1])*(px-a[0]*den);
+                if((a[1]*den<=py && py<b[1]*den && cross>0) ||
+                   (b[1]*den<=py && py<a[1]*den && cross<0))inside=!inside;
+            }
+            return inside;
+        };
+        for(size_t y=0u;y<h;++y)for(size_t x=0u;x<w;++x) {
         unsigned hits=0u;
         for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
             const auto at=authored((8ll*int64_t(x)+2ll*sx+1ll)*36ll*source.ticks_per_point,
@@ -305,7 +362,7 @@ inline std::vector<unsigned char> rgb(const original& source,unsigned dpi,bool t
             bool visible=p.glyph?
                 horizontal((p.bounds.left*64+156)*den,(p.bounds.left*64+341)*den,1024*gx) &&
                     vertical(p.bounds.bottom*den,p.bounds.top*den,16*gy):
-                contains(p.bounds,px,py);
+                p.affine?affine_contains(px,py):contains(p.bounds,px,py);
             visible=visible && horizontal(source.viewport_left*frame,(source.viewport_left+source.width_ticks)*frame,px) &&
                 vertical(source.viewport_bottom*frame,(source.viewport_bottom+source.height_ticks)*frame,py);
             if(p.glyph && truncate_glyph_viewport)
@@ -320,6 +377,14 @@ inline std::vector<unsigned char> rgb(const original& source,unsigned dpi,bool t
         if(p.image) {
             const auto at=authored((2ll*int64_t(x)+1ll)*144ll*source.ticks_per_point,
                 (2ll*int64_t(y)+1ll)*144ll*source.ticks_per_point);
+            if(p.affine) {
+                const int64_t dx=16*at[0]-m[4]*den,dy=16*at[1]-m[5]*den;
+                int64_t u=m[3]*dx-m[2]*dy,v=m[0]*dy-m[1]*dx,d=(m[0]*m[3]-m[1]*m[2])*den;
+                if(d<0) {u=-u;v=-v;d=-d;}
+                const size_t col=(source.rotation<180u?2*u<d:2*u<=d)?0u:1u;
+                const size_t row=(source.rotation==90u || source.rotation==180u?2*v>=d:2*v>d)?0u:1u;
+                sample=2u*row+col;
+            } else {
             const int64_t mx=int64_t(p.bounds.left+p.bounds.right)*den;
             const int64_t my=int64_t(p.bounds.bottom+p.bounds.top)*den;
             // Rotate reorients source texels before nearest-neighbor lookup;
@@ -327,11 +392,13 @@ inline std::vector<unsigned char> rgb(const original& source,unsigned dpi,bool t
             const size_t col=(source.rotation<180u?32*at[0]<mx:32*at[0]<=mx)?0u:1u;
             const size_t row=(source.rotation==90u || source.rotation==180u?32*at[1]>=my:32*at[1]>my)?0u:1u;
             sample=2u*row+col;
+            }
         }
         for(size_t c=0u;c<3u;++c) {
             auto& value=out[(y*w+x)*3u+c];
             value=static_cast<unsigned char>((unsigned(p.colors[sample*3u+c])*hits+unsigned(value)*(16u-hits)+8u)/16u);
         }
+    }
     }
     return out;
 }
