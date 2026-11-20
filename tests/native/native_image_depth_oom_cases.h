@@ -3,13 +3,17 @@
 
 #include "native_image_depth_fixture.h"
 
-static int native_image_depth_source_contracts(const quantapdf_qpdf_page_limits& defaults)
+static int native_image_depth_source_contract(const quantapdf_qpdf_page_limits& defaults, bool indexed)
 {
     using namespace native_image_depth;
-    auto specimen = grid(4u, 3u, storage::png);
+    auto specimen = grid(4u, indexed ? 1u : 3u, storage::png);
     specimen.rotation = 90;
-    auto bytes = create(specimen);
-    const auto reference = rgb(specimen, true);
+    const indexed_palette palette{"/DeviceRGB", 2u, std::string("\x11\x21\x31\x42\x52\x62\x73\x83\x93", 9u)};
+    auto bytes = create(specimen, fault::none, "[0 0 3 2]", "q 3 0 0 2 0 0 cm /I Do Q",
+        indexed ? &palette : nullptr);
+    const auto reference = indexed ? indexed_rgb(specimen, palette, {0u, 2u, 2u, 1u, 2u, 2u}, true) :
+        rgb(specimen, true);
+    const size_t pixel_bytes = indexed ? 18u : 36u;
     quantapdf_qpdf_document *raw = nullptr;
     CHECK(quantapdf_qpdf_open_memory(reinterpret_cast<const unsigned char*>(bytes.data()),
         bytes.size(), "", &raw) == QUANTAPDF_OK);
@@ -54,15 +58,15 @@ static int native_image_depth_source_contracts(const quantapdf_qpdf_page_limits&
     bytes.clear();
     CHECK(ir.operation_count == 1u && ir.resources.image_count == 1u);
     const auto& image = ir.resources.images[0];
-    CHECK(image.format == QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16 &&
-        image.width == 2u && image.height == 3u && image.components == 3 && image.size == 36u);
+    CHECK(image.format == (indexed ? QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW : QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16) &&
+        image.width == 2u && image.height == 3u && image.components == 3 && image.size == pixel_bytes);
 
     quantapdf_native_page_device device{};
     device.dpi = 72.0f;
     const quantapdf_ir_raster_scoped_mixed_v5_limits limits{6u, 1u, 32u, 8192u, 6u, 6u};
     quantapdf_native_prepared_page_v1 plan{};
     CHECK(quantapdf_native_prepare_page_v1(&ir, &limits, &device, &plan) == QUANTAPDF_OK);
-    CHECK(plan.usage.retained_bytes == sizeof(*ir.pages) + sizeof(*ir.operations) + sizeof(image) + 36u);
+    CHECK(plan.usage.retained_bytes == sizeof(*ir.pages) + sizeof(*ir.operations) + sizeof(image) + pixel_bytes);
     quantapdf_native_execution_receipt_v1 receipt{};
     quantapdf_ir_raster_image out{};
     const auto dispose_image = std::unique_ptr<quantapdf_ir_raster_image, decltype(&quantapdf_ir_raster_image_dispose)>(
@@ -78,8 +82,15 @@ static int native_image_depth_source_contracts(const quantapdf_qpdf_page_limits&
     quantapdf_ir_raster_image_dispose(&out);
     --plan.resource_limits.max_live_bytes;
     CHECK(quantapdf_native_execute_page_v1(&plan, nullptr, &out) == QUANTAPDF_ERROR_UNSUPPORTED && zero_bitmap(out));
-    std::printf("Wide image Source: two vector allocation faults, %zu publication faults, pixel and byte N/N-1\n",
-        allocations);
+    std::printf("%s image Source: two vector allocation faults, %zu publication faults, pixel and byte N/N-1\n",
+        indexed ? "Indexed" : "Wide", allocations);
+    return EXIT_SUCCESS;
+}
+
+static int native_image_depth_source_contracts(const quantapdf_qpdf_page_limits& defaults)
+{
+    for (bool indexed : {false, true})
+        CHECK(native_image_depth_source_contract(defaults, indexed) == EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }
 #endif

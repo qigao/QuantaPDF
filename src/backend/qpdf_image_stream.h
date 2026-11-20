@@ -25,9 +25,19 @@ struct image_samples {
     unsigned value(size_t x, size_t y, unsigned channel, unsigned maximum) const;
 };
 
-// Filters and predictors are resolved before consumers inspect sample values.
-image_samples qpdf_read_image_samples(QPDFObjectHandle image, unsigned channels,
-    bool indexed, size_t pixel_limit);
+struct image_colors {
+    image_samples samples;
+    unsigned high = 0, palette_channels = 0;
+    std::vector<unsigned char> palette;
+
+    bool indexed() const { return palette_channels != 0u; }
+    const unsigned char *indexed_color(size_t x, size_t y) const;
+    std::array<unsigned char, 3u> rgb(size_t x, size_t y) const;
+};
+
+// XObject color spaces are explicit PDF objects. Extraction also accepts resource names.
+image_colors qpdf_read_image_colors(QPDFObjectHandle image, QPDFObjectHandle resources,
+    size_t pixel_limit);
 
 struct device_image_samples {
     std::vector<unsigned char> pixels;
@@ -35,7 +45,7 @@ struct device_image_samples {
 };
 
 // Device samples are tightly packed, with a big-endian pair for each wide sample.
-device_image_samples qpdf_normalize_device_samples(image_samples&& samples);
+device_image_samples qpdf_normalize_image_colors(image_colors&& colors);
 
 } // namespace quantapdf::detail
 

@@ -398,13 +398,9 @@ struct admission {
         Obj interpolation=dict.getKey("/Interpolate");
         admit(interpolation.isNull() || interpolation.isBool(),QUANTAPDF_ERROR_FORMAT);
         const bool interpolate=interpolation.isBool() && interpolation.getBoolValue();
-        Obj colorspace=dict.getKey("/ColorSpace");
-        admit(colorspace.isName(),QUANTAPDF_ERROR_UNSUPPORTED);
-        const unsigned channels=colorspace.getName()=="/DeviceGray" ? 1u :
-            (colorspace.getName()=="/DeviceRGB" ? 3u : 0u);
-        admit(channels!=0u,QUANTAPDF_ERROR_UNSUPPORTED);
-        auto samples=quantapdf::detail::qpdf_read_image_samples(image,channels,false,
+        auto colors=quantapdf::detail::qpdf_read_image_colors(image,Obj::newNull(),
             std::min(limits.max_source_pixels,hard_image_pixels)-source_pixels);
+        const auto& samples=colors.samples;
         source_pixels+=static_cast<size_t>(samples.width)*samples.height;
 
         const bool axis=ctm[1]==0.0 && ctm[2]==0.0 && ctm[0]>0.0 && ctm[3]>0.0;
@@ -467,8 +463,8 @@ struct admission {
 
         entry.width=samples.width;
         entry.height=samples.height;
-        entry.components=static_cast<int>(channels);
-        auto decoded=quantapdf::detail::qpdf_normalize_device_samples(std::move(samples));
+        entry.components=static_cast<int>(colors.indexed()?colors.palette_channels:samples.channels);
+        auto decoded=quantapdf::detail::qpdf_normalize_image_colors(std::move(colors));
         entry.pixels=std::move(decoded.pixels);
         entry.wide=decoded.wide;
         entry.interpolate=interpolate;

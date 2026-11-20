@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <set>
 #include <utility>
 
 #ifdef QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST
@@ -219,7 +220,9 @@ unsigned image_samples::value(size_t x, size_t y, unsigned channel, unsigned max
     return static_cast<unsigned>(std::clamp(decoded(x, y, channel), 0.0, 1.0) * maximum + 0.5);
 }
 
-image_samples qpdf_read_image_samples(Obj image, unsigned channels, bool indexed, size_t pixel_limit)
+namespace {
+
+image_samples read_image_samples(Obj image, unsigned channels, bool indexed, size_t pixel_limit)
 {
     Obj dict = image.getDict();
     image_samples result;
@@ -266,7 +269,87 @@ image_samples qpdf_read_image_samples(Obj image, unsigned channels, bool indexed
     return result;
 }
 
-device_image_samples qpdf_normalize_device_samples(image_samples&& samples)
+Obj resolve_image_color_space(Obj value, Obj resources)
+{
+    std::set<std::string> seen;
+    while (value.isName()) {
+        std::string name = value.getName();
+        if (name == "/DeviceRGB" || name == "/DeviceGray") return value;
+        Obj spaces = resources.isDictionary() ? resources.getKey("/ColorSpace") : Obj::newNull();
+        require(spaces.isDictionary(), QUANTAPDF_ERROR_UNSUPPORTED);
+        require(seen.size() < 16u && seen.insert(name).second);
+        value = spaces.getKey(name);
+        require(!value.isNull(), QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+    return value;
+}
+
+} // namespace
+
+const unsigned char *image_colors::indexed_color(size_t x, size_t y) const
+{
+    const double value = samples.decoded(x, y, 0u);
+    const size_t index = static_cast<size_t>(std::clamp(value + 0.5, 0.0, static_cast<double>(high)));
+    return palette.data() + index * palette_channels;
+}
+
+std::array<unsigned char, 3u> image_colors::rgb(size_t x, size_t y) const
+{
+    if (indexed()) {
+        const auto *color = indexed_color(x, y);
+        if (palette_channels == 1u) return {color[0], color[0], color[0]};
+        return {color[0], color[1], color[2]};
+    }
+    const auto channel = [&](unsigned c) {
+        return static_cast<unsigned char>(samples.value(x, y, c, 255u));
+    };
+    if (samples.channels == 1u) {
+        const auto gray = channel(0u);
+        return {gray, gray, gray};
+    }
+    return {channel(0u), channel(1u), channel(2u)};
+}
+
+image_colors qpdf_read_image_colors(Obj image, Obj resources,
+    size_t pixel_limit)
+{
+    Obj dict = image.getDict();
+    image_colors result;
+    Obj space = resolve_image_color_space(dict.getKey("/ColorSpace"), resources);
+    unsigned channels;
+    if (space.isArray()) {
+        require(space.getArrayNItems() == 4 && space.getArrayItem(0).isName() &&
+            space.getArrayItem(0).getName() == "/Indexed", QUANTAPDF_ERROR_UNSUPPORTED);
+        Obj base = resolve_image_color_space(space.getArrayItem(1), resources);
+        require(base.isName() && (base.getName() == "/DeviceRGB" ||
+            base.getName() == "/DeviceGray"), QUANTAPDF_ERROR_UNSUPPORTED);
+        Obj high = space.getArrayItem(2);
+        require(high.isInteger() && high.getIntValue() >= 0 && high.getIntValue() <= 255);
+        result.high = static_cast<unsigned>(high.getIntValue());
+        result.palette_channels = base.getName() == "/DeviceRGB" ? 3u : 1u;
+        const size_t length = (static_cast<size_t>(result.high) + 1u) * result.palette_channels;
+        Obj lookup = space.getArrayItem(3);
+        if (lookup.isString()) {
+            const std::string data = lookup.getStringValue();
+            require(data.size() == length);
+            result.palette.assign(data.begin(), data.end());
+        } else {
+            result.palette = qpdf_read_stream(lookup, length, qpdf_dl_specialized);
+        }
+        require(result.palette.size() == length);
+        channels = 1u;
+    } else {
+        require(space.isName() && (space.getName() == "/DeviceGray" ||
+            space.getName() == "/DeviceRGB"), QUANTAPDF_ERROR_UNSUPPORTED);
+        channels = space.getName() == "/DeviceGray" ? 1u : 3u;
+    }
+    result.samples = read_image_samples(image, channels, result.indexed(), pixel_limit);
+    return result;
+}
+
+namespace {
+
+device_image_samples normalize_device_samples(image_samples&& samples)
 {
     bool identity = true;
     bool wide = samples.bits == 16u;
@@ -305,6 +388,31 @@ device_image_samples qpdf_normalize_device_samples(image_samples&& samples)
         }
     }
     return {samples.bits == output_bits ? std::move(samples.bytes) : std::move(expanded), wide};
+}
+
+} // namespace
+
+device_image_samples qpdf_normalize_image_colors(image_colors&& colors)
+{
+    if (!colors.indexed()) return normalize_device_samples(std::move(colors.samples));
+
+    const auto& samples = colors.samples;
+    const size_t output_size = static_cast<size_t>(samples.width) * samples.height * colors.palette_channels;
+    require(output_size + colors.palette.size() <= image_work_limit - samples.bytes.size(),
+        QUANTAPDF_ERROR_UNSUPPORTED);
+#ifdef QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST
+    quantapdf_source_stage_oom_arm(14u);
+#endif
+    std::vector<unsigned char> pixels(output_size);
+    auto *destination = pixels.data();
+    // The Scene interpolates base colors after palette lookup.
+    for (size_t y = 0u; y < samples.height; ++y) {
+        for (size_t x = 0u; x < samples.width; ++x) {
+            const auto *color = colors.indexed_color(x, y);
+            destination = std::copy_n(color, colors.palette_channels, destination);
+        }
+    }
+    return {std::move(pixels), false};
 }
 
 } // namespace quantapdf::detail

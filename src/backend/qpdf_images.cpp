@@ -24,7 +24,7 @@ constexpr size_t max_pixel_bytes = 64u * 1024u * 1024u;
 constexpr size_t max_occurrences = 4096u;
 using failure = quantapdf::detail::image_stream_error;
 using quantapdf::detail::image_samples;
-using quantapdf::detail::qpdf_read_image_samples;
+using quantapdf::detail::qpdf_read_image_colors;
 using quantapdf::detail::qpdf_read_stream;
 void require(bool ok, quantapdf_status status = QUANTAPDF_ERROR_FORMAT)
 {
@@ -60,84 +60,12 @@ matrix read_matrix(Obj value)
     for (int i = 0; i < 6; ++i) result[static_cast<size_t>(i)] = number(value.getArrayItem(i));
     return result;
 }
-struct image_colors {
-    image_samples samples;
-    unsigned high = 0, palette_channels = 0;
-    std::vector<unsigned char> palette;
-
-    bool indexed() const { return palette_channels != 0u; }
-
-    std::array<unsigned char, 3> rgb(size_t x, size_t y) const
-    {
-        if (indexed()) {
-            const double index = samples.decoded(x, y, 0u);
-            const size_t i = static_cast<size_t>(std::clamp(index + 0.5, 0.0, static_cast<double>(high)));
-            if (palette_channels == 1u) return {palette[i], palette[i], palette[i]};
-            return {palette[i * 3u], palette[i * 3u + 1u], palette[i * 3u + 2u]};
-        }
-        const auto channel = [&](unsigned c) {
-            return static_cast<unsigned char>(samples.value(x, y, c, 255u));
-        };
-        if (samples.channels == 1u) {
-            const auto gray = channel(0u);
-            return {gray, gray, gray};
-        }
-        return {channel(0u), channel(1u), channel(2u)};
-    }
-};
-
-Obj color_space(Obj value, Obj resources)
+quantapdf::detail::image_colors read_image_colors(Obj image, Obj resources, size_t pixel_limit)
 {
-    std::set<std::string> seen;
-    while (value.isName()) {
-        std::string name = value.getName();
-        if (name == "/DeviceRGB" || name == "/DeviceGray") return value;
-        require(seen.size() < 16u && seen.insert(name).second);
-        Obj spaces = resources.isDictionary() ? resources.getKey("/ColorSpace") : Obj::newNull();
-        if (!spaces.isDictionary() || spaces.getKey(name).isNull())
-            throw failure{QUANTAPDF_ERROR_UNSUPPORTED};
-        value = spaces.getKey(name);
-    }
-    return value;
-}
-
-image_colors read_image_colors(Obj image, Obj resources, size_t pixel_limit)
-{
-    Obj dict = image.getDict();
-    Obj stencil = dict.getKey("/ImageMask");
+    Obj stencil = image.getDict().getKey("/ImageMask");
     require(stencil.isNull() || stencil.isBool());
     require(stencil.isNull() || !stencil.getBoolValue(), QUANTAPDF_ERROR_UNSUPPORTED);
-    image_colors result;
-    Obj space = color_space(dict.getKey("/ColorSpace"), resources);
-    unsigned channels;
-    if (space.isArray()) {
-        require(space.getArrayNItems() == 4 && space.getArrayItem(0).isName() &&
-            space.getArrayItem(0).getName() == "/Indexed", QUANTAPDF_ERROR_UNSUPPORTED);
-        Obj base = color_space(space.getArrayItem(1), resources);
-        require(base.isName() && (base.getName() == "/DeviceRGB" ||
-            base.getName() == "/DeviceGray"), QUANTAPDF_ERROR_UNSUPPORTED);
-        Obj high = space.getArrayItem(2);
-        require(high.isInteger() && high.getIntValue() >= 0 && high.getIntValue() <= 255);
-        result.high = static_cast<unsigned>(high.getIntValue());
-        result.palette_channels = base.getName() == "/DeviceRGB" ? 3u : 1u;
-        const size_t length = (static_cast<size_t>(result.high) + 1u) * result.palette_channels;
-        Obj lookup = space.getArrayItem(3);
-        if (lookup.isString()) {
-            const std::string data = lookup.getStringValue();
-            require(data.size() == length);
-            result.palette.assign(data.begin(), data.end());
-        } else {
-            result.palette = qpdf_read_stream(lookup, length, qpdf_dl_specialized);
-        }
-        require(result.palette.size() == length);
-        channels = 1u;
-    } else {
-        require(space.isName() && (space.getName() == "/DeviceGray" ||
-            space.getName() == "/DeviceRGB"), QUANTAPDF_ERROR_UNSUPPORTED);
-        channels = space.getName() == "/DeviceGray" ? 1u : 3u;
-    }
-    result.samples = qpdf_read_image_samples(image, channels, result.indexed(), pixel_limit);
-    return result;
+    return qpdf_read_image_colors(image, resources, pixel_limit);
 }
 
 struct image_value {

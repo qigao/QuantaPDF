@@ -3,6 +3,7 @@
 
 #include "native_content_stream_fixture.h"
 #include <array>
+#include <string_view>
 
 namespace native_image_depth {
 using O = QPDFObjectHandle;
@@ -17,6 +18,14 @@ struct specimen {
     storage encoding = storage::raw;
     bool interpolate = false;
     int rotation = 0;
+};
+
+struct indexed_palette {
+    const char *base = "/DeviceRGB";
+    unsigned high = 2u;
+    std::string bytes;
+    bool stream = false;
+    const char *decode = nullptr;
 };
 
 inline specimen grid(unsigned bits, unsigned channels, storage encoding)
@@ -83,7 +92,8 @@ inline std::string pack_rows(const specimen& image)
 }
 
 inline std::string create(const specimen& image, fault invalid = fault::none,
-    const char *media = "[0 0 3 2]", const char *content = "q 3 0 0 2 0 0 cm /I Do Q")
+    const char *media = "[0 0 3 2]", const char *content = "q 3 0 0 2 0 0 cm /I Do Q",
+    const indexed_palette *indexed = nullptr)
 {
     QPDF pdf;
     pdf.emptyPDF();
@@ -116,7 +126,18 @@ inline std::string create(const specimen& image, fault invalid = fault::none,
     dict.replaceKey("/BitsPerComponent", O::newInteger(invalid == fault::depth ? 3u : image.bits));
     dict.replaceKey("/ColorSpace", O::newName(image.channels == 1u ? "/DeviceGray" : "/DeviceRGB"));
     if (image.interpolate) dict.replaceKey("/Interpolate", O::newBool(true));
-    if (image.decode != identity || invalid == fault::decode_length) {
+    if (indexed != nullptr) {
+        O lookup = O::newString(indexed->bytes);
+        if (indexed->stream) {
+            lookup = pdf.newStream();
+            lookup.replaceStreamData(native_content_fixture::flate(indexed->bytes),
+                O::newName("/FlateDecode"), O::newNull());
+            lookup.setFilterOnWrite(false);
+        }
+        dict.replaceKey("/ColorSpace", O::newArray({O::newName("/Indexed"), O::newName(indexed->base),
+            O::newInteger(indexed->high), lookup}));
+        if (indexed->decode != nullptr) dict.replaceKey("/Decode", O::parse(indexed->decode));
+    } else if (image.decode != identity || invalid == fault::decode_length) {
         std::vector<O> decode;
         for (size_t c = 0u; c < image.channels * 2u; ++c)
             decode.push_back(O::parse(std::to_string(image.decode[c] / 16.0)));
@@ -159,6 +180,21 @@ inline std::vector<unsigned char> rgb(const specimen& image, bool rotated)
                 const int64_t clipped = std::clamp<int64_t>(value, 0, denominator);
                 expected[dst * 3u + c] = static_cast<unsigned char>((255 * clipped + denominator / 2) / denominator);
             }
+        }
+    }
+    return expected;
+}
+inline std::vector<unsigned char> indexed_rgb(const specimen& image, const indexed_palette& palette,
+    const std::vector<unsigned>& indices, bool rotated)
+{
+    std::vector<unsigned char> expected(image.width * image.height * 3u);
+    const bool gray = std::string_view(palette.base) == "/DeviceGray";
+    for (size_t y = 0u; y < image.height; ++y) {
+        for (size_t x = 0u; x < image.width; ++x) {
+            const size_t index = indices[y * image.width + x];
+            const size_t dst = rotated ? x * image.height + image.height - 1u - y : y * image.width + x;
+            for (size_t c = 0u; c < 3u; ++c)
+                expected[dst * 3u + c] = static_cast<unsigned char>(palette.bytes[gray ? index : index * 3u + c]);
         }
     }
     return expected;
