@@ -129,9 +129,10 @@ inline std::array<unsigned char, 12> colors(const specimen& spec)
 }
 
 inline native_clip_graph::original create(const specimen& spec, container storage,
-    bool encrypted, fault bad = fault::none)
+    bool encrypted, fault bad = fault::none, bool interpolate = false)
 {
     native_clip_graph::options opt;
+    if (interpolate) opt.interpolation = native_clip_graph::image_interpolation::enabled;
     if (storage != container::name) {
         opt = native_clip_graph::viewport_case(opt, storage == container::array ? 0u : 3u);
         opt.image_affine = storage == container::array ? 4u : 6u;
@@ -141,6 +142,7 @@ inline native_clip_graph::original create(const specimen& spec, container storag
         opt.primitive = 4u;
     }
     auto original = native_clip_graph::create(opt, false);
+    original.image_side = side;
     auto pdf = QPDF::create();
     pdf->processMemoryFile("JPEG scene authoring", original.bytes.data(), original.bytes.size());
     auto image = pdf->getRoot().getKey("/Pages").getKey("/Resources")

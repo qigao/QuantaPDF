@@ -2022,6 +2022,8 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                 "/ColorSpace",
                 QPDFObjectHandle::newName(
                     image.components == 1 ? "/DeviceGray" : "/DeviceRGB"));
+            if (image.interpolate)
+                dictionary.replaceKey("/Interpolate", QPDFObjectHandle::newBool(true));
             if (image.format == QUANTAPDF_COMPOSER_IMAGE_FORMAT_JPEG) {
                 dictionary.replaceKey(
                     "/Filter", QPDFObjectHandle::newName("/DCTDecode"));

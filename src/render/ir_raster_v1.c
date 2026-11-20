@@ -7,6 +7,7 @@
 
 #define QP_SAMPLES 4u
 #define QP_TOTAL_SAMPLES 16u
+#define QP_BILINEAR_ONE 65536u
 #define QP_CURVE_DEPTH 12u
 #define QP_CURVE_TOLERANCE_SQUARED 0.015625
 #define QP_COORD_LIMIT 1000000.0
@@ -774,6 +775,66 @@ static void qp_blend_pixel(unsigned char *dst, uint32_t argb, unsigned n)
     }
     dst[3] = (unsigned char)((denominator + QP_TOTAL_SAMPLES / 2u) /
                              QP_TOTAL_SAMPLES);
+}
+
+typedef struct qp_bilinear_axis {
+    size_t first, second;
+    unsigned second_weight;
+} qp_bilinear_axis;
+
+static qp_bilinear_axis qp_bilinear_taps(double coordinate, size_t extent)
+{
+    /* Texel centers lie at (i + 0.5) / extent. Extend the outer texels
+     * through the image fringe, including a covered pixel with its center
+     * outside the quad. Coverage itself comes from the quad and Clip. */
+    const double offset = fma(coordinate, (double)extent, -0.5);
+    const double position = fmin(fmax(offset, 0.0), (double)(extent - 1u));
+    /* Sixteen fractional bits per axis. Ties to even give complementary
+     * weights when the texel axis is reflected. */
+    const double fixed = position * QP_BILINEAR_ONE;
+    const uint64_t base = (uint64_t)fixed;
+    const double remainder = fixed - (double)base;
+    const uint64_t texel = base +
+        (remainder > 0.5 || (remainder == 0.5 && (base & 1u) != 0u));
+    const size_t first = (size_t)(texel / QP_BILINEAR_ONE);
+    return (qp_bilinear_axis){first, first + (first + 1u < extent),
+        (unsigned)(texel % QP_BILINEAR_ONE)};
+}
+
+static void qp_blend_bilinear_image(unsigned char *dst,
+    const quantapdf_composer_image_state *image, double u, double v, unsigned covered)
+{
+    const qp_bilinear_axis x = qp_bilinear_taps(u, image->width);
+    const qp_bilinear_axis y = qp_bilinear_taps(v, image->height);
+    const unsigned left = QP_BILINEAR_ONE - x.second_weight;
+    const unsigned top = QP_BILINEAR_ONE - y.second_weight;
+    const size_t components = (size_t)image->components;
+    const size_t stride = image->width * components;
+    const unsigned char *top_left = image->data + y.first * stride + x.first * components;
+    const unsigned char *top_right = image->data + y.first * stride + x.second * components;
+    const unsigned char *bottom_left = image->data + y.second * stride + x.first * components;
+    const unsigned char *bottom_right = image->data + y.second * stride + x.second * components;
+    uint64_t color[3];
+
+    for (size_t c = 0u; c < components; ++c) {
+        const unsigned upper = left * top_left[c] + x.second_weight * top_right[c];
+        const unsigned lower = left * bottom_left[c] + x.second_weight * bottom_right[c];
+        color[c] = (uint64_t)upper * top + (uint64_t)lower * y.second_weight;
+    }
+    if (components == 1u)
+        color[1] = color[2] = color[0];
+
+    /* Quantize only after applying coverage to the filtered source. */
+    const unsigned src_weight = covered * 255u;
+    const unsigned dst_weight = (QP_TOTAL_SAMPLES - covered) * dst[3];
+    const unsigned alpha = src_weight + dst_weight;
+    const uint64_t scale = (uint64_t)QP_BILINEAR_ONE * QP_BILINEAR_ONE;
+    const uint64_t denominator = alpha * scale;
+    for (size_t c = 0u; c < 3u; ++c) {
+        const uint64_t numerator = color[c] * src_weight + dst[c] * dst_weight * scale;
+        dst[c] = (unsigned char)((numerator + denominator / 2u) / denominator);
+    }
+    dst[3] = (unsigned char)((alpha + QP_TOTAL_SAMPLES / 2u) / QP_TOTAL_SAMPLES);
 }
 
 static void qp_background(unsigned char *rgba, size_t pixels, uint32_t bg)
@@ -2102,6 +2163,10 @@ static quantapdf_status qp_geometry_sample(
                 }
                 if(covered!=0u) {
                     const quantapdf_composer_image_state *image=&draw->image;
+                    if(image->interpolate &&
+                       !qp_exact_charge(&total_checks,4u,limits->max_sample_tests)) {
+                        status=QUANTAPDF_ERROR_UNSUPPORTED;goto cleanup;
+                    }
                     const double dx=((double)x+0.5)*draw->coordinate_units-draw->image_x0;
                     const double dy=((double)y+0.5)*draw->coordinate_units-draw->image_y0;
                     double u,v;
@@ -2112,12 +2177,17 @@ static quantapdf_status qp_geometry_sample(
                         u=(dx*draw->image_d-dy*draw->image_c)/determinant;
                         v=(dy*draw->image_a-dx*draw->image_b)/determinant;
                     }
-                    size_t ix=u<=0.0?0u:u>=1.0?(size_t)image->width-1u:(size_t)(u*image->width);
-                    size_t iy=v<=0.0?0u:v>=1.0?(size_t)image->height-1u:(size_t)(v*image->height);
-                    const unsigned char *src=image->data+(iy*(size_t)image->width+ix)*(size_t)image->components;
-                    uint32_t color=UINT32_C(0xff000000)|((uint32_t)src[0]<<16u)|
-                        ((uint32_t)src[image->components==1?0:1]<<8u)|src[image->components==1?0:2];
-                    qp_blend_pixel(pixels+4u*(y*width+x),color,covered);
+                    unsigned char *dst=pixels+4u*(y*width+x);
+                    if(image->interpolate) {
+                        qp_blend_bilinear_image(dst,image,u,v,covered);
+                    } else {
+                        size_t ix=u<=0.0?0u:u>=1.0?(size_t)image->width-1u:(size_t)(u*image->width);
+                        size_t iy=v<=0.0?0u:v>=1.0?(size_t)image->height-1u:(size_t)(v*image->height);
+                        const unsigned char *src=image->data+(iy*(size_t)image->width+ix)*(size_t)image->components;
+                        uint32_t color=UINT32_C(0xff000000)|((uint32_t)src[0]<<16u)|
+                            ((uint32_t)src[image->components==1?0:1]<<8u)|src[image->components==1?0:2];
+                        qp_blend_pixel(dst,color,covered);
+                    }
                 }
             }
             continue;

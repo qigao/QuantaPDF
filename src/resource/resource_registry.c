@@ -23,7 +23,8 @@ static int image_equal(const quantapdf_composer_image_state *a,
         a->height == b->height && a->components == b->components &&
         (a->format != QUANTAPDF_COMPOSER_IMAGE_FORMAT_JPEG ||
          a->jpeg_color_transform == b->jpeg_color_transform) &&
-        a->has_alpha == b->has_alpha && a->size == b->size &&
+        a->has_alpha == b->has_alpha && a->interpolate == b->interpolate &&
+        a->size == b->size &&
         a->alpha_size == b->alpha_size && bytes_equal(a->data, b->data, a->size) &&
         bytes_equal(a->alpha_data, b->alpha_data, a->alpha_size);
 }

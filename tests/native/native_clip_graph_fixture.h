@@ -18,6 +18,7 @@ struct dpi_rate {
 };
 // Integer sixteenth-point regions are an independent sample oracle.
 struct region {int64_t left,bottom,right,top;};
+enum class image_interpolation { absent, disabled, enabled, invalid };
 struct paint {
     region bounds;
     std::array<unsigned char,12> colors;
@@ -30,6 +31,8 @@ struct options {
     unsigned scene=0u,order=0u,primitive=0u,leaves=4u;
     unsigned image_affine=0u,paint_mask=7u;
     bool empty=false,prefix=true,sparse=false,fringe=false,glyph_fringe=false,gray_image=false;
+    bool flate_image=false;
+    image_interpolation interpolation=image_interpolation::absent;
     int64_t width_ticks=192,height_ticks=192;
     int64_t media_left=0,media_bottom=0,ticks_per_point=16;
     int rotation=0;
@@ -45,6 +48,8 @@ struct original {
     int64_t width_ticks=192,height_ticks=192,ticks_per_point=16;
     int64_t viewport_left=0,viewport_bottom=0,absolute_left=0,absolute_bottom=0;
     unsigned rotation=0u,user_quarters=4u;
+    bool interpolate=false;
+    size_t image_side=2u;
     std::vector<paint> paints;
 };
 inline options viewport_case(options opt,unsigned kind)
@@ -132,10 +137,16 @@ inline original create(options opt,bool encrypted,int invalid=0)
         const auto gray=static_cast<unsigned char>(17u+68u*i);raw+=char(gray);
         samples[3u*i]=samples[3u*i+1u]=samples[3u*i+2u]=gray;
     } else raw.assign(reinterpret_cast<const char*>(samples.data()),samples.size());
-    auto image=pdf->newStream(raw);auto dict=image.getDict();
+    auto image=pdf->newStream(raw);
+    if(opt.flate_image)
+        image.replaceStreamData(native_content_fixture::flate(raw),O::newName("/FlateDecode"),O::newNull());
+    auto dict=image.getDict();
     dict.replaceKey("/Type",O::newName("/XObject"));dict.replaceKey("/Subtype",O::newName("/Image"));
     dict.replaceKey("/Width",O::newInteger(2));dict.replaceKey("/Height",O::newInteger(2));
     dict.replaceKey("/BitsPerComponent",O::newInteger(8));dict.replaceKey("/ColorSpace",O::newName(opt.gray_image?"/DeviceGray":"/DeviceRGB"));
+    if(opt.interpolation==image_interpolation::invalid)dict.replaceKey("/Interpolate",O::newInteger(1));
+    else if(opt.interpolation!=image_interpolation::absent)
+        dict.replaceKey("/Interpolate",O::newBool(opt.interpolation==image_interpolation::enabled));
     auto xobjects=O::newDictionary();xobjects.replaceKey("/I",image);xobjects.replaceKey("/Unused",image);
     resources.replaceKey("/XObject",xobjects);
     auto blank=pdf->makeIndirectObject(O::parse("<< /Type /Page /MediaBox [0 0 5 4] >>"));
@@ -151,6 +162,7 @@ inline original create(options opt,bool encrypted,int invalid=0)
     static const unsigned orders[6][3]={{0,1,2},{0,2,1},{1,0,2},{1,2,0},{2,0,1},{2,1,0}};
     original result;result.width_ticks=opt.width_ticks;result.height_ticks=opt.height_ticks;result.ticks_per_point=opt.ticks_per_point;
     result.rotation=unsigned((opt.rotation%360+360)%360);result.user_quarters=opt.user_quarters;
+    result.interpolate=opt.interpolation==image_interpolation::enabled;
     if(opt.crop) {
         result.viewport_left=std::max(int64_t(0),opt.crop_box.left);result.viewport_bottom=std::max(int64_t(0),opt.crop_box.bottom);
         result.width_ticks=std::min(opt.width_ticks,opt.crop_box.right)-result.viewport_left;
@@ -309,6 +321,48 @@ inline size_t width(const original& source,dpi_rate dpi)
 {return size_t((uint64_t(source.rotation==90u || source.rotation==270u?source.height_ticks:source.width_ticks)*source.user_quarters*uint64_t(dpi.numerator)+288u*uint64_t(source.ticks_per_point)*uint64_t(dpi.denominator)-1u)/(288u*uint64_t(source.ticks_per_point)*uint64_t(dpi.denominator)));}
 inline size_t height(const original& source,dpi_rate dpi)
 {return size_t((uint64_t(source.rotation==90u || source.rotation==270u?source.width_ticks:source.height_ticks)*source.user_quarters*uint64_t(dpi.numerator)+288u*uint64_t(source.ticks_per_point)*uint64_t(dpi.denominator)-1u)/(288u*uint64_t(source.ticks_per_point)*uint64_t(dpi.denominator)));}
+
+// Author-space integer weights retain fractional colors until the final
+// coverage blend. JPEG fixtures repeat each of the four authored cells.
+inline void blend_interpolated_image(const paint& p,size_t side,
+    const std::array<int64_t,2>& center,int64_t frame,unsigned hits,unsigned char *out)
+{
+    const auto m=p.affine?p.matrix:std::array<int64_t,6>{
+        p.bounds.right-p.bounds.left,0,0,p.bounds.top-p.bounds.bottom,
+        p.bounds.left,p.bounds.bottom};
+    const int64_t dx=16*center[0]-m[4]*frame,dy=16*center[1]-m[5]*frame;
+    const int64_t det=m[0]*m[3]-m[1]*m[2],sign=det<0?-1:1;
+    const int64_t den=sign*det*frame;
+    const int64_t u=sign*(m[3]*dx-m[2]*dy),v=den-sign*(m[0]*dy-m[1]*dx);
+    constexpr int64_t grid=65536;
+    struct taps {size_t first,second;int64_t towards_second;};
+    const auto axis=[&](int64_t n) {
+        const int64_t scale=den*2;
+        const int64_t position=std::clamp<int64_t>(2*n*int64_t(side)-den,
+            0,scale*int64_t(side-1u));
+        const int64_t bins=position*grid;
+        int64_t step=bins/scale;
+        const int64_t left=bins%scale;
+        if(left*2>scale || (left*2==scale && step%2!=0))++step;
+        const auto index=size_t(step/grid);
+        return taps{index,std::min(index+1u,side-1u),step%grid};
+    };
+    const auto x=axis(u),y=axis(v);
+    const auto sample=[&](size_t col,size_t row,size_t channel) {
+        return int64_t(p.colors[3u*(2u*(row*2u/side)+col*2u/side)+channel]);
+    };
+    constexpr int64_t scale=grid*grid;
+    for(size_t c=0u;c<3u;++c) {
+        const int64_t top=sample(x.first,y.first,c)*(grid-x.towards_second)+
+            sample(x.second,y.first,c)*x.towards_second;
+        const int64_t bottom=sample(x.first,y.second,c)*(grid-x.towards_second)+
+            sample(x.second,y.second,c)*x.towards_second;
+        const int64_t numerator=(top*(grid-y.towards_second)+bottom*y.towards_second)*hits+
+            int64_t(out[c])*(16u-hits)*scale;
+        out[c]=static_cast<unsigned char>((numerator+8*scale)/(16*scale));
+    }
+}
+
 inline std::vector<unsigned char> rgb(const original& source,dpi_rate dpi,bool truncate_glyph_viewport=false,bool omit_glyph_origin=false)
 {
     const size_t w=width(source,dpi),h=height(source,dpi);
@@ -382,10 +436,15 @@ inline std::vector<unsigned char> rgb(const original& source,dpi_rate dpi,bool t
             for(const auto& clip:p.clips)visible=visible && contains(clip,px,py);
             hits+=unsigned(visible);
         }
+        if(hits==0u)continue;
         size_t sample=0u;
         if(p.image) {
             const auto at=authored((2ll*int64_t(x)+1ll)*144ll*source.ticks_per_point*dpi.denominator,
                 (2ll*int64_t(y)+1ll)*144ll*source.ticks_per_point*dpi.denominator);
+            if(source.interpolate) {
+                blend_interpolated_image(p,source.image_side,at,den,hits,out.data()+(y*w+x)*3u);
+                continue;
+            }
             if(p.affine) {
                 const int64_t dx=16*at[0]-m[4]*den,dy=16*at[1]-m[5]*den;
                 int64_t u=m[3]*dx-m[2]*dy,v=m[0]*dy-m[1]*dx,d=(m[0]*m[3]-m[1]*m[2])*den;

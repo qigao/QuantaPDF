@@ -162,6 +162,10 @@ add_test(NAME quantapdf.native_jpeg_images
   COMMAND quantapdf_native_public_render --jpeg-images)
 set_tests_properties(quantapdf.native_jpeg_images PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;public-api;jpeg")
+add_test(NAME quantapdf.native_image_interpolation
+  COMMAND quantapdf_native_public_render --image-interpolation)
+set_tests_properties(quantapdf.native_image_interpolation PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;public-api;image")
 add_test(NAME quantapdf.native_ordered_scene
   COMMAND quantapdf_native_public_render --ordered-scene)
 set_tests_properties(quantapdf.native_ordered_scene PROPERTIES

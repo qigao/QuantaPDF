@@ -219,6 +219,7 @@ struct staged_image {
     std::vector<unsigned char> pixels;
     uint32_t width=0,height=0;
     int components=0;
+    bool interpolate=false;
     quantapdf_rect bounds={};
     quantapdf_affine_transform transform={};
 };
@@ -453,12 +454,9 @@ struct admission {
               dict.getKey("/SMaskInData").isNull() &&
               dict.getKey("/Intent").isNull(),
               QUANTAPDF_ERROR_UNSUPPORTED);
-        /* Absent or explicit false both request nearest-sample semantics.
-         * Interpolation true, wrong type and unqualified filtering refuse. */
         Obj interpolation=dict.getKey("/Interpolate");
-        admit(interpolation.isNull() ||
-              (interpolation.isBool() && !interpolation.getBoolValue()),
-              QUANTAPDF_ERROR_UNSUPPORTED);
+        admit(interpolation.isNull() || interpolation.isBool(),QUANTAPDF_ERROR_FORMAT);
+        const bool interpolate=interpolation.isBool() && interpolation.getBoolValue();
         Obj bits=dict.getKey("/BitsPerComponent");
         admit(bits.isInteger());
         admit(bits.getIntValue() == 8, QUANTAPDF_ERROR_UNSUPPORTED);
@@ -545,7 +543,7 @@ struct admission {
             const double ay1=ay0+ctm[3];
             /* A cropped original IMAGE still owns its complete XObject
              * sample footprint. Its off-canvas edges are not clipped or
-             * rescaled before nearest-sample lookup. The viewport C11
+             * rescaled before sampling. The viewport C11
              * sampler intersects the full source footprint at 4x4 samples.
              * Legacy integer page grammar still rejects outside placements. */
             if(ordered)for(double value:{ax0,ax1,ay0,ay1})
@@ -584,6 +582,7 @@ struct admission {
         entry.width=static_cast<uint32_t>(w);
         entry.height=static_cast<uint32_t>(h);
         entry.components=channels;
+        entry.interpolate=interpolate;
         QP_SOURCE_STAGE_ARM(1u);
         draws.push_back(std::move(entry));
         QP_SOURCE_STAGE_ARM(2u);
@@ -1904,6 +1903,7 @@ quantapdf_ir materialize_ordered_paints(const admission& source)
                 image.width=staged.width;image.height=staged.height;
                 image.size=staged.pixels.size();image.components=staged.components;
                 image.format=QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW;
+                image.interpolate=staged.interpolate;
                 op.kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;op.bounds=staged.bounds;
                 op.value.image.image_id=static_cast<quantapdf_composer_image_id>(image_index);
                 op.value.image.options.fit=QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;

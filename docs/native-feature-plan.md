@@ -746,6 +746,21 @@
   顺序编码 RGB、4:2:0 渐进式 YCbCr 和 Gray。检查显式转换值、压缩字节原样保存和
   重复添加的图像资源身份。沿用现有 150 项 CTest。
 
+### A4 不透明 Image XObject 插值
+
+- 起点为 #625 `c405efaa`、[Native CI #2491](https://github.com/qigao/QuantaPDF/actions/runs/44752347370)
+  四配置各 150/150。此增量以新 HEAD 的完整 CI 验收。
+- `/Interpolate true` 保存在图像资源，适用于已支持的 8 位不透明 DeviceGray 和
+  DeviceRGB，包含 RAW、Flate、顺序与渐进式 JPEG 样本。省略标志或显式 `false`
+  使用最近邻，有效类型限布尔值。
+- C11 Scene 以设备像素中心逆映射，按四个 texel 中心作双线性插值，边界延伸外圈
+  texel。每轴使用 16 位小数权重。图像四边形与当前 Clip 在同一 4×4 网格求覆盖，
+  颜色在应用覆盖后才舍入。
+  有覆盖的插值像素计四次 texel 访问，无额外采样缓冲分配。
+- 公开渲染验证 28 次独立有理数参考的完整 RGB，覆盖仿射、镜像、原始 Rotate、
+  Crop、UserUnit、加密页面和小数 DPI，另测错误类型的原子拒绝。现有 C11 设备测试
+  验证单列样本、边缘舍入、编译资源快照及预算 N/N−1。共 151 项 CTest。
+
 
 ## 单一执行模型
 
@@ -783,7 +798,7 @@ Renderer 使用同一套几何、采样和合成实现。Form、透明组和 pat
 | A1 API 与执行模型 | C11 facade、Context/owner、qpdf backend、native renderer 已存在；版本包装和多层准入仍多 | 一套当前 API；删除兼容 factory/provider/record 协商；直接复用打开的文档；统一所有权、错误和脚本失败行为 | P0 |
 | A2 通用内容、路径与坐标 | 普通 opaque Scene 已动态保存操作及 Clip 图；Stroke/复杂 paint、一般页面坐标和部分底层消费者仍受固定 profile 限制 | 任意实际绘制序列、通用 q/Q/CTM/Clip；完整路径/Stroke；一般页面几何、DPI/ROI/RGBA；合理的动态/分块绘制 | P1，功能实现首先推进 |
 | A3 字体、文本与提取 | 已有 TrueType 子集/轮廓、CID FontFile2 与部分文字操作；Composer 部分能力不能当作 Source 通用支持 | 多字体、多段 Text、完整 text state/positioning；Encoding/CMap/ToUnicode；常见嵌入字体与标准字体；提取/搜索/选区几何 | P1 |
-| A4 图像与色彩 | RAW/Flate 8-bit Gray/RGB 和部分 predictors 已验收；其他路径有代码不等于 Source 已能渲染 | JPEG、扫描图像、更多位深/Decode/色彩空间、inline image、image mask/SMask；完整图像仿射采样 | P1 |
+| A4 图像与色彩 | 8-bit Gray/RGB 支持 RAW/Flate、顺序与渐进式 JPEG、部分 predictors 和仿射采样。插值增量见上文 | 扫描图像、更多位深/Decode/色彩空间、inline image、image mask/SMask | P1 |
 | A5 Form、透明度与外观 | 部分 writer/Composer 数据结构已存在；native 整页解释/渲染覆盖不足 | 嵌套 Form、Resources/BBox/Matrix；alpha/blend/group/soft mask；pattern/shading；annotation/widget appearance | P1 |
 | A6 文档操作、编辑与生成 | 打开、页面操作、编辑、导出、Composer、安全观察等已有实现，完整回归未纳入当前门禁 | 以当前 API 接通并验证 open/read/edit/export/merge/compose；修正文档树与 writer 语义；简化失败编辑；保证生成文件的实际行为 | P1 |
 | A7 Beta 测试、文档与交付 | 当前 native CI 全绿；旧验收文档过时，CI 没有 SDK 发布产物 | 当前功能矩阵、已有 SDK 回归迁移、真实文档集合、发布包/清单/许可/校验和、对应平台运行结果 | P0，与功能并行 |
@@ -827,7 +842,7 @@ Renderer 使用同一套几何、采样和合成实现。Form、透明组和 pat
 
 ### A4：真实图像
 
-- 首先完成常见 JPEG 与 Flate Gray/RGB、更多位深、CMYK/Indexed/Decode/predictors。
+- 补足 RAW/Flate 和 JPEG 的位深、CMYK/Indexed、Decode/predictors 能力。
 - 再补扫描 PDF 的 CCITT/JBIG2、JPX，及 ICCBased/Lab/Separation/DeviceN 等色彩路径；
   解码和色彩转换按明确 PDF filter/color space 分派，不轮流尝试 codec 猜格式。
 - Inline image、stencil、SMask 与 alpha 在正确坐标和合成模型中工作。

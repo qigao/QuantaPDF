@@ -20,6 +20,7 @@ typedef struct quantapdf_composer_image_state {
     int has_alpha;
     quantapdf_composer_image_format_internal format;
     int jpeg_color_transform; /* PDF DCT ColorTransform for three-component JPEGs. */
+    int interpolate;
 } quantapdf_composer_image_state;
 
 typedef struct quantapdf_composer_font_state {
