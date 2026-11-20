@@ -17,8 +17,14 @@
 #endif
 typedef struct quantapdf_jpeg_error_context {
     struct jpeg_error_mgr manager;
+    struct jpeg_progress_mgr progress;
+    jvirt_barray_ptr (*request_coefficients)(j_common_ptr, int, boolean,
+        JDIMENSION, JDIMENSION, JDIMENSION);
     jmp_buf jump;
     unsigned char *scanline;
+    size_t coefficient_bytes_left;
+    size_t scan_blocks_left;
+    int charged_scan;
     quantapdf_status status;
     int destroyable;
 } quantapdf_jpeg_error_context;
@@ -26,14 +32,18 @@ typedef struct quantapdf_jpeg_error_context {
 #pragma warning(pop)
 #endif
 
+static _Noreturn void quantapdf_jpeg_exit(
+    quantapdf_jpeg_error_context *context, quantapdf_status status)
+{
+    context->status = status;
+    longjmp(context->jump, 1);
+}
+
 static void quantapdf_jpeg_fail(j_common_ptr common)
 {
-    quantapdf_jpeg_error_context *context =
-        (quantapdf_jpeg_error_context *)common->err;
-    context->status = common->err->msg_code == JERR_OUT_OF_MEMORY
-        ? QUANTAPDF_ERROR_NOMEM
-        : QUANTAPDF_ERROR_FORMAT;
-    longjmp(context->jump, 1);
+    quantapdf_jpeg_exit((quantapdf_jpeg_error_context *)common->err,
+        common->err->msg_code == JERR_OUT_OF_MEMORY
+            ? QUANTAPDF_ERROR_NOMEM : QUANTAPDF_ERROR_FORMAT);
 }
 
 static void quantapdf_jpeg_emit_message(
@@ -64,10 +74,51 @@ void quantapdf_jpeg_force_oom_for_testing(int enabled)
 }
 #endif
 
+/* Bill the decoder's actual padded block dimensions before libjpeg
+ * registers and allocates each full-image coefficient array. */
+static jvirt_barray_ptr quantapdf_jpeg_request_coefficients(j_common_ptr common,
+    int pool, boolean pre_zero, JDIMENSION columns, JDIMENSION rows,
+    JDIMENSION access_rows)
+{
+    quantapdf_jpeg_error_context *context =
+        (quantapdf_jpeg_error_context *)common->err;
+    size_t blocks;
+    if (!quantapdf_size_multiply(columns, rows, &blocks) ||
+        blocks > context->coefficient_bytes_left / sizeof(JBLOCK))
+        quantapdf_jpeg_exit(context, QUANTAPDF_ERROR_UNSUPPORTED);
+    context->coefficient_bytes_left -= blocks * sizeof(JBLOCK);
+#if defined(QUANTAPDF_TESTING)
+    if (quantapdf_jpeg_force_oom == 3) {
+        common->err->msg_code = JERR_OUT_OF_MEMORY;
+        quantapdf_jpeg_fail(common);
+    }
+#endif
+    return context->request_coefficients(common, pool, pre_zero, columns,
+        rows, access_rows);
+}
+
+/* During preload libjpeg calls the monitor after each new SOS is set up
+ * and before it consumes entropy data for that scan. */
+static void quantapdf_jpeg_charge_scan(j_common_ptr common)
+{
+    const struct jpeg_decompress_struct *decoder = (j_decompress_ptr)common;
+    quantapdf_jpeg_error_context *context =
+        (quantapdf_jpeg_error_context *)common->err;
+    size_t blocks;
+    if (decoder->input_scan_number == context->charged_scan)
+        return;
+    if (!quantapdf_size_multiply(decoder->MCUs_per_row, decoder->MCU_rows_in_scan, &blocks) ||
+        !quantapdf_size_multiply(blocks, (size_t)decoder->blocks_in_MCU, &blocks) ||
+        blocks > context->scan_blocks_left)
+        quantapdf_jpeg_exit(context, QUANTAPDF_ERROR_UNSUPPORTED);
+    context->scan_blocks_left -= blocks;
+    context->charged_scan = decoder->input_scan_number;
+}
+
 static quantapdf_status quantapdf_jpeg_read(
     const unsigned char *data,
     size_t size,
-    size_t max_working_bytes,
+    quantapdf_jpeg_limits limits,
     int color_transform,
     const quantapdf_jpeg_layout *expected,
     unsigned char *pixels,
@@ -139,10 +190,18 @@ static quantapdf_status quantapdf_jpeg_read(
             &row_size) ||
         !quantapdf_size_multiply(
             row_size, (size_t)decoder->image_height, &decoded_size) ||
-        size > max_working_bytes ||
-        decoded_size > max_working_bytes - size || decoder->progressive_mode) {
+        size > limits.max_working_bytes ||
+        decoded_size > limits.max_working_bytes - size) {
         errors->status = QUANTAPDF_ERROR_UNSUPPORTED;
         goto cleanup;
+    }
+    if (jpeg_has_multiple_scans(decoder)) {
+        errors->coefficient_bytes_left = limits.max_working_bytes - size - decoded_size;
+        errors->request_coefficients = decoder->mem->request_virt_barray;
+        decoder->mem->request_virt_barray = quantapdf_jpeg_request_coefficients;
+        errors->scan_blocks_left = limits.max_scan_blocks;
+        errors->progress.progress_monitor = quantapdf_jpeg_charge_scan;
+        decoder->progress = &errors->progress;
     }
     if (!jpeg_start_decompress(decoder) ||
         decoder->output_width != decoder->image_width ||
@@ -185,14 +244,14 @@ cleanup:
 }
 
 quantapdf_status quantapdf_jpeg_validate(
-    const unsigned char *data, size_t size, size_t max_working_bytes,
+    const unsigned char *data, size_t size, quantapdf_jpeg_limits limits,
     uint32_t *out_width, uint32_t *out_height, int *out_components)
 {
     if (out_width == NULL || out_height == NULL || out_components == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     quantapdf_jpeg_layout shape = {0};
     const quantapdf_status status = quantapdf_jpeg_read(data, size,
-        max_working_bytes, -1, NULL, NULL, &shape);
+        limits, -1, NULL, NULL, &shape);
     *out_width = shape.width;
     *out_height = shape.height;
     *out_components = shape.components;
@@ -200,9 +259,9 @@ quantapdf_status quantapdf_jpeg_validate(
 }
 
 quantapdf_status quantapdf_jpeg_decode(
-    const unsigned char *data, size_t size, size_t max_working_bytes,
+    const unsigned char *data, size_t size, quantapdf_jpeg_limits limits,
     int color_transform, quantapdf_jpeg_layout layout, unsigned char *pixels)
 {
-    return quantapdf_jpeg_read(data, size, max_working_bytes, color_transform,
+    return quantapdf_jpeg_read(data, size, limits, color_transform,
         &layout, pixels, NULL);
 }

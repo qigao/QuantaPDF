@@ -722,7 +722,21 @@
 - 两项 CTest 复用公开渲染和 Source/OOM 目标。定值 DCT 块提供独立像素参考，覆盖 84 次完整页面
   RGB、42 次完整提取 RGB、6 种错误、三种滤镜封装、AES-256、仿射/有序混合页、小数 DPI、
   三次 detached Source RGBA、精确源像素预算，以及 libjpeg、样本分配、IR 发布与 C11 OOM。
-- Progressive JPEG、CMYK、图像掩罩和插值仍有开放项。
+- 此增量验收的是顺序编码 JPEG。渐进式 JPEG 见下节，CMYK、图像掩罩和插值仍有开放项。
+
+### A4 渐进式 JPEG 图像
+
+- 在 #625 `b99c8d4a` 与 [Native CI #2489](https://github.com/qigao/QuantaPDF/actions/runs/44743010660)
+  四配置各 150/150 的基础上，8 位渐进式 Gray/RGB 可经现有 libjpeg 输出到整页 Scene 与独立图像提取。
+  Composer 可嵌入同样的 JPEG 数据，导出的 DCTDecode 流保留原始扫描。
+- 对多扫描 JPEG，libjpeg 请求的实际系数数组尺寸计入输入与输出样本的字节预算。
+  每个新输入扫描按其 MCU 网格和块数收费。所有输入扫描完成后才输出扫描行。
+  Source 和提取仍使用原有 64 MiB 数据预算。每次多扫描解码最多计 16,777,216 个块访问。
+- 复用两项 JPEG CTest。增量覆盖 36 次渐进式混合页 RGB、18 次提取 RGB、6 种渐进式错误、
+  3 次 detached Source RGBA 和系数请求阶段 OOM。17×17 的十扫描 4:2:0 原件通过 Composer
+  写出重开，完整 RGB 包含后续 AC 扫描的贡献。独立核对 3,072 个系数字节和 100 次块访问，
+  两项预算均验证 N 成功且 N−1 拒绝。
+
 
 ## 单一执行模型
 

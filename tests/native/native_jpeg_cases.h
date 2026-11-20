@@ -94,9 +94,10 @@ static int native_jpeg_cases(const std::string& filename)
         }
     }
 
+    for (const auto *spec : {&cases[1], &progressive_ycbcr})
     for (auto bad : {fault::width, fault::height, fault::channels, fault::truncated,
                      fault::bad_transform, fault::nonterminal_dct}) {
-        const auto original = create(cases[1], container::name, true, bad);
+        const auto original = create(*spec, container::name, true, bad);
         CHECK(write_pdf(filename, original.bytes));
         quantapdf_document *raw_doc = nullptr;
         OK(quantapdf_open(filename.c_str(), "reader", &raw_doc));
@@ -120,9 +121,71 @@ static int native_jpeg_cases(const std::string& filename)
         ++refusals;
     }
 
-    CHECK(pages == 84u && images == 42u && refusals == 6u);
+    CHECK(pages == 120u && images == 60u && refusals == 12u);
+
+    // The Composer preserves the compressed progressive bytes, and the
+    // reopened 1:1 page must include the samples from later AC scans.
+    quantapdf_composer *raw_composer = nullptr;
+    OK(quantapdf_composer_create(nullptr, &raw_composer));
+    std::unique_ptr<quantapdf_composer, decltype(&quantapdf_drop_composer)>
+        composer(raw_composer, quantapdf_drop_composer);
+    quantapdf_composer_image_id image_id = 0u;
+    OK(quantapdf_composer_add_image(composer.get(), progressive_420_jpeg,
+        sizeof(progressive_420_jpeg), &image_id));
+    const float side_points = static_cast<float>(subsampled_side);
+    const quantapdf_composer_page_options page_options{
+        sizeof(page_options), side_points, side_points, 0xffffffffu};
+    size_t index = SIZE_MAX;
+    OK(quantapdf_composer_add_page(composer.get(), &page_options, &index));
+    const quantapdf_rect bounds{0, 0, side_points, side_points};
+    const quantapdf_composer_image_options placement{QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH, 0u};
+    OK(quantapdf_composer_draw_image(composer.get(), index, image_id, &bounds, &placement));
+    quantapdf_output *raw_output = nullptr;
+    OK(quantapdf_composer_finish(composer.get(), &raw_output));
+    std::unique_ptr<quantapdf_output, decltype(&quantapdf_drop_output)>
+        output(raw_output, quantapdf_drop_output);
+    const unsigned char *bytes = nullptr;
+    size_t size = 0u;
+    OK(quantapdf_output_data(output.get(), &bytes, &size));
+    {
+        auto pdf = QPDF::create();
+        pdf->processMemoryFile("progressive JPEG Composer output",
+            reinterpret_cast<const char*>(bytes), size);
+        auto object = pdf->getRoot().getKey("/Pages").getKey("/Kids").getArrayItem(0);
+        auto image = object.getKey("/Resources").getKey("/XObject").getKey("/Im" + std::to_string(image_id));
+        CHECK(image.isStream() && image.getDict().getKey("/Filter").isNameAndEquals("/DCTDecode"));
+        const auto encoded = image.getRawStreamData();
+        CHECK(encoded->getSize() == sizeof(progressive_420_jpeg) &&
+            std::memcmp(encoded->getBuffer(), progressive_420_jpeg, encoded->getSize()) == 0);
+    }
+    CHECK(write_pdf(filename, std::string(reinterpret_cast<const char*>(bytes), size)));
+    output.reset();
+    composer.reset();
+    quantapdf_document *raw_doc = nullptr;
+    OK(quantapdf_open(filename.c_str(), nullptr, &raw_doc));
+    doc_owner document(raw_doc, quantapdf_close);
+    CHECK(std::remove(filename.c_str()) == 0);
+    quantapdf_page *raw_page = nullptr;
+    OK(quantapdf_load_page(document.get(), 0, &raw_page));
+    page_owner page(raw_page, quantapdf_drop_page);
+    document.reset();
+    quantapdf_bitmap *raw_bitmap = nullptr;
+    OK(quantapdf_render_page(page.get(), &raw_bitmap));
+    bitmap_owner bitmap(raw_bitmap, quantapdf_drop_bitmap);
+    quantapdf_image_page *raw_images = nullptr;
+    OK(quantapdf_extract_images(page.get(), &raw_images));
+    image_owner snapshot(raw_images, quantapdf_drop_image_page);
+    OK(quantapdf_image_render(snapshot.get(), 0u, &raw_bitmap));
+    bitmap_owner extracted(raw_bitmap, quantapdf_drop_bitmap);
+    page.reset();
+    snapshot.reset();
+    const auto expected = subsampled_rgb();
+    CHECK(matches(bitmap.get(), subsampled_side, subsampled_side, expected));
+    CHECK(matches(extracted.get(), subsampled_side, subsampled_side, expected));
+
     std::printf("PDF JPEG: %zu complete page RGB results, %zu decoded image RGB results, "
-        "%zu atomic refusals with blank-page follow-up\n", pages, images, refusals);
+        "%zu atomic refusals and a 4:2:0 progressive Composer round trip\n",
+        pages + 1u, images + 1u, refusals);
     return EXIT_SUCCESS;
 }
 

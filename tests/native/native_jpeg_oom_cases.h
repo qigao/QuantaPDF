@@ -4,12 +4,46 @@
 #include "backend/qpdf_composer.h"
 #include "native_jpeg_fixture.h"
 
+static int native_jpeg_progressive_budgets()
+{
+    using namespace native_jpeg;
+    const auto expected = subsampled_rgb();
+    std::vector<unsigned char> pixels(expected.size(), 0xa5u);
+    // 17x17 4:2:0 uses a 4x4 padded luma array and two 2x2 chroma
+    // arrays. Each 8x8 block contains 64 signed 16-bit coefficients.
+    constexpr size_t coefficient_bytes = (16u + 4u + 4u) * 64u * 2u;
+    // Two 24-block interleaved DC scans, four 9-block luma scans
+    // and four 4-block chroma scans.
+    constexpr size_t block_visits = 2u * 24u + 4u * 9u + 4u * 4u;
+    const quantapdf_jpeg_limits exact{
+        sizeof(progressive_420_jpeg) + pixels.size() + coefficient_bytes, block_visits};
+    const auto decode = [&](quantapdf_jpeg_limits limits) {
+        return quantapdf_jpeg_decode(progressive_420_jpeg, sizeof(progressive_420_jpeg),
+            limits, -1, {subsampled_side, subsampled_side, 3}, pixels.data());
+    };
+    CHECK(decode(exact) == QUANTAPDF_OK && pixels == expected);
+    const quantapdf_jpeg_limits denied[] = {
+        {exact.max_working_bytes - 1u, exact.max_scan_blocks},
+        {exact.max_working_bytes, exact.max_scan_blocks - 1u},
+    };
+    for (auto limits : denied) {
+        std::fill(pixels.begin(), pixels.end(), 0xa5u);
+        CHECK(decode(limits) == QUANTAPDF_ERROR_UNSUPPORTED &&
+            std::all_of(pixels.begin(), pixels.end(), [](unsigned char b) { return b == 0xa5u; }));
+    }
+    return EXIT_SUCCESS;
+}
+
 static int native_jpeg_source_contracts(const quantapdf_qpdf_page_limits& defaults)
 {
     using namespace native_jpeg;
+    CHECK(native_jpeg_progressive_budgets() == EXIT_SUCCESS);
     size_t publication_faults = 0u, raster_faults = 0u;
+    for (bool progressive : {false, true})
     for (const auto storage : {container::name, container::array, container::wrapped}) {
-        const auto& spec = cases[storage == container::name ? 0u : 5u];
+        const auto& spec = progressive
+            ? (storage == container::name ? progressive_gray : progressive_rgb)
+            : cases[storage == container::name ? 0u : 5u];
         auto original = create(spec, storage, true);
         quantapdf_qpdf_document *document = nullptr;
         CHECK(quantapdf_qpdf_open_memory(reinterpret_cast<const unsigned char*>(original.bytes.data()),
@@ -27,7 +61,8 @@ static int native_jpeg_source_contracts(const quantapdf_qpdf_page_limits& defaul
         --smaller.max_source_pixels;
         std::memset(&ir, 0xa5, sizeof(ir));
         CHECK(read(smaller, ir) == QUANTAPDF_ERROR_UNSUPPORTED && cleared(ir));
-        for (int phase : {1, 2}) {
+        const int last_phase = progressive ? 3 : 2;
+        for (int phase = 1; phase <= last_phase; ++phase) {
             std::memset(&ir, 0xa5, sizeof(ir));
             quantapdf_jpeg_force_oom_for_testing(phase);
             const auto status = read(caps, ir);
@@ -100,8 +135,8 @@ static int native_jpeg_source_contracts(const quantapdf_qpdf_page_limits& defaul
         quantapdf_ir_dispose(&ir);
         CHECK(cleared(ir));
     }
-    std::printf("JPEG Source: 3 detached RGBA results, 3 exact source budgets, "
-        "6 libjpeg failures, 3 decoded buffer failures, %zu publication failures and "
+    std::printf("JPEG Source: 6 detached RGBA results, 6 exact source budgets, "
+        "coefficient and scan budgets, 15 libjpeg failures, 6 decoded buffer failures, %zu publication failures and "
         "%zu C11 allocation failures\n", publication_faults, raster_faults);
     return EXIT_SUCCESS;
 }

@@ -29,7 +29,8 @@ int main(void)
 
         quantapdf_jpeg_force_oom_for_testing(stage);
         status = quantapdf_jpeg_validate(
-            jpeg, jpeg_size, SIZE_MAX, &width, &height, &components);
+            jpeg, jpeg_size, (quantapdf_jpeg_limits){SIZE_MAX, QUANTAPDF_JPEG_MAX_SCAN_BLOCKS},
+            &width, &height, &components);
         quantapdf_jpeg_force_oom_for_testing(0);
         CHECK(status == QUANTAPDF_ERROR_NOMEM);
         CHECK(width == 0u && height == 0u && components == 0);

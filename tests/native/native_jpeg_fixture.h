@@ -2,6 +2,8 @@
 #define QUANTAPDF_NATIVE_JPEG_FIXTURE_H
 
 #include "native_clip_graph_fixture.h"
+#include "native_jpeg_progressive_payload.h"
+#include <span>
 
 namespace native_jpeg {
 
@@ -68,17 +70,46 @@ struct specimen {
     int adobe;
     int transform;
     bool invert;
+    std::span<const unsigned char> payload;
 };
 
+inline constexpr specimen progressive_gray = {
+    "progressive Gray", true, true, -1, 1, true, progressive_gray_jpeg};
+inline constexpr specimen progressive_rgb = {
+    "progressive APP14 RGB", false, false, 0, 1, true, progressive_color_jpeg};
+inline constexpr specimen progressive_ycbcr = {
+    "progressive JFIF", false, true, -1, -1, false, progressive_color_jpeg};
+
 inline constexpr specimen cases[] = {
-    {"gray", true, true, -1, 1, true},
-    {"rgb", false, false, -1, 0, false},
-    {"default YCbCr", false, false, -1, -1, false},
-    {"JFIF", false, true, -1, -1, false},
-    {"explicit YCbCr", false, false, -1, 1, true},
-    {"APP14 RGB", false, false, 0, 1, true},
-    {"APP14 YCbCr", false, false, 1, 0, false},
+    {"gray", true, true, -1, 1, true, gray_jpeg},
+    {"rgb", false, false, -1, 0, false, color_jpeg},
+    {"default YCbCr", false, false, -1, -1, false, color_jpeg},
+    {"JFIF", false, true, -1, -1, false, color_jpeg},
+    {"explicit YCbCr", false, false, -1, 1, true, color_jpeg},
+    {"APP14 RGB", false, false, 0, 1, true, color_jpeg},
+    {"APP14 YCbCr", false, false, 1, 0, false, color_jpeg},
+    progressive_gray, progressive_rgb, progressive_ycbcr,
 };
+
+inline constexpr unsigned subsampled_side = 17u;
+
+inline std::vector<unsigned char> subsampled_rgb()
+{
+    // Quantized horizontal frequency 4 gives +13, -13, -13, +13
+    // around each luma block's mean. Chroma is uniform across the image.
+    constexpr int y[] = {84, 58, 58, 84, 84, 58, 58, 84, 126, 100, 100,
+        126, 126, 100, 100, 126, 174};
+    std::vector<unsigned char> rgb;
+    rgb.reserve(subsampled_side * subsampled_side * 3u);
+    for (unsigned row = 0u; row < subsampled_side; ++row) {
+        for (int value : y) {
+            rgb.push_back(static_cast<unsigned char>(value + 36));
+            rgb.push_back(static_cast<unsigned char>(value - 22));
+            rgb.push_back(static_cast<unsigned char>(value + 16));
+        }
+    }
+    return rgb;
+}
 
 inline std::array<unsigned char, 12> colors(const specimen& spec)
 {
@@ -115,9 +146,7 @@ inline native_clip_graph::original create(const specimen& spec, container storag
     auto image = pdf->getRoot().getKey("/Pages").getKey("/Resources")
         .getKey("/XObject").getKey("/I");
 
-    const auto *payload = spec.gray ? gray_jpeg : color_jpeg;
-    const size_t length = spec.gray ? sizeof(gray_jpeg) : sizeof(color_jpeg);
-    std::string jpeg(reinterpret_cast<const char*>(payload), length);
+    std::string jpeg(reinterpret_cast<const char*>(spec.payload.data()), spec.payload.size());
     if (spec.jfif)
         jpeg.insert(2u, reinterpret_cast<const char*>(jfif_marker), sizeof(jfif_marker));
     if (spec.adobe == 0)

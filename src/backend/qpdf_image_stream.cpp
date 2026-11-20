@@ -145,7 +145,8 @@ std::vector<unsigned char> qpdf_decode_dct_image(Obj image,
 #endif
     std::vector<unsigned char> pixels(sample_size);
     const auto status = quantapdf_jpeg_decode(encoded.data(), encoded.size(),
-        jpeg_work_limit, color_transform, layout, pixels.data());
+        {jpeg_work_limit, QUANTAPDF_JPEG_MAX_SCAN_BLOCKS},
+        color_transform, layout, pixels.data());
     require(status == QUANTAPDF_OK, status);
     return pixels;
 }

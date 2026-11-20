@@ -1148,7 +1148,9 @@ quantapdf_status quantapdf_composer_add_image(
         status = quantapdf_jpeg_validate(
             data,
             size,
-            composer->max_resource_bytes - composer->resource_bytes,
+            (quantapdf_jpeg_limits){
+                composer->max_resource_bytes - composer->resource_bytes,
+                QUANTAPDF_JPEG_MAX_SCAN_BLOCKS},
             &image.width,
             &image.height,
             &image.components);
