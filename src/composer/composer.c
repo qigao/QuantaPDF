@@ -1145,15 +1145,14 @@ quantapdf_status quantapdf_composer_add_image(
         image.components = 3;
         image.has_alpha = image.alpha_data != NULL;
     } else {
+        quantapdf_jpeg_info jpeg;
         status = quantapdf_jpeg_validate(
             data,
             size,
             (quantapdf_jpeg_limits){
                 composer->max_resource_bytes - composer->resource_bytes,
                 QUANTAPDF_JPEG_MAX_SCAN_BLOCKS},
-            &image.width,
-            &image.height,
-            &image.components);
+            &jpeg);
         if (status != QUANTAPDF_OK)
             return status;
         image.data = (unsigned char *)malloc(size);
@@ -1161,7 +1160,11 @@ quantapdf_status quantapdf_composer_add_image(
             return QUANTAPDF_ERROR_NOMEM;
         memcpy(image.data, data, size);
         image.size = size;
+        image.width = jpeg.layout.width;
+        image.height = jpeg.layout.height;
+        image.components = jpeg.layout.components;
         image.format = QUANTAPDF_COMPOSER_IMAGE_FORMAT_JPEG;
+        image.jpeg_color_transform = jpeg.color_transform;
     }
     status = quantapdf_resource_intern_image(
         &composer->ir.resources, &image,

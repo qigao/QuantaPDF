@@ -34,18 +34,20 @@ typedef struct quantapdf_jpeg_limits {
     size_t max_scan_blocks;   /* Total MCU data units visited by a multi-scan decode. */
 } quantapdf_jpeg_limits;
 
-quantapdf_status quantapdf_jpeg_validate(
-    const unsigned char *data,
-    size_t size,
-    quantapdf_jpeg_limits limits,
-    uint32_t *out_width,
-    uint32_t *out_height,
-    int *out_components);
-
 typedef struct quantapdf_jpeg_layout {
     uint32_t width, height;
     int components;
 } quantapdf_jpeg_layout;
+
+typedef struct quantapdf_jpeg_info {
+    quantapdf_jpeg_layout layout;
+    int color_transform;
+} quantapdf_jpeg_info;
+
+/* The resolved transform describes the encoded samples, for PDF embedding. */
+quantapdf_status quantapdf_jpeg_validate(
+    const unsigned char *data, size_t size, quantapdf_jpeg_limits limits,
+    quantapdf_jpeg_info *out_info);
 
 /* Decode a PDF image into a private width*height*components byte buffer.
  * The JPEG header must match layout before scanline decoding starts.

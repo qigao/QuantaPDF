@@ -2025,6 +2025,12 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             if (image.format == QUANTAPDF_COMPOSER_IMAGE_FORMAT_JPEG) {
                 dictionary.replaceKey(
                     "/Filter", QPDFObjectHandle::newName("/DCTDecode"));
+                if (image.components == 3) {
+                    auto parameters = QPDFObjectHandle::newDictionary();
+                    parameters.replaceKey("/ColorTransform",
+                        QPDFObjectHandle::newInteger(image.jpeg_color_transform));
+                    dictionary.replaceKey("/DecodeParms", parameters);
+                }
             } else if (image.has_alpha) {
                 auto alpha_stream = pdf.newStream(std::string(
                     reinterpret_cast<char const*>(image.alpha_data),

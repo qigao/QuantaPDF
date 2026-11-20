@@ -122,13 +122,14 @@ static quantapdf_status quantapdf_jpeg_read(
     int color_transform,
     const quantapdf_jpeg_layout *expected,
     unsigned char *pixels,
-    quantapdf_jpeg_layout *actual)
+    quantapdf_jpeg_info *actual)
 {
     struct jpeg_decompress_struct *decoder = NULL;
     quantapdf_jpeg_error_context *errors = NULL;
     quantapdf_status status = QUANTAPDF_ERROR_FORMAT;
     size_t row_size = 0u;
     size_t decoded_size = 0u;
+    int transform = 0;
 
     if (data == NULL || size == 0u)
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -168,18 +169,21 @@ static quantapdf_status quantapdf_jpeg_read(
         decoder->data_precision != 8 ||
         (decoder->num_components != 1 && decoder->num_components != 3))
         goto cleanup;
-    if (expected != NULL) {
-        if (decoder->image_width != expected->width ||
-            decoder->image_height != expected->height ||
-            decoder->num_components != expected->components)
+    if (expected != NULL &&
+        (decoder->image_width != expected->width ||
+         decoder->image_height != expected->height ||
+         decoder->num_components != expected->components))
+        goto cleanup;
+    if (decoder->num_components == 3) {
+        if (decoder->saw_Adobe_marker)
+            transform = decoder->Adobe_transform;
+        else if (expected != NULL)
+            transform = color_transform < 0 ? 1 : color_transform;
+        else
+            transform = decoder->jpeg_color_space == JCS_YCbCr;
+        if (transform != 0 && transform != 1)
             goto cleanup;
-        if (expected->components == 3) {
-            const int transform = decoder->saw_Adobe_marker
-                ? decoder->Adobe_transform : (color_transform < 0 ? 1 : color_transform);
-            if (transform != 0 && transform != 1)
-                goto cleanup;
-            decoder->jpeg_color_space = transform == 0 ? JCS_RGB : JCS_YCbCr;
-        }
+        decoder->jpeg_color_space = transform == 0 ? JCS_RGB : JCS_YCbCr;
     }
     decoder->out_color_space = decoder->num_components == 1
         ? JCS_GRAYSCALE
@@ -227,8 +231,8 @@ static quantapdf_status quantapdf_jpeg_read(
         quantapdf_jpeg_fail((j_common_ptr)decoder);
 
     if (actual != NULL)
-        *actual = (quantapdf_jpeg_layout){decoder->output_width,
-            decoder->output_height, decoder->output_components};
+        *actual = (quantapdf_jpeg_info){{decoder->output_width,
+            decoder->output_height, decoder->output_components}, transform};
     errors->status = QUANTAPDF_OK;
 
 cleanup:
@@ -245,17 +249,12 @@ cleanup:
 
 quantapdf_status quantapdf_jpeg_validate(
     const unsigned char *data, size_t size, quantapdf_jpeg_limits limits,
-    uint32_t *out_width, uint32_t *out_height, int *out_components)
+    quantapdf_jpeg_info *out_info)
 {
-    if (out_width == NULL || out_height == NULL || out_components == NULL)
+    if (out_info == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    quantapdf_jpeg_layout shape = {0};
-    const quantapdf_status status = quantapdf_jpeg_read(data, size,
-        limits, -1, NULL, NULL, &shape);
-    *out_width = shape.width;
-    *out_height = shape.height;
-    *out_components = shape.components;
-    return status;
+    *out_info = (quantapdf_jpeg_info){0};
+    return quantapdf_jpeg_read(data, size, limits, -1, NULL, NULL, out_info);
 }
 
 quantapdf_status quantapdf_jpeg_decode(

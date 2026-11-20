@@ -737,6 +737,15 @@
   写出重开，完整 RGB 包含后续 AC 扫描的贡献。独立核对 3,072 个系数字节和 100 次块访问，
   两项预算均验证 N 成功且 N−1 拒绝。
 
+### A4 Composer JPEG 颜色往返
+
+- Composer 在校验 JPEG 时记录实际判定的颜色转换，写出三通道 DCTDecode 流时将
+  `/ColorTransform` 写入 `/DecodeParms`。无标记的 RGB 使用 0，YCbCr 使用 1，
+  APP14 决定已标记 JPEG 的转换。独立提取和整页渲染都读取同一份 PDF 字典。
+- 公开 JPEG 用例对四页实际写出、重开并比较全部 RGB，包含无 APP14 的十扫描 RGB、
+  顺序编码 RGB、4:2:0 渐进式 YCbCr 和 Gray。检查显式转换值、压缩字节原样保存和
+  重复添加的图像资源身份。沿用现有 150 项 CTest。
+
 
 ## 单一执行模型
 
