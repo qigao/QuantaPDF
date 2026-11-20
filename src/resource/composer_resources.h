@@ -6,7 +6,8 @@
 typedef enum quantapdf_composer_image_format_internal {
     QUANTAPDF_COMPOSER_IMAGE_FORMAT_JPEG = 1,
     QUANTAPDF_COMPOSER_IMAGE_FORMAT_PNG = 2,
-    QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW = 3
+    QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW = 3,
+    QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16 = 4 /* Big-endian unsigned samples. */
 } quantapdf_composer_image_format_internal;
 
 typedef struct quantapdf_composer_image_state {

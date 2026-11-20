@@ -5631,6 +5631,7 @@ static int ordered_clip_source_contracts(const quantapdf_qpdf_page_limits& defau
 #include "native_path_commands_oom_cases.h"
 #include "native_clip_graph_oom_cases.h"
 #include "native_jpeg_oom_cases.h"
+#include "native_image_depth_oom_cases.h"
 
 int main(int argc,char **argv)
 {
@@ -5657,6 +5658,8 @@ int main(int argc,char **argv)
         return clip_graph_dpi_contracts(limits,false,false,true,false,false,true);
     if(argc==2 && std::strcmp(argv[1],"--jpeg-images")==0)
         return native_jpeg_source_contracts(limits);
+    if(argc==2 && std::strcmp(argv[1],"--image-depth")==0)
+        return native_image_depth_source_contracts(limits);
     if(argc==2 && std::strcmp(argv[1],"--fractional-fill")==0)
         return path_commands_source_contracts(limits,true,false,false,false,false,8u);
     if(argc==2 && std::strcmp(argv[1],"--fractional-clip")==0)

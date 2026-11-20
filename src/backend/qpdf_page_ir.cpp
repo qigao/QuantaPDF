@@ -63,16 +63,6 @@ void admit(bool condition, quantapdf_status status = QUANTAPDF_ERROR_FORMAT)
     if (!condition) throw rejected{status};
 }
 
-size_t integer(Obj x, size_t limit)
-{
-    admit(x.isInteger());
-    auto n = x.getIntValue();
-    admit(n > 0, QUANTAPDF_ERROR_FORMAT);
-    admit(static_cast<uint64_t>(n) <= static_cast<uint64_t>(limit),
-        QUANTAPDF_ERROR_UNSUPPORTED);
-    return static_cast<size_t>(n);
-}
-
 double finite_number(Obj x)
 {
     admit(x.isNumber());
@@ -150,56 +140,6 @@ size_t whole(double value, size_t max)
     return v;
 }
 
-/* Image predictors are decoded by qpdf after their row/channel metadata is
- * checked here. Content stream filters are handled separately by qpdf. */
-std::vector<unsigned char> raw_image_samples(Obj stream, size_t size,
-    size_t image_columns, int image_channels)
-{
-    Obj dict = stream.getDict();
-    Obj filter = dict.getKey("/Filter");
-    const bool flate = filter.isName() &&
-        filter.getName() == "/FlateDecode";
-    admit(filter.isNull() || flate, QUANTAPDF_ERROR_UNSUPPORTED);
-
-    Obj parms=dict.getKey("/DecodeParms");
-    admit(parms.isNull() || flate,
-          QUANTAPDF_ERROR_UNSUPPORTED);
-    if(!parms.isNull()) {
-        admit(parms.isDictionary() && image_columns>0u &&
-              image_columns<=hard_image_pixels &&
-              (image_channels==1 || image_channels==3),
-              QUANTAPDF_ERROR_UNSUPPORTED);
-        for(const auto& key:parms.getKeys())
-            admit(key=="/Predictor" || key=="/Colors" ||
-                  key=="/Columns" || key=="/BitsPerComponent",
-                  QUANTAPDF_ERROR_UNSUPPORTED);
-        Obj predictor=parms.getKey("/Predictor");
-        Obj colors=parms.getKey("/Colors");
-        Obj columns=parms.getKey("/Columns");
-        Obj bits=parms.getKey("/BitsPerComponent");
-        admit(predictor.isInteger() && colors.isInteger() &&
-              columns.isInteger() && bits.isInteger(),
-              QUANTAPDF_ERROR_UNSUPPORTED);
-        const auto code=predictor.getIntValue();
-        admit(code==1 || code==2 || (code>=10 && code<=15),
-              QUANTAPDF_ERROR_UNSUPPORTED);
-        admit(colors.getIntValue()==image_channels &&
-              bits.getIntValue()==8,
-              QUANTAPDF_ERROR_UNSUPPORTED);
-        const auto cols=columns.getIntValue();
-        admit(cols>0 &&
-              static_cast<uint64_t>(cols)==
-                  static_cast<uint64_t>(image_columns) &&
-              image_columns<=hard_image_pixels/
-                  static_cast<size_t>(image_channels),
-              QUANTAPDF_ERROR_UNSUPPORTED);
-    }
-    const auto level = flate ? qpdf_dl_specialized : qpdf_dl_none;
-    auto bytes = quantapdf::detail::qpdf_read_stream(stream, size, level);
-    admit(bytes.size() == size);
-    return bytes;
-}
-
 using matrix = std::array<double,6>;
 const matrix identity={1,0,0,1,0,0};
 
@@ -219,6 +159,7 @@ struct staged_image {
     std::vector<unsigned char> pixels;
     uint32_t width=0,height=0;
     int components=0;
+    bool wide=false;
     bool interpolate=false;
     quantapdf_rect bounds={};
     quantapdf_affine_transform transform={};
@@ -457,68 +398,14 @@ struct admission {
         Obj interpolation=dict.getKey("/Interpolate");
         admit(interpolation.isNull() || interpolation.isBool(),QUANTAPDF_ERROR_FORMAT);
         const bool interpolate=interpolation.isBool() && interpolation.getBoolValue();
-        Obj bits=dict.getKey("/BitsPerComponent");
-        admit(bits.isInteger());
-        admit(bits.getIntValue() == 8, QUANTAPDF_ERROR_UNSUPPORTED);
         Obj colorspace=dict.getKey("/ColorSpace");
         admit(colorspace.isName(),QUANTAPDF_ERROR_UNSUPPORTED);
-        int channels=colorspace.getName()=="/DeviceGray" ? 1 :
-            (colorspace.getName()=="/DeviceRGB" ? 3 : 0);
-        admit(channels != 0,QUANTAPDF_ERROR_UNSUPPORTED);
-
-        Obj decode=dict.getKey("/Decode");
-        std::array<bool,3u> invert={false,false,false};
-        bool any_inversion=false;
-        if(!decode.isNull()) {
-            admit(decode.isArray() &&
-                  decode.getArrayNItems()==2*channels,
-                  QUANTAPDF_ERROR_UNSUPPORTED);
-            for(int c=0;c<channels;++c) {
-                Obj lower=decode.getArrayItem(c*2);
-                Obj upper=decode.getArrayItem(c*2+1);
-                admit(lower.isNumber() && upper.isNumber(),
-                      QUANTAPDF_ERROR_UNSUPPORTED);
-                const double a=lower.getNumericValue();
-                const double b=upper.getNumericValue();
-                admit(std::isfinite(a) && std::isfinite(b) &&
-                      ((a==0.0 && b==1.0) ||
-                       (a==1.0 && b==0.0)),
-                      QUANTAPDF_ERROR_UNSUPPORTED);
-                invert[static_cast<size_t>(c)]=a==1.0;
-                any_inversion=any_inversion ||
-                    invert[static_cast<size_t>(c)];
-            }
-        }
-
-        const size_t w=integer(dict.getKey("/Width"),hard_image_pixels);
-        const size_t h=integer(dict.getKey("/Height"),hard_image_pixels);
-        admit(w<=hard_image_pixels/h,QUANTAPDF_ERROR_UNSUPPORTED);
-        const size_t pixels=w*h;
-        admit(pixels <= limits.max_source_pixels &&
-              source_pixels <= limits.max_source_pixels-pixels &&
-              source_pixels <= hard_image_pixels-pixels,
-              QUANTAPDF_ERROR_UNSUPPORTED);
-        admit(pixels<=SIZE_MAX/(size_t)channels,QUANTAPDF_ERROR_UNSUPPORTED);
-        const size_t size=pixels*(size_t)channels;
-        auto decoded = quantapdf::detail::qpdf_has_dct_filter(dict.getKey("/Filter"))
-            ? quantapdf::detail::qpdf_decode_dct_image(image,
-                {static_cast<uint32_t>(w), static_cast<uint32_t>(h), channels})
-            : raw_image_samples(image, size, w, channels);
-        /* Only after full Decode admission and bounded stream decode
-         * normalize the original color samples to owned RAW bytes.
-         * A fully identity /Decode is zero-copy/zero-work here; otherwise
-         * traverse pixel channels without a modulo for every sample. */
-        if(any_inversion)
-            for(size_t pixel=0u;pixel<pixels;++pixel) {
-                const size_t base=pixel*static_cast<size_t>(channels);
-                for(int c=0;c<channels;++c)
-                    if(invert[static_cast<size_t>(c)]) {
-                        const size_t byte=base+static_cast<size_t>(c);
-                        decoded[byte]=static_cast<unsigned char>(
-                            255u-decoded[byte]);
-                    }
-            }
-        source_pixels+=pixels;
+        const unsigned channels=colorspace.getName()=="/DeviceGray" ? 1u :
+            (colorspace.getName()=="/DeviceRGB" ? 3u : 0u);
+        admit(channels!=0u,QUANTAPDF_ERROR_UNSUPPORTED);
+        auto samples=quantapdf::detail::qpdf_read_image_samples(image,channels,false,
+            std::min(limits.max_source_pixels,hard_image_pixels)-source_pixels);
+        source_pixels+=static_cast<size_t>(samples.width)*samples.height;
 
         const bool axis=ctm[1]==0.0 && ctm[2]==0.0 && ctm[0]>0.0 && ctm[3]>0.0;
         const bool ordered=ordered_scene();
@@ -578,10 +465,12 @@ struct admission {
               QUANTAPDF_ERROR_UNSUPPORTED);
         drawn_pixels+=draw_area;
 
-        entry.pixels=std::move(decoded);
-        entry.width=static_cast<uint32_t>(w);
-        entry.height=static_cast<uint32_t>(h);
-        entry.components=channels;
+        entry.width=samples.width;
+        entry.height=samples.height;
+        entry.components=static_cast<int>(channels);
+        auto decoded=quantapdf::detail::qpdf_normalize_device_samples(std::move(samples));
+        entry.pixels=std::move(decoded.pixels);
+        entry.wide=decoded.wide;
         entry.interpolate=interpolate;
         QP_SOURCE_STAGE_ARM(1u);
         draws.push_back(std::move(entry));
@@ -1710,9 +1599,10 @@ void original_turn_image(staged_image& image,
 
     const size_t w=(size_t)image.width,h=(size_t)image.height;
     const size_t channels=(size_t)image.components;
+    const size_t pixel_bytes=channels*(image.wide?2u:1u);
     admit(w!=0u && h!=0u && (channels==1u || channels==3u) &&
-          w<=hard_image_pixels/h && w*h<=SIZE_MAX/channels &&
-          image.pixels.size()==w*h*channels,
+          w<=hard_image_pixels/h && w*h<=SIZE_MAX/pixel_bytes &&
+          image.pixels.size()==w*h*pixel_bytes,
           QUANTAPDF_ERROR_UNSUPPORTED);
     const size_t new_width=rotation==180?w:h;
     const size_t new_height=rotation==180?h:w;
@@ -1726,8 +1616,8 @@ void original_turn_image(staged_image& image,
             else if(rotation==270) {dx=y;dy=w-1u-x;}
             else throw rejected{QUANTAPDF_ERROR_UNSUPPORTED};
             std::memcpy(
-                turned.data()+(dy*new_width+dx)*channels,
-                image.pixels.data()+(y*w+x)*channels,channels);
+                turned.data()+(dy*new_width+dx)*pixel_bytes,
+                image.pixels.data()+(y*w+x)*pixel_bytes,pixel_bytes);
         }
     image.pixels.swap(turned);
     image.width=static_cast<uint32_t>(new_width);
@@ -1902,7 +1792,8 @@ quantapdf_ir materialize_ordered_paints(const admission& source)
                 std::memcpy(image.data,staged.pixels.data(),staged.pixels.size());
                 image.width=staged.width;image.height=staged.height;
                 image.size=staged.pixels.size();image.components=staged.components;
-                image.format=QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW;
+                image.format=staged.wide?QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16:
+                    QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW;
                 image.interpolate=staged.interpolate;
                 op.kind=QUANTAPDF_COMPOSER_OPERATION_IMAGE;op.bounds=staged.bounds;
                 op.value.image.image_id=static_cast<quantapdf_composer_image_id>(image_index);

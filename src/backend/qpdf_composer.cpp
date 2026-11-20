@@ -2005,8 +2005,11 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
         pdf.emptyPDF();
         std::vector<QPDFObjectHandle> image_objects;
         image_objects.reserve(ir->resources.image_count);
+        bool uses_wide_images = false;
         for (std::size_t i = 0; i < ir->resources.image_count; ++i) {
             auto const& image = ir->resources.images[i];
+            const bool wide = image.format == QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16;
+            uses_wide_images |= wide;
             auto stream = pdf.newStream(std::string(
                 reinterpret_cast<char const*>(image.data), image.size));
             auto dictionary = stream.getDict();
@@ -2017,7 +2020,7 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             dictionary.replaceKey(
                 "/Height", QPDFObjectHandle::newInteger(image.height));
             dictionary.replaceKey(
-                "/BitsPerComponent", QPDFObjectHandle::newInteger(8));
+                "/BitsPerComponent", QPDFObjectHandle::newInteger(wide ? 16 : 8));
             dictionary.replaceKey(
                 "/ColorSpace",
                 QPDFObjectHandle::newName(
@@ -2454,7 +2457,7 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
         writer.setStaticID(true);
         writer.setObjectStreamMode(qpdf_o_disable);
         writer.setMinimumPDFVersion(
-            requires_pdf_16 ? "1.6" : "1.4");
+            requires_pdf_16 ? "1.6" : uses_wide_images ? "1.5" : "1.4");
         writer.write();
         std::unique_ptr<Buffer> buffer(writer.getBuffer());
         if (buffer->getSize() == 0u)

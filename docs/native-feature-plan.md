@@ -761,6 +761,19 @@
   Crop、UserUnit、加密页面和小数 DPI，另测错误类型的原子拒绝。现有 C11 设备测试
   验证单列样本、边缘舍入、编译资源快照及预算 N/N−1。共 151 项 CTest。
 
+### A4 RAW／Flate 多位深与共享样本解码
+
+- 起点为 #625 `382e5a6`、[Native CI #2492](https://github.com/qigao/QuantaPDF/actions/runs/44762465606)
+  四配置各 151/151。此增量以新 HEAD 的完整 CI 验收。
+- Source 与独立提取共用样本布局、滤镜解码、predictor 元数据、逐行解包及 Decode。
+  不透明 DeviceGray／DeviceRGB 的 RAW／Flate 支持 1、2、4、8、16 位。TIFF 与 PNG
+  predictor 通过 qpdf 恢复，行尾填充与原始 16 位大端布局按实际行宽处理。
+- C11 对 16 位与非满量程 Decode 使用 16 位工作样本。最近邻和双线性将源色与覆盖
+  合成后量化为 8 位。原始 Rotate 以完整 texel 为单位转换；资源记录及预算使用实际字节数。
+- 新公开项用原始 PDF 的数学参考比较 42 次整页 RGB、42 次独立提取 RGB 和四类原子错误。
+  Source/OOM 验证解包、旋转、IR 发布的分配故障，以及源像素与 C11 字节预算 N/N−1。
+  共 153 项 CTest。下一项是整页 Indexed，继续使用共享样本解码器。
+
 
 ## 单一执行模型
 
@@ -798,7 +811,7 @@ Renderer 使用同一套几何、采样和合成实现。Form、透明组和 pat
 | A1 API 与执行模型 | C11 facade、Context/owner、qpdf backend、native renderer 已存在；版本包装和多层准入仍多 | 一套当前 API；删除兼容 factory/provider/record 协商；直接复用打开的文档；统一所有权、错误和脚本失败行为 | P0 |
 | A2 通用内容、路径与坐标 | 普通 opaque Scene 已动态保存操作及 Clip 图；Stroke/复杂 paint、一般页面坐标和部分底层消费者仍受固定 profile 限制 | 任意实际绘制序列、通用 q/Q/CTM/Clip；完整路径/Stroke；一般页面几何、DPI/ROI/RGBA；合理的动态/分块绘制 | P1，功能实现首先推进 |
 | A3 字体、文本与提取 | 已有 TrueType 子集/轮廓、CID FontFile2 与部分文字操作；Composer 部分能力不能当作 Source 通用支持 | 多字体、多段 Text、完整 text state/positioning；Encoding/CMap/ToUnicode；常见嵌入字体与标准字体；提取/搜索/选区几何 | P1 |
-| A4 图像与色彩 | 8-bit Gray/RGB 支持 RAW/Flate、顺序与渐进式 JPEG、部分 predictors 和仿射采样。插值增量见上文 | 扫描图像、更多位深/Decode/色彩空间、inline image、image mask/SMask | P1 |
+| A4 图像与色彩 | 不透明 Gray/RGB 支持仿射和插值，顺序与渐进式 JPEG 已验收。RAW/Flate 多位深与 Decode 增量见上文 | Indexed、CMYK、扫描图像、其他色彩空间、inline image、image mask/SMask | P1 |
 | A5 Form、透明度与外观 | 部分 writer/Composer 数据结构已存在；native 整页解释/渲染覆盖不足 | 嵌套 Form、Resources/BBox/Matrix；alpha/blend/group/soft mask；pattern/shading；annotation/widget appearance | P1 |
 | A6 文档操作、编辑与生成 | 打开、页面操作、编辑、导出、Composer、安全观察等已有实现，完整回归未纳入当前门禁 | 以当前 API 接通并验证 open/read/edit/export/merge/compose；修正文档树与 writer 语义；简化失败编辑；保证生成文件的实际行为 | P1 |
 | A7 Beta 测试、文档与交付 | 当前 native CI 全绿；旧验收文档过时，CI 没有 SDK 发布产物 | 当前功能矩阵、已有 SDK 回归迁移、真实文档集合、发布包/清单/许可/校验和、对应平台运行结果 | P0，与功能并行 |

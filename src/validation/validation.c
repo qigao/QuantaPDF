@@ -173,7 +173,7 @@ quantapdf_status quantapdf_validate_ir(
         VALUE(v->data != NULL && v->size != 0 && v->width != 0 && v->height != 0 &&
             (v->components == 1 || v->components == 3) &&
             v->format >= QUANTAPDF_COMPOSER_IMAGE_FORMAT_JPEG &&
-            v->format <= QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW &&
+            v->format <= QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16 &&
             (v->has_alpha == 0 || v->has_alpha == 1) &&
             v->alpha_size <= SIZE_MAX - v->size &&
             (v->has_alpha ? v->alpha_data != NULL && v->alpha_size != 0 : v->alpha_size == 0),

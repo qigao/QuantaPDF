@@ -133,14 +133,17 @@ static inline int qp_prepared_resource_closure(
         const quantapdf_composer_image_state *image=&r->images[i];
         size_t pixels,bytes;
         if(image->width==0u || image->height==0u || image->data==NULL ||
-           image->format!=QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW ||
+           (image->format!=QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW &&
+            image->format!=QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16) ||
            (image->components!=1 && image->components!=3) ||
            (image->has_alpha!=0 && image->has_alpha!=1) ||
            (size_t)image->width>SIZE_MAX/(size_t)image->height)
             return 0;
         pixels=(size_t)image->width*(size_t)image->height;
-        if(pixels>SIZE_MAX/(size_t)image->components)return 0;
-        bytes=pixels*(size_t)image->components;
+        const size_t pixel_bytes=(size_t)image->components*
+            (image->format==QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16?2u:1u);
+        if(pixels>SIZE_MAX/pixel_bytes)return 0;
+        bytes=pixels*pixel_bytes;
         if(image->size!=bytes ||
            (image->has_alpha ?
              (image->alpha_data==NULL || image->alpha_size!=pixels) :

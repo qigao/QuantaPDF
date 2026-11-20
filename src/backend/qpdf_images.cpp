@@ -14,6 +14,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -22,6 +23,8 @@ constexpr size_t max_content_bytes = 8u * 1024u * 1024u;
 constexpr size_t max_pixel_bytes = 64u * 1024u * 1024u;
 constexpr size_t max_occurrences = 4096u;
 using failure = quantapdf::detail::image_stream_error;
+using quantapdf::detail::image_samples;
+using quantapdf::detail::qpdf_read_image_samples;
 using quantapdf::detail::qpdf_read_stream;
 void require(bool ok, quantapdf_status status = QUANTAPDF_ERROR_FORMAT)
 {
@@ -57,48 +60,29 @@ matrix read_matrix(Obj value)
     for (int i = 0; i < 6; ++i) result[static_cast<size_t>(i)] = number(value.getArrayItem(i));
     return result;
 }
-size_t dimension(Obj value)
-{
-    require(value.isInteger());
-    long long n = value.getIntValue();
-    require(n > 0);
-    require(n <= INT_MAX, QUANTAPDF_ERROR_UNSUPPORTED);
-    return static_cast<size_t>(n);
-}
-
-struct samples {
-    size_t width = 0, height = 0, row = 0;
-    unsigned bits = 0, channels = 0;
-    bool indexed = false;
+struct image_colors {
+    image_samples samples;
     unsigned high = 0, palette_channels = 0;
-    std::vector<unsigned char> bytes, palette;
-    std::vector<double> decode;
-    unsigned raw(size_t x, size_t y, unsigned channel) const
-    {
-        size_t bit = (x * channels + channel) * bits;
-        size_t byte = y * row + bit / 8u;
-        if (bits == 16) return static_cast<unsigned>(bytes[byte]) * 256u + bytes[byte+1u];
-        return (static_cast<unsigned>(bytes[byte]) >> (8u - bits - bit % 8u)) & ((1u << bits)-1u);
-    }
-    unsigned char value(size_t x, size_t y, unsigned channel) const
-    {
-        double max = static_cast<double>((1u << bits)-1u);
-        double t = raw(x,y,channel) / max;
-        double v = decode[channel*2u]*(1.0-t) + decode[channel*2u+1u]*t;
-        return static_cast<unsigned char>(std::clamp(v, 0.0, 1.0) * 255.0 + 0.5);
-    }
+    std::vector<unsigned char> palette;
+
+    bool indexed() const { return palette_channels != 0u; }
+
     std::array<unsigned char, 3> rgb(size_t x, size_t y) const
     {
-        if (indexed) {
-            double max = static_cast<double>((1u << bits)-1u);
-            double t = raw(x,y,0) / max;
-            double v = decode[0]*(1.0-t) + decode[1]*t;
-            size_t i = static_cast<size_t>(std::clamp(v + 0.5, 0.0, static_cast<double>(high)));
-            if (palette_channels == 1) return {palette[i], palette[i], palette[i]};
-            return {palette[i*3u], palette[i*3u+1u], palette[i*3u+2u]};
+        if (indexed()) {
+            const double index = samples.decoded(x, y, 0u);
+            const size_t i = static_cast<size_t>(std::clamp(index + 0.5, 0.0, static_cast<double>(high)));
+            if (palette_channels == 1u) return {palette[i], palette[i], palette[i]};
+            return {palette[i * 3u], palette[i * 3u + 1u], palette[i * 3u + 2u]};
         }
-        if (channels == 1) { auto gray = value(x,y,0); return {gray,gray,gray}; }
-        return {value(x,y,0), value(x,y,1), value(x,y,2)};
+        const auto channel = [&](unsigned c) {
+            return static_cast<unsigned char>(samples.value(x, y, c, 255u));
+        };
+        if (samples.channels == 1u) {
+            const auto gray = channel(0u);
+            return {gray, gray, gray};
+        }
+        return {channel(0u), channel(1u), channel(2u)};
     }
 };
 
@@ -117,24 +101,15 @@ Obj color_space(Obj value, Obj resources)
     return value;
 }
 
-samples image_samples(Obj image, Obj resources)
+image_colors read_image_colors(Obj image, Obj resources, size_t pixel_limit)
 {
     Obj dict = image.getDict();
     Obj stencil = dict.getKey("/ImageMask");
     require(stencil.isNull() || stencil.isBool());
     require(stencil.isNull() || !stencil.getBoolValue(), QUANTAPDF_ERROR_UNSUPPORTED);
-    samples result;
-    result.width = dimension(dict.getKey("/Width"));
-    result.height = dimension(dict.getKey("/Height"));
-    require(result.width <= max_pixel_bytes / 4u &&
-        result.height <= max_pixel_bytes / 4u / result.width, QUANTAPDF_ERROR_UNSUPPORTED);
-    Obj bits = dict.getKey("/BitsPerComponent");
-    require(bits.isInteger());
-    long long bpc = bits.getIntValue();
-    require(bpc == 1 || bpc == 2 || bpc == 4 || bpc == 8 || bpc == 16,
-        QUANTAPDF_ERROR_UNSUPPORTED);
-    result.bits = static_cast<unsigned>(bpc);
+    image_colors result;
     Obj space = color_space(dict.getKey("/ColorSpace"), resources);
+    unsigned channels;
     if (space.isArray()) {
         require(space.getArrayNItems() == 4 && space.getArrayItem(0).isName() &&
             space.getArrayItem(0).getName() == "/Indexed", QUANTAPDF_ERROR_UNSUPPORTED);
@@ -143,48 +118,25 @@ samples image_samples(Obj image, Obj resources)
             base.getName() == "/DeviceGray"), QUANTAPDF_ERROR_UNSUPPORTED);
         Obj high = space.getArrayItem(2);
         require(high.isInteger() && high.getIntValue() >= 0 && high.getIntValue() <= 255);
-        result.indexed = true;
         result.high = static_cast<unsigned>(high.getIntValue());
         result.palette_channels = base.getName() == "/DeviceRGB" ? 3u : 1u;
-        size_t length = (static_cast<size_t>(result.high)+1u) * result.palette_channels;
+        const size_t length = (static_cast<size_t>(result.high) + 1u) * result.palette_channels;
         Obj lookup = space.getArrayItem(3);
         if (lookup.isString()) {
-            std::string data = lookup.getStringValue();
+            const std::string data = lookup.getStringValue();
             require(data.size() == length);
             result.palette.assign(data.begin(), data.end());
         } else {
             result.palette = qpdf_read_stream(lookup, length, qpdf_dl_specialized);
         }
         require(result.palette.size() == length);
-        result.channels = 1;
+        channels = 1u;
     } else {
         require(space.isName() && (space.getName() == "/DeviceGray" ||
             space.getName() == "/DeviceRGB"), QUANTAPDF_ERROR_UNSUPPORTED);
-        result.channels = space.getName() == "/DeviceGray" ? 1u : 3u;
+        channels = space.getName() == "/DeviceGray" ? 1u : 3u;
     }
-    require(result.width <= max_pixel_bytes / (result.channels * result.bits),
-        QUANTAPDF_ERROR_UNSUPPORTED);
-    result.row = (result.width * result.channels * result.bits + 7u) / 8u;
-    require(result.height <= max_pixel_bytes / result.row, QUANTAPDF_ERROR_UNSUPPORTED);
-    size_t expected = result.row * result.height;
-    for (unsigned i = 0; i < result.channels; ++i) {
-        result.decode.push_back(0);
-        result.decode.push_back(result.indexed ? static_cast<double>((1u<<result.bits)-1u) : 1.0);
-    }
-    Obj decode = dict.getKey("/Decode");
-    if (!decode.isNull()) {
-        require(decode.isArray() && decode.getArrayNItems() == static_cast<int>(result.channels*2u));
-        for (unsigned i = 0; i < result.channels*2u; ++i) result.decode[i] = number(decode.getArrayItem(static_cast<int>(i)));
-    }
-    if (quantapdf::detail::qpdf_has_dct_filter(dict.getKey("/Filter"))) {
-        require(result.bits == 8 && !result.indexed);
-        result.bytes = quantapdf::detail::qpdf_decode_dct_image(image,
-            {static_cast<uint32_t>(result.width), static_cast<uint32_t>(result.height),
-                static_cast<int>(result.channels)});
-    } else {
-        result.bytes = qpdf_read_stream(image, expected, qpdf_dl_specialized);
-    }
-    require(result.bytes.size() == expected);
+    result.samples = qpdf_read_image_samples(image, channels, result.indexed(), pixel_limit);
     return result;
 }
 
@@ -195,31 +147,25 @@ struct image_value {
 
 image_value decode_image(Obj image, Obj resources, budget& limits, double opacity)
 {
-    size_t width = dimension(image.getDict().getKey("/Width"));
-    size_t height = dimension(image.getDict().getKey("/Height"));
-    require(width <= (max_pixel_bytes - limits.pixels) / 4u &&
-        height <= (max_pixel_bytes - limits.pixels) / 4u / width,
-        QUANTAPDF_ERROR_UNSUPPORTED);
-    samples source = image_samples(image, resources);
-    require(source.width <= max_pixel_bytes / 4u &&
-        source.height <= max_pixel_bytes / 4u / source.width, QUANTAPDF_ERROR_UNSUPPORTED);
-    size_t count = source.width * source.height;
-    require(count * 4u <= max_pixel_bytes - limits.pixels, QUANTAPDF_ERROR_UNSUPPORTED);
+    const auto colors = read_image_colors(image, resources, (max_pixel_bytes - limits.pixels) / 4u);
+    const auto& source = colors.samples;
+    const size_t count = static_cast<size_t>(source.width) * source.height;
     Obj dict = image.getDict();
     Obj soft = dict.getKey("/SMask"), mask = dict.getKey("/Mask");
     require(soft.isNull() || mask.isNull());
-    samples alpha;
+    image_samples alpha;
     bool soft_mask = !soft.isNull() && !(soft.isName() && soft.getName() == "/None");
     std::vector<double> matte;
     if (soft_mask) {
         require(soft.isStream());
         require(soft.getDict().getKey("/SMask").isNull() &&
             soft.getDict().getKey("/Mask").isNull(), QUANTAPDF_ERROR_UNSUPPORTED);
-        alpha = image_samples(soft, resources);
-        require(alpha.channels == 1 && !alpha.indexed);
+        auto mask_colors = read_image_colors(soft, resources, max_pixel_bytes / 4u);
+        require(mask_colors.samples.channels == 1u && !mask_colors.indexed());
+        alpha = std::move(mask_colors.samples);
         Obj value = soft.getDict().getKey("/Matte");
         if (!value.isNull()) {
-            require(!source.indexed && value.isArray() &&
+            require(!colors.indexed() && value.isArray() &&
                 value.getArrayNItems() == static_cast<int>(source.channels));
             for (unsigned c = 0; c < source.channels; ++c)
                 matte.push_back(number(value.getArrayItem(static_cast<int>(c))));
@@ -243,10 +189,10 @@ image_value decode_image(Obj image, Obj resources, budget& limits, double opacit
     bool has_alpha = false;
     for (size_t y = 0; y < source.height; ++y) {
         for (size_t x = 0; x < source.width; ++x) {
-            auto rgb = source.rgb(x, y);
+            const auto rgb = colors.rgb(x, y);
             unsigned a = soft_mask ? alpha.value(
                 static_cast<size_t>(static_cast<uint64_t>(x)*alpha.width/source.width),
-                static_cast<size_t>(static_cast<uint64_t>(y)*alpha.height/source.height), 0) : 255u;
+                static_cast<size_t>(static_cast<uint64_t>(y)*alpha.height/source.height), 0u, 255u) : 255u;
             if (!color_key.empty()) {
                 bool transparent = true;
                 for (unsigned c = 0; c < source.channels; ++c) {
@@ -281,7 +227,7 @@ image_value decode_image(Obj image, Obj resources, budget& limits, double opacit
     require(source.width <= static_cast<size_t>(INT_MAX)/channels, QUANTAPDF_ERROR_UNSUPPORTED);
     result.info.pixel_stride = static_cast<int>(source.width * channels);
     result.info.pixel_components = static_cast<int>(channels);
-    result.info.components = source.indexed ? 3 : static_cast<int>(source.channels);
+    result.info.components = colors.indexed() ? 3 : static_cast<int>(source.channels);
     result.info.bits_per_component = static_cast<int>(source.bits);
     result.info.has_alpha = has_alpha ? 1 : 0;
     result.info.pixel_size = result.pixels.size();

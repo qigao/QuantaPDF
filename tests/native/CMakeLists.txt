@@ -166,6 +166,10 @@ add_test(NAME quantapdf.native_image_interpolation
   COMMAND quantapdf_native_public_render --image-interpolation)
 set_tests_properties(quantapdf.native_image_interpolation PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;public-api;image")
+add_test(NAME quantapdf.native_image_depth
+  COMMAND quantapdf_native_public_render --image-depth)
+set_tests_properties(quantapdf.native_image_depth PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;public-api;image")
 add_test(NAME quantapdf.native_ordered_scene
   COMMAND quantapdf_native_public_render --ordered-scene)
 set_tests_properties(quantapdf.native_ordered_scene PROPERTIES
@@ -401,6 +405,10 @@ add_test(NAME quantapdf.native_jpeg_images_oom
   COMMAND quantapdf_native_source_stage_oom --jpeg-images)
 set_tests_properties(quantapdf.native_jpeg_images_oom PROPERTIES
   TIMEOUT 40 LABELS "conformance;native;source-staging;jpeg;oom")
+add_test(NAME quantapdf.native_image_depth_oom
+  COMMAND quantapdf_native_source_stage_oom --image-depth)
+set_tests_properties(quantapdf.native_image_depth_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;source-staging;image;oom")
 add_test(NAME quantapdf.native_ordered_scene_oom
   COMMAND quantapdf_native_source_stage_oom --ordered-scene)
 set_tests_properties(quantapdf.native_ordered_scene_oom PROPERTIES
