@@ -158,6 +158,10 @@ foreach(kind IN ITEMS clip-graphs clip-graphs-curves clip-graphs-storage clip-gr
   set_tests_properties(quantapdf.native_${kind} PROPERTIES
     TIMEOUT 45 LABELS "conformance;native;public-api;clip-graph")
 endforeach()
+add_test(NAME quantapdf.native_jpeg_images
+  COMMAND quantapdf_native_public_render --jpeg-images)
+set_tests_properties(quantapdf.native_jpeg_images PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;public-api;jpeg")
 add_test(NAME quantapdf.native_ordered_scene
   COMMAND quantapdf_native_public_render --ordered-scene)
 set_tests_properties(quantapdf.native_ordered_scene PROPERTIES
@@ -274,6 +278,8 @@ set_tests_properties(quantapdf.native_userunit_oom PROPERTIES
 # as test-linked objects, exactly like the existing native Clip tests.
 add_executable(quantapdf_native_source_stage_oom
   test_native_source_stage_oom.cpp
+  "${PROJECT_SOURCE_DIR}/src/backend/jpeg_validator.c"
+  "${PROJECT_SOURCE_DIR}/src/backend/qpdf_image_stream.cpp"
   "${PROJECT_SOURCE_DIR}/src/backend/qpdf_page_ir.cpp"
   "${PROJECT_SOURCE_DIR}/src/backend/qpdf_source_text.cpp"
   "${PROJECT_SOURCE_DIR}/src/ir/ir.c"
@@ -284,7 +290,7 @@ add_executable(quantapdf_native_source_stage_oom
   "${PROJECT_SOURCE_DIR}/src/render/ir_raster.c"
   "${PROJECT_SOURCE_DIR}/src/render/native_device_plan.c")
 target_compile_definitions(quantapdf_native_source_stage_oom PRIVATE
-  QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST=1)
+  QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST=1 QUANTAPDF_TESTING=1)
 target_include_directories(quantapdf_native_source_stage_oom PRIVATE
   "${PROJECT_SOURCE_DIR}/src" "${PROJECT_SOURCE_DIR}/include")
 target_compile_features(quantapdf_native_source_stage_oom PRIVATE
@@ -387,6 +393,10 @@ add_test(NAME quantapdf.native_fractional_dpi_oom
   COMMAND quantapdf_native_source_stage_oom --fractional-dpi)
 set_tests_properties(quantapdf.native_fractional_dpi_oom PROPERTIES
   TIMEOUT 40 LABELS "conformance;native;source-staging;fractional-dpi;oom")
+add_test(NAME quantapdf.native_jpeg_images_oom
+  COMMAND quantapdf_native_source_stage_oom --jpeg-images)
+set_tests_properties(quantapdf.native_jpeg_images_oom PROPERTIES
+  TIMEOUT 40 LABELS "conformance;native;source-staging;jpeg;oom")
 add_test(NAME quantapdf.native_ordered_scene_oom
   COMMAND quantapdf_native_source_stage_oom --ordered-scene)
 set_tests_properties(quantapdf.native_ordered_scene_oom PROPERTIES

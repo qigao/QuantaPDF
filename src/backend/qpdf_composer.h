@@ -35,12 +35,18 @@ quantapdf_status quantapdf_jpeg_validate(
     uint32_t *out_height,
     int *out_components);
 
-/* Detached malloc-owned Gray/RGB samples. PDF DCT ColorTransform is -1
- * (JPEG metadata), 0 (no transform), or 1 (YCbCr -> RGB). */
+typedef struct quantapdf_jpeg_layout {
+    uint32_t width, height;
+    int components;
+} quantapdf_jpeg_layout;
+
+/* Decode a PDF image into a private width*height*components byte buffer.
+ * The JPEG header must match layout before scanline decoding starts.
+ * ColorTransform is -1 (PDF default), 0 (none), or 1 (YCbCr to RGB).
+ * An Adobe APP14 marker takes precedence. Discard the buffer on failure. */
 quantapdf_status quantapdf_jpeg_decode(
     const unsigned char *data, size_t size, size_t max_working_bytes,
-    int color_transform, unsigned char **out_pixels,
-    uint32_t *out_width, uint32_t *out_height, int *out_components);
+    int color_transform, quantapdf_jpeg_layout layout, unsigned char *pixels);
 
 #if defined(QUANTAPDF_TESTING)
 #if defined(__GNUC__)

@@ -196,8 +196,8 @@ void jpeg_images()
         image.getDict().replaceKey("/DecodeParms",parms);
         f.objects.replaceKey("/I",image); f.content("/I Do");
         auto images = f.extract();
-        if (transform == 0) pixels(images,0,{255,0,0,0,0,255},2,3,2);
-        else pixels(images,0,{76,255,28,178,0,0},2,3,2);
+        // The RGB encoder writes APP14 transform 0, which controls PDF DCT decode.
+        pixels(images,0,{255,0,0,0,0,255},2,3,2);
         quantapdf_drop_image_page(images);
     }
 }

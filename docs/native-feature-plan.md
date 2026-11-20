@@ -710,6 +710,20 @@
   像素/边/操作/内存/采样预算不变。本地仅静态和离线参考核对，未编译或运行 Native。
 - 通用 Stroke、ROI/RGBA、透明/插值图像、其余解码与字体能力继续开放；A2/A4 不勾选。
 
+### A4 普通 JPEG 图像
+
+- 在 #625 `772b2079` 与 [Native CI #2488](https://github.com/qigao/QuantaPDF/actions/runs/42144942470)
+  四配置各 148/148 的基础上，开放 8-bit sequential DCTDecode DeviceGray/DeviceRGB XObject。
+  qpdf 读取已打开文档的图像流和无损前置滤镜，现有 libjpeg 解码为 Scene 使用的同一种 RAW 样本。
+  页面渲染和独立图像提取共用 DCT 解码。C11 负责仿射 placement、Clip、采样和混合。
+- JPEG 头的宽、高和通道数在解码扫描行前核对。PDF 的 APP14、ColorTransform 和三通道缺省转换
+  按 ISO 32000-1 表 13 处理，现有 Decode 反转应用于解码后的样本。编解码错误、资源预算和
+  分配失败分别传播，整页渲染或提取完成后才交付 Bitmap。
+- 两项 CTest 复用公开渲染和 Source/OOM 目标。定值 DCT 块提供独立像素参考，覆盖 84 次完整页面
+  RGB、42 次完整提取 RGB、6 种错误、三种滤镜封装、AES-256、仿射/有序混合页、小数 DPI、
+  三次 detached Source RGBA、精确源像素预算，以及 libjpeg、样本分配、IR 发布与 C11 OOM。
+- Progressive JPEG、CMYK、图像掩罩和插值仍有开放项。
+
 ## 单一执行模型
 
 ```mermaid

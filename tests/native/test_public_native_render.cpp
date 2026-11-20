@@ -4162,6 +4162,7 @@ static int native_seventh_userunit_late_refusal_cases(
 #include "native_page_text_cases.h"
 #include "native_decimal_page_cases.h"
 #include "native_fractional_dpi_cases.h"
+#include "native_jpeg_cases.h"
 #include "native_ttf_graph_cases.h"
 #include "native_composer_state_cases.h"
 #include "native_composer_geometry_cases.h"
@@ -4214,6 +4215,7 @@ int main(int argc,char **argv)
     if(argc==2 && std::strcmp(argv[1],"--fractional-dpi-image")==0)return clip_graph_cases(filename,16u);
     if(argc==2 && std::strcmp(argv[1],"--fractional-dpi-boundaries")==0)return fractional_dpi_boundary_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--fractional-dpi-curves")==0)return fractional_dpi_curve_cases(filename);
+    if(argc==2 && std::strcmp(argv[1],"--jpeg-images")==0)return native_jpeg_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--fractional-clip")==0)
         return path_commands_cases(filename,true,12u);
     if(argc==2 && std::strcmp(argv[1],"--text-paths")==0)

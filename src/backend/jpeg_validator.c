@@ -19,7 +19,6 @@ typedef struct quantapdf_jpeg_error_context {
     struct jpeg_error_mgr manager;
     jmp_buf jump;
     unsigned char *scanline;
-    unsigned char *pixels;
     quantapdf_status status;
     int destroyable;
 } quantapdf_jpeg_error_context;
@@ -70,10 +69,9 @@ static quantapdf_status quantapdf_jpeg_read(
     size_t size,
     size_t max_working_bytes,
     int color_transform,
-    unsigned char **out_pixels,
-    uint32_t *out_width,
-    uint32_t *out_height,
-    int *out_components)
+    const quantapdf_jpeg_layout *expected,
+    unsigned char *pixels,
+    quantapdf_jpeg_layout *actual)
 {
     struct jpeg_decompress_struct *decoder = NULL;
     quantapdf_jpeg_error_context *errors = NULL;
@@ -81,15 +79,6 @@ static quantapdf_status quantapdf_jpeg_read(
     size_t row_size = 0u;
     size_t decoded_size = 0u;
 
-    if (out_width == NULL || out_height == NULL || out_components == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    *out_width = 0u;
-    *out_height = 0u;
-    *out_components = 0;
-    if (out_pixels != NULL)
-        *out_pixels = NULL;
-    if (color_transform < -1 || color_transform > 1)
-        return QUANTAPDF_ERROR_ARGUMENT;
     if (data == NULL || size == 0u)
         return QUANTAPDF_ERROR_ARGUMENT;
     if (size > (size_t)ULONG_MAX)
@@ -125,10 +114,22 @@ static quantapdf_status quantapdf_jpeg_read(
 #endif
     jpeg_mem_src(decoder, data, (unsigned long)size);
     if (jpeg_read_header(decoder, TRUE) != JPEG_HEADER_OK ||
+        decoder->data_precision != 8 ||
         (decoder->num_components != 1 && decoder->num_components != 3))
         goto cleanup;
-    if (decoder->num_components == 3 && color_transform >= 0)
-        decoder->jpeg_color_space = color_transform == 0 ? JCS_RGB : JCS_YCbCr;
+    if (expected != NULL) {
+        if (decoder->image_width != expected->width ||
+            decoder->image_height != expected->height ||
+            decoder->num_components != expected->components)
+            goto cleanup;
+        if (expected->components == 3) {
+            const int transform = decoder->saw_Adobe_marker
+                ? decoder->Adobe_transform : (color_transform < 0 ? 1 : color_transform);
+            if (transform != 0 && transform != 1)
+                goto cleanup;
+            decoder->jpeg_color_space = transform == 0 ? JCS_RGB : JCS_YCbCr;
+        }
+    }
     decoder->out_color_space = decoder->num_components == 1
         ? JCS_GRAYSCALE
         : JCS_RGB;
@@ -143,31 +144,22 @@ static quantapdf_status quantapdf_jpeg_read(
         errors->status = QUANTAPDF_ERROR_UNSUPPORTED;
         goto cleanup;
     }
-    if (!jpeg_start_decompress(decoder) || decoder->output_width == 0u ||
-        decoder->output_height == 0u ||
-        (decoder->output_components != 1 && decoder->output_components != 3) ||
-        !quantapdf_size_multiply(
-            (size_t)decoder->output_width,
-            (size_t)decoder->output_components,
-            &row_size) ||
-        !quantapdf_size_multiply(
-            row_size, (size_t)decoder->output_height, &decoded_size) ||
-        size > max_working_bytes ||
-        decoded_size > max_working_bytes - size) {
-        errors->status = QUANTAPDF_ERROR_UNSUPPORTED;
+    if (!jpeg_start_decompress(decoder) ||
+        decoder->output_width != decoder->image_width ||
+        decoder->output_height != decoder->image_height ||
+        decoder->output_components != decoder->num_components)
         goto cleanup;
-    }
-    if (out_pixels != NULL)
-        errors->pixels = (unsigned char *)malloc(decoded_size);
-    else
+
+    if (pixels == NULL) {
         errors->scanline = (unsigned char *)malloc(row_size);
-    if (errors->scanline == NULL && errors->pixels == NULL) {
-        errors->status = QUANTAPDF_ERROR_NOMEM;
-        goto cleanup;
+        if (errors->scanline == NULL) {
+            errors->status = QUANTAPDF_ERROR_NOMEM;
+            goto cleanup;
+        }
     }
     while (decoder->output_scanline < decoder->output_height) {
-        JSAMPROW row = errors->pixels != NULL
-            ? errors->pixels + (size_t)decoder->output_scanline * row_size
+        JSAMPROW row = pixels != NULL
+            ? pixels + (size_t)decoder->output_scanline * row_size
             : errors->scanline;
         if (jpeg_read_scanlines(decoder, &row, 1u) != 1u)
             quantapdf_jpeg_fail((j_common_ptr)decoder);
@@ -175,20 +167,15 @@ static quantapdf_status quantapdf_jpeg_read(
     if (!jpeg_finish_decompress(decoder))
         quantapdf_jpeg_fail((j_common_ptr)decoder);
 
-    *out_width = (uint32_t)decoder->output_width;
-    *out_height = (uint32_t)decoder->output_height;
-    *out_components = decoder->output_components;
+    if (actual != NULL)
+        *actual = (quantapdf_jpeg_layout){decoder->output_width,
+            decoder->output_height, decoder->output_components};
     errors->status = QUANTAPDF_OK;
 
 cleanup:
     if (errors != NULL) {
         status = errors->status;
-        if (status == QUANTAPDF_OK && out_pixels != NULL) {
-            *out_pixels = errors->pixels;
-            errors->pixels = NULL;
-        }
         free(errors->scanline);
-        free(errors->pixels);
         if (errors->destroyable)
             jpeg_destroy_decompress(decoder);
     }
@@ -201,18 +188,21 @@ quantapdf_status quantapdf_jpeg_validate(
     const unsigned char *data, size_t size, size_t max_working_bytes,
     uint32_t *out_width, uint32_t *out_height, int *out_components)
 {
-    return quantapdf_jpeg_read(data, size, max_working_bytes, -1, NULL,
-        out_width, out_height, out_components);
+    if (out_width == NULL || out_height == NULL || out_components == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    quantapdf_jpeg_layout shape = {0};
+    const quantapdf_status status = quantapdf_jpeg_read(data, size,
+        max_working_bytes, -1, NULL, NULL, &shape);
+    *out_width = shape.width;
+    *out_height = shape.height;
+    *out_components = shape.components;
+    return status;
 }
 
 quantapdf_status quantapdf_jpeg_decode(
     const unsigned char *data, size_t size, size_t max_working_bytes,
-    int color_transform, unsigned char **out_pixels,
-    uint32_t *out_width, uint32_t *out_height, int *out_components)
+    int color_transform, quantapdf_jpeg_layout layout, unsigned char *pixels)
 {
-    if (out_pixels == NULL)
-        return QUANTAPDF_ERROR_ARGUMENT;
-    *out_pixels = NULL;
     return quantapdf_jpeg_read(data, size, max_working_bytes, color_transform,
-        out_pixels, out_width, out_height, out_components);
+        &layout, pixels, NULL);
 }

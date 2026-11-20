@@ -1,8 +1,8 @@
 #include "backend/qpdf_page_ir.h"
 #include "backend/qpdf_text.h"
 #include "backend/qpdf_document_internal.h"
+#include "backend/qpdf_image_stream.h"
 
-#include <qpdf/Pipeline.hh>
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFExc.hh>
 #include <qpdf/QPDFPageObjectHelper.hh>
@@ -150,32 +150,12 @@ size_t whole(double value, size_t max)
     return v;
 }
 
-class bounded_sink final : public Pipeline {
-public:
-    explicit bounded_sink(size_t limit) :
-        Pipeline("native image source limited decode", nullptr), capacity(limit) {}
-    void write(unsigned char const *source, size_t count) override
-    {
-        admit(count <= capacity - bytes.size(), QUANTAPDF_ERROR_UNSUPPORTED);
-        if (count != 0u) bytes.insert(bytes.end(),source,source+count);
-    }
-    void finish() override { complete = true; }
-    size_t capacity;
-    bool complete = false;
-    std::vector<unsigned char> bytes;
-};
-
 /* Image predictors are decoded by qpdf after their row/channel metadata is
  * checked here. Content stream filters are handled separately by qpdf. */
-std::vector<unsigned char> image_data(Obj stream, size_t limit,
-                                      size_t image_columns=0u,
-                                      int image_channels=0)
+std::vector<unsigned char> raw_image_samples(Obj stream, size_t size,
+    size_t image_columns, int image_channels)
 {
-    admit(stream.isStream());
     Obj dict = stream.getDict();
-    admit(dict.getKey("/F").isNull() &&
-          dict.getKey("/FFilter").isNull() &&
-          dict.getKey("/FDecodeParms").isNull(), QUANTAPDF_ERROR_UNSUPPORTED);
     Obj filter = dict.getKey("/Filter");
     const bool flate = filter.isName() &&
         filter.getName() == "/FlateDecode";
@@ -214,14 +194,10 @@ std::vector<unsigned char> image_data(Obj stream, size_t limit,
                   static_cast<size_t>(image_channels),
               QUANTAPDF_ERROR_UNSUPPORTED);
     }
-    auto level = flate ? qpdf_dl_specialized : qpdf_dl_none;
-    bounded_sink sink(limit);
-    bool filtered = false;
-    admit(stream.pipeStreamData(&sink,&filtered,0,level,true,false) &&
-          sink.complete && (filtered || !flate),
-          QUANTAPDF_ERROR_FORMAT);
-    admit(!sink.bytes.empty());
-    return std::move(sink.bytes);
+    const auto level = flate ? qpdf_dl_specialized : qpdf_dl_none;
+    auto bytes = quantapdf::detail::qpdf_read_stream(stream, size, level);
+    admit(bytes.size() == size);
+    return bytes;
 }
 
 using matrix = std::array<double,6>;
@@ -526,9 +502,10 @@ struct admission {
               QUANTAPDF_ERROR_UNSUPPORTED);
         admit(pixels<=SIZE_MAX/(size_t)channels,QUANTAPDF_ERROR_UNSUPPORTED);
         const size_t size=pixels*(size_t)channels;
-        auto decoded=image_data(
-            image,size,w,channels);
-        admit(decoded.size()==size);
+        auto decoded = quantapdf::detail::qpdf_has_dct_filter(dict.getKey("/Filter"))
+            ? quantapdf::detail::qpdf_decode_dct_image(image,
+                {static_cast<uint32_t>(w), static_cast<uint32_t>(h), channels})
+            : raw_image_samples(image, size, w, channels);
         /* Only after full Decode admission and bounded stream decode
          * normalize the original color samples to owned RAW bytes.
          * A fully identity /Decode is zero-copy/zero-work here; otherwise
@@ -2725,6 +2702,7 @@ static quantapdf_status source_page_to_ir_impl(
             materialize_clipped_path_only(source);
         return QUANTAPDF_OK;
     } catch(rejected const& e) {return e.status;}
+      catch(quantapdf::detail::image_stream_error const& e) {return e.status;}
       catch(std::bad_alloc const&) {return QUANTAPDF_ERROR_NOMEM;}
       catch(std::length_error const&) {return QUANTAPDF_ERROR_UNSUPPORTED;}
       catch(QPDFExc const& e) {return quantapdf_status_from_qpdf(e);}

@@ -1,8 +1,7 @@
 #include "qpdf_document_internal.h"
-#include "qpdf_composer.h"
+#include "qpdf_image_stream.h"
 #include "snapshot/image_snapshot.h"
 
-#include <qpdf/Pipeline.hh>
 #include <qpdf/QPDFExc.hh>
 #include <algorithm>
 #include <array>
@@ -22,95 +21,11 @@ using Obj = QPDFObjectHandle;
 constexpr size_t max_content_bytes = 8u * 1024u * 1024u;
 constexpr size_t max_pixel_bytes = 64u * 1024u * 1024u;
 constexpr size_t max_occurrences = 4096u;
-struct failure { quantapdf_status status; };
+using failure = quantapdf::detail::image_stream_error;
+using quantapdf::detail::qpdf_read_stream;
 void require(bool ok, quantapdf_status status = QUANTAPDF_ERROR_FORMAT)
 {
     if (!ok) throw failure{status};
-}
-
-/* Streaming capacity is checked before accepting decoder output. Unsupported
- * filters never result in treating compressed bytes as image samples. */
-class sink final : public Pipeline {
-public:
-    explicit sink(size_t capacity) : Pipeline("native image projection", nullptr), limit(capacity) {}
-    void write(unsigned char const *data, size_t count) override
-    {
-        require(count <= limit - bytes.size(), QUANTAPDF_ERROR_UNSUPPORTED);
-        if (count != 0) bytes.insert(bytes.end(), data, data + count);
-    }
-    void finish() override { finished = true; }
-    size_t limit;
-    bool finished = false;
-    std::vector<unsigned char> bytes;
-};
-
-std::vector<unsigned char> decode_stream(Obj stream, size_t limit,
-    qpdf_stream_decode_level_e level)
-{
-    require(stream.isStream());
-    Obj dict = stream.getDict();
-    require(dict.getKey("/F").isNull() && dict.getKey("/FFilter").isNull() &&
-        dict.getKey("/FDecodeParms").isNull(), QUANTAPDF_ERROR_UNSUPPORTED);
-    Obj filter = dict.getKey("/Filter");
-    require(filter.isNull() || filter.isName() || filter.isArray());
-    auto crypt = [](Obj value) { return value.isName() && value.getName() == "/Crypt"; };
-    require(!crypt(filter), QUANTAPDF_ERROR_UNSUPPORTED);
-    if (filter.isArray()) {
-        require(filter.getArrayNItems() <= 16, QUANTAPDF_ERROR_UNSUPPORTED);
-        for (int i = 0; i < filter.getArrayNItems(); ++i)
-            require(!crypt(filter.getArrayItem(i)), QUANTAPDF_ERROR_UNSUPPORTED);
-    }
-    if (level != qpdf_dl_none)
-        require(stream.pipeStreamData(nullptr, nullptr, 0, level, true, true),
-            QUANTAPDF_ERROR_UNSUPPORTED);
-    sink output(limit);
-    bool filtered = false;
-    require(stream.pipeStreamData(&output, &filtered, 0, level, true, true) &&
-        (filtered || level == qpdf_dl_none) && output.finished);
-    return std::move(output.bytes);
-}
-
-struct jpeg_input { std::vector<unsigned char> bytes; int color_transform = -1; };
-jpeg_input jpeg_source(Obj image)
-{
-    Obj dict = image.getDict(), filter = dict.getKey("/Filter");
-    std::vector<Obj> filters, parms;
-    if (filter.isName()) filters.push_back(filter);
-    else {
-        require(filter.isArray());
-        for (int i = 0; i < filter.getArrayNItems(); ++i) filters.push_back(filter.getArrayItem(i));
-    }
-    require(!filters.empty() && filters.back().isName() &&
-        (filters.back().getName() == "/DCTDecode" || filters.back().getName() == "/DCT"),
-        QUANTAPDF_ERROR_UNSUPPORTED);
-    Obj parameters = dict.getKey("/DecodeParms");
-    if (parameters.isArray()) {
-        require(parameters.getArrayNItems() == static_cast<int>(filters.size()));
-        for (int i = 0; i < parameters.getArrayNItems(); ++i) parms.push_back(parameters.getArrayItem(i));
-    } else {
-        require(parameters.isNull() || filters.size() == 1u);
-        parms.resize(filters.size(), Obj::newNull()); parms.back() = parameters;
-    }
-    jpeg_input result;
-    if (!parms.back().isNull()) {
-        require(parms.back().isDictionary());
-        for (auto const& key : parms.back().getKeys())
-            require(key == "/ColorTransform", QUANTAPDF_ERROR_UNSUPPORTED);
-        Obj transform = parms.back().getKey("/ColorTransform");
-        if (!transform.isNull()) {
-            require(transform.isInteger() && (transform.getIntValue() == 0 || transform.getIntValue() == 1));
-            result.color_transform = static_cast<int>(transform.getIntValue());
-        }
-    }
-    filters.pop_back(); parms.pop_back();
-    auto raw = decode_stream(image, max_pixel_bytes, qpdf_dl_none);
-    if (filters.empty()) { result.bytes = std::move(raw); return result; }
-    QPDF wrapper; wrapper.emptyPDF();
-    Obj stream = wrapper.newStream(std::string(raw.begin(), raw.end()));
-    stream.getDict().replaceKey("/Filter", Obj::newArray(filters));
-    stream.getDict().replaceKey("/DecodeParms", Obj::newArray(parms));
-    result.bytes = decode_stream(stream, max_pixel_bytes, qpdf_dl_specialized);
-    return result;
 }
 
 struct budget {
@@ -238,7 +153,7 @@ samples image_samples(Obj image, Obj resources)
             require(data.size() == length);
             result.palette.assign(data.begin(), data.end());
         } else {
-            result.palette = decode_stream(lookup, length, qpdf_dl_specialized);
+            result.palette = qpdf_read_stream(lookup, length, qpdf_dl_specialized);
         }
         require(result.palette.size() == length);
         result.channels = 1;
@@ -261,32 +176,13 @@ samples image_samples(Obj image, Obj resources)
         require(decode.isArray() && decode.getArrayNItems() == static_cast<int>(result.channels*2u));
         for (unsigned i = 0; i < result.channels*2u; ++i) result.decode[i] = number(decode.getArrayItem(static_cast<int>(i)));
     }
-    Obj filter = dict.getKey("/Filter");
-    bool dct = filter.isName() && (filter.getName() == "/DCTDecode" || filter.getName() == "/DCT");
-    if (filter.isArray()) {
-        require(filter.getArrayNItems() <= 16, QUANTAPDF_ERROR_UNSUPPORTED);
-        for (int i = 0; i < filter.getArrayNItems(); ++i)
-            if (filter.getArrayItem(i).isName() && (filter.getArrayItem(i).getName() == "/DCTDecode" ||
-                filter.getArrayItem(i).getName() == "/DCT"))
-                dct = true;
-    }
-    if (dct) {
-        /* Decode lossless wrappers first, then preflight the JPEG itself before
-         * its decoder can allocate from independent JPEG header dimensions. */
-        auto jpeg = jpeg_source(image);
-        require(!jpeg.bytes.empty());
-        uint32_t width = 0, height = 0;
-        int channels = 0;
-        unsigned char *data = nullptr;
-        auto status = quantapdf_jpeg_decode(jpeg.bytes.data(), jpeg.bytes.size(),
-            max_pixel_bytes, jpeg.color_transform, &data, &width, &height, &channels);
-        std::unique_ptr<unsigned char, decltype(&std::free)> decoded(data, std::free);
-        require(status == QUANTAPDF_OK, status);
-        require(result.bits == 8 && !result.indexed && width == result.width &&
-            height == result.height && channels == static_cast<int>(result.channels));
-        result.bytes.assign(data, data + expected);
+    if (quantapdf::detail::qpdf_has_dct_filter(dict.getKey("/Filter"))) {
+        require(result.bits == 8 && !result.indexed);
+        result.bytes = quantapdf::detail::qpdf_decode_dct_image(image,
+            {static_cast<uint32_t>(result.width), static_cast<uint32_t>(result.height),
+                static_cast<int>(result.channels)});
     } else {
-        result.bytes = decode_stream(image, expected, qpdf_dl_specialized);
+        result.bytes = qpdf_read_stream(image, expected, qpdf_dl_specialized);
     }
     require(result.bytes.size() == expected);
     return result;
@@ -524,7 +420,7 @@ void projection::content(Obj streams, Obj resources, image_graphics const& initi
     auto append = [&](Obj stream) {
         limits.step();
         require(limits.content < max_content_bytes, QUANTAPDF_ERROR_UNSUPPORTED);
-        auto part = decode_stream(stream, max_content_bytes - limits.content - 1u, qpdf_dl_specialized);
+        auto part = qpdf_read_stream(stream, max_content_bytes - limits.content - 1u, qpdf_dl_specialized);
         limits.content += part.size()+1u;
         bytes.insert(bytes.end(), part.begin(), part.end()); bytes.push_back('\n');
     };
