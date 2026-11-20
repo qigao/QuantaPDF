@@ -765,6 +765,9 @@
 
 - 起点为 #625 `382e5a6`、[Native CI #2492](https://github.com/qigao/QuantaPDF/actions/runs/44762465606)
   四配置各 151/151。此增量以新 HEAD 的完整 CI 验收。
+- 首轮 `1df7c77` 的 [Native CI #2493](https://github.com/qigao/QuantaPDF/actions/runs/44770098029)
+  四配置均通过新像素用例，各通过 75 项后止于 Text／Image 的 Source/OOM 预算断言。
+  修正文字回调中共享解码错误的传播，保留原预算状态和独立像素参考。
 - Source 与独立提取共用样本布局、滤镜解码、predictor 元数据、逐行解包及 Decode。
   不透明 DeviceGray／DeviceRGB 的 RAW／Flate 支持 1、2、4、8、16 位。TIFF 与 PNG
   predictor 通过 qpdf 恢复，行尾填充与原始 16 位大端布局按实际行宽处理。

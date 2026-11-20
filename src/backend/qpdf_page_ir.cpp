@@ -556,6 +556,7 @@ quantapdf_status source_image_paint(void *user,Obj image,
         source.scoped_clip_membership.push_back(clip);
         return QUANTAPDF_OK;
     } catch(rejected const& e){return e.status;}
+      catch(quantapdf::detail::image_stream_error const& e){return e.status;}
       catch(std::bad_alloc const&){return QUANTAPDF_ERROR_NOMEM;}
       catch(std::length_error const&){return QUANTAPDF_ERROR_UNSUPPORTED;}
 }
